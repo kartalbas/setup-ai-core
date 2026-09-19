@@ -1,0 +1,49 @@
+{
+  "name": "setup-ai-core",
+  "description": "Agnostic AI coding agent harness: token savings, strict engineering discipline, and visual architecture",
+  "version": "1.0.0",
+  "skills": [
+    {
+      "id": "caveman",
+      "repo": "JuliusBrussee/caveman",
+      "category": "output-token-saver",
+      "description": "Ultra-compressed communication mode cutting output tokens by up to 70% while maintaining technical precision",
+      "installCommand": "npx skills add JuliusBrussee/caveman -g"
+    },
+    {
+      "id": "i-have-adhd",
+      "repo": "ayghri/i-have-adhd",
+      "category": "output-token-saver",
+      "description": "Action-first, preamble-free formatting skill. Removes throat-clearing, greetings, and filler text",
+      "installCommand": "npx skills add ayghri/i-have-adhd -g"
+    },
+    {
+      "id": "ponytail",
+      "repo": "dietrichgebert/ponytail",
+      "category": "code-quality",
+      "description": "Enforces YAGNI and the minimal solution that works. Prefers standard library, zero bloat, and minimal dependencies",
+      "installCommand": "npx skills add dietrichgebert/ponytail -g"
+    },
+    {
+      "id": "archify",
+      "repo": "tt-a1i/archify",
+      "category": "visualization",
+      "description": "Generates interactive HTML/SVG architecture diagrams, data flows, and sequence maps directly from codebases",
+      "installCommand": "npx skills add tt-a1i/archify -g"
+    }
+  ],
+  "tooling": [
+    {
+      "id": "skills-cli",
+      "repo": "mattpocock/skills",
+      "description": "Package manager for AI agent skills",
+      "npmPackage": "skills"
+    },
+    {
+      "id": "graft",
+      "repo": "trailhq/Graft",
+      "description": "Codebase graph indexer and token-saving retriever for precise file:line targeting",
+      "npmPackage": "@nanonets/graft"
+    }
+  ]
+}

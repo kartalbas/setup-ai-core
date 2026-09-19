@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# The ai-core command: runs the engine's scripts from the machine-level engine clone.
+#
+#   ai-core <command> [arguments]
+#
+set -euo pipefail
+
+AI_CORE_HOME="${AI_CORE_HOME:-$HOME/.ai-core}"
+ENGINE="$AI_CORE_HOME/engine"
+
+usage() {
+  echo "Usage: ai-core <command> [arguments]"
+  echo ""
+  echo "Commands:"
+  echo "  init [dir] [--all <folder>] [--no-doctor] [--remote]"
+  echo "                             Install or refresh the harness in a checkout, or in every repository under a folder"
+  echo "  doctor [--no-install]      Check the prerequisites on this machine, install what is missing"
+  echo "  update                     Pull the engine (git pull --ff-only in $ENGINE)"
+  echo "  session-start [--json]     The session start of the current repository"
+  echo "  graft [dir]                Build the Graft code graph"
+  echo "  solution-path <file> ...   Validate a solution path"
+  echo "  rules-check [path]         Validate enforcement tags"
+  echo "  version                    Print the engine version"
+  echo "  help                       Show this help message"
+}
+
+if [ ! -d "$ENGINE" ]; then
+  echo "error: no engine at $ENGINE; run the installer first (bin/install.sh)" >&2
+  exit 1
+fi
+
+command="${1:-help}"
+[ $# -gt 0 ] && shift
+
+case "$command" in
+  init|doctor|session-start|solution-path|rules-check) exec bash "$ENGINE/bin/$command.sh" "$@" ;;
+  graft) exec bash "$ENGINE/bin/graft-setup.sh" "$@" ;;
+  update)
+    echo "--> Updating the engine at $ENGINE"
+    exec git -C "$ENGINE" pull --ff-only ;;
+  version) tr -d '\r\n' < "$ENGINE/VERSION"; echo ;;
+  help|-h|--help) usage ;;
+  *) echo "error: unknown command '$command'" >&2; usage >&2; exit 1 ;;
+esac

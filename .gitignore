@@ -1,0 +1,22 @@
+# Node & dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS specific
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Caches
+.cache/
+*.tmp
+*.log
+
+# Environments & secrets
+.env
+.env.local
+*.local
+credentials.json
+graft/.cache/

@@ -1,0 +1,124 @@
+# Check the prerequisites of the harness on this machine; install what is missing where that
+# can be automated; exit 1 with the instruction for what cannot.
+#
+#   doctor.ps1 [-NoInstall]
+#
+[CmdletBinding()]
+param (
+  [switch]$Help,
+  [switch]$NoInstall
+)
+
+if ($Help -or $args -contains "-h" -or $args -contains "--help") {
+  Write-Host "Usage: doctor.ps1 [-NoInstall]"
+  Write-Host ""
+  Write-Host "Checks Git, gh (with its login), Bash, PowerShell 7, Node.js 20+ with npx, and reports"
+  Write-Host "the agent CLIs (claude, agy, codex). Missing required tools are installed with the"
+  Write-Host "platform's package manager (winget, brew, apt-get). A login cannot be automated and"
+  Write-Host "is reported with its command. Exit 1 when a required tool is still missing afterwards."
+  Write-Host ""
+  Write-Host "Options:"
+  Write-Host "  -NoInstall    Only report; install nothing"
+  Write-Host "  -Help         Show this help message"
+  exit 0
+}
+
+$ErrorActionPreference = 'Continue'
+
+$os = if ($IsWindows -or $env:OS -eq 'Windows_NT') { 'windows' } elseif ($IsMacOS) { 'macos' } elseif ($IsLinux) { 'linux' } else { 'other' }
+$pm = ''
+switch ($os) {
+  'windows' { if (Get-Command winget -ErrorAction SilentlyContinue) { $pm = 'winget' } }
+  'macos' { if (Get-Command brew -ErrorAction SilentlyContinue) { $pm = 'brew' } }
+  'linux' { if (Get-Command apt-get -ErrorAction SilentlyContinue) { $pm = 'apt-get' } }
+}
+
+$script:problems = 0
+$script:installedSomething = $false
+
+function Write-Report([string]$tool, [string]$status, [string]$detail) { Write-Host ("  {0,-12} {1,-12} {2}" -f $tool, $status, $detail) }
+function Add-Problem { $script:problems++ }
+function Test-Tool([string]$name) { [bool](Get-Command $name -ErrorAction SilentlyContinue) }
+
+# On Windows a tool installed a moment ago is not on this shell's PATH yet
+function Update-PathAfterInstall {
+  if ($os -ne 'windows') { return }
+  foreach ($d in @("C:\Program Files\Git\cmd", "C:\Program Files\nodejs", "C:\Program Files\PowerShell\7", "C:\Program Files\GitHub CLI", (Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Links"))) {
+    if ((Test-Path $d) -and ($env:Path -notlike "*$d*")) { $env:Path = "$env:Path;$d" }
+  }
+}
+
+function Install-Tool([string]$tool, [string]$wingetId, [string]$brewFormula, [string]$aptPackage) {
+  if ($NoInstall -or -not $pm) { return $false }
+  Write-Host "--> Installing $tool with $pm..."
+  switch ($pm) {
+    'winget' { & winget install --id $wingetId -e --accept-source-agreements --accept-package-agreements --disable-interactivity | Out-Null }
+    'brew' { & brew install $brewFormula | Out-Null }
+    'apt-get' {
+      if ((& id -u) -eq '0') { & apt-get install -y $aptPackage | Out-Null }
+      elseif (Get-Command sudo -ErrorAction SilentlyContinue) { & sudo apt-get install -y $aptPackage | Out-Null }
+      else { return $false }
+    }
+  }
+  if ($LASTEXITCODE -ne 0) { return $false }
+  $script:installedSomething = $true
+  Update-PathAfterInstall
+  return $true
+}
+
+function Get-Major([string]$version) { if ($version -match '(\d+)') { [int]$Matches[1] } else { 0 } }
+
+Write-Host "==> doctor: $os, package manager: $(if ($pm) { $pm } else { 'none' })"
+
+# Git
+if (-not (Test-Tool git)) { [void](Install-Tool git Git.Git git git) }
+if (Test-Tool git) { Write-Report git present ((& git --version 2>$null | Select-Object -First 1)) }
+else { Write-Report git MISSING "install Git from https://git-scm.com"; Add-Problem }
+
+# gh
+if (-not (Test-Tool gh)) { [void](Install-Tool gh GitHub.cli gh gh) }
+if (Test-Tool gh) {
+  & gh auth status *> $null
+  if ($LASTEXITCODE -eq 0) { Write-Report gh present ("$(& gh --version 2>$null | Select-Object -First 1), logged in") }
+  else { Write-Report gh "not logged in" "run: gh auth login"; Add-Problem }
+} else { Write-Report gh MISSING "install GitHub CLI from https://cli.github.com"; Add-Problem }
+
+# Bash: Git Bash on Windows, the system shell elsewhere
+if (Test-Tool bash) { Write-Report bash present ((& bash --version 2>$null | Select-Object -First 1) + $(if ($os -eq 'windows') { ' (Git Bash)' } else { '' })) }
+elseif ($os -eq 'windows') { Write-Report bash MISSING "Git Bash comes with Git for Windows: winget install Git.Git"; Add-Problem }
+else { Write-Report bash MISSING "install bash"; Add-Problem }
+
+# PowerShell 7 (this script runs in it)
+$pwshVersion = $PSVersionTable.PSVersion.ToString()
+if ($PSVersionTable.PSVersion.Major -ge 7) { Write-Report pwsh present "PowerShell $pwshVersion" }
+else { Write-Report pwsh "too old" "PowerShell $pwshVersion; 7 or newer is needed: winget install Microsoft.PowerShell"; Add-Problem }
+
+# Node.js 20+ with npx
+if (-not (Test-Tool node)) { [void](Install-Tool node OpenJS.NodeJS.LTS node nodejs) }
+if (Test-Tool node) {
+  $nodeVersion = (& node -v 2>$null | Select-Object -First 1)
+  if ((Get-Major $nodeVersion) -ge 20) {
+    if (-not (Test-Tool npx) -and $pm -eq 'apt-get') { [void](Install-Tool npx npm npm npm) }
+    if (Test-Tool npx) { Write-Report node present "Node.js $nodeVersion with npx" }
+    else { Write-Report npx MISSING "Node.js $nodeVersion has no npx; install npm"; Add-Problem }
+  } else { Write-Report node "too old" "Node.js $nodeVersion; 20 or newer is needed, see https://nodejs.org"; Add-Problem }
+} else { Write-Report node MISSING "install Node.js 20 or newer from https://nodejs.org"; Add-Problem }
+
+# Agent CLIs: reported, never installed by doctor
+$hints = @{
+  claude = "Claude Code: https://claude.ai/install.ps1 or install.sh"
+  agy    = "Antigravity: https://antigravity.google/cli/install.ps1 or install.sh"
+  codex  = "Codex: npm install -g @openai/codex"
+}
+foreach ($cli in @('claude', 'agy', 'codex')) {
+  $cmd = Get-Command $cli -ErrorAction SilentlyContinue
+  if ($cmd) { Write-Report $cli present $cmd.Source } else { Write-Report $cli absent $hints[$cli] }
+}
+
+if ($script:installedSomething) { Write-Host "note: something was installed; open a new terminal if a tool is still reported missing." }
+
+if ($script:problems -gt 0) {
+  Write-Host "doctor: $($script:problems) problem(s); fix them and run doctor again."
+  exit 1
+}
+Write-Host "doctor: OK"

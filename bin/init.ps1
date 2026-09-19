@@ -161,7 +161,7 @@ try {
         if ($line -like '# setup-ai-core end*') { $skip = $false }
       }
     }
-    $block = @('# setup-ai-core start: the harness lives in the working tree only, never in a commit', '/.ai-core/', '/graft/')
+    $block = @('# setup-ai-core start: the harness lives in the working tree only, never in a commit', '/.ai-core/')
     $block += Get-ChildItem -Path $templates -Recurse -File -Force | ForEach-Object { '/' + $_.FullName.Substring($templates.Length + 1).Replace('\', '/') }
     $block += '# setup-ai-core end'
     [System.IO.File]::WriteAllText($exclude, (($kept + $block) -join "`n") + "`n")

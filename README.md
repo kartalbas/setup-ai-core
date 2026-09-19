@@ -144,11 +144,16 @@ from. Every other file is created once and never overwritten. All of it is regis
 
 ### 4.3 Nothing is committed
 
-`init` writes every path it deploys, plus `graft/`, into `.git/info/exclude` of the clone,
-between two marker lines, rewritten on every run. In a worktree, git resolves that file to the
-main checkout, so all worktrees share it. The project's `.gitignore` is never touched. A file the
-repository already tracks stays tracked: an exclude entry never affects a tracked file, and `init`
-never overwrites a tracked file.
+`init` writes every path it deploys into `.git/info/exclude` of the clone, between two marker
+lines, rewritten on every run. `graft-setup` writes a second block there with what Graft writes:
+`graft/` and the files `graft init` wires into the repository (`GEMINI.md`, `.gemini/settings.json`,
+`.claude/skills/graft/SKILL.md`, ...). It compares `git status` before and after Graft, records
+whatever a run added, and keeps what earlier runs recorded. In a worktree, git resolves that file to
+the main checkout, so all worktrees share it. The project's `.gitignore` is never touched. A file
+the repository already tracks stays tracked: an exclude entry never affects a tracked file, and
+`init` never overwrites a tracked file. Graft does append to a tracked `AGENTS.md` or
+`.github/copilot-instructions.md` when the repository commits one; that cannot be excluded, so
+`graft-setup` prints a warning that names the file, and you keep or restore it.
 
 Because the harness is not in the repository, it does not travel with `git clone` or
 `git worktree add`. **Every clone and every worktree runs `init` once.** It is idempotent and takes
@@ -220,8 +225,10 @@ Code reads `AGENTS.md`.
 
 ### 4.7 Graft: the code graph
 
-`graft-setup` runs `npx -y @nanonets/graft init` and then `build` with the Node.js on the
-machine and writes `graft/index.md` and the graph. That is the only way it runs. If `npx` is
+`graft-setup` runs `npx -y @nanonets/graft init -y --no-build`, which wires Graft into every
+agent it detects on the machine without asking (the interactive picker is skipped), and then
+`build` with the Node.js on the machine, which writes `graft/index.md` and the graph. That is the
+only way it runs. If `npx` is
 missing or the build fails, the script exits 1 and says why, and `init` exits 1 with it. Nothing
 is installed on the system and nothing runs in a container. A repository that does not want the
 graph sets `GRAFT_EXECUTION_MODE="skip"` in `.ai-core/config.env`.
@@ -232,6 +239,14 @@ stdin and stdout, started and stopped with the Claude Code session. No port, no 
 
 `graft/` is never committed: it changes with every commit, its cache differs per machine, and
 `init` rebuilds it in a minute.
+
+`graft init` also writes outside the repository, once per machine: the Graft MCP server and hooks
+for Codex (`~/.codex/config.toml`, `~/.codex/hooks.json`), Claude Code (`~/.claude.json`,
+`~/.claude/settings.json`) and Antigravity (`~/.gemini/config/mcp_config.json`,
+`~/.gemini/skills/graft/`). A config file it cannot parse, an empty one for example, is reported as
+`skipped-unparseable` and left alone: put `{}` into it and run `ai-core graft` once. Graft sends
+anonymous usage statistics unless `npx -y @nanonets/graft telemetry disable` was run on the machine
+(or `DO_NOT_TRACK=1` is set).
 
 ### 4.8 The session start
 
@@ -474,8 +489,9 @@ With Antigravity:
 
 14. Run `agy` in the repository and sign in. `AGENTS.md` is loaded automatically; `agy inspect`
     lists it.
-15. Antigravity reads MCP servers from its own `mcp_config.json`, not from `.mcp.json`. To give it
-    the Graft tools, register `npx -y @nanonets/graft mcp` there. `graft/index.md` works without.
+15. Antigravity reads MCP servers from its own `~\.gemini\config\mcp_config.json`, not from
+    `.mcp.json`. `graft init` registers the Graft server there; if it reports
+    `skipped-unparseable`, the file is empty or broken: put `{}` into it and run `ai-core graft`.
 
 Afterwards: to update, `ai-core update` (pulls setup-ai-core) and `ai-core init` again in each checkout.
 A new clone or worktree needs step 7 once. `pwsh -File .ai-core\bin\graft-setup.ps1` rebuilds the graph
@@ -488,7 +504,8 @@ Managed files are replaced, your files stay. `.ai-core/VERSION` and the `Harness
 tell which version a checkout has.
 
 **Uninstall:** delete what section 4.2 lists, delete `graft/`, and remove the block between
-`# setup-ai-core start` and `# setup-ai-core end` from `.git/info/exclude`. On the machine: delete
+`# setup-ai-core start` and `# setup-ai-core end`, and the one between `# setup-ai-core graft start`
+and `# setup-ai-core graft end`, from `.git/info/exclude`. On the machine: delete
 `~/.setup-ai-core` and the PATH entry `install` added (the line marked `# setup-ai-core` in the shell
 profile; the entry in the user PATH on Windows). `npx` keeps its cache.
 
@@ -583,7 +600,8 @@ warning or error in either installer's output, diffs the two deployed file lists
 file, is byte-identical on both twins and passes `rules-check`, proves a second run creates
 nothing, compares `session-start`'s JSON between the twins, proves `git status` stays
 empty in a fresh repository and in a worktree with both twins, proves a failing Graft build makes
-`init` exit 1 with the files in place, and requires `session-start` to exit 1 where the harness is
+`init` exit 1 with the files in place, runs a fake Graft that succeeds and proves `init` calls it
+without the picker, excludes every file it wrote and names the committed file it changed, and requires `session-start` to exit 1 where the harness is
 absent. It needs `bash`, `pwsh` and `node` and never touches the network. CI runs it on Ubuntu and
 Windows for every push and pull request.
 

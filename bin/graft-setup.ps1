@@ -11,9 +11,11 @@ param (
 if ($Help -or $args -contains "-h" -or $args -contains "--help" -or $TargetDir -eq "--help" -or $TargetDir -eq "-h") {
   Write-Host "Usage: graft-setup.ps1 [-TargetDir <path>]"
   Write-Host ""
-  Write-Host "Builds the Graft code graph with the Node.js on this machine (npx -y @nanonets/graft)."
+  Write-Host "Wires Graft into the agents on this machine (graft init -y --no-build, no picker) and builds"
+  Write-Host "the code graph with the Node.js on this machine (npx -y @nanonets/graft build)."
   Write-Host "Reads GRAFT_EXECUTION_MODE from .ai-core/config.env: native (default) or skip."
   Write-Host "There is no fallback: without Node.js and npx, native mode fails with exit 1."
+  Write-Host "Whatever Graft writes into the repository is recorded in .git/info/exclude, so it is never committed."
   Write-Host ""
   Write-Host "Options:"
   Write-Host "  -TargetDir <path>   Target directory"
@@ -57,10 +59,68 @@ try {
     exit 1
   }
 
+  # What Graft writes into the repository (graft\, and the files graft init wires: GEMINI.md,
+  # .gemini\, .claude\skills\graft\, ...) stays out of every commit: its own block in
+  # .git\info\exclude, which keeps what earlier runs recorded and grows with what this run adds.
+  $exclude = $null
+  try { $exclude = git rev-parse --git-path info/exclude 2>$null; if ($LASTEXITCODE -ne 0) { $exclude = $null } } catch { $exclude = $null }
+  if ($exclude -and -not [System.IO.Path]::IsPathRooted($exclude)) { $exclude = Join-Path (Get-Location).Path $exclude }
+  $graftLines = [System.Collections.Generic.List[string]]@('/graft/')
+  function Write-GraftBlock {
+    $kept = @(); $skip = $false
+    if (Test-Path $exclude) {
+      foreach ($line in [System.IO.File]::ReadAllLines($exclude)) {
+        if ($line -like '# setup-ai-core graft start*') { $skip = $true }
+        if (-not $skip) { $kept += $line }
+        if ($line -like '# setup-ai-core graft end*') { $skip = $false }
+      }
+    }
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $exclude) | Out-Null
+    $block = @('# setup-ai-core graft start: what Graft writes into the working tree, never into a commit') + $graftLines + @('# setup-ai-core graft end')
+    [System.IO.File]::WriteAllText($exclude, (($kept + $block) -join "`n") + "`n")
+  }
+  function Get-Snapshot { try { @(git status --porcelain --untracked-files=all 2>$null) } catch { @() } }
+  if ($exclude) {
+    if (Test-Path $exclude) {
+      $inBlock = $false
+      foreach ($line in [System.IO.File]::ReadAllLines($exclude)) {
+        if ($line -like '# setup-ai-core graft start*') { $inBlock = $true; continue }
+        if ($line -like '# setup-ai-core graft end*') { $inBlock = $false; continue }
+        if ($inBlock -and $line -and -not $graftLines.Contains($line)) { $graftLines.Add($line) }
+      }
+    }
+    # What graft init wires into the repository, excluded whether it exists already or not
+    $dry = @(); try { $dry = @(& npx -y @nanonets/graft init -y --no-build --dry-run 2>&1 | ForEach-Object { "$_" }) } catch { $dry = @() }
+    $inRepo = $false
+    foreach ($line in $dry) {
+      if ($line -match '^would write.*this repo:') { $inRepo = $true; continue }
+      if (-not $line.StartsWith('  ')) { $inRepo = $false; continue }
+      if ($inRepo) { $path = '/' + (($line.Trim() -split '\s+')[0]).Replace('\', '/'); if (-not $graftLines.Contains($path)) { $graftLines.Add($path) } }
+    }
+    Write-GraftBlock
+    $before = Get-Snapshot
+  }
+
   Write-Host "==> Graft: building the code graph with npx -y @nanonets/graft..."
-  & npx -y @nanonets/graft init
+  $result = 0
+  & npx -y @nanonets/graft init -y --no-build
   if ($LASTEXITCODE -eq 0) { & npx -y @nanonets/graft build }
-  if ($LASTEXITCODE -ne 0) {
+  if ($LASTEXITCODE -ne 0) { $result = 1 }
+
+  if ($exclude) {
+    $changed = @()
+    foreach ($line in Get-Snapshot) {
+      if ($before -contains $line) { continue }
+      if ($line.StartsWith('?? ')) {
+        $path = '/' + $line.Substring(3)
+        if (-not $graftLines.Contains($path)) { $graftLines.Add($path) }
+      } else { $changed += $line.Substring(3) }
+    }
+    Write-GraftBlock
+    if ($changed.Count -gt 0) { Write-Host "warning: Graft changed committed files: $($changed -join ' '). Review them with git diff; keep or restore them." -ForegroundColor Yellow }
+  }
+
+  if ($result -ne 0) {
     Write-Host "error: Graft build failed; see the output above. Fix the cause and run this script again, or set GRAFT_EXECUTION_MODE=`"skip`" in $configFile." -ForegroundColor Red
     exit 1
   }

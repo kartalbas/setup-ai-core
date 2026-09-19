@@ -152,7 +152,6 @@ if EXCLUDE="$(cd "$TARGET" && git rev-parse --git-path info/exclude 2>/dev/null)
       [ -f "$EXCLUDE" ] && awk '/^# setup-ai-core start/{skip=1} !skip{print} /^# setup-ai-core end/{skip=0}' "$EXCLUDE"
       echo "# setup-ai-core start: the harness lives in the working tree only, never in a commit"
       echo "/.ai-core/"
-      echo "/graft/"
       (cd "$CORE_ROOT/templates" && find . -type f) | sed 's|^\./|/|'
       echo "# setup-ai-core end"
     } > "$EXCLUDE.tmp" && mv "$EXCLUDE.tmp" "$EXCLUDE"

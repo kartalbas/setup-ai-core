@@ -166,6 +166,46 @@ for twin in sh ps1; do
 done
 echo "  both exit 1 with the harness files in place"
 
+echo "==> a Graft that succeeds: called without the picker, everything it wrote excluded, the committed file it changed named, on both twins"
+mkdir -p "$WORK/graftbin"
+cat > "$WORK/graftbin/npx" <<'EOF'
+#!/bin/sh
+echo "$*" >> "$GRAFT_FAKE_LOG"
+case "$*" in *--dry-run*) printf 'would write - this repo:\n  GEMINI.md               fenced graft section\n  .gemini\\settings.json   mcpServers.graft\n\nwould write - your machine, affects ALL repos:\n  ~\\.codex\\config.toml   [mcp_servers.graft]\n' >&2; exit 0 ;; esac
+case "$3" in
+  init) echo graft > GEMINI.md; mkdir -p .gemini; echo '{}' > .gemini/settings.json; echo graft >> AGENTS.md; echo graft >> README.md ;;
+  build) mkdir -p graft; echo index > graft/index.md ;;
+esac
+exit 0
+EOF
+chmod +x "$WORK/graftbin/npx"
+printf '@echo %%* >> "%%GRAFT_FAKE_LOG%%"\r\n@if "%%6"=="--dry-run" (echo would write - this repo:& echo   GEMINI.md               fenced graft section& echo   .gemini\\settings.json   mcpServers.graft& echo.& echo would write - your machine, affects ALL repos:& echo   ~\\.codex\\config.toml   [mcp_servers.graft]) 1>&2 & if "%%6"=="--dry-run" exit /b 0\r\n@if "%%3"=="init" (echo graft> GEMINI.md & mkdir .gemini 2>nul & echo {}> .gemini\\settings.json & echo graft>> AGENTS.md & echo graft>> README.md)\r\n@if "%%3"=="build" (mkdir graft 2>nul & echo index> graft\\index.md)\r\n@exit /b 0\r\n' > "$WORK/graftbin/npx.cmd"
+for twin in sh ps1; do
+  git init -q "$WORK/graft-$twin"
+  echo readme > "$WORK/graft-$twin/README.md"
+  git -C "$WORK/graft-$twin" add README.md
+  git -C "$WORK/graft-$twin" -c user.name=check -c user.email=check@localhost commit -q -m init
+  git -C "$WORK/graft-$twin" config core.autocrlf false
+  echo wired-earlier > "$WORK/graft-$twin/GEMINI.md"
+  : > "$WORK/graft-$twin.args"
+  for run in 1 2; do
+    if [ "$twin" = sh ]; then
+      GRAFT_FAKE_LOG="$WORK/graft-$twin.args" PATH="$WORK/graftbin:$PATH" bash "$ROOT/bin/init.sh" "$WORK/graft-$twin" --no-doctor >> "$WORK/graft-$twin.log" 2>&1 || fail "init.sh with a succeeding Graft (run $run, see $WORK/graft-$twin.log)"
+    else
+      GRAFT_FAKE_LOG="$(native "$WORK/graft-$twin.args")" PATH="$WORK/graftbin:$PATH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/graft-$twin")" -NoDoctor >> "$WORK/graft-$twin.log" 2>&1 || fail "init.ps1 with a succeeding Graft (run $run, see $WORK/graft-$twin.log)"
+    fi
+  done
+  grep -aq '^-y @nanonets/graft init -y --no-build' "$WORK/graft-$twin.args" || fail "init.$twin ran graft init with the picker (args: $(tr '\n' '|' < "$WORK/graft-$twin.args"))"
+  grep -aq '^-y @nanonets/graft build' "$WORK/graft-$twin.args" || fail "init.$twin did not run graft build"
+  [ "$(git -C "$WORK/graft-$twin" status --porcelain | tr -d '\r')" = " M README.md" ] || fail "init.$twin: git status after Graft is not just the changed README.md: $(git -C "$WORK/graft-$twin" status --porcelain | tr '\n' ' ')"
+  grep -aq 'Graft changed committed files: README.md' "$WORK/graft-$twin.log" || fail "init.$twin did not name the committed file Graft changed"
+  for p in /graft/ /GEMINI.md /.gemini/settings.json; do
+    grep -qxF "$p" "$WORK/graft-$twin/.git/info/exclude" || fail "init.$twin: $p missing from the Graft exclude block"
+  done
+  [ "$(grep -c '^# setup-ai-core graft start' "$WORK/graft-$twin/.git/info/exclude")" = 1 ] || fail "Graft exclude block written more than once by init.$twin"
+done
+echo "  both twins: no picker, GEMINI.md (there before) and .gemini/ excluded after two runs, README.md named"
+
 echo "==> init runs doctor first and deploys nothing when it fails, on both twins"
 mkdir -p "$WORK/nodoc-sh" "$WORK/nodoc-ps"
 PATH="$WORK/doctorbin:$PATH" bash "$ROOT/bin/init.sh" "$WORK/nodoc-sh" > "$WORK/nodoc-sh.log" 2>&1 && fail "init.sh exited 0 although doctor failed"

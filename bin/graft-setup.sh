@@ -9,9 +9,11 @@ for arg in "$@"; do
   if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
     echo "Usage: graft-setup.sh [TARGET_DIR]"
     echo ""
-    echo "Builds the Graft code graph with the Node.js on this machine (npx -y @nanonets/graft)."
+    echo "Wires Graft into the agents on this machine (graft init -y --no-build, no picker) and builds"
+    echo "the code graph with the Node.js on this machine (npx -y @nanonets/graft build)."
     echo "Reads GRAFT_EXECUTION_MODE from .ai-core/config.env: native (default) or skip."
     echo "There is no fallback: without Node.js and npx, native mode fails with exit 1."
+    echo "Whatever Graft writes into the repository is recorded in .git/info/exclude, so it is never committed."
     echo ""
     echo "Options:"
     echo "  -h, --help    Show this help message"
@@ -55,8 +57,52 @@ if ! command -v npx >/dev/null 2>&1; then
   exit 1
 fi
 
+# What Graft writes into the repository (graft/, and the files graft init wires: GEMINI.md,
+# .gemini/, .claude/skills/graft/, ...) stays out of every commit: its own block in
+# .git/info/exclude, which keeps what earlier runs recorded and grows with what this run adds.
+EXCLUDE=""
+EXCLUDE="$(git rev-parse --git-path info/exclude 2>/dev/null)" || EXCLUDE=""
+GRAFT_LINES="/graft/"
+add_line() { case $'\n'"$GRAFT_LINES"$'\n' in *$'\n'"$1"$'\n'*) ;; *) GRAFT_LINES="$GRAFT_LINES"$'\n'"$1" ;; esac; }
+write_block() {
+  mkdir -p "$(dirname "$EXCLUDE")"
+  {
+    [ -f "$EXCLUDE" ] && awk '/^# setup-ai-core graft start/{skip=1} !skip{print} /^# setup-ai-core graft end/{skip=0}' "$EXCLUDE"
+    echo "# setup-ai-core graft start: what Graft writes into the working tree, never into a commit"
+    printf '%s\n' "$GRAFT_LINES"
+    echo "# setup-ai-core graft end"
+  } > "$EXCLUDE.tmp" && mv "$EXCLUDE.tmp" "$EXCLUDE"
+}
+snapshot() { git status --porcelain --untracked-files=all 2>/dev/null || true; }
+if [ -n "$EXCLUDE" ]; then
+  if [ -f "$EXCLUDE" ]; then
+    while IFS= read -r line; do [ -n "$line" ] && add_line "$line"; done <<< "$(awk '/^# setup-ai-core graft start/{b=1; next} /^# setup-ai-core graft end/{b=0} b' "$EXCLUDE")"
+  fi
+  # What graft init wires into the repository, excluded whether it exists already or not
+  while IFS= read -r line; do [ -n "$line" ] && add_line "/$line"; done <<< "$(npx -y @nanonets/graft init -y --no-build --dry-run 2>&1 | tr -d '\r' | tr '\\' '/' | awk '/^would write.*this repo:/{b=1; next} !/^  /{b=0} b{print $1}')"
+  write_block
+  BEFORE="$(snapshot)"
+fi
+
 echo "==> Graft: building the code graph with npx -y @nanonets/graft..."
-if ! { npx -y @nanonets/graft init && npx -y @nanonets/graft build; }; then
+RESULT=0
+{ npx -y @nanonets/graft init -y --no-build && npx -y @nanonets/graft build; } || RESULT=1
+
+if [ -n "$EXCLUDE" ]; then
+  CHANGED=""
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    case $'\n'"$BEFORE"$'\n' in *$'\n'"$line"$'\n'*) continue ;; esac
+    case "$line" in
+      "?? "*) add_line "/${line#\?\? }" ;;
+      *) CHANGED="$CHANGED ${line#???}" ;;
+    esac
+  done <<< "$(snapshot)"
+  write_block
+  [ -z "$CHANGED" ] || echo "warning: Graft changed committed files:$CHANGED. Review them with git diff; keep or restore them." >&2
+fi
+
+if [ "$RESULT" -ne 0 ]; then
   echo "error: Graft build failed; see the output above. Fix the cause and run this script again, or set GRAFT_EXECUTION_MODE=\"skip\" in $CONFIG_FILE." >&2
   exit 1
 fi

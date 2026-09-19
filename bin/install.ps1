@@ -1,26 +1,29 @@
-# Install setup-ai-core on this machine, once: the clone at ~\.setup-ai-core, its bin\ on the
-# PATH, and a first doctor run.
+# Install setup-ai-core on this machine, once: a clone (or the one you already have), its bin\
+# on the PATH, and a first doctor run.
 #
-#   install.ps1 [-Source <clone>] [-Dir <path>] [-NoPath] [-NoDoctor]
+#   install.ps1 [-Source <clone>] [-Dir <path>] [-Repo <url>] [-NoPath] [-NoDoctor]
 #
 [CmdletBinding()]
 param (
   [switch]$Help,
   [string]$Source = "",
   [string]$Dir = "",
+  [string]$Repo = "https://github.com/kartalbas/setup-ai-core",
   [switch]$NoPath,
   [switch]$NoDoctor
 )
 
 if ($Help -or $args -contains "-h" -or $args -contains "--help" -or $Source -eq "--help" -or $Source -eq "-h") {
-  Write-Host "Usage: install.ps1 [-Source <clone>] [-Dir <path>] [-NoPath] [-NoDoctor]"
+  Write-Host "Usage: install.ps1 [-Source <clone>] [-Dir <path>] [-Repo <url>] [-NoPath] [-NoDoctor]"
   Write-Host ""
-  Write-Host "Installs setup-ai-core on this machine, once: clones it to ~\.setup-ai-core, adds its bin\"
-  Write-Host "directory (where the ai-core command lives) to the user PATH, and runs doctor."
+  Write-Host "Installs setup-ai-core on this machine, once: clones it to ~\.setup-ai-core (or uses the"
+  Write-Host "clone you already have), adds its bin\ directory, where the ai-core command lives, to the"
+  Write-Host "user PATH, and runs doctor."
   Write-Host ""
   Write-Host "Options:"
-  Write-Host "  -Source <clone>   Use an existing clone of setup-ai-core instead of cloning: ~\.setup-ai-core becomes a junction to it"
-  Write-Host "  -Dir <path>       Install somewhere else than ~\.setup-ai-core"
+  Write-Host "  -Source <clone>   Use this existing clone of setup-ai-core; nothing is cloned or linked"
+  Write-Host "  -Dir <path>       Clone somewhere else than ~\.setup-ai-core"
+  Write-Host "  -Repo <url>       Clone from this URL or path instead of GitHub (a mirror, a fork)"
   Write-Host "  -NoPath           Do not touch the PATH"
   Write-Host "  -NoDoctor         Do not run doctor at the end"
   Write-Host "  -Help             Show this help message"
@@ -29,34 +32,24 @@ if ($Help -or $args -contains "-h" -or $args -contains "--help" -or $Source -eq 
 
 $ErrorActionPreference = 'Stop'
 
-$repoUrl = "https://github.com/kartalbas/setup-ai-core"
 $isWin = $IsWindows -or $env:OS -eq 'Windows_NT'
 $dir = if ($Dir) { $Dir } else { Join-Path $HOME ".setup-ai-core" }
-New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dir) | Out-Null
 
-Write-Host "==> Installing setup-ai-core at $dir"
-
-# 1. The clone: a link to an existing one, or a fresh clone from GitHub
+# 1. The clone: the one named with -Source, or one at $dir, cloned when missing
 if ($Source) {
-  $src = (Resolve-Path $Source).Path
-  if (-not ((Test-Path (Join-Path $src "VERSION")) -and (Test-Path (Join-Path $src "templates")))) {
-    Write-Host "error: $src is not a clone of setup-ai-core" -ForegroundColor Red; exit 1
+  $dir = (Resolve-Path $Source).Path
+  if (-not ((Test-Path (Join-Path $dir "VERSION")) -and (Test-Path (Join-Path $dir "templates")))) {
+    Write-Host "error: $dir is not a clone of setup-ai-core" -ForegroundColor Red; exit 1
   }
-  if (Test-Path $dir) {
-    $item = Get-Item $dir -Force
-    if ($item.LinkType) { $item.Delete() }
-    else { Write-Host "error: $dir exists and is not a link; remove it first or omit -Source" -ForegroundColor Red; exit 1 }
-  }
-  if ($isWin) { New-Item -ItemType Junction -Path $dir -Target $src | Out-Null }
-  else { New-Item -ItemType SymbolicLink -Path $dir -Target $src | Out-Null }
-  Write-Host "--> $dir -> $src"
-} elseif ((Test-Path (Join-Path $dir ".git")) -or ((Test-Path $dir) -and (Get-Item $dir -Force).LinkType)) {
-  Write-Host "--> Already at $dir; pulling"
+  Write-Host "==> Using the clone at $dir"
+} elseif (Test-Path (Join-Path $dir ".git")) {
+  Write-Host "==> setup-ai-core is already at $dir; pulling"
   & git -C $dir pull --ff-only
   if ($LASTEXITCODE -ne 0) { exit 1 }
 } else {
-  Write-Host "--> Cloning $repoUrl"
-  & git clone --quiet $repoUrl $dir
+  Write-Host "==> Cloning $Repo to $dir"
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dir) | Out-Null
+  & git clone --quiet $Repo $dir
   if ($LASTEXITCODE -ne 0) { exit 1 }
 }
 
@@ -80,7 +73,7 @@ if (-not $NoPath) {
 }
 if (($env:Path -split [IO.Path]::PathSeparator) -notcontains $bin) { $env:Path = "$bin" + [IO.Path]::PathSeparator + $env:Path }
 
-Write-Host "==> Installed setup-ai-core $((Get-Content (Join-Path $dir 'VERSION') -Raw).Trim())."
+Write-Host "==> setup-ai-core $((Get-Content (Join-Path $dir 'VERSION') -Raw).Trim()) at $dir"
 
 # 3. doctor
 if (-not $NoDoctor) {

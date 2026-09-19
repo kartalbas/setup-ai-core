@@ -344,12 +344,15 @@ irm https://raw.githubusercontent.com/kartalbas/setup-ai-core/main/bin/install.p
 
 `install` clones this repository to `~/.setup-ai-core`, adds its `bin/` (where the `ai-core`
 command lives) to the PATH (the shell profiles on Linux and macOS, the user PATH on Windows; open a
-new terminal afterwards) and runs `doctor`. Run it again to pull. Options:
+new terminal afterwards) and runs `doctor`. Run it again to pull. If you already have a clone, say
+so with `--source`: then nothing is cloned, that clone is the installation, and its `bin/` goes on
+the PATH. Options:
 
 | Bash | PowerShell | Effect |
 | :--- | :--- | :--- |
-| `--source <clone>` | `-Source <clone>` | use an existing clone of this repository: `~/.setup-ai-core` becomes a link to it (a junction on Windows), no copy. For developing setup-ai-core itself. |
-| `--dir <path>` | `-Dir <path>` | install somewhere else than `~/.setup-ai-core` |
+| `--source <clone>` | `-Source <clone>` | use this existing clone of the repository; nothing is cloned |
+| `--dir <path>` | `-Dir <path>` | clone somewhere else than `~/.setup-ai-core` |
+| `--repo <url>` | `-Repo <url>` | clone from this URL or path instead of GitHub (a mirror, a fork) |
 | `--no-path` | `-NoPath` | do not touch the PATH |
 | `--no-doctor` | `-NoDoctor` | do not run `doctor` at the end |
 
@@ -485,8 +488,9 @@ Managed files are replaced, your files stay. `.ai-core/VERSION` and the `Harness
 tell which version a checkout has.
 
 **Uninstall:** delete what section 4.2 lists, delete `graft/`, and remove the block between
-`# setup-ai-core start` and `# setup-ai-core end` from `.git/info/exclude`. Outside the
-repository the harness leaves only what `npx` cached.
+`# setup-ai-core start` and `# setup-ai-core end` from `.git/info/exclude`. On the machine: delete
+`~/.setup-ai-core` and the PATH entry `install` added (the line marked `# setup-ai-core` in the shell
+profile; the entry in the user PATH on Windows). `npx` keeps its cache.
 
 ---
 
@@ -502,7 +506,7 @@ All accept `-h` / `--help` (`-Help` in PowerShell). Run them from the repository
 | `graft-setup` | `bash .ai-core/bin/graft-setup.sh [dir]` / `pwsh -File .ai-core/bin/graft-setup.ps1 [-TargetDir <dir>]` | 0 built or skipped; 1 no Node.js, build failed, or bad `config.env` |
 | `install-skills` | `bash .ai-core/bin/install-skills.sh` / `pwsh -File .ai-core/bin/install-skills.ps1` | always 0; prints a pointer, installs nothing |
 | `doctor` | `ai-core doctor [--no-install]` / `ai-core doctor [-NoInstall]` | 0 every required tool present and gh logged in; 1 otherwise, each problem with its instruction |
-| `install` | `bin/install.sh [--source <clone>] [--no-path] [--no-doctor]` / `bin/install.ps1 [-Source <clone>] [-NoPath] [-NoDoctor]` | 0 installed and doctor OK; 1 when doctor found problems |
+| `install` | `bin/install.sh [--source <clone>] [--dir <path>] [--repo <url>] [--no-path] [--no-doctor]` / `bin/install.ps1 [-Source <clone>] [-Dir <path>] [-Repo <url>] [-NoPath] [-NoDoctor]` | 0 installed and doctor OK; 1 when doctor found problems |
 | `ai-core` | `ai-core <command>`: `init`, `doctor`, `update`, `session-start`, `graft`, `solution-path`, `rules-check`, `version`, `help` | the command's exit code; 1 for an unknown command |
 
 `doctor` today checks Git, gh and its login, Bash, PowerShell 7 (required on Windows), Node.js 20+
@@ -573,8 +577,8 @@ bash tests/check.sh
 
 The check parses every script (`bash -n`, the PowerShell parser), runs both `rules-check` twins
 over `rules/`, runs both `doctor` twins against a fake old Node.js and a fake unauthenticated gh
-and requires the same two problems, installs setup-ai-core into a temporary home with both
-installers and runs `init` through both launchers, bootstraps a temporary checkout with each installer in `skip` mode, fails on any
+and requires the same two problems, runs both installers against a temporary home (an existing clone with `--source`, a clone with
+`--repo`, a second run that pulls) and `init` through both `ai-core` commands, bootstraps a temporary checkout with each installer in `skip` mode, fails on any
 warning or error in either installer's output, diffs the two deployed file lists, proves the assembled `rules.md` has one section per source
 file, is byte-identical on both twins and passes `rules-check`, proves a second run creates
 nothing, compares `session-start`'s JSON between the twins, proves `git status` stays

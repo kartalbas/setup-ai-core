@@ -46,7 +46,9 @@ switch ($Command) {
   'update' {
     Write-Host "--> Updating the engine at $engine"
     & git -C $engine pull --ff-only
-    exit $LASTEXITCODE
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    foreach ($f in @("ai-core", "ai-core.ps1", "ai-core.cmd")) { Copy-Item -Force (Join-Path $engine "bin$f") (Join-Path $aiCoreHome "bin$f") }
+    Write-Host "--> Command refreshed; run ai-core init in your checkouts to refresh their copies"
   }
   'version' { (Get-Content (Join-Path $engine "VERSION") -Raw).Trim() }
   { $_ -in @('help', '-h', '--help') } { Show-Usage }

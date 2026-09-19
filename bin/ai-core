@@ -37,7 +37,9 @@ case "$command" in
   graft) exec bash "$ENGINE/bin/graft-setup.sh" "$@" ;;
   update)
     echo "--> Updating the engine at $ENGINE"
-    exec git -C "$ENGINE" pull --ff-only ;;
+    git -C "$ENGINE" pull --ff-only
+    cp -f "$ENGINE/bin/ai-core" "$ENGINE/bin/ai-core.ps1" "$ENGINE/bin/ai-core.cmd" "$AI_CORE_HOME/bin/" && chmod +x "$AI_CORE_HOME/bin/ai-core"
+    echo "--> Command refreshed; run ai-core init in your checkouts to refresh their copies" ;;
   version) tr -d '\r\n' < "$ENGINE/VERSION"; echo ;;
   help|-h|--help) usage ;;
   *) echo "error: unknown command '$command'" >&2; usage >&2; exit 1 ;;

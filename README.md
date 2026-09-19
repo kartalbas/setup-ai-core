@@ -1,4 +1,4 @@
-# setup-ai-core
+1 for an unknown command |# setup-ai-core
 
 **One harness for every AI coding agent, in every repository, on every machine.**
 
@@ -27,8 +27,8 @@ the same rules in every repository, and the copies drift apart.
 
 The idea of this harness:
 
-1. **Rules and tools live in a few places, not in every repository.** A public **engine** (this
-   repository) holds what is true for every project. A private **project harness** holds what is
+1. **Rules and tools live in a few places, not in every repository.** This public
+   repository, **setup-ai-core**, holds what is true for every project. A private **project harness** holds what is
    true for one project. Only the knowledge about one repository is specific to that repository.
 2. **A checkout gets an assembled copy.** Agents can only read files inside the repository they
    are started in, so the harness copies the assembled result into `.ai-core/` of every checkout.
@@ -40,7 +40,7 @@ The idea of this harness:
    the next session.
 
 ```text
-setup-ai-core (public engine)          rules for every project, scripts, templates
+setup-ai-core (public)          rules for every project, scripts, templates
         +
 <prefix>-ai-core (private harness)     rules, skills, docs and maps of one project
         +
@@ -76,35 +76,35 @@ Section 10 lists the implementation order.
 
 | Name | What it is | Where it comes from |
 | :--- | :--- | :--- |
-| `setup-ai-core` | this repository: the engine, public | fixed |
+| `setup-ai-core` | this repository, public: the harness every project shares | fixed |
 | `<prefix>-ai-core` | the private harness of one project, `github.com/<org>/<prefix>-ai-core` | `prefix` is the repository name up to the first `-`. `shop-web` and `shop-api` both belong to `shop-ai-core`. |
 | `ai-core` | the command on the developer's machine | fixed; not a GitHub name |
 | `.ai-core/` | the assembled harness inside a checkout | fixed |
-| `~/.ai-core/` | the machine-level place: `engine/` (the clone), `bin/` (the command), later the project harness clones. `AI_CORE_HOME` moves it. | fixed |
+| `~/.setup-ai-core` | the clone of this repository on a developer's machine; its `bin/` is on the PATH and holds the `ai-core` command. A project harness clone will sit next to it under its own name, `~/.<prefix>-ai-core` (planned). | the repository's name |
 
 A project harness can extend another one. That is declared in the private harness, not in the
 project repository:
 
 ```json
-{ "extends": "<org>/<other>-ai-core", "engine": ">=1.0" }
+{ "extends": "<org>/<other>-ai-core", "setup-ai-core": ">=1.0" }
 ```
 
 ---
 
 ## 4. How it works
 
-### 4.1 Layers (today: engine and checkout; planned: the project harness in between)
+### 4.1 Layers (today: setup-ai-core and the checkout; planned: the project harness in between)
 
 ```text
-setup-ai-core (engine, public)
+setup-ai-core (public)
 ├── bin/          install, doctor, the ai-core command, init, session-start, solution-path, rules-check, graft-setup
 ├── rules/        one file per section (NN-slug.md) and skills.md, generic
 ├── templates/    the files a checkout gets, in the layout of the checkout
 └── tests/        the check that proves the harness
 
 <org>/<prefix>-ai-core (project harness, private, planned)
-├── ai-core.json  extends, engine version, agents, tools
-├── rules/        one file per section, additive to the engine
+├── ai-core.json  extends, setup-ai-core version, agents, tools
+├── rules/        one file per section, additive to setup-ai-core
 ├── skills/       one folder per skill, own and vendored community skills
 ├── docs/         glossary, naming, architecture for agents
 └── repos/<repo>/ the map and other files of one repository
@@ -113,8 +113,8 @@ setup-ai-core (engine, public)
 └── code only
 ```
 
-Assembly order, later layer wins: engine → project harness (base of the `extends` chain first)
-→ `repos/<repo>/`. Today only the engine layer exists; the assembly of the other layers is
+Assembly order, later layer wins: setup-ai-core → project harness (base of the `extends` chain first)
+→ `repos/<repo>/`. Today only setup-ai-core exists as a layer; the assembly of the other layers is
 planned.
 
 ### 4.2 What a checkout gets (today)
@@ -122,7 +122,7 @@ planned.
 ```text
 <repo>/
 ├── .ai-core/
-│   ├── VERSION                          managed: version of the engine
+│   ├── VERSION                          managed: version of setup-ai-core
 │   ├── bin/                             managed: the scripts, .sh and .ps1
 │   ├── rules/rules.md, skills.md        managed: the rules
 │   ├── rules/rules.local.md             yours: rules of this repository
@@ -156,14 +156,14 @@ seconds.
 
 ### 4.4 Rules
 
-The engine keeps its rules as one file per section under `rules/`: `00-how-to-read.md`,
+setup-ai-core keeps its rules as one file per section under `rules/`: `00-how-to-read.md`,
 `10-the-code-never-lies.md`, `20-clean-before-fast.md`, `30-done-means-proven.md`,
 `40-architecture-configuration-secrets.md`, `50-naming.md`, `60-documentation-and-comments.md`,
 `70-working-with-the-product-owner.md`, `80-working-style-for-agents.md` and
 `90-the-harness-in-a-repository.md`: 68 rules. Two digits order the files and leave room between
 them. They are generic: they name no product, no organisation, no repository and no tool of one
 project. `init` assembles them into one `.ai-core/rules/rules.md` in the checkout, each section
-headed by a comment that names its source file and the engine version, so an agent reads one file
+headed by a comment that names its source file and the setup-ai-core version, so an agent reads one file
 and a person sees where every rule came from.
 
 Every rule ends with an **enforcement tag** that says what holds it:
@@ -176,11 +176,11 @@ Every rule ends with an **enforcement tag** that says what holds it:
 | `[discipline]` | nothing but the reader |
 
 `rules-check` refuses a rules file in which a rule has no tag. A tag names the intended class; the
-engine ships tools for `[tool]` rules only.
+setup-ai-core ships tools for `[tool]` rules only.
 
 **Layering (planned):** a project harness keeps the same layout. `init` merges the section files
-of all layers by name: a file in a later layer with the same name replaces the engine's section, a
-new name adds one, and a rule in a project harness that conflicts with an engine rule wins because
+of all layers by name: a file in a later layer with the same name replaces the setup-ai-core section, a
+new name adds one, and a rule in a project harness that conflicts with a setup-ai-core rule wins because
 it is the more specific layer.
 
 ### 4.5 Skills
@@ -256,7 +256,7 @@ platforms: `repository`, `root`, `branch`, `uncommitted_files`, `harness_version
 `gh_user`. Exit status is 1 when no rules file is found, so an agent or a CI job can gate on it.
 If `gh` is logged in, it makes one call to the GitHub API for the user name.
 
-**Planned:** it compares `.ai-core/STAMP` with the layer clones under `~/.ai-core/` and
+**Planned:** it compares `.ai-core/STAMP` with `~/.setup-ai-core` and the project harness clones and
 re-assembles the checkout when a layer changed, so a rule change in a layer reaches every
 checkout at the next session without running `init` again.
 
@@ -342,19 +342,19 @@ curl -sSL https://raw.githubusercontent.com/kartalbas/setup-ai-core/main/bin/ins
 irm https://raw.githubusercontent.com/kartalbas/setup-ai-core/main/bin/install.ps1 | iex
 ```
 
-`install` clones the engine to `~/.ai-core/engine`, copies the `ai-core` command to
-`~/.ai-core/bin`, adds that directory to the PATH (the shell profiles on Linux and macOS, the user
-PATH on Windows; open a new terminal afterwards) and runs `doctor`. Run it again to pull the
-engine. Options:
+`install` clones this repository to `~/.setup-ai-core`, adds its `bin/` (where the `ai-core`
+command lives) to the PATH (the shell profiles on Linux and macOS, the user PATH on Windows; open a
+new terminal afterwards) and runs `doctor`. Run it again to pull. Options:
 
 | Bash | PowerShell | Effect |
 | :--- | :--- | :--- |
-| `--engine <clone>` | `-Engine <clone>` | use an existing clone of this repository as the engine: a link (a junction on Windows), no copy. For developing the engine. |
+| `--source <clone>` | `-Source <clone>` | use an existing clone of this repository: `~/.setup-ai-core` becomes a link to it (a junction on Windows), no copy. For developing setup-ai-core itself. |
+| `--dir <path>` | `-Dir <path>` | install somewhere else than `~/.setup-ai-core` |
 | `--no-path` | `-NoPath` | do not touch the PATH |
 | `--no-doctor` | `-NoDoctor` | do not run `doctor` at the end |
 
-`AI_CORE_HOME` in the environment moves `~/.ai-core` elsewhere. `install` exits 1 when `doctor`
-finds problems; the harness is installed anyway, and the problems are the next steps.
+`install` exits 1 when `doctor` finds problems; setup-ai-core is installed anyway, and the problems
+are the next steps.
 
 ### 5.3 Per repository: `ai-core init`
 
@@ -363,9 +363,9 @@ cd ~/repos/myorg/myproject
 ai-core init
 ```
 
-`ai-core init` is `bin/init.sh` or `bin/init.ps1` of the engine, run on the current directory. The
-scripts can still be called by path (`bash ~/.ai-core/engine/bin/init.sh .`), and without an
-installed engine a one-off run downloads an archive of `main`:
+`ai-core init` is `bin/init.sh` or `bin/init.ps1` of setup-ai-core, run on the current directory. The
+scripts can still be called by path (`bash ~/.setup-ai-core/bin/init.sh .`), and without an
+installed setup-ai-core a one-off run downloads an archive of `main`:
 `curl -sSL https://raw.githubusercontent.com/kartalbas/setup-ai-core/main/bin/init.sh | bash`
 (`irm .../bin/init.ps1 | iex` on Windows).
 
@@ -444,8 +444,8 @@ Once per machine:
 4. Your agent: Claude Code with `irm https://claude.ai/install.ps1 | iex` (check `claude --version`;
    the first `claude` opens the browser to sign in), or Antigravity with
    `irm https://antigravity.google/cli/install.ps1 | iex` (check `agy --version`).
-5. `irm https://raw.githubusercontent.com/kartalbas/setup-ai-core/main/bin/install.ps1 | iex` — installs the
-   engine under `~\.ai-core`, the command `ai-core`, and runs `doctor`, which tells you if steps 1 to 4
+5. `irm https://raw.githubusercontent.com/kartalbas/setup-ai-core/main/bin/install.ps1 | iex` — clones
+   setup-ai-core to `~\.setup-ai-core`, puts its `bin\` with the command `ai-core` on the PATH, and runs `doctor`, which tells you if steps 1 to 4
    left something missing. Open a new terminal afterwards.
 
 Per repository, and per worktree:
@@ -474,13 +474,13 @@ With Antigravity:
 15. Antigravity reads MCP servers from its own `mcp_config.json`, not from `.mcp.json`. To give it
     the Graft tools, register `npx -y @nanonets/graft mcp` there. `graft/index.md` works without.
 
-Afterwards: to update, `ai-core update` (pulls the engine) and `ai-core init` again in each checkout.
+Afterwards: to update, `ai-core update` (pulls setup-ai-core) and `ai-core init` again in each checkout.
 A new clone or worktree needs step 7 once. `pwsh -File .ai-core\bin\graft-setup.ps1` rebuilds the graph
 after a large refactoring.
 
 ### 5.10 Update and uninstall
 
-**Update:** `ai-core update` pulls the engine, then `ai-core init` again in every clone and worktree.
+**Update:** `ai-core update` pulls setup-ai-core, then `ai-core init` again in every clone and worktree.
 Managed files are replaced, your files stay. `.ai-core/VERSION` and the `Harness version` line of `session-start`
 tell which version a checkout has.
 
@@ -498,12 +498,12 @@ All accept `-h` / `--help` (`-Help` in PowerShell). Run them from the repository
 | :--- | :--- | :--- |
 | `session-start` | `bash .ai-core/bin/session-start.sh [--json]` / `pwsh -File .ai-core/bin/session-start.ps1 [-Json]` | 0 ready; 1 no rules file |
 | `solution-path` | `bash .ai-core/bin/solution-path.sh <file> [--check] [--issue N]` / `pwsh -File .ai-core/bin/solution-path.ps1 -File <file> [-Check]` | section 7 |
-| `rules-check` | `bash .ai-core/bin/rules-check.sh [file-or-directory]` / `pwsh -File .ai-core/bin/rules-check.ps1 [-RulesFile <file-or-directory>]`; default `.ai-core/rules/rules.md`, or the engine's `rules/` directory; a directory means its `NN-*.md` section files | 0 every rule tagged; 1 otherwise |
+| `rules-check` | `bash .ai-core/bin/rules-check.sh [file-or-directory]` / `pwsh -File .ai-core/bin/rules-check.ps1 [-RulesFile <file-or-directory>]`; default `.ai-core/rules/rules.md`, or the `rules/` directory of setup-ai-core; a directory means its `NN-*.md` section files | 0 every rule tagged; 1 otherwise |
 | `graft-setup` | `bash .ai-core/bin/graft-setup.sh [dir]` / `pwsh -File .ai-core/bin/graft-setup.ps1 [-TargetDir <dir>]` | 0 built or skipped; 1 no Node.js, build failed, or bad `config.env` |
 | `install-skills` | `bash .ai-core/bin/install-skills.sh` / `pwsh -File .ai-core/bin/install-skills.ps1` | always 0; prints a pointer, installs nothing |
 | `doctor` | `ai-core doctor [--no-install]` / `ai-core doctor [-NoInstall]` | 0 every required tool present and gh logged in; 1 otherwise, each problem with its instruction |
-| `install` | `bin/install.sh [--engine <clone>] [--no-path] [--no-doctor]` / `bin/install.ps1 [-Engine <clone>] [-NoPath] [-NoDoctor]` | 0 installed and doctor OK; 1 when doctor found problems |
-| `ai-core` | `ai-core <command>`: `init`, `doctor`, `update`, `session-start`, `graft`, `solution-path`, `rules-check`, `version`, `help` | the command's exit code; 1 for an unknown command or a missing engine |
+| `install` | `bin/install.sh [--source <clone>] [--no-path] [--no-doctor]` / `bin/install.ps1 [-Source <clone>] [-NoPath] [-NoDoctor]` | 0 installed and doctor OK; 1 when doctor found problems |
+| `ai-core` | `ai-core <command>`: `init`, `doctor`, `update`, `session-start`, `graft`, `solution-path`, `rules-check`, `version`, `help` | the command's exit code; 1 for an unknown command |
 
 `doctor` today checks Git, gh and its login, Bash, PowerShell 7 (required on Windows), Node.js 20+
 with `npx`, and reports whether `claude`, `agy` and `codex` are installed, with the install command
@@ -550,7 +550,7 @@ case-insensitively, fails only with `-Check`, and accepts `-Issue` without actin
 | Command | Does |
 | :--- | :--- |
 | `doctor` | also the agent CLIs and the tools a project harness declares in `ai-core.json`; `init` runs it first |
-| `init` | additionally: read `origin`, derive org, prefix and repo; clone or pull `<org>/<prefix>-ai-core` and its `extends` chain into `~/.ai-core/projects/`; create the project harness with `gh repo create --private` from the engine's skeleton when it does not exist; assemble the layers; generate the map when the repository has none |
+| `init` | additionally: read `origin`, derive org, prefix and repo; clone or pull `<org>/<prefix>-ai-core` and its `extends` chain next to it, `~/.<prefix>-ai-core`; create the project harness with `gh repo create --private` from the skeleton in setup-ai-core when it does not exist; assemble the layers; generate the map when the repository has none |
 | `update` | also every project harness clone; per machine, never per repository |
 | `session-start [--json]` | as today, plus: re-assemble the checkout when a layer moved past `.ai-core/STAMP`, print the map's headings, warn when a harness clone is behind its origin or the map is stale |
 | `map [--check]` | generate or refresh the map of the current repository and push it to the project harness; `--check` only reports staleness |
@@ -573,7 +573,7 @@ bash tests/check.sh
 
 The check parses every script (`bash -n`, the PowerShell parser), runs both `rules-check` twins
 over `rules/`, runs both `doctor` twins against a fake old Node.js and a fake unauthenticated gh
-and requires the same two problems, installs the engine into a temporary home with both
+and requires the same two problems, installs setup-ai-core into a temporary home with both
 installers and runs `init` through both launchers, bootstraps a temporary checkout with each installer in `skip` mode, fails on any
 warning or error in either installer's output, diffs the two deployed file lists, proves the assembled `rules.md` has one section per source
 file, is byte-identical on both twins and passes `rules-check`, proves a second run creates
@@ -604,8 +604,8 @@ Each step lands with its test in `tests/check.sh` and passes in CI before the ne
    `rules-check` over a directory. **Done.**
 1. `doctor` and `install`, with the `ai-core` command. **Done.**
 2. `ai-core init --all`, `doctor` run by `init`. **Done.**
-3. Project harness resolution from `origin`, the `extends` chain, clone and pull under
-   `~/.ai-core/projects/`, `gh repo create` from the skeleton when missing.
+3. Project harness resolution from `origin`, the `extends` chain, clone and pull to
+   `~/.<prefix>-ai-core`, `gh repo create` from the skeleton when missing.
 4. Assembly: merged rules, skills into both skill directories, docs, templates, `STAMP`, the
    exclude block.
 5. `session-start` re-assembly on a changed stamp, and the Claude Code `SessionStart` hook.
@@ -654,11 +654,11 @@ Each step lands with its test in `tests/check.sh` and passes in CI before the ne
 
 ```text
 setup-ai-core/
-├── VERSION                              engine version, copied to .ai-core/VERSION
+├── VERSION                              setup-ai-core version, copied to .ai-core/VERSION
 ├── bin/
-│   ├── install.sh / install.ps1         once per machine: engine, command, PATH, doctor
+│   ├── install.sh / install.ps1         once per machine: clone to ~/.setup-ai-core, PATH, doctor
 │   ├── doctor.sh / doctor.ps1           prerequisites: check, install, or fail
-│   ├── ai-core, ai-core.ps1, ai-core.cmd the command, copied to ~/.ai-core/bin by install
+│   ├── ai-core, ai-core.ps1, ai-core.cmd the command; on the PATH via ~/.setup-ai-core/bin
 │   ├── init.sh / init.ps1               installer of a checkout, not deployed into checkouts
 │   ├── session-start.sh / .ps1          the session start
 │   ├── solution-path.sh / .ps1          8-section solution path validator

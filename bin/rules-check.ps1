@@ -14,7 +14,7 @@ if ($Help -or $args -contains "-h" -or $args -contains "--help" -or $RulesFile -
   Write-Host ""
   Write-Host "Validates that every rule (a bullet with its wrapped lines) ends with an enforcement tag:"
   Write-Host "[machine], [tool], [review] or [discipline]. A directory means every NN-*.md section file in it."
-  Write-Host "Default: .ai-core/rules/rules.md in a checkout, or the rules/ directory of the engine."
+  Write-Host "Default: .ai-core/rules/rules.md in a checkout, or the rules/ directory of setup-ai-core."
   Write-Host ""
   Write-Host "Options:"
   Write-Host "  -RulesFile <path>  File or directory to check"

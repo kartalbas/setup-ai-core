@@ -1,4 +1,5 @@
-# The ai-core command: runs the engine's scripts from the machine-level engine clone.
+# The ai-core command. It lives in bin\ of the setup-ai-core clone (~\.setup-ai-core on a
+# developer's machine) and runs the scripts next to it.
 #
 #   ai-core <command> [arguments]
 #
@@ -10,8 +11,7 @@ param (
 
 $ErrorActionPreference = 'Stop'
 
-$aiCoreHome = if ($env:AI_CORE_HOME) { $env:AI_CORE_HOME } else { Join-Path $HOME ".ai-core" }
-$engine = Join-Path $aiCoreHome "engine"
+$core = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 
 function Show-Usage {
   Write-Host "Usage: ai-core <command> [arguments]"
@@ -20,37 +20,31 @@ function Show-Usage {
   Write-Host "  init [-TargetDir <dir>] [-All <folder>] [-NoDoctor] [-Remote]"
   Write-Host "                                      Install or refresh the harness in a checkout, or in every repository under a folder"
   Write-Host "  doctor [-NoInstall]                 Check the prerequisites on this machine, install what is missing"
-  Write-Host "  update                              Pull the engine (git pull --ff-only in $engine)"
+  Write-Host "  update                              Pull setup-ai-core (git pull --ff-only in $core)"
   Write-Host "  session-start [-Json]               The session start of the current repository"
   Write-Host "  graft [-TargetDir <dir>]            Build the Graft code graph"
   Write-Host "  solution-path -File <file> ...      Validate a solution path"
   Write-Host "  rules-check [-RulesFile <path>]     Validate enforcement tags"
-  Write-Host "  version                             Print the engine version"
+  Write-Host "  version                             Print the setup-ai-core version"
   Write-Host "  help                                Show this help message"
-}
-
-if (-not (Test-Path $engine -PathType Container)) {
-  Write-Host "error: no engine at $engine; run the installer first (bin\install.ps1)" -ForegroundColor Red
-  exit 1
 }
 
 switch ($Command) {
   { $_ -in @('init', 'doctor', 'session-start', 'solution-path', 'rules-check') } {
-    & pwsh -NoProfile -File (Join-Path $engine "bin\$Command.ps1") @Arguments
+    & pwsh -NoProfile -File (Join-Path $core "bin\$Command.ps1") @Arguments
     exit $LASTEXITCODE
   }
   'graft' {
-    & pwsh -NoProfile -File (Join-Path $engine "bin\graft-setup.ps1") @Arguments
+    & pwsh -NoProfile -File (Join-Path $core "bin\graft-setup.ps1") @Arguments
     exit $LASTEXITCODE
   }
   'update' {
-    Write-Host "--> Updating the engine at $engine"
-    & git -C $engine pull --ff-only
+    Write-Host "--> Updating setup-ai-core at $core"
+    & git -C $core pull --ff-only
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    foreach ($f in @("ai-core", "ai-core.ps1", "ai-core.cmd")) { Copy-Item -Force (Join-Path $engine "bin$f") (Join-Path $aiCoreHome "bin$f") }
-    Write-Host "--> Command refreshed; run ai-core init in your checkouts to refresh their copies"
+    Write-Host "--> Run ai-core init in your checkouts to refresh their copies"
   }
-  'version' { (Get-Content (Join-Path $engine "VERSION") -Raw).Trim() }
+  'version' { (Get-Content (Join-Path $core "VERSION") -Raw).Trim() }
   { $_ -in @('help', '-h', '--help') } { Show-Usage }
   default {
     Write-Host "error: unknown command '$Command'" -ForegroundColor Red

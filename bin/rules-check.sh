@@ -11,7 +11,7 @@ for arg in "$@"; do
   echo ""
   echo "Validates that every rule (a bullet with its wrapped lines) ends with an enforcement tag:"
   echo "[machine], [tool], [review] or [discipline]. A directory means every NN-*.md section file in it."
-  echo "Default: .ai-core/rules/rules.md in a checkout, or the rules/ directory of the engine."
+  echo "Default: .ai-core/rules/rules.md in a checkout, or the rules/ directory of setup-ai-core."
   echo ""
   echo "Options:"
   echo "  -h, --help    Show this help message"

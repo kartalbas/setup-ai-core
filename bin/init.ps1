@@ -111,12 +111,12 @@ foreach ($dir in @($aiCoreDir, $aiCoreBin, $aiCoreRules, $aiCoreDocs)) {
 }
 
 # 2. Deploy Rules, Automation Scripts and VERSION into .ai-core (always refreshed).
-#    The rules are one file per section in the engine and one assembled file in the checkout,
+#    The rules are one file per section in setup-ai-core and one assembled file in the checkout,
 #    each section headed by a comment that names its source.
-$engineVersion = (Get-Content (Join-Path $coreRoot "VERSION") -Raw).Trim()
+$coreVersion = (Get-Content (Join-Path $coreRoot "VERSION") -Raw).Trim()
 $assembled = New-Object System.Text.StringBuilder
 Get-ChildItem -Path (Join-Path $coreRoot "rules") -File | Where-Object { $_.Name -match "^[0-9][0-9]-.*\.md$" } | Sort-Object Name | ForEach-Object {
-  [void]$assembled.Append("<!-- engine ${engineVersion}: rules/$($_.Name) -->`n")
+  [void]$assembled.Append("<!-- setup-ai-core ${coreVersion}: rules/$($_.Name) -->`n")
   [void]$assembled.Append((Get-Content $_.FullName -Raw).Replace("`r`n", "`n").TrimEnd() + "`n`n")
 }
 [System.IO.File]::WriteAllText((Join-Path $aiCoreRules "rules.md"), $assembled.ToString(), (New-Object System.Text.UTF8Encoding $false))

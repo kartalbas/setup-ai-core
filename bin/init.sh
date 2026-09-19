@@ -111,12 +111,12 @@ AI_CORE_DOCS="$AI_CORE_DIR/docs"
 mkdir -p "$AI_CORE_DIR" "$AI_CORE_BIN" "$AI_CORE_RULES" "$AI_CORE_DOCS"
 
 # 1. Deploy Rules, Automation Scripts and VERSION (always refreshed).
-#    The rules are one file per section in the engine and one assembled file in the checkout,
+#    The rules are one file per section in setup-ai-core and one assembled file in the checkout,
 #    each section headed by a comment that names its source.
-ENGINE_VERSION="$(tr -d '\r\n' < "$CORE_ROOT/VERSION")"
+CORE_VERSION="$(tr -d '\r\n' < "$CORE_ROOT/VERSION")"
 {
   for f in "$CORE_ROOT"/rules/[0-9][0-9]-*.md; do
-    printf '<!-- engine %s: rules/%s -->\n' "$ENGINE_VERSION" "$(basename "$f")"
+    printf '<!-- setup-ai-core %s: rules/%s -->\n' "$CORE_VERSION" "$(basename "$f")"
     cat "$f"
     printf '\n'
   done

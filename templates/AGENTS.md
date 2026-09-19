@@ -27,5 +27,5 @@ The solution-path template is at `.ai-core/solution-path.template.md`.
 
 ## 3. Domain Knowledge & Context (Extension Point)
 
-- **Code intelligence graph:** `graft/INDEX.md` (if present)
+- **Code intelligence graph:** `graft/index.md` (if present)
 - **Project documentation:** `.ai-core/docs/` — add links to this project's specifications and domain documents here.

@@ -221,12 +221,12 @@ Code reads `AGENTS.md`.
 ### 4.7 Graft: the code graph
 
 `graft-setup` runs `npx -y @nanonets/graft init` and then `build` with the Node.js on the
-machine and writes `graft/INDEX.md` and the graph. That is the only way it runs. If `npx` is
+machine and writes `graft/index.md` and the graph. That is the only way it runs. If `npx` is
 missing or the build fails, the script exits 1 and says why, and `init` exits 1 with it. Nothing
 is installed on the system and nothing runs in a container. A repository that does not want the
 graph sets `GRAFT_EXECUTION_MODE="skip"` in `.ai-core/config.env`.
 
-Agents use the graph in two ways: the Markdown index `graft/INDEX.md`, and the MCP server in
+Agents use the graph in two ways: the Markdown index `graft/index.md`, and the MCP server in
 `.mcp.json`, which Claude Code starts as `npx -y @nanonets/graft mcp`. That is a process over
 stdin and stdout, started and stopped with the Claude Code session. No port, no service.
 
@@ -245,7 +245,7 @@ Uncommitted files: 0
 Harness version  : 1.1.0
 Rules file       : ✓ Present (.ai-core/rules/rules.md)
 Local rules      : ✓ Present (.ai-core/rules/rules.local.md)
-Graft code graph : ✓ Indexed (graft/INDEX.md)
+Graft code graph : ✓ Indexed (graft/index.md)
 GitHub status    : ✓ Authenticated as @you
 Ready for task execution.
 ```
@@ -472,7 +472,7 @@ With Antigravity:
 14. Run `agy` in the repository and sign in. `AGENTS.md` is loaded automatically; `agy inspect`
     lists it.
 15. Antigravity reads MCP servers from its own `mcp_config.json`, not from `.mcp.json`. To give it
-    the Graft tools, register `npx -y @nanonets/graft mcp` there. `graft/INDEX.md` works without.
+    the Graft tools, register `npx -y @nanonets/graft mcp` there. `graft/index.md` works without.
 
 Afterwards: to update, `ai-core update` (pulls the engine) and `ai-core init` again in each checkout.
 A new clone or worktree needs step 7 once. `pwsh -File .ai-core\bin\graft-setup.ps1` rebuilds the graph

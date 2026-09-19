@@ -60,5 +60,5 @@ if ! { npx -y @nanonets/graft init && npx -y @nanonets/graft build; }; then
   echo "error: Graft build failed; see the output above. Fix the cause and run this script again, or set GRAFT_EXECUTION_MODE=\"skip\" in $CONFIG_FILE." >&2
   exit 1
 fi
-[ -f "graft/INDEX.md" ] || { echo "error: Graft finished without writing graft/INDEX.md." >&2; exit 1; }
-echo "==> Graft index created at $(pwd)/graft/INDEX.md"
+[ -f "graft/index.md" ] || [ -f "graft/INDEX.md" ] || { echo "error: Graft finished without writing graft/index.md." >&2; exit 1; }
+echo "==> Graft index created at $(pwd)/graft/index.md"

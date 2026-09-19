@@ -46,7 +46,7 @@ $rulesPath = if (Test-Path ".ai-core\rules\rules.md") { ".ai-core/rules/rules.md
 $rulesOk = ($rulesPath -ne "")
 $localRulesOk = Test-Path ".ai-core\rules\rules.local.md"
 $harnessVersion = if (Test-Path ".ai-core\VERSION") { (Get-Content ".ai-core\VERSION" -Raw).Trim() } else { "" }
-$graftOk = Test-Path "graft\INDEX.md"
+$graftOk = (Test-Path "graft\index.md") -or (Test-Path "graft\INDEX.md")
 
 $ghLoggedIn = $false
 $ghUser = ""
@@ -85,7 +85,7 @@ Write-Host "Uncommitted files: $dirtyCount"
 Write-Host "Harness version  : $(if ($harnessVersion) { $harnessVersion } else { '✗ Missing (.ai-core/VERSION)' })"
 Write-Host "Rules file       : $(if ($rulesOk) { "✓ Present ($rulesPath)" } else { '✗ Missing' })"
 Write-Host "Local rules      : $(if ($localRulesOk) { '✓ Present (.ai-core/rules/rules.local.md)' } else { '– None' })"
-Write-Host "Graft code graph : $(if ($graftOk) { '✓ Indexed (graft/INDEX.md)' } else { '✗ Not indexed (run graft-setup)' })"
+Write-Host "Graft code graph : $(if ($graftOk) { '✓ Indexed (graft/index.md)' } else { '✗ Not indexed (run graft-setup)' })"
 if ($ghLoggedIn) {
   Write-Host "GitHub status    : ✓ Authenticated as @$ghUser" -ForegroundColor Green
 } else {

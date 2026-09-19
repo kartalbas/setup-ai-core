@@ -64,11 +64,11 @@ try {
     Write-Host "error: Graft build failed; see the output above. Fix the cause and run this script again, or set GRAFT_EXECUTION_MODE=`"skip`" in $configFile." -ForegroundColor Red
     exit 1
   }
-  if (-not (Test-Path "graft\INDEX.md")) {
-    Write-Host "error: Graft finished without writing graft\INDEX.md." -ForegroundColor Red
+  if (-not ((Test-Path "graft\index.md") -or (Test-Path "graft\INDEX.md"))) {
+    Write-Host "error: Graft finished without writing graft\index.md." -ForegroundColor Red
     exit 1
   }
-  Write-Host "==> Graft index created at $((Get-Location).Path)\graft\INDEX.md" -ForegroundColor Green
+  Write-Host "==> Graft index created at $((Get-Location).Path)\graft\index.md" -ForegroundColor Green
 } finally {
   Pop-Location
 }

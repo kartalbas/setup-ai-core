@@ -51,7 +51,7 @@ HARNESS_VERSION=""
 [ -f ".ai-core/VERSION" ] && HARNESS_VERSION="$(tr -d '\r\n' < .ai-core/VERSION)"
 
 GRAFT_OK=0
-[ -f "graft/INDEX.md" ] && GRAFT_OK=1
+{ [ -f "graft/index.md" ] || [ -f "graft/INDEX.md" ]; } && GRAFT_OK=1
 
 GH_LOGGED_IN=0
 GH_USER=""
@@ -91,7 +91,7 @@ echo "Uncommitted files: $DIRTY_COUNT"
 echo "Harness version  : $([ -n "$HARNESS_VERSION" ] && echo "$HARNESS_VERSION" || echo "✗ Missing (.ai-core/VERSION)")"
 echo "Rules file       : $([ $RULES_OK -eq 1 ] && echo "✓ Present ($RULES_PATH)" || echo "✗ Missing")"
 echo "Local rules      : $([ $LOCAL_RULES_OK -eq 1 ] && echo "✓ Present (.ai-core/rules/rules.local.md)" || echo "– None")"
-echo "Graft code graph : $([ $GRAFT_OK -eq 1 ] && echo "✓ Indexed (graft/INDEX.md)" || echo "✗ Not indexed (run graft-setup)")"
+echo "Graft code graph : $([ $GRAFT_OK -eq 1 ] && echo "✓ Indexed (graft/index.md)" || echo "✗ Not indexed (run graft-setup)")"
 if [ "$GH_LOGGED_IN" -eq 1 ]; then
   echo "GitHub status    : ✓ Authenticated as @$GH_USER"
 else

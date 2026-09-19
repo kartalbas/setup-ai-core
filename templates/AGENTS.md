@@ -15,11 +15,14 @@ This map guides autonomous AI coding agents (Claude Code, OpenAI Codex, Google A
 
 ## 2. Universal Operations
 
-| Action | Bash | PowerShell |
-| :--- | :--- | :--- |
-| **Session start (mandatory first step)** | `bash .ai-core/bin/session-start.sh` | `pwsh -File .ai-core/bin/session-start.ps1` |
-| **Validate a solution path** | `bash .ai-core/bin/solution-path.sh <path> --check` | `pwsh -File .ai-core/bin/solution-path.ps1 -File <path> -Check` |
-| **Check rule enforcement tags** | `bash .ai-core/bin/rules-check.sh` | `pwsh -File .ai-core/bin/rules-check.ps1` |
+The `ai-core` command is on the PATH and works the same in Bash and PowerShell; every command takes `--help`.
+
+| Action | Command |
+| :--- | :--- |
+| **Session start (mandatory first step)** | `ai-core session-start` |
+| **Validate a solution path** | `ai-core solution-path <path> --check` |
+| **Check rule enforcement tags** | `ai-core rules-check` |
+| **Rebuild the code graph** | `ai-core graft` |
 
 The solution-path template is at `.ai-core/solution-path.template.md`.
 

@@ -1,137 +1,111 @@
-# Bootstrap a target repository with setup-ai-core agnostic harness
+# Install or refresh the harness in a checkout, in a project folder, or in every repository
+# under a folder. The scripts stay in the setup-ai-core clone and run as `ai-core <command>`;
+# a checkout receives only data: the assembled rules, the configuration and the agent files.
 #
-#   init.ps1 [-TargetDir <path>] [-All <folder>] [-NoDoctor] [-Remote]
-#
-# Supports:
-# - Claude Code (.claude)
-# - OpenHands (.openhands)
-# - OpenAI Codex & OpenCode (AGENTS.md)
-# - Google Antigravity (.gemini & AGENTS.md)
-# - Cursor (.cursorrules)
-# - Windsurf (.windsurfrules)
-# - Aider (.aider.conf.yml)
-# - GitHub Copilot (.github/copilot-instructions.md)
+#   init.ps1 [-TargetDir <path>] [-All <folder>] [-NoDoctor]
 #
 [CmdletBinding()]
 param (
   [switch]$Help,
   [string]$TargetDir = ".",
   [string]$All = "",
-  [switch]$NoDoctor,
-  [switch]$Remote
+  [switch]$NoDoctor
 )
 
 if ($Help -or $args -contains "-h" -or $args -contains "--help" -or $TargetDir -eq "--help" -or $TargetDir -eq "-h") {
-  Write-Host "Usage: init.ps1 [-TargetDir <path>] [-All <folder>] [-NoDoctor] [-Remote]"
+  Write-Host "Usage: init.ps1 [-TargetDir <path>] [-All <folder>] [-NoDoctor]"
   Write-Host ""
-  Write-Host "Bootstraps a target repository with the setup-ai-core agnostic harness."
+  Write-Host "Installs or refreshes the harness in TargetDir (default: the current directory):"
+  Write-Host "the assembled rules and the configuration in .ai-core\, the agent files (AGENTS.md,"
+  Write-Host ".claude\settings.json, ...) created once, everything registered in .git\info\exclude,"
+  Write-Host "and the Graft code graph. A folder that is no repository but holds repositories is a"
+  Write-Host "project folder: it gets an AGENTS.md that lists them."
   Write-Host ""
   Write-Host "Options:"
   Write-Host "  -TargetDir <path>   Target directory (default: current)"
-  Write-Host "  -All <folder>       Run init in every git repository directly under <folder>"
+  Write-Host "  -All <folder>       Init the folder itself and every git repository directly under it"
   Write-Host "  -NoDoctor           Do not run doctor first"
-  Write-Host "  -Remote             Force remote mode (download from GitHub)"
   Write-Host "  -Help               Show this help message"
   Write-Host ""
   Write-Host "Examples:"
-  Write-Host "  pwsh -File init.ps1 -TargetDir ."
-  Write-Host "  pwsh -File init.ps1 -TargetDir ../my-project"
-  Write-Host "  pwsh -File init.ps1 -All ../my-org"
+  Write-Host "  ai-core init"
+  Write-Host "  ai-core init -TargetDir ../my-project"
+  Write-Host "  ai-core init -All ../my-org"
   exit 0
 }
 
 $ErrorActionPreference = 'Stop'
 
-# A local clone is recognised by templates\ and VERSION next to bin\; a deployed
-# .ai-core\ has neither. $MyInvocation.MyCommand.Path is null when piped into iex.
-$coreRoot = ""
-if ($MyInvocation.MyCommand.Path) {
-  $candidate = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-  if ((Test-Path (Join-Path $candidate "templates")) -and (Test-Path (Join-Path $candidate "VERSION"))) { $coreRoot = $candidate }
-}
-# -All: doctor once, then init in every git repository directly under the folder
-if ($All) {
-  $allDir = (Resolve-Path $All).Path
-  if (-not $NoDoctor) {
-    & pwsh -NoProfile -File (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "doctor.ps1")
-    if ($LASTEXITCODE -ne 0) { Write-Host "error: fix the problems doctor reported, then run init again (or pass -NoDoctor)." -ForegroundColor Red; exit 1 }
-  }
-  $ok = 0; $failed = @()
-  foreach ($repo in Get-ChildItem -Path $allDir -Directory | Where-Object { Test-Path (Join-Path $_.FullName ".git") }) {
-    Write-Host ""; Write-Host "### $($repo.Name)"
-    $params = @('-TargetDir', $repo.FullName, '-NoDoctor'); if ($Remote) { $params += '-Remote' }
-    & pwsh -NoProfile -File $MyInvocation.MyCommand.Path @params
-    if ($LASTEXITCODE -eq 0) { $ok++ } else { $failed += $repo.Name }
-  }
-  Write-Host ""; Write-Host "==> init -All: $ok repositories initialized$(if ($failed) { '; failed: ' + ($failed -join ' ') })"
-  if ($failed) { exit 1 } else { exit 0 }
-}
-
-$target = (Resolve-Path $TargetDir).Path
-$archiveUrl = "https://github.com/kartalbas/setup-ai-core/archive/refs/heads/main.zip"
-
-Write-Host "==================================================" -ForegroundColor Cyan
-Write-Host "Initializing Agnostic AI Core Harness in: $target" -ForegroundColor Cyan
-Write-Host "Target Environment : Agnostic (Multi-Agent)" -ForegroundColor Cyan
-Write-Host "==================================================" -ForegroundColor Cyan
-
-# Source: the local clone, or one archive download so remote installs get the same files
-$srcTmp = ""
-if (-not $coreRoot -or $Remote) {
-  $srcTmp = Join-Path ([System.IO.Path]::GetTempPath()) ("setup-ai-core-" + [System.Guid]::NewGuid().ToString("N"))
-  New-Item -ItemType Directory -Path $srcTmp | Out-Null
-  Write-Host "--> Downloading setup-ai-core ($archiveUrl)..."
-  Invoke-WebRequest -Uri $archiveUrl -OutFile (Join-Path $srcTmp "src.zip")
-  Expand-Archive -Path (Join-Path $srcTmp "src.zip") -DestinationPath $srcTmp
-  $coreRoot = Join-Path $srcTmp "setup-ai-core-main"
-} else {
-  Write-Host "--> Deploying from local clone: $coreRoot"
+$coreRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+if (-not ((Test-Path (Join-Path $coreRoot "templates")) -and (Test-Path (Join-Path $coreRoot "VERSION")))) {
+  Write-Host "error: $coreRoot is not a clone of setup-ai-core; run init from the clone (ai-core init)" -ForegroundColor Red; exit 1
 }
 
 # The prerequisites first; nothing is deployed on a machine that cannot run the harness
 if (-not $NoDoctor) {
   & pwsh -NoProfile -File (Join-Path $coreRoot "bin\doctor.ps1")
-  if ($LASTEXITCODE -ne 0) {
-    if ($srcTmp) { Remove-Item -Recurse -Force $srcTmp }
-    Write-Host "error: fix the problems doctor reported, then run init again (or pass -NoDoctor)." -ForegroundColor Red
-    exit 1
-  }
+  if ($LASTEXITCODE -ne 0) { Write-Host "error: fix the problems doctor reported, then run init again (or pass -NoDoctor)." -ForegroundColor Red; exit 1 }
 }
 
-# Ensure target isolation folder exists (.ai-core)
+# -All: every git repository directly under the folder, then the folder itself
+if ($All) {
+  $allDir = (Resolve-Path $All).Path
+  $ok = 0; $failed = @()
+  foreach ($repo in Get-ChildItem -Path $allDir -Directory | Where-Object { Test-Path (Join-Path $_.FullName ".git") }) {
+    Write-Host ""; Write-Host "### $($repo.Name)"
+    & pwsh -NoProfile -File $MyInvocation.MyCommand.Path -TargetDir $repo.FullName -NoDoctor
+    if ($LASTEXITCODE -eq 0) { $ok++ } else { $failed += $repo.Name }
+  }
+  Write-Host ""; Write-Host "### $(Split-Path -Leaf $allDir) (the folder itself)"
+  & pwsh -NoProfile -File $MyInvocation.MyCommand.Path -TargetDir $allDir -NoDoctor
+  if ($LASTEXITCODE -ne 0) { $failed += "$(Split-Path -Leaf $allDir)/" }
+  Write-Host ""; Write-Host "==> init -All: $ok repositories initialized$(if ($failed) { '; failed: ' + ($failed -join ' ') })"
+  if ($failed) { exit 1 } else { exit 0 }
+}
+
+$target = (Resolve-Path $TargetDir).Path
+
+# A project folder is no git work tree and holds git checkouts directly below it
+$projectFolder = $false
+$inWorkTree = $false
+try { & git -C $target rev-parse --is-inside-work-tree 2>$null | Out-Null; $inWorkTree = ($LASTEXITCODE -eq 0) } catch { $inWorkTree = $false }
+if (-not $inWorkTree) {
+  $projectFolder = [bool](Get-ChildItem -Path $target -Directory | Where-Object { Test-Path (Join-Path $_.FullName ".git") } | Select-Object -First 1)
+}
+
+Write-Host "==================================================" -ForegroundColor Cyan
+Write-Host "Initializing the harness in: $target" -ForegroundColor Cyan
+if ($projectFolder) { Write-Host "A project folder: the repositories below it get their own init" -ForegroundColor Cyan }
+Write-Host "==================================================" -ForegroundColor Cyan
+Write-Host "--> From $coreRoot"
+
 $aiCoreDir = Join-Path $target ".ai-core"
-$aiCoreBin = Join-Path $aiCoreDir "bin"
 $aiCoreRules = Join-Path $aiCoreDir "rules"
-$aiCoreDocs = Join-Path $aiCoreDir "docs"
+foreach ($dir in @($aiCoreRules, (Join-Path $aiCoreDir "docs"))) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+# Earlier versions copied the scripts into the checkout; they run from the clone now
+if (Test-Path (Join-Path $aiCoreDir "bin")) { Remove-Item -Recurse -Force (Join-Path $aiCoreDir "bin") }
 
-foreach ($dir in @($aiCoreDir, $aiCoreBin, $aiCoreRules, $aiCoreDocs)) {
-  if (-not (Test-Path $dir)) {
-    New-Item -ItemType Directory -Force -Path $dir | Out-Null
-  }
-}
-
-# 2. Deploy Rules, Automation Scripts and VERSION into .ai-core (always refreshed).
-#    The rules are one file per section in setup-ai-core and one assembled file in the checkout,
-#    each section headed by a comment that names its source.
+# 1. Managed files, refreshed on every run: the rules, one file per section in setup-ai-core and
+#    one assembled file in the checkout, each section headed by a comment naming its source; the
+#    skills pointer; VERSION.
 $coreVersion = (Get-Content (Join-Path $coreRoot "VERSION") -Raw).Trim()
 $assembled = New-Object System.Text.StringBuilder
 Get-ChildItem -Path (Join-Path $coreRoot "rules") -File | Where-Object { $_.Name -match "^[0-9][0-9]-.*\.md$" } | Sort-Object Name | ForEach-Object {
   [void]$assembled.Append("<!-- setup-ai-core ${coreVersion}: rules/$($_.Name) -->`n")
   [void]$assembled.Append((Get-Content $_.FullName -Raw).Replace("`r`n", "`n").TrimEnd() + "`n`n")
 }
-[System.IO.File]::WriteAllText((Join-Path $aiCoreRules "rules.md"), $assembled.ToString(), (New-Object System.Text.UTF8Encoding $false))
+$utf8 = New-Object System.Text.UTF8Encoding $false
+[System.IO.File]::WriteAllText((Join-Path $aiCoreRules "rules.md"), $assembled.ToString(), $utf8)
 Copy-Item -Force (Join-Path $coreRoot "rules\skills.md") (Join-Path $aiCoreRules "skills.md")
-# init itself is not deployed: run from the target it would treat .ai-core as its source
-foreach ($s in @("session-start", "solution-path", "rules-check", "install-skills", "graft-setup")) {
-  Copy-Item -Force (Join-Path $coreRoot "bin\$s.sh") (Join-Path $aiCoreBin "$s.sh")
-  Copy-Item -Force (Join-Path $coreRoot "bin\$s.ps1") (Join-Path $aiCoreBin "$s.ps1")
-}
 Copy-Item -Force (Join-Path $coreRoot "VERSION") (Join-Path $aiCoreDir "VERSION")
 
-# 3. Deploy bridge files, created once and never overwritten: templates\ mirrors the target layout
+# 2. The agent files, created once and never overwritten: templates\ mirrors the target layout.
+#    A project folder's AGENTS.md is generated instead: the list of its repositories, rewritten
+#    on every run because the folder changes.
 $templates = Join-Path $coreRoot "templates"
 Get-ChildItem -Path $templates -Recurse -File -Force | ForEach-Object {
   $rel = $_.FullName.Substring($templates.Length + 1)
+  if ($projectFolder -and $rel -ceq "AGENTS.md") { return }
   $dst = Join-Path $target $rel
   if (-not (Test-Path $dst)) {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dst) | Out-Null
@@ -141,10 +115,21 @@ Get-ChildItem -Path $templates -Recurse -File -Force | ForEach-Object {
     Write-Host "--> Kept $($rel.Replace('\', '/')) (already present)"
   }
 }
-# The Claude Code helpers are harness code and are always refreshed
-Copy-Item -Force (Join-Path $templates ".claude\helpers\*.cjs") (Join-Path $target ".claude\helpers")
+if ($projectFolder) {
+  $map = New-Object System.Text.StringBuilder
+  [void]$map.Append("<!-- setup-ai-core ${coreVersion}: written by init for a project folder, rewritten on every run; put your own notes into .ai-core/rules/rules.local.md -->`n")
+  [void]$map.Append("# $(Split-Path -Leaf $target)`n`n")
+  [void]$map.Append("This folder holds git repositories. Each one carries its own map; read ``<repository>/AGENTS.md`` before you work in it, and run ``ai-core session-start`` inside it before the first action.`n`n")
+  [void]$map.Append("| repository | map |`n| :--- | :--- |`n")
+  Get-ChildItem -Path $target -Directory | Where-Object { Test-Path (Join-Path $_.FullName ".git") } | ForEach-Object {
+    [void]$map.Append("| ``$($_.Name)`` | ``$($_.Name)/AGENTS.md`` |`n")
+  }
+  [void]$map.Append("`nThe rules that bind every repository here: ``.ai-core/rules/rules.md`` (managed by the harness) and ``.ai-core/rules/rules.local.md`` (this project's own, which wins).`n")
+  [System.IO.File]::WriteAllText((Join-Path $target "AGENTS.md"), $map.ToString(), $utf8)
+  Write-Host "--> Wrote AGENTS.md (the repositories of this folder)"
+}
 
-# 4. Keep the harness out of the repository's history: every deployed path goes into the
+# 3. Keep the harness out of the repository's history: every deployed path goes into the
 #    clone's own exclude file, which no commit ever contains. Worktrees share it.
 Push-Location $target
 try {
@@ -173,24 +158,14 @@ try {
   Pop-Location
 }
 
-# 5. Skills pointer and the Graft code graph. Graft is built with the local Node.js or the
-#    whole init fails; there is no fallback.
-Write-Host "--> Installing / verifying agent skills..."
-Push-Location $target; try { & pwsh -NoProfile -File (Join-Path $aiCoreBin "install-skills.ps1") } finally { Pop-Location }
-
-Write-Host "--> Setting up Graft code intelligence..."
-& pwsh -NoProfile -File (Join-Path $aiCoreBin "graft-setup.ps1") -TargetDir $target
-$graftExit = $LASTEXITCODE
-
-if ($srcTmp) { Remove-Item -Recurse -Force $srcTmp }
-
-if ($graftExit -ne 0) {
-  Write-Host "error: the harness files are in place but the Graft code graph is not (see above). Fix the cause and run 'pwsh -File .ai-core/bin/graft-setup.ps1', or set GRAFT_EXECUTION_MODE=`"skip`" in .ai-core/config.env." -ForegroundColor Red
+# 4. The Graft code graph, built with the local Node.js or the whole init fails; no fallback.
+Write-Host "--> Graft"
+& pwsh -NoProfile -File (Join-Path $coreRoot "bin\graft-setup.ps1") -TargetDir $target
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "error: the harness files are in place but the Graft code graph is not (see above). Fix the cause and run 'ai-core graft', or set GRAFT_EXECUTION_MODE=`"skip`" in .ai-core/config.env." -ForegroundColor Red
   exit 1
 }
 
 Write-Host "==================================================" -ForegroundColor Green
-Write-Host "✓ Agnostic AI Core Harness successfully initialized!" -ForegroundColor Green
-Write-Host "Supported Agents: Claude Code, OpenHands, Codex, Antigravity, Cursor, Windsurf, Aider" -ForegroundColor Green
-Write-Host "Run 'pwsh -File .ai-core/bin/session-start.ps1' to verify." -ForegroundColor Green
+Write-Host "✓ Harness $coreVersion in place. Run 'ai-core session-start' here to verify." -ForegroundColor Green
 Write-Host "==================================================" -ForegroundColor Green

@@ -21,8 +21,8 @@ if ($Help -or $args -contains "-h" -or $args -contains "--help" -or ($args.Count
   Write-Host "Exit status is 1 when the core rules file is missing (run init)."
   Write-Host ""
   Write-Host "Examples:"
-  Write-Host "  pwsh -File .ai-core/bin/session-start.ps1"
-  Write-Host "  pwsh -File .ai-core/bin/session-start.ps1 -Json"
+  Write-Host "  ai-core session-start"
+  Write-Host "  ai-core session-start -Json"
   exit 0
 }
 
@@ -46,7 +46,8 @@ $rulesPath = if (Test-Path ".ai-core\rules\rules.md") { ".ai-core/rules/rules.md
 $rulesOk = ($rulesPath -ne "")
 $localRulesOk = Test-Path ".ai-core\rules\rules.local.md"
 $harnessVersion = if (Test-Path ".ai-core\VERSION") { (Get-Content ".ai-core\VERSION" -Raw).Trim() } else { "" }
-$graftOk = (Test-Path "graft\index.md") -or (Test-Path "graft\INDEX.md")
+$graftWorkspace = Test-Path "graft\workspace.json"
+$graftOk = (Test-Path "graft\index.md") -or (Test-Path "graft\INDEX.md") -or $graftWorkspace
 
 $ghLoggedIn = $false
 $ghUser = ""
@@ -85,7 +86,7 @@ Write-Host "Uncommitted files: $dirtyCount"
 Write-Host "Harness version  : $(if ($harnessVersion) { $harnessVersion } else { '✗ Missing (.ai-core/VERSION)' })"
 Write-Host "Rules file       : $(if ($rulesOk) { "✓ Present ($rulesPath)" } else { '✗ Missing' })"
 Write-Host "Local rules      : $(if ($localRulesOk) { '✓ Present (.ai-core/rules/rules.local.md)' } else { '– None' })"
-Write-Host "Graft code graph : $(if ($graftOk) { '✓ Indexed (graft/index.md)' } else { '✗ Not indexed (run graft-setup)' })"
+Write-Host "Graft code graph : $(if ($graftWorkspace) { '✓ Workspace (graft/workspace.json)' } elseif ($graftOk) { '✓ Indexed (graft/index.md)' } else { '✗ Not indexed (run ai-core graft)' })"
 if ($ghLoggedIn) {
   Write-Host "GitHub status    : ✓ Authenticated as @$ghUser" -ForegroundColor Green
 } else {

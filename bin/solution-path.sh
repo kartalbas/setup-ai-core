@@ -16,7 +16,7 @@ for arg in "$@"; do
   echo "  --check       Enforce validation and exit with error if incomplete"
   echo ""
   echo "Examples:"
-  echo "  bash .ai-core/bin/solution-path.sh docs/my-solution.md --check"
+  echo "  ai-core solution-path docs/my-solution.md --check"
   exit 0
   fi
 done

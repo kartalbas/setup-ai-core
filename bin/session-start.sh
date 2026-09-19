@@ -18,8 +18,8 @@ for arg in "$@"; do
   echo "Exit status is 1 when the core rules file is missing (run init)."
   echo ""
   echo "Examples:"
-  echo "  bash .ai-core/bin/session-start.sh"
-  echo "  bash .ai-core/bin/session-start.sh --json"
+  echo "  ai-core session-start"
+  echo "  ai-core session-start --json"
   exit 0
   fi
 done
@@ -51,7 +51,7 @@ HARNESS_VERSION=""
 [ -f ".ai-core/VERSION" ] && HARNESS_VERSION="$(tr -d '\r\n' < .ai-core/VERSION)"
 
 GRAFT_OK=0
-{ [ -f "graft/index.md" ] || [ -f "graft/INDEX.md" ]; } && GRAFT_OK=1
+{ [ -f "graft/index.md" ] || [ -f "graft/INDEX.md" ] || [ -f "graft/workspace.json" ]; } && GRAFT_OK=1
 
 GH_LOGGED_IN=0
 GH_USER=""
@@ -91,7 +91,7 @@ echo "Uncommitted files: $DIRTY_COUNT"
 echo "Harness version  : $([ -n "$HARNESS_VERSION" ] && echo "$HARNESS_VERSION" || echo "✗ Missing (.ai-core/VERSION)")"
 echo "Rules file       : $([ $RULES_OK -eq 1 ] && echo "✓ Present ($RULES_PATH)" || echo "✗ Missing")"
 echo "Local rules      : $([ $LOCAL_RULES_OK -eq 1 ] && echo "✓ Present (.ai-core/rules/rules.local.md)" || echo "– None")"
-echo "Graft code graph : $([ $GRAFT_OK -eq 1 ] && echo "✓ Indexed (graft/index.md)" || echo "✗ Not indexed (run graft-setup)")"
+echo "Graft code graph : $([ $GRAFT_OK -eq 1 ] && { [ -f graft/workspace.json ] && echo "✓ Workspace (graft/workspace.json)" || echo "✓ Indexed (graft/index.md)"; } || echo "✗ Not indexed (run ai-core graft)")"
 if [ "$GH_LOGGED_IN" -eq 1 ]; then
   echo "GitHub status    : ✓ Authenticated as @$GH_USER"
 else
@@ -105,7 +105,7 @@ if [ "$DIRTY_COUNT" -gt 0 ]; then
 fi
 
 if [ "$RULES_OK" -eq 0 ]; then
-  echo "Not ready: no rules file found. Run setup-ai-core's init in this repository." >&2
+  echo "Not ready: no rules file found. Run ai-core init in this repository." >&2
   exit 1
 fi
 echo "Ready for task execution."

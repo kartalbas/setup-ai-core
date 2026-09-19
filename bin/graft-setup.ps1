@@ -22,7 +22,7 @@ if ($Help -or $args -contains "-h" -or $args -contains "--help" -or $TargetDir -
   Write-Host "  -Help               Show this help message"
   Write-Host ""
   Write-Host "Examples:"
-  Write-Host "  pwsh -File .ai-core/bin/graft-setup.ps1 -TargetDir ."
+  Write-Host "  ai-core graft"
   exit 0
 }
 
@@ -124,11 +124,15 @@ try {
     Write-Host "error: Graft build failed; see the output above. Fix the cause and run this script again, or set GRAFT_EXECUTION_MODE=`"skip`" in $configFile." -ForegroundColor Red
     exit 1
   }
-  if (-not ((Test-Path "graft\index.md") -or (Test-Path "graft\INDEX.md"))) {
+  # One repository gets graft\index.md; a folder of repositories gets a workspace, graft\workspace.json
+  if (Test-Path "graft\workspace.json") {
+    Write-Host "==> Graft workspace created at $((Get-Location).Path)\graft\workspace.json: one graph over the repositories of this folder" -ForegroundColor Green
+  } elseif ((Test-Path "graft\index.md") -or (Test-Path "graft\INDEX.md")) {
+    Write-Host "==> Graft index created at $((Get-Location).Path)\graft\index.md" -ForegroundColor Green
+  } else {
     Write-Host "error: Graft finished without writing graft\index.md." -ForegroundColor Red
     exit 1
   }
-  Write-Host "==> Graft index created at $((Get-Location).Path)\graft\index.md" -ForegroundColor Green
 } finally {
   Pop-Location
 }

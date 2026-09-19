@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The ai-core command. It lives in bin/ of the setup-ai-core clone (~/.setup-ai-core on a
-# developer's machine) and runs the scripts next to it.
+# The ai-core command. It lives in bin/ of the setup-ai-core clone and runs the scripts next to
+# it: `ai-core <name>` runs bin/<name>.sh with the remaining arguments, in the current directory.
 #
 #   ai-core <command> [arguments]
 #
@@ -11,15 +11,17 @@ CORE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 usage() {
   echo "Usage: ai-core <command> [arguments]"
   echo ""
-  echo "Commands:"
-  echo "  init [dir] [--all <folder>] [--no-doctor] [--remote]"
-  echo "                             Install or refresh the harness in a checkout, or in every repository under a folder"
-  echo "  doctor [--no-install]      Check the prerequisites on this machine, install what is missing"
+  echo "Every command takes --help. The machine and the checkouts:"
+  echo "  install, doctor, init, update, version"
+  echo "Inside a repository:"
+  echo "  session-start, graft, rules-check, solution-path"
+  echo ""
+  echo "Commands, from $CORE/bin:"
+  for f in "$CORE"/bin/*.sh; do
+    f="$(basename "$f" .sh)"
+    case "$f" in graft-setup) echo "  graft (graft-setup)" ;; *) echo "  $f" ;; esac
+  done
   echo "  update                     Pull setup-ai-core (git pull --ff-only in $CORE)"
-  echo "  session-start [--json]     The session start of the current repository"
-  echo "  graft [dir]                Build the Graft code graph"
-  echo "  solution-path <file> ...   Validate a solution path"
-  echo "  rules-check [path]         Validate enforcement tags"
   echo "  version                    Print the setup-ai-core version"
   echo "  help                       Show this help message"
 }
@@ -28,13 +30,16 @@ command="${1:-help}"
 [ $# -gt 0 ] && shift
 
 case "$command" in
-  init|doctor|session-start|solution-path|rules-check) exec bash "$CORE/bin/$command.sh" "$@" ;;
   graft) exec bash "$CORE/bin/graft-setup.sh" "$@" ;;
   update)
     echo "--> Updating setup-ai-core at $CORE"
     git -C "$CORE" pull --ff-only
-    echo "--> Run ai-core init in your checkouts to refresh their copies" ;;
+    echo "--> The scripts are current everywhere; run ai-core init in a checkout to refresh its rules" ;;
   version) tr -d '\r\n' < "$CORE/VERSION"; echo ;;
   help|-h|--help) usage ;;
-  *) echo "error: unknown command '$command'" >&2; usage >&2; exit 1 ;;
+  *)
+    if [ -f "$CORE/bin/$command.sh" ]; then
+      exec bash "$CORE/bin/$command.sh" "$@"
+    fi
+    echo "error: unknown command '$command'" >&2; usage >&2; exit 1 ;;
 esac

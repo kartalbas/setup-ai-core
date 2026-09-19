@@ -19,7 +19,7 @@ for arg in "$@"; do
     echo "  -h, --help    Show this help message"
     echo ""
     echo "Examples:"
-    echo "  bash .ai-core/bin/graft-setup.sh ."
+    echo "  ai-core graft"
     exit 0
   fi
 done
@@ -106,5 +106,11 @@ if [ "$RESULT" -ne 0 ]; then
   echo "error: Graft build failed; see the output above. Fix the cause and run this script again, or set GRAFT_EXECUTION_MODE=\"skip\" in $CONFIG_FILE." >&2
   exit 1
 fi
-[ -f "graft/index.md" ] || [ -f "graft/INDEX.md" ] || { echo "error: Graft finished without writing graft/index.md." >&2; exit 1; }
-echo "==> Graft index created at $(pwd)/graft/index.md"
+# One repository gets graft/index.md; a folder of repositories gets a workspace, graft/workspace.json
+if [ -f "graft/workspace.json" ]; then
+  echo "==> Graft workspace created at $(pwd)/graft/workspace.json: one graph over the repositories of this folder"
+elif [ -f "graft/index.md" ] || [ -f "graft/INDEX.md" ]; then
+  echo "==> Graft index created at $(pwd)/graft/index.md"
+else
+  echo "error: Graft finished without writing graft/index.md." >&2; exit 1
+fi

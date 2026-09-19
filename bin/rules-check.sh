@@ -17,7 +17,7 @@ for arg in "$@"; do
   echo "  -h, --help    Show this help message"
   echo ""
   echo "Examples:"
-  echo "  bash .ai-core/bin/rules-check.sh"
+  echo "  ai-core rules-check"
   echo "  bash bin/rules-check.sh rules"
   exit 0
   fi

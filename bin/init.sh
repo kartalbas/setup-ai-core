@@ -1,56 +1,44 @@
 #!/usr/bin/env bash
-# Bootstrap a target repository with setup-ai-core agnostic harness
+# Install or refresh the harness in a checkout, in a project folder, or in every repository
+# under a folder. The scripts stay in the setup-ai-core clone and run as `ai-core <command>`;
+# a checkout receives only data: the assembled rules, the configuration and the agent files.
 #
-#   init.sh [TARGET_DIR] [--all <folder>] [--no-doctor] [--remote]
-#
-# Supports:
-# - Claude Code (.claude)
-# - OpenHands (.openhands)
-# - OpenAI Codex & OpenCode (AGENTS.md)
-# - Google Antigravity (.gemini & AGENTS.md)
-# - Cursor (.cursorrules)
-# - Windsurf (.windsurfrules)
-# - Aider (.aider.conf.yml)
-# - GitHub Copilot (.github/copilot-instructions.md)
+#   init.sh [TARGET_DIR] [--all <folder>] [--no-doctor]
 #
 set -euo pipefail
 
 for arg in "$@"; do
   if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
-    echo "Usage: init.sh [TARGET_DIR] [--all <folder>] [--no-doctor] [--remote]"
+    echo "Usage: init.sh [TARGET_DIR] [--all <folder>] [--no-doctor]"
     echo ""
-    echo "Bootstraps a target repository with the setup-ai-core agnostic harness."
+    echo "Installs or refreshes the harness in TARGET_DIR (default: the current directory):"
+    echo "the assembled rules and the configuration in .ai-core/, the agent files (AGENTS.md,"
+    echo ".claude/settings.json, ...) created once, everything registered in .git/info/exclude,"
+    echo "and the Graft code graph. A folder that is no repository but holds repositories is a"
+    echo "project folder: it gets an AGENTS.md that lists them."
     echo ""
     echo "Options:"
     echo "  -h, --help       Show this help message"
-    echo "  --all <folder>   Run init in every git repository directly under <folder>"
+    echo "  --all <folder>   Init the folder itself and every git repository directly under it"
     echo "  --no-doctor      Do not run doctor first"
-    echo "  --remote         Force remote mode (download from GitHub even if local repo exists)"
     echo ""
     echo "Examples:"
-    echo "  bash init.sh ."
-    echo "  bash init.sh ../my-project"
-    echo "  bash init.sh --all ../my-org"
+    echo "  ai-core init"
+    echo "  ai-core init ../my-project"
+    echo "  ai-core init --all ../my-org"
     exit 0
   fi
 done
 
-# A local clone is recognised by templates/ and VERSION next to bin/; a deployed
-# .ai-core/ has neither. BASH_SOURCE is empty when the script is piped into bash.
-CORE_ROOT=""
-if [ -n "${BASH_SOURCE[0]:-}" ]; then
-  CANDIDATE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-  [ -d "$CANDIDATE/templates" ] && [ -f "$CANDIDATE/VERSION" ] && CORE_ROOT="$CANDIDATE"
-fi
+CORE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+[ -d "$CORE_ROOT/templates" ] && [ -f "$CORE_ROOT/VERSION" ] || { echo "error: $CORE_ROOT is not a clone of setup-ai-core; run init from the clone (ai-core init)" >&2; exit 1; }
 
 TARGET="."
-REMOTE_MODE=0
 RUN_DOCTOR=1
 ALL_DIR=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --remote) REMOTE_MODE=1 ;;
     --no-doctor) RUN_DOCTOR=0 ;;
     --all) shift; [ $# -gt 0 ] || { echo "error: --all needs a folder" >&2; exit 1; }; ALL_DIR="$1" ;;
     -*)       echo "error: unknown option '$1' (see --help)" >&2; exit 1 ;;
@@ -59,60 +47,51 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-# --all: doctor once, then init in every git repository directly under the folder
+# The prerequisites first; nothing is deployed on a machine that cannot run the harness
+if [ "$RUN_DOCTOR" -eq 1 ]; then
+  bash "$CORE_ROOT/bin/doctor.sh" || { echo "error: fix the problems doctor reported, then run init again (or pass --no-doctor)." >&2; exit 1; }
+fi
+
+# --all: every git repository directly under the folder, then the folder itself
 if [ -n "$ALL_DIR" ]; then
   ALL_DIR="$(cd "$ALL_DIR" && pwd)"
-  if [ "$RUN_DOCTOR" -eq 1 ]; then
-    bash "$(dirname "${BASH_SOURCE[0]}")/doctor.sh" || { echo "error: fix the problems doctor reported, then run init again (or pass --no-doctor)." >&2; exit 1; }
-  fi
   OK=0; FAILED=""
   for repo in "$ALL_DIR"/*/; do
     repo="${repo%/}"
     [ -e "$repo/.git" ] || continue
     echo ""; echo "### $(basename "$repo")"
-    ARGS=("$repo" --no-doctor); [ "$REMOTE_MODE" -eq 1 ] && ARGS+=(--remote)
-    if bash "${BASH_SOURCE[0]}" "${ARGS[@]}"; then OK=$((OK + 1)); else FAILED="$FAILED $(basename "$repo")"; fi
+    if bash "${BASH_SOURCE[0]}" "$repo" --no-doctor; then OK=$((OK + 1)); else FAILED="$FAILED $(basename "$repo")"; fi
   done
+  echo ""; echo "### $(basename "$ALL_DIR") (the folder itself)"
+  bash "${BASH_SOURCE[0]}" "$ALL_DIR" --no-doctor || FAILED="$FAILED $(basename "$ALL_DIR")/"
   echo ""; echo "==> init --all: $OK repositories initialized${FAILED:+; failed:$FAILED}"
   [ -z "$FAILED" ]
   exit $?
 fi
 
 TARGET="$(cd "$TARGET" && pwd)"
-ARCHIVE_URL="https://github.com/kartalbas/setup-ai-core/archive/refs/heads/main.tar.gz"
 
-echo "=================================================="
-echo "Initializing Agnostic AI Core Harness in: $TARGET"
-echo "Target Environment : Agnostic (Multi-Agent)"
-echo "=================================================="
-
-# Source: the local clone, or one archive download so remote installs get the same files
-if [ -z "$CORE_ROOT" ] || [ "$REMOTE_MODE" -eq 1 ]; then
-  SRC_TMP="$(mktemp -d)"
-  trap 'rm -rf "$SRC_TMP"' EXIT
-  echo "--> Downloading setup-ai-core ($ARCHIVE_URL)..."
-  curl -sSfL "$ARCHIVE_URL" | tar -xz -C "$SRC_TMP"
-  CORE_ROOT="$SRC_TMP/setup-ai-core-main"
-else
-  echo "--> Deploying from local clone: $CORE_ROOT"
+# A project folder is no git work tree and holds git checkouts directly below it
+PROJECT_FOLDER=0
+if ! git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  for d in "$TARGET"/*/; do [ -e "$d.git" ] && { PROJECT_FOLDER=1; break; }; done
 fi
 
-# The prerequisites first; nothing is deployed on a machine that cannot run the harness
-if [ "$RUN_DOCTOR" -eq 1 ]; then
-  bash "$CORE_ROOT/bin/doctor.sh" || { echo "error: fix the problems doctor reported, then run init again (or pass --no-doctor)." >&2; exit 1; }
-fi
+echo "=================================================="
+echo "Initializing the harness in: $TARGET"
+[ "$PROJECT_FOLDER" -eq 1 ] && echo "A project folder: the repositories below it get their own init"
+echo "=================================================="
+echo "--> From $CORE_ROOT"
 
-# Ensure target isolation directory exists (.ai-core)
 AI_CORE_DIR="$TARGET/.ai-core"
-AI_CORE_BIN="$AI_CORE_DIR/bin"
 AI_CORE_RULES="$AI_CORE_DIR/rules"
-AI_CORE_DOCS="$AI_CORE_DIR/docs"
+mkdir -p "$AI_CORE_RULES" "$AI_CORE_DIR/docs"
+# Earlier versions copied the scripts into the checkout; they run from the clone now
+rm -rf "$AI_CORE_DIR/bin"
 
-mkdir -p "$AI_CORE_DIR" "$AI_CORE_BIN" "$AI_CORE_RULES" "$AI_CORE_DOCS"
-
-# 1. Deploy Rules, Automation Scripts and VERSION (always refreshed).
-#    The rules are one file per section in setup-ai-core and one assembled file in the checkout,
-#    each section headed by a comment that names its source.
+# 1. Managed files, refreshed on every run: the rules, one file per section in setup-ai-core and
+#    one assembled file in the checkout, each section headed by a comment naming its source; the
+#    skills pointer; VERSION.
 CORE_VERSION="$(tr -d '\r\n' < "$CORE_ROOT/VERSION")"
 {
   for f in "$CORE_ROOT"/rules/[0-9][0-9]-*.md; do
@@ -122,15 +101,13 @@ CORE_VERSION="$(tr -d '\r\n' < "$CORE_ROOT/VERSION")"
   done
 } > "$AI_CORE_RULES/rules.md"
 cp -f "$CORE_ROOT/rules/skills.md" "$AI_CORE_RULES/skills.md"
-# init itself is not deployed: run from the target it would treat .ai-core as its source
-for s in session-start solution-path rules-check install-skills graft-setup; do
-  cp -f "$CORE_ROOT/bin/$s.sh" "$CORE_ROOT/bin/$s.ps1" "$AI_CORE_BIN/"
-done
-chmod +x "$AI_CORE_BIN/"*.sh
 cp -f "$CORE_ROOT/VERSION" "$AI_CORE_DIR/VERSION"
 
-# 2. Deploy bridge files, created once and never overwritten: templates/ mirrors the target layout
+# 2. The agent files, created once and never overwritten: templates/ mirrors the target layout.
+#    A project folder's AGENTS.md is generated instead: the list of its repositories, rewritten
+#    on every run because the folder changes.
 (cd "$CORE_ROOT/templates" && find . -type f) | sed 's|^\./||' | while IFS= read -r rel; do
+  [ "$PROJECT_FOLDER" -eq 1 ] && [ "$rel" = "AGENTS.md" ] && continue
   if [ ! -e "$TARGET/$rel" ]; then
     mkdir -p "$(dirname "$TARGET/$rel")"
     cp "$CORE_ROOT/templates/$rel" "$TARGET/$rel"
@@ -139,8 +116,20 @@ cp -f "$CORE_ROOT/VERSION" "$AI_CORE_DIR/VERSION"
     echo "--> Kept $rel (already present)"
   fi
 done
-# The Claude Code helpers are harness code and are always refreshed
-cp -f "$CORE_ROOT/templates/.claude/helpers/"*.cjs "$TARGET/.claude/helpers/"
+if [ "$PROJECT_FOLDER" -eq 1 ]; then
+  {
+    printf '<!-- setup-ai-core %s: written by init for a project folder, rewritten on every run; put your own notes into .ai-core/rules/rules.local.md -->\n' "$CORE_VERSION"
+    printf '# %s\n\n' "$(basename "$TARGET")"
+    printf 'This folder holds git repositories. Each one carries its own map; read `<repository>/AGENTS.md` before you work in it, and run `ai-core session-start` inside it before the first action.\n\n'
+    printf '| repository | map |\n| :--- | :--- |\n'
+    for d in "$TARGET"/*/; do
+      d="${d%/}"; [ -e "$d/.git" ] || continue
+      printf '| `%s` | `%s/AGENTS.md` |\n' "$(basename "$d")" "$(basename "$d")"
+    done
+    printf '\nThe rules that bind every repository here: `.ai-core/rules/rules.md` (managed by the harness) and `.ai-core/rules/rules.local.md` (this project'"'"'s own, which wins).\n'
+  } > "$TARGET/AGENTS.md"
+  echo "--> Wrote AGENTS.md (the repositories of this folder)"
+fi
 
 # 3. Keep the harness out of the repository's history: every deployed path goes into the
 #    clone's own exclude file, which no commit ever contains. Worktrees share it.
@@ -161,19 +150,13 @@ else
   echo "note: $TARGET is not a git repository; nothing to exclude"
 fi
 
-# 4. Skills pointer and the Graft code graph. Graft is built with the local Node.js or the
-#    whole init fails; there is no fallback.
-echo "--> Installing / verifying agent skills..."
-(cd "$TARGET" && bash "$AI_CORE_BIN/install-skills.sh")
-
-echo "--> Setting up Graft code intelligence..."
-if ! bash "$AI_CORE_BIN/graft-setup.sh" "$TARGET"; then
-  echo "error: the harness files are in place but the Graft code graph is not (see above). Fix the cause and run 'bash .ai-core/bin/graft-setup.sh', or set GRAFT_EXECUTION_MODE=\"skip\" in .ai-core/config.env." >&2
+# 4. The Graft code graph, built with the local Node.js or the whole init fails; no fallback.
+echo "--> Graft"
+if ! bash "$CORE_ROOT/bin/graft-setup.sh" "$TARGET"; then
+  echo "error: the harness files are in place but the Graft code graph is not (see above). Fix the cause and run 'ai-core graft', or set GRAFT_EXECUTION_MODE=\"skip\" in .ai-core/config.env." >&2
   exit 1
 fi
 
 echo "=================================================="
-echo "✓ Agnostic AI Core Harness successfully initialized!"
-echo "Supported Agents: Claude Code, OpenHands, Codex, Antigravity, Cursor, Windsurf, Aider"
-echo "Run 'bash .ai-core/bin/session-start.sh' to verify."
+echo "✓ Harness $CORE_VERSION in place. Run 'ai-core session-start' here to verify."
 echo "=================================================="

@@ -21,7 +21,7 @@ if ($Help -or $args -contains "-h" -or $args -contains "--help" -or $RulesFile -
   Write-Host "  -Help              Show this help message"
   Write-Host ""
   Write-Host "Examples:"
-  Write-Host "  pwsh -File .ai-core/bin/rules-check.ps1"
+  Write-Host "  ai-core rules-check"
   Write-Host "  pwsh -File bin/rules-check.ps1 -RulesFile rules"
   exit 0
 }

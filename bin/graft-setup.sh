@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Build the Graft code graph of the target repository, natively or not at all.
 #
-#   graft-setup.sh [TARGET_DIR]
+#   graft-setup.sh [TARGET_DIR] [--dry-run]
 #
 set -euo pipefail
 
 for arg in "$@"; do
   if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
-    echo "Usage: graft-setup.sh [TARGET_DIR]"
+    echo "Usage: graft-setup.sh [TARGET_DIR] [--dry-run]"
     echo ""
     echo "Wires Graft into the agents on this machine (graft init -y --no-build, no picker) and builds"
     echo "the code graph with the Node.js on this machine (npx -y @nanonets/graft build)."
@@ -18,18 +18,47 @@ for arg in "$@"; do
     echo "Whatever Graft writes into the repository is recorded in .git/info/exclude, so it is never committed."
     echo ""
     echo "Options:"
+    echo "  --dry-run     Report what Graft would write, in the repository and on the machine; build nothing"
     echo "  -h, --help    Show this help message"
     echo ""
     echo "Examples:"
     echo "  ai-core graft"
+    echo "  ai-core graft --dry-run"
     exit 0
   fi
 done
 
-TARGET="${1:-.}"
+TARGET="."; DRY=0
+for arg in "$@"; do
+  case "$arg" in --dry-run) DRY=1 ;; -*) echo "error: unknown argument '$arg' (see --help)" >&2; exit 2 ;; *) TARGET="$arg" ;; esac
+done
 cd "$TARGET"
+# Graft's own lines "✓ what: path (state)" are read for the report: what it wrote into the
+# repository and what on the machine (a path under the home directory), and with which state
+HOME_WIN="$(cygpath -w "$HOME" 2>/dev/null || echo "$HOME")"
+report_graft() {  # report_graft <graft output file>
+  local file="$1" repo="" machine="" line path state here here_win
+  here="$(pwd)"; here_win="$(cygpath -w "$here" 2>/dev/null || echo "$here")"
+  while IFS= read -r line; do
+    line="${line%$'\r'}"
+    case "$line" in
+      "✓ wrote "*) path="${line#✓ wrote }"; state="wrote" ;;
+      ✓*": "*"("*")") path="${line#*: }"; state="${path##*(}"; state="${state%)}"; path="${path% (*}" ;;
+      *) continue ;;
+    esac
+    case "$state" in created|updated|appended|wrote) ;; *) continue ;; esac
+    case "$path" in
+      "$here_win\\"*|"$here/"*) path="${path#"$here_win"\\}"; path="${path#"$here"/}"; repo="$repo"$'\n'"    $path ($state)" ;;
+      "$HOME"*|"$HOME_WIN"*|"~"*) machine="$machine"$'\n'"    $path ($state)" ;;
+      *) repo="$repo"$'\n'"    $path ($state)" ;;
+    esac
+  done < "$file"
+  [ -z "$repo" ] || echo "  Graft wrote in the repository:$repo"
+  [ -z "$machine" ] || echo "  Graft wrote on the machine:$machine"
+}
 
 CONFIG_FILE=".ai-core/config.env"
+TMP_OUT="$(mktemp)"; trap 'rm -f "$TMP_OUT"' EXIT
 GRAFT_EXECUTION_MODE="native"
 AGENTS=""
 
@@ -91,6 +120,15 @@ write_block() {
   } > "$EXCLUDE.tmp" && mv "$EXCLUDE.tmp" "$EXCLUDE"
 }
 snapshot() { git status --porcelain --untracked-files=all 2>/dev/null || true; }
+# --dry-run: what Graft would write, in the repository and on the machine, and nothing built
+if [ "$DRY" -eq 1 ]; then
+  npx -y @nanonets/graft "${GRAFT_INIT[@]}" --dry-run > "$TMP_OUT" 2>&1 || true
+  echo "  Graft would write (init):"
+  sed -n '/^would write/,/^$/p' "$TMP_OUT" | sed 's/^/    /'
+  echo "  Graft would build the graph into graft/ (not done: dry run)"
+  exit 0
+fi
+
 if [ -n "$EXCLUDE" ]; then
   if [ -f "$EXCLUDE" ]; then
     while IFS= read -r line; do [ -n "$line" ] && add_line "$line"; done <<< "$(awk '/^# setup-ai-core graft start/{b=1; next} /^# setup-ai-core graft end/{b=0} b' "$EXCLUDE")"
@@ -101,9 +139,12 @@ if [ -n "$EXCLUDE" ]; then
   BEFORE="$(snapshot)"
 fi
 
-echo "==> Graft: building the code graph with npx -y @nanonets/graft..."
+# Graft's own output is kept and shown whole only when something fails; what it changed is
+# reported in two lines afterwards
+echo "==> Graft: wiring the agents and building the code graph (npx -y @nanonets/graft)..."
 RESULT=0
-{ npx -y @nanonets/graft "${GRAFT_INIT[@]}" && npx -y @nanonets/graft build; } || RESULT=1
+{ npx -y @nanonets/graft "${GRAFT_INIT[@]}" && npx -y @nanonets/graft build; } > "$TMP_OUT" 2>&1 || RESULT=1
+if [ "$RESULT" -ne 0 ]; then cat "$TMP_OUT"; fi
 
 if [ -n "$EXCLUDE" ]; then
   CHANGED=""
@@ -123,6 +164,8 @@ if [ "$RESULT" -ne 0 ]; then
   echo "error: Graft build failed; see the output above. Fix the cause and run this script again, or set GRAFT_EXECUTION_MODE=\"skip\" in $CONFIG_FILE." >&2
   exit 1
 fi
+report_graft "$TMP_OUT"
+grep -a '^✓ wiring:' "$TMP_OUT" | tail -1 | sed 's/^✓ wiring: /  Graft graph: /' || true
 # One repository gets graft/index.md; a folder of repositories gets a workspace, graft/workspace.json
 if [ -f "graft/workspace.json" ]; then
   echo "==> Graft workspace created at $(pwd)/graft/workspace.json: one graph over the repositories of this folder"

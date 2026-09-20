@@ -118,8 +118,12 @@ bash "$ROOT/bin/rules-check.sh" "$WORK/sh/.ai-core/rules/rules.md" > /dev/null |
 echo "  $SECTIONS sections assembled"
 
 echo "==> second run creates nothing"
-bash "$ROOT/bin/init.sh" "$WORK/sh" --no-doctor 2>&1 | grep -q 'Created' && fail "init.sh is not idempotent"
-pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/ps1")" -NoDoctor 2>&1 | grep -aq 'Created' && fail "init.ps1 is not idempotent"
+bash "$ROOT/bin/init.sh" "$WORK/sh" --no-doctor > "$WORK/sh-2.log" 2>&1 || fail "init.sh second run"
+pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/ps1")" -NoDoctor > "$WORK/ps1-2.log" 2>&1 || fail "init.ps1 second run"
+for t in sh ps1; do
+  grep -aqE '^  (created|refreshed|removed) ' "$WORK/$t-2.log" && fail "init.$t is not idempotent: $(grep -aE '^  (created|refreshed|removed) ' "$WORK/$t-2.log")"
+  grep -aq '^  unchanged  [1-9][0-9]* file(s)$' "$WORK/$t-2.log" || fail "init.$t second run did not report the unchanged files"
+done
 (cd "$WORK/sh" && find . -type f | sort) | diff - "$WORK/sh.list" > /dev/null || fail "init.sh changed the file set on re-run"
 
 echo "==> session-start in each target"
@@ -210,13 +214,13 @@ cat > "$WORK/graftbin/npx" <<'EOF'
 echo "$*" >> "$GRAFT_FAKE_LOG"
 case "$*" in *--dry-run*) printf 'would write - this repo:\n  GEMINI.md               fenced graft section\n  .gemini\\settings.json   mcpServers.graft\n\nwould write - your machine, affects ALL repos:\n  ~\\.codex\\config.toml   [mcp_servers.graft]\n' >&2; exit 0 ;; esac
 case "$3" in
-  init) echo graft > GEMINI.md; mkdir -p .gemini; echo '{}' > .gemini/settings.json; echo graft >> AGENTS.md; echo graft >> README.md ;;
-  build) mkdir -p graft; echo index > graft/index.md ;;
+  init) echo graft > GEMINI.md; mkdir -p .gemini; echo '{}' > .gemini/settings.json; echo graft >> AGENTS.md; echo graft >> README.md; printf '\342\234\223 agents: %s/AGENTS.md (appended)\n\342\234\223 mcp codex: ~/.codex/config.toml (updated)\n' "$(pwd)" ;;
+  build) mkdir -p graft; echo index > graft/index.md; printf '\342\234\223 wiring: 2 nodes (1 file, 1 function), 1 edges, 1 cards [javascript]\n' ;;
 esac
 exit 0
 EOF
 chmod +x "$WORK/graftbin/npx"
-printf '@echo %%* >> "%%GRAFT_FAKE_LOG%%"\r\n@set DRY=0\r\n@for %%%%a in (%%*) do @if "%%%%a"=="--dry-run" set DRY=1\r\n@if "%%DRY%%"=="1" (echo would write - this repo:& echo   GEMINI.md               fenced graft section& echo   .gemini\\settings.json   mcpServers.graft& echo.& echo would write - your machine, affects ALL repos:& echo   ~\\.codex\\config.toml   [mcp_servers.graft]) 1>&2 & exit /b 0\r\n@if "%%3"=="init" (echo graft> GEMINI.md & mkdir .gemini 2>nul & echo {}> .gemini\\settings.json & echo graft>> AGENTS.md & echo graft>> README.md)\r\n@if "%%3"=="build" (mkdir graft 2>nul & echo index> graft\\index.md)\r\n@exit /b 0\r\n' > "$WORK/graftbin/npx.cmd"
+printf '@echo %%* >> "%%GRAFT_FAKE_LOG%%"\r\n@set DRY=0\r\n@for %%%%a in (%%*) do @if "%%%%a"=="--dry-run" set DRY=1\r\n@if "%%DRY%%"=="1" (echo would write - this repo:& echo   GEMINI.md               fenced graft section& echo   .gemini\\settings.json   mcpServers.graft& echo.& echo would write - your machine, affects ALL repos:& echo   ~\\.codex\\config.toml   [mcp_servers.graft]) 1>&2 & exit /b 0\r\n@if "%%3"=="init" (echo graft> GEMINI.md & mkdir .gemini 2>nul & echo {}> .gemini\\settings.json & echo graft>> AGENTS.md & echo graft>> README.md & echo \342\234\223 agents: %%CD%%\\AGENTS.md (appended^)& echo \342\234\223 mcp codex: ~\\.codex\\config.toml (updated^))\r\n@if "%%3"=="build" (mkdir graft 2>nul & echo index> graft\\index.md & echo \342\234\223 wiring: 2 nodes (1 file, 1 function^), 1 edges, 1 cards [javascript])\r\n@exit /b 0\r\n' > "$WORK/graftbin/npx.cmd"
 for twin in sh ps1; do
   git init -q "$WORK/graft-$twin"
   echo readme > "$WORK/graft-$twin/README.md"
@@ -242,6 +246,58 @@ for twin in sh ps1; do
   [ "$(grep -c '^# setup-ai-core graft start' "$WORK/graft-$twin/.git/info/exclude")" = 1 ] || fail "Graft exclude block written more than once by init.$twin"
 done
 echo "  both twins: no picker, GEMINI.md (there before) and .gemini/ excluded after two runs, README.md named"
+
+echo "==> the report and --dry-run: a dry run writes nothing and says what a run would do; a run and a second run report the same on both twins"
+init_twin() {  # init_twin <sh|ps1> <dir> <log> [--dry-run]: init with the fake Graft on the PATH
+  local twin="$1" dir="$2" log="$3"; shift 3
+  if [ "$twin" = sh ]; then
+    GRAFT_FAKE_LOG="$WORK/report.args" PATH="$WORK/graftbin:$PATH" bash "$ROOT/bin/init.sh" "$dir" --no-doctor "$@" > "$log" 2>&1
+  else
+    local ps=(); for a in "$@"; do [ "$a" = --dry-run ] && ps+=(-DryRun); done
+    GRAFT_FAKE_LOG="$(native "$WORK/report.args")" PATH="$WORK/graftbin:$PATH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$dir")" -NoDoctor ${ps[@]+"${ps[@]}"} > "$log" 2>&1
+  fi
+}
+report_of() { sed -n '/^init would change in /,/^====/p; /^init changed in /,/^====/p' "$1" | grep -a '^  ' | tr -d '\r'; }   # the report lines of a log
+for twin in sh ps1; do
+  D="$WORK/report-$twin"; : > "$WORK/report.args"
+  git init -q "$D"; echo readme > "$D/README.md"; git -C "$D" add README.md
+  git -C "$D" -c user.name=check -c user.email=check@localhost commit -q -m init
+  git -C "$D" config core.autocrlf false
+  mkdir -p "$D/.ai-core/bin"; echo old > "$D/.ai-core/bin/left-behind"
+  printf 'AGENTS="claude codex"\n' > "$D/.ai-core/config.env"
+  # 1. the dry run
+  init_twin "$twin" "$D" "$WORK/report-$twin-dry.log" --dry-run || fail "init.$twin --dry-run failed (see $WORK/report-$twin-dry.log)"
+  [ "$(git -C "$D" status --porcelain --untracked-files=all | tr -d '\r' | sort | tr '\n' '|')" = "?? .ai-core/bin/left-behind|?? .ai-core/config.env|" ] || fail "init.$twin --dry-run wrote or removed something: $(git -C "$D" status --porcelain --untracked-files=all | tr '\n' ' ')"
+  [ ! -e "$D/.git/info/exclude" ] || ! grep -q 'setup-ai-core' "$D/.git/info/exclude" || fail "init.$twin --dry-run wrote the exclude file"
+  grep -aq "^init would change in report-$twin:" "$WORK/report-$twin-dry.log" || fail "init.$twin --dry-run has no report"
+  grep -a '^  created ' "$WORK/report-$twin-dry.log" | grep -q 'AGENTS.md' || fail "init.$twin --dry-run does not list AGENTS.md as created"
+  grep -a '^  created ' "$WORK/report-$twin-dry.log" | grep -q '.codex/config.toml' || fail "init.$twin --dry-run does not list the codex file as created"
+  grep -a '^  created ' "$WORK/report-$twin-dry.log" | grep -q '.cursorrules' && fail "init.$twin --dry-run lists the file of an agent the project does not serve"
+  grep -aq '^  removed    .ai-core/bin$' "$WORK/report-$twin-dry.log" || fail "init.$twin --dry-run does not list .ai-core/bin as removed"
+  grep -aq '^  kept       .ai-core/config.env ' "$WORK/report-$twin-dry.log" || fail "init.$twin --dry-run does not list config.env as kept"
+  grep -aq '^  .gitignore would change' "$WORK/report-$twin-dry.log" || fail "init.$twin --dry-run does not say .gitignore would change"
+  grep -aq '^  nothing was written (dry run)$' "$WORK/report-$twin-dry.log" || fail "init.$twin --dry-run does not say that nothing was written"
+  grep -aq '^  Graft would write (init):$' "$WORK/report-$twin-dry.log" && grep -aq '^      GEMINI.md ' "$WORK/report-$twin-dry.log" && grep -aq 'codex.config.toml' "$WORK/report-$twin-dry.log" || fail "init.$twin --dry-run does not show what Graft would write"
+  grep -aq 'Graft would build the graph' "$WORK/report-$twin-dry.log" || fail "init.$twin --dry-run does not say the graph is not built"
+  grep -aq 'graft build' "$WORK/report.args" && fail "init.$twin --dry-run built the graph"
+  # 2. the run: what the dry run announced, done and reported the same way
+  init_twin "$twin" "$D" "$WORK/report-$twin-1.log" || fail "init.$twin run 1 failed (see $WORK/report-$twin-1.log)"
+  [ -f "$D/AGENTS.md" ] && [ ! -e "$D/.ai-core/bin" ] || fail "init.$twin run 1 did not do what the dry run announced"
+  diff <(report_of "$WORK/report-$twin-dry.log" | sed 's/would change/changed/; s/^  nothing was written (dry run)$//' | grep .) <(report_of "$WORK/report-$twin-1.log") > /dev/null || fail "init.$twin: the run reports something else than its dry run announced: $(diff <(report_of "$WORK/report-$twin-dry.log") <(report_of "$WORK/report-$twin-1.log"))"
+  grep -aq '^  Graft wrote in the repository:$' "$WORK/report-$twin-1.log" && grep -aq '^    AGENTS.md (appended)$' "$WORK/report-$twin-1.log" || fail "init.$twin does not report what Graft wrote in the repository: $(grep -a 'Graft' "$WORK/report-$twin-1.log" | tr '\n' '|')"
+  grep -aq '^  Graft wrote on the machine:$' "$WORK/report-$twin-1.log" && grep -aq '^    ~.\.codex.config.toml (updated)$' "$WORK/report-$twin-1.log" || fail "init.$twin does not report what Graft wrote on the machine: $(grep -a 'Graft' "$WORK/report-$twin-1.log" | tr '\n' '|')"
+  grep -aq '^  Graft graph: 2 nodes' "$WORK/report-$twin-1.log" || fail "init.$twin does not report the graph"
+  # 3. the second run: nothing created, refreshed or removed; the exclude file untouched
+  cp "$D/.git/info/exclude" "$WORK/report-$twin.exclude"
+  init_twin "$twin" "$D" "$WORK/report-$twin-2.log" || fail "init.$twin run 2 failed (see $WORK/report-$twin-2.log)"
+  grep -aqE '^  (created|refreshed|removed) ' "$WORK/report-$twin-2.log" && fail "init.$twin run 2 changed something: $(grep -aE '^  (created|refreshed|removed) ' "$WORK/report-$twin-2.log")"
+  grep -aq '^  .gitignore changed' "$WORK/report-$twin-2.log" && fail "init.$twin run 2 changed .gitignore again"
+  cmp -s "$D/.git/info/exclude" "$WORK/report-$twin.exclude" || fail "init.$twin run 2 rewrote the exclude file"
+done
+for run in dry 1 2; do
+  diff <(report_of "$WORK/report-sh-$run.log" | sed 's/report-sh/report-TWIN/') <(report_of "$WORK/report-ps1-$run.log" | sed 's/report-ps1/report-TWIN/') > /dev/null || fail "the report of run $run differs between the twins: $(diff <(report_of "$WORK/report-sh-$run.log") <(report_of "$WORK/report-ps1-$run.log"))"
+done
+echo "  dry run: nothing written, created/removed/kept/.gitignore and Graft's lists announced; run 1 reports the same; run 2 only unchanged files; identical on both twins"
 
 echo "==> the project harness: created from the skeleton, cloned on another machine, its rules, skills, docs, data and repos/<repo>/ assembled, on both twins"
 # A stand-in gh keeps GitHub on this disk: bare repositories under $GH_FAKE/github.com/<org>/<name>.git
@@ -376,11 +432,16 @@ for twin in sh ps; do
   git init -q "$WORK/all-$twin/broken"; mkdir -p "$WORK/all-$twin/broken/.ai-core"; printf 'GRAFT_EXECUTION_MODE="bogus"\n' > "$WORK/all-$twin/broken/.ai-core/config.env"
   mkdir -p "$WORK/all-$twin/not-a-repo" "$WORK/all-$twin/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$WORK/all-$twin/.ai-core/config.env"
   if [ "$twin" = sh ]; then
+    bash "$ROOT/bin/init.sh" --all "$WORK/all-$twin" --no-doctor --dry-run > "$WORK/all-$twin-dry.log" 2>&1 && fail "init.sh --all --dry-run exited 0 with a failing repository"
     bash "$ROOT/bin/init.sh" --all "$WORK/all-$twin" --no-doctor > "$WORK/all-$twin.log" 2>&1 && fail "init.sh --all exited 0 with a failing repository"
   else
+    pwsh -NoProfile -File "$ROOT/bin/init.ps1" -All "$(native "$WORK/all-$twin")" -NoDoctor -DryRun > "$WORK/all-$twin-dry.log" 2>&1 && fail "init.ps1 -All -DryRun exited 0 with a failing repository"
     pwsh -NoProfile -File "$ROOT/bin/init.ps1" -All "$(native "$WORK/all-$twin")" -NoDoctor > "$WORK/all-$twin.log" 2>&1 && fail "init.ps1 -All exited 0 with a failing repository"
   fi
-  grep -aq '2 repositories initialized; failed: broken' "$WORK/all-$twin.log" || fail "init --all summary wrong for $twin: $(grep -a 'repositories initialized' "$WORK/all-$twin.log")"
+  grep -aq '2 repositories would be initialized; failed: broken' "$WORK/all-$twin-dry.log" || fail "init --all --dry-run summary wrong for $twin: $(grep -a 'repositories' "$WORK/all-$twin-dry.log")"
+  [ "$(grep -ac '^init would change in ' "$WORK/all-$twin-dry.log")" = 3 ] || fail "init --all --dry-run did not report every repository and the folder ($twin)"
+  grep -aq '^  created .*AGENTS.md' "$WORK/all-$twin.log" || fail "init --all did not report what it created ($twin)"
+  grep -aq '2 repositories were initialized; failed: broken' "$WORK/all-$twin.log" || fail "init --all summary wrong for $twin: $(grep -a 'repositories' "$WORK/all-$twin.log")"
   [ -f "$WORK/all-$twin/one/AGENTS.md" ] && [ -f "$WORK/all-$twin/two/AGENTS.md" ] || fail "init --all did not initialize the good repositories ($twin)"
   [ -e "$WORK/all-$twin/not-a-repo/.ai-core" ] && fail "init --all touched a folder that is not a repository ($twin)"
   grep -q 'written by init for a project folder' "$WORK/all-$twin/AGENTS.md" || fail "init --all did not write the project folder's AGENTS.md ($twin)"

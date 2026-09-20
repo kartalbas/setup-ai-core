@@ -1,15 +1,16 @@
 # Build the Graft code graph of the target repository, natively or not at all.
 #
-#   graft-setup.ps1 [-TargetDir <path>]
+#   graft-setup.ps1 [-TargetDir <path>] [-DryRun]
 #
 [CmdletBinding()]
 param (
   [switch]$Help,
-  [string]$TargetDir = "."
+  [string]$TargetDir = ".",
+  [switch]$DryRun
 )
 
 if ($Help -or $args -ccontains "-h" -or $args -ccontains "--help" -or $TargetDir -ceq "--help" -or $TargetDir -ceq "-h") {
-  Write-Host "Usage: graft-setup.ps1 [-TargetDir <path>]"
+  Write-Host "Usage: graft-setup.ps1 [-TargetDir <path>] [-DryRun]"
   Write-Host ""
   Write-Host "Wires Graft into the agents on this machine (graft init -y --no-build, no picker) and builds"
   Write-Host "the code graph with the Node.js on this machine (npx -y @nanonets/graft build)."
@@ -21,15 +22,43 @@ if ($Help -or $args -ccontains "-h" -or $args -ccontains "--help" -or $TargetDir
   Write-Host ""
   Write-Host "Options:"
   Write-Host "  -TargetDir <path>   Target directory"
+  Write-Host "  -DryRun             Report what Graft would write, in the repository and on the machine; build nothing"
   Write-Host "  -Help               Show this help message"
   Write-Host ""
   Write-Host "Examples:"
   Write-Host "  ai-core graft"
+  Write-Host "  ai-core graft -DryRun"
   exit 0
 }
 
 $ErrorActionPreference = 'Stop'
 
+# Graft's own lines "✓ what: path (state)" are read for the report: what it wrote into the
+# repository and what on the machine (a path under the home directory), and with which state
+function Write-GraftReport([string[]]$lines) {
+  $repo = @(); $machine = @()
+  $here = (Get-Location).Path
+  foreach ($line in $lines) {
+    $line = $line.TrimEnd("`r")
+    if ($line.StartsWith('✓ wrote ', [StringComparison]::Ordinal)) { $path = $line.Substring(8); $state = 'wrote' }
+    elseif ($line -cmatch '^✓[^:]*: (.*) \(([^()]*)\)$') { $path = $Matches[1]; $state = $Matches[2] }
+    else { continue }
+    if ($state -cnotin @('created', 'updated', 'appended', 'wrote')) { continue }
+    $inRepo = $false
+    foreach ($sep in @('\', '/')) { if ($path.StartsWith($here + $sep, [StringComparison]::Ordinal)) { $path = $path.Substring($here.Length + 1); $inRepo = $true } }
+    if (-not $inRepo -and ($path.StartsWith($HOME, [StringComparison]::Ordinal) -or $path.StartsWith('~', [StringComparison]::Ordinal))) {
+      $machine += "    $path ($state)"
+    } else {
+      $repo += "    $path ($state)"
+    }
+  }
+  if ($repo.Count -gt 0) { Write-Host "  Graft wrote in the repository:"; foreach ($r in $repo) { Write-Host $r } }
+  if ($machine.Count -gt 0) { Write-Host "  Graft wrote on the machine:"; foreach ($m in $machine) { Write-Host $m } }
+}
+
+# Graft prints UTF-8; the console decodes what it prints, so it decodes UTF-8 while this runs
+$consoleEncoding = [Console]::OutputEncoding
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
 Push-Location $TargetDir
 try {
   $configFile = ".ai-core\config.env"
@@ -97,6 +126,21 @@ try {
     [System.IO.File]::WriteAllText($exclude, (($kept + $block) -join "`n") + "`n")
   }
   function Get-Snapshot { try { @(git status --porcelain --untracked-files=all 2>$null) } catch { @() } }
+  # -DryRun: what Graft would write, in the repository and on the machine, and nothing built
+  if ($DryRun) {
+    $out = @(); try { $out = @(& npx -y @nanonets/graft @graftInit --dry-run 2>&1 | ForEach-Object { "$_" }) } catch { $out = @() }
+    Write-Host "  Graft would write (init):"
+    $inSection = $false
+    foreach ($line in $out) {
+      $line = $line.TrimEnd("`r")
+      if ($line.StartsWith('would write', [StringComparison]::Ordinal)) { $inSection = $true }
+      if ($inSection) { Write-Host "    $line" }
+      if ($line -ceq '') { $inSection = $false }
+    }
+    Write-Host "  Graft would build the graph into graft/ (not done: dry run)"
+    exit 0
+  }
+
   if ($exclude) {
     if (Test-Path $exclude) {
       $inBlock = $false
@@ -118,11 +162,14 @@ try {
     $before = Get-Snapshot
   }
 
-  Write-Host "==> Graft: building the code graph with npx -y @nanonets/graft..."
+  # Graft's own output is kept and shown whole only when something fails; what it changed is
+  # reported in two lines afterwards
+  Write-Host "==> Graft: wiring the agents and building the code graph (npx -y @nanonets/graft)..."
   $result = 0
-  & npx -y @nanonets/graft @graftInit
-  if ($LASTEXITCODE -eq 0) { & npx -y @nanonets/graft build }
+  $out = @(& npx -y @nanonets/graft @graftInit 2>&1 | ForEach-Object { "$_" })
+  if ($LASTEXITCODE -eq 0) { $out += @(& npx -y @nanonets/graft build 2>&1 | ForEach-Object { "$_" }) }
   if ($LASTEXITCODE -ne 0) { $result = 1 }
+  if ($result -ne 0) { foreach ($line in $out) { Write-Host $line } }
 
   if ($exclude) {
     $changed = @()
@@ -141,6 +188,9 @@ try {
     Write-Host "error: Graft build failed; see the output above. Fix the cause and run this script again, or set GRAFT_EXECUTION_MODE=`"skip`" in $configFile." -ForegroundColor Red
     exit 1
   }
+  Write-GraftReport $out
+  $wiring = @($out | Where-Object { $_.StartsWith('✓ wiring: ', [StringComparison]::Ordinal) }) | Select-Object -Last 1
+  if ($wiring) { Write-Host "  Graft graph: $($wiring.Substring(10).TrimEnd("`r"))" }
   # One repository gets graft\index.md; a folder of repositories gets a workspace, graft\workspace.json
   if (Test-Path "graft\workspace.json") {
     Write-Host "==> Graft workspace created at $((Get-Location).Path)\graft\workspace.json: one graph over the repositories of this folder" -ForegroundColor Green
@@ -152,4 +202,5 @@ try {
   }
 } finally {
   Pop-Location
+  [Console]::OutputEncoding = $consoleEncoding
 }

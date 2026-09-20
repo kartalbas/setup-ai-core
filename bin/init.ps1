@@ -1,35 +1,39 @@
 # Install or refresh the harness in a checkout, in a project folder, or in every repository
 # under a folder. The scripts stay in the setup-ai-core clone and run as `ai-core <command>`;
 # a checkout receives only data: the assembled rules, the configuration and the agent files.
+# Every file it touches is recorded and reported at the end; -DryRun reports without writing.
 #
-#   init.ps1 [-TargetDir <path>] [-All <folder>] [-NoDoctor]
+#   init.ps1 [-TargetDir <path>] [-All <folder>] [-NoDoctor] [-DryRun]
 #
 [CmdletBinding()]
 param (
   [switch]$Help,
   [string]$TargetDir = ".",
   [string]$All = "",
-  [switch]$NoDoctor
+  [switch]$NoDoctor,
+  [switch]$DryRun
 )
 
 if ($Help -or $args -ccontains "-h" -or $args -ccontains "--help" -or $TargetDir -ceq "--help" -or $TargetDir -ceq "-h") {
-  Write-Host "Usage: init.ps1 [-TargetDir <path>] [-All <folder>] [-NoDoctor]"
+  Write-Host "Usage: init.ps1 [-TargetDir <path>] [-All <folder>] [-NoDoctor] [-DryRun]"
   Write-Host ""
   Write-Host "Installs or refreshes the harness in TargetDir (default: the current directory):"
   Write-Host "the assembled rules and the configuration in .ai-core\, the agent files (AGENTS.md,"
-  Write-Host ".claude\settings.json, ...) created once, everything registered in .git\info\exclude,"
-  Write-Host "and the Graft code graph. A folder that is no repository but holds repositories is a"
-  Write-Host "project folder: it gets an AGENTS.md that lists them."
+  Write-Host ".claude\settings.json, ...) created once, everything registered in .git\info\exclude and"
+  Write-Host "in a block of .gitignore, and the Graft code graph. A folder that is no repository but"
+  Write-Host "holds repositories is a project folder: it gets an AGENTS.md that lists them. The run ends"
+  Write-Host "with what it created, refreshed, kept and removed, and what Graft wrote on the machine."
   Write-Host ""
   Write-Host "Options:"
   Write-Host "  -TargetDir <path>   Target directory (default: current)"
-  Write-Host "  -All <folder>       Init the folder itself and every git repository directly under it"
+  Write-Host "  -All <folder>       Init every git repository directly under the folder, then the folder itself"
   Write-Host "  -NoDoctor           Do not run doctor first"
+  Write-Host "  -DryRun             Report what the run would create, refresh, keep and remove; write nothing"
   Write-Host "  -Help               Show this help message"
   Write-Host ""
   Write-Host "Examples:"
   Write-Host "  ai-core init"
-  Write-Host "  ai-core init -TargetDir ../my-project"
+  Write-Host "  ai-core init -TargetDir ../my-project -DryRun"
   Write-Host "  ai-core init -All ../my-org"
   exit 0
 }
@@ -42,9 +46,11 @@ if (-not ((Test-Path (Join-Path $coreRoot "templates")) -and (Test-Path (Join-Pa
 }
 Import-Module (Join-Path $coreRoot 'lib\Layers.psm1') -Force
 
-# The prerequisites first; nothing is deployed on a machine that cannot run the harness
+# The prerequisites first; nothing is deployed on a machine that cannot run the harness. A dry
+# run installs nothing either.
 if (-not $NoDoctor) {
-  & pwsh -NoProfile -File (Join-Path $coreRoot "bin\doctor.ps1")
+  $doctorArgs = @(); if ($DryRun) { $doctorArgs += '-NoInstall' }
+  & pwsh -NoProfile -File (Join-Path $coreRoot "bin\doctor.ps1") @doctorArgs
   if ($LASTEXITCODE -ne 0) { Write-Host "error: fix the problems doctor reported, then run init again (or pass -NoDoctor)." -ForegroundColor Red; exit 1 }
 }
 
@@ -52,15 +58,16 @@ if (-not $NoDoctor) {
 if ($All) {
   $allDir = (Resolve-Path $All).Path
   $ok = 0; $failed = @()
+  $pass = @('-NoDoctor'); if ($DryRun) { $pass += '-DryRun' }
   foreach ($repo in Get-ChildItem -Path $allDir -Directory | Where-Object { Test-Path (Join-Path $_.FullName ".git") }) {
     Write-Host ""; Write-Host "### $($repo.Name)"
-    & pwsh -NoProfile -File $MyInvocation.MyCommand.Path -TargetDir $repo.FullName -NoDoctor
+    & pwsh -NoProfile -File $MyInvocation.MyCommand.Path -TargetDir $repo.FullName @pass
     if ($LASTEXITCODE -eq 0) { $ok++ } else { $failed += $repo.Name }
   }
   Write-Host ""; Write-Host "### $(Split-Path -Leaf $allDir) (the folder itself)"
-  & pwsh -NoProfile -File $MyInvocation.MyCommand.Path -TargetDir $allDir -NoDoctor
+  & pwsh -NoProfile -File $MyInvocation.MyCommand.Path -TargetDir $allDir @pass
   if ($LASTEXITCODE -ne 0) { $failed += "$(Split-Path -Leaf $allDir)/" }
-  Write-Host ""; Write-Host "==> init -All: $ok repositories initialized$(if ($failed) { '; failed: ' + ($failed -join ' ') })"
+  Write-Host ""; Write-Host "==> init -All: $ok repositories $(if ($DryRun) { 'would be' } else { 'were' }) initialized$(if ($failed) { '; failed: ' + ($failed -join ' ') })"
   if ($failed) { exit 1 } else { exit 0 }
 }
 
@@ -75,10 +82,63 @@ if (-not $inWorkTree) {
 }
 
 Write-Host "==================================================" -ForegroundColor Cyan
-Write-Host "Initializing the harness in: $target" -ForegroundColor Cyan
+Write-Host "Initializing the harness in: $target$(if ($DryRun) { ' (dry run: nothing is written)' })" -ForegroundColor Cyan
 if ($projectFolder) { Write-Host "A project folder: the repositories below it get their own init" -ForegroundColor Cyan }
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host "--> From $coreRoot"
+
+# --- what this run does to the checkout is recorded here and reported at the end -------------
+$report = @{ created = @(); refreshed = @(); kept = @(); removed = @(); tracked = @(); unchanged = 0 }
+function Add-Note([string]$kind, [string]$label) {
+  if ($kind -ceq 'unchanged') { $report.unchanged++ } else { $report[$kind] += $label }
+}
+function Test-SameFile([string]$a, [string]$b) {
+  $x = [System.IO.File]::ReadAllBytes($a); $y = [System.IO.File]::ReadAllBytes($b)
+  return ($x.Length -eq $y.Length) -and [System.Linq.Enumerable]::SequenceEqual($x, $y)
+}
+function Test-SameDir([string]$a, [string]$b) {
+  $a = [System.IO.Path]::GetFullPath($a).TrimEnd('\', '/'); $b = [System.IO.Path]::GetFullPath($b).TrimEnd('\', '/')
+  $fa = @(Get-ChildItem -LiteralPath $a -Recurse -File -Force | ForEach-Object { $_.FullName.Substring($a.Length + 1) } | Sort-Object)
+  $fb = @(Get-ChildItem -LiteralPath $b -Recurse -File -Force | ForEach-Object { $_.FullName.Substring($b.Length + 1) } | Sort-Object)
+  if (($fa -join "`n") -cne ($fb -join "`n")) { return $false }
+  foreach ($f in $fa) { if (-not (Test-SameFile (Join-Path $a $f) (Join-Path $b $f))) { return $false } }
+  return $true
+}
+# Put-File <source> <destination> <label> managed|once: one file, written only when it differs
+function Put-File([string]$src, [string]$dst, [string]$label, [string]$mode) {
+  if (Test-Path -LiteralPath $dst) {
+    if (Test-SameFile $src $dst) { Add-Note unchanged $label; return }
+    if ($mode -ceq 'once') { Add-Note kept $label; return }
+    Add-Note refreshed $label
+  } else {
+    Add-Note created $label
+  }
+  if ($DryRun) { return }
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dst) | Out-Null
+  Copy-Item -LiteralPath $src -Destination $dst -Force
+}
+function Put([string]$src, [string]$rel, [string]$mode) { Put-File $src (Join-Path $target $rel) $rel $mode }   # Put <source> <relative path> managed|once
+# Put-Dir <source dir> <relative dir>: a managed directory, replaced whole
+function Put-Dir([string]$src, [string]$rel) {
+  $dst = Join-Path $target $rel
+  if (Test-Path -LiteralPath $dst) {
+    if (Test-SameDir $src $dst) { Add-Note unchanged "$rel/"; return }
+    Add-Note refreshed "$rel/"
+  } else {
+    Add-Note created "$rel/"
+  }
+  if ($DryRun) { return }
+  if (Test-Path -LiteralPath $dst) { Remove-Item -LiteralPath $dst -Recurse -Force }
+  New-Item -ItemType Directory -Force -Path $dst | Out-Null
+  Copy-Item -Path (Join-Path $src '*') -Destination $dst -Recurse -Force
+}
+# Drop <relative path>: what an earlier version left in the checkout
+function Drop([string]$rel) {
+  $p = Join-Path $target $rel
+  if (-not (Test-Path -LiteralPath $p)) { return }
+  Add-Note removed $rel
+  if (-not $DryRun) { Remove-Item -LiteralPath $p -Recurse -Force }
+}
 
 # The project harness: <org>/<prefix>-ai-core from the checkout's origin, its extends chain
 # base first, cloned or pulled to ~\.<name>-ai-core, created from the skeleton when missing.
@@ -118,19 +178,20 @@ if ($layers.Count -gt 0) {
   Write-Host "--> No project harness: this checkout has no GitHub origin, or the harness could not be had; the generic harness only"
 }
 
+$tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("ai-core-init-" + [System.IO.Path]::GetRandomFileName())
+New-Item -ItemType Directory -Force -Path $tmp | Out-Null
 $aiCoreDir = Join-Path $target ".ai-core"
-$aiCoreRules = Join-Path $aiCoreDir "rules"
-foreach ($dir in @($aiCoreRules, (Join-Path $aiCoreDir "docs"))) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+if (-not $DryRun) { foreach ($dir in @((Join-Path $aiCoreDir 'rules'), (Join-Path $aiCoreDir 'docs'))) { New-Item -ItemType Directory -Force -Path $dir | Out-Null } }
 # Earlier versions copied the scripts into the checkout, and one wrote an MCP file Antigravity
 # never reads; both are removed
-if (Test-Path (Join-Path $aiCoreDir "bin")) { Remove-Item -Recurse -Force (Join-Path $aiCoreDir "bin") }
-if (Test-Path (Join-Path $target ".agents\mcp_config.json")) { Remove-Item -Force (Join-Path $target ".agents\mcp_config.json") }
+Drop '.ai-core/bin'
+Drop '.agents/mcp_config.json'
 
 # 1. Managed files, refreshed on every run, later layer wins: the rules, one file per section in
 #    setup-ai-core and in every layer (the same name replaces, a new name adds), assembled into one
 #    file, each section headed by a comment naming its source; skills.md; VERSION; the skills of
-#    every layer into both skill directories; the docs of every layer; the data files; every file
-#    under repos\<repo>\ of the layers; STAMP with the commit of every layer.
+#    every layer into both skill directories; the agents; the docs of every layer; the data files;
+#    every file under repos\<repo>\ of the layers; STAMP with the commit of every layer.
 $coreVersion = (Get-Content (Join-Path $coreRoot "VERSION") -Raw).Trim()
 $utf8 = New-Object System.Text.UTF8Encoding $false
 $sections = @{}   # name -> @{ Path; Source }
@@ -150,78 +211,66 @@ foreach ($l in $layers) {
   if (Test-Path (Join-Path $l 'rules\skills.md')) { $skillsMd = Join-Path $l 'rules\skills.md' }
   if (Test-Path (Join-Path $l 'skills')) {
     foreach ($s in (Get-ChildItem -Path (Join-Path $l 'skills') -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'SKILL.md') })) {
-      foreach ($dst in @((Join-Path $target ".claude\skills\$($s.Name)"), (Join-Path $target ".agents\skills\$($s.Name)"))) {
-        if (Test-Path $dst) { Remove-Item -Recurse -Force $dst }
-        New-Item -ItemType Directory -Force -Path $dst | Out-Null
-        Copy-Item -Recurse -Force (Join-Path $s.FullName '*') $dst
-      }
-      $layerFiles += @(".claude\skills\$($s.Name)", ".agents\skills\$($s.Name)")
+      Put-Dir $s.FullName ".claude/skills/$($s.Name)"; Put-Dir $s.FullName ".agents/skills/$($s.Name)"
+      $layerFiles += @(".claude/skills/$($s.Name)", ".agents/skills/$($s.Name)")
     }
   }
   if (Test-Path (Join-Path $l 'agents')) {
     foreach ($a in (Get-ChildItem -Path (Join-Path $l 'agents') -File -Filter '*.md')) {
-      New-Item -ItemType Directory -Force -Path (Join-Path $target '.claude\agents') | Out-Null
-      Copy-Item -Force $a.FullName (Join-Path $target ".claude\agents\$($a.Name)"); $layerFiles += ".claude\agents\$($a.Name)"
+      Put $a.FullName ".claude/agents/$($a.Name)" managed; $layerFiles += ".claude/agents/$($a.Name)"
     }
   }
   if ((Test-Path (Join-Path $l 'docs')) -and (Get-ChildItem -Path (Join-Path $l 'docs') -Force | Select-Object -First 1)) {
-    $dd = Join-Path $aiCoreDir "docs\$lname"
-    if (Test-Path $dd) { Remove-Item -Recurse -Force $dd }
-    New-Item -ItemType Directory -Force -Path $dd | Out-Null
-    Copy-Item -Recurse -Force (Join-Path $l 'docs\*') $dd
+    Put-Dir (Join-Path $l 'docs') ".ai-core/docs/$lname"
   }
   foreach ($f in $dataFiles) {
-    if (Test-Path (Join-Path $l $f)) { Copy-Item -Force (Join-Path $l $f) (Join-Path $aiCoreDir $f); $layerFiles += ".ai-core\$f" }
+    if (Test-Path (Join-Path $l $f)) { Put (Join-Path $l $f) ".ai-core/$f" managed; $layerFiles += ".ai-core/$f" }
   }
 }
 # repos\<repo>\ of the innermost layer, in the layout of the checkout; a tracked file is never overwritten
 if ($layers.Count -gt 0 -and $repoName -and (Test-Path (Join-Path $layers[-1] "repos\$repoName"))) {
   $inner = Join-Path $layers[-1] "repos\$repoName"
   foreach ($f in (Get-ChildItem -Path $inner -Recurse -File -Force)) {
-    $rel = $f.FullName.Substring($inner.Length + 1)
-    & git -C $target ls-files --error-unmatch ($rel.Replace('\', '/')) 2>$null | Out-Null
-    if ($LASTEXITCODE -eq 0) { Write-Host "--> Kept $($rel.Replace('\', '/')) (tracked by the repository; repos/$repoName/$($rel.Replace('\', '/')) is not applied)"; $layerFiles += $rel; continue }
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent (Join-Path $target $rel)) | Out-Null
-    Copy-Item -Force $f.FullName (Join-Path $target $rel)
+    $rel = $f.FullName.Substring($inner.Length + 1).Replace('\', '/')
+    & git -C $target ls-files --error-unmatch $rel 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { Add-Note tracked $rel } else { Put $f.FullName $rel managed }
     $layerFiles += $rel
   }
-  Write-Host "--> Applied repos/$repoName/ of $((Split-Path -Leaf $layers[-1]).TrimStart('.'))"
 }
+# A section is written with LF and one blank line after it, whatever the clone it came from
+# checked out, so the two twins and two machines assemble the same bytes
 $assembled = New-Object System.Text.StringBuilder
 foreach ($name in ($sections.Keys | Sort-Object)) {
   [void]$assembled.Append("<!-- $($sections[$name].Source): rules/$name -->`n")
   [void]$assembled.Append((Get-Content $sections[$name].Path -Raw).Replace("`r`n", "`n").TrimEnd() + "`n`n")
 }
-[System.IO.File]::WriteAllText((Join-Path $aiCoreRules "rules.md"), $assembled.ToString(), $utf8)
-Copy-Item -Force $skillsMd (Join-Path $aiCoreRules "skills.md")
-Copy-Item -Force (Join-Path $coreRoot "VERSION") (Join-Path $aiCoreDir "VERSION")
-[System.IO.File]::WriteAllText((Join-Path $aiCoreDir "STAMP"), (($stamp -join "`n") + "`n"), $utf8)
+[System.IO.File]::WriteAllText((Join-Path $tmp 'rules.md'), $assembled.ToString(), $utf8)
+Put (Join-Path $tmp 'rules.md') '.ai-core/rules/rules.md' managed
+Put $skillsMd '.ai-core/rules/skills.md' managed
+Put (Join-Path $coreRoot 'VERSION') '.ai-core/VERSION' managed
+[System.IO.File]::WriteAllText((Join-Path $tmp 'STAMP'), (($stamp -join "`n") + "`n"), $utf8)
+Put (Join-Path $tmp 'STAMP') '.ai-core/STAMP' managed
 
 # 2. The agent files, created once and never overwritten: templates\ mirrors the target layout.
 #    A project folder's AGENTS.md is generated instead: the list of its repositories, rewritten
-#    on every run because the folder changes. The pointer file of an agent the project does not
-#    serve (AGENTS in .ai-core\config.env, or the template's default before the file exists) is
-#    not deployed.
+#    on every run because the folder changes. The file of an agent the project does not serve
+#    (AGENTS in .ai-core\config.env, or the template's default before the file exists) is not
+#    deployed.
 $templates = Join-Path $coreRoot "templates"
 $config = Join-Path $aiCoreDir "config.env"; if (-not (Test-Path $config)) { $config = Join-Path $templates ".ai-core\config.env" }
 $agentsLine = Get-Content $config | Where-Object { $_ -cmatch '^\s*AGENTS\s*=' } | Select-Object -Last 1
 $agents = if ($agentsLine) { ((($agentsLine -split '=', 2)[1] -split '#', 2)[0]).Trim(' ', "`t", "`r", '"', "'").ToLowerInvariant() } else { "" }
 $served = @($agents -split '\s+' | Where-Object { $_ })
 function Test-Serves([string]$agent) { return ($served.Count -eq 0 -or ($served -ccontains $agent)) }
-$pointerOf = @{ '.cursorrules' = 'cursor'; '.windsurfrules' = 'windsurf'; '.github\copilot-instructions.md' = 'copilot'; '.openhands\microagents\repo-rules.md' = 'openhands'; '.codex\config.toml' = 'codex' }
-Get-ChildItem -Path $templates -Recurse -File -Force | ForEach-Object {
-  $rel = $_.FullName.Substring($templates.Length + 1)
-  if ($projectFolder -and $rel -ceq "AGENTS.md") { return }
-  if ($layerFiles -ccontains $rel) { return }
-  if ($pointerOf.ContainsKey($rel) -and -not (Test-Serves $pointerOf[$rel])) { return }
-  $dst = Join-Path $target $rel
-  if (-not (Test-Path $dst)) {
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dst) | Out-Null
-    Copy-Item $_.FullName $dst
-    Write-Host "--> Created $($rel.Replace('\', '/'))"
-  } else {
-    Write-Host "--> Kept $($rel.Replace('\', '/')) (already present)"
-  }
+$pointerOf = @{ '.cursorrules' = 'cursor'; '.windsurfrules' = 'windsurf'; '.github/copilot-instructions.md' = 'copilot'; '.openhands/microagents/repo-rules.md' = 'openhands'; '.codex/config.toml' = 'codex' }
+# the template files in byte order, the order the bash twin lists them in
+$templateFiles = @(Get-ChildItem -Path $templates -Recurse -File -Force | ForEach-Object { $_.FullName.Substring($templates.Length + 1).Replace('\', '/') })
+[Array]::Sort($templateFiles, [StringComparer]::Ordinal)
+foreach ($rel in $templateFiles) {
+  if ($projectFolder -and $rel -ceq "AGENTS.md") { continue }
+  if ($layerFiles -ccontains $rel) { continue }
+  if ($pointerOf.ContainsKey($rel) -and -not (Test-Serves $pointerOf[$rel])) { continue }
+  Put (Join-Path $templates $rel) $rel once
 }
 if ($projectFolder) {
   $map = New-Object System.Text.StringBuilder
@@ -233,8 +282,8 @@ if ($projectFolder) {
     [void]$map.Append("| ``$($_.Name)`` | ``$($_.Name)/AGENTS.md`` |`n")
   }
   [void]$map.Append("`nThe rules that bind every repository here: ``.ai-core/rules/rules.md`` (managed by the harness) and ``.ai-core/rules/rules.local.md`` (this project's own, which wins).`n")
-  [System.IO.File]::WriteAllText((Join-Path $target "AGENTS.md"), $map.ToString(), $utf8)
-  Write-Host "--> Wrote AGENTS.md (the repositories of this folder)"
+  [System.IO.File]::WriteAllText((Join-Path $tmp 'AGENTS.md'), $map.ToString(), $utf8)
+  Put (Join-Path $tmp 'AGENTS.md') 'AGENTS.md' managed
 }
 
 # 3. Keep the harness out of the repository's history: every deployed path goes into the
@@ -245,20 +294,21 @@ try {
   try { $exclude = git rev-parse --git-path info/exclude 2>$null; if ($LASTEXITCODE -ne 0) { $exclude = $null } } catch { $exclude = $null }
   if ($exclude) {
     if (-not [System.IO.Path]::IsPathRooted($exclude)) { $exclude = Join-Path $target $exclude }
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $exclude) | Out-Null
-    $kept = @(); $skip = $false
+    $block = @('# setup-ai-core start: the harness lives in the working tree only, never in a commit', '/.ai-core/', '/.claude/skills/', '/.claude/agents/', '/.agents/')
+    $block += $templateFiles | ForEach-Object { '/' + $_ }
+    $block += '# setup-ai-core end'
+    # The block replaces the one an earlier run wrote, in its place, or is appended
+    $lines = @(); $skip = $false; $written = $false
     if (Test-Path $exclude) {
       foreach ($line in [System.IO.File]::ReadAllLines($exclude)) {
-        if ($line -clike '# setup-ai-core start*') { $skip = $true }
-        if (-not $skip) { $kept += $line }
+        if ($line -clike '# setup-ai-core start*') { $lines += $block; $skip = $true; $written = $true }
+        if (-not $skip) { $lines += $line }
         if ($line -clike '# setup-ai-core end*') { $skip = $false }
       }
     }
-    $block = @('# setup-ai-core start: the harness lives in the working tree only, never in a commit', '/.ai-core/', '/.claude/skills/', '/.claude/agents/', '/.agents/')
-    $block += Get-ChildItem -Path $templates -Recurse -File -Force | ForEach-Object { '/' + $_.FullName.Substring($templates.Length + 1).Replace('\', '/') }
-    $block += '# setup-ai-core end'
-    [System.IO.File]::WriteAllText($exclude, (($kept + $block) -join "`n") + "`n")
-    Write-Host "--> Registered the harness in ${exclude}: nothing to commit"
+    if (-not $written) { $lines += $block }
+    [System.IO.File]::WriteAllText((Join-Path $tmp 'exclude'), ($lines -join "`n") + "`n", $utf8)
+    Put-File (Join-Path $tmp 'exclude') $exclude '.git/info/exclude' managed
   } else {
     Write-Host "note: $target is not a git repository; nothing to exclude"
   }
@@ -269,7 +319,10 @@ try {
 # 3b. The project's .gitignore carries a block naming every file an agent or the harness puts
 #     into a checkout (lib\gitignore-block), so no clone of this repository commits one, with or
 #     without the harness. The block is rewritten between its markers and the rest of the file is
-#     the project's. A changed .gitignore is the one thing init leaves for a commit.
+#     the project's; a path the project already ignores, with or without the slashes, is not
+#     written twice, and when it ignores them all no block is written. A changed .gitignore is
+#     the one thing init leaves for a commit.
+$gitignoreChanged = $false
 if ($inWorkTree) {
   $gi = Join-Path $target ".gitignore"
   $kept = @(); $skip = $false
@@ -280,8 +333,6 @@ if ($inWorkTree) {
       if ($line -clike '# setup-ai-core end*') { $skip = $false }
     }
   }
-  # A path the project already ignores, with or without the slashes, is not written twice; when it
-  # ignores them all, no block is written
   $seen = @{}; foreach ($line in $kept) { if ($line -and -not $line.StartsWith('#', [StringComparison]::Ordinal)) { $seen[$line.Trim().Trim('/')] = $true } }
   $markers = @(); $missing = @()
   foreach ($line in [System.IO.File]::ReadAllLines((Join-Path $coreRoot "lib\gitignore-block"))) {
@@ -292,19 +343,30 @@ if ($inWorkTree) {
   $wanted = (($kept + $block) -join "`n") + "`n"
   $current = if (Test-Path $gi) { [System.IO.File]::ReadAllText($gi).Replace("`r`n", "`n") } else { $null }
   if ($current -cne $wanted) {
-    [System.IO.File]::WriteAllText($gi, $wanted, $utf8)
-    Write-Host "--> .gitignore: the agent files of this repository are ignored; commit .gitignore once"
+    $gitignoreChanged = $true
+    if (-not $DryRun) { [System.IO.File]::WriteAllText($gi, $wanted, $utf8) }
   }
 }
 
 # 4. The Graft code graph, built with the local Node.js or the whole init fails; no fallback.
-Write-Host "--> Graft"
-& pwsh -NoProfile -File (Join-Path $coreRoot "bin\graft-setup.ps1") -TargetDir $target
+$graftArgs = @(); if ($DryRun) { $graftArgs += '-DryRun' }
+& pwsh -NoProfile -File (Join-Path $coreRoot "bin\graft-setup.ps1") -TargetDir $target @graftArgs
 if ($LASTEXITCODE -ne 0) {
   Write-Host "error: the harness files are in place but the Graft code graph is not (see above). Fix the cause and run 'ai-core graft', or set GRAFT_EXECUTION_MODE=`"skip`" in .ai-core/config.env." -ForegroundColor Red
+  Remove-Item -LiteralPath $tmp -Recurse -Force
   exit 1
 }
+Remove-Item -LiteralPath $tmp -Recurse -Force
 
+# 5. The report: what this run did to the checkout, or would do
 Write-Host "==================================================" -ForegroundColor Green
-Write-Host "✓ Harness $coreVersion in place. Run 'ai-core session-start' here to verify." -ForegroundColor Green
+Write-Host "init $(if ($DryRun) { 'would change' } else { 'changed' }) in $(Split-Path -Leaf $target):"
+if ($report.created.Count -gt 0)   { Write-Host "  created    $($report.created -join ', ')" }
+if ($report.refreshed.Count -gt 0) { Write-Host "  refreshed  $($report.refreshed -join ', ')" }
+if ($report.kept.Count -gt 0)      { Write-Host "  kept       $($report.kept -join ', ') (yours: differs from the template, never overwritten)" }
+if ($report.removed.Count -gt 0)   { Write-Host "  removed    $($report.removed -join ', ')" }
+if ($report.tracked.Count -gt 0)   { Write-Host "  tracked    $($report.tracked -join ', ') (the repository commits these; repos/$repoName/ is not applied to them)" }
+Write-Host "  unchanged  $($report.unchanged) file(s)"
+if ($gitignoreChanged) { Write-Host "  .gitignore $(if ($DryRun) { 'would change' } else { 'changed' }): the agent files of this repository are ignored; commit it once" }
+if ($DryRun) { Write-Host "  nothing was written (dry run)" } else { Write-Host "✓ Harness $coreVersion in place. Run 'ai-core session-start' here to verify." -ForegroundColor Green }
 Write-Host "==================================================" -ForegroundColor Green

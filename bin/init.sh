@@ -2,29 +2,32 @@
 # Install or refresh the harness in a checkout, in a project folder, or in every repository
 # under a folder. The scripts stay in the setup-ai-core clone and run as `ai-core <command>`;
 # a checkout receives only data: the assembled rules, the configuration and the agent files.
+# Every file it touches is recorded and reported at the end; --dry-run reports without writing.
 #
-#   init.sh [TARGET_DIR] [--all <folder>] [--no-doctor]
+#   init.sh [TARGET_DIR] [--all <folder>] [--no-doctor] [--dry-run]
 #
 set -euo pipefail
 
 for arg in "$@"; do
   if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
-    echo "Usage: init.sh [TARGET_DIR] [--all <folder>] [--no-doctor]"
+    echo "Usage: init.sh [TARGET_DIR] [--all <folder>] [--no-doctor] [--dry-run]"
     echo ""
     echo "Installs or refreshes the harness in TARGET_DIR (default: the current directory):"
     echo "the assembled rules and the configuration in .ai-core/, the agent files (AGENTS.md,"
-    echo ".claude/settings.json, ...) created once, everything registered in .git/info/exclude,"
-    echo "and the Graft code graph. A folder that is no repository but holds repositories is a"
-    echo "project folder: it gets an AGENTS.md that lists them."
+    echo ".claude/settings.json, ...) created once, everything registered in .git/info/exclude and"
+    echo "in a block of .gitignore, and the Graft code graph. A folder that is no repository but"
+    echo "holds repositories is a project folder: it gets an AGENTS.md that lists them. The run ends"
+    echo "with what it created, refreshed, kept and removed, and what Graft wrote on the machine."
     echo ""
     echo "Options:"
     echo "  -h, --help       Show this help message"
-    echo "  --all <folder>   Init the folder itself and every git repository directly under it"
+    echo "  --all <folder>   Init every git repository directly under the folder, then the folder itself"
     echo "  --no-doctor      Do not run doctor first"
+    echo "  --dry-run        Report what the run would create, refresh, keep and remove; write nothing"
     echo ""
     echo "Examples:"
     echo "  ai-core init"
-    echo "  ai-core init ../my-project"
+    echo "  ai-core init ../my-project --dry-run"
     echo "  ai-core init --all ../my-org"
     exit 0
   fi
@@ -37,10 +40,12 @@ CORE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET="."
 RUN_DOCTOR=1
 ALL_DIR=""
+DRY=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-doctor) RUN_DOCTOR=0 ;;
+    --dry-run) DRY=1 ;;
     --all) shift; [ $# -gt 0 ] || { echo "error: --all needs a folder" >&2; exit 1; }; ALL_DIR="$1" ;;
     -*)       echo "error: unknown option '$1' (see --help)" >&2; exit 1 ;;
     *)        TARGET="$1" ;;
@@ -48,24 +53,27 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-# The prerequisites first; nothing is deployed on a machine that cannot run the harness
+# The prerequisites first; nothing is deployed on a machine that cannot run the harness. A dry
+# run installs nothing either.
 if [ "$RUN_DOCTOR" -eq 1 ]; then
-  bash "$CORE_ROOT/bin/doctor.sh" || { echo "error: fix the problems doctor reported, then run init again (or pass --no-doctor)." >&2; exit 1; }
+  DOCTOR_ARGS=(); [ "$DRY" -eq 1 ] && DOCTOR_ARGS+=(--no-install)
+  bash "$CORE_ROOT/bin/doctor.sh" ${DOCTOR_ARGS[@]+"${DOCTOR_ARGS[@]}"} || { echo "error: fix the problems doctor reported, then run init again (or pass --no-doctor)." >&2; exit 1; }
 fi
 
 # --all: every git repository directly under the folder, then the folder itself
 if [ -n "$ALL_DIR" ]; then
   ALL_DIR="$(cd "$ALL_DIR" && pwd)"
   OK=0; FAILED=""
+  PASS=(--no-doctor); [ "$DRY" -eq 1 ] && PASS+=(--dry-run)
   for repo in "$ALL_DIR"/*/; do
     repo="${repo%/}"
     [ -e "$repo/.git" ] || continue
     echo ""; echo "### $(basename "$repo")"
-    if bash "${BASH_SOURCE[0]}" "$repo" --no-doctor; then OK=$((OK + 1)); else FAILED="$FAILED $(basename "$repo")"; fi
+    if bash "${BASH_SOURCE[0]}" "$repo" "${PASS[@]}"; then OK=$((OK + 1)); else FAILED="$FAILED $(basename "$repo")"; fi
   done
   echo ""; echo "### $(basename "$ALL_DIR") (the folder itself)"
-  bash "${BASH_SOURCE[0]}" "$ALL_DIR" --no-doctor || FAILED="$FAILED $(basename "$ALL_DIR")/"
-  echo ""; echo "==> init --all: $OK repositories initialized${FAILED:+; failed:$FAILED}"
+  bash "${BASH_SOURCE[0]}" "$ALL_DIR" "${PASS[@]}" || FAILED="$FAILED $(basename "$ALL_DIR")/"
+  echo ""; echo "==> init --all: $OK repositories $([ "$DRY" -eq 1 ] && echo "would be" || echo "were") initialized${FAILED:+; failed:$FAILED}"
   [ -z "$FAILED" ]
   exit $?
 fi
@@ -79,10 +87,48 @@ if ! git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 echo "=================================================="
-echo "Initializing the harness in: $TARGET"
+echo "Initializing the harness in: $TARGET$([ "$DRY" -eq 1 ] && echo ' (dry run: nothing is written)')"
 [ "$PROJECT_FOLDER" -eq 1 ] && echo "A project folder: the repositories below it get their own init"
 echo "=================================================="
 echo "--> From $CORE_ROOT"
+
+# --- what this run does to the checkout is recorded here and reported at the end -------------
+CREATED=""; REFRESHED=""; KEPT=""; REMOVED=""; TRACKED=""; UNCHANGED=0
+note() {
+  case "$1" in
+    created) CREATED="$CREATED $2" ;; refreshed) REFRESHED="$REFRESHED $2" ;; kept) KEPT="$KEPT $2" ;;
+    removed) REMOVED="$REMOVED $2" ;; tracked) TRACKED="$TRACKED $2" ;; unchanged) UNCHANGED=$((UNCHANGED + 1)) ;;
+  esac
+}
+# put_file <source> <destination> <label> managed|once: one file, written only when it differs
+put_file() {
+  local src="$1" dst="$2" label="$3" mode="$4"
+  if [ -e "$dst" ]; then
+    if cmp -s "$src" "$dst"; then note unchanged "$label"; return 0; fi
+    if [ "$mode" = once ]; then note kept "$label"; return 0; fi
+    note refreshed "$label"
+  else
+    note created "$label"
+  fi
+  [ "$DRY" -eq 1 ] && return 0
+  mkdir -p "$(dirname "$dst")"; cp -f "$src" "$dst"
+}
+put() { put_file "$1" "$TARGET/$2" "$2" "$3"; }   # put <source> <relative path> managed|once
+# put_dir <source dir> <relative dir>: a managed directory, replaced whole
+put_dir() {
+  local src="$1" rel="$2" dst="$TARGET/$2"
+  if [ -d "$dst" ]; then
+    if diff -rq "$src" "$dst" >/dev/null 2>&1; then note unchanged "$rel/"; return 0; fi
+    note refreshed "$rel/"
+  else
+    note created "$rel/"
+  fi
+  [ "$DRY" -eq 1 ] && return 0
+  rm -rf "$dst"; mkdir -p "$dst"; cp -R "$src"/. "$dst/"
+}
+# drop <relative path>: what an earlier version left in the checkout
+drop() { [ -e "$TARGET/$1" ] || return 0; note removed "$1"; [ "$DRY" -eq 1 ] || rm -rf "$TARGET/${1:?}"; }
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 # The project harness: <org>/<prefix>-ai-core from the checkout's origin, its extends chain
 # base first, cloned or pulled to ~/.<name>-ai-core, created from the skeleton when missing.
@@ -130,19 +176,19 @@ elif [ "$PROJECT_FOLDER" -eq 0 ]; then
 fi
 
 AI_CORE_DIR="$TARGET/.ai-core"
-AI_CORE_RULES="$AI_CORE_DIR/rules"
-mkdir -p "$AI_CORE_RULES" "$AI_CORE_DIR/docs"
+[ "$DRY" -eq 1 ] || mkdir -p "$AI_CORE_DIR/rules" "$AI_CORE_DIR/docs"
 # Earlier versions copied the scripts into the checkout, and one wrote an MCP file Antigravity
 # never reads; both are removed
-rm -rf "$AI_CORE_DIR/bin" "$TARGET/.agents/mcp_config.json"
+drop .ai-core/bin
+drop .agents/mcp_config.json
 
 # 1. Managed files, refreshed on every run, later layer wins: the rules, one file per section in
 #    setup-ai-core and in every layer (the same name replaces, a new name adds), assembled into one
 #    file, each section headed by a comment naming its source; skills.md; VERSION; the skills of
-#    every layer into both skill directories; the docs of every layer; the data files; every file
-#    under repos/<repo>/ of the layers; STAMP with the commit of every layer.
+#    every layer into both skill directories; the agents; the docs of every layer; the data files;
+#    every file under repos/<repo>/ of the layers; STAMP with the commit of every layer.
 CORE_VERSION="$(tr -d '\r\n' < "$CORE_ROOT/VERSION")"
-SECTIONS="$(mktemp -d)"; trap 'rm -rf "$SECTIONS"' EXIT
+SECTIONS="$TMP/sections"; mkdir -p "$SECTIONS"
 for f in "$CORE_ROOT"/rules/[0-9][0-9]-*.md; do
   cp "$f" "$SECTIONS/"; printf 'setup-ai-core %s' "$CORE_VERSION" > "$SECTIONS/$(basename "$f").src"
 done
@@ -164,35 +210,34 @@ if [ -n "$LAYERS" ]; then
     for s in "$l"/skills/*/; do
       [ -f "$s/SKILL.md" ] || continue
       sname="$(basename "$s")"
-      for dst in "$TARGET/.claude/skills/$sname" "$TARGET/.agents/skills/$sname"; do
-        rm -rf "$dst"; mkdir -p "$dst"; cp -R "$s"/. "$dst/"
-      done
+      put_dir "$s" ".claude/skills/$sname"; put_dir "$s" ".agents/skills/$sname"
       LAYER_FILES="$LAYER_FILES .claude/skills/$sname .agents/skills/$sname"
     done
     for a in "$l"/agents/*.md; do
       [ -f "$a" ] || continue
-      mkdir -p "$TARGET/.claude/agents"; cp -f "$a" "$TARGET/.claude/agents/"; LAYER_FILES="$LAYER_FILES .claude/agents/$(basename "$a")"
+      put "$a" ".claude/agents/$(basename "$a")" managed; LAYER_FILES="$LAYER_FILES .claude/agents/$(basename "$a")"
     done
     if [ -d "$l/docs" ] && [ -n "$(ls -A "$l/docs" 2>/dev/null)" ]; then
-      rm -rf "$AI_CORE_DIR/docs/$lname"; mkdir -p "$AI_CORE_DIR/docs/$lname"; cp -R "$l/docs"/. "$AI_CORE_DIR/docs/$lname/"
+      put_dir "$l/docs" ".ai-core/docs/$lname"
     fi
     for f in $DATA_FILES; do
       [ -f "$l/$f" ] || continue
-      cp -f "$l/$f" "$AI_CORE_DIR/$f"; LAYER_FILES="$LAYER_FILES .ai-core/$f"
+      put "$l/$f" ".ai-core/$f" managed; LAYER_FILES="$LAYER_FILES .ai-core/$f"
     done
   done <<< "$LAYERS"
   # repos/<repo>/ of the innermost layer, in the layout of the checkout; a tracked file is never
   # overwritten
   INNER="$(printf '%s\n' "$LAYERS" | tail -n1)"
   if [ -n "$REPO_NAME" ] && [ -d "$INNER/repos/$REPO_NAME" ]; then
-    (cd "$INNER/repos/$REPO_NAME" && find . -type f) | sed 's|^\./||' | while IFS= read -r rel; do
+    while IFS= read -r rel; do
+      [ -n "$rel" ] || continue
       if git -C "$TARGET" ls-files --error-unmatch "$rel" >/dev/null 2>&1; then
-        echo "--> Kept $rel (tracked by the repository; repos/$REPO_NAME/$rel is not applied)"; continue
+        note tracked "$rel"
+      else
+        put "$INNER/repos/$REPO_NAME/$rel" "$rel" managed
       fi
-      mkdir -p "$(dirname "$TARGET/$rel")"; cp -f "$INNER/repos/$REPO_NAME/$rel" "$TARGET/$rel"
-    done
-    LAYER_FILES="$LAYER_FILES $( (cd "$INNER/repos/$REPO_NAME" && find . -type f) | sed 's|^\./||' | tr '\n' ' ')"
-    echo "--> Applied repos/$REPO_NAME/ of $(basename "$INNER" | sed 's/^\.//')"
+      LAYER_FILES="$LAYER_FILES $rel"
+    done <<< "$( (cd "$INNER/repos/$REPO_NAME" && find . -type f) | sed 's|^\./||')"
   fi
 fi
 {
@@ -202,22 +247,24 @@ fi
     printf '<!-- %s: rules/%s -->\n' "$(cat "$f.src")" "$(basename "$f")"
     printf '%s\n\n' "$(tr -d '\r' < "$f")"
   done
-} > "$AI_CORE_RULES/rules.md"
-cp -f "$SKILLS_MD" "$AI_CORE_RULES/skills.md"
-cp -f "$CORE_ROOT/VERSION" "$AI_CORE_DIR/VERSION"
-printf '%s\n' "$STAMP" > "$AI_CORE_DIR/STAMP"
+} > "$TMP/rules.md"
+put "$TMP/rules.md" .ai-core/rules/rules.md managed
+put "$SKILLS_MD" .ai-core/rules/skills.md managed
+put "$CORE_ROOT/VERSION" .ai-core/VERSION managed
+printf '%s\n' "$STAMP" > "$TMP/STAMP"; put "$TMP/STAMP" .ai-core/STAMP managed
 
 # 2. The agent files, created once and never overwritten: templates/ mirrors the target layout.
 #    A project folder's AGENTS.md is generated instead: the list of its repositories, rewritten
-#    on every run because the folder changes. The pointer file of an agent the project does not
-#    serve (AGENTS in .ai-core/config.env, or the template's default before the file exists) is
-#    not deployed.
+#    on every run because the folder changes. The file of an agent the project does not serve
+#    (AGENTS in .ai-core/config.env, or the template's default before the file exists) is not
+#    deployed.
 CONFIG="$AI_CORE_DIR/config.env"; [ -f "$CONFIG" ] || CONFIG="$CORE_ROOT/templates/.ai-core/config.env"
 AGENTS="$(grep -E '^[[:space:]]*AGENTS[[:space:]]*=' "$CONFIG" | tail -n1 | sed 's/^[^=]*=//; s/#.*//' | tr -d '"\r' | tr -d "'" | tr '[:upper:]' '[:lower:]' || true)"
 serves() {  # serves <agent>: true when the project serves it, or names no agents at all
   [ -z "$AGENTS" ] || case " $AGENTS " in *" $1 "*) return 0 ;; *) return 1 ;; esac
 }
-(cd "$CORE_ROOT/templates" && find . -type f) | sed 's|^\./||' | while IFS= read -r rel; do
+while IFS= read -r rel; do
+  [ -n "$rel" ] || continue
   [ "$PROJECT_FOLDER" -eq 1 ] && [ "$rel" = "AGENTS.md" ] && continue
   case " $LAYER_FILES " in *" $rel "*) continue ;; esac
   case "$rel" in
@@ -227,14 +274,8 @@ serves() {  # serves <agent>: true when the project serves it, or names no agent
     .openhands/microagents/repo-rules.md) serves openhands || continue ;;
     .codex/config.toml) serves codex || continue ;;
   esac
-  if [ ! -e "$TARGET/$rel" ]; then
-    mkdir -p "$(dirname "$TARGET/$rel")"
-    cp "$CORE_ROOT/templates/$rel" "$TARGET/$rel"
-    echo "--> Created $rel"
-  else
-    echo "--> Kept $rel (already present)"
-  fi
-done
+  put "$CORE_ROOT/templates/$rel" "$rel" once
+done <<< "$( (cd "$CORE_ROOT/templates" && find . -type f | LC_ALL=C sort) | sed 's|^\./||')"
 if [ "$PROJECT_FOLDER" -eq 1 ]; then
   {
     printf '<!-- setup-ai-core %s: written by init for a project folder, rewritten on every run; put your own notes into .ai-core/rules/rules.local.md -->\n' "$CORE_VERSION"
@@ -246,28 +287,35 @@ if [ "$PROJECT_FOLDER" -eq 1 ]; then
       printf '| `%s` | `%s/AGENTS.md` |\n' "$(basename "$d")" "$(basename "$d")"
     done
     printf '\nThe rules that bind every repository here: `.ai-core/rules/rules.md` (managed by the harness) and `.ai-core/rules/rules.local.md` (this project'"'"'s own, which wins).\n'
-  } > "$TARGET/AGENTS.md"
-  echo "--> Wrote AGENTS.md (the repositories of this folder)"
+  } > "$TMP/AGENTS.md"
+  put "$TMP/AGENTS.md" AGENTS.md managed
 fi
 
 # 3. Keep the harness out of the repository's history: every deployed path goes into the
 #    clone's own exclude file, which no commit ever contains. Worktrees share it.
 if EXCLUDE="$(cd "$TARGET" && git rev-parse --git-path info/exclude 2>/dev/null)"; then
-  (
-    cd "$TARGET"
-    mkdir -p "$(dirname "$EXCLUDE")"
-    {
-      [ -f "$EXCLUDE" ] && awk '/^# setup-ai-core start/{skip=1} !skip{print} /^# setup-ai-core end/{skip=0}' "$EXCLUDE"
-      echo "# setup-ai-core start: the harness lives in the working tree only, never in a commit"
-      echo "/.ai-core/"
-      echo "/.claude/skills/"
-      echo "/.claude/agents/"
-      echo "/.agents/"
-      (cd "$CORE_ROOT/templates" && find . -type f) | sed 's|^\./|/|'
-      echo "# setup-ai-core end"
-    } > "$EXCLUDE.tmp" && mv "$EXCLUDE.tmp" "$EXCLUDE"
-    echo "--> Registered the harness in $EXCLUDE: nothing to commit"
-  )
+  case "$EXCLUDE" in /*|[A-Za-z]:*) ;; *) EXCLUDE="$TARGET/$EXCLUDE" ;; esac
+  {
+    echo "# setup-ai-core start: the harness lives in the working tree only, never in a commit"
+    echo "/.ai-core/"
+    echo "/.claude/skills/"
+    echo "/.claude/agents/"
+    echo "/.agents/"
+    (cd "$CORE_ROOT/templates" && find . -type f | LC_ALL=C sort) | sed 's|^\./|/|'
+    echo "# setup-ai-core end"
+  } > "$TMP/block"
+  # The block replaces the one an earlier run wrote, in its place, or is appended
+  if [ -f "$EXCLUDE" ]; then
+    awk -v block="$TMP/block" '
+      function put() { while ((getline line < block) > 0) print line; close(block); written = 1 }
+      /^# setup-ai-core start/ { put(); skip = 1 }
+      !skip { print }
+      /^# setup-ai-core end/ { skip = 0 }
+      END { if (!written) put() }' "$EXCLUDE" > "$TMP/exclude"
+  else
+    cp "$TMP/block" "$TMP/exclude"
+  fi
+  put_file "$TMP/exclude" "$EXCLUDE" ".git/info/exclude" managed
 else
   echo "note: $TARGET is not a git repository; nothing to exclude"
 fi
@@ -278,12 +326,13 @@ fi
 #     the project's; a path the project already ignores, with or without the slashes, is not
 #     written twice, and when it ignores them all no block is written. A changed .gitignore is
 #     the one thing init leaves for a commit.
+GITIGNORE_CHANGED=0
 if git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   GI="$TARGET/.gitignore"
-  KEPT="$([ -f "$GI" ] && awk '/^# setup-ai-core start/{skip=1} !skip{print} /^# setup-ai-core end/{skip=0}' "$GI" | tr -d '\r' || true)"
+  KEPT_LINES="$([ -f "$GI" ] && awk '/^# setup-ai-core start/{skip=1} !skip{print} /^# setup-ai-core end/{skip=0}' "$GI" | tr -d '\r' || true)"
   {
-    [ -z "$KEPT" ] || printf '%s\n' "$KEPT"
-    printf '%s\n' "$KEPT" | awk -v block="$CORE_ROOT/lib/gitignore-block" '
+    [ -z "$KEPT_LINES" ] || printf '%s\n' "$KEPT_LINES"
+    printf '%s\n' "$KEPT_LINES" | awk -v block="$CORE_ROOT/lib/gitignore-block" '
       function norm(s) { sub(/[[:space:]]+$/, "", s); sub(/^\//, "", s); sub(/\/$/, "", s); return s }
       $0 !~ /^#/ && $0 != "" { seen[norm($0)] = 1 }
       END {
@@ -291,22 +340,30 @@ if git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         while ((getline line < block) > 0) { sub(/\r$/, "", line); if (line ~ /^#/) { marker[++m] = line; continue }; if (!(norm(line) in seen)) lines[++n] = line }
         if (n > 0) { print marker[1]; for (i = 1; i <= n; i++) print lines[i]; print marker[2] }
       }'
-  } > "$GI.tmp"
-  if [ -f "$GI" ] && cmp -s "$GI.tmp" "$GI"; then
-    rm -f "$GI.tmp"
-  else
-    mv "$GI.tmp" "$GI"
-    echo "--> .gitignore: the agent files of this repository are ignored; commit .gitignore once"
+  } > "$TMP/gitignore"
+  if ! { [ -f "$GI" ] && cmp -s "$TMP/gitignore" <(tr -d '\r' < "$GI"); }; then
+    GITIGNORE_CHANGED=1
+    [ "$DRY" -eq 1 ] || cp -f "$TMP/gitignore" "$GI"
   fi
 fi
 
 # 4. The Graft code graph, built with the local Node.js or the whole init fails; no fallback.
-echo "--> Graft"
-if ! bash "$CORE_ROOT/bin/graft-setup.sh" "$TARGET"; then
+GRAFT_ARGS=(); [ "$DRY" -eq 1 ] && GRAFT_ARGS+=(--dry-run)
+if ! bash "$CORE_ROOT/bin/graft-setup.sh" "$TARGET" ${GRAFT_ARGS[@]+"${GRAFT_ARGS[@]}"}; then
   echo "error: the harness files are in place but the Graft code graph is not (see above). Fix the cause and run 'ai-core graft', or set GRAFT_EXECUTION_MODE=\"skip\" in .ai-core/config.env." >&2
   exit 1
 fi
 
+# 5. The report: what this run did to the checkout, or would do
+list() { printf '%s' "$1" | sed 's/^ //; s/ /, /g'; }
 echo "=================================================="
-echo "✓ Harness $CORE_VERSION in place. Run 'ai-core session-start' here to verify."
+if [ "$DRY" -eq 1 ]; then echo "init would change in $(basename "$TARGET"):"; else echo "init changed in $(basename "$TARGET"):"; fi
+[ -z "$CREATED" ]   || echo "  created    $(list "$CREATED")"
+[ -z "$REFRESHED" ] || echo "  refreshed  $(list "$REFRESHED")"
+[ -z "$KEPT" ]      || echo "  kept       $(list "$KEPT") (yours: differs from the template, never overwritten)"
+[ -z "$REMOVED" ]   || echo "  removed    $(list "$REMOVED")"
+[ -z "$TRACKED" ]   || echo "  tracked    $(list "$TRACKED") (the repository commits these; repos/$REPO_NAME/ is not applied to them)"
+echo "  unchanged  $UNCHANGED file(s)"
+if [ "$GITIGNORE_CHANGED" -eq 1 ]; then echo "  .gitignore $([ "$DRY" -eq 1 ] && echo "would change" || echo "changed"): the agent files of this repository are ignored; commit it once"; fi
+if [ "$DRY" -eq 1 ]; then echo "  nothing was written (dry run)"; else echo "✓ Harness $CORE_VERSION in place. Run 'ai-core session-start' here to verify."; fi
 echo "=================================================="

@@ -306,7 +306,11 @@ the interactive picker, and then `build` with the Node.js on the machine, which 
 only way it runs. If `npx` is
 missing or the build fails, the script exits 1 and says why, and `init` exits 1 with it. Nothing
 is installed on the system and nothing runs in a container. A repository that does not want the
-graph sets `GRAFT_EXECUTION_MODE="skip"` in `.ai-core/config.env`.
+graph sets `GRAFT_EXECUTION_MODE="skip"` in `.ai-core/config.env`. Graft's output is kept and
+shown whole only when it fails; what it wrote is reported afterwards as two lists, the files in
+the repository and the files on the machine, with a line for the graph (section 5.5).
+`ai-core graft --dry-run` (`-DryRun`) prints what `graft init` would write, in the repository
+and on the machine, and builds nothing.
 
 Agents use the graph in two ways: the Markdown index `graft/index.md`, and the MCP server in
 `.mcp.json`, which Claude Code starts as `npx -y @nanonets/graft mcp`. That is a process over
@@ -384,7 +388,7 @@ tools work; the harness gives them the text at the place they look.
   `CLAUDE.md`. If you keep a `CLAUDE.md`, add the line `@AGENTS.md` to it.
 - `.claude/settings.json` is created once with one entry, `permissions.allow: ["Bash(ai-core:*)"]`,
   so an agent may run the harness commands without a prompt. If your repository already has one,
-  `init` keeps it and prints `Kept`; add that entry by hand. Claude Code applies allow rules from
+  `init` keeps it and reports it under `kept`; add that entry by hand. Claude Code applies allow rules from
   a committed or excluded project `settings.json` only after you accept its trust dialog for the
   folder.
 - Everything else Claude Code needs for Graft is written by `graft init`, which `init` runs:
@@ -481,6 +485,7 @@ on the machine that runs the agent.
 | `ai-core init [TARGET_DIR]` | `ai-core init [-TargetDir <path>]` | the repository to equip; default is the current directory |
 | `--all <folder>` | `-All <folder>` | run `init` in every git repository directly under the folder, then in the folder itself (section 5.8); `doctor` runs once; a failing repository is named in the summary and the exit code is 1 |
 | `--no-doctor` | `-NoDoctor` | do not run `doctor` first (CI, or a machine you have checked yourself) |
+| `--dry-run` | `-DryRun` | write nothing; print the report of what the run would create, refresh, keep and remove, and what Graft would write in the repository and on the machine; `doctor` runs without installing; with `--all` every repository gets its dry run |
 | `-h`, `--help` | `-Help` | usage |
 
 An unknown option is an error.
@@ -495,13 +500,38 @@ An unknown option is an error.
 3. Assembles the rules of every layer into `.ai-core/rules/rules.md`, copies `skills.md` and
    `VERSION`, the skills, docs and data files of every layer, the files under `repos/<repo>/`, and
    writes `STAMP`.
-4. Copies every file of `templates/` that does not exist yet in the checkout and prints `Created`
-   for it; a file that exists is never overwritten and is reported as `Kept`. In a project folder
-   `AGENTS.md` is generated instead and rewritten every time.
-5. Writes the exclude block into `.git/info/exclude`, and the block into `.gitignore` (section
-   4.3). Outside a git repository it says so and goes on.
+4. Copies every file of `templates/` that does not exist yet in the checkout; a file that exists
+   is never overwritten. In a project folder `AGENTS.md` is generated instead and rewritten every
+   time.
+5. Writes the exclude block into `.git/info/exclude`, in the place of the one an earlier run
+   wrote, and the block into `.gitignore` (section 4.3). Outside a git repository it says so and
+   goes on.
 6. Runs `graft-setup`. If that fails, `init` prints why and exits 1; the other files are already
    in place.
+7. Prints the report: what the run did to the checkout.
+
+Every file `init` touches is written only when its content differs, and every file is recorded
+under one of these words:
+
+| word | meaning |
+| :--- | :--- |
+| `created` | did not exist; written |
+| `refreshed` | a managed file (the assembled rules, `STAMP`, a skill, a data file, the exclude block) that differed from what the layers say; rewritten |
+| `kept` | a file created once (`AGENTS.md`, `.claude/settings.json`, `config.env`, ...) that differs from its template, yours or changed by Graft; never overwritten |
+| `removed` | what an earlier version left in the checkout (`.ai-core/bin/`, `.agents/mcp_config.json`) |
+| `tracked` | a file of `repos/<repo>/` the repository commits itself; not applied |
+| `unchanged` | the count of files that were already what they should be |
+
+The report closes with `.gitignore changed` when the block was written (the one thing to commit)
+and with the harness version. Above it, `graft-setup` reports its own writes in two lists, the
+files in the repository and the files on the machine (under the home directory), each with
+Graft's word for it (`created`, `updated`, `appended`, `wrote`), and one line for the graph.
+Graft's full output is shown only when it fails. A second run on an unchanged checkout reports
+only the count of unchanged files, on both twins the same lines.
+
+`ai-core init --dry-run` prints the same report with `would change` and writes nothing, not
+even the exclude file; Graft's `--dry-run` lists what `graft init` would write in the
+repository and on the machine, and the graph is not built.
 
 ### 5.6 First check
 
@@ -563,8 +593,9 @@ Once per machine:
 Per repository, and per worktree:
 
 6. `cd C:\repos\myorg\myproject` (a new folder needs `git init` first).
-7. `ai-core init` — you see ten `Created` lines, `Registered the harness in .git/info/exclude`, Graft
-   wiring the agents and building the graph (a minute the first time), and `Harness 1.1.0 in place`.
+7. `ai-core init` — you see Graft wiring the agents and building the graph (a minute the first
+   time), the two lists of what it wrote, the report with a `created` line naming every file, and
+   `Harness 1.1.0 in place`. `ai-core init --dry-run` shows the report first without writing.
 8. `ai-core session-start` ends with `Ready for task execution.`
 9. Optional: write the rules of this repository into `.ai-core\rules\rules.local.md`. If step 7
    ended with `the Graft code graph is not`, install Node.js and run `ai-core graft`, or set
@@ -617,8 +648,8 @@ and `bin/<name>.ps1` in PowerShell; a new script in `bin/` is a command without 
 | `session-start` | `ai-core session-start [--json]` / `[-Json]` | 0 ready; 1 no rules file |
 | `solution-path` | `ai-core solution-path <file> [--check] [--issue N]` / `-File <file> [-Check]` | section 7 |
 | `rules-check` | `ai-core rules-check [file-or-directory]` / `[-RulesFile <file-or-directory>]`; default `.ai-core/rules/rules.md`, or the `rules/` directory of setup-ai-core; a directory means its `NN-*.md` section files | 0 every rule tagged; 1 otherwise |
-| `graft-setup` | `ai-core graft [dir]` / `[-TargetDir <dir>]` | 0 built or skipped; 1 no Node.js, build failed, or bad `config.env` |
-| `init` | `ai-core init [dir] [--all <folder>] [--no-doctor]` / `[-TargetDir <dir>] [-All <folder>] [-NoDoctor]` | 0 in place; 1 doctor failed, Graft failed, or a repository under `--all` failed |
+| `graft-setup` | `ai-core graft [dir] [--dry-run]` / `[-TargetDir <dir>] [-DryRun]` | 0 built, skipped or dry; 1 no Node.js, build failed, or bad `config.env`; 2 a wrong argument |
+| `init` | `ai-core init [dir] [--all <folder>] [--no-doctor] [--dry-run]` / `[-TargetDir <dir>] [-All <folder>] [-NoDoctor] [-DryRun]` | 0 in place, or dry; 1 doctor failed, Graft failed, or a repository under `--all` failed |
 | `push` | `ai-core push [MESSAGE] [--harness <name>]` / `[-Message <text>] [-Harness <name>]` | 0 every harness clone pushed or had nothing; 1 no clone, a commit or a push failed |
 | the board and issue commands | `ai-core issue-new ...`, `ai-core start-issue N`, ... (section 8) | 0 done; 1 refused or gh refused; 2 a wrong argument |
 | `doctor` | `ai-core doctor [--no-install]` / `ai-core doctor [-NoInstall]` | 0 every required tool present and gh logged in; 1 otherwise, each problem with its instruction |
@@ -829,7 +860,7 @@ Each step lands with its test in `tests/check.sh` and passes in CI before the ne
 | `init` ends with `error: ... the Graft code graph is not` | Node.js with `npx` is missing, or Graft's native build failed. Install Node.js 20+ and run `ai-core graft` again, or set `GRAFT_EXECUTION_MODE="skip"`. The other files are in place. |
 | `error: GRAFT_EXECUTION_MODE must be native or skip` | a typo in `config.env`; checked before anything runs |
 | `session-start` exits 1 with `Not ready: no rules file found` | the harness is not installed here. Run `init`. |
-| `--> Kept .claude/settings.json (already present)` | your repository already had one. Add `Bash(ai-core:*)` to its `permissions.allow` by hand, or delete the file and run `init` again. |
+| `kept .claude/settings.json` in the report | your repository already had one. Add `Bash(ai-core:*)` to its `permissions.allow` by hand, or delete the file and run `init` again. |
 | `ai-core: command not found` inside an agent | the clone's `bin/` is not on the PATH of that shell. Run `install` again, open a new terminal, or call the script by path. |
 | Claude Code ignores `AGENTS.md` | a `CLAUDE.md` exists in the directory or above it. Add `@AGENTS.md` to it. |
 | Claude Code prompts for `ai-core` commands although they are allowed | accept the trust dialog; project allow rules apply only after it |

@@ -232,9 +232,10 @@ Code reads `AGENTS.md`.
 
 ### 4.7 Graft: the code graph
 
-`graft-setup` runs `npx -y @nanonets/graft init -y --no-build`, which wires Graft into every
-agent it detects on the machine without asking (the interactive picker is skipped), and then
-`build` with the Node.js on the machine, which writes `graft/index.md` and the graph. That is the
+`graft-setup` runs `npx -y @nanonets/graft init --agents ... --no-build` for the agents named
+in `AGENTS` of `config.env` (`-y`, every agent Graft detects, when the list is empty), without
+the interactive picker, and then `build` with the Node.js on the machine, which writes
+`graft/index.md` and the graph. That is the
 only way it runs. If `npx` is
 missing or the build fails, the script exits 1 and says why, and `init` exits 1 with it. Nothing
 is installed on the system and nothing runs in a container. A repository that does not want the
@@ -300,7 +301,7 @@ checkout at the next session without running `init` again.
 | OpenAI Codex | `AGENTS.md` from the repository root down to the working directory, concatenated; `~/.codex/AGENTS.md` for the user; `.agents/skills/` in the repository and `~/.agents/skills/`; MCP servers from `~/.codex/config.toml` | skills; MCP from its own config, not from `.mcp.json` |
 | OpenCode, Zed, Aider | `AGENTS.md` | nothing; text only |
 | Google Antigravity (`agy`) | `AGENTS.md` (prepended to every prompt; `agy inspect` shows it), `.agents/skills/` | skills; MCP only from its own `mcp_config.json` |
-| Cursor, Windsurf, Copilot | `.cursorrules`, `.windsurfrules`, `.github/copilot-instructions.md` | nothing; a one-line pointer to `AGENTS.md` and the rules |
+| Cursor, Windsurf, Copilot | `.cursorrules`, `.windsurfrules`, `.github/copilot-instructions.md`, deployed only when `AGENTS` names them | nothing; a one-line pointer to `AGENTS.md` and the rules |
 | OpenHands | `AGENTS.md`, `.agents/skills/`, the organisation's `.agents` repository, `.openhands/setup.sh`, `.openhands/hooks.json`; the microagent pointer the harness deploys today is the older convention | `setup.sh` runs at every start with the repository; hooks on `SessionStart`, `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionEnd`; skills |
 
 Except for Claude Code, everything is text that an agent reads and follows. That is how these
@@ -438,11 +439,12 @@ It must end with `Ready for task execution.` and `git status` must show nothing 
 
 ### 5.7 `config.env`
 
-`.ai-core/config.env` has one key. Values are case-insensitive; quotes and `# comments` are
+`.ai-core/config.env` has two keys. Values are case-insensitive; quotes and `# comments` are
 allowed; any other value is an error.
 
 | Key | Values | Meaning |
 | :--- | :--- | :--- |
+| `AGENTS` | names separated by spaces: `claude`, `codex`, `antigravity`, `openhands`, `gemini`, `cursor`, `windsurf`, `copilot`; default `claude codex antigravity openhands` | the agents this project serves. `init` deploys the pointer file of each one named (`.cursorrules`, `.windsurfrules`, `.github/copilot-instructions.md`, `.openhands/microagents/repo-rules.md`) and no other, and `graft init` is wired into these and no other (`--agents`). Empty: every agent Graft detects on the machine, and every pointer file. Graft detects Gemini wherever `~/.gemini` exists, which Antigravity creates too, so an empty list wires `GEMINI.md` and `.gemini/` into every repository. |
 | `GRAFT_EXECUTION_MODE` | `native` (default), `skip` | `native` builds the code graph with the local Node.js and fails when it cannot; `skip` does not build it in this repository |
 
 ### 5.8 Many repositories

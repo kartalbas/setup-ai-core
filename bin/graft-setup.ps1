@@ -13,7 +13,9 @@ if ($Help -or $args -contains "-h" -or $args -contains "--help" -or $TargetDir -
   Write-Host ""
   Write-Host "Wires Graft into the agents on this machine (graft init -y --no-build, no picker) and builds"
   Write-Host "the code graph with the Node.js on this machine (npx -y @nanonets/graft build)."
-  Write-Host "Reads GRAFT_EXECUTION_MODE from .ai-core/config.env: native (default) or skip."
+  Write-Host "Reads GRAFT_EXECUTION_MODE from .ai-core/config.env: native (default) or skip, and AGENTS: the"
+  Write-Host "agents Graft is wired into (claude, codex, antigravity, gemini, cursor, windsurf, copilot;"
+  Write-Host "openhands has no Graft wiring); empty means every agent Graft detects."
   Write-Host "There is no fallback: without Node.js and npx, native mode fails with exit 1."
   Write-Host "Whatever Graft writes into the repository is recorded in .git/info/exclude, so it is never committed."
   Write-Host ""
@@ -32,6 +34,7 @@ Push-Location $TargetDir
 try {
   $configFile = ".ai-core\config.env"
   $graftMode = "native"
+  $agents = ""
 
   if (Test-Path $configFile) {
     Get-Content $configFile | Where-Object { $_ -match '^\s*[^#]' } | ForEach-Object {
@@ -41,8 +44,22 @@ try {
       $value = ($value -split '#', 2)[0]
       $val = $value.Trim(' ', "`t", "`r", '"', "'").ToLowerInvariant()
       if ($name.Trim() -ceq "GRAFT_EXECUTION_MODE") { $graftMode = $val }
+      if ($name.Trim() -ceq "AGENTS") { $agents = $val }
     }
   }
+
+  # The agents Graft wires, in Graft's own ids: codex reads AGENTS.md and ~\.codex, which Graft
+  # calls "agents"; openhands has no wiring of its own. Empty: whatever Graft detects (-y).
+  $graftAgents = @()
+  foreach ($a in ($agents -split '\s+' | Where-Object { $_ })) {
+    switch ($a) {
+      'codex' { $graftAgents += 'agents' }
+      { $_ -cin @('claude', 'antigravity', 'gemini', 'cursor', 'windsurf', 'copilot') } { $graftAgents += $a }
+      'openhands' { }
+      default { Write-Host "error: AGENTS in $configFile names '$a'; known are claude, codex, antigravity, openhands, gemini, cursor, windsurf, copilot" -ForegroundColor Red; exit 1 }
+    }
+  }
+  $graftInit = if ($graftAgents.Count -gt 0) { @('init', '--agents') + $graftAgents + @('--no-build') } else { @('init', '-y', '--no-build') }
 
   if ($graftMode -notin @('native', 'skip')) {
     Write-Host "error: GRAFT_EXECUTION_MODE must be native or skip (got '$graftMode') in $configFile" -ForegroundColor Red
@@ -90,7 +107,7 @@ try {
       }
     }
     # What graft init wires into the repository, excluded whether it exists already or not
-    $dry = @(); try { $dry = @(& npx -y @nanonets/graft init -y --no-build --dry-run 2>&1 | ForEach-Object { "$_" }) } catch { $dry = @() }
+    $dry = @(); try { $dry = @(& npx -y @nanonets/graft @graftInit --dry-run 2>&1 | ForEach-Object { "$_" }) } catch { $dry = @() }
     $inRepo = $false
     foreach ($line in $dry) {
       if ($line -match '^would write.*this repo:') { $inRepo = $true; continue }
@@ -103,7 +120,7 @@ try {
 
   Write-Host "==> Graft: building the code graph with npx -y @nanonets/graft..."
   $result = 0
-  & npx -y @nanonets/graft init -y --no-build
+  & npx -y @nanonets/graft @graftInit
   if ($LASTEXITCODE -eq 0) { & npx -y @nanonets/graft build }
   if ($LASTEXITCODE -ne 0) { $result = 1 }
 

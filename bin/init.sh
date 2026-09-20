@@ -105,9 +105,22 @@ cp -f "$CORE_ROOT/VERSION" "$AI_CORE_DIR/VERSION"
 
 # 2. The agent files, created once and never overwritten: templates/ mirrors the target layout.
 #    A project folder's AGENTS.md is generated instead: the list of its repositories, rewritten
-#    on every run because the folder changes.
+#    on every run because the folder changes. The pointer file of an agent the project does not
+#    serve (AGENTS in .ai-core/config.env, or the template's default before the file exists) is
+#    not deployed.
+CONFIG="$AI_CORE_DIR/config.env"; [ -f "$CONFIG" ] || CONFIG="$CORE_ROOT/templates/.ai-core/config.env"
+AGENTS="$(grep -E '^[[:space:]]*AGENTS[[:space:]]*=' "$CONFIG" | tail -n1 | sed 's/^[^=]*=//; s/#.*//' | tr -d '"\r' | tr -d "'" | tr '[:upper:]' '[:lower:]' || true)"
+serves() {  # serves <agent>: true when the project serves it, or names no agents at all
+  [ -z "$AGENTS" ] || case " $AGENTS " in *" $1 "*) return 0 ;; *) return 1 ;; esac
+}
 (cd "$CORE_ROOT/templates" && find . -type f) | sed 's|^\./||' | while IFS= read -r rel; do
   [ "$PROJECT_FOLDER" -eq 1 ] && [ "$rel" = "AGENTS.md" ] && continue
+  case "$rel" in
+    .cursorrules) serves cursor || continue ;;
+    .windsurfrules) serves windsurf || continue ;;
+    .github/copilot-instructions.md) serves copilot || continue ;;
+    .openhands/microagents/repo-rules.md) serves openhands || continue ;;
+  esac
   if [ ! -e "$TARGET/$rel" ]; then
     mkdir -p "$(dirname "$TARGET/$rel")"
     cp "$CORE_ROOT/templates/$rel" "$TARGET/$rel"

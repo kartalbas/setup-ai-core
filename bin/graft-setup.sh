@@ -11,7 +11,9 @@ for arg in "$@"; do
     echo ""
     echo "Wires Graft into the agents on this machine (graft init -y --no-build, no picker) and builds"
     echo "the code graph with the Node.js on this machine (npx -y @nanonets/graft build)."
-    echo "Reads GRAFT_EXECUTION_MODE from .ai-core/config.env: native (default) or skip."
+    echo "Reads GRAFT_EXECUTION_MODE from .ai-core/config.env: native (default) or skip, and AGENTS: the"
+    echo "agents Graft is wired into (claude, codex, antigravity, gemini, cursor, windsurf, copilot;"
+    echo "openhands has no Graft wiring); empty means every agent Graft detects."
     echo "There is no fallback: without Node.js and npx, native mode fails with exit 1."
     echo "Whatever Graft writes into the repository is recorded in .git/info/exclude, so it is never committed."
     echo ""
@@ -29,6 +31,7 @@ cd "$TARGET"
 
 CONFIG_FILE=".ai-core/config.env"
 GRAFT_EXECUTION_MODE="native"
+AGENTS=""
 
 if [ -f "$CONFIG_FILE" ]; then
   while IFS='=' read -r key value || [ -n "$key" ]; do
@@ -39,8 +42,22 @@ if [ -f "$CONFIG_FILE" ]; then
     val="$(echo "$value" | tr -d '[:space:]"'\' | tr -d '\r')"
     val_lower="$(echo "$val" | tr '[:upper:]' '[:lower:]')"
     if [ "$key" = "GRAFT_EXECUTION_MODE" ]; then GRAFT_EXECUTION_MODE="$val_lower"; fi
+    if [ "$key" = "AGENTS" ]; then AGENTS="$(echo "$value" | tr -d '"\r' | tr -d "'" | tr '[:upper:]' '[:lower:]')"; fi
   done < "$CONFIG_FILE"
 fi
+
+# The agents Graft wires, in Graft's own ids: codex reads AGENTS.md and ~/.codex, which Graft
+# calls "agents"; openhands has no wiring of its own. Empty: whatever Graft detects (-y).
+GRAFT_AGENTS=()
+for a in $AGENTS; do
+  case "$a" in
+    codex) GRAFT_AGENTS+=(agents) ;;
+    claude|antigravity|gemini|cursor|windsurf|copilot) GRAFT_AGENTS+=("$a") ;;
+    openhands) ;;
+    *) echo "error: AGENTS in $CONFIG_FILE names '$a'; known are claude, codex, antigravity, openhands, gemini, cursor, windsurf, copilot" >&2; exit 1 ;;
+  esac
+done
+if [ ${#GRAFT_AGENTS[@]} -gt 0 ]; then GRAFT_INIT=(init --agents "${GRAFT_AGENTS[@]}" --no-build); else GRAFT_INIT=(init -y --no-build); fi
 
 case "$GRAFT_EXECUTION_MODE" in
   native|skip) ;;
@@ -79,14 +96,14 @@ if [ -n "$EXCLUDE" ]; then
     while IFS= read -r line; do [ -n "$line" ] && add_line "$line"; done <<< "$(awk '/^# setup-ai-core graft start/{b=1; next} /^# setup-ai-core graft end/{b=0} b' "$EXCLUDE")"
   fi
   # What graft init wires into the repository, excluded whether it exists already or not
-  while IFS= read -r line; do [ -n "$line" ] && add_line "/$line"; done <<< "$(npx -y @nanonets/graft init -y --no-build --dry-run 2>&1 | tr -d '\r' | tr '\\' '/' | awk '/^would write.*this repo:/{b=1; next} !/^  /{b=0} b{print $1}')"
+  while IFS= read -r line; do [ -n "$line" ] && add_line "/$line"; done <<< "$(npx -y @nanonets/graft "${GRAFT_INIT[@]}" --dry-run 2>&1 | tr -d '\r' | tr '\\' '/' | awk '/^would write.*this repo:/{b=1; next} !/^  /{b=0} b{print $1}')"
   write_block
   BEFORE="$(snapshot)"
 fi
 
 echo "==> Graft: building the code graph with npx -y @nanonets/graft..."
 RESULT=0
-{ npx -y @nanonets/graft init -y --no-build && npx -y @nanonets/graft build; } || RESULT=1
+{ npx -y @nanonets/graft "${GRAFT_INIT[@]}" && npx -y @nanonets/graft build; } || RESULT=1
 
 if [ -n "$EXCLUDE" ]; then
   CHANGED=""

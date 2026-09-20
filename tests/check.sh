@@ -63,6 +63,17 @@ for t in sh ps1; do
   if grep -aiE 'warning|error' "$WORK/$t.log"; then fail "init.$t printed a warning or error"; fi
 done
 
+for t in sh ps1; do
+  mkdir -p "$WORK/agents-$t/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\nAGENTS="cursor claude"\n' > "$WORK/agents-$t/.ai-core/config.env"
+done
+bash "$ROOT/bin/init.sh" "$WORK/agents-sh" --no-doctor > /dev/null 2>&1 || fail "init.sh with AGENTS"
+pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/agents-ps1")" -NoDoctor > /dev/null 2>&1 || fail "init.ps1 with AGENTS"
+for t in sh ps1; do
+  [ -f "$WORK/agents-$t/.cursorrules" ] || fail "init.$t did not deploy the pointer of a served agent"
+  [ ! -e "$WORK/agents-$t/.windsurfrules" ] && [ ! -e "$WORK/agents-$t/.github" ] && [ ! -e "$WORK/agents-$t/.openhands" ] || fail "init.$t deployed the pointer of an agent the project does not serve"
+done
+echo "  AGENTS=\"cursor claude\": .cursorrules deployed, .windsurfrules, copilot and openhands not, on both twins"
+
 (cd "$WORK/sh" && find . -type f | sort) > "$WORK/sh.list"
 (cd "$WORK/ps1" && find . -type f | sort) > "$WORK/ps1.list"
 if ! diff "$WORK/sh.list" "$WORK/ps1.list"; then fail "init.sh and init.ps1 deployed different files"; fi
@@ -180,7 +191,7 @@ esac
 exit 0
 EOF
 chmod +x "$WORK/graftbin/npx"
-printf '@echo %%* >> "%%GRAFT_FAKE_LOG%%"\r\n@if "%%6"=="--dry-run" (echo would write - this repo:& echo   GEMINI.md               fenced graft section& echo   .gemini\\settings.json   mcpServers.graft& echo.& echo would write - your machine, affects ALL repos:& echo   ~\\.codex\\config.toml   [mcp_servers.graft]) 1>&2 & if "%%6"=="--dry-run" exit /b 0\r\n@if "%%3"=="init" (echo graft> GEMINI.md & mkdir .gemini 2>nul & echo {}> .gemini\\settings.json & echo graft>> AGENTS.md & echo graft>> README.md)\r\n@if "%%3"=="build" (mkdir graft 2>nul & echo index> graft\\index.md)\r\n@exit /b 0\r\n' > "$WORK/graftbin/npx.cmd"
+printf '@echo %%* >> "%%GRAFT_FAKE_LOG%%"\r\n@set DRY=0\r\n@for %%%%a in (%%*) do @if "%%%%a"=="--dry-run" set DRY=1\r\n@if "%%DRY%%"=="1" (echo would write - this repo:& echo   GEMINI.md               fenced graft section& echo   .gemini\\settings.json   mcpServers.graft& echo.& echo would write - your machine, affects ALL repos:& echo   ~\\.codex\\config.toml   [mcp_servers.graft]) 1>&2 & exit /b 0\r\n@if "%%3"=="init" (echo graft> GEMINI.md & mkdir .gemini 2>nul & echo {}> .gemini\\settings.json & echo graft>> AGENTS.md & echo graft>> README.md)\r\n@if "%%3"=="build" (mkdir graft 2>nul & echo index> graft\\index.md)\r\n@exit /b 0\r\n' > "$WORK/graftbin/npx.cmd"
 for twin in sh ps1; do
   git init -q "$WORK/graft-$twin"
   echo readme > "$WORK/graft-$twin/README.md"
@@ -196,7 +207,7 @@ for twin in sh ps1; do
       GRAFT_FAKE_LOG="$(native "$WORK/graft-$twin.args")" PATH="$WORK/graftbin:$PATH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/graft-$twin")" -NoDoctor >> "$WORK/graft-$twin.log" 2>&1 || fail "init.ps1 with a succeeding Graft (run $run, see $WORK/graft-$twin.log)"
     fi
   done
-  grep -aq '^-y @nanonets/graft init -y --no-build' "$WORK/graft-$twin.args" || fail "init.$twin ran graft init with the picker (args: $(tr '\n' '|' < "$WORK/graft-$twin.args"))"
+  grep -aq '^-y @nanonets/graft init --agents claude agents antigravity --no-build' "$WORK/graft-$twin.args" || fail "init.$twin did not wire the agents of config.env without the picker (args: $(tr '\n' '|' < "$WORK/graft-$twin.args"))"
   grep -aq '^-y @nanonets/graft build' "$WORK/graft-$twin.args" || fail "init.$twin did not run graft build"
   [ "$(git -C "$WORK/graft-$twin" status --porcelain | tr -d '\r')" = " M README.md" ] || fail "init.$twin: git status after Graft is not just the changed README.md: $(git -C "$WORK/graft-$twin" status --porcelain | tr '\n' ' ')"
   grep -aq 'Graft changed committed files: README.md' "$WORK/graft-$twin.log" || fail "init.$twin did not name the committed file Graft changed"

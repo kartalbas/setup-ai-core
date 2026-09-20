@@ -101,11 +101,20 @@ Copy-Item -Force (Join-Path $coreRoot "VERSION") (Join-Path $aiCoreDir "VERSION"
 
 # 2. The agent files, created once and never overwritten: templates\ mirrors the target layout.
 #    A project folder's AGENTS.md is generated instead: the list of its repositories, rewritten
-#    on every run because the folder changes.
+#    on every run because the folder changes. The pointer file of an agent the project does not
+#    serve (AGENTS in .ai-core\config.env, or the template's default before the file exists) is
+#    not deployed.
 $templates = Join-Path $coreRoot "templates"
+$config = Join-Path $aiCoreDir "config.env"; if (-not (Test-Path $config)) { $config = Join-Path $templates ".ai-core\config.env" }
+$agentsLine = Get-Content $config | Where-Object { $_ -match '^\s*AGENTS\s*=' } | Select-Object -Last 1
+$agents = if ($agentsLine) { ((($agentsLine -split '=', 2)[1] -split '#', 2)[0]).Trim(' ', "`t", "`r", '"', "'").ToLowerInvariant() } else { "" }
+$served = @($agents -split '\s+' | Where-Object { $_ })
+function Test-Serves([string]$agent) { return ($served.Count -eq 0 -or ($served -ccontains $agent)) }
+$pointerOf = @{ '.cursorrules' = 'cursor'; '.windsurfrules' = 'windsurf'; '.github\copilot-instructions.md' = 'copilot'; '.openhands\microagents\repo-rules.md' = 'openhands' }
 Get-ChildItem -Path $templates -Recurse -File -Force | ForEach-Object {
   $rel = $_.FullName.Substring($templates.Length + 1)
   if ($projectFolder -and $rel -ceq "AGENTS.md") { return }
+  if ($pointerOf.ContainsKey($rel) -and -not (Test-Serves $pointerOf[$rel])) { return }
   $dst = Join-Path $target $rel
   if (-not (Test-Path $dst)) {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dst) | Out-Null

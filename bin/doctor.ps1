@@ -115,9 +115,18 @@ $hints = @{
   agy    = "Antigravity: https://antigravity.google/cli/install.ps1 or install.sh"
   codex  = "Codex: npm install -g @openai/codex"
 }
+# Antigravity reads its MCP servers from one machine-wide file only (it does not read a file in
+# the repository; tested); an empty one is not JSON, Graft cannot register there, so it is made valid.
 foreach ($cli in @('claude', 'agy', 'codex')) {
   $cmd = Get-Command $cli -ErrorAction SilentlyContinue
   if ($cmd) { Write-Report $cli present $cmd.Source } else { Write-Report $cli absent $hints[$cli] }
+  if ($cmd -and $cli -ceq 'agy') {
+    $mcp = Join-Path $HOME '.gemini\config\mcp_config.json'
+    if ((Test-Path $mcp) -and (Get-Item $mcp).Length -eq 0) {
+      if ($NoInstall) { Write-Report 'agy mcp' MISSING "$mcp is empty; Antigravity cannot register MCP servers; run doctor without -NoInstall"; Add-Problem }
+      else { [System.IO.File]::WriteAllText($mcp, '{}'); Write-Report 'agy mcp' repaired "$mcp was empty; it is {} now, and the next init registers the Graft server there" }
+    }
+  }
 }
 
 # The team modes of every agent tool on this machine: checked, and installed when one is missing

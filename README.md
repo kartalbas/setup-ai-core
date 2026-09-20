@@ -146,6 +146,7 @@ checkout never carries a copy.
 ├── .github/copilot-instructions.md      Copilot pointer
 ├── .openhands/microagents/repo-rules.md OpenHands microagent
 ├── .claude/settings.json                Claude Code permissions: Bash(ai-core:*)
+├── .codex/config.toml                   Codex: the Graft MCP server, read once the project is trusted
 └── graft/                               the code graph, and what graft init wires: .mcp.json,
                                          .claude/helpers/, .claude/skills/graft/, GEMINI.md, ...
 ```
@@ -368,9 +369,9 @@ checkout at the next session without running `init` again.
 | Agent | Reads at start | Mechanically active |
 | :--- | :--- | :--- |
 | Claude Code | `AGENTS.md`, `.claude/settings.json`, `.mcp.json`, `.claude/skills/` | permissions from the harness; hooks, status line, the Graft MCP server and the `graft` skill from `graft init` |
-| OpenAI Codex | `AGENTS.md` from the repository root down to the working directory, concatenated; `~/.codex/AGENTS.md` for the user; `.agents/skills/` in the repository and `~/.agents/skills/`; MCP servers from `~/.codex/config.toml` | skills; MCP from its own config, not from `.mcp.json` |
+| OpenAI Codex | `AGENTS.md` from the repository root down to the working directory, concatenated; `~/.codex/AGENTS.md` for the user; `.agents/skills/` in the repository and `~/.agents/skills/`; MCP servers from `.codex/config.toml` in the repository (the harness deploys it with the Graft server; read once the project is trusted) and from `~/.codex/config.toml` | skills; MCP from `.codex/config.toml`, not from `.mcp.json`; hooks from `~/.codex/hooks.json`, which `graft init` writes |
 | OpenCode, Zed, Aider | `AGENTS.md` | nothing; text only |
-| Google Antigravity (`agy`) | `AGENTS.md` (prepended to every prompt; `agy inspect` shows it), `.agents/skills/` | skills; MCP only from its own `mcp_config.json` |
+| Google Antigravity (`agy`) | `AGENTS.md` (prepended to every prompt), `.agents/skills/` | skills; MCP only from `~/.gemini/config/mcp_config.json`, machine-wide: its documentation names `.agents/mcp_config.json` in the repository too, but `agy` does not load it (tested with `agy --print`, with a valid machine-wide file), so `graft init` registers the server there and `doctor` repairs the file when it is empty |
 | Cursor, Windsurf, Copilot | `.cursorrules`, `.windsurfrules`, `.github/copilot-instructions.md`, deployed only when `AGENTS` names them | nothing; a one-line pointer to `AGENTS.md` and the rules |
 | OpenHands | `AGENTS.md`, `.agents/skills/`, the organisation's `.agents` repository, `.openhands/setup.sh`, `.openhands/hooks.json`; the microagent pointer the harness deploys today is the older convention | `setup.sh` runs at every start with the repository; hooks on `SessionStart`, `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionEnd`; skills |
 
@@ -517,7 +518,7 @@ allowed; any other value is an error.
 
 | Key | Values | Meaning |
 | :--- | :--- | :--- |
-| `AGENTS` | names separated by spaces: `claude`, `codex`, `antigravity`, `openhands`, `gemini`, `cursor`, `windsurf`, `copilot`; default `claude codex antigravity openhands` | the agents this project serves. `init` deploys the pointer file of each one named (`.cursorrules`, `.windsurfrules`, `.github/copilot-instructions.md`, `.openhands/microagents/repo-rules.md`) and no other, and `graft init` is wired into these and no other (`--agents`). Empty: every agent Graft detects on the machine, and every pointer file. Graft detects Gemini wherever `~/.gemini` exists, which Antigravity creates too, so an empty list wires `GEMINI.md` and `.gemini/` into every repository. |
+| `AGENTS` | names separated by spaces: `claude`, `codex`, `antigravity`, `openhands`, `gemini`, `cursor`, `windsurf`, `copilot`; default `claude codex antigravity openhands` | the agents this project serves. `init` deploys the file of each one named (`.codex/config.toml`, `.cursorrules`, `.windsurfrules`, `.github/copilot-instructions.md`, `.openhands/microagents/repo-rules.md`) and no other, and `graft init` is wired into these and no other (`--agents`). Empty: every agent Graft detects on the machine, and every pointer file. Graft detects Gemini wherever `~/.gemini` exists, which Antigravity creates too, so an empty list wires `GEMINI.md` and `.gemini/` into every repository. |
 | `GH_ORG` | a GitHub organisation or user | the owner the board commands act for when a command names no repository (`repo-boards`, `project-new`, `incident-count`, a bare board number). Unset: the owner of the repository the command runs in. The environment variable `GH_ORG` overrides both. |
 | `GRAFT_EXECUTION_MODE` | `native` (default), `skip` | `native` builds the code graph with the local Node.js and fails when it cannot; `skip` does not build it in this repository |
 
@@ -625,7 +626,7 @@ and `bin/<name>.ps1` in PowerShell; a new script in `bin/` is a command without 
 | `ai-core` | `ai-core <command>`: any script in `bin/` by name, `graft` for `graft-setup`, plus `update`, `version`, `help` | the command's exit code; 1 for an unknown command |
 
 `doctor` today checks Git, gh and its login, Bash, PowerShell 7 (required on Windows), Node.js 20+
-with `npx`, jq, and reports whether `claude`, `agy` and `codex` are installed, with the install command
+with `npx`, jq, the team modes, repairs an empty Antigravity `mcp_config.json`, and reports whether `claude`, `agy` and `codex` are installed, with the install command
 of each. Required tools it installs with `winget` (Windows), `brew` (macOS) or `apt-get` (Linux);
 a login it cannot do for you. On Windows a tool installed a moment ago may need a new terminal.
 
@@ -885,6 +886,7 @@ setup-ai-core/
 │   ├── .ai-core/                        config.env, labels.tsv, assignees.tsv, team-modes.tsv,
 │   │                                    rules/rules.local.md, docs/README.md, solution-path.template.md
 │   ├── .claude/                         settings.json: the ai-core permission
+│   ├── .codex/                          config.toml: the Graft MCP server for Codex, per repository
 │   ├── .github/                         copilot-instructions.md
 │   └── .openhands/                      microagents/repo-rules.md
 ├── tests/

@@ -132,8 +132,9 @@ fi
 AI_CORE_DIR="$TARGET/.ai-core"
 AI_CORE_RULES="$AI_CORE_DIR/rules"
 mkdir -p "$AI_CORE_RULES" "$AI_CORE_DIR/docs"
-# Earlier versions copied the scripts into the checkout; they run from the clone now
-rm -rf "$AI_CORE_DIR/bin"
+# Earlier versions copied the scripts into the checkout, and one wrote an MCP file Antigravity
+# never reads; both are removed
+rm -rf "$AI_CORE_DIR/bin" "$TARGET/.agents/mcp_config.json"
 
 # 1. Managed files, refreshed on every run, later layer wins: the rules, one file per section in
 #    setup-ai-core and in every layer (the same name replaces, a new name adds), assembled into one
@@ -224,6 +225,7 @@ serves() {  # serves <agent>: true when the project serves it, or names no agent
     .windsurfrules) serves windsurf || continue ;;
     .github/copilot-instructions.md) serves copilot || continue ;;
     .openhands/microagents/repo-rules.md) serves openhands || continue ;;
+    .codex/config.toml) serves codex || continue ;;
   esac
   if [ ! -e "$TARGET/$rel" ]; then
     mkdir -p "$(dirname "$TARGET/$rel")"

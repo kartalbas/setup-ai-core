@@ -1,0 +1,7 @@
+# Codex reads this project-scoped configuration once the project is trusted (codex: /trust,
+# or [projects."<path>"] trust_level = "trusted" in ~/.codex/config.toml). The Graft MCP server
+# gives Codex graft_find_code, graft_find_all, graft_trace_calls, graft_file_api and
+# graft_repo_map in this repository; it starts npx -y @nanonets/graft mcp over stdio.
+[mcp_servers.graft]
+command = "npx"
+args = ["-y", "@nanonets/graft", "mcp"]

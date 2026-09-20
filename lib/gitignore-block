@@ -6,6 +6,7 @@
 /.claude/
 /.mcp.json
 /.agents/
+/.codex/
 /.openhands/microagents/
 /.gemini/
 /.cursorrules

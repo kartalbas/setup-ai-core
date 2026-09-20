@@ -142,10 +142,19 @@ else
   report jq MISSING "install jq from https://jqlang.github.io/jq"; problem
 fi
 
-# Agent CLIs: reported, never installed by doctor
+# Agent CLIs: reported, never installed by doctor. Antigravity reads its MCP servers from one
+# machine-wide file only (it does not read a file in the repository; tested); an empty one is
+# not JSON, Graft cannot register there, so it is made valid.
 for cli in claude agy codex; do
   if command -v "$cli" >/dev/null 2>&1; then
     report "$cli" present "$(command -v "$cli")"
+    if [ "$cli" = agy ]; then
+      MCP="$HOME/.gemini/config/mcp_config.json"
+      if [ -f "$MCP" ] && [ ! -s "$MCP" ]; then
+        if [ "$NO_INSTALL" -eq 1 ]; then report "agy mcp" MISSING "$MCP is empty; Antigravity cannot register MCP servers; run doctor without --no-install"; problem
+        else printf '{}' > "$MCP"; report "agy mcp" repaired "$MCP was empty; it is {} now, and the next init registers the Graft server there"; fi
+      fi
+    fi
   else
     case "$cli" in
       claude) hint="Claude Code: https://claude.ai/install.ps1 or install.sh" ;;

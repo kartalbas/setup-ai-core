@@ -121,8 +121,10 @@ if ($layers.Count -gt 0) {
 $aiCoreDir = Join-Path $target ".ai-core"
 $aiCoreRules = Join-Path $aiCoreDir "rules"
 foreach ($dir in @($aiCoreRules, (Join-Path $aiCoreDir "docs"))) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-# Earlier versions copied the scripts into the checkout; they run from the clone now
+# Earlier versions copied the scripts into the checkout, and one wrote an MCP file Antigravity
+# never reads; both are removed
 if (Test-Path (Join-Path $aiCoreDir "bin")) { Remove-Item -Recurse -Force (Join-Path $aiCoreDir "bin") }
+if (Test-Path (Join-Path $target ".agents\mcp_config.json")) { Remove-Item -Force (Join-Path $target ".agents\mcp_config.json") }
 
 # 1. Managed files, refreshed on every run, later layer wins: the rules, one file per section in
 #    setup-ai-core and in every layer (the same name replaces, a new name adds), assembled into one
@@ -206,7 +208,7 @@ $agentsLine = Get-Content $config | Where-Object { $_ -cmatch '^\s*AGENTS\s*=' }
 $agents = if ($agentsLine) { ((($agentsLine -split '=', 2)[1] -split '#', 2)[0]).Trim(' ', "`t", "`r", '"', "'").ToLowerInvariant() } else { "" }
 $served = @($agents -split '\s+' | Where-Object { $_ })
 function Test-Serves([string]$agent) { return ($served.Count -eq 0 -or ($served -ccontains $agent)) }
-$pointerOf = @{ '.cursorrules' = 'cursor'; '.windsurfrules' = 'windsurf'; '.github\copilot-instructions.md' = 'copilot'; '.openhands\microagents\repo-rules.md' = 'openhands' }
+$pointerOf = @{ '.cursorrules' = 'cursor'; '.windsurfrules' = 'windsurf'; '.github\copilot-instructions.md' = 'copilot'; '.openhands\microagents\repo-rules.md' = 'openhands'; '.codex\config.toml' = 'codex' }
 Get-ChildItem -Path $templates -Recurse -File -Force | ForEach-Object {
   $rel = $_.FullName.Substring($templates.Length + 1)
   if ($projectFolder -and $rel -ceq "AGENTS.md") { return }

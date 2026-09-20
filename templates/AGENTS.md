@@ -20,9 +20,12 @@ The `ai-core` command is on the PATH and works the same in Bash and PowerShell; 
 | Action | Command |
 | :--- | :--- |
 | **Session start (mandatory first step)** | `ai-core session-start` |
-| **Validate a solution path** | `ai-core solution-path <path> --check` |
+| **Validate a solution path, then post it under its issue** | `ai-core solution-path <n> <path>` (`--check` validates only) |
 | **Check rule enforcement tags** | `ai-core rules-check` |
 | **Rebuild the code graph** | `ai-core graft` |
+| **Read an issue and its thread** | `ai-core issue-thread <n>` |
+| **Open the worktree of an issue assigned to you** | `ai-core start-issue <n>` |
+| **Create, comment, close, label, move an issue** | `ai-core issue-new`, `issue-comment`, `issue-close`, `issue-label`, `issue-status` (each takes `--help`) |
 
 The solution-path template is at `.ai-core/solution-path.template.md`.
 

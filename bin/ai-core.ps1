@@ -32,7 +32,7 @@ function Show-Usage {
   Write-Host "  help                       Show this help message"
 }
 
-switch ($Command) {
+switch -CaseSensitive ($Command) {
   'graft' {
     & pwsh -NoProfile -File (Join-Path $core "bin\graft-setup.ps1") @Arguments
     exit $LASTEXITCODE

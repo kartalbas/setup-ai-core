@@ -10,7 +10,7 @@
   into their own issues before any detail is refined. Everything that carries the work, a branch, a
   worktree or an agent, is named after its issue, and a commit that touches an issue names it.
   Before handing over an issue or a document, check it for placeholders, contradictions, scope and
-  ambiguity. [discipline]
+  ambiguity. [tool · discipline]
 - **Never stage blindly.** Read the working-tree status and add the paths you changed. A commit
   subject is one sentence of at most 72 characters that describes the change; the body says why.
   Commit and push as often as the work needs; the owner reviews the finished work, not each commit.

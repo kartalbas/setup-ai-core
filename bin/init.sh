@@ -163,6 +163,34 @@ else
   echo "note: $TARGET is not a git repository; nothing to exclude"
 fi
 
+# 3b. The project's .gitignore carries a block naming every file an agent or the harness puts
+#     into a checkout (lib/gitignore-block), so no clone of this repository commits one, with or
+#     without the harness. The block is rewritten between its markers and the rest of the file is
+#     the project's; a path the project already ignores, with or without the slashes, is not
+#     written twice, and when it ignores them all no block is written. A changed .gitignore is
+#     the one thing init leaves for a commit.
+if git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  GI="$TARGET/.gitignore"
+  KEPT="$([ -f "$GI" ] && awk '/^# setup-ai-core start/{skip=1} !skip{print} /^# setup-ai-core end/{skip=0}' "$GI" | tr -d '\r' || true)"
+  {
+    [ -z "$KEPT" ] || printf '%s\n' "$KEPT"
+    printf '%s\n' "$KEPT" | awk -v block="$CORE_ROOT/lib/gitignore-block" '
+      function norm(s) { sub(/[[:space:]]+$/, "", s); sub(/^\//, "", s); sub(/\/$/, "", s); return s }
+      $0 !~ /^#/ && $0 != "" { seen[norm($0)] = 1 }
+      END {
+        n = 0
+        while ((getline line < block) > 0) { sub(/\r$/, "", line); if (line ~ /^#/) { marker[++m] = line; continue }; if (!(norm(line) in seen)) lines[++n] = line }
+        if (n > 0) { print marker[1]; for (i = 1; i <= n; i++) print lines[i]; print marker[2] }
+      }'
+  } > "$GI.tmp"
+  if [ -f "$GI" ] && cmp -s "$GI.tmp" "$GI"; then
+    rm -f "$GI.tmp"
+  else
+    mv "$GI.tmp" "$GI"
+    echo "--> .gitignore: the agent files of this repository are ignored; commit .gitignore once"
+  fi
+fi
+
 # 4. The Graft code graph, built with the local Node.js or the whole init fails; no fallback.
 echo "--> Graft"
 if ! bash "$CORE_ROOT/bin/graft-setup.sh" "$TARGET"; then

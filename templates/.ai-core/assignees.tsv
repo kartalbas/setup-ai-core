@@ -1,0 +1,27 @@
+# Who a new issue belongs to, per repository. One definition for every repo on the board.
+# Columns: repo <TAB> login
+#
+# A COLUMN IS THE BYTES BETWEEN THE TABS. A row carries EXACTLY ONE TAB, and neither column may
+# begin or end with a SPACE. Both readers refuse anything else and name the row; neither trims,
+# because a reader that repairs a file decides for you what you meant. A comment opens with `#`
+# in column one, and a blank line is empty - an indented one is neither and is refused.
+#
+# An issue lands on whoever OWNS that repository, not on whoever happened to type the
+# command. Without this file, every issue is created with `@me` and then corrected by
+# hand - which works exactly as long as nobody forgets, and somebody always does.
+#
+# The login is the GitHub ACCOUNT NAME, the one the API accepts, never the display name.
+#
+# A repo that is not listed falls back to `@me`. That is deliberate: a new repo should
+# assign to the person setting it up rather than fail, and adding a line here is how it
+# stops doing that. An explicit --assignee / -Assignee always wins over both.
+#
+# Adding an owner means adding a line here, never passing the login by hand each time.
+#
+# THE MAP IS EMPTY ON PURPOSE. Who owns which repository is not known in advance, and a
+# guessed owner is worse than none: it assigns work to somebody who never agreed to it
+# and hides that the question was never asked. Until a repository has an agreed owner,
+# `@me` is the correct answer. Add a line the moment one is agreed - one line per repo,
+# in the form below.
+#
+# example-org/example-repo	example-login

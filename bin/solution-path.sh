@@ -1,28 +1,26 @@
 #!/usr/bin/env bash
-# Validate a solution path and optionally post it under a GitHub issue.
+# Check a solution path and post it under its issue.
 #
-#   solution-path.sh FILE [--check] [--issue NUMBER]
+#   solution-path.sh NUMBER FILE [--check]
 #
-set -euo pipefail
+# The seven fields and the reuse manifest are what makes a decision reviewable: where a person
+# meets it, what they see today, what runs behind that, the decision itself, the options with
+# what each costs, the recommendation, the code facts, and the list of everything that already
+# exists and that this change touches or resembles. A missing field is not a formatting slip -
+# it is the part of the answer that was not thought through, and it is cheapest to notice
+# before the code is written.
+#
+# A section is measured by what it CONTAINS and not by whether its heading is there, because a
+# heading with nothing under it reads as a filled-in field to every list that counts headings.
+#
+# --check validates and posts nothing, for a writer who wants to know before they send.
 
-for arg in "$@"; do
-  if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
-  echo "Usage: solution-path.sh <file> [--check]"
-  echo ""
-  echo "Validates a solution path document against the 8 required sections."
-  echo ""
-  echo "Options:"
-  echo "  -h, --help    Show this help message"
-  echo "  --check       Enforce validation and exit with error if incomplete"
-  echo ""
-  echo "Examples:"
-  echo "  ai-core solution-path docs/my-solution.md --check"
-  exit 0
-  fi
-done
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 
-usage='usage: solution-path.sh FILE [--check] [--issue NUMBER]'
+BIN="$ROOT/bin"
+usage='usage: solution-path.sh NUMBER FILE [--check]'
 
+# The headings a solution path must carry, in the order a reader walks them.
 REQUIRED=(
   'Where a person meets this'
   'What they see today'
@@ -35,31 +33,23 @@ REQUIRED=(
 )
 
 check_only=0
-issue_num=""
-file=""
-
+rest=()
 while [ $# -gt 0 ]; do
   case "$1" in
-    --check)     check_only=1; shift ;;
-    --issue)     shift; [ $# -gt 0 ] || { echo "error: --issue requires a number" >&2; exit 1; }; issue_num="$1"; shift ;;
-    -h|--help)   echo "$usage"; exit 0 ;;
-    -*)          echo "error: unknown argument '$1'" >&2; exit 1 ;;
-    *)
-      if [ -z "$file" ]; then
-        file="$1"; shift
-      else
-        echo "error: unexpected argument '$1'" >&2; exit 1
-      fi
-      ;;
+    --check)   check_only=1; shift ;;
+    -h|--help) echo "$usage"; exit 0 ;;
+    -*)        die "unknown argument '$1'" ;;
+    *)         rest+=("$1"); shift ;;
   esac
 done
 
-[ -n "$file" ] || { echo "$usage" >&2; exit 1; }
-[ -f "$file" ] || { echo "error: file not found: $file" >&2; exit 1; }
+[ ${#rest[@]} -eq 2 ] || die "$usage"
+number="${rest[0]}"
+file="${rest[1]}"
+case "$number" in ''|*[!0-9]*) die "the issue number must be numeric, not '$number' - $usage" ;; esac
+[ -f "$file" ] || die "there is no file at $file"
 
-echo "==> Validating solution path: $file"
-
-# Extract all ## headings
+# Every "## " heading in the file. A deeper heading stands INSIDE its section and is not one.
 headings="$(awk '
   /^##[[:space:]]/ {
     line = substr($0, 4)
@@ -69,27 +59,9 @@ headings="$(awk '
   }
 ' "$file")"
 
-# Check for duplicates
-doubled=()
-for want in "${REQUIRED[@]}"; do
-  count="$(printf '%s\n' "$headings" | grep -cxF "$want" || true)"
-  if [ "$count" -gt 1 ]; then
-    doubled+=("$want")
-  fi
-done
-
-if [ ${#doubled[@]} -gt 0 ]; then
-  echo "error: duplicate required headings found in $file:" >&2
-  for d in "${doubled[@]}"; do
-    echo "  - ## $d (appears multiple times)" >&2
-  done
-  exit 1
-fi
-
-# Function to get section body
-section_body() {
-  local want="$1"
-  awk -v want="$want" '
+# What one heading has under it, down to the next "## " heading.
+section_body() {  # section_body <heading>
+  awk -v want="$1" '
     /^##[ \t]/ {
       if (inside) exit
       line = substr($0, 4); sub(/^[ \t]+/, "", line); sub(/[ \t]+$/, "", line)
@@ -100,82 +72,51 @@ section_body() {
   ' "$file"
 }
 
-strip_comments() {
-  awk '
-    BEGIN { in_comment = 0 }
-    {
-      line = $0
-      while (length(line) > 0) {
-        if (!in_comment) {
-          start = index(line, "<!--")
-          if (start > 0) {
-            printf "%s", substr(line, 1, start - 1)
-            line = substr(line, start + 4)
-            in_comment = 1
-          } else {
-            print line
-            break
-          }
-        } else {
-          end = index(line, "-->")
-          if (end > 0) {
-            line = substr(line, end + 3)
-            in_comment = 0
-          } else {
-            break
-          }
-        }
-      }
-    }
-  '
+join_with() {  # join_with <separator> <item>...
+  local sep="$1" out='' item; shift
+  for item in "$@"; do out="${out:+$out$sep}$item"; done
+  printf '%s' "$out"
 }
+
+# A required heading that stands twice is refused before anything else is judged. Only one of
+# its two bodies is ever read, and which one it is differs between the two shells, so the same
+# file would be accepted by one and refused by the other.
+doubled=()
+for want in "${REQUIRED[@]}"; do
+  [ "$(printf '%s\n' "$headings" | grep -cxF "$want" || true)" -le 1 ] || doubled+=("$want")
+done
+if [ ${#doubled[@]} -gt 0 ]; then
+  echo "$file names \"## $(join_with '", "## ' "${doubled[@]}")\" twice." >&2
+  die 'a required heading may stand only once - with two of them one body is read and the other is not'
+fi
 
 absent=()
 empty=()
-
 for want in "${REQUIRED[@]}"; do
   if ! printf '%s\n' "$headings" | grep -qxF "$want"; then
     absent+=("$want")
-  else
-    body_no_comments="$(section_body "$want" | strip_comments | tr -d '[:space:]')"
-    if [ -z "$body_no_comments" ]; then
-      empty+=("$want")
-    fi
+  elif [ -z "$(section_body "$want" | tr -d '[:space:]')" ]; then
+    empty+=("$want")
   fi
 done
 
-has_errors=0
-
-if [ ${#absent[@]} -gt 0 ]; then
-  has_errors=1
-  echo "error: missing required headings in $file:" >&2
-  for a in "${absent[@]}"; do
-    echo "  - ## $a" >&2
-  done
+if [ ${#absent[@]} -gt 0 ] || [ ${#empty[@]} -gt 0 ]; then
+  [ ${#absent[@]} -eq 0 ] \
+    || echo "$file has no \"## $(join_with '", no "## ' "${absent[@]}")\" heading." >&2
+  [ ${#empty[@]} -eq 0 ] \
+    || echo "$file leaves \"$(join_with '", "' "${empty[@]}")\" empty." >&2
+  die 'write those sections, then run this again - code starts after the solution path is posted'
 fi
 
-if [ ${#empty[@]} -gt 0 ]; then
-  has_errors=1
-  echo "error: empty sections (or placeholder only) in $file:" >&2
-  for e in "${empty[@]}"; do
-    echo "  - ## $e" >&2
-  done
+echo "$file carries all ${#REQUIRED[@]} sections."
+
+if [ "$check_only" -eq 1 ]; then
+  echo 'Checked only - nothing was posted.'
+  exit 0
 fi
 
-if [ "$has_errors" -ne 0 ]; then
-  echo "Validation FAILED. All 8 sections must be present and filled with substantive content." >&2
-  exit 1
-fi
-
-echo "✓ Solution path is VALID (all 8 sections populated)."
-
-# Post to GitHub issue if requested and not check-only
-if [ "$check_only" -eq 0 ] && [ -n "$issue_num" ]; then
-  if command -v gh >/dev/null 2>&1; then
-    echo "==> Posting solution path to GitHub Issue #$issue_num..."
-    gh issue comment "$issue_num" --body-file "$file"
-    echo "✓ Posted to Issue #$issue_num"
-  else
-    echo "warning: gh CLI not available, could not post to issue" >&2
-  fi
-fi
+# The file travels as a file: its backticks, quotes and newlines reach GitHub as they were
+# written, because no shell reads them on the way.
+posted="$("$BIN/issue-comment.sh" "$number" --body-file "$file" 2>&1)" \
+  || die "the solution path was NOT posted: $posted"
+printf '%s\n' "$posted"

@@ -134,6 +134,14 @@ else
   report node MISSING "install Node.js 20 or newer from https://nodejs.org"; problem
 fi
 
+# jq: every board and issue command reads GitHub's answers through it
+if ! command -v jq >/dev/null 2>&1; then install_tool jq jqlang.jq jq jq || true; fi
+if command -v jq >/dev/null 2>&1; then
+  report jq present "$(jq --version 2>/dev/null | head -1)"
+else
+  report jq MISSING "install jq from https://jqlang.github.io/jq"; problem
+fi
+
 # Agent CLIs: reported, never installed by doctor
 for cli in claude agy codex; do
   if command -v "$cli" >/dev/null 2>&1; then

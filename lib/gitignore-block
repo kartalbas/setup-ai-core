@@ -1,0 +1,16 @@
+# setup-ai-core start: what agents and the harness put into a checkout is never committed
+/.ai-core/
+/graft/
+/AGENTS.md
+/GEMINI.md
+/.claude/
+/.mcp.json
+/.agents/
+/.openhands/microagents/
+/.gemini/
+/.cursorrules
+/.cursor/
+/.windsurfrules
+/.windsurf/
+/.github/copilot-instructions.md
+# setup-ai-core end

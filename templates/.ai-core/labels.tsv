@@ -1,0 +1,91 @@
+# The label taxonomy, one definition for every repo on every board.
+# Columns: group <TAB> name <TAB> colour <TAB> description
+#
+# Every issue carries at least one TYPE label and one AREA label. A type says what
+# sort of work it is; an area says which part of the product it touches. A closes
+# label says what has to happen before the ticket may be closed, and not every
+# ticket needs one.
+#
+# THE GROUP IS THE PREFIX THE LABEL CARRIES. A row in group `area` is named
+# `area:something`, and nothing else is accepted - lib/board.sh and lib/Board.psm1
+# refuse the file otherwise. Without that rule a row filed under the wrong group is
+# read by board-sync as the other family, and every ticket in the organisation is
+# reported as missing a label that is right there on it.
+#
+# HOW THIS SET WAS DERIVED, on 2026-08-26: every issue of all eleven repositories of
+# the organisation was read, open and closed, and every label application counted.
+# 449 issues carried 814 label applications. 356 issues carry a `type:`, `area:` or
+# `closes:` label; 24 carry one of the fourteen unprefixed families this file used to
+# declare; 9 carry a GitHub default; 63 carry no label at all; exactly ONE issue
+# carries both families. So the prefixed names below are not a new taxonomy - they
+# are the one that was already in use, written down at last, and the fourteen names
+# that were only ever created by labels-sync are gone.
+#
+# ONLY WHAT IS IN USE IS DECLARED. A label that exists in a repository but sits on no
+# ticket is left out: labels-sync reports it under "not in labels.tsv, left alone"
+# and nobody can put it on a new ticket until somebody adds the line. That is the
+# intended way to grow this file - an area nobody has filed a ticket in would be a
+# label that filters nothing. Eighteen such labels were measured and left out, and
+# area:security came back the same day when alpha-cloud#124 took it, which is the
+# growth this rule is for.
+#
+# ONE FILE FOR BOTH BOARDS. rules.md §8 requires one definition applied to every
+# repository, because a label that exists in one repository and not another makes a
+# board-wide filter lie. So an beta repository also carries the alpha areas
+# and the other way round. Splitting the file per board would trade a filter that
+# lies for a filter that cannot cross a board at all.
+#
+# COLOURS. Each type and each closes label has its own colour, because those are
+# small closed sets and the colour is what you scan a column for. Every area label
+# shares one colour, because that set is open and grows - they read as a family.
+#
+# area:install was retired in favour of area:installation. They named the same area
+# in two repositories, so a filter on either missed the tickets that took the other.
+
+type	type:bug	D73A4A	A mechanism that misbehaves today
+type	type:feature	0E8A16	Builds a capability that does not exist yet
+type	type:infra	5319E7	Infrastructure, packaging and the pipelines that ship the code
+type	type:chore	FEF2C0	Upkeep that is neither a bug nor a feature
+type	type:hardening	B60205	Makes an existing mechanism fail fast instead of quietly
+
+area	area:gate	1D76DB	The gate and the checks it runs
+area	area:framework	1D76DB	The engine, its ports, its modes and the record it writes
+area	area:cluster	1D76DB	Cluster identity, roles and the cluster map
+area	area:plugin	1D76DB	A plugin and its steps
+area	area:branch	1D76DB	The installation branch: what is stamped into it and what is product
+area	area:client	1D76DB	The operator app
+area	area:onboarding	1D76DB	The tenant onboarding flow
+area	area:secrets	1D76DB	Credentials, secret material and how it is handled
+area	area:security	1D76DB	Credentials, RBAC and blast radius
+area	area:charts	1D76DB	Helm charts and ArgoCD manifests
+area	area:gitops	1D76DB	The GitOps repository, ArgoCD and the root application
+area	area:versions	1D76DB	Central version pins and what stamps them
+area	area:vault	1D76DB	Vault seeding, policies, unseal and mounts
+area	area:executor	1D76DB	The run executor and the step machine
+area	area:host	1D76DB	The host machine, what is installed on it and its service units
+area	area:installation	1D76DB	Bringing an installation up end to end
+area	area:deploy	1D76DB	The chart, the platform manifest and the deploy chain
+area	area:tooling	1D76DB	The board, the issue tooling and the developer scripts
+area	area:tests	1D76DB	The test suites, what they cover and where they live
+area	area:docs	1D76DB	Where documents live and what a repository may carry
+area	area:auth	1D76DB	The identity provider, OIDC values and service tokens
+area	area:observability	1D76DB	Metrics, alert rules and dashboards
+area	area:mail	1D76DB	Mail sender identity, relay and the DNS an installation publishes
+area	area:db	1D76DB	The database: schema, migrations and stored ordering
+
+closes	closes:test	0E8A16	Closes on a passing automated test - no machine needed
+closes	closes:machine	D93F0B	Closes only on a real machine - it is deployment work
+
+# WHAT WENT WRONG WITH THE TICKET, as opposed to what the ticket is about. An incident label
+# says the ticket itself was written badly or filed when it should not have been. It is its own
+# group, so it neither stands in for the type of work nor for the area it touches: an issue
+# carrying one still needs its type and its area, and board-sync still reports it if it has
+# neither. They share one colour because they read as one family, the way the areas do, and
+# incident-count counts them per ISO week for exactly the question they exist to answer - how
+# well the tickets themselves are written.
+incident	incident:duplicate	E99695	The work already has a ticket
+incident	incident:context	E99695	The body does not carry the context the work needs
+incident	incident:question	E99695	The ticket asks a question instead of naming work
+incident	incident:title	E99695	The title does not say what the ticket is about
+incident	incident:released-wrong	E99695	The ticket was called done before the work was proven
+incident	incident:unasked	E99695	The ticket was filed without a person's yes

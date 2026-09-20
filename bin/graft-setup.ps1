@@ -8,7 +8,7 @@ param (
   [string]$TargetDir = "."
 )
 
-if ($Help -or $args -contains "-h" -or $args -contains "--help" -or $TargetDir -eq "--help" -or $TargetDir -eq "-h") {
+if ($Help -or $args -ccontains "-h" -or $args -ccontains "--help" -or $TargetDir -ceq "--help" -or $TargetDir -ceq "-h") {
   Write-Host "Usage: graft-setup.ps1 [-TargetDir <path>]"
   Write-Host ""
   Write-Host "Wires Graft into the agents on this machine (graft init -y --no-build, no picker) and builds"
@@ -52,7 +52,7 @@ try {
   # calls "agents"; openhands has no wiring of its own. Empty: whatever Graft detects (-y).
   $graftAgents = @()
   foreach ($a in ($agents -split '\s+' | Where-Object { $_ })) {
-    switch ($a) {
+    switch -CaseSensitive ($a) {
       'codex' { $graftAgents += 'agents' }
       { $_ -cin @('claude', 'antigravity', 'gemini', 'cursor', 'windsurf', 'copilot') } { $graftAgents += $a }
       'openhands' { }
@@ -66,7 +66,7 @@ try {
     exit 1
   }
 
-  if ($graftMode -eq "skip") {
+  if ($graftMode -ceq "skip") {
     Write-Host "==> Graft: skipped by $configFile." -ForegroundColor Yellow
     exit 0
   }
@@ -87,9 +87,9 @@ try {
     $kept = @(); $skip = $false
     if (Test-Path $exclude) {
       foreach ($line in [System.IO.File]::ReadAllLines($exclude)) {
-        if ($line -like '# setup-ai-core graft start*') { $skip = $true }
+        if ($line -clike '# setup-ai-core graft start*') { $skip = $true }
         if (-not $skip) { $kept += $line }
-        if ($line -like '# setup-ai-core graft end*') { $skip = $false }
+        if ($line -clike '# setup-ai-core graft end*') { $skip = $false }
       }
     }
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $exclude) | Out-Null
@@ -101,8 +101,8 @@ try {
     if (Test-Path $exclude) {
       $inBlock = $false
       foreach ($line in [System.IO.File]::ReadAllLines($exclude)) {
-        if ($line -like '# setup-ai-core graft start*') { $inBlock = $true; continue }
-        if ($line -like '# setup-ai-core graft end*') { $inBlock = $false; continue }
+        if ($line -clike '# setup-ai-core graft start*') { $inBlock = $true; continue }
+        if ($line -clike '# setup-ai-core graft end*') { $inBlock = $false; continue }
         if ($inBlock -and $line -and -not $graftLines.Contains($line)) { $graftLines.Add($line) }
       }
     }
@@ -110,8 +110,8 @@ try {
     $dry = @(); try { $dry = @(& npx -y @nanonets/graft @graftInit --dry-run 2>&1 | ForEach-Object { "$_" }) } catch { $dry = @() }
     $inRepo = $false
     foreach ($line in $dry) {
-      if ($line -match '^would write.*this repo:') { $inRepo = $true; continue }
-      if (-not $line.StartsWith('  ')) { $inRepo = $false; continue }
+      if ($line -cmatch '^would write.*this repo:') { $inRepo = $true; continue }
+      if (-not $line.StartsWith('  ', [StringComparison]::Ordinal)) { $inRepo = $false; continue }
       if ($inRepo) { $path = '/' + (($line.Trim() -split '\s+')[0]).Replace('\', '/'); if (-not $graftLines.Contains($path)) { $graftLines.Add($path) } }
     }
     Write-GraftBlock
@@ -128,7 +128,7 @@ try {
     $changed = @()
     foreach ($line in Get-Snapshot) {
       if ($before -contains $line) { continue }
-      if ($line.StartsWith('?? ')) {
+      if ($line.StartsWith('?? ', [StringComparison]::Ordinal)) {
         $path = '/' + $line.Substring(3)
         if (-not $graftLines.Contains($path)) { $graftLines.Add($path) }
       } else { $changed += $line.Substring(3) }

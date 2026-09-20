@@ -120,7 +120,11 @@ bash "$ROOT/bin/init.sh" "$WORK/sh" --no-doctor 2>&1 | grep -q 'Created' && fail
 pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/ps1")" -NoDoctor 2>&1 | grep -aq 'Created' && fail "init.ps1 is not idempotent"
 (cd "$WORK/sh" && find . -type f | sort) | diff - "$WORK/sh.list" > /dev/null || fail "init.sh changed the file set on re-run"
 
-echo "==> session-start in each target"
+echo "==> session-start in each target (with a team-modes table whose probes always pass, so the tools of this machine do not decide)"
+printf "claude	mode	on	always	-	-
+codex	mode	on	always	-	-
+gemini	mode	on	always	-	-
+" > "$WORK/modes.tsv"; export TEAM_MODES_FILE="$WORK/modes.tsv"
 [ ! -e "$WORK/sh/.ai-core/bin" ] || fail "init.sh copied scripts into the checkout"
 (cd "$WORK/sh" && "$ROOT/bin/ai-core" session-start > /dev/null) || fail "ai-core session-start in bash target"
 (cd "$WORK/sh" && "$ROOT/bin/ai-core" session-start --json > "$WORK/sh.json")
@@ -152,6 +156,12 @@ for twin in sh ps1; do
       else
         pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/$t")" -NoDoctor > /dev/null 2>&1 || fail "init.ps1 in $t (run $run)"
       fi
+      if [ "$run" = 1 ]; then
+        dirty="$(git -C "$WORK/$t" status --porcelain | tr -d '\r')"
+        [ "$dirty" = "?? .gitignore" ] || [ "$dirty" = " M .gitignore" ] || fail "init.$twin in $t left something besides .gitignore: $(echo "$dirty" | tr '\n' ' ')"
+        git -C "$WORK/$t" add .gitignore
+        git -C "$WORK/$t" -c user.name=check -c user.email=check@localhost commit -q -m ignore
+      fi
     done
     dirty="$(git -C "$WORK/$t" status --porcelain)"
     [ -z "$dirty" ] || fail "init.$twin left untracked files in $t: $(echo "$dirty" | tr '\n' ' ')"
@@ -160,6 +170,23 @@ for twin in sh ps1; do
   [ "$n" = 1 ] || fail "exclude block written $n times by init.$twin"
 done
 echo "  git status empty in 4 targets; exclude block written once each"
+
+echo "==> the .gitignore block: rewritten in place, a path the project ignores already is not written twice, on both twins"
+for twin in sh ps1; do
+  git init -q "$WORK/gi-$twin"; mkdir -p "$WORK/gi-$twin/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$WORK/gi-$twin/.ai-core/config.env"
+  printf 'node_modules/\n.claude/\ngraft\n' > "$WORK/gi-$twin/.gitignore"
+  for run in 1 2; do
+    if [ "$twin" = sh ]; then bash "$ROOT/bin/init.sh" "$WORK/gi-$twin" --no-doctor > /dev/null 2>&1 || fail "init.sh gitignore run $run"
+    else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/gi-$twin")" -NoDoctor > /dev/null 2>&1 || fail "init.ps1 gitignore run $run"; fi
+  done
+  GI="$WORK/gi-$twin/.gitignore"
+  [ "$(grep -c '^# setup-ai-core start' "$GI")" = 1 ] || fail "init.$twin wrote the .gitignore block $(grep -c '^# setup-ai-core start' "$GI") times"
+  [ "$(grep -c 'claude' "$GI")" = 1 ] && [ "$(grep -c 'graft' "$GI")" = 1 ] || fail "init.$twin wrote a path the project already ignores: $(tr '\n' '|' < "$GI")"
+  grep -qxF '/AGENTS.md' "$GI" && grep -qxF 'node_modules/' "$GI" || fail "init.$twin lost a line of the project's .gitignore or the block"
+  head -1 "$GI" | grep -q '^node_modules/$' || fail "init.$twin moved the project's own lines"
+done
+cmp -s <(tr -d '\r' < "$WORK/gi-sh/.gitignore") <(tr -d '\r' < "$WORK/gi-ps1/.gitignore") || fail "the .gitignore differs between the twins"
+echo "  one block, no duplicate of .claude/ and graft, the project's lines first, identical on both twins"
 
 echo "==> a failing Graft build fails init, on both twins (fake npx on the PATH, no network)"
 mkdir -p "$WORK/fakebin"
@@ -209,7 +236,7 @@ for twin in sh ps1; do
   done
   grep -aq '^-y @nanonets/graft init --agents claude agents antigravity --no-build' "$WORK/graft-$twin.args" || fail "init.$twin did not wire the agents of config.env without the picker (args: $(tr '\n' '|' < "$WORK/graft-$twin.args"))"
   grep -aq '^-y @nanonets/graft build' "$WORK/graft-$twin.args" || fail "init.$twin did not run graft build"
-  [ "$(git -C "$WORK/graft-$twin" status --porcelain | tr -d '\r')" = " M README.md" ] || fail "init.$twin: git status after Graft is not just the changed README.md: $(git -C "$WORK/graft-$twin" status --porcelain | tr '\n' ' ')"
+  [ "$(git -C "$WORK/graft-$twin" status --porcelain | tr -d '\r' | sort | tr '\n' '|')" = " M README.md|?? .gitignore|" ] || fail "init.$twin: git status after Graft is not the changed README.md and the new .gitignore: $(git -C "$WORK/graft-$twin" status --porcelain | tr '\n' ' ')"
   grep -aq 'Graft changed committed files: README.md' "$WORK/graft-$twin.log" || fail "init.$twin did not name the committed file Graft changed"
   for p in /graft/ /GEMINI.md /.gemini/settings.json; do
     grep -qxF "$p" "$WORK/graft-$twin/.git/info/exclude" || fail "init.$twin: $p missing from the Graft exclude block"
@@ -254,5 +281,13 @@ echo "==> session-start fails where the harness is not installed"
 mkdir -p "$WORK/none"
 (cd "$WORK/none" && bash "$ROOT/bin/session-start.sh" > /dev/null 2>&1) && fail "session-start.sh exited 0 without rules"
 (cd "$WORK/none" && pwsh -NoProfile -File "$(native "$ROOT/bin/session-start.ps1")" > /dev/null 2>&1) && fail "session-start.ps1 exited 0 without rules"
+
+echo "==> the board and issue commands: both suites against a fake gh, then the case check of every twin"
+bash "$ROOT/tests/run-all.sh" > "$WORK/suite.sh.log" 2>&1 || { tail -30 "$WORK/suite.sh.log"; fail "bash tests/run-all.sh"; }
+pwsh -NoProfile -File "$ROOT/tests/run-all.ps1" > "$WORK/suite.ps1.log" 2>&1 || { tail -30 "$WORK/suite.ps1.log"; fail "pwsh tests/run-all.ps1"; }
+echo "  $(tail -3 "$WORK/suite.sh.log" | grep -a 'tests:' | head -1); $(tail -3 "$WORK/suite.ps1.log" | grep -a 'tests:' | head -1)"
+bash "$ROOT/bin/case-check.sh" > "$WORK/case.sh.log" 2>&1 || { cat "$WORK/case.sh.log"; fail "bash bin/case-check.sh"; }
+pwsh -NoProfile -File "$ROOT/bin/case-check.ps1" > "$WORK/case.ps1.log" 2>&1 || { cat "$WORK/case.ps1.log"; fail "pwsh bin/case-check.ps1"; }
+echo "  case check green on both twins (schema-check needs github.com and runs in CI)"
 
 echo "OK"

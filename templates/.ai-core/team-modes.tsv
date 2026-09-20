@@ -1,0 +1,38 @@
+# The three team modes every agent session runs with, one definition for every tool.
+# Columns: tool <TAB> mode <TAB> level <TAB> probe <TAB> install <TAB> verified
+#
+# The rules say no work starts until the three modes are active (rules.md, the language rules).
+# This file is what holds that: session-start and start-issue run team-modes-check, which reads
+# the rows for the tools found on this machine and refuses the session when a mode is missing,
+# printing the install column for it. team-modes-install runs that column. The push hook runs
+# the same check, so a push cannot go out of a session that never had them.
+#
+# tool     the agent tool, by the name of its command on PATH: claude, codex, gemini. A tool
+#          whose command has another name gets its own rows once somebody who uses it adds them.
+# mode     caveman (terse output), ponytail (the lazy senior developer's decision ladder),
+#          i-have-adhd (action first, numbered, no preamble).
+# level    what the mode is set to when it is activated in a session: lite, full, on. Caveman
+#          stays at lite: it shortens the chat answer, never the record and never what is read.
+# probe    how the check sees that the mode is installed for that tool:
+#            plugin:NAME  the tool's own plugin list names it (claude plugin list,
+#                         codex plugin list, gemini extensions list)
+#            skill:NAME   a skill folder of that name exists in the tool's skill directories or
+#                         in the shared .agents/skills directory the skills installer writes
+#            file:PATH    that file exists (~ is the home directory)
+#            none         nobody has written a probe yet - the check REFUSES and says so, so the
+#                         first person who uses the tool fills the row in rather than guessing
+#            always       counts as installed; only for tests
+# install  the command that installs it, run by team-modes-install; "-" where the tool's own
+#          documentation is the only source (the check prints its address instead)
+# verified LOGIN,DATE of the person who ran the probe and the install on that tool, or "-".
+#          A row marked "-" is a reading of the mode's documentation, not a proof.
+
+claude	caveman	lite	skill:caveman	npx skills add JuliusBrussee/caveman -g	-
+claude	ponytail	full	plugin:ponytail	claude plugin marketplace add DietrichGebert/ponytail && claude plugin install ponytail@ponytail	-
+claude	i-have-adhd	on	plugin:i-have-adhd	claude plugin marketplace add ayghri/i-have-adhd && claude plugin install i-have-adhd@i-have-adhd	-
+codex	caveman	lite	skill:caveman	npx skills add JuliusBrussee/caveman -g	-
+codex	ponytail	full	plugin:ponytail	codex plugin marketplace add DietrichGebert/ponytail && codex plugin add ponytail@ponytail	-
+codex	i-have-adhd	on	plugin:i-have-adhd	codex plugin marketplace add ayghri/i-have-adhd --ref main && codex plugin add i-have-adhd@i-have-adhd	-
+gemini	caveman	lite	skill:caveman	npx skills add JuliusBrussee/caveman -g	-
+gemini	ponytail	full	plugin:ponytail	gemini extensions install https://github.com/DietrichGebert/ponytail	-
+gemini	i-have-adhd	on	file:~/.gemini/commands/i-have-adhd.toml	mkdir -p ~/.gemini/commands && curl -fsSL https://raw.githubusercontent.com/ayghri/i-have-adhd/main/skills/i-have-adhd/agents/gemini.toml -o ~/.gemini/commands/i-have-adhd.toml	-

@@ -13,7 +13,7 @@ param (
   [switch]$NoDoctor
 )
 
-if ($Help -or $args -contains "-h" -or $args -contains "--help" -or $Source -eq "--help" -or $Source -eq "-h") {
+if ($Help -or $args -ccontains "-h" -or $args -ccontains "--help" -or $Source -ceq "--help" -or $Source -ceq "-h") {
   Write-Host "Usage: install.ps1 [-Source <clone>] [-Dir <path>] [-Repo <url>] [-NoPath] [-NoDoctor]"
   Write-Host ""
   Write-Host "Installs setup-ai-core on this machine, once: clones it to ~\.setup-ai-core (or uses the"
@@ -32,7 +32,7 @@ if ($Help -or $args -contains "-h" -or $args -contains "--help" -or $Source -eq 
 
 $ErrorActionPreference = 'Stop'
 
-$isWin = $IsWindows -or $env:OS -eq 'Windows_NT'
+$isWin = $IsWindows -or $env:OS -ceq 'Windows_NT'
 $dir = if ($Dir) { $Dir } else { Join-Path $HOME ".setup-ai-core" }
 
 # 1. The clone: the one named with -Source, or one at $dir, cloned when missing

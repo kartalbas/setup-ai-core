@@ -9,7 +9,7 @@ param (
   [switch]$NoInstall
 )
 
-if ($Help -or $args -contains "-h" -or $args -contains "--help") {
+if ($Help -or $args -ccontains "-h" -or $args -ccontains "--help") {
   Write-Host "Usage: doctor.ps1 [-NoInstall]"
   Write-Host ""
   Write-Host "Checks Git, gh (with its login), Bash, PowerShell 7, Node.js 20+ with npx, and reports"
@@ -25,9 +25,9 @@ if ($Help -or $args -contains "-h" -or $args -contains "--help") {
 
 $ErrorActionPreference = 'Continue'
 
-$os = if ($IsWindows -or $env:OS -eq 'Windows_NT') { 'windows' } elseif ($IsMacOS) { 'macos' } elseif ($IsLinux) { 'linux' } else { 'other' }
+$os = if ($IsWindows -or $env:OS -ceq 'Windows_NT') { 'windows' } elseif ($IsMacOS) { 'macos' } elseif ($IsLinux) { 'linux' } else { 'other' }
 $pm = ''
-switch ($os) {
+switch -CaseSensitive ($os) {
   'windows' { if (Get-Command winget -ErrorAction SilentlyContinue) { $pm = 'winget' } }
   'macos' { if (Get-Command brew -ErrorAction SilentlyContinue) { $pm = 'brew' } }
   'linux' { if (Get-Command apt-get -ErrorAction SilentlyContinue) { $pm = 'apt-get' } }
@@ -42,16 +42,16 @@ function Test-Tool([string]$name) { [bool](Get-Command $name -ErrorAction Silent
 
 # On Windows a tool installed a moment ago is not on this shell's PATH yet
 function Update-PathAfterInstall {
-  if ($os -ne 'windows') { return }
+  if ($os -cne 'windows') { return }
   foreach ($d in @("C:\Program Files\Git\cmd", "C:\Program Files\nodejs", "C:\Program Files\PowerShell\7", "C:\Program Files\GitHub CLI", (Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Links"))) {
-    if ((Test-Path $d) -and ($env:Path -notlike "*$d*")) { $env:Path = "$env:Path;$d" }
+    if ((Test-Path $d) -and ($env:Path -cnotlike "*$d*")) { $env:Path = "$env:Path;$d" }
   }
 }
 
 function Install-Tool([string]$tool, [string]$wingetId, [string]$brewFormula, [string]$aptPackage) {
   if ($NoInstall -or -not $pm) { return $false }
   Write-Host "--> Installing $tool with $pm..."
-  switch ($pm) {
+  switch -CaseSensitive ($pm) {
     'winget' { & winget install --id $wingetId -e --accept-source-agreements --accept-package-agreements --disable-interactivity | Out-Null }
     'brew' { & brew install $brewFormula | Out-Null }
     'apt-get' {
@@ -84,8 +84,8 @@ if (Test-Tool gh) {
 } else { Write-Report gh MISSING "install GitHub CLI from https://cli.github.com"; Add-Problem }
 
 # Bash: Git Bash on Windows, the system shell elsewhere
-if (Test-Tool bash) { Write-Report bash present ((& bash --version 2>$null | Select-Object -First 1) + $(if ($os -eq 'windows') { ' (Git Bash)' } else { '' })) }
-elseif ($os -eq 'windows') { Write-Report bash MISSING "Git Bash comes with Git for Windows: winget install Git.Git"; Add-Problem }
+if (Test-Tool bash) { Write-Report bash present ((& bash --version 2>$null | Select-Object -First 1) + $(if ($os -ceq 'windows') { ' (Git Bash)' } else { '' })) }
+elseif ($os -ceq 'windows') { Write-Report bash MISSING "Git Bash comes with Git for Windows: winget install Git.Git"; Add-Problem }
 else { Write-Report bash MISSING "install bash"; Add-Problem }
 
 # PowerShell 7 (this script runs in it)
@@ -98,11 +98,16 @@ if (-not (Test-Tool node)) { [void](Install-Tool node OpenJS.NodeJS.LTS node nod
 if (Test-Tool node) {
   $nodeVersion = (& node -v 2>$null | Select-Object -First 1)
   if ((Get-Major $nodeVersion) -ge 20) {
-    if (-not (Test-Tool npx) -and $pm -eq 'apt-get') { [void](Install-Tool npx npm npm npm) }
+    if (-not (Test-Tool npx) -and $pm -ceq 'apt-get') { [void](Install-Tool npx npm npm npm) }
     if (Test-Tool npx) { Write-Report node present "Node.js $nodeVersion with npx" }
     else { Write-Report npx MISSING "Node.js $nodeVersion has no npx; install npm"; Add-Problem }
   } else { Write-Report node "too old" "Node.js $nodeVersion; 20 or newer is needed, see https://nodejs.org"; Add-Problem }
 } else { Write-Report node MISSING "install Node.js 20 or newer from https://nodejs.org"; Add-Problem }
+
+# jq: every board and issue command reads GitHub's answers through it
+if (-not (Test-Tool jq)) { [void](Install-Tool jq jqlang.jq jq jq) }
+if (Test-Tool jq) { Write-Report jq present ((& jq --version 2>$null | Select-Object -First 1)) }
+else { Write-Report jq MISSING "install jq from https://jqlang.github.io/jq"; Add-Problem }
 
 # Agent CLIs: reported, never installed by doctor
 $hints = @{

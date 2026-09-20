@@ -1,21 +1,27 @@
 #!/usr/bin/env bash
-# Session Start Procedure for AI Coding Agents
+# The session start: what an agent reads before its first action, in a repository or in a
+# project folder. It refuses when a team mode is missing, prints the state of the checkout and,
+# in a worktree of an issue, that issue's thread.
 #
-#   session-start.sh [--json]
+#   session-start.sh [--json] [--tool NAME ...]
 #
 set -euo pipefail
 
 for arg in "$@"; do
   if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
-  echo "Usage: session-start.sh [options]"
+  echo "Usage: session-start.sh [--json] [--tool NAME ...]"
   echo ""
-  echo "Starts a new AI agent coding session by requesting task context and goal."
+  echo "The first step of every session. It runs team-modes-check and refuses when a mode is"
+  echo "missing; it prints the branch, the uncommitted files, the harness version, the rules, the"
+  echo "Graft graph and the gh login; in a worktree named issue-N-... it prints the thread of issue N"
+  echo "and whether it is assigned to you."
   echo ""
   echo "Options:"
   echo "  -h, --help    Show this help message"
   echo "  --json        Print the same facts as JSON"
+  echo "  --tool NAME   Check the team modes of this tool only (repeatable)"
   echo ""
-  echo "Exit status is 1 when the core rules file is missing (run init)."
+  echo "Exit status is 1 when a team mode is missing or the rules file is missing (run init)."
   echo ""
   echo "Examples:"
   echo "  ai-core session-start"
@@ -24,11 +30,24 @@ for arg in "$@"; do
   fi
 done
 
-as_json=0
-if [ "${1:-}" = "--json" ] || [ "${1:-}" = "-Json" ]; then
-  as_json=1
+CORE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+as_json=0; tool_args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --json|-Json) as_json=1; shift ;;
+    --tool) [ $# -ge 2 ] || { echo "error: --tool needs a value" >&2; exit 2; }; tool_args+=(--tool "$2"); shift 2 ;;
+    *) echo "error: unknown argument '$1' (see --help)" >&2; exit 2 ;;
+  esac
+done
+
+# 1. The gate: no session without the team modes. team-modes-check prints its own lines and the
+#    refusal; nothing else is printed before it.
+if ! modes="$(bash "$CORE/bin/team-modes-check.sh" ${tool_args[@]+"${tool_args[@]}"} 2>&1)"; then
+  printf '%s\n' "$modes"
+  exit 1
 fi
 
+# 2. The checkout
 ROOT="$(pwd)"
 REPO_NAME="$(basename "$ROOT")"
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "not-a-git-repo")"
@@ -40,16 +59,12 @@ if [ -f ".ai-core/rules/rules.md" ]; then
 elif [ -f "rules/rules.md" ]; then
   RULES_PATH="rules/rules.md"
 fi
-
 RULES_OK=0
 [ -n "$RULES_PATH" ] && RULES_OK=1
-
 LOCAL_RULES_OK=0
 [ -f ".ai-core/rules/rules.local.md" ] && LOCAL_RULES_OK=1
-
 HARNESS_VERSION=""
 [ -f ".ai-core/VERSION" ] && HARNESS_VERSION="$(tr -d '\r\n' < .ai-core/VERSION)"
-
 GRAFT_OK=0
 { [ -f "graft/index.md" ] || [ -f "graft/INDEX.md" ] || [ -f "graft/workspace.json" ]; } && GRAFT_OK=1
 
@@ -62,24 +77,48 @@ if command -v gh >/dev/null 2>&1; then
   fi
 fi
 
+# 3. The issue of this worktree: a branch or a directory named issue-N-<slug> carries issue N.
+#    Its thread is read through issue-thread, and issue-mine says whether it is assigned to you.
+worktree_issue_number() {  # worktree_issue_number <name>
+  local tail="${1##*/}" number
+  case "$tail" in
+    issue-[0-9]*) number="${tail#issue-}"; number="${number%%-*}"
+                  case "$number" in ''|*[!0-9]*) return 0 ;; esac; echo "$number" ;;
+  esac
+}
+ISSUE="$(worktree_issue_number "$BRANCH")"
+[ -n "$ISSUE" ] || ISSUE="$(worktree_issue_number "$ROOT")"
+THREAD=""; THREAD_JSON="null"; ASSIGNED=false; MINE=""
+if [ -n "$ISSUE" ]; then
+  if THREAD_JSON="$(bash "$CORE/bin/issue-thread.sh" "$ISSUE" --json 2>&1)"; then
+    THREAD="$(printf '%s' "$THREAD_JSON" | jq -r '
+      "#\(.number) \(.title)",
+      "state: \(.state)",
+      "labels: \(if (.labels | length) == 0 then "-" else (.labels | join(", ")) end)",
+      "",
+      .body,
+      (.comments[] | "", "--- \(.author) \(.created_at)", .body)')"
+  else
+    THREAD="The thread of #$ISSUE could not be read: $THREAD_JSON"; THREAD_JSON="null"
+  fi
+  if MINE="$(bash "$CORE/bin/issue-mine.sh" "$ISSUE" 2>&1)"; then ASSIGNED=true; fi
+fi
+
 bool() { [ "$1" -eq 1 ] && echo true || echo false; }
 
 if [ "$as_json" -eq 1 ]; then
-  cat <<JSON
-{
-  "repository": "$REPO_NAME",
-  "root": "$ROOT",
-  "branch": "$BRANCH",
-  "uncommitted_files": $DIRTY_COUNT,
-  "harness_version": "$HARNESS_VERSION",
-  "rules_present": $(bool $RULES_OK),
-  "rules_path": "$RULES_PATH",
-  "local_rules_present": $(bool $LOCAL_RULES_OK),
-  "graft_indexed": $(bool $GRAFT_OK),
-  "gh_authenticated": $(bool $GH_LOGGED_IN),
-  "gh_user": "$GH_USER"
-}
-JSON
+  printf '%s' "$THREAD_JSON" | jq -n \
+    --arg repository "$REPO_NAME" --arg root "$ROOT" --arg branch "$BRANCH" \
+    --argjson uncommitted_files "$DIRTY_COUNT" --arg harness_version "$HARNESS_VERSION" \
+    --argjson rules_present "$(bool $RULES_OK)" --arg rules_path "$RULES_PATH" \
+    --argjson local_rules_present "$(bool $LOCAL_RULES_OK)" --argjson graft_indexed "$(bool $GRAFT_OK)" \
+    --argjson gh_authenticated "$(bool $GH_LOGGED_IN)" --arg gh_user "$GH_USER" \
+    --arg issue "$ISSUE" --argjson assigned "$ASSIGNED" \
+    '{ repository: $repository, root: $root, branch: $branch, uncommitted_files: $uncommitted_files,
+       harness_version: $harness_version, rules_present: $rules_present, rules_path: $rules_path,
+       local_rules_present: $local_rules_present, graft_indexed: $graft_indexed,
+       gh_authenticated: $gh_authenticated, gh_user: $gh_user,
+       issue: (if $issue == "" then null else ($issue | tonumber) end), assigned: $assigned, thread: input }'
   exit $((1 - RULES_OK))
 fi
 
@@ -102,6 +141,14 @@ echo "=================================================="
 if [ "$DIRTY_COUNT" -gt 0 ]; then
   echo "warning: Working directory has $DIRTY_COUNT uncommitted changes:"
   git status --short
+fi
+
+if [ -n "$ISSUE" ]; then
+  echo ""
+  echo "This worktree carries issue #$ISSUE. ${MINE}"
+  echo ""
+  printf '%s\n' "$THREAD"
+  echo ""
 fi
 
 if [ "$RULES_OK" -eq 0 ]; then

@@ -1,41 +1,56 @@
-# Session Start Procedure for AI Coding Agents
+# The session start: what an agent reads before its first action, in a repository or in a
+# project folder. It refuses when a team mode is missing, prints the state of the checkout and,
+# in a worktree of an issue, that issue's thread.
 #
-#   session-start.ps1 [-Json]
+#   session-start.ps1 [-Json] [-Tool NAME ...]
 #
 [CmdletBinding()]
 param (
   [switch]$Help,
-
-  [switch]$Json
+  [switch]$Json,
+  [string[]]$Tool = @()
 )
 
-if ($Help -or $args -contains "-h" -or $args -contains "--help" -or ($args.Count -gt 0 -and ($args[0] -eq "--help" -or $args[0] -eq "-h"))) {
-  Write-Host "Usage: session-start.ps1 [-Json] [-Help]"
+if ($Help -or $args -ccontains "-h" -or $args -ccontains "--help" -or ($args.Count -gt 0 -and ($args[0] -ceq "--help" -or $args[0] -ceq "-h"))) {
+  Write-Host "Usage: session-start.ps1 [-Json] [-Tool NAME ...] [-Help]"
   Write-Host ""
-  Write-Host "Starts a new AI agent coding session by requesting task context and goal."
+  Write-Host "The first step of every session. It runs team-modes-check and refuses when a mode is"
+  Write-Host "missing; it prints the branch, the uncommitted files, the harness version, the rules, the"
+  Write-Host "Graft graph and the gh login; in a worktree named issue-N-... it prints the thread of issue N"
+  Write-Host "and whether it is assigned to you."
   Write-Host ""
   Write-Host "Options:"
   Write-Host "  -Help, -h, --help    Show this help message"
   Write-Host "  -Json                Print the same facts as JSON"
+  Write-Host "  -Tool NAME           Check the team modes of this tool only (repeatable)"
   Write-Host ""
-  Write-Host "Exit status is 1 when the core rules file is missing (run init)."
+  Write-Host "Exit status is 1 when a team mode is missing or the rules file is missing (run init)."
   Write-Host ""
   Write-Host "Examples:"
   Write-Host "  ai-core session-start"
   Write-Host "  ai-core session-start -Json"
   exit 0
 }
+if ($args.Count -gt 0) { Write-Host "error: unknown argument '$($args[0])' (see -Help)" -ForegroundColor Red; exit 2 }
 
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+$core = Split-Path -Parent $PSScriptRoot
 
+# 1. The gate: no session without the team modes. team-modes-check prints its own lines and the
+#    refusal; nothing else is printed before it.
+$toolArgs = @(); foreach ($t in $Tool) { $toolArgs += @('-Tool', $t) }
+$modes = & pwsh -NoProfile -File (Join-Path $core "bin\team-modes-check.ps1") @toolArgs 2>&1 | ForEach-Object { "$_" }
+if ($LASTEXITCODE -ne 0) { $modes | ForEach-Object { Write-Host $_ }; exit 1 }
+
+# 2. The checkout
 $root = (Get-Location).Path
 $repoName = Split-Path -Leaf $root
-
 $branch = "not-a-git-repo"
 try {
-  $branch = (git rev-parse --abbrev-ref HEAD 2>$null).Trim()
+  $b = git rev-parse --abbrev-ref HEAD 2>$null
+  if ($LASTEXITCODE -eq 0 -and $b) { $branch = "$b".Trim() }
 } catch {}
-
 $dirtyCount = 0
 try {
   $status = git status --porcelain 2>$null
@@ -61,6 +76,31 @@ if (Get-Command gh -ErrorAction SilentlyContinue) {
   } catch {}
 }
 
+# 3. The issue of this worktree: a branch or a directory named issue-N-<slug> carries issue N.
+#    Its thread is read through issue-thread, and issue-mine says whether it is assigned to you.
+function Get-WorktreeIssueNumber([string]$name) {
+  $tail = ($name -split '[\\/]')[-1]
+  if ($tail -cmatch '^issue-([0-9]+)(-|$)') { return $Matches[1] }
+  return ""
+}
+$issue = Get-WorktreeIssueNumber $branch
+if (-not $issue) { $issue = Get-WorktreeIssueNumber $root }
+$thread = ""; $threadObject = $null; $assigned = $false; $mine = ""
+if ($issue) {
+  $raw = & pwsh -NoProfile -File (Join-Path $core "bin\issue-thread.ps1") $issue -Json 2>&1 | ForEach-Object { "$_" }
+  if ($LASTEXITCODE -eq 0) {
+    $threadObject = ($raw -join "`n") | ConvertFrom-Json
+    $lines = @("#$($threadObject.number) $($threadObject.title)", "state: $($threadObject.state)",
+      "labels: $(if ($threadObject.labels.Count -eq 0) { '-' } else { $threadObject.labels -join ', ' })", "", $threadObject.body)
+    foreach ($c in $threadObject.comments) { $lines += @("", "--- $($c.author) $($c.created_at)", $c.body) }
+    $thread = $lines -join "`n"
+  } else {
+    $thread = "The thread of #$issue could not be read: $($raw -join ' ')"
+  }
+  $mine = (& pwsh -NoProfile -File (Join-Path $core "bin\issue-mine.ps1") $issue 2>&1 | ForEach-Object { "$_" }) -join ' '
+  if ($LASTEXITCODE -eq 0) { $assigned = $true }
+}
+
 if ($Json) {
   [PSCustomObject]@{
     repository          = $repoName
@@ -74,7 +114,10 @@ if ($Json) {
     graft_indexed       = $graftOk
     gh_authenticated    = $ghLoggedIn
     gh_user             = $ghUser
-  } | ConvertTo-Json
+    issue               = $(if ($issue) { [int]$issue } else { $null })
+    assigned            = $assigned
+    thread              = $threadObject
+  } | ConvertTo-Json -Depth 6
   if ($rulesOk) { exit 0 } else { exit 1 }
 }
 
@@ -99,8 +142,16 @@ if ($dirtyCount -gt 0) {
   git status --short
 }
 
+if ($issue) {
+  Write-Host ""
+  Write-Host "This worktree carries issue #$issue. $mine"
+  Write-Host ""
+  Write-Host $thread
+  Write-Host ""
+}
+
 if (-not $rulesOk) {
-  Write-Host "Not ready: no rules file found. Run setup-ai-core's init in this repository." -ForegroundColor Red
+  Write-Host "Not ready: no rules file found. Run ai-core init in this repository." -ForegroundColor Red
   exit 1
 }
 Write-Host "Ready for task execution." -ForegroundColor Green

@@ -2,6 +2,8 @@
 
 This document specifies when and how an agent should trigger and apply specific skills and tools in this harness.
 
+The three modes of section 1 and 2, `i-have-adhd`, `caveman` and `ponytail`, are the team modes: `.ai-core/team-modes.tsv` says, per tool, how the harness sees that a mode is installed and how it is installed. `ai-core session-start` refuses a session while one is missing; `ai-core team-modes-install` installs them. Restart the tool afterwards: a plugin loads when the tool starts.
+
 ---
 
 ## 1. Output & Persona Skills

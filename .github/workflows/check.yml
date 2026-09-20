@@ -11,3 +11,13 @@ jobs:
       - uses: actions/checkout@v4
       - run: bash tests/check.sh
         shell: bash
+      # The one check that reaches github.com: every GraphQL mutation of the board commands
+      # against the schema GitHub publishes. Both twins, with the workflow's own token.
+      - run: bash bin/schema-check.sh
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - run: pwsh -NoProfile -File bin/schema-check.ps1
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -12,7 +12,7 @@ param (
   [switch]$NoDoctor
 )
 
-if ($Help -or $args -contains "-h" -or $args -contains "--help" -or $TargetDir -eq "--help" -or $TargetDir -eq "-h") {
+if ($Help -or $args -ccontains "-h" -or $args -ccontains "--help" -or $TargetDir -ceq "--help" -or $TargetDir -ceq "-h") {
   Write-Host "Usage: init.ps1 [-TargetDir <path>] [-All <folder>] [-NoDoctor]"
   Write-Host ""
   Write-Host "Installs or refreshes the harness in TargetDir (default: the current directory):"
@@ -90,7 +90,7 @@ if (Test-Path (Join-Path $aiCoreDir "bin")) { Remove-Item -Recurse -Force (Join-
 #    skills pointer; VERSION.
 $coreVersion = (Get-Content (Join-Path $coreRoot "VERSION") -Raw).Trim()
 $assembled = New-Object System.Text.StringBuilder
-Get-ChildItem -Path (Join-Path $coreRoot "rules") -File | Where-Object { $_.Name -match "^[0-9][0-9]-.*\.md$" } | Sort-Object Name | ForEach-Object {
+Get-ChildItem -Path (Join-Path $coreRoot "rules") -File | Where-Object { $_.Name -cmatch "^[0-9][0-9]-.*\.md$" } | Sort-Object Name | ForEach-Object {
   [void]$assembled.Append("<!-- setup-ai-core ${coreVersion}: rules/$($_.Name) -->`n")
   [void]$assembled.Append((Get-Content $_.FullName -Raw).Replace("`r`n", "`n").TrimEnd() + "`n`n")
 }
@@ -106,7 +106,7 @@ Copy-Item -Force (Join-Path $coreRoot "VERSION") (Join-Path $aiCoreDir "VERSION"
 #    not deployed.
 $templates = Join-Path $coreRoot "templates"
 $config = Join-Path $aiCoreDir "config.env"; if (-not (Test-Path $config)) { $config = Join-Path $templates ".ai-core\config.env" }
-$agentsLine = Get-Content $config | Where-Object { $_ -match '^\s*AGENTS\s*=' } | Select-Object -Last 1
+$agentsLine = Get-Content $config | Where-Object { $_ -cmatch '^\s*AGENTS\s*=' } | Select-Object -Last 1
 $agents = if ($agentsLine) { ((($agentsLine -split '=', 2)[1] -split '#', 2)[0]).Trim(' ', "`t", "`r", '"', "'").ToLowerInvariant() } else { "" }
 $served = @($agents -split '\s+' | Where-Object { $_ })
 function Test-Serves([string]$agent) { return ($served.Count -eq 0 -or ($served -ccontains $agent)) }
@@ -150,9 +150,9 @@ try {
     $kept = @(); $skip = $false
     if (Test-Path $exclude) {
       foreach ($line in [System.IO.File]::ReadAllLines($exclude)) {
-        if ($line -like '# setup-ai-core start*') { $skip = $true }
+        if ($line -clike '# setup-ai-core start*') { $skip = $true }
         if (-not $skip) { $kept += $line }
-        if ($line -like '# setup-ai-core end*') { $skip = $false }
+        if ($line -clike '# setup-ai-core end*') { $skip = $false }
       }
     }
     $block = @('# setup-ai-core start: the harness lives in the working tree only, never in a commit', '/.ai-core/')
@@ -165,6 +165,37 @@ try {
   }
 } finally {
   Pop-Location
+}
+
+# 3b. The project's .gitignore carries a block naming every file an agent or the harness puts
+#     into a checkout (lib\gitignore-block), so no clone of this repository commits one, with or
+#     without the harness. The block is rewritten between its markers and the rest of the file is
+#     the project's. A changed .gitignore is the one thing init leaves for a commit.
+if ($inWorkTree) {
+  $gi = Join-Path $target ".gitignore"
+  $kept = @(); $skip = $false
+  if (Test-Path $gi) {
+    foreach ($line in [System.IO.File]::ReadAllLines($gi)) {
+      if ($line -clike '# setup-ai-core start*') { $skip = $true }
+      if (-not $skip) { $kept += $line }
+      if ($line -clike '# setup-ai-core end*') { $skip = $false }
+    }
+  }
+  # A path the project already ignores, with or without the slashes, is not written twice; when it
+  # ignores them all, no block is written
+  $seen = @{}; foreach ($line in $kept) { if ($line -and -not $line.StartsWith('#', [StringComparison]::Ordinal)) { $seen[$line.Trim().Trim('/')] = $true } }
+  $markers = @(); $missing = @()
+  foreach ($line in [System.IO.File]::ReadAllLines((Join-Path $coreRoot "lib\gitignore-block"))) {
+    if ($line.StartsWith('#', [StringComparison]::Ordinal)) { $markers += $line; continue }
+    if (-not $seen.ContainsKey($line.Trim().Trim('/'))) { $missing += $line }
+  }
+  $block = if ($missing.Count -gt 0) { @($markers[0]) + $missing + @($markers[1]) } else { @() }
+  $wanted = (($kept + $block) -join "`n") + "`n"
+  $current = if (Test-Path $gi) { [System.IO.File]::ReadAllText($gi).Replace("`r`n", "`n") } else { $null }
+  if ($current -cne $wanted) {
+    [System.IO.File]::WriteAllText($gi, $wanted, $utf8)
+    Write-Host "--> .gitignore: the agent files of this repository are ignored; commit .gitignore once"
+  }
 }
 
 # 4. The Graft code graph, built with the local Node.js or the whole init fails; no fallback.

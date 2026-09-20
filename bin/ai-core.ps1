@@ -17,7 +17,7 @@ function Show-Usage {
   Write-Host "Usage: ai-core <command> [arguments]"
   Write-Host ""
   Write-Host "Every command takes -Help. The machine and the checkouts:"
-  Write-Host "  install, doctor, init, update, version"
+  Write-Host "  install, doctor, init, push, update, version"
   Write-Host "Inside a repository:"
   Write-Host "  session-start, graft, rules-check, solution-path"
   Write-Host ""

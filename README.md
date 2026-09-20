@@ -248,8 +248,11 @@ they all belong to one. `init` on a checkout of a harness itself is refused; the
 like any repository and reaches every checkout at the next `init`, and `ai-core update` pulls every
 harness clone on the machine.
 
-Changing what agents read is therefore: edit the harness, commit, push. Nothing is copied by hand,
-nothing is committed to a project repository, and a new developer runs `install` and `init`.
+Changing what agents read is therefore: edit a file under `~/.<name>-ai-core`, then `ai-core push`,
+which commits what changed in every harness clone on the machine with the message you give (or
+the names of the files), pulls with rebase, pushes, and refreshes the checkout you stand in.
+Nothing is copied by hand, nothing is committed to a project repository, and a new developer runs
+`install` and `init`.
 
 ### 4.6 Skills
 
@@ -615,6 +618,7 @@ and `bin/<name>.ps1` in PowerShell; a new script in `bin/` is a command without 
 | `rules-check` | `ai-core rules-check [file-or-directory]` / `[-RulesFile <file-or-directory>]`; default `.ai-core/rules/rules.md`, or the `rules/` directory of setup-ai-core; a directory means its `NN-*.md` section files | 0 every rule tagged; 1 otherwise |
 | `graft-setup` | `ai-core graft [dir]` / `[-TargetDir <dir>]` | 0 built or skipped; 1 no Node.js, build failed, or bad `config.env` |
 | `init` | `ai-core init [dir] [--all <folder>] [--no-doctor]` / `[-TargetDir <dir>] [-All <folder>] [-NoDoctor]` | 0 in place; 1 doctor failed, Graft failed, or a repository under `--all` failed |
+| `push` | `ai-core push [MESSAGE] [--harness <name>]` / `[-Message <text>] [-Harness <name>]` | 0 every harness clone pushed or had nothing; 1 no clone, a commit or a push failed |
 | the board and issue commands | `ai-core issue-new ...`, `ai-core start-issue N`, ... (section 8) | 0 done; 1 refused or gh refused; 2 a wrong argument |
 | `doctor` | `ai-core doctor [--no-install]` / `ai-core doctor [-NoInstall]` | 0 every required tool present and gh logged in; 1 otherwise, each problem with its instruction |
 | `install` | `bin/install.sh [--source <clone>] [--dir <path>] [--repo <url>] [--no-path] [--no-doctor]` / `bin/install.ps1 [-Source <clone>] [-Dir <path>] [-Repo <url>] [-NoPath] [-NoDoctor]` | 0 installed and doctor OK; 1 when doctor found problems |
@@ -767,7 +771,8 @@ empty in a fresh repository and in a worktree with both twins, runs `init --all`
 and proves the folder's generated `AGENTS.md` lists exactly its repositories, stands a fake `gh`
 on the PATH and proves a project harness is created from the skeleton on the first `init`, cloned
 on another machine, and that its rules, skills, docs, data files and `repos/<repo>/` are
-assembled identically by both twins, base first along an `extends` chain, proves a failing Graft build makes
+assembled identically by both twins, base first along an `extends` chain, and proves `push` commits
+and pushes a harness clone's change to its origin and has nothing on a second run, proves a failing Graft build makes
 `init` exit 1 with the files in place, runs a fake Graft that succeeds and proves `init` calls it
 without the picker, excludes every file it wrote and names the committed file it changed, and requires `session-start` to exit 1 where the harness is
 absent, runs the two board suites (`tests/run-all.sh`, `tests/run-all.ps1`: one test pair per

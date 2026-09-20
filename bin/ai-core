@@ -12,7 +12,7 @@ usage() {
   echo "Usage: ai-core <command> [arguments]"
   echo ""
   echo "Every command takes --help. The machine and the checkouts:"
-  echo "  install, doctor, init, update, version"
+  echo "  install, doctor, init, push, update, version"
   echo "Inside a repository:"
   echo "  session-start, graft, rules-check, solution-path"
   echo ""

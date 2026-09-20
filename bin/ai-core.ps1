@@ -41,6 +41,12 @@ switch -CaseSensitive ($Command) {
     Write-Host "--> Updating setup-ai-core at $core"
     & git -C $core pull --ff-only
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    # and every project harness clone on this machine, ~.<name>-ai-core
+    foreach ($d in (Get-ChildItem -Path $HOME -Directory -Force -Filter '.*-ai-core' | Where-Object { Test-Path (Join-Path $_.FullName '.git') })) {
+      Write-Host "--> Updating $($d.Name.TrimStart('.')) at $($d.FullName)"
+      & git -C $d.FullName pull --ff-only
+      if ($LASTEXITCODE -ne 0) { Write-Host "note: $($d.FullName) could not be pulled; see above" }
+    }
     Write-Host "--> The scripts are current everywhere; run ai-core init in a checkout to refresh its rules"
   }
   'version' { (Get-Content (Join-Path $core "VERSION") -Raw).Trim() }

@@ -156,6 +156,24 @@ for cli in claude agy codex; do
   fi
 done
 
+# The team modes of every agent tool on this machine: checked, and installed when one is missing
+# (team-modes.tsv says how, per tool). A plugin loads when the tool starts, so a fresh install
+# needs the tool restarted; the check says which.
+DOCTOR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if bash "$DOCTOR_DIR/team-modes-check.sh" --quiet >/dev/null 2>&1; then
+  report "team modes" present "every mode of every agent tool here is installed"
+elif [ "$NO_INSTALL" -eq 1 ]; then
+  report "team modes" MISSING "run: ai-core team-modes-install, then restart the tool"; problem
+else
+  echo "--> installing the missing team modes (ai-core team-modes-install)..."
+  if bash "$DOCTOR_DIR/team-modes-install.sh" && bash "$DOCTOR_DIR/team-modes-check.sh" --quiet >/dev/null 2>&1; then
+    report "team modes" installed "restart your agent tool: a plugin loads when the tool starts"
+    INSTALLED_SOMETHING=1
+  else
+    report "team modes" MISSING "the lines above say which mode and how; run: ai-core team-modes-check"; problem
+  fi
+fi
+
 if [ "$INSTALLED_SOMETHING" -eq 1 ]; then
   echo "note: something was installed; open a new terminal if a tool is still reported missing."
 fi

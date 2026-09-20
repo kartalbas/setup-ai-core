@@ -120,6 +120,23 @@ foreach ($cli in @('claude', 'agy', 'codex')) {
   if ($cmd) { Write-Report $cli present $cmd.Source } else { Write-Report $cli absent $hints[$cli] }
 }
 
+# The team modes of every agent tool on this machine: checked, and installed when one is missing
+# (team-modes.tsv says how, per tool). A plugin loads when the tool starts, so a fresh install
+# needs the tool restarted; the check says which.
+& pwsh -NoProfile -File (Join-Path $PSScriptRoot 'team-modes-check.ps1') -Quiet 2>$null | Out-Null
+if ($LASTEXITCODE -eq 0) {
+  Write-Report "team modes" present "every mode of every agent tool here is installed"
+} elseif ($NoInstall) {
+  Write-Report "team modes" MISSING "run: ai-core team-modes-install, then restart the tool"; Add-Problem
+} else {
+  Write-Host "--> installing the missing team modes (ai-core team-modes-install)..."
+  & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'team-modes-install.ps1')
+  $installed = ($LASTEXITCODE -eq 0)
+  if ($installed) { & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'team-modes-check.ps1') -Quiet 2>$null | Out-Null; $installed = ($LASTEXITCODE -eq 0) }
+  if ($installed) { Write-Report "team modes" installed "restart your agent tool: a plugin loads when the tool starts"; $script:installedSomething = $true }
+  else { Write-Report "team modes" MISSING "the lines above say which mode and how; run: ai-core team-modes-check"; Add-Problem }
+}
+
 if ($script:installedSomething) { Write-Host "note: something was installed; open a new terminal if a tool is still reported missing." }
 
 if ($script:problems -gt 0) {

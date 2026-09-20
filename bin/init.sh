@@ -32,6 +32,7 @@ done
 
 CORE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [ -d "$CORE_ROOT/templates" ] && [ -f "$CORE_ROOT/VERSION" ] || { echo "error: $CORE_ROOT is not a clone of setup-ai-core; run init from the clone (ai-core init)" >&2; exit 1; }
+. "$CORE_ROOT/lib/layers.sh"
 
 TARGET="."
 RUN_DOCTOR=1
@@ -83,25 +84,127 @@ echo "Initializing the harness in: $TARGET"
 echo "=================================================="
 echo "--> From $CORE_ROOT"
 
+# The project harness: <org>/<prefix>-ai-core from the checkout's origin, its extends chain
+# base first, cloned or pulled to ~/.<name>-ai-core, created from the skeleton when missing.
+# A project folder gets the layers every repository under it shares.
+LAYERS=""; REPO_NAME=""
+chain_of() {  # chain_of <checkout>: the layer directories, base first, or nothing
+  local parts org repo prefix
+  parts="$(origin_parts "$1")" || return 0
+  org="${parts%%	*}"; repo="${parts#*	}"
+  case "$repo" in
+    setup-ai-core) return 0 ;;
+    *-ai-core) echo "error: $1 is a harness repository; init is for the repositories it serves" >&2; return 2 ;;
+  esac
+  prefix="$(harness_of "$repo")" || return 0
+  layer_chain "$org/$prefix-ai-core" "$CORE_ROOT" create
+}
+if [ "$PROJECT_FOLDER" -eq 1 ]; then
+  FIRST=1
+  for d in "$TARGET"/*/; do
+    d="${d%/}"; [ -e "$d/.git" ] || continue
+    chain="$(chain_of "$d")" || chain=""
+    if [ "$FIRST" -eq 1 ]; then LAYERS="$chain"; FIRST=0; continue; fi
+    # keep the leading lines the two chains share
+    common=""; i=1
+    while :; do
+      a="$(printf '%s\n' "$LAYERS" | sed -n "${i}p")"; b="$(printf '%s\n' "$chain" | sed -n "${i}p")"
+      [ -n "$a" ] && [ "$a" = "$b" ] || break
+      common="${common:+$common
+}$a"; i=$((i + 1))
+    done
+    LAYERS="$common"
+    [ -n "$LAYERS" ] || break
+  done
+else
+  parts="$(origin_parts "$TARGET" || true)"; REPO_NAME="${parts#*	}"
+  LAYERS="$(chain_of "$TARGET")" || { rc=$?; [ "$rc" -eq 2 ] && exit 1; LAYERS=""; }
+fi
+if [ -n "$LAYERS" ]; then
+  while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    echo "--> Project harness: $(git -C "$l" remote get-url origin 2>/dev/null | sed 's|.*github.com[:/]||; s|\.git$||') ($(git -C "$l" rev-parse --short HEAD 2>/dev/null)) at $l"
+  done <<< "$LAYERS"
+elif [ "$PROJECT_FOLDER" -eq 0 ]; then
+  echo "--> No project harness: this checkout has no GitHub origin, or the harness could not be had; the generic harness only"
+fi
+
 AI_CORE_DIR="$TARGET/.ai-core"
 AI_CORE_RULES="$AI_CORE_DIR/rules"
 mkdir -p "$AI_CORE_RULES" "$AI_CORE_DIR/docs"
 # Earlier versions copied the scripts into the checkout; they run from the clone now
 rm -rf "$AI_CORE_DIR/bin"
 
-# 1. Managed files, refreshed on every run: the rules, one file per section in setup-ai-core and
-#    one assembled file in the checkout, each section headed by a comment naming its source; the
-#    skills pointer; VERSION.
+# 1. Managed files, refreshed on every run, later layer wins: the rules, one file per section in
+#    setup-ai-core and in every layer (the same name replaces, a new name adds), assembled into one
+#    file, each section headed by a comment naming its source; skills.md; VERSION; the skills of
+#    every layer into both skill directories; the docs of every layer; the data files; every file
+#    under repos/<repo>/ of the layers; STAMP with the commit of every layer.
 CORE_VERSION="$(tr -d '\r\n' < "$CORE_ROOT/VERSION")"
+SECTIONS="$(mktemp -d)"; trap 'rm -rf "$SECTIONS"' EXIT
+for f in "$CORE_ROOT"/rules/[0-9][0-9]-*.md; do
+  cp "$f" "$SECTIONS/"; printf 'setup-ai-core %s' "$CORE_VERSION" > "$SECTIONS/$(basename "$f").src"
+done
+SKILLS_MD="$CORE_ROOT/rules/skills.md"
+STAMP="setup-ai-core $(git -C "$CORE_ROOT" rev-parse --short HEAD 2>/dev/null || echo "$CORE_VERSION")"
+LAYER_FILES=""   # what the layers wrote, so the templates leave it alone
+DATA_FILES="config.env labels.tsv assignees.tsv team-modes.tsv"
+if [ -n "$LAYERS" ]; then
+  while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    lname="$(basename "$l")"; lname="${lname#.}"
+    lcommit="$(git -C "$l" rev-parse --short HEAD 2>/dev/null || echo "-")"
+    STAMP="$STAMP"$'\n'"$lname $lcommit"
+    for f in "$l"/rules/[0-9][0-9]-*.md; do
+      [ -f "$f" ] || continue
+      cp -f "$f" "$SECTIONS/"; printf '%s %s' "$lname" "$lcommit" > "$SECTIONS/$(basename "$f").src"
+    done
+    [ -f "$l/rules/skills.md" ] && SKILLS_MD="$l/rules/skills.md"
+    for s in "$l"/skills/*/; do
+      [ -f "$s/SKILL.md" ] || continue
+      sname="$(basename "$s")"
+      for dst in "$TARGET/.claude/skills/$sname" "$TARGET/.agents/skills/$sname"; do
+        rm -rf "$dst"; mkdir -p "$dst"; cp -R "$s"/. "$dst/"
+      done
+      LAYER_FILES="$LAYER_FILES .claude/skills/$sname .agents/skills/$sname"
+    done
+    for a in "$l"/agents/*.md; do
+      [ -f "$a" ] || continue
+      mkdir -p "$TARGET/.claude/agents"; cp -f "$a" "$TARGET/.claude/agents/"; LAYER_FILES="$LAYER_FILES .claude/agents/$(basename "$a")"
+    done
+    if [ -d "$l/docs" ] && [ -n "$(ls -A "$l/docs" 2>/dev/null)" ]; then
+      rm -rf "$AI_CORE_DIR/docs/$lname"; mkdir -p "$AI_CORE_DIR/docs/$lname"; cp -R "$l/docs"/. "$AI_CORE_DIR/docs/$lname/"
+    fi
+    for f in $DATA_FILES; do
+      [ -f "$l/$f" ] || continue
+      cp -f "$l/$f" "$AI_CORE_DIR/$f"; LAYER_FILES="$LAYER_FILES .ai-core/$f"
+    done
+  done <<< "$LAYERS"
+  # repos/<repo>/ of the innermost layer, in the layout of the checkout; a tracked file is never
+  # overwritten
+  INNER="$(printf '%s\n' "$LAYERS" | tail -n1)"
+  if [ -n "$REPO_NAME" ] && [ -d "$INNER/repos/$REPO_NAME" ]; then
+    (cd "$INNER/repos/$REPO_NAME" && find . -type f) | sed 's|^\./||' | while IFS= read -r rel; do
+      if git -C "$TARGET" ls-files --error-unmatch "$rel" >/dev/null 2>&1; then
+        echo "--> Kept $rel (tracked by the repository; repos/$REPO_NAME/$rel is not applied)"; continue
+      fi
+      mkdir -p "$(dirname "$TARGET/$rel")"; cp -f "$INNER/repos/$REPO_NAME/$rel" "$TARGET/$rel"
+    done
+    LAYER_FILES="$LAYER_FILES $( (cd "$INNER/repos/$REPO_NAME" && find . -type f) | sed 's|^\./||' | tr '\n' ' ')"
+    echo "--> Applied repos/$REPO_NAME/ of $(basename "$INNER" | sed 's/^\.//')"
+  fi
+fi
 {
-  for f in "$CORE_ROOT"/rules/[0-9][0-9]-*.md; do
-    printf '<!-- setup-ai-core %s: rules/%s -->\n' "$CORE_VERSION" "$(basename "$f")"
-    cat "$f"
-    printf '\n'
+  # A section is written with LF and one blank line after it, whatever the clone it came from
+  # checked out, so the two twins and two machines assemble the same bytes
+  for f in "$SECTIONS"/[0-9][0-9]-*.md; do
+    printf '<!-- %s: rules/%s -->\n' "$(cat "$f.src")" "$(basename "$f")"
+    printf '%s\n\n' "$(tr -d '\r' < "$f")"
   done
 } > "$AI_CORE_RULES/rules.md"
-cp -f "$CORE_ROOT/rules/skills.md" "$AI_CORE_RULES/skills.md"
+cp -f "$SKILLS_MD" "$AI_CORE_RULES/skills.md"
 cp -f "$CORE_ROOT/VERSION" "$AI_CORE_DIR/VERSION"
+printf '%s\n' "$STAMP" > "$AI_CORE_DIR/STAMP"
 
 # 2. The agent files, created once and never overwritten: templates/ mirrors the target layout.
 #    A project folder's AGENTS.md is generated instead: the list of its repositories, rewritten
@@ -115,6 +218,7 @@ serves() {  # serves <agent>: true when the project serves it, or names no agent
 }
 (cd "$CORE_ROOT/templates" && find . -type f) | sed 's|^\./||' | while IFS= read -r rel; do
   [ "$PROJECT_FOLDER" -eq 1 ] && [ "$rel" = "AGENTS.md" ] && continue
+  case " $LAYER_FILES " in *" $rel "*) continue ;; esac
   case "$rel" in
     .cursorrules) serves cursor || continue ;;
     .windsurfrules) serves windsurf || continue ;;
@@ -154,6 +258,9 @@ if EXCLUDE="$(cd "$TARGET" && git rev-parse --git-path info/exclude 2>/dev/null)
       [ -f "$EXCLUDE" ] && awk '/^# setup-ai-core start/{skip=1} !skip{print} /^# setup-ai-core end/{skip=0}' "$EXCLUDE"
       echo "# setup-ai-core start: the harness lives in the working tree only, never in a commit"
       echo "/.ai-core/"
+      echo "/.claude/skills/"
+      echo "/.claude/agents/"
+      echo "/.agents/"
       (cd "$CORE_ROOT/templates" && find . -type f) | sed 's|^\./|/|'
       echo "# setup-ai-core end"
     } > "$EXCLUDE.tmp" && mv "$EXCLUDE.tmp" "$EXCLUDE"

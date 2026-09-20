@@ -40,6 +40,7 @@ $coreRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 if (-not ((Test-Path (Join-Path $coreRoot "templates")) -and (Test-Path (Join-Path $coreRoot "VERSION")))) {
   Write-Host "error: $coreRoot is not a clone of setup-ai-core; run init from the clone (ai-core init)" -ForegroundColor Red; exit 1
 }
+Import-Module (Join-Path $coreRoot 'lib\Layers.psm1') -Force
 
 # The prerequisites first; nothing is deployed on a machine that cannot run the harness
 if (-not $NoDoctor) {
@@ -79,25 +80,120 @@ if ($projectFolder) { Write-Host "A project folder: the repositories below it ge
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host "--> From $coreRoot"
 
+# The project harness: <org>/<prefix>-ai-core from the checkout's origin, its extends chain
+# base first, cloned or pulled to ~\.<name>-ai-core, created from the skeleton when missing.
+# A project folder gets the layers every repository under it shares.
+$layers = @(); $repoName = ""
+function Get-ChainOf([string]$checkout) {
+  # the layer directories, base first, or an empty list; a harness checkout is refused
+  $parts = Get-OriginParts $checkout
+  if (-not $parts) { return @() }
+  if ($parts[1] -ceq 'setup-ai-core') { return @() }
+  if ($parts[1].EndsWith('-ai-core', [StringComparison]::Ordinal)) { throw "REFUSED: $checkout is a harness repository; init is for the repositories it serves" }
+  $prefix = Get-HarnessOf $parts[1]
+  if (-not $prefix) { return @() }
+  try { return @(Resolve-LayerChain -Full "$($parts[0])/$prefix-ai-core" -Root $coreRoot -Create) }
+  catch { Write-Host "error: $($_.Exception.Message)" -ForegroundColor Yellow; return @() }
+}
+if ($projectFolder) {
+  $first = $true
+  foreach ($d in (Get-ChildItem -Path $target -Directory | Where-Object { Test-Path (Join-Path $_.FullName ".git") })) {
+    $chain = @(); try { $chain = @(Get-ChainOf $d.FullName) } catch { $chain = @() }
+    if ($first) { $layers = $chain; $first = $false; continue }
+    $common = @()
+    for ($i = 0; $i -lt [Math]::Min($layers.Count, $chain.Count); $i++) { if ($layers[$i] -ceq $chain[$i]) { $common += $layers[$i] } else { break } }
+    $layers = $common
+    if ($layers.Count -eq 0) { break }
+  }
+} else {
+  $parts = Get-OriginParts $target; if ($parts) { $repoName = $parts[1] }
+  try { $layers = @(Get-ChainOf $target) } catch { Write-Host "error: $($_.Exception.Message)" -ForegroundColor Red; exit 1 }
+}
+if ($layers.Count -gt 0) {
+  foreach ($l in $layers) {
+    $o = "$(& git -C $l remote get-url origin 2>$null)" -creplace '.*github\.com[:/]', '' -creplace '\.git$', ''
+    Write-Host "--> Project harness: $o ($(& git -C $l rev-parse --short HEAD 2>$null)) at $l"
+  }
+} elseif (-not $projectFolder) {
+  Write-Host "--> No project harness: this checkout has no GitHub origin, or the harness could not be had; the generic harness only"
+}
+
 $aiCoreDir = Join-Path $target ".ai-core"
 $aiCoreRules = Join-Path $aiCoreDir "rules"
 foreach ($dir in @($aiCoreRules, (Join-Path $aiCoreDir "docs"))) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
 # Earlier versions copied the scripts into the checkout; they run from the clone now
 if (Test-Path (Join-Path $aiCoreDir "bin")) { Remove-Item -Recurse -Force (Join-Path $aiCoreDir "bin") }
 
-# 1. Managed files, refreshed on every run: the rules, one file per section in setup-ai-core and
-#    one assembled file in the checkout, each section headed by a comment naming its source; the
-#    skills pointer; VERSION.
+# 1. Managed files, refreshed on every run, later layer wins: the rules, one file per section in
+#    setup-ai-core and in every layer (the same name replaces, a new name adds), assembled into one
+#    file, each section headed by a comment naming its source; skills.md; VERSION; the skills of
+#    every layer into both skill directories; the docs of every layer; the data files; every file
+#    under repos\<repo>\ of the layers; STAMP with the commit of every layer.
 $coreVersion = (Get-Content (Join-Path $coreRoot "VERSION") -Raw).Trim()
-$assembled = New-Object System.Text.StringBuilder
-Get-ChildItem -Path (Join-Path $coreRoot "rules") -File | Where-Object { $_.Name -cmatch "^[0-9][0-9]-.*\.md$" } | Sort-Object Name | ForEach-Object {
-  [void]$assembled.Append("<!-- setup-ai-core ${coreVersion}: rules/$($_.Name) -->`n")
-  [void]$assembled.Append((Get-Content $_.FullName -Raw).Replace("`r`n", "`n").TrimEnd() + "`n`n")
-}
 $utf8 = New-Object System.Text.UTF8Encoding $false
+$sections = @{}   # name -> @{ Path; Source }
+Get-ChildItem -Path (Join-Path $coreRoot "rules") -File | Where-Object { $_.Name -cmatch "^[0-9][0-9]-.*\.md$" } | ForEach-Object { $sections[$_.Name] = @{ Path = $_.FullName; Source = "setup-ai-core $coreVersion" } }
+$skillsMd = Join-Path $coreRoot "rules\skills.md"
+$coreCommit = "$(& git -C $coreRoot rev-parse --short HEAD 2>$null)".Trim(); if (-not $coreCommit) { $coreCommit = $coreVersion }
+$stamp = @("setup-ai-core $coreCommit")
+$layerFiles = @()   # what the layers wrote, so the templates leave it alone
+$dataFiles = @('config.env', 'labels.tsv', 'assignees.tsv', 'team-modes.tsv')
+foreach ($l in $layers) {
+  $lname = (Split-Path -Leaf $l).TrimStart('.')
+  $lcommit = "$(& git -C $l rev-parse --short HEAD 2>$null)".Trim(); if (-not $lcommit) { $lcommit = '-' }
+  $stamp += "$lname $lcommit"
+  if (Test-Path (Join-Path $l 'rules')) {
+    Get-ChildItem -Path (Join-Path $l 'rules') -File | Where-Object { $_.Name -cmatch "^[0-9][0-9]-.*\.md$" } | ForEach-Object { $sections[$_.Name] = @{ Path = $_.FullName; Source = "$lname $lcommit" } }
+  }
+  if (Test-Path (Join-Path $l 'rules\skills.md')) { $skillsMd = Join-Path $l 'rules\skills.md' }
+  if (Test-Path (Join-Path $l 'skills')) {
+    foreach ($s in (Get-ChildItem -Path (Join-Path $l 'skills') -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'SKILL.md') })) {
+      foreach ($dst in @((Join-Path $target ".claude\skills\$($s.Name)"), (Join-Path $target ".agents\skills\$($s.Name)"))) {
+        if (Test-Path $dst) { Remove-Item -Recurse -Force $dst }
+        New-Item -ItemType Directory -Force -Path $dst | Out-Null
+        Copy-Item -Recurse -Force (Join-Path $s.FullName '*') $dst
+      }
+      $layerFiles += @(".claude\skills\$($s.Name)", ".agents\skills\$($s.Name)")
+    }
+  }
+  if (Test-Path (Join-Path $l 'agents')) {
+    foreach ($a in (Get-ChildItem -Path (Join-Path $l 'agents') -File -Filter '*.md')) {
+      New-Item -ItemType Directory -Force -Path (Join-Path $target '.claude\agents') | Out-Null
+      Copy-Item -Force $a.FullName (Join-Path $target ".claude\agents\$($a.Name)"); $layerFiles += ".claude\agents\$($a.Name)"
+    }
+  }
+  if ((Test-Path (Join-Path $l 'docs')) -and (Get-ChildItem -Path (Join-Path $l 'docs') -Force | Select-Object -First 1)) {
+    $dd = Join-Path $aiCoreDir "docs\$lname"
+    if (Test-Path $dd) { Remove-Item -Recurse -Force $dd }
+    New-Item -ItemType Directory -Force -Path $dd | Out-Null
+    Copy-Item -Recurse -Force (Join-Path $l 'docs\*') $dd
+  }
+  foreach ($f in $dataFiles) {
+    if (Test-Path (Join-Path $l $f)) { Copy-Item -Force (Join-Path $l $f) (Join-Path $aiCoreDir $f); $layerFiles += ".ai-core\$f" }
+  }
+}
+# repos\<repo>\ of the innermost layer, in the layout of the checkout; a tracked file is never overwritten
+if ($layers.Count -gt 0 -and $repoName -and (Test-Path (Join-Path $layers[-1] "repos\$repoName"))) {
+  $inner = Join-Path $layers[-1] "repos\$repoName"
+  foreach ($f in (Get-ChildItem -Path $inner -Recurse -File -Force)) {
+    $rel = $f.FullName.Substring($inner.Length + 1)
+    & git -C $target ls-files --error-unmatch ($rel.Replace('\', '/')) 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { Write-Host "--> Kept $($rel.Replace('\', '/')) (tracked by the repository; repos/$repoName/$($rel.Replace('\', '/')) is not applied)"; $layerFiles += $rel; continue }
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent (Join-Path $target $rel)) | Out-Null
+    Copy-Item -Force $f.FullName (Join-Path $target $rel)
+    $layerFiles += $rel
+  }
+  Write-Host "--> Applied repos/$repoName/ of $((Split-Path -Leaf $layers[-1]).TrimStart('.'))"
+}
+$assembled = New-Object System.Text.StringBuilder
+foreach ($name in ($sections.Keys | Sort-Object)) {
+  [void]$assembled.Append("<!-- $($sections[$name].Source): rules/$name -->`n")
+  [void]$assembled.Append((Get-Content $sections[$name].Path -Raw).Replace("`r`n", "`n").TrimEnd() + "`n`n")
+}
 [System.IO.File]::WriteAllText((Join-Path $aiCoreRules "rules.md"), $assembled.ToString(), $utf8)
-Copy-Item -Force (Join-Path $coreRoot "rules\skills.md") (Join-Path $aiCoreRules "skills.md")
+Copy-Item -Force $skillsMd (Join-Path $aiCoreRules "skills.md")
 Copy-Item -Force (Join-Path $coreRoot "VERSION") (Join-Path $aiCoreDir "VERSION")
+[System.IO.File]::WriteAllText((Join-Path $aiCoreDir "STAMP"), (($stamp -join "`n") + "`n"), $utf8)
 
 # 2. The agent files, created once and never overwritten: templates\ mirrors the target layout.
 #    A project folder's AGENTS.md is generated instead: the list of its repositories, rewritten
@@ -114,6 +210,7 @@ $pointerOf = @{ '.cursorrules' = 'cursor'; '.windsurfrules' = 'windsurf'; '.gith
 Get-ChildItem -Path $templates -Recurse -File -Force | ForEach-Object {
   $rel = $_.FullName.Substring($templates.Length + 1)
   if ($projectFolder -and $rel -ceq "AGENTS.md") { return }
+  if ($layerFiles -ccontains $rel) { return }
   if ($pointerOf.ContainsKey($rel) -and -not (Test-Serves $pointerOf[$rel])) { return }
   $dst = Join-Path $target $rel
   if (-not (Test-Path $dst)) {
@@ -155,7 +252,7 @@ try {
         if ($line -clike '# setup-ai-core end*') { $skip = $false }
       }
     }
-    $block = @('# setup-ai-core start: the harness lives in the working tree only, never in a commit', '/.ai-core/')
+    $block = @('# setup-ai-core start: the harness lives in the working tree only, never in a commit', '/.ai-core/', '/.claude/skills/', '/.claude/agents/', '/.agents/')
     $block += Get-ChildItem -Path $templates -Recurse -File -Force | ForEach-Object { '/' + $_.FullName.Substring($templates.Length + 1).Replace('\', '/') }
     $block += '# setup-ai-core end'
     [System.IO.File]::WriteAllText($exclude, (($kept + $block) -join "`n") + "`n")

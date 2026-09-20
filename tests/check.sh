@@ -35,6 +35,8 @@ pwsh -NoProfile -File "$ROOT/bin/rules-check.ps1" -RulesFile "$(native "$ROOT/ru
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
+# A team-modes table whose probes always pass, so the tools of this machine never decide a check
+printf 'claude\tmode\ton\talways\t-\t-\ncodex\tmode\ton\talways\t-\t-\ngemini\tmode\ton\talways\t-\t-\n' > "$WORK/modes.tsv"; export TEAM_MODES_FILE="$WORK/modes.tsv"
 
 echo "==> doctor reports an old Node.js and a missing gh login the same way on both twins"
 mkdir -p "$WORK/doctorbin"
@@ -120,11 +122,7 @@ bash "$ROOT/bin/init.sh" "$WORK/sh" --no-doctor 2>&1 | grep -q 'Created' && fail
 pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/ps1")" -NoDoctor 2>&1 | grep -aq 'Created' && fail "init.ps1 is not idempotent"
 (cd "$WORK/sh" && find . -type f | sort) | diff - "$WORK/sh.list" > /dev/null || fail "init.sh changed the file set on re-run"
 
-echo "==> session-start in each target (with a team-modes table whose probes always pass, so the tools of this machine do not decide)"
-printf "claude	mode	on	always	-	-
-codex	mode	on	always	-	-
-gemini	mode	on	always	-	-
-" > "$WORK/modes.tsv"; export TEAM_MODES_FILE="$WORK/modes.tsv"
+echo "==> session-start in each target"
 [ ! -e "$WORK/sh/.ai-core/bin" ] || fail "init.sh copied scripts into the checkout"
 (cd "$WORK/sh" && "$ROOT/bin/ai-core" session-start > /dev/null) || fail "ai-core session-start in bash target"
 (cd "$WORK/sh" && "$ROOT/bin/ai-core" session-start --json > "$WORK/sh.json")
@@ -244,6 +242,100 @@ for twin in sh ps1; do
   [ "$(grep -c '^# setup-ai-core graft start' "$WORK/graft-$twin/.git/info/exclude")" = 1 ] || fail "Graft exclude block written more than once by init.$twin"
 done
 echo "  both twins: no picker, GEMINI.md (there before) and .gemini/ excluded after two runs, README.md named"
+
+echo "==> the project harness: created from the skeleton, cloned on another machine, its rules, skills, docs, data and repos/<repo>/ assembled, on both twins"
+# A stand-in gh keeps GitHub on this disk: bare repositories under $GH_FAKE/github.com/<org>/<name>.git
+GH_FAKE="$WORK/github"; mkdir -p "$GH_FAKE/github.com/example-org" "$WORK/ghbin"; export GH_FAKE
+cat > "$WORK/ghbin/gh" <<'EOF'
+#!/bin/sh
+case "$1 $2" in
+  "repo view")   [ -d "$GH_FAKE/github.com/$3.git" ] ;;
+  "repo clone")  git clone -q "$GH_FAKE/github.com/$3.git" "$4" ;;
+  "repo create") git init -q --bare "$GH_FAKE/github.com/$3.git" && git -C "$6" remote add origin "$GH_FAKE/github.com/$3.git" && git -C "$6" push -q -u origin HEAD ;;
+  "auth status") exit 0 ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$WORK/ghbin/gh"
+GH_FAKE_WIN="$(native "$GH_FAKE" | sed 's|\\|/|g')"
+printf '@echo off\r\nif "%%1 %%2"=="repo view" (if exist "%s/github.com/%%3.git" (exit /b 0) else (exit /b 1))\r\nif "%%1 %%2"=="repo clone" (git clone -q "%s/github.com/%%3.git" "%%4" & exit /b %%ERRORLEVEL%%)\r\nif "%%1 %%2"=="repo create" (git init -q --bare "%s/github.com/%%3.git" & git -C "%%6" remote add origin "%s/github.com/%%3.git" & git -C "%%6" push -q -u origin HEAD & exit /b %%ERRORLEVEL%%)\r\nif "%%1 %%2"=="auth status" exit /b 0\r\nexit /b 1\r\n' "$GH_FAKE_WIN" "$GH_FAKE_WIN" "$GH_FAKE_WIN" "$GH_FAKE_WIN" > "$WORK/ghbin/gh.cmd"
+# A project repository: shop-web of example-org, with a README the fake Graft appends to
+new_checkout() {  # new_checkout <dir> <repo name>
+  git init -q "$1"; echo readme > "$1/README.md"
+  git -C "$1" add README.md; git -C "$1" -c user.name=check -c user.email=check@localhost commit -q -m init
+  git -C "$1" config core.autocrlf false
+  git -C "$1" remote add origin "https://github.com/example-org/$2.git"
+}
+PATH_SH="$WORK/ghbin:$WORK/graftbin:$PATH"
+mkdir -p "$WORK/home-sh" "$WORK/home-ps"
+new_checkout "$WORK/shop-web-sh" shop-web
+HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/init.sh" "$WORK/shop-web-sh" --no-doctor > "$WORK/layers-sh-1.log" 2>&1 || fail "init.sh with a new project harness (see $WORK/layers-sh-1.log)"
+grep -aq 'created: example-org/shop-ai-core, private, from the skeleton' "$WORK/layers-sh-1.log" || fail "init.sh did not create the project harness (see $WORK/layers-sh-1.log)"
+grep -aq '^--> Project harness: example-org/shop-ai-core (' "$WORK/layers-sh-1.log" || fail "init.sh did not name the project harness"
+[ -d "$GH_FAKE/github.com/example-org/shop-ai-core.git" ] || fail "the harness was not pushed to GitHub"
+[ -f "$WORK/home-sh/.shop-ai-core/ai-core.json" ] && [ -f "$WORK/home-sh/.shop-ai-core/labels.tsv" ] || fail "the clone at ~/.shop-ai-core lacks the skeleton"
+[ "$(wc -l < "$WORK/shop-web-sh/.ai-core/STAMP" | tr -d ' ')" = 2 ] && grep -q '^shop-ai-core ' "$WORK/shop-web-sh/.ai-core/STAMP" || fail "STAMP does not name setup-ai-core and the harness: $(cat "$WORK/shop-web-sh/.ai-core/STAMP" | tr '\n' '|')"
+cmp -s "$WORK/shop-web-sh/.ai-core/config.env" "$ROOT/templates/.ai-core/config.env" || fail "config.env of the checkout is not the harness's (the skeleton's copy of the template)"
+# The project fills its harness: a new rule section, a replaced one, a skill, a document, the map and config of shop-web
+git clone -q "$GH_FAKE/github.com/example-org/shop-ai-core.git" "$WORK/author" 2>/dev/null
+git -C "$WORK/author" config core.autocrlf false
+mkdir -p "$WORK/author/skills/deploy" "$WORK/author/repos/shop-web/.ai-core"
+printf '## Releases\n\n- **A release is a tag.** Nothing ships without one. [review]\n' > "$WORK/author/rules/35-releases.md"
+printf '## Naming\n\n- **Names are English.** The project spells them its own way. [review]\n' > "$WORK/author/rules/50-naming.md"
+printf -- '---\nname: deploy\ndescription: how this project deploys\n---\nRun the deploy script.\n' > "$WORK/author/skills/deploy/SKILL.md"
+mkdir -p "$WORK/author/agents"; printf -- '---\nname: builder\ndescription: builds one issue\n---\nBuild it.\n' > "$WORK/author/agents/builder.md"
+printf '# Glossary\n\ntenant: a customer.\n' > "$WORK/author/docs/glossary.md"
+printf '# shop-web\n\nThe map of shop-web.\n' > "$WORK/author/repos/shop-web/AGENTS.md"
+printf 'AGENTS="claude"\nGRAFT_EXECUTION_MODE="skip"\n' > "$WORK/author/repos/shop-web/.ai-core/config.env"
+git -C "$WORK/author" add -A; git -C "$WORK/author" -c user.name=check -c user.email=check@localhost commit -q -m "the project's own"; git -C "$WORK/author" push -q origin HEAD
+HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/init.sh" "$WORK/shop-web-sh" --no-doctor > "$WORK/layers-sh-2.log" 2>&1 || fail "init.sh second run with the filled harness (see $WORK/layers-sh-2.log)"
+assembled_ok() {  # assembled_ok <checkout> <twin>
+  local c="$1" t="$2" hash
+  hash="$(git -C "$WORK/author" rev-parse --short HEAD)"
+  grep -q "^<!-- shop-ai-core $hash: rules/35-releases.md -->" "$c/.ai-core/rules/rules.md" || fail "$t: the harness's new section is not in rules.md"
+  grep -q "^<!-- shop-ai-core $hash: rules/50-naming.md -->" "$c/.ai-core/rules/rules.md" || fail "$t: the harness's section did not replace the generic one"
+  grep -q "^<!-- setup-ai-core .*: rules/50-naming.md -->" "$c/.ai-core/rules/rules.md" && fail "$t: the generic naming section is still there beside the replacement"
+  [ "$(grep -c '^<!-- ' "$c/.ai-core/rules/rules.md")" = $((SECTIONS + 1)) ] || fail "$t: rules.md has $(grep -c '^<!-- ' "$c/.ai-core/rules/rules.md") sections, expected $((SECTIONS + 1))"
+  bash "$ROOT/bin/rules-check.sh" "$c/.ai-core/rules/rules.md" > /dev/null || fail "$t: the assembled rules.md fails rules-check"
+  [ -f "$c/.claude/skills/deploy/SKILL.md" ] && [ -f "$c/.agents/skills/deploy/SKILL.md" ] || fail "$t: the skill is not in both skill directories"
+  [ -f "$c/.claude/agents/builder.md" ] || fail "$t: the agent definition is not in .claude/agents/"
+  [ -f "$c/.ai-core/docs/shop-ai-core/glossary.md" ] || fail "$t: the harness's docs are not under .ai-core/docs/shop-ai-core/"
+  grep -q '^The map of shop-web' "$c/AGENTS.md" || fail "$t: AGENTS.md is not the map from repos/shop-web/"
+  grep -q '^AGENTS="claude"' "$c/.ai-core/config.env" || fail "$t: config.env is not the one from repos/shop-web/.ai-core/"
+  [ -f "$c/.ai-core/labels.tsv" ] && [ -f "$c/.ai-core/team-modes.tsv" ] || fail "$t: the data files did not come from the harness"
+  [ -e "$c/.cursorrules" ] && fail "$t: a pointer file of an agent the harness does not serve was deployed"
+  st="$(git -C "$c" status --porcelain | tr -d '\r' | sort | tr '\n' '|')"
+  [ "$st" = " M README.md|?? .gitignore|" ] || [ "$st" = "?? .gitignore|" ] || fail "$t: git status shows more than the new .gitignore (and the fake Graft's README.md): $st"
+}
+assembled_ok "$WORK/shop-web-sh" "init.sh"
+# Another machine, the PowerShell twin: the harness exists on GitHub, so it is cloned, and the checkout is assembled the same
+new_checkout "$WORK/shop-web-ps" shop-web
+HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" GRAFT_FAKE_LOG="$(native "$WORK/layers.args")" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/shop-web-ps")" -NoDoctor > "$WORK/layers-ps-1.log" 2>&1 || fail "init.ps1 with the cloned project harness (see $WORK/layers-ps-1.log)"
+grep -aq 'created:' "$WORK/layers-ps-1.log" && fail "init.ps1 created a harness that exists"
+[ -f "$WORK/home-ps/.shop-ai-core/ai-core.json" ] || fail "init.ps1 did not clone the harness to ~/.shop-ai-core"
+assembled_ok "$WORK/shop-web-ps" "init.ps1"
+cmp -s "$WORK/shop-web-sh/.ai-core/rules/rules.md" "$WORK/shop-web-ps/.ai-core/rules/rules.md" || fail "the assembled rules.md differs between the twins"
+cmp -s "$WORK/shop-web-sh/.ai-core/STAMP" "$WORK/shop-web-ps/.ai-core/STAMP" || fail "STAMP differs between the twins"
+# The PowerShell twin creates one too: store-api of the same organisation gets store-ai-core
+new_checkout "$WORK/store-api-ps" store-api
+HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" GRAFT_FAKE_LOG="$(native "$WORK/layers.args")" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/store-api-ps")" -NoDoctor > "$WORK/layers-ps-2.log" 2>&1 || fail "init.ps1 with a new project harness (see $WORK/layers-ps-2.log)"
+grep -aq 'created: example-org/store-ai-core, private, from the skeleton' "$WORK/layers-ps-2.log" || fail "init.ps1 did not create store-ai-core"
+[ -d "$GH_FAKE/github.com/example-org/store-ai-core.git" ] || fail "store-ai-core was not pushed"
+# extends: shop-ai-core now extends store-ai-core, so the chain is store first, then shop
+printf '{ "setup-ai-core": ">=1.1.0", "extends": "example-org/store-ai-core" }\n' > "$WORK/author/ai-core.json"
+git -C "$WORK/author" add -A; git -C "$WORK/author" -c user.name=check -c user.email=check@localhost commit -q -m extends; git -C "$WORK/author" push -q origin HEAD
+HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/init.sh" "$WORK/shop-web-sh" --no-doctor > "$WORK/layers-sh-3.log" 2>&1 || fail "init.sh with an extends chain (see $WORK/layers-sh-3.log)"
+[ "$(sed -n 2p "$WORK/shop-web-sh/.ai-core/STAMP" | cut -d' ' -f1)" = store-ai-core ] && [ "$(sed -n 3p "$WORK/shop-web-sh/.ai-core/STAMP" | cut -d' ' -f1)" = shop-ai-core ] || fail "the extends chain is not base first in STAMP: $(tr '\n' '|' < "$WORK/shop-web-sh/.ai-core/STAMP")"
+[ -d "$WORK/home-sh/.store-ai-core" ] || fail "the base of the chain was not cloned"
+# A harness checkout is refused, and a project folder gets the layers its repositories share
+new_checkout "$WORK/harness-checkout" shop-ai-core
+HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/init.sh" "$WORK/harness-checkout" --no-doctor > "$WORK/layers-refused.log" 2>&1 && fail "init.sh accepted a harness repository"
+grep -aq 'harness repository' "$WORK/layers-refused.log" || fail "init.sh did not say why the harness repository is refused"
+mkdir -p "$WORK/folder/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$WORK/folder/.ai-core/config.env"
+new_checkout "$WORK/folder/shop-web" shop-web; new_checkout "$WORK/folder/store-api" store-api
+HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/init.sh" "$WORK/folder" --no-doctor > "$WORK/layers-folder.log" 2>&1 || fail "init.sh on a project folder with layers (see $WORK/layers-folder.log)"
+[ "$(tr '\n' '|' < "$WORK/folder/.ai-core/STAMP" | sed 's/ [0-9a-f-]*|/|/g')" = "setup-ai-core|store-ai-core|" ] || fail "the project folder did not get the layer its repositories share: $(tr '\n' '|' < "$WORK/folder/.ai-core/STAMP")"
+echo "  created, cloned, assembled and compared on both twins; extends base first; a harness checkout refused; the folder shares the base"
 
 echo "==> init runs doctor first and deploys nothing when it fails, on both twins"
 mkdir -p "$WORK/nodoc-sh" "$WORK/nodoc-ps"

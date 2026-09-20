@@ -34,6 +34,12 @@ case "$command" in
   update)
     echo "--> Updating setup-ai-core at $CORE"
     git -C "$CORE" pull --ff-only
+    # and every project harness clone on this machine, ~/.<name>-ai-core
+    for d in "$HOME"/.*-ai-core; do
+      [ -d "$d/.git" ] || continue
+      name="$(basename "$d")"; echo "--> Updating ${name#.} at $d"
+      git -C "$d" pull --ff-only || echo "note: $d could not be pulled; see above"
+    done
     echo "--> The scripts are current everywhere; run ai-core init in a checkout to refresh its rules" ;;
   version) tr -d '\r\n' < "$CORE/VERSION"; echo ;;
   help|-h|--help) usage ;;

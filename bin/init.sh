@@ -221,7 +221,7 @@ if [ -n "$LAYERS" ]; then
       LAYER_FILES="$LAYER_FILES .claude/skills/$sname .agents/skills/$sname"
     done
     for a in "$l"/agents/*.md; do
-      [ -f "$a" ] || continue
+      [ -f "$a" ] && [ "$(basename "$a")" != README.md ] || continue
       put "$a" ".claude/agents/$(basename "$a")" managed; LAYER_FILES="$LAYER_FILES .claude/agents/$(basename "$a")"
     done
     if [ -d "$l/docs" ] && [ -n "$(ls -A "$l/docs" 2>/dev/null)" ]; then

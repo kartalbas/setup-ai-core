@@ -224,7 +224,7 @@ foreach ($l in $layers) {
     }
   }
   if (Test-Path (Join-Path $l 'agents')) {
-    foreach ($a in (Get-ChildItem -Path (Join-Path $l 'agents') -File -Filter '*.md')) {
+    foreach ($a in (Get-ChildItem -Path (Join-Path $l 'agents') -File -Filter '*.md' | Where-Object { $_.Name -cne 'README.md' })) {
       Put $a.FullName ".claude/agents/$($a.Name)" managed; $layerFiles += ".claude/agents/$($a.Name)"
     }
   }

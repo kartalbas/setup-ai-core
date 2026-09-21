@@ -949,10 +949,13 @@ command against a stand-in `gh`, the push gate's pair among them, and the tree m
 suite found it) and both `case-check` twins. It needs `bash`, `pwsh`, `node` and `jq` and never touches the network. CI runs it on Ubuntu
 and Windows for every push and pull request, and then `schema-check`, which needs github.com.
 
-**A release** is `ai-core release X.Y.Z`, run in the clone: it refuses unless `VERSION` says X.Y.Z,
-the tree is clean, `main` is pushed, and the workflow run for exactly that commit is completed and
-green; then it tags `vX.Y.Z` and pushes the tag. `install` and `update` follow the newest tag, so
-`main` can carry a mistake without it reaching anybody.
+**A release** is one command, `ai-core release X.Y.Z`, run in the clone: it writes `VERSION` and
+commits `release: X.Y.Z` when the file does not carry the version yet, pushes what is not pushed,
+waits for the workflow run of exactly that commit (asked every 20 seconds, 30 minutes at most)
+and, when the run is green, tags `vX.Y.Z` and pushes the tag. It refuses, naming what is missing,
+when the tree is not clean, the branch is not `main`, origin has moved on, the tag exists, or the
+run is red or does not finish; nothing is tagged red. `install` and `update` follow the newest
+tag, so `main` can carry a mistake without it reaching anybody.
 
 - **Add a file a checkout should get:** put it under `templates/` at the path it has in the
   checkout. Both installers deploy it.
@@ -963,7 +966,7 @@ green; then it tags `vX.Y.Z` and pushes the tag. `install` and `update` follow t
 - **Change a rule:** edit its section file under `rules/`, keep the tag at the end of the rule,
   run `bash bin/rules-check.sh rules`. A rule may wrap over several lines; the tag ends the last
   one. A new section is a new `rules/NN-slug.md`; the number places it.
-- **Release:** bump `VERSION`; `init` copies it to `.ai-core/VERSION`.
+- **Release:** `ai-core release X.Y.Z`; `init` copies the version to `.ai-core/VERSION`.
 
 Run the check before every commit.
 
@@ -1048,7 +1051,7 @@ setup-ai-core/
 │   ├── session-start.sh / .ps1          the session start
 │   ├── map.sh / map.ps1                 the map of a repository, written by the agent CLI into the harness
 │   ├── update.sh / update.ps1           this machine to the newest release, the harness clones to their origins
-│   ├── release.sh / release.ps1         tags a release once the checks of the commit are green
+│   ├── release.sh / release.ps1         commits VERSION, pushes, waits for green checks, tags
 │   ├── push.sh / push.ps1               commits and pushes the harness clones of the project folder
 │   ├── solution-path.sh / .ps1          8-section solution path validator
 │   ├── rules-check.sh / .ps1            enforcement-tag validator

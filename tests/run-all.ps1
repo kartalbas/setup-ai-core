@@ -15,6 +15,8 @@ $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 # The organisation the suites were written for; nothing here reaches github.com
 $env:GH_ORG = "example-org"
+# pwsh on Linux colours an error record even when it is captured; the tests read plain text
+$env:NO_COLOR = "1"
 
 # THE TREE IS READ BEFORE AND AFTER, and a suite that changed it is RED whatever its own
 # assertions said. A test writes into its own temporary directory and nowhere else: one that

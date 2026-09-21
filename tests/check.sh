@@ -40,6 +40,9 @@ export GIT_TERMINAL_PROMPT=0
 # The commits init and pre-push --install make in the scratch repositories need an identity, and a
 # runner has none configured
 export GIT_AUTHOR_NAME=check GIT_AUTHOR_EMAIL=check@localhost GIT_COMMITTER_NAME=check GIT_COMMITTER_EMAIL=check@localhost
+# pwsh on Linux colours an error record even when it is captured, and a test that reads the text
+# then reads escape codes; NO_COLOR is honoured by PowerShell 7.2+
+export NO_COLOR=1
 # A team-modes table whose probes always pass, so the tools of this machine never decide a check
 printf 'claude\tmode\ton\talways\t-\t-\ncodex\tmode\ton\talways\t-\t-\ngemini\tmode\ton\talways\t-\t-\n' > "$WORK/modes.tsv"; export TEAM_MODES_FILE="$WORK/modes.tsv"
 

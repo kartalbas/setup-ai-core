@@ -46,8 +46,9 @@ check 'caveman names its installer' yes "$(echo "$out" | grep -q 'MISSING .*cave
 check 'ponytail names its installer' yes "$(echo "$out" | grep -q 'MISSING .*ponytail.*claude plugin install ponytail@ponytail' && echo yes || echo no)"
 check 'the refusal says no work starts' yes "$(echo "$out" | grep -q '^REFUSED: 3 mode(s) missing.*No work starts' && echo yes || echo no)"
 
-echo 'the two plugins installed, the skill not: one MISSING'
+echo 'the two plugins installed (i-have-adhd proven by its always-on flag), the skill not: one MISSING'
 printf 'Installed plugins:\n  ponytail@ponytail\n  i-have-adhd@i-have-adhd\n' > "$fake/plugins.txt"
+mkdir -p "$HOME/.claude"; : > "$HOME/.claude/.i-have-adhd-always"
 out="$(run_check --tool claude)"; code=$?
 check 'exit 1'        1 "$code"
 check 'one missing'   1 "$(echo "$out" | grep -c '^MISSING')"
@@ -118,7 +119,7 @@ check 'exit 1'  1 "$code"
 check 'says so' yes "$(echo "$out" | grep -q '^REFUSED: .*is missing - it is the table of the team modes' && echo yes || echo no)"
 
 echo 'team-modes-install --dry-run prints the install command of every missing mode and runs nothing'
-: > "$fake/plugins.txt"; rm -rf "$HOME/.agents/skills/caveman"
+: > "$fake/plugins.txt"; rm -rf "$HOME/.agents/skills/caveman"; rm -f "$HOME/.claude/.i-have-adhd-always"
 out="$(bash "$root/bin/team-modes-install.sh" --tool claude --dry-run 2>&1)"; code=$?
 check 'exit 0'                  0 "$code"
 check 'three install lines'     3 "$(echo "$out" | grep -c '^installing ')"

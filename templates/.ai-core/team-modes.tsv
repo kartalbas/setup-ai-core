@@ -29,7 +29,8 @@
 
 claude	caveman	lite	skill:caveman	npx skills add JuliusBrussee/caveman -g	-
 claude	ponytail	full	plugin:ponytail	claude plugin marketplace add DietrichGebert/ponytail && claude plugin install ponytail@ponytail	-
-claude	i-have-adhd	on	plugin:i-have-adhd	claude plugin marketplace add ayghri/i-have-adhd && claude plugin install i-have-adhd@i-have-adhd	-
+# claude proves i-have-adhd by the always-on flag its SessionStart hook reads; the install writes it
+claude	i-have-adhd	on	file:~/.claude/.i-have-adhd-always	claude plugin marketplace add ayghri/i-have-adhd && claude plugin install i-have-adhd@i-have-adhd && node -e "require('fs').writeFileSync(require('os').homedir()+'/.claude/.i-have-adhd-always','')"	-
 codex	caveman	lite	skill:caveman	npx skills add JuliusBrussee/caveman -g	-
 codex	ponytail	full	plugin:ponytail	codex plugin marketplace add DietrichGebert/ponytail && codex plugin add ponytail@ponytail	-
 codex	i-have-adhd	on	plugin:i-have-adhd	codex plugin marketplace add ayghri/i-have-adhd --ref main && codex plugin add i-have-adhd@i-have-adhd	-

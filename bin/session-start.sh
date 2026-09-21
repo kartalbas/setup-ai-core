@@ -19,7 +19,8 @@ for arg in "$@"; do
   echo "Options:"
   echo "  -h, --help    Show this help message"
   echo "  --json        Print the same facts as JSON"
-  echo "  --tool NAME   Check the team modes of this tool only (repeatable)"
+  echo "  --tool NAME   Check the team modes of this tool only (repeatable); with one tool, the"
+  echo "                form the hooks use, its modes are switched on at the end of the output"
   echo ""
   echo "Exit status is 1 when a team mode is missing or the rules file is missing (run init)."
   echo ""
@@ -31,11 +32,11 @@ for arg in "$@"; do
 done
 
 CORE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-as_json=0; tool_args=()
+as_json=0; tool_args=(); TOOL=""; TOOL_N=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --json|-Json) as_json=1; shift ;;
-    --tool) [ $# -ge 2 ] || { echo "error: --tool needs a value" >&2; exit 2; }; tool_args+=(--tool "$2"); shift 2 ;;
+    --tool) [ $# -ge 2 ] || { echo "error: --tool needs a value" >&2; exit 2; }; tool_args+=(--tool "$2"); TOOL="$2"; TOOL_N=$((TOOL_N + 1)); shift 2 ;;
     *) echo "error: unknown argument '$1' (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -130,6 +131,29 @@ if [ -n "$ISSUE" ]; then
   if MINE="$(bash "$CORE/bin/issue-mine.sh" "$ISSUE" 2>&1)"; then ASSIGNED=true; fi
 fi
 
+# 4. The team modes of the tool this session runs in, switched on. A mode that is a skill is
+#    printed whole with its level: the hook's output is the agent's context, so the agent runs
+#    with it from the first prompt. A plugin switches itself on through its own hook and is named
+#    with its level. For one --tool, the form the hooks use, and in the text output only.
+MODES_TEXT=""
+if [ "$TOOL_N" -eq 1 ] && [ "$as_json" -eq 0 ]; then
+  TABLE="${TEAM_MODES_FILE:-$(. "$CORE/lib/board.sh"; data_file team-modes.tsv)}"
+  while IFS=$'\t' read -r _ mode level pr _; do
+    [ -n "$mode" ] || continue
+    upper="$(printf '%s' "$mode" | tr '[:lower:]' '[:upper:]')"
+    case "$pr" in
+      skill:*)
+        name="${pr#skill:}"; skill=""
+        for d in "$HOME/.$TOOL/skills/$name" "$PWD/.$TOOL/skills/$name" "$HOME/.agents/skills/$name" "$PWD/.agents/skills/$name"; do
+          [ -f "$d/SKILL.md" ] && { skill="$d/SKILL.md"; break; }
+        done
+        [ -n "$skill" ] || continue
+        MODES_TEXT="$MODES_TEXT$upper MODE ACTIVE — level: $level ($skill follows; it binds this session)"$'\n'"$(awk 'NR==1 && /^---/{f=1; next} f && /^---/{f=0; next} !f' "$skill" | tr -d '\r')"$'\n'"ARGUMENTS: $level"$'\n\n' ;;
+      *) MODES_TEXT="$MODES_TEXT$upper MODE: $level, switched on by its own hook"$'\n' ;;
+    esac
+  done <<< "$(tr -d '\r' < "$TABLE" | awk -F'\t' -v t="$TOOL" '!/^#/ && NF >= 5 && $1 == t')"
+fi
+
 bool() { [ "$1" -eq 1 ] && echo true || echo false; }
 
 if [ "$as_json" -eq 1 ]; then
@@ -193,3 +217,4 @@ if [ "$RULES_OK" -eq 0 ]; then
   exit 1
 fi
 echo "Ready for task execution."
+[ -z "$MODES_TEXT" ] || { echo ""; printf '%s' "$MODES_TEXT"; }

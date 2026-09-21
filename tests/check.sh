@@ -153,6 +153,21 @@ node -e '
   }
   if (a.harness_version !== fs.readFileSync(process.argv[3], "utf8").trim()) { console.error("  harness_version " + a.harness_version + " is not the repository VERSION"); process.exit(1); }
 ' "$WORK/sh.json" "$WORK/ps1.json" "$ROOT/VERSION" || fail "session-start JSON differs between twins"
+# --tool <one tool>, the form the hooks use: the modes of that tool are switched on at the end of the output, a skill whole with its level
+MH="$WORK/modes-home"; mkdir -p "$MH/.claude/skills/caveman"; : > "$MH/.claude/.i-have-adhd-always"
+printf -- '---\nname: caveman\n---\nCAVEMAN RULES: short.\n' > "$MH/.claude/skills/caveman/SKILL.md"
+printf 'claude\tcaveman\tlite\tskill:caveman\t-\t-\nclaude\tponytail\tfull\talways:ponytail\t-\t-\nclaude\ti-have-adhd\ton\tfile:~/.claude/.i-have-adhd-always\t-\t-\n' > "$WORK/modes.tsv"
+(cd "$WORK/sh" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude > "$WORK/modes-sh.log" 2>&1) || fail "session-start.sh --tool claude (see $WORK/modes-sh.log)"
+(cd "$WORK/ps1" && HOME="$MH" USERPROFILE="$(native "$MH")" TEAM_MODES_FILE="$(native "$WORK/modes.tsv")" pwsh -NoProfile -File "$ROOT/bin/session-start.ps1" -Tool claude > "$WORK/modes-ps1.log" 2>&1) || fail "session-start.ps1 -Tool claude (see $WORK/modes-ps1.log)"
+for twin in sh ps1; do
+  grep -aq '^CAVEMAN MODE ACTIVE — level: lite' "$WORK/modes-$twin.log" && grep -aq '^CAVEMAN RULES: short\.' "$WORK/modes-$twin.log" && grep -aq '^ARGUMENTS: lite' "$WORK/modes-$twin.log" || fail "session-start.$twin --tool claude does not switch the caveman skill on (see $WORK/modes-$twin.log)"
+  grep -aq '^name: caveman' "$WORK/modes-$twin.log" && fail "session-start.$twin prints the front matter of the skill"
+  grep -aq '^PONYTAIL MODE: full, switched on by its own hook' "$WORK/modes-$twin.log" && grep -aq '^I-HAVE-ADHD MODE: on, switched on by its own hook' "$WORK/modes-$twin.log" || fail "session-start.$twin --tool claude does not name the plugin modes (see $WORK/modes-$twin.log)"
+done
+(cd "$WORK/sh" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude --json | jq -e '.repository' > /dev/null) || fail "session-start.sh --tool claude --json is not JSON"
+(cd "$WORK/sh" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" > "$WORK/modes-none.log" 2>&1) || fail "session-start.sh without --tool (see $WORK/modes-none.log)"
+grep -aq 'MODE ACTIVE' "$WORK/modes-none.log" && fail "session-start.sh without --tool switches modes on"
+echo "  --tool claude: the caveman skill printed whole with its level, the plugin modes named, nothing of it in the JSON or without --tool, on both twins"
 
 echo "==> nothing to commit after init, in a clone and in a worktree, for both twins"
 for twin in sh ps1; do

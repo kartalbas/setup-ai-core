@@ -432,6 +432,15 @@ platforms: `repository`, `root`, `branch`, `uncommitted_files`, `harness_version
 `gh_user`, `issue`, `assigned`, `thread`. Exit status is 1 when no rules file is found, so an agent or a CI job can gate on it.
 If `gh` is logged in, it makes one call to the GitHub API for the user name.
 
+With one `--tool <name>` (`-Tool <name>`), the form the hooks use, the output ends with the team
+modes of that tool switched on, one block per row of `team-modes.tsv`. A mode that is a skill is
+printed whole with its level: `CAVEMAN MODE ACTIVE — level: lite`, the skill, `ARGUMENTS: lite`;
+the hook's output is the agent's context, so the agent runs with it from the first prompt. A mode
+that is a plugin switches itself on through its own hook and is named: `PONYTAIL MODE: full,
+switched on by its own hook`. These lines in the transcript are how a session proves its modes.
+The `i-have-adhd` row of Claude Code is proven by the always-on flag its hook reads,
+`~/.claude/.i-have-adhd-always`, which its install column writes.
+
 It compares `.ai-core/STAMP` with the setup-ai-core clone and the project harness clones beside the
 repositories, and reports the checkout as assembled from the current harness or from an older one.
 **Planned:** re-assembling the checkout when a layer changed, so a rule change in a layer reaches

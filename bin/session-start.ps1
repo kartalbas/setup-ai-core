@@ -22,7 +22,8 @@ if ($Help -or $args -ccontains "-h" -or $args -ccontains "--help" -or ($args.Cou
   Write-Host "Options:"
   Write-Host "  -Help, -h, --help    Show this help message"
   Write-Host "  -Json                Print the same facts as JSON"
-  Write-Host "  -Tool NAME           Check the team modes of this tool only (repeatable)"
+  Write-Host "  -Tool NAME           Check the team modes of this tool only (repeatable); with one tool, the"
+  Write-Host "                       form the hooks use, its modes are switched on at the end of the output"
   Write-Host ""
   Write-Host "Exit status is 1 when a team mode is missing or the rules file is missing (run init)."
   Write-Host ""
@@ -129,6 +130,37 @@ if ($issue) {
   if ($LASTEXITCODE -eq 0) { $assigned = $true }
 }
 
+# 4. The team modes of the tool this session runs in, switched on. A mode that is a skill is
+#    printed whole with its level: the hook's output is the agent's context, so the agent runs
+#    with it from the first prompt. A plugin switches itself on through its own hook and is named
+#    with its level. For one -Tool, the form the hooks use, and in the text output only.
+$modesText = @()
+if ($Tool.Count -eq 1 -and -not $Json) {
+  Import-Module (Join-Path $core 'lib\Board.psm1') -Force
+  $table = if ($env:TEAM_MODES_FILE) { $env:TEAM_MODES_FILE } else { Get-DataFile 'team-modes.tsv' }
+  $t = $Tool[0]; $homeDir = if ($env:HOME) { $env:HOME } else { $HOME }
+  foreach ($row in @(Get-Content $table | Where-Object { $_ -and -not $_.StartsWith('#', [StringComparison]::Ordinal) })) {
+    $c = $row.TrimEnd("`r") -split "`t"
+    if ($c.Count -lt 5 -or $c[0] -cne $t) { continue }
+    $mode = $c[1]; $level = $c[2]; $pr = $c[3]; $upper = $mode.ToUpperInvariant()
+    if ($pr.StartsWith('skill:', [StringComparison]::Ordinal)) {
+      $name = $pr.Substring(6); $skill = $null
+      foreach ($d in @((Join-Path $homeDir ".$t/skills/$name"), (Join-Path $root ".$t/skills/$name"), (Join-Path $homeDir ".agents/skills/$name"), (Join-Path $root ".agents/skills/$name"))) {
+        if (Test-Path -LiteralPath (Join-Path $d 'SKILL.md') -PathType Leaf) { $skill = Join-Path $d 'SKILL.md'; break }
+      }
+      if (-not $skill) { continue }
+      $body = @(); $front = $false; $n = 0
+      foreach ($line in [System.IO.File]::ReadAllLines($skill)) {
+        $n++
+        if ($n -eq 1 -and $line -ceq '---') { $front = $true; continue }
+        if ($front) { if ($line -ceq '---') { $front = $false }; continue }
+        $body += $line
+      }
+      $modesText += "$upper MODE ACTIVE — level: $level ($skill follows; it binds this session)"; $modesText += $body; $modesText += "ARGUMENTS: $level"; $modesText += ''
+    } else { $modesText += "$upper MODE: $level, switched on by its own hook" }
+  }
+}
+
 if ($Json) {
   [PSCustomObject]@{
     repository          = $repoName
@@ -192,3 +224,4 @@ if (-not $rulesOk) {
   exit 1
 }
 Write-Host "Ready for task execution." -ForegroundColor Green
+if ($modesText.Count -gt 0) { Write-Host ""; foreach ($l in $modesText) { Write-Host $l } }

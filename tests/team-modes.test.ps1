@@ -49,8 +49,10 @@ Check 'caveman names its installer'  'True' ([bool]($out -match 'MISSING .*cavem
 Check 'ponytail names its installer' 'True' ([bool]($out -match 'MISSING .*ponytail.*claude plugin install ponytail@ponytail'))
 Check 'the refusal says no work starts' 'True' ([bool]($out -match 'REFUSED: 3 mode\(s\) missing.*No work starts'))
 
-Write-Host 'the two plugins installed, the skill not: one MISSING'
+Write-Host 'the two plugins installed (i-have-adhd proven by its always-on flag), the skill not: one MISSING'
 Set-Content -Path $plugins -Value "Installed plugins:`n  ponytail@ponytail`n  i-have-adhd@i-have-adhd" -Encoding utf8NoBOM
+New-Item -ItemType Directory -Path (Join-Path $env:HOME '.claude') -Force | Out-Null
+Set-Content -Path (Join-Path $env:HOME '.claude/.i-have-adhd-always') -Value '' -Encoding utf8NoBOM
 RunCheck @{ Tool = 'claude' }
 Check 'exit 1'        1 $code
 Check 'one missing'   1 (Count '^MISSING')
@@ -103,6 +105,7 @@ $env:TEAM_MODES_FILE = $kept
 Write-Host 'team-modes-install -DryRun prints the install command of every missing mode and runs nothing'
 Set-Content -Path $plugins -Value '' -Encoding utf8NoBOM
 Remove-Item -Recurse -Force (Join-Path $env:HOME '.agents/skills/caveman') -ErrorAction SilentlyContinue
+Remove-Item -Force (Join-Path $env:HOME '.claude/.i-have-adhd-always') -ErrorAction SilentlyContinue
 $out = (& (Join-Path $root 'bin/team-modes-install.ps1') -Tool claude -DryRun 6>&1 2>&1 | Out-String)
 $code = $LASTEXITCODE
 Check 'exit 0'                 0 $code

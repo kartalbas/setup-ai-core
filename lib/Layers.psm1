@@ -52,6 +52,38 @@ function Get-LayerDir {
   Join-Path $Folder (($Full -split '/', 2)[1])
 }
 
+function Test-SameBytes([string]$a, [string]$b) {
+  $x = [System.IO.File]::ReadAllBytes($a); $y = [System.IO.File]::ReadAllBytes($b)
+  return ($x.Length -eq $y.Length) -and [System.Linq.Enumerable]::SequenceEqual($x, $y)
+}
+
+function Move-Layer {
+  # The clone an earlier version kept under the home directory goes beside the repositories:
+  # copied file by file, never over a file already there, so a move that was interrupted (the
+  # history here, the files still there) is completed by the next run; the old directory goes
+  # once every file of it is here unchanged. Move-Item is not used: across volumes it copies and
+  # then fails on the hidden .git directory, halfway.
+  [CmdletBinding()] param([Parameter(Mandatory)][string]$Full, [Parameter(Mandatory)][string]$Old, [Parameter(Mandatory)][string]$New)
+  $oldLong = (Get-Item -LiteralPath $Old -Force).FullName.TrimEnd('\', '/')
+  New-Item -ItemType Directory -Force -Path $New | Out-Null
+  $files = @(Get-ChildItem -LiteralPath $oldLong -Recurse -Force -File)
+  foreach ($f in $files) {
+    $to = Join-Path $New $f.FullName.Substring($oldLong.Length + 1)
+    if (Test-Path -LiteralPath $to) { continue }
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $to) | Out-Null
+    Copy-Item -LiteralPath $f.FullName -Destination $to
+  }
+  $whole = $true
+  foreach ($f in $files) {
+    $to = Join-Path $New $f.FullName.Substring($oldLong.Length + 1)
+    if (-not (Test-Path -LiteralPath $to) -or -not (Test-SameBytes $f.FullName $to)) { $whole = $false; break }
+  }
+  & git -C $New rev-parse --verify HEAD 2>$null | Out-Null
+  if (-not $whole -or $LASTEXITCODE -ne 0) { throw "$Full is not whole at $New after the move from ${Old}; both directories stay" }
+  Remove-Item -LiteralPath $Old -Recurse -Force
+  Write-Host "moved: $Full from $Old to $New, beside the repositories it serves"
+}
+
 function Resolve-Layer {
   # The clone is there and current, or is moved from the home directory, or is cloned, or is
   # created from the skeleton with -Create; -Dry moves and creates nothing. Returns the clone
@@ -59,14 +91,21 @@ function Resolve-Layer {
   [CmdletBinding()] param([Parameter(Mandatory)][string]$Full, [Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Folder, [switch]$Create, [switch]$Dry)
   $dir = Get-LayerDir -Full $Full -Folder $Folder
   $old = Join-Path $HOME (".{0}" -f ($Full -split '/', 2)[1])
-  if (-not (Test-Path (Join-Path $dir '.git')) -and (Test-Path (Join-Path $old '.git'))) {
-    if ($Dry) { Write-Host "note: $Full would be moved from $old to $dir, beside the repositories it serves (dry run: not moved)"; $dir = $old }
-    else { Move-Item -LiteralPath $old -Destination $dir; Write-Host "moved: $Full from $old to $dir, beside the repositories it serves" }
+  if (Test-Path (Join-Path $old '.git')) {
+    if ($Dry) {
+      Write-Host "note: $Full would be moved from $old to $dir, beside the repositories it serves (dry run: not moved)"
+      if (-not (Test-Path (Join-Path $dir '.git'))) { $dir = $old }
+    } else { Move-Layer -Full $Full -Old $old -New $dir }
   }
   if (Test-Path (Join-Path $dir '.git')) {
     $origin = "$(& git -C $dir remote get-url origin 2>$null)".Trim()
     $o = $origin; if ($o.EndsWith('.git', [StringComparison]::Ordinal)) { $o = $o.Substring(0, $o.Length - 4) }
     if (-not ($o -cmatch ('github\.com[:/]' + [regex]::Escape($Full) + '$'))) { throw "$dir is a clone of $(if ($origin) { $origin } else { 'nothing' }), not of ${Full}; move it away" }
+    # A working tree that lost every tracked file (an interrupted move, cleaned up by hand) is
+    # checked out again from its history
+    $tracked = @(& git -C $dir ls-files 2>$null | Where-Object { $_ }).Count
+    $missing = @(& git -C $dir status --porcelain 2>$null | Where-Object { "$_".StartsWith(' D', [StringComparison]::Ordinal) }).Count
+    if ($tracked -gt 0 -and $missing -eq $tracked) { & git -C $dir checkout -- . 2>$null | Out-Null; Write-Host "restored: the files of $Full at $dir from its history (every tracked file was missing)" }
     & git -C $dir pull --ff-only --quiet 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Host "note: could not pull $Full into $dir (offline, or the clone has local changes); using it as it is" }
     return $dir
@@ -90,7 +129,7 @@ function Resolve-Layer {
   & gh repo create $Full --private --source $dir --push 2>$null | Out-Null
   if ($LASTEXITCODE -ne 0) {
     Remove-Item -Recurse -Force $dir
-    throw "could not create $Full on GitHub (no permission, or gh is not logged in); the harness stays generic"
+    throw "could not create $Full on GitHub (no permission, or gh is not logged in)"
   }
   Write-Host "created: $Full, private, from the skeleton, at $dir"
   return $dir

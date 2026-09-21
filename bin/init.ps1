@@ -176,8 +176,7 @@ function Get-ChainOf([string]$checkout) {
       return @()
     }
   }
-  try { return @(Resolve-LayerChain -Full "$($parts[0])/$prefix-ai-core" -Root $coreRoot -Folder $folder -Create) }
-  catch { Write-Host "error: $($_.Exception.Message)" -ForegroundColor Yellow; return @() }
+  return @(Resolve-LayerChain -Full "$($parts[0])/$prefix-ai-core" -Root $coreRoot -Folder $folder -Create)
 }
 $script:wouldCreate = ''
 if ($projectFolder) {
@@ -192,7 +191,7 @@ if ($projectFolder) {
   }
 } else {
   $parts = Get-OriginParts $target; if ($parts) { $repoName = $parts[1] }
-  try { $layers = @(Get-ChainOf $target) } catch { Write-Host "error: $($_.Exception.Message)" -ForegroundColor Red; exit 1 }
+  try { $layers = @(Get-ChainOf $target) } catch { Write-Host "error: $($_.Exception.Message); nothing was written" -ForegroundColor Red; exit 1 }
 }
 if ($layers.Count -gt 0) {
   foreach ($l in $layers) {
@@ -203,7 +202,7 @@ if ($layers.Count -gt 0) {
 } elseif ($script:wouldCreate) {
   Write-Host "--> Project harness: $($script:wouldCreate) would be created from the skeleton, private, and this checkout would get it (dry run: not created)"
 } elseif (-not $projectFolder) {
-  Write-Host "--> No project harness: this checkout has no GitHub origin, or the harness could not be had; the generic harness only"
+  Write-Host "--> No project harness: this checkout has no GitHub origin; the generic harness only"
 }
 
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("ai-core-init-" + [System.IO.Path]::GetRandomFileName())

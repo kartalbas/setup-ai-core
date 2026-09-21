@@ -181,7 +181,7 @@ if [ "$PROJECT_FOLDER" -eq 1 ]; then
   done
 else
   parts="$(origin_parts "$TARGET" || true)"; REPO_NAME="${parts#*	}"
-  LAYERS="$(chain_of "$TARGET")" || { rc=$?; [ "$rc" -eq 2 ] && exit 1; LAYERS=""; }
+  LAYERS="$(chain_of "$TARGET")" || { echo "error: the project harness of $TARGET could not be had (see above); nothing was written" >&2; exit 1; }
 fi
 if [ -n "$LAYERS" ]; then
   while IFS= read -r l; do
@@ -195,7 +195,7 @@ if [ -n "$LAYERS" ]; then
 elif [ -f "$TMP/would-create" ]; then
   echo "--> Project harness: $(cat "$TMP/would-create") would be created from the skeleton, private, and this checkout would get it (dry run: not created)"
 elif [ "$PROJECT_FOLDER" -eq 0 ]; then
-  echo "--> No project harness: this checkout has no GitHub origin, or the harness could not be had; the generic harness only"
+  echo "--> No project harness: this checkout has no GitHub origin; the generic harness only"
 fi
 
 AI_CORE_DIR="$TARGET/.ai-core"

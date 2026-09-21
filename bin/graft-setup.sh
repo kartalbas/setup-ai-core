@@ -36,8 +36,8 @@ cd "$TARGET"
 # Graft's own lines "✓ what: path (state)" are read for the report: what it wrote into the
 # repository and what on the machine (a path under the home directory), and with which state
 HOME_WIN="$(cygpath -w "$HOME" 2>/dev/null || echo "$HOME")"
-report_graft() {  # report_graft <graft output file>
-  local file="$1" repo="" machine="" line path state here here_win
+graft_lines() {  # graft_lines <graft output file>: "<state>\t<path>" per file Graft names; a path under this directory made relative
+  local file="$1" line path state here here_win
   here="$(pwd)"; here_win="$(cygpath -w "$here" 2>/dev/null || echo "$here")"
   while IFS= read -r line; do
     line="${line%$'\r'}"
@@ -47,14 +47,55 @@ report_graft() {  # report_graft <graft output file>
       *) continue ;;
     esac
     case "$state" in created|updated|appended|wrote) ;; *) continue ;; esac
+    case "$path" in "$here_win\\"*|"$here/"*) path="${path#"$here_win"\\}"; path="${path#"$here"/}" ;; esac
+    printf '%s\t%s\n' "$state" "$path"
+  done < "$file"
+}
+report_graft() {  # report_graft <graft output file>
+  local repo="" machine="" state path
+  while IFS=$'\t' read -r state path; do
+    [ -n "$path" ] || continue
     case "$path" in
-      "$here_win\\"*|"$here/"*) path="${path#"$here_win"\\}"; path="${path#"$here"/}"; repo="$repo"$'\n'"    $path ($state)" ;;
       "$HOME"*|"$HOME_WIN"*|"~"*) machine="$machine"$'\n'"    $path ($state)" ;;
       *) repo="$repo"$'\n'"    $path ($state)" ;;
     esac
-  done < "$file"
+  done <<< "$(graft_lines "$1")"
   [ -z "$repo" ] || echo "  Graft wrote in the repository:$repo"
   [ -z "$machine" ] || echo "  Graft wrote on the machine:$machine"
+}
+# Graft wires every repository under a project folder, the harness clones (<name>-ai-core) among
+# them. A harness clone is data, and ai-core push commits every file in it, so what Graft put
+# into one is taken out again: a file it created, its block from a file it appended to, its
+# graph and its MCP file.
+strip_graft_block() {  # strip_graft_block <file>: Graft's block and the blank lines before it go; a file left empty goes too
+  awk '/^<!-- graft:start -->/{skip=1} /^<!-- graft:end -->/{skip=0; next} !skip{n++; l[n]=$0} END{while(n>0 && l[n]=="") n--; for(i=1;i<=n;i++) print l[i]}' "$1" > "$1.tmp" && mv "$1.tmp" "$1"
+  [ -s "$1" ] || rm -f "$1"
+}
+take_out_of_harness_clones() {  # take_out_of_harness_clones <graft output file>
+  local taken="" state path clone rel junk
+  while IFS=$'\t' read -r state path; do
+    [ -n "$path" ] || continue
+    path="$(printf '%s' "$path" | tr '\\' '/')"
+    clone="${path%%/*}"; rel="${path#*/}"
+    case "$clone" in *-ai-core) ;; *) continue ;; esac
+    [ "$clone" != "$path" ] && [ -d "$clone/.git" ] && [ -e "$path" ] || continue
+    if grep -q '^<!-- graft:start -->' "$path" 2>/dev/null; then strip_graft_block "$path"
+    elif git -C "$clone" ls-files --error-unmatch "$rel" >/dev/null 2>&1; then continue
+    else rm -rf "$path"; fi
+    taken="$taken $path"
+  done <<< "$(graft_lines "$1")"
+  # what Graft leaves without naming it, or named in an earlier run
+  for clone in ./*-ai-core; do
+    clone="${clone#./}"; [ -d "$clone/.git" ] || continue
+    for junk in graft .mcp.json AGENTS.md; do
+      [ -e "$clone/$junk" ] || continue
+      git -C "$clone" ls-files --error-unmatch "$junk" >/dev/null 2>&1 && continue
+      case " $taken " in *" $clone/$junk "*) continue ;; esac
+      if [ "$junk" = AGENTS.md ]; then grep -q '^<!-- graft:start -->' "$clone/$junk" || continue; strip_graft_block "$clone/$junk"; else rm -rf "$clone/$junk"; fi
+      taken="$taken $clone/$junk"
+    done
+  done
+  [ -z "$taken" ] || echo "  taken out of the harness clones (data, not code): $(printf '%s' "$taken" | sed 's/^ //; s/ /, /g')"
 }
 
 CONFIG_FILE=".ai-core/config.env"
@@ -166,6 +207,7 @@ if [ "$RESULT" -ne 0 ]; then
 fi
 report_graft "$TMP_OUT"
 grep -a '^✓ wiring:' "$TMP_OUT" | tail -1 | sed 's/^✓ wiring: /  Graft graph: /' || true
+take_out_of_harness_clones "$TMP_OUT"
 # One repository gets graft/index.md; a folder of repositories gets a workspace, graft/workspace.json
 if [ -f "graft/workspace.json" ]; then
   echo "==> Graft workspace created at $(pwd)/graft/workspace.json: one graph over the repositories of this folder"

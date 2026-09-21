@@ -67,6 +67,21 @@ layer_dir() { echo "$2/${1#*/}"; }
 # The origin a clone of <org>/<name> must have
 layer_url() { echo "https://github.com/$1.git"; }
 
+# move_layer <org>/<name> <old> <new>: the clone an earlier version kept under the home
+# directory goes beside the repositories: copied file by file, never over a file already there,
+# so a move that was interrupted (the history here, the files still there) is completed by the
+# next run; the old directory goes once every file of it is here unchanged.
+move_layer() {
+  local full="$1" old="$2" new="$3"
+  mkdir -p "$new"
+  cp -Rpn "$old"/. "$new"/ 2>/dev/null || true   # the exit status of cp -n differs between versions; the comparison judges
+  if diff -rq "$old" "$new" 2>/dev/null | grep -qvF "Only in $new" || ! git -C "$new" rev-parse --verify HEAD >/dev/null 2>&1; then
+    echo "error: $full is not whole at $new after the move from $old; both directories stay" >&2; return 1
+  fi
+  rm -rf "$old"
+  echo "moved: $full from $old to $new, beside the repositories it serves" >&2
+}
+
 # ensure_layer <org>/<name> <setup-ai-core root> <folder> [create|dry]: the clone is there and
 # current, or is moved from the home directory, or is cloned, or is created from the skeleton
 # when "create" is given; "dry" moves and creates nothing. Prints the clone directory. Exit 1
@@ -75,11 +90,12 @@ ensure_layer() {
   local full="$1" root="$2" folder="$3" mode="${4:-}" dir old origin
   dir="$(layer_dir "$full" "$folder")"
   old="$HOME/.${full#*/}"
-  if [ ! -d "$dir/.git" ] && [ -d "$old/.git" ]; then
+  if [ -d "$old/.git" ]; then
     if [ "$mode" = dry ]; then
-      echo "note: $full would be moved from $old to $dir, beside the repositories it serves (dry run: not moved)" >&2; dir="$old"
+      echo "note: $full would be moved from $old to $dir, beside the repositories it serves (dry run: not moved)" >&2
+      [ -d "$dir/.git" ] || dir="$old"
     else
-      mv "$old" "$dir" && echo "moved: $full from $old to $dir, beside the repositories it serves" >&2
+      move_layer "$full" "$old" "$dir" || return 1
     fi
   fi
   if [ -d "$dir/.git" ]; then
@@ -88,6 +104,11 @@ ensure_layer() {
       *github.com[:/]"$full") ;;
       *) echo "error: $dir is a clone of ${origin:-nothing}, not of $full; move it away" >&2; return 1 ;;
     esac
+    # A working tree that lost every tracked file (an interrupted move, cleaned up by hand) is
+    # checked out again from its history
+    if [ "$(git -C "$dir" ls-files 2>/dev/null | wc -l | tr -d ' ')" -gt 0 ] && [ "$(git -C "$dir" status --porcelain 2>/dev/null | grep -c '^ D')" = "$(git -C "$dir" ls-files | wc -l | tr -d ' ')" ]; then
+      git -C "$dir" checkout -- . && echo "restored: the files of $full at $dir from its history (every tracked file was missing)" >&2
+    fi
     if ! git -C "$dir" pull --ff-only --quiet >/dev/null 2>&1; then
       echo "note: could not pull $full into $dir (offline, or the clone has local changes); using it as it is" >&2
     fi
@@ -109,7 +130,7 @@ ensure_layer() {
   git -C "$dir" -c user.name="${GIT_AUTHOR_NAME:-ai-core}" -c user.email="${GIT_AUTHOR_EMAIL:-ai-core@localhost}" commit -q -m "the project harness, from the skeleton of setup-ai-core"
   if ! gh repo create "$full" --private --source "$dir" --push >/dev/null 2>&1; then
     rm -rf "$dir"
-    echo "error: could not create $full on GitHub (no permission, or gh is not logged in); the harness stays generic" >&2
+    echo "error: could not create $full on GitHub (no permission, or gh is not logged in)" >&2
     return 1
   fi
   echo "created: $full, private, from the skeleton, at $dir" >&2

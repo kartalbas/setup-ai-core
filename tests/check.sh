@@ -238,13 +238,14 @@ cat > "$WORK/graftbin/npx" <<'EOF'
 echo "$*" >> "$GRAFT_FAKE_LOG"
 case "$*" in *--dry-run*) printf 'would write - this repo:\n  GEMINI.md               fenced graft section\n  .gemini\\settings.json   mcpServers.graft\n\nwould write - your machine, affects ALL repos:\n  ~\\.codex\\config.toml   [mcp_servers.graft]\n' >&2; exit 0 ;; esac
 case "$3" in
-  init) echo graft > GEMINI.md; mkdir -p .gemini; echo '{}' > .gemini/settings.json; grep -q '^<!-- graft:start -->' AGENTS.md 2>/dev/null || printf '\n<!-- graft:start -->\ngraft\n<!-- graft:end -->\n' >> AGENTS.md; echo graft >> README.md; printf '\342\234\223 agents: %s/AGENTS.md (appended)\n\342\234\223 mcp codex: ~/.codex/config.toml (updated)\n' "$(pwd)" ;;
+  init) echo graft > GEMINI.md; mkdir -p .gemini; echo '{}' > .gemini/settings.json; grep -q '^<!-- graft:start -->' AGENTS.md 2>/dev/null || printf '\n<!-- graft:start -->\ngraft\n<!-- graft:end -->\n' >> AGENTS.md; echo graft >> README.md; printf '\342\234\223 agents: %s/AGENTS.md (appended)\n\342\234\223 mcp codex: ~/.codex/config.toml (updated)\n' "$(pwd)"
+        for d in *-ai-core; do [ -d "$d/.git" ] && { echo graft > "$d/AGENTS.md"; printf '\342\234\223 agents: %s/%s/AGENTS.md (created)\n' "$(pwd)" "$d"; }; done ;;
   build) mkdir -p graft; echo index > graft/index.md; printf '\342\234\223 wiring: 2 nodes (1 file, 1 function), 1 edges, 1 cards [javascript]\n' ;;
 esac
 exit 0
 EOF
 chmod +x "$WORK/graftbin/npx"
-printf '@echo %%* >> "%%GRAFT_FAKE_LOG%%"\r\n@set DRY=0\r\n@for %%%%a in (%%*) do @if "%%%%a"=="--dry-run" set DRY=1\r\n@if "%%DRY%%"=="1" (echo would write - this repo:& echo   GEMINI.md               fenced graft section& echo   .gemini\\settings.json   mcpServers.graft& echo.& echo would write - your machine, affects ALL repos:& echo   ~\\.codex\\config.toml   [mcp_servers.graft]) 1>&2 & exit /b 0\r\n@if "%%3"=="init" (echo graft> GEMINI.md & mkdir .gemini 2>nul & echo {}> .gemini\\settings.json & findstr /b /c:"<!-- graft:start -->" AGENTS.md >nul 2>nul || node -e "require(\047fs\047).appendFileSync(\047AGENTS.md\047,\047\\n<!-- graft:start -->\\ngraft\\n<!-- graft:end -->\\n\047)" & echo graft>> README.md & echo \342\234\223 agents: %%CD%%\\AGENTS.md (appended^)& echo \342\234\223 mcp codex: ~\\.codex\\config.toml (updated^))\r\n@if "%%3"=="build" (mkdir graft 2>nul & echo index> graft\\index.md & echo \342\234\223 wiring: 2 nodes (1 file, 1 function^), 1 edges, 1 cards [javascript])\r\n@exit /b 0\r\n' > "$WORK/graftbin/npx.cmd"
+printf '@echo %%* >> "%%GRAFT_FAKE_LOG%%"\r\n@set DRY=0\r\n@for %%%%a in (%%*) do @if "%%%%a"=="--dry-run" set DRY=1\r\n@if "%%DRY%%"=="1" (echo would write - this repo:& echo   GEMINI.md               fenced graft section& echo   .gemini\\settings.json   mcpServers.graft& echo.& echo would write - your machine, affects ALL repos:& echo   ~\\.codex\\config.toml   [mcp_servers.graft]) 1>&2 & exit /b 0\r\n@if "%%3"=="init" (echo graft> GEMINI.md & mkdir .gemini 2>nul & echo {}> .gemini\\settings.json & findstr /b /c:"<!-- graft:start -->" AGENTS.md >nul 2>nul || node -e "require(\047fs\047).appendFileSync(\047AGENTS.md\047,\047\\n<!-- graft:start -->\\ngraft\\n<!-- graft:end -->\\n\047)" & echo graft>> README.md & echo \342\234\223 agents: %%CD%%\\AGENTS.md (appended^)& echo \342\234\223 mcp codex: ~\\.codex\\config.toml (updated^))\r\n@if "%%3"=="init" for /d %%%%d in (*-ai-core) do @if exist "%%%%d\\.git" (echo graft> "%%%%d\\AGENTS.md" & echo \342\234\223 agents: %%CD%%\\%%%%d\\AGENTS.md (created^))\r\n@if "%%3"=="build" (mkdir graft 2>nul & echo index> graft\\index.md & echo \342\234\223 wiring: 2 nodes (1 file, 1 function^), 1 edges, 1 cards [javascript])\r\n@exit /b 0\r\n' > "$WORK/graftbin/npx.cmd"
 for twin in sh ps1; do
   git init -q "$WORK/graft-$twin"
   echo readme > "$WORK/graft-$twin/README.md"
@@ -318,8 +319,9 @@ for twin in sh ps1; do
   grep -aq '^  .gitignore changed' "$WORK/report-$twin-2.log" && fail "init.$twin run 2 changed .gitignore again"
   cmp -s "$D/.git/info/exclude" "$WORK/report-$twin.exclude" || fail "init.$twin run 2 rewrote the exclude file"
   # 4. a project folder: its AGENTS.md is generated on every run and keeps the block Graft appends to it
-  F="$WORK/folder-$twin"; mkdir -p "$F"; git init -q "$F/app"
+  F="$WORK/folder-$twin"; mkdir -p "$F"; git init -q "$F/app"; git init -q "$F/x-ai-core"   # a harness clone beside the repositories: Graft wires it, init takes that out again
   init_twin "$twin" "$F" "$WORK/folder-$twin-1.log" || fail "init.$twin on a project folder failed (see $WORK/folder-$twin-1.log)"
+  [ ! -e "$F/x-ai-core/AGENTS.md" ] && grep -aq '^  taken out of the harness clones (data, not code): x-ai-core/AGENTS.md' "$WORK/folder-$twin-1.log" || fail "init.$twin left what Graft wrote in the harness clone: $(ls -A "$F/x-ai-core" | tr '\n' ' ')"
   grep -q '^<!-- graft:start -->' "$F/AGENTS.md" || fail "the fake Graft did not append its block to the folder's AGENTS.md ($twin)"
   init_twin "$twin" "$F" "$WORK/folder-$twin-2.log" || fail "init.$twin run 2 on a project folder failed (see $WORK/folder-$twin-2.log)"
   grep -aqE '^  (created|refreshed|removed) ' "$WORK/folder-$twin-2.log" && fail "init.$twin run 2 on a project folder changed something: $(grep -aE '^  (created|refreshed|removed) ' "$WORK/folder-$twin-2.log")"
@@ -338,7 +340,7 @@ cat > "$WORK/ghbin/gh" <<'EOF'
 case "$1 $2" in
   "repo view")   [ -d "$GH_FAKE/github.com/$3.git" ] ;;
   "repo clone")  git clone -q "$GH_FAKE/github.com/$3.git" "$4" ;;
-  "repo create") git init -q --bare "$GH_FAKE/github.com/$3.git" && git -C "$6" remote add origin "$GH_FAKE/github.com/$3.git" && git -C "$6" push -q -u origin HEAD ;;
+  "repo create") [ "${3%%/*}" != nocreate-org ] && git init -q --bare "$GH_FAKE/github.com/$3.git" && git -C "$6" remote add origin "$GH_FAKE/github.com/$3.git" && git -C "$6" push -q -u origin HEAD ;;
   "run list") echo '[{"status":"completed","conclusion":"success"}]' ;;
   "auth status") exit 0 ;;
   *) exit 1 ;;
@@ -346,13 +348,13 @@ esac
 EOF
 chmod +x "$WORK/ghbin/gh"
 GH_FAKE_WIN="$(native "$GH_FAKE" | sed 's|\\|/|g')"
-printf '@echo off\r\nif "%%1 %%2"=="repo view" (if exist "%s/github.com/%%3.git" (exit /b 0) else (exit /b 1))\r\nif "%%1 %%2"=="repo clone" (git clone -q "%s/github.com/%%3.git" "%%4" & exit /b %%ERRORLEVEL%%)\r\nif "%%1 %%2"=="repo create" (git init -q --bare "%s/github.com/%%3.git" & git -C "%%6" remote add origin "%s/github.com/%%3.git" & git -C "%%6" push -q -u origin HEAD & exit /b %%ERRORLEVEL%%)\r\nif "%%1 %%2"=="auth status" exit /b 0\r\nif "%%1 %%2"=="run list" (echo [{"status":"completed","conclusion":"success"}] & exit /b 0)\r\nexit /b 1\r\n' "$GH_FAKE_WIN" "$GH_FAKE_WIN" "$GH_FAKE_WIN" "$GH_FAKE_WIN" > "$WORK/ghbin/gh.cmd"
+printf '@echo off\r\nif "%%1 %%2"=="repo view" (if exist "%s/github.com/%%3.git" (exit /b 0) else (exit /b 1))\r\nif "%%1 %%2"=="repo clone" (git clone -q "%s/github.com/%%3.git" "%%4" & exit /b %%ERRORLEVEL%%)\r\nif "%%1 %%2 %%3"=="repo create nocreate-org/nocreate-ai-core" exit /b 1\r\nif "%%1 %%2"=="repo create" (git init -q --bare "%s/github.com/%%3.git" & git -C "%%6" remote add origin "%s/github.com/%%3.git" & git -C "%%6" push -q -u origin HEAD & exit /b %%ERRORLEVEL%%)\r\nif "%%1 %%2"=="auth status" exit /b 0\r\nif "%%1 %%2"=="run list" (echo [{"status":"completed","conclusion":"success"}] & exit /b 0)\r\nexit /b 1\r\n' "$GH_FAKE_WIN" "$GH_FAKE_WIN" "$GH_FAKE_WIN" "$GH_FAKE_WIN" > "$WORK/ghbin/gh.cmd"
 # A project repository: shop-web of example-org, with a README the fake Graft appends to
-new_checkout() {  # new_checkout <dir> <repo name>
+new_checkout() {  # new_checkout <dir> <repo name> [org]
   git init -q "$1"; echo readme > "$1/README.md"
   git -C "$1" add README.md; git -C "$1" -c user.name=check -c user.email=check@localhost commit -q -m init
   git -C "$1" config core.autocrlf false
-  git -C "$1" remote add origin "https://github.com/example-org/$2.git"
+  git -C "$1" remote add origin "https://github.com/${3:-example-org}/$2.git"
 }
 PATH_SH="$WORK/ghbin:$WORK/graftbin:$PATH"
 # Two machines with a project folder each; a harness clone lands beside the checkouts in it
@@ -411,6 +413,11 @@ grep -aq 'created:' "$WORK/layers-ps-1.log" && fail "init.ps1 created a harness 
 grep -aq 'moved: example-org/shop-ai-core from ' "$WORK/layers-ps-1.log" || fail "init.ps1 did not report the move of the old clone (see $WORK/layers-ps-1.log)"
 [ ! -e "$WORK/home-ps/.shop-ai-core" ] || fail "init.ps1 left the old clone under the home directory"
 [ -f "$WORK/org-ps/shop-ai-core/ai-core.json" ] || fail "init.ps1 did not move the harness beside the checkout"
+# The move an earlier run left halfway (the history here, the files still under the home directory beside an empty .git) is completed
+mkdir -p "$WORK/home-ps/.shop-ai-core/.git"; mv "$WORK/org-ps/shop-ai-core"/[!.]* "$WORK/home-ps/.shop-ai-core/"
+HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" GRAFT_FAKE_LOG="$(native "$WORK/layers.args")" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-ps/shop-web")" -NoDoctor > "$WORK/layers-ps-1c.log" 2>&1 || fail "init.ps1 completing an interrupted move (see $WORK/layers-ps-1c.log)"
+grep -aq 'moved: example-org/shop-ai-core from ' "$WORK/layers-ps-1c.log" || fail "init.ps1 did not complete the interrupted move (see $WORK/layers-ps-1c.log)"
+[ ! -e "$WORK/home-ps/.shop-ai-core" ] && [ -z "$(git -C "$WORK/org-ps/shop-ai-core" status --porcelain)" ] || fail "the interrupted move was not completed: $(git -C "$WORK/org-ps/shop-ai-core" status --porcelain | tr '\n' '|')"
 rm -rf "$WORK/org-ps/shop-ai-core"
 HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" GRAFT_FAKE_LOG="$(native "$WORK/layers.args")" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-ps/shop-web")" -NoDoctor > "$WORK/layers-ps-1b.log" 2>&1 || fail "init.ps1 with the harness to clone (see $WORK/layers-ps-1b.log)"
 grep -aqE 'created:|moved:' "$WORK/layers-ps-1b.log" && fail "init.ps1 created or moved a harness that is on GitHub"
@@ -432,6 +439,15 @@ git -C "$WORK/author" add -A; git -C "$WORK/author" -c user.name=check -c user.e
 HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/init.sh" "$WORK/org-sh/shop-web" --no-doctor > "$WORK/layers-sh-3.log" 2>&1 || fail "init.sh with an extends chain (see $WORK/layers-sh-3.log)"
 [ "$(sed -n 2p "$WORK/org-sh/shop-web/.ai-core/STAMP" | cut -d' ' -f1)" = store-ai-core ] && [ "$(sed -n 3p "$WORK/org-sh/shop-web/.ai-core/STAMP" | cut -d' ' -f1)" = shop-ai-core ] || fail "the extends chain is not base first in STAMP: $(tr '\n' '|' < "$WORK/org-sh/shop-web/.ai-core/STAMP")"
 [ -d "$WORK/org-sh/store-ai-core" ] || fail "the base of the chain was not cloned"
+# A harness that cannot be had stops init before it writes: nocreate-org may not create repositories
+new_checkout "$WORK/org-sh/nocreate-web" nocreate-web nocreate-org
+HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/init.sh" "$WORK/org-sh/nocreate-web" --no-doctor > "$WORK/layers-nocreate-sh.log" 2>&1 && fail "init.sh assembled the generic harness although the project harness could not be had"
+grep -aq 'could not create nocreate-org/nocreate-ai-core' "$WORK/layers-nocreate-sh.log" && grep -aq 'nothing was written' "$WORK/layers-nocreate-sh.log" || fail "init.sh does not say why it stopped (see $WORK/layers-nocreate-sh.log)"
+[ ! -e "$WORK/org-sh/nocreate-web/.ai-core" ] || fail "init.sh wrote into the checkout although it stopped"
+new_checkout "$WORK/org-ps/nocreate-web" nocreate-web nocreate-org
+HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" GRAFT_FAKE_LOG="$(native "$WORK/layers.args")" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-ps/nocreate-web")" -NoDoctor > "$WORK/layers-nocreate-ps.log" 2>&1 && fail "init.ps1 assembled the generic harness although the project harness could not be had"
+grep -aq 'could not create nocreate-org/nocreate-ai-core' "$WORK/layers-nocreate-ps.log" && grep -aq 'nothing was written' "$WORK/layers-nocreate-ps.log" || fail "init.ps1 does not say why it stopped (see $WORK/layers-nocreate-ps.log)"
+[ ! -e "$WORK/org-ps/nocreate-web/.ai-core" ] || fail "init.ps1 wrote into the checkout although it stopped"
 # A harness checkout is refused, and a project folder gets the layers its repositories share
 new_checkout "$WORK/harness-checkout" shop-ai-core
 HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/init.sh" "$WORK/harness-checkout" --no-doctor > "$WORK/layers-refused.log" 2>&1 && fail "init.sh accepted a harness repository"
@@ -445,7 +461,11 @@ grep -aq 'moved: example-org/shop-ai-core from ' "$WORK/layers-folder.log" || fa
 [ ! -e "$WORK/home-sh/.shop-ai-core" ] && [ -d "$WORK/folder/shop-ai-core/.git" ] && [ -d "$WORK/folder/store-ai-core/.git" ] || fail "the folder does not hold both harness clones"
 grep -qE '^\| `(shop|store)-ai-core`' "$WORK/folder/AGENTS.md" && fail "the folder's AGENTS.md lists a harness clone as a repository"
 grep -q '^| `shop-web` |' "$WORK/folder/AGENTS.md" && grep -q '^| `store-api` |' "$WORK/folder/AGENTS.md" || fail "the folder's AGENTS.md does not list its repositories"
-echo "  created, cloned, moved from the home directory, assembled and compared on both twins; extends base first; a harness checkout refused; the folder shares the base and its map skips the clones"
+rm -rf "$WORK/folder/shop-ai-core"/[!.]*   # every tracked file gone, the history there: an interrupted move somebody cleaned up by hand
+HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/init.sh" "$WORK/folder" --no-doctor > "$WORK/layers-folder-2.log" 2>&1 || fail "init.sh on the folder with a harness clone that lost its files (see $WORK/layers-folder-2.log)"
+grep -aq 'restored: the files of example-org/shop-ai-core at ' "$WORK/layers-folder-2.log" || fail "init.sh did not restore the files of the harness clone (see $WORK/layers-folder-2.log)"
+[ -z "$(git -C "$WORK/folder/shop-ai-core" status --porcelain)" ] || fail "the harness clone is not whole after the restore: $(git -C "$WORK/folder/shop-ai-core" status --porcelain | tr '\n' '|')"
+echo "  created, cloned, moved from the home directory, an interrupted move completed, lost files restored, assembled and compared on both twins; extends base first; a harness that cannot be had stops init; a harness checkout refused; the folder shares the base and its map skips the clones"
 
 echo "==> releases: release tags the green commit, install checks the newest release out, update moves to it and --check reports, on both twins"
 for twin in sh ps1; do

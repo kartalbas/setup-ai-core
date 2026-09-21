@@ -35,25 +35,76 @@ $ErrorActionPreference = 'Stop'
 
 # Graft's own lines "✓ what: path (state)" are read for the report: what it wrote into the
 # repository and what on the machine (a path under the home directory), and with which state
-function Write-GraftReport([string[]]$lines) {
-  $repo = @(); $machine = @()
-  $here = (Get-Location).Path
+function Get-GraftLines([string[]]$lines) {
+  # one @{ State; Path } per file Graft names; a path under this directory made relative
+  $here = (Get-Location).Path; $found = @()
   foreach ($line in $lines) {
     $line = $line.TrimEnd("`r")
     if ($line.StartsWith('✓ wrote ', [StringComparison]::Ordinal)) { $path = $line.Substring(8); $state = 'wrote' }
     elseif ($line -cmatch '^✓[^:]*: (.*) \(([^()]*)\)$') { $path = $Matches[1]; $state = $Matches[2] }
     else { continue }
     if ($state -cnotin @('created', 'updated', 'appended', 'wrote')) { continue }
-    $inRepo = $false
-    foreach ($sep in @('\', '/')) { if ($path.StartsWith($here + $sep, [StringComparison]::Ordinal)) { $path = $path.Substring($here.Length + 1); $inRepo = $true } }
-    if (-not $inRepo -and ($path.StartsWith($HOME, [StringComparison]::Ordinal) -or $path.StartsWith('~', [StringComparison]::Ordinal))) {
-      $machine += "    $path ($state)"
-    } else {
-      $repo += "    $path ($state)"
-    }
+    foreach ($sep in @('\', '/')) { if ($path.StartsWith($here + $sep, [StringComparison]::Ordinal)) { $path = $path.Substring($here.Length + 1) } }
+    $found += , @{ State = $state; Path = $path }
+  }
+  return , $found
+}
+function Write-GraftReport([string[]]$lines) {
+  $repo = @(); $machine = @()
+  foreach ($e in (Get-GraftLines $lines)) {
+    if ($e.Path.StartsWith($HOME, [StringComparison]::Ordinal) -or $e.Path.StartsWith('~', [StringComparison]::Ordinal)) { $machine += "    $($e.Path) ($($e.State))" }
+    else { $repo += "    $($e.Path) ($($e.State))" }
   }
   if ($repo.Count -gt 0) { Write-Host "  Graft wrote in the repository:"; foreach ($r in $repo) { Write-Host $r } }
   if ($machine.Count -gt 0) { Write-Host "  Graft wrote on the machine:"; foreach ($m in $machine) { Write-Host $m } }
+}
+# Graft wires every repository under a project folder, the harness clones (<name>-ai-core) among
+# them. A harness clone is data, and ai-core push commits every file in it, so what Graft put
+# into one is taken out again: a file it created, its block from a file it appended to, its
+# graph and its MCP file.
+# The .NET file calls below resolve a relative path against the process directory, not against
+# Set-Location, so the path is made absolute first
+function Test-GraftBlock([string]$file) {
+  if (-not [System.IO.Path]::IsPathRooted($file)) { $file = Join-Path (Get-Location).Path $file }
+  return (Test-Path -LiteralPath $file -PathType Leaf) -and ([System.IO.File]::ReadAllText($file) -cmatch '(?m)^<!-- graft:start -->')
+}
+function Remove-GraftBlock([string]$file) {
+  # Graft's block and the blank lines before it go; a file left empty goes too
+  if (-not [System.IO.Path]::IsPathRooted($file)) { $file = Join-Path (Get-Location).Path $file }
+  $kept = @(); $skip = $false
+  foreach ($line in [System.IO.File]::ReadAllLines($file)) {
+    if ($line -ceq '<!-- graft:start -->') { $skip = $true }
+    if ($line -ceq '<!-- graft:end -->') { $skip = $false; continue }
+    if (-not $skip) { $kept += $line }
+  }
+  $text = ($kept -join "`n").TrimEnd("`n", "`r")
+  if ($text) { [System.IO.File]::WriteAllText($file, $text + "`n", (New-Object System.Text.UTF8Encoding $false)) } else { Remove-Item -LiteralPath $file -Force }
+}
+function Remove-GraftFromHarnessClones([string[]]$lines) {
+  $taken = @()
+  foreach ($e in (Get-GraftLines $lines)) {
+    $p = $e.Path.Replace('\', '/'); $parts = $p -split '/', 2
+    if ($parts.Count -lt 2 -or $parts[0] -cnotlike '*-ai-core' -or -not (Test-Path (Join-Path $parts[0] '.git')) -or -not (Test-Path -LiteralPath $p)) { continue }
+    if (Test-GraftBlock $p) { Remove-GraftBlock $p }
+    else {
+      & git -C $parts[0] ls-files --error-unmatch $parts[1] 2>$null | Out-Null
+      if ($LASTEXITCODE -eq 0) { continue }
+      Remove-Item -LiteralPath $p -Recurse -Force
+    }
+    $taken += $p
+  }
+  # what Graft leaves without naming it, or named in an earlier run
+  foreach ($c in (Get-ChildItem -Directory -Filter '*-ai-core' | Where-Object { Test-Path (Join-Path $_.FullName '.git') })) {
+    foreach ($junk in @('graft', '.mcp.json', 'AGENTS.md')) {
+      $p = Join-Path $c.FullName $junk
+      if (-not (Test-Path -LiteralPath $p) -or ($taken -ccontains "$($c.Name)/$junk")) { continue }
+      & git -C $c.FullName ls-files --error-unmatch $junk 2>$null | Out-Null
+      if ($LASTEXITCODE -eq 0) { continue }
+      if ($junk -ceq 'AGENTS.md') { if (-not (Test-GraftBlock $p)) { continue }; Remove-GraftBlock $p } else { Remove-Item -LiteralPath $p -Recurse -Force }
+      $taken += "$($c.Name)/$junk"
+    }
+  }
+  if ($taken.Count -gt 0) { Write-Host "  taken out of the harness clones (data, not code): $($taken -join ', ')" }
 }
 
 # Graft prints UTF-8; the console decodes what it prints, so it decodes UTF-8 while this runs
@@ -191,6 +242,7 @@ try {
   Write-GraftReport $out
   $wiring = @($out | Where-Object { $_.StartsWith('✓ wiring: ', [StringComparison]::Ordinal) }) | Select-Object -Last 1
   if ($wiring) { Write-Host "  Graft graph: $($wiring.Substring(10).TrimEnd("`r"))" }
+  Remove-GraftFromHarnessClones $out
   # One repository gets graft\index.md; a folder of repositories gets a workspace, graft\workspace.json
   if (Test-Path "graft\workspace.json") {
     Write-Host "==> Graft workspace created at $((Get-Location).Path)\graft\workspace.json: one graph over the repositories of this folder" -ForegroundColor Green

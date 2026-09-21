@@ -37,6 +37,9 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 # A push init makes to an origin that is not there fails at once instead of asking for a login
 export GIT_TERMINAL_PROMPT=0
+# The commits init and pre-push --install make in the scratch repositories need an identity, and a
+# runner has none configured
+export GIT_AUTHOR_NAME=check GIT_AUTHOR_EMAIL=check@localhost GIT_COMMITTER_NAME=check GIT_COMMITTER_EMAIL=check@localhost
 # A team-modes table whose probes always pass, so the tools of this machine never decide a check
 printf 'claude\tmode\ton\talways\t-\t-\ncodex\tmode\ton\talways\t-\t-\ngemini\tmode\ton\talways\t-\t-\n' > "$WORK/modes.tsv"; export TEAM_MODES_FILE="$WORK/modes.tsv"
 

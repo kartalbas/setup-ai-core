@@ -1,6 +1,6 @@
-* text=auto
-*.sh text eol=lf
-*.ps1 text eol=crlf
-VERSION text eol=lf
-bin/ai-core text eol=lf
+# Everything is stored and checked out with LF, on every operating system. A .sh file checked out
+# with CRLF fails on Ubuntu with "bad interpreter: /bin/bash^M", a .tsv checked out with CRLF
+# carries a \r in its last field, and PowerShell reads LF without complaint, so one rule covers
+# all of them. Git applies the LAST matching pattern; the one exception stays below this line.
+* text=auto eol=lf
 bin/ai-core.cmd text eol=crlf

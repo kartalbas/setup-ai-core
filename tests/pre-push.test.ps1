@@ -42,7 +42,7 @@ if (-not $IsWindows) { Set-Content -Path (Join-Path $stub 'claude') -Value "#!/b
 $leaksArgs = Join-Path $fake 'leaks-args.txt'
 Set-Content -Path (Join-Path $stub 'gitleaks.cmd') -Value "@echo %*>> `"$leaksArgs`"`r`n@if `"%PROBE_LEAKS%`"==`"red`" (echo gitleaks: a credential stands in this range & exit /b 1)`r`n@exit /b 0" -Encoding ascii
 if (-not $IsWindows) { Set-Content -Path (Join-Path $stub 'gitleaks') -Value "#!/bin/sh`necho `"`$*`" >> `"$leaksArgs`"`n[ `"`${PROBE_LEAKS:-green}`" = green ] || { echo 'gitleaks: a credential stands in this range'; exit 1; }`nexit 0" -Encoding ascii; & chmod +x (Join-Path $stub 'gitleaks') }
-$env:PATH = "$stub;$env:PATH"
+$env:PATH = "$stub$([IO.Path]::PathSeparator)$env:PATH"
 
 # The repository: the stand-in check writes down its own path, which says which working tree it
 # was started in; both Windows entry points are the one text, and one .ps1 is neither.

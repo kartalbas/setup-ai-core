@@ -29,7 +29,7 @@ exit 0
 "@echo off`r`npwsh -NoProfile -File `"$fake\gh.ps1`" %*" |
   Set-Content -Path (Join-Path $fake 'gh.cmd') -Encoding ascii
 if (-not $IsWindows) { Set-Content -Path (Join-Path $fake 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$fake/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $fake 'gh') }
-$env:PATH = "$fake;$env:PATH"
+$env:PATH = "$fake$([IO.Path]::PathSeparator)$env:PATH"
 
 $failed = 0
 function Check($name, $expected, $actual) {
@@ -89,7 +89,7 @@ exit 0
 if (-not $IsWindows) { Set-Content -Path (Join-Path $lonely 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$lonely/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $lonely 'gh') }
 
 $kept = $env:PATH
-$env:PATH = "$lonely;$env:PATH"
+$env:PATH = "$lonely$([IO.Path]::PathSeparator)$env:PATH"
 $out = @(& $close -Repo $repo -Number 270)
 Check 'the close line' '#270 -> closed' $out[0]
 Check 'and says why there is no card' "#270 -> done (issue only; $repo is on no board)" $out[1]

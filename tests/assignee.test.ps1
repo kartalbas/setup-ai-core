@@ -105,7 +105,7 @@ try {
   catch { Check 'absent file' 'threw' 'threw' }
 
   Write-Host 'and what actually reaches gh issue create'
-  $env:PATH = "$fake;$env:PATH"
+  $env:PATH = "$fake$([IO.Path]::PathSeparator)$env:PATH"
   $body = Join-Path $fake 'body.md'
   'body' | Set-Content $body -Encoding utf8NoBOM
 

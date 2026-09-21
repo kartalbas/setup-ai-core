@@ -99,7 +99,7 @@ function Check($name, $expected, $actual) {
 }
 
 try {
-  $env:PATH = "$fake;$env:PATH"
+  $env:PATH = "$fake$([IO.Path]::PathSeparator)$env:PATH"
   $body = Join-Path $fake 'body.md'
   'body' | Set-Content $body -Encoding utf8NoBOM
   $info = Join-Path $fake 'info.txt'

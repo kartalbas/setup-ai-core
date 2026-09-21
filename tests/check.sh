@@ -332,6 +332,9 @@ new_checkout() {  # new_checkout <dir> <repo name>
 PATH_SH="$WORK/ghbin:$WORK/graftbin:$PATH"
 mkdir -p "$WORK/home-sh" "$WORK/home-ps"
 new_checkout "$WORK/shop-web-sh" shop-web
+HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/init.sh" "$WORK/shop-web-sh" --no-doctor --dry-run > "$WORK/layers-sh-0.log" 2>&1 || fail "init.sh --dry-run before the project harness exists (see $WORK/layers-sh-0.log)"
+grep -aq 'example-org/shop-ai-core would be created from the skeleton' "$WORK/layers-sh-0.log" || fail "init.sh --dry-run does not announce the harness it would create"
+[ ! -e "$GH_FAKE/github.com/example-org/shop-ai-core.git" ] && [ ! -e "$WORK/home-sh/.shop-ai-core" ] || fail "init.sh --dry-run created the project harness"
 HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/init.sh" "$WORK/shop-web-sh" --no-doctor > "$WORK/layers-sh-1.log" 2>&1 || fail "init.sh with a new project harness (see $WORK/layers-sh-1.log)"
 grep -aq 'created: example-org/shop-ai-core, private, from the skeleton' "$WORK/layers-sh-1.log" || fail "init.sh did not create the project harness (see $WORK/layers-sh-1.log)"
 grep -aq '^--> Project harness: example-org/shop-ai-core (' "$WORK/layers-sh-1.log" || fail "init.sh did not name the project harness"
@@ -382,6 +385,9 @@ cmp -s "$WORK/shop-web-sh/.ai-core/rules/rules.md" "$WORK/shop-web-ps/.ai-core/r
 cmp -s "$WORK/shop-web-sh/.ai-core/STAMP" "$WORK/shop-web-ps/.ai-core/STAMP" || fail "STAMP differs between the twins"
 # The PowerShell twin creates one too: store-api of the same organisation gets store-ai-core
 new_checkout "$WORK/store-api-ps" store-api
+HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" GRAFT_FAKE_LOG="$(native "$WORK/layers.args")" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/store-api-ps")" -NoDoctor -DryRun > "$WORK/layers-ps-0.log" 2>&1 || fail "init.ps1 -DryRun before the project harness exists (see $WORK/layers-ps-0.log)"
+grep -aq 'example-org/store-ai-core would be created from the skeleton' "$WORK/layers-ps-0.log" || fail "init.ps1 -DryRun does not announce the harness it would create"
+[ ! -e "$GH_FAKE/github.com/example-org/store-ai-core.git" ] && [ ! -e "$WORK/home-ps/.store-ai-core" ] || fail "init.ps1 -DryRun created the project harness"
 HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" GRAFT_FAKE_LOG="$(native "$WORK/layers.args")" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/store-api-ps")" -NoDoctor > "$WORK/layers-ps-2.log" 2>&1 || fail "init.ps1 with a new project harness (see $WORK/layers-ps-2.log)"
 grep -aq 'created: example-org/store-ai-core, private, from the skeleton' "$WORK/layers-ps-2.log" || fail "init.ps1 did not create store-ai-core"
 [ -d "$GH_FAKE/github.com/example-org/store-ai-core.git" ] || fail "store-ai-core was not pushed"

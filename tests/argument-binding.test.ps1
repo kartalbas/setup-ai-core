@@ -55,7 +55,7 @@ Add-Content -Path (Join-Path '$ghDir' 'calls') -Value (`$args -join ' ')
 '{"data":{"node":{"items":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}'
 exit 0
 "@ | Set-Content -Path (Join-Path $ghDir 'gh.ps1') -Encoding utf8NoBOM
-$env:PATH = "$ghDir;$env:PATH"
+$env:PATH = "$ghDir$([IO.Path]::PathSeparator)$env:PATH"
 
 $failed = 0
 function Check($name, $expected, $actual) {

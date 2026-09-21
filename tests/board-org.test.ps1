@@ -24,7 +24,7 @@ exit 0
 "@echo off`r`npwsh -NoProfile -File `"$fake\gh.ps1`" %*" |
   Set-Content -Path (Join-Path $fake 'gh.cmd') -Encoding ascii
 if (-not $IsWindows) { Set-Content -Path (Join-Path $fake 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$fake/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $fake 'gh') }
-$env:PATH = "$fake;$env:PATH"
+$env:PATH = "$fake$([IO.Path]::PathSeparator)$env:PATH"
 Import-Module (Join-Path $root 'lib/Board.psm1') -Force
 
 $failed = 0
@@ -90,7 +90,7 @@ exit 0
 if (-not $IsWindows) { Set-Content -Path (Join-Path $carded 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$carded/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $carded 'gh') }
 Fresh
 $savedPath = $env:PATH
-$env:PATH = "$carded;$env:PATH"
+$env:PATH = "$carded$([IO.Path]::PathSeparator)$env:PATH"
 $out = @(& pwsh -NoProfile -NoLogo -File (Join-Path $root 'bin/issue-close.ps1') -Repo other-org/example-repo 3 2>&1 | ForEach-Object { "$_" })
 $rc = $LASTEXITCODE
 $env:PATH = $savedPath

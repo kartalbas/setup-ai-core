@@ -15,6 +15,53 @@ This README is the only documentation. It describes two things and keeps them ap
 exists today** (you can run it) and **what is planned** (the concept, not yet built). Every
 section says which one it is.
 
+## Quick start
+
+Once per machine. Windows, in PowerShell 7:
+
+```powershell
+irm https://raw.githubusercontent.com/kartalbas/setup-ai-core/main/bin/install.ps1 | iex
+```
+
+Linux and macOS:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/kartalbas/setup-ai-core/main/bin/install.sh | bash
+```
+
+Open a new terminal. `doctor` has run and named what is missing (git, `gh` with its login,
+Node.js 20, jq); fix that and nothing else.
+
+Per repository:
+
+```
+cd <repository>
+ai-core init
+ai-core session-start
+```
+
+**What `init` does, in this order.** `doctor` installs what is missing (git, `gh`, Node.js, jq,
+with winget, brew or apt) and the team modes into your agent tools. If the repository's origin is
+`github.com/<org>/<prefix>-<name>`, the project harness `<org>/<prefix>-ai-core` is cloned to
+`~/.<prefix>-ai-core`, or **created on GitHub, private, from the skeleton** when it does not exist
+yet. The repository gets `.ai-core/` (rules, configuration, docs), the agent files (`AGENTS.md`,
+`.claude/settings.json`, `.codex/config.toml`, ...), the skills of the harness in `.claude/skills/`
+and `.agents/skills/`, and the agents in `.claude/agents/`, all listed in `.git/info/exclude`.
+**A block is written into `.gitignore`**, the one change to commit. Graft wires the agents (files
+in the repository, and on the machine `~/.claude/settings.json`, `~/.codex/config.toml`,
+`~/.gemini/config/mcp_config.json`) and builds the code graph in `graft/`. The run ends with a
+report of every file it created, refreshed, kept or removed. **`ai-core init --dry-run` shows that
+report and creates nothing**, on GitHub or on disk; run it first.
+
+Update, on the machine:
+
+```
+ai-core update
+```
+
+pulls setup-ai-core and every project harness on this machine. Then, in a repository,
+`ai-core init` brings it to that state and reports what changed. Nothing updates by itself.
+
 ---
 
 ## 1. The problem and the idea
@@ -575,7 +622,8 @@ Graft's full output is shown only when it fails. A second run on an unchanged ch
 only the count of unchanged files, on both twins the same lines.
 
 `ai-core init --dry-run` prints the same report with `would change` and writes nothing, not
-even the exclude file; Graft's `--dry-run` lists what `graft init` would write in the
+even the exclude file, and creates no project harness: one that does not exist yet is announced
+as `would be created from the skeleton`; Graft's `--dry-run` lists what `graft init` would write in the
 repository and on the machine, and the graph is not built.
 
 ### 5.6 First check
@@ -619,53 +667,20 @@ repository's own `AGENTS.md` as soon as it works on files inside it, the way it 
 `CLAUDE.md` files. Each repository still carries its own files, because a repository is also opened
 alone: by OpenHands, by CI, by a colleague with another layout.
 
-### 5.9 Step by step on Windows with Claude Code or Antigravity
+### 5.9 Windows before the quick start
 
-Everything is typed into PowerShell 7 (`pwsh`), not the blue "Windows PowerShell".
+Everything is typed into PowerShell 7 (`pwsh`), not the blue "Windows PowerShell". Before the
+quick start, once per machine: `winget install Microsoft.PowerShell`, open "PowerShell 7"
+(`$PSVersionTable.PSVersion` shows `7.x`), then `winget install Git.Git` and reopen the terminal.
+`doctor`, run by `install`, installs Node.js, jq and gh and names the login it cannot do for you.
+Then the quick start, which is the same on every system.
 
-Once per machine:
-
-1. `winget install Microsoft.PowerShell`, then open "PowerShell 7". Check: `$PSVersionTable.PSVersion` shows `7.x`.
-2. `winget install Git.Git`, reopen the terminal. Check: `git --version`.
-3. `winget install OpenJS.NodeJS.LTS`, reopen. Check: `node -v` and `npx -v`.
-4. Your agent: Claude Code with `irm https://claude.ai/install.ps1 | iex` (check `claude --version`;
-   the first `claude` opens the browser to sign in), or Antigravity with
-   `irm https://antigravity.google/cli/install.ps1 | iex` (check `agy --version`).
-5. `irm https://raw.githubusercontent.com/kartalbas/setup-ai-core/main/bin/install.ps1 | iex` — clones
-   setup-ai-core to `~\.setup-ai-core`, puts its `bin\` with the command `ai-core` on the PATH, and runs `doctor`, which tells you if steps 1 to 4
-   left something missing. Open a new terminal afterwards.
-
-Per repository, and per worktree:
-
-6. `cd C:\repos\myorg\myproject` (a new folder needs `git init` first).
-7. `ai-core init` — you see Graft wiring the agents and building the graph (a minute the first
-   time), the two lists of what it wrote, the report with a `created` line naming every file, and
-   `Harness 1.1.0 in place`. `ai-core init --dry-run` shows the report first without writing.
-8. `ai-core session-start` ends with `Ready for task execution.`
-9. Optional: write the rules of this repository into `.ai-core\rules\rules.local.md`. If step 7
-   ended with `the Graft code graph is not`, install Node.js and run `ai-core graft`, or set
-   `GRAFT_EXECUTION_MODE="skip"`.
-10. Nothing to commit. `git status` shows no new files.
-
-With Claude Code:
-
-11. Run `claude` in the repository. On the first start answer **yes** to trusting the folder and
-    **approve** the `graft` MCP server. `/mcp` shows `graft` connected.
-12. If the repository has a `CLAUDE.md`, add the line `@AGENTS.md`. Without one, Claude Code
-    2.1.277+ reads `AGENTS.md` by itself.
-13. First message: *"Run the session start and tell me which rules apply here."*
-
-With Antigravity:
-
-14. Run `agy` in the repository and sign in. `AGENTS.md` is loaded automatically; `agy inspect`
-    lists it.
-15. Antigravity reads MCP servers from its own `~\.gemini\config\mcp_config.json`, not from
-    `.mcp.json`. `graft init` registers the Graft server there; if it reports
-    `skipped-unparseable`, the file is empty or broken: put `{}` into it and run `ai-core graft`.
-
-Afterwards: `ai-core update` pulls setup-ai-core, and every command is current at once; `ai-core init`
-again in a checkout refreshes its rules. A new clone or worktree needs step 7 once. `ai-core graft`
-rebuilds the graph after a large refactoring.
+With Claude Code: run `claude` in the repository, answer **yes** to trusting the folder and
+**approve** the `graft` MCP server (`/mcp` shows it connected); if the repository has a
+`CLAUDE.md`, add the line `@AGENTS.md`, without one Claude Code 2.1.277+ reads `AGENTS.md` by
+itself. With Antigravity: run `agy` in the repository and sign in; it loads `AGENTS.md` by itself
+and reads its MCP servers from `~\.gemini\config\mcp_config.json`, where `graft init` registers
+the Graft server (section 4.8). A new clone or worktree runs `ai-core init` once.
 
 ### 5.10 Update and uninstall
 

@@ -49,7 +49,7 @@ Set-Content -Path `$counter -Value `$n -NoNewline
 Get-Content -Raw (Join-Path '$fake' "page-`$n.json")
 exit 0
 "@ | Set-Content -Path (Join-Path $ghDir 'gh.ps1') -Encoding utf8NoBOM
-$env:PATH = "$ghDir;$env:PATH"
+$env:PATH = "$ghDir$([IO.Path]::PathSeparator)$env:PATH"
 
 function Check($name, $expected, $actual) {
   if ("$expected" -eq "$actual") { Write-Host "  ok   $name" }

@@ -33,7 +33,7 @@ exit 0
 "@echo off`r`npwsh -NoProfile -File `"$fake\gh.ps1`" %*" |
   Set-Content -Path (Join-Path $fake 'gh.cmd') -Encoding ascii
 if (-not $IsWindows) { Set-Content -Path (Join-Path $fake 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$fake/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $fake 'gh') }
-$env:PATH = "$fake;$env:PATH"
+$env:PATH = "$fake$([IO.Path]::PathSeparator)$env:PATH"
 
 $failed = 0
 function Check($name, $expected, $actual) {
@@ -107,7 +107,7 @@ exit 0
 if (-not $IsWindows) { Set-Content -Path (Join-Path $bare 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$bare/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $bare 'gh') }
 
 $kept = $env:PATH
-$env:PATH = "$bare;$env:PATH"
+$env:PATH = "$bare$([IO.Path]::PathSeparator)$env:PATH"
 Check 'labels read as a dash' 'labels: -' (@(& $thread -Repo $repo -Number 7)[2])
 Check 'the json carries an empty list' `
   '{"number":7,"title":"Bare","state":"closed","labels":[],"body":"","comments":[]}' `
@@ -130,7 +130,7 @@ exit 0
   Set-Content -Path (Join-Path $dashed 'gh.cmd') -Encoding ascii
 if (-not $IsWindows) { Set-Content -Path (Join-Path $dashed 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$dashed/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $dashed 'gh') }
 
-$env:PATH = "$dashed;$env:PATH"
+$env:PATH = "$dashed$([IO.Path]::PathSeparator)$env:PATH"
 $dashedOut = @(& $thread -Repo $repo -Number 9)
 Check 'in the body'  'a — b'     $dashedOut[4]
 Check 'in a comment' 'one — two' $dashedOut[7]
@@ -151,7 +151,7 @@ exit 0
   Set-Content -Path (Join-Path $refusing 'gh.cmd') -Encoding ascii
 if (-not $IsWindows) { Set-Content -Path (Join-Path $refusing 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$refusing/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $refusing 'gh') }
 
-$env:PATH = "$refusing;$env:PATH"
+$env:PATH = "$refusing$([IO.Path]::PathSeparator)$env:PATH"
 $refused = ''
 try { & $thread -Repo $repo -Number 404 | Out-Null; $refused = '(no refusal)' }
 catch { $refused = $_.Exception.Message }

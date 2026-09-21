@@ -23,7 +23,7 @@ exit 0
 "@echo off`r`npwsh -NoProfile -File `"$fake\gh.ps1`" %*" |
   Set-Content -Path (Join-Path $fake 'gh.cmd') -Encoding ascii
 if (-not $IsWindows) { Set-Content -Path (Join-Path $fake 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$fake/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $fake 'gh') }
-$env:PATH = "$fake;$env:PATH"
+$env:PATH = "$fake$([IO.Path]::PathSeparator)$env:PATH"
 
 $failed = 0
 function Check($name, $expected, $actual) {
@@ -69,7 +69,7 @@ exit 1
 if (-not $IsWindows) { Set-Content -Path (Join-Path $existing 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$existing/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $existing 'gh') }
 
 $kept = $env:PATH
-$env:PATH = "$existing;$env:PATH"
+$env:PATH = "$existing$([IO.Path]::PathSeparator)$env:PATH"
 $said = ''
 try { & $block -BlockedRepo $blocked -BlockedNumber 359 -ByRepo $by -ByNumber 311 | Out-Null } catch { $said = $_.Exception.Message }
 Check 'says so' 'True' ([bool]($said -match "already blocked by $([regex]::Escape($by))#311 - nothing was changed"))
@@ -88,7 +88,7 @@ exit 1
   Set-Content -Path (Join-Path $absent 'gh.cmd') -Encoding ascii
 if (-not $IsWindows) { Set-Content -Path (Join-Path $absent 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$absent/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $absent 'gh') }
 
-$env:PATH = "$absent;$env:PATH"
+$env:PATH = "$absent$([IO.Path]::PathSeparator)$env:PATH"
 $said = ''
 try { & $unblock -BlockedRepo $blocked -BlockedNumber 359 -ByRepo $by -ByNumber 311 | Out-Null } catch { $said = $_.Exception.Message }
 Check 'says so' 'True' ([bool]($said -match "is not blocked by $([regex]::Escape($by))#311 - nothing was changed"))

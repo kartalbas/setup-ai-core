@@ -96,7 +96,7 @@ if (`$sub -eq 'edit') {
 [Console]::Error.WriteLine("the stand-in was asked something it does not answer: `$sub")
 exit 1
 "@ | Set-Content -Path $ghScript -Encoding utf8NoBOM
-$env:PATH = "$ghDir;$env:PATH"
+$env:PATH = "$ghDir$([IO.Path]::PathSeparator)$env:PATH"
 
 function Check($name, $expected, $actual) {
   if ("$expected" -eq "$actual") { Write-Host "  ok   $name" }

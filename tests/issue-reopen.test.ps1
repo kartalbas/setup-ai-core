@@ -23,7 +23,7 @@ exit 0
 "@echo off`r`npwsh -NoProfile -File `"$fake\gh.ps1`" %*" |
   Set-Content -Path (Join-Path $fake 'gh.cmd') -Encoding ascii
 if (-not $IsWindows) { Set-Content -Path (Join-Path $fake 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$fake/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $fake 'gh') }
-$env:PATH = "$fake;$env:PATH"
+$env:PATH = "$fake$([IO.Path]::PathSeparator)$env:PATH"
 
 $failed = 0
 function Check($name, $expected, $actual) {
@@ -77,7 +77,7 @@ exit 1
 if (-not $IsWindows) { Set-Content -Path (Join-Path $refusing 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$refusing/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $refusing 'gh') }
 
 $kept = $env:PATH
-$env:PATH = "$refusing;$env:PATH"
+$env:PATH = "$refusing$([IO.Path]::PathSeparator)$env:PATH"
 $threw = $false
 $printed = @()
 try { $printed = @(& $reopen -Repo $repo -Number 412) } catch { $threw = $true }

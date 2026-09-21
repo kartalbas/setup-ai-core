@@ -150,6 +150,12 @@ chain_of() {  # chain_of <checkout>: the layer directories, base first, or nothi
     *-ai-core) echo "error: $1 is a harness repository; init is for the repositories it serves" >&2; return 2 ;;
   esac
   prefix="$(harness_of "$repo")" || return 0
+  if [ "$DRY" -eq 1 ]; then
+    # nothing is created on a dry run: a harness that is not there yet is announced instead
+    layer_chain "$org/$prefix-ai-core" "$CORE_ROOT" 2>"$TMP/chain.err" && return 0
+    if grep -q 'does not exist on GitHub' "$TMP/chain.err"; then echo "$org/$prefix-ai-core" > "$TMP/would-create"; else cat "$TMP/chain.err" >&2; fi
+    return 0
+  fi
   layer_chain "$org/$prefix-ai-core" "$CORE_ROOT" create
 }
 if [ "$PROJECT_FOLDER" -eq 1 ]; then
@@ -178,6 +184,8 @@ if [ -n "$LAYERS" ]; then
     [ -n "$l" ] || continue
     echo "--> Project harness: $(git -C "$l" remote get-url origin 2>/dev/null | sed 's|.*github.com[:/]||; s|\.git$||') ($(git -C "$l" rev-parse --short HEAD 2>/dev/null)) at $l"
   done <<< "$LAYERS"
+elif [ -f "$TMP/would-create" ]; then
+  echo "--> Project harness: $(cat "$TMP/would-create") would be created from the skeleton, private, and this checkout would get it (dry run: not created)"
 elif [ "$PROJECT_FOLDER" -eq 0 ]; then
   echo "--> No project harness: this checkout has no GitHub origin, or the harness could not be had; the generic harness only"
 fi

@@ -164,9 +164,19 @@ function Get-ChainOf([string]$checkout) {
   if ($parts[1].EndsWith('-ai-core', [StringComparison]::Ordinal)) { throw "REFUSED: $checkout is a harness repository; init is for the repositories it serves" }
   $prefix = Get-HarnessOf $parts[1]
   if (-not $prefix) { return @() }
+  if ($DryRun) {
+    # nothing is created on a dry run: a harness that is not there yet is announced instead
+    try { return @(Resolve-LayerChain -Full "$($parts[0])/$prefix-ai-core" -Root $coreRoot) }
+    catch {
+      if ("$($_.Exception.Message)" -clike '*does not exist on GitHub*') { $script:wouldCreate = "$($parts[0])/$prefix-ai-core" }
+      else { Write-Host "error: $($_.Exception.Message)" -ForegroundColor Yellow }
+      return @()
+    }
+  }
   try { return @(Resolve-LayerChain -Full "$($parts[0])/$prefix-ai-core" -Root $coreRoot -Create) }
   catch { Write-Host "error: $($_.Exception.Message)" -ForegroundColor Yellow; return @() }
 }
+$script:wouldCreate = ''
 if ($projectFolder) {
   $first = $true
   foreach ($d in (Get-ChildItem -Path $target -Directory | Where-Object { Test-Path (Join-Path $_.FullName ".git") })) {
@@ -186,6 +196,8 @@ if ($layers.Count -gt 0) {
     $o = "$(& git -C $l remote get-url origin 2>$null)" -creplace '.*github\.com[:/]', '' -creplace '\.git$', ''
     Write-Host "--> Project harness: $o ($(& git -C $l rev-parse --short HEAD 2>$null)) at $l"
   }
+} elseif ($script:wouldCreate) {
+  Write-Host "--> Project harness: $($script:wouldCreate) would be created from the skeleton, private, and this checkout would get it (dry run: not created)"
 } elseif (-not $projectFolder) {
   Write-Host "--> No project harness: this checkout has no GitHub origin, or the harness could not be had; the generic harness only"
 }

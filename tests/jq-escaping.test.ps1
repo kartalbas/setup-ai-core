@@ -202,7 +202,7 @@ exit 0
   function Calls { if (Test-Path $calls) { Get-Content $calls -Raw } else { '' } }
   Set-Content -Path $calls -Value '' -NoNewline -Encoding utf8NoBOM
 
-  $env:PATH = "$ghDir;$env:PATH"
+  $env:PATH = "$ghDir$([IO.Path]::PathSeparator)$env:PATH"
 
   Write-Host 'a title with a quote, a backslash, a dollar and non-ASCII survives the trip'
   Check 'the board is resolved from its repo' "$projectNumber" `

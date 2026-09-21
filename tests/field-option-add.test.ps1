@@ -77,7 +77,7 @@ for (`$i = 0; `$i -lt `$args.Count - 1; `$i++) {
 if (`$prog) { `$answer | & jq -r `$prog } else { `$answer }
 exit 0
 "@ | Set-Content -Path (Join-Path $ghDir 'gh.ps1') -Encoding utf8NoBOM
-$env:PATH = "$ghDir;$env:PATH"
+$env:PATH = "$ghDir$([IO.Path]::PathSeparator)$env:PATH"
 
 function Check($name, $expected, $actual) {
   if ("$expected" -eq "$actual") { Write-Host "  ok   $name" }

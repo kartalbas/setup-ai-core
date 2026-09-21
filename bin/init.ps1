@@ -59,7 +59,8 @@ if ($All) {
   $allDir = (Resolve-Path $All).Path
   $ok = 0; $failed = @()
   $pass = @('-NoDoctor'); if ($DryRun) { $pass += '-DryRun' }
-  foreach ($repo in Get-ChildItem -Path $allDir -Directory | Where-Object { Test-Path (Join-Path $_.FullName ".git") }) {
+  # a harness clone serves the repositories; it is not one of them
+  foreach ($repo in Get-ChildItem -Path $allDir -Directory | Where-Object { $_.Name -cnotlike '*-ai-core' -and (Test-Path (Join-Path $_.FullName ".git")) }) {
     Write-Host ""; Write-Host "### $($repo.Name)"
     & pwsh -NoProfile -File $MyInvocation.MyCommand.Path -TargetDir $repo.FullName @pass
     if ($LASTEXITCODE -eq 0) { $ok++ } else { $failed += $repo.Name }
@@ -153,9 +154,11 @@ function Drop([string]$rel) {
 }
 
 # The project harness: <org>/<prefix>-ai-core from the checkout's origin, its extends chain
-# base first, cloned or pulled to ~\.<name>-ai-core, created from the skeleton when missing.
-# A project folder gets the layers every repository under it shares.
+# base first, cloned or pulled beside the repositories in the project folder, created from the
+# skeleton when missing. A project folder gets the layers every repository under it shares; the
+# harness clones under it serve the repositories and are none of them.
 $layers = @(); $repoName = ""
+$folder = if ($projectFolder) { $target } else { Get-ProjectFolderOf $target }
 function Get-ChainOf([string]$checkout) {
   # the layer directories, base first, or an empty list; a harness checkout is refused
   $parts = Get-OriginParts $checkout
@@ -166,20 +169,20 @@ function Get-ChainOf([string]$checkout) {
   if (-not $prefix) { return @() }
   if ($DryRun) {
     # nothing is created on a dry run: a harness that is not there yet is announced instead
-    try { return @(Resolve-LayerChain -Full "$($parts[0])/$prefix-ai-core" -Root $coreRoot) }
+    try { return @(Resolve-LayerChain -Full "$($parts[0])/$prefix-ai-core" -Root $coreRoot -Folder $folder -Dry) }
     catch {
       if ("$($_.Exception.Message)" -clike '*does not exist on GitHub*') { $script:wouldCreate = "$($parts[0])/$prefix-ai-core" }
       else { Write-Host "error: $($_.Exception.Message)" -ForegroundColor Yellow }
       return @()
     }
   }
-  try { return @(Resolve-LayerChain -Full "$($parts[0])/$prefix-ai-core" -Root $coreRoot -Create) }
+  try { return @(Resolve-LayerChain -Full "$($parts[0])/$prefix-ai-core" -Root $coreRoot -Folder $folder -Create) }
   catch { Write-Host "error: $($_.Exception.Message)" -ForegroundColor Yellow; return @() }
 }
 $script:wouldCreate = ''
 if ($projectFolder) {
   $first = $true
-  foreach ($d in (Get-ChildItem -Path $target -Directory | Where-Object { Test-Path (Join-Path $_.FullName ".git") })) {
+  foreach ($d in (Get-ChildItem -Path $target -Directory | Where-Object { $_.Name -cnotlike '*-ai-core' -and (Test-Path (Join-Path $_.FullName ".git")) })) {
     $chain = @(); try { $chain = @(Get-ChainOf $d.FullName) } catch { $chain = @() }
     if ($first) { $layers = $chain; $first = $false; continue }
     $common = @()
@@ -193,6 +196,7 @@ if ($projectFolder) {
 }
 if ($layers.Count -gt 0) {
   foreach ($l in $layers) {
+    if (-not (Test-Path $l)) { Write-Host "--> Project harness: $(Split-Path -Leaf $l) would be cloned to $l (dry run: not cloned)"; continue }
     $o = "$(& git -C $l remote get-url origin 2>$null)" -creplace '.*github\.com[:/]', '' -creplace '\.git$', ''
     Write-Host "--> Project harness: $o ($(& git -C $l rev-parse --short HEAD 2>$null)) at $l"
   }
@@ -315,7 +319,7 @@ if ($projectFolder) {
   [void]$map.Append("# $(Split-Path -Leaf $target)`n`n")
   [void]$map.Append("This folder holds git repositories. Each one carries its own map; read ``<repository>/AGENTS.md`` before you work in it, and run ``ai-core session-start`` inside it before the first action.`n`n")
   [void]$map.Append("| repository | map |`n| :--- | :--- |`n")
-  Get-ChildItem -Path $target -Directory | Where-Object { Test-Path (Join-Path $_.FullName ".git") } | ForEach-Object {
+  Get-ChildItem -Path $target -Directory | Where-Object { $_.Name -cnotlike '*-ai-core' -and (Test-Path (Join-Path $_.FullName ".git")) } | ForEach-Object {
     [void]$map.Append("| ``$($_.Name)`` | ``$($_.Name)/AGENTS.md`` |`n")
   }
   [void]$map.Append("`nThe rules that bind every repository here: ``.ai-core/rules/rules.md`` (managed by the harness) and ``.ai-core/rules/rules.local.md`` (this project's own, which wins).`n")

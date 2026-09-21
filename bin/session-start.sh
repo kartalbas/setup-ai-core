@@ -69,15 +69,17 @@ GRAFT_OK=0
 { [ -f "graft/index.md" ] || [ -f "graft/INDEX.md" ] || [ -f "graft/workspace.json" ]; } && GRAFT_OK=1
 
 # The harness this checkout was assembled from (.ai-core/STAMP, one line per layer: name and
-# commit) against the clones on this machine; and the releases, asked from the origins by
+# commit) against the clones beside the repositories; and the releases, asked from the origins by
 # update --check, unless UPDATE_CHECK is "never" (config.env, or AI_CORE_UPDATE_CHECK in the
 # environment). Nothing is updated here; the lines say what to run.
+. "$CORE/lib/layers.sh"
+FOLDER="$(project_folder_of "$ROOT")"
 HARNESS_CURRENT=true; HARNESS_STAMP=""
 if [ -f ".ai-core/STAMP" ]; then
   HARNESS_STAMP="$( { tr -d '\r' < .ai-core/STAMP | grep -v '^$' || true; } | tr '\n' ';' | sed 's/;$//')"
   while read -r lname lcommit; do
     [ -n "$lname" ] || continue
-    if [ "$lname" = setup-ai-core ]; then ldir="$CORE"; else ldir="$HOME/.$lname"; fi
+    if [ "$lname" = setup-ai-core ]; then ldir="$CORE"; else ldir="$FOLDER/$lname"; fi
     [ -d "$ldir" ] || continue
     [ "$(git -C "$ldir" rev-parse --short HEAD 2>/dev/null)" = "$lcommit" ] || HARNESS_CURRENT=false
   done < <(tr -d '\r' < .ai-core/STAMP)

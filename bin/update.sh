@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Update this machine: setup-ai-core to its newest release, and every project harness clone
-# (~/.<name>-ai-core) to its origin. Nothing updates by itself; this is the command that does.
+# Update this machine: setup-ai-core to its newest release, and every project harness clone of
+# this project folder (<folder>/<name>-ai-core, beside the repositories) to its origin. Nothing
+# updates by itself; this is the command that does.
 #
 #   update.sh [--check] [--main]
 #
@@ -17,8 +18,9 @@ for arg in "$@"; do
     echo "Usage: update.sh [--check] [--main]"
     echo ""
     echo "Moves setup-ai-core to its newest release (a tag vX.Y.Z; a clone with uncommitted changes"
-    echo "or commits not pushed is left alone and named) and pulls every project harness clone on"
-    echo "this machine (~/.<name>-ai-core) from its origin. Nothing updates by itself."
+    echo "or commits not pushed is left alone and named) and pulls every project harness clone of"
+    echo "this project folder (<folder>/<name>-ai-core, beside the repositories; the folder of the"
+    echo "checkout you stand in) from its origin. Nothing updates by itself."
     echo ""
     echo "Options:"
     echo "  --check       Fetch and report only: exit 0 when everything is current, 2 when a release or"
@@ -85,10 +87,12 @@ else
   fi
 fi
 
-# --- the project harness clones ------------------------------------------------------------
-for d in "$HOME"/.*-ai-core; do
+# --- the project harness clones of this project folder ---------------------------------------
+. "$CORE/lib/layers.sh"
+FOLDER="$(project_folder_of "$(pwd)")"
+for d in "$FOLDER"/*-ai-core; do
   [ -d "$d/.git" ] || continue
-  name="$(basename "$d")"; name="${name#.}"
+  name="$(basename "$d")"
   [ "$name" != setup-ai-core ] || continue   # the clone itself, handled above
   if ! fetch "$d"; then echo "$name: could not reach origin"; status=1; continue; fi
   b="$(branch_of "$d")"; [ -n "$b" ] || b="$(git -C "$d" rev-parse --abbrev-ref origin/HEAD 2>/dev/null | sed 's|^origin/||')"

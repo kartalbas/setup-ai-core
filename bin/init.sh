@@ -68,6 +68,7 @@ if [ -n "$ALL_DIR" ]; then
   for repo in "$ALL_DIR"/*/; do
     repo="${repo%/}"
     [ -e "$repo/.git" ] || continue
+    case "$(basename "$repo")" in *-ai-core) continue ;; esac   # a harness clone serves the repositories; it is not one of them
     echo ""; echo "### $(basename "$repo")"
     if bash "${BASH_SOURCE[0]}" "$repo" "${PASS[@]}"; then OK=$((OK + 1)); else FAILED="$FAILED $(basename "$repo")"; fi
   done
@@ -138,9 +139,11 @@ drop() { [ -e "$TARGET/$1" ] || return 0; note removed "$1"; [ "$DRY" -eq 1 ] ||
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 # The project harness: <org>/<prefix>-ai-core from the checkout's origin, its extends chain
-# base first, cloned or pulled to ~/.<name>-ai-core, created from the skeleton when missing.
-# A project folder gets the layers every repository under it shares.
+# base first, cloned or pulled beside the repositories in the project folder, created from the
+# skeleton when missing. A project folder gets the layers every repository under it shares; the
+# harness clones under it serve the repositories and are none of them.
 LAYERS=""; REPO_NAME=""
+FOLDER="$TARGET"; [ "$PROJECT_FOLDER" -eq 1 ] || FOLDER="$(project_folder_of "$TARGET")"
 chain_of() {  # chain_of <checkout>: the layer directories, base first, or nothing
   local parts org repo prefix
   parts="$(origin_parts "$1")" || return 0
@@ -151,17 +154,18 @@ chain_of() {  # chain_of <checkout>: the layer directories, base first, or nothi
   esac
   prefix="$(harness_of "$repo")" || return 0
   if [ "$DRY" -eq 1 ]; then
-    # nothing is created on a dry run: a harness that is not there yet is announced instead
-    layer_chain "$org/$prefix-ai-core" "$CORE_ROOT" 2>"$TMP/chain.err" && return 0
+    # nothing is moved, cloned or created on a dry run: a harness that is not there yet is announced instead
+    if layer_chain "$org/$prefix-ai-core" "$CORE_ROOT" "$FOLDER" dry 2>"$TMP/chain.err"; then cat "$TMP/chain.err" >&2; return 0; fi
     if grep -q 'does not exist on GitHub' "$TMP/chain.err"; then echo "$org/$prefix-ai-core" > "$TMP/would-create"; else cat "$TMP/chain.err" >&2; fi
     return 0
   fi
-  layer_chain "$org/$prefix-ai-core" "$CORE_ROOT" create
+  layer_chain "$org/$prefix-ai-core" "$CORE_ROOT" "$FOLDER" create
 }
 if [ "$PROJECT_FOLDER" -eq 1 ]; then
   FIRST=1
   for d in "$TARGET"/*/; do
     d="${d%/}"; [ -e "$d/.git" ] || continue
+    case "$(basename "$d")" in *-ai-core) continue ;; esac
     chain="$(chain_of "$d")" || chain=""
     if [ "$FIRST" -eq 1 ]; then LAYERS="$chain"; FIRST=0; continue; fi
     # keep the leading lines the two chains share
@@ -182,7 +186,11 @@ fi
 if [ -n "$LAYERS" ]; then
   while IFS= read -r l; do
     [ -n "$l" ] || continue
-    echo "--> Project harness: $(git -C "$l" remote get-url origin 2>/dev/null | sed 's|.*github.com[:/]||; s|\.git$||') ($(git -C "$l" rev-parse --short HEAD 2>/dev/null)) at $l"
+    if [ -d "$l" ]; then
+      echo "--> Project harness: $(git -C "$l" remote get-url origin 2>/dev/null | sed 's|.*github.com[:/]||; s|\.git$||') ($(git -C "$l" rev-parse --short HEAD 2>/dev/null)) at $l"
+    else
+      echo "--> Project harness: $(basename "$l") would be cloned to $l (dry run: not cloned)"
+    fi
   done <<< "$LAYERS"
 elif [ -f "$TMP/would-create" ]; then
   echo "--> Project harness: $(cat "$TMP/would-create") would be created from the skeleton, private, and this checkout would get it (dry run: not created)"
@@ -307,6 +315,7 @@ if [ "$PROJECT_FOLDER" -eq 1 ]; then
     printf '| repository | map |\n| :--- | :--- |\n'
     for d in "$TARGET"/*/; do
       d="${d%/}"; [ -e "$d/.git" ] || continue
+      case "$(basename "$d")" in *-ai-core) continue ;; esac
       printf '| `%s` | `%s/AGENTS.md` |\n' "$(basename "$d")" "$(basename "$d")"
     done
     printf '\nThe rules that bind every repository here: `.ai-core/rules/rules.md` (managed by the harness) and `.ai-core/rules/rules.local.md` (this project'"'"'s own, which wins).\n'

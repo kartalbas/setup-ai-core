@@ -65,16 +65,18 @@ $graftWorkspace = Test-Path "graft\workspace.json"
 $graftOk = (Test-Path "graft\index.md") -or (Test-Path "graft\INDEX.md") -or $graftWorkspace
 
 # The harness this checkout was assembled from (.ai-core\STAMP, one line per layer: name and
-# commit) against the clones on this machine; and the releases, asked from the origins by
+# commit) against the clones beside the repositories; and the releases, asked from the origins by
 # update -Check, unless UPDATE_CHECK is "never" (config.env, or AI_CORE_UPDATE_CHECK in the
 # environment). Nothing is updated here; the lines say what to run.
+Import-Module (Join-Path $core 'lib\Layers.psm1') -Force
+$folder = Get-ProjectFolderOf $root
 $harnessCurrent = $true; $harnessStamp = ''
 if (Test-Path ".ai-core\STAMP") {
   $stampLines = @(Get-Content ".ai-core\STAMP" | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
   $harnessStamp = $stampLines -join ';'
   foreach ($line in $stampLines) {
     $parts = @($line -split ' '); $lname = $parts[0]; $lcommit = if ($parts.Count -gt 1) { $parts[1] } else { '' }
-    $ldir = if ($lname -ceq 'setup-ai-core') { $core } else { Join-Path $HOME ".$lname" }
+    $ldir = if ($lname -ceq 'setup-ai-core') { $core } else { Join-Path $folder $lname }
     if (-not (Test-Path $ldir)) { continue }
     if ("$(& git -C $ldir rev-parse --short HEAD 2>$null)".Trim() -cne $lcommit) { $harnessCurrent = $false }
   }

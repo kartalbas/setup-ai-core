@@ -16,13 +16,13 @@ param (
 if ($Help -or $args -ccontains "-h" -or $args -ccontains "--help" -or $Source -ceq "--help" -or $Source -ceq "-h") {
   Write-Host "Usage: install.ps1 [-Source <clone>] [-Dir <path>] [-Repo <url>] [-NoPath] [-NoDoctor]"
   Write-Host ""
-  Write-Host "Installs setup-ai-core on this machine, once: clones it to ~\.setup-ai-core (or uses the"
+  Write-Host "Installs setup-ai-core on this machine, once: clones it to ~\setup-ai-core (or uses the"
   Write-Host "clone you already have), adds its bin\ directory, where the ai-core command lives, to the"
   Write-Host "user PATH, and runs doctor."
   Write-Host ""
   Write-Host "Options:"
   Write-Host "  -Source <clone>   Use this existing clone of setup-ai-core; nothing is cloned or linked"
-  Write-Host "  -Dir <path>       Clone somewhere else than ~\.setup-ai-core"
+  Write-Host "  -Dir <path>       Clone somewhere else than ~\setup-ai-core"
   Write-Host "  -Repo <url>       Clone from this URL or path instead of GitHub (a mirror, a fork)"
   Write-Host "  -NoPath           Do not touch the PATH"
   Write-Host "  -NoDoctor         Do not run doctor at the end"
@@ -33,7 +33,7 @@ if ($Help -or $args -ccontains "-h" -or $args -ccontains "--help" -or $Source -c
 $ErrorActionPreference = 'Stop'
 
 $isWin = $IsWindows -or $env:OS -ceq 'Windows_NT'
-$dir = if ($Dir) { $Dir } else { Join-Path $HOME ".setup-ai-core" }
+$dir = if ($Dir) { $Dir } else { Join-Path $HOME "setup-ai-core" }
 
 # 1. The clone: the one named with -Source, or one at $dir, cloned when missing
 if ($Source) {

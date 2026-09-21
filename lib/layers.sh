@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 # The project harness of a checkout: where it is on GitHub, where its clone is on this machine,
-# and the chain of harnesses it extends. Sourced by init; do not run it.
+# and the chain of harnesses it extends. Sourced by init, push, update and session-start; do not
+# run it.
 #
 # THE NAME COMES FROM THE REPOSITORY, nothing is configured: a checkout whose origin is
 # github.com/<org>/<repo> belongs to the harness github.com/<org>/<prefix>-ai-core, where prefix is
 # the repository name up to its first dash. shop-web and shop-api both belong to shop-ai-core. A
 # repository named without a dash is its own prefix.
 #
-# THE CLONE IS ~/.<prefix>-ai-core, next to the setup-ai-core clone, one per machine and shared by
-# every checkout of the project. Its origin is checked against the name before it is used, so a
-# clone of another organisation's shop-ai-core never serves this one.
+# THE CLONE LIES BESIDE THE REPOSITORIES IT SERVES, visible, a checkout like the others: the
+# project folder that holds shop-web and shop-api holds shop-ai-core too. A worktree belongs to
+# the folder of its main checkout. Its origin is checked against the name before it is used, so a
+# clone of another organisation's shop-ai-core never serves this one. A clone an earlier version
+# put into the home directory (~/.<name>-ai-core) is moved beside the repositories when it is
+# needed there.
 #
 # EVERYTHING GITHUB-SIDE GOES THROUGH gh: reading whether the harness exists, cloning it, creating
 # it. That is what makes it one login for everything, and what lets the tests stand a fake gh on
@@ -43,18 +47,41 @@ harness_of() {
   esac
 }
 
-# layer_dir <org>/<name>: the clone on this machine
-layer_dir() { echo "$HOME/.${1#*/}"; }
+# project_folder_of <directory>: the folder that holds the repositories: for a checkout the
+# parent of its main checkout (a worktree's too), for a directory that is no checkout the
+# directory itself
+project_folder_of() {
+  local common main
+  if common="$(git -C "$1" rev-parse --git-common-dir 2>/dev/null)" && [ -n "$common" ]; then
+    case "$common" in /*|[A-Za-z]:*) ;; *) common="$1/$common" ;; esac
+    main="$(cd "$common/.." && pwd)"
+    dirname "$main"
+  else
+    (cd "$1" && pwd)
+  fi
+}
+
+# layer_dir <org>/<name> <folder>: the clone, beside the repositories of the folder
+layer_dir() { echo "$2/${1#*/}"; }
 
 # The origin a clone of <org>/<name> must have
 layer_url() { echo "https://github.com/$1.git"; }
 
-# ensure_layer <org>/<name> <setup-ai-core root> [create]: the clone is there and current, or is
-# cloned, or is created from the skeleton when "create" is given. Prints the clone directory.
-# Exit 1 with a message when it cannot be had.
+# ensure_layer <org>/<name> <setup-ai-core root> <folder> [create|dry]: the clone is there and
+# current, or is moved from the home directory, or is cloned, or is created from the skeleton
+# when "create" is given; "dry" moves and creates nothing. Prints the clone directory. Exit 1
+# with a message when it cannot be had.
 ensure_layer() {
-  local full="$1" root="$2" create="${3:-}" dir origin
-  dir="$(layer_dir "$full")"
+  local full="$1" root="$2" folder="$3" mode="${4:-}" dir old origin
+  dir="$(layer_dir "$full" "$folder")"
+  old="$HOME/.${full#*/}"
+  if [ ! -d "$dir/.git" ] && [ -d "$old/.git" ]; then
+    if [ "$mode" = dry ]; then
+      echo "note: $full would be moved from $old to $dir, beside the repositories it serves (dry run: not moved)" >&2; dir="$old"
+    else
+      mv "$old" "$dir" && echo "moved: $full from $old to $dir, beside the repositories it serves" >&2
+    fi
+  fi
   if [ -d "$dir/.git" ]; then
     origin="$(git -C "$dir" remote get-url origin 2>/dev/null || true)"
     case "${origin%.git}" in
@@ -67,10 +94,11 @@ ensure_layer() {
     echo "$dir"; return 0
   fi
   if gh repo view "$full" --json name >/dev/null 2>&1; then
+    [ "$mode" != dry ] || { echo "$dir"; return 0; }
     gh repo clone "$full" "$dir" -- --quiet >/dev/null 2>&1 || { echo "error: could not clone $full to $dir" >&2; return 1; }
     echo "$dir"; return 0
   fi
-  [ "$create" = create ] || { echo "error: $full does not exist on GitHub" >&2; return 1; }
+  [ "$mode" = create ] || { echo "error: $full does not exist on GitHub" >&2; return 1; }
   # The skeleton: what every project harness starts from, plus the three data files and the
   # config, so the first init already has something to read
   mkdir -p "$dir"
@@ -84,7 +112,7 @@ ensure_layer() {
     echo "error: could not create $full on GitHub (no permission, or gh is not logged in); the harness stays generic" >&2
     return 1
   fi
-  echo "created: $full, private, from the skeleton" >&2
+  echo "created: $full, private, from the skeleton, at $dir" >&2
   echo "$dir"
 }
 
@@ -112,23 +140,26 @@ version_at_least() {
   return 0
 }
 
-# layer_chain <org>/<name> <setup-ai-core root> [create]: every layer from the base down to the
-# named one, one clone directory per line, cloned or pulled on the way. The named one may be
-# created; a base it extends must exist.
+# layer_chain <org>/<name> <setup-ai-core root> <folder> [create|dry]: every layer from the base
+# down to the named one, one clone directory per line, cloned or pulled on the way. The named
+# one may be created; a base it extends must exist. "dry" moves, clones and creates nothing:
+# a layer that is not there yet is reported as missing.
 layer_chain() {
-  local full="$1" root="$2" create="${3:-}" dir req chain="" seen="" n=0 version
+  local full="$1" root="$2" folder="$3" mode="${4:-}" dir req chain="" seen="" n=0 version
   version="$(tr -d '\r\n' < "$root/VERSION")"
   while [ -n "$full" ]; do
     n=$((n + 1)); [ "$n" -le 8 ] || { echo "error: the extends chain of $1 is longer than eight" >&2; return 1; }
     case " $seen " in *" $full "*) echo "error: the extends chain of $1 runs in a circle at $full" >&2; return 1 ;; esac
     seen="$seen $full"
-    dir="$(ensure_layer "$full" "$root" "$create")" || return 1
-    create=""
-    if req="$(layer_requires "$dir")" && [ -n "$req" ]; then
-      case "$req" in ">="*) version_at_least "$version" "${req#>=}" || { echo "error: $full needs setup-ai-core $req and this clone is $version; run ai-core update" >&2; return 1; } ;; esac
+    dir="$(ensure_layer "$full" "$root" "$folder" "$mode")" || return 1
+    [ "$mode" = dry ] || mode=""
+    if [ -d "$dir" ]; then
+      if req="$(layer_requires "$dir")" && [ -n "$req" ]; then
+        case "$req" in ">="*) version_at_least "$version" "${req#>=}" || { echo "error: $full needs setup-ai-core $req and this clone is $version; run ai-core update" >&2; return 1; } ;; esac
+      fi
     fi
     chain="$dir"$'\n'"$chain"
-    full="$(layer_extends "$dir")"
+    full="$([ -d "$dir" ] && layer_extends "$dir" || true)"
   done
   printf '%s' "$chain"
 }

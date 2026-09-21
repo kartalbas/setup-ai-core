@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Commit and push what changed in the project harness clones on this machine, then refresh the
-# checkout this runs in. Editing the harness is: change a file under ~/.<name>-ai-core, then
-# `ai-core push`; every colleague gets it at their next init.
+# Commit and push what changed in the project harness clones of this project folder, then
+# refresh the checkout this runs in. Editing the harness is: change a file in the clone beside
+# the repositories (<folder>/<name>-ai-core), then `ai-core push`; every colleague gets it at
+# their next init.
 #
 #   push.sh [MESSAGE] [--harness <name>]
 #
@@ -11,9 +12,10 @@ for arg in "$@"; do
   if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
     echo "Usage: push.sh [MESSAGE] [--harness <name>]"
     echo ""
-    echo "Commits everything that changed in every project harness clone on this machine"
-    echo "(~/.<name>-ai-core), pulls with rebase and pushes to its origin; then runs init in the"
-    echo "current directory when it carries the harness, so this checkout is current at once."
+    echo "Commits everything that changed in every project harness clone of this project folder"
+    echo "(<folder>/<name>-ai-core, beside the repositories; the folder of the checkout you stand in),"
+    echo "pulls with rebase and pushes to its origin; then runs init in the current directory when"
+    echo "it carries the harness, so this checkout is current at once."
     echo ""
     echo "Options:"
     echo "  MESSAGE           The commit message; default: the files that changed"
@@ -37,11 +39,13 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+. "$CORE/lib/layers.sh"
+FOLDER="$(project_folder_of "$(pwd)")"
 pushed=0; failed=""; seen=0
-for dir in "$HOME"/.*-ai-core; do
-  [ "$(basename "$dir")" != .setup-ai-core ] || continue   # the clone of setup-ai-core is no project harness
+for dir in "$FOLDER"/*-ai-core; do
+  [ "$(basename "$dir")" != setup-ai-core ] || continue   # the clone of setup-ai-core is no project harness
   [ -d "$dir/.git" ] || continue
-  name="$(basename "$dir")"; name="${name#.}"
+  name="$(basename "$dir")"
   [ -z "$ONLY" ] || [ "$name" = "$ONLY" ] || continue
   seen=$((seen + 1))
   origin="$(git -C "$dir" remote get-url origin 2>/dev/null)" || { echo "$name: no origin, not pushed ($dir)"; continue; }
@@ -72,7 +76,7 @@ for dir in "$HOME"/.*-ai-core; do
     echo "$name: nothing to push"
   fi
 done
-[ "$seen" -gt 0 ] || { echo "push: no project harness clone under $HOME${ONLY:+ named $ONLY}"; exit 1; }
+[ "$seen" -gt 0 ] || { echo "push: no project harness clone under $FOLDER${ONLY:+ named $ONLY}"; exit 1; }
 [ -z "$failed" ] || { echo "push: failed:$failed" >&2; exit 1; }
 
 # 3. this checkout is current at once

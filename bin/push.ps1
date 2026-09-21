@@ -1,6 +1,7 @@
-# Commit and push what changed in the project harness clones on this machine, then refresh the
-# checkout this runs in. Editing the harness is: change a file under ~\.<name>-ai-core, then
-# `ai-core push`; every colleague gets it at their next init.
+# Commit and push what changed in the project harness clones of this project folder, then
+# refresh the checkout this runs in. Editing the harness is: change a file in the clone beside
+# the repositories (<folder>\<name>-ai-core), then `ai-core push`; every colleague gets it at
+# their next init.
 #
 #   push.ps1 [-Message <text>] [-Harness <name>]
 #
@@ -14,9 +15,10 @@ param (
 if ($Help -or $Message -ceq "-h" -or $Message -ceq "--help" -or $args -ccontains "-h" -or $args -ccontains "--help") {
   Write-Host "Usage: push.ps1 [-Message <text>] [-Harness <name>]"
   Write-Host ""
-  Write-Host "Commits everything that changed in every project harness clone on this machine"
-  Write-Host "(~\.<name>-ai-core), pulls with rebase and pushes to its origin; then runs init in the"
-  Write-Host "current directory when it carries the harness, so this checkout is current at once."
+  Write-Host "Commits everything that changed in every project harness clone of this project folder"
+  Write-Host "(<folder>\<name>-ai-core, beside the repositories; the folder of the checkout you stand in),"
+  Write-Host "pulls with rebase and pushes to its origin; then runs init in the current directory when"
+  Write-Host "it carries the harness, so this checkout is current at once."
   Write-Host ""
   Write-Host "Options:"
   Write-Host "  -Message <text>   The commit message; default: the files that changed"
@@ -34,9 +36,11 @@ $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 $core = Split-Path -Parent $PSScriptRoot
 
+Import-Module (Join-Path $core 'lib\Layers.psm1') -Force
+$folder = Get-ProjectFolderOf (Get-Location).Path
 $pushed = 0; $failed = @(); $seen = 0
-foreach ($d in (Get-ChildItem -Path $HOME -Directory -Force -Filter '.*-ai-core' | Where-Object { $_.Name -cne '.setup-ai-core' -and (Test-Path (Join-Path $_.FullName '.git')) } | Sort-Object Name)) {
-  $dir = $d.FullName; $name = $d.Name.TrimStart('.')
+foreach ($d in (Get-ChildItem -Path $folder -Directory -Filter '*-ai-core' | Where-Object { $_.Name -cne 'setup-ai-core' -and (Test-Path (Join-Path $_.FullName '.git')) } | Sort-Object Name)) {
+  $dir = $d.FullName; $name = $d.Name
   if ($Harness -and $name -cne $Harness) { continue }
   $seen++
   $origin = "$(& git -C $dir remote get-url origin 2>$null)".Trim()
@@ -67,7 +71,7 @@ foreach ($d in (Get-ChildItem -Path $HOME -Directory -Force -Filter '.*-ai-core'
     Write-Host "${name}: nothing to push"
   }
 }
-if ($seen -eq 0) { Write-Host "push: no project harness clone under $HOME$(if ($Harness) { " named $Harness" })"; exit 1 }
+if ($seen -eq 0) { Write-Host "push: no project harness clone under $folder$(if ($Harness) { " named $Harness" })"; exit 1 }
 if ($failed.Count -gt 0) { Write-Host "push: failed: $($failed -join ' ')"; exit 1 }
 
 # 3. this checkout is current at once

@@ -1,13 +1,15 @@
 # The project harness of a checkout: where it is on GitHub, where its clone is on this machine,
-# and the chain of harnesses it extends. Imported by init. The twin of lib/layers.sh; the
-# comments there say why each rule stands.
+# and the chain of harnesses it extends. Imported by init, push, update and session-start. The
+# twin of lib/layers.sh; the comments there say why each rule stands.
 #
 # THE NAME COMES FROM THE REPOSITORY, nothing is configured: a checkout whose origin is
 # github.com/<org>/<repo> belongs to github.com/<org>/<prefix>-ai-core, prefix being the repository
-# name up to its first dash. THE CLONE IS ~\.<prefix>-ai-core, one per machine, its origin checked
-# against the name. EVERYTHING GITHUB-SIDE GOES THROUGH gh, which is what lets a test stand a fake
-# gh on the PATH. A harness may extend another, ai-core.json {"extends": "<org>/<name>-ai-core"};
-# the chain is resolved base first, a circle or more than eight layers is refused.
+# name up to its first dash. THE CLONE LIES BESIDE THE REPOSITORIES IT SERVES, in the project
+# folder, visible; a clone an earlier version put into ~\.<name>-ai-core is moved there. Its
+# origin is checked against the name. EVERYTHING GITHUB-SIDE GOES THROUGH gh, which is what lets
+# a test stand a fake gh on the PATH. A harness may extend another, ai-core.json
+# {"extends": "<org>/<name>-ai-core"}; the chain is resolved base first, a circle or more than
+# eight layers is refused.
 
 $ErrorActionPreference = 'Stop'
 
@@ -33,13 +35,34 @@ function Get-HarnessOf {
   return $Repo
 }
 
-function Get-LayerDir { [CmdletBinding()] param([Parameter(Mandatory)][string]$Full) Join-Path $HOME (".{0}" -f ($Full -split '/', 2)[1]) }
+function Get-ProjectFolderOf {
+  # The folder that holds the repositories: for a checkout the parent of its main checkout (a
+  # worktree's too), for a directory that is no checkout the directory itself
+  [CmdletBinding()] param([Parameter(Mandatory)][string]$Directory)
+  $common = "$(& git -C $Directory rev-parse --git-common-dir 2>$null)".Trim()
+  if ($LASTEXITCODE -ne 0 -or -not $common) { return (Resolve-Path $Directory).Path }
+  if (-not [System.IO.Path]::IsPathRooted($common)) { $common = Join-Path $Directory $common }
+  $main = (Resolve-Path (Join-Path $common '..')).Path
+  return Split-Path -Parent $main
+}
+
+function Get-LayerDir {
+  # the clone, beside the repositories of the folder
+  [CmdletBinding()] param([Parameter(Mandatory)][string]$Full, [Parameter(Mandatory)][string]$Folder)
+  Join-Path $Folder (($Full -split '/', 2)[1])
+}
 
 function Resolve-Layer {
-  # The clone is there and current, or is cloned, or is created from the skeleton with -Create.
-  # Returns the clone directory; throws when it cannot be had.
-  [CmdletBinding()] param([Parameter(Mandatory)][string]$Full, [Parameter(Mandatory)][string]$Root, [switch]$Create)
-  $dir = Get-LayerDir $Full
+  # The clone is there and current, or is moved from the home directory, or is cloned, or is
+  # created from the skeleton with -Create; -Dry moves and creates nothing. Returns the clone
+  # directory; throws when it cannot be had.
+  [CmdletBinding()] param([Parameter(Mandatory)][string]$Full, [Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Folder, [switch]$Create, [switch]$Dry)
+  $dir = Get-LayerDir -Full $Full -Folder $Folder
+  $old = Join-Path $HOME (".{0}" -f ($Full -split '/', 2)[1])
+  if (-not (Test-Path (Join-Path $dir '.git')) -and (Test-Path (Join-Path $old '.git'))) {
+    if ($Dry) { Write-Host "note: $Full would be moved from $old to $dir, beside the repositories it serves (dry run: not moved)"; $dir = $old }
+    else { Move-Item -LiteralPath $old -Destination $dir; Write-Host "moved: $Full from $old to $dir, beside the repositories it serves" }
+  }
   if (Test-Path (Join-Path $dir '.git')) {
     $origin = "$(& git -C $dir remote get-url origin 2>$null)".Trim()
     $o = $origin; if ($o.EndsWith('.git', [StringComparison]::Ordinal)) { $o = $o.Substring(0, $o.Length - 4) }
@@ -50,6 +73,7 @@ function Resolve-Layer {
   }
   & gh repo view $Full --json name 2>$null | Out-Null
   if ($LASTEXITCODE -eq 0) {
+    if ($Dry) { return $dir }
     & gh repo clone $Full $dir -- --quiet 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "could not clone $Full to $dir" }
     return $dir
@@ -68,7 +92,7 @@ function Resolve-Layer {
     Remove-Item -Recurse -Force $dir
     throw "could not create $Full on GitHub (no permission, or gh is not logged in); the harness stays generic"
   }
-  Write-Host "created: $Full, private, from the skeleton"
+  Write-Host "created: $Full, private, from the skeleton, at $dir"
   return $dir
 }
 
@@ -99,24 +123,27 @@ function Test-VersionAtLeast {
 }
 
 function Resolve-LayerChain {
-  # Every layer from the base down to the named one, cloned or pulled on the way, as directories
-  [CmdletBinding()] param([Parameter(Mandatory)][string]$Full, [Parameter(Mandatory)][string]$Root, [switch]$Create)
+  # Every layer from the base down to the named one, cloned or pulled on the way, as directories;
+  # -Dry moves, clones and creates nothing
+  [CmdletBinding()] param([Parameter(Mandatory)][string]$Full, [Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Folder, [switch]$Create, [switch]$Dry)
   $version = (Get-Content (Join-Path $Root 'VERSION') -Raw).Trim()
   $chain = @(); $seen = @(); $n = 0; $create = [bool]$Create; $start = $Full
   while ($Full) {
     $n++; if ($n -gt 8) { throw "the extends chain of $start is longer than eight" }
     if ($seen -ccontains $Full) { throw "the extends chain of $start runs in a circle at $Full" }
     $seen += $Full
-    $dir = Resolve-Layer -Full $Full -Root $Root -Create:$create
+    $dir = Resolve-Layer -Full $Full -Root $Root -Folder $Folder -Create:$create -Dry:$Dry
     $create = $false
-    $req = Get-LayerRequires $dir
-    if ($req -and $req.StartsWith('>=', [StringComparison]::Ordinal)) {
-      if (-not (Test-VersionAtLeast $version $req.Substring(2))) { throw "$Full needs setup-ai-core $req and this clone is ${version}; run ai-core update" }
+    if (Test-Path $dir) {
+      $req = Get-LayerRequires $dir
+      if ($req -and $req.StartsWith('>=', [StringComparison]::Ordinal)) {
+        if (-not (Test-VersionAtLeast $version $req.Substring(2))) { throw "$Full needs setup-ai-core $req and this clone is ${version}; run ai-core update" }
+      }
     }
     $chain = @($dir) + $chain
-    $Full = Get-LayerExtends $dir
+    $Full = if (Test-Path $dir) { Get-LayerExtends $dir } else { $null }
   }
   return $chain
 }
 
-Export-ModuleMember -Function Get-OriginParts, Get-HarnessOf, Get-LayerDir, Resolve-Layer, Get-LayerExtends, Get-LayerRequires, Test-VersionAtLeast, Resolve-LayerChain
+Export-ModuleMember -Function Get-OriginParts, Get-HarnessOf, Get-ProjectFolderOf, Get-LayerDir, Resolve-Layer, Get-LayerExtends, Get-LayerRequires, Test-VersionAtLeast, Resolve-LayerChain

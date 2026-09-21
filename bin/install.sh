@@ -7,7 +7,7 @@
 set -euo pipefail
 
 REPO_URL="https://github.com/kartalbas/setup-ai-core"
-DIR="$HOME/.setup-ai-core"
+DIR="$HOME/setup-ai-core"
 SOURCE=""
 ADD_PATH=1
 RUN_DOCTOR=1
@@ -17,13 +17,13 @@ while [ $# -gt 0 ]; do
     -h|--help)
       echo "Usage: install.sh [--source <clone>] [--dir <path>] [--repo <url>] [--no-path] [--no-doctor]"
       echo ""
-      echo "Installs setup-ai-core on this machine, once: clones it to ~/.setup-ai-core (or uses the"
+      echo "Installs setup-ai-core on this machine, once: clones it to ~/setup-ai-core (or uses the"
       echo "clone you already have), adds its bin/ directory, where the ai-core command lives, to the"
       echo "PATH, and runs doctor."
       echo ""
       echo "Options:"
       echo "  --source <clone>  Use this existing clone of setup-ai-core; nothing is cloned or linked"
-      echo "  --dir <path>      Clone somewhere else than ~/.setup-ai-core"
+      echo "  --dir <path>      Clone somewhere else than ~/setup-ai-core"
       echo "  --repo <url>      Clone from this URL or path instead of GitHub (a mirror, a fork)"
       echo "  --no-path         Do not touch the shell profiles"
       echo "  --no-doctor       Do not run doctor at the end"

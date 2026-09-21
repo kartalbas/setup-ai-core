@@ -1,5 +1,6 @@
-# Update this machine: setup-ai-core to its newest release, and every project harness clone
-# (~\.<name>-ai-core) to its origin. Nothing updates by itself; this is the command that does.
+# Update this machine: setup-ai-core to its newest release, and every project harness clone of
+# this project folder (<folder>\<name>-ai-core, beside the repositories) to its origin. Nothing
+# updates by itself; this is the command that does.
 #
 #   update.ps1 [-Check] [-Main]
 #
@@ -21,8 +22,9 @@ if ($Help -or $Rest -ccontains "-h" -or $Rest -ccontains "--help") {
   Write-Host "Usage: update.ps1 [-Check] [-Main]"
   Write-Host ""
   Write-Host "Moves setup-ai-core to its newest release (a tag vX.Y.Z; a clone with uncommitted changes"
-  Write-Host "or commits not pushed is left alone and named) and pulls every project harness clone on"
-  Write-Host "this machine (~\.<name>-ai-core) from its origin. Nothing updates by itself."
+  Write-Host "or commits not pushed is left alone and named) and pulls every project harness clone of"
+  Write-Host "this project folder (<folder>\<name>-ai-core, beside the repositories; the folder of the"
+  Write-Host "checkout you stand in) from its origin. Nothing updates by itself."
   Write-Host ""
   Write-Host "Options:"
   Write-Host "  -Check        Fetch and report only: exit 0 when everything is current, 2 when a release or"
@@ -89,9 +91,11 @@ if (-not (Invoke-Fetch $core)) {
   }
 }
 
-# --- the project harness clones ------------------------------------------------------------
-foreach ($d in (Get-ChildItem -Path $HOME -Directory -Force -Filter '.*-ai-core' | Where-Object { Test-Path (Join-Path $_.FullName '.git') })) {
-  $name = $d.Name.TrimStart('.'); $dir = $d.FullName
+# --- the project harness clones of this project folder ---------------------------------------
+Import-Module (Join-Path $core 'lib\Layers.psm1') -Force
+$folder = Get-ProjectFolderOf (Get-Location).Path
+foreach ($d in (Get-ChildItem -Path $folder -Directory -Filter '*-ai-core' | Where-Object { Test-Path (Join-Path $_.FullName '.git') } | Sort-Object Name)) {
+  $name = $d.Name; $dir = $d.FullName
   if ($name -ceq 'setup-ai-core') { continue }   # the clone itself, handled above
   if (-not (Invoke-Fetch $dir)) { Write-Host "${name}: could not reach origin"; $status = 1; continue }
   $b = Get-BranchOf $dir

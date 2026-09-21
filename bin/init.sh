@@ -93,6 +93,18 @@ echo "Initializing the harness in: $TARGET$([ "$DRY" -eq 1 ] && echo ' (dry run:
 echo "=================================================="
 echo "--> From $CORE_ROOT"
 
+# 0. A linked worktree starts empty, because the harness is in no commit. Before anything else it
+#    gets the checkout's own .ai-core data (its configuration, local rules and documents), and the
+#    rest of this run assembles the harness over that, as it does in the checkout.
+WORKTREE_DATA_FROM=""
+if [ "$PROJECT_FOLDER" -eq 0 ] && [ ! -d "$TARGET/.ai-core" ]; then
+  common="$(git -C "$TARGET" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || common=""
+  if [ -n "$common" ] && [ "$common" != "$(git -C "$TARGET" rev-parse --path-format=absolute --git-dir 2>/dev/null)" ] && [ -d "$(dirname "$common")/.ai-core" ]; then
+    WORKTREE_DATA_FROM="$(dirname "$common")"
+    [ "$DRY" -eq 1 ] || cp -R "$WORKTREE_DATA_FROM/.ai-core" "$TARGET/.ai-core"
+  fi
+fi
+
 # --- what this run does to the checkout is recorded here and reported at the end -------------
 CREATED=""; REFRESHED=""; KEPT=""; REMOVED=""; TRACKED=""; UNCHANGED=0
 note() {
@@ -434,6 +446,7 @@ if [ "$GITIGNORE_CHANGED" -eq 1 ]; then
   if [ "$DRY" -eq 1 ]; then echo "  .gitignore would change and be committed: the agent files of this repository are ignored"
   else echo "  .gitignore changed: the agent files of this repository are ignored; $GITIGNORE_NOTE"; fi
 fi
+if [ -n "$WORKTREE_DATA_FROM" ]; then echo "  .ai-core $([ "$DRY" -eq 1 ] && echo "would be taken" || echo "taken") from the checkout $WORKTREE_DATA_FROM: a worktree starts with the checkout's configuration, local rules and documents"; fi
 if [ "$HOOKS_ARMED" -eq 1 ]; then echo "  core.hooksPath $([ "$DRY" -eq 1 ] && echo "would be set" || echo "set") to .githooks: the push gate runs here"; fi
 if [ "$DRY" -eq 1 ]; then echo "  nothing was written (dry run)"; else echo "✓ Harness $CORE_VERSION in place. Run 'ai-core session-start' here to verify."; fi
 echo "=================================================="

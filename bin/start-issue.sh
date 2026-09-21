@@ -108,13 +108,9 @@ else
   echo "the card did NOT move: $moved - move it before you start" >&2
 fi
 
-# The harness is not in the repository, so the new worktree gets it here: the main checkout's own
-# .ai-core data (its config, its local rules, its documents) and then init, which assembles the
+# The harness is not in the repository, so the new worktree gets it here: init takes the main
+# checkout's own .ai-core data (its config, its local rules, its documents) first, assembles the
 # rules and builds the graph. A worktree that starts without them starts without the rules.
-if [ -d "$main/.ai-core" ]; then
-  rm -rf "$path/.ai-core"
-  cp -R "$main/.ai-core" "$path/.ai-core"
-fi
 bash "$ROOT/bin/init.sh" "$path" --no-doctor \
   || echo "the harness is NOT complete in the worktree: run 'ai-core init' there before you start" >&2
 

@@ -315,19 +315,23 @@ printf 'work in progress\n' > "$fresh/open.txt"; git -C "$fresh" add open.txt   
 out="$( cd "$fresh" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
 check 'exit 0'                        0 "$rc"
 check 'created'                       yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: .githooks/pre-push created$' && echo yes || echo no)"
+check 'post-checkout created'         yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: .githooks/post-checkout created$' && echo yes || echo no)"
+check 'post-checkout starts init where .ai-core is missing' yes "$(grep -qx 'ai-core init --no-doctor || echo "post-checkout: the harness is NOT complete in this worktree (see above); run ai-core init here before you start" >&2' "$fresh/.githooks/post-checkout" && echo yes || echo no)"
 check 'core.hooksPath set'            .githooks "$(git -C "$fresh" config --get core.hooksPath)"
 check 'the shim starts the gate'      yes "$(grep -qx 'exec ai-core pre-push "$@"' "$fresh/.githooks/pre-push" && echo yes || echo no)"
 check 'four lines'                    4 "$(wc -l < "$fresh/.githooks/pre-push" | tr -d ' ')"
 check 'committed'                     yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: committed [0-9a-f]' && echo yes || echo no)"
 check 'no origin, not pushed'         yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: no origin; not pushed$' && echo yes || echo no)"
-check 'the commit subject'            'the push gate is ai-core pre-push' "$(git -C "$fresh" log -1 --format=%s)"
+check 'the commit subject'            'the hooks of ai-core: the push gate, init in a new worktree' "$(git -C "$fresh" log -1 --format=%s)"
 check 'the No-issue trailer'          'written, committed and pushed by ai-core pre-push --install' "$(git -C "$fresh" log -1 --format='%(trailers:key=No-issue,valueonly)' | tr -d '\n')"
-check 'only the shim in the commit'   '.githooks/pre-push' "$(git -C "$fresh" show --pretty=format: --name-only HEAD | grep -v '^$' | tr '\n' ' ' | sed 's/ $//')"
+check 'only the shims in the commit'  '.githooks/post-checkout .githooks/pre-push' "$(git -C "$fresh" show --pretty=format: --name-only HEAD | grep -v '^$' | tr '\n' ' ' | sed 's/ $//')"
 check 'with the executable bit'       100755 "$(git -C "$fresh" ls-tree HEAD .githooks/pre-push | cut -c1-6)"
+check 'post-checkout too'             100755 "$(git -C "$fresh" ls-tree HEAD .githooks/post-checkout | cut -c1-6)"
 check 'the staged work is still staged, uncommitted' 'A  open.txt' "$(git -C "$fresh" status --porcelain open.txt)"
 head1="$(git -C "$fresh" rev-parse HEAD)"
 out="$( cd "$fresh" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
 check 'a second run: unchanged'       yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: .githooks/pre-push unchanged$' && echo yes || echo no)"
+check 'post-checkout unchanged too'   yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: .githooks/post-checkout unchanged$' && echo yes || echo no)"
 check 'and no new commit'             "$head1" "$(git -C "$fresh" rev-parse HEAD)"
 check 'and nothing about hooksPath'   no "$(printf '%s\n' "$out" | grep -q 'hooksPath' && echo yes || echo no)"
 printf '#!/usr/bin/env bash\nexec bash ../tooling/hooks/pre-push "$@"\n' > "$fresh/.githooks/pre-push"
@@ -345,6 +349,27 @@ echo 'without ai-core on the PATH the shim refuses and says so'
 out="$( cd "$fresh" && PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vx "$stub" | tr '\n' ':')" bash .githooks/pre-push origin url < /dev/null 2>&1 )"; rc=$?
 check 'exit 1'                  1 "$rc"
 check 'it names the cause'      yes "$(printf '%s\n' "$out" | grep -q 'ai-core is not on the PATH of this shell' && echo yes || echo no)"
+
+echo 'post-checkout: a worktree cut from the checkout starts ai-core init; a branch checkout where .ai-core is present starts nothing'
+: > "$shim_args"
+mkdir -p "$fresh/.ai-core"
+git -C "$fresh" checkout -q -b probe-branch < /dev/null 2>/dev/null
+check 'nothing started in the checkout' '' "$(cat "$shim_args")"
+fresh_wt="$fake/fresh-wt"
+git -C "$fresh" worktree add -q --detach "$fresh_wt" HEAD < /dev/null 2>"$fake/wt-err.txt"; rc=$?
+check 'git worktree add: exit 0'      0 "$rc"
+check 'ai-core init started in the new worktree' '[init --no-doctor] ' "$(cat "$shim_args")"
+check 'nothing on stderr'             '' "$(cat "$fake/wt-err.txt")"
+git -C "$fresh" worktree remove --force "$fresh_wt" >/dev/null 2>&1
+: > "$shim_args"
+
+echo 'post-checkout without ai-core on the PATH: the worktree is made, exit 0, and stderr says what to run'
+out="$( cd "$fresh" && PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vx "$stub" | tr '\n' ':')" git worktree add -q --detach "$fresh_wt" HEAD < /dev/null 2>&1 )"; rc=$?
+check 'exit 0'                        0 "$rc"
+check 'the worktree is there'         yes "$([ -d "$fresh_wt" ] && echo yes || echo no)"
+check 'it names the cause'            yes "$(printf '%s\n' "$out" | grep -q 'post-checkout: ai-core is not on the PATH of this shell, so this worktree has no harness yet; run ai-core init here before you start' && echo yes || echo no)"
+git -C "$fresh" worktree remove --force "$fresh_wt" >/dev/null 2>&1
+git -C "$fresh" checkout -q master < /dev/null 2>/dev/null; git -C "$fresh" branch -q -D probe-branch; rm -rf "$fresh/.ai-core"
 
 echo 'with an origin, the commit is pushed by ref, through the gate'
 origin_bare="$fake/origin.git"; git init -q --bare -b master "$origin_bare"
@@ -389,6 +414,7 @@ check 'exit 0'                              0 "$rc"
 check 'the checkout: refreshed, committed, pushed' yes "$(printf '%s\n' "$out" | grep -q '^pre-push: pushed: .githooks/pre-push refreshed$' && printf '%s\n' "$out" | grep -q '^pre-push: pushed: pushed to origin/master$' && echo yes || echo no)"
 check 'the worktree: refreshed, and left to its own commit' yes "$(printf '%s\n' "$out" | grep -q "^pre-push: pushed (worktree pushed-wt): .githooks/pre-push refreshed; it goes out with that worktree's own commit$" && echo yes || echo no)"
 check 'the worktree carries the shim'       yes "$(grep -qx 'exec ai-core pre-push "$@"' "$pushed_wt/.githooks/pre-push" && echo yes || echo no)"
+check 'and post-checkout, carried already'          yes "$(printf '%s\n' "$out" | grep -q "^pre-push: pushed (worktree pushed-wt): .githooks/post-checkout unchanged; it goes out with that worktree's own commit$" && grep -q 'ai-core init --no-doctor' "$pushed_wt/.githooks/post-checkout" && echo yes || echo no)"
 check 'the worktree has it uncommitted'     ' M .githooks/pre-push' "$(git -C "$pushed_wt" status --porcelain .githooks/pre-push)"
 check 'the checkout moved by one commit'    "$head_before" "$(git -C "$pushed" rev-parse HEAD~1)"
 git -C "$pushed" worktree remove --force "$pushed_wt" >/dev/null 2>&1
@@ -398,8 +424,8 @@ folder="$fake/folder"; mkdir -p "$folder/not-a-repo"
 for r in one two; do git init -q -b master "$folder/$r"; git -C "$folder/$r" config user.email 'test@example.invalid'; git -C "$folder/$r" config user.name 'test'; done
 out="$( bash "$root/bin/pre-push.sh" --install --all "$folder" 2>&1 )"; rc=$?
 check 'exit 0'                      0 "$rc"
-check 'two repositories'            yes "$(printf '%s\n' "$out" | grep -q 'the shim is in 2 repositories' && echo yes || echo no)"
-check 'both carry the shim, committed' yes "$([ "$(git -C "$folder/one" log -1 --format=%s)" = 'the push gate is ai-core pre-push' ] && [ "$(git -C "$folder/two" log -1 --format=%s)" = 'the push gate is ai-core pre-push' ] && echo yes || echo no)"
+check 'two repositories'            yes "$(printf '%s\n' "$out" | grep -q 'the hooks are in 2 repositories' && echo yes || echo no)"
+check 'both carry the shim, committed' yes "$([ "$(git -C "$folder/one" log -1 --format=%s)" = 'the hooks of ai-core: the push gate, init in a new worktree' ] && [ "$(git -C "$folder/two" log -1 --format=%s)" = 'the hooks of ai-core: the push gate, init in a new worktree' ] && echo yes || echo no)"
 check 'the plain folder does not'   no "$([ -e "$folder/not-a-repo/.githooks" ] && echo yes || echo no)"
 out="$( cd "$folder/not-a-repo" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
 check '--install outside a repository: exit 1' 1 "$rc"

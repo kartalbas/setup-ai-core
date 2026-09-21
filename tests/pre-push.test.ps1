@@ -275,6 +275,10 @@ function InstallIn([string]$tree) { Push-Location $tree; try { $script:out = (& 
 InstallIn $fresh
 Check 'exit 0'                        0 $rc
 Check 'created'                       'True' (Says '(?m)^pre-push: fresh: \.githooks/pre-push created\r?$')
+Check 'post-checkout created'         'True' (Says '(?m)^pre-push: fresh: \.githooks/post-checkout created\r?$')
+$checkoutText = [System.IO.File]::ReadAllText((Join-Path $fresh '.githooks\post-checkout'))
+Check 'post-checkout starts init where .ai-core is missing' 'True' ($checkoutText.Contains("`nai-core init --no-doctor || echo `"post-checkout: the harness is NOT complete in this worktree (see above); run ai-core init here before you start`" >&2`n"))
+Check 'post-checkout: LF, no carriage return' 'False' ($checkoutText.Contains("`r"))
 Check 'core.hooksPath set'            '.githooks' "$(& git -C $fresh config --get core.hooksPath)"
 $shimText = [System.IO.File]::ReadAllText((Join-Path $fresh '.githooks\pre-push'))
 Check 'the shim starts the gate'      'True' ($shimText.Contains("`nexec ai-core pre-push `"`$@`"`n"))
@@ -283,14 +287,16 @@ Check 'it refuses without ai-core on the PATH' 'True' ($shimText.Contains('ai-co
 Check 'no carriage return'            'False' ($shimText.Contains("`r"))
 Check 'committed'                     'True' (Says '(?m)^pre-push: fresh: committed [0-9a-f]')
 Check 'no origin, not pushed'         'True' (Says '(?m)^pre-push: fresh: no origin; not pushed\r?$')
-Check 'the commit subject'            'the push gate is ai-core pre-push' "$(& git -C $fresh log -1 --format=%s)"
+Check 'the commit subject'            'the hooks of ai-core: the push gate, init in a new worktree' "$(& git -C $fresh log -1 --format=%s)"
 Check 'the No-issue trailer'          'written, committed and pushed by ai-core pre-push --install' ((& git -C $fresh log -1 "--format=%(trailers:key=No-issue,valueonly)" | Out-String).Trim())
-Check 'only the shim in the commit'   '.githooks/pre-push' ((@(& git -C $fresh show --pretty=format: --name-only HEAD | Where-Object { $_ }) -join ' '))
+Check 'only the shims in the commit'  '.githooks/post-checkout .githooks/pre-push' ((@(& git -C $fresh show --pretty=format: --name-only HEAD | Where-Object { $_ }) -join ' '))
 Check 'with the executable bit'       '100755' ("$(& git -C $fresh ls-tree HEAD .githooks/pre-push)".Substring(0, 6))
+Check 'post-checkout too'             '100755' ("$(& git -C $fresh ls-tree HEAD .githooks/post-checkout)".Substring(0, 6))
 Check 'the staged work is still staged, uncommitted' 'A  open.txt' "$(& git -C $fresh status --porcelain open.txt)"
 $head1 = "$(& git -C $fresh rev-parse HEAD)"
 InstallIn $fresh
 Check 'a second run: unchanged'       'True' (Says '(?m)^pre-push: fresh: \.githooks/pre-push unchanged\r?$')
+Check 'post-checkout unchanged too'   'True' (Says '(?m)^pre-push: fresh: \.githooks/post-checkout unchanged\r?$')
 Check 'and no new commit'             $head1 "$(& git -C $fresh rev-parse HEAD)"
 Check 'and nothing about hooksPath'   'False' (Says 'hooksPath')
 Write-Lf (Join-Path $fresh '.githooks\pre-push') "#!/usr/bin/env bash`nexec bash ../tooling/hooks/pre-push `"`$@`"`n"
@@ -298,6 +304,33 @@ Write-Lf (Join-Path $fresh '.githooks\pre-push') "#!/usr/bin/env bash`nexec bash
 InstallIn $fresh
 Check 'a shim of another kind: refreshed and committed' 'True' ((Says '(?m)^pre-push: fresh: \.githooks/pre-push refreshed\r?$') -and (Says '(?m)^pre-push: fresh: committed'))
 Check 'and it is the shim again'      'True' ([System.IO.File]::ReadAllText((Join-Path $fresh '.githooks\pre-push')).Contains('exec ai-core pre-push'))
+
+Write-Host 'post-checkout: a worktree cut from the checkout starts ai-core init; a branch checkout where .ai-core is present starts nothing'
+# git starts the shim through bash, and bash finds ai-core on the PATH: a stub that writes down its arguments
+$shimArgs = (Join-Path $fake 'shim-args.txt').Replace('\', '/')
+Write-Lf (Join-Path $stub 'ai-core') "#!/bin/sh`nprintf '[%s] ' `"`$*`" >> `"$shimArgs`"`nexit 0`n"
+if (-not $IsWindows) { & chmod +x (Join-Path $stub 'ai-core') }
+New-Item -ItemType Directory -Path (Join-Path $fresh '.ai-core') -Force | Out-Null
+& git -C $fresh checkout -q -b probe-branch 2>$null
+Check 'nothing started in the checkout' 'False' (Test-Path $shimArgs)
+$freshWt = Join-Path $fake 'fresh-wt'
+$wtErr = (& git -C $fresh worktree add -q --detach $freshWt HEAD 2>&1 | Out-String); $rc = $LASTEXITCODE
+Check 'git worktree add: exit 0'      0 $rc
+Check 'ai-core init started in the new worktree' '[init --no-doctor] ' "$(if (Test-Path $shimArgs) { [System.IO.File]::ReadAllText($shimArgs) })"
+Check 'nothing on stderr'             '' $wtErr.Trim()
+& git -C $fresh worktree remove --force $freshWt 2>$null | Out-Null
+Remove-Item -Force $shimArgs -ErrorAction SilentlyContinue
+
+Write-Host 'post-checkout without ai-core on the PATH: the worktree is made, exit 0, and stderr says what to run'
+$pathBefore = $env:PATH
+$env:PATH = (@($env:PATH -split [IO.Path]::PathSeparator | Where-Object { $_ -cne $stub }) -join [IO.Path]::PathSeparator)
+try { $out = (& git -C $fresh worktree add -q --detach $freshWt HEAD 2>&1 | Out-String); $rc = $LASTEXITCODE } finally { $env:PATH = $pathBefore }
+Check 'exit 0'                        0 $rc
+Check 'the worktree is there'         'True' (Test-Path $freshWt)
+Check 'it names the cause'            'True' (Says 'post-checkout: ai-core is not on the PATH of this shell, so this worktree has no harness yet; run ai-core init here before you start')
+& git -C $fresh worktree remove --force $freshWt 2>$null | Out-Null
+& git -C $fresh checkout -q master 2>$null; & git -C $fresh branch -q -D probe-branch 2>$null
+Remove-Item -Recurse -Force (Join-Path $fresh '.ai-core')
 
 Write-Host 'with an origin, the commit is pushed by ref, through the gate'
 # git starts the shim through bash, and bash finds ai-core on the PATH: a stub that exits 0
@@ -347,6 +380,7 @@ Check 'exit 0'                              0 $rc
 Check 'the checkout: refreshed, committed, pushed' 'True' ((Says '(?m)^pre-push: pushed: \.githooks/pre-push refreshed\r?$') -and (Says '(?m)^pre-push: pushed: pushed to origin/master\r?$'))
 Check 'the worktree: refreshed, and left to its own commit' 'True' (Says "(?m)^pre-push: pushed \(worktree pushed-wt\): \.githooks/pre-push refreshed; it goes out with that worktree's own commit\r?$")
 Check 'the worktree carries the shim'       'True' ([System.IO.File]::ReadAllText((Join-Path $pushedWt '.githooks\pre-push')).Contains('exec ai-core pre-push'))
+Check 'and post-checkout, carried already'          'True' ((Says "(?m)^pre-push: pushed \(worktree pushed-wt\): \.githooks/post-checkout unchanged; it goes out with that worktree's own commit\r?$") -and [System.IO.File]::ReadAllText((Join-Path $pushedWt '.githooks\post-checkout')).Contains('ai-core init --no-doctor'))
 Check 'the worktree has it uncommitted'     ' M .githooks/pre-push' "$(& git -C $pushedWt status --porcelain .githooks/pre-push)"
 Check 'the checkout moved by one commit'    $headBefore "$(& git -C $pushed rev-parse HEAD~1)"
 & git -C $pushed worktree remove --force $pushedWt 2>$null | Out-Null
@@ -356,8 +390,8 @@ $folder = Join-Path $fake 'folder'; New-Item -ItemType Directory -Path (Join-Pat
 foreach ($r in @('one', 'two')) { $d = Join-Path $folder $r; & git init -q -b master $d; & git -C $d config user.email 'test@example.invalid'; & git -C $d config user.name 'test' }
 $out = (& pwsh -NoProfile -File $gate -Install -All $folder 2>&1 | Out-String); $rc = $LASTEXITCODE
 Check 'exit 0'                      0 $rc
-Check 'two repositories'            'True' (Says 'the shim is in 2 repositories')
-Check 'both carry the shim, committed' 'True' (("$(& git -C (Join-Path $folder 'one') log -1 --format=%s)" -ceq 'the push gate is ai-core pre-push') -and ("$(& git -C (Join-Path $folder 'two') log -1 --format=%s)" -ceq 'the push gate is ai-core pre-push'))
+Check 'two repositories'            'True' (Says 'the hooks are in 2 repositories')
+Check 'both carry the shim, committed' 'True' (("$(& git -C (Join-Path $folder 'one') log -1 --format=%s)" -ceq 'the hooks of ai-core: the push gate, init in a new worktree') -and ("$(& git -C (Join-Path $folder 'two') log -1 --format=%s)" -ceq 'the hooks of ai-core: the push gate, init in a new worktree'))
 Check 'the plain folder does not'   'False' (Test-Path (Join-Path $folder 'not-a-repo\.githooks'))
 Push-Location (Join-Path $folder 'not-a-repo')
 try { $out = (& pwsh -NoProfile -File $gate -Install 2>&1 | Out-String); $rc = $LASTEXITCODE } finally { Pop-Location }

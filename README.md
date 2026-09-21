@@ -235,12 +235,16 @@ the repository already tracks stays tracked: an exclude entry never affects a tr
 `.github/copilot-instructions.md` when the repository commits one; that cannot be excluded, so
 `graft-setup` prints a warning that names the file, and you keep or restore it.
 
-Because the harness is not in the repository, it does not travel with `git clone` or
-`git worktree add`. **Every clone and every worktree runs `init` once.** It is idempotent and takes
-seconds.
+Because the harness is not in the repository, it does not travel with `git clone`. **Every clone
+runs `init` once.** It is idempotent and takes seconds. A worktree runs it by itself: git runs
+`.githooks/post-checkout` in the new tree after `git worktree add`, and that shim starts
+`ai-core init` where `.ai-core/` is missing; `init` in a worktree first takes the checkout's own
+`.ai-core/` data (its configuration, local rules and documents), then assembles the harness over
+it as in the checkout.
 
-Three files are the repository's own and are committed, because they say what the repository
-wants judged: `.githooks/pre-push`, the three-line shim that starts the push gate (section 4.13);
+Four files are the repository's own and are committed, because they say what the repository
+wants judged and how a worktree starts: `.githooks/pre-push`, the three-line shim that starts the
+push gate, and `.githooks/post-checkout`, the shim that starts `init` in a new worktree (section 4.13);
 `scripts/check.sh`, the repository's check, with `scripts/check.ps1` as its Windows entry point;
 and `.gitleaks.toml`, which arms the credential scan. None of them is written by `init`.
 
@@ -520,12 +524,16 @@ convention. It is kept until the two paths above exist.
 One gate judges every push of every repository, and it lives in setup-ai-core, not in the
 repositories: each repository carries a three-line `.githooks/pre-push` that only starts
 `ai-core pre-push` with git's own standard input, and `core.hooksPath` of the clone points at
-`.githooks`. `ai-core pre-push --install` (`-Install`) writes that shim into the current
-repository and into every worktree of it (a relative `core.hooksPath` is read from the tree being
-pushed, and git runs the file on disk), sets `core.hooksPath`, and says what to commit; with
-`--all <folder>` it does so for every repository under a folder, and it commits the shim on its
-own (a `No-issue:` trailer naming the command) and pushes it by ref through the gate; a worktree
-gets the file and keeps it for its own commit. An unpushed commit ahead of origin that names no
+`.githooks`. Beside it lies `.githooks/post-checkout`, the shim that gives a new worktree the
+harness: git runs it in the new tree after `git worktree add`, and where `.ai-core/` is missing it
+starts `ai-core init`; it exits 0 whatever happened, because a failing hook would fail the
+checkout too, and what went wrong stands on stderr. `ai-core pre-push --install` (`-Install`)
+writes both shims into the current repository and into every worktree of it (a relative
+`core.hooksPath` is read from the tree git works in, and git runs the files on disk), sets
+`core.hooksPath`, and says what to commit; with `--all <folder>` it does so for every repository
+under a folder, and it commits the shims on their own (a `No-issue:` trailer naming the command)
+and pushes them by ref through the gate; a worktree gets the files and keeps them for its own
+commit. An unpushed commit ahead of origin that names no
 issue and touches nothing but `.gitignore`, written by an `init` from before `init` committed the
 block itself, gets the `No-issue:` trailer that says so, author and subject kept, so the push
 goes through. `init` sets `core.hooksPath` in a clone that carries the shim, so a fresh clone is
@@ -659,7 +667,8 @@ under one of these words:
 | `unchanged` | the count of files that were already what they should be |
 
 The report closes with `.gitignore changed` when the block was written, committed and pushed
-(or, in a worktree, left to its own commit), with `core.hooksPath set to .githooks` when the repository carries the push gate's shim and the
+(or, in a worktree, left to its own commit), with `.ai-core taken from the checkout <path>` when a
+worktree started empty and got the checkout's `.ai-core/` data first, with `core.hooksPath set to .githooks` when the repository carries the push gate's shim and the
 clone was not armed yet, and with the harness version. Above it, `graft-setup` reports its own writes in two lists, the
 files in the repository and the files on the machine (under the home directory), each with
 Graft's word for it (`created`, `updated`, `appended`, `wrote`), and one line for the graph.
@@ -848,7 +857,7 @@ no repository acts on the one it runs in; `OWNER/REPO` before the issue number n
 
 | Command | Does |
 | :--- | :--- |
-| `start-issue N` | opens the worktree for issue N under `../.worktrees/<repo>/issue-N-<slug>`, on a branch of that name cut from `origin/<default>`, only when the issue is assigned to you and the checkout is clean and current; moves the card to `implementing`; copies the checkout's `.ai-core/` data into the worktree and runs `init` there; prints the thread. One run, because any one of these done alone is often not done. |
+| `start-issue N` | opens the worktree for issue N under `../.worktrees/<repo>/issue-N-<slug>`, on a branch of that name cut from `origin/<default>`, only when the issue is assigned to you and the checkout is clean and current; moves the card to `implementing`; runs `init` there, which takes the checkout's `.ai-core/` data first; prints the thread. One run, because any one of these done alone is often not done. |
 | `issue-new` | creates an issue: `--title`, `--body-file`, labels, priority, the assignee from `assignees.tsv`, the card on the board, optionally a parent epic (`--parent OWNER/REPO#N`). Refuses without `--asked-by LOGIN` and `--asked-in WHERE` and writes "Asked for by @login on DATE in WHERE." as the body's first line. Reports a title over 70 characters, one with a backtick, or one that names an action and no stake. |
 | `issue-thread N [--json]` | the issue and every comment on it, for a person or as one JSON object |
 | `issue-mine N` | whether the issue is assigned to the account `gh` is logged in as; `start-issue` and `session-start` ask it |
@@ -878,9 +887,10 @@ no repository acts on the one it runs in; `OWNER/REPO` before the issue number n
 | `schema-check` | holds every GraphQL mutation in `bin/` and `lib/` against the schema github.com publishes; the one check that reaches the network, run by CI |
 | `case-check` | refuses a spelling in `bin/` or `lib/` that accepts more than it says: a PowerShell comparison against a text literal must say whether it folds case (`-ceq`, `-clike`, `switch -CaseSensitive`, `[StringComparison]::Ordinal`), because every Bash twin compares bytes |
 
-**The push hook.** A repository that wants the gate before every push carries the three-line
-shim `ai-core pre-push --install` writes into `.githooks/pre-push` (section 4.13); the gate itself
-never lives in a repository.
+**The hooks.** A repository that wants the gate before every push carries the three-line shim
+`ai-core pre-push --install` writes into `.githooks/pre-push`, and beside it `.githooks/post-checkout`,
+which starts `init` in a new worktree (section 4.13); the gate and `init` themselves never live in
+a repository.
 
 ---
 

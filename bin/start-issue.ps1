@@ -134,13 +134,9 @@ if (-not $made.Ok) { Stop-WithError "the worktree could not be created: $($made.
 try { & (Join-Path $PSScriptRoot 'issue-status.ps1') -Number $Number -Status implementing }
 catch { Write-Error "the card did NOT move: $($_.Exception.Message) - move it before you start" -ErrorAction Continue }
 
-# The harness is not in the repository, so the new worktree gets it here: the main checkout's own
-# .ai-core data (its config, its local rules, its documents) and then init, which assembles the
+# The harness is not in the repository, so the new worktree gets it here: init takes the main
+# checkout's own .ai-core data (its config, its local rules, its documents) first, assembles the
 # rules and builds the graph. A worktree that starts without them starts without the rules.
-if (Test-Path (Join-Path $main '.ai-core')) {
-  if (Test-Path (Join-Path $path '.ai-core')) { Remove-Item -Recurse -Force (Join-Path $path '.ai-core') }
-  Copy-Item -Recurse (Join-Path $main '.ai-core') (Join-Path $path '.ai-core')
-}
 & pwsh -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'bin\init.ps1') -TargetDir $path -NoDoctor
 if ($LASTEXITCODE -ne 0) { Write-Host "the harness is NOT complete in the worktree: run 'ai-core init' there before you start" }
 

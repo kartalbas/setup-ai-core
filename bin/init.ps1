@@ -88,6 +88,19 @@ if ($projectFolder) { Write-Host "A project folder: the repositories below it ge
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host "--> From $coreRoot"
 
+# 0. A linked worktree starts empty, because the harness is in no commit. Before anything else it
+#    gets the checkout's own .ai-core data (its configuration, local rules and documents), and the
+#    rest of this run assembles the harness over that, as it does in the checkout.
+$worktreeDataFrom = ''
+if ($inWorkTree -and -not (Test-Path (Join-Path $target '.ai-core'))) {
+  $common = "$(& git -C $target rev-parse --path-format=absolute --git-common-dir 2>$null)"
+  $gitDir = "$(& git -C $target rev-parse --path-format=absolute --git-dir 2>$null)"
+  if ($common -and $common -cne $gitDir -and (Test-Path (Join-Path (Split-Path -Parent $common) '.ai-core'))) {
+    $worktreeDataFrom = Split-Path -Parent $common
+    if (-not $DryRun) { Copy-Item -Recurse -Path (Join-Path $worktreeDataFrom '.ai-core') -Destination (Join-Path $target '.ai-core') }
+  }
+}
+
 # --- what this run does to the checkout is recorded here and reported at the end -------------
 $report = @{ created = @(); refreshed = @(); kept = @(); removed = @(); tracked = @(); unchanged = 0 }
 $utf8 = New-Object System.Text.UTF8Encoding $false
@@ -454,6 +467,7 @@ if ($gitignoreChanged) {
   if ($DryRun) { Write-Host "  .gitignore would change and be committed: the agent files of this repository are ignored" }
   else { Write-Host "  .gitignore changed: the agent files of this repository are ignored; $gitignoreNote" }
 }
+if ($worktreeDataFrom) { Write-Host "  .ai-core $(if ($DryRun) { 'would be taken' } else { 'taken' }) from the checkout ${worktreeDataFrom}: a worktree starts with the checkout's configuration, local rules and documents" }
 if ($hooksArmed) { Write-Host "  core.hooksPath $(if ($DryRun) { 'would be set' } else { 'set' }) to .githooks: the push gate runs here" }
 if ($DryRun) { Write-Host "  nothing was written (dry run)" } else { Write-Host "✓ Harness $coreVersion in place. Run 'ai-core session-start' here to verify." -ForegroundColor Green }
 Write-Host "==================================================" -ForegroundColor Green

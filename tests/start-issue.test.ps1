@@ -43,6 +43,7 @@ exit 0
 "@ | Set-Content -Path (Join-Path $fake 'gh.ps1') -Encoding utf8NoBOM
 "@echo off`r`npwsh -NoProfile -File `"$fake\gh.ps1`" %*" |
   Set-Content -Path (Join-Path $fake 'gh.cmd') -Encoding ascii
+if (-not $IsWindows) { Set-Content -Path (Join-Path $fake 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$fake/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $fake 'gh') }
 $env:PATH = "$fake;$env:PATH"
 # The team modes are not what this test proves; a table whose probes always pass keeps the
 # gate out of the way. team-modes.test.ps1 proves the gate itself.

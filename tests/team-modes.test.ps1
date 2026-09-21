@@ -17,6 +17,7 @@ if ((`$args -join ' ') -eq 'plugin list') { Get-Content '$plugins' }
 exit 0
 "@ | Set-Content -Path (Join-Path $fake 'claude.ps1') -Encoding utf8NoBOM
 Set-Content -Path (Join-Path $fake 'claude.cmd') -Value "@pwsh -NoProfile -File `"$fake\claude.ps1`" %*" -Encoding ascii
+if (-not $IsWindows) { Set-Content -Path (Join-Path $fake 'claude') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$fake/claude.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $fake 'claude') }
 $env:PATH = "$fake;$env:PATH"
 $env:HOME = Join-Path $fake 'home'
 New-Item -ItemType Directory -Path $env:HOME | Out-Null

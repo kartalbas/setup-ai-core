@@ -97,8 +97,11 @@ function Test-SameFile([string]$a, [string]$b) {
   $x = [System.IO.File]::ReadAllBytes($a); $y = [System.IO.File]::ReadAllBytes($b)
   return ($x.Length -eq $y.Length) -and [System.Linq.Enumerable]::SequenceEqual($x, $y)
 }
+# The path of a directory as the file system reports it: an 8.3 short form (C:\Users\RUNNER~1)
+# resolved to the long one, so a relative path cut from it matches what Get-ChildItem reports
+function Get-LongPath([string]$dir) { return (Get-Item -LiteralPath $dir -Force).FullName.TrimEnd('\', '/') }
 function Test-SameDir([string]$a, [string]$b) {
-  $a = [System.IO.Path]::GetFullPath($a).TrimEnd('\', '/'); $b = [System.IO.Path]::GetFullPath($b).TrimEnd('\', '/')
+  $a = Get-LongPath $a; $b = Get-LongPath $b
   $fa = @(Get-ChildItem -LiteralPath $a -Recurse -File -Force | ForEach-Object { $_.FullName.Substring($a.Length + 1) } | Sort-Object)
   $fb = @(Get-ChildItem -LiteralPath $b -Recurse -File -Force | ForEach-Object { $_.FullName.Substring($b.Length + 1) } | Sort-Object)
   if (($fa -join "`n") -cne ($fb -join "`n")) { return $false }
@@ -237,7 +240,7 @@ foreach ($l in $layers) {
 }
 # repos\<repo>\ of the innermost layer, in the layout of the checkout; a tracked file is never overwritten
 if ($layers.Count -gt 0 -and $repoName -and (Test-Path (Join-Path $layers[-1] "repos\$repoName"))) {
-  $inner = Join-Path $layers[-1] "repos\$repoName"
+  $inner = Get-LongPath (Join-Path $layers[-1] "repos\$repoName")
   foreach ($f in (Get-ChildItem -Path $inner -Recurse -File -Force)) {
     $rel = $f.FullName.Substring($inner.Length + 1).Replace('\', '/')
     & git -C $target ls-files --error-unmatch $rel 2>$null | Out-Null
@@ -264,7 +267,7 @@ Put (Join-Path $tmp 'STAMP') '.ai-core/STAMP' managed
 #    on every run because the folder changes. The file of an agent the project does not serve
 #    (AGENTS in .ai-core\config.env, or the template's default before the file exists) is not
 #    deployed.
-$templates = Join-Path $coreRoot "templates"
+$templates = Get-LongPath (Join-Path $coreRoot "templates")
 $config = Join-Path $aiCoreDir "config.env"; if (-not (Test-Path $config)) { $config = Join-Path $templates ".ai-core\config.env" }
 $agentsLine = Get-Content $config | Where-Object { $_ -cmatch '^\s*AGENTS\s*=' } | Select-Object -Last 1
 $agents = if ($agentsLine) { ((($agentsLine -split '=', 2)[1] -split '#', 2)[0]).Trim(' ', "`t", "`r", '"', "'").ToLowerInvariant() } else { "" }

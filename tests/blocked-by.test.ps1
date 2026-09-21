@@ -22,6 +22,7 @@ exit 0
 "@ | Set-Content -Path (Join-Path $fake 'gh.ps1') -Encoding utf8NoBOM
 "@echo off`r`npwsh -NoProfile -File `"$fake\gh.ps1`" %*" |
   Set-Content -Path (Join-Path $fake 'gh.cmd') -Encoding ascii
+if (-not $IsWindows) { Set-Content -Path (Join-Path $fake 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$fake/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $fake 'gh') }
 $env:PATH = "$fake;$env:PATH"
 
 $failed = 0
@@ -65,6 +66,7 @@ exit 1
 '@ | Set-Content -Path (Join-Path $existing 'gh.ps1') -Encoding utf8NoBOM
 "@echo off`r`npwsh -NoProfile -File `"$existing\gh.ps1`" %*" |
   Set-Content -Path (Join-Path $existing 'gh.cmd') -Encoding ascii
+if (-not $IsWindows) { Set-Content -Path (Join-Path $existing 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$existing/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $existing 'gh') }
 
 $kept = $env:PATH
 $env:PATH = "$existing;$env:PATH"
@@ -84,6 +86,7 @@ exit 1
 '@ | Set-Content -Path (Join-Path $absent 'gh.ps1') -Encoding utf8NoBOM
 "@echo off`r`npwsh -NoProfile -File `"$absent\gh.ps1`" %*" |
   Set-Content -Path (Join-Path $absent 'gh.cmd') -Encoding ascii
+if (-not $IsWindows) { Set-Content -Path (Join-Path $absent 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$absent/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $absent 'gh') }
 
 $env:PATH = "$absent;$env:PATH"
 $said = ''

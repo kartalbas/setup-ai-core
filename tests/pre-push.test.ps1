@@ -37,9 +37,11 @@ Write-Lf $red "claude`tcaveman`tlite`tfile:$fake/never-there`tnpx skills add exa
 $env:TEAM_MODES_FILE = $green
 $stub = Join-Path $fake 'stub'; New-Item -ItemType Directory -Path $stub | Out-Null
 Set-Content -Path (Join-Path $stub 'claude.cmd') -Value "@exit /b 0" -Encoding ascii
+if (-not $IsWindows) { Set-Content -Path (Join-Path $stub 'claude') -Value "#!/bin/sh`nexit 0" -Encoding ascii; & chmod +x (Join-Path $stub 'claude') }
 # The gitleaks stub writes down every argument it was given
 $leaksArgs = Join-Path $fake 'leaks-args.txt'
 Set-Content -Path (Join-Path $stub 'gitleaks.cmd') -Value "@echo %*>> `"$leaksArgs`"`r`n@if `"%PROBE_LEAKS%`"==`"red`" (echo gitleaks: a credential stands in this range & exit /b 1)`r`n@exit /b 0" -Encoding ascii
+if (-not $IsWindows) { Set-Content -Path (Join-Path $stub 'gitleaks') -Value "#!/bin/sh`necho `"`$*`" >> `"$leaksArgs`"`n[ `"`${PROBE_LEAKS:-green}`" = green ] || { echo 'gitleaks: a credential stands in this range'; exit 1; }`nexit 0" -Encoding ascii; & chmod +x (Join-Path $stub 'gitleaks') }
 $env:PATH = "$stub;$env:PATH"
 
 # The repository: the stand-in check writes down its own path, which says which working tree it

@@ -28,6 +28,7 @@ exit 0
 "@ | Set-Content -Path (Join-Path $fake 'gh.ps1') -Encoding utf8NoBOM
 "@echo off`r`npwsh -NoProfile -File `"$fake\gh.ps1`" %*" |
   Set-Content -Path (Join-Path $fake 'gh.cmd') -Encoding ascii
+if (-not $IsWindows) { Set-Content -Path (Join-Path $fake 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$fake/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $fake 'gh') }
 $env:PATH = "$fake;$env:PATH"
 
 $failed = 0
@@ -85,6 +86,7 @@ exit 0
 '@ | Set-Content -Path (Join-Path $lonely 'gh.ps1') -Encoding utf8NoBOM
 "@echo off`r`npwsh -NoProfile -File `"$lonely\gh.ps1`" %*" |
   Set-Content -Path (Join-Path $lonely 'gh.cmd') -Encoding ascii
+if (-not $IsWindows) { Set-Content -Path (Join-Path $lonely 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$lonely/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $lonely 'gh') }
 
 $kept = $env:PATH
 $env:PATH = "$lonely;$env:PATH"

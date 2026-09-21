@@ -68,6 +68,13 @@ HARNESS_VERSION=""
 [ -f ".ai-core/VERSION" ] && HARNESS_VERSION="$(tr -d '\r\n' < .ai-core/VERSION)"
 GRAFT_OK=0
 { [ -f "graft/index.md" ] || [ -f "graft/INDEX.md" ] || [ -f "graft/workspace.json" ]; } && GRAFT_OK=1
+# The map: an AGENTS.md written by ai-core map names in its first line the commit it came
+# from; the distance to HEAD says whether it is current
+MAP_COMMIT=""; MAP_BEHIND=""
+if [ "$BRANCH" != not-a-git-repo ] && [ -f AGENTS.md ]; then
+  MAP_COMMIT="$(head -n1 AGENTS.md | tr -d '\r' | sed -n 's/.*ai-core map: generated [0-9-]* from \([0-9a-f]*\).*/\1/p')"
+  [ -z "$MAP_COMMIT" ] || MAP_BEHIND="$(git rev-list --count "$MAP_COMMIT..HEAD" 2>/dev/null || true)"
+fi
 
 # The harness this checkout was assembled from (.ai-core/STAMP, one line per layer: name and
 # commit) against the clones beside the repositories; and the releases, asked from the origins by
@@ -163,6 +170,7 @@ if [ "$as_json" -eq 1 ]; then
     --argjson rules_present "$(bool $RULES_OK)" --arg rules_path "$RULES_PATH" \
     --argjson local_rules_present "$(bool $LOCAL_RULES_OK)" --argjson graft_indexed "$(bool $GRAFT_OK)" \
     --argjson gh_authenticated "$(bool $GH_LOGGED_IN)" --arg gh_user "$GH_USER" \
+    --arg map_commit "$MAP_COMMIT" --arg map_behind "$MAP_BEHIND" \
     --argjson harness_current "$HARNESS_CURRENT" --arg harness_stamp "$HARNESS_STAMP" \
     --arg release_state "$RELEASE_STATE" --arg release_lines "$RELEASE_LINES" \
     --arg issue "$ISSUE" --argjson assigned "$ASSIGNED" \
@@ -172,6 +180,7 @@ if [ "$as_json" -eq 1 ]; then
        rules_present: $rules_present, rules_path: $rules_path,
        local_rules_present: $local_rules_present, graft_indexed: $graft_indexed,
        gh_authenticated: $gh_authenticated, gh_user: $gh_user,
+       map_commit: $map_commit, map_behind: (if $map_behind == "" then null else ($map_behind | tonumber) end),
        issue: (if $issue == "" then null else ($issue | tonumber) end), assigned: $assigned, thread: input }'
   exit $((1 - RULES_OK))
 fi
@@ -192,6 +201,11 @@ esac
 echo "Rules file       : $([ $RULES_OK -eq 1 ] && echo "✓ Present ($RULES_PATH)" || echo "✗ Missing")"
 echo "Local rules      : $([ $LOCAL_RULES_OK -eq 1 ] && echo "✓ Present (.ai-core/rules/rules.local.md)" || echo "– None")"
 echo "Graft code graph : $([ $GRAFT_OK -eq 1 ] && { [ -f graft/workspace.json ] && echo "✓ Workspace (graft/workspace.json)" || echo "✓ Indexed (graft/index.md)"; } || echo "✗ Not indexed (run ai-core graft)")"
+if [ "$BRANCH" = not-a-git-repo ]; then echo "Map              : – A project folder: AGENTS.md lists its repositories"
+elif [ -z "$MAP_COMMIT" ]; then echo "Map              : – Generic (run ai-core map)"
+elif [ -z "$MAP_BEHIND" ]; then echo "Map              : ? Generated from $MAP_COMMIT, a commit this clone does not have"
+elif [ "$MAP_BEHIND" -eq 0 ]; then echo "Map              : ✓ Generated from $MAP_COMMIT, current"
+else echo "Map              : ! Generated from $MAP_COMMIT, $MAP_BEHIND commit(s) behind (run ai-core map)"; fi
 if [ "$GH_LOGGED_IN" -eq 1 ]; then
   echo "GitHub status    : ✓ Authenticated as @$GH_USER"
 else

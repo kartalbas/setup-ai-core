@@ -190,6 +190,7 @@ checkout never carries a copy.
 │   ├── team-modes.tsv                   the team modes per tool, with probe and install command: the same
 │   ├── docs/                            yours: documents for agents; docs/<harness>/ managed: the docs of each layer
 │   ├── STAMP                            managed: the commit of setup-ai-core and of every layer this was assembled from
+│   ├── DEPLOYED                         managed: what the layers put here; what a layer no longer provides is taken out at the next run
 │   └── solution-path.template.md        yours: template of a solution path
 ├── .claude/skills/, .agents/skills/     managed: the skills of every layer, one folder each
 ├── AGENTS.md                            managed from repos/<repo>/ of the harness, else created once from the template
@@ -301,7 +302,10 @@ last layer that has one; every `skills/<name>/` into `.claude/skills/<name>/` an
 `repos/<repo>/` of the innermost harness over the checkout, in its own layout, so
 `repos/shop-web/AGENTS.md` is the map of shop-web and `repos/shop-web/.ai-core/config.env` its
 configuration. A file the repository tracks is never overwritten. `.ai-core/STAMP` records the
-commit of setup-ai-core and of every layer the checkout was assembled from.
+commit of setup-ai-core and of every layer the checkout was assembled from. `.ai-core/DEPLOYED`
+records what the layers put into the checkout (skills, agents, docs, the files of `repos/<repo>/`);
+what a layer no longer provides is taken out again at the next `init`, a file the repository
+tracks excepted.
 
 A project folder (section 5.8) gets the layers every repository under it shares: the company
 harness when the repositories belong to different projects that extend it, the project harness when
@@ -326,7 +330,7 @@ loads the skills of a repository named `.agents` under the GitHub organisation, 
 repository of that organisation, and `~/.agents/skills/` on a developer's machine.
 
 **Today** `rules/skills.md` says when an agent uses the three team modes, `caveman`, `ponytail`
-and `i-have-adhd`, and `.ai-core/team-modes.tsv` says, per tool, how the harness sees that a mode
+and `i-have-adhd`, and the skill `archify`; `.ai-core/team-modes.tsv` says, per tool, how the harness sees that a mode
 is installed (a plugin the tool lists, a skill folder, a file) and the command that installs it.
 `ai-core team-modes-check` probes the tools on the machine and refuses when a mode is missing;
 `session-start` and `start-issue` run it first, so no session starts without the modes;
@@ -341,22 +345,30 @@ on start; no developer installs a skill by hand.
 
 Graft knows what is in the code: where a symbol is, who calls it, what a file exposes, how the
 repository is laid out. It is always current. A **map** says only what is not in the code, in
-four sections:
+five fixed sections and at most 80 lines, because every session reads it:
 
-1. **Purpose and boundaries** — what this repository is, what it is not, its role in the project.
-2. **Commands** — build, test, the one verification command, release.
-3. **Rules of this repository** — where to add what and nowhere else, what never to touch.
-4. **Pointers** — use Graft instead of reading files; where the docs and the glossary are.
+1. **What it is** — three sentences: what it is for, who uses it, what it is not.
+2. **Shape** — one line per top-level directory that matters, and the entry points.
+3. **Build, check, run** — the exact commands, as the manifests and the CI define them.
+4. **Where to add things** — a table: what is added, where it goes and where it is registered.
+5. **Rules of this repository** — written by people, kept through every regeneration.
 
 No directory trees and no symbol lists: Graft owns those.
 
-**Today** `AGENTS.md` is a generic skeleton with the rules contract and the operations table.
-**Planned:** `ai-core map` generates sections 1, 2 and 4 with the developer's agent CLI, running
-non-interactively over the Graft index, the README, the build files and `git log`. Section 3 is
-written by people and never touched by generation. The map lives in the project harness under
-`repos/<repo>/AGENTS.md`, is committed and pushed there, and is generated at `init` when missing
-and refreshed when older than a number of commits. A separate `CLAUDE.md` is not needed: Claude
-Code reads `AGENTS.md`.
+**`ai-core map`** (`bin/map.sh`, `bin/map.ps1`) writes the map of the checkout it runs in: the
+agent CLI named by `MAP_TOOL` in `.ai-core/config.env` (`claude`, with `MAP_MODEL` when not the
+CLI's default) reads the repository cheaply, with Graft, the manifests and the README, and
+outputs the file in the fixed shape; `map` checks that shape (the title `# <repo> — the map`,
+the five headings in order, at most 80 lines) and refuses anything else, keeping the output at
+`.ai-core/map.rejected.md` for a look. Section 5 comes back from the map that exists. The file
+goes into the project harness as `repos/<repo>/AGENTS.md` with a first line naming the commit it
+was generated from, the harness is committed and pushed (`push`), and the checkout assembled
+again, so the map is in place at once. `ai-core map --all <folder>` does it for every repository
+under a folder with one push and `init --all`; `--no-push` writes into the clone and stops;
+`--dry-run` prints the map. `session-start` prints `Map`: generated from which commit and how
+many commits behind, or `Generic (run ai-core map)`. Until `map` has run, `AGENTS.md` is the
+generic skeleton with the rules contract. A separate `CLAUDE.md` is not needed: Claude Code reads
+`AGENTS.md`.
 
 ### 4.8 Graft: the code graph
 
@@ -415,6 +427,7 @@ Releases         : ✓ Current
 Rules file       : ✓ Present (.ai-core/rules/rules.md)
 Local rules      : ✓ Present (.ai-core/rules/rules.local.md)
 Graft code graph : ✓ Indexed (graft/index.md)
+Map              : ✓ Generated from 1a2b3c4, current
 GitHub status    : ✓ Authenticated as @you
 Ready for task execution.
 ```
@@ -427,7 +440,7 @@ of issue N, read through `issue-thread`, and whether the issue is assigned to yo
 
 With `--json` / `-Json` it prints the same as JSON, with the same keys and types on both
 platforms: `repository`, `root`, `branch`, `uncommitted_files`, `harness_version`,
-`harness_current`, `harness_stamp`, `release_state`, `release_lines`,
+`harness_current`, `harness_stamp`, `release_state`, `release_lines`, `map_commit`, `map_behind`,
 `rules_present`, `rules_path`, `local_rules_present`, `graft_indexed`, `gh_authenticated`,
 `gh_user`, `issue`, `assigned`, `thread`. Exit status is 1 when no rules file is found, so an agent or a CI job can gate on it.
 If `gh` is logged in, it makes one call to the GitHub API for the user name.
@@ -639,7 +652,7 @@ under one of these words:
 | `created` | did not exist; written |
 | `refreshed` | a managed file (the assembled rules, `STAMP`, a skill, a data file, a map from `repos/<repo>/`, the exclude block) that differed from what the layers say; rewritten. A managed `AGENTS.md` keeps the block Graft appended to it, so Graft finds it unchanged |
 | `kept` | a file created once (`AGENTS.md`, `.claude/settings.json`, `config.env`, ...) that differs from its template, yours or changed by Graft; never overwritten |
-| `removed` | what an earlier version left in the checkout (`.ai-core/bin/`, `.agents/mcp_config.json`) |
+| `removed` | what an earlier version left in the checkout (`.ai-core/bin/`, `.agents/mcp_config.json`), and what a layer no longer provides (recorded in `.ai-core/DEPLOYED`) |
 | `tracked` | a file of `repos/<repo>/` the repository commits itself; not applied |
 | `unchanged` | the count of files that were already what they should be |
 
@@ -749,6 +762,7 @@ and `bin/<name>.ps1` in PowerShell; a new script in `bin/` is a command without 
 | `rules-check` | `ai-core rules-check [file-or-directory]` / `[-RulesFile <file-or-directory>]`; default `.ai-core/rules/rules.md`, or the `rules/` directory of setup-ai-core; a directory means its `NN-*.md` section files | 0 every rule tagged; 1 otherwise |
 | `graft-setup` | `ai-core graft [dir] [--dry-run]` / `[-TargetDir <dir>] [-DryRun]` | 0 built, skipped or dry; 1 no Node.js, build failed, or bad `config.env`; 2 a wrong argument |
 | `init` | `ai-core init [dir] [--all <folder>] [--no-doctor] [--dry-run]` / `[-TargetDir <dir>] [-All <folder>] [-NoDoctor] [-DryRun]` | 0 in place, or dry; 1 doctor failed, Graft failed, or a repository under `--all` failed |
+| `map` | `ai-core map [dir] [--all <folder>] [--no-push] [--dry-run]` / `[-TargetDir <dir>] [-All <folder>] [-NoPush] [-DryRun]` | 0 written (or unchanged, or dry); 1 no harness, the agent CLI failed or wrote something that is not a map, or a repository under `--all` failed |
 | `push` | `ai-core push [MESSAGE] [--harness <name>]` / `[-Message <text>] [-Harness <name>]` | 0 every harness clone pushed or had nothing; 1 no clone, a commit or a push failed |
 | `update` | `ai-core update [--check] [--main]` / `[-Check] [-Main]` (section 5.10) | 0 done, or `--check`: everything current; 2 `--check`: a release or commits available; 1 an origin could not be reached |
 | `release` | `ai-core release <version>` (in a clone of setup-ai-core, section 10) | 0 tagged and pushed; 1 refused, naming what is missing; 2 a wrong argument |
@@ -957,7 +971,8 @@ Each step lands with its test in `tests/check.sh` and passes in CI before the ne
 5b. The push gate `ai-core pre-push` and the shim a repository carries. **Done.**
 5c. Releases by tag, `install` on the newest release, `update`, `push`; the harness clones beside
    the repositories. **Done.**
-6. `map`: the skeleton, the prompt, generation through the agent CLI, commit and push, staleness.
+6. `map`: the skeleton, the prompt, generation through the agent CLI, commit and push, the
+   distance to the code in `session-start`. **Done.** Generation at `init` when missing: not built.
 7. Sandboxed agents: `publish` into the organisation's `.agents` repository; the OpenHands
    bootstrap files (`.openhands/setup.sh`, `.openhands/hooks.json`) as a template a project can
    choose to commit; `.agents/skills/` deployed next to `.claude/skills/`.
@@ -1011,6 +1026,7 @@ setup-ai-core/
 │   ├── ai-core, ai-core.ps1, ai-core.cmd the command; runs any script here by name
 │   ├── init.sh / init.ps1               equips a checkout or a project folder with data
 │   ├── session-start.sh / .ps1          the session start
+│   ├── map.sh / map.ps1                 the map of a repository, written by the agent CLI into the harness
 │   ├── update.sh / update.ps1           this machine to the newest release, the harness clones to their origins
 │   ├── release.sh / release.ps1         tags a release once the checks of the commit are green
 │   ├── push.sh / push.ps1               commits and pushes the harness clones of the project folder

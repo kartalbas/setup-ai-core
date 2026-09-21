@@ -226,6 +226,7 @@ $skillsMd = Join-Path $coreRoot "rules\skills.md"
 $coreCommit = "$(& git -C $coreRoot rev-parse --short HEAD 2>$null)".Trim(); if (-not $coreCommit) { $coreCommit = $coreVersion }
 $stamp = @("setup-ai-core $coreCommit")
 $layerFiles = @()   # what the layers wrote, so the templates leave it alone
+$deployed = @()     # what the layers put into the checkout, recorded in .ai-core\DEPLOYED
 $dataFiles = @('config.env', 'labels.tsv', 'assignees.tsv', 'team-modes.tsv')
 foreach ($l in $layers) {
   $lname = (Split-Path -Leaf $l).TrimStart('.')
@@ -238,16 +239,16 @@ foreach ($l in $layers) {
   if (Test-Path (Join-Path $l 'skills')) {
     foreach ($s in (Get-ChildItem -Path (Join-Path $l 'skills') -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'SKILL.md') })) {
       Put-Dir $s.FullName ".claude/skills/$($s.Name)"; Put-Dir $s.FullName ".agents/skills/$($s.Name)"
-      $layerFiles += @(".claude/skills/$($s.Name)", ".agents/skills/$($s.Name)")
+      $layerFiles += @(".claude/skills/$($s.Name)", ".agents/skills/$($s.Name)"); $deployed += @(".claude/skills/$($s.Name)", ".agents/skills/$($s.Name)")
     }
   }
   if (Test-Path (Join-Path $l 'agents')) {
     foreach ($a in (Get-ChildItem -Path (Join-Path $l 'agents') -File -Filter '*.md' | Where-Object { $_.Name -cne 'README.md' })) {
-      Put $a.FullName ".claude/agents/$($a.Name)" managed; $layerFiles += ".claude/agents/$($a.Name)"
+      Put $a.FullName ".claude/agents/$($a.Name)" managed; $layerFiles += ".claude/agents/$($a.Name)"; $deployed += ".claude/agents/$($a.Name)"
     }
   }
   if ((Test-Path (Join-Path $l 'docs')) -and (Get-ChildItem -Path (Join-Path $l 'docs') -Force | Select-Object -First 1)) {
-    Put-Dir (Join-Path $l 'docs') ".ai-core/docs/$lname"
+    Put-Dir (Join-Path $l 'docs') ".ai-core/docs/$lname"; $deployed += ".ai-core/docs/$lname"
   }
   foreach ($f in $dataFiles) {
     if (Test-Path (Join-Path $l $f)) { Put (Join-Path $l $f) ".ai-core/$f" managed; $layerFiles += ".ai-core/$f" }
@@ -256,12 +257,30 @@ foreach ($l in $layers) {
 # repos\<repo>\ of the innermost layer, in the layout of the checkout; a tracked file is never overwritten
 if ($layers.Count -gt 0 -and $repoName -and (Test-Path (Join-Path $layers[-1] "repos\$repoName"))) {
   $inner = Get-LongPath (Join-Path $layers[-1] "repos\$repoName")
-  foreach ($f in (Get-ChildItem -Path $inner -Recurse -File -Force)) {
-    $rel = $f.FullName.Substring($inner.Length + 1).Replace('\', '/')
+  $relFiles = @(Get-ChildItem -Path $inner -Recurse -File -Force | ForEach-Object { $_.FullName.Substring($inner.Length + 1).Replace('\', '/') })
+  [Array]::Sort($relFiles, [StringComparer]::Ordinal)
+  foreach ($rel in $relFiles) {
     & git -C $target ls-files --error-unmatch $rel 2>$null | Out-Null
-    if ($LASTEXITCODE -eq 0) { Add-Note tracked $rel } else { Put $f.FullName $rel managed }
+    if ($LASTEXITCODE -eq 0) { Add-Note tracked $rel } else { Put (Join-Path $inner $rel) $rel managed; $deployed += $rel }
     $layerFiles += $rel
   }
+}
+# What the layers put into the checkout is recorded in .ai-core\DEPLOYED, so what a layer no
+# longer provides is taken out again at the next run; a file the repository tracks is left alone
+$prevDeployed = @(); $deployedFile = Join-Path $aiCoreDir 'DEPLOYED'
+if (Test-Path -LiteralPath $deployedFile) { $prevDeployed = @(Get-Content $deployedFile | ForEach-Object { "$_".Trim() } | Where-Object { $_ }) }
+foreach ($p in $prevDeployed) {
+  if ($deployed -ccontains $p) { continue }
+  $full = Join-Path $target $p
+  if (-not (Test-Path -LiteralPath $full)) { continue }
+  & git -C $target ls-files --error-unmatch $p 2>$null | Out-Null
+  if ($LASTEXITCODE -eq 0) { continue }
+  Add-Note removed $p
+  if (-not $DryRun) { Remove-Item -LiteralPath $full -Recurse -Force }
+}
+if ($deployed.Count -gt 0 -or $prevDeployed.Count -gt 0) {
+  [System.IO.File]::WriteAllText((Join-Path $tmp 'DEPLOYED'), (($deployed -join "`n") + "`n"), $utf8)
+  Put (Join-Path $tmp 'DEPLOYED') '.ai-core/DEPLOYED' managed
 }
 # A section is written with LF and one blank line after it, whatever the clone it came from
 # checked out, so the two twins and two machines assemble the same bytes

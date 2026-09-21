@@ -40,30 +40,31 @@ function RunCheck([hashtable] $callArgs) {
 }
 function Count($pattern) { @(($script:out -split "`r?`n") | Where-Object { $_ -match $pattern }).Count }
 
-Write-Host 'nothing installed: three MISSING lines with their install commands, and a refusal'
+Write-Host 'nothing installed: four MISSING lines (three modes and the archify skill) with their install commands, and a refusal'
 Set-Content -Path $plugins -Value '' -Encoding utf8NoBOM
 RunCheck @{ Tool = 'claude' }
 Check 'exit 1'                       1 $code
-Check 'three missing'                3 (Count '^MISSING')
+Check 'four missing'                 4 (Count '^MISSING')
 Check 'caveman names its installer'  'True' ([bool]($out -match 'MISSING .*caveman.*npx skills add JuliusBrussee/caveman'))
 Check 'ponytail names its installer' 'True' ([bool]($out -match 'MISSING .*ponytail.*claude plugin install ponytail@ponytail'))
-Check 'the refusal says no work starts' 'True' ([bool]($out -match 'REFUSED: 3 mode\(s\) missing.*No work starts'))
+Check 'the refusal says no work starts' 'True' ([bool]($out -match 'REFUSED: 4 mode\(s\) missing.*No work starts'))
 
-Write-Host 'the two plugins installed (i-have-adhd proven by its always-on flag), the skill not: one MISSING'
+Write-Host 'the two plugins installed (i-have-adhd proven by its always-on flag), the skills not: two MISSING'
 Set-Content -Path $plugins -Value "Installed plugins:`n  ponytail@ponytail`n  i-have-adhd@i-have-adhd" -Encoding utf8NoBOM
 New-Item -ItemType Directory -Path (Join-Path $env:HOME '.claude') -Force | Out-Null
 Set-Content -Path (Join-Path $env:HOME '.claude/.i-have-adhd-always') -Value '' -Encoding utf8NoBOM
 RunCheck @{ Tool = 'claude' }
 Check 'exit 1'        1 $code
-Check 'one missing'   1 (Count '^MISSING')
+Check 'two missing'   2 (Count '^MISSING')
 Check 'it is caveman' 'True' ([bool]($out -match 'MISSING .*caveman'))
 
-Write-Host 'all three installed: every line ok, exit 0'
+Write-Host 'all four installed: every line ok, exit 0'
 New-Item -ItemType Directory -Path (Join-Path $env:HOME '.claude/skills/caveman') -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $env:HOME '.claude/skills/archify') -Force | Out-Null
 RunCheck @{ Tool = 'claude' }
 Check 'exit 0'              0 $code
-Check 'three ok'            3 (Count '^ok ')
-Check 'says all present'    'True' ([bool]($out -match 'team modes: all 3 present for: claude'))
+Check 'four ok'             4 (Count '^ok ')
+Check 'says all present'    'True' ([bool]($out -match 'team modes: all 4 present for: claude'))
 Check 'and names the level' 'True' ([bool]($out -match 'ok\s+claude caveman \(lite\)'))
 
 Write-Host 'the shared .agents/skills folder counts as installed too'
@@ -105,11 +106,12 @@ $env:TEAM_MODES_FILE = $kept
 Write-Host 'team-modes-install -DryRun prints the install command of every missing mode and runs nothing'
 Set-Content -Path $plugins -Value '' -Encoding utf8NoBOM
 Remove-Item -Recurse -Force (Join-Path $env:HOME '.agents/skills/caveman') -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force (Join-Path $env:HOME '.claude/skills/archify') -ErrorAction SilentlyContinue
 Remove-Item -Force (Join-Path $env:HOME '.claude/.i-have-adhd-always') -ErrorAction SilentlyContinue
 $out = (& (Join-Path $root 'bin/team-modes-install.ps1') -Tool claude -DryRun 6>&1 2>&1 | Out-String)
 $code = $LASTEXITCODE
 Check 'exit 0'                 0 $code
-Check 'three install lines'    3 (Count '^installing ')
+Check 'four install lines'     4 (Count '^installing ')
 Check 'ponytail command whole' 'True' ([bool]($out -match 'installing  claude ponytail: claude plugin marketplace add DietrichGebert/ponytail && claude plugin install ponytail@ponytail'))
 
 # EVERY MISSING ROW'S COMMAND RUNS, NOT ONLY THE FIRST ONE, and both halves of a command

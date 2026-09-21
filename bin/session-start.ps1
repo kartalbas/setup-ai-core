@@ -64,6 +64,16 @@ $localRulesOk = Test-Path ".ai-core\rules\rules.local.md"
 $harnessVersion = if (Test-Path ".ai-core\VERSION") { (Get-Content ".ai-core\VERSION" -Raw).Trim() } else { "" }
 $graftWorkspace = Test-Path "graft\workspace.json"
 $graftOk = (Test-Path "graft\index.md") -or (Test-Path "graft\INDEX.md") -or $graftWorkspace
+# The map: an AGENTS.md written by ai-core map names in its first line the commit it came
+# from; the distance to HEAD says whether it is current
+$mapCommit = ''; $mapBehind = ''
+if ($branch -cne 'not-a-git-repo' -and (Test-Path 'AGENTS.md')) {
+  $first = "$(Get-Content 'AGENTS.md' -TotalCount 1)".TrimEnd("`r")
+  if ($first -cmatch 'ai-core map: generated [0-9-]+ from ([0-9a-f]+)') {
+    $mapCommit = $Matches[1]
+    $n = "$(& git rev-list --count "$mapCommit..HEAD" 2>$null)".Trim(); if ($LASTEXITCODE -eq 0 -and $n) { $mapBehind = $n }
+  }
+}
 
 # The harness this checkout was assembled from (.ai-core\STAMP, one line per layer: name and
 # commit) against the clones beside the repositories; and the releases, asked from the origins by
@@ -178,6 +188,8 @@ if ($Json) {
     graft_indexed       = $graftOk
     gh_authenticated    = $ghLoggedIn
     gh_user             = $ghUser
+    map_commit          = $mapCommit
+    map_behind          = $(if ($mapBehind -ne '') { [int]$mapBehind } else { $null })
     issue               = $(if ($issue) { [int]$issue } else { $null })
     assigned            = $assigned
     thread              = $threadObject
@@ -199,6 +211,11 @@ else { Write-Host "Releases         : – Not checked (UPDATE_CHECK=never)" }
 Write-Host "Rules file       : $(if ($rulesOk) { "✓ Present ($rulesPath)" } else { '✗ Missing' })"
 Write-Host "Local rules      : $(if ($localRulesOk) { '✓ Present (.ai-core/rules/rules.local.md)' } else { '– None' })"
 Write-Host "Graft code graph : $(if ($graftWorkspace) { '✓ Workspace (graft/workspace.json)' } elseif ($graftOk) { '✓ Indexed (graft/index.md)' } else { '✗ Not indexed (run ai-core graft)' })"
+if ($branch -ceq 'not-a-git-repo') { Write-Host "Map              : – A project folder: AGENTS.md lists its repositories" }
+elseif (-not $mapCommit) { Write-Host "Map              : – Generic (run ai-core map)" }
+elseif ($mapBehind -eq '') { Write-Host "Map              : ? Generated from $mapCommit, a commit this clone does not have" }
+elseif ([int]$mapBehind -eq 0) { Write-Host "Map              : ✓ Generated from $mapCommit, current" }
+else { Write-Host "Map              : ! Generated from $mapCommit, $mapBehind commit(s) behind (run ai-core map)" }
 if ($ghLoggedIn) {
   Write-Host "GitHub status    : ✓ Authenticated as @$ghUser" -ForegroundColor Green
 } else {

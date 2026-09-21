@@ -218,6 +218,7 @@ done
 SKILLS_MD="$CORE_ROOT/rules/skills.md"
 STAMP="setup-ai-core $(git -C "$CORE_ROOT" rev-parse --short HEAD 2>/dev/null || echo "$CORE_VERSION")"
 LAYER_FILES=""   # what the layers wrote, so the templates leave it alone
+DEPLOYED=""      # what the layers put into the checkout, recorded in .ai-core/DEPLOYED
 DATA_FILES="config.env labels.tsv assignees.tsv team-modes.tsv"
 if [ -n "$LAYERS" ]; then
   while IFS= read -r l; do
@@ -234,14 +235,14 @@ if [ -n "$LAYERS" ]; then
       [ -f "$s/SKILL.md" ] || continue
       sname="$(basename "$s")"
       put_dir "$s" ".claude/skills/$sname"; put_dir "$s" ".agents/skills/$sname"
-      LAYER_FILES="$LAYER_FILES .claude/skills/$sname .agents/skills/$sname"
+      LAYER_FILES="$LAYER_FILES .claude/skills/$sname .agents/skills/$sname"; DEPLOYED="$DEPLOYED .claude/skills/$sname .agents/skills/$sname"
     done
     for a in "$l"/agents/*.md; do
       [ -f "$a" ] && [ "$(basename "$a")" != README.md ] || continue
-      put "$a" ".claude/agents/$(basename "$a")" managed; LAYER_FILES="$LAYER_FILES .claude/agents/$(basename "$a")"
+      put "$a" ".claude/agents/$(basename "$a")" managed; LAYER_FILES="$LAYER_FILES .claude/agents/$(basename "$a")"; DEPLOYED="$DEPLOYED .claude/agents/$(basename "$a")"
     done
     if [ -d "$l/docs" ] && [ -n "$(ls -A "$l/docs" 2>/dev/null)" ]; then
-      put_dir "$l/docs" ".ai-core/docs/$lname"
+      put_dir "$l/docs" ".ai-core/docs/$lname"; DEPLOYED="$DEPLOYED .ai-core/docs/$lname"
     fi
     for f in $DATA_FILES; do
       [ -f "$l/$f" ] || continue
@@ -257,11 +258,23 @@ if [ -n "$LAYERS" ]; then
       if git -C "$TARGET" ls-files --error-unmatch "$rel" >/dev/null 2>&1; then
         note tracked "$rel"
       else
-        put "$INNER/repos/$REPO_NAME/$rel" "$rel" managed
+        put "$INNER/repos/$REPO_NAME/$rel" "$rel" managed; DEPLOYED="$DEPLOYED $rel"
       fi
       LAYER_FILES="$LAYER_FILES $rel"
-    done <<< "$( (cd "$INNER/repos/$REPO_NAME" && find . -type f) | sed 's|^\./||')"
+    done <<< "$( (cd "$INNER/repos/$REPO_NAME" && find . -type f | LC_ALL=C sort) | sed 's|^\./||')"
   fi
+fi
+# What the layers put into the checkout is recorded in .ai-core/DEPLOYED, so what a layer no
+# longer provides is taken out again at the next run; a file the repository tracks is left alone
+PREV_DEPLOYED="$(tr -d '\r' < "$TARGET/.ai-core/DEPLOYED" 2>/dev/null || true)"
+for p in $PREV_DEPLOYED; do
+  case " $DEPLOYED " in *" $p "*) continue ;; esac
+  [ -e "$TARGET/$p" ] || continue
+  git -C "$TARGET" ls-files --error-unmatch "$p" >/dev/null 2>&1 && continue
+  note removed "$p"; [ "$DRY" -eq 1 ] || rm -rf "$TARGET/${p:?}"
+done
+if [ -n "$DEPLOYED" ] || [ -n "$PREV_DEPLOYED" ]; then
+  printf '%s\n' $DEPLOYED > "$TMP/DEPLOYED"; put "$TMP/DEPLOYED" .ai-core/DEPLOYED managed
 fi
 {
   # A section is written with LF and one blank line after it, whatever the clone it came from

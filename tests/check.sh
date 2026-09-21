@@ -440,6 +440,72 @@ grep -aqE 'created:|moved:' "$WORK/layers-ps-1b.log" && fail "init.ps1 created o
 assembled_ok "$WORK/org-ps/shop-web" "init.ps1"
 cmp -s "$WORK/org-sh/shop-web/.ai-core/rules/rules.md" "$WORK/org-ps/shop-web/.ai-core/rules/rules.md" || fail "the assembled rules.md differs between the twins"
 cmp -s "$WORK/org-sh/shop-web/.ai-core/STAMP" "$WORK/org-ps/shop-web/.ai-core/STAMP" || fail "STAMP differs between the twins"
+cmp -s "$WORK/org-sh/shop-web/.ai-core/DEPLOYED" "$WORK/org-ps/shop-web/.ai-core/DEPLOYED" || fail "DEPLOYED differs between the twins: $(tr '\n' '|' < "$WORK/org-sh/shop-web/.ai-core/DEPLOYED") vs $(tr '\n' '|' < "$WORK/org-ps/shop-web/.ai-core/DEPLOYED")"
+# What the harness no longer provides leaves the checkout: the skill and the agent go from the harness, init takes them out, on both twins
+git -C "$WORK/author" rm -rq skills/deploy agents/builder.md; git -C "$WORK/author" -c user.name=check -c user.email=check@localhost commit -q -m "the skill and the agent go"; git -C "$WORK/author" push -q origin HEAD
+HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/init.sh" "$WORK/org-sh/shop-web" --no-doctor > "$WORK/layers-sh-gone.log" 2>&1 || fail "init.sh after the harness dropped a skill and an agent (see $WORK/layers-sh-gone.log)"
+HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" GRAFT_FAKE_LOG="$(native "$WORK/layers.args")" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-ps/shop-web")" -NoDoctor > "$WORK/layers-ps-gone.log" 2>&1 || fail "init.ps1 after the harness dropped a skill and an agent (see $WORK/layers-ps-gone.log)"
+for t in sh ps; do
+  c="$WORK/org-$t/shop-web"
+  grep -aq '^  removed    .claude/skills/deploy, .agents/skills/deploy, .claude/agents/builder.md$' "$WORK/layers-$t-gone.log" || fail "init.$t does not report what it took out: $(grep -a '^  removed' "$WORK/layers-$t-gone.log")"
+  [ ! -e "$c/.claude/skills/deploy" ] && [ ! -e "$c/.agents/skills/deploy" ] && [ ! -e "$c/.claude/agents/builder.md" ] || fail "init.$t left what the harness no longer provides"
+  [ -f "$c/.ai-core/docs/shop-ai-core/glossary.md" ] && grep -q '^The map of shop-web' "$c/AGENTS.md" || fail "init.$t took out what the harness still provides"
+  grep -q 'skills/deploy' "$c/.ai-core/DEPLOYED" && fail "init.$t still records the skill in DEPLOYED"
+done
+# The map: the agent CLI (a fake claude here) writes it, map puts it into the harness, pushes it and brings it into the checkout at once; people's rules kept; a bad output refused; on both twins
+cat > "$WORK/ghbin/claude" <<'EOF'
+#!/bin/sh
+echo "$*" >> "$MAP_FAKE_LOG"
+[ -z "${MAP_FAKE_BAD:-}" ] || { echo "Sure! Here is the map:"; exit 0; }
+n="$(basename "$PWD")"
+printf '# %s \342\200\224 the map\n\n## What it is\nA shop.%s\n\n## Shape\n- src/: the code\n\n## Build, check, run\n- npm test\n\n## Where to add things\n| a page | src/pages/ |\n\n## Rules of this repository\n(none yet: written by people, kept on every regeneration)\n' "$n" "${MAP_FAKE_NOTE:+ $MAP_FAKE_NOTE}"
+EOF
+chmod +x "$WORK/ghbin/claude"
+cat > "$WORK/ghbin/claude.ps1" <<'EOF'
+param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest)
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+Add-Content -Path $env:MAP_FAKE_LOG -Value ($Rest -join ' ')
+if ($env:MAP_FAKE_BAD) { 'Sure! Here is the map:'; exit 0 }
+$n = Split-Path -Leaf (Get-Location).Path
+"# $n $([char]0x2014) the map"; ''; '## What it is'; "A shop.$(if ($env:MAP_FAKE_NOTE) { ' ' + $env:MAP_FAKE_NOTE })"; ''; '## Shape'; '- src/: the code'; ''; '## Build, check, run'; '- npm test'; ''; '## Where to add things'; '| a page | src/pages/ |'; ''; '## Rules of this repository'; '(none yet: written by people, kept on every regeneration)'
+exit 0
+EOF
+MAPLOG="$WORK/map.args"
+map_sh() { HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" MAP_FAKE_LOG="$MAPLOG" bash "$ROOT/bin/map.sh" "$@"; }
+map_ps() { HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" GRAFT_FAKE_LOG="$(native "$WORK/layers.args")" MAP_FAKE_LOG="$(native "$MAPLOG")" MAP_FAKE_NOTE=ps pwsh -NoProfile -File "$ROOT/bin/map.ps1" "$@"; }
+map_sh "$WORK/org-sh/shop-web" > "$WORK/map-sh-1.log" 2>&1 || fail "map.sh (see $WORK/map-sh-1.log)"
+M="$WORK/org-sh/shop-ai-core/repos/shop-web/AGENTS.md"
+head -n1 "$M" | grep -qE '^<!-- ai-core map: generated [0-9-]+ from [0-9a-f]+; ' && [ "$(sed -n 2p "$M")" = "# shop-web — the map" ] || fail "map.sh did not write the map into the harness: $(head -n2 "$M" 2>/dev/null | tr '\n' '|')"
+[ -z "$(git -C "$WORK/org-sh/shop-ai-core" status --porcelain)" ] && [ "$(git -C "$WORK/org-sh/shop-ai-core" rev-list --count '@{upstream}..HEAD')" = 0 ] || fail "map.sh did not commit and push the harness"
+head -n1 "$WORK/org-sh/shop-web/AGENTS.md" | grep -q 'ai-core map: generated' || fail "map.sh did not bring the map into the checkout"
+grep -q -- '--allowedTools' "$MAPLOG" && grep -q 'Read the repository first, cheaply' "$MAPLOG" || fail "map.sh did not call the agent CLI with the prompt and the tools"
+# people write a rule into the map and push it as they push any edit of the harness; the next generation keeps it
+sed -i.bak 's/^(none yet: written by people, kept on every regeneration)$/- **Ship on Fridays never.** [review]/' "$M" && rm -f "$M.bak"
+(cd "$WORK/org-sh/shop-web" && HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/push.sh" "a rule of this repository" > "$WORK/map-rule-push.log" 2>&1) || fail "push.sh with the rule people wrote (see $WORK/map-rule-push.log)"
+MAP_FAKE_NOTE=v2 map_sh "$WORK/org-sh/shop-web" > "$WORK/map-sh-2.log" 2>&1 || fail "map.sh second run (see $WORK/map-sh-2.log)"
+grep -q '^A shop\. v2$' "$M" && grep -q '^- \*\*Ship on Fridays never\.\*\* \[review\]$' "$M" && ! grep -q '^(none yet' "$M" || fail "map.sh did not regenerate and keep the rules people wrote: $(grep -n 'shop\.\|Fridays\|none yet' "$M" | tr '\n' '|')"
+[ -z "$(git -C "$WORK/org-sh/shop-ai-core" status --porcelain)" ] || fail "map.sh second run left the harness uncommitted"
+cp "$M" "$WORK/map.before"
+MAP_FAKE_BAD=1 map_sh "$WORK/org-sh/shop-web" > "$WORK/map-sh-bad.log" 2>&1 && fail "map.sh accepted an output that is not a map"
+grep -aq "not the map's shape" "$WORK/map-sh-bad.log" && cmp -s "$M" "$WORK/map.before" && [ -f "$WORK/org-sh/shop-web/.ai-core/map.rejected.md" ] || fail "map.sh: the refusal (see $WORK/map-sh-bad.log)"
+map_sh "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-sh-dry.log" 2>&1 || fail "map.sh --dry-run (see $WORK/map-sh-dry.log)"
+grep -aq '^# shop-web — the map' "$WORK/map-sh-dry.log" && cmp -s "$M" "$WORK/map.before" || fail "map.sh --dry-run wrote something or printed nothing"
+map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")" > "$WORK/map-ps-1.log" 2>&1 || fail "map.ps1 (see $WORK/map-ps-1.log)"
+MP="$WORK/org-ps/shop-ai-core/repos/shop-web/AGENTS.md"
+head -n1 "$MP" | grep -qE '^<!-- ai-core map: generated [0-9-]+ from [0-9a-f]+; ' && grep -q '^A shop\. ps$' "$MP" && grep -q '^- \*\*Ship on Fridays never' "$MP" || fail "map.ps1 did not write the map or lost the rules people wrote: $(head -n5 "$MP" 2>/dev/null | tr '\n' '|')"
+[ -z "$(git -C "$WORK/org-ps/shop-ai-core" status --porcelain)" ] && head -n1 "$WORK/org-ps/shop-web/AGENTS.md" | grep -q 'ai-core map: generated' || fail "map.ps1 did not push the harness and bring the map into the checkout"
+MAP_FAKE_BAD=1 map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")" > "$WORK/map-ps-bad.log" 2>&1 && fail "map.ps1 accepted an output that is not a map"
+grep -aq "not the map's shape" "$WORK/map-ps-bad.log" || fail "map.ps1: the refusal (see $WORK/map-ps-bad.log)"
+# the session start, with a table whose probes always pass: the fake homes hold no team modes
+printf 'claude\tcaveman\tlite\talways\t-\t-\n' > "$WORK/always.tsv"
+(cd "$WORK/org-sh/shop-web" && HOME="$WORK/home-sh" PATH="$PATH_SH" AI_CORE_UPDATE_CHECK=never TEAM_MODES_FILE="$WORK/always.tsv" bash "$ROOT/bin/session-start.sh" > "$WORK/map-session.log" 2>&1) || fail "session-start.sh with a map (see $WORK/map-session.log): $(tail -n 3 "$WORK/map-session.log" | tr '\n' '|')"
+grep -aq '^Map              : ✓ Generated from [0-9a-f]*, current$' "$WORK/map-session.log" || fail "session-start.sh does not name the map: $(grep -a '^Map' "$WORK/map-session.log")"
+echo x >> "$WORK/org-sh/shop-web/README.md"; git -C "$WORK/org-sh/shop-web" -c user.name=check -c user.email=check@localhost commit -qam 'A change #1'
+(cd "$WORK/org-sh/shop-web" && HOME="$WORK/home-sh" PATH="$PATH_SH" AI_CORE_UPDATE_CHECK=never TEAM_MODES_FILE="$WORK/always.tsv" bash "$ROOT/bin/session-start.sh" --json > "$WORK/map-session.json" 2>/dev/null) || true
+[ "$(jq -r '.map_behind' "$WORK/map-session.json")" = 1 ] || fail "session-start.sh --json does not count the commits behind the map: $(jq -c '{map_commit, map_behind}' "$WORK/map-session.json")"
+(cd "$WORK/org-ps/shop-web" && HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" AI_CORE_UPDATE_CHECK=never TEAM_MODES_FILE="$(native "$WORK/always.tsv")" pwsh -NoProfile -File "$ROOT/bin/session-start.ps1" -Json > "$WORK/map-session-ps.json" 2>/dev/null) || true
+[ "$(jq -r '.map_behind' "$WORK/map-session-ps.json")" = 0 ] || fail "session-start.ps1 -Json does not report the map: $(jq -c '{map_commit, map_behind}' "$WORK/map-session-ps.json")"
+git -C "$WORK/author" pull -q --rebase 2>/dev/null || fail "the author clone could not take the maps"
 # The PowerShell twin creates one too: store-api of the same organisation gets store-ai-core
 new_checkout "$WORK/org-ps/store-api" store-api
 HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" GRAFT_FAKE_LOG="$(native "$WORK/layers.args")" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-ps/store-api")" -NoDoctor -DryRun > "$WORK/layers-ps-0.log" 2>&1 || fail "init.ps1 -DryRun before the project harness exists (see $WORK/layers-ps-0.log)"
@@ -480,7 +546,17 @@ rm -rf "$WORK/folder/shop-ai-core"/[!.]*   # every tracked file gone, the histor
 HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/init.sh" "$WORK/folder" --no-doctor > "$WORK/layers-folder-2.log" 2>&1 || fail "init.sh on the folder with a harness clone that lost its files (see $WORK/layers-folder-2.log)"
 grep -aq 'restored: the files of example-org/shop-ai-core at ' "$WORK/layers-folder-2.log" || fail "init.sh did not restore the files of the harness clone (see $WORK/layers-folder-2.log)"
 [ -z "$(git -C "$WORK/folder/shop-ai-core" status --porcelain)" ] || fail "the harness clone is not whole after the restore: $(git -C "$WORK/folder/shop-ai-core" status --porcelain | tr '\n' '|')"
-echo "  created, cloned, moved from the home directory, an interrupted move completed, lost files restored, assembled and compared on both twins; extends base first; a harness that cannot be had stops init; a harness checkout refused; the folder shares the base and its map skips the clones"
+# map --all: every repository under the folder, the harness clones excepted, one push, then init --all, on both twins
+map_sh --all "$WORK/folder" > "$WORK/map-all-sh.log" 2>&1 || fail "map.sh --all (see $WORK/map-all-sh.log)"
+grep -aq '^==> map --all: 2 map(s) were written$' "$WORK/map-all-sh.log" || fail "map.sh --all did not write the two maps: $(grep -a 'map --all' "$WORK/map-all-sh.log")"
+for r in shop-web store-api; do
+  h="$WORK/folder/${r%%-*}-ai-core/repos/$r/AGENTS.md"
+  head -n1 "$h" | grep -q 'ai-core map: generated' && head -n1 "$WORK/folder/$r/AGENTS.md" | grep -q 'ai-core map: generated' || fail "map.sh --all: $r has no map in the harness or the checkout"
+  [ -z "$(git -C "$WORK/folder/${r%%-*}-ai-core" status --porcelain)" ] || fail "map.sh --all did not push ${r%%-*}-ai-core"
+done
+map_ps -All "$(native "$WORK/folder")" > "$WORK/map-all-ps.log" 2>&1 || fail "map.ps1 -All (see $WORK/map-all-ps.log)"
+grep -aq '^==> map -All: 2 map(s) were written$' "$WORK/map-all-ps.log" && grep -q '^A shop\. ps$' "$WORK/folder/store-api/AGENTS.md" || fail "map.ps1 -All did not write the two maps and bring them into the checkouts: $(grep -a 'map -All' "$WORK/map-all-ps.log"); store-api: $(grep -a 'A shop' "$WORK/folder/store-api/AGENTS.md")"
+echo "  created, cloned, moved from the home directory, an interrupted move completed, lost files restored, assembled and compared on both twins; extends base first; a harness that cannot be had stops init; a harness checkout refused; the folder shares the base and its map skips the clones; maps written by the agent CLI, pushed and in the checkouts, people's rules kept, a bad output refused, --all over the folder, on both twins"
 
 echo "==> releases: release tags the green commit, install checks the newest release out, update moves to it and --check reports, on both twins"
 for twin in sh ps1; do

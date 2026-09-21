@@ -461,16 +461,16 @@ for twin in sh ps1; do
   fi
   grep -aq '==> release v9.9.0' "$WORK/rel-$twin-install.log" || fail "install.$twin did not report the release it checked out"
   [ "$(git -C "$RH/.setup-ai-core" describe --tags --exact-match HEAD 2>/dev/null)" = v9.9.0 ] || fail "install.$twin did not check out v9.9.0"
-  out="$(upd --check)"; rc=$?
+  rc=0; out="$(upd --check)" || rc=$?
   [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q '^setup-ai-core: current (v9.9.0)$' || fail "update.$twin --check on the newest release: exit $rc, $out"
   printf '9.9.1\n' > "$RD/VERSION"; git -C "$RD" commit -q -am 'release: 9.9.1'; git -C "$RD" push -q origin main 2>/dev/null
   rel 9.9.1 > /dev/null || fail "release.$twin 9.9.1"
-  out="$(upd --check)"; rc=$?
+  rc=0; out="$(upd --check)" || rc=$?
   [ "$rc" -eq 2 ] && printf '%s\n' "$out" | grep -q '^setup-ai-core: release v9.9.1 available (this machine: v9.9.0)$' || fail "update.$twin --check with a newer release: exit $rc, $out"
   out="$(upd)" || fail "update.$twin: $out"
   printf '%s\n' "$out" | grep -q 'release v9.9.1 (was v9.9.0)' || fail "update.$twin did not move to v9.9.1: $out"
   [ "$(git -C "$RH/.setup-ai-core" describe --tags --exact-match HEAD 2>/dev/null)" = v9.9.1 ] || fail "update.$twin left the clone on $(git -C "$RH/.setup-ai-core" describe --tags --always HEAD)"
-  out="$(upd --check)"; rc=$?
+  rc=0; out="$(upd --check)" || rc=$?
   [ "$rc" -eq 0 ] || fail "update.$twin --check after the update: exit $rc, $out"
   out="$(upd --main)" || fail "update.$twin --main: $out"
   printf '%s\n' "$out" | grep -q 'follows main' || fail "update.$twin --main did not follow main: $out"

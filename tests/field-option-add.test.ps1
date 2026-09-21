@@ -77,6 +77,7 @@ for (`$i = 0; `$i -lt `$args.Count - 1; `$i++) {
 if (`$prog) { `$answer | & jq -r `$prog } else { `$answer }
 exit 0
 "@ | Set-Content -Path (Join-Path $ghDir 'gh.ps1') -Encoding utf8NoBOM
+if (-not $IsWindows) { Set-Content -Path (Join-Path $ghDir 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$ghDir/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $ghDir 'gh') }
 $env:PATH = "$ghDir$([IO.Path]::PathSeparator)$env:PATH"
 
 function Check($name, $expected, $actual) {

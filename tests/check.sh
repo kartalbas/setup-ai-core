@@ -35,6 +35,8 @@ pwsh -NoProfile -File "$ROOT/bin/rules-check.ps1" -RulesFile "$(native "$ROOT/ru
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
+# A push init makes to an origin that is not there fails at once instead of asking for a login
+export GIT_TERMINAL_PROMPT=0
 # A team-modes table whose probes always pass, so the tools of this machine never decide a check
 printf 'claude\tmode\ton\talways\t-\t-\ncodex\tmode\ton\talways\t-\t-\ngemini\tmode\ton\talways\t-\t-\n' > "$WORK/modes.tsv"; export TEAM_MODES_FILE="$WORK/modes.tsv"
 
@@ -160,9 +162,18 @@ for twin in sh ps1; do
       fi
       if [ "$run" = 1 ]; then
         dirty="$(git -C "$WORK/$t" status --porcelain | tr -d '\r')"
-        [ "$dirty" = "?? .gitignore" ] || [ "$dirty" = " M .gitignore" ] || fail "init.$twin in $t left something besides .gitignore: $(echo "$dirty" | tr '\n' ' ')"
-        git -C "$WORK/$t" add .gitignore
-        git -C "$WORK/$t" -c user.name=check -c user.email=check@localhost commit -q -m ignore
+        if [ "$t" = "repo-$twin" ]; then
+          # the checkout: init committed the block itself, and nothing else
+          [ -z "$dirty" ] || fail "init.$twin in $t left something uncommitted: $(echo "$dirty" | tr '\n' ' ')"
+          [ "$(git -C "$WORK/$t" log -1 --format=%s)" = "the agent files of this repository are ignored" ] || fail "init.$twin in $t did not commit .gitignore itself"
+          [ "$(git -C "$WORK/$t" log -1 --format='%(trailers:key=No-issue,valueonly)' | tr -d '\n')" = "the .gitignore block written by ai-core init" ] || fail "init.$twin: the .gitignore commit carries no No-issue trailer"
+          [ "$(git -C "$WORK/$t" show --pretty=format: --name-only HEAD | grep -v '^$' | tr '\n' ' ')" = ".gitignore " ] || fail "init.$twin: the .gitignore commit carries more than .gitignore"
+        else
+          # the worktree: somebody's issue; init leaves the change for its own commit
+          [ "$dirty" = "?? .gitignore" ] || [ "$dirty" = " M .gitignore" ] || fail "init.$twin in $t left something besides .gitignore: $(echo "$dirty" | tr '\n' ' ')"
+          git -C "$WORK/$t" add .gitignore
+          git -C "$WORK/$t" -c user.name=check -c user.email=check@localhost commit -q -m ignore
+        fi
       fi
     done
     dirty="$(git -C "$WORK/$t" status --porcelain)"
@@ -171,7 +182,7 @@ for twin in sh ps1; do
   n="$(grep -c '^# setup-ai-core start' "$WORK/repo-$twin/.git/info/exclude")"
   [ "$n" = 1 ] || fail "exclude block written $n times by init.$twin"
 done
-echo "  git status empty in 4 targets; exclude block written once each"
+echo "  git status empty in 4 targets, the checkouts' .gitignore committed by init with its trailer, the worktrees' left to their own commit; exclude block written once each"
 
 echo "==> the .gitignore block: rewritten in place, a path the project ignores already is not written twice, on both twins"
 for twin in sh ps1; do
@@ -257,7 +268,7 @@ init_twin() {  # init_twin <sh|ps1> <dir> <log> [--dry-run]: init with the fake 
     GRAFT_FAKE_LOG="$(native "$WORK/report.args")" PATH="$WORK/graftbin:$PATH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$dir")" -NoDoctor ${ps[@]+"${ps[@]}"} > "$log" 2>&1
   fi
 }
-report_of() { sed -n '/^init would change in /,/^====/p; /^init changed in /,/^====/p' "$1" | grep -a '^  ' | tr -d '\r'; }   # the report lines of a log
+report_of() { sed -n '/^init would change in /,/^====/p; /^init changed in /,/^====/p' "$1" | grep -a '^  ' | tr -d '\r' | sed 's/^  \.gitignore .*/  .gitignore/'; }   # the report lines of a log; the .gitignore line without its note
 for twin in sh ps1; do
   D="$WORK/report-$twin"; : > "$WORK/report.args"
   git init -q "$D"; echo readme > "$D/README.md"; git -C "$D" add README.md

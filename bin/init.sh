@@ -350,7 +350,19 @@ fi
 #     the project's; a path the project already ignores, with or without the slashes, is not
 #     written twice, and when it ignores them all no block is written. A changed .gitignore is
 #     the one thing init leaves for a commit.
-GITIGNORE_CHANGED=0
+# commit_gitignore <checkout>: the block committed on its own and pushed by ref to the branch
+# checked out; a worktree is somebody's issue and keeps the change for its own commit. Prints the
+# note for the report; the push's own output, the gate's among it, goes to the terminal.
+commit_gitignore() {
+  local dir="$1" branch
+  if [ "$(git -C "$dir" rev-parse --git-dir)" != "$(git -C "$dir" rev-parse --git-common-dir)" ]; then echo "it goes out with this worktree's own commit"; return 0; fi
+  git -C "$dir" add -- .gitignore
+  git -C "$dir" commit -q -m 'the agent files of this repository are ignored' -m 'No-issue: the .gitignore block written by ai-core init' -- .gitignore >&2 || { echo "the commit failed (see above)"; return 0; }
+  git -C "$dir" remote get-url origin >/dev/null 2>&1 || { echo "committed; no origin, not pushed"; return 0; }
+  branch="$(git -C "$dir" symbolic-ref --short -q HEAD)" || { echo "committed; not on a branch, not pushed"; return 0; }
+  if git -C "$dir" push --quiet origin "HEAD:$branch" >&2; then echo "committed and pushed to origin/$branch"; else echo "committed; the push was refused or failed (see above), the commit stays"; fi
+}
+GITIGNORE_CHANGED=0; GITIGNORE_NOTE=""
 if git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   GI="$TARGET/.gitignore"
   KEPT_LINES="$([ -f "$GI" ] && awk '/^# setup-ai-core start/{skip=1} !skip{print} /^# setup-ai-core end/{skip=0}' "$GI" | tr -d '\r' || true)"
@@ -367,7 +379,7 @@ if git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   } > "$TMP/gitignore"
   if ! { [ -f "$GI" ] && cmp -s "$TMP/gitignore" <(tr -d '\r' < "$GI"); }; then
     GITIGNORE_CHANGED=1
-    [ "$DRY" -eq 1 ] || cp -f "$TMP/gitignore" "$GI"
+    if [ "$DRY" -eq 0 ]; then cp -f "$TMP/gitignore" "$GI"; GITIGNORE_NOTE="$(commit_gitignore "$TARGET")"; fi
   fi
 fi
 
@@ -388,7 +400,10 @@ if [ "$DRY" -eq 1 ]; then echo "init would change in $(basename "$TARGET"):"; el
 [ -z "$REMOVED" ]   || echo "  removed    $(list "$REMOVED")"
 [ -z "$TRACKED" ]   || echo "  tracked    $(list "$TRACKED") (the repository commits these; repos/$REPO_NAME/ is not applied to them)"
 echo "  unchanged  $UNCHANGED file(s)"
-if [ "$GITIGNORE_CHANGED" -eq 1 ]; then echo "  .gitignore $([ "$DRY" -eq 1 ] && echo "would change" || echo "changed"): the agent files of this repository are ignored; commit it once"; fi
+if [ "$GITIGNORE_CHANGED" -eq 1 ]; then
+  if [ "$DRY" -eq 1 ]; then echo "  .gitignore would change and be committed: the agent files of this repository are ignored"
+  else echo "  .gitignore changed: the agent files of this repository are ignored; $GITIGNORE_NOTE"; fi
+fi
 if [ "$HOOKS_ARMED" -eq 1 ]; then echo "  core.hooksPath $([ "$DRY" -eq 1 ] && echo "would be set" || echo "set") to .githooks: the push gate runs here"; fi
 if [ "$DRY" -eq 1 ]; then echo "  nothing was written (dry run)"; else echo "✓ Harness $CORE_VERSION in place. Run 'ai-core session-start' here to verify."; fi
 echo "=================================================="

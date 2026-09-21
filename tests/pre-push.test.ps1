@@ -267,49 +267,97 @@ Check 'a new unnamed commit is refused' 1 $rc
 & git -C $plain reset -q --hard HEAD~1
 
 # --- -Install: the shim -----------------------------------------------------------------------
-Write-Host '-Install writes the shim, arms the clone, and says what to commit'
+Write-Host '-Install writes the shim, arms the clone, commits the shim on its own and says it has no origin to push to'
 $fresh = Join-Path $fake 'fresh'; & git init -q -b master $fresh
-Push-Location $fresh
-try { $out = (& pwsh -NoProfile -File $gate -Install 2>&1 | Out-String); $rc = $LASTEXITCODE } finally { Pop-Location }
+& git -C $fresh config user.email 'test@example.invalid'; & git -C $fresh config user.name 'test'
+Write-Lf (Join-Path $fresh 'open.txt') "work in progress`n"; & git -C $fresh add open.txt   # somebody's staged work stays out of the commit
+function InstallIn([string]$tree) { Push-Location $tree; try { $script:out = (& pwsh -NoProfile -File $gate -Install 2>&1 | Out-String); $script:rc = $LASTEXITCODE } finally { Pop-Location } }
+InstallIn $fresh
 Check 'exit 0'                        0 $rc
-Check 'created, with the executable bit to commit' 'True' (Says 'fresh: \.githooks/pre-push created; commit it with the executable bit: git add --chmod=\+x \.githooks/pre-push')
+Check 'created'                       'True' (Says '(?m)^pre-push: fresh: \.githooks/pre-push created\r?$')
 Check 'core.hooksPath set'            '.githooks' "$(& git -C $fresh config --get core.hooksPath)"
 $shimText = [System.IO.File]::ReadAllText((Join-Path $fresh '.githooks\pre-push'))
 Check 'the shim starts the gate'      'True' ($shimText.Contains("`nexec ai-core pre-push `"`$@`"`n"))
 Check 'four lines, LF'                4 (([regex]::Matches($shimText, "`n")).Count)
 Check 'it refuses without ai-core on the PATH' 'True' ($shimText.Contains('ai-core is not on the PATH of this shell'))
 Check 'no carriage return'            'False' ($shimText.Contains("`r"))
-Push-Location $fresh
-try { $out = (& pwsh -NoProfile -File $gate -Install 2>&1 | Out-String); $rc = $LASTEXITCODE } finally { Pop-Location }
-Check 'a second run: unchanged'       'True' (Says 'fresh: \.githooks/pre-push unchanged')
+Check 'committed'                     'True' (Says '(?m)^pre-push: fresh: committed [0-9a-f]')
+Check 'no origin, not pushed'         'True' (Says '(?m)^pre-push: fresh: no origin; not pushed\r?$')
+Check 'the commit subject'            'the push gate is ai-core pre-push' "$(& git -C $fresh log -1 --format=%s)"
+Check 'the No-issue trailer'          'written, committed and pushed by ai-core pre-push --install' ((& git -C $fresh log -1 "--format=%(trailers:key=No-issue,valueonly)" | Out-String).Trim())
+Check 'only the shim in the commit'   '.githooks/pre-push' ((@(& git -C $fresh show --pretty=format: --name-only HEAD | Where-Object { $_ }) -join ' '))
+Check 'with the executable bit'       '100755' ("$(& git -C $fresh ls-tree HEAD .githooks/pre-push)".Substring(0, 6))
+Check 'the staged work is still staged, uncommitted' 'A  open.txt' "$(& git -C $fresh status --porcelain open.txt)"
+$head1 = "$(& git -C $fresh rev-parse HEAD)"
+InstallIn $fresh
+Check 'a second run: unchanged'       'True' (Says '(?m)^pre-push: fresh: \.githooks/pre-push unchanged\r?$')
+Check 'and no new commit'             $head1 "$(& git -C $fresh rev-parse HEAD)"
 Check 'and nothing about hooksPath'   'False' (Says 'hooksPath')
 Write-Lf (Join-Path $fresh '.githooks\pre-push') "#!/usr/bin/env bash`nexec bash ../tooling/hooks/pre-push `"`$@`"`n"
-Push-Location $fresh
-try { $out = (& pwsh -NoProfile -File $gate -Install 2>&1 | Out-String); $rc = $LASTEXITCODE } finally { Pop-Location }
-Check 'a shim of another kind: refreshed' 'True' (Says 'fresh: \.githooks/pre-push refreshed; commit it')
+& git -C $fresh commit -q -am 'An older shim, as a repository of the old tooling carries #9'
+InstallIn $fresh
+Check 'a shim of another kind: refreshed and committed' 'True' ((Says '(?m)^pre-push: fresh: \.githooks/pre-push refreshed\r?$') -and (Says '(?m)^pre-push: fresh: committed'))
 Check 'and it is the shim again'      'True' ([System.IO.File]::ReadAllText((Join-Path $fresh '.githooks\pre-push')).Contains('exec ai-core pre-push'))
 
-Write-Host 'every worktree of the repository gets the shim too: a push runs the file of the tree it comes from'
-& git -C $fresh config user.email 'test@example.invalid'; & git -C $fresh config user.name 'test'
-& git -C $fresh add -A; & git -C $fresh commit -q -m 'Carry the shim #9'
-Write-Lf (Join-Path $fresh '.githooks\pre-push') "#!/usr/bin/env bash`nexec bash ../tooling/hooks/pre-push `"`$@`"`n"
-& git -C $fresh commit -q -am 'An older shim, as a worktree branched off it would carry #9'
-$freshWt = Join-Path $fake 'fresh-wt'; & git -C $fresh worktree add -q -b issue-9-probe $freshWt master
-Push-Location $fresh
-try { $out = (& pwsh -NoProfile -File $gate -Install 2>&1 | Out-String); $rc = $LASTEXITCODE } finally { Pop-Location }
+Write-Host 'with an origin, the commit is pushed by ref, through the gate'
+# git starts the shim through bash, and bash finds ai-core on the PATH: a stub that exits 0
+Write-Lf (Join-Path $stub 'ai-core') "#!/bin/sh`nexit 0`n"
+if (-not $IsWindows) { & chmod +x (Join-Path $stub 'ai-core') }
+$originBare = Join-Path $fake 'origin.git'; & git init -q --bare -b master $originBare
+$pushed = Join-Path $fake 'pushed'; & git init -q -b master $pushed
+& git -C $pushed config user.email 'test@example.invalid'; & git -C $pushed config user.name 'test'
+Write-Lf (Join-Path $pushed 'a.txt') "a`n"; & git -C $pushed add -A; & git -C $pushed commit -q -m 'Start #3'
+& git -C $pushed remote add origin $originBare; & git -C $pushed push -q -u origin master 2>$null
+InstallIn $pushed
+Check 'exit 0'                        0 $rc
+Check 'pushed to origin/master'       'True' (Says '(?m)^pre-push: pushed: pushed to origin/master\r?$')
+Check 'the origin has the commit'     "$(& git -C $pushed rev-parse HEAD)" "$(& git -C $originBare rev-parse master)"
+
+Write-Host 'an unpushed commit that touches only .gitignore and names no issue gets the trailer, and the push goes through'
+Write-Lf (Join-Path $pushed '.gitignore') "node_modules/`n"; & git -C $pushed add .gitignore; & git -C $pushed commit -q -m 'chore: ignore node_modules'
+InstallIn $pushed
+Check 'exit 0'                        0 $rc
+Check 'the shim needs no commit of its own' 'False' (Says '(?m)^pre-push: pushed: committed')
+Check 'it says which commit and why'  'True' (Says 'chore: ignore node_modules\) touches only \.gitignore and names no issue; it gets the trailer')
+Check 'the trailer is on that commit' 'the .gitignore block written by ai-core init' ((& git -C $pushed log -1 "--format=%(trailers:key=No-issue,valueonly)" HEAD | Out-String).Trim())
+Check 'its subject is kept'           'chore: ignore node_modules' "$(& git -C $pushed log -1 --format=%s HEAD)"
+Check 'pushed'                        'True' (Says '(?m)^pre-push: pushed: pushed to origin/master\r?$')
+Check 'the origin has it all'         "$(& git -C $pushed rev-parse HEAD)" "$(& git -C $originBare rev-parse master)"
+
+Write-Host 'an unpushed commit that touches something else and names no issue is still refused, by the gate'
+Write-Lf (Join-Path $pushed 'x.txt') "x`n"; & git -C $pushed add x.txt; & git -C $pushed commit -q -m 'Add x without a ticket'
+Write-Lf (Join-Path $pushed '.githooks\pre-push') "#!/usr/bin/env bash`nexec bash ../tooling/hooks/pre-push `"`$@`"`n"
+# the real gate this time: git starts the shim, the shim starts ai-core, which is the clone's own gate here
+Write-Lf (Join-Path $stub 'ai-core') "#!/bin/sh`nexec bash `"$($root.Replace('\', '/'))/bin/pre-push.sh`" `"`$@`"`n"
+if (-not $IsWindows) { & chmod +x (Join-Path $stub 'ai-core') }
+InstallIn $pushed
+Check 'exit 1'                        1 $rc
+Check 'the gate names the commit'     'True' (Says 'Add x without a ticket names no issue')
+Check 'the push was refused, the commit stays' 'True' (Says 'the push was refused or failed \(see above\); the commit stays')
+& git -C $pushed reset -q --hard origin/master   # the foreign commit goes; the origin is where the last push left it
+Write-Lf (Join-Path $stub 'ai-core') "#!/bin/sh`nexit 0`n"
+
+Write-Host 'every worktree of the repository gets the shim too, and only the checkout commits it'
+Write-Lf (Join-Path $pushed '.githooks\pre-push') "#!/usr/bin/env bash`nexec bash ../tooling/hooks/pre-push `"`$@`"`n"
+& git -C $pushed commit -q -am 'An older shim, as a worktree branched off it would carry #9'
+$pushedWt = Join-Path $fake 'pushed-wt'; & git -C $pushed worktree add -q -b issue-9-probe $pushedWt master
+$headBefore = "$(& git -C $pushed rev-parse HEAD)"
+InstallIn $pushed
 Check 'exit 0'                              0 $rc
-Check 'the main checkout: refreshed'        'True' (Says '(?m)^pre-push: fresh: \.githooks/pre-push refreshed')
-Check 'the worktree: refreshed, and named'  'True' (Says '(?m)^pre-push: fresh \(worktree fresh-wt\): \.githooks/pre-push refreshed')
-Check 'the worktree carries the shim'       'True' ([System.IO.File]::ReadAllText((Join-Path $freshWt '.githooks\pre-push')).Contains('exec ai-core pre-push'))
-& git -C $fresh worktree remove --force $freshWt 2>$null | Out-Null
+Check 'the checkout: refreshed, committed, pushed' 'True' ((Says '(?m)^pre-push: pushed: \.githooks/pre-push refreshed\r?$') -and (Says '(?m)^pre-push: pushed: pushed to origin/master\r?$'))
+Check 'the worktree: refreshed, and left to its own commit' 'True' (Says "(?m)^pre-push: pushed \(worktree pushed-wt\): \.githooks/pre-push refreshed; it goes out with that worktree's own commit\r?$")
+Check 'the worktree carries the shim'       'True' ([System.IO.File]::ReadAllText((Join-Path $pushedWt '.githooks\pre-push')).Contains('exec ai-core pre-push'))
+Check 'the worktree has it uncommitted'     ' M .githooks/pre-push' "$(& git -C $pushedWt status --porcelain .githooks/pre-push)"
+Check 'the checkout moved by one commit'    $headBefore "$(& git -C $pushed rev-parse HEAD~1)"
+& git -C $pushed worktree remove --force $pushedWt 2>$null | Out-Null
 
 Write-Host '-Install -All: every repository under a folder, a plain folder skipped'
 $folder = Join-Path $fake 'folder'; New-Item -ItemType Directory -Path (Join-Path $folder 'not-a-repo') -Force | Out-Null
-foreach ($r in @('one', 'two')) { & git init -q -b master (Join-Path $folder $r) }
+foreach ($r in @('one', 'two')) { $d = Join-Path $folder $r; & git init -q -b master $d; & git -C $d config user.email 'test@example.invalid'; & git -C $d config user.name 'test' }
 $out = (& pwsh -NoProfile -File $gate -Install -All $folder 2>&1 | Out-String); $rc = $LASTEXITCODE
 Check 'exit 0'                      0 $rc
 Check 'two repositories'            'True' (Says 'the shim is in 2 repositories')
-Check 'both carry the shim'         'True' ((Test-Path (Join-Path $folder 'one\.githooks\pre-push')) -and (Test-Path (Join-Path $folder 'two\.githooks\pre-push')))
+Check 'both carry the shim, committed' 'True' (("$(& git -C (Join-Path $folder 'one') log -1 --format=%s)" -ceq 'the push gate is ai-core pre-push') -and ("$(& git -C (Join-Path $folder 'two') log -1 --format=%s)" -ceq 'the push gate is ai-core pre-push'))
 Check 'the plain folder does not'   'False' (Test-Path (Join-Path $folder 'not-a-repo\.githooks'))
 Push-Location (Join-Path $folder 'not-a-repo')
 try { $out = (& pwsh -NoProfile -File $gate -Install 2>&1 | Out-String); $rc = $LASTEXITCODE } finally { Pop-Location }

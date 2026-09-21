@@ -308,34 +308,33 @@ check 'a new unnamed commit is refused'  1 "$rc"
 git -C "$plain" reset -q --hard HEAD~1
 
 # --- --install: the shim, and what it hands the gate --------------------------------------------
-echo '--install writes the shim, arms the clone, and says what to commit'
+echo '--install writes the shim, arms the clone, commits the shim on its own and says it has no origin to push to'
 fresh="$fake/fresh"; git init -q -b master "$fresh"
+git -C "$fresh" config user.email 'test@example.invalid'; git -C "$fresh" config user.name 'test'
+printf 'work in progress\n' > "$fresh/open.txt"; git -C "$fresh" add open.txt   # somebody's staged work stays out of the commit
 out="$( cd "$fresh" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
 check 'exit 0'                        0 "$rc"
-check 'created, with the executable bit to commit' yes "$(printf '%s\n' "$out" | grep -q 'fresh: .githooks/pre-push created; commit it with the executable bit: git add --chmod=+x .githooks/pre-push' && echo yes || echo no)"
+check 'created'                       yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: .githooks/pre-push created$' && echo yes || echo no)"
 check 'core.hooksPath set'            .githooks "$(git -C "$fresh" config --get core.hooksPath)"
 check 'the shim starts the gate'      yes "$(grep -qx 'exec ai-core pre-push "$@"' "$fresh/.githooks/pre-push" && echo yes || echo no)"
 check 'four lines'                    4 "$(wc -l < "$fresh/.githooks/pre-push" | tr -d ' ')"
+check 'committed'                     yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: committed [0-9a-f]' && echo yes || echo no)"
+check 'no origin, not pushed'         yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: no origin; not pushed$' && echo yes || echo no)"
+check 'the commit subject'            'the push gate is ai-core pre-push' "$(git -C "$fresh" log -1 --format=%s)"
+check 'the No-issue trailer'          'written, committed and pushed by ai-core pre-push --install' "$(git -C "$fresh" log -1 --format='%(trailers:key=No-issue,valueonly)' | tr -d '\n')"
+check 'only the shim in the commit'   '.githooks/pre-push' "$(git -C "$fresh" show --pretty=format: --name-only HEAD | grep -v '^$' | tr '\n' ' ' | sed 's/ $//')"
+check 'with the executable bit'       100755 "$(git -C "$fresh" ls-tree HEAD .githooks/pre-push | cut -c1-6)"
+check 'the staged work is still staged, uncommitted' 'A  open.txt' "$(git -C "$fresh" status --porcelain open.txt)"
+head1="$(git -C "$fresh" rev-parse HEAD)"
 out="$( cd "$fresh" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
-check 'a second run: unchanged'       yes "$(printf '%s\n' "$out" | grep -q 'fresh: .githooks/pre-push unchanged' && echo yes || echo no)"
+check 'a second run: unchanged'       yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: .githooks/pre-push unchanged$' && echo yes || echo no)"
+check 'and no new commit'             "$head1" "$(git -C "$fresh" rev-parse HEAD)"
 check 'and nothing about hooksPath'   no "$(printf '%s\n' "$out" | grep -q 'hooksPath' && echo yes || echo no)"
 printf '#!/usr/bin/env bash\nexec bash ../tooling/hooks/pre-push "$@"\n' > "$fresh/.githooks/pre-push"
+git -C "$fresh" commit -q -am 'An older shim, as a repository of the old tooling carries #9'
 out="$( cd "$fresh" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
-check 'a shim of another kind: refreshed' yes "$(printf '%s\n' "$out" | grep -q 'fresh: .githooks/pre-push refreshed; commit it' && echo yes || echo no)"
+check 'a shim of another kind: refreshed and committed' yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: .githooks/pre-push refreshed$' && printf '%s\n' "$out" | grep -q '^pre-push: fresh: committed' && echo yes || echo no)"
 check 'and it is the shim again'      yes "$(grep -qx 'exec ai-core pre-push "$@"' "$fresh/.githooks/pre-push" && echo yes || echo no)"
-
-echo 'every worktree of the repository gets the shim too: a push runs the file of the tree it comes from'
-git -C "$fresh" config user.email 'test@example.invalid'; git -C "$fresh" config user.name 'test'
-git -C "$fresh" add -A; git -C "$fresh" commit -q -m 'Carry the shim #9'
-printf '#!/usr/bin/env bash\nexec bash ../tooling/hooks/pre-push "$@"\n' > "$fresh/.githooks/pre-push"
-git -C "$fresh" commit -q -am 'An older shim, as a worktree branched off it would carry #9'
-fresh_wt="$fake/fresh-wt"; git -C "$fresh" worktree add -q -b issue-9-probe "$fresh_wt" master
-out="$( cd "$fresh" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
-check 'exit 0'                              0 "$rc"
-check 'the main checkout: refreshed'        yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: .githooks/pre-push refreshed' && echo yes || echo no)"
-check 'the worktree: refreshed, and named'  yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh (worktree fresh-wt): .githooks/pre-push refreshed' && echo yes || echo no)"
-check 'the worktree carries the shim'       yes "$(grep -qx 'exec ai-core pre-push "$@"' "$fresh_wt/.githooks/pre-push" && echo yes || echo no)"
-git -C "$fresh" worktree remove --force "$fresh_wt" >/dev/null 2>&1
 
 echo 'the shim hands the gate git'"'"'s arguments and input'
 : > "$shim_args"
@@ -347,13 +346,60 @@ out="$( cd "$fresh" && PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vx "$st
 check 'exit 1'                  1 "$rc"
 check 'it names the cause'      yes "$(printf '%s\n' "$out" | grep -q 'ai-core is not on the PATH of this shell' && echo yes || echo no)"
 
+echo 'with an origin, the commit is pushed by ref, through the gate'
+origin_bare="$fake/origin.git"; git init -q --bare -b master "$origin_bare"
+pushed="$fake/pushed"; git init -q -b master "$pushed"
+git -C "$pushed" config user.email 'test@example.invalid'; git -C "$pushed" config user.name 'test'
+printf 'a\n' > "$pushed/a.txt"; git -C "$pushed" add -A; git -C "$pushed" commit -q -m 'Start #3'
+git -C "$pushed" remote add origin "$origin_bare"; git -C "$pushed" push -q -u origin master 2>/dev/null
+: > "$shim_args"
+out="$( cd "$pushed" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'exit 0'                        0 "$rc"
+check 'pushed to origin/master'       yes "$(printf '%s\n' "$out" | grep -q '^pre-push: pushed: pushed to origin/master$' && echo yes || echo no)"
+check 'the origin has the commit'     "$(git -C "$pushed" rev-parse HEAD)" "$(git -C "$origin_bare" rev-parse master)"
+check 'and the push went through the shim, so through ai-core pre-push' yes "$(grep -q '^\[pre-push origin ' "$shim_args" && echo yes || echo no)"
+
+echo 'an unpushed commit that touches only .gitignore and names no issue gets the trailer, and the push goes through'
+printf 'node_modules/\n' > "$pushed/.gitignore"; git -C "$pushed" add .gitignore; git -C "$pushed" commit -q -m 'chore: ignore node_modules'
+out="$( cd "$pushed" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'exit 0'                        0 "$rc"
+check 'the shim needs no commit of its own' no "$(printf '%s\n' "$out" | grep -q '^pre-push: pushed: committed' && echo yes || echo no)"
+check 'it says which commit and why'  yes "$(printf '%s\n' "$out" | grep -q 'chore: ignore node_modules) touches only .gitignore and names no issue; it gets the trailer' && echo yes || echo no)"
+check 'the trailer is on that commit' 'the .gitignore block written by ai-core init' "$(git -C "$pushed" log -1 --format='%(trailers:key=No-issue,valueonly)' HEAD | tr -d '\n')"
+check 'its subject is kept'           'chore: ignore node_modules' "$(git -C "$pushed" log -1 --format=%s HEAD)"
+check 'pushed'                        yes "$(printf '%s\n' "$out" | grep -q '^pre-push: pushed: pushed to origin/master$' && echo yes || echo no)"
+check 'the origin has it all'         "$(git -C "$pushed" rev-parse HEAD)" "$(git -C "$origin_bare" rev-parse master)"
+
+echo 'an unpushed commit that touches something else and names no issue is still refused, by the gate'
+printf 'x\n' > "$pushed/x.txt"; git -C "$pushed" add x.txt; git -C "$pushed" commit -q -m 'Add x without a ticket'
+printf '#!/usr/bin/env bash\nexec bash ../tooling/hooks/pre-push "$@"\n' > "$pushed/.githooks/pre-push"
+out="$( cd "$pushed" && PATH="$root/bin:$PATH" bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'exit 1'                        1 "$rc"
+check 'the gate names the commit'     yes "$(printf '%s\n' "$out" | grep -q 'Add x without a ticket names no issue' && echo yes || echo no)"
+check 'the push was refused, the commit stays' yes "$(printf '%s\n' "$out" | grep -q 'the push was refused or failed (see above); the commit stays' && echo yes || echo no)"
+git -C "$pushed" reset -q --hard origin/master   # the foreign commit goes; the origin is where the last push left it
+
+echo 'every worktree of the repository gets the shim too, and only the checkout commits it'
+printf '#!/usr/bin/env bash\nexec bash ../tooling/hooks/pre-push "$@"\n' > "$pushed/.githooks/pre-push"
+git -C "$pushed" commit -q -am 'An older shim, as a worktree branched off it would carry #9'
+pushed_wt="$fake/pushed-wt"; git -C "$pushed" worktree add -q -b issue-9-probe "$pushed_wt" master
+head_before="$(git -C "$pushed" rev-parse HEAD)"
+out="$( cd "$pushed" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'exit 0'                              0 "$rc"
+check 'the checkout: refreshed, committed, pushed' yes "$(printf '%s\n' "$out" | grep -q '^pre-push: pushed: .githooks/pre-push refreshed$' && printf '%s\n' "$out" | grep -q '^pre-push: pushed: pushed to origin/master$' && echo yes || echo no)"
+check 'the worktree: refreshed, and left to its own commit' yes "$(printf '%s\n' "$out" | grep -q "^pre-push: pushed (worktree pushed-wt): .githooks/pre-push refreshed; it goes out with that worktree's own commit$" && echo yes || echo no)"
+check 'the worktree carries the shim'       yes "$(grep -qx 'exec ai-core pre-push "$@"' "$pushed_wt/.githooks/pre-push" && echo yes || echo no)"
+check 'the worktree has it uncommitted'     ' M .githooks/pre-push' "$(git -C "$pushed_wt" status --porcelain .githooks/pre-push)"
+check 'the checkout moved by one commit'    "$head_before" "$(git -C "$pushed" rev-parse HEAD~1)"
+git -C "$pushed" worktree remove --force "$pushed_wt" >/dev/null 2>&1
+
 echo '--install --all: every repository under a folder, a plain folder skipped'
 folder="$fake/folder"; mkdir -p "$folder/not-a-repo"
-for r in one two; do git init -q -b master "$folder/$r"; done
+for r in one two; do git init -q -b master "$folder/$r"; git -C "$folder/$r" config user.email 'test@example.invalid'; git -C "$folder/$r" config user.name 'test'; done
 out="$( bash "$root/bin/pre-push.sh" --install --all "$folder" 2>&1 )"; rc=$?
 check 'exit 0'                      0 "$rc"
 check 'two repositories'            yes "$(printf '%s\n' "$out" | grep -q 'the shim is in 2 repositories' && echo yes || echo no)"
-check 'both carry the shim'         yes "$([ -f "$folder/one/.githooks/pre-push" ] && [ -f "$folder/two/.githooks/pre-push" ] && echo yes || echo no)"
+check 'both carry the shim, committed' yes "$([ "$(git -C "$folder/one" log -1 --format=%s)" = 'the push gate is ai-core pre-push' ] && [ "$(git -C "$folder/two" log -1 --format=%s)" = 'the push gate is ai-core pre-push' ] && echo yes || echo no)"
 check 'the plain folder does not'   no "$([ -e "$folder/not-a-repo/.githooks" ] && echo yes || echo no)"
 out="$( cd "$folder/not-a-repo" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
 check '--install outside a repository: exit 1' 1 "$rc"

@@ -43,9 +43,12 @@ if ($Help -or $Rest -ccontains "-h" -or $Rest -ccontains "--help") {
   Write-Host "no checks. Run from a prompt it judges the current branch against its upstream."
   Write-Host ""
   Write-Host "Options:"
-  Write-Host "  -Install          Write the shim into .githooks/pre-push of the current repository (or"
-  Write-Host "                    refresh a shim of another kind), set core.hooksPath to .githooks, and say"
-  Write-Host "                    what to commit; nothing is committed"
+  Write-Host "  -Install          Write the shim into .githooks/pre-push of the current repository and of"
+  Write-Host "                    every worktree of it, set core.hooksPath to .githooks, commit the shim on"
+  Write-Host "                    its own (No-issue: trailer) and push it by ref to the branch checked out,"
+  Write-Host "                    through the gate; a worktree gets the file only. An unpushed commit that"
+  Write-Host "                    names no issue and touches nothing but .gitignore gets the trailer that"
+  Write-Host "                    says init wrote it, so the push goes through"
   Write-Host "  -All <folder>     With -Install: every git repository directly under the folder"
   Write-Host "  -Help             Show this help message"
   Write-Host ""
@@ -66,22 +69,90 @@ function Deny-Push([string]$why) { [Console]::Error.WriteLine("pre-push: REFUSED
 
 # --- -Install: the shim, three lines that only start this gate -----------------------------
 $shim = "#!/usr/bin/env bash`n# The push gate is ``ai-core pre-push`` (setup-ai-core); this file only starts it with git's own standard input.`ncommand -v ai-core >/dev/null 2>&1 || { echo `"pre-push: REFUSED — ai-core is not on the PATH of this shell, so nothing judged this push. Install setup-ai-core, or open a new terminal where its bin/ is on the PATH.`" >&2; exit 1; }`nexec ai-core pre-push `"`$@`"`n"
-function Write-Shim([string]$dir, [string]$label) {  # the shim into <dir>\.githooks\pre-push, and what happened
+function Write-Shim([string]$dir) {  # the shim into <dir>\.githooks\pre-push; returns unchanged, refreshed or created
   $path = Join-Path $dir '.githooks\pre-push'
   $state = 'created'
   if (Test-Path -LiteralPath $path) {
-    if ([System.IO.File]::ReadAllText($path).Replace("`r", "") -ceq $shim) { $state = 'unchanged' } else { $state = 'refreshed' }
+    if ([System.IO.File]::ReadAllText($path).Replace("`r", "") -ceq $shim) { return 'unchanged' } else { $state = 'refreshed' }
   }
-  if ($state -cne 'unchanged') {
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path) | Out-Null
-    [System.IO.File]::WriteAllText($path, $shim, $utf8)   # LF and no mark: git starts it through bash
-    if (Get-Command chmod -ErrorAction SilentlyContinue) { & chmod +x $path }
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path) | Out-Null
+  [System.IO.File]::WriteAllText($path, $shim, $utf8)   # LF and no mark: git starts it through bash
+  if (Get-Command chmod -ErrorAction SilentlyContinue) { & chmod +x $path }
+  return $state
+}
+# The shim committed on its own, with the executable bit, and pushed by ref to the branch checked
+# out; nothing when the commit already carries it
+# An unpushed commit that names no issue and touches nothing but .gitignore was written by an
+# init before init committed the block itself; it gets the trailer that says so, in one rebase of
+# the unpushed commits, author kept. Git runs the two editors through its own sh.
+function Add-GitignoreTrailer([string]$dir, [string]$label, [string]$branch) {
+  & git -C $dir rev-parse -q --verify "origin/$branch" 2>$null | Out-Null
+  if ($LASTEXITCODE -ne 0) { return $true }
+  $shorts = @()
+  foreach ($sha in @(& git -C $dir rev-list --reverse --no-merges "origin/$branch..HEAD" 2>$null | ForEach-Object { "$_" } | Where-Object { $_ })) {
+    if ((& git -C $dir log -1 --format=%B $sha | Out-String) -cmatch '#[0-9]') { continue }
+    if ("$(& git -C $dir log -1 --format=%s $sha)".StartsWith('release:', [StringComparison]::Ordinal)) { continue }
+    if (((& git -C $dir log -1 "--format=%(trailers:key=No-issue,valueonly)" $sha | Out-String) -creplace '\s', '')) { continue }
+    $files = @(& git -C $dir show --pretty=format: --name-only $sha 2>$null | ForEach-Object { "$_" } | Where-Object { $_ } | Sort-Object -Unique)
+    if ($files.Count -ne 1 -or $files[0] -cne '.gitignore') { continue }
+    $short = "$(& git -C $dir rev-parse --short $sha)"
+    $shorts += $short
+    Write-Host "pre-push: ${label}: $short ($(& git -C $dir log -1 --format=%s $sha)) touches only .gitignore and names no issue; it gets the trailer that says init wrote it"
   }
-  switch -CaseSensitive ($state) {
-    'unchanged' { Write-Host "pre-push: ${label}: .githooks/pre-push unchanged" }
-    'refreshed' { Write-Host "pre-push: ${label}: .githooks/pre-push refreshed; commit it" }
-    'created'   { Write-Host "pre-push: ${label}: .githooks/pre-push created; commit it with the executable bit: git add --chmod=+x .githooks/pre-push" }
+  if ($shorts.Count -eq 0) { return $true }
+  $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("ai-core-pre-push-" + [System.IO.Path]::GetRandomFileName())
+  New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+  $seq = (Join-Path $tmp 'seq.sh').Replace('\', '/'); $msg = (Join-Path $tmp 'msg.sh').Replace('\', '/')
+  [System.IO.File]::WriteAllText($seq, (($shorts | ForEach-Object { "sed -i `"s/^pick $_ /reword $_ /`" `"`$1`"" }) -join "`n") + "`n", $utf8)
+  [System.IO.File]::WriteAllText($msg, "printf `"\\nNo-issue: the .gitignore block written by ai-core init\\n`" >> `"`$1`"`n", $utf8)
+  $env:GIT_SEQUENCE_EDITOR = "sh $seq"; $env:GIT_EDITOR = "sh $msg"
+  try { & git -C $dir rebase -q -i "origin/$branch" 2>$null | Out-Null; $ok = ($LASTEXITCODE -eq 0) }
+  finally { Remove-Item Env:GIT_SEQUENCE_EDITOR, Env:GIT_EDITOR -ErrorAction SilentlyContinue; Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue }
+  if (-not $ok) { & git -C $dir rebase --abort 2>$null | Out-Null; [Console]::Error.WriteLine("pre-push: ${label}: the trailer could not be added; the commits are as they were"); return $false }
+  return $true
+}
+# One path, with the executable bit, as one commit on HEAD, whatever else is staged; built from
+# an index of its own, because `git commit -- <path>` reads the path from the working tree, which
+# on Windows has no executable bit.
+function Save-Only([string]$dir, [string]$path, [string]$subject, [string]$trailer) {
+  $idx = Join-Path ([System.IO.Path]::GetTempPath()) ("ai-core-index-" + [System.IO.Path]::GetRandomFileName())
+  $env:GIT_INDEX_FILE = $idx
+  try {
+    & git -C $dir rev-parse -q --verify HEAD 2>$null | Out-Null
+    $hasHead = ($LASTEXITCODE -eq 0)
+    if ($hasHead) { & git -C $dir read-tree HEAD } else { & git -C $dir read-tree --empty }
+    if ($LASTEXITCODE -ne 0) { return $false }
+    & git -C $dir add --chmod=+x -- $path
+    if ($LASTEXITCODE -ne 0) { return $false }
+    $tree = "$(& git -C $dir write-tree)"
+    if ($LASTEXITCODE -ne 0 -or -not $tree) { return $false }
+  } finally { Remove-Item Env:GIT_INDEX_FILE -ErrorAction SilentlyContinue; Remove-Item -Force $idx -ErrorAction SilentlyContinue }
+  $commit = if ($hasHead) { "$(& git -C $dir commit-tree $tree -p HEAD -m $subject -m $trailer)" } else { "$(& git -C $dir commit-tree $tree -m $subject -m $trailer)" }
+  if ($LASTEXITCODE -ne 0 -or -not $commit) { return $false }
+  & git -C $dir update-ref HEAD $commit
+  if ($LASTEXITCODE -ne 0) { return $false }
+  & git -C $dir add --chmod=+x -- $path   # the index follows HEAD for this path, so it is clean
+  return $true
+}
+function Send-Shim([string]$dir, [string]$label) {
+  & git -C $dir ls-files --error-unmatch .githooks/pre-push 2>$null | Out-Null
+  $tracked = ($LASTEXITCODE -eq 0)
+  & git -C $dir diff --quiet HEAD -- .githooks/pre-push 2>$null
+  if (-not ($tracked -and $LASTEXITCODE -eq 0)) {
+    if (-not (Save-Only $dir '.githooks/pre-push' 'the push gate is ai-core pre-push' 'No-issue: written, committed and pushed by ai-core pre-push --install')) { [Console]::Error.WriteLine("pre-push: ${label}: the commit failed (see above); the shim is written"); return $false }
+    Write-Host "pre-push: ${label}: committed $(& git -C $dir rev-parse --short HEAD)"
   }
+  & git -C $dir remote get-url origin 2>$null | Out-Null
+  if ($LASTEXITCODE -ne 0) { Write-Host "pre-push: ${label}: no origin; not pushed"; return $true }
+  $branch = "$(& git -C $dir symbolic-ref --short -q HEAD 2>$null)"
+  if ($LASTEXITCODE -ne 0 -or -not $branch) { [Console]::Error.WriteLine("pre-push: ${label}: not on a branch; not pushed"); return $false }
+  & git -C $dir rev-parse -q --verify "origin/$branch" 2>$null | Out-Null
+  if ($LASTEXITCODE -eq 0 -and "$(& git -C $dir rev-list --count "origin/$branch..HEAD")" -ceq '0') { Write-Host "pre-push: ${label}: nothing to push"; return $true }
+  if (-not (Add-GitignoreTrailer $dir $label $branch)) { return $false }
+  & git -C $dir push --quiet origin "HEAD:$branch"
+  if ($LASTEXITCODE -ne 0) { [Console]::Error.WriteLine("pre-push: ${label}: the push was refused or failed (see above); the commit stays"); return $false }
+  Write-Host "pre-push: ${label}: pushed to origin/$branch"
+  return $true
 }
 function Install-Shim([string]$dir) {  # $true written or unchanged, $false not a repository
   $name = Split-Path -Leaf $dir
@@ -93,15 +164,16 @@ function Install-Shim([string]$dir) {  # $true written or unchanged, $false not 
     Write-Host "pre-push: ${name}: core.hooksPath set to .githooks"
   }
   # A relative core.hooksPath is read from the tree being pushed, so every worktree of the
-  # repository carries its own copy of the shim, and git runs the file on disk, committed or not
-  Write-Shim $dir $name
+  # repository carries its own copy of the shim, and git runs the file on disk, committed or not.
+  # The checkout commits and pushes it; a worktree is somebody's issue and gets the file only.
+  Write-Host "pre-push: ${name}: .githooks/pre-push $(Write-Shim $dir)"
   $own = [System.IO.Path]::GetFullPath($dir).TrimEnd('\', '/')
   foreach ($line in @(& git -C $dir worktree list --porcelain 2>$null | ForEach-Object { "$_" } | Where-Object { $_.StartsWith('worktree ', [StringComparison]::Ordinal) })) {
     $tree = [System.IO.Path]::GetFullPath($line.Substring(9)).TrimEnd('\', '/')
     if ($tree -ceq $own -or -not (Test-Path -LiteralPath $tree)) { continue }
-    Write-Shim $tree "$name (worktree $(Split-Path -Leaf $tree))"
+    Write-Host "pre-push: $name (worktree $(Split-Path -Leaf $tree)): .githooks/pre-push $(Write-Shim $tree); it goes out with that worktree's own commit"
   }
-  return $true
+  return (Send-Shim $dir $name)
 }
 if ($Install) {
   if ($All) {

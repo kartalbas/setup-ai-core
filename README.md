@@ -47,7 +47,8 @@ with winget, brew or apt) and the team modes into your agent tools. If the repos
 yet. The repository gets `.ai-core/` (rules, configuration, docs), the agent files (`AGENTS.md`,
 `.claude/settings.json`, `.codex/config.toml`, ...), the skills of the harness in `.claude/skills/`
 and `.agents/skills/`, and the agents in `.claude/agents/`, all listed in `.git/info/exclude`.
-**A block is written into `.gitignore`**, the one change to commit. Graft wires the agents (files
+**A block is written into `.gitignore`, committed and pushed by `init` itself** (a worktree keeps
+it for its own commit). Graft wires the agents (files
 in the repository, and on the machine `~/.claude/settings.json`, `~/.codex/config.toml`,
 `~/.gemini/config/mcp_config.json`) and builds the code graph in `graft/`. The run ends with a
 report of every file it created, refreshed, kept or removed. **`ai-core init --dry-run` shows that
@@ -213,8 +214,11 @@ or the harness puts into a checkout, `/.ai-core/`, `/graft/`, `/AGENTS.md`, `/.c
 `/.mcp.json`, `/.agents/`, `/GEMINI.md`, the pointer files. The block stands between two marker
 lines and is rewritten there on every run; the rest of the file is the project's, a path the
 project already ignores is not written twice, and a project that ignores them all gets no block.
-That changed `.gitignore` is the one thing `init` leaves for a commit, once per repository, and
-from then on no clone of the repository commits an agent file, with or without the harness.
+`init` commits that `.gitignore` on its own (subject `the agent files of this repository are
+ignored`, a `No-issue:` trailer naming `init`) and pushes it by ref to the branch checked out,
+through the push gate where the repository carries one; in a worktree it leaves the change for
+that worktree's own commit. From then on no clone of the repository commits an agent file, with or
+without the harness.
 
 `init` also writes every path it deploys into `.git/info/exclude` of the clone, between two marker
 lines, rewritten on every run, which covers the clone before that commit. `graft-setup` writes a second block there with what Graft writes:
@@ -482,9 +486,13 @@ repositories: each repository carries a three-line `.githooks/pre-push` that onl
 `.githooks`. `ai-core pre-push --install` (`-Install`) writes that shim into the current
 repository and into every worktree of it (a relative `core.hooksPath` is read from the tree being
 pushed, and git runs the file on disk), sets `core.hooksPath`, and says what to commit; with
-`--all <folder>` it does so for every repository under a folder. `init` sets `core.hooksPath` in
-a clone that carries the shim, so a fresh clone is armed by its first `init`. Nothing is
-committed by either; the shim is the repository's own file.
+`--all <folder>` it does so for every repository under a folder, and it commits the shim on its
+own (a `No-issue:` trailer naming the command) and pushes it by ref through the gate; a worktree
+gets the file and keeps it for its own commit. An unpushed commit ahead of origin that names no
+issue and touches nothing but `.gitignore`, written by an `init` from before `init` committed the
+block itself, gets the `No-issue:` trailer that says so, author and subject kept, so the push
+goes through. `init` sets `core.hooksPath` in a clone that carries the shim, so a fresh clone is
+armed by its first `init`.
 
 The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSED — ...`, exit 1):
 
@@ -613,8 +621,8 @@ under one of these words:
 | `tracked` | a file of `repos/<repo>/` the repository commits itself; not applied |
 | `unchanged` | the count of files that were already what they should be |
 
-The report closes with `.gitignore changed` when the block was written (the one thing to commit),
-with `core.hooksPath set to .githooks` when the repository carries the push gate's shim and the
+The report closes with `.gitignore changed` when the block was written, committed and pushed
+(or, in a worktree, left to its own commit), with `core.hooksPath set to .githooks` when the repository carries the push gate's shim and the
 clone was not armed yet, and with the harness version. Above it, `graft-setup` reports its own writes in two lists, the
 files in the repository and the files on the machine (under the home directory), each with
 Graft's word for it (`created`, `updated`, `appended`, `wrote`), and one line for the graph.

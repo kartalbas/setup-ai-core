@@ -354,7 +354,22 @@ if ((Test-Path (Join-Path $target '.githooks\pre-push')) -and ("$(& git -C $targ
 #     the project's; a path the project already ignores, with or without the slashes, is not
 #     written twice, and when it ignores them all no block is written. A changed .gitignore is
 #     the one thing init leaves for a commit.
-$gitignoreChanged = $false
+# The block committed on its own and pushed by ref to the branch checked out; a worktree is
+# somebody's issue and keeps the change for its own commit. Returns the note for the report.
+function Send-Gitignore([string]$dir) {
+  if ("$(& git -C $dir rev-parse --git-dir 2>$null)" -cne "$(& git -C $dir rev-parse --git-common-dir 2>$null)") { return "it goes out with this worktree's own commit" }
+  & git -C $dir add -- .gitignore
+  & git -C $dir commit -q -m 'the agent files of this repository are ignored' -m 'No-issue: the .gitignore block written by ai-core init' -- .gitignore
+  if ($LASTEXITCODE -ne 0) { return "the commit failed (see above)" }
+  & git -C $dir remote get-url origin 2>$null | Out-Null
+  if ($LASTEXITCODE -ne 0) { return "committed; no origin, not pushed" }
+  $branch = "$(& git -C $dir symbolic-ref --short -q HEAD 2>$null)"
+  if ($LASTEXITCODE -ne 0 -or -not $branch) { return "committed; not on a branch, not pushed" }
+  & git -C $dir push --quiet origin "HEAD:$branch"
+  if ($LASTEXITCODE -eq 0) { return "committed and pushed to origin/$branch" }
+  return "committed; the push was refused or failed (see above), the commit stays"
+}
+$gitignoreChanged = $false; $gitignoreNote = ''
 if ($inWorkTree) {
   $gi = Join-Path $target ".gitignore"
   $kept = @(); $skip = $false
@@ -376,7 +391,7 @@ if ($inWorkTree) {
   $current = if (Test-Path $gi) { [System.IO.File]::ReadAllText($gi).Replace("`r`n", "`n") } else { $null }
   if ($current -cne $wanted) {
     $gitignoreChanged = $true
-    if (-not $DryRun) { [System.IO.File]::WriteAllText($gi, $wanted, $utf8) }
+    if (-not $DryRun) { [System.IO.File]::WriteAllText($gi, $wanted, $utf8); $gitignoreNote = Send-Gitignore $target }
   }
 }
 
@@ -399,7 +414,10 @@ if ($report.kept.Count -gt 0)      { Write-Host "  kept       $($report.kept -jo
 if ($report.removed.Count -gt 0)   { Write-Host "  removed    $($report.removed -join ', ')" }
 if ($report.tracked.Count -gt 0)   { Write-Host "  tracked    $($report.tracked -join ', ') (the repository commits these; repos/$repoName/ is not applied to them)" }
 Write-Host "  unchanged  $($report.unchanged) file(s)"
-if ($gitignoreChanged) { Write-Host "  .gitignore $(if ($DryRun) { 'would change' } else { 'changed' }): the agent files of this repository are ignored; commit it once" }
+if ($gitignoreChanged) {
+  if ($DryRun) { Write-Host "  .gitignore would change and be committed: the agent files of this repository are ignored" }
+  else { Write-Host "  .gitignore changed: the agent files of this repository are ignored; $gitignoreNote" }
+}
 if ($hooksArmed) { Write-Host "  core.hooksPath $(if ($DryRun) { 'would be set' } else { 'set' }) to .githooks: the push gate runs here" }
 if ($DryRun) { Write-Host "  nothing was written (dry run)" } else { Write-Host "✓ Harness $coreVersion in place. Run 'ai-core session-start' here to verify." -ForegroundColor Green }
 Write-Host "==================================================" -ForegroundColor Green

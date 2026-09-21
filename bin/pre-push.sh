@@ -39,9 +39,12 @@ for arg in "$@"; do
     echo "no checks. Run from a terminal it judges the current branch against its upstream."
     echo ""
     echo "Options:"
-    echo "  --install         Write the shim into .githooks/pre-push of the current repository (or"
-    echo "                    refresh a shim of another kind), set core.hooksPath to .githooks, and say"
-    echo "                    what to commit; nothing is committed"
+    echo "  --install         Write the shim into .githooks/pre-push of the current repository and of"
+    echo "                    every worktree of it, set core.hooksPath to .githooks, commit the shim on"
+    echo "                    its own (No-issue: trailer) and push it by ref to the branch checked out,"
+    echo "                    through the gate; a worktree gets the file only. An unpushed commit that"
+    echo "                    names no issue and touches nothing but .gitignore gets the trailer that"
+    echo "                    says init wrote it, so the push goes through"
     echo "  --all <folder>    With --install: every git repository directly under the folder"
     echo "  -h, --help        Show this help message"
     echo ""
@@ -68,6 +71,7 @@ done
 [ -z "$ALL_DIR" ] || [ "$INSTALL" -eq 1 ] || { echo "error: --all goes with --install" >&2; exit 2; }
 
 refuse() { echo "pre-push: REFUSED — $*" >&2; exit 1; }
+TMPD="$(mktemp -d)"; trap 'rm -rf "$TMPD"' EXIT
 
 # --- --install: the shim, three lines that only start this gate ----------------------------
 SHIM='#!/usr/bin/env bash
@@ -75,22 +79,69 @@ SHIM='#!/usr/bin/env bash
 command -v ai-core >/dev/null 2>&1 || { echo "pre-push: REFUSED — ai-core is not on the PATH of this shell, so nothing judged this push. Install setup-ai-core, or open a new terminal where its bin/ is on the PATH." >&2; exit 1; }
 exec ai-core pre-push "$@"
 '
-write_shim() {  # write_shim <tree> <label>: the shim into <tree>/.githooks/pre-push, and what happened
-  local dir="$1" label="$2" path state
+write_shim() {  # write_shim <tree>: the shim into <tree>/.githooks/pre-push; prints unchanged, refreshed or created
+  local dir="$1" path
   path="$dir/.githooks/pre-push"
-  if [ -f "$path" ] && [ "$(tr -d '\r' < "$path")" = "$(printf '%s' "$SHIM")" ]; then
-    state=unchanged
+  if [ -f "$path" ] && [ "$(tr -d '\r' < "$path")" = "$(printf '%s' "$SHIM")" ]; then echo unchanged; return 0; fi
+  if [ -f "$path" ]; then echo refreshed; else echo created; fi
+  mkdir -p "$dir/.githooks"
+  printf '%s' "$SHIM" > "$path"
+  chmod +x "$path"
+}
+# commit_shim <repository> <label>: the shim committed on its own, with the executable bit, and
+# pushed by ref to the branch checked out; nothing when the commit already carries it
+# excuse_gitignore_commits <repository> <label> <branch>: an unpushed commit that names no issue
+# and touches nothing but .gitignore was written by an init before init committed the block
+# itself; it gets the trailer that says so, in one rebase of the unpushed commits, author kept.
+excuse_gitignore_commits() {
+  local dir="$1" label="$2" branch="$3" sha short list=""
+  git -C "$dir" rev-parse -q --verify "origin/$branch" >/dev/null 2>&1 || return 0
+  for sha in $(git -C "$dir" rev-list --reverse --no-merges "origin/$branch..HEAD"); do
+    case "$(git -C "$dir" log -1 --format=%B "$sha")" in *'#'[0-9]*) continue ;; esac
+    case "$(git -C "$dir" log -1 --format=%s "$sha")" in 'release:'*) continue ;; esac
+    [ -z "$(git -C "$dir" log -1 --format='%(trailers:key=No-issue,valueonly)' "$sha" | tr -d '[:space:]')" ] || continue
+    [ "$(git -C "$dir" show --pretty=format: --name-only "$sha" | grep -v '^$' | sort -u | tr '\n' ' ')" = ".gitignore " ] || continue
+    short="$(git -C "$dir" rev-parse --short "$sha")"
+    list="$list $short"
+    echo "pre-push: $label: $short ($(git -C "$dir" log -1 --format=%s "$sha")) touches only .gitignore and names no issue; it gets the trailer that says init wrote it"
+  done
+  [ -n "$list" ] || return 0
+  : > "$TMPD/seq.sh"
+  for short in $list; do printf 'sed -i "s/^pick %s /reword %s /" "$1"\n' "$short" "$short" >> "$TMPD/seq.sh"; done
+  printf 'printf "\\nNo-issue: the .gitignore block written by ai-core init\\n" >> "$1"\n' > "$TMPD/msg.sh"
+  GIT_SEQUENCE_EDITOR="sh $TMPD/seq.sh" GIT_EDITOR="sh $TMPD/msg.sh" git -C "$dir" rebase -q -i "origin/$branch" >/dev/null 2>&1 \
+    || { git -C "$dir" rebase --abort >/dev/null 2>&1; echo "pre-push: $label: the trailer could not be added; the commits are as they were" >&2; return 1; }
+}
+# commit_only <repository> <path> <subject> <trailer>: one path, with the executable bit, as one
+# commit on HEAD, whatever else is staged; built from an index of its own, because `git commit --
+# <path>` reads the path from the working tree, which on Windows has no executable bit.
+commit_only() {
+  local dir="$1" path="$2" subject="$3" trailer="$4" idx tree commit parent=()
+  idx="$TMPD/index"; rm -f "$idx"
+  if git -C "$dir" rev-parse -q --verify HEAD >/dev/null 2>&1; then
+    GIT_INDEX_FILE="$idx" git -C "$dir" read-tree HEAD || return 1; parent=(-p HEAD)
   else
-    if [ -f "$path" ]; then state=refreshed; else state=created; fi
-    mkdir -p "$dir/.githooks"
-    printf '%s' "$SHIM" > "$path"
-    chmod +x "$path"
+    GIT_INDEX_FILE="$idx" git -C "$dir" read-tree --empty || return 1
   fi
-  case "$state" in
-    unchanged) echo "pre-push: $label: .githooks/pre-push unchanged" ;;
-    refreshed) echo "pre-push: $label: .githooks/pre-push refreshed; commit it" ;;
-    created)   echo "pre-push: $label: .githooks/pre-push created; commit it with the executable bit: git add --chmod=+x .githooks/pre-push" ;;
-  esac
+  GIT_INDEX_FILE="$idx" git -C "$dir" add --chmod=+x -- "$path" || return 1
+  tree="$(GIT_INDEX_FILE="$idx" git -C "$dir" write-tree)" || return 1
+  commit="$(git -C "$dir" commit-tree "$tree" ${parent[@]+"${parent[@]}"} -m "$subject" -m "$trailer")" || return 1
+  git -C "$dir" update-ref HEAD "$commit" || return 1
+  git -C "$dir" add --chmod=+x -- "$path"   # the index follows HEAD for this path, so it is clean
+}
+commit_shim() {
+  local dir="$1" label="$2" branch
+  if git -C "$dir" ls-files --error-unmatch .githooks/pre-push >/dev/null 2>&1 && git -C "$dir" diff --quiet HEAD -- .githooks/pre-push 2>/dev/null; then :; else
+    commit_only "$dir" .githooks/pre-push 'the push gate is ai-core pre-push' 'No-issue: written, committed and pushed by ai-core pre-push --install' \
+      || { echo "pre-push: $label: the commit failed (see above); the shim is written" >&2; return 1; }
+    echo "pre-push: $label: committed $(git -C "$dir" rev-parse --short HEAD)"
+  fi
+  git -C "$dir" remote get-url origin >/dev/null 2>&1 || { echo "pre-push: $label: no origin; not pushed"; return 0; }
+  branch="$(git -C "$dir" symbolic-ref --short -q HEAD)" || { echo "pre-push: $label: not on a branch; not pushed" >&2; return 1; }
+  if git -C "$dir" rev-parse -q --verify "origin/$branch" >/dev/null 2>&1 && [ "$(git -C "$dir" rev-list --count "origin/$branch..HEAD")" -eq 0 ]; then echo "pre-push: $label: nothing to push"; return 0; fi
+  excuse_gitignore_commits "$dir" "$label" "$branch" || return 1
+  git -C "$dir" push --quiet origin "HEAD:$branch" || { echo "pre-push: $label: the push was refused or failed (see above); the commit stays" >&2; return 1; }
+  echo "pre-push: $label: pushed to origin/$branch"
 }
 install_shim() {  # install_shim <repository>: 0 written or unchanged, 1 not a repository
   local dir="$1" name tree
@@ -102,14 +153,16 @@ install_shim() {  # install_shim <repository>: 0 written or unchanged, 1 not a r
     echo "pre-push: $name: core.hooksPath set to .githooks"
   fi
   # A relative core.hooksPath is read from the tree being pushed, so every worktree of the
-  # repository carries its own copy of the shim, and git runs the file on disk, committed or not
-  write_shim "$dir" "$name"
+  # repository carries its own copy of the shim, and git runs the file on disk, committed or not.
+  # The checkout commits and pushes it; a worktree is somebody's issue and gets the file only.
+  echo "pre-push: $name: .githooks/pre-push $(write_shim "$dir")"
   while IFS= read -r tree; do
     tree="${tree#worktree }"
     [ -n "$tree" ] && [ "$tree" != "$(cd "$dir" && pwd)" ] && [ "$tree" != "$(cd "$dir" && pwd -W 2>/dev/null)" ] || continue
     [ -d "$tree" ] || continue
-    write_shim "$tree" "$name (worktree $(basename "$tree"))"
+    echo "pre-push: $name (worktree $(basename "$tree")): .githooks/pre-push $(write_shim "$tree"); it goes out with that worktree's own commit"
   done <<< "$(git -C "$dir" worktree list --porcelain 2>/dev/null | grep '^worktree ' | tail -n +2)"
+  commit_shim "$dir" "$name"
 }
 if [ "$INSTALL" -eq 1 ]; then
   if [ -n "$ALL_DIR" ]; then

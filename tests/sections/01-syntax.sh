@@ -23,4 +23,9 @@ section "every rule carries its enforcement tag, on both twins"
 bash "$ROOT/bin/rules-check.sh" "$ROOT/rules" > /dev/null || fail "rules-check.sh on rules/"
 pwsh -NoProfile -File "$ROOT/bin/rules-check.ps1" -RulesFile "$(native "$ROOT/rules")" > /dev/null || fail "rules-check.ps1 on rules/"
 
+section "every committed script carries its executable bit: a Windows clone records none, and a runner executes bin/*.sh directly"
+bad="$(cd "$ROOT" && git ls-files -s | awk '$1 == "100644" {print $4}' | while IFS= read -r f; do [ "$(head -c 2 "$f" 2>/dev/null)" = "#!" ] && printf "%s " "$f"; done)"
+[ -z "$bad" ] || fail "committed without the executable bit (git update-index --chmod=+x): $bad"
+echo "  every file with a shebang is 100755 in the index"
+
 exit 0

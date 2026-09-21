@@ -507,8 +507,8 @@ mkdir -p "$WORK/none"
 (cd "$WORK/none" && pwsh -NoProfile -File "$(native "$ROOT/bin/session-start.ps1")" > /dev/null 2>&1) && fail "session-start.ps1 exited 0 without rules"
 
 echo "==> the board and issue commands: both suites against a fake gh, then the case check of every twin"
-bash "$ROOT/tests/run-all.sh" > "$WORK/suite.sh.log" 2>&1 || { tail -30 "$WORK/suite.sh.log"; fail "bash tests/run-all.sh"; }
-pwsh -NoProfile -File "$ROOT/tests/run-all.ps1" > "$WORK/suite.ps1.log" 2>&1 || { tail -30 "$WORK/suite.ps1.log"; fail "pwsh tests/run-all.ps1"; }
+bash "$ROOT/tests/run-all.sh" > "$WORK/suite.sh.log" 2>&1 || { cat "$WORK/suite.sh.log"; fail "bash tests/run-all.sh"; }
+pwsh -NoProfile -File "$ROOT/tests/run-all.ps1" > "$WORK/suite.ps1.log" 2>&1 || { cat "$WORK/suite.ps1.log"; fail "pwsh tests/run-all.ps1"; }
 echo "  $(tail -3 "$WORK/suite.sh.log" | grep -a 'tests:' | head -1); $(tail -3 "$WORK/suite.ps1.log" | grep -a 'tests:' | head -1)"
 bash "$ROOT/bin/case-check.sh" > "$WORK/case.sh.log" 2>&1 || { cat "$WORK/case.sh.log"; fail "bash bin/case-check.sh"; }
 pwsh -NoProfile -File "$ROOT/bin/case-check.ps1" > "$WORK/case.ps1.log" 2>&1 || { cat "$WORK/case.ps1.log"; fail "pwsh bin/case-check.ps1"; }

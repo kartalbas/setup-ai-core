@@ -315,7 +315,7 @@ check 'exit 0'                        0 "$rc"
 check 'created, with the executable bit to commit' yes "$(printf '%s\n' "$out" | grep -q 'fresh: .githooks/pre-push created; commit it with the executable bit: git add --chmod=+x .githooks/pre-push' && echo yes || echo no)"
 check 'core.hooksPath set'            .githooks "$(git -C "$fresh" config --get core.hooksPath)"
 check 'the shim starts the gate'      yes "$(grep -qx 'exec ai-core pre-push "$@"' "$fresh/.githooks/pre-push" && echo yes || echo no)"
-check 'three lines'                   3 "$(wc -l < "$fresh/.githooks/pre-push" | tr -d ' ')"
+check 'four lines'                    4 "$(wc -l < "$fresh/.githooks/pre-push" | tr -d ' ')"
 out="$( cd "$fresh" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
 check 'a second run: unchanged'       yes "$(printf '%s\n' "$out" | grep -q 'fresh: .githooks/pre-push unchanged' && echo yes || echo no)"
 check 'and nothing about hooksPath'   no "$(printf '%s\n' "$out" | grep -q 'hooksPath' && echo yes || echo no)"
@@ -341,6 +341,11 @@ echo 'the shim hands the gate git'"'"'s arguments and input'
 : > "$shim_args"
 printf 'refs/heads/master abc refs/heads/master def\n' | ( cd "$fresh" && bash .githooks/pre-push origin 'https://example.invalid/x.git' )
 check 'ai-core pre-push was started with them' '[pre-push origin https://example.invalid/x.git] refs/heads/master abc refs/heads/master def' "$(cat "$shim_args")"
+
+echo 'without ai-core on the PATH the shim refuses and says so'
+out="$( cd "$fresh" && PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vx "$stub" | tr '\n' ':')" bash .githooks/pre-push origin url < /dev/null 2>&1 )"; rc=$?
+check 'exit 1'                  1 "$rc"
+check 'it names the cause'      yes "$(printf '%s\n' "$out" | grep -q 'ai-core is not on the PATH of this shell' && echo yes || echo no)"
 
 echo '--install --all: every repository under a folder, a plain folder skipped'
 folder="$fake/folder"; mkdir -p "$folder/not-a-repo"

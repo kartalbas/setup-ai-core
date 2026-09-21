@@ -274,7 +274,8 @@ Check 'created, with the executable bit to commit' 'True' (Says 'fresh: \.githoo
 Check 'core.hooksPath set'            '.githooks' "$(& git -C $fresh config --get core.hooksPath)"
 $shimText = [System.IO.File]::ReadAllText((Join-Path $fresh '.githooks\pre-push'))
 Check 'the shim starts the gate'      'True' ($shimText.Contains("`nexec ai-core pre-push `"`$@`"`n"))
-Check 'three lines, LF'               3 (([regex]::Matches($shimText, "`n")).Count)
+Check 'four lines, LF'                4 (([regex]::Matches($shimText, "`n")).Count)
+Check 'it refuses without ai-core on the PATH' 'True' ($shimText.Contains('ai-core is not on the PATH of this shell'))
 Check 'no carriage return'            'False' ($shimText.Contains("`r"))
 Push-Location $fresh
 try { $out = (& pwsh -NoProfile -File $gate -Install 2>&1 | Out-String); $rc = $LASTEXITCODE } finally { Pop-Location }

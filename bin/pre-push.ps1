@@ -65,7 +65,7 @@ if ($Install -and $Rest.Count -gt 0) { Write-Host "error: unexpected argument '$
 function Deny-Push([string]$why) { [Console]::Error.WriteLine("pre-push: REFUSED — $why"); exit 1 }
 
 # --- -Install: the shim, three lines that only start this gate -----------------------------
-$shim = "#!/usr/bin/env bash`n# The push gate is ``ai-core pre-push`` (setup-ai-core); this file only starts it with git's own standard input.`nexec ai-core pre-push `"`$@`"`n"
+$shim = "#!/usr/bin/env bash`n# The push gate is ``ai-core pre-push`` (setup-ai-core); this file only starts it with git's own standard input.`ncommand -v ai-core >/dev/null 2>&1 || { echo `"pre-push: REFUSED — ai-core is not on the PATH of this shell, so nothing judged this push. Install setup-ai-core, or open a new terminal where its bin/ is on the PATH.`" >&2; exit 1; }`nexec ai-core pre-push `"`$@`"`n"
 function Write-Shim([string]$dir, [string]$label) {  # the shim into <dir>\.githooks\pre-push, and what happened
   $path = Join-Path $dir '.githooks\pre-push'
   $state = 'created'

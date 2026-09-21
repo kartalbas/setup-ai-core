@@ -72,6 +72,7 @@ refuse() { echo "pre-push: REFUSED — $*" >&2; exit 1; }
 # --- --install: the shim, three lines that only start this gate ----------------------------
 SHIM='#!/usr/bin/env bash
 # The push gate is `ai-core pre-push` (setup-ai-core); this file only starts it with git'"'"'s own standard input.
+command -v ai-core >/dev/null 2>&1 || { echo "pre-push: REFUSED — ai-core is not on the PATH of this shell, so nothing judged this push. Install setup-ai-core, or open a new terminal where its bin/ is on the PATH." >&2; exit 1; }
 exec ai-core pre-push "$@"
 '
 write_shim() {  # write_shim <tree> <label>: the shim into <tree>/.githooks/pre-push, and what happened

@@ -324,6 +324,15 @@ try {
   Pop-Location
 }
 
+# 3a. A repository that carries .githooks\pre-push (the shim that starts the push gate, ai-core
+#     pre-push) is armed in this clone: core.hooksPath is the clone's own setting, never
+#     committed, so a fresh clone gets it from its first init.
+$hooksArmed = $false
+if ((Test-Path (Join-Path $target '.githooks\pre-push')) -and ("$(& git -C $target config --get core.hooksPath 2>$null)" -cne '.githooks')) {
+  $hooksArmed = $true
+  if (-not $DryRun) { & git -C $target config core.hooksPath .githooks }
+}
+
 # 3b. The project's .gitignore carries a block naming every file an agent or the harness puts
 #     into a checkout (lib\gitignore-block), so no clone of this repository commits one, with or
 #     without the harness. The block is rewritten between its markers and the rest of the file is
@@ -376,5 +385,6 @@ if ($report.removed.Count -gt 0)   { Write-Host "  removed    $($report.removed 
 if ($report.tracked.Count -gt 0)   { Write-Host "  tracked    $($report.tracked -join ', ') (the repository commits these; repos/$repoName/ is not applied to them)" }
 Write-Host "  unchanged  $($report.unchanged) file(s)"
 if ($gitignoreChanged) { Write-Host "  .gitignore $(if ($DryRun) { 'would change' } else { 'changed' }): the agent files of this repository are ignored; commit it once" }
+if ($hooksArmed) { Write-Host "  core.hooksPath $(if ($DryRun) { 'would be set' } else { 'set' }) to .githooks: the push gate runs here" }
 if ($DryRun) { Write-Host "  nothing was written (dry run)" } else { Write-Host "✓ Harness $coreVersion in place. Run 'ai-core session-start' here to verify." -ForegroundColor Green }
 Write-Host "==================================================" -ForegroundColor Green

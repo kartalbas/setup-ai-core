@@ -460,6 +460,27 @@ done
 diff <(sed "s/^# all-sh$/# FOLDER/" "$WORK/all-sh/AGENTS.md") <(sed "s/^# all-ps$/# FOLDER/" "$WORK/all-ps/AGENTS.md") > /dev/null || fail "the project folder's AGENTS.md differs between the twins"
 echo "  2 initialized, 1 failed and named, the plain folder untouched, the folder's AGENTS.md lists the three, on both twins"
 
+echo "==> init arms a clone that carries .githooks/pre-push: core.hooksPath set, reported, once; a dry run only says so; both twins"
+for twin in sh ps1; do
+  H="$WORK/hooks-$twin"; git init -q "$H"; mkdir -p "$H/.githooks" "$H/.ai-core"
+  printf '#!/usr/bin/env bash\nexec ai-core pre-push "$@"\n' > "$H/.githooks/pre-push"
+  printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$H/.ai-core/config.env"
+  if [ "$twin" = sh ]; then
+    bash "$ROOT/bin/init.sh" "$H" --no-doctor --dry-run > "$WORK/hooks-$twin-dry.log" 2>&1 || fail "init.sh --dry-run on a repository with the shim (see $WORK/hooks-$twin-dry.log)"
+    bash "$ROOT/bin/init.sh" "$H" --no-doctor > "$WORK/hooks-$twin-1.log" 2>&1 || fail "init.sh on a repository with the shim (see $WORK/hooks-$twin-1.log)"
+    bash "$ROOT/bin/init.sh" "$H" --no-doctor > "$WORK/hooks-$twin-2.log" 2>&1 || fail "init.sh second run on a repository with the shim"
+  else
+    pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$H")" -NoDoctor -DryRun > "$WORK/hooks-$twin-dry.log" 2>&1 || fail "init.ps1 -DryRun on a repository with the shim (see $WORK/hooks-$twin-dry.log)"
+    pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$H")" -NoDoctor > "$WORK/hooks-$twin-1.log" 2>&1 || fail "init.ps1 on a repository with the shim (see $WORK/hooks-$twin-1.log)"
+    pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$H")" -NoDoctor > "$WORK/hooks-$twin-2.log" 2>&1 || fail "init.ps1 second run on a repository with the shim"
+  fi
+  grep -aq '^  core.hooksPath would be set to .githooks: the push gate runs here$' "$WORK/hooks-$twin-dry.log" || fail "init.$twin --dry-run does not say core.hooksPath would be set"
+  grep -aq '^  core.hooksPath set to .githooks: the push gate runs here$' "$WORK/hooks-$twin-1.log" || fail "init.$twin does not report core.hooksPath"
+  [ "$(git -C "$H" config --get core.hooksPath)" = ".githooks" ] || fail "init.$twin did not set core.hooksPath"
+  grep -aq 'core.hooksPath' "$WORK/hooks-$twin-2.log" && fail "init.$twin reports core.hooksPath again on the second run"
+done
+echo "  core.hooksPath set once and reported, the dry run announces it, on both twins"
+
 echo "==> session-start fails where the harness is not installed"
 mkdir -p "$WORK/none"
 (cd "$WORK/none" && bash "$ROOT/bin/session-start.sh" > /dev/null 2>&1) && fail "session-start.sh exited 0 without rules"

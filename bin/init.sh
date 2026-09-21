@@ -327,6 +327,15 @@ else
   echo "note: $TARGET is not a git repository; nothing to exclude"
 fi
 
+# 3a. A repository that carries .githooks/pre-push (the shim that starts the push gate, ai-core
+#     pre-push) is armed in this clone: core.hooksPath is the clone's own setting, never
+#     committed, so a fresh clone gets it from its first init.
+HOOKS_ARMED=0
+if [ -f "$TARGET/.githooks/pre-push" ] && [ "$(git -C "$TARGET" config --get core.hooksPath 2>/dev/null)" != ".githooks" ]; then
+  HOOKS_ARMED=1
+  [ "$DRY" -eq 1 ] || git -C "$TARGET" config core.hooksPath .githooks
+fi
+
 # 3b. The project's .gitignore carries a block naming every file an agent or the harness puts
 #     into a checkout (lib/gitignore-block), so no clone of this repository commits one, with or
 #     without the harness. The block is rewritten between its markers and the rest of the file is
@@ -372,5 +381,6 @@ if [ "$DRY" -eq 1 ]; then echo "init would change in $(basename "$TARGET"):"; el
 [ -z "$TRACKED" ]   || echo "  tracked    $(list "$TRACKED") (the repository commits these; repos/$REPO_NAME/ is not applied to them)"
 echo "  unchanged  $UNCHANGED file(s)"
 if [ "$GITIGNORE_CHANGED" -eq 1 ]; then echo "  .gitignore $([ "$DRY" -eq 1 ] && echo "would change" || echo "changed"): the agent files of this repository are ignored; commit it once"; fi
+if [ "$HOOKS_ARMED" -eq 1 ]; then echo "  core.hooksPath $([ "$DRY" -eq 1 ] && echo "would be set" || echo "set") to .githooks: the push gate runs here"; fi
 if [ "$DRY" -eq 1 ]; then echo "  nothing was written (dry run)"; else echo "✓ Harness $CORE_VERSION in place. Run 'ai-core session-start' here to verify."; fi
 echo "=================================================="

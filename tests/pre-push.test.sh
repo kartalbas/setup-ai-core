@@ -1,0 +1,358 @@
+#!/usr/bin/env bash
+# What the push gate lets out of a checkout, and what it refuses.
+#
+#   bash tests/pre-push.test.sh
+#
+# NOTHING IS PUSHED and github.com is never reached. A scratch repository is built in a
+# temporary directory and git's own input is fed to the gate by hand - one line per ref:
+#
+#   <local ref> <local sha> <remote ref> <remote sha>
+#
+# The team modes come from a table of this test (green: every probe passes; red: a probe that
+# cannot pass), scripts/check.sh is a stand-in that writes down which working tree it ran in,
+# gitleaks is a stub that writes down its arguments, and a stub ai-core writes down what the
+# shim hands it. The cases are the ones a hand-written gate got wrong: a push from a worktree, an
+# empty `No-issue:` trailer, a LICENSE file under a folder, a remote sha this checkout does not
+# carry, a sha of sixty-four zeros, an annotated tag, and a Windows entry point that decides.
+
+set -uo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+fake="$(mktemp -d)"
+trap 'git -C "$fake/checkouts/app" worktree remove --force "$fake/checkouts/.worktrees/app/issue-5-probe" >/dev/null 2>&1; rm -rf "$fake"' EXIT
+
+failed=0
+check() {  # name expected actual
+  if [ "$2" = "$3" ]; then echo "  ok   $1"
+  else echo "  FAIL $1"; echo "       expected: [$2]"; echo "       actual:   [$3]"; failed=$((failed + 1)); fi
+}
+
+parent="$fake/checkouts"
+repo="$parent/app"
+wt="$parent/.worktrees/app/issue-5-probe"
+check_runs="$fake/check-runs.txt"
+: > "$check_runs"
+
+# The team modes: a table whose probes pass, and one whose probe cannot. The check reads the rows
+# of the tools on PATH, and a stub claude on PATH is the tool it finds.
+green="$fake/modes-green.tsv"; red="$fake/modes-red.tsv"
+printf 'claude\tmode\ton\talways\t-\t-\n' > "$green"
+printf 'claude\tcaveman\tlite\tfile:%s/never-there\tnpx skills add example/caveman -g\t-\n' "$fake" > "$red"
+export TEAM_MODES_FILE="$green"
+stub="$fake/stub"; mkdir -p "$stub"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/claude"
+# The gitleaks stub writes down every argument it was given
+leaks_args="$fake/leaks-args.txt"
+cat > "$stub/gitleaks" <<EOF
+#!/usr/bin/env bash
+printf '[%s]\n' "\$*" >> "$leaks_args"
+[ "\${PROBE_LEAKS:-green}" = green ] || { echo 'gitleaks: a credential stands in this range'; exit 1; }
+exit 0
+EOF
+# The ai-core stub writes down what the shim hands it: its arguments and git's input
+shim_args="$fake/shim-args.txt"
+cat > "$stub/ai-core" <<EOF
+#!/usr/bin/env bash
+printf '[%s] ' "\$*" >> "$shim_args"; cat >> "$shim_args"
+exit 0
+EOF
+chmod +x "$stub/claude" "$stub/gitleaks" "$stub/ai-core"
+export PATH="$stub:$PATH"
+
+# The repository: the stand-in check writes down its own path, which says which working tree it
+# was started in; both Windows entry points are the one text, and one .ps1 is neither.
+mkdir -p "$repo/scripts" "$repo/bin"
+cat > "$repo/scripts/check.sh" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$0" >> "$check_runs"
+if [ "\${PROBE_CHECK:-green}" = green ]; then echo 'check: OK — every check green'; exit 0; fi
+echo 'check: FAIL — the stand-in was told to be red'
+exit 1
+EOF
+chmod +x "$repo/scripts/check.sh"
+cp "$root/lib/entry-point.ps1" "$repo/scripts/check.ps1"
+cp "$root/lib/entry-point.ps1" "$repo/build.ps1"
+printf '#!/usr/bin/env pwsh\nWrite-Host "not a shim, and never was"\n' > "$repo/bin/case-check.ps1"
+git -C "$repo" init -q -b master
+git -C "$repo" config user.email 'test@example.invalid'
+git -C "$repo" config user.name 'test'
+git -C "$repo" config core.autocrlf false
+git -C "$repo" add -A
+git -C "$repo" commit -q -m 'Set the repository up for the gate probe #1'
+
+commit() {  # commit <path> <message> - one file, one commit
+  mkdir -p "$repo/$(dirname "$1")"
+  printf 'a line\n' >> "$repo/$1"
+  git -C "$repo" add -- "$1"
+  git -C "$repo" commit -q -F - <<< "$2"
+}
+
+# One ref line, fed the way git feeds it. The gate runs with the working tree as its directory,
+# which is what git does before it starts a hook.
+judge() {  # judge <working tree> <local sha> <remote sha>
+  printf 'refs/heads/master %s refs/heads/master %s\n' "$2" "$3" \
+    | ( cd "$1" && bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1 )
+}
+only_new() {  # only_new <working tree> - judge the newest commit alone
+  judge "$1" "$(git -C "$1" rev-parse HEAD)" "$(git -C "$1" rev-parse HEAD~1)"
+}
+
+zeros40='0000000000000000000000000000000000000000'
+zeros64='0000000000000000000000000000000000000000000000000000000000000000'
+
+# --- the push from a worktree ------------------------------------------------------------------
+#
+# Work is done in a worktree at ../.worktrees/<repo>/issue-<n>-<slug>, and the check that runs is
+# the one in the tree being pushed, not the main checkout's.
+echo 'a push from a worktree runs the check of the WORKTREE'
+git -C "$repo" worktree add -q -b issue-5-probe "$wt" master
+printf 'a line\n' >> "$wt/notes-5.txt"
+git -C "$wt" add -- notes-5.txt
+git -C "$wt" commit -q -m 'Probe the gate from a worktree #5'
+: > "$check_runs"
+out="$(judge "$wt" "$(git -C "$wt" rev-parse HEAD)" "$(git -C "$repo" rev-parse master)")"; rc=$?
+check 'exit 0'                     0 "$rc"
+check 'the check ran'              yes "$(printf '%s\n' "$out" | grep -q 'check: OK' && echo yes || echo no)"
+check 'every check passed'         yes "$(printf '%s\n' "$out" | grep -q 'pre-push: every check passed' && echo yes || echo no)"
+check 'and the check that ran is the WORKTREE one' \
+  "$(git -C "$wt" rev-parse --show-toplevel)/scripts/check.sh" "$(tail -1 "$check_runs")"
+
+# --- the team modes ---------------------------------------------------------------------------
+echo 'a red modes check refuses, and the lines the refusal points at are in the output'
+out="$(TEAM_MODES_FILE="$red" only_new "$wt")"; rc=$?
+check 'exit 1'                    1 "$rc"
+check 'the MISSING line is there' yes "$(printf '%s\n' "$out" | grep -q '^MISSING .*claude caveman' && echo yes || echo no)"
+check 'and the refusal names the modes' yes "$(printf '%s\n' "$out" | grep -q 'the team modes are missing' && echo yes || echo no)"
+
+echo 'a red scripts/check.sh refuses'
+out="$(PROBE_CHECK=red only_new "$wt")"; rc=$?
+check 'exit 1'          1 "$rc"
+check 'and says which'  yes "$(printf '%s\n' "$out" | grep -q 'check: FAIL' && echo yes || echo no)"
+
+# --- what excuses a commit from naming an issue ----------------------------------------------
+echo 'a commit naming its issue anywhere in the message passes'
+commit 'src/thing.txt' 'Read the install order from one file
+
+It closes #163.'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0' 0 "$rc"
+
+echo 'a release stamp passes'
+commit 'src/thing.txt' 'release: 0.8.100'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0' 0 "$rc"
+
+echo 'a commit with no number and no excuse is refused, and is named'
+commit 'src/thing.txt' 'Change a thing'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'              1 "$rc"
+check 'the commit is named' yes "$(printf '%s\n' "$out" | grep -qF 'Change a thing names no issue' && echo yes || echo no)"
+check 'the check never ran' no "$(printf '%s\n' "$out" | grep -q 'check: OK' && echo yes || echo no)"
+
+# THE TRAILER IS READ THE WAY git READS A TRAILER. Searching the whole message for the two words
+# accepts an empty `No-issue:` and accepts them inside a body sentence, and both of those are a
+# way around the rule rather than the reason the rule asks for.
+echo 'a No-issue trailer naming a reason passes'
+commit 'src/thing.txt' 'Change a thing
+
+No-issue: the product owner asked for it on 2026-09-03'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0' 0 "$rc"
+
+echo 'an EMPTY No-issue trailer is no reason, and is refused'
+commit 'src/thing.txt' 'Change a thing
+
+No-issue:'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1' 1 "$rc"
+
+echo 'the two words inside a body sentence are not a trailer'
+commit 'src/thing.txt' 'Change a thing
+
+There is No-issue: for this one because nobody asked.'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1' 1 "$rc"
+
+# THE NAME IS MATCHED WITHOUT ITS FOLDER: a rule that reads the whole path gives one commit two
+# verdicts depending on which repository it lands in.
+echo 'a commit that only explains passes, whatever folder the file stands in'
+commit 'docs/notes.md' 'Correct a typo'
+out="$(only_new "$repo")"; rc=$?
+check 'a markdown file'      0 "$rc"
+commit 'LICENSE-MIT' 'Add the licence text'
+out="$(only_new "$repo")"; rc=$?
+check 'LICENSE-MIT'          0 "$rc"
+commit 'docs/LICENSE' 'Add the licence text under docs'
+out="$(only_new "$repo")"; rc=$?
+check 'docs/LICENSE'         0 "$rc"
+commit 'src/notes.txt' 'Write a note that is not a document'
+out="$(only_new "$repo")"; rc=$?
+check 'and a file that explains nothing is refused' 1 "$rc"
+
+# --- the shape of a sha -----------------------------------------------------------------------
+#
+# An all-zero sha is a ref the remote does not have yet, or a ref being removed. A SHA-256
+# repository writes sixty-four zeros where these write forty, and a written-out constant reads
+# the longer one as a real commit.
+echo 'an all-zero remote sha judges every commit, at forty digits and at sixty-four'
+head_sha="$(git -C "$repo" rev-parse HEAD)"
+out="$(judge "$repo" "$head_sha" "$zeros40")"; rc=$?
+check 'forty zeros: the history is judged and this one names no issue' 1 "$rc"
+out="$(judge "$repo" "$head_sha" "$zeros64")"; rc=$?
+check 'sixty-four zeros: the same verdict' 1 "$rc"
+
+echo 'an all-zero LOCAL sha is a deletion: no commit is judged and no check is run'
+: > "$check_runs"
+out="$(judge "$repo" "$zeros64" "$(git -C "$repo" rev-parse HEAD)")"; rc=$?
+check 'exit 0'                     0 "$rc"
+check 'the modes check never ran'  no "$(printf '%s\n' "$out" | grep -q 'team modes' && echo yes || echo no)"
+check 'and neither did check.sh'   '' "$(cat "$check_runs")"
+
+# A remote sha this checkout does not carry cannot be measured from. Letting `git rev-list` fail
+# quietly leaves the range empty, and an empty range reads as a push with nothing in it.
+echo 'a remote sha this checkout does not carry is refused, with what to do about it'
+out="$(judge "$repo" "$head_sha" 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef')"; rc=$?
+check 'exit 1'            1 "$rc"
+check 'it says git fetch' yes "$(printf '%s\n' "$out" | grep -q 'Run git fetch, then push again' && echo yes || echo no)"
+
+echo 'a local sha that is not what is checked out is refused'
+out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD~1)" "$(git -C "$repo" rev-parse HEAD~2)")"; rc=$?
+check 'exit 1'              1 "$rc"
+check 'it says what to push' yes "$(printf '%s\n' "$out" | grep -q 'push what you have: git push origin HEAD:master' && echo yes || echo no)"
+
+# --- an annotated tag --------------------------------------------------------------------------
+#
+# A release is stamped with an annotated tag, and git hands a hook the TAG OBJECT's sha, never
+# the commit it names. Compared to HEAD unresolved, that refuses every annotated tag there is.
+echo 'an annotated tag naming the checked-out commit is not read as a foreign ref'
+commit 'src/thing.txt' 'Stamp a version for the probe #15'
+git -C "$repo" tag -a -m 'release 0.8.999' v0.8.999
+out="$(judge "$repo" "$(git -C "$repo" rev-parse v0.8.999)" "$(git -C "$repo" rev-parse HEAD~1)")"; rc=$?
+check 'exit 0'                        0 "$rc"
+check 'and it is not called foreign'  no "$(printf '%s\n' "$out" | grep -q 'is not what is checked out' && echo yes || echo no)"
+
+# --- the credential scan, armed by a file and by no name -------------------------------------
+echo 'with no .gitleaks.toml in the tree, the commits are not scanned'
+: > "$leaks_args"
+commit 'src/thing.txt' 'Push once without the scan armed #15'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                 0 "$rc"
+check 'gitleaks never ran'     '' "$(cat "$leaks_args")"
+
+echo 'a .gitleaks.toml in the tree arms the scan, over the range the push carries'
+: > "$leaks_args"
+commit '.gitleaks.toml' 'Arm the credential scan of the probe #15'
+before="$(git -C "$repo" rev-parse HEAD~1)"
+out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$before")"; rc=$?
+check 'exit 0'                    0 "$rc"
+# Only the range is compared: the tree is named the way the operating system writes a path,
+# which on Windows is not the form this shell writes.
+check 'gitleaks read that range'  "git --no-banner --log-opts=$before..$(git -C "$repo" rev-parse HEAD)" \
+  "$(sed 's/^\[//; s/ [^ ]*$//' "$leaks_args")"
+
+echo 'a credential in a pushed commit refuses, and says it cannot be recalled'
+out="$(PROBE_LEAKS=red only_new "$repo")"; rc=$?
+check 'exit 1'                 1 "$rc"
+check 'it says what to do' yes "$(printf '%s\n' "$out" | grep -q 'a commit that is pushed cannot be recalled' && echo yes || echo no)"
+
+# --- the Windows entry point, held against the one text it copies ----------------------------
+#
+# check.ps1 and build.ps1 decide nothing: each starts the .sh file of its own name. Overwritten
+# with two lines that print the verdict and exit 0, a copy tells the person at the keyboard that
+# the checks passed while nothing ran. The planted bin/case-check.ps1 differs from the text and
+# must NOT be refused: without it, a green answer here could mean that no file was compared.
+stub_ps1() {  # stub_ps1 <path> - a copy that prints the verdict and runs nothing
+  printf "Write-Host 'check: OK — every check green'\nexit 0\n" > "$1"
+}
+push_wt() { judge "$wt" "$(git -C "$wt" rev-parse HEAD)" "$(git -C "$repo" rev-parse master)"; }
+
+echo 'a Windows entry point that is not the one text is refused, under either of its two names'
+out="$(push_wt)"; rc=$?
+check 'both entry points and the .ps1 that is neither: exit 0' 0 "$rc"
+stub_ps1 "$wt/scripts/check.ps1"
+out="$(push_wt)"; rc=$?
+check 'the green stub at scripts/check.ps1: exit 1' 1 "$rc"
+check 'the refusal names the file' yes \
+  "$(printf '%s\n' "$out" | grep -qF 'scripts/check.ps1 is not the Windows entry point every repository carries' && echo yes || echo no)"
+check 'and says how to restore it' yes "$(printf '%s\n' "$out" | grep -q 'Restore it: cp ' && echo yes || echo no)"
+git -C "$wt" checkout -q -- scripts/check.ps1
+stub_ps1 "$wt/build.ps1"
+out="$(push_wt)"; rc=$?
+check 'the green stub at build.ps1: exit 1' 1 "$rc"
+git -C "$wt" checkout -q -- build.ps1
+out="$(push_wt)"; rc=$?
+check 'both restored: exit 0' 0 "$rc"
+
+# --- a repository without a check entry point --------------------------------------------------
+echo 'a repository without scripts/check.sh: nothing runs before the push, and no entry point is judged'
+bare="$fake/bare.git"; git init -q --bare -b master "$bare"
+plain="$fake/plain"; git init -q -b master "$plain"
+git -C "$plain" config user.email 'test@example.invalid'; git -C "$plain" config user.name 'test'
+printf 'Write-Host "decides on its own"\n' > "$plain/build.ps1"
+git -C "$plain" add -A; git -C "$plain" commit -q -m 'A repository with no check #7'
+git -C "$plain" remote add origin "$bare"; git -C "$plain" push -q -u origin master 2>/dev/null
+printf 'more\n' > "$plain/more.txt"; git -C "$plain" add -A; git -C "$plain" commit -q -m 'Add more #7'
+out="$(only_new "$plain")"; rc=$?
+check 'exit 0'                              0 "$rc"
+check 'it says nothing runs'                yes "$(printf '%s\n' "$out" | grep -q 'no scripts/check.sh in this repository' && echo yes || echo no)"
+check 'the own build.ps1 is not refused'    no "$(printf '%s\n' "$out" | grep -q 'Windows entry point' && echo yes || echo no)"
+
+# --- from a prompt: the current branch against its upstream ----------------------------------
+echo 'with nothing on standard input, the branch is judged against its upstream'
+out="$( cd "$plain" && bash "$root/bin/pre-push.sh" < /dev/null 2>&1 )"; rc=$?
+check 'exit 0'                     0 "$rc"
+check 'it names the upstream'      yes "$(printf '%s\n' "$out" | grep -q 'pre-push: judging master against origin/master' && echo yes || echo no)"
+git -C "$plain" commit -q --allow-empty -m 'An empty commit that names nothing'
+out="$( cd "$plain" && bash "$root/bin/pre-push.sh" < /dev/null 2>&1 )"; rc=$?
+check 'a new unnamed commit is refused'  1 "$rc"
+git -C "$plain" reset -q --hard HEAD~1
+
+# --- --install: the shim, and what it hands the gate --------------------------------------------
+echo '--install writes the shim, arms the clone, and says what to commit'
+fresh="$fake/fresh"; git init -q -b master "$fresh"
+out="$( cd "$fresh" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'exit 0'                        0 "$rc"
+check 'created, with the executable bit to commit' yes "$(printf '%s\n' "$out" | grep -q 'fresh: .githooks/pre-push created; commit it with the executable bit: git add --chmod=+x .githooks/pre-push' && echo yes || echo no)"
+check 'core.hooksPath set'            .githooks "$(git -C "$fresh" config --get core.hooksPath)"
+check 'the shim starts the gate'      yes "$(grep -qx 'exec ai-core pre-push "$@"' "$fresh/.githooks/pre-push" && echo yes || echo no)"
+check 'three lines'                   3 "$(wc -l < "$fresh/.githooks/pre-push" | tr -d ' ')"
+out="$( cd "$fresh" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'a second run: unchanged'       yes "$(printf '%s\n' "$out" | grep -q 'fresh: .githooks/pre-push unchanged' && echo yes || echo no)"
+check 'and nothing about hooksPath'   no "$(printf '%s\n' "$out" | grep -q 'hooksPath' && echo yes || echo no)"
+printf '#!/usr/bin/env bash\nexec bash ../tooling/hooks/pre-push "$@"\n' > "$fresh/.githooks/pre-push"
+out="$( cd "$fresh" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'a shim of another kind: refreshed' yes "$(printf '%s\n' "$out" | grep -q 'fresh: .githooks/pre-push refreshed; commit it' && echo yes || echo no)"
+check 'and it is the shim again'      yes "$(grep -qx 'exec ai-core pre-push "$@"' "$fresh/.githooks/pre-push" && echo yes || echo no)"
+
+echo 'every worktree of the repository gets the shim too: a push runs the file of the tree it comes from'
+git -C "$fresh" config user.email 'test@example.invalid'; git -C "$fresh" config user.name 'test'
+git -C "$fresh" add -A; git -C "$fresh" commit -q -m 'Carry the shim #9'
+printf '#!/usr/bin/env bash\nexec bash ../tooling/hooks/pre-push "$@"\n' > "$fresh/.githooks/pre-push"
+git -C "$fresh" commit -q -am 'An older shim, as a worktree branched off it would carry #9'
+fresh_wt="$fake/fresh-wt"; git -C "$fresh" worktree add -q -b issue-9-probe "$fresh_wt" master
+out="$( cd "$fresh" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'exit 0'                              0 "$rc"
+check 'the main checkout: refreshed'        yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: .githooks/pre-push refreshed' && echo yes || echo no)"
+check 'the worktree: refreshed, and named'  yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh (worktree fresh-wt): .githooks/pre-push refreshed' && echo yes || echo no)"
+check 'the worktree carries the shim'       yes "$(grep -qx 'exec ai-core pre-push "$@"' "$fresh_wt/.githooks/pre-push" && echo yes || echo no)"
+git -C "$fresh" worktree remove --force "$fresh_wt" >/dev/null 2>&1
+
+echo 'the shim hands the gate git'"'"'s arguments and input'
+: > "$shim_args"
+printf 'refs/heads/master abc refs/heads/master def\n' | ( cd "$fresh" && bash .githooks/pre-push origin 'https://example.invalid/x.git' )
+check 'ai-core pre-push was started with them' '[pre-push origin https://example.invalid/x.git] refs/heads/master abc refs/heads/master def' "$(cat "$shim_args")"
+
+echo '--install --all: every repository under a folder, a plain folder skipped'
+folder="$fake/folder"; mkdir -p "$folder/not-a-repo"
+for r in one two; do git init -q -b master "$folder/$r"; done
+out="$( bash "$root/bin/pre-push.sh" --install --all "$folder" 2>&1 )"; rc=$?
+check 'exit 0'                      0 "$rc"
+check 'two repositories'            yes "$(printf '%s\n' "$out" | grep -q 'the shim is in 2 repositories' && echo yes || echo no)"
+check 'both carry the shim'         yes "$([ -f "$folder/one/.githooks/pre-push" ] && [ -f "$folder/two/.githooks/pre-push" ] && echo yes || echo no)"
+check 'the plain folder does not'   no "$([ -e "$folder/not-a-repo/.githooks" ] && echo yes || echo no)"
+out="$( cd "$folder/not-a-repo" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check '--install outside a repository: exit 1' 1 "$rc"
+
+if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
+echo
+echo 'all passed'

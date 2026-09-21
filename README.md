@@ -102,7 +102,7 @@ project repository:
 setup-ai-core (public)
 ├── bin/          the ai-core command and every script: install, doctor, init, session-start, graft-setup, and the
 │                 board and issue commands (issue-new, start-issue, board-sync, ...)
-├── lib/          board.sh and Board.psm1, the library of the board commands; gitignore-block
+├── lib/          board.sh and Board.psm1, the library of the board commands; gitignore-block; entry-point.ps1
 ├── rules/        one file per section (NN-slug.md) and skills.md, generic
 ├── templates/    the files a checkout gets, in the layout of the checkout, among them the three data files
 └── tests/        the check that proves the harness, and one test pair per board command
@@ -183,6 +183,11 @@ the repository already tracks stays tracked: an exclude entry never affects a tr
 Because the harness is not in the repository, it does not travel with `git clone` or
 `git worktree add`. **Every clone and every worktree runs `init` once.** It is idempotent and takes
 seconds.
+
+Three files are the repository's own and are committed, because they say what the repository
+wants judged: `.githooks/pre-push`, the three-line shim that starts the push gate (section 4.13);
+`scripts/check.sh`, the repository's check, with `scripts/check.ps1` as its Windows entry point;
+and `.gitleaks.toml`, which arms the credential scan. None of them is written by `init`.
 
 ### 4.4 Rules
 
@@ -422,6 +427,45 @@ so none of them reach a sandbox. Two ways close that gap; they can be combined:
 Today the harness deploys `.openhands/microagents/repo-rules.md`, the older OpenHands
 convention. It is kept until the two paths above exist.
 
+### 4.13 The push gate: `ai-core pre-push`
+
+One gate judges every push of every repository, and it lives in setup-ai-core, not in the
+repositories: each repository carries a three-line `.githooks/pre-push` that only starts
+`ai-core pre-push` with git's own standard input, and `core.hooksPath` of the clone points at
+`.githooks`. `ai-core pre-push --install` (`-Install`) writes that shim into the current
+repository and into every worktree of it (a relative `core.hooksPath` is read from the tree being
+pushed, and git runs the file on disk), sets `core.hooksPath`, and says what to commit; with
+`--all <folder>` it does so for every repository under a folder. `init` sets `core.hooksPath` in
+a clone that carries the shim, so a fresh clone is armed by its first `init`. Nothing is
+committed by either; the shim is the repository's own file.
+
+The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSED — ...`, exit 1):
+
+1. **The pushed commit is the one checked out.** Work is pushed by ref, `git push origin
+   HEAD:<branch>`; an annotated tag is resolved to the commit it names.
+2. **Every pushed commit names its issue**, `#<n>` anywhere in the message, or is excused: the
+   subject opens with `release:`; every file it touches is a `*.md` or a `LICENSE*` (an
+   explanation needs no ticket); or it carries a trailer `No-issue: <who asked and why>`, read the
+   way git reads a trailer, so an empty one and the two words inside a sentence do not count.
+   Merges are not judged, a deletion runs nothing, and what is judged is exactly what the remote
+   does not have yet (`<remote sha>..<local sha>`; a ref the remote lacks is measured against every
+   remote ref, so a tag introduces nothing).
+3. **The team modes are installed** (`ai-core team-modes-check`, section 4.6).
+4. **Every Windows entry point is the one text.** Where the checks are written in
+   `scripts/check.sh`, a `check.ps1` or `build.ps1` anywhere in the tree must equal
+   `lib/entry-point.ps1`: the file that starts the `.sh` of its own name and decides nothing. A
+   copy that prints the verdict and exits 0 would tell the person the checks passed while nothing
+   ran, and no other step can see that.
+5. **`scripts/check.sh` is green**, run in the tree being pushed; a repository without one is told
+   so and passes on.
+6. **gitleaks over the commits the push carries**, in a repository that carries `.gitleaks.toml`;
+   the commits are the only place a credential taken out again still stands.
+
+Run from a prompt or an agent's shell, with nothing on standard input, `ai-core pre-push` judges
+the current branch against its upstream: what `git push` would send. `tests/pre-push.test.sh`
+and `.ps1` drive both twins with git's input by hand, against a scratch repository, stand-ins
+for the check and for gitleaks, and a team-modes table of their own.
+
 ---
 
 ## 5. Install and use (today)
@@ -522,8 +566,9 @@ under one of these words:
 | `tracked` | a file of `repos/<repo>/` the repository commits itself; not applied |
 | `unchanged` | the count of files that were already what they should be |
 
-The report closes with `.gitignore changed` when the block was written (the one thing to commit)
-and with the harness version. Above it, `graft-setup` reports its own writes in two lists, the
+The report closes with `.gitignore changed` when the block was written (the one thing to commit),
+with `core.hooksPath set to .githooks` when the repository carries the push gate's shim and the
+clone was not armed yet, and with the harness version. Above it, `graft-setup` reports its own writes in two lists, the
 files in the repository and the files on the machine (under the home directory), each with
 Graft's word for it (`created`, `updated`, `appended`, `wrote`), and one line for the graph.
 Graft's full output is shown only when it fails. A second run on an unchanged checkout reports
@@ -651,6 +696,7 @@ and `bin/<name>.ps1` in PowerShell; a new script in `bin/` is a command without 
 | `graft-setup` | `ai-core graft [dir] [--dry-run]` / `[-TargetDir <dir>] [-DryRun]` | 0 built, skipped or dry; 1 no Node.js, build failed, or bad `config.env`; 2 a wrong argument |
 | `init` | `ai-core init [dir] [--all <folder>] [--no-doctor] [--dry-run]` / `[-TargetDir <dir>] [-All <folder>] [-NoDoctor] [-DryRun]` | 0 in place, or dry; 1 doctor failed, Graft failed, or a repository under `--all` failed |
 | `push` | `ai-core push [MESSAGE] [--harness <name>]` / `[-Message <text>] [-Harness <name>]` | 0 every harness clone pushed or had nothing; 1 no clone, a commit or a push failed |
+| `pre-push` | `ai-core pre-push [--install [--all <folder>]]` / `[-Install [-All <folder>]]` (section 4.13) | 0 every check passed, or the shim written; 1 refused, or a repository under `--all` is none; 2 a wrong argument |
 | the board and issue commands | `ai-core issue-new ...`, `ai-core start-issue N`, ... (section 8) | 0 done; 1 refused or gh refused; 2 a wrong argument |
 | `doctor` | `ai-core doctor [--no-install]` / `ai-core doctor [-NoInstall]` | 0 every required tool present and gh logged in; 1 otherwise, each problem with its instruction |
 | `install` | `bin/install.sh [--source <clone>] [--dir <path>] [--repo <url>] [--no-path] [--no-doctor]` / `bin/install.ps1 [-Source <clone>] [-Dir <path>] [-Repo <url>] [-NoPath] [-NoDoctor]` | 0 installed and doctor OK; 1 when doctor found problems |
@@ -758,8 +804,9 @@ no repository acts on the one it runs in; `OWNER/REPO` before the issue number n
 | `schema-check` | holds every GraphQL mutation in `bin/` and `lib/` against the schema github.com publishes; the one check that reaches the network, run by CI |
 | `case-check` | refuses a spelling in `bin/` or `lib/` that accepts more than it says: a PowerShell comparison against a text literal must say whether it folds case (`-ceq`, `-clike`, `switch -CaseSensitive`, `[StringComparison]::Ordinal`), because every Bash twin compares bytes |
 
-**The push hook.** A repository that wants the team-modes gate and its own check before every
-push installs its own `pre-push` hook; the harness does not write hooks into a repository.
+**The push hook.** A repository that wants the gate before every push carries the three-line
+shim `ai-core pre-push --install` writes into `.githooks/pre-push` (section 4.13); the gate itself
+never lives in a repository.
 
 ---
 
@@ -808,8 +855,8 @@ and pushes a harness clone's change to its origin and has nothing on a second ru
 `init` exit 1 with the files in place, runs a fake Graft that succeeds and proves `init` calls it
 without the picker, excludes every file it wrote and names the committed file it changed, and requires `session-start` to exit 1 where the harness is
 absent, runs the two board suites (`tests/run-all.sh`, `tests/run-all.ps1`: one test pair per
-command against a stand-in `gh`, and the tree must be as the suite found it) and both `case-check`
-twins. It needs `bash`, `pwsh`, `node` and `jq` and never touches the network. CI runs it on Ubuntu
+command against a stand-in `gh`, the push gate's pair among them, and the tree must be as the
+suite found it) and both `case-check` twins. It needs `bash`, `pwsh`, `node` and `jq` and never touches the network. CI runs it on Ubuntu
 and Windows for every push and pull request, and then `schema-check`, which needs github.com.
 
 - **Add a file a checkout should get:** put it under `templates/` at the path it has in the
@@ -903,11 +950,13 @@ setup-ai-core/
 │   ├── team-modes-check / -install      the team modes of every tool on the machine
 │   ├── issue-*, start-issue, board-*,   the board and issue commands, one pair each
 │   │   status-sync, labels-sync, ...
+│   ├── pre-push                         the push gate, and --install for the shim a repository carries
 │   └── schema-check, case-check         the checks of the board commands themselves
 ├── lib/
 │   ├── board.sh / Board.psm1            the library of the board commands
 │   ├── layers.sh / Layers.psm1          the project harness: from origin, cloned, pulled, created, the extends chain
-│   └── gitignore-block                  the block init writes into a project's .gitignore
+│   ├── gitignore-block                  the block init writes into a project's .gitignore
+│   └── entry-point.ps1                  the one text every scripts/check.ps1 and build.ps1 is a copy of
 ├── rules/
 │   ├── NN-slug.md                       the generic rules, one file per section
 │   └── skills.md                        when to use which skill

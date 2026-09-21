@@ -89,6 +89,7 @@ Write-Host "--> From $coreRoot"
 
 # --- what this run does to the checkout is recorded here and reported at the end -------------
 $report = @{ created = @(); refreshed = @(); kept = @(); removed = @(); tracked = @(); unchanged = 0 }
+$utf8 = New-Object System.Text.UTF8Encoding $false
 function Add-Note([string]$kind, [string]$label) {
   if ($kind -ceq 'unchanged') { $report.unchanged++ } else { $report[$kind] += $label }
 }
@@ -104,9 +105,17 @@ function Test-SameDir([string]$a, [string]$b) {
   foreach ($f in $fa) { if (-not (Test-SameFile (Join-Path $a $f) (Join-Path $b $f))) { return $false } }
   return $true
 }
-# Put-File <source> <destination> <label> managed|once: one file, written only when it differs
+# Put-File <source> <destination> <label> managed|once: one file, written only when it differs.
+# A managed file keeps the block Graft appended to the checkout's copy, between its markers.
 function Put-File([string]$src, [string]$dst, [string]$label, [string]$mode) {
   if (Test-Path -LiteralPath $dst) {
+    if ($mode -ceq 'managed') {
+      $block = [regex]::Match([System.IO.File]::ReadAllText($dst), '(?s)(?:^|(?<=\n))<!-- graft:start -->.*?(?:^|\n)<!-- graft:end -->[^\n]*\n?')
+      if ($block.Success -and -not [regex]::IsMatch([System.IO.File]::ReadAllText($src), '(?m)^<!-- graft:start -->')) {
+        [System.IO.File]::WriteAllText((Join-Path $tmp 'graft-kept'), [System.IO.File]::ReadAllText($src).TrimEnd("`r", "`n") + "`n`n" + $block.Value, $utf8)
+        $src = Join-Path $tmp 'graft-kept'
+      }
+    }
     if (Test-SameFile $src $dst) { Add-Note unchanged $label; return }
     if ($mode -ceq 'once') { Add-Note kept $label; return }
     Add-Note refreshed $label
@@ -193,7 +202,6 @@ Drop '.agents/mcp_config.json'
 #    every layer into both skill directories; the agents; the docs of every layer; the data files;
 #    every file under repos\<repo>\ of the layers; STAMP with the commit of every layer.
 $coreVersion = (Get-Content (Join-Path $coreRoot "VERSION") -Raw).Trim()
-$utf8 = New-Object System.Text.UTF8Encoding $false
 $sections = @{}   # name -> @{ Path; Source }
 Get-ChildItem -Path (Join-Path $coreRoot "rules") -File | Where-Object { $_.Name -cmatch "^[0-9][0-9]-.*\.md$" } | ForEach-Object { $sections[$_.Name] = @{ Path = $_.FullName; Source = "setup-ai-core $coreVersion" } }
 $skillsMd = Join-Path $coreRoot "rules\skills.md"

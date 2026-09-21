@@ -100,10 +100,17 @@ note() {
     removed) REMOVED="$REMOVED $2" ;; tracked) TRACKED="$TRACKED $2" ;; unchanged) UNCHANGED=$((UNCHANGED + 1)) ;;
   esac
 }
-# put_file <source> <destination> <label> managed|once: one file, written only when it differs
+# put_file <source> <destination> <label> managed|once: one file, written only when it differs.
+# A managed file keeps the block Graft appended to the checkout's copy, between its markers.
 put_file() {
-  local src="$1" dst="$2" label="$3" mode="$4"
+  local src="$1" dst="$2" label="$3" mode="$4" body
   if [ -e "$dst" ]; then
+    if [ "$mode" = managed ] && grep -q '^<!-- graft:start -->' "$dst" && ! grep -q '^<!-- graft:start -->' "$src"; then
+      body="$(cat "$src")"
+      while [ -n "$body" ] && { [ "${body: -1}" = $'\n' ] || [ "${body: -1}" = $'\r' ]; }; do body="${body%?}"; done
+      { printf '%s\n\n' "$body"; sed -n '/^<!-- graft:start -->/,/^<!-- graft:end -->/p' "$dst"; } > "$TMP/graft-kept"
+      src="$TMP/graft-kept"
+    fi
     if cmp -s "$src" "$dst"; then note unchanged "$label"; return 0; fi
     if [ "$mode" = once ]; then note kept "$label"; return 0; fi
     note refreshed "$label"

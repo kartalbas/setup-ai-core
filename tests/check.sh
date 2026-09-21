@@ -214,13 +214,13 @@ cat > "$WORK/graftbin/npx" <<'EOF'
 echo "$*" >> "$GRAFT_FAKE_LOG"
 case "$*" in *--dry-run*) printf 'would write - this repo:\n  GEMINI.md               fenced graft section\n  .gemini\\settings.json   mcpServers.graft\n\nwould write - your machine, affects ALL repos:\n  ~\\.codex\\config.toml   [mcp_servers.graft]\n' >&2; exit 0 ;; esac
 case "$3" in
-  init) echo graft > GEMINI.md; mkdir -p .gemini; echo '{}' > .gemini/settings.json; echo graft >> AGENTS.md; echo graft >> README.md; printf '\342\234\223 agents: %s/AGENTS.md (appended)\n\342\234\223 mcp codex: ~/.codex/config.toml (updated)\n' "$(pwd)" ;;
+  init) echo graft > GEMINI.md; mkdir -p .gemini; echo '{}' > .gemini/settings.json; grep -q '^<!-- graft:start -->' AGENTS.md 2>/dev/null || printf '\n<!-- graft:start -->\ngraft\n<!-- graft:end -->\n' >> AGENTS.md; echo graft >> README.md; printf '\342\234\223 agents: %s/AGENTS.md (appended)\n\342\234\223 mcp codex: ~/.codex/config.toml (updated)\n' "$(pwd)" ;;
   build) mkdir -p graft; echo index > graft/index.md; printf '\342\234\223 wiring: 2 nodes (1 file, 1 function), 1 edges, 1 cards [javascript]\n' ;;
 esac
 exit 0
 EOF
 chmod +x "$WORK/graftbin/npx"
-printf '@echo %%* >> "%%GRAFT_FAKE_LOG%%"\r\n@set DRY=0\r\n@for %%%%a in (%%*) do @if "%%%%a"=="--dry-run" set DRY=1\r\n@if "%%DRY%%"=="1" (echo would write - this repo:& echo   GEMINI.md               fenced graft section& echo   .gemini\\settings.json   mcpServers.graft& echo.& echo would write - your machine, affects ALL repos:& echo   ~\\.codex\\config.toml   [mcp_servers.graft]) 1>&2 & exit /b 0\r\n@if "%%3"=="init" (echo graft> GEMINI.md & mkdir .gemini 2>nul & echo {}> .gemini\\settings.json & echo graft>> AGENTS.md & echo graft>> README.md & echo \342\234\223 agents: %%CD%%\\AGENTS.md (appended^)& echo \342\234\223 mcp codex: ~\\.codex\\config.toml (updated^))\r\n@if "%%3"=="build" (mkdir graft 2>nul & echo index> graft\\index.md & echo \342\234\223 wiring: 2 nodes (1 file, 1 function^), 1 edges, 1 cards [javascript])\r\n@exit /b 0\r\n' > "$WORK/graftbin/npx.cmd"
+printf '@echo %%* >> "%%GRAFT_FAKE_LOG%%"\r\n@set DRY=0\r\n@for %%%%a in (%%*) do @if "%%%%a"=="--dry-run" set DRY=1\r\n@if "%%DRY%%"=="1" (echo would write - this repo:& echo   GEMINI.md               fenced graft section& echo   .gemini\\settings.json   mcpServers.graft& echo.& echo would write - your machine, affects ALL repos:& echo   ~\\.codex\\config.toml   [mcp_servers.graft]) 1>&2 & exit /b 0\r\n@if "%%3"=="init" (echo graft> GEMINI.md & mkdir .gemini 2>nul & echo {}> .gemini\\settings.json & findstr /b /c:"<!-- graft:start -->" AGENTS.md >nul 2>nul || node -e "require(\047fs\047).appendFileSync(\047AGENTS.md\047,\047\\n<!-- graft:start -->\\ngraft\\n<!-- graft:end -->\\n\047)" & echo graft>> README.md & echo \342\234\223 agents: %%CD%%\\AGENTS.md (appended^)& echo \342\234\223 mcp codex: ~\\.codex\\config.toml (updated^))\r\n@if "%%3"=="build" (mkdir graft 2>nul & echo index> graft\\index.md & echo \342\234\223 wiring: 2 nodes (1 file, 1 function^), 1 edges, 1 cards [javascript])\r\n@exit /b 0\r\n' > "$WORK/graftbin/npx.cmd"
 for twin in sh ps1; do
   git init -q "$WORK/graft-$twin"
   echo readme > "$WORK/graft-$twin/README.md"
@@ -293,11 +293,18 @@ for twin in sh ps1; do
   grep -aqE '^  (created|refreshed|removed) ' "$WORK/report-$twin-2.log" && fail "init.$twin run 2 changed something: $(grep -aE '^  (created|refreshed|removed) ' "$WORK/report-$twin-2.log")"
   grep -aq '^  .gitignore changed' "$WORK/report-$twin-2.log" && fail "init.$twin run 2 changed .gitignore again"
   cmp -s "$D/.git/info/exclude" "$WORK/report-$twin.exclude" || fail "init.$twin run 2 rewrote the exclude file"
+  # 4. a project folder: its AGENTS.md is generated on every run and keeps the block Graft appends to it
+  F="$WORK/folder-$twin"; mkdir -p "$F"; git init -q "$F/app"
+  init_twin "$twin" "$F" "$WORK/folder-$twin-1.log" || fail "init.$twin on a project folder failed (see $WORK/folder-$twin-1.log)"
+  grep -q '^<!-- graft:start -->' "$F/AGENTS.md" || fail "the fake Graft did not append its block to the folder's AGENTS.md ($twin)"
+  init_twin "$twin" "$F" "$WORK/folder-$twin-2.log" || fail "init.$twin run 2 on a project folder failed (see $WORK/folder-$twin-2.log)"
+  grep -aqE '^  (created|refreshed|removed) ' "$WORK/folder-$twin-2.log" && fail "init.$twin run 2 on a project folder changed something: $(grep -aE '^  (created|refreshed|removed) ' "$WORK/folder-$twin-2.log")"
+  [ "$(grep -c '^<!-- graft:start -->' "$F/AGENTS.md")" = 1 ] && grep -q '^| `app` |' "$F/AGENTS.md" || fail "the folder's AGENTS.md lost the map or Graft's block ($twin)"
 done
 for run in dry 1 2; do
   diff <(report_of "$WORK/report-sh-$run.log" | sed 's/report-sh/report-TWIN/') <(report_of "$WORK/report-ps1-$run.log" | sed 's/report-ps1/report-TWIN/') > /dev/null || fail "the report of run $run differs between the twins: $(diff <(report_of "$WORK/report-sh-$run.log") <(report_of "$WORK/report-ps1-$run.log"))"
 done
-echo "  dry run: nothing written, created/removed/kept/.gitignore and Graft's lists announced; run 1 reports the same; run 2 only unchanged files; identical on both twins"
+echo "  dry run: nothing written, created/removed/kept/.gitignore and Graft's lists announced; run 1 reports the same; run 2 only unchanged files, the folder's AGENTS.md keeps Graft's block; identical on both twins"
 
 echo "==> the project harness: created from the skeleton, cloned on another machine, its rules, skills, docs, data and repos/<repo>/ assembled, on both twins"
 # A stand-in gh keeps GitHub on this disk: bare repositories under $GH_FAKE/github.com/<org>/<name>.git

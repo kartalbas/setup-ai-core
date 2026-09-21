@@ -516,7 +516,7 @@ under one of these words:
 | word | meaning |
 | :--- | :--- |
 | `created` | did not exist; written |
-| `refreshed` | a managed file (the assembled rules, `STAMP`, a skill, a data file, the exclude block) that differed from what the layers say; rewritten |
+| `refreshed` | a managed file (the assembled rules, `STAMP`, a skill, a data file, a map from `repos/<repo>/`, the exclude block) that differed from what the layers say; rewritten. A managed `AGENTS.md` keeps the block Graft appended to it, so Graft finds it unchanged |
 | `kept` | a file created once (`AGENTS.md`, `.claude/settings.json`, `config.env`, ...) that differs from its template, yours or changed by Graft; never overwritten |
 | `removed` | what an earlier version left in the checkout (`.ai-core/bin/`, `.agents/mcp_config.json`) |
 | `tracked` | a file of `repos/<repo>/` the repository commits itself; not applied |

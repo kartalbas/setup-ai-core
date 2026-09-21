@@ -403,7 +403,7 @@ prints:
 ```text
 Branch           : main
 Uncommitted files: 0
-Harness version  : 1.1.0
+Harness version  : 1.2.0
 Rules file       : ✓ Present (.ai-core/rules/rules.md)
 Local rules      : ✓ Present (.ai-core/rules/rules.local.md)
 Graft code graph : ✓ Indexed (graft/index.md)

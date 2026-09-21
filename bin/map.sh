@@ -13,7 +13,7 @@ for arg in "$@"; do
     echo "Usage: map.sh [TARGET_DIR] [--all <folder>] [--no-push] [--dry-run]"
     echo ""
     echo "Generates the map of the repository in TARGET_DIR (default: the current directory) from its"
-    echo "code, with the agent CLI named by MAP_TOOL in .ai-core/config.env (claude), into"
+    echo "code, with the agent CLI named by MAP_TOOL in .ai-core/config.env (claude, codex or agy), into"
     echo "repos/<repo>/AGENTS.md of the project harness: what it is, its shape, how it is built,"
     echo "checked and run, where things are added, and the rules of this repository, which people"
     echo "write and every regeneration keeps. At most 80 lines. Then the harness is committed and"
@@ -83,13 +83,13 @@ MAP="$INNER/repos/$repo/AGENTS.md"
 # 2. The agent CLI, from the checkout's configuration
 CONFIG="$TARGET/.ai-core/config.env"; [ -f "$CONFIG" ] || CONFIG="$CORE/templates/.ai-core/config.env"
 setting() { { grep -E "^[[:space:]]*$1[[:space:]]*=" "$CONFIG" || true; } | tail -n1 | sed 's/^[^=]*=//; s/#.*//' | tr -d '"\r' | tr -d "'" | sed 's/^ *//; s/ *$//'; }
-TOOL="$(setting MAP_TOOL)"; [ -n "$TOOL" ] || TOOL=claude
+TOOL="${AI_CORE_MAP_TOOL:-$(setting MAP_TOOL)}"; [ -n "$TOOL" ] || TOOL=claude
 MODEL="$(setting MAP_MODEL)"
 case "$TOOL" in
-  claude) ;;
-  *) echo "error: MAP_TOOL=\"$TOOL\" in $CONFIG; claude is the tool map runs with today" >&2; exit 1 ;;
+  claude|codex|agy) ;;
+  *) echo "error: MAP_TOOL=\"$TOOL\" (config.env, or AI_CORE_MAP_TOOL in the environment); map runs with claude, codex or agy" >&2; exit 1 ;;
 esac
-command -v "$TOOL" >/dev/null 2>&1 || { echo "error: $TOOL is not on the PATH; map writes the map with it" >&2; exit 1; }
+command -v "$TOOL" >/dev/null 2>&1 || { echo "error: $TOOL is not on the PATH; map writes the map with it (MAP_TOOL in config.env, AI_CORE_MAP_TOOL for this machine)" >&2; exit 1; }
 
 # 3. The prompt: read cheaply, output only the file, in the fixed shape. The last section is
 #    people's and comes back from the map that exists.
@@ -114,17 +114,29 @@ A table with two columns: what is added, and where it goes and where it is regis
 ## Rules of this repository
 (none yet: written by people, kept on every regeneration)
 
-Keep every heading exactly as given, in this order. Write paths as they are in the repository. Leave the last section exactly as given. No introduction, no closing remark, no code fence around the file."
+Keep every heading exactly as given, in this order. Write paths as they are in the repository. Leave the last section exactly as given. Do not create or edit any file and do not build anything: your whole answer is the file, its first line the title, its last line the last line of the last section; no introduction, no closing remark, no tally, no code fence around it."
 
 echo "--> Map of $repo, written by $TOOL${MODEL:+ ($MODEL)} into $MAP"
 RAW="$TMP/map.raw"; ERR="$TMP/map.err"
-if ! (cd "$TARGET" && "$TOOL" -p "$PROMPT" --output-format text ${MODEL:+--model "$MODEL"} --allowedTools "Read,Glob,Grep,Bash(graft:*),Bash(npx:*)") > "$RAW" 2>"$ERR"; then
+# Each CLI in its non-interactive mode, reading only; the answer alone lands in RAW
+run_tool() {
+  case "$TOOL" in
+    claude) claude -p "$PROMPT" --output-format text ${MODEL:+--model "$MODEL"} --allowedTools "Read,Glob,Grep,Bash(graft:*),Bash(npx:*)" ;;
+    codex)  codex exec --skip-git-repo-check -s read-only ${MODEL:+-m "$MODEL"} --output-last-message "$TMP/last.md" "$PROMPT" >/dev/null && cat "$TMP/last.md" ;;
+    agy)    agy --print "$PROMPT" --output-format text ${MODEL:+--model "$MODEL"} ;;
+  esac
+}
+if ! (cd "$TARGET" && run_tool) > "$RAW" 2>"$ERR"; then
   echo "error: $TOOL did not write the map (exit $?):" >&2; tail -n 5 "$ERR" >&2; exit 1
 fi
 
 # 4. The shape is checked before anything is written: the title line, the five headings in
-#    order, the length. A fence the tool put around the file is dropped; blank edges are cut.
-tr -d '\r' < "$RAW" | sed '/^```/d' | awk 'NF{f=1} f' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > "$TMP/map.md"
+#    order, the length. What the tool said before the title and after the file (a remark, a
+#    tally) drops out: the file starts at the title line, and its last section ends at its first
+#    blank line. A fence around the file is dropped; blank edges are cut.
+tr -d '\r' < "$RAW" | sed '/^```/d' | awk -v title="# $repo — the map" 'f || $0 == title {f=1; print}' \
+  | awk '/^## Rules of this repository/{r=1; print; next} r && NF==0 && c {exit} r && NF {c=1} {print}' \
+  | awk 'NF{f=1} f' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > "$TMP/map.md"
 shape_ok() {
   [ "$(head -n1 "$TMP/map.md")" = "# $repo — the map" ] || return 1
   [ "$(grep '^## ' "$TMP/map.md" | tr '\n' '|')" = "## What it is|## Shape|## Build, check, run|## Where to add things|## Rules of this repository|" ] || return 1

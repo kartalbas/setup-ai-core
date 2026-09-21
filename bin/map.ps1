@@ -18,7 +18,7 @@ if ($Help -or $args -ccontains "-h" -or $args -ccontains "--help" -or $TargetDir
   Write-Host "Usage: map.ps1 [-TargetDir <path>] [-All <folder>] [-NoPush] [-DryRun]"
   Write-Host ""
   Write-Host "Generates the map of the repository in TargetDir (default: the current directory) from its"
-  Write-Host "code, with the agent CLI named by MAP_TOOL in .ai-core\config.env (claude), into"
+  Write-Host "code, with the agent CLI named by MAP_TOOL in .ai-core\config.env (claude, codex or agy), into"
   Write-Host "repos\<repo>\AGENTS.md of the project harness: what it is, its shape, how it is built,"
   Write-Host "checked and run, where things are added, and the rules of this repository, which people"
   Write-Host "write and every regeneration keeps. At most 80 lines. Then the harness is committed and"
@@ -84,10 +84,10 @@ function Get-Setting([string]$key) {
   $l = Get-Content $config | Where-Object { $_ -cmatch "^\s*$key\s*=" } | Select-Object -Last 1
   if ($l) { return ((($l -split '=', 2)[1] -split '#', 2)[0]).Trim(' ', "`t", "`r", '"', "'") } else { return '' }
 }
-$tool = Get-Setting 'MAP_TOOL'; if (-not $tool) { $tool = 'claude' }
+$tool = if ($env:AI_CORE_MAP_TOOL) { $env:AI_CORE_MAP_TOOL } else { Get-Setting 'MAP_TOOL' }; if (-not $tool) { $tool = 'claude' }
 $model = Get-Setting 'MAP_MODEL'
-if ($tool -cne 'claude') { Stop-Map "MAP_TOOL=`"$tool`" in $config; claude is the tool map runs with today" }
-if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { Stop-Map "$tool is not on the PATH; map writes the map with it" }
+if ($tool -cnotin @('claude', 'codex', 'agy')) { Stop-Map "MAP_TOOL=`"$tool`" (config.env, or AI_CORE_MAP_TOOL in the environment); map runs with claude, codex or agy" }
+if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { Stop-Map "$tool is not on the PATH; map writes the map with it (MAP_TOOL in config.env, AI_CORE_MAP_TOOL for this machine)" }
 
 # 3. The prompt: read cheaply, output only the file, in the fixed shape. The last section is
 #    people's and comes back from the map that exists.
@@ -113,23 +113,38 @@ A table with two columns: what is added, and where it goes and where it is regis
 ## Rules of this repository
 (none yet: written by people, kept on every regeneration)
 
-Keep every heading exactly as given, in this order. Write paths as they are in the repository. Leave the last section exactly as given. No introduction, no closing remark, no code fence around the file.
+Keep every heading exactly as given, in this order. Write paths as they are in the repository. Leave the last section exactly as given. Do not create or edit any file and do not build anything: your whole answer is the file, its first line the title, its last line the last line of the last section; no introduction, no closing remark, no tally, no code fence around it.
 "@
 
 Write-Host "--> Map of $repo, written by $tool$(if ($model) { " ($model)" }) into $map"
-$cliArgs = @('-p', $prompt, '--output-format', 'text'); if ($model) { $cliArgs += @('--model', $model) }
-$cliArgs += @('--allowedTools', 'Read,Glob,Grep,Bash(graft:*),Bash(npx:*)')
+# Each CLI in its non-interactive mode, reading only; the answer alone lands in $raw
+$lastFile = Join-Path $tmp 'last.md'
+switch -CaseSensitive ($tool) {
+  'claude' { $cliArgs = @('-p', $prompt, '--output-format', 'text'); if ($model) { $cliArgs += @('--model', $model) }; $cliArgs += @('--allowedTools', 'Read,Glob,Grep,Bash(graft:*),Bash(npx:*)') }
+  'codex'  { $cliArgs = @('exec', '--skip-git-repo-check', '-s', 'read-only'); if ($model) { $cliArgs += @('-m', $model) }; $cliArgs += @('--output-last-message', $lastFile, $prompt) }
+  'agy'    { $cliArgs = @('--print', $prompt, '--output-format', 'text'); if ($model) { $cliArgs += @('--model', $model) } }
+}
 $errFile = Join-Path $tmp 'map.err'
 Push-Location $target
 try { $raw = @(& $tool @cliArgs 2>$errFile | ForEach-Object { "$_" }); $code = $LASTEXITCODE } finally { Pop-Location }
+if ($tool -ceq 'codex' -and $code -eq 0) { $raw = if (Test-Path -LiteralPath $lastFile) { @([System.IO.File]::ReadAllLines($lastFile)) } else { @() } }
 if ($code -ne 0) {
   $tail = if (Test-Path $errFile) { @(Get-Content $errFile | Select-Object -Last 5) -join "`n" } else { '' }
   Stop-Map "$tool did not write the map (exit $code):`n$tail"
 }
 
 # 4. The shape is checked before anything is written: the title line, the five headings in
-#    order, the length. A fence the tool put around the file is dropped; blank edges are cut.
+#    order, the length. What the tool said before the title and after the file (a remark, a
+#    tally) drops out: the file starts at the title line, and its last section ends at its first
+#    blank line. A fence around the file is dropped; blank edges are cut.
 $lines = @($raw | ForEach-Object { $_.TrimEnd("`r") } | Where-Object { -not $_.StartsWith('```', [StringComparison]::Ordinal) })
+$at = [Array]::IndexOf($lines, "# $repo — the map"); if ($at -gt 0) { $lines = @($lines[$at..($lines.Count - 1)]) }
+$r = [Array]::IndexOf($lines, '## Rules of this repository')
+if ($r -ge 0) {
+  $c = $false; $end = $lines.Count
+  for ($i = $r + 1; $i -lt $lines.Count; $i++) { if ($lines[$i].Trim()) { $c = $true } elseif ($c) { $end = $i; break } }
+  $lines = @($lines[0..($end - 1)])
+}
 while ($lines.Count -gt 0 -and -not $lines[0].Trim()) { $lines = $lines[1..($lines.Count - 1)] }
 while ($lines.Count -gt 0 -and -not $lines[-1].Trim()) { $lines = @($lines[0..($lines.Count - 2)]) }
 $headings = @($lines | Where-Object { $_.StartsWith('## ', [StringComparison]::Ordinal) }) -join '|'

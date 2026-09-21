@@ -457,8 +457,10 @@ cat > "$WORK/ghbin/claude" <<'EOF'
 #!/bin/sh
 echo "$*" >> "$MAP_FAKE_LOG"
 [ -z "${MAP_FAKE_BAD:-}" ] || { echo "Sure! Here is the map:"; exit 0; }
+[ -z "${MAP_FAKE_NOISE:-}" ] || printf 'Done reading. Writing the map now.\n\n'
 n="$(basename "$PWD")"
 printf '# %s \342\200\224 the map\n\n## What it is\nA shop.%s\n\n## Shape\n- src/: the code\n\n## Build, check, run\n- npm test\n\n## Where to add things\n| a page | src/pages/ |\n\n## Rules of this repository\n(none yet: written by people, kept on every regeneration)\n' "$n" "${MAP_FAKE_NOTE:+ $MAP_FAKE_NOTE}"
+[ -z "${MAP_FAKE_NOISE:-}" ] || printf '\n> Grant write permission and rerun.\n\ngraft saved ~0 tokens this turn\n'
 EOF
 chmod +x "$WORK/ghbin/claude"
 cat > "$WORK/ghbin/claude.ps1" <<'EOF'
@@ -466,10 +468,33 @@ param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest)
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 Add-Content -Path $env:MAP_FAKE_LOG -Value ($Rest -join ' ')
 if ($env:MAP_FAKE_BAD) { 'Sure! Here is the map:'; exit 0 }
+if ($env:MAP_FAKE_NOISE) { 'Done reading. Writing the map now.'; '' }
 $n = Split-Path -Leaf (Get-Location).Path
 "# $n $([char]0x2014) the map"; ''; '## What it is'; "A shop.$(if ($env:MAP_FAKE_NOTE) { ' ' + $env:MAP_FAKE_NOTE })"; ''; '## Shape'; '- src/: the code'; ''; '## Build, check, run'; '- npm test'; ''; '## Where to add things'; '| a page | src/pages/ |'; ''; '## Rules of this repository'; '(none yet: written by people, kept on every regeneration)'
+if ($env:MAP_FAKE_NOISE) { ''; '> Grant write permission and rerun.'; ''; 'graft saved ~0 tokens this turn' }
 exit 0
 EOF
+# codex writes its answer into the file named by --output-last-message; agy prints it, like claude
+cat > "$WORK/ghbin/codex" <<'EOF'
+#!/bin/sh
+echo "$*" >> "$MAP_FAKE_LOG"
+out=""; while [ $# -gt 0 ]; do [ "$1" = "--output-last-message" ] && out="$2"; shift; done
+n="$(basename "$PWD")"
+printf '# %s \342\200\224 the map\n\n## What it is\nA shop.\n\n## Shape\n- src/: the code\n\n## Build, check, run\n- npm test\n\n## Where to add things\n| a page | src/pages/ |\n\n## Rules of this repository\n(none yet: written by people, kept on every regeneration)\n' "$n" > "$out"
+echo "codex: thinking..."
+EOF
+cat > "$WORK/ghbin/codex.ps1" <<'EOF'
+param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest)
+Add-Content -Path $env:MAP_FAKE_LOG -Value ($Rest -join ' ')
+$i = [Array]::IndexOf($Rest, '--output-last-message'); $out = $Rest[$i + 1]
+$n = Split-Path -Leaf (Get-Location).Path
+$map = @("# $n $([char]0x2014) the map", '', '## What it is', 'A shop.', '', '## Shape', '- src/: the code', '', '## Build, check, run', '- npm test', '', '## Where to add things', '| a page | src/pages/ |', '', '## Rules of this repository', '(none yet: written by people, kept on every regeneration)')
+[System.IO.File]::WriteAllText($out, (($map -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding $false))
+'codex: thinking...'
+exit 0
+EOF
+sed 's/^echo "\$\*" >> "\$MAP_FAKE_LOG"$/echo "$*" >> "$MAP_FAKE_LOG"/' "$WORK/ghbin/claude" > "$WORK/ghbin/agy"; chmod +x "$WORK/ghbin/agy" "$WORK/ghbin/codex"
+cp "$WORK/ghbin/claude.ps1" "$WORK/ghbin/agy.ps1"
 MAPLOG="$WORK/map.args"
 map_sh() { HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" MAP_FAKE_LOG="$MAPLOG" bash "$ROOT/bin/map.sh" "$@"; }
 map_ps() { HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" GRAFT_FAKE_LOG="$(native "$WORK/layers.args")" MAP_FAKE_LOG="$(native "$MAPLOG")" MAP_FAKE_NOTE=ps pwsh -NoProfile -File "$ROOT/bin/map.ps1" "$@"; }
@@ -488,6 +513,11 @@ grep -q '^A shop\. v2$' "$M" && grep -q '^- \*\*Ship on Fridays never\.\*\* \[re
 cp "$M" "$WORK/map.before"
 MAP_FAKE_BAD=1 map_sh "$WORK/org-sh/shop-web" > "$WORK/map-sh-bad.log" 2>&1 && fail "map.sh accepted an output that is not a map"
 grep -aq "not the map's shape" "$WORK/map-sh-bad.log" && cmp -s "$M" "$WORK/map.before" && [ -f "$WORK/org-sh/shop-web/.ai-core/map.rejected.md" ] || fail "map.sh: the refusal (see $WORK/map-sh-bad.log)"
+# what the tool says before the title and after the file drops out
+MAP_FAKE_NOISE=1 map_sh "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-sh-noise.log" 2>&1 || fail "map.sh with a remark before and a tally after the file (see $WORK/map-sh-noise.log)"
+grep -aq '^# shop-web — the map' "$WORK/map-sh-noise.log" && ! grep -aqE 'Done reading|Grant write|graft saved' "$WORK/map-sh-noise.log" || fail "map.sh kept what the tool said around the file (see $WORK/map-sh-noise.log)"
+MAP_FAKE_NOISE=1 map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")" -DryRun > "$WORK/map-ps-noise.log" 2>&1 || fail "map.ps1 with a remark before and a tally after the file (see $WORK/map-ps-noise.log)"
+grep -aq '^# shop-web — the map' "$WORK/map-ps-noise.log" && ! grep -aqE 'Done reading|Grant write|graft saved' "$WORK/map-ps-noise.log" || fail "map.ps1 kept what the tool said around the file (see $WORK/map-ps-noise.log)"
 map_sh "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-sh-dry.log" 2>&1 || fail "map.sh --dry-run (see $WORK/map-sh-dry.log)"
 grep -aq '^# shop-web — the map' "$WORK/map-sh-dry.log" && cmp -s "$M" "$WORK/map.before" || fail "map.sh --dry-run wrote something or printed nothing"
 map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")" > "$WORK/map-ps-1.log" 2>&1 || fail "map.ps1 (see $WORK/map-ps-1.log)"
@@ -498,6 +528,16 @@ MAP_FAKE_BAD=1 map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")" > "$WORK/ma
 grep -aq "not the map's shape" "$WORK/map-ps-bad.log" || fail "map.ps1: the refusal (see $WORK/map-ps-bad.log)"
 # the session start, with a table whose probes always pass: the fake homes hold no team modes
 printf 'claude\tcaveman\tlite\talways\t-\t-\n' > "$WORK/always.tsv"
+# codex and agy write the map the same way, named by AI_CORE_MAP_TOOL for one machine; a tool map does not know is refused
+AI_CORE_MAP_TOOL=codex map_sh "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-codex-sh.log" 2>&1 || fail "map.sh with codex (see $WORK/map-codex-sh.log)"
+grep -aq '^# shop-web — the map' "$WORK/map-codex-sh.log" && grep -q 'exec --skip-git-repo-check -s read-only' "$MAPLOG" || fail "map.sh did not run codex exec read-only or printed no map (see $WORK/map-codex-sh.log)"
+AI_CORE_MAP_TOOL=agy map_sh "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-agy-sh.log" 2>&1 || fail "map.sh with agy (see $WORK/map-agy-sh.log)"
+grep -aq '^# shop-web — the map' "$WORK/map-agy-sh.log" && grep -q -- '--print' "$MAPLOG" || fail "map.sh did not run agy --print or printed no map (see $WORK/map-agy-sh.log)"
+AI_CORE_MAP_TOOL=codex map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")" -DryRun > "$WORK/map-codex-ps.log" 2>&1 || fail "map.ps1 with codex (see $WORK/map-codex-ps.log)"
+AI_CORE_MAP_TOOL=agy map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")" -DryRun > "$WORK/map-agy-ps.log" 2>&1 || fail "map.ps1 with agy (see $WORK/map-agy-ps.log)"
+grep -aq '^# shop-web — the map' "$WORK/map-codex-ps.log" && grep -aq '^# shop-web — the map' "$WORK/map-agy-ps.log" || fail "map.ps1 with codex or agy printed no map"
+AI_CORE_MAP_TOOL=hermes map_sh "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-hermes.log" 2>&1 && fail "map.sh accepted a tool it does not know"
+grep -aq 'map runs with claude, codex or agy' "$WORK/map-hermes.log" || fail "map.sh does not name the tools it runs with (see $WORK/map-hermes.log)"
 (cd "$WORK/org-sh/shop-web" && HOME="$WORK/home-sh" PATH="$PATH_SH" AI_CORE_UPDATE_CHECK=never TEAM_MODES_FILE="$WORK/always.tsv" bash "$ROOT/bin/session-start.sh" > "$WORK/map-session.log" 2>&1) || fail "session-start.sh with a map (see $WORK/map-session.log): $(tail -n 3 "$WORK/map-session.log" | tr '\n' '|')"
 grep -aq '^Map              : ✓ Generated from [0-9a-f]*, current$' "$WORK/map-session.log" || fail "session-start.sh does not name the map: $(grep -a '^Map' "$WORK/map-session.log")"
 echo x >> "$WORK/org-sh/shop-web/README.md"; git -C "$WORK/org-sh/shop-web" -c user.name=check -c user.email=check@localhost commit -qam 'A change #1'

@@ -252,7 +252,7 @@ for twin in sh ps1; do
   done
   grep -aq '^-y @nanonets/graft init --agents claude agents antigravity --no-build' "$WORK/graft-$twin.args" || fail "init.$twin did not wire the agents of config.env without the picker (args: $(tr '\n' '|' < "$WORK/graft-$twin.args"))"
   grep -aq '^-y @nanonets/graft build' "$WORK/graft-$twin.args" || fail "init.$twin did not run graft build"
-  [ "$(git -C "$WORK/graft-$twin" status --porcelain | tr -d '\r' | sort | tr '\n' '|')" = " M README.md|?? .gitignore|" ] || fail "init.$twin: git status after Graft is not the changed README.md and the new .gitignore: $(git -C "$WORK/graft-$twin" status --porcelain | tr '\n' ' ')"
+  [ "$(git -C "$WORK/graft-$twin" status --porcelain | tr -d '\r' | sort | tr '\n' '|')" = " M README.md|" ] || fail "init.$twin: git status after Graft is not the changed README.md and the new .gitignore: $(git -C "$WORK/graft-$twin" status --porcelain | tr '\n' ' ')"
   grep -aq 'Graft changed committed files: README.md' "$WORK/graft-$twin.log" || fail "init.$twin did not name the committed file Graft changed"
   for p in /graft/ /GEMINI.md /.gemini/settings.json; do
     grep -qxF "$p" "$WORK/graft-$twin/.git/info/exclude" || fail "init.$twin: $p missing from the Graft exclude block"
@@ -386,7 +386,7 @@ assembled_ok() {  # assembled_ok <checkout> <twin>
   [ -f "$c/.ai-core/labels.tsv" ] && [ -f "$c/.ai-core/team-modes.tsv" ] || fail "$t: the data files did not come from the harness"
   [ -e "$c/.cursorrules" ] && fail "$t: a pointer file of an agent the harness does not serve was deployed"
   st="$(git -C "$c" status --porcelain | tr -d '\r' | sort | tr '\n' '|')"
-  [ "$st" = " M README.md|?? .gitignore|" ] || [ "$st" = "?? .gitignore|" ] || fail "$t: git status shows more than the new .gitignore (and the fake Graft's README.md): $st"
+  [ "$st" = " M README.md|" ] || [ -z "$st" ] || fail "$t: git status shows more than the new .gitignore (and the fake Graft's README.md): $st"
 }
 assembled_ok "$WORK/shop-web-sh" "init.sh"
 # Another machine, the PowerShell twin: the harness exists on GitHub, so it is cloned, and the checkout is assembled the same

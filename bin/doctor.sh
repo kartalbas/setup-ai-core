@@ -165,6 +165,21 @@ for cli in claude agy codex; do
   fi
 done
 
+# A session-start hook in the machine-wide Claude Code settings that starts a script of an
+# earlier layout (a session-start.sh or .ps1 beside the repositories): the repository's own
+# .claude/settings.json carries the hook now, so the stale one is taken out.
+CLAUDE_SETTINGS="$HOME/.claude/settings.json"
+if [ -f "$CLAUDE_SETTINGS" ] && command -v jq >/dev/null 2>&1; then
+  STALE_HOOKS="$(jq '[.hooks.SessionStart[]?.hooks[]?.command // empty | select(test("session-start\\.(sh|ps1)"))] | length' "$CLAUDE_SETTINGS" 2>/dev/null || echo 0)"
+  if [ "$STALE_HOOKS" -gt 0 ]; then
+    if [ "$NO_INSTALL" -eq 1 ]; then report "claude hook" stale "$CLAUDE_SETTINGS starts a session-start script of an earlier layout; run doctor without --no-install to take it out"; problem
+    else
+      jq '.hooks.SessionStart = [.hooks.SessionStart[]? | .hooks = [.hooks[]? | select((.command // "") | test("session-start\\.(sh|ps1)") | not)] | select(.hooks | length > 0)]' "$CLAUDE_SETTINGS" > "$CLAUDE_SETTINGS.tmp" && mv "$CLAUDE_SETTINGS.tmp" "$CLAUDE_SETTINGS"
+      report "claude hook" repaired "$CLAUDE_SETTINGS started a session-start script of an earlier layout; taken out, the repository's own .claude/settings.json carries the hook now"
+    fi
+  fi
+fi
+
 # The team modes of every agent tool on this machine: checked, and installed when one is missing
 # (team-modes.tsv says how, per tool). A plugin loads when the tool starts, so a fresh install
 # needs the tool restarted; the check says which.

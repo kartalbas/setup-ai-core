@@ -291,6 +291,14 @@ while IFS= read -r rel; do
   esac
   put "$CORE_ROOT/templates/$rel" "$rel" once
 done <<< "$( (cd "$CORE_ROOT/templates" && find . -type f | LC_ALL=C sort) | sed 's|^\./||')"
+# The Claude Code hook that starts the session is in the template; a settings.json the checkout
+# had before (created once, never overwritten) gets it merged in, the way Graft merges its hooks
+HOOK='ai-core session-start --tool claude'
+SETTINGS="$TARGET/.claude/settings.json"
+if [ -f "$SETTINGS" ] && command -v jq >/dev/null 2>&1 && ! jq -e --arg c "$HOOK" '[.hooks.SessionStart[]?.hooks[]?.command // empty] | index($c) != null' "$SETTINGS" >/dev/null 2>&1; then
+  jq --arg c "$HOOK" '.hooks.SessionStart = ((.hooks.SessionStart // []) + [{hooks: [{type: "command", command: $c, timeout: 60}]}])' "$SETTINGS" > "$TMP/settings.json" 2>/dev/null \
+    && put_file "$TMP/settings.json" "$SETTINGS" ".claude/settings.json" managed
+fi
 if [ "$PROJECT_FOLDER" -eq 1 ]; then
   {
     printf '<!-- setup-ai-core %s: written by init for a project folder, rewritten on every run; put your own notes into .ai-core/rules/rules.local.md -->\n' "$CORE_VERSION"

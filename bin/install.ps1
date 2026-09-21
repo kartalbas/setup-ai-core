@@ -43,13 +43,16 @@ if ($Source) {
   }
   Write-Host "==> Using the clone at $dir"
 } elseif (Test-Path (Join-Path $dir ".git")) {
-  Write-Host "==> setup-ai-core is already at $dir; pulling"
-  & git -C $dir pull --ff-only
+  Write-Host "==> setup-ai-core is already at $dir; updating"
+  & pwsh -NoProfile -File (Join-Path $dir "bin\update.ps1")
   if ($LASTEXITCODE -ne 0) { exit 1 }
 } else {
   Write-Host "==> Cloning $Repo to $dir"
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dir) | Out-Null
   & git clone --quiet $Repo $dir
+  # The newest release, when there is one: what is not tagged reaches nobody
+  $tag = "$(@(& git -C $dir tag --list 'v[0-9]*' --sort=-v:refname 2>$null | ForEach-Object { "$_" } | Where-Object { $_ })[0])"
+  if ($tag) { & git -C $dir checkout --quiet $tag; Write-Host "==> release $tag" } else { Write-Host "==> no release yet; on $(& git -C $dir symbolic-ref --short -q HEAD)" }
   if ($LASTEXITCODE -ne 0) { exit 1 }
 }
 

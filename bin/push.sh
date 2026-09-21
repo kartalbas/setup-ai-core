@@ -39,6 +39,7 @@ done
 
 pushed=0; failed=""; seen=0
 for dir in "$HOME"/.*-ai-core; do
+  [ "$(basename "$dir")" != .setup-ai-core ] || continue   # the clone of setup-ai-core is no project harness
   [ -d "$dir/.git" ] || continue
   name="$(basename "$dir")"; name="${name#.}"
   [ -z "$ONLY" ] || [ "$name" = "$ONLY" ] || continue

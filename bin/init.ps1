@@ -295,6 +295,20 @@ foreach ($rel in $templateFiles) {
   if ($pointerOf.ContainsKey($rel) -and -not (Test-Serves $pointerOf[$rel])) { continue }
   Put (Join-Path $templates $rel) $rel once
 }
+# The Claude Code hook that starts the session is in the template; a settings.json the checkout
+# had before (created once, never overwritten) gets it merged in, the way Graft merges its hooks
+$hook = 'ai-core session-start --tool claude'
+$settings = Join-Path $target '.claude\settings.json'
+if ((Test-Path -LiteralPath $settings) -and (Get-Command jq -ErrorAction SilentlyContinue)) {
+  & jq -e --arg c $hook '[.hooks.SessionStart[]?.hooks[]?.command // empty] | index($c) != null' $settings 2>$null | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    $merged = (& jq --arg c $hook '.hooks.SessionStart = ((.hooks.SessionStart // []) + [{hooks: [{type: "command", command: $c, timeout: 60}]}])' $settings 2>$null | Out-String)
+    if ($LASTEXITCODE -eq 0 -and $merged.Trim()) {
+      [System.IO.File]::WriteAllText((Join-Path $tmp 'settings.json'), $merged.Replace("`r`n", "`n"), $utf8)
+      Put-File (Join-Path $tmp 'settings.json') $settings '.claude/settings.json' managed
+    }
+  }
+}
 if ($projectFolder) {
   $map = New-Object System.Text.StringBuilder
   [void]$map.Append("<!-- setup-ai-core ${coreVersion}: written by init for a project folder, rewritten on every run; put your own notes into .ai-core/rules/rules.local.md -->`n")

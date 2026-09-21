@@ -3,5 +3,18 @@
     "allow": [
       "Bash(ai-core:*)"
     ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ai-core session-start --tool claude",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
   }
 }

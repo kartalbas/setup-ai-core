@@ -21,7 +21,6 @@ usage() {
     f="$(basename "$f" .sh)"
     case "$f" in graft-setup) echo "  graft (graft-setup)" ;; *) echo "  $f" ;; esac
   done
-  echo "  update                     Pull setup-ai-core (git pull --ff-only in $CORE)"
   echo "  version                    Print the setup-ai-core version"
   echo "  help                       Show this help message"
 }
@@ -31,16 +30,6 @@ command="${1:-help}"
 
 case "$command" in
   graft) exec bash "$CORE/bin/graft-setup.sh" "$@" ;;
-  update)
-    echo "--> Updating setup-ai-core at $CORE"
-    git -C "$CORE" pull --ff-only
-    # and every project harness clone on this machine, ~/.<name>-ai-core
-    for d in "$HOME"/.*-ai-core; do
-      [ -d "$d/.git" ] || continue
-      name="$(basename "$d")"; echo "--> Updating ${name#.} at $d"
-      git -C "$d" pull --ff-only || echo "note: $d could not be pulled; see above"
-    done
-    echo "--> The scripts are current everywhere; run ai-core init in a checkout to refresh its rules" ;;
   version) tr -d '\r\n' < "$CORE/VERSION"; echo ;;
   help|-h|--help) usage ;;
   *)

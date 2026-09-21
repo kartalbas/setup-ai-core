@@ -60,8 +60,11 @@ Update, on the machine:
 ai-core update
 ```
 
-pulls setup-ai-core and every project harness on this machine. Then, in a repository,
-`ai-core init` brings it to that state and reports what changed. Nothing updates by itself.
+moves setup-ai-core to its newest release (a tag `vX.Y.Z`, cut only when the checks are green on
+both runners) and pulls every project harness on this machine; `ai-core update --check` only asks.
+Then, in a repository, `ai-core init` brings it to that state and reports what changed.
+`ai-core session-start` says when a checkout is behind the harness or a release is available.
+Nothing updates by itself.
 
 ---
 
@@ -692,10 +695,18 @@ the Graft server (section 4.8). A new clone or worktree runs `ai-core init` once
 
 ### 5.10 Update and uninstall
 
-**Update:** `ai-core update` pulls setup-ai-core; the scripts are current in every checkout at
-once because no checkout has a copy. `ai-core init` again in a clone or worktree refreshes its
-rules. Managed files are replaced, your files stay. `.ai-core/VERSION` and the `Harness version` line of `session-start`
-tell which version a checkout has.
+**Update:** a release of setup-ai-core is a tag `vX.Y.Z` on the commit `VERSION` names, cut with
+`ai-core release X.Y.Z` only when the checks were green on both runners for that commit; what is
+not tagged reaches nobody. `install` checks the newest release out, `ai-core update` moves a clean
+clone to the newest one (a clone with uncommitted changes or commits not pushed is left alone and
+named; `--main` follows the development branch, for whoever works on setup-ai-core) and pulls
+every project harness clone on the machine; `ai-core update --check` fetches and reports only,
+exit 0 when everything is current, 2 when something is available. The scripts are current in every
+checkout at once because no checkout has a copy; `ai-core init` again in a clone or worktree
+brings it to that state, managed files replaced, your files kept. `session-start` prints
+`Harness state` (the checkout's `.ai-core/STAMP` against the clones: run `init` when it is
+behind) and `Releases` (`update --check`, unless `UPDATE_CHECK="never"` in `config.env`).
+Nothing updates by itself.
 
 **Uninstall:** delete what section 4.2 lists, delete `graft/`, and remove the block between
 `# setup-ai-core start` and `# setup-ai-core end`, and the one between `# setup-ai-core graft start`
@@ -719,11 +730,13 @@ and `bin/<name>.ps1` in PowerShell; a new script in `bin/` is a command without 
 | `graft-setup` | `ai-core graft [dir] [--dry-run]` / `[-TargetDir <dir>] [-DryRun]` | 0 built, skipped or dry; 1 no Node.js, build failed, or bad `config.env`; 2 a wrong argument |
 | `init` | `ai-core init [dir] [--all <folder>] [--no-doctor] [--dry-run]` / `[-TargetDir <dir>] [-All <folder>] [-NoDoctor] [-DryRun]` | 0 in place, or dry; 1 doctor failed, Graft failed, or a repository under `--all` failed |
 | `push` | `ai-core push [MESSAGE] [--harness <name>]` / `[-Message <text>] [-Harness <name>]` | 0 every harness clone pushed or had nothing; 1 no clone, a commit or a push failed |
+| `update` | `ai-core update [--check] [--main]` / `[-Check] [-Main]` (section 5.10) | 0 done, or `--check`: everything current; 2 `--check`: a release or commits available; 1 an origin could not be reached |
+| `release` | `ai-core release <version>` (in a clone of setup-ai-core, section 10) | 0 tagged and pushed; 1 refused, naming what is missing; 2 a wrong argument |
 | `pre-push` | `ai-core pre-push [--install [--all <folder>]]` / `[-Install [-All <folder>]]` (section 4.13) | 0 every check passed, or the shim written; 1 refused, or a repository under `--all` is none; 2 a wrong argument |
 | the board and issue commands | `ai-core issue-new ...`, `ai-core start-issue N`, ... (section 8) | 0 done; 1 refused or gh refused; 2 a wrong argument |
 | `doctor` | `ai-core doctor [--no-install]` / `ai-core doctor [-NoInstall]` | 0 every required tool present and gh logged in; 1 otherwise, each problem with its instruction |
 | `install` | `bin/install.sh [--source <clone>] [--dir <path>] [--repo <url>] [--no-path] [--no-doctor]` / `bin/install.ps1 [-Source <clone>] [-Dir <path>] [-Repo <url>] [-NoPath] [-NoDoctor]` | 0 installed and doctor OK; 1 when doctor found problems |
-| `ai-core` | `ai-core <command>`: any script in `bin/` by name, `graft` for `graft-setup`, plus `update`, `version`, `help` | the command's exit code; 1 for an unknown command |
+| `ai-core` | `ai-core <command>`: any script in `bin/` by name, `graft` for `graft-setup`, plus `version`, `help` | the command's exit code; 1 for an unknown command |
 
 `doctor` today checks Git, gh and its login, Bash, PowerShell 7 (required on Windows), Node.js 20+
 with `npx`, jq, the team modes, repairs an empty Antigravity `mcp_config.json`, and reports whether `claude`, `agy` and `codex` are installed, with the install command
@@ -881,6 +894,11 @@ absent, runs the two board suites (`tests/run-all.sh`, `tests/run-all.ps1`: one 
 command against a stand-in `gh`, the push gate's pair among them, and the tree must be as the
 suite found it) and both `case-check` twins. It needs `bash`, `pwsh`, `node` and `jq` and never touches the network. CI runs it on Ubuntu
 and Windows for every push and pull request, and then `schema-check`, which needs github.com.
+
+**A release** is `ai-core release X.Y.Z`, run in the clone: it refuses unless `VERSION` says X.Y.Z,
+the tree is clean, `main` is pushed, and the workflow run for exactly that commit is completed and
+green; then it tags `vX.Y.Z` and pushes the tag. `install` and `update` follow the newest tag, so
+`main` can carry a mistake without it reaching anybody.
 
 - **Add a file a checkout should get:** put it under `templates/` at the path it has in the
   checkout. Both installers deploy it.

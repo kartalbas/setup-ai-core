@@ -43,6 +43,8 @@ export GIT_AUTHOR_NAME=check GIT_AUTHOR_EMAIL=check@localhost GIT_COMMITTER_NAME
 # pwsh on Linux colours an error record even when it is captured, and a test that reads the text
 # then reads escape codes; NO_COLOR is honoured by PowerShell 7.2+
 export NO_COLOR=1
+# session-start does not ask the origins here: nothing in this suite reaches the network
+export AI_CORE_UPDATE_CHECK=never
 # A team-modes table whose probes always pass, so the tools of this machine never decide a check
 printf 'claude\tmode\ton\talways\t-\t-\ncodex\tmode\ton\talways\t-\t-\ngemini\tmode\ton\talways\t-\t-\n' > "$WORK/modes.tsv"; export TEAM_MODES_FILE="$WORK/modes.tsv"
 
@@ -53,8 +55,8 @@ printf '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "gh version 0.0.0"; else
 chmod +x "$WORK/doctorbin/node" "$WORK/doctorbin/gh"
 printf '@echo v18.0.0\r\n' > "$WORK/doctorbin/node.cmd"
 printf '@if "%%1"=="--version" (echo gh version 0.0.0) else (exit /b 1)\r\n' > "$WORK/doctorbin/gh.cmd"
-PATH="$WORK/doctorbin:$PATH" bash "$ROOT/bin/doctor.sh" --no-install > "$WORK/doctor.sh.log" 2>&1 && fail "doctor.sh exited 0 with an old Node.js"
-PATH="$WORK/doctorbin:$PATH" pwsh -NoProfile -File "$ROOT/bin/doctor.ps1" -NoInstall > "$WORK/doctor.ps1.log" 2>&1 && fail "doctor.ps1 exited 0 with an old Node.js"
+mkdir -p "$WORK/doctor-home"; HOME="$WORK/doctor-home" PATH="$WORK/doctorbin:$PATH" bash "$ROOT/bin/doctor.sh" --no-install > "$WORK/doctor.sh.log" 2>&1 && fail "doctor.sh exited 0 with an old Node.js"
+HOME="$WORK/doctor-home" USERPROFILE="$(native "$WORK/doctor-home")" PATH="$WORK/doctorbin:$PATH" pwsh -NoProfile -File "$ROOT/bin/doctor.ps1" -NoInstall > "$WORK/doctor.ps1.log" 2>&1 && fail "doctor.ps1 exited 0 with an old Node.js"
 for t in sh ps1; do
   grep -aq 'node .*too old' "$WORK/doctor.$t.log" || fail "doctor.$t did not report the old Node.js"
   grep -aq 'gh .*not logged in' "$WORK/doctor.$t.log" || fail "doctor.$t did not report the missing gh login"
@@ -96,8 +98,8 @@ CORE_SH="$WORK/home-sh/.setup-ai-core"
 bash "$ROOT/bin/install.sh" --repo "$ROOT" --dir "$CORE_SH" --no-path --no-doctor > "$WORK/install.sh.log" 2>&1 || fail "install.sh --repo (see $WORK/install.sh.log)"
 [ -d "$CORE_SH/.git" ] || fail "install.sh --repo did not clone"
 bash "$ROOT/bin/install.sh" --repo "$ROOT" --dir "$CORE_SH" --no-path --no-doctor > "$WORK/install.sh.log" 2>&1 || fail "install.sh second run (see $WORK/install.sh.log)"
-grep -q "pulling" "$WORK/install.sh.log" || fail "install.sh second run did not pull"
-[ "$("$CORE_SH/bin/ai-core" version)" = "$(tr -d '\r\n' < "$ROOT/VERSION")" ] || fail "ai-core version from the clone"
+grep -q "updating" "$WORK/install.sh.log" || fail "install.sh second run did not update"
+[ "$("$CORE_SH/bin/ai-core" version)" = "$(git -C "$CORE_SH" show HEAD:VERSION | tr -d '\r\n')" ] || fail "ai-core version from the clone"
 [ "$("$ROOT/bin/ai-core" version)" = "$(tr -d '\r\n' < "$ROOT/VERSION")" ] || fail "ai-core version"
 "$ROOT/bin/ai-core" help > /dev/null || fail "ai-core help"
 "$ROOT/bin/ai-core" no-such-command > /dev/null 2>&1 && fail "ai-core accepted an unknown command"
@@ -110,8 +112,8 @@ CORE_PS="$WORK/home-ps/.setup-ai-core"
 pwsh -NoProfile -File "$ROOT/bin/install.ps1" -Repo "$(native "$ROOT")" -Dir "$(native "$CORE_PS")" -NoPath -NoDoctor > "$WORK/install.ps1.log" 2>&1 || fail "install.ps1 -Repo (see $WORK/install.ps1.log)"
 [ -d "$CORE_PS/.git" ] || fail "install.ps1 -Repo did not clone"
 pwsh -NoProfile -File "$ROOT/bin/install.ps1" -Repo "$(native "$ROOT")" -Dir "$(native "$CORE_PS")" -NoPath -NoDoctor > "$WORK/install.ps1.log" 2>&1 || fail "install.ps1 second run (see $WORK/install.ps1.log)"
-grep -q "pulling" "$WORK/install.ps1.log" || fail "install.ps1 second run did not pull"
-[ "$(pwsh -NoProfile -File "$CORE_PS/bin/ai-core.ps1" version | tr -d '\r')" = "$(tr -d '\r\n' < "$ROOT/VERSION")" ] || fail "ai-core.ps1 version from the clone"
+grep -q "updating" "$WORK/install.ps1.log" || fail "install.ps1 second run did not update"
+[ "$(pwsh -NoProfile -File "$CORE_PS/bin/ai-core.ps1" version | tr -d '\r')" = "$(git -C "$CORE_PS" show HEAD:VERSION | tr -d '\r\n')" ] || fail "ai-core.ps1 version from the clone"
 mkdir -p "$WORK/via-ps/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$WORK/via-ps/.ai-core/config.env"
 pwsh -NoProfile -File "$ROOT/bin/ai-core.ps1" init -TargetDir "$(native "$WORK/via-ps")" -NoDoctor > /dev/null 2>&1 || fail "ai-core.ps1 init through the command"
 (cd "$WORK/via-ps" && find . -type f | sort) | diff - "$WORK/sh.list" > /dev/null || fail "init.ps1 through the command deployed a different file set"
@@ -158,13 +160,14 @@ for twin in sh ps1; do
   git -C "$WORK/repo-$twin" -c user.name=check -c user.email=check@localhost commit -q --allow-empty -m init
   git -C "$WORK/repo-$twin" worktree add -q "$WORK/wt-$twin" > /dev/null 2>&1 || fail "git worktree add"
   for t in "repo-$twin" "wt-$twin"; do
-    mkdir -p "$WORK/$t/.ai-core"
+    mkdir -p "$WORK/$t/.ai-core" "$WORK/$t/.claude"
     printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$WORK/$t/.ai-core/config.env"
+    printf '{"permissions":{"allow":["Bash(x)"]}}\n' > "$WORK/$t/.claude/settings.json"   # a settings.json from before the hook
     for run in 1 2; do
       if [ "$twin" = sh ]; then
-        bash "$ROOT/bin/init.sh" "$WORK/$t" --no-doctor > /dev/null 2>&1 || fail "init.sh in $t (run $run)"
+        bash "$ROOT/bin/init.sh" "$WORK/$t" --no-doctor > "$WORK/$t-init.log" 2>&1 || fail "init.sh in $t (run $run)"
       else
-        pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/$t")" -NoDoctor > /dev/null 2>&1 || fail "init.ps1 in $t (run $run)"
+        pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/$t")" -NoDoctor > "$WORK/$t-init.log" 2>&1 || fail "init.ps1 in $t (run $run)"
       fi
       if [ "$run" = 1 ]; then
         dirty="$(git -C "$WORK/$t" status --porcelain | tr -d '\r')"
@@ -184,11 +187,15 @@ for twin in sh ps1; do
     done
     dirty="$(git -C "$WORK/$t" status --porcelain)"
     [ -z "$dirty" ] || fail "init.$twin left untracked files in $t: $(echo "$dirty" | tr '\n' ' ')"
+    jq -e '(.hooks.SessionStart[0].hooks[0].command == "ai-core session-start --tool claude") and ((.permissions.allow | index("Bash(x)")) != null)' "$WORK/$t/.claude/settings.json" > /dev/null || fail "init.$twin did not merge the session-start hook into the settings.json $t had (or lost its own entry)"
+    [ "$run" = 1 ] && [ "$t" = "repo-$twin" ] && { grep -aq '^  refreshed .*\.claude/settings\.json' "$WORK/$t-init.log" || fail "init.$twin did not report the merged settings.json as refreshed"; }
+    [ "$(jq '[.hooks.SessionStart[].hooks[].command] | length' "$WORK/$t/.claude/settings.json")" = 1 ] || fail "init.$twin merged the hook more than once in $t"
   done
   n="$(grep -c '^# setup-ai-core start' "$WORK/repo-$twin/.git/info/exclude")"
   [ "$n" = 1 ] || fail "exclude block written $n times by init.$twin"
 done
-echo "  git status empty in 4 targets, the checkouts' .gitignore committed by init with its trailer, the worktrees' left to their own commit; exclude block written once each"
+echo "  git status empty in 4 targets, the checkouts' .gitignore committed by init with its trailer, the worktrees' left to their own commit; exclude block written once each; the session-start hook merged into the settings.json each had, once"
+for t in sh ps1; do grep -q 'ai-core session-start --tool claude' "$WORK/$t/.claude/settings.json" || fail "the template settings.json deployed by init.$t carries no session-start hook"; done
 
 echo "==> the .gitignore block: rewritten in place, a path the project ignores already is not written twice, on both twins"
 for twin in sh ps1; do
@@ -332,13 +339,14 @@ case "$1 $2" in
   "repo view")   [ -d "$GH_FAKE/github.com/$3.git" ] ;;
   "repo clone")  git clone -q "$GH_FAKE/github.com/$3.git" "$4" ;;
   "repo create") git init -q --bare "$GH_FAKE/github.com/$3.git" && git -C "$6" remote add origin "$GH_FAKE/github.com/$3.git" && git -C "$6" push -q -u origin HEAD ;;
+  "run list") echo '[{"status":"completed","conclusion":"success"}]' ;;
   "auth status") exit 0 ;;
   *) exit 1 ;;
 esac
 EOF
 chmod +x "$WORK/ghbin/gh"
 GH_FAKE_WIN="$(native "$GH_FAKE" | sed 's|\\|/|g')"
-printf '@echo off\r\nif "%%1 %%2"=="repo view" (if exist "%s/github.com/%%3.git" (exit /b 0) else (exit /b 1))\r\nif "%%1 %%2"=="repo clone" (git clone -q "%s/github.com/%%3.git" "%%4" & exit /b %%ERRORLEVEL%%)\r\nif "%%1 %%2"=="repo create" (git init -q --bare "%s/github.com/%%3.git" & git -C "%%6" remote add origin "%s/github.com/%%3.git" & git -C "%%6" push -q -u origin HEAD & exit /b %%ERRORLEVEL%%)\r\nif "%%1 %%2"=="auth status" exit /b 0\r\nexit /b 1\r\n' "$GH_FAKE_WIN" "$GH_FAKE_WIN" "$GH_FAKE_WIN" "$GH_FAKE_WIN" > "$WORK/ghbin/gh.cmd"
+printf '@echo off\r\nif "%%1 %%2"=="repo view" (if exist "%s/github.com/%%3.git" (exit /b 0) else (exit /b 1))\r\nif "%%1 %%2"=="repo clone" (git clone -q "%s/github.com/%%3.git" "%%4" & exit /b %%ERRORLEVEL%%)\r\nif "%%1 %%2"=="repo create" (git init -q --bare "%s/github.com/%%3.git" & git -C "%%6" remote add origin "%s/github.com/%%3.git" & git -C "%%6" push -q -u origin HEAD & exit /b %%ERRORLEVEL%%)\r\nif "%%1 %%2"=="auth status" exit /b 0\r\nif "%%1 %%2"=="run list" (echo [{"status":"completed","conclusion":"success"}] & exit /b 0)\r\nexit /b 1\r\n' "$GH_FAKE_WIN" "$GH_FAKE_WIN" "$GH_FAKE_WIN" "$GH_FAKE_WIN" > "$WORK/ghbin/gh.cmd"
 # A project repository: shop-web of example-org, with a README the fake Graft appends to
 new_checkout() {  # new_checkout <dir> <repo name>
   git init -q "$1"; echo readme > "$1/README.md"
@@ -423,6 +431,58 @@ new_checkout "$WORK/folder/shop-web" shop-web; new_checkout "$WORK/folder/store-
 HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/init.sh" "$WORK/folder" --no-doctor > "$WORK/layers-folder.log" 2>&1 || fail "init.sh on a project folder with layers (see $WORK/layers-folder.log)"
 [ "$(tr '\n' '|' < "$WORK/folder/.ai-core/STAMP" | sed 's/ [0-9a-f-]*|/|/g')" = "setup-ai-core|store-ai-core|" ] || fail "the project folder did not get the layer its repositories share: $(tr '\n' '|' < "$WORK/folder/.ai-core/STAMP")"
 echo "  created, cloned, assembled and compared on both twins; extends base first; a harness checkout refused; the folder shares the base"
+
+echo "==> releases: release tags the green commit, install checks the newest release out, update moves to it and --check reports, on both twins"
+for twin in sh ps1; do
+  RO="$WORK/rel-$twin-origin.git"; git init -q --bare -b main "$RO"
+  RD="$WORK/rel-$twin-dev"; mkdir -p "$RD"
+  (cd "$ROOT" && git ls-files -co --exclude-standard -z | tar --null -cf - -T -) | tar -xf - -C "$RD"   # the working tree, not a clone
+  git init -q -b main "$RD"; git -C "$RD" add -A; git -C "$RD" commit -q -m 'The tree #1'
+  git -C "$RD" remote add origin "$RO"
+  printf '9.9.0\n' > "$RD/VERSION"; git -C "$RD" commit -q -am 'release: 9.9.0'
+  git -C "$RD" push -q -u origin main 2>/dev/null; git -C "$RD" remote set-head origin main
+  RH="$WORK/rel-$twin-home"; mkdir -p "$RH"
+  rel() { if [ "$twin" = sh ]; then PATH="$PATH_SH" bash "$RD/bin/release.sh" "$@" 2>&1; else PATH="$PATH_SH" pwsh -NoProfile -File "$RD/bin/release.ps1" "$@" 2>&1; fi; }
+  upd() { if [ "$twin" = sh ]; then HOME="$RH" bash "$RH/.setup-ai-core/bin/update.sh" "$@" 2>&1; else HOME="$RH" USERPROFILE="$(native "$RH")" pwsh -NoProfile -File "$RH/.setup-ai-core/bin/update.ps1" "$@" 2>&1; fi; }
+  out="$(rel 9.9.1)" && fail "release.$twin tagged a version VERSION does not carry"
+  printf '%s\n' "$out" | grep -q 'VERSION carries 9.9.0, not 9.9.1' || fail "release.$twin does not name the VERSION mismatch: $out"
+  printf 'x\n' > "$RD/scratch.txt"; git -C "$RD" add scratch.txt; git -C "$RD" commit -q -m 'Add scratch #1'
+  out="$(rel 9.9.0)" && fail "release.$twin tagged a commit that is not pushed"
+  printf '%s\n' "$out" | grep -q 'not pushed' || fail "release.$twin does not name the unpushed commit: $out"
+  git -C "$RD" push -q origin main 2>/dev/null
+  out="$(rel 9.9.0)" || fail "release.$twin refused a green, pushed, clean commit: $out"
+  printf '%s\n' "$out" | grep -q '^release: v9.9.0 on ' || fail "release.$twin did not report the tag: $out"
+  git -C "$RO" rev-parse -q --verify refs/tags/v9.9.0 > /dev/null || fail "release.$twin did not push v9.9.0 to the origin"
+  out="$(rel 9.9.0)" && fail "release.$twin tagged v9.9.0 twice"
+  if [ "$twin" = sh ]; then
+    HOME="$RH" bash "$RD/bin/install.sh" --repo "$RO" --dir "$RH/.setup-ai-core" --no-path --no-doctor > "$WORK/rel-$twin-install.log" 2>&1 || fail "install.sh from the release origin (see $WORK/rel-$twin-install.log)"
+  else
+    HOME="$RH" USERPROFILE="$(native "$RH")" pwsh -NoProfile -File "$RD/bin/install.ps1" -Repo "$(native "$RO")" -Dir "$(native "$RH/.setup-ai-core")" -NoPath -NoDoctor > "$WORK/rel-$twin-install.log" 2>&1 || fail "install.ps1 from the release origin (see $WORK/rel-$twin-install.log)"
+  fi
+  grep -aq '==> release v9.9.0' "$WORK/rel-$twin-install.log" || fail "install.$twin did not report the release it checked out"
+  [ "$(git -C "$RH/.setup-ai-core" describe --tags --exact-match HEAD 2>/dev/null)" = v9.9.0 ] || fail "install.$twin did not check out v9.9.0"
+  out="$(upd --check)"; rc=$?
+  [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q '^setup-ai-core: current (v9.9.0)$' || fail "update.$twin --check on the newest release: exit $rc, $out"
+  printf '9.9.1\n' > "$RD/VERSION"; git -C "$RD" commit -q -am 'release: 9.9.1'; git -C "$RD" push -q origin main 2>/dev/null
+  rel 9.9.1 > /dev/null || fail "release.$twin 9.9.1"
+  out="$(upd --check)"; rc=$?
+  [ "$rc" -eq 2 ] && printf '%s\n' "$out" | grep -q '^setup-ai-core: release v9.9.1 available (this machine: v9.9.0)$' || fail "update.$twin --check with a newer release: exit $rc, $out"
+  out="$(upd)" || fail "update.$twin: $out"
+  printf '%s\n' "$out" | grep -q 'release v9.9.1 (was v9.9.0)' || fail "update.$twin did not move to v9.9.1: $out"
+  [ "$(git -C "$RH/.setup-ai-core" describe --tags --exact-match HEAD 2>/dev/null)" = v9.9.1 ] || fail "update.$twin left the clone on $(git -C "$RH/.setup-ai-core" describe --tags --always HEAD)"
+  out="$(upd --check)"; rc=$?
+  [ "$rc" -eq 0 ] || fail "update.$twin --check after the update: exit $rc, $out"
+  out="$(upd --main)" || fail "update.$twin --main: $out"
+  printf '%s\n' "$out" | grep -q 'follows main' || fail "update.$twin --main did not follow main: $out"
+  [ "$(git -C "$RH/.setup-ai-core" symbolic-ref --short -q HEAD)" = main ] || fail "update.$twin --main did not check main out"
+  out="$(upd)" || fail "update.$twin back from main: $out"
+  [ "$(git -C "$RH/.setup-ai-core" describe --tags --exact-match HEAD 2>/dev/null)" = v9.9.1 ] || fail "update.$twin did not move a clean clone from main to the newest release"
+  printf 'local\n' > "$RH/.setup-ai-core/scratch.txt"
+  out="$(upd)" || fail "update.$twin with a dirty clone: $out"
+  printf '%s\n' "$out" | grep -q 'left alone (1 uncommitted change(s), 0 commit(s) not pushed)' || fail "update.$twin touched a dirty clone: $out"
+  unset -f rel upd
+done
+echo "  refused without VERSION, unpushed, twice; v9.9.0 installed, v9.9.1 announced and moved to, main followed on request, a dirty clone left alone, on both twins"
 
 echo "==> push: what changed in a harness clone is committed and pushed, a second run has nothing, on both twins"
 for twin in sh ps1; do

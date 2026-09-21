@@ -35,7 +35,7 @@ $ErrorActionPreference = 'Stop'
 $core = Split-Path -Parent $PSScriptRoot
 
 $pushed = 0; $failed = @(); $seen = 0
-foreach ($d in (Get-ChildItem -Path $HOME -Directory -Force -Filter '.*-ai-core' | Where-Object { Test-Path (Join-Path $_.FullName '.git') } | Sort-Object Name)) {
+foreach ($d in (Get-ChildItem -Path $HOME -Directory -Force -Filter '.*-ai-core' | Where-Object { $_.Name -cne '.setup-ai-core' -and (Test-Path (Join-Path $_.FullName '.git')) } | Sort-Object Name)) {
   $dir = $d.FullName; $name = $d.Name.TrimStart('.')
   if ($Harness -and $name -cne $Harness) { continue }
   $seen++

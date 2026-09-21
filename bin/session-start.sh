@@ -68,6 +68,30 @@ HARNESS_VERSION=""
 GRAFT_OK=0
 { [ -f "graft/index.md" ] || [ -f "graft/INDEX.md" ] || [ -f "graft/workspace.json" ]; } && GRAFT_OK=1
 
+# The harness this checkout was assembled from (.ai-core/STAMP, one line per layer: name and
+# commit) against the clones on this machine; and the releases, asked from the origins by
+# update --check, unless UPDATE_CHECK is "never" (config.env, or AI_CORE_UPDATE_CHECK in the
+# environment). Nothing is updated here; the lines say what to run.
+HARNESS_CURRENT=true; HARNESS_STAMP=""
+if [ -f ".ai-core/STAMP" ]; then
+  HARNESS_STAMP="$( { tr -d '\r' < .ai-core/STAMP | grep -v '^$' || true; } | tr '\n' ';' | sed 's/;$//')"
+  while read -r lname lcommit; do
+    [ -n "$lname" ] || continue
+    if [ "$lname" = setup-ai-core ]; then ldir="$CORE"; else ldir="$HOME/.$lname"; fi
+    [ -d "$ldir" ] || continue
+    [ "$(git -C "$ldir" rev-parse --short HEAD 2>/dev/null)" = "$lcommit" ] || HARNESS_CURRENT=false
+  done < <(tr -d '\r' < .ai-core/STAMP)
+else
+  HARNESS_CURRENT=false
+fi
+UPDATE_CHECK="${AI_CORE_UPDATE_CHECK:-}"
+[ -n "$UPDATE_CHECK" ] || UPDATE_CHECK="$( { grep -E '^[[:space:]]*UPDATE_CHECK[[:space:]]*=' .ai-core/config.env 2>/dev/null || true; } | tail -n1 | sed 's/^[^=]*=//; s/#.*//' | tr -d '"\r ' | tr -d "'")" || true
+RELEASE_LINES=""; RELEASE_STATE="skipped"   # current | available | unreachable | skipped
+if [ "$UPDATE_CHECK" != never ]; then
+  rc=0; RELEASE_LINES="$(bash "$CORE/bin/update.sh" --check 2>/dev/null)" || rc=$?
+  case $rc in 0) RELEASE_STATE=current ;; 2) RELEASE_STATE=available ;; *) RELEASE_STATE=unreachable ;; esac
+fi
+
 GH_LOGGED_IN=0
 GH_USER=""
 if command -v gh >/dev/null 2>&1; then
@@ -113,9 +137,13 @@ if [ "$as_json" -eq 1 ]; then
     --argjson rules_present "$(bool $RULES_OK)" --arg rules_path "$RULES_PATH" \
     --argjson local_rules_present "$(bool $LOCAL_RULES_OK)" --argjson graft_indexed "$(bool $GRAFT_OK)" \
     --argjson gh_authenticated "$(bool $GH_LOGGED_IN)" --arg gh_user "$GH_USER" \
+    --argjson harness_current "$HARNESS_CURRENT" --arg harness_stamp "$HARNESS_STAMP" \
+    --arg release_state "$RELEASE_STATE" --arg release_lines "$RELEASE_LINES" \
     --arg issue "$ISSUE" --argjson assigned "$ASSIGNED" \
     '{ repository: $repository, root: $root, branch: $branch, uncommitted_files: $uncommitted_files,
-       harness_version: $harness_version, rules_present: $rules_present, rules_path: $rules_path,
+       harness_version: $harness_version, harness_current: $harness_current, harness_stamp: $harness_stamp,
+       release_state: $release_state, release_lines: $release_lines,
+       rules_present: $rules_present, rules_path: $rules_path,
        local_rules_present: $local_rules_present, graft_indexed: $graft_indexed,
        gh_authenticated: $gh_authenticated, gh_user: $gh_user,
        issue: (if $issue == "" then null else ($issue | tonumber) end), assigned: $assigned, thread: input }'
@@ -128,6 +156,13 @@ echo "=================================================="
 echo "Branch           : $BRANCH"
 echo "Uncommitted files: $DIRTY_COUNT"
 echo "Harness version  : $([ -n "$HARNESS_VERSION" ] && echo "$HARNESS_VERSION" || echo "✗ Missing (.ai-core/VERSION)")"
+echo "Harness state    : $([ "$HARNESS_CURRENT" = true ] && echo "✓ Assembled from the current harness" || echo "✗ Assembled from an older harness (run ai-core init)")"
+case "$RELEASE_STATE" in
+  current)     echo "Releases         : ✓ Current" ;;
+  available)   echo "Releases         : ! Available (run ai-core update)"; printf '%s\n' "$RELEASE_LINES" | sed 's/^/                   /' ;;
+  unreachable) echo "Releases         : – Could not reach an origin"; printf '%s\n' "$RELEASE_LINES" | sed 's/^/                   /' ;;
+  skipped)     echo "Releases         : – Not checked (UPDATE_CHECK=never)" ;;
+esac
 echo "Rules file       : $([ $RULES_OK -eq 1 ] && echo "✓ Present ($RULES_PATH)" || echo "✗ Missing")"
 echo "Local rules      : $([ $LOCAL_RULES_OK -eq 1 ] && echo "✓ Present (.ai-core/rules/rules.local.md)" || echo "– None")"
 echo "Graft code graph : $([ $GRAFT_OK -eq 1 ] && { [ -f graft/workspace.json ] && echo "✓ Workspace (graft/workspace.json)" || echo "✓ Indexed (graft/index.md)"; } || echo "✗ Not indexed (run ai-core graft)")"

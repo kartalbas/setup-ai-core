@@ -129,6 +129,22 @@ foreach ($cli in @('claude', 'agy', 'codex')) {
   }
 }
 
+# A session-start hook in the machine-wide Claude Code settings that starts a script of an
+# earlier layout (a session-start.sh or .ps1 beside the repositories): the repository's own
+# .claude\settings.json carries the hook now, so the stale one is taken out.
+$claudeSettings = Join-Path $HOME '.claude\settings.json'
+if ((Test-Path $claudeSettings) -and (Test-Tool jq)) {
+  $staleHooks = "$(& jq '[.hooks.SessionStart[]?.hooks[]?.command // empty | select(test(\"session-start\\\\.(sh|ps1)\"))] | length' $claudeSettings 2>$null)".Trim()
+  if ($staleHooks -and [int]$staleHooks -gt 0) {
+    if ($NoInstall) { Write-Report 'claude hook' stale "$claudeSettings starts a session-start script of an earlier layout; run doctor without -NoInstall to take it out"; Add-Problem }
+    else {
+      $repaired = (& jq '.hooks.SessionStart = [.hooks.SessionStart[]? | .hooks = [.hooks[]? | select((.command // \"\") | test(\"session-start\\\\.(sh|ps1)\") | not)] | select(.hooks | length > 0)]' $claudeSettings | Out-String)
+      if ($LASTEXITCODE -eq 0 -and $repaired.Trim()) { [System.IO.File]::WriteAllText($claudeSettings, $repaired, (New-Object System.Text.UTF8Encoding $false)) }
+      Write-Report 'claude hook' repaired "$claudeSettings started a session-start script of an earlier layout; taken out, the repository's own .claude/settings.json carries the hook now"
+    }
+  }
+}
+
 # The team modes of every agent tool on this machine: checked, and installed when one is missing
 # (team-modes.tsv says how, per tool). A plugin loads when the tool starts, so a fresh install
 # needs the tool restarted; the check says which.

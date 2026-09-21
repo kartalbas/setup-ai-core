@@ -47,12 +47,15 @@ if [ -n "$SOURCE" ]; then
   { [ -f "$DIR/VERSION" ] && [ -d "$DIR/templates" ]; } || { echo "error: $DIR is not a clone of setup-ai-core" >&2; exit 1; }
   echo "==> Using the clone at $DIR"
 elif [ -d "$DIR/.git" ]; then
-  echo "==> setup-ai-core is already at $DIR; pulling"
-  git -C "$DIR" pull --ff-only
+  echo "==> setup-ai-core is already at $DIR; updating"
+  bash "$DIR/bin/update.sh"
 else
   echo "==> Cloning $REPO_URL to $DIR"
   mkdir -p "$(dirname "$DIR")"
   git clone --quiet "$REPO_URL" "$DIR"
+  # The newest release, when there is one: what is not tagged reaches nobody
+  TAG="$(git -C "$DIR" tag --list 'v[0-9]*' --sort=-v:refname | head -n1)"
+  if [ -n "$TAG" ]; then git -C "$DIR" checkout --quiet "$TAG"; echo "==> release $TAG"; else echo "==> no release yet; on $(git -C "$DIR" symbolic-ref --short -q HEAD)"; fi
 fi
 chmod +x "$DIR/bin/ai-core" "$DIR"/bin/*.sh
 

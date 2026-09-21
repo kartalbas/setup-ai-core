@@ -64,6 +64,32 @@ $harnessVersion = if (Test-Path ".ai-core\VERSION") { (Get-Content ".ai-core\VER
 $graftWorkspace = Test-Path "graft\workspace.json"
 $graftOk = (Test-Path "graft\index.md") -or (Test-Path "graft\INDEX.md") -or $graftWorkspace
 
+# The harness this checkout was assembled from (.ai-core\STAMP, one line per layer: name and
+# commit) against the clones on this machine; and the releases, asked from the origins by
+# update -Check, unless UPDATE_CHECK is "never" (config.env, or AI_CORE_UPDATE_CHECK in the
+# environment). Nothing is updated here; the lines say what to run.
+$harnessCurrent = $true; $harnessStamp = ''
+if (Test-Path ".ai-core\STAMP") {
+  $stampLines = @(Get-Content ".ai-core\STAMP" | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+  $harnessStamp = $stampLines -join ';'
+  foreach ($line in $stampLines) {
+    $parts = @($line -split ' '); $lname = $parts[0]; $lcommit = if ($parts.Count -gt 1) { $parts[1] } else { '' }
+    $ldir = if ($lname -ceq 'setup-ai-core') { $core } else { Join-Path $HOME ".$lname" }
+    if (-not (Test-Path $ldir)) { continue }
+    if ("$(& git -C $ldir rev-parse --short HEAD 2>$null)".Trim() -cne $lcommit) { $harnessCurrent = $false }
+  }
+} else { $harnessCurrent = $false }
+$updateCheck = "$env:AI_CORE_UPDATE_CHECK"
+if (-not $updateCheck -and (Test-Path ".ai-core\config.env")) {
+  $l = Get-Content ".ai-core\config.env" | Where-Object { $_ -cmatch '^\s*UPDATE_CHECK\s*=' } | Select-Object -Last 1
+  if ($l) { $updateCheck = ((($l -split '=', 2)[1] -split '#', 2)[0]).Trim(' ', "`t", "`r", '"', "'") }
+}
+$releaseLines = ''; $releaseState = 'skipped'   # current | available | unreachable | skipped
+if ($updateCheck -cne 'never') {
+  $releaseLines = ((& pwsh -NoProfile -File (Join-Path $core "bin\update.ps1") -Check 2>$null | Out-String) -replace "`r`n", "`n").TrimEnd()
+  if ($LASTEXITCODE -eq 0) { $releaseState = 'current' } elseif ($LASTEXITCODE -eq 2) { $releaseState = 'available' } else { $releaseState = 'unreachable' }
+}
+
 $ghLoggedIn = $false
 $ghUser = ""
 if (Get-Command gh -ErrorAction SilentlyContinue) {
@@ -108,6 +134,10 @@ if ($Json) {
     branch              = $branch
     uncommitted_files   = $dirtyCount
     harness_version     = $harnessVersion
+    harness_current     = $harnessCurrent
+    harness_stamp       = $harnessStamp
+    release_state       = $releaseState
+    release_lines       = $releaseLines
     rules_present       = $rulesOk
     rules_path          = $rulesPath
     local_rules_present = $localRulesOk
@@ -127,6 +157,11 @@ Write-Host "==================================================" -ForegroundColor
 Write-Host "Branch           : $branch"
 Write-Host "Uncommitted files: $dirtyCount"
 Write-Host "Harness version  : $(if ($harnessVersion) { $harnessVersion } else { '✗ Missing (.ai-core/VERSION)' })"
+Write-Host "Harness state    : $(if ($harnessCurrent) { '✓ Assembled from the current harness' } else { '✗ Assembled from an older harness (run ai-core init)' })"
+if ($releaseState -ceq 'current') { Write-Host "Releases         : ✓ Current" }
+elseif ($releaseState -ceq 'available') { Write-Host "Releases         : ! Available (run ai-core update)"; foreach ($rl in ($releaseLines -split "`n")) { Write-Host "                   $rl" } }
+elseif ($releaseState -ceq 'unreachable') { Write-Host "Releases         : – Could not reach an origin"; foreach ($rl in ($releaseLines -split "`n")) { Write-Host "                   $rl" } }
+else { Write-Host "Releases         : – Not checked (UPDATE_CHECK=never)" }
 Write-Host "Rules file       : $(if ($rulesOk) { "✓ Present ($rulesPath)" } else { '✗ Missing' })"
 Write-Host "Local rules      : $(if ($localRulesOk) { '✓ Present (.ai-core/rules/rules.local.md)' } else { '– None' })"
 Write-Host "Graft code graph : $(if ($graftWorkspace) { '✓ Workspace (graft/workspace.json)' } elseif ($graftOk) { '✓ Indexed (graft/index.md)' } else { '✗ Not indexed (run ai-core graft)' })"

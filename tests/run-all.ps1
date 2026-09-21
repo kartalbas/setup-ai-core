@@ -1,15 +1,17 @@
-# Run every PowerShell test in this directory, one verdict line each, and a count at the end.
+# Run every PowerShell test in this directory, up to eight at once, one verdict line each in the
+# order of the files, and a count at the end.
 #
-#   pwsh -NoProfile -File test/run-all.ps1
+#   pwsh -NoProfile -File test/run-all.ps1        CHECK_JOBS=<n> for another number at once
 #
 # Exits non-zero when any test is red. A test's own output is printed only when it FAILS: a green
 # suite that scrolls for three hundred lines is a suite nobody reads to the end, and the one line
 # that matters is the count.
 #
-# EACH TEST RUNS IN ITS OWN pwsh PROCESS. Several of them set PATH, HOME, TEAM_MODES_FILE,
-# GH_CACHE_DIRECTORY and the current directory, and a test that changed those for the ones after
-# it would make the order the suite runs in part of what it proves. A separate process is also
-# what makes the exit status of a single test readable at all.
+# EACH TEST RUNS IN ITS OWN pwsh PROCESS, SEVERAL AT ONCE. Several of them set PATH, HOME,
+# TEAM_MODES_FILE, GH_CACHE_DIRECTORY and the current directory, and each writes into a temporary
+# directory of its own, so none sees another; that is what lets them run together, and what keeps
+# the order the suite runs in out of what it proves. A separate process is also what makes the
+# exit status of a single test readable at all.
 
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
@@ -32,18 +34,24 @@ function Read-TreeState {
 }
 $before = Read-TreeState
 
+$tests = @(Get-ChildItem -LiteralPath $here -Filter '*.test.ps1' | Sort-Object Name)
+$max = if ($env:CHECK_JOBS) { [int]$env:CHECK_JOBS } else { 8 }
+$results = $tests | ForEach-Object -ThrottleLimit $max -Parallel {
+  $out = & pwsh -NoProfile -File $_.FullName 2>&1 | ForEach-Object { "$_" }
+  [PSCustomObject]@{ Name = $_.Name; Code = $LASTEXITCODE; Out = @($out) }
+}
+
 $passed = 0
 $failed = 0
 $failedNames = @()
-
-foreach ($test in (Get-ChildItem -LiteralPath $here -Filter '*.test.ps1' | Sort-Object Name)) {
-  $out = & pwsh -NoProfile -File $test.FullName 2>&1 | ForEach-Object { "$_" }
-  if ($LASTEXITCODE -eq 0) {
+foreach ($test in $tests) {
+  $r = $results | Where-Object { $_.Name -ceq $test.Name } | Select-Object -First 1
+  if ($r -and $r.Code -eq 0) {
     "ok    $($test.Name)"
     $passed++
   } else {
     "FAIL  $($test.Name)"
-    $out | ForEach-Object { "      $_" }
+    if ($r) { $r.Out | ForEach-Object { "      $_" } } else { "      no result" }
     $failed++
     $failedNames += $test.Name
   }

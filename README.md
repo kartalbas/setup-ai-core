@@ -909,10 +909,16 @@ Nothing runs in a container.
 ## 10. Developing the harness
 
 ```bash
-bash tests/check.sh
+bash tests/check.sh               # every section at once
+bash tests/check.sh 08-harness    # one section, by its file name
 ```
 
-The check parses every script (`bash -n`, the PowerShell parser), runs both `rules-check` twins
+The check is `tests/sections/*.sh`, one file per group of sections that share their fixtures, each
+sourcing `tests/lib.sh` (the root, `fail`, `native`, a throwaway directory of its own, the stand-in
+`gh` and Graft). `tests/check.sh` starts them all at once, each in its own process, and prints the
+report in file order with the time each section took; a red section prints its whole log. The
+board suites (`tests/run-all.sh`, `tests/run-all.ps1`) run their tests eight at a time
+(`CHECK_JOBS=<n>` for another number). Together the sections parse every script (`bash -n`, the PowerShell parser), run both `rules-check` twins
 over `rules/`, runs both `doctor` twins against a fake old Node.js and a fake unauthenticated gh
 and requires the same two problems, runs both installers against a temporary home (an existing clone with `--source`, a clone with
 `--repo`, a second run that pulls) and `init` through both `ai-core` commands, bootstraps a temporary checkout with each installer in `skip` mode
@@ -1060,8 +1066,10 @@ setup-ai-core/
 │   ├── .github/                         copilot-instructions.md
 │   └── .openhands/                      microagents/repo-rules.md
 ├── tests/
-│   ├── check.sh                         the check
-│   ├── run-all.sh / run-all.ps1         the board suites
+│   ├── check.sh                         the check: every section at once, the report in order
+│   ├── lib.sh                           what every section starts with: fail, native, a throwaway directory, the stand-ins
+│   ├── sections/*.sh                    the sections, one file per group that shares fixtures
+│   ├── run-all.sh / run-all.ps1         the board suites, eight tests at a time
 │   └── *.test.sh / *.test.ps1           one test pair per board command
 ├── .github/workflows/check.yml          runs the check on Ubuntu and Windows
 ├── LICENSE                              MIT

@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
-# Run every bash test in this directory, one verdict line each, and a count at the end.
+# Run every bash test in this directory, up to eight at once, one verdict line each in the order
+# of the files, and a count at the end.
 #
-#   bash test/run-all.sh
+#   bash test/run-all.sh          CHECK_JOBS=<n> for another number at once
 #
 # Exits non-zero when any test is red. A test's own output is printed only when it FAILS: a
 # green suite that scrolls for three hundred lines is a suite nobody reads to the end, and the
 # one line that matters is the count.
 #
-# THE TESTS RUN IN THEIR OWN PROCESS, one at a time. Several of them set PATH, HOME,
-# TEAM_MODES_FILE and GH_CACHE_DIRECTORY, and a test that changed those for the ones after it
-# would make the order the suite runs in part of what it proves.
+# THE TESTS RUN IN THEIR OWN PROCESS, SEVERAL AT ONCE. Several of them set PATH, HOME,
+# TEAM_MODES_FILE and GH_CACHE_DIRECTORY, and each writes into a temporary directory of its own,
+# so none sees another; that is what lets them run together, and what keeps the order the suite
+# runs in out of what it proves.
 
 set -uo pipefail
 
@@ -26,18 +28,31 @@ export GH_ORG=example-org
 tree_state() { git -C "$here/.." status --porcelain 2>/dev/null; }
 before="$(tree_state)"; before_read=$?
 
+RUN="$(mktemp -d)"
+trap 'rm -rf "$RUN"' EXIT
+running=0; max="${CHECK_JOBS:-8}"
+for test in "$here"/*.test.sh; do
+  name="$(basename "$test")"
+  ( bash "$test" > "$RUN/$name.out" 2>&1; echo $? > "$RUN/$name.rc" ) &
+  running=$((running + 1))
+  if [ "$running" -ge "$max" ]; then
+    # wait -n is bash 4.3; an older bash waits for them all and starts the next batch
+    if wait -n 2>/dev/null; then running=$((running - 1)); else wait; running=0; fi
+  fi
+done
+wait
+
 passed=0
 failed=0
 failed_names=''
-
 for test in "$here"/*.test.sh; do
   name="$(basename "$test")"
-  if out="$(bash "$test" 2>&1)"; then
+  if [ "$(cat "$RUN/$name.rc" 2>/dev/null)" = 0 ]; then
     printf 'ok    %s\n' "$name"
     passed=$((passed + 1))
   else
     printf 'FAIL  %s\n' "$name"
-    printf '%s\n' "$out" | sed 's/^/      /'
+    sed 's/^/      /' "$RUN/$name.out"
     failed=$((failed + 1))
     failed_names="$failed_names $name"
   fi

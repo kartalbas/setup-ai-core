@@ -317,6 +317,8 @@ check 'exit 0'                        0 "$rc"
 check 'created'                       yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: .githooks/pre-push created$' && echo yes || echo no)"
 check 'post-checkout created'         yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: .githooks/post-checkout created$' && echo yes || echo no)"
 check 'post-checkout starts init where .ai-core is missing' yes "$(grep -qx 'ai-core init --no-doctor || echo "post-checkout: the harness is NOT complete in this worktree (see above); run ai-core init here before you start" >&2' "$fresh/.githooks/post-checkout" && echo yes || echo no)"
+check 'the attributes rule, so the shims check out LF' yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: .gitattributes: .githooks/\* text eol=lf added; the shims check out LF everywhere$' && grep -qxF '.githooks/* text eol=lf' "$fresh/.gitattributes" && echo yes || echo no)"
+check 'git reads it'                  '.githooks/pre-push: eol: lf' "$(git -C "$fresh" check-attr eol -- .githooks/pre-push)"
 check 'core.hooksPath set'            .githooks "$(git -C "$fresh" config --get core.hooksPath)"
 check 'the shim starts the gate'      yes "$(grep -qx 'exec ai-core pre-push "$@"' "$fresh/.githooks/pre-push" && echo yes || echo no)"
 check 'four lines'                    4 "$(wc -l < "$fresh/.githooks/pre-push" | tr -d ' ')"
@@ -324,7 +326,8 @@ check 'committed'                     yes "$(printf '%s\n' "$out" | grep -q '^pr
 check 'no origin, not pushed'         yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: no origin; not pushed$' && echo yes || echo no)"
 check 'the commit subject'            'the hooks of ai-core: the push gate, init in a new worktree' "$(git -C "$fresh" log -1 --format=%s)"
 check 'the No-issue trailer'          'written, committed and pushed by ai-core pre-push --install' "$(git -C "$fresh" log -1 --format='%(trailers:key=No-issue,valueonly)' | tr -d '\n')"
-check 'only the shims in the commit'  '.githooks/post-checkout .githooks/pre-push' "$(git -C "$fresh" show --pretty=format: --name-only HEAD | grep -v '^$' | tr '\n' ' ' | sed 's/ $//')"
+check 'the shims and the rule in the commit' '.gitattributes .githooks/post-checkout .githooks/pre-push' "$(git -C "$fresh" show --pretty=format: --name-only HEAD | grep -v '^$' | tr '\n' ' ' | sed 's/ $//')"
+check 'the rule file is plain'        100644 "$(git -C "$fresh" ls-tree HEAD .gitattributes | cut -c1-6)"
 check 'with the executable bit'       100755 "$(git -C "$fresh" ls-tree HEAD .githooks/pre-push | cut -c1-6)"
 check 'post-checkout too'             100755 "$(git -C "$fresh" ls-tree HEAD .githooks/post-checkout | cut -c1-6)"
 check 'the staged work is still staged, uncommitted' 'A  open.txt' "$(git -C "$fresh" status --porcelain open.txt)"
@@ -332,6 +335,7 @@ head1="$(git -C "$fresh" rev-parse HEAD)"
 out="$( cd "$fresh" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
 check 'a second run: unchanged'       yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: .githooks/pre-push unchanged$' && echo yes || echo no)"
 check 'post-checkout unchanged too'   yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: .githooks/post-checkout unchanged$' && echo yes || echo no)"
+check 'and nothing about .gitattributes' no "$(printf '%s\n' "$out" | grep -q 'gitattributes' && echo yes || echo no)"
 check 'and no new commit'             "$head1" "$(git -C "$fresh" rev-parse HEAD)"
 check 'and nothing about hooksPath'   no "$(printf '%s\n' "$out" | grep -q 'hooksPath' && echo yes || echo no)"
 printf '#!/usr/bin/env bash\nexec bash ../tooling/hooks/pre-push "$@"\n' > "$fresh/.githooks/pre-push"
@@ -419,11 +423,16 @@ check 'the worktree has it uncommitted'     ' M .githooks/pre-push' "$(git -C "$
 check 'the checkout moved by one commit'    "$head_before" "$(git -C "$pushed" rev-parse HEAD~1)"
 git -C "$pushed" worktree remove --force "$pushed_wt" >/dev/null 2>&1
 
-echo '--install --all: every repository under a folder, a plain folder skipped'
+echo '--install --all: every repository under a folder, a plain folder skipped; a repository whose .gitattributes already makes the shims LF gets no rule'
 folder="$fake/folder"; mkdir -p "$folder/not-a-repo"
 for r in one two; do git init -q -b master "$folder/$r"; git -C "$folder/$r" config user.email 'test@example.invalid'; git -C "$folder/$r" config user.name 'test'; done
+printf '* text=auto eol=lf\n' > "$folder/one/.gitattributes"; git -C "$folder/one" add .gitattributes; git -C "$folder/one" commit -q -m 'LF everywhere #2'
 out="$( bash "$root/bin/pre-push.sh" --install --all "$folder" 2>&1 )"; rc=$?
 check 'exit 0'                      0 "$rc"
+check 'one: no rule added'          no "$(printf '%s\n' "$out" | grep -q '^pre-push: one: .gitattributes' && echo yes || echo no)"
+check 'one: its .gitattributes is as it was' '* text=auto eol=lf' "$(cat "$folder/one/.gitattributes" | tr -d '\n')"
+check 'one: the shims alone in the commit' '.githooks/post-checkout .githooks/pre-push' "$(git -C "$folder/one" show --pretty=format: --name-only HEAD | grep -v '^$' | tr '\n' ' ' | sed 's/ $//')"
+check 'two: the rule added'         yes "$(printf '%s\n' "$out" | grep -q '^pre-push: two: .gitattributes: .githooks/\* text eol=lf added' && echo yes || echo no)"
 check 'two repositories'            yes "$(printf '%s\n' "$out" | grep -q 'the hooks are in 2 repositories' && echo yes || echo no)"
 check 'both carry the shim, committed' yes "$([ "$(git -C "$folder/one" log -1 --format=%s)" = 'the hooks of ai-core: the push gate, init in a new worktree' ] && [ "$(git -C "$folder/two" log -1 --format=%s)" = 'the hooks of ai-core: the push gate, init in a new worktree' ] && echo yes || echo no)"
 check 'the plain folder does not'   no "$([ -e "$folder/not-a-repo/.githooks" ] && echo yes || echo no)"

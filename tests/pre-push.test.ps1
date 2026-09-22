@@ -279,6 +279,8 @@ Check 'post-checkout created'         'True' (Says '(?m)^pre-push: fresh: \.gith
 $checkoutText = [System.IO.File]::ReadAllText((Join-Path $fresh '.githooks\post-checkout'))
 Check 'post-checkout starts init where .ai-core is missing' 'True' ($checkoutText.Contains("`nai-core init --no-doctor || echo `"post-checkout: the harness is NOT complete in this worktree (see above); run ai-core init here before you start`" >&2`n"))
 Check 'post-checkout: LF, no carriage return' 'False' ($checkoutText.Contains("`r"))
+Check 'the attributes rule, so the shims check out LF' 'True' ((Says '(?m)^pre-push: fresh: \.gitattributes: \.githooks/\* text eol=lf added; the shims check out LF everywhere\r?$') -and (@([System.IO.File]::ReadAllLines((Join-Path $fresh '.gitattributes'))) -ccontains '.githooks/* text eol=lf'))
+Check 'git reads it'                  '.githooks/pre-push: eol: lf' "$(& git -C $fresh check-attr eol -- .githooks/pre-push)"
 Check 'core.hooksPath set'            '.githooks' "$(& git -C $fresh config --get core.hooksPath)"
 $shimText = [System.IO.File]::ReadAllText((Join-Path $fresh '.githooks\pre-push'))
 Check 'the shim starts the gate'      'True' ($shimText.Contains("`nexec ai-core pre-push `"`$@`"`n"))
@@ -289,7 +291,8 @@ Check 'committed'                     'True' (Says '(?m)^pre-push: fresh: commit
 Check 'no origin, not pushed'         'True' (Says '(?m)^pre-push: fresh: no origin; not pushed\r?$')
 Check 'the commit subject'            'the hooks of ai-core: the push gate, init in a new worktree' "$(& git -C $fresh log -1 --format=%s)"
 Check 'the No-issue trailer'          'written, committed and pushed by ai-core pre-push --install' ((& git -C $fresh log -1 "--format=%(trailers:key=No-issue,valueonly)" | Out-String).Trim())
-Check 'only the shims in the commit'  '.githooks/post-checkout .githooks/pre-push' ((@(& git -C $fresh show --pretty=format: --name-only HEAD | Where-Object { $_ }) -join ' '))
+Check 'the shims and the rule in the commit' '.gitattributes .githooks/post-checkout .githooks/pre-push' ((@(& git -C $fresh show --pretty=format: --name-only HEAD | Where-Object { $_ }) -join ' '))
+Check 'the rule file is plain'        '100644' ("$(& git -C $fresh ls-tree HEAD .gitattributes)".Substring(0, 6))
 Check 'with the executable bit'       '100755' ("$(& git -C $fresh ls-tree HEAD .githooks/pre-push)".Substring(0, 6))
 Check 'post-checkout too'             '100755' ("$(& git -C $fresh ls-tree HEAD .githooks/post-checkout)".Substring(0, 6))
 Check 'the staged work is still staged, uncommitted' 'A  open.txt' "$(& git -C $fresh status --porcelain open.txt)"
@@ -297,6 +300,7 @@ $head1 = "$(& git -C $fresh rev-parse HEAD)"
 InstallIn $fresh
 Check 'a second run: unchanged'       'True' (Says '(?m)^pre-push: fresh: \.githooks/pre-push unchanged\r?$')
 Check 'post-checkout unchanged too'   'True' (Says '(?m)^pre-push: fresh: \.githooks/post-checkout unchanged\r?$')
+Check 'and nothing about .gitattributes' 'False' (Says 'gitattributes')
 Check 'and no new commit'             $head1 "$(& git -C $fresh rev-parse HEAD)"
 Check 'and nothing about hooksPath'   'False' (Says 'hooksPath')
 Write-Lf (Join-Path $fresh '.githooks\pre-push') "#!/usr/bin/env bash`nexec bash ../tooling/hooks/pre-push `"`$@`"`n"
@@ -385,11 +389,16 @@ Check 'the worktree has it uncommitted'     ' M .githooks/pre-push' "$(& git -C 
 Check 'the checkout moved by one commit'    $headBefore "$(& git -C $pushed rev-parse HEAD~1)"
 & git -C $pushed worktree remove --force $pushedWt 2>$null | Out-Null
 
-Write-Host '-Install -All: every repository under a folder, a plain folder skipped'
+Write-Host '-Install -All: every repository under a folder, a plain folder skipped; a repository whose .gitattributes already makes the shims LF gets no rule'
 $folder = Join-Path $fake 'folder'; New-Item -ItemType Directory -Path (Join-Path $folder 'not-a-repo') -Force | Out-Null
 foreach ($r in @('one', 'two')) { $d = Join-Path $folder $r; & git init -q -b master $d; & git -C $d config user.email 'test@example.invalid'; & git -C $d config user.name 'test' }
+Write-Lf (Join-Path $folder 'one\.gitattributes') "* text=auto eol=lf`n"; & git -C (Join-Path $folder 'one') add .gitattributes; & git -C (Join-Path $folder 'one') commit -q -m 'LF everywhere #2'
 $out = (& pwsh -NoProfile -File $gate -Install -All $folder 2>&1 | Out-String); $rc = $LASTEXITCODE
 Check 'exit 0'                      0 $rc
+Check 'one: no rule added'          'False' (Says '(?m)^pre-push: one: \.gitattributes')
+Check 'one: its .gitattributes is as it was' '* text=auto eol=lf' ([System.IO.File]::ReadAllText((Join-Path $folder 'one\.gitattributes')).Trim())
+Check 'one: the shims alone in the commit' '.githooks/post-checkout .githooks/pre-push' ((@(& git -C (Join-Path $folder 'one') show --pretty=format: --name-only HEAD | Where-Object { $_ }) -join ' '))
+Check 'two: the rule added'         'True' (Says '(?m)^pre-push: two: \.gitattributes: \.githooks/\* text eol=lf added')
 Check 'two repositories'            'True' (Says 'the hooks are in 2 repositories')
 Check 'both carry the shim, committed' 'True' (("$(& git -C (Join-Path $folder 'one') log -1 --format=%s)" -ceq 'the hooks of ai-core: the push gate, init in a new worktree') -and ("$(& git -C (Join-Path $folder 'two') log -1 --format=%s)" -ceq 'the hooks of ai-core: the push gate, init in a new worktree'))
 Check 'the plain folder does not'   'False' (Test-Path (Join-Path $folder 'not-a-repo\.githooks'))

@@ -24,6 +24,18 @@ grep -aq '^--> Project harness: example-org/shop-ai-core (' "$WORK/layers-sh-1.l
 [ -f "$WORK/org-sh/shop-ai-core/ai-core.json" ] && [ -f "$WORK/org-sh/shop-ai-core/labels.tsv" ] || fail "the clone beside the checkout lacks the skeleton"
 [ "$(wc -l < "$WORK/org-sh/shop-web/.ai-core/STAMP" | tr -d ' ')" = 2 ] && grep -q '^shop-ai-core ' "$WORK/org-sh/shop-web/.ai-core/STAMP" || fail "STAMP does not name setup-ai-core and the harness: $(cat "$WORK/org-sh/shop-web/.ai-core/STAMP" | tr '\n' '|')"
 cmp -s "$WORK/org-sh/shop-web/.ai-core/config.env" "$ROOT/templates/.ai-core/config.env" || fail "config.env of the checkout is not the harness's (the skeleton's copy of the template)"
+# The skeleton's .gitattributes makes every checkout of the harness LF; a clone made before the
+# skeleton carried it gets the rule on the next init, and ai-core push commits it (here the clone
+# commits it itself, so the rest of this section sees the harness as created)
+grep -qxF '* text=auto eol=lf' "$WORK/org-sh/shop-ai-core/.gitattributes" || fail "the created harness lacks the skeleton's .gitattributes"
+git -C "$WORK/org-sh/shop-ai-core" rm -q .gitattributes && git -C "$WORK/org-sh/shop-ai-core" -c user.name=check -c user.email=check@localhost commit -q -m 'without attributes' && git -C "$WORK/org-sh/shop-ai-core" push -q origin HEAD 2>/dev/null || fail "could not take .gitattributes out of the harness clone"
+HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/init.sh" "$WORK/org-sh/shop-web" --no-doctor --dry-run > "$WORK/layers-sh-attr-dry.log" 2>&1 || fail "init.sh --dry-run on a harness clone without .gitattributes (see $WORK/layers-sh-attr-dry.log)"
+grep -aq "note: example-org/shop-ai-core would get the skeleton's .gitattributes (every file LF; dry run: not written)" "$WORK/layers-sh-attr-dry.log" || fail "init.sh --dry-run does not announce the skeleton's .gitattributes (see $WORK/layers-sh-attr-dry.log)"
+[ ! -e "$WORK/org-sh/shop-ai-core/.gitattributes" ] || fail "init.sh --dry-run wrote .gitattributes into the harness clone"
+HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/init.sh" "$WORK/org-sh/shop-web" --no-doctor > "$WORK/layers-sh-attr.log" 2>&1 || fail "init.sh on a harness clone without .gitattributes (see $WORK/layers-sh-attr.log)"
+grep -aq 'note: example-org/shop-ai-core: .gitattributes from the skeleton written into .*shop-ai-core (every file LF); ai-core push commits it' "$WORK/layers-sh-attr.log" || fail "init.sh did not report the skeleton's .gitattributes for the older clone (see $WORK/layers-sh-attr.log)"
+grep -qxF '* text=auto eol=lf' "$WORK/org-sh/shop-ai-core/.gitattributes" || fail "init.sh did not write the skeleton's rule into the older clone"
+git -C "$WORK/org-sh/shop-ai-core" add .gitattributes && git -C "$WORK/org-sh/shop-ai-core" -c user.name=check -c user.email=check@localhost commit -q -m 'attributes again' && git -C "$WORK/org-sh/shop-ai-core" push -q origin HEAD 2>/dev/null || fail "could not commit .gitattributes back into the harness clone"
 # The project fills its harness: a new rule section, a replaced one, a skill, a document, the map and config of shop-web
 git clone -q "$GH_FAKE/github.com/example-org/shop-ai-core.git" "$WORK/author" 2>/dev/null
 git -C "$WORK/author" config core.autocrlf false
@@ -193,6 +205,12 @@ grep -aq 'example-org/store-ai-core would be created from the skeleton' "$WORK/l
 HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" GRAFT_FAKE_LOG="$(native "$WORK/layers.args")" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-ps/store-api")" -NoDoctor > "$WORK/layers-ps-2.log" 2>&1 || fail "init.ps1 with a new project harness (see $WORK/layers-ps-2.log)"
 grep -aq 'created: example-org/store-ai-core, private, from the skeleton' "$WORK/layers-ps-2.log" || fail "init.ps1 did not create store-ai-core"
 [ -d "$GH_FAKE/github.com/example-org/store-ai-core.git" ] || fail "store-ai-core was not pushed"
+grep -qxF '* text=auto eol=lf' "$WORK/org-ps/store-ai-core/.gitattributes" || fail "the harness init.ps1 created lacks the skeleton's .gitattributes"
+git -C "$WORK/org-ps/store-ai-core" rm -q .gitattributes && git -C "$WORK/org-ps/store-ai-core" -c user.name=check -c user.email=check@localhost commit -q -m 'without attributes' && git -C "$WORK/org-ps/store-ai-core" push -q origin HEAD 2>/dev/null || fail "could not take .gitattributes out of store-ai-core"
+HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" GRAFT_FAKE_LOG="$(native "$WORK/layers.args")" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-ps/store-api")" -NoDoctor > "$WORK/layers-ps-attr.log" 2>&1 || fail "init.ps1 on a harness clone without .gitattributes (see $WORK/layers-ps-attr.log)"
+grep -aq 'note: example-org/store-ai-core: .gitattributes from the skeleton written into .*store-ai-core (every file LF); ai-core push commits it' "$WORK/layers-ps-attr.log" || fail "init.ps1 did not report the skeleton's .gitattributes for the older clone (see $WORK/layers-ps-attr.log)"
+grep -qxF '* text=auto eol=lf' "$WORK/org-ps/store-ai-core/.gitattributes" || fail "init.ps1 did not write the skeleton's rule into the older clone"
+git -C "$WORK/org-ps/store-ai-core" add .gitattributes && git -C "$WORK/org-ps/store-ai-core" -c user.name=check -c user.email=check@localhost commit -q -m 'attributes again' && git -C "$WORK/org-ps/store-ai-core" push -q origin HEAD 2>/dev/null || fail "could not commit .gitattributes back into store-ai-core"
 # extends: shop-ai-core now extends store-ai-core, so the chain is store first, then shop
 printf '{ "setup-ai-core": ">=1.1.0", "extends": "example-org/store-ai-core" }\n' > "$WORK/author/ai-core.json"
 git -C "$WORK/author" add -A; git -C "$WORK/author" -c user.name=check -c user.email=check@localhost commit -q -m extends; git -C "$WORK/author" push -q origin HEAD
@@ -221,7 +239,7 @@ grep -aq 'moved: example-org/shop-ai-core from ' "$WORK/layers-folder.log" || fa
 [ ! -e "$WORK/home-sh/.shop-ai-core" ] && [ -d "$WORK/folder/shop-ai-core/.git" ] && [ -d "$WORK/folder/store-ai-core/.git" ] || fail "the folder does not hold both harness clones"
 grep -qE '^\| `(shop|store)-ai-core`' "$WORK/folder/AGENTS.md" && fail "the folder's AGENTS.md lists a harness clone as a repository"
 grep -q '^| `shop-web` |' "$WORK/folder/AGENTS.md" && grep -q '^| `store-api` |' "$WORK/folder/AGENTS.md" || fail "the folder's AGENTS.md does not list its repositories"
-rm -rf "$WORK/folder/shop-ai-core"/[!.]*   # every tracked file gone, the history there: an interrupted move somebody cleaned up by hand
+git -C "$WORK/folder/shop-ai-core" ls-files -z | (cd "$WORK/folder/shop-ai-core" && xargs -0 rm -f)   # every tracked file gone, the history there: an interrupted move somebody cleaned up by hand
 HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/init.sh" "$WORK/folder" --no-doctor > "$WORK/layers-folder-2.log" 2>&1 || fail "init.sh on the folder with a harness clone that lost its files (see $WORK/layers-folder-2.log)"
 grep -aq 'restored: the files of example-org/shop-ai-core at ' "$WORK/layers-folder-2.log" || fail "init.sh did not restore the files of the harness clone (see $WORK/layers-folder-2.log)"
 [ -z "$(git -C "$WORK/folder/shop-ai-core" status --porcelain)" ] || fail "the harness clone is not whole after the restore: $(git -C "$WORK/folder/shop-ai-core" status --porcelain | tr '\n' '|')"

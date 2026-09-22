@@ -82,6 +82,22 @@ move_layer() {
   echo "moved: $full from $old to $new, beside the repositories it serves" >&2
 }
 
+# layer_attributes <clone> <setup-ai-core root> <org>/<name> [dry]: a clone made before the
+# skeleton carried .gitattributes gets the skeleton's rule, so every checkout of it is LF (the
+# .githooks shims run through bash, a .tsv keeps its last field); the next ai-core push commits it
+layer_attributes() {
+  local dir="$1" root="$2" full="$3" mode="${4:-}"
+  grep -qsxF '* text=auto eol=lf' "$dir/.gitattributes" && return 0
+  if [ "$mode" = dry ]; then echo "note: $full would get the skeleton's .gitattributes (every file LF; dry run: not written)" >&2; return 0; fi
+  if [ -f "$dir/.gitattributes" ]; then
+    [ -z "$(tail -c 1 "$dir/.gitattributes")" ] || printf '\n' >> "$dir/.gitattributes"
+    grep -v '^#' "$root/skeleton/.gitattributes" >> "$dir/.gitattributes"
+  else
+    cp "$root/skeleton/.gitattributes" "$dir/.gitattributes"
+  fi
+  echo "note: $full: .gitattributes from the skeleton written into $dir (every file LF); ai-core push commits it" >&2
+}
+
 # ensure_layer <org>/<name> <setup-ai-core root> <folder> [create|dry]: the clone is there and
 # current, or is moved from the home directory, or is cloned, or is created from the skeleton
 # when "create" is given; "dry" moves and creates nothing. Prints the clone directory. Exit 1
@@ -112,11 +128,13 @@ ensure_layer() {
     if ! git -C "$dir" pull --ff-only --quiet >/dev/null 2>&1; then
       echo "note: could not pull $full into $dir (offline, or the clone has local changes); using it as it is" >&2
     fi
+    layer_attributes "$dir" "$root" "$full" "$mode"
     echo "$dir"; return 0
   fi
   if gh repo view "$full" --json name >/dev/null 2>&1; then
     [ "$mode" != dry ] || { echo "$dir"; return 0; }
     gh repo clone "$full" "$dir" -- --quiet >/dev/null 2>&1 || { echo "error: could not clone $full to $dir" >&2; return 1; }
+    layer_attributes "$dir" "$root" "$full"
     echo "$dir"; return 0
   fi
   [ "$mode" = create ] || { echo "error: $full does not exist on GitHub" >&2; return 1; }

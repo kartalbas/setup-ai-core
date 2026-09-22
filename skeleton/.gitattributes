@@ -1,0 +1,4 @@
+# Every file is stored and checked out with LF, on every operating system: the .githooks shims
+# run through bash and break on CRLF, and a .tsv checked out with CRLF carries a \r in its last
+# field. ai-core init writes this file into a harness clone made before the skeleton carried it.
+* text=auto eol=lf

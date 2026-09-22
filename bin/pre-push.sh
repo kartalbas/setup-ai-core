@@ -92,6 +92,17 @@ command -v ai-core >/dev/null 2>&1 || { echo "post-checkout: ai-core is not on t
 ai-core init --no-doctor || echo "post-checkout: the harness is NOT complete in this worktree (see above); run ai-core init here before you start" >&2
 '
 SHIM_PATHS=(.githooks/pre-push .githooks/post-checkout)
+# Git runs the shims through bash, and a shim checked out with CRLF fails on the first line; the
+# repository's .gitattributes gets a rule for them where no rule makes them check out with LF.
+ATTR_RULE='.githooks/* text eol=lf'
+ATTR_ADDED=0
+write_attributes() {  # write_attributes <tree>: the rule into <tree>/.gitattributes when nothing makes the shims LF; prints unchanged or added
+  local dir="$1" path="$1/.gitattributes"
+  [ "$(git -C "$dir" check-attr eol -- .githooks/pre-push 2>/dev/null | sed 's/.*: //')" != lf ] || { echo unchanged; return 0; }
+  if [ -f "$path" ]; then [ -z "$(tail -c 1 "$path")" ] || printf '\n' >> "$path"; fi
+  printf '%s\n' "$ATTR_RULE" >> "$path"
+  echo added
+}
 write_shim() {  # write_shim <tree> <hook> <text>: the text into <tree>/.githooks/<hook>; prints unchanged, refreshed or created
   local dir="$1" hook="$2" text="$3" path
   path="$dir/.githooks/$hook"
@@ -101,10 +112,14 @@ write_shim() {  # write_shim <tree> <hook> <text>: the text into <tree>/.githook
   printf '%s' "$text" > "$path"
   chmod +x "$path"
 }
-write_shims() {  # write_shims <tree> <label> <suffix>: both shims, one report line each
+write_shims() {  # write_shims <tree> <label> <suffix> [checkout]: both shims, one report line each, and the attributes rule where it is missing
   local dir="$1" label="$2" suffix="$3"
   echo "pre-push: $label: .githooks/pre-push $(write_shim "$dir" pre-push "$SHIM")$suffix"
   echo "pre-push: $label: .githooks/post-checkout $(write_shim "$dir" post-checkout "$SHIM_CHECKOUT")$suffix"
+  if [ "$(write_attributes "$dir")" = added ]; then
+    echo "pre-push: $label: .gitattributes: $ATTR_RULE added; the shims check out LF everywhere$suffix"
+    [ "${4:-}" != checkout ] || ATTR_ADDED=1
+  fi
 }
 # commit_shim <repository> <label>: the shims committed on their own, with the executable bit,
 # and pushed by ref to the branch checked out; nothing when the commit already carries them
@@ -130,9 +145,15 @@ excuse_gitignore_commits() {
   GIT_SEQUENCE_EDITOR="sh $TMPD/seq.sh" GIT_EDITOR="sh $TMPD/msg.sh" git -C "$dir" rebase -q -i "origin/$branch" >/dev/null 2>&1 \
     || { git -C "$dir" rebase --abort >/dev/null 2>&1; echo "pre-push: $label: the trailer could not be added; the commits are as they were" >&2; return 1; }
 }
-# commit_only <repository> <subject> <trailer> <path>...: the paths, with the executable bit, as
-# one commit on HEAD, whatever else is staged; built from an index of its own, because `git commit
-# -- <path>` reads the path from the working tree, which on Windows has no executable bit.
+# commit_only <repository> <subject> <trailer> <path>...: the paths, the shims with the executable
+# bit, as one commit on HEAD, whatever else is staged; built from an index of its own, because
+# `git commit -- <path>` reads the path from the working tree, which on Windows has no executable bit.
+add_paths() {  # add_paths <repository> <path>...: into the index git works on; the shims with the executable bit
+  local dir="$1" p; shift
+  for p in "$@"; do
+    case "$p" in .githooks/*) git -C "$dir" add --chmod=+x -- "$p" || return 1 ;; *) git -C "$dir" add -- "$p" || return 1 ;; esac
+  done
+}
 commit_only() {
   local dir="$1" subject="$2" trailer="$3" idx tree commit parent=(); shift 3
   idx="$TMPD/index"; rm -f "$idx"
@@ -141,16 +162,17 @@ commit_only() {
   else
     GIT_INDEX_FILE="$idx" git -C "$dir" read-tree --empty || return 1
   fi
-  GIT_INDEX_FILE="$idx" git -C "$dir" add --chmod=+x -- "$@" || return 1
+  ( export GIT_INDEX_FILE="$idx"; add_paths "$dir" "$@" ) || return 1
   tree="$(GIT_INDEX_FILE="$idx" git -C "$dir" write-tree)" || return 1
   commit="$(git -C "$dir" commit-tree "$tree" ${parent[@]+"${parent[@]}"} -m "$subject" -m "$trailer")" || return 1
   git -C "$dir" update-ref HEAD "$commit" || return 1
-  git -C "$dir" add --chmod=+x -- "$@"   # the index follows HEAD for these paths, so it is clean
+  add_paths "$dir" "$@"   # the index follows HEAD for these paths, so it is clean
 }
 commit_shim() {
   local dir="$1" label="$2" branch
-  if git -C "$dir" ls-files --error-unmatch "${SHIM_PATHS[@]}" >/dev/null 2>&1 && git -C "$dir" diff --quiet HEAD -- "${SHIM_PATHS[@]}" 2>/dev/null; then :; else
-    commit_only "$dir" 'the hooks of ai-core: the push gate, init in a new worktree' 'No-issue: written, committed and pushed by ai-core pre-push --install' "${SHIM_PATHS[@]}" \
+  local paths=("${SHIM_PATHS[@]}"); [ "$ATTR_ADDED" -eq 0 ] || paths+=(.gitattributes)
+  if git -C "$dir" ls-files --error-unmatch "${paths[@]}" >/dev/null 2>&1 && git -C "$dir" diff --quiet HEAD -- "${paths[@]}" 2>/dev/null; then :; else
+    commit_only "$dir" 'the hooks of ai-core: the push gate, init in a new worktree' 'No-issue: written, committed and pushed by ai-core pre-push --install' "${paths[@]}" \
       || { echo "pre-push: $label: the commit failed (see above); the shims are written" >&2; return 1; }
     echo "pre-push: $label: committed $(git -C "$dir" rev-parse --short HEAD)"
   fi
@@ -173,7 +195,8 @@ install_shim() {  # install_shim <repository>: 0 written or unchanged, 1 not a r
   # A relative core.hooksPath is read from the tree git works in, so every worktree of the
   # repository carries its own copy of the shims, and git runs the files on disk, committed or not.
   # The checkout commits and pushes them; a worktree is somebody's issue and gets the files only.
-  write_shims "$dir" "$name" ""
+  ATTR_ADDED=0
+  write_shims "$dir" "$name" "" checkout
   while IFS= read -r tree; do
     tree="${tree#worktree }"
     [ -n "$tree" ] && [ "$tree" != "$(cd "$dir" && pwd)" ] && [ "$tree" != "$(cd "$dir" && pwd -W 2>/dev/null)" ] || continue

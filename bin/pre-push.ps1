@@ -76,6 +76,19 @@ $shim = "#!/usr/bin/env bash`n# The push gate is ``ai-core pre-push`` (setup-ai-
 # whatever happened, because a failing hook fails the checkout too; what went wrong is on stderr.
 $shimCheckout = "#!/usr/bin/env bash`n# A new worktree starts with the harness: git runs this file after ``git worktree add`` and after every checkout; where .ai-core/ is missing, ``ai-core init`` (setup-ai-core) writes it.`n[ `"`${3:-0}`" = 1 ] && [ ! -d .ai-core ] || exit 0`nunset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR`ncommand -v ai-core >/dev/null 2>&1 || { echo `"post-checkout: ai-core is not on the PATH of this shell, so this worktree has no harness yet; run ai-core init here before you start`" >&2; exit 0; }`nai-core init --no-doctor || echo `"post-checkout: the harness is NOT complete in this worktree (see above); run ai-core init here before you start`" >&2`n"
 $shimPaths = @('.githooks/pre-push', '.githooks/post-checkout')
+# Git runs the shims through bash, and a shim checked out with CRLF fails on the first line; the
+# repository's .gitattributes gets a rule for them where no rule makes them check out with LF.
+$attrRule = '.githooks/* text eol=lf'
+$script:attrAdded = $false
+function Write-Attributes([string]$dir) {  # the rule into <dir>\.gitattributes when nothing makes the shims LF; returns unchanged or added
+  $eol = "$(& git -C $dir check-attr eol -- .githooks/pre-push 2>$null)"
+  if ($eol.Trim().EndsWith(': lf', [StringComparison]::Ordinal)) { return 'unchanged' }
+  $path = Join-Path $dir '.gitattributes'
+  $text = if (Test-Path -LiteralPath $path) { [System.IO.File]::ReadAllText($path) } else { '' }
+  if ($text.Length -gt 0 -and -not $text.EndsWith("`n", [StringComparison]::Ordinal)) { $text += "`n" }
+  [System.IO.File]::WriteAllText($path, $text + $attrRule + "`n", $utf8)
+  return 'added'
+}
 function Write-Shim([string]$dir, [string]$hook, [string]$text) {  # the text into <dir>\.githooks\<hook>; returns unchanged, refreshed or created
   $path = Join-Path $dir ".githooks\$hook"
   $state = 'created'
@@ -87,9 +100,13 @@ function Write-Shim([string]$dir, [string]$hook, [string]$text) {  # the text in
   if (Get-Command chmod -ErrorAction SilentlyContinue) { & chmod +x $path }
   return $state
 }
-function Write-Shims([string]$dir, [string]$label, [string]$suffix) {  # both shims, one report line each
+function Write-Shims([string]$dir, [string]$label, [string]$suffix, [switch]$Checkout) {  # both shims, one report line each, and the attributes rule where it is missing
   Write-Host "pre-push: ${label}: .githooks/pre-push $(Write-Shim $dir 'pre-push' $shim)$suffix"
   Write-Host "pre-push: ${label}: .githooks/post-checkout $(Write-Shim $dir 'post-checkout' $shimCheckout)$suffix"
+  if ((Write-Attributes $dir) -ceq 'added') {
+    Write-Host "pre-push: ${label}: .gitattributes: $attrRule added; the shims check out LF everywhere$suffix"
+    if ($Checkout) { $script:attrAdded = $true }
+  }
 }
 # The shims committed on their own, with the executable bit, and pushed by ref to the branch
 # checked out; nothing when the commit already carries them
@@ -122,9 +139,16 @@ function Add-GitignoreTrailer([string]$dir, [string]$label, [string]$branch) {
   if (-not $ok) { & git -C $dir rebase --abort 2>$null | Out-Null; [Console]::Error.WriteLine("pre-push: ${label}: the trailer could not be added; the commits are as they were"); return $false }
   return $true
 }
-# The paths, with the executable bit, as one commit on HEAD, whatever else is staged; built from
-# an index of its own, because `git commit -- <path>` reads the path from the working tree, which
-# on Windows has no executable bit.
+# The paths, the shims with the executable bit, as one commit on HEAD, whatever else is staged;
+# built from an index of its own, because `git commit -- <path>` reads the path from the working
+# tree, which on Windows has no executable bit.
+function Add-Paths([string]$dir, [string[]]$paths) {  # into the index git works on; the shims with the executable bit
+  foreach ($p in $paths) {
+    if ($p.StartsWith('.githooks/', [StringComparison]::Ordinal)) { & git -C $dir add --chmod=+x -- $p } else { & git -C $dir add -- $p }
+    if ($LASTEXITCODE -ne 0) { return $false }
+  }
+  return $true
+}
 function Save-Only([string]$dir, [string]$subject, [string]$trailer, [string[]]$paths) {
   $idx = Join-Path ([System.IO.Path]::GetTempPath()) ("ai-core-index-" + [System.IO.Path]::GetRandomFileName())
   $env:GIT_INDEX_FILE = $idx
@@ -133,8 +157,7 @@ function Save-Only([string]$dir, [string]$subject, [string]$trailer, [string[]]$
     $hasHead = ($LASTEXITCODE -eq 0)
     if ($hasHead) { & git -C $dir read-tree HEAD } else { & git -C $dir read-tree --empty }
     if ($LASTEXITCODE -ne 0) { return $false }
-    & git -C $dir add --chmod=+x -- @paths
-    if ($LASTEXITCODE -ne 0) { return $false }
+    if (-not (Add-Paths $dir $paths)) { return $false }
     $tree = "$(& git -C $dir write-tree)"
     if ($LASTEXITCODE -ne 0 -or -not $tree) { return $false }
   } finally { Remove-Item Env:GIT_INDEX_FILE -ErrorAction SilentlyContinue; Remove-Item -Force $idx -ErrorAction SilentlyContinue }
@@ -142,15 +165,16 @@ function Save-Only([string]$dir, [string]$subject, [string]$trailer, [string[]]$
   if ($LASTEXITCODE -ne 0 -or -not $commit) { return $false }
   & git -C $dir update-ref HEAD $commit
   if ($LASTEXITCODE -ne 0) { return $false }
-  & git -C $dir add --chmod=+x -- @paths   # the index follows HEAD for these paths, so it is clean
+  Add-Paths $dir $paths | Out-Null   # the index follows HEAD for these paths, so it is clean
   return $true
 }
 function Send-Shim([string]$dir, [string]$label) {
-  & git -C $dir ls-files --error-unmatch @shimPaths 2>$null | Out-Null
+  $paths = @($shimPaths); if ($script:attrAdded) { $paths += '.gitattributes' }
+  & git -C $dir ls-files --error-unmatch @paths 2>$null | Out-Null
   $tracked = ($LASTEXITCODE -eq 0)
-  & git -C $dir diff --quiet HEAD -- @shimPaths 2>$null
+  & git -C $dir diff --quiet HEAD -- @paths 2>$null
   if (-not ($tracked -and $LASTEXITCODE -eq 0)) {
-    if (-not (Save-Only $dir 'the hooks of ai-core: the push gate, init in a new worktree' 'No-issue: written, committed and pushed by ai-core pre-push --install' $shimPaths)) { [Console]::Error.WriteLine("pre-push: ${label}: the commit failed (see above); the shims are written"); return $false }
+    if (-not (Save-Only $dir 'the hooks of ai-core: the push gate, init in a new worktree' 'No-issue: written, committed and pushed by ai-core pre-push --install' $paths)) { [Console]::Error.WriteLine("pre-push: ${label}: the commit failed (see above); the shims are written"); return $false }
     Write-Host "pre-push: ${label}: committed $(& git -C $dir rev-parse --short HEAD)"
   }
   & git -C $dir remote get-url origin 2>$null | Out-Null
@@ -177,7 +201,8 @@ function Install-Shim([string]$dir) {  # $true written or unchanged, $false not 
   # A relative core.hooksPath is read from the tree git works in, so every worktree of the
   # repository carries its own copy of the shims, and git runs the files on disk, committed or not.
   # The checkout commits and pushes them; a worktree is somebody's issue and gets the files only.
-  Write-Shims $dir $name ''
+  $script:attrAdded = $false
+  Write-Shims $dir $name '' -Checkout
   $own = [System.IO.Path]::GetFullPath($dir).TrimEnd('\', '/')
   foreach ($line in @(& git -C $dir worktree list --porcelain 2>$null | ForEach-Object { "$_" } | Where-Object { $_.StartsWith('worktree ', [StringComparison]::Ordinal) })) {
     $tree = [System.IO.Path]::GetFullPath($line.Substring(9)).TrimEnd('\', '/')

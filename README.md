@@ -293,6 +293,12 @@ to its first dash: `shop-web` and `shop-api` both belong to `shop-ai-core`. Noth
    made for them; without the right to create it, `init` says so and the checkout gets the generic
    harness only.
 
+The skeleton carries a `.gitattributes` (`* text=auto eol=lf`), so every checkout of a harness is
+LF on every operating system: its `.githooks` shims run through bash, and a `.tsv` keeps its last
+field. A clone made before the skeleton carried it gets the rule on its next `init`, said as
+`note: <org>/<prefix>-ai-core: .gitattributes from the skeleton written into ...`; the next
+`ai-core push` commits it.
+
 A harness may extend another: `ai-core.json` `{"extends": "<org>/<name>-ai-core"}`, a company
 harness under several projects for example. The chain is resolved base first, a circle or more
 than eight layers is refused, and `"setup-ai-core": ">=1.1.0"` in `ai-core.json` stops `init` when
@@ -533,7 +539,9 @@ writes both shims into the current repository and into every worktree of it (a r
 `core.hooksPath`, and says what to commit; with `--all <folder>` it does so for every repository
 under a folder, and it commits the shims on their own (a `No-issue:` trailer naming the command)
 and pushes them by ref through the gate; a worktree gets the files and keeps them for its own
-commit. An unpushed commit ahead of origin that names no
+commit. Git runs the shims through bash, and a shim checked out with CRLF fails on its first
+line, so where no rule of the repository's `.gitattributes` makes them check out with LF the
+install adds `.githooks/* text eol=lf` to that file and commits it with them. An unpushed commit ahead of origin that names no
 issue and touches nothing but `.gitignore`, written by an `init` from before `init` committed the
 block itself, gets the `No-issue:` trailer that says so, author and subject kept, so the push
 goes through. `init` sets `core.hooksPath` in a clone that carries the shim, so a fresh clone is

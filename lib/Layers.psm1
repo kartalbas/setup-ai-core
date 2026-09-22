@@ -84,6 +84,26 @@ function Move-Layer {
   Write-Host "moved: $Full from $Old to $New, beside the repositories it serves"
 }
 
+function Add-LayerAttributes {
+  # A clone made before the skeleton carried .gitattributes gets the skeleton's rule, so every
+  # checkout of it is LF (the .githooks shims run through bash, a .tsv keeps its last field); the
+  # next ai-core push commits it
+  [CmdletBinding()] param([Parameter(Mandatory)][string]$Dir, [Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Full, [switch]$Dry)
+  $path = Join-Path $Dir '.gitattributes'
+  $rule = '* text=auto eol=lf'
+  if ((Test-Path $path) -and (@([System.IO.File]::ReadAllLines($path)) -ccontains $rule)) { return }
+  if ($Dry) { Write-Host "note: $Full would get the skeleton's .gitattributes (every file LF; dry run: not written)"; return }
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  if (Test-Path $path) {
+    $text = [System.IO.File]::ReadAllText($path)
+    if ($text.Length -gt 0 -and -not $text.EndsWith("`n", [StringComparison]::Ordinal)) { $text += "`n" }
+    [System.IO.File]::WriteAllText($path, $text + $rule + "`n", $utf8)
+  } else {
+    Copy-Item (Join-Path $Root 'skeleton\.gitattributes') $path
+  }
+  Write-Host "note: ${Full}: .gitattributes from the skeleton written into $Dir (every file LF); ai-core push commits it"
+}
+
 function Resolve-Layer {
   # The clone is there and current, or is moved from the home directory, or is cloned, or is
   # created from the skeleton with -Create; -Dry moves and creates nothing. Returns the clone
@@ -108,6 +128,7 @@ function Resolve-Layer {
     if ($tracked -gt 0 -and $missing -eq $tracked) { & git -C $dir checkout -- . 2>$null | Out-Null; Write-Host "restored: the files of $Full at $dir from its history (every tracked file was missing)" }
     & git -C $dir pull --ff-only --quiet 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Host "note: could not pull $Full into $dir (offline, or the clone has local changes); using it as it is" }
+    Add-LayerAttributes -Dir $dir -Root $Root -Full $Full -Dry:$Dry
     return $dir
   }
   & gh repo view $Full --json name 2>$null | Out-Null
@@ -115,6 +136,7 @@ function Resolve-Layer {
     if ($Dry) { return $dir }
     & gh repo clone $Full $dir -- --quiet 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "could not clone $Full to $dir" }
+    Add-LayerAttributes -Dir $dir -Root $Root -Full $Full
     return $dir
   }
   if (-not $Create) { throw "$Full does not exist on GitHub" }

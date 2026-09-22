@@ -98,6 +98,17 @@ layer_attributes() {
   echo "note: $full: .gitattributes from the skeleton written into $dir (every file LF); ai-core push commits it" >&2
 }
 
+# fill_layer <clone> <setup-ai-core root>: the skeleton, what every project harness starts from,
+# plus the three data files and the config, so the first init already has something to read;
+# committed as the first commit of the clone
+fill_layer() {
+  local dir="$1" root="$2"
+  cp -R "$root/skeleton/." "$dir/"
+  for f in config.env labels.tsv assignees.tsv team-modes.tsv; do cp "$root/templates/.ai-core/$f" "$dir/$f"; done
+  git -C "$dir" add -A
+  git -C "$dir" -c user.name="${GIT_AUTHOR_NAME:-ai-core}" -c user.email="${GIT_AUTHOR_EMAIL:-ai-core@localhost}" commit -q -m "the project harness, from the skeleton of setup-ai-core"
+}
+
 # ensure_layer <org>/<name> <setup-ai-core root> <folder> [create|dry]: the clone is there and
 # current, or is moved from the home directory, or is cloned, or is created from the skeleton
 # when "create" is given; "dry" moves and creates nothing. Prints the clone directory. Exit 1
@@ -134,18 +145,20 @@ ensure_layer() {
   if gh repo view "$full" --json name >/dev/null 2>&1; then
     [ "$mode" != dry ] || { echo "$dir"; return 0; }
     gh repo clone "$full" "$dir" -- --quiet >/dev/null 2>&1 || { echo "error: could not clone $full to $dir" >&2; return 1; }
+    # Empty on GitHub, made by hand by whoever has the right to create it there: the first init
+    # fills it from the skeleton and pushes, the way it fills one it creates itself
+    if ! git -C "$dir" rev-parse -q --verify HEAD >/dev/null 2>&1; then
+      fill_layer "$dir" "$root" || { echo "error: could not fill $full at $dir from the skeleton" >&2; return 1; }
+      git -C "$dir" push --quiet -u origin HEAD >/dev/null 2>&1 || { echo "error: could not push the skeleton to $full (no write access to it?); the clone at $dir keeps it" >&2; return 1; }
+      echo "filled: $full, empty on GitHub, from the skeleton, at $dir" >&2
+    fi
     layer_attributes "$dir" "$root" "$full"
     echo "$dir"; return 0
   fi
   [ "$mode" = create ] || { echo "error: $full does not exist on GitHub" >&2; return 1; }
-  # The skeleton: what every project harness starts from, plus the three data files and the
-  # config, so the first init already has something to read
   mkdir -p "$dir"
-  cp -R "$root/skeleton/." "$dir/"
-  for f in config.env labels.tsv assignees.tsv team-modes.tsv; do cp "$root/templates/.ai-core/$f" "$dir/$f"; done
   git -C "$dir" init -q
-  git -C "$dir" add -A
-  git -C "$dir" -c user.name="${GIT_AUTHOR_NAME:-ai-core}" -c user.email="${GIT_AUTHOR_EMAIL:-ai-core@localhost}" commit -q -m "the project harness, from the skeleton of setup-ai-core"
+  fill_layer "$dir" "$root"
   if ! gh repo create "$full" --private --source "$dir" --push >/dev/null 2>&1; then
     rm -rf "$dir"
     echo "error: could not create $full on GitHub (no permission, or gh is not logged in)" >&2

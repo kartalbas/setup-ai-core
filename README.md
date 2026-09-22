@@ -287,7 +287,10 @@ to its first dash: `shop-web` and `shop-api` both belong to `shop-ai-core`. Noth
 1. The clone `<project folder>/<prefix>-ai-core` exists, beside the repositories: its origin is
    checked against the name and it is pulled (offline, it is used as it is). A clone an earlier
    version kept under `~/.<prefix>-ai-core` is moved there first.
-2. It exists on GitHub: cloned there, through `gh`.
+2. It exists on GitHub: cloned there, through `gh`. An empty repository, made by hand by whoever
+   has the right to create it under that owner (the owner of a repository you only push to, say),
+   is filled from `skeleton/` plus the four data files by the first `init` and pushed, said as
+   `filled: <org>/<prefix>-ai-core, empty on GitHub, from the skeleton`.
 3. It exists nowhere: created, private, from `skeleton/` of this repository plus the four data
    files, and pushed, through `gh repo create`. The first developer of a project gets the harness
    made for them; without the right to create it, `init` says so and the checkout gets the generic

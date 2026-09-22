@@ -211,6 +211,24 @@ HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" GRA
 grep -aq 'note: example-org/store-ai-core: .gitattributes from the skeleton written into .*store-ai-core (every file LF); ai-core push commits it' "$WORK/layers-ps-attr.log" || fail "init.ps1 did not report the skeleton's .gitattributes for the older clone (see $WORK/layers-ps-attr.log)"
 grep -qxF '* text=auto eol=lf' "$WORK/org-ps/store-ai-core/.gitattributes" || fail "init.ps1 did not write the skeleton's rule into the older clone"
 git -C "$WORK/org-ps/store-ai-core" add .gitattributes && git -C "$WORK/org-ps/store-ai-core" -c user.name=check -c user.email=check@localhost commit -q -m 'attributes again' && git -C "$WORK/org-ps/store-ai-core" push -q origin HEAD 2>/dev/null || fail "could not commit .gitattributes back into store-ai-core"
+# A harness repository that exists on GitHub but is empty, made by hand by whoever has the right
+# to create it under that owner: the first init fills it from the skeleton and pushes, on both twins
+for twin in sh ps1; do
+  p="$([ "$twin" = sh ] && echo blank || echo void)"
+  git init -q --bare "$GH_FAKE/github.com/example-org/$p-ai-core.git"
+  new_checkout "$WORK/org-$twin/$p-web" "$p-web"
+  if [ "$twin" = sh ]; then
+    HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/init.sh" "$WORK/org-sh/$p-web" --no-doctor > "$WORK/layers-$twin-empty.log" 2>&1 || fail "init.$twin with an empty harness repository (see $WORK/layers-$twin-empty.log)"
+  else
+    HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" GRAFT_FAKE_LOG="$(native "$WORK/layers.args")" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-$twin/$p-web")" -NoDoctor > "$WORK/layers-$twin-empty.log" 2>&1 || fail "init.$twin with an empty harness repository (see $WORK/layers-$twin-empty.log)"
+  fi
+  grep -aq "filled: example-org/$p-ai-core, empty on GitHub, from the skeleton, at " "$WORK/layers-$twin-empty.log" || fail "init.$twin did not say it filled the empty harness (see $WORK/layers-$twin-empty.log)"
+  grep -aq 'created:' "$WORK/layers-$twin-empty.log" && fail "init.$twin created a harness that exists"
+  [ -f "$WORK/org-$twin/$p-ai-core/ai-core.json" ] && [ -f "$WORK/org-$twin/$p-ai-core/labels.tsv" ] && [ -f "$WORK/org-$twin/$p-ai-core/.gitattributes" ] || fail "the filled harness of $twin lacks the skeleton"
+  [ "$(git -C "$GH_FAKE/github.com/example-org/$p-ai-core.git" rev-list --count HEAD 2>/dev/null)" = 1 ] || fail "init.$twin did not push the filled harness to GitHub"
+  [ -z "$(git -C "$WORK/org-$twin/$p-ai-core" status --porcelain)" ] || fail "the filled harness of $twin is not clean"
+  grep -q "^$p-ai-core " "$WORK/org-$twin/$p-web/.ai-core/STAMP" || fail "the checkout of $twin was not assembled from the filled harness: $(cat "$WORK/org-$twin/$p-web/.ai-core/STAMP" | tr '\n' '|')"
+done
 # extends: shop-ai-core now extends store-ai-core, so the chain is store first, then shop
 printf '{ "setup-ai-core": ">=1.1.0", "extends": "example-org/store-ai-core" }\n' > "$WORK/author/ai-core.json"
 git -C "$WORK/author" add -A; git -C "$WORK/author" -c user.name=check -c user.email=check@localhost commit -q -m extends; git -C "$WORK/author" push -q origin HEAD
@@ -253,5 +271,5 @@ for r in shop-web store-api; do
 done
 map_ps -All "$(native "$WORK/folder")" > "$WORK/map-all-ps.log" 2>&1 || fail "map.ps1 -All (see $WORK/map-all-ps.log)"
 grep -aq '^==> map -All: 2 map(s) were written$' "$WORK/map-all-ps.log" && grep -q '^A shop\. ps$' "$WORK/folder/store-api/AGENTS.md" || fail "map.ps1 -All did not write the two maps and bring them into the checkouts: $(grep -a 'map -All' "$WORK/map-all-ps.log"); store-api: $(grep -a 'A shop' "$WORK/folder/store-api/AGENTS.md")"
-echo "  created, cloned, moved from the home directory, an interrupted move completed, lost files restored, assembled and compared on both twins; extends base first; a harness that cannot be had stops init; a harness checkout refused; the folder shares the base and its map skips the clones; maps written by the agent CLI, pushed and in the checkouts, people's rules kept, a bad output refused, --all over the folder, on both twins"
+echo "  created, cloned, an empty one on GitHub filled from the skeleton, moved from the home directory, an interrupted move completed, lost files restored, assembled and compared on both twins; extends base first; a harness that cannot be had stops init; a harness checkout refused; the folder shares the base and its map skips the clones; maps written by the agent CLI, pushed and in the checkouts, people's rules kept, a bad output refused, --all over the folder, on both twins"
 exit 0

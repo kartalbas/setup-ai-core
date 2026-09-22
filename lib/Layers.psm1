@@ -104,6 +104,19 @@ function Add-LayerAttributes {
   Write-Host "note: ${Full}: .gitattributes from the skeleton written into $Dir (every file LF); ai-core push commits it"
 }
 
+function Initialize-LayerContent {
+  # The skeleton, what every project harness starts from, plus the three data files and the
+  # config, so the first init already has something to read; committed as the first commit
+  [CmdletBinding()] param([Parameter(Mandatory)][string]$Dir, [Parameter(Mandatory)][string]$Root)
+  Copy-Item -Recurse -Force (Join-Path $Root 'skeleton\*') $Dir
+  foreach ($f in @('config.env', 'labels.tsv', 'assignees.tsv', 'team-modes.tsv')) { Copy-Item (Join-Path $Root "templates\.ai-core\$f") (Join-Path $Dir $f) }
+  & git -C $Dir add -A
+  $name = if ($env:GIT_AUTHOR_NAME) { $env:GIT_AUTHOR_NAME } else { 'ai-core' }
+  $mail = if ($env:GIT_AUTHOR_EMAIL) { $env:GIT_AUTHOR_EMAIL } else { 'ai-core@localhost' }
+  & git -C $Dir -c "user.name=$name" -c "user.email=$mail" commit -q -m 'the project harness, from the skeleton of setup-ai-core'
+  return ($LASTEXITCODE -eq 0)
+}
+
 function Resolve-Layer {
   # The clone is there and current, or is moved from the home directory, or is cloned, or is
   # created from the skeleton with -Create; -Dry moves and creates nothing. Returns the clone
@@ -136,18 +149,22 @@ function Resolve-Layer {
     if ($Dry) { return $dir }
     & gh repo clone $Full $dir -- --quiet 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "could not clone $Full to $dir" }
+    # Empty on GitHub, made by hand by whoever has the right to create it there: the first init
+    # fills it from the skeleton and pushes, the way it fills one it creates itself
+    & git -C $dir rev-parse -q --verify HEAD 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+      if (-not (Initialize-LayerContent -Dir $dir -Root $Root)) { throw "could not fill $Full at $dir from the skeleton" }
+      & git -C $dir push --quiet -u origin HEAD 2>$null | Out-Null
+      if ($LASTEXITCODE -ne 0) { throw "could not push the skeleton to $Full (no write access to it?); the clone at $dir keeps it" }
+      Write-Host "filled: $Full, empty on GitHub, from the skeleton, at $dir"
+    }
     Add-LayerAttributes -Dir $dir -Root $Root -Full $Full
     return $dir
   }
   if (-not $Create) { throw "$Full does not exist on GitHub" }
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
-  Copy-Item -Recurse -Force (Join-Path $Root 'skeleton\*') $dir
-  foreach ($f in @('config.env', 'labels.tsv', 'assignees.tsv', 'team-modes.tsv')) { Copy-Item (Join-Path $Root "templates\.ai-core\$f") (Join-Path $dir $f) }
   & git -C $dir init -q
-  & git -C $dir add -A
-  $name = if ($env:GIT_AUTHOR_NAME) { $env:GIT_AUTHOR_NAME } else { 'ai-core' }
-  $mail = if ($env:GIT_AUTHOR_EMAIL) { $env:GIT_AUTHOR_EMAIL } else { 'ai-core@localhost' }
-  & git -C $dir -c "user.name=$name" -c "user.email=$mail" commit -q -m 'the project harness, from the skeleton of setup-ai-core'
+  Initialize-LayerContent -Dir $dir -Root $Root | Out-Null
   & gh repo create $Full --private --source $dir --push 2>$null | Out-Null
   if ($LASTEXITCODE -ne 0) {
     Remove-Item -Recurse -Force $dir

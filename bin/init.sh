@@ -270,7 +270,15 @@ if [ -n "$LAYERS" ]; then
       if git -C "$TARGET" ls-files --error-unmatch "$rel" >/dev/null 2>&1; then
         note tracked "$rel"
       else
-        put "$INNER/repos/$REPO_NAME/$rel" "$rel" managed; DEPLOYED="$DEPLOYED $rel"
+        src="$INNER/repos/$REPO_NAME/$rel"
+        # A generated map opens with the contract, lib/binding-rules.md, after the header line
+        # session-start reads and the title: a tool that reads AGENTS.md meets where the rules are
+        # before the map. The map in the harness stays what the tool wrote.
+        if [ "$rel" = AGENTS.md ] && head -n1 "$src" | grep -q '^<!-- ai-core map:'; then
+          { head -n2 "$src" | tr -d '\r'; echo ""; cat "$CORE_ROOT/lib/binding-rules.md"; echo ""; tail -n +3 "$src" | tr -d '\r' | awk 'NF{f=1} f'; } > "$TMP/AGENTS.map.md"
+          src="$TMP/AGENTS.map.md"
+        fi
+        put "$src" "$rel" managed; DEPLOYED="$DEPLOYED $rel"
       fi
       LAYER_FILES="$LAYER_FILES $rel"
     done <<< "$( (cd "$INNER/repos/$REPO_NAME" && find . -type f | LC_ALL=C sort) | sed 's|^\./||')"

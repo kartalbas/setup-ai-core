@@ -274,7 +274,23 @@ if ($layers.Count -gt 0 -and $repoName -and (Test-Path (Join-Path $layers[-1] "r
   [Array]::Sort($relFiles, [StringComparer]::Ordinal)
   foreach ($rel in $relFiles) {
     & git -C $target ls-files --error-unmatch $rel 2>$null | Out-Null
-    if ($LASTEXITCODE -eq 0) { Add-Note tracked $rel } else { Put (Join-Path $inner $rel) $rel managed; $deployed += $rel }
+    if ($LASTEXITCODE -eq 0) { Add-Note tracked $rel } else {
+      $src = Join-Path $inner $rel
+      # A generated map opens with the contract, lib\binding-rules.md, after the header line
+      # session-start reads and the title: a tool that reads AGENTS.md meets where the rules are
+      # before the map. The map in the harness stays what the tool wrote.
+      if ($rel -ceq 'AGENTS.md') {
+        $ml = @([System.IO.File]::ReadAllLines($src) | ForEach-Object { $_.TrimEnd("`r") })
+        if ($ml.Count -gt 1 -and $ml[0].StartsWith('<!-- ai-core map:', [StringComparison]::Ordinal)) {
+          $rest = @($ml | Select-Object -Skip 2); while ($rest.Count -gt 0 -and -not $rest[0].Trim()) { $rest = @($rest | Select-Object -Skip 1) }
+          $contract = @([System.IO.File]::ReadAllLines((Join-Path $coreRoot 'lib\binding-rules.md')) | ForEach-Object { $_.TrimEnd("`r") })
+          $withContract = @($ml[0], $ml[1], '') + $contract + @('') + $rest
+          [System.IO.File]::WriteAllText((Join-Path $tmp 'AGENTS.map.md'), (($withContract -join "`n") + "`n"), $utf8)
+          $src = Join-Path $tmp 'AGENTS.map.md'
+        }
+      }
+      Put $src $rel managed; $deployed += $rel
+    }
     $layerFiles += $rel
   }
 }

@@ -232,3 +232,14 @@ if [ "$RULES_OK" -eq 0 ]; then
 fi
 echo "Ready for task execution."
 [ -z "$MODES_TEXT" ] || { echo ""; printf '%s' "$MODES_TEXT"; }
+
+# 5. The rules themselves, for the tool this session runs in: the hook's output is the agent's
+#    context, so the rules bind from the first prompt without the agent having to open them.
+if [ "$TOOL_N" -eq 1 ] && [ "$as_json" -eq 0 ]; then
+  echo ""; echo "==== THE RULES OF THIS CHECKOUT ($RULES_PATH; they bind this session) ===="
+  tr -d '\r' < "$RULES_PATH"
+  if [ "$LOCAL_RULES_OK" -eq 1 ]; then
+    echo ""; echo "==== THE LOCAL RULES OF THIS CHECKOUT (.ai-core/rules/rules.local.md; where the two conflict, these win) ===="
+    tr -d '\r' < .ai-core/rules/rules.local.md
+  fi
+fi

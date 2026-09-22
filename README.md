@@ -382,7 +382,10 @@ the five headings in order, at most 80 lines) and refuses anything else, keeping
 `.ai-core/map.rejected.md` for a look. Section 5 comes back from the map that exists. The file
 goes into the project harness as `repos/<repo>/AGENTS.md` with a first line naming the commit it
 was generated from, the harness is committed and pushed (`push`), and the checkout assembled
-again, so the map is in place at once. `ai-core map --all <folder>` does it for every repository
+again, so the map is in place at once. In the checkout, `init` opens every generated map with the
+block `## Binding rules` from `lib/binding-rules.md`, after the header line and the title: where
+the rules, the local rules and the skills file are, so a tool that reads `AGENTS.md` meets the
+contract before the map; the map in the harness stays what the tool wrote. `ai-core map --all <folder>` does it for every repository
 under a folder with one push and `init --all`; `--no-push` writes into the clone and stops;
 `--dry-run` prints the map. `session-start` prints `Map`: generated from which commit and how
 many commits behind, or `Generic (run ai-core map)`. Until `map` has run, `AGENTS.md` is the
@@ -470,6 +473,9 @@ printed whole with its level: `CAVEMAN MODE ACTIVE — level: lite`, the skill, 
 the hook's output is the agent's context, so the agent runs with it from the first prompt. A mode
 that is a plugin switches itself on through its own hook and is named: `PONYTAIL MODE: full,
 switched on by its own hook`. These lines in the transcript are how a session proves its modes.
+After the modes come the rules themselves: `.ai-core/rules/rules.md` whole under
+`==== THE RULES OF THIS CHECKOUT ... ====`, then `.ai-core/rules/rules.local.md` where it exists,
+so the agent runs with the rules in its context from the first prompt without opening them.
 The `i-have-adhd` row of Claude Code is proven by the always-on flag its hook reads,
 `~/.claude/.i-have-adhd-always`, which its install column writes.
 
@@ -1080,6 +1086,7 @@ setup-ai-core/
 │   ├── board.sh / Board.psm1            the library of the board commands
 │   ├── layers.sh / Layers.psm1          the project harness: from origin, beside the repositories, cloned, pulled, created, the extends chain
 │   ├── gitignore-block                  the block init writes into a project's .gitignore
+│   ├── binding-rules.md                 the block init puts on top of every generated map: where the rules are
 │   └── entry-point.ps1                  the one text every scripts/check.ps1 and build.ps1 is a copy of
 ├── rules/
 │   ├── NN-slug.md                       the generic rules, one file per section

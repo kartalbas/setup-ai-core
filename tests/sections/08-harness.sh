@@ -154,6 +154,9 @@ M="$WORK/org-sh/shop-ai-core/repos/shop-web/AGENTS.md"
 head -n1 "$M" | grep -qE '^<!-- ai-core map: generated [0-9-]+ from [0-9a-f]+; ' && [ "$(sed -n 2p "$M")" = "# shop-web — the map" ] || fail "map.sh did not write the map into the harness: $(head -n2 "$M" 2>/dev/null | tr '\n' '|')"
 [ -z "$(git -C "$WORK/org-sh/shop-ai-core" status --porcelain)" ] && [ "$(git -C "$WORK/org-sh/shop-ai-core" rev-list --count '@{upstream}..HEAD')" = 0 ] || fail "map.sh did not commit and push the harness"
 head -n1 "$WORK/org-sh/shop-web/AGENTS.md" | grep -q 'ai-core map: generated' || fail "map.sh did not bring the map into the checkout"
+# The checkout's copy opens with the contract after the header and the title; the harness's copy stays the tool's
+[ "$(sed -n 4p "$WORK/org-sh/shop-web/AGENTS.md")" = '## Binding rules' ] && grep -q '^- `.ai-core/rules/rules.md`' "$WORK/org-sh/shop-web/AGENTS.md" && grep -q '^## What it is' "$WORK/org-sh/shop-web/AGENTS.md" || fail "the map in the checkout does not open with the binding rules: $(head -n5 "$WORK/org-sh/shop-web/AGENTS.md" | tr '\n' '|')"
+grep -q '^## Binding rules' "$M" && fail "the map in the harness carries the contract; init adds it to the checkout's copy"
 grep -q -- '--allowedTools' "$MAPLOG" && grep -q 'Read the repository first, cheaply' "$MAPLOG" || fail "map.sh did not call the agent CLI with the prompt and the tools"
 # people write a rule into the map and push it as they push any edit of the harness; the next generation keeps it
 sed -i.bak 's/^(none yet: written by people, kept on every regeneration)$/- **Ship on Fridays never.** [review]/' "$M" && rm -f "$M.bak"
@@ -175,6 +178,8 @@ map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")" > "$WORK/map-ps-1.log" 2>&
 MP="$WORK/org-ps/shop-ai-core/repos/shop-web/AGENTS.md"
 head -n1 "$MP" | grep -qE '^<!-- ai-core map: generated [0-9-]+ from [0-9a-f]+; ' && grep -q '^A shop\. ps$' "$MP" && grep -q '^- \*\*Ship on Fridays never' "$MP" || fail "map.ps1 did not write the map or lost the rules people wrote: $(head -n5 "$MP" 2>/dev/null | tr '\n' '|')"
 [ -z "$(git -C "$WORK/org-ps/shop-ai-core" status --porcelain)" ] && head -n1 "$WORK/org-ps/shop-web/AGENTS.md" | grep -q 'ai-core map: generated' || fail "map.ps1 did not push the harness and bring the map into the checkout"
+[ "$(sed -n 4p "$WORK/org-ps/shop-web/AGENTS.md")" = '## Binding rules' ] && grep -q '^- `.ai-core/rules/rules.md`' "$WORK/org-ps/shop-web/AGENTS.md" || fail "init.ps1 did not open the map in the checkout with the binding rules: $(head -n5 "$WORK/org-ps/shop-web/AGENTS.md" | tr '\n' '|')"
+grep -q '^## Binding rules' "$WORK/org-ps/shop-ai-core/repos/shop-web/AGENTS.md" && fail "the map in the harness of the PowerShell twin carries the contract"
 MAP_FAKE_BAD=1 map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")" > "$WORK/map-ps-bad.log" 2>&1 && fail "map.ps1 accepted an output that is not a map"
 grep -aq "not the map's shape" "$WORK/map-ps-bad.log" || fail "map.ps1: the refusal (see $WORK/map-ps-bad.log)"
 # the session start, with a table whose probes always pass: the fake homes hold no team modes

@@ -101,11 +101,13 @@ for twin in sh ps1; do
   grep -aq '^CAVEMAN MODE ACTIVE — level: lite' "$WORK/modes-$twin.log" && grep -aq '^CAVEMAN RULES: short\.' "$WORK/modes-$twin.log" && grep -aq '^ARGUMENTS: lite' "$WORK/modes-$twin.log" || fail "session-start.$twin --tool claude does not switch the caveman skill on (see $WORK/modes-$twin.log)"
   grep -aq '^name: caveman' "$WORK/modes-$twin.log" && fail "session-start.$twin prints the front matter of the skill"
   grep -aq '^PONYTAIL MODE: full, switched on by its own hook' "$WORK/modes-$twin.log" && grep -aq '^I-HAVE-ADHD MODE: on, switched on by its own hook' "$WORK/modes-$twin.log" || fail "session-start.$twin --tool claude does not name the plugin modes (see $WORK/modes-$twin.log)"
+  grep -aq '^==== THE RULES OF THIS CHECKOUT (.ai-core/rules/rules.md; they bind this session) ====$' "$WORK/modes-$twin.log" && grep -aq '^## The code never lies to the person using it' "$WORK/modes-$twin.log" && grep -aq '^==== THE LOCAL RULES OF THIS CHECKOUT (.ai-core/rules/rules.local.md; where the two conflict, these win) ====$' "$WORK/modes-$twin.log" || fail "session-start.$twin --tool claude does not print the rules and the local rules (see $WORK/modes-$twin.log)"
 done
 (cd "$WORK/sh" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude --json | jq -e '.repository' > /dev/null) || fail "session-start.sh --tool claude --json is not JSON"
 (cd "$WORK/sh" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" > "$WORK/modes-none.log" 2>&1) || fail "session-start.sh without --tool (see $WORK/modes-none.log)"
 grep -aq 'MODE ACTIVE' "$WORK/modes-none.log" && fail "session-start.sh without --tool switches modes on"
-echo "  --tool claude: the caveman skill printed whole with its level, the plugin modes named, nothing of it in the JSON or without --tool, on both twins"
+grep -aq 'THE RULES OF THIS CHECKOUT' "$WORK/modes-none.log" && fail "session-start.sh without --tool prints the rules"
+echo "  --tool claude: the caveman skill printed whole with its level, the plugin modes named, the rules and the local rules printed whole, nothing of it in the JSON or without --tool, on both twins"
 
 for t in sh ps1; do grep -q 'ai-core session-start --tool claude' "$WORK/$t/.claude/settings.json" || fail "the template settings.json deployed by init.$t carries no session-start hook"; done
 exit 0

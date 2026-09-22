@@ -242,3 +242,14 @@ if (-not $rulesOk) {
 }
 Write-Host "Ready for task execution." -ForegroundColor Green
 if ($modesText.Count -gt 0) { Write-Host ""; foreach ($l in $modesText) { Write-Host $l } }
+
+# 5. The rules themselves, for the tool this session runs in: the hook's output is the agent's
+#    context, so the rules bind from the first prompt without the agent having to open them.
+if ($Tool.Count -eq 1 -and -not $Json) {
+  Write-Host ""; Write-Host "==== THE RULES OF THIS CHECKOUT ($rulesPath; they bind this session) ===="
+  Write-Host ([System.IO.File]::ReadAllText((Resolve-Path $rulesPath).Path).Replace("`r", "").TrimEnd("`n"))
+  if ($localRulesOk) {
+    Write-Host ""; Write-Host "==== THE LOCAL RULES OF THIS CHECKOUT (.ai-core/rules/rules.local.md; where the two conflict, these win) ===="
+    Write-Host ([System.IO.File]::ReadAllText((Resolve-Path '.ai-core/rules/rules.local.md').Path).Replace("`r", "").TrimEnd("`n"))
+  }
+}

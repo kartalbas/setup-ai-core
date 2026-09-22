@@ -229,6 +229,27 @@ for twin in sh ps1; do
   [ -z "$(git -C "$WORK/org-$twin/$p-ai-core" status --porcelain)" ] || fail "the filled harness of $twin is not clean"
   grep -q "^$p-ai-core " "$WORK/org-$twin/$p-web/.ai-core/STAMP" || fail "the checkout of $twin was not assembled from the filled harness: $(cat "$WORK/org-$twin/$p-web/.ai-core/STAMP" | tr '\n' '|')"
 done
+# The same repository cloned by hand before init ran: the clone has no commit and the origin has
+# none either; a dry run says what would happen and writes nothing, the run fills and pushes
+for twin in sh ps1; do
+  p="$([ "$twin" = sh ] && echo hollow || echo bare)"
+  git init -q --bare "$GH_FAKE/github.com/example-org/$p-ai-core.git"
+  new_checkout "$WORK/org-$twin/$p-web" "$p-web"
+  git clone -q "$GH_FAKE/github.com/example-org/$p-ai-core.git" "$WORK/org-$twin/$p-ai-core" 2>/dev/null
+  if [ "$twin" = sh ]; then
+    HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/init.sh" "$WORK/org-sh/$p-web" --no-doctor --dry-run > "$WORK/layers-$twin-hollow-dry.log" 2>&1 || fail "init.$twin --dry-run with an empty clone of an empty harness repository (see $WORK/layers-$twin-hollow-dry.log)"
+    HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/init.sh" "$WORK/org-sh/$p-web" --no-doctor > "$WORK/layers-$twin-hollow.log" 2>&1 || fail "init.$twin with an empty clone of an empty harness repository (see $WORK/layers-$twin-hollow.log)"
+  else
+    HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" GRAFT_FAKE_LOG="$(native "$WORK/layers.args")" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-$twin/$p-web")" -NoDoctor -DryRun > "$WORK/layers-$twin-hollow-dry.log" 2>&1 || fail "init.$twin -DryRun with an empty clone of an empty harness repository (see $WORK/layers-$twin-hollow-dry.log)"
+    HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" GRAFT_FAKE_LOG="$(native "$WORK/layers.args")" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-$twin/$p-web")" -NoDoctor > "$WORK/layers-$twin-hollow.log" 2>&1 || fail "init.$twin with an empty clone of an empty harness repository (see $WORK/layers-$twin-hollow.log)"
+  fi
+  grep -aq "note: example-org/$p-ai-core is empty here and on GitHub and would be filled from the skeleton (dry run: not written)" "$WORK/layers-$twin-hollow-dry.log" || fail "init.$twin dry run does not announce the fill of the empty clone (see $WORK/layers-$twin-hollow-dry.log)"
+  grep -aq "filled: example-org/$p-ai-core, empty on GitHub, from the skeleton, at " "$WORK/layers-$twin-hollow.log" || fail "init.$twin did not fill the empty clone (see $WORK/layers-$twin-hollow.log)"
+  [ -f "$WORK/org-$twin/$p-ai-core/ai-core.json" ] && [ -f "$WORK/org-$twin/$p-ai-core/labels.tsv" ] || fail "the filled clone of $twin lacks the skeleton"
+  [ "$(git -C "$GH_FAKE/github.com/example-org/$p-ai-core.git" rev-list --count HEAD 2>/dev/null)" = 1 ] || fail "init.$twin did not push the filled clone to GitHub"
+  [ -z "$(git -C "$WORK/org-$twin/$p-ai-core" status --porcelain)" ] || fail "the filled clone of $twin is not clean"
+  grep -q "^$p-ai-core " "$WORK/org-$twin/$p-web/.ai-core/STAMP" || fail "the checkout of $twin was not assembled from the filled clone: $(cat "$WORK/org-$twin/$p-web/.ai-core/STAMP" | tr '\n' '|')"
+done
 # extends: shop-ai-core now extends store-ai-core, so the chain is store first, then shop
 printf '{ "setup-ai-core": ">=1.1.0", "extends": "example-org/store-ai-core" }\n' > "$WORK/author/ai-core.json"
 git -C "$WORK/author" add -A; git -C "$WORK/author" -c user.name=check -c user.email=check@localhost commit -q -m extends; git -C "$WORK/author" push -q origin HEAD
@@ -271,5 +292,5 @@ for r in shop-web store-api; do
 done
 map_ps -All "$(native "$WORK/folder")" > "$WORK/map-all-ps.log" 2>&1 || fail "map.ps1 -All (see $WORK/map-all-ps.log)"
 grep -aq '^==> map -All: 2 map(s) were written$' "$WORK/map-all-ps.log" && grep -q '^A shop\. ps$' "$WORK/folder/store-api/AGENTS.md" || fail "map.ps1 -All did not write the two maps and bring them into the checkouts: $(grep -a 'map -All' "$WORK/map-all-ps.log"); store-api: $(grep -a 'A shop' "$WORK/folder/store-api/AGENTS.md")"
-echo "  created, cloned, an empty one on GitHub filled from the skeleton, moved from the home directory, an interrupted move completed, lost files restored, assembled and compared on both twins; extends base first; a harness that cannot be had stops init; a harness checkout refused; the folder shares the base and its map skips the clones; maps written by the agent CLI, pushed and in the checkouts, people's rules kept, a bad output refused, --all over the folder, on both twins"
+echo "  created, cloned, an empty one on GitHub filled from the skeleton (cloned by init or by hand), moved from the home directory, an interrupted move completed, lost files restored, assembled and compared on both twins; extends base first; a harness that cannot be had stops init; a harness checkout refused; the folder shares the base and its map skips the clones; maps written by the agent CLI, pushed and in the checkouts, people's rules kept, a bad output refused, --all over the folder, on both twins"
 exit 0

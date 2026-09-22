@@ -131,6 +131,16 @@ ensure_layer() {
       *github.com[:/]"$full") ;;
       *) echo "error: $dir is a clone of ${origin:-nothing}, not of $full; move it away" >&2; return 1 ;;
     esac
+    # A clone with no commit of an origin with none: the empty harness repository somebody with
+    # the right to create it made by hand and cloned by hand; the first init fills it from the
+    # skeleton and pushes, the way it fills one it creates itself
+    if ! git -C "$dir" rev-parse -q --verify HEAD >/dev/null 2>&1 && [ -z "$(git -C "$dir" ls-remote --heads origin 2>/dev/null)" ]; then
+      if [ "$mode" = dry ]; then echo "note: $full is empty here and on GitHub and would be filled from the skeleton (dry run: not written)" >&2; echo "$dir"; return 0; fi
+      fill_layer "$dir" "$root" || { echo "error: could not fill $full at $dir from the skeleton" >&2; return 1; }
+      git -C "$dir" push --quiet -u origin HEAD >/dev/null 2>&1 || { echo "error: could not push the skeleton to $full (no write access to it?); the clone at $dir keeps it" >&2; return 1; }
+      echo "filled: $full, empty on GitHub, from the skeleton, at $dir" >&2
+      echo "$dir"; return 0
+    fi
     # A working tree that lost every tracked file (an interrupted move, cleaned up by hand) is
     # checked out again from its history
     if [ "$(git -C "$dir" ls-files 2>/dev/null | wc -l | tr -d ' ')" -gt 0 ] && [ "$(git -C "$dir" status --porcelain 2>/dev/null | grep -c '^ D')" = "$(git -C "$dir" ls-files | wc -l | tr -d ' ')" ]; then

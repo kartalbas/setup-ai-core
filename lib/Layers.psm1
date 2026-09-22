@@ -134,6 +134,18 @@ function Resolve-Layer {
     $origin = "$(& git -C $dir remote get-url origin 2>$null)".Trim()
     $o = $origin; if ($o.EndsWith('.git', [StringComparison]::Ordinal)) { $o = $o.Substring(0, $o.Length - 4) }
     if (-not ($o -cmatch ('github\.com[:/]' + [regex]::Escape($Full) + '$'))) { throw "$dir is a clone of $(if ($origin) { $origin } else { 'nothing' }), not of ${Full}; move it away" }
+    # A clone with no commit of an origin with none: the empty harness repository somebody with
+    # the right to create it made by hand and cloned by hand; the first init fills it from the
+    # skeleton and pushes, the way it fills one it creates itself
+    & git -C $dir rev-parse -q --verify HEAD 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0 -and -not "$(& git -C $dir ls-remote --heads origin 2>$null)".Trim()) {
+      if ($Dry) { Write-Host "note: $Full is empty here and on GitHub and would be filled from the skeleton (dry run: not written)"; return $dir }
+      if (-not (Initialize-LayerContent -Dir $dir -Root $Root)) { throw "could not fill $Full at $dir from the skeleton" }
+      & git -C $dir push --quiet -u origin HEAD 2>$null | Out-Null
+      if ($LASTEXITCODE -ne 0) { throw "could not push the skeleton to $Full (no write access to it?); the clone at $dir keeps it" }
+      Write-Host "filled: $Full, empty on GitHub, from the skeleton, at $dir"
+      return $dir
+    }
     # A working tree that lost every tracked file (an interrupted move, cleaned up by hand) is
     # checked out again from its history
     $tracked = @(& git -C $dir ls-files 2>$null | Where-Object { $_ }).Count

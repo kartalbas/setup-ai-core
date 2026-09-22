@@ -18,7 +18,9 @@ for arg in "$@"; do
     echo "it carries the harness, so this checkout is current at once."
     echo ""
     echo "Options:"
-    echo "  MESSAGE           The commit message; default: the files that changed"
+    echo "  MESSAGE           The commit message; default: the files that changed. It is the reason the"
+    echo "                    push gate wants: unless it names an issue (#<n>) or carries a No-issue:"
+    echo "                    trailer, the commit gets 'No-issue: <message>, committed and pushed by ai-core push'"
     echo "  --harness <name>  Only this harness, e.g. shop-ai-core"
     echo "  -h, --help        Show this help message"
     echo ""
@@ -60,7 +62,11 @@ for dir in "$FOLDER"/*-ai-core; do
       [ "$count" -le 3 ] || msg="$msg (+$((count - 3)))"
     fi
     git -C "$dir" add -A
-    if ! git -C "$dir" commit -q -m "$msg"; then failed="$failed $name"; echo "$name: commit failed"; continue; fi
+    # The push gate wants an issue or a reason: the message is the reason, and the trailer says
+    # who committed it, unless the message names an issue or carries a trailer of its own
+    trailer=()
+    case "$msg" in *'#'[0-9]*|*'No-issue:'*) ;; *) trailer=(-m "No-issue: ${msg%%$'\n'*}, committed and pushed by ai-core push") ;; esac
+    if ! git -C "$dir" commit -q -m "$msg" ${trailer[@]+"${trailer[@]}"}; then failed="$failed $name"; echo "$name: commit failed"; continue; fi
     echo "$name: committed $count file(s): $msg"
   fi
   # 2. push what is ahead of origin, after taking what colleagues pushed

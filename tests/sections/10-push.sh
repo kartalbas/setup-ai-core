@@ -2,7 +2,7 @@
 # push of a harness clone; one section of the suite, run by tests/check.sh with the others
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 
-section "push: what changed in a harness clone beside the repositories is committed and pushed, a second run has nothing, on both twins"
+section "push: what changed in a harness clone beside the repositories is committed with the No-issue trailer the gate wants and pushed, a message that names an issue gets none, a second run has nothing, on both twins"
 for twin in sh ps1; do
   H="$WORK/push-folder-$twin"; mkdir -p "$H"
   git init -q --bare "$WORK/push-origin-$twin.git"
@@ -20,7 +20,16 @@ for twin in sh ps1; do
   grep -aq 'shop-ai-core: committed 1 file(s): the release rule' "$WORK/push-$twin.log" || fail "push.$twin did not commit with the message (see $WORK/push-$twin.log)"
   grep -aq 'shop-ai-core: pushed to' "$WORK/push-$twin.log" || fail "push.$twin did not push"
   [ "$(git -C "$WORK/push-origin-$twin.git" log --format=%s -1)" = "the release rule" ] || fail "push.$twin: origin does not carry the commit"
+  [ "$(git -C "$WORK/push-origin-$twin.git" log -1 --format='%(trailers:key=No-issue,valueonly)' | tr -d '\n')" = "the release rule, committed and pushed by ai-core push" ] || fail "push.$twin: the commit carries no No-issue trailer with the message: $(git -C "$WORK/push-origin-$twin.git" log -1 --format=%B | tr '\n' '|')"
   grep -aq 'shop-ai-core: nothing to push' "$WORK/push-$twin-2.log" || fail "push.$twin second run did not say nothing to push"
+  printf 'x\n' > "$H/shop-ai-core/labels.tsv"
+  if [ "$twin" = sh ]; then
+    (cd "$H" && HOME="$H" GIT_AUTHOR_NAME=check GIT_AUTHOR_EMAIL=check@localhost GIT_COMMITTER_NAME=check GIT_COMMITTER_EMAIL=check@localhost bash "$ROOT/bin/push.sh" "the labels of #7" > "$WORK/push-$twin-3.log" 2>&1) || fail "push.sh with an issue in the message (see $WORK/push-$twin-3.log)"
+  else
+    (cd "$H" && HOME="$H" USERPROFILE="$(native "$H")" GIT_AUTHOR_NAME=check GIT_AUTHOR_EMAIL=check@localhost GIT_COMMITTER_NAME=check GIT_COMMITTER_EMAIL=check@localhost pwsh -NoProfile -File "$ROOT/bin/push.ps1" "the labels of #7" > "$WORK/push-$twin-3.log" 2>&1) || fail "push.ps1 with an issue in the message (see $WORK/push-$twin-3.log)"
+  fi
+  [ "$(git -C "$WORK/push-origin-$twin.git" log --format=%s -1)" = "the labels of #7" ] || fail "push.$twin: origin does not carry the issue commit"
+  [ -z "$(git -C "$WORK/push-origin-$twin.git" log -1 --format='%(trailers:key=No-issue,valueonly)' | tr -d '\n')" ] || fail "push.$twin: a message that names an issue got a No-issue trailer"
 done
-echo "  committed with the message, pushed to origin, nothing on the second run, on both twins"
+echo "  committed with the message and the No-issue trailer, pushed to origin, no trailer when the message names an issue, nothing on the second run, on both twins"
 exit 0

@@ -326,7 +326,10 @@ harness clone of the project folder you stand in.
 Changing what agents read is therefore: edit a file in the clone beside the repositories
 (`<project folder>/<name>-ai-core`), then `ai-core push`, which commits what changed in every
 harness clone of that folder with the message you give (or
-the names of the files), pulls with rebase, pushes, and refreshes the checkout you stand in.
+the names of the files), pulls with rebase, pushes, and refreshes the checkout you stand in. The
+harness clones carry the push gate too (section 4.13), so the message is the reason the gate wants:
+unless it names an issue (`#<n>`) or carries a `No-issue:` trailer of its own, the commit gets
+`No-issue: <message>, committed and pushed by ai-core push`.
 Nothing is copied by hand, nothing is committed to a project repository, and a new developer runs
 `install` and `init`.
 

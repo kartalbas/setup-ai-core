@@ -21,7 +21,9 @@ if ($Help -or $Message -ceq "-h" -or $Message -ceq "--help" -or $args -ccontains
   Write-Host "it carries the harness, so this checkout is current at once."
   Write-Host ""
   Write-Host "Options:"
-  Write-Host "  -Message <text>   The commit message; default: the files that changed"
+  Write-Host "  -Message <text>   The commit message; default: the files that changed. It is the reason the"
+  Write-Host "                    push gate wants: unless it names an issue (#<n>) or carries a No-issue:"
+  Write-Host "                    trailer, the commit gets 'No-issue: <message>, committed and pushed by ai-core push'"
   Write-Host "  -Harness <name>   Only this harness, e.g. shop-ai-core"
   Write-Host "  -Help             Show this help message"
   Write-Host ""
@@ -55,7 +57,10 @@ foreach ($d in (Get-ChildItem -Path $folder -Directory -Filter '*-ai-core' | Whe
       if ($changed.Count -gt 3) { $msg = "$msg (+$($changed.Count - 3))" }
     }
     & git -C $dir add -A
-    & git -C $dir commit -q -m $msg
+    # The push gate wants an issue or a reason: the message is the reason, and the trailer says
+    # who committed it, unless the message names an issue or carries a trailer of its own
+    if ($msg -cmatch '#[0-9]' -or $msg.Contains('No-issue:')) { & git -C $dir commit -q -m $msg }
+    else { & git -C $dir commit -q -m $msg -m "No-issue: $(($msg -split "`n")[0]), committed and pushed by ai-core push" }
     if ($LASTEXITCODE -ne 0) { $failed += $name; Write-Host "${name}: commit failed"; continue }
     Write-Host "${name}: committed $($changed.Count) file(s): $msg"
   }

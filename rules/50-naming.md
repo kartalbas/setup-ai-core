@@ -18,7 +18,8 @@
 - **One concept, one word, everywhere**, in code, configuration, documents and messages to a person.
   A new name enters the project's glossary in the same change that introduces it, with its one
   meaning and the place it lives; a word with two spellings is listed there as contested until
-  somebody decides it. [review]
+  somebody decides it. The glossary is `docs/glossary.md` of the project harness, read in every
+  checkout as `.ai-core/docs/<harness>/glossary.md`. [review]
 - **A name is judged in the reader's context and re-judged wherever the thing moves.** A word that is
   exact inside a module can name nothing on a screen; a thing lifted into another context is
   renamed or confirmed there. [review]

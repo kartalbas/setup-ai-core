@@ -82,6 +82,20 @@ move_layer() {
   echo "moved: $full from $old to $new, beside the repositories it serves" >&2
 }
 
+# layer_skeleton_files <clone> <setup-ai-core root> <org>/<name> [dry]: a clone made before the
+# skeleton carried one of these files gets it; nothing that exists is touched, so a team that
+# replaced a file keeps its own; the next ai-core push commits what was written
+SKELETON_LATER="docs/glossary.md"
+layer_skeleton_files() {
+  local dir="$1" root="$2" full="$3" mode="${4:-}" rel
+  for rel in $SKELETON_LATER; do
+    [ ! -e "$dir/$rel" ] || continue
+    if [ "$mode" = dry ]; then echo "note: $full would get $rel from the skeleton (dry run: not written)" >&2; continue; fi
+    mkdir -p "$(dirname "$dir/$rel")"; cp "$root/skeleton/$rel" "$dir/$rel"
+    echo "note: $full: $rel from the skeleton written into $dir; ai-core push commits it" >&2
+  done
+}
+
 # layer_attributes <clone> <setup-ai-core root> <org>/<name> [dry]: a clone made before the
 # skeleton carried .gitattributes gets the skeleton's rule, so every checkout of it is LF (the
 # .githooks shims run through bash, a .tsv keeps its last field); the next ai-core push commits it
@@ -149,6 +163,7 @@ ensure_layer() {
     if ! git -C "$dir" pull --ff-only --quiet >/dev/null 2>&1; then
       echo "note: could not pull $full into $dir (offline, or the clone has local changes); using it as it is" >&2
     fi
+    layer_skeleton_files "$dir" "$root" "$full" "$mode"
     layer_attributes "$dir" "$root" "$full" "$mode"
     echo "$dir"; return 0
   fi
@@ -162,6 +177,7 @@ ensure_layer() {
       git -C "$dir" push --quiet -u origin HEAD >/dev/null 2>&1 || { echo "error: could not push the skeleton to $full (no write access to it?); the clone at $dir keeps it" >&2; return 1; }
       echo "filled: $full, empty on GitHub, from the skeleton, at $dir" >&2
     fi
+    layer_skeleton_files "$dir" "$root" "$full"
     layer_attributes "$dir" "$root" "$full"
     echo "$dir"; return 0
   fi

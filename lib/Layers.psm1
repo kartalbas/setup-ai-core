@@ -84,21 +84,6 @@ function Move-Layer {
   Write-Host "moved: $Full from $Old to $New, beside the repositories it serves"
 }
 
-function Add-LayerSkeletonFiles {
-  # A clone made before the skeleton carried one of these files gets it; nothing that exists is
-  # touched, so a team that replaced a file keeps its own; the next ai-core push commits what was
-  # written
-  [CmdletBinding()] param([Parameter(Mandatory)][string]$Dir, [Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Full, [switch]$Dry)
-  foreach ($rel in @('docs/glossary.md')) {
-    $dst = Join-Path $Dir $rel
-    if (Test-Path -LiteralPath $dst) { continue }
-    if ($Dry) { Write-Host "note: $Full would get $rel from the skeleton (dry run: not written)"; continue }
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dst) | Out-Null
-    Copy-Item (Join-Path $Root ('skeleton\' + $rel.Replace('/', '\'))) $dst
-    Write-Host "note: ${Full}: $rel from the skeleton written into ${Dir}; ai-core push commits it"
-  }
-}
-
 function Add-LayerAttributes {
   # A clone made before the skeleton carried .gitattributes gets the skeleton's rule, so every
   # checkout of it is LF (the .githooks shims run through bash, a .tsv keeps its last field); the
@@ -168,7 +153,6 @@ function Resolve-Layer {
     if ($tracked -gt 0 -and $missing -eq $tracked) { & git -C $dir checkout -- . 2>$null | Out-Null; Write-Host "restored: the files of $Full at $dir from its history (every tracked file was missing)" }
     & git -C $dir pull --ff-only --quiet 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Host "note: could not pull $Full into $dir (offline, or the clone has local changes); using it as it is" }
-    Add-LayerSkeletonFiles -Dir $dir -Root $Root -Full $Full -Dry:$Dry
     Add-LayerAttributes -Dir $dir -Root $Root -Full $Full -Dry:$Dry
     return $dir
   }
@@ -186,7 +170,6 @@ function Resolve-Layer {
       if ($LASTEXITCODE -ne 0) { throw "could not push the skeleton to $Full (no write access to it?); the clone at $dir keeps it" }
       Write-Host "filled: $Full, empty on GitHub, from the skeleton, at $dir"
     }
-    Add-LayerSkeletonFiles -Dir $dir -Root $Root -Full $Full
     Add-LayerAttributes -Dir $dir -Root $Root -Full $Full
     return $dir
   }

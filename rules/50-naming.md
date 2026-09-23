@@ -16,10 +16,10 @@
 - **A shared verb takes its object into the name.** Where a cluster, an image and a version can each
   be released, `release` names nothing. [review]
 - **One concept, one word, everywhere**, in code, configuration, documents and messages to a person.
-  A new name enters the project's glossary in the same change that introduces it, with its one
-  meaning and the place it lives; a word with two spellings is listed there as contested until
-  somebody decides it. The glossary is `docs/glossary.md` of the project harness, read in every
-  checkout as `.ai-core/docs/<harness>/glossary.md`. [review]
+  The code is the glossary: a word is found where it lives, with `graft grep`, and there is no
+  second list of it to drift. A word with two spellings is decided by a rule of the project
+  harness that names the spelling which stays, written in the change that meets the second
+  spelling. [review]
 - **A name is judged in the reader's context and re-judged wherever the thing moves.** A word that is
   exact inside a module can name nothing on a screen; a thing lifted into another context is
   renamed or confirmed there. [review]

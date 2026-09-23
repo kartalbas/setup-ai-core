@@ -21,7 +21,7 @@ The three modes of section 1 and 2, `i-have-adhd`, `caveman` and `ponytail`, are
 - **Behavior:**
   - Cuts grammatical fluff (articles, redundant verbs) while keeping 100% technical accuracy.
   - Retains code blocks, exact identifiers, file paths, and compiler error messages verbatim.
-  - Shortens only what the agent writes in chat. Anything that lands in the record, an issue, a solution path, a commit message or a document, is written in full; and it never compresses what the agent reads: rules, skills, glossary and maps are read whole.
+  - Shortens only what the agent writes in chat. Anything that lands in the record, an issue, a solution path, a commit message or a document, is written in full; and it never compresses what the agent reads: rules, skills and maps are read whole.
 
 ---
 

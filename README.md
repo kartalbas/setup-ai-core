@@ -162,7 +162,7 @@ setup-ai-core (public)
 ├── ai-core.json  extends (another harness), setup-ai-core (the version it needs)
 ├── rules/        one file per section, NN-slug.md: the same name as a generic section replaces it, a new name adds one
 ├── skills/       one folder per skill, SKILL.md and its files
-├── docs/         glossary, naming, architecture for agents
+├── docs/         documents for agents: what the code cannot say
 ├── config.env, labels.tsv, assignees.tsv, team-modes.tsv   the project's settings and data
 └── repos/<repo>/ the map (AGENTS.md) and other files of one repository, in the layout of the checkout
 
@@ -188,8 +188,7 @@ checkout never carries a copy.
 │   ├── config.env                       the agents served, Graft on or off, the organisation: managed from the harness, else yours
 │   ├── labels.tsv, assignees.tsv        the label taxonomy and who owns which repository's issues: the same
 │   ├── team-modes.tsv                   the team modes per tool, with probe and install command: the same
-│   ├── docs/                            yours: documents for agents; docs/<harness>/ managed: the docs of each layer,
-│   │                                    glossary.md among them: one concept, one word, where it lives; looked up before a name is minted
+│   ├── docs/                            yours: documents for agents; docs/<harness>/ managed: the docs of each layer
 │   ├── STAMP                            managed: the commit of setup-ai-core and of every layer this was assembled from
 │   ├── DEPLOYED                         managed: what the layers put here; what a layer no longer provides is taken out at the next run
 │   └── solution-path.template.md        yours: template of a solution path
@@ -302,12 +301,7 @@ The skeleton carries a `.gitattributes` (`* text=auto eol=lf`), so every checkou
 LF on every operating system: its `.githooks` shims run through bash, and a `.tsv` keeps its last
 field. A clone made before the skeleton carried it gets the rule on its next `init`, said as
 `note: <org>/<prefix>-ai-core: .gitattributes from the skeleton written into ...`; the next
-`ai-core push` commits it. The skeleton also carries `docs/glossary.md`, the project's glossary
-(one concept, one word, where it lives; contested spellings listed until somebody decides), read
-in every checkout as `.ai-core/docs/<harness>/glossary.md` and named in the binding rules of every
-map; a clone made before the skeleton carried it gets it the same way, said as
-`note: ...: docs/glossary.md from the skeleton written into ...`, and a file the team replaced is
-never touched.
+`ai-core push` commits it.
 
 A harness may extend another: `ai-core.json` `{"extends": "<org>/<name>-ai-core"}`, a company
 harness under several projects for example. The chain is resolved base first, a circle or more

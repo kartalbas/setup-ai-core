@@ -389,7 +389,9 @@ goes into the project harness as `repos/<repo>/AGENTS.md` with a first line nami
 was generated from, the harness is committed and pushed (`push`), and the checkout assembled
 again, so the map is in place at once. In the checkout, `init` opens every generated map with the
 block `## Binding rules` from `lib/binding-rules.md`, after the header line and the title: the
-rules, the local rules and the skills file, each named after `@`. Claude Code loads a file an
+rules, the local rules and the skills file, each named after `@`, the documents of the project,
+and a line saying that an instruction file naming other places for these, a machine-wide
+`CLAUDE.md` among them, is out of date. Claude Code loads a file an
 `AGENTS.md` names that way at launch, whole, so the rules are in the agent's context from its first
 prompt; any other tool reads where they are. A checkout inside a project folder whose rules are the
 folder's names them without the `@`, because the folder's `AGENTS.md` already loads them and Claude
@@ -824,7 +826,10 @@ and `bin/<name>.ps1` in PowerShell; a new script in `bin/` is a command without 
 
 `doctor` today checks Git, gh and its login, Bash, PowerShell 7 (required on Windows), Node.js 20+
 with `npx`, jq, the team modes, repairs an empty Antigravity `mcp_config.json`, and reports whether `claude`, `agy` and `codex` are installed, with the install command
-of each. Required tools it installs with `winget` (Windows), `brew` (macOS) or `apt-get` (Linux);
+of each. It takes out what a tool of an earlier layout left in the Claude Code configuration: a
+session-start hook in `~/.claude/settings.json` that starts a script beside the repositories, and
+a project memory folder `~/.claude/projects/<project>/memory` that is a link whose target is gone
+(Claude Code makes a real folder at the next memory it writes); `--no-install` only reports them. Required tools it installs with `winget` (Windows), `brew` (macOS) or `apt-get` (Linux);
 a login it cannot do for you. On Windows a tool installed a moment ago may need a new terminal.
 
 ---
@@ -984,7 +989,8 @@ without the picker, excludes every file it wrote and names the committed file it
 absent, runs the two board suites (`tests/run-all.sh`, `tests/run-all.ps1`: one test pair per
 command against a stand-in `gh`, the push gate's pair among them, and the tree must be as the
 suite found it) and both `case-check` twins. It needs `bash`, `pwsh`, `node` and `jq` and never touches the network. CI runs it on Ubuntu
-and Windows for every push and pull request, and then `schema-check`, which needs github.com.
+and Windows for every push of a branch and every pull request, and then `schema-check`, which needs
+github.com; a tag names a commit whose checks already ran, so pushing it starts no second run.
 
 **A release** is one command, `ai-core release X.Y.Z`, run in the clone: it writes `VERSION` and
 commits `release: X.Y.Z` when the file does not carry the version yet, pushes what is not pushed,

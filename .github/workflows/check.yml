@@ -1,5 +1,9 @@
 name: check
-on: [push, pull_request]
+# A push of a branch and a pull request; a tag names a commit whose checks already ran on the branch
+on:
+  push:
+    branches: ['**']
+  pull_request:
 jobs:
   check:
     strategy:

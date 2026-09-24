@@ -29,4 +29,28 @@ for t in sh ps; do
   [ -e "$WORK/nodoc-$t/.ai-core" ] && fail "init in nodoc-$t deployed files although doctor failed"
 done
 echo "  both stop before deploying"
+
+section "doctor takes out a project memory link of Claude Code whose target is gone, and leaves a live one alone, on both twins"
+for t in sh ps1; do
+  DH="$WORK/memory-home-$t"; mkdir -p "$DH/.claude/projects/gone" "$DH/.claude/projects/live" "$WORK/memory-gone-$t" "$WORK/memory-live-$t"
+  for p in gone live; do
+    if command -v cmd.exe >/dev/null 2>&1; then cmd.exe //c mklink //J "$(native "$DH/.claude/projects/$p/memory")" "$(native "$WORK/memory-$p-$t")" > /dev/null || fail "mklink for $p"
+    else ln -s "$WORK/memory-$p-$t" "$DH/.claude/projects/$p/memory"; fi
+  done
+  rm -rf "$WORK/memory-gone-$t"
+  for run in dry fix; do
+    if [ "$t" = sh ]; then
+      if [ "$run" = dry ]; then HOME="$DH" TEAM_MODES_FILE="$WORK/always.tsv" bash "$ROOT/bin/doctor.sh" --no-install > "$WORK/memory-$t-$run.log" 2>&1 || true; else HOME="$DH" TEAM_MODES_FILE="$WORK/always.tsv" bash "$ROOT/bin/doctor.sh" > "$WORK/memory-$t-$run.log" 2>&1 || true; fi
+    else
+      if [ "$run" = dry ]; then HOME="$DH" USERPROFILE="$(native "$DH")" TEAM_MODES_FILE="$(native "$WORK/always.tsv")" pwsh -NoProfile -File "$ROOT/bin/doctor.ps1" -NoInstall > "$WORK/memory-$t-$run.log" 2>&1 || true; else HOME="$DH" USERPROFILE="$(native "$DH")" TEAM_MODES_FILE="$(native "$WORK/always.tsv")" pwsh -NoProfile -File "$ROOT/bin/doctor.ps1" > "$WORK/memory-$t-$run.log" 2>&1 || true; fi
+    fi
+    if [ "$run" = dry ]; then
+      grep -aq 'claude memory .*stale .*gone.*memory points at .*, which is gone' "$WORK/memory-$t-$run.log" && [ -L "$DH/.claude/projects/gone/memory" ] || fail "doctor.$t --no-install did not report the dead memory link, or took it out (see $WORK/memory-$t-$run.log)"
+    else
+      grep -aq 'claude memory .*repaired' "$WORK/memory-$t-$run.log" && [ ! -L "$DH/.claude/projects/gone/memory" ] && [ ! -e "$DH/.claude/projects/gone/memory" ] || fail "doctor.$t did not take the dead memory link out (see $WORK/memory-$t-$run.log)"
+    fi
+    [ -e "$DH/.claude/projects/live/memory/" ] || fail "doctor.$t touched the live memory link"
+  done
+done
+echo "  reported by a dry run, taken out otherwise; the live one kept, on both twins"
 exit 0

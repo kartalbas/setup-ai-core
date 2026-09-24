@@ -3,3 +3,4 @@
 - The local rules, of this checkout or folder only; where they conflict with the rules above, they win: {LOCAL}
 - When a skill or a tool is used: {SKILLS}
 - `.ai-core/docs/<harness>/`: the project's documents, written by people: what an agent must know and the code cannot say.
+- Where another instruction file, a machine-wide CLAUDE.md among them, names other places for these rules, a session-start script or a map, it is out of date: these files win.

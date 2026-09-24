@@ -180,6 +180,17 @@ if [ -f "$CLAUDE_SETTINGS" ] && command -v jq >/dev/null 2>&1; then
   fi
 fi
 
+# Claude Code keeps a project's memory in ~/.claude/projects/<project>/memory. A tool of an earlier
+# layout made that folder a link into a repository; where the target is gone, Claude Code cannot
+# write a memory for that project, so the dead link is taken out and Claude Code makes a real
+# folder at the next memory it writes. Nothing is lost: the target is not there.
+for link in "$HOME"/.claude/projects/*/memory; do
+  [ -L "$link" ] && [ ! -e "$link/" ] || continue
+  target="$(readlink "$link" || true)"
+  if [ "$NO_INSTALL" -eq 1 ]; then report "claude memory" stale "$link points at $target, which is gone; run doctor without --no-install to take the link out"; problem
+  else rm "$link" && report "claude memory" repaired "$link pointed at $target, which is gone; taken out, Claude Code makes a real folder at the next memory it writes"; fi
+done
+
 # The team modes of every agent tool on this machine: checked, and installed when one is missing
 # (team-modes.tsv says how, per tool). A plugin loads when the tool starts, so a fresh install
 # needs the tool restarted; the check says which.

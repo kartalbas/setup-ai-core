@@ -145,6 +145,26 @@ if ((Test-Path $claudeSettings) -and (Test-Tool jq)) {
   }
 }
 
+# Claude Code keeps a project's memory in ~/.claude/projects/<project>/memory. A tool of an earlier
+# layout made that folder a link into a repository; where the target is gone, Claude Code cannot
+# write a memory for that project, so the dead link is taken out and Claude Code makes a real
+# folder at the next memory it writes. Nothing is lost: the target is not there.
+$projectsDir = Join-Path $HOME '.claude\projects'
+if (Test-Path -LiteralPath $projectsDir) {
+  foreach ($dir in @(Get-ChildItem -LiteralPath $projectsDir -Directory -Force -ErrorAction SilentlyContinue)) {
+    $link = Join-Path $dir.FullName 'memory'
+    try { $item = Get-Item -LiteralPath $link -Force -ErrorAction Stop } catch { continue }
+    if (-not $item.LinkType) { continue }
+    $target = ($item.Target -join '')
+    if ($target -and (Test-Path -LiteralPath $target)) { continue }
+    if ($NoInstall) { Write-Report 'claude memory' stale "$link points at $target, which is gone; run doctor without -NoInstall to take the link out"; Add-Problem }
+    else {
+      if ($IsWindows) { [System.IO.Directory]::Delete($link) } else { [System.IO.File]::Delete($link) }   # the link only, never a target
+      Write-Report 'claude memory' repaired "$link pointed at $target, which is gone; taken out, Claude Code makes a real folder at the next memory it writes"
+    }
+  }
+}
+
 # The team modes of every agent tool on this machine: checked, and installed when one is missing
 # (team-modes.tsv says how, per tool). A plugin loads when the tool starts, so a fresh install
 # needs the tool restarted; the check says which.

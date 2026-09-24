@@ -123,6 +123,7 @@ grep -aq 'MODE ACTIVE' "$WORK/modes-none.log" && fail "session-start.sh without 
 echo "  --tool claude: the caveman skill printed whole with its level, a skill at level - not switched on, a skill too long named with its call, the plugin modes named, no rules, at most 9 500 bytes, nothing of it in the JSON or without --tool, on both twins"
 
 for t in sh ps1; do grep -q 'ai-core session-start --tool claude' "$WORK/$t/.claude/settings.json" || fail "the template settings.json deployed by init.$t carries no session-start hook"; done
+for t in sh ps1; do jq -e '(.permissions.allow | index("mcp__graft")) != null and (.permissions.allow | index("Bash(ai-core:*)")) != null' "$WORK/$t/.claude/settings.json" > /dev/null || fail "the settings.json deployed by init.$t does not allow the ai-core commands and the Graft MCP tools"; done
 
 # A repository with a CLAUDE.md of its own: Claude Code reads that and not AGENTS.md, so init writes an untracked CLAUDE.local.md that imports AGENTS.md; somebody's own CLAUDE.local.md is left alone, with a note
 for t in sh ps1; do

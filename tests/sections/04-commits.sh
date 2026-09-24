@@ -35,6 +35,7 @@ for twin in sh ps1; do
     done
     dirty="$(git -C "$WORK/$t" status --porcelain)"
     [ -z "$dirty" ] || fail "init.$twin left untracked files in $t: $(echo "$dirty" | tr '\n' ' ')"
+    jq -e '(.hooks.SessionStart[0].hooks[0].command == "ai-core session-start --tool claude") and ((.permissions.allow | index("Bash(x)")) != null) and ((.permissions.allow | index("Bash(ai-core:*)")) != null) and ((.permissions.allow | index("mcp__graft")) != null) and ([.permissions.allow[] | select(. == "mcp__graft")] | length == 1)' "$WORK/$t/.claude/settings.json" > /dev/null || fail "init.$twin did not merge the session-start hook and the two permissions, once, into the settings.json $t had: $(tr -d '\n' < "$WORK/$t/.claude/settings.json")"
     jq -e '(.hooks.SessionStart[0].hooks[0].command == "ai-core session-start --tool claude") and ((.permissions.allow | index("Bash(x)")) != null)' "$WORK/$t/.claude/settings.json" > /dev/null || fail "init.$twin did not merge the session-start hook into the settings.json $t had (or lost its own entry)"
     [ "$run" = 1 ] && [ "$t" = "repo-$twin" ] && { grep -aq '^  refreshed .*\.claude/settings\.json' "$WORK/$t-init.log" || fail "init.$twin did not report the merged settings.json as refreshed"; }
     [ "$(jq '[.hooks.SessionStart[].hooks[].command] | length' "$WORK/$t/.claude/settings.json")" = 1 ] || fail "init.$twin merged the hook more than once in $t"

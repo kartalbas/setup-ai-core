@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(ai-core:*)"
+      "Bash(ai-core:*)",
+      "mcp__graft"
     ]
   },
   "hooks": {

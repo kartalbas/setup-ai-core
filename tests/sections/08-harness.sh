@@ -155,7 +155,7 @@ head -n1 "$M" | grep -qE '^<!-- ai-core map: generated [0-9-]+ from [0-9a-f]+; '
 [ -z "$(git -C "$WORK/org-sh/shop-ai-core" status --porcelain)" ] && [ "$(git -C "$WORK/org-sh/shop-ai-core" rev-list --count '@{upstream}..HEAD')" = 0 ] || fail "map.sh did not commit and push the harness"
 head -n1 "$WORK/org-sh/shop-web/AGENTS.md" | grep -q 'ai-core map: generated' || fail "map.sh did not bring the map into the checkout"
 # The checkout's copy opens with the contract after the header and the title; the harness's copy stays the tool's
-[ "$(sed -n 4p "$WORK/org-sh/shop-web/AGENTS.md")" = '## Binding rules' ] && grep -q '^- `.ai-core/rules/rules.md`' "$WORK/org-sh/shop-web/AGENTS.md" && grep -q '^## What it is' "$WORK/org-sh/shop-web/AGENTS.md" || fail "the map in the checkout does not open with the binding rules: $(head -n5 "$WORK/org-sh/shop-web/AGENTS.md" | tr '\n' '|')"
+[ "$(sed -n 4p "$WORK/org-sh/shop-web/AGENTS.md")" = '## Binding rules' ] && grep -q '^- The engineering rules, .*: @\.ai-core/rules/rules\.md$' "$WORK/org-sh/shop-web/AGENTS.md" && grep -q '^- When a skill or a tool is used: @\.ai-core/rules/skills\.md$' "$WORK/org-sh/shop-web/AGENTS.md" && grep -q '^## What it is' "$WORK/org-sh/shop-web/AGENTS.md" || fail "the map in the checkout, no project folder around it, does not open with the binding rules imported: $(sed -n 4,9p "$WORK/org-sh/shop-web/AGENTS.md" | tr '\n' '|')"
 grep -q '^## Binding rules' "$M" && fail "the map in the harness carries the contract; init adds it to the checkout's copy"
 grep -q -- '--allowedTools' "$MAPLOG" && grep -q 'Read the repository first, cheaply' "$MAPLOG" || fail "map.sh did not call the agent CLI with the prompt and the tools"
 # people write a rule into the map and push it as they push any edit of the harness; the next generation keeps it
@@ -178,7 +178,8 @@ map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")" > "$WORK/map-ps-1.log" 2>&
 MP="$WORK/org-ps/shop-ai-core/repos/shop-web/AGENTS.md"
 head -n1 "$MP" | grep -qE '^<!-- ai-core map: generated [0-9-]+ from [0-9a-f]+; ' && grep -q '^A shop\. ps$' "$MP" && grep -q '^- \*\*Ship on Fridays never' "$MP" || fail "map.ps1 did not write the map or lost the rules people wrote: $(head -n5 "$MP" 2>/dev/null | tr '\n' '|')"
 [ -z "$(git -C "$WORK/org-ps/shop-ai-core" status --porcelain)" ] && head -n1 "$WORK/org-ps/shop-web/AGENTS.md" | grep -q 'ai-core map: generated' || fail "map.ps1 did not push the harness and bring the map into the checkout"
-[ "$(sed -n 4p "$WORK/org-ps/shop-web/AGENTS.md")" = '## Binding rules' ] && grep -q '^- `.ai-core/rules/rules.md`' "$WORK/org-ps/shop-web/AGENTS.md" || fail "init.ps1 did not open the map in the checkout with the binding rules: $(head -n5 "$WORK/org-ps/shop-web/AGENTS.md" | tr '\n' '|')"
+[ "$(sed -n 4p "$WORK/org-ps/shop-web/AGENTS.md")" = '## Binding rules' ] && grep -q '^- The engineering rules, .*: @\.ai-core/rules/rules\.md$' "$WORK/org-ps/shop-web/AGENTS.md" || fail "init.ps1 did not open the map in the checkout with the binding rules imported: $(sed -n 4,9p "$WORK/org-ps/shop-web/AGENTS.md" | tr '\n' '|')"
+cmp -s "$WORK/org-sh/shop-web/AGENTS.md" "$WORK/org-ps/shop-web/AGENTS.md" || [ "$(sed -n 4,9p "$WORK/org-sh/shop-web/AGENTS.md")" = "$(sed -n 4,9p "$WORK/org-ps/shop-web/AGENTS.md")" ] || fail "the twins wrote different binding rules: $(diff <(sed -n 4,9p "$WORK/org-sh/shop-web/AGENTS.md") <(sed -n 4,9p "$WORK/org-ps/shop-web/AGENTS.md") | tr '\n' '|')"
 grep -q '^## Binding rules' "$WORK/org-ps/shop-ai-core/repos/shop-web/AGENTS.md" && fail "the map in the harness of the PowerShell twin carries the contract"
 MAP_FAKE_BAD=1 map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")" > "$WORK/map-ps-bad.log" 2>&1 && fail "map.ps1 accepted an output that is not a map"
 grep -aq "not the map's shape" "$WORK/map-ps-bad.log" || fail "map.ps1: the refusal (see $WORK/map-ps-bad.log)"
@@ -295,7 +296,16 @@ for r in shop-web store-api; do
   head -n1 "$h" | grep -q 'ai-core map: generated' && head -n1 "$WORK/folder/$r/AGENTS.md" | grep -q 'ai-core map: generated' || fail "map.sh --all: $r has no map in the harness or the checkout"
   [ -z "$(git -C "$WORK/folder/${r%%-*}-ai-core" status --porcelain)" ] || fail "map.sh --all did not push ${r%%-*}-ai-core"
 done
+# The binding rules in a project folder: its AGENTS.md imports them; a checkout whose rules are the folder's names them without the @, one whose harness adds rules imports its own
+binding_ok() {  # binding_ok <twin>
+  grep -q '^- The engineering rules, .*: @\.ai-core/rules/rules\.md$' "$WORK/folder/AGENTS.md" && grep -q '^- When a skill or a tool is used: @\.ai-core/rules/skills\.md$' "$WORK/folder/AGENTS.md" && grep -q '^| `shop-web` |' "$WORK/folder/AGENTS.md" || fail "$1: the folder's AGENTS.md does not import the rules: $(sed -n 4,11p "$WORK/folder/AGENTS.md" | tr '\n' '|')"
+  grep -q '@\.ai-core/rules/rules\.md' "$WORK/folder/store-api/AGENTS.md" && fail "$1: store-api has the folder's rules and imports them a second time"
+  grep -q "^- The engineering rules, .*: \`.ai-core/rules/rules.md\`, the same as the project folder's, which its AGENTS.md loads$" "$WORK/folder/store-api/AGENTS.md" || fail "$1: store-api's map does not name the folder's rules: $(sed -n 4,9p "$WORK/folder/store-api/AGENTS.md" | tr '\n' '|')"
+  grep -q '^- The engineering rules, .*: @\.ai-core/rules/rules\.md$' "$WORK/folder/shop-web/AGENTS.md" || fail "$1: shop-web, whose harness adds rules the folder lacks, does not import its own: $(sed -n 4,9p "$WORK/folder/shop-web/AGENTS.md" | tr '\n' '|')"
+}
+binding_ok sh
 map_ps -All "$(native "$WORK/folder")" > "$WORK/map-all-ps.log" 2>&1 || fail "map.ps1 -All (see $WORK/map-all-ps.log)"
+binding_ok ps1
 grep -aq '^==> map -All: 2 map(s) were written$' "$WORK/map-all-ps.log" && grep -q '^A shop\. ps$' "$WORK/folder/store-api/AGENTS.md" || fail "map.ps1 -All did not write the two maps and bring them into the checkouts: $(grep -a 'map -All' "$WORK/map-all-ps.log"); store-api: $(grep -a 'A shop' "$WORK/folder/store-api/AGENTS.md")"
 echo "  created, cloned, an empty one on GitHub filled from the skeleton (cloned by init or by hand), moved from the home directory, an interrupted move completed, lost files restored, assembled and compared on both twins; extends base first; a harness that cannot be had stops init; a harness checkout refused; the folder shares the base and its map skips the clones; maps written by the agent CLI, pushed and in the checkouts, people's rules kept, a bad output refused, --all over the folder, on both twins"
 exit 0

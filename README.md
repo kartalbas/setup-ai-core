@@ -193,7 +193,8 @@ checkout never carries a copy.
 │   ├── DEPLOYED                         managed: what the layers put here; what a layer no longer provides is taken out at the next run
 │   └── solution-path.template.md        yours: template of a solution path
 ├── .claude/skills/, .agents/skills/     managed: the skills of every layer, one folder each
-├── AGENTS.md                            managed from repos/<repo>/ of the harness, else created once from the template
+├── AGENTS.md                            managed from repos/<repo>/ of the harness, the binding rules on top; else created once from the template
+├── CLAUDE.local.md                      only where the repository has a CLAUDE.md of its own: imports AGENTS.md; created once
 ├── .cursorrules, .windsurfrules         Cursor and Windsurf pointers
 ├── .github/copilot-instructions.md      Copilot pointer
 ├── .openhands/microagents/repo-rules.md OpenHands microagent
@@ -203,9 +204,11 @@ checkout never carries a copy.
                                          .claude/helpers/, .claude/skills/graft/, GEMINI.md, ...
 ```
 
-A project folder gets the same, except that its `AGENTS.md` is generated: the list of the
-repositories in it, each with the path of its map, rewritten on every `init` because the folder
-changes. Its Graft graph is a workspace over all of them (section 4.8).
+A project folder gets the same, except that its `AGENTS.md` is generated: the binding rules, each
+file imported, then the list of the repositories in it, each with the path of its map, rewritten on
+every `init` because the folder changes. An agent started in the folder has the rules from its
+first prompt, and Claude Code loads a repository's map when it works there. Its Graft graph is a
+workspace over all of them (section 4.8).
 
 **Managed** files are replaced on every run of `init`. Do not edit them; edit the layer they come
 from. Every other file is created once and never overwritten. All of it is registered in
@@ -349,6 +352,8 @@ repository of that organisation, and `~/.agents/skills/` on a developer's machin
 **Today** `rules/skills.md` says when an agent uses the three team modes, `caveman`, `ponytail`
 and `i-have-adhd`, and the skill `archify`; `.ai-core/team-modes.tsv` says, per tool, how the harness sees that a mode
 is installed (a plugin the tool lists, a skill folder, a file) and the command that installs it.
+A row at level `-`, archify's, is installed and checked but not switched on at session start: the
+tool loads the skill when a task calls for it.
 `ai-core team-modes-check` probes the tools on the machine and refuses when a mode is missing;
 `session-start` and `start-issue` run it first, so no session starts without the modes;
 `ai-core team-modes-install` runs the install column for every missing one, and `doctor` runs it
@@ -383,9 +388,16 @@ the five headings in order, at most 80 lines) and refuses anything else, keeping
 goes into the project harness as `repos/<repo>/AGENTS.md` with a first line naming the commit it
 was generated from, the harness is committed and pushed (`push`), and the checkout assembled
 again, so the map is in place at once. In the checkout, `init` opens every generated map with the
-block `## Binding rules` from `lib/binding-rules.md`, after the header line and the title: where
-the rules, the local rules and the skills file are, so a tool that reads `AGENTS.md` meets the
-contract before the map; the map in the harness stays what the tool wrote. `ai-core map --all <folder>` does it for every repository
+block `## Binding rules` from `lib/binding-rules.md`, after the header line and the title: the
+rules, the local rules and the skills file, each named after `@`. Claude Code loads a file an
+`AGENTS.md` names that way at launch, whole, so the rules are in the agent's context from its first
+prompt; any other tool reads where they are. A checkout inside a project folder whose rules are the
+folder's names them without the `@`, because the folder's `AGENTS.md` already loads them and Claude
+Code loads every `AGENTS.md` above the directory it starts in; the local rules are imported once
+they are more than the template. The map in the harness stays what the tool wrote. A repository
+with a `CLAUDE.md` of its own makes Claude Code read that file instead of `AGENTS.md`, so `init`
+writes a `CLAUDE.local.md` beside it that imports `AGENTS.md`; it is never committed, created once,
+and a `CLAUDE.local.md` that is somebody's own is left alone with a note. `ai-core map --all <folder>` does it for every repository
 under a folder with one push and `init --all`; `--no-push` writes into the clone and stops;
 `--dry-run` prints the map. `session-start` prints `Map`: generated from which commit and how
 many commits behind, or `Generic (run ai-core map)`. Until `map` has run, `AGENTS.md` is the
@@ -473,9 +485,13 @@ printed whole with its level: `CAVEMAN MODE ACTIVE — level: lite`, the skill, 
 the hook's output is the agent's context, so the agent runs with it from the first prompt. A mode
 that is a plugin switches itself on through its own hook and is named: `PONYTAIL MODE: full,
 switched on by its own hook`. These lines in the transcript are how a session proves its modes.
-After the modes come the rules themselves: `.ai-core/rules/rules.md` whole under
-`==== THE RULES OF THIS CHECKOUT ... ====`, then `.ai-core/rules/rules.local.md` where it exists,
-so the agent runs with the rules in its context from the first prompt without opening them.
+A row at level `-` is not switched on. Claude Code passes a hook's output whole only up to a size:
+in a measured run of Claude Code 2.1.282, 10 000 characters arrived whole and 15 000 arrived as a
+2 KB preview, the rest in a file the agent never opens. So the output of one `--tool` stays below
+9 500 characters: a skill that does not fit is named with the skill call that loads it (`CAVEMAN
+MODE ACTIVE — level: lite: its skill is too long for this output; load it before your first
+answer, ...`), the issue thread is cut after 3 000 characters and the uncommitted files after 20
+lines. The rules are not printed: Claude Code loads them through the binding rules in `AGENTS.md`.
 The `i-have-adhd` row of Claude Code is proven by the always-on flag its hook reads,
 `~/.claude/.i-have-adhd-always`, which its install column writes.
 
@@ -1086,7 +1102,7 @@ setup-ai-core/
 │   ├── board.sh / Board.psm1            the library of the board commands
 │   ├── layers.sh / Layers.psm1          the project harness: from origin, beside the repositories, cloned, pulled, created, the extends chain
 │   ├── gitignore-block                  the block init writes into a project's .gitignore
-│   ├── binding-rules.md                 the block init puts on top of every generated map: where the rules are
+│   ├── binding-rules.md                 the binding rules init puts on top of every generated map and into a project folder's AGENTS.md
 │   └── entry-point.ps1                  the one text every scripts/check.ps1 and build.ps1 is a copy of
 ├── rules/
 │   ├── NN-slug.md                       the generic rules, one file per section

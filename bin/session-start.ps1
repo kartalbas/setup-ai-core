@@ -140,18 +140,24 @@ if ($issue) {
   if ($LASTEXITCODE -eq 0) { $assigned = $true }
 }
 
-# 4. The team modes of the tool this session runs in, switched on. A mode that is a skill is
-#    printed whole with its level: the hook's output is the agent's context, so the agent runs
-#    with it from the first prompt. A plugin switches itself on through its own hook and is named
-#    with its level. For one -Tool, the form the hooks use, and in the text output only.
-$modesText = @()
+# 4. The team modes of the tool this session runs in, switched on. The hook's output is the
+#    agent's context, but Claude Code passes a hook's output whole only up to a size: in a measured
+#    run of Claude Code 2.1.282, 10 000 characters arrived whole and 15 000 arrived as a 2 KB
+#    preview, the rest in a file the agent never opens. So the output of one -Tool stays below
+#    $hookLimit: a mode that is a skill is printed whole with its level where it fits and named
+#    with the skill call that loads it where it does not, and the issue thread and the list of
+#    uncommitted files are cut to leave room. A row whose level is "-" is a skill that loads when
+#    a task calls for it; it is not switched on here. A plugin switches itself on through its own
+#    hook and is named with its level. For one -Tool, the form the hooks use, in the text output only.
+$hookLimit = 9500
+$modesText = @(); $modesShort = @()
 if ($Tool.Count -eq 1 -and -not $Json) {
   Import-Module (Join-Path $core 'lib\Board.psm1') -Force
   $table = if ($env:TEAM_MODES_FILE) { $env:TEAM_MODES_FILE } else { Get-DataFile 'team-modes.tsv' }
   $t = $Tool[0]; $homeDir = if ($env:HOME) { $env:HOME } else { $HOME }
   foreach ($row in @(Get-Content $table | Where-Object { $_ -and -not $_.StartsWith('#', [StringComparison]::Ordinal) })) {
     $c = $row.TrimEnd("`r") -split "`t"
-    if ($c.Count -lt 5 -or $c[0] -cne $t) { continue }
+    if ($c.Count -lt 5 -or $c[0] -cne $t -or $c[2] -ceq '-') { continue }
     $mode = $c[1]; $level = $c[2]; $pr = $c[3]; $upper = $mode.ToUpperInvariant()
     if ($pr.StartsWith('skill:', [StringComparison]::Ordinal)) {
       $name = $pr.Substring(6); $skill = $null
@@ -167,8 +173,13 @@ if ($Tool.Count -eq 1 -and -not $Json) {
         $body += $line
       }
       $modesText += "$upper MODE ACTIVE — level: $level ($skill follows; it binds this session)"; $modesText += $body; $modesText += "ARGUMENTS: $level"; $modesText += ''
-    } else { $modesText += "$upper MODE: $level, switched on by its own hook" }
+      $modesShort += "$upper MODE ACTIVE — level: ${level}: its skill is too long for this output; load it before your first answer, the skill ``$name`` with the argument ``$level``"
+    } else { $modesText += "$upper MODE: $level, switched on by its own hook"; $modesShort += "$upper MODE: $level, switched on by its own hook" }
   }
+  if ("$thread".Length -gt 3000) { $thread = "$thread".Substring(0, 3000) + "`n[the thread goes on: ai-core issue-thread $issue]" }
+  $budget = 1200 + "$thread".Length + "$mine".Length
+  if ($dirtyCount -gt 0) { $budget += 1700 }
+  if ($budget + ($modesText -join "`n").Length -gt $hookLimit) { $modesText = $modesShort }
 }
 
 if ($Json) {
@@ -225,7 +236,13 @@ Write-Host "==================================================" -ForegroundColor
 
 if ($dirtyCount -gt 0) {
   Write-Host "warning: Working directory has $dirtyCount uncommitted changes:" -ForegroundColor Yellow
-  git status --short
+  if ($Tool.Count -eq 1 -and -not $Json) {
+    $status = @(git status --short)
+    $status | Select-Object -First 20 | ForEach-Object { Write-Host $_ }
+    if ($status.Count -gt 20) { Write-Host "... and $($status.Count - 20) more (git status)" }
+  } else {
+    git status --short
+  }
 }
 
 if ($issue) {
@@ -242,14 +259,3 @@ if (-not $rulesOk) {
 }
 Write-Host "Ready for task execution." -ForegroundColor Green
 if ($modesText.Count -gt 0) { Write-Host ""; foreach ($l in $modesText) { Write-Host $l } }
-
-# 5. The rules themselves, for the tool this session runs in: the hook's output is the agent's
-#    context, so the rules bind from the first prompt without the agent having to open them.
-if ($Tool.Count -eq 1 -and -not $Json) {
-  Write-Host ""; Write-Host "==== THE RULES OF THIS CHECKOUT ($rulesPath; they bind this session) ===="
-  Write-Host ([System.IO.File]::ReadAllText((Resolve-Path $rulesPath).Path).Replace("`r", "").TrimEnd("`n"))
-  if ($localRulesOk) {
-    Write-Host ""; Write-Host "==== THE LOCAL RULES OF THIS CHECKOUT (.ai-core/rules/rules.local.md; where the two conflict, these win) ===="
-    Write-Host ([System.IO.File]::ReadAllText((Resolve-Path '.ai-core/rules/rules.local.md').Path).Replace("`r", "").TrimEnd("`n"))
-  }
-}

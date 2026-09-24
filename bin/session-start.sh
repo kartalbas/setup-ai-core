@@ -138,15 +138,21 @@ if [ -n "$ISSUE" ]; then
   if MINE="$(bash "$CORE/bin/issue-mine.sh" "$ISSUE" 2>&1)"; then ASSIGNED=true; fi
 fi
 
-# 4. The team modes of the tool this session runs in, switched on. A mode that is a skill is
-#    printed whole with its level: the hook's output is the agent's context, so the agent runs
-#    with it from the first prompt. A plugin switches itself on through its own hook and is named
-#    with its level. For one --tool, the form the hooks use, and in the text output only.
-MODES_TEXT=""
+# 4. The team modes of the tool this session runs in, switched on. The hook's output is the
+#    agent's context, but Claude Code passes a hook's output whole only up to a size: in a measured
+#    run of Claude Code 2.1.282, 10 000 characters arrived whole and 15 000 arrived as a 2 KB
+#    preview, the rest in a file the agent never opens. So the output of one --tool stays below
+#    HOOK_LIMIT: a mode that is a skill is printed whole with its level where it fits and named
+#    with the skill call that loads it where it does not, and the issue thread and the list of
+#    uncommitted files are cut to leave room. A row whose level is "-" is a skill that loads when
+#    a task calls for it; it is not switched on here. A plugin switches itself on through its own
+#    hook and is named with its level. For one --tool, the form the hooks use, in the text output only.
+HOOK_LIMIT=9500
+MODES_TEXT=""; MODES_SHORT=""
 if [ "$TOOL_N" -eq 1 ] && [ "$as_json" -eq 0 ]; then
   TABLE="${TEAM_MODES_FILE:-$(. "$CORE/lib/board.sh"; data_file team-modes.tsv)}"
   while IFS=$'\t' read -r _ mode level pr _; do
-    [ -n "$mode" ] || continue
+    [ -n "$mode" ] && [ "$level" != "-" ] || continue
     upper="$(printf '%s' "$mode" | tr '[:lower:]' '[:upper:]')"
     case "$pr" in
       skill:*)
@@ -155,10 +161,16 @@ if [ "$TOOL_N" -eq 1 ] && [ "$as_json" -eq 0 ]; then
           [ -f "$d/SKILL.md" ] && { skill="$d/SKILL.md"; break; }
         done
         [ -n "$skill" ] || continue
-        MODES_TEXT="$MODES_TEXT$upper MODE ACTIVE — level: $level ($skill follows; it binds this session)"$'\n'"$(awk 'NR==1 && /^---/{f=1; next} f && /^---/{f=0; next} !f' "$skill" | tr -d '\r')"$'\n'"ARGUMENTS: $level"$'\n\n' ;;
-      *) MODES_TEXT="$MODES_TEXT$upper MODE: $level, switched on by its own hook"$'\n' ;;
+        MODES_TEXT="$MODES_TEXT$upper MODE ACTIVE — level: $level ($skill follows; it binds this session)"$'\n'"$(awk 'NR==1 && /^---/{f=1; next} f && /^---/{f=0; next} !f' "$skill" | tr -d '\r')"$'\n'"ARGUMENTS: $level"$'\n\n'
+        MODES_SHORT="$MODES_SHORT$upper MODE ACTIVE — level: $level: its skill is too long for this output; load it before your first answer, the skill \`$name\` with the argument \`$level\`"$'\n' ;;
+      *) MODES_TEXT="$MODES_TEXT$upper MODE: $level, switched on by its own hook"$'\n'
+         MODES_SHORT="$MODES_SHORT$upper MODE: $level, switched on by its own hook"$'\n' ;;
     esac
   done <<< "$(tr -d '\r' < "$TABLE" | awk -F'\t' -v t="$TOOL" '!/^#/ && NF >= 5 && $1 == t')"
+  if [ "${#THREAD}" -gt 3000 ]; then THREAD="${THREAD:0:3000}"$'\n'"[the thread goes on: ai-core issue-thread $ISSUE]"; fi
+  budget=$(( 1200 + ${#THREAD} + ${#MINE} ))
+  [ "$DIRTY_COUNT" -eq 0 ] || budget=$(( budget + 1700 ))
+  [ $(( budget + ${#MODES_TEXT} )) -le "$HOOK_LIMIT" ] || MODES_TEXT="$MODES_SHORT"
 fi
 
 bool() { [ "$1" -eq 1 ] && echo true || echo false; }
@@ -215,7 +227,12 @@ echo "=================================================="
 
 if [ "$DIRTY_COUNT" -gt 0 ]; then
   echo "warning: Working directory has $DIRTY_COUNT uncommitted changes:"
-  git status --short
+  if [ "$TOOL_N" -eq 1 ] && [ "$as_json" -eq 0 ]; then
+    git status --short | head -n 20 || true
+    [ "$DIRTY_COUNT" -le 20 ] || echo "... and $((DIRTY_COUNT - 20)) more (git status)"
+  else
+    git status --short
+  fi
 fi
 
 if [ -n "$ISSUE" ]; then
@@ -232,14 +249,3 @@ if [ "$RULES_OK" -eq 0 ]; then
 fi
 echo "Ready for task execution."
 [ -z "$MODES_TEXT" ] || { echo ""; printf '%s' "$MODES_TEXT"; }
-
-# 5. The rules themselves, for the tool this session runs in: the hook's output is the agent's
-#    context, so the rules bind from the first prompt without the agent having to open them.
-if [ "$TOOL_N" -eq 1 ] && [ "$as_json" -eq 0 ]; then
-  echo ""; echo "==== THE RULES OF THIS CHECKOUT ($RULES_PATH; they bind this session) ===="
-  tr -d '\r' < "$RULES_PATH"
-  if [ "$LOCAL_RULES_OK" -eq 1 ]; then
-    echo ""; echo "==== THE LOCAL RULES OF THIS CHECKOUT (.ai-core/rules/rules.local.md; where the two conflict, these win) ===="
-    tr -d '\r' < .ai-core/rules/rules.local.md
-  fi
-fi

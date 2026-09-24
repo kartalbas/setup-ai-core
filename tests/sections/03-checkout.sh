@@ -91,23 +91,53 @@ node -e '
   }
   if (a.harness_version !== fs.readFileSync(process.argv[3], "utf8").trim()) { console.error("  harness_version " + a.harness_version + " is not the repository VERSION"); process.exit(1); }
 ' "$WORK/sh.json" "$WORK/ps1.json" "$ROOT/VERSION" || fail "session-start JSON differs between twins"
-# --tool <one tool>, the form the hooks use: the modes of that tool are switched on at the end of the output, a skill whole with its level
-MH="$WORK/modes-home"; mkdir -p "$MH/.claude/skills/caveman"; : > "$MH/.claude/.i-have-adhd-always"
+# --tool <one tool>, the form the hooks use: the modes of that tool are switched on at the end of the output, a skill whole with its level; a row at level - is not switched on; the rules are not printed
+MH="$WORK/modes-home"; mkdir -p "$MH/.claude/skills/caveman" "$MH/.claude/skills/archify"; : > "$MH/.claude/.i-have-adhd-always"
 printf -- '---\nname: caveman\n---\nCAVEMAN RULES: short.\n' > "$MH/.claude/skills/caveman/SKILL.md"
-printf 'claude\tcaveman\tlite\tskill:caveman\t-\t-\nclaude\tponytail\tfull\talways:ponytail\t-\t-\nclaude\ti-have-adhd\ton\tfile:~/.claude/.i-have-adhd-always\t-\t-\n' > "$WORK/modes.tsv"
+printf -- '---\nname: archify\n---\nARCHIFY BODY.\n' > "$MH/.claude/skills/archify/SKILL.md"
+printf 'claude\tcaveman\tlite\tskill:caveman\t-\t-\nclaude\tarchify\t-\tskill:archify\t-\t-\nclaude\tponytail\tfull\talways:ponytail\t-\t-\nclaude\ti-have-adhd\ton\tfile:~/.claude/.i-have-adhd-always\t-\t-\n' > "$WORK/modes.tsv"
 (cd "$WORK/sh" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude > "$WORK/modes-sh.log" 2>&1) || fail "session-start.sh --tool claude (see $WORK/modes-sh.log)"
 (cd "$WORK/ps1" && HOME="$MH" USERPROFILE="$(native "$MH")" TEAM_MODES_FILE="$(native "$WORK/modes.tsv")" pwsh -NoProfile -File "$ROOT/bin/session-start.ps1" -Tool claude > "$WORK/modes-ps1.log" 2>&1) || fail "session-start.ps1 -Tool claude (see $WORK/modes-ps1.log)"
 for twin in sh ps1; do
   grep -aq '^CAVEMAN MODE ACTIVE — level: lite' "$WORK/modes-$twin.log" && grep -aq '^CAVEMAN RULES: short\.' "$WORK/modes-$twin.log" && grep -aq '^ARGUMENTS: lite' "$WORK/modes-$twin.log" || fail "session-start.$twin --tool claude does not switch the caveman skill on (see $WORK/modes-$twin.log)"
   grep -aq '^name: caveman' "$WORK/modes-$twin.log" && fail "session-start.$twin prints the front matter of the skill"
   grep -aq '^PONYTAIL MODE: full, switched on by its own hook' "$WORK/modes-$twin.log" && grep -aq '^I-HAVE-ADHD MODE: on, switched on by its own hook' "$WORK/modes-$twin.log" || fail "session-start.$twin --tool claude does not name the plugin modes (see $WORK/modes-$twin.log)"
-  grep -aq '^==== THE RULES OF THIS CHECKOUT (.ai-core/rules/rules.md; they bind this session) ====$' "$WORK/modes-$twin.log" && grep -aq '^## The code never lies to the person using it' "$WORK/modes-$twin.log" && grep -aq '^==== THE LOCAL RULES OF THIS CHECKOUT (.ai-core/rules/rules.local.md; where the two conflict, these win) ====$' "$WORK/modes-$twin.log" || fail "session-start.$twin --tool claude does not print the rules and the local rules (see $WORK/modes-$twin.log)"
+  grep -aq 'ARCHIFY' "$WORK/modes-$twin.log" && fail "session-start.$twin --tool claude switched on a skill at level - (see $WORK/modes-$twin.log)"
+  grep -aqE 'THE RULES OF THIS CHECKOUT|^## The code never lies' "$WORK/modes-$twin.log" && fail "session-start.$twin --tool claude prints the rules; Claude Code loads them through AGENTS.md"
+  [ "$(wc -c < "$WORK/modes-$twin.log")" -le 9500 ] || fail "session-start.$twin --tool claude wrote more than 9 500 bytes, more than Claude Code passes whole"
+done
+# A skill too long for what Claude Code passes whole is named with the call that loads it, and the output stays below the limit
+MB="$WORK/modes-home-big"; mkdir -p "$MB/.claude/skills/caveman" "$MB/.claude/skills/archify"; : > "$MB/.claude/.i-have-adhd-always"
+cp "$MH/.claude/skills/archify/SKILL.md" "$MB/.claude/skills/archify/SKILL.md"
+{ printf -- '---\nname: caveman\n---\n'; for i in $(seq 1 240); do printf 'CAVEMAN LONG RULE %03d: keep the answer short and the substance whole.\n' "$i"; done; } > "$MB/.claude/skills/caveman/SKILL.md"
+(cd "$WORK/sh" && HOME="$MB" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude > "$WORK/modes-big-sh.log" 2>&1) || fail "session-start.sh --tool claude with a long skill (see $WORK/modes-big-sh.log)"
+(cd "$WORK/ps1" && HOME="$MB" USERPROFILE="$(native "$MB")" TEAM_MODES_FILE="$(native "$WORK/modes.tsv")" pwsh -NoProfile -File "$ROOT/bin/session-start.ps1" -Tool claude > "$WORK/modes-big-ps1.log" 2>&1) || fail "session-start.ps1 -Tool claude with a long skill (see $WORK/modes-big-ps1.log)"
+for twin in sh ps1; do
+  grep -aq '^CAVEMAN MODE ACTIVE — level: lite: its skill is too long for this output; load it before your first answer, the skill `caveman` with the argument `lite`$' "$WORK/modes-big-$twin.log" || fail "session-start.$twin does not name a skill too long with the call that loads it (see $WORK/modes-big-$twin.log)"
+  grep -aq 'CAVEMAN LONG RULE' "$WORK/modes-big-$twin.log" && fail "session-start.$twin printed a skill too long for the hook's output"
+  [ "$(wc -c < "$WORK/modes-big-$twin.log")" -le 9500 ] || fail "session-start.$twin with a long skill wrote more than 9 500 bytes"
 done
 (cd "$WORK/sh" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude --json | jq -e '.repository' > /dev/null) || fail "session-start.sh --tool claude --json is not JSON"
 (cd "$WORK/sh" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" > "$WORK/modes-none.log" 2>&1) || fail "session-start.sh without --tool (see $WORK/modes-none.log)"
 grep -aq 'MODE ACTIVE' "$WORK/modes-none.log" && fail "session-start.sh without --tool switches modes on"
-grep -aq 'THE RULES OF THIS CHECKOUT' "$WORK/modes-none.log" && fail "session-start.sh without --tool prints the rules"
-echo "  --tool claude: the caveman skill printed whole with its level, the plugin modes named, the rules and the local rules printed whole, nothing of it in the JSON or without --tool, on both twins"
+echo "  --tool claude: the caveman skill printed whole with its level, a skill at level - not switched on, a skill too long named with its call, the plugin modes named, no rules, at most 9 500 bytes, nothing of it in the JSON or without --tool, on both twins"
 
 for t in sh ps1; do grep -q 'ai-core session-start --tool claude' "$WORK/$t/.claude/settings.json" || fail "the template settings.json deployed by init.$t carries no session-start hook"; done
+
+# A repository with a CLAUDE.md of its own: Claude Code reads that and not AGENTS.md, so init writes an untracked CLAUDE.local.md that imports AGENTS.md; somebody's own CLAUDE.local.md is left alone, with a note
+for t in sh ps1; do
+  C="$WORK/claude-$t"; git init -q "$C"; mkdir -p "$C/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$C/.ai-core/config.env"
+  printf '# The project\n' > "$C/CLAUDE.md"; git -C "$C" add CLAUDE.md; git -C "$C" commit -q -m 'its own CLAUDE.md #1'
+  for run in 1 2; do
+    [ "$run" = 1 ] || printf 'mine\n' > "$C/CLAUDE.local.md"
+    if [ "$t" = sh ]; then bash "$ROOT/bin/init.sh" "$C" --no-doctor > "$WORK/claude-$t-$run.log" 2>&1
+    else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$C")" -NoDoctor > "$WORK/claude-$t-$run.log" 2>&1; fi || fail "init.$t in a repository with its own CLAUDE.md (see $WORK/claude-$t-$run.log)"
+    [ "$run" = 2 ] || { [ "$(tail -n1 "$C/CLAUDE.local.md")" = '@AGENTS.md' ] && cp "$C/CLAUDE.local.md" "$WORK/claude-local-$t.md" || fail "init.$t did not write a CLAUDE.local.md that imports AGENTS.md"; }
+    [ -z "$(git -C "$C" status --porcelain CLAUDE.local.md)" ] || fail "init.$t left CLAUDE.local.md visible to git"
+  done
+  [ "$(cat "$C/CLAUDE.local.md")" = mine ] && grep -aq 'note: CLAUDE.local.md is yours and does not import AGENTS.md' "$WORK/claude-$t-2.log" || fail "init.$t overwrote somebody's own CLAUDE.local.md or did not say what to add (see $WORK/claude-$t-2.log)"
+done
+cmp -s "$WORK/claude-local-sh.md" "$WORK/claude-local-ps1.md" || fail "the twins wrote different CLAUDE.local.md files"
+[ ! -e "$WORK/sh/CLAUDE.local.md" ] || fail "init.sh wrote CLAUDE.local.md into a checkout without a CLAUDE.md"
+echo "  a repository with its own CLAUDE.md gets an untracked CLAUDE.local.md that imports AGENTS.md, the same on both twins; somebody's own is kept, with a note"
 exit 0

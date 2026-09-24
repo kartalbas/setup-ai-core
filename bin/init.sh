@@ -230,6 +230,7 @@ done
 SKILLS_MD="$CORE_ROOT/rules/skills.md"
 STAMP="setup-ai-core $(git -C "$CORE_ROOT" rev-parse --short HEAD 2>/dev/null || echo "$CORE_VERSION")"
 LAYER_FILES=""   # what the layers wrote, so the templates leave it alone
+MAP_SRC=""       # a generated map, deployed with the binding rules on top once the rules are assembled
 DEPLOYED=""      # what the layers put into the checkout, recorded in .ai-core/DEPLOYED
 DATA_FILES="config.env labels.tsv assignees.tsv team-modes.tsv"
 if [ -n "$LAYERS" ]; then
@@ -271,14 +272,9 @@ if [ -n "$LAYERS" ]; then
         note tracked "$rel"
       else
         src="$INNER/repos/$REPO_NAME/$rel"
-        # A generated map opens with the contract, lib/binding-rules.md, after the header line
-        # session-start reads and the title: a tool that reads AGENTS.md meets where the rules are
-        # before the map. The map in the harness stays what the tool wrote.
-        if [ "$rel" = AGENTS.md ] && head -n1 "$src" | grep -q '^<!-- ai-core map:'; then
-          { head -n2 "$src" | tr -d '\r'; echo ""; cat "$CORE_ROOT/lib/binding-rules.md"; echo ""; tail -n +3 "$src" | tr -d '\r' | awk 'NF{f=1} f'; } > "$TMP/AGENTS.map.md"
-          src="$TMP/AGENTS.map.md"
-        fi
-        put "$src" "$rel" managed; DEPLOYED="$DEPLOYED $rel"
+        # A generated map gets the binding rules on top once the rules are assembled (1a below)
+        if [ "$rel" = AGENTS.md ] && head -n1 "$src" | grep -q '^<!-- ai-core map:'; then MAP_SRC="$src"; else put "$src" "$rel" managed; fi
+        DEPLOYED="$DEPLOYED $rel"
       fi
       LAYER_FILES="$LAYER_FILES $rel"
     done <<< "$( (cd "$INNER/repos/$REPO_NAME" && find . -type f | LC_ALL=C sort) | sed 's|^\./||')"
@@ -308,6 +304,40 @@ put "$TMP/rules.md" .ai-core/rules/rules.md managed
 put "$SKILLS_MD" .ai-core/rules/skills.md managed
 put "$CORE_ROOT/VERSION" .ai-core/VERSION managed
 printf '%s\n' "$STAMP" > "$TMP/STAMP"; put "$TMP/STAMP" .ai-core/STAMP managed
+
+# 1a. The binding rules, on top of a generated map and in a project folder's AGENTS.md. Claude Code
+#     loads a file an AGENTS.md names after @ at launch, whole, so the rules reach the agent from
+#     its first prompt. It also loads the AGENTS.md of every directory above the one it starts in,
+#     and a repository's when it works there, so a checkout inside a project folder whose rules
+#     are the folder's names them without the @: imported twice, they would be loaded twice.
+enclosing_folder() {  # enclosing_folder <dir>: the nearest directory above it that init equipped as a project folder
+  local d="$1" up
+  while up="$(dirname "$d")" && [ "$up" != "$d" ]; do
+    d="$up"
+    if [ -f "$d/.ai-core/rules/rules.md" ] && [ ! -e "$d/.git" ]; then echo "$d"; return 0; fi
+  done
+  return 1
+}
+same_text() {  # same_text <file> <file>: the same lines, the comment lines aside
+  [ -f "$1" ] && [ -f "$2" ] && cmp -s <(tr -d '\r' < "$1" | grep -v '^<!-- ' || true) <(tr -d '\r' < "$2" | grep -v '^<!-- ' || true)
+}
+IMPORT_RULES=1; IMPORT_SKILLS=1; IMPORT_LOCAL=0
+if [ "$PROJECT_FOLDER" -eq 0 ] && FOLDER="$(enclosing_folder "$TARGET")"; then
+  same_text "$FOLDER/.ai-core/rules/rules.md" "$TMP/rules.md" && IMPORT_RULES=0
+  same_text "$FOLDER/.ai-core/rules/skills.md" "$SKILLS_MD" && IMPORT_SKILLS=0
+fi
+[ -f "$AI_CORE_DIR/rules/rules.local.md" ] && ! same_text "$AI_CORE_DIR/rules/rules.local.md" "$CORE_ROOT/templates/.ai-core/rules/rules.local.md" && IMPORT_LOCAL=1
+binding_block() {  # binding_block: lib/binding-rules.md, each file named after @ where this AGENTS.md is what loads it
+  local r s l the="the same as the project folder's, which its AGENTS.md loads"
+  if [ "$IMPORT_RULES" -eq 1 ]; then r='@.ai-core/rules/rules.md'; else r="\`.ai-core/rules/rules.md\`, $the"; fi
+  if [ "$IMPORT_SKILLS" -eq 1 ]; then s='@.ai-core/rules/skills.md'; else s="\`.ai-core/rules/skills.md\`, $the"; fi
+  if [ "$IMPORT_LOCAL" -eq 1 ]; then l='@.ai-core/rules/rules.local.md'; else l='`.ai-core/rules/rules.local.md`, still the template'; fi
+  tr -d '\r' < "$CORE_ROOT/lib/binding-rules.md" | sed -e "s#{RULES}#$r#" -e "s#{SKILLS}#$s#" -e "s#{LOCAL}#$l#"
+}
+if [ -n "$MAP_SRC" ]; then
+  { head -n2 "$MAP_SRC" | tr -d '\r'; echo ""; binding_block; echo '- `ai-core session-start` before any work; below is the map of this repository.'; echo ""; tail -n +3 "$MAP_SRC" | tr -d '\r' | awk 'NF{f=1} f'; } > "$TMP/AGENTS.map.md"
+  put "$TMP/AGENTS.map.md" AGENTS.md managed
+fi
 
 # 2. The agent files, created once and never overwritten: templates/ mirrors the target layout.
 #    A project folder's AGENTS.md is generated instead: the list of its repositories, rewritten
@@ -340,18 +370,30 @@ if [ -f "$SETTINGS" ] && command -v jq >/dev/null 2>&1 && ! jq -e --arg c "$HOOK
   jq --arg c "$HOOK" '.hooks.SessionStart = ((.hooks.SessionStart // []) + [{hooks: [{type: "command", command: $c, timeout: 60}]}])' "$SETTINGS" > "$TMP/settings.json" 2>/dev/null \
     && put_file "$TMP/settings.json" "$SETTINGS" ".claude/settings.json" managed
 fi
+# 2a. A repository with a CLAUDE.md of its own: Claude Code then reads that file and not AGENTS.md.
+#     A CLAUDE.local.md beside it, which Claude Code loads the same way and git never sees, imports
+#     AGENTS.md, so the map and the binding rules load there too. Created once and never taken out;
+#     a CLAUDE.local.md that is somebody's own is left alone, and the run says what to add to it.
+if [ "$PROJECT_FOLDER" -eq 0 ] && { [ -f "$TARGET/CLAUDE.md" ] || [ -f "$TARGET/.claude/CLAUDE.md" ]; }; then
+  printf '%s\n%s\n' '<!-- written by ai-core init: this repository has its own CLAUDE.md, so Claude Code reads it instead of AGENTS.md; this import loads AGENTS.md as well, the map and the binding rules -->' '@AGENTS.md' > "$TMP/CLAUDE.local.md"
+  put "$TMP/CLAUDE.local.md" CLAUDE.local.md once
+  if [ -f "$TARGET/CLAUDE.local.md" ] && ! tr -d '\r' < "$TARGET/CLAUDE.local.md" | grep -qx '@AGENTS.md'; then
+    echo "note: CLAUDE.local.md is yours and does not import AGENTS.md; add the line @AGENTS.md so Claude Code loads the map and the binding rules here"
+  fi
+fi
 if [ "$PROJECT_FOLDER" -eq 1 ]; then
   {
     printf '<!-- setup-ai-core %s: written by init for a project folder, rewritten on every run; put your own notes into .ai-core/rules/rules.local.md -->\n' "$CORE_VERSION"
     printf '# %s\n\n' "$(basename "$TARGET")"
-    printf 'This folder holds git repositories. Each one carries its own map; read `<repository>/AGENTS.md` before you work in it, and run `ai-core session-start` inside it before the first action.\n\n'
+    printf 'This folder holds git repositories, each with its own map.\n\n'
+    binding_block
+    printf '%s\n\n' '- `ai-core session-start` before any work, here and in a repository before you work in it. A repository'"'"'s map is its `AGENTS.md`; Claude Code loads it when you work there, any other tool reads it first.'
     printf '| repository | map |\n| :--- | :--- |\n'
     for d in "$TARGET"/*/; do
       d="${d%/}"; [ -e "$d/.git" ] || continue
       case "$(basename "$d")" in *-ai-core) continue ;; esac
       printf '| `%s` | `%s/AGENTS.md` |\n' "$(basename "$d")" "$(basename "$d")"
     done
-    printf '\nThe rules that bind every repository here: `.ai-core/rules/rules.md` (managed by the harness) and `.ai-core/rules/rules.local.md` (this project'"'"'s own, which wins).\n'
   } > "$TMP/AGENTS.md"
   put "$TMP/AGENTS.md" AGENTS.md managed
 fi
@@ -366,6 +408,7 @@ if EXCLUDE="$(cd "$TARGET" && git rev-parse --git-path info/exclude 2>/dev/null)
     echo "/.claude/skills/"
     echo "/.claude/agents/"
     echo "/.agents/"
+    echo "/CLAUDE.local.md"
     (cd "$CORE_ROOT/templates" && find . -type f | LC_ALL=C sort) | sed 's|^\./|/|'
     echo "# setup-ai-core end"
   } > "$TMP/block"

@@ -239,6 +239,7 @@ $skillsMd = Join-Path $coreRoot "rules\skills.md"
 $coreCommit = "$(& git -C $coreRoot rev-parse --short HEAD 2>$null)".Trim(); if (-not $coreCommit) { $coreCommit = $coreVersion }
 $stamp = @("setup-ai-core $coreCommit")
 $layerFiles = @()   # what the layers wrote, so the templates leave it alone
+$mapSrc = $null     # a generated map, deployed with the binding rules on top once the rules are assembled
 $deployed = @()     # what the layers put into the checkout, recorded in .ai-core\DEPLOYED
 $dataFiles = @('config.env', 'labels.tsv', 'assignees.tsv', 'team-modes.tsv')
 foreach ($l in $layers) {
@@ -276,20 +277,10 @@ if ($layers.Count -gt 0 -and $repoName -and (Test-Path (Join-Path $layers[-1] "r
     & git -C $target ls-files --error-unmatch $rel 2>$null | Out-Null
     if ($LASTEXITCODE -eq 0) { Add-Note tracked $rel } else {
       $src = Join-Path $inner $rel
-      # A generated map opens with the contract, lib\binding-rules.md, after the header line
-      # session-start reads and the title: a tool that reads AGENTS.md meets where the rules are
-      # before the map. The map in the harness stays what the tool wrote.
-      if ($rel -ceq 'AGENTS.md') {
-        $ml = @([System.IO.File]::ReadAllLines($src) | ForEach-Object { $_.TrimEnd("`r") })
-        if ($ml.Count -gt 1 -and $ml[0].StartsWith('<!-- ai-core map:', [StringComparison]::Ordinal)) {
-          $rest = @($ml | Select-Object -Skip 2); while ($rest.Count -gt 0 -and -not $rest[0].Trim()) { $rest = @($rest | Select-Object -Skip 1) }
-          $contract = @([System.IO.File]::ReadAllLines((Join-Path $coreRoot 'lib\binding-rules.md')) | ForEach-Object { $_.TrimEnd("`r") })
-          $withContract = @($ml[0], $ml[1], '') + $contract + @('') + $rest
-          [System.IO.File]::WriteAllText((Join-Path $tmp 'AGENTS.map.md'), (($withContract -join "`n") + "`n"), $utf8)
-          $src = Join-Path $tmp 'AGENTS.map.md'
-        }
-      }
-      Put $src $rel managed; $deployed += $rel
+      # A generated map gets the binding rules on top once the rules are assembled (1a below)
+      $first = @([System.IO.File]::ReadAllLines($src) | Select-Object -First 1)
+      if ($rel -ceq 'AGENTS.md' -and $first.Count -gt 0 -and "$($first[0])".StartsWith('<!-- ai-core map:', [StringComparison]::Ordinal)) { $mapSrc = $src } else { Put $src $rel managed }
+      $deployed += $rel
     }
     $layerFiles += $rel
   }
@@ -324,6 +315,51 @@ Put $skillsMd '.ai-core/rules/skills.md' managed
 Put (Join-Path $coreRoot 'VERSION') '.ai-core/VERSION' managed
 [System.IO.File]::WriteAllText((Join-Path $tmp 'STAMP'), (($stamp -join "`n") + "`n"), $utf8)
 Put (Join-Path $tmp 'STAMP') '.ai-core/STAMP' managed
+
+# 1a. The binding rules, on top of a generated map and in a project folder's AGENTS.md. Claude Code
+#     loads a file an AGENTS.md names after @ at launch, whole, so the rules reach the agent from
+#     its first prompt. It also loads the AGENTS.md of every directory above the one it starts in,
+#     and a repository's when it works there, so a checkout inside a project folder whose rules
+#     are the folder's names them without the @: imported twice, they would be loaded twice.
+function Get-EnclosingFolder([string]$dir) {  # the nearest directory above it that init equipped as a project folder
+  $d = [System.IO.Path]::GetFullPath($dir)
+  while ($true) {
+    $up = [System.IO.Path]::GetDirectoryName($d)
+    if (-not $up -or $up -ceq $d) { return $null }
+    $d = $up
+    if ((Test-Path -LiteralPath (Join-Path $d '.ai-core\rules\rules.md') -PathType Leaf) -and -not (Test-Path -LiteralPath (Join-Path $d '.git'))) { return $d }
+  }
+}
+function Test-SameText([string]$a, [string]$b) {  # the same lines, the comment lines aside
+  if (-not ((Test-Path -LiteralPath $a -PathType Leaf) -and (Test-Path -LiteralPath $b -PathType Leaf))) { return $false }
+  $x = @([System.IO.File]::ReadAllLines($a) | ForEach-Object { $_.TrimEnd("`r") } | Where-Object { -not $_.StartsWith('<!-- ', [StringComparison]::Ordinal) }) -join "`n"
+  $y = @([System.IO.File]::ReadAllLines($b) | ForEach-Object { $_.TrimEnd("`r") } | Where-Object { -not $_.StartsWith('<!-- ', [StringComparison]::Ordinal) }) -join "`n"
+  return ($x -ceq $y)
+}
+$importRules = $true; $importSkills = $true; $importLocal = $false
+if (-not $projectFolder) {
+  $folder = Get-EnclosingFolder $target
+  if ($folder) {
+    if (Test-SameText (Join-Path $folder '.ai-core\rules\rules.md') (Join-Path $tmp 'rules.md')) { $importRules = $false }
+    if (Test-SameText (Join-Path $folder '.ai-core\rules\skills.md') $skillsMd) { $importSkills = $false }
+  }
+}
+$localRules = Join-Path $aiCoreDir 'rules\rules.local.md'
+if ((Test-Path -LiteralPath $localRules -PathType Leaf) -and -not (Test-SameText $localRules (Join-Path $coreRoot 'templates\.ai-core\rules\rules.local.md'))) { $importLocal = $true }
+function Get-BindingBlock {  # lib\binding-rules.md, each file named after @ where this AGENTS.md is what loads it
+  $the = "the same as the project folder's, which its AGENTS.md loads"
+  $r = if ($importRules) { '@.ai-core/rules/rules.md' } else { "``.ai-core/rules/rules.md``, $the" }
+  $s = if ($importSkills) { '@.ai-core/rules/skills.md' } else { "``.ai-core/rules/skills.md``, $the" }
+  $l = if ($importLocal) { '@.ai-core/rules/rules.local.md' } else { '`.ai-core/rules/rules.local.md`, still the template' }
+  return @([System.IO.File]::ReadAllLines((Join-Path $coreRoot 'lib\binding-rules.md')) | ForEach-Object { $_.TrimEnd("`r").Replace('{RULES}', $r).Replace('{SKILLS}', $s).Replace('{LOCAL}', $l) })
+}
+if ($mapSrc) {
+  $ml = @([System.IO.File]::ReadAllLines($mapSrc) | ForEach-Object { $_.TrimEnd("`r") })
+  $rest = @($ml | Select-Object -Skip 2); while ($rest.Count -gt 0 -and -not $rest[0].Trim()) { $rest = @($rest | Select-Object -Skip 1) }
+  $withContract = @($ml[0], $ml[1], '') + @(Get-BindingBlock) + @('- `ai-core session-start` before any work; below is the map of this repository.', '') + $rest
+  [System.IO.File]::WriteAllText((Join-Path $tmp 'AGENTS.map.md'), (($withContract -join "`n") + "`n"), $utf8)
+  Put (Join-Path $tmp 'AGENTS.map.md') 'AGENTS.md' managed
+}
 
 # 2. The agent files, created once and never overwritten: templates\ mirrors the target layout.
 #    A project folder's AGENTS.md is generated instead: the list of its repositories, rewritten
@@ -360,16 +396,29 @@ if ((Test-Path -LiteralPath $settings) -and (Get-Command jq -ErrorAction Silentl
     }
   }
 }
+# 2a. A repository with a CLAUDE.md of its own: Claude Code then reads that file and not AGENTS.md.
+#     A CLAUDE.local.md beside it, which Claude Code loads the same way and git never sees, imports
+#     AGENTS.md, so the map and the binding rules load there too. Created once and never taken out;
+#     a CLAUDE.local.md that is somebody's own is left alone, and the run says what to add to it.
+if (-not $projectFolder -and ((Test-Path -LiteralPath (Join-Path $target 'CLAUDE.md') -PathType Leaf) -or (Test-Path -LiteralPath (Join-Path $target '.claude\CLAUDE.md') -PathType Leaf))) {
+  [System.IO.File]::WriteAllText((Join-Path $tmp 'CLAUDE.local.md'), "<!-- written by ai-core init: this repository has its own CLAUDE.md, so Claude Code reads it instead of AGENTS.md; this import loads AGENTS.md as well, the map and the binding rules -->`n@AGENTS.md`n", $utf8)
+  Put (Join-Path $tmp 'CLAUDE.local.md') 'CLAUDE.local.md' once
+  $own = Join-Path $target 'CLAUDE.local.md'
+  if ((Test-Path -LiteralPath $own -PathType Leaf) -and -not (@([System.IO.File]::ReadAllLines($own) | ForEach-Object { $_.TrimEnd("`r") }) -ccontains '@AGENTS.md')) {
+    Write-Host "note: CLAUDE.local.md is yours and does not import AGENTS.md; add the line @AGENTS.md so Claude Code loads the map and the binding rules here"
+  }
+}
 if ($projectFolder) {
   $map = New-Object System.Text.StringBuilder
   [void]$map.Append("<!-- setup-ai-core ${coreVersion}: written by init for a project folder, rewritten on every run; put your own notes into .ai-core/rules/rules.local.md -->`n")
   [void]$map.Append("# $(Split-Path -Leaf $target)`n`n")
-  [void]$map.Append("This folder holds git repositories. Each one carries its own map; read ``<repository>/AGENTS.md`` before you work in it, and run ``ai-core session-start`` inside it before the first action.`n`n")
+  [void]$map.Append("This folder holds git repositories, each with its own map.`n`n")
+  foreach ($line in @(Get-BindingBlock)) { [void]$map.Append("$line`n") }
+  [void]$map.Append("- ``ai-core session-start`` before any work, here and in a repository before you work in it. A repository's map is its ``AGENTS.md``; Claude Code loads it when you work there, any other tool reads it first.`n`n")
   [void]$map.Append("| repository | map |`n| :--- | :--- |`n")
   Get-ChildItem -Path $target -Directory | Where-Object { $_.Name -cnotlike '*-ai-core' -and (Test-Path (Join-Path $_.FullName ".git")) } | ForEach-Object {
     [void]$map.Append("| ``$($_.Name)`` | ``$($_.Name)/AGENTS.md`` |`n")
   }
-  [void]$map.Append("`nThe rules that bind every repository here: ``.ai-core/rules/rules.md`` (managed by the harness) and ``.ai-core/rules/rules.local.md`` (this project's own, which wins).`n")
   [System.IO.File]::WriteAllText((Join-Path $tmp 'AGENTS.md'), $map.ToString(), $utf8)
   Put (Join-Path $tmp 'AGENTS.md') 'AGENTS.md' managed
 }
@@ -382,7 +431,7 @@ try {
   try { $exclude = git rev-parse --git-path info/exclude 2>$null; if ($LASTEXITCODE -ne 0) { $exclude = $null } } catch { $exclude = $null }
   if ($exclude) {
     if (-not [System.IO.Path]::IsPathRooted($exclude)) { $exclude = Join-Path $target $exclude }
-    $block = @('# setup-ai-core start: the harness lives in the working tree only, never in a commit', '/.ai-core/', '/.claude/skills/', '/.claude/agents/', '/.agents/')
+    $block = @('# setup-ai-core start: the harness lives in the working tree only, never in a commit', '/.ai-core/', '/.claude/skills/', '/.claude/agents/', '/.agents/', '/CLAUDE.local.md')
     $block += $templateFiles | ForEach-Object { '/' + $_ }
     $block += '# setup-ai-core end'
     # The block replaces the one an earlier run wrote, in its place, or is appended

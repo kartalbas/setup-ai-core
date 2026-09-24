@@ -88,7 +88,7 @@ run() {  # run <argument>...
   return $?
 }
 line() {  # line <a word the line carries>
-  printf '%s\n' "$out" | grep -F -- "$1" | head -1
+  grep -F -- "$1" <<< "$out" | head -1
 }
 
 echo 'the innocent tree is green, and the count says how much was read'

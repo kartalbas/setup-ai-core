@@ -74,7 +74,7 @@ echo '--dry-run reports the card and writes nothing'
 out="$("$move" --repo "$repo" --from "$FROM" --to "$TO" --dry-run 2>&1)"; rc=$?
 check 'exits zero'    0 "$rc"
 check 'the count'     "1 card(s) from $repo on project $FROM" "$(printf '%s\n' "$out" | sed -n '1p')"
-check 'the card'      yes "$(printf '%s\n' "$out" | grep -q '#42.*status=testing.*priority=P1' && echo yes || echo no)"
+check 'the card'      yes "$(grep -q '#42.*status=testing.*priority=P1' <<< "$out" && echo yes || echo no)"
 check 'and says so'   'dry run - nothing changed' "$(printf '%s\n' "$out" | tail -1)"
 check 'nothing added' 0 "$(grep -c 'addProjectV2ItemById' "$log" || true)"
 check 'nothing removed' 0 "$(grep -c 'deleteProjectV2Item' "$log" || true)"
@@ -97,8 +97,8 @@ echo 'a value the target board has no option for is reported and left unset'
 : > "$log"
 printf 'Status\tF1\tbacklog\tS_other\n' > "$GH_CACHE_DIRECTORY/$TO/fields.tsv"
 out="$("$move" --repo "$repo" --from "$FROM" --to "$TO" 2>&1)"
-check 'the status is named'   yes "$(printf '%s\n' "$out" | grep -q "Status 'testing' has no option on project $TO; left unset" && echo yes || echo no)"
-check 'the priority too'      yes "$(printf '%s\n' "$out" | grep -q "Priority 'P1' has no option on project $TO; left unset" && echo yes || echo no)"
+check 'the status is named'   yes "$(grep -q "Status 'testing' has no option on project $TO; left unset" <<< "$out" && echo yes || echo no)"
+check 'the priority too'      yes "$(grep -q "Priority 'P1' has no option on project $TO; left unset" <<< "$out" && echo yes || echo no)"
 check 'and the card still moved' yes "$(grep -q 'deleteProjectV2Item' "$log" && echo yes || echo no)"
 printf 'Status\tF1\ttesting\tS_%s\nPriority\tF2\tP1\tP_%s\n' "$TO" "$TO" > "$GH_CACHE_DIRECTORY/$TO/fields.tsv"
 

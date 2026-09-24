@@ -112,8 +112,8 @@ git -C "$wt" commit -q -m 'Probe the gate from a worktree #5'
 : > "$check_runs"
 out="$(judge "$wt" "$(git -C "$wt" rev-parse HEAD)" "$(git -C "$repo" rev-parse master)")"; rc=$?
 check 'exit 0'                     0 "$rc"
-check 'the check ran'              yes "$(printf '%s\n' "$out" | grep -q 'check: OK' && echo yes || echo no)"
-check 'every check passed'         yes "$(printf '%s\n' "$out" | grep -q 'pre-push: every check passed' && echo yes || echo no)"
+check 'the check ran'              yes "$(grep -q 'check: OK' <<< "$out" && echo yes || echo no)"
+check 'every check passed'         yes "$(grep -q 'pre-push: every check passed' <<< "$out" && echo yes || echo no)"
 check 'and the check that ran is the WORKTREE one' \
   "$(git -C "$wt" rev-parse --show-toplevel)/scripts/check.sh" "$(tail -1 "$check_runs")"
 
@@ -121,13 +121,13 @@ check 'and the check that ran is the WORKTREE one' \
 echo 'a red modes check refuses, and the lines the refusal points at are in the output'
 out="$(TEAM_MODES_FILE="$red" only_new "$wt")"; rc=$?
 check 'exit 1'                    1 "$rc"
-check 'the MISSING line is there' yes "$(printf '%s\n' "$out" | grep -q '^MISSING .*claude caveman' && echo yes || echo no)"
-check 'and the refusal names the modes' yes "$(printf '%s\n' "$out" | grep -q 'the team modes are missing' && echo yes || echo no)"
+check 'the MISSING line is there' yes "$(grep -q '^MISSING .*claude caveman' <<< "$out" && echo yes || echo no)"
+check 'and the refusal names the modes' yes "$(grep -q 'the team modes are missing' <<< "$out" && echo yes || echo no)"
 
 echo 'a red scripts/check.sh refuses'
 out="$(PROBE_CHECK=red only_new "$wt")"; rc=$?
 check 'exit 1'          1 "$rc"
-check 'and says which'  yes "$(printf '%s\n' "$out" | grep -q 'check: FAIL' && echo yes || echo no)"
+check 'and says which'  yes "$(grep -q 'check: FAIL' <<< "$out" && echo yes || echo no)"
 
 # --- what excuses a commit from naming an issue ----------------------------------------------
 echo 'a commit naming its issue anywhere in the message passes'
@@ -146,8 +146,8 @@ echo 'a commit with no number and no excuse is refused, and is named'
 commit 'src/thing.txt' 'Change a thing'
 out="$(only_new "$repo")"; rc=$?
 check 'exit 1'              1 "$rc"
-check 'the commit is named' yes "$(printf '%s\n' "$out" | grep -qF 'Change a thing names no issue' && echo yes || echo no)"
-check 'the check never ran' no "$(printf '%s\n' "$out" | grep -q 'check: OK' && echo yes || echo no)"
+check 'the commit is named' yes "$(grep -qF 'Change a thing names no issue' <<< "$out" && echo yes || echo no)"
+check 'the check never ran' no "$(grep -q 'check: OK' <<< "$out" && echo yes || echo no)"
 
 # THE TRAILER IS READ THE WAY git READS A TRAILER. Searching the whole message for the two words
 # accepts an empty `No-issue:` and accepts them inside a body sentence, and both of those are a
@@ -205,7 +205,7 @@ echo 'an all-zero LOCAL sha is a deletion: no commit is judged and no check is r
 : > "$check_runs"
 out="$(judge "$repo" "$zeros64" "$(git -C "$repo" rev-parse HEAD)")"; rc=$?
 check 'exit 0'                     0 "$rc"
-check 'the modes check never ran'  no "$(printf '%s\n' "$out" | grep -q 'team modes' && echo yes || echo no)"
+check 'the modes check never ran'  no "$(grep -q 'team modes' <<< "$out" && echo yes || echo no)"
 check 'and neither did check.sh'   '' "$(cat "$check_runs")"
 
 # A remote sha this checkout does not carry cannot be measured from. Letting `git rev-list` fail
@@ -213,12 +213,12 @@ check 'and neither did check.sh'   '' "$(cat "$check_runs")"
 echo 'a remote sha this checkout does not carry is refused, with what to do about it'
 out="$(judge "$repo" "$head_sha" 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef')"; rc=$?
 check 'exit 1'            1 "$rc"
-check 'it says git fetch' yes "$(printf '%s\n' "$out" | grep -q 'Run git fetch, then push again' && echo yes || echo no)"
+check 'it says git fetch' yes "$(grep -q 'Run git fetch, then push again' <<< "$out" && echo yes || echo no)"
 
 echo 'a local sha that is not what is checked out is refused'
 out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD~1)" "$(git -C "$repo" rev-parse HEAD~2)")"; rc=$?
 check 'exit 1'              1 "$rc"
-check 'it says what to push' yes "$(printf '%s\n' "$out" | grep -q 'push what you have: git push origin HEAD:master' && echo yes || echo no)"
+check 'it says what to push' yes "$(grep -q 'push what you have: git push origin HEAD:master' <<< "$out" && echo yes || echo no)"
 
 # --- an annotated tag --------------------------------------------------------------------------
 #
@@ -229,7 +229,7 @@ commit 'src/thing.txt' 'Stamp a version for the probe #15'
 git -C "$repo" tag -a -m 'release 0.8.999' v0.8.999
 out="$(judge "$repo" "$(git -C "$repo" rev-parse v0.8.999)" "$(git -C "$repo" rev-parse HEAD~1)")"; rc=$?
 check 'exit 0'                        0 "$rc"
-check 'and it is not called foreign'  no "$(printf '%s\n' "$out" | grep -q 'is not what is checked out' && echo yes || echo no)"
+check 'and it is not called foreign'  no "$(grep -q 'is not what is checked out' <<< "$out" && echo yes || echo no)"
 
 # --- the credential scan, armed by a file and by no name -------------------------------------
 echo 'with no .gitleaks.toml in the tree, the commits are not scanned'
@@ -253,7 +253,7 @@ check 'gitleaks read that range'  "git --no-banner --log-opts=$before..$(git -C 
 echo 'a credential in a pushed commit refuses, and says it cannot be recalled'
 out="$(PROBE_LEAKS=red only_new "$repo")"; rc=$?
 check 'exit 1'                 1 "$rc"
-check 'it says what to do' yes "$(printf '%s\n' "$out" | grep -q 'a commit that is pushed cannot be recalled' && echo yes || echo no)"
+check 'it says what to do' yes "$(grep -q 'a commit that is pushed cannot be recalled' <<< "$out" && echo yes || echo no)"
 
 # --- the Windows entry point, held against the one text it copies ----------------------------
 #
@@ -273,8 +273,8 @@ stub_ps1 "$wt/scripts/check.ps1"
 out="$(push_wt)"; rc=$?
 check 'the green stub at scripts/check.ps1: exit 1' 1 "$rc"
 check 'the refusal names the file' yes \
-  "$(printf '%s\n' "$out" | grep -qF 'scripts/check.ps1 is not the Windows entry point every repository carries' && echo yes || echo no)"
-check 'and says how to restore it' yes "$(printf '%s\n' "$out" | grep -q 'Restore it: cp ' && echo yes || echo no)"
+  "$(grep -qF 'scripts/check.ps1 is not the Windows entry point every repository carries' <<< "$out" && echo yes || echo no)"
+check 'and says how to restore it' yes "$(grep -q 'Restore it: cp ' <<< "$out" && echo yes || echo no)"
 git -C "$wt" checkout -q -- scripts/check.ps1
 stub_ps1 "$wt/build.ps1"
 out="$(push_wt)"; rc=$?
@@ -294,14 +294,14 @@ git -C "$plain" remote add origin "$bare"; git -C "$plain" push -q -u origin mas
 printf 'more\n' > "$plain/more.txt"; git -C "$plain" add -A; git -C "$plain" commit -q -m 'Add more #7'
 out="$(only_new "$plain")"; rc=$?
 check 'exit 0'                              0 "$rc"
-check 'it says nothing runs'                yes "$(printf '%s\n' "$out" | grep -q 'no scripts/check.sh in this repository' && echo yes || echo no)"
-check 'the own build.ps1 is not refused'    no "$(printf '%s\n' "$out" | grep -q 'Windows entry point' && echo yes || echo no)"
+check 'it says nothing runs'                yes "$(grep -q 'no scripts/check.sh in this repository' <<< "$out" && echo yes || echo no)"
+check 'the own build.ps1 is not refused'    no "$(grep -q 'Windows entry point' <<< "$out" && echo yes || echo no)"
 
 # --- from a prompt: the current branch against its upstream ----------------------------------
 echo 'with nothing on standard input, the branch is judged against its upstream'
 out="$( cd "$plain" && bash "$root/bin/pre-push.sh" < /dev/null 2>&1 )"; rc=$?
 check 'exit 0'                     0 "$rc"
-check 'it names the upstream'      yes "$(printf '%s\n' "$out" | grep -q 'pre-push: judging master against origin/master' && echo yes || echo no)"
+check 'it names the upstream'      yes "$(grep -q 'pre-push: judging master against origin/master' <<< "$out" && echo yes || echo no)"
 git -C "$plain" commit -q --allow-empty -m 'An empty commit that names nothing'
 out="$( cd "$plain" && bash "$root/bin/pre-push.sh" < /dev/null 2>&1 )"; rc=$?
 check 'a new unnamed commit is refused'  1 "$rc"
@@ -314,16 +314,16 @@ git -C "$fresh" config user.email 'test@example.invalid'; git -C "$fresh" config
 printf 'work in progress\n' > "$fresh/open.txt"; git -C "$fresh" add open.txt   # somebody's staged work stays out of the commit
 out="$( cd "$fresh" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
 check 'exit 0'                        0 "$rc"
-check 'created'                       yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: .githooks/pre-push created$' && echo yes || echo no)"
-check 'post-checkout created'         yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: .githooks/post-checkout created$' && echo yes || echo no)"
+check 'created'                       yes "$(grep -q '^pre-push: fresh: .githooks/pre-push created$' <<< "$out" && echo yes || echo no)"
+check 'post-checkout created'         yes "$(grep -q '^pre-push: fresh: .githooks/post-checkout created$' <<< "$out" && echo yes || echo no)"
 check 'post-checkout starts init where .ai-core is missing' yes "$(grep -qx 'ai-core init --no-doctor || echo "post-checkout: the harness is NOT complete in this worktree (see above); run ai-core init here before you start" >&2' "$fresh/.githooks/post-checkout" && echo yes || echo no)"
-check 'the attributes rule, so the shims check out LF' yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: .gitattributes: .githooks/\* text eol=lf added; the shims check out LF everywhere$' && grep -qxF '.githooks/* text eol=lf' "$fresh/.gitattributes" && echo yes || echo no)"
+check 'the attributes rule, so the shims check out LF' yes "$(grep -q '^pre-push: fresh: .gitattributes: .githooks/\* text eol=lf added; the shims check out LF everywhere$' <<< "$out" && grep -qxF '.githooks/* text eol=lf' "$fresh/.gitattributes" && echo yes || echo no)"
 check 'git reads it'                  '.githooks/pre-push: eol: lf' "$(git -C "$fresh" check-attr eol -- .githooks/pre-push)"
 check 'core.hooksPath set'            .githooks "$(git -C "$fresh" config --get core.hooksPath)"
 check 'the shim starts the gate'      yes "$(grep -qx 'exec ai-core pre-push "$@"' "$fresh/.githooks/pre-push" && echo yes || echo no)"
 check 'four lines'                    4 "$(wc -l < "$fresh/.githooks/pre-push" | tr -d ' ')"
-check 'committed'                     yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: committed [0-9a-f]' && echo yes || echo no)"
-check 'no origin, not pushed'         yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: no origin; not pushed$' && echo yes || echo no)"
+check 'committed'                     yes "$(grep -q '^pre-push: fresh: committed [0-9a-f]' <<< "$out" && echo yes || echo no)"
+check 'no origin, not pushed'         yes "$(grep -q '^pre-push: fresh: no origin; not pushed$' <<< "$out" && echo yes || echo no)"
 check 'the commit subject'            'the hooks of ai-core: the push gate, init in a new worktree' "$(git -C "$fresh" log -1 --format=%s)"
 check 'the No-issue trailer'          'written, committed and pushed by ai-core pre-push --install' "$(git -C "$fresh" log -1 --format='%(trailers:key=No-issue,valueonly)' | tr -d '\n')"
 check 'the shims and the rule in the commit' '.gitattributes .githooks/post-checkout .githooks/pre-push' "$(git -C "$fresh" show --pretty=format: --name-only HEAD | grep -v '^$' | tr '\n' ' ' | sed 's/ $//')"
@@ -333,15 +333,15 @@ check 'post-checkout too'             100755 "$(git -C "$fresh" ls-tree HEAD .gi
 check 'the staged work is still staged, uncommitted' 'A  open.txt' "$(git -C "$fresh" status --porcelain open.txt)"
 head1="$(git -C "$fresh" rev-parse HEAD)"
 out="$( cd "$fresh" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
-check 'a second run: unchanged'       yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: .githooks/pre-push unchanged$' && echo yes || echo no)"
-check 'post-checkout unchanged too'   yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: .githooks/post-checkout unchanged$' && echo yes || echo no)"
-check 'and nothing about .gitattributes' no "$(printf '%s\n' "$out" | grep -q 'gitattributes' && echo yes || echo no)"
+check 'a second run: unchanged'       yes "$(grep -q '^pre-push: fresh: .githooks/pre-push unchanged$' <<< "$out" && echo yes || echo no)"
+check 'post-checkout unchanged too'   yes "$(grep -q '^pre-push: fresh: .githooks/post-checkout unchanged$' <<< "$out" && echo yes || echo no)"
+check 'and nothing about .gitattributes' no "$(grep -q 'gitattributes' <<< "$out" && echo yes || echo no)"
 check 'and no new commit'             "$head1" "$(git -C "$fresh" rev-parse HEAD)"
-check 'and nothing about hooksPath'   no "$(printf '%s\n' "$out" | grep -q 'hooksPath' && echo yes || echo no)"
+check 'and nothing about hooksPath'   no "$(grep -q 'hooksPath' <<< "$out" && echo yes || echo no)"
 printf '#!/usr/bin/env bash\nexec bash ../tooling/hooks/pre-push "$@"\n' > "$fresh/.githooks/pre-push"
 git -C "$fresh" commit -q -am 'An older shim, as a repository of the old tooling carries #9'
 out="$( cd "$fresh" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
-check 'a shim of another kind: refreshed and committed' yes "$(printf '%s\n' "$out" | grep -q '^pre-push: fresh: .githooks/pre-push refreshed$' && printf '%s\n' "$out" | grep -q '^pre-push: fresh: committed' && echo yes || echo no)"
+check 'a shim of another kind: refreshed and committed' yes "$(grep -q '^pre-push: fresh: .githooks/pre-push refreshed$' <<< "$out" && grep -q '^pre-push: fresh: committed' <<< "$out" && echo yes || echo no)"
 check 'and it is the shim again'      yes "$(grep -qx 'exec ai-core pre-push "$@"' "$fresh/.githooks/pre-push" && echo yes || echo no)"
 
 echo 'the shim hands the gate git'"'"'s arguments and input'
@@ -352,7 +352,7 @@ check 'ai-core pre-push was started with them' '[pre-push origin https://example
 echo 'without ai-core on the PATH the shim refuses and says so'
 out="$( cd "$fresh" && PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vx "$stub" | tr '\n' ':')" bash .githooks/pre-push origin url < /dev/null 2>&1 )"; rc=$?
 check 'exit 1'                  1 "$rc"
-check 'it names the cause'      yes "$(printf '%s\n' "$out" | grep -q 'ai-core is not on the PATH of this shell' && echo yes || echo no)"
+check 'it names the cause'      yes "$(grep -q 'ai-core is not on the PATH of this shell' <<< "$out" && echo yes || echo no)"
 
 echo 'post-checkout: a worktree cut from the checkout starts ai-core init; a branch checkout where .ai-core is present starts nothing'
 : > "$shim_args"
@@ -371,7 +371,7 @@ echo 'post-checkout without ai-core on the PATH: the worktree is made, exit 0, a
 out="$( cd "$fresh" && PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vx "$stub" | tr '\n' ':')" git worktree add -q --detach "$fresh_wt" HEAD < /dev/null 2>&1 )"; rc=$?
 check 'exit 0'                        0 "$rc"
 check 'the worktree is there'         yes "$([ -d "$fresh_wt" ] && echo yes || echo no)"
-check 'it names the cause'            yes "$(printf '%s\n' "$out" | grep -q 'post-checkout: ai-core is not on the PATH of this shell, so this worktree has no harness yet; run ai-core init here before you start' && echo yes || echo no)"
+check 'it names the cause'            yes "$(grep -q 'post-checkout: ai-core is not on the PATH of this shell, so this worktree has no harness yet; run ai-core init here before you start' <<< "$out" && echo yes || echo no)"
 git -C "$fresh" worktree remove --force "$fresh_wt" >/dev/null 2>&1
 git -C "$fresh" checkout -q master < /dev/null 2>/dev/null; git -C "$fresh" branch -q -D probe-branch; rm -rf "$fresh/.ai-core"
 
@@ -384,7 +384,7 @@ git -C "$pushed" remote add origin "$origin_bare"; git -C "$pushed" push -q -u o
 : > "$shim_args"
 out="$( cd "$pushed" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
 check 'exit 0'                        0 "$rc"
-check 'pushed to origin/master'       yes "$(printf '%s\n' "$out" | grep -q '^pre-push: pushed: pushed to origin/master$' && echo yes || echo no)"
+check 'pushed to origin/master'       yes "$(grep -q '^pre-push: pushed: pushed to origin/master$' <<< "$out" && echo yes || echo no)"
 check 'the origin has the commit'     "$(git -C "$pushed" rev-parse HEAD)" "$(git -C "$origin_bare" rev-parse master)"
 check 'and the push went through the shim, so through ai-core pre-push' yes "$(grep -q '^\[pre-push origin ' "$shim_args" && echo yes || echo no)"
 
@@ -392,11 +392,11 @@ echo 'an unpushed commit that touches only .gitignore and names no issue gets th
 printf 'node_modules/\n' > "$pushed/.gitignore"; git -C "$pushed" add .gitignore; git -C "$pushed" commit -q -m 'chore: ignore node_modules'
 out="$( cd "$pushed" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
 check 'exit 0'                        0 "$rc"
-check 'the shim needs no commit of its own' no "$(printf '%s\n' "$out" | grep -q '^pre-push: pushed: committed' && echo yes || echo no)"
-check 'it says which commit and why'  yes "$(printf '%s\n' "$out" | grep -q 'chore: ignore node_modules) touches only .gitignore and names no issue; it gets the trailer' && echo yes || echo no)"
+check 'the shim needs no commit of its own' no "$(grep -q '^pre-push: pushed: committed' <<< "$out" && echo yes || echo no)"
+check 'it says which commit and why'  yes "$(grep -q 'chore: ignore node_modules) touches only .gitignore and names no issue; it gets the trailer' <<< "$out" && echo yes || echo no)"
 check 'the trailer is on that commit' 'the .gitignore block written by ai-core init' "$(git -C "$pushed" log -1 --format='%(trailers:key=No-issue,valueonly)' HEAD | tr -d '\n')"
 check 'its subject is kept'           'chore: ignore node_modules' "$(git -C "$pushed" log -1 --format=%s HEAD)"
-check 'pushed'                        yes "$(printf '%s\n' "$out" | grep -q '^pre-push: pushed: pushed to origin/master$' && echo yes || echo no)"
+check 'pushed'                        yes "$(grep -q '^pre-push: pushed: pushed to origin/master$' <<< "$out" && echo yes || echo no)"
 check 'the origin has it all'         "$(git -C "$pushed" rev-parse HEAD)" "$(git -C "$origin_bare" rev-parse master)"
 
 echo 'an unpushed commit that touches something else and names no issue is still refused, by the gate'
@@ -404,8 +404,8 @@ printf 'x\n' > "$pushed/x.txt"; git -C "$pushed" add x.txt; git -C "$pushed" com
 printf '#!/usr/bin/env bash\nexec bash ../tooling/hooks/pre-push "$@"\n' > "$pushed/.githooks/pre-push"
 out="$( cd "$pushed" && PATH="$root/bin:$PATH" bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
 check 'exit 1'                        1 "$rc"
-check 'the gate names the commit'     yes "$(printf '%s\n' "$out" | grep -q 'Add x without a ticket names no issue' && echo yes || echo no)"
-check 'the push was refused, the commit stays' yes "$(printf '%s\n' "$out" | grep -q 'the push was refused or failed (see above); the commit stays' && echo yes || echo no)"
+check 'the gate names the commit'     yes "$(grep -q 'Add x without a ticket names no issue' <<< "$out" && echo yes || echo no)"
+check 'the push was refused, the commit stays' yes "$(grep -q 'the push was refused or failed (see above); the commit stays' <<< "$out" && echo yes || echo no)"
 git -C "$pushed" reset -q --hard origin/master   # the foreign commit goes; the origin is where the last push left it
 
 echo 'every worktree of the repository gets the shim too, and only the checkout commits it'
@@ -415,10 +415,10 @@ pushed_wt="$fake/pushed-wt"; git -C "$pushed" worktree add -q -b issue-9-probe "
 head_before="$(git -C "$pushed" rev-parse HEAD)"
 out="$( cd "$pushed" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
 check 'exit 0'                              0 "$rc"
-check 'the checkout: refreshed, committed, pushed' yes "$(printf '%s\n' "$out" | grep -q '^pre-push: pushed: .githooks/pre-push refreshed$' && printf '%s\n' "$out" | grep -q '^pre-push: pushed: pushed to origin/master$' && echo yes || echo no)"
-check 'the worktree: refreshed, and left to its own commit' yes "$(printf '%s\n' "$out" | grep -q "^pre-push: pushed (worktree pushed-wt): .githooks/pre-push refreshed; it goes out with that worktree's own commit$" && echo yes || echo no)"
+check 'the checkout: refreshed, committed, pushed' yes "$(grep -q '^pre-push: pushed: .githooks/pre-push refreshed$' <<< "$out" && grep -q '^pre-push: pushed: pushed to origin/master$' <<< "$out" && echo yes || echo no)"
+check 'the worktree: refreshed, and left to its own commit' yes "$(grep -q "^pre-push: pushed (worktree pushed-wt): .githooks/pre-push refreshed; it goes out with that worktree's own commit$" <<< "$out" && echo yes || echo no)"
 check 'the worktree carries the shim'       yes "$(grep -qx 'exec ai-core pre-push "$@"' "$pushed_wt/.githooks/pre-push" && echo yes || echo no)"
-check 'and post-checkout, carried already'          yes "$(printf '%s\n' "$out" | grep -q "^pre-push: pushed (worktree pushed-wt): .githooks/post-checkout unchanged; it goes out with that worktree's own commit$" && grep -q 'ai-core init --no-doctor' "$pushed_wt/.githooks/post-checkout" && echo yes || echo no)"
+check 'and post-checkout, carried already'          yes "$(grep -q "^pre-push: pushed (worktree pushed-wt): .githooks/post-checkout unchanged; it goes out with that worktree's own commit$" <<< "$out" && grep -q 'ai-core init --no-doctor' "$pushed_wt/.githooks/post-checkout" && echo yes || echo no)"
 check 'the worktree has it uncommitted'     ' M .githooks/pre-push' "$(git -C "$pushed_wt" status --porcelain .githooks/pre-push)"
 check 'the checkout moved by one commit'    "$head_before" "$(git -C "$pushed" rev-parse HEAD~1)"
 git -C "$pushed" worktree remove --force "$pushed_wt" >/dev/null 2>&1
@@ -429,11 +429,11 @@ for r in one two; do git init -q -b master "$folder/$r"; git -C "$folder/$r" con
 printf '* text=auto eol=lf\n' > "$folder/one/.gitattributes"; git -C "$folder/one" add .gitattributes; git -C "$folder/one" commit -q -m 'LF everywhere #2'
 out="$( bash "$root/bin/pre-push.sh" --install --all "$folder" 2>&1 )"; rc=$?
 check 'exit 0'                      0 "$rc"
-check 'one: no rule added'          no "$(printf '%s\n' "$out" | grep -q '^pre-push: one: .gitattributes' && echo yes || echo no)"
+check 'one: no rule added'          no "$(grep -q '^pre-push: one: .gitattributes' <<< "$out" && echo yes || echo no)"
 check 'one: its .gitattributes is as it was' '* text=auto eol=lf' "$(cat "$folder/one/.gitattributes" | tr -d '\n')"
 check 'one: the shims alone in the commit' '.githooks/post-checkout .githooks/pre-push' "$(git -C "$folder/one" show --pretty=format: --name-only HEAD | grep -v '^$' | tr '\n' ' ' | sed 's/ $//')"
-check 'two: the rule added'         yes "$(printf '%s\n' "$out" | grep -q '^pre-push: two: .gitattributes: .githooks/\* text eol=lf added' && echo yes || echo no)"
-check 'two repositories'            yes "$(printf '%s\n' "$out" | grep -q 'the hooks are in 2 repositories' && echo yes || echo no)"
+check 'two: the rule added'         yes "$(grep -q '^pre-push: two: .gitattributes: .githooks/\* text eol=lf added' <<< "$out" && echo yes || echo no)"
+check 'two repositories'            yes "$(grep -q 'the hooks are in 2 repositories' <<< "$out" && echo yes || echo no)"
 check 'both carry the shim, committed' yes "$([ "$(git -C "$folder/one" log -1 --format=%s)" = 'the hooks of ai-core: the push gate, init in a new worktree' ] && [ "$(git -C "$folder/two" log -1 --format=%s)" = 'the hooks of ai-core: the push gate, init in a new worktree' ] && echo yes || echo no)"
 check 'the plain folder does not'   no "$([ -e "$folder/not-a-repo/.githooks" ] && echo yes || echo no)"
 out="$( cd "$folder/not-a-repo" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?

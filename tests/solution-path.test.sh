@@ -103,7 +103,7 @@ check 'exits nonzero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
 check 'the empty one' "$hollow leaves \"Recommendation\" empty." "$(printf '%s\n' "$out" | sed -n '1p')"
 check 'nothing sent'  0 "$(grep -c . "$log" || true)"
 check 'what to do'    yes \
-  "$(printf '%s\n' "$out" | grep -q 'code starts after the solution path is posted' && echo yes || echo no)"
+  "$(grep -q 'code starts after the solution path is posted' <<< "$out" && echo yes || echo no)"
 
 # A heading that stands twice has two bodies and only one of them is ever read - the first in
 # one shell, the last in the other - so the same file was accepted by one twin and refused by
@@ -121,7 +121,7 @@ echo 'a file that is not there stops before anything is read'
 : > "$log"
 out="$("$path" 163 "$fake/nope.md" 2>&1)"; rc=$?
 check 'exits nonzero'     yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'the file is named' yes "$(printf '%s\n' "$out" | grep -q "there is no file at $fake/nope.md" && echo yes || echo no)"
+check 'the file is named' yes "$(grep -q "there is no file at $fake/nope.md" <<< "$out" && echo yes || echo no)"
 check 'nothing sent'      0 "$(grep -c . "$log" || true)"
 
 echo 'a call missing the issue or the file is refused'

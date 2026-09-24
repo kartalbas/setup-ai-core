@@ -54,7 +54,7 @@ check 'nothing was written'   0 "$(grep -cE 'method (POST|PATCH|PUT|DELETE)|muta
 
 echo 'the json is one object a script can read'
 json="$("$thread" "$repo" 163 --json)"
-check 'one line'      1 "$(printf '%s\n' "$json" | grep -c . || true)"
+check 'one line'      1 "$(grep -c . <<< "$json" || true)"
 check 'number'      163 "$(printf '%s' "$json" | jq -r '.number')"
 check 'title'         'Carry the value through every renderer' "$(printf '%s' "$json" | jq -r '.title')"
 check 'state'         open "$(printf '%s' "$json" | jq -r '.state')"
@@ -164,7 +164,7 @@ chmod +x "$refusing/gh"
 out="$(PATH="$refusing:$PATH" "$thread" "$repo" 404 2>&1)" && rc=0 || rc=$?
 check 'exits nonzero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
 check 'and says what could not be read' yes \
-  "$(printf '%s\n' "$out" | grep -q 'cannot read the issue example-org/example-repo#404' && echo yes || echo no)"
+  "$(grep -q 'cannot read the issue example-org/example-repo#404' <<< "$out" && echo yes || echo no)"
 
 echo 'a call with no number is refused'
 out="$("$thread" 2>&1)" && rc=0 || rc=$?

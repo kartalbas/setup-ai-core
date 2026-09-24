@@ -75,7 +75,7 @@ echo 'a batch is one read and one write per issue'
 : > "$log"; rm -f "$body"
 out="$("$assign" "$repo" 575 576 --add kadir 2>&1)"
 check 'two PATCHes'   2 "$(grep -c -- '--method PATCH' "$log" || true)"
-check 'both reported' 2 "$(printf '%s\n' "$out" | grep -c '^#' || true)"
+check 'both reported' 2 "$(grep -c '^#' <<< "$out" || true)"
 
 echo 'a call that names no direction stops before GitHub is reached'
 : > "$log"

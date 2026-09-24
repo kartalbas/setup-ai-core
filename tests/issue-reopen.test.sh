@@ -54,7 +54,7 @@ echo 'a batch is one call per issue'
 : > "$log"
 out="$("$reopen" "$repo" 412 413 2>&1)"
 check 'two PATCHes'    2 "$(grep -c 'api --method PATCH' "$log" || true)"
-check 'both reported'  2 "$(printf '%s\n' "$out" | grep -c -- '-> reopened' || true)"
+check 'both reported'  2 "$(grep -c -- '-> reopened' <<< "$out" || true)"
 
 echo 'the repo resolves from the checkout when left out'
 : > "$log"

@@ -47,15 +47,15 @@ TEXT
 out="$("$rules" "$good" 2>&1)"; rc=$?
 check 'exits zero'       0 "$rc"
 check 'the total'        'rules-check: 5 rule bullets, every one tagged.' "$(printf '%s\n' "$out" | tail -1)"
-check 'machine counts twice'  'machine      2' "$(printf '%s\n' "$out" | grep '^machine ')"
-check 'tool once'             'tool         1' "$(printf '%s\n' "$out" | grep '^tool ')"
-check 'review counts the combination too' 'review       2' "$(printf '%s\n' "$out" | grep '^review ')"
-check 'discipline once'       'discipline   1' "$(printf '%s\n' "$out" | grep '^discipline ')"
+check 'machine counts twice'  'machine      2' "$(grep '^machine ' <<< "$out")"
+check 'tool once'             'tool         1' "$(grep '^tool ' <<< "$out")"
+check 'review counts the combination too' 'review       2' "$(grep '^review ' <<< "$out")"
+check 'discipline once'       'discipline   1' "$(grep '^discipline ' <<< "$out")"
 
 # A bullet before the first `## ` heading is a preamble, not a rule. Counting it would make
 # the preamble of every document a set of untagged rules.
 echo 'a bullet above the first section is not a rule'
-check 'not counted' no "$(printf '%s\n' "$out" | grep -q 'Not a rule' && echo yes || echo no)"
+check 'not counted' no "$(grep -q 'Not a rule' <<< "$out" && echo yes || echo no)"
 
 echo 'a bullet with no tag is named with its line, and the run is red'
 bad="$fake/bad.md"
@@ -69,7 +69,7 @@ cat > "$bad" <<'TEXT'
 TEXT
 out="$("$rules" "$bad" 2>&1)"; rc=$?
 check 'exits nonzero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'names the line' yes "$(printf '%s\n' "$out" | grep -q "^$bad:5 has no enforcement tag: - \*\*Never stage blindly" && echo yes || echo no)"
+check 'names the line' yes "$(grep -q "^$bad:5 has no enforcement tag: - \*\*Never stage blindly" <<< "$out" && echo yes || echo no)"
 check 'the total'      'rules-check: 2 rule bullets, 1 without an enforcement tag.' "$(printf '%s\n' "$out" | tail -1)"
 
 echo 'a tag that is not one of the four is no tag at all'
@@ -77,7 +77,7 @@ wrong="$fake/wrong.md"
 printf '# R\n\n## §4\n\n- **A rule.** [enforced]\n' > "$wrong"
 out="$("$rules" "$wrong" 2>&1)"; rc=$?
 check 'exits nonzero'  yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'names the line' yes "$(printf '%s\n' "$out" | grep -q ":5 has no enforcement tag" && echo yes || echo no)"
+check 'names the line' yes "$(grep -q ":5 has no enforcement tag" <<< "$out" && echo yes || echo no)"
 
 echo 'a combination naming the same tag twice is no tag either'
 twice="$fake/twice.md"
@@ -141,9 +141,9 @@ out="$("$rules" "$shapes" 2>&1)"; rc=$?
 check 'exits zero' 0 "$rc"
 check 'three rules, and the plain item is not one' \
   'rules-check: 3 rule bullets, every one tagged.' "$(printf '%s\n' "$out" | tail -1)"
-check 'the paragraph and the first numbered rule'  'discipline   2' "$(printf '%s\n' "$out" | grep '^discipline ')"
-check 'the numbered combination, machine side'     'machine      1' "$(printf '%s\n' "$out" | grep '^machine ')"
-check 'the numbered combination, review side'      'review       1' "$(printf '%s\n' "$out" | grep '^review ')"
+check 'the paragraph and the first numbered rule'  'discipline   2' "$(grep '^discipline ' <<< "$out")"
+check 'the numbered combination, machine side'     'machine      1' "$(grep '^machine ' <<< "$out")"
+check 'the numbered combination, review side'      'review       1' "$(grep '^review ' <<< "$out")"
 
 echo 'a numbered rule and a paragraph rule with no tag are named and refused'
 shapeless="$fake/shapeless.md"
@@ -158,14 +158,14 @@ cat > "$shapeless" <<'TEXT'
 TEXT
 out="$("$rules" "$shapeless" 2>&1)"; rc=$?
 check 'exits nonzero'          yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'the paragraph is named' yes "$(printf '%s\n' "$out" | grep -q "^$shapeless:5 has no enforcement tag: \*\*The top tier" && echo yes || echo no)"
-check 'the numbered rule too'  yes "$(printf '%s\n' "$out" | grep -q "^$shapeless:7 has no enforcement tag: 1\. \*\*Pass an explicit model" && echo yes || echo no)"
+check 'the paragraph is named' yes "$(grep -q "^$shapeless:5 has no enforcement tag: \*\*The top tier" <<< "$out" && echo yes || echo no)"
+check 'the numbered rule too'  yes "$(grep -q "^$shapeless:7 has no enforcement tag: 1\. \*\*Pass an explicit model" <<< "$out" && echo yes || echo no)"
 check 'the total'              'rules-check: 2 rule bullets, 2 without an enforcement tag.' "$(printf '%s\n' "$out" | tail -1)"
 
 echo 'a file that is not there is refused, and a missing argument too'
 out="$("$rules" "$fake/nope.md" 2>&1)"; rc=$?
 check 'exits nonzero'     yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'the file is named' yes "$(printf '%s\n' "$out" | grep -q "there is no file at $fake/nope.md" && echo yes || echo no)"
+check 'the file is named' yes "$(grep -q "there is no file at $fake/nope.md" <<< "$out" && echo yes || echo no)"
 # Without an argument the default is the checkout's rules or the clone's rules/; where neither exists, it refuses
 out="$(cd "$fake" && "$rules" 2>&1)"; rc=$?
 check 'no argument and no default here: exits nonzero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"

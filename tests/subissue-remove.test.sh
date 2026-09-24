@@ -65,7 +65,7 @@ echo 'several children are several calls'
 : > "$log"
 out="$("$remove" "$repo" 241 149 "$other#136" 2>&1)"
 check 'two DELETEs'   2 "$(grep -c -- '--method DELETE' "$log" || true)"
-check 'both reported' 2 "$(printf '%s\n' "$out" | grep -c 'detached from #241' || true)"
+check 'both reported' 2 "$(grep -c 'detached from #241' <<< "$out" || true)"
 
 echo 'the repo resolves from the checkout when left out'
 : > "$log"

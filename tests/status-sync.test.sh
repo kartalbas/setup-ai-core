@@ -146,13 +146,13 @@ rc=$?
 check 'exit 0' 0 "$rc"
 check 'a commit on master would move the card to testing' \
   'would move   example-repo#12  (implementing -> testing)' \
-  "$(printf '%s\n' "$run" | grep '^would move')"
+  "$(grep '^would move' <<< "$run")"
 check 'a commit the newest tag carries would close the issue' \
   'would close  example-repo#13  (todo -> done, released in 0.8.100)' \
-  "$(printf '%s\n' "$run" | grep '^would close')"
+  "$(grep '^would close' <<< "$run")"
 check 'an epic with one sub-issue is named and not moved' \
   'one child    example-repo#14  (an epic with a single sub-issue is a plain issue, rules.md section 8)' \
-  "$(printf '%s\n' "$run" | grep '^one child')"
+  "$(grep '^one child' <<< "$run")"
 check 'and the count says what it read' \
   "3 active cards scanned, 2 would move on board $PROJECT_NUMBER." \
   "$(printf '%s\n' "$run" | tail -1)"

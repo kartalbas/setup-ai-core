@@ -230,10 +230,10 @@ squeeze() { sed 's/  */ /g'; }
 rows="$("$ROOT/bin/board-list.sh" --project "$PROJECT_NUMBER" 2>&1 | squeeze)"
 check 'an open card keeps its status, priority and title' \
       "Todo P1 example-repo #7 $NASTY" \
-      "$(printf '%s\n' "$rows" | grep -F '#7')"
+      "$(grep -F '#7' <<< "$rows")"
 check 'a card with no field values reads as - -, and closed says so' \
       '- - example-repo #8 plain [closed]' \
-      "$(printf '%s\n' "$rows" | grep -F '#8')"
+      "$(grep -F '#8' <<< "$rows")"
 
 echo 'a refused query is not an empty result'
 export FAKE_GH_REFUSE="Could not resolve to a node with the global id of 'PVT_kwtestboard'"

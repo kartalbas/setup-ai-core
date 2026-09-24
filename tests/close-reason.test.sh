@@ -58,7 +58,7 @@ patch_line() {
 reason_sent_for() {
   local line
   line="$(patch_line "${1:-}")"
-  printf '%s\n' "$line" | grep -o 'state_reason=[^ ]*' | head -1 | cut -d= -f2
+  grep -o 'state_reason=[^ ]*' <<< "$line" | head -1 | cut -d= -f2
 }
 
 echo 'the close reason that reaches gh api'

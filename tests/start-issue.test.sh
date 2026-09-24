@@ -96,7 +96,7 @@ echo 'a working copy with changes in it opens no worktree'
 echo 'unsaved' >> "$work/README.md"
 out="$(run 163)"; rc=$?
 check 'exits nonzero'    yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'it says which'    yes "$(printf '%s\n' "$out" | grep -q 'the working copy has changes' && echo yes || echo no)"
+check 'it says which'    yes "$(grep -q 'the working copy has changes' <<< "$out" && echo yes || echo no)"
 check 'no branch made'   master "$(branches)"
 check 'one worktree'     1 "$(worktrees)"
 git -C "$work" checkout -q -- README.md
@@ -110,7 +110,7 @@ git -C "$other" add -A && git -C "$other" commit -q -m 'a commit somebody else p
 git -C "$other" push -q origin HEAD:master
 out="$(run 163)"; rc=$?
 check 'exits nonzero'   yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'it says how far' yes "$(printf '%s\n' "$out" | grep -q 'master is 1 commit(s) behind origin/master' && echo yes || echo no)"
+check 'it says how far' yes "$(grep -q 'master is 1 commit(s) behind origin/master' <<< "$out" && echo yes || echo no)"
 check 'no branch made'  master "$(branches)"
 git -C "$work" pull -q --ff-only origin master
 
@@ -118,7 +118,7 @@ echo "somebody else's issue opens no worktree"
 : > "$log"
 out="$(ASSIGNEE=somebody run 163)"; rc=$?
 check 'exits nonzero'  yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'it names both'  yes "$(printf '%s\n' "$out" | grep -q '#163 is assigned to @somebody, not to @tester' && echo yes || echo no)"
+check 'it names both'  yes "$(grep -q '#163 is assigned to @somebody, not to @tester' <<< "$out" && echo yes || echo no)"
 check 'no branch made' master "$(branches)"
 check 'the card did not move' 0 "$(grep -c 'oid=OPT_impl' "$log" || true)"
 
@@ -134,14 +134,14 @@ check 'two worktrees'     2 "$(worktrees)"
 check 'the branch'        'issue-163-read-the-board-whole master' "$(branches)"
 check 'the card moved'    '#163 -> implementing' "$(printf '%s\n' "$out" | sed -n '2p')"
 check 'to that option'    yes "$(grep -q 'oid=OPT_impl' "$log" && echo yes || echo no)"
-check 'the thread'        1 "$(printf '%s\n' "$out" | grep -c '^#163 Read the board whole$' || true)"
+check 'the thread'        1 "$(grep -c '^#163 Read the board whole$' <<< "$out" || true)"
 check 'the worktree is on the new branch' 'issue-163-read-the-board-whole' \
   "$(git -C "$tree" rev-parse --abbrev-ref HEAD)"
 
 echo 'a worktree for that number already there is not opened twice'
 out="$(run 163)"; rc=$?
 check 'exits nonzero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'it names it'   yes "$(printf '%s\n' "$out" | grep -q 'a branch for this issue exists already: issue-163-read-the-board-whole' && echo yes || echo no)"
+check 'it names it'   yes "$(grep -q 'a branch for this issue exists already: issue-163-read-the-board-whole' <<< "$out" && echo yes || echo no)"
 check 'still two worktrees' 2 "$(worktrees)"
 
 echo 'the slug is cut to forty characters'

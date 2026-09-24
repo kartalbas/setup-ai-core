@@ -73,7 +73,7 @@ echo 'a board written with a slash and nothing on one side of it is refused by n
 : > "$LOG"; rm -rf "$GH_CACHE_DIRECTORY"
 out="$(bash "$ROOT/bin/issue-status.sh" --project /7 other-org/example-repo 3 testing 2>&1)"; rc=$?
 check 'exits non-zero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'and says how a board is written' yes "$(printf '%s\n' "$out" | grep -q "a board is written N or ORG/N, not '/7'" && echo yes || echo no)"
+check 'and says how a board is written' yes "$(grep -q "a board is written N or ORG/N, not '/7'" <<< "$out" && echo yes || echo no)"
 check 'and asked gh for no id' '' "$(id_query)"
 
 echo

@@ -70,7 +70,7 @@ NO
 chmod +x "$refusing/gh"
 out="$(PATH="$refusing:$PATH" "$mine" "$repo" 404 2>&1)"; rc=$?
 check 'exits nonzero'            yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'and does not say nobody'  no  "$(printf '%s\n' "$out" | grep -q 'assigned to nobody' && echo yes || echo no)"
+check 'and does not say nobody'  no  "$(grep -q 'assigned to nobody' <<< "$out" && echo yes || echo no)"
 
 echo 'a call with no number is refused'
 out="$("$mine" 2>&1)"; rc=$?

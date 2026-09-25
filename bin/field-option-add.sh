@@ -77,7 +77,7 @@ fid="$(printf '%s' "$fields" | jq -r --arg f "$field" \
 
 have="$(printf '%s' "$fields" | jq -r --arg f "$field" \
   '.data.node.fields.nodes[] | select(.name == $f) | .options[].name' | tr -d '\r')"
-if printf '%s\n' "$have" | grep -qxF -- "$name"; then
+if grep -qxF -- "$name" <<< "$have"; then
   echo "board $(project_number): field '$field' already has '$name' - nothing sent"
   exit 0
 fi

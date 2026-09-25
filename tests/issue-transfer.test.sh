@@ -52,7 +52,7 @@ echo 'a target not named OWNER/REPO stops before GitHub is reached'
 : > "$log"
 out="$("$transfer" "$repo" 94 other-repo 2>&1)"; rc=$?
 check 'exits nonzero'  yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'says which'     yes "$(echo "$out" | grep -q 'the target repository must be named OWNER/REPO' && echo yes || echo no)"
+check 'says which'     yes "$(grep -q 'the target repository must be named OWNER/REPO' <<< "$out" && echo yes || echo no)"
 check 'nothing sent'   0 "$(grep -c . "$log" || true)"
 
 echo 'a number that is not one stops before GitHub is reached'
@@ -64,7 +64,7 @@ check 'nothing sent'  0 "$(grep -c . "$log" || true)"
 echo 'a flag it does not take is refused'
 out="$("$transfer" --project 6 94 "$target" 2>&1)"; rc=$?
 check 'exits nonzero'  yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'names the word' yes "$(echo "$out" | grep -q -- '--project' && echo yes || echo no)"
+check 'names the word' yes "$(grep -q -- '--project' <<< "$out" && echo yes || echo no)"
 
 echo 'a refused transfer stops the run rather than printing a url that is not one'
 refusing="$fake/refusing"
@@ -79,7 +79,7 @@ NO
 chmod +x "$refusing/gh"
 out="$(PATH="$refusing:$PATH" "$transfer" "$repo" 94 "$target" 2>&1)"; rc=$?
 check 'exits nonzero'   yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'names the act'   yes "$(echo "$out" | grep -q "cannot read the transfer of $repo#94 to $target" && echo yes || echo no)"
+check 'names the act'   yes "$(grep -q "cannot read the transfer of $repo#94 to $target" <<< "$out" && echo yes || echo no)"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

@@ -61,13 +61,13 @@ new() {
 echo 'without --asked-by the issue is refused before gh is called'
 out="$(new --asked-in 'issue #12')"; rc=$?
 check 'refused'                 yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'says what is missing'    yes "$(echo "$out" | grep -q -- '--asked-by is required' && echo yes || echo no)"
+check 'says what is missing'    yes "$(grep -q -- '--asked-by is required' <<< "$out" && echo yes || echo no)"
 check 'nothing reached gh'      no  "$(grep -q 'issue create' "$log" 2>/dev/null && echo yes || echo no)"
 
 echo 'without --asked-in the issue is refused too'
 out="$(new --asked-by kartalbas)"; rc=$?
 check 'refused'                 yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'says what is missing'    yes "$(echo "$out" | grep -q -- '--asked-in is required' && echo yes || echo no)"
+check 'says what is missing'    yes "$(grep -q -- '--asked-in is required' <<< "$out" && echo yes || echo no)"
 check 'nothing reached gh'      no  "$(grep -q 'issue create' "$log" 2>/dev/null && echo yes || echo no)"
 
 echo 'with both, the body starts with who said yes and where, and the original body follows'

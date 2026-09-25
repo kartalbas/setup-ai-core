@@ -65,7 +65,7 @@ for n in "$@"; do
     wanted="$current"
     [ ${#add[@]} -eq 0 ] || wanted="$(printf '%s\n%s\n' "$wanted" "$(printf '%s\n' "${add[@]}")")"
     for r in ${remove[@]+"${remove[@]}"}; do
-      wanted="$(printf '%s\n' "$wanted" | grep -vxF "$r" || true)"
+      wanted="$(grep -vxF "$r" <<< "$wanted" || true)"
     done
     wanted="$(printf '%s\n' "$wanted" | sed '/^$/d' | sort -u)"
   fi

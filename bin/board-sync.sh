@@ -101,8 +101,8 @@ for repo in "${repos[@]}"; do
     if [ "$state" = OPEN ]; then open_issues=$((open_issues + 1)); else closed_issues=$((closed_issues + 1)); fi
 
     missing=""
-    echo "$labels" | tr ',' '\n' | grep -qxF -f <(echo "$types") || missing="type"
-    echo "$labels" | tr ',' '\n' | grep -qxF -f <(echo "$areas") || missing="$missing area"
+    grep -qxF -f <(echo "$types") <<< "${labels//,/$'\n'}" || missing="type"
+    grep -qxF -f <(echo "$areas") <<< "${labels//,/$'\n'}" || missing="$missing area"
     [ -n "$missing" ] || continue
     if [ "$state" = OPEN ]; then
       printf '  #%-4s missing label: %-12s %s\n' "$num" "$missing" "$title"

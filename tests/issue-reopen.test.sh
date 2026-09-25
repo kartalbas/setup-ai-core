@@ -67,13 +67,13 @@ echo 'a number that is not one stops before the first issue is touched'
 : > "$log"
 out="$("$reopen" "$repo" 412 not-a-number 2>&1)"; rc=$?
 check 'exits nonzero'  yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'names the word' yes "$(echo "$out" | grep -q "not 'not-a-number'" && echo yes || echo no)"
+check 'names the word' yes "$(grep -q "not 'not-a-number'" <<< "$out" && echo yes || echo no)"
 check 'nothing sent'   0 "$(grep -c 'api --method PATCH' "$log" || true)"
 
 echo 'a flag it does not take is refused'
 out="$("$reopen" "$repo" --project 9 412 2>&1)"; rc=$?
 check 'exits nonzero'  yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'names the word' yes "$(echo "$out" | grep -q -- '--project' && echo yes || echo no)"
+check 'names the word' yes "$(grep -q -- '--project' <<< "$out" && echo yes || echo no)"
 
 echo 'a refused PATCH stops the run rather than reporting a reopen'
 refusing="$fake/refusing"
@@ -88,7 +88,7 @@ NO
 chmod +x "$refusing/gh"
 out="$(PATH="$refusing:$PATH" "$reopen" "$repo" 412 2>&1)"; rc=$?
 check 'exits nonzero'    yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'no reopened line' no  "$(echo "$out" | grep -q -- '-> reopened' && echo yes || echo no)"
+check 'no reopened line' no  "$(grep -q -- '-> reopened' <<< "$out" && echo yes || echo no)"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

@@ -81,7 +81,7 @@ check 'nothing sent'  0 "$(grep -c -- '--method DELETE' "$log" || true)"
 echo 'a flag it does not take is refused'
 out="$("$remove" --project 6 241 149 2>&1)"; rc=$?
 check 'exits nonzero'  yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'names the word' yes "$(echo "$out" | grep -q -- '--project' && echo yes || echo no)"
+check 'names the word' yes "$(grep -q -- '--project' <<< "$out" && echo yes || echo no)"
 
 echo 'a call with no child is refused'
 out="$("$remove" "$repo" 241 2>&1)"; rc=$?

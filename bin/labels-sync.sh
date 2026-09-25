@@ -58,7 +58,7 @@ for repo in "$@"; do
   # line matched" the same way it reports an error - so a refused query would come out the other
   # side and be printed as labels this repository carries.
   on="$(gh_read "the labels of $repo" label list --repo "$repo" --limit 200 --json name --jq '.[].name')" || exit 1
-  extra="$(printf '%s\n' "$on" | grep -vxF "$known" || true)"
+  extra="$(grep -vxF "$known" <<< "$on" || true)"
   [ -z "$extra" ] || {
     echo "  not in labels.tsv, left alone:"
     echo "$extra" | sed 's/^/    /'

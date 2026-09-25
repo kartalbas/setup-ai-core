@@ -54,7 +54,7 @@ done <<< "$items"
 
 [ -n "$epics" ] || { echo "epics: none on this board"; exit 0; }
 
-count="$(printf '%s' "$epics" | grep -c .)"
+count="$(grep -c . <<< "$epics")"
 
 # Reversed, because each move goes to the very top and the last one moved wins the top slot.
 printf '%s' "$epics" | awk '{ line[NR] = $0 } END { for (i = NR; i > 0; i--) print line[i] }' \

@@ -284,7 +284,7 @@ done <<< "$input"
 
 # Nothing to send, or nothing but deletions: there is nothing to judge and nothing to test.
 [ "$pushing" -eq 1 ] || exit 0
-commits="$(printf '%s\n' "$commits" | grep -v '^$' || true)"
+commits="$(grep -v '^$' <<< "$commits" || true)"
 if [ -z "$commits" ]; then
   echo 'pre-push: nothing new to send.'
   exit 0

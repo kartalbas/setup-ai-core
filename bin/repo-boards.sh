@@ -88,7 +88,7 @@ while IFS=$'\t' read -r kind repo is_archived; do
   # before it, exactly as resolve_project_for_repo matches it for one repository.
   boards="$(printf '%s\n' "$all" | awk -F'\t' -v r="$repo" '$1=="B" && $2==r {print $3"\t"$4}' \
             | grep -Fv "$(printf '\t')$TEMPLATE_MARK" || true)"
-  n="$(printf '%s\n' "$boards" | grep -c . || true)"
+  n="$(grep -c . <<< "$boards" || true)"
 
   counted=$((counted + 1))
   case "$n" in

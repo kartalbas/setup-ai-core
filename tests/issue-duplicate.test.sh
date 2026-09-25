@@ -65,12 +65,12 @@ echo 'a repository not named OWNER/REPO stops before GitHub is reached'
 : > "$log"
 out="$("$dup" example-repo 412 "$repo" 421 2>&1)"; rc=$?
 check 'exits nonzero'  yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'names which'    yes "$(echo "$out" | grep -q "the canonical issue's repository" && echo yes || echo no)"
+check 'names which'    yes "$(grep -q "the canonical issue's repository" <<< "$out" && echo yes || echo no)"
 check 'nothing sent'   0 "$(grep -c . "$log" || true)"
 
 : > "$log"
 out="$("$dup" "$repo" 412 example-repo 421 2>&1)"; rc=$?
-check 'the other side too' yes "$(echo "$out" | grep -q "the duplicate issue's repository" && echo yes || echo no)"
+check 'the other side too' yes "$(grep -q "the duplicate issue's repository" <<< "$out" && echo yes || echo no)"
 check 'nothing sent'       0 "$(grep -c . "$log" || true)"
 
 echo 'a number that is not one stops before GitHub is reached'

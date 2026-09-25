@@ -70,7 +70,7 @@ echo 'a reason GitHub does not know stops before anything is sent'
 : > "$log"
 out="$("$close" "$repo" --reason superseded 270 2>&1)"; rc=$?
 check 'exits nonzero'         yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'names the value'       yes "$(echo "$out" | grep -q "not 'superseded'" && echo yes || echo no)"
+check 'names the value'       yes "$(grep -q "not 'superseded'" <<< "$out" && echo yes || echo no)"
 check 'nothing reached github' 0  "$(grep -c 'api --method PATCH' "$log" || true)"
 
 echo 'the card is moved to done on every board the issue is on'

@@ -107,8 +107,8 @@ echo 'an issue carrying no asked-for line is reported, and the body goes as give
 : > "$log"; rm -f "$sent"
 printf 'An issue opened on the web.\n' > "$reply"
 out="$("$edit" "$repo" 163 --body-file "$plain" 2>&1)"
-check 'says there is none to keep' yes "$(echo "$out" | grep -q 'carries no asked-for line' && echo yes || echo no)"
-check 'the edit still happened'    yes "$(echo "$out" | grep -q -- '#163 -> edited (body)' && echo yes || echo no)"
+check 'says there is none to keep' yes "$(grep -q 'carries no asked-for line' <<< "$out" && echo yes || echo no)"
+check 'the edit still happened'    yes "$(grep -q -- '#163 -> edited (body)' <<< "$out" && echo yes || echo no)"
 check 'the file itself'            yes "$(grep -q -- "-F body=@$plain" "$log" && echo yes || echo no)"
 printf '{}\n' > "$reply"
 
@@ -116,25 +116,25 @@ echo 'an edit that changes nothing stops before GitHub is reached'
 : > "$log"
 out="$("$edit" "$repo" 163 2>&1)"; rc=$?
 check 'exits nonzero'  yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'says what to name' yes "$(echo "$out" | grep -q 'an edit that changes nothing is a mistake' && echo yes || echo no)"
+check 'says what to name' yes "$(grep -q 'an edit that changes nothing is a mistake' <<< "$out" && echo yes || echo no)"
 check 'nothing sent'   0 "$(grep -c . "$log" || true)"
 
 echo 'a body file that is not there stops before GitHub is reached'
 : > "$log"
 out="$("$edit" "$repo" 163 --body-file "$fake/nope.md" 2>&1)"; rc=$?
 check 'exits nonzero'     yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'the file is named' yes "$(echo "$out" | grep -q "does not exist: $fake/nope.md" && echo yes || echo no)"
+check 'the file is named' yes "$(grep -q "does not exist: $fake/nope.md" <<< "$out" && echo yes || echo no)"
 check 'nothing sent'      0 "$(grep -c . "$log" || true)"
 
 echo 'the glued form of a flag is refused rather than half-read'
 out="$("$edit" "$repo" 163 --title=t 2>&1)"; rc=$?
 check 'exits nonzero'  yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'says why'       yes "$(echo "$out" | grep -q 'separate the flag and its value' && echo yes || echo no)"
+check 'says why'       yes "$(grep -q 'separate the flag and its value' <<< "$out" && echo yes || echo no)"
 
 echo 'a misspelt flag is refused, never filed under the numbers'
 out="$("$edit" "$repo" 163 --titel t 2>&1)"; rc=$?
 check 'exits nonzero'  yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'names the word' yes "$(echo "$out" | grep -q -- '--titel' && echo yes || echo no)"
+check 'names the word' yes "$(grep -q -- '--titel' <<< "$out" && echo yes || echo no)"
 
 echo 'a refused PATCH stops the run rather than reporting an edit'
 refusing="$fake/refusing"
@@ -149,15 +149,15 @@ NO
 chmod +x "$refusing/gh"
 out="$(PATH="$refusing:$PATH" "$edit" "$repo" 163 --title t 2>&1)"; rc=$?
 check 'exits nonzero'      yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'no edited line'     no  "$(echo "$out" | grep -q '\-> edited' && echo yes || echo no)"
+check 'no edited line'     no  "$(grep -q '\-> edited' <<< "$out" && echo yes || echo no)"
 
 # The one failure mode keeping the line adds: the read before the write. It stops the edit,
 # because the other way out is sending a body known to be missing the line.
 echo 'a refused READ stops the edit rather than sending the body without the line'
 out="$(PATH="$refusing:$PATH" "$edit" "$repo" 163 --body-file "$plain" 2>&1)"; rc=$?
 check 'exits nonzero'      yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'names what it is'   yes "$(echo "$out" | grep -q "cannot read the body of $repo#163" && echo yes || echo no)"
-check 'no edited line'     no  "$(echo "$out" | grep -q '\-> edited' && echo yes || echo no)"
+check 'names what it is'   yes "$(grep -q "cannot read the body of $repo#163" <<< "$out" && echo yes || echo no)"
+check 'no edited line'     no  "$(grep -q '\-> edited' <<< "$out" && echo yes || echo no)"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

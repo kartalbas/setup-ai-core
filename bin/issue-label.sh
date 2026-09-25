@@ -84,7 +84,7 @@ done
 taxonomy="$(labels_tsv)" || exit 1
 known="$(printf '%s\n' "$taxonomy" | cut -f2)"
 for l in ${add[@]+"${add[@]}"}; do
-  printf '%s\n' "$known" | grep -qxF -- "$l" ||
+  grep -qxF -- "$l" <<< "$known" ||
     die "\"$l\" is not in the taxonomy. Add it to labels.tsv and run labels-sync, so every repository has it."
 done
 
@@ -110,11 +110,11 @@ for n in "${nums[@]}"; do
 
   will_add=(); already=()
   for l in ${add[@]+"${add[@]}"}; do
-    if printf '%s\n' "$before" | grep -qxF -- "$l"; then already+=("$l"); else will_add+=("$l"); fi
+    if grep -qxF -- "$l" <<< "$before"; then already+=("$l"); else will_add+=("$l"); fi
   done
   will_remove=(); absent=()
   for l in ${remove[@]+"${remove[@]}"}; do
-    if printf '%s\n' "$before" | grep -qxF -- "$l"; then will_remove+=("$l"); else absent+=("$l"); fi
+    if grep -qxF -- "$l" <<< "$before"; then will_remove+=("$l"); else absent+=("$l"); fi
   done
 
   edit=()
@@ -126,8 +126,8 @@ for n in "${nums[@]}"; do
   has_type=no; has_area=no
   while IFS= read -r l; do
     [ -n "$l" ] || continue
-    if printf '%s\n' "$types" | grep -qxF -- "$l"; then has_type=yes; fi
-    if printf '%s\n' "$areas" | grep -qxF -- "$l"; then has_area=yes; fi
+    if grep -qxF -- "$l" <<< "$types"; then has_type=yes; fi
+    if grep -qxF -- "$l" <<< "$areas"; then has_area=yes; fi
   done <<< "$on"
 
   changes=""

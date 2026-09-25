@@ -87,12 +87,12 @@ check 'nothing sent'  0 "$(grep -c 'updateProjectV2ItemPosition' "$log" || true)
 echo 'a flag without its value is named'
 out="$("$top" --project 2>&1)"; rc=$?
 check 'exits nonzero'  yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'names the flag' yes "$(echo "$out" | grep -q -- '--project needs a value' && echo yes || echo no)"
+check 'names the flag' yes "$(grep -q -- '--project needs a value' <<< "$out" && echo yes || echo no)"
 
 echo 'a misspelt flag is refused, never filed under the numbers'
 out="$("$top" --projekt "$PROJECT_NUMBER" 373 2>&1)"; rc=$?
 check 'exits nonzero'  yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'names the word' yes "$(echo "$out" | grep -q -- '--projekt' && echo yes || echo no)"
+check 'names the word' yes "$(grep -q -- '--projekt' <<< "$out" && echo yes || echo no)"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

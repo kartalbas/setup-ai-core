@@ -79,13 +79,13 @@ check 'eight columns by default' 8 "$(echo "$out" | head -1 | awk '{print NF - 1
 check 'six rows, one per label' 6 "$(echo "$out" | tail -n +2 | grep -c .)"
 check 'every incident label named' yes \
   "$(for l in duplicate context question title released-wrong unasked; do
-       echo "$out" | grep -q "^incident:$l " || { echo no; exit; }
+       grep -q "^incident:$l " <<< "$out" || { echo no; exit; }
      done; echo yes)"
 
 echo 'the counts land in the right week'
-row_title="$(echo "$out" | grep '^incident:title ')"
-row_context="$(echo "$out" | grep '^incident:context ')"
-row_question="$(echo "$out" | grep '^incident:question ')"
+row_title="$(grep '^incident:title ' <<< "$out")"
+row_context="$(grep '^incident:context ' <<< "$out")"
+row_question="$(grep '^incident:question ' <<< "$out")"
 check 'two incident:title this week'   2 "$(echo "$row_title" | awk '{print $NF}')"
 check 'one incident:context last week' 1 "$(echo "$row_context" | awk '{print $(NF - 1)}')"
 check 'incident:question has none'     0 "$(echo "$row_question" | awk '{for (i = 2; i <= NF; i++) s += $i} END {print s + 0}')"
@@ -93,7 +93,7 @@ check 'the ticket from last year is outside the window' 0 \
   "$(echo "$row_title" | awk '{for (i = 2; i < NF; i++) s += $i} END {print s + 0}')"
 
 echo 'a label that is not an incident is not counted'
-check 'no type row' no "$(echo "$out" | grep -q '^type:' && echo yes || echo no)"
+check 'no type row' no "$(grep -q '^type:' <<< "$out" && echo yes || echo no)"
 
 # How well the tickets themselves are written is a question about the organisation and not
 # about one board, and an answer covering half of it reads as an answer covering all of it.
@@ -112,12 +112,12 @@ check 'three columns' 3 "$(echo "$out" | head -1 | awk '{print NF - 1}')"
 echo 'a window that is not a number is refused'
 out="$("$count" "$repo" --weeks soon 2>&1)"; rc=$?
 check 'exits nonzero'      yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'the value is named' yes "$(echo "$out" | grep -q 'soon' && echo yes || echo no)"
+check 'the value is named' yes "$(grep -q 'soon' <<< "$out" && echo yes || echo no)"
 
 echo 'a flag without its value is named'
 out="$("$count" "$repo" --weeks 2>&1)"; rc=$?
 check 'exits nonzero'  yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'names the flag' yes "$(echo "$out" | grep -q -- '--weeks needs a value' && echo yes || echo no)"
+check 'names the flag' yes "$(grep -q -- '--weeks needs a value' <<< "$out" && echo yes || echo no)"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

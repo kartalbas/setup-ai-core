@@ -69,7 +69,7 @@ DUP
 chmod +x "$existing/gh"
 out="$(PATH="$existing:$PATH" "$block" "$blocked" 359 "$by" 311 2>&1)"; rc=$?
 check 'exits nonzero'  yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'says so'        yes "$(echo "$out" | grep -q "already blocked by $by#311 - nothing was changed" && echo yes || echo no)"
+check 'says so'        yes "$(grep -q "already blocked by $by#311 - nothing was changed" <<< "$out" && echo yes || echo no)"
 
 echo 'a dependency that is not there says so on the way out'
 absent="$fake/absent"
@@ -83,7 +83,7 @@ GONE
 chmod +x "$absent/gh"
 out="$(PATH="$absent:$PATH" "$unblock" "$blocked" 359 "$by" 311 2>&1)"; rc=$?
 check 'exits nonzero'  yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'says so'        yes "$(echo "$out" | grep -q "is not blocked by $by#311 - nothing was changed" && echo yes || echo no)"
+check 'says so'        yes "$(grep -q "is not blocked by $by#311 - nothing was changed" <<< "$out" && echo yes || echo no)"
 
 echo 'a repository not named OWNER/REPO stops before GitHub is reached'
 for command in "$block" "$unblock"; do
@@ -93,7 +93,7 @@ for command in "$block" "$unblock"; do
   check "$(basename "$command"): nothing sent"  0 "$(grep -c . "$log" || true)"
   : > "$log"
   out="$("$command" "$blocked" 359 other-repo 311 2>&1)"; rc=$?
-  check "$(basename "$command"): the other side too" yes "$(echo "$out" | grep -q "the blocking issue's repository" && echo yes || echo no)"
+  check "$(basename "$command"): the other side too" yes "$(grep -q "the blocking issue's repository" <<< "$out" && echo yes || echo no)"
   check "$(basename "$command"): still nothing sent" 0 "$(grep -c . "$log" || true)"
 done
 

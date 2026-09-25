@@ -75,14 +75,14 @@ for name in 'no body at all' 'both a body and a file' 'a file that is not there'
 done
 
 out="$("$comment" "$repo" 94 --body-file "$fake/nope.md" 2>&1)"
-check 'the missing file is named' yes "$(echo "$out" | grep -q 'does not exist' && echo yes || echo no)"
+check 'the missing file is named' yes "$(grep -q 'does not exist' <<< "$out" && echo yes || echo no)"
 
 # --body-file with nothing after it would leave the path empty and let `shift 2` end the run
 # with no word at all; need_value is what turns that into a sentence.
 echo 'a flag without its value is named'
 out="$("$comment" "$repo" 94 --body-file 2>&1)"; rc=$?
 check 'exits nonzero'  yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'names the flag' yes "$(echo "$out" | grep -q -- '--body-file needs a value' && echo yes || echo no)"
+check 'names the flag' yes "$(grep -q -- '--body-file needs a value' <<< "$out" && echo yes || echo no)"
 
 echo 'a refused post stops the run rather than printing nothing and exiting zero'
 refusing="$fake/refusing"
@@ -97,7 +97,7 @@ NO
 chmod +x "$refusing/gh"
 out="$(PATH="$refusing:$PATH" "$comment" "$repo" 94 --body-file "$body_file" 2>&1)"; rc=$?
 check 'exits nonzero'    yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'and says on what' yes "$(echo "$out" | grep -q 'cannot read the comment posted on example-org/example-repo#94' && echo yes || echo no)"
+check 'and says on what' yes "$(grep -q 'cannot read the comment posted on example-org/example-repo#94' <<< "$out" && echo yes || echo no)"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

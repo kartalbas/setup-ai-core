@@ -63,7 +63,7 @@ every_board_repo() {
     query($o:String!) { organization(login:$o) {
       projectsV2(first:100) { nodes { number title closed } } } }' \
     --jq '.data.organization.projectsV2.nodes[] | select(.closed == false) | "\(.number)\t\(.title)"')" || exit 1
-  boards="$(printf '%s\n' "$boards" | grep -Fv "	$TEMPLATE_MARK" || true)"
+  boards="$(grep -Fv "	$TEMPLATE_MARK" <<< "$boards" || true)"
   [ -n "$boards" ] || die "no open board in $org - name the repositories to count over"
   while IFS=$'\t' read -r number _; do
     [ -n "$number" ] || continue

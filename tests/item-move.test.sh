@@ -106,7 +106,7 @@ echo 'the same board on both sides is refused'
 : > "$log"
 out="$("$move" --repo "$repo" --from "$FROM" --to "$FROM" 2>&1)"; rc=$?
 check 'exits nonzero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'says why'      yes "$(echo "$out" | grep -q 'are the same project' && echo yes || echo no)"
+check 'says why'      yes "$(grep -q 'are the same project' <<< "$out" && echo yes || echo no)"
 check 'nothing sent'  0 "$(grep -c . "$log" || true)"
 
 echo 'a repo not named OWNER/REPO is refused'
@@ -118,7 +118,7 @@ check 'nothing sent'  0 "$(grep -c . "$log" || true)"
 echo 'a flag without its value is named'
 out="$("$move" --repo "$repo" --from --to "$TO" 2>&1)"; rc=$?
 check 'exits nonzero'  yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'names the flag' yes "$(echo "$out" | grep -q -- '--from needs a value' && echo yes || echo no)"
+check 'names the flag' yes "$(grep -q -- '--from needs a value' <<< "$out" && echo yes || echo no)"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

@@ -83,7 +83,7 @@ join_with() {  # join_with <separator> <item>...
 # file would be accepted by one and refused by the other.
 doubled=()
 for want in "${REQUIRED[@]}"; do
-  [ "$(printf '%s\n' "$headings" | grep -cxF "$want" || true)" -le 1 ] || doubled+=("$want")
+  [ "$(grep -cxF "$want" <<< "$headings" || true)" -le 1 ] || doubled+=("$want")
 done
 if [ ${#doubled[@]} -gt 0 ]; then
   echo "$file names \"## $(join_with '", "## ' "${doubled[@]}")\" twice." >&2
@@ -93,7 +93,7 @@ fi
 absent=()
 empty=()
 for want in "${REQUIRED[@]}"; do
-  if ! printf '%s\n' "$headings" | grep -qxF "$want"; then
+  if ! grep -qxF "$want" <<< "$headings"; then
     absent+=("$want")
   elif [ -z "$(section_body "$want" | tr -d '[:space:]')" ]; then
     empty+=("$want")

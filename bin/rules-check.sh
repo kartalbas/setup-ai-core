@@ -135,7 +135,7 @@ done
 
 echo
 for tag in $TAGS; do
-  printf '%-12s %s\n' "$tag" "$(printf '%s\n' "$counts" | grep -cx "$tag" || true)"
+  printf '%-12s %s\n' "$tag" "$(grep -cx "$tag" <<< "$counts" || true)"
 done
 echo
 if [ "$untagged" -gt 0 ]; then

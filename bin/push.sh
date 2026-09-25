@@ -55,7 +55,7 @@ for dir in "$FOLDER"/*-ai-core; do
   # 1. commit what changed
   changed="$(git -C "$dir" status --porcelain | tr -d '\r')"
   if [ -n "$changed" ]; then
-    count="$(printf '%s\n' "$changed" | grep -c .)"
+    count="$(grep -c . <<< "$changed")"
     msg="$MESSAGE"
     if [ -z "$msg" ]; then
       msg="$(printf '%s\n' "$changed" | sed 's/^...//' | head -3 | paste -sd, - | sed 's/,/, /g')"

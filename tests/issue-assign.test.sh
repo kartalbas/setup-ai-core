@@ -81,20 +81,20 @@ echo 'a call that names no direction stops before GitHub is reached'
 : > "$log"
 out="$("$assign" "$repo" 575 2>&1)"; rc=$?
 check 'exits nonzero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'says what to name' yes "$(echo "$out" | grep -q 'name --add, --remove or --replace' && echo yes || echo no)"
+check 'says what to name' yes "$(grep -q 'name --add, --remove or --replace' <<< "$out" && echo yes || echo no)"
 check 'nothing sent'  0 "$(grep -c . "$log" || true)"
 
 echo '--replace cannot be combined with the additive flags'
 : > "$log"
 out="$("$assign" "$repo" 575 --replace kadir --add anton 2>&1)"; rc=$?
 check 'exits nonzero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'says why'      yes "$(echo "$out" | grep -q 'states the whole set' && echo yes || echo no)"
+check 'says why'      yes "$(grep -q 'states the whole set' <<< "$out" && echo yes || echo no)"
 check 'nothing sent'  0 "$(grep -c . "$log" || true)"
 
 echo 'a flag without its value is named'
 out="$("$assign" "$repo" 575 --add 2>&1)"; rc=$?
 check 'exits nonzero'  yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'names the flag' yes "$(echo "$out" | grep -q -- '--add needs a value' && echo yes || echo no)"
+check 'names the flag' yes "$(grep -q -- '--add needs a value' <<< "$out" && echo yes || echo no)"
 
 echo 'a number that is not one is refused before the first issue is touched'
 : > "$log"

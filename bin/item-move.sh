@@ -81,7 +81,7 @@ set_project "$from" "$repo" >/dev/null
 rows="$(cards_of "$repo")" || exit 1
 [ -n "$rows" ] || { echo "no cards from $repo on project $from"; exit 0; }
 
-count="$(printf '%s\n' "$rows" | grep -c .)"
+count="$(grep -c . <<< "$rows")"
 echo "$count card(s) from $repo on project $from"
 printf '%s\n' "$rows" | while IFS=$'\t' read -r n s p; do
   printf '  #%-5s status=%-14s priority=%s\n' "$n" "${s:--}" "${p:--}"

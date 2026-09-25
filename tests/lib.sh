@@ -53,7 +53,7 @@ case "$1 $2" in
   "repo view")   [ -d "$GH_FAKE/github.com/$3.git" ] ;;
   "repo clone")  git clone -q "$GH_FAKE/github.com/$3.git" "$4" ;;
   "repo create") [ "${3%%/*}" != nocreate-org ] && git init -q --bare "$GH_FAKE/github.com/$3.git" && git -C "$6" remote add origin "$GH_FAKE/github.com/$3.git" && git -C "$6" push -q -u origin HEAD ;;
-  "run list") if [ -f "$GH_FAKE/run-pending" ]; then rm -f "$GH_FAKE/run-pending"; echo '[{"status":"in_progress","conclusion":null}]'; else echo '[{"status":"completed","conclusion":"success"}]'; fi ;;
+  "run list") if [ -f "$GH_FAKE/run-pending" ]; then rm -f "$GH_FAKE/run-pending"; [ -z "${GH_FAKE_MOVE:-}" ] || git -C "$GH_FAKE_MOVE" commit -q --allow-empty -m "moved during the wait" >/dev/null 2>&1; echo '[{"status":"in_progress","conclusion":null}]'; else echo '[{"status":"completed","conclusion":"success"}]'; fi ;;
   "auth status") exit 0 ;;
   *) exit 1 ;;
 esac
@@ -61,6 +61,6 @@ EOF
 chmod +x "$WORK/ghbin/gh"
 GH_FAKE_WIN="$(native "$GH_FAKE" | sed 's|\\|/|g')"
 GH_FAKE_BS="$(native "$GH_FAKE" | sed 's|/|\\|g')"
-printf '@echo off\r\nif "%%1 %%2"=="repo view" (if exist "%s/github.com/%%3.git" (exit /b 0) else (exit /b 1))\r\nif "%%1 %%2"=="repo clone" (git clone -q "%s/github.com/%%3.git" "%%4" & exit /b %%ERRORLEVEL%%)\r\nif "%%1 %%2 %%3"=="repo create nocreate-org/nocreate-ai-core" exit /b 1\r\nif "%%1 %%2"=="repo create" (git init -q --bare "%s/github.com/%%3.git" & git -C "%%6" remote add origin "%s/github.com/%%3.git" & git -C "%%6" push -q -u origin HEAD & exit /b %%ERRORLEVEL%%)\r\nif "%%1 %%2"=="auth status" exit /b 0\r\nif "%%1 %%2"=="run list" (if exist "%s\\run-pending" (del "%s\\run-pending" & echo [{"status":"in_progress","conclusion":null}] & exit /b 0) else (echo [{"status":"completed","conclusion":"success"}] & exit /b 0))\r\nexit /b 1\r\n' "$GH_FAKE_WIN" "$GH_FAKE_WIN" "$GH_FAKE_WIN" "$GH_FAKE_WIN" "$GH_FAKE_BS" "$GH_FAKE_BS" > "$WORK/ghbin/gh.cmd"
+printf '@echo off\r\nif "%%1 %%2"=="repo view" (if exist "%s/github.com/%%3.git" (exit /b 0) else (exit /b 1))\r\nif "%%1 %%2"=="repo clone" (git clone -q "%s/github.com/%%3.git" "%%4" & exit /b %%ERRORLEVEL%%)\r\nif "%%1 %%2 %%3"=="repo create nocreate-org/nocreate-ai-core" exit /b 1\r\nif "%%1 %%2"=="repo create" (git init -q --bare "%s/github.com/%%3.git" & git -C "%%6" remote add origin "%s/github.com/%%3.git" & git -C "%%6" push -q -u origin HEAD & exit /b %%ERRORLEVEL%%)\r\nif "%%1 %%2"=="auth status" exit /b 0\r\nif "%%1 %%2"=="run list" (if exist "%s\\run-pending" (del "%s\\run-pending" & (if defined GH_FAKE_MOVE git -C "%%GH_FAKE_MOVE%%" commit -q --allow-empty -m "moved during the wait" >nul 2>&1) & echo [{"status":"in_progress","conclusion":null}] & exit /b 0) else (echo [{"status":"completed","conclusion":"success"}] & exit /b 0))\r\nexit /b 1\r\n' "$GH_FAKE_WIN" "$GH_FAKE_WIN" "$GH_FAKE_WIN" "$GH_FAKE_WIN" "$GH_FAKE_BS" "$GH_FAKE_BS" > "$WORK/ghbin/gh.cmd"
 PATH_SH="$WORK/ghbin:$WORK/graftbin:$PATH"
 }

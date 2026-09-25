@@ -91,7 +91,9 @@ while ($true) {
 }
 if (@($list | Where-Object { $_.conclusion -ceq 'success' }).Count -eq 0) { Deny-Release "the checks for $sha are not green; nothing is released red" }
 
-& git -C $core tag -a $tag -m "release: $version"
+# The tag goes on the commit whose checks were waited for, not on whatever HEAD is by now: a
+# commit made during the wait was never checked
+& git -C $core tag -a $tag -m "release: $version" $sha
 if ($LASTEXITCODE -ne 0) { Deny-Release "could not tag" }
 & git -C $core push --quiet origin "refs/tags/$tag"
 if ($LASTEXITCODE -ne 0) { & git -C $core tag -d $tag 2>$null | Out-Null; Deny-Release "could not push ${tag}; the tag is removed again" }

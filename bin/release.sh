@@ -77,6 +77,8 @@ while :; do
 done
 printf '%s' "$runs" | jq -e 'any(.conclusion == "success")' >/dev/null || refuse "the checks for $sha are not green; nothing is released red"
 
-git -C "$CORE" tag -a "$tag" -m "release: $version" || refuse "could not tag"
+# The tag goes on the commit whose checks were waited for, not on whatever HEAD is by now: a
+# commit made during the wait was never checked
+git -C "$CORE" tag -a "$tag" -m "release: $version" "$sha" || refuse "could not tag"
 git -C "$CORE" push --quiet origin "refs/tags/$tag" || { git -C "$CORE" tag -d "$tag" >/dev/null 2>&1; refuse "could not push $tag; the tag is removed again"; }
 echo "release: $tag on ${sha:0:7}, pushed; install and update follow it now"

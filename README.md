@@ -1015,7 +1015,8 @@ github.com; a tag names a commit whose checks already ran, so pushing it starts 
 **A release** is one command, `ai-core release X.Y.Z`, run in the clone: it writes `VERSION` and
 commits `release: X.Y.Z` when the file does not carry the version yet, pushes what is not pushed,
 waits for the workflow run of exactly that commit (asked every 20 seconds, 30 minutes at most)
-and, when the run is green, tags `vX.Y.Z` and pushes the tag. It refuses, naming what is missing,
+and, when the run is green, tags that commit `vX.Y.Z`, not one made during the wait, and pushes
+the tag. It refuses, naming what is missing,
 when the tree is not clean, the branch is not `main`, origin has moved on, the tag exists, or the
 run is red or does not finish; nothing is tagged red. `install` and `update` follow the newest
 tag, so `main` can carry a mistake without it reaching anybody.

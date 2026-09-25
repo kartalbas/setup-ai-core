@@ -444,7 +444,8 @@ repository. That is what an agent started in the folder gets; an agent started i
 gets that repository's own graph. Graft wires the harness clones beside the repositories
 (`<prefix>-ai-core`) as well, and rescans the folder on every build; a harness clone is data that
 `ai-core push` commits whole, so `init` takes out what Graft put into one: the files it created,
-its block from a file it appended to, its graph and its MCP file.
+its block from a file it appended to, its graph, its MCP file, and the `.gitignore` and `.ignore`
+it writes for its graph when they hold nothing else.
 
 `graft init` also writes outside the repository, once per machine: the Graft MCP server and hooks
 for Codex (`~/.codex/config.toml`, `~/.codex/hooks.json`), Claude Code (`~/.claude.json`,

@@ -66,10 +66,14 @@ report_graft() {  # report_graft <graft output file>
 # Graft wires every repository under a project folder, the harness clones (<name>-ai-core) among
 # them. A harness clone is data, and ai-core push commits every file in it, so what Graft put
 # into one is taken out again: a file it created, its block from a file it appended to, its
-# graph and its MCP file.
+# graph, its MCP file, and the .gitignore and .ignore it writes for its graph when they hold
+# nothing else.
 strip_graft_block() {  # strip_graft_block <file>: Graft's block and the blank lines before it go; a file left empty goes too
   awk '/^<!-- graft:start -->/{skip=1} /^<!-- graft:end -->/{skip=0; next} !skip{n++; l[n]=$0} END{while(n>0 && l[n]=="") n--; for(i=1;i<=n;i++) print l[i]}' "$1" > "$1.tmp" && mv "$1.tmp" "$1"
   [ -s "$1" ] || rm -f "$1"
+}
+graft_only() {  # graft_only <file>: nothing in it but comments, blank lines and Graft's own paths (graft/, its cache, its graph)
+  ! grep -qvE '^[[:space:]]*(#.*)?$|^!?/?graft/(\.cache/|\.graph/)?$' <(tr -d '\r' < "$1")
 }
 take_out_of_harness_clones() {  # take_out_of_harness_clones <graft output file>
   local taken="" state path clone rel junk
@@ -87,11 +91,15 @@ take_out_of_harness_clones() {  # take_out_of_harness_clones <graft output file>
   # what Graft leaves without naming it, or named in an earlier run
   for clone in ./*-ai-core; do
     clone="${clone#./}"; [ -d "$clone/.git" ] || continue
-    for junk in graft .mcp.json AGENTS.md; do
+    for junk in graft .mcp.json AGENTS.md .gitignore .ignore; do
       [ -e "$clone/$junk" ] || continue
       git -C "$clone" ls-files --error-unmatch "$junk" >/dev/null 2>&1 && continue
       case " $taken " in *" $clone/$junk "*) continue ;; esac
-      if [ "$junk" = AGENTS.md ]; then grep -q '^<!-- graft:start -->' "$clone/$junk" || continue; strip_graft_block "$clone/$junk"; else rm -rf "$clone/$junk"; fi
+      case "$junk" in
+        AGENTS.md) grep -q '^<!-- graft:start -->' "$clone/$junk" || continue; strip_graft_block "$clone/$junk" ;;
+        .gitignore|.ignore) graft_only "$clone/$junk" || continue; rm -f "$clone/$junk" ;;
+        *) rm -rf "$clone/$junk" ;;
+      esac
       taken="$taken $clone/$junk"
     done
   done

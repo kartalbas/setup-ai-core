@@ -308,7 +308,8 @@ put "$SKILLS_MD" .ai-core/rules/skills.md managed
 put "$CORE_ROOT/VERSION" .ai-core/VERSION managed
 printf '%s\n' "$STAMP" > "$TMP/STAMP"; put "$TMP/STAMP" .ai-core/STAMP managed
 
-# 1a. The binding rules, on top of a generated map and in a project folder's AGENTS.md. Claude Code
+# 1a. The binding rules, on top of the map (a generated one, or the generic one of templates/ where
+#     the repository has none) and in a project folder's AGENTS.md. Claude Code
 #     loads a file an AGENTS.md names after @ at launch, whole, so the rules reach the agent from
 #     its first prompt. It also loads the AGENTS.md of every directory above the one it starts in,
 #     and a repository's when it works there, so a checkout inside a project folder whose rules
@@ -337,14 +338,24 @@ binding_block() {  # binding_block: lib/binding-rules.md, each file named after 
   if [ "$IMPORT_LOCAL" -eq 1 ]; then l='@.ai-core/rules/rules.local.md'; else l='`.ai-core/rules/rules.local.md`, still the template'; fi
   tr -d '\r' < "$CORE_ROOT/lib/binding-rules.md" | sed -e "s#{RULES}#$r#" -e "s#{SKILLS}#$s#" -e "s#{LOCAL}#$l#"
 }
+# A repository the harness has no map for gets the generic one the same way, where its AGENTS.md
+# is none yet or one init wrote (a map, or the generic file of before 1.3.20); one the repository
+# tracks, or somebody's own, is kept
+if [ -z "$MAP_SRC" ] && [ "$PROJECT_FOLDER" -eq 0 ] && [[ " $LAYER_FILES " != *" AGENTS.md "* ]]; then
+  if ! git -C "$TARGET" ls-files --error-unmatch AGENTS.md >/dev/null 2>&1 && { [ ! -f "$TARGET/AGENTS.md" ] || grep -qE '^(<!-- ai-core map:|# AGENTS\.md .* Repository Navigation & Operations)' <<< "$(head -n1 "$TARGET/AGENTS.md")"; }; then
+    MAP_SRC="$CORE_ROOT/templates/AGENTS.md"
+  else
+    note kept AGENTS.md
+  fi
+fi
 if [ -n "$MAP_SRC" ]; then
   { head -n2 "$MAP_SRC" | tr -d '\r'; echo ""; binding_block; echo '- `ai-core session-start` before any work; below is the map of this repository.'; echo ""; tail -n +3 "$MAP_SRC" | tr -d '\r' | awk 'NF{f=1} f'; } > "$TMP/AGENTS.map.md"
   put "$TMP/AGENTS.map.md" AGENTS.md managed
 fi
 
 # 2. The agent files, created once and never overwritten: templates/ mirrors the target layout.
-#    A project folder's AGENTS.md is generated instead: the list of its repositories, rewritten
-#    on every run because the folder changes. The file of an agent the project does not serve
+#    AGENTS.md is the map (1a); a project folder's is generated instead: the list of its
+#    repositories, rewritten on every run because the folder changes. The file of an agent the project does not serve
 #    (AGENTS in .ai-core/config.env, or the template's default before the file exists) is not
 #    deployed.
 CONFIG="$AI_CORE_DIR/config.env"; [ -f "$CONFIG" ] || CONFIG="$CORE_ROOT/templates/.ai-core/config.env"
@@ -354,7 +365,7 @@ serves() {  # serves <agent>: true when the project serves it, or names no agent
 }
 while IFS= read -r rel; do
   [ -n "$rel" ] || continue
-  [ "$PROJECT_FOLDER" -eq 1 ] && [ "$rel" = "AGENTS.md" ] && continue
+  [ "$rel" = "AGENTS.md" ] && continue
   case " $LAYER_FILES " in *" $rel "*) continue ;; esac
   case "$rel" in
     .cursorrules) serves cursor || continue ;;

@@ -325,7 +325,8 @@ Put (Join-Path $coreRoot 'VERSION') '.ai-core/VERSION' managed
 [System.IO.File]::WriteAllText((Join-Path $tmp 'STAMP'), (($stamp -join "`n") + "`n"), $utf8)
 Put (Join-Path $tmp 'STAMP') '.ai-core/STAMP' managed
 
-# 1a. The binding rules, on top of a generated map and in a project folder's AGENTS.md. Claude Code
+# 1a. The binding rules, on top of the map (a generated one, or the generic one of templates\ where
+#     the repository has none) and in a project folder's AGENTS.md. Claude Code
 #     loads a file an AGENTS.md names after @ at launch, whole, so the rules reach the agent from
 #     its first prompt. It also loads the AGENTS.md of every directory above the one it starts in,
 #     and a repository's when it works there, so a checkout inside a project folder whose rules
@@ -362,6 +363,16 @@ function Get-BindingBlock {  # lib\binding-rules.md, each file named after @ whe
   $l = if ($importLocal) { '@.ai-core/rules/rules.local.md' } else { '`.ai-core/rules/rules.local.md`, still the template' }
   return @([System.IO.File]::ReadAllLines((Join-Path $coreRoot 'lib\binding-rules.md')) | ForEach-Object { $_.TrimEnd("`r").Replace('{RULES}', $r).Replace('{SKILLS}', $s).Replace('{LOCAL}', $l) })
 }
+# A repository the harness has no map for gets the generic one the same way, where its AGENTS.md
+# is none yet or one init wrote (a map, or the generic file of before 1.3.20); one the repository
+# tracks, or somebody's own, is kept
+if (-not $mapSrc -and -not $projectFolder -and $layerFiles -cnotcontains 'AGENTS.md') {
+  $agentsMd = Join-Path $target 'AGENTS.md'
+  & git -C $target ls-files --error-unmatch AGENTS.md 2>$null | Out-Null
+  $agentsTracked = ($LASTEXITCODE -eq 0)
+  $agentsOurs = -not (Test-Path -LiteralPath $agentsMd -PathType Leaf) -or ("$(@([System.IO.File]::ReadAllLines($agentsMd)) | Select-Object -First 1)" -cmatch '^(<!-- ai-core map:|# AGENTS\.md .* Repository Navigation & Operations)')
+  if (-not $agentsTracked -and $agentsOurs) { $mapSrc = Join-Path $coreRoot 'templates\AGENTS.md' } else { Add-Note kept 'AGENTS.md' }
+}
 if ($mapSrc) {
   $ml = @([System.IO.File]::ReadAllLines($mapSrc) | ForEach-Object { $_.TrimEnd("`r") })
   $rest = @($ml | Select-Object -Skip 2); while ($rest.Count -gt 0 -and -not $rest[0].Trim()) { $rest = @($rest | Select-Object -Skip 1) }
@@ -371,8 +382,8 @@ if ($mapSrc) {
 }
 
 # 2. The agent files, created once and never overwritten: templates\ mirrors the target layout.
-#    A project folder's AGENTS.md is generated instead: the list of its repositories, rewritten
-#    on every run because the folder changes. The file of an agent the project does not serve
+#    AGENTS.md is the map (1a); a project folder's is generated instead: the list of its
+#    repositories, rewritten on every run because the folder changes. The file of an agent the project does not serve
 #    (AGENTS in .ai-core\config.env, or the template's default before the file exists) is not
 #    deployed.
 $templates = Get-LongPath (Join-Path $coreRoot "templates")
@@ -386,7 +397,7 @@ $pointerOf = @{ '.cursorrules' = 'cursor'; '.windsurfrules' = 'windsurf'; '.gith
 $templateFiles = @(Get-ChildItem -Path $templates -Recurse -File -Force | ForEach-Object { $_.FullName.Substring($templates.Length + 1).Replace('\', '/') })
 [Array]::Sort($templateFiles, [StringComparer]::Ordinal)
 foreach ($rel in $templateFiles) {
-  if ($projectFolder -and $rel -ceq "AGENTS.md") { continue }
+  if ($rel -ceq "AGENTS.md") { continue }
   if ($layerFiles -ccontains $rel) { continue }
   if ($pointerOf.ContainsKey($rel) -and -not (Test-Serves $pointerOf[$rel])) { continue }
   Put (Join-Path $templates $rel) $rel once

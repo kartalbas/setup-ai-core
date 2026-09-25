@@ -120,7 +120,7 @@ the repository itself                  the code
 | Rules for every project | yes: one file per section under `rules/`, 66 rules in 10 sections, assembled into one `rules.md` per checkout | same |
 | Rules of one project (private harness) | yes: `github.com/<org>/<prefix>-ai-core`, found from the repository's origin, cloned beside the repositories (`<project folder>/<prefix>-ai-core`), created from a skeleton when missing; its `rules/` add or replace sections, its `skills/`, `docs/`, data files and `repos/<repo>/` are assembled into every checkout; a harness may extend another (section 4.5) | same |
 | Skills and team modes | `rules/skills.md` says when to use them; `team-modes.tsv` says how each tool proves a mode is installed and how to install it; `doctor` installs the missing ones, `session-start` refuses a session without them; skill folders of the project harness are deployed into `.claude/skills/` and `.agents/skills/` of every checkout | same |
-| Map of a repository (what Graft cannot know) | `repos/<repo>/AGENTS.md` of the project harness, or a generic skeleton until one exists | generated from the code by `ai-core map` through the developer's agent CLI, five fixed sections |
+| Map of a repository (what Graft cannot know) | `repos/<repo>/AGENTS.md` of the project harness, or the generic one of `templates/` until one exists, both under the binding rules | generated from the code by `ai-core map` through the developer's agent CLI, five fixed sections |
 | Code graph (Graft) | yes: built locally with Node.js, or `init` fails | same |
 | Claude Code hooks, status line, permissions, MCP | yes, with a `SessionStart` hook that runs the session start | same |
 | Session start | yes: the team-modes gate, state, versions, rules present, the issue thread of a worktree, exit 1 when not installed | also re-assembles the checkout when a layer changed |
@@ -202,7 +202,7 @@ checkout never carries a copy.
 │   ├── DEPLOYED                         managed: what the layers put here; what a layer no longer provides is taken out at the next run
 │   └── solution-path.template.md        yours: template of a solution path
 ├── .claude/skills/, .agents/skills/     managed: the skills of every layer, one folder each
-├── AGENTS.md                            managed from repos/<repo>/ of the harness, the binding rules on top; else created once from the template
+├── AGENTS.md                            managed: the map from repos/<repo>/ of the harness, else the generic one of templates/, the binding rules on top
 ├── CLAUDE.local.md                      only where the repository has a CLAUDE.md of its own: imports AGENTS.md; created once
 ├── .cursorrules, .windsurfrules         Cursor and Windsurf pointers
 ├── .github/copilot-instructions.md      Copilot pointer
@@ -400,10 +400,12 @@ the five headings in order, at most 80 lines) and refuses anything else, keeping
 `.ai-core/map.rejected.md` for a look. Section 5 comes back from the map that exists. The file
 goes into the project harness as `repos/<repo>/AGENTS.md` with a first line naming the commit it
 was generated from, the harness is committed and pushed (`push`), and the checkout assembled
-again, so the map is in place at once. In the checkout, `init` opens every generated map with the
-block `## Binding rules` from `lib/binding-rules.md`, after the header line and the title: the
-rules, the local rules and the skills file, each named after `@`, the documents of the project,
-and a line saying that an instruction file naming other places for these, a machine-wide
+again, so the map is in place at once. In the checkout, `init` opens every map, a generated one or,
+where the repository has none yet, the generic one of `templates/`, with the block
+`## Binding rules` from `lib/binding-rules.md`, after the header line and the title: the rules, the
+local rules and the skills file, each named after `@`, the documents of the project,
+`ai-core --help` for the harness commands, and a line saying that an instruction file naming other
+places for these, a machine-wide
 `CLAUDE.md` among them, is out of date. Claude Code loads a file an
 `AGENTS.md` names that way at launch, whole, so the rules are in the agent's context from its first
 prompt; any other tool reads where they are. A checkout inside a project folder whose rules are the
@@ -416,8 +418,9 @@ and a `CLAUDE.local.md` that is somebody's own is left alone with a note. `ai-co
 under a folder with one push and `init --all`; `--no-push` writes into the clone and stops;
 `--dry-run` prints the map. `session-start` prints `Map`: generated from which commit and how
 many commits behind, or `Generic (run ai-core map)`. Until `map` has run, `AGENTS.md` is the
-generic skeleton with the rules contract. No `CLAUDE.md` is needed: Claude Code reads `AGENTS.md`
-by itself, or through the `CLAUDE.local.md` above where the repository keeps one.
+generic map of `templates/`, which says there is none yet, under the same block; an `AGENTS.md`
+the repository tracks, or somebody's own, is kept. No `CLAUDE.md` is needed: Claude Code reads
+`AGENTS.md` by itself, or through the `CLAUDE.local.md` above where the repository keeps one.
 
 ### 4.8 Graft: the code graph
 
@@ -1029,7 +1032,7 @@ tag, so `main` can carry a mistake without it reaching anybody.
 - **Add a file a checkout should get:** put it under `templates/` at the path it has in the
   checkout. Both installers deploy it.
 - **Add a script:** both spellings in `bin/`, a help screen in each; `ai-core <name>` runs it
-  without any registration. A row in `templates/AGENTS.md` when agents should call it. A board
+  without any registration, and `ai-core --help`, where every `AGENTS.md` sends agents, lists it. A board
   command gets a test pair in `tests/` that drives both twins against a stand-in `gh`, and its
   PowerShell comparisons say whether they fold case, or `case-check` is red.
 - **Change a rule:** edit its section file under `rules/`, keep the tag at the end of the rule,
@@ -1137,7 +1140,7 @@ setup-ai-core/
 │   ├── board.sh / Board.psm1            the library of the board commands
 │   ├── layers.sh / Layers.psm1          the project harness: from origin, beside the repositories, cloned, pulled, created, the extends chain
 │   ├── gitignore-block                  the block init writes into a project's .gitignore
-│   ├── binding-rules.md                 the binding rules init puts on top of every generated map and into a project folder's AGENTS.md
+│   ├── binding-rules.md                 the binding rules init puts on top of every map and into a project folder's AGENTS.md
 │   └── entry-point.ps1                  the one text every scripts/check.ps1 and build.ps1 is a copy of
 ├── rules/
 │   ├── NN-slug.md                       the generic rules, one file per section

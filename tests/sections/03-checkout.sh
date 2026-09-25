@@ -29,6 +29,29 @@ echo "  AGENTS=\"cursor claude\": .cursorrules deployed; windsurf, copilot, open
 if ! diff "$WORK/sh.list" "$WORK/ps1.list"; then fail "init.sh and init.ps1 deployed different files"; fi
 echo "  $(wc -l < "$WORK/sh.list") files, identical on both twins"
 
+section "AGENTS.md without a map: the generic one under the binding rules; one of before replaced, one the repository tracks or somebody's own kept"
+for t in sh ps1; do
+  A="$WORK/$t/AGENTS.md"
+  grep -q '^<!-- ai-core map: none yet' <<< "$(head -n1 "$A")" && grep -qxF '## Binding rules' "$A" && grep -q '^- The engineering rules, .*: @\.ai-core/rules/rules\.md$' "$A" && grep -q '^- `ai-core --help`: ' "$A" && grep -qxF '# This repository has no map yet' "$A" || fail "init.$t did not put the binding rules on the generic map: $(head -n 12 "$A" | tr '\n' '|')"
+done
+cmp -s "$WORK/sh/AGENTS.md" "$WORK/ps1/AGENTS.md" || fail "the generic map differs between the twins"
+for t in sh ps1; do
+  for c in before mine tracked; do
+    C="$WORK/agentsmd-$t-$c"; mkdir -p "$C/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$C/.ai-core/config.env"; git init -q "$C"
+    case "$c" in
+      before) printf '# AGENTS.md \342\200\224 Repository Navigation & Operations\n\nthe generic file of before 1.3.20\n' > "$C/AGENTS.md" ;;
+      mine) printf '# mine\n' > "$C/AGENTS.md" ;;
+      tracked) printf '# tracked\n' > "$C/AGENTS.md"; git -C "$C" add AGENTS.md; git -C "$C" commit -q -m tracked ;;
+    esac
+    if [ "$t" = sh ]; then bash "$ROOT/bin/init.sh" "$C" --no-doctor > "$C.log" 2>&1; else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$C")" -NoDoctor > "$C.log" 2>&1; fi || fail "init.$t with an AGENTS.md $c (see $C.log)"
+    case "$c" in
+      before) grep -q '^<!-- ai-core map: none yet' <<< "$(head -n1 "$C/AGENTS.md")" || fail "init.$t kept the generic AGENTS.md of before" ;;
+      *) [ "$(tr -d '\r' < "$C/AGENTS.md")" = "# $c" ] && grep -aq '^  kept .*AGENTS\.md' "$C.log" || fail "init.$t overwrote an AGENTS.md that is $c, or did not report it kept: $(head -n1 "$C/AGENTS.md")" ;;
+    esac
+  done
+done
+echo "  the generic map carries the binding rules, the same on both twins; the file of before is replaced, one the repository tracks or somebody's own is kept and reported"
+
 section "install: --source uses the clone as it is, --repo clones and a second run pulls, the ai-core command runs init, on both twins"
 bash "$ROOT/bin/install.sh" --source "$ROOT" --dir "$WORK/not-created-sh" --no-path --no-doctor > "$WORK/install.sh.log" 2>&1 || fail "install.sh --source (see $WORK/install.sh.log)"
 [ ! -e "$WORK/not-created-sh" ] || fail "install.sh --source created something"

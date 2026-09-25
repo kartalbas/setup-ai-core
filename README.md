@@ -687,7 +687,7 @@ on the machine that runs the agent.
 | Bash | PowerShell | Effect |
 | :--- | :--- | :--- |
 | `ai-core init [TARGET_DIR]` | `ai-core init [-TargetDir <path>]` | the repository to equip; default is the current directory |
-| `--all <folder>` | `-All <folder>` | run `init` in every git repository directly under the folder, then in the folder itself (section 5.8); `doctor` runs once; a failing repository is named in the summary and the exit code is 1 |
+| `--all <folder>` | `-All <folder>` | run `init` in every git repository directly under the folder and in every worktree under its `.worktrees/`, then in the folder itself (section 5.8); `doctor` runs once; a failing repository is named in the summary and the exit code is 1 |
 | `--no-doctor` | `-NoDoctor` | do not run `doctor` first (CI, or a machine you have checked yourself) |
 | `--dry-run` | `-DryRun` | write nothing; print the report of what the run would create, refresh, keep and remove, and what Graft would write in the repository and on the machine; `doctor` runs without installing; with `--all` every repository gets its dry run |
 | `-h`, `--help` | `-Help` | usage |
@@ -764,8 +764,9 @@ allowed; any other value is an error.
 ### 5.8 Many repositories
 
 The unit of installation is one repository checkout. For a project with many repositories in one
-folder, one command runs `init` in each git repository directly under it, skips the folders that
-are not repositories, names the ones that failed, and then equips the folder itself:
+folder, one command runs `init` in each git repository directly under it and in each worktree
+`start-issue` put under its `.worktrees/`, skips the folders that are not repositories, names the
+ones that failed, and then equips the folder itself:
 
 ```powershell
 ai-core init -All C:\repos\myorg

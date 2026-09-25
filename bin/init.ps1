@@ -26,7 +26,8 @@ if ($Help -or $args -ccontains "-h" -or $args -ccontains "--help" -or $TargetDir
   Write-Host ""
   Write-Host "Options:"
   Write-Host "  -TargetDir <path>   Target directory (default: current)"
-  Write-Host "  -All <folder>       Init every git repository directly under the folder, then the folder itself"
+  Write-Host "  -All <folder>       Init every git repository directly under the folder and every worktree under"
+  Write-Host "                      its .worktrees\, then the folder itself"
   Write-Host "  -NoDoctor           Do not run doctor first"
   Write-Host "  -DryRun             Report what the run would create, refresh, keep and remove; write nothing"
   Write-Host "  -Help               Show this help message"
@@ -54,15 +55,23 @@ if (-not $NoDoctor) {
   if ($LASTEXITCODE -ne 0) { Write-Host "error: fix the problems doctor reported, then run init again (or pass -NoDoctor)." -ForegroundColor Red; exit 1 }
 }
 
-# -All: every git repository directly under the folder, then the folder itself
+# -All: every git repository directly under the folder, every worktree `ai-core start-issue` put
+# under its .worktrees\<repository>\, then the folder itself
 if ($All) {
   $allDir = (Resolve-Path $All).Path
   $ok = 0; $failed = @()
   $pass = @('-NoDoctor'); if ($DryRun) { $pass += '-DryRun' }
-  # a harness clone serves the repositories; it is not one of them
-  foreach ($repo in Get-ChildItem -Path $allDir -Directory | Where-Object { $_.Name -cnotlike '*-ai-core' -and (Test-Path (Join-Path $_.FullName ".git")) }) {
+  $checkouts = @(Get-ChildItem -LiteralPath $allDir -Directory | ForEach-Object { [pscustomobject]@{ Name = $_.Name; RepoFolder = $_.Name; Path = $_.FullName } })
+  $worktrees = Join-Path $allDir '.worktrees'
+  if (Test-Path -LiteralPath $worktrees) {
+    foreach ($r in Get-ChildItem -LiteralPath $worktrees -Directory) {
+      $checkouts += @(Get-ChildItem -LiteralPath $r.FullName -Directory | ForEach-Object { [pscustomobject]@{ Name = ".worktrees/$($r.Name)/$($_.Name)"; RepoFolder = $r.Name; Path = $_.FullName } })
+    }
+  }
+  # a harness clone serves the repositories; it is not one of them, and neither is a worktree of one
+  foreach ($repo in $checkouts | Where-Object { $_.RepoFolder -cnotlike '*-ai-core' -and (Test-Path (Join-Path $_.Path ".git")) }) {
     Write-Host ""; Write-Host "### $($repo.Name)"
-    & pwsh -NoProfile -File $MyInvocation.MyCommand.Path -TargetDir $repo.FullName @pass
+    & pwsh -NoProfile -File $MyInvocation.MyCommand.Path -TargetDir $repo.Path @pass
     if ($LASTEXITCODE -eq 0) { $ok++ } else { $failed += $repo.Name }
   }
   Write-Host ""; Write-Host "### $(Split-Path -Leaf $allDir) (the folder itself)"

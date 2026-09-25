@@ -21,7 +21,8 @@ for arg in "$@"; do
     echo ""
     echo "Options:"
     echo "  -h, --help       Show this help message"
-    echo "  --all <folder>   Init every git repository directly under the folder, then the folder itself"
+    echo "  --all <folder>   Init every git repository directly under the folder and every worktree under"
+    echo "                   its .worktrees/, then the folder itself"
     echo "  --no-doctor      Do not run doctor first"
     echo "  --dry-run        Report what the run would create, refresh, keep and remove; write nothing"
     echo ""
@@ -60,17 +61,19 @@ if [ "$RUN_DOCTOR" -eq 1 ]; then
   bash "$CORE_ROOT/bin/doctor.sh" ${DOCTOR_ARGS[@]+"${DOCTOR_ARGS[@]}"} || { echo "error: fix the problems doctor reported, then run init again (or pass --no-doctor)." >&2; exit 1; }
 fi
 
-# --all: every git repository directly under the folder, then the folder itself
+# --all: every git repository directly under the folder, every worktree `ai-core start-issue` put
+# under its .worktrees/<repository>/, then the folder itself
 if [ -n "$ALL_DIR" ]; then
   ALL_DIR="$(cd "$ALL_DIR" && pwd)"
   OK=0; FAILED=""
   PASS=(--no-doctor); [ "$DRY" -eq 1 ] && PASS+=(--dry-run)
-  for repo in "$ALL_DIR"/*/; do
+  for repo in "$ALL_DIR"/*/ "$ALL_DIR"/.worktrees/*/*/; do
     repo="${repo%/}"
     [ -e "$repo/.git" ] || continue
-    case "$(basename "$repo")" in *-ai-core) continue ;; esac   # a harness clone serves the repositories; it is not one of them
-    echo ""; echo "### $(basename "$repo")"
-    if bash "${BASH_SOURCE[0]}" "$repo" "${PASS[@]}"; then OK=$((OK + 1)); else FAILED="$FAILED $(basename "$repo")"; fi
+    name="${repo#"$ALL_DIR"/}"; repo_folder="${name#.worktrees/}"; repo_folder="${repo_folder%%/*}"
+    case "$repo_folder" in *-ai-core) continue ;; esac   # a harness clone serves the repositories; it is not one of them, and neither is a worktree of one
+    echo ""; echo "### $name"
+    if bash "${BASH_SOURCE[0]}" "$repo" "${PASS[@]}"; then OK=$((OK + 1)); else FAILED="$FAILED $name"; fi
   done
   echo ""; echo "### $(basename "$ALL_DIR") (the folder itself)"
   bash "${BASH_SOURCE[0]}" "$ALL_DIR" "${PASS[@]}" || FAILED="$FAILED $(basename "$ALL_DIR")/"

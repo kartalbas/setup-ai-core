@@ -24,18 +24,24 @@ grep -aq '^--> Project harness: example-org/shop-ai-core (' "$WORK/layers-sh-1.l
 [ -f "$WORK/org-sh/shop-ai-core/ai-core.json" ] && [ -f "$WORK/org-sh/shop-ai-core/labels.tsv" ] || fail "the clone beside the checkout lacks the skeleton"
 [ "$(wc -l < "$WORK/org-sh/shop-web/.ai-core/STAMP" | tr -d ' ')" = 2 ] && grep -q '^shop-ai-core ' "$WORK/org-sh/shop-web/.ai-core/STAMP" || fail "STAMP does not name setup-ai-core and the harness: $(cat "$WORK/org-sh/shop-web/.ai-core/STAMP" | tr '\n' '|')"
 cmp -s "$WORK/org-sh/shop-web/.ai-core/config.env" "$ROOT/templates/.ai-core/config.env" || fail "config.env of the checkout is not the harness's (the skeleton's copy of the template)"
-# The skeleton's .gitattributes makes every checkout of the harness LF; a clone made before the
-# skeleton carried it gets the rule on the next init, and ai-core push commits it (here the clone
-# commits it itself, so the rest of this section sees the harness as created)
+# The skeleton's .gitattributes makes every checkout of the harness LF and its .gitignore keeps what
+# Graft builds there out of git; a clone made before the skeleton carried them gets the lines it
+# lacks on the next init, and ai-core push commits them (here the clone commits them itself, so the
+# rest of this section sees the harness as created). The older clone has no .gitattributes and the
+# .gitignore Graft writes, its one line.
 grep -qxF '* text=auto eol=lf' "$WORK/org-sh/shop-ai-core/.gitattributes" || fail "the created harness lacks the skeleton's .gitattributes"
-git -C "$WORK/org-sh/shop-ai-core" rm -q .gitattributes && git -C "$WORK/org-sh/shop-ai-core" -c user.name=check -c user.email=check@localhost commit -q -m 'without attributes' && git -C "$WORK/org-sh/shop-ai-core" push -q origin HEAD 2>/dev/null || fail "could not take .gitattributes out of the harness clone"
+grep -qxF '/graft/' "$WORK/org-sh/shop-ai-core/.gitignore" && grep -qxF '/.ignore' "$WORK/org-sh/shop-ai-core/.gitignore" || fail "the created harness lacks the skeleton's .gitignore"
+git -C "$WORK/org-sh/shop-ai-core" rm -q .gitattributes && printf '/graft/\n' > "$WORK/org-sh/shop-ai-core/.gitignore" && git -C "$WORK/org-sh/shop-ai-core" add .gitignore && git -C "$WORK/org-sh/shop-ai-core" -c user.name=check -c user.email=check@localhost commit -q -m 'an older harness' && git -C "$WORK/org-sh/shop-ai-core" push -q origin HEAD 2>/dev/null || fail "could not make the harness clone an older one"
 HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/init.sh" "$WORK/org-sh/shop-web" --no-doctor --dry-run > "$WORK/layers-sh-attr-dry.log" 2>&1 || fail "init.sh --dry-run on a harness clone without .gitattributes (see $WORK/layers-sh-attr-dry.log)"
 grep -aq "note: example-org/shop-ai-core would get the skeleton's .gitattributes (every file LF; dry run: not written)" "$WORK/layers-sh-attr-dry.log" || fail "init.sh --dry-run does not announce the skeleton's .gitattributes (see $WORK/layers-sh-attr-dry.log)"
-[ ! -e "$WORK/org-sh/shop-ai-core/.gitattributes" ] || fail "init.sh --dry-run wrote .gitattributes into the harness clone"
+grep -aq "note: example-org/shop-ai-core would get the skeleton's .gitignore (Graft's graph and .ignore stay out of git; dry run: not written)" "$WORK/layers-sh-attr-dry.log" || fail "init.sh --dry-run does not announce the skeleton's .gitignore (see $WORK/layers-sh-attr-dry.log)"
+[ ! -e "$WORK/org-sh/shop-ai-core/.gitattributes" ] && [ "$(tr -d '\r' < "$WORK/org-sh/shop-ai-core/.gitignore")" = '/graft/' ] || fail "init.sh --dry-run wrote into the harness clone"
 HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" bash "$ROOT/bin/init.sh" "$WORK/org-sh/shop-web" --no-doctor > "$WORK/layers-sh-attr.log" 2>&1 || fail "init.sh on a harness clone without .gitattributes (see $WORK/layers-sh-attr.log)"
 grep -aq 'note: example-org/shop-ai-core: .gitattributes from the skeleton written into .*shop-ai-core (every file LF); ai-core push commits it' "$WORK/layers-sh-attr.log" || fail "init.sh did not report the skeleton's .gitattributes for the older clone (see $WORK/layers-sh-attr.log)"
 grep -qxF '* text=auto eol=lf' "$WORK/org-sh/shop-ai-core/.gitattributes" || fail "init.sh did not write the skeleton's rule into the older clone"
-git -C "$WORK/org-sh/shop-ai-core" add .gitattributes && git -C "$WORK/org-sh/shop-ai-core" -c user.name=check -c user.email=check@localhost commit -q -m 'attributes again' && git -C "$WORK/org-sh/shop-ai-core" push -q origin HEAD 2>/dev/null || fail "could not commit .gitattributes back into the harness clone"
+grep -aq "note: example-org/shop-ai-core: .gitignore from the skeleton written into .*shop-ai-core (Graft's graph and .ignore stay out of git); ai-core push commits it" "$WORK/layers-sh-attr.log" || fail "init.sh did not report the skeleton's .gitignore for the older clone (see $WORK/layers-sh-attr.log)"
+[ "$(tr -d '\r' < "$WORK/org-sh/shop-ai-core/.gitignore" | tr '\n' ' ')" = '/graft/ /.ignore ' ] || fail "init.sh did not add the missing line, once, to the older clone's .gitignore: $(tr '\n' '|' < "$WORK/org-sh/shop-ai-core/.gitignore")"
+git -C "$WORK/org-sh/shop-ai-core" add .gitattributes .gitignore && git -C "$WORK/org-sh/shop-ai-core" -c user.name=check -c user.email=check@localhost commit -q -m 'the skeleton files again' && git -C "$WORK/org-sh/shop-ai-core" push -q origin HEAD 2>/dev/null || fail "could not commit .gitattributes and .gitignore back into the harness clone"
 # The project fills its harness: a new rule section, a replaced one, a skill, a document, the map and config of shop-web
 git clone -q "$GH_FAKE/github.com/example-org/shop-ai-core.git" "$WORK/author" 2>/dev/null
 git -C "$WORK/author" config core.autocrlf false
@@ -212,11 +218,14 @@ HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" GRA
 grep -aq 'created: example-org/store-ai-core, private, from the skeleton' "$WORK/layers-ps-2.log" || fail "init.ps1 did not create store-ai-core"
 [ -d "$GH_FAKE/github.com/example-org/store-ai-core.git" ] || fail "store-ai-core was not pushed"
 grep -qxF '* text=auto eol=lf' "$WORK/org-ps/store-ai-core/.gitattributes" || fail "the harness init.ps1 created lacks the skeleton's .gitattributes"
-git -C "$WORK/org-ps/store-ai-core" rm -q .gitattributes && git -C "$WORK/org-ps/store-ai-core" -c user.name=check -c user.email=check@localhost commit -q -m 'without attributes' && git -C "$WORK/org-ps/store-ai-core" push -q origin HEAD 2>/dev/null || fail "could not take .gitattributes out of store-ai-core"
+grep -qxF '/graft/' "$WORK/org-ps/store-ai-core/.gitignore" && grep -qxF '/.ignore' "$WORK/org-ps/store-ai-core/.gitignore" || fail "the harness init.ps1 created lacks the skeleton's .gitignore"
+git -C "$WORK/org-ps/store-ai-core" rm -q .gitattributes && printf '/graft/\n' > "$WORK/org-ps/store-ai-core/.gitignore" && git -C "$WORK/org-ps/store-ai-core" add .gitignore && git -C "$WORK/org-ps/store-ai-core" -c user.name=check -c user.email=check@localhost commit -q -m 'an older harness' && git -C "$WORK/org-ps/store-ai-core" push -q origin HEAD 2>/dev/null || fail "could not make store-ai-core an older one"
 HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" GRAFT_FAKE_LOG="$(native "$WORK/layers.args")" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-ps/store-api")" -NoDoctor > "$WORK/layers-ps-attr.log" 2>&1 || fail "init.ps1 on a harness clone without .gitattributes (see $WORK/layers-ps-attr.log)"
 grep -aq 'note: example-org/store-ai-core: .gitattributes from the skeleton written into .*store-ai-core (every file LF); ai-core push commits it' "$WORK/layers-ps-attr.log" || fail "init.ps1 did not report the skeleton's .gitattributes for the older clone (see $WORK/layers-ps-attr.log)"
 grep -qxF '* text=auto eol=lf' "$WORK/org-ps/store-ai-core/.gitattributes" || fail "init.ps1 did not write the skeleton's rule into the older clone"
-git -C "$WORK/org-ps/store-ai-core" add .gitattributes && git -C "$WORK/org-ps/store-ai-core" -c user.name=check -c user.email=check@localhost commit -q -m 'attributes again' && git -C "$WORK/org-ps/store-ai-core" push -q origin HEAD 2>/dev/null || fail "could not commit .gitattributes back into store-ai-core"
+grep -aq "note: example-org/store-ai-core: .gitignore from the skeleton written into .*store-ai-core (Graft's graph and .ignore stay out of git); ai-core push commits it" "$WORK/layers-ps-attr.log" || fail "init.ps1 did not report the skeleton's .gitignore for the older clone (see $WORK/layers-ps-attr.log)"
+[ "$(tr -d '\r' < "$WORK/org-ps/store-ai-core/.gitignore" | tr '\n' ' ')" = '/graft/ /.ignore ' ] || fail "init.ps1 did not add the missing line, once, to the older clone's .gitignore: $(tr '\n' '|' < "$WORK/org-ps/store-ai-core/.gitignore")"
+git -C "$WORK/org-ps/store-ai-core" add .gitattributes .gitignore && git -C "$WORK/org-ps/store-ai-core" -c user.name=check -c user.email=check@localhost commit -q -m 'the skeleton files again' && git -C "$WORK/org-ps/store-ai-core" push -q origin HEAD 2>/dev/null || fail "could not commit .gitattributes and .gitignore back into store-ai-core"
 # A harness repository that exists on GitHub but is empty, made by hand by whoever has the right
 # to create it under that owner: the first init fills it from the skeleton and pushes, on both twins
 for twin in sh ps1; do

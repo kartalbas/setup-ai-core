@@ -80,13 +80,6 @@ function Remove-GraftBlock([string]$file) {
   $text = ($kept -join "`n").TrimEnd("`n", "`r")
   if ($text) { [System.IO.File]::WriteAllText($file, $text + "`n", (New-Object System.Text.UTF8Encoding $false)) } else { Remove-Item -LiteralPath $file -Force }
 }
-function Test-GraftOnly([string]$path) {  # nothing in it but comments, blank lines and Graft's own paths (graft/, its cache, its graph)
-  foreach ($line in [System.IO.File]::ReadAllLines($path)) {
-    if ($line -cmatch '^\s*(#.*)?$' -or $line -cmatch '^!?/?graft/(\.cache/|\.graph/)?$') { continue }
-    return $false
-  }
-  return $true
-}
 function Remove-GraftFromHarnessClones([string[]]$lines) {
   $taken = @()
   foreach ($e in (Get-GraftLines $lines)) {
@@ -102,14 +95,12 @@ function Remove-GraftFromHarnessClones([string[]]$lines) {
   }
   # what Graft leaves without naming it, or named in an earlier run
   foreach ($c in (Get-ChildItem -Directory -Filter '*-ai-core' | Where-Object { Test-Path (Join-Path $_.FullName '.git') })) {
-    foreach ($junk in @('graft', '.mcp.json', 'AGENTS.md', '.gitignore', '.ignore')) {
+    foreach ($junk in @('graft', '.mcp.json', 'AGENTS.md')) {
       $p = Join-Path $c.FullName $junk
       if (-not (Test-Path -LiteralPath $p) -or ($taken -ccontains "$($c.Name)/$junk")) { continue }
       & git -C $c.FullName ls-files --error-unmatch $junk 2>$null | Out-Null
       if ($LASTEXITCODE -eq 0) { continue }
-      if ($junk -ceq 'AGENTS.md') { if (-not (Test-GraftBlock $p)) { continue }; Remove-GraftBlock $p }
-      elseif ($junk -ceq '.gitignore' -or $junk -ceq '.ignore') { if (-not (Test-GraftOnly $p)) { continue }; Remove-Item -LiteralPath $p -Force }
-      else { Remove-Item -LiteralPath $p -Recurse -Force }
+      if ($junk -ceq 'AGENTS.md') { if (-not (Test-GraftBlock $p)) { continue }; Remove-GraftBlock $p } else { Remove-Item -LiteralPath $p -Recurse -Force }
       $taken += "$($c.Name)/$junk"
     }
   }

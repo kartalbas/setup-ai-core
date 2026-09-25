@@ -82,20 +82,27 @@ move_layer() {
   echo "moved: $full from $old to $new, beside the repositories it serves" >&2
 }
 
-# layer_attributes <clone> <setup-ai-core root> <org>/<name> [dry]: a clone made before the
-# skeleton carried .gitattributes gets the skeleton's rule, so every checkout of it is LF (the
-# .githooks shims run through bash, a .tsv keeps its last field); the next ai-core push commits it
-layer_attributes() {
-  local dir="$1" root="$2" full="$3" mode="${4:-}"
-  grep -qsxF '* text=auto eol=lf' "$dir/.gitattributes" && return 0
-  if [ "$mode" = dry ]; then echo "note: $full would get the skeleton's .gitattributes (every file LF; dry run: not written)" >&2; return 0; fi
-  if [ -f "$dir/.gitattributes" ]; then
-    [ -z "$(tail -c 1 "$dir/.gitattributes")" ] || printf '\n' >> "$dir/.gitattributes"
-    grep -v '^#' "$root/skeleton/.gitattributes" >> "$dir/.gitattributes"
+# layer_skeleton_file <clone> <setup-ai-core root> <org>/<name> <file> <what it does> [dry]: a
+# clone made before the skeleton carried <file> gets the lines of the skeleton's it lacks; the
+# next ai-core push commits them. The skeleton's .gitattributes makes every checkout of the harness
+# LF (the .githooks shims run through bash, a .tsv keeps its last field); its .gitignore keeps
+# what Graft builds in the clone out of git
+layer_skeleton_file() {
+  local dir="$1" root="$2" full="$3" file="$4" why="$5" mode="${6:-}" have line missing=""
+  have="$(tr -d '\r' 2>/dev/null < "$dir/$file" || true)"
+  while IFS= read -r line; do
+    case "$line" in ''|'#'*) continue ;; esac
+    grep -qxF -- "$line" <<< "$have" || missing="$missing$line"$'\n'
+  done < <(tr -d '\r' < "$root/skeleton/$file")
+  [ -n "$missing" ] || return 0
+  if [ "$mode" = dry ]; then echo "note: $full would get the skeleton's $file ($why; dry run: not written)" >&2; return 0; fi
+  if [ -f "$dir/$file" ]; then
+    [ -z "$(tail -c 1 "$dir/$file")" ] || printf '\n' >> "$dir/$file"
+    printf '%s' "$missing" >> "$dir/$file"
   else
-    cp "$root/skeleton/.gitattributes" "$dir/.gitattributes"
+    cp "$root/skeleton/$file" "$dir/$file"
   fi
-  echo "note: $full: .gitattributes from the skeleton written into $dir (every file LF); ai-core push commits it" >&2
+  echo "note: $full: $file from the skeleton written into $dir ($why); ai-core push commits it" >&2
 }
 
 # fill_layer <clone> <setup-ai-core root>: the skeleton, what every project harness starts from,
@@ -149,7 +156,8 @@ ensure_layer() {
     if ! git -C "$dir" pull --ff-only --quiet >/dev/null 2>&1; then
       echo "note: could not pull $full into $dir (offline, or the clone has local changes); using it as it is" >&2
     fi
-    layer_attributes "$dir" "$root" "$full" "$mode"
+    layer_skeleton_file "$dir" "$root" "$full" .gitattributes 'every file LF' "$mode"
+    layer_skeleton_file "$dir" "$root" "$full" .gitignore "Graft's graph and .ignore stay out of git" "$mode"
     echo "$dir"; return 0
   fi
   if gh repo view "$full" --json name >/dev/null 2>&1; then
@@ -162,7 +170,8 @@ ensure_layer() {
       git -C "$dir" push --quiet -u origin HEAD >/dev/null 2>&1 || { echo "error: could not push the skeleton to $full (no write access to it?); the clone at $dir keeps it" >&2; return 1; }
       echo "filled: $full, empty on GitHub, from the skeleton, at $dir" >&2
     fi
-    layer_attributes "$dir" "$root" "$full"
+    layer_skeleton_file "$dir" "$root" "$full" .gitattributes 'every file LF'
+    layer_skeleton_file "$dir" "$root" "$full" .gitignore "Graft's graph and .ignore stay out of git"
     echo "$dir"; return 0
   fi
   [ "$mode" = create ] || { echo "error: $full does not exist on GitHub" >&2; return 1; }

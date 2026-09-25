@@ -1,0 +1,4 @@
+# Graft builds a graph in every repository of a project folder, this one too: the graph and the
+# .ignore Graft writes to keep it searchable stay out of git
+/graft/
+/.ignore

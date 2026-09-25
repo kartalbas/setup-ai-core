@@ -51,11 +51,10 @@ for twin in sh ps1; do
   cmp -s "$D/.git/info/exclude" "$WORK/report-$twin.exclude" || fail "init.$twin run 2 rewrote the exclude file"
   # 4. a project folder: its AGENTS.md is generated on every run and keeps the block Graft appends to it
   F="$WORK/folder-$twin"; mkdir -p "$F"; git init -q "$F/app"; git init -q "$F/x-ai-core"   # a harness clone beside the repositories: Graft wires it, init takes that out again
-  git init -q "$F/y-ai-core"; printf '/private/\n' > "$F/y-ai-core/.gitignore"   # one whose .gitignore is somebody's own
+  cp "$ROOT/skeleton/.gitignore" "$F/x-ai-core/.gitignore"; git -C "$F/x-ai-core" add .gitignore; git -C "$F/x-ai-core" commit -q -m harness   # its .gitignore, the skeleton's
   init_twin "$twin" "$F" "$WORK/folder-$twin-1.log" || fail "init.$twin on a project folder failed (see $WORK/folder-$twin-1.log)"
   [ ! -e "$F/x-ai-core/AGENTS.md" ] && grep -aq '^  taken out of the harness clones (data, not code): x-ai-core/AGENTS.md' "$WORK/folder-$twin-1.log" || fail "init.$twin left what Graft wrote in the harness clone: $(ls -A "$F/x-ai-core" | tr '\n' ' ')"
-  [ ! -e "$F/x-ai-core/.gitignore" ] && [ ! -e "$F/x-ai-core/.ignore" ] && [ ! -e "$F/y-ai-core/.ignore" ] && grep -aq 'x-ai-core/\.gitignore, x-ai-core/\.ignore' "$WORK/folder-$twin-1.log" || fail "init.$twin left the .gitignore or .ignore Graft wrote in a harness clone: $(ls -A "$F/x-ai-core" "$F/y-ai-core" | tr '\n' ' ')"
-  [ "$(tr -d '\r' < "$F/y-ai-core/.gitignore")" = '/private/' ] || fail "init.$twin touched a harness clone's own .gitignore"
+  [ -e "$F/x-ai-core/.ignore" ] && [ -z "$(git -C "$F/x-ai-core" -c core.excludesFile= status --porcelain)" ] || fail "what Graft wrote shows in the git status of a harness clone with the skeleton's .gitignore: $(git -C "$F/x-ai-core" -c core.excludesFile= status --porcelain | tr '\n' ' ')"
   grep -q '^<!-- graft:start -->' "$F/AGENTS.md" || fail "the fake Graft did not append its block to the folder's AGENTS.md ($twin)"
   init_twin "$twin" "$F" "$WORK/folder-$twin-2.log" || fail "init.$twin run 2 on a project folder failed (see $WORK/folder-$twin-2.log)"
   grep -aqE '^  (created|refreshed|removed) ' "$WORK/folder-$twin-2.log" && fail "init.$twin run 2 on a project folder changed something: $(grep -aE '^  (created|refreshed|removed) ' "$WORK/folder-$twin-2.log")"

@@ -84,24 +84,27 @@ function Move-Layer {
   Write-Host "moved: $Full from $Old to $New, beside the repositories it serves"
 }
 
-function Add-LayerAttributes {
-  # A clone made before the skeleton carried .gitattributes gets the skeleton's rule, so every
-  # checkout of it is LF (the .githooks shims run through bash, a .tsv keeps its last field); the
-  # next ai-core push commits it
-  [CmdletBinding()] param([Parameter(Mandatory)][string]$Dir, [Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Full, [switch]$Dry)
-  $path = Join-Path $Dir '.gitattributes'
-  $rule = '* text=auto eol=lf'
-  if ((Test-Path $path) -and (@([System.IO.File]::ReadAllLines($path)) -ccontains $rule)) { return }
-  if ($Dry) { Write-Host "note: $Full would get the skeleton's .gitattributes (every file LF; dry run: not written)"; return }
+function Add-LayerSkeletonFile {
+  # A clone made before the skeleton carried the file gets the lines of the skeleton's it lacks;
+  # the next ai-core push commits them. The skeleton's .gitattributes makes every checkout of the
+  # harness LF (the .githooks shims run through bash, a .tsv keeps its last field); its .gitignore
+  # keeps what Graft builds in the clone out of git
+  [CmdletBinding()] param([Parameter(Mandatory)][string]$Dir, [Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Full, [Parameter(Mandatory)][string]$File, [Parameter(Mandatory)][string]$Why, [switch]$Dry)
+  $path = Join-Path $Dir $File
+  $skeleton = Join-Path (Join-Path $Root 'skeleton') $File
+  $have = if (Test-Path -LiteralPath $path) { @([System.IO.File]::ReadAllLines($path)) } else { @() }
+  $missing = @([System.IO.File]::ReadAllLines($skeleton) | Where-Object { $_ -cnotmatch '^(#|$)' -and $have -cnotcontains $_ })
+  if ($missing.Count -eq 0) { return }
+  if ($Dry) { Write-Host "note: $Full would get the skeleton's $File ($Why; dry run: not written)"; return }
   $utf8 = New-Object System.Text.UTF8Encoding $false
-  if (Test-Path $path) {
+  if (Test-Path -LiteralPath $path) {
     $text = [System.IO.File]::ReadAllText($path)
     if ($text.Length -gt 0 -and -not $text.EndsWith("`n", [StringComparison]::Ordinal)) { $text += "`n" }
-    [System.IO.File]::WriteAllText($path, $text + $rule + "`n", $utf8)
+    [System.IO.File]::WriteAllText($path, $text + ($missing -join "`n") + "`n", $utf8)
   } else {
-    Copy-Item (Join-Path $Root 'skeleton\.gitattributes') $path
+    Copy-Item -LiteralPath $skeleton $path
   }
-  Write-Host "note: ${Full}: .gitattributes from the skeleton written into $Dir (every file LF); ai-core push commits it"
+  Write-Host "note: ${Full}: $File from the skeleton written into $Dir ($Why); ai-core push commits it"
 }
 
 function Initialize-LayerContent {
@@ -153,7 +156,8 @@ function Resolve-Layer {
     if ($tracked -gt 0 -and $missing -eq $tracked) { & git -C $dir checkout -- . 2>$null | Out-Null; Write-Host "restored: the files of $Full at $dir from its history (every tracked file was missing)" }
     & git -C $dir pull --ff-only --quiet 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Host "note: could not pull $Full into $dir (offline, or the clone has local changes); using it as it is" }
-    Add-LayerAttributes -Dir $dir -Root $Root -Full $Full -Dry:$Dry
+    Add-LayerSkeletonFile -Dir $dir -Root $Root -Full $Full -File '.gitattributes' -Why 'every file LF' -Dry:$Dry
+    Add-LayerSkeletonFile -Dir $dir -Root $Root -Full $Full -File '.gitignore' -Why "Graft's graph and .ignore stay out of git" -Dry:$Dry
     return $dir
   }
   & gh repo view $Full --json name 2>$null | Out-Null
@@ -170,7 +174,8 @@ function Resolve-Layer {
       if ($LASTEXITCODE -ne 0) { throw "could not push the skeleton to $Full (no write access to it?); the clone at $dir keeps it" }
       Write-Host "filled: $Full, empty on GitHub, from the skeleton, at $dir"
     }
-    Add-LayerAttributes -Dir $dir -Root $Root -Full $Full
+    Add-LayerSkeletonFile -Dir $dir -Root $Root -Full $Full -File '.gitattributes' -Why 'every file LF'
+    Add-LayerSkeletonFile -Dir $dir -Root $Root -Full $Full -File '.gitignore' -Why "Graft's graph and .ignore stay out of git"
     return $dir
   }
   if (-not $Create) { throw "$Full does not exist on GitHub" }

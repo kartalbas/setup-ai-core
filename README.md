@@ -311,9 +311,13 @@ to its first dash: `shop-web` and `shop-api` both belong to `shop-ai-core`. Noth
 
 The skeleton carries a `.gitattributes` (`* text=auto eol=lf`), so every checkout of a harness is
 LF on every operating system: its `.githooks` shims run through bash, and a `.tsv` keeps its last
-field. A clone made before the skeleton carried it gets the rule on its next `init`, said as
-`note: <org>/<prefix>-ai-core: .gitattributes from the skeleton written into ...`; the next
-`ai-core push` commits it.
+field. It also carries a `.gitignore` with `/graft/` and `/.ignore`: Graft's Claude Code hook
+rebuilds the graph of every repository in a project folder at the end of each turn, the harness
+clone's too, and writes a `.gitignore` and an `.ignore` there unless `/graft/` is already in its
+`.gitignore`; with the skeleton's, it writes no `.gitignore`, and git ignores the graph and the
+`.ignore`. A clone made before the skeleton carried either gets the lines it lacks on its next
+`init`, said as `note: <org>/<prefix>-ai-core: .gitattributes from the skeleton written into ...`
+(or `.gitignore`); the next `ai-core push` commits them.
 
 A harness may extend another: `ai-core.json` `{"extends": "<org>/<name>-ai-core"}`, a company
 harness under several projects for example. The chain is resolved base first, a circle or more
@@ -444,8 +448,7 @@ repository. That is what an agent started in the folder gets; an agent started i
 gets that repository's own graph. Graft wires the harness clones beside the repositories
 (`<prefix>-ai-core`) as well, and rescans the folder on every build; a harness clone is data that
 `ai-core push` commits whole, so `init` takes out what Graft put into one: the files it created,
-its block from a file it appended to, its graph, its MCP file, and the `.gitignore` and `.ignore`
-it writes for its graph when they hold nothing else.
+its block from a file it appended to, its graph and its MCP file.
 
 `graft init` also writes outside the repository, once per machine: the Graft MCP server and hooks
 for Codex (`~/.codex/config.toml`, `~/.codex/hooks.json`), Claude Code (`~/.claude.json`,

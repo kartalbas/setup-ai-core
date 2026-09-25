@@ -207,7 +207,7 @@ checkout never carries a copy.
 ├── .cursorrules, .windsurfrules         Cursor and Windsurf pointers
 ├── .github/copilot-instructions.md      Copilot pointer
 ├── .openhands/microagents/repo-rules.md OpenHands microagent
-├── .claude/settings.json                Claude Code: the session-start hook; permissions Bash(ai-core:*) and mcp__graft
+├── .claude/settings.json                Claude Code: the session-start hook, ai-core by its full path; permissions Bash(ai-core:*) and mcp__graft
 ├── .codex/config.toml                   Codex: the Graft MCP server, read once the project is trusted
 └── graft/                               the code graph, and what graft init wires: .mcp.json,
                                          .claude/helpers/, .claude/skills/graft/, GEMINI.md, ...
@@ -548,8 +548,11 @@ tools work; the harness gives them the text at the place they look.
   output marked `Output too large` reached the agent only as a 2 KB preview.
 - `.claude/settings.json` is created once with the `SessionStart` hook and two permissions,
   `Bash(ai-core:*)` for the harness commands and `mcp__graft` for every tool of the Graft MCP
-  server, which only reads the code graph, so an agent runs both without a prompt. If your
-  repository already has one, `init` keeps it and merges in whichever of the three it lacks, once. Claude Code applies allow rules from
+  server, which only reads the code graph, so an agent runs both without a prompt. The hook names
+  `ai-core` by its full path on this machine, so a Claude Code started from a terminal opened
+  before the install still runs it; the file is the machine's and never committed. If your
+  repository already has one, `init` keeps it, merges in whichever of the three it lacks, once,
+  and replaces an `ai-core` hook of an older form. Claude Code applies allow rules from
   a committed or excluded project `settings.json` only after you accept its trust dialog for the
   folder.
 - Everything else Claude Code needs for Graft is written by `graft init`, which `init` runs:
@@ -1085,6 +1088,7 @@ Each step lands with its test in `tests/check.sh` and passes in CI before the ne
 | `error: GRAFT_EXECUTION_MODE must be native or skip` | a typo in `config.env`; checked before anything runs |
 | `session-start` exits 1 with `Not ready: no rules file found` | the harness is not installed here. Run `init`. |
 | `kept .claude/settings.json` in the report | your repository already had one; `init` merged the session-start hook, `Bash(ai-core:*)` and `mcp__graft` into it where they were missing. |
+| `ai-core: command not found` from the session-start hook, or `ai-core on PATH  : ✗` in its output | Claude Code was started from a terminal opened before the install, whose PATH lacks `ai-core`. `init` writes the hook with the full path of `ai-core`, and `session-start` names that path for the agent's own shell; a terminal opened after the install has it on the PATH. |
 | `ai-core: command not found` inside an agent | the clone's `bin/` is not on the PATH of that shell. Run `install` again, open a new terminal, or call the script by path. |
 | Claude Code ignores `AGENTS.md` | a `CLAUDE.md` exists in the directory or above it. In a repository with its own `CLAUDE.md`, `init` writes a `CLAUDE.local.md` with `@AGENTS.md`; a `CLAUDE.md` above the repository gets that line by hand. |
 | The agent does not know a rule, or quotes a stale one | the session started before `init` ran, or outside a project folder or checkout with the harness. Start it again there; the transcript under `~/.claude/projects/` shows what the start hooks delivered. |

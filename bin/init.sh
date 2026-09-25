@@ -373,20 +373,28 @@ while IFS= read -r rel; do
     .github/copilot-instructions.md) serves copilot || continue ;;
     .openhands/microagents/repo-rules.md) serves openhands || continue ;;
     .codex/config.toml) serves codex || continue ;;
+    .claude/settings.json) if command -v jq >/dev/null 2>&1; then continue; fi ;;   # written below, the hook with the full path
   esac
   put "$CORE_ROOT/templates/$rel" "$rel" once
 done <<< "$( (cd "$CORE_ROOT/templates" && find . -type f | LC_ALL=C sort) | sed 's|^\./||')"
 # The Claude Code hook that starts the session and the two permissions of the template (the ai-core
-# commands, and every tool of the Graft MCP server, which only reads the code graph); a
-# settings.json the checkout had before (created once, never overwritten) gets what it lacks of
-# them merged in, the way Graft merges its hooks
-HOOK='ai-core session-start --tool claude'
+# commands, and every tool of the Graft MCP server, which only reads the code graph). The hook
+# names ai-core by its full path on this machine, so a Claude Code started from a terminal opened
+# before the install still runs it; the file is the machine's, never committed. A settings.json the
+# checkout had before (created once, never overwritten) gets what it lacks merged in, the way Graft
+# merges its hooks, and an ai-core hook of an older form gives way to this one. Without jq the
+# template stays as it is.
+AI_CORE_CMD="$CORE_ROOT/bin/ai-core"; if command -v cygpath >/dev/null 2>&1; then AI_CORE_CMD="$(cygpath -m "$AI_CORE_CMD")"; fi
+HOOK="\"$AI_CORE_CMD\" session-start --tool claude"
 SETTINGS="$TARGET/.claude/settings.json"
-SETTINGS_HAS='["Bash(ai-core:*)", "mcp__graft"] as $req | ([.hooks.SessionStart[]?.hooks[]?.command // empty] | index($c) != null) and (($req - (.permissions.allow // [])) | length == 0)'
-SETTINGS_ADD='["Bash(ai-core:*)", "mcp__graft"] as $req | .hooks.SessionStart = (if ([.hooks.SessionStart[]?.hooks[]?.command // empty] | index($c)) != null then .hooks.SessionStart else ((.hooks.SessionStart // []) + [{hooks: [{type: "command", command: $c, timeout: 60}]}]) end) | .permissions.allow = ((.permissions.allow // []) + ($req - (.permissions.allow // [])))'
-if [ -f "$SETTINGS" ] && command -v jq >/dev/null 2>&1 && ! jq -e --arg c "$HOOK" "$SETTINGS_HAS" "$SETTINGS" >/dev/null 2>&1; then
-  jq --arg c "$HOOK" "$SETTINGS_ADD" "$SETTINGS" > "$TMP/settings.json" 2>/dev/null \
-    && put_file "$TMP/settings.json" "$SETTINGS" ".claude/settings.json" managed
+SETTINGS_HAS='def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ["Bash(ai-core:*)", "mcp__graft"] as $req | ([.hooks.SessionStart[]?.hooks[]? | select(ours) | .command] == [$c]) and (($req - (.permissions.allow // [])) | length == 0)'
+SETTINGS_ADD='def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ["Bash(ai-core:*)", "mcp__graft"] as $req | .hooks.SessionStart = ([.hooks.SessionStart[]? | .hooks = [.hooks[]? | select(ours | not)] | select(.hooks | length > 0)] + [{hooks: [{type: "command", command: $c, timeout: 60}]}]) | .permissions.allow = ((.permissions.allow // []) + ($req - (.permissions.allow // [])))'
+if command -v jq >/dev/null 2>&1; then
+  src="$SETTINGS"; [ -f "$src" ] || src="$CORE_ROOT/templates/.claude/settings.json"
+  if [ "$src" != "$SETTINGS" ] || ! jq -e --arg c "$HOOK" "$SETTINGS_HAS" "$SETTINGS" >/dev/null 2>&1; then
+    jq --arg c "$HOOK" "$SETTINGS_ADD" "$src" 2>/dev/null | tr -d '\r' > "$TMP/settings.json" \
+      && [ -s "$TMP/settings.json" ] && put_file "$TMP/settings.json" "$SETTINGS" ".claude/settings.json" managed
+  fi
 fi
 # 2a. A repository with a CLAUDE.md of its own: Claude Code then reads that file and not AGENTS.md.
 #     A CLAUDE.local.md beside it, which Claude Code loads the same way and git never sees, imports

@@ -215,6 +215,13 @@ Write-Host "Branch           : $branch"
 Write-Host "Uncommitted files: $dirtyCount"
 Write-Host "Harness version  : $(if ($harnessVersion) { $harnessVersion } else { '✗ Missing (.ai-core/VERSION)' })"
 Write-Host "Harness state    : $(if ($harnessCurrent) { '✓ Assembled from the current harness' } else { '✗ Assembled from an older harness (run ai-core init)' })"
+# A Claude Code started from a terminal opened before the install runs this through the full path in
+# its hook, while its own shell does not find ai-core: say how to call it there
+if (-not (Get-Command ai-core -ErrorAction SilentlyContinue)) {
+  $aiCoreCmd = (Join-Path $core 'bin/ai-core').Replace('\', '/')
+  if ($aiCoreCmd -cmatch '^[a-z]:') { $aiCoreCmd = $aiCoreCmd.Substring(0, 1).ToUpperInvariant() + $aiCoreCmd.Substring(1) }
+  Write-Host "ai-core on PATH  : ✗ not in this session; call it as `"$aiCoreCmd`", or start the agent from a terminal opened after the install"
+}
 if ($releaseState -ceq 'current') { Write-Host "Releases         : ✓ Current" }
 elseif ($releaseState -ceq 'available') { Write-Host "Releases         : ! Available (run ai-core update)"; foreach ($rl in ($releaseLines -split "`n")) { Write-Host "                   $rl" } }
 elseif ($releaseState -ceq 'unreachable') { Write-Host "Releases         : – Could not reach an origin"; foreach ($rl in ($releaseLines -split "`n")) { Write-Host "                   $rl" } }

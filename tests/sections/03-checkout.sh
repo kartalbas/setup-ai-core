@@ -129,6 +129,16 @@ for twin in sh ps1; do
   grep -aqE 'THE RULES OF THIS CHECKOUT|^## The code never lies' "$WORK/modes-$twin.log" && fail "session-start.$twin --tool claude prints the rules; Claude Code loads them through AGENTS.md"
   [ "$(wc -c < "$WORK/modes-$twin.log")" -le 9500 ] || fail "session-start.$twin --tool claude wrote more than 9 500 bytes, more than Claude Code passes whole"
 done
+# ai-core not on the PATH of the session, whatever the PATH of this shell: session-start says how to
+# call it; on the PATH, it says nothing of it
+AI_CORE_CMD="$ROOT/bin/ai-core"; if command -v cygpath >/dev/null 2>&1; then AI_CORE_CMD="$(cygpath -m "$AI_CORE_CMD")"; fi
+OFF_PATH="$(while IFS= read -r d; do [ -z "$d" ] || [ -e "$d/ai-core" ] || [ -e "$d/ai-core.exe" ] || [ -e "$d/ai-core.cmd" ] || [ -e "$d/ai-core.ps1" ] || printf '%s:' "$d"; done <<< "$(tr ':' '\n' <<< "$PATH")")"
+(cd "$WORK/sh" && PATH="$OFF_PATH" bash "$ROOT/bin/session-start.sh" > "$WORK/offpath-sh.log" 2>&1)
+(cd "$WORK/ps1" && PATH="$OFF_PATH" pwsh -NoProfile -File "$ROOT/bin/session-start.ps1" > "$WORK/offpath-ps1.log" 2>&1)
+for twin in sh ps1; do grep -aqF "ai-core on PATH  : ✗ not in this session; call it as \"$AI_CORE_CMD\"" "$WORK/offpath-$twin.log" || fail "session-start.$twin does not say that ai-core is missing from the PATH, and how to call it: $(grep -a 'ai-core on PATH\|Harness version' "$WORK/offpath-$twin.log")"; done
+(cd "$WORK/sh" && PATH="$ROOT/bin:$PATH" bash "$ROOT/bin/session-start.sh" > "$WORK/onpath-sh.log" 2>&1)
+(cd "$WORK/ps1" && PATH="$ROOT/bin:$PATH" pwsh -NoProfile -File "$ROOT/bin/session-start.ps1" > "$WORK/onpath-ps1.log" 2>&1)
+for twin in sh ps1; do grep -aq 'Harness version' "$WORK/onpath-$twin.log" && ! grep -aq 'ai-core on PATH' "$WORK/onpath-$twin.log" || fail "session-start.$twin warns about the PATH although ai-core is on it, or did not run (see $WORK/onpath-$twin.log)"; done
 # A skill too long for what Claude Code passes whole is named with the call that loads it, and the output stays below the limit
 MB="$WORK/modes-home-big"; mkdir -p "$MB/.claude/skills/caveman" "$MB/.claude/skills/archify"; : > "$MB/.claude/.i-have-adhd-always"
 cp "$MH/.claude/skills/archify/SKILL.md" "$MB/.claude/skills/archify/SKILL.md"
@@ -145,7 +155,10 @@ done
 grep -aq 'MODE ACTIVE' "$WORK/modes-none.log" && fail "session-start.sh without --tool switches modes on"
 echo "  --tool claude: the caveman skill printed whole with its level, a skill at level - not switched on, a skill too long named with its call, the plugin modes named, no rules, at most 9 500 bytes, nothing of it in the JSON or without --tool, on both twins"
 
-for t in sh ps1; do grep -q 'ai-core session-start --tool claude' "$WORK/$t/.claude/settings.json" || fail "the template settings.json deployed by init.$t carries no session-start hook"; done
+# The hook names ai-core by its full path, so a Claude Code started from a terminal without it on the PATH still runs it
+AI_CORE_CMD="$ROOT/bin/ai-core"; if command -v cygpath >/dev/null 2>&1; then AI_CORE_CMD="$(cygpath -m "$AI_CORE_CMD")"; fi
+for t in sh ps1; do [ "$(jq -r '[.hooks.SessionStart[].hooks[].command] | join("|")' "$WORK/$t/.claude/settings.json")" = "\"$AI_CORE_CMD\" session-start --tool claude" ] || fail "the settings.json init.$t deployed does not start the session with ai-core by its full path: $(jq -c '.hooks.SessionStart' "$WORK/$t/.claude/settings.json")"; done
+cmp -s "$WORK/sh/.claude/settings.json" "$WORK/ps1/.claude/settings.json" || fail "the settings.json differs between the twins"
 for t in sh ps1; do jq -e '(.permissions.allow | index("mcp__graft")) != null and (.permissions.allow | index("Bash(ai-core:*)")) != null' "$WORK/$t/.claude/settings.json" > /dev/null || fail "the settings.json deployed by init.$t does not allow the ai-core commands and the Graft MCP tools"; done
 
 # A repository with a CLAUDE.md of its own: Claude Code reads that and not AGENTS.md, so init writes an untracked CLAUDE.local.md that imports AGENTS.md; somebody's own CLAUDE.local.md is left alone, with a note

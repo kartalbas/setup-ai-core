@@ -204,6 +204,12 @@ echo "Branch           : $BRANCH"
 echo "Uncommitted files: $DIRTY_COUNT"
 echo "Harness version  : $([ -n "$HARNESS_VERSION" ] && echo "$HARNESS_VERSION" || echo "✗ Missing (.ai-core/VERSION)")"
 echo "Harness state    : $([ "$HARNESS_CURRENT" = true ] && echo "✓ Assembled from the current harness" || echo "✗ Assembled from an older harness (run ai-core init)")"
+# A Claude Code started from a terminal opened before the install runs this through the full path in
+# its hook, while its own shell does not find ai-core: say how to call it there
+if ! command -v ai-core >/dev/null 2>&1; then
+  AI_CORE_CMD="$CORE/bin/ai-core"; if command -v cygpath >/dev/null 2>&1; then AI_CORE_CMD="$(cygpath -m "$AI_CORE_CMD")"; fi
+  echo "ai-core on PATH  : ✗ not in this session; call it as \"$AI_CORE_CMD\", or start the agent from a terminal opened after the install"
+fi
 case "$RELEASE_STATE" in
   current)     echo "Releases         : ✓ Current" ;;
   available)   echo "Releases         : ! Available (run ai-core update)"; printf '%s\n' "$RELEASE_LINES" | sed 's/^/                   /' ;;

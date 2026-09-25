@@ -42,7 +42,12 @@ if (-not $IsWindows) { Set-Content -Path (Join-Path $stub 'claude') -Value "#!/b
 $leaksArgs = Join-Path $fake 'leaks-args.txt'
 Set-Content -Path (Join-Path $stub 'gitleaks.cmd') -Value "@echo %*>> `"$leaksArgs`"`r`n@if `"%PROBE_LEAKS%`"==`"red`" (echo gitleaks: a credential stands in this range & exit /b 1)`r`n@exit /b 0" -Encoding ascii
 if (-not $IsWindows) { Set-Content -Path (Join-Path $stub 'gitleaks') -Value "#!/bin/sh`necho `"`$*`" >> `"$leaksArgs`"`n[ `"`${PROBE_LEAKS:-green}`" = green ] || { echo 'gitleaks: a credential stands in this range'; exit 1; }`nexit 0" -Encoding ascii; & chmod +x (Join-Path $stub 'gitleaks') }
-$env:PATH = "$stub$([IO.Path]::PathSeparator)$env:PATH"
+# A second ai-core behind the stand-in, the way a developer's shell carries its own: a run without
+# ai-core on the PATH has to take both away
+$machine = Join-Path $fake 'machine'; New-Item -ItemType Directory -Path $machine | Out-Null
+Write-Lf (Join-Path $machine 'ai-core') "#!/bin/sh`nexit 0`n"
+if (-not $IsWindows) { & chmod +x (Join-Path $machine 'ai-core') }
+$env:PATH = "$stub$([IO.Path]::PathSeparator)$machine$([IO.Path]::PathSeparator)$env:PATH"
 
 # The repository: the stand-in check writes down its own path, which says which working tree it
 # was started in; both Windows entry points are the one text, and one .ps1 is neither.
@@ -327,7 +332,8 @@ Remove-Item -Force $shimArgs -ErrorAction SilentlyContinue
 
 Write-Host 'post-checkout without ai-core on the PATH: the worktree is made, exit 0, and stderr says what to run'
 $pathBefore = $env:PATH
-$env:PATH = (@($env:PATH -split [IO.Path]::PathSeparator | Where-Object { $_ -cne $stub }) -join [IO.Path]::PathSeparator)
+# every directory that holds an ai-core leaves the PATH, the stand-in's and the machine's
+$env:PATH = (@($env:PATH -split [IO.Path]::PathSeparator | Where-Object { $_ -and -not (Test-Path -LiteralPath (Join-Path $_ 'ai-core') -ErrorAction SilentlyContinue) -and -not (Test-Path -LiteralPath (Join-Path $_ 'ai-core.exe') -ErrorAction SilentlyContinue) }) -join [IO.Path]::PathSeparator)
 try { $out = (& git -C $fresh worktree add -q --detach $freshWt HEAD 2>&1 | Out-String); $rc = $LASTEXITCODE } finally { $env:PATH = $pathBefore }
 Check 'exit 0'                        0 $rc
 Check 'the worktree is there'         'True' (Test-Path $freshWt)

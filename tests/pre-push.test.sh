@@ -57,7 +57,16 @@ printf '[%s] ' "\$*" >> "$shim_args"; cat >> "$shim_args"
 exit 0
 EOF
 chmod +x "$stub/claude" "$stub/gitleaks" "$stub/ai-core"
-export PATH="$stub:$PATH"
+# A second ai-core behind the stand-in, the way a developer's shell carries its own: a run without
+# ai-core on the PATH has to take both away
+machine="$fake/machine"; mkdir -p "$machine"; printf '#!/bin/sh\nexit 0\n' > "$machine/ai-core"; chmod +x "$machine/ai-core"
+export PATH="$stub:$machine:$PATH"
+# path_without_ai_core: the PATH without every directory that holds an ai-core
+path_without_ai_core() {
+  local d out=""
+  while IFS= read -r d; do [ -z "$d" ] || [ -e "$d/ai-core" ] || [ -e "$d/ai-core.exe" ] || out="${out:+$out:}$d"; done <<< "$(tr ':' '\n' <<< "$PATH")"
+  printf '%s' "$out"
+}
 
 # The repository: the stand-in check writes down its own path, which says which working tree it
 # was started in; both Windows entry points are the one text, and one .ps1 is neither.
@@ -350,7 +359,7 @@ printf 'refs/heads/master abc refs/heads/master def\n' | ( cd "$fresh" && bash .
 check 'ai-core pre-push was started with them' '[pre-push origin https://example.invalid/x.git] refs/heads/master abc refs/heads/master def' "$(cat "$shim_args")"
 
 echo 'without ai-core on the PATH the shim refuses and says so'
-out="$( cd "$fresh" && PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vx "$stub" | tr '\n' ':')" bash .githooks/pre-push origin url < /dev/null 2>&1 )"; rc=$?
+out="$( cd "$fresh" && PATH="$(path_without_ai_core)" bash .githooks/pre-push origin url < /dev/null 2>&1 )"; rc=$?
 check 'exit 1'                  1 "$rc"
 check 'it names the cause'      yes "$(grep -q 'ai-core is not on the PATH of this shell' <<< "$out" && echo yes || echo no)"
 
@@ -368,7 +377,7 @@ git -C "$fresh" worktree remove --force "$fresh_wt" >/dev/null 2>&1
 : > "$shim_args"
 
 echo 'post-checkout without ai-core on the PATH: the worktree is made, exit 0, and stderr says what to run'
-out="$( cd "$fresh" && PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vx "$stub" | tr '\n' ':')" git worktree add -q --detach "$fresh_wt" HEAD < /dev/null 2>&1 )"; rc=$?
+out="$( cd "$fresh" && PATH="$(path_without_ai_core)" git worktree add -q --detach "$fresh_wt" HEAD < /dev/null 2>&1 )"; rc=$?
 check 'exit 0'                        0 "$rc"
 check 'the worktree is there'         yes "$([ -d "$fresh_wt" ] && echo yes || echo no)"
 check 'it names the cause'            yes "$(grep -q 'post-checkout: ai-core is not on the PATH of this shell, so this worktree has no harness yet; run ai-core init here before you start' <<< "$out" && echo yes || echo no)"

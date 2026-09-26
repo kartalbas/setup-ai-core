@@ -403,8 +403,10 @@ foreach ($rel in $templateFiles) {
   if ($rel -ceq '.claude/settings.json' -and (Get-Command jq -ErrorAction SilentlyContinue)) { continue }   # written below, the hook with the full path
   Put (Join-Path $templates $rel) $rel once
 }
-# The Claude Code hook that starts the session and the two permissions of the template (the ai-core
-# commands, and every tool of the Graft MCP server, which only reads the code graph). The hook
+# The Claude Code hook that starts the session, the permissions of the template (the ai-core
+# commands, and every tool of the Graft MCP server, which only reads the code graph) and its denials
+# (the secrets of a checkout and the credentials of the machine are not read, a push is not forced),
+# each list read from the template. The hook
 # names ai-core by its full path on this machine, so a Claude Code started from a terminal opened
 # before the install still runs it; the file is the machine's, never committed. A settings.json the
 # checkout had before (created once, never overwritten) gets what it lacks merged in, the way Graft
@@ -414,14 +416,15 @@ $aiCoreCmd = (Join-Path $coreRoot 'bin/ai-core').Replace('\', '/')
 if ($aiCoreCmd -cmatch '^[a-z]:') { $aiCoreCmd = $aiCoreCmd.Substring(0, 1).ToUpperInvariant() + $aiCoreCmd.Substring(1) }
 $hook = "`"$aiCoreCmd`" session-start --tool claude"
 $settings = Join-Path $target '.claude\settings.json'
-$settingsHas = 'def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ["Bash(ai-core:*)", "mcp__graft"] as $req | ([.hooks.SessionStart[]?.hooks[]? | select(ours) | .command] == [$c]) and (($req - (.permissions.allow // [])) | length == 0)'
-$settingsAdd = 'def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ["Bash(ai-core:*)", "mcp__graft"] as $req | .hooks.SessionStart = ([.hooks.SessionStart[]? | .hooks = [.hooks[]? | select(ours | not)] | select(.hooks | length > 0)] + [{hooks: [{type: "command", command: $c, timeout: 60}]}]) | .permissions.allow = ((.permissions.allow // []) + ($req - (.permissions.allow // [])))'
+$settingsTemplate = Join-Path $coreRoot 'templates\.claude\settings.json'
+$settingsHas = 'def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | ([.hooks.SessionStart[]?.hooks[]? | select(ours) | .command] == [$c]) and (($allow - (.permissions.allow // [])) | length == 0) and (($deny - (.permissions.deny // [])) | length == 0)'
+$settingsAdd = 'def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | .hooks.SessionStart = ([.hooks.SessionStart[]? | .hooks = [.hooks[]? | select(ours | not)] | select(.hooks | length > 0)] + [{hooks: [{type: "command", command: $c, timeout: 60}]}]) | .permissions.allow = ((.permissions.allow // []) + ($allow - (.permissions.allow // []))) | .permissions.deny = ((.permissions.deny // []) + ($deny - (.permissions.deny // [])))'
 if (Get-Command jq -ErrorAction SilentlyContinue) {
-  $settingsSrc = if (Test-Path -LiteralPath $settings) { $settings } else { Join-Path $coreRoot 'templates\.claude\settings.json' }
+  $settingsSrc = if (Test-Path -LiteralPath $settings) { $settings } else { $settingsTemplate }
   $stale = $true
-  if ($settingsSrc -ceq $settings) { & jq -e --arg c $hook $settingsHas $settings 2>$null | Out-Null; $stale = ($LASTEXITCODE -ne 0) }
+  if ($settingsSrc -ceq $settings) { & jq -e --arg c $hook --slurpfile t $settingsTemplate $settingsHas $settings 2>$null | Out-Null; $stale = ($LASTEXITCODE -ne 0) }
   if ($stale) {
-    $merged = (& jq --arg c $hook $settingsAdd $settingsSrc 2>$null | Out-String)
+    $merged = (& jq --arg c $hook --slurpfile t $settingsTemplate $settingsAdd $settingsSrc 2>$null | Out-String)
     if ($LASTEXITCODE -eq 0 -and $merged.Trim()) {
       [System.IO.File]::WriteAllText((Join-Path $tmp 'settings.json'), $merged.Replace("`r`n", "`n"), $utf8)
       Put-File (Join-Path $tmp 'settings.json') $settings '.claude/settings.json' managed

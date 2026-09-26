@@ -20,13 +20,13 @@ section says which one it is.
 Once per machine. Windows, in PowerShell 7:
 
 ```powershell
-irm https://raw.githubusercontent.com/kartalbas/setup-ai-core/main/bin/install.ps1 | iex
+irm https://raw.githubusercontent.com/kartalbas/setup-ai-core/master/bin/install.ps1 | iex
 ```
 
 Linux and macOS:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/kartalbas/setup-ai-core/main/bin/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/kartalbas/setup-ai-core/master/bin/install.sh | bash
 ```
 
 Open a new terminal. `doctor` has run and named what is missing (git, `gh` with its login,
@@ -471,7 +471,7 @@ says so. It runs `team-modes-check` first and stops with its refusal when a mode
 prints:
 
 ```text
-Branch           : main
+Branch           : master
 Uncommitted files: 0
 Harness version  : 1.2.0
 Harness state    : ✓ Assembled from the current harness
@@ -552,7 +552,12 @@ tools work; the harness gives them the text at the place they look.
   `ai-core` by its full path on this machine, so a Claude Code started from a terminal opened
   before the install still runs it; the file is the machine's and never committed. If your
   repository already has one, `init` keeps it, merges in whichever of the three it lacks, once,
-  and replaces an `ai-core` hook of an older form. Claude Code applies allow rules from
+  and replaces an `ai-core` hook of an older form. It also denies, and merges into an existing one
+  the same way: reading or editing a checkout's `.env`, `.env.local` and `.env.*.local`, reading
+  the machine's credentials (`~/.ssh`, `~/.aws`, `~/.git-credentials`, `~/.npmrc`, `~/.config/gh`,
+  `~/.docker/config.json`, `~/.kube`), and `git push --force`, `-f` and `--force-with-lease`. These
+  hold Claude Code's own file tools and the commands as written; a shell command such as `cat .env`
+  is not held by them. Claude Code applies allow rules from
   a committed or excluded project `settings.json` only after you accept its trust dialog for the
   folder.
 - Everything else Claude Code needs for Graft is written by `graft init`, which `init` runs:
@@ -611,7 +616,9 @@ armed by its first `init`.
 The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSED — ...`, exit 1):
 
 1. **The pushed commit is the one checked out.** Work is pushed by ref, `git push origin
-   HEAD:<branch>`; an annotated tag is resolved to the commit it names.
+   HEAD:<branch>`; an annotated tag is resolved to the commit it names. A push to the default
+   branch (`origin/HEAD`, else `master`) must be a fast-forward: one that would drop commits the
+   remote has, a force push, is refused, whatever tool or person made it.
 2. **Every pushed commit names its issue**, `#<n>` anywhere in the message, or is excused: the
    subject opens with `release:`; every file it touches is a `*.md` or a `LICENSE*` (an
    explanation needs no ticket); or it carries a trailer `No-issue: <who asked and why>`, read the
@@ -654,12 +661,12 @@ for the check and for gitleaks, and a team-modes table of their own.
 
 ```bash
 # Linux / macOS / Git Bash
-curl -sSL https://raw.githubusercontent.com/kartalbas/setup-ai-core/main/bin/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/kartalbas/setup-ai-core/master/bin/install.sh | bash
 ```
 
 ```powershell
 # Windows, PowerShell 7
-irm https://raw.githubusercontent.com/kartalbas/setup-ai-core/main/bin/install.ps1 | iex
+irm https://raw.githubusercontent.com/kartalbas/setup-ai-core/master/bin/install.ps1 | iex
 ```
 
 `install` clones this repository to `~/setup-ai-core`, adds its `bin/` (where the `ai-core`
@@ -1028,9 +1035,9 @@ commits `release: X.Y.Z` when the file does not carry the version yet, pushes wh
 waits for the workflow run of exactly that commit (asked every 20 seconds, 30 minutes at most)
 and, when the run is green, tags that commit `vX.Y.Z`, not one made during the wait, and pushes
 the tag. It refuses, naming what is missing,
-when the tree is not clean, the branch is not `main`, origin has moved on, the tag exists, or the
+when the tree is not clean, the branch is not the default one (`master`), origin has moved on, the tag exists, or the
 run is red or does not finish; nothing is tagged red. `install` and `update` follow the newest
-tag, so `main` can carry a mistake without it reaching anybody.
+tag, so `master` can carry a mistake without it reaching anybody.
 
 - **Add a file a checkout should get:** put it under `templates/` at the path it has in the
   checkout. Both installers deploy it.

@@ -256,6 +256,11 @@ if (-not $inputText.Trim()) {
   $inputText = "refs/heads/$branch $head refs/heads/$branch $upstream"
 }
 
+# The default branch, read from the repository, or master where the clone never learned it
+$default = "$(& git symbolic-ref --short -q refs/remotes/origin/HEAD 2>$null)".Trim()
+if ($default.StartsWith('origin/', [StringComparison]::Ordinal)) { $default = $default.Substring(7) }
+if (-not $default) { $default = 'master' }
+
 # Every commit this push sends, across every ref on standard input, and the ranges they came from.
 $commits = @()
 $scanRanges = @()
@@ -289,6 +294,12 @@ foreach ($line in ($inputText -split "`r?`n")) {
     # nothing in it - so a force push over an unfetched remote would go out unjudged.
     & git cat-file -e "$remoteSha^{commit}" 2>$null
     if ($LASTEXITCODE -ne 0) { Deny-Push "the commit $remoteSha that $remoteRef points at is not in this checkout, so the commits being pushed cannot be listed. Run git fetch, then push again." }
+    # A push that is not a fast-forward drops commits the remote has. On the default branch that is
+    # history everybody else builds on, so it is refused, whatever tool or person forced it.
+    if ($remoteRef -ceq "refs/heads/$default") {
+      & git merge-base --is-ancestor $remoteSha $localCommit 2>$null
+      if ($LASTEXITCODE -ne 0) { Deny-Push "the push to $default is not a fast-forward: it would drop commits the remote has. Fetch, rebase onto origin/$default and push again; a force push to the default branch is refused." }
+    }
     $range = "$remoteSha..$localCommit"
   }
   $commits += @(& git rev-list --no-merges @($range -split ' ') 2>$null | ForEach-Object { "$_" } | Where-Object { $_ })

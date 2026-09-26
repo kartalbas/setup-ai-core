@@ -105,6 +105,13 @@ Check 'every check passed'         'True' (Says 'pre-push: every check passed')
 $ran = @(Get-Content $checkRuns | Where-Object { $_ })[-1]
 Check 'and the check that ran is the WORKTREE one' 'True' ($ran.Replace('\', '/') -clike '*/.worktrees/app/issue-5-probe/scripts/check.sh')
 
+Write-Host 'a push to the default branch that is not a fast-forward is refused'
+& git -C $repo commit -q --allow-empty -m 'master moves on while the worktree works #5'
+Judge $wt (Sha $wt HEAD) (Sha $repo master)
+Check 'exit 1'                     1 $rc
+Check 'it says why'                'True' (Says 'the push to master is not a fast-forward')
+& git -C $repo reset -q --hard HEAD~1
+
 # --- the team modes ---------------------------------------------------------------------------
 Write-Host 'a red modes check refuses, and the lines the refusal points at are in the output'
 $env:TEAM_MODES_FILE = $red
@@ -227,7 +234,9 @@ Check 'it says what to do' 'True' (Says 'a commit that is pushed cannot be recal
 
 # --- the Windows entry point, held against the one text it copies ----------------------------
 function Stub-Ps1([string]$path) { Write-Lf $path "Write-Host 'check: OK — every check green'`nexit 0`n" }
-function PushWt { Judge $wt (Sha $wt HEAD) (Sha $repo master) }
+# against the commit the worktree branched from: master has moved on since, and a push over that
+# would be a force push, which the gate refuses
+function PushWt { Judge $wt (Sha $wt HEAD) "$(& git -C $wt merge-base HEAD master)".Trim() }
 
 Write-Host 'a Windows entry point that is not the one text is refused, under either of its two names'
 PushWt

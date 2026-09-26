@@ -126,6 +126,13 @@ check 'every check passed'         yes "$(grep -q 'pre-push: every check passed'
 check 'and the check that ran is the WORKTREE one' \
   "$(git -C "$wt" rev-parse --show-toplevel)/scripts/check.sh" "$(tail -1 "$check_runs")"
 
+echo 'a push to the default branch that is not a fast-forward is refused'
+git -C "$repo" commit -q --allow-empty -m 'master moves on while the worktree works #5'
+out="$(judge "$wt" "$(git -C "$wt" rev-parse HEAD)" "$(git -C "$repo" rev-parse master)")"; rc=$?
+check 'exit 1'                     1 "$rc"
+check 'it says why'                yes "$(grep -q 'the push to master is not a fast-forward' <<< "$out" && echo yes || echo no)"
+git -C "$repo" reset -q --hard HEAD~1
+
 # --- the team modes ---------------------------------------------------------------------------
 echo 'a red modes check refuses, and the lines the refusal points at are in the output'
 out="$(TEAM_MODES_FILE="$red" only_new "$wt")"; rc=$?
@@ -273,7 +280,9 @@ check 'it says what to do' yes "$(grep -q 'a commit that is pushed cannot be rec
 stub_ps1() {  # stub_ps1 <path> - a copy that prints the verdict and runs nothing
   printf "Write-Host 'check: OK — every check green'\nexit 0\n" > "$1"
 }
-push_wt() { judge "$wt" "$(git -C "$wt" rev-parse HEAD)" "$(git -C "$repo" rev-parse master)"; }
+# against the commit the worktree branched from: master has moved on since, and a push over that
+# would be a force push, which the gate refuses
+push_wt() { judge "$wt" "$(git -C "$wt" rev-parse HEAD)" "$(git -C "$wt" merge-base HEAD master)"; }
 
 echo 'a Windows entry point that is not the one text is refused, under either of its two names'
 out="$(push_wt)"; rc=$?

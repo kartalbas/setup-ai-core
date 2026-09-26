@@ -377,8 +377,10 @@ while IFS= read -r rel; do
   esac
   put "$CORE_ROOT/templates/$rel" "$rel" once
 done <<< "$( (cd "$CORE_ROOT/templates" && find . -type f | LC_ALL=C sort) | sed 's|^\./||')"
-# The Claude Code hook that starts the session and the two permissions of the template (the ai-core
-# commands, and every tool of the Graft MCP server, which only reads the code graph). The hook
+# The Claude Code hook that starts the session, the permissions of the template (the ai-core
+# commands, and every tool of the Graft MCP server, which only reads the code graph) and its denials
+# (the secrets of a checkout and the credentials of the machine are not read, a push is not forced),
+# each list read from the template. The hook
 # names ai-core by its full path on this machine, so a Claude Code started from a terminal opened
 # before the install still runs it; the file is the machine's, never committed. A settings.json the
 # checkout had before (created once, never overwritten) gets what it lacks merged in, the way Graft
@@ -387,12 +389,13 @@ done <<< "$( (cd "$CORE_ROOT/templates" && find . -type f | LC_ALL=C sort) | sed
 AI_CORE_CMD="$CORE_ROOT/bin/ai-core"; if command -v cygpath >/dev/null 2>&1; then AI_CORE_CMD="$(cygpath -m "$AI_CORE_CMD")"; fi
 HOOK="\"$AI_CORE_CMD\" session-start --tool claude"
 SETTINGS="$TARGET/.claude/settings.json"
-SETTINGS_HAS='def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ["Bash(ai-core:*)", "mcp__graft"] as $req | ([.hooks.SessionStart[]?.hooks[]? | select(ours) | .command] == [$c]) and (($req - (.permissions.allow // [])) | length == 0)'
-SETTINGS_ADD='def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ["Bash(ai-core:*)", "mcp__graft"] as $req | .hooks.SessionStart = ([.hooks.SessionStart[]? | .hooks = [.hooks[]? | select(ours | not)] | select(.hooks | length > 0)] + [{hooks: [{type: "command", command: $c, timeout: 60}]}]) | .permissions.allow = ((.permissions.allow // []) + ($req - (.permissions.allow // [])))'
+SETTINGS_TEMPLATE="$CORE_ROOT/templates/.claude/settings.json"
+SETTINGS_HAS='def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | ([.hooks.SessionStart[]?.hooks[]? | select(ours) | .command] == [$c]) and (($allow - (.permissions.allow // [])) | length == 0) and (($deny - (.permissions.deny // [])) | length == 0)'
+SETTINGS_ADD='def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | .hooks.SessionStart = ([.hooks.SessionStart[]? | .hooks = [.hooks[]? | select(ours | not)] | select(.hooks | length > 0)] + [{hooks: [{type: "command", command: $c, timeout: 60}]}]) | .permissions.allow = ((.permissions.allow // []) + ($allow - (.permissions.allow // []))) | .permissions.deny = ((.permissions.deny // []) + ($deny - (.permissions.deny // [])))'
 if command -v jq >/dev/null 2>&1; then
-  src="$SETTINGS"; [ -f "$src" ] || src="$CORE_ROOT/templates/.claude/settings.json"
-  if [ "$src" != "$SETTINGS" ] || ! jq -e --arg c "$HOOK" "$SETTINGS_HAS" "$SETTINGS" >/dev/null 2>&1; then
-    jq --arg c "$HOOK" "$SETTINGS_ADD" "$src" 2>/dev/null | tr -d '\r' > "$TMP/settings.json" \
+  src="$SETTINGS"; [ -f "$src" ] || src="$SETTINGS_TEMPLATE"
+  if [ "$src" != "$SETTINGS" ] || ! jq -e --arg c "$HOOK" --slurpfile t "$SETTINGS_TEMPLATE" "$SETTINGS_HAS" "$SETTINGS" >/dev/null 2>&1; then
+    jq --arg c "$HOOK" --slurpfile t "$SETTINGS_TEMPLATE" "$SETTINGS_ADD" "$src" 2>/dev/null | tr -d '\r' > "$TMP/settings.json" \
       && [ -s "$TMP/settings.json" ] && put_file "$TMP/settings.json" "$SETTINGS" ".claude/settings.json" managed
   fi
 fi

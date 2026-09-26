@@ -245,6 +245,9 @@ if [ -z "$input" ]; then
   input="refs/heads/$branch $head refs/heads/$branch $upstream"
 fi
 
+# The default branch, read from the repository, or master where the clone never learned it
+default="$(git symbolic-ref --short -q refs/remotes/origin/HEAD 2>/dev/null || true)"; default="${default#origin/}"; [ -n "$default" ] || default=master
+
 # Every commit this push sends, across every ref on standard input, and the ranges they came from.
 commits=''
 scan_ranges=''
@@ -276,6 +279,10 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     # nothing in it - so a force push over an unfetched remote would go out unjudged.
     git cat-file -e "${remote_sha}^{commit}" 2>/dev/null \
       || refuse "the commit $remote_sha that $remote_ref points at is not in this checkout, so the commits being pushed cannot be listed. Run git fetch, then push again."
+    # A push that is not a fast-forward drops commits the remote has. On the default branch that is
+    # history everybody else builds on, so it is refused, whatever tool or person forced it.
+    [ "$remote_ref" != "refs/heads/$default" ] || git merge-base --is-ancestor "$remote_sha" "$local_commit" \
+      || refuse "the push to $default is not a fast-forward: it would drop commits the remote has. Fetch, rebase onto origin/$default and push again; a force push to the default branch is refused."
     range="$remote_sha..$local_commit"
   fi
   commits="$commits$(git rev-list --no-merges $range)"$'\n'

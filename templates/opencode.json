@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    ".ai-core/rules/rules.md",
+    ".ai-core/rules/skills.md",
+    ".ai-core/rules/rules.local.md"
+  ],
+  "mcp": {
+    "graft": {
+      "type": "local",
+      "command": ["npx", "-y", "@nanonets/graft", "mcp"],
+      "enabled": true
+    }
+  }
+}

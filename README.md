@@ -209,6 +209,7 @@ checkout never carries a copy.
 ├── .openhands/microagents/repo-rules.md OpenHands microagent
 ├── .claude/settings.json                Claude Code: the session-start hook, ai-core by its full path; permissions Bash(ai-core:*) and mcp__graft
 ├── .codex/config.toml                   Codex: the Graft MCP server, read once the project is trusted
+├── opencode.json                        OpenCode: the rules as its instructions, the Graft MCP server; created once
 └── graft/                               the code graph, and what graft init wires: .mcp.json,
                                          .claude/helpers/, .claude/skills/graft/, GEMINI.md, ...
 ```
@@ -536,7 +537,8 @@ every checkout at the next session without running `init` again.
 | :--- | :--- | :--- |
 | Claude Code | `AGENTS.md` of the directory it starts in and of every directory above it, with the files each imports after `@` (the rules, the local rules, the skills file), and a repository's `AGENTS.md` once it works there; where a `CLAUDE.md` exists, that file and the `CLAUDE.local.md` that imports `AGENTS.md`; `.claude/settings.json`, `.mcp.json`, `.claude/skills/` | the `SessionStart` hook `ai-core session-start --tool claude`, which switches the team modes on; permissions from the harness; hooks, status line, the Graft MCP server and the `graft` skill from `graft init` |
 | OpenAI Codex | `AGENTS.md` from the repository root down to the working directory, concatenated; `~/.codex/AGENTS.md` for the user; `.agents/skills/` in the repository and `~/.agents/skills/`; MCP servers from `.codex/config.toml` in the repository (the harness deploys it with the Graft server; read once the project is trusted) and from `~/.codex/config.toml` | skills; MCP from `.codex/config.toml`, not from `.mcp.json`; hooks from `~/.codex/hooks.json`, which `graft init` writes |
-| OpenCode, Zed, Aider | `AGENTS.md` | nothing; text only |
+| OpenCode | the nearest `AGENTS.md`, without its `@` imports, and the files `opencode.json` names under `instructions`: the rules, the skills file and the local rules | the Graft MCP server from `opencode.json`, in the pinned version; its own defaults already refuse reading `.env` |
+| Zed, Aider | `AGENTS.md` | nothing; text only |
 | Google Antigravity (`agy`) | `AGENTS.md` (prepended to every prompt), `.agents/skills/` | skills; MCP only from `~/.gemini/config/mcp_config.json`, machine-wide: its documentation names `.agents/mcp_config.json` in the repository too, but `agy` does not load it (tested with `agy --print`, with a valid machine-wide file), so `graft init` registers the server there and `doctor` repairs the file when it is empty |
 | Cursor, Windsurf, Copilot | `.cursorrules`, `.windsurfrules`, `.github/copilot-instructions.md`, deployed only when `AGENTS` names them | nothing; a one-line pointer to `AGENTS.md` and the rules |
 | OpenHands | `AGENTS.md`, `.agents/skills/`, the organisation's `.agents` repository, `.openhands/setup.sh`, `.openhands/hooks.json`; the microagent pointer the harness deploys today is the older convention | `setup.sh` runs at every start with the repository; hooks on `SessionStart`, `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionEnd`; skills |

@@ -37,18 +37,19 @@ $ErrorActionPreference = 'Stop'
 # start it
 $graftPkg = "@nanonets/graft@$(([System.IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\lib\graft-version'))).Trim())"
 # Graft registers its MCP server as `npx -y @nanonets/graft mcp`, with no option for a version; the
-# files it writes that into, here and on the machine (AI_CORE_HOME, or the home directory), get the
-# pinned one. Claude Code's ~/.claude.json is left alone: it rewrites that file itself, and the
-# .mcp.json here takes precedence over it.
+# files it writes that into, and the opencode.json init lays here, here and on the machine
+# (AI_CORE_HOME, or the home directory), get the pinned one, in place of none or an older one.
+# Claude Code's ~/.claude.json is left alone: it rewrites that file itself, and the .mcp.json here
+# takes precedence over it.
 function Set-GraftPin {
   $here = (Get-Location).Path
   $homeDir = if ($env:AI_CORE_HOME) { $env:AI_CORE_HOME } else { $HOME }
-  $files = @('.mcp.json', '.codex\config.toml', '.gemini\settings.json', '.cursor\mcp.json', '.vscode\mcp.json' | ForEach-Object { Join-Path $here $_ }) + @((Join-Path $homeDir '.codex\config.toml'), (Join-Path $homeDir '.gemini\config\mcp_config.json'), (Join-Path $homeDir '.gemini\settings.json'))
+  $files = @('.mcp.json', 'opencode.json', '.codex\config.toml', '.gemini\settings.json', '.cursor\mcp.json', '.vscode\mcp.json' | ForEach-Object { Join-Path $here $_ }) + @((Join-Path $homeDir '.codex\config.toml'), (Join-Path $homeDir '.gemini\config\mcp_config.json'), (Join-Path $homeDir '.gemini\settings.json'))
   foreach ($f in $files) {
     if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { continue }
     $text = [System.IO.File]::ReadAllText($f)
-    if (-not $text.Contains('"@nanonets/graft"')) { continue }
-    [System.IO.File]::WriteAllText($f, $text.Replace('"@nanonets/graft"', "`"$graftPkg`""), (New-Object System.Text.UTF8Encoding $false))
+    $pinned = [regex]::Replace($text, '"@nanonets/graft(@[^"]*)?"', "`"$graftPkg`"")
+    if ($pinned -cne $text) { [System.IO.File]::WriteAllText($f, $pinned, (New-Object System.Text.UTF8Encoding $false)) }
   }
 }
 

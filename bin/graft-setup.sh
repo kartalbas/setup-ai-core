@@ -37,14 +37,16 @@ done
 GRAFT_PKG="@nanonets/graft@$(tr -d '\r\n' < "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/graft-version")"
 cd "$TARGET"
 # pin_graft_mcp: Graft registers its MCP server as `npx -y @nanonets/graft mcp`, with no option for
-# a version; the files it writes that into, here and on the machine (AI_CORE_HOME, or the home
-# directory), get the pinned one. Claude Code's ~/.claude.json is left alone: it rewrites that file
-# itself, and the .mcp.json here takes precedence over it.
+# a version; the files it writes that into, and the opencode.json init lays here, here and on the
+# machine (AI_CORE_HOME, or the home directory), get the pinned one, in place of none or an older
+# one. Claude Code's ~/.claude.json is left alone: it rewrites that file itself, and the .mcp.json
+# here takes precedence over it.
 pin_graft_mcp() {
   local f home="${AI_CORE_HOME:-$HOME}"
-  for f in .mcp.json .codex/config.toml .gemini/settings.json .cursor/mcp.json .vscode/mcp.json "$home/.codex/config.toml" "$home/.gemini/config/mcp_config.json" "$home/.gemini/settings.json"; do
-    [ -f "$f" ] && grep -q '"@nanonets/graft"' "$f" || continue
-    sed "s#\"@nanonets/graft\"#\"$GRAFT_PKG\"#g" "$f" > "$f.pin" && mv -f "$f.pin" "$f"
+  for f in .mcp.json opencode.json .codex/config.toml .gemini/settings.json .cursor/mcp.json .vscode/mcp.json "$home/.codex/config.toml" "$home/.gemini/config/mcp_config.json" "$home/.gemini/settings.json"; do
+    [ -f "$f" ] && grep -qE '"@nanonets/graft(@[^"]*)?"' "$f" || continue
+    sed -E "s#\"@nanonets/graft(@[^\"]*)?\"#\"$GRAFT_PKG\"#g" "$f" > "$f.pin" || continue
+    if cmp -s "$f.pin" "$f"; then rm -f "$f.pin"; else mv -f "$f.pin" "$f"; fi
   done
 }
 # Graft's own lines "✓ what: path (state)" are read for the report: what it wrote into the

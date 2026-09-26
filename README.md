@@ -430,7 +430,14 @@ the interactive picker, and then `build` with the Node.js on the machine, which 
 `graft/index.md` and the graph. That is the
 only way it runs. If `npx` is
 missing or the build fails, the script exits 1 and says why, and `init` exits 1 with it. Nothing
-is installed on the system and nothing runs in a container. A repository that does not want the
+runs in a container. Graft runs in the version setup-ai-core pins, `lib/graft-version`: `init`
+builds with it; Graft registers its MCP server as `npx -y @nanonets/graft mcp` with no version,
+so `init` writes the pinned one into the files it wrote that into, `.mcp.json` and the Codex,
+Gemini, Cursor and VS Code files of the checkout and `~/.codex/config.toml`,
+`~/.gemini/config/mcp_config.json` and `~/.gemini/settings.json` of the machine (Claude Code's
+`~/.claude.json` excepted, which the checkout's `.mcp.json` outranks); and `doctor` installs it
+globally, which is where Graft's hooks and the `graft` command take it from. A newer Graft comes
+in only through a release that changes that file. A repository that does not want the
 graph sets `GRAFT_EXECUTION_MODE="skip"` in `.ai-core/config.env`. Graft's output is kept and
 shown whole only when it fails; what it wrote is reported afterwards as two lists, the files in
 the repository and the files on the machine, with a line for the graph (section 5.5).
@@ -655,6 +662,7 @@ for the check and for gitleaks, and a team-modes table of their own.
 | `curl` and `tar` | remote install with `init.sh` | `init.ps1` uses `Invoke-WebRequest` and `Expand-Archive`, part of PowerShell |
 | jq | every board and issue command reads GitHub's answers through it | `doctor` installs it |
 | Node.js 20+ with `npm` and `npx` | Graft, the Graft MCP server, the Claude Code hook helpers | no fallback: without Node.js, `init` fails; `skip` mode turns Graft off |
+| Graft, the version in `lib/graft-version` | the code graph, its MCP server, Graft's hooks and the `graft` command | `doctor` installs it globally; `init` builds with it and pins the MCP servers to it |
 | `gh`, logged in | the project harness is found, cloned and created through it; every board and issue command; `session-start` shows the GitHub user | `doctor` installs it; the login is yours |
 
 ### 5.2 Once per machine: `install`

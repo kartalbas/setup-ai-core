@@ -142,6 +142,18 @@ else
   report jq MISSING "install jq from https://jqlang.github.io/jq"; problem
 fi
 
+# Graft in the version setup-ai-core pins (lib/graft-version), installed globally: Graft's hooks and
+# the graft command an agent runs take the global one, while init and the MCP servers name the pin.
+# Another version, or none, is replaced; with --no-install it is reported.
+GRAFT_PIN="$(tr -d '\r\n' < "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/graft-version")"
+if command -v npm >/dev/null 2>&1; then
+  GRAFT_HAVE="$(npm ls -g @nanonets/graft --depth=0 2>/dev/null | tr -d '\r' | sed -n 's/.*@nanonets\/graft@\([0-9][^ ]*\).*/\1/p' | head -n1 || true)"
+  if [ "$GRAFT_HAVE" = "$GRAFT_PIN" ]; then report graft present "Graft $GRAFT_PIN, global"
+  elif [ "$NO_INSTALL" -eq 1 ]; then report graft "${GRAFT_HAVE:-absent}" "setup-ai-core pins Graft $GRAFT_PIN; run doctor without --no-install, or npm i -g @nanonets/graft@$GRAFT_PIN"
+  elif npm i -g "@nanonets/graft@$GRAFT_PIN" >/dev/null 2>&1; then report graft installed "Graft $GRAFT_PIN, global${GRAFT_HAVE:+, was $GRAFT_HAVE}"
+  else report graft FAILED "npm i -g @nanonets/graft@$GRAFT_PIN failed; run it by hand to see why"; problem; fi
+fi
+
 # Agent CLIs: reported, never installed by doctor. Antigravity reads its MCP servers from one
 # machine-wide file only (it does not read a file in the repository; tested); an empty one is
 # not JSON, Graft cannot register there, so it is made valid.

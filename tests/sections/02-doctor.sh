@@ -17,6 +17,7 @@ for t in sh ps1; do
   grep -aq 'node .*too old' "$WORK/doctor.$t.log" || fail "doctor.$t did not report the old Node.js"
   grep -aq 'gh .*not logged in' "$WORK/doctor.$t.log" || fail "doctor.$t did not report the missing gh login"
   grep -aq 'doctor: 2 problem' "$WORK/doctor.$t.log" || fail "doctor.$t did not count 2 problems"
+  grep -aq "^  graft .*Graft $(tr -d '\r\n' < "$ROOT/lib/graft-version")" "$WORK/doctor.$t.log" || fail "doctor.$t did not report Graft against the pinned version"
 done
 echo "  both exit 1 with the same two problems"
 

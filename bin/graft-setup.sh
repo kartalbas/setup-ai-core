@@ -10,7 +10,7 @@ for arg in "$@"; do
     echo "Usage: graft-setup.sh [TARGET_DIR] [--dry-run]"
     echo ""
     echo "Wires Graft into the agents on this machine (graft init -y --no-build, no picker) and builds"
-    echo "the code graph with the Node.js on this machine (npx -y @nanonets/graft build)."
+    echo "the code graph with the Node.js on this machine (npx -y @nanonets/graft@<lib/graft-version> build)."
     echo "Reads GRAFT_EXECUTION_MODE from .ai-core/config.env: native (default) or skip, and AGENTS: the"
     echo "agents Graft is wired into (claude, codex, antigravity, gemini, cursor, windsurf, copilot;"
     echo "openhands has no Graft wiring); empty means every agent Graft detects."
@@ -32,7 +32,21 @@ TARGET="."; DRY=0
 for arg in "$@"; do
   case "$arg" in --dry-run) DRY=1 ;; -*) echo "error: unknown argument '$arg' (see --help)" >&2; exit 2 ;; *) TARGET="$arg" ;; esac
 done
+# The Graft this harness is tested with: init builds with it, and the MCP servers Graft registers
+# start it
+GRAFT_PKG="@nanonets/graft@$(tr -d '\r\n' < "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/graft-version")"
 cd "$TARGET"
+# pin_graft_mcp: Graft registers its MCP server as `npx -y @nanonets/graft mcp`, with no option for
+# a version; the files it writes that into, here and on the machine (AI_CORE_HOME, or the home
+# directory), get the pinned one. Claude Code's ~/.claude.json is left alone: it rewrites that file
+# itself, and the .mcp.json here takes precedence over it.
+pin_graft_mcp() {
+  local f home="${AI_CORE_HOME:-$HOME}"
+  for f in .mcp.json .codex/config.toml .gemini/settings.json .cursor/mcp.json .vscode/mcp.json "$home/.codex/config.toml" "$home/.gemini/config/mcp_config.json" "$home/.gemini/settings.json"; do
+    [ -f "$f" ] && grep -q '"@nanonets/graft"' "$f" || continue
+    sed "s#\"@nanonets/graft\"#\"$GRAFT_PKG\"#g" "$f" > "$f.pin" && mv -f "$f.pin" "$f"
+  done
+}
 # Graft's own lines "✓ what: path (state)" are read for the report: what it wrote into the
 # repository and what on the machine (a path under the home directory), and with which state
 HOME_WIN="$(cygpath -w "$HOME" 2>/dev/null || echo "$HOME")"
@@ -163,7 +177,7 @@ write_block() {
 snapshot() { git status --porcelain --untracked-files=all 2>/dev/null || true; }
 # --dry-run: what Graft would write, in the repository and on the machine, and nothing built
 if [ "$DRY" -eq 1 ]; then
-  npx -y @nanonets/graft "${GRAFT_INIT[@]}" --dry-run > "$TMP_OUT" 2>&1 || true
+  npx -y "$GRAFT_PKG" "${GRAFT_INIT[@]}" --dry-run > "$TMP_OUT" 2>&1 || true
   echo "  Graft would write (init):"
   sed -n '/^would write/,/^$/p' "$TMP_OUT" | sed 's/^/    /'
   echo "  Graft would build the graph into graft/ (not done: dry run)"
@@ -175,17 +189,17 @@ if [ -n "$EXCLUDE" ]; then
     while IFS= read -r line; do [ -n "$line" ] && add_line "$line"; done <<< "$(awk '/^# setup-ai-core graft start/{b=1; next} /^# setup-ai-core graft end/{b=0} b' "$EXCLUDE")"
   fi
   # What graft init wires into the repository, excluded whether it exists already or not
-  while IFS= read -r line; do [ -n "$line" ] && add_line "/$line"; done <<< "$(npx -y @nanonets/graft "${GRAFT_INIT[@]}" --dry-run 2>&1 | tr -d '\r' | tr '\\' '/' | awk '/^would write.*this repo:/{b=1; next} !/^  /{b=0} b{print $1}')"
+  while IFS= read -r line; do [ -n "$line" ] && add_line "/$line"; done <<< "$(npx -y "$GRAFT_PKG" "${GRAFT_INIT[@]}" --dry-run 2>&1 | tr -d '\r' | tr '\\' '/' | awk '/^would write.*this repo:/{b=1; next} !/^  /{b=0} b{print $1}')"
   write_block
   BEFORE="$(snapshot)"
 fi
 
 # Graft's own output is kept and shown whole only when something fails; what it changed is
 # reported in two lines afterwards
-echo "==> Graft: wiring the agents and building the code graph (npx -y @nanonets/graft)..."
+echo "==> Graft: wiring the agents and building the code graph (npx -y $GRAFT_PKG)..."
 RESULT=0
-{ npx -y @nanonets/graft "${GRAFT_INIT[@]}" && npx -y @nanonets/graft build; } > "$TMP_OUT" 2>&1 || RESULT=1
-if [ "$RESULT" -ne 0 ]; then cat "$TMP_OUT"; fi
+{ npx -y "$GRAFT_PKG" "${GRAFT_INIT[@]}" && npx -y "$GRAFT_PKG" build; } > "$TMP_OUT" 2>&1 || RESULT=1
+if [ "$RESULT" -ne 0 ]; then cat "$TMP_OUT"; else pin_graft_mcp; fi
 
 if [ -n "$EXCLUDE" ]; then
   CHANGED=""

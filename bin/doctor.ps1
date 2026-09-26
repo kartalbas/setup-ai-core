@@ -109,6 +109,22 @@ if (-not (Test-Tool jq)) { [void](Install-Tool jq jqlang.jq jq jq) }
 if (Test-Tool jq) { Write-Report jq present ((& jq --version 2>$null | Select-Object -First 1)) }
 else { Write-Report jq MISSING "install jq from https://jqlang.github.io/jq"; Add-Problem }
 
+# Graft in the version setup-ai-core pins (lib\graft-version), installed globally: Graft's hooks and
+# the graft command an agent runs take the global one, while init and the MCP servers name the pin.
+# Another version, or none, is replaced; with -NoInstall it is reported.
+$graftPin = ([System.IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\lib\graft-version'))).Trim()
+if (Test-Tool npm) {
+  $graftHave = ''
+  foreach ($l in @(& npm ls -g @nanonets/graft --depth=0 2>$null | ForEach-Object { "$_" })) { if ($l -cmatch '@nanonets/graft@([0-9][^ ]*)') { $graftHave = $Matches[1]; break } }
+  if ($graftHave -ceq $graftPin) { Write-Report graft present "Graft $graftPin, global" }
+  elseif ($NoInstall) { Write-Report graft $(if ($graftHave) { $graftHave } else { 'absent' }) "setup-ai-core pins Graft $graftPin; run doctor without -NoInstall, or npm i -g @nanonets/graft@$graftPin" }
+  else {
+    & npm i -g "@nanonets/graft@$graftPin" 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { Write-Report graft installed "Graft $graftPin, global$(if ($graftHave) { ", was $graftHave" })" }
+    else { Write-Report graft FAILED "npm i -g @nanonets/graft@$graftPin failed; run it by hand to see why"; Add-Problem }
+  }
+}
+
 # Agent CLIs: reported, never installed by doctor
 $hints = @{
   claude = "Claude Code: https://claude.ai/install.ps1 or install.sh"

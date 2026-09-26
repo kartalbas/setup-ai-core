@@ -13,7 +13,7 @@ if ($Help -or $args -ccontains "-h" -or $args -ccontains "--help" -or $TargetDir
   Write-Host "Usage: graft-setup.ps1 [-TargetDir <path>] [-DryRun]"
   Write-Host ""
   Write-Host "Wires Graft into the agents on this machine (graft init -y --no-build, no picker) and builds"
-  Write-Host "the code graph with the Node.js on this machine (npx -y @nanonets/graft build)."
+  Write-Host "the code graph with the Node.js on this machine (npx -y @nanonets/graft@<lib\graft-version> build)."
   Write-Host "Reads GRAFT_EXECUTION_MODE from .ai-core/config.env: native (default) or skip, and AGENTS: the"
   Write-Host "agents Graft is wired into (claude, codex, antigravity, gemini, cursor, windsurf, copilot;"
   Write-Host "openhands has no Graft wiring); empty means every agent Graft detects."
@@ -32,6 +32,25 @@ if ($Help -or $args -ccontains "-h" -or $args -ccontains "--help" -or $TargetDir
 }
 
 $ErrorActionPreference = 'Stop'
+
+# The Graft this harness is tested with: init builds with it, and the MCP servers Graft registers
+# start it
+$graftPkg = "@nanonets/graft@$(([System.IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\lib\graft-version'))).Trim())"
+# Graft registers its MCP server as `npx -y @nanonets/graft mcp`, with no option for a version; the
+# files it writes that into, here and on the machine (AI_CORE_HOME, or the home directory), get the
+# pinned one. Claude Code's ~/.claude.json is left alone: it rewrites that file itself, and the
+# .mcp.json here takes precedence over it.
+function Set-GraftPin {
+  $here = (Get-Location).Path
+  $homeDir = if ($env:AI_CORE_HOME) { $env:AI_CORE_HOME } else { $HOME }
+  $files = @('.mcp.json', '.codex\config.toml', '.gemini\settings.json', '.cursor\mcp.json', '.vscode\mcp.json' | ForEach-Object { Join-Path $here $_ }) + @((Join-Path $homeDir '.codex\config.toml'), (Join-Path $homeDir '.gemini\config\mcp_config.json'), (Join-Path $homeDir '.gemini\settings.json'))
+  foreach ($f in $files) {
+    if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { continue }
+    $text = [System.IO.File]::ReadAllText($f)
+    if (-not $text.Contains('"@nanonets/graft"')) { continue }
+    [System.IO.File]::WriteAllText($f, $text.Replace('"@nanonets/graft"', "`"$graftPkg`""), (New-Object System.Text.UTF8Encoding $false))
+  }
+}
 
 # Graft's own lines "✓ what: path (state)" are read for the report: what it wrote into the
 # repository and what on the machine (a path under the home directory), and with which state
@@ -179,7 +198,7 @@ try {
   function Get-Snapshot { try { @(git status --porcelain --untracked-files=all 2>$null) } catch { @() } }
   # -DryRun: what Graft would write, in the repository and on the machine, and nothing built
   if ($DryRun) {
-    $out = @(); try { $out = @(& npx -y @nanonets/graft @graftInit --dry-run 2>&1 | ForEach-Object { "$_" }) } catch { $out = @() }
+    $out = @(); try { $out = @(& npx -y $graftPkg @graftInit --dry-run 2>&1 | ForEach-Object { "$_" }) } catch { $out = @() }
     Write-Host "  Graft would write (init):"
     $inSection = $false
     foreach ($line in $out) {
@@ -202,7 +221,7 @@ try {
       }
     }
     # What graft init wires into the repository, excluded whether it exists already or not
-    $dry = @(); try { $dry = @(& npx -y @nanonets/graft @graftInit --dry-run 2>&1 | ForEach-Object { "$_" }) } catch { $dry = @() }
+    $dry = @(); try { $dry = @(& npx -y $graftPkg @graftInit --dry-run 2>&1 | ForEach-Object { "$_" }) } catch { $dry = @() }
     $inRepo = $false
     foreach ($line in $dry) {
       if ($line -cmatch '^would write.*this repo:') { $inRepo = $true; continue }
@@ -215,12 +234,12 @@ try {
 
   # Graft's own output is kept and shown whole only when something fails; what it changed is
   # reported in two lines afterwards
-  Write-Host "==> Graft: wiring the agents and building the code graph (npx -y @nanonets/graft)..."
+  Write-Host "==> Graft: wiring the agents and building the code graph (npx -y $graftPkg)..."
   $result = 0
-  $out = @(& npx -y @nanonets/graft @graftInit 2>&1 | ForEach-Object { "$_" })
-  if ($LASTEXITCODE -eq 0) { $out += @(& npx -y @nanonets/graft build 2>&1 | ForEach-Object { "$_" }) }
+  $out = @(& npx -y $graftPkg @graftInit 2>&1 | ForEach-Object { "$_" })
+  if ($LASTEXITCODE -eq 0) { $out += @(& npx -y $graftPkg build 2>&1 | ForEach-Object { "$_" }) }
   if ($LASTEXITCODE -ne 0) { $result = 1 }
-  if ($result -ne 0) { foreach ($line in $out) { Write-Host $line } }
+  if ($result -ne 0) { foreach ($line in $out) { Write-Host $line } } else { Set-GraftPin }
 
   if ($exclude) {
     $changed = @()

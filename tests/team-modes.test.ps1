@@ -45,7 +45,7 @@ Set-Content -Path $plugins -Value '' -Encoding utf8NoBOM
 RunCheck @{ Tool = 'claude' }
 Check 'exit 1'                       1 $code
 Check 'four missing'                 4 (Count '^MISSING')
-Check 'caveman names its installer'  'True' ([bool]($out -match 'MISSING .*caveman.*npx skills add JuliusBrussee/caveman'))
+Check 'caveman names its installer'  'True' ([bool]($out -match 'MISSING .*caveman.*skills@1.7.0 add https://github.com/JuliusBrussee/caveman/tree/v2.5.0/skills/caveman'))
 Check 'ponytail names its installer' 'True' ([bool]($out -match 'MISSING .*ponytail.*claude plugin install ponytail@ponytail'))
 Check 'the refusal says no work starts' 'True' ([bool]($out -match 'REFUSED: 4 mode\(s\) missing.*No work starts'))
 
@@ -112,7 +112,7 @@ $out = (& (Join-Path $root 'bin/team-modes-install.ps1') -Tool claude -DryRun 6>
 $code = $LASTEXITCODE
 Check 'exit 0'                 0 $code
 Check 'four install lines'     4 (Count '^installing ')
-Check 'ponytail command whole' 'True' ([bool]($out -match 'installing  claude ponytail: claude plugin marketplace add DietrichGebert/ponytail && claude plugin install ponytail@ponytail'))
+Check 'ponytail command whole' 'True' ([bool]($out -match 'installing  claude ponytail: claude plugin marketplace add DietrichGebert/ponytail#v4.9.0 && claude plugin install ponytail@ponytail'))
 
 # EVERY MISSING ROW'S COMMAND RUNS, NOT ONLY THE FIRST ONE, and both halves of a command
 # joined with `&&` run. The shell twin reads the check's report over standard input and hands

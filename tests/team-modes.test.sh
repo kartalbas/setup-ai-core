@@ -42,7 +42,7 @@ echo 'nothing installed: four MISSING lines (three modes and the archify skill) 
 out="$(run_check --tool claude)"; code=$?
 check 'exit 1'                      1 "$code"
 check 'four missing'                4 "$(grep -c '^MISSING' <<< "$out")"
-check 'caveman names its installer' yes "$(grep -q 'MISSING .*caveman.*npx skills add JuliusBrussee/caveman' <<< "$out" && echo yes || echo no)"
+check 'caveman names its installer' yes "$(grep -q 'MISSING .*caveman.*skills@1.7.0 add https://github.com/JuliusBrussee/caveman/tree/v2.5.0/skills/caveman' <<< "$out" && echo yes || echo no)"
 check 'ponytail names its installer' yes "$(grep -q 'MISSING .*ponytail.*claude plugin install ponytail@ponytail' <<< "$out" && echo yes || echo no)"
 check 'the refusal says no work starts' yes "$(grep -q '^REFUSED: 4 mode(s) missing.*No work starts' <<< "$out" && echo yes || echo no)"
 
@@ -123,7 +123,7 @@ echo 'team-modes-install --dry-run prints the install command of every missing m
 out="$(bash "$root/bin/team-modes-install.sh" --tool claude --dry-run 2>&1)"; code=$?
 check 'exit 0'                  0 "$code"
 check 'four install lines'      4 "$(grep -c '^installing ' <<< "$out")"
-check 'ponytail command whole'  yes "$(grep -q 'installing  claude ponytail: claude plugin marketplace add DietrichGebert/ponytail && claude plugin install ponytail@ponytail' <<< "$out" && echo yes || echo no)"
+check 'ponytail command whole'  yes "$(grep -q 'installing  claude ponytail: claude plugin marketplace add DietrichGebert/ponytail#v4.9.0 && claude plugin install ponytail@ponytail' <<< "$out" && echo yes || echo no)"
 
 # EVERY MISSING ROW'S COMMAND RUNS, NOT ONLY THE FIRST ONE. The install command is started
 # inside the loop that reads the check's report, so it inherits the standard input that report

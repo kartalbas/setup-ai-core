@@ -28,19 +28,24 @@
 #            always       counts as installed; only for tests
 # install  the command that installs it, run by team-modes-install; "-" where the tool's own
 #          documentation is the only source (the check prints its address instead)
+#          Every command installs a fixed version: a skill a tag or commit through the tree URL of
+#          the skills CLI, a Claude marketplace a tag (#<tag>; it takes no commit), a Codex
+#          marketplace and a Gemini extension a --ref. Codex 0.153.4 records the ref and still
+#          installs the plugin's newest version; i-have-adhd has no tag, so its Claude row follows
+#          main. A newer version comes in by changing the row and verifying it again.
 # verified LOGIN,DATE of the person who ran the probe and the install on that tool, or "-".
 #          A row marked "-" is a reading of the mode's documentation, not a proof.
 
-claude	caveman	lite	skill:caveman	npx skills add JuliusBrussee/caveman -g	-
-claude	archify	-	skill:archify	npx skills add tt-a1i/archify -g	-
-claude	ponytail	full	plugin:ponytail	claude plugin marketplace add DietrichGebert/ponytail && claude plugin install ponytail@ponytail	-
+claude	caveman	lite	skill:caveman	npx -y skills@1.7.0 add https://github.com/JuliusBrussee/caveman/tree/v2.5.0/skills/caveman -g -a claude-code -y	kartalbas,2026-09-27
+claude	archify	-	skill:archify	npx -y skills@1.7.0 add https://github.com/tt-a1i/archify/tree/5289f6867f048a7450ec5718f58459613a84cf41/archify -g -a claude-code -y	kartalbas,2026-09-27
+claude	ponytail	full	plugin:ponytail	claude plugin marketplace add DietrichGebert/ponytail#v4.9.0 && claude plugin install ponytail@ponytail	kartalbas,2026-09-27
 # claude proves i-have-adhd by the always-on flag its SessionStart hook reads; the install writes it
 claude	i-have-adhd	on	file:~/.claude/.i-have-adhd-always	claude plugin marketplace add ayghri/i-have-adhd && claude plugin install i-have-adhd@i-have-adhd && node -e "require('fs').writeFileSync(require('os').homedir()+'/.claude/.i-have-adhd-always','')"	-
-codex	caveman	lite	skill:caveman	npx skills add JuliusBrussee/caveman -g	-
-codex	archify	-	skill:archify	npx skills add tt-a1i/archify -g	-
-codex	ponytail	full	plugin:ponytail	codex plugin marketplace add DietrichGebert/ponytail && codex plugin add ponytail@ponytail	-
-codex	i-have-adhd	on	plugin:i-have-adhd	codex plugin marketplace add ayghri/i-have-adhd --ref main && codex plugin add i-have-adhd@i-have-adhd	-
-gemini	caveman	lite	skill:caveman	npx skills add JuliusBrussee/caveman -g	-
-gemini	archify	-	skill:archify	npx skills add tt-a1i/archify -g	-
-gemini	ponytail	full	plugin:ponytail	gemini extensions install https://github.com/DietrichGebert/ponytail	-
-gemini	i-have-adhd	on	file:~/.gemini/commands/i-have-adhd.toml	mkdir -p ~/.gemini/commands && curl -fsSL https://raw.githubusercontent.com/ayghri/i-have-adhd/main/skills/i-have-adhd/agents/gemini.toml -o ~/.gemini/commands/i-have-adhd.toml	-
+codex	caveman	lite	skill:caveman	npx -y skills@1.7.0 add https://github.com/JuliusBrussee/caveman/tree/v2.5.0/skills/caveman -g -a codex -y	-
+codex	archify	-	skill:archify	npx -y skills@1.7.0 add https://github.com/tt-a1i/archify/tree/5289f6867f048a7450ec5718f58459613a84cf41/archify -g -a codex -y	-
+codex	ponytail	full	plugin:ponytail	codex plugin marketplace add DietrichGebert/ponytail --ref v4.9.0 && codex plugin add ponytail@ponytail	-
+codex	i-have-adhd	on	plugin:i-have-adhd	codex plugin marketplace add ayghri/i-have-adhd --ref 58494af57962b2d7a996b4d419474380a299af5e && codex plugin add i-have-adhd@i-have-adhd	-
+gemini	caveman	lite	skill:caveman	npx -y skills@1.7.0 add https://github.com/JuliusBrussee/caveman/tree/v2.5.0/skills/caveman -g -a gemini-cli -y	-
+gemini	archify	-	skill:archify	npx -y skills@1.7.0 add https://github.com/tt-a1i/archify/tree/5289f6867f048a7450ec5718f58459613a84cf41/archify -g -a gemini-cli -y	-
+gemini	ponytail	full	plugin:ponytail	gemini extensions install https://github.com/DietrichGebert/ponytail --ref v4.9.0	-
+gemini	i-have-adhd	on	file:~/.gemini/commands/i-have-adhd.toml	mkdir -p ~/.gemini/commands && curl -fsSL https://raw.githubusercontent.com/ayghri/i-have-adhd/58494af57962b2d7a996b4d419474380a299af5e/skills/i-have-adhd/agents/gemini.toml -o ~/.gemini/commands/i-have-adhd.toml	-

@@ -371,7 +371,11 @@ tool loads the skill when a task calls for it.
 `session-start` and `start-issue` run it first, so no session starts without the modes;
 `ai-core team-modes-install` runs the install column for every missing one, and `doctor` runs it
 for the tools on the machine, so `install` and `init` leave the modes installed; a plugin loads when
-the tool starts, so the tool is restarted once. The project's own skills are folders in the project
+the tool starts, so the tool is restarted once. Every install command installs a fixed version,
+the one proven on a machine: a skill at a tag or commit through the tree URL of the skills CLI, a
+Claude marketplace at a tag, a Codex marketplace and a Gemini extension with `--ref`; the header
+of `team-modes.tsv` names what a tool does not hold (Codex installs a plugin's newest version
+whatever the ref), and a newer version comes in by changing a row and verifying it again. The project's own skills are folders in the project
 harness, `skills/<name>/SKILL.md`, and `init` copies them into `.claude/skills/` and
 `.agents/skills/` of every checkout, where Claude Code, Codex, Antigravity and OpenHands find them
 on start; no developer installs a skill by hand.

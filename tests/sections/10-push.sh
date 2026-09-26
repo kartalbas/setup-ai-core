@@ -30,6 +30,15 @@ for twin in sh ps1; do
   fi
   [ "$(git -C "$WORK/push-origin-$twin.git" log --format=%s -1)" = "the labels of #7" ] || fail "push.$twin: origin does not carry the issue commit"
   [ -z "$(git -C "$WORK/push-origin-$twin.git" log -1 --format='%(trailers:key=No-issue,valueonly)' | tr -d '\n')" ] || fail "push.$twin: a message that names an issue got a No-issue trailer"
+  # an agent below Sonnet is refused before the commit, and nothing reaches origin
+  mkdir -p "$H/shop-ai-core/agents"; printf -- '---\nname: cheap\ndescription: runs on haiku\nmodel: haiku\n---\n' > "$H/shop-ai-core/agents/cheap.md"
+  before="$(git -C "$WORK/push-origin-$twin.git" rev-parse HEAD)"
+  if [ "$twin" = sh ]; then
+    (cd "$H" && HOME="$H" bash "$ROOT/bin/push.sh" "a cheap agent" > "$WORK/push-$twin-3.log" 2>&1) && fail "push.$twin pushed a harness whose agent names haiku"
+  else
+    (cd "$H" && HOME="$H" USERPROFILE="$(native "$H")" pwsh -NoProfile -File "$ROOT/bin/push.ps1" -Message "a cheap agent" > "$WORK/push-$twin-3.log" 2>&1) && fail "push.$twin pushed a harness whose agent names haiku"
+  fi
+  grep -aq "cheap.md: model 'haiku' is below Sonnet" "$WORK/push-$twin-3.log" && grep -aq 'shop-ai-core: not committed; rules-check found the problems above' "$WORK/push-$twin-3.log" && [ "$(git -C "$WORK/push-origin-$twin.git" rev-parse HEAD)" = "$before" ] || fail "push.$twin did not refuse the harness with an agent below Sonnet (see $WORK/push-$twin-3.log)"
 done
-echo "  committed with the message and the No-issue trailer, pushed to origin, no trailer when the message names an issue, nothing on the second run, on both twins"
+echo "  committed with the message and the No-issue trailer, pushed to origin, no trailer when the message names an issue, nothing on the second run, an agent below Sonnet refused before the commit, on both twins"
 exit 0

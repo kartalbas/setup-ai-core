@@ -125,6 +125,13 @@ if (Test-Tool npm) {
   }
 }
 
+# An agent definition of this machine that names a model below Sonnet
+foreach ($file in @(Get-ChildItem -Path (Join-Path $HOME '.claude\agents') -Filter '*.md' -File -ErrorAction SilentlyContinue)) {
+  $m = ''
+  foreach ($l in @([System.IO.File]::ReadAllLines($file.FullName) | Select-Object -Skip 1)) { if ($l.StartsWith('---', [StringComparison]::Ordinal)) { break }; if ($l -cmatch '^model:\s*(.*)$') { $m = $Matches[1].Trim().Trim('"', "'"); break } }
+  if ($m.ToLowerInvariant().Contains('haiku')) { Write-Report agent 'below Sonnet' "$($file.FullName) names the model $m" }
+}
+
 # Agent CLIs: reported, never installed by doctor
 $hints = @{
   claude = "Claude Code: https://claude.ai/install.ps1 or install.sh"

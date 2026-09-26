@@ -55,6 +55,12 @@ for dir in "$FOLDER"/*-ai-core; do
   # 1. commit what changed
   changed="$(git -C "$dir" status --porcelain | tr -d '\r')"
   if [ -n "$changed" ]; then
+    # What the clone lays into every checkout is checked before it goes out: a skill or an agent
+    # without its front matter, or one naming a model below Sonnet, is refused here and not met at
+    # the next init
+    if ! check="$(bash "$CORE/bin/rules-check.sh" "$dir" 2>&1)"; then
+      sed 's/^/  /' <<< "$check"; failed="$failed $name"; echo "$name: not committed; rules-check found the problems above"; continue
+    fi
     count="$(grep -c . <<< "$changed")"
     msg="$MESSAGE"
     if [ -z "$msg" ]; then

@@ -60,6 +60,42 @@ if [ -z "$TARGET" ]; then
   elif [ -d "rules" ]; then TARGET="rules"
   else TARGET="rules/rules.md"; fi
 fi
+# A PROJECT HARNESS - a directory with rules/, skills/ or agents/ - is checked whole. Every skill and
+# agent it lays into the checkouts has the front matter the agent tools read: a name (a skill's is
+# the name of its folder) and a description; an agent names no model below Sonnet. Then its rules/
+# is read as a directory of sections, when it has any.
+HARNESS_BAD=0; HARNESS_SEEN=""
+if [ -d "$TARGET" ] && { [ -d "$TARGET/rules" ] || [ -d "$TARGET/skills" ] || [ -d "$TARGET/agents" ]; }; then
+  front() {  # front <file> <key>: the value of <key> in the front matter, quotes taken off
+    awk -v k="$2" 'NR == 1 { if ($0 !~ /^---/) exit; next } /^---/ { exit } { sub(/\r$/, "") } index($0, k ":") == 1 { v = substr($0, length(k) + 2); sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v); print v; exit }' "$1" | sed "s/^[\"']//; s/[\"']\$//"
+  }
+  harness_bad() { echo "$1: $2"; HARNESS_BAD=$((HARNESS_BAD + 1)); }
+  skills=0; agents=0
+  for f in "$TARGET"/skills/*/SKILL.md; do
+    [ -f "$f" ] || continue
+    skills=$((skills + 1)); folder="$(basename "$(dirname "$f")")"
+    [ "$(head -n1 "$f" | tr -d '\r')" = '---' ] || { harness_bad "$f" "no front matter"; continue; }
+    [ "$(front "$f" name)" = "$folder" ] || harness_bad "$f" "its name is '$(front "$f" name)', not its folder's '$folder'"
+    [ -n "$(front "$f" description)" ] || harness_bad "$f" "no description"
+  done
+  for f in "$TARGET"/agents/*.md; do
+    [ -f "$f" ] && [ "$(basename "$f")" != README.md ] || continue
+    agents=$((agents + 1))
+    [ "$(head -n1 "$f" | tr -d '\r')" = '---' ] || { harness_bad "$f" "no front matter"; continue; }
+    [ -n "$(front "$f" name)" ] || harness_bad "$f" "no name"
+    [ -n "$(front "$f" description)" ] || harness_bad "$f" "no description"
+    case "$(front "$f" model | tr '[:upper:]' '[:lower:]')" in *haiku*) harness_bad "$f" "model '$(front "$f" model)' is below Sonnet" ;; esac
+  done
+  HARNESS_SEEN="$skills skill(s) and $agents agent(s), $HARNESS_BAD with a problem"
+  SECTIONS=("$TARGET"/rules/[0-9][0-9]-*.md)
+  if [ -f "${SECTIONS[0]}" ]; then
+    TARGET="$TARGET/rules"
+  else
+    echo "rules-check: $HARNESS_SEEN; no rule section of its own."
+    [ "$HARNESS_BAD" -eq 0 ] || exit 1
+    exit 0
+  fi
+fi
 if [ -d "$TARGET" ]; then
   FILES=("$TARGET"/[0-9][0-9]-*.md)
   [ -f "${FILES[0]}" ] || { echo "error: no NN-*.md section file in $TARGET" >&2; exit 2; }
@@ -140,6 +176,9 @@ done
 echo
 if [ "$untagged" -gt 0 ]; then
   echo "rules-check: $total rule bullets, $untagged without an enforcement tag."
+  [ -z "$HARNESS_SEEN" ] || echo "rules-check: $HARNESS_SEEN."
   exit 1
 fi
 echo "rules-check: $total rule bullets, every one tagged."
+[ -z "$HARNESS_SEEN" ] || echo "rules-check: $HARNESS_SEEN."
+[ "$HARNESS_BAD" -eq 0 ] || exit 1

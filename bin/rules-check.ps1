@@ -56,6 +56,48 @@ if (-not $target) {
   elseif (Test-Path "rules" -PathType Container) { $target = "rules" }
   else { $target = "rules\rules.md" }
 }
+# A PROJECT HARNESS - a directory with rules\, skills\ or agents\ - is checked whole. Every skill and
+# agent it lays into the checkouts has the front matter the agent tools read: a name (a skill's is
+# the name of its folder) and a description; an agent names no model below Sonnet. Then its rules\
+# is read as a directory of sections, when it has any.
+$harnessBad = 0; $harnessSeen = ''
+if ((Test-Path -LiteralPath $target -PathType Container) -and (@('rules', 'skills', 'agents') | Where-Object { Test-Path -LiteralPath (Join-Path $target $_) -PathType Container })) {
+  function Get-Front([string]$file, [string]$key) {  # the value of <key> in the front matter, quotes taken off; $null without front matter
+    $lines = @([System.IO.File]::ReadAllLines($file))
+    if ($lines.Count -eq 0 -or $lines[0].TrimEnd() -cne '---') { return $null }
+    for ($i = 1; $i -lt $lines.Count; $i++) {
+      $l = $lines[$i].TrimEnd("`r")
+      if ($l.StartsWith('---', [StringComparison]::Ordinal)) { break }
+      if ($l.StartsWith("${key}:", [StringComparison]::Ordinal)) { return $l.Substring($key.Length + 1).Trim().Trim('"', "'") }
+    }
+    return ''
+  }
+  $skills = 0; $agents = 0
+  foreach ($dir in @(Get-ChildItem -LiteralPath (Join-Path $target 'skills') -Directory -ErrorAction SilentlyContinue | Sort-Object Name)) {
+    $f = Join-Path $dir.FullName 'SKILL.md'
+    if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { continue }
+    $skills++
+    if ($null -eq (Get-Front $f 'name')) { "${f}: no front matter"; $harnessBad++; continue }
+    if ((Get-Front $f 'name') -cne $dir.Name) { "${f}: its name is '$(Get-Front $f 'name')', not its folder's '$($dir.Name)'"; $harnessBad++ }
+    if (-not (Get-Front $f 'description')) { "${f}: no description"; $harnessBad++ }
+  }
+  foreach ($file in @(Get-ChildItem -LiteralPath (Join-Path $target 'agents') -Filter '*.md' -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -cne 'README.md' } | Sort-Object Name)) {
+    $f = $file.FullName
+    $agents++
+    if ($null -eq (Get-Front $f 'name')) { "${f}: no front matter"; $harnessBad++; continue }
+    if (-not (Get-Front $f 'name')) { "${f}: no name"; $harnessBad++ }
+    if (-not (Get-Front $f 'description')) { "${f}: no description"; $harnessBad++ }
+    if ("$(Get-Front $f 'model')".ToLowerInvariant().Contains('haiku')) { "${f}: model '$(Get-Front $f 'model')' is below Sonnet"; $harnessBad++ }
+  }
+  $harnessSeen = "$skills skill(s) and $agents agent(s), $harnessBad with a problem"
+  $rulesDir = Join-Path $target 'rules'
+  if (@(Get-ChildItem -LiteralPath $rulesDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -cmatch '^[0-9][0-9]-.*\.md$' }).Count -gt 0) {
+    $target = $rulesDir
+  } else {
+    "rules-check: $harnessSeen; no rule section of its own."
+    if ($harnessBad -gt 0) { exit 1 } else { exit 0 }
+  }
+}
 if (Test-Path -LiteralPath $target -PathType Container) {
   $files = @(Get-ChildItem -LiteralPath $target -File | Where-Object { $_.Name -cmatch '^[0-9][0-9]-.*\.md$' } | Sort-Object Name | ForEach-Object { $_.FullName })
   if ($files.Count -eq 0) { "error: no NN-*.md section file in $target"; exit 2 }
@@ -131,7 +173,9 @@ foreach ($tag in $Tags) { '{0,-12} {1}' -f $tag, $counts[$tag] }
 ''
 if ($untagged -gt 0) {
   "rules-check: $total rule bullets, $untagged without an enforcement tag."
+  if ($harnessSeen) { "rules-check: $harnessSeen." }
   exit 1
 }
 "rules-check: $total rule bullets, every one tagged."
-exit 0
+if ($harnessSeen) { "rules-check: $harnessSeen." }
+if ($harnessBad -gt 0) { exit 1 } else { exit 0 }

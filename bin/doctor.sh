@@ -154,6 +154,13 @@ if command -v npm >/dev/null 2>&1; then
   else report graft FAILED "npm i -g @nanonets/graft@$GRAFT_PIN failed; run it by hand to see why"; problem; fi
 fi
 
+# An agent definition of this machine that names a model below Sonnet
+for f in "$HOME"/.claude/agents/*.md; do
+  [ -f "$f" ] || continue
+  m="$(sed -n '2,/^---/{s/^model:[[:space:]]*//p;}' "$f" | head -n1 | tr -d "\r\"'")"
+  case "$(tr '[:upper:]' '[:lower:]' <<< "$m")" in *haiku*) report agent "below Sonnet" "$f names the model $m" ;; esac
+done
+
 # Agent CLIs: reported, never installed by doctor. Antigravity reads its MCP servers from one
 # machine-wide file only (it does not read a file in the repository; tested); an empty one is
 # not JSON, Graft cannot register there, so it is made valid.

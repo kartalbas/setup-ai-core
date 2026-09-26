@@ -51,6 +51,11 @@ foreach ($d in (Get-ChildItem -Path $folder -Directory -Filter '*-ai-core' | Whe
   # 1. commit what changed
   $changed = @(& git -C $dir status --porcelain 2>$null | ForEach-Object { "$_".TrimEnd("`r") } | Where-Object { $_ })
   if ($changed.Count -gt 0) {
+    # What the clone lays into every checkout is checked before it goes out: a skill or an agent
+    # without its front matter, or one naming a model below Sonnet, is refused here and not met at
+    # the next init
+    $check = @(& pwsh -NoProfile -File (Join-Path $PSScriptRoot 'rules-check.ps1') -RulesFile $dir 2>&1 | ForEach-Object { "$_" })
+    if ($LASTEXITCODE -ne 0) { foreach ($l in $check) { Write-Host "  $l" }; $failed += $name; Write-Host "${name}: not committed; rules-check found the problems above"; continue }
     $msg = $Message
     if (-not $msg) {
       $msg = (($changed | Select-Object -First 3 | ForEach-Object { $_.Substring(3) }) -join ', ')

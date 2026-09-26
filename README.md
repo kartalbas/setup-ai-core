@@ -239,9 +239,10 @@ without the harness.
 `init` also writes every path it deploys into `.git/info/exclude` of the clone, between two marker
 lines, rewritten on every run, which covers the clone before that commit. `graft-setup` writes a second block there with what Graft writes:
 `graft/` and the files `graft init` wires into the repository (`GEMINI.md`, `.gemini/settings.json`,
-`.claude/skills/graft/SKILL.md`, ...). It compares `git status` before and after Graft, records
-whatever a run added, and keeps what earlier runs recorded. In a worktree, git resolves that file to
-the main checkout, so all worktrees share it. The project's `.gitignore` is never touched. A file
+`.claude/skills/graft/SKILL.md`, ...), the `.ignore` its build writes, and what Graft's own output
+names as written, rebuilt on every run. A file somebody else writes while Graft runs never gets
+into it, and a line of an earlier block that the run does not derive again is taken out and named.
+In a worktree, git resolves that file to the main checkout, so all worktrees share it. The project's `.gitignore` is never touched. A file
 the repository already tracks stays tracked: an exclude entry never affects a tracked file, and
 `init` never overwrites a tracked file. Graft does append to a tracked `AGENTS.md` or
 `.github/copilot-instructions.md` when the repository commits one; that cannot be excluded, so

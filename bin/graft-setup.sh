@@ -158,9 +158,11 @@ if ! command -v npx >/dev/null 2>&1; then
   exit 1
 fi
 
-# What Graft writes into the repository (graft/, and the files graft init wires: GEMINI.md,
-# .gemini/, .claude/skills/graft/, ...) stays out of every commit: its own block in
-# .git/info/exclude, which keeps what earlier runs recorded and grows with what this run adds.
+# What Graft writes into the repository stays out of every commit: its own block in
+# .git/info/exclude, rebuilt on every run from Graft's paths alone - graft/, the .ignore its build
+# writes, what graft init --dry-run lists, and what Graft's own output names as written. A file
+# somebody else writes while Graft runs is none of them: the worktrees of a clone share that
+# file, and a product file in it would drop out of every commit unseen.
 EXCLUDE=""
 EXCLUDE="$(git rev-parse --git-path info/exclude 2>/dev/null)" || EXCLUDE=""
 GRAFT_LINES="/graft/"
@@ -185,9 +187,10 @@ if [ "$DRY" -eq 1 ]; then
 fi
 
 if [ -n "$EXCLUDE" ]; then
-  if [ -f "$EXCLUDE" ]; then
-    while IFS= read -r line; do [ -n "$line" ] && add_line "$line"; done <<< "$(awk '/^# setup-ai-core graft start/{b=1; next} /^# setup-ai-core graft end/{b=0} b' "$EXCLUDE")"
-  fi
+  # The block of the run before, kept aside: what of it this run does not derive again is named
+  OLD_LINES=""; [ -f "$EXCLUDE" ] && OLD_LINES="$(awk '/^# setup-ai-core graft start/{b=1; next} /^# setup-ai-core graft end/{b=0} b' "$EXCLUDE")"
+  # The .ignore Graft's build writes to keep its cards searchable, and never names
+  add_line "/.ignore"
   # What graft init wires into the repository, excluded whether it exists already or not
   while IFS= read -r line; do [ -n "$line" ] && add_line "/$line"; done <<< "$(npx -y "$GRAFT_PKG" "${GRAFT_INIT[@]}" --dry-run 2>&1 | tr -d '\r' | tr '\\' '/' | awk '/^would write.*this repo:/{b=1; next} !/^  /{b=0} b{print $1}')"
   write_block
@@ -202,17 +205,28 @@ RESULT=0
 if [ "$RESULT" -ne 0 ]; then cat "$TMP_OUT"; else pin_graft_mcp; fi
 
 if [ -n "$EXCLUDE" ]; then
+  # What Graft's output names as written into this repository, and the repository does not track
+  while IFS=$'\t' read -r state path; do
+    [ -n "$path" ] || continue
+    path="${path//\\//}"
+    case "$path" in /*|[A-Za-z]:*|"~"*|graft/*) continue ;; esac
+    git ls-files --error-unmatch -- "$path" >/dev/null 2>&1 || add_line "/$path"
+  done <<< "$(graft_lines "$TMP_OUT")"
+  # A committed file that changed while Graft ran is named, and never excluded
   CHANGED=""
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     case $'\n'"$BEFORE"$'\n' in *$'\n'"$line"$'\n'*) continue ;; esac
-    case "$line" in
-      "?? "*) add_line "/${line#\?\? }" ;;
-      *) CHANGED="$CHANGED ${line#???}" ;;
-    esac
+    case "$line" in "?? "*) ;; *) CHANGED="$CHANGED ${line#???}" ;; esac
   done <<< "$(snapshot)"
   write_block
-  [ -z "$CHANGED" ] || echo "warning: Graft changed committed files:$CHANGED. Review them with git diff; keep or restore them." >&2
+  DROPPED=""
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    case $'\n'"$GRAFT_LINES"$'\n' in *$'\n'"$line"$'\n'*) ;; *) DROPPED="$DROPPED $line" ;; esac
+  done <<< "$OLD_LINES"
+  [ -z "$DROPPED" ] || echo "note: taken out of the Graft block of .git/info/exclude, not written by Graft:$DROPPED"
+  [ -z "$CHANGED" ] || echo "warning: committed files changed while Graft ran:$CHANGED. Graft may have written them, or somebody else did; review them with git diff." >&2
 fi
 
 if [ "$RESULT" -ne 0 ]; then

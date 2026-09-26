@@ -212,14 +212,18 @@ try {
   }
 
   if ($exclude) {
+    # The block of the run before, kept aside: what of it this run does not derive again is named
+    $oldLines = @()
     if (Test-Path $exclude) {
       $inBlock = $false
       foreach ($line in [System.IO.File]::ReadAllLines($exclude)) {
         if ($line -clike '# setup-ai-core graft start*') { $inBlock = $true; continue }
         if ($line -clike '# setup-ai-core graft end*') { $inBlock = $false; continue }
-        if ($inBlock -and $line -and -not $graftLines.Contains($line)) { $graftLines.Add($line) }
+        if ($inBlock -and $line) { $oldLines += $line }
       }
     }
+    # The .ignore Graft's build writes to keep its cards searchable, and never names
+    if (-not $graftLines.Contains('/.ignore')) { $graftLines.Add('/.ignore') }
     # What graft init wires into the repository, excluded whether it exists already or not
     $dry = @(); try { $dry = @(& npx -y $graftPkg @graftInit --dry-run 2>&1 | ForEach-Object { "$_" }) } catch { $dry = @() }
     $inRepo = $false
@@ -242,16 +246,23 @@ try {
   if ($result -ne 0) { foreach ($line in $out) { Write-Host $line } } else { Set-GraftPin }
 
   if ($exclude) {
+    # What Graft's output names as written into this repository, and the repository does not track
+    foreach ($e in (Get-GraftLines $out)) {
+      $path = $e.Path.Replace('\', '/')
+      if ($path.StartsWith('/', [StringComparison]::Ordinal) -or $path -cmatch '^[A-Za-z]:' -or $path.StartsWith('~', [StringComparison]::Ordinal) -or $path.StartsWith('graft/', [StringComparison]::Ordinal)) { continue }
+      & git ls-files --error-unmatch -- $path 2>$null | Out-Null
+      if ($LASTEXITCODE -ne 0 -and -not $graftLines.Contains("/$path")) { $graftLines.Add("/$path") }
+    }
+    # A committed file that changed while Graft ran is named, and never excluded
     $changed = @()
     foreach ($line in Get-Snapshot) {
       if ($before -contains $line) { continue }
-      if ($line.StartsWith('?? ', [StringComparison]::Ordinal)) {
-        $path = '/' + $line.Substring(3)
-        if (-not $graftLines.Contains($path)) { $graftLines.Add($path) }
-      } else { $changed += $line.Substring(3) }
+      if (-not $line.StartsWith('?? ', [StringComparison]::Ordinal)) { $changed += $line.Substring(3) }
     }
     Write-GraftBlock
-    if ($changed.Count -gt 0) { Write-Host "warning: Graft changed committed files: $($changed -join ' '). Review them with git diff; keep or restore them." -ForegroundColor Yellow }
+    $dropped = @($oldLines | Where-Object { -not $graftLines.Contains($_) })
+    if ($dropped.Count -gt 0) { Write-Host "note: taken out of the Graft block of .git/info/exclude, not written by Graft: $($dropped -join ' ')" }
+    if ($changed.Count -gt 0) { Write-Host "warning: committed files changed while Graft ran: $($changed -join ' '). Graft may have written them, or somebody else did; review them with git diff." -ForegroundColor Yellow }
   }
 
   if ($result -ne 0) {

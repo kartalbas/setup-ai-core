@@ -29,12 +29,13 @@ for twin in sh ps1; do
   git -C "$WORK/graft-$twin" config core.autocrlf false
   echo wired-earlier > "$WORK/graft-$twin/GEMINI.md"
   mkdir -p "$WORK/graft-home/.codex"; printf '[mcp_servers.graft]\ncommand = "npx"\nargs = ["-y", "@nanonets/graft", "mcp"]\n' > "$WORK/graft-home/.codex/config.toml"   # what Graft registered on the machine
+  printf '# setup-ai-core graft start: what Graft writes into the working tree, never into a commit\n/graft/\n/product-file.ts\n# setup-ai-core graft end\n' >> "$WORK/graft-$twin/.git/info/exclude"   # a wrong entry an earlier run left
   : > "$WORK/graft-$twin.args"
   for run in 1 2; do
     if [ "$twin" = sh ]; then
-      GRAFT_FAKE_LOG="$WORK/graft-$twin.args" PATH="$WORK/graftbin:$PATH" bash "$ROOT/bin/init.sh" "$WORK/graft-$twin" --no-doctor >> "$WORK/graft-$twin.log" 2>&1 || fail "init.sh with a succeeding Graft (run $run, see $WORK/graft-$twin.log)"
+      GRAFT_FAKE_LATE=late-product.txt GRAFT_FAKE_LOG="$WORK/graft-$twin.args" PATH="$WORK/graftbin:$PATH" bash "$ROOT/bin/init.sh" "$WORK/graft-$twin" --no-doctor >> "$WORK/graft-$twin.log" 2>&1 || fail "init.sh with a succeeding Graft (run $run, see $WORK/graft-$twin.log)"
     else
-      GRAFT_FAKE_LOG="$(native "$WORK/graft-$twin.args")" PATH="$WORK/graftbin:$PATH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/graft-$twin")" -NoDoctor >> "$WORK/graft-$twin.log" 2>&1 || fail "init.ps1 with a succeeding Graft (run $run, see $WORK/graft-$twin.log)"
+      GRAFT_FAKE_LATE=late-product.txt GRAFT_FAKE_LOG="$(native "$WORK/graft-$twin.args")" PATH="$WORK/graftbin:$PATH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/graft-$twin")" -NoDoctor >> "$WORK/graft-$twin.log" 2>&1 || fail "init.ps1 with a succeeding Graft (run $run, see $WORK/graft-$twin.log)"
     fi
   done
   PIN="$(tr -d '\r\n' < "$ROOT/lib/graft-version")"
@@ -42,8 +43,11 @@ for twin in sh ps1; do
   grep -q "\"@nanonets/graft@$PIN\"" "$WORK/graft-$twin/.mcp.json" && ! grep -q '"@nanonets/graft"' "$WORK/graft-$twin/.mcp.json" || fail "init.$twin did not pin the MCP server Graft registered: $(cat "$WORK/graft-$twin/.mcp.json")"
   grep -aq "^-y @nanonets/graft@$PIN init --agents claude agents antigravity --no-build" "$WORK/graft-$twin.args" || fail "init.$twin did not wire the agents of config.env without the picker (args: $(tr '\n' '|' < "$WORK/graft-$twin.args"))"
   grep -aq "^-y @nanonets/graft@$PIN build" "$WORK/graft-$twin.args" || fail "init.$twin did not run graft build in the pinned version"
-  [ "$(git -C "$WORK/graft-$twin" status --porcelain | tr -d '\r' | sort | tr '\n' '|')" = " M README.md|" ] || fail "init.$twin: git status after Graft is not the changed README.md and the new .gitignore: $(git -C "$WORK/graft-$twin" status --porcelain | tr '\n' ' ')"
-  grep -aq 'Graft changed committed files: README.md' "$WORK/graft-$twin.log" || fail "init.$twin did not name the committed file Graft changed"
+  block="$(awk '/^# setup-ai-core graft start/{b=1; next} /^# setup-ai-core graft end/{b=0} b' "$WORK/graft-$twin/.git/info/exclude" | tr -d '\r')"
+  ! grep -qx '/late-product.txt' <<< "$block" && ! grep -qx '/product-file.ts' <<< "$block" && grep -qx '/.mcp.json' <<< "$block" && grep -qx '/graft/' <<< "$block" || fail "init.$twin: the Graft block of .git/info/exclude holds more or less than Graft's own paths: $(tr '\n' ' ' <<< "$block")"
+  grep -aq 'taken out of the Graft block of .git/info/exclude, not written by Graft: /product-file.ts' "$WORK/graft-$twin.log" || fail "init.$twin did not name the entry it took out of the Graft block"
+  [ "$(git -C "$WORK/graft-$twin" status --porcelain | tr -d '\r' | sort | tr '\n' '|')" = " M README.md|?? late-product.txt|" ] || fail "init.$twin: git status after Graft is not the changed README.md and the new .gitignore: $(git -C "$WORK/graft-$twin" status --porcelain | tr '\n' ' ')"
+  grep -aq 'committed files changed while Graft ran: README.md' "$WORK/graft-$twin.log" || fail "init.$twin did not name the committed file Graft changed"
   for p in /graft/ /GEMINI.md /.gemini/settings.json; do
     grep -qxF "$p" "$WORK/graft-$twin/.git/info/exclude" || fail "init.$twin: $p missing from the Graft exclude block"
   done

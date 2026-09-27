@@ -407,10 +407,15 @@ project's model goes only with the project's CLI) reads the repository cheaply, 
 manifests and the README, and
 outputs the file in the fixed shape; `map` checks that shape (the title `# <repo> — the map`,
 the five headings in order, at most 80 lines) and refuses anything else, keeping the output at
-`.ai-core/map.rejected.md` for a look. Section 5 comes back from the map that exists. The file
-goes into the project harness as `repos/<repo>/AGENTS.md` with a first line naming the commit it
-was generated from, the harness is committed and pushed (`push`), and the checkout assembled
-again, so the map is in place at once. In the checkout, `init` opens every map, a generated one or,
+`.ai-core/map.rejected.md` for a look. With `agy`, `map` first asks `agy models` and stops with
+agy's own words when agy cannot run in the session; over SSH agy keeps its sign-in in a file of
+its own, not in the desktop's keychain, and the message says so. Section 5 comes back from the
+map that exists. The file goes into the project harness as `repos/<repo>/AGENTS.md` with a first
+line naming the commit it was generated from, the harness is committed and pushed (`push`), and
+the checkout assembled again, so the map is in place at once. A map the code gives again word for
+word is confirmed: only its first line moves to the current commit (`Map confirmed at <commit>`),
+so the distance `session-start` counts begins there; at the commit it names already, nothing is
+written (`Map unchanged`). In the checkout, `init` opens every map, a generated one or,
 where the repository has none yet, the generic one of `templates/`, with the block
 `## Binding rules` from `lib/binding-rules.md`, after the header line and the title: the rules, the
 local rules and the skills file, each named after `@`, the documents of the project,

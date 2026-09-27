@@ -150,8 +150,18 @@ $map = @("# $n $([char]0x2014) the map", '', '## What it is', 'A shop.', '', '##
 'codex: thinking...'
 exit 0
 EOF
-sed 's/^echo "\$\*" >> "\$MAP_FAKE_LOG"$/echo "$*" >> "$MAP_FAKE_LOG"/' "$WORK/ghbin/claude" > "$WORK/ghbin/agy"; chmod +x "$WORK/ghbin/agy" "$WORK/ghbin/codex"
-cp "$WORK/ghbin/claude.ps1" "$WORK/ghbin/agy.ps1"
+# agy answers `agy models` the way a signed-in agy does, or the way one does that is not (MAP_FAKE_SIGNED_OUT)
+{ head -n1 "$WORK/ghbin/claude"; cat <<'EOF'
+if [ "${1:-}" = models ]; then
+  [ -z "${MAP_FAKE_SIGNED_OUT:-}" ] || { echo 'Using file-based token storage because SSH session detected'; echo 'not signed in'; exit 1; }
+  printf 'gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n'; exit 0
+fi
+EOF
+tail -n +2 "$WORK/ghbin/claude"; } > "$WORK/ghbin/agy"; chmod +x "$WORK/ghbin/agy" "$WORK/ghbin/codex"
+{ head -n1 "$WORK/ghbin/claude.ps1"; cat <<'EOF'
+if ($Rest.Count -gt 0 -and $Rest[0] -eq 'models') { if ($env:MAP_FAKE_SIGNED_OUT) { 'Using file-based token storage because SSH session detected'; 'not signed in'; exit 1 }; "gemini-3.8-flash-high`tGemini 3.8 Flash (High)"; exit 0 }
+EOF
+tail -n +2 "$WORK/ghbin/claude.ps1"; } > "$WORK/ghbin/agy.ps1"
 MAPLOG="$WORK/map.args"
 map_sh() { HOME="$WORK/home-sh" PATH="$PATH_SH" GRAFT_FAKE_LOG="$WORK/layers.args" MAP_FAKE_LOG="$MAPLOG" bash "$ROOT/bin/map.sh" "$@"; }
 map_ps() { HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" GRAFT_FAKE_LOG="$(native "$WORK/layers.args")" MAP_FAKE_LOG="$(native "$MAPLOG")" MAP_FAKE_NOTE=ps pwsh -NoProfile -File "$ROOT/bin/map.ps1" "$@"; }
@@ -211,6 +221,13 @@ for t in sh ps; do
   grep -q -- '--model gemini-3.8-flash-high' "$MAPLOG" && ! grep -q 'claude-sonnet-5' "$MAPLOG" || fail "map.$t did not hand this machine's model to this machine's CLI: $(tail -c 200 "$MAPLOG")"
   mv -f "$WORK/map-config-$t.bak" "$C"
 done
+# An agy that cannot run in this session is found before the map is asked for, and over SSH with the reason
+for t in sh ps; do
+  : > "$MAPLOG"
+  if [ "$t" = sh ]; then MAP_FAKE_SIGNED_OUT=1 SSH_CONNECTION='192.0.2.1 50000 192.0.2.2 22' AI_CORE_MAP_TOOL=agy map_sh "$WORK/org-sh/shop-web" --dry-run
+  else MAP_FAKE_SIGNED_OUT=1 SSH_CONNECTION='192.0.2.1 50000 192.0.2.2 22' AI_CORE_MAP_TOOL=agy map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")" -DryRun; fi > "$WORK/map-agy-out-$t.log" 2>&1 && fail "map.$t ran with an agy that is not signed in"
+  grep -aq 'agy models failed, so agy cannot write the map in this session: not signed in; over SSH agy keeps its token in a file, not in the desktop keychain' "$WORK/map-agy-out-$t.log" && ! grep -q -- '--print' "$MAPLOG" || fail "map.$t did not stop before the map with the reason agy cannot run (see $WORK/map-agy-out-$t.log)"
+done
 AI_CORE_MAP_TOOL=hermes map_sh "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-hermes.log" 2>&1 && fail "map.sh accepted a tool it does not know"
 grep -aq 'map runs with claude, codex or agy' "$WORK/map-hermes.log" || fail "map.sh does not name the tools it runs with (see $WORK/map-hermes.log)"
 (cd "$WORK/org-sh/shop-web" && HOME="$WORK/home-sh" PATH="$PATH_SH" AI_CORE_UPDATE_CHECK=never TEAM_MODES_FILE="$WORK/always.tsv" bash "$ROOT/bin/session-start.sh" > "$WORK/map-session.log" 2>&1) || fail "session-start.sh with a map (see $WORK/map-session.log): $(tail -n 3 "$WORK/map-session.log" | tr '\n' '|')"
@@ -220,6 +237,23 @@ echo x >> "$WORK/org-sh/shop-web/README.md"; git -C "$WORK/org-sh/shop-web" -c u
 [ "$(jq -r '.map_behind' "$WORK/map-session.json")" = 1 ] || fail "session-start.sh --json does not count the commits behind the map: $(jq -c '{map_commit, map_behind}' "$WORK/map-session.json")"
 (cd "$WORK/org-ps/shop-web" && HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" AI_CORE_UPDATE_CHECK=never TEAM_MODES_FILE="$(native "$WORK/always.tsv")" pwsh -NoProfile -File "$ROOT/bin/session-start.ps1" -Json > "$WORK/map-session-ps.json" 2>/dev/null) || true
 [ "$(jq -r '.map_behind' "$WORK/map-session-ps.json")" = 0 ] || fail "session-start.ps1 -Json does not report the map: $(jq -c '{map_commit, map_behind}' "$WORK/map-session-ps.json")"
+# A map the code gives again word for word is confirmed: its header moves to the commit it was
+# confirmed at, pushed, and the distance is gone; a second run at that commit leaves it alone.
+for t in sh ps; do
+  if [ "$t" = sh ]; then map_run() { MAP_FAKE_NOTE=v3 map_sh "$WORK/org-sh/shop-web"; }; else map_run() { map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")"; }; fi
+  H="$WORK/org-$t/shop-ai-core/repos/shop-web/AGENTS.md"
+  map_run > "$WORK/map-own-$t.log" 2>&1 || fail "map.$t writing its own map (see $WORK/map-own-$t.log)"
+  echo y >> "$WORK/org-$t/shop-web/README.md"; git -C "$WORK/org-$t/shop-web" -c user.name=check -c user.email=check@localhost commit -qam 'A change the map does not see #3'
+  head="$(git -C "$WORK/org-$t/shop-web" rev-parse --short HEAD)"
+  map_run > "$WORK/map-confirm-$t.log" 2>&1 || fail "map.$t confirming the map (see $WORK/map-confirm-$t.log)"
+  grep -aq "^--> Map confirmed at $head, its content unchanged: " "$WORK/map-confirm-$t.log" && head -n1 "$H" | grep -q " from $head;" || fail "map.$t did not confirm the unchanged map at $head: $(grep -a '^--> Map' "$WORK/map-confirm-$t.log"; head -n1 "$H")"
+  [ -z "$(git -C "$WORK/org-$t/shop-ai-core" status --porcelain)" ] && [ "$(git -C "$WORK/org-$t/shop-ai-core" rev-list --count '@{upstream}..HEAD')" = 0 ] || fail "map.$t did not push the confirmed map"
+  before="$(git -C "$WORK/org-$t/shop-ai-core" rev-parse HEAD)"
+  map_run > "$WORK/map-again-$t.log" 2>&1 || fail "map.$t a second time (see $WORK/map-again-$t.log)"
+  grep -aq '^--> Map unchanged: ' "$WORK/map-again-$t.log" && [ "$(git -C "$WORK/org-$t/shop-ai-core" rev-parse HEAD)" = "$before" ] || fail "map.$t wrote the map again at the commit it was confirmed at (see $WORK/map-again-$t.log)"
+done
+(cd "$WORK/org-sh/shop-web" && HOME="$WORK/home-sh" PATH="$PATH_SH" AI_CORE_UPDATE_CHECK=never TEAM_MODES_FILE="$WORK/always.tsv" bash "$ROOT/bin/session-start.sh" --json > "$WORK/map-session-2.json" 2>/dev/null) || fail "session-start.sh after the confirmation"
+[ "$(jq -r '.map_behind' "$WORK/map-session-2.json")" = 0 ] || fail "session-start.sh still counts commits behind a map confirmed at HEAD: $(jq -c '{map_commit, map_behind}' "$WORK/map-session-2.json")"
 git -C "$WORK/author" pull -q --rebase 2>/dev/null || fail "the author clone could not take the maps"
 # The PowerShell twin creates one too: store-api of the same organisation gets store-ai-core
 new_checkout "$WORK/org-ps/store-api" store-api

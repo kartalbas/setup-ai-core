@@ -521,9 +521,8 @@ function Send-Gitignore([string]$dir) {
   if ($LASTEXITCODE -eq 0) { return "committed and pushed to origin/$branch" }
   return "committed; the push was refused or failed (see above), the commit stays"
 }
-$gitignoreChanged = $false; $gitignoreNote = ''
-if ($inWorkTree) {
-  $gi = Join-Path $target ".gitignore"
+# The .gitignore the checkout should have, $wanted, against the one it has, $current
+$buildGitignore = {
   $kept = @(); $skip = $false
   if (Test-Path $gi) {
     foreach ($line in [System.IO.File]::ReadAllLines($gi)) {
@@ -541,9 +540,25 @@ if ($inWorkTree) {
   $block = if ($missing.Count -gt 0) { @($markers[0]) + $missing + @($markers[1]) } else { @() }
   $wanted = (($kept + $block) -join "`n") + "`n"
   $current = if (Test-Path $gi) { [System.IO.File]::ReadAllText($gi).Replace("`r`n", "`n") } else { $null }
+}
+$gitignoreChanged = $false; $gitignoreNote = ''; $gitignoreBehind = $false
+if ($inWorkTree) {
+  $gi = Join-Path $target ".gitignore"
+  . $buildGitignore
   if ($current -cne $wanted) {
     $gitignoreChanged = $true
-    if (-not $DryRun) { [System.IO.File]::WriteAllText($gi, $wanted, $utf8); $gitignoreNote = Send-Gitignore $target }
+    if (-not $DryRun) {
+      # The commit goes on top of what the origin has: the checkout catches up first (a worktree
+      # keeps the change for its own commit), and the block is built again from what came
+      $caught = [pscustomobject]@{ Ok = $true; Note = '' }
+      if ("$(& git -C $target rev-parse --git-dir 2>$null)" -ceq "$(& git -C $target rev-parse --git-common-dir 2>$null)") { $caught = Sync-Checkout $target }
+      if (-not $caught.Ok) { $gitignoreBehind = $true; $gitignoreNote = $caught.Note }
+      else {
+        if ($caught.Note) { . $buildGitignore }
+        if ($current -cne $wanted) { [System.IO.File]::WriteAllText($gi, $wanted, $utf8); $gitignoreNote = "$(if ($caught.Note) { "$($caught.Note); " })$(Send-Gitignore $target)" }
+        else { $gitignoreChanged = $false; $gitignoreNote = $caught.Note }
+      }
+    }
   }
 }
 
@@ -568,8 +583,9 @@ if ($report.tracked.Count -gt 0)   { Write-Host "  tracked    $($report.tracked 
 Write-Host "  unchanged  $($report.unchanged) file(s)"
 if ($gitignoreChanged) {
   if ($DryRun) { Write-Host "  .gitignore would change and be committed: the agent files of this repository are ignored" }
+  elseif ($gitignoreBehind) { Write-Host "  .gitignore not written: this checkout is $gitignoreNote" }
   else { Write-Host "  .gitignore changed: the agent files of this repository are ignored; $gitignoreNote" }
-}
+} elseif ($gitignoreNote) { Write-Host "  .gitignore: $gitignoreNote; the block was there already" }
 if ($worktreeDataFrom) { Write-Host "  .ai-core $(if ($DryRun) { 'would be taken' } else { 'taken' }) from the checkout ${worktreeDataFrom}: a worktree starts with the checkout's configuration, local rules and documents" }
 if ($hooksArmed) { Write-Host "  core.hooksPath $(if ($DryRun) { 'would be set' } else { 'set' }) to .githooks: the push gate runs here" }
 if ($DryRun) { Write-Host "  nothing was written (dry run)" } else { Write-Host "✓ Harness $coreVersion in place. Run 'ai-core session-start' here to verify." -ForegroundColor Green }

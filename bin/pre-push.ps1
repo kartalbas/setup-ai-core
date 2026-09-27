@@ -49,7 +49,8 @@ if ($Help -or $Rest -ccontains "-h" -or $Rest -ccontains "--help") {
   Write-Host "                    (No-issue: trailer) and push by ref to the branch checked out, through the"
   Write-Host "                    gate; a worktree gets the files only. An unpushed commit that names no"
   Write-Host "                    issue and touches nothing but .gitignore gets the trailer that says init"
-  Write-Host "                    wrote it, so the push goes through"
+  Write-Host "                    wrote it, so the push goes through. The checkout catches up with its"
+  Write-Host "                    origin first; one behind it with work of its own gets nothing"
   Write-Host "  -All <folder>     With -Install: every git repository directly under the folder"
   Write-Host "  -Help             Show this help message"
   Write-Host ""
@@ -66,6 +67,7 @@ $utf8 = New-Object System.Text.UTF8Encoding $false
 if ($All -and -not $Install) { Write-Host "error: -All goes with -Install" -ForegroundColor Red; exit 2 }
 if ($Install -and $Rest.Count -gt 0) { Write-Host "error: unexpected argument '$($Rest[0])' (see -Help)" -ForegroundColor Red; exit 2 }
 
+Import-Module (Join-Path $coreRoot 'lib\Layers.psm1') -Force
 function Deny-Push([string]$why) { [Console]::Error.WriteLine("pre-push: REFUSED — $why"); exit 1 }
 
 # --- -Install: two shims; the first only starts this gate ------------------------------------
@@ -200,6 +202,10 @@ function Install-Shim([string]$dir) {  # $true written or unchanged, $false not 
   if ((Test-Path -LiteralPath (Join-Path $dir '.gitleaks.toml') -PathType Leaf) -and -not (Test-GitleaksGit)) {
     [Console]::Error.WriteLine("pre-push: ${name}: .gitleaks.toml arms the gitleaks scan of this gate, and no gitleaks 8.19 or newer is on this path, so the push of the shims would be refused; nothing installed. Run ai-core doctor here, which installs it, then this again."); return $false
   }
+  # Their commit goes on top of what the origin has: the checkout catches up first
+  $caught = Sync-Checkout $dir
+  if (-not $caught.Ok) { [Console]::Error.WriteLine("pre-push: ${name}: this checkout is $($caught.Note); nothing installed"); return $false }
+  if ($caught.Note) { Write-Host "pre-push: ${name}: $($caught.Note)" }
   # The hook runs only where git looks for it; the setting is the clone's own, never committed
   if ("$(& git -C $dir config --get core.hooksPath 2>$null)" -cne '.githooks') {
     & git -C $dir config core.hooksPath .githooks

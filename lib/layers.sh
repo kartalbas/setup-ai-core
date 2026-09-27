@@ -61,6 +61,27 @@ project_folder_of() {
   fi
 }
 
+# catch_up <checkout>: before ai-core commits a file of its own in a checkout, the checkout comes
+# level with its origin: fetched, and fast-forwarded where it is only behind, with no commit of its
+# own and no change to a tracked file. Prints what it did, or why it could not and returns 1 then:
+# nothing of ai-core is committed on a checkout the origin has moved past. Offline, without an
+# origin or off a branch it prints nothing and returns 0; the push says what happened.
+catch_up() {
+  local dir="$1" branch behind ahead why=""
+  branch="$(git -C "$dir" symbolic-ref --short -q HEAD)" || return 0
+  git -C "$dir" remote get-url origin >/dev/null 2>&1 || return 0
+  git -C "$dir" fetch --quiet origin "$branch" >/dev/null 2>&1 || return 0
+  behind="$(git -C "$dir" rev-list --count HEAD..FETCH_HEAD 2>/dev/null)" || return 0
+  [ "$behind" -gt 0 ] || return 0
+  ahead="$(git -C "$dir" rev-list --count FETCH_HEAD..HEAD)"
+  if [ "$ahead" -gt 0 ]; then why="with $ahead commit(s) of its own"
+  elif [ -n "$(git -C "$dir" status --porcelain --untracked-files=no)" ]; then why="with changes to tracked files"
+  elif ! git -C "$dir" merge --ff-only --quiet FETCH_HEAD >/dev/null 2>&1; then why="and could not be fast-forwarded"
+  fi
+  if [ -n "$why" ]; then echo "$behind commit(s) behind origin/$branch, $why; pull, then run this again"; return 1; fi
+  echo "pulled $behind commit(s) from origin/$branch first"
+}
+
 # layer_dir <org>/<name> <folder>: the clone, beside the repositories of the folder
 layer_dir() { echo "$2/${1#*/}"; }
 

@@ -485,9 +485,7 @@ commit_gitignore() {
   branch="$(git -C "$dir" symbolic-ref --short -q HEAD)" || { echo "committed; not on a branch, not pushed"; return 0; }
   if git -C "$dir" push --quiet origin "HEAD:$branch" >&2; then echo "committed and pushed to origin/$branch"; else echo "committed; the push was refused or failed (see above), the commit stays"; fi
 }
-GITIGNORE_CHANGED=0; GITIGNORE_NOTE=""
-if git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  GI="$TARGET/.gitignore"
+gitignore_build() {  # the .gitignore the checkout should have, into $TMP/gitignore
   KEPT_LINES="$([ -f "$GI" ] && awk '/^# setup-ai-core start/{skip=1} !skip{print} /^# setup-ai-core end/{skip=0}' "$GI" | tr -d '\r' || true)"
   {
     [ -z "$KEPT_LINES" ] || printf '%s\n' "$KEPT_LINES"
@@ -500,9 +498,28 @@ if git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         if (n > 0) { print marker[1]; for (i = 1; i <= n; i++) print lines[i]; print marker[2] }
       }'
   } > "$TMP/gitignore"
-  if ! { [ -f "$GI" ] && cmp -s "$TMP/gitignore" <(tr -d '\r' < "$GI"); }; then
+}
+gitignore_differs() { ! { [ -f "$GI" ] && cmp -s "$TMP/gitignore" <(tr -d '\r' < "$GI"); }; }
+GITIGNORE_CHANGED=0; GITIGNORE_NOTE=""; GITIGNORE_BEHIND=0
+if git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  GI="$TARGET/.gitignore"
+  gitignore_build
+  if gitignore_differs; then
     GITIGNORE_CHANGED=1
-    if [ "$DRY" -eq 0 ]; then cp -f "$TMP/gitignore" "$GI"; GITIGNORE_NOTE="$(commit_gitignore "$TARGET")"; fi
+    if [ "$DRY" -eq 0 ]; then
+      # The commit goes on top of what the origin has: the checkout catches up first (a worktree
+      # keeps the change for its own commit), and the block is built again from what came
+      CAUGHT=""
+      if [ "$(git -C "$TARGET" rev-parse --git-dir)" = "$(git -C "$TARGET" rev-parse --git-common-dir)" ]; then
+        CAUGHT="$(catch_up "$TARGET")" || GITIGNORE_BEHIND=1
+      fi
+      if [ "$GITIGNORE_BEHIND" -eq 1 ]; then GITIGNORE_NOTE="$CAUGHT"
+      else
+        [ -z "$CAUGHT" ] || gitignore_build
+        if gitignore_differs; then cp -f "$TMP/gitignore" "$GI"; GITIGNORE_NOTE="${CAUGHT:+$CAUGHT; }$(commit_gitignore "$TARGET")"
+        else GITIGNORE_CHANGED=0; GITIGNORE_NOTE="$CAUGHT"; fi
+      fi
+    fi
   fi
 fi
 
@@ -525,7 +542,9 @@ if [ "$DRY" -eq 1 ]; then echo "init would change in $(basename "$TARGET"):"; el
 echo "  unchanged  $UNCHANGED file(s)"
 if [ "$GITIGNORE_CHANGED" -eq 1 ]; then
   if [ "$DRY" -eq 1 ]; then echo "  .gitignore would change and be committed: the agent files of this repository are ignored"
+  elif [ "$GITIGNORE_BEHIND" -eq 1 ]; then echo "  .gitignore not written: this checkout is $GITIGNORE_NOTE"
   else echo "  .gitignore changed: the agent files of this repository are ignored; $GITIGNORE_NOTE"; fi
+elif [ -n "$GITIGNORE_NOTE" ]; then echo "  .gitignore: $GITIGNORE_NOTE; the block was there already"
 fi
 if [ -n "$WORKTREE_DATA_FROM" ]; then echo "  .ai-core $([ "$DRY" -eq 1 ] && echo "would be taken" || echo "taken") from the checkout $WORKTREE_DATA_FROM: a worktree starts with the checkout's configuration, local rules and documents"; fi
 if [ "$HOOKS_ARMED" -eq 1 ]; then echo "  core.hooksPath $([ "$DRY" -eq 1 ] && echo "would be set" || echo "set") to .githooks: the push gate runs here"; fi

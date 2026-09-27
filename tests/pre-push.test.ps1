@@ -368,6 +368,9 @@ $pushed = Join-Path $fake 'pushed'; & git init -q -b master $pushed
 & git -C $pushed config user.email 'test@example.invalid'; & git -C $pushed config user.name 'test'
 Write-Lf (Join-Path $pushed 'a.txt') "a`n"; & git -C $pushed add -A; & git -C $pushed commit -q -m 'Start #3'
 & git -C $pushed remote add origin $originBare; & git -C $pushed push -q -u origin master 2>$null
+# two clones of this state, which the origin moves past below: one clean, one with a change of its own
+foreach ($c in @('behind', 'dirty')) { $d = Join-Path $fake $c; & git clone -q $originBare $d 2>$null; & git -C $d config user.email 'test@example.invalid'; & git -C $d config user.name 'test' }
+[System.IO.File]::AppendAllText((Join-Path $fake 'dirty\a.txt'), "mine`n", $utf8)
 InstallIn $pushed
 Check 'exit 0'                        0 $rc
 Check 'pushed to origin/master'       'True' (Says '(?m)^pre-push: pushed: pushed to origin/master\r?$')
@@ -383,6 +386,22 @@ Check 'the trailer is on that commit' 'the .gitignore block written by ai-core i
 Check 'its subject is kept'           'chore: ignore node_modules' "$(& git -C $pushed log -1 --format=%s HEAD)"
 Check 'pushed'                        'True' (Says '(?m)^pre-push: pushed: pushed to origin/master\r?$')
 Check 'the origin has it all'         "$(& git -C $pushed rev-parse HEAD)" "$(& git -C $originBare rev-parse master)"
+
+Write-Host 'a clone the origin has moved past catches up first: the shims arrive with it, no second commit, nothing to push'
+InstallIn (Join-Path $fake 'behind')
+Check 'exit 0'                        0 $rc
+Check 'it says it caught up'          'True' (Says '(?m)^pre-push: behind: pulled 2 commit\(s\) from origin/master first\r?$')
+Check 'the shims came with it'        'True' (Says '(?m)^pre-push: behind: \.githooks/pre-push unchanged\r?$')
+Check 'no commit of its own'          'False' (Says '(?m)^pre-push: behind: committed')
+Check 'level with the origin'         "$(& git -C $originBare rev-parse master)" "$(& git -C (Join-Path $fake 'behind') rev-parse HEAD)"
+
+Write-Host 'a clone behind its origin with a change of its own: nothing written, nothing committed, and why'
+$headD = "$(& git -C (Join-Path $fake 'dirty') rev-parse HEAD)"
+InstallIn (Join-Path $fake 'dirty')
+Check 'exit 1'                        1 $rc
+Check 'it says why'                   'True' (Says '(?m)^pre-push: dirty: this checkout is 2 commit\(s\) behind origin/master, with changes to tracked files; pull, then run this again; nothing installed\r?$')
+Check 'no shims'                      'False' (Test-Path (Join-Path $fake 'dirty\.githooks'))
+Check 'no commit'                     $headD "$(& git -C (Join-Path $fake 'dirty') rev-parse HEAD)"
 
 Write-Host 'an unpushed commit that touches something else and names no issue is still refused, by the gate'
 Write-Lf (Join-Path $pushed 'x.txt') "x`n"; & git -C $pushed add x.txt; & git -C $pushed commit -q -m 'Add x without a ticket'

@@ -45,7 +45,8 @@ for arg in "$@"; do
     echo "                    (No-issue: trailer) and push by ref to the branch checked out, through the"
     echo "                    gate; a worktree gets the files only. An unpushed commit that names no"
     echo "                    issue and touches nothing but .gitignore gets the trailer that says init"
-    echo "                    wrote it, so the push goes through"
+    echo "                    wrote it, so the push goes through. The checkout catches up with its"
+    echo "                    origin first; one behind it with work of its own gets nothing"
     echo "  --all <folder>    With --install: every git repository directly under the folder"
     echo "  -h, --help        Show this help message"
     echo ""
@@ -71,6 +72,7 @@ while [ $# -gt 0 ]; do
 done
 [ -z "$ALL_DIR" ] || [ "$INSTALL" -eq 1 ] || { echo "error: --all goes with --install" >&2; exit 2; }
 
+. "$CORE_ROOT/lib/layers.sh"
 refuse() { echo "pre-push: REFUSED — $*" >&2; exit 1; }
 TMPD="$(mktemp -d)"; trap 'rm -rf "$TMPD"' EXIT
 
@@ -194,6 +196,10 @@ install_shim() {  # install_shim <repository>: 0 written or unchanged, 1 not a r
   if [ -f "$dir/.gitleaks.toml" ] && ! gitleaks_git; then
     echo "pre-push: $name: .gitleaks.toml arms the gitleaks scan of this gate, and no gitleaks 8.19 or newer is on this path, so the push of the shims would be refused; nothing installed. Run ai-core doctor here, which installs it, then this again." >&2; return 1
   fi
+  # Their commit goes on top of what the origin has: the checkout catches up first
+  local caught
+  if ! caught="$(catch_up "$dir")"; then echo "pre-push: $name: this checkout is $caught; nothing installed" >&2; return 1; fi
+  [ -z "$caught" ] || echo "pre-push: $name: $caught"
   # The hook runs only where git looks for it; the setting is the clone's own, never committed
   if [ "$(git -C "$dir" config --get core.hooksPath 2>/dev/null)" != ".githooks" ]; then
     git -C "$dir" config core.hooksPath .githooks

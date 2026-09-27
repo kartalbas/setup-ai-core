@@ -234,8 +234,11 @@ project already ignores is not written twice, and a project that ignores them al
 `init` commits that `.gitignore` on its own (subject `the agent files of this repository are
 ignored`, a `No-issue:` trailer naming `init`) and pushes it by ref to the branch checked out,
 through the push gate where the repository carries one; in a worktree it leaves the change for
-that worktree's own commit. From then on no clone of the repository commits an agent file, with or
-without the harness.
+that worktree's own commit. Before that commit the checkout is brought level with its origin:
+fetched, and fast-forwarded where it is only behind, so a clone another machine already served
+takes the block from there instead of committing it twice; a clone behind its origin with commits
+or changes of its own gets no block, and the report says why. From then on no clone of the
+repository commits an agent file, with or without the harness.
 
 `init` also writes every path it deploys into `.git/info/exclude` of the clone, between two marker
 lines, rewritten on every run, which covers the clone before that commit. `graft-setup` writes a second block there with what Graft writes:
@@ -618,8 +621,9 @@ writes both shims into the current repository and into every worktree of it (a r
 `core.hooksPath` is read from the tree git works in, and git runs the files on disk), sets
 `core.hooksPath`, and says what to commit; with `--all <folder>` it does so for every repository
 under a folder, and it commits the shims on their own (a `No-issue:` trailer naming the command)
-and pushes them by ref through the gate; a worktree gets the files and keeps them for its own
-commit. Git runs the shims through bash, and a shim checked out with CRLF fails on its first
+and pushes them by ref through the gate, after bringing the checkout level with its origin the
+way `init` does before its `.gitignore` commit; a worktree gets the files and keeps them for its
+own commit. Git runs the shims through bash, and a shim checked out with CRLF fails on its first
 line, so where no rule of the repository's `.gitattributes` makes them check out with LF the
 install adds `.githooks/* text eol=lf` to that file and commits it with them. An unpushed commit ahead of origin that names no
 issue and touches nothing but `.gitignore`, written by an `init` from before `init` committed the
@@ -762,7 +766,9 @@ under one of these words:
 | `unchanged` | the count of files that were already what they should be |
 
 The report closes with `.gitignore changed` when the block was written, committed and pushed
-(or, in a worktree, left to its own commit), with `.ai-core taken from the checkout <path>` when a
+(or, in a worktree, left to its own commit), with `.gitignore: pulled N commit(s) from origin/<branch>
+first; the block was there already` when the origin had it, with `.gitignore not written` and the
+reason when the checkout is behind its origin with work of its own, with `.ai-core taken from the checkout <path>` when a
 worktree started empty and got the checkout's `.ai-core/` data first, with `core.hooksPath set to .githooks` when the repository carries the push gate's shim and the
 clone was not armed yet, and with the harness version. Above it, `graft-setup` reports its own writes in two lists, the
 files in the repository and the files on the machine (under the home directory), each with

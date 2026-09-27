@@ -406,6 +406,9 @@ pushed="$fake/pushed"; git init -q -b master "$pushed"
 git -C "$pushed" config user.email 'test@example.invalid'; git -C "$pushed" config user.name 'test'
 printf 'a\n' > "$pushed/a.txt"; git -C "$pushed" add -A; git -C "$pushed" commit -q -m 'Start #3'
 git -C "$pushed" remote add origin "$origin_bare"; git -C "$pushed" push -q -u origin master 2>/dev/null
+# two clones of this state, which the origin moves past below: one clean, one with a change of its own
+for c in behind dirty; do git clone -q "$origin_bare" "$fake/$c" 2>/dev/null; git -C "$fake/$c" config user.email 'test@example.invalid'; git -C "$fake/$c" config user.name 'test'; done
+printf 'mine\n' >> "$fake/dirty/a.txt"
 : > "$shim_args"
 out="$( cd "$pushed" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
 check 'exit 0'                        0 "$rc"
@@ -423,6 +426,22 @@ check 'the trailer is on that commit' 'the .gitignore block written by ai-core i
 check 'its subject is kept'           'chore: ignore node_modules' "$(git -C "$pushed" log -1 --format=%s HEAD)"
 check 'pushed'                        yes "$(grep -q '^pre-push: pushed: pushed to origin/master$' <<< "$out" && echo yes || echo no)"
 check 'the origin has it all'         "$(git -C "$pushed" rev-parse HEAD)" "$(git -C "$origin_bare" rev-parse master)"
+
+echo 'a clone the origin has moved past catches up first: the shims arrive with it, no second commit, nothing to push'
+out="$( cd "$fake/behind" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'exit 0'                        0 "$rc"
+check 'it says it caught up'          yes "$(grep -q '^pre-push: behind: pulled 2 commit(s) from origin/master first$' <<< "$out" && echo yes || echo no)"
+check 'the shims came with it'        yes "$(grep -q '^pre-push: behind: .githooks/pre-push unchanged$' <<< "$out" && echo yes || echo no)"
+check 'no commit of its own'          no "$(grep -q '^pre-push: behind: committed' <<< "$out" && echo yes || echo no)"
+check 'level with the origin'         "$(git -C "$origin_bare" rev-parse master)" "$(git -C "$fake/behind" rev-parse HEAD)"
+
+echo 'a clone behind its origin with a change of its own: nothing written, nothing committed, and why'
+head_d="$(git -C "$fake/dirty" rev-parse HEAD)"
+out="$( cd "$fake/dirty" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'exit 1'                        1 "$rc"
+check 'it says why'                   yes "$(grep -q '^pre-push: dirty: this checkout is 2 commit(s) behind origin/master, with changes to tracked files; pull, then run this again; nothing installed$' <<< "$out" && echo yes || echo no)"
+check 'no shims'                      no "$([ -e "$fake/dirty/.githooks" ] && echo yes || echo no)"
+check 'no commit'                     "$head_d" "$(git -C "$fake/dirty" rev-parse HEAD)"
 
 echo 'an unpushed commit that touches something else and names no issue is still refused, by the gate'
 printf 'x\n' > "$pushed/x.txt"; git -C "$pushed" add x.txt; git -C "$pushed" commit -q -m 'Add x without a ticket'

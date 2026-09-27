@@ -46,6 +46,29 @@ function Get-ProjectFolderOf {
   return Split-Path -Parent $main
 }
 
+function Sync-Checkout {
+  # Before ai-core commits a file of its own in a checkout, the checkout comes level with its
+  # origin: fetched, and fast-forwarded where it is only behind, with no commit of its own and no
+  # change to a tracked file. Returns Ok and a Note: what it did, or why it could not and Ok false
+  # then: nothing of ai-core is committed on a checkout the origin has moved past. Offline, without
+  # an origin or off a branch the Note is empty and Ok true; the push says what happened.
+  [CmdletBinding()] param([Parameter(Mandatory)][string]$Directory)
+  $level = [pscustomobject]@{ Ok = $true; Note = '' }
+  $branch = "$(& git -C $Directory symbolic-ref --short -q HEAD 2>$null)".Trim()
+  if ($LASTEXITCODE -ne 0 -or -not $branch) { return $level }
+  & git -C $Directory remote get-url origin *> $null; if ($LASTEXITCODE -ne 0) { return $level }
+  & git -C $Directory fetch --quiet origin $branch *> $null; if ($LASTEXITCODE -ne 0) { return $level }
+  $behind = [int]"$(& git -C $Directory rev-list --count HEAD..FETCH_HEAD 2>$null)".Trim()
+  if ($behind -eq 0) { return $level }
+  $ahead = [int]"$(& git -C $Directory rev-list --count FETCH_HEAD..HEAD 2>$null)".Trim()
+  $why = ''
+  if ($ahead -gt 0) { $why = "with $ahead commit(s) of its own" }
+  elseif ("$(& git -C $Directory status --porcelain --untracked-files=no 2>$null)") { $why = 'with changes to tracked files' }
+  else { & git -C $Directory merge --ff-only --quiet FETCH_HEAD *> $null; if ($LASTEXITCODE -ne 0) { $why = 'and could not be fast-forwarded' } }
+  if ($why) { return [pscustomobject]@{ Ok = $false; Note = "$behind commit(s) behind origin/$branch, $why; pull, then run this again" } }
+  return [pscustomobject]@{ Ok = $true; Note = "pulled $behind commit(s) from origin/$branch first" }
+}
+
 function Get-LayerDir {
   # the clone, beside the repositories of the folder
   [CmdletBinding()] param([Parameter(Mandatory)][string]$Full, [Parameter(Mandatory)][string]$Folder)
@@ -241,4 +264,4 @@ function Resolve-LayerChain {
   return $chain
 }
 
-Export-ModuleMember -Function Get-OriginParts, Get-HarnessOf, Get-ProjectFolderOf, Get-LayerDir, Resolve-Layer, Get-LayerExtends, Get-LayerRequires, Test-VersionAtLeast, Resolve-LayerChain
+Export-ModuleMember -Function Get-OriginParts, Get-HarnessOf, Get-ProjectFolderOf, Sync-Checkout, Get-LayerDir, Resolve-Layer, Get-LayerExtends, Get-LayerRequires, Test-VersionAtLeast, Resolve-LayerChain

@@ -401,9 +401,10 @@ No directory trees and no symbol lists: Graft owns those.
 
 **`ai-core map`** (`bin/map.sh`, `bin/map.ps1`) writes the map of the checkout it runs in: the
 agent CLI named by `MAP_TOOL` in `.ai-core/config.env` (`claude`, `codex` or `agy`, each in its
-non-interactive read-only mode; `MAP_MODEL` when not the CLI's default; `AI_CORE_MAP_TOOL` in the
-environment names the CLI of one machine) reads the repository cheaply, with Graft, the manifests
-and the README, and
+non-interactive read-only mode; `MAP_MODEL` when not the CLI's default; `AI_CORE_MAP_TOOL` and
+`AI_CORE_MAP_MODEL` in the environment name the CLI and the model of one machine, and the
+project's model goes only with the project's CLI) reads the repository cheaply, with Graft, the
+manifests and the README, and
 outputs the file in the fixed shape; `map` checks that shape (the title `# <repo> — the map`,
 the five headings in order, at most 80 lines) and refuses anything else, keeping the output at
 `.ai-core/map.rejected.md` for a look. Section 5 comes back from the map that exists. The file
@@ -798,8 +799,8 @@ allowed; any other value is an error.
 | :--- | :--- | :--- |
 | `AGENTS` | names separated by spaces: `claude`, `codex`, `antigravity`, `openhands`, `gemini`, `cursor`, `windsurf`, `copilot`; default `claude codex antigravity openhands` | the agents this project serves. `init` deploys the file of each one named (`.codex/config.toml`, `.cursorrules`, `.windsurfrules`, `.github/copilot-instructions.md`, `.openhands/microagents/repo-rules.md`) and no other, and `graft init` is wired into these and no other (`--agents`). Empty: every agent Graft detects on the machine, and every pointer file. Graft detects Gemini wherever `~/.gemini` exists, which Antigravity creates too, so an empty list wires `GEMINI.md` and `.gemini/` into every repository. |
 | `GH_ORG` | a GitHub organisation or user | the owner the board commands act for when a command names no repository (`repo-boards`, `project-new`, `incident-count`, a bare board number). Unset: the owner of the repository the command runs in. The environment variable `GH_ORG` overrides both. |
-| `MAP_TOOL` | `claude` (default), `codex`, `agy` | the agent CLI `ai-core map` writes the map with, in its non-interactive read-only mode; `AI_CORE_MAP_TOOL` in the environment names the CLI of one machine instead |
-| `MAP_MODEL` | a model id, or empty (default) | the model that CLI uses for the map; empty is the CLI's own default |
+| `MAP_TOOL` | `claude` (default), `codex`, `agy` | the agent CLI `ai-core map` writes the map with, in its non-interactive read-only mode; `AI_CORE_MAP_TOOL` in the environment names the CLI of one machine instead, for example `agy` where Claude's quota is spent |
+| `MAP_MODEL` | a model id, or empty (default) | the model that CLI uses for the map; empty is the CLI's own default. It goes only with `MAP_TOOL`: `AI_CORE_MAP_MODEL` in the environment names the model of one machine, and a machine that names another CLI without it gets that CLI's default (`agy models` lists agy's, e.g. `gemini-3.8-flash-high`) |
 | `GRAFT_EXECUTION_MODE` | `native` (default), `skip` | `native` builds the code graph with the local Node.js and fails when it cannot; `skip` does not build it in this repository |
 
 ### 5.8 Many repositories

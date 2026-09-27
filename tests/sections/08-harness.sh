@@ -199,6 +199,18 @@ grep -aq '^# shop-web — the map' "$WORK/map-agy-sh.log" && grep -q -- '--print
 AI_CORE_MAP_TOOL=codex map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")" -DryRun > "$WORK/map-codex-ps.log" 2>&1 || fail "map.ps1 with codex (see $WORK/map-codex-ps.log)"
 AI_CORE_MAP_TOOL=agy map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")" -DryRun > "$WORK/map-agy-ps.log" 2>&1 || fail "map.ps1 with agy (see $WORK/map-agy-ps.log)"
 grep -aq '^# shop-web — the map' "$WORK/map-codex-ps.log" && grep -aq '^# shop-web — the map' "$WORK/map-agy-ps.log" || fail "map.ps1 with codex or agy printed no map"
+# One machine names its CLI and its model; the project's model goes only with the project's own CLI
+map_twin() { if [ "$t" = sh ]; then map_sh "$WORK/org-sh/shop-web" --dry-run; else map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")" -DryRun; fi > "$WORK/map-$t-model.log" 2>&1 || fail "map.$t with a model (see $WORK/map-$t-model.log)"; }
+for t in sh ps; do
+  C="$WORK/org-$t/shop-web/.ai-core/config.env"; cp "$C" "$WORK/map-config-$t.bak"; printf 'MAP_MODEL="claude-sonnet-5"\n' >> "$C"
+  : > "$MAPLOG"; map_twin
+  grep -q -- '--model claude-sonnet-5' "$MAPLOG" || fail "map.$t did not hand the project's model to the project's CLI: $(tail -c 200 "$MAPLOG")"
+  : > "$MAPLOG"; AI_CORE_MAP_TOOL=agy map_twin
+  ! grep -q 'claude-sonnet-5' "$MAPLOG" || fail "map.$t handed the project's model to the CLI this machine names: $(tail -c 200 "$MAPLOG")"
+  : > "$MAPLOG"; AI_CORE_MAP_TOOL=agy AI_CORE_MAP_MODEL=gemini-3.8-flash-high map_twin
+  grep -q -- '--model gemini-3.8-flash-high' "$MAPLOG" && ! grep -q 'claude-sonnet-5' "$MAPLOG" || fail "map.$t did not hand this machine's model to this machine's CLI: $(tail -c 200 "$MAPLOG")"
+  mv -f "$WORK/map-config-$t.bak" "$C"
+done
 AI_CORE_MAP_TOOL=hermes map_sh "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-hermes.log" 2>&1 && fail "map.sh accepted a tool it does not know"
 grep -aq 'map runs with claude, codex or agy' "$WORK/map-hermes.log" || fail "map.sh does not name the tools it runs with (see $WORK/map-hermes.log)"
 (cd "$WORK/org-sh/shop-web" && HOME="$WORK/home-sh" PATH="$PATH_SH" AI_CORE_UPDATE_CHECK=never TEAM_MODES_FILE="$WORK/always.tsv" bash "$ROOT/bin/session-start.sh" > "$WORK/map-session.log" 2>&1) || fail "session-start.sh with a map (see $WORK/map-session.log): $(tail -n 3 "$WORK/map-session.log" | tr '\n' '|')"

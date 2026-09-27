@@ -18,7 +18,8 @@ if ($Help -or $args -ccontains "-h" -or $args -ccontains "--help" -or $TargetDir
   Write-Host "Usage: map.ps1 [-TargetDir <path>] [-All <folder>] [-NoPush] [-DryRun]"
   Write-Host ""
   Write-Host "Generates the map of the repository in TargetDir (default: the current directory) from its"
-  Write-Host "code, with the agent CLI named by MAP_TOOL in .ai-core\config.env (claude, codex or agy), into"
+  Write-Host "code, with the agent CLI named by MAP_TOOL in .ai-core\config.env (claude, codex or agy; for one"
+  Write-Host "machine AI_CORE_MAP_TOOL and AI_CORE_MAP_MODEL in the environment), into"
   Write-Host "repos\<repo>\AGENTS.md of the project harness: what it is, its shape, how it is built,"
   Write-Host "checked and run, where things are added, and the rules of this repository, which people"
   Write-Host "write and every regeneration keeps. At most 80 lines. Then the harness is committed and"
@@ -84,8 +85,13 @@ function Get-Setting([string]$key) {
   $l = Get-Content $config | Where-Object { $_ -cmatch "^\s*$key\s*=" } | Select-Object -Last 1
   if ($l) { return ((($l -split '=', 2)[1] -split '#', 2)[0]).Trim(' ', "`t", "`r", '"', "'") } else { return '' }
 }
-$tool = if ($env:AI_CORE_MAP_TOOL) { $env:AI_CORE_MAP_TOOL } else { Get-Setting 'MAP_TOOL' }; if (-not $tool) { $tool = 'claude' }
+# This machine may name another CLI (AI_CORE_MAP_TOOL) and a model (AI_CORE_MAP_MODEL). A model
+# id belongs to its CLI, so the project's MAP_MODEL goes only with the project's own MAP_TOOL: a
+# machine that names another CLI gets its own model, or that CLI's default.
+$tool = Get-Setting 'MAP_TOOL'; if (-not $tool) { $tool = 'claude' }
 $model = Get-Setting 'MAP_MODEL'
+if ($env:AI_CORE_MAP_TOOL -and $env:AI_CORE_MAP_TOOL -cne $tool) { $tool = $env:AI_CORE_MAP_TOOL; $model = '' }
+if ($env:AI_CORE_MAP_MODEL) { $model = $env:AI_CORE_MAP_MODEL }
 if ($tool -cnotin @('claude', 'codex', 'agy')) { Stop-Map "MAP_TOOL=`"$tool`" (config.env, or AI_CORE_MAP_TOOL in the environment); map runs with claude, codex or agy" }
 if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { Stop-Map "$tool is not on the PATH; map writes the map with it (MAP_TOOL in config.env, AI_CORE_MAP_TOOL for this machine)" }
 

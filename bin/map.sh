@@ -13,7 +13,8 @@ for arg in "$@"; do
     echo "Usage: map.sh [TARGET_DIR] [--all <folder>] [--no-push] [--dry-run]"
     echo ""
     echo "Generates the map of the repository in TARGET_DIR (default: the current directory) from its"
-    echo "code, with the agent CLI named by MAP_TOOL in .ai-core/config.env (claude, codex or agy), into"
+    echo "code, with the agent CLI named by MAP_TOOL in .ai-core/config.env (claude, codex or agy; for one"
+    echo "machine AI_CORE_MAP_TOOL and AI_CORE_MAP_MODEL in the environment), into"
     echo "repos/<repo>/AGENTS.md of the project harness: what it is, its shape, how it is built,"
     echo "checked and run, where things are added, and the rules of this repository, which people"
     echo "write and every regeneration keeps. At most 80 lines. Then the harness is committed and"
@@ -83,8 +84,13 @@ MAP="$INNER/repos/$repo/AGENTS.md"
 # 2. The agent CLI, from the checkout's configuration
 CONFIG="$TARGET/.ai-core/config.env"; [ -f "$CONFIG" ] || CONFIG="$CORE/templates/.ai-core/config.env"
 setting() { { grep -E "^[[:space:]]*$1[[:space:]]*=" "$CONFIG" || true; } | tail -n1 | sed 's/^[^=]*=//; s/#.*//' | tr -d '"\r' | tr -d "'" | sed 's/^ *//; s/ *$//'; }
-TOOL="${AI_CORE_MAP_TOOL:-$(setting MAP_TOOL)}"; [ -n "$TOOL" ] || TOOL=claude
+# This machine may name another CLI (AI_CORE_MAP_TOOL) and a model (AI_CORE_MAP_MODEL). A model
+# id belongs to its CLI, so the project's MAP_MODEL goes only with the project's own MAP_TOOL: a
+# machine that names another CLI gets its own model, or that CLI's default.
+TOOL="$(setting MAP_TOOL)"; [ -n "$TOOL" ] || TOOL=claude
 MODEL="$(setting MAP_MODEL)"
+if [ -n "${AI_CORE_MAP_TOOL:-}" ] && [ "$AI_CORE_MAP_TOOL" != "$TOOL" ]; then TOOL="$AI_CORE_MAP_TOOL"; MODEL=""; fi
+[ -z "${AI_CORE_MAP_MODEL:-}" ] || MODEL="$AI_CORE_MAP_MODEL"
 case "$TOOL" in
   claude|codex|agy) ;;
   *) echo "error: MAP_TOOL=\"$TOOL\" (config.env, or AI_CORE_MAP_TOOL in the environment); map runs with claude, codex or agy" >&2; exit 1 ;;

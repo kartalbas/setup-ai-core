@@ -862,7 +862,7 @@ and `bin/<name>.ps1` in PowerShell; a new script in `bin/` is a command without 
 
 | Script | Usage | Exit codes |
 | :--- | :--- | :--- |
-| `session-start` | `ai-core session-start [--json]` / `[-Json]` | 0 ready; 1 no rules file |
+| `session-start` | `ai-core session-start [--json]` / `[-Json]`; the JSON says `refused`, and a refusal carries the lines of the team modes | 0 ready; 1 a team mode or the rules file missing |
 | `solution-path` | `ai-core solution-path <file> [--check] [--issue N]` / `-File <file> [-Check]` | section 7 |
 | `rules-check` | `ai-core rules-check [file-or-directory]` / `[-RulesFile <file-or-directory>]`; default `.ai-core/rules/rules.md`, or the `rules/` directory of setup-ai-core; a directory means its `NN-*.md` section files; a project harness (a directory with `rules/`, `skills/` or `agents/`) is checked whole: every skill has a front matter with its folder's name and a description, every agent a name and a description and no model below Sonnet, then its rule sections | 0 every rule tagged and nothing wrong in the harness; 1 otherwise |
 | `graft-setup` | `ai-core graft [dir] [--dry-run]` / `[-TargetDir <dir>] [-DryRun]` | 0 built, skipped or dry; 1 no Node.js, build failed, or bad `config.env`; 2 a wrong argument |

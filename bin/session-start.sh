@@ -18,7 +18,8 @@ for arg in "$@"; do
   echo ""
   echo "Options:"
   echo "  -h, --help    Show this help message"
-  echo "  --json        Print the same facts as JSON"
+  echo "  --json        Print the same facts as JSON, a refusal too: refused, and the lines of the"
+  echo "                team modes"
   echo "  --tool NAME   Check the team modes of this tool only (repeatable); with one tool, the"
   echo "                form the hooks use, its modes are switched on at the end of the output"
   echo ""
@@ -42,9 +43,13 @@ while [ $# -gt 0 ]; do
 done
 
 # 1. The gate: no session without the team modes. team-modes-check prints its own lines and the
-#    refusal; nothing else is printed before it.
+#    refusal; nothing else is printed before it. With --json the refusal is JSON too.
 if ! modes="$(bash "$CORE/bin/team-modes-check.sh" ${tool_args[@]+"${tool_args[@]}"} 2>&1)"; then
-  printf '%s\n' "$modes"
+  if [ "$as_json" -eq 1 ]; then
+    jq -n --arg lines "$modes" '{refused: true, team_modes: ($lines | split("\n") | map(select(length > 0)))}'
+  else
+    printf '%s\n' "$modes"
+  fi
   exit 1
 fi
 
@@ -186,7 +191,7 @@ if [ "$as_json" -eq 1 ]; then
     --argjson harness_current "$HARNESS_CURRENT" --arg harness_stamp "$HARNESS_STAMP" \
     --arg release_state "$RELEASE_STATE" --arg release_lines "$RELEASE_LINES" \
     --arg issue "$ISSUE" --argjson assigned "$ASSIGNED" \
-    '{ repository: $repository, root: $root, branch: $branch, uncommitted_files: $uncommitted_files,
+    '{ refused: false, repository: $repository, root: $root, branch: $branch, uncommitted_files: $uncommitted_files,
        harness_version: $harness_version, harness_current: $harness_current, harness_stamp: $harness_stamp,
        release_state: $release_state, release_lines: $release_lines,
        rules_present: $rules_present, rules_path: $rules_path,

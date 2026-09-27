@@ -151,9 +151,17 @@ for twin in sh ps1; do
   [ "$(wc -c < "$WORK/modes-big-$twin.log")" -le 9500 ] || fail "session-start.$twin with a long skill wrote more than 9 500 bytes"
 done
 (cd "$WORK/sh" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude --json | jq -e '.repository' > /dev/null) || fail "session-start.sh --tool claude --json is not JSON"
+# A refusal under --json is JSON too: refused, with the lines of the team modes; a session that starts says refused: false
+ME="$WORK/modes-home-empty"; mkdir -p "$ME/.claude"
+(cd "$WORK/sh" && HOME="$ME" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude --json > "$WORK/refused-sh.json" 2>/dev/null) && fail "session-start.sh --json exited 0 with the team modes missing"
+(cd "$WORK/ps1" && HOME="$ME" USERPROFILE="$(native "$ME")" TEAM_MODES_FILE="$(native "$WORK/modes.tsv")" pwsh -NoProfile -File "$ROOT/bin/session-start.ps1" -Tool claude -Json > "$WORK/refused-ps1.json" 2>/dev/null) && fail "session-start.ps1 -Json exited 0 with the team modes missing"
+for twin in sh ps1; do
+  jq -e '.refused == true and (.team_modes | any(startswith("MISSING")) and any(startswith("REFUSED")))' "$WORK/refused-$twin.json" > /dev/null || fail "session-start.$twin --json does not refuse as JSON: $(tr -d '\r\n' < "$WORK/refused-$twin.json" | cut -c1-300)"
+  jq -e '.refused == false' "$WORK/$twin.json" > /dev/null || fail "session-start.$twin --json does not say refused: false where the session starts"
+done
 (cd "$WORK/sh" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" > "$WORK/modes-none.log" 2>&1) || fail "session-start.sh without --tool (see $WORK/modes-none.log)"
 grep -aq 'MODE ACTIVE' "$WORK/modes-none.log" && fail "session-start.sh without --tool switches modes on"
-echo "  --tool claude: the caveman skill printed whole with its level, a skill at level - not switched on, a skill too long named with its call, the plugin modes named, no rules, at most 9 500 bytes, nothing of it in the JSON or without --tool, on both twins"
+echo "  --tool claude: the caveman skill printed whole with its level, a skill at level - not switched on, a skill too long named with its call, the plugin modes named, no rules, at most 9 500 bytes, nothing of it in the JSON or without --tool, a refusal under --json as JSON, on both twins"
 
 # The hook names ai-core by its full path, so a Claude Code started from a terminal without it on the PATH still runs it
 AI_CORE_CMD="$ROOT/bin/ai-core"; if command -v cygpath >/dev/null 2>&1; then AI_CORE_CMD="$(cygpath -m "$AI_CORE_CMD")"; fi

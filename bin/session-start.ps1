@@ -21,7 +21,8 @@ if ($Help -or $args -ccontains "-h" -or $args -ccontains "--help" -or ($args.Cou
   Write-Host ""
   Write-Host "Options:"
   Write-Host "  -Help, -h, --help    Show this help message"
-  Write-Host "  -Json                Print the same facts as JSON"
+  Write-Host "  -Json                Print the same facts as JSON, a refusal too: refused, and the lines of the"
+  Write-Host "                       team modes"
   Write-Host "  -Tool NAME           Check the team modes of this tool only (repeatable); with one tool, the"
   Write-Host "                       form the hooks use, its modes are switched on at the end of the output"
   Write-Host ""
@@ -39,10 +40,14 @@ $ErrorActionPreference = 'Stop'
 $core = Split-Path -Parent $PSScriptRoot
 
 # 1. The gate: no session without the team modes. team-modes-check prints its own lines and the
-#    refusal; nothing else is printed before it.
+#    refusal; nothing else is printed before it. With -Json the refusal is JSON too.
 $toolArgs = @(); foreach ($t in $Tool) { $toolArgs += @('-Tool', $t) }
 $modes = & pwsh -NoProfile -File (Join-Path $core "bin\team-modes-check.ps1") @toolArgs 2>&1 | ForEach-Object { "$_" }
-if ($LASTEXITCODE -ne 0) { $modes | ForEach-Object { Write-Host $_ }; exit 1 }
+if ($LASTEXITCODE -ne 0) {
+  if ($Json) { [PSCustomObject]@{ refused = $true; team_modes = @($modes | Where-Object { $_ }) } | ConvertTo-Json -Depth 3 }
+  else { $modes | ForEach-Object { Write-Host $_ } }
+  exit 1
+}
 
 # 2. The checkout
 $root = (Get-Location).Path
@@ -184,6 +189,7 @@ if ($Tool.Count -eq 1 -and -not $Json) {
 
 if ($Json) {
   [PSCustomObject]@{
+    refused             = $false
     repository          = $repoName
     root                = $root
     branch              = $branch

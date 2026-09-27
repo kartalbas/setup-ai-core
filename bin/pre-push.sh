@@ -14,8 +14,9 @@
 #   2. every pushed commit names its issue, or says why it does not
 #   3. the team modes are installed
 #   4. every Windows entry point in the tree is the one text, and not a copy that decides
-#   5. the repository's own scripts/check.sh is green
-#   6. gitleaks over the commits the push carries, in a repository that carries .gitleaks.toml
+#   5. the names of the new directories are derived from the families the trees carry
+#   6. the repository's own scripts/check.sh is green
+#   7. gitleaks over the commits the push carries, in a repository that carries .gitleaks.toml
 #
 # Run from a terminal, with nothing on standard input, it judges what `git push` would send from
 # the current branch: the commits its upstream does not have.
@@ -34,8 +35,9 @@ for arg in "$@"; do
     echo "commit names no issue (#<n>), does not open with 'release:', touches more than *.md and"
     echo "LICENSE files, and carries no 'No-issue: <who asked and why>' trailer; a team mode is"
     echo "missing; a check.ps1 or build.ps1 differs from the one Windows entry point (lib/entry-point.ps1,"
-    echo "judged where scripts/check.sh exists); scripts/check.sh is red; or gitleaks finds a credential"
-    echo "in the pushed commits (where .gitleaks.toml exists). Merges are not judged; a deletion runs"
+    echo "judged where scripts/check.sh exists); a new directory's name is invented where the families"
+    echo "of the trees give it (a 'Naming: <why>' trailer keeps one); scripts/check.sh is red; or gitleaks"
+    echo "finds a credential in the pushed commits (where .gitleaks.toml exists). Merges are not judged; a deletion runs"
     echo "no checks. Run from a terminal it judges the current branch against its upstream."
     echo ""
     echo "Options:"
@@ -379,6 +381,69 @@ if [ -f "$root/scripts/check.sh" ]; then
     cmp -s <(tr -d '\r' < "$shim") <(tr -d '\r' < "$root/$door") \
       || refuse "$door is not the Windows entry point every repository carries. It starts the .sh file of its own name and decides nothing, and this copy says something else. Restore it: cp '$shim' '$root/$door'"
   done < <(git -C "$root" ls-files -z -- '*.ps1')   # -z: a path git would otherwise quote still matches
+fi
+
+# THE NAMES A PUSH ADDS ARE DERIVED, NOT INVENTED (the naming rules). No list is kept: the
+# families are read from the trees themselves. Two things are held against every new directory:
+#   - `<a>` beside `<a>-<x>`, or `<a>-<x>` beside `<a>`, names one member of a family and leaves
+#     the other unnamed: every member says which side it is on, or none does.
+#   - `<owner>-<x>`, where the owner is a repository of this project folder, names a part of that
+#     repository, so `<x>` is one of its top-level directories. This is held in a directory that
+#     mirrors the repositories, where two or more entries carry a repository's name; elsewhere a
+#     name that happens to open with one (post-processing) refers to no repository.
+# A repository's owner word is its name after the project prefix (acme-shop: shop), or its whole
+# name where it has none. A word that is a top-level directory in two or more repositories is a
+# word of structure (docs, deploy, scripts), no repository's name, and is not held. A commit with a
+# 'Naming: <why>' trailer keeps the names it adds, and says why to whoever reads it.
+naming_findings() {  # one finding per line
+  local folder main d name owner parts sha dir seg parent entries base o repo rest
+  folder="$(project_folder_of "$root")"
+  main="$(cd "$(git -C "$root" rev-parse --path-format=absolute --git-common-dir)/.." && pwd)"
+  git -C "$root" ls-tree -d --name-only HEAD > "$TMPD/naming-words" 2>/dev/null
+  : > "$TMPD/naming-owners"
+  for d in "$folder"/*/; do
+    d="${d%/}"; [ -e "$d/.git" ] || continue
+    name="${d##*/}"; case "$name" in *-ai-core) continue ;; esac
+    [ "$(cd "$d" && pwd)" != "$main" ] || continue
+    parts="$(git -C "$d" ls-tree -d --name-only HEAD 2>/dev/null)"
+    [ -z "$parts" ] || printf '%s\n' "$parts" >> "$TMPD/naming-words"
+    case "$name" in *-*) owner="${name#*-}" ;; *) owner="$name" ;; esac
+    printf '%s\t%s\t %s \n' "$owner" "$name" "$(tr '\n' ' ' <<< "$parts")" >> "$TMPD/naming-owners"
+  done
+  sort "$TMPD/naming-words" | uniq -d > "$TMPD/naming-structure"
+  while IFS= read -r sha; do
+    [ -n "$sha" ] || continue
+    [ -z "$(git log -1 --format='%(trailers:key=Naming,valueonly)' "$sha" | tr -d '[:space:]')" ] || continue
+    git diff-tree --no-commit-id --root -r --name-only --diff-filter=A "$sha" \
+      | awk -F/ '{ p = ""; for (i = 1; i < NF; i++) { p = (p == "" ? $i : p "/" $i); print p } }' | sort -u > "$TMPD/naming-dirs"
+    while IFS= read -r dir; do
+      [ -n "$dir" ] || continue
+      git cat-file -e "$sha^:$dir" 2>/dev/null && continue   # it was there before this commit
+      seg="${dir##*/}"; parent=""; [ "$seg" = "$dir" ] || parent="${dir%/*}/"
+      if [ -n "$parent" ]; then entries="$(git ls-tree -d --name-only "$sha:${parent%/}")"; else entries="$(git ls-tree -d --name-only "$sha")"; fi
+      case "$seg" in
+        *-*) base="${seg%%-*}"; grep -qxF -- "$base" <<< "$entries" && echo "$parent$base beside $parent$seg: one member of the family says its side, the other does not; name every member, or none" ;;
+        *) awk -v s="$seg-" 'index($0, s) == 1' <<< "$entries" | while IFS= read -r o; do echo "$parent$seg beside $parent$o: one member of the family says its side, the other does not; name every member, or none"; done ;;
+      esac
+      mirrors=0
+      while IFS=$'\t' read -r o repo parts; do
+        grep -qxF -- "$o" "$TMPD/naming-structure" && continue
+        mirrors=$((mirrors + $(awk -v o="$o" '$0 == o || index($0, o "-") == 1 || index($0, o "_") == 1' <<< "$entries" | grep -c .)))
+      done < "$TMPD/naming-owners"
+      [ "$mirrors" -ge 2 ] || continue
+      while IFS=$'\t' read -r o repo parts; do
+        case "$seg" in "$o"-?*|"$o"_?*) ;; *) continue ;; esac
+        grep -qxF -- "$o" "$TMPD/naming-structure" && continue
+        rest="${seg#"$o"}"; rest="${rest#?}"
+        case "$parts" in *" $rest "*) ;; *) echo "$dir names a part of the repository $repo, and $repo has no $rest; its parts are$(sed 's/ *$//; s/ \([^ ]\)/, \1/g; s/^,//' <<< "$parts")" ;; esac
+      done < "$TMPD/naming-owners"
+    done < "$TMPD/naming-dirs"
+  done <<< "$commits"
+}
+findings="$(naming_findings | sort -u)"
+if [ -n "$findings" ]; then
+  while IFS= read -r line; do echo "pre-push: $line" >&2; done <<< "$findings"
+  refuse "the names above are invented where they should be derived from what they belong to. Rename them, or give the commit that adds them a 'Naming: <why>' trailer."
 fi
 
 # The wait is announced here and not earlier, so a push that is refused above is not first

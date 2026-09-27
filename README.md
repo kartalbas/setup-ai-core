@@ -656,9 +656,17 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    `lib/entry-point.ps1`: the file that starts the `.sh` of its own name and decides nothing. A
    copy that prints the verdict and exits 0 would tell the person the checks passed while nothing
    ran, and no other step can see that.
-5. **`scripts/check.sh` is green**, run in the tree being pushed; a repository without one is told
+5. **The names of new directories are derived, not invented**, read from the families the trees
+   already carry, with no list kept anywhere. A new `<a>` beside `<a>-<x>`, or the reverse, names
+   one member of a family and leaves the other unnamed. A new `<owner>-<x>`, in a directory that
+   mirrors the repositories of the project folder (two or more entries carry a repository's name),
+   names a part of that repository, so `<x>` is one of its top-level directories; a repository's
+   owner word is its name after the project prefix, and a word that is a top-level directory in
+   two or more repositories is a word of structure and names no repository. A commit with a
+   `Naming: <why>` trailer keeps the names it adds.
+6. **`scripts/check.sh` is green**, run in the tree being pushed; a repository without one is told
    so and passes on.
-6. **gitleaks over the commits the push carries**, in a repository that carries `.gitleaks.toml`;
+7. **gitleaks over the commits the push carries**, in a repository that carries `.gitleaks.toml`;
    the commits are the only place a credential taken out again still stands. It runs
    `gitleaks git`, which came with gitleaks 8.19; without such a gitleaks the push is refused and
    `ai-core doctor` named, which installs it. `--install` writes nothing into such a repository

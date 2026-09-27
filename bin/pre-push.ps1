@@ -13,8 +13,9 @@
 #   2. every pushed commit names its issue, or says why it does not
 #   3. the team modes are installed
 #   4. every Windows entry point in the tree is the one text, and not a copy that decides
-#   5. the repository's own scripts\check.sh is green
-#   6. gitleaks over the commits the push carries, in a repository that carries .gitleaks.toml
+#   5. the names of the new directories are derived from the families the trees carry
+#   6. the repository's own scripts\check.sh is green
+#   7. gitleaks over the commits the push carries, in a repository that carries .gitleaks.toml
 #
 # Run from a prompt, with nothing on standard input, it judges what `git push` would send from
 # the current branch: the commits its upstream does not have.
@@ -38,8 +39,9 @@ if ($Help -or $Rest -ccontains "-h" -or $Rest -ccontains "--help") {
   Write-Host "commit names no issue (#<n>), does not open with 'release:', touches more than *.md and"
   Write-Host "LICENSE files, and carries no 'No-issue: <who asked and why>' trailer; a team mode is"
   Write-Host "missing; a check.ps1 or build.ps1 differs from the one Windows entry point (lib/entry-point.ps1,"
-  Write-Host "judged where scripts/check.sh exists); scripts/check.sh is red; or gitleaks finds a credential"
-  Write-Host "in the pushed commits (where .gitleaks.toml exists). Merges are not judged; a deletion runs"
+  Write-Host "judged where scripts/check.sh exists); a new directory's name is invented where the families"
+  Write-Host "of the trees give it (a 'Naming: <why>' trailer keeps one); scripts/check.sh is red; or gitleaks"
+  Write-Host "finds a credential in the pushed commits (where .gitleaks.toml exists). Merges are not judged; a deletion runs"
   Write-Host "no checks. Run from a prompt it judges the current branch against its upstream."
   Write-Host ""
   Write-Host "Options:"
@@ -391,6 +393,67 @@ if (Test-Path -LiteralPath $checkSh) {
       Deny-Push "$door is not the Windows entry point every repository carries. It starts the .sh file of its own name and decides nothing, and this copy says something else. Restore it: cp '$entry' '$full'"
     }
   }
+}
+
+# THE NAMES A PUSH ADDS ARE DERIVED, NOT INVENTED (the naming rules). No list is kept: the
+# families are read from the trees themselves. Two things are held against every new directory:
+#   - `<a>` beside `<a>-<x>`, or `<a>-<x>` beside `<a>`, names one member of a family and leaves
+#     the other unnamed: every member says which side it is on, or none does.
+#   - `<owner>-<x>`, where the owner is a repository of this project folder, names a part of that
+#     repository, so `<x>` is one of its top-level directories. This is held in a directory that
+#     mirrors the repositories, where two or more entries carry a repository's name; elsewhere a
+#     name that happens to open with one (post-processing) refers to no repository.
+# A repository's owner word is its name after the project prefix (acme-shop: shop), or its whole
+# name where it has none. A word that is a top-level directory in two or more repositories is a
+# word of structure (docs, deploy, scripts), no repository's name, and is not held. A commit with a
+# 'Naming: <why>' trailer keeps the names it adds, and says why to whoever reads it.
+function Get-NamingFindings {
+  $folder = Get-ProjectFolderOf $root
+  $main = (Resolve-Path (Join-Path "$(& git -C $root rev-parse --path-format=absolute --git-common-dir)".Trim() '..')).Path
+  $words = @(& git -C $root ls-tree -d --name-only HEAD 2>$null | ForEach-Object { "$_" } | Where-Object { $_ })
+  $owners = @()
+  foreach ($d in @(Get-ChildItem -LiteralPath $folder -Directory -ErrorAction SilentlyContinue)) {
+    if (-not (Test-Path -LiteralPath (Join-Path $d.FullName '.git'))) { continue }
+    if ($d.Name -clike '*-ai-core') { continue }
+    if ((Resolve-Path -LiteralPath $d.FullName).Path -eq $main) { continue }
+    $parts = @(& git -C $d.FullName ls-tree -d --name-only HEAD 2>$null | ForEach-Object { "$_" } | Where-Object { $_ })
+    $words += $parts
+    $owner = if ($d.Name.Contains('-')) { $d.Name.Substring($d.Name.IndexOf('-') + 1) } else { $d.Name }
+    $owners += [pscustomobject]@{ Owner = $owner; Repo = $d.Name; Parts = $parts }
+  }
+  $structure = @($words | Group-Object -CaseSensitive | Where-Object { $_.Count -ge 2 } | ForEach-Object { $_.Name })
+  foreach ($sha in $commits) {
+    if ("$(& git log -1 '--format=%(trailers:key=Naming,valueonly)' $sha)".Trim()) { continue }
+    $dirs = @(& git diff-tree --no-commit-id --root -r --name-only --diff-filter=A $sha | ForEach-Object { "$_" } | ForEach-Object {
+        $segs = $_ -split '/'; for ($i = 1; $i -lt $segs.Count; $i++) { ($segs[0..($i - 1)] -join '/') } } | Sort-Object -Unique -CaseSensitive)
+    foreach ($dir in $dirs) {
+      & git cat-file -e "${sha}^:$dir" 2>$null; if ($LASTEXITCODE -eq 0) { continue }
+      $seg = ($dir -split '/')[-1]; $parent = if ($dir.Contains('/')) { $dir.Substring(0, $dir.LastIndexOf('/') + 1) } else { '' }
+      $entries = @(& git ls-tree -d --name-only $(if ($parent) { "${sha}:$($parent.TrimEnd('/'))" } else { $sha }) 2>$null | ForEach-Object { "$_" })
+      if ($seg.Contains('-')) {
+        $base = $seg.Substring(0, $seg.IndexOf('-'))
+        if ($entries -ccontains $base) { "$parent$base beside $parent${seg}: one member of the family says its side, the other does not; name every member, or none" }
+      } else {
+        foreach ($o in @($entries | Where-Object { $_.StartsWith("$seg-", [StringComparison]::Ordinal) })) { "$parent$seg beside $parent${o}: one member of the family says its side, the other does not; name every member, or none" }
+      }
+      $held = @($owners | Where-Object { $structure -cnotcontains $_.Owner })
+      $mirrors = 0
+      foreach ($o in $held) { $mirrors += @($entries | Where-Object { $_ -ceq $o.Owner -or $_.StartsWith("$($o.Owner)-", [StringComparison]::Ordinal) -or $_.StartsWith("$($o.Owner)_", [StringComparison]::Ordinal) }).Count }
+      if ($mirrors -lt 2) { continue }
+      foreach ($o in $owners) {
+        if ($seg.Length -le $o.Owner.Length + 1) { continue }
+        if (-not ($seg.StartsWith("$($o.Owner)-", [StringComparison]::Ordinal) -or $seg.StartsWith("$($o.Owner)_", [StringComparison]::Ordinal))) { continue }
+        if ($structure -ccontains $o.Owner) { continue }
+        $rest = $seg.Substring($o.Owner.Length + 1)
+        if ($o.Parts -cnotcontains $rest) { "$dir names a part of the repository $($o.Repo), and $($o.Repo) has no $rest; its parts are $($o.Parts -join ', ')" }
+      }
+    }
+  }
+}
+$findings = @(Get-NamingFindings | Sort-Object -Unique -CaseSensitive)
+if ($findings.Count -gt 0) {
+  foreach ($f in $findings) { [Console]::Error.WriteLine("pre-push: $f") }
+  Deny-Push "the names above are invented where they should be derived from what they belong to. Rename them, or give the commit that adds them a 'Naming: <why>' trailer."
 }
 
 # The wait is announced here and not earlier, so a push that is refused above is not first

@@ -278,6 +278,47 @@ out="$(PROBE_LEAKS=old only_new "$repo")"; rc=$?
 check 'exit 1'                 1 "$rc"
 check 'it names doctor'        yes "$(grep -q 'no gitleaks 8.19 or newer' <<< "$out" && grep -q 'Run ai-core doctor' <<< "$out" && echo yes || echo no)"
 
+# --- the names a push adds, derived from the families the trees already carry -------------------
+# Two sibling repositories beside the one pushed: acme-shop has the parts backend, docs and
+# frontend; acme-docs has docs and guide, so docs is a word of structure, no repository's name.
+for s in acme-shop acme-docs; do git init -q -b master "$parent/$s"; git -C "$parent/$s" config user.email 'test@example.invalid'; git -C "$parent/$s" config user.name 'test'; done
+for p in backend docs frontend; do mkdir -p "$parent/acme-shop/$p"; printf 'x\n' > "$parent/acme-shop/$p/a.txt"; done
+for p in docs guide; do mkdir -p "$parent/acme-docs/$p"; printf 'x\n' > "$parent/acme-docs/$p/a.txt"; done
+for s in acme-shop acme-docs; do git -C "$parent/$s" add -A; git -C "$parent/$s" commit -q -m 'The repository #1'; done
+add_dirs() {  # add_dirs <message> <dir>... - one file in each new directory, one commit
+  local message="$1" d; shift
+  for d in "$@"; do mkdir -p "$repo/$d"; printf '{}\n' > "$repo/$d/en.json"; git -C "$repo" add -- "$d/en.json"; done
+  git -C "$repo" commit -q -F - <<< "$message"
+}
+
+echo 'a family half named, and a part a sibling repository does not have: refused, with both'
+add_dirs 'Add the shop texts #20' catalog/shop catalog/shop-server
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                      1 "$rc"
+check 'the half-named family'       yes "$(grep -q 'catalog/shop beside catalog/shop-server: one member of the family says its side, the other does not' <<< "$out" && echo yes || echo no)"
+check 'the part the sibling lacks'  yes "$(grep -q 'catalog/shop-server names a part of the repository acme-shop, and acme-shop has no server; its parts are backend, docs, frontend' <<< "$out" && echo yes || echo no)"
+git -C "$repo" reset -q --hard HEAD~1
+
+echo 'names derived from the family pass'
+add_dirs 'Add the shop texts, named after its parts #20' catalog/shop-backend catalog/shop-frontend
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                      0 "$rc"
+
+echo 'a word of structure is no repository'"'"'s name: manual/docs-extra is not held against acme-docs'
+add_dirs 'Add the extra documents #21' manual/docs-extra
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                      0 "$rc"
+
+echo 'a lone name that opens with a repository'"'"'s name mirrors nothing: manual/shop-notes passes'
+add_dirs 'Add the notes of the shop visit #23' manual/shop-notes
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                      0 "$rc"
+
+echo 'a Naming: trailer keeps a name, and says why'
+add_dirs $'Add the server texts #22\n\nNaming: the product owner calls this part server' catalog/shop-server
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                      0 "$rc"
+
 # --- the Windows entry point, held against the one text it copies ----------------------------
 #
 # check.ps1 and build.ps1 decide nothing: each starts the .sh file of its own name. Overwritten

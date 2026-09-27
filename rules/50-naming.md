@@ -12,7 +12,7 @@
   Extra words are a fault only when they repeat what the container already says. [review]
 - **Things that form a family are named as one**, so a reader who has met two predicts the third.
   Where things differ along one axis, every one of them says which side it is on, or none does.
-  [review]
+  [machine · review]
 - **A shared verb takes its object into the name.** Where a cluster, an image and a version can each
   be released, `release` names nothing. [review]
 - **One concept, one word, everywhere: the project's ubiquitous language**, the shared language of
@@ -28,7 +28,8 @@
   own, each spelled as it is spelled where it lives (the texts of the `frontend` of a repository
   `shop` are `shop-frontend`, not `shop-client`). Only a concept nothing names yet gets a new word,
   and it follows the pattern its siblings share. The lookup reaches as far as the thing refers: the
-  code, the configuration and the messages of the tree, and the repositories it refers to. [review]
+  code, the configuration and the messages of the tree, and the repositories it refers to.
+  [machine · review]
 - **A configuration key and the nouns in an error message are names under these rules**, read by more
   people than any identifier, so they get full words. [review]
 - **A name fixed by a standard outside the project is written as that standard spells it.** [review]

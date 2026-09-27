@@ -240,6 +240,46 @@ Remove-Item Env:PROBE_LEAKS
 Check 'exit 1'             1 $rc
 Check 'it names doctor'    'True' ((Says 'no gitleaks 8.19 or newer') -and (Says 'Run ai-core doctor'))
 
+# --- the names a push adds, derived from the families the trees already carry -------------------
+# Two sibling repositories beside the one pushed: acme-shop has the parts backend, docs and
+# frontend; acme-docs has docs and guide, so docs is a word of structure, no repository's name.
+foreach ($s in @('acme-shop', 'acme-docs')) { $d = Join-Path $parent $s; & git init -q -b master $d; & git -C $d config user.email 'test@example.invalid'; & git -C $d config user.name 'test' }
+foreach ($p in @('backend', 'docs', 'frontend')) { New-Item -ItemType Directory -Force -Path (Join-Path $parent "acme-shop\$p") | Out-Null; Write-Lf (Join-Path $parent "acme-shop\$p\a.txt") "x`n" }
+foreach ($p in @('docs', 'guide')) { New-Item -ItemType Directory -Force -Path (Join-Path $parent "acme-docs\$p") | Out-Null; Write-Lf (Join-Path $parent "acme-docs\$p\a.txt") "x`n" }
+foreach ($s in @('acme-shop', 'acme-docs')) { $d = Join-Path $parent $s; & git -C $d add -A; & git -C $d commit -q -m 'The repository #1' }
+function Add-Dirs([string]$message, [string[]]$dirs) {  # one file in each new directory, one commit
+  foreach ($d in $dirs) { New-Item -ItemType Directory -Force -Path (Join-Path $repo $d) | Out-Null; Write-Lf (Join-Path $repo "$d\en.json") "{}`n"; & git -C $repo add -- "$d/en.json" }
+  $message | & git -C $repo commit -q -F -
+}
+
+Write-Host 'a family half named, and a part a sibling repository does not have: refused, with both'
+Add-Dirs 'Add the shop texts #20' @('catalog/shop', 'catalog/shop-server')
+OnlyNew $repo
+Check 'exit 1'                      1 $rc
+Check 'the half-named family'       'True' (Says 'catalog/shop beside catalog/shop-server: one member of the family says its side, the other does not')
+Check 'the part the sibling lacks'  'True' (Says 'catalog/shop-server names a part of the repository acme-shop, and acme-shop has no server; its parts are backend, docs, frontend')
+& git -C $repo reset -q --hard HEAD~1
+
+Write-Host 'names derived from the family pass'
+Add-Dirs 'Add the shop texts, named after its parts #20' @('catalog/shop-backend', 'catalog/shop-frontend')
+OnlyNew $repo
+Check 'exit 0'                      0 $rc
+
+Write-Host "a word of structure is no repository's name: manual/docs-extra is not held against acme-docs"
+Add-Dirs 'Add the extra documents #21' @('manual/docs-extra')
+OnlyNew $repo
+Check 'exit 0'                      0 $rc
+
+Write-Host "a lone name that opens with a repository's name mirrors nothing: manual/shop-notes passes"
+Add-Dirs 'Add the notes of the shop visit #23' @('manual/shop-notes')
+OnlyNew $repo
+Check 'exit 0'                      0 $rc
+
+Write-Host 'a Naming: trailer keeps a name, and says why'
+Add-Dirs "Add the server texts #22`n`nNaming: the product owner calls this part server" @('catalog/shop-server')
+OnlyNew $repo
+Check 'exit 0'                      0 $rc
+
 # --- the Windows entry point, held against the one text it copies ----------------------------
 function Stub-Ps1([string]$path) { Write-Lf $path "Write-Host 'check: OK — every check green'`nexit 0`n" }
 # against the commit the worktree branched from: master has moved on since, and a push over that

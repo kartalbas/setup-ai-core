@@ -79,6 +79,22 @@ mkdir -p "$WORK/via-ps/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$WOR
 pwsh -NoProfile -File "$ROOT/bin/ai-core.ps1" init -TargetDir "$(native "$WORK/via-ps")" -NoDoctor > /dev/null 2>&1 || fail "ai-core.ps1 init through the command"
 (cd "$WORK/via-ps" && find . -type f | sort) | diff - "$WORK/sh.list" > /dev/null || fail "init.ps1 through the command deployed a different file set"
 echo "  --source leaves the clone alone, --repo clones and pulls, init through both commands deploys the same files"
+# The PATH in a throwaway home, twice: a new pwsh terminal finds ai-core through its own profile, which reads no ~/.profile (on Windows install.ps1 sets the user PATH instead)
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) echo "  the pwsh profile: not here, on Windows the user PATH carries ai-core" ;;
+  *)
+    for twin in sh ps1; do
+      PH="$WORK/path-home-$twin"; mkdir -p "$PH"; : > "$PH/.bashrc"
+      for run in 1 2; do
+        if [ "$twin" = sh ]; then env -u XDG_CONFIG_HOME HOME="$PH" bash "$ROOT/bin/install.sh" --source "$ROOT" --no-doctor > "$WORK/path-$twin.log" 2>&1
+        else env -u XDG_CONFIG_HOME HOME="$PH" pwsh -NoProfile -File "$ROOT/bin/install.ps1" -Source "$ROOT" -NoDoctor > "$WORK/path-$twin.log" 2>&1; fi || fail "install.$twin run $run with the PATH (see $WORK/path-$twin.log)"
+      done
+      P="$PH/.config/powershell/profile.ps1"
+      [ "$(grep -c '# setup-ai-core' "$P" 2>/dev/null)" = 1 ] || fail "install.$twin did not put ai-core on the PATH of pwsh exactly once: $(cat "$P" 2>/dev/null)"
+      [ "$(env -u XDG_CONFIG_HOME HOME="$PH" pwsh -NoProfile -Command '. (Join-Path $HOME ".config/powershell/profile.ps1"); Split-Path (Get-Command ai-core).Source')" = "$ROOT/bin" ] || fail "install.$twin: pwsh with that profile does not find ai-core in $ROOT/bin"
+    done
+    echo "  the PATH: once in the pwsh profile after two runs, and pwsh finds ai-core through it, on both twins" ;;
+esac
 
 section "the assembled rules file: one section per source file, identical on both twins, every rule tagged"
 SECTIONS="$(ls "$ROOT"/rules/[0-9][0-9]-*.md | wc -l | tr -d " ")"

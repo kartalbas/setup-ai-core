@@ -685,10 +685,10 @@ irm https://raw.githubusercontent.com/kartalbas/setup-ai-core/master/bin/install
 ```
 
 `install` clones this repository to `~/setup-ai-core`, adds its `bin/` (where the `ai-core`
-command lives) to the PATH (the shell profiles on Linux and macOS, the user PATH on Windows; open a
-new terminal afterwards) and runs `doctor`. Run it again to pull. If you already have a clone, say
-so with `--source`: then nothing is cloned, that clone is the installation, and its `bin/` goes on
-the PATH. Options:
+command lives) to the PATH (the shell profiles and the pwsh profile on Linux and macOS, the user
+PATH on Windows; open a new terminal afterwards) and runs `doctor`. Run it again to pull. If you
+already have a clone, say so with `--source`: then nothing is cloned, that clone is the
+installation, and its `bin/` goes on the PATH. Options:
 
 | Bash | PowerShell | Effect |
 | :--- | :--- | :--- |
@@ -849,8 +849,8 @@ Nothing updates by itself.
 `# setup-ai-core start` and `# setup-ai-core end`, and the one between `# setup-ai-core graft start`
 and `# setup-ai-core graft end`, from `.git/info/exclude`. On the machine: delete
 `~/setup-ai-core`, the harness clones beside the repositories (`<project folder>/<prefix>-ai-core`)
-and the PATH entry `install` added (the line marked `# setup-ai-core` in the shell profile; the
-entry in the user PATH on Windows). `npx` keeps its cache.
+and the PATH entry `install` added (the line marked `# setup-ai-core` in the shell profiles and the
+pwsh profile; the entry in the user PATH on Windows). `npx` keeps its cache.
 
 ---
 

@@ -71,6 +71,12 @@ if [ "$ADD_PATH" -eq 1 ]; then
   if [ ! -f "$HOME/.bashrc" ] && [ ! -f "$HOME/.zshrc" ] && [ ! -f "$HOME/.profile" ]; then
     printf '%s\n' "$LINE" > "$HOME/.profile"; ADDED=" .profile"
   fi
+  # pwsh reads ~/.profile only as a login shell; a new pwsh terminal reads its own profile
+  PWSH_PROFILE="${XDG_CONFIG_HOME:-$HOME/.config}/powershell/profile.ps1"
+  if [ "$OS" != windows ] && command -v pwsh >/dev/null 2>&1 && ! grep -qF '# setup-ai-core' "$PWSH_PROFILE" 2>/dev/null; then
+    mkdir -p "$(dirname "$PWSH_PROFILE")"
+    printf '\n$env:PATH = "%s:$env:PATH"  # setup-ai-core\n' "$BIN" >> "$PWSH_PROFILE"; ADDED="$ADDED powershell/profile.ps1"
+  fi
   [ -n "$ADDED" ] && echo "--> PATH: added $BIN to$ADDED (open a new terminal)" || echo "--> PATH: already set in the shell profiles"
   [ "$OS" = windows ] && echo "note: for PowerShell and cmd on Windows run bin\\install.ps1 too, which sets the user PATH."
 fi

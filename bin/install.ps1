@@ -72,6 +72,14 @@ if (-not $NoPath) {
       Add-Content -Path $profileFile -Value "`n$line"
       Write-Host "--> PATH: added $bin to ~/.profile (open a new terminal)"
     } else { Write-Host "--> PATH: already set in ~/.profile" }
+    # pwsh reads ~/.profile only as a login shell; a new pwsh terminal reads its own profile
+    $configHome = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path $HOME '.config' }
+    $pwshProfile = Join-Path $configHome 'powershell/profile.ps1'
+    if (-not (Test-Path $pwshProfile) -or -not (Select-String -Path $pwshProfile -Pattern '# setup-ai-core' -SimpleMatch -Quiet)) {
+      New-Item -ItemType Directory -Force (Split-Path $pwshProfile) | Out-Null
+      Add-Content -Path $pwshProfile -Value "`n`$env:PATH = `"$bin`:`$env:PATH`"  # setup-ai-core"
+      Write-Host "--> PATH: added $bin to $pwshProfile (open a new terminal)"
+    } else { Write-Host "--> PATH: already set in $pwshProfile" }
   }
 }
 if (($env:Path -split [IO.Path]::PathSeparator) -notcontains $bin) { $env:Path = "$bin" + [IO.Path]::PathSeparator + $env:Path }

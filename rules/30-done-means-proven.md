@@ -22,6 +22,10 @@
   carries a planted defect of each shape it must catch plus a planted innocent case, so it can be
   shown to go red and a clean answer means somebody was looking. [review]
 - **A bug fix includes the test that reproduces the bug** and fails before the fix. [review]
+- **A claim is tested against the latest state, never a stale copy.** Before a defect is reproduced,
+  an issue is audited against the code or a fix is called done, the working copy is pulled and the
+  live surface the claim is about, the tracker, the deployed environment or the running service, is
+  read again at that moment. [discipline]
 - **Warnings are near-errors** and are cleared, not tolerated. [review]
 - **Report the result, not the intention.** A failed check is shown with its output, a skipped step
   is named with its reason, finished work is stated plainly. [review]

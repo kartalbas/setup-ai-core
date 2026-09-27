@@ -15,3 +15,9 @@
   [review]
 - **Never print a secret and never commit one.** A secret is read from its vault when it is needed.
   Local environment files are ignored by version control. [review]
+- **A database moves forward, and is never reset.** A schema change is a migration that moves an
+  existing database forward: written once, applied once, never rewritten; a change that cannot be
+  expressed as a step forward is not ready. Resetting an environment's database is forbidden, as a
+  convenience, to unblock a change or because a migration is awkward, and nothing may depend on a
+  reset: a value that reached an environment only by re-seeding needs its own way in, a migration,
+  an operation or a written-down step. [review · discipline]

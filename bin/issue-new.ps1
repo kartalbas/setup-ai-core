@@ -33,6 +33,11 @@ nothing made.
 The rules require a label for the TYPE of work and one for the AREA it touches, plus a
 priority; this refuses to create an issue that is missing either, because an unlabelled
 ticket is invisible on a board grouped by anything but status.
+
+-NoBoard files the issue in a repository that is linked to no open board, a harness or the
+tooling's own repository: labels, assignee and parent as always, no card, no status and no
+priority. It is refused where the repository IS linked to a board, and together with -Project,
+-Priority or -Status, which all name the board or a field of it.
 #>
 [CmdletBinding()]
 param(
@@ -40,7 +45,7 @@ param(
   [Parameter(Mandatory)][string]   $Title,
   [Parameter(Mandatory)][string]   $BodyFile,
   [Parameter(Mandatory)][string[]] $Label,
-  [Parameter(Mandatory)][ValidateSet('P0','P1','P2','P3','P9', IgnoreCase=$true)][string] $Priority,
+  [ValidateSet('P0','P1','P2','P3','P9', IgnoreCase=$true)][string] $Priority,
   # No issue without a person's yes (rules.md, the issue rules): who said yes, and where.
   [Parameter(Mandatory)][string]   $AskedBy,
   [Parameter(Mandatory)][string]   $AskedIn,
@@ -49,7 +54,8 @@ param(
   # Deliberately EMPTY. It is resolved from the repo below, once the repo is known —
   # defaulting to @me here is what put every backend issue on whoever ran the command.
   [string] $Assignee = '',
-  [string] $Project  = ''
+  [string] $Project  = '',
+  [switch] $NoBoard
 )
 
 $ErrorActionPreference = 'Stop'
@@ -58,8 +64,18 @@ Import-Module (Join-Path $PSScriptRoot '../lib/Board.psm1') -Force
 if (-not $Repo) { $Repo = Get-DefaultRepo }
 # An explicit -Assignee wins; otherwise the repo says who owns its issues.
 if (-not $Assignee) { $Assignee = Get-AssigneeForRepo -Repo $Repo }
-Set-Project -Number $Project -Repo $Repo | Out-Null
+# Without the refusal where a board exists, -NoBoard is the quiet way to file a ticket that no
+# board shows.
+if ($NoBoard) {
+  if ($Project) { Stop-WithError '-NoBoard and -Project contradict each other: one says there is no board, the other names one' }
+  if ($Priority) { Stop-WithError '-NoBoard and -Priority contradict each other: the priority is a field of the board, and nothing would record it' }
+  if ($PSBoundParameters.ContainsKey('Status')) { Stop-WithError '-NoBoard and -Status contradict each other: the status is a field of the board, and nothing would record it' }
+  if (@(Get-RepoOpenProjects -Repo $Repo).Count -gt 0) { Stop-WithError "$Repo is linked to an open project, so -NoBoard would keep this issue off a board that exists - drop the flag" }
+} else {
+  Set-Project -Number $Project -Repo $Repo | Out-Null
+}
 if (-not (Test-Path $BodyFile)) { Stop-WithError "no such body file: $BodyFile" }
+if (-not $NoBoard -and -not $Priority) { Stop-WithError '-Priority is required (P0 blocker, P1 high, P2 normal, P3 low, P9 parked)' }
 if ($Label.Count -lt 2) { Stop-WithError 'at least two labels are required: one for the type of work, one for the area' }
 
 # The parent is resolved before anything is created: a reference that resolves nowhere
@@ -83,9 +99,12 @@ foreach ($l in $Label) { $args += @('--label', $l) }
 $url = Invoke-Gh @args
 $num = [int]($url -split '/')[-1]
 
-$item = Get-ItemId $Repo $num
-Set-Select $item 'Status'   $Status
-Set-Select $item 'Priority' $Priority
+if ($NoBoard) { Write-Host "#$num -> on no board: $Repo is linked to none" }
+else {
+  $item = Get-ItemId $Repo $num
+  Set-Select $item 'Status'   $Status
+  Set-Select $item 'Priority' $Priority
+}
 
 # The attach goes through the addSubIssue mutation, which takes node ids and is not bound
 # to one repository the way the REST sub_issues endpoint is - posting a number there reads

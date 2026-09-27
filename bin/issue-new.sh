@@ -5,7 +5,12 @@
 #   issue-new --repo OWNER/REPO --title "Do the thing, or what it costs" --body-file PATH \
 #             --label type:feature --label area:gate --priority P1 [--status todo] \
 #             --asked-by LOGIN --asked-in WHERE \
-#             [--parent OWNER/REPO#N|REPO#N|N] [--project [ORG/]N]
+#             [--parent OWNER/REPO#N|REPO#N|N] [--project [ORG/]N | --no-board]
+#
+# --no-board files the issue in a repository that is linked to no open board, a harness or the
+# tooling's own repository: labels, assignee and parent as always, no card, no status and no
+# priority. It is refused where the repository IS linked to a board, and together with
+# --project, --priority or --status, which all name the board or a field of it.
 #
 # THE TITLE CARRIES TWO HALVES: the ACTION, and the STAKE - what is wrong today, or what it
 # costs if nobody does it - joined with ", so ", ", or " or a colon. "Add the board-sync
@@ -39,7 +44,7 @@
 # the repo is known — defaulting to @me at parse time is what put every backend issue
 # on whoever ran the command.
 repo=""; title=""; body=""; priority=""; status="todo"; parent=""; project=""
-labels=(); assignee=""; asked_by=""; asked_in=""
+labels=(); assignee=""; asked_by=""; asked_in=""; no_board=""; status_set=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -48,12 +53,13 @@ while [ $# -gt 0 ]; do
     --body-file) need_value "$1" "${2-}"; body="$2";      shift 2 ;;
     --label)     need_value "$1" "${2-}"; labels+=("$2"); shift 2 ;;
     --priority)  need_value "$1" "${2-}"; priority="$2";  shift 2 ;;
-    --status)    need_value "$1" "${2-}"; status="$2";    shift 2 ;;
+    --status)    need_value "$1" "${2-}"; status="$2"; status_set=1; shift 2 ;;
     --parent)    need_value "$1" "${2-}"; parent="$2";    shift 2 ;;
     --assignee)  need_value "$1" "${2-}"; assignee="$2";  shift 2 ;;
     --project)   need_value "$1" "${2-}"; project="$2";   shift 2 ;;
     --asked-by)  need_value "$1" "${2-}"; asked_by="$2";  shift 2 ;;
     --asked-in)  need_value "$1" "${2-}"; asked_in="$2";  shift 2 ;;
+    --no-board)  no_board=1; shift ;;
     *) die "unknown argument: $1" ;;
   esac
 done
@@ -61,11 +67,21 @@ done
 [ -n "$repo" ]     || repo="$(default_repo)"
 # An explicit --assignee wins; otherwise the repo says who owns its issues.
 [ -n "$assignee" ] || assignee="$(assignee_for "$repo")"
-set_project "$project" "$repo" >/dev/null
+# Without the refusal where a board exists, --no-board is the quiet way to file a ticket that
+# no board shows.
+if [ -n "$no_board" ]; then
+  [ -z "$project" ]    || die "--no-board and --project contradict each other: one says there is no board, the other names one"
+  [ -z "$priority" ]   || die "--no-board and --priority contradict each other: the priority is a field of the board, and nothing would record it"
+  [ -z "$status_set" ] || die "--no-board and --status contradict each other: the status is a field of the board, and nothing would record it"
+  linked="$(repo_open_projects "$repo")" || exit 1
+  [ -z "$linked" ]     || die "$repo is linked to an open project, so --no-board would keep this issue off a board that exists - drop the flag"
+else
+  set_project "$project" "$repo" >/dev/null
+fi
 [ -n "$title" ]    || die "--title is required"
 [ -n "$body" ]     || die "--body-file is required"
 [ -f "$body" ]     || die "no such body file: $body"
-[ -n "$priority" ] || die "--priority is required (P0 blocker, P1 high, P2 normal, P3 low, P9 parked)"
+[ -n "$no_board" ] || [ -n "$priority" ] || die "--priority is required (P0 blocker, P1 high, P2 normal, P3 low, P9 parked)"
 [ "${#labels[@]}" -ge 2 ] || die "at least two labels are required: one for the type of work, one for the area"
 
 # No issue without a person's yes (rules.md, the issue rules).
@@ -98,9 +114,13 @@ for l in "${labels[@]}"; do args+=(--label "$l"); done
 url="$(gh_read "the new issue in $repo" issue create "${args[@]}")" || exit 1
 num="${url##*/}"
 
-item="$(item_id "$repo" "$num")" || exit 1
-set_select "$item" Status   "$status"
-set_select "$item" Priority "$priority"
+if [ -n "$no_board" ]; then
+  echo "#$num -> on no board: $repo is linked to none" >&2
+else
+  item="$(item_id "$repo" "$num")" || exit 1
+  set_select "$item" Status   "$status"
+  set_select "$item" Priority "$priority"
+fi
 
 # The child id is resolved before the call, not inside it: a failed command substitution
 # does not stop the command it stands in, so an id that could not be read would be sent as

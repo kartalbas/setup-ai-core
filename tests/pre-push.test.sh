@@ -41,10 +41,12 @@ printf 'claude\tcaveman\tlite\tfile:%s/never-there\tnpx skills add example/cavem
 export TEAM_MODES_FILE="$green"
 stub="$fake/stub"; mkdir -p "$stub"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/claude"
-# The gitleaks stub writes down every argument it was given
+# The gitleaks stub writes down every argument it was given; asked for the help of `gitleaks git`,
+# it has the subcommand unless PROBE_LEAKS is old, a gitleaks from before 8.19
 leaks_args="$fake/leaks-args.txt"
 cat > "$stub/gitleaks" <<EOF
 #!/usr/bin/env bash
+case "\$*" in *--help) [ "\${PROBE_LEAKS:-green}" != old ]; exit ;; esac
 printf '[%s]\n' "\$*" >> "$leaks_args"
 [ "\${PROBE_LEAKS:-green}" = green ] || { echo 'gitleaks: a credential stands in this range'; exit 1; }
 exit 0
@@ -271,6 +273,11 @@ out="$(PROBE_LEAKS=red only_new "$repo")"; rc=$?
 check 'exit 1'                 1 "$rc"
 check 'it says what to do' yes "$(grep -q 'a commit that is pushed cannot be recalled' <<< "$out" && echo yes || echo no)"
 
+echo 'a gitleaks without gitleaks git, one from before 8.19, refuses and names doctor'
+out="$(PROBE_LEAKS=old only_new "$repo")"; rc=$?
+check 'exit 1'                 1 "$rc"
+check 'it names doctor'        yes "$(grep -q 'no gitleaks 8.19 or newer' <<< "$out" && grep -q 'Run ai-core doctor' <<< "$out" && echo yes || echo no)"
+
 # --- the Windows entry point, held against the one text it copies ----------------------------
 #
 # check.ps1 and build.ps1 decide nothing: each starts the .sh file of its own name. Overwritten
@@ -456,6 +463,18 @@ check 'both carry the shim, committed' yes "$([ "$(git -C "$folder/one" log -1 -
 check 'the plain folder does not'   no "$([ -e "$folder/not-a-repo/.githooks" ] && echo yes || echo no)"
 out="$( cd "$folder/not-a-repo" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
 check '--install outside a repository: exit 1' 1 "$rc"
+
+echo '--install where .gitleaks.toml arms the scan and no gitleaks can run it: nothing written, nothing committed, doctor named'
+leaky="$fake/leaky"; git init -q -b master "$leaky"
+git -C "$leaky" config user.email 'test@example.invalid'; git -C "$leaky" config user.name 'test'
+printf '[extend]\nuseDefault = true\n' > "$leaky/.gitleaks.toml"; git -C "$leaky" add .gitleaks.toml; git -C "$leaky" commit -q -m 'Arm the credential scan #15'
+head0="$(git -C "$leaky" rev-parse HEAD)"
+out="$( cd "$leaky" && PROBE_LEAKS=old bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'exit 1'                      1 "$rc"
+check 'it names doctor'             yes "$(grep -q 'so the push of the shims would be refused; nothing installed. Run ai-core doctor here' <<< "$out" && echo yes || echo no)"
+check 'no shims'                    no "$([ -e "$leaky/.githooks" ] && echo yes || echo no)"
+check 'core.hooksPath untouched'    '' "$(git -C "$leaky" config --get core.hooksPath)"
+check 'no commit'                   "$head0" "$(git -C "$leaky" rev-parse HEAD)"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

@@ -189,10 +189,17 @@ function Send-Shim([string]$dir, [string]$label) {
   Write-Host "pre-push: ${label}: pushed to origin/$branch"
   return $true
 }
+# A gitleaks that can run the scan of this gate: `gitleaks git` came with gitleaks 8.19
+function Test-GitleaksGit { if (-not (Get-Command gitleaks -ErrorAction SilentlyContinue)) { return $false }; & gitleaks git --help *> $null; return ($LASTEXITCODE -eq 0) }
 function Install-Shim([string]$dir) {  # $true written or unchanged, $false not a repository
   $name = Split-Path -Leaf $dir
   & git -C $dir rev-parse --is-inside-work-tree 2>$null | Out-Null
   if ($LASTEXITCODE -ne 0) { [Console]::Error.WriteLine("pre-push: $name is not a git repository; nothing installed"); return $false }
+  # The shims go out through this gate: where .gitleaks.toml arms its scan and no gitleaks can run
+  # it, their push is refused and the commit stays behind, so nothing is written
+  if ((Test-Path -LiteralPath (Join-Path $dir '.gitleaks.toml') -PathType Leaf) -and -not (Test-GitleaksGit)) {
+    [Console]::Error.WriteLine("pre-push: ${name}: .gitleaks.toml arms the gitleaks scan of this gate, and no gitleaks 8.19 or newer is on this path, so the push of the shims would be refused; nothing installed. Run ai-core doctor here, which installs it, then this again."); return $false
+  }
   # The hook runs only where git looks for it; the setting is the clone's own, never committed
   if ("$(& git -C $dir config --get core.hooksPath 2>$null)" -cne '.githooks') {
     & git -C $dir config core.hooksPath .githooks
@@ -400,7 +407,7 @@ if (Test-Path -LiteralPath $checkSh) {
 # so a repository joins by carrying the configuration and no repository is named here.
 if (Test-Path -LiteralPath (Join-Path $root '.gitleaks.toml')) {
   Write-Host 'pre-push: gitleaks over the commits this push carries.'
-  if (-not (Get-Command gitleaks -ErrorAction SilentlyContinue)) { Deny-Push "gitleaks is not on this path, and $root/.gitleaks.toml says the commits being pushed are read for credentials." }
+  if (-not (Test-GitleaksGit)) { Deny-Push "no gitleaks 8.19 or newer (the one with 'gitleaks git') is on this path, and $root/.gitleaks.toml says the commits being pushed are read for credentials. Run ai-core doctor in this repository, which installs it." }
   foreach ($scanRange in $scanRanges) {
     & gitleaks git --no-banner "--log-opts=$scanRange" $root
     if ($LASTEXITCODE -ne 0) { Deny-Push 'a credential stands in a commit this push carries. The lines above name the commit, the file and the rule. Take it out of the history - a commit that is pushed cannot be recalled.' }

@@ -37,6 +37,40 @@ for t in sh ps1; do
 done
 echo "  both report FAILED with npm's gyp lines and the command that installs a C/C++ toolchain"
 
+section "doctor wants gitleaks with 'gitleaks git' where a repository of the project folder carries .gitleaks.toml: missing, too old, present, not needed; on both twins"
+LF="$WORK/leaks-folder"; mkdir -p "$LF/plain" "$WORK/plain-folder/web"; git init -q "$LF/shop"; : > "$LF/shop/.gitleaks.toml"
+NOLEAKS="$(while IFS= read -r d; do [ -z "$d" ] || [ -e "$d/gitleaks" ] || [ -e "$d/gitleaks.exe" ] || [ -e "$d/gitleaks.cmd" ] || printf '%s:' "$d"; done <<< "$(tr ':' '\n' <<< "$PATH")")"
+mkdir -p "$WORK/leaksbin-new" "$WORK/leaksbin-old"
+printf '#!/bin/sh\ncase "$1" in version) echo 8.30.1 ;; esac\nexit 0\n' > "$WORK/leaksbin-new/gitleaks"
+printf '@if "%%1"=="version" echo 8.30.1\r\n@exit /b 0\r\n' > "$WORK/leaksbin-new/gitleaks.cmd"
+printf '#!/bin/sh\n[ "$1" = git ] && exit 1\necho 8.16.0\n' > "$WORK/leaksbin-old/gitleaks"
+printf '@if "%%1"=="git" exit /b 1\r\n@echo 8.16.0\r\n' > "$WORK/leaksbin-old/gitleaks.cmd"
+chmod +x "$WORK/leaksbin-new/gitleaks" "$WORK/leaksbin-old/gitleaks"
+leaks_doctor() {  # leaks_doctor <twin> <case> <directory> <PATH>: doctor --no-install started in the directory
+  if [ "$1" = sh ]; then (cd "$3" && HOME="$WORK/doctor-home" TEAM_MODES_FILE="$WORK/always.tsv" PATH="$4" bash "$ROOT/bin/doctor.sh" --no-install > "$WORK/leaks-$1-$2.log" 2>&1)
+  else (cd "$3" && HOME="$WORK/doctor-home" USERPROFILE="$(native "$WORK/doctor-home")" TEAM_MODES_FILE="$(native "$WORK/always.tsv")" PATH="$4" pwsh -NoProfile -File "$(native "$ROOT/bin/doctor.ps1")" -NoInstall > "$WORK/leaks-$1-$2.log" 2>&1); fi
+}
+for t in sh ps1; do
+  leaks_doctor "$t" missing "$LF" "$NOLEAKS" && fail "doctor.$t exited 0 without gitleaks where .gitleaks.toml is"
+  grep -aq '^  gitleaks .*MISSING .*the push gate reads every push with it where .gitleaks.toml is: shop; run doctor without -\{1,2\}[Nn]o-\{0,1\}[Ii]nstall, which installs it' "$WORK/leaks-$t-missing.log" || fail "doctor.$t did not report gitleaks missing for shop (see $WORK/leaks-$t-missing.log)"
+  leaks_doctor "$t" old "$LF" "$WORK/leaksbin-old:$NOLEAKS" && fail "doctor.$t exited 0 with a gitleaks from before 8.19"
+  grep -aq '^  gitleaks .*too old .*has no .gitleaks git., which the push gate runs (8.19 or newer)' "$WORK/leaks-$t-old.log" || fail "doctor.$t did not report the gitleaks without 'gitleaks git' (see $WORK/leaks-$t-old.log)"
+  leaks_doctor "$t" new "$LF/shop" "$WORK/leaksbin-new:$NOLEAKS" || true   # started inside a repository of the folder
+  grep -aq '^  gitleaks .*present .*gitleaks 8\.30\.1, for .gitleaks.toml in: shop' "$WORK/leaks-$t-new.log" || fail "doctor.$t did not report gitleaks present (see $WORK/leaks-$t-new.log)"
+  leaks_doctor "$t" none "$WORK/plain-folder" "$NOLEAKS" || true
+  grep -aq '^  gitleaks' "$WORK/leaks-$t-none.log" && fail "doctor.$t names gitleaks where no repository carries .gitleaks.toml"
+done
+echo "  missing and too old are problems that name how to install it, present names the repositories, and no repository with .gitleaks.toml means no line, on both twins"
+
+section "init runs doctor in the folder it serves: a repository there with .gitleaks.toml stops it without gitleaks, on both twins"
+for t in sh ps1; do
+  F="$WORK/leaks-init-$t"; git init -q "$F/shop"; : > "$F/shop/.gitleaks.toml"
+  if [ "$t" = sh ]; then HOME="$WORK/doctor-home" TEAM_MODES_FILE="$WORK/always.tsv" PATH="$NOLEAKS" bash "$ROOT/bin/init.sh" --all "$F" --dry-run > "$F.log" 2>&1
+  else HOME="$WORK/doctor-home" USERPROFILE="$(native "$WORK/doctor-home")" TEAM_MODES_FILE="$(native "$WORK/always.tsv")" PATH="$NOLEAKS" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -All "$(native "$F")" -DryRun > "$F.log" 2>&1; fi && fail "init.$t --all went on without gitleaks (see $F.log)"
+  grep -aq '^  gitleaks .*MISSING .*is: shop' "$F.log" && grep -aq 'doctor reported' "$F.log" || fail "init.$t did not stop on doctor's gitleaks line for the folder it serves (see $F.log)"
+done
+echo "  both stop with doctor's gitleaks line"
+
 section "init runs doctor first and deploys nothing when it fails, on both twins"
 mkdir -p "$WORK/nodoc-sh" "$WORK/nodoc-ps"
 PATH="$WORK/doctorbin:$PATH" bash "$ROOT/bin/init.sh" "$WORK/nodoc-sh" > "$WORK/nodoc-sh.log" 2>&1 && fail "init.sh exited 0 although doctor failed"

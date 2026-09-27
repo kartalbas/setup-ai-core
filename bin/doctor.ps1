@@ -139,6 +139,48 @@ if (Test-Tool npm) {
   }
 }
 
+# gitleaks, where a repository of this project folder carries .gitleaks.toml: the push gate reads
+# every push there with `gitleaks git`, which came with gitleaks 8.19, and refuses the push without
+# it. winget and brew have a recent one; apt's is 8.16 on every Ubuntu to date, so elsewhere the
+# release comes from GitHub, into ~/.local/bin.
+Import-Module (Join-Path $PSScriptRoot '..\lib\Layers.psm1') -Force
+$leaksRepos = @(Get-ChildItem -Path (Get-ProjectFolderOf (Get-Location).Path) -Directory -ErrorAction SilentlyContinue | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName '.gitleaks.toml') -PathType Leaf } | ForEach-Object { $_.Name })
+if ($leaksRepos.Count -gt 0) {
+  function Test-Gitleaks { if (-not (Test-Tool gitleaks)) { return $false }; & gitleaks git --help *> $null; return ($LASTEXITCODE -eq 0) }
+  function Install-GitleaksRelease {
+    $o = switch -CaseSensitive ($os) { 'linux' { 'linux' } 'macos' { 'darwin' } default { '' } }
+    if (-not $o) { return $false }
+    $a = switch -CaseSensitive ("$(& uname -m 2>$null)".Trim()) { 'x86_64' { 'x64' } 'amd64' { 'x64' } 'aarch64' { 'arm64' } 'arm64' { 'arm64' } 'armv7l' { 'armv7' } default { '' } }
+    if (-not $a -or -not (Test-Tool gh) -or -not (Test-Tool tar)) { return $false }
+    Write-Host "--> Installing gitleaks from its GitHub release into ~/.local/bin..."
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName()); $null = New-Item -ItemType Directory $tmp
+    $localBin = Join-Path $HOME '.local/bin'
+    try {
+      & gh release download --repo gitleaks/gitleaks --pattern "gitleaks_*_$($o)_$($a).tar.gz" --dir $tmp *> $null
+      if ($LASTEXITCODE -ne 0) { return $false }
+      $null = New-Item -ItemType Directory -Force $localBin
+      & tar -xzf (@(Get-ChildItem $tmp -Filter 'gitleaks_*.tar.gz')[0].FullName) -C $localBin gitleaks *> $null
+      if ($LASTEXITCODE -ne 0) { return $false }
+    } finally { Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue }
+    if (($env:PATH -split ':') -notcontains $localBin) { $env:PATH = $localBin + ':' + $env:PATH; $script:leaksNote = 'note: ~/.local/bin, where gitleaks is now, is not on the PATH of this shell; log in again (a login shell adds it once it exists) or add it to your profile' }
+    $script:installedSomething = $true
+    return $true
+  }
+  $leaksNote = ''; $leaksNew = $false
+  if (-not (Test-Gitleaks) -and -not $NoInstall) {
+    if ($pm -ceq 'winget' -or $pm -ceq 'brew') { $leaksNew = [bool](Install-Tool gitleaks Gitleaks.Gitleaks gitleaks '-') } else { $leaksNew = [bool](Install-GitleaksRelease) }
+  }
+  $how = switch -CaseSensitive ($os) { 'windows' { 'winget install --id Gitleaks.Gitleaks -e' } 'macos' { 'brew install gitleaks' } default { 'the gitleaks release for this machine from https://github.com/gitleaks/gitleaks/releases, unpacked into ~/.local/bin' } }
+  if ($NoInstall) { $how = "run doctor without -NoInstall, which installs it, or: $how" }
+  if (Test-Gitleaks) {
+    $v = "$(& gitleaks version 2>$null | Select-Object -First 1)".Trim(); $v = if ($v -cmatch '^v?([0-9][0-9.]*)$') { " $($Matches[1])" } else { '' }
+    Write-Report gitleaks $(if ($leaksNew) { 'installed' } else { 'present' }) "gitleaks$v, for .gitleaks.toml in: $($leaksRepos -join ' ')"
+  }
+  elseif (Test-Tool gitleaks) { Write-Report gitleaks 'too old' "$((Get-Command gitleaks).Source) has no 'gitleaks git', which the push gate runs (8.19 or newer); $how"; Add-Problem }
+  else { Write-Report gitleaks MISSING "the push gate reads every push with it where .gitleaks.toml is: $($leaksRepos -join ' '); $how"; Add-Problem }
+  if ($leaksNote) { Write-Host $leaksNote }
+}
+
 # An agent definition of this machine that names a model below Sonnet
 foreach ($file in @(Get-ChildItem -Path (Join-Path $HOME '.claude\agents') -Filter '*.md' -File -ErrorAction SilentlyContinue)) {
   $m = ''

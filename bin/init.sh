@@ -55,10 +55,11 @@ while [ $# -gt 0 ]; do
 done
 
 # The prerequisites first; nothing is deployed on a machine that cannot run the harness. A dry
-# run installs nothing either.
+# run installs nothing either. Doctor runs in the folder init serves, so it sees what the
+# repositories of that project folder need (gitleaks, where one carries .gitleaks.toml).
 if [ "$RUN_DOCTOR" -eq 1 ]; then
   DOCTOR_ARGS=(); [ "$DRY" -eq 1 ] && DOCTOR_ARGS+=(--no-install)
-  bash "$CORE_ROOT/bin/doctor.sh" ${DOCTOR_ARGS[@]+"${DOCTOR_ARGS[@]}"} || { echo "error: fix the problems doctor reported, then run init again (or pass --no-doctor)." >&2; exit 1; }
+  ( cd "${ALL_DIR:-$TARGET}" 2>/dev/null || true; bash "$CORE_ROOT/bin/doctor.sh" ${DOCTOR_ARGS[@]+"${DOCTOR_ARGS[@]}"} ) || { echo "error: fix the problems doctor reported, then run init again (or pass --no-doctor)." >&2; exit 1; }
 fi
 
 # --all: every git repository directly under the folder, every worktree `ai-core start-issue` put

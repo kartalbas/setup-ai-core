@@ -40,8 +40,9 @@ Set-Content -Path (Join-Path $stub 'claude.cmd') -Value "@exit /b 0" -Encoding a
 if (-not $IsWindows) { Set-Content -Path (Join-Path $stub 'claude') -Value "#!/bin/sh`nexit 0" -Encoding ascii; & chmod +x (Join-Path $stub 'claude') }
 # The gitleaks stub writes down every argument it was given
 $leaksArgs = Join-Path $fake 'leaks-args.txt'
-Set-Content -Path (Join-Path $stub 'gitleaks.cmd') -Value "@echo %*>> `"$leaksArgs`"`r`n@if `"%PROBE_LEAKS%`"==`"red`" (echo gitleaks: a credential stands in this range & exit /b 1)`r`n@exit /b 0" -Encoding ascii
-if (-not $IsWindows) { Set-Content -Path (Join-Path $stub 'gitleaks') -Value "#!/bin/sh`necho `"`$*`" >> `"$leaksArgs`"`n[ `"`${PROBE_LEAKS:-green}`" = green ] || { echo 'gitleaks: a credential stands in this range'; exit 1; }`nexit 0" -Encoding ascii; & chmod +x (Join-Path $stub 'gitleaks') }
+# Asked for the help of `gitleaks git`, it has the subcommand unless PROBE_LEAKS is old, a gitleaks from before 8.19
+Set-Content -Path (Join-Path $stub 'gitleaks.cmd') -Value "@if `"%2`"==`"--help`" (if `"%PROBE_LEAKS%`"==`"old`" (exit /b 1) else (exit /b 0))`r`n@echo %*>> `"$leaksArgs`"`r`n@if `"%PROBE_LEAKS%`"==`"red`" (echo gitleaks: a credential stands in this range & exit /b 1)`r`n@exit /b 0" -Encoding ascii
+if (-not $IsWindows) { Set-Content -Path (Join-Path $stub 'gitleaks') -Value "#!/bin/sh`ncase `"`$*`" in *--help) [ `"`${PROBE_LEAKS:-green}`" != old ]; exit ;; esac`necho `"`$*`" >> `"$leaksArgs`"`n[ `"`${PROBE_LEAKS:-green}`" = green ] || { echo 'gitleaks: a credential stands in this range'; exit 1; }`nexit 0" -Encoding ascii; & chmod +x (Join-Path $stub 'gitleaks') }
 # A second ai-core behind the stand-in, the way a developer's shell carries its own: a run without
 # ai-core on the PATH has to take both away
 $machine = Join-Path $fake 'machine'; New-Item -ItemType Directory -Path $machine | Out-Null
@@ -232,6 +233,13 @@ Remove-Item Env:PROBE_LEAKS
 Check 'exit 1'             1 $rc
 Check 'it says what to do' 'True' (Says 'a commit that is pushed cannot be recalled')
 
+Write-Host 'a gitleaks without gitleaks git, one from before 8.19, refuses and names doctor'
+$env:PROBE_LEAKS = 'old'
+OnlyNew $repo
+Remove-Item Env:PROBE_LEAKS
+Check 'exit 1'             1 $rc
+Check 'it names doctor'    'True' ((Says 'no gitleaks 8.19 or newer') -and (Says 'Run ai-core doctor'))
+
 # --- the Windows entry point, held against the one text it copies ----------------------------
 function Stub-Ps1([string]$path) { Write-Lf $path "Write-Host 'check: OK — every check green'`nexit 0`n" }
 # against the commit the worktree branched from: master has moved on since, and a push over that
@@ -420,6 +428,19 @@ Check 'the plain folder does not'   'False' (Test-Path (Join-Path $folder 'not-a
 Push-Location (Join-Path $folder 'not-a-repo')
 try { $out = (& pwsh -NoProfile -File $gate -Install 2>&1 | Out-String); $rc = $LASTEXITCODE } finally { Pop-Location }
 Check '-Install outside a repository: exit 1' 1 $rc
+
+Write-Host '-Install where .gitleaks.toml arms the scan and no gitleaks can run it: nothing written, nothing committed, doctor named'
+$leaky = Join-Path $fake 'leaky'; & git init -q -b master $leaky; & git -C $leaky config user.email 'test@example.invalid'; & git -C $leaky config user.name 'test'
+Write-Lf (Join-Path $leaky '.gitleaks.toml') "[extend]`nuseDefault = true`n"; & git -C $leaky add .gitleaks.toml; & git -C $leaky commit -q -m 'Arm the credential scan #15'
+$head0 = "$(& git -C $leaky rev-parse HEAD)".Trim()
+$env:PROBE_LEAKS = 'old'
+Push-Location $leaky
+try { $out = (& pwsh -NoProfile -File $gate -Install 2>&1 | Out-String); $rc = $LASTEXITCODE } finally { Pop-Location; Remove-Item Env:PROBE_LEAKS }
+Check 'exit 1'                      1 $rc
+Check 'it names doctor'             'True' (Says 'so the push of the shims would be refused; nothing installed\. Run ai-core doctor here')
+Check 'no shims'                    'False' (Test-Path (Join-Path $leaky '.githooks'))
+Check 'core.hooksPath untouched'    '' ("$(& git -C $leaky config --get core.hooksPath)".Trim())
+Check 'no commit'                   $head0 ("$(& git -C $leaky rev-parse HEAD)".Trim())
 
 & git -C $repo worktree remove --force $wt 2>$null | Out-Null
 Set-Location $root

@@ -649,7 +649,10 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
 5. **`scripts/check.sh` is green**, run in the tree being pushed; a repository without one is told
    so and passes on.
 6. **gitleaks over the commits the push carries**, in a repository that carries `.gitleaks.toml`;
-   the commits are the only place a credential taken out again still stands.
+   the commits are the only place a credential taken out again still stands. It runs
+   `gitleaks git`, which came with gitleaks 8.19; without such a gitleaks the push is refused and
+   `ai-core doctor` named, which installs it. `--install` writes nothing into such a repository
+   until one is there, because the push of its own shims would be refused.
 
 Run from a prompt or an agent's shell, with nothing on standard input, `ai-core pre-push` judges
 the current branch against its upstream: what `git push` would send. `tests/pre-push.test.sh`
@@ -668,6 +671,7 @@ for the check and for gitleaks, and a team-modes table of their own.
 | Bash 3.2+ or PowerShell 7 (`pwsh`) | the `.sh` and `.ps1` twins | `init.ps1` starts its child scripts with `pwsh`, so Windows PowerShell 5.1 alone is not enough |
 | `curl` and `tar` | remote install with `init.sh` | `init.ps1` uses `Invoke-WebRequest` and `Expand-Archive`, part of PowerShell |
 | jq | every board and issue command reads GitHub's answers through it | `doctor` installs it |
+| gitleaks 8.19+ | the credential scan of the push gate, in a repository that carries `.gitleaks.toml` | `doctor` wants it where a repository of the project folder carries that file, and installs it: winget, brew, on Linux the GitHub release into `~/.local/bin` (apt's package is 8.16); `init` runs doctor in the folder it serves |
 | Node.js 20+ with `npm` and `npx` | Graft, the Graft MCP server, the Claude Code hook helpers | no fallback: without Node.js, `init` fails; `skip` mode turns Graft off |
 | Graft, the version in `lib/graft-version` | the code graph, its MCP server, Graft's hooks and the `graft` command | `doctor` installs it globally; a parser without a prebuilt binary for the machine is compiled by node-gyp, and where that fails `doctor` shows npm's lines and the command that installs a C/C++ toolchain (build-essential, the Xcode Command Line Tools, the Visual Studio Build Tools); `init` builds with it and pins the MCP servers to it |
 | `gh`, logged in | the project harness is found, cloned and created through it; every board and issue command; `session-start` shows the GitHub user | `doctor` installs it; the login is yours |

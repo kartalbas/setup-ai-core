@@ -169,6 +169,47 @@ if command -v npm >/dev/null 2>&1; then
   fi
 fi
 
+# gitleaks, where a repository of this project folder carries .gitleaks.toml: the push gate reads
+# every push there with `gitleaks git`, which came with gitleaks 8.19, and refuses the push without
+# it. winget and brew have a recent one; apt's is 8.16 on every Ubuntu to date, so elsewhere the
+# release comes from GitHub, into ~/.local/bin.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/layers.sh"
+LEAKS_REPOS=""
+for f in "$(project_folder_of "$PWD")"/*/.gitleaks.toml; do [ -f "$f" ] || continue; LEAKS_REPOS="$LEAKS_REPOS $(basename "$(dirname "$f")")"; done
+if [ -n "$LEAKS_REPOS" ]; then
+  leaks_ok() { command -v gitleaks >/dev/null 2>&1 && gitleaks git --help >/dev/null 2>&1; }
+  leaks_release() {
+    local os arch tmp rc=0
+    case "$OS" in linux) os=linux ;; macos) os=darwin ;; *) return 1 ;; esac
+    case "$(uname -m)" in x86_64|amd64) arch=x64 ;; aarch64|arm64) arch=arm64 ;; armv7l) arch=armv7 ;; *) return 1 ;; esac
+    command -v gh >/dev/null 2>&1 && command -v tar >/dev/null 2>&1 || return 1
+    echo "--> Installing gitleaks from its GitHub release into ~/.local/bin..."
+    tmp="$(mktemp -d)"
+    { gh release download --repo gitleaks/gitleaks --pattern "gitleaks_*_${os}_${arch}.tar.gz" --dir "$tmp" >/dev/null 2>&1 \
+      && mkdir -p "$HOME/.local/bin" && tar -xzf "$tmp"/gitleaks_*.tar.gz -C "$HOME/.local/bin" gitleaks; } || rc=1
+    rm -rf "$tmp"
+    [ "$rc" -eq 0 ] || return 1
+    case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) PATH="$HOME/.local/bin:$PATH"; LEAKS_NOTE="note: ~/.local/bin, where gitleaks is now, is not on the PATH of this shell; log in again (a login shell adds it once it exists) or add it to your profile" ;; esac
+    INSTALLED_SOMETHING=1
+  }
+  LEAKS_NOTE=""; LEAKS_NEW=0
+  if ! leaks_ok && [ "$NO_INSTALL" -eq 0 ]; then
+    case "$PM" in winget|brew) install_tool gitleaks Gitleaks.Gitleaks gitleaks - && LEAKS_NEW=1 ;; *) leaks_release && LEAKS_NEW=1 ;; esac
+  fi
+  case "$OS" in
+    windows) how="winget install --id Gitleaks.Gitleaks -e" ;;
+    macos) how="brew install gitleaks" ;;
+    *) how="the gitleaks release for this machine from https://github.com/gitleaks/gitleaks/releases, unpacked into ~/.local/bin" ;;
+  esac
+  [ "$NO_INSTALL" -eq 0 ] || how="run doctor without --no-install, which installs it, or: $how"
+  if leaks_ok; then
+    v="$(gitleaks version 2>/dev/null | tr -d '\r' | sed -n '1s/^v\{0,1\}\([0-9][0-9.]*\)$/\1/p')"
+    report gitleaks "$([ "$LEAKS_NEW" -eq 1 ] && echo installed || echo present)" "gitleaks${v:+ $v}, for .gitleaks.toml in:$LEAKS_REPOS"
+  elif command -v gitleaks >/dev/null 2>&1; then report gitleaks "too old" "$(command -v gitleaks) has no 'gitleaks git', which the push gate runs (8.19 or newer); $how"; problem
+  else report gitleaks MISSING "the push gate reads every push with it where .gitleaks.toml is:$LEAKS_REPOS; $how"; problem; fi
+  [ -z "$LEAKS_NOTE" ] || echo "$LEAKS_NOTE"
+fi
+
 # An agent definition of this machine that names a model below Sonnet
 for f in "$HOME"/.claude/agents/*.md; do
   [ -f "$f" ] || continue

@@ -48,10 +48,13 @@ if (-not ((Test-Path (Join-Path $coreRoot "templates")) -and (Test-Path (Join-Pa
 Import-Module (Join-Path $coreRoot 'lib\Layers.psm1') -Force
 
 # The prerequisites first; nothing is deployed on a machine that cannot run the harness. A dry
-# run installs nothing either.
+# run installs nothing either. Doctor runs in the folder init serves, so it sees what the
+# repositories of that project folder need (gitleaks, where one carries .gitleaks.toml).
 if (-not $NoDoctor) {
   $doctorArgs = @(); if ($DryRun) { $doctorArgs += '-NoInstall' }
-  & pwsh -NoProfile -File (Join-Path $coreRoot "bin\doctor.ps1") @doctorArgs
+  $doctorIn = if ($All) { $All } else { $TargetDir }
+  $doctorIn = if (Test-Path -LiteralPath $doctorIn -PathType Container) { (Resolve-Path -LiteralPath $doctorIn).Path } else { (Get-Location).Path }
+  & pwsh -NoProfile -WorkingDirectory $doctorIn -File (Join-Path $coreRoot "bin\doctor.ps1") @doctorArgs
   if ($LASTEXITCODE -ne 0) { Write-Host "error: fix the problems doctor reported, then run init again (or pass -NoDoctor)." -ForegroundColor Red; exit 1 }
 }
 

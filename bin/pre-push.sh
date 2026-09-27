@@ -183,10 +183,17 @@ commit_shim() {
   git -C "$dir" push --quiet origin "HEAD:$branch" || { echo "pre-push: $label: the push was refused or failed (see above); the commit stays" >&2; return 1; }
   echo "pre-push: $label: pushed to origin/$branch"
 }
+# gitleaks_git: a gitleaks that can run the scan of this gate; `gitleaks git` came with gitleaks 8.19
+gitleaks_git() { command -v gitleaks >/dev/null 2>&1 && gitleaks git --help >/dev/null 2>&1; }
 install_shim() {  # install_shim <repository>: 0 written or unchanged, 1 not a repository
   local dir="$1" name tree
   name="$(basename "$dir")"
   git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "pre-push: $name is not a git repository; nothing installed" >&2; return 1; }
+  # The shims go out through this gate: where .gitleaks.toml arms its scan and no gitleaks can run
+  # it, their push is refused and the commit stays behind, so nothing is written
+  if [ -f "$dir/.gitleaks.toml" ] && ! gitleaks_git; then
+    echo "pre-push: $name: .gitleaks.toml arms the gitleaks scan of this gate, and no gitleaks 8.19 or newer is on this path, so the push of the shims would be refused; nothing installed. Run ai-core doctor here, which installs it, then this again." >&2; return 1
+  fi
   # The hook runs only where git looks for it; the setting is the clone's own, never committed
   if [ "$(git -C "$dir" config --get core.hooksPath 2>/dev/null)" != ".githooks" ]; then
     git -C "$dir" config core.hooksPath .githooks
@@ -385,8 +392,8 @@ fi
 # so a repository joins by carrying the configuration and no repository is named here.
 if [ -f "$root/.gitleaks.toml" ]; then
   echo 'pre-push: gitleaks over the commits this push carries.'
-  command -v gitleaks >/dev/null 2>&1 \
-    || refuse "gitleaks is not on this path, and $root/.gitleaks.toml says the commits being pushed are read for credentials."
+  gitleaks_git \
+    || refuse "no gitleaks 8.19 or newer (the one with 'gitleaks git') is on this path, and $root/.gitleaks.toml says the commits being pushed are read for credentials. Run ai-core doctor in this repository, which installs it."
   while IFS= read -r scan_range; do
     [ -n "$scan_range" ] || continue
     gitleaks git --no-banner --log-opts="$scan_range" "$root" \

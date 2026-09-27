@@ -669,7 +669,7 @@ for the check and for gitleaks, and a team-modes table of their own.
 | `curl` and `tar` | remote install with `init.sh` | `init.ps1` uses `Invoke-WebRequest` and `Expand-Archive`, part of PowerShell |
 | jq | every board and issue command reads GitHub's answers through it | `doctor` installs it |
 | Node.js 20+ with `npm` and `npx` | Graft, the Graft MCP server, the Claude Code hook helpers | no fallback: without Node.js, `init` fails; `skip` mode turns Graft off |
-| Graft, the version in `lib/graft-version` | the code graph, its MCP server, Graft's hooks and the `graft` command | `doctor` installs it globally; `init` builds with it and pins the MCP servers to it |
+| Graft, the version in `lib/graft-version` | the code graph, its MCP server, Graft's hooks and the `graft` command | `doctor` installs it globally; a parser without a prebuilt binary for the machine is compiled by node-gyp, and where that fails `doctor` shows npm's lines and the command that installs a C/C++ toolchain (build-essential, the Xcode Command Line Tools, the Visual Studio Build Tools); `init` builds with it and pins the MCP servers to it |
 | `gh`, logged in | the project harness is found, cloned and created through it; every board and issue command; `session-start` shows the GitHub user | `doctor` installs it; the login is yours |
 
 ### 5.2 Once per machine: `install`

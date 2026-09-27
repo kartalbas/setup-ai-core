@@ -150,8 +150,23 @@ if command -v npm >/dev/null 2>&1; then
   GRAFT_HAVE="$(npm ls -g @nanonets/graft --depth=0 2>/dev/null | tr -d '\r' | sed -n 's/.*@nanonets\/graft@\([0-9][^ ]*\).*/\1/p' | head -n1 || true)"
   if [ "$GRAFT_HAVE" = "$GRAFT_PIN" ]; then report graft present "Graft $GRAFT_PIN, global"
   elif [ "$NO_INSTALL" -eq 1 ]; then report graft "${GRAFT_HAVE:-absent}" "setup-ai-core pins Graft $GRAFT_PIN; run doctor without --no-install, or npm i -g @nanonets/graft@$GRAFT_PIN"
-  elif npm i -g "@nanonets/graft@$GRAFT_PIN" >/dev/null 2>&1; then report graft installed "Graft $GRAFT_PIN, global${GRAFT_HAVE:+, was $GRAFT_HAVE}"
-  else report graft FAILED "npm i -g @nanonets/graft@$GRAFT_PIN failed; run it by hand to see why"; problem; fi
+  elif NPM_OUT="$(npm i -g "@nanonets/graft@$GRAFT_PIN" 2>&1)"; then report graft installed "Graft $GRAFT_PIN, global${GRAFT_HAVE:+, was $GRAFT_HAVE}"
+  else
+    report graft FAILED "npm i -g @nanonets/graft@$GRAFT_PIN failed; npm said:"; problem
+    # A parser of Graft that has no prebuilt binary here is compiled by node-gyp, which needs a C/C++ toolchain
+    if grep -aq 'gyp ERR!' <<< "$NPM_OUT"; then
+      grep -a -m 3 'gyp ERR!' <<< "$NPM_OUT" | sed 's/^/    /'
+      case "$OS" in
+        linux) if [ "$PM" = apt-get ]; then hint="sudo apt-get install -y build-essential"; else hint="install make, gcc and g++"; fi ;;
+        macos) hint="xcode-select --install" ;;
+        windows) hint='winget install Microsoft.VisualStudio.2022.BuildTools --override "--passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"' ;;
+        *) hint="install make, gcc and g++" ;;
+      esac
+      echo "    npm had to compile a native module with node-gyp, which needs a C/C++ toolchain; install one, then run doctor again: $hint"
+    else
+      tail -n 5 <<< "$NPM_OUT" | sed 's/^/    /'
+    fi
+  fi
 fi
 
 # An agent definition of this machine that names a model below Sonnet

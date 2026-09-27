@@ -119,9 +119,23 @@ if (Test-Tool npm) {
   if ($graftHave -ceq $graftPin) { Write-Report graft present "Graft $graftPin, global" }
   elseif ($NoInstall) { Write-Report graft $(if ($graftHave) { $graftHave } else { 'absent' }) "setup-ai-core pins Graft $graftPin; run doctor without -NoInstall, or npm i -g @nanonets/graft@$graftPin" }
   else {
-    & npm i -g "@nanonets/graft@$graftPin" 2>$null | Out-Null
+    $npmOut = @(& npm i -g "@nanonets/graft@$graftPin" 2>&1 | ForEach-Object { "$_" })
     if ($LASTEXITCODE -eq 0) { Write-Report graft installed "Graft $graftPin, global$(if ($graftHave) { ", was $graftHave" })" }
-    else { Write-Report graft FAILED "npm i -g @nanonets/graft@$graftPin failed; run it by hand to see why"; Add-Problem }
+    else {
+      Write-Report graft FAILED "npm i -g @nanonets/graft@$graftPin failed; npm said:"; Add-Problem
+      # A parser of Graft that has no prebuilt binary here is compiled by node-gyp, which needs a C/C++ toolchain
+      $gyp = @($npmOut | Where-Object { $_.Contains('gyp ERR!') } | Select-Object -First 3)
+      if ($gyp.Count -gt 0) {
+        $gyp | ForEach-Object { Write-Host "    $_" }
+        $hint = switch -CaseSensitive ($os) {
+          'linux' { if ($pm -ceq 'apt-get') { 'sudo apt-get install -y build-essential' } else { 'install make, gcc and g++' } }
+          'macos' { 'xcode-select --install' }
+          'windows' { 'winget install Microsoft.VisualStudio.2022.BuildTools --override "--passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"' }
+          default { 'install make, gcc and g++' }
+        }
+        Write-Host "    npm had to compile a native module with node-gyp, which needs a C/C++ toolchain; install one, then run doctor again: $hint"
+      } else { $npmOut | Select-Object -Last 5 | ForEach-Object { Write-Host "    $_" } }
+    }
   }
 }
 

@@ -65,4 +65,19 @@ for run in dry 1 2; do
   diff <(report_of "$WORK/report-sh-$run.log" | sed 's/report-sh/report-TWIN/') <(report_of "$WORK/report-ps1-$run.log" | sed 's/report-ps1/report-TWIN/') > /dev/null || fail "the report of run $run differs between the twins: $(diff <(report_of "$WORK/report-sh-$run.log") <(report_of "$WORK/report-ps1-$run.log"))"
 done
 echo "  dry run: nothing written, created/removed/kept/.gitignore and Graft's lists announced; run 1 reports the same; run 2 only unchanged files, the folder's AGENTS.md keeps Graft's block; identical on both twins"
+section "init takes an AGENTS.md and an opencode.json Graft wrote before it for its own: the map and the binding rules above Graft's block, the instructions beside its MCP server; the run after changes nothing; both twins"
+for twin in sh ps1; do
+  G="$WORK/graft-first-$twin"; git init -q "$G"; mkdir -p "$G/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$G/.ai-core/config.env"
+  printf '<!-- graft:start -->\n## Graft - repo context graph\nThis repo is indexed in graft/.\n<!-- graft:end -->\n' > "$G/AGENTS.md"
+  printf '{\n  "mcp": {\n    "graft": { "type": "local", "command": ["npx", "-y", "@nanonets/graft@0.18.0", "mcp"], "enabled": true }\n  }\n}\n' > "$G/opencode.json"
+  for run in 1 2; do
+    if [ "$twin" = sh ]; then bash "$ROOT/bin/init.sh" "$G" --no-doctor > "$G-$run.log" 2>&1
+    else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$G")" -NoDoctor > "$G-$run.log" 2>&1; fi || fail "init.$twin run $run where Graft wrote first (see $G-$run.log)"
+  done
+  grep -q '^## Binding rules' "$G/AGENTS.md" && grep -q '^<!-- graft:start -->' "$G/AGENTS.md" || fail "init.$twin kept Graft's AGENTS.md as the repository's own, or lost Graft's block: $(head -2 "$G/AGENTS.md" | tr '\n' '|')"
+  grep -aq '^  kept .*AGENTS.md' "$G-1.log" && fail "init.$twin reports Graft's AGENTS.md as kept"
+  [ "$(jq -c '.instructions' "$G/opencode.json")" = '[".ai-core/rules/rules.md",".ai-core/rules/skills.md",".ai-core/rules/rules.local.md"]' ] && [ "$(jq -r '.mcp.graft.command[2]' "$G/opencode.json")" = '@nanonets/graft@0.18.0' ] || fail "init.$twin did not add the instructions to Graft's opencode.json, or lost its MCP server: $(jq -c . "$G/opencode.json")"
+  grep -aqE '^  (created|refreshed|removed) ' "$G-2.log" && fail "init.$twin changes something on the run after: $(grep -aE '^  (created|refreshed|removed) ' "$G-2.log")"
+done
+echo "  the map and the binding rules above Graft's block, the instructions beside its MCP server, nothing changed on the run after, on both twins"
 exit 0

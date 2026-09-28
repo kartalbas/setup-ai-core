@@ -383,6 +383,15 @@ if (-not $mapSrc -and -not $projectFolder -and $layerFiles -cnotcontains 'AGENTS
   & git -C $target ls-files --error-unmatch AGENTS.md 2>$null | Out-Null
   $agentsTracked = ($LASTEXITCODE -eq 0)
   $agentsOurs = -not (Test-Path -LiteralPath $agentsMd -PathType Leaf) -or ("$(@([System.IO.File]::ReadAllLines($agentsMd)) | Select-Object -First 1)" -cmatch '^(<!-- ai-core map:|# AGENTS\.md .* Repository Navigation & Operations)')
+  if (-not $agentsOurs) {   # nothing in it outside Graft's block: Graft wires every repository of a project folder, one init has not reached yet among them
+    $inGraft = $false; $outside = 0
+    foreach ($l in [System.IO.File]::ReadAllLines($agentsMd)) {
+      if ($l -cmatch '^<!-- graft:start -->') { $inGraft = $true }
+      if (-not $inGraft -and $l.Trim()) { $outside++ }
+      if ($l -cmatch '^<!-- graft:end -->') { $inGraft = $false }
+    }
+    $agentsOurs = ($outside -eq 0)
+  }
   if (-not $agentsTracked -and $agentsOurs) { $mapSrc = Join-Path $coreRoot 'templates\AGENTS.md' } else { Add-Note kept 'AGENTS.md' }
 }
 if ($mapSrc) {
@@ -413,6 +422,19 @@ foreach ($rel in $templateFiles) {
   if ($layerFiles -ccontains $rel) { continue }
   if ($pointerOf.ContainsKey($rel) -and -not (Test-Serves $pointerOf[$rel])) { continue }
   if ($rel -ceq '.claude/settings.json' -and (Get-Command jq -ErrorAction SilentlyContinue)) { continue }   # written below, the hook with the full path
+  # an opencode.json without the template's instructions (Graft writes one with its MCP server only) gets them added
+  $own = Join-Path $target $rel
+  if ($rel -ceq 'opencode.json' -and (Get-Command jq -ErrorAction SilentlyContinue) -and (Test-Path -LiteralPath $own -PathType Leaf)) {
+    & jq -e --slurpfile t (Join-Path $templates $rel) '($t[0].instructions - (.instructions // [])) | length == 0' $own 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+      $merged = (& jq --slurpfile t (Join-Path $templates $rel) '.instructions = ((.instructions // []) + ($t[0].instructions - (.instructions // [])))' $own 2>$null | Out-String)
+      if ($LASTEXITCODE -eq 0 -and $merged.Trim()) {
+        [System.IO.File]::WriteAllText((Join-Path $tmp 'opencode.json'), $merged.Replace("`r`n", "`n"), $utf8)
+        Put-File (Join-Path $tmp 'opencode.json') $own $rel managed
+      }
+      continue
+    }
+  }
   Put (Join-Path $templates $rel) $rel once
 }
 # The Claude Code hook that starts the session, the permissions of the template (the ai-core

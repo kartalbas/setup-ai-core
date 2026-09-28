@@ -345,10 +345,14 @@ binding_block() {  # binding_block: lib/binding-rules.md, each file named after 
   tr -d '\r' < "$CORE_ROOT/lib/binding-rules.md" | sed -e "s#{RULES}#$r#" -e "s#{SKILLS}#$s#" -e "s#{LOCAL}#$l#"
 }
 # A repository the harness has no map for gets the generic one the same way, where its AGENTS.md
-# is none yet or one init wrote (a map, or the generic file of before 1.3.20); one the repository
-# tracks, or somebody's own, is kept
+# is none yet, one init wrote (a map, or the generic file of before 1.3.20), or one that holds
+# nothing but Graft's block (Graft wires every repository of a project folder, one init has not
+# reached yet among them); one the repository tracks, or somebody's own, is kept
+graft_only() {  # graft_only <file>: nothing in it outside Graft's block
+  [ -z "$(awk '/^<!-- graft:start -->/{g=1} !g && NF; /^<!-- graft:end -->/{g=0}' "$1")" ]
+}
 if [ -z "$MAP_SRC" ] && [ "$PROJECT_FOLDER" -eq 0 ] && [[ " $LAYER_FILES " != *" AGENTS.md "* ]]; then
-  if ! git -C "$TARGET" ls-files --error-unmatch AGENTS.md >/dev/null 2>&1 && { [ ! -f "$TARGET/AGENTS.md" ] || grep -qE '^(<!-- ai-core map:|# AGENTS\.md .* Repository Navigation & Operations)' <<< "$(head -n1 "$TARGET/AGENTS.md")"; }; then
+  if ! git -C "$TARGET" ls-files --error-unmatch AGENTS.md >/dev/null 2>&1 && { [ ! -f "$TARGET/AGENTS.md" ] || grep -qE '^(<!-- ai-core map:|# AGENTS\.md .* Repository Navigation & Operations)' <<< "$(head -n1 "$TARGET/AGENTS.md")" || graft_only "$TARGET/AGENTS.md"; }; then
     MAP_SRC="$CORE_ROOT/templates/AGENTS.md"
   else
     note kept AGENTS.md
@@ -380,6 +384,12 @@ while IFS= read -r rel; do
     .openhands/microagents/repo-rules.md) serves openhands || continue ;;
     .codex/config.toml) serves codex || continue ;;
     .claude/settings.json) if command -v jq >/dev/null 2>&1; then continue; fi ;;   # written below, the hook with the full path
+    opencode.json)   # one without the template's instructions (Graft writes one with its MCP server only) gets them added
+      if command -v jq >/dev/null 2>&1 && [ -f "$TARGET/$rel" ] && ! jq -e --slurpfile t "$CORE_ROOT/templates/$rel" '($t[0].instructions - (.instructions // [])) | length == 0' "$TARGET/$rel" >/dev/null 2>&1; then
+        jq --slurpfile t "$CORE_ROOT/templates/$rel" '.instructions = ((.instructions // []) + ($t[0].instructions - (.instructions // [])))' "$TARGET/$rel" 2>/dev/null | tr -d '\r' > "$TMP/opencode.json" \
+          && [ -s "$TMP/opencode.json" ] && put_file "$TMP/opencode.json" "$TARGET/$rel" "$rel" managed
+        continue
+      fi ;;
   esac
   put "$CORE_ROOT/templates/$rel" "$rel" once
 done <<< "$( (cd "$CORE_ROOT/templates" && find . -type f | LC_ALL=C sort) | sed 's|^\./||')"

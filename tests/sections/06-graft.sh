@@ -47,7 +47,7 @@ for twin in sh ps1; do
   block="$(awk '/^# setup-ai-core graft start/{b=1; next} /^# setup-ai-core graft end/{b=0} b' "$WORK/graft-$twin/.git/info/exclude" | tr -d '\r')"
   ! grep -qx '/late-product.txt' <<< "$block" && ! grep -qx '/product-file.ts' <<< "$block" && grep -qx '/.mcp.json' <<< "$block" && grep -qx '/graft/' <<< "$block" || fail "init.$twin: the Graft block of .git/info/exclude holds more or less than Graft's own paths: $(tr '\n' ' ' <<< "$block")"
   grep -aq 'taken out of the Graft block of .git/info/exclude, not written by Graft: /product-file.ts' "$WORK/graft-$twin.log" || fail "init.$twin did not name the entry it took out of the Graft block"
-  [ "$(git -C "$WORK/graft-$twin" status --porcelain | tr -d '\r' | sort | tr '\n' '|')" = " M README.md|?? late-product.txt|" ] || fail "init.$twin: git status after Graft is not the changed README.md and the new .gitignore: $(git -C "$WORK/graft-$twin" status --porcelain | tr '\n' ' ')"
+  [ "$(git -C "$WORK/graft-$twin" status --porcelain | tr -d '\r' | LC_ALL=C sort | tr '\n' '|')" = " M README.md|?? late-product.txt|" ] || fail "init.$twin: git status after Graft is not the changed README.md and the new .gitignore: $(git -C "$WORK/graft-$twin" status --porcelain | tr '\n' ' ')"
   grep -aq 'committed files changed while Graft ran: README.md' "$WORK/graft-$twin.log" || fail "init.$twin did not name the committed file Graft changed"
   for p in /graft/ /GEMINI.md /.gemini/settings.json; do
     grep -qxF "$p" "$WORK/graft-$twin/.git/info/exclude" || fail "init.$twin: $p missing from the Graft exclude block"

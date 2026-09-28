@@ -128,11 +128,13 @@ check 'every check passed'         yes "$(grep -q 'pre-push: every check passed'
 check 'and the check that ran is the WORKTREE one' \
   "$(git -C "$wt" rev-parse --show-toplevel)/scripts/check.sh" "$(tail -1 "$check_runs")"
 
-echo 'a push to the default branch that is not a fast-forward is refused'
+echo 'a push to the default branch that is not a fast-forward is refused, origin/HEAD naming a branch this clone does not have'
 git -C "$repo" commit -q --allow-empty -m 'master moves on while the worktree works #5'
+git -C "$repo" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main   # as a clone keeps it after the origin renamed its default branch
 out="$(judge "$wt" "$(git -C "$wt" rev-parse HEAD)" "$(git -C "$repo" rev-parse master)")"; rc=$?
 check 'exit 1'                     1 "$rc"
 check 'it says why'                yes "$(grep -q 'the push to master is not a fast-forward' <<< "$out" && echo yes || echo no)"
+git -C "$repo" symbolic-ref --delete refs/remotes/origin/HEAD
 git -C "$repo" reset -q --hard HEAD~1
 
 # --- the team modes ---------------------------------------------------------------------------

@@ -271,8 +271,13 @@ if (-not $inputText.Trim()) {
   $inputText = "refs/heads/$branch $head refs/heads/$branch $upstream"
 }
 
-# The default branch, read from the repository, or master where the clone never learned it
+# The default branch: origin/HEAD where it names a branch this clone has, else what the origin
+# names (a clone keeps origin/HEAD pointing at a branch the origin renamed since), else master
 $default = "$(& git symbolic-ref --short -q refs/remotes/origin/HEAD 2>$null)".Trim()
+& git rev-parse -q --verify "refs/remotes/$default" 2>$null | Out-Null
+if (-not $default -or $LASTEXITCODE -ne 0) {
+  $default = "$(& git ls-remote --symref origin HEAD 2>$null | ForEach-Object { if ("$_" -cmatch '^ref: refs/heads/(\S+)\s+HEAD$') { $Matches[1] } })".Trim()
+}
 if ($default.StartsWith('origin/', [StringComparison]::Ordinal)) { $default = $default.Substring(7) }
 if (-not $default) { $default = 'master' }
 

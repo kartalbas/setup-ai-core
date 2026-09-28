@@ -260,8 +260,12 @@ if [ -z "$input" ]; then
   input="refs/heads/$branch $head refs/heads/$branch $upstream"
 fi
 
-# The default branch, read from the repository, or master where the clone never learned it
-default="$(git symbolic-ref --short -q refs/remotes/origin/HEAD 2>/dev/null || true)"; default="${default#origin/}"; [ -n "$default" ] || default=master
+# The default branch: origin/HEAD where it names a branch this clone has, else what the origin
+# names (a clone keeps origin/HEAD pointing at a branch the origin renamed since), else master
+default="$(git symbolic-ref --short -q refs/remotes/origin/HEAD 2>/dev/null || true)"
+git rev-parse -q --verify "refs/remotes/$default" >/dev/null 2>&1 \
+  || default="$(git ls-remote --symref origin HEAD 2>/dev/null | awk '$1 == "ref:" && $3 == "HEAD" { sub("^refs/heads/", "", $2); print $2 }')"
+default="${default#origin/}"; [ -n "$default" ] || default=master
 
 # Every commit this push sends, across every ref on standard input, and the ranges they came from.
 commits=''

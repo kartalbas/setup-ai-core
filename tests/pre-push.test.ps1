@@ -106,11 +106,13 @@ Check 'every check passed'         'True' (Says 'pre-push: every check passed')
 $ran = @(Get-Content $checkRuns | Where-Object { $_ })[-1]
 Check 'and the check that ran is the WORKTREE one' 'True' ($ran.Replace('\', '/') -clike '*/.worktrees/app/issue-5-probe/scripts/check.sh')
 
-Write-Host 'a push to the default branch that is not a fast-forward is refused'
+Write-Host 'a push to the default branch that is not a fast-forward is refused, origin/HEAD naming a branch this clone does not have'
 & git -C $repo commit -q --allow-empty -m 'master moves on while the worktree works #5'
+& git -C $repo symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main   # as a clone keeps it after the origin renamed its default branch
 Judge $wt (Sha $wt HEAD) (Sha $repo master)
 Check 'exit 1'                     1 $rc
 Check 'it says why'                'True' (Says 'the push to master is not a fast-forward')
+& git -C $repo symbolic-ref --delete refs/remotes/origin/HEAD
 & git -C $repo reset -q --hard HEAD~1
 
 # --- the team modes ---------------------------------------------------------------------------

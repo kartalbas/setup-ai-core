@@ -291,7 +291,7 @@ if [ -n "$LAYERS" ]; then
 fi
 # What the layers put into the checkout is recorded in .ai-core/DEPLOYED, so what a layer no
 # longer provides is taken out again at the next run; a file the repository tracks is left alone
-PREV_DEPLOYED="$(tr -d '\r' < "$TARGET/.ai-core/DEPLOYED" 2>/dev/null || true)"
+PREV_DEPLOYED="$( { tr -d '\r' < "$TARGET/.ai-core/DEPLOYED"; } 2>/dev/null || true)"
 for p in $PREV_DEPLOYED; do
   case " $DEPLOYED " in *" $p "*) continue ;; esac
   [ -e "$TARGET/$p" ] || continue

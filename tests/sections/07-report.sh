@@ -53,6 +53,7 @@ for twin in sh ps1; do
   F="$WORK/folder-$twin"; mkdir -p "$F"; git init -q "$F/app"; git init -q "$F/x-ai-core"   # a harness clone beside the repositories: Graft wires it, init takes that out again
   cp "$ROOT/skeleton/.gitignore" "$F/x-ai-core/.gitignore"; git -C "$F/x-ai-core" add .gitignore; git -C "$F/x-ai-core" commit -q -m harness   # its .gitignore, the skeleton's
   init_twin "$twin" "$F" "$WORK/folder-$twin-1.log" || fail "init.$twin on a project folder failed (see $WORK/folder-$twin-1.log)"
+  grep -aq 'No such file or directory' "$WORK/folder-$twin-1.log" && fail "init.$twin printed a shell error on a project folder without .ai-core/DEPLOYED: $(grep -a 'No such file' "$WORK/folder-$twin-1.log")"
   [ ! -e "$F/x-ai-core/AGENTS.md" ] && grep -aq '^  taken out of the harness clones (data, not code): x-ai-core/AGENTS.md' "$WORK/folder-$twin-1.log" || fail "init.$twin left what Graft wrote in the harness clone: $(ls -A "$F/x-ai-core" | tr '\n' ' ')"
   [ -e "$F/x-ai-core/.ignore" ] && [ -z "$(git -C "$F/x-ai-core" -c core.excludesFile= status --porcelain)" ] || fail "what Graft wrote shows in the git status of a harness clone with the skeleton's .gitignore: $(git -C "$F/x-ai-core" -c core.excludesFile= status --porcelain | tr '\n' ' ')"
   grep -q '^<!-- graft:start -->' "$F/AGENTS.md" || fail "the fake Graft did not append its block to the folder's AGENTS.md ($twin)"

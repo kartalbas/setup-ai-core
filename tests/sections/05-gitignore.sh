@@ -35,4 +35,11 @@ for twin in sh ps1; do
   grep -aq '^  .gitignore not written: this checkout is 1 commit(s) behind origin/master, with 1 commit(s) of its own; pull, then run this again$' "$C.log" && [ "$(git -C "$C" log -1 --format=%s)" = 'A commit of its own #2' ] && [ ! -e "$C/.gitignore" ] || fail "init.$twin wrote or committed the block on a clone with a commit of its own behind its origin (see $C.log)"
 done
 echo "  the first clone pushes the block, the clone behind pulls it and commits nothing, the one with a commit of its own is named and left alone, on both twins"
+
+section "setup-ai-core's own .gitignore keeps out what Graft writes when it builds this clone, as the skeleton's does"
+git init -q "$WORK/self"; cp "$ROOT/.gitignore" "$WORK/self/.gitignore"
+for p in graft/x.md .ignore; do
+  git -C "$WORK/self" -c core.excludesFile= check-ignore -q "$p" || fail "setup-ai-core's .gitignore does not ignore $p: Graft writes it, and the clone is no longer clean for ai-core update"
+done
+echo "  graft/ and .ignore are ignored"
 exit 0

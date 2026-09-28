@@ -38,4 +38,20 @@ for twin in sh ps; do
 done
 diff <(sed "s/^# all-sh$/# FOLDER/" "$WORK/all-sh/AGENTS.md") <(sed "s/^# all-ps$/# FOLDER/" "$WORK/all-ps/AGENTS.md") > /dev/null || fail "the project folder's AGENTS.md differs between the twins"
 echo "  2 repositories and a worktree under .worktrees/ initialized, 1 failed and named, the plain folder, the harness clone and its worktree untouched, the folder's AGENTS.md lists the three, on both twins"
+
+section "init --all gives the folder its rules before its repositories: a repository with the folder's rules names them without the @ in one run, the folder's rules older or missing; both twins"
+for twin in sh ps; do
+  F="$WORK/order-$twin"; mkdir -p "$F/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$F/.ai-core/config.env"
+  git init -q "$F/app"; mkdir -p "$F/app/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$F/app/.ai-core/config.env"
+  for run in 1 2 3; do
+    [ "$run" = 2 ] && printf 'a rule of an older version\n' >> "$F/.ai-core/rules/rules.md"
+    if [ "$twin" = sh ]; then bash "$ROOT/bin/init.sh" --all "$F" --no-doctor $([ "$run" = 3 ] && echo --dry-run) > "$F-$run.log" 2>&1
+    else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -All "$(native "$F")" -NoDoctor $([ "$run" = 3 ] && echo -DryRun) > "$F-$run.log" 2>&1; fi || fail "init --all run $run failed ($twin, see $F-$run.log)"
+    [ "$run" = 3 ] && continue
+    grep -q '@\.ai-core/rules/rules\.md' "$F/app/AGENTS.md" && fail "init --all run $run: the repository imports the rules the folder's AGENTS.md loads already ($twin)"
+    grep -q "rules/rules.md\`, the same as the project folder's" "$F/app/AGENTS.md" || fail "init --all run $run: the repository does not name the folder's rules ($twin)"
+  done
+  grep -aE '^  (created|refreshed|removed) ' "$F-3.log" && fail "init --all changes something on the run after ($twin, see $F-3.log)"
+done
+echo "  the repository names the folder's rules without the @ after the first run and after the folder held older ones, and the run after changes nothing, on both twins"
 exit 0

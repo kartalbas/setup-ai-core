@@ -21,8 +21,8 @@ for arg in "$@"; do
     echo ""
     echo "Options:"
     echo "  -h, --help       Show this help message"
-    echo "  --all <folder>   Init every git repository directly under the folder and every worktree under"
-    echo "                   its .worktrees/, then the folder itself"
+    echo "  --all <folder>   Init the folder itself, then every git repository directly under it and every"
+    echo "                   worktree under its .worktrees/, then the folder's Graft workspace over them"
     echo "  --no-doctor      Do not run doctor first"
     echo "  --dry-run        Report what the run would create, refresh, keep and remove; write nothing"
     echo ""
@@ -62,12 +62,16 @@ if [ "$RUN_DOCTOR" -eq 1 ]; then
   ( cd "${ALL_DIR:-$TARGET}" 2>/dev/null || true; bash "$CORE_ROOT/bin/doctor.sh" ${DOCTOR_ARGS[@]+"${DOCTOR_ARGS[@]}"} ) || { echo "error: fix the problems doctor reported, then run init again (or pass --no-doctor)." >&2; exit 1; }
 fi
 
-# --all: every git repository directly under the folder, every worktree `ai-core start-issue` put
-# under its .worktrees/<repository>/, then the folder itself
+# --all: the folder itself first, as a repository compares its rules with the folder's (1a), then
+# every git repository directly under it, every worktree `ai-core start-issue` put under its
+# .worktrees/<repository>/, then the folder's Graft workspace: Graft wires every repository below
+# the folder, and an AGENTS.md it wrote before init would be kept as the repository's own
 if [ -n "$ALL_DIR" ]; then
   ALL_DIR="$(cd "$ALL_DIR" && pwd)"
-  OK=0; FAILED=""
+  OK=0; FAILED=""; FOLDER_OK=1
   PASS=(--no-doctor); [ "$DRY" -eq 1 ] && PASS+=(--dry-run)
+  echo ""; echo "### $(basename "$ALL_DIR") (the folder itself)"
+  AI_CORE_GRAFT_LATER=1 bash "${BASH_SOURCE[0]}" "$ALL_DIR" "${PASS[@]}" || FOLDER_OK=0
   for repo in "$ALL_DIR"/*/ "$ALL_DIR"/.worktrees/*/*/; do
     repo="${repo%/}"
     [ -e "$repo/.git" ] || continue
@@ -76,8 +80,9 @@ if [ -n "$ALL_DIR" ]; then
     echo ""; echo "### $name"
     if bash "${BASH_SOURCE[0]}" "$repo" "${PASS[@]}"; then OK=$((OK + 1)); else FAILED="$FAILED $name"; fi
   done
-  echo ""; echo "### $(basename "$ALL_DIR") (the folder itself)"
-  bash "${BASH_SOURCE[0]}" "$ALL_DIR" "${PASS[@]}" || FAILED="$FAILED $(basename "$ALL_DIR")/"
+  echo ""; echo "### $(basename "$ALL_DIR") (the folder itself): the Graft workspace over its repositories"
+  bash "$CORE_ROOT/bin/graft-setup.sh" "$ALL_DIR" $([ "$DRY" -eq 1 ] && echo --dry-run) || FOLDER_OK=0
+  [ "$FOLDER_OK" -eq 1 ] || FAILED="$FAILED $(basename "$ALL_DIR")/"
   echo ""; echo "==> init --all: $OK repositories $([ "$DRY" -eq 1 ] && echo "would be" || echo "were") initialized${FAILED:+; failed:$FAILED}"
   [ -z "$FAILED" ]
   exit $?
@@ -523,9 +528,10 @@ if git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   fi
 fi
 
-# 4. The Graft code graph, built with the local Node.js or the whole init fails; no fallback.
+# 4. The Graft code graph, built with the local Node.js or the whole init fails; no fallback. For a
+#    project folder, init --all builds it after the repositories (AI_CORE_GRAFT_LATER).
 GRAFT_ARGS=(); [ "$DRY" -eq 1 ] && GRAFT_ARGS+=(--dry-run)
-if ! bash "$CORE_ROOT/bin/graft-setup.sh" "$TARGET" ${GRAFT_ARGS[@]+"${GRAFT_ARGS[@]}"}; then
+if [ -z "${AI_CORE_GRAFT_LATER:-}" ] && ! bash "$CORE_ROOT/bin/graft-setup.sh" "$TARGET" ${GRAFT_ARGS[@]+"${GRAFT_ARGS[@]}"}; then
   echo "error: the harness files are in place but the Graft code graph is not (see above). Fix the cause and run 'ai-core graft', or set GRAFT_EXECUTION_MODE=\"skip\" in .ai-core/config.env." >&2
   exit 1
 fi

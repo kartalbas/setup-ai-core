@@ -26,8 +26,8 @@ if ($Help -or $args -ccontains "-h" -or $args -ccontains "--help" -or $TargetDir
   Write-Host ""
   Write-Host "Options:"
   Write-Host "  -TargetDir <path>   Target directory (default: current)"
-  Write-Host "  -All <folder>       Init every git repository directly under the folder and every worktree under"
-  Write-Host "                      its .worktrees\, then the folder itself"
+  Write-Host "  -All <folder>       Init the folder itself, then every git repository directly under it and every"
+  Write-Host "                      worktree under its .worktrees\, then the folder's Graft workspace over them"
   Write-Host "  -NoDoctor           Do not run doctor first"
   Write-Host "  -DryRun             Report what the run would create, refresh, keep and remove; write nothing"
   Write-Host "  -Help               Show this help message"
@@ -58,12 +58,19 @@ if (-not $NoDoctor) {
   if ($LASTEXITCODE -ne 0) { Write-Host "error: fix the problems doctor reported, then run init again (or pass -NoDoctor)." -ForegroundColor Red; exit 1 }
 }
 
-# -All: every git repository directly under the folder, every worktree `ai-core start-issue` put
-# under its .worktrees\<repository>\, then the folder itself
+# -All: the folder itself first, as a repository compares its rules with the folder's (1a), then
+# every git repository directly under it, every worktree `ai-core start-issue` put under its
+# .worktrees\<repository>\, then the folder's Graft workspace: Graft wires every repository below
+# the folder, and an AGENTS.md it wrote before init would be kept as the repository's own
 if ($All) {
   $allDir = (Resolve-Path $All).Path
-  $ok = 0; $failed = @()
+  $ok = 0; $failed = @(); $folderOk = $true
   $pass = @('-NoDoctor'); if ($DryRun) { $pass += '-DryRun' }
+  Write-Host ""; Write-Host "### $(Split-Path -Leaf $allDir) (the folder itself)"
+  $env:AI_CORE_GRAFT_LATER = '1'
+  & pwsh -NoProfile -File $MyInvocation.MyCommand.Path -TargetDir $allDir @pass
+  if ($LASTEXITCODE -ne 0) { $folderOk = $false }
+  Remove-Item Env:AI_CORE_GRAFT_LATER
   $checkouts = @(Get-ChildItem -LiteralPath $allDir -Directory | ForEach-Object { [pscustomobject]@{ Name = $_.Name; RepoFolder = $_.Name; Path = $_.FullName } })
   $worktrees = Join-Path $allDir '.worktrees'
   if (Test-Path -LiteralPath $worktrees) {
@@ -77,9 +84,11 @@ if ($All) {
     & pwsh -NoProfile -File $MyInvocation.MyCommand.Path -TargetDir $repo.Path @pass
     if ($LASTEXITCODE -eq 0) { $ok++ } else { $failed += $repo.Name }
   }
-  Write-Host ""; Write-Host "### $(Split-Path -Leaf $allDir) (the folder itself)"
-  & pwsh -NoProfile -File $MyInvocation.MyCommand.Path -TargetDir $allDir @pass
-  if ($LASTEXITCODE -ne 0) { $failed += "$(Split-Path -Leaf $allDir)/" }
+  Write-Host ""; Write-Host "### $(Split-Path -Leaf $allDir) (the folder itself): the Graft workspace over its repositories"
+  $graftArgs = @(); if ($DryRun) { $graftArgs += '-DryRun' }
+  & pwsh -NoProfile -File (Join-Path $coreRoot "bin\graft-setup.ps1") -TargetDir $allDir @graftArgs
+  if ($LASTEXITCODE -ne 0) { $folderOk = $false }
+  if (-not $folderOk) { $failed += "$(Split-Path -Leaf $allDir)/" }
   Write-Host ""; Write-Host "==> init -All: $ok repositories $(if ($DryRun) { 'would be' } else { 'were' }) initialized$(if ($failed) { '; failed: ' + ($failed -join ' ') })"
   if ($failed) { exit 1 } else { exit 0 }
 }
@@ -562,10 +571,11 @@ if ($inWorkTree) {
   }
 }
 
-# 4. The Graft code graph, built with the local Node.js or the whole init fails; no fallback.
+# 4. The Graft code graph, built with the local Node.js or the whole init fails; no fallback. For a
+#    project folder, init -All builds it after the repositories (AI_CORE_GRAFT_LATER).
 $graftArgs = @(); if ($DryRun) { $graftArgs += '-DryRun' }
-& pwsh -NoProfile -File (Join-Path $coreRoot "bin\graft-setup.ps1") -TargetDir $target @graftArgs
-if ($LASTEXITCODE -ne 0) {
+if (-not $env:AI_CORE_GRAFT_LATER) { & pwsh -NoProfile -File (Join-Path $coreRoot "bin\graft-setup.ps1") -TargetDir $target @graftArgs }
+if (-not $env:AI_CORE_GRAFT_LATER -and $LASTEXITCODE -ne 0) {
   Write-Host "error: the harness files are in place but the Graft code graph is not (see above). Fix the cause and run 'ai-core graft', or set GRAFT_EXECUTION_MODE=`"skip`" in .ai-core/config.env." -ForegroundColor Red
   Remove-Item -LiteralPath $tmp -Recurse -Force
   exit 1

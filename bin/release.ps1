@@ -45,7 +45,8 @@ function Deny-Release([string]$why) { [Console]::Error.WriteLine("release: REFUS
 if (@(& git -C $core status --porcelain 2>$null | ForEach-Object { "$_" } | Where-Object { $_ }).Count -gt 0) { Deny-Release "the tree is not clean; commit or stash first" }
 $branch = "$(& git -C $core symbolic-ref --short -q HEAD 2>$null)".Trim()
 if ($LASTEXITCODE -ne 0 -or -not $branch) { Deny-Release "not on a branch; a release is cut on the default branch" }
-$default = ("$(& git -C $core rev-parse --abbrev-ref origin/HEAD 2>$null)" -creplace '^origin/', '').Trim()
+# the origin names its default branch; a clone's origin/HEAD can name one the origin renamed since
+$default = "$(& git -C $core ls-remote --symref origin HEAD 2>$null | ForEach-Object { if ("$_" -cmatch '^ref: refs/heads/(\S+)\s+HEAD$') { $Matches[1] } })".Trim()
 if (-not $default) { $default = $branch }
 if ($branch -cne $default) { Deny-Release "on $branch, not on $default" }
 & git -C $core fetch --quiet --tags origin

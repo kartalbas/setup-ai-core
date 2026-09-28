@@ -95,7 +95,8 @@ for d in "$FOLDER"/*-ai-core; do
   name="$(basename "$d")"
   [ "$name" != setup-ai-core ] || continue   # the clone itself, handled above
   if ! fetch "$d"; then echo "$name: could not reach origin"; status=1; continue; fi
-  b="$(branch_of "$d")"; [ -n "$b" ] || b="$(git -C "$d" rev-parse --abbrev-ref origin/HEAD 2>/dev/null | sed 's|^origin/||')"
+  # detached: the origin's default branch, which the origin names; a clone's origin/HEAD can name one renamed since
+  b="$(branch_of "$d")"; [ -n "$b" ] || b="$(git -C "$d" ls-remote --symref origin HEAD 2>/dev/null | awk '$1 == "ref:" && $3 == "HEAD" { sub("^refs/heads/", "", $2); print $2 }')"
   if [ "$CHECK" -eq 1 ]; then
     n="$(behind_by "$d" "$b")"
     if [ "$n" -gt 0 ]; then echo "$name: behind by $n commit(s)"; status=2; else echo "$name: current"; fi

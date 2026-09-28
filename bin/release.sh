@@ -42,7 +42,8 @@ refuse() { echo "release: REFUSED — $*" >&2; exit 1; }
 
 [ -z "$(git -C "$CORE" status --porcelain)" ] || refuse "the tree is not clean; commit or stash first"
 branch="$(git -C "$CORE" symbolic-ref --short -q HEAD)" || refuse "not on a branch; a release is cut on the default branch"
-default="$(git -C "$CORE" rev-parse --abbrev-ref origin/HEAD 2>/dev/null | sed 's|^origin/||')"; [ -n "$default" ] || default="$branch"
+# the origin names its default branch; a clone's origin/HEAD can name one the origin renamed since
+default="$(git -C "$CORE" ls-remote --symref origin HEAD 2>/dev/null | awk '$1 == "ref:" && $3 == "HEAD" { sub("^refs/heads/", "", $2); print $2 }')"; [ -n "$default" ] || default="$branch"
 [ "$branch" = "$default" ] || refuse "on $branch, not on $default"
 git -C "$CORE" fetch --quiet --tags origin || refuse "could not reach origin"
 if git -C "$CORE" rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1; then refuse "$tag exists already"; fi

@@ -99,7 +99,8 @@ foreach ($d in (Get-ChildItem -Path $folder -Directory -Filter '*-ai-core' | Whe
   if ($name -ceq 'setup-ai-core') { continue }   # the clone itself, handled above
   if (-not (Invoke-Fetch $dir)) { Write-Host "${name}: could not reach origin"; $status = 1; continue }
   $b = Get-BranchOf $dir
-  if (-not $b) { $b = ("$(& git -C $dir rev-parse --abbrev-ref origin/HEAD 2>$null)" -creplace '^origin/', '').Trim() }
+  # detached: the origin's default branch, which the origin names; a clone's origin/HEAD can name one renamed since
+  if (-not $b) { $b = "$(& git -C $dir ls-remote --symref origin HEAD 2>$null | ForEach-Object { if ("$_" -cmatch '^ref: refs/heads/(\S+)\s+HEAD$') { $Matches[1] } })".Trim() }
   $n = Get-BehindBy $dir $b
   if ($Check) {
     if ($n -gt 0) { Write-Host "${name}: behind by $n commit(s)"; $status = 2 } else { Write-Host "${name}: current" }

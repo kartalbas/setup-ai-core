@@ -39,7 +39,8 @@ if ($Help -or $Rest -ccontains "-h" -or $Rest -ccontains "--help") {
   Write-Host "commit names no issue (#<n>), does not open with 'release:', touches more than *.md and"
   Write-Host "LICENSE files, and carries no 'No-issue: <who asked and why>' trailer; a team mode is"
   Write-Host "missing; a check.ps1 or build.ps1 differs from the one Windows entry point (lib/entry-point.ps1,"
-  Write-Host "judged where scripts/check.sh exists); a new directory's name is invented where the families"
+  Write-Host "judged where scripts/check.sh exists); a file the push adds or changes starts with #! and is"
+  Write-Host "not executable; a new directory's name is invented where the families"
   Write-Host "of the trees give it (a 'Naming: <why>' trailer keeps one); scripts/check.sh is red; or gitleaks"
   Write-Host "finds a credential in the pushed commits (where .gitleaks.toml exists). Merges are not judged; a deletion runs"
   Write-Host "no checks. Run from a prompt it judges the current branch against its upstream."
@@ -410,6 +411,24 @@ if (Test-Path -LiteralPath $checkSh) {
       Deny-Push "$door is not the Windows entry point every repository carries. It starts the .sh file of its own name and decides nothing, and this copy says something else. Restore it: cp '$entry' '$full'"
     }
   }
+}
+
+# A FILE THAT STARTS WITH #! IS RUN BY ITS NAME, so it carries the executable bit: without it
+# ./release/release.sh fails and git skips a hook in .githooks. A tool that writes files (an agent's,
+# a copy made through an API) leaves the bit off, and git keeps what it was given. Judged on what the
+# push adds or changes, as the commit checked out has it; a file the push does not touch is left alone.
+$touched = @($commits | ForEach-Object { & git -c core.quotePath=false diff-tree --no-commit-id --root -r --name-only --diff-filter=AMR $_ 2>$null } | ForEach-Object { "$_" } | Where-Object { $_ } | Sort-Object -Unique -CaseSensitive)
+$modeless = @()
+foreach ($path in $touched) {
+  if ("$(& git ls-tree $head -- $path 2>$null)" -cnotmatch '^100644 ') { continue }
+  $blob = "$(& git rev-parse "${head}:$path" 2>$null)".Trim()
+  if (-not $blob) { continue }
+  $bytes = [byte[]](& git cat-file blob $blob 2>$null | Select-Object -First 1 | ForEach-Object { [System.Text.Encoding]::UTF8.GetBytes("$_") })
+  if ($bytes.Count -ge 2 -and $bytes[0] -eq 0x23 -and $bytes[1] -eq 0x21) { $modeless += $path }
+}
+if ($modeless.Count -gt 0) {
+  $list = ' ' + ($modeless -join ' ')
+  Deny-Push "these files start with #! and are not executable, so running them by name fails and git skips a hook among them:$list. Set the bit and commit it: git update-index --chmod=+x$list"
 }
 
 # THE NAMES A PUSH ADDS ARE DERIVED, NOT INVENTED (the naming rules). No list is kept: the

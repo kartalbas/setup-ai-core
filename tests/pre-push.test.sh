@@ -149,6 +149,24 @@ out="$(PROBE_CHECK=red only_new "$wt")"; rc=$?
 check 'exit 1'          1 "$rc"
 check 'and says which'  yes "$(grep -q 'check: FAIL' <<< "$out" && echo yes || echo no)"
 
+# --- a file that starts with #! carries the executable bit ------------------------------------
+echo 'a pushed file that starts with #! and is not executable is refused, with the command that sets the bit'
+mkdir -p "$repo/tools"; printf '#!/bin/sh\necho run\n' > "$repo/tools/run.sh"; chmod -x "$repo/tools/run.sh"
+git -C "$repo" add --chmod=-x -- tools/run.sh; git -C "$repo" commit -q -m 'Add a runner #7'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'it names the file and the command' yes "$(grep -qF 'git update-index --chmod=+x tools/run.sh' <<< "$out" && echo yes || echo no)"
+echo 'the bit set by a later commit of the same push passes'
+git -C "$repo" update-index --chmod=+x -- tools/run.sh; chmod +x "$repo/tools/run.sh"; git -C "$repo" commit -q -m 'Make the runner executable #7'
+out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$(git -C "$repo" rev-parse HEAD~2)")"; rc=$?
+check 'exit 0'                         0 "$rc"
+echo 'a file without the bit that the push does not touch holds nothing up'
+git -C "$repo" update-index --chmod=-x -- tools/run.sh; chmod -x "$repo/tools/run.sh"; git -C "$repo" commit -q -m 'The runner without the bit, as an older commit left it #7'
+commit 'src/thing.txt' 'Touch another file #7'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                         0 "$rc"
+git -C "$repo" rm -q -- tools/run.sh; git -C "$repo" commit -q -m 'Remove the runner #7'
+
 # --- what excuses a commit from naming an issue ----------------------------------------------
 echo 'a commit naming its issue anywhere in the message passes'
 commit 'src/thing.txt' 'Read the install order from one file

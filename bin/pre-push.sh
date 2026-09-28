@@ -35,7 +35,8 @@ for arg in "$@"; do
     echo "commit names no issue (#<n>), does not open with 'release:', touches more than *.md and"
     echo "LICENSE files, and carries no 'No-issue: <who asked and why>' trailer; a team mode is"
     echo "missing; a check.ps1 or build.ps1 differs from the one Windows entry point (lib/entry-point.ps1,"
-    echo "judged where scripts/check.sh exists); a new directory's name is invented where the families"
+    echo "judged where scripts/check.sh exists); a file the push adds or changes starts with #! and is"
+    echo "not executable; a new directory's name is invented where the families"
     echo "of the trees give it (a 'Naming: <why>' trailer keeps one); scripts/check.sh is red; or gitleaks"
     echo "finds a credential in the pushed commits (where .gitleaks.toml exists). Merges are not judged; a deletion runs"
     echo "no checks. Run from a terminal it judges the current branch against its upstream."
@@ -396,6 +397,19 @@ if [ -f "$root/scripts/check.sh" ]; then
       || refuse "$door is not the Windows entry point every repository carries. It starts the .sh file of its own name and decides nothing, and this copy says something else. Restore it: cp '$shim' '$root/$door'"
   done < <(git -C "$root" ls-files -z -- '*.ps1')   # -z: a path git would otherwise quote still matches
 fi
+
+# A FILE THAT STARTS WITH #! IS RUN BY ITS NAME, so it carries the executable bit: without it
+# ./release/release.sh fails and git skips a hook in .githooks. A tool that writes files (an agent's,
+# a copy made through an API) leaves the bit off, and git keeps what it was given. Judged on what the
+# push adds or changes, as the commit checked out has it; a file the push does not touch is left alone.
+modeless=""
+while IFS= read -r path; do
+  [ -n "$path" ] || continue
+  [ "$(git ls-tree "$head" -- "$path" | cut -d' ' -f1)" = 100644 ] || continue
+  [ "$(git cat-file -p "$head:$path" 2>/dev/null | head -c 2 || true)" = '#!' ] || continue
+  modeless="$modeless $path"
+done < <(while IFS= read -r sha; do [ -z "$sha" ] || git diff-tree --no-commit-id --root -r --name-only --diff-filter=AMR "$sha"; done <<< "$commits" | sort -u)
+[ -z "$modeless" ] || refuse "these files start with #! and are not executable, so running them by name fails and git skips a hook among them:$modeless. Set the bit and commit it: git update-index --chmod=+x$modeless"
 
 # THE NAMES A PUSH ADDS ARE DERIVED, NOT INVENTED (the naming rules). No list is kept: the
 # families are read from the trees themselves. Two things are held against every new directory:

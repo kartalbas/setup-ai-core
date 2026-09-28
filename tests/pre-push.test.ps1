@@ -132,6 +132,29 @@ Check 'exit 1'          1 $rc
 Check 'and says which'  'True' (Says 'check: FAIL')
 
 # --- what excuses a commit from naming an issue ----------------------------------------------
+# --- a file that starts with #! carries the executable bit ------------------------------------
+Write-Host 'a pushed file that starts with #! and is not executable is refused, with the command that sets the bit'
+$runner = Join-Path $repo 'tools/run.sh'
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $runner) | Out-Null
+Write-Lf $runner "#!/bin/sh`necho run`n"
+if (-not $IsWindows) { & chmod -x $runner }
+& git -C $repo add --chmod=-x -- tools/run.sh; & git -C $repo commit -q -m 'Add a runner #7'
+OnlyNew $repo
+Check 'exit 1'                         1 $rc
+Check 'it names the file and the command' 'True' (Says ([regex]::Escape('git update-index --chmod=+x tools/run.sh')))
+Write-Host 'the bit set by a later commit of the same push passes'
+& git -C $repo update-index --chmod=+x -- tools/run.sh; if (-not $IsWindows) { & chmod +x $runner }
+& git -C $repo commit -q -m 'Make the runner executable #7'
+Judge $repo (Sha $repo HEAD) (Sha $repo HEAD~2)
+Check 'exit 0'                         0 $rc
+Write-Host 'a file without the bit that the push does not touch holds nothing up'
+& git -C $repo update-index --chmod=-x -- tools/run.sh; if (-not $IsWindows) { & chmod -x $runner }
+& git -C $repo commit -q -m 'The runner without the bit, as an older commit left it #7'
+Commit 'src/thing.txt' 'Touch another file #7'
+OnlyNew $repo
+Check 'exit 0'                         0 $rc
+& git -C $repo rm -q -- tools/run.sh; & git -C $repo commit -q -m 'Remove the runner #7'
+
 Write-Host 'a commit naming its issue anywhere in the message passes'
 Commit 'src/thing.txt' "Read the install order from one file`n`nIt closes #163."
 OnlyNew $repo

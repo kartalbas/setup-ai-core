@@ -528,6 +528,18 @@ if git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   fi
 fi
 
+# 3c. Shims git skips for want of the executable bit (a copy that drops the file modes writes them
+#     so) leave the push gate off: in a checkout, ai-core pre-push --install sets the bit, commits
+#     and pushes it, and a worktree gets it with that commit. A hook of the project's own that git
+#     skips is named, not changed.
+SHIMS_MODE=0
+if [ -d "$TARGET/.git" ] && [ -f "$TARGET/.githooks/pre-push" ] \
+  && { [ -n "$(git -C "$TARGET" ls-files -s -- .githooks/pre-push .githooks/post-checkout | awk '$1 != "100755"')" ] || [ ! -x "$TARGET/.githooks/pre-push" ]; }; then
+  SHIMS_MODE=1
+  [ "$DRY" -eq 1 ] || ( cd "$TARGET" && bash "$CORE_ROOT/bin/pre-push.sh" --install ) || SHIMS_MODE=2
+fi
+SKIPPED_HOOKS="$(git -C "$TARGET" ls-files -s -- .githooks 2>/dev/null | awk '$1 == "100644" && $4 != ".githooks/pre-push" && $4 != ".githooks/post-checkout" { print $4 }' || true)"
+
 # 4. The Graft code graph, built with the local Node.js or the whole init fails; no fallback. For a
 #    project folder, init --all builds it after the repositories (AI_CORE_GRAFT_LATER).
 GRAFT_ARGS=(); [ "$DRY" -eq 1 ] && GRAFT_ARGS+=(--dry-run)
@@ -554,5 +566,10 @@ elif [ -n "$GITIGNORE_NOTE" ]; then echo "  .gitignore: $GITIGNORE_NOTE; the blo
 fi
 if [ -n "$WORKTREE_DATA_FROM" ]; then echo "  .ai-core $([ "$DRY" -eq 1 ] && echo "would be taken" || echo "taken") from the checkout $WORKTREE_DATA_FROM: a worktree starts with the checkout's configuration, local rules and documents"; fi
 if [ "$HOOKS_ARMED" -eq 1 ]; then echo "  core.hooksPath $([ "$DRY" -eq 1 ] && echo "would be set" || echo "set") to .githooks: the push gate runs here"; fi
+if [ "$SHIMS_MODE" -eq 1 ] && [ "$DRY" -eq 1 ]; then echo "  the shims in .githooks are not executable, so git skips the push gate: ai-core pre-push --install would make them so"
+elif [ "$SHIMS_MODE" -eq 1 ]; then echo "  the shims in .githooks were not executable, so git skipped the push gate: ai-core pre-push --install made them so"
+elif [ "$SHIMS_MODE" -eq 2 ]; then echo "  the shims in .githooks are not executable, so git skips the push gate, and ai-core pre-push --install failed (see above)"; fi
+for hook in $SKIPPED_HOOKS; do echo "  $hook is not executable, so git skips it; it is the project's own and stays as it is"; done
 if [ "$DRY" -eq 1 ]; then echo "  nothing was written (dry run)"; else echo "✓ Harness $CORE_VERSION in place. Run 'ai-core session-start' here to verify."; fi
 echo "=================================================="
+[ "$SHIMS_MODE" -ne 2 ]

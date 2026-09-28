@@ -110,7 +110,10 @@ write_attributes() {  # write_attributes <tree>: the rule into <tree>/.gitattrib
 write_shim() {  # write_shim <tree> <hook> <text>: the text into <tree>/.githooks/<hook>; prints unchanged, refreshed or created
   local dir="$1" hook="$2" text="$3" path
   path="$dir/.githooks/$hook"
-  if [ -f "$path" ] && [ "$(tr -d '\r' < "$path")" = "$(printf '%s' "$text")" ]; then echo unchanged; return 0; fi
+  if [ -f "$path" ] && [ "$(tr -d '\r' < "$path")" = "$(printf '%s' "$text")" ]; then
+    if [ -x "$path" ]; then echo unchanged; else chmod +x "$path"; echo "made executable"; fi
+    return 0
+  fi
   if [ -f "$path" ]; then echo refreshed; else echo created; fi
   mkdir -p "$dir/.githooks"
   printf '%s' "$text" > "$path"
@@ -175,7 +178,10 @@ commit_only() {
 commit_shim() {
   local dir="$1" label="$2" branch
   local paths=("${SHIM_PATHS[@]}"); [ "$ATTR_ADDED" -eq 0 ] || paths+=(.gitattributes)
-  if git -C "$dir" ls-files --error-unmatch "${paths[@]}" >/dev/null 2>&1 && git -C "$dir" diff --quiet HEAD -- "${paths[@]}" 2>/dev/null; then :; else
+  # a commit whose shims lack the executable bit (a copy that drops the file modes writes them so) is
+  # one git skips them in: it gets a commit of its own as well
+  if git -C "$dir" ls-files --error-unmatch "${paths[@]}" >/dev/null 2>&1 && git -C "$dir" diff --quiet HEAD -- "${paths[@]}" 2>/dev/null \
+    && [ -z "$(git -C "$dir" ls-tree HEAD -- "${SHIM_PATHS[@]}" | awk '$1 != "100755"')" ]; then :; else
     commit_only "$dir" 'the hooks of ai-core: the push gate, init in a new worktree' 'No-issue: written, committed and pushed by ai-core pre-push --install' "${paths[@]}" \
       || { echo "pre-push: $label: the commit failed (see above); the shims are written" >&2; return 1; }
     echo "pre-push: $label: committed $(git -C "$dir" rev-parse --short HEAD)"
@@ -218,7 +224,11 @@ install_shim() {  # install_shim <repository>: 0 written or unchanged, 1 not a r
     [ -d "$tree" ] || continue
     write_shims "$tree" "$name (worktree $(basename "$tree"))" "; it goes out with that worktree's own commit"
   done <<< "$(git -C "$dir" worktree list --porcelain 2>/dev/null | grep '^worktree ' | tail -n +2)"
-  commit_shim "$dir" "$name"
+  commit_shim "$dir" "$name" || return 1
+  # a hook of the project's own that git skips for want of the executable bit is named, not changed
+  git -C "$dir" ls-tree HEAD -- .githooks/ | awk '$1 == "100644" { print $4 }' | while IFS= read -r hook; do
+    echo "pre-push: $name: $hook is not executable, so git skips it; it is the project's own and stays as it is"
+  done
 }
 if [ "$INSTALL" -eq 1 ]; then
   if [ -n "$ALL_DIR" ]; then

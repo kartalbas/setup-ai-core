@@ -486,6 +486,20 @@ check 'it says why'                   yes "$(grep -q '^pre-push: dirty: this che
 check 'no shims'                      no "$([ -e "$fake/dirty/.githooks" ] && echo yes || echo no)"
 check 'no commit'                     "$head_d" "$(git -C "$fake/dirty" rev-parse HEAD)"
 
+echo "shims committed without the executable bit, as a copy that drops the file modes leaves them: committed with it and pushed; the project's own hook named and left"
+before="$(git -C "$pushed" rev-parse HEAD)"
+printf '#!/bin/sh\nexit 0\n' > "$pushed/.githooks/pre-commit"
+git -C "$pushed" add --chmod=-x .githooks/pre-push .githooks/post-checkout .githooks/pre-commit
+chmod -x "$pushed/.githooks/pre-push" "$pushed/.githooks/post-checkout" "$pushed/.githooks/pre-commit"
+git -C "$pushed" -c advice.ignoredHook=false commit -q -m 'The hooks as a copy without the file modes writes them #4'; git -C "$pushed" push -q --no-verify origin HEAD:master 2>/dev/null
+out="$( cd "$pushed" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'exit 0'                        0 "$rc"
+check 'committed'                     yes "$(grep -q '^pre-push: pushed: committed ' <<< "$out" && echo yes || echo no)"
+check 'the origin has the bit'        '100755 100755' "$(git -C "$origin_bare" ls-tree master -- .githooks/post-checkout .githooks/pre-push | awk '{ print $1 }' | tr '\n' ' ' | sed 's/ $//')"
+check "the project's own hook is named" yes "$(grep -q "^pre-push: pushed: .githooks/pre-commit is not executable, so git skips it; it is the project's own and stays as it is$" <<< "$out" && echo yes || echo no)"
+check 'and left as it is'             100644 "$(git -C "$origin_bare" ls-tree master -- .githooks/pre-commit | awk '{ print $1 }')"
+git -C "$pushed" push -q --no-verify --force origin "$before:master" 2>/dev/null; git -C "$pushed" reset -q --hard "$before"
+
 echo 'an unpushed commit that touches something else and names no issue is still refused, by the gate'
 printf 'x\n' > "$pushed/x.txt"; git -C "$pushed" add x.txt; git -C "$pushed" commit -q -m 'Add x without a ticket'
 printf '#!/usr/bin/env bash\nexec bash ../tooling/hooks/pre-push "$@"\n' > "$pushed/.githooks/pre-push"

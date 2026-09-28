@@ -571,6 +571,26 @@ if ($inWorkTree) {
   }
 }
 
+# 3c. Shims git skips for want of the executable bit (a copy that drops the file modes writes them
+#     so) leave the push gate off: in a checkout, ai-core pre-push -Install sets the bit, commits
+#     and pushes it, and a worktree gets it with that commit. A hook of the project's own that git
+#     skips is named, not changed.
+$shimsMode = 0
+$shimFile = Join-Path $target '.githooks/pre-push'
+if ((Test-Path -LiteralPath (Join-Path $target '.git') -PathType Container) -and (Test-Path -LiteralPath $shimFile)) {
+  $modeless = @(& git -C $target ls-files -s -- .githooks/pre-push .githooks/post-checkout 2>$null | Where-Object { "$_" -cnotmatch '^100755 ' })
+  $offDisk = (-not $IsWindows) -and -not ((Get-Item -LiteralPath $shimFile).UnixFileMode -band [System.IO.UnixFileMode]::UserExecute)
+  if ($modeless.Count -gt 0 -or $offDisk) {
+    $shimsMode = 1
+    if (-not $DryRun) {
+      Push-Location $target
+      try { & pwsh -NoProfile -File (Join-Path $coreRoot "bin\pre-push.ps1") -Install } finally { Pop-Location }
+      if ($LASTEXITCODE -ne 0) { $shimsMode = 2 }
+    }
+  }
+}
+$skippedHooks = @(& git -C $target ls-files -s -- .githooks 2>$null | ForEach-Object { "$_" } | Where-Object { $_.StartsWith('100644 ', [StringComparison]::Ordinal) } | ForEach-Object { ($_ -split "`t", 2)[1] } | Where-Object { $_ -cne '.githooks/pre-push' -and $_ -cne '.githooks/post-checkout' })
+
 # 4. The Graft code graph, built with the local Node.js or the whole init fails; no fallback. For a
 #    project folder, init -All builds it after the repositories (AI_CORE_GRAFT_LATER).
 $graftArgs = @(); if ($DryRun) { $graftArgs += '-DryRun' }
@@ -598,5 +618,10 @@ if ($gitignoreChanged) {
 } elseif ($gitignoreNote) { Write-Host "  .gitignore: $gitignoreNote; the block was there already" }
 if ($worktreeDataFrom) { Write-Host "  .ai-core $(if ($DryRun) { 'would be taken' } else { 'taken' }) from the checkout ${worktreeDataFrom}: a worktree starts with the checkout's configuration, local rules and documents" }
 if ($hooksArmed) { Write-Host "  core.hooksPath $(if ($DryRun) { 'would be set' } else { 'set' }) to .githooks: the push gate runs here" }
+if ($shimsMode -eq 1 -and $DryRun) { Write-Host "  the shims in .githooks are not executable, so git skips the push gate: ai-core pre-push --install would make them so" }
+elseif ($shimsMode -eq 1) { Write-Host "  the shims in .githooks were not executable, so git skipped the push gate: ai-core pre-push --install made them so" }
+elseif ($shimsMode -eq 2) { Write-Host "  the shims in .githooks are not executable, so git skips the push gate, and ai-core pre-push --install failed (see above)" }
+foreach ($hook in $skippedHooks) { Write-Host "  $hook is not executable, so git skips it; it is the project's own and stays as it is" }
 if ($DryRun) { Write-Host "  nothing was written (dry run)" } else { Write-Host "✓ Harness $coreVersion in place. Run 'ai-core session-start' here to verify." -ForegroundColor Green }
 Write-Host "==================================================" -ForegroundColor Green
+if ($shimsMode -eq 2) { exit 1 }

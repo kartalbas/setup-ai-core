@@ -97,7 +97,10 @@ function Write-Shim([string]$dir, [string]$hook, [string]$text) {  # the text in
   $path = Join-Path $dir ".githooks\$hook"
   $state = 'created'
   if (Test-Path -LiteralPath $path) {
-    if ([System.IO.File]::ReadAllText($path).Replace("`r", "") -ceq $text) { return 'unchanged' } else { $state = 'refreshed' }
+    if ([System.IO.File]::ReadAllText($path).Replace("`r", "") -ceq $text) {
+      if ($IsWindows -or ((Get-Item -LiteralPath $path).UnixFileMode -band [System.IO.UnixFileMode]::UserExecute)) { return 'unchanged' }
+      & chmod +x $path; return 'made executable'
+    } else { $state = 'refreshed' }
   }
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path) | Out-Null
   [System.IO.File]::WriteAllText($path, $text, $utf8)   # LF and no mark: git starts it through bash
@@ -177,7 +180,11 @@ function Send-Shim([string]$dir, [string]$label) {
   & git -C $dir ls-files --error-unmatch @paths 2>$null | Out-Null
   $tracked = ($LASTEXITCODE -eq 0)
   & git -C $dir diff --quiet HEAD -- @paths 2>$null
-  if (-not ($tracked -and $LASTEXITCODE -eq 0)) {
+  $same = ($tracked -and $LASTEXITCODE -eq 0)
+  # a commit whose shims lack the executable bit (a copy that drops the file modes writes them so) is
+  # one git skips them in: it gets a commit of its own as well
+  $modeless = @(& git -C $dir ls-tree HEAD -- @shimPaths 2>$null | Where-Object { "$_" -cnotmatch '^100755 ' })
+  if (-not ($same -and $modeless.Count -eq 0)) {
     if (-not (Save-Only $dir 'the hooks of ai-core: the push gate, init in a new worktree' 'No-issue: written, committed and pushed by ai-core pre-push --install' $paths)) { [Console]::Error.WriteLine("pre-push: ${label}: the commit failed (see above); the shims are written"); return $false }
     Write-Host "pre-push: ${label}: committed $(& git -C $dir rev-parse --short HEAD)"
   }
@@ -224,7 +231,12 @@ function Install-Shim([string]$dir) {  # $true written or unchanged, $false not 
     if ($tree -ceq $own -or -not (Test-Path -LiteralPath $tree)) { continue }
     Write-Shims $tree "$name (worktree $(Split-Path -Leaf $tree))" "; it goes out with that worktree's own commit"
   }
-  return (Send-Shim $dir $name)
+  if (-not (Send-Shim $dir $name)) { return $false }
+  # a hook of the project's own that git skips for want of the executable bit is named, not changed
+  foreach ($line in @(& git -C $dir ls-tree HEAD -- .githooks/ 2>$null | ForEach-Object { "$_" } | Where-Object { $_.StartsWith('100644 ', [StringComparison]::Ordinal) })) {
+    Write-Host "pre-push: ${name}: $(($line -split "`t", 2)[1]) is not executable, so git skips it; it is the project's own and stays as it is"
+  }
+  return $true
 }
 if ($Install) {
   if ($All) {

@@ -445,6 +445,20 @@ Check 'it says why'                   'True' (Says '(?m)^pre-push: dirty: this c
 Check 'no shims'                      'False' (Test-Path (Join-Path $fake 'dirty\.githooks'))
 Check 'no commit'                     $headD "$(& git -C (Join-Path $fake 'dirty') rev-parse HEAD)"
 
+Write-Host "shims committed without the executable bit, as a copy that drops the file modes leaves them: committed with it and pushed; the project's own hook named and left"
+$before = "$(& git -C $pushed rev-parse HEAD)"
+Write-Lf (Join-Path $pushed '.githooks\pre-commit') "#!/bin/sh`nexit 0`n"
+& git -C $pushed add --chmod=-x .githooks/pre-push .githooks/post-checkout .githooks/pre-commit
+if (-not $IsWindows) { & chmod -x (Join-Path $pushed '.githooks/pre-push') (Join-Path $pushed '.githooks/post-checkout') (Join-Path $pushed '.githooks/pre-commit') }
+& git -C $pushed -c advice.ignoredHook=false commit -q -m 'The hooks as a copy without the file modes writes them #4'; & git -C $pushed push -q --no-verify origin HEAD:master 2>$null
+InstallIn $pushed
+Check 'exit 0'                        0 $rc
+Check 'committed'                     'True' (Says '(?m)^pre-push: pushed: committed ')
+Check 'the origin has the bit'        '100755 100755' ((@(& git -C $originBare ls-tree master -- .githooks/post-checkout .githooks/pre-push) | ForEach-Object { ("$_" -split '\s+')[0] }) -join ' ')
+Check "the project's own hook is named" 'True' (Says "(?m)^pre-push: pushed: \.githooks/pre-commit is not executable, so git skips it; it is the project's own and stays as it is\r?$")
+Check 'and left as it is'             '100644' ("$(& git -C $originBare ls-tree master -- .githooks/pre-commit)" -split '\s+')[0]
+& git -C $pushed push -q --no-verify --force origin "${before}:master" 2>$null; & git -C $pushed reset -q --hard $before
+
 Write-Host 'an unpushed commit that touches something else and names no issue is still refused, by the gate'
 Write-Lf (Join-Path $pushed 'x.txt') "x`n"; & git -C $pushed add x.txt; & git -C $pushed commit -q -m 'Add x without a ticket'
 Write-Lf (Join-Path $pushed '.githooks\pre-push') "#!/usr/bin/env bash`nexec bash ../tooling/hooks/pre-push `"`$@`"`n"

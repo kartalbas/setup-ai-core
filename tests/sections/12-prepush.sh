@@ -5,7 +5,7 @@
 section "init arms a clone that carries .githooks/pre-push: core.hooksPath set, reported, once; a dry run only says so; both twins"
 for twin in sh ps1; do
   H="$WORK/hooks-$twin"; git init -q "$H"; mkdir -p "$H/.githooks" "$H/.ai-core"
-  printf '#!/usr/bin/env bash\nexec ai-core pre-push "$@"\n' > "$H/.githooks/pre-push"
+  printf '#!/usr/bin/env bash\nexec ai-core pre-push "$@"\n' > "$H/.githooks/pre-push"; chmod +x "$H/.githooks/pre-push"
   printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$H/.ai-core/config.env"
   if [ "$twin" = sh ]; then
     bash "$ROOT/bin/init.sh" "$H" --no-doctor --dry-run > "$WORK/hooks-$twin-dry.log" 2>&1 || fail "init.sh --dry-run on a repository with the shim (see $WORK/hooks-$twin-dry.log)"
@@ -48,4 +48,26 @@ for twin in sh ps1; do
   git -C "$H" worktree remove --force "$W" >/dev/null 2>&1
 done
 echo "  a worktree gets the checkout's config.env and rules.local.md before the harness is assembled, reported once, the dry run announces it and writes nothing, on both twins"
+
+section "init hands a checkout whose shims git skips for want of the executable bit to pre-push --install, and names a hook of the project's own git skips; a dry run only says so; both twins"
+for twin in sh ps1; do
+  X="$WORK/mode-$twin"; git init -q -b master "$X"; mkdir -p "$X/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$X/.ai-core/config.env"
+  (cd "$X" && bash "$ROOT/bin/pre-push.sh" --install > "$X-install.log" 2>&1) || fail "pre-push --install for $twin (see $X-install.log)"
+  printf '#!/bin/sh\nexit 0\n' > "$X/.githooks/pre-commit"
+  git -C "$X" add --chmod=-x .githooks/pre-push .githooks/post-checkout .githooks/pre-commit
+  git -C "$X" -c advice.ignoredHook=false commit -q -m 'The hooks as a copy without the file modes writes them #4'
+  if [ "$twin" = sh ]; then
+    bash "$ROOT/bin/init.sh" "$X" --no-doctor --dry-run > "$X-dry.log" 2>&1 || fail "init.sh --dry-run on shims without the bit (see $X-dry.log)"
+    bash "$ROOT/bin/init.sh" "$X" --no-doctor > "$X-1.log" 2>&1 || fail "init.sh on shims without the bit (see $X-1.log)"
+  else
+    pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$X")" -NoDoctor -DryRun > "$X-dry.log" 2>&1 || fail "init.ps1 -DryRun on shims without the bit (see $X-dry.log)"
+    pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$X")" -NoDoctor > "$X-1.log" 2>&1 || fail "init.ps1 on shims without the bit (see $X-1.log)"
+  fi
+  grep -aq '^  the shims in .githooks are not executable, so git skips the push gate: ai-core pre-push --install would make them so$' "$X-dry.log" || fail "init.$twin --dry-run does not say the shims would be made executable"
+  grep -aq '^  the shims in .githooks were not executable, so git skipped the push gate: ai-core pre-push --install made them so$' "$X-1.log" || fail "init.$twin does not report the shims it had made executable (see $X-1.log)"
+  [ "$(git -C "$X" ls-tree HEAD -- .githooks/post-checkout .githooks/pre-push | awk '{ print $1 }' | tr '\n' ' ')" = '100755 100755 ' ] || fail "init.$twin left the shims without the executable bit in the commit"
+  grep -aq "^  .githooks/pre-commit is not executable, so git skips it; it is the project's own and stays as it is$" "$X-1.log" || fail "init.$twin does not name the project's own hook git skips"
+  [ "$(git -C "$X" ls-tree HEAD -- .githooks/pre-commit | awk '{ print $1 }')" = 100644 ] || fail "init.$twin changed the project's own hook"
+done
+echo "  the shims committed with the executable bit through pre-push --install, the project's own hook named and left, the dry run announces it, on both twins"
 exit 0

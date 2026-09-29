@@ -27,7 +27,10 @@
   carry their own context, never in clipped fragments or a run of labels. Open with the action a person
   takes, what they notice, and what the system does that produces it; only then the code facts, and
   only as far as they change the decision. Anchor every technical explanation in the filesystem by
-  path and in the mechanism end to end. [review]
+  path and in the mechanism end to end. An issue is never named by its number alone: it is written
+  as <repository>#<number> with its title as the tracker spells it, followed by a sentence in the
+  language of the conversation that says what it is about, from what a person sees to what the
+  change does, before any code. [review]
 - **The measure is the reader.** Explain what is specific to this system, never what the reader
   already uses daily. [review]
 - **No pointless justification, in chat, in documents or in code.** The test is what the reader

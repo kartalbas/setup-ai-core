@@ -60,8 +60,14 @@ main="$(cd "$common/.." && git rev-parse --show-toplevel)"
 
 # landed <branch>: every commit of the branch is on origin's default branch
 landed() { [ "$(git -C "$main" rev-list --count "origin/$default..refs/heads/$1" 2>/dev/null || echo 1)" -eq 0 ]; }
-# worked_in <branch>: the branch was committed on, not only cut
-worked_in() { git -C "$main" reflog show --format=%gs "refs/heads/$1" 2>/dev/null | grep -qv '^branch: Created'; }
+# worked_in <branch>: the branch was committed on, not only cut. The reflog is read whole first: piped
+# into grep -q, grep stops at the first hit, git can die of the closed pipe, and under pipefail the
+# answer then turned into "never committed in" on a busy machine
+worked_in() {
+  local log
+  log="$(git -C "$main" reflog show --format=%gs "refs/heads/$1" 2>/dev/null || true)"
+  grep -qv '^branch: Created' <<< "$log"
+}
 
 remove_worktree() {  # remove_worktree <path> <branch>
   git -C "$main" worktree remove "$1" || die "the worktree $1 could not be removed (see above)"

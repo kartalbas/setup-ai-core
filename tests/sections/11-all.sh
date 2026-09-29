@@ -54,4 +54,28 @@ for twin in sh ps; do
   grep -aE '^  (created|refreshed|removed) ' "$F-3.log" && fail "init --all changes something on the run after ($twin, see $F-3.log)"
 done
 echo "  the repository names the folder's rules without the @ after the first run and after the folder held older ones, and the run after changes nothing, on both twins"
+section "init --all removes a worktree whose work landed a day ago or more before it inits the rest, and leaves a fresh one; both twins"
+for twin in sh ps; do
+  F="$WORK/sweep-$twin"; O="$WORK/sweep-$twin-origin.git"; A="$F/app"
+  mkdir -p "$F/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$F/.ai-core/config.env"
+  git init -q --bare -b master "$O"; git init -q -b master "$A"
+  mkdir -p "$A/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$A/.ai-core/config.env"; printf '/.ai-core/\n' >> "$A/.git/info/exclude"
+  echo one > "$A/README.md"; git -C "$A" add README.md; git -C "$A" commit -q -m 'Start #1'
+  git -C "$A" remote add origin "$O"; git -C "$A" push -q -u origin master 2>/dev/null; git -C "$A" remote set-head origin -a >/dev/null
+  long_ago="$(date -d '3 days ago' '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || date -v-3d '+%Y-%m-%dT%H:%M:%S')"
+  for w in issue-5-old issue-6-new; do
+    T="$F/.worktrees/app/$w"; git -C "$A" worktree add -q -b "$w" "$T" origin/master 2>/dev/null
+    echo "$w" >> "$T/README.md"; git -C "$T" add README.md
+    if [ "$w" = issue-5-old ]; then GIT_AUTHOR_DATE="$long_ago" GIT_COMMITTER_DATE="$long_ago" git -C "$T" commit -q -m "Land $w #5"; else git -C "$T" commit -q -m "Land $w #6"; fi
+    git -C "$T" push -q origin HEAD:master 2>/dev/null; git -C "$A" pull -q --ff-only origin master 2>/dev/null
+  done
+  if [ "$twin" = sh ]; then bash "$ROOT/bin/init.sh" --all "$F" --no-doctor > "$F.log" 2>&1
+  else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -All "$(native "$F")" -NoDoctor > "$F.log" 2>&1; fi || fail "init --all with landed worktrees failed ($twin, see $F.log)"
+  [ -d "$F/.worktrees/app/issue-5-old" ] && fail "init --all left the worktree whose work landed three days ago ($twin, see $F.log)"
+  git -C "$A" rev-parse -q --verify refs/heads/issue-5-old >/dev/null && fail "init --all left the branch of the landed worktree ($twin)"
+  grep -aq 'issue-5-old: landed, removed' "$F.log" || fail "init --all does not name the worktree it removed ($twin, see $F.log)"
+  [ -d "$F/.worktrees/app/issue-6-new" ] || fail "init --all removed a worktree whose work landed today ($twin)"
+  [ -f "$F/.worktrees/app/issue-6-new/.ai-core/rules/rules.md" ] || fail "init --all did not init the worktree that stays ($twin)"
+done
+echo "  the worktree that landed three days ago is gone with its branch and named, the one of today stays and is inited, on both twins"
 exit 0

@@ -134,6 +134,10 @@ if (-not $made.Ok) { Stop-WithError "the worktree could not be created: $($made.
 try { & (Join-Path $PSScriptRoot 'issue-status.ps1') -Number $Number -Status implementing }
 catch { Write-Error "the card did NOT move: $($_.Exception.Message) - move it before you start" -ErrorAction Continue }
 
+# Worktrees whose work landed a day ago or more go as this one opens (finish-issue -Sweep),
+# so the disk does not fill with copies nobody works in any more
+& pwsh -NoProfile -File (Join-Path $PSScriptRoot 'finish-issue.ps1') -Sweep 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match ': landed, removed$' }
+
 # The harness is not in the repository, so the new worktree gets it here: init takes the main
 # checkout's own .ai-core data (its config, its local rules, its documents) first, assembles the
 # rules and builds the graph. A worktree that starts without them starts without the rules.

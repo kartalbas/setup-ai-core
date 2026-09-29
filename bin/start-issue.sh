@@ -108,6 +108,10 @@ else
   echo "the card did NOT move: $moved - move it before you start" >&2
 fi
 
+# Worktrees whose work landed a day ago or more go as this one opens (finish-issue --sweep),
+# so the disk does not fill with copies nobody works in any more
+bash "$BIN/finish-issue.sh" --sweep 2>&1 | grep ': landed, removed$' || true
+
 # The harness is not in the repository, so the new worktree gets it here: init takes the main
 # checkout's own .ai-core data (its config, its local rules, its documents) first, assembles the
 # rules and builds the graph. A worktree that starts without them starts without the rules.

@@ -122,6 +122,18 @@ check 'it names both'  yes "$(grep -q '#163 is assigned to @somebody, not to @te
 check 'no branch made' master "$(branches)"
 check 'the card did not move' 0 "$(grep -c 'oid=OPT_impl' "$log" || true)"
 
+# A worktree of another issue whose work landed three days ago: the run that opens the next one
+# removes it (finish-issue --sweep)
+old="$checkouts/.worktrees/example-repo/issue-170-old"
+mkdir -p "$checkouts/.worktrees/example-repo"
+git -C "$work" worktree add -q -b issue-170-old "$old" origin/master 2>/dev/null
+dress "$old"
+echo 'old' >> "$old/README.md"; git -C "$old" add -A
+long_ago="$(date -d '3 days ago' '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || date -v-3d '+%Y-%m-%dT%H:%M:%S')"
+GIT_AUTHOR_DATE="$long_ago" GIT_COMMITTER_DATE="$long_ago" git -C "$old" commit -q -m 'An old change (#170)'
+git -C "$old" push -q origin HEAD:master
+git -C "$work" pull -q --ff-only origin master
+
 echo 'the worktree, the card and the thread come out of one run'
 : > "$log"
 out="$(run 163)"; rc=$?
@@ -135,6 +147,8 @@ check 'the branch'        'issue-163-read-the-board-whole master' "$(branches)"
 check 'the card moved'    '#163 -> implementing' "$(printf '%s\n' "$out" | sed -n '2p')"
 check 'to that option'    yes "$(grep -q 'oid=OPT_impl' "$log" && echo yes || echo no)"
 check 'the thread'        1 "$(grep -c '^#163 Read the board whole$' <<< "$out" || true)"
+check 'the landed worktree of #170 is gone' no "$([ -d "$old" ] && echo yes || echo no)"
+check 'and named'         yes "$(grep -q 'issue-170-old: landed, removed$' <<< "$out" && echo yes || echo no)"
 check 'the worktree is on the new branch' 'issue-163-read-the-board-whole' \
   "$(git -C "$tree" rev-parse --abbrev-ref HEAD)"
 

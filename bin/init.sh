@@ -72,6 +72,16 @@ if [ -n "$ALL_DIR" ]; then
   PASS=(--no-doctor); [ "$DRY" -eq 1 ] && PASS+=(--dry-run)
   echo ""; echo "### $(basename "$ALL_DIR") (the folder itself)"
   AI_CORE_GRAFT_LATER=1 bash "${BASH_SOURCE[0]}" "$ALL_DIR" "${PASS[@]}" || FOLDER_OK=0
+  # Worktrees whose work landed a day ago or more go first (finish-issue --sweep): a rollout frees
+  # what nobody finished, and does not init a worktree that is about to go
+  for repo in "$ALL_DIR"/*/; do
+    repo="${repo%/}"
+    [ -e "$repo/.git" ] || continue
+    case "${repo##*/}" in *-ai-core) continue ;; esac
+    [ "$(git -C "$repo" worktree list --porcelain 2>/dev/null | grep -c '^worktree ')" -gt 1 ] || continue
+    echo ""; echo "### ${repo##*/}: worktrees whose work landed"
+    (cd "$repo" && bash "$CORE_ROOT/bin/finish-issue.sh" --sweep $([ "$DRY" -eq 1 ] && echo --dry-run)) 2>&1 | sed 's/^/  /' || true
+  done
   for repo in "$ALL_DIR"/*/ "$ALL_DIR"/.worktrees/*/*/; do
     repo="${repo%/}"
     [ -e "$repo/.git" ] || continue

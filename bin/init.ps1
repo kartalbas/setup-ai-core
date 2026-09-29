@@ -71,6 +71,16 @@ if ($All) {
   & pwsh -NoProfile -File $MyInvocation.MyCommand.Path -TargetDir $allDir @pass
   if ($LASTEXITCODE -ne 0) { $folderOk = $false }
   Remove-Item Env:AI_CORE_GRAFT_LATER
+  # Worktrees whose work landed a day ago or more go first (finish-issue -Sweep): a rollout frees
+  # what nobody finished, and does not init a worktree that is about to go
+  foreach ($r in @(Get-ChildItem -LiteralPath $allDir -Directory | Where-Object { $_.Name -cnotlike '*-ai-core' -and (Test-Path (Join-Path $_.FullName '.git')) })) {
+    $trees = @(& git -C $r.FullName worktree list --porcelain 2>$null | Where-Object { "$_".StartsWith('worktree ', [StringComparison]::Ordinal) })
+    if ($trees.Count -le 1) { continue }
+    Write-Host ""; Write-Host "### $($r.Name): worktrees whose work landed"
+    $sweepArgs = @('-Sweep'); if ($DryRun) { $sweepArgs += '-DryRun' }
+    Push-Location $r.FullName
+    try { & pwsh -NoProfile -File (Join-Path $coreRoot 'bin/finish-issue.ps1') @sweepArgs 2>&1 | ForEach-Object { Write-Host "  $_" } } finally { Pop-Location }
+  }
   $checkouts = @(Get-ChildItem -LiteralPath $allDir -Directory | ForEach-Object { [pscustomobject]@{ Name = $_.Name; RepoFolder = $_.Name; Path = $_.FullName } })
   $worktrees = Join-Path $allDir '.worktrees'
   if (Test-Path -LiteralPath $worktrees) {

@@ -130,6 +130,19 @@ Check 'it names both'  'True'  ([bool]($said -match '#163 is assigned to @somebo
 Check 'no branch made' 'master' (Branches)
 Check 'the card did not move' 'False' ([bool]((Calls) -match 'oid=OPT_impl'))
 
+# A worktree of another issue whose work landed three days ago: the run that opens the next one
+# removes it (finish-issue -Sweep)
+$old = Join-Path $checkouts '.worktrees/example-repo/issue-170-old'
+New-Item -ItemType Directory -Force -Path (Join-Path $checkouts '.worktrees/example-repo') | Out-Null
+& git -C $work worktree add -q -b issue-170-old $old origin/master 2>$null
+Dress $old
+'old' | Add-Content -Path (Join-Path $old 'README.md')
+& git -C $old add -A
+$env:GIT_AUTHOR_DATE = $env:GIT_COMMITTER_DATE = [DateTime]::UtcNow.AddDays(-3).ToString('yyyy-MM-ddTHH:mm:ssZ')
+try { & git -C $old commit -q -m 'An old change (#170)' } finally { $env:GIT_AUTHOR_DATE = $null; $env:GIT_COMMITTER_DATE = $null }
+& git -C $old push -q origin HEAD:master 2>$null
+& git -C $work pull -q --ff-only origin master 2>$null
+
 Write-Host 'the worktree, the card and the thread come out of one run'
 Remove-Item $log -ErrorAction SilentlyContinue
 $ok = Invoke-Start 163
@@ -142,6 +155,8 @@ Check 'the branch'         'issue-163-read-the-board-whole master' (Branches)
 Check 'the card moved'     '#163 -> implementing' $printed[1]
 Check 'to that option'     'True' ([bool]((Calls) -match 'oid=OPT_impl'))
 Check 'the thread'         1 @($printed | Where-Object { $_ -eq '#163 Read the board whole' }).Count
+Check 'the landed worktree of #170 is gone' 'False' ([string](Test-Path -LiteralPath $old))
+Check 'and named'          'True' ([bool](@($printed | Where-Object { $_ -match 'issue-170-old: landed, removed$' }).Count))
 Check 'the worktree is on the new branch' 'issue-163-read-the-board-whole' `
   (((& git -C $tree rev-parse --abbrev-ref HEAD) -join '').Trim())
 

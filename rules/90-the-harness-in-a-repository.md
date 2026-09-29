@@ -11,6 +11,7 @@
   that is wrong, not one that refuses a change for a defect the change has; the second is fixed in
   the change. On a fault the agent neither edits the harness nor bypasses it (no changed shim or
   `.ai-core/` file): it opens an issue in the repository of that layer (`ai-core --help` names the
-  clone ai-core runs from; its origin is that repository), or, where it can message the session that
-  works on the harness, tells it; it names the fault in its report, goes on with what the fault does
-  not block, and reports the rest as blocked. [discipline]
+  clone ai-core runs from; its origin is that repository), naming no private project, organisation
+  or machine where that repository is public, or, where it can message the session that works on
+  the harness, tells it; it names the fault in its report, goes on with what the fault does not
+  block, and reports the rest as blocked. [discipline]

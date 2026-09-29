@@ -1,9 +1,16 @@
 ## Working with the product owner
 
-- **A decision is put to the owner in the order of the solution path**: where a person meets it,
-  what they see today, what the system does behind it, the decision in one sentence, the lettered
-  options with what the person sees afterwards and what each costs, the recommendation first and
-  marked, the code facts last. [review]
+- **A decision that is the owner's is put to the owner in the order of the solution path**: where a
+  person meets it, what they see today, what the system does behind it, the decision in one sentence,
+  the lettered options with what the person sees afterwards and what each costs, the recommendation
+  first and marked, the code facts last. A decision is the owner's when it is hard to undo or reaches
+  beyond the issue's own branch and tracker entries (a release, a migration, a deletion of anything
+  that is not the change's own leftover, anything published), widens the scope (a new dependency, a
+  new public interface, work beyond the issue), costs a multiple of the task for its clean answer,
+  has no clean answer, or chooses between two equally clean answers where the difference is the
+  product's. Every other choice the agent makes itself, takes the clean one, and names it with its
+  reason in one line of its report, where the owner can still overturn it; a choice no reader would
+  question goes unnamed. [review]
 - **Never ask an open question that could have been a choice**, and never bury a question, a
   decision or a task in prose: each stands as its own element, numbered, at the end. An approval is a
   question and takes the same form. [review]

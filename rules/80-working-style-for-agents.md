@@ -20,11 +20,11 @@
 - **No assistant or vendor attribution** in a commit message or a pull request. [review]
 - **Never write a version, a price or an interface shape from memory.** Look it up at the source
   and state where it came from. [review]
-- **Ask before starting any sub-agent**, naming for each what it is for, which question it answers,
-  which model and which effort level and why, and what the same work costs in tokens if the
-  session does it itself; the ask ends with two options, a) start it as described, b) the session
-  does it, and waits for the answer. Every agent's name opens with the number of its issue and the
-  model it runs on. Once approved, run independent agents in parallel,
+- **Ask once per issue before starting its sub-agents**, naming for each what it is for, which
+  question it answers, which model and which effort level and why, and what the same work costs in
+  tokens if the session does it itself; the ask ends with two options, a) start them as described,
+  b) the session does it, and waits for the answer. Every agent's name opens with the number of its
+  issue and the model it runs on. Once approved, run independent agents in parallel,
   never for work that fits in one or two tool calls, give every call an explicit model and effort,
   and relay the conclusion, never the raw output. A delegated implementation gets a specification
   that names the files to touch, the interfaces, the acceptance criteria and the exact verification

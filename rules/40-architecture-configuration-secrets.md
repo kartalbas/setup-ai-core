@@ -7,9 +7,10 @@
 - **Standard library before a dependency, a dependency before bespoke code.** [review]
 - **A change stays on its problem.** No reformatting of unrelated lines, no reordering, no incidental
   cleanup outside the change's reason. [review]
-- **Anything a deployment could want different is configuration, on a named, injected surface**,
-  never a literal at the call site. A required setting has no default: when it is missing, start-up
-  fails and names it. [review]
+- **Anything that differs between the environments that exist is configuration, on a named,
+  injected surface**, never a literal at the call site; a value no environment wants different is a
+  constant. A required setting has no default: when it is missing, start-up fails and names it.
+  [review]
 - **A configuration change reaches every environment inventory that exists for the component**, not
   only the one being tested, and the deployed truth is read from those inventories, never assumed.
   [review]

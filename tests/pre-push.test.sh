@@ -124,7 +124,7 @@ git -C "$wt" commit -q -m 'Probe the gate from a worktree #5'
 out="$(judge "$wt" "$(git -C "$wt" rev-parse HEAD)" "$(git -C "$repo" rev-parse master)")"; rc=$?
 check 'exit 0'                     0 "$rc"
 check 'the check ran'              yes "$(grep -q 'check: OK' <<< "$out" && echo yes || echo no)"
-check 'every check passed'         yes "$(grep -q 'pre-push: every check passed' <<< "$out" && echo yes || echo no)"
+check 'nothing refused the push'   yes "$(grep -q 'pre-push: nothing refused this push' <<< "$out" && echo yes || echo no)"
 check 'and the check that ran is the WORKTREE one' \
   "$(git -C "$wt" rev-parse --show-toplevel)/scripts/check.sh" "$(tail -1 "$check_runs")"
 

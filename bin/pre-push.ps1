@@ -519,4 +519,4 @@ if (Test-Path -LiteralPath (Join-Path $root '.gitleaks.toml')) {
   }
 }
 
-Write-Host 'pre-push: every check passed.'
+Write-Host 'pre-push: nothing refused this push.'

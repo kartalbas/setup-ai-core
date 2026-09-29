@@ -102,7 +102,7 @@ Write-Lf $checkRuns ''
 Judge $wt (Sha $wt HEAD) (Sha $repo master)
 Check 'exit 0'                     0 $rc
 Check 'the check ran'              'True' (Says 'check: OK')
-Check 'every check passed'         'True' (Says 'pre-push: every check passed')
+Check 'nothing refused the push'   'True' (Says 'pre-push: nothing refused this push')
 $ran = @(Get-Content $checkRuns | Where-Object { $_ })[-1]
 Check 'and the check that ran is the WORKTREE one' 'True' ($ran.Replace('\', '/') -clike '*/.worktrees/app/issue-5-probe/scripts/check.sh')
 

@@ -500,4 +500,4 @@ if [ -f "$root/.gitleaks.toml" ]; then
   done <<< "$scan_ranges"
 fi
 
-echo 'pre-push: every check passed.'
+echo 'pre-push: nothing refused this push.'

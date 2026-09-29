@@ -62,7 +62,7 @@ $head = Invoke-Git symbolic-ref refs/remotes/origin/HEAD
 if (-not $head.Ok -or -not $head.Text) {
   Stop-WithError "cannot read the default branch from origin/HEAD - run 'git remote set-head origin -a', then run this again"
 }
-$default = $head.Text -replace '^refs/remotes/origin/', ''
+$default = $head.Text -creplace '^refs/remotes/origin/', ''
 
 # The main checkout, as start-issue finds it: the worktrees are removed from there, so this answers
 # the same from inside the worktree being removed.
@@ -128,15 +128,15 @@ if (-not $found) { "no worktree of issue $Number stands here - only the card and
 try { $raw = (@(& (Join-Path $PSScriptRoot 'issue-thread.ps1') -Number $Number -Json) -join "`n").Trim() }
 catch { Stop-WithError "the issue could not be read: $($_.Exception.Message)" }
 $thread = $raw | ConvertFrom-Json -DateKind String
-if ("$($thread.state)".ToLowerInvariant() -eq 'closed') {
+if ("$($thread.state)".ToLowerInvariant() -ceq 'closed') {
   'the issue is closed already - its card stays where closing put it'
 } else {
   Set-Project -Number '' -Repo (Get-DefaultRepo) | Out-Null
-  $options = @(Get-Fields | Where-Object { $_.Field -eq 'Status' } | ForEach-Object { $_.Option })
-  $at = [Array]::FindIndex([string[]]$options, [Predicate[string]] { param($o) $o.ToLowerInvariant() -eq 'implementing' })
+  $options = @(Get-Fields | Where-Object { $_.Field -ieq 'Status' } | ForEach-Object { $_.Option })
+  $at = [Array]::FindIndex([string[]]$options, [Predicate[string]] { param($o) $o.ToLowerInvariant() -ceq 'implementing' })
   $next = if ($at -ge 0 -and $at + 1 -lt $options.Count) { $options[$at + 1] } else { '' }
   if (-not $next) { 'the board has no column after implementing - the card stays; move it by hand' }
-  elseif ($next.ToLowerInvariant() -eq 'done') { 'the column after implementing is done, which closing the issue sets - the card stays for the owner' }
+  elseif ($next.ToLowerInvariant() -ceq 'done') { 'the column after implementing is done, which closing the issue sets - the card stays for the owner' }
   else {
     try { & (Join-Path $PSScriptRoot 'issue-status.ps1') -Number $Number -Status $next }
     catch { Write-Error "the card did NOT move: $($_.Exception.Message) - move it to $next by hand" -ErrorAction Continue }

@@ -12,8 +12,14 @@
   reason in one line of its report, where the owner can still overturn it; a choice no reader would
   question goes unnamed. [review]
 - **Never ask an open question that could have been a choice**, and never bury a question, a
-  decision or a task in prose: each stands as its own element, numbered, at the end. An approval is a
-  question and takes the same form. [review]
+  decision or a task in prose: the questions stand together in one block at the end of the reply, a
+  heading with ❓, how many there are and an example answer, then one list item per question: its
+  label in bold, which stays the same until it is answered and takes its letter from the language
+  of the conversation (Q1 in English, F1 in German), its topic in brackets and the question, with
+  each option as a sub-item led by its letter in inline code, so the owner can answer "Q1 a, Q3 b";
+  a question still open from an earlier reply stands there again under its old label, marked 🔁,
+  and one that blocks the work is marked ⛔. An approval is a question and takes the same form.
+  [review]
 - **A question the owner cannot answer without asking back is a defect.** It carries its own context,
   names the concrete case with real values, and can be decided from the rendered element alone.
   [review]

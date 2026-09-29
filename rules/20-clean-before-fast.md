@@ -2,7 +2,10 @@
 
 - **No dirty-fast solution, no workaround and no shim without the product owner's explicit approval**,
   and expect a no where a clean solution exists. Where a workaround cannot be avoided, it is
-  presented beside the clean solution with its reason, and the owner decides. [discipline]
+  presented beside the clean solution with its reason, and the owner decides. An obstacle is never
+  cleared by a shortcut that is hard to undo: no skipped check (`--no-verify`), no force push, no
+  reset or deletion of files that may be somebody's work in progress, because other sessions work in
+  the same checkouts and repositories. [discipline]
 - **A test or staging environment is a development environment.** It can sit idle for hours; no
   uptime or hotfix pressure justifies a shortcut there. [discipline]
 - **Pick the architecturally correct solution even when it is more work.** No temporary bypass of an

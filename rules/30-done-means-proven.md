@@ -20,12 +20,15 @@
   [review]
 - **A green run proves what it covers and nothing more.** A check says how much it covered, and it
   carries a planted defect of each shape it must catch plus a planted innocent case, so it can be
-  shown to go red and a clean answer means somebody was looking. [review]
+  shown to go red and a clean answer means somebody was looking. A test turns green through the code
+  it tests, never through a special case for its input or an edited expectation; a test that is
+  wrong is reported, not worked around. [review]
 - **A bug fix includes the test that reproduces the bug** and fails before the fix. [review]
 - **A claim is tested against the latest state, never a stale copy.** Before a defect is reproduced,
   an issue is audited against the code or a fix is called done, the working copy is pulled and the
   live surface the claim is about, the tracker, the deployed environment or the running service, is
-  read again at that moment. [discipline]
+  read again at that moment. Nothing is said about code that was not opened: a file the owner names
+  is read before it is answered about. [discipline]
 - **Warnings are near-errors** and are cleared, not tolerated. [review]
 - **Report the result, not the intention.** A failed check is shown with its output, a skipped step
   is named with its reason, finished work is stated plainly. [review]

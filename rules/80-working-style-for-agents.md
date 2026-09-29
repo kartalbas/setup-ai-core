@@ -9,10 +9,12 @@
   criteria, under a title that names the action and its stake so it survives being read alone in a
   list. Independent pieces are split into their own issues before any detail is refined.
   Everything that carries the work, a branch, a worktree or an agent, is named after its issue, and
-  a commit that touches an issue names it. Before handing over an issue or a document, check it for
-  placeholders, contradictions, scope and ambiguity. Issues and the board change through the
-  harness's issue and board commands (`ai-core --help`), so they are used, proven, and extended or
-  fixed where they fall short; `gh` serves everything they do not cover. [tool · discipline]
+  a commit that touches an issue names it; the push that lands an issue is followed by `ai-core
+  finish-issue <number>`, which removes its worktree and moves its card on. Before handing over an
+  issue or a document, check it for placeholders, contradictions, scope and ambiguity. Issues and
+  the board change through the harness's issue and board commands (`ai-core --help`), so they are
+  used, proven, and extended or fixed where they fall short; `gh` serves everything they do not
+  cover. [tool · discipline]
 - **Never stage blindly.** Read the working-tree status and add the paths you changed. A commit
   subject is one sentence of at most 72 characters that describes the change; the body says why.
   Commit and push as often as the work needs; the owner reviews the finished work, not each commit.

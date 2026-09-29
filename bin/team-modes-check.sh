@@ -83,17 +83,15 @@ plugin_list() {  # plugin_list <tool>
     *)      return 1 ;;
   esac
 }
-skill_dirs() {  # skill_dirs <tool> <name>
-  printf '%s\n' "$HOME/.$1/skills/$2" "./.$1/skills/$2" "$HOME/.agents/skills/$2" "./.agents/skills/$2"
-}
-
 probe() {  # probe <tool> <probe> -> 0 installed, 1 missing, 2 no probe
   local tool="$1" kind="${2%%:*}" name="${2#*:}" d
   case "$kind" in
     always) return 0 ;;
     none)   return 2 ;;
     plugin) plugin_list "$tool" | grep -qi -- "$name" ;;
-    skill)  while IFS= read -r d; do [ -d "$d" ] && return 0; done < <(skill_dirs "$tool" "$name"); return 1 ;;
+    # the four folders in the shell itself, as the .ps1 spelling does: read from a pipe, the loop
+    # returned at the first folder while the writer still wrote, and bash printed a broken pipe
+    skill)  for d in "$HOME/.$tool/skills/$name" "./.$tool/skills/$name" "$HOME/.agents/skills/$name" "./.agents/skills/$name"; do [ -d "$d" ] && return 0; done; return 1 ;;
     file)   [ -e "${name/#\~/$HOME}" ] ;;
     *)      return 2 ;;
   esac

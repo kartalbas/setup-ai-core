@@ -38,8 +38,9 @@ for twin in sh ps1; do
   [ "$(git -C "$RH/.setup-ai-core" describe --tags --exact-match HEAD 2>/dev/null)" = v9.9.0 ] || fail "install.$twin did not check out v9.9.0"
   rc=0; out="$(upd --check)" || rc=$?
   [ "$rc" -eq 0 ] && grep -q '^setup-ai-core: current (v9.9.0)$' <<< "$out" || fail "update.$twin --check on the newest release: exit $rc, $out"
-  : > "$GH_FAKE/run-pending"   # the first answer of gh: the run is still going, and a commit lands on the branch meanwhile
-  out="$(GH_FAKE_MOVE="$(native "$RD")" rel 9.9.1)" || fail "release.$twin 9.9.1 from a VERSION that carries 9.9.0: $out"
+  : > "$GH_FAKE/run-fail"      # the first query of gh fails, as a query does now and then
+  : > "$GH_FAKE/run-pending"   # the next answer: the run is still going, and a commit lands on the branch meanwhile
+  out="$(GH_FAKE_MOVE="$(native "$RD")" rel 9.9.1)" || fail "release.$twin 9.9.1 from a VERSION that carries 9.9.0, one gh query failing on the way: $out"
   grep -q "^release: VERSION 9.9.0 -> 9.9.1, committed as 'release: 9.9.1'$" <<< "$out" || fail "release.$twin did not say it wrote VERSION: $out"
   grep -q '^release: waiting for the checks of [0-9a-f]\{7\} (asked every 1s, 30 minute(s) at most)$' <<< "$out" || fail "release.$twin did not wait for the run that was still going: $out"
   [ "$(tr -d '\r\n' < "$RD/VERSION")" = 9.9.1 ] || fail "release.$twin left VERSION at $(cat "$RD/VERSION")"
@@ -69,6 +70,11 @@ for twin in sh ps1; do
   git -C "$RH/x-ai-core" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/gone
   rc=0; out="$(upd --check)" || rc=$?
   [ "$rc" -eq 2 ] && grep -q '^x-ai-core: behind by 1 commit(s)$' <<< "$out" || fail "update.$twin --check did not measure a detached harness clone against the origin's default branch: $out"
+  : > "$GH_FAKE/run-broken"    # a gh that never answers: the deadline ends the wait and names what gh said
+  rc=0; out="$(AI_CORE_RELEASE_WAIT=0 rel 9.9.2)" || rc=$?
+  rm -f "$GH_FAKE/run-broken"
+  [ "$rc" -ne 0 ] && grep -q 'until the deadline; it said last: HTTP 502: Bad Gateway (is gh logged in?)$' <<< "$out" || fail "release.$twin with a gh that never answers: exit $rc, $out"
+  git -C "$RO" rev-parse -q --verify refs/tags/v9.9.2 > /dev/null && fail "release.$twin tagged v9.9.2 without an answer from gh"
   unset -f rel upd
 done
 echo "  refused dirty and twice; an unpushed commit pushed and tagged; 9.9.1 written into VERSION, committed, pushed, waited for and tagged on the commit waited for, not on one made meanwhile; v9.9.0 installed, v9.9.1 announced and moved to, main followed on request, a dirty clone left alone, on both twins"

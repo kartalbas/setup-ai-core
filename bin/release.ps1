@@ -80,13 +80,24 @@ if ($onOrigin -cne $sha) {
 $poll = if ($env:AI_CORE_RELEASE_POLL) { [int]$env:AI_CORE_RELEASE_POLL } else { 20 }
 $limit = if ($env:AI_CORE_RELEASE_WAIT) { [int]$env:AI_CORE_RELEASE_WAIT } else { 1800 }
 $minutes = [int][math]::Floor($limit / 60)
+#    A query that fails is no answer yet: gh or the network fails once while the checks run on,
+#    so only the deadline ends the wait, and it names what gh said last.
 $deadline = (Get-Date).AddSeconds($limit); $waiting = $false
 while ($true) {
-  $runs = (& gh run list --commit $sha --workflow check --json status,conclusion --limit 5 2>$null | Out-String)
-  if ($LASTEXITCODE -ne 0 -or -not $runs.Trim()) { Deny-Release "gh could not list the workflow runs of $sha (is gh logged in?)" }
-  $list = @($runs | ConvertFrom-Json)
-  if ($list.Count -gt 0 -and @($list | Where-Object { $_.status -cne 'completed' }).Count -eq 0) { break }
-  if ((Get-Date) -ge $deadline) { Deny-Release "the checks for $sha did not finish in $minutes minute(s); run 'ai-core release $version' again when they have" }
+  $answer = @(& gh run list --commit $sha --workflow check --json status,conclusion --limit 5 2>&1)
+  $runs = (@($answer | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_" }) -join "`n")
+  if ($LASTEXITCODE -eq 0 -and $runs.Trim()) {
+    $failedQuery = ''
+    $list = @($runs | ConvertFrom-Json)
+    if ($list.Count -gt 0 -and @($list | Where-Object { $_.status -cne 'completed' }).Count -eq 0) { break }
+  } else {
+    $failedQuery = (@($answer | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_".Trim() } | Where-Object { $_ }) -join ' ')
+    if (-not $failedQuery) { $failedQuery = 'an empty answer' }
+  }
+  if ((Get-Date) -ge $deadline) {
+    if ($failedQuery) { Deny-Release "gh could not list the workflow runs of $sha until the deadline; it said last: $failedQuery (is gh logged in?)" }
+    Deny-Release "the checks for $sha did not finish in $minutes minute(s); run 'ai-core release $version' again when they have"
+  }
   if (-not $waiting) { Write-Host "release: waiting for the checks of $($sha.Substring(0, 7)) (asked every ${poll}s, $minutes minute(s) at most)"; $waiting = $true }
   Start-Sleep -Seconds $poll
 }

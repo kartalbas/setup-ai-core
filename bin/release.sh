@@ -68,11 +68,21 @@ fi
 
 # 3. The checks for exactly this commit, on every runner: one workflow run, completed and green,
 #    waited for
+#    A query that fails is no answer yet: gh or the network fails once while the checks run on,
+#    so only the deadline ends the wait, and it names what gh said last.
 poll="${AI_CORE_RELEASE_POLL:-20}"; limit="${AI_CORE_RELEASE_WAIT:-1800}"; deadline=$(( $(date +%s) + limit )); waiting=0
+said="$(mktemp)"; trap 'rm -f "$said"' EXIT
 while :; do
-  runs="$(gh run list --commit "$sha" --workflow check --json status,conclusion --limit 5 2>/dev/null)" || refuse "gh could not list the workflow runs of $sha (is gh logged in?)"
-  if [ "$(printf '%s' "$runs" | jq 'length')" -gt 0 ] && printf '%s' "$runs" | jq -e 'all(.status == "completed")' >/dev/null; then break; fi
-  [ "$(date +%s)" -lt "$deadline" ] || refuse "the checks for $sha did not finish in $((limit / 60)) minute(s); run 'ai-core release $version' again when they have"
+  if runs="$(gh run list --commit "$sha" --workflow check --json status,conclusion --limit 5 2>"$said")" && [ -n "$runs" ]; then
+    failed_query=""
+    if [ "$(printf '%s' "$runs" | jq 'length')" -gt 0 ] && printf '%s' "$runs" | jq -e 'all(.status == "completed")' >/dev/null; then break; fi
+  else
+    failed_query="$(tr -s '\r\n' '  ' < "$said")"; failed_query="${failed_query:-an empty answer}"
+  fi
+  if [ "$(date +%s)" -ge "$deadline" ]; then
+    [ -z "$failed_query" ] || refuse "gh could not list the workflow runs of $sha until the deadline; it said last: ${failed_query% } (is gh logged in?)"
+    refuse "the checks for $sha did not finish in $((limit / 60)) minute(s); run 'ai-core release $version' again when they have"
+  fi
   [ "$waiting" -eq 1 ] || { echo "release: waiting for the checks of ${sha:0:7} (asked every ${poll}s, $((limit / 60)) minute(s) at most)"; waiting=1; }
   sleep "$poll"
 done

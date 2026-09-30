@@ -493,7 +493,9 @@ if ($migrated.Count -gt 0) {
 
 # THE TWO SPELLINGS OF A SCRIPT CHANGE TOGETHER (the harness rules): where x.sh and x.ps1 both stand,
 # they are one program, and a push that changes one of them changes the other. Where a fault lives in
-# one spelling alone, a commit of the push says so in a 'Twin: <why>' trailer.
+# one spelling alone, a commit of the push says so in a 'Twin: <why>' trailer. The Windows entry
+# point is no twin: where scripts/check.sh stands, a check.ps1 or build.ps1 is the one text held
+# above, which starts the .sh of its own name and never changes with it.
 [string[]]$allChanged = @($commits | ForEach-Object { & git -c core.quotePath=false diff-tree --no-commit-id --root -r --name-only $_ 2>$null } | ForEach-Object { "$_" } | Where-Object { $_ } | Select-Object -Unique)
 [Array]::Sort($allChanged, [StringComparer]::Ordinal)
 $twinExcused = @($commits | Where-Object { "$(& git log -1 '--format=%(trailers:key=Twin,valueonly)' $_)".Trim() }).Count -gt 0
@@ -502,9 +504,11 @@ if (-not $twinExcused) {
   $treeSet = [System.Collections.Generic.HashSet[string]]::new([string[]]@(& git -c core.quotePath=false ls-tree -r --name-only $head 2>$null | ForEach-Object { "$_" }), [StringComparer]::Ordinal)
   $changedSet = [System.Collections.Generic.HashSet[string]]::new($allChanged, [StringComparer]::Ordinal)
   foreach ($path in $allChanged) {
-    if ($path.EndsWith('.sh', [StringComparison]::Ordinal)) { $other = $path.Substring(0, $path.Length - 3) + '.ps1' }
-    elseif ($path.EndsWith('.ps1', [StringComparison]::Ordinal)) { $other = $path.Substring(0, $path.Length - 4) + '.sh' }
+    if ($path.EndsWith('.sh', [StringComparison]::Ordinal)) { $other = $path.Substring(0, $path.Length - 3) + '.ps1'; $ps1 = $other }
+    elseif ($path.EndsWith('.ps1', [StringComparison]::Ordinal)) { $other = $path.Substring(0, $path.Length - 4) + '.sh'; $ps1 = $path }
     else { continue }
+    $ps1Name = $ps1 -creplace '^.*/', ''
+    if ((Test-Path -LiteralPath $checkSh) -and ($ps1Name -ceq 'check.ps1' -or $ps1Name -ceq 'build.ps1')) { continue }
     if (-not ($treeSet.Contains($path) -and $treeSet.Contains($other))) { continue }
     if (-not $changedSet.Contains($other)) { $oneSided += "$path (not $other)" }
   }

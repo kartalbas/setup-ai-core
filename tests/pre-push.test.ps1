@@ -214,6 +214,12 @@ Check 'exit 0 for both in one push'    0 $rc
 Commit 'tools/tidy.sh' "Tidy the sh spelling #9`n`nTwin: the fault is a bash quoting one"
 OnlyNew $repo
 Check 'exit 0 with the trailer'        0 $rc
+Write-Host 'the Windows entry point is no twin: scripts/check.sh changed alone passes'
+[System.IO.File]::AppendAllText((Join-Path $repo 'scripts/check.sh'), "# the checks the push runs`n", $utf8)
+& git -C $repo add --chmod=+x scripts/check.sh; & git -C $repo commit -q -m 'Say what the checks run #9'
+OnlyNew $repo
+Check 'exit 0'                         0 $rc
+& git -C $repo reset -q --hard HEAD~1
 & git -C $repo rm -q -r -- tools db src/app.js; & git -C $repo commit -q -m 'Remove the probes #9'
 
 Write-Host 'a commit naming its issue anywhere in the message passes'

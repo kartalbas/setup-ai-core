@@ -475,7 +475,9 @@ done <<< "$commits"
 
 # THE TWO SPELLINGS OF A SCRIPT CHANGE TOGETHER (the harness rules): where x.sh and x.ps1 both stand,
 # they are one program, and a push that changes one of them changes the other. Where a fault lives in
-# one spelling alone, a commit of the push says so in a 'Twin: <why>' trailer.
+# one spelling alone, a commit of the push says so in a 'Twin: <why>' trailer. The Windows entry
+# point is no twin: where scripts/check.sh stands, a check.ps1 or build.ps1 is the one text held
+# above, which starts the .sh of its own name and never changes with it.
 all_changed="$(while IFS= read -r sha; do [ -z "$sha" ] || git diff-tree --no-commit-id --root -r --name-only "$sha"; done <<< "$commits" | LC_ALL=C sort -u)"
 twin_excused=0
 while IFS= read -r sha; do
@@ -486,7 +488,8 @@ one_sided=""
 if [ "$twin_excused" -eq 0 ]; then
   tree_files="$(git ls-tree -r --name-only "$head" 2>/dev/null || true)"
   while IFS= read -r path; do
-    case "$path" in *.sh) other="${path%.sh}.ps1" ;; *.ps1) other="${path%.ps1}.sh" ;; *) continue ;; esac
+    case "$path" in *.sh) other="${path%.sh}.ps1"; ps1="$other" ;; *.ps1) other="${path%.ps1}.sh"; ps1="$path" ;; *) continue ;; esac
+    if [ -f "$root/scripts/check.sh" ]; then case "${ps1##*/}" in check.ps1|build.ps1) continue ;; esac; fi
     { grep -qxF -- "$path" <<< "$tree_files" && grep -qxF -- "$other" <<< "$tree_files"; } || continue
     grep -qxF -- "$other" <<< "$all_changed" || one_sided="$one_sided $path (not $other)"
   done <<< "$all_changed"

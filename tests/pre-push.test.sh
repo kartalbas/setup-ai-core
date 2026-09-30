@@ -225,6 +225,12 @@ check 'exit 0 for both in one push'    0 "$rc"
 commit 'tools/tidy.sh' "$(printf 'Tidy the sh spelling #9\n\nTwin: the fault is a bash quoting one')"
 out="$(only_new "$repo")"; rc=$?
 check 'exit 0 with the trailer'        0 "$rc"
+echo 'the Windows entry point is no twin: scripts/check.sh changed alone passes'
+printf '# the checks the push runs\n' >> "$repo/scripts/check.sh"
+git -C "$repo" add scripts/check.sh; git -C "$repo" commit -q -m 'Say what the checks run #9'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                         0 "$rc"
+git -C "$repo" reset -q --hard HEAD~1
 git -C "$repo" rm -q -r -- tools db src/app.js; git -C "$repo" commit -q -m 'Remove the probes #9'
 
 # --- what excuses a commit from naming an issue ----------------------------------------------

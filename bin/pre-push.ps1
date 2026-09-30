@@ -40,7 +40,11 @@ if ($Help -or $Rest -ccontains "-h" -or $Rest -ccontains "--help") {
   Write-Host "LICENSE files, and carries no 'No-issue: <who asked and why>' trailer; a team mode is"
   Write-Host "missing; a check.ps1 or build.ps1 differs from the one Windows entry point (lib/entry-point.ps1,"
   Write-Host "judged where scripts/check.sh exists); a file the push adds or changes starts with #! and is"
-  Write-Host "not executable; a new directory's name is invented where the families"
+  Write-Host "not executable; a subject is longer than 72 characters; a message carries an assistant's or a"
+  Write-Host "vendor's attribution; an added comment names an issue as (#<n>) or <repo>#<n>; an existing"
+  Write-Host "migrations/*.sql is changed or removed (a 'Migration: <why>' trailer allows it); one spelling"
+  Write-Host "of a script changes without the other where x.sh and x.ps1 both stand (a 'Twin: <why>' trailer"
+  Write-Host "allows it); a new directory's name is invented where the families"
   Write-Host "of the trees give it (a 'Naming: <why>' trailer keeps one); scripts/check.sh is red; or gitleaks"
   Write-Host "finds a credential in the pushed commits (where .gitleaks.toml exists). Merges are not judged; a deletion runs"
   Write-Host "no checks. Run from a prompt it judges the current branch against its upstream."
@@ -429,6 +433,84 @@ foreach ($path in $touched) {
 if ($modeless.Count -gt 0) {
   $list = ' ' + ($modeless -join ' ')
   Deny-Push "these files start with #! and are not executable, so running them by name fails and git skips a hook among them:$list. Set the bit and commit it: git update-index --chmod=+x$list"
+}
+
+# THE COMMIT MESSAGES (the commit rules). A subject is at most 72 characters, because the log, the
+# tracker and every list view cut a longer one and the rest is lost where it is read; and no
+# message carries an assistant's or a vendor's attribution, because the history names who answers
+# for a change, and a tool cannot.
+$long = @(); $attributed = @()
+foreach ($sha in $commits) {
+  $short = "$(& git log -1 --format=%h $sha)".Trim()
+  $subject = "$(& git log -1 --format=%s $sha)"
+  if ($subject.Length -gt 72) { $long += "  $short has $($subject.Length) characters: $subject" }
+  $message = (@(& git log -1 --format=%B $sha) -join "`n")
+  if ($message -imatch '(?m)^co-authored-by:.*(claude|codex|gemini|copilot|chatgpt|anthropic|openai)|generated (with|by) \[?(claude|codex|gemini|copilot|chatgpt)') { $attributed += $short }
+}
+if ($long.Count -gt 0) {
+  Deny-Push "these subjects are longer than 72 characters:`n$($long -join "`n")`n  Shorten each to one sentence of at most 72 that says what changed, with git commit --amend for the last commit or git rebase -i for an earlier one."
+}
+if ($attributed.Count -gt 0) {
+  Deny-Push "these commits carry an assistant's or a vendor's attribution: $($attributed -join ' '). Take the line out of the message (git commit --amend, or git rebase -i), because the history names who answers for a change."
+}
+
+# AN ISSUE NUMBER IS NEVER WRITTEN INTO A COMMENT (the comment rules): it sends the reader to a
+# tracker that moves on while the line stays. What the line needs is said in the comment, and the
+# issue is named in the commit message. Judged on the lines the push adds, in the two spellings a
+# number is written in, a hash and digits in brackets, and a repository's name, a hash and digits;
+# a number in code that is no comment is left alone.
+$numbered = @()
+foreach ($sha in $commits) {
+  $file = ''
+  foreach ($raw in @(& git -c core.quotePath=false show --format= --unified=0 --no-color $sha -- . ':!*.md' ':!*.json' ':!*.lock' ':!CHANGELOG*' 2>$null)) {
+    $l = "$raw"
+    if ($l.StartsWith('+++ ', [StringComparison]::Ordinal)) { $file = $l.Substring(6); continue }
+    if (-not $l.StartsWith('+', [StringComparison]::Ordinal)) { continue }
+    $line = $l.Substring(1)
+    # the comment is the whole line where it opens one, else what follows a trailing // or /*
+    $trailing = [regex]::Match($line, '[^:]//|/\*')
+    if ($line -cmatch '^\s*(#|\*|--|;|//|/\*|<!--)') { $comment = $line }
+    elseif ($trailing.Success) { $comment = $line.Substring($trailing.Index) }
+    else { continue }
+    if ($comment -cmatch '\(#[0-9]+\)|[A-Za-z0-9._-]+#[0-9]+') { $numbered += "  ${file}: $line" }
+  }
+}
+if ($numbered.Count -gt 0) {
+  Deny-Push "these added comments name an issue by its number:`n$($numbered -join "`n")`n  Say in the comment what the line needs, and name the issue in the commit message."
+}
+
+# A MIGRATION THAT REACHED A DATABASE IS NEVER CHANGED (the database rules): the schema moves
+# forward through a new migration. One that never left this machine may still change, and the
+# commit that changes it says so in a 'Migration: <why>' trailer.
+$migrated = @()
+foreach ($sha in $commits) {
+  if ("$(& git log -1 '--format=%(trailers:key=Migration,valueonly)' $sha)".Trim()) { continue }
+  $migrated += @(& git -c core.quotePath=false diff-tree --no-commit-id --root -r --name-only --diff-filter=MDR $sha 2>$null | ForEach-Object { "$_" } | Where-Object { $_ -cmatch '(^|/)migrations/[^/]+\.sql$' })
+}
+if ($migrated.Count -gt 0) {
+  Deny-Push "these migrations exist already and are changed or removed: $($migrated -join ' ')`n  Move the schema forward with a new migration. A migration that never reached a database may change in a commit with a 'Migration: <why>' trailer."
+}
+
+# THE TWO SPELLINGS OF A SCRIPT CHANGE TOGETHER (the harness rules): where x.sh and x.ps1 both stand,
+# they are one program, and a push that changes one of them changes the other. Where a fault lives in
+# one spelling alone, a commit of the push says so in a 'Twin: <why>' trailer.
+[string[]]$allChanged = @($commits | ForEach-Object { & git -c core.quotePath=false diff-tree --no-commit-id --root -r --name-only $_ 2>$null } | ForEach-Object { "$_" } | Where-Object { $_ } | Select-Object -Unique)
+[Array]::Sort($allChanged, [StringComparer]::Ordinal)
+$twinExcused = @($commits | Where-Object { "$(& git log -1 '--format=%(trailers:key=Twin,valueonly)' $_)".Trim() }).Count -gt 0
+$oneSided = @()
+if (-not $twinExcused) {
+  $treeSet = [System.Collections.Generic.HashSet[string]]::new([string[]]@(& git -c core.quotePath=false ls-tree -r --name-only $head 2>$null | ForEach-Object { "$_" }), [StringComparer]::Ordinal)
+  $changedSet = [System.Collections.Generic.HashSet[string]]::new($allChanged, [StringComparer]::Ordinal)
+  foreach ($path in $allChanged) {
+    if ($path.EndsWith('.sh', [StringComparison]::Ordinal)) { $other = $path.Substring(0, $path.Length - 3) + '.ps1' }
+    elseif ($path.EndsWith('.ps1', [StringComparison]::Ordinal)) { $other = $path.Substring(0, $path.Length - 4) + '.sh' }
+    else { continue }
+    if (-not ($treeSet.Contains($path) -and $treeSet.Contains($other))) { continue }
+    if (-not $changedSet.Contains($other)) { $oneSided += "$path (not $other)" }
+  }
+}
+if ($oneSided.Count -gt 0) {
+  Deny-Push "one spelling of a script changed without the other: $($oneSided -join ' ')`n  Change both in this push. Where the fault lives in one spelling alone, give a commit a 'Twin: <why>' trailer."
 }
 
 # THE NAMES A PUSH ADDS ARE DERIVED, NOT INVENTED (the naming rules). No list is kept: the

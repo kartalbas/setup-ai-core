@@ -155,6 +155,67 @@ OnlyNew $repo
 Check 'exit 0'                         0 $rc
 & git -C $repo rm -q -- tools/run.sh; & git -C $repo commit -q -m 'Remove the runner #7'
 
+# --- the commit messages, the comments, the migrations and the twins ----------------------------
+function Amend([string]$message) { $message | & git -C $repo commit -q --amend -F - }
+Write-Host 'a subject of 73 characters is refused and named; one of 72 passes'
+Commit 'src/thing.txt' (('A' * 70) + ' #7')
+OnlyNew $repo
+Check 'exit 1'                         1 $rc
+Check 'it counts the characters'       'True' (Says 'has 73 characters')
+Amend (('A' * 69) + ' #7')
+OnlyNew $repo
+Check 'exit 0'                         0 $rc
+Write-Host "an assistant's attribution is refused; a person as co-author passes"
+Commit 'src/thing.txt' "Tune the reader #7`n`nCo-Authored-By: Claude <noreply@anthropic.com>"
+OnlyNew $repo
+Check 'exit 1'                         1 $rc
+Check 'it says why'                    'True' (Says "an assistant's or a vendor's attribution")
+Amend "Tune the reader #7`n`nCo-Authored-By: Ada Lovelace <ada@example.invalid>"
+OnlyNew $repo
+Check 'exit 0'                         0 $rc
+Write-Host 'an added comment naming an issue as (#12) or <repo>#12 is refused; a number in code passes'
+$n = 12  # the number is put together, so this line is no comment naming an issue to the gate itself
+Write-Lf (Join-Path $repo 'src/app.js') "const a = 1; // read the board whole (#$n)`n"
+Write-Lf (Join-Path $repo 'src/app.py') "# see acme-shop#12 for the order`n"
+& git -C $repo add src/app.js src/app.py; & git -C $repo commit -q -m 'Read the board whole #12'
+OnlyNew $repo
+Check 'exit 1'                         1 $rc
+Check 'it names the (#12) line'        'True' (Says ([regex]::Escape("src/app.js: const a = 1; // read the board whole (#$n)")))
+Check 'it names the <repo>#12 line'    'True' (Says ([regex]::Escape('src/app.py: # see acme-shop#12 for the order')))
+& git -C $repo reset -q --hard HEAD~1
+Write-Lf (Join-Path $repo 'src/app.js') "const ref = `"acme-shop#12`"; // the order the board reads`n"
+& git -C $repo add src/app.js; & git -C $repo commit -q -m 'Read the board whole #12'
+OnlyNew $repo
+Check 'exit 0'                         0 $rc
+Write-Host "a migration added passes; changed later it is refused, and passes with a 'Migration:' trailer"
+Commit 'db/migrations/0001_init.sql' 'Add the first migration #8'
+OnlyNew $repo
+Check 'exit 0'                         0 $rc
+Commit 'db/migrations/0001_init.sql' 'Change the first migration #8'
+OnlyNew $repo
+Check 'exit 1'                         1 $rc
+Check 'it names the migration'         'True' (Says ([regex]::Escape('changed or removed: db/migrations/0001_init.sql')))
+Amend "Change the first migration #8`n`nMigration: it never left this machine"
+OnlyNew $repo
+Check 'exit 0'                         0 $rc
+Write-Host "one spelling of a script changed alone is refused; both pass, and so does a 'Twin:' trailer"
+New-Item -ItemType Directory -Force -Path (Join-Path $repo 'tools') | Out-Null
+Write-Lf (Join-Path $repo 'tools/tidy.sh') "echo one`n"; Write-Lf (Join-Path $repo 'tools/tidy.ps1') "Write-Host 'one'`n"
+& git -C $repo add tools; & git -C $repo commit -q -m 'Add the tidy twins #9'
+OnlyNew $repo
+Check 'exit 0 for both added'          0 $rc
+Commit 'tools/tidy.sh' 'Tidy the sh spelling #9'
+OnlyNew $repo
+Check 'exit 1'                         1 $rc
+Check 'it names the other spelling'    'True' (Says ([regex]::Escape('tools/tidy.sh (not tools/tidy.ps1)')))
+Commit 'tools/tidy.ps1' 'Tidy the ps1 spelling #9'
+Judge $repo (Sha $repo HEAD) (Sha $repo HEAD~2)
+Check 'exit 0 for both in one push'    0 $rc
+Commit 'tools/tidy.sh' "Tidy the sh spelling #9`n`nTwin: the fault is a bash quoting one"
+OnlyNew $repo
+Check 'exit 0 with the trailer'        0 $rc
+& git -C $repo rm -q -r -- tools db src/app.js; & git -C $repo commit -q -m 'Remove the probes #9'
+
 Write-Host 'a commit naming its issue anywhere in the message passes'
 Commit 'src/thing.txt' "Read the install order from one file`n`nIt closes #163."
 OnlyNew $repo

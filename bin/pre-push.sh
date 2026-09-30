@@ -36,7 +36,11 @@ for arg in "$@"; do
     echo "LICENSE files, and carries no 'No-issue: <who asked and why>' trailer; a team mode is"
     echo "missing; a check.ps1 or build.ps1 differs from the one Windows entry point (lib/entry-point.ps1,"
     echo "judged where scripts/check.sh exists); a file the push adds or changes starts with #! and is"
-    echo "not executable; a new directory's name is invented where the families"
+    echo "not executable; a subject is longer than 72 characters; a message carries an assistant's or a"
+    echo "vendor's attribution; an added comment names an issue as (#<n>) or <repo>#<n>; an existing"
+    echo "migrations/*.sql is changed or removed (a 'Migration: <why>' trailer allows it); one spelling"
+    echo "of a script changes without the other where x.sh and x.ps1 both stand (a 'Twin: <why>' trailer"
+    echo "allows it); a new directory's name is invented where the families"
     echo "of the trees give it (a 'Naming: <why>' trailer keeps one); scripts/check.sh is red; or gitleaks"
     echo "finds a credential in the pushed commits (where .gitleaks.toml exists). Merges are not judged; a deletion runs"
     echo "no checks. Run from a terminal it judges the current branch against its upstream."
@@ -410,6 +414,85 @@ while IFS= read -r path; do
   modeless="$modeless $path"
 done < <(while IFS= read -r sha; do [ -z "$sha" ] || git diff-tree --no-commit-id --root -r --name-only --diff-filter=AMR "$sha"; done <<< "$commits" | sort -u)
 [ -z "$modeless" ] || refuse "these files start with #! and are not executable, so running them by name fails and git skips a hook among them:$modeless. Set the bit and commit it: git update-index --chmod=+x$modeless"
+
+# THE COMMIT MESSAGES (the commit rules). A subject is at most 72 characters, because the log, the
+# tracker and every list view cut a longer one and the rest is lost where it is read; and no
+# message carries an assistant's or a vendor's attribution, because the history names who answers
+# for a change, and a tool cannot. Each message is read whole before it is searched.
+long=""; attributed=""
+while IFS= read -r sha; do
+  [ -n "$sha" ] || continue
+  subject="$(git log -1 --format=%s "$sha")"
+  [ "${#subject}" -le 72 ] || long="$long
+  $(git log -1 --format=%h "$sha") has ${#subject} characters: $subject"
+  message="$(git log -1 --format=%B "$sha")"
+  if grep -qiE '^co-authored-by:.*(claude|codex|gemini|copilot|chatgpt|anthropic|openai)|generated (with|by) \[?(claude|codex|gemini|copilot|chatgpt)' <<< "$message"; then
+    attributed="$attributed $(git log -1 --format=%h "$sha")"
+  fi
+done <<< "$commits"
+[ -z "$long" ] || refuse "these subjects are longer than 72 characters:$long
+  Shorten each to one sentence of at most 72 that says what changed, with git commit --amend for the last commit or git rebase -i for an earlier one."
+[ -z "$attributed" ] || refuse "these commits carry an assistant's or a vendor's attribution:$attributed. Take the line out of the message (git commit --amend, or git rebase -i), because the history names who answers for a change."
+
+# AN ISSUE NUMBER IS NEVER WRITTEN INTO A COMMENT (the comment rules): it sends the reader to a
+# tracker that moves on while the line stays. What the line needs is said in the comment, and the
+# issue is named in the commit message. Judged on the lines the push adds, in the two spellings a
+# number is written in, a hash and digits in brackets, and a repository's name, a hash and digits;
+# a number in code that is no comment is left alone.
+numbered=""
+while IFS= read -r sha; do
+  [ -n "$sha" ] || continue
+  added="$(git show --format= --unified=0 --no-color "$sha" -- . ':!*.md' ':!*.json' ':!*.lock' ':!CHANGELOG*' 2>/dev/null || true)"
+  hits="$(awk '
+    /^\+\+\+ / { file = substr($0, 7); next }
+    /^\+/ {
+      line = substr($0, 2)
+      # the comment is the whole line where it opens one, else what follows a trailing // or /*
+      if (line ~ /^[[:space:]]*(#|\*|--|;|\/\/|\/\*|<!--)/) comment = line
+      else if (match(line, /[^:]\/\/|\/\*/)) comment = substr(line, RSTART)
+      else next
+      if (comment ~ /\(#[0-9]+\)|[A-Za-z0-9._-]+#[0-9]+/) print "  " file ": " line
+    }' <<< "$added")"
+  [ -z "$hits" ] || numbered="$numbered
+$hits"
+done <<< "$commits"
+[ -z "$numbered" ] || refuse "these added comments name an issue by its number:$numbered
+  Say in the comment what the line needs, and name the issue in the commit message."
+
+# A MIGRATION THAT REACHED A DATABASE IS NEVER CHANGED (the database rules): the schema moves
+# forward through a new migration. One that never left this machine may still change, and the
+# commit that changes it says so in a 'Migration: <why>' trailer.
+migrated=""
+while IFS= read -r sha; do
+  [ -n "$sha" ] || continue
+  [ -z "$(git log -1 --format='%(trailers:key=Migration,valueonly)' "$sha" | tr -d '[:space:]')" ] || continue
+  changed="$(git diff-tree --no-commit-id --root -r --name-only --diff-filter=MDR "$sha" 2>/dev/null || true)"
+  hits="$(grep -E '(^|/)migrations/[^/]+\.sql$' <<< "$changed" || true)"
+  while IFS= read -r f; do [ -z "$f" ] || migrated="$migrated $f"; done <<< "$hits"
+done <<< "$commits"
+[ -z "$migrated" ] || refuse "these migrations exist already and are changed or removed:$migrated
+  Move the schema forward with a new migration. A migration that never reached a database may change in a commit with a 'Migration: <why>' trailer."
+
+# THE TWO SPELLINGS OF A SCRIPT CHANGE TOGETHER (the harness rules): where x.sh and x.ps1 both stand,
+# they are one program, and a push that changes one of them changes the other. Where a fault lives in
+# one spelling alone, a commit of the push says so in a 'Twin: <why>' trailer.
+all_changed="$(while IFS= read -r sha; do [ -z "$sha" ] || git diff-tree --no-commit-id --root -r --name-only "$sha"; done <<< "$commits" | LC_ALL=C sort -u)"
+twin_excused=0
+while IFS= read -r sha; do
+  [ -n "$sha" ] || continue
+  [ -z "$(git log -1 --format='%(trailers:key=Twin,valueonly)' "$sha" | tr -d '[:space:]')" ] || twin_excused=1
+done <<< "$commits"
+one_sided=""
+if [ "$twin_excused" -eq 0 ]; then
+  tree_files="$(git ls-tree -r --name-only "$head" 2>/dev/null || true)"
+  while IFS= read -r path; do
+    case "$path" in *.sh) other="${path%.sh}.ps1" ;; *.ps1) other="${path%.ps1}.sh" ;; *) continue ;; esac
+    { grep -qxF -- "$path" <<< "$tree_files" && grep -qxF -- "$other" <<< "$tree_files"; } || continue
+    grep -qxF -- "$other" <<< "$all_changed" || one_sided="$one_sided $path (not $other)"
+  done <<< "$all_changed"
+fi
+[ -z "$one_sided" ] || refuse "one spelling of a script changed without the other:$one_sided
+  Change both in this push. Where the fault lives in one spelling alone, give a commit a 'Twin: <why>' trailer."
 
 # THE NAMES A PUSH ADDS ARE DERIVED, NOT INVENTED (the naming rules). No list is kept: the
 # families are read from the trees themselves. Two things are held against every new directory:

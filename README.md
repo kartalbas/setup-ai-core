@@ -656,7 +656,21 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    `lib/entry-point.ps1`: the file that starts the `.sh` of its own name and decides nothing. A
    copy that prints the verdict and exits 0 would tell the person the checks passed while nothing
    ran, and no other step can see that.
-5. **The names of new directories are derived, not invented**, read from the families the trees
+5. **A pushed file that starts with `#!` carries the executable bit**, because it is run by its
+   name and git skips a hook without it; the refusal names the `git update-index --chmod=+x` to run.
+6. **Every subject is at most 72 characters, and no message carries an assistant's or a vendor's
+   attribution** (a `Co-Authored-By:` or `Generated with` line naming one); a person as co-author
+   passes. Neither has an excuse.
+7. **No added comment names an issue by its number**, `(#<n>)` or `<repo>#<n>`, judged on the
+   comment part of the lines the push adds, Markdown, JSON and lock files left out; the issue is
+   named in the commit message instead. A number in code that is no comment passes.
+8. **A migration that exists is not changed or removed**: a `migrations/*.sql` the push modifies,
+   renames or deletes is refused, a new one passes. A commit with a `Migration: <why>` trailer may
+   change one that never reached a database.
+9. **Both spellings of a script change together**: where `x.sh` and `x.ps1` both stand, a push
+   that changes one changes the other. A commit of the push with a `Twin: <why>` trailer excuses a
+   fault that lives in one spelling alone.
+10. **The names of new directories are derived, not invented**, read from the families the trees
    already carry, with no list kept anywhere. A new `<a>` beside `<a>-<x>`, or the reverse, names
    one member of a family and leaves the other unnamed. A new `<owner>-<x>`, in a directory that
    mirrors the repositories of the project folder (two or more entries carry a repository's name),
@@ -664,9 +678,9 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    owner word is its name after the project prefix, and a word that is a top-level directory in
    two or more repositories is a word of structure and names no repository. A commit with a
    `Naming: <why>` trailer keeps the names it adds.
-6. **`scripts/check.sh` is green**, run in the tree being pushed; a repository without one is told
+11. **`scripts/check.sh` is green**, run in the tree being pushed; a repository without one is told
    so and passes on.
-7. **gitleaks over the commits the push carries**, in a repository that carries `.gitleaks.toml`;
+12. **gitleaks over the commits the push carries**, in a repository that carries `.gitleaks.toml`;
    the commits are the only place a credential taken out again still stands. It runs
    `gitleaks git`, which came with gitleaks 8.19; without such a gitleaks the push is refused and
    `ai-core doctor` named, which installs it. `--install` writes nothing into such a repository

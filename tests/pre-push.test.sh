@@ -167,6 +167,66 @@ out="$(only_new "$repo")"; rc=$?
 check 'exit 0'                         0 "$rc"
 git -C "$repo" rm -q -- tools/run.sh; git -C "$repo" commit -q -m 'Remove the runner #7'
 
+# --- the commit messages, the comments, the migrations and the twins ----------------------------
+yesno() { grep -qF -- "$1" <<< "$out" && echo yes || echo no; }
+echo 'a subject of 73 characters is refused and named; one of 72 passes'
+commit 'src/thing.txt' "$(printf 'A%.0s' {1..70}) #7"
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'it counts the characters'       yes "$(yesno 'has 73 characters')"
+git -C "$repo" commit -q --amend -m "$(printf 'A%.0s' {1..69}) #7"
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                         0 "$rc"
+echo "an assistant's attribution is refused; a person as co-author passes"
+commit 'src/thing.txt' "$(printf 'Tune the reader #7\n\nCo-Authored-By: Claude <noreply@anthropic.com>')"
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'it says why'                    yes "$(yesno "an assistant's or a vendor's attribution")"
+git -C "$repo" commit -q --amend -m "$(printf 'Tune the reader #7\n\nCo-Authored-By: Ada Lovelace <ada@example.invalid>')"
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                         0 "$rc"
+echo 'an added comment naming an issue as (#12) or <repo>#12 is refused; a number in code passes'
+n=12  # the number is put together, so this line is no comment naming an issue to the gate itself
+printf 'const a = 1; // read the board whole (#%s)\n' "$n" > "$repo/src/app.js"
+printf '# see acme-shop#12 for the order\n' > "$repo/src/app.py"
+git -C "$repo" add src/app.js src/app.py; git -C "$repo" commit -q -m 'Read the board whole #12'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'it names the (#12) line'        yes "$(yesno "src/app.js: const a = 1; // read the board whole (#$n)")"
+check 'it names the <repo>#12 line'    yes "$(yesno 'src/app.py: # see acme-shop#12 for the order')"
+git -C "$repo" reset -q --hard HEAD~1
+printf 'const ref = "acme-shop#12"; // the order the board reads\n' > "$repo/src/app.js"
+git -C "$repo" add src/app.js; git -C "$repo" commit -q -m 'Read the board whole #12'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                         0 "$rc"
+echo "a migration added passes; changed later it is refused, and passes with a 'Migration:' trailer"
+commit 'db/migrations/0001_init.sql' 'Add the first migration #8'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                         0 "$rc"
+commit 'db/migrations/0001_init.sql' 'Change the first migration #8'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'it names the migration'         yes "$(yesno 'changed or removed: db/migrations/0001_init.sql')"
+git -C "$repo" commit -q --amend -m "$(printf 'Change the first migration #8\n\nMigration: it never left this machine')"
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                         0 "$rc"
+echo "one spelling of a script changed alone is refused; both pass, and so does a 'Twin:' trailer"
+mkdir -p "$repo/tools"; printf 'echo one\n' > "$repo/tools/tidy.sh"; printf "Write-Host 'one'\n" > "$repo/tools/tidy.ps1"
+git -C "$repo" add tools; git -C "$repo" commit -q -m 'Add the tidy twins #9'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0 for both added'          0 "$rc"
+commit 'tools/tidy.sh' 'Tidy the sh spelling #9'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'it names the other spelling'    yes "$(yesno 'tools/tidy.sh (not tools/tidy.ps1)')"
+commit 'tools/tidy.ps1' 'Tidy the ps1 spelling #9'
+out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$(git -C "$repo" rev-parse HEAD~2)")"; rc=$?
+check 'exit 0 for both in one push'    0 "$rc"
+commit 'tools/tidy.sh' "$(printf 'Tidy the sh spelling #9\n\nTwin: the fault is a bash quoting one')"
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0 with the trailer'        0 "$rc"
+git -C "$repo" rm -q -r -- tools db src/app.js; git -C "$repo" commit -q -m 'Remove the probes #9'
+
 # --- what excuses a commit from naming an issue ----------------------------------------------
 echo 'a commit naming its issue anywhere in the message passes'
 commit 'src/thing.txt' 'Read the install order from one file

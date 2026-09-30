@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# A new worktree starts with the harness: git runs this file after `git worktree add` and after every checkout; where .ai-core/ is missing, `ai-core init` (setup-ai-core) writes it.
+[ "${3:-0}" = 1 ] && [ ! -d .ai-core ] || exit 0
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
+command -v ai-core >/dev/null 2>&1 || { echo "post-checkout: ai-core is not on the PATH of this shell, so this worktree has no harness yet; run ai-core init here before you start" >&2; exit 0; }
+ai-core init --no-doctor || echo "post-checkout: the harness is NOT complete in this worktree (see above); run ai-core init here before you start" >&2

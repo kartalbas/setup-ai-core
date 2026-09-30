@@ -337,7 +337,11 @@ foreach ($line in ($inputText -split "`r?`n")) {
       & git merge-base --is-ancestor $remoteSha $localCommit 2>$null
       if ($LASTEXITCODE -ne 0) { Deny-Push "the push to $default is not a fast-forward: it would drop commits the remote has. Fetch, rebase onto origin/$default and push again; a force push to the default branch is refused." }
     }
-    $range = "$remoteSha..$localCommit"
+    # What the remote carries on ANY ref is published already. A branch that merged the default
+    # branch brings every commit the default branch gained since the fork; judging those again
+    # holds commits other flows wrote to today's rules, and the branch could only catch up by a
+    # rebase and a force push.
+    $range = "$localCommit ^$remoteSha --not --remotes=origin"
   }
   $commits += @(& git rev-list --no-merges @($range -split ' ') 2>$null | ForEach-Object { "$_" } | Where-Object { $_ })
   $scanRanges += $range

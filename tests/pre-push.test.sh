@@ -233,6 +233,31 @@ check 'exit 0'                         0 "$rc"
 git -C "$repo" reset -q --hard HEAD~1
 git -C "$repo" rm -q -r -- tools db src/app.js; git -C "$repo" commit -q -m 'Remove the probes #9'
 
+# --- a branch that merges the default branch -------------------------------------------------
+echo 'a branch that merges the default branch is judged on what it adds, not on what the default branch published'
+base="$(git -C "$repo" rev-parse HEAD)"
+git -C "$repo" checkout -q -b issue-11-catch-up
+commit 'src/branch.txt' 'Start the branch work #11'
+branch_tip="$(git -C "$repo" rev-parse HEAD)"
+git -C "$repo" update-ref refs/remotes/origin/issue-11-catch-up "$branch_tip"   # the branch is on the remote
+git -C "$repo" checkout -q master
+commit 'src/elsewhere.txt' 'A commit another flow wrote on the default branch'   # names no issue
+git -C "$repo" update-ref refs/remotes/origin/master HEAD                        # and is published
+git -C "$repo" checkout -q issue-11-catch-up
+git -C "$repo" merge -q --no-edit -m 'Catch up with master #11' master
+push_branch() { printf 'refs/heads/issue-11-catch-up %s refs/heads/issue-11-catch-up %s\n' "$(git -C "$repo" rev-parse HEAD)" "$branch_tip" \
+  | ( cd "$repo" && bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1 ); }
+out="$(push_branch)"; rc=$?
+check 'exit 0'                         0 "$rc"
+echo 'a new commit on that branch that names no issue is still refused'
+commit 'src/branch.txt' 'More branch work'
+out="$(push_branch)"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'it names that commit'           yes "$(grep -qF "$(git -C "$repo" rev-parse --short HEAD) More branch work" <<< "$out" && echo yes || echo no)"
+check 'and not the published one'      no "$(grep -qF 'A commit another flow wrote' <<< "$out" && echo yes || echo no)"
+git -C "$repo" checkout -q master; git -C "$repo" reset -q --hard "$base"; git -C "$repo" branch -q -D issue-11-catch-up
+git -C "$repo" update-ref -d refs/remotes/origin/master; git -C "$repo" update-ref -d refs/remotes/origin/issue-11-catch-up
+
 # --- what excuses a commit from naming an issue ----------------------------------------------
 echo 'a commit naming its issue anywhere in the message passes'
 commit 'src/thing.txt' 'Read the install order from one file
@@ -351,7 +376,7 @@ out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$before")"; rc=$?
 check 'exit 0'                    0 "$rc"
 # Only the range is compared: the tree is named the way the operating system writes a path,
 # which on Windows is not the form this shell writes.
-check 'gitleaks read that range'  "git --no-banner --log-opts=$before..$(git -C "$repo" rev-parse HEAD)" \
+check 'gitleaks read that range'  "git --no-banner --log-opts=$(git -C "$repo" rev-parse HEAD) ^$before --not --remotes=origin" \
   "$(sed 's/^\[//; s/ [^ ]*$//' "$leaks_args")"
 
 echo 'a credential in a pushed commit refuses, and says it cannot be recalled'

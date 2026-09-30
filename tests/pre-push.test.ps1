@@ -222,6 +222,34 @@ Check 'exit 0'                         0 $rc
 & git -C $repo reset -q --hard HEAD~1
 & git -C $repo rm -q -r -- tools db src/app.js; & git -C $repo commit -q -m 'Remove the probes #9'
 
+# --- a branch that merges the default branch -------------------------------------------------
+Write-Host 'a branch that merges the default branch is judged on what it adds, not on what the default branch published'
+$base = Sha $repo HEAD
+& git -C $repo checkout -q -b issue-11-catch-up
+Commit 'src/branch.txt' 'Start the branch work #11'
+$branchTip = Sha $repo HEAD
+& git -C $repo update-ref refs/remotes/origin/issue-11-catch-up $branchTip   # the branch is on the remote
+& git -C $repo checkout -q master
+Commit 'src/elsewhere.txt' 'A commit another flow wrote on the default branch'   # names no issue
+& git -C $repo update-ref refs/remotes/origin/master HEAD                       # and is published
+& git -C $repo checkout -q issue-11-catch-up
+& git -C $repo merge -q --no-edit -m 'Catch up with master #11' master
+function PushBranch {
+  Push-Location $repo
+  try { $script:out = ("refs/heads/issue-11-catch-up $(Sha $repo HEAD) refs/heads/issue-11-catch-up $branchTip" | & pwsh -NoProfile -File $gate origin 'https://example.invalid/x.git' 2>&1 | Out-String); $script:rc = $LASTEXITCODE }
+  finally { Pop-Location }
+}
+PushBranch
+Check 'exit 0'                         0 $rc
+Write-Host 'a new commit on that branch that names no issue is still refused'
+Commit 'src/branch.txt' 'More branch work'
+PushBranch
+Check 'exit 1'                         1 $rc
+Check 'it names that commit'           'True'  (Says ([regex]::Escape("$(& git -C $repo rev-parse --short HEAD) More branch work")))
+Check 'and not the published one'      'False' (Says 'A commit another flow wrote')
+& git -C $repo checkout -q master; & git -C $repo reset -q --hard $base; & git -C $repo branch -q -D issue-11-catch-up
+& git -C $repo update-ref -d refs/remotes/origin/master; & git -C $repo update-ref -d refs/remotes/origin/issue-11-catch-up
+
 Write-Host 'a commit naming its issue anywhere in the message passes'
 Commit 'src/thing.txt' "Read the install order from one file`n`nIt closes #163."
 OnlyNew $repo
@@ -316,7 +344,7 @@ $before = Sha $repo 'HEAD~1'
 Judge $repo (Sha $repo HEAD) $before
 Check 'exit 0'                    0 $rc
 $leaks = @(Get-Content $leaksArgs | Where-Object { $_ })[-1]
-Check 'gitleaks read that range'  'True' ($leaks -clike "git --no-banner --log-opts=$before..$(Sha $repo HEAD) *")
+Check 'gitleaks read that range'  'True' ($leaks -clike "git --no-banner --log-opts=$(Sha $repo HEAD) ^$before --not --remotes=origin *")
 
 Write-Host 'a credential in a pushed commit refuses, and says it cannot be recalled'
 $env:PROBE_LEAKS = 'red'

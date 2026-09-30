@@ -648,8 +648,9 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    explanation needs no ticket); or it carries a trailer `No-issue: <who asked and why>`, read the
    way git reads a trailer, so an empty one and the two words inside a sentence do not count.
    Merges are not judged, a deletion runs nothing, and what is judged is exactly what the remote
-   does not have yet (`<remote sha>..<local sha>`; a ref the remote lacks is measured against every
-   remote ref, so a tag introduces nothing).
+   does not have yet: the local commit without the remote sha and without every ref of origin
+   this clone knows, so a branch that merged the default branch is judged on its own commits, not
+   on those the default branch published, and a tag introduces nothing.
 3. **The team modes are installed** (`ai-core team-modes-check`, section 4.6).
 4. **Every Windows entry point is the one text.** Where the checks are written in
    `scripts/check.sh`, a `check.ps1` or `build.ps1` anywhere in the tree must equal

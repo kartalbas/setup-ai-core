@@ -317,7 +317,11 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     # history everybody else builds on, so it is refused, whatever tool or person forced it.
     [ "$remote_ref" != "refs/heads/$default" ] || git merge-base --is-ancestor "$remote_sha" "$local_commit" \
       || refuse "the push to $default is not a fast-forward: it would drop commits the remote has. Fetch, rebase onto origin/$default and push again; a force push to the default branch is refused."
-    range="$remote_sha..$local_commit"
+    # What the remote carries on ANY ref is published already. A branch that merged the default
+    # branch brings every commit the default branch gained since the fork; judging those again
+    # holds commits other flows wrote to today's rules, and the branch could only catch up by a
+    # rebase and a force push.
+    range="$local_commit ^$remote_sha --not --remotes=origin"
   fi
   commits="$commits$(git rev-list --no-merges $range)"$'\n'
   scan_ranges="$scan_ranges$range"$'\n'

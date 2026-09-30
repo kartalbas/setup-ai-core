@@ -21,6 +21,7 @@ echo "\$*" >> "$log"
 case "\$*" in
   *n=example-harness*projectsV2*) exit 0 ;;
   *projectsV2*)                   printf '9\tBoard Nine\n'; exit 0 ;;
+  *issue*create*area:missing*)    echo "could not add label: 'area:missing' not found" >&2; exit 1 ;;
   *issue*create*)                 printf 'https://github.com/example-org/example-harness/issues/999\n'; exit 0 ;;
   *projectItems*)                 exit 0 ;;
   *addProjectV2ItemById*)         echo 'PVTI_new'; exit 0 ;;
@@ -79,6 +80,12 @@ echo 'without the flag, a repository on no board is still refused'
 new "$harness" --label type:feature --label area:tooling --priority P2; rc=$?
 check 'exit 1'                    1 "$rc"
 check 'nothing filed'             no "$(called 'issue create')"
+
+echo 'a create gh refuses over a label the repository lacks: nothing filed, and labels-sync named'
+new "$harness" --label type:feature --label area:missing --no-board; rc=$?
+check 'exit 1'                    1 "$rc"
+check "gh's reason stays"         yes "$(grep -q "could not add label: 'area:missing' not found" <<< "$out" && echo yes || echo no)"
+check 'it names the command'      yes "$(grep -q 'the issue was NOT created in example-org/example-harness - gh exited 1, .* run: ai-core labels-sync example-org/example-harness' <<< "$out" && echo yes || echo no)"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

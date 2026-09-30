@@ -18,6 +18,7 @@ $log = Join-Path $fake 'calls.txt'
 Add-Content -Path '$log' -Value `$a
 if (`$a -match 'n=example-harness.*projectsV2') { exit 0 }
 if (`$a -match 'projectsV2') { "9``tBoard Nine"; exit 0 }
+if (`$a -match 'issue create.*area:missing') { [Console]::Error.WriteLine("could not add label: 'area:missing' not found"); exit 1 }
 if (`$a -match 'issue create') { 'https://github.com/example-org/example-harness/issues/999'; exit 0 }
 if (`$a -match 'projectItems') { exit 0 }
 if (`$a -match 'addProjectV2ItemById') { 'PVTI_new'; exit 0 }
@@ -85,6 +86,11 @@ Write-Host 'without the flag, a repository on no board is still refused'
 $ran = New-Issue $harness @{ Priority = 'P2' }
 Check 'refused'                   'False' ([string]$ran)
 Check 'nothing filed'             'False' (Called 'issue create')
+
+Write-Host 'a create gh refuses over a label the repository lacks: nothing filed, and labels-sync named'
+$ran = New-Issue $harness @{ NoBoard = $true; Label = @('type:feature', 'area:missing') }
+Check 'refused'                   'False' ([string]$ran)
+Check 'it names the command'      'True' ([bool]($said -cmatch 'the issue was NOT created in example-org/example-harness - gh exited 1, .* run: ai-core labels-sync example-org/example-harness'))
 
 Remove-Item -Recurse -Force $fake -ErrorAction SilentlyContinue
 if ($failed -gt 0) { Write-Host "`n$failed failed"; exit 1 }

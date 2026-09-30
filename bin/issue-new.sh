@@ -111,7 +111,10 @@ fi
 args=(--repo "$repo" --title "$title" --body-file "$sent" --assignee "$assignee")
 for l in "${labels[@]}"; do args+=(--label "$l"); done
 
-url="$(gh_read "the new issue in $repo" issue create "${args[@]}")" || exit 1
+# A create that fails is no read problem: gh names why on stderr, most often a label of labels.tsv
+# that labels-sync has not yet made in this repository, and nothing was created.
+rc=0; url="$(gh issue create "${args[@]}")" || rc=$?
+[ "$rc" -eq 0 ] || die "the issue was NOT created in $repo - gh exited $rc, for the reason it wrote above. Where that is a label the repository does not have, run: ai-core labels-sync $repo"
 num="${url##*/}"
 
 if [ -n "$no_board" ]; then

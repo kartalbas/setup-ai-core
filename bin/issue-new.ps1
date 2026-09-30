@@ -96,7 +96,10 @@ Write-TitleReport -Title $Title
 $args = @('issue','create','--repo',$Repo,'--title',$Title,'--body-file',$sent,'--assignee',$Assignee)
 foreach ($l in $Label) { $args += @('--label', $l) }
 
-$url = Invoke-Gh @args
+# A create that fails is no read problem: gh names why on stderr, most often a label of labels.tsv
+# that labels-sync has not yet made in this repository, and nothing was created.
+try { $url = Invoke-Gh @args }
+catch { Stop-WithError "the issue was NOT created in $Repo - gh exited $LASTEXITCODE, for the reason it wrote above. Where that is a label the repository does not have, run: ai-core labels-sync $Repo" }
 $num = [int]($url -split '/')[-1]
 
 if ($NoBoard) { Write-Host "#$num -> on no board: $Repo is linked to none" }

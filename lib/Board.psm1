@@ -463,8 +463,12 @@ function Get-CacheRoot {
 # A board of the organisation (Get-Org) caches under its number; a board of another organisation
 # under that organisation's name and its number - the twin of cache_dir in lib/board.sh.
 function Get-CacheDir {
+  # Where the caller's organisation is not known, outside a checkout and without GH_ORG, the board's
+  # own organisation stands in for it: the command named it with its repository, and asking Get-Org
+  # only threw and cached the board somewhere a checkout of that organisation does not.
   [CmdletBinding()] param()
-  if ((Get-ProjectOrg) -eq (Get-Org)) { Join-Path (Get-CacheRoot) "$(Get-ProjectNumber)" }
+  try { $caller = Get-Org } catch { $caller = Get-ProjectOrg }
+  if ((Get-ProjectOrg) -eq $caller) { Join-Path (Get-CacheRoot) "$(Get-ProjectNumber)" }
   else { Join-Path (Get-CacheRoot) "$(Get-ProjectOrg)/$(Get-ProjectNumber)" }
 }
 

@@ -17,7 +17,7 @@ $log = Join-Path $fake 'calls.txt'
 `$a = (`$args -join ' ') -replace '\r?\n', ' '
 Add-Content -Path '$log' -Value `$a
 if (`$a -match 'projectV2\(number') { 'PVT_kworgtest'; exit 0 }
-if (`$args[0] -eq 'repo') { 'other-org/example-repo'; exit 0 }
+if (`$args[0] -eq 'repo') { if (`$env:NO_REPO) { exit 1 }; 'other-org/example-repo'; exit 0 }
 '{}'
 exit 0
 "@ | Set-Content -Path (Join-Path $fake 'gh.ps1') -Encoding utf8NoBOM
@@ -57,6 +57,17 @@ Check 'the id is asked of example-org' 'org=example-org' (OrgAsked)
 Check 'and a board of GH_ORG caches under its number alone, as it always has' (Join-Path $env:GH_CACHE_DIRECTORY '999978') (Get-CacheDir)
 
 Write-Host ''
+Write-Host 'outside a checkout and without GH_ORG, a board of the named repository caches as a checkout of its organisation does, and nothing is said'
+$keptOrg = $env:GH_ORG; $env:GH_ORG = $null; $env:NO_REPO = '1'
+Push-Location $fake
+try {
+  Set-Project -Number '999977' -Repo 'example-org/example-repo' | Out-Null
+  $dir = ''; $said = ''
+  try { $dir = Get-CacheDir } catch { $said = $_.Exception.Message }
+} finally { Pop-Location; $env:GH_ORG = $keptOrg; $env:NO_REPO = $null }
+Check 'under the number alone' (Join-Path $env:GH_CACHE_DIRECTORY '999977') $dir
+Check 'and nothing is thrown' '' $said
+
 Write-Host 'a command that names no repository falls back to GH_ORG'
 Fresh
 Set-Project -Number '999977' | Out-Null

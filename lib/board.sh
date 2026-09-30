@@ -427,8 +427,13 @@ cache_root() { echo "${GH_CACHE_DIRECTORY:-$(data_dir)/.cache}"; }
 # A board of the organisation (gh_org) caches under its number; a board of another organisation
 # under that organisation's name and its number, so board 1 of one never answers for board 1 of
 # the other.
+# Where the caller's organisation is not known, outside a checkout and without GH_ORG, the board's
+# own organisation stands in for it: the command named it with its repository, and asking gh_org
+# only printed an error and cached the board somewhere a checkout of that organisation does not.
 cache_dir() {
-  if [ "$(project_org)" = "$(gh_org)" ]; then echo "$(cache_root)/$(project_number)"
+  local caller
+  caller="$(gh_org 2>/dev/null)" || caller="$(project_org)"
+  if [ "$(project_org)" = "$caller" ]; then echo "$(cache_root)/$(project_number)"
   else echo "$(cache_root)/$(project_org)/$(project_number)"; fi
 }
 

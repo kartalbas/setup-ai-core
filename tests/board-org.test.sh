@@ -27,7 +27,7 @@ case "\$line" in
   *"issues/3"*)         echo 'I_node3'; exit 0 ;;
   *projectItems*)       exit 0 ;;
 esac
-if [ "\$1" = "repo" ]; then echo 'other-org/example-repo'; exit 0; fi
+if [ "\$1" = "repo" ]; then [ -z "\${NO_REPO:-}" ] || exit 1; echo 'other-org/example-repo'; exit 0; fi
 echo '{}'
 exit 0
 EOF
@@ -62,6 +62,11 @@ check 'for the number after the slash' 'num=999978'    "$(num_asked)"
 check 'and a board of GH_ORG caches under its number alone, as it always has' "$GH_CACHE_DIRECTORY/999978" "$(cache_dir_of example-org/999978 other-org/example-repo)"
 
 echo
+echo 'outside a checkout and without GH_ORG, a board of the named repository caches as a checkout of its organisation does, and nothing is said'
+dir="$(cd "$FAKE" && env -u GH_ORG NO_REPO=1 bash -c '. "$1/lib/board.sh"; set_project 999977 example-org/example-repo >/dev/null; cache_dir' _ "$ROOT" 2>"$FAKE/said.txt")"
+check 'under the number alone' "$GH_CACHE_DIRECTORY/999977" "$dir"
+check 'and stderr is empty' '' "$(cat "$FAKE/said.txt")"
+
 echo 'a command that names no repository falls back to GH_ORG'
 : > "$LOG"; rm -rf "$GH_CACHE_DIRECTORY"
 bash "$ROOT/bin/board-list.sh" --project 999977 >/dev/null 2>&1 || true

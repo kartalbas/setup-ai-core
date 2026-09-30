@@ -343,7 +343,8 @@ Commit '.gitleaks.toml' 'Arm the credential scan of the probe #15'
 $before = Sha $repo 'HEAD~1'
 Judge $repo (Sha $repo HEAD) $before
 Check 'exit 0'                    0 $rc
-$leaks = @(Get-Content $leaksArgs | Where-Object { $_ })[-1]
+# The cmd stand-in writes its arguments with echo %*, which keeps the quotes around one with spaces
+$leaks = @(Get-Content $leaksArgs | Where-Object { $_ })[-1] -creplace '"', ''
 Check 'gitleaks read that range'  'True' ($leaks -clike "git --no-banner --log-opts=$(Sha $repo HEAD) ^$before --not --remotes=origin *")
 
 Write-Host 'a credential in a pushed commit refuses, and says it cannot be recalled'

@@ -130,8 +130,10 @@ catch { Stop-WithError "the issue could not be read: $($_.Exception.Message)" }
 $thread = $raw | ConvertFrom-Json -DateKind String
 if ("$($thread.state)".ToLowerInvariant() -ceq 'closed') {
   'the issue is closed already - its card stays where closing put it'
+} elseif (Test-OnNoBoard -Repo ($repo = Get-DefaultRepo)) {
+  "$repo is on no board - there is no card to move"
 } else {
-  Set-Project -Number '' -Repo (Get-DefaultRepo) | Out-Null
+  Set-Project -Number '' -Repo $repo | Out-Null
   $options = @(Get-Fields | Where-Object { $_.Field -ieq 'Status' } | ForEach-Object { $_.Option })
   $at = [Array]::FindIndex([string[]]$options, [Predicate[string]] { param($o) $o.ToLowerInvariant() -ceq 'implementing' })
   $next = if ($at -ge 0 -and $at + 1 -lt $options.Count) { $options[$at + 1] } else { '' }

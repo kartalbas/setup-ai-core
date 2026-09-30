@@ -26,6 +26,7 @@ if (`$a -match 'projectV2\(number:')  { 'PVT_kwstart'; exit 0 }
 if (`$a -match 'fields\(first:50\)')  { 'Status' + [char]9 + 'FID' + [char]9 + 'todo' + [char]9 + 'OPT_todo'; 'Status' + [char]9 + 'FID' + [char]9 + 'implementing' + [char]9 + 'OPT_impl'; exit 0 }
 if (`$a -match 'addProjectV2ItemById') { 'PVTI_item163'; exit 0 }
 if (`$a -match 'projectItems')        { exit 0 }
+if (`$a -match 'projectsV2\(first' -and (Test-Path '$fake/no-board')) { exit 0 }
 if (`$a -match 'graphql')             { '{}'; exit 0 }
 if (`$a -match 'api user')            { '{"login":"tester"}'; exit 0 }
 if (`$a -match 'issues/165') {
@@ -177,6 +178,22 @@ $made = @((& git -C $work for-each-ref '--format=%(refname:short)' refs/heads) |
   Where-Object { $_ -clike 'issue-165*' })
 Check 'it does not throw' 'True' ([string]$ok)
 Check 'the slug folds A-Z and nothing else' 'issue-165-read-the-elvin-board' ($made -join ' ')
+
+Write-Host 'a repository on no board: the worktree opens, and the status says it has nowhere to go'
+New-Item -ItemType File -Path (Join-Path $fake 'no-board') | Out-Null
+Set-Content -Path $log -Value $null
+$env:GH_PROJECT_NUMBER = ''
+$ok = Invoke-Start 166
+Check 'it does not throw'      'True'  ([string]$ok)
+Check 'it says so'             'True'  ([bool](@($printed) -ceq '#166 -> implementing not set: example-org/example-repo is on no board'))
+Check 'no warning'             'False' ([bool](($printed -join "`n") -match 'did NOT move'))
+Check 'no card was looked for' 0       (@(Calls | Where-Object { $_ -match 'addProjectV2ItemById' }).Count)
+Write-Host 'issue-priority on a repository on no board says so and exits zero'
+Push-Location $work
+try { $said = (@(& (Join-Path $root 'bin/issue-priority.ps1') -Number 166 -Priority P2 2>&1 | ForEach-Object { "$_" }) -join "`n") } finally { Pop-Location }
+Check 'it says so'             '#166 -> P2 not set: example-org/example-repo is on no board' $said
+$env:GH_PROJECT_NUMBER = '999980'
+Remove-Item -Path (Join-Path $fake 'no-board')
 
 Set-Location $root
 & git -C $work worktree remove --force $tree 2>$null | Out-Null

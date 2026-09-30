@@ -116,8 +116,9 @@ done <<< "$(issue_worktrees)"
 thread="$("$BIN/issue-thread.sh" "$number" --json 2>&1)" || die "the issue could not be read: $thread"
 if [ "$(printf '%s' "$thread" | jq -r '.state // ""' | tr '[:upper:]' '[:lower:]')" = closed ]; then
   echo "the issue is closed already - its card stays where closing put it"
+elif repo="$(resolve_repo "")" && on_no_board "$repo"; then
+  echo "$repo is on no board - there is no card to move"
 else
-  repo="$(resolve_repo "")"
   set_project "" "$repo" >/dev/null
   next="$(fields_tsv | awk -F'\t' 'tolower($1)=="status" { if (hit) { print $3; exit } if (tolower($3)=="implementing") hit=1 }')"
   if [ -z "$next" ]; then

@@ -30,6 +30,10 @@ set -- "${args[@]}"
 [ $# -ge 2 ] || die "usage: issue-status.sh [--project N] [OWNER/REPO] NUMBER [NUMBER...] STATUS"
 
 repo="$(resolve_repo "$1")"; case "$1" in */*) shift ;; esac
+if on_no_board "$repo" "$project"; then
+  for n in "${@:1:$(($#-1))}"; do echo "#$n -> ${!#} not set: $repo is on no board"; done
+  exit 0
+fi
 set_project "$project" "$repo" >/dev/null
 status="${!#}"                 # last argument
 nums=("${@:1:$(($#-1))}")

@@ -17,6 +17,10 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot '../lib/Board.psm1') -Force
 
 if (-not $Repo) { $Repo = Get-DefaultRepo }
+if (Test-OnNoBoard -Repo $Repo -Named $Project) {
+  foreach ($n in $Number) { "#$n -> $Priority not set: $Repo is on no board" }
+  exit 0
+}
 Set-Project -Number $Project -Repo $Repo | Out-Null
 
 foreach ($n in $Number) {

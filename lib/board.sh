@@ -500,6 +500,16 @@ repo_open_projects() {  # repo_open_projects <owner/repo>
   printf '%s\n' "$rows" | grep -Fv "	$TEMPLATE_MARK" || true
 }
 
+# A repository ON NO BOARD: no board is named, by --project or GH_PROJECT_NUMBER, and the
+# repository is linked to no open one, as a harness or the tooling's own repository is. Its
+# issues have no card, so a status, a priority or a column after implementing has nowhere to go.
+on_no_board() {  # on_no_board <owner/repo> [named board] - true when the repository is on no board
+  local named="${2:-${GH_PROJECT_NUMBER:-}}" linked
+  [ -z "$named" ] || return 1
+  linked="$(repo_open_projects "$1")" || exit 1
+  [ -z "$linked" ]
+}
+
 # --- issues -------------------------------------------------------------------
 
 # HOW THE FIRST LINE OF EVERY ISSUE BODY OPENS. `issue-new` builds that line out of arguments it

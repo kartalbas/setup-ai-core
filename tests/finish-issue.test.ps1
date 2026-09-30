@@ -26,6 +26,7 @@ if (`$a -match 'projectV2\(number:')  { 'PVT_kwfinish'; exit 0 }
 if (`$a -match 'fields\(first:50\)')  { Get-Content -Path '$board'; exit 0 }
 if (`$a -match 'addProjectV2ItemById') { 'PVTI_item163'; exit 0 }
 if (`$a -match 'projectItems')        { exit 0 }
+if (`$a -match 'projectsV2\(first' -and (Test-Path '$fake/no-board')) { exit 0 }
 if (`$a -match 'graphql')             { '{}'; exit 0 }
 if (`$a -match 'api user')            { '{"login":"tester"}'; exit 0 }
 if (`$a -match 'issues/') {
@@ -168,6 +169,22 @@ Check 'and says why'                   'True'  ([bool]($printed -match 'issue-20
 Check 'the uncommitted one stays'      'True'  (Has-Tree 'issue-203-never-committed')
 Check 'the one with changes stays'     'True'  (Has-Tree 'issue-204-open-work')
 Check 'the sweep moves no card'        0       (Moves)
+
+Write-Host 'a repository on no board: the landed worktree goes, no card is looked for, and the issue is told'
+Open-Tree 'issue-167-keep-the-harness-off-the-board'
+Land 'issue-167-keep-the-harness-off-the-board' 'Keep the harness off the board (#167)'
+New-Item -ItemType File -Path (Join-Path $fake 'no-board') | Out-Null
+Set-Content -Path $log -Value $null
+Remove-Item -Recurse -Force $env:GH_CACHE_DIRECTORY -ErrorAction SilentlyContinue
+$env:GH_PROJECT_NUMBER = ''
+$ok = Invoke-Finish -Number 167
+Check 'it runs'                'True'  ([string]$ok)
+Check 'the worktree is gone'   'False' (Has-Tree 'issue-167-keep-the-harness-off-the-board')
+Check 'it says so'             'True'  ([bool]($printed -cmatch '(?m)^example-org/example-repo is on no board - there is no card to move\r?$'))
+Check 'no card was moved'      0       (Moves)
+Check 'the issue was told'     'True'  ([bool]((Calls) -match '(?s)issue comment 167 .*Landed on master:.*Keep the harness off the board \(#167\)'))
+$env:GH_PROJECT_NUMBER = '999983'
+Remove-Item -Path (Join-Path $fake 'no-board')
 
 foreach ($w in @('issue-202-fresh', 'issue-203-never-committed', 'issue-204-open-work')) { & git -C $work worktree remove --force (Join-Path $trees $w) 2>$null | Out-Null }
 Remove-Item -Recurse -Force $fake -ErrorAction SilentlyContinue

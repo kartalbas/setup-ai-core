@@ -991,7 +991,7 @@ no repository acts on the one it runs in; `OWNER/REPO` before the issue number n
 | Command | Does |
 | :--- | :--- |
 | `start-issue N` | opens the worktree for issue N under `../.worktrees/<repo>/issue-N-<slug>`, on a branch of that name cut from `origin/<default>`, only when the issue is assigned to you and the checkout is clean and current; moves the card to `implementing`; runs `init` there, which takes the checkout's `.ai-core/` data first; prints the thread. One run, because any one of these done alone is often not done. |
-| `finish-issue N` | after the push that lands the work: removes the worktree and branch of issue N, only when it has no changes and every commit is on `origin/<default>`; moves the card to the column after `implementing` unless that is `done`, which closing sets; comments on the issue what landed. `--sweep [--dry-run]` removes every worktree of the repository whose work landed more than a day ago; `start-issue` and `init --all` run it |
+| `finish-issue N` | after the push that lands the work: removes the worktree and branch of issue N, only when it has no changes and every commit is on `origin/<default>`; moves the card to the column after `implementing` unless that is `done`, which closing sets, and in a repository on no board says there is no card; comments on the issue what landed. `--sweep [--dry-run]` removes every worktree of the repository whose work landed more than a day ago; `start-issue` and `init --all` run it |
 | `issue-new` | creates an issue: `--title`, `--body-file`, labels, priority, the assignee from `assignees.tsv`, the card on the board, optionally a parent epic (`--parent OWNER/REPO#N`). Refuses without `--asked-by LOGIN` and `--asked-in WHERE` and writes "Asked for by @login on DATE in WHERE." as the body's first line. Reports a title over 70 characters, one with a backtick, or one that names an action and no stake. `--no-board` files it in a repository linked to no open board, a harness among them: no card, no status, no priority; refused where the repository is on a board, and together with `--project`, `--priority` or `--status`. |
 | `issue-thread N [--json]` | the issue and every comment on it, for a person or as one JSON object |
 | `issue-mine N` | whether the issue is assigned to the account `gh` is logged in as; `start-issue` and `session-start` ask it |
@@ -999,8 +999,8 @@ no repository acts on the one it runs in; `OWNER/REPO` before the issue number n
 | `issue-edit N` | edits title and/or body; a body without the asked-for line keeps the one the issue has |
 | `issue-close N...` | closes issues and moves their cards to `done`, as `completed` or `--reason not-planned` |
 | `issue-reopen N...` | reopens issues and returns their cards to `todo` |
-| `issue-status N... STATUS` | moves cards between `backlog`, `todo`, `implementing`, `testing`, `done` |
-| `issue-priority N... P` | `P0` blocker, `P1` high, `P2` normal, `P3` low, `P9` parked |
+| `issue-status N... STATUS` | moves cards between `backlog`, `todo`, `implementing`, `testing`, `done`; in a repository on no board, with no board named, it says the status is not set and exits 0 |
+| `issue-priority N... P` | `P0` blocker, `P1` high, `P2` normal, `P3` low, `P9` parked; on no board, as `issue-status` |
 | `issue-label N --add/--remove` | labels checked against `labels.tsv`; a typo is refused, not minted |
 | `issue-assign N` | adds, removes or replaces assignees; additive by default |
 | `issue-duplicate N OF M` | marks N the native duplicate of M, or removes it with `--undo` |

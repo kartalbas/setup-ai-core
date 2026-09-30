@@ -522,6 +522,17 @@ function Get-RepoOpenProjects {
     Where-Object { $_ -and -not (($_ -split "`t")[1]).StartsWith($script:TemplateMark, [StringComparison]::Ordinal) })
 }
 
+function Test-OnNoBoard {
+  # A repository ON NO BOARD: no board is named, by -Project or GH_PROJECT_NUMBER, and the
+  # repository is linked to no open one, as a harness or the tooling's own repository is. Its
+  # issues have no card, so a status, a priority or a column after implementing has nowhere to go.
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][string]$Repo, [string]$Named = '')
+  if (-not $Named) { $Named = "$env:GH_PROJECT_NUMBER" }
+  if ($Named) { return $false }
+  return (@(Get-RepoOpenProjects -Repo $Repo).Count -eq 0)
+}
+
 # --- issues -------------------------------------------------------------------
 
 # HOW THE FIRST LINE OF EVERY ISSUE BODY OPENS. `issue-new` builds that line out of arguments it
@@ -793,7 +804,7 @@ function Set-Select {
 
 Export-ModuleMember -Function Stop-WithError, ConvertTo-AsciiLowercase, Invoke-Gh, Get-Org, Get-DataDir, Get-DataFile, Get-LabelTaxonomy, Get-LabelNamesInGroup,
   Set-Project, Get-ProjectNumber, Get-ProjectOrg,
-  Get-TemplateProjectNumber, Get-TemplateMark, Resolve-ProjectForRepo, Get-RepoOpenProjects, Get-ProjectId, Get-CacheDir, Get-Fields, Get-FieldId, Get-OptionId,
+  Get-TemplateProjectNumber, Get-TemplateMark, Resolve-ProjectForRepo, Get-RepoOpenProjects, Test-OnNoBoard, Get-ProjectId, Get-CacheDir, Get-Fields, Get-FieldId, Get-OptionId,
   Clear-BoardCache, Get-DefaultRepo, Get-AssigneeForRepo, Get-ProjectRepos, Get-IssueNodeId, Get-IssueDbId,
   Write-TitleReport, Get-AskedPrefix, Get-IssueThread, Get-IssueBoardItems, Invoke-OnEveryBoard, Set-ItemTop,
   Resolve-ParentIssue, Get-ItemId, Get-ArchivedItemId, Get-BoardItems, Remove-BoardItem, Set-Select

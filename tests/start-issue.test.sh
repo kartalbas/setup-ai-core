@@ -32,6 +32,7 @@ case "\$a" in
   *"fields(first:50)"*)     printf 'Status\tFID\ttodo\tOPT_todo\nStatus\tFID\timplementing\tOPT_impl\n' ;;
   *addProjectV2ItemById*)   echo 'PVTI_item163' ;;
   *projectItems*)           printf '' ;;
+  *"projectsV2(first"*)     [ -e "$fake/no-board" ] || echo '{}' ;;
   *graphql*)                echo '{}' ;;
   *"api user"*)             echo '{"login":"tester"}' ;;
   *issues/*)                echo '{"number":163,"title":"Read the board whole","state":"open","labels":[],"assignees":[{"login":"'"\${ASSIGNEE:-tester}"'"}],"body":"The count is a guess."}' ;;
@@ -206,6 +207,19 @@ out="$(cd "$work" && PATH="$kelvin:$PATH" bash "$start" 165 2>&1)"; rc=$?
 made="$(git -C "$work" for-each-ref --format='%(refname:short)' refs/heads | grep '^issue-165' || true)"
 check 'exits zero' 0 "$rc"
 check 'the slug folds A-Z and nothing else' 'issue-165-read-the-elvin-board' "$made"
+
+echo 'a repository on no board: the worktree opens, and the status says it has nowhere to go'
+touch "$fake/no-board"; : > "$log"
+out="$(cd "$work" && GH_PROJECT_NUMBER='' bash "$start" 166 2>&1)"; rc=$?
+check 'exits zero'             0 "$rc"
+check 'it says so'             '#166 -> implementing not set: example-org/example-repo is on no board' "$(printf '%s\n' "$out" | sed -n '2p')"
+check 'no warning'             no "$(grep -q 'did NOT move' <<< "$out" && echo yes || echo no)"
+check 'no card was looked for' 0 "$(grep -c 'addProjectV2ItemById' "$log" || true)"
+echo 'issue-priority on a repository on no board says so and exits zero'
+out="$(cd "$work" && GH_PROJECT_NUMBER='' bash "$root/bin/issue-priority.sh" 166 P2 2>&1)"; rc=$?
+check 'exits zero'             0 "$rc"
+check 'it says so'             '#166 -> P2 not set: example-org/example-repo is on no board' "$out"
+rm -f "$fake/no-board"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

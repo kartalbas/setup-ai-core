@@ -33,6 +33,7 @@ case "\$a" in
   *"fields(first:50)"*)     cat "$board" ;;
   *addProjectV2ItemById*)   echo 'PVTI_item163' ;;
   *projectItems*)           printf '' ;;
+  *"projectsV2(first"*)     [ -e "$fake/no-board" ] || echo '{}' ;;
   *graphql*)                echo '{}' ;;
   *"api user"*)             echo '{"login":"tester"}' ;;
   *issues/*)                echo '{"number":163,"title":"Read the board whole","state":"'"\$(cat "$state")"'","labels":[],"assignees":[],"body":"The count is a guess."}' ;;
@@ -158,6 +159,18 @@ grep -q 'issue-202-fresh: landed less than a day ago' <<< "$out" || printf '    
 check 'the uncommitted one stays'      yes "$(has_tree issue-203-never-committed)"
 check 'the one with changes stays'     yes "$(has_tree issue-204-open-work)"
 check 'the sweep moves no card'        0 "$(grep -c 'oid=OPT_' "$log" || true)"
+
+echo 'a repository on no board: the landed worktree goes, no card is looked for, and the issue is told'
+open issue-167-keep-the-harness-off-the-board
+land issue-167-keep-the-harness-off-the-board 'Keep the harness off the board (#167)'
+touch "$fake/no-board"; : > "$log"; rm -rf "$fake/cache"
+out="$(cd "$work" && GH_PROJECT_NUMBER='' bash "$finish" 167 2>&1)"; rc=$?
+check 'exits zero'             0 "$rc"
+check 'the worktree is gone'   no "$(has_tree issue-167-keep-the-harness-off-the-board)"
+check 'it says so'             yes "$(grep -q '^example-org/example-repo is on no board - there is no card to move$' <<< "$out" && echo yes || echo no)"
+check 'no card was moved'      0 "$(grep -c 'oid=OPT_' "$log" || true)"
+check 'the issue was told'     yes "$(grep -q 'issue comment 167 .*Landed on master:.*Keep the harness off the board (#167)' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
+rm -f "$fake/no-board"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

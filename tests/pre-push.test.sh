@@ -227,7 +227,7 @@ out="$(only_new "$repo")"; rc=$?
 check 'exit 0 with the trailer'        0 "$rc"
 echo 'the Windows entry point is no twin: scripts/check.sh changed alone passes'
 printf '# the checks the push runs\n' >> "$repo/scripts/check.sh"
-git -C "$repo" add scripts/check.sh; git -C "$repo" commit -q -m 'Say what the checks run #9'
+git -C "$repo" add --chmod=+x scripts/check.sh; git -C "$repo" commit -q -m 'Say what the checks run #9'
 out="$(only_new "$repo")"; rc=$?
 check 'exit 0'                         0 "$rc"
 git -C "$repo" reset -q --hard HEAD~1

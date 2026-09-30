@@ -8,9 +8,10 @@
   same change: nothing commented out, parked behind a flag, or kept in case. Before calling a change
   done, verify that nothing uncalled, unread, unreferenced or tested-for-a-removed-thing remains.
   [review]
-- **Build nothing that was not asked for.** No speculative feature, no abstraction for an unstated
-  requirement, no handling for a state that cannot occur, no compatibility shim where the code can
-  simply change. Validate at system boundaries, which are user input, external services and data
+- **Build nothing that was not asked for**, because every line nobody asked for is still read,
+  tested and kept alive. No speculative feature, no abstraction for an unstated requirement, no
+  handling for a state that cannot occur, no compatibility shim where the code can simply change.
+  Validate at system boundaries, which are user input, external services and data
   from outside, and trust internal code. [review]
 - **Never lie in code.** No fabricated value, no faked success, no invented default standing in for
   a real one, no swallowed error. An error is caught only to make it visible. [review]

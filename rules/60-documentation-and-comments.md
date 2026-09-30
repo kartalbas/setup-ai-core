@@ -8,7 +8,8 @@
 - **A comment carries only what a reader of that line today can use**: a mechanism they cannot see,
   a constraint not in the syntax, a consequence elsewhere, an obvious alternative that fails.
   History, tickets, phases and decision records belong in commit messages and the tracker, not in
-  the code. [review]
+  the code, because an issue number sends the reader to a tracker that moves on while the line
+  stays. [machine · review]
 - **Everything on disk is simple US English**: one idea per sentence, no idiom carrying a fact. The
   conversation may run in any language; every name of a thing in the code stays spelled as the code
   spells it, in backticks. [review]

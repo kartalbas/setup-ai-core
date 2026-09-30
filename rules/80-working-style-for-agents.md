@@ -1,8 +1,8 @@
 ## Working style for agents
 
 - **Run the session start before any work**, in every repository, with every tool. [tool]
-- **Read spans, not files.** Locate code through the code graph and open only the span to edit.
-  [discipline]
+- **Read spans, not files.** Locate code through the code graph and open only the span to edit,
+  because a whole file spends the context the rest of the task needs. [discipline]
 - **Work is tracked in the project's tracker, through the harness's commands, and the plan is the
   issues.** An issue exists before the work starts and is kept current; a plan lives nowhere else.
   It carries the full case, which is the context, the code facts as `file:line` and the acceptance
@@ -16,10 +16,12 @@
   used, proven, and extended or fixed where they fall short; `gh` serves everything they do not
   cover. [tool · discipline]
 - **Never stage blindly.** Read the working-tree status and add the paths you changed. A commit
-  subject is one sentence of at most 72 characters that describes the change; the body says why.
-  Commit and push as often as the work needs; the owner reviews the finished work, not each commit.
-  [review]
-- **No assistant or vendor attribution** in a commit message or a pull request. [review]
+  subject is one sentence of at most 72 characters that describes the change, because the log, the
+  tracker and every list view cut a longer subject and the rest is lost where it is read; the body
+  says why. Commit and push as often as the work needs; the owner reviews the finished work, not
+  each commit. [machine · review]
+- **No assistant or vendor attribution** in a commit message or a pull request, because the history
+  names who answers for a change, and a tool cannot. [machine · review]
 - **Never write a version, a price or an interface shape from memory.** Look it up at the source
   and state where it came from. [review]
 - **Ask once per issue before starting its sub-agents**, naming for each what it is for, which

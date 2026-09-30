@@ -1,7 +1,9 @@
 ## The harness in a repository
 
 - **Every automation script exists in two spellings**, `.sh` for Bash 3.2+ and `.ps1` for PowerShell
-  7+, with the same options, the same output and the same exit codes. [review]
+  7+, with the same options, the same output and the same exit codes, because Windows runs the
+  `.ps1` and Linux the `.sh`, and a change in one spelling alone makes them two programs.
+  [machine · review]
 - **Nothing the harness deploys is tracked by the repository.** It lives in the working tree,
   registered in the clone's own exclude file, and is assembled by the harness from its layers.
   [tool]

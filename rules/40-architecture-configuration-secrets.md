@@ -4,7 +4,8 @@
   unit you can say what it does, how it is used and what it depends on; a reader understands it
   without its internals, and its internals can change without breaking its consumers. A file that
   has grown large is a unit doing too much. [review]
-- **Standard library before a dependency, a dependency before bespoke code.** [review]
+- **Standard library before a dependency, a dependency before bespoke code**, because every
+  dependency is code the project updates, audits and trusts without having read it. [review]
 - **A change stays on its problem.** No reformatting of unrelated lines, no reordering, no incidental
   cleanup outside the change's reason. [review]
 - **Anything that differs between the environments that exist is configuration, on a named,
@@ -14,11 +15,12 @@
 - **A configuration change reaches every environment inventory that exists for the component**, not
   only the one being tested, and the deployed truth is read from those inventories, never assumed.
   [review]
-- **Never print a secret and never commit one.** A secret is read from its vault when it is needed.
+- **Never print a secret and never commit one**, because a pushed secret stays in every clone's
+  history, and taking it out means rotating it. A secret is read from its vault when it is needed.
   Local environment files are ignored by version control. [review]
 - **A database moves forward, and is never reset.** A schema change is a migration that moves an
   existing database forward: written once, applied once, never rewritten; a change that cannot be
   expressed as a step forward is not ready. Resetting an environment's database is forbidden, as a
   convenience, to unblock a change or because a migration is awkward, and nothing may depend on a
   reset: a value that reached an environment only by re-seeding needs its own way in, a migration,
-  an operation or a written-down step. [review · discipline]
+  an operation or a written-down step. [machine · review]

@@ -40,6 +40,9 @@ echo "  both report FAILED with npm's gyp lines and the command that installs a 
 section "doctor wants gitleaks with 'gitleaks git' where a repository of the project folder carries .gitleaks.toml: missing, too old, present, not needed; on both twins"
 LF="$WORK/leaks-folder"; mkdir -p "$LF/plain" "$WORK/plain-folder/web"; git init -q "$LF/shop"; : > "$LF/shop/.gitleaks.toml"
 NOLEAKS="$(while IFS= read -r d; do [ -z "$d" ] || [ -e "$d/gitleaks" ] || [ -e "$d/gitleaks.exe" ] || [ -e "$d/gitleaks.cmd" ] || printf '%s:' "$d"; done <<< "$(tr ':' '\n' <<< "$PATH")")"
+# pwsh can share its folder with gitleaks (both in ~/.local/bin); the folder it is installed in,
+# found through its link, keeps it on the PATH of the ps1 case
+NOLEAKS="$(dirname "$(readlink -f "$(command -v pwsh)")"):$NOLEAKS"
 mkdir -p "$WORK/leaksbin-new" "$WORK/leaksbin-old"
 printf '#!/bin/sh\ncase "$1" in version) echo 8.30.1 ;; esac\nexit 0\n' > "$WORK/leaksbin-new/gitleaks"
 printf '@if "%%1"=="version" echo 8.30.1\r\n@exit /b 0\r\n' > "$WORK/leaksbin-new/gitleaks.cmd"

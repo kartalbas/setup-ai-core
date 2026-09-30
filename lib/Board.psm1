@@ -46,6 +46,22 @@ $script:Root = Split-Path -Parent $PSScriptRoot
 
 function Stop-WithError { [CmdletBinding()] param([string]$Message) throw "error: $Message" }
 
+function Get-OriginDefaultBranch {
+  # THE DEFAULT BRANCH OF ORIGIN: origin/HEAD where it resolves, else asked of the remote. A clone keeps
+  # origin/HEAD naming the old branch after the default branch is renamed, and trusting that pointer
+  # sends every comparison to a branch that is gone.
+  [CmdletBinding()] param()
+  & git rev-parse -q --verify refs/remotes/origin/HEAD *>$null
+  if ($LASTEXITCODE -eq 0) {
+    $ref = "$(& git symbolic-ref refs/remotes/origin/HEAD 2>$null)".Trim()
+    if ($LASTEXITCODE -eq 0 -and $ref) { return ($ref -creplace '^refs/remotes/origin/', '') }
+  }
+  foreach ($line in @(& git ls-remote --symref origin HEAD 2>$null)) {
+    if ("$line" -cmatch '^ref:\s+refs/heads/(\S+)\s+HEAD$') { return $Matches[1] }
+  }
+  Stop-WithError "cannot read the default branch from origin/HEAD or from origin - run 'git remote set-head origin -a', then run this again"
+}
+
 # --- where the data lives -----------------------------------------------------
 
 # THE DATA FILES ARE THE PROJECT'S, NOT THE HARNESS'S: labels.tsv, assignees.tsv, team-modes.tsv.
@@ -804,7 +820,7 @@ function Set-Select {
 
 Export-ModuleMember -Function Stop-WithError, ConvertTo-AsciiLowercase, Invoke-Gh, Get-Org, Get-DataDir, Get-DataFile, Get-LabelTaxonomy, Get-LabelNamesInGroup,
   Set-Project, Get-ProjectNumber, Get-ProjectOrg,
-  Get-TemplateProjectNumber, Get-TemplateMark, Resolve-ProjectForRepo, Get-RepoOpenProjects, Test-OnNoBoard, Get-ProjectId, Get-CacheDir, Get-Fields, Get-FieldId, Get-OptionId,
+  Get-TemplateProjectNumber, Get-TemplateMark, Resolve-ProjectForRepo, Get-RepoOpenProjects, Test-OnNoBoard, Get-OriginDefaultBranch, Get-ProjectId, Get-CacheDir, Get-Fields, Get-FieldId, Get-OptionId,
   Clear-BoardCache, Get-DefaultRepo, Get-AssigneeForRepo, Get-ProjectRepos, Get-IssueNodeId, Get-IssueDbId,
   Write-TitleReport, Get-AskedPrefix, Get-IssueThread, Get-IssueBoardItems, Invoke-OnEveryBoard, Set-ItemTop,
   Resolve-ParentIssue, Get-ItemId, Get-ArchivedItemId, Get-BoardItems, Remove-BoardItem, Set-Select

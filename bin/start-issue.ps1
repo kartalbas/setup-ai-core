@@ -67,11 +67,7 @@ if ($dirty.Text -ne '') {
   Stop-WithError 'the working copy has changes - commit or put them aside before opening a worktree'
 }
 
-$head = Invoke-Git symbolic-ref refs/remotes/origin/HEAD
-if (-not $head.Ok -or $head.Text -eq '') {
-  Stop-WithError "cannot read the default branch from origin/HEAD - run 'git remote set-head origin -a', then run this again"
-}
-$default = $head.Text -creplace '^refs/remotes/origin/', ''
+$default = Get-OriginDefaultBranch
 
 $counted = Invoke-Git rev-list --count "$default..origin/$default"
 if (-not $counted.Ok -or $counted.Text -eq '') {

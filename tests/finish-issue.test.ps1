@@ -186,6 +186,15 @@ Check 'the issue was told'     'True'  ([bool]((Calls) -match '(?s)issue comment
 $env:GH_PROJECT_NUMBER = '999983'
 Remove-Item -Path (Join-Path $fake 'no-board')
 
+Write-Host 'an origin/HEAD naming a branch the remote no longer has: the default branch is asked of the remote'
+Open-Tree 'issue-168-read-the-default-branch'
+Land 'issue-168-read-the-default-branch' 'Read the default branch from the remote (#168)'
+& git -C $work symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/gone
+$ok = Invoke-Finish -Number 168
+Check 'it runs'                'True'  ([string]$ok)
+Check 'the worktree is gone'   'False' (Has-Tree 'issue-168-read-the-default-branch')
+& git -C $work remote set-head origin -a | Out-Null
+
 foreach ($w in @('issue-202-fresh', 'issue-203-never-committed', 'issue-204-open-work')) { & git -C $work worktree remove --force (Join-Path $trees $w) 2>$null | Out-Null }
 Remove-Item -Recurse -Force $fake -ErrorAction SilentlyContinue
 $env:GH_PROJECT_NUMBER = $null

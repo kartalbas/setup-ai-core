@@ -58,11 +58,7 @@ if ($LASTEXITCODE -ne 0) { Stop-WithError 'not inside a git working copy - run t
 
 $fetched = Invoke-Git fetch origin
 if (-not $fetched.Ok) { Stop-WithError "could not reach origin: $($fetched.Text) - what has landed is measured against what origin has right now" }
-$head = Invoke-Git symbolic-ref refs/remotes/origin/HEAD
-if (-not $head.Ok -or -not $head.Text) {
-  Stop-WithError "cannot read the default branch from origin/HEAD - run 'git remote set-head origin -a', then run this again"
-}
-$default = $head.Text -creplace '^refs/remotes/origin/', ''
+$default = Get-OriginDefaultBranch
 
 # The main checkout, as start-issue finds it: the worktrees are removed from there, so this answers
 # the same from inside the worktree being removed.

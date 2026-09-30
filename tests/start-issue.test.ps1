@@ -195,6 +195,13 @@ Check 'it says so'             '#166 -> P2 not set: example-org/example-repo is 
 $env:GH_PROJECT_NUMBER = '999980'
 Remove-Item -Path (Join-Path $fake 'no-board')
 
+Write-Host 'an origin/HEAD naming a branch the remote no longer has: the default branch is asked of the remote'
+& git -C $work symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/gone
+$ok = Invoke-Start 168
+Check 'it does not throw'      'True' ([string]$ok)
+Check 'cut from origin/master' 'True' ([bool](@($printed) -cmatch '^Worktree .*issue-168-.*, cut from origin/master\.$'))
+& git -C $work remote set-head origin -a | Out-Null
+
 Set-Location $root
 & git -C $work worktree remove --force $tree 2>$null | Out-Null
 Remove-Item -Recurse -Force $fake -ErrorAction SilentlyContinue

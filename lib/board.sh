@@ -53,6 +53,20 @@ gh_org() {
   echo "$GH_ORG"
 }
 
+# THE DEFAULT BRANCH OF ORIGIN: origin/HEAD where it resolves, else asked of the remote. A clone keeps
+# origin/HEAD naming the old branch after the default branch is renamed, and trusting that pointer
+# sends every comparison to a branch that is gone.
+origin_default_branch() {
+  local ref
+  if git rev-parse -q --verify refs/remotes/origin/HEAD >/dev/null 2>&1 \
+    && ref="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null)"; then
+    echo "${ref#refs/remotes/origin/}"; return 0
+  fi
+  ref="$(git ls-remote --symref origin HEAD 2>/dev/null | awk '$1 == "ref:" && $3 == "HEAD" { sub("^refs/heads/", "", $2); print $2 }')"
+  [ -n "$ref" ] || die "cannot read the default branch from origin/HEAD or from origin - run 'git remote set-head origin -a', then run this again"
+  echo "$ref"
+}
+
 # A FLAG WITHOUT ITS VALUE, WHICH BASH DOES NOT NOTICE ON ITS OWN.
 #
 # Every parser in bin/ matches option names by hand, so nothing checks that the word after a

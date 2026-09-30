@@ -46,10 +46,7 @@ said="$(git fetch origin 2>&1)" \
 [ -z "$(git status --porcelain)" ] \
   || die 'the working copy has changes - commit or put them aside before opening a worktree'
 
-head_ref="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null || true)"
-[ -n "$head_ref" ] \
-  || die "cannot read the default branch from origin/HEAD - run 'git remote set-head origin -a', then run this again"
-default="${head_ref##refs/remotes/origin/}"
+default="$(origin_default_branch)" || exit 1
 
 behind="$(git rev-list --count "$default..origin/$default" 2>/dev/null || true)"
 [ -n "$behind" ] || die "cannot compare $default with origin/$default - is the remote branch there?"

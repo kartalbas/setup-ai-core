@@ -172,6 +172,15 @@ check 'no card was moved'      0 "$(grep -c 'oid=OPT_' "$log" || true)"
 check 'the issue was told'     yes "$(grep -q 'issue comment 167 .*Landed on master:.*Keep the harness off the board (#167)' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
 rm -f "$fake/no-board"
 
+echo 'an origin/HEAD naming a branch the remote no longer has: the default branch is asked of the remote'
+open issue-168-read-the-default-branch
+land issue-168-read-the-default-branch 'Read the default branch from the remote (#168)'
+git -C "$work" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/gone
+out="$(run 168)"; rc=$?
+check 'exits zero'             0 "$rc"
+check 'the worktree is gone'   no "$(has_tree issue-168-read-the-default-branch)"
+git -C "$work" remote set-head origin -a >/dev/null
+
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo
 echo 'all passed'

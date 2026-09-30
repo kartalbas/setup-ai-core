@@ -48,10 +48,7 @@ git rev-parse --show-toplevel >/dev/null 2>&1 \
 
 said="$(git fetch origin 2>&1)" \
   || die "could not reach origin: $said - what has landed is measured against what origin has right now"
-head_ref="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null || true)"
-[ -n "$head_ref" ] \
-  || die "cannot read the default branch from origin/HEAD - run 'git remote set-head origin -a', then run this again"
-default="${head_ref##refs/remotes/origin/}"
+default="$(origin_default_branch)" || exit 1
 
 # The main checkout, as start-issue finds it: the worktrees are removed from there, so this answers
 # the same from inside the worktree being removed.

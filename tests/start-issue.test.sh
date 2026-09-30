@@ -221,6 +221,13 @@ check 'exits zero'             0 "$rc"
 check 'it says so'             '#166 -> P2 not set: example-org/example-repo is on no board' "$out"
 rm -f "$fake/no-board"
 
+echo 'an origin/HEAD naming a branch the remote no longer has: the default branch is asked of the remote'
+git -C "$work" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/gone
+out="$(run 168)"; rc=$?
+check 'exits zero'             0 "$rc"
+check 'cut from origin/master' yes "$(grep -q '^Worktree .*issue-168-.*, cut from origin/master\.$' <<< "$out" && echo yes || echo no)"
+git -C "$work" remote set-head origin -a >/dev/null
+
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo
 echo 'all passed'

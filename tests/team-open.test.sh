@@ -42,7 +42,7 @@ out="$(run "$project")"; rc=$?
 check 'exit 0'         0 "$rc"
 check 'seven calls'    7 "$(grep -c . "$calls")"
 check 'the window, the person in charge' \
-  "--new-window|-T|dig-opus-1|-d|$project|--|bash|-lc|claude -n dig-opus-1 --model opus --effort max 'You are the person in charge of the project digitaplatform.'; exec bash|" \
+  "--new-window|-T|dig-opus-1|-d|$project|--|bash|-lc|claude -n dig-opus-1 --model opus --effort max 'You are the person in charge of the project digitaplatform. Your team: dig-fable-1 fable max, dig-fable-2 fable max, dig-opus-2 opus high, dig-opus-3 opus high, dig-sonnet-1 sonnet max, dig-sonnet-2 sonnet max.'; exec bash|" \
   "$(sed -n 1p "$calls")"
 check 'a tab, a worker with no prompt' \
   "--tab|-T|dig-sonnet-2|-d|$project|--|bash|-lc|claude -n dig-sonnet-2 --model sonnet --effort max; exec bash|" \

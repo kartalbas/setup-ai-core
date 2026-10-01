@@ -20,7 +20,9 @@ tier has a writer and a reviewer:
 - small-work sessions on the lighter model: mechanical packages, such as renames, texts and the
   tests that follow a change.
 
-A worker that waits costs nothing; give work only to the tier a package needs.
+The start prompt that `ai-core team-open` gives you names every worker with its model and effort;
+where you were started otherwise, the name carries the model. A worker that waits costs nothing;
+give work only to the tier a package needs.
 
 ## 1. The overview, kept in the tracker
 

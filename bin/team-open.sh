@@ -37,7 +37,9 @@ $prefix-opus-3 opus high
 $prefix-sonnet-1 sonnet max
 $prefix-sonnet-2 sonnet max"
 lead="$prefix-opus-1"
-lead_prompt="You are the person in charge of the project $name."
+# The coordinator gets its team from the table that starts it, so model and effort cannot drift
+members="$(while read -r n m e; do [ "$n" = "$lead" ] || printf '%s %s %s, ' "$n" "$m" "$e"; done <<< "$team")"
+lead_prompt="You are the person in charge of the project $name. Your team: ${members%, }."
 
 terminal="${AI_CORE_TERMINAL:-}"
 if [ -z "$terminal" ]; then

@@ -41,7 +41,9 @@ $team = @(
   @("$prefix-sonnet-2", 'sonnet', 'max')
 )
 $lead = "$prefix-opus-1"
-$leadPrompt = "You are the person in charge of the project $name."
+# The coordinator gets its team from the table that starts it, so model and effort cannot drift
+$members = @($team | Where-Object { $_[0] -cne $lead } | ForEach-Object { "$($_[0]) $($_[1]) $($_[2])" }) -join ', '
+$leadPrompt = "You are the person in charge of the project $name. Your team: $members."
 
 $terminal = "$env:AI_CORE_TERMINAL"
 if (-not $terminal) {

@@ -49,7 +49,7 @@ if (-not $IsWindows) {
   Check 'exit 0' 0 $rc
   $lines = @(Get-Content $calls)
   Check 'seven calls' 7 $lines.Count
-  Check 'the window, the person in charge' "--new-window|-T|dig-opus-1|-d|$project|--|bash|-lc|claude -n dig-opus-1 --model opus --effort max 'You are the person in charge of the project digitaplatform.'; exec bash|" $lines[0]
+  Check 'the window, the person in charge' "--new-window|-T|dig-opus-1|-d|$project|--|bash|-lc|claude -n dig-opus-1 --model opus --effort max 'You are the person in charge of the project digitaplatform. Your team: dig-fable-1 fable max, dig-fable-2 fable max, dig-opus-2 opus high, dig-opus-3 opus high, dig-sonnet-1 sonnet max, dig-sonnet-2 sonnet max.'; exec bash|" $lines[0]
   Check 'a tab, a worker with no prompt' "--tab|-T|dig-sonnet-2|-d|$project|--|bash|-lc|claude -n dig-sonnet-2 --model sonnet --effort max; exec bash|" $lines[6]
   Check 'and it says so' 'True' ([bool]($out -cmatch '(?m)^opened: the 7 sessions of digitaplatform\r?$'))
 }

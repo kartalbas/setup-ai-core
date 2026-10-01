@@ -76,12 +76,12 @@ Dress $work
 
 $finish = Join-Path $root 'bin/finish-issue.ps1'
 function Invoke-Finish {
-  param([string]$Number = '', [switch]$Sweep, [switch]$DryRun)
+  param([string]$Number = '', [switch]$Sweep, [switch]$DryRun, [switch]$Landed)
   Push-Location $work
   try {
     $script:said = ''
     $script:printed = ''
-    try { $script:printed = (@(& $finish -Number $Number -Sweep:$Sweep -DryRun:$DryRun 2>&1 | ForEach-Object { "$_" }) -join "`n") }
+    try { $script:printed = (@(& $finish -Number $Number -Sweep:$Sweep -DryRun:$DryRun -Landed:$Landed 2>&1 | ForEach-Object { "$_" }) -join "`n") }
     catch { $script:said = $_.Exception.Message }
     return ($script:said -eq '')
   } finally { Pop-Location }
@@ -116,7 +116,7 @@ Write-Host 'a worktree with a commit origin does not have stays, and says so'
 & git -C (Join-Path $trees $b) commit -q -am 'Not pushed yet (#163)'
 $ok = Invoke-Finish -Number 163
 Check 'it throws'           'False' ([string]$ok)
-Check 'it names the commit' 'True'  ([bool]($said -match 'has 1 commit\(s\) origin/master does not have'))
+Check 'it names the commit' 'True'  ([bool]($said -match 'has 1 commit\(s\) whose change is not on origin/master'))
 Check 'the worktree stays'  'True'  (Has-Tree $b)
 
 Write-Host 'a landed worktree goes with its branch, the card moves to testing, and the issue says what landed'
@@ -194,6 +194,41 @@ $ok = Invoke-Finish -Number 168
 Check 'it runs'                'True'  ([string]$ok)
 Check 'the worktree is gone'   'False' (Has-Tree 'issue-168-read-the-default-branch')
 & git -C $work remote set-head origin -a | Out-Null
+
+Write-Host 'a branch that landed by cherry-pick goes without a flag'
+Open-Tree 'issue-173-landed-by-cherry-pick'
+'picked' | Add-Content -Path (Join-Path $trees 'issue-173-landed-by-cherry-pick/README.md')
+& git -C (Join-Path $trees 'issue-173-landed-by-cherry-pick') commit -q -am 'Land by cherry-pick (#173)'
+& git -C $work pull -q --ff-only origin master 2>$null
+& git -C $work cherry-pick "$(& git -C (Join-Path $trees 'issue-173-landed-by-cherry-pick') rev-parse HEAD)" | Out-Null
+& git -C $work push -q origin master 2>$null
+$ok = Invoke-Finish -Number 173
+Check 'it runs'                'True'  ([string]$ok)
+Check 'the worktree is gone'   'False' (Has-Tree 'issue-173-landed-by-cherry-pick')
+
+Write-Host 'a branch whose change landed in another shape stays, and names --landed'
+Open-Tree 'issue-174-landed-changed'
+'mine' | Add-Content -Path (Join-Path $trees 'issue-174-landed-changed/README.md')
+& git -C (Join-Path $trees 'issue-174-landed-changed') commit -q -am 'Land in another shape (#174)'
+'mine, as the conflict was resolved' | Add-Content -Path (Join-Path $work 'README.md')
+& git -C $work commit -q -am 'Land in another shape, resolved (#174)'
+& git -C $work push -q origin master 2>$null
+$ok = Invoke-Finish -Number 174
+Check 'it throws'              'False' ([string]$ok)
+Check 'it names --landed'      'True'  ([bool]($said -match 'run finish-issue 174 --landed once the issue is closed'))
+Check 'the worktree stays'     'True'  (Has-Tree 'issue-174-landed-changed')
+Write-Host '--landed on an open issue is refused'
+$ok = Invoke-Finish -Number 174 -Landed
+Check 'it throws'              'False' ([string]$ok)
+Check 'it says the issue is open' 'True' ([bool]($said -match '--landed removes the work of a closed issue only, and #174 is open'))
+Check 'the worktree stays'     'True'  (Has-Tree 'issue-174-landed-changed')
+Write-Host '--landed on a closed issue removes the worktree and names the commit it did not find'
+Set-Content -Path $state -Value 'closed' -Encoding utf8NoBOM
+$ok = Invoke-Finish -Number 174 -Landed
+Check 'it runs'                'True'  ([string]$ok)
+Check 'the worktree is gone'   'False' (Has-Tree 'issue-174-landed-changed')
+Check 'it names the commit'    'True'  ([bool]($printed -cmatch '(?m)^  [0-9a-f]+ Land in another shape \(#174\)\r?$'))
+Set-Content -Path $state -Value 'open' -Encoding utf8NoBOM
 
 foreach ($w in @('issue-202-fresh', 'issue-203-never-committed', 'issue-204-open-work')) { & git -C $work worktree remove --force (Join-Path $trees $w) 2>$null | Out-Null }
 Remove-Item -Recurse -Force $fake -ErrorAction SilentlyContinue

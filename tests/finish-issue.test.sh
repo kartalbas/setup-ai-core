@@ -107,7 +107,7 @@ echo 'mine' >> "$trees/issue-163-read-the-board-whole/README.md"
 git -C "$trees/issue-163-read-the-board-whole" commit -q -am 'Not pushed yet (#163)'
 out="$(run 163)"; rc=$?
 check 'exits nonzero'       yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'it names the commit' yes "$(grep -q 'has 1 commit(s) origin/master does not have' <<< "$out" && echo yes || echo no)"
+check 'it names the commit' yes "$(grep -q 'has 1 commit(s) whose change is not on origin/master' <<< "$out" && echo yes || echo no)"
 check 'the worktree stays'  yes "$(has_tree issue-163-read-the-board-whole)"
 
 echo 'a landed worktree goes with its branch, the card moves to testing, and the issue says what landed'
@@ -180,6 +180,41 @@ out="$(run 168)"; rc=$?
 check 'exits zero'             0 "$rc"
 check 'the worktree is gone'   no "$(has_tree issue-168-read-the-default-branch)"
 git -C "$work" remote set-head origin -a >/dev/null
+
+echo 'a branch that landed by cherry-pick goes without a flag'
+open issue-173-landed-by-cherry-pick
+echo 'picked' >> "$trees/issue-173-landed-by-cherry-pick/README.md"
+git -C "$trees/issue-173-landed-by-cherry-pick" commit -q -am 'Land by cherry-pick (#173)'
+git -C "$work" pull -q --ff-only origin master
+git -C "$work" cherry-pick "$(git -C "$trees/issue-173-landed-by-cherry-pick" rev-parse HEAD)" >/dev/null
+git -C "$work" push -q origin master
+out="$(run 173)"; rc=$?
+check 'exits zero'             0 "$rc"
+check 'the worktree is gone'   no "$(has_tree issue-173-landed-by-cherry-pick)"
+
+echo 'a branch whose change landed in another shape stays, and names --landed'
+open issue-174-landed-changed
+echo 'mine' >> "$trees/issue-174-landed-changed/README.md"
+git -C "$trees/issue-174-landed-changed" commit -q -am 'Land in another shape (#174)'
+echo 'mine, as the conflict was resolved' >> "$work/README.md"
+git -C "$work" commit -q -am 'Land in another shape, resolved (#174)'
+git -C "$work" push -q origin master
+out="$(run 174)"; rc=$?
+check 'exits nonzero'          yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'it names --landed'      yes "$(grep -q 'run finish-issue 174 --landed once the issue is closed' <<< "$out" && echo yes || echo no)"
+check 'the worktree stays'     yes "$(has_tree issue-174-landed-changed)"
+echo '--landed on an open issue is refused'
+out="$(run 174 --landed)"; rc=$?
+check 'exits nonzero'          yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'it says the issue is open' yes "$(grep -q -- '--landed removes the work of a closed issue only, and #174 is open' <<< "$out" && echo yes || echo no)"
+check 'the worktree stays'     yes "$(has_tree issue-174-landed-changed)"
+echo '--landed on a closed issue removes the worktree and names the commit it did not find'
+echo closed > "$state"
+out="$(run 174 --landed)"; rc=$?
+check 'exits zero'             0 "$rc"
+check 'the worktree is gone'   no "$(has_tree issue-174-landed-changed)"
+check 'it names the commit'    yes "$(grep -q '^  [0-9a-f]* Land in another shape (#174)$' <<< "$out" && echo yes || echo no)"
+echo open > "$state"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

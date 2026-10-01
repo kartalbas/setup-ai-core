@@ -24,20 +24,21 @@
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 
 BIN="$ROOT/bin"
-usage='usage: finish-issue.sh NUMBER | finish-issue.sh --sweep [--dry-run]'
+usage='usage: finish-issue.sh NUMBER [--landed] | finish-issue.sh --sweep [--dry-run]'
 # A landed worktree younger than this is left to the session that may still be working in it
 REST_SECONDS=$((24 * 3600))
 
-sweep=0; dry=0; number=""
+sweep=0; dry=0; landed_flag=0; number=""
 for arg in "$@"; do
   case "$arg" in
     --sweep)   sweep=1 ;;
     --dry-run) dry=1 ;;
+    --landed)  landed_flag=1 ;;
     -*)        die "unknown argument '$arg' - $usage" ;;
     *)         [ -z "$number" ] || die "$usage"; number="$arg" ;;
   esac
 done
-if [ "$sweep" -eq 1 ]; then [ -z "$number" ] || die "$usage"
+if [ "$sweep" -eq 1 ]; then [ -z "$number" ] && [ "$landed_flag" -eq 0 ] || die "$usage"
 else
   case "$number" in ''|*[!0-9]*) die "the issue number must be numeric, not '$number' - $usage" ;; esac
   [ "$dry" -eq 0 ] || die "--dry-run goes with --sweep - $usage"
@@ -55,8 +56,16 @@ default="$(origin_default_branch)" || exit 1
 common="$(git rev-parse --git-common-dir)"
 main="$(cd "$common/.." && git rev-parse --show-toplevel)"
 
-# landed <branch>: every commit of the branch is on origin's default branch
-landed() { [ "$(git -C "$main" rev-list --count "origin/$default..refs/heads/$1" 2>/dev/null || echo 1)" -eq 0 ]; }
+# unlanded <branch>: the commits of the branch whose change is not on origin's default branch, one
+# "<sha> <subject>" per line. A branch that landed by cherry-pick has new commits upstream, so
+# ancestry alone would hold it back; git cherry compares the changes. A git cherry that fails
+# answers a line of its own, so a branch it cannot read never counts as landed.
+unlanded() {
+  local out
+  out="$(git -C "$main" cherry -v "origin/$default" "refs/heads/$1" 2>&1)" || { echo "? $out"; return 0; }
+  sed -n 's/^+ //p' <<< "$out"
+}
+landed() { [ -z "$(unlanded "$1")" ]; }
 # worked_in <branch>: the branch was committed on, not only cut. The reflog is read whole first: piped
 # into grep -q, grep stops at the first hit, git can die of the closed pipe, and under pipefail the
 # answer then turned into "never committed in" on a busy machine
@@ -94,6 +103,8 @@ if [ "$sweep" -eq 1 ]; then
 fi
 
 # --- one issue ---------------------------------------------------------------------------------
+thread="$("$BIN/issue-thread.sh" "$number" --json 2>&1)" || die "the issue could not be read: $thread"
+state="$(printf '%s' "$thread" | jq -r '.state // ""' | tr '[:upper:]' '[:lower:]')"
 found=0
 while IFS=$'\t' read -r path branch; do
   [ -n "$path" ] || continue
@@ -101,17 +112,24 @@ while IFS=$'\t' read -r path branch; do
   found=1
   [ -z "$(git -C "$path" status --porcelain)" ] \
     || die "the worktree $path has changes - commit and push them, or put them aside, then run this again"
-  ahead="$(git -C "$main" rev-list --count "origin/$default..refs/heads/$branch")"
-  [ "$ahead" -eq 0 ] \
-    || die "the worktree $path has $ahead commit(s) origin/$default does not have - push them, then run this again"
+  missing="$(unlanded "$branch")"
+  if [ -n "$missing" ]; then
+    # Work that landed in another shape, a resolved conflict or a changed context, is the owner's
+    # word against git's: --landed takes it, and only for an issue somebody closed.
+    [ "$landed_flag" -eq 1 ] \
+      || die "the worktree $path has $(grep -c . <<< "$missing") commit(s) whose change is not on origin/$default - push them, then run this again; where they landed in another shape, run finish-issue $number --landed once the issue is closed"
+    [ "$state" = closed ] \
+      || die "--landed removes the work of a closed issue only, and #$number is open - close it once its work is on origin/$default"
+    echo "removed with --landed, these commits not found on origin/$default by their change:"
+    sed 's/^/  /' <<< "$missing"
+  fi
   remove_worktree "$path" "$branch"
   echo "Worktree $path and its branch $branch removed: its work is on origin/$default. Open $main to go on."
 done <<< "$(issue_worktrees)"
 [ "$found" -eq 1 ] || echo "no worktree of issue $number stands here - only the card and the issue are brought up to date"
 
 # The card: one column past implementing, as the board orders them, unless that column is done
-thread="$("$BIN/issue-thread.sh" "$number" --json 2>&1)" || die "the issue could not be read: $thread"
-if [ "$(printf '%s' "$thread" | jq -r '.state // ""' | tr '[:upper:]' '[:lower:]')" = closed ]; then
+if [ "$state" = closed ]; then
   echo "the issue is closed already - its card stays where closing put it"
 elif repo="$(resolve_repo "")" && on_no_board "$repo"; then
   echo "$repo is on no board - there is no card to move"

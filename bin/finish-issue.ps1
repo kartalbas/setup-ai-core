@@ -27,12 +27,13 @@ does not stay for good. A worktree that was never committed in is left alone.
 param(
   [Parameter(Position = 0)][string] $Number = '',
   [switch] $Sweep,
-  [switch] $DryRun
+  [switch] $DryRun,
+  [switch] $Landed
 )
 
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot '../lib/Board.psm1') -Force
-$usage = 'usage: finish-issue.ps1 NUMBER | finish-issue.ps1 -Sweep [-DryRun]'
+$usage = 'usage: finish-issue.ps1 NUMBER [-Landed] | finish-issue.ps1 -Sweep [-DryRun]'
 # A landed worktree younger than this is left to the session that may still be working in it
 $restSeconds = 24 * 3600
 
@@ -47,7 +48,7 @@ function Invoke-Git {
 }
 
 if ($Sweep) {
-  if ($Number) { Stop-WithError $usage }
+  if ($Number -or $Landed) { Stop-WithError $usage }
 } else {
   if ($Number -notmatch '^[0-9]+\z') { Stop-WithError "the issue number must be numeric, not '$Number' - $usage" }
   if ($DryRun) { Stop-WithError "-DryRun goes with -Sweep - $usage" }
@@ -73,10 +74,16 @@ function Get-IssueWorktrees {
     elseif ($line -cmatch '^branch refs/heads/(issue-[0-9]+(-.*)?)$') { [pscustomobject]@{ Path = $path; Branch = $Matches[1] } }
   }
 }
-function Test-Landed([string]$branch) {
-  $n = Invoke-Git -C $main rev-list --count "origin/$default..refs/heads/$branch"
-  return ($n.Ok -and $n.Text -eq '0')
+# The commits of the branch whose change is not on origin's default branch, as "<sha> <subject>".
+# A branch that landed by cherry-pick has new commits upstream, so ancestry alone would hold it
+# back; git cherry compares the changes. A git cherry that fails answers a line of its own, so a
+# branch it cannot read never counts as landed.
+function Get-Unlanded([string]$branch) {
+  $c = Invoke-Git -C $main cherry -v "origin/$default" "refs/heads/$branch"
+  if (-not $c.Ok) { return @("? $($c.Text)") }
+  return @($c.Text -split "`n" | Where-Object { $_.StartsWith('+ ', [StringComparison]::Ordinal) } | ForEach-Object { $_.Substring(2) })
 }
+function Test-Landed([string]$branch) { return (@(Get-Unlanded $branch).Count -eq 0) }
 function Test-WorkedIn([string]$branch) {
   $log = Invoke-Git -C $main reflog show --format=%gs "refs/heads/$branch"
   return [bool](@($log.Text -split "`n" | Where-Object { $_ -and -not $_.StartsWith('branch: Created', [StringComparison]::Ordinal) }).Count)
@@ -105,15 +112,28 @@ if ($Sweep) {
 }
 
 # --- one issue ---------------------------------------------------------------------------------
+try { $raw = (@(& (Join-Path $PSScriptRoot 'issue-thread.ps1') -Number $Number -Json) -join "`n").Trim() }
+catch { Stop-WithError "the issue could not be read: $($_.Exception.Message)" }
+$thread = $raw | ConvertFrom-Json -DateKind String
+$state = "$($thread.state)".ToLowerInvariant()
 $found = $false
 foreach ($w in @(Get-IssueWorktrees | Where-Object { $_.Branch -ceq "issue-$Number" -or $_.Branch.StartsWith("issue-$Number-", [StringComparison]::Ordinal) })) {
   $found = $true
   if (-not (Test-Clean $w.Path)) {
     Stop-WithError "the worktree $($w.Path) has changes - commit and push them, or put them aside, then run this again"
   }
-  $ahead = (Invoke-Git -C $main rev-list --count "origin/$default..refs/heads/$($w.Branch)").Text
-  if ($ahead -ne '0') {
-    Stop-WithError "the worktree $($w.Path) has $ahead commit(s) origin/$default does not have - push them, then run this again"
+  $missing = @(Get-Unlanded $w.Branch)
+  if ($missing.Count -gt 0) {
+    # Work that landed in another shape, a resolved conflict or a changed context, is the owner's
+    # word against git's: -Landed takes it, and only for an issue somebody closed.
+    if (-not $Landed) {
+      Stop-WithError "the worktree $($w.Path) has $($missing.Count) commit(s) whose change is not on origin/$default - push them, then run this again; where they landed in another shape, run finish-issue $Number --landed once the issue is closed"
+    }
+    if ($state -cne 'closed') {
+      Stop-WithError "--landed removes the work of a closed issue only, and #$Number is open - close it once its work is on origin/$default"
+    }
+    "removed with --landed, these commits not found on origin/${default} by their change:"
+    $missing | ForEach-Object { "  $_" }
   }
   Remove-IssueWorktree $w.Path $w.Branch
   "Worktree $($w.Path) and its branch $($w.Branch) removed: its work is on origin/$default. Open $main to go on."
@@ -121,10 +141,7 @@ foreach ($w in @(Get-IssueWorktrees | Where-Object { $_.Branch -ceq "issue-$Numb
 if (-not $found) { "no worktree of issue $Number stands here - only the card and the issue are brought up to date" }
 
 # The card: one column past implementing, as the board orders them, unless that column is done
-try { $raw = (@(& (Join-Path $PSScriptRoot 'issue-thread.ps1') -Number $Number -Json) -join "`n").Trim() }
-catch { Stop-WithError "the issue could not be read: $($_.Exception.Message)" }
-$thread = $raw | ConvertFrom-Json -DateKind String
-if ("$($thread.state)".ToLowerInvariant() -ceq 'closed') {
+if ($state -ceq 'closed') {
   'the issue is closed already - its card stays where closing put it'
 } elseif (Test-OnNoBoard -Repo ($repo = Get-DefaultRepo)) {
   "$repo is on no board - there is no card to move"

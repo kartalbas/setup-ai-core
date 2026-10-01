@@ -330,8 +330,9 @@ than eight layers is refused, and `"setup-ai-core": ">=1.1.0"` in `ai-core.json`
 the clone of this repository is too old for the harness.
 
 Then `init` assembles the checkout, later layer wins: the rules as above; `rules/skills.md` of the
-last layer that has one; every `skills/<name>/` into `.claude/skills/<name>/` and
-`.agents/skills/<name>/`; every `agents/<name>.md` into `.claude/agents/`; every `docs/` into
+last layer that has one; every `skills/<name>/`, setup-ai-core's own first, into
+`.claude/skills/<name>/` and `.agents/skills/<name>/` (setup-ai-core brings `person-in-charge`, the
+skill of the session the owner names coordinator of a project); every `agents/<name>.md` into `.claude/agents/`; every `docs/` into
 `.ai-core/docs/<harness>/`; `config.env`,
 `labels.tsv`, `assignees.tsv` and `team-modes.tsv` into `.ai-core/`; and every file under
 `repos/<repo>/` of the innermost harness over the checkout, in its own layout, so

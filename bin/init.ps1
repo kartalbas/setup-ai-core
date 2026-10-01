@@ -273,6 +273,14 @@ $layerFiles = @()   # what the layers wrote, so the templates leave it alone
 $mapSrc = $null     # a generated map, deployed with the binding rules on top once the rules are assembled
 $deployed = @()     # what the layers put into the checkout, recorded in .ai-core\DEPLOYED
 $dataFiles = @('config.env', 'labels.tsv', 'assignees.tsv', 'team-modes.tsv')
+# The skills of setup-ai-core itself, before the layers': a layer's skill of the same name replaces
+# the directory whole, so the more specific layer wins, as it does for the rules.
+if (Test-Path (Join-Path $coreRoot 'skills')) {
+  foreach ($s in (Get-ChildItem -Path (Join-Path $coreRoot 'skills') -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'SKILL.md') })) {
+    Put-Dir $s.FullName ".claude/skills/$($s.Name)"; Put-Dir $s.FullName ".agents/skills/$($s.Name)"
+    $layerFiles += @(".claude/skills/$($s.Name)", ".agents/skills/$($s.Name)"); $deployed += @(".claude/skills/$($s.Name)", ".agents/skills/$($s.Name)")
+  }
+}
 foreach ($l in $layers) {
   $lname = (Split-Path -Leaf $l).TrimStart('.')
   $lcommit = "$(& git -C $l rev-parse --short HEAD 2>$null)".Trim(); if (-not $lcommit) { $lcommit = '-' }

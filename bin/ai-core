@@ -34,6 +34,13 @@ case "$command" in
   help|-h|--help) usage ;;
   *)
     if [ -f "$CORE/bin/$command.sh" ]; then
+      # Every command takes --help: a script that answers it itself runs; any other shows the
+      # comment it opens with, which is its usage
+      case "${1:-}" in
+        -h|--help)
+          grep -qF -e '-h|--help)' -e '"--help"' "$CORE/bin/$command.sh" \
+            || { awk 'NR == 1 && /^#!/ { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$CORE/bin/$command.sh"; exit 0; } ;;
+      esac
       exec bash "$CORE/bin/$command.sh" "$@"
     fi
     echo "error: unknown command '$command'" >&2; usage >&2; exit 1 ;;

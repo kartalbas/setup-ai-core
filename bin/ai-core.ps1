@@ -41,6 +41,13 @@ switch -CaseSensitive ($Command) {
   default {
     $script = Join-Path $core "bin\$Command.ps1"
     if ($Command -cne "ai-core" -and (Test-Path $script)) {
+      # Every command takes -Help: a script with a -Help switch answers it itself; any other shows
+      # its comment-based help, which lists the parameters and which of them are required
+      if ($Arguments.Count -gt 0 -and $Arguments[0] -cin @('-h', '--help', '-Help', '-help')) {
+        if ((Get-Content -Raw -LiteralPath $script) -cmatch '\[switch\]\s*\$Help\b') { & pwsh -NoProfile -File $script -Help; exit $LASTEXITCODE }
+        Get-Help $script | Out-String
+        exit 0
+      }
       & pwsh -NoProfile -File $script @Arguments
       exit $LASTEXITCODE
     }

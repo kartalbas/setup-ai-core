@@ -1,5 +1,5 @@
 # The PowerShell twin of status.test.sh, asserting the SAME page: the usage, the pace, the cost, the
-# tokens (an answer written twice counted once, one outside a worktree counted to no issue), the plan
+# tokens of the day (an answer written twice counted once, every session counted, an older one not), the plan
 # with the week pausing both workers, what is ready to close, and the second page of the board.
 #
 #   pwsh -File tests/status.test.ps1
@@ -49,7 +49,8 @@ try {
     Card 6 Done P2 CLOSED ($now - 3600) 5 0 'Sixth'
     Card 21 Todo P2 OPEN - - 1 'Package: gamma' "Worker: exa-hand-1`n"
     Card 22 Todo P2 OPEN - 21 0 'Twenty-second'
-    foreach ($n in 9..20) { Card $n Done - CLOSED ($now - ($n - 7) * 86400) - 0 "Closed $n" }
+    foreach ($n in 9..12) { Card $n Done - CLOSED ($now - ($n - 5) * 3600) - 0 "Closed $n" }
+    foreach ($n in 13..20) { Card $n Done - CLOSED ($now - ($n - 7) * 86400) - 0 "Closed $n" }
     '{"status":{"name":"Todo"},"priority":null,"content":{}}'
     'after c2'
   )
@@ -72,16 +73,17 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
     "$($now - 10800) 5 $($now + 3600) 85 $($now + 432000)", "$($now - 7200) 15 $($now + 3600) 87 $($now + 432000)", "$now 25 $($now + 3600) 89 $($now + 432000)")
   $sessions = Join-Path $env:AI_CORE_TRANSCRIPTS ($folder -creplace '[^A-Za-z0-9]', '-')
   New-Item -ItemType Directory -Force -Path $sessions | Out-Null
-  function Answer($Cwd, $Id, $In, $Out, $Created, $Read) {
-    @{ type = 'assistant'; cwd = $Cwd; message = @{ id = $Id; usage = @{ input_tokens = $In; output_tokens = $Out; cache_creation_input_tokens = $Created; cache_read_input_tokens = $Read } } } | ConvertTo-Json -Depth 5 -Compress
+  function Answer($At, $Cwd, $Id, $In, $Out, $Created, $Read) {
+    @{ type = 'assistant'; timestamp = (Iso $At); cwd = $Cwd; message = @{ id = $Id; usage = @{ input_tokens = $In; output_tokens = $Out; cache_creation_input_tokens = $Created; cache_read_input_tokens = $Read } } } | ConvertTo-Json -Depth 5 -Compress
   }
   $four = Join-Path $folder '.worktrees/example-repo/issue-4-fix'
   Set-Content -LiteralPath (Join-Path $sessions 'session.jsonl') -Value @(
     (@{ type = 'user'; cwd = $four } | ConvertTo-Json -Compress)
-    Answer $four m1 100 50 10 1000
-    Answer $four m1 100 50 10 1000
-    Answer $folder m2 5000 0 0 0
-    Answer (Join-Path $folder '.worktrees/example-repo/issue-6-add') m3 200 100 0 0
+    Answer ($now - 7200) $four m1 100 50 10 1000
+    Answer ($now - 7200) $four m1 100 50 10 1000
+    Answer ($now - 3600) $folder m2 5000 0 0 0
+    Answer ($now - 1800) (Join-Path $folder '.worktrees/example-repo/issue-6-add') m3 200 100 0 0
+    Answer ($now - 2 * 86400) $folder m4 99999 0 0 0
   )
 
   Push-Location $folder
@@ -101,20 +103,20 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   Check 'exit 0'        0 $rc
   Check 'the board'     "example · board example-org/7 · $(When $now)" $lines[0]
   Check 'the usage'     "usage 5h 25 % (reset $(When ($now + 3600))) · week 89 % (reset $(When ($now + 432000))) · limit 92 %" (Line 'usage ')
-  Check 'the pace'      'pace 1.0 issues a day over 14 days, 2 workers, shared evenly: too few packages name their worker' (Line 'pace ')
+  Check 'the pace'      'pace 6 issues closed in the last 24 hours, 1.0 a day over 14 days; 2 workers, shared evenly: too few packages name their worker' (Line 'pace ')
   Check 'the cost'      'cost an issue closed here raises the 5h window 10.0 % and the week 2.00 %' (Line 'cost ')
-  Write-Host 'the tokens: an answer written twice counts once, an answer outside a worktree counts to no issue'
-  Check 'the tokens'    'tokens 1k per issue, 300 of them fresh, not read from the cache (median of 2 closed issues)' (Line 'tokens ')
+  Write-Host 'the tokens of the day: an answer written twice counts once, every session counts, an older answer does not'
+  Check 'the tokens'    'tokens in 24 hours the sessions of this folder used 5k fresh and read 1k from the cache: 910 fresh and 167 from the cache per closed issue' (Line 'tokens ')
   Check 'the open work' 'open 8 issues · 3 packages, 1 ready to close · 2 outside packages' (Line 'open ')
   Write-Host 'the plan: each named package on its worker, a session started by hand in place of a free lane, the rest on the one that frees first, the week pausing both'
-  Check 'the worker'    'exa-sonnet-1 sonnet max 0.5 issues a day' (Line 'exa-sonnet-1')
-  Check 'its package'   "▸ example-repo#1 alpha 2 $(When $now) $(When ($now + 7 * 86400))" (Line '▸ example-repo#1')
-  Check 'the hand-started session' 'exa-hand-1 a model team.tsv does not name 0.5 issues a day' (Line 'exa-hand-1 ')
-  Check 'its package, as written' "▸ example-repo#21 gamma 1 $(When $now) $(When ($now + 2 * 86400))" (Line '▸ example-repo#21')
+  Check 'the worker'    'exa-sonnet-1 sonnet max 3.0 issues a day' (Line 'exa-sonnet-1')
+  Check 'its package'   "▸ example-repo#1 alpha 2 $(When $now) $(When ($now + 5 * 86400 + 28800))" (Line '▸ example-repo#1')
+  Check 'the hand-started session' 'exa-hand-1 a model team.tsv does not name 3.0 issues a day' (Line 'exa-hand-1 ')
+  Check 'its package, as written' "▸ example-repo#21 gamma 1 $(When $now) $(When ($now + 28800))" (Line '▸ example-repo#21')
   Check 'the lanes stay the team' '' (Line 'exa-sonnet-2')
-  Check 'the rest'      "· outside packages 1 issue 1 $(When ($now + 5 * 86400)) $(When ($now + 7 * 86400))" (Line '· outside packages')
-  Check 'the pause'     "PAUSES week $(When ($now + 2 * 86400)) until $(When ($now + 5 * 86400))" (Line 'PAUSES')
-  Check 'the end'       "DONE about $(When ($now + 7 * 86400)), an estimate from the pace of 14 days, the cost per issue and the pauses" (Line 'DONE')
+  Check 'the rest'      "· outside packages 1 issue 1 $(When ($now + 5 * 86400)) $(When ($now + 5 * 86400 + 28800))" (Line '· outside packages')
+  Check 'the pause'     "PAUSES week $(When ($now + 28800)) until $(When ($now + 5 * 86400))" (Line 'PAUSES')
+  Check 'the end'       "DONE about $(When ($now + 5 * 86400 + 28800)), an estimate from the pace of the last 24 hours, the cost per issue and the pauses" (Line 'DONE')
   Check 'ready'         'CLOSE every sub-issue closed: example-repo#5' (Line 'CLOSE')
   Check 'open on Done'  'CHECK open on Done: example-repo#8' (Line 'CHECK')
   Write-Host 'every open issue, by package, in work order, the second page among them'

@@ -2,7 +2,8 @@
 # What `status` prints for one board: the usage, the pace, what an issue costs of a window, the
 # tokens an issue took, the plan of every worker with a pause where the week reaches the limit, and
 # what is ready to close or sits on Done while open. The board has two pages, so paging is read.
-# The transcripts carry an answer written twice (counted once) and an answer outside a worktree
+# The transcripts carry an answer written twice (counted once), an answer outside a worktree
+# (counted, as every session of the folder is) and one older than the day (not counted)
 # (counted to no issue). A fake gh, a fixed clock and a temporary HOME keep the machine out of it.
 #
 #   bash tests/status.test.sh
@@ -44,7 +45,8 @@ card() {  # card <number> <status> <priority> <state> <closed at> <parent> <sub-
   card 6 Done P2 CLOSED $((now - 3600)) 5 0 'Sixth'
   card 21 Todo P2 OPEN - - 1 'Package: gamma' 'Worker: exa-hand-1\n'
   card 22 Todo P2 OPEN - 21 0 'Twenty-second'
-  for n in 9 10 11 12 13 14 15 16 17 18 19 20; do card "$n" Done - CLOSED $((now - (n - 7) * 86400)) - 0 "Closed $n"; done
+  for n in 9 10 11 12; do card "$n" Done - CLOSED $((now - (n - 5) * 3600)) - 0 "Closed $n"; done
+  for n in 13 14 15 16 17 18 19 20; do card "$n" Done - CLOSED $((now - (n - 7) * 86400)) - 0 "Closed $n"; done
   echo '{"status":{"name":"Todo"},"priority":null,"content":{}}'
   echo 'after c2'
 } > "$work/page1"
@@ -74,13 +76,14 @@ done > "$HOME/.ai-core/usage.log"
 seen_as="$(cygpath -m "$folder" 2>/dev/null || echo "$folder")"
 sessions="$work/transcripts/$(printf '%s' "$seen_as" | sed 's/[^A-Za-z0-9]/-/g')"
 mkdir -p "$sessions"
-answer() { printf '{"type":"assistant","cwd":"%s","message":{"id":"%s","usage":{"input_tokens":%s,"output_tokens":%s,"cache_creation_input_tokens":%s,"cache_read_input_tokens":%s}}}\n' "$@"; }
+answer() { printf '{"type":"assistant","timestamp":"%s","cwd":"%s","message":{"id":"%s","usage":{"input_tokens":%s,"output_tokens":%s,"cache_creation_input_tokens":%s,"cache_read_input_tokens":%s}}}\n' "$(iso "$1")" "${@:2}"; }
 {
   printf '{"type":"user","cwd":"%s"}\n' "$seen_as/.worktrees/example-repo/issue-4-fix"
-  answer "$seen_as/.worktrees/example-repo/issue-4-fix" m1 100 50 10 1000
-  answer "$seen_as/.worktrees/example-repo/issue-4-fix" m1 100 50 10 1000
-  answer "$seen_as" m2 5000 0 0 0
-  answer "$seen_as/.worktrees/example-repo/issue-6-add" m3 200 100 0 0
+  answer $((now - 7200)) "$seen_as/.worktrees/example-repo/issue-4-fix" m1 100 50 10 1000
+  answer $((now - 7200)) "$seen_as/.worktrees/example-repo/issue-4-fix" m1 100 50 10 1000
+  answer $((now - 3600)) "$seen_as" m2 5000 0 0 0
+  answer $((now - 1800)) "$seen_as/.worktrees/example-repo/issue-6-add" m3 200 100 0 0
+  answer $((now - 2 * 86400)) "$seen_as" m4 99999 0 0 0
 } > "$sessions/session.jsonl"
 
 out="$(cd "$folder" && bash "$root/bin/status.sh" --project example-org/7 --issues 2>&1)"; rc=$?
@@ -89,20 +92,20 @@ echo 'the head of the page'
 check 'exit 0'        0 "$rc"
 check 'the board'     "example · board example-org/7 · $(when "$now")" "$(sed -n 1p <<< "$out")"
 check 'the usage'     "usage 5h 25 % (reset $(when $((now + 3600)))) · week 89 % (reset $(when $((now + 432000)))) · limit 92 %" "$(line 'usage ')"
-check 'the pace'      'pace 1.0 issues a day over 14 days, 2 workers, shared evenly: too few packages name their worker' "$(line 'pace ')"
+check 'the pace'      'pace 6 issues closed in the last 24 hours, 1.0 a day over 14 days; 2 workers, shared evenly: too few packages name their worker' "$(line 'pace ')"
 check 'the cost'      'cost an issue closed here raises the 5h window 10.0 % and the week 2.00 %' "$(line 'cost ')"
-echo 'the tokens: an answer written twice counts once, an answer outside a worktree counts to no issue'
-check 'the tokens'    'tokens 1k per issue, 300 of them fresh, not read from the cache (median of 2 closed issues)' "$(line 'tokens ')"
+echo 'the tokens of the day: an answer written twice counts once, every session counts, an older answer does not'
+check 'the tokens'    'tokens in 24 hours the sessions of this folder used 5k fresh and read 1k from the cache: 910 fresh and 167 from the cache per closed issue' "$(line 'tokens ')"
 check 'the open work' 'open 8 issues · 3 packages, 1 ready to close · 2 outside packages' "$(line 'open ')"
 echo 'the plan: each named package on its worker, a session started by hand in place of a free lane, the rest on the one that frees first, the week pausing both'
-check 'the worker'    'exa-sonnet-1 sonnet max 0.5 issues a day' "$(line 'exa-sonnet-1' | sed 's/^ //')"
-check 'its package'   "▸ example-repo#1 alpha 2 $(when "$now") $(when $((now + 7 * 86400)))" "$(line '▸ example-repo#1' | sed 's/^ //')"
-check 'the hand-started session' 'exa-hand-1 a model team.tsv does not name 0.5 issues a day' "$(line 'exa-hand-1 ' | sed 's/^ //')"
-check 'its package, as written' "▸ example-repo#21 gamma 1 $(when "$now") $(when $((now + 2 * 86400)))" "$(line '▸ example-repo#21' | sed 's/^ //')"
+check 'the worker'    'exa-sonnet-1 sonnet max 3.0 issues a day' "$(line 'exa-sonnet-1' | sed 's/^ //')"
+check 'its package'   "▸ example-repo#1 alpha 2 $(when "$now") $(when $((now + 5 * 86400 + 28800)))" "$(line '▸ example-repo#1' | sed 's/^ //')"
+check 'the hand-started session' 'exa-hand-1 a model team.tsv does not name 3.0 issues a day' "$(line 'exa-hand-1 ' | sed 's/^ //')"
+check 'its package, as written' "▸ example-repo#21 gamma 1 $(when "$now") $(when $((now + 28800)))" "$(line '▸ example-repo#21' | sed 's/^ //')"
 check 'the lanes stay the team' '' "$(line 'exa-sonnet-2')"
-check 'the rest'      "· outside packages 1 issue 1 $(when $((now + 5 * 86400))) $(when $((now + 7 * 86400)))" "$(line '· outside packages' | sed 's/^ //')"
-check 'the pause'     "PAUSES week $(when $((now + 2 * 86400))) until $(when $((now + 5 * 86400)))" "$(line 'PAUSES')"
-check 'the end'       "DONE about $(when $((now + 7 * 86400))), an estimate from the pace of 14 days, the cost per issue and the pauses" "$(line 'DONE')"
+check 'the rest'      "· outside packages 1 issue 1 $(when $((now + 5 * 86400))) $(when $((now + 5 * 86400 + 28800)))" "$(line '· outside packages' | sed 's/^ //')"
+check 'the pause'     "PAUSES week $(when $((now + 28800))) until $(when $((now + 5 * 86400)))" "$(line 'PAUSES')"
+check 'the end'       "DONE about $(when $((now + 5 * 86400 + 28800))), an estimate from the pace of the last 24 hours, the cost per issue and the pauses" "$(line 'DONE')"
 check 'ready'         'CLOSE every sub-issue closed: example-repo#5' "$(line 'CLOSE')"
 check 'open on Done'  'CHECK open on Done: example-repo#8' "$(line 'CHECK')"
 echo 'every open issue, by package, in work order, the second page among them'

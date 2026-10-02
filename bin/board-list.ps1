@@ -26,17 +26,22 @@ query($pid:ID!, $endCursor:String) { node(id:$pid) { ... on ProjectV2 {
     nodes {
       fieldValues(first:20) { nodes { ... on ProjectV2ItemFieldSingleSelectValue {
         name field { ... on ProjectV2SingleSelectField { name } } } } }
-      content { ... on Issue { number title state repository { name } } }
+      content { ... on Issue { number title state repository { name nameWithOwner } } }
     } } } } }
 '@
 
 $jq = @'
 .data.node.items.nodes[] | select(.content.number != null)
-| { n: .content.number, t: .content.title, r: .content.repository.name, closed: (.content.state == "CLOSED"),
+| { n: .content.number, t: .content.title, closed: (.content.state == "CLOSED"),
+    r: (.content.repository | if (.nameWithOwner | ascii_downcase) == ("BOARD_ORG/" + (.name | ascii_downcase)) then .name else .nameWithOwner end),
     s: ([.fieldValues.nodes[] | select(.field.name == "Status")   | .name] | first // "-"),
     p: ([.fieldValues.nodes[] | select(.field.name == "Priority") | .name] | first // "-") }
 | "\(.s)\t\(.p)\t\(.r)\t\(.n)\t\(.t)\t\(if .closed then "closed" else "" end)"
 '@
+
+# A card of another organisation's repository is listed with its owner, so whoever reads the list,
+# and status-sync after it, names that repository and not one of the board's organisation
+$jq = $jq.Replace('BOARD_ORG', (Get-ProjectOrg).ToLowerInvariant())
 
 $rows = Invoke-Gh api graphql --paginate -f "pid=$(Get-ProjectId)" -f "query=$q" --jq $jq |
   Where-Object { $_ } |

@@ -31,6 +31,9 @@ want_status="${1:-}"
 want_repo="${2:-}"
 
 set_project "$project" >/dev/null
+# A card of another organisation's repository is listed with its owner, so whoever reads the list,
+# and status-sync after it, names that repository and not one of the board's organisation
+org="$(project_org | tr '[:upper:]' '[:lower:]')"
 
 gh_read "the cards of board $(project_number)" api graphql --paginate -f pid="$(project_id)" -f query='
   query($pid:ID!, $endCursor:String) { node(id:$pid) { ... on ProjectV2 {
@@ -39,10 +42,11 @@ gh_read "the cards of board $(project_number)" api graphql --paginate -f pid="$(
       nodes {
         fieldValues(first:20) { nodes { ... on ProjectV2ItemFieldSingleSelectValue {
           name field { ... on ProjectV2SingleSelectField { name } } } } }
-        content { ... on Issue { number title state repository { name } } }
+        content { ... on Issue { number title state repository { name nameWithOwner } } }
       } } } } }' \
   --jq '.data.node.items.nodes[] | select(.content.number != null)
-        | { n: .content.number, t: .content.title, r: .content.repository.name, closed: (.content.state == "CLOSED"),
+        | { n: .content.number, t: .content.title, closed: (.content.state == "CLOSED"),
+            r: (.content.repository | if (.nameWithOwner | ascii_downcase) == ("'"$org"'/" + (.name | ascii_downcase)) then .name else .nameWithOwner end),
             s: ([.fieldValues.nodes[] | select(.field.name == "Status")   | .name] | first // "-"),
             p: ([.fieldValues.nodes[] | select(.field.name == "Priority") | .name] | first // "-") }
         | "\(.s)\t\(.p)\t\(.r)\t\(.n)\t\(.t)\t\(if .closed then "closed" else "" end)"' \

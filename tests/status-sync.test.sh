@@ -83,14 +83,15 @@ printf '%s\n' "$PROJECT_ID" > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/project-id"
 
 printf '{"data":{"organization":{"projectV2":{"id":"%s"}}}}\n' "$PROJECT_ID" > "$FAKE/project-id.json"
 
-card() {  # card <number> <title> <status>
-  printf '{"fieldValues":{"nodes":[{"name":"%s","field":{"name":"Status"}}]},"content":{"number":%s,"title":"%s","state":"OPEN","repository":{"name":"example-repo"}}}' \
-    "$3" "$1" "$2"
+card() {  # card <number> <title> <status> [owner]
+  printf '{"fieldValues":{"nodes":[{"name":"%s","field":{"name":"Status"}}]},"content":{"number":%s,"title":"%s","state":"OPEN","repository":{"name":"example-repo","nameWithOwner":"%s/example-repo"}}}' \
+    "$3" "$1" "$2" "${4:-example-org}"
 }
-printf '{"data":{"node":{"items":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[%s,%s,%s]}}}}\n' \
+printf '{"data":{"node":{"items":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[%s,%s,%s,%s]}}}}\n' \
   "$(card 12 'A commit of its own is on master' implementing)" \
   "$(card 13 'A commit of its own is in the newest tag' todo)" \
-  "$(card 14 'An epic with one child' todo)" > "$FAKE/board.json"
+  "$(card 14 'An epic with one child' todo)" \
+  "$(card 15 'An issue of another organisation on this board' todo other-org)" > "$FAKE/board.json"
 
 # One REFERENCED_EVENT, from a commit in the issue's own repository, after no reopening.
 signals() {  # signals <sha>
@@ -101,6 +102,8 @@ signals sha13 > "$FAKE/signals-13.json"
 printf '%s\n' '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":1},"reopened":{"nodes":[]},"timelineItems":{"nodes":[]}}}}}' > "$FAKE/signals-14.json"
 # #14's one sub-issue was moved to testing by hand on the board; the epic itself stands in todo
 printf '%s\n' '{"data":{"repository":{"issue":{"state":"OPEN","projectItems":{"nodes":[{"project":{"number":999995,"owner":{"login":"example-org"}},"status":{"name":"todo"}}]},"subIssues":{"nodes":[{"state":"OPEN","projectItems":{"nodes":[{"project":{"number":999995,"owner":{"login":"example-org"}},"status":{"name":"testing"}}]}}]}}}}}' > "$FAKE/epic-14.json"
+# #15 lives in another organisation's repository and carries no commit: read, not moved
+printf '%s\n' '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":0},"reopened":{"nodes":[]},"timelineItems":{"nodes":[]}}}}}' > "$FAKE/signals-15.json"
 printf '{"default_branch":"master"}\n' > "$FAKE/repo.json"
 printf '[{"name":"0.8.100"}]\n'        > "$FAKE/tags.json"
 printf '{"status":"behind"}\n'         > "$FAKE/compare-master-sha12.json"
@@ -126,6 +129,8 @@ case "\$*" in
   *"num=12"*)                        doc="$FAKE/signals-12.json" ;;
   *"num=13"*)                        doc="$FAKE/signals-13.json" ;;
   *"num=14"*)                        doc="$FAKE/signals-14.json" ;;
+  *"o=other-org"*"num=15"*)          doc="$FAKE/signals-15.json" ;;
+  *"repos/other-org/example-repo"*)  doc="$FAKE/repo.json" ;;
   *"compare/master...sha12"*)        doc="$FAKE/compare-master-sha12.json" ;;
   *"compare/0.8.100...sha12"*)       doc="$FAKE/compare-tag-sha12.json" ;;
   *"compare/master...sha13"*)        doc="$FAKE/compare-master-sha13.json" ;;
@@ -160,8 +165,10 @@ check 'and follows its sub-issue moved by hand' \
   'would move   example-repo#14  (todo -> testing)' \
   "$(grep '^would move   example-repo#14' <<< "$run")"
 check 'and the count says what it read' \
-  "3 active cards scanned, 3 would move on board $PROJECT_NUMBER." \
+  "4 active cards scanned, 3 would move on board $PROJECT_NUMBER." \
   "$(printf '%s\n' "$run" | tail -1)"
+
+check 'a card of another organisation is read under its owner' 1 "$(grep -c 'o=other-org .*num=15' "$FAKE/calls.txt")"
 
 echo 'the compare is asked once per question, with the ref as base and the commit as head'
 check 'is the commit of #12 on master'      1 "$(grep -cF 'compare/master...sha12' "$FAKE/calls.txt")"

@@ -91,7 +91,7 @@ function Card($number, $title, $state, $status, $priority) {
           else { ',{"name":"' + $priority + '","field":{"name":"Priority"}}' }
   '{"fieldValues":{"nodes":[{"name":"' + $status + '","field":{"name":"Status"}}' + $prio +
   ']},"content":{"number":' + $number + ',"title":"' + $title + '","state":"' + $state +
-  '","repository":{"name":"example"}}}'
+  '","repository":{"name":"example","nameWithOwner":"example-org/example"}}}'
 }
 function Board([string[]]$cards) {
   '{"data":{"node":{"items":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[' +

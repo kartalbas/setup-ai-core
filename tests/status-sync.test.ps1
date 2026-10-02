@@ -77,15 +77,16 @@ $cache = Join-Path $env:GH_CACHE_DIRECTORY "$projectNumber"
 New-Item -ItemType Directory -Path $cache -Force | Out-Null
 Set-Content -Path (Join-Path $cache 'project-id') -Value $projectId -NoNewline
 
-function Card($number, $title, $status) {
+function Card($number, $title, $status, $owner = 'example-org') {
   '{"fieldValues":{"nodes":[{"name":"' + $status + '","field":{"name":"Status"}}]},"content":{"number":' +
-  $number + ',"title":"' + $title + '","state":"OPEN","repository":{"name":"example-repo"}}}'
+  $number + ',"title":"' + $title + '","state":"OPEN","repository":{"name":"example-repo","nameWithOwner":"' + $owner + '/example-repo"}}}'
 }
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'board.json') -Value (
   '{"data":{"node":{"items":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[' +
   ((Card 12 'A commit of its own is on master' 'implementing'),
    (Card 13 'A commit of its own is in the newest tag' 'todo'),
-   (Card 14 'An epic with one child' 'todo') -join ',') + ']}}}}')
+   (Card 14 'An epic with one child' 'todo'),
+   (Card 15 'An issue of another organisation on this board' 'todo' 'other-org') -join ',') + ']}}}}')
 
 # One REFERENCED_EVENT, from a commit in the issue's own repository, after no reopening.
 function Signals($sha) {
@@ -99,6 +100,8 @@ Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'signals-13.json') -Value
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'signals-14.json') -Value '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":1},"reopened":{"nodes":[]},"timelineItems":{"nodes":[]}}}}}'
 # #14's one sub-issue was moved to testing by hand on the board; the epic itself stands in todo
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'epic-14.json') -Value '{"data":{"repository":{"issue":{"state":"OPEN","projectItems":{"nodes":[{"project":{"number":999995,"owner":{"login":"example-org"}},"status":{"name":"todo"}}]},"subIssues":{"nodes":[{"state":"OPEN","projectItems":{"nodes":[{"project":{"number":999995,"owner":{"login":"example-org"}},"status":{"name":"testing"}}]}}]}}}}}'
+# #15 lives in another organisation's repository and carries no commit: read, not moved
+Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'signals-15.json') -Value '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":0},"reopened":{"nodes":[]},"timelineItems":{"nodes":[]}}}}}'
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'repo.json') -Value '{"default_branch":"master"}'
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'tags.json') -Value '[{"name":"0.8.100"}]'
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'compare-master-sha12.json')  -Value '{"status":"behind"}'
@@ -118,6 +121,8 @@ elseif (`$line -like '*items(first:100, after:*')       { `$doc = 'board.json' }
 elseif (`$line -like '*num=12*')                        { `$doc = 'signals-12.json' }
 elseif (`$line -like '*num=13*')                        { `$doc = 'signals-13.json' }
 elseif (`$line -like '*num=14*')                        { `$doc = 'signals-14.json' }
+elseif (`$line -like '*o=other-org*num=15*')            { `$doc = 'signals-15.json' }
+elseif (`$line -like '*repos/other-org/example-repo*')  { `$doc = 'repo.json' }
 elseif (`$line -like '*compare/master...sha12*')        { `$doc = 'compare-master-sha12.json' }
 elseif (`$line -like '*compare/0.8.100...sha12*')       { `$doc = 'compare-tag-sha12.json' }
 elseif (`$line -like '*compare/master...sha13*')        { `$doc = 'compare-master-sha13.json' }
@@ -149,9 +154,10 @@ try {
   Check 'and follows its sub-issue moved by hand' `
     'would move   example-repo#14  (todo -> testing)' (@($run | Where-Object { $_ -like 'would move   example-repo#14*' }))[0]
   Check 'and the count says what it read' `
-    "3 active cards scanned, 3 would move on board $projectNumber." $run[-1]
+    "4 active cards scanned, 3 would move on board $projectNumber." $run[-1]
 
   Write-Host 'the compare is asked once per question, with the ref as base and the commit as head'
+  Check 'a card of another organisation is read under its owner' 1 @(@(Get-Content -LiteralPath $calls) | Where-Object { $_ -cmatch 'o=other-org .*num=15' }).Count
   Check 'is the commit of #12 on master' 1 (CallCount 'compare/master...sha12')
   Check 'is it in the newest tag'        1 (CallCount 'compare/0.8.100...sha12')
   Check 'is the commit of #13 on master' 1 (CallCount 'compare/master...sha13')

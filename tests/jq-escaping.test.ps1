@@ -126,9 +126,9 @@ try {
   {"fieldValues":{"nodes":[
      {"name":"Todo","field":{"name":"Status"}},
      {"name":"P1","field":{"name":"Priority"}}]},
-   "content":{"number":7,"title":$nastyJson,"state":"OPEN","repository":{"name":"example-repo"}}},
+   "content":{"number":7,"title":$nastyJson,"state":"OPEN","repository":{"name":"example-repo","nameWithOwner":"example-org/example-repo"}}},
   {"fieldValues":{"nodes":[]},
-   "content":{"number":8,"title":"plain","state":"CLOSED","repository":{"name":"example-repo"}}}]}}}}
+   "content":{"number":8,"title":"plain","state":"CLOSED","repository":{"name":"example-repo","nameWithOwner":"example-org/example-repo"}}}]}}}}
 "@ | Set-Content (Join-Path $ghDir 'items.json') -Encoding utf8NoBOM
 
   # --- the stand-in -----------------------------------------------------------

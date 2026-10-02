@@ -81,7 +81,7 @@ JSON
 card() { # card <number> <title> <state> <status> <priority or ->
   local prio=""
   [ "$5" = "-" ] || prio=",{\"name\":\"$5\",\"field\":{\"name\":\"Priority\"}}"
-  printf '{"fieldValues":{"nodes":[{"name":"%s","field":{"name":"Status"}}%s]},"content":{"number":%s,"title":"%s","state":"%s","repository":{"name":"example"}}}' \
+  printf '{"fieldValues":{"nodes":[{"name":"%s","field":{"name":"Status"}}%s]},"content":{"number":%s,"title":"%s","state":"%s","repository":{"name":"example","nameWithOwner":"example-org/example"}}}' \
     "$4" "$prio" "$1" "$2" "$3"
 }
 board() { # board <card>...

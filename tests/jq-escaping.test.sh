@@ -116,9 +116,9 @@ cat > "$FAKE/gh/items.json" <<EOF
   {"fieldValues":{"nodes":[
      {"name":"Todo","field":{"name":"Status"}},
      {"name":"P1","field":{"name":"Priority"}}]},
-   "content":{"number":7,"title":$NASTY_JSON,"state":"OPEN","repository":{"name":"example-repo"}}},
+   "content":{"number":7,"title":$NASTY_JSON,"state":"OPEN","repository":{"name":"example-repo","nameWithOwner":"example-org/example-repo"}}},
   {"fieldValues":{"nodes":[]},
-   "content":{"number":8,"title":"plain","state":"CLOSED","repository":{"name":"example-repo"}}}]}}}}
+   "content":{"number":8,"title":"plain","state":"CLOSED","repository":{"name":"example-repo","nameWithOwner":"example-org/example-repo"}}}]}}}}
 EOF
 
 # --- the stand-in -------------------------------------------------------------

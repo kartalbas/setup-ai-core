@@ -39,6 +39,8 @@ try {
   [System.IO.File]::WriteAllText((Join-Path $project '.claude/helpers/graft-statusline.cjs'), "process.stdout.write('graft line')`n")
   Run 'statusline.ps1' @() $state
   Check "Graft's line"           'graft line' $out
+  $history = @(Get-Content -LiteralPath (Join-Path (Split-Path -Parent $record) 'usage.log'))
+  Check 'the history, one line a minute' "1 42.7 $soon 95.1 $later" "$($history.Count) $(($history[0] -split ' ', 2)[1])"
 
   Write-Host 'usage at the limit: every window named, and exit 3'
   Run 'usage.ps1' @()

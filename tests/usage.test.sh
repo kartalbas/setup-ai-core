@@ -30,6 +30,7 @@ echo "and Graft's line where Graft is wired"
 printf 'process.stdout.write("graft line")\n' > "$work/project/.claude/helpers/graft-statusline.cjs"
 out="$(cd "$work/project" && CLAUDE_PROJECT_DIR="$work/project" bash "$root/bin/statusline.sh" <<< "$state")"
 check "Graft's line"             'graft line' "$out"
+check 'the history, one line a minute' "1 42.7 $soon 95.1 $later" "$(wc -l < "$HOME/.ai-core/usage.log" | tr -d ' ') $(cut -d' ' -f2- "$HOME/.ai-core/usage.log")"
 
 echo 'usage at the limit: every window named, and exit 3'
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?

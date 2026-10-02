@@ -46,6 +46,9 @@ finished; otherwise open a new package.
 
 - One package goes to one worker. While it runs, the worker owns the package's files and no
   other worker touches them; a worker that needs a file outside its package asks you first.
+- Write the worker into the package's body as a line `Worker: <session name>` (`ai-core
+  issue-edit`). `ai-core status` plans the package on that worker and measures each model's pace
+  from it.
 - The tier follows the stakes: a small mechanical change the lighter model, ordinary work the
   standard one; security, payments, contracts or the push gate the strongest.
 - One brief per package, sent with `SendMessage`:
@@ -81,6 +84,10 @@ coordination and the reviews.
 
 ## 6. The owner
 
+When the owner asks for the state, run `ai-core status` (in the project folder `--project <board>`;
+`--issues` when the owner asks for every issue) and show its output unchanged in a code block. It
+is counted from the tracker, the team, the usage and the transcripts, so the page is the same every
+time. Under it write at most three sentences: what is blocked, and what waits for the owner.
 Report packages done, running and blocked, each issue with its number and title. Every question
 to the owner goes into the question dialog, the recommended option first, with no option that
 needs typing.

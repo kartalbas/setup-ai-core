@@ -16,6 +16,13 @@ if [ -n "$limits" ] && [ "$limits" != '{}' ]; then
   mkdir -p "$home/.ai-core"
   printf '{"recorded_at":%s,"rate_limits":%s}\n' "$(date +%s)" "$limits" > "$home/.ai-core/usage.json.$$" \
     && mv -f "$home/.ai-core/usage.json.$$" "$home/.ai-core/usage.json"
+  # The history, at most one line a minute, so `ai-core status` can measure what a closed issue
+  # costs of a window: <epoch> <five-hour %> <its reset> <weekly %> <its reset>
+  log="$home/.ai-core/usage.log"; now="$(date +%s)"
+  last="$(tail -n1 "$log" 2>/dev/null | cut -d' ' -f1)"
+  if [ "$((now - ${last:-0}))" -ge 60 ]; then
+    jq -r --arg t "$now" '"\($t) \(.five_hour.used_percentage // "-") \(.five_hour.resets_at // "-") \(.seven_day.used_percentage // "-") \(.seven_day.resets_at // "-")"' <<< "$limits" >> "$log"
+  fi
 fi
 graft="${CLAUDE_PROJECT_DIR:-.}/.claude/helpers/graft-statusline.cjs"
 if [ -f "$graft" ] && command -v node >/dev/null 2>&1; then

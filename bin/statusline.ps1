@@ -23,6 +23,16 @@ if ($state -and $state.rate_limits -and @($state.rate_limits.PSObject.Properties
   $file = Join-Path $dir 'usage.json'
   [System.IO.File]::WriteAllText("$file.$PID", ($record | ConvertTo-Json -Depth 6 -Compress) + "`n", (New-Object System.Text.UTF8Encoding $false))
   Move-Item -Force -LiteralPath "$file.$PID" -Destination $file
+  # The history, at most one line a minute, so `ai-core status` can measure what a closed issue
+  # costs of a window: <epoch> <five-hour %> <its reset> <weekly %> <its reset>
+  $log = Join-Path $dir 'usage.log'; $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+  $last = 0; if (Test-Path -LiteralPath $log) { $tail = @(Get-Content -LiteralPath $log -Tail 1); if ($tail) { $last = [long](($tail[0] -split ' ')[0]) } }
+  if ($now - $last -ge 60) {
+    function V($x) { if ($null -eq $x) { '-' } else { "$x" } }
+    $r = $state.rate_limits
+    $line = "$now $(V $r.five_hour.used_percentage) $(V $r.five_hour.resets_at) $(V $r.seven_day.used_percentage) $(V $r.seven_day.resets_at)"
+    [System.IO.File]::AppendAllText($log, "$line`n", (New-Object System.Text.UTF8Encoding $false))
+  }
 }
 $root = if ($env:CLAUDE_PROJECT_DIR) { $env:CLAUDE_PROJECT_DIR } else { '.' }
 $graft = Join-Path $root '.claude/helpers/graft-statusline.cjs'

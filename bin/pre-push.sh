@@ -338,11 +338,14 @@ if [ -z "$commits" ]; then
 fi
 
 # A DEFAULT BRANCH THAT GOES LIVE (the owner's rule). Where the repository's .ai-core/config.env
-# says DEFAULT_BRANCH_IS_LIVE="yes", a controller or a job deploys that branch, so landing on it is
+# names it in DEFAULT_BRANCH_IS_LIVE (its folder name, as the harness-wide config.env lists the
+# repositories, or "yes"), a controller or a job deploys that branch, so landing on it is
 # deploying. Such a landing needs the repository's own checks, because the gate's would be all that
 # tests what goes live, and its last commit names who reviewed the change in a 'Reviewed-by:' trailer.
 live="$(grep -E '^[[:space:]]*DEFAULT_BRANCH_IS_LIVE[[:space:]]*=' "$root/.ai-core/config.env" 2>/dev/null | tail -n1 || true)"
-live="${live#*=}"; live="${live%%#*}"; live="${live//[[:space:]\"\']/}"
+live="${live#*=}"; live="${live%%#*}"; live="${live//[\"\',]/ }"
+repo_name="$(basename "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null | sed 's|/\.git$||')")"
+case " $(tr -s '[:space:]' ' ' <<< "$live") " in *" yes "*|*" $repo_name "*) live=yes ;; *) live=no ;; esac
 if [ -n "$landing" ] && [ "$live" = yes ]; then
   [ -f "$root/scripts/check.sh" ] \
     || refuse "$default of this repository goes live, and it has no scripts/check.sh, so nothing would test what goes live. Add the checks first; until then the owner lands here."

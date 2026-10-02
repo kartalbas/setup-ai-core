@@ -281,6 +281,14 @@ out="$(only_new "$repo")"; rc=$?
 check 'exit 1'                         1 "$rc"
 check 'it says nothing would test it'  yes "$(grep -qF 'has no scripts/check.sh, so nothing would test what goes live' <<< "$out" && echo yes || echo no)"
 mv "$fake/check.sh.aside" "$repo/scripts/check.sh"
+echo 'the harness-wide list form: the repository named in it is live, one not named is not'
+printf 'DEFAULT_BRANCH_IS_LIVE="other-repo %s"\n' "$(basename "$repo")" > "$repo/.ai-core/config.env"
+commit 'src/thing.txt' 'Land a change named in the list #16'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1 where it is named'       1 "$rc"
+printf 'DEFAULT_BRANCH_IS_LIVE="other-repo"\n' > "$repo/.ai-core/config.env"
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0 where it is not'         0 "$rc"
 echo 'without the setting nothing changes'
 rm -f "$repo/.ai-core/config.env"
 commit 'src/thing.txt' 'Land a change on an ordinary branch #16'

@@ -278,6 +278,14 @@ OnlyNew $repo
 Check 'exit 1'                         1 $rc
 Check 'it says nothing would test it'  'True' (Says ([regex]::Escape('has no scripts/check.sh, so nothing would test what goes live')))
 Move-Item -LiteralPath $aside -Destination (Join-Path $repo 'scripts/check.sh')
+Write-Host 'the harness-wide list form: the repository named in it is live, one not named is not'
+Write-Lf (Join-Path $repo '.ai-core/config.env') "DEFAULT_BRANCH_IS_LIVE=`"other-repo $(Split-Path -Leaf $repo)`"`n"
+Commit 'src/thing.txt' 'Land a change named in the list #16'
+OnlyNew $repo
+Check 'exit 1 where it is named'       1 $rc
+Write-Lf (Join-Path $repo '.ai-core/config.env') "DEFAULT_BRANCH_IS_LIVE=`"other-repo`"`n"
+OnlyNew $repo
+Check 'exit 0 where it is not'         0 $rc
 Write-Host 'without the setting nothing changes'
 Remove-Item -LiteralPath (Join-Path $repo '.ai-core/config.env')
 Commit 'src/thing.txt' 'Land a change on an ordinary branch #16'

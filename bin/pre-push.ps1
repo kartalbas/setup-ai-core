@@ -354,16 +354,19 @@ if (-not $pushing) { exit 0 }
 if ($commits.Count -eq 0) { Write-Host 'pre-push: nothing new to send.'; exit 0 }
 
 # A DEFAULT BRANCH THAT GOES LIVE (the owner's rule). Where the repository's .ai-core/config.env
-# says DEFAULT_BRANCH_IS_LIVE="yes", a controller or a job deploys that branch, so landing on it is
+# names it in DEFAULT_BRANCH_IS_LIVE (its folder name, as the harness-wide config.env lists the
+# repositories, or "yes"), a controller or a job deploys that branch, so landing on it is
 # deploying. Such a landing needs the repository's own checks, because the gate's would be all that
 # tests what goes live, and its last commit names who reviewed the change in a 'Reviewed-by:' trailer.
 $live = ''
 $liveConfig = Join-Path $root '.ai-core/config.env'
 if (Test-Path -LiteralPath $liveConfig) {
   $liveLine = @(Get-Content -LiteralPath $liveConfig | Where-Object { $_ -cmatch '^\s*DEFAULT_BRANCH_IS_LIVE\s*=' }) | Select-Object -Last 1
-  if ($liveLine) { $live = (($liveLine -split '=', 2)[1] -split '#', 2)[0].Trim(' ', "`t", "`r", '"', "'") }
+  if ($liveLine) { $live = (($liveLine -split '=', 2)[1] -split '#', 2)[0] }
 }
-if ($landing -and $live -ceq 'yes') {
+$repoName = Split-Path -Leaf ("$(& git rev-parse --path-format=absolute --git-common-dir 2>$null)".Trim() -creplace '[\\/]\.git$', '')
+$liveNames = @($live -split '[\s,"'']+' | Where-Object { $_ })
+if ($landing -and (($liveNames -ccontains 'yes') -or ($liveNames -ccontains $repoName))) {
   if (-not (Test-Path -LiteralPath (Join-Path $root 'scripts/check.sh'))) {
     Deny-Push "$default of this repository goes live, and it has no scripts/check.sh, so nothing would test what goes live. Add the checks first; until then the owner lands here."
   }

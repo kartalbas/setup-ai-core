@@ -250,6 +250,40 @@ Check 'and not the published one'      'False' (Says 'A commit another flow wrot
 & git -C $repo checkout -q master; & git -C $repo reset -q --hard $base; & git -C $repo branch -q -D issue-11-catch-up
 & git -C $repo update-ref -d refs/remotes/origin/master; & git -C $repo update-ref -d refs/remotes/origin/issue-11-catch-up
 
+# --- a default branch that goes live -----------------------------------------------------------
+Write-Host 'where the default branch goes live, a landing without a Reviewed-by trailer is refused'
+New-Item -ItemType Directory -Force -Path (Join-Path $repo '.ai-core') | Out-Null
+Write-Lf (Join-Path $repo '.ai-core/config.env') "DEFAULT_BRANCH_IS_LIVE=`"yes`"`n"
+$exclude = Join-Path $repo '.git/info/exclude'
+if (-not (Select-String -LiteralPath $exclude -SimpleMatch -Pattern '/.ai-core/' -Quiet -ErrorAction SilentlyContinue)) { Add-Content -LiteralPath $exclude -Value '/.ai-core/' }
+Commit 'src/thing.txt' 'Land a change on a live branch #16'
+OnlyNew $repo
+Check 'exit 1'                         1 $rc
+Check 'it names the trailer'           'True' (Says ([regex]::Escape("git commit --amend --trailer 'Reviewed-by: <reviewer>'")))
+Write-Host 'with the trailer it lands'
+"Land a change on a live branch #16`n`nReviewed-by: a critic session" | & git -C $repo commit -q --amend -F -
+OnlyNew $repo
+Check 'exit 0'                         0 $rc
+Write-Host 'a push to another branch is not held to it'
+Commit 'src/thing.txt' 'Work on an issue branch #16'
+Push-Location $repo
+try { $script:out = ("refs/heads/issue-16-x $(Sha $repo HEAD) refs/heads/issue-16-x $(Sha $repo HEAD~1)" | & pwsh -NoProfile -File $gate origin 'https://example.invalid/x.git' 2>&1 | Out-String); $script:rc = $LASTEXITCODE }
+finally { Pop-Location }
+Check 'exit 0'                         0 $rc
+Write-Host 'a live repository without scripts/check.sh is refused even with the trailer'
+$aside = Join-Path $fake 'check.sh.aside'
+Move-Item -LiteralPath (Join-Path $repo 'scripts/check.sh') -Destination $aside
+"Work on an issue branch #16`n`nReviewed-by: a critic session" | & git -C $repo commit -q --amend -F -
+OnlyNew $repo
+Check 'exit 1'                         1 $rc
+Check 'it says nothing would test it'  'True' (Says ([regex]::Escape('has no scripts/check.sh, so nothing would test what goes live')))
+Move-Item -LiteralPath $aside -Destination (Join-Path $repo 'scripts/check.sh')
+Write-Host 'without the setting nothing changes'
+Remove-Item -LiteralPath (Join-Path $repo '.ai-core/config.env')
+Commit 'src/thing.txt' 'Land a change on an ordinary branch #16'
+OnlyNew $repo
+Check 'exit 0'                         0 $rc
+
 Write-Host 'a commit naming its issue anywhere in the message passes'
 Commit 'src/thing.txt' "Read the install order from one file`n`nIt closes #163."
 OnlyNew $repo

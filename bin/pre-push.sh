@@ -286,6 +286,7 @@ default="${default#origin/}"; [ -n "$default" ] || default=master
 commits=''
 scan_ranges=''
 pushing=0
+landing=''   # the commit a push to the default branch lands, judged below where that branch goes live
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ -n "${local_sha:-}" ] || continue
   all_zero "$local_sha" && continue                   # a deletion sends no commit
@@ -323,6 +324,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     # rebase and a force push.
     range="$local_commit ^$remote_sha --not --remotes=origin"
   fi
+  [ "$remote_ref" != "refs/heads/$default" ] || landing="$local_commit"
   commits="$commits$(git rev-list --no-merges $range)"$'\n'
   scan_ranges="$scan_ranges$range"$'\n'
 done <<< "$input"
@@ -333,6 +335,19 @@ commits="$(grep -v '^$' <<< "$commits" || true)"
 if [ -z "$commits" ]; then
   echo 'pre-push: nothing new to send.'
   exit 0
+fi
+
+# A DEFAULT BRANCH THAT GOES LIVE (the owner's rule). Where the repository's .ai-core/config.env
+# says DEFAULT_BRANCH_IS_LIVE="yes", a controller or a job deploys that branch, so landing on it is
+# deploying. Such a landing needs the repository's own checks, because the gate's would be all that
+# tests what goes live, and its last commit names who reviewed the change in a 'Reviewed-by:' trailer.
+live="$(grep -E '^[[:space:]]*DEFAULT_BRANCH_IS_LIVE[[:space:]]*=' "$root/.ai-core/config.env" 2>/dev/null | tail -n1 || true)"
+live="${live#*=}"; live="${live%%#*}"; live="${live//[[:space:]\"\']/}"
+if [ -n "$landing" ] && [ "$live" = yes ]; then
+  [ -f "$root/scripts/check.sh" ] \
+    || refuse "$default of this repository goes live, and it has no scripts/check.sh, so nothing would test what goes live. Add the checks first; until then the owner lands here."
+  [ -n "$(git log -1 --format='%(trailers:key=Reviewed-by,valueonly)' "$landing" | tr -d '[:space:]')" ] \
+    || refuse "$default of this repository goes live, so the last commit of the push names who reviewed the change: git commit --amend --trailer 'Reviewed-by: <reviewer>', then push again."
 fi
 
 # WHAT EXCUSES A COMMIT FROM NAMING AN ISSUE, and why each one is here:

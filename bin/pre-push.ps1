@@ -302,6 +302,7 @@ if (-not $default) { $default = 'master' }
 $commits = @()
 $scanRanges = @()
 $pushing = $false
+$landing = ''   # the commit a push to the default branch lands, judged below where that branch goes live
 foreach ($line in ($inputText -split "`r?`n")) {
   $f = @($line.Trim() -split '\s+' | Where-Object { $_ })
   if ($f.Count -lt 2) { continue }
@@ -343,6 +344,7 @@ foreach ($line in ($inputText -split "`r?`n")) {
     # rebase and a force push.
     $range = "$localCommit ^$remoteSha --not --remotes=origin"
   }
+  if ($remoteRef -ceq "refs/heads/$default") { $landing = $localCommit }
   $commits += @(& git rev-list --no-merges @($range -split ' ') 2>$null | ForEach-Object { "$_" } | Where-Object { $_ })
   $scanRanges += $range
 }
@@ -350,6 +352,25 @@ foreach ($line in ($inputText -split "`r?`n")) {
 # Nothing to send, or nothing but deletions: there is nothing to judge and nothing to test.
 if (-not $pushing) { exit 0 }
 if ($commits.Count -eq 0) { Write-Host 'pre-push: nothing new to send.'; exit 0 }
+
+# A DEFAULT BRANCH THAT GOES LIVE (the owner's rule). Where the repository's .ai-core/config.env
+# says DEFAULT_BRANCH_IS_LIVE="yes", a controller or a job deploys that branch, so landing on it is
+# deploying. Such a landing needs the repository's own checks, because the gate's would be all that
+# tests what goes live, and its last commit names who reviewed the change in a 'Reviewed-by:' trailer.
+$live = ''
+$liveConfig = Join-Path $root '.ai-core/config.env'
+if (Test-Path -LiteralPath $liveConfig) {
+  $liveLine = @(Get-Content -LiteralPath $liveConfig | Where-Object { $_ -cmatch '^\s*DEFAULT_BRANCH_IS_LIVE\s*=' }) | Select-Object -Last 1
+  if ($liveLine) { $live = (($liveLine -split '=', 2)[1] -split '#', 2)[0].Trim(' ', "`t", "`r", '"', "'") }
+}
+if ($landing -and $live -ceq 'yes') {
+  if (-not (Test-Path -LiteralPath (Join-Path $root 'scripts/check.sh'))) {
+    Deny-Push "$default of this repository goes live, and it has no scripts/check.sh, so nothing would test what goes live. Add the checks first; until then the owner lands here."
+  }
+  if (-not "$(& git log -1 '--format=%(trailers:key=Reviewed-by,valueonly)' $landing)".Trim()) {
+    Deny-Push "$default of this repository goes live, so the last commit of the push names who reviewed the change: git commit --amend --trailer 'Reviewed-by: <reviewer>', then push again."
+  }
+}
 
 # WHAT EXCUSES A COMMIT FROM NAMING AN ISSUE, and why each one is here:
 #

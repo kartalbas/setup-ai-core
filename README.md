@@ -669,10 +669,13 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
 8. **A migration that exists is not changed or removed**: a `migrations/*.sql` the push modifies,
    renames or deletes is refused, a new one passes. A commit with a `Migration: <why>` trailer may
    change one that never reached a database.
-9. **Both spellings of a script change together**: where `x.sh` and `x.ps1` both stand, a push
+9. **A default branch that goes live is landed with checks and a review**: where the repository's
+   `.ai-core/config.env` says `DEFAULT_BRANCH_IS_LIVE="yes"`, a push to the default branch is refused
+   without `scripts/check.sh`, and its last commit carries a `Reviewed-by: <reviewer>` trailer.
+10. **Both spellings of a script change together**: where `x.sh` and `x.ps1` both stand, a push
    that changes one changes the other. A commit of the push with a `Twin: <why>` trailer excuses a
    fault that lives in one spelling alone.
-10. **The names of new directories are derived, not invented**, read from the families the trees
+11. **The names of new directories are derived, not invented**, read from the families the trees
    already carry, with no list kept anywhere. A new `<a>` beside `<a>-<x>`, or the reverse, names
    one member of a family and leaves the other unnamed. A new `<owner>-<x>`, in a directory that
    mirrors the repositories of the project folder (two or more entries carry a repository's name),
@@ -680,9 +683,9 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    owner word is its name after the project prefix, and a word that is a top-level directory in
    two or more repositories is a word of structure and names no repository. A commit with a
    `Naming: <why>` trailer keeps the names it adds.
-11. **`scripts/check.sh` is green**, run in the tree being pushed; a repository without one is told
+12. **`scripts/check.sh` is green**, run in the tree being pushed; a repository without one is told
    so and passes on.
-12. **gitleaks over the commits the push carries**, in a repository that carries `.gitleaks.toml`;
+13. **gitleaks over the commits the push carries**, in a repository that carries `.gitleaks.toml`;
    the commits are the only place a credential taken out again still stands. It runs
    `gitleaks git`, which came with gitleaks 8.19; without such a gitleaks the push is refused and
    `ai-core doctor` named, which installs it. `--install` writes nothing into such a repository

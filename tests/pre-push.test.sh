@@ -258,6 +258,35 @@ check 'and not the published one'      no "$(grep -qF 'A commit another flow wro
 git -C "$repo" checkout -q master; git -C "$repo" reset -q --hard "$base"; git -C "$repo" branch -q -D issue-11-catch-up
 git -C "$repo" update-ref -d refs/remotes/origin/master; git -C "$repo" update-ref -d refs/remotes/origin/issue-11-catch-up
 
+# --- a default branch that goes live -----------------------------------------------------------
+echo 'where the default branch goes live, a landing without a Reviewed-by trailer is refused'
+mkdir -p "$repo/.ai-core"; printf 'DEFAULT_BRANCH_IS_LIVE="yes"\n' > "$repo/.ai-core/config.env"
+grep -qxF '/.ai-core/' "$repo/.git/info/exclude" 2>/dev/null || printf '/.ai-core/\n' >> "$repo/.git/info/exclude"
+commit 'src/thing.txt' 'Land a change on a live branch #16'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'it names the trailer'           yes "$(grep -qF "git commit --amend --trailer 'Reviewed-by: <reviewer>'" <<< "$out" && echo yes || echo no)"
+echo 'with the trailer it lands'
+git -C "$repo" commit -q --amend -m "$(printf 'Land a change on a live branch #16\n\nReviewed-by: a critic session')"
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                         0 "$rc"
+echo 'a push to another branch is not held to it'
+commit 'src/thing.txt' 'Work on an issue branch #16'
+out="$(printf 'refs/heads/issue-16-x %s refs/heads/issue-16-x %s\n' "$(git -C "$repo" rev-parse HEAD)" "$(git -C "$repo" rev-parse HEAD~1)" | ( cd "$repo" && bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1 ))"; rc=$?
+check 'exit 0'                         0 "$rc"
+echo 'a live repository without scripts/check.sh is refused even with the trailer'
+mv "$repo/scripts/check.sh" "$fake/check.sh.aside"
+git -C "$repo" commit -q --amend -m "$(printf 'Work on an issue branch #16\n\nReviewed-by: a critic session')"
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'it says nothing would test it'  yes "$(grep -qF 'has no scripts/check.sh, so nothing would test what goes live' <<< "$out" && echo yes || echo no)"
+mv "$fake/check.sh.aside" "$repo/scripts/check.sh"
+echo 'without the setting nothing changes'
+rm -f "$repo/.ai-core/config.env"
+commit 'src/thing.txt' 'Land a change on an ordinary branch #16'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                         0 "$rc"
+
 # --- what excuses a commit from naming an issue ----------------------------------------------
 echo 'a commit naming its issue anywhere in the message passes'
 commit 'src/thing.txt' 'Read the install order from one file

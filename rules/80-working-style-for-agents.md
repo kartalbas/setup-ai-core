@@ -46,4 +46,8 @@
   another model. Never downgrade a model to save money on security, payments or contract work.
   [review]
 - **Never announce that the context is running out and never stop work because of it.** Report the
-  work when it reaches a point, not because a budget did. [review]
+  work when it reaches a point, not because a budget did. A usage limit of the account is another
+  matter, because every session draws on it: at 92 % of any of its windows, the five hours, the week
+  or one model's quota, every session finishes the step in hand, commits and reports it, starts
+  nothing new and waits for the reset, and what is left stays for the coordination and the reviews.
+  `ai-core usage` reads the windows. [review · tool]

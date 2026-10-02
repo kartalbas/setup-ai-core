@@ -55,6 +55,21 @@ function Set-GraftPin {
 
 # Graft's own lines "✓ what: path (state)" are read for the report: what it wrote into the
 # repository and what on the machine (a path under the home directory), and with which state
+# THE STATUS LINE IS ai-core's, AND IT SHOWS GRAFT'S. Claude Code hands the status line command the
+# account's usage windows, which `ai-core usage` reads for every session of the machine, and only one
+# command gets them. Graft writes its own; this puts `ai-core statusline` in its place, which records
+# the windows and then runs Graft's line as before.
+function Set-OwnStatusLine {
+  $f = '.claude/settings.json'
+  if (-not (Test-Path -LiteralPath $f) -or -not (Get-Command jq -ErrorAction SilentlyContinue)) { return }
+  $cmd = (Join-Path $PSScriptRoot 'ai-core').Replace('\', '/')
+  if ($cmd -cmatch '^[a-z]:') { $cmd = $cmd.Substring(0, 1).ToUpperInvariant() + $cmd.Substring(1) }
+  $cmd = "`"$cmd`" statusline"
+  & jq -e --arg c $cmd '.statusLine.command == $c' $f 2>$null | Out-Null
+  if ($LASTEXITCODE -eq 0) { return }
+  $set = (& jq --arg c $cmd '.statusLine = {type: "command", command: $c}' $f 2>$null | Out-String)
+  if ($LASTEXITCODE -eq 0 -and $set.Trim()) { [System.IO.File]::WriteAllText((Resolve-Path -LiteralPath $f).Path, $set.Replace("`r`n", "`n"), (New-Object System.Text.UTF8Encoding $false)) }
+}
 function Get-GraftLines([string[]]$lines) {
   # one @{ State; Path } per file Graft names; a path under this directory made relative
   $here = (Get-Location).Path; $found = @()
@@ -244,7 +259,7 @@ try {
   $out = @(& npx -y $graftPkg @graftInit 2>&1 | ForEach-Object { "$_" })
   if ($LASTEXITCODE -eq 0) { $out += @(& npx -y $graftPkg build 2>&1 | ForEach-Object { "$_" }) }
   if ($LASTEXITCODE -ne 0) { $result = 1 }
-  if ($result -ne 0) { foreach ($line in $out) { Write-Host $line } } else { Set-GraftPin }
+  if ($result -ne 0) { foreach ($line in $out) { Write-Host $line } } else { Set-GraftPin; Set-OwnStatusLine }
 
   if ($exclude) {
     # What Graft's output names as written into this repository, and the repository does not track

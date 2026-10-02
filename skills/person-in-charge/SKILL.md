@@ -64,7 +64,22 @@ finished; otherwise open a new package.
   `ai-core finish-issue` for each issue once the push has landed, and give the worker its next
   package.
 
-## 5. The owner
+## 5. The usage limit
+
+The account's limits are shared by every session; what is left at the end belongs to your
+coordination and the reviews.
+
+- Run `ai-core usage` before you hand out a package and whenever a worker reports. It reads the
+  five-hour and the weekly window the status line records, with their reset times; exit 3 means one
+  stands at 92 % or more.
+- At the limit, tell every worker: finish the step in hand, commit and report it, then wait. Hand
+  out nothing new, and keep what is left for coordinating and reviewing.
+- Wake yourself at the reset time `ai-core usage` names, check again, and release the workers with a
+  message once every window is below the limit. Start the watch again after every reset.
+- One model's own weekly quota is not among the windows. When a worker reports a limit error for a
+  model, or the owner names its percentage, treat it as the same limit for that model's workers.
+
+## 6. The owner
 
 Report packages done, running and blocked, each issue with its number and title. Every question
 to the owner goes into the question dialog, the recommended option first, with no option that

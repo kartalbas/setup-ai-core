@@ -28,6 +28,7 @@ for twin in sh ps1; do
   git -C "$WORK/graft-$twin" -c user.name=check -c user.email=check@localhost commit -q -m init
   git -C "$WORK/graft-$twin" config core.autocrlf false
   echo wired-earlier > "$WORK/graft-$twin/GEMINI.md"
+  mkdir -p "$WORK/graft-$twin/.claude"; printf '{"statusLine":{"type":"command","command":"node graft-statusline.cjs"}}\n' > "$WORK/graft-$twin/.claude/settings.json"   # Graft's status line, as Graft writes it
   mkdir -p "$WORK/graft-home/.codex"; printf '[mcp_servers.graft]\ncommand = "npx"\nargs = ["-y", "@nanonets/graft@0.1.0", "mcp"]\n' > "$WORK/graft-home/.codex/config.toml"   # what Graft registered on the machine, pinned by an older release
   printf '# setup-ai-core graft start: what Graft writes into the working tree, never into a commit\n/graft/\n/product-file.ts\n# setup-ai-core graft end\n' >> "$WORK/graft-$twin/.git/info/exclude"   # a wrong entry an earlier run left
   : > "$WORK/graft-$twin.args"
@@ -39,6 +40,8 @@ for twin in sh ps1; do
     fi
   done
   PIN="$(tr -d '\r\n' < "$ROOT/lib/graft-version")"
+  jq -r '.statusLine.command' "$WORK/graft-$twin/.claude/settings.json" | grep -q 'ai-core" statusline$' \
+    || fail "init.$twin did not put ai-core's status line in place of Graft's: $(jq -c '.statusLine' "$WORK/graft-$twin/.claude/settings.json")"
   grep -q "\"@nanonets/graft@$PIN\"" "$WORK/graft-home/.codex/config.toml" && ! grep -q '"@nanonets/graft"\|@0\.1\.0' "$WORK/graft-home/.codex/config.toml" || fail "init.$twin did not pin the MCP server Graft registered on the machine: $(cat "$WORK/graft-home/.codex/config.toml")"
   grep -q "\"@nanonets/graft@$PIN\"" "$WORK/graft-$twin/opencode.json" || fail "init.$twin did not pin the Graft MCP server of opencode.json: $(tr -d '\n' < "$WORK/graft-$twin/opencode.json")"
   grep -q "\"@nanonets/graft@$PIN\"" "$WORK/graft-$twin/.mcp.json" && ! grep -q '"@nanonets/graft"' "$WORK/graft-$twin/.mcp.json" || fail "init.$twin did not pin the MCP server Graft registered: $(cat "$WORK/graft-$twin/.mcp.json")"

@@ -49,6 +49,19 @@ pin_graft_mcp() {
     if cmp -s "$f.pin" "$f"; then rm -f "$f.pin"; else mv -f "$f.pin" "$f"; fi
   done
 }
+# THE STATUS LINE IS ai-core's, AND IT SHOWS GRAFT'S. Claude Code hands the status line command the
+# account's usage windows, which `ai-core usage` reads for every session of the machine, and only one
+# command gets them. Graft writes its own; this puts `ai-core statusline` in its place, which records
+# the windows and then runs Graft's line as before.
+own_statusline() {
+  local f=".claude/settings.json" cmd
+  [ -f "$f" ] && command -v jq >/dev/null 2>&1 || return 0
+  cmd="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ai-core"
+  if command -v cygpath >/dev/null 2>&1; then cmd="$(cygpath -m "$cmd")"; fi
+  cmd="\"$cmd\" statusline"
+  jq -e --arg c "$cmd" '.statusLine.command == $c' "$f" >/dev/null 2>&1 && return 0
+  jq --arg c "$cmd" '.statusLine = {type: "command", command: $c}' "$f" > "$f.own" && [ -s "$f.own" ] && mv -f "$f.own" "$f" || rm -f "$f.own"
+}
 # Graft's own lines "✓ what: path (state)" are read for the report: what it wrote into the
 # repository and what on the machine (a path under the home directory), and with which state
 HOME_WIN="$(cygpath -w "$HOME" 2>/dev/null || echo "$HOME")"
@@ -204,7 +217,7 @@ fi
 echo "==> Graft: wiring the agents and building the code graph (npx -y $GRAFT_PKG)..."
 RESULT=0
 { npx -y "$GRAFT_PKG" "${GRAFT_INIT[@]}" && npx -y "$GRAFT_PKG" build; } > "$TMP_OUT" 2>&1 || RESULT=1
-if [ "$RESULT" -ne 0 ]; then cat "$TMP_OUT"; else pin_graft_mcp; fi
+if [ "$RESULT" -ne 0 ]; then cat "$TMP_OUT"; else pin_graft_mcp; own_statusline; fi
 
 if [ -n "$EXCLUDE" ]; then
   # What Graft's output names as written into this repository, and the repository does not track

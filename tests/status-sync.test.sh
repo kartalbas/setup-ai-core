@@ -41,7 +41,7 @@ check 'nothing at all'             '' "$(derive_target todo 0 0 0)"
 check 'a tag without the commit'   '' "$(derive_target todo 0 1 0)"
 check 'implementing stays where a person put it' '' "$(derive_target implementing 0 0 0)"
 
-echo 'it never moves an epic, whatever the signal'
+echo 'no commit moves an epic, whatever the signal: an epic follows its sub-issues'
 check 'epic with a released commit' '' "$(derive_target todo 1 1 1)"
 check 'epic with a commit on master' '' "$(derive_target todo 1 0 1)"
 
@@ -99,6 +99,8 @@ signals() {  # signals <sha>
 signals sha12 > "$FAKE/signals-12.json"
 signals sha13 > "$FAKE/signals-13.json"
 printf '%s\n' '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":1},"reopened":{"nodes":[]},"timelineItems":{"nodes":[]}}}}}' > "$FAKE/signals-14.json"
+# #14's one sub-issue was moved to testing by hand on the board; the epic itself stands in todo
+printf '%s\n' '{"data":{"repository":{"issue":{"state":"OPEN","projectItems":{"nodes":[{"project":{"number":999995,"owner":{"login":"example-org"}},"status":{"name":"todo"}}]},"subIssues":{"nodes":[{"state":"OPEN","projectItems":{"nodes":[{"project":{"number":999995,"owner":{"login":"example-org"}},"status":{"name":"testing"}}]}}]}}}}}' > "$FAKE/epic-14.json"
 printf '{"default_branch":"master"}\n' > "$FAKE/repo.json"
 printf '[{"name":"0.8.100"}]\n'        > "$FAKE/tags.json"
 printf '{"status":"behind"}\n'         > "$FAKE/compare-master-sha12.json"
@@ -118,6 +120,7 @@ for a in "\$@"; do
   prev="\$a"
 done
 case "\$*" in
+  *"subIssues(first"*)               doc="$FAKE/epic-14.json" ;;
   *"projectV2(number:"*)             doc="$FAKE/project-id.json" ;;
   *"items(first:100, after:"*)       doc="$FAKE/board.json" ;;
   *"num=12"*)                        doc="$FAKE/signals-12.json" ;;
@@ -146,15 +149,18 @@ rc=$?
 check 'exit 0' 0 "$rc"
 check 'a commit on master would move the card to testing' \
   'would move   example-repo#12  (implementing -> testing)' \
-  "$(grep '^would move' <<< "$run")"
+  "$(grep '^would move   example-repo#12' <<< "$run")"
 check 'a commit the newest tag carries would close the issue' \
   'would close  example-repo#13  (todo -> done, released in 0.8.100)' \
   "$(grep '^would close' <<< "$run")"
-check 'an epic with one sub-issue is named and not moved' \
+check 'an epic with one sub-issue is named' \
   'one child    example-repo#14  (an epic with a single sub-issue is a plain issue, rules.md section 8)' \
   "$(grep '^one child' <<< "$run")"
+check 'and follows its sub-issue moved by hand' \
+  'would move   example-repo#14  (todo -> testing)' \
+  "$(grep '^would move   example-repo#14' <<< "$run")"
 check 'and the count says what it read' \
-  "3 active cards scanned, 2 would move on board $PROJECT_NUMBER." \
+  "3 active cards scanned, 3 would move on board $PROJECT_NUMBER." \
   "$(printf '%s\n' "$run" | tail -1)"
 
 echo 'the compare is asked once per question, with the ref as base and the commit as head'

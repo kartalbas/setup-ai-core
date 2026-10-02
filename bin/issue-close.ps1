@@ -31,4 +31,5 @@ foreach ($n in $Number) {
 
   "#$n -> closed"
   Invoke-OnEveryBoard -Repo $Repo -Number $n -Field 'Status' -Option 'done' -Printed 'done'
+  Update-ParentEpic -Repo $Repo -Number $n
 }

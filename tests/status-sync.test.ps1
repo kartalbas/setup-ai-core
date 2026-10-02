@@ -39,7 +39,7 @@ Check 'nothing at all'           '' (Get-DeriveTarget -Current 'todo' -OnMaster 
 Check 'a tag without the commit' '' (Get-DeriveTarget -Current 'todo' -OnMaster 0 -Released 1 -IsEpic 0)
 Check 'implementing stays where a person put it' '' (Get-DeriveTarget -Current 'implementing' -OnMaster 0 -Released 0 -IsEpic 0)
 
-Write-Host 'it never moves an epic, whatever the signal'
+Write-Host 'no commit moves an epic, whatever the signal: an epic follows its sub-issues'
 Check 'epic with a released commit'  '' (Get-DeriveTarget -Current 'todo' -OnMaster 1 -Released 1 -IsEpic 1)
 Check 'epic with a commit on master' '' (Get-DeriveTarget -Current 'todo' -OnMaster 1 -Released 0 -IsEpic 1)
 
@@ -97,6 +97,8 @@ Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'project-id.json') -Value
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'signals-12.json') -Value (Signals 'sha12')
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'signals-13.json') -Value (Signals 'sha13')
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'signals-14.json') -Value '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":1},"reopened":{"nodes":[]},"timelineItems":{"nodes":[]}}}}}'
+# #14's one sub-issue was moved to testing by hand on the board; the epic itself stands in todo
+Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'epic-14.json') -Value '{"data":{"repository":{"issue":{"state":"OPEN","projectItems":{"nodes":[{"project":{"number":999995,"owner":{"login":"example-org"}},"status":{"name":"todo"}}]},"subIssues":{"nodes":[{"state":"OPEN","projectItems":{"nodes":[{"project":{"number":999995,"owner":{"login":"example-org"}},"status":{"name":"testing"}}]}}]}}}}}'
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'repo.json') -Value '{"default_branch":"master"}'
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'tags.json') -Value '[{"name":"0.8.100"}]'
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'compare-master-sha12.json')  -Value '{"status":"behind"}'
@@ -110,7 +112,8 @@ Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'compare-tag-sha13.json')
 `$ErrorActionPreference = 'Stop'
 `$line = `$args -join ' '
 Add-Content -LiteralPath '$calls' -Value `$line
-if     (`$line -like '*projectV2(number:*')             { `$doc = 'project-id.json' }
+if     (`$line -like '*subIssues(first*')               { `$doc = 'epic-14.json' }
+elseif (`$line -like '*projectV2(number:*')             { `$doc = 'project-id.json' }
 elseif (`$line -like '*items(first:100, after:*')       { `$doc = 'board.json' }
 elseif (`$line -like '*num=12*')                        { `$doc = 'signals-12.json' }
 elseif (`$line -like '*num=13*')                        { `$doc = 'signals-13.json' }
@@ -138,13 +141,15 @@ try {
     ForEach-Object { "$_" })
   Check 'exit 0' 0 $LASTEXITCODE
   Check 'a commit on master would move the card to testing' `
-    'would move   example-repo#12  (implementing -> testing)' (@($run | Where-Object { $_ -like 'would move*' }))[0]
+    'would move   example-repo#12  (implementing -> testing)' (@($run | Where-Object { $_ -like 'would move   example-repo#12*' }))[0]
   Check 'a commit the newest tag carries would close the issue' `
     'would close  example-repo#13  (todo -> done, released in 0.8.100)' (@($run | Where-Object { $_ -like 'would close*' }))[0]
-  Check 'an epic with one sub-issue is named and not moved' `
+  Check 'an epic with one sub-issue is named' `
     'one child    example-repo#14  (an epic with a single sub-issue is a plain issue, rules.md section 8)' (@($run | Where-Object { $_ -like 'one child*' }))[0]
+  Check 'and follows its sub-issue moved by hand' `
+    'would move   example-repo#14  (todo -> testing)' (@($run | Where-Object { $_ -like 'would move   example-repo#14*' }))[0]
   Check 'and the count says what it read' `
-    "3 active cards scanned, 2 would move on board $projectNumber." $run[-1]
+    "3 active cards scanned, 3 would move on board $projectNumber." $run[-1]
 
   Write-Host 'the compare is asked once per question, with the ref as base and the commit as head'
   Check 'is the commit of #12 on master' 1 (CallCount 'compare/master...sha12')

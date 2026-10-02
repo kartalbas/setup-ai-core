@@ -18,9 +18,9 @@
 #
 # The card is put in `implementing` by start-issue, at the moment the worktree is opened, so
 # that column is a person's statement and this sweep never writes it. It never moves a card
-# BACKWARD, so a state a person set by hand stands, and it never touches an EPIC - an epic
-# carries no work and closes with its last sub-issue by a different rule. Nothing is guessed: a
-# card only moves on a signal.
+# BACKWARD, so a state a person set by hand stands. An EPIC carries no work and has no signals of
+# its own: it follows its sub-issues (epic_target in lib/board.sh), so a sub-issue moved by hand
+# on the board moves its epic here too. Nothing is guessed: a card only moves on a signal.
 #
 # --dry-run prints what it would do and writes nothing. Default is to apply, because the whole
 # point is that no person has to run it.
@@ -31,15 +31,6 @@
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 
 # --- the decision, kept pure so a test can drive it without a board ------------
-
-status_rank() {  # backlog/todo < implementing < testing < done
-  case "$1" in
-    implementing) echo 1 ;;
-    testing) echo 2 ;;
-    done|CLOSE) echo 3 ;;
-    *) echo 0 ;;
-  esac
-}
 
 # derive_target <current> <on_master 0|1> <released 0|1> <is_epic 0|1>
 # Echoes the state to move TO - testing or CLOSE - or nothing when the card is already at or
@@ -173,12 +164,14 @@ while read -r st prio repo num rest; do
     case "$tag" in '-') tag='' ;; esac
     rel="$(contained_in "$full" "$tag" "$sha")"
   fi
-  target="$(derive_target "$st" "$on_master" "$rel" "$epic")"
+  if [ "$epic" = 1 ]; then target="$(epic_target_on_board "$full" "$num")" || exit 1; tag=''
+  else target="$(derive_target "$st" "$on_master" "$rel" "$epic")"; fi
   [ -n "$target" ] || continue
 
   if [ "$target" = "CLOSE" ]; then
-    if [ "$dry" = 1 ]; then echo "would close  $repo#$num  ($st -> done, released in $tag)"
-    else echo "close        $repo#$num  ($st -> done, released in $tag)"
+    why="released in $tag"; [ "$epic" = 1 ] && why="every sub-issue done"
+    if [ "$dry" = 1 ]; then echo "would close  $repo#$num  ($st -> done, $why)"
+    else echo "close        $repo#$num  ($st -> done, $why)"
       "$ROOT/bin/issue-close.sh" "$full" "$num" >/dev/null; fi
   else
     if [ "$dry" = 1 ]; then echo "would move   $repo#$num  ($st -> $target)"

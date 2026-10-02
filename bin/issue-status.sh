@@ -47,4 +47,5 @@ for n in "${nums[@]}"; do
   item="$(item_id "$repo" "$n")" || exit 1
   set_select "$item" Status "$status"
   echo "#$n -> $status"
+  update_parent_epic "$repo" "$n" || exit 1
 done

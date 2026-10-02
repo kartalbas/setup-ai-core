@@ -1005,9 +1005,9 @@ no repository acts on the one it runs in; `OWNER/REPO` before the issue number n
 | `issue-mine N` | whether the issue is assigned to the account `gh` is logged in as; `start-issue` and `session-start` ask it |
 | `issue-comment N` | adds a comment, inline or `--body-file` |
 | `issue-edit N` | edits title and/or body; a body without the asked-for line keeps the one the issue has |
-| `issue-close N...` | closes issues and moves their cards to `done`, as `completed` or `--reason not-planned` |
+| `issue-close N...` | closes issues and moves their cards to `done`, as `completed` or `--reason not-planned`; the epic of a closed issue follows, as under `issue-status` |
 | `issue-reopen N...` | reopens issues and returns their cards to `todo` |
-| `issue-status N... STATUS` | moves cards between `backlog`, `todo`, `implementing`, `testing`, `done`; in a repository on no board, with no board named, it says the status is not set and exits 0 |
+| `issue-status N... STATUS` | moves cards between `backlog`, `todo`, `implementing`, `testing`, `done`; in a repository on no board, with no board named, it says the status is not set and exits 0. The epic of a moved issue follows its sub-issues, forward only: `implementing` once one has started, `testing` once all stand in testing or done, closed and `done` once all are done |
 | `issue-priority N... P` | `P0` blocker, `P1` high, `P2` normal, `P3` low, `P9` parked; on no board, as `issue-status` |
 | `issue-label N --add/--remove` | labels checked against `labels.tsv`; a typo is refused, not minted |
 | `issue-assign N` | adds, removes or replaces assignees; additive by default |
@@ -1020,7 +1020,7 @@ no repository acts on the one it runs in; `OWNER/REPO` before the issue number n
 | `status [--issues]` | the state of the work and the plan for the rest, the same page every time and counted, with no model: the usage windows against the limit; the pace, the issues closed in the last 24 hours, with the average of 14 days beside it; how far an issue closed on the board raises each window, measured from the usage log the status line keeps; the tokens every session of the project folder used in the last 24 hours, fresh and read from the cache apart, and per issue closed in that time; every worker of `team.tsv` with its packages, their start and end; the pauses where a window reaches the limit; the end of the work; the packages whose sub-issues are all closed; the open issues on the last column. A package is an issue with sub-issues; a `Worker: <session>` line in its body gives it to that worker, else the worker that frees first takes it. `--issues` adds every open issue by package. Needs Node.js |
 | `board-order` | stamps an order onto the board, read from standard input as `owner/repo#number` per line |
 | `board-unarchive` | brings archived cards back into view |
-| `status-sync [--dry-run]` | moves each card to the state its git signals prove: a commit naming the issue on the default branch → `testing`, that commit carried by the newest tag → closed and `done`; forward only, never an epic |
+| `status-sync [--dry-run]` | moves each card to the state its git signals prove: a commit naming the issue on the default branch → `testing`, that commit carried by the newest tag → closed and `done`; an epic follows its sub-issues as under `issue-status`, so a sub-issue moved by hand on the board moves its epic too; forward only |
 | `epics-top`, `item-top`, `item-move` | epics to the top of the board; named cards to the top; a repository's cards from one board to another, keeping status and priority |
 | `field-option-add` | adds one option to a single-select field, reading the field first so the others are not deleted |
 | `view-filter`, `project-new`, `repo-link`, `repo-boards` | narrows a view to named repositories; creates a board by copying one whose title starts with `[TEMPLATE]`; links a repository to a board and gives it the taxonomy; every repository of the organisation and its board, exit 1 when one is on none or on two |

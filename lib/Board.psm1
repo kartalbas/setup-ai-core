@@ -822,9 +822,98 @@ function Set-Select {
     -f "fid=$(Get-FieldId $Field)" -f "oid=$(Get-OptionId $Field $Option)" -f "query=$q" | Out-Null
 }
 
+# --- epics --------------------------------------------------------------------
+#
+# An epic, an issue with sub-issues, is never moved by hand: it follows its sub-issues. It stands
+# in implementing once one has started, in testing once all stand in testing or done, and is
+# closed once all are done. Like every card it only moves forward, so a state a person set stands.
+# The twin of the same section in lib/board.sh.
+
+function Get-StatusRank {
+  # backlog and todo < implementing < testing < done
+  [CmdletBinding()]
+  param([string]$Status)
+  switch -CaseSensitive ($Status) { 'implementing' { 1 } 'testing' { 2 } 'done' { 3 } 'CLOSE' { 3 } default { 0 } }
+}
+
+function Get-EpicTarget {
+  # The epic's status and its sub-issues' statuses, a closed sub-issue counted as done. Returns
+  # implementing, testing or CLOSE, or '' where the epic stands there or further.
+  [CmdletBinding()]
+  [OutputType([string])]
+  param([string]$Current, [string[]]$Statuses = @())
+  if ($Statuses.Count -eq 0) { return '' }
+  $ranks = @($Statuses | ForEach-Object { Get-StatusRank $_ })
+  $low = ($ranks | Measure-Object -Minimum).Minimum
+  $high = ($ranks | Measure-Object -Maximum).Maximum
+  $t = if ($low -eq 3) { 'CLOSE' } elseif ($low -eq 2) { 'testing' } elseif ($high -ge 1) { 'implementing' } else { '' }
+  if (-not $t -or (Get-StatusRank $t) -le (Get-StatusRank $Current)) { return '' }
+  return $t
+}
+
+function Get-EpicTargetOnBoard {
+  # Get-EpicTarget of an issue, read from its own card and its sub-issues' cards on the selected
+  # board, or on whichever board they are on when none is selected; no sub-issues, nothing.
+  [CmdletBinding()]
+  [OutputType([string])]
+  param([string]$Repo, [string]$Number)
+  $on = if ($script:Project) { "select(.project.number == $(Get-ProjectNumber) and .project.owner.login == `"$(Get-ProjectOrg)`") |" } else { '' }
+  $q = 'query($o:String!, $r:String!, $n:Int!) { repository(owner:$o, name:$r) { issue(number:$n) {
+    state projectItems(first:20) { nodes { project { number owner { ... on Organization { login } ... on User { login } } }
+      status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } }
+    subIssues(first:100) { nodes { state projectItems(first:20) { nodes {
+      project { number owner { ... on Organization { login } ... on User { login } } }
+      status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } } } } } } }'
+  $jq = "def status: if .state == `"CLOSED`" then `"done`" else ([.projectItems.nodes[] | $on (.status.name // `"backlog`")] | first // `"backlog`") end; .data.repository.issue | (status), (.subIssues.nodes[] | status)"
+  $owner, $name = $Repo -split '/', 2
+  $rows = @(Invoke-Gh api graphql -f "o=$owner" -f "r=$name" -F "n=$Number" -f "query=$q" --jq $jq |
+    ForEach-Object { "$_".Trim().ToLowerInvariant() } | Where-Object { $_ })
+  if ($rows.Count -eq 0) { return '' }
+  return (Get-EpicTarget -Current $rows[0] -Statuses @($rows | Select-Object -Skip 1))
+}
+
+function Update-Epic {
+  # Move an epic to where its sub-issues stand, through the same movers as every card, which move
+  # its own parent in turn. A mover runs in its own pwsh, because it imports this module afresh.
+  [CmdletBinding()]
+  param([string]$Repo, [string]$Number)
+  $target = Get-EpicTargetOnBoard -Repo $Repo -Number $Number
+  if (-not $target) { return }
+  $mover = if ($target -ceq 'CLOSE') { 'issue-close.ps1' } else { 'issue-status.ps1' }
+  $arguments = @('-Repo', $Repo, '-Number', $Number)
+  if ($target -cne 'CLOSE') {
+    $arguments += @('-Status', $target)
+    if ($script:Project) { $arguments += @('-Project', "$(Get-ProjectOrg)/$(Get-ProjectNumber)") }
+  }
+  $out = @(& pwsh -NoProfile -File (Join-Path $PSScriptRoot "../bin/$mover") @arguments 2>&1 | ForEach-Object { "$_" })
+  if ($LASTEXITCODE -ne 0) { Stop-WithError "the epic $Repo#$Number did not follow its sub-issues: $($out -join ' ')" }
+  if ($target -ceq 'CLOSE') { "epic $Repo#$Number -> closed, every sub-issue done" }
+  else { "epic $Repo#$Number -> $target, as its sub-issues stand" }
+  $out | Where-Object { $_.StartsWith('epic ', [StringComparison]::Ordinal) }
+}
+
+function Update-ParentEpic {
+  # After a card moved, its epic follows; read on the board of the epic's repository where the
+  # mover selected none.
+  [CmdletBinding()]
+  param([string]$Repo, [string]$Number)
+  $owner, $name = $Repo -split '/', 2
+  $q = 'query($o:String!, $r:String!, $n:Int!) { repository(owner:$o, name:$r) { issue(number:$n) {
+    parent { number repository { nameWithOwner } } } } }'
+  $parent = "$(Invoke-Gh api graphql -f "o=$owner" -f "r=$name" -F "n=$Number" -f "query=$q" --jq '.data.repository.issue.parent | select(. != null) | "\(.repository.nameWithOwner) \(.number)"')".Trim()
+  if (-not $parent) { return }
+  $parentRepo, $parentNumber = $parent -split ' ', 2
+  $saved = @($script:Project, $script:ProjectOrg)
+  try {
+    if (-not $script:Project -and -not (Test-OnNoBoard -Repo $parentRepo)) { Set-Project -Repo $parentRepo | Out-Null }
+    Update-Epic -Repo $parentRepo -Number $parentNumber
+  } finally { $script:Project, $script:ProjectOrg = $saved }
+}
+
 Export-ModuleMember -Function Stop-WithError, ConvertTo-AsciiLowercase, Invoke-Gh, Get-Org, Get-DataDir, Get-DataFile, Get-LabelTaxonomy, Get-LabelNamesInGroup,
   Set-Project, Get-ProjectNumber, Get-ProjectOrg,
   Get-TemplateProjectNumber, Get-TemplateMark, Resolve-ProjectForRepo, Get-RepoOpenProjects, Test-OnNoBoard, Get-OriginDefaultBranch, Get-ProjectId, Get-CacheDir, Get-Fields, Get-FieldId, Get-OptionId,
   Clear-BoardCache, Get-DefaultRepo, Get-AssigneeForRepo, Get-ProjectRepos, Get-IssueNodeId, Get-IssueDbId,
   Write-TitleReport, Get-AskedPrefix, Get-IssueThread, Get-IssueBoardItems, Invoke-OnEveryBoard, Set-ItemTop,
-  Resolve-ParentIssue, Get-ItemId, Get-ArchivedItemId, Get-BoardItems, Remove-BoardItem, Set-Select
+  Resolve-ParentIssue, Get-ItemId, Get-ArchivedItemId, Get-BoardItems, Remove-BoardItem, Set-Select,
+  Get-StatusRank, Get-EpicTarget, Get-EpicTargetOnBoard, Update-Epic, Update-ParentEpic

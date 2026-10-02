@@ -17,8 +17,9 @@ on, not the board's.
 
 The card is put in `implementing` by start-issue, at the moment the worktree is opened, so that
 column is a person's statement and this sweep never writes it. It never moves a card BACKWARD,
-so a state a person set by hand stands, and it never touches an EPIC. Nothing is guessed: a card
-only moves on a signal.
+so a state a person set by hand stands. An EPIC carries no work and has no signals of its own: it
+follows its sub-issues (Get-EpicTarget in lib/Board.psm1), so a sub-issue moved by hand on the
+board moves its epic here too. Nothing is guessed: a card only moves on a signal.
 
 -DryRun prints what it would do and writes nothing. Default is to apply, because the whole point
 is that no person has to run it. It does not write the board itself: it calls issue-status and
@@ -35,12 +36,9 @@ param(
   [string[]] $Repo = @()
 )
 
-# --- the decision, kept pure so a test can drive it without a board ------------
+Import-Module (Join-Path $PSScriptRoot '../lib/Board.psm1') -Force
 
-function Get-StatusRank {
-  param([string]$Status)
-  switch -CaseSensitive ($Status) { 'implementing' { 1 } 'testing' { 2 } 'done' { 3 } 'CLOSE' { 3 } default { 0 } }
-}
+# --- the decision, kept pure so a test can drive it without a board ------------
 
 # Echoes the state to move TO - testing or CLOSE - or '' when the card is already at or past
 # what its signals prove, or is an epic.
@@ -59,7 +57,6 @@ function Get-DeriveTarget {
 if ($MyInvocation.InvocationName -eq '.') { return }
 
 $ErrorActionPreference = 'Stop'
-Import-Module (Join-Path $PSScriptRoot '../lib/Board.psm1') -Force
 
 # --- reads about a repo, memoised for the run --------------------------------
 
@@ -138,12 +135,14 @@ foreach ($line in (& (Join-Path $PSScriptRoot 'board-list.ps1') -Project $resolv
   $epic = if ($s.Subs -gt 0) { 1 } else { 0 }
   $onMaster = Test-ContainedIn $full (Get-RepoDefaultBranch $full) $s.Sha
   $rel = 0; if ($onMaster -eq 1) { $rel = Test-ContainedIn $full (Get-LatestTag $full) $s.Sha }
-  $target = Get-DeriveTarget -Current $st -OnMaster $onMaster -Released $rel -IsEpic $epic
+  $target = if ($epic -eq 1) { Get-EpicTargetOnBoard -Repo $full -Number $num }
+            else { Get-DeriveTarget -Current $st -OnMaster $onMaster -Released $rel -IsEpic $epic }
   if (-not $target) { continue }
 
   if ($target -ceq 'CLOSE') {
-    if ($DryRun) { "would close  $repoShort#$num  ($st -> done, released in $(Get-LatestTag $full))" }
-    else { "close        $repoShort#$num  ($st -> done, released in $(Get-LatestTag $full))"
+    $why = if ($epic -eq 1) { 'every sub-issue done' } else { "released in $(Get-LatestTag $full)" }
+    if ($DryRun) { "would close  $repoShort#$num  ($st -> done, $why)" }
+    else { "close        $repoShort#$num  ($st -> done, $why)"
       & (Join-Path $PSScriptRoot 'issue-close.ps1') -Repo $full -Number $num | Out-Null }
   } else {
     if ($DryRun) { "would move   $repoShort#$num  ($st -> $target)" }

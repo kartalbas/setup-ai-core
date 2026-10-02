@@ -831,3 +831,91 @@ set_select() {  # set_select <item id> <field name> <option name>
         projectId:$pid, itemId:$iid, fieldId:$fid,
         value:{singleSelectOptionId:$oid}}) { projectV2Item { id } } }' >/dev/null
 }
+
+# --- epics --------------------------------------------------------------------
+#
+# An epic, an issue with sub-issues, is never moved by hand: it follows its sub-issues. It stands
+# in implementing once one has started, in testing once all stand in testing or done, and is
+# closed once all are done. Like every card it only moves forward, so a state a person set stands.
+
+status_rank() {  # status_rank <status> - backlog and todo < implementing < testing < done
+  case "$1" in
+    implementing) echo 1 ;;
+    testing) echo 2 ;;
+    done|CLOSE) echo 3 ;;
+    *) echo 0 ;;
+  esac
+}
+
+# epic_target <the epic's status> <a sub-issue's status>... - a closed sub-issue counts as done.
+# Echoes implementing, testing or CLOSE, or nothing where the epic stands there or further.
+epic_target() {
+  local cur="$1" s r low=3 high=0 t=""
+  shift
+  [ $# -gt 0 ] || return 0
+  for s in "$@"; do
+    r="$(status_rank "$s")"
+    [ "$r" -lt "$low" ] && low="$r"
+    [ "$r" -gt "$high" ] && high="$r"
+  done
+  if [ "$low" -eq 3 ]; then t=CLOSE
+  elif [ "$low" -eq 2 ]; then t=testing
+  elif [ "$high" -ge 1 ]; then t=implementing
+  fi
+  [ -n "$t" ] && [ "$(status_rank "$t")" -gt "$(status_rank "$cur")" ] && echo "$t"
+  return 0
+}
+
+# epic_target_on_board <owner/repo> <number> - the epic_target of an issue, read from its own card
+# and its sub-issues' cards on the selected board, or on whichever board they are on when none is
+# selected; an issue without sub-issues gets nothing.
+epic_target_on_board() {
+  local repo="$1" n="$2" on="" rows cur="" first=1 st
+  [ -z "${PROJECT:-}" ] || on="select(.project.number == $(project_number) and .project.owner.login == \"$(project_org)\") |"
+  rows="$(gh_read "the sub-issues of $repo#$n" api graphql -f o="${repo%%/*}" -f r="${repo#*/}" -F n="$n" -f query='
+    query($o:String!, $r:String!, $n:Int!) { repository(owner:$o, name:$r) { issue(number:$n) {
+      state projectItems(first:20) { nodes { project { number owner { ... on Organization { login } ... on User { login } } }
+        status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } }
+      subIssues(first:100) { nodes { state projectItems(first:20) { nodes {
+        project { number owner { ... on Organization { login } ... on User { login } } }
+        status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } } } } } } }' \
+    --jq "def status: if .state == \"CLOSED\" then \"done\" else ([.projectItems.nodes[] | $on (.status.name // \"backlog\")] | first // \"backlog\") end;
+          .data.repository.issue | (status), (.subIssues.nodes[] | status)")" || return 1
+  set --
+  while IFS= read -r st; do
+    st="$(printf '%s' "$st" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+    if [ "$first" = 1 ]; then cur="$st"; first=0; else set -- "$@" "$st"; fi
+  done <<< "$rows"
+  epic_target "$cur" "$@"
+}
+
+# update_epic <owner/repo> <number> - move an epic to where its sub-issues stand, through the same
+# movers as every card, which move its own parent in turn
+update_epic() {
+  local repo="$1" n="$2" target out bin
+  bin="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bin" && pwd)"
+  target="$(epic_target_on_board "$repo" "$n")" || return 1
+  case "$target" in
+    '') return 0 ;;
+    CLOSE) out="$(bash "$bin/issue-close.sh" "$repo" "$n")" || return 1
+           echo "epic $repo#$n -> closed, every sub-issue done" ;;
+    *)     out="$(bash "$bin/issue-status.sh" ${PROJECT:+--project "$(project_org)/$(project_number)"} "$repo" "$n" "$target")" || return 1
+           echo "epic $repo#$n -> $target, as its sub-issues stand" ;;
+  esac
+  grep '^epic ' <<< "$out" || true
+}
+
+# update_parent_epic <owner/repo> <number> - after a card moved, its epic follows; read on the
+# board of the epic's repository where the mover selected none
+update_parent_epic() {
+  local parent
+  parent="$(gh_read "the parent of $1#$2" api graphql -f o="${1%%/*}" -f r="${1#*/}" -F n="$2" -f query='
+    query($o:String!, $r:String!, $n:Int!) { repository(owner:$o, name:$r) { issue(number:$n) {
+      parent { number repository { nameWithOwner } } } } }' \
+    --jq '.data.repository.issue.parent | select(. != null) | "\(.repository.nameWithOwner) \(.number)"')" || return 1
+  [ -n "$parent" ] || return 0
+  (
+    [ -n "${PROJECT:-}" ] || on_no_board "${parent% *}" || set_project "" "${parent% *}" >/dev/null || exit 1
+    update_epic "${parent% *}" "${parent#* }"
+  )
+}

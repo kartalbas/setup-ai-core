@@ -46,4 +46,5 @@ for n in "${numbers[@]}"; do
     -f state=closed -f state_reason="$state_reason" >/dev/null || exit 1
   echo "#$n -> closed"
   for_each_board "$repo" "$n" Status done "done"
+  update_parent_epic "$repo" "$n" || exit 1
 done

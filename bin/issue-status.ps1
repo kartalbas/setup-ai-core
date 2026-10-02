@@ -32,4 +32,5 @@ Set-Project -Number $Project -Repo $Repo | Out-Null
 foreach ($n in $Number) {
   Set-Select (Get-ItemId $Repo $n) 'Status' $Status
   "#$n -> $Status"
+  Update-ParentEpic -Repo $Repo -Number $n
 }

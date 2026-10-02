@@ -272,7 +272,7 @@ $stamp = @("setup-ai-core $coreCommit")
 $layerFiles = @()   # what the layers wrote, so the templates leave it alone
 $mapSrc = $null     # a generated map, deployed with the binding rules on top once the rules are assembled
 $deployed = @()     # what the layers put into the checkout, recorded in .ai-core\DEPLOYED
-$dataFiles = @('config.env', 'labels.tsv', 'assignees.tsv', 'team-modes.tsv')
+$dataFiles = @('config.env', 'labels.tsv', 'assignees.tsv', 'team-modes.tsv', 'team.tsv')
 # The skills of setup-ai-core itself, before the layers': a layer's skill of the same name replaces
 # the directory whole, so the more specific layer wins, as it does for the rules.
 if (Test-Path (Join-Path $coreRoot 'skills')) {

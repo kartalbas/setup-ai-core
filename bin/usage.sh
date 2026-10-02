@@ -2,7 +2,7 @@
 # What the account's usage windows stand at, as the status line last recorded them, and whether one
 # has reached the limit at which every session finishes the step in hand and waits for its reset.
 #
-#   usage.sh [--stop-at N]     N percent, 92 unless given
+#   usage.sh [--stop-at N]     N percent; else USAGE_STOP_AT of the project's config.env; else 92
 #
 # Exit 0: every window below N. Exit 3: a window at N or more. Exit 2: nothing recorded yet, or a
 # wrong argument. A window whose reset time has passed counts as reset. One model's own weekly quota
@@ -10,7 +10,9 @@
 set -uo pipefail
 
 usage="usage: usage.sh [--stop-at N]"
-stop=92
+config="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.ai-core/config.env"
+stop="$(grep -E '^[[:space:]]*USAGE_STOP_AT[[:space:]]*=' "$config" 2>/dev/null | tail -n1 || true)"
+stop="${stop#*=}"; stop="${stop%%#*}"; stop="${stop//[[:space:]\"\']/}"; stop="${stop:-92}"
 while [ $# -gt 0 ]; do
   case "$1" in
     -h|--help) echo "$usage"; exit 0 ;;

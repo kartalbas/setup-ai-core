@@ -49,6 +49,18 @@ check 'a tab, a worker with no prompt' \
   "$(sed -n 7p "$calls")"
 check 'and it says so'  yes "$(grep -q '^opened: the 7 sessions of digitaplatform$' <<< "$out" && echo yes || echo no)"
 
+echo "a project's own team.tsv sets the team"
+mkdir -p "$project/.ai-core"; printf 'coordinator\tsonnet\thigh\t1\nworker\tfable\tmax\t1\n' > "$project/.ai-core/team.tsv"
+out="$(run "$project" --dry-run)"; rc=$?
+check 'exit 0'         0 "$rc"
+check 'its team'       "$(printf '%s\n' '  dig-sonnet-1   sonnet  high  the person in charge' '  dig-fable-1    fable   max  ')" "$(grep '^  ' <<< "$out")"
+echo 'a model below the floor of the harness is refused'
+printf 'coordinator\topus\tmax\t1\nworker\thaiku\tmax\t2\n' > "$project/.ai-core/team.tsv"
+out="$(run "$project" --dry-run)"; rc=$?
+check 'exit 1'         1 "$rc"
+check 'it names it'    yes "$(grep -q "'haiku' is below Sonnet" <<< "$out" && echo yes || echo no)"
+rm -rf "$project/.ai-core"
+
 echo 'a folder that is not there is refused'
 out="$(run "$fake/nowhere")"; rc=$?
 check 'exit 1'         1 "$rc"

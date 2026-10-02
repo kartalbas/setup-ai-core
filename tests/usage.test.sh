@@ -32,22 +32,28 @@ out="$(cd "$work/project" && CLAUDE_PROJECT_DIR="$work/project" bash "$root/bin/
 check "Graft's line"             'graft line' "$out"
 
 echo 'usage at the limit: every window named, and exit 3'
-out="$(bash "$root/bin/usage.sh" 2>&1)"; rc=$?
+out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'exit 3'                   3 "$rc"
 check 'the five hours'           "five_hour   42 %  resets $(when "$soon")" "$(sed -n 1p <<< "$out")"
 check 'the week'                 "seven_day   95 %  resets $(when "$later")" "$(sed -n 2p <<< "$out")"
 check 'what to do'               yes "$(grep -q '^a window stands at 92 % or more: finish the step in hand' <<< "$out" && echo yes || echo no)"
 echo 'below a limit given: exit 0'
-out="$(bash "$root/bin/usage.sh" --stop-at 96 2>&1)"; rc=$?
+out="$(cd "$work/project" && bash "$root/bin/usage.sh" --stop-at 96 2>&1)"; rc=$?
 check 'exit 0'                   0 "$rc"
+echo "the project's own limit: USAGE_STOP_AT in its config.env"
+mkdir -p "$work/project/.ai-core"; printf 'USAGE_STOP_AT="96"\n' > "$work/project/.ai-core/config.env"
+out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
+check 'exit 0 at 95 % under 96'  0 "$rc"
+check 'it names the limit'       yes "$(grep -q ', limit 96 %$' <<< "$out" && echo yes || echo no)"
+rm -f "$work/project/.ai-core/config.env"
 echo 'a window whose reset has passed counts as reset'
 printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":99,"resets_at":%s}}}\n' "$now" "$((now - 60))" > "$HOME/.ai-core/usage.json"
-out="$(bash "$root/bin/usage.sh" 2>&1)"; rc=$?
+out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'exit 0'                   0 "$rc"
 check 'reported as reset'        "five_hour    0 %  reset since $(when "$((now - 60))")" "$(sed -n 1p <<< "$out")"
 echo 'nothing recorded: exit 2, and why'
 rm -f "$HOME/.ai-core/usage.json"
-out="$(bash "$root/bin/usage.sh" 2>&1)"; rc=$?
+out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'exit 2'                   2 "$rc"
 check 'it says why'              yes "$(grep -q 'no usage recorded yet' <<< "$out" && echo yes || echo no)"
 

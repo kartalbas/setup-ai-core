@@ -251,7 +251,7 @@ STAMP="setup-ai-core $(git -C "$CORE_ROOT" rev-parse --short HEAD 2>/dev/null ||
 LAYER_FILES=""   # what the layers wrote, so the templates leave it alone
 MAP_SRC=""       # a generated map, deployed with the binding rules on top once the rules are assembled
 DEPLOYED=""      # what the layers put into the checkout, recorded in .ai-core/DEPLOYED
-DATA_FILES="config.env labels.tsv assignees.tsv team-modes.tsv"
+DATA_FILES="config.env labels.tsv assignees.tsv team-modes.tsv team.tsv"
 # The skills of setup-ai-core itself, before the layers': a layer's skill of the same name replaces
 # the directory whole, so the more specific layer wins, as it does for the rules.
 for s in "$CORE_ROOT"/skills/*/; do

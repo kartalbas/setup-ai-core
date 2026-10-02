@@ -30,17 +30,38 @@ $Folder = (Resolve-Path -LiteralPath $Folder).Path.TrimEnd('/', '\')
 $name = Split-Path -Leaf $Folder
 $prefix = if ($name.Length -gt 3) { $name.Substring(0, 3) } else { $name }
 
-# <name> <model> <effort>: the coordinator first, then the pairs
-$team = @(
-  @("$prefix-opus-1", 'opus', 'max'),
-  @("$prefix-fable-1", 'fable', 'max'),
-  @("$prefix-fable-2", 'fable', 'max'),
-  @("$prefix-opus-2", 'opus', 'high'),
-  @("$prefix-opus-3", 'opus', 'high'),
-  @("$prefix-sonnet-1", 'sonnet', 'max'),
-  @("$prefix-sonnet-2", 'sonnet', 'max')
-)
-$lead = "$prefix-opus-1"
+# The team is the project's: its harness's team.tsv where init laid one into the folder, else the
+# default of setup-ai-core. One @(name, model, effort) per session, the coordinator first.
+$teamFile = Join-Path $Folder '.ai-core/team.tsv'
+if (-not (Test-Path -LiteralPath $teamFile)) { $teamFile = Join-Path $PSScriptRoot '../templates/.ai-core/team.tsv' }
+$workers = @(); $lead = ''; $leadRow = $null; $no = 0
+foreach ($line in [System.IO.File]::ReadAllLines($teamFile)) {
+  $no++
+  $f = @($line.TrimEnd("`r") -split "`t")
+  if (-not $f[0] -or $f[0].StartsWith('#', [StringComparison]::Ordinal)) { continue }
+  $role = $f[0]
+  if ($role -cne 'coordinator' -and $role -cne 'worker') { Stop-With "${teamFile}:${no}: the role is coordinator or worker, not '$role'" }
+  if ($f.Count -ne 4 -or -not $f[1]) { Stop-With "${teamFile}:${no}: a row is role, model, effort and count, tab-separated" }
+  $model, $effort, $count = $f[1], $f[2], $f[3]
+  if ($model.ToLowerInvariant().Contains('haiku')) { Stop-With "${teamFile}:${no}: '$model' is below Sonnet, the floor of the harness" }
+  if ($effort -cnotin @('low', 'medium', 'high', 'xhigh', 'max')) { Stop-With "${teamFile}:${no}: the effort is low, medium, high, xhigh or max, not '$effort'" }
+  if ($count -cnotmatch '^[0-9]+\z' -or [int]$count -eq 0) { Stop-With "${teamFile}:${no}: the count is a whole number above 0, not '$count'" }
+  if ($role -ceq 'coordinator') {
+    if ($leadRow -or [int]$count -ne 1) { Stop-With "${teamFile}:${no}: there is one coordinator, and only one" }
+    $leadRow = @($model, $effort)
+  }
+  for ($i = 0; $i -lt [int]$count; $i++) {
+    if ($role -ceq 'coordinator') { $workers += ,@('', $model, $effort, 'lead') } else { $workers += ,@('', $model, $effort, 'worker') }
+  }
+}
+if (-not $leadRow) { Stop-With "$teamFile names no coordinator" }
+# Names are counted per model in the order of the rows, as the sh twin counts them
+$team = @(); $seen = @{}
+foreach ($w in $workers) {
+  $seen[$w[1]] = 1 + $(if ($seen.ContainsKey($w[1])) { $seen[$w[1]] } else { 0 })
+  $entry = @("$prefix-$($w[1])-$($seen[$w[1]])", $w[1], $w[2])
+  if ($w[3] -ceq 'lead') { $lead = $entry[0]; $team = @(,$entry) + $team } else { $team += ,$entry }
+}
 # The coordinator gets its team from the table that starts it, so model and effort cannot drift
 $members = @($team | Where-Object { $_[0] -cne $lead } | ForEach-Object { "$($_[0]) $($_[1]) $($_[2])" }) -join ', '
 $leadPrompt = "You are the person in charge of the project $name. Your team: $members."

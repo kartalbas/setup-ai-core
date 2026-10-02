@@ -54,6 +54,19 @@ if (-not $IsWindows) {
   Check 'and it says so' 'True' ([bool]($out -cmatch '(?m)^opened: the 7 sessions of digitaplatform\r?$'))
 }
 
+Write-Host "a project's own team.tsv sets the team"
+New-Item -ItemType Directory -Force -Path (Join-Path $project '.ai-core') | Out-Null
+[System.IO.File]::WriteAllText((Join-Path $project '.ai-core/team.tsv'), "coordinator`tsonnet`thigh`t1`nworker`tfable`tmax`t1`n")
+Run @($project, '-DryRun')
+Check 'exit 0' 0 $rc
+Check 'its team' (@('  dig-sonnet-1   sonnet  high  the person in charge', '  dig-fable-1    fable   max  ') -join "`n") ((@($out -split "`r?`n" | Where-Object { $_.StartsWith('  ', [StringComparison]::Ordinal) })) -join "`n")
+Write-Host 'a model below the floor of the harness is refused'
+[System.IO.File]::WriteAllText((Join-Path $project '.ai-core/team.tsv'), "coordinator`topus`tmax`t1`nworker`thaiku`tmax`t2`n")
+Run @($project, '-DryRun')
+Check 'exit 1' 1 $rc
+Check 'it names it' 'True' ([bool]($out -cmatch "'haiku' is below Sonnet"))
+Remove-Item -Recurse -Force (Join-Path $project '.ai-core')
+
 Write-Host 'a folder that is not there is refused'
 Run @((Join-Path $fake 'nowhere'))
 Check 'exit 1' 1 $rc

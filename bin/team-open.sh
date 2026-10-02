@@ -28,15 +28,27 @@ done
 folder="$(cd "$folder" && pwd)"
 name="$(basename "$folder")"; prefix="${name:0:3}"
 
-# <name> <model> <effort>: the coordinator first, then the pairs
-team="$prefix-opus-1 opus max
-$prefix-fable-1 fable max
-$prefix-fable-2 fable max
-$prefix-opus-2 opus high
-$prefix-opus-3 opus high
-$prefix-sonnet-1 sonnet max
-$prefix-sonnet-2 sonnet max"
-lead="$prefix-opus-1"
+# The team is the project's: its harness's team.tsv where init laid one into the folder, else the
+# default of setup-ai-core. One "<name> <model> <effort>" per session, the coordinator first.
+CORE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+team_file="$folder/.ai-core/team.tsv"; [ -f "$team_file" ] || team_file="$CORE/templates/.ai-core/team.tsv"
+team=""; lead=""; no=0
+while IFS=$'\t' read -r role model effort count extra; do
+  no=$((no + 1))
+  case "$role" in ''|'#'*) continue ;; coordinator|worker) ;; *) die "$team_file:$no: the role is coordinator or worker, not '$role'" ;; esac
+  [ -n "$model" ] && [ -z "${extra:-}" ] || die "$team_file:$no: a row is role, model, effort and count, tab-separated"
+  case "$(tr '[:upper:]' '[:lower:]' <<< "$model")" in *haiku*) die "$team_file:$no: '$model' is below Sonnet, the floor of the harness" ;; esac
+  case "$effort" in low|medium|high|xhigh|max) ;; *) die "$team_file:$no: the effort is low, medium, high, xhigh or max, not '$effort'" ;; esac
+  case "$count" in ''|*[!0-9]*|0) die "$team_file:$no: the count is a whole number above 0, not '$count'" ;; esac
+  if [ "$role" = coordinator ]; then [ -z "$lead" ] && [ "$count" = 1 ] || die "$team_file:$no: there is one coordinator, and only one"; fi
+  for _ in $(seq 1 "$count"); do
+    n="$prefix-$model-$(( $(awk -v m="$model" '$2 == m' <<< "$team" | grep -c .) + 1 ))"
+    if [ "$role" = coordinator ]; then lead="$n"; team="$n $model $effort${team:+
+$team}"; else team="${team:+$team
+}$n $model $effort"; fi
+  done
+done < "$team_file"
+[ -n "$lead" ] || die "$team_file names no coordinator"
 # The coordinator gets its team from the table that starts it, so model and effort cannot drift
 members="$(while read -r n m e; do [ "$n" = "$lead" ] || printf '%s %s %s, ' "$n" "$m" "$e"; done <<< "$team")"
 lead_prompt="You are the person in charge of the project $name. Your team: ${members%, }."

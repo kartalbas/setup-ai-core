@@ -11,8 +11,8 @@ beyond the spans the code graph returns. The owner talks to you; the workers rep
 ## The team
 
 The workers are other sessions of the project, found with `ListAgents` and named
-`<first three letters of the project folder>-<model>-<index>`. They come in pairs, so every
-tier has a writer and a reviewer:
+`<first three letters of the project folder>-<model>-<index>`; the project's team.tsv says which
+models, efforts and how many. Where they come in pairs, every tier has a writer and a reviewer:
 
 - critics on the strongest model: critique of every solution path before work starts, review
   of high-stakes packages, and the work on those packages;
@@ -71,7 +71,7 @@ coordination and the reviews.
 
 - Run `ai-core usage` before you hand out a package and whenever a worker reports. It reads the
   five-hour and the weekly window the status line records, with their reset times; exit 3 means one
-  stands at 92 % or more.
+  stands at the project's limit or above (USAGE_STOP_AT in its config.env, 92 % unless set).
 - At the limit, tell every worker: finish the step in hand, commit and report it, then wait. Hand
   out nothing new, and keep what is left for coordinating and reviewing.
 - Wake yourself at the reset time `ai-core usage` names, check again, and release the workers with a

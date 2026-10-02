@@ -50,6 +50,13 @@ try {
   Write-Host 'below a limit given: exit 0'
   Run 'usage.ps1' @('-StopAt', '96')
   Check 'exit 0'                 0 $rc
+  Write-Host "the project's own limit: USAGE_STOP_AT in its config.env"
+  New-Item -ItemType Directory -Force -Path (Join-Path $project '.ai-core') | Out-Null
+  [System.IO.File]::WriteAllText((Join-Path $project '.ai-core/config.env'), "USAGE_STOP_AT=`"96`"`n")
+  Run 'usage.ps1' @()
+  Check 'exit 0 at 95 % under 96' 0 $rc
+  Check 'it names the limit'     'True' ([bool]($out -cmatch ', limit 96 %$'))
+  Remove-Item -LiteralPath (Join-Path $project '.ai-core/config.env')
   Write-Host 'a window whose reset has passed counts as reset'
   [System.IO.File]::WriteAllText($record, "{`"recorded_at`":$now,`"rate_limits`":{`"five_hour`":{`"used_percentage`":99,`"resets_at`":$($now - 60)}}}`n")
   Run 'usage.ps1' @()

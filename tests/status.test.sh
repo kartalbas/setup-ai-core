@@ -68,15 +68,18 @@ printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":25,"rese
 for row in "$((now - 10800)) 5 85" "$((now - 7200)) 15 87" "$now 25 89"; do
   set -- $row; echo "$1 $2 $((now + 3600)) $3 $((now + 432000))"
 done > "$HOME/.ai-core/usage.log"
-mkdir -p "$work/transcripts/$(printf '%s' "$folder" | sed 's/[^A-Za-z0-9]/-/g')"
+# Claude Code writes the folder as the system spells it: on Windows C:/..., where Git Bash says /c/...
+seen_as="$(cygpath -m "$folder" 2>/dev/null || echo "$folder")"
+sessions="$work/transcripts/$(printf '%s' "$seen_as" | sed 's/[^A-Za-z0-9]/-/g')"
+mkdir -p "$sessions"
 answer() { printf '{"type":"assistant","cwd":"%s","message":{"id":"%s","usage":{"input_tokens":%s,"output_tokens":%s,"cache_creation_input_tokens":%s,"cache_read_input_tokens":%s}}}\n' "$@"; }
 {
-  printf '{"type":"user","cwd":"%s"}\n' "$folder/.worktrees/example-repo/issue-4-fix"
-  answer "$folder/.worktrees/example-repo/issue-4-fix" m1 100 50 10 1000
-  answer "$folder/.worktrees/example-repo/issue-4-fix" m1 100 50 10 1000
-  answer "$folder" m2 5000 0 0 0
-  answer "$folder/.worktrees/example-repo/issue-6-add" m3 200 100 0 0
-} > "$work/transcripts/$(printf '%s' "$folder" | sed 's/[^A-Za-z0-9]/-/g')/session.jsonl"
+  printf '{"type":"user","cwd":"%s"}\n' "$seen_as/.worktrees/example-repo/issue-4-fix"
+  answer "$seen_as/.worktrees/example-repo/issue-4-fix" m1 100 50 10 1000
+  answer "$seen_as/.worktrees/example-repo/issue-4-fix" m1 100 50 10 1000
+  answer "$seen_as" m2 5000 0 0 0
+  answer "$seen_as/.worktrees/example-repo/issue-6-add" m3 200 100 0 0
+} > "$sessions/session.jsonl"
 
 out="$(cd "$folder" && bash "$root/bin/status.sh" --project example-org/7 --issues 2>&1)"; rc=$?
 line() { grep -m1 -F -- "$1" <<< "$out" | tr -s ' '; }

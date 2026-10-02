@@ -424,12 +424,22 @@ AI_CORE_CMD="$CORE_ROOT/bin/ai-core"; if command -v cygpath >/dev/null 2>&1; the
 HOOK="\"$AI_CORE_CMD\" session-start --tool claude"
 SETTINGS="$TARGET/.claude/settings.json"
 SETTINGS_TEMPLATE="$CORE_ROOT/templates/.claude/settings.json"
-SETTINGS_HAS='def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | ([.hooks.SessionStart[]?.hooks[]? | select(ours) | .command] == [$c]) and (($allow - (.permissions.allow // [])) | length == 0) and (($deny - (.permissions.deny // [])) | length == 0)'
-SETTINGS_ADD='def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | .hooks.SessionStart = ([.hooks.SessionStart[]? | .hooks = [.hooks[]? | select(ours | not)] | select(.hooks | length > 0)] + [{hooks: [{type: "command", command: $c, timeout: 60}]}]) | .permissions.allow = ((.permissions.allow // []) + ($allow - (.permissions.allow // []))) | .permissions.deny = ((.permissions.deny // []) + ($deny - (.permissions.deny // [])))'
+# The context at which Claude Code compacts: the project's AUTO_COMPACT_WINDOW, the template's
+# where the project's config.env has none
+compact_window() { grep -E '^[[:space:]]*AUTO_COMPACT_WINDOW[[:space:]]*=' "$1" 2>/dev/null | tail -n1 | sed 's/^[^=]*=//; s/#.*//' | tr -d "\"'\r[:space:]" || true; }
+COMPACT="$(compact_window "$CONFIG")"; [ -n "$COMPACT" ] || COMPACT="$(compact_window "$CORE_ROOT/templates/.ai-core/config.env")"
+case "$COMPACT" in
+  auto) COMPACT='"auto"' ;;
+  *[!0-9]*|'') echo "error: AUTO_COMPACT_WINDOW in .ai-core/config.env is a number of tokens from 100000 to 1000000 or \"auto\", not '$COMPACT'" >&2; exit 1 ;;
+  *) [ "$COMPACT" -ge 100000 ] && [ "$COMPACT" -le 1000000 ] \
+       || { echo "error: AUTO_COMPACT_WINDOW in .ai-core/config.env is a number of tokens from 100000 to 1000000 or \"auto\", not '$COMPACT'" >&2; exit 1; } ;;
+esac
+SETTINGS_HAS='def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | ([.hooks.SessionStart[]?.hooks[]? | select(ours) | .command] == [$c]) and (($allow - (.permissions.allow // [])) | length == 0) and (($deny - (.permissions.deny // [])) | length == 0) and (.autoCompactWindow == $w)'
+SETTINGS_ADD='def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | .hooks.SessionStart = ([.hooks.SessionStart[]? | .hooks = [.hooks[]? | select(ours | not)] | select(.hooks | length > 0)] + [{hooks: [{type: "command", command: $c, timeout: 60}]}]) | .permissions.allow = ((.permissions.allow // []) + ($allow - (.permissions.allow // []))) | .permissions.deny = ((.permissions.deny // []) + ($deny - (.permissions.deny // []))) | .autoCompactWindow = $w'
 if command -v jq >/dev/null 2>&1; then
   src="$SETTINGS"; [ -f "$src" ] || src="$SETTINGS_TEMPLATE"
-  if [ "$src" != "$SETTINGS" ] || ! jq -e --arg c "$HOOK" --slurpfile t "$SETTINGS_TEMPLATE" "$SETTINGS_HAS" "$SETTINGS" >/dev/null 2>&1; then
-    jq --arg c "$HOOK" --slurpfile t "$SETTINGS_TEMPLATE" "$SETTINGS_ADD" "$src" 2>/dev/null | tr -d '\r' > "$TMP/settings.json" \
+  if [ "$src" != "$SETTINGS" ] || ! jq -e --arg c "$HOOK" --argjson w "$COMPACT" --slurpfile t "$SETTINGS_TEMPLATE" "$SETTINGS_HAS" "$SETTINGS" >/dev/null 2>&1; then
+    jq --arg c "$HOOK" --argjson w "$COMPACT" --slurpfile t "$SETTINGS_TEMPLATE" "$SETTINGS_ADD" "$src" 2>/dev/null | tr -d '\r' > "$TMP/settings.json" \
       && [ -s "$TMP/settings.json" ] && put_file "$TMP/settings.json" "$SETTINGS" ".claude/settings.json" managed
   fi
 fi

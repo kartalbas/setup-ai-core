@@ -824,7 +824,7 @@ It must end with `Ready for task execution.` and `git status` must show nothing 
 
 ### 5.7 `config.env`
 
-`.ai-core/config.env` has two keys. Values are case-insensitive; quotes and `# comments` are
+`.ai-core/config.env` carries these keys. Values are case-insensitive; quotes and `# comments` are
 allowed; any other value is an error.
 
 | Key | Values | Meaning |
@@ -834,6 +834,7 @@ allowed; any other value is an error.
 | `MAP_TOOL` | `claude` (default), `codex`, `agy` | the agent CLI `ai-core map` writes the map with, in its non-interactive read-only mode; `AI_CORE_MAP_TOOL` in the environment names the CLI of one machine instead, for example `agy` where Claude's quota is spent |
 | `MAP_MODEL` | a model id, or empty (default) | the model that CLI uses for the map; empty is the CLI's own default. It goes only with `MAP_TOOL`: `AI_CORE_MAP_MODEL` in the environment names the model of one machine, and a machine that names another CLI without it gets that CLI's default (`agy models` lists agy's, e.g. `gemini-3.8-flash-high`) |
 | `GRAFT_EXECUTION_MODE` | `native` (default), `skip` | `native` builds the code graph with the local Node.js and fails when it cannot; `skip` does not build it in this repository |
+| `AUTO_COMPACT_WINDOW` | tokens from `100000` to `1000000`, or `auto`; default `500000` | the context at which a Claude Code session compacts, written by `init` into `.claude/settings.json` as `autoCompactWindow`. Every answer reads the whole context again, so a session that runs up to a 1M context before it compacts reads that much on every turn; `auto` is the model's own window. A value outside the range stops `init` and names the key |
 
 ### 5.8 Many repositories
 

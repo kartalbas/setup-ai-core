@@ -69,7 +69,7 @@ export PATH="$work/bin:$PATH"
 printf 'coordinator\topus\tmax\t1\nworker\tsonnet\tmax\t2\n' > "$folder/.ai-core/team.tsv"
 printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":25,"resets_at":%s},"seven_day":{"used_percentage":89,"resets_at":%s}}}\n' \
   "$now" $((now + 3600)) $((now + 432000)) > "$HOME/.ai-core/usage.json"
-for row in "$((now - 10800)) 5 85" "$((now - 7200)) 15 87" "$now 25 89"; do
+for row in "$((now - 10800)) 1 83" "$((now - 7200)) 13 86" "$now 25 89"; do
   set -- $row; echo "$1 $2 $((now + 3600)) $3 $((now + 432000))"
 done > "$HOME/.ai-core/usage.log"
 # Claude Code writes the folder as the system spells it: on Windows C:/..., where Git Bash says /c/...
@@ -85,6 +85,9 @@ answer() { printf '{"type":"assistant","timestamp":"%s","cwd":"%s","message":{"i
   answer $((now - 1800)) "$seen_as/.worktrees/example-repo/issue-6-add" m3 200 100 0 0
   answer $((now - 2 * 86400)) "$seen_as" m4 99999 0 0 0
 } > "$sessions/session.jsonl"
+# Another folder of the machine used as many fresh tokens in the same hours: it carries half the rise
+mkdir -p "$work/transcripts/-elsewhere"
+answer $((now - 3600)) /elsewhere o1 5460 0 0 0 > "$work/transcripts/-elsewhere/session.jsonl"
 
 out="$(cd "$folder" && bash "$root/bin/status.sh" --project example-org/7 --issues 2>&1)"; rc=$?
 line() { grep -m1 -F -- "$1" <<< "$out" | tr -s ' '; }
@@ -93,20 +96,20 @@ check 'exit 0'        0 "$rc"
 check 'the board'     "example · board example-org/7 · $(when "$now")" "$(sed -n 1p <<< "$out")"
 check 'the usage'     "usage 5h 25 % (reset $(when $((now + 3600)))) · week 89 % (reset $(when $((now + 432000)))) · limit 92 %" "$(line 'usage ')"
 check 'the pace'      'pace 6 issues closed in the last 24 hours, 1.0 a day over 14 days; 2 workers, shared evenly: too few packages name their worker' "$(line 'pace ')"
-check 'the cost'      'cost an issue closed here raises the 5h window 10.0 % and the week 2.00 %' "$(line 'cost ')"
+check 'the cost'      "cost this folder raises the 5h window 4.0 % and the week 1.00 % an hour, 50 % of the machine's fresh tokens; at the pace of 24 hours, 4.00 % of the week per issue closed here" "$(line 'cost ')"
 echo 'the tokens of the day: an answer written twice counts once, every session counts, an older answer does not'
 check 'the tokens'    'tokens in 24 hours the sessions of this folder used 5k fresh and read 1k from the cache: 910 fresh and 167 from the cache per closed issue' "$(line 'tokens ')"
 check 'the context'   'context 2k per answer on average, 5k the largest, over 3 answers in 24 hours' "$(line 'context ')"
 check 'the open work' 'open 8 issues · 3 packages, 1 ready to close · 2 outside packages' "$(line 'open ')"
 echo 'the plan: each named package on its worker, a session started by hand in place of a free lane, the rest on the one that frees first, the week pausing both'
 check 'the worker'    'exa-sonnet-1 sonnet max 3.0 issues a day' "$(line 'exa-sonnet-1' | sed 's/^ //')"
-check 'its package'   "▸ example-repo#1 alpha 2 $(when "$now") $(when $((now + 5 * 86400 + 28800)))" "$(line '▸ example-repo#1' | sed 's/^ //')"
+check 'its package'   "▸ example-repo#1 alpha 2 $(when "$now") $(when $((now + 5 * 86400 + 52200)))" "$(line '▸ example-repo#1' | sed 's/^ //')"
 check 'the hand-started session' 'exa-hand-1 a model team.tsv does not name 3.0 issues a day' "$(line 'exa-hand-1 ' | sed 's/^ //')"
-check 'its package, as written' "▸ example-repo#21 gamma 1 $(when "$now") $(when $((now + 28800)))" "$(line '▸ example-repo#21' | sed 's/^ //')"
+check 'its package, as written' "▸ example-repo#21 gamma 1 $(when "$now") $(when $((now + 5 * 86400 + 23400)))" "$(line '▸ example-repo#21' | sed 's/^ //')"
 check 'the lanes stay the team' '' "$(line 'exa-sonnet-2')"
-check 'the rest'      "· outside packages 1 issue 1 $(when $((now + 5 * 86400))) $(when $((now + 5 * 86400 + 28800)))" "$(line '· outside packages' | sed 's/^ //')"
-check 'the pause'     "PAUSES week $(when $((now + 28800))) until $(when $((now + 5 * 86400)))" "$(line 'PAUSES')"
-check 'the end'       "DONE about $(when $((now + 5 * 86400 + 28800))), an estimate from the pace of the last 24 hours, the cost per issue and the pauses" "$(line 'DONE')"
+check 'the rest'      "· outside packages 1 issue 1 $(when $((now + 5 * 86400 + 23400))) $(when $((now + 5 * 86400 + 52200)))" "$(line '· outside packages' | sed 's/^ //')"
+check 'the pause'     "PAUSES week $(when $((now + 5400))) until $(when $((now + 5 * 86400)))" "$(line 'PAUSES')"
+check 'the end'       "DONE about $(when $((now + 5 * 86400 + 52200))), an estimate from the pace of the last 24 hours, the measured rise of the windows and the pauses" "$(line 'DONE')"
 check 'ready'         'CLOSE every sub-issue closed: example-repo#5' "$(line 'CLOSE')"
 check 'open on Done'  'CHECK open on Done: example-repo#8' "$(line 'CHECK')"
 echo 'every open issue, by package, in work order, the second page among them'

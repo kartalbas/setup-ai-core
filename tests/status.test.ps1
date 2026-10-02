@@ -70,7 +70,7 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   Set-Content -LiteralPath "$folder/.ai-core/team.tsv" -Value @("coordinator`topus`tmax`t1", "worker`tsonnet`tmax`t2")
   Set-Content -LiteralPath "$env:HOME/.ai-core/usage.json" -Value ('{"recorded_at":' + $now + ',"rate_limits":{"five_hour":{"used_percentage":25,"resets_at":' + ($now + 3600) + '},"seven_day":{"used_percentage":89,"resets_at":' + ($now + 432000) + '}}}')
   Set-Content -LiteralPath "$env:HOME/.ai-core/usage.log" -Value @(
-    "$($now - 10800) 5 $($now + 3600) 85 $($now + 432000)", "$($now - 7200) 15 $($now + 3600) 87 $($now + 432000)", "$now 25 $($now + 3600) 89 $($now + 432000)")
+    "$($now - 10800) 1 $($now + 3600) 83 $($now + 432000)", "$($now - 7200) 13 $($now + 3600) 86 $($now + 432000)", "$now 25 $($now + 3600) 89 $($now + 432000)")
   $sessions = Join-Path $env:AI_CORE_TRANSCRIPTS ($folder -creplace '[^A-Za-z0-9]', '-')
   New-Item -ItemType Directory -Force -Path $sessions | Out-Null
   function Answer($At, $Cwd, $Id, $In, $Out, $Created, $Read) {
@@ -85,6 +85,9 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
     Answer ($now - 1800) (Join-Path $folder '.worktrees/example-repo/issue-6-add') m3 200 100 0 0
     Answer ($now - 2 * 86400) $folder m4 99999 0 0 0
   )
+  # Another folder of the machine used as many fresh tokens in the same hours: it carries half the rise
+  New-Item -ItemType Directory -Force -Path (Join-Path $env:AI_CORE_TRANSCRIPTS '-elsewhere') | Out-Null
+  Set-Content -LiteralPath (Join-Path $env:AI_CORE_TRANSCRIPTS '-elsewhere/session.jsonl') -Value (Answer ($now - 3600) '/elsewhere' o1 5460 0 0 0)
 
   Push-Location $folder
   try { $lines = @(& pwsh -NoProfile -File (Join-Path $root 'bin/status.ps1') -Project example-org/7 -Issues 2>&1 | ForEach-Object { "$_" }); $rc = $LASTEXITCODE }
@@ -104,20 +107,20 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   Check 'the board'     "example · board example-org/7 · $(When $now)" $lines[0]
   Check 'the usage'     "usage 5h 25 % (reset $(When ($now + 3600))) · week 89 % (reset $(When ($now + 432000))) · limit 92 %" (Line 'usage ')
   Check 'the pace'      'pace 6 issues closed in the last 24 hours, 1.0 a day over 14 days; 2 workers, shared evenly: too few packages name their worker' (Line 'pace ')
-  Check 'the cost'      'cost an issue closed here raises the 5h window 10.0 % and the week 2.00 %' (Line 'cost ')
+  Check 'the cost'      "cost this folder raises the 5h window 4.0 % and the week 1.00 % an hour, 50 % of the machine's fresh tokens; at the pace of 24 hours, 4.00 % of the week per issue closed here" (Line 'cost ')
   Write-Host 'the tokens of the day: an answer written twice counts once, every session counts, an older answer does not'
   Check 'the tokens'    'tokens in 24 hours the sessions of this folder used 5k fresh and read 1k from the cache: 910 fresh and 167 from the cache per closed issue' (Line 'tokens ')
   Check 'the context'   'context 2k per answer on average, 5k the largest, over 3 answers in 24 hours' (Line 'context ')
   Check 'the open work' 'open 8 issues · 3 packages, 1 ready to close · 2 outside packages' (Line 'open ')
   Write-Host 'the plan: each named package on its worker, a session started by hand in place of a free lane, the rest on the one that frees first, the week pausing both'
   Check 'the worker'    'exa-sonnet-1 sonnet max 3.0 issues a day' (Line 'exa-sonnet-1')
-  Check 'its package'   "▸ example-repo#1 alpha 2 $(When $now) $(When ($now + 5 * 86400 + 28800))" (Line '▸ example-repo#1')
+  Check 'its package'   "▸ example-repo#1 alpha 2 $(When $now) $(When ($now + 5 * 86400 + 52200))" (Line '▸ example-repo#1')
   Check 'the hand-started session' 'exa-hand-1 a model team.tsv does not name 3.0 issues a day' (Line 'exa-hand-1 ')
-  Check 'its package, as written' "▸ example-repo#21 gamma 1 $(When $now) $(When ($now + 28800))" (Line '▸ example-repo#21')
+  Check 'its package, as written' "▸ example-repo#21 gamma 1 $(When $now) $(When ($now + 5 * 86400 + 23400))" (Line '▸ example-repo#21')
   Check 'the lanes stay the team' '' (Line 'exa-sonnet-2')
-  Check 'the rest'      "· outside packages 1 issue 1 $(When ($now + 5 * 86400)) $(When ($now + 5 * 86400 + 28800))" (Line '· outside packages')
-  Check 'the pause'     "PAUSES week $(When ($now + 28800)) until $(When ($now + 5 * 86400))" (Line 'PAUSES')
-  Check 'the end'       "DONE about $(When ($now + 5 * 86400 + 28800)), an estimate from the pace of the last 24 hours, the cost per issue and the pauses" (Line 'DONE')
+  Check 'the rest'      "· outside packages 1 issue 1 $(When ($now + 5 * 86400 + 23400)) $(When ($now + 5 * 86400 + 52200))" (Line '· outside packages')
+  Check 'the pause'     "PAUSES week $(When ($now + 5400)) until $(When ($now + 5 * 86400))" (Line 'PAUSES')
+  Check 'the end'       "DONE about $(When ($now + 5 * 86400 + 52200)), an estimate from the pace of the last 24 hours, the measured rise of the windows and the pauses" (Line 'DONE')
   Check 'ready'         'CLOSE every sub-issue closed: example-repo#5' (Line 'CLOSE')
   Check 'open on Done'  'CHECK open on Done: example-repo#8' (Line 'CHECK')
   Write-Host 'every open issue, by package, in work order, the second page among them'

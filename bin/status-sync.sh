@@ -4,9 +4,11 @@
 #
 #   status-sync.sh [--project N] [--dry-run] [OWNER/REPO ...]
 #
-# It reads only facts and moves FORWARD only. The signals, in order:
-#   - a commit naming the issue is on master        -> testing
-#   - that commit is carried by the newest tag      -> closed + done
+# It reads only facts and moves FORWARD only. The signal:
+#   - a card in testing whose commit is carried by the newest tag  -> closed + done
+# A card reaches testing through finish-issue, which runs after the push that lands the issue. A
+# commit that names an issue says that it touches the issue, not that the issue is done: an issue
+# whose work lands in several steps carries such commits long before it is.
 #
 # WHY THERE IS NO PULL-REQUEST SIGNAL. Work stays on master here: an issue is worked in a
 # worktree on a temporary branch, and that branch is a place to commit, not a statement that
@@ -16,9 +18,9 @@
 # repositories tag rather than cut a GitHub release; whether that tag actually deployed is the
 # pipeline's to alarm on, not the board's.
 #
-# The card is put in `implementing` by start-issue, at the moment the worktree is opened, so
-# that column is a person's statement and this sweep never writes it. It never moves a card
-# BACKWARD, so a state a person set by hand stands. An EPIC carries no work and has no signals of
+# The card is put in `implementing` by start-issue, at the moment the worktree is opened, and in
+# `testing` by finish-issue; both are a session's statement and this sweep writes neither. It
+# never moves a card BACKWARD, so a state a person set by hand stands. An EPIC carries no work and has no signals of
 # its own: it follows its sub-issues (epic_target in lib/board.sh), so a sub-issue moved by hand
 # on the board moves its epic here too. Nothing is guessed: a card only moves on a signal.
 #
@@ -33,16 +35,14 @@
 # --- the decision, kept pure so a test can drive it without a board ------------
 
 # derive_target <current> <on_master 0|1> <released 0|1> <is_epic 0|1>
-# Echoes the state to move TO - testing or CLOSE - or nothing when the card is already at or
-# past what its signals prove, or is an epic.
+# Echoes CLOSE for a card finish-issue moved to testing whose commit the newest tag carries, and
+# nothing for every other card; an epic follows its sub-issues instead.
 derive_target() {
-  local cur="$1" om="$2" rel="$3" epic="$4" t=""
-  [ "$epic" = "1" ] && { echo ""; return; }
-  if [ "$om" = "1" ] && [ "$rel" = "1" ]; then t="CLOSE"
-  elif [ "$om" = "1" ]; then t="testing"
-  else echo ""; return; fi
-  [ "$(status_rank "$t")" -gt "$(status_rank "$cur")" ] || t=""
-  echo "$t"
+  local cur epic="$4"
+  cur="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  [ "$epic" = 1 ] && return 0
+  [ "$cur" = testing ] && [ "$2" = 1 ] && [ "$3" = 1 ] && echo CLOSE
+  return 0
 }
 
 # When sourced by a test, stop here: the functions are defined, the sweep does not run.

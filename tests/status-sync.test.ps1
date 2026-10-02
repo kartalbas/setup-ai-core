@@ -18,15 +18,16 @@ function Check($name, $expected, $actual) {
 
 . (Join-Path $root 'bin/status-sync.ps1')
 
-Write-Host 'a commit on master moves a card to testing'
-Check 'from todo'         'testing' (Get-DeriveTarget -Current 'todo' -OnMaster 1 -Released 0 -IsEpic 0)
-Check 'from backlog'      'testing' (Get-DeriveTarget -Current 'backlog' -OnMaster 1 -Released 0 -IsEpic 0)
-Check 'from implementing' 'testing' (Get-DeriveTarget -Current 'implementing' -OnMaster 1 -Released 0 -IsEpic 0)
+Write-Host 'a commit on master alone moves nothing: it touches the issue, it does not finish it'
+Check 'from todo'         '' (Get-DeriveTarget -Current 'todo' -OnMaster 1 -Released 0 -IsEpic 0)
+Check 'from backlog'      '' (Get-DeriveTarget -Current 'backlog' -OnMaster 1 -Released 0 -IsEpic 0)
+Check 'from implementing' '' (Get-DeriveTarget -Current 'implementing' -OnMaster 1 -Released 0 -IsEpic 0)
 
-Write-Host 'a commit carried by the newest tag closes the issue'
-Check 'from todo'         'CLOSE' (Get-DeriveTarget -Current 'todo' -OnMaster 1 -Released 1 -IsEpic 0)
-Check 'from implementing' 'CLOSE' (Get-DeriveTarget -Current 'implementing' -OnMaster 1 -Released 1 -IsEpic 0)
+Write-Host 'a released commit closes only a card finish-issue moved to testing'
 Check 'from testing'      'CLOSE' (Get-DeriveTarget -Current 'testing' -OnMaster 1 -Released 1 -IsEpic 0)
+Check 'the board spells it Testing' 'CLOSE' (Get-DeriveTarget -Current 'Testing' -OnMaster 1 -Released 1 -IsEpic 0)
+Check 'not from todo'     '' (Get-DeriveTarget -Current 'todo' -OnMaster 1 -Released 1 -IsEpic 0)
+Check 'not from implementing, whose work may land in more steps' '' (Get-DeriveTarget -Current 'implementing' -OnMaster 1 -Released 1 -IsEpic 0)
 
 Write-Host 'it never moves a card backward'
 Check 'testing stays testing' '' (Get-DeriveTarget -Current 'testing' -OnMaster 1 -Released 0 -IsEpic 0)
@@ -84,7 +85,7 @@ function Card($number, $title, $status, $owner = 'example-org') {
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'board.json') -Value (
   '{"data":{"node":{"items":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[' +
   ((Card 12 'A commit of its own is on master' 'implementing'),
-   (Card 13 'A commit of its own is in the newest tag' 'todo'),
+   (Card 13 'A commit of its own is in the newest tag' 'testing'),
    (Card 14 'An epic with one child' 'todo'),
    (Card 15 'An issue of another organisation on this board' 'todo' 'other-org') -join ',') + ']}}}}')
 
@@ -145,16 +146,16 @@ try {
   $run = @(& pwsh -NoProfile -File (Join-Path $root 'bin/status-sync.ps1') -Project $projectNumber -DryRun 2>&1 |
     ForEach-Object { "$_" })
   Check 'exit 0' 0 $LASTEXITCODE
-  Check 'a commit on master would move the card to testing' `
-    'would move   example-repo#12  (implementing -> testing)' (@($run | Where-Object { $_ -like 'would move   example-repo#12*' }))[0]
+  Check 'a card in implementing with a commit on master stays where it is' `
+    '' "$(@($run | Where-Object { $_.Contains('example-repo#12') }))"
   Check 'a commit the newest tag carries would close the issue' `
-    'would close  example-repo#13  (todo -> done, released in 0.8.100)' (@($run | Where-Object { $_ -like 'would close*' }))[0]
+    'would close  example-repo#13  (testing -> done, released in 0.8.100)' (@($run | Where-Object { $_ -like 'would close*' }))[0]
   Check 'an epic with one sub-issue is named' `
     'one child    example-repo#14  (an epic with a single sub-issue is a plain issue, rules.md section 8)' (@($run | Where-Object { $_ -like 'one child*' }))[0]
   Check 'and follows its sub-issue moved by hand' `
     'would move   example-repo#14  (todo -> testing)' (@($run | Where-Object { $_ -like 'would move   example-repo#14*' }))[0]
   Check 'and the count says what it read' `
-    "4 active cards scanned, 3 would move on board $projectNumber." $run[-1]
+    "4 active cards scanned, 2 would move on board $projectNumber." $run[-1]
 
   Write-Host 'the compare is asked once per question, with the ref as base and the commit as head'
   Check 'a card of another organisation is read under its owner' 1 @(@(Get-Content -LiteralPath $calls) | Where-Object { $_ -cmatch 'o=other-org .*num=15' }).Count

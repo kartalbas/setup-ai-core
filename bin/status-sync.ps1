@@ -3,9 +3,11 @@
 Move each card to the state its git signals PROVE it has reached, so the board stops trailing
 reality because a person forgot to move a card.
 
-It reads only facts and moves FORWARD only. The signals, in order:
-  - a commit naming the issue is on master        -> testing
-  - that commit is carried by the newest tag      -> closed + done
+It reads only facts and moves FORWARD only. The signal:
+  - a card in testing whose commit is carried by the newest tag  -> closed + done
+A card reaches testing through finish-issue, which runs after the push that lands the issue. A
+commit that names an issue says that it touches the issue, not that the issue is done: an issue
+whose work lands in several steps carries such commits long before it is.
 
 WHY THERE IS NO PULL-REQUEST SIGNAL. Work stays on master here: an issue is worked in a worktree
 on a temporary branch, and that branch is a place to commit, not a statement that anything is
@@ -15,8 +17,8 @@ shipped is a tag carrying that commit. A release here is a tag, because these re
 rather than cut a GitHub release; whether that tag actually deployed is the pipeline's to alarm
 on, not the board's.
 
-The card is put in `implementing` by start-issue, at the moment the worktree is opened, so that
-column is a person's statement and this sweep never writes it. It never moves a card BACKWARD,
+The card is put in `implementing` by start-issue, at the moment the worktree is opened, and in
+`testing` by finish-issue; both are a session's statement and this sweep writes neither. It never moves a card BACKWARD,
 so a state a person set by hand stands. An EPIC carries no work and has no signals of its own: it
 follows its sub-issues (Get-EpicTarget in lib/Board.psm1), so a sub-issue moved by hand on the
 board moves its epic here too. Nothing is guessed: a card only moves on a signal.
@@ -40,17 +42,13 @@ Import-Module (Join-Path $PSScriptRoot '../lib/Board.psm1') -Force
 
 # --- the decision, kept pure so a test can drive it without a board ------------
 
-# Echoes the state to move TO - testing or CLOSE - or '' when the card is already at or past
-# what its signals prove, or is an epic.
+# Returns CLOSE for a card finish-issue moved to testing whose commit the newest tag carries, and ''
+# for every other card; an epic follows its sub-issues instead.
 function Get-DeriveTarget {
   param([string]$Current, [string]$OnMaster, [string]$Released, [string]$IsEpic)
   if ($IsEpic -ceq '1') { return '' }
-  $t = ''
-  if     ($OnMaster -ceq '1' -and $Released -ceq '1') { $t = 'CLOSE' }
-  elseif ($OnMaster -ceq '1')                         { $t = 'testing' }
-  else { return '' }
-  if ((Get-StatusRank $t) -le (Get-StatusRank $Current)) { return '' }
-  return $t
+  if ($Current.ToLowerInvariant() -ceq 'testing' -and $OnMaster -ceq '1' -and $Released -ceq '1') { return 'CLOSE' }
+  return ''
 }
 
 # When dot-sourced by a test, stop here: the functions are defined, the sweep does not run.

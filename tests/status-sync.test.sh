@@ -20,15 +20,16 @@ check() { # name expected actual
 . "$ROOT/bin/status-sync.sh"
 
 # derive_target <current> <on_master> <released> <is_epic>
-echo 'a commit on master moves a card to testing'
-check 'from todo'         'testing' "$(derive_target todo 1 0 0)"
-check 'from backlog'      'testing' "$(derive_target backlog 1 0 0)"
-check 'from implementing' 'testing' "$(derive_target implementing 1 0 0)"
+echo 'a commit on master alone moves nothing: it touches the issue, it does not finish it'
+check 'from todo'         '' "$(derive_target todo 1 0 0)"
+check 'from backlog'      '' "$(derive_target backlog 1 0 0)"
+check 'from implementing' '' "$(derive_target implementing 1 0 0)"
 
-echo 'a commit carried by the newest tag closes the issue'
-check 'from todo'         'CLOSE' "$(derive_target todo 1 1 0)"
-check 'from implementing' 'CLOSE' "$(derive_target implementing 1 1 0)"
+echo 'a released commit closes only a card finish-issue moved to testing'
 check 'from testing'      'CLOSE' "$(derive_target testing 1 1 0)"
+check 'the board spells it Testing' 'CLOSE' "$(derive_target Testing 1 1 0)"
+check 'not from todo'     '' "$(derive_target todo 1 1 0)"
+check 'not from implementing, whose work may land in more steps' '' "$(derive_target implementing 1 1 0)"
 
 echo 'it never moves a card backward'
 check 'testing stays testing'      '' "$(derive_target testing 1 0 0)"
@@ -89,7 +90,7 @@ card() {  # card <number> <title> <status> [owner]
 }
 printf '{"data":{"node":{"items":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[%s,%s,%s,%s]}}}}\n' \
   "$(card 12 'A commit of its own is on master' implementing)" \
-  "$(card 13 'A commit of its own is in the newest tag' todo)" \
+  "$(card 13 'A commit of its own is in the newest tag' testing)" \
   "$(card 14 'An epic with one child' todo)" \
   "$(card 15 'An issue of another organisation on this board' todo other-org)" > "$FAKE/board.json"
 
@@ -152,11 +153,11 @@ echo 'the sweep, driven against a stand-in gh: one card per signal'
 run="$(bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run 2>&1)"
 rc=$?
 check 'exit 0' 0 "$rc"
-check 'a commit on master would move the card to testing' \
-  'would move   example-repo#12  (implementing -> testing)' \
-  "$(grep '^would move   example-repo#12' <<< "$run")"
+check 'a card in implementing with a commit on master stays where it is' \
+  '' \
+  "$(grep 'example-repo#12' <<< "$run")"
 check 'a commit the newest tag carries would close the issue' \
-  'would close  example-repo#13  (todo -> done, released in 0.8.100)' \
+  'would close  example-repo#13  (testing -> done, released in 0.8.100)' \
   "$(grep '^would close' <<< "$run")"
 check 'an epic with one sub-issue is named' \
   'one child    example-repo#14  (an epic with a single sub-issue is a plain issue, rules.md section 8)' \
@@ -165,7 +166,7 @@ check 'and follows its sub-issue moved by hand' \
   'would move   example-repo#14  (todo -> testing)' \
   "$(grep '^would move   example-repo#14' <<< "$run")"
 check 'and the count says what it read' \
-  "4 active cards scanned, 3 would move on board $PROJECT_NUMBER." \
+  "4 active cards scanned, 2 would move on board $PROJECT_NUMBER." \
   "$(printf '%s\n' "$run" | tail -1)"
 
 check 'a card of another organisation is read under its owner' 1 "$(grep -c 'o=other-org .*num=15' "$FAKE/calls.txt")"

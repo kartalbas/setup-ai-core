@@ -47,6 +47,8 @@ try {
     Card 4 Done P2 CLOSED ($now - 7200) 1 0 'Fourth'
     Card 5 Todo P2 OPEN - - 1 'Package: beta'
     Card 6 Done P2 CLOSED ($now - 3600) 5 0 'Sixth'
+    Card 21 Todo P2 OPEN - - 1 'Package: gamma' "Worker: exa-hand-1`n"
+    Card 22 Todo P2 OPEN - 21 0 'Twenty-second'
     foreach ($n in 9..20) { Card $n Done - CLOSED ($now - ($n - 7) * 86400) - 0 "Closed $n" }
     '{"status":{"name":"Todo"},"priority":null,"content":{}}'
     'after c2'
@@ -103,11 +105,14 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   Check 'the cost'      'cost an issue closed here raises the 5h window 10.0 % and the week 2.00 %' (Line 'cost ')
   Write-Host 'the tokens: an answer written twice counts once, an answer outside a worktree counts to no issue'
   Check 'the tokens'    'tokens 1k per issue, 300 of them fresh, not read from the cache (median of 2 closed issues)' (Line 'tokens ')
-  Check 'the open work' 'open 6 issues · 2 packages, 1 ready to close · 2 outside packages' (Line 'open ')
-  Write-Host 'the plan: the named package on its worker, the rest on the one that frees first, the week pausing both'
+  Check 'the open work' 'open 8 issues · 3 packages, 1 ready to close · 2 outside packages' (Line 'open ')
+  Write-Host 'the plan: each named package on its worker, a session started by hand in place of a free lane, the rest on the one that frees first, the week pausing both'
   Check 'the worker'    'exa-sonnet-1 sonnet max 0.5 issues a day' (Line 'exa-sonnet-1')
   Check 'its package'   "▸ example-repo#1 alpha 2 $(When $now) $(When ($now + 7 * 86400))" (Line '▸ example-repo#1')
-  Check 'the rest'      "· outside packages 1 issue 1 $(When $now) $(When ($now + 2 * 86400))" (Line '· outside packages')
+  Check 'the hand-started session' 'exa-hand-1 a model team.tsv does not name 0.5 issues a day' (Line 'exa-hand-1 ')
+  Check 'its package, as written' "▸ example-repo#21 gamma 1 $(When $now) $(When ($now + 2 * 86400))" (Line '▸ example-repo#21')
+  Check 'the lanes stay the team' '' (Line 'exa-sonnet-2')
+  Check 'the rest'      "· outside packages 1 issue 1 $(When ($now + 5 * 86400)) $(When ($now + 7 * 86400))" (Line '· outside packages')
   Check 'the pause'     "PAUSES week $(When ($now + 2 * 86400)) until $(When ($now + 5 * 86400))" (Line 'PAUSES')
   Check 'the end'       "DONE about $(When ($now + 7 * 86400)), an estimate from the pace of 14 days, the cost per issue and the pauses" (Line 'DONE')
   Check 'ready'         'CLOSE every sub-issue closed: example-repo#5' (Line 'CLOSE')

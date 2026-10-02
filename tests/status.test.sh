@@ -42,6 +42,8 @@ card() {  # card <number> <status> <priority> <state> <closed at> <parent> <sub-
   card 4 Done P2 CLOSED $((now - 7200)) 1 0 'Fourth'
   card 5 Todo P2 OPEN - - 1 'Package: beta'
   card 6 Done P2 CLOSED $((now - 3600)) 5 0 'Sixth'
+  card 21 Todo P2 OPEN - - 1 'Package: gamma' 'Worker: exa-hand-1\n'
+  card 22 Todo P2 OPEN - 21 0 'Twenty-second'
   for n in 9 10 11 12 13 14 15 16 17 18 19 20; do card "$n" Done - CLOSED $((now - (n - 7) * 86400)) - 0 "Closed $n"; done
   echo '{"status":{"name":"Todo"},"priority":null,"content":{}}'
   echo 'after c2'
@@ -91,11 +93,14 @@ check 'the pace'      'pace 1.0 issues a day over 14 days, 2 workers, shared eve
 check 'the cost'      'cost an issue closed here raises the 5h window 10.0 % and the week 2.00 %' "$(line 'cost ')"
 echo 'the tokens: an answer written twice counts once, an answer outside a worktree counts to no issue'
 check 'the tokens'    'tokens 1k per issue, 300 of them fresh, not read from the cache (median of 2 closed issues)' "$(line 'tokens ')"
-check 'the open work' 'open 6 issues · 2 packages, 1 ready to close · 2 outside packages' "$(line 'open ')"
-echo 'the plan: the named package on its worker, the rest on the one that frees first, the week pausing both'
+check 'the open work' 'open 8 issues · 3 packages, 1 ready to close · 2 outside packages' "$(line 'open ')"
+echo 'the plan: each named package on its worker, a session started by hand in place of a free lane, the rest on the one that frees first, the week pausing both'
 check 'the worker'    'exa-sonnet-1 sonnet max 0.5 issues a day' "$(line 'exa-sonnet-1' | sed 's/^ //')"
 check 'its package'   "▸ example-repo#1 alpha 2 $(when "$now") $(when $((now + 7 * 86400)))" "$(line '▸ example-repo#1' | sed 's/^ //')"
-check 'the rest'      "· outside packages 1 issue 1 $(when "$now") $(when $((now + 2 * 86400)))" "$(line '· outside packages' | sed 's/^ //')"
+check 'the hand-started session' 'exa-hand-1 a model team.tsv does not name 0.5 issues a day' "$(line 'exa-hand-1 ' | sed 's/^ //')"
+check 'its package, as written' "▸ example-repo#21 gamma 1 $(when "$now") $(when $((now + 2 * 86400)))" "$(line '▸ example-repo#21' | sed 's/^ //')"
+check 'the lanes stay the team' '' "$(line 'exa-sonnet-2')"
+check 'the rest'      "· outside packages 1 issue 1 $(when $((now + 5 * 86400))) $(when $((now + 7 * 86400)))" "$(line '· outside packages' | sed 's/^ //')"
 check 'the pause'     "PAUSES week $(when $((now + 2 * 86400))) until $(when $((now + 5 * 86400)))" "$(line 'PAUSES')"
 check 'the end'       "DONE about $(when $((now + 7 * 86400))), an estimate from the pace of 14 days, the cost per issue and the pauses" "$(line 'DONE')"
 check 'ready'         'CLOSE every sub-issue closed: example-repo#5' "$(line 'CLOSE')"

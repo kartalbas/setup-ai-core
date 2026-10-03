@@ -50,7 +50,10 @@
   approve it. The reviewer's model follows the stakes of the change, not the model of the session: a
   small mechanical change takes the lighter model the harness allows, ordinary work the standard
   one, and security, payments, contracts or the push gate the strongest, read a second time by
-  another model. Never downgrade a model to save money on security, payments or contract work.
+  another model. A test check, a draft of test cases or a pre-review that a cheaper model can do,
+  and whose answer the session can check cheaply, goes to the cheapest model the machine offers
+  outside the frontier models; its answer is a lead the session checks before it uses it. Never
+  downgrade a model to save money on security, payments or contract work.
   [review]
 - **Never announce that the context is running out and never stop work because of it.** Report the
   work when it reaches a point, not because a budget did. A usage limit of the account is another

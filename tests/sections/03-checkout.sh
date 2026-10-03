@@ -32,7 +32,7 @@ echo "  $(wc -l < "$WORK/sh.list") files, identical on both twins"
 section "AGENTS.md without a map: the generic one under the binding rules; one of before replaced, one the repository tracks or somebody's own kept"
 for t in sh ps1; do
   A="$WORK/$t/AGENTS.md"
-  grep -q '^<!-- ai-core map: none yet' <<< "$(head -n1 "$A")" && grep -qxF '## Binding rules' "$A" && grep -q '^- The engineering rules, .*: @\.ai-core/rules/rules\.md$' "$A" && grep -q '^- `ai-core --help`: ' "$A" && grep -qxF '# This repository has no map yet' "$A" || fail "init.$t did not put the binding rules on the generic map: $(head -n 12 "$A" | tr '\n' '|')"
+  grep -q '^<!-- ai-core map: none yet' <<< "$(head -n1 "$A")" && grep -qxF '## Binding rules' "$A" && grep -q '^- Before any work, read the three rules files below, whole, unless your tool has loaded them: .*every other tool loads none of them\.$' "$A" && grep -q '^- The engineering rules, .*: @\.ai-core/rules/rules\.md$' "$A" && grep -q '^- `ai-core --help`: ' "$A" && grep -qxF '# This repository has no map yet' "$A" || fail "init.$t did not put the binding rules on the generic map: $(head -n 12 "$A" | tr '\n' '|')"
 done
 cmp -s "$WORK/sh/AGENTS.md" "$WORK/ps1/AGENTS.md" || fail "the generic map differs between the twins"
 for t in sh ps1; do

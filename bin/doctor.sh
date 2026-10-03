@@ -89,8 +89,14 @@ fi
 # gh
 if ! command -v gh >/dev/null 2>&1; then install_tool gh GitHub.cli gh gh || true; fi
 if command -v gh >/dev/null 2>&1; then
-  if gh auth status >/dev/null 2>&1; then
-    report gh present "$(gh --version 2>/dev/null | head -1), logged in"
+  # the board commands write Projects v2, which a login with gh's default scopes cannot; a token
+  # gh lists no scopes for (a fine-grained one, GH_TOKEN) is not judged
+  if gh_status="$(gh auth status 2>&1)"; then
+    if grep -q 'Token scopes:' <<< "$gh_status" && ! grep -q "'project'" <<< "$gh_status"; then
+      report gh "no project scope" "the board commands read and write the project board; run: gh auth refresh -h github.com -s project"; problem
+    else
+      report gh present "$(gh --version 2>/dev/null | head -1), logged in"
+    fi
   else
     report gh "not logged in" "run: gh auth login"; problem
   fi

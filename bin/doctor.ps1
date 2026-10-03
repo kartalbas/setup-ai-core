@@ -78,8 +78,13 @@ else { Write-Report git MISSING "install Git from https://git-scm.com"; Add-Prob
 # gh
 if (-not (Test-Tool gh)) { [void](Install-Tool gh GitHub.cli gh gh) }
 if (Test-Tool gh) {
-  & gh auth status *> $null
-  if ($LASTEXITCODE -eq 0) { Write-Report gh present ("$(& gh --version 2>$null | Select-Object -First 1), logged in") }
+  # the board commands write Projects v2, which a login with gh's default scopes cannot; a token
+  # gh lists no scopes for (a fine-grained one, GH_TOKEN) is not judged
+  $ghStatus = (& gh auth status 2>&1 | Out-String)
+  if ($LASTEXITCODE -eq 0) {
+    if ($ghStatus -cmatch 'Token scopes:' -and $ghStatus -cnotmatch "'project'") { Write-Report gh "no project scope" "the board commands read and write the project board; run: gh auth refresh -h github.com -s project"; Add-Problem }
+    else { Write-Report gh present ("$(& gh --version 2>$null | Select-Object -First 1), logged in") }
+  }
   else { Write-Report gh "not logged in" "run: gh auth login"; Add-Problem }
 } else { Write-Report gh MISSING "install GitHub CLI from https://cli.github.com"; Add-Problem }
 

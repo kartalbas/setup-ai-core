@@ -22,6 +22,23 @@ for t in sh ps1; do
 done
 echo "  both exit 1 with the same two problems"
 
+section "doctor refuses a gh login without the project scope and keeps one with it, on both twins"
+for c in noscope scope; do
+  mkdir -p "$WORK/ghbin-$c"
+  if [ "$c" = noscope ]; then sc="'gist', 'read:org', 'read:project', 'repo'"; else sc="'gist', 'project', 'read:org', 'repo'"; fi
+  printf '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "gh version 0.0.0"; else echo "  - Token scopes: %s"; fi\n' "$sc" > "$WORK/ghbin-$c/gh"
+  printf '@if "%%1"=="--version" (echo gh version 0.0.0) else (echo   - Token scopes: %s)\r\n' "$sc" > "$WORK/ghbin-$c/gh.cmd"
+  chmod +x "$WORK/ghbin-$c/gh"
+  # the machine decides the rest of the report, so only the noscope run is held to its exit code
+  HOME="$WORK/doctor-home" TEAM_MODES_FILE="$WORK/always.tsv" PATH="$WORK/ghbin-$c:$PATH" bash "$ROOT/bin/doctor.sh" --no-install > "$WORK/ghscope-$c.sh.log" 2>&1 && [ "$c" = noscope ] && fail "doctor.sh exited 0 without the project scope"
+  HOME="$WORK/doctor-home" USERPROFILE="$(native "$WORK/doctor-home")" TEAM_MODES_FILE="$(native "$WORK/always.tsv")" PATH="$WORK/ghbin-$c:$PATH" pwsh -NoProfile -File "$ROOT/bin/doctor.ps1" -NoInstall > "$WORK/ghscope-$c.ps1.log" 2>&1 && [ "$c" = noscope ] && fail "doctor.ps1 exited 0 without the project scope"
+done
+for t in sh ps1; do
+  grep -aq '^  gh .*no project scope .*run: gh auth refresh -h github.com -s project$' "$WORK/ghscope-noscope.$t.log" || fail "doctor.$t did not refuse the login without the project scope (see $WORK/ghscope-noscope.$t.log)"
+  grep -aq '^  gh .*present .*gh version 0.0.0, logged in$' "$WORK/ghscope-scope.$t.log" || fail "doctor.$t did not keep the login with the project scope (see $WORK/ghscope-scope.$t.log)"
+done
+echo "  both refuse read:project alone and keep project"
+
 section "doctor shows why Graft did not install: npm's gyp lines, and the command that installs a C/C++ toolchain, on both twins"
 # npm without Graft, failing to compile a parser; package managers that install nothing, so this run changes nothing on the machine
 mkdir -p "$WORK/gypbin"

@@ -31,7 +31,6 @@ $path = Join-Path $root 'bin/solution-path.ps1'
 $whole = Join-Path $fake 'whole.md'
 function Calls { @(Get-Content $log -ErrorAction SilentlyContinue) }
 function Clear-Log { Remove-Item $log -ErrorAction SilentlyContinue }
-$errFile = Join-Path $fake 'stderr.txt'
 
 # Every required heading, with the options written as sub-headings - a deeper heading stands
 # INSIDE its section and neither opens a new one nor ends the one it is in.
@@ -94,11 +93,13 @@ Write-Host 'a heading with nothing under it is named too'
 $hollow = Join-Path $fake 'hollow.md'
 (Get-Content $whole) -replace '^It reads the commit on master\.$', '' | Set-Content -Path $hollow -Encoding utf8NoBOM
 Clear-Log
-# The named sections go out on the ERROR stream and the run then throws, so the stream is
-# redirected to a FILE: a pipeline that is aborted by the throw never assigns its variable.
+# The named sections go out on the ERROR stream and the run then throws: a pipeline aborted by
+# the throw never assigns its variable, so each record is collected as it arrives, and its
+# message is read rather than the error view, which wraps a long temp path across lines.
 $said = ''
-try { & $path -Number 163 -File $hollow 2>$errFile | Out-Null } catch { $said = $_.Exception.Message }
-$reported = (Get-Content $errFile -Raw -ErrorAction SilentlyContinue)
+$records = [System.Collections.Generic.List[object]]::new()
+try { & $path -Number 163 -File $hollow 2>&1 | ForEach-Object { $records.Add($_) } } catch { $said = $_.Exception.Message }
+$reported = ($records | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { $_.Exception.Message }) -join "`n"
 Check 'it throws'     'True' ([bool]($said -match 'write those sections'))
 Check 'the empty one' 'True' ([bool]($reported -match 'leaves "Recommendation" empty'))
 Check 'nothing sent'  0      (Calls).Count
@@ -111,8 +112,9 @@ $doubled = Join-Path $fake 'doubled.md'
 ((Get-Content $whole) + '' + '## Options') | Set-Content -Path $doubled -Encoding utf8NoBOM
 Clear-Log
 $said = ''
-try { & $path -Number 163 -File $doubled 2>$errFile | Out-Null } catch { $said = $_.Exception.Message }
-$reported = (Get-Content $errFile -Raw -ErrorAction SilentlyContinue)
+$records = [System.Collections.Generic.List[object]]::new()
+try { & $path -Number 163 -File $doubled 2>&1 | ForEach-Object { $records.Add($_) } } catch { $said = $_.Exception.Message }
+$reported = ($records | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { $_.Exception.Message }) -join "`n"
 Check 'it throws'            'True' ([bool]($said -match 'a required heading may stand only once'))
 Check 'it names the heading' 'True' ([bool]($reported -match 'names "## Options" twice'))
 Check 'nothing sent'         0      (Calls).Count

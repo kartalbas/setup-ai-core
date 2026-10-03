@@ -40,24 +40,55 @@ and keep your own tokens for judgment and decisions.
   conversation of its own, named `agy-<name>-<task>` and recorded the same way.
 - Hand the rules over in the first call of a conversation, and again after a rule changed.
 
-## Browser (live proofs, UI checks)
+## Live check after a release
 
-Check `agy mcp list`. If `chrome-devtools` is missing, add it, with the path of Edge or Chrome on
-this machine (`/usr/bin/microsoft-edge-stable` on a Linux machine with Edge):
+A live check proves an issue in `testing` against the deployed environment, in a browser. It
+starts no test runner and no container on this machine.
 
-    agy mcp add chrome-devtools npx -- -y chrome-devtools-mcp@1.10.1 \
-      --executablePath <path of Edge or Chrome> --headless --isolated --viewport 1366x900
+**Set up the browser once per machine.** The server is `chrome-devtools-mcp@1.10.1`, a fixed
+version, never `@latest`. It drives Edge or Chrome headless with a throwaway profile per run, so
+it never sees anyone's logged-in sessions; no browser extension is needed. Use the path of Edge
+or Chrome on this machine (`/usr/bin/microsoft-edge-stable` on a Linux machine with Edge).
 
-This drives the browser headless with a throwaway profile per run, so it never sees anyone's
-logged-in sessions.
+- agy: check `agy mcp list`; if `chrome-devtools` is missing:
 
-Prompt shape: "Use only the chrome-devtools MCP tools. Open <URL>. <steps>. Expected: <result>.
-Reply with what you saw, quote the visible text, and say PASS or FAIL. Change nothing, write no
-files."
+      agy mcp add chrome-devtools npx -- -y chrome-devtools-mcp@1.10.1 \
+        --executablePath <path of Edge or Chrome> --headless --isolated --viewport 1366x900
+
+- codex, where a check runs there instead: in `~/.codex/config.toml`
+
+      [mcp_servers.chrome-devtools]
+      command = "npx"
+      args = ["-y", "chrome-devtools-mcp@1.10.1", "--executablePath", "<path of Edge or Chrome>",
+              "--headless", "--isolated", "--viewport", "1366x900"]
+
+**Call it** from an empty throwaway directory, because agy can write files even with
+`--mode plan`, in the session's own conversation (see above):
+
+    agy -p "<prompt>" --model gemini-3.8-flash-high --conversation <id> --output-format text
+
+**The prompt always holds:**
+1. "Use only the chrome-devtools MCP tools."
+2. The prohibitions: change nothing, submit no form, write no file, type no real password; log in
+   only with a demo account the prompt names.
+3. The check in steps: the URL, each click, what to read.
+4. The concrete expected result, taken from the issue's promise.
+5. The answer shape:
+
+       RESULT: PASS | FAIL
+       SEEN: <the visible text, quoted verbatim>
+       URL: <the URL it ended on>
+       NOTES: <anything that did not match the steps>
+
+**Then, on the issue:** the result is a lead, not the proof. Check it against the issue's promise,
+repeating the one decisive look where the answer leaves doubt. Comment on the issue with what
+Flash reported and what you verified yourself ("Flash reported … / verified …"), and only then
+close it with `ai-core issue-close`. On FAIL or an unclear answer, comment what was seen, and the
+card stays in `testing`.
 
 ## What to give Flash
 
-- Live checks after a release: one item, its exact check, PASS or FAIL with what it saw.
+- Live checks after a release, as described above: one item per call, its exact check.
 - Pre-reviews of a diff before your deciding reviewer. Ask for file:line, the state in which the
   defect appears, and a planted case that would show it. Ask neutrally; never hint at the defect
   you suspect.

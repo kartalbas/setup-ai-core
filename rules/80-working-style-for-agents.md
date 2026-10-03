@@ -10,9 +10,11 @@
   It carries the full case, which is the context, the code facts as `file:line` and the acceptance
   criteria, under a title that names the action and its stake so it survives being read alone in a
   list. Independent pieces are split into their own issues before any detail is refined. An epic,
-  an issue with sub-issues, is never moved by hand: it stands in `implementing` once one sub-issue
-  has started, in `testing` once all stand in testing or done, and is done and closed once all are
-  done; the issue commands move it with every sub-issue they move.
+  an issue with sub-issues, carries no work of its own, which goes into a sub-issue, and is never
+  moved by hand: it stands in `implementing` once one sub-issue has started, in `testing` once all
+  stand in testing or done, and is done and closed once all are done; a sub-issue closed as not
+  planned or as a duplicate does not count, and the issue commands move it with every sub-issue
+  they move.
   Everything that carries the work, a branch, a worktree or an agent, is named after its issue, and
   a commit that touches an issue names it; the push that lands an issue is followed by `ai-core
   finish-issue <number>`, which removes its worktree and moves its card on. Before handing over an

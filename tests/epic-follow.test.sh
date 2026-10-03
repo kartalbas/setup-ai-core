@@ -30,6 +30,9 @@ check 'all in testing or done'       testing        "$(epic_target implementing 
 check 'all done'                     CLOSE          "$(epic_target testing done done)"
 check 'never backward'               ''             "$(epic_target testing implementing testing)"
 check 'no sub-issues, nothing'       ''             "$(epic_target todo)"
+check 'not planned left out'         CLOSE          "$(epic_target testing done 'not planned')"
+check 'only not planned, nothing'    ''             "$(epic_target testing 'not planned')"
+check 'a closed epic never moves'    ''             "$(epic_target 'not planned' implementing)"
 
 # The fake gh: #3 is a sub-issue of #44, #44 has no parent; $FAKE/epic-44 holds the statuses of
 # #44 and of its sub-issues as the board gives them, one a line, the epic first
@@ -72,6 +75,13 @@ out="$(bash "$ROOT/bin/issue-close.sh" example-org/example-repo 3 2>&1)"; rc=$?
 check 'exit 0'        0 "$rc"
 check 'it says so'    'epic example-org/example-repo#44 -> closed, every sub-issue done' "$(grep '^epic' <<< "$out")"
 check 'both issues closed' 'issues/3 issues/44' "$(grep -o 'PATCH repos/example-org/example-repo/issues/[0-9]*' "$FAKE/calls" | sed 's#.*/issues/#issues/#' | tr '\n' ' ' | sed 's/ $//')"
+
+echo 'issue-close: a sub-issue closed as not planned does not close an epic that has nothing else'
+: > "$FAKE/calls"; printf 'testing\nnot planned\n' > "$FAKE/epic-44"
+out="$(bash "$ROOT/bin/issue-close.sh" example-org/example-repo 3 2>&1)"; rc=$?
+check 'exit 0'        0 "$rc"
+check 'no epic line'  '' "$(grep '^epic' <<< "$out")"
+check 'only the sub-issue closed' 'issues/3' "$(grep -o 'PATCH repos/example-org/example-repo/issues/[0-9]*' "$FAKE/calls" | sed 's#.*/issues/#issues/#' | tr '\n' ' ' | sed 's/ $//')"
 
 echo
 if [ "$failed" -gt 0 ]; then echo "$failed failed"; exit 1; fi

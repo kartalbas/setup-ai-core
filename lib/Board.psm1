@@ -833,15 +833,18 @@ function Get-StatusRank {
   # backlog and todo < implementing < testing < done
   [CmdletBinding()]
   param([string]$Status)
-  switch -CaseSensitive ($Status) { 'implementing' { 1 } 'testing' { 2 } 'done' { 3 } 'CLOSE' { 3 } default { 0 } }
+  switch -CaseSensitive ($Status) { 'implementing' { 1 } 'testing' { 2 } 'done' { 3 } 'CLOSE' { 3 } 'not planned' { 3 } default { 0 } }
 }
 
 function Get-EpicTarget {
-  # The epic's status and its sub-issues' statuses, a closed sub-issue counted as done. Returns
-  # implementing, testing or CLOSE, or '' where the epic stands there or further.
+  # The epic's status and its sub-issues' statuses, a closed sub-issue counted as done, one closed as
+  # not planned or as a duplicate ('not planned') not at all, so an epic whose sub-issues are all of
+  # that kind does not move. Returns implementing, testing or CLOSE, or '' where the epic stands
+  # there or further.
   [CmdletBinding()]
   [OutputType([string])]
   param([string]$Current, [string[]]$Statuses = @())
+  $Statuses = @($Statuses | Where-Object { $_ -cne 'not planned' })
   if ($Statuses.Count -eq 0) { return '' }
   $ranks = @($Statuses | ForEach-Object { Get-StatusRank $_ })
   $low = ($ranks | Measure-Object -Minimum).Minimum
@@ -859,12 +862,12 @@ function Get-EpicTargetOnBoard {
   param([string]$Repo, [string]$Number)
   $on = if ($script:Project) { "select(.project.number == $(Get-ProjectNumber) and .project.owner.login == `"$(Get-ProjectOrg)`") |" } else { '' }
   $q = 'query($o:String!, $r:String!, $n:Int!) { repository(owner:$o, name:$r) { issue(number:$n) {
-    state projectItems(first:20) { nodes { project { number owner { ... on Organization { login } ... on User { login } } }
+    state stateReason projectItems(first:20) { nodes { project { number owner { ... on Organization { login } ... on User { login } } }
       status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } }
-    subIssues(first:100) { nodes { state projectItems(first:20) { nodes {
+    subIssues(first:100) { nodes { state stateReason projectItems(first:20) { nodes {
       project { number owner { ... on Organization { login } ... on User { login } } }
       status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } } } } } } }'
-  $jq = "def status: if .state == `"CLOSED`" then `"done`" else ([.projectItems.nodes[] | $on (.status.name // `"backlog`")] | first // `"backlog`") end; .data.repository.issue | (status), (.subIssues.nodes[] | status)"
+  $jq = "def status: if .state == `"CLOSED`" then (if .stateReason == `"NOT_PLANNED`" or .stateReason == `"DUPLICATE`" then `"not planned`" else `"done`" end) else ([.projectItems.nodes[] | $on (.status.name // `"backlog`")] | first // `"backlog`") end; .data.repository.issue | (status), (.subIssues.nodes[] | status)"
   $owner, $name = $Repo -split '/', 2
   $rows = @(Invoke-Gh api graphql -f "o=$owner" -f "r=$name" -F "n=$Number" -f "query=$q" --jq $jq |
     ForEach-Object { "$_".Trim().ToLowerInvariant() } | Where-Object { $_ })

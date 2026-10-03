@@ -29,6 +29,9 @@ try {
   Check 'all done'                CLOSE        (Get-EpicTarget -Current testing -Statuses done, done)
   Check 'never backward'          ''           (Get-EpicTarget -Current testing -Statuses implementing, testing)
   Check 'no sub-issues, nothing'  ''           (Get-EpicTarget -Current todo)
+  Check 'not planned left out'    CLOSE        (Get-EpicTarget -Current testing -Statuses done, 'not planned')
+  Check 'only not planned, nothing' ''         (Get-EpicTarget -Current testing -Statuses 'not planned')
+  Check 'a closed epic never moves' ''         (Get-EpicTarget -Current 'not planned' -Statuses implementing)
 
   # The fake gh: #3 is a sub-issue of #44, #44 has no parent; epic-44 holds the statuses of #44
   # and of its sub-issues as the board gives them, one a line, the epic first
@@ -72,6 +75,13 @@ if (`$line -clike '*--method PATCH*') { '{}'; exit 0 }
   Check 'exit 0'        0 $rc
   Check 'it says so'    'epic example-org/example-repo#44 -> closed, every sub-issue done' (EpicLine)
   Check 'both issues closed' 'issues/3 issues/44' (Closes)
+
+  Write-Host 'issue-close: a sub-issue closed as not planned does not close an epic that has nothing else'
+  Set-Content -LiteralPath $calls -Value @(); Set-Content -LiteralPath $epic -Value @('testing', 'not planned')
+  Run 'issue-close.ps1' -Repo example-org/example-repo -Number 3
+  Check 'exit 0'        0 $rc
+  Check 'no epic line'  '' (EpicLine)
+  Check 'only the sub-issue closed' 'issues/3' (Closes)
 } finally {
   Remove-Item -Recurse -Force -LiteralPath $fake -ErrorAction SilentlyContinue
 }

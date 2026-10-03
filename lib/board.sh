@@ -842,22 +842,26 @@ status_rank() {  # status_rank <status> - backlog and todo < implementing < test
   case "$1" in
     implementing) echo 1 ;;
     testing) echo 2 ;;
-    done|CLOSE) echo 3 ;;
+    done|CLOSE|'not planned') echo 3 ;;
     *) echo 0 ;;
   esac
 }
 
-# epic_target <the epic's status> <a sub-issue's status>... - a closed sub-issue counts as done.
-# Echoes implementing, testing or CLOSE, or nothing where the epic stands there or further.
+# epic_target <the epic's status> <a sub-issue's status>... - a closed sub-issue counts as done, one
+# closed as not planned or as a duplicate ("not planned") not at all, so an epic whose sub-issues
+# are all of that kind does not move. Echoes implementing, testing or CLOSE, or nothing where the
+# epic stands there or further.
 epic_target() {
-  local cur="$1" s r low=3 high=0 t=""
+  local cur="$1" s r low=3 high=0 t="" counted=0
   shift
-  [ $# -gt 0 ] || return 0
   for s in "$@"; do
+    [ "$s" = 'not planned' ] && continue
+    counted=1
     r="$(status_rank "$s")"
     [ "$r" -lt "$low" ] && low="$r"
     [ "$r" -gt "$high" ] && high="$r"
   done
+  [ "$counted" -eq 1 ] || return 0
   if [ "$low" -eq 3 ]; then t=CLOSE
   elif [ "$low" -eq 2 ]; then t=testing
   elif [ "$high" -ge 1 ]; then t=implementing
@@ -874,12 +878,12 @@ epic_target_on_board() {
   [ -z "${PROJECT:-}" ] || on="select(.project.number == $(project_number) and .project.owner.login == \"$(project_org)\") |"
   rows="$(gh_read "the sub-issues of $repo#$n" api graphql -f o="${repo%%/*}" -f r="${repo#*/}" -F n="$n" -f query='
     query($o:String!, $r:String!, $n:Int!) { repository(owner:$o, name:$r) { issue(number:$n) {
-      state projectItems(first:20) { nodes { project { number owner { ... on Organization { login } ... on User { login } } }
+      state stateReason projectItems(first:20) { nodes { project { number owner { ... on Organization { login } ... on User { login } } }
         status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } }
-      subIssues(first:100) { nodes { state projectItems(first:20) { nodes {
+      subIssues(first:100) { nodes { state stateReason projectItems(first:20) { nodes {
         project { number owner { ... on Organization { login } ... on User { login } } }
         status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } } } } } } }' \
-    --jq "def status: if .state == \"CLOSED\" then \"done\" else ([.projectItems.nodes[] | $on (.status.name // \"backlog\")] | first // \"backlog\") end;
+    --jq "def status: if .state == \"CLOSED\" then (if .stateReason == \"NOT_PLANNED\" or .stateReason == \"DUPLICATE\" then \"not planned\" else \"done\" end) else ([.projectItems.nodes[] | $on (.status.name // \"backlog\")] | first // \"backlog\") end;
           .data.repository.issue | (status), (.subIssues.nodes[] | status)")" || return 1
   set --
   while IFS= read -r st; do

@@ -65,6 +65,9 @@ $default = Get-OriginDefaultBranch
 # the same from inside the worktree being removed.
 $common = (Invoke-Git rev-parse --git-common-dir).Text
 $main = (Invoke-Git -C (Join-Path $common '..') rev-parse --show-toplevel).Text
+# The run goes on from the main checkout: started inside the worktree it removes, every step after
+# the removal would run in a directory that is gone
+Set-Location -LiteralPath $main
 
 # Every worktree that carries an issue branch, as { Path; Branch }
 function Get-IssueWorktrees {
@@ -73,6 +76,14 @@ function Get-IssueWorktrees {
     if ($line.StartsWith('worktree ', [StringComparison]::Ordinal)) { $path = $line.Substring(9) }
     elseif ($line -cmatch '^branch refs/heads/(issue-[0-9]+(-.*)?)$') { [pscustomobject]@{ Path = $path; Branch = $Matches[1] } }
   }
+}
+# The worktree carries the name of the issue its branch belongs to, as start-issue names it. A
+# package is worked in the worktree of its first issue with each issue's branch checked out in
+# turn, and that worktree is not the later issues' to remove.
+function Test-OwnWorktree([string]$path, [string]$branch) {
+  $n = ($branch.Substring(6) -csplit '-', 2)[0]
+  $leaf = Split-Path -Leaf $path
+  return ($leaf -ceq "issue-$n" -or $leaf.StartsWith("issue-$n-", [StringComparison]::Ordinal))
 }
 # The commits of the branch whose change is not on origin's default branch, as "<sha> <subject>".
 # A branch that landed by cherry-pick has new commits upstream, so ancestry alone would hold it
@@ -99,7 +110,8 @@ function Remove-IssueWorktree([string]$path, [string]$branch) {
 if ($Sweep) {
   $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
   foreach ($w in @(Get-IssueWorktrees)) {
-    if (-not (Test-Clean $w.Path)) { "worktree $($w.Path): has changes, stays" }
+    if (-not (Test-OwnWorktree $w.Path $w.Branch)) { "worktree $($w.Path): named for another issue, holds $($w.Branch), stays" }
+    elseif (-not (Test-Clean $w.Path)) { "worktree $($w.Path): has changes, stays" }
     elseif (-not (Test-Landed $w.Branch)) { "worktree $($w.Path): has work origin/$default does not have yet, stays" }
     elseif (-not (Test-WorkedIn $w.Branch)) { "worktree $($w.Path): never committed in, stays" }
     elseif (($now - [long](Invoke-Git -C $main log -1 --format=%ct "refs/heads/$($w.Branch)").Text) -lt $restSeconds) {
@@ -118,6 +130,10 @@ $thread = $raw | ConvertFrom-Json -DateKind String
 $state = "$($thread.state)".ToLowerInvariant()
 $found = $false
 foreach ($w in @(Get-IssueWorktrees | Where-Object { $_.Branch -ceq "issue-$Number" -or $_.Branch.StartsWith("issue-$Number-", [StringComparison]::Ordinal) })) {
+  if (-not (Test-OwnWorktree $w.Path $w.Branch)) {
+    "the worktree $($w.Path) is named for another issue and has $($w.Branch) checked out: it stays, and the branch with it"
+    continue
+  }
   $found = $true
   if (-not (Test-Clean $w.Path)) {
     Stop-WithError "the worktree $($w.Path) has changes - commit and push them, or put them aside, then run this again"

@@ -55,6 +55,9 @@ default="$(origin_default_branch)" || exit 1
 # the same from inside the worktree being removed.
 common="$(git rev-parse --git-common-dir)"
 main="$(cd "$common/.." && git rev-parse --show-toplevel)"
+# The run goes on from the main checkout: started inside the worktree it removes, every step after
+# the removal would run in a directory that is gone
+cd "$main" || die "cannot change to the main checkout $main"
 
 # unlanded <branch>: the commits of the branch whose change is not on origin's default branch, one
 # "<sha> <subject>" per line. A branch that landed by cherry-pick has new commits upstream, so
@@ -80,6 +83,14 @@ remove_worktree() {  # remove_worktree <path> <branch>
   git -C "$main" branch -D "$2" >/dev/null || die "the branch $2 could not be deleted (see above)"
 }
 
+# own_worktree <path> <branch>: the worktree carries the name of the issue its branch belongs to, as
+# start-issue names it. A package is worked in the worktree of its first issue with each issue's
+# branch checked out in turn, and that worktree is not the later issues' to remove.
+own_worktree() {
+  local n="${2#issue-}"; n="${n%%-*}"
+  case "${1##*/}" in "issue-$n"|"issue-$n-"*) return 0 ;; *) return 1 ;; esac
+}
+
 # One "<path>\t<branch>" per worktree that carries an issue branch
 issue_worktrees() {
   git -C "$main" worktree list --porcelain | awk '
@@ -91,7 +102,8 @@ if [ "$sweep" -eq 1 ]; then
   now="$(date +%s)"
   while IFS=$'\t' read -r path branch; do
     [ -n "$path" ] || continue
-    if [ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]; then echo "worktree $path: has changes, stays"
+    if ! own_worktree "$path" "$branch"; then echo "worktree $path: named for another issue, holds $branch, stays"
+    elif [ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]; then echo "worktree $path: has changes, stays"
     elif ! landed "$branch"; then echo "worktree $path: has work origin/$default does not have yet, stays"
     elif ! worked_in "$branch"; then echo "worktree $path: never committed in, stays"
     elif [ $((now - $(git -C "$main" log -1 --format=%ct "refs/heads/$branch"))) -lt "$REST_SECONDS" ]; then
@@ -109,6 +121,10 @@ found=0
 while IFS=$'\t' read -r path branch; do
   [ -n "$path" ] || continue
   case "$branch" in "issue-$number"|"issue-$number-"*) ;; *) continue ;; esac
+  if ! own_worktree "$path" "$branch"; then
+    echo "the worktree $path is named for another issue and has $branch checked out: it stays, and the branch with it"
+    continue
+  fi
   found=1
   [ -z "$(git -C "$path" status --porcelain)" ] \
     || die "the worktree $path has changes - commit and push them, or put them aside, then run this again"

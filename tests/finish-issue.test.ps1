@@ -76,8 +76,8 @@ Dress $work
 
 $finish = Join-Path $root 'bin/finish-issue.ps1'
 function Invoke-Finish {
-  param([string]$Number = '', [switch]$Sweep, [switch]$DryRun, [switch]$Landed)
-  Push-Location $work
+  param([string]$Number = '', [switch]$Sweep, [switch]$DryRun, [switch]$Landed, [string]$In = '')
+  Push-Location $(if ($In) { $In } else { $work })
   try {
     $script:said = ''
     $script:printed = ''
@@ -130,6 +130,27 @@ Check 'the branch is gone'    'False' (Has-Branch $b)
 Check 'the card moved to testing' 1   (@(Get-Content $log | Where-Object { $_ -match 'oid=OPT_testing' }).Count)
 Check 'the issue was told'    'True'  ([bool]((Calls) -match '(?s)issue comment 163 .*Landed on master:.*Not pushed yet \(#163\)'))
 
+Write-Host 'run inside the worktree it removes, it goes on from the main checkout and still moves the card'
+Open-Tree 'issue-170-run-from-inside'
+Land 'issue-170-run-from-inside' 'Run from inside (#170)'
+Set-Content -Path $log -Value $null
+$ok = Invoke-Finish -Number 170 -In (Join-Path $trees 'issue-170-run-from-inside')
+Check 'it runs'               'True'  ([string]$ok)
+Check 'the worktree is gone'  'False' (Has-Tree 'issue-170-run-from-inside')
+Check 'the card moved to testing' 1   (@(Get-Content $log | Where-Object { $_ -match 'oid=OPT_testing' }).Count)
+
+Write-Host "a package worktree, named for its first issue, stays when a later issue's branch in it is finished"
+Open-Tree 'issue-177-package'
+& git -C (Join-Path $trees 'issue-177-package') checkout -q -b issue-182-a-later-part origin/master 2>$null
+Land 'issue-177-package' 'A later part (#182)'
+Set-Content -Path $log -Value $null
+$ok = Invoke-Finish -Number 182 -In (Join-Path $trees 'issue-177-package')
+Check 'it runs'                    'True' ([string]$ok)
+Check 'the package worktree stays' 'True' (Has-Tree 'issue-177-package')
+Check 'and the branch in it'       'True' (Has-Branch 'issue-182-a-later-part')
+Check 'it says why'                'True' ([bool]($printed -match 'issue-177-package is named for another issue and has issue-182-a-later-part checked out: it stays'))
+Check 'the card of #182 moved'     1      (@(Get-Content $log | Where-Object { $_ -match 'oid=OPT_testing' }).Count)
+
 Write-Host 'where the column after implementing is done, the card stays for the owner'
 Set-Board @('todo', 'implementing', 'done')
 Set-Content -Path $log -Value $null
@@ -169,6 +190,7 @@ Check 'and says why'                   'True'  ([bool]($printed -match 'issue-20
 Check 'the uncommitted one stays'      'True'  (Has-Tree 'issue-203-never-committed')
 Check 'the one with changes stays'     'True'  (Has-Tree 'issue-204-open-work')
 Check 'the sweep moves no card'        0       (Moves)
+Check 'a package worktree holding a later issue stays' 'True' ([bool]($printed -match 'issue-177-package: named for another issue, holds issue-182-a-later-part, stays'))
 
 Write-Host 'a repository on no board: the landed worktree goes, no card is looked for, and the issue is told'
 Open-Tree 'issue-167-keep-the-harness-off-the-board'

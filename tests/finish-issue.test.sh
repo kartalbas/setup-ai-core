@@ -25,7 +25,8 @@ cat > "$fake/gh" <<EOF
 a="\$*"
 printf '%s\n' "\$a" >> "$log"
 case "\$a" in
-  *"repo view"*)            echo 'example-org/example-repo' ;;
+  # like gh, which reads the repository of the directory it runs in and finds none in a removed one
+  *"repo view"*)            [ -d "\$PWD" ] || { echo 'failed to determine the repository' >&2; exit 1; }; echo 'example-org/example-repo' ;;
   *"issue comment"*)        echo 'https://example.invalid/example-org/example-repo/issues/163#issuecomment-1' ;;
   *comments*)               echo '[]' ;;
   *"--jq .node_id"*)        echo 'I_node163' ;;
@@ -120,6 +121,27 @@ check 'the branch is gone'    no "$(has_branch issue-163-read-the-board-whole)"
 check 'the card moved to testing' 1 "$(grep -c 'oid=OPT_test' "$log" || true)"
 check 'the issue was told'    yes "$(grep -q 'issue comment 163 .*Landed on master:.*Not pushed yet (#163)' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
 
+echo 'run inside the worktree it removes, it goes on from the main checkout and still moves the card'
+open issue-170-run-from-inside
+land issue-170-run-from-inside 'Run from inside (#170)'
+: > "$log"; rm -rf "$fake/cache"
+out="$(cd "$trees/issue-170-run-from-inside" && bash "$finish" 170 2>&1)"; rc=$?
+check 'exits zero'            0 "$rc"
+check 'the worktree is gone'  no "$(has_tree issue-170-run-from-inside)"
+check 'the card moved to testing' 1 "$(grep -c 'oid=OPT_test' "$log" || true)"
+
+echo "a package worktree, named for its first issue, stays when a later issue's branch in it is finished"
+open issue-177-package
+git -C "$trees/issue-177-package" checkout -q -b issue-182-a-later-part origin/master
+land issue-177-package 'A later part (#182)'
+: > "$log"; rm -rf "$fake/cache"
+out="$(cd "$trees/issue-177-package" && bash "$finish" 182 2>&1)"; rc=$?
+check 'exits zero'                 0 "$rc"
+check 'the package worktree stays' yes "$(has_tree issue-177-package)"
+check 'and the branch in it'       yes "$(has_branch issue-182-a-later-part)"
+check 'it says why'                yes "$(grep -q 'issue-177-package is named for another issue and has issue-182-a-later-part checked out: it stays' <<< "$out" && echo yes || echo no)"
+check 'the card of #182 moved'     1 "$(grep -c 'oid=OPT_test' "$log" || true)"
+
 echo 'where the column after implementing is done, the card stays for the owner'
 printf 'Status\tFID\ttodo\tOPT_todo\nStatus\tFID\timplementing\tOPT_impl\nStatus\tFID\tdone\tOPT_done\n' > "$board"
 : > "$log"; rm -rf "$fake/cache"
@@ -159,6 +181,7 @@ grep -q 'issue-202-fresh: landed less than a day ago' <<< "$out" || printf '    
 check 'the uncommitted one stays'      yes "$(has_tree issue-203-never-committed)"
 check 'the one with changes stays'     yes "$(has_tree issue-204-open-work)"
 check 'the sweep moves no card'        0 "$(grep -c 'oid=OPT_' "$log" || true)"
+check 'a package worktree holding a later issue stays' yes "$(grep -q 'issue-177-package: named for another issue, holds issue-182-a-later-part, stays' <<< "$out" && echo yes || echo no)"
 
 echo 'a repository on no board: the landed worktree goes, no card is looked for, and the issue is told'
 open issue-167-keep-the-harness-off-the-board

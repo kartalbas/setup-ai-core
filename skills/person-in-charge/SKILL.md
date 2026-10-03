@@ -49,13 +49,6 @@ finished; otherwise open a new package.
 - Write the worker into the package's body as a line `Worker: <session name>` (`ai-core
   issue-edit`). `ai-core status --tokens` plans the package on that worker and measures each
   model's pace from it.
-- Keep the plan file `<project folder>/.ai-core/plan.json` current: the goal, every worker with
-  the `match` text only its command line carries and the path of its log, and the open steps up to
-  the goal in delivery order, each with who, state, next step and, where known, the cards it
-  closes and a rough time (`ai-core status --help` gives its shape). Change it when a worker
-  starts or stops and when a step moves; a status request reads it as it stands.
-- Every brief tells the worker to write into its log a line with a timestamp at its start each time
-  its work changes, with `NOW: <what it does>` and `NEXT: <what follows>`.
 - The tier follows the stakes: a small mechanical change the lighter model, ordinary work the
   standard one; security, payments, contracts or the push gate the strongest.
 - One brief per package, sent with `SendMessage`:
@@ -91,11 +84,19 @@ coordination and the reviews.
 
 ## 6. The owner
 
-When the owner asks for the state ("status"), run `ai-core status` (in the project folder
-`--project <board>`) and answer with its output unchanged in a code block. It shows what runs now
-and what is left up to the goal, counted from the board, the plan file, the processes and the
-workers' logs, so the page is the same every time. Under it write at most one line: what the owner
-must do now, if anything; no summary in its place. `--tokens` prints the pace, the cost and the
+When the owner asks for the state ("status"), run `ai-core status` once (in the project folder
+`--project <board>`). It measures the board counts and every agent process on the machine, with
+the runs each one started. From that output and what you know, build the page fresh each time,
+in a code block:
+- the board line, unchanged;
+- WHO WORKS ON WHAT: one row per worker, its model, its state, its issues, what it does now and
+  what comes next; the runs it started indented under it. A worker the command does not show is
+  off, never running, and its minutes come from the command, never from memory;
+- UP TO <the goal>: the open steps in delivery order, from the goal's open issues, each with who,
+  state and next step;
+- NEXT TO DONE: the cards that close first, each with an approximate time.
+Under the code block write at most one line: what the owner must do now, if anything; no summary
+in its place. `--tokens` prints the pace, the cost and the
 forecast when the owner asks for them, `--tokens --issues` every open issue. Every question
 to the owner goes into the question dialog, the recommended option first, with no option that
 needs typing.

@@ -121,49 +121,33 @@ check 'a package'     'example-repo#1 alpha (2)' "$(line 'example-repo#1 alpha (
 check 'nearest done first' 'example-repo#2 example-repo#3' "$(awk '/example-repo#1 alpha \(/ { on = 1; next } on && /^    / { printf "%s%s", sep, $2; sep = " "; next } on { exit }' <<< "$out")"
 check 'outside'       'example-repo#8 example-repo#7' "$(awk '/^  outside packages/ { on = 1; next } on && /^    / { printf "%s%s", sep, $2; sep = " " }' <<< "$out")"
 
-echo 'without --tokens: what runs now and what is left up to the goal, from the plan file, the processes and the logs'
+echo 'without --tokens: the agents that run now, from the process list alone'
 : > "$work/no-processes"
 nothing="$(cd "$folder" && AI_CORE_PROCESSES="$work/no-processes" bash "$root/bin/status.sh" --project example-org/7 2>&1)"
-# Git for Windows hands node the folder as C:\..., so the path is compared from the folder's name on
-check 'no plan: the counts, and where the plan is missing' "no plan: FOLDER/.ai-core/plan.json is missing, so who works on what and the steps up to the goal are not known;" \
-  "$(sed -n 3p <<< "$nothing" | sed 's#^no plan: .*example[/\\]\.ai-core[/\\]plan\.json#no plan: FOLDER/.ai-core/plan.json#')"
-mkdir -p "$folder/logs"
-# The last report carries an offset: ten minutes ago, written two hours east of UTC
-printf '%s\n' '2026-01-01 08:00 started' "$(date -u -d "@$((now - 600 + 7200))" '+%Y-%m-%dT%H:%M' 2>/dev/null || date -u -r $((now - 600 + 7200)) '+%Y-%m-%dT%H:%M')+02:00 NOW: building the alpha package" 'NEXT: the beta package' > "$folder/logs/w1.md"
-cat > "$folder/.ai-core/plan.json" <<'JSON'
-{ "goal": "the release", "coordinator": "exa-lead",
-  "workers": [
-    { "name": "exa-w1", "tool": "codex", "model": "big-model", "effort": "high", "match": "thread-w1", "log": "logs/w1.md", "issues": "#1 #2", "now": "from the plan", "next": "from the plan too" },
-    { "name": "exa-w2", "tool": "codex", "model": "big-model", "effort": "high", "match": "thread-w2", "issues": "#5", "now": "waits", "next": "the gamma package" } ],
-  "steps": [
-    { "step": "Alpha", "who": "exa-w1", "state": "running", "next": "review", "closes": 3, "eta": "tonight" },
-    { "step": "Beta", "who": "exa-w2", "state": "done", "next": "-", "closes": 9, "eta": "never shown" },
-    { "step": "Gamma", "who": "exa-w2", "state": "waiting for owner", "next": "your go" } ] }
-JSON
-printf '%s\t%s\t%s\t%s\n' 100 1 '01:02:03' 'codex exec resume thread-w1 --json' \
-  101 100 '05:00' 'bash run.sh' 102 101 '03:00' 'agy -p check example-repo#1 --model cheap-model --effort high' \
-  103 102 '02:00' 'agy -p nested child' 104 1 '1-00:00:00' 'claude -p review example-repo#3 --model judge' \
-  105 1 '10' 'sleep 30' 106 100 '01:00' 'agy --prompt inspect the fork API' 107 1 '01:00' 'git log agy -p' > "$work/processes"
+tokens="$(cd "$folder" && bash "$root/bin/status.sh" --project example-org/7 --tokens 2>&1)"
+check 'no agent runs: the pace and the forecast, as with --tokens' "$tokens" "$nothing"
+check 'and they are there' 1 "$(grep -c '^pace ' <<< "$nothing")"
+printf '%s\t%s\t%s\t%s\n' 100 1 '1-01:00:00' 'claude --resume exa-lead' 101 100 '05:00' 'bash run.sh' \
+  102 101 '03:00' 'codex exec -m big-model -c model_reasoning_effort=high work on example-repo#1' \
+  103 102 '02:00' 'agy -p nested child --model cheap-model --effort high' \
+  104 1 '01:02:03' 'codex exec resume thread-w2 --json' 105 1 '10' 'sleep 30' 106 1 '01:00' 'git log agy -p' \
+  107 1 '2-00:00:00' '/home/x/.local/bin/claude --chrome-native-host' \
+  108 100 '01:00' 'node /usr/lib/node_modules/gemini-cli/bin/gemini.js -p check example-repo#3' \
+  109 1 '05:00' 'agy' > "$work/processes"
 view="$(cd "$folder" && AI_CORE_PROCESSES="$work/processes" bash "$root/bin/status.sh" --project example-org/7 2>&1)"; rc=$?
 vline() { grep -m1 -F -- "$1" <<< "$view" | tr -s ' '; }
 check 'exit 0'        0 "$rc"
 check 'line 1: the time and the board counts' "example · board example-org/7 · $(when "$now") · Backlog 0 · Todo 5 · In progress 2 · Done 15" "$(sed -n 1p <<< "$view")"
-check 'a running worker: its log says now, next and the age' '│ exa-w1 │ big-model · high │ running (10 min) │ #1 #2 │ building the alpha package │ the beta package │' "$(vline '│ exa-w1 ')"
-check 'its side runs: one it started itself, one through a script; the nested child not again' \
-  '│ └ agy │ ? │ running (1 min) │ │ run │ │|│ └ agy │ cheap-model · high │ running (3 min) │ example-repo#1 │ run │ │' \
-  "$(grep -F '└ agy' <<< "$view" | tr -s ' ' | tr '\n' '|' | sed 's/|$//')"
-check 'indented under the worker'   2 "$(grep -c -F '│   └ agy' <<< "$view")"
-check 'they follow its row'         1 "$(grep -A1 -F '│ exa-w1 ' <<< "$view" | sed -n 2p | grep -c '^│   └ agy ')"
-check 'a worker off: the plan says now and next' '│ exa-w2 │ big-model · high │ off │ #5 │ waits │ the gamma package │' "$(vline '│ exa-w2 ')"
-check 'a run nobody owns falls to the coordinator' '│ exa-lead │ │ │ │ coordinates │ │' "$(vline '│ exa-lead ')"
-check 'and stands under it, a long cell wrapped inside its column' '│ └ claude │ judge │ running (1440 │ example-repo#3 │ run │ │ │ │ │ min) │ │ │ │' "$(grep -A1 -F '└ claude' <<< "$view" | tr -s ' ' | tr '\n' ' ' | sed 's/ $//')"
-check 'the goal'      'UP TO THE RELEASE' "$(vline 'UP TO')"
-check 'a done step is hidden' '' "$(vline 'Beta')"
-check 'the open steps, numbered' '│ 2 │ Gamma │ exa-w2 │ waiting for │ your go │ │ │ │ │ owner │ │' "$(grep -A1 -F '│ Gamma' <<< "$view" | tr -s ' ' | tr '\n' ' ' | sed 's/ $//')"
-check 'the agents, a word in another command not among them' 'AGENTS 4 active: 1 codex, 2 agy, 1 claude · coordinated by exa-lead' "$(vline 'AGENTS')"
-check 'what closes next' 'NEXT TO DONE 3 cards, the times approximate' "$(vline 'NEXT TO DONE')"
-check 'its row'       '3 ~ tonight Alpha' "$(vline '~ tonight' | sed 's/^ //')"
-check 'no token lines' '' "$(vline 'tokens ')"
+check 'a session, named by its resume' '│ claude exa-lead │ 100 │ │ 1500 min │ │ session │' "$(vline '│ claude exa-lead ')"
+check 'the runs it started, through a script too, newest first' '│ └ gemini │ 108 │ │ 1 min │ example-repo#3 │ run │' "$(vline '└ gemini')"
+check 'with model and effort' '│ └ codex │ 102 │ big-model · high │ 3 min │ example-repo#1 │ run │' "$(vline '└ codex')"
+check 'a run a run started' '│ └ agy │ 103 │ cheap-model · high │ 2 min │ │ run │' "$(vline '└ agy')"
+check 'indented one step deeper' 1 "$(grep -c '^│     └ agy ' <<< "$view")"
+check 'a run no agent started stands alone' '│ codex │ 104 │ │ 62 min │ │ resumed run │' "$(vline '│ codex ')"
+check 'an agent CLI without a prompt is a session' '│ agy │ 109 │ │ 5 min │ │ session │' "$(vline '│ agy ')"
+check 'in this order' '100 108 102 103 104 109' "$(awk -F'│' '$3 ~ /^ *[0-9]+ *$/ { printf "%s%s", sep, $3 + 0; sep = " " }' <<< "$view")"
+check 'no helper, no tool word in another command' 'AGENTS 6 running: 1 claude, 1 gemini, 2 codex, 2 agy' "$(vline ' running: ')"
+check 'no token lines' '' "$(vline 'pace ')"
 
 echo 'outside a repository with no board named: refused, naming --project'
 refused="$(cd "$folder" && bash "$root/bin/status.sh" 2>&1)"; rc=$?

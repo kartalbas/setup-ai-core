@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# What runs now and what is left up to the next goal, or with --tokens the pace and the forecast;
-# lib/status-help.txt says what it prints and the shape of the plan file it reads.
+# What runs now, or with --tokens (and where no agent runs) the pace and the forecast;
+# lib/status-help.txt says what it prints.
 
 set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

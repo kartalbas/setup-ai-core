@@ -1,9 +1,9 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-What runs now and what is left up to the next goal, or with -Tokens the pace and the forecast.
+What runs now, or with -Tokens (and where no agent runs) the pace and the forecast.
 .DESCRIPTION
-lib/status-help.txt says what it prints and the shape of the plan file it reads.
+lib/status-help.txt says what it prints.
 .EXAMPLE
 ./status.ps1 -Project 1 -Tokens -Issues
 #>

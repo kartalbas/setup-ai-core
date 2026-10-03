@@ -47,8 +47,15 @@ finished; otherwise open a new package.
 - One package goes to one worker. While it runs, the worker owns the package's files and no
   other worker touches them; a worker that needs a file outside its package asks you first.
 - Write the worker into the package's body as a line `Worker: <session name>` (`ai-core
-  issue-edit`). `ai-core status` plans the package on that worker and measures each model's pace
-  from it.
+  issue-edit`). `ai-core status --tokens` plans the package on that worker and measures each
+  model's pace from it.
+- Keep the plan file `<project folder>/.ai-core/plan.json` current: the goal, every worker with
+  the `match` text only its command line carries and the path of its log, and the open steps up to
+  the goal in delivery order, each with who, state, next step and, where known, the cards it
+  closes and a rough time (`ai-core status --help` gives its shape). Change it when a worker
+  starts or stops and when a step moves; a status request reads it as it stands.
+- Every brief tells the worker to write into its log a line with a timestamp at its start each time
+  its work changes, with `NOW: <what it does>` and `NEXT: <what follows>`.
 - The tier follows the stakes: a small mechanical change the lighter model, ordinary work the
   standard one; security, payments, contracts or the push gate the strongest.
 - One brief per package, sent with `SendMessage`:
@@ -84,10 +91,11 @@ coordination and the reviews.
 
 ## 6. The owner
 
-When the owner asks for the state, run `ai-core status` (in the project folder `--project <board>`;
-`--issues` when the owner asks for every issue) and show its output unchanged in a code block. It
-is counted from the tracker, the team, the usage and the transcripts, so the page is the same every
-time. Under it write at most three sentences: what is blocked, and what waits for the owner.
-Report packages done, running and blocked, each issue with its number and title. Every question
+When the owner asks for the state ("status"), run `ai-core status` (in the project folder
+`--project <board>`) and answer with its output unchanged in a code block. It shows what runs now
+and what is left up to the goal, counted from the board, the plan file, the processes and the
+workers' logs, so the page is the same every time. Under it write at most one line: what the owner
+must do now, if anything; no summary in its place. `--tokens` prints the pace, the cost and the
+forecast when the owner asks for them, `--tokens --issues` every open issue. Every question
 to the owner goes into the question dialog, the recommended option first, with no option that
 needs typing.

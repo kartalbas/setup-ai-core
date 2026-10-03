@@ -127,6 +127,45 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   Check 'a package'     'example-repo#1 alpha (2)' (Line 'example-repo#1 alpha (')
   Check 'nearest done first' 'example-repo#2 example-repo#3' (Keys '  example-repo#1 alpha (')
   Check 'outside'       'example-repo#8 example-repo#7' (Keys '  outside packages')
+  Write-Host 'without -Tokens: what runs now and what is left up to the goal, from the plan file, the processes and the logs'
+  function Run { Push-Location $folder; try { @(& pwsh -NoProfile -File (Join-Path $root 'bin/status.ps1') -Project example-org/7 2>&1 | ForEach-Object { "$_" }) } finally { Pop-Location } }
+  $nothing = Run
+  Check 'no plan: the counts, and where the plan is missing' "no plan: $(Join-Path $folder '.ai-core/plan.json') is missing, so who works on what and the steps up to the goal are not known;" $nothing[2]
+  New-Item -ItemType Directory -Force -Path (Join-Path $folder 'logs') | Out-Null
+  $tenAgo = [DateTimeOffset]::FromUnixTimeSeconds($now - 600).UtcDateTime.ToString('yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture)
+  Set-Content -LiteralPath (Join-Path $folder 'logs/w1.md') -Value @('2026-01-01 08:00 started', "$tenAgo NOW: building the alpha package", 'NEXT: the beta package')
+  Set-Content -LiteralPath (Join-Path $folder '.ai-core/plan.json') -Value @'
+{ "goal": "the release", "coordinator": "exa-lead",
+  "workers": [
+    { "name": "exa-w1", "tool": "codex", "model": "big-model", "effort": "high", "match": "thread-w1", "log": "logs/w1.md", "issues": "#1 #2", "now": "from the plan", "next": "from the plan too" },
+    { "name": "exa-w2", "tool": "codex", "model": "big-model", "effort": "high", "match": "thread-w2", "issues": "#5", "now": "waits", "next": "the gamma package" } ],
+  "steps": [
+    { "step": "Alpha", "who": "exa-w1", "state": "running", "next": "review", "closes": 3, "eta": "tonight" },
+    { "step": "Beta", "who": "exa-w2", "state": "done", "next": "-", "closes": 9, "eta": "never shown" },
+    { "step": "Gamma", "who": "exa-w2", "state": "waiting for owner", "next": "your go" } ] }
+'@
+  $env:AI_CORE_PROCESSES = Join-Path $work 'processes'
+  Set-Content -LiteralPath $env:AI_CORE_PROCESSES -Value @(
+    "100`t1`t01:02:03`tcodex exec resume thread-w1 --json", "101`t100`t05:00`tbash run.sh",
+    "102`t101`t03:00`tagy -p check example-repo#1 --model cheap-model --effort high", "103`t102`t02:00`tagy -p nested child",
+    "104`t1`t1-00:00:00`tclaude -p review example-repo#3 --model judge", "105`t1`t10`tsleep 30")
+  $view = Run
+  Remove-Item Env:AI_CORE_PROCESSES
+  function VLine($Text) { "$(@($view | Where-Object { $_.Contains($Text) }) | Select-Object -First 1)".Trim() -creplace ' +', ' ' }
+  function Two($Text) { $i = [array]::FindIndex([string[]]$view, [Predicate[string]]{ param($l) $l.Contains($Text) }); (($view[$i], $view[$i + 1]) -join ' ').Trim() -creplace ' +', ' ' }
+  Check 'line 1: the time and the board counts' "example · board example-org/7 · $(When $now) · Backlog 0 · Todo 5 · In progress 2 · Done 15" $view[0]
+  Check 'a running worker: its log says now, next and the age' '│ exa-w1 │ big-model · high │ running (10 min) │ #1 #2 │ building the alpha package │ the beta package │' (VLine '│ exa-w1 ')
+  Check 'its side run, under it, the nested child not again' '│ └ agy │ cheap-model · high │ running (3 min) │ example-repo#1 │ run │ │' (VLine '└ agy')
+  Check 'a worker off: the plan says now and next' '│ exa-w2 │ big-model · high │ off │ #5 │ waits │ the gamma package │' (VLine '│ exa-w2 ')
+  Check 'a run nobody owns falls to the coordinator' '│ exa-lead │ │ │ │ coordinates │ │' (VLine '│ exa-lead ')
+  Check 'and stands under it, a long cell wrapped inside its column' '│ └ claude │ judge │ running (1440 │ example-repo#3 │ run │ │ │ │ │ min) │ │ │ │' (Two '└ claude')
+  Check 'the goal'      'UP TO THE RELEASE' (VLine 'UP TO')
+  Check 'a done step is hidden' '' (VLine 'Beta')
+  Check 'the open steps, numbered' '│ 2 │ Gamma │ exa-w2 │ waiting for │ your go │ │ │ │ │ owner │ │' (Two '│ Gamma')
+  Check 'the agents'    'AGENTS 3 active: 1 codex, 1 agy, 1 claude · coordinated by exa-lead' (VLine 'AGENTS')
+  Check 'what closes next' 'NEXT TO DONE 3 cards, the times approximate' (VLine 'NEXT TO DONE')
+  Check 'its row'       '3 ~ tonight Alpha' (VLine '~ tonight')
+  Check 'no token lines' '' (VLine 'tokens ')
   Write-Host 'outside a repository with no board named: refused, naming -Project'
   Push-Location $folder
   try { $refused = (@(& pwsh -NoProfile -File (Join-Path $root 'bin/status.ps1') 2>&1 | ForEach-Object { "$_" }) -join ' '); $rc = $LASTEXITCODE }

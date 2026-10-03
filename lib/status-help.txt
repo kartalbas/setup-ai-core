@@ -1,0 +1,21 @@
+What runs now and what is left up to the next goal, printed the same way every time: the board
+counts, who works on what (each worker of the plan file running or off, the minutes since its
+last report, its issues, what it does now and next, and its side runs), the open steps up to the
+goal, the active agents and what closes next. --tokens prints the usage windows, the pace, what
+an issue costs, every worker's packages with their start and end, the pauses at the usage limit
+and the end of the work instead. No model is involved: status.sh and status.ps1 read the board
+and the process list, and lib/status.mjs counts, so both print the same page.
+
+  ai-core status [--project N] [--tokens] [--issues]
+    the board of the repository you stand in, or board N; --issues adds every open issue, by
+    package, to the --tokens page
+
+The plan file, <project folder>/.ai-core/plan.json, is the coordinator's:
+  { "goal": "the shop", "coordinator": "<session>",
+    "workers": [ { "name": "<worker>", "tool": "codex", "model": "<model>", "effort": "high",
+                   "match": "<text only its command line carries>", "log": "<path of its log>",
+                   "issues": "<its issues>", "now": "<what it does>", "next": "<what follows>" } ],
+    "steps": [ { "step": "<a step, in delivery order>", "who": "<worker>", "state": "running",
+                 "next": "<its next step>", "closes": 3, "eta": "tonight" } ] }
+A step whose state is "done" is not shown. A worker's log line with a timestamp in its first 40
+characters is a report; its last "NOW:" and "NEXT:" lines say what it does now and next.

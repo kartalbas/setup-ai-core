@@ -1,21 +1,17 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-The state of the work on one board and the plan for the rest, printed the same way every time.
+What runs now and what is left up to the next goal, or with -Tokens the pace and the forecast.
 .DESCRIPTION
-The usage windows, the pace, what an issue costs, every worker's packages with their start and end,
-the pauses at the usage limit, the end of the work, and what is ready to close. It is counted from
-the board, the team, the usage the status line records and the session transcripts; no model is
-involved. This script reads the board; lib/status.mjs counts, so status.sh prints the same page.
--Issues adds every open issue, by package.
+lib/status-help.txt says what it prints and the shape of the plan file it reads.
 .EXAMPLE
-./status.ps1 -Project 1 -Issues
+./status.ps1 -Project 1 -Tokens -Issues
 #>
 [CmdletBinding()]
-param([string] $Project = '', [switch] $Issues, [switch] $Help)
+param([string] $Project = '', [switch] $Tokens, [switch] $Issues, [switch] $Help)
 
 $ErrorActionPreference = 'Stop'
-if ($Help) { 'usage: status.ps1 [-Project N] [-Issues]'; exit 0 }
+if ($Help) { 'usage: status.ps1 [-Project N] [-Tokens] [-Issues]'; Get-Content -LiteralPath (Join-Path $PSScriptRoot '../lib/status-help.txt'); exit 0 }
 Import-Module (Join-Path $PSScriptRoot '../lib/Board.psm1') -Force
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Stop-WithError 'status counts with node, and node is not on the PATH' }
 # Outside a repository there is none to find the board from, and the board is named instead
@@ -61,8 +57,21 @@ try {
     $after = "$(@($out | Where-Object { $_.StartsWith('after ', [StringComparison]::Ordinal) }) | Select-Object -First 1)" -creplace '^after ', ''
   } while ($after)
 
+  # Every process: its id, its parent, the seconds it runs and its command line, a tab between;
+  # AI_CORE_PROCESSES names a file that stands in for it
+  $processes = Join-Path $work 'processes'
+  if ($env:AI_CORE_PROCESSES) { Copy-Item -LiteralPath $env:AI_CORE_PROCESSES -Destination $processes }
+  elseif ($IsWindows) {
+    $at = Get-Date
+    Set-Content -LiteralPath $processes -Value @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine } | ForEach-Object {
+      "$($_.ProcessId)`t$($_.ParentProcessId)`t$([int]($at - $_.CreationDate).TotalSeconds)`t$($_.CommandLine)" })
+  } else {
+    Set-Content -LiteralPath $processes -Value @(& ps -A -o 'pid=,ppid=,etime=,command=' | ForEach-Object {
+      if ($_ -cmatch '^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$') { "$($Matches[1])`t$($Matches[2])`t$($Matches[3])`t$($Matches[4])" } })
+  }
   $flags = @('--items-file', $items, '--columns-file', $columns, '--board', "$(Get-ProjectOrg)/$(Get-ProjectNumber)",
-             '--folder', $folder, '--stop-at', $stop)
+             '--folder', $folder, '--stop-at', $stop, '--processes-file', $processes)
+  if ($Tokens) { $flags += '--tokens' }
   if ($Issues) { $flags += '--issues' }
   & node (Join-Path $PSScriptRoot '../lib/status.mjs') @flags
   $rc = $LASTEXITCODE

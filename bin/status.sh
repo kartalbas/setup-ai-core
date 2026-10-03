@@ -1,23 +1,18 @@
 #!/usr/bin/env bash
-# The state of the work on one board and the plan for the rest, printed the same way every time:
-# the usage windows, the pace, what an issue costs, every worker's packages with their start and
-# end, the pauses at the usage limit, the end of the work, and what is ready to close. It is
-# counted from the board, the team, the usage the status line records and the session
-# transcripts; no model is involved. This script reads the board; lib/status.mjs counts, so
-# status.ps1 prints the same page.
-#
-#   status.sh [--project N] [--issues]   the board of the repository you stand in, or board N;
-#                                        --issues adds every open issue, by package
+# What runs now and what is left up to the next goal, or with --tokens the pace and the forecast;
+# lib/status-help.txt says what it prints and the shape of the plan file it reads.
+
 set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$here/../lib/board.sh"
 
-usage="usage: status.sh [--project N] [--issues]"
-project=""; issues=""
+usage="usage: status.sh [--project N] [--tokens] [--issues]"
+project=""; issues=""; tokens=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    -h|--help) echo "$usage"; exit 0 ;;
+    -h|--help) echo "$usage"; cat "$here/../lib/status-help.txt"; exit 0 ;;
     --project) need_value "$1" "${2-}"; project="$2"; shift 2 ;;
+    --tokens) tokens=--tokens; shift ;;
     --issues) issues=--issues; shift ;;
     *) die "unknown argument '$1' - $usage" ;;
   esac
@@ -58,5 +53,14 @@ while :; do
   [ -n "$after" ] || break
 done
 
+# Every process: its id, its parent, how long it runs ([[dd-]hh:]mm:ss) and its command line, a tab
+# between; AI_CORE_PROCESSES names a file that stands in for it
+if [ -n "${AI_CORE_PROCESSES:-}" ]; then
+  cp "$AI_CORE_PROCESSES" "$work/processes"
+else
+  ps -A -o pid=,ppid=,etime=,command= | awk '{ p = $1; q = $2; t = $3; $1 = $2 = $3 = ""; sub(/^ +/, ""); print p "\t" q "\t" t "\t" $0 }' > "$work/processes"
+fi
+
 node "$here/../lib/status.mjs" --items-file "$work/items" --columns-file "$work/columns" \
-  --board "$(project_org)/$(project_number)" --folder "$folder" --stop-at "$stop" $issues
+  --board "$(project_org)/$(project_number)" --folder "$folder" --stop-at "$stop" \
+  --processes-file "$work/processes" $tokens $issues

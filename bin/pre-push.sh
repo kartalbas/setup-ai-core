@@ -285,6 +285,9 @@ default="${default#origin/}"; [ -n "$default" ] || default=master
 # Every commit this push sends, across every ref on standard input, and the ranges they came from.
 commits=''
 scan_ranges=''
+# Whether the push adds any commit at all, a merge among them. The message rules judge the commits
+# that are not merges, but a merge of commits the remote has is a tree nobody has checked yet.
+adds=0
 pushing=0
 landing=''   # the commit a push to the default branch lands, judged below where that branch goes live
 while read -r local_ref local_sha remote_ref remote_sha; do
@@ -326,13 +329,14 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   fi
   [ "$remote_ref" != "refs/heads/$default" ] || landing="$local_commit"
   commits="$commits$(git rev-list --no-merges $range)"$'\n'
+  [ -z "$(git rev-list -n1 $range)" ] || adds=1
   scan_ranges="$scan_ranges$range"$'\n'
 done <<< "$input"
 
 # Nothing to send, or nothing but deletions: there is nothing to judge and nothing to test.
 [ "$pushing" -eq 1 ] || exit 0
 commits="$(grep -v '^$' <<< "$commits" || true)"
-if [ -z "$commits" ]; then
+if [ -z "$commits" ] && [ "$adds" -eq 0 ]; then
   echo 'pre-push: nothing new to send.'
   exit 0
 fi

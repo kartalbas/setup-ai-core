@@ -249,6 +249,11 @@ push_branch() { printf 'refs/heads/issue-11-catch-up %s refs/heads/issue-11-catc
   | ( cd "$repo" && bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1 ); }
 out="$(push_branch)"; rc=$?
 check 'exit 0'                         0 "$rc"
+check 'the merge, a tree the remote never had, is checked' yes "$(grep -q 'check: OK' <<< "$out" && echo yes || echo no)"
+git -C "$repo" update-ref refs/remotes/origin/issue-11-catch-up HEAD           # the merge is published now
+out="$(printf 'refs/tags/v0.1 %s refs/tags/v0.1 %s\n' "$(git -C "$repo" rev-parse HEAD)" "$zeros40" \
+  | ( cd "$repo" && bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1 ))"; rc=$?
+check 'a tag on a published commit sends nothing new' yes "$(grep -q 'pre-push: nothing new to send' <<< "$out" && echo yes || echo no)"
 echo 'a new commit on that branch that names no issue is still refused'
 commit 'src/branch.txt' 'More branch work'
 out="$(push_branch)"; rc=$?

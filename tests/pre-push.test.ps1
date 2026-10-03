@@ -241,6 +241,12 @@ function PushBranch {
 }
 PushBranch
 Check 'exit 0'                         0 $rc
+Check 'the merge, a tree the remote never had, is checked' 'True' (Says 'check: OK')
+& git -C $repo update-ref refs/remotes/origin/issue-11-catch-up (Sha $repo HEAD)   # the merge is published now
+Push-Location $repo
+try { $out = ("refs/tags/v0.1 $(Sha $repo HEAD) refs/tags/v0.1 $zeros40" | & pwsh -NoProfile -File $gate origin 'https://example.invalid/x.git' 2>&1 | Out-String) }
+finally { Pop-Location }
+Check 'a tag on a published commit sends nothing new' 'True' (Says 'pre-push: nothing new to send')
 Write-Host 'a new commit on that branch that names no issue is still refused'
 Commit 'src/branch.txt' 'More branch work'
 PushBranch

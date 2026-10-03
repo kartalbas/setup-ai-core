@@ -301,6 +301,9 @@ if (-not $default) { $default = 'master' }
 # Every commit this push sends, across every ref on standard input, and the ranges they came from.
 $commits = @()
 $scanRanges = @()
+# Whether the push adds any commit at all, a merge among them. The message rules judge the commits
+# that are not merges, but a merge of commits the remote has is a tree nobody has checked yet.
+$adds = $false
 $pushing = $false
 $landing = ''   # the commit a push to the default branch lands, judged below where that branch goes live
 foreach ($line in ($inputText -split "`r?`n")) {
@@ -346,12 +349,13 @@ foreach ($line in ($inputText -split "`r?`n")) {
   }
   if ($remoteRef -ceq "refs/heads/$default") { $landing = $localCommit }
   $commits += @(& git rev-list --no-merges @($range -split ' ') 2>$null | ForEach-Object { "$_" } | Where-Object { $_ })
+  if (@(& git rev-list -n1 @($range -split ' ') 2>$null | Where-Object { $_ }).Count -gt 0) { $adds = $true }
   $scanRanges += $range
 }
 
 # Nothing to send, or nothing but deletions: there is nothing to judge and nothing to test.
 if (-not $pushing) { exit 0 }
-if ($commits.Count -eq 0) { Write-Host 'pre-push: nothing new to send.'; exit 0 }
+if ($commits.Count -eq 0 -and -not $adds) { Write-Host 'pre-push: nothing new to send.'; exit 0 }
 
 # A DEFAULT BRANCH THAT GOES LIVE (the owner's rule). Where the repository's .ai-core/config.env
 # names it in DEFAULT_BRANCH_IS_LIVE (its folder name, as the harness-wide config.env lists the

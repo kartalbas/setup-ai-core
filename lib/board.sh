@@ -910,15 +910,21 @@ update_epic() {
 }
 
 # update_parent_epic <owner/repo> <number> - after a card moved, its epic follows; read on the
-# board of the epic's repository where the mover selected none
+# board of the epic's repository where the mover selected none, or where the mover's board holds
+# no card of the epic: moving it there would put a card of it on a board it was never on, and a
+# board's "auto-add sub-issues" workflow then pulls all its sub-issues after it
 update_parent_epic() {
-  local parent
+  local parent items
   parent="$(gh_read "the parent of $1#$2" api graphql -f o="${1%%/*}" -f r="${1#*/}" -F n="$2" -f query='
     query($o:String!, $r:String!, $n:Int!) { repository(owner:$o, name:$r) { issue(number:$n) {
       parent { number repository { nameWithOwner } } } } }' \
     --jq '.data.repository.issue.parent | select(. != null) | "\(.repository.nameWithOwner) \(.number)"')" || return 1
   [ -n "$parent" ] || return 0
   (
+    if [ -n "${PROJECT:-}" ]; then
+      items="$(issue_board_items "${parent% *}" "${parent#* }")" || exit 1
+      cut -f1 <<< "$items" | grep -qxF "$(project_org)/$(project_number)" || { PROJECT=""; PROJECT_ORG=""; GH_PROJECT_NUMBER=""; }
+    fi
     [ -n "${PROJECT:-}" ] || on_no_board "${parent% *}" || set_project "" "${parent% *}" >/dev/null || exit 1
     update_epic "${parent% *}" "${parent#* }"
   )

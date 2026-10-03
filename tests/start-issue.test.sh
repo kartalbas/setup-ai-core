@@ -31,6 +31,7 @@ case "\$a" in
   *"projectV2(number:"*)    echo 'PVT_kwstart' ;;
   *"fields(first:50)"*)     printf 'Status\tFID\ttodo\tOPT_todo\nStatus\tFID\timplementing\tOPT_impl\n' ;;
   *addProjectV2ItemById*)   echo 'PVTI_item163' ;;
+  *"parent {"*)             printf '' ;;
   *projectItems*)           printf '' ;;
   *"projectsV2(first"*)     [ -e "$fake/no-board" ] || echo '{}' ;;
   *graphql*)                echo '{}' ;;

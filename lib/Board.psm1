@@ -897,7 +897,9 @@ function Update-Epic {
 
 function Update-ParentEpic {
   # After a card moved, its epic follows; read on the board of the epic's repository where the
-  # mover selected none.
+  # mover selected none, or where the mover's board holds no card of the epic: moving it there would
+  # put a card of it on a board it was never on, and a board's "auto-add sub-issues" workflow then
+  # pulls all its sub-issues after it.
   [CmdletBinding()]
   param([string]$Repo, [string]$Number)
   $owner, $name = $Repo -split '/', 2
@@ -906,11 +908,17 @@ function Update-ParentEpic {
   $parent = "$(Invoke-Gh api graphql -f "o=$owner" -f "r=$name" -F "n=$Number" -f "query=$q" --jq '.data.repository.issue.parent | select(. != null) | "\(.repository.nameWithOwner) \(.number)"')".Trim()
   if (-not $parent) { return }
   $parentRepo, $parentNumber = $parent -split ' ', 2
-  $saved = @($script:Project, $script:ProjectOrg)
+  $saved = @($script:Project, $script:ProjectOrg, $env:GH_PROJECT_NUMBER)
   try {
+    if ($script:Project) {
+      $board = "$($script:ProjectOrg)/$($script:Project)"
+      if (-not @(Get-IssueBoardItems -Repo $parentRepo -Number $parentNumber | Where-Object { ("$_" -split "`t")[0] -ceq $board })) {
+        $script:Project = ''; $script:ProjectOrg = ''; $env:GH_PROJECT_NUMBER = ''
+      }
+    }
     if (-not $script:Project -and -not (Test-OnNoBoard -Repo $parentRepo)) { Set-Project -Repo $parentRepo | Out-Null }
     Update-Epic -Repo $parentRepo -Number $parentNumber
-  } finally { $script:Project, $script:ProjectOrg = $saved }
+  } finally { $script:Project, $script:ProjectOrg, $env:GH_PROJECT_NUMBER = $saved }
 }
 
 Export-ModuleMember -Function Stop-WithError, ConvertTo-AsciiLowercase, Invoke-Gh, Get-Org, Get-DataDir, Get-DataFile, Get-LabelTaxonomy, Get-LabelNamesInGroup,

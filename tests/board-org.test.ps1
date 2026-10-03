@@ -86,9 +86,11 @@ Write-Host "a card on another organisation's board is acted on under THAT organi
 $carded = Join-Path $fake 'carded'
 New-Item -ItemType Directory -Path $carded | Out-Null
 @"
-`$a = (`$args -join ' ') -replace '?
+`$a = (`$args -join ' ') -replace '
+?
 ', ' '
 Add-Content -Path '$log' -Value `$a
+if (`$a -match 'parent \{')           { exit 0 }
 if (`$a -match 'projectItems')        { 'other-org/1' + [char]9 + 'PVTI_card3'; exit 0 }
 if (`$a -match 'projectV2\(number')   { 'PVT_kworgtest'; exit 0 }
 if (`$a -match 'fields\(first')       { 'Status' + [char]9 + 'F1' + [char]9 + 'done' + [char]9 + 'O_done'; exit 0 }

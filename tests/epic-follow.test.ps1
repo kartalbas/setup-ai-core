@@ -12,7 +12,10 @@ $env:GH_ORG = 'example-org'; $env:GH_CACHE_DIRECTORY = Join-Path $fake 'cache'
 New-Item -ItemType Directory -Force -Path (Join-Path $env:GH_CACHE_DIRECTORY '7'), (Join-Path $fake 'bin') | Out-Null
 Set-Content -LiteralPath (Join-Path $env:GH_CACHE_DIRECTORY '7/project-id') -Value 'PVT_epic7'
 Set-Content -LiteralPath (Join-Path $env:GH_CACHE_DIRECTORY '7/fields.tsv') -Value @("Status`tF1`ttodo`tO1", "Status`tF1`timplementing`tO2", "Status`tF1`ttesting`tO3", "Status`tF1`tdone`tO4")
-$calls = Join-Path $fake 'calls'; $epic = Join-Path $fake 'epic-44'
+New-Item -ItemType Directory -Force -Path (Join-Path $env:GH_CACHE_DIRECTORY '5') | Out-Null
+Set-Content -LiteralPath (Join-Path $env:GH_CACHE_DIRECTORY '5/project-id') -Value 'PVT_own5'
+Copy-Item -LiteralPath (Join-Path $env:GH_CACHE_DIRECTORY '7/fields.tsv') -Destination (Join-Path $env:GH_CACHE_DIRECTORY '5/fields.tsv')
+$calls = Join-Path $fake 'calls'; $epic = Join-Path $fake 'epic-44'; $boards44 = Join-Path $fake 'boards-44'
 
 $failed = 0
 function Check($name, $expected, $actual) {
@@ -41,8 +44,9 @@ Add-Content -LiteralPath '$calls' -Value (`$line -replace '\r?\n', ' ')
 `$num = ''; foreach (`$a in `$args) { if (`$a -cmatch '^(num|n)=([0-9]+)$') { `$num = `$Matches[2]; break } }
 if (`$line -clike '*subIssues(first*') { Get-Content -LiteralPath '$epic'; exit 0 }
 if (`$line -clike '*parent {*') { if (`$num -ceq '3') { 'example-org/example-repo 44' }; exit 0 }
-if (`$line -clike '*includeArchived*') { "PVT_epic7``tPVTI_card`$num"; exit 0 }
-if (`$line -clike '*projectItems(first:20)*') { "example-org/7``tPVTI_card`$num"; exit 0 }
+if (`$line -clike '*includeArchived*') { "PVT_epic7``tPVTI_card`$num"; "PVT_own5``tPVTI_card`$num"; exit 0 }
+if (`$line -clike '*projectsV2(first:50)*') { "5``tthe repository board"; exit 0 }
+if (`$line -clike '*projectItems(first:20)*') { if (`$num -ceq '44' -and (Test-Path -LiteralPath '$boards44')) { Get-Content -LiteralPath '$boards44' } else { "example-org/7``tPVTI_card`$num" }; exit 0 }
 if (`$line -clike '*updateProjectV2ItemFieldValue*') { '{}'; exit 0 }
 if (`$line -clike '*--method PATCH*') { '{}'; exit 0 }
 [Console]::Error.WriteLine("the stand-in gh has no answer for: `$line"); exit 9
@@ -82,6 +86,17 @@ if (`$line -clike '*--method PATCH*') { '{}'; exit 0 }
   Check 'exit 0'        0 $rc
   Check 'no epic line'  '' (EpicLine)
   Check 'only the sub-issue closed' 'issues/3' (Closes)
+
+  Write-Host 'issue-status: an epic with no card on the selected board moves on its own repository board, never gets a card on the selected one'
+  Set-Content -LiteralPath $calls -Value @(); Set-Content -LiteralPath $epic -Value @('implementing', 'testing', 'testing')
+  Set-Content -LiteralPath $boards44 -Value "other-org/3`tPVTI_elsewhere"
+  Run 'issue-status.ps1' -Project 7 -Repo example-org/example-repo -Number 3 -Status testing
+  Remove-Item -LiteralPath $boards44
+  Check 'exit 0'        0 $rc
+  Check 'it says so'    'epic example-org/example-repo#44 -> testing, as its sub-issues stand' (EpicLine)
+  $board = { param($card) "$(@(Get-Content -LiteralPath $calls | Where-Object { $_ -clike "*iid=$card *" } | ForEach-Object { if ($_ -cmatch 'pid=(PVT_[a-z0-9]+)') { $Matches[1] } }) -join ' ')" }
+  Check 'the sub-issue moved on the selected board 7' 'PVT_epic7' (& $board 'PVTI_card3')
+  Check 'the epic moved on its own board 5, not on 7' 'PVT_own5' (& $board 'PVTI_card44')
 } finally {
   Remove-Item -Recurse -Force -LiteralPath $fake -ErrorAction SilentlyContinue
 }

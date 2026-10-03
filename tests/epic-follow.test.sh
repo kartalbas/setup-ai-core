@@ -15,6 +15,8 @@ export GH_ORG=example-org GH_CACHE_DIRECTORY="$FAKE/cache"
 mkdir -p "$GH_CACHE_DIRECTORY/7" "$FAKE/bin"
 echo PVT_epic7 > "$GH_CACHE_DIRECTORY/7/project-id"
 printf 'Status\tF1\t%s\tO%s\n' todo 1 implementing 2 testing 3 done 4 > "$GH_CACHE_DIRECTORY/7/fields.tsv"
+mkdir -p "$GH_CACHE_DIRECTORY/5"; echo PVT_own5 > "$GH_CACHE_DIRECTORY/5/project-id"
+cp "$GH_CACHE_DIRECTORY/7/fields.tsv" "$GH_CACHE_DIRECTORY/5/fields.tsv"
 
 failed=0
 check() {
@@ -43,8 +45,9 @@ num="\$(printf '%s\n' "\$@" | sed -n 's/^\(num\|n\)=\([0-9]*\)$/\2/p' | head -1)
 case "\$*" in
   *'subIssues(first'*)        cat "$FAKE/epic-44" ;;
   *'parent {'*)               [ "\$num" = 3 ] && echo 'example-org/example-repo 44' ;;
-  *includeArchived*)          printf 'PVT_epic7\tPVTI_card%s\n' "\$num" ;;
-  *'projectItems(first:20)'*) printf 'example-org/7\tPVTI_card%s\n' "\$num" ;;
+  *includeArchived*)          printf 'PVT_epic7\tPVTI_card%s\nPVT_own5\tPVTI_card%s\n' "\$num" "\$num" ;;
+  *'projectsV2(first:50)'*)   printf '5\tthe repository board\n' ;;
+  *'projectItems(first:20)'*) if [ "\$num" = 44 ] && [ -f "$FAKE/boards-44" ]; then cat "$FAKE/boards-44"; else printf 'example-org/7\tPVTI_card%s\n' "\$num"; fi ;;
   *updateProjectV2ItemFieldValue*) echo '{}' ;;
   *'--method PATCH'*)         echo '{}' ;;
   *) echo "the stand-in gh has no answer for: \$*" >&2; exit 9 ;;
@@ -82,6 +85,15 @@ out="$(bash "$ROOT/bin/issue-close.sh" example-org/example-repo 3 2>&1)"; rc=$?
 check 'exit 0'        0 "$rc"
 check 'no epic line'  '' "$(grep '^epic' <<< "$out")"
 check 'only the sub-issue closed' 'issues/3' "$(grep -o 'PATCH repos/example-org/example-repo/issues/[0-9]*' "$FAKE/calls" | sed 's#.*/issues/#issues/#' | tr '\n' ' ' | sed 's/ $//')"
+
+echo 'issue-status: an epic with no card on the selected board moves on its own repository board, never gets a card on the selected one'
+: > "$FAKE/calls"; printf 'implementing\ntesting\ntesting\n' > "$FAKE/epic-44"; printf 'other-org/3\tPVTI_elsewhere\n' > "$FAKE/boards-44"
+out="$(bash "$ROOT/bin/issue-status.sh" --project 7 example-org/example-repo 3 testing 2>&1)"; rc=$?
+rm -f "$FAKE/boards-44"
+check 'exit 0'        0 "$rc"
+check 'it says so'    'epic example-org/example-repo#44 -> testing, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
+check 'the sub-issue moved on the selected board 7' 'pid=PVT_epic7' "$(grep 'iid=PVTI_card3 ' "$FAKE/calls" | grep -o 'pid=PVT_[a-z0-9]*')"
+check 'the epic moved on its own board 5, not on 7' 'pid=PVT_own5' "$(grep 'iid=PVTI_card44 ' "$FAKE/calls" | grep -o 'pid=PVT_[a-z0-9]*')"
 
 echo
 if [ "$failed" -gt 0 ]; then echo "$failed failed"; exit 1; fi

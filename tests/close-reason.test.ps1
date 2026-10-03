@@ -17,6 +17,7 @@ $log = Join-Path $fake 'calls.txt'
 @"
 `$a = `$args -join ' '
 Add-Content -Path '$log' -Value `$a
+if (`$a -match 'parent \{')             { exit 0 }
 if (`$a -match 'projectItems')          { 'example-org/998' + [char]9 + 'PVTI_item'; exit 0 }
 if (`$a -match 'projectsV2\(first')     { '998' + [char]9 + 'alpha'; exit 0 }
 if (`$a -match 'projectV2\(number')     { 'PVT_kwclose'; exit 0 }

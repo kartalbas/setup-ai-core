@@ -35,6 +35,7 @@ if (`$a -match 'items\(first:100') {
 }
 if (`$a -match 'addProjectV2ItemById') { 'PVTI_to42'; exit 0 }
 if (`$a -match 'deleteProjectV2Item')  { '{}'; exit 0 }
+if (`$a -match 'parent \{')            { exit 0 }
 if (`$a -match 'projectItems')         { exit 0 }
 if (`$a -match 'issues/42')            { 'I_node42'; exit 0 }
 if (`$args[0] -eq 'repo') { 'example-org/example-repo'; exit 0 }

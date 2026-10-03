@@ -20,17 +20,25 @@ and keep your own tokens for judgment and decisions.
   For code reviews give it a detached worktree:
   `git -C <repo> worktree add --detach <scratch>/agy/<name> <sha>`, then `--add-dir` that path, and
   remove the worktree afterwards.
-- It reads the AGENTS.md of its directory, but it does not know your project's history or rules.
-  Put every rule the task depends on into the prompt.
+- agy reads nothing of this harness: not the rules, not the maps (AGENTS.md), not the skills, not
+  the tracker. Everything the task depends on goes into the prompt: the rules it must keep, the
+  facts of the repository, the expected answer shape.
 
-## Keep the context instead of starting fresh
+## One agy conversation per session, kept for good
 
-- A fresh call re-reads everything. Continue a conversation with `--conversation <id>`.
-- Take the id from the first call's `--output-format json` output (verify where it appears on
-  your first call), and record it with the task name in a file.
-- Use `-c` / `--continue` only when no other agy call runs in parallel, because it takes the most
-  recent conversation of anyone on this user account.
-- One conversation per repository or per topic. Ask follow-ups there.
+- A session keeps one agy conversation of its own, named after the session (the name other
+  sessions message it by): the session `<name>` talks to `agy-<name>`, every time, across tasks
+  and restarts. A session that works on the same repositories again and again thus has a helper
+  that already knows them, and a call does not pay to teach it again.
+- Record the conversation id in `~/.ai-core/agy-conversations.tsv`, one line per session:
+  `<session name>`, a tab, the id. Take the id from the first call's `--output-format json`
+  output (verify where it appears on that first call). Before a call, read your line; with no
+  line, start the conversation and write the line.
+- Continue it with `--conversation <id>`. Never use `-c` / `--continue`: it takes the most recent
+  conversation of anyone on this user account, which may be another session's.
+- One call at a time per conversation; a second task waits for the first answer, or goes to a
+  conversation of its own, named `agy-<name>-<task>` and recorded the same way.
+- Hand the rules over in the first call of a conversation, and again after a rule changed.
 
 ## Browser (live proofs, UI checks)
 

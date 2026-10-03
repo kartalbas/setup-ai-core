@@ -124,7 +124,9 @@ check 'outside'       'example-repo#8 example-repo#7' "$(awk '/^  outside packag
 echo 'without --tokens: what runs now and what is left up to the goal, from the plan file, the processes and the logs'
 : > "$work/no-processes"
 nothing="$(cd "$folder" && AI_CORE_PROCESSES="$work/no-processes" bash "$root/bin/status.sh" --project example-org/7 2>&1)"
-check 'no plan: the counts, and where the plan is missing' "no plan: $folder/.ai-core/plan.json is missing, so who works on what and the steps up to the goal are not known;" "$(sed -n 3p <<< "$nothing")"
+# Git for Windows hands node the folder as C:\..., so the path is compared from the folder's name on
+check 'no plan: the counts, and where the plan is missing' "no plan: FOLDER/.ai-core/plan.json is missing, so who works on what and the steps up to the goal are not known;" \
+  "$(sed -n 3p <<< "$nothing" | sed 's#^no plan: .*example[/\\]\.ai-core[/\\]plan\.json#no plan: FOLDER/.ai-core/plan.json#')"
 mkdir -p "$folder/logs"
 # The last report carries an offset: ten minutes ago, written two hours east of UTC
 printf '%s\n' '2026-01-01 08:00 started' "$(date -u -d "@$((now - 600 + 7200))" '+%Y-%m-%dT%H:%M' 2>/dev/null || date -u -r $((now - 600 + 7200)) '+%Y-%m-%dT%H:%M')+02:00 NOW: building the alpha package" 'NEXT: the beta package' > "$folder/logs/w1.md"

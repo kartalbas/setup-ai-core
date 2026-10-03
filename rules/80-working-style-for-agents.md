@@ -1,8 +1,10 @@
 ## Working style for agents
 
 - **Run the session start before any work**, in every repository, with every tool. [tool]
-- **Read spans, not files.** Locate code through the code graph and open only the span to edit,
-  because a whole file spends the context the rest of the task needs. [discipline]
+- **Read spans, not files, and gather them.** Locate code through the code graph and open only the
+  span to edit, because a whole file spends the context the rest of the task needs; fetch every
+  lookup a step needs in one answer, as parallel tool calls or one command, because every answer
+  reads the whole context again. [discipline]
 - **Work is tracked in the project's tracker, through the harness's commands, and the plan is the
   issues.** An issue exists before the work starts and is kept current; a plan lives nowhere else.
   It carries the full case, which is the context, the code facts as `file:line` and the acceptance

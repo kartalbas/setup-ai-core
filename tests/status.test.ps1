@@ -64,6 +64,9 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
 "@ | Set-Content -Path (Join-Path $work 'bin/gh.ps1') -Encoding utf8NoBOM
   "@echo off`r`npwsh -NoProfile -File `"$work\bin\gh.ps1`" %*" | Set-Content -Path (Join-Path $work 'bin/gh.cmd') -Encoding ascii
   if (-not $IsWindows) { Set-Content -Path (Join-Path $work 'bin/gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$work/bin/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $work 'bin/gh') }
+  # The process list is read by the default view only, and through AI_CORE_PROCESSES there: a ps
+  # that refuses proves -Tokens never asks for it.
+  if (-not $IsWindows) { Set-Content -Path (Join-Path $work 'bin/ps') -Value "#!/bin/sh`necho 'ps: unknown option -- A' >&2; exit 1" -Encoding ascii; & chmod +x (Join-Path $work 'bin/ps') }
   $env:PATH = "$(Join-Path $work 'bin')$([IO.Path]::PathSeparator)$env:PATH"
 
   # The team, the usage now and its history, and the transcripts of the folder's sessions
@@ -129,7 +132,10 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   Check 'outside'       'example-repo#8 example-repo#7' (Keys '  outside packages')
   Write-Host 'without -Tokens: what runs now and what is left up to the goal, from the plan file, the processes and the logs'
   function Run { Push-Location $folder; try { @(& pwsh -NoProfile -File (Join-Path $root 'bin/status.ps1') -Project example-org/7 2>&1 | ForEach-Object { "$_" }) } finally { Pop-Location } }
+  $env:AI_CORE_PROCESSES = Join-Path $work 'no-processes'
+  Set-Content -LiteralPath $env:AI_CORE_PROCESSES -Value @()
   $nothing = Run
+  Remove-Item Env:AI_CORE_PROCESSES
   Check 'no plan: the counts, and where the plan is missing' "no plan: $(Join-Path $folder '.ai-core/plan.json') is missing, so who works on what and the steps up to the goal are not known;" $nothing[2]
   New-Item -ItemType Directory -Force -Path (Join-Path $folder 'logs') | Out-Null
   # The last report carries an offset: ten minutes ago, written two hours east of UTC

@@ -54,13 +54,17 @@ while :; do
 done
 
 # Every process: its id, its parent, how long it runs ([[dd-]hh:]mm:ss) and its command line, a tab
-# between; AI_CORE_PROCESSES names a file that stands in for it
-if [ -n "${AI_CORE_PROCESSES:-}" ]; then
-  cp "$AI_CORE_PROCESSES" "$work/processes"
-else
-  ps -A -o pid=,ppid=,etime=,command= | awk '{ line = $0; sub(/^ *[^ ]+ +[^ ]+ +[^ ]+ +/, "", line); print $1 "\t" $2 "\t" $3 "\t" line }' > "$work/processes"
+# between; AI_CORE_PROCESSES names a file that stands in for it. Only the default view reads it.
+processes=()
+if [ -z "$tokens$issues" ]; then
+  if [ -n "${AI_CORE_PROCESSES:-}" ]; then
+    cp "$AI_CORE_PROCESSES" "$work/processes"
+  else
+    ps -A -o pid=,ppid=,etime=,command= | awk '{ line = $0; sub(/^ *[^ ]+ +[^ ]+ +[^ ]+ +/, "", line); print $1 "\t" $2 "\t" $3 "\t" line }' > "$work/processes"
+  fi
+  processes=(--processes-file "$work/processes")
 fi
 
 node "$here/../lib/status.mjs" --items-file "$work/items" --columns-file "$work/columns" \
   --board "$(project_org)/$(project_number)" --folder "$folder" --stop-at "$stop" \
-  --processes-file "$work/processes" $tokens $issues
+  ${processes[@]+"${processes[@]}"} $tokens $issues

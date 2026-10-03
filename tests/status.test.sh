@@ -63,6 +63,10 @@ case "\$*" in
 esac
 EOF
 chmod +x "$work/bin/gh"
+# The process list is read by the default view only, and through AI_CORE_PROCESSES there: a ps
+# that refuses, as the one of Git for Windows refuses -A, proves --tokens never asks for it.
+printf '#!/usr/bin/env bash\necho "ps: unknown option -- A" >&2; exit 1\n' > "$work/bin/ps"
+chmod +x "$work/bin/ps"
 export PATH="$work/bin:$PATH"
 
 # The team, the usage now and its history, and the transcripts of the folder's sessions
@@ -118,7 +122,8 @@ check 'nearest done first' 'example-repo#2 example-repo#3' "$(awk '/example-repo
 check 'outside'       'example-repo#8 example-repo#7' "$(awk '/^  outside packages/ { on = 1; next } on && /^    / { printf "%s%s", sep, $2; sep = " " }' <<< "$out")"
 
 echo 'without --tokens: what runs now and what is left up to the goal, from the plan file, the processes and the logs'
-nothing="$(cd "$folder" && bash "$root/bin/status.sh" --project example-org/7 2>&1)"
+: > "$work/no-processes"
+nothing="$(cd "$folder" && AI_CORE_PROCESSES="$work/no-processes" bash "$root/bin/status.sh" --project example-org/7 2>&1)"
 check 'no plan: the counts, and where the plan is missing' "no plan: $folder/.ai-core/plan.json is missing, so who works on what and the steps up to the goal are not known;" "$(sed -n 3p <<< "$nothing")"
 mkdir -p "$folder/logs"
 # The last report carries an offset: ten minutes ago, written two hours east of UTC
@@ -146,7 +151,7 @@ check 'its side runs: one it started itself, one through a script; the nested ch
   '│ └ agy │ ? │ running (1 min) │ │ run │ │|│ └ agy │ cheap-model · high │ running (3 min) │ example-repo#1 │ run │ │' \
   "$(grep -F '└ agy' <<< "$view" | tr -s ' ' | tr '\n' '|' | sed 's/|$//')"
 check 'indented under the worker'   2 "$(grep -c -F '│   └ agy' <<< "$view")"
-check 'they follow its row'         '│ └ agy' "$(grep -A1 -F '│ exa-w1 ' <<< "$view" | sed -n 2p | cut -c1-12 | tr -s ' ' | sed 's/ $//')"
+check 'they follow its row'         1 "$(grep -A1 -F '│ exa-w1 ' <<< "$view" | sed -n 2p | grep -c '^│   └ agy ')"
 check 'a worker off: the plan says now and next' '│ exa-w2 │ big-model · high │ off │ #5 │ waits │ the gamma package │' "$(vline '│ exa-w2 ')"
 check 'a run nobody owns falls to the coordinator' '│ exa-lead │ │ │ │ coordinates │ │' "$(vline '│ exa-lead ')"
 check 'and stands under it, a long cell wrapped inside its column' '│ └ claude │ judge │ running (1440 │ example-repo#3 │ run │ │ │ │ │ min) │ │ │ │' "$(grep -A1 -F '└ claude' <<< "$view" | tr -s ' ' | tr '\n' ' ' | sed 's/ $//')"

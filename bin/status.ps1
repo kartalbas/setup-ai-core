@@ -57,20 +57,23 @@ try {
     $after = "$(@($out | Where-Object { $_.StartsWith('after ', [StringComparison]::Ordinal) }) | Select-Object -First 1)" -creplace '^after ', ''
   } while ($after)
 
-  # Every process: its id, its parent, the seconds it runs and its command line, a tab between;
-  # AI_CORE_PROCESSES names a file that stands in for it
-  $processes = Join-Path $work 'processes'
-  if ($env:AI_CORE_PROCESSES) { Copy-Item -LiteralPath $env:AI_CORE_PROCESSES -Destination $processes }
-  elseif ($IsWindows) {
-    $at = Get-Date
-    Set-Content -LiteralPath $processes -Value @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine } | ForEach-Object {
-      "$($_.ProcessId)`t$($_.ParentProcessId)`t$([int]($at - $_.CreationDate).TotalSeconds)`t$($_.CommandLine)" })
-  } else {
-    Set-Content -LiteralPath $processes -Value @(& ps -A -o 'pid=,ppid=,etime=,command=' | ForEach-Object {
-      if ($_ -cmatch '^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$') { "$($Matches[1])`t$($Matches[2])`t$($Matches[3])`t$($Matches[4])" } })
-  }
   $flags = @('--items-file', $items, '--columns-file', $columns, '--board', "$(Get-ProjectOrg)/$(Get-ProjectNumber)",
-             '--folder', $folder, '--stop-at', $stop, '--processes-file', $processes)
+             '--folder', $folder, '--stop-at', $stop)
+  # Every process: its id, its parent, the seconds it runs and its command line, a tab between;
+  # AI_CORE_PROCESSES names a file that stands in for it. Only the default view reads it.
+  if (-not $Tokens -and -not $Issues) {
+    $processes = Join-Path $work 'processes'
+    if ($env:AI_CORE_PROCESSES) { Copy-Item -LiteralPath $env:AI_CORE_PROCESSES -Destination $processes }
+    elseif ($IsWindows) {
+      $at = Get-Date
+      Set-Content -LiteralPath $processes -Value @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine } | ForEach-Object {
+        "$($_.ProcessId)`t$($_.ParentProcessId)`t$([int]($at - $_.CreationDate).TotalSeconds)`t$($_.CommandLine)" })
+    } else {
+      Set-Content -LiteralPath $processes -Value @(& ps -A -o 'pid=,ppid=,etime=,command=' | ForEach-Object {
+        if ($_ -cmatch '^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$') { "$($Matches[1])`t$($Matches[2])`t$($Matches[3])`t$($Matches[4])" } })
+    }
+    $flags += @('--processes-file', $processes)
+  }
   if ($Tokens) { $flags += '--tokens' }
   if ($Issues) { $flags += '--issues' }
   & node (Join-Path $PSScriptRoot '../lib/status.mjs') @flags

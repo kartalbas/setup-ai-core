@@ -58,7 +58,7 @@ done
 if [ -n "${AI_CORE_PROCESSES:-}" ]; then
   cp "$AI_CORE_PROCESSES" "$work/processes"
 else
-  ps -A -o pid=,ppid=,etime=,command= | awk '{ p = $1; q = $2; t = $3; $1 = $2 = $3 = ""; sub(/^ +/, ""); print p "\t" q "\t" t "\t" $0 }' > "$work/processes"
+  ps -A -o pid=,ppid=,etime=,command= | awk '{ line = $0; sub(/^ *[^ ]+ +[^ ]+ +[^ ]+ +/, "", line); print $1 "\t" $2 "\t" $3 "\t" line }' > "$work/processes"
 fi
 
 node "$here/../lib/status.mjs" --items-file "$work/items" --columns-file "$work/columns" \

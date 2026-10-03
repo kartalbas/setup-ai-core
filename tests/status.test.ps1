@@ -132,8 +132,9 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   $nothing = Run
   Check 'no plan: the counts, and where the plan is missing' "no plan: $(Join-Path $folder '.ai-core/plan.json') is missing, so who works on what and the steps up to the goal are not known;" $nothing[2]
   New-Item -ItemType Directory -Force -Path (Join-Path $folder 'logs') | Out-Null
-  $tenAgo = [DateTimeOffset]::FromUnixTimeSeconds($now - 600).UtcDateTime.ToString('yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture)
-  Set-Content -LiteralPath (Join-Path $folder 'logs/w1.md') -Value @('2026-01-01 08:00 started', "$tenAgo NOW: building the alpha package", 'NEXT: the beta package')
+  # The last report carries an offset: ten minutes ago, written two hours east of UTC
+  $tenAgo = [DateTimeOffset]::FromUnixTimeSeconds($now - 600 + 7200).UtcDateTime.ToString('yyyy-MM-ddTHH:mm', [Globalization.CultureInfo]::InvariantCulture)
+  Set-Content -LiteralPath (Join-Path $folder 'logs/w1.md') -Value @('2026-01-01 08:00 started', "$tenAgo+02:00 NOW: building the alpha package", 'NEXT: the beta package')
   Set-Content -LiteralPath (Join-Path $folder '.ai-core/plan.json') -Value @'
 { "goal": "the release", "coordinator": "exa-lead",
   "workers": [
@@ -148,21 +149,27 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   Set-Content -LiteralPath $env:AI_CORE_PROCESSES -Value @(
     "100`t1`t01:02:03`tcodex exec resume thread-w1 --json", "101`t100`t05:00`tbash run.sh",
     "102`t101`t03:00`tagy -p check example-repo#1 --model cheap-model --effort high", "103`t102`t02:00`tagy -p nested child",
-    "104`t1`t1-00:00:00`tclaude -p review example-repo#3 --model judge", "105`t1`t10`tsleep 30")
+    "104`t1`t1-00:00:00`tclaude -p review example-repo#3 --model judge", "105`t1`t10`tsleep 30",
+    "106`t100`t01:00`tagy --prompt inspect the fork API", "107`t1`t01:00`tgit log agy -p")
   $view = Run
   Remove-Item Env:AI_CORE_PROCESSES
   function VLine($Text) { "$(@($view | Where-Object { $_.Contains($Text) }) | Select-Object -First 1)".Trim() -creplace ' +', ' ' }
   function Two($Text) { $i = [array]::FindIndex([string[]]$view, [Predicate[string]]{ param($l) $l.Contains($Text) }); (($view[$i], $view[$i + 1]) -join ' ').Trim() -creplace ' +', ' ' }
   Check 'line 1: the time and the board counts' "example · board example-org/7 · $(When $now) · Backlog 0 · Todo 5 · In progress 2 · Done 15" $view[0]
   Check 'a running worker: its log says now, next and the age' '│ exa-w1 │ big-model · high │ running (10 min) │ #1 #2 │ building the alpha package │ the beta package │' (VLine '│ exa-w1 ')
-  Check 'its side run, under it, the nested child not again' '│ └ agy │ cheap-model · high │ running (3 min) │ example-repo#1 │ run │ │' (VLine '└ agy')
+  Check 'its side runs: one it started itself, one through a script; the nested child not again' `
+    '│ └ agy │ ? │ running (1 min) │ │ run │ │|│ └ agy │ cheap-model · high │ running (3 min) │ example-repo#1 │ run │ │' `
+    ((@($view | Where-Object { $_.Contains('└ agy') }) | ForEach-Object { $_.Trim() -creplace ' +', ' ' }) -join '|')
+  Check 'indented under the worker' 2 @($view | Where-Object { $_.Contains('│   └ agy') }).Count
+  $w1 = [array]::FindIndex([string[]]$view, [Predicate[string]]{ param($l) $l.Contains('│ exa-w1 ') })
+  Check 'they follow its row' '│ └ agy' ($view[$w1 + 1].Substring(0, 12).Trim() -creplace ' +', ' ')
   Check 'a worker off: the plan says now and next' '│ exa-w2 │ big-model · high │ off │ #5 │ waits │ the gamma package │' (VLine '│ exa-w2 ')
   Check 'a run nobody owns falls to the coordinator' '│ exa-lead │ │ │ │ coordinates │ │' (VLine '│ exa-lead ')
   Check 'and stands under it, a long cell wrapped inside its column' '│ └ claude │ judge │ running (1440 │ example-repo#3 │ run │ │ │ │ │ min) │ │ │ │' (Two '└ claude')
   Check 'the goal'      'UP TO THE RELEASE' (VLine 'UP TO')
   Check 'a done step is hidden' '' (VLine 'Beta')
   Check 'the open steps, numbered' '│ 2 │ Gamma │ exa-w2 │ waiting for │ your go │ │ │ │ │ owner │ │' (Two '│ Gamma')
-  Check 'the agents'    'AGENTS 3 active: 1 codex, 1 agy, 1 claude · coordinated by exa-lead' (VLine 'AGENTS')
+  Check 'the agents, a word in another command not among them' 'AGENTS 4 active: 1 codex, 2 agy, 1 claude · coordinated by exa-lead' (VLine 'AGENTS')
   Check 'what closes next' 'NEXT TO DONE 3 cards, the times approximate' (VLine 'NEXT TO DONE')
   Check 'its row'       '3 ~ tonight Alpha' (VLine '~ tonight')
   Check 'no token lines' '' (VLine 'tokens ')

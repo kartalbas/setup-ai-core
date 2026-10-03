@@ -18,4 +18,5 @@ The plan file, <project folder>/.ai-core/plan.json, is the coordinator's:
     "steps": [ { "step": "<a step, in delivery order>", "who": "<worker>", "state": "running",
                  "next": "<its next step>", "closes": 3, "eta": "tonight" } ] }
 A step whose state is "done" is not shown. A worker's log line with a timestamp in its first 40
-characters is a report; its last "NOW:" and "NEXT:" lines say what it does now and next.
+characters (YYYY-MM-DD HH:MM, local time unless it carries Z or an offset) is a report; its last
+"NOW:" and "NEXT:" lines say what it does now and next.

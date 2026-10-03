@@ -121,7 +121,8 @@ echo 'without --tokens: what runs now and what is left up to the goal, from the 
 nothing="$(cd "$folder" && bash "$root/bin/status.sh" --project example-org/7 2>&1)"
 check 'no plan: the counts, and where the plan is missing' "no plan: $folder/.ai-core/plan.json is missing, so who works on what and the steps up to the goal are not known;" "$(sed -n 3p <<< "$nothing")"
 mkdir -p "$folder/logs"
-printf '%s\n' '2026-01-01 08:00 started' "$(date -u -d "@$((now - 600))" '+%Y-%m-%d %H:%M' 2>/dev/null || date -u -r $((now - 600)) '+%Y-%m-%d %H:%M') NOW: building the alpha package" 'NEXT: the beta package' > "$folder/logs/w1.md"
+# The last report carries an offset: ten minutes ago, written two hours east of UTC
+printf '%s\n' '2026-01-01 08:00 started' "$(date -u -d "@$((now - 600 + 7200))" '+%Y-%m-%dT%H:%M' 2>/dev/null || date -u -r $((now - 600 + 7200)) '+%Y-%m-%dT%H:%M')+02:00 NOW: building the alpha package" 'NEXT: the beta package' > "$folder/logs/w1.md"
 cat > "$folder/.ai-core/plan.json" <<'JSON'
 { "goal": "the release", "coordinator": "exa-lead",
   "workers": [
@@ -135,20 +136,24 @@ JSON
 printf '%s\t%s\t%s\t%s\n' 100 1 '01:02:03' 'codex exec resume thread-w1 --json' \
   101 100 '05:00' 'bash run.sh' 102 101 '03:00' 'agy -p check example-repo#1 --model cheap-model --effort high' \
   103 102 '02:00' 'agy -p nested child' 104 1 '1-00:00:00' 'claude -p review example-repo#3 --model judge' \
-  105 1 '10' 'sleep 30' > "$work/processes"
+  105 1 '10' 'sleep 30' 106 100 '01:00' 'agy --prompt inspect the fork API' 107 1 '01:00' 'git log agy -p' > "$work/processes"
 view="$(cd "$folder" && AI_CORE_PROCESSES="$work/processes" bash "$root/bin/status.sh" --project example-org/7 2>&1)"; rc=$?
 vline() { grep -m1 -F -- "$1" <<< "$view" | tr -s ' '; }
 check 'exit 0'        0 "$rc"
 check 'line 1: the time and the board counts' "example · board example-org/7 · $(when "$now") · Backlog 0 · Todo 5 · In progress 2 · Done 15" "$(sed -n 1p <<< "$view")"
 check 'a running worker: its log says now, next and the age' '│ exa-w1 │ big-model · high │ running (10 min) │ #1 #2 │ building the alpha package │ the beta package │' "$(vline '│ exa-w1 ')"
-check 'its side run, under it, the nested child not again' '│ └ agy │ cheap-model · high │ running (3 min) │ example-repo#1 │ run │ │' "$(vline '└ agy')"
+check 'its side runs: one it started itself, one through a script; the nested child not again' \
+  '│ └ agy │ ? │ running (1 min) │ │ run │ │|│ └ agy │ cheap-model · high │ running (3 min) │ example-repo#1 │ run │ │' \
+  "$(grep -F '└ agy' <<< "$view" | tr -s ' ' | tr '\n' '|' | sed 's/|$//')"
+check 'indented under the worker'   2 "$(grep -c -F '│   └ agy' <<< "$view")"
+check 'they follow its row'         '│ └ agy' "$(grep -A1 -F '│ exa-w1 ' <<< "$view" | sed -n 2p | cut -c1-12 | tr -s ' ' | sed 's/ $//')"
 check 'a worker off: the plan says now and next' '│ exa-w2 │ big-model · high │ off │ #5 │ waits │ the gamma package │' "$(vline '│ exa-w2 ')"
 check 'a run nobody owns falls to the coordinator' '│ exa-lead │ │ │ │ coordinates │ │' "$(vline '│ exa-lead ')"
 check 'and stands under it, a long cell wrapped inside its column' '│ └ claude │ judge │ running (1440 │ example-repo#3 │ run │ │ │ │ │ min) │ │ │ │' "$(grep -A1 -F '└ claude' <<< "$view" | tr -s ' ' | tr '\n' ' ' | sed 's/ $//')"
 check 'the goal'      'UP TO THE RELEASE' "$(vline 'UP TO')"
 check 'a done step is hidden' '' "$(vline 'Beta')"
 check 'the open steps, numbered' '│ 2 │ Gamma │ exa-w2 │ waiting for │ your go │ │ │ │ │ owner │ │' "$(grep -A1 -F '│ Gamma' <<< "$view" | tr -s ' ' | tr '\n' ' ' | sed 's/ $//')"
-check 'the agents'    'AGENTS 3 active: 1 codex, 1 agy, 1 claude · coordinated by exa-lead' "$(vline 'AGENTS')"
+check 'the agents, a word in another command not among them' 'AGENTS 4 active: 1 codex, 2 agy, 1 claude · coordinated by exa-lead' "$(vline 'AGENTS')"
 check 'what closes next' 'NEXT TO DONE 3 cards, the times approximate' "$(vline 'NEXT TO DONE')"
 check 'its row'       '3 ~ tonight Alpha' "$(vline '~ tonight' | sed 's/^ //')"
 check 'no token lines' '' "$(vline 'tokens ')"

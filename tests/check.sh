@@ -25,6 +25,26 @@ for s in "${SECTIONS[@]}"; do
 done
 wait
 
+# A red check can be a crash of pwsh rather than a defect of the code under test: under parallel
+# load pwsh now and then dies of SIGSEGV inside the .NET runtime, and the test that waited for it
+# reads the empty answer as a wrong one. The kernel logs every such death, so a red run says how
+# many fell into its time, or that it could not look. A log that gives no line at all is one this
+# user cannot read, since the kernel writes lines from the first second of a boot.
+pwsh_crashes() {
+  local log n
+  if [ -z "$(journalctl -k -q --no-pager -n 1 2>/dev/null)" ] \
+    || ! log="$(journalctl -k -q --no-pager --since "@$START" 2>/dev/null)"; then
+    echo "the kernel log could not be read, so a crash of pwsh during this run is not ruled out"
+    return
+  fi
+  n="$(grep -c 'pwsh\[[0-9]*\]: segfault' <<< "$log")"
+  if [ "$n" -gt 0 ]; then
+    echo "pwsh crashed $n time(s) on this machine during this run (kernel log): a red check above may be that crash, not the code under test"
+  else
+    echo "no crash of pwsh in the kernel log during this run"
+  fi
+}
+
 red=""
 for s in "${SECTIONS[@]}"; do
   n="$(basename "$s" .sh)"
@@ -34,5 +54,5 @@ for s in "${SECTIONS[@]}"; do
   echo
 done
 echo "==> the whole suite took $(( $(date +%s) - START ))s, ${#SECTIONS[@]} sections at once"
-[ -z "$red" ] || { echo "red:$red"; exit 1; }
+[ -z "$red" ] || { echo "red:$red"; pwsh_crashes; exit 1; }
 echo "OK"

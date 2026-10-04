@@ -529,18 +529,6 @@ on_no_board() {  # on_no_board <owner/repo> [named board] - true when the reposi
   [ -z "$linked" ]
 }
 
-# THE CARDS OF A REPOSITORY THAT A RELEASE HAS CARRIED, closed as an issue starts or finishes:
-# status-sync for that repository alone, so a card in testing whose landed commit the newest tag
-# carries does not wait for a person. A repository on no board has no card. It runs in a subshell
-# because the board readers exit on a failure; a failure is said and stops nothing.
-sync_released_cards() {  # sync_released_cards <owner/repo>
-  local out
-  out="$( (on_no_board "$1" && exit 0
-           bash "$(dirname "${BASH_SOURCE[0]}")/../bin/status-sync.sh" "$1") 2>&1)" \
-    || { echo "status-sync did NOT run for $1: $out" >&2; return 0; }
-  grep '^close ' <<< "$out" || true
-}
-
 # --- issues -------------------------------------------------------------------
 
 # HOW THE FIRST LINE OF EVERY ISSUE BODY OPENS. `issue-new` builds that line out of arguments it

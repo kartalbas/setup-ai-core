@@ -170,6 +170,3 @@ body="$(printf 'Landed on %s:\n\n%s\n' "$default" "$commits")"
 "$BIN/issue-comment.sh" "$number" "$body" >/dev/null \
   && echo "the issue says what landed" \
   || echo "the issue was NOT told what landed - add the commits by hand" >&2
-
-# The cards of this repository whose work a release has carried close (status-sync)
-released_repo="$(resolve_repo "")" && sync_released_cards "$released_repo"

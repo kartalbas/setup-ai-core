@@ -27,7 +27,6 @@ if (`$a -match 'fields\(first:50\)')  { Get-Content -Path '$board'; exit 0 }
 if (`$a -match 'addProjectV2ItemById') { 'PVTI_item163'; exit 0 }
 if (`$a -match 'projectItems')        { exit 0 }
 if (`$a -match 'projectsV2\(first' -and (Test-Path '$fake/no-board')) { exit 0 }
-if (`$a -match 'items\(first:100, after:' -and (Test-Path '$fake/board-down')) { [Console]::Error.WriteLine('the board is down'); exit 1 }
 if (`$a -match 'graphql')             { '{}'; exit 0 }
 if (`$a -match 'api user')            { '{"login":"tester"}'; exit 0 }
 if (`$a -match 'issues/') {
@@ -130,16 +129,7 @@ Check 'the worktree is gone'  'False' (Has-Tree $b)
 Check 'the branch is gone'    'False' (Has-Branch $b)
 Check 'the card moved to testing' 1   (@(Get-Content $log | Where-Object { $_ -match 'oid=OPT_testing' }).Count)
 Check 'the issue was told'    'True'  ([bool]((Calls) -match '(?s)issue comment 163 .*Landed on master:.*Not pushed yet \(#163\)'))
-Check 'the released cards of the repository are swept (status-sync)' 1 (@(Get-Content $log | Where-Object { $_.Contains('items(first:100, after:') }).Count)
-
-Write-Host 'a sweep that fails is said, and finish-issue still completes'
-New-Item -ItemType File -Path (Join-Path $fake 'board-down') | Out-Null
-Set-Content -Path $log -Value $null
-Remove-Item -Recurse -Force $env:GH_CACHE_DIRECTORY -ErrorAction SilentlyContinue
-$ok = Invoke-Finish -Number 163
-Check 'it runs'               'True'  ([string]$ok)
-Check 'it says so'            'True'  ([bool]($printed -cmatch '(?m)^status-sync did NOT run for example-org/example-repo: '))
-Remove-Item -Path (Join-Path $fake 'board-down')
+Check 'the board is not read whole' 0 (@(Get-Content $log | Where-Object { $_.Contains('items(first:100, after:') }).Count)
 
 Write-Host 'run inside the worktree it removes, it goes on from the main checkout and still moves the card'
 Open-Tree 'issue-170-run-from-inside'
@@ -215,8 +205,6 @@ Check 'it runs'                'True'  ([string]$ok)
 Check 'the worktree is gone'   'False' (Has-Tree 'issue-167-keep-the-harness-off-the-board')
 Check 'it says so'             'True'  ([bool]($printed -cmatch '(?m)^example-org/example-repo is on no board - there is no card to move\r?$'))
 Check 'no card was moved'      0       (Moves)
-Check 'no board is swept'      0       (@(Get-Content $log | Where-Object { $_.Contains('items(first:100, after:') }).Count)
-Check 'and no sweep is tried'  'False' ([bool]($printed -cmatch 'status-sync did NOT run'))
 Check 'the issue was told'     'True'  ([bool]((Calls) -match '(?s)issue comment 167 .*Landed on master:.*Keep the harness off the board \(#167\)'))
 $env:GH_PROJECT_NUMBER = '999983'
 Remove-Item -Path (Join-Path $fake 'no-board')

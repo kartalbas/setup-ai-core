@@ -35,7 +35,6 @@ case "\$a" in
   *addProjectV2ItemById*)   echo 'PVTI_item163' ;;
   *projectItems*)           printf '' ;;
   *"projectsV2(first"*)     [ -e "$fake/no-board" ] || echo '{}' ;;
-  *"items(first:100, after:"*) [ -e "$fake/board-down" ] && { echo 'the board is down' >&2; exit 1; }; echo '{}' ;;
   *graphql*)                echo '{}' ;;
   *"api user"*)             echo '{"login":"tester"}' ;;
   *issues/*)                echo '{"number":163,"title":"Read the board whole","state":"'"\$(cat "$state")"'","labels":[],"assignees":[],"body":"The count is a guess."}' ;;
@@ -121,14 +120,7 @@ check 'the worktree is gone'  no "$(has_tree issue-163-read-the-board-whole)"
 check 'the branch is gone'    no "$(has_branch issue-163-read-the-board-whole)"
 check 'the card moved to testing' 1 "$(grep -c 'oid=OPT_test' "$log" || true)"
 check 'the issue was told'    yes "$(grep -q 'issue comment 163 .*Landed on master:.*Not pushed yet (#163)' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
-check 'the released cards of the repository are swept (status-sync)' 1 "$(grep -c 'items(first:100, after:' "$log" || true)"
-
-echo 'a sweep that fails is said, and finish-issue still completes'
-touch "$fake/board-down"; : > "$log"; rm -rf "$fake/cache"
-out="$(run 163)"; rc=$?
-check 'exits zero'            0 "$rc"
-check 'it says so'            yes "$(grep -q '^status-sync did NOT run for example-org/example-repo: ' <<< "$out" && echo yes || echo no)"
-rm -f "$fake/board-down"
+check 'the board is not read whole' 0 "$(grep -c 'items(first:100, after:' "$log" || true)"
 
 echo 'run inside the worktree it removes, it goes on from the main checkout and still moves the card'
 open issue-170-run-from-inside
@@ -201,8 +193,6 @@ check 'exits zero'             0 "$rc"
 check 'the worktree is gone'   no "$(has_tree issue-167-keep-the-harness-off-the-board)"
 check 'it says so'             yes "$(grep -q '^example-org/example-repo is on no board - there is no card to move$' <<< "$out" && echo yes || echo no)"
 check 'no card was moved'      0 "$(grep -c 'oid=OPT_' "$log" || true)"
-check 'no board is swept'      0 "$(grep -c 'items(first:100, after:' "$log" || true)"
-check 'and no sweep is tried'  0 "$(grep -c 'status-sync did NOT run' <<< "$out" || true)"
 check 'the issue was told'     yes "$(grep -q 'issue comment 167 .*Landed on master:.*Keep the harness off the board (#167)' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
 rm -f "$fake/no-board"
 

@@ -133,8 +133,6 @@ catch { Write-Error "the card did NOT move: $($_.Exception.Message) - move it be
 # Worktrees whose work landed a day ago or more go as this one opens (finish-issue -Sweep),
 # so the disk does not fill with copies nobody works in any more
 & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'finish-issue.ps1') -Sweep 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -cmatch ': landed, removed$' }
-# and the cards of this repository whose work a release has carried close (status-sync)
-Sync-ReleasedCards -Repo (Get-DefaultRepo)
 
 # The harness is not in the repository, so the new worktree gets it here: init takes the main
 # checkout's own .ai-core data (its config, its local rules, its documents) first, assembles the

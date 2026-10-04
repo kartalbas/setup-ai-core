@@ -99,6 +99,7 @@ for twin in sh ps; do
   init_one real || fail "init on a worktree failed ($twin, see $F-real.log)"
   grep -aq '^  links to the neighbour checkouts made in \.worktrees/app/: lib; ' "$F-real.log" || fail "init does not say which link it made ($twin, see $F-real.log)"
   [ "$(cat "$T/../lib/marker" 2>/dev/null)" = lib ] || fail "from the worktree, ../lib is not the checkout lib ($twin)"
+  [ -L "$F/.worktrees/app/lib" ] || fail "beside the worktree, lib is a copy and not a link ($twin)"
   [ "$(cat "$F/.worktrees/app/docs")" = mine ] || fail "init replaced an entry that stood beside the worktree already ($twin)"
   [ -e "$F/.worktrees/app/app" ] && fail "init linked the worktree's own repository beside it ($twin)"
   [ -e "$F/.worktrees/app/notes" ] && fail "init linked a folder that is no checkout ($twin)"

@@ -83,33 +83,29 @@ contained_in() {  # contained_in <owner/repo> <ref> <sha>
 }
 
 # Every signal about one issue, on one line:
-#   <state>\t<sub-issue total>\t<newest referencing commit sha or ->
+#   <state>\t<sub-issue total>\t<the commit finish-issue landed, or ->
 #
-# A commit that names the issue leaves a REFERENCED_EVENT on it, whichever branch it was made
-# on, so whether that commit is on master is a second question and is asked of the repository.
-# Only commits in the issue's OWN repository count: a commit elsewhere naming #12 is about
-# whatever #12 is there.
+# The commit is the first one finish-issue listed in its "Landed on <branch>:" comment, the
+# record it writes when it moves the card to testing. GitHub's REFERENCED_EVENT is not read: it is
+# missing on issues whose commits are on master and in the newest tag.
 signals_for() {  # <owner/repo> <number>
   local repo="$1" n="$2" o="${1%%/*}" name="${1#*/}" json
   json="$(gh_read "the signals of $repo#$n" api graphql -f o="$o" -f n="$name" -F num="$n" -f query='
     query($o:String!,$n:String!,$num:Int!){ repository(owner:$o,name:$n){ issue(number:$num){
       state subIssuesSummary{ total }
       reopened: timelineItems(last:1, itemTypes:[REOPENED_EVENT]){ nodes{ ... on ReopenedEvent{ createdAt } } }
-      timelineItems(last:60, itemTypes:[REFERENCED_EVENT]){ nodes{ ... on ReferencedEvent{
-        createdAt isCrossRepository commit{ oid committedDate } } } } } } }')" || exit 1
-  # A commit only counts if it landed AFTER the issue was last reopened: a ticket reopened for
-  # rework still carries the reference of the commit that closed it the first time, and reading
-  # that as work would push the rework to testing every half hour, forever.
+      comments(last:50){ nodes{ createdAt body } } } } }')" || exit 1
+  # A comment only counts if it came AFTER the issue was last reopened: a ticket reopened for
+  # rework still carries the record of the work that closed it the first time.
   printf '%s' "$json" | jq -r '
     .data.repository.issue as $i
     | (($i.reopened.nodes[0].createdAt) // "") as $reopenedAt
-    | ([ $i.timelineItems.nodes[]
-         | select(.commit != null and .isCrossRepository == false)
-         | select($reopenedAt == "" or (.createdAt > $reopenedAt)) ]) as $refs
-    | ($i.state) as $state
-    | ($i.subIssuesSummary.total // 0) as $subs
-    | (($refs | sort_by(.commit.committedDate) | last | .commit.oid) // "-") as $sha
-    | "\($state)\t\($subs)\t\($sha)"' | tr -d '\r'
+    | ([ $i.comments.nodes[]
+         | select(.body | startswith("Landed on "))
+         | select($reopenedAt == "" or (.createdAt > $reopenedAt)) ] | sort_by(.createdAt) | last) as $landed
+    | (($landed.body // "") | split("\n") | map(select(test("^- [0-9a-f]{7,40} "))) | first
+       | if . then (split(" ")[1]) else "-" end) as $sha
+    | "\($i.state)\t\($i.subIssuesSummary.total // 0)\t\($sha)"' | tr -d '\r'
 }
 
 # --- the sweep ----------------------------------------------------------------

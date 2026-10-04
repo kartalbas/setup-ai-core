@@ -158,6 +158,7 @@ Check 'to that option'     'True' ([bool]((Calls) -match 'oid=OPT_impl'))
 Check 'the thread'         1 @($printed | Where-Object { $_ -eq '#163 Read the board whole' }).Count
 Check 'the landed worktree of #170 is gone' 'False' ([string](Test-Path -LiteralPath $old))
 Check 'and named'          'True' ([bool](@($printed | Where-Object { $_ -match 'issue-170-old: landed, removed$' }).Count))
+Check 'the released cards of the repository are swept (status-sync)' 1 (@(Calls | Where-Object { $_.Contains('items(first:100, after:') }).Count)
 Check 'the worktree is on the new branch' 'issue-163-read-the-board-whole' `
   (((& git -C $tree rev-parse --abbrev-ref HEAD) -join '').Trim())
 
@@ -188,6 +189,8 @@ Check 'it does not throw'      'True'  ([string]$ok)
 Check 'it says so'             'True'  ([bool](@($printed) -ceq '#166 -> implementing not set: example-org/example-repo is on no board'))
 Check 'no warning'             'False' ([bool](($printed -join "`n") -match 'did NOT move'))
 Check 'no card was looked for' 0       (@(Calls | Where-Object { $_ -match 'addProjectV2ItemById' }).Count)
+Check 'no board is swept'      0       (@(Calls | Where-Object { $_.Contains('items(first:100, after:') }).Count)
+Check 'and no sweep is tried'  'False' ([bool](($printed -join "`n") -cmatch 'status-sync did NOT run'))
 Write-Host 'issue-priority on a repository on no board says so and exits zero'
 Push-Location $work
 try { $said = (@(& (Join-Path $root 'bin/issue-priority.ps1') -Number 166 -Priority P2 2>&1 | ForEach-Object { "$_" }) -join "`n") } finally { Pop-Location }

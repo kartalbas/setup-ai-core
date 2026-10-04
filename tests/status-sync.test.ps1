@@ -87,28 +87,36 @@ Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'board.json') -Value (
   ((Card 12 'A commit of its own is on master' 'implementing'),
    (Card 13 'A commit of its own is in the newest tag' 'testing'),
    (Card 14 'An epic with one child' 'todo'),
-   (Card 15 'An issue of another organisation on this board' 'todo' 'other-org') -join ',') + ']}}}}')
+   (Card 15 'An issue of another organisation on this board' 'todo' 'other-org'),
+   (Card 16 'Reopened after its work landed' 'testing'),
+   (Card 17 'Moved to testing by hand' 'testing') -join ',') + ']}}}}')
 
-# One REFERENCED_EVENT, from a commit in the issue's own repository, after no reopening.
+# finish-issue's "Landed on" comment names the commit; an older one and a comment of a person
+# beside it say nothing. No reopening.
 function Signals($sha) {
-  '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":0},"reopened":{"nodes":[]},' +
-  '"timelineItems":{"nodes":[{"createdAt":"2026-09-01T10:00:00Z","isCrossRepository":false,"commit":{"oid":"' +
-  $sha + '","committedDate":"2026-09-01T10:00:00Z"}}]}}}}}'
+  '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":0},"reopened":{"nodes":[]},"comments":{"nodes":[' +
+  '{"createdAt":"2026-08-01T10:00:00Z","body":"Landed on master:\n\n- 0000000 an earlier step"},' +
+  '{"createdAt":"2026-09-01T10:00:00Z","body":"Landed on master:\n\n- ' + $sha + ' Its subject\n- 1111111 an older commit"},' +
+  '{"createdAt":"2026-09-02T10:00:00Z","body":"Looks good, see 2222222"}]}}}}}'
 }
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'project-id.json') -Value ('{"data":{"organization":{"projectV2":{"id":"' + $projectId + '"}}}}')
-Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'signals-12.json') -Value (Signals 'sha12')
-Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'signals-13.json') -Value (Signals 'sha13')
-Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'signals-14.json') -Value '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":1},"reopened":{"nodes":[]},"timelineItems":{"nodes":[]}}}}}'
+Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'signals-12.json') -Value (Signals 'abc1212')
+Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'signals-13.json') -Value (Signals 'abc1313')
+Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'signals-14.json') -Value '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":1},"reopened":{"nodes":[]},"comments":{"nodes":[]}}}}}'
 # #14's one sub-issue was moved to testing by hand on the board; the epic itself stands in todo
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'epic-14.json') -Value '{"data":{"repository":{"issue":{"state":"OPEN","projectItems":{"nodes":[{"project":{"number":999995,"owner":{"login":"example-org"}},"status":{"name":"todo"}}]},"subIssues":{"nodes":[{"state":"OPEN","projectItems":{"nodes":[{"project":{"number":999995,"owner":{"login":"example-org"}},"status":{"name":"testing"}}]}}]}}}}}'
 # #15 lives in another organisation's repository and carries no commit: read, not moved
-Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'signals-15.json') -Value '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":0},"reopened":{"nodes":[]},"timelineItems":{"nodes":[]}}}}}'
+Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'signals-15.json') -Value '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":0},"reopened":{"nodes":[]},"comments":{"nodes":[]}}}}}'
+# #16 was reopened after its work landed: the record of the first round does not count
+Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'signals-16.json') -Value '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":0},"reopened":{"nodes":[{"createdAt":"2026-09-05T10:00:00Z"}]},"comments":{"nodes":[{"createdAt":"2026-09-01T10:00:00Z","body":"Landed on master:\n\n- abc1616 The first round"}]}}}}}'
+# #17 was moved to testing by hand: a comment that names a commit is no record of finish-issue
+Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'signals-17.json') -Value '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":0},"reopened":{"nodes":[]},"comments":{"nodes":[{"createdAt":"2026-09-01T10:00:00Z","body":"Done in\n- abc1717 by hand"}]}}}}}'
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'repo.json') -Value '{"default_branch":"master"}'
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'tags.json') -Value '[{"name":"0.8.100"}]'
-Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'compare-master-sha12.json')  -Value '{"status":"behind"}'
-Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'compare-tag-sha12.json')     -Value '{"status":"ahead"}'
-Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'compare-master-sha13.json')  -Value '{"status":"behind"}'
-Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'compare-tag-sha13.json')     -Value '{"status":"identical"}'
+Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'compare-master-abc1212.json')  -Value '{"status":"behind"}'
+Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'compare-tag-abc1212.json')     -Value '{"status":"ahead"}'
+Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'compare-master-abc1313.json')  -Value '{"status":"behind"}'
+Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'compare-tag-abc1313.json')     -Value '{"status":"identical"}'
 
 # The stand-in RUNS the --jq program the caller gave, the way gh does. Answering the raw
 # document instead would let a script that never reads its answer pass.
@@ -123,11 +131,13 @@ elseif (`$line -like '*num=12*')                        { `$doc = 'signals-12.js
 elseif (`$line -like '*num=13*')                        { `$doc = 'signals-13.json' }
 elseif (`$line -like '*num=14*')                        { `$doc = 'signals-14.json' }
 elseif (`$line -like '*o=other-org*num=15*')            { `$doc = 'signals-15.json' }
+elseif (`$line -like '*num=16*')                        { `$doc = 'signals-16.json' }
+elseif (`$line -like '*num=17*')                        { `$doc = 'signals-17.json' }
 elseif (`$line -like '*repos/other-org/example-repo*')  { `$doc = 'repo.json' }
-elseif (`$line -like '*compare/master...sha12*')        { `$doc = 'compare-master-sha12.json' }
-elseif (`$line -like '*compare/0.8.100...sha12*')       { `$doc = 'compare-tag-sha12.json' }
-elseif (`$line -like '*compare/master...sha13*')        { `$doc = 'compare-master-sha13.json' }
-elseif (`$line -like '*compare/0.8.100...sha13*')       { `$doc = 'compare-tag-sha13.json' }
+elseif (`$line -like '*compare/master...abc1212*')        { `$doc = 'compare-master-abc1212.json' }
+elseif (`$line -like '*compare/0.8.100...abc1212*')       { `$doc = 'compare-tag-abc1212.json' }
+elseif (`$line -like '*compare/master...abc1313*')        { `$doc = 'compare-master-abc1313.json' }
+elseif (`$line -like '*compare/0.8.100...abc1313*')       { `$doc = 'compare-tag-abc1313.json' }
 elseif (`$line -like '*/tags*')                         { `$doc = 'tags.json' }
 elseif (`$line -like '*repos/example-org/example-repo*') { `$doc = 'repo.json' }
 else { [Console]::Error.WriteLine("the stand-in gh has no answer for: `$line"); exit 9 }
@@ -155,14 +165,19 @@ try {
   Check 'and follows its sub-issue moved by hand' `
     'would move   example-repo#14  (todo -> testing)' (@($run | Where-Object { $_ -like 'would move   example-repo#14*' }))[0]
   Check 'and the count says what it read' `
-    "4 active cards scanned, 2 would move on board $projectNumber." $run[-1]
+    "6 active cards scanned, 2 would move on board $projectNumber." $run[-1]
+
+  Write-Host 'only the newest record of finish-issue after the last reopening names the commit'
+  Check 'not the commit of a reopened issue' 0 (CallCount 'abc1616')
+  Check 'not a commit a person named'        0 (CallCount 'abc1717')
+  Check 'not an older record or commit'      0 @(@(Get-Content -LiteralPath $calls) | Where-Object { $_ -cmatch '0000000|1111111|2222222' }).Count
 
   Write-Host 'the compare is asked once per question, with the ref as base and the commit as head'
   Check 'a card of another organisation is read under its owner' 1 @(@(Get-Content -LiteralPath $calls) | Where-Object { $_ -cmatch 'o=other-org .*num=15' }).Count
-  Check 'is the commit of #12 on master' 1 (CallCount 'compare/master...sha12')
-  Check 'is it in the newest tag'        1 (CallCount 'compare/0.8.100...sha12')
-  Check 'is the commit of #13 on master' 1 (CallCount 'compare/master...sha13')
-  Check 'is it in the newest tag'        1 (CallCount 'compare/0.8.100...sha13')
+  Check 'is the commit of #12 on master' 1 (CallCount 'compare/master...abc1212')
+  Check 'is it in the newest tag'        1 (CallCount 'compare/0.8.100...abc1212')
+  Check 'is the commit of #13 on master' 1 (CallCount 'compare/master...abc1313')
+  Check 'is it in the newest tag'        1 (CallCount 'compare/0.8.100...abc1313')
 
   # The memo exists so a board of two hundred cards in one repository does not ask for the same
   # default branch two hundred times.

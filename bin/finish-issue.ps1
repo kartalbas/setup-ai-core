@@ -180,3 +180,6 @@ if (-not $commits) { $commits = "- (no commit on origin/$default names #$Number)
 $body = "Landed on ${default}:`n`n$commits`n"
 try { & (Join-Path $PSScriptRoot 'issue-comment.ps1') -Number $Number -Body $body | Out-Null; 'the issue says what landed' }
 catch { Write-Error 'the issue was NOT told what landed - add the commits by hand' -ErrorAction Continue }
+
+# The cards of this repository whose work a release has carried close (status-sync)
+Sync-ReleasedCards -Repo (Get-DefaultRepo)

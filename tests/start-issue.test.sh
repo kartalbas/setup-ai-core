@@ -151,6 +151,7 @@ check 'to that option'    yes "$(grep -q 'oid=OPT_impl' "$log" && echo yes || ec
 check 'the thread'        1 "$(grep -c '^#163 Read the board whole$' <<< "$out" || true)"
 check 'the landed worktree of #170 is gone' no "$([ -d "$old" ] && echo yes || echo no)"
 check 'and named'         yes "$(grep -q 'issue-170-old: landed, removed$' <<< "$out" && echo yes || echo no)"
+check 'the released cards of the repository are swept (status-sync)' 1 "$(grep -c 'items(first:100, after:' "$log" || true)"
 check 'the worktree is on the new branch' 'issue-163-read-the-board-whole' \
   "$(git -C "$tree" rev-parse --abbrev-ref HEAD)"
 
@@ -216,6 +217,8 @@ check 'exits zero'             0 "$rc"
 check 'it says so'             '#166 -> implementing not set: example-org/example-repo is on no board' "$(printf '%s\n' "$out" | sed -n '2p')"
 check 'no warning'             no "$(grep -q 'did NOT move' <<< "$out" && echo yes || echo no)"
 check 'no card was looked for' 0 "$(grep -c 'addProjectV2ItemById' "$log" || true)"
+check 'no board is swept'      0 "$(grep -c 'items(first:100, after:' "$log" || true)"
+check 'and no sweep is tried'  0 "$(grep -c 'status-sync did NOT run' <<< "$out" || true)"
 echo 'issue-priority on a repository on no board says so and exits zero'
 out="$(cd "$work" && GH_PROJECT_NUMBER='' bash "$root/bin/issue-priority.sh" 166 P2 2>&1)"; rc=$?
 check 'exits zero'             0 "$rc"

@@ -88,29 +88,36 @@ card() {  # card <number> <title> <status> [owner]
   printf '{"fieldValues":{"nodes":[{"name":"%s","field":{"name":"Status"}}]},"content":{"number":%s,"title":"%s","state":"OPEN","repository":{"name":"example-repo","nameWithOwner":"%s/example-repo"}}}' \
     "$3" "$1" "$2" "${4:-example-org}"
 }
-printf '{"data":{"node":{"items":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[%s,%s,%s,%s]}}}}\n' \
+printf '{"data":{"node":{"items":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[%s,%s,%s,%s,%s,%s]}}}}\n' \
   "$(card 12 'A commit of its own is on master' implementing)" \
   "$(card 13 'A commit of its own is in the newest tag' testing)" \
   "$(card 14 'An epic with one child' todo)" \
-  "$(card 15 'An issue of another organisation on this board' todo other-org)" > "$FAKE/board.json"
+  "$(card 15 'An issue of another organisation on this board' todo other-org)" \
+  "$(card 16 'Reopened after its work landed' testing)" \
+  "$(card 17 'Moved to testing by hand' testing)" > "$FAKE/board.json"
 
-# One REFERENCED_EVENT, from a commit in the issue's own repository, after no reopening.
+# finish-issue's "Landed on" comment names the commit; an older one and a comment of a person
+# beside it say nothing. No reopening.
 signals() {  # signals <sha>
-  printf '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":0},"reopened":{"nodes":[]},"timelineItems":{"nodes":[{"createdAt":"2026-09-01T10:00:00Z","isCrossRepository":false,"commit":{"oid":"%s","committedDate":"2026-09-01T10:00:00Z"}}]}}}}}\n' "$1"
+  printf '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":0},"reopened":{"nodes":[]},"comments":{"nodes":[{"createdAt":"2026-08-01T10:00:00Z","body":"Landed on master:\\n\\n- 0000000 an earlier step"},{"createdAt":"2026-09-01T10:00:00Z","body":"Landed on master:\\n\\n- %s Its subject\\n- 1111111 an older commit"},{"createdAt":"2026-09-02T10:00:00Z","body":"Looks good, see 2222222"}]}}}}}\n' "$1"
 }
-signals sha12 > "$FAKE/signals-12.json"
-signals sha13 > "$FAKE/signals-13.json"
-printf '%s\n' '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":1},"reopened":{"nodes":[]},"timelineItems":{"nodes":[]}}}}}' > "$FAKE/signals-14.json"
+signals abc1212 > "$FAKE/signals-12.json"
+signals abc1313 > "$FAKE/signals-13.json"
+printf '%s\n' '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":1},"reopened":{"nodes":[]},"comments":{"nodes":[]}}}}}' > "$FAKE/signals-14.json"
 # #14's one sub-issue was moved to testing by hand on the board; the epic itself stands in todo
 printf '%s\n' '{"data":{"repository":{"issue":{"state":"OPEN","projectItems":{"nodes":[{"project":{"number":999995,"owner":{"login":"example-org"}},"status":{"name":"todo"}}]},"subIssues":{"nodes":[{"state":"OPEN","projectItems":{"nodes":[{"project":{"number":999995,"owner":{"login":"example-org"}},"status":{"name":"testing"}}]}}]}}}}}' > "$FAKE/epic-14.json"
 # #15 lives in another organisation's repository and carries no commit: read, not moved
-printf '%s\n' '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":0},"reopened":{"nodes":[]},"timelineItems":{"nodes":[]}}}}}' > "$FAKE/signals-15.json"
+printf '%s\n' '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":0},"reopened":{"nodes":[]},"comments":{"nodes":[]}}}}}' > "$FAKE/signals-15.json"
+# #16 was reopened after its work landed: the record of the first round does not count
+printf '%s\n' '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":0},"reopened":{"nodes":[{"createdAt":"2026-09-05T10:00:00Z"}]},"comments":{"nodes":[{"createdAt":"2026-09-01T10:00:00Z","body":"Landed on master:\n\n- abc1616 The first round"}]}}}}}' > "$FAKE/signals-16.json"
+# #17 was moved to testing by hand: a comment that names a commit is no record of finish-issue
+printf '%s\n' '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":0},"reopened":{"nodes":[]},"comments":{"nodes":[{"createdAt":"2026-09-01T10:00:00Z","body":"Done in\n- abc1717 by hand"}]}}}}}' > "$FAKE/signals-17.json"
 printf '{"default_branch":"master"}\n' > "$FAKE/repo.json"
 printf '[{"name":"0.8.100"}]\n'        > "$FAKE/tags.json"
-printf '{"status":"behind"}\n'         > "$FAKE/compare-master-sha12.json"
-printf '{"status":"ahead"}\n'          > "$FAKE/compare-tag-sha12.json"
-printf '{"status":"behind"}\n'         > "$FAKE/compare-master-sha13.json"
-printf '{"status":"identical"}\n'      > "$FAKE/compare-tag-sha13.json"
+printf '{"status":"behind"}\n'         > "$FAKE/compare-master-abc1212.json"
+printf '{"status":"ahead"}\n'          > "$FAKE/compare-tag-abc1212.json"
+printf '{"status":"behind"}\n'         > "$FAKE/compare-master-abc1313.json"
+printf '{"status":"identical"}\n'      > "$FAKE/compare-tag-abc1313.json"
 
 # The stand-in RUNS the --jq program the caller gave, the way gh does. Answering the raw
 # document instead would let a script that never reads its answer pass.
@@ -131,11 +138,13 @@ case "\$*" in
   *"num=13"*)                        doc="$FAKE/signals-13.json" ;;
   *"num=14"*)                        doc="$FAKE/signals-14.json" ;;
   *"o=other-org"*"num=15"*)          doc="$FAKE/signals-15.json" ;;
+  *"num=16"*)                        doc="$FAKE/signals-16.json" ;;
+  *"num=17"*)                        doc="$FAKE/signals-17.json" ;;
   *"repos/other-org/example-repo"*)  doc="$FAKE/repo.json" ;;
-  *"compare/master...sha12"*)        doc="$FAKE/compare-master-sha12.json" ;;
-  *"compare/0.8.100...sha12"*)       doc="$FAKE/compare-tag-sha12.json" ;;
-  *"compare/master...sha13"*)        doc="$FAKE/compare-master-sha13.json" ;;
-  *"compare/0.8.100...sha13"*)       doc="$FAKE/compare-tag-sha13.json" ;;
+  *"compare/master...abc1212"*)        doc="$FAKE/compare-master-abc1212.json" ;;
+  *"compare/0.8.100...abc1212"*)       doc="$FAKE/compare-tag-abc1212.json" ;;
+  *"compare/master...abc1313"*)        doc="$FAKE/compare-master-abc1313.json" ;;
+  *"compare/0.8.100...abc1313"*)       doc="$FAKE/compare-tag-abc1313.json" ;;
   *"/tags"*)                         doc="$FAKE/tags.json" ;;
   *"repos/example-org/example-repo"*) doc="$FAKE/repo.json" ;;
   *) echo "the stand-in gh has no answer for: \$*" >&2; exit 9 ;;
@@ -166,16 +175,21 @@ check 'and follows its sub-issue moved by hand' \
   'would move   example-repo#14  (todo -> testing)' \
   "$(grep '^would move   example-repo#14' <<< "$run")"
 check 'and the count says what it read' \
-  "4 active cards scanned, 2 would move on board $PROJECT_NUMBER." \
+  "6 active cards scanned, 2 would move on board $PROJECT_NUMBER." \
   "$(printf '%s\n' "$run" | tail -1)"
 
 check 'a card of another organisation is read under its owner' 1 "$(grep -c 'o=other-org .*num=15' "$FAKE/calls.txt")"
 
+echo 'only the newest record of finish-issue after the last reopening names the commit'
+check 'not the commit of a reopened issue' 0 "$(grep -c 'abc1616' "$FAKE/calls.txt")"
+check 'not a commit a person named'        0 "$(grep -c 'abc1717' "$FAKE/calls.txt")"
+check 'not an older record or commit'      0 "$(grep -cE '0000000|1111111|2222222' "$FAKE/calls.txt")"
+
 echo 'the compare is asked once per question, with the ref as base and the commit as head'
-check 'is the commit of #12 on master'      1 "$(grep -cF 'compare/master...sha12' "$FAKE/calls.txt")"
-check 'is it in the newest tag'             1 "$(grep -cF 'compare/0.8.100...sha12' "$FAKE/calls.txt")"
-check 'is the commit of #13 on master'      1 "$(grep -cF 'compare/master...sha13' "$FAKE/calls.txt")"
-check 'is it in the newest tag'             1 "$(grep -cF 'compare/0.8.100...sha13' "$FAKE/calls.txt")"
+check 'is the commit of #12 on master'      1 "$(grep -cF 'compare/master...abc1212' "$FAKE/calls.txt")"
+check 'is it in the newest tag'             1 "$(grep -cF 'compare/0.8.100...abc1212' "$FAKE/calls.txt")"
+check 'is the commit of #13 on master'      1 "$(grep -cF 'compare/master...abc1313' "$FAKE/calls.txt")"
+check 'is it in the newest tag'             1 "$(grep -cF 'compare/0.8.100...abc1313' "$FAKE/calls.txt")"
 
 # The memo exists so a board of two hundred cards in one repository does not ask for the same
 # default branch two hundred times. Written inside a function that is only ever called as

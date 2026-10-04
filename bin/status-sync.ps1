@@ -81,32 +81,30 @@ function Test-ContainedIn { param($R, $Ref, $Sha)
   if ($st -ceq 'behind' -or $st -ceq 'identical') { 1 } else { 0 }
 }
 
-# Every signal about one issue: state, the sub-issue total, and the newest commit that named it.
+# Every signal about one issue: state, the sub-issue total, and the commit finish-issue landed.
 #
-# A commit that names the issue leaves a REFERENCED_EVENT on it, whichever branch it was made
-# on, so whether that commit is on master is a second question and is asked of the repository.
-# Only commits in the issue's OWN repository count: a commit elsewhere naming #12 is about
-# whatever #12 is there.
+# The commit is the first one finish-issue listed in its "Landed on <branch>:" comment, the
+# record it writes when it moves the card to testing. GitHub's REFERENCED_EVENT is not read: it is
+# missing on issues whose commits are on master and in the newest tag.
 function Get-Signals { param($R, $N)
   $o = $R.Split('/')[0]; $name = $R.Split('/')[1]
   $q = 'query($o:String!,$n:String!,$num:Int!){ repository(owner:$o,name:$n){ issue(number:$num){
     state subIssuesSummary{ total }
     reopened: timelineItems(last:1, itemTypes:[REOPENED_EVENT]){ nodes{ ... on ReopenedEvent{ createdAt } } }
-    timelineItems(last:60, itemTypes:[REFERENCED_EVENT]){ nodes{ ... on ReferencedEvent{
-      createdAt isCrossRepository commit{ oid committedDate } } } } } } }'
-  $json = ((Invoke-Gh api graphql -f "o=$o" -f "n=$name" -F "num=$N" -f "query=$q") -join "`n") | ConvertFrom-Json
+    comments(last:50){ nodes{ createdAt body } } } } }'
+  $json = ((Invoke-Gh api graphql -f "o=$o" -f "n=$name" -F "num=$N" -f "query=$q") -join "`n") | ConvertFrom-Json -DateKind String
   $i = $json.data.repository.issue
-  # A commit only counts if it landed AFTER the issue was last reopened: a ticket reopened for
-  # rework still carries the reference of the commit that closed it the first time, and reading
-  # that as work would push the rework to testing every half hour, forever.
+  # A comment only counts if it came AFTER the issue was last reopened: a ticket reopened for
+  # rework still carries the record of the work that closed it the first time.
   $reopenedAt = $i.reopened.nodes | Select-Object -First 1 -ExpandProperty createdAt -ErrorAction SilentlyContinue
-  $refs = @($i.timelineItems.nodes | Where-Object {
-    $_.commit -and -not $_.isCrossRepository -and (-not $reopenedAt -or ($_.createdAt -gt $reopenedAt))
-  } | Sort-Object { $_.commit.committedDate })
+  $landed = @($i.comments.nodes | Where-Object {
+    $_.body.StartsWith('Landed on ', [StringComparison]::Ordinal) -and (-not $reopenedAt -or ($_.createdAt -gt $reopenedAt))
+  } | Sort-Object { $_.createdAt }) | Select-Object -Last 1
+  $first = if ($landed) { @($landed.body -split "`n" | Where-Object { $_ -cmatch '^- [0-9a-f]{7,40} ' }) | Select-Object -First 1 }
   [pscustomobject]@{
     State = $i.state
     Subs  = [int]$i.subIssuesSummary.total
-    Sha   = $(if ($refs.Count -gt 0) { $refs[-1].commit.oid } else { '-' })
+    Sha   = $(if ($first) { $first.Split(' ')[1] } else { '-' })
   }
 }
 

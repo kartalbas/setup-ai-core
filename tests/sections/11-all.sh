@@ -96,7 +96,7 @@ for twin in sh ps; do
   init_one dry || fail "init --dry-run on a worktree failed ($twin, see $F-dry.log)"
   [ -e "$F/.worktrees/app/lib" ] && fail "init --dry-run made a link ($twin)"
   grep -aq '^  links to the neighbour checkouts would be made in \.worktrees/app/: lib; ' "$F-dry.log" || fail "init --dry-run does not say which link it would make ($twin, see $F-dry.log)"
-  init_one real || fail "init on a worktree failed ($twin, see $F-real.log)"
+  init_one real || fail "init on a worktree failed ($twin): $(tail -5 "$F-real.log")"
   grep -aq '^  links to the neighbour checkouts made in \.worktrees/app/: lib; ' "$F-real.log" || fail "init does not say which link it made ($twin, see $F-real.log)"
   [ "$(cat "$T/../lib/marker" 2>/dev/null)" = lib ] || fail "from the worktree, ../lib is not the checkout lib ($twin)"
   [ -L "$F/.worktrees/app/lib" ] || fail "beside the worktree, lib is a copy and not a link ($twin)"
@@ -104,7 +104,7 @@ for twin in sh ps; do
   [ -e "$F/.worktrees/app/app" ] && fail "init linked the worktree's own repository beside it ($twin)"
   [ -e "$F/.worktrees/app/notes" ] && fail "init linked a folder that is no checkout ($twin)"
   if [ "$twin" = sh ]; then bash "$ROOT/bin/init.sh" --all "$F" --no-doctor
-  else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -All "$(native "$F")" -NoDoctor; fi > "$F-all.log" 2>&1 || fail "init --all over the folder failed ($twin, see $F-all.log)"
+  else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -All "$(native "$F")" -NoDoctor; fi > "$F-all.log" 2>&1 || fail "init --all over the folder failed ($twin): $(grep -a -E '^###|error|failed' "$F-all.log" | tail -8)"
   grep -aq '^### \.worktrees/app/issue-1-x' "$F-all.log" || fail "init --all did not init the worktree ($twin, see $F-all.log)"
   grep -aq '^### \.worktrees/app/lib' "$F-all.log" && fail "init --all took the link to a neighbour for a worktree ($twin, see $F-all.log)"
 done

@@ -143,10 +143,11 @@ if [ "$PROJECT_FOLDER" -eq 0 ]; then
         [ -d "$neighbour/.git" ] && [ "$neighbour" != "$main" ] || continue
         [ ! -e "$container/$name" ] && [ ! -L "$container/$name" ] || continue
         # Git Bash's ln -s copies a directory instead of linking it; a junction links it, needs no
-        # privilege, and Git Bash takes it for a link
+        # privilege, and Git Bash takes it for a link. The doubled slashes keep Git Bash from
+        # rewriting /c and /J into paths.
         if [ "$DRY" -eq 0 ]; then
           case "$(uname -s)" in
-            MINGW*|MSYS*|CYGWIN*) cmd //c mklink /J "$(cygpath -w "$container/$name")" "$(cygpath -w "$neighbour")" > /dev/null ;;
+            MINGW*|MSYS*|CYGWIN*) cmd.exe //c mklink //J "$(cygpath -w "$container/$name")" "$(cygpath -w "$neighbour")" > /dev/null ;;
             *) ln -s "../../$name" "$container/$name" ;;
           esac
         fi

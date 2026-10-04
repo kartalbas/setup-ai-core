@@ -72,7 +72,22 @@ try {
       Set-Content -LiteralPath $processes -Value @(& ps -A -o 'pid=,ppid=,etime=,command=' | ForEach-Object {
         if ($_ -cmatch '^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$') { "$($Matches[1])`t$($Matches[2])`t$($Matches[3])`t$($Matches[4])" } })
     }
-    $flags += @('--processes-file', $processes)
+    # How to reach each agent: Claude Code's list of its sessions, and where /proc shows them the
+    # codex rollout files the processes hold open, "/proc/<pid>/fd<tab><path>"; AI_CORE_AGENTS and
+    # AI_CORE_ROLLOUTS name files that stand in for them. A failed list reaches the page as its text.
+    $agents = Join-Path $work 'agents'
+    $rollouts = Join-Path $work 'rollouts'
+    if ($env:AI_CORE_AGENTS) { Copy-Item -LiteralPath $env:AI_CORE_AGENTS -Destination $agents }
+    elseif (Get-Command claude -ErrorAction SilentlyContinue) {
+      $list = & claude agents --json 2> $null
+      Set-Content -LiteralPath $agents -Value $(if ($LASTEXITCODE -eq 0) { $list } else { 'claude agents --json failed' })
+    } else { Set-Content -LiteralPath $agents -Value @() }
+    if ($env:AI_CORE_ROLLOUTS) { Copy-Item -LiteralPath $env:AI_CORE_ROLLOUTS -Destination $rollouts }
+    elseif (Test-Path -LiteralPath '/proc' -PathType Container) {
+      # find exits 1 on the processes it may not read, other users' or ended ones; what it read stands
+      Set-Content -LiteralPath $rollouts -Value @(& find /proc -mindepth 3 -maxdepth 3 -path '/proc/*/fd/*' -lname '*/rollout-*.jsonl' -printf '%h\t%l\n' 2> $null)
+    } else { Set-Content -LiteralPath $rollouts -Value @() }
+    $flags += @('--processes-file', $processes, '--agents-file', $agents, '--rollouts-file', $rollouts)
   }
   if ($Tokens) { $flags += '--tokens' }
   if ($Issues) { $flags += '--issues' }

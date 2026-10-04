@@ -62,7 +62,25 @@ if [ -z "$tokens$issues" ]; then
   else
     ps -A -o pid=,ppid=,etime=,command= | awk '{ line = $0; sub(/^ *[^ ]+ +[^ ]+ +[^ ]+ +/, "", line); print $1 "\t" $2 "\t" $3 "\t" line }' > "$work/processes"
   fi
-  processes=(--processes-file "$work/processes")
+  # How to reach each agent: Claude Code's list of its sessions, and where /proc shows them the codex
+  # rollout files the processes hold open, "/proc/<pid>/fd<tab><path>"; AI_CORE_AGENTS and
+  # AI_CORE_ROLLOUTS name files that stand in for them. A failed list reaches the page as its text.
+  if [ -n "${AI_CORE_AGENTS:-}" ]; then
+    cp "$AI_CORE_AGENTS" "$work/agents"
+  elif command -v claude > /dev/null 2>&1; then
+    claude agents --json > "$work/agents" 2> /dev/null || echo 'claude agents --json failed' > "$work/agents"
+  else
+    : > "$work/agents"
+  fi
+  if [ -n "${AI_CORE_ROLLOUTS:-}" ]; then
+    cp "$AI_CORE_ROLLOUTS" "$work/rollouts"
+  elif [ -d /proc ]; then
+    # find exits 1 on the processes it may not read, other users' or ended ones; what it read stands
+    find /proc -mindepth 3 -maxdepth 3 -path '/proc/*/fd/*' -lname '*/rollout-*.jsonl' -printf '%h\t%l\n' > "$work/rollouts" 2> /dev/null || :
+  else
+    : > "$work/rollouts"
+  fi
+  processes=(--processes-file "$work/processes" --agents-file "$work/agents" --rollouts-file "$work/rollouts")
 fi
 
 node "$here/../lib/status.mjs" --items-file "$work/items" --columns-file "$work/columns" \

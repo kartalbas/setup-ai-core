@@ -114,6 +114,10 @@ check 'outside'       'example-repo#8 example-repo#7' "$(awk '/^  outside packag
 
 echo 'without --tokens: the agents that run now, from the process list alone'
 : > "$work/no-processes"
+# Claude Code's list of its sessions and the codex rollout files held open, through their
+# stand-ins: the default view reads them with the process list
+export AI_CORE_AGENTS="$work/no-agents" AI_CORE_ROLLOUTS="$work/no-rollouts"
+: > "$AI_CORE_AGENTS"; : > "$AI_CORE_ROLLOUTS"
 nothing="$(cd "$folder" && AI_CORE_PROCESSES="$work/no-processes" bash "$root/bin/status.sh" --project example-org/7 2>&1)"
 tokens="$(cd "$folder" && bash "$root/bin/status.sh" --project example-org/7 --tokens 2>&1)"
 check 'no agent runs: the pace and the forecast, as with --tokens' "$tokens" "$nothing"
@@ -124,8 +128,15 @@ printf '%s\t%s\t%s\t%s\n' 100 1 '1-01:00:00' 'claude --resume exa-lead' 101 100 
   104 1 '01:02:03' 'codex exec resume thread-w2 --json' 105 1 '10' 'sleep 30' 106 1 '01:00' 'git log agy -p' \
   107 1 '2-00:00:00' '/home/x/.local/bin/claude --chrome-native-host' \
   108 100 '01:00' 'node /usr/lib/node_modules/gemini-cli/bin/gemini.js -p check example-repo#3' \
-  109 1 '05:00' 'agy' > "$work/processes"
-view="$(cd "$folder" && AI_CORE_PROCESSES="$work/processes" bash "$root/bin/status.sh" --project example-org/7 2>&1)"; rc=$?
+  109 1 '05:00' 'agy' 110 1 '30:00' '/home/x/.local/bin/claude daemon run --origin transient' \
+  111 110 '29:00' 'claude bg-pty-host --bg-pty-host /tmp/x.sock 200 50 -- /home/x/.local/share/claude/versions/2.1.289 --session-id 22222222-2222-2222-2222-222222222222' \
+  112 111 '29:00' '/home/x/.local/share/claude/versions/2.1.289 --session-id 22222222-2222-2222-2222-222222222222 --name l1-sonnet5.5-low-100k-ab123 --model sonnet --effort low' \
+  > "$work/processes"
+printf '%s\n' '[{"pid":100,"kind":"interactive","name":"exa-lead","sessionId":"11111111-1111-1111-1111-111111111111","id":null},' \
+  '{"pid":112,"kind":"background","name":"l1-sonnet5.5-low-100k-ab123","sessionId":"22222222-2222-2222-2222-222222222222","id":"22222222"}]' > "$work/agents"
+printf '%s\t%s\n' /proc/102/fd /home/x/.codex/sessions/2026/10/04/rollout-2026-10-04T11-52-48-01a106c2-71cd-7451-94ce-508f6229cd5b.jsonl \
+  /proc/100/fd /home/x/.codex/sessions/2026/10/04/rollout-2026-10-04T11-00-00-01a10000-0000-7000-8000-000000000000.jsonl > "$work/rollouts"
+view="$(cd "$folder" && AI_CORE_PROCESSES="$work/processes" AI_CORE_AGENTS="$work/agents" AI_CORE_ROLLOUTS="$work/rollouts" bash "$root/bin/status.sh" --project example-org/7 2>&1)"; rc=$?
 vline() { grep -m1 -F -- "$1" <<< "$view" | tr -s ' '; }
 check 'exit 0'        0 "$rc"
 check 'line 1: the time and the board counts' "example · board example-org/7 · $(when "$now") · Backlog 0 · Todo 5 · In progress 2 · Done 15" "$(sed -n 1p <<< "$view")"
@@ -136,9 +147,37 @@ check 'a run a run started' '│ └ agy │ 103 │ cheap-model · high │ 2 m
 check 'indented one step deeper' 1 "$(grep -c '^│     └ agy ' <<< "$view")"
 check 'a run no agent started stands alone' '│ codex │ 104 │ │ 62 min │ │ resumed run │' "$(vline '│ codex ')"
 check 'an agent CLI without a prompt is a session' '│ agy │ 109 │ │ 5 min │ │ session │' "$(vline '│ agy ')"
-check 'in this order' '100 108 102 103 104 109' "$(awk -F'│' '$3 ~ /^ *[0-9]+ *$/ { printf "%s%s", sep, $3 + 0; sep = " " }' <<< "$view")"
-check 'no helper, no tool word in another command' 'AGENTS 6 running: 1 claude, 1 gemini, 2 codex, 2 agy' "$(vline ' running: ')"
+check 'a background session runs from the versioned binary' '│ claude l1-sonnet5.5 │ 112 │ sonnet · low │ 29 min │ │ session │' "$(vline '│ claude l1-sonnet5.5 ')"
+check 'its daemon and terminal host are no agents' 0 "$(grep -cE '│ 11[01] +│' <<< "$view" || true)"
+check 'in this order' '100 108 102 103 104 112 109' "$(awk -F'│' '$3 ~ /^ *[0-9]+ *$/ { printf "%s%s", sep, $3 + 0; sep = " " }' <<< "$view")"
+check 'no helper, no tool word in another command' 'AGENTS 7 running: 2 claude, 1 gemini, 2 codex, 2 agy' "$(vline ' running: ')"
 check 'no token lines' '' "$(vline 'pace ')"
+
+echo 'the command that reaches each agent, from what its CLI reports'
+reach() { awk '/^REACH$/ { on = 1; next } on' <<< "$1" | grep -m1 -E -- "^  $2 " | tr -s ' ' | sed 's/^ //'; }
+check 'an interactive session: resume it, a rollout it holds changes nothing' '100 exa-lead claude --resume 11111111-1111-1111-1111-111111111111' "$(reach "$view" 100)"
+check 'a background session: attach to it' '112 l1-sonnet5.5-low-100k-ab123 claude attach 22222222' "$(reach "$view" 112)"
+check 'a codex process: the rollout it holds open' '102 codex codex resume 01a106c2-71cd-7451-94ce-508f6229cd5b' "$(reach "$view" 102)"
+check 'a codex process that holds none: a dash' '104 codex —' "$(reach "$view" 104)"
+check 'an agent its CLI says nothing about: a dash' '109 agy —' "$(reach "$view" 109)"
+check 'every agent, in the order of the table' '100 108 102 103 104 112 109' "$(awk '/^REACH$/ { on = 1; next } on && /^  [0-9]/ { printf "%s%s", sep, $1; sep = " " }' <<< "$view")"
+echo 'claude agents --json failed' > "$work/bad-agents"
+broken="$(cd "$folder" && AI_CORE_PROCESSES="$work/processes" AI_CORE_AGENTS="$work/bad-agents" AI_CORE_ROLLOUTS="$work/rollouts" bash "$root/bin/status.sh" --project example-org/7 2>&1)"
+check 'a list that failed is shown, not swallowed' 'claude agents --json gave no list: claude agents --json failed' "$(grep -m1 'gave no list' <<< "$broken" | sed 's/^ *//')"
+check 'and no command is guessed' '100 claude —' "$(reach "$broken" 100)"
+# Where no stand-in names the rollouts, the twin asks find, which exits 1 on the processes it may
+# not read; what it found still reaches the page. Without /proc there is nothing to ask.
+mkdir -p "$work/findbin"
+cat > "$work/findbin/find" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\t%s\n' /proc/104/fd /x/rollout-2026-10-04T12-00-00-01a10444-0000-7000-8000-000000000444.jsonl
+exit 1
+STUB
+chmod +x "$work/findbin/find"
+found="$(cd "$folder" && PATH="$work/findbin:$PATH" AI_CORE_PROCESSES="$work/processes" AI_CORE_AGENTS="$work/agents" AI_CORE_ROLLOUTS='' bash "$root/bin/status.sh" --project example-org/7 2>&1)"; rc=$?
+check 'a find that exits 1 stops nothing' 0 "$rc"
+if [ -d /proc ]; then held='104 codex codex resume 01a10444-0000-7000-8000-000000000444'; else held='104 codex —'; fi
+check 'and what it found reaches the page' "$held" "$(reach "$found" 104)"
 
 echo 'outside a repository with no board named: refused, naming --project'
 refused="$(cd "$folder" && bash "$root/bin/status.sh" 2>&1)"; rc=$?

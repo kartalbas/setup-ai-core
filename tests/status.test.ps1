@@ -124,6 +124,12 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   Check 'outside'       'example-repo#8 example-repo#7' (Keys '  outside packages')
   Write-Host 'without -Tokens: the agents that run now, from the process list alone'
   function Run([string[]] $More) { Push-Location $folder; try { @(& pwsh -NoProfile -File (Join-Path $root 'bin/status.ps1') -Project example-org/7 @More 2>&1 | ForEach-Object { "$_" }) } finally { Pop-Location } }
+  # Claude Code's list of its sessions and the codex rollout files held open, through their
+  # stand-ins: the default view reads them with the process list
+  $env:AI_CORE_AGENTS = Join-Path $work 'no-agents'
+  $env:AI_CORE_ROLLOUTS = Join-Path $work 'no-rollouts'
+  Set-Content -LiteralPath $env:AI_CORE_AGENTS -Value @()
+  Set-Content -LiteralPath $env:AI_CORE_ROLLOUTS -Value @()
   $env:AI_CORE_PROCESSES = Join-Path $work 'no-processes'
   Set-Content -LiteralPath $env:AI_CORE_PROCESSES -Value @()
   $nothing = Run
@@ -139,10 +145,23 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
     "104`t1`t01:02:03`tcodex exec resume thread-w2 --json", "105`t1`t10`tsleep 30", "106`t1`t01:00`tgit log agy -p",
     "107`t1`t2-00:00:00`t/home/x/.local/bin/claude --chrome-native-host",
     "108`t100`t01:00`tnode /usr/lib/node_modules/gemini-cli/bin/gemini.js -p check example-repo#3",
-    "109`t1`t05:00`tagy")
+    "109`t1`t05:00`tagy", "110`t1`t30:00`t/home/x/.local/bin/claude daemon run --origin transient",
+    "111`t110`t29:00`tclaude bg-pty-host --bg-pty-host /tmp/x.sock 200 50 -- /home/x/.local/share/claude/versions/2.1.289 --session-id 22222222-2222-2222-2222-222222222222",
+    "112`t111`t29:00`t/home/x/.local/share/claude/versions/2.1.289 --session-id 22222222-2222-2222-2222-222222222222 --name l1-sonnet5.5-low-100k-ab123 --model sonnet --effort low")
+  $env:AI_CORE_AGENTS = Join-Path $work 'agents'
+  Set-Content -LiteralPath $env:AI_CORE_AGENTS -Value @(
+    '[{"pid":100,"kind":"interactive","name":"exa-lead","sessionId":"11111111-1111-1111-1111-111111111111","id":null},',
+    '{"pid":112,"kind":"background","name":"l1-sonnet5.5-low-100k-ab123","sessionId":"22222222-2222-2222-2222-222222222222","id":"22222222"}]')
+  $env:AI_CORE_ROLLOUTS = Join-Path $work 'rollouts'
+  Set-Content -LiteralPath $env:AI_CORE_ROLLOUTS -Value @(
+    "/proc/102/fd`t/home/x/.codex/sessions/2026/10/04/rollout-2026-10-04T11-52-48-01a106c2-71cd-7451-94ce-508f6229cd5b.jsonl",
+    "/proc/100/fd`t/home/x/.codex/sessions/2026/10/04/rollout-2026-10-04T11-00-00-01a10000-0000-7000-8000-000000000000.jsonl")
   $view = Run
   $rc = $LASTEXITCODE
-  Remove-Item Env:AI_CORE_PROCESSES
+  $env:AI_CORE_AGENTS = Join-Path $work 'bad-agents'
+  Set-Content -LiteralPath $env:AI_CORE_AGENTS -Value 'claude agents --json failed'
+  $broken = Run
+  Remove-Item Env:AI_CORE_PROCESSES, Env:AI_CORE_AGENTS, Env:AI_CORE_ROLLOUTS
   function VLine($Text) { "$(@($view | Where-Object { $_.Contains($Text) }) | Select-Object -First 1)".Trim() -creplace ' +', ' ' }
   Check 'exit 0'        0 $rc
   Check 'line 1: the time and the board counts' "example · board example-org/7 · $(When $now) · Backlog 0 · Todo 5 · In progress 2 · Done 15" $view[0]
@@ -153,9 +172,46 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   Check 'indented one step deeper' 1 @($view | Where-Object { $_.StartsWith('│     └ agy ') }).Count
   Check 'a run no agent started stands alone' '│ codex │ 104 │ │ 62 min │ │ resumed run │' (VLine '│ codex ')
   Check 'an agent CLI without a prompt is a session' '│ agy │ 109 │ │ 5 min │ │ session │' (VLine '│ agy ')
-  Check 'in this order' '100 108 102 103 104 109' ((@($view | ForEach-Object { $c = $_.Split('│'); if ($c.Count -gt 3 -and $c[2].Trim() -cmatch '^\d+$') { $c[2].Trim() } })) -join ' ')
-  Check 'no helper, no tool word in another command' 'AGENTS 6 running: 1 claude, 1 gemini, 2 codex, 2 agy' (VLine ' running: ')
+  Check 'a background session runs from the versioned binary' '│ claude l1-sonnet5.5 │ 112 │ sonnet · low │ 29 min │ │ session │' (VLine '│ claude l1-sonnet5.5 ')
+  Check 'its daemon and terminal host are no agents' 0 @($view | Where-Object { $_ -cmatch '│ 11[01] +│' }).Count
+  Check 'in this order' '100 108 102 103 104 112 109' ((@($view | ForEach-Object { $c = $_.Split('│'); if ($c.Count -gt 3 -and $c[2].Trim() -cmatch '^\d+$') { $c[2].Trim() } })) -join ' ')
+  Check 'no helper, no tool word in another command' 'AGENTS 7 running: 2 claude, 1 gemini, 2 codex, 2 agy' (VLine ' running: ')
   Check 'no token lines' '' (VLine 'pace ')
+  Write-Host 'the command that reaches each agent, from what its CLI reports'
+  function Reach($Page, $AgentPid) {
+    $on = $false
+    foreach ($l in $Page) { if ($on -and $l.StartsWith("  $AgentPid ")) { return ($l.Trim() -creplace ' +', ' ') }; if ($l -ceq 'REACH') { $on = $true } }
+    ''
+  }
+  Check 'an interactive session: resume it, a rollout it holds changes nothing' '100 exa-lead claude --resume 11111111-1111-1111-1111-111111111111' (Reach $view 100)
+  Check 'a background session: attach to it' '112 l1-sonnet5.5-low-100k-ab123 claude attach 22222222' (Reach $view 112)
+  Check 'a codex process: the rollout it holds open' '102 codex codex resume 01a106c2-71cd-7451-94ce-508f6229cd5b' (Reach $view 102)
+  Check 'a codex process that holds none: a dash' '104 codex —' (Reach $view 104)
+  Check 'an agent its CLI says nothing about: a dash' '109 agy —' (Reach $view 109)
+  $after = $false
+  Check 'every agent, in the order of the table' '100 108 102 103 104 112 109' ((@($view | ForEach-Object { if ($after -and $_ -cmatch '^  (\d+) ') { $Matches[1] }; if ($_ -ceq 'REACH') { $after = $true } })) -join ' ')
+  Check 'a list that failed is shown, not swallowed' 'claude agents --json gave no list: claude agents --json failed' "$(@($broken | Where-Object { $_.Contains('gave no list') }) | Select-Object -First 1)".Trim()
+  Check 'and no command is guessed' '100 claude —' (Reach $broken 100)
+  # Where no stand-in names the rollouts, the twin asks find, which exits 1 on the processes it may
+  # not read; what it found still reaches the page. Without /proc there is nothing to ask.
+  $held = '104 codex —'
+  $path = $env:PATH
+  if (Test-Path -LiteralPath '/proc' -PathType Container) {
+    $findBin = Join-Path $work 'findbin'
+    New-Item -ItemType Directory -Path $findBin | Out-Null
+    Set-Content -Path (Join-Path $findBin 'find') -Encoding ascii -Value "#!/bin/sh`nprintf '%s\t%s\n' /proc/104/fd /x/rollout-2026-10-04T12-00-00-01a10444-0000-7000-8000-000000000444.jsonl`nexit 1"
+    & chmod +x (Join-Path $findBin 'find')
+    $env:PATH = "$findBin$([IO.Path]::PathSeparator)$env:PATH"
+    $held = '104 codex codex resume 01a10444-0000-7000-8000-000000000444'
+  }
+  $env:AI_CORE_PROCESSES = Join-Path $work 'processes'
+  $env:AI_CORE_AGENTS = Join-Path $work 'agents'
+  $found = Run
+  $rc = $LASTEXITCODE
+  $env:PATH = $path
+  Remove-Item Env:AI_CORE_PROCESSES, Env:AI_CORE_AGENTS
+  Check 'a find that exits 1 stops nothing' 0 $rc
+  Check 'and what it found reaches the page' $held (Reach $found 104)
   Write-Host 'outside a repository with no board named: refused, naming -Project'
   Push-Location $folder
   try { $refused = (@(& pwsh -NoProfile -File (Join-Path $root 'bin/status.ps1') 2>&1 | ForEach-Object { "$_" }) -join ' '); $rc = $LASTEXITCODE }

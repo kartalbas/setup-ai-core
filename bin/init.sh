@@ -85,6 +85,7 @@ if [ -n "$ALL_DIR" ]; then
   for repo in "$ALL_DIR"/*/ "$ALL_DIR"/.worktrees/*/*/; do
     repo="${repo%/}"
     [ -e "$repo/.git" ] || continue
+    case "$repo" in "$ALL_DIR"/.worktrees/*) [ ! -L "$repo" ] || continue ;; esac   # a link beside the worktrees is a neighbour checkout, initialized as itself
     name="${repo#"$ALL_DIR"/}"; repo_folder="${name#.worktrees/}"; repo_folder="${repo_folder%%/*}"
     case "$repo_folder" in *-ai-core) continue ;; esac   # a harness clone serves the repositories; it is not one of them, and neither is a worktree of one
     echo ""; echo "### $name"
@@ -121,6 +122,30 @@ if [ "$PROJECT_FOLDER" -eq 0 ] && [ ! -d "$TARGET/.ai-core" ]; then
   if [ -n "$common" ] && [ "$common" != "$(git -C "$TARGET" rev-parse --path-format=absolute --git-dir 2>/dev/null)" ] && [ -d "$(dirname "$common")/.ai-core" ]; then
     WORKTREE_DATA_FROM="$(dirname "$common")"
     [ "$DRY" -eq 1 ] || cp -R "$WORKTREE_DATA_FROM/.ai-core" "$TARGET/.ai-core"
+  fi
+fi
+
+# 0b. A check of the repository may read a neighbour checkout of the project folder through `..`,
+#     and in a worktree `..` is .worktrees/<repository>/, where no neighbour stands: the check then
+#     finds nothing and proves less than in the checkout. So every other checkout of the folder
+#     gets a link there, and `..` finds the same neighbours from the worktree. An entry that stands
+#     there already is left as it is.
+NEIGHBOURS_LINKED=""; NEIGHBOURS_IN=""
+if [ "$PROJECT_FOLDER" -eq 0 ]; then
+  common="$(git -C "$TARGET" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || common=""
+  if [ -n "$common" ] && [ "$common" != "$(git -C "$TARGET" rev-parse --path-format=absolute --git-dir 2>/dev/null)" ]; then
+    main="$(dirname "$common")"; folder="$(dirname "$main")"
+    container="$(dirname "$(git -C "$TARGET" rev-parse --show-toplevel)")"
+    if [ "$container" = "$folder/.worktrees/${main##*/}" ]; then
+      NEIGHBOURS_IN=".worktrees/${main##*/}/"
+      for neighbour in "$folder"/*/; do
+        neighbour="${neighbour%/}"; name="${neighbour##*/}"
+        [ -d "$neighbour/.git" ] && [ "$neighbour" != "$main" ] || continue
+        [ ! -e "$container/$name" ] && [ ! -L "$container/$name" ] || continue
+        [ "$DRY" -eq 1 ] || ln -s "../../$name" "$container/$name"
+        NEIGHBOURS_LINKED="$NEIGHBOURS_LINKED $name"
+      done
+    fi
   fi
 fi
 
@@ -593,6 +618,7 @@ if [ "$GITIGNORE_CHANGED" -eq 1 ]; then
 elif [ -n "$GITIGNORE_NOTE" ]; then echo "  .gitignore: $GITIGNORE_NOTE; the block was there already"
 fi
 if [ -n "$WORKTREE_DATA_FROM" ]; then echo "  .ai-core $([ "$DRY" -eq 1 ] && echo "would be taken" || echo "taken") from the checkout $WORKTREE_DATA_FROM: a worktree starts with the checkout's configuration, local rules and documents"; fi
+if [ -n "$NEIGHBOURS_LINKED" ]; then echo "  links to the neighbour checkouts $([ "$DRY" -eq 1 ] && echo "would be made" || echo "made") in $NEIGHBOURS_IN:$NEIGHBOURS_LINKED; .. finds them from the worktree as from the checkout"; fi
 if [ "$HOOKS_ARMED" -eq 1 ]; then echo "  core.hooksPath $([ "$DRY" -eq 1 ] && echo "would be set" || echo "set") to .githooks: the push gate runs here"; fi
 if [ "$SHIMS_MODE" -eq 1 ] && [ "$DRY" -eq 1 ]; then echo "  the shims in .githooks are not executable, so git skips the push gate: ai-core pre-push --install would make them so"
 elif [ "$SHIMS_MODE" -eq 1 ]; then echo "  the shims in .githooks were not executable, so git skipped the push gate: ai-core pre-push --install made them so"

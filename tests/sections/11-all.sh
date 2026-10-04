@@ -78,4 +78,34 @@ for twin in sh ps; do
   [ -f "$F/.worktrees/app/issue-6-new/.ai-core/rules/rules.md" ] || fail "init --all did not init the worktree that stays ($twin)"
 done
 echo "  the worktree that landed three days ago is gone with its branch and named, the one of today stays and is inited, on both twins"
+
+section "init links the other checkouts of the folder beside a worktree, so .. finds them from it; both twins"
+for twin in sh ps; do
+  F="$WORK/near-$twin"; T="$F/.worktrees/app/issue-1-x"
+  for r in app lib docs; do
+    git init -q "$F/$r"; mkdir -p "$F/$r/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$F/$r/.ai-core/config.env"
+    git -C "$F/$r" commit -q --allow-empty -m start; echo "$r" > "$F/$r/marker"
+  done
+  mkdir -p "$F/notes"                                  # a folder that is no checkout gets no link
+  git -C "$F/app" worktree add -q -b issue-1-x "$T"
+  echo mine > "$F/.worktrees/app/docs"                 # an entry that stands there already stays
+  init_one() { # [dry]: init on the worktree, its log in $F-$twin-$1.log
+    if [ "$twin" = sh ]; then bash "$ROOT/bin/init.sh" "$T" --no-doctor $([ "$1" = dry ] && echo --dry-run)
+    else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$T")" -NoDoctor $([ "$1" = dry ] && echo -DryRun); fi > "$F-$1.log" 2>&1
+  }
+  init_one dry || fail "init --dry-run on a worktree failed ($twin, see $F-dry.log)"
+  [ -e "$F/.worktrees/app/lib" ] && fail "init --dry-run made a link ($twin)"
+  grep -aq '^  links to the neighbour checkouts would be made in \.worktrees/app/: lib; ' "$F-dry.log" || fail "init --dry-run does not say which link it would make ($twin, see $F-dry.log)"
+  init_one real || fail "init on a worktree failed ($twin, see $F-real.log)"
+  grep -aq '^  links to the neighbour checkouts made in \.worktrees/app/: lib; ' "$F-real.log" || fail "init does not say which link it made ($twin, see $F-real.log)"
+  [ "$(cat "$T/../lib/marker" 2>/dev/null)" = lib ] || fail "from the worktree, ../lib is not the checkout lib ($twin)"
+  [ "$(cat "$F/.worktrees/app/docs")" = mine ] || fail "init replaced an entry that stood beside the worktree already ($twin)"
+  [ -e "$F/.worktrees/app/app" ] && fail "init linked the worktree's own repository beside it ($twin)"
+  [ -e "$F/.worktrees/app/notes" ] && fail "init linked a folder that is no checkout ($twin)"
+  if [ "$twin" = sh ]; then bash "$ROOT/bin/init.sh" --all "$F" --no-doctor
+  else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -All "$(native "$F")" -NoDoctor; fi > "$F-all.log" 2>&1 || fail "init --all over the folder failed ($twin, see $F-all.log)"
+  grep -aq '^### \.worktrees/app/issue-1-x' "$F-all.log" || fail "init --all did not init the worktree ($twin, see $F-all.log)"
+  grep -aq '^### \.worktrees/app/lib' "$F-all.log" && fail "init --all took the link to a neighbour for a worktree ($twin, see $F-all.log)"
+done
+echo "  a worktree finds the neighbour checkout through .., the dry run only names the link, an entry there, the repository itself and a plain folder get none, init --all inits no link, on both twins"
 exit 0

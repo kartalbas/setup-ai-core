@@ -85,7 +85,8 @@ if ($All) {
   $worktrees = Join-Path $allDir '.worktrees'
   if (Test-Path -LiteralPath $worktrees) {
     foreach ($r in Get-ChildItem -LiteralPath $worktrees -Directory) {
-      $checkouts += @(Get-ChildItem -LiteralPath $r.FullName -Directory | ForEach-Object { [pscustomobject]@{ Name = ".worktrees/$($r.Name)/$($_.Name)"; RepoFolder = $r.Name; Path = $_.FullName } })
+      # a link beside the worktrees is a neighbour checkout, initialized as itself
+      $checkouts += @(Get-ChildItem -LiteralPath $r.FullName -Directory | Where-Object { -not $_.LinkType } | ForEach-Object { [pscustomobject]@{ Name = ".worktrees/$($r.Name)/$($_.Name)"; RepoFolder = $r.Name; Path = $_.FullName } })
     }
   }
   # a harness clone serves the repositories; it is not one of them, and neither is a worktree of one
@@ -129,6 +130,38 @@ if ($inWorkTree -and -not (Test-Path (Join-Path $target '.ai-core'))) {
   if ($common -and $common -cne $gitDir -and (Test-Path (Join-Path (Split-Path -Parent $common) '.ai-core'))) {
     $worktreeDataFrom = Split-Path -Parent $common
     if (-not $DryRun) { Copy-Item -Recurse -Path (Join-Path $worktreeDataFrom '.ai-core') -Destination (Join-Path $target '.ai-core') }
+  }
+}
+
+# 0b. A check of the repository may read a neighbour checkout of the project folder through `..`,
+#     and in a worktree `..` is .worktrees/<repository>/, where no neighbour stands: the check then
+#     finds nothing and proves less than in the checkout. So every other checkout of the folder
+#     gets a link there, and `..` finds the same neighbours from the worktree. An entry that stands
+#     there already is left as it is. Windows makes a junction, which needs no privilege and takes
+#     an absolute target.
+$neighboursLinked = @(); $neighboursIn = ''
+if ($inWorkTree) {
+  $common = "$(& git -C $target rev-parse --path-format=absolute --git-common-dir 2>$null)"
+  $gitDir = "$(& git -C $target rev-parse --path-format=absolute --git-dir 2>$null)"
+  if ($common -and $common -cne $gitDir) {
+    $main = $common.Substring(0, $common.LastIndexOf('/'))
+    $folder = $main.Substring(0, $main.LastIndexOf('/'))
+    $repoName = $main.Substring($main.LastIndexOf('/') + 1)
+    $top = "$(& git -C $target rev-parse --show-toplevel)"
+    $container = $top.Substring(0, $top.LastIndexOf('/'))
+    if ($container -ceq "$folder/.worktrees/$repoName") {
+      $neighboursIn = ".worktrees/$repoName/"
+      foreach ($n in Get-ChildItem -LiteralPath $folder -Directory | Sort-Object Name) {
+        if ($n.Name -ceq $repoName -or -not (Test-Path -LiteralPath (Join-Path $n.FullName '.git') -PathType Container)) { continue }
+        $link = "$container/$($n.Name)"
+        if ($null -ne (Get-Item -LiteralPath $link -Force -ErrorAction SilentlyContinue)) { continue }
+        if (-not $DryRun) {
+          if ($IsWindows) { New-Item -ItemType Junction -Path $link -Target $n.FullName | Out-Null }
+          else { New-Item -ItemType SymbolicLink -Path $link -Target "../../$($n.Name)" | Out-Null }
+        }
+        $neighboursLinked += $n.Name
+      }
+    }
   }
 }
 
@@ -657,6 +690,7 @@ if ($gitignoreChanged) {
   else { Write-Host "  .gitignore changed: the agent files of this repository are ignored; $gitignoreNote" }
 } elseif ($gitignoreNote) { Write-Host "  .gitignore: $gitignoreNote; the block was there already" }
 if ($worktreeDataFrom) { Write-Host "  .ai-core $(if ($DryRun) { 'would be taken' } else { 'taken' }) from the checkout ${worktreeDataFrom}: a worktree starts with the checkout's configuration, local rules and documents" }
+if ($neighboursLinked.Count) { Write-Host "  links to the neighbour checkouts $(if ($DryRun) { 'would be made' } else { 'made' }) in ${neighboursIn}: $($neighboursLinked -join ' '); .. finds them from the worktree as from the checkout" }
 if ($hooksArmed) { Write-Host "  core.hooksPath $(if ($DryRun) { 'would be set' } else { 'set' }) to .githooks: the push gate runs here" }
 if ($shimsMode -eq 1 -and $DryRun) { Write-Host "  the shims in .githooks are not executable, so git skips the push gate: ai-core pre-push --install would make them so" }
 elseif ($shimsMode -eq 1) { Write-Host "  the shims in .githooks were not executable, so git skipped the push gate: ai-core pre-push --install made them so" }

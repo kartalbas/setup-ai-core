@@ -21,8 +21,12 @@ models, efforts and how many. Where they come in pairs, every tier has a writer 
   tests that follow a change.
 
 The start prompt that `ai-core team-open` gives you names every worker with its model and effort;
-where you were started otherwise, the name carries the model. A worker that waits costs nothing;
-give work only to the tier a package needs.
+where you were started otherwise, the name carries the model. A worker that waits uses no tokens,
+but its cache expires. A codex session keeps its cache for 5 minutes almost always (95 % read from
+the cache, measured), for 10 minutes mostly (86 %), and past 45 minutes rarely; a Claude session
+keeps it for one hour. Resumed after that, the worker reads its whole history again at full price,
+100k to 150k tokens at once. So give a waiting worker its next task within 10 minutes where you
+can, and before 45 minutes at the latest; give work only to the tier a package needs.
 
 ## 1. The overview, kept in the tracker
 

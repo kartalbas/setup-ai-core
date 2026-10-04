@@ -41,13 +41,13 @@ try {
     } | ConvertTo-Json -Depth 5 -Compress
   }
   $page1 = @(
-    Card 1 'In progress' P1 OPEN - - 3 'Package: alpha' "The alpha work.`n"
+    Card 1 'In progress' P1 OPEN - - 3 'alpha' "The alpha work.`n"
     Card 2 'In progress' P2 OPEN - 1 0 'Second'
     Card 3 Todo P1 OPEN - 1 0 'Third'
     Card 4 Done P2 CLOSED ($now - 7200) 1 0 'Fourth'
-    Card 5 Todo P2 OPEN - - 1 'Package: beta'
+    Card 5 Todo P2 OPEN - - 1 'beta'
     Card 6 Done P2 CLOSED ($now - 3600) 5 0 'Sixth'
-    Card 21 Todo P2 OPEN - - 1 'Package: gamma'
+    Card 21 Todo P2 OPEN - - 1 'gamma'
     Card 22 Todo P2 OPEN - 21 0 'Twenty-second'
     foreach ($n in 9..12) { Card $n Done - CLOSED ($now - ($n - 5) * 3600) - 0 "Closed $n" }
     foreach ($n in 13..20) { Card $n Done - CLOSED ($now - ($n - 7) * 86400) - 0 "Closed $n" }
@@ -113,15 +113,15 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   Write-Host 'the tokens of the day: an answer written twice counts once, every session counts, an older answer does not'
   Check 'the tokens'    'tokens in 24 hours the sessions of this folder used 5k fresh and read 1k from the cache: 910 fresh and 167 from the cache per closed issue' (Line 'tokens ')
   Check 'the context'   'context 2k per answer on average, 5k the largest, over 3 answers in 24 hours' (Line 'context ')
-  Check 'the open work' 'open 8 issues · 3 packages, 1 ready to close · 2 outside packages' (Line 'open ')
+  Check 'the open work' 'open 8 issues · 3 epics, 1 ready to close · 2 outside epics' (Line 'open ')
   Write-Host 'no plan by worker and no forecast: the coordinator says who works on what'
   Check 'no plan'       0 @($lines | Where-Object { $_ -cmatch '^(PLAN BY WORKER|PAUSES|DONE) ' }).Count
   Check 'ready'         'CLOSE every sub-issue closed: example-repo#5' (Line 'CLOSE')
   Check 'open on Done'  'CHECK open on Done: example-repo#8' (Line 'CHECK')
-  Write-Host 'every open issue, by package, in work order, the second page among them'
-  Check 'a package'     'example-repo#1 alpha (2)' (Line 'example-repo#1 alpha (')
+  Write-Host 'every open issue, by epic, in work order, the second page among them'
+  Check 'an epic'      'example-repo#1 alpha (2)' (Line 'example-repo#1 alpha (')
   Check 'nearest done first' 'example-repo#2 example-repo#3' (Keys '  example-repo#1 alpha (')
-  Check 'outside'       'example-repo#8 example-repo#7' (Keys '  outside packages')
+  Check 'outside'       'example-repo#8 example-repo#7' (Keys '  outside epics')
   Write-Host 'without -Tokens: the agents that run now, from the process list alone'
   function Run([string[]] $More) { Push-Location $folder; try { @(& pwsh -NoProfile -File (Join-Path $root 'bin/status.ps1') -Project example-org/7 @More 2>&1 | ForEach-Object { "$_" }) } finally { Pop-Location } }
   # Claude Code's list of its sessions and the codex rollout files held open, through their

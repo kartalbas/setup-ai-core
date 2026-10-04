@@ -14,4 +14,4 @@ counts, so both print the same page.
 
   ai-core status [--project N] [--tokens] [--issues]
     the board of the repository you stand in, or board N; --issues adds every open issue, by
-    package, to the --tokens page
+    epic, to the --tokens page

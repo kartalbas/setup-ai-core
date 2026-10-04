@@ -36,13 +36,13 @@ card() {  # card <number> <status> <priority> <state> <closed at> <parent> <sub-
     "$([ "$6" = - ] && echo null || echo "{\"number\":$6,\"repository\":{\"nameWithOwner\":\"example-org/example-repo\"}}")" "$7"
 }
 {
-  card 1 'In progress' P1 OPEN - - 3 'Package: alpha' 'The alpha work.\n'
+  card 1 'In progress' P1 OPEN - - 3 'alpha' 'The alpha work.\n'
   card 2 'In progress' P2 OPEN - 1 0 'Second'
   card 3 Todo P1 OPEN - 1 0 'Third'
   card 4 Done P2 CLOSED $((now - 7200)) 1 0 'Fourth'
-  card 5 Todo P2 OPEN - - 1 'Package: beta'
+  card 5 Todo P2 OPEN - - 1 'beta'
   card 6 Done P2 CLOSED $((now - 3600)) 5 0 'Sixth'
-  card 21 Todo P2 OPEN - - 1 'Package: gamma'
+  card 21 Todo P2 OPEN - - 1 'gamma'
   card 22 Todo P2 OPEN - 21 0 'Twenty-second'
   for n in 9 10 11 12; do card "$n" Done - CLOSED $((now - (n - 5) * 3600)) - 0 "Closed $n"; done
   for n in 13 14 15 16 17 18 19 20; do card "$n" Done - CLOSED $((now - (n - 7) * 86400)) - 0 "Closed $n"; done
@@ -102,15 +102,15 @@ check 'the cost'      "cost this folder raises the 5h window 4.0 % and the week 
 echo 'the tokens of the day: an answer written twice counts once, every session counts, an older answer does not'
 check 'the tokens'    'tokens in 24 hours the sessions of this folder used 5k fresh and read 1k from the cache: 910 fresh and 167 from the cache per closed issue' "$(line 'tokens ')"
 check 'the context'   'context 2k per answer on average, 5k the largest, over 3 answers in 24 hours' "$(line 'context ')"
-check 'the open work' 'open 8 issues · 3 packages, 1 ready to close · 2 outside packages' "$(line 'open ')"
+check 'the open work' 'open 8 issues · 3 epics, 1 ready to close · 2 outside epics' "$(line 'open ')"
 echo 'no plan by worker and no forecast: the coordinator says who works on what'
 check 'no plan'       0 "$(grep -cE '^(PLAN BY WORKER|PAUSES|DONE) ' <<< "$out" || true)"
 check 'ready'         'CLOSE every sub-issue closed: example-repo#5' "$(line 'CLOSE')"
 check 'open on Done'  'CHECK open on Done: example-repo#8' "$(line 'CHECK')"
-echo 'every open issue, by package, in work order, the second page among them'
-check 'a package'     'example-repo#1 alpha (2)' "$(line 'example-repo#1 alpha (' | sed 's/^ //')"
+echo 'every open issue, by epic, in work order, the second page among them'
+check 'an epic'      'example-repo#1 alpha (2)' "$(line 'example-repo#1 alpha (' | sed 's/^ //')"
 check 'nearest done first' 'example-repo#2 example-repo#3' "$(awk '/example-repo#1 alpha \(/ { on = 1; next } on && /^    / { printf "%s%s", sep, $2; sep = " "; next } on { exit }' <<< "$out")"
-check 'outside'       'example-repo#8 example-repo#7' "$(awk '/^  outside packages/ { on = 1; next } on && /^    / { printf "%s%s", sep, $2; sep = " " }' <<< "$out")"
+check 'outside'       'example-repo#8 example-repo#7' "$(awk '/^  outside epics/ { on = 1; next } on && /^    / { printf "%s%s", sep, $2; sep = " " }' <<< "$out")"
 
 echo 'without --tokens: the agents that run now, from the process list alone'
 : > "$work/no-processes"

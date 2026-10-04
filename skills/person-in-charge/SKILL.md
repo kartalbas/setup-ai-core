@@ -67,21 +67,24 @@ to the tier a package needs.
 3. Issues that change the same file or module form a package. Split a package above 8 issues or
    about 400 changed lines along the file's sections. Order inside a package by function and
    dependency; an issue that unblocks another goes first.
-4. Record every package as a parent issue titled "Package: <file or module>", its issues as
-   sub-issues (`ai-core subissue-add`), and its files, order and tier in the body. The tracker is
-   the overview: what is not there, you do not know after a restart or a compaction.
+4. Record every package in one plan issue per board, titled "Plan: packages": one section per
+   package, `### Package: <file or module>`, with its issues as `<repo>#<number>` in order, its
+   files, its tier, its state and, once it has one, the line `Worker: <session name>`. Never make
+   a package a parent issue: an issue has one parent, that parent belongs to its epic, and a
+   package would take it away or stay empty. The tracker is the overview: what is not there, you
+   do not know after a restart or a compaction.
 
 ## 2. New issues
 
 Map the files of every new issue. Add it to an open package that owns one of them and has not
-finished; otherwise open a new package.
+finished; otherwise add a new package to the plan issue.
 
 ## 3. Delegation
 
 - One package goes to one worker. While it runs, the worker owns the package's files and no
   other worker touches them; a worker that needs a file outside its package asks you first.
-- Write the worker into the package's body as a line `Worker: <session name>` (`ai-core
-  issue-edit`), so whoever reads the package sees who works on it.
+- Write the worker into the package's section of the plan issue as a line
+  `Worker: <session name>` (`ai-core issue-edit`), so whoever reads the plan sees who works on it.
 - The tier follows the stakes: a small mechanical change the lighter model, ordinary work the
   standard one; security, payments, contracts or the push gate the strongest.
 - One brief per package: the start prompt of a new worker, or a `SendMessage` to a running one:
@@ -95,7 +98,7 @@ finished; otherwise open a new package.
 
 - The other worker of the tier reviews a package; a high-stakes package is reviewed by a critic
   and a developer. The writer never approves its own package.
-- On a report: check the verification output, send the review, update the package issue, run
+- On a report: check the verification output, send the review, update the plan issue, run
   `ai-core finish-issue` for each issue once the push has landed, and give the worker its next
   package.
 

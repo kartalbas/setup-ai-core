@@ -1,6 +1,6 @@
 # The PowerShell twin of status.test.sh, asserting the SAME page: the usage, the pace, the cost, the
-# tokens of the day (an answer written twice counted once, every session counted, an older one not), the plan
-# with the week pausing both workers, what is ready to close, and the second page of the board.
+# tokens of the day (an answer written twice counted once, every session counted, an older one not), what
+# is ready to close, and the second page of the board.
 #
 #   pwsh -File tests/status.test.ps1
 
@@ -41,13 +41,13 @@ try {
     } | ConvertTo-Json -Depth 5 -Compress
   }
   $page1 = @(
-    Card 1 'In progress' P1 OPEN - - 3 'Package: alpha' "The alpha work.`nWorker: exa-sonnet-1`n"
+    Card 1 'In progress' P1 OPEN - - 3 'Package: alpha' "The alpha work.`n"
     Card 2 'In progress' P2 OPEN - 1 0 'Second'
     Card 3 Todo P1 OPEN - 1 0 'Third'
     Card 4 Done P2 CLOSED ($now - 7200) 1 0 'Fourth'
     Card 5 Todo P2 OPEN - - 1 'Package: beta'
     Card 6 Done P2 CLOSED ($now - 3600) 5 0 'Sixth'
-    Card 21 Todo P2 OPEN - - 1 'Package: gamma' "Worker: exa-hand-1`n"
+    Card 21 Todo P2 OPEN - - 1 'Package: gamma'
     Card 22 Todo P2 OPEN - 21 0 'Twenty-second'
     foreach ($n in 9..12) { Card $n Done - CLOSED ($now - ($n - 5) * 3600) - 0 "Closed $n" }
     foreach ($n in 13..20) { Card $n Done - CLOSED ($now - ($n - 7) * 86400) - 0 "Closed $n" }
@@ -69,8 +69,7 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   if (-not $IsWindows) { Set-Content -Path (Join-Path $work 'bin/ps') -Value "#!/bin/sh`necho 'ps: unknown option -- A' >&2; exit 1" -Encoding ascii; & chmod +x (Join-Path $work 'bin/ps') }
   $env:PATH = "$(Join-Path $work 'bin')$([IO.Path]::PathSeparator)$env:PATH"
 
-  # The team, the usage now and its history, and the transcripts of the folder's sessions
-  Set-Content -LiteralPath "$folder/.ai-core/team.tsv" -Value @("coordinator`topus`tmax`t1", "worker`tsonnet`tmax`t2")
+  # The usage now and its history, and the transcripts of the folder's sessions
   Set-Content -LiteralPath "$env:HOME/.ai-core/usage.json" -Value ('{"recorded_at":' + $now + ',"rate_limits":{"five_hour":{"used_percentage":25,"resets_at":' + ($now + 3600) + '},"seven_day":{"used_percentage":89,"resets_at":' + ($now + 432000) + '}}}')
   Set-Content -LiteralPath "$env:HOME/.ai-core/usage.log" -Value @(
     "$($now - 10800) 1 $($now + 3600) 83 $($now + 432000)", "$($now - 7200) 13 $($now + 3600) 86 $($now + 432000)", "$now 25 $($now + 3600) 89 $($now + 432000)")
@@ -109,21 +108,14 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   Check 'exit 0'        0 $rc
   Check 'the board'     "example · board example-org/7 · $(When $now)" $lines[0]
   Check 'the usage'     "usage 5h 25 % (reset $(When ($now + 3600))) · week 89 % (reset $(When ($now + 432000))) · limit 92 %" (Line 'usage ')
-  Check 'the pace'      'pace 6 issues closed in the last 24 hours, 1.0 a day over 14 days; 2 workers, shared evenly: too few packages name their worker' (Line 'pace ')
+  Check 'the pace'      'pace 6 issues closed in the last 24 hours, 1.0 a day over 14 days' (Line 'pace ')
   Check 'the cost'      "cost this folder raises the 5h window 4.0 % and the week 1.00 % an hour, 50 % of the machine's fresh tokens; at the pace of 24 hours, 4.00 % of the week per issue closed here" (Line 'cost ')
   Write-Host 'the tokens of the day: an answer written twice counts once, every session counts, an older answer does not'
   Check 'the tokens'    'tokens in 24 hours the sessions of this folder used 5k fresh and read 1k from the cache: 910 fresh and 167 from the cache per closed issue' (Line 'tokens ')
   Check 'the context'   'context 2k per answer on average, 5k the largest, over 3 answers in 24 hours' (Line 'context ')
   Check 'the open work' 'open 8 issues · 3 packages, 1 ready to close · 2 outside packages' (Line 'open ')
-  Write-Host 'the plan: each named package on its worker, a session started by hand in place of a free lane, the rest on the one that frees first, the week pausing both'
-  Check 'the worker'    'exa-sonnet-1 sonnet max 3.0 issues a day' (Line 'exa-sonnet-1')
-  Check 'its package'   "▸ example-repo#1 alpha 2 $(When $now) $(When ($now + 5 * 86400 + 52200))" (Line '▸ example-repo#1')
-  Check 'the hand-started session' 'exa-hand-1 a model team.tsv does not name 3.0 issues a day' (Line 'exa-hand-1 ')
-  Check 'its package, as written' "▸ example-repo#21 gamma 1 $(When $now) $(When ($now + 5 * 86400 + 23400))" (Line '▸ example-repo#21')
-  Check 'the lanes stay the team' '' (Line 'exa-sonnet-2')
-  Check 'the rest'      "· outside packages 1 issue 1 $(When ($now + 5 * 86400 + 23400)) $(When ($now + 5 * 86400 + 52200))" (Line '· outside packages')
-  Check 'the pause'     "PAUSES week $(When ($now + 5400)) until $(When ($now + 5 * 86400))" (Line 'PAUSES')
-  Check 'the end'       "DONE about $(When ($now + 5 * 86400 + 52200)), an estimate from the pace of the last 24 hours, the measured rise of the windows and the pauses" (Line 'DONE')
+  Write-Host 'no plan by worker and no forecast: the coordinator says who works on what'
+  Check 'no plan'       0 @($lines | Where-Object { $_ -cmatch '^(PLAN BY WORKER|PAUSES|DONE) ' }).Count
   Check 'ready'         'CLOSE every sub-issue closed: example-repo#5' (Line 'CLOSE')
   Check 'open on Done'  'CHECK open on Done: example-repo#8' (Line 'CHECK')
   Write-Host 'every open issue, by package, in work order, the second page among them'

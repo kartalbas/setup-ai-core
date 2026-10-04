@@ -10,8 +10,7 @@ for twin in sh ps1; do
   for t in "repo-$twin" "wt-$twin"; do
     mkdir -p "$WORK/$t/.ai-core" "$WORK/$t/.claude"
     printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$WORK/$t/.ai-core/config.env"
-    [ "$t" = "wt-$twin" ] && printf 'AUTO_COMPACT_WINDOW="300000"\n' >> "$WORK/$t/.ai-core/config.env"   # the project's own window
-    printf '{"permissions":{"allow":["Bash(x)"]}}\n' > "$WORK/$t/.claude/settings.json"   # a settings.json from before the hook
+    printf '{"permissions":{"allow":["Bash(x)"]},"autoCompactWindow":500000}\n' > "$WORK/$t/.claude/settings.json"   # a settings.json from before the hook, with a compact window init takes out
     [ "$t" = "repo-$twin" ] && printf '{"permissions":{"allow":["Bash(x)"],"deny":["Bash(rm -rf:*)"]},"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"ai-core session-start --tool claude","timeout":60},{"type":"command","command":"echo other"}]}]}}\n' > "$WORK/$t/.claude/settings.json"   # one with the hook of before 1.3.21 and a hook of somebody else's
     for run in 1 2; do
       if [ "$twin" = sh ]; then
@@ -42,19 +41,18 @@ for twin in sh ps1; do
     [ "$t" = "repo-$twin" ] && { [ "$(jq '[.hooks.SessionStart[].hooks[].command] | index("echo other") != null' "$WORK/$t/.claude/settings.json")" = true ] || fail "init.$twin took somebody else's hook out of the settings.json $t had"; }
     jq -e --slurpfile t "$ROOT/templates/.claude/settings.json" '(($t[0].permissions.deny - .permissions.deny) | length == 0) and ([.permissions.deny[] | select(. == "Read(**/.env)")] | length == 1)' "$WORK/$t/.claude/settings.json" > /dev/null || fail "init.$twin did not merge the denials of the template, once, into the settings.json $t had: $(jq -c '.permissions.deny' "$WORK/$t/.claude/settings.json")"
     [ "$t" = "repo-$twin" ] && { [ "$(jq '.permissions.deny | index("Bash(rm -rf:*)") != null' "$WORK/$t/.claude/settings.json")" = true ] || fail "init.$twin took the denial the settings.json of $t had out"; }
-    want=500000; [ "$t" = "wt-$twin" ] && want=300000   # the template's where the project sets none
-    [ "$(jq '.autoCompactWindow' "$WORK/$t/.claude/settings.json")" = "$want" ] || fail "init.$twin did not set the compact window of $t to $want: $(jq -c '.autoCompactWindow' "$WORK/$t/.claude/settings.json")"
+    # the context size is the coordinator's, per session; init sets none and takes an old one out
+    [ "$(jq 'has("autoCompactWindow")' "$WORK/$t/.claude/settings.json")" = false ] || fail "init.$twin left a compact window in the settings.json of $t: $(jq -c '.autoCompactWindow' "$WORK/$t/.claude/settings.json")"
     [ "$run" = 1 ] && [ "$t" = "repo-$twin" ] && { grep -aq '^  refreshed .*\.claude/settings\.json' "$WORK/$t-init.log" || fail "init.$twin did not report the merged settings.json as refreshed"; }
     [ "$run" = 2 ] && grep -aq '^  refreshed .*\.claude/settings\.json' "$WORK/$t-init.log" && fail "init.$twin refreshed the settings.json of $t a second time"
+    # a compact window written by hand into a settings.json that is otherwise current goes too
+    jq '.autoCompactWindow = 500000' "$WORK/$t/.claude/settings.json" > "$WORK/$t-settings.json" && cat "$WORK/$t-settings.json" > "$WORK/$t/.claude/settings.json"
+    if [ "$twin" = sh ]; then bash "$ROOT/bin/init.sh" "$WORK/$t" --no-doctor > "$WORK/$t-init.log" 2>&1 || fail "init.sh in $t (run 3)"
+    else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/$t")" -NoDoctor > "$WORK/$t-init.log" 2>&1 || fail "init.ps1 in $t (run 3)"; fi
+    [ "$(jq 'has("autoCompactWindow")' "$WORK/$t/.claude/settings.json")" = false ] || fail "init.$twin kept a compact window written by hand into the settings.json of $t"
   done
-  # a compact window outside what Claude Code takes stops init and names the key
-  git init -q "$WORK/bad-$twin"; git -C "$WORK/bad-$twin" -c user.name=check -c user.email=check@localhost commit -q --allow-empty -m init
-  mkdir -p "$WORK/bad-$twin/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\nAUTO_COMPACT_WINDOW="99"\n' > "$WORK/bad-$twin/.ai-core/config.env"
-  if [ "$twin" = sh ]; then bash "$ROOT/bin/init.sh" "$WORK/bad-$twin" --no-doctor > "$WORK/bad-$twin.log" 2>&1 && fail "init.sh took a compact window of 99"
-  else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/bad-$twin")" -NoDoctor > "$WORK/bad-$twin.log" 2>&1 && fail "init.ps1 took a compact window of 99"; fi
-  grep -aq "AUTO_COMPACT_WINDOW in .ai-core/config.env is a number of tokens from 100000 to 1000000 or \"auto\", not '99'" "$WORK/bad-$twin.log" || fail "init.$twin did not name the wrong compact window: $(tail -3 "$WORK/bad-$twin.log")"
   n="$(grep -c '^# setup-ai-core start' "$WORK/repo-$twin/.git/info/exclude")"
   [ "$n" = 1 ] || fail "exclude block written $n times by init.$twin"
 done
-echo "  git status empty in 4 targets, the checkouts' .gitignore committed by init with its trailer, the worktrees' left to their own commit; exclude block written once each; the session-start hook merged into the settings.json each had, once; the compact window the template's or the project's, a wrong one refused"
+echo "  git status empty in 4 targets, the checkouts' .gitignore committed by init with its trailer, the worktrees' left to their own commit; exclude block written once each; the session-start hook merged into the settings.json each had, once; no compact window left in it"
 exit 0

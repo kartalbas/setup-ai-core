@@ -10,9 +10,10 @@ beyond the spans the code graph returns. The owner talks to you; the workers rep
 
 ## The team
 
-The workers are other sessions of the project, found with `ListAgents` and named
-`<first three letters of the project folder>-<model>-<index>`; the project's team.tsv says which
-models, efforts and how many. Where they come in pairs, every tier has a writer and a reviewer:
+You start the workers yourself, as background sessions of Claude Code; the owner opens no
+terminal for them. You choose each worker's model, effort and context size for its role, never a
+model below Sonnet, and a worker keeps them from its first start: another role is another worker.
+Where they come in pairs, every tier has a writer and a reviewer:
 
 - critics on the strongest model: critique of every solution path before work starts, review
   of high-stakes packages, and the work on those packages;
@@ -20,13 +21,25 @@ models, efforts and how many. Where they come in pairs, every tier has a writer 
 - small-work sessions on the lighter model: mechanical packages, such as renames, texts and the
   tests that follow a change.
 
-The start prompt that `ai-core team-open` gives you names every worker with its model and effort;
-where you were started otherwise, the name carries the model. A worker that waits uses no tokens,
-but its cache expires. A codex session keeps its cache for 5 minutes almost always (95 % read from
-the cache, measured), for 10 minutes mostly (86 %), and past 45 minutes rarely; a Claude session
-keeps it for one hour. Resumed after that, the worker reads its whole history again at full price,
-100k to 150k tokens at once. So give a waiting worker its next task within 10 minutes where you
-can, and before 45 minutes at the latest; give work only to the tier a package needs.
+A reviewer reads one diff and needs a small context; a developer on a package needs a larger one.
+
+- Start a worker in its package's worktree, which `ai-core start-issue <first number>` opens in
+  the repository: `claude --bg --name <issue numbers>-<model> --model <model> --effort <effort>
+  --permission-mode auto --settings '{"autoCompactWindow":<tokens>}' "<the brief>"`, with a
+  context size from 100000 to 1000000 tokens. `--bg` starts only in a folder Claude Code trusts,
+  or below one; where it answers "Workspace not trusted", ask the owner to run `claude` there once.
+- Find the workers with `claude agents --json` (name, id, sessionId, state) or `ListAgents`, and
+  talk to them with `SendMessage`.
+- Continue a stopped worker with `claude --bg --resume <sessionId>` and no other option: an option
+  starts a copy of it, with the same history, instead.
+- Stop a worker with `claude stop <id>` once its last package is done.
+
+A worker that waits uses no tokens, but its cache expires. A codex session keeps its cache for 5
+minutes almost always (95 % read from the cache, measured), for 10 minutes mostly (86 %), and
+past 45 minutes rarely; a Claude session keeps it for one hour. Resumed after that, the worker
+reads its whole history again at full price, 100k to 150k tokens at once. So give a waiting worker
+its next task within 10 minutes where you can, and before 45 minutes at the latest; give work only
+to the tier a package needs.
 
 ## 1. The overview, kept in the tracker
 
@@ -51,15 +64,13 @@ finished; otherwise open a new package.
 - One package goes to one worker. While it runs, the worker owns the package's files and no
   other worker touches them; a worker that needs a file outside its package asks you first.
 - Write the worker into the package's body as a line `Worker: <session name>` (`ai-core
-  issue-edit`). `ai-core status --tokens` plans the package on that worker and measures each
-  model's pace from it.
+  issue-edit`), so whoever reads the package sees who works on it.
 - The tier follows the stakes: a small mechanical change the lighter model, ordinary work the
   standard one; security, payments, contracts or the push gate the strongest.
-- One brief per package, sent with `SendMessage`:
+- One brief per package: the start prompt of a new worker, or a `SendMessage` to a running one:
   - the issues in order, each with its acceptance criteria;
   - the file spans to read, read once, a span re-read only after editing it;
-  - one worktree for the package (`ai-core start-issue <first number>`), one commit per issue
-    naming its number;
+  - the package's worktree, one commit per issue naming its number;
   - the verification command, run once at the end;
   - a report per issue: what changed, what was verified, what in the issue was wrong.
 
@@ -100,7 +111,6 @@ in a code block:
   state and next step;
 - NEXT TO DONE: the cards that close first, each with an approximate time.
 Under the code block write at most one line: what the owner must do now, if anything; no summary
-in its place. `--tokens` prints the pace, the cost and the
-forecast when the owner asks for them, `--tokens --issues` every open issue. Every question
-to the owner goes into the question dialog, the recommended option first, with no option that
-needs typing.
+in its place. `--tokens` prints the usage, the pace and the cost when the owner asks for them,
+`--tokens --issues` every open issue. Every question to the owner goes into the question dialog,
+the recommended option first, with no option that needs typing.

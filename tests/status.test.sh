@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # What `status` prints for one board: the usage, the pace, what an issue costs of a window, the
-# tokens an issue took, the plan of every worker with a pause where the week reaches the limit, and
-# what is ready to close or sits on Done while open. The board has two pages, so paging is read.
+# tokens an issue took, and what is ready to close or sits on Done while open. The board has two pages, so paging is read.
 # The transcripts carry an answer written twice (counted once), an answer outside a worktree
 # (counted, as every session of the folder is) and one older than the day (not counted)
 # (counted to no issue). A fake gh, a fixed clock and a temporary HOME keep the machine out of it.
@@ -37,13 +36,13 @@ card() {  # card <number> <status> <priority> <state> <closed at> <parent> <sub-
     "$([ "$6" = - ] && echo null || echo "{\"number\":$6,\"repository\":{\"nameWithOwner\":\"example-org/example-repo\"}}")" "$7"
 }
 {
-  card 1 'In progress' P1 OPEN - - 3 'Package: alpha' 'The alpha work.\nWorker: exa-sonnet-1\n'
+  card 1 'In progress' P1 OPEN - - 3 'Package: alpha' 'The alpha work.\n'
   card 2 'In progress' P2 OPEN - 1 0 'Second'
   card 3 Todo P1 OPEN - 1 0 'Third'
   card 4 Done P2 CLOSED $((now - 7200)) 1 0 'Fourth'
   card 5 Todo P2 OPEN - - 1 'Package: beta'
   card 6 Done P2 CLOSED $((now - 3600)) 5 0 'Sixth'
-  card 21 Todo P2 OPEN - - 1 'Package: gamma' 'Worker: exa-hand-1\n'
+  card 21 Todo P2 OPEN - - 1 'Package: gamma'
   card 22 Todo P2 OPEN - 21 0 'Twenty-second'
   for n in 9 10 11 12; do card "$n" Done - CLOSED $((now - (n - 5) * 3600)) - 0 "Closed $n"; done
   for n in 13 14 15 16 17 18 19 20; do card "$n" Done - CLOSED $((now - (n - 7) * 86400)) - 0 "Closed $n"; done
@@ -69,8 +68,7 @@ printf '#!/usr/bin/env bash\necho "ps: unknown option -- A" >&2; exit 1\n' > "$w
 chmod +x "$work/bin/ps"
 export PATH="$work/bin:$PATH"
 
-# The team, the usage now and its history, and the transcripts of the folder's sessions
-printf 'coordinator\topus\tmax\t1\nworker\tsonnet\tmax\t2\n' > "$folder/.ai-core/team.tsv"
+# The usage now and its history, and the transcripts of the folder's sessions
 printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":25,"resets_at":%s},"seven_day":{"used_percentage":89,"resets_at":%s}}}\n' \
   "$now" $((now + 3600)) $((now + 432000)) > "$HOME/.ai-core/usage.json"
 for row in "$((now - 10800)) 1 83" "$((now - 7200)) 13 86" "$now 25 89"; do
@@ -99,21 +97,14 @@ echo 'the head of the page'
 check 'exit 0'        0 "$rc"
 check 'the board'     "example · board example-org/7 · $(when "$now")" "$(sed -n 1p <<< "$out")"
 check 'the usage'     "usage 5h 25 % (reset $(when $((now + 3600)))) · week 89 % (reset $(when $((now + 432000)))) · limit 92 %" "$(line 'usage ')"
-check 'the pace'      'pace 6 issues closed in the last 24 hours, 1.0 a day over 14 days; 2 workers, shared evenly: too few packages name their worker' "$(line 'pace ')"
+check 'the pace'      'pace 6 issues closed in the last 24 hours, 1.0 a day over 14 days' "$(line 'pace ')"
 check 'the cost'      "cost this folder raises the 5h window 4.0 % and the week 1.00 % an hour, 50 % of the machine's fresh tokens; at the pace of 24 hours, 4.00 % of the week per issue closed here" "$(line 'cost ')"
 echo 'the tokens of the day: an answer written twice counts once, every session counts, an older answer does not'
 check 'the tokens'    'tokens in 24 hours the sessions of this folder used 5k fresh and read 1k from the cache: 910 fresh and 167 from the cache per closed issue' "$(line 'tokens ')"
 check 'the context'   'context 2k per answer on average, 5k the largest, over 3 answers in 24 hours' "$(line 'context ')"
 check 'the open work' 'open 8 issues · 3 packages, 1 ready to close · 2 outside packages' "$(line 'open ')"
-echo 'the plan: each named package on its worker, a session started by hand in place of a free lane, the rest on the one that frees first, the week pausing both'
-check 'the worker'    'exa-sonnet-1 sonnet max 3.0 issues a day' "$(line 'exa-sonnet-1' | sed 's/^ //')"
-check 'its package'   "▸ example-repo#1 alpha 2 $(when "$now") $(when $((now + 5 * 86400 + 52200)))" "$(line '▸ example-repo#1' | sed 's/^ //')"
-check 'the hand-started session' 'exa-hand-1 a model team.tsv does not name 3.0 issues a day' "$(line 'exa-hand-1 ' | sed 's/^ //')"
-check 'its package, as written' "▸ example-repo#21 gamma 1 $(when "$now") $(when $((now + 5 * 86400 + 23400)))" "$(line '▸ example-repo#21' | sed 's/^ //')"
-check 'the lanes stay the team' '' "$(line 'exa-sonnet-2')"
-check 'the rest'      "· outside packages 1 issue 1 $(when $((now + 5 * 86400 + 23400))) $(when $((now + 5 * 86400 + 52200)))" "$(line '· outside packages' | sed 's/^ //')"
-check 'the pause'     "PAUSES week $(when $((now + 5400))) until $(when $((now + 5 * 86400)))" "$(line 'PAUSES')"
-check 'the end'       "DONE about $(when $((now + 5 * 86400 + 52200))), an estimate from the pace of the last 24 hours, the measured rise of the windows and the pauses" "$(line 'DONE')"
+echo 'no plan by worker and no forecast: the coordinator says who works on what'
+check 'no plan'       0 "$(grep -cE '^(PLAN BY WORKER|PAUSES|DONE) ' <<< "$out" || true)"
 check 'ready'         'CLOSE every sub-issue closed: example-repo#5' "$(line 'CLOSE')"
 check 'open on Done'  'CHECK open on Done: example-repo#8' "$(line 'CHECK')"
 echo 'every open issue, by package, in work order, the second page among them'

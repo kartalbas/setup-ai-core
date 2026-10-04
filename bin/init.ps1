@@ -272,7 +272,7 @@ $stamp = @("setup-ai-core $coreCommit")
 $layerFiles = @()   # what the layers wrote, so the templates leave it alone
 $mapSrc = $null     # a generated map, deployed with the binding rules on top once the rules are assembled
 $deployed = @()     # what the layers put into the checkout, recorded in .ai-core\DEPLOYED
-$dataFiles = @('config.env', 'labels.tsv', 'assignees.tsv', 'team-modes.tsv', 'team.tsv')
+$dataFiles = @('config.env', 'labels.tsv', 'assignees.tsv', 'team-modes.tsv')
 # The skills of setup-ai-core itself, before the layers': a layer's skill of the same name replaces
 # the directory whole, so the more specific layer wins, as it does for the rules.
 if (Test-Path (Join-Path $coreRoot 'skills')) {
@@ -469,25 +469,14 @@ if ($aiCoreCmd -cmatch '^[a-z]:') { $aiCoreCmd = $aiCoreCmd.Substring(0, 1).ToUp
 $hook = "`"$aiCoreCmd`" session-start --tool claude"
 $settings = Join-Path $target '.claude\settings.json'
 $settingsTemplate = Join-Path $coreRoot 'templates\.claude\settings.json'
-# The context at which Claude Code compacts: the project's AUTO_COMPACT_WINDOW, the template's
-# where the project's config.env has none
-function Get-CompactWindow([string]$File) {
-  $line = @(Get-Content -LiteralPath $File -ErrorAction SilentlyContinue | Where-Object { $_ -cmatch '^\s*AUTO_COMPACT_WINDOW\s*=' }) | Select-Object -Last 1
-  if ($line) { ((($line -split '=', 2)[1] -split '#', 2)[0]).Trim(' ', "`t", "`r", '"', "'") } else { '' }
-}
-$compact = Get-CompactWindow $config; if (-not $compact) { $compact = Get-CompactWindow (Join-Path $templates '.ai-core\config.env') }
-if ($compact -ceq 'auto') { $compact = '"auto"' }
-elseif ($compact -cnotmatch '^[0-9]+\z' -or [long]$compact -lt 100000 -or [long]$compact -gt 1000000) {
-  Write-Host "error: AUTO_COMPACT_WINDOW in .ai-core/config.env is a number of tokens from 100000 to 1000000 or `"auto`", not '$compact'" -ForegroundColor Red; exit 1
-}
-$settingsHas = 'def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | ([.hooks.SessionStart[]?.hooks[]? | select(ours) | .command] == [$c]) and (($allow - (.permissions.allow // [])) | length == 0) and (($deny - (.permissions.deny // [])) | length == 0) and (.autoCompactWindow == $w)'
-$settingsAdd = 'def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | .hooks.SessionStart = ([.hooks.SessionStart[]? | .hooks = [.hooks[]? | select(ours | not)] | select(.hooks | length > 0)] + [{hooks: [{type: "command", command: $c, timeout: 60}]}]) | .permissions.allow = ((.permissions.allow // []) + ($allow - (.permissions.allow // []))) | .permissions.deny = ((.permissions.deny // []) + ($deny - (.permissions.deny // []))) | .autoCompactWindow = $w'
+$settingsHas = 'def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | ([.hooks.SessionStart[]?.hooks[]? | select(ours) | .command] == [$c]) and (($allow - (.permissions.allow // [])) | length == 0) and (($deny - (.permissions.deny // [])) | length == 0) and (has("autoCompactWindow") | not)'
+$settingsAdd = 'def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | .hooks.SessionStart = ([.hooks.SessionStart[]? | .hooks = [.hooks[]? | select(ours | not)] | select(.hooks | length > 0)] + [{hooks: [{type: "command", command: $c, timeout: 60}]}]) | .permissions.allow = ((.permissions.allow // []) + ($allow - (.permissions.allow // []))) | .permissions.deny = ((.permissions.deny // []) + ($deny - (.permissions.deny // []))) | del(.autoCompactWindow)'
 if (Get-Command jq -ErrorAction SilentlyContinue) {
   $settingsSrc = if (Test-Path -LiteralPath $settings) { $settings } else { $settingsTemplate }
   $stale = $true
-  if ($settingsSrc -ceq $settings) { & jq -e --arg c $hook --argjson w $compact --slurpfile t $settingsTemplate $settingsHas $settings 2>$null | Out-Null; $stale = ($LASTEXITCODE -ne 0) }
+  if ($settingsSrc -ceq $settings) { & jq -e --arg c $hook --slurpfile t $settingsTemplate $settingsHas $settings 2>$null | Out-Null; $stale = ($LASTEXITCODE -ne 0) }
   if ($stale) {
-    $merged = (& jq --arg c $hook --argjson w $compact --slurpfile t $settingsTemplate $settingsAdd $settingsSrc 2>$null | Out-String)
+    $merged = (& jq --arg c $hook --slurpfile t $settingsTemplate $settingsAdd $settingsSrc 2>$null | Out-String)
     if ($LASTEXITCODE -eq 0 -and $merged.Trim()) {
       [System.IO.File]::WriteAllText((Join-Path $tmp 'settings.json'), $merged.Replace("`r`n", "`n"), $utf8)
       Put-File (Join-Path $tmp 'settings.json') $settings '.claude/settings.json' managed

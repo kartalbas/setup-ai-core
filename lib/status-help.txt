@@ -3,8 +3,8 @@ machine (claude, codex, agy, gemini), each with its session name, pid, model, ef
 running, the issue references in its command line, and whether it is a session, a run or a
 resumed run. The runs an agent started stand indented under it. Who works on what and what comes
 next is not measured; the coordinator says it, from what it knows. Where no agent runs, and with
---tokens, it prints the usage windows, the pace, what an issue costs, every worker's packages
-with their start and end, the pauses at the usage limit and the end of the work. No model is
+--tokens, it prints the usage windows, the pace, what an issue costs, the tokens and the context
+of the day, the open work, and what is ready to close or open on the last column. No model is
 involved: status.sh and status.ps1 read the board and the process list, and lib/status.mjs
 counts, so both print the same page.
 

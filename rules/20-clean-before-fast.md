@@ -21,6 +21,6 @@
 - **Always name exactly one recommendation, and let it be the correct answer, not the cheapest.**
   Judge it against the project as it is and as its issues plan it, not a size nobody asked for;
   state its cost beside it, as the agents' effort it is: the issues it takes times the time an
-  issue takes at the measured pace (`ai-core status`), and the tokens, never a person's hours, days
+  issue takes at the measured pace (`ai-core status --tokens`), and the tokens, never a person's hours, days
   or weeks; where the expensive answer is genuinely not needed say so and why. A recommendation is
   not a decision: the owner's choice is carried out in full and without argument. [review]

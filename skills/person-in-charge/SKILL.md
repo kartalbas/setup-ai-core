@@ -10,8 +10,8 @@ beyond the spans the code graph returns. The owner talks to you; the workers rep
 
 ## The team
 
-You start the workers yourself, as background sessions of Claude Code; the owner opens no
-terminal for them. You choose each worker's model, effort and context size for its role, never a
+You start the workers yourself, as background sessions of Claude Code, once the owner approved
+them as the rules' ask before starting sub-agents requires; the owner opens no terminal for them. You choose each worker's model, effort and context size for its role, never a
 model below Sonnet, and a worker keeps them from its first start: another role is another worker.
 Where they come in pairs, every tier has a writer and a reviewer:
 

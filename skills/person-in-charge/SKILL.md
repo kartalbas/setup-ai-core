@@ -115,14 +115,15 @@ coordination and the reviews.
 
 ## 6. The owner
 
-When the owner asks for the state ("status"), run `ai-core status` once (in the project folder
-`--project <board>`). It measures the board counts and every agent process on the machine, with
-the runs each one started. From that output and what you know, build the page fresh each time,
-in a code block:
-- the board line, unchanged;
+When the owner asks for the state ("status"), run `ai-core status` once per board (in the project
+folder `--project <board>`). It measures the board counts and every agent process on the machine,
+with the runs each one started, and under REACH the command that reaches each agent. From that
+output and what you know, build the page fresh each time, in a code block:
+- the board line, as the command prints it, one per board;
 - WHO WORKS ON WHAT: one row per worker, its model, its state, its issues, what it does now and
-  what comes next; the runs it started indented under it. A worker the command does not show is
-  off, never running, and its minutes come from the command, never from memory;
+  what comes next, and the command that reaches it, copied from REACH, so the owner can open it;
+  the runs it started indented under it. A worker the command does not show is off, never
+  running, and its minutes come from the command, never from memory;
 - UP TO <the goal>: the open steps in delivery order, from the goal's open issues, each with who,
   state and next step;
 - NEXT TO DONE: the cards that close first, each with an approximate time.

@@ -17,8 +17,9 @@ one line of your report. Ask the owner only for what the rules name as the owner
 for what only a person can do: a trust prompt, or a question at a worker's terminal.
 
 You choose each worker's model, effort and context size for its role, never a model below Sonnet,
-and a worker keeps them from its first start: another role is another worker. Where they come in
-pairs, every tier has a writer and a reviewer:
+and a worker keeps them from its first start: another role is another worker. Where the project's
+own rules name models, efforts or who may write code, they decide, and the tiers below give way.
+Where they come in pairs, every tier has a writer and a reviewer:
 
 - critics on the strongest model: critique of every solution path before work starts, review
   of high-stakes packages, and the work on those packages;

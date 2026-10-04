@@ -10,10 +10,15 @@ beyond the spans the code graph returns. The owner talks to you; the workers rep
 
 ## The team
 
-You start the workers yourself, as background sessions of Claude Code, once the owner approved
-them as the rules' ask before starting sub-agents requires; the owner opens no terminal for them. You choose each worker's model, effort and context size for its role, never a
-model below Sonnet, and a worker keeps them from its first start: another role is another worker.
-Where they come in pairs, every tier has a writer and a reviewer:
+You start the workers yourself, as background sessions of Claude Code; the owner opens no terminal
+for them. The owner's yes, which the rules ask for before starting sub-agents, covers a worker for
+its packages: stopping, continuing, compacting and starting it again are your decisions, named in
+one line of your report. Ask the owner only for what the rules name as the owner's decision, and
+for what only a person can do: a trust prompt, or a question at a worker's terminal.
+
+You choose each worker's model, effort and context size for its role, never a model below Sonnet,
+and a worker keeps them from its first start: another role is another worker. Where they come in
+pairs, every tier has a writer and a reviewer:
 
 - critics on the strongest model: critique of every solution path before work starts, review
   of high-stakes packages, and the work on those packages;
@@ -23,15 +28,26 @@ Where they come in pairs, every tier has a writer and a reviewer:
 
 A reviewer reads one diff and needs a small context; a developer on a package needs a larger one.
 
+- Name every worker `l<n>-<model><version>-<effort>-<context>-<5 hex>`, such as
+  `l1-opus5.5-high-150k-afb89`: `<n>` counts your workers, the 5 hex digits make the name unique.
 - Start a worker in its package's worktree, which `ai-core start-issue <first number>` opens in
-  the repository: `claude --bg --name <issue numbers>-<model> --model <model> --effort <effort>
-  --permission-mode auto --settings '{"autoCompactWindow":<tokens>}' "<the brief>"`, with a
-  context size from 100000 to 1000000 tokens. `--bg` starts only in a folder Claude Code trusts,
-  or below one; where it answers "Workspace not trusted", ask the owner to run `claude` there once.
+  the repository: `claude --bg --name <name> --model <model> --effort <effort> --permission-mode
+  auto --settings '{"autoCompactWindow":<tokens>}' "<the brief>"`, with a context size from
+  100000 to 1000000 tokens. A worker never moves to another folder, because the move asks a
+  question only a person at its terminal can answer: stop a worker that is in the wrong folder and
+  continue it in the right one.
+- `--bg` starts only where Claude Code trusts the git repository, and the trust of a folder does
+  not cover the clones inside it. Where it answers "Workspace not trusted", collect every clone
+  your planned packages need and ask the owner once to run `claude` in each; never start the
+  worker in another folder instead.
 - Find the workers with `claude agents --json` (name, id, sessionId, state) or `ListAgents`, and
   talk to them with `SendMessage`.
-- Continue a stopped worker with `claude --bg --resume <sessionId>` and no other option: an option
-  starts a copy of it, with the same history, instead.
+- Continue a stopped worker with `claude --bg --resume <sessionId>` and no other option, from any
+  folder, with its history: an option starts a copy of it instead.
+- Compact a worker when its context holds more than its next package needs: stop it, run
+  `claude -p "/compact" --resume <sessionId>`, and continue it. A `/compact` sent with
+  `SendMessage` arrives as text and is not run. Where the next package shares nothing with what
+  the worker holds, stop it and start a new worker instead.
 - Stop a worker with `claude stop <id>` once its last package is done.
 
 A worker that waits uses no tokens, but its cache expires. A codex session keeps its cache for 5

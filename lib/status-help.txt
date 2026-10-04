@@ -1,8 +1,12 @@
 What runs now, printed the same way every time: the board counts and every agent process on this
 machine (claude, codex, agy, gemini), each with its session name, pid, model, effort, minutes
 running, the issue references in its command line, and whether it is a session, a run or a
-resumed run. The runs an agent started stand indented under it. Who works on what and what comes
-next is not measured; the coordinator says it, from what it knows. Where no agent runs, and with
+resumed run. The runs an agent started stand indented under it. Under the table, REACH names the
+command that reaches each agent, as its CLI reports it: claude attach <id> for a background
+session, claude --resume <session id> for an interactive one, codex resume <id> where the
+system shows the codex session file a process holds open, and a dash where nothing reports one.
+Who works on what and what comes next is not measured; the coordinator says it, from what it
+knows. Where no agent runs, and with
 --tokens, it prints the usage windows, the pace, what an issue costs, the tokens and the context
 of the day, the open work, and what is ready to close or open on the last column. No model is
 involved: status.sh and status.ps1 read the board and the process list, and lib/status.mjs

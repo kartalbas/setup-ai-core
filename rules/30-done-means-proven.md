@@ -16,9 +16,11 @@
 - **Never lie in code.** No fabricated value, no faked success, no invented default standing in for
   a real one, no swallowed error. An error is caught only to make it visible. [review]
 - **Every repository has a fixed set of checks that is green before work is called done**: the
-  linters, the type check, the tests and the build, run by one entry point on the developer's
-  machine before anything is pushed. A remote run is a second pair of eyes, never the deciding one.
-  [review]
+  linters, the type check, the tests and the build, run by one entry point. A private repository
+  runs all of it on the developer's machine before every push, its full test suites included and
+  without building a container image for a test, because its code goes to no outside service. A
+  public repository is tested by its CI, which an open-source project gets for free; running the
+  entry point locally as well is always allowed. [review]
 - **A green run proves what it covers and nothing more.** A check says how much it covered, and it
   carries a planted defect of each shape it must catch plus a planted innocent case, so it can be
   shown to go red and a clean answer means somebody was looking. A test turns green through the code

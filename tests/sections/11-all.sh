@@ -82,6 +82,7 @@ echo "  the worktree that landed three days ago is gone with its branch and name
 section "init links the other checkouts of the folder beside a worktree, so .. finds them from it; both twins"
 for twin in sh ps; do
   F="$WORK/near-$twin"; T="$F/.worktrees/app/issue-1-x"
+  mkdir -p "$F/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$F/.ai-core/config.env"
   for r in app lib docs; do
     git init -q "$F/$r"; mkdir -p "$F/$r/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$F/$r/.ai-core/config.env"
     git -C "$F/$r" commit -q --allow-empty -m start; echo "$r" > "$F/$r/marker"

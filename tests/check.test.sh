@@ -22,6 +22,9 @@ mkdir -p "$WORK/suite/sections" "$WORK/bin"
 cp "$ROOT/tests/check.sh" "$WORK/suite/check.sh"
 printf '#!/usr/bin/env bash\necho "  FAIL a check"; exit 1\n' > "$WORK/suite/sections/01-red.sh"
 printf '#!/usr/bin/env bash\necho "  ok   a check"\n' > "$WORK/suite/sections/02-green.sh"
+# What a test prints when the pwsh it waited for died of a .NET stack overflow: the runtime's line
+# comes back as the test's actual value, twice here, once with the error that followed it.
+printf '#!/usr/bin/env bash\necho "  FAIL a check"; echo "       actual:   Stack overflow."; echo "  FAIL another"; echo "       actual:   Stack overflow. Exception: gh failed with exit code 134"; exit 1\n' > "$WORK/suite/sections/03-abort.sh"
 
 # The fake answers `-n 1` with the first line of the log and `--since` with all of it, records the
 # arguments it was given, and fails the windowed read where SINCE_FAILS says so.
@@ -63,6 +66,17 @@ check 'the run stays red' 1 "$rc"
 check 'it says there was none' yes \
   "$(grep -q 'no crash of pwsh in the kernel log during this run' <<< "$out" && echo yes || echo no)"
 
+echo "a red run whose section logs show pwsh aborted by a stack overflow names it, whatever the kernel log says"
+run 01-red 03-abort
+check 'the run stays red' 1 "$rc"
+check 'it counts the two aborts in the section logs' yes \
+  "$(grep -q 'pwsh aborted 2 time(s) with a .NET stack overflow during this run (section logs)' <<< "$out" && echo yes || echo no)"
+check 'and still says what the kernel log holds' yes \
+  "$(grep -q 'no crash of pwsh in the kernel log during this run' <<< "$out" && echo yes || echo no)"
+run 01-red
+check 'a red run without one says the section logs hold none' yes \
+  "$(grep -q 'no stack overflow of pwsh in the section logs of this run' <<< "$out" && echo yes || echo no)"
+
 echo "a red run that cannot read the kernel log says so, and does not report none"
 : > "$JOURNAL"
 run 01-red
@@ -79,6 +93,7 @@ echo "a green run says nothing about the kernel log"
 run 02-green
 check 'the run is green' 0 "$rc"
 check 'it does not read the kernel log' '' "$(cat "$JOURNAL_CALLS")"
+check 'nor the section logs' no "$(grep -q 'stack overflow' <<< "$out" && echo yes || echo no)"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo; echo 'all passed'

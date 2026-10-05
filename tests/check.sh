@@ -29,9 +29,17 @@ wait
 # load pwsh now and then dies of SIGSEGV inside the .NET runtime, and the test that waited for it
 # reads the empty answer as a wrong one. The kernel logs every such death, so a red run says how
 # many fell into its time, or that it could not look. A log that gives no line at all is one this
-# user cannot read, since the kernel writes lines from the first second of a boot.
+# user cannot read, since the kernel writes lines from the first second of a boot. pwsh also dies
+# of a .NET stack overflow, which is an abort, not a segfault: the kernel logs nothing, and the
+# runtime's "Stack overflow." on the dying process's stderr lands in the log of its section.
 pwsh_crashes() {
   local log n
+  n="$(cat "$RUN"/*.log | grep -c 'Stack overflow\.')" || true
+  if [ "$n" -gt 0 ]; then
+    echo "pwsh aborted $n time(s) with a .NET stack overflow during this run (section logs): a red check above may be that crash, not the code under test"
+  else
+    echo "no stack overflow of pwsh in the section logs of this run"
+  fi
   if [ -z "$(journalctl -k -q --no-pager -n 1 2>/dev/null)" ] \
     || ! log="$(journalctl -k -q --no-pager --since "@$START" 2>/dev/null)"; then
     echo "the kernel log could not be read, so a crash of pwsh during this run is not ruled out"

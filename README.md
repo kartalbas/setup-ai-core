@@ -1118,9 +1118,11 @@ The check is `tests/sections/*.sh`, one file per group of sections that share th
 sourcing `tests/lib.sh` (the root, `fail`, `native`, a throwaway directory of its own, the stand-in
 `gh` and Graft). `tests/check.sh` starts them all at once, each in its own process, and prints the
 report in file order with the time each section took; a red section prints its whole log. A red
-run also reads the kernel log since its start and says whether pwsh crashed during the run,
-because pwsh can segfault under parallel load and a red section may be that crash, not the code
-under test; `tests/check.test.sh` proves that report against a stand-in `journalctl`. The
+run also says whether pwsh died during the run, because under parallel load pwsh can segfault or
+abort with a .NET stack overflow, and a red section may be that crash, not the code under test: a
+segfault from the kernel log since the start of the run, an abort from the runtime's
+`Stack overflow.` in the section logs. `tests/check.test.sh` proves that report against a
+stand-in `journalctl` and planted section logs. The
 board suites (`tests/run-all.sh`, `tests/run-all.ps1`) run their tests eight at a time
 (`CHECK_JOBS=<n>` for another number). Together the sections parse every script (`bash -n`, the PowerShell parser), run both `rules-check` twins
 over `rules/`, runs both `doctor` twins against a fake old Node.js and a fake unauthenticated gh

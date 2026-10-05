@@ -117,14 +117,16 @@ the repository itself                  the code
 | :--- | :--- | :--- |
 | Install the harness into a checkout with one command | yes: `ai-core init`, after a one-time `install` per machine; `ai-core init --all <folder>` for every repository under a folder | same |
 | Nothing is committed to the repository | yes: a block in the project's `.gitignore` names every agent file, and `.git/info/exclude` carries the rest per clone | same |
-| Rules for every project | yes: one file per section under `rules/`, 66 rules in 10 sections, assembled into one `rules.md` per checkout | same |
+| Rules for every project | yes: one file per section under `rules/`, assembled into one `rules.md` per checkout | same |
 | Rules of one project (private harness) | yes: `github.com/<org>/<prefix>-ai-core`, found from the repository's origin, cloned beside the repositories (`<project folder>/<prefix>-ai-core`), created from a skeleton when missing; its `rules/` add or replace sections, its `skills/`, `docs/`, data files and `repos/<repo>/` are assembled into every checkout; a harness may extend another (section 4.5) | same |
 | Skills and team modes | `rules/skills.md` says when to use them; `team-modes.tsv` says how each tool proves a mode is installed and how to install it; `doctor` installs the missing ones, `session-start` refuses a session without them; skill folders of the project harness are deployed into `.claude/skills/` and `.agents/skills/` of every checkout | same |
-| Map of a repository (what Graft cannot know) | `repos/<repo>/AGENTS.md` of the project harness, or the generic one of `templates/` until one exists, both under the binding rules | generated from the code by `ai-core map` through the developer's agent CLI, five fixed sections |
+| Map of a repository (what Graft cannot know) | yes: `ai-core map` writes it from the code through the developer's agent CLI, five fixed sections, into `repos/<repo>/AGENTS.md` of the project harness; the generic one of `templates/` until then, both under the binding rules | also written by `init` where a repository has none |
 | Code graph (Graft) | yes: built locally with Node.js, or `init` fails | same |
 | Claude Code hooks, status line, permissions, MCP | yes, with a `SessionStart` hook that runs the session start | same |
 | Session start | yes: the team-modes gate, state, versions, rules present, the issue thread of a worktree, exit 1 when not installed | also re-assembles the checkout when a layer changed |
-| Issues and the GitHub board | yes: 34 commands over `gh`, from `issue-new` and `start-issue` to `board-sync` and `status-sync` (section 8); the conventions come from three data files a project fills | the data files come from the project harness |
+| Issues and the GitHub board | yes: one command per act over `gh`, from `issue-new` and `start-issue` to `board-sync`, `status` and `status-sync` (section 8); the conventions come from three data files a project fills | the data files come from the project harness |
+| A coordinator that delegates to worker sessions | yes: the skill `person-in-charge` bundles the issues into packages and gives each to a worker session it starts, with the model, effort and context size the work needs (section 4.6) | same |
+| The account's usage limit | yes: the status line records the usage windows, `ai-core usage` reads them against `USAGE_STOP_AT`, and every session stops at that limit | same |
 | Prerequisite check and install | yes: `ai-core doctor` checks Git, gh and its login, Bash, PowerShell 7, Node.js 20+, jq, the team modes of the agent tools on the machine, and reports the agent CLIs; installs missing required tools with winget, brew or apt-get; `init` runs it first and deploys nothing while a problem remains | tools a project harness declares |
 | Both twins deploy the same files, proven by a test | yes: `tests/check.sh`, CI on Linux and Windows | same |
 | Agents that run in a sandbox (OpenHands, cloud agents) | a pointer file only; nothing of the harness reaches a sandbox | rules and skills published to the organisation's `.agents` repository; an optional bootstrap in the repository (section 4.12) |
@@ -161,10 +163,13 @@ project repository:
 ```text
 setup-ai-core (public)
 ├── bin/          the ai-core command and every script: install, doctor, init, session-start, graft-setup, and the
-│                 board and issue commands (issue-new, start-issue, board-sync, ...)
-├── lib/          board.sh and Board.psm1, the library of the board commands; gitignore-block; entry-point.ps1
+│                 board and issue commands (issue-new, start-issue, board-sync, status, ...)
+├── lib/          the libraries of the commands (board, layers, status), gitignore-block, binding-rules.md,
+│                 graft-version, entry-point.ps1
 ├── rules/        one file per section (NN-slug.md) and skills.md, generic
-├── templates/    the files a checkout gets, in the layout of the checkout, among them the three data files
+├── skills/       the skills every checkout gets: person-in-charge, agy-helper
+├── skeleton/     what a new project harness starts from
+├── templates/    the files a checkout gets, in the layout of the checkout, among them the data files
 └── tests/        the check that proves the harness, and one test pair per board command
 
 <org>/<prefix>-ai-core (project harness, private; skeleton/ of this repository is what it starts from)
@@ -202,12 +207,14 @@ checkout never carries a copy.
 │   ├── DEPLOYED                         managed: what the layers put here; what a layer no longer provides is taken out at the next run
 │   └── solution-path.template.md        yours: template of a solution path
 ├── .claude/skills/, .agents/skills/     managed: the skills of every layer, one folder each
+├── .claude/agents/                      managed: the agents of every layer
 ├── AGENTS.md                            managed: the map from repos/<repo>/ of the harness, else the generic one of templates/, the binding rules on top
 ├── CLAUDE.local.md                      only where the repository has a CLAUDE.md of its own: imports AGENTS.md; created once
 ├── .cursorrules, .windsurfrules         Cursor and Windsurf pointers
 ├── .github/copilot-instructions.md      Copilot pointer
 ├── .openhands/microagents/repo-rules.md OpenHands microagent
-├── .claude/settings.json                Claude Code: the session-start hook, ai-core by its full path; permissions Bash(ai-core:*) and mcp__graft
+├── .claude/settings.json                Claude Code: the session-start hook, ai-core by its full path; permissions Bash(ai-core:*) and mcp__graft;
+│                                        the status line ai-core statusline
 ├── .codex/config.toml                   Codex: the Graft MCP server, read once the project is trusted
 ├── opencode.json                        OpenCode: the rules as its instructions, the Graft MCP server; created once
 └── graft/                               the code graph, and what graft init wires: .mcp.json,
@@ -258,6 +265,13 @@ runs `init` once.** It is idempotent and takes seconds. A worktree runs it by it
 `ai-core init` where `.ai-core/` is missing; `init` in a worktree first takes the checkout's own
 `.ai-core/` data (its configuration, local rules and documents), then assembles the harness over
 it as in the checkout.
+
+A worktree that `start-issue` opens lives in `<project folder>/.worktrees/<repo>/`, where `..`
+holds no other checkout. So `init` in such a worktree links every other checkout of the project
+folder into `.worktrees/<repo>/`, as `../../<name>` (a junction on Windows), and a path such as
+`../other-repo` finds from the worktree what it finds from the checkout. An entry that already
+stands there is kept, a folder that is no repository gets no link, and `init --all` passes the links
+by.
 
 Four files are the repository's own and are committed, because they say what the repository
 wants judged and how a worktree starts: `.githooks/pre-push`, the three-line shim that starts the
@@ -331,8 +345,8 @@ the clone of this repository is too old for the harness.
 
 Then `init` assembles the checkout, later layer wins: the rules as above; `rules/skills.md` of the
 last layer that has one; every `skills/<name>/`, setup-ai-core's own first, into
-`.claude/skills/<name>/` and `.agents/skills/<name>/` (setup-ai-core brings `person-in-charge`, the
-skill of the session the owner names coordinator of a project); every `agents/<name>.md` into `.claude/agents/`; every `docs/` into
+`.claude/skills/<name>/` and `.agents/skills/<name>/` (setup-ai-core brings `person-in-charge` and
+`agy-helper`, section 4.6); every `agents/<name>.md` into `.claude/agents/`; every `docs/` into
 `.ai-core/docs/<harness>/`; `config.env`,
 `labels.tsv`, `assignees.tsv` and `team-modes.tsv` into `.ai-core/`; and every file under
 `repos/<repo>/` of the innermost harness over the checkout, in its own layout, so
@@ -385,6 +399,37 @@ whatever the ref), and a newer version comes in by changing a row and verifying 
 harness, `skills/<name>/SKILL.md`, and `init` copies them into `.claude/skills/` and
 `.agents/skills/` of every checkout, where Claude Code, Codex, Antigravity and OpenHands find them
 on start; no developer installs a skill by hand.
+
+**The skills setup-ai-core brings.** Every checkout gets two:
+
+- `person-in-charge` is the skill of the session the owner names coordinator of a project. The
+  coordinator writes no code. It keeps the overview in the tracker and delegates the work to
+  worker sessions it starts itself, as background sessions of Claude Code (`claude --bg`), after
+  one approval of the owner for the team.
+  - Issues that change the same files form a package of at most about 8 issues or 400 changed
+    lines. Every package is a section of one plan issue per board, titled "Plan: packages", so the
+    plan survives a restart or a compaction.
+  - One package goes to one worker, which owns the package's files while it runs. The number of
+    workers follows the packages: a worker that finishes gets the next package that shares code
+    with what it already holds, a package that shares nothing gets a new worker, and a worker stops
+    after its last package.
+  - The coordinator picks each worker's model, effort and context size (the auto-compact window,
+    100k to 1M tokens) for its role, never a model below Sonnet, and the worker's name carries them:
+    `l1-opus5.5-high-150k-afb89`. The tiers come in pairs, a writer and a reviewer: critics on the
+    strongest model for solution paths and high-stakes packages, developers on the standard model,
+    small-work sessions on the lighter model. Where a project's own rules name models or efforts,
+    they win.
+  - A waiting worker uses no tokens, but its cache expires after an hour, and resumed after that it
+    reads its whole history again at full price. So a waiting worker gets its next package within
+    10 minutes where it can. A worker is continued with `--resume`, keeping its history, and
+    compacted when its context holds more than its next package needs.
+  - The other worker of the tier reviews a package; the writer never approves its own. At the usage
+    limit every worker finishes its step, commits, reports and waits for the reset. Asked for the
+    state, the coordinator builds one page from `ai-core status`.
+- `agy-helper` hands every check a cheaper model can do, and the session can check cheaply, to
+  Gemini through the `agy` CLI: a live check after a release, a UI check, a pre-review of a diff,
+  drafting test cases, collecting facts. Claude and Codex then spend their tokens on judgment. Each
+  session keeps one agy conversation of its own, recorded in `~/.ai-core/agy-conversations.tsv`.
 
 ### 4.7 Maps: what Graft cannot know
 
@@ -588,7 +633,9 @@ tools work; the harness gives them the text at the place they look.
   `.mcp.json` with the Graft MCP server, the hook and status line blocks merged into
   `settings.json` (`PostToolUse`, `UserPromptSubmit`, `SessionStart`, `Stop`, each running
   `node .claude/helpers/graft-hooks.cjs`), the helpers under `.claude/helpers/`, and the
-  `graft` skill under `.claude/skills/`. Graft merges into an existing `settings.json`; your
+  `graft` skill under `.claude/skills/`. `graft-setup` then puts `ai-core statusline` in place of
+  Graft's status line: it records the account's usage windows for `ai-core usage` and shows Graft's
+  line on the same input (section 6). Graft merges into an existing `settings.json`; your
   entries stay. All of it is excluded from git by `graft-setup`. With
   `GRAFT_EXECUTION_MODE="skip"` none of it is written.
 
@@ -773,7 +820,8 @@ An unknown option is an error.
    instruction.
 2. Finds the project harness from `origin` and clones, pulls or creates it, with its `extends`
    chain (section 4.5). Creates `.ai-core/` with `rules/` and `docs/`, and removes a
-   `.ai-core/bin/` an earlier version left there.
+   `.ai-core/bin/` an earlier version left there. In a worktree it first takes the checkout's
+   `.ai-core/` data and links the other checkouts of the folder beside it (section 4.3).
 3. Assembles the rules of every layer into `.ai-core/rules/rules.md`, copies `skills.md` and
    `VERSION`, the skills, docs and data files of every layer, the files under `repos/<repo>/`, and
    writes `STAMP`.
@@ -835,6 +883,9 @@ allowed; any other value is an error.
 | `MAP_TOOL` | `claude` (default), `codex`, `agy` | the agent CLI `ai-core map` writes the map with, in its non-interactive read-only mode; `AI_CORE_MAP_TOOL` in the environment names the CLI of one machine instead, for example `agy` where Claude's quota is spent |
 | `MAP_MODEL` | a model id, or empty (default) | the model that CLI uses for the map; empty is the CLI's own default. It goes only with `MAP_TOOL`: `AI_CORE_MAP_MODEL` in the environment names the model of one machine, and a machine that names another CLI without it gets that CLI's default (`agy models` lists agy's, e.g. `gemini-3.8-flash-high`) |
 | `GRAFT_EXECUTION_MODE` | `native` (default), `skip` | `native` builds the code graph with the local Node.js and fails when it cannot; `skip` does not build it in this repository |
+| `UPDATE_CHECK` | `session-start` (default), `never` | whether `session-start` asks `update --check` for a newer release; `AI_CORE_UPDATE_CHECK` in the environment overrides it. Nothing is updated by it |
+| `USAGE_STOP_AT` | a percentage, `92` when unset | the usage limit: at it, in any window, every session finishes the step in hand, commits, reports and waits for the reset; `ai-core usage` exits 3 there |
+| `DEFAULT_BRANCH_IS_LIVE` | `yes`, or the folder names of the repositories whose default branch goes live; unset by default | a push to such a default branch needs `scripts/check.sh` and a `Reviewed-by:` trailer on its last commit (section 4.13) |
 
 ### 5.8 Many repositories
 
@@ -907,7 +958,7 @@ and `bin/<name>.ps1` in PowerShell; a new script in `bin/` is a command without 
 | Script | Usage | Exit codes |
 | :--- | :--- | :--- |
 | `session-start` | `ai-core session-start [--json]` / `[-Json]`; the JSON says `refused`, and a refusal carries the lines of the team modes | 0 ready; 1 a team mode or the rules file missing |
-| `solution-path` | `ai-core solution-path <file> [--check] [--issue N]` / `-File <file> [-Check]` | section 7 |
+| `solution-path` | `ai-core solution-path <issue> <file> [--check]` / `<issue> <file> [-Check]` | section 7 |
 | `rules-check` | `ai-core rules-check [file-or-directory]` / `[-RulesFile <file-or-directory>]`; default `.ai-core/rules/rules.md`, or the `rules/` directory of setup-ai-core; a directory means its `NN-*.md` section files; a project harness (a directory with `rules/`, `skills/` or `agents/`) is checked whole: every skill has a front matter with its folder's name and a description, every agent a name and a description and no model below Sonnet, then its rule sections | 0 every rule tagged and nothing wrong in the harness; 1 otherwise |
 | `graft-setup` | `ai-core graft [dir] [--dry-run]` / `[-TargetDir <dir>] [-DryRun]` | 0 built, skipped or dry; 1 no Node.js, build failed, or bad `config.env`; 2 a wrong argument |
 | `init` | `ai-core init [dir] [--all <folder>] [--no-doctor] [--dry-run]` / `[-TargetDir <dir>] [-All <folder>] [-NoDoctor] [-DryRun]` | 0 in place, or dry; 1 doctor failed, Graft failed, or a repository under `--all` failed |
@@ -1017,7 +1068,7 @@ no repository acts on the one it runs in; `OWNER/REPO` before the issue number n
 | `subissue-add`, `subissue-remove` | attaches issues to an epic as sub-issues, or detaches them |
 | `board-sync` | puts every issue of every linked repository on the board and reports what is missing: labels, priorities, cards that were not on the board |
 | `board-list` | the board: status, priority, repository, number, title; a repository of another organisation than the board's is written with its owner, `owner/name` |
-| `status [--tokens] [--issues]` | the state of the work, the same page every time and counted, with no model. Without options: the board counts and every agent process on the machine, with the runs each one started under it. Where no agent runs, and with `--tokens`: the usage windows against the limit; the pace, the issues closed in the last 24 hours, with the average of 14 days beside it; how fast the project folder raises each window an hour, the rise the usage log of the status line measured times the folder's share of the fresh tokens of every session on the machine, and from the pace what that is per issue; the tokens every session of the project folder used in the last 24 hours, fresh and read from the cache apart, and per issue closed in that time; the context an answer read again in those hours, on average and the largest, which shows how late the sessions compact; the packages whose sub-issues are all closed; the open issues on the last column. A package is an issue with sub-issues. `--issues` adds every open issue by package. Needs Node.js |
+| `status [--project N] [--tokens] [--issues]` | the state of the work, the same page every time and counted, with no model. Without options: the board counts and every agent process on the machine, with the runs each one started under it, and under REACH the command that reaches each agent. Where no agent runs, and with `--tokens`: the usage windows against the limit; the pace, the issues closed in the last 24 hours, with the average of 14 days beside it; how fast the project folder raises each window an hour, the rise the usage log of the status line measured times the folder's share of the fresh tokens of every session on the machine, and from the pace what that is per issue; the tokens every session of the project folder used in the last 24 hours, fresh and read from the cache apart, and per issue closed in that time; the context an answer read again in those hours, on average and the largest, which shows how late the sessions compact; the epics whose sub-issues are all closed; the open issues on the last column. An epic is an issue with sub-issues. `--issues` adds every open issue by epic. Needs Node.js |
 | `board-order` | stamps an order onto the board, read from standard input as `owner/repo#number` per line |
 | `board-unarchive` | brings archived cards back into view |
 | `status-sync [--dry-run]` | closes a card that `finish-issue` moved to `testing` once the first commit of its "Landed on" comment is carried by the newest tag, and moves no card on a commit alone, because a commit that names an issue touches it without finishing it; an epic follows its sub-issues as under `issue-status`, so a sub-issue moved by hand on the board moves its epic too; forward only |
@@ -1039,17 +1090,14 @@ a repository.
 
 ## 9. Planned commands
 
-`install`, `doctor`, `update`, `version`, `init` with the project harness, and the `ai-core` command exist
-(sections 4.5 and 6). Planned:
+Every command `ai-core --help` lists exists today (sections 6 and 8). Planned:
 
 | Command | Does |
 | :--- | :--- |
-| `doctor` | also the agent CLIs and the tools a project harness declares in `ai-core.json`; `init` runs it first |
+| `doctor` | also the tools a project harness declares in `ai-core.json` |
 | `init` | additionally: generate the map when the repository has none |
-| `session-start [--json]` | as today, plus: re-assemble the checkout when a layer moved past `.ai-core/STAMP`, print the map's headings, warn when a harness clone is behind its origin or the map is stale |
-| `map [--check]` | generate or refresh the map of the current repository and push it to the project harness; `--check` only reports staleness |
+| `session-start` | additionally: re-assemble the checkout when a layer moved past `.ai-core/STAMP` |
 | `publish` | copy the assembled rules and the skills of the project harness into the organisation's `.agents` repository, so OpenHands loads them in every repository of the organisation (section 4.12) |
-| `graft`, `solution-path`, `rules-check`, the board and issue commands | as today |
 
 Prerequisites `doctor` will know, with an install per platform (`winget`, `brew`, `apt`, or the
 tool's official installer): Git and Git Bash, `gh` with its login (install yes, login is a
@@ -1069,7 +1117,10 @@ bash tests/check.sh 08-harness    # one section, by its file name
 The check is `tests/sections/*.sh`, one file per group of sections that share their fixtures, each
 sourcing `tests/lib.sh` (the root, `fail`, `native`, a throwaway directory of its own, the stand-in
 `gh` and Graft). `tests/check.sh` starts them all at once, each in its own process, and prints the
-report in file order with the time each section took; a red section prints its whole log. The
+report in file order with the time each section took; a red section prints its whole log. A red
+run also reads the kernel log since its start and says whether pwsh crashed during the run,
+because pwsh can segfault under parallel load and a red section may be that crash, not the code
+under test; `tests/check.test.sh` proves that report against a stand-in `journalctl`. The
 board suites (`tests/run-all.sh`, `tests/run-all.ps1`) run their tests eight at a time
 (`CHECK_JOBS=<n>` for another number). Together the sections parse every script (`bash -n`, the PowerShell parser), run both `rules-check` twins
 over `rules/`, runs both `doctor` twins against a fake old Node.js and a fake unauthenticated gh
@@ -1119,33 +1170,18 @@ Run the check before every commit.
 
 ## 11. Implementation order (planned)
 
-Each step lands with its test in `tests/check.sh` and passes in CI before the next begins.
+Each step lands with its test in `tests/check.sh` and passes in CI before the next begins. Built
+so far: the rules per section, `install`, `doctor`, `init --all`, the board and issue commands, the
+project harness and its assembly, `session-start` with the `SessionStart` hook, the push gate,
+releases by tag, `update`, `push`, and `map`. Open:
 
-0. Rules as one file per section, assembled into one `rules.md` per checkout by both installers;
-   `rules-check` over a directory. **Done.**
-1. `doctor` and `install`, with the `ai-core` command. **Done.**
-2. `ai-core init --all`, `doctor` run by `init`. **Done.**
-2b. Scripts once per machine, checkouts data only, `init` for the project folder, the `.gitignore`
-   block. **Done.**
-2c. The board and issue commands, the team modes, `jq` in `doctor`. **Done.**
-3. Project harness resolution from `origin`, the `extends` chain, clone and pull beside the
-   repositories (`<project folder>/<prefix>-ai-core`), `gh repo create` from the skeleton when
-   missing. **Done.**
-4. Assembly: merged rules, skills into both skill directories, docs, data files, `repos/<repo>/`,
-   `STAMP`, the exclude block. **Done.**
-5. `session-start` reports the checkout against the harness clones (`Harness state`) and the
-   releases, and the Claude Code `SessionStart` hook. **Done.** Re-assembly on a changed stamp:
-   not built.
-5b. The push gate `ai-core pre-push` and the shim a repository carries. **Done.**
-5c. Releases by tag, `install` on the newest release, `update`, `push`; the harness clones beside
-   the repositories. **Done.**
-6. `map`: the skeleton, the prompt, generation through the agent CLI, commit and push, the
-   distance to the code in `session-start`. **Done.** Generation at `init` when missing: not built.
-7. Sandboxed agents: `publish` into the organisation's `.agents` repository; the OpenHands
+1. `session-start` re-assembles the checkout when a layer moved past `.ai-core/STAMP`.
+2. `init` generates the map where a repository has none.
+3. Sandboxed agents: `publish` into the organisation's `.agents` repository, and the OpenHands
    bootstrap files (`.openhands/setup.sh`, `.openhands/hooks.json`) as a template a project can
-   choose to commit; `.agents/skills/` deployed next to `.claude/skills/`.
-8. Removal of the per-checkout `rules.local.md`, `config.env` and `docs/README.md` templates
-   (they come from `repos/<repo>/` then), and a rewrite of this README from the result.
+   choose to commit.
+4. Removal of the per-checkout `rules.local.md`, `config.env` and `docs/README.md` templates
+   (they come from `repos/<repo>/` then).
 
 ---
 
@@ -1172,12 +1208,9 @@ Each step lands with its test in `tests/check.sh` and passes in CI before the ne
 
 ## 13. Known limitations (today)
 
-- `@nanonets/graft` runs with `npx -y` and no version pin, in `graft-setup` and in the `.mcp.json` it writes,
-  so the code Graft executes can change between sessions without a change in your repository.
 - Claude Code passes a hook's output whole only up to a size (10 000 characters arrived whole in a
   measured run, 15 000 did not); `session-start` stays below 9 500. Codex, OpenCode and Antigravity
   do not import the files `AGENTS.md` names after `@`; they read where the rules are and open them.
-- The `solution-path` twins differ as section 7 describes.
 - `rules-check` validates `rules.md` only, not `rules.local.md`.
 - The board commands assume a GitHub Projects board with single-select fields `Status` (options
   `backlog`, `todo`, `implementing`, `testing`, `done`) and `Priority` (`P0` to `P3`, `P9`);
@@ -1206,8 +1239,10 @@ setup-ai-core/
 │   ├── rules-check.sh / .ps1            enforcement-tag validator
 │   ├── graft-setup.sh / .ps1            Graft code graph, local Node.js or fail
 │   ├── team-modes-check / -install      the team modes of every tool on the machine
+│   ├── status.sh / status.ps1           the state of the work: board counts, agents, usage, tokens
+│   ├── usage, statusline                the account's usage windows: recorded by the status line, read against the limit
 │   ├── issue-*, start-issue, board-*,   the board and issue commands, one pair each
-│   │   status-sync, labels-sync, ...
+│   │   finish-issue, status-sync, ...
 │   ├── pre-push                         the push gate, and --install for the shim a repository carries
 │   └── schema-check, case-check         the checks of the board commands themselves
 ├── lib/
@@ -1215,16 +1250,19 @@ setup-ai-core/
 │   ├── layers.sh / Layers.psm1          the project harness: from origin, beside the repositories, cloned, pulled, created, the extends chain
 │   ├── gitignore-block                  the block init writes into a project's .gitignore
 │   ├── binding-rules.md                 the binding rules init puts on top of every map and into a project folder's AGENTS.md
+│   ├── status.mjs, status-now.mjs       what status counts and prints, in Node.js
+│   ├── graft-version                    the Graft version every checkout builds and wires with
 │   └── entry-point.ps1                  the one text every scripts/check.ps1 and build.ps1 is a copy of
 ├── rules/
 │   ├── NN-slug.md                       the generic rules, one file per section
 │   └── skills.md                        when to use which skill
+├── skills/                              person-in-charge, agy-helper: deployed into every checkout
 ├── skeleton/                            what a new project harness starts from: ai-core.json, README, rules/, skills/, docs/, repos/
 ├── templates/                           mirror of the checkout; every file is created once
 │   ├── AGENTS.md, .cursorrules, .windsurfrules
 │   ├── .ai-core/                        config.env, labels.tsv, assignees.tsv, team-modes.tsv,
 │   │                                    rules/rules.local.md, docs/README.md, solution-path.template.md
-│   ├── .claude/                         settings.json: the ai-core permission
+│   ├── .claude/                         settings.json: the session-start hook, the ai-core permissions, the denials
 │   ├── .codex/                          config.toml: the Graft MCP server for Codex, per repository
 │   ├── .github/                         copilot-instructions.md
 │   └── .openhands/                      microagents/repo-rules.md
@@ -1232,8 +1270,10 @@ setup-ai-core/
 │   ├── check.sh                         the check: every section at once, the report in order
 │   ├── lib.sh                           what every section starts with: fail, native, a throwaway directory, the stand-ins
 │   ├── sections/*.sh                    the sections, one file per group that shares fixtures
+│   ├── check.test.sh                    the pwsh crash report of check.sh, against a stand-in journalctl
 │   ├── run-all.sh / run-all.ps1         the board suites, eight tests at a time
 │   └── *.test.sh / *.test.ps1           one test pair per board command
+├── .githooks/                           pre-push and post-checkout: the shims this repository carries itself
 ├── .github/workflows/check.yml          runs the check on Ubuntu and Windows
 ├── LICENSE                              MIT
 └── README.md

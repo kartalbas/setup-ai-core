@@ -91,7 +91,8 @@ finished; otherwise add a new package to the plan issue.
   - the issues in order, each with its acceptance criteria;
   - the file spans to read, read once, a span re-read only after editing it;
   - the package's worktree, one commit per issue naming its number;
-  - the verification command, run once at the end;
+  - the verification command, run once at the end; where the push gate runs `scripts/check.sh`,
+    the push is that run, not a second one before it;
   - a report per issue: what changed, what was verified, what in the issue was wrong.
 
 ## 4. Review and closing
@@ -122,16 +123,18 @@ coordination and the reviews.
 When the owner asks for the state ("status"), run `ai-core status` once per board (in the project
 folder `--project <board>`). It measures the board counts and every agent process on the machine,
 with the runs each one started, and under REACH the command that reaches each agent. From that
-output and what you know, build the page fresh each time, in a code block:
+output and what you know, build the page fresh each time as Markdown the terminal renders, never
+in a code block, shaped as a report of state (the rules on working with the product owner):
+- the first line: what the owner must do now, or that nothing waits for them; then the usage line;
 - the board line, as the command prints it, one per board;
-- WHO WORKS ON WHAT: one row per worker, its model, its state, its issues, what it does now and
-  what comes next, and the command that reaches it, copied from REACH, so the owner can open it;
-  the runs it started indented under it. A worker the command does not show is off, never
-  running, and its minutes come from the command, never from memory;
+- WHO WORKS ON WHAT: a table, one row per worker: its model, the sign of its state, its issues,
+  what it does now and what comes next; the runs it started as rows under it. Below the table, the
+  commands that reach the workers, copied from REACH, stand in one code block, one per line, so the
+  owner can copy them. A worker the command does not show is off, never running, and its minutes
+  come from the command, never from memory;
 - UP TO <the goal>: the open steps in delivery order, from the goal's open issues, each with who,
   state and next step;
 - NEXT TO DONE: the cards that close first, each with an approximate time.
-Under the code block write at most one line: what the owner must do now, if anything; no summary
-in its place. `--tokens` prints the usage, the pace and the cost when the owner asks for them,
-`--tokens --issues` every open issue. Every question to the owner goes into the question dialog,
+No summary follows the page. `--tokens` prints the usage, the pace and the cost when the owner
+asks for them, `--tokens --issues` every open issue. Every question to the owner goes into the question dialog,
 the recommended option first, with no option that needs typing.

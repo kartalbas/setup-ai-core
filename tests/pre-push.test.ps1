@@ -220,7 +220,23 @@ Write-Host 'the Windows entry point is no twin: scripts/check.sh changed alone p
 OnlyNew $repo
 Check 'exit 0'                         0 $rc
 & git -C $repo reset -q --hard HEAD~1
-& git -C $repo rm -q -r -- tools db src/app.js; & git -C $repo commit -q -m 'Remove the probes #9'
+Write-Host 'a .ps1 that is the Windows entry point is no twin whatever its name; one with code of its own is'
+Write-Lf (Join-Path $repo 'scripts/test.sh') "#!/usr/bin/env bash`necho tests`n"
+if (-not $IsWindows) { & chmod +x (Join-Path $repo 'scripts/test.sh') }
+Copy-Item (Join-Path $root 'lib\entry-point.ps1') (Join-Path $repo 'scripts/test.ps1')
+& git -C $repo add --chmod=+x scripts/test.sh; & git -C $repo add scripts/test.ps1; & git -C $repo commit -q -m 'Add the test entry #9'
+[System.IO.File]::AppendAllText((Join-Path $repo 'scripts/test.sh'), "# one more test`n", $utf8)
+& git -C $repo add --chmod=+x scripts/test.sh; & git -C $repo commit -q -m 'Run one more test #9'
+OnlyNew $repo
+Check 'test.sh changed beside the entry point: exit 0' 0 $rc
+Write-Lf (Join-Path $repo 'scripts/test.ps1') "Write-Host 'tests of its own'`n"
+& git -C $repo add scripts/test.ps1; & git -C $repo commit -q -m 'Give the test entry code of its own #9'
+[System.IO.File]::AppendAllText((Join-Path $repo 'scripts/test.sh'), "# another test`n", $utf8)
+& git -C $repo add --chmod=+x scripts/test.sh; & git -C $repo commit -q -m 'Run another test #9'
+OnlyNew $repo
+Check 'test.sh changed beside a .ps1 with code: exit 1' 1 $rc
+Check 'it names the other spelling'    'True' (Says ([regex]::Escape('scripts/test.sh (not scripts/test.ps1)')))
+& git -C $repo rm -q -r -- tools db src/app.js scripts/test.sh scripts/test.ps1; & git -C $repo commit -q -m 'Remove the probes #9'
 
 # --- a branch that merges the default branch -------------------------------------------------
 Write-Host 'a branch that merges the default branch is judged on what it adds, not on what the default branch published'
@@ -368,6 +384,33 @@ Write-Host 'a local sha that is not what is checked out is refused'
 Judge $repo (Sha $repo 'HEAD~1') (Sha $repo 'HEAD~2')
 Check 'exit 1'               1 $rc
 Check 'it says what to push' 'True' (Says 'push what you have: git push origin HEAD:master')
+
+Write-Host 'a deploy ref put on a commit origin already carries passes from a checkout that moved on'
+function Deploy([string]$local, [string]$remote = $zeros40) {  # put the deploy ref on that commit, new by default
+  Push-Location $repo
+  try { $script:out = ("refs/heads/deploy $local refs/heads/deploy/test $remote" | & pwsh -NoProfile -File $gate origin 'https://example.invalid/x.git' 2>&1 | Out-String); $script:rc = $LASTEXITCODE }
+  finally { Pop-Location }
+}
+& git -C $repo update-ref refs/remotes/origin/release-probe HEAD~1   # the release stands on origin
+Write-Lf $checkRuns ''
+Deploy (Sha $repo 'HEAD~1')
+Check 'exit 0'                         0 $rc
+Check 'it sends nothing new'           'True' (Says 'pre-push: nothing new to send')
+Check 'and runs no check'              '' ((Get-Content $checkRuns -Raw) -replace '\s', '')
+Judge $repo (Sha $repo 'HEAD~1') (Sha $repo 'HEAD~2')
+Check 'the default branch still takes only what is checked out' 1 $rc
+Deploy (Sha $repo 'HEAD~1') (Sha $repo 'HEAD~2')
+Check 'an existing deploy ref moves the same way' 0 $rc
+Deploy (Sha $repo 'HEAD~1^{tree}')
+Check 'a tree is no commit, and is refused' 1 $rc
+Write-Host 'a commit origin does not carry is still refused there'
+Commit 'src/unpushed.txt' 'Write a commit origin does not have #16'
+Commit 'src/unpushed.txt' 'Move on past it #16'
+Deploy (Sha $repo 'HEAD~1')
+Check 'exit 1'                         1 $rc
+Check 'it says what to push'           'True' (Says 'push what you have: git push origin HEAD:deploy/test')
+& git -C $repo reset -q --hard HEAD~2
+& git -C $repo update-ref -d refs/remotes/origin/release-probe
 
 # --- an annotated tag --------------------------------------------------------------------------
 Write-Host 'an annotated tag naming the checked-out commit is not read as a foreign ref'

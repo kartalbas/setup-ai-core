@@ -688,7 +688,9 @@ armed by its first `init`.
 The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSED — ...`, exit 1):
 
 1. **The pushed commit is the one checked out.** Work is pushed by ref, `git push origin
-   HEAD:<branch>`; an annotated tag is resolved to the commit it names. A push to the default
+   HEAD:<branch>`; an annotated tag is resolved to the commit it names. Beside the default branch a
+   ref may name another commit when origin already carries it, so the push sends nothing new: a
+   release put on a stage by its deploy ref from a checkout that has moved on. A push to the default
    branch (`origin/HEAD`, else `master`) must be a fast-forward: one that would drop commits the
    remote has, a force push, is refused, whatever tool or person made it.
 2. **Every pushed commit names its issue**, `#<n>` anywhere in the message, or is excused: the
@@ -721,7 +723,8 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    `.ai-core/config.env` says `DEFAULT_BRANCH_IS_LIVE="yes"`, a push to the default branch is refused
    without `scripts/check.sh`, and its last commit carries a `Reviewed-by: <reviewer>` trailer.
 10. **Both spellings of a script change together**: where `x.sh` and `x.ps1` both stand, a push
-   that changes one changes the other. A commit of the push with a `Twin: <why>` trailer excuses a
+   that changes one changes the other. A `.ps1` that is `lib/entry-point.ps1` in the pushed tree is
+   no second spelling, whatever its name. A commit of the push with a `Twin: <why>` trailer excuses a
    fault that lives in one spelling alone.
 11. **The names of new directories are derived, not invented**, read from the families the trees
    already carry, with no list kept anywhere. A new `<a>` beside `<a>-<x>`, or the reverse, names

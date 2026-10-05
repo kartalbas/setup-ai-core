@@ -9,7 +9,8 @@
 #
 # What it judges, in this order, stopping at the first refusal:
 #
-#   1. the pushed commit is the one that is checked out
+#   1. the pushed commit is the one that is checked out, or, beside the default branch, a commit
+#      origin already carries
 #   2. every pushed commit names its issue, or says why it does not
 #   3. the team modes are installed
 #   4. every Windows entry point in the tree is the one text, and not a copy that decides
@@ -35,15 +36,17 @@ if ($Help -or $Rest -ccontains "-h" -or $Rest -ccontains "--help") {
   Write-Host "Usage: pre-push.ps1 [-Install [-All <folder>]]"
   Write-Host ""
   Write-Host "The push gate. Git runs it through the repository's .githooks/pre-push shim before a push"
-  Write-Host "and it refuses the push, exit 1, when: a pushed commit is not the one checked out; a pushed"
-  Write-Host "commit names no issue (#<n>), does not open with 'release:', touches more than *.md and"
+  Write-Host "and it refuses the push, exit 1, when: a pushed commit is not the one checked out (beside the"
+  Write-Host "default branch a commit origin already carries passes); a pushed commit names no issue (#<n>),"
+  Write-Host "does not open with 'release:', touches more than *.md and"
   Write-Host "LICENSE files, and carries no 'No-issue: <who asked and why>' trailer; a team mode is"
   Write-Host "missing; a check.ps1 or build.ps1 differs from the one Windows entry point (lib/entry-point.ps1,"
   Write-Host "judged where scripts/check.sh exists); a file the push adds or changes starts with #! and is"
   Write-Host "not executable; a subject is longer than 72 characters; a message carries an assistant's or a"
   Write-Host "vendor's attribution; an added comment names an issue as (#<n>) or <repo>#<n>; an existing"
   Write-Host "migrations/*.sql is changed or removed (a 'Migration: <why>' trailer allows it); one spelling"
-  Write-Host "of a script changes without the other where x.sh and x.ps1 both stand (a 'Twin: <why>' trailer"
+  Write-Host "of a script changes without the other where x.sh and x.ps1 both stand and the .ps1 is not"
+  Write-Host "lib/entry-point.ps1 (a 'Twin: <why>' trailer"
   Write-Host "allows it); a new directory's name is invented where the families"
   Write-Host "of the trees give it (a 'Naming: <why>' trailer keeps one); scripts/check.sh is red; or gitleaks"
   Write-Host "finds a credential in the pushed commits (where .gitleaks.toml exists). Merges are not judged; a deletion runs"
@@ -317,10 +320,8 @@ foreach ($line in ($inputText -split "`r?`n")) {
   # tag there is. Resolving it asks the question the refusal below means to ask: is the tree this
   # ref names the tree the checks read.
   $localCommit = "$(& git rev-parse --quiet --verify "$localSha^{commit}" 2>$null)"
-  if ($LASTEXITCODE -ne 0 -or -not $localCommit) { $localCommit = $localSha }
-  # Work is pushed by ref (`git push origin HEAD:<branch>`). A local sha that is not HEAD means
-  # the tree the checks are about to run in is not the tree being sent.
-  if ($localCommit -cne $head) { Deny-Push "$localRef is not what is checked out - push what you have: git push origin HEAD:$($remoteRef -creplace '^.*/', '')" }
+  $isCommit = $LASTEXITCODE -eq 0 -and [bool]$localCommit
+  if (-not $isCommit) { $localCommit = $localSha }
   if (Test-AllZero $remoteSha) {
     # An all-zero remote sha is a ref the remote does not have yet, so there is no "before" to
     # compare with. Reading that as "everything reachable" judges the whole history - every commit
@@ -347,6 +348,12 @@ foreach ($line in ($inputText -split "`r?`n")) {
     # rebase and a force push.
     $range = "$localCommit ^$remoteSha --not --remotes=origin"
   }
+  # Work is pushed by ref (`git push origin HEAD:<branch>`). A local sha that is not HEAD means
+  # the tree the checks are about to run in is not the tree being sent. Only a ref beside the
+  # default branch may name another commit, and only one that origin already carries: such a push
+  # sends no commit, as when a release is put on a stage by its deploy ref from a checkout that has
+  # moved on. A tree or a blob pushed as a ref is no commit, and git lists nothing for it.
+  if ($localCommit -cne $head -and (-not $isCommit -or $remoteRef -ceq "refs/heads/$default" -or @(& git rev-list -n1 @($range -split ' ') 2>$null | Where-Object { $_ }).Count -gt 0)) { Deny-Push "$localRef is not what is checked out - push what you have: git push origin HEAD:$($remoteRef -creplace '^refs/heads/', '')" }
   if ($remoteRef -ceq "refs/heads/$default") { $landing = $localCommit }
   $commits += @(& git rev-list --no-merges @($range -split ' ') 2>$null | ForEach-Object { "$_" } | Where-Object { $_ })
   if (@(& git rev-list -n1 @($range -split ' ') 2>$null | Where-Object { $_ }).Count -gt 0) { $adds = $true }
@@ -525,13 +532,14 @@ if ($migrated.Count -gt 0) {
 
 # THE TWO SPELLINGS OF A SCRIPT CHANGE TOGETHER (the harness rules): where x.sh and x.ps1 both stand,
 # they are one program, and a push that changes one of them changes the other. Where a fault lives in
-# one spelling alone, a commit of the push says so in a 'Twin: <why>' trailer. The Windows entry
-# point is no twin: where scripts/check.sh stands, a check.ps1 or build.ps1 is the one text held
-# above, which starts the .sh of its own name and never changes with it.
+# one spelling alone, a commit of the push says so in a 'Twin: <why>' trailer. A .ps1 that is the
+# Windows entry point in the pushed tree, the blob git makes of lib/entry-point.ps1 at that path,
+# is no twin whatever its name: it starts the .sh of its own name and never changes with it.
 [string[]]$allChanged = @($commits | ForEach-Object { & git -c core.quotePath=false diff-tree --no-commit-id --root -r --name-only $_ 2>$null } | ForEach-Object { "$_" } | Where-Object { $_ } | Select-Object -Unique)
 [Array]::Sort($allChanged, [StringComparer]::Ordinal)
 $twinExcused = @($commits | Where-Object { "$(& git log -1 '--format=%(trailers:key=Twin,valueonly)' $_)".Trim() }).Count -gt 0
 $oneSided = @()
+$entryPath = Join-Path $coreRoot 'lib/entry-point.ps1'
 if (-not $twinExcused) {
   $treeSet = [System.Collections.Generic.HashSet[string]]::new([string[]]@(& git -c core.quotePath=false ls-tree -r --name-only $head 2>$null | ForEach-Object { "$_" }), [StringComparer]::Ordinal)
   $changedSet = [System.Collections.Generic.HashSet[string]]::new($allChanged, [StringComparer]::Ordinal)
@@ -539,8 +547,8 @@ if (-not $twinExcused) {
     if ($path.EndsWith('.sh', [StringComparison]::Ordinal)) { $other = $path.Substring(0, $path.Length - 3) + '.ps1'; $ps1 = $other }
     elseif ($path.EndsWith('.ps1', [StringComparison]::Ordinal)) { $other = $path.Substring(0, $path.Length - 4) + '.sh'; $ps1 = $path }
     else { continue }
-    $ps1Name = $ps1 -creplace '^.*/', ''
-    if ((Test-Path -LiteralPath $checkSh) -and ($ps1Name -ceq 'check.ps1' -or $ps1Name -ceq 'build.ps1')) { continue }
+    $blob = "$(& git rev-parse -q --verify "$($head):$ps1" 2>$null)"
+    if ($blob -and (Test-Path -LiteralPath $entryPath) -and $blob -ceq "$(& git hash-object "--path=$ps1" $entryPath 2>$null)") { continue }
     if (-not ($treeSet.Contains($path) -and $treeSet.Contains($other))) { continue }
     if (-not $changedSet.Contains($other)) { $oneSided += "$path (not $other)" }
   }

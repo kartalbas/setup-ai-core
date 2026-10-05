@@ -231,7 +231,18 @@ git -C "$repo" add --chmod=+x scripts/check.sh; git -C "$repo" commit -q -m 'Say
 out="$(only_new "$repo")"; rc=$?
 check 'exit 0'                         0 "$rc"
 git -C "$repo" reset -q --hard HEAD~1
-git -C "$repo" rm -q -r -- tools db src/app.js; git -C "$repo" commit -q -m 'Remove the probes #9'
+echo 'a .ps1 that is the Windows entry point is no twin whatever its name; one with code of its own is'
+printf '#!/usr/bin/env bash\necho tests\n' > "$repo/scripts/test.sh"; chmod +x "$repo/scripts/test.sh"; cp "$root/lib/entry-point.ps1" "$repo/scripts/test.ps1"
+git -C "$repo" add --chmod=+x scripts/test.sh; git -C "$repo" add scripts/test.ps1; git -C "$repo" commit -q -m 'Add the test entry #9'
+printf '# one more test\n' >> "$repo/scripts/test.sh"; git -C "$repo" add scripts/test.sh; git -C "$repo" commit -q -m 'Run one more test #9'
+out="$(only_new "$repo")"; rc=$?
+check 'test.sh changed beside the entry point: exit 0' 0 "$rc"
+printf "Write-Host 'tests of its own'\n" > "$repo/scripts/test.ps1"; git -C "$repo" add scripts/test.ps1; git -C "$repo" commit -q -m 'Give the test entry code of its own #9'
+printf '# another test\n' >> "$repo/scripts/test.sh"; git -C "$repo" add scripts/test.sh; git -C "$repo" commit -q -m 'Run another test #9'
+out="$(only_new "$repo")"; rc=$?
+check 'test.sh changed beside a .ps1 with code: exit 1' 1 "$rc"
+check 'it names the other spelling'    yes "$(yesno 'scripts/test.sh (not scripts/test.ps1)')"
+git -C "$repo" rm -q -r -- tools db src/app.js scripts/test.sh scripts/test.ps1; git -C "$repo" commit -q -m 'Remove the probes #9'
 
 # --- a branch that merges the default branch -------------------------------------------------
 echo 'a branch that merges the default branch is judged on what it adds, not on what the default branch published'
@@ -390,6 +401,32 @@ echo 'a local sha that is not what is checked out is refused'
 out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD~1)" "$(git -C "$repo" rev-parse HEAD~2)")"; rc=$?
 check 'exit 1'              1 "$rc"
 check 'it says what to push' yes "$(grep -q 'push what you have: git push origin HEAD:master' <<< "$out" && echo yes || echo no)"
+
+echo 'a deploy ref put on a commit origin already carries passes from a checkout that moved on'
+deploy() {  # deploy <local sha> [<remote sha>] - put the deploy ref on that commit, new by default
+  printf 'refs/heads/deploy %s refs/heads/deploy/test %s\n' "$1" "${2:-$zeros40}" \
+    | ( cd "$repo" && bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1 )
+}
+git -C "$repo" update-ref refs/remotes/origin/release-probe HEAD~1   # the release stands on origin
+: > "$check_runs"
+out="$(deploy "$(git -C "$repo" rev-parse HEAD~1)")"; rc=$?
+check 'exit 0'                         0 "$rc"
+check 'it sends nothing new'           yes "$(grep -q 'pre-push: nothing new to send' <<< "$out" && echo yes || echo no)"
+check 'and runs no check'              '' "$(cat "$check_runs")"
+out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD~1)" "$(git -C "$repo" rev-parse HEAD~2)")"; rc=$?
+check 'the default branch still takes only what is checked out' 1 "$rc"
+out="$(deploy "$(git -C "$repo" rev-parse HEAD~1)" "$(git -C "$repo" rev-parse HEAD~2)")"; rc=$?
+check 'an existing deploy ref moves the same way' 0 "$rc"
+out="$(deploy "$(git -C "$repo" rev-parse 'HEAD~1^{tree}')")"; rc=$?
+check 'a tree is no commit, and is refused' 1 "$rc"
+echo 'a commit origin does not carry is still refused there'
+commit 'src/unpushed.txt' 'Write a commit origin does not have #16'
+commit 'src/unpushed.txt' 'Move on past it #16'
+out="$(deploy "$(git -C "$repo" rev-parse HEAD~1)")"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'it says what to push'           yes "$(grep -q 'push what you have: git push origin HEAD:deploy/test' <<< "$out" && echo yes || echo no)"
+git -C "$repo" reset -q --hard HEAD~2
+git -C "$repo" update-ref -d refs/remotes/origin/release-probe
 
 # --- an annotated tag --------------------------------------------------------------------------
 #

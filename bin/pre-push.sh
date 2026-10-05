@@ -10,7 +10,8 @@
 #
 # What it judges, in this order, stopping at the first refusal:
 #
-#   1. the pushed commit is the one that is checked out
+#   1. the pushed commit is the one that is checked out, or, beside the default branch, a commit
+#      origin already carries
 #   2. every pushed commit names its issue, or says why it does not
 #   3. the team modes are installed
 #   4. every Windows entry point in the tree is the one text, and not a copy that decides
@@ -31,15 +32,17 @@ for arg in "$@"; do
     echo "Usage: pre-push.sh [--install [--all <folder>]]"
     echo ""
     echo "The push gate. Git runs it through the repository's .githooks/pre-push shim before a push"
-    echo "and it refuses the push, exit 1, when: a pushed commit is not the one checked out; a pushed"
-    echo "commit names no issue (#<n>), does not open with 'release:', touches more than *.md and"
+    echo "and it refuses the push, exit 1, when: a pushed commit is not the one checked out (beside the"
+    echo "default branch a commit origin already carries passes); a pushed commit names no issue (#<n>),"
+    echo "does not open with 'release:', touches more than *.md and"
     echo "LICENSE files, and carries no 'No-issue: <who asked and why>' trailer; a team mode is"
     echo "missing; a check.ps1 or build.ps1 differs from the one Windows entry point (lib/entry-point.ps1,"
     echo "judged where scripts/check.sh exists); a file the push adds or changes starts with #! and is"
     echo "not executable; a subject is longer than 72 characters; a message carries an assistant's or a"
     echo "vendor's attribution; an added comment names an issue as (#<n>) or <repo>#<n>; an existing"
     echo "migrations/*.sql is changed or removed (a 'Migration: <why>' trailer allows it); one spelling"
-    echo "of a script changes without the other where x.sh and x.ps1 both stand (a 'Twin: <why>' trailer"
+    echo "of a script changes without the other where x.sh and x.ps1 both stand and the .ps1 is not"
+    echo "lib/entry-point.ps1 (a 'Twin: <why>' trailer"
     echo "allows it); a new directory's name is invented where the families"
     echo "of the trees give it (a 'Naming: <why>' trailer keeps one); scripts/check.sh is red; or gitleaks"
     echo "finds a credential in the pushed commits (where .gitleaks.toml exists). Merges are not judged; a deletion runs"
@@ -298,11 +301,8 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   # here, never the commit it names, so comparing it to HEAD unresolved refuses every annotated
   # tag there is. Resolving it asks the question the refusal below means to ask: is the tree this
   # ref names the tree the checks read.
-  local_commit="$(git rev-parse --quiet --verify "${local_sha}^{commit}" 2>/dev/null || printf '%s' "$local_sha")"
-  # Work is pushed by ref (`git push origin HEAD:<branch>`). A local sha that is not HEAD means
-  # the tree the checks are about to run in is not the tree being sent.
-  [ "$local_commit" = "$head" ] \
-    || refuse "$local_ref is not what is checked out - push what you have: git push origin HEAD:${remote_ref##*/}"
+  local_commit="$(git rev-parse --quiet --verify "${local_sha}^{commit}" 2>/dev/null)" && is_commit=1 \
+    || { local_commit="$local_sha"; is_commit=0; }
   if all_zero "${remote_sha:-}"; then
     # An all-zero remote sha is a ref the remote does not have yet, so there is no "before" to
     # compare with. Reading that as "everything reachable" judges the whole history - every commit
@@ -327,6 +327,14 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     # rebase and a force push.
     range="$local_commit ^$remote_sha --not --remotes=origin"
   fi
+  # Work is pushed by ref (`git push origin HEAD:<branch>`). A local sha that is not HEAD means
+  # the tree the checks are about to run in is not the tree being sent. Only a ref beside the
+  # default branch may name another commit, and only one that origin already carries: such a push
+  # sends no commit, as when a release is put on a stage by its deploy ref from a checkout that has
+  # moved on. A tree or a blob pushed as a ref is no commit, and git lists nothing for it.
+  [ "$local_commit" = "$head" ] \
+    || { [ "$is_commit" = 1 ] && [ "$remote_ref" != "refs/heads/$default" ] && [ -z "$(git rev-list -n1 $range)" ]; } \
+    || refuse "$local_ref is not what is checked out - push what you have: git push origin HEAD:${remote_ref#refs/heads/}"
   [ "$remote_ref" != "refs/heads/$default" ] || landing="$local_commit"
   commits="$commits$(git rev-list --no-merges $range)"$'\n'
   [ -z "$(git rev-list -n1 $range)" ] || adds=1
@@ -501,9 +509,9 @@ done <<< "$commits"
 
 # THE TWO SPELLINGS OF A SCRIPT CHANGE TOGETHER (the harness rules): where x.sh and x.ps1 both stand,
 # they are one program, and a push that changes one of them changes the other. Where a fault lives in
-# one spelling alone, a commit of the push says so in a 'Twin: <why>' trailer. The Windows entry
-# point is no twin: where scripts/check.sh stands, a check.ps1 or build.ps1 is the one text held
-# above, which starts the .sh of its own name and never changes with it.
+# one spelling alone, a commit of the push says so in a 'Twin: <why>' trailer. A .ps1 that is the
+# Windows entry point in the pushed tree, the blob git makes of lib/entry-point.ps1 at that path,
+# is no twin whatever its name: it starts the .sh of its own name and never changes with it.
 all_changed="$(while IFS= read -r sha; do [ -z "$sha" ] || git diff-tree --no-commit-id --root -r --name-only "$sha"; done <<< "$commits" | LC_ALL=C sort -u)"
 twin_excused=0
 while IFS= read -r sha; do
@@ -515,7 +523,9 @@ if [ "$twin_excused" -eq 0 ]; then
   tree_files="$(git ls-tree -r --name-only "$head" 2>/dev/null || true)"
   while IFS= read -r path; do
     case "$path" in *.sh) other="${path%.sh}.ps1"; ps1="$other" ;; *.ps1) other="${path%.ps1}.sh"; ps1="$path" ;; *) continue ;; esac
-    if [ -f "$root/scripts/check.sh" ]; then case "${ps1##*/}" in check.ps1|build.ps1) continue ;; esac; fi
+    blob="$(git rev-parse -q --verify "$head:$ps1" 2>/dev/null || true)"
+    if [ -n "$blob" ] && [ -f "$CORE_ROOT/lib/entry-point.ps1" ] \
+      && [ "$blob" = "$(git hash-object --path="$ps1" "$CORE_ROOT/lib/entry-point.ps1" 2>/dev/null)" ]; then continue; fi
     { grep -qxF -- "$path" <<< "$tree_files" && grep -qxF -- "$other" <<< "$tree_files"; } || continue
     grep -qxF -- "$other" <<< "$all_changed" || one_sided="$one_sided $path (not $other)"
   done <<< "$all_changed"

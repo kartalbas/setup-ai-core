@@ -68,7 +68,7 @@ check 'CLOSE is done' 3 "$(status_rank CLOSE)"
 # THE TWO PLANTED CARDS, one per signal:
 #   #12 implementing, its commit behind master and not in the tag   -> would move to testing
 #   #13 todo, its commit behind master and identical to the tag     -> would close, released
-#   #14 todo, an epic with ONE sub-issue and no commit             -> named, not moved
+#   #14 todo, an epic with ONE sub-issue and no commit             -> named, follows it
 #
 # lib/board.sh, which the source above brought in, carries `set -e`. An assertion that counts
 # zero matches exits non-zero, and under `set -e` that ends this test instead of failing it.
@@ -169,7 +169,7 @@ check 'a commit the newest tag carries would close the issue' \
   'would close  example-repo#13  (testing -> done, released in 0.8.100)' \
   "$(grep '^would close' <<< "$run")"
 check 'an epic with one sub-issue is named' \
-  'one child    example-repo#14  (an epic with a single sub-issue is a plain issue, rules.md section 8)' \
+  'one child    example-repo#14  (its state follows its one sub-issue; work of its own belongs in a sub-issue of its own, or it is closed with that sub-issue)' \
   "$(grep '^one child' <<< "$run")"
 check 'and follows its sub-issue moved by hand' \
   'would move   example-repo#14  (todo -> testing)' \

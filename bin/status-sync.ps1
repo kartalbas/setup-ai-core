@@ -125,9 +125,10 @@ foreach ($line in (& (Join-Path $PSScriptRoot 'board-list.ps1') -Project $resolv
 
   $s = Get-Signals $full $num
   if ($s.State -cne 'OPEN') { continue }
-  # An epic with ONE child is a plain issue (rules.md section 8); the sweep names it and, as
-  # with every epic, moves nothing.
-  if ($s.Subs -eq 1) { "one child    $repoShort#$num  (an epic with a single sub-issue is a plain issue, rules.md section 8)" }
+  # An issue with sub-issues is an epic whatever their number, and follows them. One with a single
+  # sub-issue is named: it is often an issue with work of its own and one dependency hung under
+  # it, and closing it with that sub-issue would close the unfinished work.
+  if ($s.Subs -eq 1) { "one child    $repoShort#$num  (its state follows its one sub-issue; work of its own belongs in a sub-issue of its own, or it is closed with that sub-issue)" }
   $epic = if ($s.Subs -gt 0) { 1 } else { 0 }
   $onMaster = Test-ContainedIn $full (Get-RepoDefaultBranch $full) $s.Sha
   $rel = 0; if ($onMaster -eq 1) { $rel = Test-ContainedIn $full (Get-LatestTag $full) $s.Sha }

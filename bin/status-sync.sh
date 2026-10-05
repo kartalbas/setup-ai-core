@@ -148,9 +148,10 @@ while read -r st prio repo num rest; do
   signals="$(signals_for "$full" "$num")" || exit 1
   IFS=$'\t' read -r state subs sha <<< "$signals"
   [ "$state" = "OPEN" ] || continue          # a closed issue is already past every gate
-  # An epic with ONE child is a plain issue (rules.md section 8); the sweep names it and, as
-  # with every epic, moves nothing.
-  [ "$subs" = 1 ] && echo "one child    $repo#$num  (an epic with a single sub-issue is a plain issue, rules.md section 8)"
+  # An issue with sub-issues is an epic whatever their number, and follows them. One with a single
+  # sub-issue is named: it is often an issue with work of its own and one dependency hung under
+  # it, and closing it with that sub-issue would close the unfinished work.
+  [ "$subs" = 1 ] && echo "one child    $repo#$num  (its state follows its one sub-issue; work of its own belongs in a sub-issue of its own, or it is closed with that sub-issue)"
   epic=$([ "$subs" -gt 0 ] && echo 1 || echo 0)
   branch="$(memo_get "branch:$full")" || { branch="$(default_branch "$full")"; memo_set "branch:$full" "$branch"; }
   on_master="$(contained_in "$full" "$branch" "$sha")"

@@ -161,7 +161,7 @@ try {
   Check 'a commit the newest tag carries would close the issue' `
     'would close  example-repo#13  (testing -> done, released in 0.8.100)' (@($run | Where-Object { $_ -like 'would close*' }))[0]
   Check 'an epic with one sub-issue is named' `
-    'one child    example-repo#14  (an epic with a single sub-issue is a plain issue, rules.md section 8)' (@($run | Where-Object { $_ -like 'one child*' }))[0]
+    'one child    example-repo#14  (its state follows its one sub-issue; work of its own belongs in a sub-issue of its own, or it is closed with that sub-issue)' (@($run | Where-Object { $_ -like 'one child*' }))[0]
   Check 'and follows its sub-issue moved by hand' `
     'would move   example-repo#14  (todo -> testing)' (@($run | Where-Object { $_ -like 'would move   example-repo#14*' }))[0]
   Check 'and the count says what it read' `

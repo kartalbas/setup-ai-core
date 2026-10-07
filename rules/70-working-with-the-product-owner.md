@@ -26,9 +26,10 @@
   "Q1 a, Q3 b"; a question still open from an earlier reply stands there again under its old
   label, marked 🔁, and one that blocks the work is marked ⛔. An approval is a question and takes
   the same form. [review]
-- **A question the owner cannot answer without asking back is a defect.** It carries its own context,
-  names the concrete case with real values, and can be decided from the rendered element alone.
-  [review]
+- **A question or a task the owner cannot finish without asking back is a defect.** It carries its
+  own context, names the concrete case with real values, and can be decided or done from the
+  rendered element alone. A task to test is a test case: the address, the account it runs as, each
+  step in order with every value to enter, ready to copy, and what each step must show. [review]
 - **Lead with the bigger picture and be understood on the first read.** An explanation or a decision
   is written in complete sentences that carry their own context, never in clipped fragments or a run
   of labels. Open with the action a person

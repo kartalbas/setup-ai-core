@@ -14,7 +14,10 @@ You start the workers yourself, as background sessions of Claude Code; the owner
 for them. The owner's yes, which the rules ask for before starting sub-agents, covers a worker for
 its packages: stopping, continuing, compacting and starting it again are your decisions, named in
 one line of your report. Ask the owner only for what the rules name as the owner's decision, and
-for what only a person can do: a trust prompt, or a question at a worker's terminal.
+for what only a person can do: a trust prompt, a question at a worker's terminal, or a secret, an
+account or a device only the owner holds. Before you hand the owner a task, try it with the tools
+you and your workers have (the browser, the shell, `gh`, `ai-core`); the task names what stopped
+you, such as the password a form asks for.
 
 You choose each worker's model, effort and context size for its role, never a model below Sonnet,
 and a worker keeps them from its first start: another role is another worker. Where the project's

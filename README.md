@@ -406,6 +406,9 @@ on start; no developer installs a skill by hand.
   coordinator writes no code. It keeps the overview in the tracker and delegates the work to
   worker sessions it starts itself, as background sessions of Claude Code (`claude --bg`), after
   one approval of the owner for the team.
+  - The owner starts the coordinator with a context size too, for example
+    `claude --name person-in-charge --settings '{"autoCompactWindow":400000}'`. Without one it
+    compacts only near the model's whole window, and every answer reads that much again.
   - Issues that change the same files form a package of at most about 8 issues or 400 changed
     lines. Every package is a section of one plan issue per board, titled "Plan: packages", so the
     plan survives a restart or a compaction.

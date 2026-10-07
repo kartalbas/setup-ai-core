@@ -67,6 +67,7 @@ if ($a[0] -eq 'api' -and $a[1] -eq 'graphql') {
   if ($line.Contains('updateProjectV2ItemFieldValue')) { '{}'; exit 0 }
   if ($line.Contains('addProjectV2ItemById'))          { 'PVTI_item1'; exit 0 }
   if ($line.Contains('projectItems'))                  { exit 0 }
+  if ($line.Contains('projectsV2(first:50)'))          { exit 0 }
   if ($line.Contains('issue(number:')) {
     $o = ''; $n = ''; $num = ''
     foreach ($t in $a) {
@@ -146,6 +147,8 @@ try {
   Check "the attach names THAT repository's issue 33" 'yes' (AttachedTo 'I_other33')
   Check 'and the report says which issue, by repository, number and title' `
         '#123 -> sub-issue of example-org/other-repo#33  Collect the rebuild work' (Report)
+  Check 'and that epic is read, to follow its sub-issues' 'True' `
+        ([bool]((Get-Content $log -Raw) -replace '\r?\n', ' ' -match 'r=other-repo -F n=33 -f query=.*subIssues\(first'))
 
   NewIssue 'other-repo#33'
   Check 'REPO#N reads the owner from the repo the issue is created in' 'yes' (AttachedTo 'I_other33')

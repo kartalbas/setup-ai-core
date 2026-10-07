@@ -19,6 +19,8 @@ Add-Content -Path '$log' -Value `$a
 if (`$a -match 'api repos/example-org/example-repo/issues/136 ') { '9001'; exit 0 }
 if (`$a -match 'api repos/example-org/other-repo/issues/136 ')   { '9002'; exit 0 }
 if (`$a -match 'api repos/example-org/example-repo/issues/149 ') { '9003'; exit 0 }
+if (`$a.Contains('projectsV2(first:50)')) { exit 0 }               # the epic's repository is on no board
+if (`$a.Contains('subIssues(first')) { 'todo'; 'todo'; exit 0 }   # and the epic stays where it is
 if (`$args[0] -eq 'repo') { 'example-org/example-repo'; exit 0 }
 '{}'
 exit 0

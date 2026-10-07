@@ -137,6 +137,7 @@ if [ -n "$parent" ]; then
     mutation($parent:ID!, $child:ID!) {
       addSubIssue(input:{issueId:$parent, subIssueId:$child}) { issue { number } } }' >/dev/null
   echo "#$num -> sub-issue of $parent_repo#$parent_num  $parent_title" >&2
+  update_epic "$parent_repo" "$parent_num" >&2 || exit 1
 fi
 
 echo "$num"

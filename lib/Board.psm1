@@ -826,7 +826,9 @@ function Set-Select {
 #
 # An epic, an issue with sub-issues, is never moved by hand: it follows its sub-issues. It stands
 # in implementing once one has started, in testing once all stand in testing or done, and is
-# closed once all are done. Like every card it only moves forward, so a state a person set stands.
+# closed once all are done. As nothing else moves it, it also takes the one step back its
+# sub-issues make true again: from testing to implementing, once a sub-issue stands before testing.
+# A closed epic stays closed.
 # The twin of the same section in lib/board.sh.
 
 function Get-StatusRank {
@@ -840,7 +842,7 @@ function Get-EpicTarget {
   # The epic's status and its sub-issues' statuses, a closed sub-issue counted as done, one closed as
   # not planned or as a duplicate ('not planned') not at all, so an epic whose sub-issues are all of
   # that kind does not move. Returns implementing, testing or CLOSE, or '' where the epic stands
-  # there or further.
+  # there or further, except that an epic in testing goes back to implementing.
   [CmdletBinding()]
   [OutputType([string])]
   param([string]$Current, [string[]]$Statuses = @())
@@ -850,8 +852,9 @@ function Get-EpicTarget {
   $low = ($ranks | Measure-Object -Minimum).Minimum
   $high = ($ranks | Measure-Object -Maximum).Maximum
   $t = if ($low -eq 3) { 'CLOSE' } elseif ($low -eq 2) { 'testing' } elseif ($high -ge 1) { 'implementing' } else { '' }
-  if (-not $t -or (Get-StatusRank $t) -le (Get-StatusRank $Current)) { return '' }
-  return $t
+  if (-not $t) { return '' }
+  if ((Get-StatusRank $t) -gt (Get-StatusRank $Current) -or "$Current $t" -ceq 'testing implementing') { return $t }
+  return ''
 }
 
 function Get-EpicTargetOnBoard {
@@ -878,28 +881,38 @@ function Get-EpicTargetOnBoard {
 function Update-Epic {
   # Move an epic to where its sub-issues stand, through the same movers as every card, which move
   # its own parent in turn. A mover runs in its own pwsh, because it imports this module afresh.
+  # Read on the board of the epic's repository where the caller selected none, or where the caller's
+  # board holds no card of the epic: moving it there would put a card of it on a board it was never
+  # on, and a board's "auto-add sub-issues" workflow then pulls all its sub-issues after it.
   [CmdletBinding()]
   param([string]$Repo, [string]$Number)
-  $target = Get-EpicTargetOnBoard -Repo $Repo -Number $Number
-  if (-not $target) { return }
-  $mover = if ($target -ceq 'CLOSE') { 'issue-close.ps1' } else { 'issue-status.ps1' }
-  $arguments = @('-Repo', $Repo, '-Number', $Number)
-  if ($target -cne 'CLOSE') {
-    $arguments += @('-Status', $target)
-    if ($script:Project) { $arguments += @('-Project', "$(Get-ProjectOrg)/$(Get-ProjectNumber)") }
-  }
-  $out = @(& pwsh -NoProfile -File (Join-Path $PSScriptRoot "../bin/$mover") @arguments 2>&1 | ForEach-Object { "$_" })
-  if ($LASTEXITCODE -ne 0) { Stop-WithError "the epic $Repo#$Number did not follow its sub-issues: $($out -join ' ')" }
-  if ($target -ceq 'CLOSE') { "epic $Repo#$Number -> closed, every sub-issue done" }
-  else { "epic $Repo#$Number -> $target, as its sub-issues stand" }
-  $out | Where-Object { $_.StartsWith('epic ', [StringComparison]::Ordinal) }
+  $saved = @($script:Project, $script:ProjectOrg, $env:GH_PROJECT_NUMBER)
+  try {
+    if ($script:Project) {
+      $board = "$($script:ProjectOrg)/$($script:Project)"
+      if (-not @(Get-IssueBoardItems -Repo $Repo -Number $Number | Where-Object { ("$_" -split "`t")[0] -ceq $board })) {
+        $script:Project = ''; $script:ProjectOrg = ''; $env:GH_PROJECT_NUMBER = ''
+      }
+    }
+    if (-not $script:Project -and -not (Test-OnNoBoard -Repo $Repo)) { Set-Project -Repo $Repo | Out-Null }
+    $target = Get-EpicTargetOnBoard -Repo $Repo -Number $Number
+    if (-not $target) { return }
+    $mover = if ($target -ceq 'CLOSE') { 'issue-close.ps1' } else { 'issue-status.ps1' }
+    $arguments = @('-Repo', $Repo, '-Number', $Number)
+    if ($target -cne 'CLOSE') {
+      $arguments += @('-Status', $target)
+      if ($script:Project) { $arguments += @('-Project', "$(Get-ProjectOrg)/$(Get-ProjectNumber)") }
+    }
+    $out = @(& pwsh -NoProfile -File (Join-Path $PSScriptRoot "../bin/$mover") @arguments 2>&1 | ForEach-Object { "$_" })
+    if ($LASTEXITCODE -ne 0) { Stop-WithError "the epic $Repo#$Number did not follow its sub-issues: $($out -join ' ')" }
+    if ($target -ceq 'CLOSE') { "epic $Repo#$Number -> closed, every sub-issue done" }
+    else { "epic $Repo#$Number -> $target, as its sub-issues stand" }
+    $out | Where-Object { $_.StartsWith('epic ', [StringComparison]::Ordinal) }
+  } finally { $script:Project, $script:ProjectOrg, $env:GH_PROJECT_NUMBER = $saved }
 }
 
 function Update-ParentEpic {
-  # After a card moved, its epic follows; read on the board of the epic's repository where the
-  # mover selected none, or where the mover's board holds no card of the epic: moving it there would
-  # put a card of it on a board it was never on, and a board's "auto-add sub-issues" workflow then
-  # pulls all its sub-issues after it.
+  # After a card moved, its epic follows.
   [CmdletBinding()]
   param([string]$Repo, [string]$Number)
   $owner, $name = $Repo -split '/', 2
@@ -908,17 +921,7 @@ function Update-ParentEpic {
   $parent = "$(Invoke-Gh api graphql -f "o=$owner" -f "r=$name" -F "n=$Number" -f "query=$q" --jq '.data.repository.issue.parent | select(. != null) | "\(.repository.nameWithOwner) \(.number)"')".Trim()
   if (-not $parent) { return }
   $parentRepo, $parentNumber = $parent -split ' ', 2
-  $saved = @($script:Project, $script:ProjectOrg, $env:GH_PROJECT_NUMBER)
-  try {
-    if ($script:Project) {
-      $board = "$($script:ProjectOrg)/$($script:Project)"
-      if (-not @(Get-IssueBoardItems -Repo $parentRepo -Number $parentNumber | Where-Object { ("$_" -split "`t")[0] -ceq $board })) {
-        $script:Project = ''; $script:ProjectOrg = ''; $env:GH_PROJECT_NUMBER = ''
-      }
-    }
-    if (-not $script:Project -and -not (Test-OnNoBoard -Repo $parentRepo)) { Set-Project -Repo $parentRepo | Out-Null }
-    Update-Epic -Repo $parentRepo -Number $parentNumber
-  } finally { $script:Project, $script:ProjectOrg, $env:GH_PROJECT_NUMBER = $saved }
+  Update-Epic -Repo $parentRepo -Number $parentNumber
 }
 
 Export-ModuleMember -Function Stop-WithError, ConvertTo-AsciiLowercase, Invoke-Gh, Get-Org, Get-DataDir, Get-DataFile, Get-LabelTaxonomy, Get-LabelNamesInGroup,

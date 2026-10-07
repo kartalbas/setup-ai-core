@@ -117,6 +117,7 @@ if ($parentIssue) {
   $m = 'mutation($parent:ID!, $child:ID!) { addSubIssue(input:{issueId:$parent, subIssueId:$child}) { issue { number } } }'
   Invoke-Gh api graphql -f "parent=$($parentIssue.NodeId)" -f "child=$(Get-IssueNodeId $Repo $num)" -f "query=$m" | Out-Null
   Write-Host "#$num -> sub-issue of $($parentIssue.Repo)#$($parentIssue.Number)  $($parentIssue.Title)"
+  Update-Epic -Repo $parentIssue.Repo -Number $parentIssue.Number | ForEach-Object { Write-Host $_ }
 }
 
 Remove-Item $sent -ErrorAction SilentlyContinue

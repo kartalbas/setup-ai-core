@@ -76,6 +76,7 @@ if [ "\$1" = "api" ] && [ "\$2" = "graphql" ]; then
     *updateProjectV2ItemFieldValue*) echo '{}'; exit 0 ;;
     *addProjectV2ItemById*)          echo 'PVTI_item1'; exit 0 ;;
     *projectItems*)                  exit 0 ;;
+    *'projectsV2(first:50)'*)        exit 0 ;;
     *'issue(number:'*)
       o=""; n=""; num=""
       for a in "\$@"; do
@@ -134,6 +135,8 @@ check "the attach names THAT repository's issue 33" yes "$(attached_to I_other33
 check 'and the report says which issue, by repository, number and title' \
       '#123 -> sub-issue of example-org/other-repo#33  Collect the rebuild work' \
       "$(grep 'sub-issue of' "$FAKE/err")"
+check 'and that epic is read, to follow its sub-issues' yes \
+      "$(tr '\n' ' ' < "$FAKE/calls" | grep -q 'r=other-repo -F n=33 -f query=.*subIssues(first' && echo yes || echo no)"
 
 new_issue 'other-repo#33'
 check 'REPO#N reads the owner from the repo the issue is created in' yes "$(attached_to I_other33)"

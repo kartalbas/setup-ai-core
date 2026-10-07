@@ -1,7 +1,8 @@
 # The PowerShell twin of epic-follow.test.sh, asserting the SAME answers: Get-EpicTarget, the rule
-# itself, then issue-status moving an epic to testing with its last sub-issue, a sub-issue that only
-# started leaving an epic in testing where it is, and issue-close closing an epic with its last
-# sub-issue. A fake gh answers, so nothing leaves the machine.
+# itself, then issue-status moving an epic to testing with its last sub-issue and back to
+# implementing with a sub-issue that went back, subissue-add and subissue-remove letting the epic
+# follow, and issue-close closing an epic with its last sub-issue. A fake gh answers, so nothing
+# leaves the machine.
 #
 #   pwsh -File tests/epic-follow.test.ps1
 
@@ -24,13 +25,17 @@ function Check($name, $expected, $actual) {
 }
 
 try {
-  Write-Host 'the rule: where an epic stands follows from its sub-issues, forward only'
+  Write-Host 'the rule: where an epic stands follows from its sub-issues, forward, and back from testing to implementing only'
   Import-Module (Join-Path $root 'lib/Board.psm1') -Force
   Check 'nothing started'         ''           (Get-EpicTarget -Current todo -Statuses todo, backlog)
   Check 'one started'             implementing (Get-EpicTarget -Current todo -Statuses implementing, todo)
   Check 'all in testing or done'  testing      (Get-EpicTarget -Current implementing -Statuses testing, done)
   Check 'all done'                CLOSE        (Get-EpicTarget -Current testing -Statuses done, done)
-  Check 'never backward'          ''           (Get-EpicTarget -Current testing -Statuses implementing, testing)
+  Check 'from testing back to implementing' implementing (Get-EpicTarget -Current testing -Statuses implementing, testing)
+  Check 'and so with a new todo beside one in testing' implementing (Get-EpicTarget -Current testing -Statuses testing, todo, todo)
+  Check 'never back to todo'           ''      (Get-EpicTarget -Current testing -Statuses todo, todo)
+  Check 'never back from implementing' ''      (Get-EpicTarget -Current implementing -Statuses todo, backlog)
+  Check 'a closed epic stays closed'   ''      (Get-EpicTarget -Current done -Statuses implementing, todo)
   Check 'no sub-issues, nothing'  ''           (Get-EpicTarget -Current todo)
   Check 'not planned left out'    CLOSE        (Get-EpicTarget -Current testing -Statuses done, 'not planned')
   Check 'only not planned, nothing' ''         (Get-EpicTarget -Current testing -Statuses 'not planned')
@@ -43,6 +48,8 @@ try {
 Add-Content -LiteralPath '$calls' -Value (`$line -replace '\r?\n', ' ')
 `$num = ''; foreach (`$a in `$args) { if (`$a -cmatch '^(num|n)=([0-9]+)$') { `$num = `$Matches[2]; break } }
 if (`$line -clike '*subIssues(first*') { Get-Content -LiteralPath '$epic'; exit 0 }
+if (`$line -clike '*--jq .id*') { '90'; exit 0 }
+if (`$line -clike '*--method POST*' -or `$line -clike '*--method DELETE*') { '{}'; exit 0 }
 if (`$line -clike '*parent {*') { if (`$num -ceq '3') { 'example-org/example-repo 44' }; exit 0 }
 if (`$line -clike '*includeArchived*') { "PVT_epic7``tPVTI_card`$num"; "PVT_own5``tPVTI_card`$num"; exit 0 }
 if (`$line -clike '*projectsV2(first:50)*') { "5``tthe repository board"; exit 0 }
@@ -66,12 +73,34 @@ if (`$line -clike '*--method PATCH*') { '{}'; exit 0 }
   Check 'it says so'    'epic example-org/example-repo#44 -> testing, as its sub-issues stand' (EpicLine)
   Check 'both cards moved, the sub-issue first' 'iid=PVTI_card3 iid=PVTI_card44' (Moves)
 
-  Write-Host 'issue-status: a sub-issue that only started leaves an epic in testing where it is'
+  Write-Host 'issue-status: a sub-issue back in implementing takes its epic from testing back to implementing'
   Set-Content -LiteralPath $calls -Value @(); Set-Content -LiteralPath $epic -Value @('testing', 'implementing', 'testing')
   Run 'issue-status.ps1' -Project 7 -Repo example-org/example-repo -Number 3 -Status implementing
   Check 'exit 0'        0 $rc
+  Check 'it says so'    'epic example-org/example-repo#44 -> implementing, as its sub-issues stand' (EpicLine)
+  Check 'both cards moved, the sub-issue first' 'iid=PVTI_card3 iid=PVTI_card44' (Moves)
+
+  $board = { param($card) "$(@(Get-Content -LiteralPath $calls | Where-Object { $_ -clike "*iid=$card *" } | ForEach-Object { if ($_ -cmatch 'pid=(PVT_[a-z0-9]+)') { $Matches[1] } }) -join ' ')" }
+  Write-Host 'subissue-add: a todo sub-issue attached to an epic in testing takes it back to implementing'
+  Set-Content -LiteralPath $calls -Value @(); Set-Content -LiteralPath $epic -Value @('testing', 'testing', 'todo')
+  Run 'subissue-add.ps1' -Repo example-org/example-repo -Parent 44 -Child 5
+  Check 'exit 0'        0 $rc
+  Check 'it says so'    'epic example-org/example-repo#44 -> implementing, as its sub-issues stand' (EpicLine)
+  Check 'the epic moved on its own board 5' 'PVT_own5' (& $board 'PVTI_card44')
+
+  Write-Host 'subissue-remove: an epic whose last sub-issue before testing is detached moves to testing'
+  Set-Content -LiteralPath $calls -Value @(); Set-Content -LiteralPath $epic -Value @('implementing', 'testing', 'done')
+  Run 'subissue-remove.ps1' -Repo example-org/example-repo -Parent 44 -Child 5
+  Check 'exit 0'        0 $rc
+  Check 'it says so'    'epic example-org/example-repo#44 -> testing, as its sub-issues stand' (EpicLine)
+  Check 'only the epic moved' 'iid=PVTI_card44' (Moves)
+
+  Write-Host 'subissue-add: a closed epic is not reopened'
+  Set-Content -LiteralPath $calls -Value @(); Set-Content -LiteralPath $epic -Value @('done', 'done', 'todo')
+  Run 'subissue-add.ps1' -Repo example-org/example-repo -Parent 44 -Child 5
+  Check 'exit 0'        0 $rc
   Check 'no epic line'  '' (EpicLine)
-  Check 'only the sub-issue moved' 'iid=PVTI_card3' (Moves)
+  Check 'nothing moved' '' (Moves)
 
   Write-Host 'issue-close: the last sub-issue closed closes its epic'
   Set-Content -LiteralPath $calls -Value @(); Set-Content -LiteralPath $epic -Value @('testing', 'done', 'done')
@@ -94,7 +123,6 @@ if (`$line -clike '*--method PATCH*') { '{}'; exit 0 }
   Remove-Item -LiteralPath $boards44
   Check 'exit 0'        0 $rc
   Check 'it says so'    'epic example-org/example-repo#44 -> testing, as its sub-issues stand' (EpicLine)
-  $board = { param($card) "$(@(Get-Content -LiteralPath $calls | Where-Object { $_ -clike "*iid=$card *" } | ForEach-Object { if ($_ -cmatch 'pid=(PVT_[a-z0-9]+)') { $Matches[1] } }) -join ' ')" }
   Check 'the sub-issue moved on the selected board 7' 'PVT_epic7' (& $board 'PVTI_card3')
   Check 'the epic moved on its own board 5, not on 7' 'PVT_own5' (& $board 'PVTI_card44')
 } finally {

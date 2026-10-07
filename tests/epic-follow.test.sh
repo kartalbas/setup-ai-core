@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # An epic follows its sub-issues through the movers: issue-status moves it to testing once every
-# sub-issue stands in testing or done, issue-close closes it with the last one, and a sub-issue
-# that has only started never moves an epic that stands further on. epic_target, the rule itself,
-# is checked on its own first. A fake gh answers, so nothing leaves the machine.
+# sub-issue stands in testing or done, issue-close closes it with the last one, and an epic in
+# testing goes back to implementing once a sub-issue stands before testing, also when subissue-add
+# attaches one; subissue-remove lets it follow the sub-issues it keeps. epic_target, the rule
+# itself, is checked on its own first. A fake gh answers, so nothing leaves the machine.
 #
 #   bash tests/epic-follow.test.sh
 
@@ -24,13 +25,17 @@ check() {
   else echo "  FAIL $1"; echo "       expected: [$2]"; echo "       actual:   [$3]"; failed=$((failed + 1)); fi
 }
 
-echo 'the rule: where an epic stands follows from its sub-issues, forward only'
+echo 'the rule: where an epic stands follows from its sub-issues, forward, and back from testing to implementing only'
 . "$ROOT/lib/board.sh"
 check 'nothing started'              ''             "$(epic_target todo todo backlog)"
 check 'one started'                  implementing   "$(epic_target todo implementing todo)"
 check 'all in testing or done'       testing        "$(epic_target implementing testing done)"
 check 'all done'                     CLOSE          "$(epic_target testing done done)"
-check 'never backward'               ''             "$(epic_target testing implementing testing)"
+check 'from testing back to implementing' implementing "$(epic_target testing implementing testing)"
+check 'and so with a new todo beside one in testing' implementing "$(epic_target testing testing todo todo)"
+check 'never back to todo'           ''             "$(epic_target testing todo todo)"
+check 'never back from implementing' ''             "$(epic_target implementing todo backlog)"
+check 'a closed epic stays closed'   ''             "$(epic_target done implementing todo)"
 check 'no sub-issues, nothing'       ''             "$(epic_target todo)"
 check 'not planned left out'         CLOSE          "$(epic_target testing done 'not planned')"
 check 'only not planned, nothing'    ''             "$(epic_target testing 'not planned')"
@@ -44,6 +49,8 @@ printf '%s\n' "\$*" | tr '\n' ' ' >> "$FAKE/calls"; printf '\n' >> "$FAKE/calls"
 num="\$(printf '%s\n' "\$@" | sed -n 's/^\(num\|n\)=\([0-9]*\)$/\2/p' | head -1)"
 case "\$*" in
   *'subIssues(first'*)        cat "$FAKE/epic-44" ;;
+  *'--jq .id'*)               echo "90\$num" ;;
+  *'--method POST'*|*'--method DELETE'*) echo '{}' ;;
   *'parent {'*)               [ "\$num" = 3 ] && echo 'example-org/example-repo 44' ;;
   *includeArchived*)          printf 'PVT_epic7\tPVTI_card%s\nPVT_own5\tPVTI_card%s\n' "\$num" "\$num" ;;
   *'projectsV2(first:50)'*)   printf '5\tthe repository board\n' ;;
@@ -65,12 +72,33 @@ check 'exit 0'        0 "$rc"
 check 'it says so'    'epic example-org/example-repo#44 -> testing, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
 check 'both cards moved, the sub-issue first' 'iid=PVTI_card3 iid=PVTI_card44' "$(moves)"
 
-echo 'issue-status: a sub-issue that only started leaves an epic in testing where it is'
+echo 'issue-status: a sub-issue back in implementing takes its epic from testing back to implementing'
 : > "$FAKE/calls"; printf 'testing\nimplementing\ntesting\n' > "$FAKE/epic-44"
 out="$(bash "$ROOT/bin/issue-status.sh" --project 7 example-org/example-repo 3 implementing 2>&1)"; rc=$?
 check 'exit 0'        0 "$rc"
+check 'it says so'    'epic example-org/example-repo#44 -> implementing, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
+check 'both cards moved, the sub-issue first' 'iid=PVTI_card3 iid=PVTI_card44' "$(moves)"
+
+echo 'subissue-add: a todo sub-issue attached to an epic in testing takes it back to implementing'
+: > "$FAKE/calls"; printf 'testing\ntesting\ntodo\n' > "$FAKE/epic-44"
+out="$(bash "$ROOT/bin/subissue-add.sh" example-org/example-repo 44 5 2>&1)"; rc=$?
+check 'exit 0'        0 "$rc"
+check 'it says so'    'epic example-org/example-repo#44 -> implementing, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
+check 'the epic moved on its own board 5' 'pid=PVT_own5' "$(grep 'iid=PVTI_card44 ' "$FAKE/calls" | grep -o 'pid=PVT_[a-z0-9]*')"
+
+echo 'subissue-remove: an epic whose last sub-issue before testing is detached moves to testing'
+: > "$FAKE/calls"; printf 'implementing\ntesting\ndone\n' > "$FAKE/epic-44"
+out="$(bash "$ROOT/bin/subissue-remove.sh" example-org/example-repo 44 5 2>&1)"; rc=$?
+check 'exit 0'        0 "$rc"
+check 'it says so'    'epic example-org/example-repo#44 -> testing, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
+check 'only the epic moved' 'iid=PVTI_card44' "$(moves)"
+
+echo 'subissue-add: a closed epic is not reopened'
+: > "$FAKE/calls"; printf 'done\ndone\ntodo\n' > "$FAKE/epic-44"
+out="$(bash "$ROOT/bin/subissue-add.sh" example-org/example-repo 44 5 2>&1)"; rc=$?
+check 'exit 0'        0 "$rc"
 check 'no epic line'  '' "$(grep '^epic' <<< "$out")"
-check 'only the sub-issue moved' 'iid=PVTI_card3' "$(moves)"
+check 'nothing moved' '' "$(moves)"
 
 echo 'issue-close: the last sub-issue closed closes its epic'
 : > "$FAKE/calls"; printf 'testing\ndone\ndone\n' > "$FAKE/epic-44"

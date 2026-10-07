@@ -8,7 +8,7 @@ epic's progress bar count. Issues that merely mention each other do not.
 
 .NOTES
 Parent and child are issues, and the link between them lives on the issues - so this
-touches no board and takes no project.
+takes no project. The epic then follows its sub-issues on its own board, as under issue-status.
 #>
 [CmdletBinding()]
 param(
@@ -27,3 +27,4 @@ foreach ($c in $Child) {
     -F "sub_issue_id=$(Get-IssueDbId $Repo $c)" | Out-Null
   "#$c -> #$Parent"
 }
+Update-Epic -Repo $Repo -Number $Parent

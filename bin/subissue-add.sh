@@ -7,7 +7,7 @@
 # The repo may be left out inside a checkout.
 #
 # Parent and child are issues, and the link between them lives on the issues - so this
-# touches no board and takes no project.
+# takes no project. The epic then follows its sub-issues on its own board, as under issue-status.
 #
 # A CHILD may name its own repo as OWNER/REPO#N. An epic and its work do not always live in
 # one repo - a rebuild of one component is regularly blocked by a change in another - and an
@@ -34,3 +34,4 @@ for child in "$@"; do
   gh api --method POST "repos/$repo/issues/$parent/sub_issues" -F sub_issue_id="$child_id" >/dev/null
   [ "$child_repo" = "$repo" ] && echo "#$child_num -> #$parent" || echo "$child_repo#$child_num -> #$parent"
 done
+update_epic "$repo" "$parent" || exit 1

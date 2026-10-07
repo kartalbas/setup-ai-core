@@ -12,7 +12,8 @@
 # is to close the issue and file it again, which throws away its comments and its
 # history - the part of an issue that is hardest to reproduce.
 #
-# The link lives on the issues, so this touches no board and takes no project.
+# The link lives on the issues, so this takes no project. The epic then follows the sub-issues it
+# still has on its own board, as under issue-status.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 
@@ -38,3 +39,4 @@ for child in "$@"; do
     "repos/$repo/issues/$parent/sub_issue" -F sub_issue_id="$child_id" >/dev/null || exit 1
   [ "$child_repo" = "$repo" ] && echo "#$child_num detached from #$parent" || echo "$child_repo#$child_num detached from #$parent"
 done
+update_epic "$repo" "$parent" || exit 1

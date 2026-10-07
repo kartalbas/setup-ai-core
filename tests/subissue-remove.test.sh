@@ -25,6 +25,8 @@ case "\$*" in
   *"api repos/example-org/example-repo/issues/136 "*) echo '9001'; exit 0 ;;
   *"api repos/example-org/other-repo/issues/136 "*)   echo '9002'; exit 0 ;;
   *"api repos/example-org/example-repo/issues/149 "*) echo '9003'; exit 0 ;;
+  *'projectsV2(first:50)'*) exit 0 ;;                  # the epic's repository is on no board
+  *'subIssues(first'*)      printf 'todo\ntodo\n'; exit 0 ;;  # and the epic stays where it is
 esac
 if [ "\$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
 echo '{}'

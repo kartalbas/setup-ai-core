@@ -836,7 +836,9 @@ set_select() {  # set_select <item id> <field name> <option name>
 #
 # An epic, an issue with sub-issues, is never moved by hand: it follows its sub-issues. It stands
 # in implementing once one has started, in testing once all stand in testing or done, and is
-# closed once all are done. Like every card it only moves forward, so a state a person set stands.
+# closed once all are done. As nothing else moves it, it also takes the one step back its
+# sub-issues make true again: from testing to implementing, once a sub-issue stands before testing.
+# A closed epic stays closed.
 
 status_rank() {  # status_rank <status> - backlog and todo < implementing < testing < done
   case "$1" in
@@ -850,7 +852,7 @@ status_rank() {  # status_rank <status> - backlog and todo < implementing < test
 # epic_target <the epic's status> <a sub-issue's status>... - a closed sub-issue counts as done, one
 # closed as not planned or as a duplicate ("not planned") not at all, so an epic whose sub-issues
 # are all of that kind does not move. Echoes implementing, testing or CLOSE, or nothing where the
-# epic stands there or further.
+# epic stands there or further, except that an epic in testing goes back to implementing.
 epic_target() {
   local cur="$1" s r low=3 high=0 t="" counted=0
   shift
@@ -866,7 +868,8 @@ epic_target() {
   elif [ "$low" -eq 2 ]; then t=testing
   elif [ "$high" -ge 1 ]; then t=implementing
   fi
-  [ -n "$t" ] && [ "$(status_rank "$t")" -gt "$(status_rank "$cur")" ] && echo "$t"
+  [ -n "$t" ] || return 0
+  if [ "$(status_rank "$t")" -gt "$(status_rank "$cur")" ] || [ "$cur $t" = 'testing implementing' ]; then echo "$t"; fi
   return 0
 }
 
@@ -894,38 +897,38 @@ epic_target_on_board() {
 }
 
 # update_epic <owner/repo> <number> - move an epic to where its sub-issues stand, through the same
-# movers as every card, which move its own parent in turn
+# movers as every card, which move its own parent in turn; read on the board of the epic's
+# repository where the caller selected none, or where the caller's board holds no card of the
+# epic: moving it there would put a card of it on a board it was never on, and a board's
+# "auto-add sub-issues" workflow then pulls all its sub-issues after it
 update_epic() {
-  local repo="$1" n="$2" target out bin
+  local repo="$1" n="$2" target out bin items
   bin="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bin" && pwd)"
-  target="$(epic_target_on_board "$repo" "$n")" || return 1
-  case "$target" in
-    '') return 0 ;;
-    CLOSE) out="$(bash "$bin/issue-close.sh" "$repo" "$n")" || return 1
-           echo "epic $repo#$n -> closed, every sub-issue done" ;;
-    *)     out="$(bash "$bin/issue-status.sh" ${PROJECT:+--project "$(project_org)/$(project_number)"} "$repo" "$n" "$target")" || return 1
-           echo "epic $repo#$n -> $target, as its sub-issues stand" ;;
-  esac
-  grep '^epic ' <<< "$out" || true
+  (
+    if [ -n "${PROJECT:-}" ]; then
+      items="$(issue_board_items "$repo" "$n")" || exit 1
+      cut -f1 <<< "$items" | grep -qxF "$(project_org)/$(project_number)" || { PROJECT=""; PROJECT_ORG=""; GH_PROJECT_NUMBER=""; }
+    fi
+    [ -n "${PROJECT:-}" ] || on_no_board "$repo" || set_project "" "$repo" >/dev/null || exit 1
+    target="$(epic_target_on_board "$repo" "$n")" || exit 1
+    case "$target" in
+      '') exit 0 ;;
+      CLOSE) out="$(bash "$bin/issue-close.sh" "$repo" "$n")" || exit 1
+             echo "epic $repo#$n -> closed, every sub-issue done" ;;
+      *)     out="$(bash "$bin/issue-status.sh" ${PROJECT:+--project "$(project_org)/$(project_number)"} "$repo" "$n" "$target")" || exit 1
+             echo "epic $repo#$n -> $target, as its sub-issues stand" ;;
+    esac
+    grep '^epic ' <<< "$out" || true
+  )
 }
 
-# update_parent_epic <owner/repo> <number> - after a card moved, its epic follows; read on the
-# board of the epic's repository where the mover selected none, or where the mover's board holds
-# no card of the epic: moving it there would put a card of it on a board it was never on, and a
-# board's "auto-add sub-issues" workflow then pulls all its sub-issues after it
+# update_parent_epic <owner/repo> <number> - after a card moved, its epic follows
 update_parent_epic() {
-  local parent items
+  local parent
   parent="$(gh_read "the parent of $1#$2" api graphql -f o="${1%%/*}" -f r="${1#*/}" -F n="$2" -f query='
     query($o:String!, $r:String!, $n:Int!) { repository(owner:$o, name:$r) { issue(number:$n) {
       parent { number repository { nameWithOwner } } } } }' \
     --jq '.data.repository.issue.parent | select(. != null) | "\(.repository.nameWithOwner) \(.number)"')" || return 1
   [ -n "$parent" ] || return 0
-  (
-    if [ -n "${PROJECT:-}" ]; then
-      items="$(issue_board_items "${parent% *}" "${parent#* }")" || exit 1
-      cut -f1 <<< "$items" | grep -qxF "$(project_org)/$(project_number)" || { PROJECT=""; PROJECT_ORG=""; GH_PROJECT_NUMBER=""; }
-    fi
-    [ -n "${PROJECT:-}" ] || on_no_board "${parent% *}" || set_project "" "${parent% *}" >/dev/null || exit 1
-    update_epic "${parent% *}" "${parent#* }"
-  )
+  update_epic "${parent% *}" "${parent#* }"
 }

@@ -18,7 +18,8 @@ A child may name its own repo as OWNER/REPO#N, exactly as subissue-add.ps1 takes
 a cross-repository child could be attached through the tooling but not detached, so
 freeing it for a new parent meant the hand edit the tooling exists to stop.
 
-The link lives on the issues, so this touches no board and takes no project.
+The link lives on the issues, so this takes no project. The epic then follows the sub-issues it
+still has on its own board, as under issue-status.
 #>
 [CmdletBinding()]
 param(
@@ -51,3 +52,4 @@ foreach ($c in $Child) {
     -F "sub_issue_id=$(Get-IssueDbId $childRepo $childNum)" | Out-Null
   if ($childRepo -ceq $Repo) { "#$childNum detached from #$Parent" } else { "$childRepo#$childNum detached from #$Parent" }
 }
+Update-Epic -Repo $Repo -Number $Parent

@@ -21,8 +21,8 @@
 # The card is put in `implementing` by start-issue, at the moment the worktree is opened, and in
 # `testing` by finish-issue; both are a session's statement and this sweep writes neither. It
 # never moves a card BACKWARD, so a state a person set by hand stands. An EPIC carries no work and has no signals of
-# its own: it follows its sub-issues (epic_target in lib/board.sh), so a sub-issue moved by hand
-# on the board moves its epic here too. Nothing is guessed: a card only moves on a signal.
+# its own: it follows its sub-issues (epic_target in lib/board.sh), back from testing to
+# implementing too, so a sub-issue moved by hand on the board moves its epic here too. Nothing is guessed: a card only moves on a signal.
 #
 # --dry-run prints what it would do and writes nothing. Default is to apply, because the whole
 # point is that no person has to run it.

@@ -735,7 +735,8 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    two or more repositories is a word of structure and names no repository. A commit with a
    `Naming: <why>` trailer keeps the names it adds.
 12. **`scripts/check.sh` is green**, run in the tree being pushed; a repository without one is told
-   so and passes on.
+   so and passes on. The check reads the working tree, so a tree that differs from the pushed commit,
+   by an uncommitted change or a file neither tracked nor ignored, is refused with the files named.
 13. **gitleaks over the commits the push carries**, in a repository that carries `.gitleaks.toml`;
    the commits are the only place a credential taken out again still stands. It runs
    `gitleaks git`, which came with gitleaks 8.19; without such a gitleaks the push is refused and

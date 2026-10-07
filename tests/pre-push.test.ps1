@@ -60,6 +60,7 @@ if [ "`${PROBE_CHECK:-green}" = green ]; then echo 'check: OK — every check gr
 echo 'check: FAIL — the stand-in was told to be red'
 exit 1
 "@
+if (-not $IsWindows) { & chmod +x (Join-Path $repo 'scripts\check.sh') }
 Copy-Item (Join-Path $root 'lib\entry-point.ps1') (Join-Path $repo 'scripts\check.ps1')
 Copy-Item (Join-Path $root 'lib\entry-point.ps1') (Join-Path $repo 'build.ps1')
 Write-Lf (Join-Path $repo 'bin\case-check.ps1') "#!/usr/bin/env pwsh`nWrite-Host `"not a shim, and never was`"`n"
@@ -384,6 +385,24 @@ Write-Host 'a local sha that is not what is checked out is refused'
 Judge $repo (Sha $repo 'HEAD~1') (Sha $repo 'HEAD~2')
 Check 'exit 1'               1 $rc
 Check 'it says what to push' 'True' (Says 'push what you have: git push origin HEAD:master')
+
+Write-Host 'a working tree that differs from the pushed commit is refused, and names the files'
+Commit 'src/clean.txt' 'Write a commit to push #17'
+Write-Lf (Join-Path $repo 'src/loose.txt') "not committed`n"
+OnlyNew $repo
+Check 'an untracked file: exit 1'      1 $rc
+Check 'it names the file'              'True' (Says ([regex]::Escape('?? src/loose.txt')))
+Remove-Item (Join-Path $repo 'src/loose.txt'); [System.IO.File]::AppendAllText((Join-Path $repo 'src/clean.txt'), "more`n", $utf8)
+OnlyNew $repo
+Check 'an unstaged change: exit 1'     1 $rc
+& git -C $repo add src/clean.txt
+OnlyNew $repo
+Check 'a staged change: exit 1'        1 $rc
+& git -C $repo reset -q --hard
+[System.IO.File]::AppendAllText((Join-Path $repo '.git/info/exclude'), "loose.log`n", $utf8); Write-Lf (Join-Path $repo 'src/loose.log') "ignored`n"
+OnlyNew $repo
+Check 'an ignored file counts not: exit 0' 0 $rc
+Remove-Item (Join-Path $repo 'src/loose.log')
 
 Write-Host 'a deploy ref put on a commit origin already carries passes from a checkout that moved on'
 function Deploy([string]$local, [string]$remote = $zeros40) {  # put the deploy ref on that commit, new by default

@@ -15,7 +15,7 @@
 #   3. the team modes are installed
 #   4. every Windows entry point in the tree is the one text, and not a copy that decides
 #   5. the names of the new directories are derived from the families the trees carry
-#   6. the repository's own scripts\check.sh is green
+#   6. the repository's own scripts\check.sh is green, run in a working tree equal to the commit
 #   7. gitleaks over the commits the push carries, in a repository that carries .gitleaks.toml
 #
 # Run from a prompt, with nothing on standard input, it judges what `git push` would send from
@@ -48,7 +48,8 @@ if ($Help -or $Rest -ccontains "-h" -or $Rest -ccontains "--help") {
   Write-Host "of a script changes without the other where x.sh and x.ps1 both stand and the .ps1 is not"
   Write-Host "lib/entry-point.ps1 (a 'Twin: <why>' trailer"
   Write-Host "allows it); a new directory's name is invented where the families"
-  Write-Host "of the trees give it (a 'Naming: <why>' trailer keeps one); scripts/check.sh is red; or gitleaks"
+  Write-Host "of the trees give it (a 'Naming: <why>' trailer keeps one); the working tree differs from the commit where"
+  Write-Host "scripts/check.sh would run, or scripts/check.sh is red; or gitleaks"
   Write-Host "finds a credential in the pushed commits (where .gitleaks.toml exists). Merges are not judged; a deletion runs"
   Write-Host "no checks. Run from a prompt it judges the current branch against its upstream."
   Write-Host ""
@@ -622,6 +623,9 @@ if ($findings.Count -gt 0) {
 # promised a run it never gets. How long it takes is the repository's own business. The Windows
 # entry point beside the check starts it where there is one.
 if (Test-Path -LiteralPath $checkSh) {
+  # The check reads the working tree, so it proves the pushed commit only where the two are equal.
+  $dirty = @(& git -C $root -c core.quotePath=false status --porcelain 2>$null)
+  if ($dirty.Count -gt 0) { Deny-Push "the working tree differs from the commit being pushed, so the check would prove a tree that is not sent:`n$(($dirty | ForEach-Object { "  $_" }) -join "`n")`n  Commit these files, ignore them, or move them out of the tree, then push again." }
   Write-Host "pre-push: $root/scripts/check.sh runs here, before anything leaves this machine."
   $checkPs = Join-Path $root 'scripts/check.ps1'
   if (Test-Path -LiteralPath $checkPs) { & pwsh -NoProfile -File $checkPs } else { & bash $checkSh }

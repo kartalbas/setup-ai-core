@@ -402,6 +402,24 @@ out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD~1)" "$(git -C "$repo" rev-
 check 'exit 1'              1 "$rc"
 check 'it says what to push' yes "$(grep -q 'push what you have: git push origin HEAD:master' <<< "$out" && echo yes || echo no)"
 
+echo 'a working tree that differs from the pushed commit is refused, and names the files'
+commit 'src/clean.txt' 'Write a commit to push #17'
+printf 'not committed\n' > "$repo/src/loose.txt"
+out="$(only_new "$repo")"; rc=$?
+check 'an untracked file: exit 1'      1 "$rc"
+check 'it names the file'              yes "$(yesno '?? src/loose.txt')"
+rm "$repo/src/loose.txt"; printf 'more\n' >> "$repo/src/clean.txt"
+out="$(only_new "$repo")"; rc=$?
+check 'an unstaged change: exit 1'     1 "$rc"
+git -C "$repo" add src/clean.txt
+out="$(only_new "$repo")"; rc=$?
+check 'a staged change: exit 1'        1 "$rc"
+git -C "$repo" reset -q --hard
+printf 'loose.log\n' >> "$repo/.git/info/exclude"; printf 'ignored\n' > "$repo/src/loose.log"
+out="$(only_new "$repo")"; rc=$?
+check 'an ignored file counts not: exit 0' 0 "$rc"
+rm "$repo/src/loose.log"
+
 echo 'a deploy ref put on a commit origin already carries passes from a checkout that moved on'
 deploy() {  # deploy <local sha> [<remote sha>] - put the deploy ref on that commit, new by default
   printf 'refs/heads/deploy %s refs/heads/deploy/test %s\n' "$1" "${2:-$zeros40}" \

@@ -44,7 +44,15 @@ A reviewer reads one diff and needs a small context; a developer on a package ne
 - Find the workers with `claude agents --json` (name, id, sessionId, state) or `ListAgents`, and
   talk to them with `SendMessage`.
 - Continue a stopped worker with `claude --bg --resume <sessionId>` and no other option, from any
-  folder, with its history: an option starts a copy of it instead.
+  folder, with its history: Claude Code wakes it under the same id with its saved options, its
+  name and its context size among them. The id it prints proves it: where that id is not the
+  start of `<sessionId>`, Claude Code started a copy, which has only the options passed and,
+  without `--settings`, runs up to the model's whole window. Stop the copy; where the worker still
+  runs, reach it with `SendMessage` or stop it first, and where an option was passed, continue it
+  again without one. A copy keeps the options it was started with, so a worker that is a copy
+  without `--settings` stays without a size: continue it once more with every option of its
+  start, `--name` and `--settings '{"autoCompactWindow":<tokens>}'` among them, and the copy that
+  answers is the worker from then on.
 - Compact a worker when its context holds more than its next package needs: stop it, run
   `claude -p "/compact" --resume <sessionId>`, and continue it. A `/compact` sent with
   `SendMessage` arrives as text and is not run. Where the next package shares nothing with what

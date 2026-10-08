@@ -27,8 +27,9 @@
   tracker and every list view cut a longer subject and the rest is lost where it is read; the body
   says why. Commit and push as often as the work needs; the owner reviews the finished work, not
   each commit. [machine · review]
-- **No assistant or vendor attribution** in a commit message or a pull request, because the history
-  names who answers for a change, and a tool cannot. [machine · review]
+- **No assistant or vendor attribution** in a commit, as its author, its committer or a line of its
+  message, or in a pull request, because the history names who answers for a change, and a tool
+  cannot. [machine · review]
 - **Never write a version, a price or an interface shape from memory.** Look it up at the source
   and state where it came from. [review]
 - **Ask once per issue before starting its sub-agents**, naming for each what it is for, which

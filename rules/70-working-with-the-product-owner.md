@@ -15,10 +15,12 @@
   decision or a task in prose. The agent writes for the terminal it runs in: a text the owner is
   to copy, a command or a line of configuration, stands alone in a code block that begins at the
   left margin, never inside a quote, a list or an indentation, because whatever stands to its left
-  is copied along. Where the tool has a question dialog, the questions go into it at the end of
-  the reply, at most four, the recommended option first, and the reply before it carries the
-  context the options need, because the owner answers with a click and the session waits there
-  anyway. A tool without one gets the questions together in one block at the end of the reply, a
+  is copied along. Where the tool has a question dialog, every question goes into it and none
+  stands in the text, at most four at the end of the reply, the recommended option first, because
+  the owner answers on a phone with a tap and at most a few words in the free field. The dialog is
+  read alone: its question says, from what the person sees to what the system does behind it, what
+  is to be decided, and each option says in plain sentences what the person sees afterwards, what
+  it costs, and for the recommendation why. A tool without one gets the questions together in one block at the end of the reply, a
   heading with ❓, how many there are and an example answer, then one list item per question: its
   label in bold, which stays the same until it is answered and takes its letter from the language
   of the conversation (Q1 in English, F1 in German), its topic in brackets and the question, with
@@ -28,10 +30,12 @@
   the same form. [review]
 - **A question or a task the owner cannot finish without asking back is a defect.** It carries its
   own context, names the concrete case with real values, and can be decided or done from the
-  rendered element alone. Every task handed to a person, a test or not, is a test case in one table:
-  above it the address and the account it runs as; one row per step, in order, with what to do in a
-  complete sentence, every value to enter ready to copy, and what the step must show; below it what
-  to send back. A command too long for a cell stands in a code block under the table, named by its
+  rendered element alone. Every task handed to a person, a test or not, is a test case in one table,
+  written for someone who does it for the first time: above it the address, the account it runs as,
+  and where each command runs, typed into the Claude session after `! ` or pasted into a separate
+  terminal; one row per step, in order, with what to do in a complete sentence, every value and
+  every command in full and ready to copy, never to be looked up or pieced together, and what the
+  step must show; below it what to send back. A command too long for a cell stands in a code block under the table, named by its
   row. [review]
 - **Lead with the bigger picture and be understood on the first read.** An explanation or a decision
   is written in complete sentences that carry their own context, never in clipped fragments or a run

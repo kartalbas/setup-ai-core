@@ -43,7 +43,8 @@ if ($Help -or $Rest -ccontains "-h" -or $Rest -ccontains "--help") {
   Write-Host "missing; a check.ps1 or build.ps1 differs from the one Windows entry point (lib/entry-point.ps1,"
   Write-Host "judged where scripts/check.sh exists); a file the push adds or changes starts with #! and is"
   Write-Host "not executable; a subject is longer than 72 characters; a message carries an assistant's or a"
-  Write-Host "vendor's attribution; an added comment names an issue as (#<n>) or <repo>#<n>; an existing"
+  Write-Host "vendor's attribution, or its author or committer is an assistant; an added comment names an"
+  Write-Host "issue as (#<n>) or <repo>#<n>; an existing"
   Write-Host "migrations/*.sql is changed or removed (a 'Migration: <why>' trailer allows it); one spelling"
   Write-Host "of a script changes without the other where x.sh and x.ps1 both stand and the .ps1 is not"
   Write-Host "lib/entry-point.ps1 (a 'Twin: <why>' trailer"
@@ -482,20 +483,29 @@ if ($modeless.Count -gt 0) {
 # THE COMMIT MESSAGES (the commit rules). A subject is at most 72 characters, because the log, the
 # tracker and every list view cut a longer one and the rest is lost where it is read; and no
 # message carries an assistant's or a vendor's attribution, because the history names who answers
-# for a change, and a tool cannot.
-$long = @(); $attributed = @()
+# for a change, and a tool cannot. For the same reason no author or committer is an assistant: a
+# vendor's address, an assistant's GitHub bot, or a name that is only an assistant's, which is the
+# identity a cloud session commits under unless the person sets their own.
+$long = @(); $attributed = @(); $assistantIdentities = @()
 foreach ($sha in $commits) {
   $short = "$(& git log -1 --format=%h $sha)".Trim()
   $subject = "$(& git log -1 --format=%s $sha)"
   if ($subject.Length -gt 72) { $long += "  $short has $($subject.Length) characters: $subject" }
   $message = (@(& git log -1 --format=%B $sha) -join "`n")
   if ($message -imatch '(?m)^co-authored-by:.*(claude|codex|gemini|copilot|chatgpt|anthropic|openai)|generated (with|by) \[?(claude|codex|gemini|copilot|chatgpt)') { $attributed += $short }
+  $identity = (@(& git log -1 '--format=%an <%ae>%n%cn <%ce>' $sha) -join "`n")
+  if ($identity -imatch '(?m)@(anthropic|openai)\.com>$|(claude|codex|copilot|chatgpt|gemini)[a-z-]*\[bot\]@users\.noreply\.github\.com>$|^(claude|claude code|codex|copilot|chatgpt|gemini) <') {
+    $assistantIdentities += "  $(& git log -1 '--format=%h author %an <%ae>, committer %cn <%ce>' $sha)"
+  }
 }
 if ($long.Count -gt 0) {
   Deny-Push "these subjects are longer than 72 characters:`n$($long -join "`n")`n  Shorten each to one sentence of at most 72 that says what changed, with git commit --amend for the last commit or git rebase -i for an earlier one."
 }
 if ($attributed.Count -gt 0) {
   Deny-Push "these commits carry an assistant's or a vendor's attribution: $($attributed -join ' '). Take the line out of the message (git commit --amend, or git rebase -i), because the history names who answers for a change."
+}
+if ($assistantIdentities.Count -gt 0) {
+  Deny-Push "these commits name an assistant as author or committer:`n$($assistantIdentities -join "`n")`n  Set your own identity (git config user.name and user.email), then rewrite them under it: git commit --amend --reset-author --no-edit for the last commit, or git rebase --exec 'git commit --amend --reset-author --no-edit' origin/$default for all of them."
 }
 
 # AN ISSUE NUMBER IS NEVER WRITTEN INTO A COMMENT (the comment rules): it sends the reader to a

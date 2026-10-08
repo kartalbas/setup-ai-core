@@ -185,6 +185,26 @@ check 'it says why'                    yes "$(yesno "an assistant's or a vendor'
 git -C "$repo" commit -q --amend -m "$(printf 'Tune the reader #7\n\nCo-Authored-By: Ada Lovelace <ada@example.invalid>')"
 out="$(only_new "$repo")"; rc=$?
 check 'exit 0'                         0 "$rc"
+echo 'an assistant as author or committer is refused; a person who shares the name passes'
+git -C "$repo" commit -q --amend --no-edit --author='Claude <noreply@anthropic.com>'
+out="$(only_new "$repo")"; rc=$?
+check 'an assistant as author: exit 1' 1 "$rc"
+check 'it names the identity'          yes "$(yesno 'author Claude <noreply@anthropic.com>')"
+git -C "$repo" commit -q --amend --no-edit --reset-author
+GIT_COMMITTER_NAME=Claude GIT_COMMITTER_EMAIL=noreply@anthropic.com git -C "$repo" commit -q --amend --no-edit
+out="$(only_new "$repo")"; rc=$?
+check 'an assistant as committer alone: exit 1' 1 "$rc"
+check 'it says why'                    yes "$(yesno 'name an assistant as author or committer')"
+git -C "$repo" commit -q --amend --no-edit --author='claude[bot] <209825114+claude[bot]@users.noreply.github.com>'
+out="$(only_new "$repo")"; rc=$?
+check "an assistant's GitHub bot: exit 1" 1 "$rc"
+git -C "$repo" commit -q --amend --no-edit --author='Claude Monet <claude@example.invalid>'
+out="$(only_new "$repo")"; rc=$?
+check 'a person named Claude: exit 0'  0 "$rc"
+git -C "$repo" commit -q --amend --no-edit --author='dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>'
+out="$(only_new "$repo")"; rc=$?
+check 'a bot that is no assistant: exit 0' 0 "$rc"
+git -C "$repo" commit -q --amend --no-edit --reset-author
 echo 'an added comment naming an issue as (#12) or <repo>#12 is refused; a number in code passes'
 n=12  # the number is put together, so this line is no comment naming an issue to the gate itself
 printf 'const a = 1; // read the board whole (#%s)\n' "$n" > "$repo/src/app.js"

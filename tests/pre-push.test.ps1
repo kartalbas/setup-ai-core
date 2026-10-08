@@ -174,6 +174,28 @@ Check 'it says why'                    'True' (Says "an assistant's or a vendor'
 Amend "Tune the reader #7`n`nCo-Authored-By: Ada Lovelace <ada@example.invalid>"
 OnlyNew $repo
 Check 'exit 0'                         0 $rc
+Write-Host 'an assistant as author or committer is refused; a person who shares the name passes'
+& git -C $repo commit -q --amend --no-edit '--author=Claude <noreply@anthropic.com>'
+OnlyNew $repo
+Check 'an assistant as author: exit 1' 1 $rc
+Check 'it names the identity'          'True' (Says ([regex]::Escape('author Claude <noreply@anthropic.com>')))
+& git -C $repo commit -q --amend --no-edit --reset-author
+$env:GIT_COMMITTER_NAME = 'Claude'; $env:GIT_COMMITTER_EMAIL = 'noreply@anthropic.com'
+& git -C $repo commit -q --amend --no-edit
+Remove-Item Env:GIT_COMMITTER_NAME, Env:GIT_COMMITTER_EMAIL
+OnlyNew $repo
+Check 'an assistant as committer alone: exit 1' 1 $rc
+Check 'it says why'                    'True' (Says 'name an assistant as author or committer')
+& git -C $repo commit -q --amend --no-edit '--author=claude[bot] <209825114+claude[bot]@users.noreply.github.com>'
+OnlyNew $repo
+Check "an assistant's GitHub bot: exit 1" 1 $rc
+& git -C $repo commit -q --amend --no-edit '--author=Claude Monet <claude@example.invalid>'
+OnlyNew $repo
+Check 'a person named Claude: exit 0'  0 $rc
+& git -C $repo commit -q --amend --no-edit '--author=dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>'
+OnlyNew $repo
+Check 'a bot that is no assistant: exit 0' 0 $rc
+& git -C $repo commit -q --amend --no-edit --reset-author
 Write-Host 'an added comment naming an issue as (#12) or <repo>#12 is refused; a number in code passes'
 $n = 12  # the number is put together, so this line is no comment naming an issue to the gate itself
 Write-Lf (Join-Path $repo 'src/app.js') "const a = 1; // read the board whole (#$n)`n"

@@ -39,7 +39,8 @@ for arg in "$@"; do
     echo "missing; a check.ps1 or build.ps1 differs from the one Windows entry point (lib/entry-point.ps1,"
     echo "judged where scripts/check.sh exists); a file the push adds or changes starts with #! and is"
     echo "not executable; a subject is longer than 72 characters; a message carries an assistant's or a"
-    echo "vendor's attribution; an added comment names an issue as (#<n>) or <repo>#<n>; an existing"
+    echo "vendor's attribution, or its author or committer is an assistant; an added comment names an"
+    echo "issue as (#<n>) or <repo>#<n>; an existing"
     echo "migrations/*.sql is changed or removed (a 'Migration: <why>' trailer allows it); one spelling"
     echo "of a script changes without the other where x.sh and x.ps1 both stand and the .ps1 is not"
     echo "lib/entry-point.ps1 (a 'Twin: <why>' trailer"
@@ -457,8 +458,11 @@ done < <(while IFS= read -r sha; do [ -z "$sha" ] || git diff-tree --no-commit-i
 # THE COMMIT MESSAGES (the commit rules). A subject is at most 72 characters, because the log, the
 # tracker and every list view cut a longer one and the rest is lost where it is read; and no
 # message carries an assistant's or a vendor's attribution, because the history names who answers
-# for a change, and a tool cannot. Each message is read whole before it is searched.
-long=""; attributed=""
+# for a change, and a tool cannot. For the same reason no author or committer is an assistant: a
+# vendor's address, an assistant's GitHub bot, or a name that is only an assistant's, which is the
+# identity a cloud session commits under unless the person sets their own. Each message is read
+# whole before it is searched.
+long=""; attributed=""; assistant_identities=""
 while IFS= read -r sha; do
   [ -n "$sha" ] || continue
   subject="$(git log -1 --format=%s "$sha")"
@@ -468,10 +472,17 @@ while IFS= read -r sha; do
   if grep -qiE '^co-authored-by:.*(claude|codex|gemini|copilot|chatgpt|anthropic|openai)|generated (with|by) \[?(claude|codex|gemini|copilot|chatgpt)' <<< "$message"; then
     attributed="$attributed $(git log -1 --format=%h "$sha")"
   fi
+  if git log -1 --format='%an <%ae>%n%cn <%ce>' "$sha" \
+      | grep -qiE '@(anthropic|openai)\.com>$|(claude|codex|copilot|chatgpt|gemini)[a-z-]*\[bot\]@users\.noreply\.github\.com>$|^(claude|claude code|codex|copilot|chatgpt|gemini) <'; then
+    assistant_identities="$assistant_identities
+  $(git log -1 --format='%h author %an <%ae>, committer %cn <%ce>' "$sha")"
+  fi
 done <<< "$commits"
 [ -z "$long" ] || refuse "these subjects are longer than 72 characters:$long
   Shorten each to one sentence of at most 72 that says what changed, with git commit --amend for the last commit or git rebase -i for an earlier one."
 [ -z "$attributed" ] || refuse "these commits carry an assistant's or a vendor's attribution:$attributed. Take the line out of the message (git commit --amend, or git rebase -i), because the history names who answers for a change."
+[ -z "$assistant_identities" ] || refuse "these commits name an assistant as author or committer:$assistant_identities
+  Set your own identity (git config user.name and user.email), then rewrite them under it: git commit --amend --reset-author --no-edit for the last commit, or git rebase --exec 'git commit --amend --reset-author --no-edit' origin/$default for all of them."
 
 # AN ISSUE NUMBER IS NEVER WRITTEN INTO A COMMENT (the comment rules): it sends the reader to a
 # tracker that moves on while the line stays. What the line needs is said in the comment, and the

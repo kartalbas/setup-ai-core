@@ -28,8 +28,11 @@
   the same form. [review]
 - **A question or a task the owner cannot finish without asking back is a defect.** It carries its
   own context, names the concrete case with real values, and can be decided or done from the
-  rendered element alone. A task to test is a test case: the address, the account it runs as, each
-  step in order with every value to enter, ready to copy, and what each step must show. [review]
+  rendered element alone. Every task handed to a person, a test or not, is a test case in one table:
+  above it the address and the account it runs as; one row per step, in order, with what to do in a
+  complete sentence, every value to enter ready to copy, and what the step must show; below it what
+  to send back. A command too long for a cell stands in a code block under the table, named by its
+  row. [review]
 - **Lead with the bigger picture and be understood on the first read.** An explanation or a decision
   is written in complete sentences that carry their own context, never in clipped fragments or a run
   of labels. Open with the action a person

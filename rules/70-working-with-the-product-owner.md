@@ -30,13 +30,17 @@
   the same form. [review]
 - **A question or a task the owner cannot finish without asking back is a defect.** It carries its
   own context, names the concrete case with real values, and can be decided or done from the
-  rendered element alone. Every task handed to a person, a test or not, is a test case in one table,
-  written for someone who does it for the first time: above it the address, the account it runs as,
-  and where each command runs, typed into the Claude session after `! ` or pasted into a separate
-  terminal; one row per step, in order, with what to do in a complete sentence, every value and
-  every command in full and ready to copy, never to be looked up or pieced together, and what the
-  step must show; below it what to send back. A command too long for a cell stands in a code block under the table, named by its
-  row. [review]
+  rendered element alone. What a session may do itself, in the browser too, it does itself once the
+  person has chosen it in the question dialog; only what no session may do becomes a task for the
+  person. Such a task, a test or not, is written for someone who does it for the first time, as
+  steps in order and nothing else: each step is a table of one row with the step's number, where it
+  runs (the Claude input field for a line that starts with `! `, a separate terminal, or the
+  browser), what to do in a complete sentence, and what the person sees afterwards. Whatever the
+  step has to copy, a command or a value, stands in full directly under its row, in a code block at
+  the left margin, one per line, alone on that line and short enough not to wrap, because a
+  terminal selects whole lines and copies a table's borders and a wrapped line's break along.
+  Nothing to copy ever stands in a cell. Under the last step stands one line: what to send back.
+  [review]
 - **Lead with the bigger picture and be understood on the first read.** An explanation or a decision
   is written in complete sentences that carry their own context, never in clipped fragments or a run
   of labels. Open with the action a person

@@ -39,14 +39,15 @@
   tolerated; a warning that was there before becomes an issue. [review]
 - **Report the result, not the intention.** A failed check is shown with its output, a skipped step
   is named with its reason, finished work is stated plainly. [review]
-- **A pass from a gate is not a review.** Work that changes behaviour is read afterwards by a
-  reviewer told to refute, who names the file, the line and the state in which a defect appears.
-  Where the stakes are high, more than one reviewer reads it, on different models, because two
-  readers with the same habits share a blind spot. After the reviewer's GO the work lands on the
-  default branch as a merge commit that names the issue and carries a `Reviewed-by: <reviewer>`
-  trailer, so the reviewed commits land as they were read, and the verdict is written on the
-  issue. A refused landing goes to the owner: no other session pushes it, and nothing is reworded
-  or forced past the refusal. [review]
+- **A pass from a gate is not a review.** Work that changes behaviour is read, before it is
+  integrated, by a reviewer told to refute, who names the file, the line and the state in which a
+  defect appears. Where the stakes are high, more than one reviewer reads it, on different models,
+  because two readers with the same habits share a blind spot. After the reviewer's GO,
+  `ai-core integrate-issue <number> --reviewed-by <reviewer>` integrates the work into the default
+  branch as a merge commit that names the issue and carries a `Reviewed-by: <reviewer>` trailer,
+  so the reviewed commits land as they were read; the verdict is written on the issue. A refused
+  integration goes to the owner: no other session pushes it, and nothing is reworded or forced
+  past the refusal. [tool · review]
 - **Nothing is called done until the product owner has reviewed the finished work.** The checks
   decide what may leave the machine; the owner decides what counts as delivered. [review]
 - **A machine is never repaired by hand while the repository does not yet carry the repair.** Reading

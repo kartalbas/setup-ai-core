@@ -45,7 +45,9 @@
   owner), and at most five items per group, each issue as <repository>#<number> with a few words of
   its topic. [review]
 - **The measure is the reader.** Explain what is specific to this system, never what the reader
-  already uses daily. [review]
+  already uses daily, and write a command handed to a person in the shell they work in: the
+  session's own shell, unless they named another; a line relayed from another session is checked
+  for it. [review]
 - **No pointless justification, in chat, in documents or in code.** The test is what the reader
   learns. Defending a decision that is already made teaches nothing. Report the change, not the
   standing state of the world. [review]

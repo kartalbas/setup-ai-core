@@ -336,16 +336,20 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   [ "$local_commit" = "$head" ] \
     || { [ "$is_commit" = 1 ] && [ "$remote_ref" != "refs/heads/$default" ] && [ -z "$(git rev-list -n1 $range)" ]; } \
     || refuse "$local_ref is not what is checked out - push what you have: git push origin HEAD:${remote_ref#refs/heads/}"
-  [ "$remote_ref" != "refs/heads/$default" ] || landing="$local_commit"
+  # Git runs the hook for a push that moves nothing too, so a default branch equal to origin's lands nothing.
+  [ "$remote_ref" != "refs/heads/$default" ] || [ "$local_commit" = "${remote_sha:-}" ] || landing="$local_commit"
   commits="$commits$(git rev-list --no-merges $range)"$'\n'
   [ -z "$(git rev-list -n1 $range)" ] || adds=1
   scan_ranges="$scan_ranges$range"$'\n'
 done <<< "$input"
 
 # Nothing to send, or nothing but deletions: there is nothing to judge and nothing to test.
+# A push that moves the default branch is never nothing: a branch pushed for review before it
+# lands has every commit on origin already, yet the default branch takes a tree now, and below it
+# is tested and, where that branch goes live, judged.
 [ "$pushing" -eq 1 ] || exit 0
 commits="$(grep -v '^$' <<< "$commits" || true)"
-if [ -z "$commits" ] && [ "$adds" -eq 0 ]; then
+if [ -z "$commits" ] && [ "$adds" -eq 0 ] && [ -z "$landing" ]; then
   echo 'pre-push: nothing new to send.'
   exit 0
 fi

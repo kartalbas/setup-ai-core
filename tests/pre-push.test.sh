@@ -310,6 +310,26 @@ rm -f "$repo/.ai-core/config.env"
 commit 'src/thing.txt' 'Land a change on an ordinary branch #16'
 out="$(only_new "$repo")"; rc=$?
 check 'exit 0'                         0 "$rc"
+echo 'a fast-forward landing of a branch origin carries already is checked, and held to the live rule'
+commit 'src/landed.txt' 'Land a branch that origin carries already #74'
+git -C "$repo" update-ref refs/remotes/origin/issue-74-landed HEAD   # pushed for review before it lands
+: > "$check_runs"
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                         0 "$rc"
+check 'it is not called nothing new'   no "$(yesno 'pre-push: nothing new to send')"
+check 'the check runs'                 yes "$([ -s "$check_runs" ] && echo yes || echo no)"
+printf 'DEFAULT_BRANCH_IS_LIVE="yes"\n' > "$repo/.ai-core/config.env"
+out="$(only_new "$repo")"; rc=$?
+check 'where the branch goes live, without the trailer: exit 1' 1 "$rc"
+check 'it names the trailer'           yes "$(yesno "git commit --amend --trailer 'Reviewed-by: <reviewer>'")"
+echo 'a push that moves nothing lands nothing, also where the branch goes live'
+: > "$check_runs"
+out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$(git -C "$repo" rev-parse HEAD)")"; rc=$?
+check 'exit 0'                         0 "$rc"
+check 'it sends nothing new'           yes "$(yesno 'pre-push: nothing new to send')"
+check 'and runs no check'              '' "$(cat "$check_runs")"
+rm -f "$repo/.ai-core/config.env"
+git -C "$repo" update-ref -d refs/remotes/origin/issue-74-landed
 
 # --- what excuses a commit from naming an issue ----------------------------------------------
 echo 'a commit naming its issue anywhere in the message passes'

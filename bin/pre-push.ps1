@@ -355,15 +355,19 @@ foreach ($line in ($inputText -split "`r?`n")) {
   # sends no commit, as when a release is put on a stage by its deploy ref from a checkout that has
   # moved on. A tree or a blob pushed as a ref is no commit, and git lists nothing for it.
   if ($localCommit -cne $head -and (-not $isCommit -or $remoteRef -ceq "refs/heads/$default" -or @(& git rev-list -n1 @($range -split ' ') 2>$null | Where-Object { $_ }).Count -gt 0)) { Deny-Push "$localRef is not what is checked out - push what you have: git push origin HEAD:$($remoteRef -creplace '^refs/heads/', '')" }
-  if ($remoteRef -ceq "refs/heads/$default") { $landing = $localCommit }
+  # Git runs the hook for a push that moves nothing too, so a default branch equal to origin's lands nothing.
+  if ($remoteRef -ceq "refs/heads/$default" -and $localCommit -cne $remoteSha) { $landing = $localCommit }
   $commits += @(& git rev-list --no-merges @($range -split ' ') 2>$null | ForEach-Object { "$_" } | Where-Object { $_ })
   if (@(& git rev-list -n1 @($range -split ' ') 2>$null | Where-Object { $_ }).Count -gt 0) { $adds = $true }
   $scanRanges += $range
 }
 
 # Nothing to send, or nothing but deletions: there is nothing to judge and nothing to test.
+# A push that moves the default branch is never nothing: a branch pushed for review before it
+# lands has every commit on origin already, yet the default branch takes a tree now, and below it
+# is tested and, where that branch goes live, judged.
 if (-not $pushing) { exit 0 }
-if ($commits.Count -eq 0 -and -not $adds) { Write-Host 'pre-push: nothing new to send.'; exit 0 }
+if ($commits.Count -eq 0 -and -not $adds -and -not $landing) { Write-Host 'pre-push: nothing new to send.'; exit 0 }
 
 # A DEFAULT BRANCH THAT GOES LIVE (the owner's rule). Where the repository's .ai-core/config.env
 # names it in DEFAULT_BRANCH_IS_LIVE (its folder name, as the harness-wide config.env lists the

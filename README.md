@@ -701,7 +701,8 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    explanation needs no ticket); or it carries a trailer `No-issue: <who asked and why>`, read the
    way git reads a trailer, so an empty one and the two words inside a sentence do not count.
    The message of a merge is not judged, but a merge the remote does not have runs the checks on
-   its tree like any new commit. A deletion runs nothing, and what is judged is exactly what the remote
+   its tree like any new commit. So does every push that moves the default branch, also a branch
+   pushed for review that lands as a fast-forward, whose commits origin carries already. A deletion runs nothing, and what is judged is exactly what the remote
    does not have yet: the local commit without the remote sha and without every ref of origin
    this clone knows, so a branch that merged the default branch is judged on its own commits, not
    on those the default branch published, and a tag introduces nothing.

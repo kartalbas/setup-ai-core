@@ -314,6 +314,26 @@ Remove-Item -LiteralPath (Join-Path $repo '.ai-core/config.env')
 Commit 'src/thing.txt' 'Land a change on an ordinary branch #16'
 OnlyNew $repo
 Check 'exit 0'                         0 $rc
+Write-Host 'a fast-forward landing of a branch origin carries already is checked, and held to the live rule'
+Commit 'src/landed.txt' 'Land a branch that origin carries already #74'
+& git -C $repo update-ref refs/remotes/origin/issue-74-landed HEAD   # pushed for review before it lands
+Write-Lf $checkRuns ''
+OnlyNew $repo
+Check 'exit 0'                         0 $rc
+Check 'it is not called nothing new'   'False' (Says 'pre-push: nothing new to send')
+Check 'the check runs'                 'True' ([bool]((Get-Content $checkRuns -Raw) -replace '\s', ''))
+Write-Lf (Join-Path $repo '.ai-core/config.env') "DEFAULT_BRANCH_IS_LIVE=`"yes`"`n"
+OnlyNew $repo
+Check 'where the branch goes live, without the trailer: exit 1' 1 $rc
+Check 'it names the trailer'           'True' (Says ([regex]::Escape("git commit --amend --trailer 'Reviewed-by: <reviewer>'")))
+Write-Host 'a push that moves nothing lands nothing, also where the branch goes live'
+Write-Lf $checkRuns ''
+Judge $repo (Sha $repo HEAD) (Sha $repo HEAD)
+Check 'exit 0'                         0 $rc
+Check 'it sends nothing new'           'True' (Says 'pre-push: nothing new to send')
+Check 'and runs no check'              '' ((Get-Content $checkRuns -Raw) -replace '\s', '')
+Remove-Item -LiteralPath (Join-Path $repo '.ai-core/config.env')
+& git -C $repo update-ref -d refs/remotes/origin/issue-74-landed
 
 Write-Host 'a commit naming its issue anywhere in the message passes'
 Commit 'src/thing.txt' "Read the install order from one file`n`nIt closes #163."

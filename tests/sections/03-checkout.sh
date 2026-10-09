@@ -31,8 +31,10 @@ bash "$ROOT/bin/init.sh" "$WORK/typo-sh" --no-doctor > "$WORK/typo-sh.log" 2>&1 
 pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/typo-ps1")" -NoDoctor > "$WORK/typo-ps1.log" 2>&1 && fail "init.ps1 accepted an unknown name in AGENTS"
 for t in sh ps1; do
   grep -aq "error: AGENTS in .* names 'cursr'; known are claude, codex, antigravity, openhands, gemini, cursor, windsurf, copilot" "$WORK/typo-$t.log" || fail "init.$t did not name the unknown agent: $(tail -n 2 "$WORK/typo-$t.log")"
+  jq -e '.statusLine.command | test("ai-core\" statusline$")' "$WORK/typo-$t/.claude/settings.json" > /dev/null 2>&1 || fail "init.$t stopped before the settings.json when AGENTS named an unknown agent"
+  grep -aq 'Harness .* in place' "$WORK/typo-$t.log" && fail "init.$t reported the harness in place although AGENTS names an unknown agent"
 done
-echo "  AGENTS=\"claude cursr\": init exits 1 and names 'cursr', on both twins"
+echo "  AGENTS=\"claude cursr\": init deploys the rest, exits 1 and names 'cursr', on both twins"
 
 (cd "$WORK/sh" && find . -type f | sort) > "$WORK/sh.list"
 (cd "$WORK/ps1" && find . -type f | sort) > "$WORK/ps1.list"

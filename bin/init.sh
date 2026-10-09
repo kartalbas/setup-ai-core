@@ -407,10 +407,11 @@ fi
 #    deployed.
 CONFIG="$AI_CORE_DIR/config.env"; [ -f "$CONFIG" ] || CONFIG="$CORE_ROOT/templates/.ai-core/config.env"
 AGENTS="$(grep -E '^[[:space:]]*AGENTS[[:space:]]*=' "$CONFIG" | tail -n1 | sed 's/^[^=]*=//; s/#.*//' | tr -d '"\r' | tr -d "'" | tr '[:upper:]' '[:lower:]' || true)"
+AGENTS_UNKNOWN=""   # the first name no agent has; the run still deploys the rest and fails at its end
 for a in $AGENTS; do
   case "$a" in
     claude|codex|antigravity|openhands|gemini|cursor|windsurf|copilot) ;;
-    *) echo "error: AGENTS in $CONFIG names '$a'; known are claude, codex, antigravity, openhands, gemini, cursor, windsurf, copilot" >&2; exit 1 ;;
+    *) [ -n "$AGENTS_UNKNOWN" ] || AGENTS_UNKNOWN="$a" ;;
   esac
 done
 serves() {  # serves <agent>: true when the project serves it, or names no agents at all
@@ -615,6 +616,7 @@ if [ "$SHIMS_MODE" -eq 1 ] && [ "$DRY" -eq 1 ]; then echo "  the shims in .githo
 elif [ "$SHIMS_MODE" -eq 1 ]; then echo "  the shims in .githooks were not executable, so git skipped the push gate: ai-core pre-push --install made them so"
 elif [ "$SHIMS_MODE" -eq 2 ]; then echo "  the shims in .githooks are not executable, so git skips the push gate, and ai-core pre-push --install failed (see above)"; fi
 for hook in $SKIPPED_HOOKS; do echo "  $hook is not executable, so git skips it; it is the project's own and stays as it is"; done
-if [ "$DRY" -eq 1 ]; then echo "  nothing was written (dry run)"; else echo "✓ Harness $CORE_VERSION in place. Run 'ai-core session-start' here to verify."; fi
+if [ "$DRY" -eq 1 ]; then echo "  nothing was written (dry run)"; elif [ -z "$AGENTS_UNKNOWN" ]; then echo "✓ Harness $CORE_VERSION in place. Run 'ai-core session-start' here to verify."; fi
 echo "=================================================="
+if [ -n "$AGENTS_UNKNOWN" ]; then echo "error: AGENTS in $CONFIG names '$AGENTS_UNKNOWN'; known are claude, codex, antigravity, openhands, gemini, cursor, windsurf, copilot" >&2; exit 1; fi
 [ "$SHIMS_MODE" -ne 2 ]

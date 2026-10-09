@@ -439,10 +439,9 @@ $config = Join-Path $aiCoreDir "config.env"; if (-not (Test-Path $config)) { $co
 $agentsLine = Get-Content $config | Where-Object { $_ -cmatch '^\s*AGENTS\s*=' } | Select-Object -Last 1
 $agents = if ($agentsLine) { ((($agentsLine -split '=', 2)[1] -split '#', 2)[0]).Trim(' ', "`t", "`r", '"', "'").ToLowerInvariant() } else { "" }
 $served = @($agents -split '\s+' | Where-Object { $_ })
+$agentsUnknown = ''   # the first name no agent has; the run still deploys the rest and fails at its end
 foreach ($a in $served) {
-  if ($a -cnotin @('claude', 'codex', 'antigravity', 'openhands', 'gemini', 'cursor', 'windsurf', 'copilot')) {
-    Write-Host "error: AGENTS in $config names '$a'; known are claude, codex, antigravity, openhands, gemini, cursor, windsurf, copilot" -ForegroundColor Red; exit 1
-  }
+  if (-not $agentsUnknown -and $a -cnotin @('claude', 'codex', 'antigravity', 'openhands', 'gemini', 'cursor', 'windsurf', 'copilot')) { $agentsUnknown = $a }
 }
 function Test-Serves([string]$agent) { return ($served.Count -eq 0 -or ($served -ccontains $agent)) }
 $pointerOf = @{ '.cursorrules' = 'cursor'; '.windsurfrules' = 'windsurf'; '.github/copilot-instructions.md' = 'copilot'; '.openhands/microagents/repo-rules.md' = 'openhands' }
@@ -668,6 +667,7 @@ if ($shimsMode -eq 1 -and $DryRun) { Write-Host "  the shims in .githooks are no
 elseif ($shimsMode -eq 1) { Write-Host "  the shims in .githooks were not executable, so git skipped the push gate: ai-core pre-push --install made them so" }
 elseif ($shimsMode -eq 2) { Write-Host "  the shims in .githooks are not executable, so git skips the push gate, and ai-core pre-push --install failed (see above)" }
 foreach ($hook in $skippedHooks) { Write-Host "  $hook is not executable, so git skips it; it is the project's own and stays as it is" }
-if ($DryRun) { Write-Host "  nothing was written (dry run)" } else { Write-Host "✓ Harness $coreVersion in place. Run 'ai-core session-start' here to verify." -ForegroundColor Green }
+if ($DryRun) { Write-Host "  nothing was written (dry run)" } elseif (-not $agentsUnknown) { Write-Host "✓ Harness $coreVersion in place. Run 'ai-core session-start' here to verify." -ForegroundColor Green }
 Write-Host "==================================================" -ForegroundColor Green
+if ($agentsUnknown) { Write-Host "error: AGENTS in $config names '$agentsUnknown'; known are claude, codex, antigravity, openhands, gemini, cursor, windsurf, copilot" -ForegroundColor Red; exit 1 }
 if ($shimsMode -eq 2) { exit 1 }

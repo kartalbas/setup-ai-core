@@ -1120,7 +1120,7 @@ releases by tag, `update`, `push`, and `map`. Open:
 | :--- | :--- |
 | `pwsh: command not found` / `'pwsh' is not recognized` | PowerShell 7 is not installed. Install it, or use the Bash twins from Git Bash. |
 | `session-start` exits 1 with `Not ready: no rules file found` | the harness is not installed here. Run `init`. |
-| `kept .claude/settings.json` in the report | your repository already had one, and it carried the session-start hook, the status line `ai-core statusline` and `Bash(ai-core:*)`; where one is missing, `init` merges it in and reports the file as `refreshed`. |
+| `kept .claude/settings.json` in the report | jq is missing, so `init` could not merge the hook, the status line, the permission and the denials into the settings.json your repository had; install jq and run `init` again. |
 | `ai-core: command not found` from the session-start hook, or `ai-core on PATH  : ✗` in its output | Claude Code was started from a terminal opened before the install, whose PATH lacks `ai-core`. `init` writes the hook with the full path of `ai-core`, and `session-start` names that path for the agent's own shell; a terminal opened after the install has it on the PATH. |
 | `ai-core: command not found` inside an agent | the clone's `bin/` is not on the PATH of that shell. Run `install` again, open a new terminal, or call the script by path. |
 | Claude Code ignores `AGENTS.md` | a `CLAUDE.md` exists in the directory or above it. In a repository with its own `CLAUDE.md`, `init` writes a `CLAUDE.local.md` with `@AGENTS.md`; a `CLAUDE.md` above the repository gets that line by hand. |

@@ -15,9 +15,9 @@ if ($Help -or $args -ccontains "-h" -or $args -ccontains "--help" -or ($args.Cou
   Write-Host "Usage: session-start.ps1 [-Json] [-Tool NAME ...] [-Help]"
   Write-Host ""
   Write-Host "The first step of every session. It runs team-modes-check and refuses when a mode is"
-  Write-Host "missing; it prints the branch, the uncommitted files, the harness version, the rules, the"
-  Write-Host "Graft graph and the gh login; in a worktree named issue-N-... it prints the thread of issue N"
-  Write-Host "and whether it is assigned to you."
+  Write-Host "missing; it prints the branch, the uncommitted files, the harness version, the rules and"
+  Write-Host "the gh login; in a worktree named issue-N-... it prints the thread of issue N and whether it"
+  Write-Host "is assigned to you."
   Write-Host ""
   Write-Host "Options:"
   Write-Host "  -Help, -h, --help    Show this help message"
@@ -67,8 +67,6 @@ $rulesPath = if (Test-Path ".ai-core\rules\rules.md") { ".ai-core/rules/rules.md
 $rulesOk = ($rulesPath -ne "")
 $localRulesOk = Test-Path ".ai-core\rules\rules.local.md"
 $harnessVersion = if (Test-Path ".ai-core\VERSION") { (Get-Content ".ai-core\VERSION" -Raw).Trim() } else { "" }
-$graftWorkspace = Test-Path "graft\workspace.json"
-$graftOk = (Test-Path "graft\index.md") -or (Test-Path "graft\INDEX.md") -or $graftWorkspace
 # The map: an AGENTS.md written by ai-core map names in its first line the commit it came
 # from; the distance to HEAD says whether it is current
 $mapCommit = ''; $mapBehind = ''
@@ -207,7 +205,6 @@ if ($Json) {
     rules_present       = $rulesOk
     rules_path          = $rulesPath
     local_rules_present = $localRulesOk
-    graft_indexed       = $graftOk
     gh_authenticated    = $ghLoggedIn
     gh_user             = $ghUser
     map_commit          = $mapCommit
@@ -240,7 +237,6 @@ elseif ($releaseState -ceq 'unreachable') { Write-Host "Releases         : – C
 else { Write-Host "Releases         : – Not checked (UPDATE_CHECK=never)" }
 Write-Host "Rules file       : $(if ($rulesOk) { "✓ Present ($rulesPath)" } else { '✗ Missing' })"
 Write-Host "Local rules      : $(if ($localRulesOk) { '✓ Present (.ai-core/rules/rules.local.md)' } else { '– None' })"
-Write-Host "Graft code graph : $(if ($graftWorkspace) { '✓ Workspace (graft/workspace.json)' } elseif ($graftOk) { '✓ Indexed (graft/index.md)' } else { '✗ Not indexed (run ai-core graft)' })"
 if ($branch -ceq 'not-a-git-repo') { Write-Host "Map              : – A project folder: AGENTS.md lists its repositories" }
 elseif (-not $mapCommit) { Write-Host "Map              : – Generic (run ai-core map)" }
 elseif ($mapBehind -eq '') { Write-Host "Map              : ? Generated from $mapCommit, a commit this clone does not have" }

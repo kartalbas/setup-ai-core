@@ -75,8 +75,8 @@ git -C "$work" add -A && git -C "$work" commit -q -m 'the first commit'
 git -C "$work" remote add origin "$origin"
 git -C "$work" push -q -u origin master
 git -C "$work" remote set-head origin -a >/dev/null
-# The main checkout carries the harness data a worktree inherits; Graft stays off, nothing reaches the network
-mkdir -p "$work/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"
+# The main checkout carries the harness data a worktree inherits; nothing reaches the network
+mkdir -p "$work/.ai-core"; printf 'UPDATE_CHECK="never"
 ' > "$work/.ai-core/config.env"
 printf '/.ai-core/
 ' >> "$work/.git/info/exclude"

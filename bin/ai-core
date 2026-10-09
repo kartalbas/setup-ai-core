@@ -14,12 +14,12 @@ usage() {
   echo "Every command takes --help. The machine and the checkouts:"
   echo "  install, doctor, init, push, update, version"
   echo "Inside a repository:"
-  echo "  session-start, graft, rules-check, solution-path"
+  echo "  session-start, rules-check, solution-path"
   echo ""
   echo "Commands, from $CORE/bin:"
   for f in "$CORE"/bin/*.sh; do
     f="$(basename "$f" .sh)"
-    case "$f" in graft-setup) echo "  graft (graft-setup)" ;; *) echo "  $f" ;; esac
+    echo "  $f"
   done
   echo "  version                    Print the setup-ai-core version"
   echo "  help                       Show this help message"
@@ -29,7 +29,6 @@ command="${1:-help}"
 [ $# -gt 0 ] && shift
 
 case "$command" in
-  graft) exec bash "$CORE/bin/graft-setup.sh" "$@" ;;
   version) tr -d '\r\n' < "$CORE/VERSION"; echo ;;
   help|-h|--help) usage ;;
   *)

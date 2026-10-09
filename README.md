@@ -54,12 +54,10 @@ with winget, brew or apt) and the team modes into your agent tools. If the repos
 `github.com/<org>/<prefix>-<name>`, the project harness `<org>/<prefix>-ai-core` is cloned beside
 the repositories, into `<project folder>/<prefix>-ai-core`, or **created on GitHub, private, from
 the skeleton** when it does not exist yet. The repository gets `.ai-core/` (rules, configuration, docs), the agent files (`AGENTS.md`,
-`.claude/settings.json`, `.codex/config.toml`, ...), the skills of the harness in `.claude/skills/`
+`.claude/settings.json`, `opencode.json`, ...), the skills of the harness in `.claude/skills/`
 and `.agents/skills/`, and the agents in `.claude/agents/`, all listed in `.git/info/exclude`.
 **A block is written into `.gitignore`, committed and pushed by `init` itself** (a worktree keeps
-it for its own commit). Graft wires the agents (files
-in the repository, and on the machine `~/.claude/settings.json`, `~/.codex/config.toml`,
-`~/.gemini/config/mcp_config.json`) and builds the code graph in `graft/`. The run ends with a
+it for its own commit). The run ends with a
 report of every file it created, refreshed, kept or removed. **`ai-core init --dry-run` shows that
 report and creates nothing**, on GitHub or on disk; run it first.
 
@@ -120,16 +118,15 @@ the repository itself                  the code
 | Rules for every project | yes: one file per section under `rules/`, assembled into one `rules.md` per checkout | same |
 | Rules of one project (private harness) | yes: `github.com/<org>/<prefix>-ai-core`, found from the repository's origin, cloned beside the repositories (`<project folder>/<prefix>-ai-core`), created from a skeleton when missing; its `rules/` add or replace sections, its `skills/`, `docs/`, data files and `repos/<repo>/` are assembled into every checkout; a harness may extend another (section 4.5) | same |
 | Skills and team modes | `rules/skills.md` says when to use them; `team-modes.tsv` says how each tool proves a mode is installed and how to install it; `doctor` installs the missing ones, `session-start` refuses a session without them; skill folders of the project harness are deployed into `.claude/skills/` and `.agents/skills/` of every checkout | same |
-| Map of a repository (what Graft cannot know) | yes: `ai-core map` writes it from the code through the developer's agent CLI, five fixed sections, into `repos/<repo>/AGENTS.md` of the project harness; the generic one of `templates/` until then, both under the binding rules | also written by `init` where a repository has none |
-| Code graph (Graft) | yes: built locally with Node.js, or `init` fails | same |
-| Claude Code hooks, status line, permissions, MCP | yes, with a `SessionStart` hook that runs the session start | same |
+| Map of a repository (what the code does not say) | yes: `ai-core map` writes it from the code through the developer's agent CLI, five fixed sections, into `repos/<repo>/AGENTS.md` of the project harness; the generic one of `templates/` until then, both under the binding rules | also written by `init` where a repository has none |
+| Claude Code hook, status line, permissions | yes: a `SessionStart` hook that runs the session start, and the status line that records the usage windows | same |
 | Session start | yes: the team-modes gate, state, versions, rules present, the issue thread of a worktree, exit 1 when not installed | also re-assembles the checkout when a layer changed |
 | Issues and the GitHub board | yes: one command per act over `gh`, from `issue-new` and `start-issue` to `board-sync`, `status` and `status-sync` (section 8); the conventions come from three data files a project fills | the data files come from the project harness |
 | A coordinator that delegates to worker sessions | yes: the skill `person-in-charge` bundles the issues into packages and gives each to a worker session it starts, with the model, effort and context size the work needs (section 4.6) | same |
 | The account's usage limit | yes: the status line records the usage windows, `ai-core usage` reads them against `USAGE_STOP_AT`, and every session stops at that limit | same |
 | Prerequisite check and install | yes: `ai-core doctor` checks Git, gh and its login, Bash, PowerShell 7, Node.js 20+, jq, the team modes of the agent tools on the machine, and reports the agent CLIs; installs missing required tools with winget, brew or apt-get; `init` runs it first and deploys nothing while a problem remains | tools a project harness declares |
 | Both twins deploy the same files, proven by a test | yes: `tests/check.sh`, CI on Linux and Windows | same |
-| Agents that run in a sandbox (OpenHands, cloud agents) | a pointer file only; nothing of the harness reaches a sandbox | rules and skills published to the organisation's `.agents` repository; an optional bootstrap in the repository (section 4.12) |
+| Agents that run in a sandbox (OpenHands, cloud agents) | a pointer file only; nothing of the harness reaches a sandbox | rules and skills published to the organisation's `.agents` repository; an optional bootstrap in the repository (section 4.11) |
 
 Section 11 lists the implementation order.
 
@@ -162,10 +159,10 @@ project repository:
 
 ```text
 setup-ai-core (public)
-├── bin/          the ai-core command and every script: install, doctor, init, session-start, graft-setup, and the
+├── bin/          the ai-core command and every script: install, doctor, init, session-start, and the
 │                 board and issue commands (issue-new, start-issue, board-sync, status, ...)
 ├── lib/          the libraries of the commands (board, layers, status), gitignore-block, binding-rules.md,
-│                 graft-version, entry-point.ps1
+│                 entry-point.ps1
 ├── rules/        one file per section (NN-slug.md) and skills.md, generic
 ├── skills/       the skills every checkout gets: person-in-charge, agy-helper
 ├── skeleton/     what a new project harness starts from
@@ -199,7 +196,7 @@ checkout never carries a copy.
 │   ├── VERSION                          managed: version of setup-ai-core
 │   ├── rules/rules.md, skills.md        managed: the rules
 │   ├── rules/rules.local.md             yours: rules of this repository
-│   ├── config.env                       the agents served, Graft on or off, the organisation: managed from the harness, else yours
+│   ├── config.env                       the agents served, the organisation: managed from the harness, else yours
 │   ├── labels.tsv, assignees.tsv        the label taxonomy and who owns which repository's issues: the same
 │   ├── team-modes.tsv                   the team modes per tool, with probe and install command: the same
 │   ├── docs/                            yours: documents for agents; docs/<harness>/ managed: the docs of each layer
@@ -213,19 +210,15 @@ checkout never carries a copy.
 ├── .cursorrules, .windsurfrules         Cursor and Windsurf pointers
 ├── .github/copilot-instructions.md      Copilot pointer
 ├── .openhands/microagents/repo-rules.md OpenHands microagent
-├── .claude/settings.json                Claude Code: the session-start hook, ai-core by its full path; permissions Bash(ai-core:*) and mcp__graft;
+├── .claude/settings.json                Claude Code: the session-start hook, ai-core by its full path; the permission Bash(ai-core:*);
 │                                        the status line ai-core statusline
-├── .codex/config.toml                   Codex: the Graft MCP server, read once the project is trusted
-├── opencode.json                        OpenCode: the rules as its instructions, the Graft MCP server; created once
-└── graft/                               the code graph, and what graft init wires: .mcp.json,
-                                         .claude/helpers/, .claude/skills/graft/, GEMINI.md, ...
+└── opencode.json                        OpenCode: the rules as its instructions; created once
 ```
 
 A project folder gets the same, except that its `AGENTS.md` is generated: the binding rules, each
 file imported, then the list of the repositories in it, each with the path of its map, rewritten on
 every `init` because the folder changes. An agent started in the folder has the rules from its
-first prompt, and Claude Code loads a repository's map when it works there. Its Graft graph is a
-workspace over all of them (section 4.8).
+first prompt, and Claude Code loads a repository's map when it works there.
 
 **Managed** files are replaced on every run of `init`. Do not edit them; edit the layer they come
 from. Every other file is created once and never overwritten. All of it is registered in
@@ -234,7 +227,7 @@ from. Every other file is created once and never overwritten. All of it is regis
 ### 4.3 Nothing is committed
 
 `init` writes a block into the project's `.gitignore` (`lib/gitignore-block`): every file an agent
-or the harness puts into a checkout, `/.ai-core/`, `/graft/`, `/AGENTS.md`, `/.claude/`,
+or the harness puts into a checkout, `/.ai-core/`, `/AGENTS.md`, `/.claude/`,
 `/.mcp.json`, `/.agents/`, `/GEMINI.md`, the pointer files. The block stands between two marker
 lines and is rewritten there on every run; the rest of the file is the project's, a path the
 project already ignores is not written twice, and a project that ignores them all gets no block.
@@ -248,16 +241,10 @@ or changes of its own gets no block, and the report says why. From then on no cl
 repository commits an agent file, with or without the harness.
 
 `init` also writes every path it deploys into `.git/info/exclude` of the clone, between two marker
-lines, rewritten on every run, which covers the clone before that commit. `graft-setup` writes a second block there with what Graft writes:
-`graft/` and the files `graft init` wires into the repository (`GEMINI.md`, `.gemini/settings.json`,
-`.claude/skills/graft/SKILL.md`, ...), the `.ignore` its build writes, and what Graft's own output
-names as written, rebuilt on every run. A file somebody else writes while Graft runs never gets
-into it, and a line of an earlier block that the run does not derive again is taken out and named.
+lines, rewritten on every run, which covers the clone before that commit.
 In a worktree, git resolves that file to the main checkout, so all worktrees share it. The project's `.gitignore` is never touched. A file
 the repository already tracks stays tracked: an exclude entry never affects a tracked file, and
-`init` never overwrites a tracked file. Graft does append to a tracked `AGENTS.md` or
-`.github/copilot-instructions.md` when the repository commits one; that cannot be excluded, so
-`graft-setup` prints a warning that names the file, and you keep or restore it.
+`init` never overwrites a tracked file.
 
 Because the harness is not in the repository, it does not travel with `git clone`. **Every clone
 runs `init` once.** It is idempotent and takes seconds. A worktree runs it by itself: git runs
@@ -275,7 +262,7 @@ by.
 
 Four files are the repository's own and are committed, because they say what the repository
 wants judged and how a worktree starts: `.githooks/pre-push`, the three-line shim that starts the
-push gate, and `.githooks/post-checkout`, the shim that starts `init` in a new worktree (section 4.13);
+push gate, and `.githooks/post-checkout`, the shim that starts `init` in a new worktree (section 4.12);
 `scripts/check.sh`, the repository's check, with `scripts/check.ps1` as its Windows entry point;
 and `.gitleaks.toml`, which arms the credential scan. None of them is written by `init`.
 
@@ -330,13 +317,9 @@ to its first dash: `shop-web` and `shop-api` both belong to `shop-ai-core`. Noth
 
 The skeleton carries a `.gitattributes` (`* text=auto eol=lf`), so every checkout of a harness is
 LF on every operating system: its `.githooks` shims run through bash, and a `.tsv` keeps its last
-field. It also carries a `.gitignore` with `/graft/` and `/.ignore`: Graft's Claude Code hook
-rebuilds the graph of every repository in a project folder at the end of each turn, the harness
-clone's too, and writes a `.gitignore` and an `.ignore` there unless `/graft/` is already in its
-`.gitignore`; with the skeleton's, it writes no `.gitignore`, and git ignores the graph and the
-`.ignore`. A clone made before the skeleton carried either gets the lines it lacks on its next
-`init`, said as `note: <org>/<prefix>-ai-core: .gitattributes from the skeleton written into ...`
-(or `.gitignore`); the next `ai-core push` commits them.
+field. A clone made before the skeleton carried it gets the lines it lacks on its next
+`init`, said as `note: <org>/<prefix>-ai-core: .gitattributes from the skeleton written into ...`;
+the next `ai-core push` commits them.
 
 A harness may extend another: `ai-core.json` `{"extends": "<org>/<name>-ai-core"}`, a company
 harness under several projects for example. The chain is resolved base first, a circle or more
@@ -367,7 +350,7 @@ Changing what agents read is therefore: edit a file in the clone beside the repo
 (`<project folder>/<name>-ai-core`), then `ai-core push`, which commits what changed in every
 harness clone of that folder with the message you give (or
 the names of the files), pulls with rebase, pushes, and refreshes the checkout you stand in. The
-harness clones carry the push gate too (section 4.13), so the message is the reason the gate wants:
+harness clones carry the push gate too (section 4.12), so the message is the reason the gate wants:
 unless it names an issue (`#<n>`) or carries a `No-issue:` trailer of its own, the commit gets
 `No-issue: <message>, committed and pushed by ai-core push`.
 Nothing is copied by hand, nothing is committed to a project repository, and a new developer runs
@@ -434,10 +417,10 @@ on start; no developer installs a skill by hand.
   drafting test cases, collecting facts. Claude and Codex then spend their tokens on judgment. Each
   session keeps one agy conversation of its own, recorded in `~/.ai-core/agy-conversations.tsv`.
 
-### 4.7 Maps: what Graft cannot know
+### 4.7 Maps: what the code does not say
 
-Graft knows what is in the code: where a symbol is, who calls it, what a file exposes, how the
-repository is laid out. It is always current. A **map** says only what is not in the code, in
+A search finds what is in the code: where a symbol is, who calls it, what a file exposes, how the
+repository is laid out. A **map** says only what is not in the code, in
 five fixed sections and at most 80 lines, because every session reads it:
 
 1. **What it is** — three sentences: what it is for, who uses it, what it is not.
@@ -446,13 +429,13 @@ five fixed sections and at most 80 lines, because every session reads it:
 4. **Where to add things** — a table: what is added, where it goes and where it is registered.
 5. **Rules of this repository** — written by people, kept through every regeneration.
 
-No directory trees and no symbol lists: Graft owns those.
+No directory trees and no symbol lists: a search finds those.
 
 **`ai-core map`** (`bin/map.sh`, `bin/map.ps1`) writes the map of the checkout it runs in: the
 agent CLI named by `MAP_TOOL` in `.ai-core/config.env` (`claude`, `codex` or `agy`, each in its
 non-interactive read-only mode; `MAP_MODEL` when not the CLI's default; `AI_CORE_MAP_TOOL` and
 `AI_CORE_MAP_MODEL` in the environment name the CLI and the model of one machine, and the
-project's model goes only with the project's CLI) reads the repository cheaply, with Graft, the
+project's model goes only with the project's CLI) reads the repository cheaply, its
 manifests and the README, and
 outputs the file in the fixed shape; `map` checks that shape (the title `# <repo> — the map`,
 the five headings in order, at most 80 lines) and refuses anything else, keeping the output at
@@ -486,53 +469,7 @@ generic map of `templates/`, which says there is none yet, under the same block;
 the repository tracks, or somebody's own, is kept. No `CLAUDE.md` is needed: Claude Code reads
 `AGENTS.md` by itself, or through the `CLAUDE.local.md` above where the repository keeps one.
 
-### 4.8 Graft: the code graph
-
-`graft-setup` runs `npx -y @nanonets/graft init --agents ... --no-build` for the agents named
-in `AGENTS` of `config.env` (`-y`, every agent Graft detects, when the list is empty), without
-the interactive picker, and then `build` with the Node.js on the machine, which writes
-`graft/index.md` and the graph. That is the
-only way it runs. If `npx` is
-missing or the build fails, the script exits 1 and says why, and `init` exits 1 with it. Nothing
-runs in a container. Graft runs in the version setup-ai-core pins, `lib/graft-version`: `init`
-builds with it; Graft registers its MCP server as `npx -y @nanonets/graft mcp` with no version,
-so `init` writes the pinned one into the files it wrote that into, `.mcp.json` and the Codex,
-Gemini, Cursor and VS Code files of the checkout and `~/.codex/config.toml`,
-`~/.gemini/config/mcp_config.json` and `~/.gemini/settings.json` of the machine (Claude Code's
-`~/.claude.json` excepted, which the checkout's `.mcp.json` outranks); and `doctor` installs it
-globally, which is where Graft's hooks and the `graft` command take it from. A newer Graft comes
-in only through a release that changes that file. A repository that does not want the
-graph sets `GRAFT_EXECUTION_MODE="skip"` in `.ai-core/config.env`. Graft's output is kept and
-shown whole only when it fails; what it wrote is reported afterwards as two lists, the files in
-the repository and the files on the machine, with a line for the graph (section 5.5).
-`ai-core graft --dry-run` (`-DryRun`) prints what `graft init` would write, in the repository
-and on the machine, and builds nothing.
-
-Agents use the graph in two ways: the Markdown index `graft/index.md`, and the MCP server in
-`.mcp.json`, which Claude Code starts as `npx -y @nanonets/graft mcp`. That is a process over
-stdin and stdout, started and stopped with the Claude Code session. No port, no service.
-
-`graft/` is never committed: it changes with every commit, its cache differs per machine, and
-`init` rebuilds it in a minute.
-
-In a project folder Graft builds a **workspace**: it wires and builds every repository directly
-under the folder and writes `graft/workspace.json` there, one graph over all of them. `graft ask`
-and the MCP server started in that folder answer across repositories, each hit labelled with its
-repository. That is what an agent started in the folder gets; an agent started in one repository
-gets that repository's own graph. Graft wires the harness clones beside the repositories
-(`<prefix>-ai-core`) as well, and rescans the folder on every build; a harness clone is data that
-`ai-core push` commits whole, so `init` takes out what Graft put into one: the files it created,
-its block from a file it appended to, its graph and its MCP file.
-
-`graft init` also writes outside the repository, once per machine: the Graft MCP server and hooks
-for Codex (`~/.codex/config.toml`, `~/.codex/hooks.json`), Claude Code (`~/.claude.json`,
-`~/.claude/settings.json`) and Antigravity (`~/.gemini/config/mcp_config.json`,
-`~/.gemini/skills/graft/`). A config file it cannot parse, an empty one for example, is reported as
-`skipped-unparseable` and left alone: put `{}` into it and run `ai-core graft` once. Graft sends
-anonymous usage statistics unless `npx -y @nanonets/graft telemetry disable` was run on the machine
-(or `DO_NOT_TRACK=1` is set).
-
-### 4.9 The session start
+### 4.8 The session start
 
 `ai-core session-start` is the first step of every session, run in the repository or in the
 project folder. `AGENTS.md`, the OpenHands microagent and the rules say so; Claude Code runs it
@@ -549,14 +486,12 @@ Harness state    : ✓ Assembled from the current harness
 Releases         : ✓ Current
 Rules file       : ✓ Present (.ai-core/rules/rules.md)
 Local rules      : ✓ Present (.ai-core/rules/rules.local.md)
-Graft code graph : ✓ Indexed (graft/index.md)
 Map              : ✓ Generated from 1a2b3c4, current
 GitHub status    : ✓ Authenticated as @you
 Ready for task execution.
 ```
 
-In a project folder the branch line says `not-a-git-repo` and the Graft line `✓ Workspace
-(graft/workspace.json)`.
+In a project folder the branch line says `not-a-git-repo`.
 
 In a worktree named `issue-N-<slug>`, the shape `start-issue` creates, it also prints the thread
 of issue N, read through `issue-thread`, and whether the issue is assigned to you (`issue-mine`).
@@ -566,7 +501,7 @@ another one, and where it cannot be read, the last line says so instead of a pla
 With `--json` / `-Json` it prints the same as JSON, with the same keys and types on both
 platforms: `repository`, `root`, `branch`, `uncommitted_files`, `harness_version`,
 `harness_current`, `harness_stamp`, `release_state`, `release_lines`, `map_commit`, `map_behind`,
-`rules_present`, `rules_path`, `local_rules_present`, `graft_indexed`, `gh_authenticated`,
+`rules_present`, `rules_path`, `local_rules_present`, `gh_authenticated`,
 `gh_user`, `issue`, `assigned`, `thread`. Exit status is 1 when no rules file is found, so an agent or a CI job can gate on it.
 If `gh` is logged in, it makes one call to the GitHub API for the user name.
 
@@ -591,22 +526,22 @@ repositories, and reports the checkout as assembled from the current harness or 
 **Planned:** re-assembling the checkout when a layer changed, so a rule change in a layer reaches
 every checkout at the next session without running `init` again.
 
-### 4.10 What each agent reads
+### 4.9 What each agent reads
 
 | Agent | Reads at start | Mechanically active |
 | :--- | :--- | :--- |
-| Claude Code | `AGENTS.md` of the directory it starts in and of every directory above it, with the files each imports after `@` (the rules, the local rules, the skills file), and a repository's `AGENTS.md` once it works there; where a `CLAUDE.md` exists, that file and the `CLAUDE.local.md` that imports `AGENTS.md`; `.claude/settings.json`, `.mcp.json`, `.claude/skills/` | the `SessionStart` hook `ai-core session-start --tool claude`, which switches the team modes on; permissions from the harness; hooks, status line, the Graft MCP server and the `graft` skill from `graft init` |
-| OpenAI Codex | `AGENTS.md` from the repository root down to the working directory, concatenated; `~/.codex/AGENTS.md` for the user; `.agents/skills/` in the repository and `~/.agents/skills/`; MCP servers from `.codex/config.toml` in the repository (the harness deploys it with the Graft server; read once the project is trusted) and from `~/.codex/config.toml` | skills; MCP from `.codex/config.toml`, not from `.mcp.json`; hooks from `~/.codex/hooks.json`, which `graft init` writes |
-| OpenCode | the nearest `AGENTS.md`, without its `@` imports, and the files `opencode.json` names under `instructions`: the rules, the skills file and the local rules | the Graft MCP server from `opencode.json`, in the pinned version; its own defaults already refuse reading `.env` |
+| Claude Code | `AGENTS.md` of the directory it starts in and of every directory above it, with the files each imports after `@` (the rules, the local rules, the skills file), and a repository's `AGENTS.md` once it works there; where a `CLAUDE.md` exists, that file and the `CLAUDE.local.md` that imports `AGENTS.md`; `.claude/settings.json`, `.claude/skills/` | the `SessionStart` hook `ai-core session-start --tool claude`, which switches the team modes on; the status line `ai-core statusline`; permissions from the harness |
+| OpenAI Codex | `AGENTS.md` from the repository root down to the working directory, concatenated; `~/.codex/AGENTS.md` for the user; `.agents/skills/` in the repository and `~/.agents/skills/`; MCP servers from `.codex/config.toml` in the repository (read once the project is trusted) and from `~/.codex/config.toml` | skills; MCP from `.codex/config.toml`, not from `.mcp.json` |
+| OpenCode | the nearest `AGENTS.md`, without its `@` imports, and the files `opencode.json` names under `instructions`: the rules, the skills file and the local rules | nothing beyond its own defaults, which already refuse reading `.env` |
 | Zed, Aider | `AGENTS.md` | nothing; text only |
-| Google Antigravity (`agy`) | `AGENTS.md` (prepended to every prompt), `.agents/skills/` | skills; MCP only from `~/.gemini/config/mcp_config.json`, machine-wide: its documentation names `.agents/mcp_config.json` in the repository too, but `agy` does not load it (tested with `agy --print`, with a valid machine-wide file), so `graft init` registers the server there and `doctor` repairs the file when it is empty |
+| Google Antigravity (`agy`) | `AGENTS.md` (prepended to every prompt), `.agents/skills/` | skills; MCP only from `~/.gemini/config/mcp_config.json`, machine-wide: its documentation names `.agents/mcp_config.json` in the repository too, but `agy` does not load it (tested with `agy --print`, with a valid machine-wide file) |
 | Cursor, Windsurf, Copilot | `.cursorrules`, `.windsurfrules`, `.github/copilot-instructions.md`, deployed only when `AGENTS` names them | nothing; a one-line pointer to `AGENTS.md` and the rules |
 | OpenHands | `AGENTS.md`, `.agents/skills/`, the organisation's `.agents` repository, `.openhands/setup.sh`, `.openhands/hooks.json`; the microagent pointer the harness deploys today is the older convention | `setup.sh` runs at every start with the repository; hooks on `SessionStart`, `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionEnd`; skills |
 
 Except for Claude Code, everything is text that an agent reads and follows. That is how these
 tools work; the harness gives them the text at the place they look.
 
-### 4.11 Claude Code details
+### 4.10 Claude Code details
 
 - Claude Code 2.1.277 or newer reads `AGENTS.md` by itself when the repository has no
   `CLAUDE.md`, and loads what it imports after `@`. Where the repository keeps a `CLAUDE.md` of its
@@ -620,11 +555,11 @@ tools work; the harness gives them the text at the place they look.
   outranks every other section.`, `lite`, and that rule. The transcript,
   `~/.claude/projects/<project>/<session>.jsonl`, shows what each `SessionStart` hook delivered; an
   output marked `Output too large` reached the agent only as a 2 KB preview.
-- `.claude/settings.json` is created once with the `SessionStart` hook and two permissions,
-  `Bash(ai-core:*)` for the harness commands and `mcp__graft` for every tool of the Graft MCP
-  server, which only reads the code graph, so an agent runs both without a prompt. The hook names
-  `ai-core` by its full path on this machine, so a Claude Code started from a terminal opened
-  before the install still runs it; the file is the machine's and never committed. If your
+- `.claude/settings.json` is created once with the `SessionStart` hook, the status line
+  `ai-core statusline`, which records the account's usage windows for `ai-core usage` (section 6),
+  and the permission `Bash(ai-core:*)`, so an agent runs the harness commands without a prompt.
+  The hook and the status line name `ai-core` by its full path on this machine, so a Claude Code started from a terminal opened
+  before the install still runs them; the file is the machine's and never committed. If your
   repository already has one, `init` keeps it, merges in whichever of the three it lacks, once,
   and replaces an `ai-core` hook of an older form. It also denies, and merges into an existing one
   the same way: reading or editing a checkout's `.env`, `.env.local` and `.env.*.local`, reading
@@ -634,17 +569,8 @@ tools work; the harness gives them the text at the place they look.
   is not held by them. Claude Code applies allow rules from
   a committed or excluded project `settings.json` only after you accept its trust dialog for the
   folder.
-- Everything else Claude Code needs for Graft is written by `graft init`, which `init` runs:
-  `.mcp.json` with the Graft MCP server, the hook and status line blocks merged into
-  `settings.json` (`PostToolUse`, `UserPromptSubmit`, `SessionStart`, `Stop`, each running
-  `node .claude/helpers/graft-hooks.cjs`), the helpers under `.claude/helpers/`, and the
-  `graft` skill under `.claude/skills/`. `graft-setup` then puts `ai-core statusline` in place of
-  Graft's status line: it records the account's usage windows for `ai-core usage` and shows Graft's
-  line on the same input (section 6). Graft merges into an existing `settings.json`; your
-  entries stay. All of it is excluded from git by `graft-setup`. With
-  `GRAFT_EXECUTION_MODE="skip"` none of it is written.
 
-### 4.12 Agents that run in a sandbox (OpenHands, cloud agents)
+### 4.11 Agents that run in a sandbox (OpenHands, cloud agents)
 
 OpenHands, and every agent that runs in the cloud, works on a **fresh clone in a sandbox**. Only
 what is committed is there. The harness deploys its files into a checkout and hides them from git,
@@ -667,7 +593,7 @@ so none of them reach a sandbox. Two ways close that gap; they can be combined:
 Today the harness deploys `.openhands/microagents/repo-rules.md`, the older OpenHands
 convention. It is kept until the two paths above exist.
 
-### 4.13 The push gate: `ai-core pre-push`
+### 4.12 The push gate: `ai-core pre-push`
 
 One gate judges every push of every repository, and it lives in setup-ai-core, not in the
 repositories: each repository carries a three-line `.githooks/pre-push` that only starts
@@ -770,8 +696,7 @@ for the check and for gitleaks, and a team-modes table of their own.
 | `curl` and `tar` | remote install with `init.sh` | `init.ps1` uses `Invoke-WebRequest` and `Expand-Archive`, part of PowerShell |
 | jq | every board and issue command reads GitHub's answers through it | `doctor` installs it |
 | gitleaks 8.19+ | the credential scan of the push gate, in a repository that carries `.gitleaks.toml` | `doctor` wants it where a repository of the project folder carries that file, and installs it: winget, brew, on Linux the GitHub release into `~/.local/bin` (apt's package is 8.16); `init` runs doctor in the folder it serves |
-| Node.js 20+ with `npm` and `npx` | Graft, the Graft MCP server, the Claude Code hook helpers | no fallback: without Node.js, `init` fails; `skip` mode turns Graft off |
-| Graft, the version in `lib/graft-version` | the code graph, its MCP server, Graft's hooks and the `graft` command | `doctor` installs it globally; a parser without a prebuilt binary for the machine is compiled by node-gyp, and where that fails `doctor` shows npm's lines and the command that installs a C/C++ toolchain (build-essential, the Xcode Command Line Tools, the Visual Studio Build Tools); `init` builds with it and pins the MCP servers to it |
+| Node.js 20+ with `npm` and `npx` | `ai-core status`, which counts with Node.js; the team modes installed through `npx` | `doctor` installs it |
 | `gh`, logged in | the project harness is found, cloned and created through it; every board and issue command; `session-start` shows the GitHub user | `doctor` installs it; the login is yours |
 
 ### 5.2 Once per machine: `install`
@@ -822,7 +747,7 @@ on the machine that runs the agent.
 | `ai-core init [TARGET_DIR]` | `ai-core init [-TargetDir <path>]` | the repository to equip; default is the current directory |
 | `--all <folder>` | `-All <folder>` | run `init` in every git repository directly under the folder and in every worktree under its `.worktrees/`, then in the folder itself (section 5.8); `doctor` runs once; a failing repository is named in the summary and the exit code is 1 |
 | `--no-doctor` | `-NoDoctor` | do not run `doctor` first (CI, or a machine you have checked yourself) |
-| `--dry-run` | `-DryRun` | write nothing; print the report of what the run would create, refresh, keep and remove, and what Graft would write in the repository and on the machine; `doctor` runs without installing; with `--all` every repository gets its dry run |
+| `--dry-run` | `-DryRun` | write nothing; print the report of what the run would create, refresh, keep and remove; `doctor` runs without installing; with `--all` every repository gets its dry run |
 | `-h`, `--help` | `-Help` | usage |
 
 An unknown option is an error.
@@ -844,9 +769,7 @@ An unknown option is an error.
 5. Writes the exclude block into `.git/info/exclude`, in the place of the one an earlier run
    wrote, and the block into `.gitignore` (section 4.3). Outside a git repository it says so and
    goes on.
-6. Runs `graft-setup`. If that fails, `init` prints why and exits 1; the other files are already
-   in place.
-7. Prints the report: what the run did to the checkout.
+6. Prints the report: what the run did to the checkout.
 
 Every file `init` touches is written only when its content differs, and every file is recorded
 under one of these words:
@@ -854,8 +777,8 @@ under one of these words:
 | word | meaning |
 | :--- | :--- |
 | `created` | did not exist; written |
-| `refreshed` | a managed file (the assembled rules, `STAMP`, a skill, a data file, a map from `repos/<repo>/`, the exclude block) that differed from what the layers say; rewritten. A managed `AGENTS.md` keeps the block Graft appended to it, so Graft finds it unchanged |
-| `kept` | a file created once (`AGENTS.md`, `.claude/settings.json`, `config.env`, ...) that differs from its template, yours or changed by Graft; never overwritten |
+| `refreshed` | a managed file (the assembled rules, `STAMP`, a skill, a data file, a map from `repos/<repo>/`, the exclude block) that differed from what the layers say; rewritten |
+| `kept` | a file created once (`AGENTS.md`, `.claude/settings.json`, `config.env`, ...) that differs from its template, because it is yours; never overwritten |
 | `removed` | what an earlier version left in the checkout (`.ai-core/bin/`, `.agents/mcp_config.json`), and what a layer no longer provides (recorded in `.ai-core/DEPLOYED`) |
 | `tracked` | a file of `repos/<repo>/` the repository commits itself; not applied |
 | `unchanged` | the count of files that were already what they should be |
@@ -865,16 +788,12 @@ The report closes with `.gitignore changed` when the block was written, committe
 first; the block was there already` when the origin had it, with `.gitignore not written` and the
 reason when the checkout is behind its origin with work of its own, with `.ai-core taken from the checkout <path>` when a
 worktree started empty and got the checkout's `.ai-core/` data first, with `core.hooksPath set to .githooks` when the repository carries the push gate's shim and the
-clone was not armed yet, and with the harness version. Above it, `graft-setup` reports its own writes in two lists, the
-files in the repository and the files on the machine (under the home directory), each with
-Graft's word for it (`created`, `updated`, `appended`, `wrote`), and one line for the graph.
-Graft's full output is shown only when it fails. A second run on an unchanged checkout reports
+clone was not armed yet, and with the harness version. A second run on an unchanged checkout reports
 only the count of unchanged files, on both twins the same lines.
 
 `ai-core init --dry-run` prints the same report with `would change` and writes nothing, not
 even the exclude file, and creates no project harness: one that does not exist yet is announced
-as `would be created from the skeleton`; Graft's `--dry-run` lists what `graft init` would write in the
-repository and on the machine, and the graph is not built.
+as `would be created from the skeleton`.
 
 ### 5.6 First check
 
@@ -891,14 +810,13 @@ allowed; any other value is an error.
 
 | Key | Values | Meaning |
 | :--- | :--- | :--- |
-| `AGENTS` | names separated by spaces: `claude`, `codex`, `antigravity`, `openhands`, `gemini`, `cursor`, `windsurf`, `copilot`; default `claude codex antigravity openhands` | the agents this project serves. `init` deploys the file of each one named (`.codex/config.toml`, `.cursorrules`, `.windsurfrules`, `.github/copilot-instructions.md`, `.openhands/microagents/repo-rules.md`) and no other, and `graft init` is wired into these and no other (`--agents`). Empty: every agent Graft detects on the machine, and every pointer file. Graft detects Gemini wherever `~/.gemini` exists, which Antigravity creates too, so an empty list wires `GEMINI.md` and `.gemini/` into every repository. |
+| `AGENTS` | names separated by spaces: `claude`, `codex`, `antigravity`, `openhands`, `gemini`, `cursor`, `windsurf`, `copilot`; default `claude codex antigravity openhands` | the agents this project serves. `init` deploys the file of each one named (`.cursorrules`, `.windsurfrules`, `.github/copilot-instructions.md`, `.openhands/microagents/repo-rules.md`) and no other. Empty: every pointer file. |
 | `GH_ORG` | a GitHub organisation or user | the owner the board commands act for when a command names no repository (`repo-boards`, `project-new`, `incident-count`, a bare board number). Unset: the owner of the repository the command runs in. The environment variable `GH_ORG` overrides both. |
 | `MAP_TOOL` | `claude` (default), `codex`, `agy` | the agent CLI `ai-core map` writes the map with, in its non-interactive read-only mode; `AI_CORE_MAP_TOOL` in the environment names the CLI of one machine instead, for example `agy` where Claude's quota is spent |
 | `MAP_MODEL` | a model id, or empty (default) | the model that CLI uses for the map; empty is the CLI's own default. It goes only with `MAP_TOOL`: `AI_CORE_MAP_MODEL` in the environment names the model of one machine, and a machine that names another CLI without it gets that CLI's default (`agy models` lists agy's, e.g. `gemini-3.8-flash-high`) |
-| `GRAFT_EXECUTION_MODE` | `native` (default), `skip` | `native` builds the code graph with the local Node.js and fails when it cannot; `skip` does not build it in this repository |
 | `UPDATE_CHECK` | `session-start` (default), `never` | whether `session-start` asks `update --check` for a newer release; `AI_CORE_UPDATE_CHECK` in the environment overrides it. Nothing is updated by it |
 | `USAGE_STOP_AT` | a percentage, `92` when unset | the usage limit: at it, in any window, every session finishes the step in hand, commits, reports and waits for the reset; `ai-core usage` exits 3 there |
-| `DEFAULT_BRANCH_IS_LIVE` | `yes`, or the folder names of the repositories whose default branch goes live; unset by default | a push to such a default branch needs `scripts/check.sh` and a `Reviewed-by:` trailer on its last commit (section 4.13) |
+| `DEFAULT_BRANCH_IS_LIVE` | `yes`, or the folder names of the repositories whose default branch goes live; unset by default | a push to such a default branch needs `scripts/check.sh` and a `Reviewed-by:` trailer on its last commit (section 4.12) |
 
 ### 5.8 Many repositories
 
@@ -916,8 +834,7 @@ ai-core init --all ~/repos/myorg
 ```
 
 The folder is where many developers start their agent. It gets the same data as a repository,
-an `AGENTS.md` that lists the repositories with the path of each map, and a Graft workspace over
-all of them (section 4.8). Nothing there is under git, so nothing is excluded and nothing can be
+an `AGENTS.md` that lists the repositories with the path of each map. Nothing there is under git, so nothing is excluded and nothing can be
 committed. An agent started in the folder has the rules from its first prompt, because that
 `AGENTS.md` imports them (section 4.7), and Claude Code loads a repository's own `AGENTS.md` as soon
 as it works on files inside it, the way it loads nested `CLAUDE.md` files. Each repository still carries its own files, because a repository is also opened
@@ -932,11 +849,10 @@ quick start, once per machine: `winget install Microsoft.PowerShell`, open "Powe
 Then the quick start, which is the same on every system.
 
 With Claude Code: run `claude` in the project folder or the repository, answer **yes** to trusting
-the folder and **approve** the `graft` MCP server (`/mcp` shows it connected). Claude Code 2.1.277+
+the folder. Claude Code 2.1.277+
 loads `AGENTS.md` by itself, and with it the rules; a repository with a `CLAUDE.md` of its own gets
-a `CLAUDE.local.md` from `init` that imports `AGENTS.md`. With Antigravity: run `agy` in the repository and sign in; it loads `AGENTS.md` by itself
-and reads its MCP servers from `~\.gemini\config\mcp_config.json`, where `graft init` registers
-the Graft server (section 4.8). A new clone or worktree runs `ai-core init` once.
+a `CLAUDE.local.md` from `init` that imports `AGENTS.md`. With Antigravity: run `agy` in the repository and sign in; it loads `AGENTS.md` by itself.
+A new clone or worktree runs `ai-core init` once.
 
 ### 5.10 Update and uninstall
 
@@ -953,9 +869,8 @@ brings it to that state, managed files replaced, your files kept. `session-start
 behind) and `Releases` (`update --check`, unless `UPDATE_CHECK="never"` in `config.env`).
 Nothing updates by itself.
 
-**Uninstall:** delete what section 4.2 lists, delete `graft/`, and remove the block between
-`# setup-ai-core start` and `# setup-ai-core end`, and the one between `# setup-ai-core graft start`
-and `# setup-ai-core graft end`, from `.git/info/exclude`. On the machine: delete
+**Uninstall:** delete what section 4.2 lists, and remove the block between
+`# setup-ai-core start` and `# setup-ai-core end` from `.git/info/exclude`. On the machine: delete
 `~/setup-ai-core`, the harness clones beside the repositories (`<project folder>/<prefix>-ai-core`)
 and the PATH entry `install` added (the line marked `# setup-ai-core` in the shell profiles and the
 pwsh profile; the entry in the user PATH on Windows). `npx` keeps its cache.
@@ -973,22 +888,21 @@ and `bin/<name>.ps1` in PowerShell; a new script in `bin/` is a command without 
 | `session-start` | `ai-core session-start [--json]` / `[-Json]`; the JSON says `refused`, and a refusal carries the lines of the team modes | 0 ready; 1 a team mode or the rules file missing |
 | `solution-path` | `ai-core solution-path <issue> <file> [--check]` / `<issue> <file> [-Check]` | section 7 |
 | `rules-check` | `ai-core rules-check [file-or-directory]` / `[-RulesFile <file-or-directory>]`; default `.ai-core/rules/rules.md`, or the `rules/` directory of setup-ai-core; a directory means its `NN-*.md` section files; a project harness (a directory with `rules/`, `skills/` or `agents/`) is checked whole: every skill has a front matter with its folder's name and a description, every agent a name and a description and no model below Sonnet, then its rule sections | 0 every rule tagged and nothing wrong in the harness; 1 otherwise |
-| `graft-setup` | `ai-core graft [dir] [--dry-run]` / `[-TargetDir <dir>] [-DryRun]` | 0 built, skipped or dry; 1 no Node.js, build failed, or bad `config.env`; 2 a wrong argument |
-| `init` | `ai-core init [dir] [--all <folder>] [--no-doctor] [--dry-run]` / `[-TargetDir <dir>] [-All <folder>] [-NoDoctor] [-DryRun]` | 0 in place, or dry; 1 doctor failed, Graft failed, or a repository under `--all` failed |
+| `init` | `ai-core init [dir] [--all <folder>] [--no-doctor] [--dry-run]` / `[-TargetDir <dir>] [-All <folder>] [-NoDoctor] [-DryRun]` | 0 in place, or dry; 1 doctor failed, or a repository under `--all` failed |
 | `map` | `ai-core map [dir] [--all <folder>] [--no-push] [--dry-run]` / `[-TargetDir <dir>] [-All <folder>] [-NoPush] [-DryRun]` | 0 written (or unchanged, or dry); 1 no harness, the agent CLI failed or wrote something that is not a map, or a repository under `--all` failed |
 | `push` | `ai-core push [MESSAGE] [--harness <name>]` / `[-Message <text>] [-Harness <name>]`; runs `rules-check` on a clone with changes first and does not commit one it refuses | 0 every harness clone pushed or had nothing; 1 no clone, a clone `rules-check` refused, a commit or a push failed |
 | `update` | `ai-core update [--check] [--main]` / `[-Check] [-Main]` (section 5.10) | 0 done, or `--check`: everything current; 2 `--check`: a release or commits available; 1 an origin could not be reached |
 | `release` | `ai-core release <version>` (in a clone of setup-ai-core, section 10) | 0 tagged and pushed; 1 refused, naming what is missing; 2 a wrong argument |
-| `pre-push` | `ai-core pre-push [--install [--all <folder>]]` / `[-Install [-All <folder>]]` (section 4.13) | 0 nothing refused the push, or the shim written; 1 refused, or a repository under `--all` is none; 2 a wrong argument |
+| `pre-push` | `ai-core pre-push [--install [--all <folder>]]` / `[-Install [-All <folder>]]` (section 4.12) | 0 nothing refused the push, or the shim written; 1 refused, or a repository under `--all` is none; 2 a wrong argument |
 | `usage` | `ai-core usage [--stop-at N]` / `[-StopAt N]` | 0 every window below N; 3 a window at N or more; 2 nothing recorded yet, or a wrong argument. Prints the account's usage windows (five hours, week) as the status line last recorded them, each with its reset time, against the limit N: `--stop-at`, else `USAGE_STOP_AT` of the project's `config.env`, else 92; a window whose reset has passed counts as reset. One model's own weekly quota is not among them |
-| `statusline` | the status line command `graft-setup` writes into `.claude/settings.json` in place of Graft's | records the usage windows Claude Code hands it in `~/.ai-core/usage.json` and, at most once a minute, a line of them in `~/.ai-core/usage.log`, then shows Graft's status line on the same input, or a short line of the model and the windows |
+| `statusline` | the status line command `init` writes into `.claude/settings.json` | records the usage windows Claude Code hands it in `~/.ai-core/usage.json` and, at most once a minute, a line of them in `~/.ai-core/usage.log`, then shows a short line of the model and the windows |
 | the board and issue commands | `ai-core issue-new ...`, `ai-core start-issue N`, ... (section 8) | 0 done; 1 refused or gh refused; 2 a wrong argument |
 | `doctor` | `ai-core doctor [--no-install]` / `ai-core doctor [-NoInstall]` | 0 every required tool present and gh logged in; 1 otherwise, each problem with its instruction |
 | `install` | `bin/install.sh [--source <clone>] [--dir <path>] [--repo <url>] [--no-path] [--no-doctor]` / `bin/install.ps1 [-Source <clone>] [-Dir <path>] [-Repo <url>] [-NoPath] [-NoDoctor]` | 0 installed and doctor OK; 1 when doctor found problems |
-| `ai-core` | `ai-core <command>`: any script in `bin/` by name, `graft` for `graft-setup`, plus `version`, `help` | the command's exit code; 1 for an unknown command |
+| `ai-core` | `ai-core <command>`: any script in `bin/` by name, plus `version`, `help` | the command's exit code; 1 for an unknown command |
 
 `doctor` today checks Git, gh and its login, Bash, PowerShell 7 (required on Windows), Node.js 20+
-with `npx`, jq, the team modes, repairs an empty Antigravity `mcp_config.json`, and reports whether `claude`, `agy` and `codex` are installed, with the install command
+with `npx`, jq, the team modes, and reports whether `claude`, `agy` and `codex` are installed, with the install command
 of each. It takes out what a tool of an earlier layout left in the Claude Code configuration: a
 session-start hook in `~/.claude/settings.json` that starts a script beside the repositories, and
 a project memory folder `~/.claude/projects/<project>/memory` that is a link whose target is gone
@@ -1097,7 +1011,7 @@ no repository acts on the one it runs in; `OWNER/REPO` before the issue number n
 
 **The hooks.** A repository that wants the gate before every push carries the three-line shim
 `ai-core pre-push --install` writes into `.githooks/pre-push`, and beside it `.githooks/post-checkout`,
-which starts `init` in a new worktree (section 4.13); the gate and `init` themselves never live in
+which starts `init` in a new worktree (section 4.12); the gate and `init` themselves never live in
 a repository.
 
 ---
@@ -1111,7 +1025,7 @@ Every command `ai-core --help` lists exists today (sections 6 and 8). Planned:
 | `doctor` | also the tools a project harness declares in `ai-core.json` |
 | `init` | additionally: generate the map when the repository has none |
 | `session-start` | additionally: re-assemble the checkout when a layer moved past `.ai-core/STAMP` |
-| `publish` | copy the assembled rules and the skills of the project harness into the organisation's `.agents` repository, so OpenHands loads them in every repository of the organisation (section 4.12) |
+| `publish` | copy the assembled rules and the skills of the project harness into the organisation's `.agents` repository, so OpenHands loads them in every repository of the organisation (section 4.11) |
 
 Prerequisites `doctor` will know, with an install per platform (`winget`, `brew`, `apt`, or the
 tool's official installer): Git and Git Bash, `gh` with its login (install yes, login is a
@@ -1130,7 +1044,7 @@ bash tests/check.sh 08-harness    # one section, by its file name
 
 The check is `tests/sections/*.sh`, one file per group of sections that share their fixtures, each
 sourcing `tests/lib.sh` (the root, `fail`, `native`, a throwaway directory of its own, the stand-in
-`gh` and Graft). `tests/check.sh` starts them all at once, each in its own process, and prints the
+`gh`). `tests/check.sh` starts them all at once, each in its own process, and prints the
 report in file order with the time each section took; a red section prints its whole log. A red
 run also says whether pwsh died during the run, because under parallel load pwsh can segfault or
 abort with a .NET stack overflow, and a red section may be that crash, not the code under test: a
@@ -1141,7 +1055,7 @@ board suites (`tests/run-all.sh`, `tests/run-all.ps1`) run their tests eight at 
 (`CHECK_JOBS=<n>` for another number). Together the sections parse every script (`bash -n`, the PowerShell parser), run both `rules-check` twins
 over `rules/`, runs both `doctor` twins against a fake old Node.js and a fake unauthenticated gh
 and requires the same two problems, runs both installers against a temporary home (an existing clone with `--source`, a clone with
-`--repo`, a second run that pulls) and `init` through both `ai-core` commands, bootstraps a temporary checkout with each installer in `skip` mode
+`--repo`, a second run that pulls) and `init` through both `ai-core` commands, bootstraps a temporary checkout with each installer
 (data only, no scripts in the checkout), fails on any
 warning or error in either installer's output, diffs the two deployed file lists, proves the assembled `rules.md` has one section per source
 file, is byte-identical on both twins and passes `rules-check`, proves a second run creates
@@ -1151,9 +1065,7 @@ and proves the folder's generated `AGENTS.md` lists exactly its repositories, st
 on the PATH and proves a project harness is created from the skeleton on the first `init`, cloned
 on another machine, and that its rules, skills, docs, data files and `repos/<repo>/` are
 assembled identically by both twins, base first along an `extends` chain, and proves `push` commits
-and pushes a harness clone's change to its origin and has nothing on a second run, proves a failing Graft build makes
-`init` exit 1 with the files in place, runs a fake Graft that succeeds and proves `init` calls it
-without the picker, excludes every file it wrote and names the committed file it changed, and requires `session-start` to exit 1 where the harness is
+and pushes a harness clone's change to its origin and has nothing on a second run, and requires `session-start` to exit 1 where the harness is
 absent, runs the two board suites (`tests/run-all.sh`, `tests/run-all.ps1`: one test pair per
 command against a stand-in `gh`, the push gate's pair among them, and the tree must be as the
 suite found it) and both `case-check` twins. It needs `bash`, `pwsh`, `node` and `jq` and never touches the network. CI runs it on Ubuntu
@@ -1206,17 +1118,13 @@ releases by tag, `update`, `push`, and `map`. Open:
 | Symptom | Cause and fix |
 | :--- | :--- |
 | `pwsh: command not found` / `'pwsh' is not recognized` | PowerShell 7 is not installed. Install it, or use the Bash twins from Git Bash. |
-| `init` ends with `error: ... the Graft code graph is not` | Node.js with `npx` is missing, or Graft's native build failed. Install Node.js 20+ and run `ai-core graft` again, or set `GRAFT_EXECUTION_MODE="skip"`. The other files are in place. |
-| `error: GRAFT_EXECUTION_MODE must be native or skip` | a typo in `config.env`; checked before anything runs |
 | `session-start` exits 1 with `Not ready: no rules file found` | the harness is not installed here. Run `init`. |
-| `kept .claude/settings.json` in the report | your repository already had one; `init` merged the session-start hook, `Bash(ai-core:*)` and `mcp__graft` into it where they were missing. |
+| `kept .claude/settings.json` in the report | your repository already had one; `init` merged the session-start hook, the status line and `Bash(ai-core:*)` into it where they were missing. |
 | `ai-core: command not found` from the session-start hook, or `ai-core on PATH  : ✗` in its output | Claude Code was started from a terminal opened before the install, whose PATH lacks `ai-core`. `init` writes the hook with the full path of `ai-core`, and `session-start` names that path for the agent's own shell; a terminal opened after the install has it on the PATH. |
 | `ai-core: command not found` inside an agent | the clone's `bin/` is not on the PATH of that shell. Run `install` again, open a new terminal, or call the script by path. |
 | Claude Code ignores `AGENTS.md` | a `CLAUDE.md` exists in the directory or above it. In a repository with its own `CLAUDE.md`, `init` writes a `CLAUDE.local.md` with `@AGENTS.md`; a `CLAUDE.md` above the repository gets that line by hand. |
 | The agent does not know a rule, or quotes a stale one | the session started before `init` ran, or outside a project folder or checkout with the harness. Start it again there; the transcript under `~/.claude/projects/` shows what the start hooks delivered. |
-| Graft's status line says `graft · not built` in a project folder | Graft's own display does not know the folder's workspace. `session-start` shows `✓ Workspace`, and Graft answers queries there. |
 | Claude Code prompts for `ai-core` commands although they are allowed | accept the trust dialog; project allow rules apply only after it |
-| Hooks appear to do nothing | expected in a repository without `graft/`. Run `ai-core graft` first. |
 | `git add AGENTS.md` says the path is ignored | `init` excluded it on purpose. `git add -f AGENTS.md` commits it anyway, or remove the entry from `.git/info/exclude`. |
 | A fresh clone or worktree has no `.ai-core/` | the harness is not committed. Run `init` in a fresh clone once; a worktree gets it from the `post-checkout` hook where the repository carries it (`ai-core pre-push --install`), or from `ai-core start-issue`. |
 
@@ -1253,7 +1161,6 @@ setup-ai-core/
 │   ├── push.sh / push.ps1               commits and pushes the harness clones of the project folder
 │   ├── solution-path.sh / .ps1          8-section solution path validator
 │   ├── rules-check.sh / .ps1            enforcement-tag validator
-│   ├── graft-setup.sh / .ps1            Graft code graph, local Node.js or fail
 │   ├── team-modes-check / -install      the team modes of every tool on the machine
 │   ├── status.sh / status.ps1           the state of the work: board counts, agents, usage, tokens
 │   ├── usage, statusline                the account's usage windows: recorded by the status line, read against the limit
@@ -1267,7 +1174,6 @@ setup-ai-core/
 │   ├── gitignore-block                  the block init writes into a project's .gitignore
 │   ├── binding-rules.md                 the binding rules init puts on top of every map and into a project folder's AGENTS.md
 │   ├── status.mjs, status-now.mjs       what status counts and prints, in Node.js
-│   ├── graft-version                    the Graft version every checkout builds and wires with
 │   └── entry-point.ps1                  the one text every scripts/check.ps1 and build.ps1 is a copy of
 ├── rules/
 │   ├── NN-slug.md                       the generic rules, one file per section
@@ -1279,7 +1185,6 @@ setup-ai-core/
 │   ├── .ai-core/                        config.env, labels.tsv, assignees.tsv, team-modes.tsv,
 │   │                                    rules/rules.local.md, docs/README.md, solution-path.template.md
 │   ├── .claude/                         settings.json: the session-start hook, the ai-core permissions, the denials
-│   ├── .codex/                          config.toml: the Graft MCP server for Codex, per repository
 │   ├── .github/                         copilot-instructions.md
 │   └── .openhands/                      microagents/repo-rules.md
 ├── tests/

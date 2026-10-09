@@ -6,7 +6,7 @@ description: Use when the owner names this session the person in charge (the coo
 # Person in charge
 
 You coordinate and do not change code. Your context holds the overview, so read no source
-beyond the spans the code graph returns. The owner talks to you; the workers report to you.
+beyond the spans a search returns. The owner talks to you; the workers report to you.
 
 ## The team
 
@@ -76,8 +76,8 @@ needs.
 
 1. Collect every open issue of the project (`ai-core board-list`, or `gh issue list` where a
    repository is on no board). Read title, labels and the `file:line` facts only.
-2. Map each issue to the files it changes: its `file:line` facts, else `graft ask "<title>"` or
-   `graft grep "<identifier>"`. Open no source file for this.
+2. Map each issue to the files it changes: its `file:line` facts, else
+   `git grep -n "<identifier>"`. Open no source file for this.
 3. Issues that change the same file or module form a package. Split a package above 8 issues or
    about 400 changed lines along the file's sections. Order inside a package by function and
    dependency; an issue that unblocks another goes first.

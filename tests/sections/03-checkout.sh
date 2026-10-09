@@ -5,7 +5,7 @@
 section "bootstrap both twins"
 for t in sh ps1; do
   mkdir -p "$WORK/$t/.ai-core"
-  printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$WORK/$t/.ai-core/config.env"
+  printf 'UPDATE_CHECK="never"\n' > "$WORK/$t/.ai-core/config.env"
 done
 bash "$ROOT/bin/init.sh" "$WORK/sh" --no-doctor > "$WORK/sh.log" 2>&1 || fail "init.sh exited $? (see $WORK/sh.log)"
 pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/ps1")" -NoDoctor > "$WORK/ps1.log" 2>&1 || fail "init.ps1 exited $?"
@@ -14,7 +14,7 @@ for t in sh ps1; do
 done
 
 for t in sh ps1; do
-  mkdir -p "$WORK/agents-$t/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\nAGENTS="cursor claude"\n' > "$WORK/agents-$t/.ai-core/config.env"
+  mkdir -p "$WORK/agents-$t/.ai-core"; printf 'UPDATE_CHECK="never"\nAGENTS="cursor claude"\n' > "$WORK/agents-$t/.ai-core/config.env"
 done
 bash "$ROOT/bin/init.sh" "$WORK/agents-sh" --no-doctor > /dev/null 2>&1 || fail "init.sh with AGENTS"
 pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/agents-ps1")" -NoDoctor > /dev/null 2>&1 || fail "init.ps1 with AGENTS"
@@ -37,7 +37,7 @@ done
 cmp -s "$WORK/sh/AGENTS.md" "$WORK/ps1/AGENTS.md" || fail "the generic map differs between the twins"
 for t in sh ps1; do
   for c in before mine tracked; do
-    C="$WORK/agentsmd-$t-$c"; mkdir -p "$C/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$C/.ai-core/config.env"; git init -q "$C"
+    C="$WORK/agentsmd-$t-$c"; mkdir -p "$C/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$C/.ai-core/config.env"; git init -q "$C"
     case "$c" in
       before) printf '# AGENTS.md \342\200\224 Repository Navigation & Operations\n\nthe generic file of before 1.3.20\n' > "$C/AGENTS.md" ;;
       mine) printf '# mine\n' > "$C/AGENTS.md" ;;
@@ -64,7 +64,7 @@ grep -q "updating" "$WORK/install.sh.log" || fail "install.sh second run did not
 [ "$("$ROOT/bin/ai-core" version)" = "$(tr -d '\r\n' < "$ROOT/VERSION")" ] || fail "ai-core version"
 "$ROOT/bin/ai-core" help > /dev/null || fail "ai-core help"
 "$ROOT/bin/ai-core" no-such-command > /dev/null 2>&1 && fail "ai-core accepted an unknown command"
-mkdir -p "$WORK/via-sh/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$WORK/via-sh/.ai-core/config.env"
+mkdir -p "$WORK/via-sh/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$WORK/via-sh/.ai-core/config.env"
 "$ROOT/bin/ai-core" init "$WORK/via-sh" --no-doctor > /dev/null 2>&1 || fail "ai-core init through the command"
 (cd "$WORK/via-sh" && find . -type f | sort) | diff - "$WORK/sh.list" > /dev/null || fail "init through the command deployed a different file set"
 pwsh -NoProfile -File "$ROOT/bin/install.ps1" -Source "$(native "$ROOT")" -Dir "$(native "$WORK/not-created-ps")" -NoPath -NoDoctor > "$WORK/install.ps1.log" 2>&1 || fail "install.ps1 -Source (see $WORK/install.ps1.log)"
@@ -75,7 +75,7 @@ pwsh -NoProfile -File "$ROOT/bin/install.ps1" -Repo "$(native "$ROOT")" -Dir "$(
 pwsh -NoProfile -File "$ROOT/bin/install.ps1" -Repo "$(native "$ROOT")" -Dir "$(native "$CORE_PS")" -NoPath -NoDoctor > "$WORK/install.ps1.log" 2>&1 || fail "install.ps1 second run (see $WORK/install.ps1.log)"
 grep -q "updating" "$WORK/install.ps1.log" || fail "install.ps1 second run did not update"
 [ "$(pwsh -NoProfile -File "$CORE_PS/bin/ai-core.ps1" version | tr -d '\r')" = "$(git -C "$CORE_PS" show HEAD:VERSION | tr -d '\r\n')" ] || fail "ai-core.ps1 version from the clone"
-mkdir -p "$WORK/via-ps/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$WORK/via-ps/.ai-core/config.env"
+mkdir -p "$WORK/via-ps/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$WORK/via-ps/.ai-core/config.env"
 pwsh -NoProfile -File "$ROOT/bin/ai-core.ps1" init -TargetDir "$(native "$WORK/via-ps")" -NoDoctor > /dev/null 2>&1 || fail "ai-core.ps1 init through the command"
 (cd "$WORK/via-ps" && find . -type f | sort) | diff - "$WORK/sh.list" > /dev/null || fail "init.ps1 through the command deployed a different file set"
 echo "  --source leaves the clone alone, --repo clones and pulls, init through both commands deploys the same files"
@@ -183,14 +183,15 @@ echo "  --tool claude: the caveman skill printed whole with its level, a skill a
 AI_CORE_CMD="$ROOT/bin/ai-core"; if command -v cygpath >/dev/null 2>&1; then AI_CORE_CMD="$(cygpath -m "$AI_CORE_CMD")"; fi
 for t in sh ps1; do [ "$(jq -r '[.hooks.SessionStart[].hooks[].command] | join("|")' "$WORK/$t/.claude/settings.json")" = "\"$AI_CORE_CMD\" session-start --tool claude" ] || fail "the settings.json init.$t deployed does not start the session with ai-core by its full path: $(jq -c '.hooks.SessionStart' "$WORK/$t/.claude/settings.json")"; done
 cmp -s "$WORK/sh/.claude/settings.json" "$WORK/ps1/.claude/settings.json" || fail "the settings.json differs between the twins"
-# OpenCode reads the nearest AGENTS.md and resolves no @ in it: opencode.json names the rules as its instructions, and the Graft MCP server
-for t in sh ps1; do jq -e '(.instructions | index(".ai-core/rules/rules.md") != null and index(".ai-core/rules/skills.md") != null and index(".ai-core/rules/rules.local.md") != null) and (.mcp.graft.type == "local") and (.mcp.graft.command | index("mcp") != null)' "$WORK/$t/opencode.json" > /dev/null || fail "init.$t did not lay an opencode.json with the rules and the Graft MCP server: $(tr -d '\n' < "$WORK/$t/opencode.json" 2>/dev/null)"; done
+# OpenCode reads the nearest AGENTS.md and resolves no @ in it: opencode.json names the rules as its instructions
+for t in sh ps1; do jq -e '(.instructions | index(".ai-core/rules/rules.md") != null and index(".ai-core/rules/skills.md") != null and index(".ai-core/rules/rules.local.md") != null)' "$WORK/$t/opencode.json" > /dev/null || fail "init.$t did not lay an opencode.json with the rules: $(tr -d '\n' < "$WORK/$t/opencode.json" 2>/dev/null)"; done
 for t in sh ps1; do jq -e --slurpfile t "$ROOT/templates/.claude/settings.json" '(.permissions.deny == $t[0].permissions.deny) and (.permissions.deny | index("Read(**/.env)") != null) and (.permissions.deny | index("Bash(git push --force:*)") != null)' "$WORK/$t/.claude/settings.json" > /dev/null || fail "the settings.json init.$t deployed lacks the denials of the template: $(jq -c '.permissions.deny' "$WORK/$t/.claude/settings.json")"; done
-for t in sh ps1; do jq -e '(.permissions.allow | index("mcp__graft")) != null and (.permissions.allow | index("Bash(ai-core:*)")) != null' "$WORK/$t/.claude/settings.json" > /dev/null || fail "the settings.json deployed by init.$t does not allow the ai-core commands and the Graft MCP tools"; done
+for t in sh ps1; do jq -e '(.permissions.allow | index("Bash(ai-core:*)")) != null' "$WORK/$t/.claude/settings.json" > /dev/null || fail "the settings.json deployed by init.$t does not allow the ai-core commands"; done
+for t in sh ps1; do [ "$(jq -r '.statusLine.command' "$WORK/$t/.claude/settings.json")" = "\"$AI_CORE_CMD\" statusline" ] || fail "the settings.json init.$t deployed does not record the usage windows through ai-core statusline by its full path: $(jq -c '.statusLine' "$WORK/$t/.claude/settings.json")"; done
 
 # A repository with a CLAUDE.md of its own: Claude Code reads that and not AGENTS.md, so init writes an untracked CLAUDE.local.md that imports AGENTS.md; somebody's own CLAUDE.local.md is left alone, with a note
 for t in sh ps1; do
-  C="$WORK/claude-$t"; git init -q "$C"; mkdir -p "$C/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$C/.ai-core/config.env"
+  C="$WORK/claude-$t"; git init -q "$C"; mkdir -p "$C/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$C/.ai-core/config.env"
   printf '# The project\n' > "$C/CLAUDE.md"; git -C "$C" add CLAUDE.md; git -C "$C" commit -q -m 'its own CLAUDE.md #1'
   for run in 1 2; do
     [ "$run" = 1 ] || printf 'mine\n' > "$C/CLAUDE.local.md"

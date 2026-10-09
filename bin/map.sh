@@ -106,7 +106,7 @@ fi
 # 3. The prompt: read cheaply, output only the file, in the fixed shape. The last section is
 #    people's and comes back from the map that exists.
 PROMPT="Write the map of this repository: the file AGENTS.md that every coding agent reads first.
-Read the repository first, cheaply: run \`graft map\` and \`graft skeleton\` on the entry points when \`graft\` is on the PATH; read the manifests (package.json, pubspec.yaml, pyproject.toml, go.mod, Cargo.toml, Makefile, the scripts/ folder, the CI workflows) and the README. Do not read every source file.
+Read the repository first, cheaply: read the manifests (package.json, pubspec.yaml, pyproject.toml, go.mod, Cargo.toml, Makefile, the scripts/ folder, the CI workflows) and the README. Do not read every source file.
 Then output ONLY the finished file, nothing before it and nothing after it, in English, at most 80 lines, in exactly this shape:
 
 # $repo — the map
@@ -133,7 +133,7 @@ RAW="$TMP/map.raw"; ERR="$TMP/map.err"
 # Each CLI in its non-interactive mode, reading only; the answer alone lands in RAW
 run_tool() {
   case "$TOOL" in
-    claude) claude -p "$PROMPT" --output-format text ${MODEL:+--model "$MODEL"} --allowedTools "Read,Glob,Grep,Bash(graft:*),Bash(npx:*)" ;;
+    claude) claude -p "$PROMPT" --output-format text ${MODEL:+--model "$MODEL"} --allowedTools "Read,Glob,Grep" ;;
     codex)  codex exec --skip-git-repo-check -s read-only ${MODEL:+-m "$MODEL"} --output-last-message "$TMP/last.md" "$PROMPT" >/dev/null && cat "$TMP/last.md" ;;
     agy)    agy --print "$PROMPT" --output-format text ${MODEL:+--model "$MODEL"} ;;
   esac

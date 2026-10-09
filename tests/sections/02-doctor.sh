@@ -17,7 +17,6 @@ for t in sh ps1; do
   grep -aq 'node .*too old' "$WORK/doctor.$t.log" || fail "doctor.$t did not report the old Node.js"
   grep -aq 'gh .*not logged in' "$WORK/doctor.$t.log" || fail "doctor.$t did not report the missing gh login"
   grep -aq 'doctor: 2 problem' "$WORK/doctor.$t.log" || fail "doctor.$t did not count 2 problems"
-  grep -aq "^  graft .*Graft $(tr -d '\r\n' < "$ROOT/lib/graft-version")" "$WORK/doctor.$t.log" || fail "doctor.$t did not report Graft against the pinned version"
   grep -aq '^  agent .*below Sonnet .*cheap.md names the model haiku' "$WORK/doctor.$t.log" || fail "doctor.$t did not report the agent that names a model below Sonnet"
 done
 echo "  both exit 1 with the same two problems"
@@ -38,21 +37,6 @@ for t in sh ps1; do
   grep -aq '^  gh .*present .*gh version 0.0.0, logged in$' "$WORK/ghscope-scope.$t.log" || fail "doctor.$t did not keep the login with the project scope (see $WORK/ghscope-scope.$t.log)"
 done
 echo "  both refuse read:project alone and keep project"
-
-section "doctor shows why Graft did not install: npm's gyp lines, and the command that installs a C/C++ toolchain, on both twins"
-# npm without Graft, failing to compile a parser; package managers that install nothing, so this run changes nothing on the machine
-mkdir -p "$WORK/gypbin"
-printf '#!/bin/sh\n[ "$1" = ls ] && exit 1\necho "npm error gyp info it worked if it ends with ok"\necho "npm error gyp ERR! stack Error: not found: make"\necho "npm error gyp ERR! not ok"\nexit 1\n' > "$WORK/gypbin/npm"
-printf '@if "%%1"=="ls" exit /b 1\r\n@echo npm error gyp info it worked if it ends with ok\r\n@echo npm error gyp ERR! stack Error: not found: make\r\n@echo npm error gyp ERR! not ok\r\n@exit /b 1\r\n' > "$WORK/gypbin/npm.cmd"
-for pm in sudo apt-get winget brew; do printf '#!/bin/sh\nexit 1\n' > "$WORK/gypbin/$pm"; printf '@exit /b 1\r\n' > "$WORK/gypbin/$pm.cmd"; done
-chmod +x "$WORK/gypbin/"*
-HOME="$WORK/doctor-home" TEAM_MODES_FILE="$WORK/always.tsv" PATH="$WORK/gypbin:$PATH" bash "$ROOT/bin/doctor.sh" > "$WORK/gyp.sh.log" 2>&1 && fail "doctor.sh exited 0 with Graft not installed"
-HOME="$WORK/doctor-home" USERPROFILE="$(native "$WORK/doctor-home")" TEAM_MODES_FILE="$(native "$WORK/always.tsv")" PATH="$WORK/gypbin:$PATH" pwsh -NoProfile -File "$ROOT/bin/doctor.ps1" > "$WORK/gyp.ps1.log" 2>&1 && fail "doctor.ps1 exited 0 with Graft not installed"
-for t in sh ps1; do
-  grep -aq '^  graft .*FAILED .*npm said:' "$WORK/gyp.$t.log" && grep -aq '^    npm error gyp ERR! stack Error: not found: make' "$WORK/gyp.$t.log" && grep -aq '^    npm had to compile a native module with node-gyp, which needs a C/C++ toolchain; install one, then run doctor again: ' "$WORK/gyp.$t.log" || fail "doctor.$t did not show why Graft did not install (see $WORK/gyp.$t.log)"
-  grep -aq 'gyp info' "$WORK/gyp.$t.log" && fail "doctor.$t showed more of npm's output than its gyp errors (see $WORK/gyp.$t.log)"
-done
-echo "  both report FAILED with npm's gyp lines and the command that installs a C/C++ toolchain"
 
 section "doctor wants gitleaks with 'gitleaks git' where a repository of the project folder carries .gitleaks.toml: missing, too old, present, not needed; on both twins"
 LF="$WORK/leaks-folder"; mkdir -p "$LF/plain" "$WORK/plain-folder/web"; git init -q "$LF/shop"; : > "$LF/shop/.gitleaks.toml"

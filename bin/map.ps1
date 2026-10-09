@@ -108,7 +108,7 @@ if ($tool -ceq 'agy') {
 #    people's and comes back from the map that exists.
 $prompt = @"
 Write the map of this repository: the file AGENTS.md that every coding agent reads first.
-Read the repository first, cheaply: run ``graft map`` and ``graft skeleton`` on the entry points when ``graft`` is on the PATH; read the manifests (package.json, pubspec.yaml, pyproject.toml, go.mod, Cargo.toml, Makefile, the scripts/ folder, the CI workflows) and the README. Do not read every source file.
+Read the repository first, cheaply: read the manifests (package.json, pubspec.yaml, pyproject.toml, go.mod, Cargo.toml, Makefile, the scripts/ folder, the CI workflows) and the README. Do not read every source file.
 Then output ONLY the finished file, nothing before it and nothing after it, in English, at most 80 lines, in exactly this shape:
 
 # $repo — the map
@@ -135,7 +135,7 @@ Write-Host "--> Map of $repo, written by $tool$(if ($model) { " ($model)" }) int
 # Each CLI in its non-interactive mode, reading only; the answer alone lands in $raw
 $lastFile = Join-Path $tmp 'last.md'
 switch -CaseSensitive ($tool) {
-  'claude' { $cliArgs = @('-p', $prompt, '--output-format', 'text'); if ($model) { $cliArgs += @('--model', $model) }; $cliArgs += @('--allowedTools', 'Read,Glob,Grep,Bash(graft:*),Bash(npx:*)') }
+  'claude' { $cliArgs = @('-p', $prompt, '--output-format', 'text'); if ($model) { $cliArgs += @('--model', $model) }; $cliArgs += @('--allowedTools', 'Read,Glob,Grep') }
   'codex'  { $cliArgs = @('exec', '--skip-git-repo-check', '-s', 'read-only'); if ($model) { $cliArgs += @('-m', $model) }; $cliArgs += @('--output-last-message', $lastFile, $prompt) }
   'agy'    { $cliArgs = @('--print', $prompt, '--output-format', 'text'); if ($model) { $cliArgs += @('--model', $model) } }
 }

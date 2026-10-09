@@ -110,8 +110,7 @@ function Move-Layer {
 function Add-LayerSkeletonFile {
   # A clone made before the skeleton carried the file gets the lines of the skeleton's it lacks;
   # the next ai-core push commits them. The skeleton's .gitattributes makes every checkout of the
-  # harness LF (the .githooks shims run through bash, a .tsv keeps its last field); its .gitignore
-  # keeps what Graft builds in the clone out of git
+  # harness LF (the .githooks shims run through bash, a .tsv keeps its last field)
   [CmdletBinding()] param([Parameter(Mandatory)][string]$Dir, [Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Full, [Parameter(Mandatory)][string]$File, [Parameter(Mandatory)][string]$Why, [switch]$Dry)
   $path = Join-Path $Dir $File
   $skeleton = Join-Path (Join-Path $Root 'skeleton') $File
@@ -180,7 +179,6 @@ function Resolve-Layer {
     & git -C $dir pull --ff-only --quiet 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Host "note: could not pull $Full into $dir (offline, or the clone has local changes); using it as it is" }
     Add-LayerSkeletonFile -Dir $dir -Root $Root -Full $Full -File '.gitattributes' -Why 'every file LF' -Dry:$Dry
-    Add-LayerSkeletonFile -Dir $dir -Root $Root -Full $Full -File '.gitignore' -Why "Graft's graph and .ignore stay out of git" -Dry:$Dry
     return $dir
   }
   & gh repo view $Full --json name 2>$null | Out-Null
@@ -198,7 +196,6 @@ function Resolve-Layer {
       Write-Host "filled: $Full, empty on GitHub, from the skeleton, at $dir"
     }
     Add-LayerSkeletonFile -Dir $dir -Root $Root -Full $Full -File '.gitattributes' -Why 'every file LF'
-    Add-LayerSkeletonFile -Dir $dir -Root $Root -Full $Full -File '.gitignore' -Why "Graft's graph and .ignore stay out of git"
     return $dir
   }
   if (-not $Create) { throw "$Full does not exist on GitHub" }

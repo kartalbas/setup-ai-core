@@ -13,7 +13,7 @@ the scripts and the templates; this repository carries what is the project's own
 | documents for agents | `docs/` | copied to `.ai-core/docs/<this harness>/` |
 | the map and other files of one repository | `repos/<repo>/`, in the layout of the checkout | copied over the checkout: `repos/<repo>/AGENTS.md` becomes its `AGENTS.md` |
 | agent definitions for Claude Code | `agents/<name>.md` | copied to `.claude/agents/<name>.md` |
-| the agents served, Graft, the organisation | `config.env` | `.ai-core/config.env` |
+| the agents served, the organisation | `config.env` | `.ai-core/config.env` |
 | the label taxonomy, who owns which repository's issues, the team modes | `labels.tsv`, `assignees.tsv`, `team-modes.tsv` | `.ai-core/` |
 | the harness this one extends, the setup-ai-core version it needs | `ai-core.json` | resolved before assembly, base first |
 

@@ -9,7 +9,7 @@ for twin in sh ps1; do
   git -C "$WORK/repo-$twin" worktree add -q "$WORK/wt-$twin" > /dev/null 2>&1 || fail "git worktree add"
   for t in "repo-$twin" "wt-$twin"; do
     mkdir -p "$WORK/$t/.ai-core" "$WORK/$t/.claude"
-    printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$WORK/$t/.ai-core/config.env"
+    printf 'UPDATE_CHECK="never"\n' > "$WORK/$t/.ai-core/config.env"
     printf '{"permissions":{"allow":["Bash(x)"]},"autoCompactWindow":500000}\n' > "$WORK/$t/.claude/settings.json"   # a settings.json from before the hook, with a compact window init takes out
     [ "$t" = "repo-$twin" ] && printf '{"permissions":{"allow":["Bash(x)"],"deny":["Bash(rm -rf:*)"]},"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"ai-core session-start --tool claude","timeout":60},{"type":"command","command":"echo other"}]}]}}\n' > "$WORK/$t/.claude/settings.json"   # one with the hook of before 1.3.21 and a hook of somebody else's
     for run in 1 2; do
@@ -37,7 +37,7 @@ for twin in sh ps1; do
     dirty="$(git -C "$WORK/$t" status --porcelain)"
     [ -z "$dirty" ] || fail "init.$twin left untracked files in $t: $(echo "$dirty" | tr '\n' ' ')"
     AI_CORE_CMD="$ROOT/bin/ai-core"; if command -v cygpath >/dev/null 2>&1; then AI_CORE_CMD="$(cygpath -m "$AI_CORE_CMD")"; fi
-    jq -e --arg c "\"$AI_CORE_CMD\" session-start --tool claude" '([.hooks.SessionStart[].hooks[].command] - ["echo other"] == [$c]) and ((.permissions.allow | index("Bash(x)")) != null) and ((.permissions.allow | index("Bash(ai-core:*)")) != null) and ((.permissions.allow | index("mcp__graft")) != null) and ([.permissions.allow[] | select(. == "mcp__graft")] | length == 1)' "$WORK/$t/.claude/settings.json" > /dev/null || fail "init.$twin did not merge the session-start hook, by the full path of ai-core and once, and the two permissions into the settings.json $t had: $(tr -d '\n' < "$WORK/$t/.claude/settings.json")"
+    jq -e --arg c "\"$AI_CORE_CMD\" session-start --tool claude" '([.hooks.SessionStart[].hooks[].command] - ["echo other"] == [$c]) and ((.permissions.allow | index("Bash(x)")) != null) and ((.permissions.allow | index("Bash(ai-core:*)")) != null) and ([.permissions.allow[] | select(. == "Bash(ai-core:*)")] | length == 1)' "$WORK/$t/.claude/settings.json" > /dev/null || fail "init.$twin did not merge the session-start hook, by the full path of ai-core and once, and Bash(ai-core:*), once, into the settings.json $t had: $(tr -d '\n' < "$WORK/$t/.claude/settings.json")"
     [ "$t" = "repo-$twin" ] && { [ "$(jq '[.hooks.SessionStart[].hooks[].command] | index("echo other") != null' "$WORK/$t/.claude/settings.json")" = true ] || fail "init.$twin took somebody else's hook out of the settings.json $t had"; }
     jq -e --slurpfile t "$ROOT/templates/.claude/settings.json" '(($t[0].permissions.deny - .permissions.deny) | length == 0) and ([.permissions.deny[] | select(. == "Read(**/.env)")] | length == 1)' "$WORK/$t/.claude/settings.json" > /dev/null || fail "init.$twin did not merge the denials of the template, once, into the settings.json $t had: $(jq -c '.permissions.deny' "$WORK/$t/.claude/settings.json")"
     [ "$t" = "repo-$twin" ] && { [ "$(jq '.permissions.deny | index("Bash(rm -rf:*)") != null' "$WORK/$t/.claude/settings.json")" = true ] || fail "init.$twin took the denial the settings.json of $t had out"; }

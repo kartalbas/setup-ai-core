@@ -14,15 +14,15 @@ for arg in "$@"; do
     echo ""
     echo "Installs or refreshes the harness in TARGET_DIR (default: the current directory):"
     echo "the assembled rules and the configuration in .ai-core/, the agent files (AGENTS.md,"
-    echo ".claude/settings.json, ...) created once, everything registered in .git/info/exclude and"
-    echo "in a block of .gitignore, and the Graft code graph. A folder that is no repository but"
-    echo "holds repositories is a project folder: it gets an AGENTS.md that lists them. The run ends"
-    echo "with what it created, refreshed, kept and removed, and what Graft wrote on the machine."
+    echo ".claude/settings.json, ...) created once, and everything registered in .git/info/exclude"
+    echo "and in a block of .gitignore. A folder that is no repository but holds repositories is a"
+    echo "project folder: it gets an AGENTS.md that lists them. The run ends with what it created,"
+    echo "refreshed, kept and removed."
     echo ""
     echo "Options:"
     echo "  -h, --help       Show this help message"
     echo "  --all <folder>   Init the folder itself, then every git repository directly under it and every"
-    echo "                   worktree under its .worktrees/, then the folder's Graft workspace over them"
+    echo "                   worktree under its .worktrees/"
     echo "  --no-doctor      Do not run doctor first"
     echo "  --dry-run        Report what the run would create, refresh, keep and remove; write nothing"
     echo ""
@@ -63,15 +63,14 @@ if [ "$RUN_DOCTOR" -eq 1 ]; then
 fi
 
 # --all: the folder itself first, as a repository compares its rules with the folder's (1a), then
-# every git repository directly under it, every worktree `ai-core start-issue` put under its
-# .worktrees/<repository>/, then the folder's Graft workspace: Graft wires every repository below
-# the folder, and an AGENTS.md it wrote before init would be kept as the repository's own
+# every git repository directly under it and every worktree `ai-core start-issue` put under its
+# .worktrees/<repository>/
 if [ -n "$ALL_DIR" ]; then
   ALL_DIR="$(cd "$ALL_DIR" && pwd)"
   OK=0; FAILED=""; FOLDER_OK=1
   PASS=(--no-doctor); [ "$DRY" -eq 1 ] && PASS+=(--dry-run)
   echo ""; echo "### $(basename "$ALL_DIR") (the folder itself)"
-  AI_CORE_GRAFT_LATER=1 bash "${BASH_SOURCE[0]}" "$ALL_DIR" "${PASS[@]}" || FOLDER_OK=0
+  bash "${BASH_SOURCE[0]}" "$ALL_DIR" "${PASS[@]}" || FOLDER_OK=0
   # Worktrees whose work landed a day ago or more go first (finish-issue --sweep): a rollout frees
   # what nobody finished, and does not init a worktree that is about to go
   for repo in "$ALL_DIR"/*/; do
@@ -91,8 +90,6 @@ if [ -n "$ALL_DIR" ]; then
     echo ""; echo "### $name"
     if bash "${BASH_SOURCE[0]}" "$repo" "${PASS[@]}"; then OK=$((OK + 1)); else FAILED="$FAILED $name"; fi
   done
-  echo ""; echo "### $(basename "$ALL_DIR") (the folder itself): the Graft workspace over its repositories"
-  bash "$CORE_ROOT/bin/graft-setup.sh" "$ALL_DIR" $([ "$DRY" -eq 1 ] && echo --dry-run) || FOLDER_OK=0
   [ "$FOLDER_OK" -eq 1 ] || FAILED="$FAILED $(basename "$ALL_DIR")/"
   echo ""; echo "==> init --all: $OK repositories $([ "$DRY" -eq 1 ] && echo "would be" || echo "were") initialized${FAILED:+; failed:$FAILED}"
   [ -z "$FAILED" ]
@@ -165,17 +162,10 @@ note() {
     removed) REMOVED="$REMOVED $2" ;; tracked) TRACKED="$TRACKED $2" ;; unchanged) UNCHANGED=$((UNCHANGED + 1)) ;;
   esac
 }
-# put_file <source> <destination> <label> managed|once: one file, written only when it differs.
-# A managed file keeps the block Graft appended to the checkout's copy, between its markers.
+# put_file <source> <destination> <label> managed|once: one file, written only when it differs
 put_file() {
-  local src="$1" dst="$2" label="$3" mode="$4" body
+  local src="$1" dst="$2" label="$3" mode="$4"
   if [ -e "$dst" ]; then
-    if [ "$mode" = managed ] && grep -q '^<!-- graft:start -->' "$dst" && ! grep -q '^<!-- graft:start -->' "$src"; then
-      body="$(cat "$src")"
-      while [ -n "$body" ] && { [ "${body: -1}" = $'\n' ] || [ "${body: -1}" = $'\r' ]; }; do body="${body%?}"; done
-      { printf '%s\n\n' "$body"; sed -n '/^<!-- graft:start -->/,/^<!-- graft:end -->/p' "$dst"; } > "$TMP/graft-kept"
-      src="$TMP/graft-kept"
-    fi
     if cmp -s "$src" "$dst"; then note unchanged "$label"; return 0; fi
     if [ "$mode" = once ]; then note kept "$label"; return 0; fi
     note refreshed "$label"
@@ -396,14 +386,10 @@ binding_block() {  # binding_block: lib/binding-rules.md, each file named after 
   tr -d '\r' < "$CORE_ROOT/lib/binding-rules.md" | sed -e "s#{RULES}#$r#" -e "s#{SKILLS}#$s#" -e "s#{LOCAL}#$l#"
 }
 # A repository the harness has no map for gets the generic one the same way, where its AGENTS.md
-# is none yet, one init wrote (a map, or the generic file of before 1.3.20), or one that holds
-# nothing but Graft's block (Graft wires every repository of a project folder, one init has not
-# reached yet among them); one the repository tracks, or somebody's own, is kept
-graft_only() {  # graft_only <file>: nothing in it outside Graft's block
-  [ -z "$(awk '/^<!-- graft:start -->/{g=1} !g && NF; /^<!-- graft:end -->/{g=0}' "$1")" ]
-}
+# is none yet or one init wrote (a map, or the generic file of before 1.3.20); one the repository
+# tracks, or somebody's own, is kept
 if [ -z "$MAP_SRC" ] && [ "$PROJECT_FOLDER" -eq 0 ] && [[ " $LAYER_FILES " != *" AGENTS.md "* ]]; then
-  if ! git -C "$TARGET" ls-files --error-unmatch AGENTS.md >/dev/null 2>&1 && { [ ! -f "$TARGET/AGENTS.md" ] || grep -qE '^(<!-- ai-core map:|# AGENTS\.md .* Repository Navigation & Operations)' <<< "$(head -n1 "$TARGET/AGENTS.md")" || graft_only "$TARGET/AGENTS.md"; }; then
+  if ! git -C "$TARGET" ls-files --error-unmatch AGENTS.md >/dev/null 2>&1 && { [ ! -f "$TARGET/AGENTS.md" ] || grep -qE '^(<!-- ai-core map:|# AGENTS\.md .* Repository Navigation & Operations)' <<< "$(head -n1 "$TARGET/AGENTS.md")"; }; then
     MAP_SRC="$CORE_ROOT/templates/AGENTS.md"
   else
     note kept AGENTS.md
@@ -433,9 +419,8 @@ while IFS= read -r rel; do
     .windsurfrules) serves windsurf || continue ;;
     .github/copilot-instructions.md) serves copilot || continue ;;
     .openhands/microagents/repo-rules.md) serves openhands || continue ;;
-    .codex/config.toml) serves codex || continue ;;
     .claude/settings.json) if command -v jq >/dev/null 2>&1; then continue; fi ;;   # written below, the hook with the full path
-    opencode.json)   # one without the template's instructions (Graft writes one with its MCP server only) gets them added
+    opencode.json)   # one without the template's instructions gets them added
       if command -v jq >/dev/null 2>&1 && [ -f "$TARGET/$rel" ] && ! jq -e --slurpfile t "$CORE_ROOT/templates/$rel" '($t[0].instructions - (.instructions // [])) | length == 0' "$TARGET/$rel" >/dev/null 2>&1; then
         jq --slurpfile t "$CORE_ROOT/templates/$rel" '.instructions = ((.instructions // []) + ($t[0].instructions - (.instructions // [])))' "$TARGET/$rel" 2>/dev/null | tr -d '\r' > "$TMP/opencode.json" \
           && [ -s "$TMP/opencode.json" ] && put_file "$TMP/opencode.json" "$TARGET/$rel" "$rel" managed
@@ -444,25 +429,25 @@ while IFS= read -r rel; do
   esac
   put "$CORE_ROOT/templates/$rel" "$rel" once
 done <<< "$( (cd "$CORE_ROOT/templates" && find . -type f | LC_ALL=C sort) | sed 's|^\./||')"
-# The Claude Code hook that starts the session, the permissions of the template (the ai-core
-# commands, and every tool of the Graft MCP server, which only reads the code graph) and its denials
-# (the secrets of a checkout and the credentials of the machine are not read, a push is not forced),
-# each list read from the template. The hook
-# names ai-core by its full path on this machine, so a Claude Code started from a terminal opened
-# before the install still runs it; the file is the machine's, never committed. A settings.json the
-# checkout had before (created once, never overwritten) gets what it lacks merged in, the way Graft
-# merges its hooks, and an ai-core hook of an older form gives way to this one. Without jq the
-# template stays as it is.
+# The Claude Code hook that starts the session, the status line that records the account's usage
+# windows for `ai-core usage` (bin/statusline.sh), the permissions of the template (the ai-core
+# commands) and its denials (the secrets of a checkout and the credentials of the machine are not
+# read, a push is not forced), each list read from the template. The hook and the status line name
+# ai-core by its full path on this machine, so a Claude Code started from a terminal opened before
+# the install still runs them; the file is the machine's, never committed. A settings.json the
+# checkout had before (created once, never overwritten) gets what it lacks merged in, and an
+# ai-core hook of an older form gives way to this one. Without jq the template stays as it is.
 AI_CORE_CMD="$CORE_ROOT/bin/ai-core"; if command -v cygpath >/dev/null 2>&1; then AI_CORE_CMD="$(cygpath -m "$AI_CORE_CMD")"; fi
 HOOK="\"$AI_CORE_CMD\" session-start --tool claude"
+STATUS_LINE="\"$AI_CORE_CMD\" statusline"
 SETTINGS="$TARGET/.claude/settings.json"
 SETTINGS_TEMPLATE="$CORE_ROOT/templates/.claude/settings.json"
-SETTINGS_HAS='def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | ([.hooks.SessionStart[]?.hooks[]? | select(ours) | .command] == [$c]) and (($allow - (.permissions.allow // [])) | length == 0) and (($deny - (.permissions.deny // [])) | length == 0) and (has("autoCompactWindow") | not)'
-SETTINGS_ADD='def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | .hooks.SessionStart = ([.hooks.SessionStart[]? | .hooks = [.hooks[]? | select(ours | not)] | select(.hooks | length > 0)] + [{hooks: [{type: "command", command: $c, timeout: 60}]}]) | .permissions.allow = ((.permissions.allow // []) + ($allow - (.permissions.allow // []))) | .permissions.deny = ((.permissions.deny // []) + ($deny - (.permissions.deny // []))) | del(.autoCompactWindow)'
+SETTINGS_HAS='def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | ([.hooks.SessionStart[]?.hooks[]? | select(ours) | .command] == [$c]) and (($allow - (.permissions.allow // [])) | length == 0) and (($deny - (.permissions.deny // [])) | length == 0) and (has("autoCompactWindow") | not) and (.statusLine.command == $s)'
+SETTINGS_ADD='def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | .hooks.SessionStart = ([.hooks.SessionStart[]? | .hooks = [.hooks[]? | select(ours | not)] | select(.hooks | length > 0)] + [{hooks: [{type: "command", command: $c, timeout: 60}]}]) | .permissions.allow = ((.permissions.allow // []) + ($allow - (.permissions.allow // []))) | .permissions.deny = ((.permissions.deny // []) + ($deny - (.permissions.deny // []))) | del(.autoCompactWindow) | .statusLine = {type: "command", command: $s}'
 if command -v jq >/dev/null 2>&1; then
   src="$SETTINGS"; [ -f "$src" ] || src="$SETTINGS_TEMPLATE"
-  if [ "$src" != "$SETTINGS" ] || ! jq -e --arg c "$HOOK" --slurpfile t "$SETTINGS_TEMPLATE" "$SETTINGS_HAS" "$SETTINGS" >/dev/null 2>&1; then
-    jq --arg c "$HOOK" --slurpfile t "$SETTINGS_TEMPLATE" "$SETTINGS_ADD" "$src" 2>/dev/null | tr -d '\r' > "$TMP/settings.json" \
+  if [ "$src" != "$SETTINGS" ] || ! jq -e --arg c "$HOOK" --arg s "$STATUS_LINE" --slurpfile t "$SETTINGS_TEMPLATE" "$SETTINGS_HAS" "$SETTINGS" >/dev/null 2>&1; then
+    jq --arg c "$HOOK" --arg s "$STATUS_LINE" --slurpfile t "$SETTINGS_TEMPLATE" "$SETTINGS_ADD" "$src" 2>/dev/null | tr -d '\r' > "$TMP/settings.json" \
       && [ -s "$TMP/settings.json" ] && put_file "$TMP/settings.json" "$SETTINGS" ".claude/settings.json" managed
   fi
 fi
@@ -601,15 +586,7 @@ if [ -d "$TARGET/.git" ] && [ -f "$TARGET/.githooks/pre-push" ] \
 fi
 SKIPPED_HOOKS="$(git -C "$TARGET" ls-files -s -- .githooks 2>/dev/null | awk '$1 == "100644" && $4 != ".githooks/pre-push" && $4 != ".githooks/post-checkout" { print $4 }' || true)"
 
-# 4. The Graft code graph, built with the local Node.js or the whole init fails; no fallback. For a
-#    project folder, init --all builds it after the repositories (AI_CORE_GRAFT_LATER).
-GRAFT_ARGS=(); [ "$DRY" -eq 1 ] && GRAFT_ARGS+=(--dry-run)
-if [ -z "${AI_CORE_GRAFT_LATER:-}" ] && ! bash "$CORE_ROOT/bin/graft-setup.sh" "$TARGET" ${GRAFT_ARGS[@]+"${GRAFT_ARGS[@]}"}; then
-  echo "error: the harness files are in place but the Graft code graph is not (see above). Fix the cause and run 'ai-core graft', or set GRAFT_EXECUTION_MODE=\"skip\" in .ai-core/config.env." >&2
-  exit 1
-fi
-
-# 5. The report: what this run did to the checkout, or would do
+# 4. The report: what this run did to the checkout, or would do
 list() { printf '%s' "$1" | sed 's/^ //; s/ /, /g'; }
 echo "=================================================="
 if [ "$DRY" -eq 1 ]; then echo "init would change in $(basename "$TARGET"):"; else echo "init changed in $(basename "$TARGET"):"; fi

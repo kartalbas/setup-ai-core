@@ -5,9 +5,9 @@
 section "init --all: every git repository and start-issue worktree under a folder, a failing one reported, both twins"
 for twin in sh ps; do
   mkdir -p "$WORK/all-$twin"
-  for r in one two; do git init -q "$WORK/all-$twin/$r"; mkdir -p "$WORK/all-$twin/$r/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$WORK/all-$twin/$r/.ai-core/config.env"; done
-  git init -q "$WORK/all-$twin/broken"; mkdir -p "$WORK/all-$twin/broken/.ai-core"; printf 'GRAFT_EXECUTION_MODE="bogus"\n' > "$WORK/all-$twin/broken/.ai-core/config.env"
-  mkdir -p "$WORK/all-$twin/not-a-repo" "$WORK/all-$twin/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$WORK/all-$twin/.ai-core/config.env"
+  for r in one two; do git init -q "$WORK/all-$twin/$r"; mkdir -p "$WORK/all-$twin/$r/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$WORK/all-$twin/$r/.ai-core/config.env"; done
+  git init -q "$WORK/all-$twin/broken"; git -C "$WORK/all-$twin/broken" remote add origin https://github.com/example-org/broken-ai-core.git   # its origin is a harness repository: init refuses it
+  mkdir -p "$WORK/all-$twin/not-a-repo" "$WORK/all-$twin/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$WORK/all-$twin/.ai-core/config.env"
   git init -q "$WORK/all-$twin/x-ai-core"   # a harness clone beside the repositories is none of them
   # the worktrees ai-core start-issue puts under .worktrees/<repository>/: one of a repository, whose
   # own name ends like a harness clone's, and one of the harness clone
@@ -41,8 +41,8 @@ echo "  2 repositories and a worktree under .worktrees/ initialized, 1 failed an
 
 section "init --all gives the folder its rules before its repositories: a repository with the folder's rules names them without the @ in one run, the folder's rules older or missing; both twins"
 for twin in sh ps; do
-  F="$WORK/order-$twin"; mkdir -p "$F/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$F/.ai-core/config.env"
-  git init -q "$F/app"; mkdir -p "$F/app/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$F/app/.ai-core/config.env"
+  F="$WORK/order-$twin"; mkdir -p "$F/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$F/.ai-core/config.env"
+  git init -q "$F/app"; mkdir -p "$F/app/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$F/app/.ai-core/config.env"
   for run in 1 2 3; do
     [ "$run" = 2 ] && printf 'a rule of an older version\n' >> "$F/.ai-core/rules/rules.md"
     if [ "$twin" = sh ]; then bash "$ROOT/bin/init.sh" --all "$F" --no-doctor $([ "$run" = 3 ] && echo --dry-run) > "$F-$run.log" 2>&1
@@ -57,9 +57,9 @@ echo "  the repository names the folder's rules without the @ after the first ru
 section "init --all removes a worktree whose work landed a day ago or more before it inits the rest, and leaves a fresh one; both twins"
 for twin in sh ps; do
   F="$WORK/sweep-$twin"; O="$WORK/sweep-$twin-origin.git"; A="$F/app"
-  mkdir -p "$F/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$F/.ai-core/config.env"
+  mkdir -p "$F/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$F/.ai-core/config.env"
   git init -q --bare -b master "$O"; git init -q -b master "$A"
-  mkdir -p "$A/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$A/.ai-core/config.env"; printf '/.ai-core/\n' >> "$A/.git/info/exclude"
+  mkdir -p "$A/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$A/.ai-core/config.env"; printf '/.ai-core/\n' >> "$A/.git/info/exclude"
   echo one > "$A/README.md"; git -C "$A" add README.md; git -C "$A" commit -q -m 'Start #1'
   git -C "$A" remote add origin "$O"; git -C "$A" push -q -u origin master 2>/dev/null; git -C "$A" remote set-head origin -a >/dev/null
   long_ago="$(date -d '3 days ago' '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || date -v-3d '+%Y-%m-%dT%H:%M:%S')"
@@ -82,9 +82,9 @@ echo "  the worktree that landed three days ago is gone with its branch and name
 section "init links the other checkouts of the folder beside a worktree, so .. finds them from it; both twins"
 for twin in sh ps; do
   F="$WORK/near-$twin"; T="$F/.worktrees/app/issue-1-x"
-  mkdir -p "$F/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$F/.ai-core/config.env"
+  mkdir -p "$F/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$F/.ai-core/config.env"
   for r in app lib docs; do
-    git init -q "$F/$r"; mkdir -p "$F/$r/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$F/$r/.ai-core/config.env"
+    git init -q "$F/$r"; mkdir -p "$F/$r/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$F/$r/.ai-core/config.env"
     git -C "$F/$r" commit -q --allow-empty -m start; echo "$r" > "$F/$r/marker"
   done
   mkdir -p "$F/notes"                                  # a folder that is no checkout gets no link

@@ -17,7 +17,7 @@
   be released, `release` names nothing. [review]
 - **One concept, one word, everywhere: the project's ubiquitous language**, the shared language of
   domain-driven design, in code, configuration, paths, documents and messages to a person. The code
-  is the glossary: a word is found where it lives, with `graft grep`, and there is no second list of
+  is the glossary: a word is found where it lives, with `git grep`, and there is no second list of
   it to drift. A word with two spellings is decided by a rule of the project harness that names the
   spelling which stays, written in the change that meets the second spelling. [review]
 - **A name is judged in the reader's context and re-judged wherever the thing moves.** A word that is

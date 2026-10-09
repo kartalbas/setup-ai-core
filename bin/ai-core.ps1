@@ -19,23 +19,19 @@ function Show-Usage {
   Write-Host "Every command takes -Help. The machine and the checkouts:"
   Write-Host "  install, doctor, init, push, update, version"
   Write-Host "Inside a repository:"
-  Write-Host "  session-start, graft, rules-check, solution-path"
+  Write-Host "  session-start, rules-check, solution-path"
   Write-Host ""
   Write-Host "Commands, from $core\bin:"
   Get-ChildItem -Path (Join-Path $core "bin") -Filter "*.ps1" | Sort-Object Name | ForEach-Object {
     $name = $_.BaseName
     if ($name -ceq "ai-core") { return }
-    if ($name -ceq "graft-setup") { Write-Host "  graft (graft-setup)" } else { Write-Host "  $name" }
+    Write-Host "  $name"
   }
   Write-Host "  version                    Print the setup-ai-core version"
   Write-Host "  help                       Show this help message"
 }
 
 switch -CaseSensitive ($Command) {
-  'graft' {
-    & pwsh -NoProfile -File (Join-Path $core "bin\graft-setup.ps1") @Arguments
-    exit $LASTEXITCODE
-  }
   'version' { (Get-Content (Join-Path $core "VERSION") -Raw).Trim() }
   { $_ -in @('help', '-h', '--help') } { Show-Usage }
   default {

@@ -3,7 +3,7 @@
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 
 section "releases: release commits VERSION, pushes, waits for the green run and tags; install checks the newest release out; update moves to it and --check reports; on both twins"
-make_graft_fake; make_gh_fake
+make_gh_fake
 for twin in sh ps1; do
   RO="$WORK/rel-$twin-origin.git"; git init -q --bare -b main "$RO"
   RD="$WORK/rel-$twin-dev"; mkdir -p "$RD"

@@ -6,7 +6,7 @@ section "init arms a clone that carries .githooks/pre-push: core.hooksPath set, 
 for twin in sh ps1; do
   H="$WORK/hooks-$twin"; git init -q "$H"; mkdir -p "$H/.githooks" "$H/.ai-core"
   printf '#!/usr/bin/env bash\nexec ai-core pre-push "$@"\n' > "$H/.githooks/pre-push"; chmod +x "$H/.githooks/pre-push"
-  printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$H/.ai-core/config.env"
+  printf 'UPDATE_CHECK="never"\n' > "$H/.ai-core/config.env"
   if [ "$twin" = sh ]; then
     bash "$ROOT/bin/init.sh" "$H" --no-doctor --dry-run > "$WORK/hooks-$twin-dry.log" 2>&1 || fail "init.sh --dry-run on a repository with the shim (see $WORK/hooks-$twin-dry.log)"
     bash "$ROOT/bin/init.sh" "$H" --no-doctor > "$WORK/hooks-$twin-1.log" 2>&1 || fail "init.sh on a repository with the shim (see $WORK/hooks-$twin-1.log)"
@@ -43,7 +43,7 @@ for twin in sh ps1; do
   grep -aq "^  .ai-core would be taken from the checkout .*hooks-$twin: a worktree starts with the checkout's configuration, local rules and documents$" "$WORK/wt-$twin-dry.log" || fail "init.$twin --dry-run does not say the checkout's .ai-core would be taken"
   grep -aq "^  .ai-core taken from the checkout .*hooks-$twin: a worktree starts with the checkout's configuration, local rules and documents$" "$WORK/wt-$twin-1.log" || fail "init.$twin does not report the checkout's .ai-core"
   [ "$(cat "$W/.ai-core/rules/rules.local.md")" = '# mine' ] || fail "init.$twin did not take the checkout's local rules into the worktree"
-  grep -q 'GRAFT_EXECUTION_MODE="skip"' "$W/.ai-core/config.env" || fail "init.$twin did not take the checkout's config.env into the worktree"
+  grep -q 'UPDATE_CHECK="never"' "$W/.ai-core/config.env" || fail "init.$twin did not take the checkout's config.env into the worktree"
   grep -aq 'taken from the checkout' "$WORK/wt-$twin-2.log" && fail "init.$twin reports the checkout's .ai-core again on the second run"
   git -C "$H" worktree remove --force "$W" >/dev/null 2>&1
 done
@@ -51,7 +51,7 @@ echo "  a worktree gets the checkout's config.env and rules.local.md before the 
 
 section "init hands a checkout whose shims git skips for want of the executable bit to pre-push --install, and names a hook of the project's own git skips; a dry run only says so; both twins"
 for twin in sh ps1; do
-  X="$WORK/mode-$twin"; git init -q -b master "$X"; mkdir -p "$X/.ai-core"; printf 'GRAFT_EXECUTION_MODE="skip"\n' > "$X/.ai-core/config.env"
+  X="$WORK/mode-$twin"; git init -q -b master "$X"; mkdir -p "$X/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$X/.ai-core/config.env"
   (cd "$X" && bash "$ROOT/bin/pre-push.sh" --install > "$X-install.log" 2>&1) || fail "pre-push --install for $twin (see $X-install.log)"
   printf '#!/bin/sh\nexit 0\n' > "$X/.githooks/pre-commit"
   git -C "$X" add --chmod=-x .githooks/pre-push .githooks/post-checkout .githooks/pre-commit

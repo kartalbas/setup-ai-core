@@ -148,8 +148,8 @@ catch { Write-Error "the card did NOT move: $($_.Exception.Message) - move it be
 & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'finish-issue.ps1') -Sweep 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -cmatch ': landed, removed$' }
 
 # The harness is not in the repository, so the new worktree gets it here: init takes the main
-# checkout's own .ai-core data (its config, its local rules, its documents) first, assembles the
-# rules and builds the graph. A worktree that starts without them starts without the rules.
+# checkout's own .ai-core data (its config, its local rules, its documents) first and assembles
+# the rules. A worktree that starts without them starts without the rules.
 & pwsh -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'bin\init.ps1') -TargetDir $path -NoDoctor
 if ($LASTEXITCODE -ne 0) { Write-Host "the harness is NOT complete in the worktree: run 'ai-core init' there before you start" }
 

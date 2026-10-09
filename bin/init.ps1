@@ -19,15 +19,15 @@ if ($Help -or $args -ccontains "-h" -or $args -ccontains "--help" -or $TargetDir
   Write-Host ""
   Write-Host "Installs or refreshes the harness in TargetDir (default: the current directory):"
   Write-Host "the assembled rules and the configuration in .ai-core\, the agent files (AGENTS.md,"
-  Write-Host ".claude\settings.json, ...) created once, everything registered in .git\info\exclude and"
-  Write-Host "in a block of .gitignore, and the Graft code graph. A folder that is no repository but"
-  Write-Host "holds repositories is a project folder: it gets an AGENTS.md that lists them. The run ends"
-  Write-Host "with what it created, refreshed, kept and removed, and what Graft wrote on the machine."
+  Write-Host ".claude\settings.json, ...) created once, and everything registered in .git\info\exclude"
+  Write-Host "and in a block of .gitignore. A folder that is no repository but holds repositories is a"
+  Write-Host "project folder: it gets an AGENTS.md that lists them. The run ends with what it created,"
+  Write-Host "refreshed, kept and removed."
   Write-Host ""
   Write-Host "Options:"
   Write-Host "  -TargetDir <path>   Target directory (default: current)"
   Write-Host "  -All <folder>       Init the folder itself, then every git repository directly under it and every"
-  Write-Host "                      worktree under its .worktrees\, then the folder's Graft workspace over them"
+  Write-Host "                      worktree under its .worktrees\"
   Write-Host "  -NoDoctor           Do not run doctor first"
   Write-Host "  -DryRun             Report what the run would create, refresh, keep and remove; write nothing"
   Write-Host "  -Help               Show this help message"
@@ -59,18 +59,15 @@ if (-not $NoDoctor) {
 }
 
 # -All: the folder itself first, as a repository compares its rules with the folder's (1a), then
-# every git repository directly under it, every worktree `ai-core start-issue` put under its
-# .worktrees\<repository>\, then the folder's Graft workspace: Graft wires every repository below
-# the folder, and an AGENTS.md it wrote before init would be kept as the repository's own
+# every git repository directly under it and every worktree `ai-core start-issue` put under its
+# .worktrees\<repository>\
 if ($All) {
   $allDir = (Resolve-Path $All).Path
   $ok = 0; $failed = @(); $folderOk = $true
   $pass = @('-NoDoctor'); if ($DryRun) { $pass += '-DryRun' }
   Write-Host ""; Write-Host "### $(Split-Path -Leaf $allDir) (the folder itself)"
-  $env:AI_CORE_GRAFT_LATER = '1'
   & pwsh -NoProfile -File $MyInvocation.MyCommand.Path -TargetDir $allDir @pass
   if ($LASTEXITCODE -ne 0) { $folderOk = $false }
-  Remove-Item Env:AI_CORE_GRAFT_LATER
   # Worktrees whose work landed a day ago or more go first (finish-issue -Sweep): a rollout frees
   # what nobody finished, and does not init a worktree that is about to go
   foreach ($r in @(Get-ChildItem -LiteralPath $allDir -Directory | Where-Object { $_.Name -cnotlike '*-ai-core' -and (Test-Path (Join-Path $_.FullName '.git')) })) {
@@ -95,10 +92,6 @@ if ($All) {
     & pwsh -NoProfile -File $MyInvocation.MyCommand.Path -TargetDir $repo.Path @pass
     if ($LASTEXITCODE -eq 0) { $ok++ } else { $failed += $repo.Name }
   }
-  Write-Host ""; Write-Host "### $(Split-Path -Leaf $allDir) (the folder itself): the Graft workspace over its repositories"
-  $graftArgs = @(); if ($DryRun) { $graftArgs += '-DryRun' }
-  & pwsh -NoProfile -File (Join-Path $coreRoot "bin\graft-setup.ps1") -TargetDir $allDir @graftArgs
-  if ($LASTEXITCODE -ne 0) { $folderOk = $false }
   if (-not $folderOk) { $failed += "$(Split-Path -Leaf $allDir)/" }
   Write-Host ""; Write-Host "==> init -All: $ok repositories $(if ($DryRun) { 'would be' } else { 'were' }) initialized$(if ($failed) { '; failed: ' + ($failed -join ' ') })"
   if ($failed) { exit 1 } else { exit 0 }
@@ -186,17 +179,9 @@ function Test-SameDir([string]$a, [string]$b) {
   foreach ($f in $fa) { if (-not (Test-SameFile (Join-Path $a $f) (Join-Path $b $f))) { return $false } }
   return $true
 }
-# Put-File <source> <destination> <label> managed|once: one file, written only when it differs.
-# A managed file keeps the block Graft appended to the checkout's copy, between its markers.
+# Put-File <source> <destination> <label> managed|once: one file, written only when it differs
 function Put-File([string]$src, [string]$dst, [string]$label, [string]$mode) {
   if (Test-Path -LiteralPath $dst) {
-    if ($mode -ceq 'managed') {
-      $block = [regex]::Match([System.IO.File]::ReadAllText($dst), '(?s)(?:^|(?<=\n))<!-- graft:start -->.*?(?:^|\n)<!-- graft:end -->[^\n]*\n?')
-      if ($block.Success -and -not [regex]::IsMatch([System.IO.File]::ReadAllText($src), '(?m)^<!-- graft:start -->')) {
-        [System.IO.File]::WriteAllText((Join-Path $tmp 'graft-kept'), [System.IO.File]::ReadAllText($src).TrimEnd("`r", "`n") + "`n`n" + $block.Value, $utf8)
-        $src = Join-Path $tmp 'graft-kept'
-      }
-    }
     if (Test-SameFile $src $dst) { Add-Note unchanged $label; return }
     if ($mode -ceq 'once') { Add-Note kept $label; return }
     Add-Note refreshed $label
@@ -434,15 +419,6 @@ if (-not $mapSrc -and -not $projectFolder -and $layerFiles -cnotcontains 'AGENTS
   & git -C $target ls-files --error-unmatch AGENTS.md 2>$null | Out-Null
   $agentsTracked = ($LASTEXITCODE -eq 0)
   $agentsOurs = -not (Test-Path -LiteralPath $agentsMd -PathType Leaf) -or ("$(@([System.IO.File]::ReadAllLines($agentsMd)) | Select-Object -First 1)" -cmatch '^(<!-- ai-core map:|# AGENTS\.md .* Repository Navigation & Operations)')
-  if (-not $agentsOurs) {   # nothing in it outside Graft's block: Graft wires every repository of a project folder, one init has not reached yet among them
-    $inGraft = $false; $outside = 0
-    foreach ($l in [System.IO.File]::ReadAllLines($agentsMd)) {
-      if ($l -cmatch '^<!-- graft:start -->') { $inGraft = $true }
-      if (-not $inGraft -and $l.Trim()) { $outside++ }
-      if ($l -cmatch '^<!-- graft:end -->') { $inGraft = $false }
-    }
-    $agentsOurs = ($outside -eq 0)
-  }
   if (-not $agentsTracked -and $agentsOurs) { $mapSrc = Join-Path $coreRoot 'templates\AGENTS.md' } else { Add-Note kept 'AGENTS.md' }
 }
 if ($mapSrc) {
@@ -463,8 +439,12 @@ $config = Join-Path $aiCoreDir "config.env"; if (-not (Test-Path $config)) { $co
 $agentsLine = Get-Content $config | Where-Object { $_ -cmatch '^\s*AGENTS\s*=' } | Select-Object -Last 1
 $agents = if ($agentsLine) { ((($agentsLine -split '=', 2)[1] -split '#', 2)[0]).Trim(' ', "`t", "`r", '"', "'").ToLowerInvariant() } else { "" }
 $served = @($agents -split '\s+' | Where-Object { $_ })
+$agentsUnknown = ''   # the first name no agent has; the run still deploys the rest and fails at its end
+foreach ($a in $served) {
+  if (-not $agentsUnknown -and $a -cnotin @('claude', 'codex', 'antigravity', 'openhands', 'gemini', 'cursor', 'windsurf', 'copilot')) { $agentsUnknown = $a }
+}
 function Test-Serves([string]$agent) { return ($served.Count -eq 0 -or ($served -ccontains $agent)) }
-$pointerOf = @{ '.cursorrules' = 'cursor'; '.windsurfrules' = 'windsurf'; '.github/copilot-instructions.md' = 'copilot'; '.openhands/microagents/repo-rules.md' = 'openhands'; '.codex/config.toml' = 'codex' }
+$pointerOf = @{ '.cursorrules' = 'cursor'; '.windsurfrules' = 'windsurf'; '.github/copilot-instructions.md' = 'copilot'; '.openhands/microagents/repo-rules.md' = 'openhands' }
 # the template files in byte order, the order the bash twin lists them in
 $templateFiles = @(Get-ChildItem -Path $templates -Recurse -File -Force | ForEach-Object { $_.FullName.Substring($templates.Length + 1).Replace('\', '/') })
 [Array]::Sort($templateFiles, [StringComparer]::Ordinal)
@@ -473,7 +453,7 @@ foreach ($rel in $templateFiles) {
   if ($layerFiles -ccontains $rel) { continue }
   if ($pointerOf.ContainsKey($rel) -and -not (Test-Serves $pointerOf[$rel])) { continue }
   if ($rel -ceq '.claude/settings.json' -and (Get-Command jq -ErrorAction SilentlyContinue)) { continue }   # written below, the hook with the full path
-  # an opencode.json without the template's instructions (Graft writes one with its MCP server only) gets them added
+  # an opencode.json without the template's instructions gets them added
   $own = Join-Path $target $rel
   if ($rel -ceq 'opencode.json' -and (Get-Command jq -ErrorAction SilentlyContinue) -and (Test-Path -LiteralPath $own -PathType Leaf)) {
     & jq -e --slurpfile t (Join-Path $templates $rel) '($t[0].instructions - (.instructions // [])) | length == 0' $own 2>$null | Out-Null
@@ -488,28 +468,28 @@ foreach ($rel in $templateFiles) {
   }
   Put (Join-Path $templates $rel) $rel once
 }
-# The Claude Code hook that starts the session, the permissions of the template (the ai-core
-# commands, and every tool of the Graft MCP server, which only reads the code graph) and its denials
-# (the secrets of a checkout and the credentials of the machine are not read, a push is not forced),
-# each list read from the template. The hook
-# names ai-core by its full path on this machine, so a Claude Code started from a terminal opened
-# before the install still runs it; the file is the machine's, never committed. A settings.json the
-# checkout had before (created once, never overwritten) gets what it lacks merged in, the way Graft
-# merges its hooks, and an ai-core hook of an older form gives way to this one. Without jq the
-# template stays as it is.
+# The Claude Code hook that starts the session, the status line that records the account's usage
+# windows for `ai-core usage` (bin/statusline.sh), the permissions of the template (the ai-core
+# commands) and its denials (the secrets of a checkout and the credentials of the machine are not
+# read, a push is not forced), each list read from the template. The hook and the status line name
+# ai-core by its full path on this machine, so a Claude Code started from a terminal opened before
+# the install still runs them; the file is the machine's, never committed. A settings.json the
+# checkout had before (created once, never overwritten) gets what it lacks merged in, and an
+# ai-core hook of an older form gives way to this one. Without jq the template stays as it is.
 $aiCoreCmd = (Join-Path $coreRoot 'bin/ai-core').Replace('\', '/')
 if ($aiCoreCmd -cmatch '^[a-z]:') { $aiCoreCmd = $aiCoreCmd.Substring(0, 1).ToUpperInvariant() + $aiCoreCmd.Substring(1) }
 $hook = "`"$aiCoreCmd`" session-start --tool claude"
+$statusLine = "`"$aiCoreCmd`" statusline"
 $settings = Join-Path $target '.claude\settings.json'
 $settingsTemplate = Join-Path $coreRoot 'templates\.claude\settings.json'
-$settingsHas = 'def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | ([.hooks.SessionStart[]?.hooks[]? | select(ours) | .command] == [$c]) and (($allow - (.permissions.allow // [])) | length == 0) and (($deny - (.permissions.deny // [])) | length == 0) and (has("autoCompactWindow") | not)'
-$settingsAdd = 'def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | .hooks.SessionStart = ([.hooks.SessionStart[]? | .hooks = [.hooks[]? | select(ours | not)] | select(.hooks | length > 0)] + [{hooks: [{type: "command", command: $c, timeout: 60}]}]) | .permissions.allow = ((.permissions.allow // []) + ($allow - (.permissions.allow // []))) | .permissions.deny = ((.permissions.deny // []) + ($deny - (.permissions.deny // []))) | del(.autoCompactWindow)'
+$settingsHas = 'def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | ([.hooks.SessionStart[]?.hooks[]? | select(ours) | .command] == [$c]) and (($allow - (.permissions.allow // [])) | length == 0) and (($deny - (.permissions.deny // [])) | length == 0) and (has("autoCompactWindow") | not) and (.statusLine.command == $s)'
+$settingsAdd = 'def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | .hooks.SessionStart = ([.hooks.SessionStart[]? | .hooks = [.hooks[]? | select(ours | not)] | select(.hooks | length > 0)] + [{hooks: [{type: "command", command: $c, timeout: 60}]}]) | .permissions.allow = ((.permissions.allow // []) + ($allow - (.permissions.allow // []))) | .permissions.deny = ((.permissions.deny // []) + ($deny - (.permissions.deny // []))) | del(.autoCompactWindow) | .statusLine = {type: "command", command: $s}'
 if (Get-Command jq -ErrorAction SilentlyContinue) {
   $settingsSrc = if (Test-Path -LiteralPath $settings) { $settings } else { $settingsTemplate }
   $stale = $true
-  if ($settingsSrc -ceq $settings) { & jq -e --arg c $hook --slurpfile t $settingsTemplate $settingsHas $settings 2>$null | Out-Null; $stale = ($LASTEXITCODE -ne 0) }
+  if ($settingsSrc -ceq $settings) { & jq -e --arg c $hook --arg s $statusLine --slurpfile t $settingsTemplate $settingsHas $settings 2>$null | Out-Null; $stale = ($LASTEXITCODE -ne 0) }
   if ($stale) {
-    $merged = (& jq --arg c $hook --slurpfile t $settingsTemplate $settingsAdd $settingsSrc 2>$null | Out-String)
+    $merged = (& jq --arg c $hook --arg s $statusLine --slurpfile t $settingsTemplate $settingsAdd $settingsSrc 2>$null | Out-String)
     if ($LASTEXITCODE -eq 0 -and $merged.Trim()) {
       [System.IO.File]::WriteAllText((Join-Path $tmp 'settings.json'), $merged.Replace("`r`n", "`n"), $utf8)
       Put-File (Join-Path $tmp 'settings.json') $settings '.claude/settings.json' managed
@@ -664,18 +644,9 @@ if ((Test-Path -LiteralPath (Join-Path $target '.git') -PathType Container) -and
 }
 $skippedHooks = @(& git -C $target ls-files -s -- .githooks 2>$null | ForEach-Object { "$_" } | Where-Object { $_.StartsWith('100644 ', [StringComparison]::Ordinal) } | ForEach-Object { ($_ -split "`t", 2)[1] } | Where-Object { $_ -cne '.githooks/pre-push' -and $_ -cne '.githooks/post-checkout' })
 
-# 4. The Graft code graph, built with the local Node.js or the whole init fails; no fallback. For a
-#    project folder, init -All builds it after the repositories (AI_CORE_GRAFT_LATER).
-$graftArgs = @(); if ($DryRun) { $graftArgs += '-DryRun' }
-if (-not $env:AI_CORE_GRAFT_LATER) { & pwsh -NoProfile -File (Join-Path $coreRoot "bin\graft-setup.ps1") -TargetDir $target @graftArgs }
-if (-not $env:AI_CORE_GRAFT_LATER -and $LASTEXITCODE -ne 0) {
-  Write-Host "error: the harness files are in place but the Graft code graph is not (see above). Fix the cause and run 'ai-core graft', or set GRAFT_EXECUTION_MODE=`"skip`" in .ai-core/config.env." -ForegroundColor Red
-  Remove-Item -LiteralPath $tmp -Recurse -Force
-  exit 1
-}
 Remove-Item -LiteralPath $tmp -Recurse -Force
 
-# 5. The report: what this run did to the checkout, or would do
+# 4. The report: what this run did to the checkout, or would do
 Write-Host "==================================================" -ForegroundColor Green
 Write-Host "init $(if ($DryRun) { 'would change' } else { 'changed' }) in $(Split-Path -Leaf $target):"
 if ($report.created.Count -gt 0)   { Write-Host "  created    $($report.created -join ', ')" }
@@ -696,6 +667,7 @@ if ($shimsMode -eq 1 -and $DryRun) { Write-Host "  the shims in .githooks are no
 elseif ($shimsMode -eq 1) { Write-Host "  the shims in .githooks were not executable, so git skipped the push gate: ai-core pre-push --install made them so" }
 elseif ($shimsMode -eq 2) { Write-Host "  the shims in .githooks are not executable, so git skips the push gate, and ai-core pre-push --install failed (see above)" }
 foreach ($hook in $skippedHooks) { Write-Host "  $hook is not executable, so git skips it; it is the project's own and stays as it is" }
-if ($DryRun) { Write-Host "  nothing was written (dry run)" } else { Write-Host "✓ Harness $coreVersion in place. Run 'ai-core session-start' here to verify." -ForegroundColor Green }
+if ($DryRun) { Write-Host "  nothing was written (dry run)" } elseif (-not $agentsUnknown) { Write-Host "✓ Harness $coreVersion in place. Run 'ai-core session-start' here to verify." -ForegroundColor Green }
 Write-Host "==================================================" -ForegroundColor Green
+if ($agentsUnknown) { Write-Host "error: AGENTS in $config names '$agentsUnknown'; known are claude, codex, antigravity, openhands, gemini, cursor, windsurf, copilot" -ForegroundColor Red; exit 1 }
 if ($shimsMode -eq 2) { exit 1 }

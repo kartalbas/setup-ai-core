@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $work = Join-Path ([IO.Path]::GetTempPath()) "usage-$([guid]::NewGuid().ToString('N').Substring(0,8))"
 $project = Join-Path $work 'project'
-New-Item -ItemType Directory -Force -Path (Join-Path $work 'home'), (Join-Path $project '.claude/helpers') | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $work 'home'), $project | Out-Null
 $keptHome = $env:HOME; $keptProfile = $env:USERPROFILE
 $env:HOME = Join-Path $work 'home'; $env:USERPROFILE = $env:HOME; $env:AI_CORE_HOME = $env:HOME
 $record = Join-Path $env:HOME '.ai-core/usage.json'
@@ -21,24 +21,20 @@ function When([long]$t) { [DateTimeOffset]::FromUnixTimeSeconds($t).ToLocalTime(
 function Run([string]$script, [string[]]$arguments, [string]$stdin = '') {
   Push-Location $project
   try {
-    $env:CLAUDE_PROJECT_DIR = $project
     $script:out = (@($stdin | & pwsh -NoProfile -File (Join-Path $root "bin/$script") @arguments 2>&1 | ForEach-Object { "$_" }) -join "`n")
     $script:rc = $LASTEXITCODE
-  } finally { Pop-Location; $env:CLAUDE_PROJECT_DIR = $null }
+  } finally { Pop-Location }
 }
 $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); $soon = $now + 3600; $later = $now + 86400
 $state = "{`"model`":{`"display_name`":`"Opus`"},`"rate_limits`":{`"five_hour`":{`"used_percentage`":42.7,`"resets_at`":$soon},`"seven_day`":{`"used_percentage`":95.1,`"resets_at`":$later}}}"
 
 try {
-  Write-Host 'the status line records the windows, and shows its own short line where Graft has none'
+  Write-Host 'the status line records the windows and shows the model and the windows'
   Run 'statusline.ps1' @() $state
   Check 'the line'               'Opus · 5h 42 % · week 95 %' $out
   $r = Get-Content -Raw -LiteralPath $record | ConvertFrom-Json
   Check 'the windows recorded'   '42.7 95.1' "$($r.rate_limits.five_hour.used_percentage.ToString([Globalization.CultureInfo]::InvariantCulture)) $($r.rate_limits.seven_day.used_percentage.ToString([Globalization.CultureInfo]::InvariantCulture))"
-  Write-Host "and Graft's line where Graft is wired"
-  [System.IO.File]::WriteAllText((Join-Path $project '.claude/helpers/graft-statusline.cjs'), "process.stdout.write('graft line')`n")
-  Run 'statusline.ps1' @() $state
-  Check "Graft's line"           'graft line' $out
+  Run 'statusline.ps1' @() $state   # a second run within the minute adds no line to the history
   $history = @(Get-Content -LiteralPath (Join-Path (Split-Path -Parent $record) 'usage.log'))
   Check 'the history, one line a minute' "1 42.7 $soon 95.1 $later" "$($history.Count) $(($history[0] -split ' ', 2)[1])"
 

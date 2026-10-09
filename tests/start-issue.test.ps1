@@ -84,9 +84,9 @@ Dress $work
 & git -C $work remote add origin $origin
 & git -C $work push -q -u origin master
 & git -C $work remote set-head origin -a | Out-Null
-# The main checkout carries the harness data a worktree inherits; Graft stays off, nothing reaches the network
+# The main checkout carries the harness data a worktree inherits; nothing reaches the network
 New-Item -ItemType Directory -Force -Path (Join-Path $work '.ai-core') | Out-Null
-[IO.File]::WriteAllText((Join-Path $work '.ai-core/config.env'), ('GRAFT_EXECUTION_MODE="skip"' + "`n"))
+[IO.File]::WriteAllText((Join-Path $work '.ai-core/config.env'), ('UPDATE_CHECK="never"' + "`n"))
 Add-Content -Path (Join-Path $work '.git/info/exclude') -Value '/.ai-core/'
 
 $start = Join-Path $root 'bin/start-issue.ps1'

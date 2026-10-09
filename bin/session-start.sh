@@ -12,9 +12,9 @@ for arg in "$@"; do
   echo "Usage: session-start.sh [--json] [--tool NAME ...]"
   echo ""
   echo "The first step of every session. It runs team-modes-check and refuses when a mode is"
-  echo "missing; it prints the branch, the uncommitted files, the harness version, the rules, the"
-  echo "Graft graph and the gh login; in a worktree named issue-N-... it prints the thread of issue N"
-  echo "and whether it is assigned to you."
+  echo "missing; it prints the branch, the uncommitted files, the harness version, the rules and"
+  echo "the gh login; in a worktree named issue-N-... it prints the thread of issue N and whether it"
+  echo "is assigned to you."
   echo ""
   echo "Options:"
   echo "  -h, --help    Show this help message"
@@ -71,8 +71,6 @@ LOCAL_RULES_OK=0
 [ -f ".ai-core/rules/rules.local.md" ] && LOCAL_RULES_OK=1
 HARNESS_VERSION=""
 [ -f ".ai-core/VERSION" ] && HARNESS_VERSION="$(tr -d '\r\n' < .ai-core/VERSION)"
-GRAFT_OK=0
-{ [ -f "graft/index.md" ] || [ -f "graft/INDEX.md" ] || [ -f "graft/workspace.json" ]; } && GRAFT_OK=1
 # The map: an AGENTS.md written by ai-core map names in its first line the commit it came
 # from; the distance to HEAD says whether it is current
 MAP_COMMIT=""; MAP_BEHIND=""
@@ -188,7 +186,7 @@ if [ "$as_json" -eq 1 ]; then
     --arg repository "$REPO_NAME" --arg root "$ROOT" --arg branch "$BRANCH" \
     --argjson uncommitted_files "$DIRTY_COUNT" --arg harness_version "$HARNESS_VERSION" \
     --argjson rules_present "$(bool $RULES_OK)" --arg rules_path "$RULES_PATH" \
-    --argjson local_rules_present "$(bool $LOCAL_RULES_OK)" --argjson graft_indexed "$(bool $GRAFT_OK)" \
+    --argjson local_rules_present "$(bool $LOCAL_RULES_OK)" \
     --argjson gh_authenticated "$(bool $GH_LOGGED_IN)" --arg gh_user "$GH_USER" \
     --arg map_commit "$MAP_COMMIT" --arg map_behind "$MAP_BEHIND" \
     --argjson harness_current "$HARNESS_CURRENT" --arg harness_stamp "$HARNESS_STAMP" \
@@ -198,7 +196,7 @@ if [ "$as_json" -eq 1 ]; then
        harness_version: $harness_version, harness_current: $harness_current, harness_stamp: $harness_stamp,
        release_state: $release_state, release_lines: $release_lines,
        rules_present: $rules_present, rules_path: $rules_path,
-       local_rules_present: $local_rules_present, graft_indexed: $graft_indexed,
+       local_rules_present: $local_rules_present,
        gh_authenticated: $gh_authenticated, gh_user: $gh_user,
        map_commit: $map_commit, map_behind: (if $map_behind == "" then null else ($map_behind | tonumber) end),
        issue: (if $issue == "" then null else ($issue | tonumber) end),
@@ -228,7 +226,6 @@ case "$RELEASE_STATE" in
 esac
 echo "Rules file       : $([ $RULES_OK -eq 1 ] && echo "✓ Present ($RULES_PATH)" || echo "✗ Missing")"
 echo "Local rules      : $([ $LOCAL_RULES_OK -eq 1 ] && echo "✓ Present (.ai-core/rules/rules.local.md)" || echo "– None")"
-echo "Graft code graph : $([ $GRAFT_OK -eq 1 ] && { [ -f graft/workspace.json ] && echo "✓ Workspace (graft/workspace.json)" || echo "✓ Indexed (graft/index.md)"; } || echo "✗ Not indexed (run ai-core graft)")"
 if [ "$BRANCH" = not-a-git-repo ]; then echo "Map              : – A project folder: AGENTS.md lists its repositories"
 elif [ -z "$MAP_COMMIT" ]; then echo "Map              : – Generic (run ai-core map)"
 elif [ -z "$MAP_BEHIND" ]; then echo "Map              : ? Generated from $MAP_COMMIT, a commit this clone does not have"

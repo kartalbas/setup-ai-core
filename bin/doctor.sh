@@ -148,33 +148,6 @@ else
   report jq MISSING "install jq from https://jqlang.github.io/jq"; problem
 fi
 
-# Graft in the version setup-ai-core pins (lib/graft-version), installed globally: Graft's hooks and
-# the graft command an agent runs take the global one, while init and the MCP servers name the pin.
-# Another version, or none, is replaced; with --no-install it is reported.
-GRAFT_PIN="$(tr -d '\r\n' < "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/graft-version")"
-if command -v npm >/dev/null 2>&1; then
-  GRAFT_HAVE="$(npm ls -g @nanonets/graft --depth=0 2>/dev/null | tr -d '\r' | sed -n 's/.*@nanonets\/graft@\([0-9][^ ]*\).*/\1/p' | head -n1 || true)"
-  if [ "$GRAFT_HAVE" = "$GRAFT_PIN" ]; then report graft present "Graft $GRAFT_PIN, global"
-  elif [ "$NO_INSTALL" -eq 1 ]; then report graft "${GRAFT_HAVE:-absent}" "setup-ai-core pins Graft $GRAFT_PIN; run doctor without --no-install, or npm i -g @nanonets/graft@$GRAFT_PIN"
-  elif NPM_OUT="$(npm i -g "@nanonets/graft@$GRAFT_PIN" 2>&1)"; then report graft installed "Graft $GRAFT_PIN, global${GRAFT_HAVE:+, was $GRAFT_HAVE}"
-  else
-    report graft FAILED "npm i -g @nanonets/graft@$GRAFT_PIN failed; npm said:"; problem
-    # A parser of Graft that has no prebuilt binary here is compiled by node-gyp, which needs a C/C++ toolchain
-    if grep -aq 'gyp ERR!' <<< "$NPM_OUT"; then
-      grep -a -m 3 'gyp ERR!' <<< "$NPM_OUT" | sed 's/^/    /'
-      case "$OS" in
-        linux) if [ "$PM" = apt-get ]; then hint="sudo apt-get install -y build-essential"; else hint="install make, gcc and g++"; fi ;;
-        macos) hint="xcode-select --install" ;;
-        windows) hint='winget install Microsoft.VisualStudio.2022.BuildTools --override "--passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"' ;;
-        *) hint="install make, gcc and g++" ;;
-      esac
-      echo "    npm had to compile a native module with node-gyp, which needs a C/C++ toolchain; install one, then run doctor again: $hint"
-    else
-      tail -n 5 <<< "$NPM_OUT" | sed 's/^/    /'
-    fi
-  fi
-fi
-
 # gitleaks, where a repository of this project folder carries .gitleaks.toml: the push gate reads
 # every push there with `gitleaks git`, which came with gitleaks 8.19, and refuses the push without
 # it. winget and brew have a recent one; apt's is 8.16 on every Ubuntu to date, so elsewhere the
@@ -223,19 +196,10 @@ for f in "$HOME"/.claude/agents/*.md; do
   case "$(tr '[:upper:]' '[:lower:]' <<< "$m")" in *haiku*) report agent "below Sonnet" "$f names the model $m" ;; esac
 done
 
-# Agent CLIs: reported, never installed by doctor. Antigravity reads its MCP servers from one
-# machine-wide file only (it does not read a file in the repository; tested); an empty one is
-# not JSON, Graft cannot register there, so it is made valid.
+# Agent CLIs: reported, never installed by doctor
 for cli in claude agy codex; do
   if command -v "$cli" >/dev/null 2>&1; then
     report "$cli" present "$(command -v "$cli")"
-    if [ "$cli" = agy ]; then
-      MCP="$HOME/.gemini/config/mcp_config.json"
-      if [ -f "$MCP" ] && [ ! -s "$MCP" ]; then
-        if [ "$NO_INSTALL" -eq 1 ]; then report "agy mcp" MISSING "$MCP is empty; Antigravity cannot register MCP servers; run doctor without --no-install"; problem
-        else printf '{}' > "$MCP"; report "agy mcp" repaired "$MCP was empty; it is {} now, and the next init registers the Graft server there"; fi
-      fi
-    fi
   else
     case "$cli" in
       claude) hint="Claude Code: https://claude.ai/install.ps1 or install.sh" ;;

@@ -407,6 +407,12 @@ fi
 #    deployed.
 CONFIG="$AI_CORE_DIR/config.env"; [ -f "$CONFIG" ] || CONFIG="$CORE_ROOT/templates/.ai-core/config.env"
 AGENTS="$(grep -E '^[[:space:]]*AGENTS[[:space:]]*=' "$CONFIG" | tail -n1 | sed 's/^[^=]*=//; s/#.*//' | tr -d '"\r' | tr -d "'" | tr '[:upper:]' '[:lower:]' || true)"
+for a in $AGENTS; do
+  case "$a" in
+    claude|codex|antigravity|openhands|gemini|cursor|windsurf|copilot) ;;
+    *) echo "error: AGENTS in $CONFIG names '$a'; known are claude, codex, antigravity, openhands, gemini, cursor, windsurf, copilot" >&2; exit 1 ;;
+  esac
+done
 serves() {  # serves <agent>: true when the project serves it, or names no agents at all
   [ -z "$AGENTS" ] || case " $AGENTS " in *" $1 "*) return 0 ;; *) return 1 ;; esac
 }

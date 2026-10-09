@@ -228,7 +228,7 @@ from. Every other file is created once and never overwritten. All of it is regis
 
 `init` writes a block into the project's `.gitignore` (`lib/gitignore-block`): every file an agent
 or the harness puts into a checkout, `/.ai-core/`, `/AGENTS.md`, `/.claude/`,
-`/.mcp.json`, `/.agents/`, `/GEMINI.md`, the pointer files. The block stands between two marker
+`/.agents/`, the pointer files. The block stands between two marker
 lines and is rewritten there on every run; the rest of the file is the project's, a path the
 project already ignores is not written twice, and a project that ignores them all gets no block.
 `init` commits that `.gitignore` on its own (subject `the agent files of this repository are
@@ -560,8 +560,9 @@ tools work; the harness gives them the text at the place they look.
   and the permission `Bash(ai-core:*)`, so an agent runs the harness commands without a prompt.
   The hook and the status line name `ai-core` by its full path on this machine, so a Claude Code started from a terminal opened
   before the install still runs them; the file is the machine's and never committed. If your
-  repository already has one, `init` keeps it, merges in whichever of the three it lacks, once,
-  and replaces an `ai-core` hook of an older form. It also denies, and merges into an existing one
+  repository already has one, `init` keeps it, merges in the hook and the permission where they are
+  missing, once, replaces an `ai-core` hook of an older form, and sets the status line to
+  `ai-core statusline` in place of another one, because `ai-core usage` reads what it records. It also denies, and merges into an existing one
   the same way: reading or editing a checkout's `.env`, `.env.local` and `.env.*.local`, reading
   the machine's credentials (`~/.ssh`, `~/.aws`, `~/.git-credentials`, `~/.npmrc`, `~/.config/gh`,
   `~/.docker/config.json`, `~/.kube`), and `git push --force`, `-f` and `--force-with-lease`. These
@@ -1119,7 +1120,7 @@ releases by tag, `update`, `push`, and `map`. Open:
 | :--- | :--- |
 | `pwsh: command not found` / `'pwsh' is not recognized` | PowerShell 7 is not installed. Install it, or use the Bash twins from Git Bash. |
 | `session-start` exits 1 with `Not ready: no rules file found` | the harness is not installed here. Run `init`. |
-| `kept .claude/settings.json` in the report | your repository already had one; `init` merged the session-start hook, the status line and `Bash(ai-core:*)` into it where they were missing. |
+| `kept .claude/settings.json` in the report | your repository already had one, and it carried the session-start hook, the status line `ai-core statusline` and `Bash(ai-core:*)`; where one is missing, `init` merges it in and reports the file as `refreshed`. |
 | `ai-core: command not found` from the session-start hook, or `ai-core on PATH  : ✗` in its output | Claude Code was started from a terminal opened before the install, whose PATH lacks `ai-core`. `init` writes the hook with the full path of `ai-core`, and `session-start` names that path for the agent's own shell; a terminal opened after the install has it on the PATH. |
 | `ai-core: command not found` inside an agent | the clone's `bin/` is not on the PATH of that shell. Run `install` again, open a new terminal, or call the script by path. |
 | Claude Code ignores `AGENTS.md` | a `CLAUDE.md` exists in the directory or above it. In a repository with its own `CLAUDE.md`, `init` writes a `CLAUDE.local.md` with `@AGENTS.md`; a `CLAUDE.md` above the repository gets that line by hand. |

@@ -50,9 +50,16 @@ for twin in sh ps1; do
     if [ "$twin" = sh ]; then bash "$ROOT/bin/init.sh" "$WORK/$t" --no-doctor > "$WORK/$t-init.log" 2>&1 || fail "init.sh in $t (run 3)"
     else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/$t")" -NoDoctor > "$WORK/$t-init.log" 2>&1 || fail "init.ps1 in $t (run 3)"; fi
     [ "$(jq 'has("autoCompactWindow")' "$WORK/$t/.claude/settings.json")" = false ] || fail "init.$twin kept a compact window written by hand into the settings.json of $t"
+    # a status line taken out of, or another one put into, a settings.json that is otherwise current is set again
+    if [ "$t" = "repo-$twin" ]; then jq 'del(.statusLine)' "$WORK/$t/.claude/settings.json" > "$WORK/$t-settings.json"
+    else jq '.statusLine = {type: "command", command: "echo mine"}' "$WORK/$t/.claude/settings.json" > "$WORK/$t-settings.json"; fi
+    cat "$WORK/$t-settings.json" > "$WORK/$t/.claude/settings.json"
+    if [ "$twin" = sh ]; then bash "$ROOT/bin/init.sh" "$WORK/$t" --no-doctor > "$WORK/$t-init.log" 2>&1 || fail "init.sh in $t (run 4)"
+    else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/$t")" -NoDoctor > "$WORK/$t-init.log" 2>&1 || fail "init.ps1 in $t (run 4)"; fi
+    [ "$(jq -r '.statusLine.command' "$WORK/$t/.claude/settings.json")" = "\"$AI_CORE_CMD\" statusline" ] || fail "init.$twin did not set the status line again in the settings.json of $t: $(jq -c '.statusLine' "$WORK/$t/.claude/settings.json")"
   done
   n="$(grep -c '^# setup-ai-core start' "$WORK/repo-$twin/.git/info/exclude")"
   [ "$n" = 1 ] || fail "exclude block written $n times by init.$twin"
 done
-echo "  git status empty in 4 targets, the checkouts' .gitignore committed by init with its trailer, the worktrees' left to their own commit; exclude block written once each; the session-start hook merged into the settings.json each had, once; no compact window left in it"
+echo "  git status empty in 4 targets, the checkouts' .gitignore committed by init with its trailer, the worktrees' left to their own commit; exclude block written once each; the session-start hook merged into the settings.json each had, once; no compact window left in it; the status line set again where it was taken out or replaced"
 exit 0

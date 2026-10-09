@@ -439,6 +439,11 @@ $config = Join-Path $aiCoreDir "config.env"; if (-not (Test-Path $config)) { $co
 $agentsLine = Get-Content $config | Where-Object { $_ -cmatch '^\s*AGENTS\s*=' } | Select-Object -Last 1
 $agents = if ($agentsLine) { ((($agentsLine -split '=', 2)[1] -split '#', 2)[0]).Trim(' ', "`t", "`r", '"', "'").ToLowerInvariant() } else { "" }
 $served = @($agents -split '\s+' | Where-Object { $_ })
+foreach ($a in $served) {
+  if ($a -cnotin @('claude', 'codex', 'antigravity', 'openhands', 'gemini', 'cursor', 'windsurf', 'copilot')) {
+    Write-Host "error: AGENTS in $config names '$a'; known are claude, codex, antigravity, openhands, gemini, cursor, windsurf, copilot" -ForegroundColor Red; exit 1
+  }
+}
 function Test-Serves([string]$agent) { return ($served.Count -eq 0 -or ($served -ccontains $agent)) }
 $pointerOf = @{ '.cursorrules' = 'cursor'; '.windsurfrules' = 'windsurf'; '.github/copilot-instructions.md' = 'copilot'; '.openhands/microagents/repo-rules.md' = 'openhands' }
 # the template files in byte order, the order the bash twin lists them in

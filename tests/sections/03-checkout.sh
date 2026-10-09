@@ -20,9 +20,19 @@ bash "$ROOT/bin/init.sh" "$WORK/agents-sh" --no-doctor > /dev/null 2>&1 || fail 
 pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/agents-ps1")" -NoDoctor > /dev/null 2>&1 || fail "init.ps1 with AGENTS"
 for t in sh ps1; do
   [ -f "$WORK/agents-$t/.cursorrules" ] || fail "init.$t did not deploy the pointer of a served agent"
-  [ ! -e "$WORK/agents-$t/.windsurfrules" ] && [ ! -e "$WORK/agents-$t/.github" ] && [ ! -e "$WORK/agents-$t/.openhands" ] && [ ! -e "$WORK/agents-$t/.codex" ] && [ ! -e "$WORK/agents-$t/.agents/mcp_config.json" ] || fail "init.$t deployed the pointer of an agent the project does not serve"
+  [ ! -e "$WORK/agents-$t/.windsurfrules" ] && [ ! -e "$WORK/agents-$t/.github" ] && [ ! -e "$WORK/agents-$t/.openhands" ] && [ ! -e "$WORK/agents-$t/.agents/mcp_config.json" ] || fail "init.$t deployed the pointer of an agent the project does not serve"
 done
-echo "  AGENTS=\"cursor claude\": .cursorrules deployed; windsurf, copilot, openhands, codex and antigravity files not, on both twins"
+echo "  AGENTS=\"cursor claude\": .cursorrules deployed; windsurf, copilot, openhands and antigravity files not, on both twins"
+
+for t in sh ps1; do
+  mkdir -p "$WORK/typo-$t/.ai-core"; printf 'UPDATE_CHECK="never"\nAGENTS="claude cursr"\n' > "$WORK/typo-$t/.ai-core/config.env"
+done
+bash "$ROOT/bin/init.sh" "$WORK/typo-sh" --no-doctor > "$WORK/typo-sh.log" 2>&1 && fail "init.sh accepted an unknown name in AGENTS"
+pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/typo-ps1")" -NoDoctor > "$WORK/typo-ps1.log" 2>&1 && fail "init.ps1 accepted an unknown name in AGENTS"
+for t in sh ps1; do
+  grep -aq "error: AGENTS in .* names 'cursr'; known are claude, codex, antigravity, openhands, gemini, cursor, windsurf, copilot" "$WORK/typo-$t.log" || fail "init.$t did not name the unknown agent: $(tail -n 2 "$WORK/typo-$t.log")"
+done
+echo "  AGENTS=\"claude cursr\": init exits 1 and names 'cursr', on both twins"
 
 (cd "$WORK/sh" && find . -type f | sort) > "$WORK/sh.list"
 (cd "$WORK/ps1" && find . -type f | sort) > "$WORK/ps1.list"

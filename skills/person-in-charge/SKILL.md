@@ -44,8 +44,10 @@ A reviewer reads one diff and needs a small context; a developer on a package ne
   not cover the clones inside it. Where it answers "Workspace not trusted", collect every clone
   your planned packages need and ask the owner once to run `claude` in each; never start the
   worker in another folder instead.
-- Find the workers with `claude agents --json` (name, id, sessionId, state) or `ListAgents`, and
-  talk to them with `SendMessage`.
+- Before you start or continue a worker, list the workers with `claude agents --json` (name, id,
+  sessionId, state) or `ListAgents`, because after a compaction your summary may no longer name
+  them all. An idle worker in the package's repository on the package's tier gets the package with
+  `SendMessage`, a stopped one is continued as below, and a new worker starts only where none fits.
 - Continue a stopped worker with `claude --bg --resume <sessionId>` and no other option, from any
   folder, with its history: Claude Code wakes it under the same id with its saved options, its
   name and its context size among them. The id it prints proves it: where that id is not the
@@ -62,12 +64,13 @@ A reviewer reads one diff and needs a small context; a developer on a package ne
   the worker holds, stop it and start a new worker instead.
 - Stop a worker with `claude stop <id>` once its last package is done.
 
-A worker that waits uses no tokens, but its cache expires. A codex session keeps its cache for 5
-minutes almost always (95 % read from the cache, measured), for 10 minutes mostly (86 %), and
-past 45 minutes rarely; a Claude session keeps it for one hour. Resumed after that, the worker
-reads its whole history again at full price, 100k to 150k tokens at once. So give a waiting worker
-its next task within 10 minutes where you can, and before 45 minutes at the latest; give work only
-to the tier a package needs.
+A worker that waits uses no tokens, but its cache expires. A Claude session keeps it for one hour;
+a codex session keeps it for 5 minutes almost always (95 % read from the cache, measured), for 10
+minutes mostly (86 %), and past 45 minutes rarely; for agy it is not measured yet. Resumed after
+that, the worker reads its whole history again at full price, 100k to 150k tokens at once, and a
+new worker pays about 50k tokens before it reads any code. So give a waiting Claude worker its next
+task within the hour and a codex worker within 10 minutes; give work only to the tier a package
+needs.
 
 ## 1. The overview, kept in the tracker
 

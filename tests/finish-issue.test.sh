@@ -196,6 +196,41 @@ check 'no card was moved'      0 "$(grep -c 'oid=OPT_' "$log" || true)"
 check 'the issue was told'     yes "$(grep -q 'issue comment 167 .*Landed on master:.*Keep the harness off the board (#167)' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
 rm -f "$fake/no-board"
 
+# The issue lives in other-org/tracker and its work landed here: start-issue recorded that on the
+# branch, so the issue is read, its board asked and its comment posted there, never here.
+echo 'an issue of another repository: read, asked and told there, from the record on its branch'
+open issue-169-alert-on-a-stuck-run
+git -C "$work" config branch.issue-169-alert-on-a-stuck-run.issueRepository other-org/tracker
+land issue-169-alert-on-a-stuck-run 'Alert on a stuck run (other-org/tracker#169)'
+touch "$fake/no-board"; : > "$log"; rm -rf "$fake/cache"
+out="$(cd "$work" && GH_PROJECT_NUMBER='' bash "$finish" 169 2>&1)"; rc=$?
+check 'exits zero'             0 "$rc"
+check 'the worktree is gone'   no "$(has_tree issue-169-alert-on-a-stuck-run)"
+check 'the record went with the branch' '' "$(git -C "$work" config --get branch.issue-169-alert-on-a-stuck-run.issueRepository || true)"
+check 'the issue was read there' yes "$(grep -q 'other-org/tracker/issues/169' "$log" && echo yes || echo no)"
+check 'its board was asked'    yes "$(grep -q '^other-org/tracker is on no board - there is no card to move$' <<< "$out" && echo yes || echo no)"
+check 'the issue was told there' yes "$(grep -q 'issue comment 169 --repo other-org/tracker .*Landed on master of example-org/example-repo:.*(other-org/tracker#169)' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
+
+echo 'this repository'"'"'s own issue of the same number is not told of the other one'"'"'s commit'
+open issue-169-own-fix
+land issue-169-own-fix 'Own fix (#169)'
+: > "$log"; rm -rf "$fake/cache"
+out="$(cd "$work" && GH_PROJECT_NUMBER='' bash "$finish" 169 2>&1)"; rc=$?
+check 'exits zero'             0 "$rc"
+check 'its own commit is named' yes "$(grep -q 'issue comment 169 --repo example-org/example-repo .*Landed on master:.*Own fix (#169)' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
+check 'the other one is not'   no "$(grep -q 'other-org/tracker#169' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
+
+echo 'a branch that outlived its worktree still says where its issue lives'
+git -C "$work" branch -q issue-175-gone origin/master
+git -C "$work" config branch.issue-175-gone.issueRepository other-org/tracker
+: > "$log"; rm -rf "$fake/cache"
+out="$(cd "$work" && GH_PROJECT_NUMBER='' bash "$finish" 175 2>&1)"; rc=$?
+check 'exits zero'             0 "$rc"
+check 'the issue was read there' yes "$(grep -q 'other-org/tracker/issues/175' "$log" && echo yes || echo no)"
+check 'and never here'         0 "$(grep -c 'example-org/example-repo/issues/175' "$log" || true)"
+git -C "$work" branch -q -D issue-175-gone
+rm -f "$fake/no-board"
+
 echo 'an origin/HEAD naming a branch the remote no longer has: the default branch is asked of the remote'
 open issue-168-read-the-default-branch
 land issue-168-read-the-default-branch 'Read the default branch from the remote (#168)'

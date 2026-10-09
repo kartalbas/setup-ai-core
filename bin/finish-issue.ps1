@@ -5,12 +5,15 @@ Close the worktree of one issue once its work has landed, move its card one colu
 the issue what landed.
 .EXAMPLE
 ./finish-issue.ps1 163
+./finish-issue.ps1 163 -Repo other-org/tracker
 ./finish-issue.ps1 -Sweep -DryRun
 .NOTES
 The counterpart of start-issue. A worktree left behind after its work landed holds a copy of the
 repository and its build output, gigabytes on a machine with several sessions, and a card left in
 implementing tells everyone the work is still going on. Run it from the checkout or from any
-worktree of the repository, after the push that lands the work.
+worktree of the repository, after the push that lands the work. The issue, its card and its comment
+are in -Repo where it is given, else in the repository start-issue recorded on the issue's branch,
+else in the checkout's own.
 
 NOTHING THAT HAS NOT LANDED IS REMOVED. A worktree with changes, or with a commit origin's default
 branch does not have, stops the run and is named; the work in it is somebody's.
@@ -26,6 +29,7 @@ does not stay for good. A worktree that was never committed in is left alone.
 [CmdletBinding()]
 param(
   [Parameter(Position = 0)][string] $Number = '',
+  [string] $Repo = '',
   [switch] $Sweep,
   [switch] $DryRun,
   [switch] $Landed
@@ -33,7 +37,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot '../lib/Board.psm1') -Force
-$usage = 'usage: finish-issue.ps1 NUMBER [-Landed] | finish-issue.ps1 -Sweep [-DryRun]'
+$usage = 'usage: finish-issue.ps1 NUMBER [-Repo OWNER/REPO] [-Landed] | finish-issue.ps1 -Sweep [-DryRun]'
 # A landed worktree younger than this is left to the session that may still be working in it
 $restSeconds = 24 * 3600
 
@@ -48,7 +52,7 @@ function Invoke-Git {
 }
 
 if ($Sweep) {
-  if ($Number -or $Landed) { Stop-WithError $usage }
+  if ($Number -or $Repo -or $Landed) { Stop-WithError $usage }
 } else {
   if ($Number -notmatch '^[0-9]+\z') { Stop-WithError "the issue number must be numeric, not '$Number' - $usage" }
   if ($DryRun) { Stop-WithError "-DryRun goes with -Sweep - $usage" }
@@ -124,7 +128,16 @@ if ($Sweep) {
 }
 
 # --- one issue ---------------------------------------------------------------------------------
-try { $raw = (@(& (Join-Path $PSScriptRoot 'issue-thread.ps1') -Number $Number -Json) -join "`n").Trim() }
+# The record is read from the issue's branch, which can outlive its worktree
+if (-not $Repo) {
+  foreach ($b in @(& git for-each-ref '--format=%(refname:short)' "refs/heads/issue-$Number" "refs/heads/issue-$Number-*")) {
+    $Repo = Get-BranchIssueRepo -Branch $b
+    if ($Repo) { break }
+  }
+}
+$ref = Get-IssueRef -Repo $Repo -Number $Number
+$where = if ($Repo) { @{ Repo = $Repo } } else { @{} }
+try { $raw = (@(& (Join-Path $PSScriptRoot 'issue-thread.ps1') -Number $Number @where -Json) -join "`n").Trim() }
 catch { Stop-WithError "the issue could not be read: $($_.Exception.Message)" }
 $thread = $raw | ConvertFrom-Json -DateKind String
 $state = "$($thread.state)".ToLowerInvariant()
@@ -146,7 +159,7 @@ foreach ($w in @(Get-IssueWorktrees | Where-Object { $_.Branch -ceq "issue-$Numb
       Stop-WithError "the worktree $($w.Path) has $($missing.Count) commit(s) whose change is not on origin/$default - push them, then run this again; where they landed in another shape, run finish-issue $Number --landed once the issue is closed"
     }
     if ($state -cne 'closed') {
-      Stop-WithError "--landed removes the work of a closed issue only, and #$Number is open - close it once its work is on origin/$default"
+      Stop-WithError "--landed removes the work of a closed issue only, and $ref is open - close it once its work is on origin/$default"
     }
     "removed with --landed, these commits not found on origin/${default} by their change:"
     $missing | ForEach-Object { "  $_" }
@@ -159,7 +172,7 @@ if (-not $found) { "no worktree of issue $Number stands here - only the card and
 # The card: one column past implementing, as the board orders them, unless that column is done
 if ($state -ceq 'closed') {
   'the issue is closed already - its card stays where closing put it'
-} elseif (Test-OnNoBoard -Repo ($repo = Get-DefaultRepo)) {
+} elseif (Test-OnNoBoard -Repo ($repo = if ($Repo) { $Repo } else { Get-DefaultRepo })) {
   "$repo is on no board - there is no card to move"
 } else {
   Set-Project -Number '' -Repo $repo | Out-Null
@@ -169,14 +182,17 @@ if ($state -ceq 'closed') {
   if (-not $next) { 'the board has no column after implementing - the card stays; move it by hand' }
   elseif ($next.ToLowerInvariant() -ceq 'done') { 'the column after implementing is done, which closing the issue sets - the card stays for the owner' }
   else {
-    try { & (Join-Path $PSScriptRoot 'issue-status.ps1') -Number $Number -Status $next }
+    try { & (Join-Path $PSScriptRoot 'issue-status.ps1') -Number $Number -Status $next -Repo $repo }
     catch { Write-Error "the card did NOT move: $($_.Exception.Message) - move it to $next by hand" -ErrorAction Continue }
   }
 }
 
 # What landed, in the issue, for whoever reads it next
-$commits = (Invoke-Git -C $main log "origin/$default" -E "--grep=#$Number([^0-9]|$)" '--format=- %h %s' -n 20).Text
-if (-not $commits) { $commits = "- (no commit on origin/$default names #$Number)" }
-$body = "Landed on ${default}:`n`n$commits`n"
-try { & (Join-Path $PSScriptRoot 'issue-comment.ps1') -Number $Number -Body $body | Out-Null; 'the issue says what landed' }
+# The reference stands alone: '#<N>' must not match '<OWNER/REPO>#<N>', an issue of another repository
+$commits = (Invoke-Git -C $main log "origin/$default" -E "--grep=(^|[^A-Za-z0-9._/-])$($ref.Replace('.', '\.'))([^0-9]|$)" '--format=- %h %s' -n 20).Text
+if (-not $commits) { $commits = "- (no commit on origin/$default names $ref)" }
+# An issue of another repository is told which repository the commits are in
+$landedOn = if ($ref -ceq "#$Number") { $default } else { "$default of $(Get-DefaultRepo)" }
+$body = "Landed on ${landedOn}:`n`n$commits`n"
+try { & (Join-Path $PSScriptRoot 'issue-comment.ps1') -Number $Number -Body $body @where | Out-Null; 'the issue says what landed' }
 catch { Write-Error 'the issue was NOT told what landed - add the commits by hand' -ErrorAction Continue }

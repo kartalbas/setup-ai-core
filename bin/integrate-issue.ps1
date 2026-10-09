@@ -5,11 +5,15 @@ Integrate the reviewed branch of one issue into the default branch: a merge comm
 issue and its reviewer, pushed through the gate.
 .EXAMPLE
 ./integrate-issue.ps1 163 -ReviewedBy l4
+.EXAMPLE
+./integrate-issue.ps1 163 -Repo other-org/tracker -ReviewedBy l4
 .NOTES
 Between start-issue and finish-issue. Run it in the worktree of the issue, on its branch, once the
 reviewer gave the GO. It fetches origin, puts the worktree on the newest origin/<default>, merges
 the branch with --no-ff under the issue's title and a 'Reviewed-by: REVIEWER' trailer, pushes
-HEAD:<default> through the gate, and checks the branch out again for finish-issue.
+HEAD:<default> through the gate, and checks the branch out again for finish-issue. The issue is read
+in -Repo where it is given, else in the repository start-issue recorded on the branch, else in the
+checkout's own.
 
 A MERGE COMMIT, NOT A REBASE: the reviewed commits land as they were read, with the shas the
 reviewer saw, and the one new commit carries the issue and the reviewer.
@@ -25,12 +29,13 @@ out again and the cause is named.
 [CmdletBinding()]
 param(
   [Parameter(Position = 0)][string] $Number = '',
+  [string] $Repo = '',
   [string] $ReviewedBy = ''
 )
 
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot '../lib/Board.psm1') -Force
-$usage = 'usage: integrate-issue.ps1 NUMBER -ReviewedBy REVIEWER'
+$usage = 'usage: integrate-issue.ps1 NUMBER [-Repo OWNER/REPO] -ReviewedBy REVIEWER'
 
 function Invoke-Git {
   # Both streams are wanted, and a line on stderr is text to read, not an exception
@@ -54,11 +59,16 @@ if (-not ($branch -ceq "issue-$Number" -or $branch.StartsWith("issue-$Number-", 
 }
 if ((Invoke-Git status --porcelain).Text) { Stop-WithError 'the worktree has changes - commit them for the review, or put them aside, then run this again' }
 
-try { $raw = (@(& (Join-Path $PSScriptRoot 'issue-thread.ps1') -Number $Number -Json) -join "`n").Trim() }
+if (-not $Repo) { $Repo = Get-BranchIssueRepo -Branch $branch }
+$where = if ($Repo) { @{ Repo = $Repo } } else { @{} }
+try { $raw = (@(& (Join-Path $PSScriptRoot 'issue-thread.ps1') -Number $Number @where -Json) -join "`n").Trim() }
 catch { Stop-WithError "the issue could not be read: $($_.Exception.Message)" }
 $title = "$(($raw | ConvertFrom-Json -DateKind String).title)"
-$subject = "$title (#$Number)"
-if (-not $title -or $subject.Length -gt 72) { $subject = "Merge $branch (#$Number)" }
+$ref = Get-IssueRef -Repo $Repo -Number $Number
+# The subject the gate takes is 72 characters at most, so a longer one falls back, shortest last
+$subject = "$title ($ref)"
+if (-not $title -or $subject.Length -gt 72) { $subject = "Merge $branch ($ref)" }
+if ($subject.Length -gt 72) { $subject = "Merge issue-$Number ($ref)" }
 
 $fetched = Invoke-Git fetch origin
 if (-not $fetched.Ok) { Stop-WithError "could not reach origin: $($fetched.Text)" }
@@ -84,4 +94,4 @@ $merged = (Invoke-Git rev-parse --short HEAD).Text
 if ($LASTEXITCODE -ne 0) { Stop-OnBranch "the push was refused (see above) - nothing reached origin, and $branch is checked out again" }
 if (-not (Invoke-Git switch -q $branch).Ok) { Stop-WithError "$merged is on origin/$default, but $branch could not be checked out again - run git switch $branch before finish-issue" }
 Write-Host "integrated: $merged on origin/$default, $subject, Reviewed-by: $ReviewedBy"
-Write-Host "next: ai-core finish-issue $Number"
+Write-Host "next: ai-core finish-issue $(if ($Repo) { "$Number -Repo $Repo" } else { $Number })"

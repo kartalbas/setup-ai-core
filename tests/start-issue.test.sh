@@ -230,6 +230,56 @@ check 'exits zero'             0 "$rc"
 check 'cut from origin/master' yes "$(grep -q '^Worktree .*issue-168-.*, cut from origin/master\.$' <<< "$out" && echo yes || echo no)"
 git -C "$work" remote set-head origin -a >/dev/null
 
+# The issue lives in other-org/tracker and its work lands here. Asked of this repository, the same
+# number is Not Found, so a read in the wrong repository shows as a failure, not as a wrong title.
+echo 'an issue of another repository: cut here, read there, and its repository recorded on the branch'
+cross="$fake/cross"; mkdir -p "$cross"; clog="$fake/cross-calls.txt"; : > "$clog"
+cat > "$cross/gh" <<CROSS
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$clog"
+case "\$*" in
+  *"repo view"*)                     echo 'example-org/example-repo' ;;
+  *"api user"*)                      echo '{"login":"tester"}' ;;
+  *"projectsV2(first"*)              ;;
+  *other-org/tracker/issues/*/comments*) echo '[]' ;;
+  *other-org/tracker/issues/*)       echo '{"number":171,"title":"Alert on a stuck run","state":"open","labels":[],"assignees":[{"login":"tester"}],"body":"The rule lands in the other repository."}' ;;
+  *issues/*)                         echo '{"message":"Not Found"}'; echo 'gh: Not Found (HTTP 404)' >&2; exit 1 ;;
+  *)                                 echo '{}' ;;
+esac
+exit 0
+CROSS
+chmod +x "$cross/gh"
+out="$(cd "$work" && PATH="$cross:$PATH" GH_PROJECT_NUMBER='' bash "$start" other-org/tracker 171 2>&1)"; rc=$?
+cut="issue-171-alert-on-a-stuck-run"
+check 'exits zero'                       0 "$rc"
+check 'the branch carries the number'    "$cut" "$(git -C "$work" for-each-ref --format='%(refname:short)' refs/heads | grep '^issue-171' || true)"
+check 'the repository is recorded on it' other-org/tracker "$(git -C "$work" config --get "branch.$cut.issueRepository" || true)"
+check 'the issue was read there'         yes "$(grep -q 'other-org/tracker/issues/171' "$clog" && echo yes || echo no)"
+check 'and never here'                   0 "$(grep -c 'example-org/example-repo/issues' "$clog" || true)"
+
+echo 'its own repository, named in another case, is no other repository'
+out="$(cd "$work" && GH_PROJECT_NUMBER='' bash "$start" Example-Org/Example-Repo 172 2>&1)"; rc=$?
+check 'exits zero'                       0 "$rc"
+check 'nothing is recorded'              '' "$(git -C "$work" config --get-regexp '^branch\.issue-172-.*\.issuerepository$' || true)"
+
+echo 'session-start in that worktree reads the issue where the branch says, and ends ready'
+wt="$checkouts/.worktrees/example-repo/$cut"
+started() { (cd "$wt" && PATH="$cross:$PATH" AI_CORE_UPDATE_CHECK=never bash "$root/bin/session-start.sh" "$@" 2>&1); }
+out="$(started)"; rc=$?
+check 'exits zero'                       0 "$rc"
+check 'it names the issue by its repository' yes "$(grep -q '^This worktree carries issue other-org/tracker#171\.' <<< "$out" && echo yes || echo no)"
+check 'it carries the thread'            yes "$(grep -qF 'The rule lands in the other repository.' <<< "$out" && echo yes || echo no)"
+check 'it ends ready'                    yes "$(grep -qx 'Ready for task execution.' <<< "$out" && echo yes || echo no)"
+check 'the JSON names the repository'    other-org/tracker "$(started --json | jq -r '.issue_repository')"
+
+echo 'an issue that cannot be read: the start does not end as if it had been read'
+git -C "$work" config --unset "branch.$cut.issueRepository"
+out="$(started)"; rc=$?
+check 'exits zero'                       0 "$rc"
+check 'no plain ready'                   no "$(grep -qx 'Ready for task execution.' <<< "$out" && echo yes || echo no)"
+check 'the last line names the miss'     yes "$(tail -n 1 <<< "$out" | grep -q '^Ready for task execution, but WITHOUT the issue: #171 could not be read (' && echo yes || echo no)"
+check 'the JSON names no repository'     null "$(started --json | jq -r 'if has("issue_repository") then .issue_repository else "absent" end')"
+
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo
 echo 'all passed'

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Open the worktree for one issue, move its card, and print what the issue asks for.
 #
-#   start-issue.sh NUMBER
+#   start-issue.sh [OWNER/REPO] NUMBER
 #
 # The three happen together on purpose. A worktree cut from a stale master carries work nobody
 # asked for; a card left in the previous column tells everyone else the work has not started;
@@ -18,15 +18,22 @@
 # so the worktree has somewhere to commit, and it is deleted with the worktree.
 #
 # It is run from inside the repository the work belongs to. The default branch is READ from
-# origin/HEAD and never assumed.
+# origin/HEAD and never assumed. Where the issue lives in another repository than the work, it is
+# named as OWNER/REPO NUMBER: the worktree is cut here, and the issue's repository is recorded on
+# its branch (git config branch.<branch>.issueRepository), where session-start, integrate-issue and
+# finish-issue read it.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 
 BIN="$ROOT/bin"
-usage='usage: start-issue.sh NUMBER'
+usage='usage: start-issue.sh [OWNER/REPO] NUMBER'
 
-[ $# -eq 1 ] || die "$usage"
-number="$1"
+repo=""
+case "$#:${1:-}" in
+  2:*/*) repo="$1"; number="$2" ;;
+  1:*)   number="$1" ;;
+  *)     die "$usage" ;;
+esac
 case "$number" in ''|*[!0-9]*) die "the issue number must be numeric, not '$number' - $usage" ;; esac
 
 git rev-parse --show-toplevel >/dev/null 2>&1 \
@@ -54,7 +61,7 @@ behind="$(git rev-list --count "$default..origin/$default" 2>/dev/null || true)"
 
 # No worktree without an issue: the title is what it is named after, and the thread is what the
 # change will be measured against.
-thread="$("$BIN/issue-thread.sh" "$number" --json 2>&1)" \
+thread="$("$BIN/issue-thread.sh" ${repo:+"$repo"} "$number" --json 2>&1)" \
   || die "no worktree without an issue - the issue could not be read: $thread"
 title="$(printf '%s' "$thread" | jq -r '.title // ""')"
 [ -n "$(printf '%s' "$title" | tr -d '[:space:]')" ] \
@@ -62,7 +69,7 @@ title="$(printf '%s' "$thread" | jq -r '.title // ""')"
 
 # Only an issue assigned to you is taken up (rules.md, the issue rules): the worktree is not cut
 # for somebody else's issue, and not for one nobody has been given yet.
-mine="$("$BIN/issue-mine.sh" "$number" 2>&1)" || die "$mine"
+mine="$("$BIN/issue-mine.sh" ${repo:+"$repo"} "$number" 2>&1)" || die "$mine"
 
 # The readable half of the name. Everything that is not a letter or a digit becomes a hyphen,
 # runs of hyphens collapse, and the result is cut to forty characters - the name is read in a
@@ -96,10 +103,15 @@ mkdir -p "$container"
 made="$(git worktree add -b "$name" "$path" "origin/$default" 2>&1)" \
   || die "the worktree could not be created: $made"
 echo "Worktree $path on $name, cut from origin/$default."
+if [ "$(issue_ref "$repo" "$number")" != "#$number" ]; then
+  git config "branch.$name.issueRepository" "$repo" \
+    || die "the issue's repository could not be recorded on $name - run git config branch.$name.issueRepository $repo"
+  echo "The issue lives in $repo: recorded on $name, where session-start, integrate-issue and finish-issue read it."
+fi
 
 # The card and the worktree move together, and a card that did not move is said out loud rather
 # than left for the next person to notice on the board.
-if moved="$("$BIN/issue-status.sh" "$number" implementing 2>&1)"; then
+if moved="$("$BIN/issue-status.sh" ${repo:+"$repo"} "$number" implementing 2>&1)"; then
   printf '%s\n' "$moved"
 else
   echo "the card did NOT move: $moved - move it before you start" >&2
@@ -115,4 +127,4 @@ bash "$BIN/finish-issue.sh" --sweep 2>&1 | grep ': landed, removed$' || true
 bash "$ROOT/bin/init.sh" "$path" --no-doctor \
   || echo "the harness is NOT complete in the worktree: run 'ai-core init' there before you start" >&2
 
-"$BIN/issue-thread.sh" "$number" || true
+"$BIN/issue-thread.sh" ${repo:+"$repo"} "$number" || true

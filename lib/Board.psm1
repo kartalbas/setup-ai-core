@@ -319,6 +319,34 @@ function Get-DefaultRepo {
   return $r.Trim()
 }
 
+function Get-BranchIssueRepo {
+  # The repository the issue of an issue branch lives in, where that is not the checkout's own. An
+  # issue's work can have to land in a second repository; start-issue then records the issue's
+  # repository on the branch, and every command that reads the issue of a worktree reads it there,
+  # because the number alone names an unrelated issue, or none, in the checkout's own repository.
+  # Empty for a branch whose issue lives in its own repository.
+  [CmdletBinding()]
+  param([string] $Branch)
+  if (-not $Branch) { return '' }
+  $kept = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+  try { $r = & git config --get "branch.$Branch.issueRepository" 2>$null } finally { $ErrorActionPreference = $kept }
+  if ($LASTEXITCODE -ne 0 -or -not $r) { return '' }
+  return "$r".Trim()
+}
+
+function Get-IssueRef {
+  # How a commit names issue <Number> of <Repo>: '#<Number>' in the issue's own repository, and
+  # '<Repo>#<Number>' from another one, where '#<Number>' links to an unrelated issue. GitHub reads
+  # a repository name in any case, so the comparison does too.
+  [CmdletBinding()]
+  param([string] $Repo, [Parameter(Mandatory)][string] $Number)
+  if ($Repo) {
+    $own = try { Get-DefaultRepo } catch { '' }
+    if ($Repo -ine $own) { return "$Repo#$Number" }
+  }
+  return "#$Number"
+}
+
 # --- the project --------------------------------------------------------------
 
 # Set once per process by every bin script, so the whole run acts on one board.
@@ -927,7 +955,7 @@ function Update-ParentEpic {
 Export-ModuleMember -Function Stop-WithError, ConvertTo-AsciiLowercase, Invoke-Gh, Get-Org, Get-DataDir, Get-DataFile, Get-LabelTaxonomy, Get-LabelNamesInGroup,
   Set-Project, Get-ProjectNumber, Get-ProjectOrg,
   Get-TemplateProjectNumber, Get-TemplateMark, Resolve-ProjectForRepo, Get-RepoOpenProjects, Test-OnNoBoard, Get-OriginDefaultBranch, Get-ProjectId, Get-CacheDir, Get-Fields, Get-FieldId, Get-OptionId,
-  Clear-BoardCache, Get-DefaultRepo, Get-AssigneeForRepo, Get-ProjectRepos, Get-IssueNodeId, Get-IssueDbId,
+  Clear-BoardCache, Get-DefaultRepo, Get-BranchIssueRepo, Get-IssueRef, Get-AssigneeForRepo, Get-ProjectRepos, Get-IssueNodeId, Get-IssueDbId,
   Write-TitleReport, Get-AskedPrefix, Get-IssueThread, Get-IssueBoardItems, Invoke-OnEveryBoard, Set-ItemTop,
   Resolve-ParentIssue, Get-ItemId, Get-ArchivedItemId, Get-BoardItems, Remove-BoardItem, Set-Select,
   Get-StatusRank, Get-EpicTarget, Get-EpicTargetOnBoard, Update-Epic, Update-ParentEpic

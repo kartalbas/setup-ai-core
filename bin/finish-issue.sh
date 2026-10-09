@@ -2,13 +2,15 @@
 # Close the worktree of one issue once its work has landed, move its card one column on, and say
 # in the issue what landed.
 #
-#   finish-issue.sh NUMBER
+#   finish-issue.sh [OWNER/REPO] NUMBER
 #   finish-issue.sh --sweep [--dry-run]
 #
 # The counterpart of start-issue. A worktree left behind after its work landed holds a copy of
 # the repository and its build output, gigabytes on a machine with several sessions, and a card
 # left in implementing tells everyone the work is still going on. Run it from the checkout or from
-# any worktree of the repository, after the push that lands the work.
+# any worktree of the repository, after the push that lands the work. The issue, its card and its
+# comment are in OWNER/REPO where it is given, else in the repository start-issue recorded on the
+# issue's branch, else in the checkout's own.
 #
 # NOTHING THAT HAS NOT LANDED IS REMOVED. A worktree with changes, or with a commit origin's
 # default branch does not have, stops the run and is named; the work in it is somebody's.
@@ -24,21 +26,22 @@
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 
 BIN="$ROOT/bin"
-usage='usage: finish-issue.sh NUMBER [--landed] | finish-issue.sh --sweep [--dry-run]'
+usage='usage: finish-issue.sh [OWNER/REPO] NUMBER [--landed] | finish-issue.sh --sweep [--dry-run]'
 # A landed worktree younger than this is left to the session that may still be working in it
 REST_SECONDS=$((24 * 3600))
 
-sweep=0; dry=0; landed_flag=0; number=""
+sweep=0; dry=0; landed_flag=0; repo=""; number=""
 for arg in "$@"; do
   case "$arg" in
     --sweep)   sweep=1 ;;
     --dry-run) dry=1 ;;
     --landed)  landed_flag=1 ;;
     -*)        die "unknown argument '$arg' - $usage" ;;
+    */*)       [ -z "$repo" ] || die "$usage"; repo="$arg" ;;
     *)         [ -z "$number" ] || die "$usage"; number="$arg" ;;
   esac
 done
-if [ "$sweep" -eq 1 ]; then [ -z "$number" ] && [ "$landed_flag" -eq 0 ] || die "$usage"
+if [ "$sweep" -eq 1 ]; then [ -z "$number" ] && [ -z "$repo" ] && [ "$landed_flag" -eq 0 ] || die "$usage"
 else
   case "$number" in ''|*[!0-9]*) die "the issue number must be numeric, not '$number' - $usage" ;; esac
   [ "$dry" -eq 0 ] || die "--dry-run goes with --sweep - $usage"
@@ -115,7 +118,14 @@ if [ "$sweep" -eq 1 ]; then
 fi
 
 # --- one issue ---------------------------------------------------------------------------------
-thread="$("$BIN/issue-thread.sh" "$number" --json 2>&1)" || die "the issue could not be read: $thread"
+# The record is read from the issue's branch, which can outlive its worktree
+if [ -z "$repo" ]; then
+  for branch in $(git for-each-ref --format='%(refname:short)' "refs/heads/issue-$number" "refs/heads/issue-$number-*"); do
+    repo="$(branch_issue_repo "$branch")"; [ -z "$repo" ] || break
+  done
+fi
+ref="$(issue_ref "$repo" "$number")"
+thread="$("$BIN/issue-thread.sh" ${repo:+"$repo"} "$number" --json 2>&1)" || die "the issue could not be read: $thread"
 state="$(printf '%s' "$thread" | jq -r '.state // ""' | tr '[:upper:]' '[:lower:]')"
 found=0
 while IFS=$'\t' read -r path branch; do
@@ -135,7 +145,7 @@ while IFS=$'\t' read -r path branch; do
     [ "$landed_flag" -eq 1 ] \
       || die "the worktree $path has $(grep -c . <<< "$missing") commit(s) whose change is not on origin/$default - push them, then run this again; where they landed in another shape, run finish-issue $number --landed once the issue is closed"
     [ "$state" = closed ] \
-      || die "--landed removes the work of a closed issue only, and #$number is open - close it once its work is on origin/$default"
+      || die "--landed removes the work of a closed issue only, and $ref is open - close it once its work is on origin/$default"
     echo "removed with --landed, these commits not found on origin/$default by their change:"
     sed 's/^/  /' <<< "$missing"
   fi
@@ -147,7 +157,7 @@ done <<< "$(issue_worktrees)"
 # The card: one column past implementing, as the board orders them, unless that column is done
 if [ "$state" = closed ]; then
   echo "the issue is closed already - its card stays where closing put it"
-elif repo="$(resolve_repo "")" && on_no_board "$repo"; then
+elif repo="$(resolve_repo "$repo")" && on_no_board "$repo"; then
   echo "$repo is on no board - there is no card to move"
 else
   set_project "" "$repo" >/dev/null
@@ -156,7 +166,7 @@ else
     echo "the board has no column after implementing - the card stays; move it by hand"
   elif [ "$(printf '%s' "$next" | tr '[:upper:]' '[:lower:]')" = done ]; then
     echo "the column after implementing is done, which closing the issue sets - the card stays for the owner"
-  elif moved="$("$BIN/issue-status.sh" "$number" "$next" 2>&1)"; then
+  elif moved="$("$BIN/issue-status.sh" ${repo:+"$repo"} "$number" "$next" 2>&1)"; then
     printf '%s\n' "$moved"
   else
     echo "the card did NOT move: $moved - move it to $next by hand" >&2
@@ -164,9 +174,12 @@ else
 fi
 
 # What landed, in the issue, for whoever reads it next
-commits="$(git -C "$main" log "origin/$default" -E --grep="#$number([^0-9]|$)" --format='- %h %s' -n 20)"
-[ -n "$commits" ] || commits="- (no commit on origin/$default names #$number)"
-body="$(printf 'Landed on %s:\n\n%s\n' "$default" "$commits")"
-"$BIN/issue-comment.sh" "$number" "$body" >/dev/null \
+# The reference stands alone: '#<N>' must not match '<OWNER/REPO>#<N>', an issue of another repository
+commits="$(git -C "$main" log "origin/$default" -E --grep="(^|[^A-Za-z0-9._/-])${ref//./\\.}([^0-9]|$)" --format='- %h %s' -n 20)"
+[ -n "$commits" ] || commits="- (no commit on origin/$default names $ref)"
+# An issue of another repository is told which repository the commits are in
+landed_on="$default"; [ "$ref" = "#$number" ] || landed_on="$default of $(default_repo)"
+body="$(printf 'Landed on %s:\n\n%s\n' "$landed_on" "$commits")"
+"$BIN/issue-comment.sh" ${repo:+"$repo"} "$number" "$body" >/dev/null \
   && echo "the issue says what landed" \
   || echo "the issue was NOT told what landed - add the commits by hand" >&2

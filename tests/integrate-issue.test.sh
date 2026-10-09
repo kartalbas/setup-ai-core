@@ -21,6 +21,7 @@ title="$fake/title.txt"
 
 cat > "$fake/gh" <<EOF
 #!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$fake/calls.txt"
 case "\$*" in
   *"repo view"*) echo 'example-org/example-repo' ;;
   *comments*)    echo '[]' ;;
@@ -124,6 +125,28 @@ check 'it names the conflict'          yes "$(grep -qF 'does not merge cleanly' 
 check 'origin did not move'            "$after" "$(tip)"
 check 'the worktree is on its branch'  'issue-79-clash' "$(git -C "$wt3" symbolic-ref --short HEAD)"
 check 'and no merge is left open'      '' "$(git -C "$wt3" status --porcelain)"
+
+# The issue lives in other-org/tracker and its work lands here: the subject names it with its
+# repository, because '#81' here would link to an unrelated issue of this repository.
+echo 'an issue of another repository is read there and named with it, from the branch or the argument'
+wt5="$(new_tree 81 cross)"
+git -C "$work" config branch.issue-81-cross.issueRepository other-org/tracker
+: > "$fake/calls.txt"
+out="$(integrate "$wt5" 81 --reviewed-by l4)"; rc=$?
+check 'exit 0'                         0 "$rc"
+check 'the issue was read there'       yes "$(grep -q 'other-org/tracker/issues/81' "$fake/calls.txt" && echo yes || echo no)"
+check 'the subject names its repository' 'Read the board whole (other-org/tracker#81)' "$(git --git-dir="$origin" log -1 --format=%s master)"
+check 'the next step names it too'     yes "$(grep -qx 'next: ai-core finish-issue other-org/tracker 81' <<< "$out" && echo yes || echo no)"
+wt6="$(new_tree 82 named)"
+: > "$fake/calls.txt"
+out="$(integrate "$wt6" other-org/tracker 82 --reviewed-by l4)"; rc=$?
+check 'given as an argument: exit 0'   0 "$rc"
+check 'the issue was read there'       yes "$(grep -q 'other-org/tracker/issues/82' "$fake/calls.txt" && echo yes || echo no)"
+check 'the subject names its repository' 'Read the board whole (other-org/tracker#82)' "$(git --git-dir="$origin" log -1 --format=%s master)"
+wt7="$(new_tree 83 own)"
+out="$(integrate "$wt7" example-org/example-repo 83 --reviewed-by l4)"; rc=$?
+check 'its own repository named: exit 0' 0 "$rc"
+check 'the subject keeps the short form' 'Read the board whole (#83)' "$(git --git-dir="$origin" log -1 --format=%s master)"
 
 echo 'a push the hook refuses reaches nothing, and the branch is checked out again'
 wt4="$(new_tree 80 refused)"

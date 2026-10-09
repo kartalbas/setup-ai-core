@@ -13,8 +13,10 @@ $env:GH_CACHE_DIRECTORY = Join-Path $fake 'cache'
 New-Item -ItemType Directory -Path $fake | Out-Null
 $title = Join-Path $fake 'title.txt'
 
+$calls = Join-Path $fake 'calls.txt'
 @"
 `$a = `$args -join ' '
+Add-Content -Path '$calls' -Value `$a
 if (`$a -match 'repo view') { 'example-org/example-repo'; exit 0 }
 if (`$a -match 'comments')  { '[]'; exit 0 }
 if (`$a -match 'issues/') {
@@ -127,6 +129,29 @@ Check 'it names the conflict'          'True' (Says 'does not merge cleanly')
 Check 'origin did not move'            $after (Tip)
 Check 'the worktree is on its branch'  'issue-79-clash' (On-Branch $wt3)
 Check 'and no merge is left open'      '' "$(& git -C $wt3 status --porcelain)"
+
+# The issue lives in other-org/tracker and its work lands here: the subject names it with its
+# repository, because '#81' here would link to an unrelated issue of this repository.
+Write-Host 'an issue of another repository is read there and named with it, from the branch or the argument'
+function Read-There([string]$Number) { [string][bool](@(Get-Content $calls) | Where-Object { $_ -match "other-org/tracker/issues/$Number" }) }
+$wt5 = New-Tree '81' 'cross'
+& git -C $work config branch.issue-81-cross.issueRepository other-org/tracker
+Set-Content -Path $calls -Value $null
+Invoke-Integrate $wt5 @('81', '-ReviewedBy', 'l4')
+Check 'exit 0'                           0 $rc
+Check 'the issue was read there'         'True' (Read-There '81')
+Check 'the subject names its repository' 'Read the board whole (other-org/tracker#81)' "$(& git --git-dir=$origin log -1 --format=%s master)"
+Check 'the next step names it too'       'True' (Says 'next: ai-core finish-issue 81 -Repo other-org/tracker')
+$wt6 = New-Tree '82' 'named'
+Set-Content -Path $calls -Value $null
+Invoke-Integrate $wt6 @('82', '-Repo', 'other-org/tracker', '-ReviewedBy', 'l4')
+Check 'given as an argument: exit 0'     0 $rc
+Check 'the issue was read there'         'True' (Read-There '82')
+Check 'the subject names its repository' 'Read the board whole (other-org/tracker#82)' "$(& git --git-dir=$origin log -1 --format=%s master)"
+$wt7 = New-Tree '83' 'own'
+Invoke-Integrate $wt7 @('83', '-Repo', 'example-org/example-repo', '-ReviewedBy', 'l4')
+Check 'its own repository named: exit 0' 0 $rc
+Check 'the subject keeps the short form' 'Read the board whole (#83)' "$(& git --git-dir=$origin log -1 --format=%s master)"
 
 Write-Host 'a push the hook refuses reaches nothing, and the branch is checked out again'
 $wt4 = New-Tree '80' 'refused'

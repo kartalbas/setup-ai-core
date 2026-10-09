@@ -209,6 +209,47 @@ Check 'the issue was told'     'True'  ([bool]((Calls) -match '(?s)issue comment
 $env:GH_PROJECT_NUMBER = '999983'
 Remove-Item -Path (Join-Path $fake 'no-board')
 
+# The issue lives in other-org/tracker and its work landed here: start-issue recorded that on the
+# branch, so the issue is read, its board asked and its comment posted there, never here.
+Write-Host 'an issue of another repository: read, asked and told there, from the record on its branch'
+Open-Tree 'issue-169-alert-on-a-stuck-run'
+& git -C $work config branch.issue-169-alert-on-a-stuck-run.issueRepository other-org/tracker
+Land 'issue-169-alert-on-a-stuck-run' 'Alert on a stuck run (other-org/tracker#169)'
+New-Item -ItemType File -Path (Join-Path $fake 'no-board') | Out-Null
+Set-Content -Path $log -Value $null
+Remove-Item -Recurse -Force $env:GH_CACHE_DIRECTORY -ErrorAction SilentlyContinue
+$env:GH_PROJECT_NUMBER = ''
+$ok = Invoke-Finish -Number 169
+Check 'it runs'                'True'  ([string]$ok)
+Check 'the worktree is gone'   'False' (Has-Tree 'issue-169-alert-on-a-stuck-run')
+Check 'the record went with the branch' '' "$(& git -C $work config --get branch.issue-169-alert-on-a-stuck-run.issueRepository)"
+Check 'the issue was read there' 'True' ([bool]((Calls) -match 'other-org/tracker/issues/169'))
+Check 'its board was asked'    'True'  ([bool]($printed -cmatch '(?m)^other-org/tracker is on no board - there is no card to move\r?$'))
+Check 'the issue was told there' 'True' ([bool]((Calls) -match '(?s)issue comment 169 --repo other-org/tracker .*Landed on master of example-org/example-repo:.*\(other-org/tracker#169\)'))
+
+Write-Host "this repository's own issue of the same number is not told of the other one's commit"
+Open-Tree 'issue-169-own-fix'
+Land 'issue-169-own-fix' 'Own fix (#169)'
+Set-Content -Path $log -Value $null
+Remove-Item -Recurse -Force $env:GH_CACHE_DIRECTORY -ErrorAction SilentlyContinue
+$ok = Invoke-Finish -Number 169
+Check 'it runs'                'True'  ([string]$ok)
+Check 'its own commit is named' 'True' ([bool]((Calls) -match '(?s)issue comment 169 --repo example-org/example-repo .*Landed on master:.*Own fix \(#169\)'))
+Check 'the other one is not'   'False' ([bool]((Calls) -match 'other-org/tracker#169'))
+
+Write-Host 'a branch that outlived its worktree still says where its issue lives'
+& git -C $work branch -q issue-175-gone origin/master
+& git -C $work config branch.issue-175-gone.issueRepository other-org/tracker
+Set-Content -Path $log -Value $null
+Remove-Item -Recurse -Force $env:GH_CACHE_DIRECTORY -ErrorAction SilentlyContinue
+$ok = Invoke-Finish -Number 175
+Check 'it runs'                'True'  ([string]$ok)
+Check 'the issue was read there' 'True' ([bool]((Calls) -match 'other-org/tracker/issues/175'))
+Check 'and never here'         'False' ([bool]((Calls) -match 'example-org/example-repo/issues/175'))
+& git -C $work branch -q -D issue-175-gone
+$env:GH_PROJECT_NUMBER = '999983'
+Remove-Item -Path (Join-Path $fake 'no-board')
+
 Write-Host 'an origin/HEAD naming a branch the remote no longer has: the default branch is asked of the remote'
 Open-Tree 'issue-168-read-the-default-branch'
 Land 'issue-168-read-the-default-branch' 'Read the default branch from the remote (#168)'

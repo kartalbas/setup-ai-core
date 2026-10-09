@@ -116,7 +116,8 @@ if command -v gh >/dev/null 2>&1; then
   fi
 fi
 
-# 3. The issue of this worktree: a branch or a directory named issue-N-<slug> carries issue N.
+# 3. The issue of this worktree: a branch or a directory named issue-N-<slug> carries issue N, of
+#    the repository start-issue recorded on the branch where the issue lives in another one.
 #    Its thread is read through issue-thread, and issue-mine says whether it is assigned to you.
 worktree_issue_number() {  # worktree_issue_number <name>
   local tail="${1##*/}" number
@@ -127,9 +128,10 @@ worktree_issue_number() {  # worktree_issue_number <name>
 }
 ISSUE="$(worktree_issue_number "$BRANCH")"
 [ -n "$ISSUE" ] || ISSUE="$(worktree_issue_number "$ROOT")"
-THREAD=""; THREAD_JSON="null"; ASSIGNED=false; MINE=""
+THREAD=""; THREAD_JSON="null"; ASSIGNED=false; MINE=""; ISSUE_REPO=""; ISSUE_UNREAD=""
 if [ -n "$ISSUE" ]; then
-  if THREAD_JSON="$(bash "$CORE/bin/issue-thread.sh" "$ISSUE" --json 2>&1)"; then
+  ISSUE_REPO="$(. "$CORE/lib/board.sh"; branch_issue_repo "$BRANCH")"
+  if THREAD_JSON="$(bash "$CORE/bin/issue-thread.sh" ${ISSUE_REPO:+"$ISSUE_REPO"} "$ISSUE" --json 2>&1)"; then
     THREAD="$(printf '%s' "$THREAD_JSON" | jq -r '
       "#\(.number) \(.title)",
       "state: \(.state)",
@@ -138,9 +140,10 @@ if [ -n "$ISSUE" ]; then
       .body,
       (.comments[] | "", "--- \(.author) \(.created_at)", .body)')"
   else
-    THREAD="The thread of #$ISSUE could not be read: $THREAD_JSON"; THREAD_JSON="null"
+    ISSUE_UNREAD="$(printf '%s\n' "$THREAD_JSON" | grep -m1 . || true)"
+    THREAD="The thread of ${ISSUE_REPO}#$ISSUE could not be read: $THREAD_JSON"; THREAD_JSON="null"
   fi
-  if MINE="$(bash "$CORE/bin/issue-mine.sh" "$ISSUE" 2>&1)"; then ASSIGNED=true; fi
+  if MINE="$(bash "$CORE/bin/issue-mine.sh" ${ISSUE_REPO:+"$ISSUE_REPO"} "$ISSUE" 2>&1)"; then ASSIGNED=true; fi
 fi
 
 # 4. The team modes of the tool this session runs in, switched on. The hook's output is the
@@ -190,7 +193,7 @@ if [ "$as_json" -eq 1 ]; then
     --arg map_commit "$MAP_COMMIT" --arg map_behind "$MAP_BEHIND" \
     --argjson harness_current "$HARNESS_CURRENT" --arg harness_stamp "$HARNESS_STAMP" \
     --arg release_state "$RELEASE_STATE" --arg release_lines "$RELEASE_LINES" \
-    --arg issue "$ISSUE" --argjson assigned "$ASSIGNED" \
+    --arg issue "$ISSUE" --arg issue_repository "$ISSUE_REPO" --argjson assigned "$ASSIGNED" \
     '{ refused: false, repository: $repository, root: $root, branch: $branch, uncommitted_files: $uncommitted_files,
        harness_version: $harness_version, harness_current: $harness_current, harness_stamp: $harness_stamp,
        release_state: $release_state, release_lines: $release_lines,
@@ -198,7 +201,9 @@ if [ "$as_json" -eq 1 ]; then
        local_rules_present: $local_rules_present, graft_indexed: $graft_indexed,
        gh_authenticated: $gh_authenticated, gh_user: $gh_user,
        map_commit: $map_commit, map_behind: (if $map_behind == "" then null else ($map_behind | tonumber) end),
-       issue: (if $issue == "" then null else ($issue | tonumber) end), assigned: $assigned, thread: input }'
+       issue: (if $issue == "" then null else ($issue | tonumber) end),
+       issue_repository: (if $issue_repository == "" then null else $issue_repository end),
+       assigned: $assigned, thread: input }'
   exit $((1 - RULES_OK))
 fi
 
@@ -248,7 +253,7 @@ fi
 
 if [ -n "$ISSUE" ]; then
   echo ""
-  echo "This worktree carries issue #$ISSUE. ${MINE}"
+  echo "This worktree carries issue ${ISSUE_REPO}#$ISSUE. ${MINE}"
   echo ""
   printf '%s\n' "$THREAD"
   echo ""
@@ -258,5 +263,10 @@ if [ "$RULES_OK" -eq 0 ]; then
   echo "Not ready: no rules file found. Run ai-core init in this repository." >&2
   exit 1
 fi
-echo "Ready for task execution."
+# A start without the issue it was opened for is not the start it looks like, so the last line says so
+if [ -n "$ISSUE_UNREAD" ]; then
+  echo "Ready for task execution, but WITHOUT the issue: ${ISSUE_REPO}#$ISSUE could not be read ($ISSUE_UNREAD). Read it with ai-core issue-thread ${ISSUE_REPO:+$ISSUE_REPO }$ISSUE before you start."
+else
+  echo "Ready for task execution."
+fi
 [ -z "$MODES_TEXT" ] || { echo ""; printf '%s' "$MODES_TEXT"; }

@@ -2,12 +2,14 @@
 # Integrate the reviewed branch of one issue into the default branch: a merge commit that names the
 # issue and its reviewer, pushed through the gate.
 #
-#   integrate-issue.sh NUMBER --reviewed-by REVIEWER
+#   integrate-issue.sh [OWNER/REPO] NUMBER --reviewed-by REVIEWER
 #
 # Between start-issue and finish-issue. Run it in the worktree of the issue, on its branch, once the
 # reviewer gave the GO. It fetches origin, puts the worktree on the newest origin/<default>, merges
 # the branch with --no-ff under the issue's title and a 'Reviewed-by: REVIEWER' trailer, pushes
-# HEAD:<default> through the gate, and checks the branch out again for finish-issue.
+# HEAD:<default> through the gate, and checks the branch out again for finish-issue. The issue is read
+# in OWNER/REPO where it is given, else in the repository start-issue recorded on the branch, else in
+# the checkout's own.
 #
 # A MERGE COMMIT, NOT A REBASE: the reviewed commits land as they were read, with the shas the
 # reviewer saw, and the one new commit carries the issue and the reviewer.
@@ -23,14 +25,15 @@
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 
 BIN="$ROOT/bin"
-usage='usage: integrate-issue.sh NUMBER --reviewed-by REVIEWER'
+usage='usage: integrate-issue.sh [OWNER/REPO] NUMBER --reviewed-by REVIEWER'
 
-number=""; reviewer=""
+repo=""; number=""; reviewer=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --reviewed-by)   [ $# -ge 2 ] || die "--reviewed-by takes the reviewer's name - $usage"; reviewer="$2"; shift ;;
     --reviewed-by=*) reviewer="${1#--reviewed-by=}" ;;
     -*)              die "unknown argument '$1' - $usage" ;;
+    */*)             [ -z "$repo" ] || die "$usage"; repo="$1" ;;
     *)               [ -z "$number" ] || die "$usage"; number="$1" ;;
   esac
   shift
@@ -49,10 +52,14 @@ esac
 [ -z "$(git status --porcelain)" ] \
   || die "the worktree has changes - commit them for the review, or put them aside, then run this again"
 
-title="$("$BIN/issue-thread.sh" "$number" --json 2>&1)" || die "the issue could not be read: $title"
+[ -n "$repo" ] || repo="$(branch_issue_repo "$branch")"
+title="$("$BIN/issue-thread.sh" ${repo:+"$repo"} "$number" --json 2>&1)" || die "the issue could not be read: $title"
 title="$(printf '%s' "$title" | jq -r '.title // ""')"
-subject="$title (#$number)"
-[ -n "$title" ] && [ "${#subject}" -le 72 ] || subject="Merge $branch (#$number)"
+ref="$(issue_ref "$repo" "$number")"
+# The subject the gate takes is 72 characters at most, so a longer one falls back, shortest last
+subject="$title ($ref)"
+[ -n "$title" ] && [ "${#subject}" -le 72 ] || subject="Merge $branch ($ref)"
+[ "${#subject}" -le 72 ] || subject="Merge issue-$number ($ref)"
 
 said="$(git fetch origin 2>&1)" || die "could not reach origin: $said"
 default="$(origin_default_branch)" || exit 1
@@ -75,4 +82,4 @@ git push origin "HEAD:$default" \
   || back_to_branch "the push was refused (see above) - nothing reached origin, and $branch is checked out again"
 git switch -q "$branch" || die "$merged is on origin/$default, but $branch could not be checked out again - run git switch $branch before finish-issue"
 echo "integrated: $merged on origin/$default, $subject, Reviewed-by: $reviewer"
-echo "next: ai-core finish-issue $number"
+echo "next: ai-core finish-issue ${repo:+$repo }$number"

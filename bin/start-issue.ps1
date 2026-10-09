@@ -4,6 +4,8 @@ Open the worktree for one issue, move its card, and print what the issue asks fo
 
 .EXAMPLE
 ./start-issue.ps1 -Number 163
+.EXAMPLE
+./start-issue.ps1 -Number 163 -Repo other-org/tracker
 
 .NOTES
 The three happen together on purpose. A worktree cut from a stale master carries work nobody
@@ -21,11 +23,15 @@ nobody unpicks. Its branch is temporary and carries the worktree's own name; it 
 worktree has somewhere to commit, and it is deleted with the worktree.
 
 It is run from inside the repository the work belongs to. The default branch is READ from
-origin/HEAD and never assumed.
+origin/HEAD and never assumed. Where the issue lives in another repository than the work, it is
+named with -Repo: the worktree is cut here, and the issue's repository is recorded on its branch
+(git config branch.<branch>.issueRepository), where session-start, integrate-issue and
+finish-issue read it.
 #>
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory)][ValidatePattern('^[0-9]+\z', ErrorMessage = "the issue number must be numeric, not '{0}'")][string] $Number
+  [Parameter(Mandatory)][ValidatePattern('^[0-9]+\z', ErrorMessage = "the issue number must be numeric, not '{0}'")][string] $Number,
+  [string] $Repo = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -80,7 +86,8 @@ if ([int]$counted.Text -ne 0) {
 # No worktree without an issue: the title is what it is named after, and the thread is what the
 # change will be measured against.
 $reader = Join-Path $PSScriptRoot 'issue-thread.ps1'
-try { $raw = (@(& $reader -Number $Number -Json) -join "`n").Trim() }
+$where = if ($Repo) { @{ Repo = $Repo } } else { @{} }
+try { $raw = (@(& $reader -Number $Number @where -Json) -join "`n").Trim() }
 catch { Stop-WithError "no worktree without an issue - the issue could not be read: $($_.Exception.Message)" }
 $thread = $raw | ConvertFrom-Json -DateKind String
 $title = "$($thread.title)"
@@ -90,7 +97,7 @@ if ($title.Trim() -eq '') {
 
 # Only an issue assigned to you is taken up (rules.md, the issue rules): the worktree is not cut
 # for somebody else's issue, and not for one nobody has been given yet.
-$mine = @(& (Join-Path $PSScriptRoot 'issue-mine.ps1') -Number $Number 2>&1 | ForEach-Object { "$_" }) -join "`n"
+$mine = @(& (Join-Path $PSScriptRoot 'issue-mine.ps1') -Number $Number @where 2>&1 | ForEach-Object { "$_" }) -join "`n"
 if ($LASTEXITCODE -ne 0) { Stop-WithError $mine }
 
 # The readable half of the name. Everything that is not a letter or a digit becomes a hyphen,
@@ -124,10 +131,16 @@ New-Item -ItemType Directory -Force -Path $container | Out-Null
 $made = Invoke-Git worktree add -b $name $path "origin/$default"
 if (-not $made.Ok) { Stop-WithError "the worktree could not be created: $($made.Text)" }
 "Worktree $path on $name, cut from origin/$default."
+if ((Get-IssueRef -Repo $Repo -Number $Number) -cne "#$Number") {
+  if (-not (Invoke-Git config "branch.$name.issueRepository" $Repo).Ok) {
+    Stop-WithError "the issue's repository could not be recorded on $name - run git config branch.$name.issueRepository $Repo"
+  }
+  "The issue lives in ${Repo}: recorded on $name, where session-start, integrate-issue and finish-issue read it."
+}
 
 # The card and the worktree move together, and a card that did not move is said out loud rather
 # than left for the next person to notice on the board.
-try { & (Join-Path $PSScriptRoot 'issue-status.ps1') -Number $Number -Status implementing }
+try { & (Join-Path $PSScriptRoot 'issue-status.ps1') -Number $Number -Status implementing @where }
 catch { Write-Error "the card did NOT move: $($_.Exception.Message) - move it before you start" -ErrorAction Continue }
 
 # Worktrees whose work landed a day ago or more go as this one opens (finish-issue -Sweep),
@@ -140,4 +153,4 @@ catch { Write-Error "the card did NOT move: $($_.Exception.Message) - move it be
 & pwsh -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'bin\init.ps1') -TargetDir $path -NoDoctor
 if ($LASTEXITCODE -ne 0) { Write-Host "the harness is NOT complete in the worktree: run 'ai-core init' there before you start" }
 
-try { & $reader -Number $Number } catch { }
+try { & $reader -Number $Number @where } catch { }

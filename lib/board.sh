@@ -232,6 +232,21 @@ default_repo() {
 # the repo comes from the current directory.
 resolve_repo() { case "${1:-}" in */*) echo "$1" ;; *) default_repo ;; esac; }
 
+# The repository the issue of an issue branch lives in, where that is not the checkout's own. An
+# issue's work can have to land in a second repository; start-issue then records the issue's
+# repository on the branch, and every command that reads the issue of a worktree reads it there,
+# because the number alone names an unrelated issue, or none, in the checkout's own repository.
+# Empty for a branch whose issue lives in its own repository.
+branch_issue_repo() { [ -n "${1:-}" ] && git config --get "branch.$1.issueRepository" 2>/dev/null || true; }
+
+# How a commit names issue <number> of <repo>: '#<number>' in the issue's own repository, and
+# '<repo>#<number>' from another one, where '#<number>' links to an unrelated issue. GitHub reads
+# a repository name in any case, so the comparison does too.
+issue_ref() {  # issue_ref <repo or empty> <number>
+  local lower='tr A-Z a-z'
+  if [ -n "$1" ] && [ "$(printf '%s' "$1" | $lower)" != "$(default_repo 2>/dev/null | $lower)" ]; then echo "$1#$2"; else echo "#$2"; fi
+}
+
 # Who a new issue in this repo belongs to.
 #
 # An issue lands on whoever OWNS the repository, not on whoever typed the command,

@@ -20,6 +20,11 @@ $env:GH_PROJECT_NUMBER = '999980'
 `$a = `$args -join ' '
 Add-Content -Path '$log' -Value `$a
 if (`$a -match 'repo view')           { 'example-org/example-repo'; exit 0 }
+# The issue of another repository (the cross-repository case below): asked of this repository,
+# the same number is Not Found, so a read in the wrong one shows as a failure, not a wrong title.
+if (`$a -match 'other-org/tracker/issues/[0-9]+/comments') { '[]'; exit 0 }
+if (`$a -match 'other-org/tracker/issues/') { '{"number":171,"title":"Alert on a stuck run","state":"open","labels":[],"assignees":[{"login":"tester"}],"body":"The rule lands in the other repository."}'; exit 0 }
+if (`$a -match 'issues/171') { '{"message":"Not Found"}'; [Console]::Error.WriteLine('gh: Not Found (HTTP 404)'); exit 1 }
 if (`$a -match 'comments')            { '[]'; exit 0 }
 if (`$a -match '--jq .node_id')       { 'I_node163'; exit 0 }
 if (`$a -match 'projectV2\(number:')  { 'PVT_kwstart'; exit 0 }
@@ -202,6 +207,50 @@ $ok = Invoke-Start 168
 Check 'it does not throw'      'True' ([string]$ok)
 Check 'cut from origin/master' 'True' ([bool](@($printed) -cmatch '^Worktree .*issue-168-.*, cut from origin/master\.$'))
 & git -C $work remote set-head origin -a | Out-Null
+
+Write-Host 'an issue of another repository: cut here, read there, and its repository recorded on the branch'
+New-Item -ItemType File -Path (Join-Path $fake 'no-board') | Out-Null
+Set-Content -Path $log -Value $null
+$env:GH_PROJECT_NUMBER = ''
+Push-Location $work
+try { $said = ''; $printed = @(& $start -Number 171 -Repo other-org/tracker 2>&1 | ForEach-Object { "$_" }) }
+catch { $said = $_.Exception.Message } finally { Pop-Location }
+$cut = 'issue-171-alert-on-a-stuck-run'
+Check 'it does not throw'               '' $said
+Check 'the branch carries the number'    $cut ((& git -C $work for-each-ref '--format=%(refname:short)' refs/heads | Where-Object { $_ -like 'issue-171*' }) -join ' ')
+Check 'the repository is recorded on it' 'other-org/tracker' (& git -C $work config --get "branch.$cut.issueRepository")
+Check 'the issue was read there'         'True' ([bool](Calls | Where-Object { $_ -match 'other-org/tracker/issues/171' }))
+Check 'and never here'                   0 (@(Calls | Where-Object { $_ -match 'example-org/example-repo/issues' }).Count)
+
+Write-Host 'its own repository, named in another case, is no other repository'
+Push-Location $work
+try { $said = ''; $null = @(& $start -Number 172 -Repo Example-Org/Example-Repo 2>&1) }
+catch { $said = $_.Exception.Message } finally { Pop-Location }
+Check 'it does not throw'               '' $said
+Check 'nothing is recorded'              '' "$(& git -C $work config --get-regexp '^branch\.issue-172-.*\.issuerepository$')"
+
+Write-Host 'session-start in that worktree reads the issue where the branch says, and ends ready'
+$wt = Join-Path $checkouts ".worktrees/example-repo/$cut"
+$env:AI_CORE_UPDATE_CHECK = 'never'
+function Invoke-SessionStart { Push-Location $wt; try { @(& pwsh -NoProfile -File (Join-Path $root 'bin/session-start.ps1') @args 2>&1 | ForEach-Object { "$_" }) } finally { Pop-Location } }
+$out = Invoke-SessionStart
+Check 'it exits zero'                    0 $LASTEXITCODE
+Check 'it names the issue by its repository' 'True' ([bool](@($out) -cmatch '^This worktree carries issue other-org/tracker#171\.'))
+Check 'it carries the thread'            'True' ([bool](($out -join "`n").Contains('The rule lands in the other repository.')))
+Check 'it ends ready'                    'True' ([bool](@($out) -ceq 'Ready for task execution.'))
+Check 'the JSON names the repository'    'other-org/tracker' ((Invoke-SessionStart -Json) -join "`n" | ConvertFrom-Json).issue_repository
+
+Write-Host 'an issue that cannot be read: the start does not end as if it had been read'
+& git -C $work config --unset "branch.$cut.issueRepository"
+$out = Invoke-SessionStart
+Check 'it exits zero'                    0 $LASTEXITCODE
+Check 'no plain ready'                   'False' ([bool](@($out) -ceq 'Ready for task execution.'))
+Check 'the last line names the miss'     'True' ([bool](@($out)[-1] -cmatch '^Ready for task execution, but WITHOUT the issue: #171 could not be read \('))
+$json = (Invoke-SessionStart -Json) -join "`n" | ConvertFrom-Json
+Check 'the JSON names no repository'     'True' ([bool]($json.PSObject.Properties.Name -contains 'issue_repository' -and $null -eq $json.issue_repository))
+& git -C $work worktree remove --force $wt 2>$null | Out-Null
+$env:GH_PROJECT_NUMBER = '999980'
+Remove-Item -Path (Join-Path $fake 'no-board')
 
 Set-Location $root
 & git -C $work worktree remove --force $tree 2>$null | Out-Null

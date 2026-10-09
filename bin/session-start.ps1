@@ -120,7 +120,8 @@ if (Get-Command gh -ErrorAction SilentlyContinue) {
   } catch {}
 }
 
-# 3. The issue of this worktree: a branch or a directory named issue-N-<slug> carries issue N.
+# 3. The issue of this worktree: a branch or a directory named issue-N-<slug> carries issue N, of
+#    the repository start-issue recorded on the branch where the issue lives in another one.
 #    Its thread is read through issue-thread, and issue-mine says whether it is assigned to you.
 function Get-WorktreeIssueNumber([string]$name) {
   $tail = ($name -split '[\\/]')[-1]
@@ -129,9 +130,12 @@ function Get-WorktreeIssueNumber([string]$name) {
 }
 $issue = Get-WorktreeIssueNumber $branch
 if (-not $issue) { $issue = Get-WorktreeIssueNumber $root }
-$thread = ""; $threadObject = $null; $assigned = $false; $mine = ""
+$thread = ""; $threadObject = $null; $assigned = $false; $mine = ""; $issueRepo = ""; $issueUnread = ""
 if ($issue) {
-  $raw = & pwsh -NoProfile -File (Join-Path $core "bin\issue-thread.ps1") $issue -Json 2>&1 | ForEach-Object { "$_" }
+  Import-Module (Join-Path $core 'lib\Board.psm1') -Force
+  $issueRepo = Get-BranchIssueRepo -Branch $branch
+  $where = if ($issueRepo) { @('-Repo', $issueRepo) } else { @() }
+  $raw = & pwsh -NoProfile -File (Join-Path $core "bin\issue-thread.ps1") $issue @where -Json 2>&1 | ForEach-Object { "$_" }
   if ($LASTEXITCODE -eq 0) {
     $threadObject = ($raw -join "`n") | ConvertFrom-Json
     $lines = @("#$($threadObject.number) $($threadObject.title)", "state: $($threadObject.state)",
@@ -139,9 +143,10 @@ if ($issue) {
     foreach ($c in $threadObject.comments) { $lines += @("", "--- $($c.author) $($c.created_at)", $c.body) }
     $thread = $lines -join "`n"
   } else {
-    $thread = "The thread of #$issue could not be read: $($raw -join ' ')"
+    $issueUnread = "$(@($raw | Where-Object { "$_".Trim() }) | Select-Object -First 1)".Trim()
+    $thread = "The thread of ${issueRepo}#$issue could not be read: $($raw -join ' ')"
   }
-  $mine = (& pwsh -NoProfile -File (Join-Path $core "bin\issue-mine.ps1") $issue 2>&1 | ForEach-Object { "$_" }) -join ' '
+  $mine = (& pwsh -NoProfile -File (Join-Path $core "bin\issue-mine.ps1") $issue @where 2>&1 | ForEach-Object { "$_" }) -join ' '
   if ($LASTEXITCODE -eq 0) { $assigned = $true }
 }
 
@@ -208,6 +213,7 @@ if ($Json) {
     map_commit          = $mapCommit
     map_behind          = $(if ($mapBehind -ne '') { [int]$mapBehind } else { $null })
     issue               = $(if ($issue) { [int]$issue } else { $null })
+    issue_repository    = $(if ($issueRepo) { $issueRepo } else { $null })
     assigned            = $assigned
     thread              = $threadObject
   } | ConvertTo-Json -Depth 6
@@ -260,7 +266,7 @@ if ($dirtyCount -gt 0) {
 
 if ($issue) {
   Write-Host ""
-  Write-Host "This worktree carries issue #$issue. $mine"
+  Write-Host "This worktree carries issue ${issueRepo}#$issue. $mine"
   Write-Host ""
   Write-Host $thread
   Write-Host ""
@@ -270,5 +276,10 @@ if (-not $rulesOk) {
   Write-Host "Not ready: no rules file found. Run ai-core init in this repository." -ForegroundColor Red
   exit 1
 }
-Write-Host "Ready for task execution." -ForegroundColor Green
+# A start without the issue it was opened for is not the start it looks like, so the last line says so
+if ($issueUnread) {
+  Write-Host "Ready for task execution, but WITHOUT the issue: ${issueRepo}#$issue could not be read ($issueUnread). Read it with ai-core issue-thread $(if ($issueRepo) { "$issue -Repo $issueRepo" } else { $issue }) before you start." -ForegroundColor Yellow
+} else {
+  Write-Host "Ready for task execution." -ForegroundColor Green
+}
 if ($modesText.Count -gt 0) { Write-Host ""; foreach ($l in $modesText) { Write-Host $l } }

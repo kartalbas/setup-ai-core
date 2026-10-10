@@ -584,19 +584,29 @@ function Send-Gitignore([string]$dir) {
   if ($LASTEXITCODE -eq 0) { return "committed and pushed to origin/$branch" }
   return "committed; the push was refused or failed (see above), the commit stays"
 }
+# A line of .gitignore as the block is compared with it: no trailing blanks, one slash less on each end
+function Get-IgnoreKey([string]$line) {
+  $key = $line.TrimEnd()
+  if ($key.StartsWith('/', [StringComparison]::Ordinal)) { $key = $key.Substring(1) }
+  if ($key.EndsWith('/', [StringComparison]::Ordinal)) { $key = $key.Substring(0, $key.Length - 1) }
+  return $key
+}
 # The .gitignore the checkout should have, $wanted, against the one it has, $current
 $buildGitignore = {
   $lines = if (Test-Path $gi) { [System.IO.File]::ReadAllLines($gi) } else { @() }
   $seen = @{}; $skip = $false
   foreach ($line in $lines) {
     if ($line -clike '# setup-ai-core start*') { $skip = $true }
-    if (-not $skip -and $line -and -not $line.StartsWith('#', [StringComparison]::Ordinal)) { $seen[$line.Trim().Trim('/')] = $true }
+    if (-not $skip -and $line -and -not $line.StartsWith('#', [StringComparison]::Ordinal)) { $seen[(Get-IgnoreKey $line)] = $true }
     if ($line -clike '# setup-ai-core end*') { $skip = $false }
   }
+  # A start line without its end leaves no way to tell the block from the project's lines after it
+  $open = $skip
+  $crlf = (Test-Path $gi) -and [System.IO.File]::ReadAllText($gi).Contains("`r`n")
   $markers = @(); $missing = @()
   foreach ($line in [System.IO.File]::ReadAllLines((Join-Path $coreRoot "lib\gitignore-block"))) {
     if ($line.StartsWith('#', [StringComparison]::Ordinal)) { $markers += $line; continue }
-    if (-not $seen.ContainsKey($line.Trim().Trim('/'))) { $missing += $line }
+    if (-not $seen.ContainsKey((Get-IgnoreKey $line))) { $missing += $line }
   }
   $block = if ($missing.Count -gt 0) { @($markers[0]) + $missing + @($markers[1]) } else { @() }
   # The block in the place of the first one the file holds, every other line as it stands
@@ -610,11 +620,12 @@ $buildGitignore = {
   $wanted = if ($out.Count) { ($out -join "`n") + "`n" } else { '' }
   $current = if (Test-Path $gi) { [System.IO.File]::ReadAllText($gi).Replace("`r`n", "`n") } else { $null }
 }
-$gitignoreChanged = $false; $gitignoreNote = ''; $gitignoreBehind = $false
+$gitignoreChanged = $false; $gitignoreNote = ''; $gitignoreBehind = $false; $gitignoreOpen = $false
 if ($inWorkTree -and "$(& git -C $target rev-parse --git-dir 2>$null)" -ceq "$(& git -C $target rev-parse --git-common-dir 2>$null)") {
   $gi = Join-Path $target ".gitignore"
   . $buildGitignore
-  if ($current -cne $wanted) {
+  if ($open) { $gitignoreOpen = $true }
+  elseif ($current -cne $wanted) {
     $gitignoreChanged = $true
     if (-not $DryRun) {
       # The commit goes on top of what the origin has: the checkout catches up first, and the
@@ -623,7 +634,7 @@ if ($inWorkTree -and "$(& git -C $target rev-parse --git-dir 2>$null)" -ceq "$(&
       if (-not $caught.Ok) { $gitignoreBehind = $true; $gitignoreNote = $caught.Note }
       else {
         if ($caught.Note) { . $buildGitignore }
-        if ($current -cne $wanted) { [System.IO.File]::WriteAllText($gi, $wanted, $utf8); $gitignoreNote = "$(if ($caught.Note) { "$($caught.Note); " })$(Send-Gitignore $target)" }
+        if ($current -cne $wanted) { [System.IO.File]::WriteAllText($gi, $(if ($crlf) { $wanted.Replace("`n", "`r`n") } else { $wanted }), $utf8); $gitignoreNote = "$(if ($caught.Note) { "$($caught.Note); " })$(Send-Gitignore $target)" }
         else { $gitignoreChanged = $false; $gitignoreNote = $caught.Note }
       }
     }
@@ -666,6 +677,7 @@ if ($gitignoreChanged) {
   elseif ($gitignoreBehind) { Write-Host "  .gitignore not written: this checkout is $gitignoreNote" }
   else { Write-Host "  .gitignore changed: the agent files of this repository are ignored; $gitignoreNote" }
 } elseif ($gitignoreNote) { Write-Host "  .gitignore: $gitignoreNote; the block was there already" }
+if ($gitignoreOpen) { Write-Host "  .gitignore not written: it has a '# setup-ai-core start' line and no '# setup-ai-core end' after it; end the block or delete its start line, then run this again" }
 if ($worktreeDataFrom) { Write-Host "  .ai-core $(if ($DryRun) { 'would be taken' } else { 'taken' }) from the checkout ${worktreeDataFrom}: a worktree starts with the checkout's configuration, local rules and documents" }
 if ($neighboursLinked.Count) { Write-Host "  links to the neighbour checkouts $(if ($DryRun) { 'would be made' } else { 'made' }) in ${neighboursIn}: $($neighboursLinked -join ' '); .. finds them from the worktree as from the checkout" }
 if ($hooksArmed) { Write-Host "  core.hooksPath $(if ($DryRun) { 'would be set' } else { 'set' }) to .githooks: the push gate runs here" }

@@ -30,7 +30,14 @@ fixture after "node_modules/"$'\n'"$BLOCK"$'\n\n'"# the cursor rules are ours"$'
 fixture old-block "dist/"$'\n\n'"$OLD"$'\n\n'"# local"$'\n'"*.log"$'\n' "dist/"$'\n\n'"$BLOCK"$'\n\n'"# local"$'\n'"*.log"$'\n'
 fixture covered "dist/"$'\n'"$OLD"$'\n'"$ENTRIES"$'\n' "dist/"$'\n'"$ENTRIES"$'\n'
 fixture none "dist/"$'\n\n' "dist/"$'\n\n'"$BLOCK"$'\n'
-for f in blank-before after old-block covered none; do
+fixture no-newline "dist/" "dist/"$'\n'"$BLOCK"$'\n'
+fixture two-blocks "a"$'\n'"$OLD"$'\n'"b"$'\n'"$OLD"$'\n'"c"$'\n' "a"$'\n'"$BLOCK"$'\n'"b"$'\n'"c"$'\n'
+fixture empty "" "$BLOCK"$'\n'
+OPEN="dist/"$'\n'"# setup-ai-core start: x"$'\n'"/GEMINI.md"$'\n'"keepme"$'\n'
+fixture open "$OPEN" "$OPEN"
+printf '%s\n' dist/ "$OLD" '' '*.log' | awk '{ printf "%s\r\n", $0 }' > "$WORK/gip-crlf.before"
+printf '%s\n' dist/ "$BLOCK" '' '*.log' | awk '{ printf "%s\r\n", $0 }' > "$WORK/gip-crlf.after"
+for f in blank-before after old-block covered none no-newline two-blocks empty open crlf; do
   for twin in sh ps1; do
     R="$WORK/gip-$f-$twin"; git init -q "$R"; mkdir -p "$R/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$R/.ai-core/config.env"
     git -C "$R" config user.name check; git -C "$R" config user.email check@localhost
@@ -39,14 +46,15 @@ for f in blank-before after old-block covered none; do
       if [ "$twin" = sh ]; then bash "$ROOT/bin/init.sh" "$R" --no-doctor > "$R-$run.log" 2>&1; else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$R")" -NoDoctor > "$R-$run.log" 2>&1; fi || fail "init.$twin on $f, run $run (see $R-$run.log)"
       [ "$run" = 1 ] && cp "$R/.gitignore" "$R.first"
     done
-    cmp -s <(tr -d '\r' < "$R/.gitignore") "$WORK/gip-$f.after" || fail "init.$twin on $f wrote: $(tr '\n' '|' < "$R/.gitignore") - expected: $(tr '\n' '|' < "$WORK/gip-$f.after")"
+    cmp -s "$R/.gitignore" "$WORK/gip-$f.after" || fail "init.$twin on $f wrote: $(tr '\n' '|' < "$R/.gitignore") - expected: $(tr '\n' '|' < "$WORK/gip-$f.after")"
     cmp -s "$R.first" "$R/.gitignore" || fail "init.$twin on $f changed the .gitignore again on the second run"
     if cmp -s "$WORK/gip-$f.before" "$WORK/gip-$f.after"; then commits=1; else commits=2; fi
     [ "$(git -C "$R" rev-list --count HEAD)" = "$commits" ] || fail "init.$twin on $f made $(( $(git -C "$R" rev-list --count HEAD) - 1 )) commit(s), expected $(( commits - 1 ))"
+    [ "$f" != open ] || grep -aqxF "  .gitignore not written: it has a '# setup-ai-core start' line and no '# setup-ai-core end' after it; end the block or delete its start line, then run this again" "$R-1.log" || fail "init.$twin did not name the block without its end line (see $R-1.log)"
   done
   cmp -s "$WORK/gip-$f-sh/.gitignore" "$WORK/gip-$f-ps1/.gitignore" || fail "the twins wrote different .gitignore files on $f"
 done
-echo "  a current block between blank lines and after-lines: nothing written, nothing committed; an old one: rewritten in its place; one the project covers: gone where it stood; none: appended; a second run changes nothing; the twins agree"
+echo "  a current block between blank lines and after-lines: nothing written, nothing committed; an old one: rewritten in its place, CRLF kept; one the project covers: gone where it stood; a second one: gone; none, no final newline, an empty file: appended; a block without its end: left alone and named; a second run changes nothing; the twins agree"
 
 section "init commits the block on top of what the origin has: a clone the origin moved past catches up first, one with a commit of its own is left alone; both twins"
 for twin in sh ps1; do

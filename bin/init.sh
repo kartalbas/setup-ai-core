@@ -569,10 +569,15 @@ gitignore_build() {  # the .gitignore the checkout should have, into $TMP/gitign
     END { if (!placed) put() }' "$TMP/gitignore-now" "$TMP/gitignore-now" > "$TMP/gitignore"
 }
 gitignore_differs() { ! { [ -f "$GI" ] && cmp -s "$TMP/gitignore" <(tr -d '\r' < "$GI"); }; }
-GITIGNORE_CHANGED=0; GITIGNORE_NOTE=""; GITIGNORE_BEHIND=0
-if git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-  && [ "$(git -C "$TARGET" rev-parse --git-dir)" = "$(git -C "$TARGET" rev-parse --git-common-dir)" ]; then
-  GI="$TARGET/.gitignore"
+GITIGNORE_CHANGED=0; GITIGNORE_NOTE=""; GITIGNORE_BEHIND=0; GITIGNORE_OPEN=0
+GI="$TARGET/.gitignore"; MAIN_CHECKOUT=0
+git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+  && [ "$(git -C "$TARGET" rev-parse --git-dir)" = "$(git -C "$TARGET" rev-parse --git-common-dir)" ] && MAIN_CHECKOUT=1
+# A start line without its end leaves no way to tell the block from the project's lines after it
+if [ "$MAIN_CHECKOUT" -eq 1 ] && [ -f "$GI" ] \
+  && tr -d '\r' < "$GI" | awk '/^# setup-ai-core start/ { open = 1 } /^# setup-ai-core end/ { open = 0 } END { exit !open }'; then
+  GITIGNORE_OPEN=1
+elif [ "$MAIN_CHECKOUT" -eq 1 ]; then
   gitignore_build
   if gitignore_differs; then
     GITIGNORE_CHANGED=1
@@ -583,7 +588,9 @@ if git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
       if [ "$GITIGNORE_BEHIND" -eq 1 ]; then GITIGNORE_NOTE="$CAUGHT"
       else
         [ -z "$CAUGHT" ] || gitignore_build
-        if gitignore_differs; then cp -f "$TMP/gitignore" "$GI"; GITIGNORE_NOTE="${CAUGHT:+$CAUGHT; }$(commit_gitignore "$TARGET")"
+        if gitignore_differs; then
+          if grep -q $'\r' "$GI" 2>/dev/null; then awk '{ printf "%s\r\n", $0 }' "$TMP/gitignore" > "$GI"; else cp -f "$TMP/gitignore" "$GI"; fi
+          GITIGNORE_NOTE="${CAUGHT:+$CAUGHT; }$(commit_gitignore "$TARGET")"
         else GITIGNORE_CHANGED=0; GITIGNORE_NOTE="$CAUGHT"; fi
       fi
     fi
@@ -618,6 +625,7 @@ if [ "$GITIGNORE_CHANGED" -eq 1 ]; then
   else echo "  .gitignore changed: the agent files of this repository are ignored; $GITIGNORE_NOTE"; fi
 elif [ -n "$GITIGNORE_NOTE" ]; then echo "  .gitignore: $GITIGNORE_NOTE; the block was there already"
 fi
+[ "$GITIGNORE_OPEN" -eq 0 ] || echo "  .gitignore not written: it has a '# setup-ai-core start' line and no '# setup-ai-core end' after it; end the block or delete its start line, then run this again"
 if [ -n "$WORKTREE_DATA_FROM" ]; then echo "  .ai-core $([ "$DRY" -eq 1 ] && echo "would be taken" || echo "taken") from the checkout $WORKTREE_DATA_FROM: a worktree starts with the checkout's configuration, local rules and documents"; fi
 if [ -n "$NEIGHBOURS_LINKED" ]; then echo "  links to the neighbour checkouts $([ "$DRY" -eq 1 ] && echo "would be made" || echo "made") in $NEIGHBOURS_IN:$NEIGHBOURS_LINKED; .. finds them from the worktree as from the checkout"; fi
 if [ "$HOOKS_ARMED" -eq 1 ]; then echo "  core.hooksPath $([ "$DRY" -eq 1 ] && echo "would be set" || echo "set") to .githooks: the push gate runs here"; fi

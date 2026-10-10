@@ -230,8 +230,9 @@ from. Every other file is created once and never overwritten. All of it is regis
 or the harness puts into a checkout, `/.ai-core/`, `/AGENTS.md`, `/.claude/`,
 `/.agents/`, the pointer files. The block stands between two marker
 lines and only the block is rewritten, in its place, on every run: every other line is the
-project's and stays as it is, blank lines and the lines after the block too, and a file without a
-block gets it at its end. A path the project already ignores is not written twice, and a project
+project's and stays as it is, blank lines, the lines after the block and CRLF line ends too, and
+a file without a block gets it at its end. A start line without its end line leaves the file
+alone, because nothing tells the block from the lines after it; the report names it. A path the project already ignores is not written twice, and a project
 that ignores them all gets no block, or loses the one it had where it stood. Only the main
 checkout writes the block: `init` commits that `.gitignore` on its own (subject `the agent files
 of this repository are ignored`, a `No-issue:` trailer naming `init`) and pushes it by ref to the

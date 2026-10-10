@@ -104,12 +104,12 @@ for twin in sh ps; do
   [ "$(cat "$F/.worktrees/app/docs")" = mine ] || fail "init replaced an entry that stood beside the worktree already ($twin)"
   [ -e "$F/.worktrees/app/app" ] && fail "init linked the worktree's own repository beside it ($twin)"
   [ -e "$F/.worktrees/app/notes" ] && fail "init linked a folder that is no checkout ($twin)"
-  case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) foreign=0 ;; *) foreign=1; ln -s /nowhere/else "$F/.worktrees/app/foreign"
+  case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) foreign=0 ;; *) foreign=1; ln -s /nowhere/foreign "$F/.worktrees/app/foreign"
     ln -s loop-b "$F/.worktrees/app/loop-a"; ln -s loop-a "$F/.worktrees/app/loop-b" ;; esac   # a loop cannot be followed at all
   rm -rf "$F/lib"                                      # the neighbour checkout goes, its link stays behind
   init_one dry || fail "init --dry-run on a worktree beside a dangling link failed ($twin, see $F-dry.log)"
   [ -L "$F/.worktrees/app/lib" ] || fail "init --dry-run removed the link to the checkout that is gone ($twin)"
-  grep -aq '^  links to checkouts that are gone would be removed in \.worktrees/app/: lib[[:space:]]*$' "$F-dry.log" || fail "init --dry-run does not name the link it would remove ($twin, see $F-dry.log)"
+  grep -aq '^  links to checkouts that are gone would be removed in \.worktrees/app/: lib[[:space:]]*$' "$F-dry.log" || fail "init --dry-run does not name the link it would remove ($twin, the link names $(readlink "$F/.worktrees/app/lib" 2>&1), see $F-dry.log)"
   init_one real || fail "init on a worktree beside a dangling link failed ($twin): $(tail -5 "$F-real.log")"
   [ -L "$F/.worktrees/app/lib" ] && fail "init left the link to the checkout that is gone ($twin)"
   grep -aq '^  links to checkouts that are gone removed in \.worktrees/app/: lib[[:space:]]*$' "$F-real.log" || fail "init does not name the link it removed ($twin, see $F-real.log)"

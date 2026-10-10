@@ -154,7 +154,10 @@ if [ "$PROJECT_FOLDER" -eq 0 ]; then
       for link in "$container"/*; do
         name="${link##*/}"
         [ -L "$link" ] && [ ! -e "$link" ] || continue
-        case "$(readlink "$link")" in "../../$name"|"$folder/$name") ;; *) continue ;; esac
+        # Git Bash spells a junction's target in its own form, not as git spells the folder, so the
+        # place the link names is compared, not its spelling.
+        to="$(readlink "$link")"
+        [ "${to##*/}" = "$name" ] && (cd "$container" && [ "$(dirname "$to")" -ef "$folder" ]) || continue
         [ "$DRY" -eq 1 ] || rm -f "$link"
         NEIGHBOURS_UNLINKED="$NEIGHBOURS_UNLINKED $name"
       done

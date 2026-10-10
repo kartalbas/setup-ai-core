@@ -12,7 +12,9 @@ init_twin() {  # init_twin <sh|ps1> <dir> <log> [--dry-run]: init without doctor
     pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$dir")" -NoDoctor ${ps[@]+"${ps[@]}"} > "$log" 2>&1
   fi
 }
-report_of() { sed -n '/^init would change in /,/^====/p; /^init changed in /,/^====/p' "$1" | grep -a '^  ' | tr -d '\r' | sed 's/^  \.gitignore .*/  .gitignore/'; }   # the report lines of a log; the .gitignore line without its note
+# The report lines of a log; the .gitignore line without its note, and Claude Code's folder under one
+# name, because on Windows bash spells it /tmp/... and PowerShell C:/Users/.../Temp/...
+report_of() { sed -n '/^init would change in /,/^====/p; /^init changed in /,/^====/p' "$1" | grep -a '^  ' | tr -d '\r' | sed 's/^  \.gitignore .*/  .gitignore/; s#[^ ]*/claude-config#CLAUDE_CONFIG_DIR#g'; }
 for twin in sh ps1; do
   D="$WORK/report-$twin"
   git init -q "$D"; echo readme > "$D/README.md"; git -C "$D" add README.md

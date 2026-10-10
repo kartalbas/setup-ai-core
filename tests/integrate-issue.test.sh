@@ -170,6 +170,24 @@ out="$(integrate "$wt9" 85 --reviewed-by l4)"; rc=$?
 check 'a lock whose process is gone: exit 0' 0 "$rc"
 check 'it says it took the lock over'  yes "$(grep -qxF "taken over: the landing lock of example-org/example-repo#6, whose process $dead no longer runs" <<< "$out" && echo yes || echo no)"
 check 'and released it'                no "$([ -e "$lock" ] && echo yes || echo no)"
+# A holder of another user's: kill -0 cannot signal it, and it still runs. Process 1 is one where
+# this test runs unprivileged on a system that has it.
+if ps -p 1 >/dev/null 2>&1 && ! kill -0 1 2>/dev/null; then
+  printf '%s\t%s\n' 1 'example-org/example-repo#7' > "$lock"
+  ( sleep 3; rm -f "$lock" ) & release=$!
+  wt11="$(new_tree 87 foreign)"
+  out="$(integrate "$wt11" 87 --reviewed-by l4)"; rc=$?
+  wait "$release" 2>/dev/null
+  check "another user's process: exit 0" 0 "$rc"
+  check 'it is waited for, not taken over' yes "$(grep -qxF 'waiting: example-org/example-repo#7 is landing from this clone (process 1); this one lands after it' <<< "$out" && echo yes || echo no)"
+else
+  echo "  skip another user's process: process 1 is missing here or this test may signal it"
+fi
+printf 'half written' > "$lock"
+wt10="$(new_tree 86 blank)"
+out="$(integrate "$wt10" 86 --reviewed-by l4)"; rc=$?
+check 'a lock that names no process: exit 0' 0 "$rc"
+check 'it is taken over after one poll' yes "$(grep -qxF "taken over: a landing lock that names no process: 'half written'" <<< "$out" && echo yes || echo no)"
 
 echo 'a push the hook refuses reaches nothing, and the branch is checked out again'
 wt4="$(new_tree 80 refused)"

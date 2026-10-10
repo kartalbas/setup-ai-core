@@ -78,12 +78,13 @@ if (-not $title -or $subject.Length -gt 72) { $subject = "Merge $branch ($ref)" 
 if ($subject.Length -gt 72) { $subject = "Merge issue-$Number ($ref)" }
 
 $landing = Join-Path (Invoke-Git rev-parse --path-format=absolute --git-common-dir).Text 'ai-core-landing'
-# ponytail: two waiters that find the same dead holder can both take over; the push then still
-# refuses the second, as it does without the lock
-$waited = $false; $missing = 0
+# ponytail: two waiters that find the same dead holder can both take over, and the push then still
+# refuses the second, as it does without the lock; a holder's process id that an unrelated process
+# took over keeps the lock held, and the waiting line names that process
+$waited = $false; $missing = 0; $nameless = 0
 while ($true) {
   try {
-    $held = [System.IO.File]::Open($landing, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write)
+    $held = [System.IO.File]::Open($landing, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
     $bytes = [System.Text.Encoding]::UTF8.GetBytes("$PID`t$ref`n"); $held.Write($bytes, 0, $bytes.Length); $held.Dispose()
     break
   } catch [System.IO.IOException] { $said = $_.Exception.Message }
@@ -92,12 +93,19 @@ while ($true) {
   catch [System.IO.FileNotFoundException] {
     $missing++; if ($missing -ge 2) { Stop-WithError "the landing lock $landing could not be written: $said" }; continue
   }
+  catch [System.IO.IOException] { $holder = '' }
   $missing = 0; $holderPid, $holderIssue = $holder -split "`t", 2
-  if ($holderPid -and -not (Get-Process -Id $holderPid -ErrorAction SilentlyContinue)) {
+  # A lock still without its process id after the poll was never finished: nobody holds it
+  $dead = ''
+  if ($holderPid -cmatch '^\d{1,9}$') {
+    $nameless = 0
+    if (-not (Get-Process -Id ([int]$holderPid) -ErrorAction SilentlyContinue)) { $dead = "the landing lock of $holderIssue, whose process $holderPid no longer runs" }
+  } else { $nameless++; if ($nameless -ge 2) { $dead = "a landing lock that names no process: '$holder'" } }
+  if ($dead) {
     try { Remove-Item -LiteralPath $landing -Force } catch [System.Management.Automation.ItemNotFoundException] { }
-    [Console]::Error.WriteLine("taken over: the landing lock of $holderIssue, whose process $holderPid no longer runs"); continue
+    [Console]::Error.WriteLine("taken over: $dead"); $nameless = 0; continue
   }
-  if (-not $waited -and $holderPid) { $waited = $true; [Console]::Error.WriteLine("waiting: $holderIssue is landing from this clone (process $holderPid); this one lands after it") }
+  if (-not $waited -and $nameless -eq 0) { $waited = $true; [Console]::Error.WriteLine("waiting: $holderIssue is landing from this clone (process $holderPid); this one lands after it") }
   Start-Sleep -Seconds 2
 }
 try {

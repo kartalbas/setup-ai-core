@@ -69,20 +69,27 @@ subject="$title ($ref)"
 [ "${#subject}" -le 72 ] || subject="Merge issue-$number ($ref)"
 
 landing="$(git rev-parse --path-format=absolute --git-common-dir)/ai-core-landing"
-# ponytail: two waiters that find the same dead holder can both take over; the push then still
-# refuses the second, as it does without the lock
-waited=""; missing=0
+# ponytail: two waiters that find the same dead holder can both take over, and the push then still
+# refuses the second, as it does without the lock; a holder's process id that an unrelated process
+# took over keeps the lock held, and the waiting line names that process
+waited=""; missing=0; nameless=0
 until said="$( (set -C; printf '%s\t%s\n' "$$" "$ref" > "$landing") 2>&1 )"; do
   # Gone between the two steps is a lock just released; gone twice in a row, one never written
   if ! holder="$(cat "$landing" 2>/dev/null)"; then
     missing=$((missing + 1)); [ "$missing" -lt 2 ] || die "the landing lock $landing could not be written: $said"; continue
   fi
   missing=0; pid="${holder%%$'\t'*}"
-  if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
-    rm -f "$landing" || die "the landing lock $landing of a process that no longer runs could not be removed"
-    echo "taken over: the landing lock of ${holder#*$'\t'}, whose process $pid no longer runs" >&2; continue
+  # A lock still without its process id after the poll was never finished: nobody holds it
+  dead=""
+  case "$pid" in
+    ''|*[!0-9]*) nameless=$((nameless + 1)); [ "$nameless" -lt 2 ] || dead="a landing lock that names no process: '$holder'" ;;
+    *) nameless=0; ps -p "$pid" >/dev/null 2>&1 || dead="the landing lock of ${holder#*$'\t'}, whose process $pid no longer runs" ;;
+  esac
+  if [ -n "$dead" ]; then
+    rm -f "$landing" || die "the landing lock $landing could not be removed: $dead"
+    echo "taken over: $dead" >&2; nameless=0; continue
   fi
-  [ -n "$waited" ] || [ -z "$pid" ] || { waited=1; echo "waiting: ${holder#*$'\t'} is landing from this clone (process $pid); this one lands after it" >&2; }
+  [ -n "$waited" ] || [ "$nameless" -gt 0 ] || { waited=1; echo "waiting: ${holder#*$'\t'} is landing from this clone (process $pid); this one lands after it" >&2; }
   sleep 2
 done
 trap '[ "$(cut -f1 "$landing" 2>/dev/null)" != "$$" ] || rm -f "$landing"' EXIT

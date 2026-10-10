@@ -174,6 +174,22 @@ Invoke-Integrate $wt9 @('85', '-ReviewedBy', 'l4')
 Check 'a lock whose process is gone: exit 0' 0 $rc
 Check 'it says it took the lock over'  'True' (Says "taken over: the landing lock of example-org/example-repo#6, whose process $($gone.Id) no longer runs")
 Check 'and released it'                'False' ([string](Test-Path -LiteralPath $lock))
+# A holder of another user's still runs. Process 1 is one where this test runs on a system that
+# has it.
+if (-not $IsWindows -and (Get-Process -Id 1 -ErrorAction SilentlyContinue)) {
+  [System.IO.File]::WriteAllText($lock, "1`texample-org/example-repo#7`n")
+  $release = Start-Process -FilePath pwsh -ArgumentList '-NoProfile', '-Command', "Start-Sleep 3; Remove-Item -LiteralPath '$lock'" -PassThru
+  $wt11 = New-Tree '87' 'foreign'
+  Invoke-Integrate $wt11 @('87', '-ReviewedBy', 'l4')
+  $release.WaitForExit()
+  Check "another user's process: exit 0" 0 $rc
+  Check 'it is waited for, not taken over' 'True' (Says 'waiting: example-org/example-repo#7 is landing from this clone (process 1); this one lands after it')
+} else { Write-Host "  skip another user's process: process 1 is missing here" }
+[System.IO.File]::WriteAllText($lock, 'half written')
+$wt10 = New-Tree '86' 'blank'
+Invoke-Integrate $wt10 @('86', '-ReviewedBy', 'l4')
+Check 'a lock that names no process: exit 0' 0 $rc
+Check 'it is taken over after one poll' 'True' (Says "taken over: a landing lock that names no process: 'half written'")
 
 Write-Host 'a push the hook refuses reaches nothing, and the branch is checked out again'
 $wt4 = New-Tree '80' 'refused'

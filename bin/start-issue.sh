@@ -103,7 +103,7 @@ taken="$(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/or
       printf '%s\n' "$ref"
     done || true)"
 [ -z "$taken" ] \
-  || die "a branch for this issue exists already: $(printf '%s' "$taken" | paste -sd', ' -) - use its worktree instead"
+  || die "a branch for this issue exists already: $(printf '%s' "$taken" | paste -sd, - | sed 's/,/, /g') - use its worktree instead"
 [ ! -e "$path" ] || die "$path is already there - use it, or remove it with 'git worktree remove'"
 
 mkdir -p "$container"

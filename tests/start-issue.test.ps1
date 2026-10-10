@@ -222,6 +222,9 @@ Set-Content -LiteralPath (Join-Path $side 'side.txt') -Value 'not landed'
 $ok = Invoke-Start 182
 Check 'not landed: it throws' 'False' ([string]$ok)
 Check 'not landed: it names the branch' 'True' ([bool]($said -match 'a branch for this issue exists already: origin/issue-182-read-the-board-whole'))
+& git -C $work branch -q issue-182-second
+$ok = Invoke-Start 182
+Check 'two branches: both named, as the twin names them' 'True' ([bool]($said -match 'a branch for this issue exists already: issue-182-second, origin/issue-182-read-the-board-whole - use'))
 
 Write-Host 'an origin/HEAD naming a branch the remote no longer has: the default branch is asked of the remote'
 & git -C $work symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/gone

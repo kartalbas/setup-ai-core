@@ -105,7 +105,8 @@ for twin in sh ps; do
   [ -e "$F/.worktrees/app/app" ] && fail "init linked the worktree's own repository beside it ($twin)"
   [ -e "$F/.worktrees/app/notes" ] && fail "init linked a folder that is no checkout ($twin)"
   case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) foreign=0 ;; *) foreign=1; ln -s /nowhere/foreign "$F/.worktrees/app/foreign"
-    ln -s loop-b "$F/.worktrees/app/loop-a"; ln -s loop-a "$F/.worktrees/app/loop-b" ;; esac   # a loop cannot be followed at all
+    ln -s loop-b "$F/.worktrees/app/loop-a"; ln -s loop-a "$F/.worktrees/app/loop-b"   # a loop cannot be followed at all
+    ln -s ../../gone "$F/.worktrees/app/other" ;; esac                                  # into the folder, under another name
   rm -rf "$F/lib"                                      # the neighbour checkout goes, its link stays behind
   init_one dry || fail "init --dry-run on a worktree beside a dangling link failed ($twin, see $F-dry.log)"
   [ -L "$F/.worktrees/app/lib" ] || fail "init --dry-run removed the link to the checkout that is gone ($twin)"
@@ -114,7 +115,7 @@ for twin in sh ps; do
   [ -L "$F/.worktrees/app/lib" ] && fail "init left the link to the checkout that is gone ($twin)"
   grep -aq '^  links to checkouts that are gone removed in \.worktrees/app/: lib[[:space:]]*$' "$F-real.log" || fail "init does not name the link it removed ($twin, see $F-real.log)"
   [ "$(cat "$F/.worktrees/app/tools/marker" 2>/dev/null)" = tools ] || fail "init removed the link to a checkout that stays ($twin)"
-  [ "$foreign" -eq 0 ] || { [ -L "$F/.worktrees/app/foreign" ] && [ -L "$F/.worktrees/app/loop-a" ]; } || fail "init removed a dangling link it did not make ($twin)"
+  [ "$foreign" -eq 0 ] || { [ -L "$F/.worktrees/app/foreign" ] && [ -L "$F/.worktrees/app/loop-a" ] && [ -L "$F/.worktrees/app/other" ]; } || fail "init removed a dangling link it did not make ($twin)"
   if [ "$twin" = sh ]; then bash "$ROOT/bin/init.sh" --all "$F" --no-doctor
   else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -All "$(native "$F")" -NoDoctor; fi > "$F-all.log" 2>&1 || fail "init --all over the folder failed ($twin): $(grep -a -E '^###|error|failed' "$F-all.log" | tail -8)"
   grep -aq '^### \.worktrees/app/issue-1-x' "$F-all.log" || fail "init --all did not init the worktree ($twin, see $F-all.log)"

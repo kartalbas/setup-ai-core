@@ -156,7 +156,7 @@ if [ "$PROJECT_FOLDER" -eq 0 ]; then
         [ -L "$link" ] && [ ! -e "$link" ] || continue
         # Git Bash spells a junction's target in its own form, not as git spells the folder, so the
         # place the link names is compared, not its spelling.
-        to="$(readlink "$link")"
+        to="$(readlink "$link")" || continue; to="${to%/}"
         [ "${to##*/}" = "$name" ] && (cd "$container" && [ "$(dirname "$to")" -ef "$folder" ]) || continue
         [ "$DRY" -eq 1 ] || rm -f "$link"
         NEIGHBOURS_UNLINKED="$NEIGHBOURS_UNLINKED $name"

@@ -162,7 +162,9 @@ in a code block, shaped as a report of state (the rules on working with the prod
   what it does now and what comes next; the runs it started as rows under it. Below the table, the
   commands that reach the workers, copied from REACH, stand in one code block, one per line, so the
   owner can copy them. A worker the command does not show is off and one it marks stopped is
-  suspended, never running, and its minutes come from the command, never from memory;
+  suspended, never running, and its minutes come from the command, never from memory; an issue
+  marked `at start` is the one the worker was started on, so for a worker you gave a later
+  package the plan issue says what it works on;
 - UP TO <the goal>: the open steps in delivery order, from the goal's open issues, each with who,
   state and next step;
 - NEXT TO DONE: the cards that close first, each with an approximate time.

@@ -153,11 +153,34 @@ Invoke-Integrate $wt7 @('83', '-Repo', 'example-org/example-repo', '-ReviewedBy'
 Check 'its own repository named: exit 0' 0 $rc
 Check 'the subject keeps the short form' 'Read the board whole (#83)' "$(& git --git-dir=$origin log -1 --format=%s master)"
 
+Write-Host 'the landings of one clone take turns: a lock a live process holds is waited for, a dead one taken over'
+$lock = Join-Path $work '.git/ai-core-landing'
+$holder = Start-Process -FilePath pwsh -ArgumentList '-NoProfile', '-Command', 'Start-Sleep 30' -PassThru
+[System.IO.File]::WriteAllText($lock, "$($holder.Id)`texample-org/example-repo#5`n")
+$release = Start-Process -FilePath pwsh -ArgumentList '-NoProfile', '-Command', "Start-Sleep 4; Remove-Item -LiteralPath '$lock'" -PassThru
+$wt8 = New-Tree '84' 'waits'
+$started = Get-Date
+Invoke-Integrate $wt8 @('84', '-ReviewedBy', 'l4')
+$waited = ((Get-Date) - $started).TotalSeconds
+Stop-Process -Id $holder.Id -ErrorAction SilentlyContinue; $release.WaitForExit()
+Check 'exit 0'                         0 $rc
+Check 'it names who holds the lock'    'True' (Says "waiting: example-org/example-repo#5 is landing from this clone (process $($holder.Id)); this one lands after it")
+Check 'it landed once the lock was released' 'True' ([string]($waited -ge 3 -and "$(& git --git-dir=$origin log -1 --format=%s master)" -ceq 'Read the board whole (#84)'))
+Check 'and released its own'           'False' ([string](Test-Path -LiteralPath $lock))
+$gone = Start-Process -FilePath pwsh -ArgumentList '-NoProfile', '-Command', 'exit 0' -PassThru; $gone.WaitForExit()
+[System.IO.File]::WriteAllText($lock, "$($gone.Id)`texample-org/example-repo#6`n")
+$wt9 = New-Tree '85' 'takes'
+Invoke-Integrate $wt9 @('85', '-ReviewedBy', 'l4')
+Check 'a lock whose process is gone: exit 0' 0 $rc
+Check 'it says it took the lock over'  'True' (Says "taken over: the landing lock of example-org/example-repo#6, whose process $($gone.Id) no longer runs")
+Check 'and released it'                'False' ([string](Test-Path -LiteralPath $lock))
+
 Write-Host 'a push the hook refuses reaches nothing, and the branch is checked out again'
 $wt4 = New-Tree '80' 'refused'
 $hooks = Join-Path $fake 'hooks'
 New-Item -ItemType Directory -Force -Path $hooks | Out-Null
-Set-Content -Path (Join-Path $hooks 'pre-push') -Value "#!/bin/sh`necho 'pre-push: REFUSED - planted'`nexit 1" -Encoding ascii
+$held = Join-Path $fake 'held.txt'
+Set-Content -Path (Join-Path $hooks 'pre-push') -Value "#!/bin/sh`ncut -f2 '$lock' > '$held'`necho 'pre-push: REFUSED - planted'`nexit 1" -Encoding ascii
 if (-not $IsWindows) { & chmod +x (Join-Path $hooks 'pre-push') }
 & git -C $work config core.hooksPath $hooks
 $after = Tip
@@ -166,6 +189,8 @@ Check 'exit 1'                         1 $rc
 Check 'it says nothing reached origin' 'True' (Says 'nothing reached origin')
 Check 'origin did not move'            $after (Tip)
 Check 'the worktree is on its branch'  'issue-80-refused' (On-Branch $wt4)
+Check 'the lock was held during the push' '#80' "$(if (Test-Path -LiteralPath $held) { (Get-Content -Raw -LiteralPath $held).Trim() })"
+Check 'and is released after the refusal' 'False' ([string](Test-Path -LiteralPath $lock))
 
 Remove-Item -Recurse -Force $fake -ErrorAction SilentlyContinue
 if ($failed -gt 0) { Write-Host "`n$failed failed"; exit 1 }

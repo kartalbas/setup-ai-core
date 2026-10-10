@@ -97,7 +97,13 @@ try {
       try { $said = @(& pwsh -NoProfile -File (Join-Path $PSScriptRoot 'finish-issue.ps1') -Sweep -DryRun 2>&1 | ForEach-Object { "$_" }); $swept = ($LASTEXITCODE -eq 0) }
       finally { Pop-Location }
       if ($swept) { $treeLines += @($said | ForEach-Object { "$($repo.Name)`t$_" }) }
-      else { $treeLines += "$($repo.Name)`terror: $("$(@($said) | Select-Object -Last 1)" -creplace '^error: ', '')" }
+      else {
+        # The refusal on one line, from its "error: " on, where git's own lines follow it; pwsh wraps
+        # and colours what a child wrote to its error stream
+        $refusal = ((@($said) | ForEach-Object { $_ -creplace "`e\[[0-9;]*m", '' }) -join ' ') -creplace '\s+', ' '
+        $at = $refusal.IndexOf('error: ', [StringComparison]::Ordinal); if ($at -ge 0) { $refusal = $refusal.Substring($at + 7) }
+        $treeLines += "$($repo.Name)`terror: $($refusal.Trim())"
+      }
     }
     Set-Content -LiteralPath $trees -Value $treeLines
     $flags += @('--processes-file', $processes, '--agents-file', $agents, '--rollouts-file', $rollouts, '--trees-file', $trees)

@@ -12,13 +12,16 @@ of the day, the open work, and what is ready to close or open on the last column
 involved: status.sh and status.ps1 read the board and the process list, and lib/status.mjs
 counts, so both print the same page.
 
-Without --tokens the page ends with two blocks git answers at that moment. TESTING lists every
-card in the column after implementing with where its work is live: the newest commit on the
-default branch that names the issue, and per environment of LIVE_TAGS in .ai-core/config.env the
-first release tag that contains it. The first environment is the last stage: a card live there is
-🟢; one live on a later environment only is due for its proof there, 🟡, and 🔴 once that
-environment has carried it longer than PROOF_HOURS. TREES lists the issue worktrees `finish-issue --sweep --dry-run` keeps
-whose last commit is older than a day, with the sweep's reason. Each repository is fetched first.
+Without --tokens or --issues the page ends with two blocks git answers at that moment. TESTING
+lists every card in the column after implementing with where its work is live: the newest commit
+on the default branch that names the issue, and per environment of LIVE_TAGS in
+.ai-core/config.env the first release tag by date that contains it. A tag's date is an annotated
+tag's own, and a lightweight tag's commit's. The first environment is the last stage: a card live
+there is 🟢; one live on a later environment only is due for its proof there, 🟡, and 🔴 once
+that environment has carried it longer than PROOF_HOURS. TREES lists the issue worktrees
+`finish-issue --sweep --dry-run` keeps whose last commit or uncommitted change is older than a
+day, with the sweep's reason. The clone of each repository with a card in testing, the folder
+whose origin is that repository, is fetched once per call, for at most a minute.
 
   ai-core status [--project N] [--tokens] [--issues]
     the board of the repository you stand in, or board N; --issues adds every open issue, by

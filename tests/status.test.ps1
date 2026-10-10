@@ -239,7 +239,9 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   Set-Content -LiteralPath "$live/.ai-core/config.env" -Value @('LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"', 'PROOF_HOURS=24')
   Set-Content -LiteralPath "$work/cache/8/project-id" -Value 'PVT_example8'
   Set-Content -LiteralPath "$work/cache/8/fields.tsv" -Value @("Status`tF1`tTodo`tO1", "Status`tF1`timplementing`tO2", "Status`tF1`ttesting`tO3", "Status`tF1`tDone`tO4")
-  Set-Content -LiteralPath "$work/page8" -Value @(@(31, 32, 33, 34, 35, 37 | ForEach-Object { Card $_ testing P1 OPEN - - 0 "Card $_" }) + @(Card 36 implementing P1 OPEN - - 0 'Card 36'))
+  # #38 is a card of another organisation's repository of the same name: the local clone is not its
+  Set-Content -LiteralPath "$work/page8" -Value @(@(37, 35, 34, 33, 32, 31 | ForEach-Object { Card $_ testing P1 OPEN - - 0 "Card $_" }) + @(Card 36 implementing P1 OPEN - - 0 'Card 36') +
+    @((Card 38 testing P1 OPEN - - 0 'Card 38') -creplace 'example-org/example-repo', 'other-org/example-repo'))
   @"
 `$a = `$args -join ' '
 if (`$a -cmatch 'PVT_example8') { Get-Content -LiteralPath '$work/page8'; exit 0 }
@@ -253,14 +255,19 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
     $env:GIT_AUTHOR_DATE = "@$($now - $Ago) +0000"; $env:GIT_COMMITTER_DATE = $env:GIT_AUTHOR_DATE
     try { & git -C $Dir -c user.name=check -c user.email=check@localhost commit -q -m $Subject } finally { Remove-Item Env:GIT_AUTHOR_DATE, Env:GIT_COMMITTER_DATE }
   }
-  $seed = Join-Path $work 'seed'; $origin = Join-Path $work 'origin.git'
+  # The origin is named like a repository on GitHub, because a clone is found by its origin
+  $seed = Join-Path $work 'seed'; $origin = Join-Path $work 'remote/example-org/example-repo.git'
   & git init -q --bare $origin; & git init -q $seed; & git -C $seed checkout -q -b master
   CommitAt $seed 144000 'Start'
   CommitAt $seed 108000 'Land the first (#31)'; & git -C $seed tag deploy/prod/1; & git -C $seed tag deploy/test/1
+  # A promotion an hour ago: an annotated tag of its own date, first by name and last by date
+  $env:GIT_COMMITTER_DATE = "@$($now - 3600) +0000"
+  try { & git -C $seed -c user.name=check -c user.email=check@localhost tag -a -m promoted deploy/prod/0.9 } finally { Remove-Item Env:GIT_COMMITTER_DATE }
   CommitAt $seed 100800 'Land the second (#32)'; & git -C $seed tag deploy/prod/2
   CommitAt $seed 93600 'Land the third (#33)'; & git -C $seed tag deploy/test/3
   CommitAt $seed 7200 'Land the seventh (#37)'; & git -C $seed tag deploy/test/4
   CommitAt $seed 3600 'Land the fourth (#34)'
+  CommitAt $seed 2400 'Docs, see other-org/example-repo#33'
   CommitAt $seed 1800 'Mention another issue only (#310)'
   & git -C $seed push -q $origin master --tags
   & git -C $origin symbolic-ref HEAD refs/heads/master
@@ -268,9 +275,14 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   $trees = Join-Path $live '.worktrees/example-repo'
   & git -C $repo worktree add -q -b issue-41-old "$trees/issue-41-old" origin/master; CommitAt "$trees/issue-41-old" 259200 'Old work (#41)'
   & git -C $repo worktree add -q -b issue-42-changed "$trees/issue-42-changed" deploy/prod/1; Set-Content -LiteralPath "$trees/issue-42-changed/half.txt" -Value half
+  (Get-Item -LiteralPath "$trees/issue-42-changed/half.txt").LastWriteTimeUtc = [DateTimeOffset]::FromUnixTimeSeconds($now - 108000).UtcDateTime
+  # An old base with a change made now is worked in, not left
+  & git -C $repo worktree add -q -b issue-45-fresh "$trees/issue-45-fresh" deploy/prod/1; Set-Content -LiteralPath "$trees/issue-45-fresh/now.txt" -Value now
   & git -C $repo worktree add -q -b issue-43-young "$trees/issue-43-young" origin/master; CommitAt "$trees/issue-43-young" 7201 'Young work (#43)'
   & git -C $repo worktree add -q -b issue-44-landed "$trees/issue-44-landed" origin/master; CommitAt "$trees/issue-44-landed" 259201 'Landed work (#44)'
   & git -C "$trees/issue-44-landed" push -q origin HEAD:master; & git -C $repo fetch -q
+  # The clone lacks a tag origin has: only status's own fetch brings it
+  & git -C $repo tag -d deploy/prod/2 | Out-Null
   Set-Content -LiteralPath (Join-Path $work 'no-agents') -Value @()
   $env:AI_CORE_PROCESSES = Join-Path $work 'no-processes'; $env:AI_CORE_AGENTS = Join-Path $work 'no-agents'; $env:AI_CORE_ROLLOUTS = Join-Path $work 'no-agents'
   function Live { Push-Location $live; try { @(& pwsh -NoProfile -File (Join-Path $root 'bin/status.ps1') -Project example-org/8 2>&1 | ForEach-Object { "$_" }) } finally { Pop-Location } }
@@ -280,13 +292,17 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   try {
     $page = Live; $rc = $LASTEXITCODE
     Check 'exit 0' 0 $rc
-    Check 'the testing line' 'TESTING 6 cards in testing: 2 live on prod, 2 live on test only, 1 not live, 1 without a landing commit' (LineOf $page '^TESTING')
+    Check 'the testing line' 'TESTING 7 cards in testing: 2 live on prod, 2 live on test only, 1 not live, 1 without a landing commit, 1 without a checkout' (LineOf $page '^TESTING')
     Check 'live on prod, past PROOF_HOURS too' "  🟢 $('example-repo#31'.PadRight(26)) live on prod since 30 h (deploy/prod/1)  Card 31" (LineOf $page 'example-repo#31 ')
     Check 'live on prod' "  🟢 $('example-repo#32'.PadRight(26)) live on prod since 28 h (deploy/prod/2)  Card 32" (LineOf $page 'example-repo#32 ')
     Check 'on test only past PROOF_HOURS: overdue' "  🔴 $('example-repo#33'.PadRight(26)) live on test since 26 h (deploy/test/3)  Card 33" (LineOf $page 'example-repo#33 ')
     Check 'on test only within PROOF_HOURS: due' "  🟡 $('example-repo#37'.PadRight(26)) live on test since 2 h (deploy/test/4)  Card 37" (LineOf $page 'example-repo#37 ')
     Check 'not live' '  ⏸ not live: example-repo#34' (LineOf $page 'not live:')
     Check 'no landing commit' '  ⏸ no commit on the default branch names it: example-repo#35' (LineOf $page 'names it:')
+    Check "another organisation's repository of the same name has no checkout here" "  ⏸ no checkout of its repository in ${live}: other-org/example-repo#38" (LineOf $page 'no checkout')
+    Check 'the live cards in order: the first environment, then the longest live' '31 32 33 37' ((@($page | Where-Object { $_ -cmatch '^  (🟢|🟡|🔴) ' } | ForEach-Object { if ($_ -cmatch 'example-repo#(\d+)') { $Matches[1] } })) -join ' ')
+    Check 'and the trees, the oldest first' '41 42' ((@($page | Where-Object { $_ -cmatch '^  example-repo#\d+ +\d+ [hd]  ' } | ForEach-Object { if ($_ -cmatch 'example-repo#(\d+)') { $Matches[1] } })) -join ' ')
+    Check 'a worktree changed a moment ago is not listed' '' (LineOf $page 'example-repo#45')
     Check 'a card in implementing is not listed' '' (LineOf $page 'example-repo#36')
     Check 'the trees line' 'TREES   2 worktrees the sweep keeps, older than a day:' (LineOf $page '^TREES')
     Check 'unlanded and old' "  $('example-repo#41'.PadRight(26))   3 d  has work origin/master does not have yet" (LineOf $page 'example-repo#41')
@@ -294,9 +310,19 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
     Check 'young and landed ones are not listed' '' (LineOf $page 'example-repo#4[34]')
     Set-Content -LiteralPath "$live/.ai-core/config.env" -Value @('PROOF_HOURS=24')
     $bare = Live
-    Check 'without LIVE_TAGS, the testing line' 'TESTING 6 cards in testing: 5 landed, 1 without a landing commit' (LineOf $bare '^TESTING')
+    Check 'without LIVE_TAGS, the testing line' 'TESTING 7 cards in testing: 5 landed, 1 without a landing commit, 1 without a checkout' (LineOf $bare '^TESTING')
     Check 'and why' '  LIVE_TAGS in .ai-core/config.env names no environment, so where the work is live is not read' (LineOf $bare 'names no environment')
-    Check 'the landed cards, none called not live' '  ⏸ landed: example-repo#31 example-repo#32 example-repo#33 example-repo#34 example-repo#37|' "$(LineOf $bare '⏸ landed:')|$(LineOf $bare 'not live')"
+    Check 'the landed cards, none called not live' '  ⏸ landed: example-repo#37 example-repo#34 example-repo#33 example-repo#32 example-repo#31|' "$(LineOf $bare '⏸ landed:')|$(LineOf $bare 'not live')"
+    Set-Content -LiteralPath "$live/.ai-core/config.env" -Value @('LIVE_TAGS="oops prod=deploy/prod/* test=deploy/test/*"', 'PROOF_HOURS=1')
+    $short = Live
+    Check 'PROOF_HOURS is read: two hours on test are overdue at one' "  🔴 $('example-repo#37'.PadRight(26)) live on test since 2 h (deploy/test/4)  Card 37" (LineOf $short 'example-repo#37 ')
+    Check 'a word of LIVE_TAGS that is no environment is named' "  LIVE_TAGS has 'oops', which is no <environment>=<tag pattern>; it is left out" (LineOf $short 'LIVE_TAGS has')
+    & git -C $repo remote set-url origin (Join-Path $work 'gone/example-org/example-repo.git')
+    $gone = Live
+    & git -C $repo remote set-url origin $origin
+    Check 'a fetch that fails says what git said' 'True' ([bool](LineOf $gone '^  fetching origin of example-org/example-repo failed: .*; read from the refs its clone had$'))
+    Check 'and the cards are still read from the clone' "  🔴 $('example-repo#33'.PadRight(26)) live on test since 26 h (deploy/test/3)  Card 33" (LineOf $gone 'example-repo#33 ')
+    Check 'a sweep that cannot run is named' 'True' ([bool](LineOf $gone '^  example-repo: the sweep could not run: could not reach origin'))
   } finally { [Console]::OutputEncoding = $encoding }
 
   Write-Host 'outside a repository with no board named: refused, naming -Project'

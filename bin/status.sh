@@ -90,7 +90,8 @@ if [ -z "$tokens$issues" ]; then
     if said="$(cd "$repo" && bash "$here/finish-issue.sh" --sweep --dry-run 2>&1)"; then
       while IFS= read -r line; do printf '%s\t%s\n' "${repo##*/}" "$line"; done <<< "$said" >> "$work/trees"
     else
-      said="$(printf '%s\n' "$said" | tail -n1)"
+      # The refusal on one line: from its "error: " on, where git's own lines follow it
+      said="$(printf '%s\n' "$said" | sed -n '/^error: /,$p' | tr '\n' ' ' | tr -s ' ' | sed 's/ *$//')"
       printf '%s\terror: %s\n' "${repo##*/}" "${said#error: }" >> "$work/trees"
     fi
   done

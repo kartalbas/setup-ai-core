@@ -206,7 +206,9 @@ live="$work/live"; mkdir -p "$live/.ai-core" "$work/cache/8"
 printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\nPROOF_HOURS=24\n' > "$live/.ai-core/config.env"
 echo PVT_example8 > "$work/cache/8/project-id"
 printf 'Status\tF1\t%s\tO%s\n' Todo 1 implementing 2 testing 3 Done 4 > "$work/cache/8/fields.tsv"
-{ for n in 31 32 33 34 35 37; do card "$n" testing P1 OPEN - - 0 "Card $n"; done; card 36 implementing P1 OPEN - - 0 'Card 36'; } > "$work/page8"
+# #38 is a card of another organisation's repository of the same name: the local clone is not its
+{ for n in 37 35 34 33 32 31; do card "$n" testing P1 OPEN - - 0 "Card $n"; done; card 36 implementing P1 OPEN - - 0 'Card 36'
+  card 38 testing P1 OPEN - - 0 'Card 38' | sed 's#example-org/example-repo#other-org/example-repo#g'; } > "$work/page8"
 cat > "$work/bin/gh" <<EOF
 #!/usr/bin/env bash
 case "\$*" in
@@ -221,33 +223,47 @@ commit_at() {  # commit_at <dir> <seconds before now> <subject>: a commit of one
   GIT_AUTHOR_DATE="@$((now - $2)) +0000" GIT_COMMITTER_DATE="@$((now - $2)) +0000" \
     git -C "$1" -c user.name=check -c user.email=check@localhost commit -q -m "$3"
 }
-git init -q --bare "$work/origin.git"; git init -q "$work/seed"; git -C "$work/seed" checkout -q -b master
+# The origin is named like a repository on GitHub, because a clone is found by its origin
+origin="$work/remote/example-org/example-repo.git"
+git init -q --bare "$origin"; git init -q "$work/seed"; git -C "$work/seed" checkout -q -b master
 commit_at "$work/seed" 144000 'Start'
 commit_at "$work/seed" 108000 'Land the first (#31)'; git -C "$work/seed" tag deploy/prod/1; git -C "$work/seed" tag deploy/test/1
+# A promotion an hour ago: an annotated tag of its own date, first by name and last by date
+GIT_COMMITTER_DATE="@$((now - 3600)) +0000" git -C "$work/seed" -c user.name=check -c user.email=check@localhost tag -a -m promoted deploy/prod/0.9
 commit_at "$work/seed" 100800 'Land the second (#32)'; git -C "$work/seed" tag deploy/prod/2
 commit_at "$work/seed" 93600 'Land the third (#33)'; git -C "$work/seed" tag deploy/test/3
 commit_at "$work/seed" 7200 'Land the seventh (#37)'; git -C "$work/seed" tag deploy/test/4
 commit_at "$work/seed" 3600 'Land the fourth (#34)'
+commit_at "$work/seed" 2400 'Docs, see other-org/example-repo#33'
 commit_at "$work/seed" 1800 'Mention another issue only (#310)'
-git -C "$work/seed" push -q "$work/origin.git" master --tags
-git -C "$work/origin.git" symbolic-ref HEAD refs/heads/master
-repo="$live/example-repo"; git clone -q "$work/origin.git" "$repo"
+git -C "$work/seed" push -q "$origin" master --tags
+git -C "$origin" symbolic-ref HEAD refs/heads/master
+repo="$live/example-repo"; git clone -q "$origin" "$repo"
 trees="$live/.worktrees/example-repo"
 git -C "$repo" worktree add -q -b issue-41-old "$trees/issue-41-old" origin/master; commit_at "$trees/issue-41-old" 259200 'Old work (#41)'
 git -C "$repo" worktree add -q -b issue-42-changed "$trees/issue-42-changed" deploy/prod/1; echo half > "$trees/issue-42-changed/half.txt"
+touch -d "@$((now - 108000))" "$trees/issue-42-changed/half.txt"
+# An old base with a change made now is worked in, not left
+git -C "$repo" worktree add -q -b issue-45-fresh "$trees/issue-45-fresh" deploy/prod/1; echo now > "$trees/issue-45-fresh/now.txt"
 git -C "$repo" worktree add -q -b issue-43-young "$trees/issue-43-young" origin/master; commit_at "$trees/issue-43-young" 7201 'Young work (#43)'
 git -C "$repo" worktree add -q -b issue-44-landed "$trees/issue-44-landed" origin/master; commit_at "$trees/issue-44-landed" 259201 'Landed work (#44)'
 git -C "$trees/issue-44-landed" push -q origin HEAD:master; git -C "$repo" fetch -q
+# The clone lacks a tag origin has: only status's own fetch brings it
+git -C "$repo" tag -d deploy/prod/2 >/dev/null
 : > "$work/no-agents"
 page="$(cd "$live" && AI_CORE_PROCESSES="$work/no-processes" AI_CORE_AGENTS="$work/no-agents" AI_CORE_ROLLOUTS="$work/no-agents" bash "$root/bin/status.sh" --project example-org/8 2>&1)"; rc=$?
 check 'exit 0' 0 "$rc"
-check 'the testing line' 'TESTING 6 cards in testing: 2 live on prod, 2 live on test only, 1 not live, 1 without a landing commit' "$(grep '^TESTING' <<< "$page")"
+check 'the testing line' 'TESTING 7 cards in testing: 2 live on prod, 2 live on test only, 1 not live, 1 without a landing commit, 1 without a checkout' "$(grep '^TESTING' <<< "$page")"
 check 'live on prod, past PROOF_HOURS too' "  🟢 $(printf '%-26s' example-repo#31) live on prod since 30 h (deploy/prod/1)  Card 31" "$(grep 'example-repo#31 ' <<< "$page")"
 check 'live on prod' "  🟢 $(printf '%-26s' example-repo#32) live on prod since 28 h (deploy/prod/2)  Card 32" "$(grep 'example-repo#32 ' <<< "$page")"
 check 'on test only past PROOF_HOURS: overdue' "  🔴 $(printf '%-26s' example-repo#33) live on test since 26 h (deploy/test/3)  Card 33" "$(grep 'example-repo#33 ' <<< "$page")"
 check 'on test only within PROOF_HOURS: due' "  🟡 $(printf '%-26s' example-repo#37) live on test since 2 h (deploy/test/4)  Card 37" "$(grep 'example-repo#37 ' <<< "$page")"
 check 'not live' '  ⏸ not live: example-repo#34' "$(grep 'not live:' <<< "$page")"
 check 'no landing commit' '  ⏸ no commit on the default branch names it: example-repo#35' "$(grep 'names it:' <<< "$page")"
+check 'another organisation'"'"'s repository of the same name has no checkout here' "  ⏸ no checkout of its repository in $live: other-org/example-repo#38" "$(grep 'no checkout' <<< "$page")"
+check 'the live cards in order: the first environment, then the longest live' '31 32 33 37' "$(grep -E '^  (🟢|🟡|🔴) ' <<< "$page" | grep -oE 'example-repo#[0-9]+' | sed 's/.*#//' | tr '\n' ' ' | sed 's/ $//')"
+check 'and the trees, the oldest first' '41 42' "$(awk '/^TREES/ { on = 1; next } on && /^  example-repo#/ { sub(/^  example-repo#/, ""); print $1 }' <<< "$page" | tr '\n' ' ' | sed 's/ $//')"
+check 'a worktree changed a moment ago is not listed' '' "$(grep 'example-repo#45' <<< "$page")"
 check 'a card in implementing is not listed' '' "$(grep 'example-repo#36' <<< "$page")"
 check 'the trees line' 'TREES   2 worktrees the sweep keeps, older than a day:' "$(grep '^TREES' <<< "$page")"
 check 'unlanded and old' "  $(printf '%-26s' example-repo#41)   3 d  has work origin/master does not have yet" "$(grep 'example-repo#41' <<< "$page")"
@@ -255,9 +271,19 @@ check 'with changes' "  $(printf '%-26s' example-repo#42)  30 h  has changes" "$
 check 'young and landed ones are not listed' '' "$(grep -E 'example-repo#4[34]' <<< "$page")"
 sed 's/^LIVE_TAGS=.*$//' "$live/.ai-core/config.env" > "$live/.ai-core/config.tmp" && mv "$live/.ai-core/config.tmp" "$live/.ai-core/config.env"
 bare="$(cd "$live" && AI_CORE_PROCESSES="$work/no-processes" AI_CORE_AGENTS="$work/no-agents" AI_CORE_ROLLOUTS="$work/no-agents" bash "$root/bin/status.sh" --project example-org/8 2>&1)"
-check 'without LIVE_TAGS, the testing line' 'TESTING 6 cards in testing: 5 landed, 1 without a landing commit' "$(grep '^TESTING' <<< "$bare")"
+check 'without LIVE_TAGS, the testing line' 'TESTING 7 cards in testing: 5 landed, 1 without a landing commit, 1 without a checkout' "$(grep '^TESTING' <<< "$bare")"
 check 'and why' '  LIVE_TAGS in .ai-core/config.env names no environment, so where the work is live is not read' "$(grep 'names no environment' <<< "$bare")"
-check 'the landed cards, none called not live' '  ⏸ landed: example-repo#31 example-repo#32 example-repo#33 example-repo#34 example-repo#37|' "$(grep '⏸ landed:' <<< "$bare")|$(grep 'not live' <<< "$bare")"
+check 'the landed cards, none called not live' '  ⏸ landed: example-repo#37 example-repo#34 example-repo#33 example-repo#32 example-repo#31|' "$(grep '⏸ landed:' <<< "$bare")|$(grep 'not live' <<< "$bare")"
+printf 'LIVE_TAGS="oops prod=deploy/prod/* test=deploy/test/*"\nPROOF_HOURS=1\n' > "$live/.ai-core/config.env"
+short="$(cd "$live" && AI_CORE_PROCESSES="$work/no-processes" AI_CORE_AGENTS="$work/no-agents" AI_CORE_ROLLOUTS="$work/no-agents" bash "$root/bin/status.sh" --project example-org/8 2>&1)"
+check 'PROOF_HOURS is read: two hours on test are overdue at one' "  🔴 $(printf '%-26s' example-repo#37) live on test since 2 h (deploy/test/4)  Card 37" "$(grep 'example-repo#37 ' <<< "$short")"
+check 'a word of LIVE_TAGS that is no environment is named' "  LIVE_TAGS has 'oops', which is no <environment>=<tag pattern>; it is left out" "$(grep "LIVE_TAGS has" <<< "$short")"
+git -C "$repo" remote set-url origin "$work/gone/example-org/example-repo.git"
+gone="$(cd "$live" && AI_CORE_PROCESSES="$work/no-processes" AI_CORE_AGENTS="$work/no-agents" AI_CORE_ROLLOUTS="$work/no-agents" bash "$root/bin/status.sh" --project example-org/8 2>&1)"
+git -C "$repo" remote set-url origin "$origin"
+check 'a fetch that fails says what git said' yes "$(grep -q '^  fetching origin of example-org/example-repo failed: .*; read from the refs its clone had$' <<< "$gone" && echo yes || echo no)"
+check 'and the cards are still read from the clone' "  🔴 $(printf '%-26s' example-repo#33) live on test since 26 h (deploy/test/3)  Card 33" "$(grep 'example-repo#33 ' <<< "$gone")"
+check 'a sweep that cannot run is named' yes "$(grep -q '^  example-repo: the sweep could not run: could not reach origin' <<< "$gone" && echo yes || echo no)"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$out"; echo; echo "$failed failed"; exit 1; fi
 echo

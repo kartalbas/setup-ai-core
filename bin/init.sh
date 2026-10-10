@@ -126,8 +126,9 @@ fi
 #     and in a worktree `..` is .worktrees/<repository>/, where no neighbour stands: the check then
 #     finds nothing and proves less than in the checkout. So every other checkout of the folder
 #     gets a link there, and `..` finds the same neighbours from the worktree. An entry that stands
-#     there already is left as it is.
-NEIGHBOURS_LINKED=""; NEIGHBOURS_IN=""
+#     there already is left as it is. A link of this shape whose checkout is gone since leads
+#     nowhere and goes; a link of anybody else stays.
+NEIGHBOURS_LINKED=""; NEIGHBOURS_IN=""; NEIGHBOURS_UNLINKED=""
 if [ "$PROJECT_FOLDER" -eq 0 ]; then
   common="$(git -C "$TARGET" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || common=""
   if [ -n "$common" ] && [ "$common" != "$(git -C "$TARGET" rev-parse --path-format=absolute --git-dir 2>/dev/null)" ]; then
@@ -149,6 +150,13 @@ if [ "$PROJECT_FOLDER" -eq 0 ]; then
           esac
         fi
         NEIGHBOURS_LINKED="$NEIGHBOURS_LINKED $name"
+      done
+      for link in "$container"/*; do
+        name="${link##*/}"
+        [ -L "$link" ] && [ ! -e "$link" ] || continue
+        case "$(readlink "$link")" in "../../$name"|"$folder/$name") ;; *) continue ;; esac
+        [ "$DRY" -eq 1 ] || rm -f "$link"
+        NEIGHBOURS_UNLINKED="$NEIGHBOURS_UNLINKED $name"
       done
     fi
   fi
@@ -690,6 +698,7 @@ fi
 [ "$GITIGNORE_OPEN" -eq 0 ] || echo "  .gitignore not written: ${GITIGNORE_PULLED:+$GITIGNORE_PULLED; }it has a '# setup-ai-core start' line and no '# setup-ai-core end' after it; end the block or delete its start line, then run this again"
 if [ -n "$WORKTREE_DATA_FROM" ]; then echo "  .ai-core $([ "$DRY" -eq 1 ] && echo "would be taken" || echo "taken") from the checkout $WORKTREE_DATA_FROM: a worktree starts with the checkout's configuration, local rules and documents"; fi
 if [ -n "$NEIGHBOURS_LINKED" ]; then echo "  links to the neighbour checkouts $([ "$DRY" -eq 1 ] && echo "would be made" || echo "made") in $NEIGHBOURS_IN:$NEIGHBOURS_LINKED; .. finds them from the worktree as from the checkout"; fi
+if [ -n "$NEIGHBOURS_UNLINKED" ]; then echo "  links to checkouts that are gone $([ "$DRY" -eq 1 ] && echo "would be removed" || echo "removed") in $NEIGHBOURS_IN:$NEIGHBOURS_UNLINKED"; fi
 if [ "$HOOKS_ARMED" -eq 1 ]; then echo "  core.hooksPath $([ "$DRY" -eq 1 ] && echo "would be set" || echo "set") to .githooks: the push gate runs here"; fi
 if [ "$SHIMS_MODE" -eq 1 ] && [ "$DRY" -eq 1 ]; then echo "  the shims in .githooks are not executable, so git skips the push gate: ai-core pre-push --install would make them so"
 elif [ "$SHIMS_MODE" -eq 1 ]; then echo "  the shims in .githooks were not executable, so git skipped the push gate: ai-core pre-push --install made them so"

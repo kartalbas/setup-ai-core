@@ -155,12 +155,12 @@ if ($inWorkTree) {
         }
         $neighboursLinked += $n.Name
       }
-      foreach ($l in Get-ChildItem -LiteralPath $container -Force | Where-Object { $_.LinkType } | Sort-Object Name) {
-        # Test-Path answers for the link itself, so a link that leads nowhere reads as there.
-        $at = $l.ResolveLinkTarget($true)
-        if ($at -and $at.Exists) { continue }
+      foreach ($l in Get-ChildItem -LiteralPath $container -Force | Where-Object { $_.LinkType -cin 'SymbolicLink', 'Junction' } | Sort-Object Name) {
         $to = "$($l.Target)" -replace '\\', '/'
         if ($to -cne "../../$($l.Name)" -and $to -cne "$folder/$($l.Name)") { continue }
+        # Test-Path answers for the link itself, so a link that leads nowhere reads as there; a link
+        # that cannot be followed at all, such as one in a loop, leads nowhere too, as test -e says.
+        try { $at = $l.ResolveLinkTarget($true); if ($at -and $at.Exists) { continue } } catch { }
         if (-not $DryRun) { Remove-Item -LiteralPath $l.FullName -Force }
         $neighboursUnlinked += $l.Name
       }

@@ -45,9 +45,11 @@ A reviewer reads one diff and needs a small context; a developer on a package ne
   your planned packages need and ask the owner once to run `claude` in each; never start the
   worker in another folder instead.
 - A tier may also run in agy, on agy's own weekly quota, with a Claude model agy lists
-  (`agy models`: `claude-opus-5-5-high`, `claude-sonnet-5-5-high`), never below Sonnet. Run it in
-  the background from the package's worktree: `agy -p "<the brief>" --model <model>
-  --output-format json` the first time, then `--conversation <id>` with the id from that first
+  (`agy models`: `claude-opus-5-5-high`, `claude-sonnet-5-5-high`), never below Sonnet. agy's
+  label is all that is known of the model behind it, so a package that needs a model's full
+  strength goes to a Claude worker. Run it in the background from the package's worktree:
+  `agy -p "<the brief>" --model <model> --output-format json` the first time, then
+  `--conversation <id>` with the id from that first
   answer, recorded in `~/.ai-core/agy-conversations.tsv` under the worker's name. agy reads none of
   the harness, so its brief carries the rules it must keep. Its package is reviewed by a worker on
   another model; it pushes only its issue branch, through the push gate, and you land and finish its

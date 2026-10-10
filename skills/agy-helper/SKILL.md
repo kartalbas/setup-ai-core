@@ -136,7 +136,8 @@ Claude account. Call it from the same kind of throwaway directory, one call per 
 
 agy also offers Claude models on its own quota (`agy models`: `claude-opus-5-5-high`,
 `claude-sonnet-5-5-high` and their lower efforts). A coordinator may staff a worker tier with them
-(the person-in-charge skill). Such a worker is no helper: it runs in its package's worktree, not in
+(the person-in-charge skill). What agy lists is a label, and that the label is the model it
+serves is not proven. Such a worker is no helper: it runs in its package's worktree, not in
 a throwaway directory, and pushes its issue branch through the push gate. Everything else on this
 page is about helper calls.
 

@@ -61,8 +61,9 @@ A reviewer reads one diff and needs a small context; a developer on a package ne
   issues as for any worker.
 - Before you start or continue a worker, list the workers with `claude agents --json` (name, id,
   sessionId, state) or `ListAgents`, because after a compaction your summary may no longer name
-  them all. An idle worker in the package's repository on the package's tier gets the package with
-  `SendMessage`, a stopped one is continued as below, and a new worker starts only where none fits.
+  them all. A worker marked `idle done` in the package's repository on the package's tier gets the
+  package with `SendMessage`, a stopped one is continued as below, and a new worker starts only
+  where none fits.
 - Continue a stopped worker with `claude --bg --resume <sessionId>` and no other option, from any
   folder, with its history: Claude Code wakes it under the same id with its saved options, its
   name and its context size among them. The id it prints proves it: where that id is not the

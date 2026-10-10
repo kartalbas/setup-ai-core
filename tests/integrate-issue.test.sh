@@ -7,7 +7,8 @@
 # or a tree with changes is refused before anything moves; a clean run leaves one merge commit with
 # the issue's title and the trailer, its parents the old tip and the branch, and the branch checked
 # out again; a branch already integrated, a conflict and a push the hook refuses leave origin as it
-# was and the worktree on its branch.
+# was and the worktree on its branch. The landings of one clone take turns: a lock a live process
+# holds is waited for, one whose process is gone is taken over, and the lock spans the push.
 #
 #   bash tests/integrate-issue.test.sh
 
@@ -148,9 +149,49 @@ out="$(integrate "$wt7" example-org/example-repo 83 --reviewed-by l4)"; rc=$?
 check 'its own repository named: exit 0' 0 "$rc"
 check 'the subject keeps the short form' 'Read the board whole (#83)' "$(git --git-dir="$origin" log -1 --format=%s master)"
 
+echo 'the landings of one clone take turns: a lock a live process holds is waited for, a dead one taken over'
+lock="$work/.git/ai-core-landing"
+sleep 30 & holder=$!
+printf '%s\t%s\n' "$holder" 'example-org/example-repo#5' > "$lock"
+( sleep 4; rm -f "$lock" ) & release=$!
+wt8="$(new_tree 84 waits)"
+started=$SECONDS
+out="$(integrate "$wt8" 84 --reviewed-by l4)"; rc=$?
+waited=$((SECONDS - started))
+kill "$holder" 2>/dev/null; wait "$holder" "$release" 2>/dev/null
+check 'exit 0'                         0 "$rc"
+check 'it names who holds the lock'    yes "$(grep -qxF "waiting: example-org/example-repo#5 is landing from this clone (process $holder); this one lands after it" <<< "$out" && echo yes || echo no)"
+check 'it landed once the lock was released' yes "$([ "$waited" -ge 3 ] && [ "$(git --git-dir="$origin" log -1 --format=%s master)" = 'Read the board whole (#84)' ] && echo yes || echo no)"
+check 'and released its own'           no "$([ -e "$lock" ] && echo yes || echo no)"
+sh -c 'exit 0' & dead=$!; wait "$dead"
+printf '%s\t%s\n' "$dead" 'example-org/example-repo#6' > "$lock"
+wt9="$(new_tree 85 takes)"
+out="$(integrate "$wt9" 85 --reviewed-by l4)"; rc=$?
+check 'a lock whose process is gone: exit 0' 0 "$rc"
+check 'it says it took the lock over'  yes "$(grep -qxF "taken over: the landing lock of example-org/example-repo#6, whose process $dead no longer runs" <<< "$out" && echo yes || echo no)"
+check 'and released it'                no "$([ -e "$lock" ] && echo yes || echo no)"
+# A holder of another user's: kill -0 cannot signal it, and it still runs. Process 1 is one where
+# this test runs unprivileged on a system that has it.
+if ps -p 1 >/dev/null 2>&1 && ! kill -0 1 2>/dev/null; then
+  printf '%s\t%s\n' 1 'example-org/example-repo#7' > "$lock"
+  ( sleep 3; rm -f "$lock" ) & release=$!
+  wt11="$(new_tree 87 foreign)"
+  out="$(integrate "$wt11" 87 --reviewed-by l4)"; rc=$?
+  wait "$release" 2>/dev/null
+  check "another user's process: exit 0" 0 "$rc"
+  check 'it is waited for, not taken over' yes "$(grep -qxF 'waiting: example-org/example-repo#7 is landing from this clone (process 1); this one lands after it' <<< "$out" && echo yes || echo no)"
+else
+  echo "  skip another user's process: process 1 is missing here or this test may signal it"
+fi
+printf 'half written' > "$lock"
+wt10="$(new_tree 86 blank)"
+out="$(integrate "$wt10" 86 --reviewed-by l4)"; rc=$?
+check 'a lock that names no process: exit 0' 0 "$rc"
+check 'it is taken over after one poll' yes "$(grep -qxF "taken over: a landing lock that names no process: 'half written'" <<< "$out" && echo yes || echo no)"
+
 echo 'a push the hook refuses reaches nothing, and the branch is checked out again'
 wt4="$(new_tree 80 refused)"
-mkdir -p "$fake/hooks"; printf '#!/bin/sh\necho "pre-push: REFUSED - planted"\nexit 1\n' > "$fake/hooks/pre-push"; chmod +x "$fake/hooks/pre-push"
+mkdir -p "$fake/hooks"; printf '#!/bin/sh\ncut -f2 "%s" > "%s"\necho "pre-push: REFUSED - planted"\nexit 1\n' "$lock" "$fake/held.txt" > "$fake/hooks/pre-push"; chmod +x "$fake/hooks/pre-push"
 git -C "$work" config core.hooksPath "$fake/hooks"
 after="$(tip)"
 out="$(integrate "$wt4" 80 --reviewed-by l4)"; rc=$?
@@ -158,6 +199,8 @@ check 'exit 1'                         1 "$rc"
 check 'it says nothing reached origin' yes "$(grep -qF 'nothing reached origin' <<< "$out" && echo yes || echo no)"
 check 'origin did not move'            "$after" "$(tip)"
 check 'the worktree is on its branch'  'issue-80-refused' "$(git -C "$wt4" symbolic-ref --short HEAD)"
+check 'the lock was held during the push' '#80' "$(cat "$fake/held.txt" 2>/dev/null)"
+check 'and is released after the refusal' no "$([ -e "$lock" ] && echo yes || echo no)"
 
 echo
 [ "$failed" -eq 0 ] && echo 'all passed' || echo "$failed failed"

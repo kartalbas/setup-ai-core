@@ -74,20 +74,21 @@ case "$num" in ''|*[!0-9]*) die "the issue number must be numeric, not '$num'" ;
 # input cannot be run twice.
 send="$body"
 kept=""
-if [ -n "$body" ] && ! head -n 1 "$body" | grep -q "^$ASKED_PREFIX"; then
+given=""; [ -z "$body" ] || IFS= read -r given < "$body" || true
+if [ -n "$body" ] && ! is_origin_line "${given%$'\r'}"; then
   current="$(gh_read "the body of $repo#$num" api "repos/$repo/issues/$num" --jq '.body')" || exit 1
   # GitHub writes a body back with CRLF line endings, and the carriage return would travel into
   # the line being put back.
   first="$(printf '%s' "$current" | head -n 1)"
   first="${first%$'\r'}"
-  case "$first" in
-    "$ASKED_PREFIX"*)
-      send="$(mktemp)"
-      trap 'rm -f "$send"' EXIT
-      { printf '%s\n\n' "$first"; cat "$body"; } > "$send"
-      kept=", asked-for line kept" ;;
-    *) echo "$repo#$num carries no asked-for line, so there is none to keep - an edit is not the place to invent one" >&2 ;;
-  esac
+  if is_origin_line "$first"; then
+    send="$(mktemp)"
+    trap 'rm -f "$send"' EXIT
+    { printf '%s\n\n' "$first"; cat "$body"; } > "$send"
+    kept=", asked-for line kept"
+  else
+    echo "$repo#$num carries no asked-for line, so there is none to keep - an edit is not the place to invent one" >&2
+  fi
 fi
 
 call=(api --method PATCH "repos/$repo/issues/$num")

@@ -21,6 +21,13 @@
 # NOTHING IS LEFT HALF DONE. A conflict aborts the merge, a branch already in the default branch has
 # nothing to integrate, and a push the gate refuses reaches nothing; each time the branch is checked
 # out again and the cause is named.
+#
+# THE LANDINGS OF ONE CLONE TAKE TURNS. Git fixes the old value of the remote branch when the push
+# starts, before the gate runs, so a landing that moves the default branch while another one's gate
+# runs refuses the other's push. From the fetch to the end of the push this holds the file
+# ai-core-landing in the clone's git directory, which every worktree of the clone shares and the
+# twin reads too: its process id and its issue. A landing that finds it held waits; one whose holder
+# no longer runs takes it over.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 
@@ -60,6 +67,32 @@ ref="$(issue_ref "$repo" "$number")"
 subject="$title ($ref)"
 [ -n "$title" ] && [ "${#subject}" -le 72 ] || subject="Merge $branch ($ref)"
 [ "${#subject}" -le 72 ] || subject="Merge issue-$number ($ref)"
+
+landing="$(git rev-parse --path-format=absolute --git-common-dir)/ai-core-landing"
+# ponytail: two waiters that find the same dead holder can both take over, and the push then still
+# refuses the second, as it does without the lock; a holder's process id that an unrelated process
+# took over keeps the lock held, and the waiting line names that process
+waited=""; missing=0; nameless=0
+until said="$( (set -C; printf '%s\t%s\n' "$$" "$ref" > "$landing") 2>&1 )"; do
+  # Gone between the two steps is a lock just released; gone twice in a row, one never written
+  if ! holder="$(cat "$landing" 2>/dev/null)"; then
+    missing=$((missing + 1)); [ "$missing" -lt 2 ] || die "the landing lock $landing could not be written: $said"; continue
+  fi
+  missing=0; pid="${holder%%$'\t'*}"
+  # A lock still without its process id after the poll was never finished: nobody holds it
+  dead=""
+  case "$pid" in
+    ''|*[!0-9]*) nameless=$((nameless + 1)); [ "$nameless" -lt 2 ] || dead="a landing lock that names no process: '$holder'" ;;
+    *) nameless=0; ps -p "$pid" >/dev/null 2>&1 || dead="the landing lock of ${holder#*$'\t'}, whose process $pid no longer runs" ;;
+  esac
+  if [ -n "$dead" ]; then
+    rm -f "$landing" || die "the landing lock $landing could not be removed: $dead"
+    echo "taken over: $dead" >&2; nameless=0; continue
+  fi
+  [ -n "$waited" ] || [ "$nameless" -gt 0 ] || { waited=1; echo "waiting: ${holder#*$'\t'} is landing from this clone (process $pid); this one lands after it" >&2; }
+  sleep 2
+done
+trap '[ "$(cut -f1 "$landing" 2>/dev/null)" != "$$" ] || rm -f "$landing"' EXIT
 
 said="$(git fetch origin 2>&1)" || die "could not reach origin: $said"
 default="$(origin_default_branch)" || exit 1

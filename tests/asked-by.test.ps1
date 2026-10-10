@@ -63,9 +63,8 @@ function New-Issue([hashtable]$extra) {
 }
 function Calls { @(Get-Content $log -ErrorAction SilentlyContinue) }
 
-# -AskedBy and -AskedIn are Mandatory, and PowerShell's binder is where a missing one stops. In
-# a non-interactive run it throws rather than prompting, so the refusal is the binder's and the
-# check is that NOTHING reached gh.
+# A missing -AskedBy or -AskedIn is refused by issue-new itself, and the check is that NOTHING
+# reached gh.
 Write-Host 'without -AskedBy the issue is refused before gh is called'
 $ran = New-Issue @{ AskedIn = 'issue #12' }
 Check 'refused'            'False' ([string]$ran)
@@ -88,6 +87,25 @@ Check 'the original body follows after a blank line' 'the body' $lines[2]
 Write-Host 'a leading @ on the login is not doubled'
 $ran = New-Issue @{ AskedBy = '@kartalbas'; AskedIn = 'the chat' }
 Check 'one @' 'True' ([bool](@(Get-Content $sent)[0] -match 'by @kartalbas on'))
+
+# A defect found in the work is written down without a yes: -FoundIn stands in for the person,
+# and only on a bug, because other work is what the yes is for.
+Write-Host 'a defect found in the work is filed with -FoundIn, without a yes'
+$ran = New-Issue @{ Label = @('type:bug', 'area:tooling'); FoundIn = 'the review of #91' }
+Check 'the issue was created' 'True' ([bool]((Calls) -match 'issue create'))
+Check 'first line names where it was found and the day' `
+  "Found in the review of #91 on $today, a defect filed without a yes." (@(Get-Content $sent -ErrorAction SilentlyContinue)[0])
+
+Write-Host 'work that is no defect is refused with -FoundIn'
+$ran = New-Issue @{ FoundIn = 'the review of #91' }
+Check 'refused'            'False' ([string]$ran)
+Check 'says why'           'True' ([bool]($script:said -match '-FoundIn is only for a defect'))
+Check 'nothing reached gh' 'False' ([bool]((Calls) -match 'issue create'))
+
+Write-Host '-FoundIn together with -AskedBy is refused'
+$ran = New-Issue @{ Label = @('type:bug', 'area:tooling'); FoundIn = 'the review of #91'; AskedBy = 'kartalbas'; AskedIn = 'the chat' }
+Check 'refused'            'False' ([string]$ran)
+Check 'nothing reached gh' 'False' ([bool]((Calls) -match 'issue create'))
 
 # The caller's own file is theirs. A tool that wrote the line into it could not be run twice
 # without the line standing there twice.

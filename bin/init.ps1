@@ -564,14 +564,15 @@ if ((Test-Path (Join-Path $target '.githooks\pre-push')) -and ("$(& git -C $targ
 
 # 3b. The project's .gitignore carries a block naming every file an agent or the harness puts
 #     into a checkout (lib\gitignore-block), so no clone of this repository commits one, with or
-#     without the harness. The block is rewritten between its markers and the rest of the file is
-#     the project's; a path the project already ignores, with or without the slashes, is not
-#     written twice, and when it ignores them all no block is written. A changed .gitignore is
-#     the one thing init leaves for a commit.
-# The block committed on its own and pushed by ref to the branch checked out; a worktree is
-# somebody's issue and keeps the change for its own commit. Returns the note for the report.
+#     without the harness. The block is rewritten where it stands, between its markers, and every
+#     other line is the project's, kept as it is; a file without a block gets it at its end. A path
+#     the project already ignores, with or without the slashes, is not written twice, and when it
+#     ignores them all no block is written. Only the main checkout writes the block and commits
+#     it: a worktree is somebody's issue, takes the block when it rebases, and until then the
+#     exclude file it shares with its checkout keeps the deployed files out of git status.
+# The block committed on its own and pushed by ref to the branch checked out. Returns the note for
+# the report.
 function Send-Gitignore([string]$dir) {
-  if ("$(& git -C $dir rev-parse --git-dir 2>$null)" -cne "$(& git -C $dir rev-parse --git-common-dir 2>$null)") { return "it goes out with this worktree's own commit" }
   & git -C $dir add -- .gitignore
   & git -C $dir commit -q -m 'the agent files of this repository are ignored' -m 'No-issue: the .gitignore block written by ai-core init' -- .gitignore
   if ($LASTEXITCODE -ne 0) { return "the commit failed (see above)" }
@@ -583,41 +584,58 @@ function Send-Gitignore([string]$dir) {
   if ($LASTEXITCODE -eq 0) { return "committed and pushed to origin/$branch" }
   return "committed; the push was refused or failed (see above), the commit stays"
 }
+# A line of .gitignore as the block is compared with it: no trailing blanks, one slash less on each end
+function Get-IgnoreKey([string]$line) {
+  $key = $line.TrimEnd()
+  if ($key.StartsWith('/', [StringComparison]::Ordinal)) { $key = $key.Substring(1) }
+  if ($key.EndsWith('/', [StringComparison]::Ordinal)) { $key = $key.Substring(0, $key.Length - 1) }
+  return $key
+}
 # The .gitignore the checkout should have, $wanted, against the one it has, $current
 $buildGitignore = {
-  $kept = @(); $skip = $false
-  if (Test-Path $gi) {
-    foreach ($line in [System.IO.File]::ReadAllLines($gi)) {
-      if ($line -clike '# setup-ai-core start*') { $skip = $true }
-      if (-not $skip) { $kept += $line }
-      if ($line -clike '# setup-ai-core end*') { $skip = $false }
-    }
+  $lines = if (Test-Path $gi) { [System.IO.File]::ReadAllLines($gi) } else { @() }
+  $seen = @{}; $skip = $false
+  foreach ($line in $lines) {
+    if ($line -clike '# setup-ai-core start*') { $skip = $true }
+    if (-not $skip -and $line -and -not $line.StartsWith('#', [StringComparison]::Ordinal)) { $seen[(Get-IgnoreKey $line)] = $true }
+    if ($line -clike '# setup-ai-core end*') { $skip = $false }
   }
-  $seen = @{}; foreach ($line in $kept) { if ($line -and -not $line.StartsWith('#', [StringComparison]::Ordinal)) { $seen[$line.Trim().Trim('/')] = $true } }
+  # A start line without its end leaves no way to tell the block from the project's lines after it
+  $open = $skip
+  $crlf = (Test-Path $gi) -and [System.IO.File]::ReadAllText($gi).Contains("`r`n")
   $markers = @(); $missing = @()
   foreach ($line in [System.IO.File]::ReadAllLines((Join-Path $coreRoot "lib\gitignore-block"))) {
     if ($line.StartsWith('#', [StringComparison]::Ordinal)) { $markers += $line; continue }
-    if (-not $seen.ContainsKey($line.Trim().Trim('/'))) { $missing += $line }
+    if (-not $seen.ContainsKey((Get-IgnoreKey $line))) { $missing += $line }
   }
   $block = if ($missing.Count -gt 0) { @($markers[0]) + $missing + @($markers[1]) } else { @() }
-  $wanted = (($kept + $block) -join "`n") + "`n"
+  # The block in the place of the first one the file holds, every other line as it stands
+  $out = [System.Collections.Generic.List[string]]::new(); $placed = $false; $skip = $false
+  foreach ($line in $lines) {
+    if ($line -clike '# setup-ai-core start*') { if (-not $placed) { foreach ($b in $block) { $out.Add($b) }; $placed = $true }; $skip = $true }
+    if (-not $skip) { $out.Add($line) }
+    if ($line -clike '# setup-ai-core end*') { $skip = $false }
+  }
+  if (-not $placed) { foreach ($b in $block) { $out.Add($b) } }
+  $wanted = if ($out.Count) { ($out -join "`n") + "`n" } else { '' }
   $current = if (Test-Path $gi) { [System.IO.File]::ReadAllText($gi).Replace("`r`n", "`n") } else { $null }
 }
-$gitignoreChanged = $false; $gitignoreNote = ''; $gitignoreBehind = $false
-if ($inWorkTree) {
+$gitignoreChanged = $false; $gitignoreNote = ''; $gitignoreBehind = $false; $gitignoreOpen = $false; $gitignorePulled = ''
+if ($inWorkTree -and "$(& git -C $target rev-parse --git-dir 2>$null)" -ceq "$(& git -C $target rev-parse --git-common-dir 2>$null)") {
   $gi = Join-Path $target ".gitignore"
   . $buildGitignore
-  if ($current -cne $wanted) {
+  if ($open) { $gitignoreOpen = $true }
+  elseif ($current -cne $wanted) {
     $gitignoreChanged = $true
     if (-not $DryRun) {
-      # The commit goes on top of what the origin has: the checkout catches up first (a worktree
-      # keeps the change for its own commit), and the block is built again from what came
-      $caught = [pscustomobject]@{ Ok = $true; Note = '' }
-      if ("$(& git -C $target rev-parse --git-dir 2>$null)" -ceq "$(& git -C $target rev-parse --git-common-dir 2>$null)") { $caught = Sync-Checkout $target }
+      # The commit goes on top of what the origin has: the checkout catches up first, and the
+      # block is built again from what came
+      $caught = Sync-Checkout $target
       if (-not $caught.Ok) { $gitignoreBehind = $true; $gitignoreNote = $caught.Note }
       else {
         if ($caught.Note) { . $buildGitignore }
-        if ($current -cne $wanted) { [System.IO.File]::WriteAllText($gi, $wanted, $utf8); $gitignoreNote = "$(if ($caught.Note) { "$($caught.Note); " })$(Send-Gitignore $target)" }
+        if ($caught.Note -and $open) { $gitignoreChanged = $false; $gitignoreOpen = $true; $gitignorePulled = $caught.Note }
+        elseif ($current -cne $wanted) { [System.IO.File]::WriteAllText($gi, $(if ($crlf) { $wanted.Replace("`n", "`r`n") } else { $wanted }), $utf8); $gitignoreNote = "$(if ($caught.Note) { "$($caught.Note); " })$(Send-Gitignore $target)" }
         else { $gitignoreChanged = $false; $gitignoreNote = $caught.Note }
       }
     }
@@ -660,6 +678,7 @@ if ($gitignoreChanged) {
   elseif ($gitignoreBehind) { Write-Host "  .gitignore not written: this checkout is $gitignoreNote" }
   else { Write-Host "  .gitignore changed: the agent files of this repository are ignored; $gitignoreNote" }
 } elseif ($gitignoreNote) { Write-Host "  .gitignore: $gitignoreNote; the block was there already" }
+if ($gitignoreOpen) { Write-Host "  .gitignore not written: $(if ($gitignorePulled) { "$gitignorePulled; " })it has a '# setup-ai-core start' line and no '# setup-ai-core end' after it; end the block or delete its start line, then run this again" }
 if ($worktreeDataFrom) { Write-Host "  .ai-core $(if ($DryRun) { 'would be taken' } else { 'taken' }) from the checkout ${worktreeDataFrom}: a worktree starts with the checkout's configuration, local rules and documents" }
 if ($neighboursLinked.Count) { Write-Host "  links to the neighbour checkouts $(if ($DryRun) { 'would be made' } else { 'made' }) in ${neighboursIn}: $($neighboursLinked -join ' '); .. finds them from the worktree as from the checkout" }
 if ($hooksArmed) { Write-Host "  core.hooksPath $(if ($DryRun) { 'would be set' } else { 'set' }) to .githooks: the push gate runs here" }

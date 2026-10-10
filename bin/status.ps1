@@ -67,10 +67,10 @@ try {
     elseif ($IsWindows) {
       $at = Get-Date
       Set-Content -LiteralPath $processes -Value @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine } | ForEach-Object {
-        "$($_.ProcessId)`t$($_.ParentProcessId)`t$([int]($at - $_.CreationDate).TotalSeconds)`t$($_.CommandLine)" })
+        "$($_.ProcessId)`t$($_.ParentProcessId)`t$([int]($at - $_.CreationDate).TotalSeconds)`t`t$($_.CommandLine)" })
     } else {
-      Set-Content -LiteralPath $processes -Value @(& ps -A -o 'pid=,ppid=,etime=,command=' | ForEach-Object {
-        if ($_ -cmatch '^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$') { "$($Matches[1])`t$($Matches[2])`t$($Matches[3])`t$($Matches[4])" } })
+      Set-Content -LiteralPath $processes -Value @(& ps -A -o 'pid=,ppid=,etime=,stat=,command=' | ForEach-Object {
+        if ($_ -cmatch '^\s*(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(.*)$') { "$($Matches[1])`t$($Matches[2])`t$($Matches[3])`t$($Matches[4])`t$($Matches[5])" } })
     }
     # How to reach each agent: Claude Code's list of its sessions, and where /proc shows them the
     # codex rollout files the processes hold open, "/proc/<pid>/fd<tab><path>"; AI_CORE_AGENTS and

@@ -4,7 +4,7 @@
 #
 #   issue-new --repo OWNER/REPO --title "Do the thing, or what it costs" --body-file PATH \
 #             --label type:feature --label area:gate --priority P1 [--status todo] \
-#             --asked-by LOGIN --asked-in WHERE \
+#             --asked-by LOGIN --asked-in WHERE | --found-in WHERE \
 #             [--parent OWNER/REPO#N|REPO#N|N] [--project [ORG/]N | --no-board]
 #
 # --no-board files the issue in a repository that is linked to no open board, a harness or the
@@ -23,7 +23,8 @@
 # where they said it; the two are written into the first line of the body, so a ticket nobody
 # asked for reads as one on the board. Refusing here is the tool's half of that rule; whether
 # the name is true is the person's, and the name on the ticket is what makes a false one visible
-# to them.
+# to them. A DEFECT A SESSION FOUND IN ITS OWN WORK takes --found-in instead, naming where it was
+# found: writing a found defect down is tracking, not new work, and only a type:bug issue may take it.
 #
 # Prints the new issue number on stdout, so it can be captured and reused. When a parent
 # is named, the issue the new one was attached to - repository, number and title - is
@@ -44,7 +45,7 @@
 # the repo is known — defaulting to @me at parse time is what put every backend issue
 # on whoever ran the command.
 repo=""; title=""; body=""; priority=""; status="todo"; parent=""; project=""
-labels=(); assignee=""; asked_by=""; asked_in=""; no_board=""; status_set=""
+labels=(); assignee=""; asked_by=""; asked_in=""; found_in=""; no_board=""; status_set=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -59,6 +60,7 @@ while [ $# -gt 0 ]; do
     --project)   need_value "$1" "${2-}"; project="$2";   shift 2 ;;
     --asked-by)  need_value "$1" "${2-}"; asked_by="$2";  shift 2 ;;
     --asked-in)  need_value "$1" "${2-}"; asked_in="$2";  shift 2 ;;
+    --found-in)  need_value "$1" "${2-}"; found_in="$2";  shift 2 ;;
     --no-board)  no_board=1; shift ;;
     *) die "unknown argument: $1" ;;
   esac
@@ -84,14 +86,21 @@ fi
 [ -n "$no_board" ] || [ -n "$priority" ] || die "--priority is required (P0 blocker, P1 high, P2 normal, P3 low, P9 parked)"
 [ "${#labels[@]}" -ge 2 ] || die "at least two labels are required: one for the type of work, one for the area"
 
-# No issue without a person's yes (rules.md, the issue rules).
-[ -n "$asked_by" ] || die "--asked-by is required: the login of the person who said yes to this issue"
-[ -n "$asked_in" ] || die "--asked-in is required: where they said it - the issue thread, the review, or the chat, with its date"
-case "$asked_by" in @*) asked_by="${asked_by#@}" ;; esac
+# No issue without a person's yes (rules.md, the issue rules), except a defect found in the work.
+if [ -n "$found_in" ]; then
+  [ -z "$asked_by$asked_in" ] || die "--found-in and --asked-by/--asked-in contradict each other: one says a session found a defect, the other names who said yes - give one"
+  grep -qx 'type:bug' <<< "$(printf '%s\n' "${labels[@]}")" \
+    || die "--found-in is only for a defect found in the work (label type:bug); other work needs --asked-by and --asked-in"
+  asked="$FOUND_PREFIX$found_in on $(date +%Y-%m-%d)$FOUND_TAIL"
+else
+  [ -n "$asked_by" ] || die "--asked-by is required: the login of the person who said yes to this issue (a defect found in the work takes --found-in)"
+  [ -n "$asked_in" ] || die "--asked-in is required: where they said it - the issue thread, the review, or the chat, with its date"
+  case "$asked_by" in @*) asked_by="${asked_by#@}" ;; esac
+  asked="$ASKED_PREFIX$asked_by on $(date +%Y-%m-%d) in $asked_in."
+fi
 
 # The body is written whole into a temporary file, and the ORIGINAL is left alone: a caller's
 # file is theirs, and a command that edits its own input cannot be run twice.
-asked="$ASKED_PREFIX$asked_by on $(date +%Y-%m-%d) in $asked_in."
 sent="$(mktemp)"
 trap 'rm -f "$sent"' EXIT
 { printf '%s\n\n' "$asked"; cat "$body"; } > "$sent"

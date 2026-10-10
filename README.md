@@ -229,12 +229,15 @@ from. Every other file is created once and never overwritten. All of it is regis
 `init` writes a block into the project's `.gitignore` (`lib/gitignore-block`): every file an agent
 or the harness puts into a checkout, `/.ai-core/`, `/AGENTS.md`, `/.claude/`,
 `/.agents/`, the pointer files. The block stands between two marker
-lines and is rewritten there on every run; the rest of the file is the project's, a path the
-project already ignores is not written twice, and a project that ignores them all gets no block.
-`init` commits that `.gitignore` on its own (subject `the agent files of this repository are
-ignored`, a `No-issue:` trailer naming `init`) and pushes it by ref to the branch checked out,
-through the push gate where the repository carries one; in a worktree it leaves the change for
-that worktree's own commit. Before that commit the checkout is brought level with its origin:
+lines and only the block is rewritten, in its place, on every run: every other line is the
+project's and stays as it is, blank lines, the lines after the block and CRLF line ends too, and
+a file without a block gets it at its end. A start line without its end line leaves the file
+alone, because nothing tells the block from the lines after it; the report names it. A path the project already ignores is not written twice, and a project
+that ignores them all gets no block, or loses the one it had where it stood. Only the main
+checkout writes the block: `init` commits that `.gitignore` on its own (subject `the agent files
+of this repository are ignored`, a `No-issue:` trailer naming `init`) and pushes it by ref to the
+branch checked out, through the push gate where the repository carries one. A worktree keeps the
+`.gitignore` its branch has and takes the block when it rebases. Before that commit the checkout is brought level with its origin:
 fetched, and fast-forwarded where it is only behind, so a clone another machine already served
 takes the block from there instead of committing it twice; a clone behind its origin with commits
 or changes of its own gets no block, and the report says why. From then on no clone of the
@@ -242,7 +245,9 @@ repository commits an agent file, with or without the harness.
 
 `init` also writes every path it deploys into `.git/info/exclude` of the clone, between two marker
 lines, rewritten on every run, which covers the clone before that commit.
-In a worktree, git resolves that file to the main checkout, so all worktrees share it. The project's `.gitignore` is never touched. A file
+In a worktree, git resolves that file to the main checkout, so all worktrees share it, and it
+keeps the deployed files out of `git status` in a worktree whose `.gitignore` has no block yet;
+this step never touches the project's `.gitignore`. A file
 the repository already tracks stays tracked: an exclude entry never affects a tracked file, and
 `init` never overwrites a tracked file.
 
@@ -387,8 +392,11 @@ on start; no developer installs a skill by hand.
 
 - `person-in-charge` is the skill of the session the owner names coordinator of a project. The
   coordinator writes no code. It keeps the overview in the tracker and delegates the work to
-  worker sessions it starts itself, as background sessions of Claude Code (`claude --bg`), after
-  one approval of the owner for the team.
+  worker sessions it starts itself, as background sessions of Claude Code (`claude --bg`) or as
+  agy runs with agy's Claude models on agy's own quota, after one approval of the owner for the
+  team. A worker's brief names the path of its package's worktree, where it works by path, never
+  with `EnterWorktree`, and its questions go to the coordinator by `SendMessage`: nobody sits at a
+  background worker's terminal to answer a question there.
   - The owner starts the coordinator with a context size too, for example
     `claude --name person-in-charge --settings '{"autoCompactWindow":400000}'`. Without one it
     compacts only near the model's whole window, and every answer reads that much again.
@@ -414,7 +422,9 @@ on start; no developer installs a skill by hand.
     state, the coordinator builds one page from `ai-core status`.
 - `agy-helper` hands every check a cheaper model can do, and the session can check cheaply, to
   Gemini through the `agy` CLI: a live check after a release, a UI check, a pre-review of a diff,
-  drafting test cases, collecting facts. Claude and Codex then spend their tokens on judgment. Each
+  drafting test cases, collecting facts. Where agy's weekly quota is used up, the same checks go to
+  Claude Haiku 5.5 through `claude -p`, which denies every permission prompt and loads no MCP server
+  but the isolated browser. Claude and Codex then spend their tokens on judgment. Each
   session keeps one agy conversation of its own, recorded in `~/.ai-core/agy-conversations.tsv`.
 
 ### 4.7 Maps: what the code does not say
@@ -978,9 +988,9 @@ no repository acts on the one it runs in; `OWNER/REPO` before the issue number n
 | Command | Does |
 | :--- | :--- |
 | `start-issue [OWNER/REPO] N` | opens the worktree for issue N under `../.worktrees/<repo>/issue-N-<slug>`, on a branch of that name cut from `origin/<default>`, only when the issue is assigned to you and the checkout is clean and current; moves the card to `implementing`; runs `init` there, which takes the checkout's `.ai-core/` data first; prints the thread. For an issue of another repository whose work lands here, `OWNER/REPO N` (`-Repo` in PowerShell) cuts the worktree here and records the issue's repository on the branch (`git config branch.<branch>.issueRepository`), where `session-start`, `integrate-issue` and `finish-issue` read it. One run, because any one of these done alone is often not done. |
-| `integrate-issue [OWNER/REPO] N --reviewed-by R` | in the worktree of issue N, after the reviewer's GO: merges its branch with `--no-ff` into the newest `origin/<default>`, under the issue's title with `(#N)`, or `(OWNER/REPO#N)` for an issue of another repository, given or recorded on the branch (or `Merge <branch> (...)`, then `Merge issue-N (...)`, where the title does not fit 72 characters) and a `Reviewed-by: R` trailer, pushes `HEAD:<default>` through the gate, and checks the branch out again for `finish-issue`. Refuses without a reviewer, on a branch that is not issue N's, with changes in the tree, on a conflict and on a branch already integrated, each time with the branch checked out again and nothing pushed. The reviewer is a name given, not a review proven |
+| `integrate-issue [OWNER/REPO] N --reviewed-by R` | in the worktree of issue N, after the reviewer's GO: merges its branch with `--no-ff` into the newest `origin/<default>`, under the issue's title with `(#N)`, or `(OWNER/REPO#N)` for an issue of another repository, given or recorded on the branch (or `Merge <branch> (...)`, then `Merge issue-N (...)`, where the title does not fit 72 characters) and a `Reviewed-by: R` trailer, pushes `HEAD:<default>` through the gate, and checks the branch out again for `finish-issue`. The landings of one clone take turns: from the fetch to the end of the push it holds `ai-core-landing` in the clone's git directory, a landing that finds it held names the issue holding it and waits, and one whose holder no longer runs takes it over. Refuses without a reviewer, on a branch that is not issue N's, with changes in the tree, on a conflict and on a branch already integrated, each time with the branch checked out again and nothing pushed. The reviewer is a name given, not a review proven |
 | `finish-issue [OWNER/REPO] N [--landed]` | after the push that lands the work; the issue, its card and its comment are in the repository given or recorded on the branch: removes the worktree and branch of issue N, only a worktree named for issue N (a package's worktree, named for its first issue, stays while a later issue's branch is checked out in it), only when it has no changes and the change of every commit is on `origin/<default>`, by ancestry or as an equal patch (`git cherry`, so a cherry-picked branch passes); `--landed` removes it anyway where commits landed in another shape, only for a closed issue, and names them; moves the card to the column after `implementing` unless that is `done`, which closing sets, and in a repository on no board says there is no card; comments on the issue what landed. `--sweep [--dry-run]` removes every worktree of the repository whose work landed more than a day ago; `start-issue` and `init --all` run it |
-| `issue-new` | creates an issue: `--title`, `--body-file`, labels, priority, the assignee from `assignees.tsv`, the card on the board, optionally a parent epic (`--parent OWNER/REPO#N`), which then follows its sub-issues as under `issue-status`. Refuses without `--asked-by LOGIN` and `--asked-in WHERE` and writes "Asked for by @login on DATE in WHERE." as the body's first line. Reports a title over 70 characters, one with a backtick, or one that names an action and no stake. `--no-board` files it in a repository linked to no open board, a harness among them: no card, no status, no priority; refused where the repository is on a board, and together with `--project`, `--priority` or `--status`. |
+| `issue-new` | creates an issue: `--title`, `--body-file`, labels, priority, the assignee from `assignees.tsv`, the card on the board, optionally a parent epic (`--parent OWNER/REPO#N`), which then follows its sub-issues as under `issue-status`. Refuses without `--asked-by LOGIN` and `--asked-in WHERE` and writes "Asked for by @login on DATE in WHERE." as the body's first line; a defect a session found in its own work (`type:bug`) takes `--found-in WHERE` instead and opens with "Found in WHERE on DATE, a defect filed without a yes.", because writing a found defect down is tracking, not new work. Reports a title over 70 characters, one with a backtick, or one that names an action and no stake. `--no-board` files it in a repository linked to no open board, a harness among them: no card, no status, no priority; refused where the repository is on a board, and together with `--project`, `--priority` or `--status`. |
 | `issue-thread N [--json]` | the issue and every comment on it, for a person or as one JSON object |
 | `issue-mine N` | whether the issue is assigned to the account `gh` is logged in as; `start-issue` and `session-start` ask it |
 | `issue-comment N` | adds a comment, inline or `--body-file` |
@@ -997,7 +1007,7 @@ no repository acts on the one it runs in; `OWNER/REPO` before the issue number n
 | `subissue-add`, `subissue-remove` | attaches issues to an epic as sub-issues, or detaches them; the epic then follows its sub-issues as under `issue-status` |
 | `board-sync` | puts every issue of every linked repository on the board and reports what is missing: labels, priorities, cards that were not on the board |
 | `board-list` | the board: status, priority, repository, number, title; a repository of another organisation than the board's is written with its owner, `owner/name` |
-| `status [--project N] [--tokens] [--issues]` | the state of the work, the same page every time and counted, with no model. Without options: the board counts and every agent process on the machine, with the runs each one started under it, and under REACH the command that reaches each agent. Where no agent runs, and with `--tokens`: the usage windows against the limit; the pace, the issues closed in the last 24 hours, with the average of 14 days beside it; how fast the project folder raises each window an hour, the rise the usage log of the status line measured times the folder's share of the fresh tokens of every session on the machine, and from the pace what that is per issue; the tokens every session of the project folder used in the last 24 hours, fresh and read from the cache apart, and per issue closed in that time; the context an answer read again in those hours, on average and the largest, which shows how late the sessions compact; the epics whose sub-issues are all closed; the open issues on the last column. An epic is an issue with sub-issues. `--issues` adds every open issue by epic. Needs Node.js |
+| `status [--project N] [--tokens] [--issues]` | the state of the work, the same page every time and counted, with no model. Without options: the board counts and every agent process on the machine, with the runs each one started under it; a Claude session's name comes from `claude agents --json` where its command line names none, its model and effort from that name where it follows the worker naming rule, and its issue from the `issue-<n>-…` worktree it was started in, marked `at start`, because a worker given a later package keeps that folder; a stopped process is marked stopped and not counted as running; under REACH the command that reaches each agent. Where no agent runs, and with `--tokens`: the usage windows against the limit; the pace, the issues closed in the last 24 hours, with the average of 14 days beside it; how fast the project folder raises each window an hour, the rise the usage log of the status line measured times the folder's share of the fresh tokens of every session on the machine, and from the pace what that is per issue; the tokens every session of the project folder used in the last 24 hours, fresh and read from the cache apart, and per issue closed in that time; the context an answer read again in those hours, on average and the largest, which shows how late the sessions compact; the epics whose sub-issues are all closed; the open issues on the last column. An epic is an issue with sub-issues. `--issues` adds every open issue by epic. Needs Node.js |
 | `board-order` | stamps an order onto the board, read from standard input as `owner/repo#number` per line |
 | `board-unarchive` | brings archived cards back into view |
 | `status-sync [--dry-run]` | closes a card that `finish-issue` moved to `testing` once the first commit of its "Landed on" comment is carried by the newest tag, and moves no card on a commit alone, because a commit that names an issue touches it without finishing it; an epic follows its sub-issues as under `issue-status`, so a sub-issue moved by hand on the board moves its epic too; forward only, except that step back of an epic |

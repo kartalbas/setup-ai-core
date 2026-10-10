@@ -82,6 +82,32 @@ echo 'a leading @ on the login is not doubled'
 new --asked-by @kartalbas --asked-in 'the chat' >/dev/null
 check 'one @' yes "$(head -1 "$sent" 2>/dev/null | grep -q 'by @kartalbas on' && echo yes || echo no)"
 
+# A defect found in the work is written down without a yes: --found-in stands in for the person,
+# and only on a bug, because other work is what the yes is for.
+found() {
+  : > "$log"; rm -f "$sent"
+  bash "$root/bin/issue-new.sh" --repo "$repo" \
+    --title 'Keep the asked-for line on an edit, or the board loses who wanted it' \
+    --body-file "$body" --label "$1" --label area:tooling --priority P1 \
+    --project "$PROJECT_NUMBER" "${@:2}" 2>&1 >/dev/null
+}
+echo 'a defect found in the work is filed with --found-in, without a yes'
+found type:bug --found-in 'the review of #91' >/dev/null
+check 'the issue was created'   yes "$(grep -q 'issue create' "$log" && echo yes || echo no)"
+check 'first line names where it was found and the day' \
+  "Found in the review of #91 on $today, a defect filed without a yes." "$(head -1 "$sent" 2>/dev/null)"
+
+echo 'work that is no defect is refused with --found-in'
+out="$(found type:feature --found-in 'the review of #91')"; rc=$?
+check 'refused'                 yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'says why'                yes "$(grep -q -- '--found-in is only for a defect' <<< "$out" && echo yes || echo no)"
+check 'nothing reached gh'      no  "$(grep -q 'issue create' "$log" 2>/dev/null && echo yes || echo no)"
+
+echo '--found-in together with --asked-by is refused'
+out="$(found type:bug --found-in 'the review of #91' --asked-by kartalbas --asked-in 'the chat')"; rc=$?
+check 'refused'                 yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'nothing reached gh'      no  "$(grep -q 'issue create' "$log" 2>/dev/null && echo yes || echo no)"
+
 # The caller's own file is theirs. A tool that wrote the line into it could not be run twice
 # without the line standing there twice.
 echo "the caller's body file is left as it was"

@@ -33,9 +33,18 @@
   the same form. [review]
 - **A question or a task the owner cannot finish without asking back is a defect.** It carries its
   own context, names the concrete case with real values, and can be decided or done from the
-  rendered element alone. What a session may do itself, in the browser too, it does itself once the
-  person has chosen it in the question dialog; only what no session may do becomes a task for the
-  person. Such a task, a test or not, is written for someone who does it for the first time, as
+  rendered element alone. What a session can do itself, in the browser too, it does itself, after
+  the owner's choice where the choice is the owner's, and a person never becomes the hand that
+  clicks for it. Where the tool's safety check blocks such a step, the session writes out one line
+  that names the step and its target, for the owner to copy into the chat input, never into the
+  question dialog or its free field, because the check reads what the person types there and no
+  answer in the dialog, and then takes the step itself;
+  where the same kind of step will come again, it also proposes the entry that allows it for the
+  `auto-mode.tsv` of the layer the step belongs to, setup-ai-core for every project or the project's
+  harness for its own, and once the owner has named that entry, `ai-core init` writes it into the
+  tool's user settings on every machine where it runs. Only what no session can do becomes a task for the
+  person: a login with the person's own password or second factor, a payment, or a step the check
+  refuses even after that line. Such a task, a test or not, is written for someone who does it for the first time, as
   steps in order and nothing else: each step is a table of one row with the step's number, where it
   runs (the Claude input field for a line that starts with `! `, a separate terminal, or the
   browser), what to do in a complete sentence, and what the person sees afterwards. Whatever the

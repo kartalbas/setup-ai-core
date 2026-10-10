@@ -267,6 +267,30 @@ if ($layers.Count -gt 0) {
   Write-Host "--> No project harness: this checkout has no GitHub origin; the generic harness only"
 }
 
+# The auto-mode entries of setup-ai-core and of every layer, read before anything is written, so a
+# line init cannot read stops it here; step 2b writes them. Each is tagged with its layer's name.
+$autoModeLayers = @('setup-ai-core'); $autoModeLines = @()
+function Read-AutoMode([string]$file, [string]$layer) {
+  if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { return }
+  $no = 0
+  foreach ($line in [System.IO.File]::ReadAllText($file).Split("`n")) {
+    $no++; $line = $line.TrimEnd("`r")
+    if ($line -ceq '' -or $line.StartsWith('#', [StringComparison]::Ordinal)) { continue }
+    $parts = $line.Split("`t")
+    if ($parts.Count -eq 2 -and ($parts[0] -ceq 'allow' -or $parts[0] -ceq 'environment') -and $parts[1] -cne '') { $script:autoModeLines += "$($parts[0])`t[$layer] $($parts[1])"; continue }
+    Write-Host "error: ${file}:$no is no auto-mode entry: the list (allow or environment), one tab, then the entry; nothing was written" -ForegroundColor Red
+    exit 1
+  }
+}
+Read-AutoMode (Join-Path $coreRoot 'auto-mode.tsv') 'setup-ai-core'
+foreach ($l in $layers) {
+  # a layer a dry run has not cloned is no layer of this run: its entries in the settings stay
+  if (-not (Test-Path -LiteralPath $l -PathType Container)) { continue }
+  $lname = (Split-Path -Leaf $l).TrimStart('.')
+  $autoModeLayers += $lname
+  Read-AutoMode (Join-Path $l 'auto-mode.tsv') $lname
+}
+
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("ai-core-init-" + [System.IO.Path]::GetRandomFileName())
 New-Item -ItemType Directory -Force -Path $tmp | Out-Null
 $aiCoreDir = Join-Path $target ".ai-core"
@@ -522,6 +546,48 @@ if ($projectFolder) {
   [System.IO.File]::WriteAllText((Join-Path $tmp 'AGENTS.md'), $map.ToString(), $utf8)
   Put (Join-Path $tmp 'AGENTS.md') 'AGENTS.md' managed
 }
+# 2b. The auto-mode entries go into Claude Code's user settings, the machine's file, because its
+#     classifier reads autoMode there and in managed settings, never in a repository's settings.
+#     lib/auto-mode.jq merges them: the entries of the layers this run assembled are replaced, every
+#     other entry stays. A Claude Code that never ran here has no folder yet, and none is created.
+$autoModeFile = ''; $autoModeNote = ''; $autoModeChanges = @()
+$autoModeChangesFilter = '("allow", "environment") as $l | ((($n[0].autoMode[$l] // []) - ($o[0].autoMode[$l] // []))[] | "added to \($l): \(.)"), ((($o[0].autoMode[$l] // []) - ($n[0].autoMode[$l] // []))[] | "removed from \($l): \(.)")'
+if ((Test-Serves 'claude') -and -not (Get-Command jq -ErrorAction SilentlyContinue)) {
+  $autoModeNote = "jq is missing, so no entry was written into Claude Code's user settings; install jq and run init again"
+} elseif (Test-Serves 'claude') {
+  $claudeDir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME '.claude' }
+  $autoModeFile = Join-Path $claudeDir 'settings.json'
+  $entriesFile = Join-Path $tmp 'auto-mode.tsv'; $layersFile = Join-Path $tmp 'auto-mode-layers.txt'
+  [System.IO.File]::WriteAllText($entriesFile, (($autoModeLines | ForEach-Object { "$_`n" }) -join ''), $utf8)
+  [System.IO.File]::WriteAllText($layersFile, (($autoModeLayers | ForEach-Object { "$_`n" }) -join ''), $utf8)
+  if (-not (Test-Path -LiteralPath $claudeDir -PathType Container)) {
+    $autoModeNote = "$claudeDir does not exist, so Claude Code has not run on this machine; no entry written"
+  } else {
+    # Claude Code and every init on this machine write this one file. The merge replaces it only
+    # while it still holds what was read, and goes round again otherwise. It is written in place,
+    # not renamed over, so a settings file that is a link stays one and keeps its mode.
+    $autoModeNote = "$autoModeFile changed while init merged into it, three times over; no entry written, run init again"
+    $readFile = Join-Path $tmp 'user-settings-read.json'; $mergedFile = Join-Path $tmp 'user-settings.json'
+    foreach ($try in 1..3) {
+      $read = if (Test-Path -LiteralPath $autoModeFile -PathType Leaf) { [System.IO.File]::ReadAllBytes($autoModeFile) } else { $utf8.GetBytes("{}`n") }
+      [System.IO.File]::WriteAllBytes($readFile, $read)
+      # jq's answer is UTF-8, and an entry may carry more than ASCII
+      $encoding = [Console]::OutputEncoding; [Console]::OutputEncoding = $utf8
+      try {
+        $merged = (& jq --rawfile e $entriesFile --rawfile l $layersFile -f (Join-Path $coreRoot 'lib/auto-mode.jq') $readFile 2>$null | Out-String)
+        $mergedOk = ($LASTEXITCODE -eq 0 -and $merged.Trim())
+        if ($mergedOk) {
+          [System.IO.File]::WriteAllText($mergedFile, $merged.Replace("`r`n", "`n"), $utf8)
+          $autoModeChanges = @(& jq -rn --slurpfile o $readFile --slurpfile n $mergedFile $autoModeChangesFilter | ForEach-Object { "$_".TrimEnd("`r") } | Where-Object { $_ })
+        }
+      } finally { [Console]::OutputEncoding = $encoding }
+      if (-not $mergedOk) { $autoModeNote = "$autoModeFile is no JSON object with lists in autoMode, so no entry was written; repair it and run init again"; break }
+      if ($autoModeChanges.Count -eq 0 -or $DryRun) { $autoModeNote = ''; break }
+      if ((Test-Path -LiteralPath $autoModeFile -PathType Leaf) -and -not [System.Linq.Enumerable]::SequenceEqual([byte[]][System.IO.File]::ReadAllBytes($autoModeFile), [byte[]]$read)) { continue }
+      [System.IO.File]::WriteAllBytes($autoModeFile, [System.IO.File]::ReadAllBytes($mergedFile)); $autoModeNote = ''; break
+    }
+  }
+}
 
 # 3. Keep the harness out of the repository's history: every deployed path goes into the
 #    clone's own exclude file, which no commit ever contains. Worktrees share it.
@@ -686,6 +752,11 @@ if ($shimsMode -eq 1 -and $DryRun) { Write-Host "  the shims in .githooks are no
 elseif ($shimsMode -eq 1) { Write-Host "  the shims in .githooks were not executable, so git skipped the push gate: ai-core pre-push --install made them so" }
 elseif ($shimsMode -eq 2) { Write-Host "  the shims in .githooks are not executable, so git skips the push gate, and ai-core pre-push --install failed (see above)" }
 foreach ($hook in $skippedHooks) { Write-Host "  $hook is not executable, so git skips it; it is the project's own and stays as it is" }
+if ($autoModeNote) { Write-Host "  auto mode: $autoModeNote" }
+elseif ($autoModeChanges.Count -gt 0) {
+  Write-Host "  auto mode: $autoModeFile $(if ($DryRun) { 'would change' } else { 'changed' }):"
+  foreach ($c in $autoModeChanges) { Write-Host "    $c" }
+}
 if ($DryRun) { Write-Host "  nothing was written (dry run)" } elseif (-not $agentsUnknown) { Write-Host "✓ Harness $coreVersion in place. Run 'ai-core session-start' here to verify." -ForegroundColor Green }
 Write-Host "==================================================" -ForegroundColor Green
 if ($agentsUnknown) { Write-Host "error: AGENTS in $config names '$agentsUnknown'; known are claude, codex, antigravity, openhands, gemini, cursor, windsurf, copilot" -ForegroundColor Red; exit 1 }

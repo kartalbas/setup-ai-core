@@ -252,6 +252,35 @@ elif [ "$PROJECT_FOLDER" -eq 0 ]; then
   echo "--> No project harness: this checkout has no GitHub origin; the generic harness only"
 fi
 
+# The auto-mode entries of setup-ai-core and of every layer, read before anything is written, so a
+# line init cannot read stops it here; step 2b writes them. Each is tagged with its layer's name.
+AUTO_MODE_LAYERS="setup-ai-core"
+: > "$TMP/auto-mode.tsv"
+read_auto_mode() {  # read_auto_mode <file> <layer>
+  local line no=0
+  [ -f "$1" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    no=$((no + 1)); line="${line%$'\r'}"
+    if [ "$no" -eq 1 ]; then line="${line#$'\xef\xbb\xbf'}"; fi   # a byte-order mark, which PowerShell drops as well
+    case "$line" in ''|'#'*) continue ;; esac
+    case "$line" in
+      allow$'\t'?*|environment$'\t'?*) case "${line#*$'\t'}" in *$'\t'*) ;; *) printf '%s\t[%s] %s\n' "${line%%$'\t'*}" "$2" "${line#*$'\t'}" >> "$TMP/auto-mode.tsv"; continue ;; esac ;;
+    esac
+    echo "error: $1:$no is no auto-mode entry: the list (allow or environment), one tab, then the entry; nothing was written" >&2
+    return 1
+  done < "$1"
+}
+read_auto_mode "$CORE_ROOT/auto-mode.tsv" setup-ai-core || exit 1
+if [ -n "$LAYERS" ]; then
+  while IFS= read -r l; do
+    # a layer a dry run has not cloned is no layer of this run: its entries in the settings stay
+    [ -d "$l" ] || continue
+    lname="$(basename "$l")"; lname="${lname#.}"
+    AUTO_MODE_LAYERS="$AUTO_MODE_LAYERS"$'\n'"$lname"
+    read_auto_mode "$l/auto-mode.tsv" "$lname" || exit 1
+  done <<< "$LAYERS"
+fi
+
 AI_CORE_DIR="$TARGET/.ai-core"
 [ "$DRY" -eq 1 ] || mkdir -p "$AI_CORE_DIR/rules" "$AI_CORE_DIR/docs"
 # Earlier versions copied the scripts into the checkout, and one wrote an MCP file Antigravity
@@ -486,6 +515,36 @@ if [ "$PROJECT_FOLDER" -eq 1 ]; then
   put "$TMP/AGENTS.md" AGENTS.md managed
 fi
 
+# 2b. The auto-mode entries go into Claude Code's user settings, the machine's file, because its
+#     classifier reads autoMode there and in managed settings, never in a repository's settings.
+#     lib/auto-mode.jq merges them: the entries of the layers this run assembled are replaced, every
+#     other entry stays. A Claude Code that never ran here has no folder yet, and none is created.
+AUTO_MODE_FILE=""; AUTO_MODE_NOTE=""
+AUTO_MODE_CHANGES='("allow", "environment") as $l | ((($n[0].autoMode[$l] // []) - ($o[0].autoMode[$l] // []))[] | "added to \($l): \(.)"), ((($o[0].autoMode[$l] // []) - ($n[0].autoMode[$l] // []))[] | "removed from \($l): \(.)")'
+if serves claude && ! command -v jq >/dev/null 2>&1; then
+  AUTO_MODE_NOTE="jq is missing, so no entry was written into Claude Code's user settings; install jq and run init again"
+elif serves claude; then
+  CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; AUTO_MODE_FILE="$CLAUDE_DIR/settings.json"
+  printf '%s\n' "$AUTO_MODE_LAYERS" > "$TMP/auto-mode-layers.txt"
+  if [ ! -d "$CLAUDE_DIR" ]; then
+    AUTO_MODE_NOTE="$CLAUDE_DIR does not exist, so Claude Code has not run on this machine; no entry written"
+  else
+    # Claude Code and every init on this machine write this one file. The merge replaces it only
+    # while it still holds what was read, and goes round again otherwise. It is written in place,
+    # not renamed over, so a settings file that is a link stays one and keeps its mode.
+    AUTO_MODE_NOTE="$AUTO_MODE_FILE changed while init merged into it, three times over; no entry written, run init again"
+    for try in 1 2 3; do
+      if [ -f "$AUTO_MODE_FILE" ]; then cp -f "$AUTO_MODE_FILE" "$TMP/user-settings-read.json"; else echo '{}' > "$TMP/user-settings-read.json"; fi
+      if ! jq --rawfile e "$TMP/auto-mode.tsv" --rawfile l "$TMP/auto-mode-layers.txt" -f "$CORE_ROOT/lib/auto-mode.jq" "$TMP/user-settings-read.json" 2>/dev/null | tr -d '\r' > "$TMP/user-settings.json" || [ ! -s "$TMP/user-settings.json" ]; then
+        AUTO_MODE_NOTE="$AUTO_MODE_FILE is no JSON object with lists in autoMode, so no entry was written; repair it and run init again"; break
+      fi
+      jq -rn --slurpfile o "$TMP/user-settings-read.json" --slurpfile n "$TMP/user-settings.json" "$AUTO_MODE_CHANGES" | tr -d '\r' > "$TMP/auto-mode-changes.txt"
+      if [ ! -s "$TMP/auto-mode-changes.txt" ] || [ "$DRY" -eq 1 ]; then AUTO_MODE_NOTE=""; break; fi
+      if [ -f "$AUTO_MODE_FILE" ] && ! cmp -s "$AUTO_MODE_FILE" "$TMP/user-settings-read.json"; then continue; fi
+      cp -f "$TMP/user-settings.json" "$AUTO_MODE_FILE"; AUTO_MODE_NOTE=""; break
+    done
+  fi
+fi
 # 3. Keep the harness out of the repository's history: every deployed path goes into the
 #    clone's own exclude file, which no commit ever contains. Worktrees share it.
 if EXCLUDE="$(cd "$TARGET" && git rev-parse --git-path info/exclude 2>/dev/null)"; then
@@ -636,6 +695,11 @@ if [ "$SHIMS_MODE" -eq 1 ] && [ "$DRY" -eq 1 ]; then echo "  the shims in .githo
 elif [ "$SHIMS_MODE" -eq 1 ]; then echo "  the shims in .githooks were not executable, so git skipped the push gate: ai-core pre-push --install made them so"
 elif [ "$SHIMS_MODE" -eq 2 ]; then echo "  the shims in .githooks are not executable, so git skips the push gate, and ai-core pre-push --install failed (see above)"; fi
 for hook in $SKIPPED_HOOKS; do echo "  $hook is not executable, so git skips it; it is the project's own and stays as it is"; done
+if [ -n "$AUTO_MODE_NOTE" ]; then echo "  auto mode: $AUTO_MODE_NOTE"
+elif [ -s "$TMP/auto-mode-changes.txt" ]; then
+  echo "  auto mode: $AUTO_MODE_FILE $([ "$DRY" -eq 1 ] && echo "would change" || echo "changed"):"
+  sed 's/^/    /' "$TMP/auto-mode-changes.txt"
+fi
 if [ "$DRY" -eq 1 ]; then echo "  nothing was written (dry run)"; elif [ -z "$AGENTS_UNKNOWN" ]; then echo "✓ Harness $CORE_VERSION in place. Run 'ai-core session-start' here to verify."; fi
 echo "=================================================="
 if [ -n "$AGENTS_UNKNOWN" ]; then echo "error: AGENTS in $CONFIG names '$AGENTS_UNKNOWN'; known are claude, codex, antigravity, openhands, gemini, cursor, windsurf, copilot" >&2; exit 1; fi

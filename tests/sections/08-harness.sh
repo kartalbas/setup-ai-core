@@ -105,6 +105,101 @@ for t in sh ps; do
   [ -f "$c/.ai-core/docs/shop-ai-core/glossary.md" ] && grep -q '^The map of shop-web' "$c/AGENTS.md" || fail "init.$t took out what the harness still provides"
   grep -q 'skills/deploy' "$c/.ai-core/DEPLOYED" && fail "init.$t still records the skill in DEPLOYED"
 done
+# The auto-mode entries of setup-ai-core and of the harness go into Claude Code's user settings, each
+# led by its layer: the person's own entry, another layer's and "$defaults" stay, an untagged copy of
+# a layer's entry gives way, a list init creates starts with "$defaults", a second run and the other
+# twin write the same, an entry the harness drops leaves, and a line init cannot read stops it before
+# it writes. init.sh finds the settings under HOME, init.ps1 in CLAUDE_CONFIG_DIR.
+printf '# the shop'"'"'s own\nallow\tA shop entry moved by hand.\nenvironment\tKey internal services: the shop run manager.\n' > "$WORK/author/auto-mode.tsv"
+git -C "$WORK/author" add auto-mode.tsv; git -C "$WORK/author" -c user.name=check -c user.email=check@localhost commit -q -m "the shop's auto-mode entries"; git -C "$WORK/author" push -q origin HEAD
+mkdir -p "$WORK/home-sh/.claude" "$WORK/claude-ps"
+for f in "$WORK/home-sh/.claude/settings.json" "$WORK/claude-ps/settings.json"; do
+  printf '{"model":"opus","autoMode":{"allow":["$defaults","Own entry.","[other-ai-core] Another layer.","A shop entry moved by hand."]}}\n' > "$f"
+done
+cp "$WORK/home-sh/.claude/settings.json" "$WORK/settings-before.json"
+auto_mode_init() {  # auto_mode_init sh|ps <log> [--dry-run]
+  if [ "$1" = sh ]; then env -u CLAUDE_CONFIG_DIR HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/shop-web" --no-doctor ${3:+--dry-run} > "$2" 2>&1
+  else CLAUDE_CONFIG_DIR="$(native "$WORK/claude-ps")" HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-ps/shop-web")" -NoDoctor ${3:+-DryRun} > "$2" 2>&1; fi
+}
+settings_of() { if [ "$1" = sh ]; then echo "$WORK/home-sh/.claude/settings.json"; else echo "$WORK/claude-ps/settings.json"; fi; }
+generic="$(grep -v '^#' "$ROOT/auto-mode.tsv" | awk -F'\t' '$1 == "allow" { print "[setup-ai-core] " $2 }' | jq -Rn '[inputs]')"
+[ "$(jq length <<< "$generic")" -gt 0 ] || fail "auto-mode.tsv of setup-ai-core carries no allow entry to look for"
+for t in sh ps; do
+  s="$(settings_of "$t")"
+  auto_mode_init "$t" "$WORK/auto-mode-$t-dry.log" dry || fail "init.$t --dry-run with the harness's auto-mode entries (see $WORK/auto-mode-$t-dry.log)"
+  grep -aq '^  auto mode: .*settings.json would change:$' "$WORK/auto-mode-$t-dry.log" || fail "init.$t --dry-run does not say the auto-mode entries would change (see $WORK/auto-mode-$t-dry.log)"
+  cmp -s "$s" "$WORK/settings-before.json" || fail "init.$t --dry-run wrote the user settings"
+  auto_mode_init "$t" "$WORK/auto-mode-$t-1.log" || fail "init.$t with the harness's auto-mode entries (see $WORK/auto-mode-$t-1.log)"
+  for line in 'added to allow: [shop-ai-core] A shop entry moved by hand.' 'removed from allow: A shop entry moved by hand.' 'added to environment: $defaults' 'added to environment: [shop-ai-core] Key internal services: the shop run manager.'; do
+    grep -aqxF "    $line" "$WORK/auto-mode-$t-1.log" || fail "init.$t does not report '$line' (see $WORK/auto-mode-$t-1.log)"
+  done
+  jq -e --argjson g "$generic" '.model == "opus"
+    and .autoMode.allow == (["$defaults", "Own entry.", "[other-ai-core] Another layer."] + $g + ["[shop-ai-core] A shop entry moved by hand."])
+    and .autoMode.environment == ["$defaults", "[shop-ai-core] Key internal services: the shop run manager."]' "$s" > /dev/null \
+    || fail "init.$t merged the auto-mode entries wrongly: $(jq -c .autoMode "$s")"
+  cp "$s" "$WORK/settings-$t-1.json"
+  auto_mode_init "$t" "$WORK/auto-mode-$t-2.log" || fail "init.$t second run with the same auto-mode entries (see $WORK/auto-mode-$t-2.log)"
+  cmp -s "$s" "$WORK/settings-$t-1.json" || fail "init.$t changed the user settings on a second run with the same entries"
+  grep -aq '^  auto mode:' "$WORK/auto-mode-$t-2.log" && fail "init.$t reports an auto-mode change on a second run with the same entries"
+done
+cmp -s "$(settings_of sh)" "$(settings_of ps)" || fail "the user settings differ between the twins"
+for t in sh ps; do   # the same entries in another order are no change
+  s="$(settings_of "$t")"
+  jq '.autoMode.allow |= ([.[] | select(startswith("["))] + [.[] | select(startswith("[") | not)])' "$s" > "$WORK/reordered-$t.json" && cp "$WORK/reordered-$t.json" "$s"
+  auto_mode_init "$t" "$WORK/auto-mode-$t-order.log" || fail "init.$t with the entries in another order (see $WORK/auto-mode-$t-order.log)"
+  cmp -s "$s" "$WORK/reordered-$t.json" || fail "init.$t rewrote a list whose entries stood only in another order"
+done
+printf 'allow\tA shop entry moved by hand.\n' > "$WORK/author/auto-mode.tsv"
+git -C "$WORK/author" -c user.name=check -c user.email=check@localhost commit -qam "the run manager entry goes"; git -C "$WORK/author" push -q origin HEAD
+for t in sh ps; do
+  auto_mode_init "$t" "$WORK/auto-mode-$t-gone.log" || fail "init.$t after the harness dropped an auto-mode entry (see $WORK/auto-mode-$t-gone.log)"
+  grep -aqxF '    removed from environment: [shop-ai-core] Key internal services: the shop run manager.' "$WORK/auto-mode-$t-gone.log" || fail "init.$t does not report the dropped entry (see $WORK/auto-mode-$t-gone.log)"
+  jq -e '.autoMode.environment == ["$defaults"] and (.autoMode.allow | index("[shop-ai-core] A shop entry moved by hand.")) != null' "$(settings_of "$t")" > /dev/null || fail "init.$t left the dropped entry or lost the kept one: $(jq -c .autoMode "$(settings_of "$t")")"
+done
+printf 'allow\tA shop entry moved by hand.\ndeny\tNo list of the classifier is called so.\n' > "$WORK/author/auto-mode.tsv"
+git -C "$WORK/author" -c user.name=check -c user.email=check@localhost commit -qam "a line init cannot read"; git -C "$WORK/author" push -q origin HEAD
+for t in sh ps; do
+  cp "$(settings_of "$t")" "$WORK/settings-$t-bad.json"; cp "$WORK/org-$t/shop-web/.ai-core/STAMP" "$WORK/stamp-$t-bad"
+  auto_mode_init "$t" "$WORK/auto-mode-$t-bad.log" && fail "init.$t went on with a line it cannot read in auto-mode.tsv"
+  grep -aq 'auto-mode.tsv:2 is no auto-mode entry: the list (allow or environment), one tab, then the entry; nothing was written' "$WORK/auto-mode-$t-bad.log" || fail "init.$t does not name the line it cannot read (see $WORK/auto-mode-$t-bad.log)"
+  cmp -s "$(settings_of "$t")" "$WORK/settings-$t-bad.json" && cmp -s "$WORK/org-$t/shop-web/.ai-core/STAMP" "$WORK/stamp-$t-bad" || fail "init.$t wrote before it stopped at the line it cannot read"
+done
+printf '\357\273\277# a byte-order mark first, as an editor on Windows writes it\nallow\tA shop entry moved by hand.\n' > "$WORK/author/auto-mode.tsv"
+git -C "$WORK/author" -c user.name=check -c user.email=check@localhost commit -qam "a byte-order mark"; git -C "$WORK/author" push -q origin HEAD
+for t in sh ps; do auto_mode_init "$t" "$WORK/auto-mode-$t-bom.log" || fail "init.$t refused auto-mode.tsv for its byte-order mark (see $WORK/auto-mode-$t-bom.log)"; done
+git -C "$WORK/author" rm -q auto-mode.tsv; git -C "$WORK/author" -c user.name=check -c user.email=check@localhost commit -q -m "no auto-mode entries"; git -C "$WORK/author" push -q origin HEAD
+for t in sh ps; do
+  auto_mode_init "$t" "$WORK/auto-mode-$t-none.log" || fail "init.$t after the harness dropped its auto-mode.tsv (see $WORK/auto-mode-$t-none.log)"
+  grep -aqxF '    removed from allow: [shop-ai-core] A shop entry moved by hand.' "$WORK/auto-mode-$t-none.log" || fail "init.$t does not report the entries of the dropped table (see $WORK/auto-mode-$t-none.log)"
+  jq -e '[(.autoMode.allow + .autoMode.environment)[] | select(startswith("[shop-ai-core] "))] | length == 0' "$(settings_of "$t")" > /dev/null || fail "init.$t left entries of a harness that carries no auto-mode.tsv: $(jq -c .autoMode "$(settings_of "$t")")"
+done
+# A settings folder that is not there, settings that are no JSON object and a folder without settings:
+# the first two say so and write nothing, the third gets its file; and a dry run whose harness is not
+# cloned yet keeps that harness's entries, on both twins
+init_with() {  # init_with sh|ps <settings folder> <checkout> <log> [dry]
+  if [ "$1" = sh ]; then CLAUDE_CONFIG_DIR="$2" HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$3" --no-doctor ${5:+--dry-run} > "$4" 2>&1
+  else CLAUDE_CONFIG_DIR="$(native "$2")" HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$3")" -NoDoctor ${5:+-DryRun} > "$4" 2>&1; fi
+}
+mkdir -p "$WORK/org-dry"; new_checkout "$WORK/org-dry/shop-web" shop-web
+for t in sh ps; do
+  mkdir -p "$WORK/claude-$t-bad" "$WORK/claude-$t-new" "$WORK/claude-$t-dry"; printf '{"autoMode":' > "$WORK/claude-$t-bad/settings.json"
+  printf '{"autoMode":{"allow":["$defaults","[shop-ai-core] Kept while the harness is not cloned."]}}\n' > "$WORK/claude-$t-dry/settings.json"
+  init_with "$t" "$WORK/claude-$t-missing" "$WORK/org-$t/shop-web" "$WORK/auto-mode-$t-missing.log" || fail "init.$t without a settings folder (see $WORK/auto-mode-$t-missing.log)"
+  grep -aq '^  auto mode: .*claude-'"$t"'-missing does not exist, so Claude Code has not run on this machine; no entry written$' "$WORK/auto-mode-$t-missing.log" || fail "init.$t does not say it wrote no entry for want of a settings folder (see $WORK/auto-mode-$t-missing.log)"
+  [ ! -e "$WORK/claude-$t-missing" ] || fail "init.$t created the settings folder of a Claude Code that never ran"
+  init_with "$t" "$WORK/claude-$t-bad" "$WORK/org-$t/shop-web" "$WORK/auto-mode-$t-bad-json.log" || fail "init.$t with settings that are no JSON (see $WORK/auto-mode-$t-bad-json.log)"
+  grep -aq '^  auto mode: .*settings.json is no JSON object with lists in autoMode, so no entry was written; repair it and run init again$' "$WORK/auto-mode-$t-bad-json.log" || fail "init.$t does not say the settings are no JSON object (see $WORK/auto-mode-$t-bad-json.log)"
+  [ "$(cat "$WORK/claude-$t-bad/settings.json")" = '{"autoMode":' ] || fail "init.$t wrote settings it could not read"
+  init_with "$t" "$WORK/claude-$t-new" "$WORK/org-$t/shop-web" "$WORK/auto-mode-$t-new.log" || fail "init.$t with a settings folder and no settings (see $WORK/auto-mode-$t-new.log)"
+  jq -e --argjson g "$generic" '.autoMode.allow == (["$defaults"] + $g) and (.autoMode | has("environment") | not)' "$WORK/claude-$t-new/settings.json" > /dev/null || fail "init.$t wrote the new settings wrongly: $(cat "$WORK/claude-$t-new/settings.json" 2>&1)"
+  init_with "$t" "$WORK/claude-$t-dry" "$WORK/org-dry/shop-web" "$WORK/auto-mode-$t-uncloned.log" dry || fail "init.$t --dry-run with the harness not cloned yet (see $WORK/auto-mode-$t-uncloned.log)"
+  grep -aq 'shop-ai-core would be cloned' "$WORK/auto-mode-$t-uncloned.log" || fail "init.$t --dry-run did not find the harness uncloned (see $WORK/auto-mode-$t-uncloned.log)"
+  grep -aq 'removed from allow: \[shop-ai-core\]' "$WORK/auto-mode-$t-uncloned.log" && fail "init.$t --dry-run would remove the entries of a harness it has not cloned (see $WORK/auto-mode-$t-uncloned.log)"
+done
+cmp -s "$WORK/claude-sh-new/settings.json" "$WORK/claude-ps-new/settings.json" || fail "the new settings differ between the twins"
+mkdir -p "$WORK/home-ps-fresh/.claude"
+env -u CLAUDE_CONFIG_DIR HOME="$WORK/home-ps-fresh" USERPROFILE="$(native "$WORK/home-ps-fresh")" PATH="$PATH_SH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-ps/shop-web")" -NoDoctor > "$WORK/auto-mode-ps-home.log" 2>&1 || fail "init.ps1 without CLAUDE_CONFIG_DIR (see $WORK/auto-mode-ps-home.log)"
+cmp -s "$WORK/home-ps-fresh/.claude/settings.json" "$WORK/claude-ps-new/settings.json" || fail "init.ps1 did not write the settings under HOME without CLAUDE_CONFIG_DIR"
 # The map: the agent CLI (a fake claude here) writes it, map puts it into the harness, pushes it and brings it into the checkout at once; people's rules kept; a bad output refused; on both twins
 cat > "$WORK/ghbin/claude" <<'EOF'
 #!/bin/sh

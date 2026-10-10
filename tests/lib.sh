@@ -23,6 +23,9 @@ export GIT_AUTHOR_NAME=check GIT_AUTHOR_EMAIL=check@localhost GIT_COMMITTER_NAME
 export NO_COLOR=1
 # session-start does not ask the origins here: nothing in this suite reaches the network
 export AI_CORE_UPDATE_CHECK=never
+# init writes Claude Code's user settings, so every section points them at a folder that does not
+# exist: none touches the settings of this machine, and a check of them names its own folder
+export CLAUDE_CONFIG_DIR="$WORK/claude-config"
 # A team-modes table whose probes always pass, so the tools of this machine never decide a check
 printf 'claude\tmode\ton\talways\t-\t-\ncodex\tmode\ton\talways\t-\t-\ngemini\tmode\ton\talways\t-\t-\n' > "$WORK/modes.tsv"; export TEAM_MODES_FILE="$WORK/modes.tsv"
 

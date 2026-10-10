@@ -551,6 +551,9 @@ on_no_board() {  # on_no_board <owner/repo> [named board] - true when the reposi
 # are the writer and the reader of one sentence, so the opening stands here once: a prefix
 # changed in the writer alone would leave the reader keeping nothing and reporting nothing.
 ASKED_PREFIX='Asked for by @'
+# A defect a session found in its own work names where it was found instead: writing it down is
+# tracking, not new work, so it waits for nobody's yes.
+FOUND_PREFIX='Found in '
 
 # WHAT IS WRONG WITH A TITLE. Every check here REPORTS on stderr, and the call still goes
 # through. Whether a title reads well is a judgment, and a script cannot make it; a refusal

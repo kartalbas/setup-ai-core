@@ -589,6 +589,15 @@ function Test-OnNoBoard {
 # changed in the writer alone would leave the reader keeping nothing and reporting nothing.
 $script:AskedPrefix = 'Asked for by @'
 function Get-AskedPrefix { [CmdletBinding()] param() $script:AskedPrefix }
+# A defect a session found in its own work names where it was found instead: writing it down is
+# tracking, not new work, so it waits for nobody's yes.
+$script:FoundPrefix = 'Found in '
+function Get-FoundPrefix { [CmdletBinding()] param() $script:FoundPrefix }
+# Whether a line opens the way issue-new writes the first line of a body: asked for, or found in.
+function Test-OriginLine {
+  [CmdletBinding()] param([string]$Line)
+  $Line.StartsWith($script:AskedPrefix, [StringComparison]::Ordinal) -or $Line.StartsWith($script:FoundPrefix, [StringComparison]::Ordinal)
+}
 
 function Write-TitleReport {
   # WHAT IS WRONG WITH A TITLE. Every check here REPORTS, and the call still goes through.
@@ -956,6 +965,6 @@ Export-ModuleMember -Function Stop-WithError, ConvertTo-AsciiLowercase, Invoke-G
   Set-Project, Get-ProjectNumber, Get-ProjectOrg,
   Get-TemplateProjectNumber, Get-TemplateMark, Resolve-ProjectForRepo, Get-RepoOpenProjects, Test-OnNoBoard, Get-OriginDefaultBranch, Get-ProjectId, Get-CacheDir, Get-Fields, Get-FieldId, Get-OptionId,
   Clear-BoardCache, Get-DefaultRepo, Get-BranchIssueRepo, Get-IssueRef, Get-AssigneeForRepo, Get-ProjectRepos, Get-IssueNodeId, Get-IssueDbId,
-  Write-TitleReport, Get-AskedPrefix, Get-IssueThread, Get-IssueBoardItems, Invoke-OnEveryBoard, Set-ItemTop,
+  Write-TitleReport, Get-AskedPrefix, Get-FoundPrefix, Test-OriginLine, Get-IssueThread, Get-IssueBoardItems, Invoke-OnEveryBoard, Set-ItemTop,
   Resolve-ParentIssue, Get-ItemId, Get-ArchivedItemId, Get-BoardItems, Remove-BoardItem, Set-Select,
   Get-StatusRank, Get-EpicTarget, Get-EpicTargetOnBoard, Update-Epic, Update-ParentEpic

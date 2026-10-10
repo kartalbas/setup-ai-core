@@ -70,11 +70,11 @@ if ($Title) { Write-TitleReport -Title $Title }
 # input cannot be run twice.
 $send = $BodyFile
 $kept = ''
-if ($BodyFile -and -not "$(@(Get-Content -LiteralPath $BodyFile -TotalCount 1)[0])".StartsWith((Get-AskedPrefix), [StringComparison]::Ordinal)) {
+if ($BodyFile -and -not (Test-OriginLine "$(@(Get-Content -LiteralPath $BodyFile -TotalCount 1)[0])")) {
   # GitHub writes a body back with CRLF line endings, and the carriage return would travel into
   # the line being put back.
   $first = "$(@(Invoke-Gh api "repos/$Repo/issues/$Number" --jq '.body')[0])".TrimEnd("`r")
-  if ($first.StartsWith((Get-AskedPrefix), [StringComparison]::Ordinal)) {
+  if ((Test-OriginLine $first)) {
     $send = Join-Path ([IO.Path]::GetTempPath()) "issue-edit-$([guid]::NewGuid().ToString('N').Substring(0,8)).md"
     Set-Content -Path $send -Value ($first + "`n`n" + [IO.File]::ReadAllText($BodyFile)) -NoNewline -Encoding utf8NoBOM
     $kept = ', asked-for line kept'

@@ -6,11 +6,14 @@
   first and marked, the code facts last. A decision is the owner's when it is hard to undo or reaches
   beyond the issue's own branch and tracker entries (a release, a migration, a deletion of anything
   that is not the change's own leftover, anything published), widens the scope (a new dependency, a
-  new public interface, work beyond the issue), costs a multiple of the task for its clean answer,
-  has no clean answer, or chooses between two equally clean answers where the difference is the
-  product's. Every other choice the agent makes itself, takes the clean one, and names it with its
-  reason in one line of its report, where the owner can still overturn it; a choice no reader would
-  question goes unnamed. [review]
+  new public interface, new work that no issue holds yet), costs a multiple of the task for its
+  clean answer, has no clean answer, or chooses between two equally clean answers where the
+  difference is the product's. Every other choice the agent makes itself, takes the clean one, and
+  names it with its reason in one line of its report, where the owner can still overturn it; a
+  choice no reader would question goes unnamed. Filing a defect found in the work is tracking, not
+  new work, and needs no yes; which open issues a coordinator works on next, within the goal the
+  owner set, and in what order, is the coordinator's choice; issues are filed to be solved, not
+  collected. [review]
 - **Never ask an open question that could have been a choice**, and never bury a question, a
   decision or a task in prose. The agent writes for the terminal it runs in: a text the owner is
   to copy, a command or a line of configuration, stands alone in a code block that begins at the

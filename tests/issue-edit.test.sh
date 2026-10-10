@@ -95,6 +95,14 @@ check 'one copy of the line'     1 "$(grep -c 'Asked for by' "$sent" || true)"
 check "the caller's file is left as it was" 'A rewritten body.' "$(cat "$plain")"
 check 'the caller path is not the one sent' no "$(grep -q -- "-F body=@$plain" "$log" && echo yes || echo no)"
 
+echo 'a found-in line is kept the same way'
+: > "$log"; rm -f "$sent"
+foundline='Found in the review of #91 on 2026-10-10, a defect filed without a yes.'
+printf '%s\r\n\r\nthe old body\r\n' "$foundline" > "$reply"
+out="$("$edit" "$repo" 163 --body-file "$plain" 2>/dev/null)"
+check 'what it says'            '#163 -> edited (body, asked-for line kept)' "$out"
+check 'the line is back on top' "$foundline" "$(head -1 "$sent")"
+
 echo 'a body that already carries the line is sent untouched, and the issue is never read'
 : > "$log"; rm -f "$sent"
 out="$("$edit" "$repo" 163 --body-file "$carrying" 2>/dev/null)"

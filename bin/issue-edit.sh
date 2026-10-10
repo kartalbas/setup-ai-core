@@ -74,14 +74,14 @@ case "$num" in ''|*[!0-9]*) die "the issue number must be numeric, not '$num'" ;
 # input cannot be run twice.
 send="$body"
 kept=""
-if [ -n "$body" ] && ! head -n 1 "$body" | grep -q "^$ASKED_PREFIX"; then
+if [ -n "$body" ] && ! head -n 1 "$body" | grep -q -e "^$ASKED_PREFIX" -e "^$FOUND_PREFIX"; then
   current="$(gh_read "the body of $repo#$num" api "repos/$repo/issues/$num" --jq '.body')" || exit 1
   # GitHub writes a body back with CRLF line endings, and the carriage return would travel into
   # the line being put back.
   first="$(printf '%s' "$current" | head -n 1)"
   first="${first%$'\r'}"
   case "$first" in
-    "$ASKED_PREFIX"*)
+    "$ASKED_PREFIX"*|"$FOUND_PREFIX"*)
       send="$(mktemp)"
       trap 'rm -f "$send"' EXIT
       { printf '%s\n\n' "$first"; cat "$body"; } > "$send"

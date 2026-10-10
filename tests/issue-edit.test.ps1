@@ -97,6 +97,14 @@ Check 'one copy of the line'    1 @((Sent) | Where-Object { $_ -match 'Asked for
 Check "the caller's file is left as it was" 'A rewritten body.' ((Get-Content $plain) -join "`n")
 Check 'the caller path is not the one sent' 'False' ([bool]((Calls) -match [regex]::Escape("body=@$plain")))
 
+Write-Host 'a found-in line is kept the same way'
+Clear-Log; Clear-Sent
+$foundLine = 'Found in the review of #91 on 2026-10-10, a defect filed without a yes.'
+Set-Content -Path $reply -Value "$foundLine`n`nthe old body" -Encoding utf8NoBOM
+$out = (@(& $edit -Repo $repo -Number 163 -BodyFile $plain) -join "`n")
+Check 'what it says'            '#163 -> edited (body, asked-for line kept)' $out
+Check 'the line is back on top' $foundLine (Sent)[0]
+
 Write-Host 'a body that already carries the line is sent untouched, and the issue is never read'
 Clear-Log; Clear-Sent
 $out = (@(& $edit -Repo $repo -Number 163 -BodyFile $carrying) -join "`n")

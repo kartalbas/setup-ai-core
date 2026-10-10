@@ -10,7 +10,10 @@
   uptime or hotfix pressure justifies a shortcut there. [discipline]
 - **Pick the architecturally correct solution even when it is more work.** Correct is the simplest
   solution that keeps the invariants; more work is accepted for correctness, never for generality
-  nobody needs yet. No temporary bypass of an invariant, no copy-paste duplication. [review]
+  nobody needs yet. No temporary bypass of an invariant, no copy-paste duplication. A problem is
+  solved at the one place that owns it, which the solution path names (repository, package, file)
+  with one sentence of why; the fix lands there, never at the symptom and never as a second copy.
+  The agent decides that place from the architecture; it is not a question for the owner. [review]
 - **Present a solution path before writing code.** Between the task and the first line of code the
   owner sees the intended path, scaled to the change: the sections are where a person meets this,
   what they see today, what the system does behind it, the decision with its options, their costs

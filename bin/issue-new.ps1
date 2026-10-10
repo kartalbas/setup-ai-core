@@ -19,7 +19,9 @@ a script cannot make it.
 NO ISSUE WITHOUT A PERSON'S YES. -AskedBy names the login of whoever said yes and -AskedIn where
 they said it; the two are written into the first line of the body, so a ticket nobody asked for
 reads as one on the board. Refusing here is the tool's half of that rule; whether the name is
-true is the person's, and the name on the ticket is what makes a false one visible to them.
+true is the person's, and the name on the ticket is what makes a false one visible to them. A
+DEFECT A SESSION FOUND IN ITS OWN WORK takes -FoundIn instead, naming where it was found: writing a
+found defect down is tracking, not new work, and only a type:bug issue may take it.
 
 Writes the new issue number to stdout, so it can be captured and reused. When a parent is
 named, the issue the new one was attached to - repository, number and title - is reported
@@ -46,9 +48,11 @@ param(
   [Parameter(Mandatory)][string]   $BodyFile,
   [Parameter(Mandatory)][string[]] $Label,
   [ValidateSet('P0','P1','P2','P3','P9', IgnoreCase=$true)][string] $Priority,
-  # No issue without a person's yes (rules.md, the issue rules): who said yes, and where.
-  [Parameter(Mandatory)][string]   $AskedBy,
-  [Parameter(Mandatory)][string]   $AskedIn,
+  # No issue without a person's yes (rules.md, the issue rules): who said yes, and where - or, for
+  # a defect a session found in its own work, where it was found.
+  [string] $AskedBy = '',
+  [string] $AskedIn = '',
+  [string] $FoundIn = '',
   [string] $Status   = 'todo',
   [string] $Parent   = '',
   # Deliberately EMPTY. It is resolved from the repo below, once the repo is known —
@@ -83,9 +87,19 @@ if ($Label.Count -lt 2) { Stop-WithError 'at least two labels are required: one 
 $parentIssue = $null
 if ($Parent) { $parentIssue = Resolve-ParentIssue -Reference $Parent -Repo $Repo }
 
+# No issue without a person's yes (rules.md, the issue rules), except a defect found in the work.
+if ($FoundIn) {
+  if ($AskedBy -or $AskedIn) { Stop-WithError '-FoundIn and -AskedBy/-AskedIn contradict each other: one says a session found a defect, the other names who said yes - give one' }
+  if ($Label -cnotcontains 'type:bug') { Stop-WithError '-FoundIn is only for a defect found in the work (label type:bug); other work needs -AskedBy and -AskedIn' }
+  $asked = "$(Get-FoundPrefix)$FoundIn on $(Get-Date -Format 'yyyy-MM-dd'), a defect filed without a yes."
+} else {
+  if (-not $AskedBy) { Stop-WithError '-AskedBy is required: the login of the person who said yes to this issue (a defect found in the work takes -FoundIn)' }
+  if (-not $AskedIn) { Stop-WithError '-AskedIn is required: where they said it - the issue thread, the review, or the chat, with its date' }
+  $asked = "$(Get-AskedPrefix)$($AskedBy -replace '^@', '') on $(Get-Date -Format 'yyyy-MM-dd') in $AskedIn."
+}
+
 # The body is written whole into a temporary file, and the ORIGINAL is left alone: a caller's
 # file is theirs, and a command that edits its own input cannot be run twice.
-$asked = "$(Get-AskedPrefix)$($AskedBy -replace '^@', '') on $(Get-Date -Format 'yyyy-MM-dd') in $AskedIn."
 $sent = Join-Path ([IO.Path]::GetTempPath()) "issue-new-$([guid]::NewGuid().ToString('N').Substring(0,8)).md"
 Set-Content -Path $sent -Value ($asked + "`n`n" + [IO.File]::ReadAllText($BodyFile)) -NoNewline -Encoding utf8NoBOM
 

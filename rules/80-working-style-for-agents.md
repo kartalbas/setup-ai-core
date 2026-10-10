@@ -35,9 +35,11 @@
 - **Ask once per issue before starting its sub-agents**, naming for each what it is for, which
   question it answers, which model, which effort level and which context size and why, and what the
   same work costs in tokens if the session does it itself; the ask ends with two options, a) start
-  them as described, b) the session does it, and waits for the answer. Issues that touch the same
-  files go to one agent together, because it reads the code once and every round of a second agent
-  pays the whole context again; issues that share nothing stay apart. Every agent's name follows
+  them as described, b) the session does it, and waits for the answer. A helper call on the
+  cheapest model, for a check whose answer the session checks itself, is no sub-agent and needs no
+  ask. Issues that touch the same files go to one agent together, because it reads the code once
+  and every round of a second agent pays the whole context again; issues that share nothing stay
+  apart. Every agent's name follows
   `l<n>-<model><version>-<effort>-<context>-<5 hex>`; the issues it works on stand in its package
   as `Worker: <name>`. Once approved, run independent agents in parallel, never for work that fits
   in one or two tool calls, give every call an explicit model and effort, and relay the
@@ -52,10 +54,13 @@
   approve it. The reviewer's model follows the stakes of the change, not the model of the session: a
   small mechanical change takes the lighter model the harness allows, ordinary work the standard
   one, and security, payments, contracts or the push gate the strongest, read a second time by
-  another model. A test check, a draft of test cases or a pre-review that a cheaper model can do,
-  and whose answer the session can check cheaply, goes to the cheapest model the machine offers
-  outside the frontier models; its answer is a lead the session checks before it uses it. Never
-  downgrade a model to save money on security, payments or contract work.
+  another model. A test check, a live check in the browser, a sweep, a collection of facts, a
+  draft of test cases or a pre-review that a cheaper model can do, and whose answer the session can
+  check cheaply, goes to the cheapest model the machine offers: a helper outside the frontier
+  models first, a frontier vendor's smallest model where that helper has no quota left. Such a
+  model never builds, never gives the deciding review and never decides; its answer is a lead the
+  session checks before it uses it. Never downgrade a model to save money on security, payments
+  or contract work.
   [review]
 - **Never announce that the context is running out and never stop work because of it.** Report the
   work when it reaches a point, not because a budget did. A usage limit of the account is another

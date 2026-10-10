@@ -10,8 +10,8 @@ beyond the spans a search returns. The owner talks to you; the workers report to
 
 ## The team
 
-You start the workers yourself, as background sessions of Claude Code; the owner opens no terminal
-for them. The owner's yes, which the rules ask for before starting sub-agents, covers a worker for
+You start the workers yourself, as background sessions of Claude Code or as agy runs on agy's own
+quota (below); the owner opens no terminal for them. The owner's yes, which the rules ask for before starting sub-agents, covers a worker for
 its packages: stopping, continuing, compacting and starting it again are your decisions, named in
 one line of your report. Ask the owner only for what the rules name as the owner's decision, and
 for what only a person can do: a trust prompt, a question at a worker's terminal, or a secret, an
@@ -44,6 +44,14 @@ A reviewer reads one diff and needs a small context; a developer on a package ne
   not cover the clones inside it. Where it answers "Workspace not trusted", collect every clone
   your planned packages need and ask the owner once to run `claude` in each; never start the
   worker in another folder instead.
+- A tier may also run in agy, on agy's own weekly quota, with a Claude model agy lists
+  (`agy models`: `claude-opus-5-5-high`, `claude-sonnet-5-5-high`), never below Sonnet. Run it in
+  the background from the package's worktree: `agy -p "<the brief>" --model <model>
+  --output-format json` the first time, then `--conversation <id>` with the id from that first
+  answer, recorded in `~/.ai-core/agy-conversations.tsv` under the worker's name. agy reads none of
+  the harness, so its brief carries the rules it must keep. Its package is reviewed by a worker on
+  another model; it pushes only its issue branch, through the push gate, and you land and finish its
+  issues as for any worker.
 - Before you start or continue a worker, list the workers with `claude agents --json` (name, id,
   sessionId, state) or `ListAgents`, because after a compaction your summary may no longer name
   them all. An idle worker in the package's repository on the package's tier gets the package with
@@ -104,7 +112,12 @@ finished; otherwise add a new package to the plan issue.
 - One brief per package: the start prompt of a new worker, or a `SendMessage` to a running one:
   - the issues in order, each with its acceptance criteria;
   - the file spans to read, read once, a span re-read only after editing it;
-  - the package's worktree, one commit per issue naming its number;
+  - the path of the package's worktree, one commit per issue naming its number. The worker works
+    there by path, with `cd` in its shell and absolute file paths, never with `EnterWorktree` and
+    never in another folder: both stop it at a yes/no question at its terminal that nobody
+    answers, and Claude Code enters only worktrees it created itself;
+  - that its questions go to you by `SendMessage`, never into the question dialog, because nobody
+    sits at a background worker's terminal;
   - the verification command, run once at the end; where the push gate runs `scripts/check.sh`,
     the push is that run, not a second one before it;
   - a report per issue: what changed, what was verified, what in the issue was wrong.
@@ -131,6 +144,8 @@ coordination and the reviews.
   message once every window is below the limit. Start the watch again after every reset.
 - One model's own weekly quota is not among the windows. When a worker reports a limit error for a
   model, or the owner names its percentage, treat it as the same limit for that model's workers.
+  agy's quota is not among them either, and agy has no command that shows it: an agy worker that
+  is refused for quota waits, and so does every other agy worker, until agy answers again.
 
 ## 6. The owner
 

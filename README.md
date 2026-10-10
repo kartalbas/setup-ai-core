@@ -387,8 +387,11 @@ on start; no developer installs a skill by hand.
 
 - `person-in-charge` is the skill of the session the owner names coordinator of a project. The
   coordinator writes no code. It keeps the overview in the tracker and delegates the work to
-  worker sessions it starts itself, as background sessions of Claude Code (`claude --bg`), after
-  one approval of the owner for the team.
+  worker sessions it starts itself, as background sessions of Claude Code (`claude --bg`) or as
+  agy runs with agy's Claude models on agy's own quota, after one approval of the owner for the
+  team. A worker's brief names the path of its package's worktree, where it works by path, never
+  with `EnterWorktree`, and its questions go to the coordinator by `SendMessage`: nobody sits at a
+  background worker's terminal to answer a question there.
   - The owner starts the coordinator with a context size too, for example
     `claude --name person-in-charge --settings '{"autoCompactWindow":400000}'`. Without one it
     compacts only near the model's whole window, and every answer reads that much again.
@@ -414,7 +417,9 @@ on start; no developer installs a skill by hand.
     state, the coordinator builds one page from `ai-core status`.
 - `agy-helper` hands every check a cheaper model can do, and the session can check cheaply, to
   Gemini through the `agy` CLI: a live check after a release, a UI check, a pre-review of a diff,
-  drafting test cases, collecting facts. Claude and Codex then spend their tokens on judgment. Each
+  drafting test cases, collecting facts. Where agy's weekly quota is used up, the same checks go to
+  Claude Haiku 5.5 through `claude -p`, which denies every permission prompt and loads no MCP server
+  but the isolated browser. Claude and Codex then spend their tokens on judgment. Each
   session keeps one agy conversation of its own, recorded in `~/.ai-core/agy-conversations.tsv`.
 
 ### 4.7 Maps: what the code does not say

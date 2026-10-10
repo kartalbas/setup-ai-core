@@ -1,13 +1,14 @@
 ---
 name: agy-helper
-description: Use for every test, review and test check that a cheaper model can do and you can check cheaply - a live check after a release, a UI check in the browser, a pre-review of a diff before the deciding reviewer, drafting test cases, collecting facts across repositories. Hand it to Gemini through the agy CLI instead of doing it yourself, so the frontier models (Claude, codex) spend fewer tokens; keep your own tokens for judgment and decisions.
+description: Use for every test, review and test check that a cheaper model can do and you can check cheaply - a live check after a release, a UI check in the browser, a pre-review of a diff before the deciding reviewer, drafting test cases, collecting facts across repositories. Hand it to Gemini through the agy CLI instead of doing it yourself, and to Claude Haiku 5.5 where agy has no quota left, so the frontier models (Claude, codex) spend fewer tokens; keep your own tokens for judgment and decisions.
 ---
 
 # How to use Gemini (agy) as your helper
 
-Gemini runs on this machine through the CLI `agy`. Gemini 3.8 Flash has practically unlimited quota,
-while Claude and codex tokens are scarce. Give Flash every task whose result you can check cheaply,
-and keep your own tokens for judgment and decisions.
+Gemini runs on this machine through the CLI `agy`. Gemini 3.8 Flash runs on agy's own weekly
+quota, apart from the Claude and codex limits, which are scarcer. Give Flash every task whose
+result you can check cheaply, and keep your own tokens for judgment and decisions. Where agy has no
+quota left, the same tasks go to Claude Haiku 5.5 (see below).
 
 ## Calling it
 
@@ -108,10 +109,42 @@ A Flash claim is a lead, not a proof. Before it goes into an issue or a decision
 file:line it names, or repeat the one decisive check. When you quote it, say that Flash reported
 it and what you verified yourself.
 
+## When agy has no quota left: Claude Haiku 5.5
+
+agy's quota is weekly. When agy refuses a call for quota, the same tasks go to Claude Haiku 5.5
+(`claude-haiku-5-5`), Anthropic's smallest model at about a twentieth of Sonnet's price, on the
+Claude account. Call it from the same kind of throwaway directory, one call per task:
+
+    claude -p "<task>" --model claude-haiku-5-5 --effort medium --permission-prompts none \
+      --strict-mcp-config --no-session-persistence --output-format text
+
+- `--permission-prompts none` denies whatever would ask a question, so the call never waits at a
+  terminal; `--strict-mcp-config` keeps every MCP server of yours out of it, a logged-in browser
+  among them. Name the files it reads by absolute path.
+- For a live check in the browser, give it the isolated browser of the setup above and allow only
+  its tools:
+
+      --mcp-config '{"mcpServers":{"chrome-devtools":{"command":"npx","args":["-y","chrome-devtools-mcp@1.10.1","--executablePath","<path of Edge or Chrome>","--headless","--isolated","--viewport","1366x900"]}}}' \
+      --allowedTools mcp__chrome-devtools
+
+- Give it what you would give Flash, in the same prompt shape, and check its answer the same way.
+  It never builds, never gives the deciding review and never decides. For deeper reading raise
+  `--effort`; a task that needs a bigger model is yours.
+- It is a helper call, not a sub-agent: it needs no ask.
+
+## A worker on agy's Claude models
+
+agy also offers Claude models on its own quota (`agy models`: `claude-opus-5-5-high`,
+`claude-sonnet-5-5-high` and their lower efforts). A coordinator may staff a worker tier with them
+(the person-in-charge skill). Such a worker is no helper: it runs in its package's worktree, not in
+a throwaway directory, and pushes its issue branch through the push gate. Everything else on this
+page is about helper calls.
+
 ## Rules it inherits from you
 
 - Never put a secret into a prompt, and never let one appear in its output.
 - No writes to production data, and no real passwords in the browser.
-- agy does no push, release or tracker change. You do those yourself, under your project's rules.
+- A helper does no push, release or tracker change. You do those yourself, under your project's
+  rules.
 - Your project's own rules apply to everything agy does for you. Paste the relevant ones into the
   prompt.

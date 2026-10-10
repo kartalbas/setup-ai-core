@@ -109,6 +109,8 @@ $c20 = CommitAt $seed 1700000020 'Land #20'
 & git -C $origin symbolic-ref HEAD refs/heads/master
 New-Item -ItemType Directory -Path (Join-Path $fake 'folder') -Force | Out-Null
 & git clone -q $origin $clone
+# status-sync names the clone as git does, which on Windows is C:/...; the expectations do too
+$shownClone = "$(& git -C $clone rev-parse --show-toplevel)".Trim()
 # The tags reach the clone through the fetch status-sync makes, not through the clone
 foreach ($t in @(& git -C $clone tag -l)) { & git -C $clone tag -d $t | Out-Null }
 # A release run whose push was refused left this tag in the clone alone, newer than every other
@@ -289,15 +291,15 @@ try {
   Git-At $origin 1700000018 @('tag', '-f', '-a', '-m', 'moved back', 'deploy/prod/2', $c12) | Out-Null
   Sync $clone 'example-org/example-repo'
   Check 'the fetch says why it failed' `
-    "fetching origin of example-org/example-repo in $clone failed: ! [rejected] deploy/prod/2 -> deploy/prod/2 (would clobber existing tag); the refs it had are read" (Lines 'fetching origin*')
-  Check 'it names the tag' "origin of example-org/example-repo has deploy/prod/2 on a commit its clone in $clone does not have it on, so no tag of it counts as a release and its cards in testing stay" (Lines 'origin of*')
+    "fetching origin of example-org/example-repo in $shownClone failed: ! [rejected] deploy/prod/2 -> deploy/prod/2 (would clobber existing tag); the refs it had are read" (Lines 'fetching origin*')
+  Check 'it names the tag' "origin of example-org/example-repo has deploy/prod/2 on a commit its clone in $shownClone does not have it on, so no tag of it counts as a release and its cards in testing stay" (Lines 'origin of*')
   Check 'and the tag before it does not stand in: nothing of it closes' '' "$(@($run | Where-Object { $_ -cmatch '^(would close|proof due) +example-repo#(13|18)' }))"
   & git -C $origin update-ref refs/tags/deploy/prod/2 $moved
 
   Write-Host 'an origin that cannot be listed: no tag counts, and it says so'
   & git -C $clone remote set-url origin (Join-Path $fake 'gone/example-org/example-repo.git')
   Sync $clone 'example-org/example-repo'
-  Check 'it says so' "origin of example-org/example-repo could not be listed from $clone, so no tag of it counts as a release and its cards in testing stay" (Lines 'origin of*')
+  Check 'it says so' "origin of example-org/example-repo could not be listed from $shownClone, so no tag of it counts as a release and its cards in testing stay" (Lines 'origin of*')
   Check 'nothing of it closes, not even on the tag the clone holds' '' (Lines 'would close  example-repo#13 *')
   & git -C $clone remote set-url origin $origin
 

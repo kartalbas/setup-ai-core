@@ -203,6 +203,8 @@ echo 'the testing cards and the worktrees the sweep keeps, read from git'
 # A second board in a folder of its own: its column after implementing is testing, and its
 # repository has release tags of two environments and four issue worktrees
 live="$work/live"; mkdir -p "$live/.ai-core" "$work/cache/8"
+# status spells the folder as node resolves it, which on Windows is C:\...; the expectation does too
+shown="$(node -e 'process.stdout.write(require("path").resolve(process.argv[1]))' "$live")"
 printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\nPROOF_HOURS=24\n' > "$live/.ai-core/config.env"
 echo PVT_example8 > "$work/cache/8/project-id"
 printf 'Status\tF1\t%s\tO%s\n' Todo 1 implementing 2 testing 3 Done 4 > "$work/cache/8/fields.tsv"
@@ -260,7 +262,7 @@ check 'on test only past PROOF_HOURS: overdue' "  🔴 $(printf '%-26s' example-
 check 'on test only within PROOF_HOURS: due' "  🟡 $(printf '%-26s' example-repo#37) live on test since 2 h (deploy/test/4)  Card 37" "$(grep 'example-repo#37 ' <<< "$page")"
 check 'not live' '  ⏸ not live: example-repo#34' "$(grep 'not live:' <<< "$page")"
 check 'no landing commit' '  ⏸ no commit on the default branch names it: example-repo#35' "$(grep 'names it:' <<< "$page")"
-check 'another organisation'"'"'s repository of the same name has no checkout here' "  ⏸ no checkout of its repository in $live: other-org/example-repo#38" "$(grep 'no checkout' <<< "$page")"
+check 'another organisation'"'"'s repository of the same name has no checkout here' "  ⏸ no checkout of its repository in $shown: other-org/example-repo#38" "$(grep 'no checkout' <<< "$page")"
 check 'the live cards in order: the first environment, then the longest live' '31 32 33 37' "$(grep -E '^  (🟢|🟡|🔴) ' <<< "$page" | grep -oE 'example-repo#[0-9]+' | sed 's/.*#//' | tr '\n' ' ' | sed 's/ $//')"
 check 'and the trees, the oldest first' '41 42' "$(awk '/^TREES/ { on = 1; next } on && /^  example-repo#/ { sub(/^  example-repo#/, ""); print $1 }' <<< "$page" | tr '\n' ' ' | sed 's/ $//')"
 check 'a worktree changed a moment ago is not listed' '' "$(grep 'example-repo#45' <<< "$page")"

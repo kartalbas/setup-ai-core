@@ -125,6 +125,8 @@ c20="$(commit_at "$seed" 1700000020 'Land #20')"
 git -C "$seed" push -q "$origin" master --tags
 git -C "$origin" symbolic-ref HEAD refs/heads/master
 mkdir -p "$FAKE/folder"; git clone -q "$origin" "$clone"
+# status-sync spells the folder as git does, which on Windows is C:/...; the expectations do too
+shown="$(dirname "$(git -C "$clone" rev-parse --show-toplevel)")"
 # The tags reach the clone through the fetch status-sync makes, not through the clone
 git -C "$clone" tag -l | xargs -r git -C "$clone" tag -d >/dev/null
 # A release run whose push was refused left this tag in the clone alone, newer than every other
@@ -219,7 +221,7 @@ check 'and follows its sub-issue moved by hand' \
 check 'nothing else moves: not on master alone, not reopened, not by hand, not on test only, not untagged' \
   '' "$(grep -E 'example-repo#(12|16|17|19|20|22)' <<< "$run" | grep -v '^proof due')"
 check 'a landing in another repository is read there, and that one has no clone here' \
-  "no clone of example-org/gone in $FAKE/folder, so no release of it is read and its cards in testing stay" "$(grep '^no clone' <<< "$run")"
+  "no clone of example-org/gone in $shown, so no release of it is read and its cards in testing stay" "$(grep '^no clone' <<< "$run")"
 check 'a landing in another repository closes through that one'"'"'s clone and release' \
   'would close  example-repo#23  (testing -> done, released in example-org/tools deploy/prod/7 and proven)' "$(grep '^would close  example-repo#23' <<< "$run")"
 check 'and the count says what it read, both pages' \
@@ -279,16 +281,16 @@ moved="$(git -C "$origin" rev-parse refs/tags/deploy/prod/2)"
 GIT_COMMITTER_DATE="@1700000018 +0000" gitc "$origin" tag -f -a -m 'moved back' deploy/prod/2 "$c12" >/dev/null
 run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo 2>&1)"
 check 'the fetch says why it failed' \
-  "fetching origin of example-org/example-repo in $clone failed: ! [rejected] deploy/prod/2 -> deploy/prod/2 (would clobber existing tag); the refs it had are read" \
+  "fetching origin of example-org/example-repo in $shown/example-repo failed: ! [rejected] deploy/prod/2 -> deploy/prod/2 (would clobber existing tag); the refs it had are read" \
   "$(grep '^fetching origin' <<< "$run")"
-check 'it names the tag' "origin of example-org/example-repo has deploy/prod/2 on a commit its clone in $clone does not have it on, so no tag of it counts as a release and its cards in testing stay" "$(grep '^origin of' <<< "$run")"
+check 'it names the tag' "origin of example-org/example-repo has deploy/prod/2 on a commit its clone in $shown/example-repo does not have it on, so no tag of it counts as a release and its cards in testing stay" "$(grep '^origin of' <<< "$run")"
 check 'and the tag before it does not stand in: nothing of it closes' '' "$(grep -E '^(would close|proof due) +example-repo#(13|18)' <<< "$run")"
 git -C "$origin" update-ref refs/tags/deploy/prod/2 "$moved"
 
 echo 'an origin that cannot be listed: no tag counts, and it says so'
 git -C "$clone" remote set-url origin "$FAKE/gone/example-org/example-repo.git"
 run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo 2>&1)"
-check 'it says so' "origin of example-org/example-repo could not be listed from $clone, so no tag of it counts as a release and its cards in testing stay" "$(grep '^origin of' <<< "$run")"
+check 'it says so' "origin of example-org/example-repo could not be listed from $shown/example-repo, so no tag of it counts as a release and its cards in testing stay" "$(grep '^origin of' <<< "$run")"
 check 'nothing of it closes, not even on the tag the clone holds' '' "$(grep '^would close  example-repo#13' <<< "$run")"
 git -C "$clone" remote set-url origin "$origin"
 

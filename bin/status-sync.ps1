@@ -144,7 +144,7 @@ function Get-Clone { param([string]$R)
   $dirs = @($top) + @(Get-ChildItem -Directory -LiteralPath (Get-ProjectFolder) -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
   foreach ($dir in $dirs) {
     if (-not $dir) { continue }
-    $url = "$(& git -C $dir remote get-url origin 2>$null)".Trim().ToLowerInvariant()
+    $url = "$(& git -C $dir remote get-url origin 2>$null)".Trim().ToLowerInvariant().Replace('\', '/')
     if ($LASTEXITCODE -ne 0 -or -not $url) { continue }
     $url = $url -creplace '\.git$', ''
     if ($url.EndsWith("/$want", [StringComparison]::Ordinal) -or $url.EndsWith(":$want", [StringComparison]::Ordinal)) { return $dir }

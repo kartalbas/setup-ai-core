@@ -204,6 +204,25 @@ Check 'it says so'             '#166 -> P2 not set: example-org/example-repo is 
 $env:GH_PROJECT_NUMBER = '999980'
 Remove-Item -Path (Join-Path $fake 'no-board')
 
+Write-Host 'a landed branch left on origin is no obstacle; one with work master lacks still is'
+& git -C $work push -q origin 'master:refs/heads/issue-181-read-the-board-whole'
+& git -C $work fetch -q origin
+$ok = Invoke-Start 181
+Check 'landed: it does not throw' 'True' ([string]$ok)
+Check 'landed: cut from origin/master' 'True' ([bool](@($printed) -cmatch '^Worktree .*issue-181-read-the-board-whole, cut from origin/master\.$'))
+$side = Join-Path $fake 'side'
+& git clone -q $origin $side
+Dress $side
+& git -C $side checkout -q -b issue-182-read-the-board-whole
+Set-Content -LiteralPath (Join-Path $side 'side.txt') -Value 'not landed'
+& git -C $side add side.txt
+& git -C $side commit -q -m 'work in progress'
+& git -C $side push -q origin issue-182-read-the-board-whole
+& git -C $work fetch -q origin
+$ok = Invoke-Start 182
+Check 'not landed: it throws' 'False' ([string]$ok)
+Check 'not landed: it names the branch' 'True' ([bool]($said -match 'a branch for this issue exists already: origin/issue-182-read-the-board-whole'))
+
 Write-Host 'an origin/HEAD naming a branch the remote no longer has: the default branch is asked of the remote'
 & git -C $work symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/gone
 $ok = Invoke-Start 168

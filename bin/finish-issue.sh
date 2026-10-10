@@ -161,7 +161,7 @@ done <<< "$(issue_worktrees)"
 # '<OWNER/REPO>#<N>', an issue of another repository.
 commits="$(git -C "$main" log "origin/$default" -E --grep="(^|[^A-Za-z0-9._/-])${ref//./\\.}([^0-9]|$)" --format='- %h %s' -n 20)"
 [ -n "$commits" ] \
-  || die "no commit on origin/$default names $ref: nothing of it has landed, so the card stays and the issue is not told; a commit that touches an issue names it"
+  || die "no commit on origin/$default names $ref, so the card stays and the issue is not told; a commit that touches an issue names it"
 
 # The card: one column past implementing, as the board orders them, unless that column is done
 if [ "$state" = closed ]; then

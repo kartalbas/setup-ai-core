@@ -82,7 +82,11 @@ check 'CLOSE is done' 3 "$(status_rank CLOSE)"
 #   #17 testing, moved by hand: no "Landed on" record               -> stays
 #   #18 testing, in deploy/prod/2, no proof record                  -> proof due, stays
 #   #19 testing, in deploy/test/9 only, proven                      -> stays: no production release
-#   #20 testing, on master in no tag, proven, on the second page    -> stays
+#   #20 testing, on master in no tag, proven, on the second page    -> stays, though the clone has
+#       a newer prod tag of its own that never reached origin
+#   #22 testing, proven, landed in example-org/tools, which has no clone here -> stays and is named,
+#       although its commit is in deploy/prod/1 of this repository
+# and #18 has a "Proven on" comment by somebody outside the repository, which is no proof.
 #
 # lib/board.sh, which the source above brought in, carries `set -e`. An assertion that counts
 # zero matches exits non-zero, and under `set -e` that ends this test instead of failing it.
@@ -95,6 +99,7 @@ PROJECT_ID='PVT_kwstatussync'
 trap 'rm -rf "$FAKE"' EXIT
 mkdir -p "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER"
 printf '%s\n' "$PROJECT_ID" > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/project-id"
+echo '{}' > "$FAKE/empty.json"
 printf '{"data":{"organization":{"projectV2":{"id":"%s"}}}}\n' "$PROJECT_ID" > "$FAKE/project-id.json"
 
 # The clone and its origin. Commit and tag dates are set, so "newest by date" is not left to the
@@ -119,6 +124,8 @@ git -C "$origin" symbolic-ref HEAD refs/heads/master
 mkdir -p "$FAKE/folder"; git clone -q "$origin" "$clone"
 # The tags reach the clone through the fetch status-sync makes, not through the clone
 git -C "$clone" tag -l | xargs -r git -C "$clone" tag -d >/dev/null
+# A release run whose push was refused left this tag in the clone alone, newer than every other
+GIT_COMMITTER_DATE="@1700000300 +0000" gitc "$clone" tag -a -m 'never pushed' deploy/prod/3 "$c20"
 mkdir -p "$clone/.ai-core"; printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\n' > "$clone/.ai-core/config.env"
 
 card() {  # card <number> <title> <status> [owner]: a card as board-list reads it
@@ -130,8 +137,9 @@ printf '{"data":{"node":{"items":{"pageInfo":{"hasNextPage":false,"endCursor":nu
   "$(card 15 'An issue of another organisation on this board' todo other-org)" > "$FAKE/board.json"
 
 # An open issue as the query of one repository reads it: its card on this board and on another
-landed() { printf '{"createdAt":"%s","body":"Landed on master:\\n\\n- %s Its subject\\n- 1111111 an older commit"}' "$1" "$(printf '%s' "$2" | cut -c1-7)"; }
-proven() { printf '{"createdAt":"%s","body":"Proven on prod:\\n\\n- TC-1 PASS"}' "$1"; }
+# Every comment is written by a member, but for the one stranger's
+landed() { printf '{"createdAt":"%s","authorAssociation":"MEMBER","body":"Landed on master%s:\\n\\n- %s Its subject\\n- 1111111 an older commit"}' "$1" "${3:+ of $3}" "$(printf '%s' "$2" | cut -c1-7)"; }
+proven() { printf '{"createdAt":"%s","authorAssociation":"%s","body":"Proven on prod:\\n\\n- TC-1 PASS"}' "$1" "${2:-MEMBER}"; }
 # The card of board 5 and the one of a board numbered like this one under another owner are not
 # this board's
 issue() {  # issue <number> <status> <sub-issues> <comments> [reopened at]
@@ -139,8 +147,8 @@ issue() {  # issue <number> <status> <sub-issues> <comments> [reopened at]
     "$1" "$3" "$PROJECT_NUMBER" "$PROJECT_NUMBER" "$2" "${5:+{\"createdAt\":\"$5\"\}}" "$4"
 }
 page() { printf '{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":%s,"endCursor":%s},"nodes":[%s]}}}}\n' "$1" "$2" "$3"; }
-page true '"c1"' "$(issue 12 implementing 0 "$(landed 2026-09-01T10:00:00Z "$c12")"),$(issue 13 testing 0 "$(landed 2026-08-01T10:00:00Z 0000000),$(landed 2026-09-01T10:00:00Z "$c13"),$(proven 2026-09-02T10:00:00Z),{\"createdAt\":\"2026-09-03T10:00:00Z\",\"body\":\"Looks good, see 2222222\"}"),$(issue 14 todo 1 ''),$(issue 16 testing 0 "$(landed 2026-09-01T10:00:00Z "$c16"),$(proven 2026-09-02T10:00:00Z)" 2026-09-05T10:00:00Z),$(issue 17 testing 0 '{"createdAt":"2026-09-01T10:00:00Z","body":"Done in\n- abc1717 by hand"}')" > "$FAKE/issues-1.json"
-page false null "$(issue 18 testing 0 "$(proven 2026-08-30T10:00:00Z),$(landed 2026-09-01T10:00:00Z "$c18")"),$(issue 19 testing 0 "$(landed 2026-09-01T10:00:00Z "$c19"),$(proven 2026-09-02T10:00:00Z)"),$(issue 20 testing 0 "$(landed 2026-09-01T10:00:00Z "$c20"),$(proven 2026-09-02T10:00:00Z)"),$(issue 21 '' 0 '')" > "$FAKE/issues-2.json"
+page true '"c1"' "$(issue 12 implementing 0 "$(landed 2026-09-01T10:00:00Z "$c12")"),$(issue 13 testing 0 "$(landed 2026-08-01T10:00:00Z 0000000),$(landed 2026-09-01T10:00:00Z "$c13"),$(proven 2026-09-02T10:00:00Z),{\"createdAt\":\"2026-09-03T10:00:00Z\",\"authorAssociation\":\"MEMBER\",\"body\":\"Looks good, see 2222222\"}"),$(issue 14 todo 1 ''),$(issue 16 testing 0 "$(landed 2026-09-01T10:00:00Z "$c16"),$(proven 2026-09-02T10:00:00Z)" 2026-09-05T10:00:00Z),$(issue 17 testing 0 '{"createdAt":"2026-09-01T10:00:00Z","authorAssociation":"MEMBER","body":"Done in\n- abc1717 by hand"}')" > "$FAKE/issues-1.json"
+page false null "$(issue 18 testing 0 "$(proven 2026-08-30T10:00:00Z),$(landed 2026-09-01T10:00:00Z "$c18"),$(proven 2026-09-02T10:00:00Z NONE)"),$(issue 22 testing 0 "$(landed 2026-09-01T10:00:00Z "$c13" example-org/tools),$(proven 2026-09-02T10:00:00Z)"),$(issue 19 testing 0 "$(landed 2026-09-01T10:00:00Z "$c19"),$(proven 2026-09-02T10:00:00Z)"),$(issue 20 testing 0 "$(landed 2026-09-01T10:00:00Z "$c20"),$(proven 2026-09-02T10:00:00Z)"),$(issue 21 '' 0 '')" > "$FAKE/issues-2.json"
 page false null "$(issue 15 todo 0 '')" > "$FAKE/issues-other.json"
 # #14's one sub-issue was moved to testing by hand on the board; the epic itself stands in todo
 printf '%s\n' '{"data":{"repository":{"issue":{"state":"OPEN","projectItems":{"nodes":[{"project":{"number":999995,"owner":{"login":"example-org"}},"status":{"name":"todo"}}]},"subIssues":{"nodes":[{"state":"OPEN","projectItems":{"nodes":[{"project":{"number":999995,"owner":{"login":"example-org"}},"status":{"name":"testing"}}]}}]}}}}}' > "$FAKE/epic-14.json"
@@ -163,7 +171,8 @@ case "\$*" in
   *"o=other-org"*"issues(states:OPEN"*)   doc="$FAKE/issues-other.json" ;;
   *"after=c1"*"issues(states:OPEN"*)      doc="$FAKE/issues-2.json" ;;
   *"issues(states:OPEN"*)                 doc="$FAKE/issues-1.json" ;;
-  *) echo "the stand-in gh has no answer for: \$*" >&2; exit 9 ;;
+  *"--method PATCH"*)                     doc="$FAKE/empty.json" ;;
+  *) [ -e "$FAKE/lenient" ] && exit 0; echo "the stand-in gh has no answer for: \$*" >&2; exit 9 ;;
 esac
 # The jq BINARY writes CRLF on Windows where gh's own --jq writes LF, and stripping it is what
 # makes the stand-in answer the way gh does.
@@ -190,14 +199,23 @@ check 'and follows its sub-issue moved by hand' \
   'would move   example-repo#14  (todo -> testing)' \
   "$(grep '^would move   example-repo#14' <<< "$run")"
 check 'nothing else moves: not on master alone, not reopened, not by hand, not on test only, not untagged' \
-  '' "$(grep -E 'example-repo#(12|16|17|19|20)' <<< "$run")"
+  '' "$(grep -E 'example-repo#(12|16|17|19|20|22)' <<< "$run" | grep -v '^proof due')"
+check 'a landing in another repository is read there, and that one has no clone here' \
+  "no clone of example-org/tools in $FAKE/folder, so no release of it is read and its cards in testing stay" "$(grep '^no clone' <<< "$run")"
 check 'and the count says what it read, both pages' \
-  "8 active cards scanned, 2 would move on board $PROJECT_NUMBER." \
+  "9 active cards scanned, 2 would move on board $PROJECT_NUMBER." \
   "$(printf '%s\n' "$run" | tail -1)"
 check 'the board is not read' 0 "$(grep -c 'items(first:100' "$FAKE/calls.txt")"
 check 'the issues are read once per page' 2 "$(grep -c 'issues(states:OPEN' "$FAKE/calls.txt")"
 check 'nothing asks GitHub for a tag or a compare' 0 "$(grep -cE '/tags|/compare/' "$FAKE/calls.txt")"
 check 'the fetch brought the tags' yes "$(git -C "$clone" rev-parse -q --verify refs/tags/deploy/prod/2 >/dev/null && echo yes || echo no)"
+check 'and kept the one origin never had, which no fetch prunes' yes "$(git -C "$clone" rev-parse -q --verify refs/tags/deploy/prod/3 >/dev/null && echo yes || echo no)"
+
+echo 'the repositories alone, the board from GH_PROJECT_NUMBER'
+: > "$FAKE/calls.txt"
+run="$(cd "$clone" && GH_PROJECT_NUMBER="$PROJECT_NUMBER" bash "$ROOT/bin/status-sync.sh" example-org/example-repo other-org/example-repo --dry-run 2>&1)"
+check 'exit 0' 0 "$?"
+check 'both are read' "10 active cards scanned, 2 would move on board $PROJECT_NUMBER." "$(printf '%s\n' "$run" | tail -1)"
 
 echo 'without LIVE_TAGS the newest tag by date decides, whatever its name'
 : > "$FAKE/calls.txt"; : > "$clone/.ai-core/config.env"
@@ -213,16 +231,26 @@ run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER
 check 'exit 0' 0 "$?"
 check 'the board is read once' 1 "$(grep -c 'items(first:100, after:' "$FAKE/calls.txt")"
 check 'a repository of another organisation is read under its owner' 1 "$(grep -c 'graphql -f o=other-org -f n=example-repo' "$FAKE/calls.txt")"
-check 'its card is counted' "9 active cards scanned, 2 would move on board $PROJECT_NUMBER." "$(printf '%s\n' "$run" | tail -1)"
+check 'its card is counted' "10 active cards scanned, 2 would move on board $PROJECT_NUMBER." "$(printf '%s\n' "$run" | tail -1)"
 
 echo 'a repository with no clone here: said, and its cards in testing stay'
 : > "$FAKE/calls.txt"
 run="$(cd "$FAKE" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo 2>&1)"
-check 'it says so' "no clone of example-org/example-repo in $FAKE, so no release of it is read and its cards in testing stay" "$(grep '^no clone' <<< "$run")"
+check 'it says so' "no clone of example-org/example-repo in $FAKE, so no release of it is read and its cards in testing stay" "$(grep '^no clone of example-org/example-repo ' <<< "$run")"
 check 'nothing closes' '' "$(grep '^would close' <<< "$run")"
-mkdir -p "$FAKE/folder/.ai-core"; cp "$clone/.ai-core/config.env" "$FAKE/folder/.ai-core/config.env"
 run="$(cd "$FAKE/folder" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo 2>&1)"
-check 'from the project folder, the clone in it is found' 'would close  example-repo#13  (testing -> done, released in deploy/prod/2 and proven)' "$(grep '^would close' <<< "$run")"
+check 'from the project folder, the clone in it is found, and LIVE_TAGS read from the clone' 'would close  example-repo#13  (testing -> done, released in deploy/prod/2 and proven)' "$(grep '^would close' <<< "$run")"
+
+echo 'without --dry-run: the closing card is closed through issue-close, and nothing else is'
+# issue-close asks more than the close, where the issue stands on boards and under an epic, and
+# the stand-in answers every such question with nothing
+: > "$FAKE/calls.txt"; touch "$FAKE/lenient"
+run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" example-org/example-repo 2>&1)"
+check 'exit 0' 0 "$?"
+check 'it says so' 'close        example-repo#13  (testing -> done, released in deploy/prod/2 and proven)' "$(grep '^close ' <<< "$run")"
+check '#13 is closed' 1 "$(grep -c 'api --method PATCH repos/example-org/example-repo/issues/13 ' "$FAKE/calls.txt")"
+check 'and no other issue' 1 "$(grep -c 'api --method PATCH repos/.*/issues/' "$FAKE/calls.txt")"
+rm -f "$FAKE/lenient"
 
 echo
 if [ "$failed" -gt 0 ]; then echo "$failed failed"; exit 1; fi

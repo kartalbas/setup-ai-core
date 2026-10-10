@@ -175,7 +175,7 @@ if (-not $found) { "no worktree of issue $Number stands here - only the card and
 # card does not move and the issue is not told. The reference stands alone: '#<N>' must not match
 # '<OWNER/REPO>#<N>', an issue of another repository.
 $commits = (Invoke-Git -C $main log "origin/$default" -E "--grep=(^|[^A-Za-z0-9._/-])$($ref.Replace('.', '\.'))([^0-9]|$)" '--format=- %h %s' -n 20).Text
-if (-not $commits) { Stop-WithError "no commit on origin/$default names ${ref}: nothing of it has landed, so the card stays and the issue is not told; a commit that touches an issue names it" }
+if (-not $commits) { Stop-WithError "no commit on origin/$default names ${ref}, so the card stays and the issue is not told; a commit that touches an issue names it" }
 
 # The card: one column past implementing, as the board orders them, unless that column is done
 if ($state -ceq 'closed') {

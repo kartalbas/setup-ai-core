@@ -239,7 +239,7 @@ out="$(cd "$work" && GH_PROJECT_NUMBER='' bash "$finish" 175 2>&1)"; rc=$?
 check 'the issue was read there' yes "$(grep -q 'other-org/tracker/issues/175' "$log" && echo yes || echo no)"
 check 'and never here'         0 "$(grep -c 'example-org/example-repo/issues/175' "$log" || true)"
 check 'no commit names it, so it is refused under its own name' \
-  'error: no commit on origin/master names other-org/tracker#175: nothing of it has landed, so the card stays and the issue is not told; a commit that touches an issue names it' \
+  'error: no commit on origin/master names other-org/tracker#175, so the card stays and the issue is not told; a commit that touches an issue names it' \
   "$(grep '^error: ' <<< "$out")"
 git -C "$work" branch -q -D issue-175-gone
 rm -f "$fake/no-board"
@@ -248,7 +248,7 @@ echo 'an issue no commit on the default branch names has not landed: refused, no
 : > "$log"; rm -rf "$fake/cache"
 out="$(run 177)"; rc=$?
 check 'exit 1'                 1 "$rc"
-check 'it says why'            'error: no commit on origin/master names #177: nothing of it has landed, so the card stays and the issue is not told; a commit that touches an issue names it' "$(grep '^error: ' <<< "$out")"
+check 'it says why'            'error: no commit on origin/master names #177, so the card stays and the issue is not told; a commit that touches an issue names it' "$(grep '^error: ' <<< "$out")"
 check 'no card moved'          0 "$(grep -c 'oid=OPT_' "$log" || true)"
 check 'the issue was not told' 0 "$(grep -c 'issue comment 177' "$log" || true)"
 check 'no card is swept'       0 "$(grep -c 'issues(states:OPEN' "$log" || true)"

@@ -24,11 +24,12 @@
 # pipeline's to alarm on, not the board's.
 #
 # THE RELEASE IS READ FROM THE CLONE, after one fetch: the newest tag by date that matches the
-# first environment of LIVE_TAGS in the project's config.env ("prod=deploy/prod/* ..." gives
-# deploy/prod/*), or the newest tag of all where LIVE_TAGS names none. GitHub lists tags by name,
-# so its first tag is deploy/test/... beside deploy/prod/... and no release at all. A repository
-# with no clone here, in the checkout this runs in or beside it in the project folder, is named,
-# and its cards stay.
+# first environment of LIVE_TAGS in that clone's .ai-core/config.env ("prod=deploy/prod/* ..."
+# gives deploy/prod/*), or the newest tag of all where LIVE_TAGS names none. GitHub lists tags by
+# name, so its first tag is deploy/test/... beside deploy/prod/... and no release at all. A card
+# whose work landed in another repository is read in that repository's clone. A repository with no
+# clone here, in the checkout this runs in or beside it in the project folder, is named, and its
+# cards stay.
 #
 # THE CARDS ARE READ PER REPOSITORY: its open issues and their cards on this board, in one paged
 # query. start-issue and finish-issue run this for their own repository; read through the whole
@@ -70,11 +71,15 @@ derive_target() {
 
 # THE OPEN ISSUES OF ONE REPOSITORY THAT HAVE A CARD ON THIS BOARD, one line each:
 #   <status>\t<number>\t<sub-issue total>\t<the commit finish-issue landed, or ->\t<proven 0|1>
+#   \t<the repository it landed in where that is another one, or ->
 #
 # The commit is the first one finish-issue listed in its newest "Landed on <branch>:" comment,
-# the record it writes when it moves the card to testing. A comment counts only when it came after
-# the issue was last reopened: a ticket reopened for rework still carries the record of the work
-# that closed it the first time. A proof record counts only when it came after that landing.
+# the record it writes when it moves the card to testing; "Landed on <branch> of <owner/repo>:"
+# names the repository the work landed in. A comment counts only when it came after the issue was
+# last reopened: a ticket reopened for rework still carries the record of the work that closed it
+# the first time. A proof record counts only when it came after that landing. Only the comments of
+# the repository's owner, members and collaborators count: on a public repository anybody can
+# write "Landed on" and "Proven on".
 cards_of_repo() {  # <owner/repo>
   local repo="$1" after="" page next
   while :; do
@@ -85,21 +90,23 @@ cards_of_repo() {  # <owner/repo>
           projectItems(first:20) { nodes { project { number owner { ... on Organization { login } ... on User { login } } }
             status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } }
           reopened: timelineItems(last:1, itemTypes:[REOPENED_EVENT]) { nodes { ... on ReopenedEvent { createdAt } } }
-          comments(last:50) { nodes { createdAt body } } } } } }')" || exit 1
+          comments(last:50) { nodes { createdAt body authorAssociation } } } } } }')" || exit 1
     printf '%s' "$page" | jq -r --argjson board "$(project_number)" --arg org "$(project_org)" '
       .data.repository.issues.nodes[]
       | . as $i
-      | ([$i.projectItems.nodes[] | select(.project.number == $board and .project.owner.login == $org)
+      | ([$i.projectItems.nodes[] | select(.project.number == $board and (.project.owner.login | ascii_downcase) == ($org | ascii_downcase))
           | (.status.name // "")] | first) as $status
       | select($status != null and $status != "")
       | (($i.reopened.nodes[0].createdAt) // "") as $reopenedAt
-      | ([$i.comments.nodes[] | select(.body | startswith("Landed on "))
+      | [$i.comments.nodes[] | select(.authorAssociation == "OWNER" or .authorAssociation == "MEMBER" or .authorAssociation == "COLLABORATOR")] as $said
+      | ([$said[] | select(.body | startswith("Landed on "))
           | select($reopenedAt == "" or (.createdAt > $reopenedAt))] | sort_by(.createdAt) | last) as $landed
       | (($landed.body // "") | split("\n") | map(select(test("^- [0-9a-f]{7,40} "))) | first
           | if . then (split(" ")[1]) else "-" end) as $sha
-      | ([$i.comments.nodes[] | select($landed != null and (.body | startswith("Proven on ")) and (.createdAt > $landed.createdAt))]
+      | ((($landed.body // "") | (split("\n")[0] // "") | capture("^Landed on \\S+ of (?<r>[^\\s:]+/[^\\s:]+):") | .r) // "-") as $elsewhere
+      | ([$said[] | select($landed != null and (.body | startswith("Proven on ")) and (.createdAt > $landed.createdAt))]
           | if length > 0 then 1 else 0 end) as $proven
-      | "\($status)\t\($i.number)\t\($i.subIssuesSummary.total // 0)\t\($sha)\t\($proven)"' | tr -d '\r' || exit 1
+      | "\($status)\t\($i.number)\t\($i.subIssuesSummary.total // 0)\t\($sha)\t\($proven)\t\($elsewhere)"' | tr -d '\r' || exit 1
     next="$(printf '%s' "$page" | jq -r '.data.repository.issues.pageInfo | if .hasNextPage then .endCursor else empty end')"
     [ -n "$next" ] || break
     after="$next"
@@ -127,16 +134,51 @@ clone_of() {  # <owner/repo>
   return 0
 }
 
-# THE TAGS OF THE RELEASE THAT CLOSES A CARD: the pattern of the first environment of LIVE_TAGS,
-# or every tag where it names none
-release_tag_pattern() {
+# THE TAGS OF THE RELEASE THAT CLOSES A CARD: the pattern of the first environment of LIVE_TAGS
+# in a config.env, or every tag where it names none
+release_tag_pattern() {  # <config.env>
   local line word
-  line="$(grep -E '^[[:space:]]*LIVE_TAGS[[:space:]]*=' "$(data_dir)/config.env" 2>/dev/null | tail -n1 || true)"
+  line="$(grep -E '^[[:space:]]*LIVE_TAGS[[:space:]]*=' "$1" 2>/dev/null | tail -n1 || true)"
   line="${line#*=}"; line="${line%%#*}"; line="${line//[\"\']/}"
   for word in $line; do
     case "$word" in ?*=?*) echo "${word#*=}"; return 0 ;; esac
   done
   echo '*'
+}
+
+# THE RELEASE OF ONE REPOSITORY, read once per run and kept for the next card that asks: sets
+# REL_CLONE (its clone, or empty), REL_REF (origin's default branch) and REL_TAG (the newest
+# release tag by date, or empty), and says once what it could not read. Called in this shell, never
+# as `$( )`, or what it keeps would end with the subshell.
+#
+# The pattern is LIVE_TAGS of the clone's own .ai-core/config.env: the project of that repository
+# decides what its release is, never the folder this runs in. A tag counts only where origin has it
+# too: a fetch never prunes, so a tag a refused push left in the clone, or one deleted on origin,
+# would read as a release. The fetch asks nobody for a password.
+_RELEASES=''
+release_of() {  # <owner/repo>
+  local held said remote listed=0 t
+  held="$(printf '%s' "$_RELEASES" | awk -F'\t' -v r="$1" 'tolower($1) == tolower(r) { print; exit }')"
+  if [ -n "$held" ]; then
+    IFS=$'\t' read -r _ REL_CLONE REL_REF REL_TAG <<< "$held"
+    [ "$REL_CLONE" != - ] || REL_CLONE=""; [ "$REL_REF" != - ] || REL_REF=""; [ "$REL_TAG" != - ] || REL_TAG=""
+    return 0
+  fi
+  REL_CLONE="$(clone_of "$1")"; REL_REF=""; REL_TAG=""
+  if [ -z "$REL_CLONE" ]; then
+    echo "no clone of $1 in $(project_folder), so no release of it is read and its cards in testing stay"
+  else
+    said="$(GIT_TERMINAL_PROMPT=0 git -C "$REL_CLONE" fetch -q --tags origin 2>&1)" \
+      || echo "fetching origin of $1 in $REL_CLONE failed: $(printf '%s\n' "$said" | sed -n '/./{p;q;}'); the refs it had are read"
+    REL_REF="origin/$(cd "$REL_CLONE" && origin_default_branch)" || REL_REF=""
+    remote="$(GIT_TERMINAL_PROMPT=0 git -C "$REL_CLONE" ls-remote --tags origin 2>/dev/null)" && listed=1
+    remote="$(printf '%s\n' "$remote" | awk '{ sub("^refs/tags/", "", $2); sub("\\^\\{\\}$", "", $2); print $2 }')"
+    while IFS= read -r t; do
+      [ -n "$t" ] || continue
+      if [ "$listed" = 0 ] || grep -qxF -- "$t" <<< "$remote"; then REL_TAG="$t"; break; fi
+    done <<< "$(git -C "$REL_CLONE" tag --list "$(release_tag_pattern "$REL_CLONE/.ai-core/config.env")" --sort=-creatordate)"
+  fi
+  _RELEASES="${_RELEASES}$1"$'\t'"${REL_CLONE:--}"$'\t'"${REL_REF:--}"$'\t'"${REL_TAG:--}"$'\n'
 }
 
 # --- the sweep ----------------------------------------------------------------
@@ -155,7 +197,6 @@ set -- ${args[@]+"${args[@]}"}
 set_project "$project" >/dev/null
 resolved="$(project_number)"
 org="$(project_org)"
-pattern="$(release_tag_pattern)"
 
 # The repositories: the ones named, else every one with an active card on the board, which is read
 # whole for that. A refused read stops the run: a board that never answered is no empty board.
@@ -174,8 +215,7 @@ moved=0; scanned=0
 for full in ${repos[@]+"${repos[@]}"}; do
   cards="$(cards_of_repo "$full")" || exit 1
   label="${full#"$org"/}"
-  read_release=0; clone=""; ref=""; tag=""
-  while IFS=$'\t' read -r st num subs sha proven; do
+  while IFS=$'\t' read -r st num subs sha proven elsewhere; do
     [ -n "$num" ] || continue
     [ "$(printf '%s' "$st" | tr '[:upper:]' '[:lower:]')" != done ] || continue
     scanned=$((scanned + 1))
@@ -187,23 +227,14 @@ for full in ${repos[@]+"${repos[@]}"}; do
       target="$(epic_target_on_board "$full" "$num")" || exit 1
     else
       [ "$(printf '%s' "$st" | tr '[:upper:]' '[:lower:]')" = testing ] || continue
-      # The clone is fetched once per repository, and only where a card in testing asks for it
-      if [ "$read_release" = 0 ]; then
-        read_release=1
-        clone="$(clone_of "$full")"
-        if [ -z "$clone" ]; then
-          echo "no clone of $full in $(project_folder), so no release of it is read and its cards in testing stay"
-        else
-          git -C "$clone" fetch -q --tags origin 2>/dev/null \
-            || echo "origin of $full not reached from $clone, so the refs it had are read"
-          ref="origin/$(cd "$clone" && origin_default_branch)" || ref=""
-          tag="$(git -C "$clone" tag --list "$pattern" --sort=-creatordate | sed -n 1p)" || tag=""
-        fi
-      fi
+      # The release of the repository the work landed in, read once where a card in testing asks
+      landed="$full"; [ "$elsewhere" = - ] || landed="$elsewhere"
+      release_of "$landed"
+      tag="$REL_TAG"; [ "$landed" = "$full" ] || tag="$landed $REL_TAG"
       on_master=0; rel=0
-      if [ -n "$ref" ] && [ "$sha" != - ] && commit="$(git -C "$clone" rev-parse -q --verify "$sha^{commit}" 2>/dev/null)"; then
-        git -C "$clone" merge-base --is-ancestor "$commit" "$ref" && on_master=1
-        [ -n "$tag" ] && git -C "$clone" merge-base --is-ancestor "$commit" "$tag" && rel=1
+      if [ -n "$REL_REF" ] && [ "$sha" != - ] && commit="$(git -C "$REL_CLONE" rev-parse -q --verify "$sha^{commit}" 2>/dev/null)"; then
+        git -C "$REL_CLONE" merge-base --is-ancestor "$commit" "$REL_REF" && on_master=1
+        [ -n "$REL_TAG" ] && git -C "$REL_CLONE" merge-base --is-ancestor "$commit" "$REL_TAG" && rel=1
       fi
       target="$(derive_target "$st" "$on_master" "$rel" 0 "$proven")"
       [ -n "$target" ] || { [ "$rel" = 1 ] && echo "proof due    $label#$num  (released in $tag, no \"Proven on\" record after its landing)"; continue; }
@@ -214,11 +245,11 @@ for full in ${repos[@]+"${repos[@]}"}; do
       why="released in $tag and proven"; [ "$subs" -gt 0 ] && why="every sub-issue done"
       if [ "$dry" = 1 ]; then echo "would close  $label#$num  ($st -> done, $why)"
       else echo "close        $label#$num  ($st -> done, $why)"
-        "$ROOT/bin/issue-close.sh" "$full" "$num" >/dev/null; fi
+        "$ROOT/bin/issue-close.sh" "$full" "$num" >/dev/null < /dev/null; fi
     else
       if [ "$dry" = 1 ]; then echo "would move   $label#$num  ($st -> $target)"
       else echo "move         $label#$num  ($st -> $target)"
-        "$ROOT/bin/issue-status.sh" "$full" "$num" "$target" >/dev/null; fi
+        "$ROOT/bin/issue-status.sh" "$full" "$num" "$target" >/dev/null < /dev/null; fi
     fi
     moved=$((moved + 1))
   done <<< "$cards"

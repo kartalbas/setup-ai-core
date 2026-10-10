@@ -259,7 +259,7 @@ $ok = Invoke-Finish -Number 175
 Check 'the issue was read there' 'True' ([bool]((Calls) -match 'other-org/tracker/issues/175'))
 Check 'and never here'         'False' ([bool]((Calls) -match 'example-org/example-repo/issues/175'))
 Check 'no commit names it, so it is refused under its own name' `
-  'error: no commit on origin/master names other-org/tracker#175: nothing of it has landed, so the card stays and the issue is not told; a commit that touches an issue names it' $said
+  'error: no commit on origin/master names other-org/tracker#175, so the card stays and the issue is not told; a commit that touches an issue names it' $said
 & git -C $work branch -q -D issue-175-gone
 $env:GH_PROJECT_NUMBER = '999983'
 Remove-Item -Path (Join-Path $fake 'no-board')
@@ -269,7 +269,7 @@ Set-Content -Path $log -Value $null
 Remove-Item -Recurse -Force $env:GH_CACHE_DIRECTORY -ErrorAction SilentlyContinue
 $ok = Invoke-Finish -Number 177
 Check 'it is refused'          'False' ([string]$ok)
-Check 'it says why'            'error: no commit on origin/master names #177: nothing of it has landed, so the card stays and the issue is not told; a commit that touches an issue names it' $said
+Check 'it says why'            'error: no commit on origin/master names #177, so the card stays and the issue is not told; a commit that touches an issue names it' $said
 Check 'no card moved'          0       (Moves)
 Check 'the issue was not told' 'False' ([bool]((Calls) -match 'issue comment 177'))
 Check 'no card is swept'       0       (@(Get-Content $log | Where-Object { $_.Contains('issues(states:OPEN') }).Count)

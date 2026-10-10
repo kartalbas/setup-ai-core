@@ -23,11 +23,11 @@ rather than cut a GitHub release; whether that tag actually deployed is the pipe
 on, not the board's.
 
 THE RELEASE IS READ FROM THE CLONE, after one fetch: the newest tag by date that matches the first
-environment of LIVE_TAGS in the project's config.env ("prod=deploy/prod/* ..." gives
+environment of LIVE_TAGS in that clone's .ai-core/config.env ("prod=deploy/prod/* ..." gives
 deploy/prod/*), or the newest tag of all where LIVE_TAGS names none. GitHub lists tags by name, so
-its first tag is deploy/test/... beside deploy/prod/... and no release at all. A repository with no
-clone here, in the checkout this runs in or beside it in the project folder, is named, and its
-cards stay.
+its first tag is deploy/test/... beside deploy/prod/... and no release at all. A card whose work
+landed in another repository is read in that repository's clone. A repository with no clone here,
+in the checkout this runs in or beside it in the project folder, is named, and its cards stay.
 
 THE CARDS ARE READ PER REPOSITORY: its open issues and their cards on this board, in one paged
 query. start-issue and finish-issue run this for their own repository; read through the whole
@@ -48,11 +48,12 @@ rules.
 .EXAMPLE
 ./status-sync.ps1 -Project 6
 #>
-[CmdletBinding()]
+# The repositories come last and by position, as in the bash twin: `status-sync.ps1 owner/repo`
+[CmdletBinding(PositionalBinding = $false)]
 param(
   [string]   $Project = '',
   [switch]   $DryRun,
-  [string[]] $Repo = @()
+  [Parameter(Position = 0, ValueFromRemainingArguments)][string[]] $Repo = @()
 )
 
 Import-Module (Join-Path $PSScriptRoot '../lib/Board.psm1') -Force
@@ -77,12 +78,16 @@ $ErrorActionPreference = 'Stop'
 # --- what is read, once per repository ----------------------------------------
 
 # THE OPEN ISSUES OF ONE REPOSITORY THAT HAVE A CARD ON THIS BOARD: status, number, sub-issue
-# total, the commit finish-issue landed or '-', and whether a proof record follows that landing.
+# total, the commit finish-issue landed or '-', whether a proof record follows that landing, and
+# the repository it landed in where that is another one, or '-'.
 #
 # The commit is the first one finish-issue listed in its newest "Landed on <branch>:" comment,
-# the record it writes when it moves the card to testing. A comment counts only when it came after
-# the issue was last reopened: a ticket reopened for rework still carries the record of the work
-# that closed it the first time. A proof record counts only when it came after that landing.
+# the record it writes when it moves the card to testing; "Landed on <branch> of <owner/repo>:"
+# names the repository the work landed in. A comment counts only when it came after the issue was
+# last reopened: a ticket reopened for rework still carries the record of the work that closed it
+# the first time. A proof record counts only when it came after that landing. Only the comments of
+# the repository's owner, members and collaborators count: on a public repository anybody can
+# write "Landed on" and "Proven on".
 function Get-RepoCards { param([string]$R)
   $q = 'query($o:String!, $n:String!, $after:String) { repository(owner:$o, name:$n) {
     issues(states:OPEN, first:50, after:$after) { pageInfo { hasNextPage endCursor } nodes {
@@ -90,7 +95,7 @@ function Get-RepoCards { param([string]$R)
       projectItems(first:20) { nodes { project { number owner { ... on Organization { login } ... on User { login } } }
         status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } }
       reopened: timelineItems(last:1, itemTypes:[REOPENED_EVENT]) { nodes { ... on ReopenedEvent { createdAt } } }
-      comments(last:50) { nodes { createdAt body } } } } } }'
+      comments(last:50) { nodes { createdAt body authorAssociation } } } } } }'
   $board = [int](Get-ProjectNumber); $org = Get-ProjectOrg
   $after = ''
   while ($true) {
@@ -100,22 +105,25 @@ function Get-RepoCards { param([string]$R)
     $issues = $page.data.repository.issues
     if ($null -eq $issues) { Stop-WithError "the open issues of $R were not answered" }
     foreach ($i in @($issues.nodes)) {
-      $status = @($i.projectItems.nodes | Where-Object { $_.project.number -eq $board -and $_.project.owner.login -ceq $org } |
+      $status = @($i.projectItems.nodes | Where-Object { $_.project.number -eq $board -and $_.project.owner.login -ieq $org } |
         ForEach-Object { if ($_.status.name) { $_.status.name } else { '' } }) | Select-Object -First 1
       if (-not $status) { continue }
       $reopenedAt = $i.reopened.nodes | Select-Object -First 1 -ExpandProperty createdAt -ErrorAction SilentlyContinue
-      $landed = @($i.comments.nodes | Where-Object {
+      $said = @($i.comments.nodes | Where-Object { $_.authorAssociation -cin 'OWNER', 'MEMBER', 'COLLABORATOR' })
+      $landed = @($said | Where-Object {
         $_.body.StartsWith('Landed on ', [StringComparison]::Ordinal) -and (-not $reopenedAt -or ($_.createdAt -gt $reopenedAt))
       } | Sort-Object { $_.createdAt }) | Select-Object -Last 1
       $first = if ($landed) { @($landed.body -split "`n" | Where-Object { $_ -cmatch '^- [0-9a-f]{7,40} ' }) | Select-Object -First 1 }
-      $proven = if ($landed -and @($i.comments.nodes | Where-Object {
+      $proven = if ($landed -and @($said | Where-Object {
         $_.body.StartsWith('Proven on ', [StringComparison]::Ordinal) -and $_.createdAt -gt $landed.createdAt }).Count -gt 0) { 1 } else { 0 }
+      $elsewhere = if ($landed -and ($landed.body -split "`n")[0] -cmatch '^Landed on \S+ of ([^\s:]+/[^\s:]+):') { $Matches[1] } else { '-' }
       [pscustomobject]@{
-        Status = $status
-        Number = [int]$i.number
-        Subs   = [int]$i.subIssuesSummary.total
-        Sha    = $(if ($first) { $first.Split(' ')[1].Trim() } else { '-' })
-        Proven = $proven
+        Status    = $status
+        Number    = [int]$i.number
+        Subs      = [int]$i.subIssuesSummary.total
+        Sha       = $(if ($first) { $first.Split(' ')[1].Trim() } else { '-' })
+        Proven    = $proven
+        Elsewhere = $elsewhere
       }
     }
     if (-not $issues.pageInfo.hasNextPage) { break }
@@ -144,14 +152,45 @@ function Get-Clone { param([string]$R)
   ''
 }
 
-# THE TAGS OF THE RELEASE THAT CLOSES A CARD: the pattern of the first environment of LIVE_TAGS,
-# or every tag where it names none
-function Get-ReleaseTagPattern {
-  $config = Join-Path (Get-DataDir) 'config.env'
-  $line = if (Test-Path -LiteralPath $config) { @(Get-Content -LiteralPath $config | Where-Object { $_ -cmatch '^\s*LIVE_TAGS\s*=' }) | Select-Object -Last 1 }
+# THE TAGS OF THE RELEASE THAT CLOSES A CARD: the pattern of the first environment of LIVE_TAGS
+# in a config.env, or every tag where it names none
+function Get-ReleaseTagPattern { param([string]$Config)
+  $line = if (Test-Path -LiteralPath $Config) { @(Get-Content -LiteralPath $Config | Where-Object { $_ -cmatch '^\s*LIVE_TAGS\s*=' }) | Select-Object -Last 1 }
   $line = "$line" -creplace '^[^=]*=', '' -creplace '#.*$', '' -creplace '["'']', ''
   foreach ($word in ($line -split '\s+')) { if ($word -cmatch '^.+=(.+)$') { return $Matches[1] } }
   '*'
+}
+
+# THE RELEASE OF ONE REPOSITORY, read once per run and kept in $script:Releases for the next card
+# that asks: its clone (or ''), origin's default branch and the newest release tag by date (or '').
+# It says once what it could not read.
+#
+# The pattern is LIVE_TAGS of the clone's own .ai-core/config.env: the project of that repository
+# decides what its release is, never the folder this runs in. A tag counts only where origin has it
+# too: a fetch never prunes, so a tag a refused push left in the clone, or one deleted on origin,
+# would read as a release. The fetch asks nobody for a password.
+$script:Releases = @{}
+function Read-Release { param([string]$R)
+  if ($script:Releases.ContainsKey($R)) { return }
+  $release = [pscustomobject]@{ Clone = (Get-Clone $R); Ref = ''; Tag = '' }
+  $script:Releases[$R] = $release
+  $clone = $release.Clone
+  if (-not $clone) { "no clone of $R in $(Get-ProjectFolder), so no release of it is read and its cards in testing stay"; return }
+  # git's stderr is text to read here, not an exception
+  $kept = $ErrorActionPreference, $env:GIT_TERMINAL_PROMPT
+  $ErrorActionPreference = 'Continue'; $env:GIT_TERMINAL_PROMPT = '0'
+  try {
+    $said = @(& git -C $clone fetch -q --tags origin 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ })
+    if ($LASTEXITCODE -ne 0) { "fetching origin of $R in $clone failed: $($said | Select-Object -First 1); the refs it had are read" }
+    try { Push-Location -LiteralPath $clone; $release.Ref = "origin/$(Get-OriginDefaultBranch)" } catch { $release.Ref = '' } finally { Pop-Location }
+    $remote = @(& git -C $clone ls-remote --tags origin 2>$null); $listed = $LASTEXITCODE -eq 0
+    $remote = @($remote | ForEach-Object { ("$_" -split '\s+')[1] -creplace '^refs/tags/', '' -creplace '\^\{\}$', '' })
+    # The pattern is matched here and never handed to git: pwsh expands a wildcard in a native
+    # command's argument against the files of the current folder, a variable's too
+    $pattern = Get-ReleaseTagPattern (Join-Path $clone '.ai-core/config.env')
+    $release.Tag = "$(@(& git -C $clone tag --sort=-creatordate 2>$null) |
+      Where-Object { $_ -clike $pattern -and (-not $listed -or $remote -ccontains $_) } | Select-Object -First 1)".Trim()
+  } finally { $ErrorActionPreference, $env:GIT_TERMINAL_PROMPT = $kept }
 }
 
 # --- the sweep ----------------------------------------------------------------
@@ -159,7 +198,6 @@ function Get-ReleaseTagPattern {
 Set-Project -Number $Project | Out-Null
 $resolved = Get-ProjectNumber
 $org = Get-ProjectOrg
-$pattern = Get-ReleaseTagPattern
 
 # The repositories: the ones named, else every one with an active card on the board, which is read
 # whole for that. A refused read stops the run: a board that never answered is no empty board.
@@ -174,7 +212,6 @@ else {
 $scanned = 0; $moved = 0
 foreach ($full in $repos) {
   $label = if ($full.StartsWith("$org/", [StringComparison]::Ordinal)) { $full.Substring($org.Length + 1) } else { $full }
-  $readRelease = $false; $clone = ''; $ref = ''; $tag = ''
   foreach ($c in @(Get-RepoCards $full)) {
     $st = $c.Status; $num = $c.Number
     if ($st.ToLowerInvariant() -ceq 'done') { continue }
@@ -186,26 +223,17 @@ foreach ($full in $repos) {
     if ($c.Subs -gt 0) { $target = Get-EpicTargetOnBoard -Repo $full -Number $num }
     else {
       if ($st.ToLowerInvariant() -cne 'testing') { continue }
-      # The clone is fetched once per repository, and only where a card in testing asks for it
-      if (-not $readRelease) {
-        $readRelease = $true
-        $clone = Get-Clone $full
-        if (-not $clone) { "no clone of $full in $(Get-ProjectFolder), so no release of it is read and its cards in testing stay" }
-        else {
-          & git -C $clone fetch -q --tags origin 2>$null
-          if ($LASTEXITCODE -ne 0) { "origin of $full not reached from $clone, so the refs it had are read" }
-          try { Push-Location -LiteralPath $clone; $ref = "origin/$(Get-OriginDefaultBranch)" } catch { $ref = '' } finally { Pop-Location }
-          # The pattern is matched here and never handed to git: pwsh expands a wildcard in a native
-          # command's argument against the files of the current folder, a variable's too
-          $tag = "$(@(& git -C $clone tag --sort=-creatordate 2>$null) | Where-Object { $_ -like $pattern } | Select-Object -First 1)".Trim()
-        }
-      }
+      # The release of the repository the work landed in, read once where a card in testing asks
+      $landed = if ($c.Elsewhere -cne '-') { $c.Elsewhere } else { $full }
+      Read-Release $landed
+      $release = $script:Releases[$landed]; $clone = $release.Clone; $ref = $release.Ref
+      $tag = if ($landed -ceq $full) { $release.Tag } else { "$landed $($release.Tag)" }
       $onMaster = 0; $rel = 0
       if ($ref -and $c.Sha -cne '-') {
         $commit = "$(& git -C $clone rev-parse -q --verify "$($c.Sha)^{commit}" 2>$null)".Trim()
         if ($LASTEXITCODE -eq 0 -and $commit) {
           & git -C $clone merge-base --is-ancestor $commit $ref 2>$null; if ($LASTEXITCODE -eq 0) { $onMaster = 1 }
-          if ($tag) { & git -C $clone merge-base --is-ancestor $commit $tag 2>$null; if ($LASTEXITCODE -eq 0) { $rel = 1 } }
+          if ($release.Tag) { & git -C $clone merge-base --is-ancestor $commit $release.Tag 2>$null; if ($LASTEXITCODE -eq 0) { $rel = 1 } }
         }
       }
       $target = Get-DeriveTarget -Current $st -OnMaster $onMaster -Released $rel -IsEpic 0 -Proven $c.Proven

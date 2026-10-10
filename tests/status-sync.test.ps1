@@ -65,7 +65,9 @@ Check 'CLOSE is done' 3 (Get-StatusRank 'CLOSE')
 #   abc20 on master, in no tag
 # and the same cards: #12 implementing on master, #13 released and proven, #14 an epic with one
 # sub-issue, #15 of another organisation, #16 reopened after its landing, #17 moved by hand, #18
-# released without a proof record, #19 on test only, #20 in no tag and on the second page.
+# released without a proof record and proven by a stranger, #19 on test only, #20 in no tag and
+# on the second page with a newer prod tag in the clone that origin never had, #22 landed in
+# example-org/tools, which has no clone here.
 
 $fake = Join-Path ([IO.Path]::GetTempPath()) "status-sync-$([guid]::NewGuid().ToString('N').Substring(0,8))"
 $env:GH_CACHE_DIRECTORY = Join-Path $fake 'cache'
@@ -77,6 +79,7 @@ $projectId = 'PVT_kwstatussync'
 $cache = Join-Path $env:GH_CACHE_DIRECTORY "$projectNumber"
 New-Item -ItemType Directory -Path $cache -Force | Out-Null
 Set-Content -Path (Join-Path $cache 'project-id') -Value $projectId -NoNewline
+Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'empty.json') -Value '{}'
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'project-id.json') -Value ('{"data":{"organization":{"projectV2":{"id":"' + $projectId + '"}}}}')
 
 # The clone and its origin. Commit and tag dates are set, so "newest by date" is not left to the
@@ -106,6 +109,8 @@ New-Item -ItemType Directory -Path (Join-Path $fake 'folder') -Force | Out-Null
 & git clone -q $origin $clone
 # The tags reach the clone through the fetch status-sync makes, not through the clone
 foreach ($t in @(& git -C $clone tag -l)) { & git -C $clone tag -d $t | Out-Null }
+# A release run whose push was refused left this tag in the clone alone, newer than every other
+Git-At $clone 1700000300 @('tag', '-a', '-m', 'never pushed', 'deploy/prod/3', $c20)
 $liveTags = 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"'
 New-Item -ItemType Directory -Path (Join-Path $clone '.ai-core') -Force | Out-Null
 Set-Content -LiteralPath (Join-Path $clone '.ai-core/config.env') -Value $liveTags
@@ -121,8 +126,12 @@ Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'board.json') -Value (
 
 # An open issue as the query of one repository reads it: its card on this board, and the cards of
 # board 5 and of a board numbered like this one under another owner, which are not this board's
-function Landed($at, $sha) { '{"createdAt":"' + $at + '","body":"Landed on master:\n\n- ' + $sha.Substring(0, 7) + ' Its subject\n- 1111111 an older commit"}' }
-function Proven($at) { '{"createdAt":"' + $at + '","body":"Proven on prod:\n\n- TC-1 PASS"}' }
+# Every comment is written by a member, but for the one stranger's
+function Landed($at, $sha, $repo = '') {
+  $of = if ($repo) { " of $repo" } else { '' }
+  '{"createdAt":"' + $at + '","authorAssociation":"MEMBER","body":"Landed on master' + $of + ':\n\n- ' + $sha.Substring(0, 7) + ' Its subject\n- 1111111 an older commit"}'
+}
+function Proven($at, $association = 'MEMBER') { '{"createdAt":"' + $at + '","authorAssociation":"' + $association + '","body":"Proven on prod:\n\n- TC-1 PASS"}' }
 function Issue($number, $status, $subs, $comments, $reopenedAt = '') {
   $reopened = if ($reopenedAt) { '{"createdAt":"' + $reopenedAt + '"}' } else { '' }
   '{"number":' + $number + ',"subIssuesSummary":{"total":' + $subs + '},"projectItems":{"nodes":[' +
@@ -134,12 +143,13 @@ function Issue($number, $status, $subs, $comments, $reopenedAt = '') {
 function Page($hasNext, $cursor, $nodes) { '{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":' + $hasNext + ',"endCursor":' + $cursor + '},"nodes":[' + ($nodes -join ',') + ']}}}}' }
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'issues-1.json') -Value (Page 'true' '"c1"' @(
   (Issue 12 'implementing' 0 (Landed '2026-09-01T10:00:00Z' $c12)),
-  (Issue 13 'testing' 0 (((Landed '2026-08-01T10:00:00Z' '0000000'), (Landed '2026-09-01T10:00:00Z' $c13), (Proven '2026-09-02T10:00:00Z'), '{"createdAt":"2026-09-03T10:00:00Z","body":"Looks good, see 2222222"}') -join ',')),
+  (Issue 13 'testing' 0 (((Landed '2026-08-01T10:00:00Z' '0000000'), (Landed '2026-09-01T10:00:00Z' $c13), (Proven '2026-09-02T10:00:00Z'), '{"createdAt":"2026-09-03T10:00:00Z","authorAssociation":"MEMBER","body":"Looks good, see 2222222"}') -join ',')),
   (Issue 14 'todo' 1 ''),
   (Issue 16 'testing' 0 (((Landed '2026-09-01T10:00:00Z' $c16), (Proven '2026-09-02T10:00:00Z')) -join ',') '2026-09-05T10:00:00Z'),
-  (Issue 17 'testing' 0 '{"createdAt":"2026-09-01T10:00:00Z","body":"Done in\n- abc1717 by hand"}')))
+  (Issue 17 'testing' 0 '{"createdAt":"2026-09-01T10:00:00Z","authorAssociation":"MEMBER","body":"Done in\n- abc1717 by hand"}')))
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'issues-2.json') -Value (Page 'false' 'null' @(
-  (Issue 18 'testing' 0 (((Proven '2026-08-30T10:00:00Z'), (Landed '2026-09-01T10:00:00Z' $c18)) -join ',')),
+  (Issue 18 'testing' 0 (((Proven '2026-08-30T10:00:00Z'), (Landed '2026-09-01T10:00:00Z' $c18), (Proven '2026-09-02T10:00:00Z' 'NONE')) -join ',')),
+  (Issue 22 'testing' 0 (((Landed '2026-09-01T10:00:00Z' $c13 'example-org/tools'), (Proven '2026-09-02T10:00:00Z')) -join ',')),
   (Issue 19 'testing' 0 (((Landed '2026-09-01T10:00:00Z' $c19), (Proven '2026-09-02T10:00:00Z')) -join ',')),
   (Issue 20 'testing' 0 (((Landed '2026-09-01T10:00:00Z' $c20), (Proven '2026-09-02T10:00:00Z')) -join ',')),
   (Issue 21 '' 0 '')))
@@ -159,6 +169,8 @@ elseif (`$line -like '*items(first:100, after:*')            { `$doc = 'board.js
 elseif (`$line -like '*o=other-org*issues(states:OPEN*')     { `$doc = 'issues-other.json' }
 elseif (`$line -like '*after=c1*issues(states:OPEN*')        { `$doc = 'issues-2.json' }
 elseif (`$line -like '*issues(states:OPEN*')                 { `$doc = 'issues-1.json' }
+elseif (`$line -like '*--method PATCH*')                     { `$doc = 'empty.json' }
+elseif (Test-Path -LiteralPath (Join-Path '$fake' 'lenient')) { exit 0 }
 else { [Console]::Error.WriteLine("the stand-in gh has no answer for: `$line"); exit 9 }
 `$prog = ''
 for (`$i = 0; `$i -lt `$args.Count - 1; `$i++) { if (`$args[`$i] -eq '--jq') { `$prog = `$args[`$i + 1] } }
@@ -169,14 +181,16 @@ exit 0
 $env:PATH = "$ghDir$([IO.Path]::PathSeparator)$env:PATH"
 
 function CallCount($text) { @(@(Get-Content -LiteralPath $calls -EA SilentlyContinue) | Where-Object { $_.Contains($text) }).Count }
-function Sync([string]$Dir, [string[]]$Repo = @()) {
+# The repositories go by position, as the bash twin takes them
+function Sync([string]$Dir, [string[]]$Repo = @(), [switch]$Apply, [switch]$BoardFromEnvironment) {
   Set-Content -LiteralPath $calls -Value $null
   Push-Location -LiteralPath $Dir
   try {
-    $a = @('-NoProfile', '-File', (Join-Path $root 'bin/status-sync.ps1'), '-Project', $projectNumber, '-DryRun')
-    if ($Repo) { $a += @('-Repo', ($Repo -join ',')) }
+    $a = @('-NoProfile', '-File', (Join-Path $root 'bin/status-sync.ps1')) + $Repo
+    if ($BoardFromEnvironment) { $env:GH_PROJECT_NUMBER = "$projectNumber" } else { $a += @('-Project', $projectNumber) }
+    if (-not $Apply) { $a += '-DryRun' }
     $script:run = @(& pwsh @a 2>&1 | ForEach-Object { "$_" }); $script:rc = $LASTEXITCODE
-  } finally { Pop-Location }
+  } finally { Pop-Location; Remove-Item Env:GH_PROJECT_NUMBER -ErrorAction SilentlyContinue }
 }
 function Lines($pattern) { (@($script:run | Where-Object { $_ -like $pattern }) -join "`n") }
 
@@ -192,13 +206,22 @@ try {
     'one child    example-repo#14  (its state follows its one sub-issue; work of its own belongs in a sub-issue of its own, or it is closed with that sub-issue)' (Lines 'one child*')
   Check 'and follows its sub-issue moved by hand' 'would move   example-repo#14  (todo -> testing)' (Lines 'would move   example-repo#14*')
   Check 'nothing else moves: not on master alone, not reopened, not by hand, not on test only, not untagged' `
-    '' "$(@($run | Where-Object { $_ -cmatch 'example-repo#(12|16|17|19|20)' }))"
-  Check 'and the count says what it read, both pages' "8 active cards scanned, 2 would move on board $projectNumber." $run[-1]
+    '' "$(@($run | Where-Object { $_ -cmatch 'example-repo#(12|16|17|19|20|22)' -and $_ -cnotlike 'proof due*' }))"
+  Check 'a landing in another repository is read there, and that one has no clone here' `
+    "no clone of example-org/tools in $(Join-Path $fake 'folder'), so no release of it is read and its cards in testing stay" (Lines 'no clone*')
+  Check 'and the count says what it read, both pages' "9 active cards scanned, 2 would move on board $projectNumber." $run[-1]
   Check 'the board is not read' 0 (CallCount 'items(first:100')
   Check 'the issues are read once per page' 2 (CallCount 'issues(states:OPEN')
   Check 'nothing asks GitHub for a tag or a compare' 0 @(@(Get-Content -LiteralPath $calls) | Where-Object { $_ -cmatch '/tags|/compare/' }).Count
   & git -C $clone rev-parse -q --verify refs/tags/deploy/prod/2 *>$null
   Check 'the fetch brought the tags' 'yes' $(if ($LASTEXITCODE -eq 0) { 'yes' } else { 'no' })
+  & git -C $clone rev-parse -q --verify refs/tags/deploy/prod/3 *>$null
+  Check 'and kept the one origin never had, which no fetch prunes' 'yes' $(if ($LASTEXITCODE -eq 0) { 'yes' } else { 'no' })
+
+  Write-Host 'the repositories alone, the board from GH_PROJECT_NUMBER: by position they are no board'
+  Sync $clone @('example-org/example-repo', 'other-org/example-repo') -BoardFromEnvironment
+  Check 'exit 0' 0 $rc
+  Check 'both are read' "10 active cards scanned, 2 would move on board $projectNumber." $run[-1]
 
   Write-Host 'without LIVE_TAGS the newest tag by date decides, whatever its name'
   Set-Content -LiteralPath (Join-Path $clone '.ai-core/config.env') -Value ''
@@ -212,16 +235,25 @@ try {
   Check 'exit 0' 0 $rc
   Check 'the board is read once' 1 (CallCount 'items(first:100, after:')
   Check 'a repository of another organisation is read under its owner' 1 (CallCount 'graphql -f o=other-org -f n=example-repo')
-  Check 'its card is counted' "9 active cards scanned, 2 would move on board $projectNumber." $run[-1]
+  Check 'its card is counted' "10 active cards scanned, 2 would move on board $projectNumber." $run[-1]
 
   Write-Host 'a repository with no clone here: said, and its cards in testing stay'
   Sync $fake 'example-org/example-repo'
-  Check 'it says so' "no clone of example-org/example-repo in $fake, so no release of it is read and its cards in testing stay" (Lines 'no clone*')
+  Check 'it says so' "no clone of example-org/example-repo in $fake, so no release of it is read and its cards in testing stay" (Lines 'no clone of example-org/example-repo *')
   Check 'nothing closes' '' (Lines 'would close*')
-  New-Item -ItemType Directory -Path (Join-Path $fake 'folder/.ai-core') -Force | Out-Null
-  Set-Content -LiteralPath (Join-Path $fake 'folder/.ai-core/config.env') -Value $liveTags
   Sync (Join-Path $fake 'folder') 'example-org/example-repo'
-  Check 'from the project folder, the clone in it is found' 'would close  example-repo#13  (testing -> done, released in deploy/prod/2 and proven)' (Lines 'would close*')
+  Check 'from the project folder, the clone in it is found, and LIVE_TAGS read from the clone' 'would close  example-repo#13  (testing -> done, released in deploy/prod/2 and proven)' (Lines 'would close*')
+
+  Write-Host 'without -DryRun: the closing card is closed through issue-close, and nothing else is'
+  # issue-close asks more than the close, where the issue stands on boards and under an epic, and
+  # the stand-in answers every such question with nothing
+  New-Item -ItemType File -Path (Join-Path $fake 'lenient') -Force | Out-Null
+  Sync $clone 'example-org/example-repo' -Apply
+  Check 'exit 0' 0 $rc
+  Check 'it says so' 'close        example-repo#13  (testing -> done, released in deploy/prod/2 and proven)' (Lines 'close *')
+  Check '#13 is closed' 1 (CallCount 'api --method PATCH repos/example-org/example-repo/issues/13 ')
+  Check 'and no other issue' 1 @(@(Get-Content -LiteralPath $calls) | Where-Object { $_ -cmatch 'api --method PATCH repos/.*/issues/' }).Count
+  Remove-Item -LiteralPath (Join-Path $fake 'lenient')
 }
 finally {
   Remove-Item -Recurse -Force $fake, $cache -ErrorAction SilentlyContinue

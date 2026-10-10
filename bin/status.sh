@@ -90,9 +90,10 @@ if [ -z "$tokens$issues" ]; then
     if said="$(cd "$repo" && bash "$here/finish-issue.sh" --sweep --dry-run 2>&1)"; then
       while IFS= read -r line; do printf '%s\t%s\n' "${repo##*/}" "$line"; done <<< "$said" >> "$work/trees"
     else
-      # The refusal on one line: from its "error: " on, where git's own lines follow it
-      said="$(printf '%s\n' "$said" | sed -n '/^error: /,$p' | tr '\n' ' ' | tr -s ' ' | sed 's/ *$//')"
-      printf '%s\terror: %s\n' "${repo##*/}" "${said#error: }" >> "$work/trees"
+      # The refusal on one line, from its "error: " on where it has one, where git's own lines follow it
+      said="$(printf '%s\n' "$said" | tr '\n' ' ' | tr -s ' ' | sed 's/^ *//; s/ *$//')"
+      case "$said" in *'error: '*) said="${said#*error: }" ;; esac
+      printf '%s\terror: %s\n' "${repo##*/}" "$said" >> "$work/trees"
     fi
   done
   processes=(--processes-file "$work/processes" --agents-file "$work/agents" --rollouts-file "$work/rollouts" --trees-file "$work/trees")

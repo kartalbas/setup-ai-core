@@ -32,14 +32,20 @@
   cannot. [machine · review]
 - **Never write a version, a price or an interface shape from memory.** Look it up at the source
   and state where it came from. [review]
-- **Ask once per issue before starting its sub-agents**, naming for each what it is for, which
+- **Ask once per package before starting its sub-agents** (an issue alone is a package of one), naming for each what it is for, which
   question it answers, which model, which effort level and which context size and why, and what the
   same work costs in tokens if the session does it itself; the ask ends with two options, a) start
   them as described, b) the session does it, and waits for the answer. A helper call on the
   cheapest model, for a check whose answer the session checks itself, is no sub-agent and needs no
-  ask. Issues that touch the same files go to one agent together, because it reads the code once
-  and every round of a second agent pays the whole context again; issues that share nothing stay
-  apart. Every agent's name follows
+  ask. Issues that touch the same files go to one agent together, as one package of at most about 8
+  issues or 400 changed lines, split along the files' sections above that: one worktree per
+  repository, one commit per issue that names it, every issue's test case on the issue before the
+  build ends, then one push gate run, one review of the whole package diff with its findings per
+  issue, one integration, one release per repository and one live check, and its issues close
+  together. Every separate round pays the context, the install, the gate, the review and the CI
+  run again, five to ten times over for five to ten issues, and slows the machine every session
+  shares; so a finding in the files of a package that is not integrated yet joins that
+  package, and issues that share no file stay apart. Every agent's name follows
   `l<n>-<model><version>-<effort>-<context>-<5 hex>`; the issues it works on stand in its package
   as `Worker: <name>`. Once approved, run independent agents in parallel, never for work that fits
   in one or two tool calls, give every call an explicit model and effort, and relay the
@@ -48,8 +54,9 @@
   and reports what changed, what it verified and what in the specification was wrong. A specialist
   is consulted with a briefing, never with a running conversation. When a result misses, fix the
   prompt, the scope or the missing context before changing model or effort. [discipline]
-- **A review is independent and read-only.** The reviewer gets the diff and the stated intent, not
-  the conversation, and writes findings instead of pushing into the tree under review. Deciding
+- **A review is independent and read-only.** The reviewer gets the diff of the whole package and the
+  stated intent of each of its issues, not the conversation; one handed a single issue of a running
+  package asks for the package. It writes findings instead of pushing into the tree under review. Deciding
   whether a finding is real is a separate step from repairing it, and whoever wrote a fix does not
   approve it. The reviewer's model follows the stakes of the change, not the model of the session: a
   small mechanical change takes the lighter model the harness allows, ordinary work the standard

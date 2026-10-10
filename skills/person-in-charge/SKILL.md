@@ -35,8 +35,10 @@ A reviewer reads one diff and needs a small context; a developer on a package ne
 - Name every worker `l<n>-<model><version>-<effort>-<context>-<5 hex>`, such as
   `l1-opus5.5-high-150k-afb89`: `<n>` counts your workers, the 5 hex digits make the name unique.
 - Start a worker in its package's worktree, which `ai-core start-issue <first number>` opens in
-  the repository: `claude --bg --name <name> --model <model> --effort <effort> --permission-mode
-  auto --settings '{"autoCompactWindow":<tokens>}' "<the brief>"`, with a context size from
+  the repository; move the package's other issues to implementing with it (`ai-core issue-status
+  <number>... implementing`). The worker starts with `claude --bg --name <name> --model <model>
+  --effort <effort> --permission-mode auto --settings '{"autoCompactWindow":<tokens>}' "<the
+  brief>"`, with a context size from
   100000 to 1000000 tokens. A worker never moves to another folder, because the move asks a
   question only a person at its terminal can answer: stop a worker that is in the wrong folder and
   continue it in the right one.
@@ -88,9 +90,10 @@ needs.
    repository is on no board). Read title, labels and the `file:line` facts only.
 2. Map each issue to the files it changes: its `file:line` facts, else
    `git grep -n "<identifier>"`. Open no source file for this.
-3. Issues that change the same file or module form a package. Split a package above 8 issues or
-   about 400 changed lines along the file's sections. Order inside a package by function and
-   dependency; an issue that unblocks another goes first.
+3. Issues that change the same file or module form a package, cut ahead when the issues are filed,
+   not when a worker comes free. Split a package above 8 issues or about 400 changed lines along
+   the file's sections. Order inside a package by function and dependency; an issue that unblocks
+   another goes first.
 4. Record every package in one plan issue per board, titled "Plan: packages": one section per
    package, `### Package: <file or module>`, with its issues as `<repo>#<number>` in order, its
    files, its tier, its state and, once it has one, the line `Worker: <session name>`. Never make
@@ -128,9 +131,13 @@ finished; otherwise add a new package to the plan issue.
 
 - The other worker of the tier reviews a package; a high-stakes package is reviewed by a critic
   and a developer. The writer never approves its own package.
-- On a report: check the verification output, send the review, update the plan issue, run
-  `ai-core finish-issue` for each issue once the push has landed, and give the worker its next
-  package.
+- A package lands once: one push gate run, one review of its whole diff, then `ai-core
+  integrate-issue <first number> --reviewed-by <reviewer>` from its worktree, one release per
+  repository and one live check. Then run `ai-core finish-issue <number>` for each of its issues:
+  the one for the first number removes the worktree, and each other one moves its card and names
+  its commits.
+- On a report: check the verification output, send the review, update the plan issue, finish the
+  package's issues once its push has landed, and give the worker its next package.
 
 ## 5. The usage limit
 

@@ -154,9 +154,9 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
     "116`t1`t3-00:00:00`tTl`t/home/x/.local/bin/claude --resume old-lead")
   $env:AI_CORE_AGENTS = Join-Path $work 'agents'
   Set-Content -LiteralPath $env:AI_CORE_AGENTS -Value @(
-    '[{"pid":100,"kind":"interactive","name":"exa-lead","sessionId":"11111111-1111-1111-1111-111111111111","id":null},',
-    '{"pid":112,"kind":"background","name":"l1-sonnet5.5-low-100k-ab123","sessionId":"22222222-2222-2222-2222-222222222222","id":"22222222"},',
-    '{"pid":113,"kind":"background","name":"l2-opus5.5-high-300k-cd456","cwd":"/home/x/.worktrees/shop/issue-4-fix-the-thing","sessionId":"33333333-3333-3333-3333-333333333333","id":"33333333"}]')
+    '[{"pid":100,"kind":"interactive","status":"busy","name":"exa-lead","sessionId":"11111111-1111-1111-1111-111111111111","id":null},',
+    '{"pid":112,"kind":"background","status":"idle","state":"blocked","name":"l1-sonnet5.5-low-100k-ab123","sessionId":"22222222-2222-2222-2222-222222222222","id":"22222222"},',
+    '{"pid":113,"kind":"background","status":"busy","state":"working","name":"l2-opus5.5-high-300k-cd456","cwd":"/home/x/.worktrees/shop/issue-4-fix-the-thing","sessionId":"33333333-3333-3333-3333-333333333333","id":"33333333"}]')
   $env:AI_CORE_ROLLOUTS = Join-Path $work 'rollouts'
   Set-Content -LiteralPath $env:AI_CORE_ROLLOUTS -Value @(
     "/proc/102/fd`t/home/x/.codex/sessions/2026/10/04/rollout-2026-10-04T11-52-48-01a106c2-71cd-7451-94ce-508f6229cd5b.jsonl",
@@ -179,23 +179,23 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   function VLine($Text) { "$(@($view | Where-Object { $_.Contains($Text) }) | Select-Object -First 1)".Trim() -creplace ' +', ' ' }
   Check 'exit 0'        0 $rc
   Check 'line 1: the time and the board counts' "example · board example-org/7 · $(When $now) · Backlog 0 · Todo 5 · In progress 2 · Done 15" $view[0]
-  Check 'a session, named by its resume' '│ claude exa-lead │ 100 │ │ 1500 min │ │ session │' (VLine '│ claude exa-lead ')
-  Check 'the runs it started, through a script too, newest first' '│ └ gemini │ 108 │ │ 1 min │ example-repo#3 │ run │' (VLine '└ gemini')
-  Check 'with model and effort' '│ └ codex │ 102 │ big-model · high │ 3 min │ example-repo#1 │ run │' (VLine '└ codex')
-  Check 'a run a run started' '│ └ agy │ 103 │ cheap-model · high │ 2 min │ │ run │' (VLine '└ agy')
+  Check 'a session, named by its resume' '│ claude exa-lead │ 100 │ │ 1500 min │ busy │ │ session │' (VLine '│ claude exa-lead ')
+  Check 'the runs it started, through a script too, newest first' '│ └ gemini │ 108 │ │ 1 min │ │ example-repo#3 │ run │' (VLine '└ gemini')
+  Check 'with model and effort' '│ └ codex │ 102 │ big-model · high │ 3 min │ │ example-repo#1 │ run │' (VLine '└ codex')
+  Check 'a run a run started' '│ └ agy │ 103 │ cheap-model · high │ 2 min │ │ │ run │' (VLine '└ agy')
   Check 'indented one step deeper' 1 @($view | Where-Object { $_.StartsWith('│     └ agy ') }).Count
-  Check 'a run no agent started stands alone' '│ codex │ 104 │ │ 62 min │ │ resumed run │' (VLine '│ codex ')
-  Check 'an agent CLI without a prompt is a session' '│ agy │ 109 │ │ 5 min │ │ session │' (VLine '│ agy ')
-  Check 'a background session runs from the versioned binary' '│ claude l1-sonnet5.5 │ 112 │ sonnet · low │ 29 min │ │ session │' (VLine '│ claude l1-sonnet5.5 ')
+  Check 'a run no agent started stands alone' '│ codex │ 104 │ │ 62 min │ │ │ resumed run │' (VLine '│ codex ')
+  Check 'an agent CLI without a prompt is a session' '│ agy │ 109 │ │ 5 min │ │ │ session │' (VLine '│ agy ')
+  Check 'a background session runs from the versioned binary' '│ claude l1-sonnet5.5 │ 112 │ sonnet · low │ 29 min │ idle blocked │ │ session │' (VLine '│ claude l1-sonnet5.5 ')
   Check 'its daemon and terminal host are no agents' 0 @($view | Where-Object { $_ -cmatch '│ 11[01] +│' }).Count
-  Check 'a claimed spare: name, model and effort from its name, the issue from its worktree' '│ claude l2-opus5.5-h │ 113 │ opus5.5 · high │ 40 min │ shop#4 at start │ session │' (VLine '│ claude l2-opus5.5')
+  Check 'a claimed spare: name, model and effort from its name, the issue from its worktree' '│ claude l2-opus5.5-h │ 113 │ opus5.5 · high │ 40 min │ busy working │ shop#4 at start │ session │' (VLine '│ claude l2-opus5.5')
   Check 'a spare no session claimed and the agent list are no agents' 0 @($view | Where-Object { $_ -cmatch '│ 11[45] +│' }).Count
-  Check 'a stopped session is shown stopped' '│ claude old-lead │ 116 │ │ stopped │ │ session │' (VLine '│ claude old-lead ')
+  Check 'a stopped session is shown stopped' '│ claude old-lead │ 116 │ │ stopped │ │ │ session │' (VLine '│ claude old-lead ')
   Check 'in this order' '116 100 108 102 103 104 113 112 109' ((@($view | ForEach-Object { $c = $_.Split('│'); if ($c.Count -gt 3 -and $c[2].Trim() -cmatch '^\d+$') { $c[2].Trim() } })) -join ' ')
   Check 'no helper, no tool word in another command, a stopped one apart' 'AGENTS 8 running: 3 claude, 1 gemini, 2 codex, 2 agy; 1 stopped' (VLine ' running: ')
   Check 'no token lines' '' (VLine 'pace ')
   Check 'only a stopped one: none running' 'AGENTS 0 running; 1 stopped' ("$(@($only | Where-Object { $_ -cmatch '^AGENTS +\d' }) | Select-Object -First 1)".Trim() -creplace ' +', ' ')
-  Check 'a name without a version: its model and effort' '│ claude l3-sonnet-hi │ 117 │ sonnet · high │ 10 min │ │ session │' ("$(@($plain | Where-Object { $_.Contains('│ claude l3-sonnet') }) | Select-Object -First 1)".Trim() -creplace ' +', ' ')
+  Check 'a name without a version: its model and effort' '│ claude l3-sonnet-hi │ 117 │ sonnet · high │ 10 min │ │ │ session │' ("$(@($plain | Where-Object { $_.Contains('│ claude l3-sonnet') }) | Select-Object -First 1)".Trim() -creplace ' +', ' ')
   Write-Host 'the command that reaches each agent, from what its CLI reports'
   function Reach($Page, $AgentPid) {
     $on = $false

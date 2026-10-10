@@ -136,27 +136,27 @@ printf '%s\t%s\t%s\t%s\t%s\n' 100 1 '1-01:00:00' Ss 'claude --resume exa-lead' 1
   115 1 '50:00' Sl+ '/home/x/.local/bin/claude agents' \
   116 1 '3-00:00:00' Tl '/home/x/.local/bin/claude --resume old-lead' \
   > "$work/processes"
-printf '%s\n' '[{"pid":100,"kind":"interactive","name":"exa-lead","sessionId":"11111111-1111-1111-1111-111111111111","id":null},' \
-  '{"pid":112,"kind":"background","name":"l1-sonnet5.5-low-100k-ab123","sessionId":"22222222-2222-2222-2222-222222222222","id":"22222222"},' \
-  '{"pid":113,"kind":"background","name":"l2-opus5.5-high-300k-cd456","cwd":"/home/x/.worktrees/shop/issue-4-fix-the-thing","sessionId":"33333333-3333-3333-3333-333333333333","id":"33333333"}]' > "$work/agents"
+printf '%s\n' '[{"pid":100,"kind":"interactive","status":"busy","name":"exa-lead","sessionId":"11111111-1111-1111-1111-111111111111","id":null},' \
+  '{"pid":112,"kind":"background","status":"idle","state":"blocked","name":"l1-sonnet5.5-low-100k-ab123","sessionId":"22222222-2222-2222-2222-222222222222","id":"22222222"},' \
+  '{"pid":113,"kind":"background","status":"busy","state":"working","name":"l2-opus5.5-high-300k-cd456","cwd":"/home/x/.worktrees/shop/issue-4-fix-the-thing","sessionId":"33333333-3333-3333-3333-333333333333","id":"33333333"}]' > "$work/agents"
 printf '%s\t%s\n' /proc/102/fd /home/x/.codex/sessions/2026/10/04/rollout-2026-10-04T11-52-48-01a106c2-71cd-7451-94ce-508f6229cd5b.jsonl \
   /proc/100/fd /home/x/.codex/sessions/2026/10/04/rollout-2026-10-04T11-00-00-01a10000-0000-7000-8000-000000000000.jsonl > "$work/rollouts"
 view="$(cd "$folder" && AI_CORE_PROCESSES="$work/processes" AI_CORE_AGENTS="$work/agents" AI_CORE_ROLLOUTS="$work/rollouts" bash "$root/bin/status.sh" --project example-org/7 2>&1)"; rc=$?
 vline() { grep -m1 -F -- "$1" <<< "$view" | tr -s ' '; }
 check 'exit 0'        0 "$rc"
 check 'line 1: the time and the board counts' "example · board example-org/7 · $(when "$now") · Backlog 0 · Todo 5 · In progress 2 · Done 15" "$(sed -n 1p <<< "$view")"
-check 'a session, named by its resume' '│ claude exa-lead │ 100 │ │ 1500 min │ │ session │' "$(vline '│ claude exa-lead ')"
-check 'the runs it started, through a script too, newest first' '│ └ gemini │ 108 │ │ 1 min │ example-repo#3 │ run │' "$(vline '└ gemini')"
-check 'with model and effort' '│ └ codex │ 102 │ big-model · high │ 3 min │ example-repo#1 │ run │' "$(vline '└ codex')"
-check 'a run a run started' '│ └ agy │ 103 │ cheap-model · high │ 2 min │ │ run │' "$(vline '└ agy')"
+check 'a session, named by its resume' '│ claude exa-lead │ 100 │ │ 1500 min │ busy │ │ session │' "$(vline '│ claude exa-lead ')"
+check 'the runs it started, through a script too, newest first' '│ └ gemini │ 108 │ │ 1 min │ │ example-repo#3 │ run │' "$(vline '└ gemini')"
+check 'with model and effort' '│ └ codex │ 102 │ big-model · high │ 3 min │ │ example-repo#1 │ run │' "$(vline '└ codex')"
+check 'a run a run started' '│ └ agy │ 103 │ cheap-model · high │ 2 min │ │ │ run │' "$(vline '└ agy')"
 check 'indented one step deeper' 1 "$(grep -c '^│     └ agy ' <<< "$view")"
-check 'a run no agent started stands alone' '│ codex │ 104 │ │ 62 min │ │ resumed run │' "$(vline '│ codex ')"
-check 'an agent CLI without a prompt is a session' '│ agy │ 109 │ │ 5 min │ │ session │' "$(vline '│ agy ')"
-check 'a background session runs from the versioned binary' '│ claude l1-sonnet5.5 │ 112 │ sonnet · low │ 29 min │ │ session │' "$(vline '│ claude l1-sonnet5.5 ')"
+check 'a run no agent started stands alone' '│ codex │ 104 │ │ 62 min │ │ │ resumed run │' "$(vline '│ codex ')"
+check 'an agent CLI without a prompt is a session' '│ agy │ 109 │ │ 5 min │ │ │ session │' "$(vline '│ agy ')"
+check 'a background session runs from the versioned binary' '│ claude l1-sonnet5.5 │ 112 │ sonnet · low │ 29 min │ idle blocked │ │ session │' "$(vline '│ claude l1-sonnet5.5 ')"
 check 'its daemon and terminal host are no agents' 0 "$(grep -cE '│ 11[01] +│' <<< "$view" || true)"
-check 'a claimed spare: name, model and effort from its name, the issue from its worktree' '│ claude l2-opus5.5-h │ 113 │ opus5.5 · high │ 40 min │ shop#4 at start │ session │' "$(vline '│ claude l2-opus5.5')"
+check 'a claimed spare: name, model and effort from its name, the issue from its worktree' '│ claude l2-opus5.5-h │ 113 │ opus5.5 · high │ 40 min │ busy working │ shop#4 at start │ session │' "$(vline '│ claude l2-opus5.5')"
 check 'a spare no session claimed and the agent list are no agents' 0 "$(grep -cE '│ 11[45] +│' <<< "$view" || true)"
-check 'a stopped session is shown stopped' '│ claude old-lead │ 116 │ │ stopped │ │ session │' "$(vline '│ claude old-lead ')"
+check 'a stopped session is shown stopped' '│ claude old-lead │ 116 │ │ stopped │ │ │ session │' "$(vline '│ claude old-lead ')"
 check 'in this order' '116 100 108 102 103 104 113 112 109' "$(awk -F'│' '$3 ~ /^ *[0-9]+ *$/ { printf "%s%s", sep, $3 + 0; sep = " " }' <<< "$view")"
 check 'no helper, no tool word in another command, a stopped one apart' 'AGENTS 8 running: 3 claude, 1 gemini, 2 codex, 2 agy; 1 stopped' "$(vline ' running: ')"
 check 'no token lines' '' "$(vline 'pace ')"
@@ -166,7 +166,7 @@ check 'only a stopped one: none running' 'AGENTS 0 running; 1 stopped' "$(grep -
 printf '%s\t%s\t%s\t%s\t%s\n' 117 1 '10:00' 'SNsl+' 'claude bg-spare --bg-spare /tmp/x/spare/a3.claim.sock' > "$work/unversioned"
 printf '%s\n' '[{"pid":117,"kind":"background","name":"l3-sonnet-high-200k-ef789","cwd":"/home/x/repos","sessionId":"44444444-4444-4444-4444-444444444444","id":"44444444"}]' > "$work/unversioned-agents"
 plain="$(cd "$folder" && AI_CORE_PROCESSES="$work/unversioned" AI_CORE_AGENTS="$work/unversioned-agents" AI_CORE_ROLLOUTS="$work/rollouts" bash "$root/bin/status.sh" --project example-org/7 2>&1)"
-check 'a name without a version: its model and effort' '│ claude l3-sonnet-hi │ 117 │ sonnet · high │ 10 min │ │ session │' "$(grep -m1 -F '│ claude l3-sonnet' <<< "$plain" | tr -s ' ')"
+check 'a name without a version: its model and effort' '│ claude l3-sonnet-hi │ 117 │ sonnet · high │ 10 min │ │ │ session │' "$(grep -m1 -F '│ claude l3-sonnet' <<< "$plain" | tr -s ' ')"
 
 echo 'the command that reaches each agent, from what its CLI reports'
 reach() { awk '/^REACH$/ { on = 1; next } on' <<< "$1" | grep -m1 -E -- "^  $2 " | tr -s ' ' | sed 's/^ //'; }

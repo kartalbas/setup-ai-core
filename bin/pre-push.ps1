@@ -76,6 +76,10 @@ if ($Help -or $Rest -ccontains "-h" -or $Rest -ccontains "--help") {
 $ErrorActionPreference = 'Continue'
 $coreRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $utf8 = New-Object System.Text.UTF8Encoding $false
+# git writes a path with a byte above 0x7f as UTF-8 under core.quotePath=false, and PowerShell
+# decodes a native command's output with [Console]::OutputEncoding, on Windows the console code
+# page, which would turn über/ into a folder that does not exist
+[Console]::OutputEncoding = $utf8
 if ($All -and -not $Install) { Write-Host "error: -All goes with -Install" -ForegroundColor Red; exit 2 }
 if ($Install -and $Rest.Count -gt 0) { Write-Host "error: unexpected argument '$($Rest[0])' (see -Help)" -ForegroundColor Red; exit 2 }
 
@@ -599,30 +603,90 @@ function Get-NamingFindings {
     $owners += [pscustomobject]@{ Owner = $owner; Repo = $d.Name; Parts = $parts }
   }
   $structure = @($words | Group-Object -CaseSensitive | Where-Object { $_.Count -ge 2 } | ForEach-Object { $_.Name })
+  # The findings of one directory in one tree, as words to compare: "family`t<a>`t<b>" where <a>
+  # stands beside <b> and only one of the two says its side, "part`t<repository>`t<x>" where the
+  # name claims a part <x> that repository lacks.
+  function Get-DirFindings([string]$Rev, [string]$Dir) {
+    $seg = ($Dir -split '/')[-1]
+    $entries = @(& git ls-tree -d --name-only $(if ($Dir.Contains('/')) { "${Rev}:$($Dir.Substring(0, $Dir.LastIndexOf('/')))" } else { $Rev }) 2>$null | ForEach-Object { "$_" })
+    if ($seg.Contains('-')) {
+      $base = $seg.Substring(0, $seg.IndexOf('-'))
+      if ($entries -ccontains $base) { "family`t$base`t$seg" }
+    } else {
+      foreach ($o in @($entries | Where-Object { $_.StartsWith("$seg-", [StringComparison]::Ordinal) })) { "family`t$seg`t$o" }
+    }
+    $held = @($owners | Where-Object { $structure -cnotcontains $_.Owner })
+    $mirrors = 0
+    foreach ($o in $held) { $mirrors += @($entries | Where-Object { $_ -ceq $o.Owner -or $_.StartsWith("$($o.Owner)-", [StringComparison]::Ordinal) -or $_.StartsWith("$($o.Owner)_", [StringComparison]::Ordinal) }).Count }
+    if ($mirrors -lt 2) { return }
+    foreach ($o in $owners) {
+      if ($seg.Length -le $o.Owner.Length + 1) { continue }
+      if (-not ($seg.StartsWith("$($o.Owner)-", [StringComparison]::Ordinal) -or $seg.StartsWith("$($o.Owner)_", [StringComparison]::Ordinal))) { continue }
+      if ($structure -ccontains $o.Owner) { continue }
+      $rest = $seg.Substring($o.Owner.Length + 1)
+      if ($o.Parts -cnotcontains $rest) { "part`t$($o.Repo)`t$rest" }
+    }
+  }
+  # Where a rename of this commit brought a directory from under the name it has: the old path of
+  # the directory itself, or of the nearest folder above it that moved, with the directory below it;
+  # or ''. It counts only where the directory is new, its old path stood before and is gone now, so
+  # a folder that only some files left, or one that was there already, has moved nowhere. git pairs
+  # files by their content, so a folder above can name the move where the files inside it were
+  # paired across.
+  function Get-MovedFrom([string]$Sha, [string]$Dir) {
+    & git cat-file -e "${Sha}^:$Dir" 2>$null; if ($LASTEXITCODE -eq 0) { return '' }
+    $p = $Dir
+    while ($true) {
+      foreach ($pair in @($moves | Where-Object { $_[0] -ceq $p })) {
+        $s = $pair[1] + $Dir.Substring($p.Length)
+        if (($s -split '/')[-1] -cne ($Dir -split '/')[-1]) { continue }
+        & git cat-file -e "${Sha}^:$s" 2>$null; if ($LASTEXITCODE -ne 0) { continue }
+        & git cat-file -e "${Sha}:$s" 2>$null; if ($LASTEXITCODE -eq 0) { continue }
+        return $s
+      }
+      if (-not $p.Contains('/')) { return '' }
+      $p = $p.Substring(0, $p.LastIndexOf('/'))
+    }
+  }
   foreach ($sha in $commits) {
     if ("$(& git log -1 '--format=%(trailers:key=Naming,valueonly)' $sha)".Trim()) { continue }
-    $dirs = @(& git diff-tree --no-commit-id --root -r --name-only --diff-filter=A $sha | ForEach-Object { "$_" } | ForEach-Object {
+    $dirs = @(& git -c core.quotePath=false diff-tree --no-commit-id --root -r --name-only --diff-filter=A $sha | ForEach-Object { "$_" } | ForEach-Object {
         $segs = $_ -split '/'; for ($i = 1; $i -lt $segs.Count; $i++) { ($segs[0..($i - 1)] -join '/') } } | Sort-Object -Unique -CaseSensitive)
+    # The renames of the commit, as <new folder> <old folder> for every folder above a renamed file,
+    # each beside the one as far above its old path, the nearest first; Get-MovedFrom reads them
+    $moves = [Collections.Generic.List[string[]]]::new()
+    foreach ($line in @(& git -c core.quotePath=false diff-tree --no-commit-id --root -r -M --name-status --diff-filter=R $sha | ForEach-Object { "$_" })) {
+      $f = $line -split "`t"; if ($f.Count -lt 3) { continue }
+      $d = $f[2] -split '/'; $o = $f[1] -split '/'
+      for ($k = 1; $k -lt $d.Count -and $k -lt $o.Count; $k++) {
+        $pair = @(($d[0..($d.Count - 1 - $k)] -join '/'), ($o[0..($o.Count - 1 - $k)] -join '/'))
+        if (-not @($moves | Where-Object { $_[0] -ceq $pair[0] -and $_[1] -ceq $pair[1] })) { $moves.Add($pair) }
+      }
+    }
     foreach ($dir in $dirs) {
       & git cat-file -e "${sha}^:$dir" 2>$null; if ($LASTEXITCODE -eq 0) { continue }
-      $seg = ($dir -split '/')[-1]; $parent = if ($dir.Contains('/')) { $dir.Substring(0, $dir.LastIndexOf('/') + 1) } else { '' }
-      $entries = @(& git ls-tree -d --name-only $(if ($parent) { "${sha}:$($parent.TrimEnd('/'))" } else { $sha }) 2>$null | ForEach-Object { "$_" })
-      if ($seg.Contains('-')) {
-        $base = $seg.Substring(0, $seg.IndexOf('-'))
-        if ($entries -ccontains $base) { "$parent$base beside $parent${seg}: one member of the family says its side, the other does not; name every member, or none" }
-      } else {
-        foreach ($o in @($entries | Where-Object { $_.StartsWith("$seg-", [StringComparison]::Ordinal) })) { "$parent$seg beside $parent${o}: one member of the family says its side, the other does not; name every member, or none" }
+      $seg = ($dir -split '/')[-1]
+      $parent = if ($dir.Contains('/')) { $dir.Substring(0, $dir.LastIndexOf('/') + 1) } else { '' }
+      $found = @(Get-DirFindings $sha $dir)
+      $from = if ($found.Count -gt 0) { Get-MovedFrom $sha $dir } else { '' }
+      # A folder the commit moves (git mv a b brings b/seeds from a/seeds) keeps a finding it had
+      # where it stood. A family finding stood there only where the other member moved along from
+      # the same folder: beside another member, the family is new.
+      if ($from) {
+        $before = @(Get-DirFindings "${sha}^" $from)
+        $fromParent = if ($from.Contains('/')) { $from.Substring(0, $from.LastIndexOf('/') + 1) } else { '' }
+        $found = @($found | Where-Object {
+          if ($before -cnotcontains $_) { return $true }
+          $kind, $a, $b = $_ -split "`t"
+          if ($kind -cne 'family') { return $false }
+          $other = if ($a -cne $seg) { $a } else { $b }
+          (Get-MovedFrom $sha "$parent$other") -cne "$fromParent$other"
+        })
       }
-      $held = @($owners | Where-Object { $structure -cnotcontains $_.Owner })
-      $mirrors = 0
-      foreach ($o in $held) { $mirrors += @($entries | Where-Object { $_ -ceq $o.Owner -or $_.StartsWith("$($o.Owner)-", [StringComparison]::Ordinal) -or $_.StartsWith("$($o.Owner)_", [StringComparison]::Ordinal) }).Count }
-      if ($mirrors -lt 2) { continue }
-      foreach ($o in $owners) {
-        if ($seg.Length -le $o.Owner.Length + 1) { continue }
-        if (-not ($seg.StartsWith("$($o.Owner)-", [StringComparison]::Ordinal) -or $seg.StartsWith("$($o.Owner)_", [StringComparison]::Ordinal))) { continue }
-        if ($structure -ccontains $o.Owner) { continue }
-        $rest = $seg.Substring($o.Owner.Length + 1)
-        if ($o.Parts -cnotcontains $rest) { "$dir names a part of the repository $($o.Repo), and $($o.Repo) has no $rest; its parts are $($o.Parts -join ', ')" }
+      foreach ($finding in $found) {
+        $kind, $a, $b = $finding -split "`t"
+        if ($kind -ceq 'family') { "$parent$a beside $parent${b}: one member of the family says its side, the other does not; name every member, or none" }
+        else { "$dir names a part of the repository $a, and $a has no $b; its parts are $(@($owners | Where-Object { $_.Repo -ceq $a })[0].Parts -join ', ')" }
       }
     }
   }
@@ -630,7 +694,7 @@ function Get-NamingFindings {
 $findings = @(Get-NamingFindings | Sort-Object -Unique -CaseSensitive)
 if ($findings.Count -gt 0) {
   foreach ($f in $findings) { [Console]::Error.WriteLine("pre-push: $f") }
-  Deny-Push "the names above are invented where they should be derived from what they belong to. Rename them, or give the commit that adds them a 'Naming: <why>' trailer."
+  Deny-Push "the names above are invented where they should be derived from what they belong to. Rename them, or give the commit that adds them a 'Naming: <why>' trailer. A folder moved whole keeps the names inside it where git still pairs its files as renames: move it in a commit of its own."
 }
 
 # The wait is announced here and not earlier, so a push that is refused above is not first

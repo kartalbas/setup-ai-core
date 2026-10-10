@@ -549,6 +549,51 @@ fi
 [ -z "$one_sided" ] || refuse "one spelling of a script changed without the other:$one_sided
   Change both in this push. Where the fault lives in one spelling alone, give a commit a 'Twin: <why>' trailer."
 
+# The findings of one directory in one tree, as words to compare: `family <a> <b>` where <a>
+# stands beside <b> and only one of the two says its side, `part <repository> <x>` where the name
+# claims a part <x> that repository lacks.
+dir_findings() {  # <tree-ish> <dir>
+  local seg entries base o repo parts rest mirrors=0
+  seg="${2##*/}"
+  if [ "$seg" = "$2" ]; then entries="$(git ls-tree -d --name-only "$1")"; else entries="$(git ls-tree -d --name-only "$1:${2%/*}")"; fi
+  case "$seg" in
+    *-*) base="${seg%%-*}"; if grep -qxF -- "$base" <<< "$entries"; then printf 'family\t%s\t%s\n' "$base" "$seg"; fi ;;
+    *) awk -v s="$seg-" 'index($0, s) == 1' <<< "$entries" | while IFS= read -r o; do printf 'family\t%s\t%s\n' "$seg" "$o"; done ;;
+  esac
+  while IFS=$'\t' read -r o repo parts; do
+    grep -qxF -- "$o" "$TMPD/naming-structure" && continue
+    mirrors=$((mirrors + $(awk -v o="$o" '$0 == o || index($0, o "-") == 1 || index($0, o "_") == 1' <<< "$entries" | grep -c .)))
+  done < "$TMPD/naming-owners"
+  [ "$mirrors" -ge 2 ] || return 0
+  while IFS=$'\t' read -r o repo parts; do
+    case "$seg" in "$o"-?*|"$o"_?*) ;; *) continue ;; esac
+    grep -qxF -- "$o" "$TMPD/naming-structure" && continue
+    rest="${seg#"$o"}"; rest="${rest#?}"
+    case "$parts" in *" $rest "*) ;; *) printf 'part\t%s\t%s\n' "$repo" "$rest" ;; esac
+  done < "$TMPD/naming-owners"
+  return 0
+}
+
+# Where a rename of this commit brought a directory from under the name it has: the old path of the
+# directory itself, or of the nearest folder above it that moved, with the directory below it; or
+# nothing. It counts only where the directory is new, its old path stood before and is gone now,
+# so a folder that only some files left, or one that was there already, has moved nowhere. git
+# pairs files by their content, so a folder above can name the move where the files inside it
+# were paired across.
+moved_from() {  # <sha> <dir>
+  local p="$2" q s
+  git cat-file -e "$1^:$2" 2>/dev/null && return 0
+  while :; do
+    while IFS= read -r q; do
+      [ -n "$q" ] || continue
+      s="$q${2#"$p"}"
+      [ "${s##*/}" = "${2##*/}" ] || continue
+      if git cat-file -e "$1^:$s" 2>/dev/null && ! git cat-file -e "$1:$s" 2>/dev/null; then echo "$s"; return 0; fi
+    done <<< "$(awk -F'\t' -v p="$p" '$1 == p { print $2 }' "$TMPD/naming-moves")"
+    case "$p" in */*) p="${p%/*}" ;; *) return 0 ;; esac
+  done
+}
+
 # THE NAMES A PUSH ADDS ARE DERIVED, NOT INVENTED (the naming rules). No list is kept: the
 # families are read from the trees themselves. Two things are held against every new directory:
 #   - `<a>` beside `<a>-<x>`, or `<a>-<x>` beside `<a>`, names one member of a family and leaves
@@ -562,7 +607,8 @@ fi
 # word of structure (docs, deploy, scripts), no repository's name, and is not held. A commit with a
 # 'Naming: <why>' trailer keeps the names it adds, and says why to whoever reads it.
 naming_findings() {  # one finding per line
-  local folder main d name owner parts sha dir seg parent entries base o repo rest
+  local folder main d name owner parts sha dir seg parent found from before kept line other
+  local kind a b
   folder="$(project_folder_of "$root")"
   main="$(cd "$(git -C "$root" rev-parse --path-format=absolute --git-common-dir)/.." && pwd)"
   git -C "$root" ls-tree -d --name-only HEAD > "$TMPD/naming-words" 2>/dev/null
@@ -580,36 +626,55 @@ naming_findings() {  # one finding per line
   while IFS= read -r sha; do
     [ -n "$sha" ] || continue
     [ -z "$(git log -1 --format='%(trailers:key=Naming,valueonly)' "$sha" | tr -d '[:space:]')" ] || continue
-    git diff-tree --no-commit-id --root -r --name-only --diff-filter=A "$sha" \
+    git -c core.quotePath=false diff-tree --no-commit-id --root -r --name-only --diff-filter=A "$sha" \
       | awk -F/ '{ p = ""; for (i = 1; i < NF; i++) { p = (p == "" ? $i : p "/" $i); print p } }' | sort -u > "$TMPD/naming-dirs"
+    # The renames of the commit, as <new folder> <old folder> for every folder above a renamed file,
+    # each beside the one as far above its old path, the nearest first; moved_from reads them
+    git -c core.quotePath=false diff-tree --no-commit-id --root -r -M --name-status --diff-filter=R "$sha" \
+      | awk -F'\t' '{ n = split($3, d, "/"); m = split($2, s, "/")
+          for (k = 1; k < n && k < m; k++) {
+            p = d[1]; for (j = 2; j <= n - k; j++) p = p "/" d[j]
+            q = s[1]; for (j = 2; j <= m - k; j++) q = q "/" s[j]
+            print p "\t" q
+          } }' | awk '!seen[$0]++' > "$TMPD/naming-moves"
     while IFS= read -r dir; do
       [ -n "$dir" ] || continue
       git cat-file -e "$sha^:$dir" 2>/dev/null && continue   # it was there before this commit
       seg="${dir##*/}"; parent=""; [ "$seg" = "$dir" ] || parent="${dir%/*}/"
-      if [ -n "$parent" ]; then entries="$(git ls-tree -d --name-only "$sha:${parent%/}")"; else entries="$(git ls-tree -d --name-only "$sha")"; fi
-      case "$seg" in
-        *-*) base="${seg%%-*}"; grep -qxF -- "$base" <<< "$entries" && echo "$parent$base beside $parent$seg: one member of the family says its side, the other does not; name every member, or none" ;;
-        *) awk -v s="$seg-" 'index($0, s) == 1' <<< "$entries" | while IFS= read -r o; do echo "$parent$seg beside $parent$o: one member of the family says its side, the other does not; name every member, or none"; done ;;
-      esac
-      mirrors=0
-      while IFS=$'\t' read -r o repo parts; do
-        grep -qxF -- "$o" "$TMPD/naming-structure" && continue
-        mirrors=$((mirrors + $(awk -v o="$o" '$0 == o || index($0, o "-") == 1 || index($0, o "_") == 1' <<< "$entries" | grep -c .)))
-      done < "$TMPD/naming-owners"
-      [ "$mirrors" -ge 2 ] || continue
-      while IFS=$'\t' read -r o repo parts; do
-        case "$seg" in "$o"-?*|"$o"_?*) ;; *) continue ;; esac
-        grep -qxF -- "$o" "$TMPD/naming-structure" && continue
-        rest="${seg#"$o"}"; rest="${rest#?}"
-        case "$parts" in *" $rest "*) ;; *) echo "$dir names a part of the repository $repo, and $repo has no $rest; its parts are$(sed 's/ *$//; s/ \([^ ]\)/, \1/g; s/^,//' <<< "$parts")" ;; esac
-      done < "$TMPD/naming-owners"
+      found="$(dir_findings "$sha" "$dir")"
+      from=""; [ -z "$found" ] || from="$(moved_from "$sha" "$dir")"
+      # A folder the commit moves (git mv a b brings b/seeds from a/seeds) keeps a finding it had
+      # where it stood. A family finding stood there only where the other member moved along from
+      # the same folder: beside another member, the family is new.
+      if [ -n "$from" ]; then
+        before="$(dir_findings "$sha^" "$from")"; kept=""
+        while IFS=$'\t' read -r kind a b; do
+          [ -n "$kind" ] || continue
+          line="$kind"$'\t'"$a"$'\t'"$b"
+          if grep -qxF -- "$line" <<< "$before"; then
+            [ "$kind" = family ] || continue
+            other="$a"; [ "$a" != "$seg" ] || other="$b"
+            case "$from" in */*) [ "$(moved_from "$sha" "$parent$other")" != "${from%/*}/$other" ] || continue ;;
+                            *)   [ "$(moved_from "$sha" "$parent$other")" != "$other" ] || continue ;; esac
+          fi
+          kept="$kept$line"$'\n'
+        done <<< "$found"
+        found="$kept"
+      fi
+      while IFS=$'\t' read -r kind a b; do
+        case "$kind" in
+          family) echo "$parent$a beside $parent$b: one member of the family says its side, the other does not; name every member, or none" ;;
+          part) parts="$(awk -F'\t' -v r="$a" '$2 == r { print $3; exit }' "$TMPD/naming-owners")"
+            echo "$dir names a part of the repository $a, and $a has no $b; its parts are$(sed 's/ *$//; s/ \([^ ]\)/, \1/g; s/^,//' <<< "$parts")" ;;
+        esac
+      done <<< "$found"
     done < "$TMPD/naming-dirs"
   done <<< "$commits"
 }
 findings="$(naming_findings | sort -u)"
 if [ -n "$findings" ]; then
   while IFS= read -r line; do echo "pre-push: $line" >&2; done <<< "$findings"
-  refuse "the names above are invented where they should be derived from what they belong to. Rename them, or give the commit that adds them a 'Naming: <why>' trailer."
+  refuse "the names above are invented where they should be derived from what they belong to. Rename them, or give the commit that adds them a 'Naming: <why>' trailer. A folder moved whole keeps the names inside it where git still pairs its files as renames: move it in a commit of its own."
 fi
 
 # The wait is announced here and not earlier, so a push that is refused above is not first

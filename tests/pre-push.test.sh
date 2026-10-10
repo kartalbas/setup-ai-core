@@ -567,6 +567,83 @@ add_dirs $'Add the server texts #22\n\nNaming: the product owner calls this part
 out="$(only_new "$repo")"; rc=$?
 check 'exit 0'                      0 "$rc"
 
+# A move is read by its content, so every file below differs from every other: git pairs files of
+# equal content across folders at will.
+mark="$(git -C "$repo" rev-parse HEAD)"
+seed_dirs() {  # seed_dirs <message> <dir>... - one file of its own content in each, one commit
+  local message="$1" d; shift
+  for d in "$@"; do mkdir -p "$repo/$d"; printf '{"seed":"%s"}\n' "$d" > "$repo/$d/en.json"; git -C "$repo" add -- "$d/en.json"; done
+  git -C "$repo" commit -q -m "$message"
+}
+moved() {  # moved <message> <from> <to> - one git mv, one commit
+  mkdir -p "$repo/$(dirname "$3")"; git -C "$repo" mv "$2" "$3"; git -C "$repo" commit -q -m "$1"
+}
+echo 'a folder moved with git mv keeps the names inside it'
+seed_dirs 'Add the workshop seeds #24' apps/workshop/seeds apps/workshop/seeds-demo
+moved 'Rename the workshop app #24' apps/workshop apps/bike-workshop
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                      0 "$rc"
+
+echo 'a member moved to a new half name is refused'
+moved 'Rename the demo seeds #24' apps/bike-workshop/seeds-demo apps/bike-workshop/seeds-x
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                      1 "$rc"
+check 'the half-named family'       yes "$(grep -q 'apps/bike-workshop/seeds beside apps/bike-workshop/seeds-x: one member of the family' <<< "$out" && echo yes || echo no)"
+
+echo 'a folder moved beside a member of a family it did not stand beside is refused'
+seed_dirs 'Add the lab seeds #24' plain/seeds lab/seeds-demo
+moved 'Move the plain seeds to the lab #24' plain/seeds lab/seeds
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                      1 "$rc"
+check 'the half-named family'       yes "$(grep -q 'lab/seeds beside lab/seeds-demo: one member of the family' <<< "$out" && echo yes || echo no)"
+
+echo 'a member moved from its family to another member of the same name is refused'
+seed_dirs 'Add the kiosk seeds #24' kiosk/seeds kiosk/seeds-demo stall/seeds-demo
+moved 'Move the kiosk seeds to the stall #24' kiosk/seeds stall/seeds
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                      1 "$rc"
+check 'the half-named family'       yes "$(grep -q 'stall/seeds beside stall/seeds-demo: one member of the family' <<< "$out" && echo yes || echo no)"
+
+echo 'a member moved to the top, beside a member there, is refused'
+seed_dirs 'Add the market plants #24' market/plants market/plants-demo plants-demo
+moved 'Move the market plants to the top #24' market/plants plants
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                      1 "$rc"
+check 'the half-named family'       yes "$(grep -q '^pre-push: plants beside plants-demo: one member of the family' <<< "$out" && echo yes || echo no)"
+
+echo 'a folder moved whole keeps its names, also where git pairs its empty files across'
+mkdir -p "$repo/depot/seeds" "$repo/depot/seeds-demo"; : > "$repo/depot/seeds/.gitkeep"; : > "$repo/depot/seeds-demo/.gitkeep"
+git -C "$repo" add -- depot; git -C "$repo" commit -q -m 'Add the depot #24'
+git -C "$repo" mv depot big-depot; mkdir -p "$repo/aaa"; : > "$repo/aaa/.gitkeep"; git -C "$repo" add -- aaa
+git -C "$repo" commit -q -m 'Rename the depot, and add aaa #24'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                      0 "$rc"
+
+echo 'a family copied out by moving one file of each member, the members staying, is refused'
+for d in tools/seeds tools/seeds-demo; do mkdir -p "$repo/$d"; for f in a b; do printf '{"seed":"%s/%s"}\n' "$d" "$f" > "$repo/$d/$f.json"; done; done
+git -C "$repo" add -- tools; git -C "$repo" commit -q -m 'Add the tool seeds #24'
+mkdir -p "$repo/yard/seeds" "$repo/yard/seeds-demo"
+git -C "$repo" mv tools/seeds/a.json yard/seeds/a.json; git -C "$repo" mv tools/seeds-demo/a.json yard/seeds-demo/a.json
+git -C "$repo" commit -q -m 'Move one tool seed of each into the yard #24'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                      1 "$rc"
+check 'the half-named family'       yes "$(grep -q 'yard/seeds beside yard/seeds-demo: one member of the family' <<< "$out" && echo yes || echo no)"
+
+echo 'a moved folder that names a part only where it lands is refused'
+seed_dirs 'Add the shop api notes #24' misc/shop-api
+moved 'Move the shop api notes into the catalog #24' misc/shop-api catalog/shop-api
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                      1 "$rc"
+check 'the part the sibling lacks'  yes "$(grep -q 'catalog/shop-api names a part of the repository acme-shop, and acme-shop has no api' <<< "$out" && echo yes || echo no)"
+
+echo 'a name below a folder of non-ASCII letters is read, not skipped'
+seed_dirs 'Add the demo seeds of the fields #24' "über/lab/seeds-demo"
+seed_dirs 'Add the seeds of the fields #24' "über/lab/seeds"
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                      1 "$rc"
+check 'the half-named family'       yes "$(grep -q 'über/lab/seeds beside über/lab/seeds-demo: one member of the family' <<< "$out" && echo yes || echo no)"
+git -C "$repo" reset -q --hard "$mark"
+
 # --- the Windows entry point, held against the one text it copies ----------------------------
 #
 # check.ps1 and build.ps1 decide nothing: each starts the .sh file of its own name. Overwritten

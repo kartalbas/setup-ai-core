@@ -261,6 +261,7 @@ read_auto_mode() {  # read_auto_mode <file> <layer>
   [ -f "$1" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
     no=$((no + 1)); line="${line%$'\r'}"
+    if [ "$no" -eq 1 ]; then line="${line#$'\xef\xbb\xbf'}"; fi   # a byte-order mark, which PowerShell drops as well
     case "$line" in ''|'#'*) continue ;; esac
     case "$line" in
       allow$'\t'?*|environment$'\t'?*) case "${line#*$'\t'}" in *$'\t'*) ;; *) printf '%s\t[%s] %s\n' "${line%%$'\t'*}" "$2" "${line#*$'\t'}" >> "$TMP/auto-mode.tsv"; continue ;; esac ;;
@@ -272,7 +273,8 @@ read_auto_mode() {  # read_auto_mode <file> <layer>
 read_auto_mode "$CORE_ROOT/auto-mode.tsv" setup-ai-core || exit 1
 if [ -n "$LAYERS" ]; then
   while IFS= read -r l; do
-    [ -n "$l" ] || continue
+    # a layer a dry run has not cloned is no layer of this run: its entries in the settings stay
+    [ -d "$l" ] || continue
     lname="$(basename "$l")"; lname="${lname#.}"
     AUTO_MODE_LAYERS="$AUTO_MODE_LAYERS"$'\n'"$lname"
     read_auto_mode "$l/auto-mode.tsv" "$lname" || exit 1
@@ -519,17 +521,28 @@ fi
 #     other entry stays. A Claude Code that never ran here has no folder yet, and none is created.
 AUTO_MODE_FILE=""; AUTO_MODE_NOTE=""
 AUTO_MODE_CHANGES='("allow", "environment") as $l | ((($n[0].autoMode[$l] // []) - ($o[0].autoMode[$l] // []))[] | "added to \($l): \(.)"), ((($o[0].autoMode[$l] // []) - ($n[0].autoMode[$l] // []))[] | "removed from \($l): \(.)")'
-if serves claude && command -v jq >/dev/null 2>&1; then
+if serves claude && ! command -v jq >/dev/null 2>&1; then
+  AUTO_MODE_NOTE="jq is missing, so no entry was written into Claude Code's user settings; install jq and run init again"
+elif serves claude; then
   CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; AUTO_MODE_FILE="$CLAUDE_DIR/settings.json"
   printf '%s\n' "$AUTO_MODE_LAYERS" > "$TMP/auto-mode-layers.txt"
-  src="$AUTO_MODE_FILE"; [ -f "$src" ] || { echo '{}' > "$TMP/user-settings-none.json"; src="$TMP/user-settings-none.json"; }
   if [ ! -d "$CLAUDE_DIR" ]; then
     AUTO_MODE_NOTE="$CLAUDE_DIR does not exist, so Claude Code has not run on this machine; no entry written"
-  elif ! jq --rawfile e "$TMP/auto-mode.tsv" --rawfile l "$TMP/auto-mode-layers.txt" -f "$CORE_ROOT/lib/auto-mode.jq" "$src" 2>/dev/null | tr -d '\r' > "$TMP/user-settings.json" || [ ! -s "$TMP/user-settings.json" ]; then
-    AUTO_MODE_NOTE="$AUTO_MODE_FILE is not valid JSON, so no entry was written; repair it and run init again"
   else
-    jq -rn --slurpfile o "$src" --slurpfile n "$TMP/user-settings.json" "$AUTO_MODE_CHANGES" | tr -d '\r' > "$TMP/auto-mode-changes.txt"
-    if [ -s "$TMP/auto-mode-changes.txt" ] && [ "$DRY" -eq 0 ]; then cp -f "$TMP/user-settings.json" "$AUTO_MODE_FILE"; fi
+    # Claude Code and every init on this machine write this one file. The merge replaces it only
+    # while it still holds what was read, and goes round again otherwise. It is written in place,
+    # not renamed over, so a settings file that is a link stays one and keeps its mode.
+    AUTO_MODE_NOTE="$AUTO_MODE_FILE changed while init merged into it, three times over; no entry written, run init again"
+    for try in 1 2 3; do
+      if [ -f "$AUTO_MODE_FILE" ]; then cp -f "$AUTO_MODE_FILE" "$TMP/user-settings-read.json"; else echo '{}' > "$TMP/user-settings-read.json"; fi
+      if ! jq --rawfile e "$TMP/auto-mode.tsv" --rawfile l "$TMP/auto-mode-layers.txt" -f "$CORE_ROOT/lib/auto-mode.jq" "$TMP/user-settings-read.json" 2>/dev/null | tr -d '\r' > "$TMP/user-settings.json" || [ ! -s "$TMP/user-settings.json" ]; then
+        AUTO_MODE_NOTE="$AUTO_MODE_FILE is no JSON object with lists in autoMode, so no entry was written; repair it and run init again"; break
+      fi
+      jq -rn --slurpfile o "$TMP/user-settings-read.json" --slurpfile n "$TMP/user-settings.json" "$AUTO_MODE_CHANGES" | tr -d '\r' > "$TMP/auto-mode-changes.txt"
+      if [ ! -s "$TMP/auto-mode-changes.txt" ] || [ "$DRY" -eq 1 ]; then AUTO_MODE_NOTE=""; break; fi
+      if [ -f "$AUTO_MODE_FILE" ] && ! cmp -s "$AUTO_MODE_FILE" "$TMP/user-settings-read.json"; then continue; fi
+      cp -f "$TMP/user-settings.json" "$AUTO_MODE_FILE"; AUTO_MODE_NOTE=""; break
+    done
   fi
 fi
 # 3. Keep the harness out of the repository's history: every deployed path goes into the

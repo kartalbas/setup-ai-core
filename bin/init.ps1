@@ -284,6 +284,8 @@ function Read-AutoMode([string]$file, [string]$layer) {
 }
 Read-AutoMode (Join-Path $coreRoot 'auto-mode.tsv') 'setup-ai-core'
 foreach ($l in $layers) {
+  # a layer a dry run has not cloned is no layer of this run: its entries in the settings stay
+  if (-not (Test-Path -LiteralPath $l -PathType Container)) { continue }
   $lname = (Split-Path -Leaf $l).TrimStart('.')
   $autoModeLayers += $lname
   Read-AutoMode (Join-Path $l 'auto-mode.tsv') $lname
@@ -550,30 +552,40 @@ if ($projectFolder) {
 #     other entry stays. A Claude Code that never ran here has no folder yet, and none is created.
 $autoModeFile = ''; $autoModeNote = ''; $autoModeChanges = @()
 $autoModeChangesFilter = '("allow", "environment") as $l | ((($n[0].autoMode[$l] // []) - ($o[0].autoMode[$l] // []))[] | "added to \($l): \(.)"), ((($o[0].autoMode[$l] // []) - ($n[0].autoMode[$l] // []))[] | "removed from \($l): \(.)")'
-if ((Test-Serves 'claude') -and (Get-Command jq -ErrorAction SilentlyContinue)) {
+if ((Test-Serves 'claude') -and -not (Get-Command jq -ErrorAction SilentlyContinue)) {
+  $autoModeNote = "jq is missing, so no entry was written into Claude Code's user settings; install jq and run init again"
+} elseif (Test-Serves 'claude') {
   $claudeDir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME '.claude' }
   $autoModeFile = Join-Path $claudeDir 'settings.json'
   $entriesFile = Join-Path $tmp 'auto-mode.tsv'; $layersFile = Join-Path $tmp 'auto-mode-layers.txt'
   [System.IO.File]::WriteAllText($entriesFile, (($autoModeLines | ForEach-Object { "$_`n" }) -join ''), $utf8)
   [System.IO.File]::WriteAllText($layersFile, (($autoModeLayers | ForEach-Object { "$_`n" }) -join ''), $utf8)
-  $src = $autoModeFile
-  if (-not (Test-Path -LiteralPath $src -PathType Leaf)) { $src = Join-Path $tmp 'user-settings-none.json'; [System.IO.File]::WriteAllText($src, "{}`n", $utf8) }
   if (-not (Test-Path -LiteralPath $claudeDir -PathType Container)) {
     $autoModeNote = "$claudeDir does not exist, so Claude Code has not run on this machine; no entry written"
   } else {
-    $mergedFile = Join-Path $tmp 'user-settings.json'; $mergedOk = $false
-    # jq's answer is UTF-8, and an entry may carry more than ASCII
-    $encoding = [Console]::OutputEncoding; [Console]::OutputEncoding = $utf8
-    try {
-      $merged = (& jq --rawfile e $entriesFile --rawfile l $layersFile -f (Join-Path $coreRoot 'lib/auto-mode.jq') $src 2>$null | Out-String)
-      if ($LASTEXITCODE -eq 0 -and $merged.Trim()) {
-        $mergedOk = $true
-        [System.IO.File]::WriteAllText($mergedFile, $merged.Replace("`r`n", "`n"), $utf8)
-        $autoModeChanges = @(& jq -rn --slurpfile o $src --slurpfile n $mergedFile $autoModeChangesFilter | ForEach-Object { "$_".TrimEnd("`r") } | Where-Object { $_ })
-      }
-    } finally { [Console]::OutputEncoding = $encoding }
-    if (-not $mergedOk) { $autoModeNote = "$autoModeFile is not valid JSON, so no entry was written; repair it and run init again" }
-    elseif ($autoModeChanges.Count -gt 0 -and -not $DryRun) { Copy-Item -LiteralPath $mergedFile -Destination $autoModeFile -Force }
+    # Claude Code and every init on this machine write this one file. The merge replaces it only
+    # while it still holds what was read, and goes round again otherwise. It is written in place,
+    # not renamed over, so a settings file that is a link stays one and keeps its mode.
+    $autoModeNote = "$autoModeFile changed while init merged into it, three times over; no entry written, run init again"
+    $readFile = Join-Path $tmp 'user-settings-read.json'; $mergedFile = Join-Path $tmp 'user-settings.json'
+    foreach ($try in 1..3) {
+      $read = if (Test-Path -LiteralPath $autoModeFile -PathType Leaf) { [System.IO.File]::ReadAllBytes($autoModeFile) } else { $utf8.GetBytes("{}`n") }
+      [System.IO.File]::WriteAllBytes($readFile, $read)
+      # jq's answer is UTF-8, and an entry may carry more than ASCII
+      $encoding = [Console]::OutputEncoding; [Console]::OutputEncoding = $utf8
+      try {
+        $merged = (& jq --rawfile e $entriesFile --rawfile l $layersFile -f (Join-Path $coreRoot 'lib/auto-mode.jq') $readFile 2>$null | Out-String)
+        $mergedOk = ($LASTEXITCODE -eq 0 -and $merged.Trim())
+        if ($mergedOk) {
+          [System.IO.File]::WriteAllText($mergedFile, $merged.Replace("`r`n", "`n"), $utf8)
+          $autoModeChanges = @(& jq -rn --slurpfile o $readFile --slurpfile n $mergedFile $autoModeChangesFilter | ForEach-Object { "$_".TrimEnd("`r") } | Where-Object { $_ })
+        }
+      } finally { [Console]::OutputEncoding = $encoding }
+      if (-not $mergedOk) { $autoModeNote = "$autoModeFile is no JSON object with lists in autoMode, so no entry was written; repair it and run init again"; break }
+      if ($autoModeChanges.Count -eq 0 -or $DryRun) { $autoModeNote = ''; break }
+      if ((Test-Path -LiteralPath $autoModeFile -PathType Leaf) -and -not [System.Linq.Enumerable]::SequenceEqual([byte[]][System.IO.File]::ReadAllBytes($autoModeFile), [byte[]]$read)) { continue }
+      [System.IO.File]::WriteAllBytes($autoModeFile, [System.IO.File]::ReadAllBytes($mergedFile)); $autoModeNote = ''; break
+    }
   }
 }
 

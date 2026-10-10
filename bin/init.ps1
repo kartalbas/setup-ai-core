@@ -620,7 +620,7 @@ $buildGitignore = {
   $wanted = if ($out.Count) { ($out -join "`n") + "`n" } else { '' }
   $current = if (Test-Path $gi) { [System.IO.File]::ReadAllText($gi).Replace("`r`n", "`n") } else { $null }
 }
-$gitignoreChanged = $false; $gitignoreNote = ''; $gitignoreBehind = $false; $gitignoreOpen = $false
+$gitignoreChanged = $false; $gitignoreNote = ''; $gitignoreBehind = $false; $gitignoreOpen = $false; $gitignorePulled = ''
 if ($inWorkTree -and "$(& git -C $target rev-parse --git-dir 2>$null)" -ceq "$(& git -C $target rev-parse --git-common-dir 2>$null)") {
   $gi = Join-Path $target ".gitignore"
   . $buildGitignore
@@ -634,7 +634,8 @@ if ($inWorkTree -and "$(& git -C $target rev-parse --git-dir 2>$null)" -ceq "$(&
       if (-not $caught.Ok) { $gitignoreBehind = $true; $gitignoreNote = $caught.Note }
       else {
         if ($caught.Note) { . $buildGitignore }
-        if ($current -cne $wanted) { [System.IO.File]::WriteAllText($gi, $(if ($crlf) { $wanted.Replace("`n", "`r`n") } else { $wanted }), $utf8); $gitignoreNote = "$(if ($caught.Note) { "$($caught.Note); " })$(Send-Gitignore $target)" }
+        if ($caught.Note -and $open) { $gitignoreChanged = $false; $gitignoreOpen = $true; $gitignorePulled = $caught.Note }
+        elseif ($current -cne $wanted) { [System.IO.File]::WriteAllText($gi, $(if ($crlf) { $wanted.Replace("`n", "`r`n") } else { $wanted }), $utf8); $gitignoreNote = "$(if ($caught.Note) { "$($caught.Note); " })$(Send-Gitignore $target)" }
         else { $gitignoreChanged = $false; $gitignoreNote = $caught.Note }
       }
     }
@@ -677,7 +678,7 @@ if ($gitignoreChanged) {
   elseif ($gitignoreBehind) { Write-Host "  .gitignore not written: this checkout is $gitignoreNote" }
   else { Write-Host "  .gitignore changed: the agent files of this repository are ignored; $gitignoreNote" }
 } elseif ($gitignoreNote) { Write-Host "  .gitignore: $gitignoreNote; the block was there already" }
-if ($gitignoreOpen) { Write-Host "  .gitignore not written: it has a '# setup-ai-core start' line and no '# setup-ai-core end' after it; end the block or delete its start line, then run this again" }
+if ($gitignoreOpen) { Write-Host "  .gitignore not written: $(if ($gitignorePulled) { "$gitignorePulled; " })it has a '# setup-ai-core start' line and no '# setup-ai-core end' after it; end the block or delete its start line, then run this again" }
 if ($worktreeDataFrom) { Write-Host "  .ai-core $(if ($DryRun) { 'would be taken' } else { 'taken' }) from the checkout ${worktreeDataFrom}: a worktree starts with the checkout's configuration, local rules and documents" }
 if ($neighboursLinked.Count) { Write-Host "  links to the neighbour checkouts $(if ($DryRun) { 'would be made' } else { 'made' }) in ${neighboursIn}: $($neighboursLinked -join ' '); .. finds them from the worktree as from the checkout" }
 if ($hooksArmed) { Write-Host "  core.hooksPath $(if ($DryRun) { 'would be set' } else { 'set' }) to .githooks: the push gate runs here" }

@@ -84,7 +84,7 @@ $landing = Join-Path (Invoke-Git rev-parse --path-format=absolute --git-common-d
 $waited = $false; $missing = 0; $nameless = 0
 while ($true) {
   try {
-    $held = [System.IO.File]::Open($landing, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
+    $held = [System.IO.File]::Open($landing, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write)
     $bytes = [System.Text.Encoding]::UTF8.GetBytes("$PID`t$ref`n"); $held.Write($bytes, 0, $bytes.Length); $held.Dispose()
     break
   } catch [System.IO.IOException] { $said = $_.Exception.Message }
@@ -93,6 +93,7 @@ while ($true) {
   catch [System.IO.FileNotFoundException] {
     $missing++; if ($missing -ge 2) { Stop-WithError "the landing lock $landing could not be written: $said" }; continue
   }
+  # Windows refuses a read while the writer holds the file open: one poll, as a lock half written
   catch [System.IO.IOException] { $holder = '' }
   $missing = 0; $holderPid, $holderIssue = $holder -split "`t", 2
   # A lock still without its process id after the poll was never finished: nobody holds it

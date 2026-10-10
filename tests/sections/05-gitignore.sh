@@ -73,4 +73,18 @@ for twin in sh ps1; do
 done
 echo "  the first clone pushes the block, the clone behind pulls it and commits nothing, the one with a commit of its own is named and left alone, on both twins"
 
+section "a block without its end line that the catch-up brings is left alone as well, on both twins"
+for twin in sh ps1; do
+  O="$WORK/open-origin-$twin.git"; git init -q --bare -b master "$O"
+  A="$WORK/open-first-$twin"; git init -q -b master "$A"; git -C "$A" config user.name check; git -C "$A" config user.email check@localhost
+  git -C "$A" commit -q --allow-empty -m 'Start #1'; git -C "$A" remote add origin "$O"; git -C "$A" push -q origin master 2>/dev/null
+  B="$WORK/open-behind-$twin"; git clone -q "$O" "$B" 2>/dev/null; git -C "$B" config user.name check; git -C "$B" config user.email check@localhost
+  mkdir -p "$B/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$B/.ai-core/config.env"
+  printf '%s' "$OPEN" > "$A/.gitignore"; git -C "$A" add .gitignore; git -C "$A" commit -q -m 'An open block #2'; git -C "$A" push -q origin master 2>/dev/null
+  if [ "$twin" = sh ]; then bash "$ROOT/bin/init.sh" "$B" --no-doctor > "$B.log" 2>&1; else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$B")" -NoDoctor > "$B.log" 2>&1; fi || fail "init.$twin in $(basename "$B") (see $B.log)"
+  cmp -s "$B/.gitignore" <(printf '%s' "$OPEN") && [ "$(git -C "$B" rev-parse HEAD)" = "$(git -C "$O" rev-parse master)" ] || fail "init.$twin rewrote or committed the open block it pulled (see $B.log)"
+  grep -aqxF "  .gitignore not written: pulled 1 commit(s) from origin/master first; it has a '# setup-ai-core start' line and no '# setup-ai-core end' after it; end the block or delete its start line, then run this again" "$B.log" || fail "init.$twin did not name the open block it pulled (see $B.log)"
+done
+echo "  the clone behind pulls the open block, keeps it as it came and names it, on both twins"
+
 exit 0

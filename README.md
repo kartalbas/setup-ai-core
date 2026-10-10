@@ -167,6 +167,7 @@ setup-ai-core (public)
 ├── skills/       the skills every checkout gets: person-in-charge, agy-helper
 ├── skeleton/     what a new project harness starts from
 ├── templates/    the files a checkout gets, in the layout of the checkout, among them the data files
+├── auto-mode.tsv the steps Claude Code's classifier allows in every project, written into the user settings
 └── tests/        the check that proves the harness, and one test pair per board command
 
 <org>/<prefix>-ai-core (project harness, private; skeleton/ of this repository is what it starts from)
@@ -175,6 +176,7 @@ setup-ai-core (public)
 ├── skills/       one folder per skill, SKILL.md and its files
 ├── docs/         documents for agents: what the code cannot say
 ├── config.env, labels.tsv, assignees.tsv, team-modes.tsv   the project's settings and data
+├── auto-mode.tsv the steps Claude Code's classifier allows in this project, written into the user settings
 └── repos/<repo>/ the map (AGENTS.md) and other files of one repository, in the layout of the checkout
 
 <repo> (project repository)
@@ -580,6 +582,18 @@ tools work; the harness gives them the text at the place they look.
   is not held by them. Claude Code applies allow rules from
   a committed or excluded project `settings.json` only after you accept its trust dialog for the
   folder.
+- **Auto mode.** Claude Code's classifier reads `autoMode` only from the user settings,
+  `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json`, from managed settings and from `--settings`,
+  never from a repository's `.claude/settings.json`. So `init` writes the entries of
+  `auto-mode.tsv` there: setup-ai-core's own, which every project gets, and those of every layer of
+  the checkout, each led by its layer's name, `[setup-ai-core] ...`. One line per entry: the list,
+  `allow` or `environment`, a tab, the entry as prose the classifier reads. `init` replaces the
+  entries of the layers it assembled, keeps your own and those of other layers, keeps
+  `"$defaults"` and puts it first in a list it creates, and takes out an entry of yours whose text a
+  layer now carries. Its report names every entry it added or removed; a line it cannot read stops
+  it before it writes anything. Whoever can push to a layer can widen the classifier on every
+  machine at the next `init`, so an entry is reviewed like a rule. A machine where Claude Code
+  never ran has no settings folder, and `init` creates none.
 
 ### 4.11 Agents that run in a sandbox (OpenHands, cloud agents)
 
@@ -1160,6 +1174,7 @@ releases by tag, `update`, `push`, and `map`. Open:
 ```text
 setup-ai-core/
 ├── VERSION                              setup-ai-core version, copied to .ai-core/VERSION
+├── auto-mode.tsv                        the steps Claude Code's classifier allows in every project (section 4.10)
 ├── bin/
 │   ├── install.sh / install.ps1         once per machine: clone to ~/setup-ai-core, PATH, doctor
 │   ├── doctor.sh / doctor.ps1           prerequisites: check, install, or fail

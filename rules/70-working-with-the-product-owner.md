@@ -38,8 +38,10 @@
   clicks for it. Where the tool's safety check blocks such a step, the session asks the owner for
   one line typed into the input field that names the step and its target, because the check reads
   what the person types and not an answer in the question dialog, and then takes the step itself;
-  where the same kind of step will come again, it also hands over, in a code block, the entry of
-  the owner's own tool settings that allows it. Only what no session can do becomes a task for the
+  where the same kind of step will come again, it also proposes the entry that allows it for the
+  `auto-mode.tsv` of the layer the step belongs to, setup-ai-core for every project or the project's
+  harness for its own, and once the owner has named that entry, `ai-core init` writes it into the
+  tool's user settings on every machine. Only what no session can do becomes a task for the
   person: a login with the person's own password or second factor, a payment, or a step the check
   refuses even after that line. Such a task, a test or not, is written for someone who does it for the first time, as
   steps in order and nothing else: each step is a table of one row with the step's number, where it

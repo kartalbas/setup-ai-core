@@ -31,7 +31,8 @@ else
   folder="$(pwd)"
 fi
 # The limit as usage.sh reads it: USAGE_STOP_AT of the project's config.env, else 92
-stop="$(grep -E '^[[:space:]]*USAGE_STOP_AT[[:space:]]*=' "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.ai-core/config.env" 2>/dev/null | tail -n1 || true)"
+config="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.ai-core/config.env"
+stop="$(grep -E '^[[:space:]]*USAGE_STOP_AT[[:space:]]*=' "$config" 2>/dev/null | tail -n1 || true)"
 stop="${stop#*=}"; stop="${stop%%#*}"; stop="${stop//[[:space:]\"\']/}"; stop="${stop:-92}"
 
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
@@ -80,9 +81,24 @@ if [ -z "$tokens$issues" ]; then
   else
     : > "$work/rollouts"
   fi
-  processes=(--processes-file "$work/processes" --agents-file "$work/agents" --rollouts-file "$work/rollouts")
+  # The worktrees the sweep keeps: its dry run in every repository of the folder that has a
+  # worktree, each line led by the repository; a sweep that cannot run says so in one line
+  : > "$work/trees"
+  for repo in "$folder"/*/; do
+    repo="${repo%/}"
+    [ -e "$repo/.git" ] && [ "$(git -C "$repo" worktree list 2>/dev/null | wc -l)" -gt 1 ] || continue
+    if said="$(cd "$repo" && bash "$here/finish-issue.sh" --sweep --dry-run 2>&1)"; then
+      while IFS= read -r line; do printf '%s\t%s\n' "${repo##*/}" "$line"; done <<< "$said" >> "$work/trees"
+    else
+      # The refusal on one line, from its "error: " on where it has one, where git's own lines follow it
+      said="$(printf '%s\n' "$said" | tr '\n' ' ' | tr -s ' ' | sed 's/^ *//; s/ *$//')"
+      case "$said" in *'error: '*) said="${said#*error: }" ;; esac
+      printf '%s\terror: %s\n' "${repo##*/}" "$said" >> "$work/trees"
+    fi
+  done
+  processes=(--processes-file "$work/processes" --agents-file "$work/agents" --rollouts-file "$work/rollouts" --trees-file "$work/trees")
 fi
 
 node "$here/../lib/status.mjs" --items-file "$work/items" --columns-file "$work/columns" \
-  --board "$(project_org)/$(project_number)" --folder "$folder" --stop-at "$stop" \
+  --board "$(project_org)/$(project_number)" --folder "$folder" --stop-at "$stop" --config-file "$config" \
   ${processes[@]+"${processes[@]}"} $tokens $issues

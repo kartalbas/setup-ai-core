@@ -199,6 +199,63 @@ refused="$(cd "$folder" && bash "$root/bin/status.sh" 2>&1)"; rc=$?
 check 'exit 1'        1 "$rc"
 check 'the line'      'error: outside a repository, name the board - status --project N' "$refused"
 
+echo 'the testing cards and the worktrees the sweep keeps, read from git'
+# A second board in a folder of its own: its column after implementing is testing, and its
+# repository has release tags of two environments and four issue worktrees
+live="$work/live"; mkdir -p "$live/.ai-core" "$work/cache/8"
+printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\nPROOF_HOURS=24\n' > "$live/.ai-core/config.env"
+echo PVT_example8 > "$work/cache/8/project-id"
+printf 'Status\tF1\t%s\tO%s\n' Todo 1 implementing 2 testing 3 Done 4 > "$work/cache/8/fields.tsv"
+{ for n in 31 32 33 34 35; do card "$n" testing P1 OPEN - - 0 "Card $n"; done; card 36 implementing P1 OPEN - - 0 'Card 36'; } > "$work/page8"
+cat > "$work/bin/gh" <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+  *PVT_example8*)  cat "$work/page8" ;;
+  *after=c2*)      cat "$work/page2" ;;
+  *'items(first'*) cat "$work/page1" ;;
+  *) echo "unexpected gh call: \$*" >&2; exit 1 ;;
+esac
+EOF
+commit_at() {  # commit_at <dir> <seconds before now> <subject>: a commit of one new file, dated
+  echo "$3" > "$1/$(( $2 )).txt"; git -C "$1" add -A
+  GIT_AUTHOR_DATE="@$((now - $2)) +0000" GIT_COMMITTER_DATE="@$((now - $2)) +0000" \
+    git -C "$1" -c user.name=check -c user.email=check@localhost commit -q -m "$3"
+}
+git init -q --bare "$work/origin.git"; git init -q "$work/seed"; git -C "$work/seed" checkout -q -b master
+commit_at "$work/seed" 144000 'Start'
+commit_at "$work/seed" 108000 'Land the first (#31)'; git -C "$work/seed" tag deploy/prod/1; git -C "$work/seed" tag deploy/test/1
+commit_at "$work/seed" 18000 'Land the second (#32)'; git -C "$work/seed" tag deploy/prod/2
+commit_at "$work/seed" 7200 'Land the third (#33)'; git -C "$work/seed" tag deploy/test/3
+commit_at "$work/seed" 3600 'Land the fourth (#34)'
+commit_at "$work/seed" 1800 'Mention another issue only (#310)'
+git -C "$work/seed" push -q "$work/origin.git" master --tags
+git -C "$work/origin.git" symbolic-ref HEAD refs/heads/master
+repo="$live/example-repo"; git clone -q "$work/origin.git" "$repo"
+trees="$live/.worktrees/example-repo"
+git -C "$repo" worktree add -q -b issue-41-old "$trees/issue-41-old" origin/master; commit_at "$trees/issue-41-old" 259200 'Old work (#41)'
+git -C "$repo" worktree add -q -b issue-42-changed "$trees/issue-42-changed" deploy/prod/1; echo half > "$trees/issue-42-changed/half.txt"
+git -C "$repo" worktree add -q -b issue-43-young "$trees/issue-43-young" origin/master; commit_at "$trees/issue-43-young" 7201 'Young work (#43)'
+git -C "$repo" worktree add -q -b issue-44-landed "$trees/issue-44-landed" origin/master; commit_at "$trees/issue-44-landed" 259201 'Landed work (#44)'
+git -C "$trees/issue-44-landed" push -q origin HEAD:master; git -C "$repo" fetch -q
+: > "$work/no-agents"
+page="$(cd "$live" && AI_CORE_PROCESSES="$work/no-processes" AI_CORE_AGENTS="$work/no-agents" AI_CORE_ROLLOUTS="$work/no-agents" bash "$root/bin/status.sh" --project example-org/8 2>&1)"; rc=$?
+check 'exit 0' 0 "$rc"
+check 'the testing line' 'TESTING 5 cards in testing: 2 live on prod, 1 live on test only, 1 not live, 1 without a landing commit' "$(grep '^TESTING' <<< "$page")"
+check 'due on prod' "  🔴 $(printf '%-26s' example-repo#31) live on prod since 30 h (deploy/prod/1)  Card 31" "$(grep 'example-repo#31 ' <<< "$page")"
+check 'live on prod' "  🟢 $(printf '%-26s' example-repo#32) live on prod since 5 h (deploy/prod/2)  Card 32" "$(grep 'example-repo#32 ' <<< "$page")"
+check 'live on test only' "  🟡 $(printf '%-26s' example-repo#33) live on test since 2 h (deploy/test/3)  Card 33" "$(grep 'example-repo#33 ' <<< "$page")"
+check 'not live' '  ⏸ not live: example-repo#34' "$(grep 'not live:' <<< "$page")"
+check 'no landing commit' '  ⏸ no commit on the default branch names it: example-repo#35' "$(grep 'names it:' <<< "$page")"
+check 'a card in implementing is not listed' '' "$(grep 'example-repo#36' <<< "$page")"
+check 'the trees line' 'TREES   2 worktrees the sweep keeps, older than a day:' "$(grep '^TREES' <<< "$page")"
+check 'unlanded and old' "  $(printf '%-26s' example-repo#41)   3 d  has work origin/master does not have yet" "$(grep 'example-repo#41' <<< "$page")"
+check 'with changes' "  $(printf '%-26s' example-repo#42)  30 h  has changes" "$(grep 'example-repo#42' <<< "$page")"
+check 'young and landed ones are not listed' '' "$(grep -E 'example-repo#4[34]' <<< "$page")"
+sed 's/^LIVE_TAGS=.*$//' "$live/.ai-core/config.env" > "$live/.ai-core/config.tmp" && mv "$live/.ai-core/config.tmp" "$live/.ai-core/config.env"
+bare="$(cd "$live" && AI_CORE_PROCESSES="$work/no-processes" AI_CORE_AGENTS="$work/no-agents" AI_CORE_ROLLOUTS="$work/no-agents" bash "$root/bin/status.sh" --project example-org/8 2>&1)"
+check 'without LIVE_TAGS, the testing line' 'TESTING 5 cards in testing: 4 not live, 1 without a landing commit' "$(grep '^TESTING' <<< "$bare")"
+check 'and why' '  LIVE_TAGS in .ai-core/config.env names no environment, so where the work is live is not read' "$(grep 'names no environment' <<< "$bare")"
+
 if [ "$failed" -gt 0 ]; then echo; echo "$out"; echo; echo "$failed failed"; exit 1; fi
 echo
 echo 'all passed'

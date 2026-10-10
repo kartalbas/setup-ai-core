@@ -231,6 +231,71 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   Remove-Item Env:AI_CORE_PROCESSES, Env:AI_CORE_AGENTS
   Check 'a find that exits 1 stops nothing' 0 $rc
   Check 'and what it found reaches the page' $held (Reach $found 104)
+  Write-Host 'the testing cards and the worktrees the sweep keeps, read from git'
+  # A second board in a folder of its own: its column after implementing is testing, and its
+  # repository has release tags of two environments and four issue worktrees
+  $live = Join-Path $work 'live'
+  foreach ($d in "$live/.ai-core", "$work/cache/8") { New-Item -ItemType Directory -Force -Path $d | Out-Null }
+  Set-Content -LiteralPath "$live/.ai-core/config.env" -Value @('LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"', 'PROOF_HOURS=24')
+  Set-Content -LiteralPath "$work/cache/8/project-id" -Value 'PVT_example8'
+  Set-Content -LiteralPath "$work/cache/8/fields.tsv" -Value @("Status`tF1`tTodo`tO1", "Status`tF1`timplementing`tO2", "Status`tF1`ttesting`tO3", "Status`tF1`tDone`tO4")
+  Set-Content -LiteralPath "$work/page8" -Value @(@(31..35 | ForEach-Object { Card $_ testing P1 OPEN - - 0 "Card $_" }) + @(Card 36 implementing P1 OPEN - - 0 'Card 36'))
+  @"
+`$a = `$args -join ' '
+if (`$a -cmatch 'PVT_example8') { Get-Content -LiteralPath '$work/page8'; exit 0 }
+if (`$a -cmatch 'after=c2') { Get-Content -LiteralPath '$work/page2'; exit 0 }
+if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0 }
+[Console]::Error.WriteLine("unexpected gh call: `$a"); exit 1
+"@ | Set-Content -Path (Join-Path $work 'bin/gh.ps1') -Encoding utf8NoBOM
+  function CommitAt([string]$Dir, [long]$Ago, [string]$Subject) {  # a commit of one new file, dated
+    Set-Content -LiteralPath (Join-Path $Dir "$Ago.txt") -Value $Subject
+    & git -C $Dir add -A
+    $env:GIT_AUTHOR_DATE = "@$($now - $Ago) +0000"; $env:GIT_COMMITTER_DATE = $env:GIT_AUTHOR_DATE
+    try { & git -C $Dir -c user.name=check -c user.email=check@localhost commit -q -m $Subject } finally { Remove-Item Env:GIT_AUTHOR_DATE, Env:GIT_COMMITTER_DATE }
+  }
+  $seed = Join-Path $work 'seed'; $origin = Join-Path $work 'origin.git'
+  & git init -q --bare $origin; & git init -q $seed; & git -C $seed checkout -q -b master
+  CommitAt $seed 144000 'Start'
+  CommitAt $seed 108000 'Land the first (#31)'; & git -C $seed tag deploy/prod/1; & git -C $seed tag deploy/test/1
+  CommitAt $seed 18000 'Land the second (#32)'; & git -C $seed tag deploy/prod/2
+  CommitAt $seed 7200 'Land the third (#33)'; & git -C $seed tag deploy/test/3
+  CommitAt $seed 3600 'Land the fourth (#34)'
+  CommitAt $seed 1800 'Mention another issue only (#310)'
+  & git -C $seed push -q $origin master --tags
+  & git -C $origin symbolic-ref HEAD refs/heads/master
+  $repo = Join-Path $live 'example-repo'; & git clone -q $origin $repo
+  $trees = Join-Path $live '.worktrees/example-repo'
+  & git -C $repo worktree add -q -b issue-41-old "$trees/issue-41-old" origin/master; CommitAt "$trees/issue-41-old" 259200 'Old work (#41)'
+  & git -C $repo worktree add -q -b issue-42-changed "$trees/issue-42-changed" deploy/prod/1; Set-Content -LiteralPath "$trees/issue-42-changed/half.txt" -Value half
+  & git -C $repo worktree add -q -b issue-43-young "$trees/issue-43-young" origin/master; CommitAt "$trees/issue-43-young" 7201 'Young work (#43)'
+  & git -C $repo worktree add -q -b issue-44-landed "$trees/issue-44-landed" origin/master; CommitAt "$trees/issue-44-landed" 259201 'Landed work (#44)'
+  & git -C "$trees/issue-44-landed" push -q origin HEAD:master; & git -C $repo fetch -q
+  Set-Content -LiteralPath (Join-Path $work 'no-agents') -Value @()
+  $env:AI_CORE_PROCESSES = Join-Path $work 'no-processes'; $env:AI_CORE_AGENTS = Join-Path $work 'no-agents'; $env:AI_CORE_ROLLOUTS = Join-Path $work 'no-agents'
+  function Live { Push-Location $live; try { @(& pwsh -NoProfile -File (Join-Path $root 'bin/status.ps1') -Project example-org/8 2>&1 | ForEach-Object { "$_" }) } finally { Pop-Location } }
+  function LineOf($Lines, [string]$Pattern) { (@($Lines | Where-Object { $_ -cmatch $Pattern }) -join '|') }
+  # node writes UTF-8, and the signs of the page are more than ASCII
+  $encoding = [Console]::OutputEncoding; [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+  try {
+    $page = Live; $rc = $LASTEXITCODE
+    Check 'exit 0' 0 $rc
+    Check 'the testing line' 'TESTING 5 cards in testing: 2 live on prod, 1 live on test only, 1 not live, 1 without a landing commit' (LineOf $page '^TESTING')
+    Check 'due on prod' "  🔴 $('example-repo#31'.PadRight(26)) live on prod since 30 h (deploy/prod/1)  Card 31" (LineOf $page 'example-repo#31 ')
+    Check 'live on prod' "  🟢 $('example-repo#32'.PadRight(26)) live on prod since 5 h (deploy/prod/2)  Card 32" (LineOf $page 'example-repo#32 ')
+    Check 'live on test only' "  🟡 $('example-repo#33'.PadRight(26)) live on test since 2 h (deploy/test/3)  Card 33" (LineOf $page 'example-repo#33 ')
+    Check 'not live' '  ⏸ not live: example-repo#34' (LineOf $page 'not live:')
+    Check 'no landing commit' '  ⏸ no commit on the default branch names it: example-repo#35' (LineOf $page 'names it:')
+    Check 'a card in implementing is not listed' '' (LineOf $page 'example-repo#36')
+    Check 'the trees line' 'TREES   2 worktrees the sweep keeps, older than a day:' (LineOf $page '^TREES')
+    Check 'unlanded and old' "  $('example-repo#41'.PadRight(26))   3 d  has work origin/master does not have yet" (LineOf $page 'example-repo#41')
+    Check 'with changes' "  $('example-repo#42'.PadRight(26))  30 h  has changes" (LineOf $page 'example-repo#42')
+    Check 'young and landed ones are not listed' '' (LineOf $page 'example-repo#4[34]')
+    Set-Content -LiteralPath "$live/.ai-core/config.env" -Value @('PROOF_HOURS=24')
+    $bare = Live
+    Check 'without LIVE_TAGS, the testing line' 'TESTING 5 cards in testing: 4 not live, 1 without a landing commit' (LineOf $bare '^TESTING')
+    Check 'and why' '  LIVE_TAGS in .ai-core/config.env names no environment, so where the work is live is not read' (LineOf $bare 'names no environment')
+  } finally { [Console]::OutputEncoding = $encoding }
+
   Write-Host 'outside a repository with no board named: refused, naming -Project'
   Push-Location $folder
   try { $refused = (@(& pwsh -NoProfile -File (Join-Path $root 'bin/status.ps1') 2>&1 | ForEach-Object { "$_" }) -join ' '); $rc = $LASTEXITCODE }

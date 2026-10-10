@@ -58,7 +58,7 @@ try {
   } while ($after)
 
   $flags = @('--items-file', $items, '--columns-file', $columns, '--board', "$(Get-ProjectOrg)/$(Get-ProjectNumber)",
-             '--folder', $folder, '--stop-at', $stop)
+             '--folder', $folder, '--stop-at', $stop, '--config-file', $config)
   # Every process: its id, its parent, the seconds it runs and its command line, a tab between;
   # AI_CORE_PROCESSES names a file that stands in for it. Only the default view reads it.
   if (-not $Tokens -and -not $Issues) {
@@ -87,7 +87,20 @@ try {
       # find exits 1 on the processes it may not read, other users' or ended ones; what it read stands
       Set-Content -LiteralPath $rollouts -Value @(& find /proc -mindepth 3 -maxdepth 3 -path '/proc/*/fd/*' -lname '*/rollout-*.jsonl' -printf '%h\t%l\n' 2> $null)
     } else { Set-Content -LiteralPath $rollouts -Value @() }
-    $flags += @('--processes-file', $processes, '--agents-file', $agents, '--rollouts-file', $rollouts)
+    # The worktrees the sweep keeps: its dry run in every repository of the folder that has a
+    # worktree, each line led by the repository; a sweep that cannot run says so in one line
+    $trees = Join-Path $work 'trees'; $treeLines = @()
+    foreach ($repo in @(Get-ChildItem -LiteralPath $folder -Directory | Sort-Object Name)) {
+      if (-not (Test-Path -LiteralPath (Join-Path $repo.FullName '.git'))) { continue }
+      if (@(& git -C $repo.FullName worktree list 2>$null).Count -le 1) { continue }
+      Push-Location -LiteralPath $repo.FullName
+      try { $said = @(& pwsh -NoProfile -File (Join-Path $PSScriptRoot 'finish-issue.ps1') -Sweep -DryRun 2>&1 | ForEach-Object { "$_" }); $swept = ($LASTEXITCODE -eq 0) }
+      finally { Pop-Location }
+      if ($swept) { $treeLines += @($said | ForEach-Object { "$($repo.Name)`t$_" }) }
+      else { $treeLines += "$($repo.Name)`terror: $("$(@($said) | Select-Object -Last 1)" -creplace '^error: ', '')" }
+    }
+    Set-Content -LiteralPath $trees -Value $treeLines
+    $flags += @('--processes-file', $processes, '--agents-file', $agents, '--rollouts-file', $rollouts, '--trees-file', $trees)
   }
   if ($Tokens) { $flags += '--tokens' }
   if ($Issues) { $flags += '--issues' }

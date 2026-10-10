@@ -16,8 +16,10 @@
 # default branch does not have, stops the run and is named; the work in it is somebody's.
 #
 # THE CARD MOVES TO THE COLUMN AFTER implementing, read from the board's own order: on a board
-# with a testing column the card goes there, and the owner closes the issue after review. Where
-# the next column is done, the card stays, because done is what closing the issue sets.
+# with a testing column the card goes there; status-sync, which this runs for the repository,
+# closes it once a release carries its work and a proof record follows its landing. Where the next
+# column is done, the card stays, because done is what closing the issue sets. An issue no commit
+# on origin's default branch names has not landed: the run stops before the card moves.
 #
 # --sweep removes every worktree of this repository whose work has landed and has rested for a
 # day, and names the others it leaves; start-issue and init --all run it, so a worktree nobody
@@ -154,6 +156,13 @@ while IFS=$'\t' read -r path branch; do
 done <<< "$(issue_worktrees)"
 [ "$found" -eq 1 ] || echo "no worktree of issue $number stands here - only the card and the issue are brought up to date"
 
+# What landed. An issue no commit on origin names has not landed, whatever its worktree held: the
+# card does not move and the issue is not told. The reference stands alone: '#<N>' must not match
+# '<OWNER/REPO>#<N>', an issue of another repository.
+commits="$(git -C "$main" log "origin/$default" -E --grep="(^|[^A-Za-z0-9._/-])${ref//./\\.}([^0-9]|$)" --format='- %h %s' -n 20)"
+[ -n "$commits" ] \
+  || die "no commit on origin/$default names $ref: nothing of it has landed, so the card stays and the issue is not told; a commit that touches an issue names it"
+
 # The card: one column past implementing, as the board orders them, unless that column is done
 if [ "$state" = closed ]; then
   echo "the issue is closed already - its card stays where closing put it"
@@ -174,12 +183,12 @@ else
 fi
 
 # What landed, in the issue, for whoever reads it next
-# The reference stands alone: '#<N>' must not match '<OWNER/REPO>#<N>', an issue of another repository
-commits="$(git -C "$main" log "origin/$default" -E --grep="(^|[^A-Za-z0-9._/-])${ref//./\\.}([^0-9]|$)" --format='- %h %s' -n 20)"
-[ -n "$commits" ] || commits="- (no commit on origin/$default names $ref)"
 # An issue of another repository is told which repository the commits are in
 landed_on="$default"; [ "$ref" = "#$number" ] || landed_on="$default of $(default_repo)"
 body="$(printf 'Landed on %s:\n\n%s\n' "$landed_on" "$commits")"
 "$BIN/issue-comment.sh" ${repo:+"$repo"} "$number" "$body" >/dev/null \
   && echo "the issue says what landed" \
   || echo "the issue was NOT told what landed - add the commits by hand" >&2
+
+# The cards of this repository whose work a release carries and a proof covers close (status-sync)
+released_repo="$(resolve_repo "")" && sync_released_cards "$released_repo"

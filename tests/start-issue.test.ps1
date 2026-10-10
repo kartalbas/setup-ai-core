@@ -25,6 +25,8 @@ if (`$a -match 'repo view')           { 'example-org/example-repo'; exit 0 }
 if (`$a -match 'other-org/tracker/issues/[0-9]+/comments') { '[]'; exit 0 }
 if (`$a -match 'other-org/tracker/issues/') { '{"number":171,"title":"Alert on a stuck run","state":"open","labels":[],"assignees":[{"login":"tester"}],"body":"The rule lands in the other repository."}'; exit 0 }
 if (`$a -match 'issues/171') { '{"message":"Not Found"}'; [Console]::Error.WriteLine('gh: Not Found (HTTP 404)'); exit 1 }
+# status-sync's query of the repository's issues names comments and projectItems too
+if (`$a -match 'issues\(states:OPEN') { if (Test-Path '$fake/issues-down') { [Console]::Error.WriteLine('the issues are down'); exit 1 }; '{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}'; exit 0 }
 if (`$a -match 'comments')            { '[]'; exit 0 }
 if (`$a -match '--jq .node_id')       { 'I_node163'; exit 0 }
 if (`$a -match 'projectV2\(number:')  { 'PVT_kwstart'; exit 0 }
@@ -164,6 +166,7 @@ Check 'the thread'         1 @($printed | Where-Object { $_ -eq '#163 Read the b
 Check 'the landed worktree of #170 is gone' 'False' ([string](Test-Path -LiteralPath $old))
 Check 'and named'          'True' ([bool](@($printed | Where-Object { $_ -match 'issue-170-old: landed, removed$' }).Count))
 Check 'the board is not read whole' 0 (@(Calls | Where-Object { $_.Contains('items(first:100, after:') }).Count)
+Check 'the cards of its repository are swept, in one query (status-sync)' 1 (@(Calls | Where-Object { $_.Contains('issues(states:OPEN') }).Count)
 Check 'the worktree is on the new branch' 'issue-163-read-the-board-whole' `
   (((& git -C $tree rev-parse --abbrev-ref HEAD) -join '').Trim())
 

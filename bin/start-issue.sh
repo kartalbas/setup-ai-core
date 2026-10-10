@@ -120,6 +120,8 @@ fi
 # Worktrees whose work landed a day ago or more go as this one opens (finish-issue --sweep),
 # so the disk does not fill with copies nobody works in any more
 bash "$BIN/finish-issue.sh" --sweep 2>&1 | grep ': landed, removed$' || true
+# and the cards of this repository whose work a release carries and a proof covers close (status-sync)
+released_repo="$(resolve_repo "")" && sync_released_cards "$released_repo"
 
 # The harness is not in the repository, so the new worktree gets it here: init takes the main
 # checkout's own .ai-core data (its config, its local rules, its documents) first and assembles

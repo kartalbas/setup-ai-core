@@ -20,6 +20,8 @@ $env:GH_PROJECT_NUMBER = '999983'
 Add-Content -Path '$log' -Value `$a
 if (`$a -match 'repo view')           { 'example-org/example-repo'; exit 0 }
 if (`$a -match 'issue comment')       { 'https://example.invalid/example-org/example-repo/issues/163#issuecomment-1'; exit 0 }
+# status-sync's query of the repository's issues names comments and projectItems too
+if (`$a -match 'issues\(states:OPEN') { if (Test-Path '$fake/issues-down') { [Console]::Error.WriteLine('the issues are down'); exit 1 }; '{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}'; exit 0 }
 if (`$a -match 'comments')            { '[]'; exit 0 }
 if (`$a -match '--jq .node_id')       { 'I_node163'; exit 0 }
 if (`$a -match 'projectV2\(number:')  { 'PVT_kwfinish'; exit 0 }
@@ -130,6 +132,16 @@ Check 'the branch is gone'    'False' (Has-Branch $b)
 Check 'the card moved to testing' 1   (@(Get-Content $log | Where-Object { $_ -match 'oid=OPT_testing' }).Count)
 Check 'the issue was told'    'True'  ([bool]((Calls) -match '(?s)issue comment 163 .*Landed on master:.*Not pushed yet \(#163\)'))
 Check 'the board is not read whole' 0 (@(Get-Content $log | Where-Object { $_.Contains('items(first:100, after:') }).Count)
+Check 'the cards of its repository are swept, in one query (status-sync)' 1 (@(Get-Content $log | Where-Object { $_.Contains('issues(states:OPEN') }).Count)
+
+Write-Host 'a status-sync that fails is said, and finish-issue still completes'
+New-Item -ItemType File -Path (Join-Path $fake 'issues-down') | Out-Null
+Set-Content -Path $log -Value $null
+Remove-Item -Recurse -Force $env:GH_CACHE_DIRECTORY -ErrorAction SilentlyContinue
+$ok = Invoke-Finish -Number 163
+Check 'it runs'               'True'  ([string]$ok)
+Check 'it says so'            'True'  ([bool]($printed -cmatch '(?m)^status-sync did NOT run for example-org/example-repo: '))
+Remove-Item -Path (Join-Path $fake 'issues-down')
 
 Write-Host 'run inside the worktree it removes, it goes on from the main checkout and still moves the card'
 Open-Tree 'issue-170-run-from-inside'
@@ -205,6 +217,7 @@ Check 'it runs'                'True'  ([string]$ok)
 Check 'the worktree is gone'   'False' (Has-Tree 'issue-167-keep-the-harness-off-the-board')
 Check 'it says so'             'True'  ([bool]($printed -cmatch '(?m)^example-org/example-repo is on no board - there is no card to move\r?$'))
 Check 'no card was moved'      0       (Moves)
+Check 'and no card is swept'   0       (@(Get-Content $log | Where-Object { $_.Contains('issues(states:OPEN') }).Count)
 Check 'the issue was told'     'True'  ([bool]((Calls) -match '(?s)issue comment 167 .*Landed on master:.*Keep the harness off the board \(#167\)'))
 $env:GH_PROJECT_NUMBER = '999983'
 Remove-Item -Path (Join-Path $fake 'no-board')
@@ -243,12 +256,23 @@ Write-Host 'a branch that outlived its worktree still says where its issue lives
 Set-Content -Path $log -Value $null
 Remove-Item -Recurse -Force $env:GH_CACHE_DIRECTORY -ErrorAction SilentlyContinue
 $ok = Invoke-Finish -Number 175
-Check 'it runs'                'True'  ([string]$ok)
 Check 'the issue was read there' 'True' ([bool]((Calls) -match 'other-org/tracker/issues/175'))
 Check 'and never here'         'False' ([bool]((Calls) -match 'example-org/example-repo/issues/175'))
+Check 'no commit names it, so it is refused under its own name' `
+  'error: no commit on origin/master names other-org/tracker#175: nothing of it has landed, so the card stays and the issue is not told; a commit that touches an issue names it' $said
 & git -C $work branch -q -D issue-175-gone
 $env:GH_PROJECT_NUMBER = '999983'
 Remove-Item -Path (Join-Path $fake 'no-board')
+
+Write-Host 'an issue no commit on the default branch names has not landed: refused, no card moves, no word on the issue'
+Set-Content -Path $log -Value $null
+Remove-Item -Recurse -Force $env:GH_CACHE_DIRECTORY -ErrorAction SilentlyContinue
+$ok = Invoke-Finish -Number 177
+Check 'it is refused'          'False' ([string]$ok)
+Check 'it says why'            'error: no commit on origin/master names #177: nothing of it has landed, so the card stays and the issue is not told; a commit that touches an issue names it' $said
+Check 'no card moved'          0       (Moves)
+Check 'the issue was not told' 'False' ([bool]((Calls) -match 'issue comment 177'))
+Check 'no card is swept'       0       (@(Get-Content $log | Where-Object { $_.Contains('issues(states:OPEN') }).Count)
 
 Write-Host 'an origin/HEAD naming a branch the remote no longer has: the default branch is asked of the remote'
 Open-Tree 'issue-168-read-the-default-branch'

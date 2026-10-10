@@ -26,6 +26,8 @@ a="\$*"
 printf '%s\n' "\$a" >> "$log"
 case "\$a" in
   *"repo view"*)            echo 'example-org/example-repo' ;;
+  # status-sync's query of the repository's issues names comments and projectItems too
+  *"issues(states:OPEN"*)   [ -e "$fake/issues-down" ] && { echo 'the issues are down' >&2; exit 1; }; echo '{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}' ;;
   *comments*)               echo '[]' ;;
   *"--jq .node_id"*)        echo 'I_node163' ;;
   *"projectV2(number:"*)    echo 'PVT_kwstart' ;;
@@ -152,6 +154,7 @@ check 'the thread'        1 "$(grep -c '^#163 Read the board whole$' <<< "$out" 
 check 'the landed worktree of #170 is gone' no "$([ -d "$old" ] && echo yes || echo no)"
 check 'and named'         yes "$(grep -q 'issue-170-old: landed, removed$' <<< "$out" && echo yes || echo no)"
 check 'the board is not read whole' 0 "$(grep -c 'items(first:100, after:' "$log" || true)"
+check 'the cards of its repository are swept, in one query (status-sync)' 1 "$(grep -c 'issues(states:OPEN' "$log" || true)"
 check 'the worktree is on the new branch' 'issue-163-read-the-board-whole' \
   "$(git -C "$tree" rev-parse --abbrev-ref HEAD)"
 

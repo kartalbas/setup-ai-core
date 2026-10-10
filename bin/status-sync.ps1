@@ -169,7 +169,9 @@ function Get-ReleaseTagPattern { param([string]$Config)
 # decides what its release is, never the folder this runs in. A tag counts only where origin has it
 # on the same commit: a fetch never prunes and never moves a tag the clone holds, so a tag a
 # refused push left in the clone, one deleted on origin or one origin moved would read as a
-# release. Where origin cannot be listed, no tag counts. The fetch asks nobody for a password.
+# release. Where a tag of the pattern stands on origin on another commit than in the clone, or not
+# in the clone at all, which one is the newest is not known, and where origin cannot be listed,
+# nothing is: then no tag counts. The fetch asks nobody for a password.
 $script:Releases = @{}
 function Read-Release { param([string]$R)
   if ($script:Releases.ContainsKey($R)) { return }
@@ -203,16 +205,21 @@ function Read-Release { param([string]$R)
     # The pattern is matched here and never handed to git: pwsh expands a wildcard in a native
     # command's argument against the files of the current folder, a variable's too
     $pattern = Get-ReleaseTagPattern (Join-Path $clone '.ai-core/config.env')
-    foreach ($t in @(& git -C $clone tag --sort=-creatordate 2>$null | ForEach-Object { "$_" } | Where-Object { $_ -clike $pattern })) {
-      if (-not $remote.ContainsKey($t)) { continue }
-      if ("$(& git -C $clone rev-parse -q --verify "refs/tags/$t^{commit}" 2>$null)".Trim() -ceq $remote[$t]) { $release.Tag = $t; break }
-    }
+    $names = [string[]]@($remote.Keys); [Array]::Sort($names, [StringComparer]::Ordinal)
+    $odd = @($names | Where-Object { $_ -clike $pattern } | Where-Object {
+      "$(& git -C $clone rev-parse -q --verify "refs/tags/$_^{commit}" 2>$null)".Trim() -cne $remote[$_] }) | Select-Object -First 1
+    if ($odd) { "origin of $R has $odd on a commit its clone in $clone does not have it on, so no tag of it counts as a release and its cards in testing stay"; return }
+    $release.Tag = "$(@(& git -C $clone tag --sort=-creatordate 2>$null) | ForEach-Object { "$_" } |
+      Where-Object { $_ -clike $pattern -and $remote.ContainsKey($_) } | Select-Object -First 1)".Trim()
   } finally { $ErrorActionPreference, $env:GIT_TERMINAL_PROMPT = $kept }
 }
 
 # --- the sweep ----------------------------------------------------------------
 
-Set-Project -Number $Project | Out-Null
+# Without a board named, the board is the one the first repository named is linked to, so a
+# repository whose checkout is elsewhere is swept on its own board
+$first = if (-not $Project -and -not $env:GH_PROJECT_NUMBER -and $Repo.Count -gt 0 -and $Repo[0] -like '*/*') { $Repo[0] } else { '' }
+Set-Project -Number $Project -Repo $first | Out-Null
 $resolved = Get-ProjectNumber
 $org = Get-ProjectOrg
 

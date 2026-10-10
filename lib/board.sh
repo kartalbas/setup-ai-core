@@ -546,22 +546,23 @@ on_no_board() {  # on_no_board <owner/repo> [named board] - true when the reposi
 
 # THE CARDS OF THE REPOSITORIES THAT A RELEASE HAS CARRIED AND A PROOF COVERS, closed as an issue
 # starts or finishes: status-sync for the checkout's repository and the issue's, where that is
-# another one, in one run that reads each one's issues in one query and its release from its
+# another one, each in a run of its own that reads its issues in one query and its release from its
 # clone, so a proven card in testing whose landed commit the newest release tag carries does not
-# wait for a person. A repository on no board has no card. It runs in a subshell because the board
-# readers exit on a failure; a failure is said and stops nothing.
+# wait for a person. A run of its own, because each one is swept on its own board where none is
+# named. A repository on no board has no card. A run goes in a subshell because the board readers
+# exit on a failure; a failure is said and stops nothing.
 sync_released_cards() {  # sync_released_cards <owner/repo>...
   local out r k named=()
   for r in "$@"; do
     for k in ${named[@]+"${named[@]}"}; do [ "$(printf '%s' "$k" | tr '[:upper:]' '[:lower:]')" != "$(printf '%s' "$r" | tr '[:upper:]' '[:lower:]')" ] || continue 2; done
     named+=("$r")
   done
-  out="$( (keep=()
-           for r in ${named[@]+"${named[@]}"}; do on_no_board "$r" || keep+=("$r"); done
-           [ "${#keep[@]}" -gt 0 ] || exit 0
-           bash "$(dirname "${BASH_SOURCE[0]}")/../bin/status-sync.sh" "${keep[@]}") 2>&1)" \
-    || { echo "status-sync did NOT run for ${named[*]-}: $out" >&2; return 0; }
-  grep '^close ' <<< "$out" || true
+  for r in ${named[@]+"${named[@]}"}; do
+    out="$( (on_no_board "$r" && exit 0
+             bash "$(dirname "${BASH_SOURCE[0]}")/../bin/status-sync.sh" "$r") 2>&1)" \
+      || { echo "status-sync did NOT run for $r: $out" >&2; continue; }
+    grep '^close ' <<< "$out" || true
+  done
 }
 
 # --- issues -------------------------------------------------------------------

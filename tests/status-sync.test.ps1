@@ -81,6 +81,7 @@ $cache = Join-Path $env:GH_CACHE_DIRECTORY "$projectNumber"
 New-Item -ItemType Directory -Path $cache -Force | Out-Null
 Set-Content -Path (Join-Path $cache 'project-id') -Value $projectId -NoNewline
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'empty.json') -Value '{}'
+Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'tools-projects.json') -Value ('{"data":{"repository":{"projectsV2":{"nodes":[{"number":' + $projectNumber + ',"title":"Board","closed":false}]}}}}')
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'project-id.json') -Value ('{"data":{"organization":{"projectV2":{"id":"' + $projectId + '"}}}}')
 
 # The clone and its origin. Commit and tag dates are set, so "newest by date" is not left to the
@@ -181,6 +182,7 @@ elseif (`$line -like '*o=other-org*issues(states:OPEN*')     { `$doc = 'issues-o
 elseif (`$line -like '*after=c1*issues(states:OPEN*')        { `$doc = 'issues-2.json' }
 elseif (`$line -like '*issues(states:OPEN*')                 { `$doc = 'issues-1.json' }
 elseif (`$line -like '*--method PATCH*')                     { `$doc = 'empty.json' }
+elseif (`$line -like '*n=tools*projectsV2(first:50)*')       { `$doc = 'tools-projects.json' }
 elseif (Test-Path -LiteralPath (Join-Path '$fake' 'lenient')) { exit 0 }
 else { [Console]::Error.WriteLine("the stand-in gh has no answer for: `$line"); exit 9 }
 `$prog = ''
@@ -236,6 +238,15 @@ try {
   Check 'exit 0' 0 $rc
   Check 'both are read' "11 active cards scanned, 3 would move on board $projectNumber." $run[-1]
 
+  Write-Host 'no board named: the board is the one the first repository named is linked to, not the checkout''s'
+  Set-Content -LiteralPath $calls -Value $null
+  Push-Location -LiteralPath $clone
+  $kept = $env:GH_PROJECT_NUMBER; Remove-Item Env:GH_PROJECT_NUMBER -ErrorAction SilentlyContinue
+  try { $run = @(& pwsh -NoProfile -File (Join-Path $root 'bin/status-sync.ps1') 'example-org/tools' -DryRun 2>&1 | ForEach-Object { "$_" }); $rc = $LASTEXITCODE }
+  finally { Pop-Location; if ($kept) { $env:GH_PROJECT_NUMBER = $kept } }
+  Check 'exit 0' 0 $rc
+  Check 'it is swept on that board' "on board $projectNumber." ($run[-1] -creplace '^.* (on board )', '$1')
+
   Write-Host 'without LIVE_TAGS the newest tag by date decides, whatever its name'
   Set-Content -LiteralPath (Join-Path $clone '.ai-core/config.env') -Value ''
   Sync $clone 'example-org/example-repo'
@@ -257,14 +268,14 @@ try {
   Sync (Join-Path $fake 'folder') 'example-org/example-repo'
   Check 'from the project folder, the clone in it is found, and LIVE_TAGS read from the clone' 'would close  example-repo#13  (testing -> done, released in deploy/prod/2 and proven)' (Lines 'would close  example-repo#13 *')
 
-  Write-Host 'a tag origin moved still stands on its old commit in the clone, and is no release'
+  Write-Host 'a tag origin moved back still stands on its old commit in the clone: no tag counts, since the newest is not known'
   $moved = "$(& git -C $origin rev-parse refs/tags/deploy/prod/2)".Trim()
   Git-At $origin 1700000018 @('tag', '-f', '-a', '-m', 'moved back', 'deploy/prod/2', $c12) | Out-Null
   Sync $clone 'example-org/example-repo'
   Check 'the fetch says why it failed' `
     "fetching origin of example-org/example-repo in $clone failed: ! [rejected] deploy/prod/2 -> deploy/prod/2 (would clobber existing tag); the refs it had are read" (Lines 'fetching origin*')
-  Check 'the release is the tag before it' 'would close  example-repo#13  (testing -> done, released in deploy/prod/1 and proven)' (Lines 'would close  example-repo#13 *')
-  Check 'and #18, in the moved tag alone, is not released' '' (Lines '*example-repo#18*')
+  Check 'it names the tag' "origin of example-org/example-repo has deploy/prod/2 on a commit its clone in $clone does not have it on, so no tag of it counts as a release and its cards in testing stay" (Lines 'origin of*')
+  Check 'and the tag before it does not stand in: nothing of it closes' '' "$(@($run | Where-Object { $_ -cmatch '^(would close|proof due) +example-repo#(13|18)' }))"
   & git -C $origin update-ref refs/tags/deploy/prod/2 $moved
 
   Write-Host 'an origin that cannot be listed: no tag counts, and it says so'

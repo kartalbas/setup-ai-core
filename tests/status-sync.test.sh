@@ -102,6 +102,7 @@ trap 'rm -rf "$FAKE"' EXIT
 mkdir -p "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER"
 printf '%s\n' "$PROJECT_ID" > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/project-id"
 echo '{}' > "$FAKE/empty.json"
+printf '{"data":{"repository":{"projectsV2":{"nodes":[{"number":%s,"title":"Board","closed":false}]}}}}\n' "$PROJECT_NUMBER" > "$FAKE/tools-projects.json"
 printf '{"data":{"organization":{"projectV2":{"id":"%s"}}}}\n' "$PROJECT_ID" > "$FAKE/project-id.json"
 
 # The clone and its origin. Commit and tag dates are set, so "newest by date" is not left to the
@@ -182,6 +183,7 @@ case "\$*" in
   *"after=c1"*"issues(states:OPEN"*)      doc="$FAKE/issues-2.json" ;;
   *"issues(states:OPEN"*)                 doc="$FAKE/issues-1.json" ;;
   *"--method PATCH"*)                     doc="$FAKE/empty.json" ;;
+  *"n=tools"*"projectsV2(first:50)"*)     doc="$FAKE/tools-projects.json" ;;
   *) [ -e "$FAKE/lenient" ] && exit 0; echo "the stand-in gh has no answer for: \$*" >&2; exit 9 ;;
 esac
 # The jq BINARY writes CRLF on Windows where gh's own --jq writes LF, and stripping it is what
@@ -229,6 +231,12 @@ run="$(cd "$clone" && GH_PROJECT_NUMBER="$PROJECT_NUMBER" bash "$ROOT/bin/status
 check 'exit 0' 0 "$?"
 check 'both are read' "11 active cards scanned, 3 would move on board $PROJECT_NUMBER." "$(printf '%s\n' "$run" | tail -1)"
 
+echo 'no board named: the board is the one the first repository named is linked to, not the checkout'"'"'s'
+: > "$FAKE/calls.txt"
+run="$(cd "$clone" && env -u GH_PROJECT_NUMBER bash "$ROOT/bin/status-sync.sh" --dry-run example-org/tools 2>&1)"
+check 'exit 0' 0 "$?"
+check 'it is swept on that board' "on board $PROJECT_NUMBER." "$(printf '%s\n' "$run" | tail -1 | grep -o 'on board .*')"
+
 echo 'without LIVE_TAGS the newest tag by date decides, whatever its name'
 : > "$FAKE/calls.txt"; : > "$clone/.ai-core/config.env"
 run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo 2>&1)"
@@ -253,15 +261,15 @@ check 'nothing closes' '' "$(grep '^would close' <<< "$run")"
 run="$(cd "$FAKE/folder" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo 2>&1)"
 check 'from the project folder, the clone in it is found, and LIVE_TAGS read from the clone' 'would close  example-repo#13  (testing -> done, released in deploy/prod/2 and proven)' "$(grep '^would close  example-repo#13' <<< "$run")"
 
-echo 'a tag origin moved still stands on its old commit in the clone, and is no release'
+echo 'a tag origin moved back still stands on its old commit in the clone: no tag counts, since the newest is not known'
 moved="$(git -C "$origin" rev-parse refs/tags/deploy/prod/2)"
 GIT_COMMITTER_DATE="@1700000018 +0000" gitc "$origin" tag -f -a -m 'moved back' deploy/prod/2 "$c12" >/dev/null
 run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo 2>&1)"
 check 'the fetch says why it failed' \
   "fetching origin of example-org/example-repo in $clone failed: ! [rejected] deploy/prod/2 -> deploy/prod/2 (would clobber existing tag); the refs it had are read" \
   "$(grep '^fetching origin' <<< "$run")"
-check 'the release is the tag before it' 'would close  example-repo#13  (testing -> done, released in deploy/prod/1 and proven)' "$(grep '^would close  example-repo#13' <<< "$run")"
-check 'and #18, in the moved tag alone, is not released' '' "$(grep 'example-repo#18' <<< "$run")"
+check 'it names the tag' "origin of example-org/example-repo has deploy/prod/2 on a commit its clone in $clone does not have it on, so no tag of it counts as a release and its cards in testing stay" "$(grep '^origin of' <<< "$run")"
+check 'and the tag before it does not stand in: nothing of it closes' '' "$(grep -E '^(would close|proof due) +example-repo#(13|18)' <<< "$run")"
 git -C "$origin" update-ref refs/tags/deploy/prod/2 "$moved"
 
 echo 'an origin that cannot be listed: no tag counts, and it says so'

@@ -155,10 +155,12 @@ release_tag_pattern() {  # <config.env>
 # decides what its release is, never the folder this runs in. A tag counts only where origin has it
 # on the same commit: a fetch never prunes and never moves a tag the clone holds, so a tag a
 # refused push left in the clone, one deleted on origin or one origin moved would read as a
-# release. Where origin cannot be listed, no tag counts. The fetch asks nobody for a password.
+# release. Where a tag of the pattern stands on origin on another commit than in the clone, or not
+# in the clone at all, which one is the newest is not known, and where origin cannot be listed,
+# nothing is: then no tag counts. The fetch asks nobody for a password.
 _RELEASES=''
 release_of() {  # <owner/repo>
-  local held said reason remote t want
+  local held said reason remote pattern t want odd=""
   held="$(printf '%s' "$_RELEASES" | awk -F'\t' -v r="$1" 'tolower($1) == tolower(r) { print; exit }')"
   if [ -n "$held" ]; then
     IFS=$'\t' read -r _ REL_CLONE REL_REF REL_TAG <<< "$held"
@@ -178,12 +180,22 @@ release_of() {  # <owner/repo>
     if remote="$(GIT_TERMINAL_PROMPT=0 git -C "$REL_CLONE" ls-remote --tags origin 2>/dev/null)"; then
       # <tag> <the commit it stands on>: an annotated tag's own line names the tag object, its ^{} line the commit
       remote="$(printf '%s\n' "$remote" | awk '$2 != "" { n = $2; sub("^refs/tags/", "", n)
-        if (sub("\\^\\{\\}$", "", n)) c[n] = $1; else if (!(n in c)) c[n] = $1 } END { for (n in c) print n "\t" c[n] }')"
-      while IFS= read -r t; do
-        [ -n "$t" ] || continue
-        want="$(awk -F'\t' -v t="$t" '$1 == t { print $2; exit }' <<< "$remote")"
-        if [ -n "$want" ] && [ "$want" = "$(git -C "$REL_CLONE" rev-parse -q --verify "refs/tags/$t^{commit}" 2>/dev/null)" ]; then REL_TAG="$t"; break; fi
-      done <<< "$(git -C "$REL_CLONE" tag --list "$(release_tag_pattern "$REL_CLONE/.ai-core/config.env")" --sort=-creatordate)"
+        if (sub("\\^\\{\\}$", "", n)) c[n] = $1; else if (!(n in c)) c[n] = $1 } END { for (n in c) print n "\t" c[n] }' | LC_ALL=C sort)"
+      pattern="$(release_tag_pattern "$REL_CLONE/.ai-core/config.env")"
+      while IFS=$'\t' read -r t want; do
+        # the pattern is a glob here as it is to git tag --list
+        # shellcheck disable=SC2254
+        case "$t" in $pattern) ;; *) continue ;; esac
+        [ "$want" = "$(git -C "$REL_CLONE" rev-parse -q --verify "refs/tags/$t^{commit}" 2>/dev/null)" ] || { odd="$t"; break; }
+      done <<< "$remote"
+      if [ -n "$odd" ]; then
+        echo "origin of $1 has $odd on a commit its clone in $REL_CLONE does not have it on, so no tag of it counts as a release and its cards in testing stay"
+      else
+        while IFS= read -r t; do
+          [ -n "$t" ] || continue
+          if awk -F'\t' -v t="$t" '$1 == t { f = 1 } END { exit !f }' <<< "$remote"; then REL_TAG="$t"; break; fi
+        done <<< "$(git -C "$REL_CLONE" tag --list "$pattern" --sort=-creatordate)"
+      fi
     else
       echo "origin of $1 could not be listed from $REL_CLONE, so no tag of it counts as a release and its cards in testing stay"
     fi
@@ -204,7 +216,10 @@ while [ $# -gt 0 ]; do
 done
 set -- ${args[@]+"${args[@]}"}
 
-set_project "$project" >/dev/null
+# Without a board named, the board is the one the first repository named is linked to, so a
+# repository whose checkout is elsewhere is swept on its own board
+first=""; [ -n "$project" ] || [ -n "${GH_PROJECT_NUMBER:-}" ] || case "${1:-}" in */*) first="$1" ;; esac
+set_project "$project" "$first" >/dev/null
 resolved="$(project_number)"
 org="$(project_org)"
 
@@ -227,7 +242,7 @@ for full in ${repos[@]+"${repos[@]}"}; do
   label="${full#"$org"/}"
   while IFS=$'\t' read -r st num subs sha proven elsewhere; do
     [ -n "$num" ] || continue
-    [ "$(printf '%s' "$st" | tr '[:upper:]' '[:lower:]')" != done ] || continue
+    [ "$(printf '%s' "$st" | tr '[:upper:]' '[:lower:]')" != 'done' ] || continue
     scanned=$((scanned + 1))
     # An issue with sub-issues is an epic whatever their number, and follows them. One with a single
     # sub-issue is named: it is often an issue with work of its own and one dependency hung under

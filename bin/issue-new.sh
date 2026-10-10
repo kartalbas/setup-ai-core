@@ -89,7 +89,7 @@ fi
 # No issue without a person's yes (rules.md, the issue rules), except a defect found in the work.
 if [ -n "$found_in" ]; then
   [ -z "$asked_by$asked_in" ] || die "--found-in and --asked-by/--asked-in contradict each other: one says a session found a defect, the other names who said yes - give one"
-  printf '%s\n' "${labels[@]}" | grep -qx 'type:bug' \
+  grep -qx 'type:bug' <<< "$(printf '%s\n' "${labels[@]}")" \
     || die "--found-in is only for a defect found in the work (label type:bug); other work needs --asked-by and --asked-in"
   asked="$FOUND_PREFIX$found_in on $(date +%Y-%m-%d), a defect filed without a yes."
 else

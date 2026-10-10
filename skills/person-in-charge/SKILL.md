@@ -35,8 +35,10 @@ A reviewer reads one diff and needs a small context; a developer on a package ne
 - Name every worker `l<n>-<model><version>-<effort>-<context>-<5 hex>`, such as
   `l1-opus5.5-high-150k-afb89`: `<n>` counts your workers, the 5 hex digits make the name unique.
 - Start a worker in its package's worktree, which `ai-core start-issue <first number>` opens in
-  the repository: `claude --bg --name <name> --model <model> --effort <effort> --permission-mode
-  auto --settings '{"autoCompactWindow":<tokens>}' "<the brief>"`, with a context size from
+  the repository; move the package's other issues to implementing with it (`ai-core issue-status
+  <number>... implementing`). The worker starts with `claude --bg --name <name> --model <model>
+  --effort <effort> --permission-mode auto --settings '{"autoCompactWindow":<tokens>}' "<the
+  brief>"`, with a context size from
   100000 to 1000000 tokens. A worker never moves to another folder, because the move asks a
   question only a person at its terminal can answer: stop a worker that is in the wrong folder and
   continue it in the right one.
@@ -132,7 +134,8 @@ finished; otherwise add a new package to the plan issue.
 - A package lands once: one push gate run, one review of its whole diff, then `ai-core
   integrate-issue <first number> --reviewed-by <reviewer>` from its worktree, one release per
   repository and one live check. Then run `ai-core finish-issue <number>` for each of its issues:
-  the first removes the worktree, and each other one moves its card and names its commits.
+  the one for the first number removes the worktree, and each other one moves its card and names
+  its commits.
 - On a report: check the verification output, send the review, update the plan issue, finish the
   package's issues once its push has landed, and give the worker its next package.
 

@@ -19,8 +19,10 @@ NOTHING THAT HAS NOT LANDED IS REMOVED. A worktree with changes, or with a commi
 branch does not have, stops the run and is named; the work in it is somebody's.
 
 THE CARD MOVES TO THE COLUMN AFTER implementing, read from the board's own order: on a board with
-a testing column the card goes there, and the owner closes the issue after review. Where the next
-column is done, the card stays, because done is what closing the issue sets.
+a testing column the card goes there; status-sync, which this runs for the repository, closes it
+once a release carries its work and a proof record follows its landing. Where the next column is
+done, the card stays, because done is what closing the issue sets. An issue no commit on origin's
+default branch names has not landed: the run stops before the card moves.
 
 -Sweep removes every worktree of this repository whose work has landed and has rested for a day,
 and names the others it leaves; start-issue and init -All run it, so a worktree nobody finished
@@ -169,6 +171,12 @@ foreach ($w in @(Get-IssueWorktrees | Where-Object { $_.Branch -ceq "issue-$Numb
 }
 if (-not $found) { "no worktree of issue $Number stands here - only the card and the issue are brought up to date" }
 
+# What landed. An issue no commit on origin names has not landed, whatever its worktree held: the
+# card does not move and the issue is not told. The reference stands alone: '#<N>' must not match
+# '<OWNER/REPO>#<N>', an issue of another repository.
+$commits = (Invoke-Git -C $main log "origin/$default" -E "--grep=(^|[^A-Za-z0-9._/-])$($ref.Replace('.', '\.'))([^0-9]|$)" '--format=- %h %s' -n 20).Text
+if (-not $commits) { Stop-WithError "no commit on origin/$default names ${ref}, so the card stays and the issue is not told; a commit that touches an issue names it" }
+
 # The card: one column past implementing, as the board orders them, unless that column is done
 if ($state -ceq 'closed') {
   'the issue is closed already - its card stays where closing put it'
@@ -188,11 +196,11 @@ if ($state -ceq 'closed') {
 }
 
 # What landed, in the issue, for whoever reads it next
-# The reference stands alone: '#<N>' must not match '<OWNER/REPO>#<N>', an issue of another repository
-$commits = (Invoke-Git -C $main log "origin/$default" -E "--grep=(^|[^A-Za-z0-9._/-])$($ref.Replace('.', '\.'))([^0-9]|$)" '--format=- %h %s' -n 20).Text
-if (-not $commits) { $commits = "- (no commit on origin/$default names $ref)" }
 # An issue of another repository is told which repository the commits are in
 $landedOn = if ($ref -ceq "#$Number") { $default } else { "$default of $(Get-DefaultRepo)" }
 $body = "Landed on ${landedOn}:`n`n$commits`n"
 try { & (Join-Path $PSScriptRoot 'issue-comment.ps1') -Number $Number -Body $body @where | Out-Null; 'the issue says what landed' }
 catch { Write-Error 'the issue was NOT told what landed - add the commits by hand' -ErrorAction Continue }
+
+# The cards of this repository and of the issue's whose work a release carries and a proof covers close (status-sync)
+Sync-ReleasedCards -Repo @(@((Get-DefaultRepo), $Repo) | Where-Object { $_ })

@@ -23,15 +23,19 @@ Check 'from todo'         '' (Get-DeriveTarget -Current 'todo' -OnMaster 1 -Rele
 Check 'from backlog'      '' (Get-DeriveTarget -Current 'backlog' -OnMaster 1 -Released 0 -IsEpic 0)
 Check 'from implementing' '' (Get-DeriveTarget -Current 'implementing' -OnMaster 1 -Released 0 -IsEpic 0)
 
-Write-Host 'a released commit closes only a card finish-issue moved to testing'
-Check 'from testing'      'CLOSE' (Get-DeriveTarget -Current 'testing' -OnMaster 1 -Released 1 -IsEpic 0)
-Check 'the board spells it Testing' 'CLOSE' (Get-DeriveTarget -Current 'Testing' -OnMaster 1 -Released 1 -IsEpic 0)
-Check 'not from todo'     '' (Get-DeriveTarget -Current 'todo' -OnMaster 1 -Released 1 -IsEpic 0)
-Check 'not from implementing, whose work may land in more steps' '' (Get-DeriveTarget -Current 'implementing' -OnMaster 1 -Released 1 -IsEpic 0)
+Write-Host 'a released and proven commit closes only a card finish-issue moved to testing'
+Check 'from testing'      'CLOSE' (Get-DeriveTarget -Current 'testing' -OnMaster 1 -Released 1 -IsEpic 0 -Proven 1)
+Check 'the board spells it Testing' 'CLOSE' (Get-DeriveTarget -Current 'Testing' -OnMaster 1 -Released 1 -IsEpic 0 -Proven 1)
+Check 'not from todo'     '' (Get-DeriveTarget -Current 'todo' -OnMaster 1 -Released 1 -IsEpic 0 -Proven 1)
+Check 'not from implementing, whose work may land in more steps' '' (Get-DeriveTarget -Current 'implementing' -OnMaster 1 -Released 1 -IsEpic 0 -Proven 1)
+
+Write-Host 'a release is not a proof'
+Check 'released, no proof record'  '' (Get-DeriveTarget -Current 'testing' -OnMaster 1 -Released 1 -IsEpic 0 -Proven 0)
+Check 'proven, not released'       '' (Get-DeriveTarget -Current 'testing' -OnMaster 1 -Released 0 -IsEpic 0 -Proven 1)
 
 Write-Host 'it never moves a card backward'
 Check 'testing stays testing' '' (Get-DeriveTarget -Current 'testing' -OnMaster 1 -Released 0 -IsEpic 0)
-Check 'done stays done'       '' (Get-DeriveTarget -Current 'done' -OnMaster 1 -Released 1 -IsEpic 0)
+Check 'done stays done'       '' (Get-DeriveTarget -Current 'done' -OnMaster 1 -Released 1 -IsEpic 0 -Proven 1)
 
 # The card is put in implementing by start-issue, at the moment the worktree is opened. That
 # column is a person's statement, so the sweep never writes it and never reads a worktree.
@@ -41,7 +45,7 @@ Check 'a tag without the commit' '' (Get-DeriveTarget -Current 'todo' -OnMaster 
 Check 'implementing stays where a person put it' '' (Get-DeriveTarget -Current 'implementing' -OnMaster 0 -Released 0 -IsEpic 0)
 
 Write-Host 'no commit moves an epic, whatever the signal: an epic follows its sub-issues'
-Check 'epic with a released commit'  '' (Get-DeriveTarget -Current 'todo' -OnMaster 1 -Released 1 -IsEpic 1)
+Check 'epic with a released commit'  '' (Get-DeriveTarget -Current 'todo' -OnMaster 1 -Released 1 -IsEpic 1 -Proven 1)
 Check 'epic with a commit on master' '' (Get-DeriveTarget -Current 'todo' -OnMaster 1 -Released 0 -IsEpic 1)
 
 Write-Host 'the ranks are what forbid a backward move'
@@ -52,20 +56,19 @@ Check 'testing'       2 (Get-StatusRank 'testing')
 Check 'done'          3 (Get-StatusRank 'done')
 Check 'CLOSE is done' 3 (Get-StatusRank 'CLOSE')
 
-# --- the signal path, driven end to end against a stand-in gh -----------------
+# --- the signal path, driven end to end against a stand-in gh and a real clone ----
 #
-# The decision above is pure, and everything that FEEDS it is not. The timeline query that finds
-# the newest commit naming an issue, the two `compare/<ref>...<sha>` reads that say whether a ref
-# carries it, the board list and the memo are what a change breaks, and a suite that only calls
-# Get-DeriveTarget cannot tell the two twins apart on any of them.
-#
-# NOTHING REACHES github.com. A stand-in `gh` on PATH answers the board, the signals of each
-# issue, the default branch, the tag list and each compare, and writes down every call it was
-# given, so the READS are held as well as the two lines the sweep prints.
-#
-# THE TWO PLANTED CARDS, one per signal:
-#   #12 implementing, its commit behind master and not in the tag   -> would move to testing
-#   #13 todo, its commit behind master and identical to the tag     -> would close, released
+# The same cases as status-sync.test.sh, against the same clone of the same commits and tags:
+#   abc13 deploy/prod/1 (LIVE_TAGS' first environment) ... abc18 deploy/prod/2 and 0.1-newest,
+#         the newest tag by date and the last of all by name
+#   abc19 deploy/test/9, the newest by date but for 0.1-newest
+#   abc20 on master, in no tag
+# and the same cards: #12 implementing on master, #13 released and proven, #14 an epic with one
+# sub-issue, #15 of another organisation, #16 reopened after its landing, #17 moved by hand, #18
+# released without a proof record and proven by a stranger, #19 on test only, #20 in no tag and
+# on the second page with a newer prod tag in the clone that origin never had, #22 landed in
+# example-org/gone, which has no clone here, #23 landed in example-org/tools, whose clone stands in
+# the project folder with its own LIVE_TAGS and its tag deploy/prod/7 on that commit.
 
 $fake = Join-Path ([IO.Path]::GetTempPath()) "status-sync-$([guid]::NewGuid().ToString('N').Substring(0,8))"
 $env:GH_CACHE_DIRECTORY = Join-Path $fake 'cache'
@@ -77,6 +80,51 @@ $projectId = 'PVT_kwstatussync'
 $cache = Join-Path $env:GH_CACHE_DIRECTORY "$projectNumber"
 New-Item -ItemType Directory -Path $cache -Force | Out-Null
 Set-Content -Path (Join-Path $cache 'project-id') -Value $projectId -NoNewline
+Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'empty.json') -Value '{}'
+Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'tools-projects.json') -Value ('{"data":{"repository":{"projectsV2":{"nodes":[{"number":' + $projectNumber + ',"title":"Board","closed":false}]}}}}')
+Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'project-id.json') -Value ('{"data":{"organization":{"projectV2":{"id":"' + $projectId + '"}}}}')
+
+# The clone and its origin. Commit and tag dates are set, so "newest by date" is not left to the
+# speed of the machine.
+function Git-At([string]$Dir, [long]$At, [string[]]$GitArgs) {  # git in Dir with its dates set to At
+  $env:GIT_AUTHOR_DATE = "@$At +0000"; $env:GIT_COMMITTER_DATE = $env:GIT_AUTHOR_DATE
+  try { & git -C $Dir -c user.name=check -c user.email=check@localhost @GitArgs } finally { Remove-Item Env:GIT_AUTHOR_DATE, Env:GIT_COMMITTER_DATE }
+}
+function CommitAt([string]$Dir, [long]$At, [string]$Subject) {
+  Set-Content -LiteralPath (Join-Path $Dir "$At.txt") -Value $Subject
+  & git -C $Dir add -A
+  Git-At $Dir $At @('commit', '-q', '-m', $Subject)
+  "$(& git -C $Dir rev-parse HEAD)".Trim()
+}
+function TagAt([string]$Dir, [string]$Tag, [long]$At) { Git-At $Dir $At @('tag', '-a', '-m', $Tag, $Tag) }
+$origin = Join-Path $fake 'remote/example-org/example-repo.git'; $seed = Join-Path $fake 'seed'; $clone = Join-Path $fake 'folder/example-repo'
+& git init -q --bare $origin; & git init -q $seed; & git -C $seed checkout -q -b master
+$c12 = CommitAt $seed 1700000012 'Work of #12'
+$c13 = CommitAt $seed 1700000013 'Land #13'; TagAt $seed 'deploy/prod/1' 1700000013
+$c16 = CommitAt $seed 1700000016 'Land #16'
+$c18 = CommitAt $seed 1700000018 'Land #18'; TagAt $seed 'deploy/prod/2' 1700000018; TagAt $seed '0.1-newest' 1700000099
+$c19 = CommitAt $seed 1700000019 'Land #19'; TagAt $seed 'deploy/test/9' 1700000019
+$c20 = CommitAt $seed 1700000020 'Land #20'
+& git -C $seed push -q $origin master --tags
+& git -C $origin symbolic-ref HEAD refs/heads/master
+New-Item -ItemType Directory -Path (Join-Path $fake 'folder') -Force | Out-Null
+& git clone -q $origin $clone
+# The tags reach the clone through the fetch status-sync makes, not through the clone
+foreach ($t in @(& git -C $clone tag -l)) { & git -C $clone tag -d $t | Out-Null }
+# A release run whose push was refused left this tag in the clone alone, newer than every other
+Git-At $clone 1700000300 @('tag', '-a', '-m', 'never pushed', 'deploy/prod/3', $c20)
+$liveTags = 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"'
+New-Item -ItemType Directory -Path (Join-Path $clone '.ai-core') -Force | Out-Null
+Set-Content -LiteralPath (Join-Path $clone '.ai-core/config.env') -Value $liveTags
+# A second repository of the project, whose release carries the work of #23 and of nothing here
+$toolsOrigin = Join-Path $fake 'remote/example-org/tools.git'; $toolsSeed = Join-Path $fake 'tools-seed'; $tools = Join-Path $fake 'folder/tools'
+& git init -q --bare $toolsOrigin; & git init -q $toolsSeed; & git -C $toolsSeed checkout -q -b master
+$t23 = CommitAt $toolsSeed 1700000023 'Land #23'; TagAt $toolsSeed 'deploy/prod/7' 1700000023
+& git -C $toolsSeed push -q $toolsOrigin master --tags
+& git -C $toolsOrigin symbolic-ref HEAD refs/heads/master
+& git clone -q $toolsOrigin $tools
+New-Item -ItemType Directory -Path (Join-Path $tools '.ai-core') -Force | Out-Null
+Set-Content -LiteralPath (Join-Path $tools '.ai-core/config.env') -Value 'LIVE_TAGS="prod=deploy/prod/*"'
 
 function Card($number, $title, $status, $owner = 'example-org') {
   '{"fieldValues":{"nodes":[{"name":"' + $status + '","field":{"name":"Status"}}]},"content":{"number":' +
@@ -85,38 +133,41 @@ function Card($number, $title, $status, $owner = 'example-org') {
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'board.json') -Value (
   '{"data":{"node":{"items":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[' +
   ((Card 12 'A commit of its own is on master' 'implementing'),
-   (Card 13 'A commit of its own is in the newest tag' 'testing'),
-   (Card 14 'An epic with one child' 'todo'),
-   (Card 15 'An issue of another organisation on this board' 'todo' 'other-org'),
-   (Card 16 'Reopened after its work landed' 'testing'),
-   (Card 17 'Moved to testing by hand' 'testing') -join ',') + ']}}}}')
+   (Card 15 'An issue of another organisation on this board' 'todo' 'other-org') -join ',') + ']}}}}')
 
-# finish-issue's "Landed on" comment names the commit; an older one and a comment of a person
-# beside it say nothing. No reopening.
-function Signals($sha) {
-  '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":0},"reopened":{"nodes":[]},"comments":{"nodes":[' +
-  '{"createdAt":"2026-08-01T10:00:00Z","body":"Landed on master:\n\n- 0000000 an earlier step"},' +
-  '{"createdAt":"2026-09-01T10:00:00Z","body":"Landed on master:\n\n- ' + $sha + ' Its subject\n- 1111111 an older commit"},' +
-  '{"createdAt":"2026-09-02T10:00:00Z","body":"Looks good, see 2222222"}]}}}}}'
+# An open issue as the query of one repository reads it: its card on this board, and the cards of
+# board 5 and of a board numbered like this one under another owner, which are not this board's
+# Every comment is written by a member, but for the one stranger's
+function Landed($at, $sha, $repo = '') {
+  $of = if ($repo) { " of $repo" } else { '' }
+  '{"createdAt":"' + $at + '","authorAssociation":"MEMBER","body":"Landed on master' + $of + ':\n\n- ' + $sha.Substring(0, 7) + ' Its subject\n- 1111111 an older commit"}'
 }
-Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'project-id.json') -Value ('{"data":{"organization":{"projectV2":{"id":"' + $projectId + '"}}}}')
-Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'signals-12.json') -Value (Signals 'abc1212')
-Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'signals-13.json') -Value (Signals 'abc1313')
-Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'signals-14.json') -Value '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":1},"reopened":{"nodes":[]},"comments":{"nodes":[]}}}}}'
+function Proven($at, $association = 'MEMBER') { '{"createdAt":"' + $at + '","authorAssociation":"' + $association + '","body":"Proven on prod:\n\n- TC-1 PASS"}' }
+function Issue($number, $status, $subs, $comments, $reopenedAt = '') {
+  $reopened = if ($reopenedAt) { '{"createdAt":"' + $reopenedAt + '"}' } else { '' }
+  '{"number":' + $number + ',"subIssuesSummary":{"total":' + $subs + '},"projectItems":{"nodes":[' +
+  '{"project":{"number":5,"owner":{"login":"example-org"}},"status":{"name":"done"}},' +
+  '{"project":{"number":' + $projectNumber + ',"owner":{"login":"other-org"}},"status":{"name":"done"}},' +
+  '{"project":{"number":' + $projectNumber + ',"owner":{"login":"example-org"}},"status":{"name":"' + $status + '"}}]},' +
+  '"reopened":{"nodes":[' + $reopened + ']},"comments":{"nodes":[' + $comments + ']}}'
+}
+function Page($hasNext, $cursor, $nodes) { '{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":' + $hasNext + ',"endCursor":' + $cursor + '},"nodes":[' + ($nodes -join ',') + ']}}}}' }
+Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'issues-1.json') -Value (Page 'true' '"c1"' @(
+  (Issue 12 'implementing' 0 (Landed '2026-09-01T10:00:00Z' $c12)),
+  (Issue 13 'testing' 0 (((Landed '2026-08-01T10:00:00Z' '0000000'), (Landed '2026-09-01T10:00:00Z' $c13), (Proven '2026-09-02T10:00:00Z'), '{"createdAt":"2026-09-03T10:00:00Z","authorAssociation":"MEMBER","body":"Looks good, see 2222222"}') -join ',')),
+  (Issue 14 'todo' 1 ''),
+  (Issue 16 'testing' 0 (((Landed '2026-09-01T10:00:00Z' $c16), (Proven '2026-09-02T10:00:00Z')) -join ',') '2026-09-05T10:00:00Z'),
+  (Issue 17 'testing' 0 '{"createdAt":"2026-09-01T10:00:00Z","authorAssociation":"MEMBER","body":"Done in\n- abc1717 by hand"}')))
+Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'issues-2.json') -Value (Page 'false' 'null' @(
+  (Issue 18 'testing' 0 (((Proven '2026-08-30T10:00:00Z'), (Landed '2026-09-01T10:00:00Z' $c18), (Proven '2026-09-02T10:00:00Z' 'NONE')) -join ',')),
+  (Issue 22 'testing' 0 (((Landed '2026-09-01T10:00:00Z' $c13 'example-org/gone'), (Proven '2026-09-02T10:00:00Z')) -join ',')),
+  (Issue 23 'testing' 0 (((Landed '2026-09-01T10:00:00Z' $t23 'example-org/tools'), (Proven '2026-09-02T10:00:00Z')) -join ',')),
+  (Issue 19 'testing' 0 (((Landed '2026-09-01T10:00:00Z' $c19), (Proven '2026-09-02T10:00:00Z')) -join ',')),
+  (Issue 20 'testing' 0 (((Landed '2026-09-01T10:00:00Z' $c20), (Proven '2026-09-02T10:00:00Z')) -join ',')),
+  (Issue 21 '' 0 '')))
+Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'issues-other.json') -Value (Page 'false' 'null' @((Issue 15 'todo' 0 '')))
 # #14's one sub-issue was moved to testing by hand on the board; the epic itself stands in todo
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'epic-14.json') -Value '{"data":{"repository":{"issue":{"state":"OPEN","projectItems":{"nodes":[{"project":{"number":999995,"owner":{"login":"example-org"}},"status":{"name":"todo"}}]},"subIssues":{"nodes":[{"state":"OPEN","projectItems":{"nodes":[{"project":{"number":999995,"owner":{"login":"example-org"}},"status":{"name":"testing"}}]}}]}}}}}'
-# #15 lives in another organisation's repository and carries no commit: read, not moved
-Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'signals-15.json') -Value '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":0},"reopened":{"nodes":[]},"comments":{"nodes":[]}}}}}'
-# #16 was reopened after its work landed: the record of the first round does not count
-Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'signals-16.json') -Value '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":0},"reopened":{"nodes":[{"createdAt":"2026-09-05T10:00:00Z"}]},"comments":{"nodes":[{"createdAt":"2026-09-01T10:00:00Z","body":"Landed on master:\n\n- abc1616 The first round"}]}}}}}'
-# #17 was moved to testing by hand: a comment that names a commit is no record of finish-issue
-Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'signals-17.json') -Value '{"data":{"repository":{"issue":{"state":"OPEN","subIssuesSummary":{"total":0},"reopened":{"nodes":[]},"comments":{"nodes":[{"createdAt":"2026-09-01T10:00:00Z","body":"Done in\n- abc1717 by hand"}]}}}}}'
-Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'repo.json') -Value '{"default_branch":"master"}'
-Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'tags.json') -Value '[{"name":"0.8.100"}]'
-Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'compare-master-abc1212.json')  -Value '{"status":"behind"}'
-Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'compare-tag-abc1212.json')     -Value '{"status":"ahead"}'
-Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'compare-master-abc1313.json')  -Value '{"status":"behind"}'
-Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'compare-tag-abc1313.json')     -Value '{"status":"identical"}'
 
 # The stand-in RUNS the --jq program the caller gave, the way gh does. Answering the raw
 # document instead would let a script that never reads its answer pass.
@@ -124,22 +175,22 @@ Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'compare-tag-abc1313.json
 `$ErrorActionPreference = 'Stop'
 `$line = `$args -join ' '
 Add-Content -LiteralPath '$calls' -Value `$line
-if     (`$line -like '*subIssues(first*')               { `$doc = 'epic-14.json' }
-elseif (`$line -like '*projectV2(number:*')             { `$doc = 'project-id.json' }
-elseif (`$line -like '*items(first:100, after:*')       { `$doc = 'board.json' }
-elseif (`$line -like '*num=12*')                        { `$doc = 'signals-12.json' }
-elseif (`$line -like '*num=13*')                        { `$doc = 'signals-13.json' }
-elseif (`$line -like '*num=14*')                        { `$doc = 'signals-14.json' }
-elseif (`$line -like '*o=other-org*num=15*')            { `$doc = 'signals-15.json' }
-elseif (`$line -like '*num=16*')                        { `$doc = 'signals-16.json' }
-elseif (`$line -like '*num=17*')                        { `$doc = 'signals-17.json' }
-elseif (`$line -like '*repos/other-org/example-repo*')  { `$doc = 'repo.json' }
-elseif (`$line -like '*compare/master...abc1212*')        { `$doc = 'compare-master-abc1212.json' }
-elseif (`$line -like '*compare/0.8.100...abc1212*')       { `$doc = 'compare-tag-abc1212.json' }
-elseif (`$line -like '*compare/master...abc1313*')        { `$doc = 'compare-master-abc1313.json' }
-elseif (`$line -like '*compare/0.8.100...abc1313*')       { `$doc = 'compare-tag-abc1313.json' }
-elseif (`$line -like '*/tags*')                         { `$doc = 'tags.json' }
-elseif (`$line -like '*repos/example-org/example-repo*') { `$doc = 'repo.json' }
+if     (`$line -like '*subIssues(first*')                    { `$doc = 'epic-14.json' }
+elseif (`$line -like '*projectV2(number:*')                  { `$doc = 'project-id.json' }
+elseif (`$line -like '*items(first:100, after:*')            { `$doc = 'board.json' }
+elseif (`$line -like '*o=other-org*issues(states:OPEN*')     { `$doc = 'issues-other.json' }
+elseif (`$line -like '*after=c1*issues(states:OPEN*')        { `$doc = 'issues-2.json' }
+elseif (`$line -like '*issues(states:OPEN*')                 { `$doc = 'issues-1.json' }
+elseif (`$line -like '*--method PATCH*')                     { `$doc = 'empty.json' }
+elseif (`$line -like '*n=tools*projectsV2(first:50)*')       { `$doc = 'tools-projects.json' }
+# the checkout is on this board only where a case says it stands in one
+elseif (`$line -like '*o=example-org -f n=example-repo*projectsV2(first:50)*' -and (Test-Path -LiteralPath (Join-Path '$fake' 'here'))) { `$doc = 'tools-projects.json' }
+elseif (`$line -like '*repo view*') {
+  if (Test-Path -LiteralPath (Join-Path '$fake' 'here')) { 'example-org/example-repo'; exit 0 }
+  if (Test-Path -LiteralPath (Join-Path '$fake' 'lenient')) { exit 0 }
+  [Console]::Error.WriteLine('no git remotes found'); exit 1
+}
+elseif (Test-Path -LiteralPath (Join-Path '$fake' 'lenient')) { exit 0 }
 else { [Console]::Error.WriteLine("the stand-in gh has no answer for: `$line"); exit 9 }
 `$prog = ''
 for (`$i = 0; `$i -lt `$args.Count - 1; `$i++) { if (`$args[`$i] -eq '--jq') { `$prog = `$args[`$i + 1] } }
@@ -150,40 +201,117 @@ exit 0
 $env:PATH = "$ghDir$([IO.Path]::PathSeparator)$env:PATH"
 
 function CallCount($text) { @(@(Get-Content -LiteralPath $calls -EA SilentlyContinue) | Where-Object { $_.Contains($text) }).Count }
+# The repositories go by position, as the bash twin takes them
+function Sync([string]$Dir, [string[]]$Repo = @(), [switch]$Apply, [switch]$BoardFromEnvironment) {
+  Set-Content -LiteralPath $calls -Value $null
+  Push-Location -LiteralPath $Dir
+  try {
+    $a = @('-NoProfile', '-File', (Join-Path $root 'bin/status-sync.ps1')) + $Repo
+    if ($BoardFromEnvironment) { $env:GH_PROJECT_NUMBER = "$projectNumber" } else { $a += @('-Project', $projectNumber) }
+    if (-not $Apply) { $a += '-DryRun' }
+    $script:run = @(& pwsh @a 2>&1 | ForEach-Object { "$_" }); $script:rc = $LASTEXITCODE
+  } finally { Pop-Location; Remove-Item Env:GH_PROJECT_NUMBER -ErrorAction SilentlyContinue }
+}
+function Lines($pattern) { (@($script:run | Where-Object { $_ -like $pattern }) -join "`n") }
 
 try {
-  Write-Host 'the sweep, driven against a stand-in gh: one card per signal'
-  $run = @(& pwsh -NoProfile -File (Join-Path $root 'bin/status-sync.ps1') -Project $projectNumber -DryRun 2>&1 |
-    ForEach-Object { "$_" })
-  Check 'exit 0' 0 $LASTEXITCODE
-  Check 'a card in implementing with a commit on master stays where it is' `
-    '' "$(@($run | Where-Object { $_.Contains('example-repo#12') }))"
-  Check 'a commit the newest tag carries would close the issue' `
-    'would close  example-repo#13  (testing -> done, released in 0.8.100)' (@($run | Where-Object { $_ -like 'would close*' }))[0]
+  Write-Host 'one repository named: its issues in one query, its release from the clone'
+  Sync $clone 'example-org/example-repo'
+  Check 'exit 0' 0 $rc
+  Check 'released on the first environment and proven: would close' `
+    'would close  example-repo#13  (testing -> done, released in deploy/prod/2 and proven)' (Lines 'would close  example-repo#13 *')
+  Check 'released without a proof record after its landing: due, and it stays' `
+    'proof due    example-repo#18  (released in deploy/prod/2, no "Proven on" record after its landing)' (Lines 'proof due*')
   Check 'an epic with one sub-issue is named' `
-    'one child    example-repo#14  (its state follows its one sub-issue; work of its own belongs in a sub-issue of its own, or it is closed with that sub-issue)' (@($run | Where-Object { $_ -like 'one child*' }))[0]
-  Check 'and follows its sub-issue moved by hand' `
-    'would move   example-repo#14  (todo -> testing)' (@($run | Where-Object { $_ -like 'would move   example-repo#14*' }))[0]
-  Check 'and the count says what it read' `
-    "6 active cards scanned, 2 would move on board $projectNumber." $run[-1]
+    'one child    example-repo#14  (its state follows its one sub-issue; work of its own belongs in a sub-issue of its own, or it is closed with that sub-issue)' (Lines 'one child*')
+  Check 'and follows its sub-issue moved by hand' 'would move   example-repo#14  (todo -> testing)' (Lines 'would move   example-repo#14*')
+  Check 'nothing else moves: not on master alone, not reopened, not by hand, not on test only, not untagged' `
+    '' "$(@($run | Where-Object { $_ -cmatch 'example-repo#(12|16|17|19|20|22)' -and $_ -cnotlike 'proof due*' }))"
+  Check 'a landing in another repository is read there, and that one has no clone here' `
+    "no clone of example-org/gone in $(Join-Path $fake 'folder'), so no release of it is read and its cards in testing stay" (Lines 'no clone*')
+  Check 'a landing in another repository closes through that one''s clone and release' `
+    'would close  example-repo#23  (testing -> done, released in example-org/tools deploy/prod/7 and proven)' (Lines 'would close  example-repo#23 *')
+  Check 'and the count says what it read, both pages' "10 active cards scanned, 3 would move on board $projectNumber." $run[-1]
+  Check 'the board is not read' 0 (CallCount 'items(first:100')
+  Check 'the issues are read once per page' 2 (CallCount 'issues(states:OPEN')
+  Check 'nothing asks GitHub for a tag or a compare' 0 @(@(Get-Content -LiteralPath $calls) | Where-Object { $_ -cmatch '/tags|/compare/' }).Count
+  & git -C $clone rev-parse -q --verify refs/tags/deploy/prod/2 *>$null
+  Check 'the fetch brought the tags' 'yes' $(if ($LASTEXITCODE -eq 0) { 'yes' } else { 'no' })
+  & git -C $clone rev-parse -q --verify refs/tags/deploy/prod/3 *>$null
+  Check 'and kept the one origin never had, which no fetch prunes' 'yes' $(if ($LASTEXITCODE -eq 0) { 'yes' } else { 'no' })
 
-  Write-Host 'only the newest record of finish-issue after the last reopening names the commit'
-  Check 'not the commit of a reopened issue' 0 (CallCount 'abc1616')
-  Check 'not a commit a person named'        0 (CallCount 'abc1717')
-  Check 'not an older record or commit'      0 @(@(Get-Content -LiteralPath $calls) | Where-Object { $_ -cmatch '0000000|1111111|2222222' }).Count
+  Write-Host 'the repositories alone, the board from GH_PROJECT_NUMBER: by position they are no board'
+  Sync $clone @('example-org/example-repo', 'other-org/example-repo') -BoardFromEnvironment
+  Check 'exit 0' 0 $rc
+  Check 'both are read' "11 active cards scanned, 3 would move on board $projectNumber." $run[-1]
 
-  Write-Host 'the compare is asked once per question, with the ref as base and the commit as head'
-  Check 'a card of another organisation is read under its owner' 1 @(@(Get-Content -LiteralPath $calls) | Where-Object { $_ -cmatch 'o=other-org .*num=15' }).Count
-  Check 'is the commit of #12 on master' 1 (CallCount 'compare/master...abc1212')
-  Check 'is it in the newest tag'        1 (CallCount 'compare/0.8.100...abc1212')
-  Check 'is the commit of #13 on master' 1 (CallCount 'compare/master...abc1313')
-  Check 'is it in the newest tag'        1 (CallCount 'compare/0.8.100...abc1313')
+  Write-Host 'no board named: the board is the one the first repository named is linked to, not the checkout''s'
+  Set-Content -LiteralPath $calls -Value $null
+  Push-Location -LiteralPath $clone
+  $kept = $env:GH_PROJECT_NUMBER; Remove-Item Env:GH_PROJECT_NUMBER -ErrorAction SilentlyContinue
+  try { $run = @(& pwsh -NoProfile -File (Join-Path $root 'bin/status-sync.ps1') 'example-org/tools' -DryRun 2>&1 | ForEach-Object { "$_" }); $rc = $LASTEXITCODE }
+  finally { Pop-Location; if ($kept) { $env:GH_PROJECT_NUMBER = $kept } }
+  Check 'exit 0' 0 $rc
+  Check 'it is swept on that board' "on board $projectNumber." ($run[-1] -creplace '^.* (on board )', '$1')
 
-  # The memo exists so a board of two hundred cards in one repository does not ask for the same
-  # default branch two hundred times.
-  Write-Host 'the memo answers: one read per repository for the run, not one per card'
-  Check 'the default branch, once for both cards' 1 (CallCount 'repos/example-org/example-repo --jq .default_branch')
-  Check 'the tag list, once for both cards'       1 (CallCount 'repos/example-org/example-repo/tags')
+  Write-Host 'no board named, from a checkout on a board: that board, also for a repository of another organisation'
+  Set-Content -LiteralPath $calls -Value $null; New-Item -ItemType File -Path (Join-Path $fake 'here') -Force | Out-Null
+  Push-Location -LiteralPath $clone
+  $kept = $env:GH_PROJECT_NUMBER; Remove-Item Env:GH_PROJECT_NUMBER -ErrorAction SilentlyContinue
+  try { $run = @(& pwsh -NoProfile -File (Join-Path $root 'bin/status-sync.ps1') 'other-org/example-repo' -DryRun 2>&1 | ForEach-Object { "$_" }); $rc = $LASTEXITCODE }
+  finally { Pop-Location; if ($kept) { $env:GH_PROJECT_NUMBER = $kept }; Remove-Item -LiteralPath (Join-Path $fake 'here') }
+  Check 'exit 0' 0 $rc
+  Check 'its card on this board is read' "1 active cards scanned, 0 would move on board $projectNumber." $run[-1]
+
+  Write-Host 'without LIVE_TAGS the newest tag by date decides, whatever its name'
+  Set-Content -LiteralPath (Join-Path $clone '.ai-core/config.env') -Value ''
+  Sync $clone 'example-org/example-repo'
+  Check 'the newest tag is 0.1-newest, which carries #13 and not #19' `
+    'would close  example-repo#13  (testing -> done, released in 0.1-newest and proven)' (Lines 'would close  example-repo#13 *')
+  Set-Content -LiteralPath (Join-Path $clone '.ai-core/config.env') -Value $liveTags
+
+  Write-Host 'no repository named: the board is read to learn its repositories, each read under its owner'
+  Sync $clone
+  Check 'exit 0' 0 $rc
+  Check 'the board is read once' 1 (CallCount 'items(first:100, after:')
+  Check 'a repository of another organisation is read under its owner' 1 (CallCount 'graphql -f o=other-org -f n=example-repo')
+  Check 'its card is counted' "11 active cards scanned, 3 would move on board $projectNumber." $run[-1]
+
+  Write-Host 'a repository with no clone here: said, and its cards in testing stay'
+  Sync $fake 'example-org/example-repo'
+  Check 'it says so' "no clone of example-org/example-repo in $fake, so no release of it is read and its cards in testing stay" (Lines 'no clone of example-org/example-repo *')
+  Check 'nothing closes' '' (Lines 'would close*')
+  Sync (Join-Path $fake 'folder') 'example-org/example-repo'
+  Check 'from the project folder, the clone in it is found, and LIVE_TAGS read from the clone' 'would close  example-repo#13  (testing -> done, released in deploy/prod/2 and proven)' (Lines 'would close  example-repo#13 *')
+
+  Write-Host 'a tag origin moved back still stands on its old commit in the clone: no tag counts, since the newest is not known'
+  $moved = "$(& git -C $origin rev-parse refs/tags/deploy/prod/2)".Trim()
+  Git-At $origin 1700000018 @('tag', '-f', '-a', '-m', 'moved back', 'deploy/prod/2', $c12) | Out-Null
+  Sync $clone 'example-org/example-repo'
+  Check 'the fetch says why it failed' `
+    "fetching origin of example-org/example-repo in $clone failed: ! [rejected] deploy/prod/2 -> deploy/prod/2 (would clobber existing tag); the refs it had are read" (Lines 'fetching origin*')
+  Check 'it names the tag' "origin of example-org/example-repo has deploy/prod/2 on a commit its clone in $clone does not have it on, so no tag of it counts as a release and its cards in testing stay" (Lines 'origin of*')
+  Check 'and the tag before it does not stand in: nothing of it closes' '' "$(@($run | Where-Object { $_ -cmatch '^(would close|proof due) +example-repo#(13|18)' }))"
+  & git -C $origin update-ref refs/tags/deploy/prod/2 $moved
+
+  Write-Host 'an origin that cannot be listed: no tag counts, and it says so'
+  & git -C $clone remote set-url origin (Join-Path $fake 'gone/example-org/example-repo.git')
+  Sync $clone 'example-org/example-repo'
+  Check 'it says so' "origin of example-org/example-repo could not be listed from $clone, so no tag of it counts as a release and its cards in testing stay" (Lines 'origin of*')
+  Check 'nothing of it closes, not even on the tag the clone holds' '' (Lines 'would close  example-repo#13 *')
+  & git -C $clone remote set-url origin $origin
+
+  Write-Host 'without -DryRun: the closing card is closed through issue-close, and nothing else is'
+  # issue-close asks more than the close, where the issue stands on boards and under an epic, and
+  # the stand-in answers every such question with nothing
+  New-Item -ItemType File -Path (Join-Path $fake 'lenient') -Force | Out-Null
+  Sync $clone 'example-org/example-repo' -Apply
+  Check 'exit 0' 0 $rc
+  Check 'it says so' 'close        example-repo#13  (testing -> done, released in deploy/prod/2 and proven)' (Lines 'close        example-repo#13 *')
+  Check '#13 is closed' 1 (CallCount 'api --method PATCH repos/example-org/example-repo/issues/13 ')
+  Check '#23 is closed' 1 (CallCount 'api --method PATCH repos/example-org/example-repo/issues/23 ')
+  Check 'and no other issue' 2 @(@(Get-Content -LiteralPath $calls) | Where-Object { $_ -cmatch 'api --method PATCH repos/.*/issues/' }).Count
+  Remove-Item -LiteralPath (Join-Path $fake 'lenient')
 }
 finally {
   Remove-Item -Recurse -Force $fake, $cache -ErrorAction SilentlyContinue

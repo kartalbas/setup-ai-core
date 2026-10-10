@@ -49,7 +49,13 @@
   integration goes to the owner: no other session pushes it, and nothing is reworded or forced
   past the refusal. [tool · review]
 - **Nothing is called done until the product owner has reviewed the finished work.** The checks
-  decide what may leave the machine; the owner decides what counts as delivered. [review]
+  decide what may leave the machine; the owner decides what counts as delivered. A card in testing
+  is due for its proof once a release carries its work to the environment its acceptance criteria
+  name: the session that built it proves it there while it still runs, the coordinator otherwise,
+  in its next round. Once every check passed, it writes the proof on the issue, in a comment whose
+  first line is `Proven on <environment>:`; `ai-core status-sync` closes the card when that record
+  follows its landing and the release of the first environment of `LIVE_TAGS` carries its work.
+  [tool · review]
 - **A machine is never repaired by hand while the repository does not yet carry the repair.** Reading
   state and reproducing a failure on a machine stays allowed; leaving it changed does not, because
   the hand that repairs destroys the state in which the fix could be proven. [discipline]

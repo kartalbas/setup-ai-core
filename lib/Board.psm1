@@ -570,6 +570,26 @@ function Get-RepoOpenProjects {
     Where-Object { $_ -and -not (($_ -split "`t")[1]).StartsWith($script:TemplateMark, [StringComparison]::Ordinal) })
 }
 
+function Sync-ReleasedCards {
+  # THE CARDS OF THE REPOSITORIES THAT A RELEASE HAS CARRIED AND A PROOF COVERS, closed as an
+  # issue starts or finishes: status-sync for the checkout's repository and the issue's, where that
+  # is another one, each in a run of its own that reads its issues in one query and its release from
+  # its clone, so a proven card in testing whose landed commit the newest release tag carries does
+  # not wait for a person. A run of its own, because each one is swept on its own board where none
+  # is named. A repository on no board has no card. A failure is said and stops nothing.
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][string[]]$Repo)
+  $named = @(); foreach ($r in $Repo) { if ($named -inotcontains $r) { $named += $r } }
+  foreach ($r in $named) {
+    try {
+      if (Test-OnNoBoard -Repo $r) { continue }
+      $out = @(& pwsh -NoProfile -File (Join-Path $PSScriptRoot '../bin/status-sync.ps1') $r 2>&1 | ForEach-Object { "$_" })
+      if ($LASTEXITCODE -ne 0) { Write-Error "status-sync did NOT run for ${r}: $($out -join ' ')" -ErrorAction Continue; continue }
+      $out | Where-Object { $_ -cmatch '^close ' }
+    } catch { Write-Error "status-sync did NOT run for ${r}: $($_.Exception.Message)" -ErrorAction Continue }
+  }
+}
+
 function Test-OnNoBoard {
   # A repository ON NO BOARD: no board is named, by -Project or GH_PROJECT_NUMBER, and the
   # repository is linked to no open one, as a harness or the tooling's own repository is. Its
@@ -965,7 +985,7 @@ function Update-ParentEpic {
   Update-Epic -Repo $parentRepo -Number $parentNumber
 }
 
-Export-ModuleMember -Function Stop-WithError, ConvertTo-AsciiLowercase, Invoke-Gh, Get-Org, Get-DataDir, Get-DataFile, Get-LabelTaxonomy, Get-LabelNamesInGroup,
+Export-ModuleMember -Function Stop-WithError, Sync-ReleasedCards, ConvertTo-AsciiLowercase, Invoke-Gh, Get-Org, Get-DataDir, Get-DataFile, Get-LabelTaxonomy, Get-LabelNamesInGroup,
   Set-Project, Get-ProjectNumber, Get-ProjectOrg,
   Get-TemplateProjectNumber, Get-TemplateMark, Resolve-ProjectForRepo, Get-RepoOpenProjects, Test-OnNoBoard, Get-OriginDefaultBranch, Get-ProjectId, Get-CacheDir, Get-Fields, Get-FieldId, Get-OptionId,
   Clear-BoardCache, Get-DefaultRepo, Get-BranchIssueRepo, Get-IssueRef, Get-AssigneeForRepo, Get-ProjectRepos, Get-IssueNodeId, Get-IssueDbId,

@@ -138,6 +138,13 @@ finished; otherwise add a new package to the plan issue.
   its commits.
 - On a report: check the verification output, send the review, update the plan issue, finish the
   package's issues once its push has landed, and give the worker its next package.
+- Every round, read the TESTING block of `ai-core status`. Prove each card that is live on the
+  environment its acceptance criteria name, the 🔴 ones first, with the live check of the
+  agy-helper skill; a worker still running proves its own. Write the `Proven on <environment>:`
+  record on the issue only when every check passed; `status-sync` closes the card at the release
+  of the first environment of `LIVE_TAGS`. A card that is not live waits for the release that
+  carries it. Read the TREES block too: each worktree it lists holds work that has not landed or
+  changes nobody committed; land them, or put the removal to the owner.
 
 ## 5. The usage limit
 

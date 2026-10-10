@@ -229,12 +229,14 @@ from. Every other file is created once and never overwritten. All of it is regis
 `init` writes a block into the project's `.gitignore` (`lib/gitignore-block`): every file an agent
 or the harness puts into a checkout, `/.ai-core/`, `/AGENTS.md`, `/.claude/`,
 `/.agents/`, the pointer files. The block stands between two marker
-lines and is rewritten there on every run; the rest of the file is the project's, a path the
-project already ignores is not written twice, and a project that ignores them all gets no block.
-`init` commits that `.gitignore` on its own (subject `the agent files of this repository are
-ignored`, a `No-issue:` trailer naming `init`) and pushes it by ref to the branch checked out,
-through the push gate where the repository carries one; in a worktree it leaves the change for
-that worktree's own commit. Before that commit the checkout is brought level with its origin:
+lines and only the block is rewritten, in its place, on every run: every other line is the
+project's and stays as it is, blank lines and the lines after the block too, and a file without a
+block gets it at its end. A path the project already ignores is not written twice, and a project
+that ignores them all gets no block, or loses the one it had where it stood. Only the main
+checkout writes the block: `init` commits that `.gitignore` on its own (subject `the agent files
+of this repository are ignored`, a `No-issue:` trailer naming `init`) and pushes it by ref to the
+branch checked out, through the push gate where the repository carries one. A worktree keeps the
+`.gitignore` its branch has and takes the block when it rebases. Before that commit the checkout is brought level with its origin:
 fetched, and fast-forwarded where it is only behind, so a clone another machine already served
 takes the block from there instead of committing it twice; a clone behind its origin with commits
 or changes of its own gets no block, and the report says why. From then on no clone of the
@@ -242,7 +244,9 @@ repository commits an agent file, with or without the harness.
 
 `init` also writes every path it deploys into `.git/info/exclude` of the clone, between two marker
 lines, rewritten on every run, which covers the clone before that commit.
-In a worktree, git resolves that file to the main checkout, so all worktrees share it. The project's `.gitignore` is never touched. A file
+In a worktree, git resolves that file to the main checkout, so all worktrees share it, and it
+keeps the deployed files out of `git status` in a worktree whose `.gitignore` has no block yet;
+this step never touches the project's `.gitignore`. A file
 the repository already tracks stays tracked: an exclude entry never affects a tracked file, and
 `init` never overwrites a tracked file.
 

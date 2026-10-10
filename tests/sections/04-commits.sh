@@ -27,10 +27,10 @@ for twin in sh ps1; do
           [ "$(git -C "$WORK/$t" log -1 --format='%(trailers:key=No-issue,valueonly)' | tr -d '\n')" = "the .gitignore block written by ai-core init" ] || fail "init.$twin: the .gitignore commit carries no No-issue trailer"
           [ "$(git -C "$WORK/$t" show --pretty=format: --name-only HEAD | grep -v '^$' | tr '\n' ' ')" = ".gitignore " ] || fail "init.$twin: the .gitignore commit carries more than .gitignore"
         else
-          # the worktree: somebody's issue; init leaves the change for its own commit
-          [ "$dirty" = "?? .gitignore" ] || [ "$dirty" = " M .gitignore" ] || fail "init.$twin in $t left something besides .gitignore: $(echo "$dirty" | tr '\n' ' ')"
-          git -C "$WORK/$t" add .gitignore
-          git -C "$WORK/$t" -c user.name=check -c user.email=check@localhost commit -q -m ignore
+          # the worktree: somebody's issue; init leaves its .gitignore as the branch has it, and
+          # the exclude file it shares with the checkout keeps the deployed files out
+          [ -z "$dirty" ] || fail "init.$twin in $t left something uncommitted: $(echo "$dirty" | tr '\n' ' ')"
+          [ "$(git -C "$WORK/$t" log -1 --format=%s)" = init ] || fail "init.$twin committed in the worktree $t: $(git -C "$WORK/$t" log -1 --format=%s)"
         fi
       fi
     done
@@ -61,5 +61,5 @@ for twin in sh ps1; do
   n="$(grep -c '^# setup-ai-core start' "$WORK/repo-$twin/.git/info/exclude")"
   [ "$n" = 1 ] || fail "exclude block written $n times by init.$twin"
 done
-echo "  git status empty in 4 targets, the checkouts' .gitignore committed by init with its trailer, the worktrees' left to their own commit; exclude block written once each; the session-start hook merged into the settings.json each had, once; no compact window left in it; the status line set again where it was taken out or replaced"
+echo "  git status empty in 4 targets, the checkouts' .gitignore committed by init with its trailer, the worktrees' left as their branch has it; exclude block written once each; the session-start hook merged into the settings.json each had, once; no compact window left in it; the status line set again where it was taken out or replaced"
 exit 0

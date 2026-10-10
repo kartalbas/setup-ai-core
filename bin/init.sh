@@ -527,16 +527,17 @@ fi
 
 # 3b. The project's .gitignore carries a block naming every file an agent or the harness puts
 #     into a checkout (lib/gitignore-block), so no clone of this repository commits one, with or
-#     without the harness. The block is rewritten between its markers and the rest of the file is
-#     the project's; a path the project already ignores, with or without the slashes, is not
-#     written twice, and when it ignores them all no block is written. A changed .gitignore is
-#     the one thing init leaves for a commit.
+#     without the harness. The block is rewritten where it stands, between its markers, and every
+#     other line is the project's, kept as it is; a file without a block gets it at its end. A path
+#     the project already ignores, with or without the slashes, is not written twice, and when it
+#     ignores them all no block is written. Only the main checkout writes the block and commits
+#     it: a worktree is somebody's issue, takes the block when it rebases, and until then the
+#     exclude file it shares with its checkout keeps the deployed files out of git status.
 # commit_gitignore <checkout>: the block committed on its own and pushed by ref to the branch
-# checked out; a worktree is somebody's issue and keeps the change for its own commit. Prints the
-# note for the report; the push's own output, the gate's among it, goes to the terminal.
+# checked out. Prints the note for the report; the push's own output, the gate's among it, goes
+# to the terminal.
 commit_gitignore() {
   local dir="$1" branch
-  if [ "$(git -C "$dir" rev-parse --git-dir)" != "$(git -C "$dir" rev-parse --git-common-dir)" ]; then echo "it goes out with this worktree's own commit"; return 0; fi
   git -C "$dir" add -- .gitignore
   git -C "$dir" commit -q -m 'the agent files of this repository are ignored' -m 'No-issue: the .gitignore block written by ai-core init' -- .gitignore >&2 || { echo "the commit failed (see above)"; return 0; }
   git -C "$dir" remote get-url origin >/dev/null 2>&1 || { echo "committed; no origin, not pushed"; return 0; }
@@ -544,33 +545,41 @@ commit_gitignore() {
   if git -C "$dir" push --quiet origin "HEAD:$branch" >&2; then echo "committed and pushed to origin/$branch"; else echo "committed; the push was refused or failed (see above), the commit stays"; fi
 }
 gitignore_build() {  # the .gitignore the checkout should have, into $TMP/gitignore
-  KEPT_LINES="$([ -f "$GI" ] && awk '/^# setup-ai-core start/{skip=1} !skip{print} /^# setup-ai-core end/{skip=0}' "$GI" | tr -d '\r' || true)"
-  {
-    [ -z "$KEPT_LINES" ] || printf '%s\n' "$KEPT_LINES"
-    printf '%s\n' "$KEPT_LINES" | awk -v block="$CORE_ROOT/lib/gitignore-block" '
-      function norm(s) { sub(/[[:space:]]+$/, "", s); sub(/^\//, "", s); sub(/\/$/, "", s); return s }
-      $0 !~ /^#/ && $0 != "" { seen[norm($0)] = 1 }
-      END {
-        n = 0
-        while ((getline line < block) > 0) { sub(/\r$/, "", line); if (line ~ /^#/) { marker[++m] = line; continue }; if (!(norm(line) in seen)) lines[++n] = line }
-        if (n > 0) { print marker[1]; for (i = 1; i <= n; i++) print lines[i]; print marker[2] }
-      }'
-  } > "$TMP/gitignore"
+  if [ -f "$GI" ]; then tr -d '\r' < "$GI" > "$TMP/gitignore-now"; else : > "$TMP/gitignore-now"; fi
+  # Two passes over the file: the first collects the project's lines, the second writes the file
+  # with the block in the place of the first one it holds
+  awk -v block="$CORE_ROOT/lib/gitignore-block" '
+    function norm(s) { sub(/[[:space:]]+$/, "", s); sub(/^\//, "", s); sub(/\/$/, "", s); return s }
+    function put(   i, k) {
+      placed = 1
+      for (i = 1; i <= e; i++) if (!(norm(entry[i]) in seen)) miss[++k] = entry[i]
+      if (k) { print marker[1]; for (i = 1; i <= k; i++) print miss[i]; print marker[2] }
+    }
+    BEGIN { while ((getline line < block) > 0) { sub(/\r$/, "", line); if (line ~ /^#/) marker[++m] = line; else entry[++e] = line } }
+    NR == FNR {
+      if (/^# setup-ai-core start/) skip = 1
+      if (!skip && $0 !~ /^#/ && $0 != "") seen[norm($0)] = 1
+      if (/^# setup-ai-core end/) skip = 0
+      next
+    }
+    FNR == 1 { skip = 0 }
+    /^# setup-ai-core start/ { if (!placed) put(); skip = 1 }
+    !skip { print }
+    /^# setup-ai-core end/ { skip = 0 }
+    END { if (!placed) put() }' "$TMP/gitignore-now" "$TMP/gitignore-now" > "$TMP/gitignore"
 }
 gitignore_differs() { ! { [ -f "$GI" ] && cmp -s "$TMP/gitignore" <(tr -d '\r' < "$GI"); }; }
 GITIGNORE_CHANGED=0; GITIGNORE_NOTE=""; GITIGNORE_BEHIND=0
-if git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+if git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+  && [ "$(git -C "$TARGET" rev-parse --git-dir)" = "$(git -C "$TARGET" rev-parse --git-common-dir)" ]; then
   GI="$TARGET/.gitignore"
   gitignore_build
   if gitignore_differs; then
     GITIGNORE_CHANGED=1
     if [ "$DRY" -eq 0 ]; then
-      # The commit goes on top of what the origin has: the checkout catches up first (a worktree
-      # keeps the change for its own commit), and the block is built again from what came
-      CAUGHT=""
-      if [ "$(git -C "$TARGET" rev-parse --git-dir)" = "$(git -C "$TARGET" rev-parse --git-common-dir)" ]; then
-        CAUGHT="$(catch_up "$TARGET")" || GITIGNORE_BEHIND=1
-      fi
+      # The commit goes on top of what the origin has: the checkout catches up first, and the
+      # block is built again from what came
+      CAUGHT="$(catch_up "$TARGET")" || GITIGNORE_BEHIND=1
       if [ "$GITIGNORE_BEHIND" -eq 1 ]; then GITIGNORE_NOTE="$CAUGHT"
       else
         [ -z "$CAUGHT" ] || gitignore_build

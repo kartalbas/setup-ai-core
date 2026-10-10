@@ -93,10 +93,17 @@ repo_folder="${main##*/}"
 container="$(dirname "$main")/.worktrees/$repo_folder"
 path="$container/$name"
 
+# A branch on origin whose every commit is on the default branch has landed: finish-issue removed
+# its worktree and local branch, and the next step of the same issue starts afresh. A local branch,
+# or one on origin with work the default branch lacks, is somebody's work.
 taken="$(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/origin 2>/dev/null \
-  | grep -E "(^|/)issue-$number(-|$)" || true)"
+  | grep -E "(^|/)issue-$number(-|$)" \
+  | while read -r ref; do
+      case "$ref" in origin/*) git merge-base --is-ancestor "$ref" "origin/$default" && continue ;; esac
+      printf '%s\n' "$ref"
+    done || true)"
 [ -z "$taken" ] \
-  || die "a branch for this issue exists already: $(printf '%s' "$taken" | paste -sd', ' -) - use its worktree instead"
+  || die "a branch for this issue exists already: $(printf '%s' "$taken" | paste -sd, - | sed 's/,/, /g') - use its worktree instead"
 [ ! -e "$path" ] || die "$path is already there - use it, or remove it with 'git worktree remove'"
 
 mkdir -p "$container"

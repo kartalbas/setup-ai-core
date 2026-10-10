@@ -118,8 +118,12 @@ $repoFolder = $main.Substring($main.LastIndexOf('/') + 1)
 $container = "$($main.Substring(0, $main.LastIndexOf('/')))/.worktrees/$repoFolder"
 $path = "$container/$name"
 
+# A branch on origin whose every commit is on the default branch has landed: finish-issue removed
+# its worktree and local branch, and the next step of the same issue starts afresh. A local branch,
+# or one on origin with work the default branch lacks, is somebody's work.
 $taken = @((Invoke-Git for-each-ref '--format=%(refname:short)' refs/heads refs/remotes/origin).Text -split "`n" |
-  Where-Object { $_ -cmatch "(^|/)issue-$Number(-|$)" })
+  Where-Object { $_ -cmatch "(^|/)issue-$Number(-|$)" } |
+  Where-Object { -not ($_.StartsWith('origin/', [StringComparison]::Ordinal) -and (Invoke-Git merge-base --is-ancestor $_ "origin/$default").Ok) })
 if ($taken.Count -gt 0) {
   Stop-WithError "a branch for this issue exists already: $($taken -join ', ') - use its worktree instead"
 }

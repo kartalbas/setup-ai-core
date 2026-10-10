@@ -226,6 +226,24 @@ check 'exits zero'             0 "$rc"
 check 'it says so'             '#166 -> P2 not set: example-org/example-repo is on no board' "$out"
 rm -f "$fake/no-board"
 
+echo 'a landed branch left on origin is no obstacle; one with work master lacks still is'
+git -C "$work" push -q origin "master:refs/heads/issue-181-read-the-board-whole"
+git -C "$work" fetch -q origin
+out="$(run 181)"; rc=$?
+check 'landed: exits zero'     0 "$rc"
+check 'landed: cut from origin/master' yes "$(grep -q '^Worktree .*issue-181-read-the-board-whole, cut from origin/master\.$' <<< "$out" && echo yes || echo no)"
+side="$fake/side"; git clone -q "$origin" "$side"; dress "$side"
+git -C "$side" checkout -q -b issue-182-read-the-board-whole
+echo 'not landed' > "$side/side.txt"; git -C "$side" add side.txt; git -C "$side" commit -q -m 'work in progress'
+git -C "$side" push -q origin issue-182-read-the-board-whole
+git -C "$work" fetch -q origin
+out="$(run 182)"; rc=$?
+check 'not landed: exits nonzero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'not landed: it names the branch' yes "$(grep -q 'a branch for this issue exists already: origin/issue-182-read-the-board-whole' <<< "$out" && echo yes || echo no)"
+git -C "$work" branch -q issue-182-second
+out="$(run 182)"; rc=$?
+check 'two branches: both named, as the twin names them' yes "$(grep -q 'a branch for this issue exists already: issue-182-second, origin/issue-182-read-the-board-whole - use' <<< "$out" && echo yes || echo no)"
+
 echo 'an origin/HEAD naming a branch the remote no longer has: the default branch is asked of the remote'
 git -C "$work" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/gone
 out="$(run 168)"; rc=$?

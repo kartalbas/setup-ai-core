@@ -138,7 +138,8 @@ printf '%s\t%s\t%s\t%s\t%s\n' 100 1 '1-01:00:00' Ss 'claude --resume exa-lead' 1
   > "$work/processes"
 printf '%s\n' '[{"pid":100,"kind":"interactive","status":"busy","name":"exa-lead","sessionId":"11111111-1111-1111-1111-111111111111","id":null},' \
   '{"pid":112,"kind":"background","status":"idle","state":"blocked","name":"l1-sonnet5.5-low-100k-ab123","sessionId":"22222222-2222-2222-2222-222222222222","id":"22222222"},' \
-  '{"pid":113,"kind":"background","status":"busy","state":"working","name":"l2-opus5.5-high-300k-cd456","cwd":"/home/x/.worktrees/shop/issue-4-fix-the-thing","sessionId":"33333333-3333-3333-3333-333333333333","id":"33333333"}]' > "$work/agents"
+  '{"pid":113,"kind":"background","status":"busy","state":"working","name":"l2-opus5.5-high-300k-cd456","cwd":"/home/x/.worktrees/shop/issue-4-fix-the-thing","sessionId":"33333333-3333-3333-3333-333333333333","id":"33333333"},' \
+  '{"pid":116,"kind":"interactive","status":"busy","state":"working","name":"old-lead","sessionId":"55555555-5555-5555-5555-555555555555","id":null}]' > "$work/agents"
 printf '%s\t%s\n' /proc/102/fd /home/x/.codex/sessions/2026/10/04/rollout-2026-10-04T11-52-48-01a106c2-71cd-7451-94ce-508f6229cd5b.jsonl \
   /proc/100/fd /home/x/.codex/sessions/2026/10/04/rollout-2026-10-04T11-00-00-01a10000-0000-7000-8000-000000000000.jsonl > "$work/rollouts"
 view="$(cd "$folder" && AI_CORE_PROCESSES="$work/processes" AI_CORE_AGENTS="$work/agents" AI_CORE_ROLLOUTS="$work/rollouts" bash "$root/bin/status.sh" --project example-org/7 2>&1)"; rc=$?
@@ -164,7 +165,7 @@ printf '%s\t%s\t%s\t%s\t%s\n' 116 1 '3-00:00:00' Tl '/home/x/.local/bin/claude -
 only="$(cd "$folder" && AI_CORE_PROCESSES="$work/stopped-only" AI_CORE_AGENTS="$work/agents" AI_CORE_ROLLOUTS="$work/rollouts" bash "$root/bin/status.sh" --project example-org/7 2>&1)"
 check 'only a stopped one: none running' 'AGENTS 0 running; 1 stopped' "$(grep -m1 '^AGENTS  *[0-9]' <<< "$only" | tr -s ' ')"
 printf '%s\t%s\t%s\t%s\t%s\n' 117 1 '10:00' 'SNsl+' 'claude bg-spare --bg-spare /tmp/x/spare/a3.claim.sock' > "$work/unversioned"
-printf '%s\n' '[{"pid":117,"kind":"background","name":"l3-sonnet-high-200k-ef789","cwd":"/home/x/repos","sessionId":"44444444-4444-4444-4444-444444444444","id":"44444444"}]' > "$work/unversioned-agents"
+printf '%s\n' '[{"pid":117,"kind":"background","status":7,"state":["idle"],"name":"l3-sonnet-high-200k-ef789","cwd":"/home/x/repos","sessionId":"44444444-4444-4444-4444-444444444444","id":"44444444"}]' > "$work/unversioned-agents"
 plain="$(cd "$folder" && AI_CORE_PROCESSES="$work/unversioned" AI_CORE_AGENTS="$work/unversioned-agents" AI_CORE_ROLLOUTS="$work/rollouts" bash "$root/bin/status.sh" --project example-org/7 2>&1)"
 check 'a name without a version: its model and effort' '│ claude l3-sonnet-hi │ 117 │ sonnet · high │ 10 min │ │ │ session │' "$(grep -m1 -F '│ claude l3-sonnet' <<< "$plain" | tr -s ' ')"
 

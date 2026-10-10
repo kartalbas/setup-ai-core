@@ -156,7 +156,8 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   Set-Content -LiteralPath $env:AI_CORE_AGENTS -Value @(
     '[{"pid":100,"kind":"interactive","status":"busy","name":"exa-lead","sessionId":"11111111-1111-1111-1111-111111111111","id":null},',
     '{"pid":112,"kind":"background","status":"idle","state":"blocked","name":"l1-sonnet5.5-low-100k-ab123","sessionId":"22222222-2222-2222-2222-222222222222","id":"22222222"},',
-    '{"pid":113,"kind":"background","status":"busy","state":"working","name":"l2-opus5.5-high-300k-cd456","cwd":"/home/x/.worktrees/shop/issue-4-fix-the-thing","sessionId":"33333333-3333-3333-3333-333333333333","id":"33333333"}]')
+    '{"pid":113,"kind":"background","status":"busy","state":"working","name":"l2-opus5.5-high-300k-cd456","cwd":"/home/x/.worktrees/shop/issue-4-fix-the-thing","sessionId":"33333333-3333-3333-3333-333333333333","id":"33333333"},',
+    '{"pid":116,"kind":"interactive","status":"busy","state":"working","name":"old-lead","sessionId":"55555555-5555-5555-5555-555555555555","id":null}]')
   $env:AI_CORE_ROLLOUTS = Join-Path $work 'rollouts'
   Set-Content -LiteralPath $env:AI_CORE_ROLLOUTS -Value @(
     "/proc/102/fd`t/home/x/.codex/sessions/2026/10/04/rollout-2026-10-04T11-52-48-01a106c2-71cd-7451-94ce-508f6229cd5b.jsonl",
@@ -173,7 +174,7 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   $env:AI_CORE_PROCESSES = Join-Path $work 'unversioned'
   Set-Content -LiteralPath $env:AI_CORE_PROCESSES -Value "117`t1`t10:00`tSNsl+`tclaude bg-spare --bg-spare /tmp/x/spare/a3.claim.sock"
   $env:AI_CORE_AGENTS = Join-Path $work 'unversioned-agents'
-  Set-Content -LiteralPath $env:AI_CORE_AGENTS -Value '[{"pid":117,"kind":"background","name":"l3-sonnet-high-200k-ef789","cwd":"/home/x/repos","sessionId":"44444444-4444-4444-4444-444444444444","id":"44444444"}]'
+  Set-Content -LiteralPath $env:AI_CORE_AGENTS -Value '[{"pid":117,"kind":"background","status":7,"state":["idle"],"name":"l3-sonnet-high-200k-ef789","cwd":"/home/x/repos","sessionId":"44444444-4444-4444-4444-444444444444","id":"44444444"}]'
   $plain = Run
   Remove-Item Env:AI_CORE_PROCESSES, Env:AI_CORE_AGENTS, Env:AI_CORE_ROLLOUTS
   function VLine($Text) { "$(@($view | Where-Object { $_.Contains($Text) }) | Select-Object -First 1)".Trim() -creplace ' +', ' ' }

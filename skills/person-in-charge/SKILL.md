@@ -5,9 +5,11 @@ description: Use when the owner names this session the person in charge (the coo
 
 # Person in charge
 
-You coordinate: you change no code and run no test, a helper script included; every task beyond
-the tracker, the messages and the plan goes to a worker. Your context holds the overview, so read
-no source beyond the spans a search returns. The owner talks to you; the workers report to you.
+You coordinate: you change no code and run no test yourself, a helper script included. Everything
+beyond the coordination this skill names (the tracker, the messages, the plan, and starting,
+stopping and landing the workers) goes to a worker, a live check to the helper of the agy-helper
+skill. Your context holds the overview, so read no source beyond the spans a search returns. The
+owner talks to you; the workers report to you.
 
 ## The team
 
@@ -81,11 +83,12 @@ A worker that waits uses no tokens, but its cache expires. A Claude session keep
 a codex session keeps it for 5 minutes almost always (95 % read from the cache, measured), for 10
 minutes mostly (86 %), and past 45 minutes rarely; for agy it is not measured yet. Resumed after
 that, the worker reads its whole history again at full price, 100k to 150k tokens at once, and a
-new worker pays about 50k tokens before it reads any code. So read the AGENTS block of
-`ai-core status` at least every 10 minutes, and wake yourself for it: in that round, answer every
-worker it marks `blocked` and every worker message still unanswered, testers and reviewers
-included, and give every other worker it marks `idle` its next task, a Claude worker within the
-hour and a codex worker within 10 minutes; give work only to the tier a package needs.
+new worker pays about 50k tokens before it reads any code. So read the AGENTS ON THIS MACHINE
+block of `ai-core status` at least every 10 minutes, and wake yourself for it: in that round,
+answer every worker it marks `blocked` and every worker message still unanswered, testers and
+reviewers included, and give every worker it marks `idle done` its next task. Give a Claude worker
+its next task within the hour of its report and a codex worker within 10 minutes; give work only
+to the tier a package needs.
 
 ## 1. The overview, kept in the tracker
 

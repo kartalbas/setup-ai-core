@@ -83,7 +83,7 @@ section "init links the other checkouts of the folder beside a worktree, so .. f
 for twin in sh ps; do
   F="$WORK/near-$twin"; T="$F/.worktrees/app/issue-1-x"
   mkdir -p "$F/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$F/.ai-core/config.env"
-  for r in app lib docs; do
+  for r in app lib tools docs; do
     git init -q "$F/$r"; mkdir -p "$F/$r/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$F/$r/.ai-core/config.env"
     git -C "$F/$r" commit -q --allow-empty -m start; echo "$r" > "$F/$r/marker"
   done
@@ -96,18 +96,29 @@ for twin in sh ps; do
   }
   init_one dry || fail "init --dry-run on a worktree failed ($twin, see $F-dry.log)"
   [ -e "$F/.worktrees/app/lib" ] && fail "init --dry-run made a link ($twin)"
-  grep -aq '^  links to the neighbour checkouts would be made in \.worktrees/app/: lib; ' "$F-dry.log" || fail "init --dry-run does not say which link it would make ($twin, see $F-dry.log)"
+  grep -aq '^  links to the neighbour checkouts would be made in \.worktrees/app/: lib tools; ' "$F-dry.log" || fail "init --dry-run does not say which link it would make ($twin, see $F-dry.log)"
   init_one real || fail "init on a worktree failed ($twin): $(tail -5 "$F-real.log")"
-  grep -aq '^  links to the neighbour checkouts made in \.worktrees/app/: lib; ' "$F-real.log" || fail "init does not say which link it made ($twin, see $F-real.log)"
+  grep -aq '^  links to the neighbour checkouts made in \.worktrees/app/: lib tools; ' "$F-real.log" || fail "init does not say which link it made ($twin, see $F-real.log)"
   [ "$(cat "$T/../lib/marker" 2>/dev/null)" = lib ] || fail "from the worktree, ../lib is not the checkout lib ($twin)"
   [ -L "$F/.worktrees/app/lib" ] || fail "beside the worktree, lib is a copy and not a link ($twin)"
   [ "$(cat "$F/.worktrees/app/docs")" = mine ] || fail "init replaced an entry that stood beside the worktree already ($twin)"
   [ -e "$F/.worktrees/app/app" ] && fail "init linked the worktree's own repository beside it ($twin)"
   [ -e "$F/.worktrees/app/notes" ] && fail "init linked a folder that is no checkout ($twin)"
+  case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) foreign=0 ;; *) foreign=1; ln -s /nowhere/else "$F/.worktrees/app/foreign"
+    ln -s loop-b "$F/.worktrees/app/loop-a"; ln -s loop-a "$F/.worktrees/app/loop-b" ;; esac   # a loop cannot be followed at all
+  rm -rf "$F/lib"                                      # the neighbour checkout goes, its link stays behind
+  init_one dry || fail "init --dry-run on a worktree beside a dangling link failed ($twin, see $F-dry.log)"
+  [ -L "$F/.worktrees/app/lib" ] || fail "init --dry-run removed the link to the checkout that is gone ($twin)"
+  grep -aq '^  links to checkouts that are gone would be removed in \.worktrees/app/: lib[[:space:]]*$' "$F-dry.log" || fail "init --dry-run does not name the link it would remove ($twin, see $F-dry.log)"
+  init_one real || fail "init on a worktree beside a dangling link failed ($twin): $(tail -5 "$F-real.log")"
+  [ -L "$F/.worktrees/app/lib" ] && fail "init left the link to the checkout that is gone ($twin)"
+  grep -aq '^  links to checkouts that are gone removed in \.worktrees/app/: lib[[:space:]]*$' "$F-real.log" || fail "init does not name the link it removed ($twin, see $F-real.log)"
+  [ "$(cat "$F/.worktrees/app/tools/marker" 2>/dev/null)" = tools ] || fail "init removed the link to a checkout that stays ($twin)"
+  [ "$foreign" -eq 0 ] || { [ -L "$F/.worktrees/app/foreign" ] && [ -L "$F/.worktrees/app/loop-a" ]; } || fail "init removed a dangling link it did not make ($twin)"
   if [ "$twin" = sh ]; then bash "$ROOT/bin/init.sh" --all "$F" --no-doctor
   else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -All "$(native "$F")" -NoDoctor; fi > "$F-all.log" 2>&1 || fail "init --all over the folder failed ($twin): $(grep -a -E '^###|error|failed' "$F-all.log" | tail -8)"
   grep -aq '^### \.worktrees/app/issue-1-x' "$F-all.log" || fail "init --all did not init the worktree ($twin, see $F-all.log)"
-  grep -aq '^### \.worktrees/app/lib' "$F-all.log" && fail "init --all took the link to a neighbour for a worktree ($twin, see $F-all.log)"
+  grep -aq '^### \.worktrees/app/tools' "$F-all.log" && fail "init --all took the link to a neighbour for a worktree ($twin, see $F-all.log)"
 done
-echo "  a worktree finds the neighbour checkout through .., the dry run only names the link, an entry there, the repository itself and a plain folder get none, init --all inits no link, on both twins"
+echo "  a worktree finds the neighbour checkout through .., the dry run only names the link, an entry there, the repository itself and a plain folder get none, a link whose checkout is gone goes and a link of anybody else stays, init --all inits no link, on both twins"
 exit 0

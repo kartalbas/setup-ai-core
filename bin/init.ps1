@@ -131,8 +131,9 @@ if ($inWorkTree -and -not (Test-Path (Join-Path $target '.ai-core'))) {
 #     finds nothing and proves less than in the checkout. So every other checkout of the folder
 #     gets a link there, and `..` finds the same neighbours from the worktree. An entry that stands
 #     there already is left as it is. Windows makes a junction, which needs no privilege and takes
-#     an absolute target.
-$neighboursLinked = @(); $neighboursIn = ''
+#     an absolute target. A link of this shape whose checkout is gone since leads nowhere and goes;
+#     a link of anybody else stays.
+$neighboursLinked = @(); $neighboursIn = ''; $neighboursUnlinked = @()
 if ($inWorkTree) {
   $common = "$(& git -C $target rev-parse --path-format=absolute --git-common-dir 2>$null)"
   $gitDir = "$(& git -C $target rev-parse --path-format=absolute --git-dir 2>$null)"
@@ -153,6 +154,15 @@ if ($inWorkTree) {
           else { New-Item -ItemType SymbolicLink -Path $link -Target "../../$($n.Name)" | Out-Null }
         }
         $neighboursLinked += $n.Name
+      }
+      foreach ($l in Get-ChildItem -LiteralPath $container -Force | Where-Object { $_.LinkType -cin 'SymbolicLink', 'Junction' } | Sort-Object Name) {
+        $to = "$($l.Target)" -replace '\\', '/'
+        if ($to -cne "../../$($l.Name)" -and $to -cne "$folder/$($l.Name)") { continue }
+        # Test-Path answers for the link itself, so a link that leads nowhere reads as there; a link
+        # that cannot be followed at all, such as one in a loop, leads nowhere too, as test -e says.
+        try { $at = $l.ResolveLinkTarget($true); if ($at -and $at.Exists) { continue } } catch { }
+        if (-not $DryRun) { Remove-Item -LiteralPath $l.FullName -Force }
+        $neighboursUnlinked += $l.Name
       }
     }
   }
@@ -747,6 +757,7 @@ if ($gitignoreChanged) {
 if ($gitignoreOpen) { Write-Host "  .gitignore not written: $(if ($gitignorePulled) { "$gitignorePulled; " })it has a '# setup-ai-core start' line and no '# setup-ai-core end' after it; end the block or delete its start line, then run this again" }
 if ($worktreeDataFrom) { Write-Host "  .ai-core $(if ($DryRun) { 'would be taken' } else { 'taken' }) from the checkout ${worktreeDataFrom}: a worktree starts with the checkout's configuration, local rules and documents" }
 if ($neighboursLinked.Count) { Write-Host "  links to the neighbour checkouts $(if ($DryRun) { 'would be made' } else { 'made' }) in ${neighboursIn}: $($neighboursLinked -join ' '); .. finds them from the worktree as from the checkout" }
+if ($neighboursUnlinked.Count) { Write-Host "  links to checkouts that are gone $(if ($DryRun) { 'would be removed' } else { 'removed' }) in ${neighboursIn}: $($neighboursUnlinked -join ' ')" }
 if ($hooksArmed) { Write-Host "  core.hooksPath $(if ($DryRun) { 'would be set' } else { 'set' }) to .githooks: the push gate runs here" }
 if ($shimsMode -eq 1 -and $DryRun) { Write-Host "  the shims in .githooks are not executable, so git skips the push gate: ai-core pre-push --install would make them so" }
 elseif ($shimsMode -eq 1) { Write-Host "  the shims in .githooks were not executable, so git skipped the push gate: ai-core pre-push --install made them so" }

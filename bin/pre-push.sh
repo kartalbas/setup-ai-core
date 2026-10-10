@@ -549,6 +549,31 @@ fi
 [ -z "$one_sided" ] || refuse "one spelling of a script changed without the other:$one_sided
   Change both in this push. Where the fault lives in one spelling alone, give a commit a 'Twin: <why>' trailer."
 
+# The findings of one directory in one tree, as words to compare: `family <a> <b>` where <a>
+# stands beside <b> and only one of the two says its side, `part <repository> <x>` where the name
+# claims a part <x> that repository lacks.
+dir_findings() {  # <tree-ish> <dir>
+  local seg entries base o repo parts rest mirrors=0
+  seg="${2##*/}"
+  if [ "$seg" = "$2" ]; then entries="$(git ls-tree -d --name-only "$1")"; else entries="$(git ls-tree -d --name-only "$1:${2%/*}")"; fi
+  case "$seg" in
+    *-*) base="${seg%%-*}"; if grep -qxF -- "$base" <<< "$entries"; then printf 'family\t%s\t%s\n' "$base" "$seg"; fi ;;
+    *) awk -v s="$seg-" 'index($0, s) == 1' <<< "$entries" | while IFS= read -r o; do printf 'family\t%s\t%s\n' "$seg" "$o"; done ;;
+  esac
+  while IFS=$'\t' read -r o repo parts; do
+    grep -qxF -- "$o" "$TMPD/naming-structure" && continue
+    mirrors=$((mirrors + $(awk -v o="$o" '$0 == o || index($0, o "-") == 1 || index($0, o "_") == 1' <<< "$entries" | grep -c .)))
+  done < "$TMPD/naming-owners"
+  [ "$mirrors" -ge 2 ] || return 0
+  while IFS=$'\t' read -r o repo parts; do
+    case "$seg" in "$o"-?*|"$o"_?*) ;; *) continue ;; esac
+    grep -qxF -- "$o" "$TMPD/naming-structure" && continue
+    rest="${seg#"$o"}"; rest="${rest#?}"
+    case "$parts" in *" $rest "*) ;; *) printf 'part\t%s\t%s\n' "$repo" "$rest" ;; esac
+  done < "$TMPD/naming-owners"
+  return 0
+}
+
 # THE NAMES A PUSH ADDS ARE DERIVED, NOT INVENTED (the naming rules). No list is kept: the
 # families are read from the trees themselves. Two things are held against every new directory:
 #   - `<a>` beside `<a>-<x>`, or `<a>-<x>` beside `<a>`, names one member of a family and leaves
@@ -562,7 +587,7 @@ fi
 # word of structure (docs, deploy, scripts), no repository's name, and is not held. A commit with a
 # 'Naming: <why>' trailer keeps the names it adds, and says why to whoever reads it.
 naming_findings() {  # one finding per line
-  local folder main d name owner parts sha dir seg parent entries base o repo rest
+  local folder main d name owner parts sha dir seg parent found from kind a b
   folder="$(project_folder_of "$root")"
   main="$(cd "$(git -C "$root" rev-parse --path-format=absolute --git-common-dir)/.." && pwd)"
   git -C "$root" ls-tree -d --name-only HEAD > "$TMPD/naming-words" 2>/dev/null
@@ -582,27 +607,32 @@ naming_findings() {  # one finding per line
     [ -z "$(git log -1 --format='%(trailers:key=Naming,valueonly)' "$sha" | tr -d '[:space:]')" ] || continue
     git diff-tree --no-commit-id --root -r --name-only --diff-filter=A "$sha" \
       | awk -F/ '{ p = ""; for (i = 1; i < NF; i++) { p = (p == "" ? $i : p "/" $i); print p } }' | sort -u > "$TMPD/naming-dirs"
+    # A folder the commit moves under the name it had (git mv a b brings b/seeds from a/seeds) keeps
+    # the findings it had where it stood: only the ones it had not there are new
+    git diff-tree --no-commit-id --root -r -M --name-status --diff-filter=R "$sha" \
+      | awk -F'\t' '{ n = split($3, d, "/"); rest = d[n]
+          for (i = n - 1; i >= 1; i--) {
+            p = d[1]; for (j = 2; j <= i; j++) p = p "/" d[j]
+            if (length($2) > length(rest) + 1 && substr($2, length($2) - length(rest)) == "/" rest) {
+              from = substr($2, 1, length($2) - length(rest) - 1); f = from; sub(".*/", "", f)
+              if (f == d[i]) print p "\t" from
+            }
+            rest = d[i] "/" rest
+          } }' | awk -F'\t' '!seen[$1]++' > "$TMPD/naming-moves"
     while IFS= read -r dir; do
       [ -n "$dir" ] || continue
       git cat-file -e "$sha^:$dir" 2>/dev/null && continue   # it was there before this commit
       seg="${dir##*/}"; parent=""; [ "$seg" = "$dir" ] || parent="${dir%/*}/"
-      if [ -n "$parent" ]; then entries="$(git ls-tree -d --name-only "$sha:${parent%/}")"; else entries="$(git ls-tree -d --name-only "$sha")"; fi
-      case "$seg" in
-        *-*) base="${seg%%-*}"; grep -qxF -- "$base" <<< "$entries" && echo "$parent$base beside $parent$seg: one member of the family says its side, the other does not; name every member, or none" ;;
-        *) awk -v s="$seg-" 'index($0, s) == 1' <<< "$entries" | while IFS= read -r o; do echo "$parent$seg beside $parent$o: one member of the family says its side, the other does not; name every member, or none"; done ;;
-      esac
-      mirrors=0
-      while IFS=$'\t' read -r o repo parts; do
-        grep -qxF -- "$o" "$TMPD/naming-structure" && continue
-        mirrors=$((mirrors + $(awk -v o="$o" '$0 == o || index($0, o "-") == 1 || index($0, o "_") == 1' <<< "$entries" | grep -c .)))
-      done < "$TMPD/naming-owners"
-      [ "$mirrors" -ge 2 ] || continue
-      while IFS=$'\t' read -r o repo parts; do
-        case "$seg" in "$o"-?*|"$o"_?*) ;; *) continue ;; esac
-        grep -qxF -- "$o" "$TMPD/naming-structure" && continue
-        rest="${seg#"$o"}"; rest="${rest#?}"
-        case "$parts" in *" $rest "*) ;; *) echo "$dir names a part of the repository $repo, and $repo has no $rest; its parts are$(sed 's/ *$//; s/ \([^ ]\)/, \1/g; s/^,//' <<< "$parts")" ;; esac
-      done < "$TMPD/naming-owners"
+      found="$(dir_findings "$sha" "$dir")"
+      from="$(awk -F'\t' -v d="$dir" '$1 == d { print $2; exit }' "$TMPD/naming-moves")"
+      [ -z "$from" ] || [ -z "$found" ] || found="$(comm -23 <(sort <<< "$found") <(dir_findings "$sha^" "$from" | sort))"
+      while IFS=$'\t' read -r kind a b; do
+        case "$kind" in
+          family) echo "$parent$a beside $parent$b: one member of the family says its side, the other does not; name every member, or none" ;;
+          part) parts="$(awk -F'\t' -v r="$a" '$2 == r { print $3; exit }' "$TMPD/naming-owners")"
+            echo "$dir names a part of the repository $a, and $a has no $b; its parts are$(sed 's/ *$//; s/ \([^ ]\)/, \1/g; s/^,//' <<< "$parts")" ;;
+        esac
+      done <<< "$found"
     done < "$TMPD/naming-dirs"
   done <<< "$commits"
 }

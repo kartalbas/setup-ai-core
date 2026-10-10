@@ -553,6 +553,37 @@ Add-Dirs "Add the server texts #22`n`nNaming: the product owner calls this part 
 OnlyNew $repo
 Check 'exit 0'                      0 $rc
 
+# A move is read by its content, so every file below differs from every other: git pairs files of
+# equal content across folders at will.
+$mark = Sha $repo HEAD
+function Seed-Dirs([string]$message, [string[]]$dirs) {  # one file of its own content in each, one commit
+  foreach ($d in $dirs) { New-Item -ItemType Directory -Force -Path (Join-Path $repo $d) | Out-Null; Write-Lf (Join-Path $repo "$d/en.json") "{`"seed`":`"$d`"}`n"; & git -C $repo add -- "$d/en.json" }
+  & git -C $repo commit -q -m $message
+}
+function Moved([string]$message, [string]$from, [string]$to) {  # one git mv, one commit
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent (Join-Path $repo $to)) | Out-Null
+  & git -C $repo mv $from $to; & git -C $repo commit -q -m $message
+}
+Write-Host 'a folder moved with git mv keeps the names inside it'
+Seed-Dirs 'Add the workshop seeds #24' @('apps/workshop/seeds', 'apps/workshop/seeds-demo')
+Moved 'Rename the workshop app #24' 'apps/workshop' 'apps/bike-workshop'
+OnlyNew $repo
+Check 'exit 0'                      0 $rc
+
+Write-Host 'a member moved to a new half name is refused'
+Moved 'Rename the demo seeds #24' 'apps/bike-workshop/seeds-demo' 'apps/bike-workshop/seeds-x'
+OnlyNew $repo
+Check 'exit 1'                      1 $rc
+Check 'the half-named family'       'True' (Says 'apps/bike-workshop/seeds beside apps/bike-workshop/seeds-x: one member of the family')
+
+Write-Host 'a folder moved beside a member of a family it did not stand beside is refused'
+Seed-Dirs 'Add the lab seeds #24' @('plain/seeds', 'lab/seeds-demo')
+Moved 'Move the plain seeds to the lab #24' 'plain/seeds' 'lab/seeds'
+OnlyNew $repo
+Check 'exit 1'                      1 $rc
+Check 'the half-named family'       'True' (Says 'lab/seeds beside lab/seeds-demo: one member of the family')
+& git -C $repo reset -q --hard $mark
+
 # --- the Windows entry point, held against the one text it copies ----------------------------
 function Stub-Ps1([string]$path) { Write-Lf $path "Write-Host 'check: OK — every check green'`nexit 0`n" }
 # against the commit the worktree branched from: master has moved on since, and a push over that

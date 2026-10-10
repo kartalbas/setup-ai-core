@@ -567,6 +567,37 @@ add_dirs $'Add the server texts #22\n\nNaming: the product owner calls this part
 out="$(only_new "$repo")"; rc=$?
 check 'exit 0'                      0 "$rc"
 
+# A move is read by its content, so every file below differs from every other: git pairs files of
+# equal content across folders at will.
+mark="$(git -C "$repo" rev-parse HEAD)"
+seed_dirs() {  # seed_dirs <message> <dir>... - one file of its own content in each, one commit
+  local message="$1" d; shift
+  for d in "$@"; do mkdir -p "$repo/$d"; printf '{"seed":"%s"}\n' "$d" > "$repo/$d/en.json"; git -C "$repo" add -- "$d/en.json"; done
+  git -C "$repo" commit -q -m "$message"
+}
+moved() {  # moved <message> <from> <to> - one git mv, one commit
+  mkdir -p "$repo/$(dirname "$3")"; git -C "$repo" mv "$2" "$3"; git -C "$repo" commit -q -m "$1"
+}
+echo 'a folder moved with git mv keeps the names inside it'
+seed_dirs 'Add the workshop seeds #24' apps/workshop/seeds apps/workshop/seeds-demo
+moved 'Rename the workshop app #24' apps/workshop apps/bike-workshop
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                      0 "$rc"
+
+echo 'a member moved to a new half name is refused'
+moved 'Rename the demo seeds #24' apps/bike-workshop/seeds-demo apps/bike-workshop/seeds-x
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                      1 "$rc"
+check 'the half-named family'       yes "$(grep -q 'apps/bike-workshop/seeds beside apps/bike-workshop/seeds-x: one member of the family' <<< "$out" && echo yes || echo no)"
+
+echo 'a folder moved beside a member of a family it did not stand beside is refused'
+seed_dirs 'Add the lab seeds #24' plain/seeds lab/seeds-demo
+moved 'Move the plain seeds to the lab #24' plain/seeds lab/seeds
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                      1 "$rc"
+check 'the half-named family'       yes "$(grep -q 'lab/seeds beside lab/seeds-demo: one member of the family' <<< "$out" && echo yes || echo no)"
+git -C "$repo" reset -q --hard "$mark"
+
 # --- the Windows entry point, held against the one text it copies ----------------------------
 #
 # check.ps1 and build.ps1 decide nothing: each starts the .sh file of its own name. Overwritten

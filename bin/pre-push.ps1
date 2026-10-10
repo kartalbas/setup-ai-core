@@ -599,30 +599,61 @@ function Get-NamingFindings {
     $owners += [pscustomobject]@{ Owner = $owner; Repo = $d.Name; Parts = $parts }
   }
   $structure = @($words | Group-Object -CaseSensitive | Where-Object { $_.Count -ge 2 } | ForEach-Object { $_.Name })
+  # The findings of one directory in one tree, as words to compare: "family`t<a>`t<b>" where <a>
+  # stands beside <b> and only one of the two says its side, "part`t<repository>`t<x>" where the
+  # name claims a part <x> that repository lacks.
+  function Get-DirFindings([string]$Rev, [string]$Dir) {
+    $seg = ($Dir -split '/')[-1]
+    $entries = @(& git ls-tree -d --name-only $(if ($Dir.Contains('/')) { "${Rev}:$($Dir.Substring(0, $Dir.LastIndexOf('/')))" } else { $Rev }) 2>$null | ForEach-Object { "$_" })
+    if ($seg.Contains('-')) {
+      $base = $seg.Substring(0, $seg.IndexOf('-'))
+      if ($entries -ccontains $base) { "family`t$base`t$seg" }
+    } else {
+      foreach ($o in @($entries | Where-Object { $_.StartsWith("$seg-", [StringComparison]::Ordinal) })) { "family`t$seg`t$o" }
+    }
+    $held = @($owners | Where-Object { $structure -cnotcontains $_.Owner })
+    $mirrors = 0
+    foreach ($o in $held) { $mirrors += @($entries | Where-Object { $_ -ceq $o.Owner -or $_.StartsWith("$($o.Owner)-", [StringComparison]::Ordinal) -or $_.StartsWith("$($o.Owner)_", [StringComparison]::Ordinal) }).Count }
+    if ($mirrors -lt 2) { return }
+    foreach ($o in $owners) {
+      if ($seg.Length -le $o.Owner.Length + 1) { continue }
+      if (-not ($seg.StartsWith("$($o.Owner)-", [StringComparison]::Ordinal) -or $seg.StartsWith("$($o.Owner)_", [StringComparison]::Ordinal))) { continue }
+      if ($structure -ccontains $o.Owner) { continue }
+      $rest = $seg.Substring($o.Owner.Length + 1)
+      if ($o.Parts -cnotcontains $rest) { "part`t$($o.Repo)`t$rest" }
+    }
+  }
   foreach ($sha in $commits) {
     if ("$(& git log -1 '--format=%(trailers:key=Naming,valueonly)' $sha)".Trim()) { continue }
     $dirs = @(& git diff-tree --no-commit-id --root -r --name-only --diff-filter=A $sha | ForEach-Object { "$_" } | ForEach-Object {
         $segs = $_ -split '/'; for ($i = 1; $i -lt $segs.Count; $i++) { ($segs[0..($i - 1)] -join '/') } } | Sort-Object -Unique -CaseSensitive)
+    # A folder the commit moves under the name it had (git mv a b brings b/seeds from a/seeds) keeps
+    # the findings it had where it stood: only the ones it had not there are new
+    $moves = [Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
+    foreach ($line in @(& git diff-tree --no-commit-id --root -r -M --name-status --diff-filter=R $sha | ForEach-Object { "$_" })) {
+      $f = $line -split "`t"; if ($f.Count -lt 3) { continue }
+      $d = $f[2] -split '/'; $rest = $d[-1]
+      for ($i = $d.Count - 2; $i -ge 0; $i--) {
+        if ($f[1].Length -gt $rest.Length + 1 -and $f[1].EndsWith("/$rest", [StringComparison]::Ordinal)) {
+          $from = $f[1].Substring(0, $f[1].Length - $rest.Length - 1)
+          $p = $d[0..$i] -join '/'
+          if (($from -split '/')[-1] -ceq $d[$i] -and -not $moves.ContainsKey($p)) { $moves[$p] = $from }
+        }
+        $rest = "$($d[$i])/$rest"
+      }
+    }
     foreach ($dir in $dirs) {
       & git cat-file -e "${sha}^:$dir" 2>$null; if ($LASTEXITCODE -eq 0) { continue }
-      $seg = ($dir -split '/')[-1]; $parent = if ($dir.Contains('/')) { $dir.Substring(0, $dir.LastIndexOf('/') + 1) } else { '' }
-      $entries = @(& git ls-tree -d --name-only $(if ($parent) { "${sha}:$($parent.TrimEnd('/'))" } else { $sha }) 2>$null | ForEach-Object { "$_" })
-      if ($seg.Contains('-')) {
-        $base = $seg.Substring(0, $seg.IndexOf('-'))
-        if ($entries -ccontains $base) { "$parent$base beside $parent${seg}: one member of the family says its side, the other does not; name every member, or none" }
-      } else {
-        foreach ($o in @($entries | Where-Object { $_.StartsWith("$seg-", [StringComparison]::Ordinal) })) { "$parent$seg beside $parent${o}: one member of the family says its side, the other does not; name every member, or none" }
+      $parent = if ($dir.Contains('/')) { $dir.Substring(0, $dir.LastIndexOf('/') + 1) } else { '' }
+      $found = @(Get-DirFindings $sha $dir)
+      if ($found.Count -gt 0 -and $moves.ContainsKey($dir)) {
+        $before = @(Get-DirFindings "${sha}^" $moves[$dir])
+        $found = @($found | Where-Object { $before -cnotcontains $_ })
       }
-      $held = @($owners | Where-Object { $structure -cnotcontains $_.Owner })
-      $mirrors = 0
-      foreach ($o in $held) { $mirrors += @($entries | Where-Object { $_ -ceq $o.Owner -or $_.StartsWith("$($o.Owner)-", [StringComparison]::Ordinal) -or $_.StartsWith("$($o.Owner)_", [StringComparison]::Ordinal) }).Count }
-      if ($mirrors -lt 2) { continue }
-      foreach ($o in $owners) {
-        if ($seg.Length -le $o.Owner.Length + 1) { continue }
-        if (-not ($seg.StartsWith("$($o.Owner)-", [StringComparison]::Ordinal) -or $seg.StartsWith("$($o.Owner)_", [StringComparison]::Ordinal))) { continue }
-        if ($structure -ccontains $o.Owner) { continue }
-        $rest = $seg.Substring($o.Owner.Length + 1)
-        if ($o.Parts -cnotcontains $rest) { "$dir names a part of the repository $($o.Repo), and $($o.Repo) has no $rest; its parts are $($o.Parts -join ', ')" }
+      foreach ($finding in $found) {
+        $kind, $a, $b = $finding -split "`t"
+        if ($kind -ceq 'family') { "$parent$a beside $parent${b}: one member of the family says its side, the other does not; name every member, or none" }
+        else { "$dir names a part of the repository $a, and $a has no $b; its parts are $(@($owners | Where-Object { $_.Repo -ceq $a })[0].Parts -join ', ')" }
       }
     }
   }

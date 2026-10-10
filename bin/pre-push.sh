@@ -555,7 +555,7 @@ fi
 dir_findings() {  # <tree-ish> <dir>
   local seg entries base o repo parts rest mirrors=0
   seg="${2##*/}"
-  if [ "$seg" = "$2" ]; then entries="$(git ls-tree -d --name-only "$1")"; else entries="$(git ls-tree -d --name-only "$1:${2%/*}")"; fi
+  if [ "$seg" = "$2" ]; then entries="$(git ls-tree -z -d --name-only "$1" | tr '\0' '\n')"; else entries="$(git ls-tree -z -d --name-only "$1:${2%/*}" | tr '\0' '\n')"; fi
   case "$seg" in
     *-*) base="${seg%%-*}"; if grep -qxF -- "$base" <<< "$entries"; then printf 'family\t%s\t%s\n' "$base" "$seg"; fi ;;
     *) awk -v s="$seg-" 'index($0, s) == 1' <<< "$entries" | while IFS= read -r o; do printf 'family\t%s\t%s\n' "$seg" "$o"; done ;;
@@ -611,13 +611,13 @@ naming_findings() {  # one finding per line
   local kind a b
   folder="$(project_folder_of "$root")"
   main="$(cd "$(git -C "$root" rev-parse --path-format=absolute --git-common-dir)/.." && pwd)"
-  git -C "$root" ls-tree -d --name-only HEAD > "$TMPD/naming-words" 2>/dev/null
+  git -C "$root" ls-tree -z -d --name-only HEAD 2>/dev/null | tr '\0' '\n' > "$TMPD/naming-words"
   : > "$TMPD/naming-owners"
   for d in "$folder"/*/; do
     d="${d%/}"; [ -e "$d/.git" ] || continue
     name="${d##*/}"; case "$name" in *-ai-core) continue ;; esac
     [ "$(cd "$d" && pwd)" != "$main" ] || continue
-    parts="$(git -C "$d" ls-tree -d --name-only HEAD 2>/dev/null)"
+    parts="$(git -C "$d" ls-tree -z -d --name-only HEAD 2>/dev/null | tr '\0' '\n')"
     [ -z "$parts" ] || printf '%s\n' "$parts" >> "$TMPD/naming-words"
     case "$name" in *-*) owner="${name#*-}" ;; *) owner="$name" ;; esac
     printf '%s\t%s\t %s \n' "$owner" "$name" "$(tr '\n' ' ' <<< "$parts")" >> "$TMPD/naming-owners"
@@ -626,11 +626,14 @@ naming_findings() {  # one finding per line
   while IFS= read -r sha; do
     [ -n "$sha" ] || continue
     [ -z "$(git log -1 --format='%(trailers:key=Naming,valueonly)' "$sha" | tr -d '[:space:]')" ] || continue
-    git -c core.quotePath=false diff-tree --no-commit-id --root -r --name-only --diff-filter=A "$sha" \
+    # -z hands every name over as git stores it, never quoted. ponytail: a name that holds a line
+    # break still splits in two and goes unchecked, and one that holds a tab pairs no rename; read
+    # NUL-separated to the end if one appears
+    git diff-tree -z --no-commit-id --root -r --name-only --diff-filter=A "$sha" | tr '\0' '\n' \
       | awk -F/ '{ p = ""; for (i = 1; i < NF; i++) { p = (p == "" ? $i : p "/" $i); print p } }' | sort -u > "$TMPD/naming-dirs"
     # The renames of the commit, as <new folder> <old folder> for every folder above a renamed file,
     # each beside the one as far above its old path, the nearest first; moved_from reads them
-    git -c core.quotePath=false diff-tree --no-commit-id --root -r -M --name-status --diff-filter=R "$sha" \
+    git diff-tree -z --no-commit-id --root -r -M --name-status --diff-filter=R "$sha" | tr '\0' '\n' | paste - - - \
       | awk -F'\t' '{ n = split($3, d, "/"); m = split($2, s, "/")
           for (k = 1; k < n && k < m; k++) {
             p = d[1]; for (j = 2; j <= n - k; j++) p = p "/" d[j]

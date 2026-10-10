@@ -128,7 +128,7 @@ clone_of() {  # <owner/repo>
     dir="${dir%/}"
     [ -n "$dir" ] || continue
     url="$(git -C "$dir" remote get-url origin 2>/dev/null | tr '[:upper:]' '[:lower:]')" || continue
-    url="${url%.git}"
+    url="${url//\\//}"; url="${url%.git}"
     case "$url" in *[:/]"$want") echo "$dir"; return 0 ;; esac
   done
   return 0

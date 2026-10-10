@@ -173,7 +173,7 @@ else
   next="$(fields_tsv | awk -F'\t' 'tolower($1)=="status" { if (hit) { print $3; exit } if (tolower($3)=="implementing") hit=1 }')"
   if [ -z "$next" ]; then
     echo "the board has no column after implementing - the card stays; move it by hand"
-  elif [ "$(printf '%s' "$next" | tr '[:upper:]' '[:lower:]')" = done ]; then
+  elif [ "$(printf '%s' "$next" | tr '[:upper:]' '[:lower:]')" = 'done' ]; then
     echo "the column after implementing is done, which closing the issue sets - the card stays for the owner"
   elif moved="$("$BIN/issue-status.sh" ${repo:+"$repo"} "$number" "$next" 2>&1)"; then
     printf '%s\n' "$moved"

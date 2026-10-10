@@ -88,9 +88,10 @@ needs.
    repository is on no board). Read title, labels and the `file:line` facts only.
 2. Map each issue to the files it changes: its `file:line` facts, else
    `git grep -n "<identifier>"`. Open no source file for this.
-3. Issues that change the same file or module form a package. Split a package above 8 issues or
-   about 400 changed lines along the file's sections. Order inside a package by function and
-   dependency; an issue that unblocks another goes first.
+3. Issues that change the same file or module form a package, cut ahead when the issues are filed,
+   not when a worker comes free. Split a package above 8 issues or about 400 changed lines along
+   the file's sections. Order inside a package by function and dependency; an issue that unblocks
+   another goes first.
 4. Record every package in one plan issue per board, titled "Plan: packages": one section per
    package, `### Package: <file or module>`, with its issues as `<repo>#<number>` in order, its
    files, its tier, its state and, once it has one, the line `Worker: <session name>`. Never make
@@ -128,9 +129,12 @@ finished; otherwise add a new package to the plan issue.
 
 - The other worker of the tier reviews a package; a high-stakes package is reviewed by a critic
   and a developer. The writer never approves its own package.
-- On a report: check the verification output, send the review, update the plan issue, run
-  `ai-core finish-issue` for each issue once the push has landed, and give the worker its next
-  package.
+- A package lands once: one push gate run, one review of its whole diff, then `ai-core
+  integrate-issue <first number> --reviewed-by <reviewer>` from its worktree, one release per
+  repository and one live check. Then run `ai-core finish-issue <number>` for each of its issues:
+  the first removes the worktree, and each other one moves its card and names its commits.
+- On a report: check the verification output, send the review, update the plan issue, finish the
+  package's issues once its push has landed, and give the worker its next package.
 
 ## 5. The usage limit
 

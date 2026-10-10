@@ -139,19 +139,24 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   Check 'and they are there' 1 @($nothing | Where-Object { $_.StartsWith('pace ') }).Count
   $env:AI_CORE_PROCESSES = Join-Path $work 'processes'
   Set-Content -LiteralPath $env:AI_CORE_PROCESSES -Value @(
-    "100`t1`t1-01:00:00`tclaude --resume exa-lead", "101`t100`t05:00`tbash run.sh",
-    "102`t101`t03:00`tcodex exec -m big-model -c model_reasoning_effort=high work on example-repo#1",
-    "103`t102`t02:00`tagy -p nested child --model cheap-model --effort high",
-    "104`t1`t01:02:03`tcodex exec resume thread-w2 --json", "105`t1`t10`tsleep 30", "106`t1`t01:00`tgit log agy -p",
-    "107`t1`t2-00:00:00`t/home/x/.local/bin/claude --chrome-native-host",
-    "108`t100`t01:00`tnode /usr/lib/node_modules/gemini-cli/bin/gemini.js -p check example-repo#3",
-    "109`t1`t05:00`tagy", "110`t1`t30:00`t/home/x/.local/bin/claude daemon run --origin transient",
-    "111`t110`t29:00`tclaude bg-pty-host --bg-pty-host /tmp/x.sock 200 50 -- /home/x/.local/share/claude/versions/2.1.289 --session-id 22222222-2222-2222-2222-222222222222",
-    "112`t111`t29:00`t/home/x/.local/share/claude/versions/2.1.289 --session-id 22222222-2222-2222-2222-222222222222 --name l1-sonnet5.5-low-100k-ab123 --model sonnet --effort low")
+    "100`t1`t1-01:00:00`tSs`tclaude --resume exa-lead", "101`t100`t05:00`tS`tbash run.sh",
+    "102`t101`t03:00`tS`tcodex exec -m big-model -c model_reasoning_effort=high work on example-repo#1",
+    "103`t102`t02:00`tS`tagy -p nested child --model cheap-model --effort high",
+    "104`t1`t01:02:03`tS`tcodex exec resume thread-w2 --json", "105`t1`t10`tS`tsleep 30", "106`t1`t01:00`tS`tgit log agy -p",
+    "107`t1`t2-00:00:00`tS`t/home/x/.local/bin/claude --chrome-native-host",
+    "108`t100`t01:00`tR`tnode /usr/lib/node_modules/gemini-cli/bin/gemini.js -p check example-repo#3",
+    "109`t1`t05:00`tS`tagy", "110`t1`t30:00`tSsl`t/home/x/.local/bin/claude daemon run --origin transient",
+    "111`t110`t29:00`tSNsl`tclaude bg-pty-host --bg-pty-host /tmp/x.sock 200 50 -- /home/x/.local/share/claude/versions/2.1.289 --session-id 22222222-2222-2222-2222-222222222222",
+    "112`t111`t29:00`tSNsl+`t/home/x/.local/share/claude/versions/2.1.289 --session-id 22222222-2222-2222-2222-222222222222 --name l1-sonnet5.5-low-100k-ab123 --model sonnet --effort low",
+    "113`t110`t40:00`tSNsl+`tclaude bg-spare --bg-spare /tmp/x/spare/a1.claim.sock",
+    "114`t110`t20:00`tSNsl+`tclaude bg-spare --bg-spare /tmp/x/spare/a2.claim.sock",
+    "115`t1`t50:00`tSl+`t/home/x/.local/bin/claude agents",
+    "116`t1`t3-00:00:00`tTl`t/home/x/.local/bin/claude --resume old-lead")
   $env:AI_CORE_AGENTS = Join-Path $work 'agents'
   Set-Content -LiteralPath $env:AI_CORE_AGENTS -Value @(
     '[{"pid":100,"kind":"interactive","name":"exa-lead","sessionId":"11111111-1111-1111-1111-111111111111","id":null},',
-    '{"pid":112,"kind":"background","name":"l1-sonnet5.5-low-100k-ab123","sessionId":"22222222-2222-2222-2222-222222222222","id":"22222222"}]')
+    '{"pid":112,"kind":"background","name":"l1-sonnet5.5-low-100k-ab123","sessionId":"22222222-2222-2222-2222-222222222222","id":"22222222"},',
+    '{"pid":113,"kind":"background","name":"l2-opus5.5-high-300k-cd456","cwd":"/home/x/.worktrees/example-repo/issue-4-fix-the-thing","sessionId":"33333333-3333-3333-3333-333333333333","id":"33333333"}]')
   $env:AI_CORE_ROLLOUTS = Join-Path $work 'rollouts'
   Set-Content -LiteralPath $env:AI_CORE_ROLLOUTS -Value @(
     "/proc/102/fd`t/home/x/.codex/sessions/2026/10/04/rollout-2026-10-04T11-52-48-01a106c2-71cd-7451-94ce-508f6229cd5b.jsonl",
@@ -174,8 +179,11 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   Check 'an agent CLI without a prompt is a session' '│ agy │ 109 │ │ 5 min │ │ session │' (VLine '│ agy ')
   Check 'a background session runs from the versioned binary' '│ claude l1-sonnet5.5 │ 112 │ sonnet · low │ 29 min │ │ session │' (VLine '│ claude l1-sonnet5.5 ')
   Check 'its daemon and terminal host are no agents' 0 @($view | Where-Object { $_ -cmatch '│ 11[01] +│' }).Count
-  Check 'in this order' '100 108 102 103 104 112 109' ((@($view | ForEach-Object { $c = $_.Split('│'); if ($c.Count -gt 3 -and $c[2].Trim() -cmatch '^\d+$') { $c[2].Trim() } })) -join ' ')
-  Check 'no helper, no tool word in another command' 'AGENTS 7 running: 2 claude, 1 gemini, 2 codex, 2 agy' (VLine ' running: ')
+  Check 'a claimed spare: name, model and effort from its name, the issue from its worktree' '│ claude l2-opus5.5-h │ 113 │ opus5.5 · high │ 40 min │ example-repo#4 │ session │' (VLine '│ claude l2-opus5.5')
+  Check 'a spare no session claimed and the agent list are no agents' 0 @($view | Where-Object { $_ -cmatch '│ 11[45] +│' }).Count
+  Check 'a stopped session is shown stopped' '│ claude old-lead │ 116 │ │ stopped │ │ session │' (VLine '│ claude old-lead ')
+  Check 'in this order' '116 100 108 102 103 104 113 112 109' ((@($view | ForEach-Object { $c = $_.Split('│'); if ($c.Count -gt 3 -and $c[2].Trim() -cmatch '^\d+$') { $c[2].Trim() } })) -join ' ')
+  Check 'no helper, no tool word in another command, a stopped one apart' 'AGENTS 8 running: 3 claude, 1 gemini, 2 codex, 2 agy; 1 stopped' (VLine ' running: ')
   Check 'no token lines' '' (VLine 'pace ')
   Write-Host 'the command that reaches each agent, from what its CLI reports'
   function Reach($Page, $AgentPid) {
@@ -189,7 +197,7 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   Check 'a codex process that holds none: a dash' '104 codex —' (Reach $view 104)
   Check 'an agent its CLI says nothing about: a dash' '109 agy —' (Reach $view 109)
   $after = $false
-  Check 'every agent, in the order of the table' '100 108 102 103 104 112 109' ((@($view | ForEach-Object { if ($after -and $_ -cmatch '^  (\d+) ') { $Matches[1] }; if ($_ -ceq 'REACH') { $after = $true } })) -join ' ')
+  Check 'every agent, in the order of the table' '116 100 108 102 103 104 113 112 109' ((@($view | ForEach-Object { if ($after -and $_ -cmatch '^  (\d+) ') { $Matches[1] }; if ($_ -ceq 'REACH') { $after = $true } })) -join ' ')
   Check 'a list that failed is shown, not swallowed' 'claude agents --json gave no list: claude agents --json failed' "$(@($broken | Where-Object { $_.Contains('gave no list') }) | Select-Object -First 1)".Trim()
   Check 'and no command is guessed' '100 claude —' (Reach $broken 100)
   # Where no stand-in names the rollouts, the twin asks find, which exits 1 on the processes it may

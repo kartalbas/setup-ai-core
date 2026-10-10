@@ -161,8 +161,8 @@ in a code block, shaped as a report of state (the rules on working with the prod
 - WHO WORKS ON WHAT: a table, one row per worker: its model, the sign of its state, its issues,
   what it does now and what comes next; the runs it started as rows under it. Below the table, the
   commands that reach the workers, copied from REACH, stand in one code block, one per line, so the
-  owner can copy them. A worker the command does not show is off, never running, and its minutes
-  come from the command, never from memory;
+  owner can copy them. A worker the command does not show is off and one it marks stopped is
+  suspended, never running, and its minutes come from the command, never from memory;
 - UP TO <the goal>: the open steps in delivery order, from the goal's open issues, each with who,
   state and next step;
 - NEXT TO DONE: the cards that close first, each with an approximate time.

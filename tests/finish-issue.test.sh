@@ -231,6 +231,18 @@ check 'exits zero'             0 "$rc"
 check 'its own commit is named' yes "$(grep -q 'issue comment 169 --repo example-org/example-repo .*Landed on master:.*Own fix (#169)' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
 check 'the other one is not'   no "$(grep -q 'other-org/tracker#169' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
 
+echo 'an issue of another repository on a board: the cards of both repositories are swept, in one run'
+open issue-179-sweep-both-repositories
+git -C "$work" config branch.issue-179-sweep-both-repositories.issueRepository other-org/tracker
+land issue-179-sweep-both-repositories 'Sweep both repositories (other-org/tracker#179)'
+: > "$log"; rm -rf "$fake/cache"
+out="$(run 179)"; rc=$?
+check 'exits zero'             0 "$rc"
+# a query of one repository's open issues: its first line names the repository, its third the issues
+swept() { grep -A2 -F "graphql -f o=$1 -f n=$2 -f query=" "$log" | grep -c 'issues(states:OPEN' || true; }
+check 'the cards of this repository are swept' 1 "$(swept example-org example-repo)"
+check 'and the issue'"'"'s'      1 "$(swept other-org tracker)"
+
 echo 'a branch that outlived its worktree still says where its issue lives'
 git -C "$work" branch -q issue-175-gone origin/master
 git -C "$work" config branch.issue-175-gone.issueRepository other-org/tracker

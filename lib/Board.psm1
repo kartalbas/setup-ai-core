@@ -571,19 +571,21 @@ function Get-RepoOpenProjects {
 }
 
 function Sync-ReleasedCards {
-  # THE CARDS OF A REPOSITORY THAT A RELEASE HAS CARRIED AND A PROOF COVERS, closed as an issue
-  # starts or finishes: status-sync for that repository alone, which reads its issues in one query
-  # and its release from the clone, so a proven card in testing whose landed commit the newest
-  # release tag carries does not wait for a person. A repository on no board has no card. A
-  # failure is said and stops nothing.
+  # THE CARDS OF THE REPOSITORIES THAT A RELEASE HAS CARRIED AND A PROOF COVERS, closed as an
+  # issue starts or finishes: status-sync for the checkout's repository and the issue's, where that
+  # is another one, in one run that reads each one's issues in one query and its release from its
+  # clone, so a proven card in testing whose landed commit the newest release tag carries does not
+  # wait for a person. A repository on no board has no card. A failure is said and stops nothing.
   [CmdletBinding()]
-  param([Parameter(Mandatory)][string]$Repo)
+  param([Parameter(Mandatory)][string[]]$Repo)
+  $named = @(); foreach ($r in $Repo) { if ($named -inotcontains $r) { $named += $r } }
   try {
-    if (Test-OnNoBoard -Repo $Repo) { return }
-    $out = @(& pwsh -NoProfile -File (Join-Path $PSScriptRoot '../bin/status-sync.ps1') -Repo $Repo 2>&1 | ForEach-Object { "$_" })
-    if ($LASTEXITCODE -ne 0) { Write-Error "status-sync did NOT run for ${Repo}: $($out -join ' ')" -ErrorAction Continue; return }
+    $keep = @($named | Where-Object { -not (Test-OnNoBoard -Repo $_) })
+    if ($keep.Count -eq 0) { return }
+    $out = @(& pwsh -NoProfile -File (Join-Path $PSScriptRoot '../bin/status-sync.ps1') @keep 2>&1 | ForEach-Object { "$_" })
+    if ($LASTEXITCODE -ne 0) { Write-Error "status-sync did NOT run for $($named -join ' '): $($out -join ' ')" -ErrorAction Continue; return }
     $out | Where-Object { $_ -cmatch '^close ' }
-  } catch { Write-Error "status-sync did NOT run for ${Repo}: $($_.Exception.Message)" -ErrorAction Continue }
+  } catch { Write-Error "status-sync did NOT run for $($named -join ' '): $($_.Exception.Message)" -ErrorAction Continue }
 }
 
 function Test-OnNoBoard {

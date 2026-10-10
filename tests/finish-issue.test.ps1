@@ -250,6 +250,26 @@ Check 'it runs'                'True'  ([string]$ok)
 Check 'its own commit is named' 'True' ([bool]((Calls) -match '(?s)issue comment 169 --repo example-org/example-repo .*Landed on master:.*Own fix \(#169\)'))
 Check 'the other one is not'   'False' ([bool]((Calls) -match 'other-org/tracker#169'))
 
+Write-Host 'an issue of another repository on a board: the cards of both repositories are swept, in one run'
+Open-Tree 'issue-179-sweep-both-repositories'
+& git -C $work config branch.issue-179-sweep-both-repositories.issueRepository other-org/tracker
+Land 'issue-179-sweep-both-repositories' 'Sweep both repositories (other-org/tracker#179)'
+Set-Content -Path $log -Value $null
+Remove-Item -Recurse -Force $env:GH_CACHE_DIRECTORY -ErrorAction SilentlyContinue
+$env:GH_PROJECT_NUMBER = '999983'
+$ok = Invoke-Finish -Number 179
+$env:GH_PROJECT_NUMBER = ''
+Check 'it runs'                'True'  ([string]$ok)
+# a query of one repository's open issues: its first line names the repository, its third the issues
+function Swept([string]$Owner, [string]$Name) {
+  $lines = @(Get-Content $log)
+  @(for ($i = 0; $i -lt $lines.Count; $i++) {
+    if ($lines[$i].Contains("graphql -f o=$Owner -f n=$Name -f query=") -and (@($lines[$i..([Math]::Min($i + 2, $lines.Count - 1))]) -join "`n").Contains('issues(states:OPEN')) { $i }
+  }).Count
+}
+Check 'the cards of this repository are swept' 1 (Swept 'example-org' 'example-repo')
+Check 'and the issue''s'        1 (Swept 'other-org' 'tracker')
+
 Write-Host 'a branch that outlived its worktree still says where its issue lives'
 & git -C $work branch -q issue-175-gone origin/master
 & git -C $work config branch.issue-175-gone.issueRepository other-org/tracker

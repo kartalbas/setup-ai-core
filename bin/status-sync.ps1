@@ -167,8 +167,9 @@ function Get-ReleaseTagPattern { param([string]$Config)
 #
 # The pattern is LIVE_TAGS of the clone's own .ai-core/config.env: the project of that repository
 # decides what its release is, never the folder this runs in. A tag counts only where origin has it
-# too: a fetch never prunes, so a tag a refused push left in the clone, or one deleted on origin,
-# would read as a release. The fetch asks nobody for a password.
+# on the same commit: a fetch never prunes and never moves a tag the clone holds, so a tag a
+# refused push left in the clone, one deleted on origin or one origin moved would read as a
+# release. Where origin cannot be listed, no tag counts. The fetch asks nobody for a password.
 $script:Releases = @{}
 function Read-Release { param([string]$R)
   if ($script:Releases.ContainsKey($R)) { return }
@@ -180,16 +181,32 @@ function Read-Release { param([string]$R)
   $kept = $ErrorActionPreference, $env:GIT_TERMINAL_PROMPT
   $ErrorActionPreference = 'Continue'; $env:GIT_TERMINAL_PROMPT = '0'
   try {
-    $said = @(& git -C $clone fetch -q --tags origin 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ })
-    if ($LASTEXITCODE -ne 0) { "fetching origin of $R in $clone failed: $($said | Select-Object -First 1); the refs it had are read" }
+    # Without -q, because a quiet fetch that refuses to move a tag gives no reason at all
+    $said = @(& git -C $clone fetch --tags origin 2>&1 | ForEach-Object { "$_" })
+    if ($LASTEXITCODE -ne 0) {
+      $reason = @($said | Where-Object { $_ -cmatch '^(error|fatal):|^ ! ' }) | Select-Object -First 1
+      $reason = if ($reason) { ($reason -creplace ' +', ' ').TrimStart(' ') } else { 'git gave no reason' }
+      "fetching origin of $R in $clone failed: $reason; the refs it had are read"
+    }
     try { Push-Location -LiteralPath $clone; $release.Ref = "origin/$(Get-OriginDefaultBranch)" } catch { $release.Ref = '' } finally { Pop-Location }
-    $remote = @(& git -C $clone ls-remote --tags origin 2>$null); $listed = $LASTEXITCODE -eq 0
-    $remote = @($remote | ForEach-Object { ("$_" -split '\s+')[1] -creplace '^refs/tags/', '' -creplace '\^\{\}$', '' })
+    $listing = @(& git -C $clone ls-remote --tags origin 2>$null | ForEach-Object { "$_" })
+    if ($LASTEXITCODE -ne 0) { "origin of $R could not be listed from $clone, so no tag of it counts as a release and its cards in testing stay"; return }
+    # <tag> -> the commit it stands on: an annotated tag's own line names the tag object, its ^{} line the commit
+    $remote = [Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
+    foreach ($line in $listing) {
+      $sha, $ref = $line -split '\s+'
+      if (-not $ref) { continue }
+      $name = $ref -creplace '^refs/tags/', ''
+      if ($name.EndsWith('^{}', [StringComparison]::Ordinal)) { $remote[$name.Substring(0, $name.Length - 3)] = $sha }
+      elseif (-not $remote.ContainsKey($name)) { $remote[$name] = $sha }
+    }
     # The pattern is matched here and never handed to git: pwsh expands a wildcard in a native
     # command's argument against the files of the current folder, a variable's too
     $pattern = Get-ReleaseTagPattern (Join-Path $clone '.ai-core/config.env')
-    $release.Tag = "$(@(& git -C $clone tag --sort=-creatordate 2>$null) |
-      Where-Object { $_ -clike $pattern -and (-not $listed -or $remote -ccontains $_) } | Select-Object -First 1)".Trim()
+    foreach ($t in @(& git -C $clone tag --sort=-creatordate 2>$null | ForEach-Object { "$_" } | Where-Object { $_ -clike $pattern })) {
+      if (-not $remote.ContainsKey($t)) { continue }
+      if ("$(& git -C $clone rev-parse -q --verify "refs/tags/$t^{commit}" 2>$null)".Trim() -ceq $remote[$t]) { $release.Tag = $t; break }
+    }
   } finally { $ErrorActionPreference, $env:GIT_TERMINAL_PROMPT = $kept }
 }
 

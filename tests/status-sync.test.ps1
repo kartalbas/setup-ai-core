@@ -67,7 +67,8 @@ Check 'CLOSE is done' 3 (Get-StatusRank 'CLOSE')
 # sub-issue, #15 of another organisation, #16 reopened after its landing, #17 moved by hand, #18
 # released without a proof record and proven by a stranger, #19 on test only, #20 in no tag and
 # on the second page with a newer prod tag in the clone that origin never had, #22 landed in
-# example-org/tools, which has no clone here.
+# example-org/gone, which has no clone here, #23 landed in example-org/tools, whose clone stands in
+# the project folder with its own LIVE_TAGS and its tag deploy/prod/7 on that commit.
 
 $fake = Join-Path ([IO.Path]::GetTempPath()) "status-sync-$([guid]::NewGuid().ToString('N').Substring(0,8))"
 $env:GH_CACHE_DIRECTORY = Join-Path $fake 'cache'
@@ -114,6 +115,15 @@ Git-At $clone 1700000300 @('tag', '-a', '-m', 'never pushed', 'deploy/prod/3', $
 $liveTags = 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"'
 New-Item -ItemType Directory -Path (Join-Path $clone '.ai-core') -Force | Out-Null
 Set-Content -LiteralPath (Join-Path $clone '.ai-core/config.env') -Value $liveTags
+# A second repository of the project, whose release carries the work of #23 and of nothing here
+$toolsOrigin = Join-Path $fake 'remote/example-org/tools.git'; $toolsSeed = Join-Path $fake 'tools-seed'; $tools = Join-Path $fake 'folder/tools'
+& git init -q --bare $toolsOrigin; & git init -q $toolsSeed; & git -C $toolsSeed checkout -q -b master
+$t23 = CommitAt $toolsSeed 1700000023 'Land #23'; TagAt $toolsSeed 'deploy/prod/7' 1700000023
+& git -C $toolsSeed push -q $toolsOrigin master --tags
+& git -C $toolsOrigin symbolic-ref HEAD refs/heads/master
+& git clone -q $toolsOrigin $tools
+New-Item -ItemType Directory -Path (Join-Path $tools '.ai-core') -Force | Out-Null
+Set-Content -LiteralPath (Join-Path $tools '.ai-core/config.env') -Value 'LIVE_TAGS="prod=deploy/prod/*"'
 
 function Card($number, $title, $status, $owner = 'example-org') {
   '{"fieldValues":{"nodes":[{"name":"' + $status + '","field":{"name":"Status"}}]},"content":{"number":' +
@@ -149,7 +159,8 @@ Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'issues-1.json') -Value (
   (Issue 17 'testing' 0 '{"createdAt":"2026-09-01T10:00:00Z","authorAssociation":"MEMBER","body":"Done in\n- abc1717 by hand"}')))
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'issues-2.json') -Value (Page 'false' 'null' @(
   (Issue 18 'testing' 0 (((Proven '2026-08-30T10:00:00Z'), (Landed '2026-09-01T10:00:00Z' $c18), (Proven '2026-09-02T10:00:00Z' 'NONE')) -join ',')),
-  (Issue 22 'testing' 0 (((Landed '2026-09-01T10:00:00Z' $c13 'example-org/tools'), (Proven '2026-09-02T10:00:00Z')) -join ',')),
+  (Issue 22 'testing' 0 (((Landed '2026-09-01T10:00:00Z' $c13 'example-org/gone'), (Proven '2026-09-02T10:00:00Z')) -join ',')),
+  (Issue 23 'testing' 0 (((Landed '2026-09-01T10:00:00Z' $t23 'example-org/tools'), (Proven '2026-09-02T10:00:00Z')) -join ',')),
   (Issue 19 'testing' 0 (((Landed '2026-09-01T10:00:00Z' $c19), (Proven '2026-09-02T10:00:00Z')) -join ',')),
   (Issue 20 'testing' 0 (((Landed '2026-09-01T10:00:00Z' $c20), (Proven '2026-09-02T10:00:00Z')) -join ',')),
   (Issue 21 '' 0 '')))
@@ -199,7 +210,7 @@ try {
   Sync $clone 'example-org/example-repo'
   Check 'exit 0' 0 $rc
   Check 'released on the first environment and proven: would close' `
-    'would close  example-repo#13  (testing -> done, released in deploy/prod/2 and proven)' (Lines 'would close*')
+    'would close  example-repo#13  (testing -> done, released in deploy/prod/2 and proven)' (Lines 'would close  example-repo#13 *')
   Check 'released without a proof record after its landing: due, and it stays' `
     'proof due    example-repo#18  (released in deploy/prod/2, no "Proven on" record after its landing)' (Lines 'proof due*')
   Check 'an epic with one sub-issue is named' `
@@ -208,8 +219,10 @@ try {
   Check 'nothing else moves: not on master alone, not reopened, not by hand, not on test only, not untagged' `
     '' "$(@($run | Where-Object { $_ -cmatch 'example-repo#(12|16|17|19|20|22)' -and $_ -cnotlike 'proof due*' }))"
   Check 'a landing in another repository is read there, and that one has no clone here' `
-    "no clone of example-org/tools in $(Join-Path $fake 'folder'), so no release of it is read and its cards in testing stay" (Lines 'no clone*')
-  Check 'and the count says what it read, both pages' "9 active cards scanned, 2 would move on board $projectNumber." $run[-1]
+    "no clone of example-org/gone in $(Join-Path $fake 'folder'), so no release of it is read and its cards in testing stay" (Lines 'no clone*')
+  Check 'a landing in another repository closes through that one''s clone and release' `
+    'would close  example-repo#23  (testing -> done, released in example-org/tools deploy/prod/7 and proven)' (Lines 'would close  example-repo#23 *')
+  Check 'and the count says what it read, both pages' "10 active cards scanned, 3 would move on board $projectNumber." $run[-1]
   Check 'the board is not read' 0 (CallCount 'items(first:100')
   Check 'the issues are read once per page' 2 (CallCount 'issues(states:OPEN')
   Check 'nothing asks GitHub for a tag or a compare' 0 @(@(Get-Content -LiteralPath $calls) | Where-Object { $_ -cmatch '/tags|/compare/' }).Count
@@ -221,13 +234,13 @@ try {
   Write-Host 'the repositories alone, the board from GH_PROJECT_NUMBER: by position they are no board'
   Sync $clone @('example-org/example-repo', 'other-org/example-repo') -BoardFromEnvironment
   Check 'exit 0' 0 $rc
-  Check 'both are read' "10 active cards scanned, 2 would move on board $projectNumber." $run[-1]
+  Check 'both are read' "11 active cards scanned, 3 would move on board $projectNumber." $run[-1]
 
   Write-Host 'without LIVE_TAGS the newest tag by date decides, whatever its name'
   Set-Content -LiteralPath (Join-Path $clone '.ai-core/config.env') -Value ''
   Sync $clone 'example-org/example-repo'
   Check 'the newest tag is 0.1-newest, which carries #13 and not #19' `
-    'would close  example-repo#13  (testing -> done, released in 0.1-newest and proven)' (Lines 'would close*')
+    'would close  example-repo#13  (testing -> done, released in 0.1-newest and proven)' (Lines 'would close  example-repo#13 *')
   Set-Content -LiteralPath (Join-Path $clone '.ai-core/config.env') -Value $liveTags
 
   Write-Host 'no repository named: the board is read to learn its repositories, each read under its owner'
@@ -235,14 +248,31 @@ try {
   Check 'exit 0' 0 $rc
   Check 'the board is read once' 1 (CallCount 'items(first:100, after:')
   Check 'a repository of another organisation is read under its owner' 1 (CallCount 'graphql -f o=other-org -f n=example-repo')
-  Check 'its card is counted' "10 active cards scanned, 2 would move on board $projectNumber." $run[-1]
+  Check 'its card is counted' "11 active cards scanned, 3 would move on board $projectNumber." $run[-1]
 
   Write-Host 'a repository with no clone here: said, and its cards in testing stay'
   Sync $fake 'example-org/example-repo'
   Check 'it says so' "no clone of example-org/example-repo in $fake, so no release of it is read and its cards in testing stay" (Lines 'no clone of example-org/example-repo *')
   Check 'nothing closes' '' (Lines 'would close*')
   Sync (Join-Path $fake 'folder') 'example-org/example-repo'
-  Check 'from the project folder, the clone in it is found, and LIVE_TAGS read from the clone' 'would close  example-repo#13  (testing -> done, released in deploy/prod/2 and proven)' (Lines 'would close*')
+  Check 'from the project folder, the clone in it is found, and LIVE_TAGS read from the clone' 'would close  example-repo#13  (testing -> done, released in deploy/prod/2 and proven)' (Lines 'would close  example-repo#13 *')
+
+  Write-Host 'a tag origin moved still stands on its old commit in the clone, and is no release'
+  $moved = "$(& git -C $origin rev-parse refs/tags/deploy/prod/2)".Trim()
+  Git-At $origin 1700000018 @('tag', '-f', '-a', '-m', 'moved back', 'deploy/prod/2', $c12) | Out-Null
+  Sync $clone 'example-org/example-repo'
+  Check 'the fetch says why it failed' `
+    "fetching origin of example-org/example-repo in $clone failed: ! [rejected] deploy/prod/2 -> deploy/prod/2 (would clobber existing tag); the refs it had are read" (Lines 'fetching origin*')
+  Check 'the release is the tag before it' 'would close  example-repo#13  (testing -> done, released in deploy/prod/1 and proven)' (Lines 'would close  example-repo#13 *')
+  Check 'and #18, in the moved tag alone, is not released' '' (Lines '*example-repo#18*')
+  & git -C $origin update-ref refs/tags/deploy/prod/2 $moved
+
+  Write-Host 'an origin that cannot be listed: no tag counts, and it says so'
+  & git -C $clone remote set-url origin (Join-Path $fake 'gone/example-org/example-repo.git')
+  Sync $clone 'example-org/example-repo'
+  Check 'it says so' "origin of example-org/example-repo could not be listed from $clone, so no tag of it counts as a release and its cards in testing stay" (Lines 'origin of*')
+  Check 'nothing of it closes, not even on the tag the clone holds' '' (Lines 'would close  example-repo#13 *')
+  & git -C $clone remote set-url origin $origin
 
   Write-Host 'without -DryRun: the closing card is closed through issue-close, and nothing else is'
   # issue-close asks more than the close, where the issue stands on boards and under an epic, and
@@ -250,9 +280,10 @@ try {
   New-Item -ItemType File -Path (Join-Path $fake 'lenient') -Force | Out-Null
   Sync $clone 'example-org/example-repo' -Apply
   Check 'exit 0' 0 $rc
-  Check 'it says so' 'close        example-repo#13  (testing -> done, released in deploy/prod/2 and proven)' (Lines 'close *')
+  Check 'it says so' 'close        example-repo#13  (testing -> done, released in deploy/prod/2 and proven)' (Lines 'close        example-repo#13 *')
   Check '#13 is closed' 1 (CallCount 'api --method PATCH repos/example-org/example-repo/issues/13 ')
-  Check 'and no other issue' 1 @(@(Get-Content -LiteralPath $calls) | Where-Object { $_ -cmatch 'api --method PATCH repos/.*/issues/' }).Count
+  Check '#23 is closed' 1 (CallCount 'api --method PATCH repos/example-org/example-repo/issues/23 ')
+  Check 'and no other issue' 2 @(@(Get-Content -LiteralPath $calls) | Where-Object { $_ -cmatch 'api --method PATCH repos/.*/issues/' }).Count
   Remove-Item -LiteralPath (Join-Path $fake 'lenient')
 }
 finally {

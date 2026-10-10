@@ -190,5 +190,5 @@ body="$(printf 'Landed on %s:\n\n%s\n' "$landed_on" "$commits")"
   && echo "the issue says what landed" \
   || echo "the issue was NOT told what landed - add the commits by hand" >&2
 
-# The cards of this repository whose work a release carries and a proof covers close (status-sync)
-released_repo="$(resolve_repo "")" && sync_released_cards "$released_repo"
+# The cards of this repository and of the issue's whose work a release carries and a proof covers close (status-sync)
+released_repo="$(resolve_repo "")" && sync_released_cards "$released_repo" ${repo:+"$repo"}

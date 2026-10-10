@@ -202,5 +202,5 @@ $body = "Landed on ${landedOn}:`n`n$commits`n"
 try { & (Join-Path $PSScriptRoot 'issue-comment.ps1') -Number $Number -Body $body @where | Out-Null; 'the issue says what landed' }
 catch { Write-Error 'the issue was NOT told what landed - add the commits by hand' -ErrorAction Continue }
 
-# The cards of this repository whose work a release carries and a proof covers close (status-sync)
-Sync-ReleasedCards -Repo (Get-DefaultRepo)
+# The cards of this repository and of the issue's whose work a release carries and a proof covers close (status-sync)
+Sync-ReleasedCards -Repo @(@((Get-DefaultRepo), $Repo) | Where-Object { $_ })

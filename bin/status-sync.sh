@@ -153,11 +153,12 @@ release_tag_pattern() {  # <config.env>
 #
 # The pattern is LIVE_TAGS of the clone's own .ai-core/config.env: the project of that repository
 # decides what its release is, never the folder this runs in. A tag counts only where origin has it
-# too: a fetch never prunes, so a tag a refused push left in the clone, or one deleted on origin,
-# would read as a release. The fetch asks nobody for a password.
+# on the same commit: a fetch never prunes and never moves a tag the clone holds, so a tag a
+# refused push left in the clone, one deleted on origin or one origin moved would read as a
+# release. Where origin cannot be listed, no tag counts. The fetch asks nobody for a password.
 _RELEASES=''
 release_of() {  # <owner/repo>
-  local held said remote listed=0 t
+  local held said reason remote t want
   held="$(printf '%s' "$_RELEASES" | awk -F'\t' -v r="$1" 'tolower($1) == tolower(r) { print; exit }')"
   if [ -n "$held" ]; then
     IFS=$'\t' read -r _ REL_CLONE REL_REF REL_TAG <<< "$held"
@@ -168,15 +169,24 @@ release_of() {  # <owner/repo>
   if [ -z "$REL_CLONE" ]; then
     echo "no clone of $1 in $(project_folder), so no release of it is read and its cards in testing stay"
   else
-    said="$(GIT_TERMINAL_PROMPT=0 git -C "$REL_CLONE" fetch -q --tags origin 2>&1)" \
-      || echo "fetching origin of $1 in $REL_CLONE failed: $(printf '%s\n' "$said" | sed -n '/./{p;q;}'); the refs it had are read"
+    # Without -q, because a quiet fetch that refuses to move a tag gives no reason at all
+    if ! said="$(GIT_TERMINAL_PROMPT=0 git -C "$REL_CLONE" fetch --tags origin 2>&1)"; then
+      reason="$(printf '%s\n' "$said" | grep -m1 -E '^(error|fatal):|^ ! ' | tr -s ' ' | sed 's/^ //' || true)"
+      echo "fetching origin of $1 in $REL_CLONE failed: ${reason:-git gave no reason}; the refs it had are read"
+    fi
     REL_REF="origin/$(cd "$REL_CLONE" && origin_default_branch)" || REL_REF=""
-    remote="$(GIT_TERMINAL_PROMPT=0 git -C "$REL_CLONE" ls-remote --tags origin 2>/dev/null)" && listed=1
-    remote="$(printf '%s\n' "$remote" | awk '{ sub("^refs/tags/", "", $2); sub("\\^\\{\\}$", "", $2); print $2 }')"
-    while IFS= read -r t; do
-      [ -n "$t" ] || continue
-      if [ "$listed" = 0 ] || grep -qxF -- "$t" <<< "$remote"; then REL_TAG="$t"; break; fi
-    done <<< "$(git -C "$REL_CLONE" tag --list "$(release_tag_pattern "$REL_CLONE/.ai-core/config.env")" --sort=-creatordate)"
+    if remote="$(GIT_TERMINAL_PROMPT=0 git -C "$REL_CLONE" ls-remote --tags origin 2>/dev/null)"; then
+      # <tag> <the commit it stands on>: an annotated tag's own line names the tag object, its ^{} line the commit
+      remote="$(printf '%s\n' "$remote" | awk '$2 != "" { n = $2; sub("^refs/tags/", "", n)
+        if (sub("\\^\\{\\}$", "", n)) c[n] = $1; else if (!(n in c)) c[n] = $1 } END { for (n in c) print n "\t" c[n] }')"
+      while IFS= read -r t; do
+        [ -n "$t" ] || continue
+        want="$(awk -F'\t' -v t="$t" '$1 == t { print $2; exit }' <<< "$remote")"
+        if [ -n "$want" ] && [ "$want" = "$(git -C "$REL_CLONE" rev-parse -q --verify "refs/tags/$t^{commit}" 2>/dev/null)" ]; then REL_TAG="$t"; break; fi
+      done <<< "$(git -C "$REL_CLONE" tag --list "$(release_tag_pattern "$REL_CLONE/.ai-core/config.env")" --sort=-creatordate)"
+    else
+      echo "origin of $1 could not be listed from $REL_CLONE, so no tag of it counts as a release and its cards in testing stay"
+    fi
   fi
   _RELEASES="${_RELEASES}$1"$'\t'"${REL_CLONE:--}"$'\t'"${REL_REF:--}"$'\t'"${REL_TAG:--}"$'\n'
 }

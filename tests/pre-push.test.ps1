@@ -582,6 +582,52 @@ Moved 'Move the plain seeds to the lab #24' 'plain/seeds' 'lab/seeds'
 OnlyNew $repo
 Check 'exit 1'                      1 $rc
 Check 'the half-named family'       'True' (Says 'lab/seeds beside lab/seeds-demo: one member of the family')
+
+Write-Host 'a member moved from its family to another member of the same name is refused'
+Seed-Dirs 'Add the kiosk seeds #24' @('kiosk/seeds', 'kiosk/seeds-demo', 'stall/seeds-demo')
+Moved 'Move the kiosk seeds to the stall #24' 'kiosk/seeds' 'stall/seeds'
+OnlyNew $repo
+Check 'exit 1'                      1 $rc
+Check 'the half-named family'       'True' (Says 'stall/seeds beside stall/seeds-demo: one member of the family')
+
+Write-Host 'a member moved to the top, beside a member there, is refused'
+Seed-Dirs 'Add the market plants #24' @('market/plants', 'market/plants-demo', 'plants-demo')
+Moved 'Move the market plants to the top #24' 'market/plants' 'plants'
+OnlyNew $repo
+Check 'exit 1'                      1 $rc
+Check 'the half-named family'       'True' (Says '(?m)^pre-push: plants beside plants-demo: one member of the family')
+
+Write-Host 'a folder moved whole keeps its names, also where git pairs its empty files across'
+foreach ($d in @('depot/seeds', 'depot/seeds-demo')) { New-Item -ItemType Directory -Force -Path (Join-Path $repo $d) | Out-Null; Write-Lf (Join-Path $repo "$d/.gitkeep") '' }
+& git -C $repo add -- depot; & git -C $repo commit -q -m 'Add the depot #24'
+& git -C $repo mv depot big-depot; New-Item -ItemType Directory -Force -Path (Join-Path $repo 'aaa') | Out-Null; Write-Lf (Join-Path $repo 'aaa/.gitkeep') ''; & git -C $repo add -- aaa
+& git -C $repo commit -q -m 'Rename the depot, and add aaa #24'
+OnlyNew $repo
+Check 'exit 0'                      0 $rc
+
+Write-Host 'a family copied out by moving one file of each member, the members staying, is refused'
+foreach ($d in @('tools/seeds', 'tools/seeds-demo')) { New-Item -ItemType Directory -Force -Path (Join-Path $repo $d) | Out-Null; foreach ($f in @('a', 'b')) { Write-Lf (Join-Path $repo "$d/$f.json") "{`"seed`":`"$d/$f`"}`n" } }
+& git -C $repo add -- tools; & git -C $repo commit -q -m 'Add the tool seeds #24'
+foreach ($d in @('yard/seeds', 'yard/seeds-demo')) { New-Item -ItemType Directory -Force -Path (Join-Path $repo $d) | Out-Null }
+& git -C $repo mv tools/seeds/a.json yard/seeds/a.json; & git -C $repo mv tools/seeds-demo/a.json yard/seeds-demo/a.json
+& git -C $repo commit -q -m 'Move one tool seed of each into the yard #24'
+OnlyNew $repo
+Check 'exit 1'                      1 $rc
+Check 'the half-named family'       'True' (Says 'yard/seeds beside yard/seeds-demo: one member of the family')
+
+Write-Host 'a moved folder that names a part only where it lands is refused'
+Seed-Dirs 'Add the shop api notes #24' @('misc/shop-api')
+Moved 'Move the shop api notes into the catalog #24' 'misc/shop-api' 'catalog/shop-api'
+OnlyNew $repo
+Check 'exit 1'                      1 $rc
+Check 'the part the sibling lacks'  'True' (Says 'catalog/shop-api names a part of the repository acme-shop, and acme-shop has no api')
+
+Write-Host 'a name below a folder of non-ASCII letters is read, not skipped'
+Seed-Dirs 'Add the demo seeds of the fields #24' @('über/lab/seeds-demo')
+Seed-Dirs 'Add the seeds of the fields #24' @('über/lab/seeds')
+OnlyNew $repo
+Check 'exit 1'                      1 $rc
+Check 'the half-named family'       'True' (Says 'über/lab/seeds beside über/lab/seeds-demo: one member of the family')
 & git -C $repo reset -q --hard $mark
 
 # --- the Windows entry point, held against the one text it copies ----------------------------

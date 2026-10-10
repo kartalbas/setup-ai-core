@@ -76,6 +76,10 @@ if ($Help -or $Rest -ccontains "-h" -or $Rest -ccontains "--help") {
 $ErrorActionPreference = 'Continue'
 $coreRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $utf8 = New-Object System.Text.UTF8Encoding $false
+# git writes a path with a byte above 0x7f as UTF-8 under core.quotePath=false, and PowerShell
+# decodes a native command's output with [Console]::OutputEncoding, on Windows the console code
+# page, which would turn über/ into a folder that does not exist
+[Console]::OutputEncoding = $utf8
 if ($All -and -not $Install) { Write-Host "error: -All goes with -Install" -ForegroundColor Red; exit 2 }
 if ($Install -and $Rest.Count -gt 0) { Write-Host "error: unexpected argument '$($Rest[0])' (see -Help)" -ForegroundColor Red; exit 2 }
 
@@ -623,32 +627,61 @@ function Get-NamingFindings {
       if ($o.Parts -cnotcontains $rest) { "part`t$($o.Repo)`t$rest" }
     }
   }
+  # Where a rename of this commit brought a directory from under the name it has: the old path of
+  # the directory itself, or of the nearest folder above it that moved, with the directory below it;
+  # or ''. It counts only where the directory is new, its old path stood before and is gone now, so
+  # a folder that only some files left, or one that was there already, has moved nowhere. git pairs
+  # files by their content, so a folder above can name the move where the files inside it were
+  # paired across.
+  function Get-MovedFrom([string]$Sha, [string]$Dir) {
+    & git cat-file -e "${Sha}^:$Dir" 2>$null; if ($LASTEXITCODE -eq 0) { return '' }
+    $p = $Dir
+    while ($true) {
+      foreach ($pair in @($moves | Where-Object { $_[0] -ceq $p })) {
+        $s = $pair[1] + $Dir.Substring($p.Length)
+        if (($s -split '/')[-1] -cne ($Dir -split '/')[-1]) { continue }
+        & git cat-file -e "${Sha}^:$s" 2>$null; if ($LASTEXITCODE -ne 0) { continue }
+        & git cat-file -e "${Sha}:$s" 2>$null; if ($LASTEXITCODE -eq 0) { continue }
+        return $s
+      }
+      if (-not $p.Contains('/')) { return '' }
+      $p = $p.Substring(0, $p.LastIndexOf('/'))
+    }
+  }
   foreach ($sha in $commits) {
     if ("$(& git log -1 '--format=%(trailers:key=Naming,valueonly)' $sha)".Trim()) { continue }
-    $dirs = @(& git diff-tree --no-commit-id --root -r --name-only --diff-filter=A $sha | ForEach-Object { "$_" } | ForEach-Object {
+    $dirs = @(& git -c core.quotePath=false diff-tree --no-commit-id --root -r --name-only --diff-filter=A $sha | ForEach-Object { "$_" } | ForEach-Object {
         $segs = $_ -split '/'; for ($i = 1; $i -lt $segs.Count; $i++) { ($segs[0..($i - 1)] -join '/') } } | Sort-Object -Unique -CaseSensitive)
-    # A folder the commit moves under the name it had (git mv a b brings b/seeds from a/seeds) keeps
-    # the findings it had where it stood: only the ones it had not there are new
-    $moves = [Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
-    foreach ($line in @(& git diff-tree --no-commit-id --root -r -M --name-status --diff-filter=R $sha | ForEach-Object { "$_" })) {
+    # The renames of the commit, as <new folder> <old folder> for every folder above a renamed file,
+    # each beside the one as far above its old path, the nearest first; Get-MovedFrom reads them
+    $moves = [Collections.Generic.List[string[]]]::new()
+    foreach ($line in @(& git -c core.quotePath=false diff-tree --no-commit-id --root -r -M --name-status --diff-filter=R $sha | ForEach-Object { "$_" })) {
       $f = $line -split "`t"; if ($f.Count -lt 3) { continue }
-      $d = $f[2] -split '/'; $rest = $d[-1]
-      for ($i = $d.Count - 2; $i -ge 0; $i--) {
-        if ($f[1].Length -gt $rest.Length + 1 -and $f[1].EndsWith("/$rest", [StringComparison]::Ordinal)) {
-          $from = $f[1].Substring(0, $f[1].Length - $rest.Length - 1)
-          $p = $d[0..$i] -join '/'
-          if (($from -split '/')[-1] -ceq $d[$i] -and -not $moves.ContainsKey($p)) { $moves[$p] = $from }
-        }
-        $rest = "$($d[$i])/$rest"
+      $d = $f[2] -split '/'; $o = $f[1] -split '/'
+      for ($k = 1; $k -lt $d.Count -and $k -lt $o.Count; $k++) {
+        $pair = @(($d[0..($d.Count - 1 - $k)] -join '/'), ($o[0..($o.Count - 1 - $k)] -join '/'))
+        if (-not @($moves | Where-Object { $_[0] -ceq $pair[0] -and $_[1] -ceq $pair[1] })) { $moves.Add($pair) }
       }
     }
     foreach ($dir in $dirs) {
       & git cat-file -e "${sha}^:$dir" 2>$null; if ($LASTEXITCODE -eq 0) { continue }
+      $seg = ($dir -split '/')[-1]
       $parent = if ($dir.Contains('/')) { $dir.Substring(0, $dir.LastIndexOf('/') + 1) } else { '' }
       $found = @(Get-DirFindings $sha $dir)
-      if ($found.Count -gt 0 -and $moves.ContainsKey($dir)) {
-        $before = @(Get-DirFindings "${sha}^" $moves[$dir])
-        $found = @($found | Where-Object { $before -cnotcontains $_ })
+      $from = if ($found.Count -gt 0) { Get-MovedFrom $sha $dir } else { '' }
+      # A folder the commit moves (git mv a b brings b/seeds from a/seeds) keeps a finding it had
+      # where it stood. A family finding stood there only where the other member moved along from
+      # the same folder: beside another member, the family is new.
+      if ($from) {
+        $before = @(Get-DirFindings "${sha}^" $from)
+        $fromParent = if ($from.Contains('/')) { $from.Substring(0, $from.LastIndexOf('/') + 1) } else { '' }
+        $found = @($found | Where-Object {
+          if ($before -cnotcontains $_) { return $true }
+          $kind, $a, $b = $_ -split "`t"
+          if ($kind -cne 'family') { return $false }
+          $other = if ($a -cne $seg) { $a } else { $b }
+          (Get-MovedFrom $sha "$parent$other") -cne "$fromParent$other"
+        })
       }
       foreach ($finding in $found) {
         $kind, $a, $b = $finding -split "`t"
@@ -661,7 +694,7 @@ function Get-NamingFindings {
 $findings = @(Get-NamingFindings | Sort-Object -Unique -CaseSensitive)
 if ($findings.Count -gt 0) {
   foreach ($f in $findings) { [Console]::Error.WriteLine("pre-push: $f") }
-  Deny-Push "the names above are invented where they should be derived from what they belong to. Rename them, or give the commit that adds them a 'Naming: <why>' trailer."
+  Deny-Push "the names above are invented where they should be derived from what they belong to. Rename them, or give the commit that adds them a 'Naming: <why>' trailer. A folder moved whole keeps the names inside it where git still pairs its files as renames: move it in a commit of its own."
 }
 
 # The wait is announced here and not earlier, so a push that is refused above is not first

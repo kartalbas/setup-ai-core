@@ -91,7 +91,7 @@ if [ -n "$found_in" ]; then
   [ -z "$asked_by$asked_in" ] || die "--found-in and --asked-by/--asked-in contradict each other: one says a session found a defect, the other names who said yes - give one"
   grep -qx 'type:bug' <<< "$(printf '%s\n' "${labels[@]}")" \
     || die "--found-in is only for a defect found in the work (label type:bug); other work needs --asked-by and --asked-in"
-  asked="$FOUND_PREFIX$found_in on $(date +%Y-%m-%d), a defect filed without a yes."
+  asked="$FOUND_PREFIX$found_in on $(date +%Y-%m-%d)$FOUND_TAIL"
 else
   [ -n "$asked_by" ] || die "--asked-by is required: the login of the person who said yes to this issue (a defect found in the work takes --found-in)"
   [ -n "$asked_in" ] || die "--asked-in is required: where they said it - the issue thread, the review, or the chat, with its date"

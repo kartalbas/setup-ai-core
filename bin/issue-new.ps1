@@ -91,7 +91,7 @@ if ($Parent) { $parentIssue = Resolve-ParentIssue -Reference $Parent -Repo $Repo
 if ($FoundIn) {
   if ($AskedBy -or $AskedIn) { Stop-WithError '-FoundIn and -AskedBy/-AskedIn contradict each other: one says a session found a defect, the other names who said yes - give one' }
   if ($Label -cnotcontains 'type:bug') { Stop-WithError '-FoundIn is only for a defect found in the work (label type:bug); other work needs -AskedBy and -AskedIn' }
-  $asked = "$(Get-FoundPrefix)$FoundIn on $(Get-Date -Format 'yyyy-MM-dd'), a defect filed without a yes."
+  $asked = "$(Get-FoundPrefix)$FoundIn on $(Get-Date -Format 'yyyy-MM-dd')$(Get-FoundTail)"
 } else {
   if (-not $AskedBy) { Stop-WithError '-AskedBy is required: the login of the person who said yes to this issue (a defect found in the work takes -FoundIn)' }
   if (-not $AskedIn) { Stop-WithError '-AskedIn is required: where they said it - the issue thread, the review, or the chat, with its date' }

@@ -105,6 +105,18 @@ $out = (@(& $edit -Repo $repo -Number 163 -BodyFile $plain) -join "`n")
 Check 'what it says'            '#163 -> edited (body, asked-for line kept)' $out
 Check 'the line is back on top' $foundLine (Sent)[0]
 
+Write-Host 'prose that only opens like a found-in line is no such line'
+Clear-Log; Clear-Sent
+$prose = Join-Path $fake 'prose.md'
+Set-Content -Path $prose -Value 'Found in production, the gate refuses every push.' -Encoding utf8NoBOM
+Set-Content -Path $reply -Value "$asked`n`nthe old body" -Encoding utf8NoBOM
+$out = (@(& $edit -Repo $repo -Number 163 -BodyFile $prose) -join "`n")
+Check 'a new body of prose: the asked-for line is kept' $asked "$(@(Sent)[0])"
+Clear-Log; Clear-Sent
+Set-Content -Path $reply -Value 'Found in production, the gate refuses every push.' -Encoding utf8NoBOM
+$told = (@(& $edit -Repo $repo -Number 163 -BodyFile $plain 6>&1) | ForEach-Object { "$_" }) -join "`n"
+Check 'an old body of prose: there is none to keep' 'True' ([bool]($told -match 'carries no asked-for line'))
+
 Write-Host 'a body that already carries the line is sent untouched, and the issue is never read'
 Clear-Log; Clear-Sent
 $out = (@(& $edit -Repo $repo -Number 163 -BodyFile $carrying) -join "`n")

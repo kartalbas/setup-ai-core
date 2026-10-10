@@ -590,13 +590,17 @@ function Test-OnNoBoard {
 $script:AskedPrefix = 'Asked for by @'
 function Get-AskedPrefix { [CmdletBinding()] param() $script:AskedPrefix }
 # A defect a session found in its own work names where it was found instead: writing it down is
-# tracking, not new work, so it waits for nobody's yes.
+# tracking, not new work, so it waits for nobody's yes. Its line also ends the way issue-new
+# writes it, because a body of prose may well open with "Found in".
 $script:FoundPrefix = 'Found in '
+$script:FoundTail = ', a defect filed without a yes.'
 function Get-FoundPrefix { [CmdletBinding()] param() $script:FoundPrefix }
-# Whether a line opens the way issue-new writes the first line of a body: asked for, or found in.
+function Get-FoundTail { [CmdletBinding()] param() $script:FoundTail }
+# Whether a line is the first line issue-new writes: asked for, or found in.
 function Test-OriginLine {
   [CmdletBinding()] param([string]$Line)
-  $Line.StartsWith($script:AskedPrefix, [StringComparison]::Ordinal) -or $Line.StartsWith($script:FoundPrefix, [StringComparison]::Ordinal)
+  $Line.StartsWith($script:AskedPrefix, [StringComparison]::Ordinal) -or
+    ($Line.StartsWith($script:FoundPrefix, [StringComparison]::Ordinal) -and $Line.EndsWith($script:FoundTail, [StringComparison]::Ordinal))
 }
 
 function Write-TitleReport {
@@ -965,6 +969,6 @@ Export-ModuleMember -Function Stop-WithError, ConvertTo-AsciiLowercase, Invoke-G
   Set-Project, Get-ProjectNumber, Get-ProjectOrg,
   Get-TemplateProjectNumber, Get-TemplateMark, Resolve-ProjectForRepo, Get-RepoOpenProjects, Test-OnNoBoard, Get-OriginDefaultBranch, Get-ProjectId, Get-CacheDir, Get-Fields, Get-FieldId, Get-OptionId,
   Clear-BoardCache, Get-DefaultRepo, Get-BranchIssueRepo, Get-IssueRef, Get-AssigneeForRepo, Get-ProjectRepos, Get-IssueNodeId, Get-IssueDbId,
-  Write-TitleReport, Get-AskedPrefix, Get-FoundPrefix, Test-OriginLine, Get-IssueThread, Get-IssueBoardItems, Invoke-OnEveryBoard, Set-ItemTop,
+  Write-TitleReport, Get-AskedPrefix, Get-FoundPrefix, Get-FoundTail, Test-OriginLine, Get-IssueThread, Get-IssueBoardItems, Invoke-OnEveryBoard, Set-ItemTop,
   Resolve-ParentIssue, Get-ItemId, Get-ArchivedItemId, Get-BoardItems, Remove-BoardItem, Set-Select,
   Get-StatusRank, Get-EpicTarget, Get-EpicTargetOnBoard, Update-Epic, Update-ParentEpic

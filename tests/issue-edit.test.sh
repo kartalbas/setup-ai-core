@@ -103,6 +103,17 @@ out="$("$edit" "$repo" 163 --body-file "$plain" 2>/dev/null)"
 check 'what it says'            '#163 -> edited (body, asked-for line kept)' "$out"
 check 'the line is back on top' "$foundline" "$(head -1 "$sent")"
 
+echo 'prose that only opens like a found-in line is no such line'
+: > "$log"; rm -f "$sent"
+prose="$fake/prose.md"; printf 'Found in production, the gate refuses every push.\n' > "$prose"
+printf '%s\r\n\r\nthe old body\r\n' "$asked" > "$reply"
+out="$("$edit" "$repo" 163 --body-file "$prose" 2>/dev/null)"
+check 'a new body of prose: the asked-for line is kept' "$asked" "$(head -1 "$sent" 2>/dev/null)"
+: > "$log"; rm -f "$sent"
+printf 'Found in production, the gate refuses every push.\r\n' > "$reply"
+out="$("$edit" "$repo" 163 --body-file "$plain" 2>&1)"
+check 'an old body of prose: there is none to keep' yes "$(grep -q 'carries no asked-for line' <<< "$out" && echo yes || echo no)"
+
 echo 'a body that already carries the line is sent untouched, and the issue is never read'
 : > "$log"; rm -f "$sent"
 out="$("$edit" "$repo" 163 --body-file "$carrying" 2>/dev/null)"

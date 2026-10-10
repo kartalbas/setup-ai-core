@@ -143,6 +143,12 @@ for t in sh ps; do
   grep -aq '^  auto mode:' "$WORK/auto-mode-$t-2.log" && fail "init.$t reports an auto-mode change on a second run with the same entries"
 done
 cmp -s "$(settings_of sh)" "$(settings_of ps)" || fail "the user settings differ between the twins"
+for t in sh ps; do   # the same entries in another order are no change
+  s="$(settings_of "$t")"
+  jq '.autoMode.allow |= ([.[] | select(startswith("["))] + [.[] | select(startswith("[") | not)])' "$s" > "$WORK/reordered-$t.json" && cp "$WORK/reordered-$t.json" "$s"
+  auto_mode_init "$t" "$WORK/auto-mode-$t-order.log" || fail "init.$t with the entries in another order (see $WORK/auto-mode-$t-order.log)"
+  cmp -s "$s" "$WORK/reordered-$t.json" || fail "init.$t rewrote a list whose entries stood only in another order"
+done
 printf 'allow\tA shop entry moved by hand.\n' > "$WORK/author/auto-mode.tsv"
 git -C "$WORK/author" -c user.name=check -c user.email=check@localhost commit -qam "the run manager entry goes"; git -C "$WORK/author" push -q origin HEAD
 for t in sh ps; do
@@ -191,6 +197,9 @@ for t in sh ps; do
   grep -aq 'removed from allow: \[shop-ai-core\]' "$WORK/auto-mode-$t-uncloned.log" && fail "init.$t --dry-run would remove the entries of a harness it has not cloned (see $WORK/auto-mode-$t-uncloned.log)"
 done
 cmp -s "$WORK/claude-sh-new/settings.json" "$WORK/claude-ps-new/settings.json" || fail "the new settings differ between the twins"
+mkdir -p "$WORK/home-ps-fresh/.claude"
+env -u CLAUDE_CONFIG_DIR HOME="$WORK/home-ps-fresh" USERPROFILE="$(native "$WORK/home-ps-fresh")" PATH="$PATH_SH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-ps/shop-web")" -NoDoctor > "$WORK/auto-mode-ps-home.log" 2>&1 || fail "init.ps1 without CLAUDE_CONFIG_DIR (see $WORK/auto-mode-ps-home.log)"
+cmp -s "$WORK/home-ps-fresh/.claude/settings.json" "$WORK/claude-ps-new/settings.json" || fail "init.ps1 did not write the settings under HOME without CLAUDE_CONFIG_DIR"
 # The map: the agent CLI (a fake claude here) writes it, map puts it into the harness, pushes it and brings it into the checkout at once; people's rules kept; a bad output refused; on both twins
 cat > "$WORK/ghbin/claude" <<'EOF'
 #!/bin/sh

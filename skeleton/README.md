@@ -15,7 +15,7 @@ the scripts and the templates; this repository carries what is the project's own
 | agent definitions for Claude Code | `agents/<name>.md` | copied to `.claude/agents/<name>.md` |
 | the agents served, the organisation | `config.env` | `.ai-core/config.env` |
 | the label taxonomy, who owns which repository's issues, the team modes | `labels.tsv`, `assignees.tsv`, `team-modes.tsv` | `.ai-core/` |
-| the steps Claude Code's classifier allows in this project: one line per entry, `allow` or `environment`, a tab, the entry as prose | `auto-mode.tsv` | written into Claude Code's user settings, `~/.claude/settings.json`, each entry led by `[<this harness>] `; never into a checkout |
+| the steps Claude Code's classifier allows in this project: one line per entry, `allow` or `environment`, a tab, the entry as prose | `auto-mode.tsv` | written into Claude Code's user settings, `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json`, each entry led by `[<this harness>] `; never into a checkout |
 | the harness this one extends, the setup-ai-core version it needs | `ai-core.json` | resolved before assembly, base first |
 
 Change a file here, commit and push: every developer gets it at the next `ai-core init`.

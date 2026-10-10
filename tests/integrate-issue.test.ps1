@@ -155,17 +155,29 @@ Check 'the subject keeps the short form' 'Read the board whole (#83)' "$(& git -
 
 Write-Host 'the landings of one clone take turns: a lock a live process holds is waited for, a dead one taken over'
 $lock = Join-Path $work '.git/ai-core-landing'
-$holder = Start-Process -FilePath pwsh -ArgumentList '-NoProfile', '-Command', 'Start-Sleep 30' -PassThru
+# The landing runs in the background; once it says it waits, and not before, the lock it waits for
+# is released, so a slow start cannot pass for a wait
+function Invoke-WhileHeld([string]$In, [string]$Number) {
+  $said = Join-Path $fake "held-$Number.out"; $told = Join-Path $fake "held-$Number.err"
+  $landing = Start-Process -FilePath pwsh -ArgumentList '-NoProfile', '-File', $integrate, $Number, '-ReviewedBy', 'l4' -WorkingDirectory $In -RedirectStandardOutput $said -RedirectStandardError $told -PassThru
+  foreach ($i in 1..240) { if ((Test-Path -LiteralPath $told) -and (Get-Content -Raw -LiteralPath $told) -match 'waiting: ') { break }; Start-Sleep -Milliseconds 500 }
+  $script:tipWhileHeld = Tip
+  Remove-Item -LiteralPath $lock -Force -ErrorAction SilentlyContinue
+  $landing.WaitForExit()
+  $script:rc = $landing.ExitCode
+  $script:out = (@(Get-Content -LiteralPath $said) + @(Get-Content -LiteralPath $told)) -join "`n"
+}
+$holder = Start-Process -FilePath pwsh -ArgumentList '-NoProfile', '-Command', 'Start-Sleep 300' -PassThru
 [System.IO.File]::WriteAllText($lock, "$($holder.Id)`texample-org/example-repo#5`n")
-$release = Start-Process -FilePath pwsh -ArgumentList '-NoProfile', '-Command', "Start-Sleep 4; Remove-Item -LiteralPath '$lock'" -PassThru
 $wt8 = New-Tree '84' 'waits'
-$started = Get-Date
-Invoke-Integrate $wt8 @('84', '-ReviewedBy', 'l4')
-$waited = ((Get-Date) - $started).TotalSeconds
-Stop-Process -Id $holder.Id -ErrorAction SilentlyContinue; $release.WaitForExit()
+$beforeHeld = Tip
+Invoke-WhileHeld $wt8 '84'
+Stop-Process -Id $holder.Id -ErrorAction SilentlyContinue
 Check 'exit 0'                         0 $rc
-Check 'it names who holds the lock'    'True' (Says "waiting: example-org/example-repo#5 is landing from this clone (process $($holder.Id)); this one lands after it")
-Check 'it landed once the lock was released' 'True' ([string]($waited -ge 3 -and "$(& git --git-dir=$origin log -1 --format=%s master)" -ceq 'Read the board whole (#84)'))
+function First-LockLine { "$(@($script:out -split "`n" | Where-Object { $_ -cmatch '^(waiting|taken over): ' }) | Select-Object -First 1)".TrimEnd("`r") }
+Check 'it names who holds the lock'    "waiting: example-org/example-repo#5 is landing from this clone (process $($holder.Id)); this one lands after it" (First-LockLine)
+Check 'it pushed nothing while it waited' $beforeHeld $tipWhileHeld
+Check 'it landed once the lock was released' 'Read the board whole (#84)' "$(& git --git-dir=$origin log -1 --format=%s master)"
 Check 'and released its own'           'False' ([string](Test-Path -LiteralPath $lock))
 $gone = Start-Process -FilePath pwsh -ArgumentList '-NoProfile', '-Command', 'exit 0' -PassThru; $gone.WaitForExit()
 [System.IO.File]::WriteAllText($lock, "$($gone.Id)`texample-org/example-repo#6`n")
@@ -178,12 +190,10 @@ Check 'and released it'                'False' ([string](Test-Path -LiteralPath 
 # has it.
 if (-not $IsWindows -and (Get-Process -Id 1 -ErrorAction SilentlyContinue)) {
   [System.IO.File]::WriteAllText($lock, "1`texample-org/example-repo#7`n")
-  $release = Start-Process -FilePath pwsh -ArgumentList '-NoProfile', '-Command', "Start-Sleep 3; Remove-Item -LiteralPath '$lock'" -PassThru
   $wt11 = New-Tree '87' 'foreign'
-  Invoke-Integrate $wt11 @('87', '-ReviewedBy', 'l4')
-  $release.WaitForExit()
+  Invoke-WhileHeld $wt11 '87'
   Check "another user's process: exit 0" 0 $rc
-  Check 'it is waited for, not taken over' 'True' (Says 'waiting: example-org/example-repo#7 is landing from this clone (process 1); this one lands after it')
+  Check 'it is waited for, not taken over' 'waiting: example-org/example-repo#7 is landing from this clone (process 1); this one lands after it' (First-LockLine)
 } else { Write-Host "  skip another user's process: process 1 is missing here" }
 [System.IO.File]::WriteAllText($lock, 'half written')
 $wt10 = New-Tree '86' 'blank'

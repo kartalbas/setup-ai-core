@@ -33,15 +33,17 @@ fixture none "dist/"$'\n\n' "dist/"$'\n\n'"$BLOCK"$'\n'
 fixture no-newline "dist/" "dist/"$'\n'"$BLOCK"$'\n'
 fixture two-blocks "a"$'\n'"$OLD"$'\n'"b"$'\n'"$OLD"$'\n'"c"$'\n' "a"$'\n'"$BLOCK"$'\n'"b"$'\n'"c"$'\n'
 fixture empty "" "$BLOCK"$'\n'
+fixture missing "" "$BLOCK"$'\n'
 OPEN="dist/"$'\n'"# setup-ai-core start: x"$'\n'"/GEMINI.md"$'\n'"keepme"$'\n'
 fixture open "$OPEN" "$OPEN"
 printf '%s\n' dist/ "$OLD" '' '*.log' | awk '{ printf "%s\r\n", $0 }' > "$WORK/gip-crlf.before"
 printf '%s\n' dist/ "$BLOCK" '' '*.log' | awk '{ printf "%s\r\n", $0 }' > "$WORK/gip-crlf.after"
-for f in blank-before after old-block covered none no-newline two-blocks empty open crlf; do
+for f in blank-before after old-block covered none no-newline two-blocks empty missing open crlf; do
   for twin in sh ps1; do
     R="$WORK/gip-$f-$twin"; git init -q "$R"; mkdir -p "$R/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$R/.ai-core/config.env"
     git -C "$R" config user.name check; git -C "$R" config user.email check@localhost
-    cp "$WORK/gip-$f.before" "$R/.gitignore"; git -C "$R" add .gitignore; git -C "$R" commit -q -m 'the project #1'
+    if [ "$f" = missing ]; then git -C "$R" commit -q --allow-empty -m 'the project #1'
+    else cp "$WORK/gip-$f.before" "$R/.gitignore"; git -C "$R" add .gitignore; git -C "$R" commit -q -m 'the project #1'; fi
     for run in 1 2; do
       if [ "$twin" = sh ]; then bash "$ROOT/bin/init.sh" "$R" --no-doctor > "$R-$run.log" 2>&1; else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$R")" -NoDoctor > "$R-$run.log" 2>&1; fi || fail "init.$twin on $f, run $run (see $R-$run.log)"
       [ "$run" = 1 ] && cp "$R/.gitignore" "$R.first"
@@ -54,7 +56,7 @@ for f in blank-before after old-block covered none no-newline two-blocks empty o
   done
   cmp -s "$WORK/gip-$f-sh/.gitignore" "$WORK/gip-$f-ps1/.gitignore" || fail "the twins wrote different .gitignore files on $f"
 done
-echo "  a current block between blank lines and after-lines: nothing written, nothing committed; an old one: rewritten in its place, CRLF kept; one the project covers: gone where it stood; a second one: gone; none, no final newline, an empty file: appended; a block without its end: left alone and named; a second run changes nothing; the twins agree"
+echo "  a current block between blank lines and after-lines: nothing written, nothing committed; an old one: rewritten in its place, CRLF kept; one the project covers: gone where it stood; a second one: gone; none, no final newline, an empty file: appended; no file: written with LF; a block without its end: left alone and named; a second run changes nothing; the twins agree"
 
 section "init commits the block on top of what the origin has: a clone the origin moved past catches up first, one with a commit of its own is left alone; both twins"
 for twin in sh ps1; do

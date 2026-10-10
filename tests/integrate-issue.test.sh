@@ -151,17 +151,26 @@ check 'the subject keeps the short form' 'Read the board whole (#83)' "$(git --g
 
 echo 'the landings of one clone take turns: a lock a live process holds is waited for, a dead one taken over'
 lock="$work/.git/ai-core-landing"
-sleep 30 & holder=$!
+# land_while_held <dir> <number>: the landing runs in the background; once it says it waits, and
+# not before, the lock it waits for is released, so a slow start cannot pass for a wait
+land_while_held() {
+  local said="$fake/held-$2.out" i
+  ( integrate "$1" "$2" --reviewed-by l4 > "$said"; echo $? > "$said.rc" ) & local landing=$!
+  for i in $(seq 1 240); do grep -qF 'waiting: ' "$said" 2>/dev/null && break; sleep 0.5; done
+  tip_while_held="$(tip)"
+  rm -f "$lock"; wait "$landing"
+  out="$(cat "$said")"; rc="$(cat "$said.rc")"
+}
+sleep 300 & holder=$!
 printf '%s\t%s\n' "$holder" 'example-org/example-repo#5' > "$lock"
-( sleep 4; rm -f "$lock" ) & release=$!
 wt8="$(new_tree 84 waits)"
-started=$SECONDS
-out="$(integrate "$wt8" 84 --reviewed-by l4)"; rc=$?
-waited=$((SECONDS - started))
-kill "$holder" 2>/dev/null; wait "$holder" "$release" 2>/dev/null
+before_held="$(tip)"
+land_while_held "$wt8" 84
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
 check 'exit 0'                         0 "$rc"
-check 'it names who holds the lock'    yes "$(grep -qxF "waiting: example-org/example-repo#5 is landing from this clone (process $holder); this one lands after it" <<< "$out" && echo yes || echo no)"
-check 'it landed once the lock was released' yes "$([ "$waited" -ge 3 ] && [ "$(git --git-dir="$origin" log -1 --format=%s master)" = 'Read the board whole (#84)' ] && echo yes || echo no)"
+check 'it names who holds the lock'    "waiting: example-org/example-repo#5 is landing from this clone (process $holder); this one lands after it" "$(grep -m1 -E '^(waiting|taken over): ' <<< "$out")"
+check 'it pushed nothing while it waited' "$before_held" "$tip_while_held"
+check 'it landed once the lock was released' 'Read the board whole (#84)' "$(git --git-dir="$origin" log -1 --format=%s master)"
 check 'and released its own'           no "$([ -e "$lock" ] && echo yes || echo no)"
 sh -c 'exit 0' & dead=$!; wait "$dead"
 printf '%s\t%s\n' "$dead" 'example-org/example-repo#6' > "$lock"
@@ -174,12 +183,10 @@ check 'and released it'                no "$([ -e "$lock" ] && echo yes || echo 
 # this test runs unprivileged on a system that has it.
 if ps -p 1 >/dev/null 2>&1 && ! kill -0 1 2>/dev/null; then
   printf '%s\t%s\n' 1 'example-org/example-repo#7' > "$lock"
-  ( sleep 3; rm -f "$lock" ) & release=$!
   wt11="$(new_tree 87 foreign)"
-  out="$(integrate "$wt11" 87 --reviewed-by l4)"; rc=$?
-  wait "$release" 2>/dev/null
+  land_while_held "$wt11" 87
   check "another user's process: exit 0" 0 "$rc"
-  check 'it is waited for, not taken over' yes "$(grep -qxF 'waiting: example-org/example-repo#7 is landing from this clone (process 1); this one lands after it' <<< "$out" && echo yes || echo no)"
+  check 'it is waited for, not taken over' 'waiting: example-org/example-repo#7 is landing from this clone (process 1); this one lands after it' "$(grep -m1 -E '^(waiting|taken over): ' <<< "$out")"
 else
   echo "  skip another user's process: process 1 is missing here or this test may signal it"
 fi

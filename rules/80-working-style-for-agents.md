@@ -44,7 +44,7 @@
   issue, one integration, one release per repository and one live check, and its issues close
   together. Every separate round pays the context, the install, the gate, the review and the CI
   run again, five to ten times over for five to ten issues, and slows the machine every session
-  shares; so a finding in the files of a package that has not passed its push gate yet joins that
+  shares; so a finding in the files of a package that is not integrated yet joins that
   package, and issues that share no file stay apart. Every agent's name follows
   `l<n>-<model><version>-<effort>-<context>-<5 hex>`; the issues it works on stand in its package
   as `Worker: <name>`. Once approved, run independent agents in parallel, never for work that fits

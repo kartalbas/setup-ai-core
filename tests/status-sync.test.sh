@@ -184,6 +184,12 @@ case "\$*" in
   *"issues(states:OPEN"*)                 doc="$FAKE/issues-1.json" ;;
   *"--method PATCH"*)                     doc="$FAKE/empty.json" ;;
   *"n=tools"*"projectsV2(first:50)"*)     doc="$FAKE/tools-projects.json" ;;
+  # the checkout is on this board only where a case says it stands in one
+  *"o=example-org -f n=example-repo"*"projectsV2(first:50)"*)
+    [ -e "$FAKE/here" ] && doc="$FAKE/tools-projects.json"
+    [ -e "$FAKE/here" ] || { [ -e "$FAKE/lenient" ] && exit 0; echo "the stand-in gh has no answer for: \$*" >&2; exit 9; } ;;
+  *"repo view"*)                          [ -e "$FAKE/here" ] && { echo 'example-org/example-repo'; exit 0; }
+                                          [ -e "$FAKE/lenient" ] && exit 0; echo 'no git remotes found' >&2; exit 1 ;;
   *) [ -e "$FAKE/lenient" ] && exit 0; echo "the stand-in gh has no answer for: \$*" >&2; exit 9 ;;
 esac
 # The jq BINARY writes CRLF on Windows where gh's own --jq writes LF, and stripping it is what
@@ -236,6 +242,13 @@ echo 'no board named: the board is the one the first repository named is linked 
 run="$(cd "$clone" && env -u GH_PROJECT_NUMBER bash "$ROOT/bin/status-sync.sh" --dry-run example-org/tools 2>&1)"
 check 'exit 0' 0 "$?"
 check 'it is swept on that board' "on board $PROJECT_NUMBER." "$(printf '%s\n' "$run" | tail -1 | grep -o 'on board .*')"
+
+echo 'no board named, from a checkout on a board: that board, also for a repository of another organisation'
+: > "$FAKE/calls.txt"; touch "$FAKE/here"
+run="$(cd "$clone" && env -u GH_PROJECT_NUMBER bash "$ROOT/bin/status-sync.sh" --dry-run other-org/example-repo 2>&1)"
+check 'exit 0' 0 "$?"
+check 'its card on this board is read' "1 active cards scanned, 0 would move on board $PROJECT_NUMBER." "$(printf '%s\n' "$run" | tail -1)"
+rm -f "$FAKE/here"
 
 echo 'without LIVE_TAGS the newest tag by date decides, whatever its name'
 : > "$FAKE/calls.txt"; : > "$clone/.ai-core/config.env"

@@ -216,9 +216,16 @@ while [ $# -gt 0 ]; do
 done
 set -- ${args[@]+"${args[@]}"}
 
-# Without a board named, the board is the one the first repository named is linked to, so a
-# repository whose checkout is elsewhere is swept on its own board
-first=""; [ -n "$project" ] || [ -n "${GH_PROJECT_NUMBER:-}" ] || case "${1:-}" in */*) first="$1" ;; esac
+# Without a board named, the board is the checkout's. Where the checkout is no repository or is on
+# no board, it is the one the first repository named is linked to, so an issue whose repository
+# has a board is swept there from a checkout that has none.
+first=""
+if [ -z "$project" ] && [ -z "${GH_PROJECT_NUMBER:-}" ]; then
+  case "${1:-}" in */*)
+    here="$( (default_repo) 2>/dev/null)" || here=""
+    if [ -z "$here" ] || on_no_board "$here"; then first="$1"; fi ;;
+  esac
+fi
 set_project "$project" "$first" >/dev/null
 resolved="$(project_number)"
 org="$(project_org)"

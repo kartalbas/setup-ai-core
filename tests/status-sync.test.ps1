@@ -183,6 +183,13 @@ elseif (`$line -like '*after=c1*issues(states:OPEN*')        { `$doc = 'issues-2
 elseif (`$line -like '*issues(states:OPEN*')                 { `$doc = 'issues-1.json' }
 elseif (`$line -like '*--method PATCH*')                     { `$doc = 'empty.json' }
 elseif (`$line -like '*n=tools*projectsV2(first:50)*')       { `$doc = 'tools-projects.json' }
+# the checkout is on this board only where a case says it stands in one
+elseif (`$line -like '*o=example-org -f n=example-repo*projectsV2(first:50)*' -and (Test-Path -LiteralPath (Join-Path '$fake' 'here'))) { `$doc = 'tools-projects.json' }
+elseif (`$line -like '*repo view*') {
+  if (Test-Path -LiteralPath (Join-Path '$fake' 'here')) { 'example-org/example-repo'; exit 0 }
+  if (Test-Path -LiteralPath (Join-Path '$fake' 'lenient')) { exit 0 }
+  [Console]::Error.WriteLine('no git remotes found'); exit 1
+}
 elseif (Test-Path -LiteralPath (Join-Path '$fake' 'lenient')) { exit 0 }
 else { [Console]::Error.WriteLine("the stand-in gh has no answer for: `$line"); exit 9 }
 `$prog = ''
@@ -246,6 +253,15 @@ try {
   finally { Pop-Location; if ($kept) { $env:GH_PROJECT_NUMBER = $kept } }
   Check 'exit 0' 0 $rc
   Check 'it is swept on that board' "on board $projectNumber." ($run[-1] -creplace '^.* (on board )', '$1')
+
+  Write-Host 'no board named, from a checkout on a board: that board, also for a repository of another organisation'
+  Set-Content -LiteralPath $calls -Value $null; New-Item -ItemType File -Path (Join-Path $fake 'here') -Force | Out-Null
+  Push-Location -LiteralPath $clone
+  $kept = $env:GH_PROJECT_NUMBER; Remove-Item Env:GH_PROJECT_NUMBER -ErrorAction SilentlyContinue
+  try { $run = @(& pwsh -NoProfile -File (Join-Path $root 'bin/status-sync.ps1') 'other-org/example-repo' -DryRun 2>&1 | ForEach-Object { "$_" }); $rc = $LASTEXITCODE }
+  finally { Pop-Location; if ($kept) { $env:GH_PROJECT_NUMBER = $kept }; Remove-Item -LiteralPath (Join-Path $fake 'here') }
+  Check 'exit 0' 0 $rc
+  Check 'its card on this board is read' "1 active cards scanned, 0 would move on board $projectNumber." $run[-1]
 
   Write-Host 'without LIVE_TAGS the newest tag by date decides, whatever its name'
   Set-Content -LiteralPath (Join-Path $clone '.ai-core/config.env') -Value ''

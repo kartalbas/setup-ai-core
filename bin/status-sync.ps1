@@ -216,9 +216,14 @@ function Read-Release { param([string]$R)
 
 # --- the sweep ----------------------------------------------------------------
 
-# Without a board named, the board is the one the first repository named is linked to, so a
-# repository whose checkout is elsewhere is swept on its own board
-$first = if (-not $Project -and -not $env:GH_PROJECT_NUMBER -and $Repo.Count -gt 0 -and $Repo[0] -like '*/*') { $Repo[0] } else { '' }
+# Without a board named, the board is the checkout's. Where the checkout is no repository or is on
+# no board, it is the one the first repository named is linked to, so an issue whose repository
+# has a board is swept there from a checkout that has none.
+$first = ''
+if (-not $Project -and -not $env:GH_PROJECT_NUMBER -and $Repo.Count -gt 0 -and $Repo[0] -like '*/*') {
+  $here = try { Get-DefaultRepo 2>$null } catch { '' }
+  if (-not $here -or (Test-OnNoBoard -Repo $here)) { $first = $Repo[0] }
+}
 Set-Project -Number $Project -Repo $first | Out-Null
 $resolved = Get-ProjectNumber
 $org = Get-ProjectOrg

@@ -206,7 +206,7 @@ live="$work/live"; mkdir -p "$live/.ai-core" "$work/cache/8"
 printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\nPROOF_HOURS=24\n' > "$live/.ai-core/config.env"
 echo PVT_example8 > "$work/cache/8/project-id"
 printf 'Status\tF1\t%s\tO%s\n' Todo 1 implementing 2 testing 3 Done 4 > "$work/cache/8/fields.tsv"
-{ for n in 31 32 33 34 35; do card "$n" testing P1 OPEN - - 0 "Card $n"; done; card 36 implementing P1 OPEN - - 0 'Card 36'; } > "$work/page8"
+{ for n in 31 32 33 34 35 37; do card "$n" testing P1 OPEN - - 0 "Card $n"; done; card 36 implementing P1 OPEN - - 0 'Card 36'; } > "$work/page8"
 cat > "$work/bin/gh" <<EOF
 #!/usr/bin/env bash
 case "\$*" in
@@ -224,8 +224,9 @@ commit_at() {  # commit_at <dir> <seconds before now> <subject>: a commit of one
 git init -q --bare "$work/origin.git"; git init -q "$work/seed"; git -C "$work/seed" checkout -q -b master
 commit_at "$work/seed" 144000 'Start'
 commit_at "$work/seed" 108000 'Land the first (#31)'; git -C "$work/seed" tag deploy/prod/1; git -C "$work/seed" tag deploy/test/1
-commit_at "$work/seed" 18000 'Land the second (#32)'; git -C "$work/seed" tag deploy/prod/2
-commit_at "$work/seed" 7200 'Land the third (#33)'; git -C "$work/seed" tag deploy/test/3
+commit_at "$work/seed" 100800 'Land the second (#32)'; git -C "$work/seed" tag deploy/prod/2
+commit_at "$work/seed" 93600 'Land the third (#33)'; git -C "$work/seed" tag deploy/test/3
+commit_at "$work/seed" 7200 'Land the seventh (#37)'; git -C "$work/seed" tag deploy/test/4
 commit_at "$work/seed" 3600 'Land the fourth (#34)'
 commit_at "$work/seed" 1800 'Mention another issue only (#310)'
 git -C "$work/seed" push -q "$work/origin.git" master --tags
@@ -240,10 +241,11 @@ git -C "$trees/issue-44-landed" push -q origin HEAD:master; git -C "$repo" fetch
 : > "$work/no-agents"
 page="$(cd "$live" && AI_CORE_PROCESSES="$work/no-processes" AI_CORE_AGENTS="$work/no-agents" AI_CORE_ROLLOUTS="$work/no-agents" bash "$root/bin/status.sh" --project example-org/8 2>&1)"; rc=$?
 check 'exit 0' 0 "$rc"
-check 'the testing line' 'TESTING 5 cards in testing: 2 live on prod, 1 live on test only, 1 not live, 1 without a landing commit' "$(grep '^TESTING' <<< "$page")"
-check 'due on prod' "  🔴 $(printf '%-26s' example-repo#31) live on prod since 30 h (deploy/prod/1)  Card 31" "$(grep 'example-repo#31 ' <<< "$page")"
-check 'live on prod' "  🟢 $(printf '%-26s' example-repo#32) live on prod since 5 h (deploy/prod/2)  Card 32" "$(grep 'example-repo#32 ' <<< "$page")"
-check 'live on test only' "  🟡 $(printf '%-26s' example-repo#33) live on test since 2 h (deploy/test/3)  Card 33" "$(grep 'example-repo#33 ' <<< "$page")"
+check 'the testing line' 'TESTING 6 cards in testing: 2 live on prod, 2 live on test only, 1 not live, 1 without a landing commit' "$(grep '^TESTING' <<< "$page")"
+check 'live on prod, past PROOF_HOURS too' "  🟢 $(printf '%-26s' example-repo#31) live on prod since 30 h (deploy/prod/1)  Card 31" "$(grep 'example-repo#31 ' <<< "$page")"
+check 'live on prod' "  🟢 $(printf '%-26s' example-repo#32) live on prod since 28 h (deploy/prod/2)  Card 32" "$(grep 'example-repo#32 ' <<< "$page")"
+check 'on test only past PROOF_HOURS: overdue' "  🔴 $(printf '%-26s' example-repo#33) live on test since 26 h (deploy/test/3)  Card 33" "$(grep 'example-repo#33 ' <<< "$page")"
+check 'on test only within PROOF_HOURS: due' "  🟡 $(printf '%-26s' example-repo#37) live on test since 2 h (deploy/test/4)  Card 37" "$(grep 'example-repo#37 ' <<< "$page")"
 check 'not live' '  ⏸ not live: example-repo#34' "$(grep 'not live:' <<< "$page")"
 check 'no landing commit' '  ⏸ no commit on the default branch names it: example-repo#35' "$(grep 'names it:' <<< "$page")"
 check 'a card in implementing is not listed' '' "$(grep 'example-repo#36' <<< "$page")"
@@ -253,8 +255,9 @@ check 'with changes' "  $(printf '%-26s' example-repo#42)  30 h  has changes" "$
 check 'young and landed ones are not listed' '' "$(grep -E 'example-repo#4[34]' <<< "$page")"
 sed 's/^LIVE_TAGS=.*$//' "$live/.ai-core/config.env" > "$live/.ai-core/config.tmp" && mv "$live/.ai-core/config.tmp" "$live/.ai-core/config.env"
 bare="$(cd "$live" && AI_CORE_PROCESSES="$work/no-processes" AI_CORE_AGENTS="$work/no-agents" AI_CORE_ROLLOUTS="$work/no-agents" bash "$root/bin/status.sh" --project example-org/8 2>&1)"
-check 'without LIVE_TAGS, the testing line' 'TESTING 5 cards in testing: 4 not live, 1 without a landing commit' "$(grep '^TESTING' <<< "$bare")"
+check 'without LIVE_TAGS, the testing line' 'TESTING 6 cards in testing: 5 landed, 1 without a landing commit' "$(grep '^TESTING' <<< "$bare")"
 check 'and why' '  LIVE_TAGS in .ai-core/config.env names no environment, so where the work is live is not read' "$(grep 'names no environment' <<< "$bare")"
+check 'the landed cards, none called not live' '  ⏸ landed: example-repo#31 example-repo#32 example-repo#33 example-repo#34 example-repo#37|' "$(grep '⏸ landed:' <<< "$bare")|$(grep 'not live' <<< "$bare")"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$out"; echo; echo "$failed failed"; exit 1; fi
 echo

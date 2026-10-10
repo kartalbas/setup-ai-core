@@ -239,7 +239,7 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   Set-Content -LiteralPath "$live/.ai-core/config.env" -Value @('LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"', 'PROOF_HOURS=24')
   Set-Content -LiteralPath "$work/cache/8/project-id" -Value 'PVT_example8'
   Set-Content -LiteralPath "$work/cache/8/fields.tsv" -Value @("Status`tF1`tTodo`tO1", "Status`tF1`timplementing`tO2", "Status`tF1`ttesting`tO3", "Status`tF1`tDone`tO4")
-  Set-Content -LiteralPath "$work/page8" -Value @(@(31..35 | ForEach-Object { Card $_ testing P1 OPEN - - 0 "Card $_" }) + @(Card 36 implementing P1 OPEN - - 0 'Card 36'))
+  Set-Content -LiteralPath "$work/page8" -Value @(@(31, 32, 33, 34, 35, 37 | ForEach-Object { Card $_ testing P1 OPEN - - 0 "Card $_" }) + @(Card 36 implementing P1 OPEN - - 0 'Card 36'))
   @"
 `$a = `$args -join ' '
 if (`$a -cmatch 'PVT_example8') { Get-Content -LiteralPath '$work/page8'; exit 0 }
@@ -257,8 +257,9 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   & git init -q --bare $origin; & git init -q $seed; & git -C $seed checkout -q -b master
   CommitAt $seed 144000 'Start'
   CommitAt $seed 108000 'Land the first (#31)'; & git -C $seed tag deploy/prod/1; & git -C $seed tag deploy/test/1
-  CommitAt $seed 18000 'Land the second (#32)'; & git -C $seed tag deploy/prod/2
-  CommitAt $seed 7200 'Land the third (#33)'; & git -C $seed tag deploy/test/3
+  CommitAt $seed 100800 'Land the second (#32)'; & git -C $seed tag deploy/prod/2
+  CommitAt $seed 93600 'Land the third (#33)'; & git -C $seed tag deploy/test/3
+  CommitAt $seed 7200 'Land the seventh (#37)'; & git -C $seed tag deploy/test/4
   CommitAt $seed 3600 'Land the fourth (#34)'
   CommitAt $seed 1800 'Mention another issue only (#310)'
   & git -C $seed push -q $origin master --tags
@@ -279,10 +280,11 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   try {
     $page = Live; $rc = $LASTEXITCODE
     Check 'exit 0' 0 $rc
-    Check 'the testing line' 'TESTING 5 cards in testing: 2 live on prod, 1 live on test only, 1 not live, 1 without a landing commit' (LineOf $page '^TESTING')
-    Check 'due on prod' "  🔴 $('example-repo#31'.PadRight(26)) live on prod since 30 h (deploy/prod/1)  Card 31" (LineOf $page 'example-repo#31 ')
-    Check 'live on prod' "  🟢 $('example-repo#32'.PadRight(26)) live on prod since 5 h (deploy/prod/2)  Card 32" (LineOf $page 'example-repo#32 ')
-    Check 'live on test only' "  🟡 $('example-repo#33'.PadRight(26)) live on test since 2 h (deploy/test/3)  Card 33" (LineOf $page 'example-repo#33 ')
+    Check 'the testing line' 'TESTING 6 cards in testing: 2 live on prod, 2 live on test only, 1 not live, 1 without a landing commit' (LineOf $page '^TESTING')
+    Check 'live on prod, past PROOF_HOURS too' "  🟢 $('example-repo#31'.PadRight(26)) live on prod since 30 h (deploy/prod/1)  Card 31" (LineOf $page 'example-repo#31 ')
+    Check 'live on prod' "  🟢 $('example-repo#32'.PadRight(26)) live on prod since 28 h (deploy/prod/2)  Card 32" (LineOf $page 'example-repo#32 ')
+    Check 'on test only past PROOF_HOURS: overdue' "  🔴 $('example-repo#33'.PadRight(26)) live on test since 26 h (deploy/test/3)  Card 33" (LineOf $page 'example-repo#33 ')
+    Check 'on test only within PROOF_HOURS: due' "  🟡 $('example-repo#37'.PadRight(26)) live on test since 2 h (deploy/test/4)  Card 37" (LineOf $page 'example-repo#37 ')
     Check 'not live' '  ⏸ not live: example-repo#34' (LineOf $page 'not live:')
     Check 'no landing commit' '  ⏸ no commit on the default branch names it: example-repo#35' (LineOf $page 'names it:')
     Check 'a card in implementing is not listed' '' (LineOf $page 'example-repo#36')
@@ -292,8 +294,9 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
     Check 'young and landed ones are not listed' '' (LineOf $page 'example-repo#4[34]')
     Set-Content -LiteralPath "$live/.ai-core/config.env" -Value @('PROOF_HOURS=24')
     $bare = Live
-    Check 'without LIVE_TAGS, the testing line' 'TESTING 5 cards in testing: 4 not live, 1 without a landing commit' (LineOf $bare '^TESTING')
+    Check 'without LIVE_TAGS, the testing line' 'TESTING 6 cards in testing: 5 landed, 1 without a landing commit' (LineOf $bare '^TESTING')
     Check 'and why' '  LIVE_TAGS in .ai-core/config.env names no environment, so where the work is live is not read' (LineOf $bare 'names no environment')
+    Check 'the landed cards, none called not live' '  ⏸ landed: example-repo#31 example-repo#32 example-repo#33 example-repo#34 example-repo#37|' "$(LineOf $bare '⏸ landed:')|$(LineOf $bare 'not live')"
   } finally { [Console]::OutputEncoding = $encoding }
 
   Write-Host 'outside a repository with no board named: refused, naming -Project'

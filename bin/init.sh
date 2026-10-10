@@ -592,7 +592,7 @@ elif [ "$MAIN_CHECKOUT" -eq 1 ]; then
         elif gitignore_differs; then
           # grep on Windows takes the CR off a line end before it looks, so the file is compared
           # with itself without them
-          if ! tr -d '\r' < "$GI" | cmp -s - "$GI"; then awk '{ printf "%s\r\n", $0 }' "$TMP/gitignore" > "$GI"; else cp -f "$TMP/gitignore" "$GI"; fi
+          if [ -f "$GI" ] && ! tr -d '\r' < "$GI" | cmp -s - "$GI"; then awk '{ printf "%s\r\n", $0 }' "$TMP/gitignore" > "$GI"; else cp -f "$TMP/gitignore" "$GI"; fi
           GITIGNORE_NOTE="${CAUGHT:+$CAUGHT; }$(commit_gitignore "$TARGET")"
         else GITIGNORE_CHANGED=0; GITIGNORE_NOTE="$CAUGHT"; fi
       fi

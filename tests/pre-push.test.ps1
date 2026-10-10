@@ -628,6 +628,30 @@ Seed-Dirs 'Add the seeds of the fields #24' @('über/lab/seeds')
 OnlyNew $repo
 Check 'exit 1'                      1 $rc
 Check 'the half-named family'       'True' (Says 'über/lab/seeds beside über/lab/seeds-demo: one member of the family')
+
+Write-Host 'a member of non-ASCII letters is read beside its sibling, not skipped'
+Seed-Dirs 'Add the green seeds of the fields #24' @('feld/grün')
+Seed-Dirs 'Add the green demo seeds of the fields #24' @('feld/grün-demo')
+OnlyNew $repo
+Check 'exit 1'                      1 $rc
+Check 'the half-named family'       'True' (Says 'feld/grün beside feld/grün-demo: one member of the family')
+
+# A folder name on Windows cannot hold a double quote, which git quotes in every path it prints
+if ($IsWindows) { Write-Host '  skip a name below a folder with a double quote: Windows forbids the character' }
+else {
+  Write-Host 'a name below a folder with a double quote is read, not skipped'
+  Seed-Dirs 'Add the demo seeds of the quoted lab #24' @('q"x/lab/seeds-demo')
+  Seed-Dirs 'Add the seeds of the quoted lab #24' @('q"x/lab/seeds')
+  OnlyNew $repo
+  Check 'exit 1'                      1 $rc
+  Check 'the half-named family'       'True' (Says 'q"x/lab/seeds beside q"x/lab/seeds-demo: one member of the family')
+
+  Write-Host 'a folder with a double quote moved with git mv keeps the names inside it'
+  Seed-Dirs 'Add the seeds of the quoted shop #24' @('q"x/shop/seeds', 'q"x/shop/seeds-demo')
+  Moved 'Rename the quoted shop #24' 'q"x/shop' 'q"x/bike-shop'
+  OnlyNew $repo
+  Check 'exit 0'                      0 $rc
+}
 & git -C $repo reset -q --hard $mark
 
 # --- the Windows entry point, held against the one text it copies ----------------------------

@@ -76,7 +76,7 @@ if ($Help -or $Rest -ccontains "-h" -or $Rest -ccontains "--help") {
 $ErrorActionPreference = 'Continue'
 $coreRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $utf8 = New-Object System.Text.UTF8Encoding $false
-# git writes a path with a byte above 0x7f as UTF-8 under core.quotePath=false, and PowerShell
+# git writes a path with a byte above 0x7f as UTF-8 under core.quotePath=false or -z, and PowerShell
 # decodes a native command's output with [Console]::OutputEncoding, on Windows the console code
 # page, which would turn über/ into a folder that does not exist
 [Console]::OutputEncoding = $utf8
@@ -591,13 +591,13 @@ if ($oneSided.Count -gt 0) {
 function Get-NamingFindings {
   $folder = Get-ProjectFolderOf $root
   $main = (Resolve-Path (Join-Path "$(& git -C $root rev-parse --path-format=absolute --git-common-dir)".Trim() '..')).Path
-  $words = @(& git -C $root ls-tree -d --name-only HEAD 2>$null | ForEach-Object { "$_" } | Where-Object { $_ })
+  $words = @(& git -C $root ls-tree -z -d --name-only HEAD 2>$null | ForEach-Object { "$_" -split "`0" } | Where-Object { $_ })
   $owners = @()
   foreach ($d in @(Get-ChildItem -LiteralPath $folder -Directory -ErrorAction SilentlyContinue)) {
     if (-not (Test-Path -LiteralPath (Join-Path $d.FullName '.git'))) { continue }
     if ($d.Name -clike '*-ai-core') { continue }
     if ((Resolve-Path -LiteralPath $d.FullName).Path -eq $main) { continue }
-    $parts = @(& git -C $d.FullName ls-tree -d --name-only HEAD 2>$null | ForEach-Object { "$_" } | Where-Object { $_ })
+    $parts = @(& git -C $d.FullName ls-tree -z -d --name-only HEAD 2>$null | ForEach-Object { "$_" -split "`0" } | Where-Object { $_ })
     $words += $parts
     $owner = if ($d.Name.Contains('-')) { $d.Name.Substring($d.Name.IndexOf('-') + 1) } else { $d.Name }
     $owners += [pscustomobject]@{ Owner = $owner; Repo = $d.Name; Parts = $parts }
@@ -608,7 +608,7 @@ function Get-NamingFindings {
   # name claims a part <x> that repository lacks.
   function Get-DirFindings([string]$Rev, [string]$Dir) {
     $seg = ($Dir -split '/')[-1]
-    $entries = @(& git ls-tree -d --name-only $(if ($Dir.Contains('/')) { "${Rev}:$($Dir.Substring(0, $Dir.LastIndexOf('/')))" } else { $Rev }) 2>$null | ForEach-Object { "$_" })
+    $entries = @(& git ls-tree -z -d --name-only $(if ($Dir.Contains('/')) { "${Rev}:$($Dir.Substring(0, $Dir.LastIndexOf('/')))" } else { $Rev }) 2>$null | ForEach-Object { "$_" -split "`0" } | Where-Object { $_ })
     if ($seg.Contains('-')) {
       $base = $seg.Substring(0, $seg.IndexOf('-'))
       if ($entries -ccontains $base) { "family`t$base`t$seg" }
@@ -650,13 +650,16 @@ function Get-NamingFindings {
   }
   foreach ($sha in $commits) {
     if ("$(& git log -1 '--format=%(trailers:key=Naming,valueonly)' $sha)".Trim()) { continue }
-    $dirs = @(& git -c core.quotePath=false diff-tree --no-commit-id --root -r --name-only --diff-filter=A $sha | ForEach-Object { "$_" } | ForEach-Object {
+    # -z hands every name over as git stores it, never quoted. ponytail: a name that holds a line
+    # break still splits in two and goes unchecked; read NUL-separated to the end if one appears
+    $dirs = @(& git diff-tree -z --no-commit-id --root -r --name-only --diff-filter=A $sha | ForEach-Object { "$_" -split "`0" } | Where-Object { $_ } | ForEach-Object {
         $segs = $_ -split '/'; for ($i = 1; $i -lt $segs.Count; $i++) { ($segs[0..($i - 1)] -join '/') } } | Sort-Object -Unique -CaseSensitive)
     # The renames of the commit, as <new folder> <old folder> for every folder above a renamed file,
     # each beside the one as far above its old path, the nearest first; Get-MovedFrom reads them
     $moves = [Collections.Generic.List[string[]]]::new()
-    foreach ($line in @(& git -c core.quotePath=false diff-tree --no-commit-id --root -r -M --name-status --diff-filter=R $sha | ForEach-Object { "$_" })) {
-      $f = $line -split "`t"; if ($f.Count -lt 3) { continue }
+    $renamed = @(& git diff-tree -z --no-commit-id --root -r -M --name-status --diff-filter=R $sha | ForEach-Object { "$_" -split "`0" } | Where-Object { $_ })
+    for ($r = 0; $r + 2 -lt $renamed.Count; $r += 3) {
+      $f = $renamed[$r..($r + 2)]
       $d = $f[2] -split '/'; $o = $f[1] -split '/'
       for ($k = 1; $k -lt $d.Count -and $k -lt $o.Count; $k++) {
         $pair = @(($d[0..($d.Count - 1 - $k)] -join '/'), ($o[0..($o.Count - 1 - $k)] -join '/'))

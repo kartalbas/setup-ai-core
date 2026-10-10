@@ -642,6 +642,31 @@ seed_dirs 'Add the seeds of the fields #24' "über/lab/seeds"
 out="$(only_new "$repo")"; rc=$?
 check 'exit 1'                      1 "$rc"
 check 'the half-named family'       yes "$(grep -q 'über/lab/seeds beside über/lab/seeds-demo: one member of the family' <<< "$out" && echo yes || echo no)"
+
+echo 'a member of non-ASCII letters is read beside its sibling, not skipped'
+seed_dirs 'Add the green seeds of the fields #24' "feld/grün"
+seed_dirs 'Add the green demo seeds of the fields #24' "feld/grün-demo"
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                      1 "$rc"
+check 'the half-named family'       yes "$(grep -q 'feld/grün beside feld/grün-demo: one member of the family' <<< "$out" && echo yes || echo no)"
+
+# A folder name on Windows cannot hold a double quote, which git quotes in every path it prints
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) echo '  skip a name below a folder with a double quote: Windows forbids the character' ;;
+  *)
+    echo 'a name below a folder with a double quote is read, not skipped'
+    seed_dirs 'Add the demo seeds of the quoted lab #24' 'q"x/lab/seeds-demo'
+    seed_dirs 'Add the seeds of the quoted lab #24' 'q"x/lab/seeds'
+    out="$(only_new "$repo")"; rc=$?
+    check 'exit 1'                      1 "$rc"
+    check 'the half-named family'       yes "$(grep -qF 'q"x/lab/seeds beside q"x/lab/seeds-demo: one member of the family' <<< "$out" && echo yes || echo no)"
+
+    echo 'a folder with a double quote moved with git mv keeps the names inside it'
+    seed_dirs 'Add the seeds of the quoted shop #24' 'q"x/shop/seeds' 'q"x/shop/seeds-demo'
+    moved 'Rename the quoted shop #24' 'q"x/shop' 'q"x/bike-shop'
+    out="$(only_new "$repo")"; rc=$?
+    check 'exit 0'                      0 "$rc" ;;
+esac
 git -C "$repo" reset -q --hard "$mark"
 
 # --- the Windows entry point, held against the one text it copies ----------------------------

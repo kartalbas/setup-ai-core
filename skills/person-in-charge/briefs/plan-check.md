@@ -6,6 +6,7 @@ names, the scan output, the spans the facts name.
 
 ## Input
 
+- The plan issue, where your verdict goes: {{plan issue reference}}
 - The package section: {{package section}}
 - The issues it names, with their acceptance criteria: {{issues}}
 - The scan, where the section names terms: the output of `ai-core contract-scan --package

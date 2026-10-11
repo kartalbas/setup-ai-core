@@ -50,7 +50,7 @@
   slows the machine every session shares; so a finding in the files of a package that is not
   integrated yet joins that package, and a package cut by file splits a contract and releases its
   two sides apart. Every agent's name follows `l<n>-<model><version>-<effort>-<budget>k-<5 hex>`;
-  the package it works on carries it in its `Phase:` line. Once approved, run independent agents in parallel, never for work that fits
+  the package it works on carries it in its `PHASE` line on the plan issue. Once approved, run independent agents in parallel, never for work that fits
   in one or two tool calls, give every call an explicit model and effort, and relay the
   conclusion, never the raw output. A delegated implementation gets a specification that names
   the files to touch, the interfaces, the acceptance criteria and the exact verification commands,

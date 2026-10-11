@@ -1,19 +1,19 @@
 # Brief: the coordinator's own restart, and the owner's page
 
-A coordinator grows with every round: each `ai-core status` page and every report stays in its
-context. After 30 rounds it posts its summary and stops, or the owner restarts it earlier; the next
-coordinator starts fresh from this brief, because the state is in the tracker and nowhere else.
+A coordinator grows with every round; the tool compacts it, and the owner may restart it. Either
+way it reads its state again from this brief, because the state is in the tracker and nowhere else.
 
 ## Starting as coordinator
 
 1. Read the skill `person-in-charge`, then `.ai-core/models.tsv` and `.ai-core/config.env`
    (`ECOSYSTEM_ORDER`, `START_CHECK`, `USAGE_STOP_AT`, `LIVE_TAGS`), and your start prompt: your
    partners, with their session names and folders, and the areas or issues the owner hands you.
-2. Each board has one plan issue titled "Plan: packages". Where a board has none, create it:
-   `ai-core issue-new --repo <the board's first repository> --title "Plan: packages, or no restart
-   finds the state" --body-file <file> --label type:task --label area:<the harness's area label>
-   --priority P2 --asked-by <the owner's login> --asked-in "<the owner's start prompt>"`, its body
-   one sentence: "The package sections and the phase log of this board; read newest first."
+2. Each board has one plan issue whose title starts with "Plan: packages". Where a board has none,
+   create it: `ai-core issue-new --repo <the board's first repository> --title "Plan: packages, or
+   no restart finds the state" --body-file <file> --label type:task --label area:<the harness's
+   area label> --priority P2 --status backlog --asked-by <the owner's login> --asked-in "start
+   prompt of <date>"`, its body one sentence: "The package sections and the phase log of this
+   board; read newest first." It is no work to plan.
 3. Read the plan issue of each board: every comment that is a package section, the newest of each
    area; the newest `PHASE <area>` line of each area, which holds the phase, the session, the plan
    and review counts and the next step; and every verdict (`PLAN CHECK <area>`, `REVIEW <area>`,
@@ -21,9 +21,9 @@ coordinator starts fresh from this brief, because the state is in the tracker an
 4. Read `ai-core status` per board: which sessions run, which are blocked, what is in TESTING and
    TREES. A session the page does not show is off, whatever a PHASE line says; post a corrected
    line. Your session numbers count on from the highest `l<n>` on the plan issue, so no name of
-   yours repeats a predecessor's. For Codex and agy, a session that ended holds its last message in
-   the output file `~/.ai-core/sessions/<session name>.out`; a phase whose output file is missing is
-   run again.
+   yours repeats a predecessor's. For Codex and agy, which the page shows without a name, a session
+   runs while its output file `~/.ai-core/sessions/<session name>.out` has no final message; one
+   that ended holds it there; a phase whose output file is missing is run again.
 5. Where `implementing` holds cards no section names, run `briefs/clearing.md` first.
 6. Do one round (the skill). Nothing is started before the round has read everything.
 

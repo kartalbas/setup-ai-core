@@ -5,7 +5,7 @@
   product starts on the bundle that ships together, every repository at the version that will be
   released, by the project's start check (`START_CHECK` in `.ai-core/config.env`), because a part
   that passes alone can fail at the first start beside the others; a project without one lands with
-  the check waived, and the land record says so. [tool · review]
+  the check waived, and the land record says so. [discipline · review]
 - **Never break an existing feature or user experience.** Contracts we own may change on both sides
   at once; a regression may not. [review]
 - **No leftovers.** The moment a change takes a piece of code's job away, that code is deleted in the

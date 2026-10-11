@@ -2,7 +2,7 @@
 
 You are the coordinator, and this is your first work on a board whose `implementing` and `testing`
 columns hold cards from before the packages: work nobody owns, in worktrees nobody reads. Nothing is
-planned until `implementing` is empty, because a package planned over half-done branches lands twice
+planned until `implementing` holds only cards with `needs:owner`, because a package planned over half-done branches lands twice
 or never. You write no code: every repair is a phase session with a brief. A card from before has no
 package section: the issue's acceptance criteria and `file:line` facts stand in for it, its class is
 `normal-hard` unless the issue names a secret, a payment, a contract outward or the push gate
@@ -25,11 +25,14 @@ question "where is this seen", and stays.
                                       `Proven on <environment>:` record; status-sync closes it
       🟡 🔴 live on the test stage  → the release to production (the project's own release step),
                                       then as 🟢
+      ⏸ landed, ⏸ not live           → the release to the test stage, then as 🟡
       ⏸ no landing commit           → it never landed: treat it as implementing
     implementing
       landed on the default branch  → ai-core finish-issue <n> → testing
       branch pushed, not merged     → a review session (briefs/review.md) on that branch; GO →
-                                      ai-core integrate-issue <n> --reviewed-by <reviewer>, finish-issue
+                                      the skill's start check and land, with the LAND line; NO →
+                                      a build session with the findings, as in a package; after the
+                                      second NO, needs:owner
       branch with commits, unfinished → a build session (briefs/build.md) in that worktree, with the
                                       issue's criteria and its commits so far, finishes it; then
                                       review, land, as above. Started work is finished before new
@@ -51,5 +54,5 @@ Work in rounds of at most 10 cards, the TESTING 🔴 first, then `implementing`,
     - <repo>#<n>: <what was done: proven | released | landed | reviewed | built> (<session>)
     OPEN: <cards that need the owner, with the question>
 
-When `implementing` is empty, say so in the last round's comment; from then on the plan phase
+When `implementing` holds only cards with `needs:owner`, say so in the last round's comment; from then on the plan phase
 (`briefs/plan.md`) takes the cards in `ready`, and `testing` is read every round as the skill says.

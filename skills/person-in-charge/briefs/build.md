@@ -41,6 +41,7 @@ dialog: nobody sits at your terminal.
     WRONG IN THE ISSUE: <what the issue said that the code did not bear out, or "nothing">
     COMMIT: <hash> <subject>
     BRANCH: <repo> <branch>
+    CONTEXT: fit | needed more: <what took the room>
 
 ## Rules you keep
 

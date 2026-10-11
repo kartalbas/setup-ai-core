@@ -40,8 +40,8 @@ with a throwaway profile, so it never sees anyone's logged-in sessions.
 - A session that stopped before its phase was done continues with `claude --bg --resume <sessionId>`
   and no other option: Claude Code wakes it under the same id with its saved options. Where the id
   it prints is not the start of `<sessionId>`, Claude Code started a copy: stop the copy.
-- Stop a session whose phase is done: `claude stop <id>`. Nothing of it is kept; its report is on
-  the issue.
+- Stop a session whose phase is done: `claude stop <id>`. Its conversation is kept but never
+  resumed; its report is on the issue.
 
 ## Wake yourself for the round
 

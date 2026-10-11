@@ -3,6 +3,14 @@
 Read this only when your tool is Codex. The model and effort come from the `codex` rows of
 `.ai-core/models.tsv`; the brief is the filled file from `briefs/`.
 
+## Not ready: a Codex session cannot commit
+
+Measured on 2026-10-11 with `codex sandbox`: under `workspace-write` a worktree's git directory, the
+clone's `.git` and `~/.codex/sessions` are read-only. A Codex build cannot commit there, and a Codex
+coordinator cannot run `start-issue`, `integrate-issue` or `finish-issue`. Until the sandbox a
+phase runs in is decided, the Codex ecosystem starts no package; the commands below stand for that
+day.
+
 ## Once per machine
 
 `~/.codex/config.toml` needs `[sandbox_workspace_write] network_access = true`, because every phase

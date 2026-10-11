@@ -3,6 +3,12 @@
 Read this only when your tool is agy. The model comes from the `agy` rows of `.ai-core/models.tsv`;
 agy's model names carry the effort. The brief is the filled file from `briefs/`.
 
+## Not measured
+
+Whether `agy -p --mode accept-edits` runs shell commands with nobody to answer a prompt, and whether
+its JSON output carries the conversation id, is not measured. Start one mechanical package and read
+its output file before an agy coordinator takes up more.
+
 ## The coordinator itself
 
 An agy coordinator is a loop of fresh runs, one per round, that the owner starts from the project

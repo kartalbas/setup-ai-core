@@ -109,7 +109,7 @@ if ($Message) {
   if ($LASTEXITCODE -eq 0) { exit 0 }
   if (-not (Test-Path -LiteralPath $Message -PathType Leaf)) { Write-Host "error: there is no message file '$Message'" -ForegroundColor Red; exit 2 }
   # git commit -v puts the diff below a scissors line; the message ends there
-  $raw = (Get-Content -Raw -LiteralPath $Message) -replace '(?ms)^# -* >8 -*$.*', ''
+  $raw = (Get-Content -Raw -LiteralPath $Message) -creplace '(?ms)^# -* >8 -*$.*', ''
   $lines = @($raw | & git stripspace --strip-comments)
   $text = $lines -join "`n"
   # the subject as git reads it: the first paragraph, its lines joined by a space

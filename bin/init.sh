@@ -468,6 +468,7 @@ while IFS= read -r rel; do
     .openhands/microagents/repo-rules.md) serves openhands || continue ;;
     .claude/settings.json) if command -v jq >/dev/null 2>&1; then continue; fi ;;   # written below, the hook with the full path
     .githooks/commit-msg) continue ;;   # written in 3a, where the push gate is armed
+    .ai-core/models.tsv) put "$CORE_ROOT/templates/$rel" "$rel" managed; continue ;;   # the harness's table, kept current; a project's own comes from its harness layer
     opencode.json)   # one without the template's instructions gets them added
       if command -v jq >/dev/null 2>&1 && [ -f "$TARGET/$rel" ] && ! jq -e --slurpfile t "$CORE_ROOT/templates/$rel" '($t[0].instructions - (.instructions // [])) | length == 0' "$TARGET/$rel" >/dev/null 2>&1; then
         jq --slurpfile t "$CORE_ROOT/templates/$rel" '.instructions = ((.instructions // []) + ($t[0].instructions - (.instructions // [])))' "$TARGET/$rel" 2>/dev/null | tr -d '\r' > "$TMP/opencode.json" \

@@ -217,4 +217,15 @@ done
 cmp -s "$WORK/claude-local-sh.md" "$WORK/claude-local-ps1.md" || fail "the twins wrote different CLAUDE.local.md files"
 [ ! -e "$WORK/sh/CLAUDE.local.md" ] || fail "init.sh wrote CLAUDE.local.md into a checkout without a CLAUDE.md"
 echo "  a repository with its own CLAUDE.md gets an untracked CLAUDE.local.md that imports AGENTS.md, the same on both twins; somebody's own is kept, with a note"
+section "the model table follows the harness: an older copy in a checkout is brought up to date and reported, on both twins"
+for t in sh ps1; do
+  M="$WORK/models-$t"; mkdir -p "$M/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$M/.ai-core/config.env"
+  printf 'claude\tplan\thigh-risk\tclaude-fable-5-1\tmax\n' > "$M/.ai-core/models.tsv"
+  if [ "$t" = sh ]; then bash "$ROOT/bin/init.sh" "$M" --no-doctor > "$M.log" 2>&1 || fail "init.sh on a checkout with an older model table (see $M.log)"
+  else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$M")" -NoDoctor > "$M.log" 2>&1 || fail "init.ps1 on a checkout with an older model table (see $M.log)"; fi
+  cmp -s <(tr -d '\r' < "$M/.ai-core/models.tsv") "$ROOT/templates/.ai-core/models.tsv" || fail "init.$t kept an older model table instead of the harness's"
+  grep -aq '^  refreshed .*\.ai-core/models\.tsv' "$M.log" || fail "init.$t did not report the model table as refreshed: $(grep -a 'models' "$M.log")"
+done
+echo "  an older .ai-core/models.tsv is replaced by the harness's and reported, on both twins"
+
 exit 0

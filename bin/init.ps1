@@ -323,6 +323,7 @@ $coreCommit = "$(& git -C $coreRoot rev-parse --short HEAD 2>$null)".Trim(); if 
 $stamp = @("setup-ai-core $coreCommit")
 $layerFiles = @()   # what the layers wrote, so the templates leave it alone
 $mapSrc = $null     # a generated map, deployed with the binding rules on top once the rules are assembled
+$agentsSrc = $null  # the AGENTS.md this run deploys, read for the Codex override (2c)
 $deployed = @()     # what the layers put into the checkout, recorded in .ai-core\DEPLOYED
 $dataFiles = @('config.env', 'labels.tsv', 'assignees.tsv', 'team-modes.tsv', 'models.tsv')
 # The skills of setup-ai-core itself, before the layers': a layer's skill of the same name replaces
@@ -370,7 +371,7 @@ if ($layers.Count -gt 0 -and $repoName -and (Test-Path (Join-Path $layers[-1] "r
       $src = Join-Path $inner $rel
       # A generated map gets the binding rules on top once the rules are assembled (1a below)
       $first = @([System.IO.File]::ReadAllLines($src) | Select-Object -First 1)
-      if ($rel -ceq 'AGENTS.md' -and $first.Count -gt 0 -and "$($first[0])".StartsWith('<!-- ai-core map:', [StringComparison]::Ordinal)) { $mapSrc = $src } else { Put $src $rel managed }
+      if ($rel -ceq 'AGENTS.md' -and $first.Count -gt 0 -and "$($first[0])".StartsWith('<!-- ai-core map:', [StringComparison]::Ordinal)) { $mapSrc = $src } else { Put $src $rel managed; if ($rel -ceq 'AGENTS.md') { $agentsSrc = $src } }
       $deployed += $rel
     }
     $layerFiles += $rel
@@ -460,7 +461,7 @@ if ($mapSrc) {
   $rest = @($ml | Select-Object -Skip 2); while ($rest.Count -gt 0 -and -not $rest[0].Trim()) { $rest = @($rest | Select-Object -Skip 1) }
   $withContract = @($ml[0], $ml[1], '') + @(Get-BindingBlock) + @('- `ai-core session-start` before any work; below is the map of this repository.', '') + $rest
   [System.IO.File]::WriteAllText((Join-Path $tmp 'AGENTS.map.md'), (($withContract -join "`n") + "`n"), $utf8)
-  Put (Join-Path $tmp 'AGENTS.map.md') 'AGENTS.md' managed
+  Put (Join-Path $tmp 'AGENTS.map.md') 'AGENTS.md' managed; $agentsSrc = Join-Path $tmp 'AGENTS.map.md'
 }
 
 # 2. The agent files, created once and never overwritten: templates\ mirrors the target layout.
@@ -557,7 +558,86 @@ if ($projectFolder) {
     [void]$map.Append("| ``$($_.Name)`` | ``$($_.Name)/AGENTS.md`` |`n")
   }
   [System.IO.File]::WriteAllText((Join-Path $tmp 'AGENTS.md'), $map.ToString(), $utf8)
-  Put (Join-Path $tmp 'AGENTS.md') 'AGENTS.md' managed
+  Put (Join-Path $tmp 'AGENTS.md') 'AGENTS.md' managed; $agentsSrc = Join-Path $tmp 'AGENTS.md'
+}
+
+# 2c. Codex reads AGENTS.override.md in place of AGENTS.md, from the git root down only, raw: it
+#     follows no @ import and never sees the project folder's AGENTS.md above a checkout. Where it is
+#     served it gets one file with what Claude Code loads there, the folder's AGENTS.md and this
+#     one, each with every file it names after @ written out. Codex reads it up to
+#     project_doc_max_bytes, which 2d raises.
+function Get-CodexOverride([string[]]$pairs) {  # <AGENTS.md> <directory its @ paths are relative to>, pair after pair
+  $sb = New-Object System.Text.StringBuilder
+  [void]$sb.Append("<!-- setup-ai-core ${coreVersion}: written by init for Codex, which reads this file in place of AGENTS.md and follows no @ import: what Claude Code loads here, each file named after @ written out -->`n")
+  for ($i = 0; $i + 1 -lt $pairs.Count; $i += 2) {
+    foreach ($line in @([System.IO.File]::ReadAllLines($pairs[$i]) | ForEach-Object { $_.TrimEnd("`r") })) {
+      [void]$sb.Append("$line`n")
+      foreach ($m in [regex]::Matches($line, '@[^\s`]*')) {
+        $p = $m.Value.Substring(1)
+        if (-not $p -or -not (Test-Path -LiteralPath (Join-Path $pairs[$i + 1] $p) -PathType Leaf)) { continue }
+        [void]$sb.Append("`n<!-- $p, written out -->`n")
+        [void]$sb.Append([System.IO.File]::ReadAllText((Join-Path $pairs[$i + 1] $p)).Replace("`r", ''))
+        [void]$sb.Append("`n")
+      }
+    }
+  }
+  $sb.ToString()
+}
+$codexOverrideBytes = 0
+if (-not $agentsSrc -and (Test-Path -LiteralPath (Join-Path $target 'AGENTS.md') -PathType Leaf)) { $agentsSrc = Join-Path $target 'AGENTS.md' }
+if ((Test-Serves 'codex') -and $agentsSrc) {
+  $pairs = @()
+  if (-not $projectFolder) {
+    $folder = Get-EnclosingFolder $target
+    if ($folder -and (Test-Path -LiteralPath (Join-Path $folder 'AGENTS.md') -PathType Leaf)) { $pairs += @((Join-Path $folder 'AGENTS.md'), $folder) }
+  }
+  $pairs += @($agentsSrc, $target)
+  $override = Get-CodexOverride $pairs
+  & git -C $target ls-files --error-unmatch AGENTS.override.md *> $null
+  if ($LASTEXITCODE -eq 0) {
+    Add-Note tracked 'AGENTS.override.md'
+  } else {
+    [System.IO.File]::WriteAllText((Join-Path $tmp 'AGENTS.override.md'), $override, $utf8)
+    Put (Join-Path $tmp 'AGENTS.override.md') 'AGENTS.override.md' managed
+    $codexOverrideBytes = $utf8.GetByteCount($override)
+  }
+}
+
+# 2d. Codex's user config, the machine's file, gets project_doc_max_bytes at least $codexDocBytes,
+#     so the override is read whole; a higher value stays. The key is top-level, so it goes before
+#     the first table. A Codex that never ran here has no folder yet, and none is created.
+$codexDocBytes = 262144
+$codexNote = ''
+if (Test-Serves 'codex') {
+  $codexDir = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' }
+  $codexConfig = Join-Path $codexDir 'config.toml'
+  if (Test-Path -LiteralPath $codexDir -PathType Container) {
+    $codexLines = if (Test-Path -LiteralPath $codexConfig -PathType Leaf) { @([System.IO.File]::ReadAllLines($codexConfig) | ForEach-Object { $_.TrimEnd("`r") }) } else { @() }
+    $current = 0
+    foreach ($l in $codexLines) {
+      if ($l.StartsWith('[', [StringComparison]::Ordinal)) { break }
+      if ($l -cmatch '^project_doc_max_bytes[ \t]*=[ \t]*([0-9][0-9_]*)') { $current = [long]($Matches[1].Replace('_', '')); break }
+      if ($l -cmatch '^project_doc_max_bytes[ \t]*=') { break }
+    }
+    if ($current -lt $codexDocBytes) {
+      $codexNote = "project_doc_max_bytes $(if ($DryRun) { 'would be set' } else { 'set' }) to $codexDocBytes in $codexConfig, so Codex reads AGENTS.override.md whole"
+      if (-not $DryRun) {
+        $newLine = "project_doc_max_bytes = $codexDocBytes"
+        $out = New-Object System.Collections.Generic.List[string]; $done = $false; $table = $false
+        foreach ($l in $codexLines) {
+          if ($l.StartsWith('[', [StringComparison]::Ordinal)) { if (-not $done) { $out.Add($newLine); $done = $true }; $table = $true }
+          elseif (-not $table -and $l -cmatch '^project_doc_max_bytes[ \t]*=') { if (-not $done) { $out.Add($newLine); $done = $true }; continue }
+          $out.Add($l)
+        }
+        if (-not $done) { $out.Add($newLine) }
+        [System.IO.File]::WriteAllText($codexConfig, (($out -join "`n") + "`n"), $utf8)
+      }
+      $current = $codexDocBytes
+    }
+    if ($codexOverrideBytes -gt $current) {
+      $codexNote = "$(if ($codexNote) { "$codexNote; " })warning: AGENTS.override.md has $codexOverrideBytes bytes, more than project_doc_max_bytes ($current) in $codexConfig, so Codex cuts it"
+    }
+  }
 }
 # 2b. The auto-mode entries go into Claude Code's user settings, the machine's file, because its
 #     classifier reads autoMode there and in managed settings, never in a repository's settings.
@@ -610,7 +690,7 @@ try {
   try { $exclude = git rev-parse --git-path info/exclude 2>$null; if ($LASTEXITCODE -ne 0) { $exclude = $null } } catch { $exclude = $null }
   if ($exclude) {
     if (-not [System.IO.Path]::IsPathRooted($exclude)) { $exclude = Join-Path $target $exclude }
-    $block = @('# setup-ai-core start: the harness lives in the working tree only, never in a commit', '/.ai-core/', '/.claude/skills/', '/.claude/agents/', '/.agents/', '/CLAUDE.local.md')
+    $block = @('# setup-ai-core start: the harness lives in the working tree only, never in a commit', '/.ai-core/', '/.claude/skills/', '/.claude/agents/', '/.agents/', '/CLAUDE.local.md', '/AGENTS.override.md')
     $block += $templateFiles | ForEach-Object { '/' + $_ }
     $block += '# setup-ai-core end'
     # The block replaces the one an earlier run wrote, in its place, or is appended
@@ -777,6 +857,7 @@ elseif ($autoModeChanges.Count -gt 0) {
   Write-Host "  auto mode: $autoModeFile $(if ($DryRun) { 'would change' } else { 'changed' }):"
   foreach ($c in $autoModeChanges) { Write-Host "    $c" }
 }
+if ($codexNote) { Write-Host "  codex: $codexNote" }
 if ($DryRun) { Write-Host "  nothing was written (dry run)" } elseif (-not $agentsUnknown) { Write-Host "✓ Harness $coreVersion in place. Run 'ai-core session-start' here to verify." -ForegroundColor Green }
 Write-Host "==================================================" -ForegroundColor Green
 if ($agentsUnknown) { Write-Host "error: AGENTS in $config names '$agentsUnknown'; known are claude, codex, antigravity, openhands, gemini, cursor, windsurf, copilot" -ForegroundColor Red; exit 1 }

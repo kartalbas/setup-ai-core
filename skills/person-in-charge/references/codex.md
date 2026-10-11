@@ -17,7 +17,7 @@ worktree, and the session reads that repository's `AGENTS.md` there before it wo
 
 ## Once per machine
 
-Every session starts with the profile `ai-core` (`-p ai-core`), which `ai-core init` writes into
+Every session but the UI test starts with the profile `ai-core` (`-p ai-core`), which `ai-core init` writes into
 `~/.codex/ai-core.config.toml`: `workspace-write` with the network closed, and every approval
 request, each network call among them, decided by Codex's reviewing subagent against the auto-mode
 entries of the harness and the project, the ones Claude Code's classifier reads. A push, a call to

@@ -5,7 +5,7 @@ columns hold cards from before the packages: work nobody owns, in worktrees nobo
 planned until `implementing` holds only cards with `needs:owner`, because a package planned over half-done branches lands twice
 or never. You write no code: every repair is a phase session with a brief. A card from before has no
 package section: the issue's acceptance criteria and `file:line` facts stand in for it, its class is
-`normal-hard` unless the issue names a secret, a payment, a contract outward or the push gate
+`normal-hard` unless the issue names a secret, a payment, a contract outward or the push gate (outward means an interface somebody outside the project uses (a public API, a published package, a customer's data format), never a contract between the project's own repositories)
 (`high-risk`), and the URL and the clicks of its proof come from its criteria. A card whose criteria
 name no environment and no visible result cannot be proven by anyone: it gets `needs:owner` with the
 question "where is this seen", and stays.

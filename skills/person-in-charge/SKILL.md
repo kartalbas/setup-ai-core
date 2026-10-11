@@ -64,7 +64,7 @@ finishes them, an issue in `todo` that one of them needs is built with it, and e
 
 | Phase | Brief | Done when | Card after it |
 | :--- | :--- | :--- | :--- |
-| plan | `briefs/plan.md`, on the `high-risk` plan row where an issue names a secret, a payment, a contract outward or the push gate, else on the `normal-hard` row; the plan judges the class, and a plan check that raises it sends the plan to the higher row | one package section per package stands as a comment on the plan issue | `planned` (its issues) |
+| plan | `briefs/plan.md`, on the `high-risk` plan row where an issue names a secret, a payment, a contract outward or the push gate (outward means an interface somebody outside the project uses (a public API, a published package, a customer's data format), never a contract between the project's own repositories), else on the `normal-hard` row; the plan judges the class, and a plan check that raises it sends the plan to the higher row | one package section per package stands as a comment on the plan issue | `planned` (its issues) |
 | plan check | `briefs/plan-check.md` | GO | `planned` |
 | build and test | `briefs/build.md` | every issue has its commit and tests, every issue branch is pushed through the push gate | `review` |
 | review | `briefs/review.md`, never the build model; `high-risk`: a second review session on the `review-second` row, a model that neither built nor first reviewed it; a tool without that row puts the second reading to the owner (`needs:owner`) | GO, from both where there are two | `review` |

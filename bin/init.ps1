@@ -593,9 +593,14 @@ if ((Test-Serves 'codex') -and $agentsSrc) {
   }
   $pairs += @($agentsSrc, $target)
   $override = Get-CodexOverride $pairs
-  [System.IO.File]::WriteAllText((Join-Path $tmp 'AGENTS.override.md'), $override, $utf8)
-  Put (Join-Path $tmp 'AGENTS.override.md') 'AGENTS.override.md' managed
-  $codexOverrideBytes = $utf8.GetByteCount($override)
+  & git -C $target ls-files --error-unmatch AGENTS.override.md *> $null
+  if ($LASTEXITCODE -eq 0) {
+    Add-Note tracked 'AGENTS.override.md'
+  } else {
+    [System.IO.File]::WriteAllText((Join-Path $tmp 'AGENTS.override.md'), $override, $utf8)
+    Put (Join-Path $tmp 'AGENTS.override.md') 'AGENTS.override.md' managed
+    $codexOverrideBytes = $utf8.GetByteCount($override)
+  }
 }
 
 # 2d. Codex's user config, the machine's file, gets project_doc_max_bytes at least $codexDocBytes,
@@ -611,7 +616,7 @@ if (Test-Serves 'codex') {
     $current = 0
     foreach ($l in $codexLines) {
       if ($l.StartsWith('[', [StringComparison]::Ordinal)) { break }
-      if ($l -cmatch '^project_doc_max_bytes[ \t]*=[ \t]*([0-9]+)') { $current = [long]$Matches[1]; break }
+      if ($l -cmatch '^project_doc_max_bytes[ \t]*=[ \t]*([0-9][0-9_]*)') { $current = [long]($Matches[1].Replace('_', '')); break }
       if ($l -cmatch '^project_doc_max_bytes[ \t]*=') { break }
     }
     if ($current -lt $codexDocBytes) {

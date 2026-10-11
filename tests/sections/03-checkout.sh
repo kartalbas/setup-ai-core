@@ -264,7 +264,14 @@ for t in sh ps1; do
   else CODEX_HOME="$X" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$N")" -NoDoctor > "$N.log" 2>&1; fi
   [ ! -e "$N/AGENTS.override.md" ] && [ ! -e "$X/ai-core.config.toml" ] || fail "init.$t wrote AGENTS.override.md or the Codex profile where Codex is not served"
   [ "$(tr -d '\r' < "$X/config.toml")" = 'project_doc_max_bytes = 999999' ] || fail "init.$t changed Codex's config where Codex is not served"
+  K="$WORK/codex-kept-$t"; mkdir -p "$K/.ai-core" "$CODEX_HOME-kept-$t"; printf 'UPDATE_CHECK="never"\n' > "$K/.ai-core/config.env"
+  git -C "$K" init -q; printf 'our own\n' > "$K/AGENTS.override.md"; git -C "$K" add AGENTS.override.md; git -C "$K" commit -q -m own
+  printf 'project_doc_max_bytes = 1_000_000\n' > "$CODEX_HOME-kept-$t/config.toml"
+  if [ "$t" = sh ]; then CODEX_HOME="$CODEX_HOME-kept-$t" bash "$ROOT/bin/init.sh" "$K" --no-doctor > "$K.log" 2>&1
+  else CODEX_HOME="$CODEX_HOME-kept-$t" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$K")" -NoDoctor > "$K.log" 2>&1; fi
+  [ "$(tr -d '\r' < "$K/AGENTS.override.md")" = 'our own' ] || fail "init.$t overwrote an AGENTS.override.md the repository tracks"
+  [ "$(tr -d '\r' < "$CODEX_HOME-kept-$t/config.toml")" = 'project_doc_max_bytes = 1_000_000' ] || fail "init.$t lowered project_doc_max_bytes written with underscores"
 done
-echo "  a checkout in a project folder gets the folder's and its own AGENTS.md with rules.md, skills.md and the folder's local rules written out, the same on both twins and kept out of git; Codex's config is raised before its first table, a table's key stays; the profile ai-core closes the network and gives the reviewer the auto-mode entries, the same on both twins; nothing where Codex is not served"
+echo "  a checkout in a project folder gets the folder's and its own AGENTS.md with rules.md, skills.md and the folder's local rules written out, the same on both twins and kept out of git; Codex's config is raised before its first table, a table's key and a higher value stay, underscores read; an override the repository tracks is kept; the profile ai-core closes the network and gives the reviewer the auto-mode entries, the same on both twins; nothing where Codex is not served"
 
 exit 0

@@ -231,8 +231,9 @@ echo "  an older .ai-core/models.tsv is replaced by the harness's and reported, 
 section "Codex gets what Claude Code loads, written out in AGENTS.override.md, and its config reads it whole, on both twins"
 codex_init() {  # codex_init <twin> <dir>
   if [ "$1" = sh ]; then CODEX_HOME="$CODEX_HOME-$1" bash "$ROOT/bin/init.sh" "$2" --no-doctor >> "$F.log" 2>&1 || fail "init.sh in $2 (see $F.log)"
-  else CODEX_HOME="$CODEX_HOME-$1" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$2")" -NoDoctor >> "$F.log" 2>&1 || fail "init.ps1 in $2 (see $F.log)"; fi
+  else CODEX_HOME="$(native "$CODEX_HOME-$1")" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$2")" -NoDoctor >> "$F.log" 2>&1 || fail "init.ps1 in $2 (see $F.log)"; fi
 }
+said_path() { if [ "$t" = sh ]; then printf '%s' "$1"; else native "$1"; fi; }  # the path as the twin prints it
 for t in sh ps1; do
   F="$WORK/codex-folder-$t"; mkdir -p "$F/.ai-core" "$F/repo" "$CODEX_HOME-$t"
   printf 'UPDATE_CHECK="never"\n' > "$F/.ai-core/config.env"; git -C "$F/repo" init -q
@@ -249,12 +250,12 @@ for t in sh ps1; do
   grep -qxF '/AGENTS.override.md' "$F/repo/.git/info/exclude" || fail "init.$t did not keep AGENTS.override.md out of git"
   [ -z "$(git -C "$F/repo" status --porcelain)" ] || fail "init.$t left the checkout dirty: $(git -C "$F/repo" status --porcelain | tr '\n' '|')"
   [ "$(tr -d '\r' < "$CODEX_HOME-$t/config.toml")" = "$(printf 'model = "m"\nproject_doc_max_bytes = 262144\n\n[profiles.p]\nproject_doc_max_bytes = 5')" ] || fail "init.$t wrote Codex's config wrong: $(tr '\n' '|' < "$CODEX_HOME-$t/config.toml")"
-  grep -aq "^  codex: project_doc_max_bytes set to 262144 in $CODEX_HOME-$t/config.toml" "$F.log" || fail "init.$t did not say it raised project_doc_max_bytes"
+  grep -aqF "  codex: project_doc_max_bytes set to 262144 in $(said_path "$CODEX_HOME-$t/config.toml")" "$F.log" || fail "init.$t did not say it raised project_doc_max_bytes"
   sed "s/codex-folder-$t/F/g" "$O" > "$WORK/codex-override-$t.md"
   P="$CODEX_HOME-$t/ai-core.config.toml"
   grep -qxF 'approvals_reviewer = "auto_review"' "$P" && grep -qxF 'network_access = false' "$P" || fail "init.$t wrote no Codex profile ai-core that closes the network and hands approvals to the reviewer"
   grep -qF -- "- [setup-ai-core] $(grep -m1 '^allow' "$ROOT/auto-mode.tsv" | cut -f2)" "$P" || fail "init.$t: the profile ai-core lacks the auto-mode entries"
-  grep -aq "the profile ai-core written to $P" "$F.log" || fail "init.$t did not say it wrote the profile ai-core"
+  grep -aqF "the profile ai-core written to $(said_path "$P")" "$F.log" || fail "init.$t did not say it wrote the profile ai-core"
   grep -qxF -- '- [other-ai-core] Kept from another project.' "$P" && grep -qxF -- '- [other-ai-core] Another fact.' "$P" || fail "init.$t dropped another project's entries from the profile ai-core"
   ! grep -qxF -- '- [setup-ai-core] Stale.' "$P" || fail "init.$t kept a stale entry of its own layer in the profile ai-core"
 done

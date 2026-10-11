@@ -1,5 +1,5 @@
 ## Binding rules
-- Before any work, read the three rules files below, whole, unless your tool has loaded them: Claude Code loads each one named after @, and the project folder's through the folder's AGENTS.md; every other tool loads none of them.
+- Before any work, read the three rules files below, whole, unless your tool has loaded them: Claude Code loads each one named after @, and the project folder's through the folder's AGENTS.md; Codex reads them written out in AGENTS.override.md, which init writes beside this file; every other tool loads none of them.
 - The engineering rules, assembled by setup-ai-core from its own sections and the project harness's; never edited in a checkout: {RULES}
 - The local rules, of this checkout or folder only; where they conflict with the rules above, they win: {LOCAL}
 - When a skill or a tool is used: {SKILLS}

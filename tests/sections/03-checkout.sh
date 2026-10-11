@@ -228,4 +228,38 @@ for t in sh ps1; do
 done
 echo "  an older .ai-core/models.tsv is replaced by the harness's and reported, on both twins"
 
+section "Codex gets what Claude Code loads, written out in AGENTS.override.md, and its config reads it whole, on both twins"
+codex_init() {  # codex_init <twin> <dir>
+  if [ "$1" = sh ]; then CODEX_HOME="$CODEX_HOME-$1" bash "$ROOT/bin/init.sh" "$2" --no-doctor >> "$F.log" 2>&1 || fail "init.sh in $2 (see $F.log)"
+  else CODEX_HOME="$CODEX_HOME-$1" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$2")" -NoDoctor >> "$F.log" 2>&1 || fail "init.ps1 in $2 (see $F.log)"; fi
+}
+for t in sh ps1; do
+  F="$WORK/codex-folder-$t"; mkdir -p "$F/.ai-core" "$F/repo" "$CODEX_HOME-$t"
+  printf 'UPDATE_CHECK="never"\n' > "$F/.ai-core/config.env"; git -C "$F/repo" init -q
+  printf 'model = "m"\nproject_doc_max_bytes = 1000\n\n[profiles.p]\nproject_doc_max_bytes = 5\n' > "$CODEX_HOME-$t/config.toml"
+  codex_init "$t" "$F"
+  printf '\n- **The folder rule.** Planted by the check. [discipline]\n' >> "$F/.ai-core/rules/rules.local.md"
+  codex_init "$t" "$F"; codex_init "$t" "$F/repo"
+  O="$F/repo/AGENTS.override.md"
+  [ -f "$O" ] || fail "init.$t wrote no AGENTS.override.md in a checkout that serves Codex"
+  grep -q '^<!-- \.ai-core/rules/rules\.md, written out -->$' "$O" && grep -q '^<!-- \.ai-core/rules/skills\.md, written out -->$' "$O" || fail "init.$t: the checkout's override does not write out rules.md and skills.md"
+  grep -q '^## The code never lies to the person using it$' "$O" || fail "init.$t: the checkout's override lacks the text of rules.md"
+  grep -q 'The folder rule\.' "$O" || fail "init.$t: the checkout's override lacks the project folder's local rules"
+  grep -qxF '/AGENTS.override.md' "$F/repo/.git/info/exclude" || fail "init.$t did not keep AGENTS.override.md out of git"
+  [ -z "$(git -C "$F/repo" status --porcelain)" ] || fail "init.$t left the checkout dirty: $(git -C "$F/repo" status --porcelain | tr '\n' '|')"
+  [ "$(tr -d '\r' < "$CODEX_HOME-$t/config.toml")" = "$(printf 'model = "m"\nproject_doc_max_bytes = 262144\n\n[profiles.p]\nproject_doc_max_bytes = 5')" ] || fail "init.$t wrote Codex's config wrong: $(tr '\n' '|' < "$CODEX_HOME-$t/config.toml")"
+  grep -aq "^  codex: project_doc_max_bytes set to 262144 in $CODEX_HOME-$t/config.toml" "$F.log" || fail "init.$t did not say it raised project_doc_max_bytes"
+  sed "s/codex-folder-$t/F/g" "$O" > "$WORK/codex-override-$t.md"
+done
+cmp -s "$WORK/codex-override-sh.md" "$WORK/codex-override-ps1.md" || fail "the twins wrote different AGENTS.override.md files"
+for t in sh ps1; do
+  N="$WORK/codex-none-$t"; mkdir -p "$N/.ai-core"; printf 'UPDATE_CHECK="never"\nAGENTS="claude"\n' > "$N/.ai-core/config.env"
+  printf 'project_doc_max_bytes = 999999\n' > "$CODEX_HOME-$t/config.toml"
+  if [ "$t" = sh ]; then CODEX_HOME="$CODEX_HOME-$t" bash "$ROOT/bin/init.sh" "$N" --no-doctor > "$N.log" 2>&1
+  else CODEX_HOME="$CODEX_HOME-$t" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$N")" -NoDoctor > "$N.log" 2>&1; fi
+  [ ! -e "$N/AGENTS.override.md" ] || fail "init.$t wrote AGENTS.override.md where Codex is not served"
+  [ "$(tr -d '\r' < "$CODEX_HOME-$t/config.toml")" = 'project_doc_max_bytes = 999999' ] || fail "init.$t changed a higher project_doc_max_bytes"
+done
+echo "  a checkout in a project folder gets the folder's and its own AGENTS.md with rules.md, skills.md and the folder's local rules written out, the same on both twins and kept out of git; Codex's config is raised before its first table, a table's key and a higher value stay; nothing where Codex is not served"
+
 exit 0

@@ -313,6 +313,7 @@ SKILLS_MD="$CORE_ROOT/rules/skills.md"
 STAMP="setup-ai-core $(git -C "$CORE_ROOT" rev-parse --short HEAD 2>/dev/null || echo "$CORE_VERSION")"
 LAYER_FILES=""   # what the layers wrote, so the templates leave it alone
 MAP_SRC=""       # a generated map, deployed with the binding rules on top once the rules are assembled
+AGENTS_SRC=""    # the AGENTS.md this run deploys, read for the Codex override (2c)
 DEPLOYED=""      # what the layers put into the checkout, recorded in .ai-core/DEPLOYED
 DATA_FILES="config.env labels.tsv assignees.tsv team-modes.tsv models.tsv"
 # The skills of setup-ai-core itself, before the layers': a layer's skill of the same name replaces
@@ -363,7 +364,7 @@ if [ -n "$LAYERS" ]; then
       else
         src="$INNER/repos/$REPO_NAME/$rel"
         # A generated map gets the binding rules on top once the rules are assembled (1a below)
-        if [ "$rel" = AGENTS.md ] && head -n1 "$src" | grep -q '^<!-- ai-core map:'; then MAP_SRC="$src"; else put "$src" "$rel" managed; fi
+        if [ "$rel" = AGENTS.md ] && head -n1 "$src" | grep -q '^<!-- ai-core map:'; then MAP_SRC="$src"; else put "$src" "$rel" managed; [ "$rel" = AGENTS.md ] && AGENTS_SRC="$src"; fi
         DEPLOYED="$DEPLOYED $rel"
       fi
       LAYER_FILES="$LAYER_FILES $rel"
@@ -437,7 +438,7 @@ if [ -z "$MAP_SRC" ] && [ "$PROJECT_FOLDER" -eq 0 ] && [[ " $LAYER_FILES " != *"
 fi
 if [ -n "$MAP_SRC" ]; then
   { head -n2 "$MAP_SRC" | tr -d '\r'; echo ""; binding_block; echo '- `ai-core session-start` before any work; below is the map of this repository.'; echo ""; tail -n +3 "$MAP_SRC" | tr -d '\r' | awk 'NF{f=1} f'; } > "$TMP/AGENTS.map.md"
-  put "$TMP/AGENTS.map.md" AGENTS.md managed
+  put "$TMP/AGENTS.map.md" AGENTS.md managed; AGENTS_SRC="$TMP/AGENTS.map.md"
 fi
 
 # 2. The agent files, created once and never overwritten: templates/ mirrors the target layout.
@@ -526,7 +527,66 @@ if [ "$PROJECT_FOLDER" -eq 1 ]; then
       printf '| `%s` | `%s/AGENTS.md` |\n' "$(basename "$d")" "$(basename "$d")"
     done
   } > "$TMP/AGENTS.md"
-  put "$TMP/AGENTS.md" AGENTS.md managed
+  put "$TMP/AGENTS.md" AGENTS.md managed; AGENTS_SRC="$TMP/AGENTS.md"
+fi
+
+# 2c. Codex reads AGENTS.override.md in place of AGENTS.md, from the git root down only, raw: it
+#     follows no @ import and never sees the project folder's AGENTS.md above a checkout. Where it is
+#     served it gets one file with what Claude Code loads there, the folder's AGENTS.md and this
+#     one, each with every file it names after @ written out. Codex reads it up to
+#     project_doc_max_bytes, which 2d raises.
+codex_override() {  # codex_override <AGENTS.md> <directory its @ paths are relative to>, pair after pair
+  local line p
+  printf '<!-- setup-ai-core %s: written by init for Codex, which reads this file in place of AGENTS.md and follows no @ import: what Claude Code loads here, each file named after @ written out -->\n' "$CORE_VERSION"
+  while [ "$#" -ge 2 ]; do
+    while IFS= read -r line || [ -n "$line" ]; do
+      printf '%s\n' "$line"
+      for p in $(grep -o '@[^[:space:]`]*' <<< "$line" | cut -c2-); do
+        [ -f "$2/$p" ] || continue
+        printf '\n<!-- %s, written out -->\n' "$p"; tr -d '\r' < "$2/$p"; printf '\n'
+      done
+    done < <(tr -d '\r' < "$1")
+    shift 2
+  done
+}
+CODEX_OVERRIDE_BYTES=0
+[ -z "$AGENTS_SRC" ] && [ -f "$TARGET/AGENTS.md" ] && AGENTS_SRC="$TARGET/AGENTS.md"
+if serves codex && [ -n "$AGENTS_SRC" ]; then
+  set --
+  if [ "$PROJECT_FOLDER" -eq 0 ] && FOLDER="$(enclosing_folder "$TARGET")" && [ -f "$FOLDER/AGENTS.md" ]; then set -- "$FOLDER/AGENTS.md" "$FOLDER"; fi
+  codex_override "$@" "$AGENTS_SRC" "$TARGET" > "$TMP/AGENTS.override.md"
+  put "$TMP/AGENTS.override.md" AGENTS.override.md managed
+  CODEX_OVERRIDE_BYTES="$(wc -c < "$TMP/AGENTS.override.md" | tr -d ' ')"
+fi
+
+# 2d. Codex's user config, the machine's file, gets project_doc_max_bytes at least CODEX_DOC_BYTES,
+#     so the override is read whole; a higher value stays. The key is top-level, so it goes before
+#     the first table. A Codex that never ran here has no folder yet, and none is created.
+CODEX_DOC_BYTES=262144
+CODEX_NOTE=""
+if serves codex; then
+  CODEX_CONFIG="${CODEX_HOME:-$HOME/.codex}/config.toml"
+  if [ -d "$(dirname "$CODEX_CONFIG")" ]; then
+    codex_doc_bytes=""
+    if [ -f "$CODEX_CONFIG" ]; then
+      codex_doc_bytes="$(awk '/^\[/ { exit } /^project_doc_max_bytes[ \t]*=/ { sub(/^[^=]*=[ \t]*/, ""); if (match($0, /^[0-9]+/)) print substr($0, 1, RLENGTH); exit }' "$CODEX_CONFIG")"
+    fi
+    if [ "${codex_doc_bytes:-0}" -lt "$CODEX_DOC_BYTES" ]; then
+      CODEX_NOTE="project_doc_max_bytes $([ "$DRY" -eq 1 ] && echo "would be set" || echo "set") to $CODEX_DOC_BYTES in $CODEX_CONFIG, so Codex reads AGENTS.override.md whole"
+      if [ "$DRY" -eq 0 ]; then
+        { [ -f "$CODEX_CONFIG" ] && tr -d '\r' < "$CODEX_CONFIG" || true; } | awk -v line="project_doc_max_bytes = $CODEX_DOC_BYTES" '
+          /^\[/ { if (!done) print line; done = 1; table = 1 }
+          /^project_doc_max_bytes[ \t]*=/ && !table { if (!done) print line; done = 1; next }
+          { print }
+          END { if (!done) print line }' > "$TMP/codex-config.toml"
+        cat "$TMP/codex-config.toml" > "$CODEX_CONFIG"
+      fi
+      codex_doc_bytes="$CODEX_DOC_BYTES"
+    fi
+    if [ "$CODEX_OVERRIDE_BYTES" -gt "$codex_doc_bytes" ]; then
+      CODEX_NOTE="${CODEX_NOTE:+$CODEX_NOTE; }warning: AGENTS.override.md has $CODEX_OVERRIDE_BYTES bytes, more than project_doc_max_bytes ($codex_doc_bytes) in $CODEX_CONFIG, so Codex cuts it"
+    fi
+  fi
 fi
 
 # 2b. The auto-mode entries go into Claude Code's user settings, the machine's file, because its
@@ -570,6 +630,7 @@ if EXCLUDE="$(cd "$TARGET" && git rev-parse --git-path info/exclude 2>/dev/null)
     echo "/.claude/agents/"
     echo "/.agents/"
     echo "/CLAUDE.local.md"
+    echo "/AGENTS.override.md"
     (cd "$CORE_ROOT/templates" && find . -type f | LC_ALL=C sort) | sed 's|^\./|/|'
     echo "# setup-ai-core end"
   } > "$TMP/block"
@@ -720,6 +781,7 @@ elif [ -s "$TMP/auto-mode-changes.txt" ]; then
   echo "  auto mode: $AUTO_MODE_FILE $([ "$DRY" -eq 1 ] && echo "would change" || echo "changed"):"
   sed 's/^/    /' "$TMP/auto-mode-changes.txt"
 fi
+if [ -n "$CODEX_NOTE" ]; then echo "  codex: $CODEX_NOTE"; fi
 if [ "$DRY" -eq 1 ]; then echo "  nothing was written (dry run)"; elif [ -z "$AGENTS_UNKNOWN" ]; then echo "✓ Harness $CORE_VERSION in place. Run 'ai-core session-start' here to verify."; fi
 echo "=================================================="
 if [ -n "$AGENTS_UNKNOWN" ]; then echo "error: AGENTS in $CONFIG names '$AGENTS_UNKNOWN'; known are claude, codex, antigravity, openhands, gemini, cursor, windsurf, copilot" >&2; exit 1; fi

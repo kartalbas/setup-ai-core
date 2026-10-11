@@ -26,6 +26,8 @@ export AI_CORE_UPDATE_CHECK=never
 # init writes Claude Code's user settings, so every section points them at a folder that does not
 # exist: none touches the settings of this machine, and a check of them names its own folder
 export CLAUDE_CONFIG_DIR="$WORK/claude-config"
+# The same for Codex's user config, which init writes where Codex is served
+export CODEX_HOME="$WORK/codex-config"
 # A team-modes table whose probes always pass, so the tools of this machine never decide a check
 printf 'claude\tmode\ton\talways\t-\t-\ncodex\tmode\ton\talways\t-\t-\ngemini\tmode\ton\talways\t-\t-\n' > "$WORK/modes.tsv"; export TEAM_MODES_FILE="$WORK/modes.tsv"
 

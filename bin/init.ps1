@@ -637,6 +637,31 @@ if (Test-Serves 'codex') {
     if ($codexOverrideBytes -gt $current) {
       $codexNote = "$(if ($codexNote) { "$codexNote; " })warning: AGENTS.override.md has $codexOverrideBytes bytes, more than project_doc_max_bytes ($current) in $codexConfig, so Codex cuts it"
     }
+    # 2e. Where the user runs Codex with approval_policy never and the network open, it checks
+    #     nothing. The profile ai-core, which every session the harness starts loads (-p ai-core),
+    #     closes the network and hands every approval request, a blocked network call among them,
+    #     to Codex's reviewing subagent, with the auto-mode entries of the layers as its policy:
+    #     what Claude Code's classifier reads. The user's config.toml stays as it is.
+    $codexProfile = Join-Path $codexDir 'ai-core.config.toml'
+    $p = New-Object System.Text.StringBuilder
+    [void]$p.Append("# setup-ai-core ${coreVersion}: written by ai-core init, rewritten on every run. The profile of every Codex`n")
+    [void]$p.Append("# session the harness starts (codex exec -p ai-core): the network closed, and every approval`n")
+    [void]$p.Append("# request decided by the reviewing subagent against the auto-mode entries of the layers.`n")
+    [void]$p.Append("approval_policy = `"on-request`"`napprovals_reviewer = `"auto_review`"`nsandbox_mode = `"workspace-write`"`n`n")
+    [void]$p.Append("[sandbox_workspace_write]`nnetwork_access = false`n`n[auto_review]`n")
+    [void]$p.Append("policy = '''`n")
+    [void]$p.Append("These entries come from the auto-mode files of the harness and of the project's layers; Claude Code's classifier reads the same. An entry under Allow permits an action that would otherwise be refused; an entry under Environment describes this environment.`n")
+    [void]$p.Append("`nAllow:`n")
+    foreach ($e in $autoModeLines) { if ($e.StartsWith("allow`t", [StringComparison]::Ordinal)) { [void]$p.Append("- $($e.Substring(6))`n") } }
+    [void]$p.Append("`nEnvironment:`n")
+    foreach ($e in $autoModeLines) { if ($e.StartsWith("environment`t", [StringComparison]::Ordinal)) { [void]$p.Append("- $($e.Substring(12))`n") } }
+    [void]$p.Append("'''`n")
+    $profileText = $p.ToString()
+    $profileNow = if (Test-Path -LiteralPath $codexProfile -PathType Leaf) { [System.IO.File]::ReadAllText($codexProfile) } else { $null }
+    if ($profileNow -cne $profileText) {
+      $codexNote = "$(if ($codexNote) { "$codexNote; " })the profile ai-core $(if ($DryRun) { 'would be written' } else { 'written' }) to $codexProfile"
+      if (-not $DryRun) { [System.IO.File]::WriteAllText($codexProfile, $profileText, $utf8) }
+    }
   }
 }
 # 2b. The auto-mode entries go into Claude Code's user settings, the machine's file, because its

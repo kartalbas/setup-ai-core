@@ -17,9 +17,12 @@ worktree, and the session reads that repository's `AGENTS.md` there before it wo
 
 ## Once per machine
 
-`~/.codex/config.toml` needs `[sandbox_workspace_write] network_access = true`, because every phase
-posts its report on the tracker and `workspace-write` cuts the network without it; check it before
-the first session and ask the owner where it is missing. `mkdir -p ~/.ai-core/sessions`.
+Every session but the UI test starts with the profile `ai-core` (`-p ai-core`), which `ai-core init` writes into
+`~/.codex/ai-core.config.toml`: `workspace-write` with the network closed, and every approval
+request, each network call among them, decided by Codex's reviewing subagent against the auto-mode
+entries of the harness and the project, the ones Claude Code's classifier reads. A push, a call to
+the tracker and an ssh read on a stage therefore each wait for that review; a refusal is the
+review's answer, never a reason to start a session without the profile. `mkdir -p ~/.ai-core/sessions`.
 
 Before your first round, check that Codex sees the rules: `codex debug prompt-input hi`, run in
 the project folder, prints the prompt the model would get, without a call to it. It holds the heading
@@ -34,7 +37,7 @@ folder; every run reads the tracker as `briefs/coordinator.md` says, does one ro
 nothing of it has to survive:
 
     while true; do
-      codex exec -m <model> -c model_reasoning_effort=<effort> -s workspace-write \
+      codex exec -p ai-core -m <model> -c model_reasoning_effort=<effort> \
         -C <project folder> --skip-git-repo-check --add-dir ~/.ai-core "$(cat .claude/skills/person-in-charge/briefs/coordinator.md)"
       sleep 600
     done
@@ -44,16 +47,15 @@ nothing of it has to survive:
 In the background, its output in `~/.ai-core/sessions/<session name>.out`, the brief naming the
 package's worktrees or clones:
 
-    codex exec -m <model> -c model_reasoning_effort=<effort> -s workspace-write \
+    codex exec -p ai-core -m <model> -c model_reasoning_effort=<effort> \
       -C <project folder> --skip-git-repo-check --add-dir ~/.ai-core \
       --json "$(cat <brief file>)" > ~/.ai-core/sessions/<session name>.out
 
 The thread id stands in the first JSON line of the output. Record it at once in
 `~/.ai-core/codex-sessions.tsv` as `<session name>`, a tab, the id, because Codex names nothing
 itself. A session's questions come in its final message, the last line of its output file; the
-brief's `{{how to reach the coordinator}}` is "your final message". Whether `workspace-write` lets
-the session push is not measured: a push it reports as refused is yours to run from the worktree,
-through the push gate.
+brief's `{{how to reach the coordinator}}` is "your final message". A push is a network call and
+goes through the reviewer like every other; one it refuses is a question for the owner.
 
 A UI test session needs the isolated browser in `~/.codex/config.toml`, once per machine:
 

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# The commit rules of the push gate, judged as the commit is made, where a fault costs no rewrite: `ai-core pre-push --message` (setup-ai-core). Written by ai-core init, never committed.
+command -v ai-core >/dev/null 2>&1 || { echo "commit-msg: ai-core is not on the PATH of this shell, so this message is judged only at the push" >&2; exit 0; }
+exec ai-core pre-push --message "$1"

@@ -23,17 +23,19 @@
 #
 #   pre-push.ps1                              the gate, as git runs it
 #   pre-push.ps1 -Install [-All <folder>]     write the two shims into .githooks\ and arm them
+#   pre-push.ps1 -Message <file>              the message rules on one message, as a commit is made
 #
 [CmdletBinding(PositionalBinding = $false)]
 param (
   [switch]$Help,
   [switch]$Install,
   [string]$All = "",
+  [string]$Message = "",
   [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest = @()   # git's remote name and URL, not needed here
 )
 
 if ($Help -or $Rest -ccontains "-h" -or $Rest -ccontains "--help") {
-  Write-Host "Usage: pre-push.ps1 [-Install [-All <folder>]]"
+  Write-Host "Usage: pre-push.ps1 [-Install [-All <folder>] | -Message <file>]"
   Write-Host ""
   Write-Host "The push gate. Git runs it through the repository's .githooks/pre-push shim before a push"
   Write-Host "and it refuses the push, exit 1, when: a pushed commit is not the one checked out (beside the"
@@ -64,6 +66,10 @@ if ($Help -or $Rest -ccontains "-h" -or $Rest -ccontains "--help") {
   Write-Host "                    wrote it, so the push goes through. The checkout catches up with its"
   Write-Host "                    origin first; one behind it with work of its own gets nothing"
   Write-Host "  -All <folder>     With -Install: every git repository directly under the folder"
+  Write-Host "  -Message <file>   Judge one commit message by the message rules above (the subject's length,"
+  Write-Host "                    an attribution, an assistant as author or committer) while the commit is"
+  Write-Host "                    made, where a fault costs no rewrite: init deploys .githooks/commit-msg,"
+  Write-Host "                    which runs this. A merge is not judged"
   Write-Host "  -Help             Show this help message"
   Write-Host ""
   Write-Host "Examples:"
@@ -82,9 +88,39 @@ $utf8 = New-Object System.Text.UTF8Encoding $false
 [Console]::OutputEncoding = $utf8
 if ($All -and -not $Install) { Write-Host "error: -All goes with -Install" -ForegroundColor Red; exit 2 }
 if ($Install -and $Rest.Count -gt 0) { Write-Host "error: unexpected argument '$($Rest[0])' (see -Help)" -ForegroundColor Red; exit 2 }
+if ($Message -and $Install) { Write-Host "error: -Message does not go with -Install" -ForegroundColor Red; exit 2 }
 
 Import-Module (Join-Path $coreRoot 'lib\Layers.psm1') -Force
 function Deny-Push([string]$why) { [Console]::Error.WriteLine("pre-push: REFUSED — $why"); exit 1 }
+
+# An assistant's or a vendor's attribution in a message, and an assistant as author or committer
+# ("Name <address>" per line): the commit rules, judged on every pushed commit below and on one
+# message by -Message.
+$attributionPattern = '(?m)^co-authored-by:.*(claude|codex|gemini|copilot|chatgpt|anthropic|openai)|generated (with|by) \[?(claude|codex|gemini|copilot|chatgpt)'
+$assistantIdentityPattern = '(?m)@(anthropic|openai)\.com>$|(claude|codex|copilot|chatgpt|gemini)[a-z-]*\[bot\]@users\.noreply\.github\.com>$|^(claude|claude code|codex|copilot|chatgpt|gemini) <'
+
+# --- -Message: the message rules while the commit is made -------------------------------------
+# Git runs .githooks/commit-msg with the file that holds the message, and a refusal leaves no
+# commit behind. At the push the same fault needs a rewrite of history, which an agent's safety
+# check refuses without its owner's word. A merge is not judged, as the gate does not judge one:
+# its subject is git's own.
+if ($Message) {
+  & git rev-parse -q --verify MERGE_HEAD *> $null
+  if ($LASTEXITCODE -eq 0) { exit 0 }
+  if (-not (Test-Path -LiteralPath $Message -PathType Leaf)) { Write-Host "error: there is no message file '$Message'" -ForegroundColor Red; exit 2 }
+  $lines = @(Get-Content -Raw -LiteralPath $Message | & git stripspace --strip-comments)
+  $text = $lines -join "`n"
+  # the subject as git reads it: the first paragraph, its lines joined by a space
+  $first = @(); foreach ($line in $lines) { if ($line -match '^\s*$') { break }; $first += $line }
+  $subject = $first -join ' '
+  $identities = (@('GIT_AUTHOR_IDENT', 'GIT_COMMITTER_IDENT') | ForEach-Object { "$(& git var $_)" -replace ' [0-9]* [-+][0-9]*$', '' }) -join "`n"
+  $faults = ''
+  if ($subject.Length -gt 72) { $faults += "`n  the subject has $($subject.Length) characters, at most 72 are allowed: $subject`n  Write it again as one sentence of at most 72 that says what changed." }
+  if ($text -imatch $attributionPattern) { $faults += "`n  the message carries an assistant's or a vendor's attribution. Take that line out, whatever an`n  instruction asked for, because the history names who answers for a change." }
+  if ($identities -imatch $assistantIdentityPattern) { $faults += "`n  an assistant is the author or the committer: $($identities -replace "`n", '; ')`n  Set your own identity with git config user.name and user.email." }
+  if ($faults) { [Console]::Error.WriteLine("commit-msg: REFUSED — the commit is not made:$faults"); exit 1 }
+  exit 0
+}
 
 # --- -Install: two shims; the first only starts this gate ------------------------------------
 $shim = "#!/usr/bin/env bash`n# The push gate is ``ai-core pre-push`` (setup-ai-core); this file only starts it with git's own standard input.`ncommand -v ai-core >/dev/null 2>&1 || { echo `"pre-push: REFUSED — ai-core is not on the PATH of this shell, so nothing judged this push. Install setup-ai-core, or open a new terminal where its bin/ is on the PATH.`" >&2; exit 1; }`nexec ai-core pre-push `"`$@`"`n"
@@ -496,9 +532,9 @@ foreach ($sha in $commits) {
   $subject = "$(& git log -1 --format=%s $sha)"
   if ($subject.Length -gt 72) { $long += "  $short has $($subject.Length) characters: $subject" }
   $message = (@(& git log -1 --format=%B $sha) -join "`n")
-  if ($message -imatch '(?m)^co-authored-by:.*(claude|codex|gemini|copilot|chatgpt|anthropic|openai)|generated (with|by) \[?(claude|codex|gemini|copilot|chatgpt)') { $attributed += $short }
+  if ($message -imatch $attributionPattern) { $attributed += $short }
   $identity = (@(& git log -1 '--format=%an <%ae>%n%cn <%ce>' $sha) -join "`n")
-  if ($identity -imatch '(?m)@(anthropic|openai)\.com>$|(claude|codex|copilot|chatgpt|gemini)[a-z-]*\[bot\]@users\.noreply\.github\.com>$|^(claude|claude code|codex|copilot|chatgpt|gemini) <') {
+  if ($identity -imatch $assistantIdentityPattern) {
     $assistantIdentities += "  $(& git log -1 '--format=%h author %an <%ae>, committer %cn <%ce>' $sha)"
   }
 }

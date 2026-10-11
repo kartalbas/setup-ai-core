@@ -205,6 +205,32 @@ git -C "$repo" commit -q --amend --no-edit --author='dependabot[bot] <49699333+d
 out="$(only_new "$repo")"; rc=$?
 check 'a bot that is no assistant: exit 0' 0 "$rc"
 git -C "$repo" commit -q --amend --no-edit --reset-author
+echo '--message judges one message as the commit is made: the same rules, comment lines left out, a merge passed'
+msg="$fake/COMMIT_EDITMSG"
+judge_message() { out="$( cd "$repo" && bash "$root/bin/pre-push.sh" --message "$msg" 2>&1 )"; rc=$?; }
+printf '%s\n\n# %s\n' "$(printf 'A%.0s' {1..73})" "$(printf 'B%.0s' {1..90})" > "$msg"; judge_message
+check 'a subject of 73: exit 1'        1 "$rc"
+check 'it counts the characters'       yes "$(yesno 'the subject has 73 characters')"
+check 'no commit is made'              yes "$(yesno 'commit-msg: REFUSED — the commit is not made')"
+printf '%s\n\n# %s\n' "$(printf 'A%.0s' {1..72})" "$(printf 'B%.0s' {1..90})" > "$msg"; judge_message
+check 'a subject of 72, a long comment line: exit 0' 0 "$rc"
+printf '%s\n%s\n\nbody\n' "$(printf 'A%.0s' {1..40})" "$(printf 'A%.0s' {1..40})" > "$msg"; judge_message
+check 'a subject over two lines, 81 as git reads it: exit 1' 1 "$rc"
+printf 'Tune the reader #7\n\nCo-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>\n' > "$msg"; judge_message
+check 'an attribution: exit 1'         1 "$rc"
+check 'it says why'                    yes "$(yesno "an assistant's or a vendor's attribution")"
+printf 'Tune the reader #7\n\nCo-Authored-By: Ada Lovelace <ada@example.invalid>\n' > "$msg"; judge_message
+check 'a person as co-author: exit 0'  0 "$rc"
+out="$( cd "$repo" && GIT_AUTHOR_NAME=Claude GIT_AUTHOR_EMAIL=noreply@anthropic.com bash "$root/bin/pre-push.sh" --message "$msg" 2>&1 )"; rc=$?
+check 'an assistant as author: exit 1' 1 "$rc"
+check 'it names the identity'          yes "$(yesno 'Claude <noreply@anthropic.com>')"
+out="$( cd "$repo" && GIT_AUTHOR_NAME='Claude Monet' GIT_AUTHOR_EMAIL=claude@example.invalid bash "$root/bin/pre-push.sh" --message "$msg" 2>&1 )"; rc=$?
+check 'a person named Claude: exit 0'  0 "$rc"
+printf '%s\n' "$(printf 'M%.0s' {1..90})" > "$msg"
+git -C "$repo" rev-parse HEAD > "$repo/.git/MERGE_HEAD"; judge_message; rm -f "$repo/.git/MERGE_HEAD"
+check 'a merge with a long subject: exit 0' 0 "$rc"
+judge_message
+check 'the same subject outside a merge: exit 1' 1 "$rc"
 echo 'an added comment naming an issue as (#12) or <repo>#12 is refused; a number in code passes'
 n=12  # the number is put together, so this line is no comment naming an issue to the gate itself
 printf 'const a = 1; // read the board whole (#%s)\n' "$n" > "$repo/src/app.js"

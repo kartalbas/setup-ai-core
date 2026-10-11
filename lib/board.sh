@@ -19,7 +19,8 @@ die() { echo "error: $*" >&2; exit 1; }
 
 # --- where the data lives -----------------------------------------------------
 
-# THE DATA FILES ARE THE PROJECT'S, NOT THE HARNESS'S: labels.tsv, assignees.tsv, team-modes.tsv.
+# THE DATA FILES ARE THE PROJECT'S, NOT THE HARNESS'S: labels.tsv, assignees.tsv, team-modes.tsv,
+# models.tsv.
 # A checkout carries them in .ai-core/, put there by init; the clone's templates hold the
 # defaults a project starts from. Every reader asks here, so the two twins and every command
 # read the same file: the one of the repository the caller stands in, or of the project folder.
@@ -150,7 +151,7 @@ gh_read() {  # gh_read <what was asked for> <gh argument>...
 # The groups a row may stand in. The group is also the PREFIX the label carries, so
 # a row in group `area` is named `area:something` - the two cannot be told apart and
 # so cannot disagree.
-LABEL_GROUPS='type area closes incident'
+LABEL_GROUPS='type area closes incident needs'
 
 # EVERY READER OF labels.tsv COMES THROUGH HERE, and the file is held against its
 # shape before a single name leaves this function.
@@ -536,7 +537,7 @@ repo_open_projects() {  # repo_open_projects <owner/repo>
 
 # A repository ON NO BOARD: no board is named, by --project or GH_PROJECT_NUMBER, and the
 # repository is linked to no open one, as a harness or the tooling's own repository is. Its
-# issues have no card, so a status, a priority or a column after implementing has nowhere to go.
+# issues have no card, so a status, a priority or a testing column has nowhere to go.
 on_no_board() {  # on_no_board <owner/repo> [named board] - true when the repository is on no board
   local named="${2:-${GH_PROJECT_NUMBER:-}}" linked
   [ -z "$named" ] || return 1
@@ -769,6 +770,27 @@ issue_board_items() {  # issue_board_items <owner/repo> <number>
 # to add and nothing to set, and the issue tooling's own repository is deliberately one of those.
 # Reading both as "card missing" made every close, reopen, status and priority on such an issue
 # die after the issue itself had already been changed.
+# option_on_every_board <owner/repo> <number> <field> <option>: dies where a board the issue is on,
+# or the repository's board where it has no card yet, lacks the option; nothing is written. Called
+# before an issue is changed, so a board of an older layout refuses before the issue stands
+# half-made. The walk is for_each_board's, without the write.
+option_on_every_board() {
+  local repo="$1" n="$2" field="$3" option="$4" rows here bnum bitem
+  rows="$(issue_board_items "$repo" "$n")" || exit 1
+  if [ -z "$rows" ]; then
+    here="$(repo_open_projects "$repo")" || exit 1
+    [ -n "$here" ] || return 0
+    set_project "" "$repo" >/dev/null
+    option_id "$field" "$option" >/dev/null
+    return 0
+  fi
+  while IFS=$'\t' read -r bnum bitem; do
+    [ -n "$bnum" ] || continue
+    set_project "$bnum" >/dev/null
+    option_id "$field" "$option" >/dev/null
+  done <<< "$rows"
+}
+
 for_each_board() {  # for_each_board <owner/repo> <number> <field> <option> <printed>
   local repo="$1" n="$2" field="$3" option="$4" printed="$5" rows here item bnum bitem
   rows="$(issue_board_items "$repo" "$n")" || exit 1
@@ -875,17 +897,27 @@ set_select() {  # set_select <item id> <field name> <option name>
         value:{singleSelectOptionId:$oid}}) { projectV2Item { id } } }' >/dev/null
 }
 
+# THE PROJECT FOLDER: the folder that holds the clone this runs in, its main checkout also from
+# one of its worktrees, or the current directory outside a repository.
+project_folder() {
+  local common
+  if common="$(git rev-parse --git-common-dir 2>/dev/null)"; then
+    dirname "$(cd "$common/.." && git rev-parse --show-toplevel)"
+  else pwd; fi
+}
+
 # --- epics --------------------------------------------------------------------
 #
-# An epic, an issue with sub-issues, is never moved by hand: it follows its sub-issues. It stands
-# in implementing once one has started, in testing once all stand in testing or done, and is
-# closed once all are done. As nothing else moves it, it also takes the one step back its
-# sub-issues make true again: from testing to implementing, once a sub-issue stands before testing.
+# An epic, an issue with sub-issues, is never moved by hand: it follows its sub-issues. It stands in
+# implementing once one has started (a sub-issue in review has started too), in testing once all
+# stand in testing or done, and is closed once all are done. As nothing else moves it, it also takes
+# the one step back its sub-issues make true again: from testing to implementing, once a sub-issue
+# stands before testing.
 # A closed epic stays closed.
 
-status_rank() {  # status_rank <status> - backlog and todo < implementing < testing < done
+status_rank() {  # status_rank <status> - backlog, ready and planned < implementing and review < testing < done
   case "$1" in
-    implementing) echo 1 ;;
+    implementing|review) echo 1 ;;
     testing) echo 2 ;;
     done|CLOSE|'not planned') echo 3 ;;
     *) echo 0 ;;

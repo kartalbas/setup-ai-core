@@ -21,7 +21,7 @@ HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/shop
 grep -aq 'created: example-org/shop-ai-core, private, from the skeleton' "$WORK/layers-sh-1.log" || fail "init.sh did not create the project harness (see $WORK/layers-sh-1.log)"
 grep -aq '^--> Project harness: example-org/shop-ai-core (' "$WORK/layers-sh-1.log" || fail "init.sh did not name the project harness"
 [ -d "$GH_FAKE/github.com/example-org/shop-ai-core.git" ] || fail "the harness was not pushed to GitHub"
-[ -f "$WORK/org-sh/shop-ai-core/ai-core.json" ] && [ -f "$WORK/org-sh/shop-ai-core/labels.tsv" ] || fail "the clone beside the checkout lacks the skeleton"
+[ -f "$WORK/org-sh/shop-ai-core/ai-core.json" ] && [ -f "$WORK/org-sh/shop-ai-core/labels.tsv" ] && [ -f "$WORK/org-sh/shop-ai-core/models.tsv" ] || fail "the clone beside the checkout lacks the skeleton"
 [ "$(wc -l < "$WORK/org-sh/shop-web/.ai-core/STAMP" | tr -d ' ')" = 2 ] && grep -q '^shop-ai-core ' "$WORK/org-sh/shop-web/.ai-core/STAMP" || fail "STAMP does not name setup-ai-core and the harness: $(cat "$WORK/org-sh/shop-web/.ai-core/STAMP" | tr '\n' '|')"
 cmp -s "$WORK/org-sh/shop-web/.ai-core/config.env" "$ROOT/templates/.ai-core/config.env" || fail "config.env of the checkout is not the harness's (the skeleton's copy of the template)"
 # The skeleton's .gitattributes makes every checkout of the harness LF; a clone made before the
@@ -48,6 +48,7 @@ mkdir -p "$WORK/author/agents"; printf -- '---\nname: builder\ndescription: buil
 printf '# Glossary\n\ntenant: a customer.\n' > "$WORK/author/docs/glossary.md"
 printf '# shop-web\n\nThe map of shop-web.\n' > "$WORK/author/repos/shop-web/AGENTS.md"
 printf 'AGENTS="claude"\nUPDATE_CHECK="never"\n' > "$WORK/author/repos/shop-web/.ai-core/config.env"
+printf 'plan\tmechanical\tclaude-sonnet-5-5\tmedium\tno\n' > "$WORK/author/models.tsv"
 git -C "$WORK/author" add -A; git -C "$WORK/author" -c user.name=check -c user.email=check@localhost commit -q -m "the project's own"; git -C "$WORK/author" push -q origin HEAD
 HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/shop-web" --no-doctor > "$WORK/layers-sh-2.log" 2>&1 || fail "init.sh second run with the filled harness (see $WORK/layers-sh-2.log)"
 assembled_ok() {  # assembled_ok <checkout> <twin>
@@ -66,6 +67,7 @@ assembled_ok() {  # assembled_ok <checkout> <twin>
   grep -q '^The map of shop-web' "$c/AGENTS.md" || fail "$t: AGENTS.md is not the map from repos/shop-web/"
   grep -q '^AGENTS="claude"' "$c/.ai-core/config.env" || fail "$t: config.env is not the one from repos/shop-web/.ai-core/"
   [ -f "$c/.ai-core/labels.tsv" ] && [ -f "$c/.ai-core/team-modes.tsv" ] || fail "$t: the data files did not come from the harness"
+  cmp -s "$c/.ai-core/models.tsv" "$WORK/author/models.tsv" || fail "$t: models.tsv is not the harness's own"
   [ -e "$c/.cursorrules" ] && fail "$t: a pointer file of an agent the harness does not serve was deployed"
   st="$(git -C "$c" status --porcelain | tr -d '\r' | sort | tr '\n' '|')"
   [ -z "$st" ] || fail "$t: git status is not clean after init: $st"

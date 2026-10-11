@@ -11,8 +11,8 @@
 # THE COLUMN NAMES ARE THE BOARD'S OWN, not a list kept here. They are matched without
 # case, and a name matching none stops the run and prints the ones the board carries -
 # so a column renamed on the board is a refusal here rather than a card that silently
-# does not move. Measured on 2026-08-26, boards 6 and 7 both carry: backlog todo
-# implementing testing done.
+# does not move. The template board carries: backlog ready planned implementing review
+# testing done.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 

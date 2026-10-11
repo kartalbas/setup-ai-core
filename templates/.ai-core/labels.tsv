@@ -89,3 +89,9 @@ incident	incident:question	E99695	The ticket asks a question instead of naming w
 incident	incident:title	E99695	The title does not say what the ticket is about
 incident	incident:released-wrong	E99695	The ticket was called done before the work was proven
 incident	incident:unasked	E99695	The ticket was filed without a person's yes
+
+# WHO THE TICKET WAITS FOR, whatever column its card stands in. needs:owner says the next step
+# is a decision of the product owner's, put to them and not yet answered: the work stops there,
+# and whoever takes the ticket up next reads the question on it instead of starting. The label
+# comes off with the answer.
+needs	needs:owner	FBCA04	The next step is the product owner's decision

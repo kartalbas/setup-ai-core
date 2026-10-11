@@ -15,11 +15,11 @@
 # NOTHING THAT HAS NOT LANDED IS REMOVED. A worktree with changes, or with a commit origin's
 # default branch does not have, stops the run and is named; the work in it is somebody's.
 #
-# THE CARD MOVES TO THE COLUMN AFTER implementing, read from the board's own order: on a board
-# with a testing column the card goes there; status-sync, which this runs for the repository,
-# closes it once a release carries its work and a proof record follows its landing. Where the next
-# column is done, the card stays, because done is what closing the issue sets. An issue no commit
-# on origin's default branch names has not landed: the run stops before the card moves.
+# THE CARD MOVES TO testing, whatever column it stands in: the work has landed and waits for its
+# release and its proof. status-sync, which this runs for the repository, closes it once a release
+# carries its work and a proof record follows its landing. On a board without a testing column the
+# card stays. An issue no commit on origin's default branch names has not landed: the run stops
+# before the card moves.
 #
 # --sweep removes every worktree of this repository whose work has landed and has rested for a
 # day, and names the others it leaves; start-issue and init --all run it, so a worktree nobody
@@ -163,18 +163,16 @@ commits="$(git -C "$main" log "origin/$default" -E --grep="(^|[^A-Za-z0-9._/-])$
 [ -n "$commits" ] \
   || die "no commit on origin/$default names $ref, so the card stays and the issue is not told; a commit that touches an issue names it"
 
-# The card: one column past implementing, as the board orders them, unless that column is done
+# The card: to testing
 if [ "$state" = closed ]; then
   echo "the issue is closed already - its card stays where closing put it"
 elif repo="$(resolve_repo "$repo")" && on_no_board "$repo"; then
   echo "$repo is on no board - there is no card to move"
 else
   set_project "" "$repo" >/dev/null
-  next="$(fields_tsv | awk -F'\t' 'tolower($1)=="status" { if (hit) { print $3; exit } if (tolower($3)=="implementing") hit=1 }')"
+  next="$(fields_tsv | awk -F'\t' 'tolower($1)=="status" && tolower($3)=="testing" { print $3; exit }')"
   if [ -z "$next" ]; then
-    echo "the board has no column after implementing - the card stays; move it by hand"
-  elif [ "$(printf '%s' "$next" | tr '[:upper:]' '[:lower:]')" = 'done' ]; then
-    echo "the column after implementing is done, which closing the issue sets - the card stays for the owner"
+    echo "the board has no testing column - the card stays; move it by hand"
   elif moved="$("$BIN/issue-status.sh" ${repo:+"$repo"} "$number" "$next" 2>&1)"; then
     printf '%s\n' "$moved"
   else

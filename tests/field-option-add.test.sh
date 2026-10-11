@@ -145,5 +145,32 @@ check 'stops, and names the fields there are' yes \
 check 'and no mutation reached the board' 'no body' \
       "$([ -f "$FAKE/body.json" ] && echo 'a body was sent' || echo 'no body')"
 
+echo
+echo 'the place of the new option, and a rename that keeps the id'
+
+out="$(run --field Priority --name P9 --color GRAY --after P1)"
+check 'the new option stands right after the one --after names' 'P0 P1 P9 P2 P3' \
+      "$(jq -r '[.variables.opts[].name] | join(" ")' "$FAKE/body.json")"
+check 'and every option that existed keeps its id' 'OPT_p0 OPT_p1 NONE OPT_p2 OPT_p3' "$(sent_ids)"
+out="$(run --field Status --name ready --color GREEN --replacing todo)"
+check 'a replaced option keeps its id, so its cards keep it; nothing is created' 'OPT_todo' "$(sent_ids)"
+check 'and takes the new name, colour and description' 'ready GREEN ' \
+      "$(jq -r '.variables.opts[0] | "\(.name) \(.color) \(.description)"' "$FAKE/body.json")"
+out="$(run --field Priority --name P9 --color GRAY --after P7)"
+check 'an --after the field does not have stops, and names the options' yes \
+      "$(case "$out" in *"has no option 'P7'. There is: P0 P1 P2 P3"*) echo yes ;; *) echo "no: $out" ;; esac)"
+check 'and no mutation reached the board' 'no body' \
+      "$([ -f "$FAKE/body.json" ] && echo 'a body was sent' || echo 'no body')"
+out="$(run --field Priority --name P2 --color GRAY --replacing P3)"
+check 'a rename onto a name the field has is refused, naming both' yes \
+      "$(case "$out" in *"has both 'P2' and 'P3'"*) echo yes ;; *) echo "no: $out" ;; esac)"
+check 'and no mutation reached the board' 'no body' \
+      "$([ -f "$FAKE/body.json" ] && echo 'a body was sent' || echo 'no body')"
+out="$(run --field Priority --name P9 --color GRAY --after P1 --replacing P2)"
+check '--after and --replacing together stop' yes \
+      "$(case "$out" in *'--after and --replacing exclude each other'*) echo yes ;; *) echo "no: $out" ;; esac)"
+check 'and no mutation reached the board' 'no body' \
+      "$([ -f "$FAKE/body.json" ] && echo 'a body was sent' || echo 'no body')"
+
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo; echo 'all passed'

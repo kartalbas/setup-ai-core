@@ -2,10 +2,10 @@
 # What finish-issue.sh removes, what it refuses, where it moves the card, and what --sweep leaves.
 #
 # It runs inside a TEMPORARY repository with a temporary origin, both built and deleted here, and
-# with a FAKE gh on PATH: nothing leaves the machine. What is pinned: a worktree with changes or with
-# work origin does not have stays and is named; a landed one goes with its branch; the card moves to
-# the column after implementing unless that is done; the issue is told what landed; --sweep removes
-# only a landed worktree that was committed in and has rested for a day.
+# with a FAKE gh on PATH: nothing leaves the machine. What is pinned: a worktree with changes or
+# with work origin does not have stays and is named; a landed one goes with its branch; the card
+# moves to testing where the board has one; the issue is told what landed; --sweep removes only a
+# landed worktree that was committed in and has rested for a day.
 #
 #   bash test/finish-issue.test.sh
 
@@ -153,13 +153,21 @@ check 'and the branch in it'       yes "$(has_branch issue-182-a-later-part)"
 check 'it says why'                yes "$(grep -q 'issue-177-package is named for another issue and has issue-182-a-later-part checked out: it stays' <<< "$out" && echo yes || echo no)"
 check 'the card of #182 moved'     1 "$(grep -c 'oid=OPT_test' "$log" || true)"
 
-echo 'where the column after implementing is done, the card stays for the owner'
+echo 'a board without a testing column: the card stays'
 printf 'Status\tFID\ttodo\tOPT_todo\nStatus\tFID\timplementing\tOPT_impl\nStatus\tFID\tdone\tOPT_done\n' > "$board"
 : > "$log"; rm -rf "$fake/cache"
 out="$(run 163)"; rc=$?
 check 'exits zero'          0 "$rc"
-check 'it says so'          yes "$(grep -q 'the column after implementing is done' <<< "$out" && echo yes || echo no)"
+check 'it says so'          yes "$(grep -q 'the board has no testing column - the card stays' <<< "$out" && echo yes || echo no)"
 check 'the card did not move' 0 "$(grep -c 'oid=OPT_' "$log" || true)"
+
+echo 'a board with ready, planned and review: the card goes to testing, never to the column after implementing'
+printf 'Status\tFID\tready\tOPT_ready\nStatus\tFID\tplanned\tOPT_plan\nStatus\tFID\timplementing\tOPT_impl\nStatus\tFID\treview\tOPT_rev\nStatus\tFID\ttesting\tOPT_test\nStatus\tFID\tdone\tOPT_done\n' > "$board"
+: > "$log"; rm -rf "$fake/cache"
+out="$(run 163)"; rc=$?
+check 'exits zero'          0 "$rc"
+check 'the card went to testing' 1 "$(grep -c 'oid=OPT_test' "$log" || true)"
+check 'not to review'       0 "$(grep -c 'oid=OPT_rev' "$log" || true)"
 
 echo 'a closed issue keeps its card'
 echo closed > "$state"; : > "$log"; rm -rf "$fake/cache"

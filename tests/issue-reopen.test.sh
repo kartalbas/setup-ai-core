@@ -2,7 +2,7 @@
 # What issue-reopen.sh sends, and where the card lands.
 #
 # Run with a FAKE gh on PATH, so nothing is reopened and every call is recorded instead. What is
-# pinned: the state that reaches gh is `open`, the card goes back to `todo` on every board the
+# pinned: the state that reaches gh is `open`, the card goes back to `ready` on every board the
 # issue is on, and a number that is not one stops the run before the FIRST issue is touched -
 # a batch that half-applies is worse than one that does not run.
 #
@@ -22,13 +22,14 @@ printf '%s\n' "\$*" >> "$log"
 case "\$*" in
   *projectItems*)         printf 'example-org/998\tPVTI_item\n'; exit 0 ;;
   *'projectV2(number'*)   echo 'PVT_kwreopen'; exit 0 ;;
-  *'fields(first:50'*)    printf 'Status\tF1\ttodo\tT1\nStatus\tF1\tdone\tD1\n'; exit 0 ;;
+  *'fields(first:50'*)    cat "$fake/fields.tsv"; exit 0 ;;
 esac
 if [ "\$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
 echo '{}'
 exit 0
 EOF
 chmod +x "$fake/gh"
+printf 'Status\tF1\tready\tT1\nStatus\tF1\tdone\tD1\n' > "$fake/fields.tsv"
 export PATH="$fake:$PATH"
 
 failed=0
@@ -47,7 +48,7 @@ check 'exits zero'     0 "$rc"
 check 'the state'      yes "$(grep -q -- '-f state=open' "$log" && echo yes || echo no)"
 check 'the issue'      yes "$(grep -q "api --method PATCH repos/$repo/issues/412" "$log" && echo yes || echo no)"
 check 'the reopen line' '#412 -> reopened' "$(printf '%s\n' "$out" | sed -n '1p')"
-check 'the board line'  '#412 -> todo (board example-org/998)' "$(printf '%s\n' "$out" | sed -n '2p')"
+check 'the board line'  '#412 -> ready (board example-org/998)' "$(printf '%s\n' "$out" | sed -n '2p')"
 check 'the option sent' yes "$(grep -q 'oid=T1' "$log" && echo yes || echo no)"
 
 echo 'a batch is one call per issue'
@@ -89,6 +90,13 @@ chmod +x "$refusing/gh"
 out="$(PATH="$refusing:$PATH" "$reopen" "$repo" 412 2>&1)"; rc=$?
 check 'exits nonzero'    yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
 check 'no reopened line' no  "$(grep -q -- '-> reopened' <<< "$out" && echo yes || echo no)"
+
+echo 'a board of the older layout, without ready: refused before the issue is reopened'
+printf 'Status\tF1\ttodo\tT1\nStatus\tF1\tdone\tD1\n' > "$fake/fields.tsv"; rm -rf "$fake/cache"; : > "$log"
+out="$("$reopen" "$repo" 412 2>&1)"; rc=$?
+check 'it exits 1'          1   "$rc"
+check 'it names the option' yes "$(grep -q "field 'Status' has no option 'ready'" <<< "$out" && echo yes || echo no)"
+check 'nothing was reopened' no "$(grep -q 'state=open' "$log" && echo yes || echo no)"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

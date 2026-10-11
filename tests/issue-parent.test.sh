@@ -57,7 +57,7 @@ printf 'I_example44\tThe local epic\n'           > "$FAKE/issues/example-org/exa
 # single-select fields issue-new sets.
 mkdir -p "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER"
 printf 'PVT_kwfake%s\n' "$PROJECT_NUMBER" > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/project-id"
-printf 'Status\tF1\tTodo\tO1\nPriority\tF2\tP2\tO2\n' > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
+printf 'Status\tF1\tReady\tO1\nPriority\tF2\tP2\tO2\n' > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
 
 # The stand-in. It records what it was asked, answers the reads issue-new makes, and
 # refuses anything else - a call outside this list is issue-new resolving something it

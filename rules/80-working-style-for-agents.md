@@ -33,21 +33,24 @@
 - **Never write a version, a price or an interface shape from memory.** Look it up at the source
   and state where it came from. [review]
 - **Ask once per package before starting its sub-agents** (an issue alone is a package of one), naming for each what it is for, which
-  question it answers, which model, which effort level and which context size and why, and what the
-  same work costs in tokens if the session does it itself; the ask ends with two options, a) start
-  them as described, b) the session does it, and waits for the answer. A helper call on the
+  question it answers, which model, which effort level and which context budget and why, and what
+  the same work costs in tokens if the session does it itself; the ask ends with two options, a)
+  start them as described, b) the session does it, and waits for the answer. A helper call on the
   cheapest model, for a check whose answer the session checks itself, is no sub-agent and needs no
-  ask. Issues that touch the same files go to one agent together, as one package of at most about 8
-  issues or 400 changed lines, split along the files' sections above that: one worktree per
-  repository, one commit per issue that names it, every issue's test case on the issue before the
-  build ends, then one push gate run, one review of the whole package diff with its findings per
-  issue, one integration, one release per repository and one live check, and its issues close
-  together. Every separate round pays the context, the install, the gate, the review and the CI
-  run again, five to ten times over for five to ten issues, and slows the machine every session
-  shares; so a finding in the files of a package that is not integrated yet joins that
-  package, and issues that share no file stay apart. Every agent's name follows
-  `l<n>-<model><version>-<effort>-<context>-<5 hex>`; the issues it works on stand in its package
-  as `Worker: <name>`. Once approved, run independent agents in parallel, never for work that fits
+  ask; so is a phase session a person in charge starts for a package on the rows of the project's
+  model table (`.ai-core/models.tsv`), because the owner's start of the coordinator is the yes for
+  them. A package is an area: one capability as the user meets it, across every repository it
+  touches, with both sides of every contract an issue touches (`ai-core contract-scan` finds them),
+  of at most about 8 issues or 400 changed lines, split along the contracts above that: one
+  worktree per repository, one commit per issue that names it, every issue's test case on the issue
+  before the build ends, then one push gate run, one review of the whole package diff with its
+  findings per issue, one integration and one release per repository with the additive side first,
+  one UI test, and its issues close together. Every separate round pays the context, the install,
+  the gate, the review and the CI run again, five to ten times over for five to ten issues, and
+  slows the machine every session shares; so a finding in the files of a package that is not
+  integrated yet joins that package, and a package cut by file splits a contract and releases its
+  two sides apart. Every agent's name follows `l<n>-<model><version>-<effort>-<budget>k-<5 hex>`;
+  the package it works on carries it in its `PHASE` line on the plan issue. Once approved, run independent agents in parallel, never for work that fits
   in one or two tool calls, give every call an explicit model and effort, and relay the
   conclusion, never the raw output. A delegated implementation gets a specification that names
   the files to touch, the interfaces, the acceptance criteria and the exact verification commands,
@@ -56,19 +59,21 @@
   prompt, the scope or the missing context before changing model or effort. [discipline]
 - **A review is independent and read-only.** The reviewer gets the diff of the whole package and the
   stated intent of each of its issues, not the conversation; one handed a single issue of a running
-  package asks for the package. It writes findings instead of pushing into the tree under review. Deciding
-  whether a finding is real is a separate step from repairing it, and whoever wrote a fix does not
-  approve it. The reviewer's model follows the stakes of the change, not the model of the session: a
-  small mechanical change takes the lighter model the harness allows, ordinary work the standard
-  one, and security, payments, contracts or the push gate the strongest, read a second time by
-  another model. A test check, a live check in the browser, a sweep, a collection of facts, a
-  draft of test cases or a pre-review that a cheaper model can do, and whose answer the session can
-  check cheaply, goes to the cheapest model the machine offers: a helper outside the frontier
-  models first, a frontier vendor's smallest model where that helper has no quota left. Such a
-  model never builds, never gives the deciding review and never decides; its answer is a lead the
-  session checks before it uses it. Never downgrade a model to save money on security, payments
-  or contract work.
-  [review]
+  package asks for the package. It writes findings instead of pushing into the tree under review.
+  Deciding whether a finding is real is a separate step from repairing it, and whoever wrote a fix
+  does not approve it. The reviewer's model and effort follow the class of the change, as the
+  project's model table (`.ai-core/models.tsv`) names them for the tool the session runs in, and
+  never the model that wrote the work. A sweep, a collection of facts, a draft of test cases or a
+  pre-review whose answer the session can check cheaply goes to the helper of the same tool, the
+  table's helper row; a UI test or a live check is a phase of its own, on the table's model for it.
+  A table's `high-risk` rows name a model at least as strong as its `normal-hard` rows, because
+  security, payments and contract work are never moved to a cheaper model to save money, and a
+  `high-risk` review is read a second time by a model that neither built nor first reviewed it, the
+  table's review-second row, or by the owner where the tool has none, because two
+  readers with the same habits share a blind spot.
+  A helper never builds, never gives the deciding review and never decides; its answer is a lead the
+  session checks before it uses it. No task moves to another model, effort or tool because a quota
+  ran out, because a fallback waters the result down from the bottom up: it waits. [review]
 - **Never announce that the context is running out and never stop work because of it.** Report the
   work when it reaches a point, not because a budget did. A usage limit of the account is another
   matter, because every session draws on it: at the limit the project sets, USAGE_STOP_AT in its

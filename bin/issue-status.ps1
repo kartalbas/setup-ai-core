@@ -8,13 +8,13 @@ ticket travels from one column to the next.
 
 .NOTES
 The name is matched without case, both by the set below and by the board itself, and a
-name the board does not carry stops the run and prints the ones it does. Measured on
-2026-08-26, boards 6 and 7 both carry: backlog todo implementing testing done.
+name the board does not carry stops the run and prints the ones it does. The template board
+carries: backlog ready planned implementing review testing done.
 #>
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)][ValidatePattern('^[0-9]+\z', ErrorMessage = "the issue number must be numeric, not '{0}'")][string[]] $Number,
-  [Parameter(Mandatory)][ValidateSet('backlog','todo','implementing','testing','done', IgnoreCase=$true)][string] $Status,
+  [Parameter(Mandatory)][ValidateSet('backlog','todo','ready','planned','implementing','review','testing','done', IgnoreCase=$true)][string] $Status,
   [string] $Repo,
   [string] $Project = ''
 )

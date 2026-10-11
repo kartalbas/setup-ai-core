@@ -131,6 +131,8 @@ check 'the area group is not empty'              yes \
       "$(case "$(label_names_in_group area "$FILE" | grep -c .)" in 0) echo no ;; *) echo yes ;; esac)"
 check 'the closes group is not empty'            yes \
       "$(case "$(label_names_in_group closes "$FILE" | grep -c .)" in 0) echo no ;; *) echo yes ;; esac)"
+check 'the needs group is not empty'             yes \
+      "$(case "$(label_names_in_group needs "$FILE" | grep -c .)" in 0) echo no ;; *) echo yes ;; esac)"
 
 # HOW MUCH THE READER COVERED, printed rather than assumed: a count that moves when a line
 # is added is what says the assertions above ran against the whole file.
@@ -138,7 +140,9 @@ echo
 echo "labels.tsv declares $(labels_tsv "$FILE" | wc -l | tr -d ' ') labels: \
 $(label_names_in_group type "$FILE" | grep -c .) type, \
 $(label_names_in_group area "$FILE" | grep -c .) area, \
-$(label_names_in_group closes "$FILE" | grep -c .) closes"
+$(label_names_in_group closes "$FILE" | grep -c .) closes, \
+$(label_names_in_group incident "$FILE" | grep -c .) incident, \
+$(label_names_in_group needs "$FILE" | grep -c .) needs"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo; echo 'all passed'

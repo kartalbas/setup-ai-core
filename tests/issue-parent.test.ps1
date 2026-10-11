@@ -52,7 +52,7 @@ New-Item -ItemType Directory -Path (Join-Path $issues 'example-org/other-repo'),
 $cache = Join-Path $env:GH_CACHE_DIRECTORY "$PROJECT"
 New-Item -ItemType Directory -Path $cache -Force | Out-Null
 Set-Content -Path (Join-Path $cache 'project-id') -Value "PVT_kwfake$PROJECT" -NoNewline
-Set-Content -Path (Join-Path $cache 'fields.tsv') -Value "Status`tF1`tTodo`tO1`nPriority`tF2`tP2`tO2"
+Set-Content -Path (Join-Path $cache 'fields.tsv') -Value "Status`tF1`tReady`tO1`nPriority`tF2`tP2`tO2"
 
 # The stand-in. It records what it was asked, answers the reads issue-new makes, and
 # refuses anything else - a call outside this list is issue-new resolving something it

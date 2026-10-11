@@ -115,12 +115,6 @@ cards_of_repo() {  # <owner/repo>
 
 # THE CLONE OF <owner/repo> ON THIS MACHINE: the checkout this runs in when its origin is that
 # repository, else a folder of the project folder whose origin is. Prints nothing where none is.
-project_folder() {
-  local common
-  if common="$(git rev-parse --git-common-dir 2>/dev/null)"; then
-    dirname "$(cd "$common/.." && git rev-parse --show-toplevel)"
-  else pwd; fi
-}
 clone_of() {  # <owner/repo>
   local want dir url
   want="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"

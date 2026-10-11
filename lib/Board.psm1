@@ -64,7 +64,8 @@ function Get-OriginDefaultBranch {
 
 # --- where the data lives -----------------------------------------------------
 
-# THE DATA FILES ARE THE PROJECT'S, NOT THE HARNESS'S: labels.tsv, assignees.tsv, team-modes.tsv.
+# THE DATA FILES ARE THE PROJECT'S, NOT THE HARNESS'S: labels.tsv, assignees.tsv, team-modes.tsv,
+# models.tsv.
 # A checkout carries them in .ai-core\, put there by init; the clone's templates hold the
 # defaults a project starts from. Every reader asks here, so the two twins and every command
 # read the same file: the one of the repository the caller stands in, or of the project folder.
@@ -185,7 +186,7 @@ function Get-Org {
 # The groups a row may stand in. The group is also the PREFIX the label carries, so a
 # row in group `area` is named `area:something` - the two cannot be told apart and so
 # cannot disagree.
-$script:LabelGroups = @('type', 'area', 'closes', 'incident')
+$script:LabelGroups = @('type', 'area', 'closes', 'incident', 'needs')
 
 function Get-LabelTaxonomy {
   # EVERY READER OF labels.tsv COMES THROUGH HERE, and the file is held against its
@@ -593,7 +594,7 @@ function Sync-ReleasedCards {
 function Test-OnNoBoard {
   # A repository ON NO BOARD: no board is named, by -Project or GH_PROJECT_NUMBER, and the
   # repository is linked to no open one, as a harness or the tooling's own repository is. Its
-  # issues have no card, so a status, a priority or a column after implementing has nowhere to go.
+  # issues have no card, so a status, a priority or a testing column has nowhere to go.
   [CmdletBinding()]
   param([Parameter(Mandatory)][string]$Repo, [string]$Named = '')
   if (-not $Named) { $Named = "$env:GH_PROJECT_NUMBER" }
@@ -791,6 +792,32 @@ function Get-IssueBoardItems {
     Where-Object { $_ })
 }
 
+function Test-OptionOnEveryBoard {
+  # Dies where a board the issue is on, or the repository's board where it has no card yet, lacks
+  # the option; nothing is written. Called before an issue is changed, so a board of an older
+  # layout refuses before the issue stands half-made. The walk is Invoke-OnEveryBoard's, without
+  # the write.
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)][string]$Repo,
+    [Parameter(Mandatory)][string]$Number,
+    [Parameter(Mandatory)][string]$Field,
+    [Parameter(Mandatory)][string]$Option
+  )
+  $rows = Get-IssueBoardItems -Repo $Repo -Number $Number
+  if ($rows.Count -eq 0) {
+    if ((Get-RepoOpenProjects -Repo $Repo).Count -eq 0) { return }
+    Set-Project -Number '' -Repo $Repo | Out-Null
+    Get-OptionId $Field $Option | Out-Null
+    return
+  }
+  foreach ($row in $rows) {
+    $bnum, $bitem = $row -split "`t", 2
+    Set-Project -Number $bnum | Out-Null
+    Get-OptionId $Field $Option | Out-Null
+  }
+}
+
 function Invoke-OnEveryBoard {
   # One single-select write, applied to EVERY board the issue is on, printing one line per
   # board - a partial result must not read as a complete one. Each iteration selects its board
@@ -885,18 +912,19 @@ function Set-Select {
 
 # --- epics --------------------------------------------------------------------
 #
-# An epic, an issue with sub-issues, is never moved by hand: it follows its sub-issues. It stands
-# in implementing once one has started, in testing once all stand in testing or done, and is
-# closed once all are done. As nothing else moves it, it also takes the one step back its
-# sub-issues make true again: from testing to implementing, once a sub-issue stands before testing.
+# An epic, an issue with sub-issues, is never moved by hand: it follows its sub-issues. It stands in
+# implementing once one has started (a sub-issue in review has started too), in testing once all
+# stand in testing or done, and is closed once all are done. As nothing else moves it, it also takes
+# the one step back its sub-issues make true again: from testing to implementing, once a sub-issue
+# stands before testing.
 # A closed epic stays closed.
 # The twin of the same section in lib/board.sh.
 
 function Get-StatusRank {
-  # backlog and todo < implementing < testing < done
+  # backlog, ready and planned < implementing and review < testing < done
   [CmdletBinding()]
   param([string]$Status)
-  switch -CaseSensitive ($Status) { 'implementing' { 1 } 'testing' { 2 } 'done' { 3 } 'CLOSE' { 3 } 'not planned' { 3 } default { 0 } }
+  switch -CaseSensitive ($Status) { 'implementing' { 1 } 'review' { 1 } 'testing' { 2 } 'done' { 3 } 'CLOSE' { 3 } 'not planned' { 3 } default { 0 } }
 }
 
 function Get-EpicTarget {
@@ -985,7 +1013,17 @@ function Update-ParentEpic {
   Update-Epic -Repo $parentRepo -Number $parentNumber
 }
 
-Export-ModuleMember -Function Stop-WithError, Sync-ReleasedCards, ConvertTo-AsciiLowercase, Invoke-Gh, Get-Org, Get-DataDir, Get-DataFile, Get-LabelTaxonomy, Get-LabelNamesInGroup,
+# THE PROJECT FOLDER: the folder that holds the clone this runs in, its main checkout also from
+# one of its worktrees, or the current directory outside a repository.
+function Get-ProjectFolder {
+  [CmdletBinding()]
+  param()
+  $common = "$(& git rev-parse --git-common-dir 2>$null)".Trim()
+  if ($LASTEXITCODE -eq 0 -and $common) { Split-Path -Parent "$(& git -C (Join-Path $common '..') rev-parse --show-toplevel)".Trim() }
+  else { (Get-Location).Path }
+}
+
+Export-ModuleMember -Function Get-ProjectFolder, Test-OptionOnEveryBoard, Stop-WithError, Sync-ReleasedCards, ConvertTo-AsciiLowercase, Invoke-Gh, Get-Org, Get-DataDir, Get-DataFile, Get-LabelTaxonomy, Get-LabelNamesInGroup,
   Set-Project, Get-ProjectNumber, Get-ProjectOrg,
   Get-TemplateProjectNumber, Get-TemplateMark, Resolve-ProjectForRepo, Get-RepoOpenProjects, Test-OnNoBoard, Get-OriginDefaultBranch, Get-ProjectId, Get-CacheDir, Get-Fields, Get-FieldId, Get-OptionId,
   Clear-BoardCache, Get-DefaultRepo, Get-BranchIssueRepo, Get-IssueRef, Get-AssigneeForRepo, Get-ProjectRepos, Get-IssueNodeId, Get-IssueDbId,

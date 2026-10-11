@@ -1,7 +1,11 @@
 ## Done means a working, proven result
 
 - **The goal is the working end-to-end result**, never a component that looks finished on its own.
-  State what that result is before starting and measure done against it. [discipline]
+  State what that result is before starting and measure done against it. Before work lands, the
+  product starts on the bundle that ships together, every repository at the version that will be
+  released, by the project's start check (`START_CHECK` in `.ai-core/config.env`), because a part
+  that passes alone can fail at the first start beside the others; a project without one lands with
+  the check waived, and the land record says so. [discipline · review]
 - **Never break an existing feature or user experience.** Contracts we own may change on both sides
   at once; a regression may not. [review]
 - **No leftovers.** The moment a change takes a piece of code's job away, that code is deleted in the
@@ -41,8 +45,8 @@
   is named with its reason, finished work is stated plainly. [review]
 - **A pass from a gate is not a review.** Work that changes behaviour is read, before it is
   integrated, by a reviewer told to refute, who names the file, the line and the state in which a
-  defect appears. Where the stakes are high, more than one reviewer reads it, on different models,
-  because two readers with the same habits share a blind spot. After the reviewer's GO,
+  defect appears. The reviewer never runs on the model that wrote the work, because two readers
+  with the same habits share a blind spot. After the reviewer's GO,
   `ai-core integrate-issue <number> --reviewed-by <reviewer>` integrates the work into the default
   branch as a merge commit that names the issue and carries a `Reviewed-by: <reviewer>` trailer,
   so the reviewed commits land as they were read; the verdict is written on the issue. A refused
@@ -51,8 +55,8 @@
 - **Nothing is called done until the product owner has reviewed the finished work.** The checks
   decide what may leave the machine; the owner decides what counts as delivered. A card in testing
   is due for its proof once a release carries its work to the environment its acceptance criteria
-  name: the session that built it proves it there while it still runs, the coordinator otherwise,
-  in its next round. Once every check passed, it writes the proof on the issue, in a comment whose
+  name: a UI test session proves it there, on the model the project's table names for that phase,
+  and the coordinator, in its next round, writes the proof on the issue, in a comment whose
   first line is `Proven on <environment>:`; `ai-core status-sync` closes the card when that record
   follows its landing and the release of the first environment of `LIVE_TAGS` carries its work.
   [tool · review]

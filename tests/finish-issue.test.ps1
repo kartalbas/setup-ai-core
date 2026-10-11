@@ -164,13 +164,21 @@ Check 'and the branch in it'       'True' (Has-Branch 'issue-182-a-later-part')
 Check 'it says why'                'True' ([bool]($printed -match 'issue-177-package is named for another issue and has issue-182-a-later-part checked out: it stays'))
 Check 'the card of #182 moved'     1      (@(Get-Content $log | Where-Object { $_ -match 'oid=OPT_testing' }).Count)
 
-Write-Host 'where the column after implementing is done, the card stays for the owner'
+Write-Host 'a board without a testing column: the card stays'
 Set-Board @('todo', 'implementing', 'done')
 Set-Content -Path $log -Value $null
 $ok = Invoke-Finish -Number 163
 Check 'it runs'               'True' ([string]$ok)
-Check 'it says so'            'True' ([bool]($printed -match 'the column after implementing is done'))
+Check 'it says so'            'True' ([bool]($printed -match 'the board has no testing column - the card stays'))
 Check 'the card did not move' 0      (Moves)
+
+Write-Host 'a board with ready, planned and review: the card goes to testing, never to the column after implementing'
+Set-Board @('ready', 'planned', 'implementing', 'review', 'testing', 'done')
+Set-Content -Path $log -Value $null
+$ok = Invoke-Finish -Number 163
+Check 'it runs'                  'True' ([string]$ok)
+Check 'the card went to testing' 1      (@(Get-Content $log | Where-Object { $_ -match 'oid=OPT_testing' }).Count)
+Check 'not to review'            0      (@(Get-Content $log | Where-Object { $_ -match 'oid=OPT_review' }).Count)
 
 Write-Host 'a closed issue keeps its card'
 Set-Content -Path $state -Value 'closed' -Encoding utf8NoBOM

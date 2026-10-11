@@ -38,7 +38,7 @@ $env:PATH = "$fake$([IO.Path]::PathSeparator)$env:PATH"
 $cache = Join-Path $env:GH_CACHE_DIRECTORY "$PROJECT"
 New-Item -ItemType Directory -Force -Path $cache | Out-Null
 Set-Content -Path (Join-Path $cache 'project-id') -Value "PVT_kwasked$PROJECT" -NoNewline
-Set-Content -Path (Join-Path $cache 'fields.tsv') -Value "Status`tF1`ttodo`tO1`nPriority`tF2`tP1`tO2"
+Set-Content -Path (Join-Path $cache 'fields.tsv') -Value "Status`tF1`tready`tO1`nPriority`tF2`tP1`tO2"
 
 $failed = 0
 function Check($name, $expected, $actual) {
@@ -111,6 +111,13 @@ Check 'nothing reached gh' 'False' ([bool]((Calls) -match 'issue create'))
 # without the line standing there twice.
 Write-Host "the caller's body file is left as it was"
 Check 'still one line' 'the body' ((Get-Content $body) -join "`n")
+
+Write-Host 'a board of the older layout, without ready: refused before gh creates anything'
+Set-Content -Path (Join-Path $cache 'fields.tsv') -Value "Status`tF1`ttodo`tO1`nPriority`tF2`tP1`tO2" -Encoding utf8NoBOM
+$ran = New-Issue @{ AskedBy = 'kartalbas'; AskedIn = 'issue #12' }
+Check 'refused'            'False' ([string]$ran)
+Check 'it names the option' 'True' ([bool]($said -match "field 'Status' has no option 'ready'"))
+Check 'nothing reached gh' 'False' ([bool]((Calls) -match 'issue create'))
 
 Remove-Item -Recurse -Force $fake, $cache -ErrorAction SilentlyContinue
 if ($failed -gt 0) { Write-Host "`n$failed failed"; exit 1 }

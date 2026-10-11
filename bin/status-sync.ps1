@@ -133,11 +133,6 @@ function Get-RepoCards { param([string]$R)
 
 # THE CLONE OF <owner/repo> ON THIS MACHINE: the checkout this runs in when its origin is that
 # repository, else a folder of the project folder whose origin is. '' where none is.
-function Get-ProjectFolder {
-  $common = "$(& git rev-parse --git-common-dir 2>$null)".Trim()
-  if ($LASTEXITCODE -eq 0 -and $common) { Split-Path -Parent "$(& git -C (Join-Path $common '..') rev-parse --show-toplevel)".Trim() }
-  else { (Get-Location).Path }
-}
 function Get-Clone { param([string]$R)
   $want = $R.ToLowerInvariant()
   $top = "$(& git rev-parse --show-toplevel 2>$null)".Trim(); if ($LASTEXITCODE -ne 0) { $top = '' }

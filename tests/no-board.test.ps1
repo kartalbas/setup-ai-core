@@ -68,7 +68,7 @@ Check 'nothing filed'             'False' (Called 'issue create')
 Check 'it says why'               'True' ([bool]($said -match 'is linked to an open project, so -NoBoard would keep this issue off a board that exists'))
 
 Write-Host 'a field of the board or the board itself, named with the flag: refused'
-foreach ($extra in @(@{ Priority = 'P2' }, @{ Status = 'todo' }, @{ Project = '9' })) {
+foreach ($extra in @(@{ Priority = 'P2' }, @{ Status = 'ready' }, @{ Project = '9' })) {
   $name = @($extra.Keys)[0]
   $extra.NoBoard = $true
   $ran = New-Issue $harness $extra

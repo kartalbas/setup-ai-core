@@ -127,6 +127,7 @@ try {
   Test-Check 'the type group is not empty'   'yes' $(if ((Get-LabelNamesInGroup -Group 'type'   -Path $file).Count) { 'yes' } else { 'no' })
   Test-Check 'the area group is not empty'   'yes' $(if ((Get-LabelNamesInGroup -Group 'area'   -Path $file).Count) { 'yes' } else { 'no' })
   Test-Check 'the closes group is not empty' 'yes' $(if ((Get-LabelNamesInGroup -Group 'closes' -Path $file).Count) { 'yes' } else { 'no' })
+  Test-Check 'the needs group is not empty' 'yes' $(if ((Get-LabelNamesInGroup -Group 'needs' -Path $file).Count) { 'yes' } else { 'no' })
 
   # HOW MUCH THE READER COVERED, printed rather than assumed: a count that moves when a
   # line is added is what says the assertions above ran against the whole file.
@@ -134,7 +135,9 @@ try {
   "labels.tsv declares $($all.Count) labels: " +
     "$((Get-LabelNamesInGroup -Group 'type'   -Path $file).Count) type, " +
     "$((Get-LabelNamesInGroup -Group 'area'   -Path $file).Count) area, " +
-    "$((Get-LabelNamesInGroup -Group 'closes' -Path $file).Count) closes"
+    "$((Get-LabelNamesInGroup -Group 'closes' -Path $file).Count) closes, " +
+    "$((Get-LabelNamesInGroup -Group 'incident' -Path $file).Count) incident, " +
+    "$((Get-LabelNamesInGroup -Group 'needs' -Path $file).Count) needs"
 }
 finally { Remove-Item -Recurse -Force $work -EA SilentlyContinue }
 

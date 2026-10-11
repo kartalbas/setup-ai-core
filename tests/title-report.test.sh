@@ -32,7 +32,7 @@ export PATH="$fake:$PATH"
 
 mkdir -p "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER"
 printf 'PVT_kwtitle%s\n' "$PROJECT_NUMBER" > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/project-id"
-printf 'Status\tF1\ttodo\tO1\nPriority\tF2\tP1\tO2\n' > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
+printf 'Status\tF1\tready\tO1\nPriority\tF2\tP1\tO2\n' > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
 
 failed=0
 check() {

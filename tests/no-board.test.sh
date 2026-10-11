@@ -63,7 +63,7 @@ check 'nothing filed'             no "$(called 'issue create')"
 check 'it says why'               yes "$(grep -q 'is linked to an open project, so --no-board would keep this issue off a board that exists' <<< "$out" && echo yes || echo no)"
 
 echo 'a field of the board or the board itself, named with the flag: refused'
-for extra in '--priority P2' '--status todo' '--project 9'; do
+for extra in '--priority P2' '--status ready' '--project 9'; do
   # shellcheck disable=SC2086  # the pair is split into its flag and its value on purpose
   new "$harness" --label type:feature --label area:tooling --no-board $extra; rc=$?
   check "with $extra: exit 1"     1 "$rc"

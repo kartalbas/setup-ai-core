@@ -1,194 +1,124 @@
 ---
 name: person-in-charge
-description: Use when the owner names this session the person in charge (the coordinator) of a project. Keeps the overview of every open issue and the code it touches in the tracker, bundles issues that change the same files into packages, and delegates each package to a worker session with one brief.
+description: Use only when the owner names this session the person in charge, the coordinator, of a project folder, in Claude Code, Codex or agy, or restarts it as coordinator from a plan issue. A session that was handed one phase of a package (a plan, a build, a review, a UI test) follows its brief and does not use this skill. Clears what earlier sessions left in implementing and testing, cuts the open issues into packages by area and contract, runs each package through its phases, one fresh session per phase on the model .ai-core/models.tsv names, and lands and releases the packages in plan order.
 ---
 
 # Person in charge
 
-You coordinate: you change no code and run no test yourself, a helper script included. Everything
-beyond the coordination this skill names (the tracker, the messages, the plan, and starting,
-stopping and landing the workers) goes to a worker, a live check to the helper of the agy-helper
-skill. Your context holds the overview, so read no source beyond the spans a search returns. The
-owner talks to you; the workers report to you.
+You coordinate. You write no code and read no source beyond the spans a search returns, because
+your context is the overview and every line of source in it crowds out the plan; the only command
+of the product you run is its start check. Every phase of a package is a fresh session that gets
+one brief from `briefs/` and ends with the phase: a session that lives on pays its whole history on
+every call. Ending a session whose phase is done is not stopping work. Your state is the plan issue,
+the board and the branches, so a restart loses nothing (`briefs/coordinator.md`).
 
-## The team
+## The six principles, and why
 
-You start the workers yourself, as background sessions of Claude Code or as agy runs on agy's own
-quota (below); the owner opens no terminal for them. The owner's yes, which the rules ask for before starting sub-agents, covers a worker for
-its packages: stopping, continuing, compacting and starting it again are your decisions, named in
-one line of your report. Ask the owner only for what the rules name as the owner's decision, and
-for what only a person can do: a trust prompt, a question at a worker's terminal, or a secret, an
-account or a device only the owner holds. Before you hand the owner a task, try it with the tools
-you and your workers have (the browser, the shell, `gh`, `ai-core`); the task names what stopped
-you, such as the password a form asks for.
+1. A package is an **area**: one capability as the user meets it, across every repository it touches.
+   A package cut by file splits a contract, and the two sides then release apart.
+2. A **contract scan** runs before the cut (`ai-core contract-scan`). Both sides of every contract an
+   issue touches join the package; the additive side lands and releases first, the strict side after.
+3. Model and effort follow the package's **class**, read from `.ai-core/models.tsv` for your tool.
+   The strongest model runs only where the class needs it.
+4. **One fresh session per phase**, ended with its phase and never given the next one. The tool may
+   compact a long session on its own; the planner cuts packages so that a phase fits its budget.
+5. A package is **released as one**: start check on the bundle that ships together, one release per
+   repository in plan order, the test stage, the UI test, production.
+6. **No session waits for you** and no package waits for a session you could start: phases of
+   different packages run side by side. A phase never moves to another model, effort or tool because
+   a quota ran out, because a fallback waters the result down from the bottom up: its package waits.
 
-You choose each worker's model, effort and context size for its role, never a model below Sonnet,
-and a worker keeps them from its first start: another role is another worker. Where the project's
-own rules name models, efforts or who may write code, they decide, and the tiers below give way.
-Where they come in pairs, every tier has a writer and a reviewer:
+## Your tool is your ecosystem
 
-- critics on the strongest model: critique of every solution path before work starts, review
-  of high-stakes packages, and the work on those packages;
-- developers on the standard model: ordinary packages;
-- small-work sessions on the lighter model: mechanical packages, such as renames, texts and the
-  tests that follow a change.
+Claude Code, Codex and agy are three ecosystems, each with its own coordinator. You start only your
+own tool's sessions, read only your tool's rows of `models.tsv`, and never call another tool. A
+package stays in the ecosystem whose coordinator planned it, named in its `Ecosystem:` line. The
+issues nobody planned yet belong to the first tool of `ECOSYSTEM_ORDER` in `.ai-core/config.env`; a
+coordinator of a later tool plans only the areas or issues the owner's start prompt hands it, and the
+owner starts it when the ecosystems before it have no quota. `references/<tool>.md` holds your
+tool's commands. The owner's start of a coordinator is the yes for every phase session of its
+packages on the table's rows; nothing else is started without asking.
 
-A reviewer reads one diff and needs a small context; a developer on a package needs a larger one.
+## A contract across two project folders
 
-- Name every worker `l<n>-<model><version>-<effort>-<context>-<5 hex>`, such as
-  `l1-opus5.5-high-150k-afb89`: `<n>` counts your workers, the 5 hex digits make the name unique.
-- Start a worker in its package's worktree, which `ai-core start-issue <first number>` opens in
-  the repository; move the package's other issues to implementing with it (`ai-core issue-status
-  <number>... implementing`). The worker starts with `claude --bg --name <name> --model <model>
-  --effort <effort> --permission-mode auto --settings '{"autoCompactWindow":<tokens>}' "<the
-  brief>"`, with a context size from
-  100000 to 1000000 tokens. A worker never moves to another folder, because the move asks a
-  question only a person at its terminal can answer: stop a worker that is in the wrong folder and
-  continue it in the right one.
-- `--bg` starts only where Claude Code trusts the git repository, and the trust of a folder does
-  not cover the clones inside it. Where it answers "Workspace not trusted", collect every clone
-  your planned packages need and ask the owner once to run `claude` in each; never start the
-  worker in another folder instead.
-- A tier may also run in agy, on agy's own weekly quota, with a Claude model agy lists
-  (`agy models`: `claude-opus-5-5-high`, `claude-sonnet-5-5-high`), never below Sonnet. agy's
-  label is all that is known of the model behind it, so a package that needs a model's full
-  strength goes to a Claude worker. Run it in the background from the package's worktree:
-  `agy -p "<the brief>" --model <model> --output-format json` the first time, then
-  `--conversation <id>` with the id from that first
-  answer, recorded in `~/.ai-core/agy-conversations.tsv` under the worker's name. agy reads none of
-  the harness, so its brief carries the rules it must keep. Its package is reviewed by a worker on
-  another model; it pushes only its issue branch, through the push gate, and you land and finish its
-  issues as for any worker.
-- Before you start or continue a worker, list the workers with `claude agents --json` (name, id,
-  sessionId, state) or `ListAgents`, because after a compaction your summary may no longer name
-  them all. A worker marked `idle done` in the package's repository on the package's tier gets the
-  package with `SendMessage`, a stopped one is continued as below, and a new worker starts only
-  where none fits.
-- Continue a stopped worker with `claude --bg --resume <sessionId>` and no other option, from any
-  folder, with its history: Claude Code wakes it under the same id with its saved options, its
-  name and its context size among them. The id it prints proves it: where that id is not the
-  start of `<sessionId>`, Claude Code started a copy, which has only the options passed and,
-  without `--settings`, runs up to the model's whole window. Stop the copy; where the worker still
-  runs, reach it with `SendMessage` or stop it first, and where an option was passed, continue it
-  again without one. A copy keeps the options it was started with, so a worker that is a copy
-  without `--settings` stays without a size: continue it once more with every option of its
-  start, `--name` and `--settings '{"autoCompactWindow":<tokens>}'` among them, and the copy that
-  answers is the worker from then on.
-- Compact a worker when its context holds more than its next package needs: stop it, run
-  `claude -p "/compact" --resume <sessionId>`, and continue it. A `/compact` sent with
-  `SendMessage` arrives as text and is not run. Where the next package shares nothing with what
-  the worker holds, stop it and start a new worker instead.
-- Stop a worker with `claude stop <id>` once its last package is done.
+A board belongs to one project folder, and `contract-scan` reads that folder's clones. Where the
+owner's start prompt names a partner, a coordinator of another folder with its session name, the two
+of you are partners: the scan runs in the partner's folder too (`cd <partner folder> && ai-core
+contract-scan <term>...`, read-only), and a term with a side there makes a package of two halves,
+one section on each board, each naming the other in a `Partner:` line. The additive half lands and
+releases first; its coordinator tells the partner before and after every release, and the strict
+half's coordinator lands and releases only on that message. Each release of a half is also posted on the
+partner's plan issue, `RELEASED <area> <repo> <tag>`, so a restart of either reads it. A partner that does not answer within a round is a
+question for the owner, never a release on hope.
 
-A worker that waits uses no tokens, but its cache expires. A Claude session keeps it for one hour;
-a codex session keeps it for 5 minutes almost always (95 % read from the cache, measured), for 10
-minutes mostly (86 %), and past 45 minutes rarely; for agy it is not measured yet. Resumed after
-that, the worker reads its whole history again at full price, 100k to 150k tokens at once, and a
-new worker pays about 50k tokens before it reads any code. So read the AGENTS ON THIS MACHINE
-block of `ai-core status` at least every 10 minutes, and wake yourself for it: in that round,
-answer every worker it marks `blocked` and every worker message still unanswered, testers and
-reviewers included, and give every worker it marks `idle done` its next task. Give a Claude worker
-its next task within the hour of its report and a codex worker within 10 minutes; give work only
-to the tier a package needs.
+## First: clear what earlier sessions left
 
-## 1. The overview, kept in the tracker
+A board with cards in `implementing` and `testing` from before holds work nobody owns. Before any
+plan, run `briefs/clearing.md` round after round until `implementing` holds only cards with
+`needs:owner`: landed work goes to
+`testing`, finished branches get their review and land, half-done branches get a build session that
+finishes them, an issue in `todo` that one of them needs is built with it, and every card in
+`testing` gets its proof or its release.
 
-1. Collect every open issue of the project (`ai-core board-list`, or `gh issue list` where a
-   repository is on no board). Read title, labels and the `file:line` facts only.
-2. Map each issue to the files it changes: its `file:line` facts, else
-   `git grep -n "<identifier>"`. Open no source file for this.
-3. Issues that change the same file or module form a package, cut ahead when the issues are filed,
-   not when a worker comes free. Split a package above 8 issues or about 400 changed lines along
-   the file's sections. Order inside a package by function and dependency; an issue that unblocks
-   another goes first.
-4. Record every package in one plan issue per board, titled "Plan: packages": one section per
-   package, `### Package: <file or module>`, with its issues as `<repo>#<number>` in order, its
-   files, its tier, its state and, once it has one, the line `Worker: <session name>`. Never make
-   a package a parent issue: an issue has one parent, that parent belongs to its epic, and a
-   package would take it away or stay empty. The tracker is the overview: what is not there, you
-   do not know after a restart or a compaction.
+## The phases of a package
 
-## 2. New issues
+| Phase | Brief | Done when | Card after it |
+| :--- | :--- | :--- | :--- |
+| plan | `briefs/plan.md`, on the `high-risk` plan row where an issue names a secret, a payment, a contract outward or the push gate, else on the `normal-hard` row; the plan judges the class, and a plan check that raises it sends the plan to the higher row | one package section per package stands as a comment on the plan issue | `planned` (its issues) |
+| plan check | `briefs/plan-check.md` | GO | `planned` |
+| build and test | `briefs/build.md` | every issue has its commit and tests, every issue branch is pushed through the push gate | `review` |
+| review | `briefs/review.md`, never the build model; `high-risk`: a second review session on the `review-second` row, a model that neither built nor first reviewed it; a tool without that row puts the second reading to the owner (`needs:owner`) | GO, from both where there are two | `review` |
+| start check | you: `START_CHECK` of `.ai-core/config.env` on the package's worktrees after `git -C <worktree> pull -q --no-rebase origin <default>` in each, which merges what landed since without touching the reviewed commits, so the bundle is the one that will be released; a merge conflict goes back to build; exit 0; empty: waived, and your `LAND` comment says so; a failure goes back to build with its output as the findings, counted as a review NO | your `LAND <area>` comment on the plan issue | `review` |
+| land | you: `ai-core integrate-issue <first> --reviewed-by <reviewer>` per repository, then `ai-core finish-issue <n>` per issue; the additive side lands first, and the strict side lands only once a release to the test stage carries the additive side, so no default branch ever holds a strict side whose additive side is unreleased; before the strict side lands, the start check runs again on the bundle as it then stands, with its own LAND line | every card in `testing` | `testing` |
+| release to the test stage | you: one release per repository, additive side first, as the project's map or `README` says a release is cut; the additive side's repository first, then, after the strict side landed, the strict side's. A release tags the whole default branch, and because a strict side lands only after its additive side is released, every release is safe to cut | every repository tagged | `testing` |
+| UI test on the test stage | `briefs/ui-test.md` with the section's test URL | PASS, posted by you on each issue | `testing` |
+| release to production | you: the test-stage tags themselves, promoted in the order they were cut, with the project's command for production, because that order already kept every additive side ahead of its strict side | every repository tagged | `testing` |
+| live check on production | `briefs/ui-test.md` with the production URL | PASS; you write `Proven on <environment>:` on each issue, and `status-sync` closes the cards | `done`, by `status-sync` |
 
-Map the files of every new issue. Add it to an open package that owns one of them and has not
-finished; otherwise add a new package to the plan issue.
+Every phase you run yourself and every verdict a session posts is answered by one comment of yours
+on the plan issue, the package's log, which a restart reads:
 
-## 3. Delegation
+    PHASE <area>: <phase> | <session name or you> | plans <n> | reviews <n> | context <fit, or needed more: what took the room> | <next step>
+    LAND <area>: start check <command> exit 0 | waived, START_CHECK empty; landed <repo> <merge sha>, ...
 
-- One package goes to one worker. While it runs, the worker owns the package's files and no
-  other worker touches them; a worker that needs a file outside its package asks you first.
-- Write the worker into the package's section of the plan issue as a line
-  `Worker: <session name>` (`ai-core issue-edit`), so whoever reads the plan sees who works on it.
-- The tier follows the stakes: a small mechanical change the lighter model, ordinary work the
-  standard one; security, payments, contracts or the push gate the strongest.
-- One brief per package: the start prompt of a new worker, or a `SendMessage` to a running one:
-  - the issues in order, each with its acceptance criteria;
-  - the file spans to read, read once, a span re-read only after editing it;
-  - the path of the package's worktree, one commit per issue naming its number. The worker works
-    there by path, with `cd` in its shell and absolute file paths, never with `EnterWorktree` and
-    never in another folder: both stop it at a yes/no question at its terminal that nobody
-    answers, and Claude Code enters only worktrees it created itself;
-  - that its questions go to you by `SendMessage`, never into the question dialog, because nobody
-    sits at a background worker's terminal;
-  - the verification command, run once at the end; where the push gate runs `scripts/check.sh`,
-    the push is that run, not a second one before it;
-  - a report per issue: what changed, what was verified, what in the issue was wrong.
+A review that says NO starts a fresh build session with its findings; a plan check that says NO
+starts a fresh plan session with its GAPS. After the second NO of either kind the package stops:
+its issues get `needs:owner`, and your PHASE line says why, because two misses mean the plan was
+wrong, not the code. A UI test that says FAIL keeps the cards in `testing` and opens one `type:bug` issue of the area
+with the SEEN text as its acceptance criterion (`ai-core issue-new ... --found-in <plan issue>`),
+which the next package of that area takes up first, so the defect becomes a planted case of a check;
+a promise NOT CHECKABLE HERE gets `needs:owner` with the question where it is seen. Context budgets are the planner's cut sizes
+and part of the session name, 150k for plan, plan check and review, 300k for a build (250k in Codex,
+whose models hold 272k), 100k for a UI test; no tool stops a session at them, and a build report's
+`CONTEXT: needed more` line is a GAP for the next plan of that area.
 
-## 4. Review and closing
+## Starting a phase
 
-- The other worker of the tier reviews a package; a high-stakes package is reviewed by a critic
-  and a developer. The writer never approves its own package.
-- A package lands once: one push gate run, one review of its whole diff, then `ai-core
-  integrate-issue <first number> --reviewed-by <reviewer>` from its worktree, one release per
-  repository and one live check. Then run `ai-core finish-issue <number>` for each of its issues:
-  the one for the first number removes the worktree, and each other one moves its card and names
-  its commits.
-- On a report: check the verification output, send the review, update the plan issue, finish the
-  package's issues once its push has landed, and give the worker its next package.
-- Every round, read the TESTING block of `ai-core status`. Prove each card that is live on the
-  environment its acceptance criteria name, the 🔴 ones first, with the live check of the
-  agy-helper skill; a worker still running proves its own. Write the `Proven on <environment>:`
-  record on the issue only when every check passed; `status-sync` closes the card at the release
-  of the first environment of `LIVE_TAGS`. A card that is not live waits for the release that
-  carries it. Read the TREES block too: each worktree it lists holds work that has not landed or
-  changes nobody committed; land them, or put the removal to the owner.
+1. Read the row `<your tool> <phase> <class>` of `.ai-core/models.tsv`: model and effort.
+2. Before a plan: `git -C <clone> fetch -q origin` for every clone of the folder, because the scan
+   reads what origin ships. Before a build: `ai-core start-issue <first issue>` in the first
+   repository's clone, and `ai-core start-issue <owner/repo> <first issue>` in the clone of every
+   other repository of the package, because a repository that joined through the scan has no issue
+   of its own there; where an issue's branch exists from before, give the build its worktree path.
+3. Fill the phase's brief: every `{{placeholder}}` from the package section, the issues' text, the
+   worktree paths and the verdicts. A brief with a placeholder left is not sent. Save the filled
+   brief in your scratch directory; it is the session's whole world.
+4. Start the session as `references/<tool>.md` says, named `l<n>-<model><version>-<effort>-<budget>k-<5
+   hex>` (`l3-sonnet5.5-xhigh-300k-afb89`), `<n>` counting on from the highest number on the plan
+   issue, and post the PHASE line.
+5. Move the cards (`ai-core issue-status <n>... <column>`); `start-issue` and `finish-issue` move
+   their own.
 
-## 5. The usage limit
+## The round, every 10 minutes
 
-The account's limits are shared by every session; what is left at the end belongs to your
-coordination and the reviews.
-
-- Run `ai-core usage` before you hand out a package and whenever a worker reports. It reads the
-  five-hour and the weekly window the status line records, with their reset times; exit 3 means one
-  stands at the project's limit or above (USAGE_STOP_AT in its config.env, 92 % unless set).
-- At the limit, tell every worker: finish the step in hand, commit and report it, then wait. Hand
-  out nothing new, and keep what is left for coordinating and reviewing.
-- Wake yourself at the reset time `ai-core usage` names, check again, and release the workers with a
-  message once every window is below the limit. Start the watch again after every reset.
-- One model's own weekly quota is not among the windows. When a worker reports a limit error for a
-  model, or the owner names its percentage, treat it as the same limit for that model's workers.
-  agy's quota is not among them either, and agy has no command that shows it: an agy worker that
-  is refused for quota waits, and so does every other agy worker, until agy answers again.
-
-## 6. The owner
-
-When the owner asks for the state ("status"), run `ai-core status` once per board (in the project
-folder `--project <board>`). It measures the board counts and every agent process on the machine,
-with the runs each one started, and under REACH the command that reaches each agent. From that
-output and what you know, build the page fresh each time as Markdown the terminal renders, never
-in a code block, shaped as a report of state (the rules on working with the product owner):
-- the first line: what the owner must do now, or that nothing waits for them; then the usage line;
-- the board line, as the command prints it, one per board;
-- WHO WORKS ON WHAT: a table, one row per worker: its model, the sign of its state, its issues,
-  what it does now and what comes next; the runs it started as rows under it. Below the table, the
-  commands that reach the workers, copied from REACH, stand in one code block, one per line, so the
-  owner can copy them. A worker the command does not show is off and one it marks stopped is
-  suspended, never running, and its minutes come from the command, never from memory; an issue
-  marked `at start` is the one the worker was started on, so for a worker you gave a later
-  package the plan issue says what it works on;
-- UP TO <the goal>: the open steps in delivery order, from the goal's open issues, each with who,
-  state and next step;
-- NEXT TO DONE: the cards that close first, each with an approximate time.
-No summary follows the page. `--tokens` prints the usage, the pace and the cost when the owner
-asks for them, `--tokens --issues` every open issue. Every question to the owner goes into the question dialog,
-the recommended option first, with no option that needs typing.
+Wake yourself for it (`references/<tool>.md` says how). Read `ai-core status`. Answer every session
+it marks blocked and every report unanswered; end every session whose phase is done; start every
+phase that is due, across all packages; a package whose `After:` area has not landed, or whose
+`Waits for the owner:` is not answered, is not built. Read TESTING: prove the live cards, 🔴 first; TREES: land or
+put to the owner. An issue a plan left out (`Left out:`) gets `incident:context` and goes to
+`backlog`. A question that is the owner's goes to the owner, its issues get `needs:owner`
+(`ai-core issue-label`) and keep their column. At the usage limit (`ai-core usage` exits 3; for
+Codex and agy a refusal for quota) every session finishes its step and reports, and you start
+nothing until the reset. You never stop because your context grew: the tool compacts you, and
+your state is on the tracker, where `briefs/coordinator.md` reads it again. When the owner asks for the state, build the page
+`briefs/coordinator.md` describes.

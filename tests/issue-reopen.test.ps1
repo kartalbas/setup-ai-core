@@ -9,13 +9,14 @@ $fake = Join-Path ([IO.Path]::GetTempPath()) "gh-fake-$([guid]::NewGuid().ToStri
 $env:GH_CACHE_DIRECTORY = Join-Path $fake 'cache'
 New-Item -ItemType Directory -Path $fake | Out-Null
 $log = Join-Path $fake 'calls.txt'
+Set-Content -LiteralPath (Join-Path $fake 'fields.tsv') -Value @("Status`tF1`tready`tT1", "Status`tF1`tdone`tD1") -Encoding utf8NoBOM
 
 @"
 `$a = `$args -join ' '
 Add-Content -Path '$log' -Value `$a
 if (`$a -match 'projectItems')      { 'example-org/998' + [char]9 + 'PVTI_item'; exit 0 }
 if (`$a -match 'projectV2\(number') { 'PVT_kwreopen'; exit 0 }
-if (`$a -match 'fields\(first:50')  { 'Status' + [char]9 + 'F1' + [char]9 + 'todo' + [char]9 + 'T1'; 'Status' + [char]9 + 'F1' + [char]9 + 'done' + [char]9 + 'D1'; exit 0 }
+if (`$a -match 'fields\(first:50')  { Get-Content -LiteralPath '$fake/fields.tsv'; exit 0 }
 if (`$args[0] -eq 'repo') { 'example-org/example-repo'; exit 0 }
 '{}'
 exit 0
@@ -42,7 +43,7 @@ $out = @(& $reopen -Repo $repo -Number 412)
 Check 'the state'       'True' ([bool]((Calls) -match 'state=open'))
 Check 'the issue'       'True' ([bool]((Calls) -match [regex]::Escape("api --method PATCH repos/$repo/issues/412")))
 Check 'the reopen line' '#412 -> reopened' $out[0]
-Check 'the board line'  '#412 -> todo (board example-org/998)' $out[1]
+Check 'the board line'  '#412 -> ready (board example-org/998)' $out[1]
 Check 'the option sent' 'True' ([bool]((Calls) -match 'oid=T1'))
 
 Write-Host 'a batch is one call per issue'
@@ -75,6 +76,16 @@ exit 1
 "@echo off`r`npwsh -NoProfile -File `"$refusing\gh.ps1`" %*" |
   Set-Content -Path (Join-Path $refusing 'gh.cmd') -Encoding ascii
 if (-not $IsWindows) { Set-Content -Path (Join-Path $refusing 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$refusing/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $refusing 'gh') }
+
+Write-Host 'a board of the older layout, without ready: refused before the issue is reopened'
+Set-Content -LiteralPath (Join-Path $fake 'fields.tsv') -Value @("Status`tF1`ttodo`tT1", "Status`tF1`tdone`tD1") -Encoding utf8NoBOM
+Remove-Item -Recurse -Force $env:GH_CACHE_DIRECTORY -ErrorAction SilentlyContinue; Clear-Log
+$said = ''; $printed = @()
+try { $printed = @(& $reopen -Repo $repo -Number 412) } catch { $said = $_.Exception.Message }
+Check 'it names the option' 'True'  ([bool]($said -match "field 'Status' has no option 'ready'"))
+Check 'nothing was reopened' 'False' ([bool]((Calls) -match 'state=open'))
+Set-Content -LiteralPath (Join-Path $fake 'fields.tsv') -Value @("Status`tF1`tready`tT1", "Status`tF1`tdone`tD1") -Encoding utf8NoBOM
+Remove-Item -Recurse -Force $env:GH_CACHE_DIRECTORY -ErrorAction SilentlyContinue
 
 $kept = $env:PATH
 $env:PATH = "$refusing$([IO.Path]::PathSeparator)$env:PATH"

@@ -164,7 +164,7 @@ setup-ai-core (public)
 ├── lib/          the libraries of the commands (board, layers, status), gitignore-block, binding-rules.md,
 │                 entry-point.ps1
 ├── rules/        one file per section (NN-slug.md) and skills.md, generic
-├── skills/       the skills every checkout gets: person-in-charge, agy-helper
+├── skills/       the skills every checkout gets: person-in-charge, helper
 ├── skeleton/     what a new project harness starts from
 ├── templates/    the files a checkout gets, in the layout of the checkout, among them the data files
 ├── auto-mode.tsv the steps Claude Code's classifier allows in every project, written into the user settings
@@ -175,7 +175,7 @@ setup-ai-core (public)
 ├── rules/        one file per section, NN-slug.md: the same name as a generic section replaces it, a new name adds one
 ├── skills/       one folder per skill, SKILL.md and its files
 ├── docs/         documents for agents: what the code cannot say
-├── config.env, labels.tsv, assignees.tsv, team-modes.tsv   the project's settings and data
+├── config.env, labels.tsv, assignees.tsv, team-modes.tsv, models.tsv   the project's settings and data
 ├── auto-mode.tsv the steps Claude Code's classifier allows in this project, written into the user settings
 └── repos/<repo>/ the map (AGENTS.md) and other files of one repository, in the layout of the checkout
 
@@ -201,6 +201,7 @@ checkout never carries a copy.
 │   ├── config.env                       the agents served, the organisation: managed from the harness, else yours
 │   ├── labels.tsv, assignees.tsv        the label taxonomy and who owns which repository's issues: the same
 │   ├── team-modes.tsv                   the team modes per tool, with probe and install command: the same
+│   ├── models.tsv                       the model and effort of every package phase, by class: the same
 │   ├── docs/                            yours: documents for agents; docs/<harness>/ managed: the docs of each layer
 │   ├── STAMP                            managed: the commit of setup-ai-core and of every layer this was assembled from
 │   ├── DEPLOYED                         managed: what the layers put here; what a layer no longer provides is taken out at the next run
@@ -336,9 +337,9 @@ the clone of this repository is too old for the harness.
 Then `init` assembles the checkout, later layer wins: the rules as above; `rules/skills.md` of the
 last layer that has one; every `skills/<name>/`, setup-ai-core's own first, into
 `.claude/skills/<name>/` and `.agents/skills/<name>/` (setup-ai-core brings `person-in-charge` and
-`agy-helper`, section 4.6); every `agents/<name>.md` into `.claude/agents/`; every `docs/` into
+`helper`, section 4.6); every `agents/<name>.md` into `.claude/agents/`; every `docs/` into
 `.ai-core/docs/<harness>/`; `config.env`,
-`labels.tsv`, `assignees.tsv` and `team-modes.tsv` into `.ai-core/`; and every file under
+`labels.tsv`, `assignees.tsv`, `team-modes.tsv` and `models.tsv` into `.ai-core/`; and every file under
 `repos/<repo>/` of the innermost harness over the checkout, in its own layout, so
 `repos/shop-web/AGENTS.md` is the map of shop-web and `repos/shop-web/.ai-core/config.env` its
 configuration. A file the repository tracks is never overwritten. `.ai-core/STAMP` records the
@@ -392,42 +393,36 @@ on start; no developer installs a skill by hand.
 
 **The skills setup-ai-core brings.** Every checkout gets two:
 
-- `person-in-charge` is the skill of the session the owner names coordinator of a project. The
-  coordinator writes no code. It keeps the overview in the tracker and delegates the work to
-  worker sessions it starts itself, as background sessions of Claude Code (`claude --bg`) or as
-  agy runs with agy's Claude models on agy's own quota, after one approval of the owner for the
-  team. A worker's brief names the path of its package's worktree, where it works by path, never
-  with `EnterWorktree`, and its questions go to the coordinator by `SendMessage`: nobody sits at a
-  background worker's terminal to answer a question there.
-  - The owner starts the coordinator with a context size too, for example
-    `claude --name person-in-charge --settings '{"autoCompactWindow":400000}'`. Without one it
-    compacts only near the model's whole window, and every answer reads that much again.
-  - Issues that change the same files form a package of at most about 8 issues or 400 changed
-    lines. Every package is a section of one plan issue per board, titled "Plan: packages", so the
-    plan survives a restart or a compaction.
-  - One package goes to one worker, which owns the package's files while it runs. The number of
-    workers follows the packages: a worker that finishes gets the next package that shares code
-    with what it already holds, a package that shares nothing gets a new worker, and a worker stops
-    after its last package.
-  - The coordinator picks each worker's model, effort and context size (the auto-compact window,
-    100k to 1M tokens) for its role, never a model below Sonnet, and the worker's name carries them:
-    `l1-opus5.5-high-150k-afb89`. The tiers come in pairs, a writer and a reviewer: critics on the
-    strongest model for solution paths and high-stakes packages, developers on the standard model,
-    small-work sessions on the lighter model. Where a project's own rules name models or efforts,
-    they win.
-  - A waiting worker uses no tokens, but its cache expires after an hour, and resumed after that it
-    reads its whole history again at full price. So a waiting worker gets its next package within
-    10 minutes where it can. A worker is continued with `--resume`, keeping its history, and
-    compacted when its context holds more than its next package needs.
-  - The other worker of the tier reviews a package; the writer never approves its own. At the usage
-    limit every worker finishes its step, commits, reports and waits for the reset. Asked for the
-    state, the coordinator builds one page from `ai-core status`.
-- `agy-helper` hands every check a cheaper model can do, and the session can check cheaply, to
-  Gemini through the `agy` CLI: a live check after a release, a UI check, a pre-review of a diff,
-  drafting test cases, collecting facts. Where agy's weekly quota is used up, the same checks go to
-  Claude Haiku 5.5 through `claude -p`, which denies every permission prompt and loads no MCP server
-  but the isolated browser. Claude and Codex then spend their tokens on judgment. Each
-  session keeps one agy conversation of its own, recorded in `~/.ai-core/agy-conversations.tsv`.
+- `person-in-charge` is the skill of the session the owner names coordinator of a project, in one
+  tool: Claude Code, Codex or agy. Each tool is its own ecosystem, and no session calls another's
+  tool. The coordinator writes no code. It cuts the open issues into packages by area: one
+  capability across every repository it touches, with both sides of each contract, found by
+  `ai-core contract-scan`. Every package is a section of one plan issue per board, titled "Plan:
+  packages", with its ecosystem, class, repositories, contracts and issues.
+  - Before the first plan, the coordinator clears what earlier sessions left in `implementing` and
+    `testing` (`briefs/clearing.md`). A package then runs through its phases: plan, plan check,
+    build and test, review, start check, land, release to the test stage, UI test, release to
+    production and live check. The plan, the plan
+    check, the build, the review and the UI test are fresh sessions, each ended with its phase and
+    started with one brief from the skill's `briefs/` (its input, what to do, the exact shape of
+    its output) on the commands of `references/<tool>.md`; the start check (`START_CHECK` of
+    `config.env`), the landing and the release are the coordinator's own commands. No session is
+    given a second phase, because the state lives in the tracker and on the branch.
+  - The model and effort of each phase follow the package's class (`mechanical`, `normal-hard`,
+    `high-risk`) and come from `.ai-core/models.tsv`, one block per tool; the plan runs on the
+    `high-risk` or the `normal-hard` row, because the plan decides the class. The reviewer never runs on the
+    model that built the package, by the table's rows. A phase never moves to another model or tool because a
+    quota ran out: its package waits. The issues nobody planned belong to the first tool of
+    `ECOSYSTEM_ORDER` in `.ai-core/config.env`; a later tool's coordinator plans what the owner
+    hands it.
+  - The cards move through `backlog`, `ready`, `planned`, `implementing`, `review`, `testing` and
+    `done`; a question that is the owner's puts `needs:owner` on its issues.
+  - At the usage limit every session finishes its step, commits, reports and waits for the reset.
+    Asked for the state, the coordinator builds one page from `ai-core status`.
+- `helper` hands a bounded task inside a phase, such as a pre-review of a diff, facts across
+  repositories, a log or a screenshot, to the small model of the session's own tool, the `helper`
+  row of `models.tsv`: `claude -p`, `codex exec` or `agy -p`. Its answer is a lead the session
+  checks. It runs no UI test, no build and no deciding review.
 
 ### 4.7 Maps: what the code does not say
 
@@ -842,6 +837,8 @@ allowed; any other value is an error.
 | `UPDATE_CHECK` | `session-start` (default), `never` | whether `session-start` asks `update --check` for a newer release; `AI_CORE_UPDATE_CHECK` in the environment overrides it. Nothing is updated by it |
 | `USAGE_STOP_AT` | a percentage, `92` when unset | the usage limit: at it, in any window, every session finishes the step in hand, commits, reports and waits for the reset; `ai-core usage` exits 3 there |
 | `LIVE_TAGS` | environments with the pattern of their release tags, the last stage first, separated by spaces, e.g. `prod=deploy/prod/* test=deploy/test/*`; empty by default | where `ai-core status` reads a card's work as live: on an environment from the first of its tags that contains the newest commit on the default branch naming the issue. Empty: the TESTING block says so and lists the landed cards without an environment |
+| `ECOSYSTEM_ORDER` | tool names of `models.tsv`, `claude codex agy` when unset | the order the owner starts the coordinators in; a package stays in the ecosystem whose coordinator planned it |
+| `START_CHECK` | a command, empty when unset | run by the person in charge on the bundle of a package's branches before it lands; empty means the project names none |
 | `PROOF_HOURS` | hours, `24` when unset | how long a later environment of `LIVE_TAGS` may carry a card the first one does not before `ai-core status` marks its proof there overdue with 🔴 |
 | `DEFAULT_BRANCH_IS_LIVE` | `yes`, or the folder names of the repositories whose default branch goes live; unset by default | a push to such a default branch needs `scripts/check.sh` and a `Reviewed-by:` trailer on its last commit (section 4.12) |
 
@@ -1005,15 +1002,15 @@ no repository acts on the one it runs in; `OWNER/REPO` before the issue number n
 | :--- | :--- |
 | `start-issue [OWNER/REPO] N` | opens the worktree for issue N under `../.worktrees/<repo>/issue-N-<slug>`, on a branch of that name cut from `origin/<default>`, only when the issue is assigned to you and the checkout is clean and current; moves the card to `implementing`; runs `init` there, which takes the checkout's `.ai-core/` data first; prints the thread. For an issue of another repository whose work lands here, `OWNER/REPO N` (`-Repo` in PowerShell) cuts the worktree here and records the issue's repository on the branch (`git config branch.<branch>.issueRepository`), where `session-start`, `integrate-issue` and `finish-issue` read it. One run, because any one of these done alone is often not done. |
 | `integrate-issue [OWNER/REPO] N --reviewed-by R` | in the worktree of issue N, after the reviewer's GO: merges its branch with `--no-ff` into the newest `origin/<default>`, under the issue's title with `(#N)`, or `(OWNER/REPO#N)` for an issue of another repository, given or recorded on the branch (or `Merge <branch> (...)`, then `Merge issue-N (...)`, where the title does not fit 72 characters) and a `Reviewed-by: R` trailer, pushes `HEAD:<default>` through the gate, and checks the branch out again for `finish-issue`. The landings of one clone take turns: from the fetch to the end of the push it holds `ai-core-landing` in the clone's git directory, a landing that finds it held names the issue holding it and waits, and one whose holder no longer runs takes it over. Refuses without a reviewer, on a branch that is not issue N's, with changes in the tree, on a conflict and on a branch already integrated, each time with the branch checked out again and nothing pushed. The reviewer is a name given, not a review proven |
-| `finish-issue [OWNER/REPO] N [--landed]` | after the push that lands the work; the issue, its card and its comment are in the repository given or recorded on the branch: removes the worktree and branch of issue N, only a worktree named for issue N (a package's worktree, named for its first issue, stays while a later issue's branch is checked out in it), only when it has no changes and the change of every commit is on `origin/<default>`, by ancestry or as an equal patch (`git cherry`, so a cherry-picked branch passes); `--landed` removes it anyway where commits landed in another shape, only for a closed issue, and names them; refuses, moving no card and telling the issue nothing, when no commit on `origin/<default>` names the issue; moves the card to the column after `implementing` unless that is `done`, which closing sets, and in a repository on no board says there is no card; comments on the issue what landed; runs `status-sync` for its repository and the issue's. `--sweep [--dry-run]` removes every worktree of the repository whose work landed more than a day ago; `start-issue` and `init --all` run it |
+| `finish-issue [OWNER/REPO] N [--landed]` | after the push that lands the work; the issue, its card and its comment are in the repository given or recorded on the branch: removes the worktree and branch of issue N, only a worktree named for issue N (a package's worktree, named for its first issue, stays while a later issue's branch is checked out in it), only when it has no changes and the change of every commit is on `origin/<default>`, by ancestry or as an equal patch (`git cherry`, so a cherry-picked branch passes); `--landed` removes it anyway where commits landed in another shape, only for a closed issue, and names them; refuses, moving no card and telling the issue nothing, when no commit on `origin/<default>` names the issue; moves the card to `testing` where the board has that column, and in a repository on no board says there is no card; comments on the issue what landed; runs `status-sync` for its repository and the issue's. `--sweep [--dry-run]` removes every worktree of the repository whose work landed more than a day ago; `start-issue` and `init --all` run it |
 | `issue-new` | creates an issue: `--title`, `--body-file`, labels, priority, the assignee from `assignees.tsv`, the card on the board, optionally a parent epic (`--parent OWNER/REPO#N`), which then follows its sub-issues as under `issue-status`. Refuses without `--asked-by LOGIN` and `--asked-in WHERE` and writes "Asked for by @login on DATE in WHERE." as the body's first line; a defect a session found in its own work (`type:bug`) takes `--found-in WHERE` instead and opens with "Found in WHERE on DATE, a defect filed without a yes.", because writing a found defect down is tracking, not new work. Reports a title over 70 characters, one with a backtick, or one that names an action and no stake. `--no-board` files it in a repository linked to no open board, a harness among them: no card, no status, no priority; refused where the repository is on a board, and together with `--project`, `--priority` or `--status`. |
 | `issue-thread N [--json]` | the issue and every comment on it, for a person or as one JSON object |
 | `issue-mine N` | whether the issue is assigned to the account `gh` is logged in as; `start-issue` and `session-start` ask it |
 | `issue-comment N` | adds a comment, inline or `--body-file` |
 | `issue-edit N` | edits title and/or body; a body without the asked-for line keeps the one the issue has |
 | `issue-close N...` | closes issues and moves their cards to `done`, as `completed` or `--reason not-planned`; the epic of a closed issue follows, as under `issue-status` |
-| `issue-reopen N...` | reopens issues and returns their cards to `todo` |
-| `issue-status N... STATUS` | moves cards between `backlog`, `todo`, `implementing`, `testing`, `done`; in a repository on no board, with no board named, it says the status is not set and exits 0. The epic of a moved issue follows its sub-issues: `implementing` once one has started, `testing` once all stand in testing or done, closed and `done` once all are done; from `testing` it goes back to `implementing` once a sub-issue stands before testing again, and a closed epic stays closed |
+| `issue-reopen N...` | reopens issues and returns their cards to `ready` |
+| `issue-status N... STATUS` | moves cards between `backlog`, `ready`, `planned`, `implementing`, `review`, `testing`, `done`; in a repository on no board, with no board named, it says the status is not set and exits 0. The epic of a moved issue follows its sub-issues: `implementing` once one has started, `testing` once all stand in testing or done, closed and `done` once all are done; from `testing` it goes back to `implementing` once a sub-issue stands before testing again, and a closed epic stays closed |
 | `issue-priority N... P` | `P0` blocker, `P1` high, `P2` normal, `P3` low, `P9` parked; on no board, as `issue-status` |
 | `issue-label N --add/--remove` | labels checked against `labels.tsv`; a typo is refused, not minted |
 | `issue-assign N` | adds, removes or replaces assignees; additive by default |
@@ -1023,12 +1020,13 @@ no repository acts on the one it runs in; `OWNER/REPO` before the issue number n
 | `subissue-add`, `subissue-remove` | attaches issues to an epic as sub-issues, or detaches them; the epic then follows its sub-issues as under `issue-status` |
 | `board-sync` | puts every issue of every linked repository on the board and reports what is missing: labels, priorities, cards that were not on the board |
 | `board-list` | the board: status, priority, repository, number, title; a repository of another organisation than the board's is written with its owner, `owner/name` |
-| `status [--project N] [--tokens] [--issues]` | the state of the work, the same page every time and counted, with no model. Without options: the board counts and every agent process on the machine, with the runs each one started under it; a Claude session's name comes from `claude agents --json` where its command line names none, its model and effort from that name where it follows the worker naming rule, and its issue from the `issue-<n>-…` worktree it was started in, marked `at start`, because a worker given a later package keeps that folder; a stopped process is marked stopped and not counted as running; under REACH the command that reaches each agent. Where no agent runs, and with `--tokens`: the usage windows against the limit; the pace, the issues closed in the last 24 hours, with the average of 14 days beside it; how fast the project folder raises each window an hour, the rise the usage log of the status line measured times the folder's share of the fresh tokens of every session on the machine, and from the pace what that is per issue; the tokens every session of the project folder used in the last 24 hours, fresh and read from the cache apart, and per issue closed in that time; the context an answer read again in those hours, on average and the largest, which shows how late the sessions compact; the epics whose sub-issues are all closed; the open issues on the last column. An epic is an issue with sub-issues. `--issues` adds every open issue by epic. Without `--tokens` or `--issues` two blocks follow, both read from git at that moment: TESTING lists every card in the column after implementing with where its work is live, the newest commit on the default branch that names the issue and, per environment of `LIVE_TAGS`, the first release tag by date that contains it, a tag's date being an annotated tag's own and a lightweight tag's commit's; the first environment is the last stage, and a card live on a later one only is due for its proof there, marked 🔴 once that environment has carried it longer than `PROOF_HOURS`; the clone of each repository with a card in testing, the folder of the project folder whose origin is that repository, is fetched once per call, for at most a minute. TREES lists the issue worktrees `finish-issue --sweep --dry-run` keeps whose last commit or uncommitted change is older than a day, each with the sweep's reason. Needs Node.js |
+| `status [--project N] [--tokens] [--issues]` | the state of the work, the same page every time and counted, with no model. Without options: the board counts and every agent process on the machine, with the runs each one started under it; a Claude session's name comes from `claude agents --json` where its command line names none, its model and effort from that name where it follows the worker naming rule, and its issue from the `issue-<n>-…` worktree it was started in, marked `at start`, because a worker given a later package keeps that folder; a stopped process is marked stopped and not counted as running; under REACH the command that reaches each agent. Where no agent runs, and with `--tokens`: the usage windows against the limit; the pace, the issues closed in the last 24 hours, with the average of 14 days beside it; how fast the project folder raises each window an hour, the rise the usage log of the status line measured times the folder's share of the fresh tokens of every session on the machine, and from the pace what that is per issue; the tokens every session of the project folder used in the last 24 hours, fresh and read from the cache apart, and per issue closed in that time; the context an answer read again in those hours, on average and the largest, which shows how late the sessions compact; the epics whose sub-issues are all closed; the open issues on the last column. An epic is an issue with sub-issues. `--issues` adds every open issue by epic. Without `--tokens` or `--issues` two blocks follow, both read from git at that moment: TESTING lists every card in testing with where its work is live, the newest commit on the default branch that names the issue and, per environment of `LIVE_TAGS`, the first release tag by date that contains it, a tag's date being an annotated tag's own and a lightweight tag's commit's; the first environment is the last stage, and a card live on a later one only is due for its proof there, marked 🔴 once that environment has carried it longer than `PROOF_HOURS`; the clone of each repository with a card in testing, the folder of the project folder whose origin is that repository, is fetched once per call, for at most a minute. TREES lists the issue worktrees `finish-issue --sweep --dry-run` keeps whose last commit or uncommitted change is older than a day, each with the sweep's reason. Needs Node.js |
 | `board-order` | stamps an order onto the board, read from standard input as `owner/repo#number` per line |
 | `board-unarchive` | brings archived cards back into view |
-| `status-sync [--dry-run] [OWNER/REPO ...]` | closes a card that `finish-issue` moved to `testing` once the first commit of its "Landed on" comment is carried by the newest release tag and the issue carries a proof record after that comment, a comment whose first line is `Proven on <environment>:`, written by the session that proved the released work; a released card without one is named `proof due` and stays; only the comments of the repository's owner, members and collaborators count. The release is the newest tag by date that origin has on the same commit and that matches the first environment of `LIVE_TAGS` in the clone's own `.ai-core/config.env`, or the newest such tag where it names none, read from the repository's clone in the checkout or the project folder after one fetch; where origin cannot be listed, or has a tag of that pattern on another commit than the clone or one the clone lacks, no tag counts and the run says so, so a release tag is never moved, and where one was, `git fetch --tags --force` in the clone takes origin's; work that landed in another repository, `Landed on <branch> of <owner/repo>:`, is read in that repository's clone; a repository without a clone is named and its cards stay. With a repository named it reads only that repository's open issues, in one query of about 2 GraphQL points per 50 issues, and `start-issue` and `finish-issue` run it so for their own and for the issue's, where that is another; without one it reads the board once to learn its repositories; with no board named, the board is the checkout's, or, where the checkout is on none, the one the first repository named is linked to. It moves no card on a commit alone, because a commit that names an issue touches it without finishing it; an epic follows its sub-issues as under `issue-status`, so a sub-issue moved by hand on the board moves its epic too; forward only, except that step back of an epic |
+| `status-sync [--dry-run] [OWNER/REPO ...]` | closes a card that `finish-issue` moved to `testing` once the first commit of its "Landed on" comment is carried by the newest release tag and the issue carries a proof record after that comment, a comment whose first line is `Proven on <environment>:`, written by the coordinator once a UI test session proved the released work; a released card without one is named `proof due` and stays; only the comments of the repository's owner, members and collaborators count. The release is the newest tag by date that origin has on the same commit and that matches the first environment of `LIVE_TAGS` in the clone's own `.ai-core/config.env`, or the newest such tag where it names none, read from the repository's clone in the checkout or the project folder after one fetch; where origin cannot be listed, or has a tag of that pattern on another commit than the clone or one the clone lacks, no tag counts and the run says so, so a release tag is never moved, and where one was, `git fetch --tags --force` in the clone takes origin's; work that landed in another repository, `Landed on <branch> of <owner/repo>:`, is read in that repository's clone; a repository without a clone is named and its cards stay. With a repository named it reads only that repository's open issues, in one query of about 2 GraphQL points per 50 issues, and `start-issue` and `finish-issue` run it so for their own and for the issue's, where that is another; without one it reads the board once to learn its repositories; with no board named, the board is the checkout's, or, where the checkout is on none, the one the first repository named is linked to. It moves no card on a commit alone, because a commit that names an issue touches it without finishing it; an epic follows its sub-issues as under `issue-status`, so a sub-issue moved by hand on the board moves its epic too; forward only, except that step back of an epic |
 | `epics-top`, `item-top`, `item-move` | epics to the top of the board; named cards to the top; a repository's cards from one board to another, keeping status and priority |
-| `field-option-add` | adds one option to a single-select field, reading the field first so the others are not deleted |
+| `field-option-add` | adds one option to a single-select field, reading the field first so the others are not deleted; `--after NAME` puts it right after another option, the column order `finish-issue` moves a card by; `--replacing OLD` renames OLD in place, keeping its id, so every card that carried it keeps it |
+| `contract-scan [--package REPO,REPO...] TERM...` | the `file:line` of each term in every git clone of the project folder, read from what ships (`origin/HEAD`, else `HEAD`); with `--package`, exit 3 where a clone outside the package holds a hit: the plan check of a package cut by area and contract |
 | `view-filter`, `project-new`, `repo-link`, `repo-boards` | narrows a view to named repositories; creates a board by copying one whose title starts with `[TEMPLATE]`; links a repository to a board and gives it the taxonomy; every repository of the organisation and its board, exit 1 when one is on none or on two |
 | `labels-sync` | applies `labels.tsv` to one repository, to named ones, or to every repository on a board |
 | `incident-count` | the issues carrying each `incident:` label per ISO week |
@@ -1164,8 +1162,11 @@ releases by tag, `update`, `push`, and `map`. Open:
   do not import the files `AGENTS.md` names after `@`; they read where the rules are and open them.
 - `rules-check` validates `rules.md` only, not `rules.local.md`.
 - The board commands assume a GitHub Projects board with single-select fields `Status` (options
-  `backlog`, `todo`, `implementing`, `testing`, `done`) and `Priority` (`P0` to `P3`, `P9`);
-  `project-new` copies such a board from one whose title starts with `[TEMPLATE]`.
+  `backlog`, `ready`, `planned`, `implementing`, `review`, `testing`, `done`) and `Priority` (`P0` to
+  `P3`, `P9`); `project-new` copies such a board from one whose title starts with `[TEMPLATE]`.
+  A board of the older layout is brought to it once, every card keeping its status:
+  `field-option-add --project N --field Status --name ready --color <its colour> --replacing todo`,
+  then `--name planned --after ready` and `--name review --after implementing`.
 - `rules.local.md` belongs to one checkout and travels nowhere; what a project shares, rules,
   skills, documents, goes into its project harness.
 
@@ -1206,7 +1207,7 @@ setup-ai-core/
 ├── rules/
 │   ├── NN-slug.md                       the generic rules, one file per section
 │   └── skills.md                        when to use which skill
-├── skills/                              person-in-charge, agy-helper: deployed into every checkout
+├── skills/                              person-in-charge, helper: deployed into every checkout
 ├── skeleton/                            what a new project harness starts from: ai-core.json, README, rules/, skills/, docs/, repos/
 ├── templates/                           mirror of the checkout; every file is created once
 │   ├── AGENTS.md, .cursorrules, .windsurfrules

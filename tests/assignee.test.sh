@@ -103,6 +103,11 @@ else check 'absent file' 'died' 'died'; fi
 
 echo 'and what actually reaches gh issue create'
 PATH="$FAKE:$PATH"
+# The board of --project 5, seeded: issue-new resolves the status and the priority before it
+# creates anything, and the stand-in gh answers no field query.
+export GH_CACHE_DIRECTORY="$FAKE/cache"; mkdir -p "$GH_CACHE_DIRECTORY/5"
+echo PVT_x > "$GH_CACHE_DIRECTORY/5/project-id"
+printf 'Status\tF1\tready\tO1\nPriority\tF2\tP2\tO2\n' > "$GH_CACHE_DIRECTORY/5/fields.tsv"
 
 sent_for() { # repo [explicit]
   : > "$LOG"

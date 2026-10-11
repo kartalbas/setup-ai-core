@@ -106,6 +106,12 @@ try {
 
   Write-Host 'and what actually reaches gh issue create'
   $env:PATH = "$fake$([IO.Path]::PathSeparator)$env:PATH"
+  # The board of -Project 5, seeded: issue-new resolves the status and the priority before it
+  # creates anything, and the stand-in gh answers no field query.
+  $env:GH_CACHE_DIRECTORY = Join-Path $fake 'cache'
+  New-Item -ItemType Directory -Force -Path (Join-Path $env:GH_CACHE_DIRECTORY '5') | Out-Null
+  Set-Content -Path (Join-Path $env:GH_CACHE_DIRECTORY '5/project-id') -Value 'PVT_x' -NoNewline
+  Set-Content -Path (Join-Path $env:GH_CACHE_DIRECTORY '5/fields.tsv') -Value "Status`tF1`tready`tO1`nPriority`tF2`tP2`tO2" -Encoding utf8NoBOM
   $body = Join-Path $fake 'body.md'
   'body' | Set-Content $body -Encoding utf8NoBOM
 

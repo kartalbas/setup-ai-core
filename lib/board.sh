@@ -56,10 +56,11 @@ gh_org() {
 
 # THE DEFAULT BRANCH OF ORIGIN: asked of the remote, else origin/HEAD where it resolves. A clone's
 # origin/HEAD is a copy that goes stale: it keeps the old branch after the default is renamed, or a
-# branch somebody pointed it at, and trusting it sends every comparison to the wrong branch.
+# branch somebody pointed it at, and trusting it sends every comparison to the wrong branch. Asking
+# never prompts for credentials: a caller run from a terminal would wait on it without a word.
 origin_default_branch() {
   local ref
-  ref="$(git ls-remote --symref origin HEAD 2>/dev/null | awk '$1 == "ref:" && $3 == "HEAD" { sub("^refs/heads/", "", $2); print $2 }')"
+  ref="$(GIT_TERMINAL_PROMPT=0 git ls-remote --symref origin HEAD 2>/dev/null | awk '$1 == "ref:" && $3 == "HEAD" { sub("^refs/heads/", "", $2); print $2 }')"
   if [ -z "$ref" ] && git rev-parse -q --verify refs/remotes/origin/HEAD >/dev/null 2>&1; then
     ref="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null)" && ref="${ref#refs/remotes/origin/}"
   fi

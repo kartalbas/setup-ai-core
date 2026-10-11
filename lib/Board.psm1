@@ -50,8 +50,11 @@ function Get-OriginDefaultBranch {
   # THE DEFAULT BRANCH OF ORIGIN: asked of the remote, else origin/HEAD where it resolves. A clone's
   # origin/HEAD is a copy that goes stale: it keeps the old branch after the default is renamed, or a
   # branch somebody pointed it at, and trusting it sends every comparison to the wrong branch.
+  # Asking never prompts for credentials: a caller run from a terminal would wait on it without a word.
   [CmdletBinding()] param()
-  foreach ($line in @(& git ls-remote --symref origin HEAD 2>$null)) {
+  $prompt = $env:GIT_TERMINAL_PROMPT; $env:GIT_TERMINAL_PROMPT = '0'
+  try { $said = @(& git ls-remote --symref origin HEAD 2>$null) } finally { $env:GIT_TERMINAL_PROMPT = $prompt }
+  foreach ($line in $said) {
     if ("$line" -cmatch '^ref:\s+refs/heads/(\S+)\s+HEAD$') { return $Matches[1] }
   }
   & git rev-parse -q --verify refs/remotes/origin/HEAD *>$null

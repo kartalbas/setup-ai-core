@@ -45,6 +45,9 @@ names, the scan output, the spans the facts name.
     ORDER: ok | <issue> before <issue> because <contract>
     CLASS: ok | <class> because <reason>
 
-GO only with an empty GAPS. Post it as a comment on the plan issue (`ai-core issue-comment`), then
+A gap is only what stops a build session from starting or makes it build the wrong thing: a
+missing criterion or `file:line`, a contradiction, a side of a contract outside the package, a
+wrong order or class. Wording and a better way that is not needed are no gaps. GO only with an
+empty GAPS. Post it as a comment on the plan issue (`ai-core issue-comment`), then
 stop. You change nothing in the section: the planner does, in the next plan session, with your GAPS
 as its input; a CLASS line that raises the class sends the plan to that class's plan row.

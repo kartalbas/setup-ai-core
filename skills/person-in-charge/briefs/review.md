@@ -46,5 +46,9 @@ outside a throwaway folder for a probe, and push nothing: a reviewer who repairs
     TESTS: <n> go red on their defect; doubtful: <test, why>
     NOTES: <what you could not verify, and why>
 
-GO only with an empty FINDINGS. A GO with a doubt in NOTES is still a GO: say what was proven, what
-was declared, what was waived.
+A finding blocks, and only these are FINDINGS: behaviour that is wrong in a state you name, a test
+that is red or cannot go red on its defect, an unmet criterion, a broken contract, a leftover. The
+wording of a log line, a comment or a message, a name, a line length, style and a better way that
+is not needed go under NOTES and never make a NO, because a reviewer always finds one, and each
+NO pays a whole build and review round. GO only with an empty FINDINGS. A GO with points in NOTES
+is still a GO: say what was proven, what was declared, what was waived.

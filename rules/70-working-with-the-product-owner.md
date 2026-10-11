@@ -6,7 +6,8 @@
   first and marked, the code facts last. A decision is the owner's when it is hard to undo or reaches
   beyond the issue's own branch and tracker entries (a release, a migration, a deletion of anything
   that is not the change's own leftover, anything published), widens the scope (a new dependency, a
-  new public interface, new work that no issue holds yet), costs a multiple of the task for its
+  new public interface, new work that no issue holds yet), renames something that has a name or
+  gives a concept a person meets a new word, costs a multiple of the task for its
   clean answer, has no clean answer, or chooses between two equally clean answers where the
   difference is the product's. Every other choice the agent makes itself, takes the clean one, and
   names it with its reason in one line of its report, where the owner can still overturn it; a

@@ -18,16 +18,18 @@
 - **One concept, one word, everywhere: the project's ubiquitous language**, the shared language of
   domain-driven design, in code, configuration, paths, documents and messages to a person. The code
   is the glossary: a word is found where it lives, with `git grep`, and there is no second list of
-  it to drift. A word with two spellings is decided by a rule of the project harness that names the
-  spelling which stays, written in the change that meets the second spelling. [review]
+  it to drift. A name that exists stays, because it was chosen for a reason the code may not show:
+  renaming it, or choosing between two spellings, is the owner's decision, proposed with its reason
+  and never done first. [review]
 - **A name is judged in the reader's context and re-judged wherever the thing moves.** A word that is
   exact inside a module can name nothing on a screen; a thing lifted into another context is
-  renamed or confirmed there. [review]
+  confirmed there, or a new name is proposed to the owner. [review]
 - **A name is derived before it is invented.** Whatever is, belongs to or stands for something that
   exists takes its name from it: a part carries its qualified name, its owner's name and then its
   own, each spelled as it is spelled where it lives (the texts of the `frontend` of a repository
   `shop` are `shop-frontend`, not `shop-client`). Only a concept nothing names yet gets a new word,
-  and it follows the pattern its siblings share. The lookup reaches as far as the thing refers: the
+  and it follows the pattern its siblings share; where a person meets it, on a screen, in a catalog
+  or a document, it is proposed to the owner before it is used. The lookup reaches as far as the thing refers: the
   code, the configuration and the messages of the tree, and the repositories it refers to.
   [machine · review]
 - **A configuration key and the nouns in an error message are names under these rules**, read by more

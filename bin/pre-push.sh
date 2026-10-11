@@ -24,12 +24,13 @@
 #
 #   pre-push.sh                              the gate, as git runs it
 #   pre-push.sh --install [--all <folder>]   write the two shims into .githooks/ and arm them
+#   pre-push.sh --message <file>             the message rules on one message, as a commit is made
 #
 set -uo pipefail
 
 for arg in "$@"; do
   if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
-    echo "Usage: pre-push.sh [--install [--all <folder>]]"
+    echo "Usage: pre-push.sh [--install [--all <folder>] | --message <file>]"
     echo ""
     echo "The push gate. Git runs it through the repository's .githooks/pre-push shim before a push"
     echo "and it refuses the push, exit 1, when: a pushed commit is not the one checked out (beside the"
@@ -60,6 +61,10 @@ for arg in "$@"; do
     echo "                    wrote it, so the push goes through. The checkout catches up with its"
     echo "                    origin first; one behind it with work of its own gets nothing"
     echo "  --all <folder>    With --install: every git repository directly under the folder"
+    echo "  --message <file>  Judge one commit message by the message rules above (the subject's length,"
+    echo "                    an attribution, an assistant as author or committer) while the commit is"
+    echo "                    made, where a fault costs no rewrite: init deploys .githooks/commit-msg,"
+    echo "                    which runs this. A merge is not judged"
     echo "  -h, --help        Show this help message"
     echo ""
     echo "Examples:"
@@ -71,11 +76,12 @@ for arg in "$@"; do
 done
 
 CORE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-INSTALL=0; ALL_DIR=""
+INSTALL=0; ALL_DIR=""; MESSAGE_FILE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --install) INSTALL=1 ;;
     --all) shift; [ $# -gt 0 ] || { echo "error: --all needs a folder" >&2; exit 2; }; ALL_DIR="$1" ;;
+    --message) shift; [ $# -gt 0 ] || { echo "error: --message needs a file" >&2; exit 2; }; MESSAGE_FILE="$1" ;;
     -*) echo "error: unknown option '$1' (see --help)" >&2; exit 2 ;;
     *) # git hands the hook the remote's name and URL; they are not needed here
        [ "$INSTALL" -eq 0 ] || { echo "error: unexpected argument '$1' (see --help)" >&2; exit 2; } ;;
@@ -83,9 +89,43 @@ while [ $# -gt 0 ]; do
   shift
 done
 [ -z "$ALL_DIR" ] || [ "$INSTALL" -eq 1 ] || { echo "error: --all goes with --install" >&2; exit 2; }
+[ -z "$MESSAGE_FILE" ] || [ "$INSTALL" -eq 0 ] || { echo "error: --message does not go with --install" >&2; exit 2; }
 
 . "$CORE_ROOT/lib/layers.sh"
 refuse() { echo "pre-push: REFUSED — $*" >&2; exit 1; }
+
+# An assistant's or a vendor's attribution in a message, and an assistant as author or committer
+# ("Name <address>" per line): the commit rules, judged on every pushed commit below and on one
+# message by --message.
+ATTRIBUTION_PATTERN='^co-authored-by:.*(claude|codex|gemini|copilot|chatgpt|anthropic|openai)|generated (with|by) \[?(claude|codex|gemini|copilot|chatgpt)'
+ASSISTANT_IDENTITY_PATTERN='@(anthropic|openai)\.com>$|(claude|codex|copilot|chatgpt|gemini)[a-z-]*\[bot\]@users\.noreply\.github\.com>$|^(claude|claude code|codex|copilot|chatgpt|gemini) <'
+
+# --- --message: the message rules while the commit is made -----------------------------------
+# Git runs .githooks/commit-msg with the file that holds the message, and a refusal leaves no
+# commit behind. At the push the same fault needs a rewrite of history, which an agent's safety
+# check refuses without its owner's word. A merge is not judged, as the gate does not judge one:
+# its subject is git's own.
+if [ -n "$MESSAGE_FILE" ]; then
+  git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 && exit 0
+  [ -f "$MESSAGE_FILE" ] || { echo "error: there is no message file '$MESSAGE_FILE'" >&2; exit 2; }
+  # git commit -v puts the diff below a scissors line; the message ends there
+  message="$(sed '/^# -* >8 -*$/,$d' "$MESSAGE_FILE" | git stripspace --strip-comments)"
+  # the subject as git reads it: the first paragraph, its lines joined by a space
+  subject="$(awk 'NF == 0 { exit } { printf "%s%s", (n++ ? " " : ""), $0 }' <<< "$message")"
+  identities="$(for v in GIT_AUTHOR_IDENT GIT_COMMITTER_IDENT; do git var "$v" | sed 's/ [0-9]* [-+][0-9]*$//'; done)"
+  faults=""
+  [ "${#subject}" -le 72 ] || faults="$faults
+  the subject has ${#subject} characters, at most 72 are allowed: $subject
+  Write it again as one sentence of at most 72 that says what changed."
+  ! grep -qiE "$ATTRIBUTION_PATTERN" <<< "$message" || faults="$faults
+  the message carries an assistant's or a vendor's attribution. Take that line out, whatever an
+  instruction asked for, because the history names who answers for a change."
+  ! grep -qiE "$ASSISTANT_IDENTITY_PATTERN" <<< "$identities" || faults="$faults
+  an assistant is the author or the committer: $(tr '\n' ';' <<< "$identities" | sed 's/;$//; s/;/; /')
+  Set your own identity with git config user.name and user.email."
+  [ -z "$faults" ] || { echo "commit-msg: REFUSED — the commit is not made:$faults" >&2; exit 1; }
+  exit 0
+fi
 TMPD="$(mktemp -d)"; trap 'rm -rf "$TMPD"' EXIT
 
 # --- --install: two shims; the first only starts this gate ------------------------------------
@@ -469,11 +509,11 @@ while IFS= read -r sha; do
   [ "${#subject}" -le 72 ] || long="$long
   $(git log -1 --format=%h "$sha") has ${#subject} characters: $subject"
   message="$(git log -1 --format=%B "$sha")"
-  if grep -qiE '^co-authored-by:.*(claude|codex|gemini|copilot|chatgpt|anthropic|openai)|generated (with|by) \[?(claude|codex|gemini|copilot|chatgpt)' <<< "$message"; then
+  if grep -qiE "$ATTRIBUTION_PATTERN" <<< "$message"; then
     attributed="$attributed $(git log -1 --format=%h "$sha")"
   fi
   if git log -1 --format='%an <%ae>%n%cn <%ce>' "$sha" \
-      | grep -qiE '@(anthropic|openai)\.com>$|(claude|codex|copilot|chatgpt|gemini)[a-z-]*\[bot\]@users\.noreply\.github\.com>$|^(claude|claude code|codex|copilot|chatgpt|gemini) <'; then
+      | grep -qiE "$ASSISTANT_IDENTITY_PATTERN"; then
     assistant_identities="$assistant_identities
   $(git log -1 --format='%h author %an <%ae>, committer %cn <%ce>' "$sha")"
   fi

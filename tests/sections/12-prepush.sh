@@ -20,8 +20,21 @@ for twin in sh ps1; do
   grep -aq '^  core.hooksPath set to .githooks: the push gate runs here$' "$WORK/hooks-$twin-1.log" || fail "init.$twin does not report core.hooksPath"
   [ "$(git -C "$H" config --get core.hooksPath)" = ".githooks" ] || fail "init.$twin did not set core.hooksPath"
   grep -aq 'core.hooksPath' "$WORK/hooks-$twin-2.log" && fail "init.$twin reports core.hooksPath again on the second run"
+  cmp -s "$ROOT/templates/.githooks/commit-msg" "$H/.githooks/commit-msg" || fail "init.$twin did not write .githooks/commit-msg beside the push gate"
+  [ -x "$H/.githooks/commit-msg" ] || fail "init.$twin wrote .githooks/commit-msg without the executable bit, so git skips it"
+  git -C "$H" check-ignore -q .githooks/commit-msg || fail "init.$twin did not put .githooks/commit-msg into the exclude file"
+  printf 'one\n' > "$H/one.txt"; git -C "$H" add one.txt
+  PATH="$ROOT/bin:$PATH" git -C "$H" commit -q -m "$(printf 'A%.0s' {1..73})" > "$WORK/hooks-$twin-commit.log" 2>&1 && fail "init.$twin: a subject of 73 characters was committed"
+  grep -aq 'commit-msg: REFUSED' "$WORK/hooks-$twin-commit.log" || fail "init.$twin: the commit of a subject of 73 was not refused by commit-msg: $(cat "$WORK/hooks-$twin-commit.log")"
+  PATH="$ROOT/bin:$PATH" git -C "$H" commit -q -m "$(printf 'A%.0s' {1..72})" > "$WORK/hooks-$twin-commit.log" 2>&1 || fail "init.$twin: a subject of 72 characters was refused: $(cat "$WORK/hooks-$twin-commit.log")"
+  O="$WORK/hooks-$twin-own"; git init -q "$O"; mkdir -p "$O/.githooks" "$O/.ai-core"
+  printf '#!/usr/bin/env bash\nexec ai-core pre-push "$@"\n' > "$O/.githooks/pre-push"; printf '#!/usr/bin/env bash\necho own\n' > "$O/.githooks/commit-msg"
+  printf 'UPDATE_CHECK="never"\n' > "$O/.ai-core/config.env"; git -C "$O" add .githooks
+  if [ "$twin" = sh ]; then bash "$ROOT/bin/init.sh" "$O" --no-doctor > "$WORK/hooks-$twin-own.log" 2>&1 || fail "init.sh on a repository with its own commit-msg"
+  else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$O")" -NoDoctor > "$WORK/hooks-$twin-own.log" 2>&1 || fail "init.ps1 on a repository with its own commit-msg"; fi
+  grep -aq '^echo own$' "$O/.githooks/commit-msg" || fail "init.$twin overwrote the commit-msg the repository tracks"
 done
-echo "  core.hooksPath set once and reported, the dry run announces it, on both twins"
+echo "  core.hooksPath set once and reported, the dry run announces it, commit-msg written and judging, a tracked one kept, on both twins"
 
 section "init in a worktree that starts empty takes the checkout's .ai-core data first; a dry run only says so; both twins"
 for twin in sh ps1; do

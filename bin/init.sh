@@ -467,6 +467,7 @@ while IFS= read -r rel; do
     .github/copilot-instructions.md) serves copilot || continue ;;
     .openhands/microagents/repo-rules.md) serves openhands || continue ;;
     .claude/settings.json) if command -v jq >/dev/null 2>&1; then continue; fi ;;   # written below, the hook with the full path
+    .githooks/commit-msg) continue ;;   # written in 3a, where the push gate is armed
     opencode.json)   # one without the template's instructions gets them added
       if command -v jq >/dev/null 2>&1 && [ -f "$TARGET/$rel" ] && ! jq -e --slurpfile t "$CORE_ROOT/templates/$rel" '($t[0].instructions - (.instructions // [])) | length == 0' "$TARGET/$rel" >/dev/null 2>&1; then
         jq --slurpfile t "$CORE_ROOT/templates/$rel" '.instructions = ((.instructions // []) + ($t[0].instructions - (.instructions // [])))' "$TARGET/$rel" 2>/dev/null | tr -d '\r' > "$TMP/opencode.json" \
@@ -479,18 +480,19 @@ done <<< "$( (cd "$CORE_ROOT/templates" && find . -type f | LC_ALL=C sort) | sed
 # The Claude Code hook that starts the session, the status line that records the account's usage
 # windows for `ai-core usage` (bin/statusline.sh), the permissions of the template (the ai-core
 # commands) and its denials (the secrets of a checkout and the credentials of the machine are not
-# read, a push is not forced), each list read from the template. The hook and the status line name
-# ai-core by its full path on this machine, so a Claude Code started from a terminal opened before
-# the install still runs them; the file is the machine's, never committed. A settings.json the
-# checkout had before (created once, never overwritten) gets what it lacks merged in, and an
-# ai-core hook of an older form gives way to this one. Without jq the template stays as it is.
+# read, a push is not forced), each list read from the template, and its empty attribution, so
+# Claude Code asks no session to sign a commit or a pull request, which the commit rules forbid.
+# The hook and the status line name ai-core by its full path on this machine, so a Claude Code
+# started from a terminal opened before the install still runs them; the file is the machine's,
+# never committed. A settings.json the checkout had before (created once, never overwritten) gets
+# what it lacks merged in, and an ai-core hook of an older form gives way to this one. Without jq the template stays as it is.
 AI_CORE_CMD="$CORE_ROOT/bin/ai-core"; if command -v cygpath >/dev/null 2>&1; then AI_CORE_CMD="$(cygpath -m "$AI_CORE_CMD")"; fi
 HOOK="\"$AI_CORE_CMD\" session-start --tool claude"
 STATUS_LINE="\"$AI_CORE_CMD\" statusline"
 SETTINGS="$TARGET/.claude/settings.json"
 SETTINGS_TEMPLATE="$CORE_ROOT/templates/.claude/settings.json"
-SETTINGS_HAS='def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | ([.hooks.SessionStart[]?.hooks[]? | select(ours) | .command] == [$c]) and (($allow - (.permissions.allow // [])) | length == 0) and (($deny - (.permissions.deny // [])) | length == 0) and (has("autoCompactWindow") | not) and (.statusLine.command == $s)'
-SETTINGS_ADD='def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | .hooks.SessionStart = ([.hooks.SessionStart[]? | .hooks = [.hooks[]? | select(ours | not)] | select(.hooks | length > 0)] + [{hooks: [{type: "command", command: $c, timeout: 60}]}]) | .permissions.allow = ((.permissions.allow // []) + ($allow - (.permissions.allow // []))) | .permissions.deny = ((.permissions.deny // []) + ($deny - (.permissions.deny // []))) | del(.autoCompactWindow) | .statusLine = {type: "command", command: $s}'
+SETTINGS_HAS='def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | ([.hooks.SessionStart[]?.hooks[]? | select(ours) | .command] == [$c]) and (($allow - (.permissions.allow // [])) | length == 0) and (($deny - (.permissions.deny // [])) | length == 0) and (has("autoCompactWindow") | not) and (.statusLine.command == $s) and (.attribution == ((.attribution // {}) + $t[0].attribution))'
+SETTINGS_ADD='def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | .hooks.SessionStart = ([.hooks.SessionStart[]? | .hooks = [.hooks[]? | select(ours | not)] | select(.hooks | length > 0)] + [{hooks: [{type: "command", command: $c, timeout: 60}]}]) | .permissions.allow = ((.permissions.allow // []) + ($allow - (.permissions.allow // []))) | .permissions.deny = ((.permissions.deny // []) + ($deny - (.permissions.deny // []))) | del(.autoCompactWindow) | .statusLine = {type: "command", command: $s} | .attribution = ((.attribution // {}) + $t[0].attribution)'
 if command -v jq >/dev/null 2>&1; then
   src="$SETTINGS"; [ -f "$src" ] || src="$SETTINGS_TEMPLATE"
   if [ "$src" != "$SETTINGS" ] || ! jq -e --arg c "$HOOK" --arg s "$STATUS_LINE" --slurpfile t "$SETTINGS_TEMPLATE" "$SETTINGS_HAS" "$SETTINGS" >/dev/null 2>&1; then
@@ -588,11 +590,16 @@ fi
 
 # 3a. A repository that carries .githooks/pre-push (the shim that starts the push gate, ai-core
 #     pre-push) is armed in this clone: core.hooksPath is the clone's own setting, never
-#     committed, so a fresh clone gets it from its first init.
+#     committed, so a fresh clone gets it from its first init. Beside it stands
+#     .githooks/commit-msg, which judges the gate's message rules as the commit is made; it is
+#     the harness's, in the exclude file like the rest, unless the repository commits its own.
 HOOKS_ARMED=0
 if [ -f "$TARGET/.githooks/pre-push" ] && [ "$(git -C "$TARGET" config --get core.hooksPath 2>/dev/null)" != ".githooks" ]; then
   HOOKS_ARMED=1
   [ "$DRY" -eq 1 ] || git -C "$TARGET" config core.hooksPath .githooks
+fi
+if [ -f "$TARGET/.githooks/pre-push" ] && ! git -C "$TARGET" ls-files --error-unmatch .githooks/commit-msg >/dev/null 2>&1; then
+  put "$CORE_ROOT/templates/.githooks/commit-msg" .githooks/commit-msg managed
 fi
 
 # 3b. The project's .gitignore carries a block naming every file an agent or the harness puts

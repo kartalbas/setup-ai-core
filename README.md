@@ -1037,7 +1037,9 @@ no repository acts on the one it runs in; `OWNER/REPO` before the issue number n
 **The hooks.** A repository that wants the gate before every push carries the three-line shim
 `ai-core pre-push --install` writes into `.githooks/pre-push`, and beside it `.githooks/post-checkout`,
 which starts `init` in a new worktree (section 4.12); the gate and `init` themselves never live in
-a repository.
+a repository. Where the shim stands, `init` writes `.githooks/commit-msg` beside it, never committed:
+it runs `ai-core pre-push --message`, so a subject over 72 characters, an assistant's attribution or
+an assistant as author is refused while the commit is made, where the fault costs no rewrite.
 
 ---
 

@@ -40,5 +40,11 @@ push nothing: a reviewer who repairs approves its own fix.
     TESTS: <n> go red on their defect; doubtful: <test, why>
     NOTES: <what you could not verify, and why>
 
+## Probes
+
+- A probe or an experiment (a script, a sample folder, an install) runs in a new folder from
+  `mktemp -d`, never in a clone or a worktree, and you remove it at the end: a stray folder in a
+  clone makes every later `start-issue` there refuse.
+
 GO only with an empty FINDINGS. A GO with a doubt in NOTES is still a GO: say what was proven, what
 was declared, what was waived.

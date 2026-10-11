@@ -39,6 +39,12 @@ names, the scan output, the spans the facts name.
     ORDER: ok | <issue> before <issue> because <contract>
     CLASS: ok | <class> because <reason>
 
+## Probes
+
+- A probe or an experiment (a script, a sample folder, an install) runs in a new folder from
+  `mktemp -d`, never in a clone or a worktree, and you remove it at the end: a stray folder in a
+  clone makes every later `start-issue` there refuse.
+
 GO only with an empty GAPS. Post it as a comment on the plan issue (`ai-core issue-comment`), then
 stop. You change nothing in the section: the planner does, in the next plan session, with your GAPS
 as its input; a CLASS line that raises the class sends the plan to that class's plan row.

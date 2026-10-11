@@ -555,8 +555,12 @@ if serves codex && [ -n "$AGENTS_SRC" ]; then
   set --
   if [ "$PROJECT_FOLDER" -eq 0 ] && FOLDER="$(enclosing_folder "$TARGET")" && [ -f "$FOLDER/AGENTS.md" ]; then set -- "$FOLDER/AGENTS.md" "$FOLDER"; fi
   codex_override "$@" "$AGENTS_SRC" "$TARGET" > "$TMP/AGENTS.override.md"
-  put "$TMP/AGENTS.override.md" AGENTS.override.md managed
-  CODEX_OVERRIDE_BYTES="$(wc -c < "$TMP/AGENTS.override.md" | tr -d ' ')"
+  if git -C "$TARGET" ls-files --error-unmatch AGENTS.override.md >/dev/null 2>&1; then
+    note tracked AGENTS.override.md
+  else
+    put "$TMP/AGENTS.override.md" AGENTS.override.md managed
+    CODEX_OVERRIDE_BYTES="$(wc -c < "$TMP/AGENTS.override.md" | tr -d ' ')"
+  fi
 fi
 
 # 2d. Codex's user config, the machine's file, gets project_doc_max_bytes at least CODEX_DOC_BYTES,
@@ -569,7 +573,7 @@ if serves codex; then
   if [ -d "$(dirname "$CODEX_CONFIG")" ]; then
     codex_doc_bytes=""
     if [ -f "$CODEX_CONFIG" ]; then
-      codex_doc_bytes="$(awk '/^\[/ { exit } /^project_doc_max_bytes[ \t]*=/ { sub(/^[^=]*=[ \t]*/, ""); if (match($0, /^[0-9]+/)) print substr($0, 1, RLENGTH); exit }' "$CODEX_CONFIG")"
+      codex_doc_bytes="$(awk '/^\[/ { exit } /^project_doc_max_bytes[ \t]*=/ { sub(/^[^=]*=[ \t]*/, ""); if (match($0, /^[0-9][0-9_]*/)) { v = substr($0, 1, RLENGTH); gsub(/_/, "", v); print v }; exit }' "$CODEX_CONFIG")"
     fi
     if [ "${codex_doc_bytes:-0}" -lt "$CODEX_DOC_BYTES" ]; then
       CODEX_NOTE="project_doc_max_bytes $([ "$DRY" -eq 1 ] && echo "would be set" || echo "set") to $CODEX_DOC_BYTES in $CODEX_CONFIG, so Codex reads AGENTS.override.md whole"

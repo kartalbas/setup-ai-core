@@ -21,7 +21,8 @@ HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/shop
 grep -aq 'created: example-org/shop-ai-core, private, from the skeleton' "$WORK/layers-sh-1.log" || fail "init.sh did not create the project harness (see $WORK/layers-sh-1.log)"
 grep -aq '^--> Project harness: example-org/shop-ai-core (' "$WORK/layers-sh-1.log" || fail "init.sh did not name the project harness"
 [ -d "$GH_FAKE/github.com/example-org/shop-ai-core.git" ] || fail "the harness was not pushed to GitHub"
-[ -f "$WORK/org-sh/shop-ai-core/ai-core.json" ] && [ -f "$WORK/org-sh/shop-ai-core/labels.tsv" ] && [ -f "$WORK/org-sh/shop-ai-core/models.tsv" ] || fail "the clone beside the checkout lacks the skeleton"
+[ -f "$WORK/org-sh/shop-ai-core/ai-core.json" ] && [ -f "$WORK/org-sh/shop-ai-core/labels.tsv" ] || fail "the clone beside the checkout lacks the skeleton"
+[ ! -e "$WORK/org-sh/shop-ai-core/models.tsv" ] || fail "the new harness pins a copy of the model table, so a later table of setup-ai-core never reaches it"
 [ "$(wc -l < "$WORK/org-sh/shop-web/.ai-core/STAMP" | tr -d ' ')" = 2 ] && grep -q '^shop-ai-core ' "$WORK/org-sh/shop-web/.ai-core/STAMP" || fail "STAMP does not name setup-ai-core and the harness: $(cat "$WORK/org-sh/shop-web/.ai-core/STAMP" | tr '\n' '|')"
 cmp -s "$WORK/org-sh/shop-web/.ai-core/config.env" "$ROOT/templates/.ai-core/config.env" || fail "config.env of the checkout is not the harness's (the skeleton's copy of the template)"
 # The skeleton's .gitattributes makes every checkout of the harness LF; a clone made before the
@@ -397,6 +398,7 @@ for twin in sh ps1; do
   grep -aq "note: example-org/$p-ai-core is empty here and on GitHub and would be filled from the skeleton (dry run: not written)" "$WORK/layers-$twin-hollow-dry.log" || fail "init.$twin dry run does not announce the fill of the empty clone (see $WORK/layers-$twin-hollow-dry.log)"
   grep -aq "filled: example-org/$p-ai-core, empty on GitHub, from the skeleton, at " "$WORK/layers-$twin-hollow.log" || fail "init.$twin did not fill the empty clone (see $WORK/layers-$twin-hollow.log)"
   [ -f "$WORK/org-$twin/$p-ai-core/ai-core.json" ] && [ -f "$WORK/org-$twin/$p-ai-core/labels.tsv" ] || fail "the filled clone of $twin lacks the skeleton"
+  [ ! -e "$WORK/org-$twin/$p-ai-core/models.tsv" ] || fail "the filled clone of $twin pins a copy of the model table"
   [ "$(git -C "$GH_FAKE/github.com/example-org/$p-ai-core.git" rev-list --count HEAD 2>/dev/null)" = 1 ] || fail "init.$twin did not push the filled clone to GitHub"
   [ -z "$(git -C "$WORK/org-$twin/$p-ai-core" status --porcelain)" ] || fail "the filled clone of $twin is not clean"
   grep -q "^$p-ai-core " "$WORK/org-$twin/$p-web/.ai-core/STAMP" || fail "the checkout of $twin was not assembled from the filled clone: $(cat "$WORK/org-$twin/$p-web/.ai-core/STAMP" | tr '\n' '|')"

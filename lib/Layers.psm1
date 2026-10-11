@@ -130,11 +130,13 @@ function Add-LayerSkeletonFile {
 }
 
 function Initialize-LayerContent {
-  # The skeleton, what every project harness starts from, plus the four data files and the
-  # config, so the first init already has something to read; committed as the first commit
+  # The skeleton, what every project harness starts from, plus the three data files and the
+  # config, so the first init already has something to read; committed as the first commit.
+  # models.tsv is not among them: a copy would pin today's table, and the project would never
+  # see a later one of setup-ai-core
   [CmdletBinding()] param([Parameter(Mandatory)][string]$Dir, [Parameter(Mandatory)][string]$Root)
   Copy-Item -Recurse -Force (Join-Path $Root 'skeleton\*') $Dir
-  foreach ($f in @('config.env', 'labels.tsv', 'assignees.tsv', 'team-modes.tsv', 'models.tsv')) { Copy-Item (Join-Path $Root "templates\.ai-core\$f") (Join-Path $Dir $f) }
+  foreach ($f in @('config.env', 'labels.tsv', 'assignees.tsv', 'team-modes.tsv')) { Copy-Item (Join-Path $Root "templates\.ai-core\$f") (Join-Path $Dir $f) }
   & git -C $Dir add -A
   $name = if ($env:GIT_AUTHOR_NAME) { $env:GIT_AUTHOR_NAME } else { 'ai-core' }
   $mail = if ($env:GIT_AUTHOR_EMAIL) { $env:GIT_AUTHOR_EMAIL } else { 'ai-core@localhost' }

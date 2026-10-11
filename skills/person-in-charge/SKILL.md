@@ -114,8 +114,10 @@ whose models hold 272k), 100k for a UI test; no tool stops a session at them, an
 
 Wake yourself for it (`references/<tool>.md` says how). Read `ai-core status`. Answer every session
 it marks blocked and every report unanswered; end every session whose phase is done; start every
-phase that is due, across all packages; a package whose `After:` area has not landed, or whose
-`Waits for the owner:` is not answered, is not built. Read TESTING: prove the live cards, 🔴 first; TREES: land or
+phase that is due, across all packages, a blocker's first and before any new plan (a package whose
+area stands in another's `After:`, a side a partner waits for, a fault on a live environment); a
+package whose `After:` area has not landed, or whose `Waits for the owner:` is not answered, is not
+built. Read TESTING: prove the live cards, 🔴 first; TREES: land or
 put to the owner. An issue a plan left out (`Left out:`) gets `incident:context` and goes to
 `backlog`. A question that is the owner's goes to the owner, its issues get `needs:owner`
 (`ai-core issue-label`) and keep their column. At the usage limit (`ai-core usage` exits 3; for

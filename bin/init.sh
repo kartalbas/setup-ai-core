@@ -586,6 +586,28 @@ if serves codex; then
     if [ "$CODEX_OVERRIDE_BYTES" -gt "$codex_doc_bytes" ]; then
       CODEX_NOTE="${CODEX_NOTE:+$CODEX_NOTE; }warning: AGENTS.override.md has $CODEX_OVERRIDE_BYTES bytes, more than project_doc_max_bytes ($codex_doc_bytes) in $CODEX_CONFIG, so Codex cuts it"
     fi
+    # 2e. Where the user runs Codex with approval_policy never and the network open, it checks
+    #     nothing. The profile ai-core, which every session the harness starts loads (-p ai-core),
+    #     closes the network and hands every approval request, a blocked network call among them,
+    #     to Codex's reviewing subagent, with the auto-mode entries of the layers as its policy:
+    #     what Claude Code's classifier reads. The user's config.toml stays as it is.
+    CODEX_PROFILE="$(dirname "$CODEX_CONFIG")/ai-core.config.toml"
+    {
+      printf '# setup-ai-core %s: written by ai-core init, rewritten on every run. The profile of every Codex\n' "$CORE_VERSION"
+      printf '# session the harness starts (codex exec -p ai-core): the network closed, and every approval\n'
+      printf '# request decided by the reviewing subagent against the auto-mode entries of the layers.\n'
+      printf 'approval_policy = "on-request"\napprovals_reviewer = "auto_review"\nsandbox_mode = "workspace-write"\n\n'
+      printf '[sandbox_workspace_write]\nnetwork_access = false\n\n[auto_review]\n'
+      printf '%s\n' "policy = '''"
+      printf '%s\n' "These entries come from the auto-mode files of the harness and of the project's layers; Claude Code's classifier reads the same. An entry under Allow permits an action that would otherwise be refused; an entry under Environment describes this environment."
+      printf '\nAllow:\n'; awk -F '\t' '$1 == "allow" { print "- " $2 }' "$TMP/auto-mode.tsv"
+      printf '\nEnvironment:\n'; awk -F '\t' '$1 == "environment" { print "- " $2 }' "$TMP/auto-mode.tsv"
+      printf '%s\n' "'''"
+    } > "$TMP/ai-core.config.toml"
+    if ! cmp -s "$TMP/ai-core.config.toml" "$CODEX_PROFILE"; then
+      CODEX_NOTE="${CODEX_NOTE:+$CODEX_NOTE; }the profile ai-core $([ "$DRY" -eq 1 ] && echo "would be written" || echo "written") to $CODEX_PROFILE"
+      [ "$DRY" -eq 1 ] || cat "$TMP/ai-core.config.toml" > "$CODEX_PROFILE"
+    fi
   fi
 fi
 

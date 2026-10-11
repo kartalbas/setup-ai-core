@@ -250,16 +250,21 @@ for t in sh ps1; do
   [ "$(tr -d '\r' < "$CODEX_HOME-$t/config.toml")" = "$(printf 'model = "m"\nproject_doc_max_bytes = 262144\n\n[profiles.p]\nproject_doc_max_bytes = 5')" ] || fail "init.$t wrote Codex's config wrong: $(tr '\n' '|' < "$CODEX_HOME-$t/config.toml")"
   grep -aq "^  codex: project_doc_max_bytes set to 262144 in $CODEX_HOME-$t/config.toml" "$F.log" || fail "init.$t did not say it raised project_doc_max_bytes"
   sed "s/codex-folder-$t/F/g" "$O" > "$WORK/codex-override-$t.md"
+  P="$CODEX_HOME-$t/ai-core.config.toml"
+  grep -qxF 'approvals_reviewer = "auto_review"' "$P" && grep -qxF 'network_access = false' "$P" || fail "init.$t wrote no Codex profile ai-core that closes the network and hands approvals to the reviewer"
+  grep -qF -- "- [setup-ai-core] $(grep -m1 '^allow' "$ROOT/auto-mode.tsv" | cut -f2)" "$P" || fail "init.$t: the profile ai-core lacks the auto-mode entries"
+  grep -aq "the profile ai-core written to $P" "$F.log" || fail "init.$t did not say it wrote the profile ai-core"
 done
 cmp -s "$WORK/codex-override-sh.md" "$WORK/codex-override-ps1.md" || fail "the twins wrote different AGENTS.override.md files"
+cmp -s "$CODEX_HOME-sh/ai-core.config.toml" "$CODEX_HOME-ps1/ai-core.config.toml" || fail "the twins wrote different Codex profiles"
 for t in sh ps1; do
   N="$WORK/codex-none-$t"; mkdir -p "$N/.ai-core"; printf 'UPDATE_CHECK="never"\nAGENTS="claude"\n' > "$N/.ai-core/config.env"
-  printf 'project_doc_max_bytes = 999999\n' > "$CODEX_HOME-$t/config.toml"
-  if [ "$t" = sh ]; then CODEX_HOME="$CODEX_HOME-$t" bash "$ROOT/bin/init.sh" "$N" --no-doctor > "$N.log" 2>&1
-  else CODEX_HOME="$CODEX_HOME-$t" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$N")" -NoDoctor > "$N.log" 2>&1; fi
-  [ ! -e "$N/AGENTS.override.md" ] || fail "init.$t wrote AGENTS.override.md where Codex is not served"
-  [ "$(tr -d '\r' < "$CODEX_HOME-$t/config.toml")" = 'project_doc_max_bytes = 999999' ] || fail "init.$t changed a higher project_doc_max_bytes"
+  X="$CODEX_HOME-none-$t"; mkdir -p "$X"; printf 'project_doc_max_bytes = 999999\n' > "$X/config.toml"
+  if [ "$t" = sh ]; then CODEX_HOME="$X" bash "$ROOT/bin/init.sh" "$N" --no-doctor > "$N.log" 2>&1
+  else CODEX_HOME="$X" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$N")" -NoDoctor > "$N.log" 2>&1; fi
+  [ ! -e "$N/AGENTS.override.md" ] && [ ! -e "$X/ai-core.config.toml" ] || fail "init.$t wrote AGENTS.override.md or the Codex profile where Codex is not served"
+  [ "$(tr -d '\r' < "$X/config.toml")" = 'project_doc_max_bytes = 999999' ] || fail "init.$t changed Codex's config where Codex is not served"
 done
-echo "  a checkout in a project folder gets the folder's and its own AGENTS.md with rules.md, skills.md and the folder's local rules written out, the same on both twins and kept out of git; Codex's config is raised before its first table, a table's key and a higher value stay; nothing where Codex is not served"
+echo "  a checkout in a project folder gets the folder's and its own AGENTS.md with rules.md, skills.md and the folder's local rules written out, the same on both twins and kept out of git; Codex's config is raised before its first table, a table's key stays; the profile ai-core closes the network and gives the reviewer the auto-mode entries, the same on both twins; nothing where Codex is not served"
 
 exit 0

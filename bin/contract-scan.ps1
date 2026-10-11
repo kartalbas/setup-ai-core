@@ -33,6 +33,7 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot '../lib/Board.psm1') -Force
 
 $withPackage = $PSBoundParameters.ContainsKey('Package')
+if ($withPackage -and -not $Package) { Stop-WithError '--package needs a value' }
 $folder = Get-ProjectFolder
 [string[]] $repos = @(Get-ChildItem -Directory -LiteralPath $folder | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName '.git') } |
   ForEach-Object { $_.Name })

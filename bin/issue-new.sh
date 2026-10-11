@@ -117,6 +117,14 @@ if [ -n "$parent" ]; then
   IFS=$'\t' read -r parent_repo parent_num parent_id parent_title <<< "$row"
 fi
 
+# The status and the priority are resolved before anything is created: a board of an older
+# layout has no `ready`, and an issue made first would stand half-made, on the board with no
+# status and no priority. README names the field-option-add lines that bring a board to the layout.
+if [ -z "$no_board" ]; then
+  option_id Status "$status" >/dev/null
+  option_id Priority "$priority" >/dev/null
+fi
+
 args=(--repo "$repo" --title "$title" --body-file "$sent" --assignee "$assignee")
 for l in "${labels[@]}"; do args+=(--label "$l"); done
 

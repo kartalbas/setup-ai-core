@@ -140,7 +140,9 @@ echo
 echo "labels.tsv declares $(labels_tsv "$FILE" | wc -l | tr -d ' ') labels: \
 $(label_names_in_group type "$FILE" | grep -c .) type, \
 $(label_names_in_group area "$FILE" | grep -c .) area, \
-$(label_names_in_group closes "$FILE" | grep -c .) closes"
+$(label_names_in_group closes "$FILE" | grep -c .) closes, \
+$(label_names_in_group incident "$FILE" | grep -c .) incident, \
+$(label_names_in_group needs "$FILE" | grep -c .) needs"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo; echo 'all passed'

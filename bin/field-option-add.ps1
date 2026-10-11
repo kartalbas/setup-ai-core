@@ -69,6 +69,7 @@ if (-not $hit) {
 }
 
 if ($hit.options.name -ccontains $Name) {
+  if ($Replacing) { Stop-WithError "field '$Field' on board $(Get-ProjectNumber) has both '$Name' and '$Replacing': nothing is replaced, because two options cannot become one; move the cards of '$Replacing' by hand and delete it on the board" }
   "board $(Get-ProjectNumber): field '$Field' already has '$Name' - nothing sent"
   exit 0
 }

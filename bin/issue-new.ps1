@@ -112,6 +112,11 @@ foreach ($l in $Label) { $args += @('--label', $l) }
 
 # A create that fails is no read problem: gh names why on stderr, most often a label of labels.tsv
 # that labels-sync has not yet made in this repository, and nothing was created.
+# The status and the priority are resolved before anything is created: a board of an older
+# layout has no `ready`, and an issue made first would stand half-made, on the board with no
+# status and no priority. README names the field-option-add lines that bring a board to the layout.
+if (-not $NoBoard) { Get-OptionId 'Status' $Status | Out-Null; Get-OptionId 'Priority' $Priority | Out-Null }
+
 try { $url = Invoke-Gh @args }
 catch { Stop-WithError "the issue was NOT created in $Repo - gh exited $LASTEXITCODE, for the reason it wrote above. Where that is a label the repository does not have, run: ai-core labels-sync $Repo" }
 $num = [int]($url -split '/')[-1]

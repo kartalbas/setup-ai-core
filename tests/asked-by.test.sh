@@ -113,6 +113,13 @@ check 'nothing reached gh'      no  "$(grep -q 'issue create' "$log" 2>/dev/null
 echo "the caller's body file is left as it was"
 check 'still one line'   'the body' "$(cat "$body")"
 
+echo 'a board of the older layout, without ready: refused before gh creates anything'
+printf 'Status\tF1\ttodo\tO1\nPriority\tF2\tP1\tO2\n' > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
+out="$(new --asked-by kartalbas --asked-in 'issue #12')"; rc=$?
+check 'refused'                 yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'it names the option'     yes "$(grep -q "field 'Status' has no option 'ready'" <<< "$out" && echo yes || echo no)"
+check 'nothing reached gh'      no  "$(grep -q 'issue create' "$log" 2>/dev/null && echo yes || echo no)"
+
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo
 echo 'all passed'

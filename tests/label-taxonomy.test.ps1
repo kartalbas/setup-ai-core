@@ -135,7 +135,9 @@ try {
   "labels.tsv declares $($all.Count) labels: " +
     "$((Get-LabelNamesInGroup -Group 'type'   -Path $file).Count) type, " +
     "$((Get-LabelNamesInGroup -Group 'area'   -Path $file).Count) area, " +
-    "$((Get-LabelNamesInGroup -Group 'closes' -Path $file).Count) closes"
+    "$((Get-LabelNamesInGroup -Group 'closes' -Path $file).Count) closes, " +
+    "$((Get-LabelNamesInGroup -Group 'incident' -Path $file).Count) incident, " +
+    "$((Get-LabelNamesInGroup -Group 'needs' -Path $file).Count) needs"
 }
 finally { Remove-Item -Recurse -Force $work -EA SilentlyContinue }
 

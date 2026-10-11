@@ -594,7 +594,7 @@ function Sync-ReleasedCards {
 function Test-OnNoBoard {
   # A repository ON NO BOARD: no board is named, by -Project or GH_PROJECT_NUMBER, and the
   # repository is linked to no open one, as a harness or the tooling's own repository is. Its
-  # issues have no card, so a status, a priority or a column after implementing has nowhere to go.
+  # issues have no card, so a status, a priority or a testing column has nowhere to go.
   [CmdletBinding()]
   param([Parameter(Mandatory)][string]$Repo, [string]$Named = '')
   if (-not $Named) { $Named = "$env:GH_PROJECT_NUMBER" }
@@ -790,6 +790,32 @@ function Get-IssueBoardItems {
   $jq = '.data.repository.issue.projectItems.nodes[] | select(.project.closed == false) | "\(.project.owner.login)/\(.project.number)\t\(.id)"'
   @(Invoke-Gh api graphql -f "o=$owner" -f "n=$name" -F "num=$Number" -f "query=$q" --jq $jq |
     Where-Object { $_ })
+}
+
+function Test-OptionOnEveryBoard {
+  # Dies where a board the issue is on, or the repository's board where it has no card yet, lacks
+  # the option; nothing is written. Called before an issue is changed, so a board of an older
+  # layout refuses before the issue stands half-made. The walk is Invoke-OnEveryBoard's, without
+  # the write.
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)][string]$Repo,
+    [Parameter(Mandatory)][string]$Number,
+    [Parameter(Mandatory)][string]$Field,
+    [Parameter(Mandatory)][string]$Option
+  )
+  $rows = Get-IssueBoardItems -Repo $Repo -Number $Number
+  if ($rows.Count -eq 0) {
+    if ((Get-RepoOpenProjects -Repo $Repo).Count -eq 0) { return }
+    Set-Project -Number '' -Repo $Repo | Out-Null
+    Get-OptionId $Field $Option | Out-Null
+    return
+  }
+  foreach ($row in $rows) {
+    $bnum, $bitem = $row -split "`t", 2
+    Set-Project -Number $bnum | Out-Null
+    Get-OptionId $Field $Option | Out-Null
+  }
 }
 
 function Invoke-OnEveryBoard {
@@ -997,7 +1023,7 @@ function Get-ProjectFolder {
   else { (Get-Location).Path }
 }
 
-Export-ModuleMember -Function Get-ProjectFolder, Stop-WithError, Sync-ReleasedCards, ConvertTo-AsciiLowercase, Invoke-Gh, Get-Org, Get-DataDir, Get-DataFile, Get-LabelTaxonomy, Get-LabelNamesInGroup,
+Export-ModuleMember -Function Get-ProjectFolder, Test-OptionOnEveryBoard, Stop-WithError, Sync-ReleasedCards, ConvertTo-AsciiLowercase, Invoke-Gh, Get-Org, Get-DataDir, Get-DataFile, Get-LabelTaxonomy, Get-LabelNamesInGroup,
   Set-Project, Get-ProjectNumber, Get-ProjectOrg,
   Get-TemplateProjectNumber, Get-TemplateMark, Resolve-ProjectForRepo, Get-RepoOpenProjects, Test-OnNoBoard, Get-OriginDefaultBranch, Get-ProjectId, Get-CacheDir, Get-Fields, Get-FieldId, Get-OptionId,
   Clear-BoardCache, Get-DefaultRepo, Get-BranchIssueRepo, Get-IssueRef, Get-AssigneeForRepo, Get-ProjectRepos, Get-IssueNodeId, Get-IssueDbId,

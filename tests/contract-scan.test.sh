@@ -41,6 +41,7 @@ git init -q "$t/proj/shop-docs"   # no origin: its HEAD is what is searched
 echo 'DOCS_ONLY' > "$t/proj/shop-docs/README.md"
 gitc "$t/proj/shop-docs" add -A && gitc "$t/proj/shop-docs" commit -q -m docs
 mkdir -p "$t/proj/notes"; echo 'CATALOG_DIRS' > "$t/proj/notes/todo.txt"   # no clone: never searched
+git init -q "$t/proj/x&y z"; echo 'ODD_NAME' > "$t/proj/x&y z/f.txt"; gitc "$t/proj/x&y z" add -A && gitc "$t/proj/x&y z" commit -q -m odd
 echo 'LOCAL_ONLY' > "$t/proj/shop-api/local.txt"
 gitc "$t/proj/shop-api" add -A && gitc "$t/proj/shop-api" commit -q -m 'not pushed'
 echo 'CATALOG_DIRS' > "$t/proj/shop-docs/draft.txt"   # not committed
@@ -48,7 +49,7 @@ echo 'CATALOG_DIRS' > "$t/proj/shop-docs/draft.txt"   # not committed
 echo 'the planted defect: the contract has a side outside the package'
 out="$(cd "$t/proj/shop-web" && bash "$scan" --package shop-web CATALOG_DIRS 2>&1)"; rc=$?
 check 'it exits 3'         3 "$rc"
-check 'the count line'     'CATALOG_DIRS: 2 hit(s) in 2 of 3 repositories' "$(sed -n 1p <<< "$out")"
+check 'the count line'     'CATALOG_DIRS: 2 hit(s) in 2 of 4 repositories' "$(sed -n 1p <<< "$out")"
 check 'the producer'       '  shop-api config.env:1:CATALOG_DIRS=webs' "$(sed -n 2p <<< "$out")"
 check 'the reader'         '  shop-web build.mjs:1:read(process.env.CATALOG_DIRS)' "$(sed -n 3p <<< "$out")"
 check 'the side outside'   '  outside the package: shop-api (1)' "$(sed -n 4p <<< "$out")"
@@ -61,18 +62,26 @@ check 'no side outside'    no "$(grep -q 'outside the package' <<< "$out" && ech
 
 echo 'what ships, not what is local'
 out="$(cd "$t/proj/shop-api" && bash "$scan" LOCAL_ONLY DOCS_ONLY 2>&1)"; rc=$?
-check 'a commit not pushed' 'LOCAL_ONLY: 0 hit(s) in 0 of 3 repositories' "$(sed -n 1p <<< "$out")"
-check 'HEAD without origin' 'DOCS_ONLY: 1 hit(s) in 1 of 3 repositories' "$(sed -n 2p <<< "$out")"
+check 'a commit not pushed' 'LOCAL_ONLY: 0 hit(s) in 0 of 4 repositories' "$(sed -n 1p <<< "$out")"
+check 'HEAD without origin' 'DOCS_ONLY: 1 hit(s) in 1 of 4 repositories' "$(sed -n 2p <<< "$out")"
 check 'its hit'             '  shop-docs README.md:1:DOCS_ONLY' "$(sed -n 3p <<< "$out")"
 check 'without --package'   0 "$rc"
 
 echo 'ten hits per repository, and the count of the rest'
 out="$(cd "$t/proj/shop-web" && bash "$scan" MANY 2>&1)"
-check 'the count line'     'MANY: 12 hit(s) in 1 of 3 repositories' "$(sed -n 1p <<< "$out")"
+check 'the count line'     'MANY: 12 hit(s) in 1 of 4 repositories' "$(sed -n 1p <<< "$out")"
 check 'ten lines'          10 "$(grep -c '^  shop-web many.txt:' <<< "$out")"
 check 'the rest'           '  shop-web ... and 2 more' "$(sed -n 12p <<< "$out")"
 
+echo 'a clone whose name holds a space and an ampersand is one repository, printed as it is'
+out="$(cd "$t/proj/shop-web" && bash "$scan" --package 'x&y z' ODD_NAME 2>&1)"; rc=$?
+check 'it exits 0'         0 "$rc"
+check 'the count line'     'ODD_NAME: 1 hit(s) in 1 of 4 repositories' "$(sed -n 1p <<< "$out")"
+check 'its hit'            '  x&y z f.txt:1:ODD_NAME' "$(sed -n 2p <<< "$out")"
+
 echo 'usage errors'
+out="$(cd "$t/proj/shop-web" && bash "$scan" --package '' CATALOG_DIRS 2>&1)"; rc=$?
+check 'an empty package'   '1 error: --package needs a value' "$rc $out"
 out="$(cd "$t/proj/shop-web" && bash "$scan" --package shop-cms CATALOG_DIRS 2>&1)"; rc=$?
 check 'a package repo that is no clone' "1 error: --package names shop-cms, which is no clone of $t/proj" "$rc $out"
 out="$(cd "$t/proj/shop-web" && bash "$scan" 2>&1)"; rc=$?

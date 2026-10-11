@@ -162,6 +162,11 @@ try {
         $(if ($out -like "*has no option 'P7'. There is: P0 P1*") { 'yes' } else { "no: $out" })
   Check 'and no mutation reached the board' 'no body' `
         $(if (Test-Path (Join-Path $fake 'body.json')) { 'a body was sent' } else { 'no body' })
+  $out = Invoke-Run -Field Priority -Name P2 -Color GRAY -Replacing P3
+  Check 'a rename onto a name the field has is refused, naming both' 'yes' `
+        $(if ($out -like "*has both 'P2' and 'P3'*") { 'yes' } else { "no: $out" })
+  Check 'and no mutation reached the board' 'no body' `
+        $(if (Test-Path (Join-Path $fake 'body.json')) { 'a body was sent' } else { 'no body' })
   $out = Invoke-Run -Field Priority -Name P9 -Color GRAY -After P1 -Replacing P2
   Check '-After and -Replacing together stop' 'yes' `
         $(if ($out -like '*--after and --replacing exclude each other*') { 'yes' } else { "no: $out" })

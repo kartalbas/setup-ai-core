@@ -88,6 +88,7 @@ fid="$(printf '%s' "$fields" | jq -r --arg f "$field" \
 have="$(printf '%s' "$fields" | jq -r --arg f "$field" \
   '.data.node.fields.nodes[] | select(.name == $f) | .options[].name' | tr -d '\r')"
 if grep -qxF -- "$name" <<< "$have"; then
+  [ -z "$replacing" ] || die "field '$field' on board $(project_number) has both '$name' and '$replacing': nothing is replaced, because two options cannot become one; move the cards of '$replacing' by hand and delete it on the board"
   echo "board $(project_number): field '$field' already has '$name' - nothing sent"
   exit 0
 fi

@@ -36,37 +36,40 @@ done
 [ "${#terms[@]}" -gt 0 ] || die "$usage"
 
 folder="$(project_folder)"
-repos="$(for d in "$folder"/*/; do d="${d%/}"; if [ -e "$d/.git" ]; then printf '%s\n' "${d##*/}"; fi; done | LC_ALL=C sort | tr '\n' ' ')"
-[ -n "${repos// /}" ] || die "no git clone in $folder"
+repos=()
+while IFS= read -r d; do [ -n "$d" ] && repos+=("$d"); done <<< "$(for d in "$folder"/*/; do d="${d%/}"; if [ -e "$d/.git" ]; then printf '%s\n' "${d##*/}"; fi; done | LC_ALL=C sort)"
+[ "${#repos[@]}" -gt 0 ] || die "no git clone in $folder"
 
 inside() {  # inside <repo> - is the repository one of the package's
   case ",$package," in *",$1,"*) return 0 ;; esac
   return 1
 }
+is_clone() {  # is_clone <name>
+  local r; for r in "${repos[@]}"; do [ "$r" = "$1" ] && return 0; done; return 1
+}
 if [ "$with_package" -eq 1 ]; then
-  old_ifs="$IFS"; IFS=','
-  for p in $package; do
-    case " $repos " in *" $p "*) ;; *) IFS="$old_ifs"; die "--package names $p, which is no clone of $folder" ;; esac
-  done
-  IFS="$old_ifs"
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    is_clone "$p" || die "--package names $p, which is no clone of $folder"
+  done <<< "$(printf '%s' "$package" | tr ',' '\n')"
 fi
 
 outside=0
 for term in "${terms[@]}"; do
   total=0; holders=0; lines=""; foreign=""
-  for r in $repos; do
+  for r in "${repos[@]}"; do
     ref=HEAD
     git -C "$folder/$r" rev-parse --verify -q refs/remotes/origin/HEAD >/dev/null && ref=origin/HEAD
     hits="$(git -C "$folder/$r" grep -n -I -F -e "$term" "$ref" -- 2>/dev/null | tr -d '\r' || true)"
     [ -n "$hits" ] || continue
     n="$(printf '%s\n' "$hits" | grep -c .)"
     total=$((total + n)); holders=$((holders + 1))
-    # cut counts bytes, so a line with non-ASCII text ends a few characters before the twin's
-    lines="$lines$(printf '%s\n' "$hits" | sed -n '1,10p' | sed -e "s|^$ref:||" -e "s|^|  $r |" | cut -c1-200)"$'\n'
+    # The name goes in by printf, not by a sed replacement, so a `&` in it stays a `&`
+    lines="$lines$(printf '%s\n' "$hits" | sed -n '1,10p' | while IFS= read -r l; do printf '  %s %s\n' "$r" "${l#"$ref:"}" | cut -c1-200; done)"$'\n'
     [ "$n" -gt 10 ] && lines="$lines  $r ... and $((n - 10)) more"$'\n'
     if [ "$with_package" -eq 1 ] && ! inside "$r"; then foreign="$foreign $r ($n)"; fi
   done
-  echo "$term: $total hit(s) in $holders of $(printf '%s\n' $repos | grep -c .) repositories"
+  echo "$term: $total hit(s) in $holders of ${#repos[@]} repositories"
   printf '%s' "$lines"
   if [ -n "$foreign" ]; then
     echo "  outside the package:$foreign"

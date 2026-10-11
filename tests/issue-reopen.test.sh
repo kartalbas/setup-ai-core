@@ -22,13 +22,14 @@ printf '%s\n' "\$*" >> "$log"
 case "\$*" in
   *projectItems*)         printf 'example-org/998\tPVTI_item\n'; exit 0 ;;
   *'projectV2(number'*)   echo 'PVT_kwreopen'; exit 0 ;;
-  *'fields(first:50'*)    printf 'Status\tF1\tready\tT1\nStatus\tF1\tdone\tD1\n'; exit 0 ;;
+  *'fields(first:50'*)    cat "$fake/fields.tsv"; exit 0 ;;
 esac
 if [ "\$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
 echo '{}'
 exit 0
 EOF
 chmod +x "$fake/gh"
+printf 'Status\tF1\tready\tT1\nStatus\tF1\tdone\tD1\n' > "$fake/fields.tsv"
 export PATH="$fake:$PATH"
 
 failed=0
@@ -89,6 +90,13 @@ chmod +x "$refusing/gh"
 out="$(PATH="$refusing:$PATH" "$reopen" "$repo" 412 2>&1)"; rc=$?
 check 'exits nonzero'    yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
 check 'no reopened line' no  "$(grep -q -- '-> reopened' <<< "$out" && echo yes || echo no)"
+
+echo 'a board of the older layout, without ready: refused before the issue is reopened'
+printf 'Status\tF1\ttodo\tT1\nStatus\tF1\tdone\tD1\n' > "$fake/fields.tsv"; rm -rf "$fake/cache"; : > "$log"
+out="$("$reopen" "$repo" 412 2>&1)"; rc=$?
+check 'it exits 1'          1   "$rc"
+check 'it names the option' yes "$(grep -q "field 'Status' has no option 'ready'" <<< "$out" && echo yes || echo no)"
+check 'nothing was reopened' no "$(grep -q 'state=open' "$log" && echo yes || echo no)"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

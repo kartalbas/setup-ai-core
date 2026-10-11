@@ -161,6 +161,11 @@ check 'an --after the field does not have stops, and names the options' yes \
       "$(case "$out" in *"has no option 'P7'. There is: P0 P1 P2 P3"*) echo yes ;; *) echo "no: $out" ;; esac)"
 check 'and no mutation reached the board' 'no body' \
       "$([ -f "$FAKE/body.json" ] && echo 'a body was sent' || echo 'no body')"
+out="$(run --field Priority --name P2 --color GRAY --replacing P3)"
+check 'a rename onto a name the field has is refused, naming both' yes \
+      "$(case "$out" in *"has both 'P2' and 'P3'"*) echo yes ;; *) echo "no: $out" ;; esac)"
+check 'and no mutation reached the board' 'no body' \
+      "$([ -f "$FAKE/body.json" ] && echo 'a body was sent' || echo 'no body')"
 out="$(run --field Priority --name P9 --color GRAY --after P1 --replacing P2)"
 check '--after and --replacing together stop' yes \
       "$(case "$out" in *'--after and --replacing exclude each other'*) echo yes ;; *) echo "no: $out" ;; esac)"

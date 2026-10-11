@@ -42,6 +42,9 @@ Set-Content -LiteralPath (Join-Path $proj 'shop-docs/README.md') -Value 'DOCS_ON
 Git-In (Join-Path $proj 'shop-docs') add -A; Git-In (Join-Path $proj 'shop-docs') commit -q -m docs
 New-Item -ItemType Directory -Path (Join-Path $proj 'notes') | Out-Null
 Set-Content -LiteralPath (Join-Path $proj 'notes/todo.txt') -Value 'CATALOG_DIRS'
+& git init -q (Join-Path $proj 'x&y z')
+Set-Content -LiteralPath (Join-Path $proj 'x&y z/f.txt') -Value 'ODD_NAME'
+Git-In (Join-Path $proj 'x&y z') add -A; Git-In (Join-Path $proj 'x&y z') commit -q -m odd
 Set-Content -LiteralPath (Join-Path $proj 'shop-api/local.txt') -Value 'LOCAL_ONLY'
 Git-In (Join-Path $proj 'shop-api') add -A; Git-In (Join-Path $proj 'shop-api') commit -q -m 'not pushed'
 Set-Content -LiteralPath (Join-Path $proj 'shop-docs/draft.txt') -Value 'CATALOG_DIRS'
@@ -49,7 +52,7 @@ Set-Content -LiteralPath (Join-Path $proj 'shop-docs/draft.txt') -Value 'CATALOG
 Write-Host 'the planted defect: the contract has a side outside the package'
 $r = Scan (Join-Path $proj 'shop-web') -Package shop-web CATALOG_DIRS
 Check 'it exits 3'       3 $r.Code
-Check 'the count line'   'CATALOG_DIRS: 2 hit(s) in 2 of 3 repositories' $r.Lines[0]
+Check 'the count line'   'CATALOG_DIRS: 2 hit(s) in 2 of 4 repositories' $r.Lines[0]
 Check 'the producer'     '  shop-api config.env:1:CATALOG_DIRS=webs' $r.Lines[1]
 Check 'the reader'       '  shop-web build.mjs:1:read(process.env.CATALOG_DIRS)' $r.Lines[2]
 Check 'the side outside' '  outside the package: shop-api (1)' $r.Lines[3]
@@ -62,18 +65,28 @@ Check 'no side outside' 'False' ([bool]($r.Lines -match 'outside the package'))
 
 Write-Host 'what ships, not what is local'
 $r = Scan (Join-Path $proj 'shop-api') LOCAL_ONLY DOCS_ONLY
-Check 'a commit not pushed' 'LOCAL_ONLY: 0 hit(s) in 0 of 3 repositories' $r.Lines[0]
-Check 'HEAD without origin' 'DOCS_ONLY: 1 hit(s) in 1 of 3 repositories' $r.Lines[1]
+Check 'a commit not pushed' 'LOCAL_ONLY: 0 hit(s) in 0 of 4 repositories' $r.Lines[0]
+Check 'HEAD without origin' 'DOCS_ONLY: 1 hit(s) in 1 of 4 repositories' $r.Lines[1]
 Check 'its hit'             '  shop-docs README.md:1:DOCS_ONLY' $r.Lines[2]
 Check 'without -Package'    0 $r.Code
 
 Write-Host 'ten hits per repository, and the count of the rest'
 $r = Scan (Join-Path $proj 'shop-web') MANY
-Check 'the count line' 'MANY: 12 hit(s) in 1 of 3 repositories' $r.Lines[0]
+Check 'the count line' 'MANY: 12 hit(s) in 1 of 4 repositories' $r.Lines[0]
 Check 'ten lines'      10 @($r.Lines | Where-Object { $_.StartsWith('  shop-web many.txt:') }).Count
 Check 'the rest'       '  shop-web ... and 2 more' $r.Lines[11]
 
+Write-Host 'a clone whose name holds a space and an ampersand is one repository, printed as it is'
+$r = Scan (Join-Path $proj 'shop-web') -Package 'x&y z' ODD_NAME
+Check 'it exits 0'     0 $r.Code
+Check 'the count line' 'ODD_NAME: 1 hit(s) in 1 of 4 repositories' $r.Lines[0]
+Check 'its hit'        '  x&y z f.txt:1:ODD_NAME' $r.Lines[1]
+
 Write-Host 'usage errors'
+$r = Scan (Join-Path $proj 'shop-web') -Package '' CATALOG_DIRS
+Check 'an empty package' '1 True' "$($r.Code) $([bool]($r.Lines -match [regex]::Escape('--package needs a value')))"
+$r = Scan (Join-Path $proj 'shop-web')
+Check 'no term'          1 $r.Code
 $r = Scan (Join-Path $proj 'shop-web') -Package shop-cms CATALOG_DIRS
 Check 'a package repo that is no clone' '1 True' "$($r.Code) $([bool]($r.Lines -match [regex]::Escape('error: --package names shop-cms, which is no clone of')))"
 

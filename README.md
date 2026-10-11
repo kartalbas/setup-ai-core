@@ -399,9 +399,11 @@ on start; no developer installs a skill by hand.
   capability across every repository it touches, with both sides of each contract, found by
   `ai-core contract-scan`. Every package is a section of one plan issue per board, titled "Plan:
   packages", with its ecosystem, class, repositories, contracts and issues.
-  - A package runs through its phases: plan, plan check, build and test, review, start check,
-    land, UI test and live check. Each phase is a fresh session, ended with the phase. Nothing is
-    compacted and continued, because the state lives in the tracker and on the branch.
+  - A package runs through its phases: plan, plan check, build and test, review, start check, land,
+    UI test and live check. Each phase is a fresh session, ended with the phase, started with one
+    brief from the skill's `briefs/` (its input, what to do, the exact shape of its output) on the
+    commands of `references/<tool>.md`. Nothing is compacted and continued, because the state lives
+    in the tracker and on the branch.
   - The model and effort of each phase follow the package's class (`mechanical`, `normal-hard`,
     `high-risk`) and come from `.ai-core/models.tsv`, one block per tool. The reviewer never runs
     on the model that built the package. A phase never moves to another model or tool because a

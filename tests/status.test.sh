@@ -201,16 +201,16 @@ check 'exit 1'        1 "$rc"
 check 'the line'      'error: outside a repository, name the board - status --project N' "$refused"
 
 echo 'the testing cards and the worktrees the sweep keeps, read from git'
-# A second board in a folder of its own: its column after implementing is testing, and its
-# repository has release tags of two environments and four issue worktrees
+# A second board in a folder of its own: its column after implementing and review is testing, and
+# its repository has release tags of two environments and four issue worktrees
 live="$work/live"; mkdir -p "$live/.ai-core" "$work/cache/8"
 # status spells the folder as node resolves it, which on Windows is C:\...; the expectation does too
 shown="$(node -e 'process.stdout.write(require("path").resolve(process.argv[1]))' "$live")"
 printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\nPROOF_HOURS=24\n' > "$live/.ai-core/config.env"
 echo PVT_example8 > "$work/cache/8/project-id"
-printf 'Status\tF1\t%s\tO%s\n' Todo 1 implementing 2 testing 3 Done 4 > "$work/cache/8/fields.tsv"
+printf 'Status\tF1\t%s\tO%s\n' Todo 1 implementing 2 review 3 testing 4 Done 5 > "$work/cache/8/fields.tsv"
 # #38 is a card of another organisation's repository of the same name: the local clone is not its
-{ for n in 37 35 34 33 32 31; do card "$n" testing P1 OPEN - - 0 "Card $n"; done; card 36 implementing P1 OPEN - - 0 'Card 36'
+{ for n in 37 35 34 33 32 31; do card "$n" testing P1 OPEN - - 0 "Card $n"; done; card 36 implementing P1 OPEN - - 0 'Card 36'; card 39 review P1 OPEN - - 0 'Card 39'
   card 38 testing P1 OPEN - - 0 'Card 38' | sed 's#example-org/example-repo#other-org/example-repo#g'; } > "$work/page8"
 cat > "$work/bin/gh" <<EOF
 #!/usr/bin/env bash
@@ -268,6 +268,7 @@ check 'the live cards in order: the first environment, then the longest live' '3
 check 'and the trees, the oldest first' '41 42' "$(awk '/^TREES/ { on = 1; next } on && /^  example-repo#/ { sub(/^  example-repo#/, ""); print $1 }' <<< "$page" | tr '\n' ' ' | sed 's/ $//')"
 check 'a worktree changed a moment ago is not listed' '' "$(grep 'example-repo#45' <<< "$page")"
 check 'a card in implementing is not listed' '' "$(grep 'example-repo#36' <<< "$page")"
+check 'nor one in review' '' "$(grep 'example-repo#39' <<< "$page")"
 check 'the trees line' 'TREES   2 worktrees the sweep keeps, older than a day:' "$(grep '^TREES' <<< "$page")"
 check 'unlanded and old' "  $(printf '%-26s' example-repo#41)   3 d  has work origin/master does not have yet" "$(grep 'example-repo#41' <<< "$page")"
 check 'with changes' "  $(printf '%-26s' example-repo#42)  30 h  has changes" "$(grep 'example-repo#42' <<< "$page")"

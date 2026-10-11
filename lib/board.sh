@@ -19,7 +19,8 @@ die() { echo "error: $*" >&2; exit 1; }
 
 # --- where the data lives -----------------------------------------------------
 
-# THE DATA FILES ARE THE PROJECT'S, NOT THE HARNESS'S: labels.tsv, assignees.tsv, team-modes.tsv.
+# THE DATA FILES ARE THE PROJECT'S, NOT THE HARNESS'S: labels.tsv, assignees.tsv, team-modes.tsv,
+# models.tsv.
 # A checkout carries them in .ai-core/, put there by init; the clone's templates hold the
 # defaults a project starts from. Every reader asks here, so the two twins and every command
 # read the same file: the one of the repository the caller stands in, or of the project folder.
@@ -150,7 +151,7 @@ gh_read() {  # gh_read <what was asked for> <gh argument>...
 # The groups a row may stand in. The group is also the PREFIX the label carries, so
 # a row in group `area` is named `area:something` - the two cannot be told apart and
 # so cannot disagree.
-LABEL_GROUPS='type area closes incident'
+LABEL_GROUPS='type area closes incident needs'
 
 # EVERY READER OF labels.tsv COMES THROUGH HERE, and the file is held against its
 # shape before a single name leaves this function.
@@ -875,17 +876,27 @@ set_select() {  # set_select <item id> <field name> <option name>
         value:{singleSelectOptionId:$oid}}) { projectV2Item { id } } }' >/dev/null
 }
 
+# THE PROJECT FOLDER: the folder that holds the clone this runs in, its main checkout also from
+# one of its worktrees, or the current directory outside a repository.
+project_folder() {
+  local common
+  if common="$(git rev-parse --git-common-dir 2>/dev/null)"; then
+    dirname "$(cd "$common/.." && git rev-parse --show-toplevel)"
+  else pwd; fi
+}
+
 # --- epics --------------------------------------------------------------------
 #
-# An epic, an issue with sub-issues, is never moved by hand: it follows its sub-issues. It stands
-# in implementing once one has started, in testing once all stand in testing or done, and is
-# closed once all are done. As nothing else moves it, it also takes the one step back its
-# sub-issues make true again: from testing to implementing, once a sub-issue stands before testing.
+# An epic, an issue with sub-issues, is never moved by hand: it follows its sub-issues. It stands in
+# implementing once one has started (a sub-issue in review has started too), in testing once all
+# stand in testing or done, and is closed once all are done. As nothing else moves it, it also takes
+# the one step back its sub-issues make true again: from testing to implementing, once a sub-issue
+# stands before testing.
 # A closed epic stays closed.
 
-status_rank() {  # status_rank <status> - backlog and todo < implementing < testing < done
+status_rank() {  # status_rank <status> - backlog, ready and planned < implementing and review < testing < done
   case "$1" in
-    implementing) echo 1 ;;
+    implementing|review) echo 1 ;;
     testing) echo 2 ;;
     done|CLOSE|'not planned') echo 3 ;;
     *) echo 0 ;;

@@ -5,8 +5,15 @@ Add one option to a single-select field of a board - a status column, a priority
 .EXAMPLE
 ./field-option-add.ps1 -Field Priority -Name P9 -Color GRAY
 ./field-option-add.ps1 -Project 6 -Field Priority -Name P9 -Color GRAY -Description 'Parked: kept rather than closed'
+./field-option-add.ps1 -Field Status -Name review -Color PURPLE -After implementing
+./field-option-add.ps1 -Field Status -Name ready -Color BLUE -Replacing todo
 
 .NOTES
+The new option goes last, or right after the option -After names. The order is the order of
+the columns, and finish-issue moves a card by it. -Replacing gives an existing option the new
+name, colour and description and keeps its id, so every card that carried the old option
+carries the new one; nothing is created.
+
 Running it twice changes nothing the second time: an option the field already has is
 reported and nothing is sent.
 
@@ -39,12 +46,15 @@ param(
   [Parameter(Mandatory)][string] $Name,
   [Parameter(Mandatory)][ValidateSet('GRAY','BLUE','GREEN','YELLOW','ORANGE','RED','PINK','PURPLE', IgnoreCase=$false)][string] $Color,
   [string] $Description = '',
+  [string] $After = '',
+  [string] $Replacing = '',
   [string] $Project = ''
 )
 
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot '../lib/Board.psm1') -Force
 
+if ($After -and $Replacing) { Stop-WithError '--after and --replacing exclude each other: a replaced option keeps its place' }
 Set-Project -Number $Project | Out-Null
 
 # Read whole, then decided on. gh's own --jq is not used here because the SAME answer is
@@ -62,6 +72,11 @@ if ($hit.options.name -ccontains $Name) {
   "board $(Get-ProjectNumber): field '$Field' already has '$Name' - nothing sent"
   exit 0
 }
+foreach ($o in @($After, $Replacing)) {
+  if ($o -and $hit.options.name -cnotcontains $o) {
+    Stop-WithError "field '$Field' on board $(Get-ProjectNumber) has no option '$o'. There is: $(@($hit.options.name) -join ' ')"
+  }
+}
 
 # THE REQUEST BODY IS BUILT AS OBJECTS AND CONVERTED, NOT GLUED TOGETHER AS TEXT. A
 # description holding a double quote or a backslash written into the text of a JSON
@@ -73,8 +88,16 @@ if ($hit.options.name -ccontains $Name) {
 $opts = @($hit.options | ForEach-Object {
   [ordered]@{ id = $_.id; name = $_.name; color = $_.color; description = $(if ($_.description) { $_.description } else { '' }) }
 })
-# The new option carries NO id, which is what tells GitHub to create it.
-$opts += [ordered]@{ name = $Name; color = $Color; description = $Description }
+# The new option carries NO id, which is what tells GitHub to create it; a replaced one keeps
+# its own.
+$new = [ordered]@{ name = $Name; color = $Color; description = $Description }
+if ($Replacing) {
+  $o = $opts | Where-Object { $_.name -ceq $Replacing } | Select-Object -First 1
+  $o.name = $Name; $o.color = $Color; $o.description = $Description
+} elseif ($After) {
+  $i = [Array]::FindIndex([object[]]$opts, [Predicate[object]] { param($x) $x.name -ceq $After })
+  $opts = @($opts[0..$i]) + @($new) + @(if ($i + 1 -lt $opts.Count) { $opts[($i + 1)..($opts.Count - 1)] })
+} else { $opts += $new }
 
 $m = 'mutation($fid:ID!, $opts:[ProjectV2SingleSelectFieldOptionInput!]!) {
         updateProjectV2Field(input:{fieldId:$fid, singleSelectOptions:$opts}) {

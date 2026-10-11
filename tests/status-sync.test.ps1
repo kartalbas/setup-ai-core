@@ -51,7 +51,10 @@ Check 'epic with a commit on master' '' (Get-DeriveTarget -Current 'todo' -OnMas
 Write-Host 'the ranks are what forbid a backward move'
 Check 'backlog'       0 (Get-StatusRank 'backlog')
 Check 'todo'          0 (Get-StatusRank 'todo')
+Check 'ready'         0 (Get-StatusRank 'ready')
+Check 'planned'       0 (Get-StatusRank 'planned')
 Check 'implementing'  1 (Get-StatusRank 'implementing')
+Check 'review'        1 (Get-StatusRank 'review')
 Check 'testing'       2 (Get-StatusRank 'testing')
 Check 'done'          3 (Get-StatusRank 'done')
 Check 'CLOSE is done' 3 (Get-StatusRank 'CLOSE')

@@ -9,8 +9,8 @@
 # TWO PROPERTIES, and the platform paid for both before they were held here.
 #
 # THE NAME IS MATCHED WITHOUT CASE. A board spells its options however whoever made it typed them,
-# and issue-new carries `Todo` as its default while this organisation's boards say `todo`. That
-# default could never resolve, so every issue the tooling created landed with no status at all —
+# and issue-new carries `ready` as its default while a board may say `Ready`. Matched with case,
+# that default would never resolve, and every issue the tooling created would land with no status —
 # and the PowerShell twin did not have the problem, because its `-eq` on strings ignores case. Two
 # implementations of one rule answering differently for one input is the drift the rules forbid.
 #

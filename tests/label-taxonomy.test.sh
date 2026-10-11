@@ -131,6 +131,8 @@ check 'the area group is not empty'              yes \
       "$(case "$(label_names_in_group area "$FILE" | grep -c .)" in 0) echo no ;; *) echo yes ;; esac)"
 check 'the closes group is not empty'            yes \
       "$(case "$(label_names_in_group closes "$FILE" | grep -c .)" in 0) echo no ;; *) echo yes ;; esac)"
+check 'the needs group is not empty'             yes \
+      "$(case "$(label_names_in_group needs "$FILE" | grep -c .)" in 0) echo no ;; *) echo yes ;; esac)"
 
 # HOW MUCH THE READER COVERED, printed rather than assumed: a count that moves when a line
 # is added is what says the assertions above ran against the whole file.

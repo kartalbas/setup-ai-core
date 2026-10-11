@@ -3,7 +3,7 @@
 # and, where it belongs to an epic, the parent link.
 #
 #   issue-new --repo OWNER/REPO --title "Do the thing, or what it costs" --body-file PATH \
-#             --label type:feature --label area:gate --priority P1 [--status todo] \
+#             --label type:feature --label area:gate --priority P1 [--status ready] \
 #             --asked-by LOGIN --asked-in WHERE | --found-in WHERE \
 #             [--parent OWNER/REPO#N|REPO#N|N] [--project [ORG/]N | --no-board]
 #
@@ -44,7 +44,7 @@
 # The assignee is deliberately EMPTY here. It is resolved from the repo below, once
 # the repo is known — defaulting to @me at parse time is what put every backend issue
 # on whoever ran the command.
-repo=""; title=""; body=""; priority=""; status="todo"; parent=""; project=""
+repo=""; title=""; body=""; priority=""; status="ready"; parent=""; project=""
 labels=(); assignee=""; asked_by=""; asked_in=""; found_in=""; no_board=""; status_set=""
 
 while [ $# -gt 0 ]; do

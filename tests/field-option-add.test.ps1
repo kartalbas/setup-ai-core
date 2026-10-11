@@ -142,6 +142,31 @@ try {
         $(if ($out -like '*There is: Status Priority*') { 'yes' } else { "no: $out" })
   Check 'and no mutation reached the board' 'no body' `
         $(if (Test-Path (Join-Path $fake 'body.json')) { 'a body was sent' } else { 'no body' })
+
+  ''
+  'the place of the new option, and a rename that keeps the id'
+
+  $out = Invoke-Run -Field Priority -Name P9 -Color GRAY -After P1
+  $body = Get-Body
+  Check 'the new option stands right after the one -After names' 'P0 P1 P9 P2 P3' (@($body.variables.opts.name) -join ' ')
+  Check 'and every option that existed keeps its id' 'OPT_p0 OPT_p1 NONE OPT_p2 OPT_p3' `
+        ((@($body.variables.opts | ForEach-Object { if ($_.id) { $_.id } else { 'NONE' } })) -join ' ')
+  $out = Invoke-Run -Field Status -Name ready -Color GREEN -Replacing todo
+  $body = Get-Body
+  Check 'a replaced option keeps its id, so its cards keep it; nothing is created' 'OPT_todo' `
+        ((@($body.variables.opts | ForEach-Object { if ($_.id) { $_.id } else { 'NONE' } })) -join ' ')
+  Check 'and takes the new name, colour and description' 'ready GREEN ' `
+        "$($body.variables.opts[0].name) $($body.variables.opts[0].color) $($body.variables.opts[0].description)"
+  $out = Invoke-Run -Field Priority -Name P9 -Color GRAY -After P7
+  Check 'an -After the field does not have stops, and names the options' 'yes' `
+        $(if ($out -like "*has no option 'P7'. There is: P0 P1*") { 'yes' } else { "no: $out" })
+  Check 'and no mutation reached the board' 'no body' `
+        $(if (Test-Path (Join-Path $fake 'body.json')) { 'a body was sent' } else { 'no body' })
+  $out = Invoke-Run -Field Priority -Name P9 -Color GRAY -After P1 -Replacing P2
+  Check '-After and -Replacing together stop' 'yes' `
+        $(if ($out -like '*--after and --replacing exclude each other*') { 'yes' } else { "no: $out" })
+  Check 'and no mutation reached the board' 'no body' `
+        $(if (Test-Path (Join-Path $fake 'body.json')) { 'a body was sent' } else { 'no body' })
 }
 finally {
   Remove-Item -Recurse -Force $fake, $cache -EA SilentlyContinue

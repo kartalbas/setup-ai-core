@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Reopen issues and put every board card back in todo.
+# Reopen issues and put every board card back in ready.
 #
 #   issue-reopen.sh [OWNER/REPO] NUMBER [NUMBER...]
 #
@@ -28,5 +28,5 @@ repo="$(resolve_repo "$repo")" || exit 1
 for n in "${numbers[@]}"; do
   gh_read "the reopen of $repo#$n" api --method PATCH "repos/$repo/issues/$n" -f state=open >/dev/null || exit 1
   echo "#$n -> reopened"
-  for_each_board "$repo" "$n" Status todo "todo"
+  for_each_board "$repo" "$n" Status ready "ready"
 done

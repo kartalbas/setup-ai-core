@@ -53,7 +53,7 @@ param(
   [string] $AskedBy = '',
   [string] $AskedIn = '',
   [string] $FoundIn = '',
-  [string] $Status   = 'todo',
+  [string] $Status   = 'ready',
   [string] $Parent   = '',
   # Deliberately EMPTY. It is resolved from the repo below, once the repo is known —
   # defaulting to @me here is what put every backend issue on whoever ran the command.

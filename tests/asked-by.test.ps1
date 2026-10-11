@@ -38,7 +38,7 @@ $env:PATH = "$fake$([IO.Path]::PathSeparator)$env:PATH"
 $cache = Join-Path $env:GH_CACHE_DIRECTORY "$PROJECT"
 New-Item -ItemType Directory -Force -Path $cache | Out-Null
 Set-Content -Path (Join-Path $cache 'project-id') -Value "PVT_kwasked$PROJECT" -NoNewline
-Set-Content -Path (Join-Path $cache 'fields.tsv') -Value "Status`tF1`ttodo`tO1`nPriority`tF2`tP1`tO2"
+Set-Content -Path (Join-Path $cache 'fields.tsv') -Value "Status`tF1`tready`tO1`nPriority`tF2`tP1`tO2"
 
 $failed = 0
 function Check($name, $expected, $actual) {

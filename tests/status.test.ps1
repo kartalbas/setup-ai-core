@@ -233,15 +233,15 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   Check 'a find that exits 1 stops nothing' 0 $rc
   Check 'and what it found reaches the page' $held (Reach $found 104)
   Write-Host 'the testing cards and the worktrees the sweep keeps, read from git'
-  # A second board in a folder of its own: its column after implementing is testing, and its
-  # repository has release tags of two environments and four issue worktrees
+  # A second board in a folder of its own: its column after implementing and review is testing,
+  # and its repository has release tags of two environments and four issue worktrees
   $live = Join-Path $work 'live'
   foreach ($d in "$live/.ai-core", "$work/cache/8") { New-Item -ItemType Directory -Force -Path $d | Out-Null }
   Set-Content -LiteralPath "$live/.ai-core/config.env" -Value @('LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"', 'PROOF_HOURS=24')
   Set-Content -LiteralPath "$work/cache/8/project-id" -Value 'PVT_example8'
-  Set-Content -LiteralPath "$work/cache/8/fields.tsv" -Value @("Status`tF1`tTodo`tO1", "Status`tF1`timplementing`tO2", "Status`tF1`ttesting`tO3", "Status`tF1`tDone`tO4")
+  Set-Content -LiteralPath "$work/cache/8/fields.tsv" -Value @("Status`tF1`tTodo`tO1", "Status`tF1`timplementing`tO2", "Status`tF1`treview`tO3", "Status`tF1`ttesting`tO4", "Status`tF1`tDone`tO5")
   # #38 is a card of another organisation's repository of the same name: the local clone is not its
-  Set-Content -LiteralPath "$work/page8" -Value @(@(37, 35, 34, 33, 32, 31 | ForEach-Object { Card $_ testing P1 OPEN - - 0 "Card $_" }) + @(Card 36 implementing P1 OPEN - - 0 'Card 36') +
+  Set-Content -LiteralPath "$work/page8" -Value @(@(37, 35, 34, 33, 32, 31 | ForEach-Object { Card $_ testing P1 OPEN - - 0 "Card $_" }) + @(Card 36 implementing P1 OPEN - - 0 'Card 36') + @(Card 39 review P1 OPEN - - 0 'Card 39') +
     @((Card 38 testing P1 OPEN - - 0 'Card 38') -creplace 'example-org/example-repo', 'other-org/example-repo'))
   @"
 `$a = `$args -join ' '
@@ -305,6 +305,7 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
     Check 'and the trees, the oldest first' '41 42' ((@($page | Where-Object { $_ -cmatch '^  example-repo#\d+ +\d+ [hd]  ' } | ForEach-Object { if ($_ -cmatch 'example-repo#(\d+)') { $Matches[1] } })) -join ' ')
     Check 'a worktree changed a moment ago is not listed' '' (LineOf $page 'example-repo#45')
     Check 'a card in implementing is not listed' '' (LineOf $page 'example-repo#36')
+    Check 'nor one in review' '' (LineOf $page 'example-repo#39')
     Check 'the trees line' 'TREES   2 worktrees the sweep keeps, older than a day:' (LineOf $page '^TREES')
     Check 'unlanded and old' "  $('example-repo#41'.PadRight(26))   3 d  has work origin/master does not have yet" (LineOf $page 'example-repo#41')
     Check 'with changes' "  $('example-repo#42'.PadRight(26))  30 h  has changes" (LineOf $page 'example-repo#42')

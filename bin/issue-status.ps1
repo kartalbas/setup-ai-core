@@ -14,7 +14,7 @@ name the board does not carry stops the run and prints the ones it does. Measure
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)][ValidatePattern('^[0-9]+\z', ErrorMessage = "the issue number must be numeric, not '{0}'")][string[]] $Number,
-  [Parameter(Mandatory)][ValidateSet('backlog','todo','implementing','testing','done', IgnoreCase=$true)][string] $Status,
+  [Parameter(Mandatory)][ValidateSet('backlog','todo','ready','planned','implementing','review','testing','done', IgnoreCase=$true)][string] $Status,
   [string] $Repo,
   [string] $Project = ''
 )

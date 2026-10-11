@@ -18,11 +18,11 @@ else in the checkout's own.
 NOTHING THAT HAS NOT LANDED IS REMOVED. A worktree with changes, or with a commit origin's default
 branch does not have, stops the run and is named; the work in it is somebody's.
 
-THE CARD MOVES TO THE COLUMN AFTER implementing, read from the board's own order: on a board with
-a testing column the card goes there; status-sync, which this runs for the repository, closes it
-once a release carries its work and a proof record follows its landing. Where the next column is
-done, the card stays, because done is what closing the issue sets. An issue no commit on origin's
-default branch names has not landed: the run stops before the card moves.
+THE CARD MOVES TO testing, whatever column it stands in: the work has landed and waits for its
+release and its proof. status-sync, which this runs for the repository, closes it once a release
+carries its work and a proof record follows its landing. On a board without a testing column the
+card stays. An issue no commit on origin's default branch names has not landed: the run stops
+before the card moves.
 
 -Sweep removes every worktree of this repository whose work has landed and has rested for a day,
 and names the others it leaves; start-issue and init -All run it, so a worktree nobody finished
@@ -177,7 +177,7 @@ if (-not $found) { "no worktree of issue $Number stands here - only the card and
 $commits = (Invoke-Git -C $main log "origin/$default" -E "--grep=(^|[^A-Za-z0-9._/-])$($ref.Replace('.', '\.'))([^0-9]|$)" '--format=- %h %s' -n 20).Text
 if (-not $commits) { Stop-WithError "no commit on origin/$default names ${ref}, so the card stays and the issue is not told; a commit that touches an issue names it" }
 
-# The card: one column past implementing, as the board orders them, unless that column is done
+# The card: to testing
 if ($state -ceq 'closed') {
   'the issue is closed already - its card stays where closing put it'
 } elseif (Test-OnNoBoard -Repo ($repo = if ($Repo) { $Repo } else { Get-DefaultRepo })) {
@@ -185,10 +185,8 @@ if ($state -ceq 'closed') {
 } else {
   Set-Project -Number '' -Repo $repo | Out-Null
   $options = @(Get-Fields | Where-Object { $_.Field -ieq 'Status' } | ForEach-Object { $_.Option })
-  $at = [Array]::FindIndex([string[]]$options, [Predicate[string]] { param($o) $o.ToLowerInvariant() -ceq 'implementing' })
-  $next = if ($at -ge 0 -and $at + 1 -lt $options.Count) { $options[$at + 1] } else { '' }
-  if (-not $next) { 'the board has no column after implementing - the card stays; move it by hand' }
-  elseif ($next.ToLowerInvariant() -ceq 'done') { 'the column after implementing is done, which closing the issue sets - the card stays for the owner' }
+  $next = $options | Where-Object { $_.ToLowerInvariant() -ceq 'testing' } | Select-Object -First 1
+  if (-not $next) { 'the board has no testing column - the card stays; move it by hand' }
   else {
     try { & (Join-Path $PSScriptRoot 'issue-status.ps1') -Number $Number -Status $next -Repo $repo }
     catch { Write-Error "the card did NOT move: $($_.Exception.Message) - move it to $next by hand" -ErrorAction Continue }

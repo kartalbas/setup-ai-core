@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Reopen issues and put every board card back in todo.
+Reopen issues and put every board card back in ready.
 
 .EXAMPLE
 ./issue-reopen.ps1 -Repo example-org/example-repo -Number 412
@@ -20,5 +20,5 @@ foreach ($n in $Number) {
   Invoke-Gh api --method PATCH "repos/$Repo/issues/$n" -f state=open | Out-Null
 
   "#$n -> reopened"
-  Invoke-OnEveryBoard -Repo $Repo -Number $n -Field 'Status' -Option 'todo' -Printed 'todo'
+  Invoke-OnEveryBoard -Repo $Repo -Number $n -Field 'Status' -Option 'ready' -Printed 'ready'
 }

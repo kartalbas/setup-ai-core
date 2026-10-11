@@ -47,19 +47,19 @@ $script:Root = Split-Path -Parent $PSScriptRoot
 function Stop-WithError { [CmdletBinding()] param([string]$Message) throw "error: $Message" }
 
 function Get-OriginDefaultBranch {
-  # THE DEFAULT BRANCH OF ORIGIN: origin/HEAD where it resolves, else asked of the remote. A clone keeps
-  # origin/HEAD naming the old branch after the default branch is renamed, and trusting that pointer
-  # sends every comparison to a branch that is gone.
+  # THE DEFAULT BRANCH OF ORIGIN: asked of the remote, else origin/HEAD where it resolves. A clone's
+  # origin/HEAD is a copy that goes stale: it keeps the old branch after the default is renamed, or a
+  # branch somebody pointed it at, and trusting it sends every comparison to the wrong branch.
   [CmdletBinding()] param()
+  foreach ($line in @(& git ls-remote --symref origin HEAD 2>$null)) {
+    if ("$line" -cmatch '^ref:\s+refs/heads/(\S+)\s+HEAD$') { return $Matches[1] }
+  }
   & git rev-parse -q --verify refs/remotes/origin/HEAD *>$null
   if ($LASTEXITCODE -eq 0) {
     $ref = "$(& git symbolic-ref refs/remotes/origin/HEAD 2>$null)".Trim()
     if ($LASTEXITCODE -eq 0 -and $ref) { return ($ref -creplace '^refs/remotes/origin/', '') }
   }
-  foreach ($line in @(& git ls-remote --symref origin HEAD 2>$null)) {
-    if ("$line" -cmatch '^ref:\s+refs/heads/(\S+)\s+HEAD$') { return $Matches[1] }
-  }
-  Stop-WithError "cannot read the default branch from origin/HEAD or from origin - run 'git remote set-head origin -a', then run this again"
+  Stop-WithError "cannot read the default branch from origin or from origin/HEAD - run 'git remote set-head origin -a', then run this again"
 }
 
 # --- where the data lives -----------------------------------------------------

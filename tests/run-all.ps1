@@ -17,6 +17,9 @@ $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 # The organisation the suites were written for; nothing here reaches github.com
 $env:GH_ORG = "example-org"
+# init writes Codex's user config where that folder exists; a test that starts an issue runs init,
+# so the suites point it at a folder nobody can create, and none touches the config of this machine
+if (-not $env:CODEX_HOME) { $env:CODEX_HOME = "/nonexistent/codex-home" }
 # pwsh on Linux colours an error record even when it is captured; the tests read plain text
 $env:NO_COLOR = "1"
 

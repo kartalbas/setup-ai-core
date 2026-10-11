@@ -210,6 +210,7 @@ checkout never carries a copy.
 ├── .claude/agents/                      managed: the agents of every layer
 ├── AGENTS.md                            managed: the map from repos/<repo>/ of the harness, else the generic one of templates/, the binding rules on top
 ├── CLAUDE.local.md                      only where the repository has a CLAUDE.md of its own: imports AGENTS.md; created once
+├── AGENTS.override.md                   managed, where Codex is served: what Claude Code loads here, each @ file written out, because Codex follows no @
 ├── .cursorrules, .windsurfrules         Cursor and Windsurf pointers
 ├── .github/copilot-instructions.md      Copilot pointer
 ├── .openhands/microagents/repo-rules.md OpenHands microagent
@@ -538,7 +539,7 @@ every checkout at the next session without running `init` again.
 | Agent | Reads at start | Mechanically active |
 | :--- | :--- | :--- |
 | Claude Code | `AGENTS.md` of the directory it starts in and of every directory above it, with the files each imports after `@` (the rules, the local rules, the skills file), and a repository's `AGENTS.md` once it works there; where a `CLAUDE.md` exists, that file and the `CLAUDE.local.md` that imports `AGENTS.md`; `.claude/settings.json`, `.claude/skills/` | the `SessionStart` hook `ai-core session-start --tool claude`, which switches the team modes on; the status line `ai-core statusline`; permissions from the harness |
-| OpenAI Codex | `AGENTS.md` from the repository root down to the working directory, concatenated; `~/.codex/AGENTS.md` for the user; `.agents/skills/` in the repository and `~/.agents/skills/`; MCP servers from `.codex/config.toml` in the repository (read once the project is trusted) and from `~/.codex/config.toml` | skills; MCP from `.codex/config.toml`, not from `.mcp.json` |
+| OpenAI Codex | `AGENTS.override.md`, else `AGENTS.md`, from the repository root down to the working directory, concatenated, raw (no `@` import) and up to `project_doc_max_bytes`: `init` writes the override where Codex is served, with what Claude Code loads there written out (the project folder's `AGENTS.md`, this one, every file either names after `@`), and raises `project_doc_max_bytes` in Codex's user config to 262144 where it is lower; `~/.codex/AGENTS.md` for the user; `.agents/skills/` in the repository and `~/.agents/skills/`; MCP servers from `.codex/config.toml` in the repository (read once the project is trusted) and from `~/.codex/config.toml` | skills; MCP from `.codex/config.toml`, not from `.mcp.json` |
 | OpenCode | the nearest `AGENTS.md`, without its `@` imports, and the files `opencode.json` names under `instructions`: the rules, the skills file and the local rules | nothing beyond its own defaults, which already refuse reading `.env` |
 | Zed, Aider | `AGENTS.md` | nothing; text only |
 | Google Antigravity (`agy`) | `AGENTS.md` (prepended to every prompt), `.agents/skills/` | skills; MCP only from `~/.gemini/config/mcp_config.json`, machine-wide: its documentation names `.agents/mcp_config.json` in the repository too, but `agy` does not load it (tested with `agy --print`, with a valid machine-wide file) |

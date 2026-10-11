@@ -18,6 +18,9 @@ set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # The organisation the suites were written for; nothing here reaches github.com
 export GH_ORG=example-org
+# init writes Codex's user config where that folder exists; a test that starts an issue runs init,
+# so the suites point it at a folder nobody can create, and none touches the config of this machine
+export CODEX_HOME="${CODEX_HOME:-/nonexistent/codex-home}"
 
 # THE TREE IS READ BEFORE AND AFTER, and a suite that changed it is RED whatever its own
 # assertions said. A test writes into its own temporary directory and nowhere else: one that

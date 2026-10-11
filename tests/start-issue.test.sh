@@ -251,6 +251,14 @@ check 'exits zero'             0 "$rc"
 check 'cut from origin/master' yes "$(grep -q '^Worktree .*issue-168-.*, cut from origin/master\.$' <<< "$out" && echo yes || echo no)"
 git -C "$work" remote set-head origin -a >/dev/null
 
+echo 'an origin/HEAD naming a branch the remote has but does not lead with: the remote decides'
+git -C "$work" push -q origin master:refs/heads/old-default 2>/dev/null; git -C "$work" fetch -q origin
+git -C "$work" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/old-default
+out="$(run 169)"; rc=$?
+check 'stale pointer: exits zero'             0 "$rc"
+check 'stale pointer: cut from origin/master' yes "$(grep -q '^Worktree .*issue-169-.*, cut from origin/master\.$' <<< "$out" && echo yes || echo no)"
+git -C "$work" remote set-head origin -a >/dev/null
+
 # The issue lives in other-org/tracker and its work lands here. Asked of this repository, the same
 # number is Not Found, so a read in the wrong repository shows as a failure, not as a wrong title.
 echo 'an issue of another repository: cut here, read there, and its repository recorded on the branch'

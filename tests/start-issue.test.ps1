@@ -233,6 +233,14 @@ Check 'it does not throw'      'True' ([string]$ok)
 Check 'cut from origin/master' 'True' ([bool](@($printed) -cmatch '^Worktree .*issue-168-.*, cut from origin/master\.$'))
 & git -C $work remote set-head origin -a | Out-Null
 
+Write-Host 'an origin/HEAD naming a branch the remote has but does not lead with: the remote decides'
+& git -C $work push -q origin master:refs/heads/old-default 2>$null; & git -C $work fetch -q origin
+& git -C $work symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/old-default
+$ok = Invoke-Start 169
+Check 'stale pointer: it does not throw'      'True' ([string]$ok)
+Check 'stale pointer: cut from origin/master' 'True' ([bool](@($printed) -cmatch '^Worktree .*issue-169-.*, cut from origin/master\.$'))
+& git -C $work remote set-head origin -a | Out-Null
+
 Write-Host 'an issue of another repository: cut here, read there, and its repository recorded on the branch'
 New-Item -ItemType File -Path (Join-Path $fake 'no-board') | Out-Null
 Set-Content -Path $log -Value $null

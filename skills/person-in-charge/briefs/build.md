@@ -32,6 +32,7 @@ dialog: nobody sits at your terminal.
    stop; never work around it.
 
 ## Output: the report, one block per issue, in your last message and as a comment on each issue
+(`ai-core issue-comment <n> --body-file <file>`)
 
     REPORT <repo>#<n>
     CHANGED: <file:line spans>

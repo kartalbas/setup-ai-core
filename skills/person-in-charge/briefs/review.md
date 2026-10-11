@@ -8,8 +8,8 @@ push nothing: a reviewer who repairs approves its own fix.
 
 ## Input
 
-- The intent: the package section and each issue's acceptance criteria: {{package section and
-  issues}}
+- The intent: the package section and each issue's acceptance criteria, or, for a card from before
+  the packages, the issues' criteria alone: {{package section and issues}}
 - The diff, per worktree: `git -C <worktree> diff origin/<default>...HEAD`: {{worktree paths and
   default branches}}
 - The build report: {{build report}}

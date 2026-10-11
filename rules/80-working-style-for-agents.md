@@ -37,7 +37,9 @@
   the same work costs in tokens if the session does it itself; the ask ends with two options, a)
   start them as described, b) the session does it, and waits for the answer. A helper call on the
   cheapest model, for a check whose answer the session checks itself, is no sub-agent and needs no
-  ask. A package is an area: one capability as the user meets it, across every repository it
+  ask; so is a phase session a person in charge starts for a package on the rows of the project's
+  model table (`.ai-core/models.tsv`), because the owner's start of the coordinator is the yes for
+  them. A package is an area: one capability as the user meets it, across every repository it
   touches, with both sides of every contract an issue touches (`ai-core contract-scan` finds them),
   of at most about 8 issues or 400 changed lines, split along the contracts above that: one
   worktree per repository, one commit per issue that names it, every issue's test case on the issue
@@ -64,6 +66,10 @@
   never the model that wrote the work. A sweep, a collection of facts, a draft of test cases or a
   pre-review whose answer the session can check cheaply goes to the helper of the same tool, the
   table's helper row; a UI test or a live check is a phase of its own, on the table's model for it.
+  A table's `high-risk` rows name a model at least as strong as its `normal-hard` rows, because
+  security, payments and contract work are never moved to a cheaper model to save money, and a
+  `high-risk` review is read a second time by another model, the table's plan-check row, because two
+  readers with the same habits share a blind spot.
   A helper never builds, never gives the deciding review and never decides; its answer is a lead the
   session checks before it uses it. No task moves to another model, effort or tool because a quota
   ran out, because a fallback waters the result down from the bottom up: it waits. [review]

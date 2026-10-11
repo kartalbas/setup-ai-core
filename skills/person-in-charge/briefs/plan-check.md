@@ -8,28 +8,31 @@ names, the scan output, the spans the facts name.
 
 - The package section: {{package section}}
 - The issues it names, with their acceptance criteria: {{issues}}
-- The scan: the output of `ai-core contract-scan --package {{repositories}} {{terms}}` and its exit
-  code, run after a fetch: {{scan output and exit code}}
+- The scan, where the section names terms: the output of `ai-core contract-scan --package
+  {{repositories}} {{terms}}` and its exit code, run by the coordinator after a fetch: {{scan output
+  and exit code, or "no terms: a mechanical package"}}
 
 ## What to do
 
-1. The scan first. Exit 3 means a term has a hit outside the package: a hit the section lists under
-   `Innocent:` with its `file:line` is no side; any other is: NO, naming the term and the clone, and
-   the plan goes back. Exit 1 means the scan refused: NO, with its message.
+1. The scan first, where there is one. Exit 3 means a term has a hit outside the package: a hit the
+   section lists under `Innocent:` with its `file:line` is no side; any other is: NO, naming the
+   term and the clone. Exit 1 means the scan refused: NO, with its message.
 2. For every issue: can a build session start from its acceptance criteria and `file:line` facts
    without asking? Name every placeholder, contradiction, open question and scope beyond the issues.
 3. For every contract: is the additive side ordered before the strict side? Does a test need a
    second repository checked out beside the first, and does the section say so?
 4. Is the class right? A touched contract outward, a secret, a payment or the push gate is
-   `high-risk` whatever the text says.
+   `high-risk` whatever the text says. A `mechanical` section that names a term is not mechanical.
+   Open the spans the issues name: a package called mechanical that changes a value anything reads
+   is not mechanical.
 5. Are `Verify:`, `Environment:` and `Checks:` filled from the criteria, so the build and the UI test
-   can run from the section alone?
+   can run from the section alone? Does `Environment:` hold the test and the production URL?
 6. Would the build fit 300k? Where not, say where to split.
 
 ## Output
 
     PLAN CHECK <area>: GO | NO
-    SCAN: exit <code>
+    SCAN: exit <code> | none
     GAPS:
     - <repo>#<n>: <what is missing, with file:line where it applies>
     ORDER: ok | <issue> before <issue> because <contract>
@@ -37,4 +40,4 @@ names, the scan output, the spans the facts name.
 
 GO only with an empty GAPS. Post it as a comment on the plan issue (`ai-core issue-comment`), then
 stop. You change nothing in the section: the planner does, in the next plan session, with your GAPS
-as its input.
+as its input; a CLASS line that raises the class sends the plan to that class's plan row.

@@ -3,8 +3,9 @@
 - **The goal is the working end-to-end result**, never a component that looks finished on its own.
   State what that result is before starting and measure done against it. Before work lands, the
   product starts on the bundle that ships together, every repository at the version that will be
-  released, because a part that passes alone can fail at the first start beside the others.
-  [discipline · review]
+  released, by the project's start check (`START_CHECK` in `.ai-core/config.env`), because a part
+  that passes alone can fail at the first start beside the others; a project without one lands with
+  the check waived, and the land record says so. [tool · review]
 - **Never break an existing feature or user experience.** Contracts we own may change on both sides
   at once; a regression may not. [review]
 - **No leftovers.** The moment a change takes a piece of code's job away, that code is deleted in the

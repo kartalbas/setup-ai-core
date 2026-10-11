@@ -1,31 +1,37 @@
 # Brief: the coordinator's own restart, and the owner's page
 
 A coordinator grows with every round: each `ai-core status` page and every report stays in its
-context. The owner restarts it, or it stops itself once `ai-core status --tokens` shows its own
-context above 300k; the next coordinator starts fresh from this brief, because the state is in the
-tracker and nowhere else.
+context. After 30 rounds it posts its summary and stops, or the owner restarts it earlier; the next
+coordinator starts fresh from this brief, because the state is in the tracker and nowhere else.
 
 ## Starting as coordinator
 
 1. Read the skill `person-in-charge`, then `.ai-core/models.tsv` and `.ai-core/config.env`
-   (`ECOSYSTEM_ORDER`, `START_CHECK`, `USAGE_STOP_AT`, `LIVE_TAGS`).
-2. Read the plan issue of each board, "Plan: packages": every comment that is a package section, the
-   newest of each area, with its `Ecosystem:`, `Class:`, `Reviews:` and `Phase:` lines, and every
-   verdict comment (`PLAN CHECK <area>`, `REVIEW <area>`, `RESULT <area>`, `CLEARING round`) after
-   it. Sections of another ecosystem are not yours.
-3. Read `ai-core status` per board: which sessions run, which are blocked, what is in TESTING and
-   TREES. A session the page does not show is off, whatever a `Phase:` line says; post the corrected
-   line. For Codex read `~/.ai-core/codex-sessions.tsv`, for agy `~/.ai-core/agy-conversations.tsv`:
-   a session of yours that ended holds its last message there, where its report did not reach the
-   tracker.
-4. Where `implementing` holds cards no section names, run `briefs/clearing.md` first.
-5. Do one round (the skill). Nothing is started before the round has read everything.
+   (`ECOSYSTEM_ORDER`, `START_CHECK`, `USAGE_STOP_AT`, `LIVE_TAGS`), and your start prompt: your
+   partners, with their session names and folders, and the areas or issues the owner hands you.
+2. Each board has one plan issue titled "Plan: packages". Where a board has none, create it:
+   `ai-core issue-new --repo <the board's first repository> --title "Plan: packages, or no restart
+   finds the state" --body-file <file> --label type:task --label area:<the harness's area label>
+   --priority P2 --asked-by <the owner's login> --asked-in "<the owner's start prompt>"`, its body
+   one sentence: "The package sections and the phase log of this board; read newest first."
+3. Read the plan issue of each board: every comment that is a package section, the newest of each
+   area; the newest `PHASE <area>` line of each area, which holds the phase, the session, the plan
+   and review counts and the next step; and every verdict (`PLAN CHECK <area>`, `REVIEW <area>`,
+   `LAND <area>`, `CLEARING round`) after that line. Sections of another ecosystem are not yours.
+4. Read `ai-core status` per board: which sessions run, which are blocked, what is in TESTING and
+   TREES. A session the page does not show is off, whatever a PHASE line says; post a corrected
+   line. Your session numbers count on from the highest `l<n>` on the plan issue, so no name of
+   yours repeats a predecessor's. For Codex and agy, a session that ended holds its last message in
+   the output file `~/.ai-core/sessions/<session name>.out`; a phase whose output file is missing is
+   run again.
+5. Where `implementing` holds cards no section names, run `briefs/clearing.md` first.
+6. Do one round (the skill). Nothing is started before the round has read everything.
 
 ## Before you stop
 
-Post one comment on each plan issue: every area with its phase, its session and its `Reviews:`
-count, and the open questions of the owner, each with its issues and the label `needs:owner` on
-them. Then stop; the next coordinator reads it there.
+Post one comment on each plan issue: every area with its PHASE line, and the open questions of the
+owner, each with its issues and the label `needs:owner` on them. Then stop; the next coordinator
+reads it there.
 
 ## The owner's page, when the owner asks for the state
 

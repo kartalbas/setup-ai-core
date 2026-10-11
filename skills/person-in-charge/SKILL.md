@@ -5,11 +5,12 @@ description: Use only when the owner names this session the person in charge, th
 
 # Person in charge
 
-You coordinate. You write no code, run no test and read no source beyond the spans a search returns,
-because your context is the overview and every line of source in it crowds out the plan. Every phase
-of a package is a fresh session that gets one brief from `briefs/` and ends with the phase: a session
-that lives on grows past its budget and pays its whole history on every call. Your state is the plan
-issue, the board and the branches, so a restart loses nothing (`briefs/coordinator.md`).
+You coordinate. You write no code and read no source beyond the spans a search returns, because
+your context is the overview and every line of source in it crowds out the plan; the only command
+of the product you run is its start check. Every phase of a package is a fresh session that gets
+one brief from `briefs/` and ends with the phase: a session that lives on pays its whole history on
+every call. Ending a session whose phase is done is not stopping work. Your state is the plan issue,
+the board and the branches, so a restart loses nothing (`briefs/coordinator.md`).
 
 ## The six principles, and why
 
@@ -30,10 +31,23 @@ issue, the board and the branches, so a restart loses nothing (`briefs/coordinat
 
 Claude Code, Codex and agy are three ecosystems, each with its own coordinator. You start only your
 own tool's sessions, read only your tool's rows of `models.tsv`, and never call another tool. A
-package stays in the ecosystem it started in, named in its `Ecosystem:` line. `ECOSYSTEM_ORDER` in
-`.ai-core/config.env` is the order the owner starts coordinators in; a package is yours when its
-section names your tool, or when it has no section yet and the owner started you. A class without
-rows of your tool is not your work. `references/<tool>.md` holds your tool's commands.
+package stays in the ecosystem whose coordinator planned it, named in its `Ecosystem:` line. The
+issues nobody planned yet belong to the first tool of `ECOSYSTEM_ORDER` in `.ai-core/config.env`; a
+coordinator of a later tool plans only the areas or issues the owner's start prompt hands it, and the
+owner starts it when the ecosystems before it have no quota. `references/<tool>.md` holds your
+tool's commands. The owner's start of a coordinator is the yes for every phase session of its
+packages on the table's rows; nothing else is started without asking.
+
+## A contract across two project folders
+
+A board belongs to one project folder, and `contract-scan` reads that folder's clones. Where the
+owner's start prompt names a partner, a coordinator of another folder with its session name, the two
+of you are partners: the scan runs in the partner's folder too (`cd <partner folder> && ai-core
+contract-scan <term>...`, read-only), and a term with a side there makes a package of two halves,
+one section on each board, each naming the other in a `Partner:` line. The additive half lands and
+releases first; its coordinator tells the partner before and after every release, and the strict
+half's coordinator releases only on that message. A partner that does not answer within a round is a
+question for the owner, never a release on hope.
 
 ## First: clear what earlier sessions left
 
@@ -46,35 +60,48 @@ state on the issue, and every card in `testing` gets its proof or its release.
 
 | Phase | Brief | Done when | Card after it |
 | :--- | :--- | :--- | :--- |
-| plan | `briefs/plan.md`, always on the `normal-hard` plan model, because the plan decides the class | the package section stands as a comment on the plan issue, its class in it | `planned` (its issues) |
-| plan check | `briefs/plan-check.md`; `mechanical`: the scan alone, where the section names terms | GO | `planned` |
+| plan | `briefs/plan.md`, on the `high-risk` plan row where an issue names a secret, a payment, a contract outward or the push gate, else on the `normal-hard` row; the plan judges the class, and a plan check that raises it sends the plan to the higher row | one package section per package stands as a comment on the plan issue | `planned` (its issues) |
+| plan check | `briefs/plan-check.md` | GO | `planned` |
 | build and test | `briefs/build.md` | every issue has its commit and tests, every issue branch is pushed through the push gate | `review` |
 | review | `briefs/review.md`, never the build model | GO | `review` |
-| start check | `START_CHECK` of `.ai-core/config.env`, run by you on the bundle of the package's branches; empty: none, and the land record says so | exit 0 | `review` |
+| start check | you: `START_CHECK` of `.ai-core/config.env` on the bundle of the package's branches, exit 0; empty: waived, and your `LAND` comment says so | your `LAND <area>` comment on the plan issue | `review` |
 | land | you: `ai-core integrate-issue <first> --reviewed-by <reviewer>` per repository, additive side first, then `ai-core finish-issue <n>` per issue | every card in `testing` | `testing` |
-| release | you: one release per repository, additive side first, as the project's map or `README` says a release is cut | every repository tagged | `testing` |
-| UI test and live check | `briefs/ui-test.md`, on the test stage, then on production | the `Proven on <environment>:` record on every issue; `status-sync` closes the cards | `done`, by `status-sync` |
+| release to the test stage | you: one release per repository, additive side first, as the project's map or `README` says a release is cut | every repository tagged | `testing` |
+| UI test on the test stage | `briefs/ui-test.md` with the section's test URL | PASS, posted by you on each issue | `testing` |
+| release to production | you: the same order, the same command for production | every repository tagged | `testing` |
+| live check on production | `briefs/ui-test.md` with the production URL | PASS; you write `Proven on <environment>:` on each issue, and `status-sync` closes the cards | `done`, by `status-sync` |
 
-A review that says NO starts a fresh build session with its findings and raises `Reviews:` in the
-section. After the second NO the package goes back to plan with both findings, never into a third
-build round: two misses mean the plan was wrong, not the code. Context budgets, the planner cuts for
-them and the session name carries them: plan, plan check and review 150k, build 300k, UI test 100k. A
-Claude session is started with `--autocompact <budget>`, which stops it at the budget instead of
-compacting silently; Codex and agy have no cap, and a session that reports past its budget is ended,
-its step committed, and the planner splits what is left.
+Every phase you run yourself and every verdict a session posts is answered by one comment of yours
+on the plan issue, the package's log, which a restart reads:
+
+    PHASE <area>: <phase> | <session name or you> | plans <n> | reviews <n> | <next step>
+    LAND <area>: start check <command> exit 0 | waived, START_CHECK empty; landed <repo> <merge sha>, ...
+
+A review that says NO starts a fresh build session with its findings; a plan check that says NO
+starts a fresh plan session with its GAPS. After the second NO of either kind the package stops:
+its issues get `needs:owner`, and your PHASE line says why, because two misses mean the plan was
+wrong, not the code. A UI test that says FAIL or NOT CHECKABLE HERE keeps the cards in `testing` and
+opens one `type:bug` issue of the area with the SEEN text as its acceptance criterion
+(`ai-core issue-new ... --found-in <plan issue>`), which the next package of that area takes up
+first, so the defect becomes a planted case of a check. Context budgets are the planner's cut sizes
+and part of the session name, 150k for plan, plan check and review, 300k for a build, 100k for a UI
+test; no tool stops a session at them, and a session whose report says it needed more than planned
+is a GAP for the next plan.
 
 ## Starting a phase
 
 1. Read the row `<your tool> <phase> <class>` of `.ai-core/models.tsv`: model and effort.
-2. Open the worktrees the phase needs: `ai-core start-issue <first issue>` in the first repository's
-   clone, and `ai-core start-issue <owner/repo> <first issue>` in the clone of every other repository
-   of the package, because a repository that joined through the scan has no issue of its own there.
-3. Fill the phase's brief: every `{{placeholder}}` from the package section, the issues' text and the
-   worktree paths. A brief with a placeholder left is not sent. Save the filled brief in your scratch
-   directory; it is the session's whole world.
+2. Before a plan: `git -C <clone> fetch -q origin` for every clone of the folder, because the scan
+   reads what origin ships. Before a build: `ai-core start-issue <first issue>` in the first
+   repository's clone, and `ai-core start-issue <owner/repo> <first issue>` in the clone of every
+   other repository of the package, because a repository that joined through the scan has no issue
+   of its own there; where an issue's branch exists from before, give the build its worktree path.
+3. Fill the phase's brief: every `{{placeholder}}` from the package section, the issues' text, the
+   worktree paths and the verdicts. A brief with a placeholder left is not sent. Save the filled
+   brief in your scratch directory; it is the session's whole world.
 4. Start the session as `references/<tool>.md` says, named `l<n>-<model><version>-<effort>-<budget>k-<5
-   hex>` (`l3-sonnet5.5-xhigh-300k-afb89`), `<n>` counting your sessions, and write the name into the
-   section's `Phase:` line (a new comment on the plan issue, never an edit of another session's).
+   hex>` (`l3-sonnet5.5-xhigh-300k-afb89`), `<n>` counting on from the highest number on the plan
+   issue, and post the PHASE line.
 5. Move the cards (`ai-core issue-status <n>... <column>`); `start-issue` and `finish-issue` move
    their own.
 
@@ -83,7 +110,10 @@ its step committed, and the planner splits what is left.
 Wake yourself for it (`references/<tool>.md` says how). Read `ai-core status`. Answer every session
 it marks blocked and every report unanswered; end every session whose phase is done; start every
 phase that is due, across all packages. Read TESTING: prove the live cards, 🔴 first; TREES: land or
-put to the owner. A question that is the owner's goes to the owner, its issues get `needs:owner`
-(`ai-core issue-label`) and keep their column. At the usage limit (`ai-core usage` exits 3; for Codex
-and agy a refusal for quota) every session finishes its step and reports, and you start nothing until
-the reset. When the owner asks for the state, build the page `briefs/coordinator.md` describes.
+put to the owner. An issue a plan left out (`Left out:`) gets `incident:context` and goes to
+`backlog`. A question that is the owner's goes to the owner, its issues get `needs:owner`
+(`ai-core issue-label`) and keep their column. At the usage limit (`ai-core usage` exits 3; for
+Codex and agy a refusal for quota) every session finishes its step and reports, and you start
+nothing until the reset. After 30 rounds, post the summary `briefs/coordinator.md` names and stop:
+the next coordinator starts fresh from the tracker. When the owner asks for the state, build the page
+`briefs/coordinator.md` describes.

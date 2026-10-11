@@ -401,18 +401,20 @@ on start; no developer installs a skill by hand.
   packages", with its ecosystem, class, repositories, contracts and issues.
   - Before the first plan, the coordinator clears what earlier sessions left in `implementing` and
     `testing` (`briefs/clearing.md`). A package then runs through its phases: plan, plan check,
-    build and test, review, start check, land, release, UI test and live check. The plan, the plan
+    build and test, review, start check, land, release to the test stage, UI test, release to
+    production and live check. The plan, the plan
     check, the build, the review and the UI test are fresh sessions, each ended with its phase and
     started with one brief from the skill's `briefs/` (its input, what to do, the exact shape of
     its output) on the commands of `references/<tool>.md`; the start check (`START_CHECK` of
     `config.env`), the landing and the release are the coordinator's own commands. Nothing is
     compacted and continued, because the state lives in the tracker and on the branch.
   - The model and effort of each phase follow the package's class (`mechanical`, `normal-hard`,
-    `high-risk`) and come from `.ai-core/models.tsv`, one block per tool; the plan always runs on
-    the `normal-hard` row, because the plan decides the class. The reviewer never runs on the
+    `high-risk`) and come from `.ai-core/models.tsv`, one block per tool; the plan runs on the
+    `high-risk` or the `normal-hard` row, because the plan decides the class. The reviewer never runs on the
     model that built the package, by the table's rows. A phase never moves to another model or tool because a
-    quota ran out: its package waits. `ECOSYSTEM_ORDER` in `.ai-core/config.env` says which
-    ecosystem takes up a new package.
+    quota ran out: its package waits. The issues nobody planned belong to the first tool of
+    `ECOSYSTEM_ORDER` in `.ai-core/config.env`; a later tool's coordinator plans what the owner
+    hands it.
   - The cards move through `backlog`, `ready`, `planned`, `implementing`, `review`, `testing` and
     `done`; a question that is the owner's puts `needs:owner` on its issues.
   - At the usage limit every session finishes its step, commits, reports and waits for the reset.

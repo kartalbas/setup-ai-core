@@ -10,9 +10,12 @@ edit only inside the folders it was given: a build from the package's first work
 worktrees added; a plan, a plan check or a review from the first clone the area's issues name, with
 the project folder added for the scan and the other clones for the diff.
 
-    claude --bg --name <name> --model <model> --effort <effort> --permission-mode auto \
-      --add-dir <folder> [--add-dir ...] "$(cat <brief file>)"
+    claude "Read <brief file> and do the phase it describes." --bg --name <name> --model <model> \
+      --effort <effort> --permission-mode auto --add-dir <folder of the brief file> --add-dir <folder> ...
 
+- The prompt comes first, because `--add-dir` takes a list and would read a prompt after it as one
+  more folder: the session would start with no input and stand idle. The prompt is one sentence that
+  names the brief file, and the brief's folder is one of the added folders, so the session reads it.
 - `--bg` starts only where Claude Code trusts the git repository, and the trust of a folder does not
   cover the clones inside it. On "Workspace not trusted", collect every clone your packages need and
   ask the owner once to run `claude` in each; never start the session in another folder instead.

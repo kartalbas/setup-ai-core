@@ -19,7 +19,9 @@
 #         the normal-hard row, because the plan decides the class and a mechanical package is
 #         planned by the normal-hard planner; its plan check runs on the mechanical row.
 # class   mechanical (a rename or a text, no contract touched), high-risk (security, payments,
-#         contracts outward, the push gate), normal-hard (everything else); * for every class.
+#         contracts outward, the push gate; outward means an interface somebody outside the
+#         project uses, never a contract between the project's own repositories), normal-hard
+#         (everything else); * for every class.
 # model   what the tool's --model takes (`claude --model`, `codex -m`, `agy --model`, as `agy models`
 #         lists it).
 # effort  what the tool takes for it (`claude --effort`, `codex -c model_reasoning_effort=`); - where

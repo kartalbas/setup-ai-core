@@ -1,24 +1,31 @@
 # Brief: the coordinator's own restart, and the owner's page
 
 A coordinator grows with every round: each `ai-core status` page and every report stays in its
-context. When it holds more than its rounds need, or the owner restarts it, the next coordinator
-starts fresh from this brief, because the state is in the tracker and nowhere else.
+context. The owner restarts it, or it stops itself once `ai-core status --tokens` shows its own
+context above 300k; the next coordinator starts fresh from this brief, because the state is in the
+tracker and nowhere else.
 
 ## Starting as coordinator
 
 1. Read the skill `person-in-charge`, then `.ai-core/models.tsv` and `.ai-core/config.env`
-   (`ECOSYSTEM_ORDER`, `USAGE_STOP_AT`, `LIVE_TAGS`).
-2. Read the plan issue of each board, "Plan: packages": every section with its `Ecosystem:`,
-   `Class:`, `Reviews:` and `Phase:` lines. Sections of another ecosystem are not yours.
+   (`ECOSYSTEM_ORDER`, `START_CHECK`, `USAGE_STOP_AT`, `LIVE_TAGS`).
+2. Read the plan issue of each board, "Plan: packages": every comment that is a package section, the
+   newest of each area, with its `Ecosystem:`, `Class:`, `Reviews:` and `Phase:` lines, and every
+   verdict comment (`PLAN CHECK <area>`, `REVIEW <area>`, `RESULT <area>`, `CLEARING round`) after
+   it. Sections of another ecosystem are not yours.
 3. Read `ai-core status` per board: which sessions run, which are blocked, what is in TESTING and
-   TREES. A session the page does not show is off, whatever a `Phase:` line says; correct the line.
-4. Do one round (the skill). Nothing is started before the round has read everything.
+   TREES. A session the page does not show is off, whatever a `Phase:` line says; post the corrected
+   line. For Codex read `~/.ai-core/codex-sessions.tsv`, for agy `~/.ai-core/agy-conversations.tsv`:
+   a session of yours that ended holds its last message there, where its report did not reach the
+   tracker.
+4. Where `implementing` holds cards no section names, run `briefs/clearing.md` first.
+5. Do one round (the skill). Nothing is started before the round has read everything.
 
 ## Before you stop
 
-Write into every package section the phase it stands in and the session that holds it, and the
-`Reviews:` count. Post the open questions of the owner as a comment on the plan issue, each with its
-issues and the label `needs:owner` on them. Then stop; the next coordinator reads it there.
+Post one comment on each plan issue: every area with its phase, its session and its `Reviews:`
+count, and the open questions of the owner, each with its issues and the label `needs:owner` on
+them. Then stop; the next coordinator reads it there.
 
 ## The owner's page, when the owner asks for the state
 

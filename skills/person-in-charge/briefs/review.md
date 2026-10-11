@@ -10,7 +10,8 @@ push nothing: a reviewer who repairs approves its own fix.
 
 - The intent: the package section and each issue's acceptance criteria: {{package section and
   issues}}
-- The diff: {{how to get the diff: branch against the default branch, per repository}}
+- The diff, per worktree: `git -C <worktree> diff origin/<default>...HEAD`: {{worktree paths and
+  default branches}}
 - The build report: {{build report}}
 - The verification output: {{verification output}}
 
@@ -30,7 +31,7 @@ push nothing: a reviewer who repairs approves its own fix.
 
 ## Output, as a comment on the plan issue and in your last message
 
-    REVIEW: GO | NO
+    REVIEW <area>: GO | NO
     FINDINGS:
     - <repo> <file:line>: <the defect>; state: <when it appears>; planted case: <the input that shows it>
     CRITERIA: <n> of <m> met; unmet: <issue, criterion>

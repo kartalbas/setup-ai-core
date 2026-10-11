@@ -45,7 +45,8 @@ prompt: the rules it must keep, the facts of the repository, the expected answer
   talks to `agy-<name>`, every time, across tasks and restarts, so the helper already knows the
   repositories and a call does not pay to teach it again.
 - Record the conversation id in `~/.ai-core/agy-conversations.tsv`, one line per session:
-  `<session name>`, a tab, the id. Take the id from the first call's `--output-format json`
+  `agy-<session name>`, a tab, the id, under the helper's name, because an agy phase session
+  records its own conversation under the bare name. Take the id from the first call's `--output-format json`
   output. Before a call, read your line; with no line, start the conversation and write the line.
 - Never use `-c` / `--continue`: it takes the most recent conversation of anyone on this user
   account, which may be another session's.

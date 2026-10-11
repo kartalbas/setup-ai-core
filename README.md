@@ -399,14 +399,18 @@ on start; no developer installs a skill by hand.
   capability across every repository it touches, with both sides of each contract, found by
   `ai-core contract-scan`. Every package is a section of one plan issue per board, titled "Plan:
   packages", with its ecosystem, class, repositories, contracts and issues.
-  - A package runs through its phases: plan, plan check, build and test, review, start check, land,
-    UI test and live check. Each phase is a fresh session, ended with the phase, started with one
-    brief from the skill's `briefs/` (its input, what to do, the exact shape of its output) on the
-    commands of `references/<tool>.md`. Nothing is compacted and continued, because the state lives
-    in the tracker and on the branch.
+  - Before the first plan, the coordinator clears what earlier sessions left in `implementing` and
+    `testing` (`briefs/clearing.md`). A package then runs through its phases: plan, plan check,
+    build and test, review, start check, land, release, UI test and live check. The plan, the plan
+    check, the build, the review and the UI test are fresh sessions, each ended with its phase and
+    started with one brief from the skill's `briefs/` (its input, what to do, the exact shape of
+    its output) on the commands of `references/<tool>.md`; the start check (`START_CHECK` of
+    `config.env`), the landing and the release are the coordinator's own commands. Nothing is
+    compacted and continued, because the state lives in the tracker and on the branch.
   - The model and effort of each phase follow the package's class (`mechanical`, `normal-hard`,
-    `high-risk`) and come from `.ai-core/models.tsv`, one block per tool. The reviewer never runs
-    on the model that built the package. A phase never moves to another model or tool because a
+    `high-risk`) and come from `.ai-core/models.tsv`, one block per tool; the plan always runs on
+    the `normal-hard` row, because the plan decides the class. The reviewer never runs on the
+    model that built the package, by the table's rows. A phase never moves to another model or tool because a
     quota ran out: its package waits. `ECOSYSTEM_ORDER` in `.ai-core/config.env` says which
     ecosystem takes up a new package.
   - The cards move through `backlog`, `ready`, `planned`, `implementing`, `review`, `testing` and
@@ -831,6 +835,8 @@ allowed; any other value is an error.
 | `UPDATE_CHECK` | `session-start` (default), `never` | whether `session-start` asks `update --check` for a newer release; `AI_CORE_UPDATE_CHECK` in the environment overrides it. Nothing is updated by it |
 | `USAGE_STOP_AT` | a percentage, `92` when unset | the usage limit: at it, in any window, every session finishes the step in hand, commits, reports and waits for the reset; `ai-core usage` exits 3 there |
 | `LIVE_TAGS` | environments with the pattern of their release tags, the last stage first, separated by spaces, e.g. `prod=deploy/prod/* test=deploy/test/*`; empty by default | where `ai-core status` reads a card's work as live: on an environment from the first of its tags that contains the newest commit on the default branch naming the issue. Empty: the TESTING block says so and lists the landed cards without an environment |
+| `ECOSYSTEM_ORDER` | tool names of `models.tsv`, `claude codex agy` when unset | the order the owner starts the coordinators in; a package stays in the ecosystem whose coordinator planned it |
+| `START_CHECK` | a command, empty when unset | run by the person in charge on the bundle of a package's branches before it lands; empty means the project names none |
 | `PROOF_HOURS` | hours, `24` when unset | how long a later environment of `LIVE_TAGS` may carry a card the first one does not before `ai-core status` marks its proof there overdue with 🔴 |
 | `DEFAULT_BRANCH_IS_LIVE` | `yes`, or the folder names of the repositories whose default branch goes live; unset by default | a push to such a default branch needs `scripts/check.sh` and a `Reviewed-by:` trailer on its last commit (section 4.12) |
 

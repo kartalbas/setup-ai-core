@@ -12,8 +12,10 @@
 # phase   plan, plan-check, build (build and test), review, ui-test (the UI test and the live
 #         check), helper (a bounded task inside any phase: a pre-review of a diff, a log, a
 #         screenshot, a long span; its answer is checked by the session that asked). The start
-#         check is a script of the project and has no row; the plan check runs `ai-core
-#         contract-scan` before its model reads the plan, so its row names only the model.
+#         check is START_CHECK of config.env and has no row; the plan check runs `ai-core
+#         contract-scan` before its model reads the plan, and a `mechanical` plan check is the
+#         scan alone, so its mechanical row says `script`. The plan phase runs on the
+#         `normal-hard` row for every package, because the plan decides the class.
 # class   mechanical (a rename or a text, no contract touched), high-risk (security, payments,
 #         contracts outward, the push gate), normal-hard (everything else); * for every class.
 # model   what the tool's --model takes (`claude --model`, `codex -m`, `agy --model`, as `agy models`

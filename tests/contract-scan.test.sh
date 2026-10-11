@@ -83,7 +83,8 @@ echo 'usage errors'
 out="$(cd "$t/proj/shop-web" && bash "$scan" --package '' CATALOG_DIRS 2>&1)"; rc=$?
 check 'an empty package'   '1 error: --package needs a value' "$rc $out"
 out="$(cd "$t/proj/shop-web" && bash "$scan" --package shop-cms CATALOG_DIRS 2>&1)"; rc=$?
-check 'a package repo that is no clone' "1 error: --package names shop-cms, which is no clone of $t/proj" "$rc $out"
+# Git Bash names the folder in its own spelling (C:/...), so only the name and the folder's end are compared
+check 'a package repo that is no clone' "1 error: --package names shop-cms, which is no clone of .../proj" "$rc ${out%% of *} of .../${out##*/}"
 out="$(cd "$t/proj/shop-web" && bash "$scan" 2>&1)"; rc=$?
 check 'no term'            1 "$rc"
 

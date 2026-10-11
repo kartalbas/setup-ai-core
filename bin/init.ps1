@@ -509,9 +509,9 @@ foreach ($rel in $templateFiles) {
 # read, a push is not forced), each list read from the template, and its empty attribution, so
 # Claude Code asks no session to sign a commit or a pull request, which the commit rules forbid.
 # The hook and the status line name ai-core by its full path on this machine, so a Claude Code
-# started from a terminal opened before the install still runs them; the file is the machine's, never committed. A settings.json the
-# checkout had before (created once, never overwritten) gets what it lacks merged in, and an
-# ai-core hook of an older form gives way to this one. Without jq the template stays as it is.
+# started from a terminal opened before the install still runs them; the file is the machine's,
+# never committed. A settings.json the checkout had before (created once, never overwritten) gets
+# what it lacks merged in, and an ai-core hook of an older form gives way to this one. Without jq the template stays as it is.
 $aiCoreCmd = (Join-Path $coreRoot 'bin/ai-core').Replace('\', '/')
 if ($aiCoreCmd -cmatch '^[a-z]:') { $aiCoreCmd = $aiCoreCmd.Substring(0, 1).ToUpperInvariant() + $aiCoreCmd.Substring(1) }
 $hook = "`"$aiCoreCmd`" session-start --tool claude"

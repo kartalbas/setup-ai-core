@@ -483,9 +483,9 @@ done <<< "$( (cd "$CORE_ROOT/templates" && find . -type f | LC_ALL=C sort) | sed
 # read, a push is not forced), each list read from the template, and its empty attribution, so
 # Claude Code asks no session to sign a commit or a pull request, which the commit rules forbid.
 # The hook and the status line name ai-core by its full path on this machine, so a Claude Code
-# started from a terminal opened before the install still runs them; the file is the machine's, never committed. A settings.json the
-# checkout had before (created once, never overwritten) gets what it lacks merged in, and an
-# ai-core hook of an older form gives way to this one. Without jq the template stays as it is.
+# started from a terminal opened before the install still runs them; the file is the machine's,
+# never committed. A settings.json the checkout had before (created once, never overwritten) gets
+# what it lacks merged in, and an ai-core hook of an older form gives way to this one. Without jq the template stays as it is.
 AI_CORE_CMD="$CORE_ROOT/bin/ai-core"; if command -v cygpath >/dev/null 2>&1; then AI_CORE_CMD="$(cygpath -m "$AI_CORE_CMD")"; fi
 HOOK="\"$AI_CORE_CMD\" session-start --tool claude"
 STATUS_LINE="\"$AI_CORE_CMD\" statusline"

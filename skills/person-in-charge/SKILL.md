@@ -69,16 +69,16 @@ finishes them, an issue in `todo` that one of them needs is built with it, and e
 | build and test | `briefs/build.md` | every issue has its commit and tests, every issue branch is pushed through the push gate | `review` |
 | review | `briefs/review.md`, never the build model; `high-risk`: a second review session on the `review-second` row, a model that neither built nor first reviewed it; a tool without that row puts the second reading to the owner (`needs:owner`) | GO, from both where there are two | `review` |
 | start check | you: `START_CHECK` of `.ai-core/config.env` on the package's worktrees after `git -C <worktree> pull -q --no-rebase origin <default>` in each, which merges what landed since without touching the reviewed commits, so the bundle is the one that will be released; a merge conflict goes back to build; exit 0; empty: waived, and your `LAND` comment says so; a failure goes back to build with its output as the findings, counted as a review NO | your `LAND <area>` comment on the plan issue | `review` |
-| land | you: `ai-core integrate-issue <first> --reviewed-by <reviewer>` per repository, additive side first, then `ai-core finish-issue <n>` per issue | every card in `testing` | `testing` |
-| release to the test stage | you: one release per repository, additive side first, as the project's map or `README` says a release is cut. The additive side releases at once; a release tags the whole default branch, so the release of a repository that holds a strict side waits until the additive side of every package whose landing it carries is released | every repository tagged | `testing` |
+| land | you: `ai-core integrate-issue <first> --reviewed-by <reviewer>` per repository, then `ai-core finish-issue <n>` per issue; the additive side lands first, and the strict side lands only once a release to the test stage carries the additive side, so no default branch ever holds a strict side whose additive side is unreleased | every card in `testing` | `testing` |
+| release to the test stage | you: one release per repository, additive side first, as the project's map or `README` says a release is cut; the additive side's repository first, then, after the strict side landed, the strict side's. A release tags the whole default branch, and because a strict side lands only after its additive side is released, every release is safe to cut | every repository tagged | `testing` |
 | UI test on the test stage | `briefs/ui-test.md` with the section's test URL | PASS, posted by you on each issue | `testing` |
-| release to production | you: the same order, the same rule for a strict side, the project's command for production | every repository tagged | `testing` |
+| release to production | you: the additive side's repository first, then the strict side's, the project's command for production | every repository tagged | `testing` |
 | live check on production | `briefs/ui-test.md` with the production URL | PASS; you write `Proven on <environment>:` on each issue, and `status-sync` closes the cards | `done`, by `status-sync` |
 
 Every phase you run yourself and every verdict a session posts is answered by one comment of yours
 on the plan issue, the package's log, which a restart reads:
 
-    PHASE <area>: <phase> | <session name or you> | plans <n> | reviews <n> | context fit | needed more | <next step>
+    PHASE <area>: <phase> | <session name or you> | plans <n> | reviews <n> | context <fit, or needed more: what took the room> | <next step>
     LAND <area>: start check <command> exit 0 | waived, START_CHECK empty; landed <repo> <merge sha>, ...
 
 A review that says NO starts a fresh build session with its findings; a plan check that says NO

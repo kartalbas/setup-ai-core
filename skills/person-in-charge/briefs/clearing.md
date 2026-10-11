@@ -26,11 +26,13 @@ question "where is this seen", and stays.
       🟡 🔴 live on the test stage  → a UI test session on the test stage; on PASS the release to
                                       production (the project's own release step), then as 🟢
       ⏸ not live                    → the release to the test stage, then as 🟡
-      ⏸ landed                      → LIVE_TAGS is empty, so no stage is read: a UI test session on
-                                      the environment the criteria name, once the release its map
-                                      names carries the work; the owner is asked once to set
+      ⏸ landed                      → LIVE_TAGS is empty, so no stage is read: you cut the release
+                                      the project's map names, then a UI test session on the
+                                      environment the criteria name; on PASS the `Proven on
+                                      <environment>:` record; the owner is asked once to set
                                       LIVE_TAGS (needs:owner on the plan issue)
-      ⏸ no landing commit           → it never landed: treat it as implementing
+      ⏸ no commit names it          → it never landed: treat it as implementing
+      ⏸ no checkout                 → the repository has no clone in the folder: needs:owner
     implementing
       landed on the default branch  → ai-core finish-issue <n> → testing
       branch pushed, not merged     → a review session (briefs/review.md) on that branch; GO →

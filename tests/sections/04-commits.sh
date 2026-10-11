@@ -43,6 +43,8 @@ for twin in sh ps1; do
     [ "$t" = "repo-$twin" ] && { [ "$(jq '.permissions.deny | index("Bash(rm -rf:*)") != null' "$WORK/$t/.claude/settings.json")" = true ] || fail "init.$twin took the denial the settings.json of $t had out"; }
     # the context size is the coordinator's, per session; init sets none and takes an old one out
     [ "$(jq 'has("autoCompactWindow")' "$WORK/$t/.claude/settings.json")" = false ] || fail "init.$twin left a compact window in the settings.json of $t: $(jq -c '.autoCompactWindow' "$WORK/$t/.claude/settings.json")"
+    # Claude Code asks no session to sign: the attribution of the template, merged into the one the checkout had
+    [ "$(jq -c '.attribution' "$WORK/$t/.claude/settings.json")" = '{"commit":"","pr":"","sessionUrl":false}' ] || fail "init.$twin did not set the empty attribution in the settings.json of $t: $(jq -c '.attribution' "$WORK/$t/.claude/settings.json")"
     [ "$run" = 1 ] && [ "$t" = "repo-$twin" ] && { grep -aq '^  refreshed .*\.claude/settings\.json' "$WORK/$t-init.log" || fail "init.$twin did not report the merged settings.json as refreshed"; }
     [ "$run" = 2 ] && grep -aq '^  refreshed .*\.claude/settings\.json' "$WORK/$t-init.log" && fail "init.$twin refreshed the settings.json of $t a second time"
     # a compact window written by hand into a settings.json that is otherwise current goes too

@@ -487,6 +487,7 @@ foreach ($rel in $templateFiles) {
   if ($layerFiles -ccontains $rel) { continue }
   if ($pointerOf.ContainsKey($rel) -and -not (Test-Serves $pointerOf[$rel])) { continue }
   if ($rel -ceq '.claude/settings.json' -and (Get-Command jq -ErrorAction SilentlyContinue)) { continue }   # written below, the hook with the full path
+  if ($rel -ceq '.githooks/commit-msg') { continue }   # written in 3a, where the push gate is armed
   # an opencode.json without the template's instructions gets them added
   $own = Join-Path $target $rel
   if ($rel -ceq 'opencode.json' -and (Get-Command jq -ErrorAction SilentlyContinue) -and (Test-Path -LiteralPath $own -PathType Leaf)) {
@@ -505,19 +506,20 @@ foreach ($rel in $templateFiles) {
 # The Claude Code hook that starts the session, the status line that records the account's usage
 # windows for `ai-core usage` (bin/statusline.sh), the permissions of the template (the ai-core
 # commands) and its denials (the secrets of a checkout and the credentials of the machine are not
-# read, a push is not forced), each list read from the template. The hook and the status line name
-# ai-core by its full path on this machine, so a Claude Code started from a terminal opened before
-# the install still runs them; the file is the machine's, never committed. A settings.json the
-# checkout had before (created once, never overwritten) gets what it lacks merged in, and an
-# ai-core hook of an older form gives way to this one. Without jq the template stays as it is.
+# read, a push is not forced), each list read from the template, and its empty attribution, so
+# Claude Code asks no session to sign a commit or a pull request, which the commit rules forbid.
+# The hook and the status line name ai-core by its full path on this machine, so a Claude Code
+# started from a terminal opened before the install still runs them; the file is the machine's,
+# never committed. A settings.json the checkout had before (created once, never overwritten) gets
+# what it lacks merged in, and an ai-core hook of an older form gives way to this one. Without jq the template stays as it is.
 $aiCoreCmd = (Join-Path $coreRoot 'bin/ai-core').Replace('\', '/')
 if ($aiCoreCmd -cmatch '^[a-z]:') { $aiCoreCmd = $aiCoreCmd.Substring(0, 1).ToUpperInvariant() + $aiCoreCmd.Substring(1) }
 $hook = "`"$aiCoreCmd`" session-start --tool claude"
 $statusLine = "`"$aiCoreCmd`" statusline"
 $settings = Join-Path $target '.claude\settings.json'
 $settingsTemplate = Join-Path $coreRoot 'templates\.claude\settings.json'
-$settingsHas = 'def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | ([.hooks.SessionStart[]?.hooks[]? | select(ours) | .command] == [$c]) and (($allow - (.permissions.allow // [])) | length == 0) and (($deny - (.permissions.deny // [])) | length == 0) and (has("autoCompactWindow") | not) and (.statusLine.command == $s)'
-$settingsAdd = 'def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | .hooks.SessionStart = ([.hooks.SessionStart[]? | .hooks = [.hooks[]? | select(ours | not)] | select(.hooks | length > 0)] + [{hooks: [{type: "command", command: $c, timeout: 60}]}]) | .permissions.allow = ((.permissions.allow // []) + ($allow - (.permissions.allow // []))) | .permissions.deny = ((.permissions.deny // []) + ($deny - (.permissions.deny // []))) | del(.autoCompactWindow) | .statusLine = {type: "command", command: $s}'
+$settingsHas = 'def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | ([.hooks.SessionStart[]?.hooks[]? | select(ours) | .command] == [$c]) and (($allow - (.permissions.allow // [])) | length == 0) and (($deny - (.permissions.deny // [])) | length == 0) and (has("autoCompactWindow") | not) and (.statusLine.command == $s) and (.attribution == ((.attribution // {}) + $t[0].attribution))'
+$settingsAdd = 'def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | .hooks.SessionStart = ([.hooks.SessionStart[]? | .hooks = [.hooks[]? | select(ours | not)] | select(.hooks | length > 0)] + [{hooks: [{type: "command", command: $c, timeout: 60}]}]) | .permissions.allow = ((.permissions.allow // []) + ($allow - (.permissions.allow // []))) | .permissions.deny = ((.permissions.deny // []) + ($deny - (.permissions.deny // []))) | del(.autoCompactWindow) | .statusLine = {type: "command", command: $s} | .attribution = ((.attribution // {}) + $t[0].attribution)'
 if (Get-Command jq -ErrorAction SilentlyContinue) {
   $settingsSrc = if (Test-Path -LiteralPath $settings) { $settings } else { $settingsTemplate }
   $stale = $true
@@ -631,11 +633,17 @@ try {
 
 # 3a. A repository that carries .githooks\pre-push (the shim that starts the push gate, ai-core
 #     pre-push) is armed in this clone: core.hooksPath is the clone's own setting, never
-#     committed, so a fresh clone gets it from its first init.
+#     committed, so a fresh clone gets it from its first init. Beside it stands
+#     .githooks\commit-msg, which judges the gate's message rules as the commit is made; it is
+#     the harness's, in the exclude file like the rest, unless the repository commits its own.
 $hooksArmed = $false
 if ((Test-Path (Join-Path $target '.githooks\pre-push')) -and ("$(& git -C $target config --get core.hooksPath 2>$null)" -cne '.githooks')) {
   $hooksArmed = $true
   if (-not $DryRun) { & git -C $target config core.hooksPath .githooks }
+}
+if (Test-Path (Join-Path $target '.githooks\pre-push')) {
+  & git -C $target ls-files --error-unmatch .githooks/commit-msg *> $null
+  if ($LASTEXITCODE -ne 0) { Put (Join-Path $templates '.githooks\commit-msg') '.githooks/commit-msg' managed }
 }
 
 # 3b. The project's .gitignore carries a block naming every file an agent or the harness puts

@@ -596,6 +596,21 @@ if serves codex; then
     #     to Codex's reviewing subagent, with the auto-mode entries of the layers as its policy:
     #     what Claude Code's classifier reads. The user's config.toml stays as it is.
     CODEX_PROFILE="$(dirname "$CODEX_CONFIG")/ai-core.config.toml"
+    # The machine has one profile and several project folders, so it holds the entries of every
+    # one, as Claude Code's settings do: those of the layers this run assembled are replaced, every
+    # other layer's stay, in their order, before this run's.
+    : > "$TMP/codex-entries.tsv"
+    if [ -f "$CODEX_PROFILE" ]; then
+      tr -d '\r' < "$CODEX_PROFILE" | awk -v layers="$AUTO_MODE_LAYERS" -v end="'''" '
+        BEGIN { n = split(layers, a, "\n"); for (i = 1; i <= n; i++) mine["[" a[i] "]"] = 1 }
+        $0 == "Allow:" { list = "allow"; next }
+        $0 == "Environment:" { list = "environment"; next }
+        $0 == end { list = ""; next }
+        list != "" && substr($0, 1, 3) == "- [" && index($0, "] ") > 0 {
+          text = substr($0, 3); if (!(substr(text, 1, index(text, "]")) in mine)) print list "\t" text
+        }' > "$TMP/codex-entries.tsv"
+    fi
+    cat "$TMP/auto-mode.tsv" >> "$TMP/codex-entries.tsv"
     {
       printf '# setup-ai-core %s: written by ai-core init, rewritten on every run. The profile of every Codex\n' "$CORE_VERSION"
       printf '# session the harness starts (codex exec -p ai-core): the network closed, and every approval\n'
@@ -604,8 +619,8 @@ if serves codex; then
       printf '[sandbox_workspace_write]\nnetwork_access = false\n\n[auto_review]\n'
       printf '%s\n' "policy = '''"
       printf '%s\n' "These entries come from the auto-mode files of the harness and of the project's layers; Claude Code's classifier reads the same. An entry under Allow permits an action that would otherwise be refused; an entry under Environment describes this environment."
-      printf '\nAllow:\n'; awk -F '\t' '$1 == "allow" { print "- " $2 }' "$TMP/auto-mode.tsv"
-      printf '\nEnvironment:\n'; awk -F '\t' '$1 == "environment" { print "- " $2 }' "$TMP/auto-mode.tsv"
+      printf '\nAllow:\n'; awk -F '\t' '$1 == "allow" { print "- " $2 }' "$TMP/codex-entries.tsv"
+      printf '\nEnvironment:\n'; awk -F '\t' '$1 == "environment" { print "- " $2 }' "$TMP/codex-entries.tsv"
       printf '%s\n' "'''"
     } > "$TMP/ai-core.config.toml"
     if ! cmp -s "$TMP/ai-core.config.toml" "$CODEX_PROFILE"; then

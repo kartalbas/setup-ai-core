@@ -643,6 +643,25 @@ if (Test-Serves 'codex') {
     #     to Codex's reviewing subagent, with the auto-mode entries of the layers as its policy:
     #     what Claude Code's classifier reads. The user's config.toml stays as it is.
     $codexProfile = Join-Path $codexDir 'ai-core.config.toml'
+    # The machine has one profile and several project folders, so it holds the entries of every
+    # one, as Claude Code's settings do: those of the layers this run assembled are replaced, every
+    # other layer's stay, in their order, before this run's.
+    $codexEntries = @()
+    if (Test-Path -LiteralPath $codexProfile -PathType Leaf) {
+      $mine = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+      foreach ($n in $autoModeLayers) { [void]$mine.Add("[$n]") }
+      $list = ''
+      foreach ($l in @([System.IO.File]::ReadAllLines($codexProfile) | ForEach-Object { $_.TrimEnd("`r") })) {
+        if ($l -ceq 'Allow:') { $list = 'allow'; continue }
+        if ($l -ceq 'Environment:') { $list = 'environment'; continue }
+        if ($l -ceq "'''") { $list = ''; continue }
+        if ($list -and $l.StartsWith('- [', [StringComparison]::Ordinal) -and $l.IndexOf('] ', [StringComparison]::Ordinal) -gt 0) {
+          $text = $l.Substring(2)
+          if (-not $mine.Contains($text.Substring(0, $text.IndexOf([char]']') + 1))) { $codexEntries += "$list`t$text" }
+        }
+      }
+    }
+    $codexEntries += $autoModeLines
     $p = New-Object System.Text.StringBuilder
     [void]$p.Append("# setup-ai-core ${coreVersion}: written by ai-core init, rewritten on every run. The profile of every Codex`n")
     [void]$p.Append("# session the harness starts (codex exec -p ai-core): the network closed, and every approval`n")
@@ -652,9 +671,9 @@ if (Test-Serves 'codex') {
     [void]$p.Append("policy = '''`n")
     [void]$p.Append("These entries come from the auto-mode files of the harness and of the project's layers; Claude Code's classifier reads the same. An entry under Allow permits an action that would otherwise be refused; an entry under Environment describes this environment.`n")
     [void]$p.Append("`nAllow:`n")
-    foreach ($e in $autoModeLines) { if ($e.StartsWith("allow`t", [StringComparison]::Ordinal)) { [void]$p.Append("- $($e.Substring(6))`n") } }
+    foreach ($e in $codexEntries) { if ($e.StartsWith("allow`t", [StringComparison]::Ordinal)) { [void]$p.Append("- $($e.Substring(6))`n") } }
     [void]$p.Append("`nEnvironment:`n")
-    foreach ($e in $autoModeLines) { if ($e.StartsWith("environment`t", [StringComparison]::Ordinal)) { [void]$p.Append("- $($e.Substring(12))`n") } }
+    foreach ($e in $codexEntries) { if ($e.StartsWith("environment`t", [StringComparison]::Ordinal)) { [void]$p.Append("- $($e.Substring(12))`n") } }
     [void]$p.Append("'''`n")
     $profileText = $p.ToString()
     $profileNow = if (Test-Path -LiteralPath $codexProfile -PathType Leaf) { [System.IO.File]::ReadAllText($codexProfile) } else { $null }

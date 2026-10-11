@@ -20,8 +20,7 @@ cut by file splits a contract and its two sides then release apart.
   FINDINGS, or "first plan"}}; and the last builds of this area that reported `CONTEXT: needed
   more`, from their PHASE lines: {{context lines or none}}. A plan that comes back changes what the findings name; the rest stands.
 - The classes: `mechanical` (a rename or a text, no contract touched), `high-risk` (security, payments,
-  contracts outward, the push gate; outward means an interface somebody outside the project
-  uses, never a contract between the project's own repositories), `normal-hard` (everything else)
+  contracts outward, the push gate; outward means an interface somebody outside the project uses (a public API, a published package, a customer's data format), never a contract between the project's own repositories), `normal-hard` (everything else)
 
 ## What to do
 

@@ -201,7 +201,7 @@ checkout never carries a copy.
 │   ├── config.env                       the agents served, the organisation: managed from the harness, else yours
 │   ├── labels.tsv, assignees.tsv        the label taxonomy and who owns which repository's issues: the same
 │   ├── team-modes.tsv                   the team modes per tool, with probe and install command: the same
-│   ├── models.tsv                       the model and effort of every package phase, by class: the same
+│   ├── models.tsv                       the model and effort of every package phase, by class: managed from the harness, else setup-ai-core's table
 │   ├── docs/                            yours: documents for agents; docs/<harness>/ managed: the docs of each layer
 │   ├── STAMP                            managed: the commit of setup-ai-core and of every layer this was assembled from
 │   ├── DEPLOYED                         managed: what the layers put here; what a layer no longer provides is taken out at the next run

@@ -488,6 +488,7 @@ foreach ($rel in $templateFiles) {
   if ($pointerOf.ContainsKey($rel) -and -not (Test-Serves $pointerOf[$rel])) { continue }
   if ($rel -ceq '.claude/settings.json' -and (Get-Command jq -ErrorAction SilentlyContinue)) { continue }   # written below, the hook with the full path
   if ($rel -ceq '.githooks/commit-msg') { continue }   # written in 3a, where the push gate is armed
+  if ($rel -ceq '.ai-core/models.tsv') { Put (Join-Path $templates $rel) $rel managed; continue }   # the harness's table, kept current; a project's own comes from its harness layer
   # an opencode.json without the template's instructions gets them added
   $own = Join-Path $target $rel
   if ($rel -ceq 'opencode.json' -and (Get-Command jq -ErrorAction SilentlyContinue) -and (Test-Path -LiteralPath $own -PathType Leaf)) {

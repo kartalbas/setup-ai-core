@@ -27,7 +27,7 @@ question "where is this seen", and stays.
                                       production (the project's own release step), then as 🟢
       ⏸ not live                    → the release to the test stage, then as 🟡
       ⏸ landed                      → LIVE_TAGS is empty, so no stage is read: you cut the release
-                                      the project's map names, then a UI test session on the
+                                      the project's map names, once per card, then a UI test session on the
                                       environment the criteria name; on PASS the `Proven on
                                       <environment>:` record; the owner is asked once to set
                                       LIVE_TAGS (needs:owner on the plan issue)

@@ -10,8 +10,9 @@
 #         The issues nobody planned belong to the first tool of ECOSYSTEM_ORDER in config.env;
 #         a later tool plans what the owner hands its coordinator. A tool with
 #         no rows runs no phase, and a class without rows of a tool is not that tool's work.
-# phase   coordinator (the person in charge itself), plan, plan-check, build (build and test), review, ui-test (the UI test and the live
-#         check), helper (a bounded task inside any phase: a pre-review of a diff, a log, a
+# phase   coordinator (the person in charge itself), plan, plan-check, build (build and test),
+#         review, review-second (the second reading of a high-risk review, by a model that
+#         neither built nor first reviewed it), ui-test (the UI test and the live check), helper (a bounded task inside any phase: a pre-review of a diff, a log, a
 #         screenshot, a long span; its answer is checked by the session that asked). The start
 #         check is START_CHECK of config.env and has no row. The plan runs on the high-risk row
 #         where an issue names a secret, a payment, a contract outward or the push gate, else on
@@ -39,6 +40,7 @@ claude	build	high-risk	claude-opus-5-5	xhigh
 claude	review	mechanical	claude-opus-5-5	high
 claude	review	normal-hard	claude-opus-5-5	xhigh
 claude	review	high-risk	claude-fable-5-1	max
+claude	review-second	high-risk	claude-sonnet-5-5	xhigh
 claude	ui-test	mechanical	claude-haiku-5-5	medium
 claude	ui-test	normal-hard	claude-haiku-5-5	high
 claude	ui-test	high-risk	claude-haiku-5-5	max
@@ -71,6 +73,7 @@ agy	build	high-risk	claude-sonnet-5-5-high	-
 agy	review	mechanical	claude-opus-5-5-high	-
 agy	review	normal-hard	claude-opus-5-5-high	-
 agy	review	high-risk	claude-opus-5-5-high	-
+agy	review-second	high-risk	gemini-3.1-pro-high	-
 agy	ui-test	mechanical	gemini-3.8-flash-high	-
 agy	ui-test	normal-hard	gemini-3.8-flash-high	-
 agy	ui-test	high-risk	gemini-3.8-flash-high	-

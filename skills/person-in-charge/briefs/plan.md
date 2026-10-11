@@ -17,7 +17,8 @@ cut by file splits a contract and its two sides then release apart.
   {{open sections or none}}
 - The plan issue: {{plan issue reference}}
 - What came back, where this plan is not the first: {{the plan check's GAPS, or the two reviews'
-  FINDINGS, or "first plan"}}. A plan that comes back changes what the findings name; the rest stands.
+  FINDINGS, or "first plan"}}; and the last builds of this area that reported `CONTEXT: needed
+  more`, from their PHASE lines: {{context lines or none}}. A plan that comes back changes what the findings name; the rest stands.
 - The classes: `mechanical` (a rename or a text, no contract touched), `high-risk` (security, payments,
   contracts outward, the push gate), `normal-hard` (everything else)
 

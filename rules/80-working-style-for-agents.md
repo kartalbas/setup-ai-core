@@ -68,7 +68,8 @@
   table's helper row; a UI test or a live check is a phase of its own, on the table's model for it.
   A table's `high-risk` rows name a model at least as strong as its `normal-hard` rows, because
   security, payments and contract work are never moved to a cheaper model to save money, and a
-  `high-risk` review is read a second time by another model, the table's plan-check row, because two
+  `high-risk` review is read a second time by a model that neither built nor first reviewed it, the
+  table's review-second row, or by the owner where the tool has none, because two
   readers with the same habits share a blind spot.
   A helper never builds, never gives the deciding review and never decides; its answer is a lead the
   session checks before it uses it. No task moves to another model, effort or tool because a quota

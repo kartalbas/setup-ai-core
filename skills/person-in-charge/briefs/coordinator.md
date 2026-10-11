@@ -17,7 +17,8 @@ way it reads its state again from this brief, because the state is in the tracke
 3. Read the plan issue of each board: every comment that is a package section, the newest of each
    area; the newest `PHASE <area>` line of each area, which holds the phase, the session, the plan
    and review counts and the next step; and every verdict (`PLAN CHECK <area>`, `REVIEW <area>`,
-   `LAND <area>`, `CLEARING round`) after that line. Sections of another ecosystem are not yours.
+   `LAND <area>`, `CLEARING round`) after that line, and the partner's `RELEASED <area>` lines on
+   your plan issue. Sections of another ecosystem are not yours.
 4. Read `ai-core status` per board: which sessions run, which are blocked, what is in TESTING and
    TREES. A session the page does not show is off, whatever a PHASE line says; post a corrected
    line. Your session numbers count on from the highest `l<n>` on the plan issue, so no name of
@@ -27,11 +28,11 @@ way it reads its state again from this brief, because the state is in the tracke
 5. Where `implementing` holds cards no section names, run `briefs/clearing.md` first.
 6. Do one round (the skill). Nothing is started before the round has read everything.
 
-## Before you stop
+## When the owner restarts you
 
-Post one comment on each plan issue: every area with its PHASE line, and the open questions of the
-owner, each with its issues and the label `needs:owner` on them. Then stop; the next coordinator
-reads it there.
+Before the restart, post one comment on each plan issue: every area with its PHASE line, and the open questions of the
+owner, each with its issues and the label `needs:owner` on them. The next coordinator reads it
+there.
 
 ## The owner's page, when the owner asks for the state
 

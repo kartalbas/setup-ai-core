@@ -23,9 +23,13 @@ question "where is this seen", and stays.
     testing
       🟢 live on production         → a UI test session (briefs/ui-test.md) on its promise; on PASS the
                                       `Proven on <environment>:` record; status-sync closes it
-      🟡 🔴 live on the test stage  → the release to production (the project's own release step),
-                                      then as 🟢
-      ⏸ landed, ⏸ not live           → the release to the test stage, then as 🟡
+      🟡 🔴 live on the test stage  → a UI test session on the test stage; on PASS the release to
+                                      production (the project's own release step), then as 🟢
+      ⏸ not live                    → the release to the test stage, then as 🟡
+      ⏸ landed                      → LIVE_TAGS is empty, so no stage is read: a UI test session on
+                                      the environment the criteria name, once the release its map
+                                      names carries the work; the owner is asked once to set
+                                      LIVE_TAGS (needs:owner on the plan issue)
       ⏸ no landing commit           → it never landed: treat it as implementing
     implementing
       landed on the default branch  → ai-core finish-issue <n> → testing
@@ -44,6 +48,9 @@ An issue in `todo`, `ready` or `backlog` that a card in `implementing` or `testi
 (named as its prerequisite, a sub-issue of the same epic, or the other side of the same contract) is
 part of the clearing: it is built with that card, through the same review, before anything new
 starts, because a card whose prerequisite waits in todo never reaches done.
+
+A card from before is its own area, named `clearing <repo>#<n>`, so its REVIEW, LAND and PHASE
+lines are counted like a package's.
 
 Work in rounds of at most 10 cards, the TESTING 🔴 first, then `implementing`, then the rest of
 `testing`. Group the cards whose work shares a release: one release carries them all.

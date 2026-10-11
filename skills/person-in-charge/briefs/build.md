@@ -11,7 +11,8 @@ dialog: nobody sits at your terminal.
 - The issues in landing order, each with its acceptance criteria: {{issues}}
 - The worktrees, one per repository, opened for you: {{worktree paths}}. Work there by `cd` and
   absolute paths; never move to another folder and never open a worktree yourself.
-- The verification command of each worktree, from the section's `Verify:` line: {{verification
+- The verification command of each worktree, from the section's `Verify:` line, or for a card from
+  before the packages "the command the clone's map or README names; find it": {{verification
   commands}}
 - The findings of the last review, where this is the second round: {{findings or "first round"}}
 

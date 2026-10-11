@@ -30,12 +30,17 @@ question "where is this seen", and stays.
       landed on the default branch  → ai-core finish-issue <n> → testing
       branch pushed, not merged     → a review session (briefs/review.md) on that branch; GO →
                                       ai-core integrate-issue <n> --reviewed-by <reviewer>, finish-issue
-      branch with commits, unfinished → the state as a comment on the issue ("State: <what is done,
-                                      what is not, the branch, the worktree path>"), the card to
-                                      ready; the worktree stays, and the package that takes the issue
-                                      up builds in it
-      worktree without a commit     → the card to ready, the worktree path on the issue; it stays,
-                                      because nothing removes an uncommitted tree but a person
+      branch with commits, unfinished → a build session (briefs/build.md) in that worktree, with the
+                                      issue's criteria and its commits so far, finishes it; then
+                                      review, land, as above. Started work is finished before new
+                                      work starts
+      worktree without a commit     → as unfinished, from the issue's criteria; where the issue has
+                                      no criteria, `needs:owner` with the question what done is
+
+An issue in `todo`, `ready` or `backlog` that a card in `implementing` or `testing` needs to be done
+(named as its prerequisite, a sub-issue of the same epic, or the other side of the same contract) is
+part of the clearing: it is built with that card, through the same review, before anything new
+starts, because a card whose prerequisite waits in todo never reaches done.
 
 Work in rounds of at most 10 cards, the TESTING 🔴 first, then `implementing`, then the rest of
 `testing`. Group the cards whose work shares a release: one release carries them all.
@@ -43,7 +48,7 @@ Work in rounds of at most 10 cards, the TESTING 🔴 first, then `implementing`,
 ## Output, after every round, as a comment on the plan issue
 
     CLEARING round <k>: <n> cards left in implementing, <m> in testing
-    - <repo>#<n>: <what was done: proven | released | landed | reviewed | back to ready> (<session>)
+    - <repo>#<n>: <what was done: proven | released | landed | reviewed | built> (<session>)
     OPEN: <cards that need the owner, with the question>
 
 When `implementing` is empty, say so in the last round's comment; from then on the plan phase

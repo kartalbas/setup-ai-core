@@ -53,8 +53,9 @@ question for the owner, never a release on hope.
 
 A board with cards in `implementing` and `testing` from before holds work nobody owns. Before any
 plan, run `briefs/clearing.md` round after round until `implementing` is empty: landed work goes to
-`testing`, finished branches get their review and land, half-done work goes back to `ready` with its
-state on the issue, and every card in `testing` gets its proof or its release.
+`testing`, finished branches get their review and land, half-done branches get a build session that
+finishes them, an issue in `todo` that one of them needs is built with it, and every card in
+`testing` gets its proof or its release.
 
 ## The phases of a package
 

@@ -10,7 +10,8 @@ read-only, and a worktree's git directory with them. A session started in a work
 cannot commit; one started in the project folder commits in every clone and worktree under it, and
 can add and remove worktrees. Codex also reads `AGENTS.override.md` only from its working directory
 up to the git root, and the project folder's carries the rules, the local rules and the skills file.
-So every coordinator round and every phase starts with `-C <project folder>`; the brief names the
+So every coordinator round and every phase but the UI test starts with `-C <project folder>` and,
+because the folder is no git repository, `--skip-git-repo-check`; the brief names the
 worktree, and the session reads that repository's `AGENTS.md` there before it works in it.
 `~/.ai-core` is writable only with `--add-dir ~/.ai-core`.
 
@@ -34,7 +35,7 @@ nothing of it has to survive:
 
     while true; do
       codex exec -m <model> -c model_reasoning_effort=<effort> -s workspace-write \
-        -C <project folder> --add-dir ~/.ai-core "$(cat .claude/skills/person-in-charge/briefs/coordinator.md)"
+        -C <project folder> --skip-git-repo-check --add-dir ~/.ai-core "$(cat .claude/skills/person-in-charge/briefs/coordinator.md)"
       sleep 600
     done
 
@@ -44,7 +45,7 @@ In the background, its output in `~/.ai-core/sessions/<session name>.out`, the b
 package's worktrees or clones:
 
     codex exec -m <model> -c model_reasoning_effort=<effort> -s workspace-write \
-      -C <project folder> --add-dir ~/.ai-core \
+      -C <project folder> --skip-git-repo-check --add-dir ~/.ai-core \
       --json "$(cat <brief file>)" > ~/.ai-core/sessions/<session name>.out
 
 The thread id stands in the first JSON line of the output. Record it at once in

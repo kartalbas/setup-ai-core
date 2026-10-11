@@ -38,7 +38,7 @@ question "where is this seen", and stays.
       branch pushed, not merged     → a review session (briefs/review.md) on that branch; GO →
                                       the skill's start check and land, with the LAND line; NO →
                                       a build session with the findings, as in a package; after the
-                                      second NO, needs:owner
+                                      fourth NO, needs:owner
       branch with commits, unfinished → a build session (briefs/build.md) in that worktree, with the
                                       issue's criteria and its commits so far, finishes it; then
                                       review, land, as above. Started work is finished before new

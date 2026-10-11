@@ -82,7 +82,8 @@ on the plan issue, the package's log, which a restart reads:
     LAND <area>: start check <command> exit 0 | waived, START_CHECK empty; landed <repo> <merge sha>, ...
 
 A review that says NO starts a fresh build session with its findings; a plan check that says NO
-starts a fresh plan session with its GAPS. After the second NO of either kind the package stops:
+starts a fresh plan session with its GAPS. Before every build, plan or review session, read the package's newest PHASE line: after the
+second NO of either kind no third round starts, whatever the findings say, and the package stops:
 its issues get `needs:owner`, and your PHASE line says why, because two misses mean the plan was
 wrong, not the code. A UI test that says FAIL keeps the cards in `testing` and opens one `type:bug` issue of the area
 with the SEEN text as its acceptance criterion (`ai-core issue-new ... --found-in <plan issue>`),

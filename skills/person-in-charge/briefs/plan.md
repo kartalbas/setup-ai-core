@@ -42,7 +42,8 @@ cut by file splits a contract and its two sides then release apart.
    clone (its map, its `README` or its `scripts/`), the test and production environments the criteria
    name with their URLs, the demo account where a check needs one, and the clicks each promise takes.
 7. Where an issue holds a decision of the owner's (a new dependency, a public interface, a deletion
-   beyond the change's own leftovers, a cost of a multiple of the issue), write the solution path on
+   beyond the change's own leftovers, a rename of something that has a name or a new word a person
+   meets, a cost of a multiple of the issue), write the solution path on
    that issue (`ai-core solution-path <n> <file>`) and name the issue under `Waits for the owner:`.
 
 ## Output: one package section per package, nothing else

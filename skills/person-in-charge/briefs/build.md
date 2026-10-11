@@ -54,3 +54,6 @@ dialog: nobody sits at your terminal.
 - Nothing commented out or kept in case: a piece of code whose job your change took is deleted in
   the same commit.
 - Never a secret in a commit, a log or a message.
+- A probe or an experiment (a script, a sample folder, an install) runs in a new folder from
+  `mktemp -d`, never in a clone or a worktree, and you remove it at the end: a stray folder in a
+  clone makes every later `start-issue` there refuse.

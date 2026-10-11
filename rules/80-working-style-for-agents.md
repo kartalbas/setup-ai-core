@@ -56,19 +56,16 @@
   prompt, the scope or the missing context before changing model or effort. [discipline]
 - **A review is independent and read-only.** The reviewer gets the diff of the whole package and the
   stated intent of each of its issues, not the conversation; one handed a single issue of a running
-  package asks for the package. It writes findings instead of pushing into the tree under review. Deciding
-  whether a finding is real is a separate step from repairing it, and whoever wrote a fix does not
-  approve it. The reviewer's model follows the stakes of the change, not the model of the session: a
-  small mechanical change takes the lighter model the harness allows, ordinary work the standard
-  one, and security, payments, contracts or the push gate the strongest, read a second time by
-  another model. A test check, a live check in the browser, a sweep, a collection of facts, a
-  draft of test cases or a pre-review that a cheaper model can do, and whose answer the session can
-  check cheaply, goes to the cheapest model the machine offers: a helper outside the frontier
-  models first, a frontier vendor's smallest model where that helper has no quota left. Such a
-  model never builds, never gives the deciding review and never decides; its answer is a lead the
-  session checks before it uses it. Never downgrade a model to save money on security, payments
-  or contract work.
-  [review]
+  package asks for the package. It writes findings instead of pushing into the tree under review.
+  Deciding whether a finding is real is a separate step from repairing it, and whoever wrote a fix
+  does not approve it. The reviewer's model and effort follow the class of the change, as the
+  project's model table (`.ai-core/models.tsv`) names them for the tool the session runs in, and
+  never the model that wrote the work. A sweep, a collection of facts, a draft of test cases or a
+  pre-review whose answer the session can check cheaply goes to the helper of the same tool, the
+  table's helper row; a UI test or a live check is a phase of its own, on the table's model for it.
+  A helper never builds, never gives the deciding review and never decides; its answer is a lead the
+  session checks before it uses it. No task moves to another model, effort or tool because a quota
+  ran out, because a fallback waters the result down from the bottom up: it waits. [review]
 - **Never announce that the context is running out and never stop work because of it.** Report the
   work when it reaches a point, not because a budget did. A usage limit of the account is another
   matter, because every session draws on it: at the limit the project sets, USAGE_STOP_AT in its

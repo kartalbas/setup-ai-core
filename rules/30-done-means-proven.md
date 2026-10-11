@@ -1,7 +1,10 @@
 ## Done means a working, proven result
 
 - **The goal is the working end-to-end result**, never a component that looks finished on its own.
-  State what that result is before starting and measure done against it. [discipline]
+  State what that result is before starting and measure done against it. Before work lands, the
+  product starts on the bundle that ships together, every repository at the version that will be
+  released, because a part that passes alone can fail at the first start beside the others.
+  [discipline · review]
 - **Never break an existing feature or user experience.** Contracts we own may change on both sides
   at once; a regression may not. [review]
 - **No leftovers.** The moment a change takes a piece of code's job away, that code is deleted in the
@@ -41,8 +44,8 @@
   is named with its reason, finished work is stated plainly. [review]
 - **A pass from a gate is not a review.** Work that changes behaviour is read, before it is
   integrated, by a reviewer told to refute, who names the file, the line and the state in which a
-  defect appears. Where the stakes are high, more than one reviewer reads it, on different models,
-  because two readers with the same habits share a blind spot. After the reviewer's GO,
+  defect appears. The reviewer never runs on the model that wrote the work, because two readers
+  with the same habits share a blind spot. After the reviewer's GO,
   `ai-core integrate-issue <number> --reviewed-by <reviewer>` integrates the work into the default
   branch as a merge commit that names the issue and carries a `Reviewed-by: <reviewer>` trailer,
   so the reviewed commits land as they were read; the verdict is written on the issue. A refused

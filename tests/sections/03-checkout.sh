@@ -237,6 +237,7 @@ for t in sh ps1; do
   F="$WORK/codex-folder-$t"; mkdir -p "$F/.ai-core" "$F/repo" "$CODEX_HOME-$t"
   printf 'UPDATE_CHECK="never"\n' > "$F/.ai-core/config.env"; git -C "$F/repo" init -q
   printf 'model = "m"\nproject_doc_max_bytes = 1000\n\n[profiles.p]\nproject_doc_max_bytes = 5\n' > "$CODEX_HOME-$t/config.toml"
+  printf "[auto_review]\npolicy = '''\nAllow:\n- [other-ai-core] Kept from another project.\n- [setup-ai-core] Stale.\n\nEnvironment:\n- [other-ai-core] Another fact.\n'''\n" > "$CODEX_HOME-$t/ai-core.config.toml"
   codex_init "$t" "$F"
   printf '\n- **The folder rule.** Planted by the check. [discipline]\n' >> "$F/.ai-core/rules/rules.local.md"
   codex_init "$t" "$F"; codex_init "$t" "$F/repo"
@@ -254,6 +255,8 @@ for t in sh ps1; do
   grep -qxF 'approvals_reviewer = "auto_review"' "$P" && grep -qxF 'network_access = false' "$P" || fail "init.$t wrote no Codex profile ai-core that closes the network and hands approvals to the reviewer"
   grep -qF -- "- [setup-ai-core] $(grep -m1 '^allow' "$ROOT/auto-mode.tsv" | cut -f2)" "$P" || fail "init.$t: the profile ai-core lacks the auto-mode entries"
   grep -aq "the profile ai-core written to $P" "$F.log" || fail "init.$t did not say it wrote the profile ai-core"
+  grep -qxF -- '- [other-ai-core] Kept from another project.' "$P" && grep -qxF -- '- [other-ai-core] Another fact.' "$P" || fail "init.$t dropped another project's entries from the profile ai-core"
+  ! grep -qxF -- '- [setup-ai-core] Stale.' "$P" || fail "init.$t kept a stale entry of its own layer in the profile ai-core"
 done
 cmp -s "$WORK/codex-override-sh.md" "$WORK/codex-override-ps1.md" || fail "the twins wrote different AGENTS.override.md files"
 cmp -s "$CODEX_HOME-sh/ai-core.config.toml" "$CODEX_HOME-ps1/ai-core.config.toml" || fail "the twins wrote different Codex profiles"
@@ -272,6 +275,6 @@ for t in sh ps1; do
   [ "$(tr -d '\r' < "$K/AGENTS.override.md")" = 'our own' ] || fail "init.$t overwrote an AGENTS.override.md the repository tracks"
   [ "$(tr -d '\r' < "$CODEX_HOME-kept-$t/config.toml")" = 'project_doc_max_bytes = 1_000_000' ] || fail "init.$t lowered project_doc_max_bytes written with underscores"
 done
-echo "  a checkout in a project folder gets the folder's and its own AGENTS.md with rules.md, skills.md and the folder's local rules written out, the same on both twins and kept out of git; Codex's config is raised before its first table, a table's key and a higher value stay, underscores read; an override the repository tracks is kept; the profile ai-core closes the network and gives the reviewer the auto-mode entries, the same on both twins; nothing where Codex is not served"
+echo "  a checkout in a project folder gets the folder's and its own AGENTS.md with rules.md, skills.md and the folder's local rules written out, the same on both twins and kept out of git; Codex's config is raised before its first table, a table's key and a higher value stay, underscores read; an override the repository tracks is kept; the profile ai-core closes the network and gives the reviewer the auto-mode entries, another project's kept, the same on both twins; nothing where Codex is not served"
 
 exit 0

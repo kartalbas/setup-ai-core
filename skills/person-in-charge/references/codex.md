@@ -72,6 +72,11 @@ A UI test session needs the isolated browser in `~/.codex/config.toml`, once per
     command = "npx"
     args = ["-y", "chrome-devtools-mcp@1.10.1", "--executablePath", "<path of Edge or Chrome>",
             "--headless", "--isolated", "--viewport", "1366x900"]
+    default_tools_approval_mode = "approve"
+
+The UI test runs without the profile, under the policy that approves nothing, so a browser tool
+that asks for approval is refused and the page stays blank; its tools are approved up front, as
+the browser is headless, isolated and the session's only tool that asks.
 
 Run it from an empty throwaway directory with `-s read-only --skip-git-repo-check`, its output into
 the session's file, and post its report on the issues yourself.

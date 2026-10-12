@@ -50,13 +50,14 @@ function Sync-Checkout {
   # Before ai-core commits a file of its own in a checkout, the checkout comes level with its
   # origin: fetched, and fast-forwarded where it is only behind, with no commit of its own and no
   # change to a tracked file. Returns Ok and a Note: what it did, or why it could not and Ok false
-  # then: nothing of ai-core is committed on a checkout the origin has moved past. Offline, without
-  # an origin or off a branch the Note is empty and Ok true; the push says what happened.
+  # then: nothing of ai-core is committed on a checkout the origin has moved past, nor on one off a
+  # branch, where the commit reaches no branch and stays behind. Offline or without an origin the
+  # Note is empty and Ok true; the push says what happened.
   [CmdletBinding()] param([Parameter(Mandatory)][string]$Directory)
   $level = [pscustomobject]@{ Ok = $true; Note = '' }
-  $branch = "$(& git -C $Directory symbolic-ref --short -q HEAD 2>$null)".Trim()
-  if ($LASTEXITCODE -ne 0 -or -not $branch) { return $level }
   & git -C $Directory remote get-url origin *> $null; if ($LASTEXITCODE -ne 0) { return $level }
+  $branch = "$(& git -C $Directory symbolic-ref --short -q HEAD 2>$null)".Trim()
+  if ($LASTEXITCODE -ne 0 -or -not $branch) { return [pscustomobject]@{ Ok = $false; Note = 'on no branch; check out its branch, then run this again' } }
   & git -C $Directory fetch --quiet origin $branch *> $null; if ($LASTEXITCODE -ne 0) { return $level }
   $behind = [int]"$(& git -C $Directory rev-list --count HEAD..FETCH_HEAD 2>$null)".Trim()
   if ($behind -eq 0) { return $level }

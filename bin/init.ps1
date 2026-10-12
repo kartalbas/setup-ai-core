@@ -806,19 +806,22 @@ if (Test-Path (Join-Path $target '.githooks\pre-push')) {
 #     ignores them all no block is written. Only the main checkout writes the block and commits
 #     it: a worktree is somebody's issue, takes the block when it rebases, and until then the
 #     exclude file it shares with its checkout keeps the deployed files out of git status.
-# The block committed on its own and pushed by ref to the branch checked out. Returns the note for
-# the report.
+# The block committed on its own and pushed by ref to the branch checked out, which Sync-Checkout
+# has made sure of. Returns Ok and the Note for the report. A push that is refused or fails takes
+# the commit back and Ok is false: a commit nobody pushes leaves the checkout off its origin, and
+# the next start-issue there refuses it.
 function Send-Gitignore([string]$dir) {
   & git -C $dir add -- .gitignore
   & git -C $dir commit -q -m 'the agent files of this repository are ignored' -m 'No-issue: the .gitignore block written by ai-core init' -- .gitignore
-  if ($LASTEXITCODE -ne 0) { return "the commit failed (see above)" }
+  if ($LASTEXITCODE -ne 0) { return [pscustomobject]@{ Ok = $true; Note = "the commit failed (see above)" } }
   & git -C $dir remote get-url origin 2>$null | Out-Null
-  if ($LASTEXITCODE -ne 0) { return "committed; no origin, not pushed" }
+  if ($LASTEXITCODE -ne 0) { return [pscustomobject]@{ Ok = $true; Note = "committed; no origin, not pushed" } }
   $branch = "$(& git -C $dir symbolic-ref --short -q HEAD 2>$null)"
-  if ($LASTEXITCODE -ne 0 -or -not $branch) { return "committed; not on a branch, not pushed" }
   & git -C $dir push --quiet origin "HEAD:$branch"
-  if ($LASTEXITCODE -eq 0) { return "committed and pushed to origin/$branch" }
-  return "committed; the push was refused or failed (see above), the commit stays"
+  if ($LASTEXITCODE -eq 0) { return [pscustomobject]@{ Ok = $true; Note = "committed and pushed to origin/$branch" } }
+  & git -C $dir reset -q --keep HEAD~1
+  if ($LASTEXITCODE -ne 0) { return [pscustomobject]@{ Ok = $true; Note = "committed; the push was refused or failed (see above), and init could not take its commit back" } }
+  return [pscustomobject]@{ Ok = $false; Note = "the push was refused or failed (see above), so init took its commit back" }
 }
 # A line of .gitignore as the block is compared with it: no trailing blanks, one slash less on each end
 function Get-IgnoreKey([string]$line) {
@@ -856,7 +859,7 @@ $buildGitignore = {
   $wanted = if ($out.Count) { ($out -join "`n") + "`n" } else { '' }
   $current = if (Test-Path $gi) { [System.IO.File]::ReadAllText($gi).Replace("`r`n", "`n") } else { $null }
 }
-$gitignoreChanged = $false; $gitignoreNote = ''; $gitignoreBehind = $false; $gitignoreOpen = $false; $gitignorePulled = ''
+$gitignoreChanged = $false; $gitignoreNote = ''; $gitignoreBehind = $false; $gitignoreRefused = $false; $gitignoreOpen = $false; $gitignorePulled = ''
 if ($inWorkTree -and "$(& git -C $target rev-parse --git-dir 2>$null)" -ceq "$(& git -C $target rev-parse --git-common-dir 2>$null)") {
   $gi = Join-Path $target ".gitignore"
   . $buildGitignore
@@ -871,7 +874,12 @@ if ($inWorkTree -and "$(& git -C $target rev-parse --git-dir 2>$null)" -ceq "$(&
       else {
         if ($caught.Note) { . $buildGitignore }
         if ($caught.Note -and $open) { $gitignoreChanged = $false; $gitignoreOpen = $true; $gitignorePulled = $caught.Note }
-        elseif ($current -cne $wanted) { [System.IO.File]::WriteAllText($gi, $(if ($crlf) { $wanted.Replace("`n", "`r`n") } else { $wanted }), $utf8); $gitignoreNote = "$(if ($caught.Note) { "$($caught.Note); " })$(Send-Gitignore $target)" }
+        elseif ((& git -C $target remote get-url origin 2>$null) -and "$(& git -C $target status --porcelain -- .gitignore 2>$null)") {
+          # A .gitignore with changes of its own would go out to the origin in init's commit, and a
+          # refused push would take them back with it: the block waits until they are committed
+          $gitignoreRefused = $true; $gitignoreNote = "$(if ($caught.Note) { "$($caught.Note); " })it has changes of its own; commit them or take them back, then run this again"
+        }
+        elseif ($current -cne $wanted) { [System.IO.File]::WriteAllText($gi, $(if ($crlf) { $wanted.Replace("`n", "`r`n") } else { $wanted }), $utf8); $gitignoreSent = Send-Gitignore $target; $gitignoreRefused = -not $gitignoreSent.Ok; $gitignoreNote = "$(if ($caught.Note) { "$($caught.Note); " })$($gitignoreSent.Note)" }
         else { $gitignoreChanged = $false; $gitignoreNote = $caught.Note }
       }
     }
@@ -912,6 +920,7 @@ Write-Host "  unchanged  $($report.unchanged) file(s)"
 if ($gitignoreChanged) {
   if ($DryRun) { Write-Host "  .gitignore would change and be committed: the agent files of this repository are ignored" }
   elseif ($gitignoreBehind) { Write-Host "  .gitignore not written: this checkout is $gitignoreNote" }
+  elseif ($gitignoreRefused) { Write-Host "  .gitignore not written: $gitignoreNote" }
   else { Write-Host "  .gitignore changed: the agent files of this repository are ignored; $gitignoreNote" }
 } elseif ($gitignoreNote) { Write-Host "  .gitignore: $gitignoreNote; the block was there already" }
 if ($gitignoreOpen) { Write-Host "  .gitignore not written: $(if ($gitignorePulled) { "$gitignorePulled; " })it has a '# setup-ai-core start' line and no '# setup-ai-core end' after it; end the block or delete its start line, then run this again" }

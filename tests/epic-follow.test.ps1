@@ -47,7 +47,13 @@ try {
 `$line = `$args -join ' '
 Add-Content -LiteralPath '$calls' -Value (`$line -replace '\r?\n', ' ')
 `$num = ''; foreach (`$a in `$args) { if (`$a -cmatch '^(num|n)=([0-9]+)$') { `$num = `$Matches[2]; break } }
-if (`$line -clike '*subIssues(first*') { Get-Content -LiteralPath '$epic'; exit 0 }
+if (`$line -clike '*subIssues(first*') {
+  if (Test-Path -LiteralPath '$epic.json') {
+    `$prog = ''; for (`$i = 0; `$i -lt `$args.Count - 1; `$i++) { if (`$args[`$i] -eq '--jq') { `$prog = `$args[`$i + 1] } }
+    Get-Content -Raw -LiteralPath '$epic.json' | & jq -r `$prog; exit 0
+  }
+  Get-Content -LiteralPath '$epic'; exit 0
+}
 if (`$line -clike '*--jq .id*') { '90'; exit 0 }
 if (`$line -clike '*--method POST*' -or `$line -clike '*--method DELETE*') { '{}'; exit 0 }
 if (`$line -clike '*parent {*') { if (`$num -ceq '3') { 'example-org/example-repo 44' }; exit 0 }
@@ -124,6 +130,28 @@ if (`$line -clike '*--method PATCH*') { '{}'; exit 0 }
   Check 'it says so'    'epic example-org/example-repo#44 -> testing, as its sub-issues stand' (EpicLine)
   Check 'the sub-issue moved on the selected board 7' 'PVT_epic7' (& $board 'PVTI_card3')
   Check 'the epic moved on its own board 5, not on 7' 'PVT_own5' (& $board 'PVTI_card44')
+
+  # Read through the query's own jq: the sub-issue of another repository has its card only on that
+  # repository's board, other-org/3, and counts where it stands there
+  Write-Host 'issue-status: a sub-issue with no card on the selected board counts where its own card stands'
+  $doc = @'
+{"data":{"repository":{"issue":{"state":"OPEN","stateReason":null,
+ "projectItems":{"nodes":[{"project":{"number":7,"owner":{"login":"example-org"}},"status":{"name":"implementing"}}]},
+ "subIssues":{"nodes":[
+  {"state":"OPEN","stateReason":null,"projectItems":{"nodes":[{"project":{"number":7,"owner":{"login":"example-org"}},"status":{"name":"testing"}}]}},
+  {"state":"OPEN","stateReason":null,"projectItems":{"nodes":[{"project":{"number":3,"owner":{"login":"other-org"}},"status":{"name":"OTHER"}}]}}]}}}}}
+'@
+  Set-Content -LiteralPath "$epic.json" -Value $doc.Replace('OTHER', 'testing') -Encoding utf8NoBOM
+  Set-Content -LiteralPath $calls -Value @()
+  Run 'issue-status.ps1' -Project 7 -Repo example-org/example-repo -Number 3 -Status testing
+  Check 'exit 0'        0 $rc
+  Check 'the epic follows to testing' 'epic example-org/example-repo#44 -> testing, as its sub-issues stand' (EpicLine)
+  Set-Content -LiteralPath "$epic.json" -Value $doc.Replace('OTHER', 'implementing') -Encoding utf8NoBOM
+  Set-Content -LiteralPath $calls -Value @()
+  Run 'issue-status.ps1' -Project 7 -Repo example-org/example-repo -Number 3 -Status testing
+  Check 'one there in implementing keeps it in implementing: exit 0' 0 $rc
+  Check 'and no epic line' '' (EpicLine)
+  Remove-Item -LiteralPath "$epic.json"
 } finally {
   Remove-Item -Recurse -Force -LiteralPath $fake -ErrorAction SilentlyContinue
 }

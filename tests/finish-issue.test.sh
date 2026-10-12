@@ -161,6 +161,14 @@ check 'exits zero'          0 "$rc"
 check 'it says so'          yes "$(grep -q 'the board has no testing column - the card stays' <<< "$out" && echo yes || echo no)"
 check 'the card did not move' 0 "$(grep -c 'oid=OPT_' "$log" || true)"
 
+# The run above cached the board without testing; the board gains it, and the cache stays
+echo 'a cache written before the board gained testing: the board is read again and the card moves'
+printf 'Status\tFID\ttodo\tOPT_todo\nStatus\tFID\timplementing\tOPT_impl\nStatus\tFID\ttesting\tOPT_test\nStatus\tFID\tdone\tOPT_done\n' > "$board"
+: > "$log"
+out="$(run 163)"; rc=$?
+check 'exits zero'                0 "$rc"
+check 'the card moved to testing' 1 "$(grep -c 'oid=OPT_test' "$log" || true)"
+
 echo 'a board with ready, planned and review: the card goes to testing, never to the column after implementing'
 printf 'Status\tFID\tready\tOPT_ready\nStatus\tFID\tplanned\tOPT_plan\nStatus\tFID\timplementing\tOPT_impl\nStatus\tFID\treview\tOPT_rev\nStatus\tFID\ttesting\tOPT_test\nStatus\tFID\tdone\tOPT_done\n' > "$board"
 : > "$log"; rm -rf "$fake/cache"

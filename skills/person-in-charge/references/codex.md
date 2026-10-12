@@ -78,7 +78,7 @@ issues it holds. The owner answers there; your next round reads the answer.
 ## Reach, answer, continue, stop
 
 - Answer a running session: `codex queue --thread <thread id> --message "<text>"`.
-- Continue a finished one within its phase: `codex exec resume <thread id> "<text>"`; it keeps the
+- Continue a finished one within its phase: `codex exec resume <thread id> "<text>" < /dev/null`; it keeps the
   folders of its start.
 - A session that finished is done; nothing is kept. Its report is on the issue, its last message in
   its output file.

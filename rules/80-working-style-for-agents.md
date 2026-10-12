@@ -49,7 +49,10 @@
   the gate, the review and the CI run again, five to ten times over for five to ten issues, and
   slows the machine every session shares; so a finding in the files of a package that is not
   integrated yet joins that package, and a package cut by file splits a contract and releases its
-  two sides apart. Every agent's name follows `l<n>-<model><version>-<effort>-<budget>k-<5 hex>`;
+  two sides apart. Every agent's name follows `l<n>-<model><version>-<effort>-<budget>k-<5 hex>`,
+  `<n>` from a block of ten thousand that belongs to the coordinator starting it and stays its
+  own across restarts (`10001` and on, `20001` and on), the next block above every number that
+  runs or ran on the machine, so two coordinators never hand out the same number;
   the package it works on carries it in its `PHASE` line on the plan issue. Once approved, run independent agents in parallel, never for work that fits
   in one or two tool calls, give every call an explicit model and effort, and relay the
   conclusion, never the raw output. A delegated implementation gets a specification that names

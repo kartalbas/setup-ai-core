@@ -38,7 +38,7 @@ nothing of it has to survive:
 
     while true; do
       codex exec -p ai-core -m <model> -c model_reasoning_effort=<effort> \
-        -C <project folder> --skip-git-repo-check --add-dir ~/.ai-core "$(cat .claude/skills/person-in-charge/briefs/coordinator.md)"
+        -C <project folder> --skip-git-repo-check --add-dir ~/.ai-core "$(cat .claude/skills/person-in-charge/briefs/coordinator.md)" < /dev/null
       sleep 600
     done
 
@@ -49,9 +49,10 @@ package's worktrees or clones:
 
     codex exec -p ai-core -m <model> -c model_reasoning_effort=<effort> \
       -C <project folder> --skip-git-repo-check --add-dir ~/.ai-core \
-      --json "$(cat <brief file>)" > ~/.ai-core/sessions/<session name>.out
+      --json "$(cat <brief file>)" < /dev/null > ~/.ai-core/sessions/<session name>.out
 
-The thread id stands in the first JSON line of the output. Record it at once in
+Standard input comes from `/dev/null`, because `codex exec` appends piped input to its prompt and
+waits for its end, and a session started from another's shell would wait forever. The thread id stands in the first JSON line of the output. Record it at once in
 `~/.ai-core/codex-sessions.tsv` as `<session name>`, a tab, the id, because Codex names nothing
 itself. A session's questions come in its final message, the last line of its output file; the
 brief's `{{how to reach the coordinator}}` is "your final message". A push is a network call and
@@ -77,7 +78,7 @@ issues it holds. The owner answers there; your next round reads the answer.
 ## Reach, answer, continue, stop
 
 - Answer a running session: `codex queue --thread <thread id> --message "<text>"`.
-- Continue a finished one within its phase: `codex exec resume <thread id> "<text>"`; it keeps the
+- Continue a finished one within its phase: `codex exec resume <thread id> "<text>" < /dev/null`; it keeps the
   folders of its start.
 - A session that finished is done; nothing is kept. Its report is on the issue, its last message in
   its output file.

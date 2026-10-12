@@ -959,7 +959,9 @@ function Get-EpicTargetOnBoard {
   # Get-EpicTarget of an issue, read from its own card and its sub-issues' cards on the selected
   # board, or on whichever board they are on when none is selected; no sub-issues, nothing. A
   # sub-issue with no card on the selected board, often one of another repository on that
-  # repository's board, counts where its card stands.
+  # repository's board, counts where its first card with a status stands, and at most as testing:
+  # an open issue is done for its epic only where the epic's own board says so, or the epic would
+  # close with that issue still open.
   [CmdletBinding()]
   [OutputType([string])]
   param([string]$Repo, [string]$Number)
@@ -970,7 +972,7 @@ function Get-EpicTargetOnBoard {
     subIssues(first:100) { nodes { state stateReason projectItems(first:20) { nodes {
       project { number owner { ... on Organization { login } ... on User { login } } }
       status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } } } } } } }'
-  $jq = "def card: [.projectItems.nodes[] | $on (.status.name // `"backlog`")] | first; def anycard: [.projectItems.nodes[] | (.status.name // `"backlog`")] | first; def status(c): if .state == `"CLOSED`" then (if .stateReason == `"NOT_PLANNED`" or .stateReason == `"DUPLICATE`" then `"not planned`" else `"done`" end) else (c // `"backlog`") end; .data.repository.issue | status(card), (.subIssues.nodes[] | status(card // anycard))"
+  $jq = "def card: [.projectItems.nodes[] | $on (.status.name // `"backlog`")] | first; def anycard: [.projectItems.nodes[] | .status.name | select(. != null)] | first | if . != null and ascii_downcase == `"done`" then `"testing`" else . end; def status(c): if .state == `"CLOSED`" then (if .stateReason == `"NOT_PLANNED`" or .stateReason == `"DUPLICATE`" then `"not planned`" else `"done`" end) else (c // `"backlog`") end; .data.repository.issue | status(card), (.subIssues.nodes[] | status(card // anycard))"
   $owner, $name = $Repo -split '/', 2
   $rows = @(Invoke-Gh api graphql -f "o=$owner" -f "r=$name" -F "n=$Number" -f "query=$q" --jq $jq |
     ForEach-Object { "$_".Trim().ToLowerInvariant() } | Where-Object { $_ })

@@ -159,10 +159,10 @@ function Issue($number, $status, $subs, $comments, $reopenedAt = '') {
 function Page($hasNext, $cursor, $nodes) { '{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":' + $hasNext + ',"endCursor":' + $cursor + '},"nodes":[' + ($nodes -join ',') + ']}}}}' }
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'issues-1.json') -Value (Page 'true' '"c1"' @(
   (Issue 12 'implementing' 0 (Landed '2026-09-01T10:00:00Z' $c12)),
-  (Issue 13 'testing' 0 (((Landed '2026-08-01T10:00:00Z' '0000000'), (Landed '2026-09-01T10:00:00Z' $c13), (Proven '2026-09-02T10:00:00Z'), '{"createdAt":"2026-09-03T10:00:00Z","authorAssociation":"MEMBER","body":"Looks good, see 2222222"}') -join ',')),
+  (Issue 13 'testing' 0 (((Landed '2026-08-01T10:00:00Z' '0000000'), (Landed '2026-09-01T10:00:00Z' $c13), '{"createdAt":"2026-09-01T11:00:00Z","authorAssociation":"MEMBER","body":"Landed on master as abc1313, the merge of the package"}', (Proven '2026-09-02T10:00:00Z'), '{"createdAt":"2026-09-03T10:00:00Z","authorAssociation":"MEMBER","body":"Looks good, see 2222222"}') -join ',')),
   (Issue 14 'todo' 1 ''),
   (Issue 16 'testing' 0 (((Landed '2026-09-01T10:00:00Z' $c16), (Proven '2026-09-02T10:00:00Z')) -join ',') '2026-09-05T10:00:00Z'),
-  (Issue 17 'testing' 0 '{"createdAt":"2026-09-01T10:00:00Z","authorAssociation":"MEMBER","body":"Done in\n- abc1717 by hand"}')))
+  (Issue 17 'testing' 0 '{"createdAt":"2026-09-01T10:00:00Z","authorAssociation":"MEMBER","body":"Done in\n- abc1717 by hand"},{"createdAt":"2026-09-01T11:00:00Z","authorAssociation":"MEMBER","body":"Landed on master as abc1717, by hand"}')))
 Set-Content -Encoding utf8NoBOM -Path (Join-Path $fake 'issues-2.json') -Value (Page 'false' 'null' @(
   (Issue 18 'testing' 0 (((Proven '2026-08-30T10:00:00Z'), (Landed '2026-09-01T10:00:00Z' $c18), (Proven '2026-09-02T10:00:00Z' 'NONE')) -join ',')),
   (Issue 22 'testing' 0 (((Landed '2026-09-01T10:00:00Z' $c13 'example-org/gone'), (Proven '2026-09-02T10:00:00Z')) -join ',')),

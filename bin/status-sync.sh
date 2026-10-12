@@ -74,7 +74,8 @@ derive_target() {
 #   \t<the repository it landed in where that is another one, or ->
 #
 # The commit is the first one finish-issue listed in its newest "Landed on <branch>:" comment,
-# the record it writes when it moves the card to testing; "Landed on <branch> of <owner/repo>:"
+# the record it writes when it moves the card to testing; a report that starts with the same words
+# but lists no commit is not that record; "Landed on <branch> of <owner/repo>:"
 # names the repository the work landed in. A comment counts only when it came after the issue was
 # last reopened: a ticket reopened for rework still carries the record of the work that closed it
 # the first time. A proof record counts only when it came after that landing. Only the comments of
@@ -100,6 +101,7 @@ cards_of_repo() {  # <owner/repo>
       | (($i.reopened.nodes[0].createdAt) // "") as $reopenedAt
       | [$i.comments.nodes[] | select(.authorAssociation == "OWNER" or .authorAssociation == "MEMBER" or .authorAssociation == "COLLABORATOR")] as $said
       | ([$said[] | select(.body | startswith("Landed on "))
+          | select(.body | split("\n") | any(test("^- [0-9a-f]{7,40} ")))
           | select($reopenedAt == "" or (.createdAt > $reopenedAt))] | sort_by(.createdAt) | last) as $landed
       | (($landed.body // "") | split("\n") | map(select(test("^- [0-9a-f]{7,40} "))) | first
           | if . then (split(" ")[1]) else "-" end) as $sha

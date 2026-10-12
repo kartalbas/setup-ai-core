@@ -193,7 +193,7 @@ STUB
 chmod +x "$work/findbin/find"
 found="$(cd "$folder" && PATH="$work/findbin:$PATH" AI_CORE_PROCESSES="$work/processes" AI_CORE_AGENTS="$work/agents" AI_CORE_ROLLOUTS='' bash "$root/bin/status.sh" --project example-org/7 2>&1)"; rc=$?
 check 'a find that exits 1 stops nothing' 0 "$rc"
-if [ -d /proc ]; then held='104 X codex codex resume 01a10444-0000-7000-8000-000000000444'; else held='104 X l30001-gpt6.1sol-xhigh-150k-cdc28 —'; fi
+if [ -d /proc ]; then held='104 X codex codex resume 01a10444-0000-7000-8000-000000000444'; else held='104 X codex —'; fi
 check 'and what it found reaches the page' "$held" "$(reach "$found" 104)"
 
 echo 'outside a repository with no board named: refused, naming --project'

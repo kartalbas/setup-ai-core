@@ -214,7 +214,7 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   Check 'and no command is guessed' '100 C claude —' (Reach $broken 100)
   # Where no stand-in names the rollouts, the twin asks find, which exits 1 on the processes it may
   # not read; what it found still reaches the page. Without /proc there is nothing to ask.
-  $held = '104 X l30001-gpt6.1sol-xhigh-150k-cdc28 —'
+  $held = '104 X codex —'
   $path = $env:PATH
   if (Test-Path -LiteralPath '/proc' -PathType Container) {
     $findBin = Join-Path $work 'findbin'

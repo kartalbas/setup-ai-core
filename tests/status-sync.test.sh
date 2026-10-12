@@ -81,8 +81,8 @@ check 'CLOSE is done' 3 "$(status_rank CLOSE)"
 #   #13 testing, in deploy/prod/1, a "Proven on" record after it    -> would close
 #   #14 todo, an epic with ONE sub-issue                            -> named, follows it
 #   #15 todo, a repository of another organisation                  -> read under its owner
-#   #16 testing, reopened after its work landed                     -> stays
-#   #17 testing, moved by hand: no "Landed on" record               -> stays
+#   #16 testing, reopened after its work landed                     -> no landing, stays
+#   #17 testing, moved by hand: no "Landed on" record               -> no landing, stays
 #   #18 testing, in deploy/prod/2, no proof record                  -> proof due, stays
 #   #19 testing, in deploy/test/9 only, proven                      -> stays: no production release
 #   #20 testing, on master in no tag, proven, on the second page    -> stays, though the clone has
@@ -222,7 +222,11 @@ check 'and follows its sub-issue moved by hand' \
   'would move   example-repo#14  (todo -> testing)' \
   "$(grep '^would move   example-repo#14' <<< "$run")"
 check 'nothing else moves: not on master alone, not reopened, not by hand, not on test only, not untagged' \
-  '' "$(grep -E 'example-repo#(12|16|17|19|20|22)' <<< "$run" | grep -v '^proof due')"
+  '' "$(grep -E 'example-repo#(12|16|17|19|20|22)' <<< "$run" | grep -v -e '^proof due' -e '^no landing')"
+check 'a card in testing without a landing since it was last reopened, or moved by hand, is named' \
+  'no landing   example-repo#16  (in testing, but no "Landed on" record names its work: where it landed, run ai-core finish-issue example-org/example-repo 16)
+no landing   example-repo#17  (in testing, but no "Landed on" record names its work: where it landed, run ai-core finish-issue example-org/example-repo 17)' \
+  "$(grep '^no landing' <<< "$run")"
 check 'a landing in another repository is read there, and that one has no clone here' \
   "no clone of example-org/gone in $shown, so no release of it is read and its cards in testing stay" "$(grep '^no clone' <<< "$run")"
 check 'a landing in another repository closes through that one'"'"'s clone and release' \

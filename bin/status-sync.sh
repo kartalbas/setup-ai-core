@@ -253,6 +253,12 @@ for full in ${repos[@]+"${repos[@]}"}; do
       target="$(epic_target_on_board "$full" "$num")" || exit 1
     else
       [ "$(printf '%s' "$st" | tr '[:upper:]' '[:lower:]')" = testing ] || continue
+      # Without a landing record nothing here can tell where its work is, and the card never moves
+      # on: named, so it does not wait unseen
+      if [ "$sha" = - ]; then
+        echo "no landing   $label#$num  (in testing, but no \"Landed on\" record names its work: where it landed, run ai-core finish-issue $full $num)"
+        continue
+      fi
       # The release of the repository the work landed in, read once where a card in testing asks
       landed="$full"; [ "$elsewhere" = - ] || landed="$elsewhere"
       release_of "$landed"

@@ -231,7 +231,10 @@ try {
     'one child    example-repo#14  (its state follows its one sub-issue; work of its own belongs in a sub-issue of its own, or it is closed with that sub-issue)' (Lines 'one child*')
   Check 'and follows its sub-issue moved by hand' 'would move   example-repo#14  (todo -> testing)' (Lines 'would move   example-repo#14*')
   Check 'nothing else moves: not on master alone, not reopened, not by hand, not on test only, not untagged' `
-    '' "$(@($run | Where-Object { $_ -cmatch 'example-repo#(12|16|17|19|20|22)' -and $_ -cnotlike 'proof due*' }))"
+    '' "$(@($run | Where-Object { $_ -cmatch 'example-repo#(12|16|17|19|20|22)' -and $_ -cnotlike 'proof due*' -and $_ -cnotlike 'no landing*' }))"
+  Check 'a card in testing without a landing since it was last reopened, or moved by hand, is named' `
+    ('no landing   example-repo#16  (in testing, but no "Landed on" record names its work: where it landed, run ai-core finish-issue 16 -Repo example-org/example-repo)' + "`n" +
+     'no landing   example-repo#17  (in testing, but no "Landed on" record names its work: where it landed, run ai-core finish-issue 17 -Repo example-org/example-repo)') (Lines 'no landing*')
   Check 'a landing in another repository is read there, and that one has no clone here' `
     "no clone of example-org/gone in $(Join-Path $fake 'folder'), so no release of it is read and its cards in testing stay" (Lines 'no clone*')
   Check 'a landing in another repository closes through that one''s clone and release' `

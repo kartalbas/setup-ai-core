@@ -115,4 +115,13 @@ git push origin "HEAD:$default" \
   || back_to_branch "the push was refused (see above) - nothing reached origin, and $branch is checked out again"
 git switch -q "$branch" || die "$merged is on origin/$default, but $branch could not be checked out again - run git switch $branch before finish-issue"
 echo "integrated: $merged on origin/$default, $subject, Reviewed-by: $reviewer"
-echo "next: ai-core finish-issue ${repo:+$repo }$number"
+# Every issue the merged commits name in parentheses, the integrated one first: a package lands
+# several issues in one merge, and the card of each moves on only through its own finish-issue. Only
+# the forms '(#N)' and '(owner/repo#N)' count: a number named in passing is no landing.
+own="$(default_repo 2>/dev/null | tr 'A-Z' 'a-z')" || own=""
+{ echo "$ref"; git log --reverse --format=%s "$merged^1..$merged^2" | { grep -oE '\(([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)?#[0-9]+\)' || true; } | tr -d '()'; } |
+  while IFS= read -r named; do
+    landed_repo="${named%#*}"
+    [ "$(printf '%s' "$landed_repo" | tr 'A-Z' 'a-z')" != "$own" ] || landed_repo=""
+    echo "next: ai-core finish-issue ${landed_repo:+$landed_repo }${named##*#}"
+  done | awk '!seen[tolower($0)]++'

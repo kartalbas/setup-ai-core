@@ -85,7 +85,7 @@ try {
     if ($env:AI_CORE_ROLLOUTS) { Copy-Item -LiteralPath $env:AI_CORE_ROLLOUTS -Destination $rollouts }
     elseif (Test-Path -LiteralPath '/proc' -PathType Container) {
       # find exits 1 on the processes it may not read, other users' or ended ones; what it read stands
-      Set-Content -LiteralPath $rollouts -Value @(& find /proc -mindepth 3 -maxdepth 3 -path '/proc/*/fd/*' -lname '*/rollout-*.jsonl' -printf '%h\t%l\n' 2> $null)
+      Set-Content -LiteralPath $rollouts -Value @(& find /proc -mindepth 3 -maxdepth 3 -path '/proc/*/fd/*' '(' -lname '*/rollout-*.jsonl' -o -lname '*/.ai-core/sessions/*.out' ')' -printf '%h\t%l\n' 2> $null)
     } else { Set-Content -LiteralPath $rollouts -Value @() }
     # The worktrees the sweep keeps: its dry run in every repository of the folder that has a
     # worktree, each line led by the repository; a sweep that cannot run says so in one line

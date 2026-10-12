@@ -32,7 +32,6 @@ exit 0
 "@ | Set-Content -Path (Join-Path $fake 'gh.ps1') -Encoding utf8NoBOM
 "@echo off`r`npwsh -NoProfile -File `"$fake\gh.ps1`" %*" |
   Set-Content -Path (Join-Path $fake 'gh.cmd') -Encoding ascii
-if (-not $IsWindows) { Set-Content -Path (Join-Path $fake 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$fake/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $fake 'gh') }
 $env:PATH = "$fake$([IO.Path]::PathSeparator)$env:PATH"
 
 $failed = 0
@@ -104,7 +103,6 @@ exit 0
 '@ | Set-Content -Path (Join-Path $bare 'gh.ps1') -Encoding utf8NoBOM
 "@echo off`r`npwsh -NoProfile -File `"$bare\gh.ps1`" %*" |
   Set-Content -Path (Join-Path $bare 'gh.cmd') -Encoding ascii
-if (-not $IsWindows) { Set-Content -Path (Join-Path $bare 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$bare/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $bare 'gh') }
 
 $kept = $env:PATH
 $env:PATH = "$bare$([IO.Path]::PathSeparator)$env:PATH"
@@ -128,7 +126,6 @@ exit 0
 '@ | Set-Content -Path (Join-Path $dashed 'gh.ps1') -Encoding utf8NoBOM
 "@echo off`r`npwsh -NoProfile -File `"$dashed\gh.ps1`" %*" |
   Set-Content -Path (Join-Path $dashed 'gh.cmd') -Encoding ascii
-if (-not $IsWindows) { Set-Content -Path (Join-Path $dashed 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$dashed/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $dashed 'gh') }
 
 $env:PATH = "$dashed$([IO.Path]::PathSeparator)$env:PATH"
 $dashedOut = @(& $thread -Repo $repo -Number 9)
@@ -149,7 +146,6 @@ exit 0
 '@ | Set-Content -Path (Join-Path $refusing 'gh.ps1') -Encoding utf8NoBOM
 "@echo off`r`npwsh -NoProfile -File `"$refusing\gh.ps1`" %*" |
   Set-Content -Path (Join-Path $refusing 'gh.cmd') -Encoding ascii
-if (-not $IsWindows) { Set-Content -Path (Join-Path $refusing 'gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$refusing/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $refusing 'gh') }
 
 $env:PATH = "$refusing$([IO.Path]::PathSeparator)$env:PATH"
 $refused = ''

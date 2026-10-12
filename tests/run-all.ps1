@@ -12,6 +12,11 @@
 # directory of its own, so none sees another; that is what lets them run together, and what keeps
 # the order the suite runs in out of what it proves. A separate process is also what makes the
 # exit status of a single test readable at all.
+#
+# A STAND-IN FOR gh IS A gh.ps1 AND NOTHING ELSE on Linux and macOS: pwsh runs it in the caller's own
+# process. A sh wrapper that starts pwsh per call puts one more .NET runtime start into every gh
+# call, eight tests at once, and pwsh 7.6.6 crashes in libcoreclr under that load (exit 139). Windows
+# keeps its gh.cmd shim.
 
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot

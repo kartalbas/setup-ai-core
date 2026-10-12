@@ -75,6 +75,30 @@ for twin in sh ps1; do
 done
 echo "  the first clone pushes the block, the clone behind pulls it and commits nothing, the one with a commit of its own is named and left alone, on both twins"
 
+section "init commits the block only where the push takes it: off a branch, or over a .gitignore with changes of its own, nothing is written; a refused push takes the commit back; both twins"
+for twin in sh ps1; do
+  O="$WORK/nopush-origin-$twin.git"; git init -q --bare -b master "$O"
+  A="$WORK/nopush-first-$twin"; git init -q -b master "$A"; printf 'node_modules/\n' > "$A/.gitignore"; git -C "$A" add .gitignore
+  git -C "$A" -c user.name=check -c user.email=check@localhost commit -q -m 'Start #1'; git -C "$A" remote add origin "$O"; git -C "$A" push -q origin master 2>/dev/null
+  D="$WORK/nopush-detached-$twin"; R="$WORK/nopush-refused-$twin"; E="$WORK/nopush-edited-$twin"
+  # Git for Windows checks a file out with CRLF unless told otherwise; the bytes compared are git's
+  for d in "$D" "$R" "$E"; do git clone -q -c core.autocrlf=false "$O" "$d" 2>/dev/null; done
+  git -C "$D" checkout -q --detach
+  printf 'mine.local\n' >> "$E/.gitignore"
+  printf '#!/bin/sh\necho "refused by the origin"\nexit 1\n' > "$O/hooks/pre-receive"; chmod +x "$O/hooks/pre-receive"
+  for d in "$D" "$R" "$E"; do
+    mkdir -p "$d/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$d/.ai-core/config.env"; git -C "$d" config user.name check; git -C "$d" config user.email check@localhost
+    if [ "$twin" = sh ]; then bash "$ROOT/bin/init.sh" "$d" --no-doctor > "$d.log" 2>&1; else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$d")" -NoDoctor > "$d.log" 2>&1; fi || fail "init.$twin in $(basename "$d") (see $d.log)"
+    [ "$(git -C "$d" rev-parse HEAD)" = "$(git -C "$O" rev-parse master)" ] || fail "init.$twin left a commit in $(basename "$d"): $(git -C "$d" log -1 --format=%s) (see $d.log)"
+  done
+  [ -z "$(git -C "$D" status --porcelain -- .gitignore)" ] && [ -z "$(git -C "$R" status --porcelain -- .gitignore)" ] || fail "init.$twin left a changed .gitignore off a branch or after a refused push: $(git -C "$D" status --porcelain -- .gitignore) $(git -C "$R" status --porcelain -- .gitignore)"
+  cmp -s "$E/.gitignore" <(printf 'node_modules/\nmine.local\n') || fail "init.$twin changed a .gitignore with changes of its own: $(tr '\n' '|' < "$E/.gitignore")"
+  grep -aqxF '  .gitignore not written: this checkout is on no branch; check out its branch, then run this again' "$D.log" || fail "init.$twin did not name the checkout off a branch (see $D.log)"
+  grep -aqxF '  .gitignore not written: the push was refused or failed (see above), so init took its commit back' "$R.log" || fail "init.$twin did not name the refused push (see $R.log)"
+  grep -aqxF '  .gitignore not written: it has changes of its own; commit them or take them back, then run this again' "$E.log" || fail "init.$twin did not name the .gitignore with changes of its own (see $E.log)"
+done
+echo "  off a branch and over local changes nothing is written, the refused push has its commit taken back, each named, on both twins"
+
 section "a block without its end line that the catch-up brings is left alone as well, on both twins"
 for twin in sh ps1; do
   O="$WORK/open-origin-$twin.git"; git init -q --bare -b master "$O"

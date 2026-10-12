@@ -243,7 +243,6 @@ function Send-Shim([string]$dir, [string]$label) {
   & git -C $dir remote get-url origin 2>$null | Out-Null
   if ($LASTEXITCODE -ne 0) { Write-Host "pre-push: ${label}: no origin; not pushed"; return $true }
   $branch = "$(& git -C $dir symbolic-ref --short -q HEAD 2>$null)"
-  if ($LASTEXITCODE -ne 0 -or -not $branch) { [Console]::Error.WriteLine("pre-push: ${label}: not on a branch; not pushed"); return $false }
   & git -C $dir rev-parse -q --verify "origin/$branch" 2>$null | Out-Null
   if ($LASTEXITCODE -eq 0 -and "$(& git -C $dir rev-list --count "origin/$branch..HEAD")" -ceq '0') { Write-Host "pre-push: ${label}: nothing to push"; return $true }
   if (-not (Add-GitignoreTrailer $dir $label $branch)) { return $false }

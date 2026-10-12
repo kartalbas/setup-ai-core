@@ -237,7 +237,7 @@ commit_shim() {
     echo "pre-push: $label: committed $(git -C "$dir" rev-parse --short HEAD)"
   fi
   git -C "$dir" remote get-url origin >/dev/null 2>&1 || { echo "pre-push: $label: no origin; not pushed"; return 0; }
-  branch="$(git -C "$dir" symbolic-ref --short -q HEAD)" || { echo "pre-push: $label: not on a branch; not pushed" >&2; return 1; }
+  branch="$(git -C "$dir" symbolic-ref --short -q HEAD)"
   if git -C "$dir" rev-parse -q --verify "origin/$branch" >/dev/null 2>&1 && [ "$(git -C "$dir" rev-list --count "origin/$branch..HEAD")" -eq 0 ]; then echo "pre-push: $label: nothing to push"; return 0; fi
   excuse_gitignore_commits "$dir" "$label" "$branch" || return 1
   git -C "$dir" push --quiet origin "HEAD:$branch" || { echo "pre-push: $label: the push was refused or failed (see above); the commit stays" >&2; return 1; }

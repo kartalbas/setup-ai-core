@@ -738,15 +738,19 @@ fi
 #     it: a worktree is somebody's issue, takes the block when it rebases, and until then the
 #     exclude file it shares with its checkout keeps the deployed files out of git status.
 # commit_gitignore <checkout>: the block committed on its own and pushed by ref to the branch
-# checked out. Prints the note for the report; the push's own output, the gate's among it, goes
-# to the terminal.
+# checked out, which catch_up has made sure of. Prints the note for the report; the push's own
+# output, the gate's among it, goes to the terminal. A push that is refused or fails takes the
+# commit back and returns 1: a commit nobody pushes leaves the checkout off its origin, and the
+# next start-issue there refuses it.
 commit_gitignore() {
   local dir="$1" branch
   git -C "$dir" add -- .gitignore
   git -C "$dir" commit -q -m 'the agent files of this repository are ignored' -m 'No-issue: the .gitignore block written by ai-core init' -- .gitignore >&2 || { echo "the commit failed (see above)"; return 0; }
   git -C "$dir" remote get-url origin >/dev/null 2>&1 || { echo "committed; no origin, not pushed"; return 0; }
-  branch="$(git -C "$dir" symbolic-ref --short -q HEAD)" || { echo "committed; not on a branch, not pushed"; return 0; }
-  if git -C "$dir" push --quiet origin "HEAD:$branch" >&2; then echo "committed and pushed to origin/$branch"; else echo "committed; the push was refused or failed (see above), the commit stays"; fi
+  branch="$(git -C "$dir" symbolic-ref --short -q HEAD)"
+  if git -C "$dir" push --quiet origin "HEAD:$branch" >&2; then echo "committed and pushed to origin/$branch"; return 0; fi
+  git -C "$dir" reset -q --keep HEAD~1 >&2 || { echo "committed; the push was refused or failed (see above), and init could not take its commit back"; return 0; }
+  echo "the push was refused or failed (see above), so init took its commit back"; return 1
 }
 gitignore_build() {  # the .gitignore the checkout should have, into $TMP/gitignore
   if [ -f "$GI" ]; then tr -d '\r' < "$GI" > "$TMP/gitignore-now"; else : > "$TMP/gitignore-now"; fi
@@ -775,7 +779,7 @@ gitignore_build() {  # the .gitignore the checkout should have, into $TMP/gitign
 gitignore_differs() { ! { [ -f "$GI" ] && cmp -s "$TMP/gitignore" <(tr -d '\r' < "$GI"); }; }
 # A start line without its end leaves no way to tell the block from the project's lines after it
 gitignore_open() { [ -f "$GI" ] && tr -d '\r' < "$GI" | awk '/^# setup-ai-core start/ { open = 1 } /^# setup-ai-core end/ { open = 0 } END { exit !open }'; }
-GITIGNORE_CHANGED=0; GITIGNORE_NOTE=""; GITIGNORE_BEHIND=0; GITIGNORE_OPEN=0; GITIGNORE_PULLED=""
+GITIGNORE_CHANGED=0; GITIGNORE_NOTE=""; GITIGNORE_BEHIND=0; GITIGNORE_REFUSED=0; GITIGNORE_OPEN=0; GITIGNORE_PULLED=""
 GI="$TARGET/.gitignore"; MAIN_CHECKOUT=0
 git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
   && [ "$(git -C "$TARGET" rev-parse --git-dir)" = "$(git -C "$TARGET" rev-parse --git-common-dir)" ] && MAIN_CHECKOUT=1
@@ -793,11 +797,16 @@ elif [ "$MAIN_CHECKOUT" -eq 1 ]; then
       else
         [ -z "$CAUGHT" ] || gitignore_build
         if [ -n "$CAUGHT" ] && gitignore_open; then GITIGNORE_CHANGED=0; GITIGNORE_OPEN=1; GITIGNORE_PULLED="$CAUGHT"
+        elif git -C "$TARGET" remote get-url origin >/dev/null 2>&1 && [ -n "$(git -C "$TARGET" status --porcelain -- .gitignore)" ]; then
+          # A .gitignore with changes of its own would go out to the origin in init's commit, and a
+          # refused push would take them back with it: the block waits until they are committed
+          GITIGNORE_REFUSED=1; GITIGNORE_NOTE="${CAUGHT:+$CAUGHT; }it has changes of its own; commit them or take them back, then run this again"
         elif gitignore_differs; then
           # grep on Windows takes the CR off a line end before it looks, so the file is compared
           # with itself without them
           if [ -f "$GI" ] && ! tr -d '\r' < "$GI" | cmp -s - "$GI"; then awk '{ printf "%s\r\n", $0 }' "$TMP/gitignore" > "$GI"; else cp -f "$TMP/gitignore" "$GI"; fi
-          GITIGNORE_NOTE="${CAUGHT:+$CAUGHT; }$(commit_gitignore "$TARGET")"
+          GITIGNORE_SENT="$(commit_gitignore "$TARGET")" || GITIGNORE_REFUSED=1
+          GITIGNORE_NOTE="${CAUGHT:+$CAUGHT; }$GITIGNORE_SENT"
         else GITIGNORE_CHANGED=0; GITIGNORE_NOTE="$CAUGHT"; fi
       fi
     fi
@@ -829,6 +838,7 @@ echo "  unchanged  $UNCHANGED file(s)"
 if [ "$GITIGNORE_CHANGED" -eq 1 ]; then
   if [ "$DRY" -eq 1 ]; then echo "  .gitignore would change and be committed: the agent files of this repository are ignored"
   elif [ "$GITIGNORE_BEHIND" -eq 1 ]; then echo "  .gitignore not written: this checkout is $GITIGNORE_NOTE"
+  elif [ "$GITIGNORE_REFUSED" -eq 1 ]; then echo "  .gitignore not written: $GITIGNORE_NOTE"
   else echo "  .gitignore changed: the agent files of this repository are ignored; $GITIGNORE_NOTE"; fi
 elif [ -n "$GITIGNORE_NOTE" ]; then echo "  .gitignore: $GITIGNORE_NOTE; the block was there already"
 fi

@@ -104,10 +104,11 @@ whose models hold 272k), 100k for a UI test; no tool stops a session at them, an
    of its own there; where an issue's branch exists from before, give the build its worktree path.
 3. Fill the phase's brief: every `{{placeholder}}` from the package section, the issues' text, the
    worktree paths and the verdicts. A brief with a placeholder left is not sent. Save the filled
-   brief in your scratch directory; it is the session's whole world.
+   brief as `~/.ai-core/sessions/<session name>.brief.md`, the name step 4 gives; it is the session's
+   whole world, and its name tells every later coordinator on the machine that the number ran.
 4. Start the session as `references/<tool>.md` says, named `l<n>-<model><version>-<effort>-<budget>k-<5
-   hex>` (`l3-sonnet5.5-xhigh-300k-afb89`), `<n>` counting on from the highest number on the plan
-   issue, and post the PHASE line.
+   hex>` (`l10003-sonnet5.5-xhigh-300k-afb89`), `<n>` the next number of your own block
+   (`briefs/coordinator.md`), and post the PHASE line.
 5. Move the cards (`ai-core issue-status <n>... <column>`); `start-issue` and `finish-issue` move
    their own.
 

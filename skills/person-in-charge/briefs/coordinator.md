@@ -21,8 +21,14 @@ way it reads its state again from this brief, because the state is in the tracke
    your plan issue. Sections of another ecosystem are not yours.
 4. Read `ai-core status` per board: which sessions run, which are blocked, what is in TESTING and
    TREES. A session the page does not show is off, whatever a PHASE line says; post a corrected
-   line. Your session numbers count on from the highest `l<n>` on the plan issue, so no name of
-   yours repeats a predecessor's. For Codex and agy, which the page shows without a name, a session
+   line. Your session numbers come from a block of ten thousand that is yours alone, held by a
+   claim file `~/.ai-core/sessions/l<N0000>.block` whose one line is your project folder and your
+   tool. Where such a file names you, its block is yours, across restarts, and your numbers count
+   on from the highest of it that runs or ran. Where none does, take the next N0000 above every
+   number in `ai-core status` and in the names under `~/.ai-core/sessions/`, claim files among
+   them, and write its claim file at once, only where it does not exist yet; where it does, take
+   the next. Your sessions are N0001, N0002 and on, so no name of yours repeats another
+   coordinator's or a predecessor's. For Codex and agy, which the page shows without a name, a session
    runs while its output file `~/.ai-core/sessions/<session name>.out` has no final message; one
    that ended holds it there; a phase whose output file is missing is run again.
 5. Where `implementing` holds cards no section names, run `briefs/clearing.md` first.

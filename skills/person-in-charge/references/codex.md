@@ -24,6 +24,12 @@ entries of the harness and the project, the ones Claude Code's classifier reads.
 the tracker and an ssh read on a stage therefore each wait for that review; a refusal is the
 review's answer, never a reason to start a session without the profile. `mkdir -p ~/.ai-core/sessions`.
 
+The sandbox has a process list of its own, where a phase on the host does not show; `ai-core status`
+runs outside it and lists the host's Codex processes. A phase is done when its output file ends with
+`turn.completed`, or with `turn.failed`, which carries an error and no final message. A file that
+ends with neither while `ai-core status` lists no Codex process for it belongs to a session that was
+killed or interrupted, and its phase runs again.
+
 Before your first round, check that Codex sees the rules: `codex debug prompt-input hi`, run in
 the project folder, prints the prompt the model would get, without a call to it. It holds the heading
 `## The code never lies to the person using it` and the project folder's local rules; where it does
@@ -52,10 +58,12 @@ package's worktrees or clones:
       --json "$(cat <brief file>)" < /dev/null > ~/.ai-core/sessions/<session name>.out
 
 Standard input comes from `/dev/null`, because `codex exec` appends piped input to its prompt and
-waits for its end, and a session started from another's shell would wait forever. The thread id stands in the first JSON line of the output. Record it at once in
+waits for its end, and a session started from another's shell would wait forever.
+
+The thread id stands in the first JSON line of the output. Record it at once in
 `~/.ai-core/codex-sessions.tsv` as `<session name>`, a tab, the id, because Codex names nothing
-itself. A session's questions come in its final message, the last line of its output file; the
-brief's `{{how to reach the coordinator}}` is "your final message". A push is a network call and
+itself. A session's questions come in its final message, the last `agent_message` item before the
+closing `turn.completed` line of its output file; the brief's `{{how to reach the coordinator}}` is "your final message". A push is a network call and
 goes through the reviewer like every other; one it refuses is a question for the owner.
 
 A UI test session needs the isolated browser in `~/.codex/config.toml`, once per machine:

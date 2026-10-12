@@ -24,6 +24,10 @@ entries of the harness and the project, the ones Claude Code's classifier reads.
 the tracker and an ssh read on a stage therefore each wait for that review; a refusal is the
 review's answer, never a reason to start a session without the profile. `mkdir -p ~/.ai-core/sessions`.
 
+The sandbox has a process list of its own, where a phase on the host does not show. Whether a phase
+runs is therefore read from its output file, which ends with `turn.completed` or `turn.failed` once
+the phase is done, never from a process list.
+
 Before your first round, check that Codex sees the rules: `codex debug prompt-input hi`, run in
 the project folder, prints the prompt the model would get, without a call to it. It holds the heading
 `## The code never lies to the person using it` and the project folder's local rules; where it does

@@ -258,7 +258,24 @@ for t in sh ps1; do
   grep -aqF "the profile ai-core written to $(said_path "$P")" "$F.log" || fail "init.$t did not say it wrote the profile ai-core"
   grep -qxF -- '- [other-ai-core] Kept from another project.' "$P" && grep -qxF -- '- [other-ai-core] Another fact.' "$P" || fail "init.$t dropped another project's entries from the profile ai-core"
   ! grep -qxF -- '- [setup-ai-core] Stale.' "$P" || fail "init.$t kept a stale entry of its own layer in the profile ai-core"
+  R="$CODEX_HOME-$t/rules/ai-core.rules"
+  grep -qxF 'prefix_rule(pattern = ["ai-core"], decision = "allow")' "$R" || fail "init.$t did not allow ai-core in Codex's command rules"
+  grep -qxF 'prefix_rule(pattern = ["git", "push", "--force"], decision = "forbidden")' "$R" && ! grep -q '"--force"\], decision = "allow"' "$R" || fail "init.$t did not forbid what the template denies in Codex's command rules"
+  grep -aqF "the command rules written to $(said_path "$R")" "$F.log" || fail "init.$t did not say it wrote the command rules"
 done
+cmp -s "$CODEX_HOME-sh/rules/ai-core.rules" "$CODEX_HOME-ps1/rules/ai-core.rules" || fail "the twins wrote different command rules"
+# init.sh reads the template with jq; without it, init still runs and says it wrote no command
+# rules. Not on Windows, where Git Bash copies what ln -s names.
+if ! command -v cygpath >/dev/null 2>&1; then
+  J="$WORK/no-jq-bin"; mkdir -p "$J"
+  IFS=: read -ra path_dirs <<< "$PATH"
+  for d in "${path_dirs[@]}"; do for f in "$d"/*; do
+    n="${f##*/}"; [ -x "$f" ] && [ "$n" != jq ] && [ ! -e "$J/$n" ] && ln -s "$f" "$J/$n"
+  done; done 2>/dev/null
+  N="$WORK/codex-no-jq"; mkdir -p "$N/.ai-core" "$CODEX_HOME-no-jq"; printf 'UPDATE_CHECK="never"\n' > "$N/.ai-core/config.env"
+  PATH="$J" CODEX_HOME="$CODEX_HOME-no-jq" bash "$ROOT/bin/init.sh" "$N" --no-doctor > "$N.log" 2>&1 || fail "init.sh without jq failed where Codex is served: $(tail -2 "$N.log" | tr '\n' '|')"
+  [ ! -e "$CODEX_HOME-no-jq/rules" ] && grep -aq 'no command rules written: jq is missing' "$N.log" || fail "init.sh without jq did not say it wrote no command rules"
+fi
 cmp -s "$WORK/codex-override-sh.md" "$WORK/codex-override-ps1.md" || fail "the twins wrote different AGENTS.override.md files"
 cmp -s "$CODEX_HOME-sh/ai-core.config.toml" "$CODEX_HOME-ps1/ai-core.config.toml" || fail "the twins wrote different Codex profiles"
 for t in sh ps1; do
@@ -266,7 +283,7 @@ for t in sh ps1; do
   X="$CODEX_HOME-none-$t"; mkdir -p "$X"; printf 'project_doc_max_bytes = 999999\n' > "$X/config.toml"
   if [ "$t" = sh ]; then CODEX_HOME="$X" bash "$ROOT/bin/init.sh" "$N" --no-doctor > "$N.log" 2>&1
   else CODEX_HOME="$X" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$N")" -NoDoctor > "$N.log" 2>&1; fi
-  [ ! -e "$N/AGENTS.override.md" ] && [ ! -e "$X/ai-core.config.toml" ] || fail "init.$t wrote AGENTS.override.md or the Codex profile where Codex is not served"
+  [ ! -e "$N/AGENTS.override.md" ] && [ ! -e "$X/ai-core.config.toml" ] && [ ! -e "$X/rules" ] || fail "init.$t wrote AGENTS.override.md, the Codex profile or its command rules where Codex is not served"
   [ "$(tr -d '\r' < "$X/config.toml")" = 'project_doc_max_bytes = 999999' ] || fail "init.$t changed Codex's config where Codex is not served"
   K="$WORK/codex-kept-$t"; mkdir -p "$K/.ai-core" "$CODEX_HOME-kept-$t"; printf 'UPDATE_CHECK="never"\n' > "$K/.ai-core/config.env"
   git -C "$K" init -q; printf 'our own\n' > "$K/AGENTS.override.md"; git -C "$K" add AGENTS.override.md; git -C "$K" commit -q -m own

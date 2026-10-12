@@ -19,6 +19,7 @@ $TO = 999982
 @"
 `$a = (`$args -join ' ') -replace '\r?\n', ' '
 Add-Content -Path '$log' -Value `$a
+if (`$a -match 'fields\(first:50') { Get-Content (Join-Path '$fake' "board-`$([regex]::Match(`$a, 'pid=(\S+)').Groups[1].Value).tsv"); exit 0 }
 if (`$a -match 'fieldValues') {
   '{"data":{"node":{"items":{"pageInfo":{"hasNextPage":false,"endCursor":null},'
   ' "nodes":[{"id":"PVTI_from42",'
@@ -50,7 +51,9 @@ foreach ($n in @($FROM, $TO)) {
   $dir = Join-Path $env:GH_CACHE_DIRECTORY "$n"
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
   Set-Content -Path (Join-Path $dir 'project-id') -Value "PVT_kwmove$n" -NoNewline
-  Set-Content -Path (Join-Path $dir 'fields.tsv') -Value "Status`tF1`ttesting`tS_$n`nPriority`tF2`tP1`tP_$n"
+  # The board as the stand-in answers a read of its fields, and the cache of it
+  Set-Content -Path (Join-Path $fake "board-PVT_kwmove$n.tsv") -Value "Status`tF1`ttesting`tS_$n`nPriority`tF2`tP1`tP_$n"
+  Copy-Item (Join-Path $fake "board-PVT_kwmove$n.tsv") (Join-Path $dir 'fields.tsv')
 }
 
 $failed = 0
@@ -93,7 +96,8 @@ Check 'the priority' 'True' ([bool]((Calls) -match "oid=P_$TO"))
 
 Write-Host 'a value the target board has no option for is reported and left unset'
 Clear-Log
-Set-Content -Path (Join-Path $env:GH_CACHE_DIRECTORY "$TO/fields.tsv") -Value "Status`tF1`tbacklog`tS_other"
+Set-Content -Path (Join-Path $fake "board-PVT_kwmove$TO.tsv") -Value "Status`tF1`tbacklog`tS_other"
+Copy-Item (Join-Path $fake "board-PVT_kwmove$TO.tsv") (Join-Path $env:GH_CACHE_DIRECTORY "$TO/fields.tsv")
 $out = @(& $move -Repo $repo -From $FROM -To $TO)
 Check 'the status is named'      'True' ([bool]($out -match "Status 'testing' has no option on project $TO; left unset"))
 Check 'the priority too'         'True' ([bool]($out -match "Priority 'P1' has no option on project $TO; left unset"))

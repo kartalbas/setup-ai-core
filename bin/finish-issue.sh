@@ -171,6 +171,7 @@ elif repo="$(resolve_repo "$repo")" && on_no_board "$repo"; then
 else
   set_project "" "$repo" >/dev/null
   next="$(fields_tsv | awk -F'\t' 'tolower($1)=="status" && tolower($3)=="testing" { print $3; exit }')"
+  [ -n "$next" ] || next="$(fields_fresh | awk -F'\t' 'tolower($1)=="status" && tolower($3)=="testing" { print $3; exit }')"
   if [ -z "$next" ]; then
     echo "the board has no testing column - the card stays; move it by hand"
   elif moved="$("$BIN/issue-status.sh" ${repo:+"$repo"} "$number" "$next" 2>&1)"; then

@@ -460,7 +460,7 @@ cache_dir() {
 fields_tsv() {
   local f rows row
   f="$(cache_dir)/fields.tsv"
-  [ -s "$f" ] && [ -z "$(find "$f" -mmin +60 2>/dev/null)" ] || {
+  [ -s "$f" ] && [ -z "$(find "$f" -mmin +60)" ] || {
     # Read whole, then written. Redirecting gh straight into the cache stores whatever it wrote
     # under the name of an answer, and every later run finds a non-empty file and never asks again.
     rows="$(gh_read "the fields of board $(project_number)" api graphql -f pid="$(project_id)" -f query='
@@ -488,7 +488,7 @@ fields_tsv() {
 
 # A field or option the cache does not know may have come to the board after the cache was written:
 # the board is read once more before the name is refused.
-fields_fresh() { rm -f "$(cache_dir)/fields.tsv"; fields_tsv; }
+fields_fresh() { rm -f "$(cache_dir)/fields.tsv" || return 1; fields_tsv; }
 
 field_id() {  # field_id <field name>
   local want="$1" all id

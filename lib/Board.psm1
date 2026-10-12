@@ -512,7 +512,7 @@ function Get-Fields {
   $f = Join-Path (Get-CacheDir) 'fields.tsv'
   # The cache lives an hour: a board gains columns, and the page and the commands read them within
   # the hour
-  if ($Fresh -or ((Test-Path $f) -and (Get-Item $f).LastWriteTime -lt (Get-Date).AddMinutes(-60))) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
+  if ((Test-Path $f) -and ($Fresh -or (Get-Item $f).LastWriteTime -lt (Get-Date).AddMinutes(-60))) { Remove-Item -LiteralPath $f -Force }
   if (-not (Test-Path $f) -or -not (Get-Content $f -Raw -EA SilentlyContinue)) {
     New-Item -ItemType Directory -Force -Path (Get-CacheDir) | Out-Null
     $q = 'query($pid:ID!) { node(id:$pid) { ... on ProjectV2 { fields(first:50) { nodes { ... on ProjectV2SingleSelectField { id name options { id name } } } } } } }'

@@ -81,7 +81,8 @@ for twin in sh ps1; do
   A="$WORK/nopush-first-$twin"; git init -q -b master "$A"; printf 'node_modules/\n' > "$A/.gitignore"; git -C "$A" add .gitignore
   git -C "$A" -c user.name=check -c user.email=check@localhost commit -q -m 'Start #1'; git -C "$A" remote add origin "$O"; git -C "$A" push -q origin master 2>/dev/null
   D="$WORK/nopush-detached-$twin"; R="$WORK/nopush-refused-$twin"; E="$WORK/nopush-edited-$twin"
-  for d in "$D" "$R" "$E"; do git clone -q "$O" "$d" 2>/dev/null; done
+  # Git for Windows checks a file out with CRLF unless told otherwise; the bytes compared are git's
+  for d in "$D" "$R" "$E"; do git clone -q -c core.autocrlf=false "$O" "$d" 2>/dev/null; done
   git -C "$D" checkout -q --detach
   printf 'mine.local\n' >> "$E/.gitignore"
   printf '#!/bin/sh\necho "refused by the origin"\nexit 1\n' > "$O/hooks/pre-receive"; chmod +x "$O/hooks/pre-receive"

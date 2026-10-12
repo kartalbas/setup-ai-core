@@ -82,7 +82,8 @@ $ErrorActionPreference = 'Stop'
 # the repository it landed in where that is another one, or '-'.
 #
 # The commit is the first one finish-issue listed in its newest "Landed on <branch>:" comment,
-# the record it writes when it moves the card to testing; "Landed on <branch> of <owner/repo>:"
+# the record it writes when it moves the card to testing; a report that starts with the same words
+# but lists no commit is not that record; "Landed on <branch> of <owner/repo>:"
 # names the repository the work landed in. A comment counts only when it came after the issue was
 # last reopened: a ticket reopened for rework still carries the record of the work that closed it
 # the first time. A proof record counts only when it came after that landing. Only the comments of
@@ -111,7 +112,9 @@ function Get-RepoCards { param([string]$R)
       $reopenedAt = $i.reopened.nodes | Select-Object -First 1 -ExpandProperty createdAt -ErrorAction SilentlyContinue
       $said = @($i.comments.nodes | Where-Object { $_.authorAssociation -cin 'OWNER', 'MEMBER', 'COLLABORATOR' })
       $landed = @($said | Where-Object {
-        $_.body.StartsWith('Landed on ', [StringComparison]::Ordinal) -and (-not $reopenedAt -or ($_.createdAt -gt $reopenedAt))
+        $_.body.StartsWith('Landed on ', [StringComparison]::Ordinal) -and
+        @($_.body -split "`n" | Where-Object { $_ -cmatch '^- [0-9a-f]{7,40} ' }).Count -gt 0 -and
+        (-not $reopenedAt -or ($_.createdAt -gt $reopenedAt))
       } | Sort-Object { $_.createdAt }) | Select-Object -Last 1
       $first = if ($landed) { @($landed.body -split "`n" | Where-Object { $_ -cmatch '^- [0-9a-f]{7,40} ' }) | Select-Object -First 1 }
       $proven = if ($landed -and @($said | Where-Object {

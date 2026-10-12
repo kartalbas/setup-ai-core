@@ -186,6 +186,10 @@ if ($state -ceq 'closed') {
   Set-Project -Number '' -Repo $repo | Out-Null
   $options = @(Get-Fields | Where-Object { $_.Field -ieq 'Status' } | ForEach-Object { $_.Option })
   $next = $options | Where-Object { $_.ToLowerInvariant() -ceq 'testing' } | Select-Object -First 1
+  if (-not $next) {
+    $options = @(Get-Fields -Fresh | Where-Object { $_.Field -ieq 'Status' } | ForEach-Object { $_.Option })
+    $next = $options | Where-Object { $_.ToLowerInvariant() -ceq 'testing' } | Select-Object -First 1
+  }
   if (-not $next) { 'the board has no testing column - the card stays; move it by hand' }
   else {
     try { & (Join-Path $PSScriptRoot 'issue-status.ps1') -Number $Number -Status $next -Repo $repo }

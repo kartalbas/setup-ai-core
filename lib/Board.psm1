@@ -505,10 +505,14 @@ function Get-CacheDir {
 }
 
 function Get-Fields {
-  # Every single-select field with all of its options, as objects.
+  # Every single-select field with all of its options, as objects. -Fresh reads the board again: a
+  # field or option the cache does not know may have come to the board after the cache was written.
   [CmdletBinding()]
-  param()
+  param([switch]$Fresh)
   $f = Join-Path (Get-CacheDir) 'fields.tsv'
+  # The cache lives an hour: a board gains columns, and the page and the commands read them within
+  # the hour
+  if ((Test-Path $f) -and ($Fresh -or (Get-Item $f).LastWriteTime -lt (Get-Date).AddMinutes(-60))) { Remove-Item -LiteralPath $f -Force -ErrorAction Stop }
   if (-not (Test-Path $f) -or -not (Get-Content $f -Raw -EA SilentlyContinue)) {
     New-Item -ItemType Directory -Force -Path (Get-CacheDir) | Out-Null
     $q = 'query($pid:ID!) { node(id:$pid) { ... on ProjectV2 { fields(first:50) { nodes { ... on ProjectV2SingleSelectField { id name options { id name } } } } } } }'
@@ -532,6 +536,7 @@ function Get-FieldId {
   param([Parameter(Mandatory)][string]$Field)
   $all = Get-Fields
   $hit = $all | Where-Object Field -ceq $Field | Select-Object -First 1
+  if (-not $hit) { $all = Get-Fields -Fresh; $hit = $all | Where-Object Field -ceq $Field | Select-Object -First 1 }
   if (-not $hit) { Stop-WithError "no single-select field named '$Field' on the board. There is: $(($all.Field | Select-Object -Unique) -join ' ')" }
   return $hit.FieldId
 }
@@ -546,6 +551,7 @@ function Get-OptionId {
   param([Parameter(Mandatory)][string]$Field, [Parameter(Mandatory)][string]$Option)
   $all = Get-Fields
   $hit = $all | Where-Object { $_.Field -eq $Field -and $_.Option -eq $Option } | Select-Object -First 1
+  if (-not $hit) { $all = Get-Fields -Fresh; $hit = $all | Where-Object { $_.Field -eq $Field -and $_.Option -eq $Option } | Select-Object -First 1 }
   if (-not $hit) { Stop-WithError "field '$Field' has no option '$Option'. It has: $((($all | Where-Object Field -eq $Field).Option) -join ' ')" }
   return $hit.OptionId
 }

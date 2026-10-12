@@ -187,6 +187,8 @@ check 'and no command is guessed' '100 C claude —' "$(reach "$broken" 100)"
 mkdir -p "$work/findbin"
 cat > "$work/findbin/find" <<'STUB'
 #!/usr/bin/env bash
+# It stands in for the read of /proc only; the board cache's age is asked of the real find
+[ "$1" = /proc ] || PATH="${PATH#*:}" exec find "$@"
 printf '%s\t%s\n' /proc/104/fd /x/rollout-2026-10-04T12-00-00-01a10444-0000-7000-8000-000000000444.jsonl
 exit 1
 STUB

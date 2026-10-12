@@ -171,6 +171,36 @@ try {
         $(if ($out -like '*--after and --replacing exclude each other*') { 'yes' } else { "no: $out" })
   Check 'and no mutation reached the board' 'no body' `
         $(if (Test-Path (Join-Path $fake 'body.json')) { 'a body was sent' } else { 'no body' })
+
+  # The lookups of the module itself, against the same stand-in board. The cache was written
+  # before the board gained an option; a lookup reads the board once, and the cache holds the
+  # option afterwards. The bash twin is held the same way in option-lookup.test.sh.
+  ''
+  'a cache written before the board gained an option'
+
+  Import-Module (Join-Path $root 'lib/Board.psm1') -Force
+  $env:GH_ORG = 'example-org'
+  Set-Project -Number $projectNumber | Out-Null
+  $tsv = Join-Path $cache 'fields.tsv'
+  $reads = { @(Get-Content (Join-Path $fake 'calls') -EA SilentlyContinue).Count }
+  Set-Content -Path $tsv -Value "Status`tPVTSSF_status`ttodo`tOPT_todo"
+  Remove-Item (Join-Path $fake 'calls') -Force -EA SilentlyContinue
+  Check 'an option the cache lacks resolves' 'OPT_p3' (Get-OptionId -Field Priority -Option P3)
+  Check 'after one read of the board' 1 (& $reads)
+  Check 'and the cache holds it now' 'yes' $(if ((Get-Content -Raw $tsv) -match 'OPT_p3') { 'yes' } else { 'no' })
+  Check 'a known option reads no board' 'OPT_todo' (Get-OptionId -Field Status -Option todo)
+  Check 'still one read' 1 (& $reads)
+  Set-Content -Path $tsv -Value "Priority`tPVTSSF_priority`tP1`tOPT_p1"
+  Check 'a field the cache lacks resolves too' 'PVTSSF_status' (Get-FieldId -Field Status)
+
+  ''
+  'a cache older than an hour'
+
+  Set-Content -Path $tsv -Value "Status`tPVTSSF_status`ttodo`tOPT_todo"
+  (Get-Item $tsv).LastWriteTime = (Get-Date).AddMinutes(-61)
+  Check 'is read again' 'P0 P1 P2 P3' ((@(Get-Fields | Where-Object Field -eq Priority).Option) -join ' ')
+  Set-Content -Path $tsv -Value "Status`tPVTSSF_status`ttodo`tOPT_todo"
+  Check 'one within the hour is not' '' ((@(Get-Fields | Where-Object Field -eq Priority).Option) -join ' ')
 }
 finally {
   Remove-Item -Recurse -Force $fake, $cache -EA SilentlyContinue

@@ -171,6 +171,14 @@ Check 'it runs'               'True' ([string]$ok)
 Check 'it says so'            'True' ([bool]($printed -match 'the board has no testing column - the card stays'))
 Check 'the card did not move' 0      (Moves)
 
+# The run above cached the board without testing; the board gains it, and the cache stays
+Write-Host 'a cache written before the board gained testing: the board is read again and the card moves'
+Set-Content -Path $board -Value (@('todo', 'implementing', 'testing', 'done') | ForEach-Object { "Status${t}FID${t}$_${t}OPT_$_" }) -Encoding utf8NoBOM
+Set-Content -Path $log -Value $null
+$ok = Invoke-Finish -Number 163
+Check 'it runs'                   'True' ([string]$ok)
+Check 'the card moved to testing' 1      (@(Get-Content $log | Where-Object { $_ -match 'oid=OPT_testing' }).Count)
+
 Write-Host 'a board with ready, planned and review: the card goes to testing, never to the column after implementing'
 Set-Board @('ready', 'planned', 'implementing', 'review', 'testing', 'done')
 Set-Content -Path $log -Value $null

@@ -12,6 +12,8 @@ set -uo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fake="$(mktemp -d)"
 export GH_CACHE_DIRECTORY="$fake/cache"
+# The board's organisation, as a repository of it would name it; the stand-in knows no repository
+export GH_ORG=example-org
 PROJECT_NUMBER=999991
 trap 'rm -rf "$fake"' EXIT
 log="$fake/calls.txt"
@@ -31,6 +33,7 @@ case "\$*" in
     printf 'https://github.com/example-org/example-repo/issues/999\n'; exit 0 ;;
   *projectItems*)         exit 0 ;;
   *addProjectV2ItemById*) echo 'PVTI_new'; exit 0 ;;
+  *"fields(first:50)"*)   cat "$fake/board.tsv"; exit 0 ;;
   *) echo '{}'; exit 0 ;;
 esac
 EOF
@@ -40,7 +43,9 @@ export PATH="$fake:$PATH"
 # The board answers, seeded so no lookup has to be faked.
 mkdir -p "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER"
 printf 'PVT_kwasked%s\n' "$PROJECT_NUMBER" > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/project-id"
-printf 'Status\tF1\tready\tO1\nPriority\tF2\tP1\tO2\n' > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
+# The board as the stand-in answers a read of its fields, and the cache of it
+printf 'Status\tF1\tready\tO1\nPriority\tF2\tP1\tO2\n' > "$fake/board.tsv"
+cp "$fake/board.tsv" "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
 
 failed=0
 check() {
@@ -114,7 +119,8 @@ echo "the caller's body file is left as it was"
 check 'still one line'   'the body' "$(cat "$body")"
 
 echo 'a board of the older layout, without ready: refused before gh creates anything'
-printf 'Status\tF1\ttodo\tO1\nPriority\tF2\tP1\tO2\n' > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
+printf 'Status\tF1\ttodo\tO1\nPriority\tF2\tP1\tO2\n' > "$fake/board.tsv"
+cp "$fake/board.tsv" "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
 out="$(new --asked-by kartalbas --asked-in 'issue #12')"; rc=$?
 check 'refused'                 yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
 check 'it names the option'     yes "$(grep -q "field 'Status' has no option 'ready'" <<< "$out" && echo yes || echo no)"

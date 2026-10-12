@@ -7,6 +7,8 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $fake = Join-Path ([IO.Path]::GetTempPath()) "gh-fake-$([guid]::NewGuid().ToString('N').Substring(0,8))"
 $env:GH_CACHE_DIRECTORY = Join-Path $fake 'cache'
+# The board's organisation, as a repository of it would name it; the stand-in knows no repository
+$env:GH_ORG = 'example-org'
 New-Item -ItemType Directory -Path $fake | Out-Null
 $log = Join-Path $fake 'calls.txt'
 $sent = Join-Path $fake 'sent-body.md'
@@ -26,6 +28,7 @@ if (`$a -match 'issue create') {
 }
 if (`$a -match 'projectItems') { exit 0 }
 if (`$a -match 'addProjectV2ItemById') { 'PVTI_new'; exit 0 }
+if (`$a -match 'fields\(first:50') { Get-Content (Join-Path '$fake' 'board.tsv'); exit 0 }
 '{}'
 exit 0
 "@ | Set-Content -Path (Join-Path $fake 'gh.ps1') -Encoding utf8NoBOM
@@ -37,7 +40,9 @@ $env:PATH = "$fake$([IO.Path]::PathSeparator)$env:PATH"
 $cache = Join-Path $env:GH_CACHE_DIRECTORY "$PROJECT"
 New-Item -ItemType Directory -Force -Path $cache | Out-Null
 Set-Content -Path (Join-Path $cache 'project-id') -Value "PVT_kwasked$PROJECT" -NoNewline
-Set-Content -Path (Join-Path $cache 'fields.tsv') -Value "Status`tF1`tready`tO1`nPriority`tF2`tP1`tO2"
+# The board as the stand-in answers a read of its fields, and the cache of it
+Set-Content -Path (Join-Path $fake 'board.tsv') -Value "Status`tF1`tready`tO1`nPriority`tF2`tP1`tO2"
+Copy-Item (Join-Path $fake 'board.tsv') (Join-Path $cache 'fields.tsv')
 
 $failed = 0
 function Check($name, $expected, $actual) {
@@ -112,7 +117,8 @@ Write-Host "the caller's body file is left as it was"
 Check 'still one line' 'the body' ((Get-Content $body) -join "`n")
 
 Write-Host 'a board of the older layout, without ready: refused before gh creates anything'
-Set-Content -Path (Join-Path $cache 'fields.tsv') -Value "Status`tF1`ttodo`tO1`nPriority`tF2`tP1`tO2" -Encoding utf8NoBOM
+Set-Content -Path (Join-Path $fake 'board.tsv') -Value "Status`tF1`ttodo`tO1`nPriority`tF2`tP1`tO2" -Encoding utf8NoBOM
+Copy-Item (Join-Path $fake 'board.tsv') (Join-Path $cache 'fields.tsv')
 $ran = New-Issue @{ AskedBy = 'kartalbas'; AskedIn = 'issue #12' }
 Check 'refused'            'False' ([string]$ran)
 Check 'it names the option' 'True' ([bool]($said -match "field 'Status' has no option 'ready'"))

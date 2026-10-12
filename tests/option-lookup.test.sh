@@ -49,6 +49,25 @@ Status	PVTSSF_status	done	OPT_done
 Priority	PVTSSF_priority	P1	OPT_p1
 EOF
 
+# A name the cache does not know reads the board once more, so every gh of this test is a
+# stand-in: it answers the fields query from $WORK/board.tsv, the board as it is, and records any
+# other call as the mutation it would be.
+printf '%s\n' PVT_test > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/project-id"
+cp "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv" "$WORK/board.tsv"
+FAKE="$(mktemp -d)"
+mkdir -p "$FAKE/bin"
+cat > "$FAKE/bin/gh" <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+  *"fields(first:50)"*) cat "$WORK/board.tsv"; echo read >> "$FAKE/board-reads" ;;
+  *"repo view"*) exit 1 ;;
+  *) echo "the mutation ran" >> "$FAKE/reached" ;;
+esac
+exit 0
+EOF
+chmod +x "$FAKE/bin/gh"
+export PATH="$FAKE/bin:$PATH"
+
 echo 'the option a name resolves to'
 
 check 'the name as the board spells it'      OPT_todo "$(option_id Status todo)"
@@ -74,25 +93,41 @@ check 'and names every one there is'         yes "$(case "$refusal" in *"backlog
 #
 # `gh` is a stand-in that succeeds and records the call, so a resolution that was swallowed would
 # reach the mutation and leave a line behind. Nothing does, and the script stops with 1.
-FAKE="$(mktemp -d)"
-mkdir -p "$FAKE/bin"
-cat > "$FAKE/bin/gh" <<EOF
-#!/usr/bin/env bash
-echo "the mutation ran" >> "$FAKE/reached"
-exit 0
-EOF
-chmod +x "$FAKE/bin/gh"
-
+: > "$FAKE/reached"
 outcome="$( PATH="$FAKE/bin:$PATH"; ( set_select PVTI_something Status Invented ) 2>/dev/null; echo "exit=$?" )"
 check 'set_select stops rather than mutating' "exit=1" "$outcome"
-check 'and nothing reached the board'        no "$([ -f "$FAKE/reached" ] && echo yes || echo no)"
+check 'and nothing reached the board'        no "$([ -s "$FAKE/reached" ] && echo yes || echo no)"
 
 # The innocent case, or the two above pass for a function that never works at all.
 rm -f "$FAKE/reached"
 ok="$( PATH="$FAKE/bin:$PATH"; ( set_select PVTI_something Status Todo ) 2>/dev/null; echo "exit=$?" )"
 check 'a resolvable option does mutate'      "exit=0" "$ok"
-check 'and the board was reached'            yes "$([ -f "$FAKE/reached" ] && echo yes || echo no)"
-rm -rf "$FAKE"
+check 'and the board was reached'            yes "$([ -s "$FAKE/reached" ] && echo yes || echo no)"
+
+echo
+echo 'a cache written before the board gained an option'
+
+# The board has `ready` now; the cache was written before. The lookup reads the board once, finds
+# it, and the cache holds it afterwards. The name nobody has costs that one read and is refused.
+printf 'Status\tPVTSSF_status\tready\tOPT_ready\n' >> "$WORK/board.tsv"
+: > "$FAKE/board-reads"
+check 'the new option resolves'               OPT_ready "$(option_id Status ready)"
+check 'after one read of the board'           1 "$(wc -l < "$FAKE/board-reads" | tr -d ' ')"
+check 'and the cache holds it now'            yes "$(grep -q 'OPT_ready' "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv" && echo yes || echo no)"
+check 'a known option reads no board'         OPT_todo "$(option_id Status todo)"
+check 'still one read'                        1 "$(wc -l < "$FAKE/board-reads" | tr -d ' ')"
+printf 'Priority\tPVTSSF_priority\tP1\tOPT_p1\n' > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
+check 'a field the cache lacks resolves too'  PVTSSF_status "$(field_id Status)"
+
+echo
+echo 'a cache older than an hour'
+
+printf 'Status\tPVTSSF_status\ttodo\tOPT_todo\n' > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
+touch -d "@$(( $(date +%s) - 3660 ))" "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
+check 'is read again'                         yes "$(fields_tsv | grep -q OPT_ready && echo yes || echo no)"
+printf 'Status\tPVTSSF_status\ttodo\tOPT_todo\n' > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
+check 'one within the hour is not'            no "$(fields_tsv | grep -q OPT_ready && echo yes || echo no)"
+rm -rf "${FAKE:?}"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo; echo 'all passed'

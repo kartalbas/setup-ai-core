@@ -455,10 +455,12 @@ cache_dir() {
 
 # Every single-select field with all of its options, one per line:
 #   <field name>\t<field id>\t<option name>\t<option id>
+# The cache lives an hour: a board gains columns, and the page and the commands read them within
+# the hour; a name the cache does not know reads the board at once (fields_fresh).
 fields_tsv() {
   local f rows row
   f="$(cache_dir)/fields.tsv"
-  [ -s "$f" ] || {
+  [ -s "$f" ] && [ -z "$(find "$f" -mmin +60 2>/dev/null)" ] || {
     # Read whole, then written. Redirecting gh straight into the cache stores whatever it wrote
     # under the name of an answer, and every later run finds a non-empty file and never asks again.
     rows="$(gh_read "the fields of board $(project_number)" api graphql -f pid="$(project_id)" -f query='
@@ -484,10 +486,18 @@ fields_tsv() {
   cat "$f"
 }
 
+# A field or option the cache does not know may have come to the board after the cache was written:
+# the board is read once more before the name is refused.
+fields_fresh() { rm -f "$(cache_dir)/fields.tsv"; fields_tsv; }
+
 field_id() {  # field_id <field name>
   local want="$1" all id
   all="$(fields_tsv)" || exit 1
   id="$(printf '%s\n' "$all" | awk -F'\t' -v n="$want" '$1==n {print $2; exit}')"
+  if [ -z "$id" ]; then
+    all="$(fields_fresh)" || exit 1
+    id="$(printf '%s\n' "$all" | awk -F'\t' -v n="$want" '$1==n {print $2; exit}')"
+  fi
   [ -n "$id" ] || die "no single-select field named '$want' on the board. There is: $(printf '%s\n' "$all" | cut -f1 | sort -u | paste -sd' ' -)"
   echo "$id"
 }
@@ -505,6 +515,10 @@ option_id() {  # option_id <field name> <option name>
   local fld="$1" want="$2" all id
   all="$(fields_tsv)" || exit 1
   id="$(printf '%s\n' "$all" | awk -F'\t' -v f="$fld" -v n="$want" 'tolower($1)==tolower(f) && tolower($3)==tolower(n) {print $4; exit}')"
+  if [ -z "$id" ]; then
+    all="$(fields_fresh)" || exit 1
+    id="$(printf '%s\n' "$all" | awk -F'\t' -v f="$fld" -v n="$want" 'tolower($1)==tolower(f) && tolower($3)==tolower(n) {print $4; exit}')"
+  fi
   [ -n "$id" ] || die "field '$fld' has no option '$want'. It has: $(printf '%s\n' "$all" | awk -F'\t' -v f="$fld" 'tolower($1)==tolower(f) {print $3}' | paste -sd' ' -)"
   echo "$id"
 }

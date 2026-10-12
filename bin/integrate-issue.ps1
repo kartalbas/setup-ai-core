@@ -134,7 +134,19 @@ try {
   if ($LASTEXITCODE -ne 0) { Stop-OnBranch "the push was refused (see above) - nothing reached origin, and $branch is checked out again" }
   if (-not (Invoke-Git switch -q $branch).Ok) { Stop-WithError "$merged is on origin/$default, but $branch could not be checked out again - run git switch $branch before finish-issue" }
   Write-Host "integrated: $merged on origin/$default, $subject, Reviewed-by: $ReviewedBy"
-  Write-Host "next: ai-core finish-issue $(if ($Repo) { "$Number -Repo $Repo" } else { $Number })"
+  # Every issue the merged commits name in parentheses, the integrated one first: a package lands
+  # several issues in one merge, and the card of each moves on only through its own finish-issue. A
+  # number named in passing, without the parentheses, is no landing.
+  $own = try { Get-DefaultRepo } catch { '' }
+  $named = @(Get-IssueRef -Repo $Repo -Number $Number) + @((Invoke-Git log --reverse --format=%s "$merged^1..$merged^2").Text -split "`n" |
+    ForEach-Object { [regex]::Matches($_, '\((([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)?#[0-9]+)\)') | ForEach-Object { $_.Groups[1].Value } })
+  $said = @{}
+  foreach ($ref in $named) {
+    $landedRepo = $ref.Substring(0, $ref.LastIndexOf('#')); $landedNumber = $ref.Substring($ref.LastIndexOf('#') + 1)
+    if ($landedRepo -ieq $own) { $landedRepo = '' }
+    $line = "next: ai-core finish-issue $(if ($landedRepo) { "$landedNumber -Repo $landedRepo" } else { $landedNumber })"
+    if (-not $said.ContainsKey($line.ToLowerInvariant())) { $said[$line.ToLowerInvariant()] = 1; Write-Host $line }
+  }
 } finally {
   if ((Test-Path -LiteralPath $landing) -and ([System.IO.File]::ReadAllText($landing) -split "`t")[0] -ceq "$PID") { Remove-Item -LiteralPath $landing -Force }
 }

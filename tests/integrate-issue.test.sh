@@ -148,6 +148,22 @@ wt7="$(new_tree 83 own)"
 out="$(integrate "$wt7" example-org/example-repo 83 --reviewed-by l4)"; rc=$?
 check 'its own repository named: exit 0' 0 "$rc"
 check 'the subject keeps the short form' 'Read the board whole (#83)' "$(git --git-dir="$origin" log -1 --format=%s master)"
+check 'one issue, one next step'          1 "$(grep -c '^next: ' <<< "$out")"
+
+# A package: one commit per issue, one merge named for the first. Its own repository written out
+# is the short form; a number named in passing, without parentheses, lands nothing.
+echo 'a package: every issue its commits name in parentheses is a next step, the integrated one first'
+wt8="$(new_tree 91 package)"
+for part in '(#92)' '(example-org/example-repo#93)' '(other-org/tracker#7)' '(#92) again' 'after #12 in passing'; do
+  echo "$part" >> "$wt8/package.txt"; git -C "$wt8" commit -q -am "Part $part"
+done
+out="$(integrate "$wt8" 91 --reviewed-by l4)"; rc=$?
+check 'exit 0'                         0 "$rc"
+check 'every issue once, in the order the commits landed' \
+  'next: ai-core finish-issue 91
+next: ai-core finish-issue 92
+next: ai-core finish-issue 93
+next: ai-core finish-issue other-org/tracker 7' "$(grep '^next: ' <<< "$out")"
 
 echo 'the landings of one clone take turns: a lock a live process holds is waited for, a dead one taken over'
 lock="$work/.git/ai-core-landing"

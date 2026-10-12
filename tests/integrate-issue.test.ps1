@@ -151,6 +151,21 @@ $wt7 = New-Tree '83' 'own'
 Invoke-Integrate $wt7 @('83', '-Repo', 'example-org/example-repo', '-ReviewedBy', 'l4')
 Check 'its own repository named: exit 0' 0 $rc
 Check 'the subject keeps the short form' 'Read the board whole (#83)' "$(& git --git-dir=$origin log -1 --format=%s master)"
+Check 'one issue, one next step'         1 (@($out -split "`n" | Where-Object { $_ -like 'next: *' }).Count)
+
+# A package: one commit per issue, one merge named for the first. Its own repository written out
+# is the short form; a number named in passing, without parentheses, lands nothing.
+Write-Host 'a package: every issue its commits name in parentheses is a next step, the integrated one first'
+$wt8 = New-Tree '91' 'package'
+foreach ($part in @('(#92)', '(example-org/example-repo#93)', '(other-org/tracker#7)', '(#92) again', 'after #12 in passing')) {
+  Add-Content -Path (Join-Path $wt8 'package.txt') -Value $part
+  & git -C $wt8 commit -q -am "Part $part"
+}
+Invoke-Integrate $wt8 @('91', '-ReviewedBy', 'l4')
+Check 'exit 0'                           0 $rc
+Check 'every issue once, in the order the commits landed' `
+  ("next: ai-core finish-issue 91`nnext: ai-core finish-issue 92`nnext: ai-core finish-issue 93`nnext: ai-core finish-issue 7 -Repo other-org/tracker") `
+  ((@($out -split "`n" | Where-Object { $_ -like 'next: *' })) -join "`n")
 
 Write-Host 'the landings of one clone take turns: a lock a live process holds is waited for, a dead one taken over'
 $lock = Join-Path $work '.git/ai-core-landing'

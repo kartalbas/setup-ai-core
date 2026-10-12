@@ -247,6 +247,12 @@ foreach ($full in $repos) {
     if ($c.Subs -gt 0) { $target = Get-EpicTargetOnBoard -Repo $full -Number $num }
     else {
       if ($st.ToLowerInvariant() -cne 'testing') { continue }
+      # Without a landing record nothing here can tell where its work is, and the card never moves
+      # on: named, so it does not wait unseen
+      if ($c.Sha -ceq '-') {
+        "no landing   $label#$num  (in testing, but no ""Landed on"" record names its work: where it landed, run ai-core finish-issue $num -Repo $full)"
+        continue
+      }
       # The release of the repository the work landed in, read once where a card in testing asks
       $landed = if ($c.Elsewhere -cne '-') { $c.Elsewhere } else { $full }
       Read-Release $landed

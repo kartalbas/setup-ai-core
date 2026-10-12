@@ -314,6 +314,18 @@ check '#23 is closed' 1 "$(grep -c 'api --method PATCH repos/example-org/example
 check 'and no other issue' 2 "$(grep -c 'api --method PATCH repos/.*/issues/' "$FAKE/calls.txt")"
 rm -f "$FAKE/lenient"
 
+# The only card read is an epic whose one sub-issue is done: no card in testing has named a release
+# when its close is reported
+echo 'an epic that closes before any card in testing is read: it closes, and the run goes on'
+cp "$FAKE/issues-1.json" "$FAKE/issues-1.saved"
+page false null "$(issue 31 todo 1 '')" > "$FAKE/issues-1.json"
+cp "$FAKE/epic-14.json" "$FAKE/epic-14.saved"
+printf '%s\n' '{"data":{"repository":{"issue":{"state":"OPEN","projectItems":{"nodes":[{"project":{"number":999995,"owner":{"login":"example-org"}},"status":{"name":"todo"}}]},"subIssues":{"nodes":[{"state":"CLOSED","stateReason":"COMPLETED","projectItems":{"nodes":[]}}]}}}}}' > "$FAKE/epic-14.json"
+run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo 2>&1)"
+check 'exit 0' 0 "$?"
+check 'it would close, as its sub-issues stand' 'would close  example-repo#31  (todo -> done, every sub-issue done)' "$(grep '^would close' <<< "$run")"
+mv "$FAKE/issues-1.saved" "$FAKE/issues-1.json"; mv "$FAKE/epic-14.saved" "$FAKE/epic-14.json"
+
 echo
 if [ "$failed" -gt 0 ]; then echo "$failed failed"; exit 1; fi
 echo 'all passed'

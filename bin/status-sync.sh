@@ -276,7 +276,8 @@ for full in ${repos[@]+"${repos[@]}"}; do
     [ -n "$target" ] || continue
 
     if [ "$target" = "CLOSE" ]; then
-      why="released in $tag and proven"; [ "$subs" -gt 0 ] && why="every sub-issue done"
+      # An epic names no release, and no card in testing may have been read before it
+      if [ "$subs" -gt 0 ]; then why="every sub-issue done"; else why="released in $tag and proven"; fi
       if [ "$dry" = 1 ]; then echo "would close  $label#$num  ($st -> done, $why)"
       else echo "close        $label#$num  ($st -> done, $why)"
         "$ROOT/bin/issue-close.sh" "$full" "$num" >/dev/null < /dev/null; fi

@@ -258,7 +258,12 @@ for t in sh ps1; do
   grep -aqF "the profile ai-core written to $(said_path "$P")" "$F.log" || fail "init.$t did not say it wrote the profile ai-core"
   grep -qxF -- '- [other-ai-core] Kept from another project.' "$P" && grep -qxF -- '- [other-ai-core] Another fact.' "$P" || fail "init.$t dropped another project's entries from the profile ai-core"
   ! grep -qxF -- '- [setup-ai-core] Stale.' "$P" || fail "init.$t kept a stale entry of its own layer in the profile ai-core"
+  R="$CODEX_HOME-$t/rules/ai-core.rules"
+  grep -qxF 'prefix_rule(pattern = ["ai-core"], decision = "allow")' "$R" || fail "init.$t did not allow ai-core in Codex's command rules"
+  grep -qxF 'prefix_rule(pattern = ["git", "push", "--force"], decision = "forbidden")' "$R" && ! grep -q '"--force"\], decision = "allow"' "$R" || fail "init.$t did not forbid what the template denies in Codex's command rules"
+  grep -aqF "the command rules written to $(said_path "$R")" "$F.log" || fail "init.$t did not say it wrote the command rules"
 done
+cmp -s "$CODEX_HOME-sh/rules/ai-core.rules" "$CODEX_HOME-ps1/rules/ai-core.rules" || fail "the twins wrote different command rules"
 cmp -s "$WORK/codex-override-sh.md" "$WORK/codex-override-ps1.md" || fail "the twins wrote different AGENTS.override.md files"
 cmp -s "$CODEX_HOME-sh/ai-core.config.toml" "$CODEX_HOME-ps1/ai-core.config.toml" || fail "the twins wrote different Codex profiles"
 for t in sh ps1; do
@@ -266,7 +271,7 @@ for t in sh ps1; do
   X="$CODEX_HOME-none-$t"; mkdir -p "$X"; printf 'project_doc_max_bytes = 999999\n' > "$X/config.toml"
   if [ "$t" = sh ]; then CODEX_HOME="$X" bash "$ROOT/bin/init.sh" "$N" --no-doctor > "$N.log" 2>&1
   else CODEX_HOME="$X" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$N")" -NoDoctor > "$N.log" 2>&1; fi
-  [ ! -e "$N/AGENTS.override.md" ] && [ ! -e "$X/ai-core.config.toml" ] || fail "init.$t wrote AGENTS.override.md or the Codex profile where Codex is not served"
+  [ ! -e "$N/AGENTS.override.md" ] && [ ! -e "$X/ai-core.config.toml" ] && [ ! -e "$X/rules" ] || fail "init.$t wrote AGENTS.override.md, the Codex profile or its command rules where Codex is not served"
   [ "$(tr -d '\r' < "$X/config.toml")" = 'project_doc_max_bytes = 999999' ] || fail "init.$t changed Codex's config where Codex is not served"
   K="$WORK/codex-kept-$t"; mkdir -p "$K/.ai-core" "$CODEX_HOME-kept-$t"; printf 'UPDATE_CHECK="never"\n' > "$K/.ai-core/config.env"
   git -C "$K" init -q; printf 'our own\n' > "$K/AGENTS.override.md"; git -C "$K" add AGENTS.override.md; git -C "$K" commit -q -m own

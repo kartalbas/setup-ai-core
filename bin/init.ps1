@@ -681,6 +681,33 @@ if (Test-Serves 'codex') {
       $codexNote = "$(if ($codexNote) { "$codexNote; " })the profile ai-core $(if ($DryRun) { 'would be written' } else { 'written' }) to $codexProfile"
       if (-not $DryRun) { [System.IO.File]::WriteAllText($codexProfile, $profileText, $utf8) }
     }
+    # 2f. The template's permissions tell Claude Code which commands run without asking and which
+    #     never run. Codex gets the same as prefix rules, from every *.rules file of its rules
+    #     folder: a command whose every part an allow rule matches runs without the reviewer and
+    #     outside the sandbox, so the harness's own commands cost no review; a forbidden one is
+    #     refused; everything else stays with the reviewer.
+    $codexRules = Join-Path (Join-Path $codexDir 'rules') 'ai-core.rules'
+    $r = New-Object System.Text.StringBuilder
+    [void]$r.Append("# setup-ai-core ${coreVersion}: written by ai-core init, rewritten on every run. The commands Claude Code`n")
+    [void]$r.Append("# runs without asking or never runs (templates/.claude/settings.json), the same in Codex.`n")
+    $permissions = ([System.IO.File]::ReadAllText($settingsTemplate) | ConvertFrom-Json).permissions
+    foreach ($list in @(@('allow', 'allow'), @('deny', 'forbidden'))) {
+      foreach ($a in @($permissions.($list[0]))) {
+        if ("$a" -cmatch '^Bash\(([^:]*):\*\)$') {
+          $words = @($Matches[1] -split ' ' | Where-Object { $_ } | ForEach-Object { "`"$_`"" })
+          [void]$r.Append("prefix_rule(pattern = [$($words -join ', ')], decision = `"$($list[1])`")`n")
+        }
+      }
+    }
+    $rulesText = $r.ToString()
+    $rulesNow = if (Test-Path -LiteralPath $codexRules -PathType Leaf) { [System.IO.File]::ReadAllText($codexRules) } else { $null }
+    if ($rulesNow -cne $rulesText) {
+      $codexNote = "$(if ($codexNote) { "$codexNote; " })the command rules $(if ($DryRun) { 'would be written' } else { 'written' }) to $codexRules"
+      if (-not $DryRun) {
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $codexRules) | Out-Null
+        [System.IO.File]::WriteAllText($codexRules, $rulesText, $utf8)
+      }
+    }
   }
 }
 # 2b. The auto-mode entries go into Claude Code's user settings, the machine's file, because its

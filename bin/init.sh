@@ -627,6 +627,28 @@ if serves codex; then
       CODEX_NOTE="${CODEX_NOTE:+$CODEX_NOTE; }the profile ai-core $([ "$DRY" -eq 1 ] && echo "would be written" || echo "written") to $CODEX_PROFILE"
       [ "$DRY" -eq 1 ] || cat "$TMP/ai-core.config.toml" > "$CODEX_PROFILE"
     fi
+    # 2f. The template's permissions tell Claude Code which commands run without asking and which
+    #     never run. Codex gets the same as prefix rules, from every *.rules file of its rules
+    #     folder: a command whose every part an allow rule matches runs without the reviewer and
+    #     outside the sandbox, so the harness's own commands cost no review; a forbidden one is
+    #     refused; everything else stays with the reviewer.
+    CODEX_RULES="$(dirname "$CODEX_CONFIG")/rules/ai-core.rules"
+    {
+      printf '# setup-ai-core %s: written by ai-core init, rewritten on every run. The commands Claude Code\n' "$CORE_VERSION"
+      printf '# runs without asking or never runs (templates/.claude/settings.json), the same in Codex.\n'
+      for list in allow:allow deny:forbidden; do
+        tr -d '\r' < "$SETTINGS_TEMPLATE" | jq -r --arg l "${list%%:*}" '.permissions[$l][]? | select(test("^Bash\\([^:]*:\\*\\)$")) | .[5:-3]' \
+          | while IFS= read -r c; do
+              printf 'prefix_rule(pattern = [%s], decision = "%s")\n' "$(printf '%s\n' $c | sed 's/.*/"&"/' | paste -sd, - | sed 's/,/, /g')" "${list#*:}"
+            done
+      done
+    } > "$TMP/ai-core.rules"
+    if ! command -v jq >/dev/null 2>&1; then
+      CODEX_NOTE="${CODEX_NOTE:+$CODEX_NOTE; }no command rules written: jq is missing"
+    elif ! cmp -s "$TMP/ai-core.rules" "$CODEX_RULES"; then
+      CODEX_NOTE="${CODEX_NOTE:+$CODEX_NOTE; }the command rules $([ "$DRY" -eq 1 ] && echo "would be written" || echo "written") to $CODEX_RULES"
+      [ "$DRY" -eq 1 ] || { mkdir -p "$(dirname "$CODEX_RULES")" && cat "$TMP/ai-core.rules" > "$CODEX_RULES"; }
+    fi
   fi
 fi
 

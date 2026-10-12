@@ -222,7 +222,7 @@ check 'and follows its sub-issue moved by hand' \
   'would move   example-repo#14  (todo -> testing)' \
   "$(grep '^would move   example-repo#14' <<< "$run")"
 check 'nothing else moves: not on master alone, not reopened, not by hand, not on test only, not untagged' \
-  '' "$(grep -E 'example-repo#(12|16|17|19|20|22)' <<< "$run" | grep -v '^proof due\|^no landing')"
+  '' "$(grep -E 'example-repo#(12|16|17|19|20|22)' <<< "$run" | grep -v -e '^proof due' -e '^no landing')"
 check 'a card in testing without a landing since it was last reopened, or moved by hand, is named' \
   'no landing   example-repo#16  (in testing, but no "Landed on" record names its work: where it landed, run ai-core finish-issue example-org/example-repo 16)
 no landing   example-repo#17  (in testing, but no "Landed on" record names its work: where it landed, run ai-core finish-issue example-org/example-repo 17)' \

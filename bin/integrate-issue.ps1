@@ -135,8 +135,8 @@ try {
   if (-not (Invoke-Git switch -q $branch).Ok) { Stop-WithError "$merged is on origin/$default, but $branch could not be checked out again - run git switch $branch before finish-issue" }
   Write-Host "integrated: $merged on origin/$default, $subject, Reviewed-by: $ReviewedBy"
   # Every issue the merged commits name in parentheses, the integrated one first: a package lands
-  # several issues in one merge, and the card of each moves on only through its own finish-issue. A
-  # number named in passing, without the parentheses, is no landing.
+  # several issues in one merge, and the card of each moves on only through its own finish-issue. Only
+  # the forms '(#N)' and '(owner/repo#N)' count: a number named in passing is no landing.
   $own = try { Get-DefaultRepo } catch { '' }
   $named = @(Get-IssueRef -Repo $Repo -Number $Number) + @((Invoke-Git log --reverse --format=%s "$merged^1..$merged^2").Text -split "`n" |
     ForEach-Object { [regex]::Matches($_, '\((([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)?#[0-9]+)\)') | ForEach-Object { $_.Groups[1].Value } })

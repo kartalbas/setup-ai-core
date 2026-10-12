@@ -77,7 +77,7 @@ if [ -z "$tokens$issues" ]; then
     cp "$AI_CORE_ROLLOUTS" "$work/rollouts"
   elif [ -d /proc ]; then
     # find exits 1 on the processes it may not read, other users' or ended ones; what it read stands
-    find /proc -mindepth 3 -maxdepth 3 -path '/proc/*/fd/*' -lname '*/rollout-*.jsonl' -printf '%h\t%l\n' > "$work/rollouts" 2> /dev/null || :
+    find /proc -mindepth 3 -maxdepth 3 -path '/proc/*/fd/*' \( -lname '*/rollout-*.jsonl' -o -lname '*/.ai-core/sessions/*.out' \) -printf '%h\t%l\n' > "$work/rollouts" 2> /dev/null || :
   else
     : > "$work/rollouts"
   fi

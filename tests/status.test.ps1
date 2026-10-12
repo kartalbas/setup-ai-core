@@ -160,7 +160,8 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   $env:AI_CORE_ROLLOUTS = Join-Path $work 'rollouts'
   Set-Content -LiteralPath $env:AI_CORE_ROLLOUTS -Value @(
     "/proc/102/fd`t/home/x/.codex/sessions/2026/10/04/rollout-2026-10-04T11-52-48-01a106c2-71cd-7451-94ce-508f6229cd5b.jsonl",
-    "/proc/100/fd`t/home/x/.codex/sessions/2026/10/04/rollout-2026-10-04T11-00-00-01a10000-0000-7000-8000-000000000000.jsonl")
+    "/proc/100/fd`t/home/x/.codex/sessions/2026/10/04/rollout-2026-10-04T11-00-00-01a10000-0000-7000-8000-000000000000.jsonl",
+    "/proc/104/fd`t/home/x/.ai-core/sessions/l30001-gpt6.1sol-xhigh-150k-cdc28.out")
   $view = Run
   $rc = $LASTEXITCODE
   $env:AI_CORE_AGENTS = Join-Path $work 'bad-agents'
@@ -179,41 +180,41 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
   function VLine($Text) { "$(@($view | Where-Object { $_.Contains($Text) }) | Select-Object -First 1)".Trim() -creplace ' +', ' ' }
   Check 'exit 0'        0 $rc
   Check 'line 1: the time and the board counts' "example · board example-org/7 · $(When $now) · Backlog 0 · Todo 5 · In progress 2 · Done 15" $view[0]
-  Check 'a session, named by its resume' '│ claude exa-lead │ 100 │ │ 1500 min │ busy │ │ session │' (VLine '│ claude exa-lead ')
-  Check 'the runs it started, through a script too, newest first' '│ └ gemini │ 108 │ │ 1 min │ │ example-repo#3 │ run │' (VLine '└ gemini')
-  Check 'with model and effort' '│ └ codex │ 102 │ big-model · high │ 3 min │ │ example-repo#1 │ run │' (VLine '└ codex')
-  Check 'a run a run started' '│ └ agy │ 103 │ cheap-model · high │ 2 min │ │ │ run │' (VLine '└ agy')
-  Check 'indented one step deeper' 1 @($view | Where-Object { $_.StartsWith('│     └ agy ') }).Count
-  Check 'a run no agent started stands alone' '│ codex │ 104 │ │ 62 min │ │ │ resumed run │' (VLine '│ codex ')
-  Check 'an agent CLI without a prompt is a session' '│ agy │ 109 │ │ 5 min │ │ │ session │' (VLine '│ agy ')
-  Check 'a background session runs from the versioned binary' '│ claude l1-sonnet5.5 │ 112 │ sonnet · low │ 29 min │ idle blocked │ │ session │' (VLine '│ claude l1-sonnet5.5 ')
+  Check 'a session, named by its resume' '│ C exa-lead │ 100 │ │ 1500 min │ busy │ │ session │' (VLine '│ C exa-lead ')
+  Check 'the runs it started, through a script too, newest first' '│ └ G gemini │ 108 │ │ 1 min │ │ example-repo#3 │ run │' (VLine '└ G gemini')
+  Check 'with model and effort' '│ └ X codex │ 102 │ big-model · high │ 3 min │ │ example-repo#1 │ run │' (VLine '└ X codex')
+  Check 'a run a run started' '│ └ A agy │ 103 │ cheap-model · high │ 2 min │ │ │ run │' (VLine '└ A agy')
+  Check 'indented one step deeper' 1 @($view | Where-Object { $_.StartsWith('│     └ A agy ') }).Count
+  Check 'a run no agent started stands alone' '│ X l30001-gpt6. │ 104 │ gpt6.1sol · xhigh │ 62 min │ │ │ resumed run │' (VLine '│ X l30001-gpt6. ')
+  Check 'an agent CLI without a prompt is a session' '│ A agy │ 109 │ │ 5 min │ │ │ session │' (VLine '│ A agy ')
+  Check 'a background session runs from the versioned binary' '│ C l1-sonnet5.5 │ 112 │ sonnet · low │ 29 min │ idle blocked │ │ session │' (VLine '│ C l1-sonnet5.5 ')
   Check 'its daemon and terminal host are no agents' 0 @($view | Where-Object { $_ -cmatch '│ 11[01] +│' }).Count
-  Check 'a claimed spare: name, model and effort from its name, the issue from its worktree' '│ claude l2-opus5.5-h │ 113 │ opus5.5 · high │ 40 min │ busy working │ shop#4 at start │ session │' (VLine '│ claude l2-opus5.5')
+  Check 'a claimed spare: name, model and effort from its name, the issue from its worktree' '│ C l2-opus5.5-h │ 113 │ opus5.5 · high │ 40 min │ busy working │ shop#4 at start │ session │' (VLine '│ C l2-opus5.5')
   Check 'a spare no session claimed and the agent list are no agents' 0 @($view | Where-Object { $_ -cmatch '│ 11[45] +│' }).Count
-  Check 'a stopped session is shown stopped' '│ claude old-lead │ 116 │ │ stopped │ │ │ session │' (VLine '│ claude old-lead ')
-  Check 'in this order' '116 100 108 102 103 104 113 112 109' ((@($view | ForEach-Object { $c = $_.Split('│'); if ($c.Count -gt 3 -and $c[2].Trim() -cmatch '^\d+$') { $c[2].Trim() } })) -join ' ')
-  Check 'no helper, no tool word in another command, a stopped one apart' 'AGENTS 8 running: 3 claude, 1 gemini, 2 codex, 2 agy; 1 stopped' (VLine ' running: ')
+  Check 'a stopped session is shown stopped' '│ C old-lead │ 116 │ │ stopped │ │ │ session │' (VLine '│ C old-lead ')
+  Check 'in this order' '116 100 108 102 103 113 112 104 109' ((@($view | ForEach-Object { $c = $_.Split('│'); if ($c.Count -gt 3 -and $c[2].Trim() -cmatch '^\d+$') { $c[2].Trim() } })) -join ' ')
+  Check 'no helper, no tool word in another command, a stopped one apart' 'AGENTS 8 running: 3 claude (C), 1 gemini (G), 2 codex (X), 2 agy (A); 1 stopped' (VLine ' running: ')
   Check 'no token lines' '' (VLine 'pace ')
   Check 'only a stopped one: none running' 'AGENTS 0 running; 1 stopped' ("$(@($only | Where-Object { $_ -cmatch '^AGENTS +\d' }) | Select-Object -First 1)".Trim() -creplace ' +', ' ')
-  Check 'a name without a version: its model and effort' '│ claude l3-sonnet-hi │ 117 │ sonnet · high │ 10 min │ │ │ session │' ("$(@($plain | Where-Object { $_.Contains('│ claude l3-sonnet') }) | Select-Object -First 1)".Trim() -creplace ' +', ' ')
+  Check 'a name without a version: its model and effort' '│ C l3-sonnet-hi │ 117 │ sonnet · high │ 10 min │ │ │ session │' ("$(@($plain | Where-Object { $_.Contains('│ C l3-sonnet') }) | Select-Object -First 1)".Trim() -creplace ' +', ' ')
   Write-Host 'the command that reaches each agent, from what its CLI reports'
   function Reach($Page, $AgentPid) {
     $on = $false
     foreach ($l in $Page) { if ($on -and $l.StartsWith("  $AgentPid ")) { return ($l.Trim() -creplace ' +', ' ') }; if ($l -ceq 'REACH') { $on = $true } }
     ''
   }
-  Check 'an interactive session: resume it, a rollout it holds changes nothing' '100 exa-lead claude --resume 11111111-1111-1111-1111-111111111111' (Reach $view 100)
-  Check 'a background session: attach to it' '112 l1-sonnet5.5-low-100k-ab123 claude attach 22222222' (Reach $view 112)
-  Check 'a codex process: the rollout it holds open' '102 codex codex resume 01a106c2-71cd-7451-94ce-508f6229cd5b' (Reach $view 102)
-  Check 'a codex process that holds none: a dash' '104 codex —' (Reach $view 104)
-  Check 'an agent its CLI says nothing about: a dash' '109 agy —' (Reach $view 109)
+  Check 'an interactive session: resume it, a rollout it holds changes nothing' '100 C exa-lead claude --resume 11111111-1111-1111-1111-111111111111' (Reach $view 100)
+  Check 'a background session: attach to it' '112 C l1-sonnet5.5-low-100k-ab123 claude attach 22222222' (Reach $view 112)
+  Check 'a codex process: the rollout it holds open' '102 X codex codex resume 01a106c2-71cd-7451-94ce-508f6229cd5b' (Reach $view 102)
+  Check 'a codex process that holds none: a dash' '104 X l30001-gpt6.1sol-xhigh-150k-cdc28 —' (Reach $view 104)
+  Check 'an agent its CLI says nothing about: a dash' '109 A agy —' (Reach $view 109)
   $after = $false
-  Check 'every agent, in the order of the table' '116 100 108 102 103 104 113 112 109' ((@($view | ForEach-Object { if ($after -and $_ -cmatch '^  (\d+) ') { $Matches[1] }; if ($_ -ceq 'REACH') { $after = $true } })) -join ' ')
+  Check 'every agent, in the order of the table' '116 100 108 102 103 113 112 104 109' ((@($view | ForEach-Object { if ($after -and $_ -cmatch '^  (\d+) ') { $Matches[1] }; if ($_ -ceq 'REACH') { $after = $true } })) -join ' ')
   Check 'a list that failed is shown, not swallowed' 'claude agents --json gave no list: claude agents --json failed' "$(@($broken | Where-Object { $_.Contains('gave no list') }) | Select-Object -First 1)".Trim()
-  Check 'and no command is guessed' '100 claude —' (Reach $broken 100)
+  Check 'and no command is guessed' '100 C claude —' (Reach $broken 100)
   # Where no stand-in names the rollouts, the twin asks find, which exits 1 on the processes it may
   # not read; what it found still reaches the page. Without /proc there is nothing to ask.
-  $held = '104 codex —'
+  $held = '104 X codex —'
   $path = $env:PATH
   if (Test-Path -LiteralPath '/proc' -PathType Container) {
     $findBin = Join-Path $work 'findbin'
@@ -221,7 +222,7 @@ if (`$a -cmatch 'items\(first') { Get-Content -LiteralPath '$work/page1'; exit 0
     Set-Content -Path (Join-Path $findBin 'find') -Encoding ascii -Value "#!/bin/sh`nprintf '%s\t%s\n' /proc/104/fd /x/rollout-2026-10-04T12-00-00-01a10444-0000-7000-8000-000000000444.jsonl`nexit 1"
     & chmod +x (Join-Path $findBin 'find')
     $env:PATH = "$findBin$([IO.Path]::PathSeparator)$env:PATH"
-    $held = '104 codex codex resume 01a10444-0000-7000-8000-000000000444'
+    $held = '104 X codex codex resume 01a10444-0000-7000-8000-000000000444'
   }
   $env:AI_CORE_PROCESSES = Join-Path $work 'processes'
   $env:AI_CORE_AGENTS = Join-Path $work 'agents'

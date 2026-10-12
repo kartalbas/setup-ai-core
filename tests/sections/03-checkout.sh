@@ -264,6 +264,18 @@ for t in sh ps1; do
   grep -aqF "the command rules written to $(said_path "$R")" "$F.log" || fail "init.$t did not say it wrote the command rules"
 done
 cmp -s "$CODEX_HOME-sh/rules/ai-core.rules" "$CODEX_HOME-ps1/rules/ai-core.rules" || fail "the twins wrote different command rules"
+# init.sh reads the template with jq; without it, init still runs and says it wrote no command
+# rules. Not on Windows, where Git Bash copies what ln -s names.
+if ! command -v cygpath >/dev/null 2>&1; then
+  J="$WORK/no-jq-bin"; mkdir -p "$J"
+  IFS=: read -ra path_dirs <<< "$PATH"
+  for d in "${path_dirs[@]}"; do for f in "$d"/*; do
+    n="${f##*/}"; [ -x "$f" ] && [ "$n" != jq ] && [ ! -e "$J/$n" ] && ln -s "$f" "$J/$n"
+  done; done 2>/dev/null
+  N="$WORK/codex-no-jq"; mkdir -p "$N/.ai-core" "$CODEX_HOME-no-jq"; printf 'UPDATE_CHECK="never"\n' > "$N/.ai-core/config.env"
+  PATH="$J" CODEX_HOME="$CODEX_HOME-no-jq" bash "$ROOT/bin/init.sh" "$N" --no-doctor > "$N.log" 2>&1 || fail "init.sh without jq failed where Codex is served: $(tail -2 "$N.log" | tr '\n' '|')"
+  [ ! -e "$CODEX_HOME-no-jq/rules" ] && grep -aq 'no command rules written: jq is missing' "$N.log" || fail "init.sh without jq did not say it wrote no command rules"
+fi
 cmp -s "$WORK/codex-override-sh.md" "$WORK/codex-override-ps1.md" || fail "the twins wrote different AGENTS.override.md files"
 cmp -s "$CODEX_HOME-sh/ai-core.config.toml" "$CODEX_HOME-ps1/ai-core.config.toml" || fail "the twins wrote different Codex profiles"
 for t in sh ps1; do

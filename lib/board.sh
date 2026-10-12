@@ -964,7 +964,10 @@ epic_target() {
 
 # epic_target_on_board <owner/repo> <number> - the epic_target of an issue, read from its own card
 # and its sub-issues' cards on the selected board, or on whichever board they are on when none is
-# selected; an issue without sub-issues gets nothing.
+# selected; an issue without sub-issues gets nothing. A sub-issue with no card on the selected board,
+# often one of another repository on that repository's board, counts where its first card with a
+# status stands, and at most as testing: an open issue is done for its epic only where the epic's
+# own board says so, or the epic would close with that issue still open.
 epic_target_on_board() {
   local repo="$1" n="$2" on="" rows cur="" first=1 st
   [ -z "${PROJECT:-}" ] || on="select(.project.number == $(project_number) and .project.owner.login == \"$(project_org)\") |"
@@ -975,8 +978,11 @@ epic_target_on_board() {
       subIssues(first:100) { nodes { state stateReason projectItems(first:20) { nodes {
         project { number owner { ... on Organization { login } ... on User { login } } }
         status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } } } } } } }' \
-    --jq "def status: if .state == \"CLOSED\" then (if .stateReason == \"NOT_PLANNED\" or .stateReason == \"DUPLICATE\" then \"not planned\" else \"done\" end) else ([.projectItems.nodes[] | $on (.status.name // \"backlog\")] | first // \"backlog\") end;
-          .data.repository.issue | (status), (.subIssues.nodes[] | status)")" || return 1
+    --jq "def card: [.projectItems.nodes[] | $on (.status.name // \"backlog\")] | first;
+          def anycard: [.projectItems.nodes[] | .status.name | select(. != null)] | first
+            | if . != null and ascii_downcase == \"done\" then \"testing\" else . end;
+          def status(c): if .state == \"CLOSED\" then (if .stateReason == \"NOT_PLANNED\" or .stateReason == \"DUPLICATE\" then \"not planned\" else \"done\" end) else (c // \"backlog\") end;
+          .data.repository.issue | status(card), (.subIssues.nodes[] | status(card // anycard))")" || return 1
   set --
   while IFS= read -r st; do
     st="$(printf '%s' "$st" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"

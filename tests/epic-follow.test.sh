@@ -48,7 +48,10 @@ cat > "$FAKE/bin/gh" <<EOF
 printf '%s\n' "\$*" | tr '\n' ' ' >> "$FAKE/calls"; printf '\n' >> "$FAKE/calls"
 num="\$(printf '%s\n' "\$@" | sed -n 's/^\(num\|n\)=\([0-9]*\)$/\2/p' | head -1)"
 case "\$*" in
-  *'subIssues(first'*)        cat "$FAKE/epic-44" ;;
+  *'subIssues(first'*)        if [ -f "$FAKE/epic-44.json" ]; then
+                                prev=""; for a in "\$@"; do [ "\$prev" = --jq ] && prog="\$a"; prev="\$a"; done
+                                jq -r "\$prog" < "$FAKE/epic-44.json" | tr -d '\r'
+                              else cat "$FAKE/epic-44"; fi ;;
   *'--jq .id'*)               echo "90\$num" ;;
   *'--method POST'*|*'--method DELETE'*) echo '{}' ;;
   *'parent {'*)               [ "\$num" = 3 ] && echo 'example-org/example-repo 44' ;;
@@ -122,6 +125,34 @@ check 'exit 0'        0 "$rc"
 check 'it says so'    'epic example-org/example-repo#44 -> testing, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
 check 'the sub-issue moved on the selected board 7' 'pid=PVT_epic7' "$(grep 'iid=PVTI_card3 ' "$FAKE/calls" | grep -o 'pid=PVT_[a-z0-9]*')"
 check 'the epic moved on its own board 5, not on 7' 'pid=PVT_own5' "$(grep 'iid=PVTI_card44 ' "$FAKE/calls" | grep -o 'pid=PVT_[a-z0-9]*')"
+
+# Read through the query's own jq: the sub-issue of another repository has no card on board 7,
+# a card without a status on other-org/3 and one with a status on other-org/5, and counts there
+echo 'issue-status: a sub-issue with no card on the selected board counts where its own card stands'
+cat > "$FAKE/epic-44.json" <<'J'
+{"data":{"repository":{"issue":{"state":"OPEN","stateReason":null,
+ "projectItems":{"nodes":[{"project":{"number":7,"owner":{"login":"example-org"}},"status":{"name":"implementing"}}]},
+ "subIssues":{"nodes":[
+  {"state":"OPEN","stateReason":null,"projectItems":{"nodes":[{"project":{"number":7,"owner":{"login":"example-org"}},"status":{"name":"testing"}}]}},
+  {"state":"OPEN","stateReason":null,"projectItems":{"nodes":[{"project":{"number":3,"owner":{"login":"other-org"}},"status":null},{"project":{"number":5,"owner":{"login":"other-org"}},"status":{"name":"testing"}}]}}]}}}}}
+J
+: > "$FAKE/calls"
+out="$(bash "$ROOT/bin/issue-status.sh" --project 7 example-org/example-repo 3 testing 2>&1)"; rc=$?
+check 'exit 0'        0 "$rc"
+check 'its first card with a status counts: the epic follows to testing' 'epic example-org/example-repo#44 -> testing, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
+# The other sub-issue is closed and this one, still open, says Done on that other board
+cat > "$FAKE/epic-44.json" <<'J'
+{"data":{"repository":{"issue":{"state":"OPEN","stateReason":null,
+ "projectItems":{"nodes":[{"project":{"number":7,"owner":{"login":"example-org"}},"status":{"name":"implementing"}}]},
+ "subIssues":{"nodes":[
+  {"state":"CLOSED","stateReason":"COMPLETED","projectItems":{"nodes":[]}},
+  {"state":"OPEN","stateReason":null,"projectItems":{"nodes":[{"project":{"number":3,"owner":{"login":"other-org"}},"status":null},{"project":{"number":5,"owner":{"login":"other-org"}},"status":{"name":"Done"}}]}}]}}}}}
+J
+: > "$FAKE/calls"
+out="$(bash "$ROOT/bin/issue-status.sh" --project 7 example-org/example-repo 3 testing 2>&1)"; rc=$?
+check 'Done on another board, still open: exit 0' 0 "$rc"
+check 'counts as testing, so the epic goes to testing and is not closed' 'epic example-org/example-repo#44 -> testing, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
+rm -f "$FAKE/epic-44.json"
 
 echo
 if [ "$failed" -gt 0 ]; then echo "$failed failed"; exit 1; fi

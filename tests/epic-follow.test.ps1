@@ -59,7 +59,6 @@ if (`$line -clike '*--method PATCH*') { '{}'; exit 0 }
 [Console]::Error.WriteLine("the stand-in gh has no answer for: `$line"); exit 9
 "@ | Set-Content -Path (Join-Path $fake 'bin/gh.ps1') -Encoding utf8NoBOM
   "@echo off`r`npwsh -NoProfile -File `"$fake\bin\gh.ps1`" %*" | Set-Content -Path (Join-Path $fake 'bin/gh.cmd') -Encoding ascii
-  if (-not $IsWindows) { Set-Content -Path (Join-Path $fake 'bin/gh') -Value "#!/bin/sh`nexec pwsh -NoProfile -File `"$fake/bin/gh.ps1`" `"`$@`"" -Encoding ascii; & chmod +x (Join-Path $fake 'bin/gh') }
   $env:PATH = "$(Join-Path $fake 'bin')$([IO.Path]::PathSeparator)$env:PATH"
   function Moves { (@(Get-Content -LiteralPath $calls | ForEach-Object { [regex]::Matches($_, 'iid=PVTI_card[0-9]+') | ForEach-Object { $_.Value } }) -join ' ') }
   function Closes { (@(Get-Content -LiteralPath $calls | ForEach-Object { [regex]::Matches($_, 'PATCH repos/example-org/example-repo/issues/[0-9]+') | ForEach-Object { 'issues/' + ($_.Value -csplit '/')[-1] } }) -join ' ') }

@@ -46,8 +46,9 @@ $rows = Get-Content $table | Where-Object { $_ -and -not $_.StartsWith('#', [Str
 # exit: there is nothing here to hold, and refusing would stop a person who works through a tool
 # this table has never heard of.
 if ($Tool.Count -eq 0) {
-  if ($env:CLAUDECODE) { $Tool = @('claude') }
-  elseif ($env:CODEX_SANDBOX -or $env:CODEX_SANDBOX_NETWORK_DISABLED -or $env:CODEX_THREAD_ID) { $Tool = @('codex') }
+  # A Codex session started from a Claude Code shell inherits CLAUDECODE, so Codex is asked first.
+  if ($env:CODEX_SANDBOX -or $env:CODEX_SANDBOX_NETWORK_DISABLED -or $env:CODEX_THREAD_ID) { $Tool = @('codex') }
+  elseif ($env:CLAUDECODE) { $Tool = @('claude') }
   elseif ($env:GEMINI_CLI) { $Tool = @('gemini') }
 }
 if ($Tool.Count -eq 0) {

@@ -11,6 +11,7 @@ New-Item -ItemType Directory -Force -Path (Join-Path $work 'home'), $project | O
 $keptHome = $env:HOME; $keptProfile = $env:USERPROFILE
 $env:HOME = Join-Path $work 'home'; $env:USERPROFILE = $env:HOME; $env:AI_CORE_HOME = $env:HOME
 $record = Join-Path $env:HOME '.ai-core/usage.json'
+Remove-Item Env:CODEX_THREAD_ID, Env:CODEX_SANDBOX, Env:CODEX_SANDBOX_NETWORK_DISABLED, Env:CODEX_HOME -ErrorAction SilentlyContinue   # the Claude Code cases run as no Codex shell
 
 $failed = 0
 function Check($name, $expected, $actual) {
@@ -65,6 +66,31 @@ try {
   Run 'usage.ps1' @()
   Check 'exit 2'                 2 $rc
   Check 'it says why'            'True' ([bool]($out -cmatch 'no usage recorded yet'))
+
+  Write-Host "in a Codex shell: the windows Codex wrote last into its newest session file, never Claude's"
+  Set-Content -LiteralPath $record -Value "{`"recorded_at`":$now,`"rate_limits`":{`"seven_day`":{`"used_percentage`":99,`"resets_at`":$later}}}" -Encoding utf8NoBOM
+  $sessions = Join-Path $env:HOME '.codex/sessions/2026/10/13'; New-Item -ItemType Directory -Path $sessions -Force | Out-Null
+  function CodexLine($used, $secondary) { "{`"timestamp`":`"2026-10-13T07:09:45.777Z`",`"type`":`"event_msg`",`"payload`":{`"type`":`"token_count`",`"rate_limits`":{`"limit_id`":`"codex`",`"primary`":{`"used_percent`":$used,`"window_minutes`":10080,`"resets_at`":$later},`"secondary`":$secondary}}}" }
+  $old = Join-Path $sessions 'rollout-old.jsonl'; Set-Content -LiteralPath $old -Value (CodexLine 99 'null') -Encoding utf8NoBOM
+  (Get-Item -LiteralPath $old).LastWriteTime = [datetime]'2026-01-01'
+  $new = Join-Path $sessions 'rollout-new.jsonl'
+  Set-Content -LiteralPath $new -Encoding utf8NoBOM -Value @((CodexLine 3 'null'), (CodexLine 7 "{`"used_percent`":12.5,`"window_minutes`":300,`"resets_at`":$soon}"),
+    '{"timestamp":"2026-10-13T07:10:00.000Z","type":"event_msg","payload":{"type":"token_count","rate_limits":null}}')
+  $env:CODEX_THREAD_ID = 't'; Run 'usage.ps1' @(); $env:CODEX_THREAD_ID = $null
+  $lines = $out -split "`n"
+  Check 'exit 0, Claude at 99 % does not count' 0 $rc
+  Check 'the week'               "seven_day    7 %  resets $(When $later)" $lines[0]
+  Check 'the five hours'         "five_hour   12 %  resets $(When $soon)" $lines[1]
+  Check 'when Codex recorded it' "recorded $(When ([DateTimeOffset]::Parse('2026-10-13T07:09:45Z').ToUnixTimeSeconds())), limit 92 %" $lines[2]
+  Run 'usage.ps1' @()
+  Check 'no Codex shell: Claude at 99 %, exit 3' 3 $rc
+  Add-Content -LiteralPath $new -Value (CodexLine 95 'null') -Encoding utf8NoBOM
+  $env:CODEX_THREAD_ID = 't'; Run 'usage.ps1' @(); $env:CODEX_THREAD_ID = $null
+  Check 'Codex at its limit: exit 3' 3 $rc
+  Remove-Item -Recurse -Force (Join-Path $env:HOME '.codex')
+  $env:CODEX_THREAD_ID = 't'; Run 'usage.ps1' @(); $env:CODEX_THREAD_ID = $null
+  Check 'no Codex session file: exit 2' 2 $rc
+  Check 'it says why'            'True' ([bool]($out -cmatch 'no usage recorded yet: Codex records it'))
 } finally {
   $env:HOME = $keptHome; $env:USERPROFILE = $keptProfile; $env:AI_CORE_HOME = $null
   Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# What the account's usage windows stand at, as the status line last recorded them, and whether one
-# has reached the limit at which every session finishes the step in hand and waits for its reset.
+# What the account's usage windows stand at, as the tool that runs this shell last recorded them, and
+# whether one has reached the limit at which every session finishes the step in hand and waits for
+# its reset. Claude Code's windows are what its status line records; Codex's are what Codex writes
+# into its session files after every answer.
 #
 #   usage.sh [--stop-at N]     N percent; else USAGE_STOP_AT of the project's config.env; else 92
 #
@@ -21,15 +23,27 @@ while [ $# -gt 0 ]; do
   esac
 done
 case "$stop" in ''|*[!0-9]*) echo "error: --stop-at takes a whole percentage, not '$stop'" >&2; exit 2 ;; esac
-file="${AI_CORE_HOME:-$HOME}/.ai-core/usage.json"
-[ -f "$file" ] || { echo "no usage recorded yet: the status line records it once a session has had an answer" >&2; exit 2; }
 when() { LC_ALL=C date -d "@$1" '+%a %H:%M' 2>/dev/null || LC_ALL=C date -r "$1" '+%a %H:%M'; }
+# A Codex session started from a Claude Code shell inherits CLAUDECODE, so the Codex variables decide.
+if [ -n "${CODEX_THREAD_ID:-}${CODEX_SANDBOX:-}${CODEX_SANDBOX_NETWORK_DISABLED:-}" ]; then
+  line="$(ls -t "${CODEX_HOME:-$HOME/.codex}"/sessions/*/*/*/rollout-*.jsonl 2>/dev/null | while IFS= read -r f; do
+    r="$(grep -F '"rate_limits":{"' "$f" | tail -n1)"; [ -n "$r" ] && { printf '%s\n' "$r"; break; }; done)"
+  [ -n "$line" ] || { echo "no usage recorded yet: Codex records it in its session files once a session has had an answer" >&2; exit 2; }
+  windows="$(jq -r '.payload.rate_limits | (.primary, .secondary) | select(. != null)
+    | "\(if .window_minutes == 300 then "five_hour" elif .window_minutes == 10080 then "seven_day" else "\(.window_minutes)_minutes" end)\t\(.used_percent // 0)\t\(.resets_at // 0)"' <<< "$line")"
+  recorded="$(jq -r '.timestamp | sub("\\.[0-9]+"; "") | fromdateiso8601' <<< "$line")"
+else
+  file="${AI_CORE_HOME:-$HOME}/.ai-core/usage.json"
+  [ -f "$file" ] || { echo "no usage recorded yet: the status line records it once a session has had an answer" >&2; exit 2; }
+  windows="$(jq -r '.rate_limits | to_entries[] | "\(.key)\t\(.value.used_percentage // 0)\t\(.value.resets_at // 0)"' "$file")"
+  recorded="$(jq -r '.recorded_at' "$file")"
+fi
 now="$(date +%s)"; reached=0
 while IFS=$'\t' read -r name used resets; do
   [ -n "$name" ] || continue
   if [ "$resets" -gt 0 ] && [ "$resets" -le "$now" ]; then used=0; note="reset since $(when "$resets")"; else note="resets $(when "$resets")"; fi
   printf '%-10s %3d %%  %s\n' "$name" "$(awk -v u="$used" 'BEGIN { printf "%d", u }')" "$note"
   awk -v u="$used" -v s="$stop" 'BEGIN { exit !(u >= s) }' && reached=1
-done <<< "$(jq -r '.rate_limits | to_entries[] | "\(.key)\t\(.value.used_percentage // 0)\t\(.value.resets_at // 0)"' "$file")"
-echo "recorded $(when "$(jq -r '.recorded_at' "$file")"), limit $stop %"
+done <<< "$windows"
+echo "recorded $(when "$recorded"), limit $stop %"
 [ "$reached" -eq 0 ] || { echo "a window stands at $stop % or more: finish the step in hand, commit and report it, then wait for its reset"; exit 3; }

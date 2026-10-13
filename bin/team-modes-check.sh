@@ -50,8 +50,9 @@ done
 # exit: there is nothing here to hold, and refusing would stop a person who works through a tool
 # this table has never heard of.
 if [ -z "$tools" ]; then
-  if [ -n "${CLAUDECODE:-}" ]; then tools='claude'$'\n'
-  elif [ -n "${CODEX_SANDBOX:-}${CODEX_SANDBOX_NETWORK_DISABLED:-}${CODEX_THREAD_ID:-}" ]; then tools='codex'$'\n'
+  # A Codex session started from a Claude Code shell inherits CLAUDECODE, so Codex is asked first.
+  if [ -n "${CODEX_SANDBOX:-}${CODEX_SANDBOX_NETWORK_DISABLED:-}${CODEX_THREAD_ID:-}" ]; then tools='codex'$'\n'
+  elif [ -n "${CLAUDECODE:-}" ]; then tools='claude'$'\n'
   elif [ -n "${GEMINI_CLI:-}" ]; then tools='gemini'$'\n'
   fi
 fi

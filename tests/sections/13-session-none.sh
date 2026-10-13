@@ -36,6 +36,26 @@ start_source "$source_repo" '' 0
 start_source "$source_repo" json 0
 jq -e '.harness_source == "example-org/shop-ai-core" and .harness_current == null and .rules_present == false and .rules_path == "" and (.rule_sources | length) == 2' "$WORK/start.log" >/dev/null || fail "source facts are incorrect"
 
+section "a source that also holds an assembled rules file reports it as measured"
+assembled="$WORK/assembled-source"; git clone -q "$source_repo" "$assembled"
+git -C "$assembled" remote set-url origin https://github.com/example-org/shop-ai-core.git
+mkdir -p "$assembled/.ai-core/rules"; printf 'assembled\n' > "$assembled/.ai-core/rules/rules.md"
+(cd "$assembled" && bash "$ROOT/bin/session-start.sh" --json) > "$WORK/assembled.json" 2>&1 || fail "a source with an assembled rules file is refused: $(cat "$WORK/assembled.json")"
+jq -e '.rules_present == true and .rules_path == ".ai-core/rules/rules.md"' "$WORK/assembled.json" >/dev/null || fail "a source with an assembled rules file reports no rules file"
+
+section "an origin is a harness source only by its repository name"
+. "$ROOT/lib/layers.sh"
+classify() { # classify <repository name or ->  prints the source identity, or "product"
+  local dir="$WORK/classify-$1"; git init -q "$dir"
+  [ "$1" = - ] || git -C "$dir" remote add origin "https://github.com/example-org/$1.git"
+  harness_source_of "$dir" || echo product
+}
+for name in ai-core ai-core-web my-ai-core-tool -; do
+  [ "$(classify "$name")" = product ] || fail "$name is classified as a harness source"
+done
+[ "$(classify setup-ai-core)" = example-org/setup-ai-core ] || fail "a fork of setup-ai-core is not a harness source"
+[ "$(classify x-ai-core)" = example-org/x-ai-core ] || fail "x-ai-core is not a harness source"
+
 section "source readiness rejects missing, invalid and incompatible inputs"
 for defect in manifest multiple-manifests missing-manifest missing-readme missing-rules missing-section rule skill version extends cycle; do
   broken="$WORK/broken-$defect"

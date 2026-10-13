@@ -89,7 +89,7 @@ FOLDER="$(project_folder_of "$ROOT")"
 HARNESS_SOURCE="$(harness_source_of "$ROOT" || true)"
 SOURCE_READY=null; SOURCE_ERROR=""; RULE_SOURCES='[]'; READY="$RULES_OK"
 if [ -n "$HARNESS_SOURCE" ]; then
-  RULES_OK=0; RULES_PATH=""; HARNESS_VERSION="$(tr -d '\r\n' 2>/dev/null < "$CORE/VERSION" || true)"
+  HARNESS_VERSION="$(tr -d '\r\n' 2>/dev/null < "$CORE/VERSION" || true)"
   SOURCE_READY=false; READY=0
   if source_dirs="$(source_rule_dirs "$ROOT" "$CORE" 2>&1)"; then
     SOURCE_READY=true; READY=1

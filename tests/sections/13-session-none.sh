@@ -22,7 +22,7 @@ start_source() { # start_source <directory> <format> <expected exit>
   (cd "$dir" && bash "$ROOT/bin/session-start.sh" ${format:+--json}) > "$WORK/start.log" 2>&1 || rc=$?
   [ "$rc" = "$expected" ] || fail "source start ($format): expected exit $expected, got $rc: $(cat "$WORK/start.log")"
   if [ "$format" = json ]; then
-    jq -e --argjson ready "$([ "$expected" = 0 ] && echo true || echo false)" '.source_ready == $ready and .refused == ($ready | not)' "$WORK/start.log" >/dev/null || fail "source start has false readiness facts"
+    jq -e --argjson ready "$([ "$expected" = 0 ] && echo true || echo false)" '.source_ready == $ready and .refused == ($ready | not) and ((.source_error | length > 0) == ($ready | not))' "$WORK/start.log" >/dev/null || fail "source start has false readiness facts"
   elif [ "$expected" = 0 ]; then
     grep -aF 'Harness state    : ✓ Source inputs validated (no assembly)' "$WORK/start.log" >/dev/null || fail "source start claims assembly"
     grep -aF 'Map              : – Harness source: read README.md' "$WORK/start.log" >/dev/null || fail "source start recommends a product map"

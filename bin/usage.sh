@@ -43,7 +43,7 @@ now="$(date +%s)"; reached=0
 while IFS=$'\t' read -r name used resets; do
   [ -n "$name" ] || continue
   if [ "$resets" -gt 0 ] && [ "$resets" -le "$now" ]; then used=0; note="reset since $(when "$resets")"; else note="resets $(when "$resets")"; fi
-  printf '%-10s %3d %%  %s\n' "$name" "$(awk -v u="$used" 'BEGIN { printf "%d", u }')" "$note"
+  printf '%-10s %3d %% used  %s\n' "$name" "$(awk -v u="$used" 'BEGIN { printf "%d", u }')" "$note"
   awk -v u="$used" -v s="$stop" 'BEGIN { exit !(u >= s) }' && reached=1
 done <<< "$windows"
 echo "recorded $(when "$recorded"), limit $stop %"

@@ -43,8 +43,8 @@ try {
   Run 'usage.ps1' @()
   Check 'exit 3'                 3 $rc
   $lines = $out -split "`n"
-  Check 'the five hours'         "five_hour   42 %  resets $(When $soon)" $lines[0]
-  Check 'the week'               "seven_day   95 %  resets $(When $later)" $lines[1]
+  Check 'the five hours'         "five_hour   42 % used  resets $(When $soon)" $lines[0]
+  Check 'the week'               "seven_day   95 % used  resets $(When $later)" $lines[1]
   Check 'what to do'             'True' ([bool]($out -cmatch '(?m)^a window stands at 92 % or more: finish the step in hand'))
   Write-Host 'below a limit given: exit 0'
   Run 'usage.ps1' @('-StopAt', '96')
@@ -60,7 +60,7 @@ try {
   [System.IO.File]::WriteAllText($record, "{`"recorded_at`":$now,`"rate_limits`":{`"five_hour`":{`"used_percentage`":99,`"resets_at`":$($now - 60)}}}`n")
   Run 'usage.ps1' @()
   Check 'exit 0'                 0 $rc
-  Check 'reported as reset'      "five_hour    0 %  reset since $(When ($now - 60))" (($out -split "`n")[0])
+  Check 'reported as reset'      "five_hour    0 % used  reset since $(When ($now - 60))" (($out -split "`n")[0])
   Write-Host 'nothing recorded: exit 2, and why'
   Remove-Item -LiteralPath $record
   Run 'usage.ps1' @()
@@ -81,8 +81,8 @@ try {
   $env:CODEX_THREAD_ID = 't'; Run 'usage.ps1' @(); $env:CODEX_THREAD_ID = $null
   $lines = $out -split "`n"
   Check 'exit 0, Claude at 99 % does not count' 0 $rc
-  Check 'the week'               "seven_day    7 %  resets $(When $later)" $lines[0]
-  Check 'the five hours'         "five_hour   12 %  resets $(When $soon)" $lines[1]
+  Check 'the week'               "seven_day    7 % used  resets $(When $later)" $lines[0]
+  Check 'the five hours'         "five_hour   12 % used  resets $(When $soon)" $lines[1]
   Check 'when Codex recorded it' "recorded $(When ([DateTimeOffset]::Parse('2026-10-13T07:09:45Z').ToUnixTimeSeconds())), limit 92 %" $lines[2]
   Run 'usage.ps1' @()
   Check 'no Codex shell: Claude at 99 %, exit 3' 3 $rc

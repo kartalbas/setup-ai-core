@@ -31,19 +31,20 @@ if ($StopAt -cnotmatch '^[0-9]+\z') { [Console]::Error.WriteLine("error: -StopAt
 $stop = [int]$StopAt
 function When([long]$t) { [DateTimeOffset]::FromUnixTimeSeconds($t).ToLocalTime().ToString('ddd HH:mm', [Globalization.CultureInfo]::InvariantCulture) }
 # A Codex session started from a Claude Code shell inherits CLAUDECODE, so the Codex variables decide.
+# A record counts only with a window in it; a line whose windows are all null says nothing.
 if ($env:CODEX_THREAD_ID -or $env:CODEX_SANDBOX -or $env:CODEX_SANDBOX_NETWORK_DISABLED) {
   $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } elseif ($env:HOME) { Join-Path $env:HOME '.codex' } else { Join-Path $env:USERPROFILE '.codex' }
   $line = $null
   $files = Get-ChildItem -Path (Join-Path $codexHome 'sessions') -Filter 'rollout-*.jsonl' -Recurse -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending
   foreach ($f in $files) {
-    $hit = Select-String -LiteralPath $f.FullName -SimpleMatch '"rate_limits":{"' | Select-Object -Last 1
+    $hit = Select-String -LiteralPath $f.FullName -CaseSensitive -SimpleMatch '"rate_limits":{"' | Where-Object { $_.Line -cmatch '"(primary|secondary)":\{"' } | Select-Object -Last 1
     if ($hit) { $line = $hit.Line; break }
   }
   if (-not $line) { [Console]::Error.WriteLine('no usage recorded yet: Codex records it in its session files once a session has had an answer'); exit 2 }
   $event = $line | ConvertFrom-Json
   $windows = foreach ($w in @($event.payload.rate_limits.primary, $event.payload.rate_limits.secondary)) {
     if ($null -eq $w) { continue }
-    $name = switch ($w.window_minutes) { 300 { 'five_hour' } 10080 { 'seven_day' } default { "$($w.window_minutes)_minutes" } }
+    $name = switch -CaseSensitive ($w.window_minutes) { 300 { 'five_hour' } 10080 { 'seven_day' } default { "$($w.window_minutes)_minutes" } }
     [pscustomobject]@{ Name = $name; Used = $w.used_percent; Resets = $w.resets_at }
   }
   $recorded = ([DateTimeOffset]$event.timestamp).ToUnixTimeSeconds()

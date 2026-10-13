@@ -76,6 +76,8 @@ try {
   $new = Join-Path $sessions 'rollout-new.jsonl'
   Set-Content -LiteralPath $new -Encoding utf8NoBOM -Value @((CodexLine 3 'null'), (CodexLine 7 "{`"used_percent`":12.5,`"window_minutes`":300,`"resets_at`":$soon}"),
     '{"timestamp":"2026-10-13T07:10:00.000Z","type":"event_msg","payload":{"type":"token_count","rate_limits":null}}')
+  (Get-Item -LiteralPath $new).LastWriteTime = [datetime]'2026-01-02'   # the newest file below has no window at all, so the one before it counts
+  Set-Content -LiteralPath (Join-Path $sessions 'rollout-newest.jsonl') -Encoding utf8NoBOM -Value '{"timestamp":"2026-10-13T07:11:00.000Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":null,"secondary":null}}}'
   $env:CODEX_THREAD_ID = 't'; Run 'usage.ps1' @(); $env:CODEX_THREAD_ID = $null
   $lines = $out -split "`n"
   Check 'exit 0, Claude at 99 % does not count' 0 $rc

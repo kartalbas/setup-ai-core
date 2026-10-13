@@ -63,6 +63,8 @@ codex_line() { printf '{"timestamp":"2026-10-13T07:09:45.777Z","type":"event_msg
 codex_line 99 null > "$sessions/rollout-old.jsonl"; touch -t 202601010000 "$sessions/rollout-old.jsonl"
 { codex_line 3 null; codex_line 7 "{\"used_percent\":12.5,\"window_minutes\":300,\"resets_at\":$soon}"
   printf '{"timestamp":"2026-10-13T07:10:00.000Z","type":"event_msg","payload":{"type":"token_count","rate_limits":null}}\n'; } > "$sessions/rollout-new.jsonl"
+touch -t 202601020000 "$sessions/rollout-new.jsonl"   # the newest file below has no window at all, so the one before it counts
+printf '{"timestamp":"2026-10-13T07:11:00.000Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":null,"secondary":null}}}\n' > "$sessions/rollout-newest.jsonl"
 out="$(cd "$work/project" && CODEX_THREAD_ID=t bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'exit 0, Claude at 99 % does not count'  0 "$rc"
 check 'the week'                 "seven_day    7 %  resets $(when "$later")" "$(sed -n 1p <<< "$out")"

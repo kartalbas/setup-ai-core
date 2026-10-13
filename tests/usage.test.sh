@@ -33,8 +33,8 @@ check 'the history, one line a minute' "1 42.7 $soon 95.1 $later" "$(wc -l < "$H
 echo 'usage at the limit: every window named, and exit 3'
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'exit 3'                   3 "$rc"
-check 'the five hours'           "five_hour   42 %  resets $(when "$soon")" "$(sed -n 1p <<< "$out")"
-check 'the week'                 "seven_day   95 %  resets $(when "$later")" "$(sed -n 2p <<< "$out")"
+check 'the five hours'           "five_hour   42 % used  resets $(when "$soon")" "$(sed -n 1p <<< "$out")"
+check 'the week'                 "seven_day   95 % used  resets $(when "$later")" "$(sed -n 2p <<< "$out")"
 check 'what to do'               yes "$(grep -q '^a window stands at 92 % or more: finish the step in hand' <<< "$out" && echo yes || echo no)"
 echo 'below a limit given: exit 0'
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" --stop-at 96 2>&1)"; rc=$?
@@ -49,7 +49,7 @@ echo 'a window whose reset has passed counts as reset'
 printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":99,"resets_at":%s}}}\n' "$now" "$((now - 60))" > "$HOME/.ai-core/usage.json"
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'exit 0'                   0 "$rc"
-check 'reported as reset'        "five_hour    0 %  reset since $(when "$((now - 60))")" "$(sed -n 1p <<< "$out")"
+check 'reported as reset'        "five_hour    0 % used  reset since $(when "$((now - 60))")" "$(sed -n 1p <<< "$out")"
 echo 'nothing recorded: exit 2, and why'
 rm -f "$HOME/.ai-core/usage.json"
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
@@ -67,8 +67,8 @@ touch -t 202601020000 "$sessions/rollout-new.jsonl"   # the newest file below ha
 printf '{"timestamp":"2026-10-13T07:11:00.000Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":null,"secondary":null}}}\n' > "$sessions/rollout-newest.jsonl"
 out="$(cd "$work/project" && CODEX_THREAD_ID=t bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'exit 0, Claude at 99 % does not count'  0 "$rc"
-check 'the week'                 "seven_day    7 %  resets $(when "$later")" "$(sed -n 1p <<< "$out")"
-check 'the five hours'           "five_hour   12 %  resets $(when "$soon")" "$(sed -n 2p <<< "$out")"
+check 'the week'                 "seven_day    7 % used  resets $(when "$later")" "$(sed -n 1p <<< "$out")"
+check 'the five hours'           "five_hour   12 % used  resets $(when "$soon")" "$(sed -n 2p <<< "$out")"
 check 'when Codex recorded it'   "recorded $(when "$(jq -n '"2026-10-13T07:09:45Z" | fromdateiso8601')"), limit 92 %" "$(sed -n 3p <<< "$out")"
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'no Codex shell: Claude at 99 %, exit 3'  3 "$rc"

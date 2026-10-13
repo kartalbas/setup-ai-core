@@ -61,7 +61,7 @@ foreach ($w in $windows) {
   $used = if ($null -ne $w.Used) { [double]$w.Used } else { 0.0 }
   $resets = if ($null -ne $w.Resets) { [long]$w.Resets } else { 0 }
   if ($resets -gt 0 -and $resets -le $now) { $used = 0.0; $note = "reset since $(When $resets)" } else { $note = "resets $(When $resets)" }
-  '{0,-10} {1,3} %  {2}' -f $w.Name, [math]::Floor($used), $note
+  '{0,-10} {1,3} % used  {2}' -f $w.Name, [math]::Floor($used), $note
   if ($used -ge $stop) { $reached = $true }
 }
 "recorded $(When $recorded), limit $stop %"

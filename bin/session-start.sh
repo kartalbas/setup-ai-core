@@ -23,7 +23,8 @@ for arg in "$@"; do
   echo "  --tool NAME   Check the team modes of this tool only (repeatable); with one tool, the"
   echo "                form the hooks use, its modes are switched on at the end of the output"
   echo ""
-  echo "Exit status is 1 when a team mode is missing or the rules file is missing (run init)."
+  echo "Harness sources use their tracked source inputs and rules, without product assembly."
+  echo "Exit status is 1 when a team mode, product rules, or valid source inputs are missing."
   echo ""
   echo "Examples:"
   echo "  ai-core session-start"
@@ -85,6 +86,18 @@ fi
 # environment). Nothing is updated here; the lines say what to run.
 . "$CORE/lib/layers.sh"
 FOLDER="$(project_folder_of "$ROOT")"
+HARNESS_SOURCE="$(harness_source_of "$ROOT" || true)"
+SOURCE_READY=null; SOURCE_ERROR=""; RULE_SOURCES='[]'; READY="$RULES_OK"
+if [ -n "$HARNESS_SOURCE" ]; then
+  RULES_OK=0; RULES_PATH=""; HARNESS_VERSION="$(tr -d '\r\n' 2>/dev/null < "$CORE/VERSION" || true)"
+  SOURCE_READY=false; READY=0
+  if source_dirs="$(source_rule_dirs "$ROOT" "$CORE" 2>&1)"; then
+    SOURCE_READY=true; READY=1
+    RULE_SOURCES="$(printf '%s\n' "$source_dirs" | jq -R -s 'split("\n") | map(select(length > 0))')"
+  else
+    SOURCE_ERROR="$source_dirs"
+  fi
+fi
 HARNESS_CURRENT=true; HARNESS_STAMP=""
 if [ -f ".ai-core/STAMP" ]; then
   HARNESS_STAMP="$( { tr -d '\r' < .ai-core/STAMP | grep -v '^$' || true; } | tr '\n' ';' | sed 's/;$//')"
@@ -190,10 +203,14 @@ if [ "$as_json" -eq 1 ]; then
     --argjson gh_authenticated "$(bool $GH_LOGGED_IN)" --arg gh_user "$GH_USER" \
     --arg map_commit "$MAP_COMMIT" --arg map_behind "$MAP_BEHIND" \
     --argjson harness_current "$HARNESS_CURRENT" --arg harness_stamp "$HARNESS_STAMP" \
+    --arg harness_source "$HARNESS_SOURCE" --argjson source_ready "$SOURCE_READY" \
+    --arg source_error "$SOURCE_ERROR" --argjson rule_sources "$RULE_SOURCES" --argjson ready "$(bool "$READY")" \
     --arg release_state "$RELEASE_STATE" --arg release_lines "$RELEASE_LINES" \
     --arg issue "$ISSUE" --arg issue_repository "$ISSUE_REPO" --argjson assigned "$ASSIGNED" \
-    '{ refused: false, repository: $repository, root: $root, branch: $branch, uncommitted_files: $uncommitted_files,
-       harness_version: $harness_version, harness_current: $harness_current, harness_stamp: $harness_stamp,
+    '{ refused: ($ready | not), repository: $repository, root: $root, branch: $branch, uncommitted_files: $uncommitted_files,
+       harness_version: $harness_version, harness_current: (if $harness_source == "" then $harness_current else null end), harness_stamp: $harness_stamp,
+       harness_source: (if $harness_source == "" then null else $harness_source end), source_ready: $source_ready,
+       source_error: $source_error, rule_sources: $rule_sources,
        release_state: $release_state, release_lines: $release_lines,
        rules_present: $rules_present, rules_path: $rules_path,
        local_rules_present: $local_rules_present,
@@ -202,7 +219,7 @@ if [ "$as_json" -eq 1 ]; then
        issue: (if $issue == "" then null else ($issue | tonumber) end),
        issue_repository: (if $issue_repository == "" then null else $issue_repository end),
        assigned: $assigned, thread: input }'
-  exit $((1 - RULES_OK))
+  exit $((1 - READY))
 fi
 
 echo "=================================================="
@@ -210,8 +227,14 @@ echo "AI Agent Session Start: $REPO_NAME"
 echo "=================================================="
 echo "Branch           : $BRANCH"
 echo "Uncommitted files: $DIRTY_COUNT"
-echo "Harness version  : $([ -n "$HARNESS_VERSION" ] && echo "$HARNESS_VERSION" || echo "✗ Missing (.ai-core/VERSION)")"
-echo "Harness state    : $([ "$HARNESS_CURRENT" = true ] && echo "✓ Assembled from the current harness" || echo "✗ Assembled from an older harness (run ai-core init)")"
+if [ -n "$HARNESS_SOURCE" ]; then
+  echo "Harness version  : $HARNESS_VERSION (command source)"
+  echo "Harness source   : $HARNESS_SOURCE"
+  echo "Harness state    : $([ "$READY" -eq 1 ] && echo "✓ Source inputs validated (no assembly)" || echo "✗ Invalid source inputs (no assembly)")"
+else
+  echo "Harness version  : $([ -n "$HARNESS_VERSION" ] && echo "$HARNESS_VERSION" || echo "✗ Missing (.ai-core/VERSION)")"
+  echo "Harness state    : $([ "$HARNESS_CURRENT" = true ] && echo "✓ Assembled from the current harness" || echo "✗ Assembled from an older harness (run ai-core init)")"
+fi
 # A Claude Code started from a terminal opened before the install runs this through the full path in
 # its hook, while its own shell does not find ai-core: say how to call it there
 if ! command -v ai-core >/dev/null 2>&1; then
@@ -224,9 +247,14 @@ case "$RELEASE_STATE" in
   unreachable) echo "Releases         : – Could not reach an origin"; printf '%s\n' "$RELEASE_LINES" | sed 's/^/                   /' ;;
   skipped)     echo "Releases         : – Not checked (UPDATE_CHECK=never)" ;;
 esac
-echo "Rules file       : $([ $RULES_OK -eq 1 ] && echo "✓ Present ($RULES_PATH)" || echo "✗ Missing")"
+if [ -n "$HARNESS_SOURCE" ]; then
+  echo "Rule sources     : $(printf '%s' "$RULE_SOURCES" | jq -r 'join("; ")')"
+else
+  echo "Rules file       : $([ $RULES_OK -eq 1 ] && echo "✓ Present ($RULES_PATH)" || echo "✗ Missing")"
+fi
 echo "Local rules      : $([ $LOCAL_RULES_OK -eq 1 ] && echo "✓ Present (.ai-core/rules/rules.local.md)" || echo "– None")"
-if [ "$BRANCH" = not-a-git-repo ]; then echo "Map              : – A project folder: AGENTS.md lists its repositories"
+if [ -n "$HARNESS_SOURCE" ]; then echo "Map              : – Harness source: read README.md"
+elif [ "$BRANCH" = not-a-git-repo ]; then echo "Map              : – A project folder: AGENTS.md lists its repositories"
 elif [ -z "$MAP_COMMIT" ]; then echo "Map              : – Generic (run ai-core map)"
 elif [ -z "$MAP_BEHIND" ]; then echo "Map              : ? Generated from $MAP_COMMIT, a commit this clone does not have"
 elif [ "$MAP_BEHIND" -eq 0 ]; then echo "Map              : ✓ Generated from $MAP_COMMIT, current"
@@ -256,8 +284,9 @@ if [ -n "$ISSUE" ]; then
   echo ""
 fi
 
-if [ "$RULES_OK" -eq 0 ]; then
-  echo "Not ready: no rules file found. Run ai-core init in this repository." >&2
+if [ "$READY" -eq 0 ]; then
+  if [ -n "$HARNESS_SOURCE" ]; then printf 'Not ready: source inputs failed validation.\n%s\n' "$SOURCE_ERROR" >&2
+  else echo "Not ready: no rules file found. Run ai-core init in this repository." >&2; fi
   exit 1
 fi
 # A start without the issue it was opened for is not the start it looks like, so the last line says so

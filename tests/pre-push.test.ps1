@@ -32,10 +32,12 @@ Write-Lf $checkRuns ''
 # The team modes: a table whose probes pass, and one whose probe cannot. The check reads the rows
 # of the tools on PATH, and a stub claude on PATH is the tool it finds.
 $green = Join-Path $fake 'modes-green.tsv'; $red = Join-Path $fake 'modes-red.tsv'
-Write-Lf $green "claude`tmode`ton`talways`t-`t-`n"
-Write-Lf $red "claude`tcaveman`tlite`tfile:$fake/never-there`tnpx skills add example/caveman -g`t-`n"
+Write-Lf $green "claude`tmode`ton`talways`t-`t-`ncodex`tmode`ton`talways`t-`t-`n"
+Write-Lf $red ((@('claude', 'codex') | ForEach-Object { "$_`tcaveman`tlite`tfile:$fake/never-there`tnpx skills add example/caveman -g`t-" }) -join "`n")
 $env:TEAM_MODES_FILE = $green
 $stub = Join-Path $fake 'stub'; New-Item -ItemType Directory -Path $stub | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $fake 'lib') | Out-Null
+Copy-Item (Join-Path $root 'lib/layers.sh') (Join-Path $fake 'lib/layers.sh')
 Set-Content -Path (Join-Path $stub 'claude.cmd') -Value "@exit /b 0" -Encoding ascii
 if (-not $IsWindows) { Set-Content -Path (Join-Path $stub 'claude') -Value "#!/bin/sh`nexit 0" -Encoding ascii; & chmod +x (Join-Path $stub 'claude') }
 # The gitleaks stub writes down every argument it was given
@@ -122,7 +124,7 @@ $env:TEAM_MODES_FILE = $red
 OnlyNew $wt
 $env:TEAM_MODES_FILE = $green
 Check 'exit 1'                    1 $rc
-Check 'the MISSING line is there' 'True' (Says '(?m)^MISSING .*claude caveman')
+Check 'the MISSING line is there' 'True' (Says '(?m)^MISSING .*(claude|codex) caveman')
 Check 'and the refusal names the modes' 'True' (Says 'the team modes are missing')
 
 Write-Host 'a red scripts/check.sh refuses'

@@ -46,6 +46,70 @@ function Get-ProjectFolderOf {
   return Split-Path -Parent $main
 }
 
+function Get-HarnessSourceOf {
+  [CmdletBinding()] param([Parameter(Mandatory)][string]$Checkout)
+  $parts = Get-OriginParts $Checkout
+  if (-not $parts -or (Get-HarnessOf $parts[1])) { return $null }
+  return $parts -join '/'
+}
+
+function Get-SourceRuleDirs {
+  # Source readiness reads local inputs; it never clones, pulls, assembles, or repairs them.
+  [CmdletBinding()] param([Parameter(Mandatory)][string]$Checkout, [Parameter(Mandatory)][string]$Core)
+  foreach ($f in @('VERSION', 'rules/skills.md')) {
+    if (-not (Test-Path (Join-Path $Core $f) -PathType Leaf) -or (Get-Item (Join-Path $Core $f)).Length -eq 0) { throw 'error: missing setup-ai-core rule source' }
+  }
+  $version = (Get-Content (Join-Path $Core 'VERSION') -Raw).Trim()
+  if ($version -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw 'error: invalid setup-ai-core VERSION' }
+  & git -C $Core ls-files --error-unmatch VERSION rules/skills.md *> $null
+  if ($LASTEXITCODE -ne 0) { throw 'error: missing tracked setup-ai-core rule source' }
+  $checked = (& pwsh -NoProfile -File (Join-Path $Core 'bin/rules-check.ps1') -RulesFile (Join-Path $Core 'rules') 2>&1 | Out-String).TrimEnd()
+  if ($LASTEXITCODE -ne 0) { throw $checked }
+  $folder = Get-ProjectFolderOf $Checkout
+  $dir = $Checkout; $expected = Get-HarnessSourceOf $dir
+  $seen = @(); $chain = @()
+  while ($expected) {
+    if ($seen.Count -ge 8) { throw 'error: source extends chain is longer than eight' }
+    if ($seen -ccontains $expected) { throw "error: source extends chain runs in a circle at $expected" }
+    $seen += $expected
+    if ((Get-HarnessSourceOf $dir) -cne $expected) { throw "error: missing or wrong source origin for $expected" }
+    if (-not (Test-Path (Join-Path $dir 'README.md') -PathType Leaf) -or (Get-Item (Join-Path $dir 'README.md')).Length -eq 0 -or -not (Test-Path (Join-Path $dir 'rules') -PathType Container)) { throw 'error: missing source README.md or rules directory' }
+    & git -C $dir ls-files --error-unmatch README.md 'rules/*' *> $null
+    if ($LASTEXITCODE -ne 0) { throw 'error: source README.md and rules must be tracked' }
+    $extends = ''
+    if (($expected -split '/', 2)[1] -ceq 'setup-ai-core') {
+      $required = @('VERSION', 'bin/session-start.sh', 'bin/session-start.ps1', 'lib/layers.sh', 'lib/Layers.psm1', 'rules/skills.md')
+      & git -C $dir ls-files --error-unmatch @required *> $null
+      if ($LASTEXITCODE -ne 0) { throw 'error: missing tracked setup-ai-core source inputs' }
+      foreach ($f in $required) {
+        if (-not (Test-Path (Join-Path $dir $f) -PathType Leaf) -or (Get-Item (Join-Path $dir $f)).Length -eq 0) { throw 'error: missing setup-ai-core source inputs' }
+      }
+      if ((Get-Content (Join-Path $dir 'VERSION') -Raw).Trim() -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw 'error: invalid setup-ai-core VERSION' }
+    } else {
+      & git -C $dir ls-files --error-unmatch ai-core.json *> $null
+      if ($LASTEXITCODE -ne 0) { throw 'error: source ai-core.json must be tracked' }
+      try { $j = Get-Content (Join-Path $dir 'ai-core.json') -Raw | ConvertFrom-Json -ErrorAction Stop }
+      catch { throw 'error: missing or invalid source ai-core.json' }
+      if ($j -isnot [pscustomobject] -or $j.'setup-ai-core' -isnot [string] -or $j.'setup-ai-core' -cnotmatch '^>=[0-9]+\.[0-9]+\.[0-9]+$' -or ($null -ne $j.extends -and ($j.extends -isnot [string] -or $j.extends -cnotmatch '^[^/]+/[^/]+-ai-core$'))) { throw 'error: missing or invalid source ai-core.json' }
+      $req = Get-LayerRequires $dir
+      if (-not (Test-VersionAtLeast -Have $version -Want $req.Substring(2))) { throw "error: $expected needs setup-ai-core $req and this clone is $version; run ai-core update" }
+      $extends = Get-LayerExtends $dir
+    }
+    foreach ($sourceDir in @($Core, $dir)) {
+      $files = "$(& git -C $sourceDir ls-files -z 'rules/*.md')" -split "`0" | Where-Object { $_ }
+      foreach ($f in $files) {
+        if (-not (Test-Path (Join-Path $sourceDir $f) -PathType Leaf) -or (Get-Item (Join-Path $sourceDir $f)).Length -eq 0) { throw "error: missing source rule file $f" }
+      }
+    }
+    $checked = (& pwsh -NoProfile -File (Join-Path $Core 'bin/rules-check.ps1') -RulesFile $dir 2>&1 | Out-String).TrimEnd()
+    if ($LASTEXITCODE -ne 0) { throw $checked }
+    if ($dir -cne $Core) { $chain = @((Join-Path $dir 'rules')) + $chain }
+    $expected = $extends
+    if ($expected) { $dir = Get-LayerDir -Full $expected -Folder $folder }
+  }
+  return @((Join-Path $Core 'rules')) + $chain
+}
+
 function Sync-Checkout {
   # Before ai-core commits a file of its own in a checkout, the checkout comes level with its
   # origin: fetched, and fast-forwarded where it is only behind, with no commit of its own and no
@@ -264,4 +328,4 @@ function Resolve-LayerChain {
   return $chain
 }
 
-Export-ModuleMember -Function Get-OriginParts, Get-HarnessOf, Get-ProjectFolderOf, Sync-Checkout, Get-LayerDir, Resolve-Layer, Get-LayerExtends, Get-LayerRequires, Test-VersionAtLeast, Resolve-LayerChain
+Export-ModuleMember -Function Get-OriginParts, Get-HarnessOf, Get-HarnessSourceOf, Get-SourceRuleDirs, Get-ProjectFolderOf, Sync-Checkout, Get-LayerDir, Resolve-Layer, Get-LayerExtends, Get-LayerRequires, Test-VersionAtLeast, Resolve-LayerChain

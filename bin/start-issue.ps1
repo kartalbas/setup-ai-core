@@ -154,10 +154,13 @@ catch { Write-Error "the card did NOT move: $($_.Exception.Message) - move it be
 # covers close (status-sync)
 Sync-ReleasedCards -Repo @(@((Get-DefaultRepo), $Repo) | Where-Object { $_ })
 
-# The harness is not in the repository, so the new worktree gets it here: init takes the main
-# checkout's own .ai-core data (its config, its local rules, its documents) first and assembles
-# the rules. A worktree that starts without them starts without the rules.
-& pwsh -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'bin\init.ps1') -TargetDir $path -NoDoctor
-if ($LASTEXITCODE -ne 0) { Write-Host "the harness is NOT complete in the worktree: run 'ai-core init' there before you start" }
+# Products need the checkout's assembled rules; sources read their own rule inputs instead.
+Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'lib/Layers.psm1') -Force
+if (Get-HarnessSourceOf $path) {
+  Write-Host 'Harness source worktree: run ai-core session-start and read its source rules.'
+} else {
+  & pwsh -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'bin\init.ps1') -TargetDir $path -NoDoctor
+  if ($LASTEXITCODE -ne 0) { Write-Host "the harness is NOT complete in the worktree: run 'ai-core init' there before you start" }
+}
 
 try { & $reader -Number $Number @where } catch { }

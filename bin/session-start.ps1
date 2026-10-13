@@ -26,7 +26,8 @@ if ($Help -or $args -ccontains "-h" -or $args -ccontains "--help" -or ($args.Cou
   Write-Host "  -Tool NAME           Check the team modes of this tool only (repeatable); with one tool, the"
   Write-Host "                       form the hooks use, its modes are switched on at the end of the output"
   Write-Host ""
-  Write-Host "Exit status is 1 when a team mode is missing or the rules file is missing (run init)."
+  Write-Host "Harness sources use their tracked source inputs and rules, without product assembly."
+  Write-Host "Exit status is 1 when a team mode, product rules, or valid source inputs are missing."
   Write-Host ""
   Write-Host "Examples:"
   Write-Host "  ai-core session-start"
@@ -84,6 +85,17 @@ if ($branch -cne 'not-a-git-repo' -and (Test-Path 'AGENTS.md')) {
 # environment). Nothing is updated here; the lines say what to run.
 Import-Module (Join-Path $core 'lib\Layers.psm1') -Force
 $folder = Get-ProjectFolderOf $root
+$harnessSource = Get-HarnessSourceOf $root
+$sourceReady = $null; $sourceError = ''; $ruleSources = @(); $ready = $rulesOk
+if ($harnessSource) {
+  $rulesOk = $false; $rulesPath = ''; $harnessVersion = ''
+  $sourceReady = $false; $ready = $false
+  try {
+    if (Test-Path (Join-Path $core 'VERSION') -PathType Leaf) { $harnessVersion = [IO.File]::ReadAllText((Join-Path $core 'VERSION')).Trim() }
+    $ruleSources = @(Get-SourceRuleDirs -Checkout $root -Core $core); $sourceReady = $true; $ready = $true
+  }
+  catch { $sourceError = $_.Exception.Message }
+}
 $harnessCurrent = $true; $harnessStamp = ''
 if (Test-Path ".ai-core\STAMP") {
   $stampLines = @(Get-Content ".ai-core\STAMP" | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
@@ -192,14 +204,18 @@ if ($Tool.Count -eq 1 -and -not $Json) {
 
 if ($Json) {
   [PSCustomObject]@{
-    refused             = $false
+    refused             = -not $ready
     repository          = $repoName
     root                = $root
     branch              = $branch
     uncommitted_files   = $dirtyCount
     harness_version     = $harnessVersion
-    harness_current     = $harnessCurrent
+    harness_current     = $(if ($harnessSource) { $null } else { $harnessCurrent })
     harness_stamp       = $harnessStamp
+    harness_source      = $harnessSource
+    source_ready        = $sourceReady
+    source_error        = $sourceError
+    rule_sources        = @($ruleSources)
     release_state       = $releaseState
     release_lines       = $releaseLines
     rules_present       = $rulesOk
@@ -214,7 +230,7 @@ if ($Json) {
     assigned            = $assigned
     thread              = $threadObject
   } | ConvertTo-Json -Depth 6
-  if ($rulesOk) { exit 0 } else { exit 1 }
+  if ($ready) { exit 0 } else { exit 1 }
 }
 
 Write-Host "==================================================" -ForegroundColor Cyan
@@ -222,8 +238,14 @@ Write-Host "AI Agent Session Start: $repoName" -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host "Branch           : $branch"
 Write-Host "Uncommitted files: $dirtyCount"
-Write-Host "Harness version  : $(if ($harnessVersion) { $harnessVersion } else { '✗ Missing (.ai-core/VERSION)' })"
-Write-Host "Harness state    : $(if ($harnessCurrent) { '✓ Assembled from the current harness' } else { '✗ Assembled from an older harness (run ai-core init)' })"
+if ($harnessSource) {
+  Write-Host "Harness version  : $harnessVersion (command source)"
+  Write-Host "Harness source   : $harnessSource"
+  Write-Host "Harness state    : $(if ($ready) { '✓ Source inputs validated (no assembly)' } else { '✗ Invalid source inputs (no assembly)' })"
+} else {
+  Write-Host "Harness version  : $(if ($harnessVersion) { $harnessVersion } else { '✗ Missing (.ai-core/VERSION)' })"
+  Write-Host "Harness state    : $(if ($harnessCurrent) { '✓ Assembled from the current harness' } else { '✗ Assembled from an older harness (run ai-core init)' })"
+}
 # A Claude Code started from a terminal opened before the install runs this through the full path in
 # its hook, while its own shell does not find ai-core: say how to call it there
 if (-not (Get-Command ai-core -ErrorAction SilentlyContinue)) {
@@ -235,9 +257,11 @@ if ($releaseState -ceq 'current') { Write-Host "Releases         : ✓ Current" 
 elseif ($releaseState -ceq 'available') { Write-Host "Releases         : ! Available (run ai-core update)"; foreach ($rl in ($releaseLines -split "`n")) { Write-Host "                   $rl" } }
 elseif ($releaseState -ceq 'unreachable') { Write-Host "Releases         : – Could not reach an origin"; foreach ($rl in ($releaseLines -split "`n")) { Write-Host "                   $rl" } }
 else { Write-Host "Releases         : – Not checked (UPDATE_CHECK=never)" }
-Write-Host "Rules file       : $(if ($rulesOk) { "✓ Present ($rulesPath)" } else { '✗ Missing' })"
+if ($harnessSource) { Write-Host "Rule sources     : $($ruleSources -join '; ')" }
+else { Write-Host "Rules file       : $(if ($rulesOk) { "✓ Present ($rulesPath)" } else { '✗ Missing' })" }
 Write-Host "Local rules      : $(if ($localRulesOk) { '✓ Present (.ai-core/rules/rules.local.md)' } else { '– None' })"
-if ($branch -ceq 'not-a-git-repo') { Write-Host "Map              : – A project folder: AGENTS.md lists its repositories" }
+if ($harnessSource) { Write-Host "Map              : – Harness source: read README.md" }
+elseif ($branch -ceq 'not-a-git-repo') { Write-Host "Map              : – A project folder: AGENTS.md lists its repositories" }
 elseif (-not $mapCommit) { Write-Host "Map              : – Generic (run ai-core map)" }
 elseif ($mapBehind -eq '') { Write-Host "Map              : ? Generated from $mapCommit, a commit this clone does not have" }
 elseif ([int]$mapBehind -eq 0) { Write-Host "Map              : ✓ Generated from $mapCommit, current" }
@@ -268,8 +292,9 @@ if ($issue) {
   Write-Host ""
 }
 
-if (-not $rulesOk) {
-  Write-Host "Not ready: no rules file found. Run ai-core init in this repository." -ForegroundColor Red
+if (-not $ready) {
+  if ($harnessSource) { Write-Host "Not ready: source inputs failed validation.`n$sourceError" -ForegroundColor Red }
+  else { Write-Host "Not ready: no rules file found. Run ai-core init in this repository." -ForegroundColor Red }
   exit 1
 }
 # A start without the issue it was opened for is not the start it looks like, so the last line says so

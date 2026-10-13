@@ -47,6 +47,69 @@ harness_of() {
   esac
 }
 
+# harness_source_of <checkout>: the source identity comes from Git, never a directory name.
+harness_source_of() {
+  local parts repo
+  parts="$(origin_parts "$1")" || return 1
+  repo="${parts#*	}"
+  harness_of "$repo" >/dev/null && return 1
+  printf '%s/%s\n' "${parts%%	*}" "$repo"
+}
+
+# source_rule_dirs <checkout> <setup-ai-core root>: validate local source inputs, base first.
+# Resolving a source must never clone, pull, assemble, or repair it while checking readiness.
+source_rule_dirs() {
+  local dir="$1" core="$2" folder full expected seen="" n=0 version req extends chain="" checked source_dir file
+  [ -s "$core/VERSION" ] && [ -s "$core/rules/skills.md" ] || { echo "error: missing setup-ai-core rule source" >&2; return 1; }
+  version="$(tr -d '\r\n' < "$core/VERSION")"
+  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "error: invalid setup-ai-core VERSION" >&2; return 1; }
+  git -C "$core" ls-files --error-unmatch VERSION rules/skills.md >/dev/null 2>&1 \
+    || { echo "error: missing tracked setup-ai-core rule source" >&2; return 1; }
+  if ! checked="$(bash "$core/bin/rules-check.sh" "$core/rules" 2>&1)"; then printf '%s\n' "$checked" >&2; return 1; fi
+  folder="$(project_folder_of "$dir")"
+  expected="$(harness_source_of "$dir")" || return 1
+  while [ -n "$expected" ]; do
+    n=$((n + 1)); [ "$n" -le 8 ] || { echo "error: source extends chain is longer than eight" >&2; return 1; }
+    case " $seen " in *" $expected "*) echo "error: source extends chain runs in a circle at $expected" >&2; return 1 ;; esac
+    seen="$seen $expected"
+    full="$(harness_source_of "$dir" || true)"
+    [ "$full" = "$expected" ] || { echo "error: missing or wrong source origin for $expected" >&2; return 1; }
+    [ -s "$dir/README.md" ] && [ -d "$dir/rules" ] \
+      || { echo "error: missing source README.md or rules directory" >&2; return 1; }
+    git -C "$dir" ls-files --error-unmatch README.md 'rules/*' >/dev/null 2>&1 \
+      || { echo "error: source README.md and rules must be tracked" >&2; return 1; }
+    extends=""
+    if [ "${full#*/}" = setup-ai-core ]; then
+      git -C "$dir" ls-files --error-unmatch VERSION bin/session-start.sh bin/session-start.ps1 lib/layers.sh lib/Layers.psm1 rules/skills.md >/dev/null 2>&1 \
+        || { echo "error: missing tracked setup-ai-core source inputs" >&2; return 1; }
+      for file in VERSION bin/session-start.sh bin/session-start.ps1 lib/layers.sh lib/Layers.psm1 rules/skills.md; do
+        [ -s "$dir/$file" ] || { echo "error: missing setup-ai-core source inputs" >&2; return 1; }
+      done
+      [[ "$(tr -d '\r\n' < "$dir/VERSION")" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "error: invalid setup-ai-core VERSION" >&2; return 1; }
+    else
+      git -C "$dir" ls-files --error-unmatch ai-core.json >/dev/null 2>&1 \
+        || { echo "error: source ai-core.json must be tracked" >&2; return 1; }
+      jq -e -s 'length == 1 and (.[0] | type == "object" and (."setup-ai-core" | type == "string" and test("^>=[0-9]+\\.[0-9]+\\.[0-9]+$")) and (.extends == null or (.extends | type == "string" and test("^[^/]+/[^/]+-ai-core$"))))' "$dir/ai-core.json" >/dev/null 2>&1 \
+        || { echo "error: missing or invalid source ai-core.json" >&2; return 1; }
+      req="$(layer_requires "$dir")"
+      version_at_least "$version" "${req#>=}" \
+        || { echo "error: $full needs setup-ai-core $req and this clone is $version; run ai-core update" >&2; return 1; }
+      extends="$(layer_extends "$dir")"
+    fi
+    for source_dir in "$core" "$dir"; do
+      while IFS= read -r -d '' file; do
+        [ -s "$source_dir/$file" ] || { echo "error: missing source rule file $file" >&2; return 1; }
+      done < <(git -C "$source_dir" ls-files -z 'rules/*.md')
+    done
+    if ! checked="$(bash "$core/bin/rules-check.sh" "$dir" 2>&1)"; then printf '%s\n' "$checked" >&2; return 1; fi
+    [ "$dir" = "$core" ] || chain="$dir/rules"$'\n'"$chain"
+    expected="$extends"
+    [ -z "$expected" ] || dir="$(layer_dir "$expected" "$folder")"
+  done
+  printf '%s\n' "$core/rules"
+  [ -z "$chain" ] || printf '%s' "$chain"
+}
+
 # project_folder_of <directory>: the folder that holds the repositories: for a checkout the
 # parent of its main checkout (a worktree's too), for a directory that is no checkout the
 # directory itself

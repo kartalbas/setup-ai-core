@@ -56,6 +56,7 @@ $env:PATH = "$fake$([IO.Path]::PathSeparator)$env:PATH"
 # gate out of the way. team-modes.test.ps1 proves the gate itself.
 $modesTable = Join-Path $fake 'team-modes.tsv'
 Set-Content -Path $modesTable -Value "claude`tcaveman`tlite`talways`t-`t-" -Encoding utf8NoBOM
+Add-Content -Path $modesTable -Value "codex`tmode`ton`talways`t-`t-"
 $env:TEAM_MODES_FILE = $modesTable
 
 $failed = 0
@@ -283,6 +284,34 @@ Check 'the JSON names no repository'     'True' ([bool]($json.PSObject.Propertie
 & git -C $work worktree remove --force $wt 2>$null | Out-Null
 $env:GH_PROJECT_NUMBER = '999980'
 Remove-Item -Path (Join-Path $fake 'no-board')
+
+Write-Host 'a source issue worktree is opened without product assembly'
+$sourceOrigin = Join-Path $fake 'github.com/example-org/shop-ai-core.git'
+$sourceWork = Join-Path $fake 'source-checkouts/shop-ai-core'
+New-Item -ItemType Directory -Force (Split-Path -Parent $sourceOrigin), (Split-Path -Parent $sourceWork) | Out-Null
+& git init -q --bare -b master $sourceOrigin
+& git init -q -b master $sourceWork; Dress $sourceWork
+Copy-Item -Recurse -Force (Join-Path $root 'skeleton/*') $sourceWork
+New-Item -ItemType Directory -Force (Join-Path $sourceWork '.githooks') | Out-Null
+Copy-Item (Join-Path $root '.githooks/post-checkout') (Join-Path $sourceWork '.githooks/post-checkout')
+& git -C $sourceWork add .; & git -C $sourceWork add --chmod=+x .githooks/post-checkout
+& git -C $sourceWork commit -qm 'the source #1'
+& git -C $sourceWork remote add origin $sourceOrigin
+& git -C $sourceWork push -qu origin master
+& git -C $sourceWork remote set-head origin -a *> $null
+& git -C $sourceWork config core.hooksPath .githooks
+New-Item -ItemType File -Force (Join-Path $fake 'no-board') | Out-Null
+$savedPath = $env:PATH
+$env:PATH = (Join-Path $root 'bin') + [IO.Path]::PathSeparator + $env:PATH
+$env:GH_PROJECT_NUMBER = ''
+Push-Location $sourceWork
+try { $said = ''; $out = @(& $start -Number 173 -Repo example-org/shop-ai-core 6>&1 2>&1 | ForEach-Object { "$_" }) }
+catch { $said = $_.Exception.Message } finally { Pop-Location; $env:PATH = $savedPath }
+Check 'source caller does not throw' '' $said
+Check 'source caller names the workflow' 'True' ([bool](($out -join "`n").Contains('Harness source worktree: run ai-core session-start and read its source rules.')))
+$sourceTree = ((& git -C $sourceWork worktree list --porcelain | Where-Object { $_ -cmatch '^worktree ' }) | Select-Object -Last 1) -replace '^worktree ', ''
+Check 'source tree has no assembly' 'False' (Test-Path (Join-Path $sourceTree '.ai-core'))
+Check 'source tree has no product map' 'False' (Test-Path (Join-Path $sourceTree 'AGENTS.md'))
 
 Set-Location $root
 & git -C $work worktree remove --force $tree 2>$null | Out-Null

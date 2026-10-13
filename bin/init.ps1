@@ -47,6 +47,12 @@ if (-not ((Test-Path (Join-Path $coreRoot "templates")) -and (Test-Path (Join-Pa
 }
 Import-Module (Join-Path $coreRoot 'lib\Layers.psm1') -Force
 
+# Refuse source worktrees before copying inherited product data or writing settings.
+if (-not $All -and (Test-Path -LiteralPath $TargetDir -PathType Container) -and (Get-HarnessSourceOf $TargetDir)) {
+  Write-Host "error: $TargetDir is a harness repository; init is for the repositories it serves" -ForegroundColor Red
+  exit 1
+}
+
 # The prerequisites first; nothing is deployed on a machine that cannot run the harness. A dry
 # run installs nothing either. Doctor runs in the folder init serves, so it sees what the
 # repositories of that project folder need (gitleaks, where one carries .gitleaks.toml).

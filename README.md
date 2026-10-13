@@ -501,6 +501,16 @@ Ready for task execution.
 
 In a project folder the branch line says `not-a-git-repo`.
 
+A harness source is different from a product checkout. Its Git origin names `setup-ai-core`
+or a repository ending in `-ai-core`; its source inputs must also be tracked and valid.
+Run `session-start` directly there, without `init`. It validates the command's generic rule
+source and the harness's local source chain, including compatible `ai-core.json` requirements,
+rules, skills, and agents. A missing inherited source or invalid input refuses startup. It
+neither downloads sources nor writes product assembly files. The source output names the rule
+directories to read and says `Source inputs validated (no assembly)`; its map is `README.md`.
+`start-issue` and the checkout hook preserve this source workflow in issue worktrees. `init`
+refuses sources before copying any inherited product data.
+
 In a worktree named `issue-N-<slug>`, the shape `start-issue` creates, it also prints the thread
 of issue N, read through `issue-thread`, and whether the issue is assigned to you (`issue-mine`).
 The issue is read in the repository `start-issue` recorded on the branch where the issue lives in
@@ -510,7 +520,12 @@ With `--json` / `-Json` it prints the same as JSON, with the same keys and types
 platforms: `repository`, `root`, `branch`, `uncommitted_files`, `harness_version`,
 `harness_current`, `harness_stamp`, `release_state`, `release_lines`, `map_commit`, `map_behind`,
 `rules_present`, `rules_path`, `local_rules_present`, `gh_authenticated`,
-`gh_user`, `issue`, `assigned`, `thread`. Exit status is 1 when no rules file is found, so an agent or a CI job can gate on it.
+`gh_user`, `issue`, `assigned`, `thread`, `harness_source`, `source_ready`, `source_error`,
+`rule_sources`. For a source, `harness_version` names the command source version,
+`harness_current` is null, and `rules_present` is false because no assembled rules file is used.
+The `rule_sources` directories are ordered base first. For a product, the source identity and
+readiness are null and the source directories are empty. Exit status is 1 when required product
+rules or valid source inputs are missing; `refused` is true for that refusal.
 If `gh` is logged in, it makes one call to the GitHub API for the user name.
 
 With one `--tool <name>` (`-Tool <name>`), the form the hooks use, the output ends with the team
@@ -910,7 +925,7 @@ and `bin/<name>.ps1` in PowerShell; a new script in `bin/` is a command without 
 
 | Script | Usage | Exit codes |
 | :--- | :--- | :--- |
-| `session-start` | `ai-core session-start [--json]` / `[-Json]`; the JSON says `refused`, and a refusal carries the lines of the team modes | 0 ready; 1 a team mode or the rules file missing |
+| `session-start` | `ai-core session-start [--json]` / `[-Json]`; source checkouts validate source inputs without assembly | 0 ready; 1 a team mode, product rules, or valid source inputs missing |
 | `solution-path` | `ai-core solution-path <issue> <file> [--check]` / `<issue> <file> [-Check]` | section 7 |
 | `rules-check` | `ai-core rules-check [file-or-directory]` / `[-RulesFile <file-or-directory>]`; default `.ai-core/rules/rules.md`, or the `rules/` directory of setup-ai-core; a directory means its `NN-*.md` section files; a project harness (a directory with `rules/`, `skills/` or `agents/`) is checked whole: every skill has a front matter with its folder's name and a description, every agent a name and a description and no model below Sonnet, then its rule sections | 0 every rule tagged and nothing wrong in the harness; 1 otherwise |
 | `init` | `ai-core init [dir] [--all <folder>] [--no-doctor] [--dry-run]` / `[-TargetDir <dir>] [-All <folder>] [-NoDoctor] [-DryRun]` | 0 in place, or dry; 1 doctor failed, or a repository under `--all` failed |
@@ -1146,7 +1161,7 @@ releases by tag, `update`, `push`, and `map`. Open:
 | Symptom | Cause and fix |
 | :--- | :--- |
 | `pwsh: command not found` / `'pwsh' is not recognized` | PowerShell 7 is not installed. Install it, or use the Bash twins from Git Bash. |
-| `session-start` exits 1 with `Not ready: no rules file found` | the harness is not installed here. Run `init`. |
+| `session-start` exits 1 with `Not ready: no rules file found` | the product checkout has no installed rules. Run `init`. In a harness source, run `session-start` directly and repair the source input it reports. |
 | `kept .claude/settings.json` in the report | jq is missing, so `init` could not merge the hook, the status line, the permission and the denials into the settings.json your repository had; install jq and run `init` again. |
 | `ai-core: command not found` from the session-start hook, or `ai-core on PATH  : ✗` in its output | Claude Code was started from a terminal opened before the install, whose PATH lacks `ai-core`. `init` writes the hook with the full path of `ai-core`, and `session-start` names that path for the agent's own shell; a terminal opened after the install has it on the PATH. |
 | `ai-core: command not found` inside an agent | the clone's `bin/` is not on the PATH of that shell. Run `install` again, open a new terminal, or call the script by path. |

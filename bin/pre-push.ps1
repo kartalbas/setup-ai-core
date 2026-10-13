@@ -130,7 +130,20 @@ $shim = "#!/usr/bin/env bash`n# The push gate is ``ai-core pre-push`` (setup-ai-
 # .githooks/post-checkout in the new tree after `git worktree add` (third argument 1, as after
 # any branch checkout), and where .ai-core/ is missing the shim starts `ai-core init`. It exits 0
 # whatever happened, because a failing hook fails the checkout too; what went wrong is on stderr.
-$shimCheckout = "#!/usr/bin/env bash`n# A new worktree starts with the harness: git runs this file after ``git worktree add`` and after every checkout; where .ai-core/ is missing, ``ai-core init`` (setup-ai-core) writes it.`n[ `"`${3:-0}`" = 1 ] && [ ! -d .ai-core ] || exit 0`nunset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR`ncommand -v ai-core >/dev/null 2>&1 || { echo `"post-checkout: ai-core is not on the PATH of this shell, so this worktree has no harness yet; run ai-core init here before you start`" >&2; exit 0; }`nai-core init --no-doctor || echo `"post-checkout: the harness is NOT complete in this worktree (see above); run ai-core init here before you start`" >&2`n"
+$shimCheckout = @(
+  '#!/usr/bin/env bash'
+  '# A new worktree starts with the harness: git runs this file after `git worktree add` and after every checkout; where .ai-core/ is missing, `ai-core init` (setup-ai-core) writes it.'
+  '[ "${3:-0}" = 1 ] && [ ! -d .ai-core ] || exit 0'
+  'unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR'
+  'command -v ai-core >/dev/null 2>&1 || { echo "post-checkout: ai-core is not on the PATH of this shell, so this worktree has no harness yet; run ai-core init here before you start" >&2; exit 0; }'
+  '. "$(dirname "$(command -v ai-core)")/../lib/layers.sh" || { echo "post-checkout: could not read the harness source library" >&2; exit 0; }'
+  'if harness_source_of "$PWD" >/dev/null; then'
+  '  echo "post-checkout: harness source; run ai-core session-start and read its source rules."'
+  '  exit 0'
+  'fi'
+  'ai-core init --no-doctor || echo "post-checkout: the harness is NOT complete in this worktree (see above); run ai-core init here before you start" >&2'
+) -join "`n"
+$shimCheckout += "`n"
 $shimPaths = @('.githooks/pre-push', '.githooks/post-checkout')
 # Git runs the shims through bash, and a shim checked out with CRLF fails on the first line; the
 # repository's .gitattributes gets a rule for them where no rule makes them check out with LF.

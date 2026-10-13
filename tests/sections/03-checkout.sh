@@ -147,6 +147,7 @@ MH="$WORK/modes-home"; mkdir -p "$MH/.claude/skills/caveman" "$MH/.claude/skills
 printf -- '---\nname: caveman\n---\nCAVEMAN RULES: short.\n' > "$MH/.claude/skills/caveman/SKILL.md"
 printf -- '---\nname: archify\n---\nARCHIFY BODY.\n' > "$MH/.claude/skills/archify/SKILL.md"
 printf 'claude\tcaveman\tlite\tskill:caveman\t-\t-\nclaude\tarchify\t-\tskill:archify\t-\t-\nclaude\tponytail\tfull\talways:ponytail\t-\t-\nclaude\ti-have-adhd\ton\tfile:~/.claude/.i-have-adhd-always\t-\t-\n' > "$WORK/modes.tsv"
+printf 'codex\tmode\ton\talways\t-\t-\n' >> "$WORK/modes.tsv"
 (cd "$WORK/sh" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude > "$WORK/modes-sh.log" 2>&1) || fail "session-start.sh --tool claude (see $WORK/modes-sh.log)"
 (cd "$WORK/ps1" && HOME="$MH" USERPROFILE="$(native "$MH")" TEAM_MODES_FILE="$(native "$WORK/modes.tsv")" pwsh -NoProfile -File "$ROOT/bin/session-start.ps1" -Tool claude > "$WORK/modes-ps1.log" 2>&1) || fail "session-start.ps1 -Tool claude (see $WORK/modes-ps1.log)"
 for twin in sh ps1; do

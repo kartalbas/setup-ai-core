@@ -35,9 +35,11 @@ cut by file splits a contract and its two sides then release apart.
    its `file:line`, so the plan check does not count it.
 4. Order the issues: the additive side of a contract before the strict side; an issue that unblocks
    another first. A package whose files overlap an open section waits for it: `After: <area>`.
-5. Judge the class from the terms and the issue text. Split the package where its build would not fit
-   300k of context, about 8 issues or 400 changed lines: one section per part, named `<area>:
-   <part>`, in landing order.
+5. Judge the class from the terms and the issue text. Every issue that belongs to the area and its
+   contracts goes into the one package, however many there are: each further package reads the same
+   code and contracts again and pays its whole context. Split only where the build would not fit its
+   context budget (300k, 250k in Codex): one section per part, named `<area>: <part>`, in landing
+   order.
 6. Collect what the later phases need from the acceptance criteria: the verification command of each
    clone (its map, its `README` or its `scripts/`), the test and production environments the criteria
    name with their URLs, the demo account where a check needs one, and the clicks each promise takes.

@@ -54,8 +54,8 @@ starts, because a card whose prerequisite waits in todo never reaches done.
 A card from before is its own area, named `clearing <repo>#<n>`, so its REVIEW, LAND and PHASE
 lines are counted like a package's.
 
-Work in rounds of at most 10 cards, the TESTING 🔴 first, then `implementing`, then the rest of
-`testing`. Group the cards whose work shares a release: one release carries them all.
+A round takes every card it can move, however many: the TESTING 🔴 first, then `implementing`, then
+the rest of `testing`. Group the cards whose work shares a release: one release carries them all.
 
 ## Output, after every round, as a comment on the plan issue
 

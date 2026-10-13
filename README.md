@@ -513,7 +513,8 @@ With `--json` it prints the same as JSON: `repository`, `root`, `branch`, `uncom
 `rules_present`, `rules_path`, `local_rules_present`, `gh_authenticated`,
 `gh_user`, `issue`, `assigned`, `thread`, `harness_source`, `source_ready`, `source_error`,
 `rule_sources`. For a source, `harness_version` names the command source version,
-`harness_current` is null, and `rules_present` is false because no assembled rules file is used.
+`harness_current` is null, and `rules_present` and `rules_path` say whether an assembled rules
+file lies on disk; a source's readiness does not depend on it.
 The `rule_sources` directories are ordered base first. For a product, the source identity and
 readiness are null and the source directories are empty. Exit status is 1 when required product
 rules or valid source inputs are missing; `refused` is true for that refusal.

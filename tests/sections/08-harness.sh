@@ -2,17 +2,16 @@
 # the project harness: created, cloned, moved, assembled, the maps; one section of the suite, run by tests/check.sh with the others
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 
-section "the project harness: created from the skeleton, cloned on another machine, its rules, skills, docs, data and repos/<repo>/ assembled, on both twins"
+section "the project harness: created from the skeleton, cloned on another machine, its rules, skills, docs, data and repos/<repo>/ assembled"
 make_gh_fake
 # A project repository: shop-web of example-org, with a README
 new_checkout() {  # new_checkout <dir> <repo name> [org]
   git init -q "$1"; echo readme > "$1/README.md"
   git -C "$1" add README.md; git -C "$1" -c user.name=check -c user.email=check@localhost commit -q -m init
-  git -C "$1" config core.autocrlf false
   git -C "$1" remote add origin "https://github.com/${3:-example-org}/$2.git"
 }
 # Two machines with a project folder each; a harness clone lands beside the checkouts in it
-mkdir -p "$WORK/home-sh" "$WORK/home-ps" "$WORK/org-sh" "$WORK/org-ps"
+mkdir -p "$WORK/home-sh" "$WORK/home-second" "$WORK/org-sh" "$WORK/org-second"
 new_checkout "$WORK/org-sh/shop-web" shop-web
 HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/shop-web" --no-doctor --dry-run > "$WORK/layers-sh-0.log" 2>&1 || fail "init.sh --dry-run before the project harness exists (see $WORK/layers-sh-0.log)"
 grep -aq 'example-org/shop-ai-core would be created from the skeleton' "$WORK/layers-sh-0.log" || fail "init.sh --dry-run does not announce the harness it would create"
@@ -40,7 +39,6 @@ grep -qxF '* text=auto eol=lf' "$WORK/org-sh/shop-ai-core/.gitattributes" || fai
 git -C "$WORK/org-sh/shop-ai-core" add .gitattributes && git -C "$WORK/org-sh/shop-ai-core" -c user.name=check -c user.email=check@localhost commit -q -m 'the skeleton file again' && git -C "$WORK/org-sh/shop-ai-core" push -q origin HEAD 2>/dev/null || fail "could not commit .gitattributes back into the harness clone"
 # The project fills its harness: a new rule section, a replaced one, a skill, a document, the map and config of shop-web
 git clone -q "$GH_FAKE/github.com/example-org/shop-ai-core.git" "$WORK/author" 2>/dev/null
-git -C "$WORK/author" config core.autocrlf false
 mkdir -p "$WORK/author/skills/deploy" "$WORK/author/repos/shop-web/.ai-core"
 printf '## Releases\n\n- **A release is a tag.** Nothing ships without one. [review]\n' > "$WORK/author/rules/35-releases.md"
 printf '## Naming\n\n- **Names are English.** The project spells them its own way. [review]\n' > "$WORK/author/rules/50-naming.md"
@@ -52,7 +50,7 @@ printf 'AGENTS="claude"\nUPDATE_CHECK="never"\n' > "$WORK/author/repos/shop-web/
 printf 'plan\tmechanical\tclaude-sonnet-5-5\tmedium\tno\n' > "$WORK/author/models.tsv"
 git -C "$WORK/author" add -A; git -C "$WORK/author" -c user.name=check -c user.email=check@localhost commit -q -m "the project's own"; git -C "$WORK/author" push -q origin HEAD
 HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/shop-web" --no-doctor > "$WORK/layers-sh-2.log" 2>&1 || fail "init.sh second run with the filled harness (see $WORK/layers-sh-2.log)"
-assembled_ok() {  # assembled_ok <checkout> <twin>
+assembled_ok() {  # assembled_ok <checkout> <label>
   local c="$1" t="$2" hash
   hash="$(git -C "$WORK/author" rev-parse --short HEAD)"
   grep -q "^<!-- shop-ai-core $hash: rules/35-releases.md -->" "$c/.ai-core/rules/rules.md" || fail "$t: the harness's new section is not in rules.md"
@@ -74,136 +72,108 @@ assembled_ok() {  # assembled_ok <checkout> <twin>
   [ -z "$st" ] || fail "$t: git status is not clean after init: $st"
 }
 assembled_ok "$WORK/org-sh/shop-web" "init.sh"
-# Another machine, the PowerShell twin: it holds the clone where an earlier version put it,
-# ~/.shop-ai-core, and init moves it beside the checkout; without a clone the harness is cloned
-# from GitHub; the checkout is assembled the same
-new_checkout "$WORK/org-ps/shop-web" shop-web
-git clone -q "$GH_FAKE/github.com/example-org/shop-ai-core.git" "$WORK/home-ps/.shop-ai-core" 2>/dev/null
-HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-ps/shop-web")" -NoDoctor > "$WORK/layers-ps-1.log" 2>&1 || fail "init.ps1 with the old clone under the home directory (see $WORK/layers-ps-1.log)"
-grep -aq 'created:' "$WORK/layers-ps-1.log" && fail "init.ps1 created a harness that exists"
-grep -aq 'moved: example-org/shop-ai-core from ' "$WORK/layers-ps-1.log" || fail "init.ps1 did not report the move of the old clone (see $WORK/layers-ps-1.log)"
-[ ! -e "$WORK/home-ps/.shop-ai-core" ] || fail "init.ps1 left the old clone under the home directory"
-[ -f "$WORK/org-ps/shop-ai-core/ai-core.json" ] || fail "init.ps1 did not move the harness beside the checkout"
+# Another machine: it holds the clone where an earlier version put it, ~/.shop-ai-core, and init
+# moves it beside the checkout; without a clone the harness is cloned from GitHub; the checkout is
+# assembled the same
+new_checkout "$WORK/org-second/shop-web" shop-web
+git clone -q "$GH_FAKE/github.com/example-org/shop-ai-core.git" "$WORK/home-second/.shop-ai-core" 2>/dev/null
+HOME="$WORK/home-second" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-second/shop-web" --no-doctor > "$WORK/layers-second-1.log" 2>&1 || fail "init.sh with the old clone under the home directory (see $WORK/layers-second-1.log)"
+grep -aq 'created:' "$WORK/layers-second-1.log" && fail "init.sh created a harness that exists"
+grep -aq 'moved: example-org/shop-ai-core from ' "$WORK/layers-second-1.log" || fail "init.sh did not report the move of the old clone (see $WORK/layers-second-1.log)"
+[ ! -e "$WORK/home-second/.shop-ai-core" ] || fail "init.sh left the old clone under the home directory"
+[ -f "$WORK/org-second/shop-ai-core/ai-core.json" ] || fail "init.sh did not move the harness beside the checkout"
 # The move an earlier run left halfway (the history here, the files still under the home directory beside an empty .git) is completed
-mkdir -p "$WORK/home-ps/.shop-ai-core/.git"; mv "$WORK/org-ps/shop-ai-core"/[!.]* "$WORK/home-ps/.shop-ai-core/"
-HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-ps/shop-web")" -NoDoctor > "$WORK/layers-ps-1c.log" 2>&1 || fail "init.ps1 completing an interrupted move (see $WORK/layers-ps-1c.log)"
-grep -aq 'moved: example-org/shop-ai-core from ' "$WORK/layers-ps-1c.log" || fail "init.ps1 did not complete the interrupted move (see $WORK/layers-ps-1c.log)"
-[ ! -e "$WORK/home-ps/.shop-ai-core" ] && [ -z "$(git -C "$WORK/org-ps/shop-ai-core" status --porcelain)" ] || fail "the interrupted move was not completed: $(git -C "$WORK/org-ps/shop-ai-core" status --porcelain | tr '\n' '|')"
-rm -rf "$WORK/org-ps/shop-ai-core"
-HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-ps/shop-web")" -NoDoctor > "$WORK/layers-ps-1b.log" 2>&1 || fail "init.ps1 with the harness to clone (see $WORK/layers-ps-1b.log)"
-grep -aqE 'created:|moved:' "$WORK/layers-ps-1b.log" && fail "init.ps1 created or moved a harness that is on GitHub"
-[ -f "$WORK/org-ps/shop-ai-core/ai-core.json" ] || fail "init.ps1 did not clone the harness beside the checkout"
-assembled_ok "$WORK/org-ps/shop-web" "init.ps1"
-cmp -s "$WORK/org-sh/shop-web/.ai-core/rules/rules.md" "$WORK/org-ps/shop-web/.ai-core/rules/rules.md" || fail "the assembled rules.md differs between the twins"
-cmp -s "$WORK/org-sh/shop-web/.ai-core/STAMP" "$WORK/org-ps/shop-web/.ai-core/STAMP" || fail "STAMP differs between the twins"
-cmp -s "$WORK/org-sh/shop-web/.ai-core/DEPLOYED" "$WORK/org-ps/shop-web/.ai-core/DEPLOYED" || fail "DEPLOYED differs between the twins: $(tr '\n' '|' < "$WORK/org-sh/shop-web/.ai-core/DEPLOYED") vs $(tr '\n' '|' < "$WORK/org-ps/shop-web/.ai-core/DEPLOYED")"
-# What the harness no longer provides leaves the checkout: the skill and the agent go from the harness, init takes them out, on both twins
+mkdir -p "$WORK/home-second/.shop-ai-core/.git"; mv "$WORK/org-second/shop-ai-core"/[!.]* "$WORK/home-second/.shop-ai-core/"
+HOME="$WORK/home-second" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-second/shop-web" --no-doctor > "$WORK/layers-second-1c.log" 2>&1 || fail "init.sh completing an interrupted move (see $WORK/layers-second-1c.log)"
+grep -aq 'moved: example-org/shop-ai-core from ' "$WORK/layers-second-1c.log" || fail "init.sh did not complete the interrupted move (see $WORK/layers-second-1c.log)"
+[ ! -e "$WORK/home-second/.shop-ai-core" ] && [ -z "$(git -C "$WORK/org-second/shop-ai-core" status --porcelain)" ] || fail "the interrupted move was not completed: $(git -C "$WORK/org-second/shop-ai-core" status --porcelain | tr '\n' '|')"
+rm -rf "$WORK/org-second/shop-ai-core"
+HOME="$WORK/home-second" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-second/shop-web" --no-doctor > "$WORK/layers-second-1b.log" 2>&1 || fail "init.sh with the harness to clone (see $WORK/layers-second-1b.log)"
+grep -aqE 'created:|moved:' "$WORK/layers-second-1b.log" && fail "init.sh created or moved a harness that is on GitHub"
+[ -f "$WORK/org-second/shop-ai-core/ai-core.json" ] || fail "init.sh did not clone the harness beside the checkout"
+assembled_ok "$WORK/org-second/shop-web" "second machine"
+# What the harness no longer provides leaves the checkout: the skill and the agent go from the harness, init takes them out
 git -C "$WORK/author" rm -rq skills/deploy agents/builder.md; git -C "$WORK/author" -c user.name=check -c user.email=check@localhost commit -q -m "the skill and the agent go"; git -C "$WORK/author" push -q origin HEAD
 HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/shop-web" --no-doctor > "$WORK/layers-sh-gone.log" 2>&1 || fail "init.sh after the harness dropped a skill and an agent (see $WORK/layers-sh-gone.log)"
-HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-ps/shop-web")" -NoDoctor > "$WORK/layers-ps-gone.log" 2>&1 || fail "init.ps1 after the harness dropped a skill and an agent (see $WORK/layers-ps-gone.log)"
-for t in sh ps; do
-  c="$WORK/org-$t/shop-web"
-  grep -aq '^  removed    .claude/skills/deploy, .agents/skills/deploy, .claude/agents/builder.md$' "$WORK/layers-$t-gone.log" || fail "init.$t does not report what it took out: $(grep -a '^  removed' "$WORK/layers-$t-gone.log")"
-  [ ! -e "$c/.claude/skills/deploy" ] && [ ! -e "$c/.agents/skills/deploy" ] && [ ! -e "$c/.claude/agents/builder.md" ] || fail "init.$t left what the harness no longer provides"
-  [ -f "$c/.ai-core/docs/shop-ai-core/glossary.md" ] && grep -q '^The map of shop-web' "$c/AGENTS.md" || fail "init.$t took out what the harness still provides"
-  grep -q 'skills/deploy' "$c/.ai-core/DEPLOYED" && fail "init.$t still records the skill in DEPLOYED"
-done
+c="$WORK/org-sh/shop-web"
+grep -aq '^  removed    .claude/skills/deploy, .agents/skills/deploy, .claude/agents/builder.md$' "$WORK/layers-sh-gone.log" || fail "init.sh does not report what it took out: $(grep -a '^  removed' "$WORK/layers-sh-gone.log")"
+[ ! -e "$c/.claude/skills/deploy" ] && [ ! -e "$c/.agents/skills/deploy" ] && [ ! -e "$c/.claude/agents/builder.md" ] || fail "init.sh left what the harness no longer provides"
+[ -f "$c/.ai-core/docs/shop-ai-core/glossary.md" ] && grep -q '^The map of shop-web' "$c/AGENTS.md" || fail "init.sh took out what the harness still provides"
+grep -q 'skills/deploy' "$c/.ai-core/DEPLOYED" && fail "init.sh still records the skill in DEPLOYED"
 # The auto-mode entries of setup-ai-core and of the harness go into Claude Code's user settings, each
 # led by its layer: the person's own entry, another layer's and "$defaults" stay, an untagged copy of
-# a layer's entry gives way, a list init creates starts with "$defaults", a second run and the other
-# twin write the same, an entry the harness drops leaves, and a line init cannot read stops it before
-# it writes. init.sh finds the settings under HOME, init.ps1 in CLAUDE_CONFIG_DIR.
+# a layer's entry gives way, a list init creates starts with "$defaults", a second run writes the
+# same, an entry the harness drops leaves, and a line init cannot read stops it before it writes.
+# init.sh finds the settings under HOME.
 printf '# the shop'"'"'s own\nallow\tA shop entry moved by hand.\nenvironment\tKey internal services: the shop run manager.\n' > "$WORK/author/auto-mode.tsv"
 git -C "$WORK/author" add auto-mode.tsv; git -C "$WORK/author" -c user.name=check -c user.email=check@localhost commit -q -m "the shop's auto-mode entries"; git -C "$WORK/author" push -q origin HEAD
-mkdir -p "$WORK/home-sh/.claude" "$WORK/claude-ps"
-for f in "$WORK/home-sh/.claude/settings.json" "$WORK/claude-ps/settings.json"; do
-  printf '{"model":"opus","autoMode":{"allow":["$defaults","Own entry.","[other-ai-core] Another layer.","A shop entry moved by hand."]}}\n' > "$f"
-done
-cp "$WORK/home-sh/.claude/settings.json" "$WORK/settings-before.json"
-auto_mode_init() {  # auto_mode_init sh|ps <log> [--dry-run]
-  if [ "$1" = sh ]; then env -u CLAUDE_CONFIG_DIR HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/shop-web" --no-doctor ${3:+--dry-run} > "$2" 2>&1
-  else CLAUDE_CONFIG_DIR="$(native "$WORK/claude-ps")" HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-ps/shop-web")" -NoDoctor ${3:+-DryRun} > "$2" 2>&1; fi
+mkdir -p "$WORK/home-sh/.claude"
+s="$WORK/home-sh/.claude/settings.json"
+printf '{"model":"opus","autoMode":{"allow":["$defaults","Own entry.","[other-ai-core] Another layer.","A shop entry moved by hand."]}}\n' > "$s"
+cp "$s" "$WORK/settings-before.json"
+auto_mode_init() {  # auto_mode_init <log> [--dry-run]
+  env -u CLAUDE_CONFIG_DIR HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/shop-web" --no-doctor ${2:+--dry-run} > "$1" 2>&1
 }
-settings_of() { if [ "$1" = sh ]; then echo "$WORK/home-sh/.claude/settings.json"; else echo "$WORK/claude-ps/settings.json"; fi; }
 generic="$(grep -v '^#' "$ROOT/auto-mode.tsv" | awk -F'\t' '$1 == "allow" { print "[setup-ai-core] " $2 }' | jq -Rn '[inputs]')"
 [ "$(jq length <<< "$generic")" -gt 0 ] || fail "auto-mode.tsv of setup-ai-core carries no allow entry to look for"
-for t in sh ps; do
-  s="$(settings_of "$t")"
-  auto_mode_init "$t" "$WORK/auto-mode-$t-dry.log" dry || fail "init.$t --dry-run with the harness's auto-mode entries (see $WORK/auto-mode-$t-dry.log)"
-  grep -aq '^  auto mode: .*settings.json would change:$' "$WORK/auto-mode-$t-dry.log" || fail "init.$t --dry-run does not say the auto-mode entries would change (see $WORK/auto-mode-$t-dry.log)"
-  cmp -s "$s" "$WORK/settings-before.json" || fail "init.$t --dry-run wrote the user settings"
-  auto_mode_init "$t" "$WORK/auto-mode-$t-1.log" || fail "init.$t with the harness's auto-mode entries (see $WORK/auto-mode-$t-1.log)"
-  for line in 'added to allow: [shop-ai-core] A shop entry moved by hand.' 'removed from allow: A shop entry moved by hand.' 'added to environment: $defaults' 'added to environment: [shop-ai-core] Key internal services: the shop run manager.'; do
-    grep -aqxF "    $line" "$WORK/auto-mode-$t-1.log" || fail "init.$t does not report '$line' (see $WORK/auto-mode-$t-1.log)"
-  done
-  jq -e --argjson g "$generic" '.model == "opus"
-    and .autoMode.allow == (["$defaults", "Own entry.", "[other-ai-core] Another layer."] + $g + ["[shop-ai-core] A shop entry moved by hand."])
-    and .autoMode.environment == ["$defaults", "[shop-ai-core] Key internal services: the shop run manager."]' "$s" > /dev/null \
-    || fail "init.$t merged the auto-mode entries wrongly: $(jq -c .autoMode "$s")"
-  cp "$s" "$WORK/settings-$t-1.json"
-  auto_mode_init "$t" "$WORK/auto-mode-$t-2.log" || fail "init.$t second run with the same auto-mode entries (see $WORK/auto-mode-$t-2.log)"
-  cmp -s "$s" "$WORK/settings-$t-1.json" || fail "init.$t changed the user settings on a second run with the same entries"
-  grep -aq '^  auto mode:' "$WORK/auto-mode-$t-2.log" && fail "init.$t reports an auto-mode change on a second run with the same entries"
+auto_mode_init "$WORK/auto-mode-dry.log" dry || fail "init.sh --dry-run with the harness's auto-mode entries (see $WORK/auto-mode-dry.log)"
+grep -aq '^  auto mode: .*settings.json would change:$' "$WORK/auto-mode-dry.log" || fail "init.sh --dry-run does not say the auto-mode entries would change (see $WORK/auto-mode-dry.log)"
+cmp -s "$s" "$WORK/settings-before.json" || fail "init.sh --dry-run wrote the user settings"
+auto_mode_init "$WORK/auto-mode-1.log" || fail "init.sh with the harness's auto-mode entries (see $WORK/auto-mode-1.log)"
+for line in 'added to allow: [shop-ai-core] A shop entry moved by hand.' 'removed from allow: A shop entry moved by hand.' 'added to environment: $defaults' 'added to environment: [shop-ai-core] Key internal services: the shop run manager.'; do
+  grep -aqxF "    $line" "$WORK/auto-mode-1.log" || fail "init.sh does not report '$line' (see $WORK/auto-mode-1.log)"
 done
-cmp -s "$(settings_of sh)" "$(settings_of ps)" || fail "the user settings differ between the twins"
-for t in sh ps; do   # the same entries in another order are no change
-  s="$(settings_of "$t")"
-  jq '.autoMode.allow |= ([.[] | select(startswith("["))] + [.[] | select(startswith("[") | not)])' "$s" > "$WORK/reordered-$t.json" && cp "$WORK/reordered-$t.json" "$s"
-  auto_mode_init "$t" "$WORK/auto-mode-$t-order.log" || fail "init.$t with the entries in another order (see $WORK/auto-mode-$t-order.log)"
-  cmp -s "$s" "$WORK/reordered-$t.json" || fail "init.$t rewrote a list whose entries stood only in another order"
-done
+jq -e --argjson g "$generic" '.model == "opus"
+  and .autoMode.allow == (["$defaults", "Own entry.", "[other-ai-core] Another layer."] + $g + ["[shop-ai-core] A shop entry moved by hand."])
+  and .autoMode.environment == ["$defaults", "[shop-ai-core] Key internal services: the shop run manager."]' "$s" > /dev/null \
+  || fail "init.sh merged the auto-mode entries wrongly: $(jq -c .autoMode "$s")"
+cp "$s" "$WORK/settings-1.json"
+auto_mode_init "$WORK/auto-mode-2.log" || fail "init.sh second run with the same auto-mode entries (see $WORK/auto-mode-2.log)"
+cmp -s "$s" "$WORK/settings-1.json" || fail "init.sh changed the user settings on a second run with the same entries"
+grep -aq '^  auto mode:' "$WORK/auto-mode-2.log" && fail "init.sh reports an auto-mode change on a second run with the same entries"
+# the same entries in another order are no change
+jq '.autoMode.allow |= ([.[] | select(startswith("["))] + [.[] | select(startswith("[") | not)])' "$s" > "$WORK/reordered.json" && cp "$WORK/reordered.json" "$s"
+auto_mode_init "$WORK/auto-mode-order.log" || fail "init.sh with the entries in another order (see $WORK/auto-mode-order.log)"
+cmp -s "$s" "$WORK/reordered.json" || fail "init.sh rewrote a list whose entries stood only in another order"
 printf 'allow\tA shop entry moved by hand.\n' > "$WORK/author/auto-mode.tsv"
 git -C "$WORK/author" -c user.name=check -c user.email=check@localhost commit -qam "the run manager entry goes"; git -C "$WORK/author" push -q origin HEAD
-for t in sh ps; do
-  auto_mode_init "$t" "$WORK/auto-mode-$t-gone.log" || fail "init.$t after the harness dropped an auto-mode entry (see $WORK/auto-mode-$t-gone.log)"
-  grep -aqxF '    removed from environment: [shop-ai-core] Key internal services: the shop run manager.' "$WORK/auto-mode-$t-gone.log" || fail "init.$t does not report the dropped entry (see $WORK/auto-mode-$t-gone.log)"
-  jq -e '.autoMode.environment == ["$defaults"] and (.autoMode.allow | index("[shop-ai-core] A shop entry moved by hand.")) != null' "$(settings_of "$t")" > /dev/null || fail "init.$t left the dropped entry or lost the kept one: $(jq -c .autoMode "$(settings_of "$t")")"
-done
+auto_mode_init "$WORK/auto-mode-gone.log" || fail "init.sh after the harness dropped an auto-mode entry (see $WORK/auto-mode-gone.log)"
+grep -aqxF '    removed from environment: [shop-ai-core] Key internal services: the shop run manager.' "$WORK/auto-mode-gone.log" || fail "init.sh does not report the dropped entry (see $WORK/auto-mode-gone.log)"
+jq -e '.autoMode.environment == ["$defaults"] and (.autoMode.allow | index("[shop-ai-core] A shop entry moved by hand.")) != null' "$s" > /dev/null || fail "init.sh left the dropped entry or lost the kept one: $(jq -c .autoMode "$s")"
 printf 'allow\tA shop entry moved by hand.\ndeny\tNo list of the classifier is called so.\n' > "$WORK/author/auto-mode.tsv"
 git -C "$WORK/author" -c user.name=check -c user.email=check@localhost commit -qam "a line init cannot read"; git -C "$WORK/author" push -q origin HEAD
-for t in sh ps; do
-  cp "$(settings_of "$t")" "$WORK/settings-$t-bad.json"; cp "$WORK/org-$t/shop-web/.ai-core/STAMP" "$WORK/stamp-$t-bad"
-  auto_mode_init "$t" "$WORK/auto-mode-$t-bad.log" && fail "init.$t went on with a line it cannot read in auto-mode.tsv"
-  grep -aq 'auto-mode.tsv:2 is no auto-mode entry: the list (allow or environment), one tab, then the entry; nothing was written' "$WORK/auto-mode-$t-bad.log" || fail "init.$t does not name the line it cannot read (see $WORK/auto-mode-$t-bad.log)"
-  cmp -s "$(settings_of "$t")" "$WORK/settings-$t-bad.json" && cmp -s "$WORK/org-$t/shop-web/.ai-core/STAMP" "$WORK/stamp-$t-bad" || fail "init.$t wrote before it stopped at the line it cannot read"
-done
-printf '\357\273\277# a byte-order mark first, as an editor on Windows writes it\nallow\tA shop entry moved by hand.\n' > "$WORK/author/auto-mode.tsv"
+cp "$s" "$WORK/settings-bad.json"; cp "$WORK/org-sh/shop-web/.ai-core/STAMP" "$WORK/stamp-bad"
+auto_mode_init "$WORK/auto-mode-bad.log" && fail "init.sh went on with a line it cannot read in auto-mode.tsv"
+grep -aq 'auto-mode.tsv:2 is no auto-mode entry: the list (allow or environment), one tab, then the entry; nothing was written' "$WORK/auto-mode-bad.log" || fail "init.sh does not name the line it cannot read (see $WORK/auto-mode-bad.log)"
+cmp -s "$s" "$WORK/settings-bad.json" && cmp -s "$WORK/org-sh/shop-web/.ai-core/STAMP" "$WORK/stamp-bad" || fail "init.sh wrote before it stopped at the line it cannot read"
+printf '\357\273\277# a byte-order mark first, as some editors write it\nallow\tA shop entry moved by hand.\n' > "$WORK/author/auto-mode.tsv"
 git -C "$WORK/author" -c user.name=check -c user.email=check@localhost commit -qam "a byte-order mark"; git -C "$WORK/author" push -q origin HEAD
-for t in sh ps; do auto_mode_init "$t" "$WORK/auto-mode-$t-bom.log" || fail "init.$t refused auto-mode.tsv for its byte-order mark (see $WORK/auto-mode-$t-bom.log)"; done
+auto_mode_init "$WORK/auto-mode-bom.log" || fail "init.sh refused auto-mode.tsv for its byte-order mark (see $WORK/auto-mode-bom.log)"
 git -C "$WORK/author" rm -q auto-mode.tsv; git -C "$WORK/author" -c user.name=check -c user.email=check@localhost commit -q -m "no auto-mode entries"; git -C "$WORK/author" push -q origin HEAD
-for t in sh ps; do
-  auto_mode_init "$t" "$WORK/auto-mode-$t-none.log" || fail "init.$t after the harness dropped its auto-mode.tsv (see $WORK/auto-mode-$t-none.log)"
-  grep -aqxF '    removed from allow: [shop-ai-core] A shop entry moved by hand.' "$WORK/auto-mode-$t-none.log" || fail "init.$t does not report the entries of the dropped table (see $WORK/auto-mode-$t-none.log)"
-  jq -e '[(.autoMode.allow + .autoMode.environment)[] | select(startswith("[shop-ai-core] "))] | length == 0' "$(settings_of "$t")" > /dev/null || fail "init.$t left entries of a harness that carries no auto-mode.tsv: $(jq -c .autoMode "$(settings_of "$t")")"
-done
+auto_mode_init "$WORK/auto-mode-none.log" || fail "init.sh after the harness dropped its auto-mode.tsv (see $WORK/auto-mode-none.log)"
+grep -aqxF '    removed from allow: [shop-ai-core] A shop entry moved by hand.' "$WORK/auto-mode-none.log" || fail "init.sh does not report the entries of the dropped table (see $WORK/auto-mode-none.log)"
+jq -e '[(.autoMode.allow + .autoMode.environment)[] | select(startswith("[shop-ai-core] "))] | length == 0' "$s" > /dev/null || fail "init.sh left entries of a harness that carries no auto-mode.tsv: $(jq -c .autoMode "$s")"
 # A settings folder that is not there, settings that are no JSON object and a folder without settings:
 # the first two say so and write nothing, the third gets its file; and a dry run whose harness is not
-# cloned yet keeps that harness's entries, on both twins
-init_with() {  # init_with sh|ps <settings folder> <checkout> <log> [dry]
-  if [ "$1" = sh ]; then CLAUDE_CONFIG_DIR="$2" HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$3" --no-doctor ${5:+--dry-run} > "$4" 2>&1
-  else CLAUDE_CONFIG_DIR="$(native "$2")" HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$3")" -NoDoctor ${5:+-DryRun} > "$4" 2>&1; fi
+# cloned yet keeps that harness's entries
+init_with() {  # init_with <settings folder> <checkout> <log> [dry]
+  CLAUDE_CONFIG_DIR="$1" HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$2" --no-doctor ${4:+--dry-run} > "$3" 2>&1
 }
 mkdir -p "$WORK/org-dry"; new_checkout "$WORK/org-dry/shop-web" shop-web
-for t in sh ps; do
-  mkdir -p "$WORK/claude-$t-bad" "$WORK/claude-$t-new" "$WORK/claude-$t-dry"; printf '{"autoMode":' > "$WORK/claude-$t-bad/settings.json"
-  printf '{"autoMode":{"allow":["$defaults","[shop-ai-core] Kept while the harness is not cloned."]}}\n' > "$WORK/claude-$t-dry/settings.json"
-  init_with "$t" "$WORK/claude-$t-missing" "$WORK/org-$t/shop-web" "$WORK/auto-mode-$t-missing.log" || fail "init.$t without a settings folder (see $WORK/auto-mode-$t-missing.log)"
-  grep -aq '^  auto mode: .*claude-'"$t"'-missing does not exist, so Claude Code has not run on this machine; no entry written$' "$WORK/auto-mode-$t-missing.log" || fail "init.$t does not say it wrote no entry for want of a settings folder (see $WORK/auto-mode-$t-missing.log)"
-  [ ! -e "$WORK/claude-$t-missing" ] || fail "init.$t created the settings folder of a Claude Code that never ran"
-  init_with "$t" "$WORK/claude-$t-bad" "$WORK/org-$t/shop-web" "$WORK/auto-mode-$t-bad-json.log" || fail "init.$t with settings that are no JSON (see $WORK/auto-mode-$t-bad-json.log)"
-  grep -aq '^  auto mode: .*settings.json is no JSON object with lists in autoMode, so no entry was written; repair it and run init again$' "$WORK/auto-mode-$t-bad-json.log" || fail "init.$t does not say the settings are no JSON object (see $WORK/auto-mode-$t-bad-json.log)"
-  [ "$(cat "$WORK/claude-$t-bad/settings.json")" = '{"autoMode":' ] || fail "init.$t wrote settings it could not read"
-  init_with "$t" "$WORK/claude-$t-new" "$WORK/org-$t/shop-web" "$WORK/auto-mode-$t-new.log" || fail "init.$t with a settings folder and no settings (see $WORK/auto-mode-$t-new.log)"
-  jq -e --argjson g "$generic" '.autoMode.allow == (["$defaults"] + $g) and (.autoMode | has("environment") | not)' "$WORK/claude-$t-new/settings.json" > /dev/null || fail "init.$t wrote the new settings wrongly: $(cat "$WORK/claude-$t-new/settings.json" 2>&1)"
-  init_with "$t" "$WORK/claude-$t-dry" "$WORK/org-dry/shop-web" "$WORK/auto-mode-$t-uncloned.log" dry || fail "init.$t --dry-run with the harness not cloned yet (see $WORK/auto-mode-$t-uncloned.log)"
-  grep -aq 'shop-ai-core would be cloned' "$WORK/auto-mode-$t-uncloned.log" || fail "init.$t --dry-run did not find the harness uncloned (see $WORK/auto-mode-$t-uncloned.log)"
-  grep -aq 'removed from allow: \[shop-ai-core\]' "$WORK/auto-mode-$t-uncloned.log" && fail "init.$t --dry-run would remove the entries of a harness it has not cloned (see $WORK/auto-mode-$t-uncloned.log)"
-done
-cmp -s "$WORK/claude-sh-new/settings.json" "$WORK/claude-ps-new/settings.json" || fail "the new settings differ between the twins"
-mkdir -p "$WORK/home-ps-fresh/.claude"
-env -u CLAUDE_CONFIG_DIR HOME="$WORK/home-ps-fresh" USERPROFILE="$(native "$WORK/home-ps-fresh")" PATH="$PATH_SH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-ps/shop-web")" -NoDoctor > "$WORK/auto-mode-ps-home.log" 2>&1 || fail "init.ps1 without CLAUDE_CONFIG_DIR (see $WORK/auto-mode-ps-home.log)"
-cmp -s "$WORK/home-ps-fresh/.claude/settings.json" "$WORK/claude-ps-new/settings.json" || fail "init.ps1 did not write the settings under HOME without CLAUDE_CONFIG_DIR"
-# The map: the agent CLI (a fake claude here) writes it, map puts it into the harness, pushes it and brings it into the checkout at once; people's rules kept; a bad output refused; on both twins
+mkdir -p "$WORK/claude-bad" "$WORK/claude-new" "$WORK/claude-dry"; printf '{"autoMode":' > "$WORK/claude-bad/settings.json"
+printf '{"autoMode":{"allow":["$defaults","[shop-ai-core] Kept while the harness is not cloned."]}}\n' > "$WORK/claude-dry/settings.json"
+init_with "$WORK/claude-missing" "$WORK/org-sh/shop-web" "$WORK/auto-mode-missing.log" || fail "init.sh without a settings folder (see $WORK/auto-mode-missing.log)"
+grep -aq '^  auto mode: .*claude-missing does not exist, so Claude Code has not run on this machine; no entry written$' "$WORK/auto-mode-missing.log" || fail "init.sh does not say it wrote no entry for want of a settings folder (see $WORK/auto-mode-missing.log)"
+[ ! -e "$WORK/claude-missing" ] || fail "init.sh created the settings folder of a Claude Code that never ran"
+init_with "$WORK/claude-bad" "$WORK/org-sh/shop-web" "$WORK/auto-mode-bad-json.log" || fail "init.sh with settings that are no JSON (see $WORK/auto-mode-bad-json.log)"
+grep -aq '^  auto mode: .*settings.json is no JSON object with lists in autoMode, so no entry was written; repair it and run init again$' "$WORK/auto-mode-bad-json.log" || fail "init.sh does not say the settings are no JSON object (see $WORK/auto-mode-bad-json.log)"
+[ "$(cat "$WORK/claude-bad/settings.json")" = '{"autoMode":' ] || fail "init.sh wrote settings it could not read"
+init_with "$WORK/claude-new" "$WORK/org-sh/shop-web" "$WORK/auto-mode-new.log" || fail "init.sh with a settings folder and no settings (see $WORK/auto-mode-new.log)"
+jq -e --argjson g "$generic" '.autoMode.allow == (["$defaults"] + $g) and (.autoMode | has("environment") | not)' "$WORK/claude-new/settings.json" > /dev/null || fail "init.sh wrote the new settings wrongly: $(cat "$WORK/claude-new/settings.json" 2>&1)"
+init_with "$WORK/claude-dry" "$WORK/org-dry/shop-web" "$WORK/auto-mode-uncloned.log" dry || fail "init.sh --dry-run with the harness not cloned yet (see $WORK/auto-mode-uncloned.log)"
+grep -aq 'shop-ai-core would be cloned' "$WORK/auto-mode-uncloned.log" || fail "init.sh --dry-run did not find the harness uncloned (see $WORK/auto-mode-uncloned.log)"
+grep -aq 'removed from allow: \[shop-ai-core\]' "$WORK/auto-mode-uncloned.log" && fail "init.sh --dry-run would remove the entries of a harness it has not cloned (see $WORK/auto-mode-uncloned.log)"
+# The map: the agent CLI (a fake claude here) writes it, map puts it into the harness, pushes it and brings it into the checkout at once; people's rules kept; a bad output refused
 cat > "$WORK/ghbin/claude" <<'EOF'
 #!/bin/sh
 echo "$*" >> "$MAP_FAKE_LOG"
@@ -214,17 +184,6 @@ printf '# %s \342\200\224 the map\n\n## What it is\nA shop.%s\n\n## Shape\n- src
 [ -z "${MAP_FAKE_NOISE:-}" ] || printf '\n> Grant write permission and rerun.\n\ntokens saved this turn\n'
 EOF
 chmod +x "$WORK/ghbin/claude"
-cat > "$WORK/ghbin/claude.ps1" <<'EOF'
-param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest)
-[Console]::OutputEncoding = [Text.Encoding]::UTF8
-Add-Content -Path $env:MAP_FAKE_LOG -Value ($Rest -join ' ')
-if ($env:MAP_FAKE_BAD) { 'Sure! Here is the map:'; exit 0 }
-if ($env:MAP_FAKE_NOISE) { 'Done reading. Writing the map now.'; '' }
-$n = Split-Path -Leaf (Get-Location).Path
-"# $n $([char]0x2014) the map"; ''; '## What it is'; "A shop.$(if ($env:MAP_FAKE_NOTE) { ' ' + $env:MAP_FAKE_NOTE })"; ''; '## Shape'; '- src/: the code'; ''; '## Build, check, run'; '- npm test'; ''; '## Where to add things'; '| a page | src/pages/ |'; ''; '## Rules of this repository'; '(none yet: written by people, kept on every regeneration)'
-if ($env:MAP_FAKE_NOISE) { ''; '> Grant write permission and rerun.'; ''; 'tokens saved this turn' }
-exit 0
-EOF
 # codex writes its answer into the file named by --output-last-message; agy prints it, like claude
 cat > "$WORK/ghbin/codex" <<'EOF'
 #!/bin/sh
@@ -234,16 +193,6 @@ n="$(basename "$PWD")"
 printf '# %s \342\200\224 the map\n\n## What it is\nA shop.\n\n## Shape\n- src/: the code\n\n## Build, check, run\n- npm test\n\n## Where to add things\n| a page | src/pages/ |\n\n## Rules of this repository\n(none yet: written by people, kept on every regeneration)\n' "$n" > "$out"
 echo "codex: thinking..."
 EOF
-cat > "$WORK/ghbin/codex.ps1" <<'EOF'
-param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest)
-Add-Content -Path $env:MAP_FAKE_LOG -Value ($Rest -join ' ')
-$i = [Array]::IndexOf($Rest, '--output-last-message'); $out = $Rest[$i + 1]
-$n = Split-Path -Leaf (Get-Location).Path
-$map = @("# $n $([char]0x2014) the map", '', '## What it is', 'A shop.', '', '## Shape', '- src/: the code', '', '## Build, check, run', '- npm test', '', '## Where to add things', '| a page | src/pages/ |', '', '## Rules of this repository', '(none yet: written by people, kept on every regeneration)')
-[System.IO.File]::WriteAllText($out, (($map -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding $false))
-'codex: thinking...'
-exit 0
-EOF
 # agy answers `agy models` the way a signed-in agy does, or the way one does that is not (MAP_FAKE_SIGNED_OUT)
 { head -n1 "$WORK/ghbin/claude"; cat <<'EOF'
 if [ "${1:-}" = models ]; then
@@ -252,14 +201,9 @@ if [ "${1:-}" = models ]; then
 fi
 EOF
 tail -n +2 "$WORK/ghbin/claude"; } > "$WORK/ghbin/agy"; chmod +x "$WORK/ghbin/agy" "$WORK/ghbin/codex"
-{ head -n1 "$WORK/ghbin/claude.ps1"; cat <<'EOF'
-if ($Rest.Count -gt 0 -and $Rest[0] -eq 'models') { if ($env:MAP_FAKE_SIGNED_OUT) { 'Using file-based token storage because SSH session detected'; 'not signed in'; exit 1 }; "gemini-3.8-flash-high`tGemini 3.8 Flash (High)"; exit 0 }
-EOF
-tail -n +2 "$WORK/ghbin/claude.ps1"; } > "$WORK/ghbin/agy.ps1"
 MAPLOG="$WORK/map.args"
-map_sh() { HOME="$WORK/home-sh" PATH="$PATH_SH" MAP_FAKE_LOG="$MAPLOG" bash "$ROOT/bin/map.sh" "$@"; }
-map_ps() { HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" MAP_FAKE_LOG="$(native "$MAPLOG")" MAP_FAKE_NOTE=ps pwsh -NoProfile -File "$ROOT/bin/map.ps1" "$@"; }
-map_sh "$WORK/org-sh/shop-web" > "$WORK/map-sh-1.log" 2>&1 || fail "map.sh (see $WORK/map-sh-1.log)"
+map_run() { HOME="$WORK/home-sh" PATH="$PATH_SH" MAP_FAKE_LOG="$MAPLOG" bash "$ROOT/bin/map.sh" "$@"; }
+map_run "$WORK/org-sh/shop-web" > "$WORK/map-1.log" 2>&1 || fail "map.sh (see $WORK/map-1.log)"
 M="$WORK/org-sh/shop-ai-core/repos/shop-web/AGENTS.md"
 head -n1 "$M" | grep -qE '^<!-- ai-core map: generated [0-9-]+ from [0-9a-f]+; ' && [ "$(sed -n 2p "$M")" = "# shop-web — the map" ] || fail "map.sh did not write the map into the harness: $(head -n2 "$M" 2>/dev/null | tr '\n' '|')"
 [ -z "$(git -C "$WORK/org-sh/shop-ai-core" status --porcelain)" ] && [ "$(git -C "$WORK/org-sh/shop-ai-core" rev-list --count '@{upstream}..HEAD')" = 0 ] || fail "map.sh did not commit and push the harness"
@@ -271,138 +215,90 @@ grep -q -- '--allowedTools' "$MAPLOG" && grep -q 'Read the repository first, che
 # people write a rule into the map and push it as they push any edit of the harness; the next generation keeps it
 sed -i.bak 's/^(none yet: written by people, kept on every regeneration)$/- **Ship on Fridays never.** [review]/' "$M" && rm -f "$M.bak"
 (cd "$WORK/org-sh/shop-web" && HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/push.sh" "a rule of this repository" > "$WORK/map-rule-push.log" 2>&1) || fail "push.sh with the rule people wrote (see $WORK/map-rule-push.log)"
-MAP_FAKE_NOTE=v2 map_sh "$WORK/org-sh/shop-web" > "$WORK/map-sh-2.log" 2>&1 || fail "map.sh second run (see $WORK/map-sh-2.log)"
+MAP_FAKE_NOTE=v2 map_run "$WORK/org-sh/shop-web" > "$WORK/map-2.log" 2>&1 || fail "map.sh second run (see $WORK/map-2.log)"
 grep -q '^A shop\. v2$' "$M" && grep -q '^- \*\*Ship on Fridays never\.\*\* \[review\]$' "$M" && ! grep -q '^(none yet' "$M" || fail "map.sh did not regenerate and keep the rules people wrote: $(grep -n 'shop\.\|Fridays\|none yet' "$M" | tr '\n' '|')"
 [ -z "$(git -C "$WORK/org-sh/shop-ai-core" status --porcelain)" ] || fail "map.sh second run left the harness uncommitted"
 cp "$M" "$WORK/map.before"
-MAP_FAKE_BAD=1 map_sh "$WORK/org-sh/shop-web" > "$WORK/map-sh-bad.log" 2>&1 && fail "map.sh accepted an output that is not a map"
-grep -aq "not the map's shape" "$WORK/map-sh-bad.log" && cmp -s "$M" "$WORK/map.before" && [ -f "$WORK/org-sh/shop-web/.ai-core/map.rejected.md" ] || fail "map.sh: the refusal (see $WORK/map-sh-bad.log)"
+MAP_FAKE_BAD=1 map_run "$WORK/org-sh/shop-web" > "$WORK/map-bad.log" 2>&1 && fail "map.sh accepted an output that is not a map"
+grep -aq "not the map's shape" "$WORK/map-bad.log" && cmp -s "$M" "$WORK/map.before" && [ -f "$WORK/org-sh/shop-web/.ai-core/map.rejected.md" ] || fail "map.sh: the refusal (see $WORK/map-bad.log)"
 # what the tool says before the title and after the file drops out
-MAP_FAKE_NOISE=1 map_sh "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-sh-noise.log" 2>&1 || fail "map.sh with a remark before and a tally after the file (see $WORK/map-sh-noise.log)"
-grep -aq '^# shop-web — the map' "$WORK/map-sh-noise.log" && ! grep -aqE 'Done reading|Grant write|tokens saved' "$WORK/map-sh-noise.log" || fail "map.sh kept what the tool said around the file (see $WORK/map-sh-noise.log)"
-MAP_FAKE_NOISE=1 map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")" -DryRun > "$WORK/map-ps-noise.log" 2>&1 || fail "map.ps1 with a remark before and a tally after the file (see $WORK/map-ps-noise.log)"
-grep -aq '^# shop-web — the map' "$WORK/map-ps-noise.log" && ! grep -aqE 'Done reading|Grant write|tokens saved' "$WORK/map-ps-noise.log" || fail "map.ps1 kept what the tool said around the file (see $WORK/map-ps-noise.log)"
-map_sh "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-sh-dry.log" 2>&1 || fail "map.sh --dry-run (see $WORK/map-sh-dry.log)"
-grep -aq '^# shop-web — the map' "$WORK/map-sh-dry.log" && cmp -s "$M" "$WORK/map.before" || fail "map.sh --dry-run wrote something or printed nothing"
-map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")" > "$WORK/map-ps-1.log" 2>&1 || fail "map.ps1 (see $WORK/map-ps-1.log)"
-MP="$WORK/org-ps/shop-ai-core/repos/shop-web/AGENTS.md"
-head -n1 "$MP" | grep -qE '^<!-- ai-core map: generated [0-9-]+ from [0-9a-f]+; ' && grep -q '^A shop\. ps$' "$MP" && grep -q '^- \*\*Ship on Fridays never' "$MP" || fail "map.ps1 did not write the map or lost the rules people wrote: $(head -n5 "$MP" 2>/dev/null | tr '\n' '|')"
-[ -z "$(git -C "$WORK/org-ps/shop-ai-core" status --porcelain)" ] && head -n1 "$WORK/org-ps/shop-web/AGENTS.md" | grep -q 'ai-core map: generated' || fail "map.ps1 did not push the harness and bring the map into the checkout"
-[ "$(sed -n 4p "$WORK/org-ps/shop-web/AGENTS.md")" = '## Binding rules' ] && grep -q '^- The engineering rules, .*: @\.ai-core/rules/rules\.md$' "$WORK/org-ps/shop-web/AGENTS.md" || fail "init.ps1 did not open the map in the checkout with the binding rules imported: $(sed -n 4,9p "$WORK/org-ps/shop-web/AGENTS.md" | tr '\n' '|')"
-cmp -s "$WORK/org-sh/shop-web/AGENTS.md" "$WORK/org-ps/shop-web/AGENTS.md" || [ "$(sed -n 4,9p "$WORK/org-sh/shop-web/AGENTS.md")" = "$(sed -n 4,9p "$WORK/org-ps/shop-web/AGENTS.md")" ] || fail "the twins wrote different binding rules: $(diff <(sed -n 4,9p "$WORK/org-sh/shop-web/AGENTS.md") <(sed -n 4,9p "$WORK/org-ps/shop-web/AGENTS.md") | tr '\n' '|')"
-grep -q '^## Binding rules' "$WORK/org-ps/shop-ai-core/repos/shop-web/AGENTS.md" && fail "the map in the harness of the PowerShell twin carries the contract"
-MAP_FAKE_BAD=1 map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")" > "$WORK/map-ps-bad.log" 2>&1 && fail "map.ps1 accepted an output that is not a map"
-grep -aq "not the map's shape" "$WORK/map-ps-bad.log" || fail "map.ps1: the refusal (see $WORK/map-ps-bad.log)"
+MAP_FAKE_NOISE=1 map_run "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-noise.log" 2>&1 || fail "map.sh with a remark before and a tally after the file (see $WORK/map-noise.log)"
+grep -aq '^# shop-web — the map' "$WORK/map-noise.log" && ! grep -aqE 'Done reading|Grant write|tokens saved' "$WORK/map-noise.log" || fail "map.sh kept what the tool said around the file (see $WORK/map-noise.log)"
+map_run "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-dry.log" 2>&1 || fail "map.sh --dry-run (see $WORK/map-dry.log)"
+grep -aq '^# shop-web — the map' "$WORK/map-dry.log" && cmp -s "$M" "$WORK/map.before" || fail "map.sh --dry-run wrote something or printed nothing"
 # the session start, with a table whose probes always pass: the fake homes hold no team modes
 printf 'claude\tcaveman\tlite\talways\t-\t-\n' > "$WORK/always.tsv"
 # codex and agy write the map the same way, named by AI_CORE_MAP_TOOL for one machine; a tool map does not know is refused
-AI_CORE_MAP_TOOL=codex map_sh "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-codex-sh.log" 2>&1 || fail "map.sh with codex (see $WORK/map-codex-sh.log)"
-grep -aq '^# shop-web — the map' "$WORK/map-codex-sh.log" && grep -q 'exec --skip-git-repo-check -s read-only' "$MAPLOG" || fail "map.sh did not run codex exec read-only or printed no map (see $WORK/map-codex-sh.log)"
-AI_CORE_MAP_TOOL=agy map_sh "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-agy-sh.log" 2>&1 || fail "map.sh with agy (see $WORK/map-agy-sh.log)"
-grep -aq '^# shop-web — the map' "$WORK/map-agy-sh.log" && grep -q -- '--print' "$MAPLOG" || fail "map.sh did not run agy --print or printed no map (see $WORK/map-agy-sh.log)"
-AI_CORE_MAP_TOOL=codex map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")" -DryRun > "$WORK/map-codex-ps.log" 2>&1 || fail "map.ps1 with codex (see $WORK/map-codex-ps.log)"
-AI_CORE_MAP_TOOL=agy map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")" -DryRun > "$WORK/map-agy-ps.log" 2>&1 || fail "map.ps1 with agy (see $WORK/map-agy-ps.log)"
-grep -aq '^# shop-web — the map' "$WORK/map-codex-ps.log" && grep -aq '^# shop-web — the map' "$WORK/map-agy-ps.log" || fail "map.ps1 with codex or agy printed no map"
+AI_CORE_MAP_TOOL=codex map_run "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-codex.log" 2>&1 || fail "map.sh with codex (see $WORK/map-codex.log)"
+grep -aq '^# shop-web — the map' "$WORK/map-codex.log" && grep -q 'exec --skip-git-repo-check -s read-only' "$MAPLOG" || fail "map.sh did not run codex exec read-only or printed no map (see $WORK/map-codex.log)"
+AI_CORE_MAP_TOOL=agy map_run "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-agy.log" 2>&1 || fail "map.sh with agy (see $WORK/map-agy.log)"
+grep -aq '^# shop-web — the map' "$WORK/map-agy.log" && grep -q -- '--print' "$MAPLOG" || fail "map.sh did not run agy --print or printed no map (see $WORK/map-agy.log)"
 # One machine names its CLI and its model; the project's model goes only with the project's own CLI
-map_twin() { if [ "$t" = sh ]; then map_sh "$WORK/org-sh/shop-web" --dry-run; else map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")" -DryRun; fi > "$WORK/map-$t-model.log" 2>&1 || fail "map.$t with a model (see $WORK/map-$t-model.log)"; }
-for t in sh ps; do
-  C="$WORK/org-$t/shop-web/.ai-core/config.env"; cp "$C" "$WORK/map-config-$t.bak"; printf 'MAP_MODEL="claude-sonnet-5"\n' >> "$C"
-  : > "$MAPLOG"; map_twin
-  grep -q -- '--model claude-sonnet-5' "$MAPLOG" || fail "map.$t did not hand the project's model to the project's CLI: $(tail -c 200 "$MAPLOG")"
-  : > "$MAPLOG"; AI_CORE_MAP_TOOL=agy map_twin
-  ! grep -q 'claude-sonnet-5' "$MAPLOG" || fail "map.$t handed the project's model to the CLI this machine names: $(tail -c 200 "$MAPLOG")"
-  : > "$MAPLOG"; AI_CORE_MAP_TOOL=agy AI_CORE_MAP_MODEL=gemini-3.8-flash-high map_twin
-  grep -q -- '--model gemini-3.8-flash-high' "$MAPLOG" && ! grep -q 'claude-sonnet-5' "$MAPLOG" || fail "map.$t did not hand this machine's model to this machine's CLI: $(tail -c 200 "$MAPLOG")"
-  mv -f "$WORK/map-config-$t.bak" "$C"
-done
+map_model() { map_run "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-model.log" 2>&1 || fail "map.sh with a model (see $WORK/map-model.log)"; }
+C="$WORK/org-sh/shop-web/.ai-core/config.env"; cp "$C" "$WORK/map-config.bak"; printf 'MAP_MODEL="claude-sonnet-5"\n' >> "$C"
+: > "$MAPLOG"; map_model
+grep -q -- '--model claude-sonnet-5' "$MAPLOG" || fail "map.sh did not hand the project's model to the project's CLI: $(tail -c 200 "$MAPLOG")"
+: > "$MAPLOG"; AI_CORE_MAP_TOOL=agy map_model
+! grep -q 'claude-sonnet-5' "$MAPLOG" || fail "map.sh handed the project's model to the CLI this machine names: $(tail -c 200 "$MAPLOG")"
+: > "$MAPLOG"; AI_CORE_MAP_TOOL=agy AI_CORE_MAP_MODEL=gemini-3.8-flash-high map_model
+grep -q -- '--model gemini-3.8-flash-high' "$MAPLOG" && ! grep -q 'claude-sonnet-5' "$MAPLOG" || fail "map.sh did not hand this machine's model to this machine's CLI: $(tail -c 200 "$MAPLOG")"
+mv -f "$WORK/map-config.bak" "$C"
 # An agy that cannot run in this session is found before the map is asked for, and over SSH with the reason
-for t in sh ps; do
-  : > "$MAPLOG"
-  if [ "$t" = sh ]; then MAP_FAKE_SIGNED_OUT=1 SSH_CONNECTION='192.0.2.1 50000 192.0.2.2 22' AI_CORE_MAP_TOOL=agy map_sh "$WORK/org-sh/shop-web" --dry-run
-  else MAP_FAKE_SIGNED_OUT=1 SSH_CONNECTION='192.0.2.1 50000 192.0.2.2 22' AI_CORE_MAP_TOOL=agy map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")" -DryRun; fi > "$WORK/map-agy-out-$t.log" 2>&1 && fail "map.$t ran with an agy that is not signed in"
-  grep -aq 'agy models failed, so agy cannot write the map in this session: not signed in; over SSH agy keeps its token in a file, not in the desktop keychain' "$WORK/map-agy-out-$t.log" && ! grep -q -- '--print' "$MAPLOG" || fail "map.$t did not stop before the map with the reason agy cannot run (see $WORK/map-agy-out-$t.log)"
-done
-AI_CORE_MAP_TOOL=hermes map_sh "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-hermes.log" 2>&1 && fail "map.sh accepted a tool it does not know"
+: > "$MAPLOG"
+MAP_FAKE_SIGNED_OUT=1 SSH_CONNECTION='192.0.2.1 50000 192.0.2.2 22' AI_CORE_MAP_TOOL=agy map_run "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-agy-out.log" 2>&1 && fail "map.sh ran with an agy that is not signed in"
+grep -aq 'agy models failed, so agy cannot write the map in this session: not signed in; over SSH agy keeps its token in a file, not in the desktop keychain' "$WORK/map-agy-out.log" && ! grep -q -- '--print' "$MAPLOG" || fail "map.sh did not stop before the map with the reason agy cannot run (see $WORK/map-agy-out.log)"
+AI_CORE_MAP_TOOL=hermes map_run "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-hermes.log" 2>&1 && fail "map.sh accepted a tool it does not know"
 grep -aq 'map runs with claude, codex or agy' "$WORK/map-hermes.log" || fail "map.sh does not name the tools it runs with (see $WORK/map-hermes.log)"
 (cd "$WORK/org-sh/shop-web" && HOME="$WORK/home-sh" PATH="$PATH_SH" AI_CORE_UPDATE_CHECK=never TEAM_MODES_FILE="$WORK/always.tsv" bash "$ROOT/bin/session-start.sh" > "$WORK/map-session.log" 2>&1) || fail "session-start.sh with a map (see $WORK/map-session.log): $(tail -n 3 "$WORK/map-session.log" | tr '\n' '|')"
 grep -aq '^Map              : ✓ Generated from [0-9a-f]*, current$' "$WORK/map-session.log" || fail "session-start.sh does not name the map: $(grep -a '^Map' "$WORK/map-session.log")"
 echo x >> "$WORK/org-sh/shop-web/README.md"; git -C "$WORK/org-sh/shop-web" -c user.name=check -c user.email=check@localhost commit -qam 'A change #1'
 (cd "$WORK/org-sh/shop-web" && HOME="$WORK/home-sh" PATH="$PATH_SH" AI_CORE_UPDATE_CHECK=never TEAM_MODES_FILE="$WORK/always.tsv" bash "$ROOT/bin/session-start.sh" --json > "$WORK/map-session.json" 2>/dev/null) || true
 [ "$(jq -r '.map_behind' "$WORK/map-session.json")" = 1 ] || fail "session-start.sh --json does not count the commits behind the map: $(jq -c '{map_commit, map_behind}' "$WORK/map-session.json")"
-(cd "$WORK/org-ps/shop-web" && HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" AI_CORE_UPDATE_CHECK=never TEAM_MODES_FILE="$(native "$WORK/always.tsv")" pwsh -NoProfile -File "$ROOT/bin/session-start.ps1" -Json > "$WORK/map-session-ps.json" 2>/dev/null) || true
-[ "$(jq -r '.map_behind' "$WORK/map-session-ps.json")" = 0 ] || fail "session-start.ps1 -Json does not report the map: $(jq -c '{map_commit, map_behind}' "$WORK/map-session-ps.json")"
 # A map the code gives again word for word is confirmed: its header moves to the commit it was
 # confirmed at, pushed, and the distance is gone; a second run at that commit leaves it alone.
-for t in sh ps; do
-  if [ "$t" = sh ]; then map_run() { MAP_FAKE_NOTE=v3 map_sh "$WORK/org-sh/shop-web"; }; else map_run() { map_ps -TargetDir "$(native "$WORK/org-ps/shop-web")"; }; fi
-  H="$WORK/org-$t/shop-ai-core/repos/shop-web/AGENTS.md"
-  map_run > "$WORK/map-own-$t.log" 2>&1 || fail "map.$t writing its own map (see $WORK/map-own-$t.log)"
-  echo y >> "$WORK/org-$t/shop-web/README.md"; git -C "$WORK/org-$t/shop-web" -c user.name=check -c user.email=check@localhost commit -qam 'A change the map does not see #3'
-  head="$(git -C "$WORK/org-$t/shop-web" rev-parse --short HEAD)"
-  map_run > "$WORK/map-confirm-$t.log" 2>&1 || fail "map.$t confirming the map (see $WORK/map-confirm-$t.log)"
-  grep -aq "^--> Map confirmed at $head, its content unchanged: " "$WORK/map-confirm-$t.log" && head -n1 "$H" | grep -q " from $head;" || fail "map.$t did not confirm the unchanged map at $head: $(grep -a '^--> Map' "$WORK/map-confirm-$t.log"; head -n1 "$H")"
-  [ -z "$(git -C "$WORK/org-$t/shop-ai-core" status --porcelain)" ] && [ "$(git -C "$WORK/org-$t/shop-ai-core" rev-list --count '@{upstream}..HEAD')" = 0 ] || fail "map.$t did not push the confirmed map"
-  before="$(git -C "$WORK/org-$t/shop-ai-core" rev-parse HEAD)"
-  map_run > "$WORK/map-again-$t.log" 2>&1 || fail "map.$t a second time (see $WORK/map-again-$t.log)"
-  grep -aq '^--> Map unchanged: ' "$WORK/map-again-$t.log" && [ "$(git -C "$WORK/org-$t/shop-ai-core" rev-parse HEAD)" = "$before" ] || fail "map.$t wrote the map again at the commit it was confirmed at (see $WORK/map-again-$t.log)"
-done
+H="$WORK/org-sh/shop-ai-core/repos/shop-web/AGENTS.md"
+MAP_FAKE_NOTE=v3 map_run "$WORK/org-sh/shop-web" > "$WORK/map-own.log" 2>&1 || fail "map.sh writing its own map (see $WORK/map-own.log)"
+echo y >> "$WORK/org-sh/shop-web/README.md"; git -C "$WORK/org-sh/shop-web" -c user.name=check -c user.email=check@localhost commit -qam 'A change the map does not see #3'
+head="$(git -C "$WORK/org-sh/shop-web" rev-parse --short HEAD)"
+MAP_FAKE_NOTE=v3 map_run "$WORK/org-sh/shop-web" > "$WORK/map-confirm.log" 2>&1 || fail "map.sh confirming the map (see $WORK/map-confirm.log)"
+grep -aq "^--> Map confirmed at $head, its content unchanged: " "$WORK/map-confirm.log" && head -n1 "$H" | grep -q " from $head;" || fail "map.sh did not confirm the unchanged map at $head: $(grep -a '^--> Map' "$WORK/map-confirm.log"; head -n1 "$H")"
+[ -z "$(git -C "$WORK/org-sh/shop-ai-core" status --porcelain)" ] && [ "$(git -C "$WORK/org-sh/shop-ai-core" rev-list --count '@{upstream}..HEAD')" = 0 ] || fail "map.sh did not push the confirmed map"
+before="$(git -C "$WORK/org-sh/shop-ai-core" rev-parse HEAD)"
+MAP_FAKE_NOTE=v3 map_run "$WORK/org-sh/shop-web" > "$WORK/map-again.log" 2>&1 || fail "map.sh a second time (see $WORK/map-again.log)"
+grep -aq '^--> Map unchanged: ' "$WORK/map-again.log" && [ "$(git -C "$WORK/org-sh/shop-ai-core" rev-parse HEAD)" = "$before" ] || fail "map.sh wrote the map again at the commit it was confirmed at (see $WORK/map-again.log)"
 (cd "$WORK/org-sh/shop-web" && HOME="$WORK/home-sh" PATH="$PATH_SH" AI_CORE_UPDATE_CHECK=never TEAM_MODES_FILE="$WORK/always.tsv" bash "$ROOT/bin/session-start.sh" --json > "$WORK/map-session-2.json" 2>/dev/null) || fail "session-start.sh after the confirmation"
 [ "$(jq -r '.map_behind' "$WORK/map-session-2.json")" = 0 ] || fail "session-start.sh still counts commits behind a map confirmed at HEAD: $(jq -c '{map_commit, map_behind}' "$WORK/map-session-2.json")"
 git -C "$WORK/author" pull -q --rebase 2>/dev/null || fail "the author clone could not take the maps"
-# The PowerShell twin creates one too: store-api of the same organisation gets store-ai-core
-new_checkout "$WORK/org-ps/store-api" store-api
-HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-ps/store-api")" -NoDoctor -DryRun > "$WORK/layers-ps-0.log" 2>&1 || fail "init.ps1 -DryRun before the project harness exists (see $WORK/layers-ps-0.log)"
-grep -aq 'example-org/store-ai-core would be created from the skeleton' "$WORK/layers-ps-0.log" || fail "init.ps1 -DryRun does not announce the harness it would create"
-[ ! -e "$GH_FAKE/github.com/example-org/store-ai-core.git" ] && [ ! -e "$WORK/org-ps/store-ai-core" ] || fail "init.ps1 -DryRun created the project harness"
-HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-ps/store-api")" -NoDoctor > "$WORK/layers-ps-2.log" 2>&1 || fail "init.ps1 with a new project harness (see $WORK/layers-ps-2.log)"
-grep -aq 'created: example-org/store-ai-core, private, from the skeleton' "$WORK/layers-ps-2.log" || fail "init.ps1 did not create store-ai-core"
+# Another project of the same organisation: store-api gets store-ai-core
+new_checkout "$WORK/org-sh/store-api" store-api
+HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/store-api" --no-doctor > "$WORK/layers-store.log" 2>&1 || fail "init.sh with a new project harness (see $WORK/layers-store.log)"
+grep -aq 'created: example-org/store-ai-core, private, from the skeleton' "$WORK/layers-store.log" || fail "init.sh did not create store-ai-core"
 [ -d "$GH_FAKE/github.com/example-org/store-ai-core.git" ] || fail "store-ai-core was not pushed"
-grep -qxF '* text=auto eol=lf' "$WORK/org-ps/store-ai-core/.gitattributes" || fail "the harness init.ps1 created lacks the skeleton's .gitattributes"
-git -C "$WORK/org-ps/store-ai-core" rm -q .gitattributes && git -C "$WORK/org-ps/store-ai-core" -c user.name=check -c user.email=check@localhost commit -q -m 'an older harness' && git -C "$WORK/org-ps/store-ai-core" push -q origin HEAD 2>/dev/null || fail "could not make store-ai-core an older one"
-HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-ps/store-api")" -NoDoctor > "$WORK/layers-ps-attr.log" 2>&1 || fail "init.ps1 on a harness clone without .gitattributes (see $WORK/layers-ps-attr.log)"
-grep -aq 'note: example-org/store-ai-core: .gitattributes from the skeleton written into .*store-ai-core (every file LF); ai-core push commits it' "$WORK/layers-ps-attr.log" || fail "init.ps1 did not report the skeleton's .gitattributes for the older clone (see $WORK/layers-ps-attr.log)"
-grep -qxF '* text=auto eol=lf' "$WORK/org-ps/store-ai-core/.gitattributes" || fail "init.ps1 did not write the skeleton's rule into the older clone"
-git -C "$WORK/org-ps/store-ai-core" add .gitattributes && git -C "$WORK/org-ps/store-ai-core" -c user.name=check -c user.email=check@localhost commit -q -m 'the skeleton file again' && git -C "$WORK/org-ps/store-ai-core" push -q origin HEAD 2>/dev/null || fail "could not commit .gitattributes back into store-ai-core"
 # A harness repository that exists on GitHub but is empty, made by hand by whoever has the right
-# to create it under that owner: the first init fills it from the skeleton and pushes, on both twins
-for twin in sh ps1; do
-  p="$([ "$twin" = sh ] && echo blank || echo void)"
-  git init -q --bare "$GH_FAKE/github.com/example-org/$p-ai-core.git"
-  new_checkout "$WORK/org-$twin/$p-web" "$p-web"
-  if [ "$twin" = sh ]; then
-    HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/$p-web" --no-doctor > "$WORK/layers-$twin-empty.log" 2>&1 || fail "init.$twin with an empty harness repository (see $WORK/layers-$twin-empty.log)"
-  else
-    HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-$twin/$p-web")" -NoDoctor > "$WORK/layers-$twin-empty.log" 2>&1 || fail "init.$twin with an empty harness repository (see $WORK/layers-$twin-empty.log)"
-  fi
-  grep -aq "filled: example-org/$p-ai-core, empty on GitHub, from the skeleton, at " "$WORK/layers-$twin-empty.log" || fail "init.$twin did not say it filled the empty harness (see $WORK/layers-$twin-empty.log)"
-  grep -aq 'created:' "$WORK/layers-$twin-empty.log" && fail "init.$twin created a harness that exists"
-  [ -f "$WORK/org-$twin/$p-ai-core/ai-core.json" ] && [ -f "$WORK/org-$twin/$p-ai-core/labels.tsv" ] && [ -f "$WORK/org-$twin/$p-ai-core/.gitattributes" ] || fail "the filled harness of $twin lacks the skeleton"
-  [ "$(git -C "$GH_FAKE/github.com/example-org/$p-ai-core.git" rev-list --count HEAD 2>/dev/null)" = 1 ] || fail "init.$twin did not push the filled harness to GitHub"
-  [ -z "$(git -C "$WORK/org-$twin/$p-ai-core" status --porcelain)" ] || fail "the filled harness of $twin is not clean"
-  grep -q "^$p-ai-core " "$WORK/org-$twin/$p-web/.ai-core/STAMP" || fail "the checkout of $twin was not assembled from the filled harness: $(cat "$WORK/org-$twin/$p-web/.ai-core/STAMP" | tr '\n' '|')"
-done
+# to create it under that owner: the first init fills it from the skeleton and pushes
+git init -q --bare "$GH_FAKE/github.com/example-org/blank-ai-core.git"
+new_checkout "$WORK/org-sh/blank-web" blank-web
+HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/blank-web" --no-doctor > "$WORK/layers-empty.log" 2>&1 || fail "init.sh with an empty harness repository (see $WORK/layers-empty.log)"
+grep -aq "filled: example-org/blank-ai-core, empty on GitHub, from the skeleton, at " "$WORK/layers-empty.log" || fail "init.sh did not say it filled the empty harness (see $WORK/layers-empty.log)"
+grep -aq 'created:' "$WORK/layers-empty.log" && fail "init.sh created a harness that exists"
+[ -f "$WORK/org-sh/blank-ai-core/ai-core.json" ] && [ -f "$WORK/org-sh/blank-ai-core/labels.tsv" ] && [ -f "$WORK/org-sh/blank-ai-core/.gitattributes" ] || fail "the filled harness lacks the skeleton"
+[ "$(git -C "$GH_FAKE/github.com/example-org/blank-ai-core.git" rev-list --count HEAD 2>/dev/null)" = 1 ] || fail "init.sh did not push the filled harness to GitHub"
+[ -z "$(git -C "$WORK/org-sh/blank-ai-core" status --porcelain)" ] || fail "the filled harness is not clean"
+grep -q "^blank-ai-core " "$WORK/org-sh/blank-web/.ai-core/STAMP" || fail "the checkout was not assembled from the filled harness: $(tr '\n' '|' < "$WORK/org-sh/blank-web/.ai-core/STAMP")"
 # The same repository cloned by hand before init ran: the clone has no commit and the origin has
 # none either; a dry run says what would happen and writes nothing, the run fills and pushes
-for twin in sh ps1; do
-  p="$([ "$twin" = sh ] && echo hollow || echo bare)"
-  git init -q --bare "$GH_FAKE/github.com/example-org/$p-ai-core.git"
-  new_checkout "$WORK/org-$twin/$p-web" "$p-web"
-  git clone -q "$GH_FAKE/github.com/example-org/$p-ai-core.git" "$WORK/org-$twin/$p-ai-core" 2>/dev/null
-  if [ "$twin" = sh ]; then
-    HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/$p-web" --no-doctor --dry-run > "$WORK/layers-$twin-hollow-dry.log" 2>&1 || fail "init.$twin --dry-run with an empty clone of an empty harness repository (see $WORK/layers-$twin-hollow-dry.log)"
-    HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/$p-web" --no-doctor > "$WORK/layers-$twin-hollow.log" 2>&1 || fail "init.$twin with an empty clone of an empty harness repository (see $WORK/layers-$twin-hollow.log)"
-  else
-    HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-$twin/$p-web")" -NoDoctor -DryRun > "$WORK/layers-$twin-hollow-dry.log" 2>&1 || fail "init.$twin -DryRun with an empty clone of an empty harness repository (see $WORK/layers-$twin-hollow-dry.log)"
-    HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-$twin/$p-web")" -NoDoctor > "$WORK/layers-$twin-hollow.log" 2>&1 || fail "init.$twin with an empty clone of an empty harness repository (see $WORK/layers-$twin-hollow.log)"
-  fi
-  grep -aq "note: example-org/$p-ai-core is empty here and on GitHub and would be filled from the skeleton (dry run: not written)" "$WORK/layers-$twin-hollow-dry.log" || fail "init.$twin dry run does not announce the fill of the empty clone (see $WORK/layers-$twin-hollow-dry.log)"
-  grep -aq "filled: example-org/$p-ai-core, empty on GitHub, from the skeleton, at " "$WORK/layers-$twin-hollow.log" || fail "init.$twin did not fill the empty clone (see $WORK/layers-$twin-hollow.log)"
-  [ -f "$WORK/org-$twin/$p-ai-core/ai-core.json" ] && [ -f "$WORK/org-$twin/$p-ai-core/labels.tsv" ] || fail "the filled clone of $twin lacks the skeleton"
-  [ ! -e "$WORK/org-$twin/$p-ai-core/models.tsv" ] || fail "the filled clone of $twin pins a copy of the model table"
-  [ "$(git -C "$GH_FAKE/github.com/example-org/$p-ai-core.git" rev-list --count HEAD 2>/dev/null)" = 1 ] || fail "init.$twin did not push the filled clone to GitHub"
-  [ -z "$(git -C "$WORK/org-$twin/$p-ai-core" status --porcelain)" ] || fail "the filled clone of $twin is not clean"
-  grep -q "^$p-ai-core " "$WORK/org-$twin/$p-web/.ai-core/STAMP" || fail "the checkout of $twin was not assembled from the filled clone: $(cat "$WORK/org-$twin/$p-web/.ai-core/STAMP" | tr '\n' '|')"
-done
+git init -q --bare "$GH_FAKE/github.com/example-org/hollow-ai-core.git"
+new_checkout "$WORK/org-sh/hollow-web" hollow-web
+git clone -q "$GH_FAKE/github.com/example-org/hollow-ai-core.git" "$WORK/org-sh/hollow-ai-core" 2>/dev/null
+HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/hollow-web" --no-doctor --dry-run > "$WORK/layers-hollow-dry.log" 2>&1 || fail "init.sh --dry-run with an empty clone of an empty harness repository (see $WORK/layers-hollow-dry.log)"
+HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/hollow-web" --no-doctor > "$WORK/layers-hollow.log" 2>&1 || fail "init.sh with an empty clone of an empty harness repository (see $WORK/layers-hollow.log)"
+grep -aq "note: example-org/hollow-ai-core is empty here and on GitHub and would be filled from the skeleton (dry run: not written)" "$WORK/layers-hollow-dry.log" || fail "init.sh dry run does not announce the fill of the empty clone (see $WORK/layers-hollow-dry.log)"
+grep -aq "filled: example-org/hollow-ai-core, empty on GitHub, from the skeleton, at " "$WORK/layers-hollow.log" || fail "init.sh did not fill the empty clone (see $WORK/layers-hollow.log)"
+[ -f "$WORK/org-sh/hollow-ai-core/ai-core.json" ] && [ -f "$WORK/org-sh/hollow-ai-core/labels.tsv" ] || fail "the filled clone lacks the skeleton"
+[ ! -e "$WORK/org-sh/hollow-ai-core/models.tsv" ] || fail "the filled clone pins a copy of the model table"
+[ "$(git -C "$GH_FAKE/github.com/example-org/hollow-ai-core.git" rev-list --count HEAD 2>/dev/null)" = 1 ] || fail "init.sh did not push the filled clone to GitHub"
+[ -z "$(git -C "$WORK/org-sh/hollow-ai-core" status --porcelain)" ] || fail "the filled clone is not clean"
+grep -q "^hollow-ai-core " "$WORK/org-sh/hollow-web/.ai-core/STAMP" || fail "the checkout was not assembled from the filled clone: $(tr '\n' '|' < "$WORK/org-sh/hollow-web/.ai-core/STAMP")"
 # extends: shop-ai-core now extends store-ai-core, so the chain is store first, then shop
 printf '{ "setup-ai-core": ">=1.1.0", "extends": "example-org/store-ai-core" }\n' > "$WORK/author/ai-core.json"
 git -C "$WORK/author" add -A; git -C "$WORK/author" -c user.name=check -c user.email=check@localhost commit -q -m extends; git -C "$WORK/author" push -q origin HEAD
@@ -414,10 +310,6 @@ new_checkout "$WORK/org-sh/nocreate-web" nocreate-web nocreate-org
 HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/nocreate-web" --no-doctor > "$WORK/layers-nocreate-sh.log" 2>&1 && fail "init.sh assembled the generic harness although the project harness could not be had"
 grep -aq 'could not create nocreate-org/nocreate-ai-core' "$WORK/layers-nocreate-sh.log" && grep -aq 'nothing was written' "$WORK/layers-nocreate-sh.log" || fail "init.sh does not say why it stopped (see $WORK/layers-nocreate-sh.log)"
 [ ! -e "$WORK/org-sh/nocreate-web/.ai-core" ] || fail "init.sh wrote into the checkout although it stopped"
-new_checkout "$WORK/org-ps/nocreate-web" nocreate-web nocreate-org
-HOME="$WORK/home-ps" USERPROFILE="$(native "$WORK/home-ps")" PATH="$PATH_SH" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/org-ps/nocreate-web")" -NoDoctor > "$WORK/layers-nocreate-ps.log" 2>&1 && fail "init.ps1 assembled the generic harness although the project harness could not be had"
-grep -aq 'could not create nocreate-org/nocreate-ai-core' "$WORK/layers-nocreate-ps.log" && grep -aq 'nothing was written' "$WORK/layers-nocreate-ps.log" || fail "init.ps1 does not say why it stopped (see $WORK/layers-nocreate-ps.log)"
-[ ! -e "$WORK/org-ps/nocreate-web/.ai-core" ] || fail "init.ps1 wrote into the checkout although it stopped"
 # A harness checkout is refused, and a project folder gets the layers its repositories share
 new_checkout "$WORK/harness-checkout" shop-ai-core
 HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/harness-checkout" --no-doctor > "$WORK/layers-refused.log" 2>&1 && fail "init.sh accepted a harness repository"
@@ -435,24 +327,21 @@ git -C "$WORK/folder/shop-ai-core" ls-files -z | (cd "$WORK/folder/shop-ai-core"
 HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/folder" --no-doctor > "$WORK/layers-folder-2.log" 2>&1 || fail "init.sh on the folder with a harness clone that lost its files (see $WORK/layers-folder-2.log)"
 grep -aq 'restored: the files of example-org/shop-ai-core at ' "$WORK/layers-folder-2.log" || fail "init.sh did not restore the files of the harness clone (see $WORK/layers-folder-2.log)"
 [ -z "$(git -C "$WORK/folder/shop-ai-core" status --porcelain)" ] || fail "the harness clone is not whole after the restore: $(git -C "$WORK/folder/shop-ai-core" status --porcelain | tr '\n' '|')"
-# map --all: every repository under the folder, the harness clones excepted, one push, then init --all, on both twins
-map_sh --all "$WORK/folder" > "$WORK/map-all-sh.log" 2>&1 || fail "map.sh --all (see $WORK/map-all-sh.log)"
-grep -aq '^==> map --all: 2 map(s) were written$' "$WORK/map-all-sh.log" || fail "map.sh --all did not write the two maps: $(grep -a 'map --all' "$WORK/map-all-sh.log")"
+# map --all: every repository under the folder, the harness clones excepted, one push, then init --all
+map_run --all "$WORK/folder" > "$WORK/map-all.log" 2>&1 || fail "map.sh --all (see $WORK/map-all.log)"
+grep -aq '^==> map --all: 2 map(s) were written$' "$WORK/map-all.log" || fail "map.sh --all did not write the two maps: $(grep -a 'map --all' "$WORK/map-all.log")"
 for r in shop-web store-api; do
   h="$WORK/folder/${r%%-*}-ai-core/repos/$r/AGENTS.md"
   head -n1 "$h" | grep -q 'ai-core map: generated' && head -n1 "$WORK/folder/$r/AGENTS.md" | grep -q 'ai-core map: generated' || fail "map.sh --all: $r has no map in the harness or the checkout"
   [ -z "$(git -C "$WORK/folder/${r%%-*}-ai-core" status --porcelain)" ] || fail "map.sh --all did not push ${r%%-*}-ai-core"
 done
 # The binding rules in a project folder: its AGENTS.md imports them; a checkout whose rules are the folder's names them without the @, one whose harness adds rules imports its own
-binding_ok() {  # binding_ok <twin>
-  grep -q '^- The engineering rules, .*: @\.ai-core/rules/rules\.md$' "$WORK/folder/AGENTS.md" && grep -q '^- When a skill or a tool is used: @\.ai-core/rules/skills\.md$' "$WORK/folder/AGENTS.md" && grep -q '^| `shop-web` |' "$WORK/folder/AGENTS.md" || fail "$1: the folder's AGENTS.md does not import the rules: $(sed -n 4,11p "$WORK/folder/AGENTS.md" | tr '\n' '|')"
-  grep -q '@\.ai-core/rules/rules\.md' "$WORK/folder/store-api/AGENTS.md" && fail "$1: store-api has the folder's rules and imports them a second time"
-  grep -q "^- The engineering rules, .*: \`.ai-core/rules/rules.md\`, the same as the project folder's, which its AGENTS.md loads$" "$WORK/folder/store-api/AGENTS.md" || fail "$1: store-api's map does not name the folder's rules: $(sed -n 4,9p "$WORK/folder/store-api/AGENTS.md" | tr '\n' '|')"
-  grep -q '^- The engineering rules, .*: @\.ai-core/rules/rules\.md$' "$WORK/folder/shop-web/AGENTS.md" || fail "$1: shop-web, whose harness adds rules the folder lacks, does not import its own: $(sed -n 4,9p "$WORK/folder/shop-web/AGENTS.md" | tr '\n' '|')"
+binding_ok() {  # binding_ok
+  grep -q '^- The engineering rules, .*: @\.ai-core/rules/rules\.md$' "$WORK/folder/AGENTS.md" && grep -q '^- When a skill or a tool is used: @\.ai-core/rules/skills\.md$' "$WORK/folder/AGENTS.md" && grep -q '^| `shop-web` |' "$WORK/folder/AGENTS.md" || fail "the folder's AGENTS.md does not import the rules: $(sed -n 4,11p "$WORK/folder/AGENTS.md" | tr '\n' '|')"
+  grep -q '@\.ai-core/rules/rules\.md' "$WORK/folder/store-api/AGENTS.md" && fail "store-api has the folder's rules and imports them a second time"
+  grep -q "^- The engineering rules, .*: \`.ai-core/rules/rules.md\`, the same as the project folder's, which its AGENTS.md loads$" "$WORK/folder/store-api/AGENTS.md" || fail "store-api's map does not name the folder's rules: $(sed -n 4,9p "$WORK/folder/store-api/AGENTS.md" | tr '\n' '|')"
+  grep -q '^- The engineering rules, .*: @\.ai-core/rules/rules\.md$' "$WORK/folder/shop-web/AGENTS.md" || fail "shop-web, whose harness adds rules the folder lacks, does not import its own: $(sed -n 4,9p "$WORK/folder/shop-web/AGENTS.md" | tr '\n' '|')"
 }
-binding_ok sh
-map_ps -All "$(native "$WORK/folder")" > "$WORK/map-all-ps.log" 2>&1 || fail "map.ps1 -All (see $WORK/map-all-ps.log)"
-binding_ok ps1
-grep -aq '^==> map -All: 2 map(s) were written$' "$WORK/map-all-ps.log" && grep -q '^A shop\. ps$' "$WORK/folder/store-api/AGENTS.md" || fail "map.ps1 -All did not write the two maps and bring them into the checkouts: $(grep -a 'map -All' "$WORK/map-all-ps.log"); store-api: $(grep -a 'A shop' "$WORK/folder/store-api/AGENTS.md")"
-echo "  created, cloned, an empty one on GitHub filled from the skeleton (cloned by init or by hand), moved from the home directory, an interrupted move completed, lost files restored, assembled and compared on both twins; extends base first; a harness that cannot be had stops init; a harness checkout refused; the folder shares the base and its map skips the clones; maps written by the agent CLI, pushed and in the checkouts, people's rules kept, a bad output refused, --all over the folder, on both twins"
+binding_ok
+echo "  created, cloned, an empty one on GitHub filled from the skeleton (cloned by init or by hand), moved from the home directory, an interrupted move completed, lost files restored, assembled; extends base first; a harness that cannot be had stops init; a harness checkout refused; the folder shares the base and its map skips the clones; maps written by the agent CLI, pushed and in the checkouts, people's rules kept, a bad output refused, --all over the folder"
 exit 0

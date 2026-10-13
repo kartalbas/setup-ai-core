@@ -54,12 +54,10 @@ rows() {
             nodes { nameWithOwner isArchived
               projectsV2(first:50) { nodes { number title closed } } } } } }')" || exit 1
     fi
-    # The carriage return is stripped here for the same reason board_items strips it: this
-    # is the jq BINARY rather than gh's own --jq, and on Windows that binary writes CRLF.
     printf '%s' "$page" | jq -r '.data.organization.repositories.nodes[] | . as $r
       | "R\t\($r.nameWithOwner)\t\($r.isArchived)",
         ($r.projectsV2.nodes[] | select(.closed == false)
-         | "B\t\($r.nameWithOwner)\t\(.number)\t\(.title)")' | tr -d '\r'
+         | "B\t\($r.nameWithOwner)\t\(.number)\t\(.title)")'
     [ "$(printf '%s' "$page" | jq -r '.data.organization.repositories.pageInfo.hasNextPage')" = 'true' ] || break
     after="$(printf '%s' "$page" | jq -r '.data.organization.repositories.pageInfo.endCursor')"
   done

@@ -127,10 +127,7 @@ esac
 # one that happens - refuses by name. Handed to jq instead it dies about a file, which reads
 # as a broken test rather than as the run asking one time too often.
 [ -f "\$doc" ] || { echo "the stand-in gh has no \$doc prepared" >&2; exit 9; }
-# The jq BINARY writes CRLF on Windows where gh's own --jq writes LF, and stripping it is
-# what makes the stand-in answer the way gh does. Left in, every line the caller reads ends
-# in a carriage return and a pattern anchored at the end of a line matches nothing.
-if [ -n "\$prog" ]; then jq -r "\$prog" < "\$doc" | tr -d '\r'
+if [ -n "\$prog" ]; then jq -r "\$prog" < "\$doc"
 else cat "\$doc"; fi
 exit 0
 EOF

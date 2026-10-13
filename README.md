@@ -1,14 +1,14 @@
-1 for an unknown command |# setup-ai-core
+# setup-ai-core
 
 **One harness for every AI coding agent, in every repository, on every machine.**
 
 `setup-ai-core` gives a repository the same rules, the same session start and the same code
 intelligence for Claude Code, OpenAI Codex, Google Antigravity, OpenCode, OpenHands, Cursor,
-Windsurf, Aider and GitHub Copilot, on Linux, macOS and Windows. A developer installs it once per
+Windsurf, Aider and GitHub Copilot, on Linux; Windows runs it under WSL. A developer installs it once per
 machine and runs one command per repository. Nothing of it is ever committed to the repository.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Platform: Linux | macOS | Windows](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)](README.md)
+[![Platform: Linux](https://img.shields.io/badge/Platform-Linux-blue)](README.md)
 [![check](https://github.com/kartalbas/setup-ai-core/actions/workflows/check.yml/badge.svg)](https://github.com/kartalbas/setup-ai-core/actions/workflows/check.yml)
 
 This README is the only documentation. It describes two things and keeps them apart: **what
@@ -17,13 +17,8 @@ section says which one it is.
 
 ## Quick start
 
-Once per machine. Windows, in PowerShell 7:
-
-```powershell
-irm https://raw.githubusercontent.com/kartalbas/setup-ai-core/master/bin/install.ps1 | iex
-```
-
-Linux and macOS:
+Once per machine, on Linux with Bash 3.2+. Windows runs the harness under WSL: open a WSL
+distribution and do everything below inside it (section 5.9).
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/kartalbas/setup-ai-core/master/bin/install.sh | bash
@@ -50,7 +45,7 @@ claude
 ```
 
 **What `init` does, in this order.** `doctor` installs what is missing (git, `gh`, Node.js, jq,
-with winget, brew or apt) and the team modes into your agent tools. If the repository's origin is
+with brew or apt) and the team modes into your agent tools. If the repository's origin is
 `github.com/<org>/<prefix>-<name>`, the project harness `<org>/<prefix>-ai-core` is cloned beside
 the repositories, into `<project folder>/<prefix>-ai-core`, or **created on GitHub, private, from
 the skeleton** when it does not exist yet. The repository gets `.ai-core/` (rules, configuration, docs), the agent files (`AGENTS.md`,
@@ -67,8 +62,7 @@ Update, on the machine:
 ai-core update
 ```
 
-moves setup-ai-core to its newest release (a tag `vX.Y.Z`, cut only when the checks are green on
-both runners) and pulls every project harness on this machine; `ai-core update --check` only asks.
+moves setup-ai-core to its newest release (a tag `vX.Y.Z`, cut only when the checks are green) and pulls every project harness on this machine; `ai-core update --check` only asks.
 Then, in a repository, `ai-core init` brings it to that state and reports what changed.
 `ai-core session-start` says when a checkout is behind the harness or a release is available.
 Nothing updates by itself.
@@ -124,8 +118,7 @@ the repository itself                  the code
 | Issues and the GitHub board | yes: one command per act over `gh`, from `issue-new` and `start-issue` to `board-sync`, `status` and `status-sync` (section 8); the conventions come from three data files a project fills | the data files come from the project harness |
 | A coordinator that delegates to worker sessions | yes: the skill `person-in-charge` bundles the issues into packages and gives each to a worker session it starts, with the model, effort and context size the work needs (section 4.6) | same |
 | The account's usage limit | yes: the status line records the usage windows, `ai-core usage` reads them against `USAGE_STOP_AT`, and every session stops at that limit | same |
-| Prerequisite check and install | yes: `ai-core doctor` checks Git, gh and its login, Bash, PowerShell 7, Node.js 20+, jq, the team modes of the agent tools on the machine, and reports the agent CLIs; installs missing required tools with winget, brew or apt-get; `init` runs it first and deploys nothing while a problem remains | tools a project harness declares |
-| Both twins deploy the same files, proven by a test | yes: `tests/check.sh`, CI on Linux and Windows | same |
+| Prerequisite check and install | yes: `ai-core doctor` checks Git, gh and its login, Bash, Node.js 20+, jq, the team modes of the agent tools on the machine, and reports the agent CLIs; installs missing required tools with brew or apt-get; `init` runs it first and deploys nothing while a problem remains | tools a project harness declares |
 | Agents that run in a sandbox (OpenHands, cloud agents) | a pointer file only; nothing of the harness reaches a sandbox | rules and skills published to the organisation's `.agents` repository; an optional bootstrap in the repository (section 4.11) |
 
 Section 11 lists the implementation order.
@@ -161,14 +154,13 @@ project repository:
 setup-ai-core (public)
 ├── bin/          the ai-core command and every script: install, doctor, init, session-start, and the
 │                 board and issue commands (issue-new, start-issue, board-sync, status, ...)
-├── lib/          the libraries of the commands (board, layers, status), gitignore-block, binding-rules.md,
-│                 entry-point.ps1
+├── lib/          the libraries of the commands (board, layers, status), gitignore-block, binding-rules.md
 ├── rules/        one file per section (NN-slug.md) and skills.md, generic
 ├── skills/       the skills every checkout gets: person-in-charge, helper
 ├── skeleton/     what a new project harness starts from
 ├── templates/    the files a checkout gets, in the layout of the checkout, among them the data files
 ├── auto-mode.tsv the steps Claude Code's classifier allows in every project, written into the user settings
-└── tests/        the check that proves the harness, and one test pair per board command
+└── tests/        the check that proves the harness, and one test per board command
 
 <org>/<prefix>-ai-core (project harness, private; skeleton/ of this repository is what it starts from)
 ├── ai-core.json  extends (another harness), setup-ai-core (the version it needs)
@@ -264,7 +256,7 @@ it as in the checkout.
 
 A worktree that `start-issue` opens lives in `<project folder>/.worktrees/<repo>/`, where `..`
 holds no other checkout. So `init` in such a worktree links every other checkout of the project
-folder into `.worktrees/<repo>/`, as `../../<name>` (a junction on Windows), and a path such as
+folder into `.worktrees/<repo>/`, as `../../<name>`, and a path such as
 `../other-repo` finds from the worktree what it finds from the checkout. An entry that already
 stands there is kept, a folder that is no repository gets no link, and `init --all` passes the links
 by.
@@ -272,7 +264,7 @@ by.
 Four files are the repository's own and are committed, because they say what the repository
 wants judged and how a worktree starts: `.githooks/pre-push`, the three-line shim that starts the
 push gate, and `.githooks/post-checkout`, the shim that starts `init` in a new worktree (section 4.12);
-`scripts/check.sh`, the repository's check, with `scripts/check.ps1` as its Windows entry point;
+`scripts/check.sh`, the repository's check;
 and `.gitleaks.toml`, which arms the credential scan. None of them is written by `init`.
 
 ### 4.4 Rules
@@ -439,7 +431,7 @@ five fixed sections and at most 80 lines, because every session reads it:
 
 No directory trees and no symbol lists: a search finds those.
 
-**`ai-core map`** (`bin/map.sh`, `bin/map.ps1`) writes the map of the checkout it runs in: the
+**`ai-core map`** (`bin/map.sh`) writes the map of the checkout it runs in: the
 agent CLI named by `MAP_TOOL` in `.ai-core/config.env` (`claude`, `codex` or `agy`, each in its
 non-interactive read-only mode; `MAP_MODEL` when not the CLI's default; `AI_CORE_MAP_TOOL` and
 `AI_CORE_MAP_MODEL` in the environment name the CLI and the model of one machine, and the
@@ -506,8 +498,7 @@ of issue N, read through `issue-thread`, and whether the issue is assigned to yo
 The issue is read in the repository `start-issue` recorded on the branch where the issue lives in
 another one, and where it cannot be read, the last line says so instead of a plain "Ready".
 
-With `--json` / `-Json` it prints the same as JSON, with the same keys and types on both
-platforms: `repository`, `root`, `branch`, `uncommitted_files`, `harness_version`,
+With `--json` it prints the same as JSON: `repository`, `root`, `branch`, `uncommitted_files`, `harness_version`,
 `harness_current`, `harness_stamp`, `release_state`, `release_lines`, `map_commit`, `map_behind`,
 `rules_present`, `rules_path`, `local_rules_present`, `gh_authenticated`,
 `gh_user`, `issue`, `assigned`, `thread`. Exit status is 1 when no rules file is found, so an agent or a CI job can gate on it.
@@ -622,7 +613,7 @@ repositories: each repository carries a three-line `.githooks/pre-push` that onl
 `.githooks`. Beside it lies `.githooks/post-checkout`, the shim that gives a new worktree the
 harness: git runs it in the new tree after `git worktree add`, and where `.ai-core/` is missing it
 starts `ai-core init`; it exits 0 whatever happened, because a failing hook would fail the
-checkout too, and what went wrong stands on stderr. `ai-core pre-push --install` (`-Install`)
+checkout too, and what went wrong stands on stderr. `ai-core pre-push --install`
 writes both shims into the current repository and into every worktree of it (a relative
 `core.hooksPath` is read from the tree git works in, and git runs the files on disk), sets
 `core.hooksPath`, and says what to commit; with `--all <folder>` it does so for every repository
@@ -656,33 +647,24 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    this clone knows, so a branch that merged the default branch is judged on its own commits, not
    on those the default branch published, and a tag introduces nothing.
 3. **The team modes are installed** (`ai-core team-modes-check`, section 4.6).
-4. **Every Windows entry point is the one text.** Where the checks are written in
-   `scripts/check.sh`, a `check.ps1` or `build.ps1` anywhere in the tree must equal
-   `lib/entry-point.ps1`: the file that starts the `.sh` of its own name and decides nothing. A
-   copy that prints the verdict and exits 0 would tell the person the checks passed while nothing
-   ran, and no other step can see that.
-5. **A pushed file that starts with `#!` carries the executable bit**, because it is run by its
+4. **A pushed file that starts with `#!` carries the executable bit**, because it is run by its
    name and git skips a hook without it; the refusal names the `git update-index --chmod=+x` to run.
-6. **Every subject is at most 72 characters, no message carries an assistant's or a vendor's
+5. **Every subject is at most 72 characters, no message carries an assistant's or a vendor's
    attribution** (a `Co-Authored-By:` or `Generated with` line naming one), **and no author or
    committer is an assistant** (a vendor's address, an assistant's GitHub bot, or a name that is
    only an assistant's, the identity a cloud session commits under unless the person sets their
    own); a person as co-author, or one named Claude with an address of their own, passes. None of
    the three has an excuse.
-7. **No added comment names an issue by its number**, `(#<n>)` or `<repo>#<n>`, judged on the
+6. **No added comment names an issue by its number**, `(#<n>)` or `<repo>#<n>`, judged on the
    comment part of the lines the push adds, Markdown, JSON and lock files left out; the issue is
    named in the commit message instead. A number in code that is no comment passes.
-8. **A migration that exists is not changed or removed**: a `migrations/*.sql` the push modifies,
+7. **A migration that exists is not changed or removed**: a `migrations/*.sql` the push modifies,
    renames or deletes is refused, a new one passes. A commit with a `Migration: <why>` trailer may
    change one that never reached a database.
-9. **A default branch that goes live is landed with checks and a review**: where the repository's
+8. **A default branch that goes live is landed with checks and a review**: where the repository's
    `.ai-core/config.env` says `DEFAULT_BRANCH_IS_LIVE="yes"`, a push to the default branch is refused
    without `scripts/check.sh`, and its last commit carries a `Reviewed-by: <reviewer>` trailer.
-10. **Both spellings of a script change together**: where `x.sh` and `x.ps1` both stand, a push
-   that changes one changes the other. A `.ps1` that is `lib/entry-point.ps1` in the pushed tree is
-   no second spelling, whatever its name. A commit of the push with a `Twin: <why>` trailer excuses a
-   fault that lives in one spelling alone.
-11. **The names of new directories are derived, not invented**, read from the families the trees
+9. **The names of new directories are derived, not invented**, read from the families the trees
    already carry, with no list kept anywhere. A new `<a>` beside `<a>-<x>`, or the reverse, names
    one member of a family and leaves the other unnamed. A new `<owner>-<x>`, in a directory that
    mirrors the repositories of the project folder (two or more entries carry a repository's name),
@@ -690,10 +672,10 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    owner word is its name after the project prefix, and a word that is a top-level directory in
    two or more repositories is a word of structure and names no repository. A commit with a
    `Naming: <why>` trailer keeps the names it adds.
-12. **`scripts/check.sh` is green**, run in the tree being pushed; a repository without one is told
+10. **`scripts/check.sh` is green**, run in the tree being pushed; a repository without one is told
    so and passes on. The check reads the working tree, so a tree that differs from the pushed commit,
    by an uncommitted change or a file neither tracked nor ignored, is refused with the files named.
-13. **gitleaks over the commits the push carries**, in a repository that carries `.gitleaks.toml`;
+11. **gitleaks over the commits the push carries**, in a repository that carries `.gitleaks.toml`;
    the commits are the only place a credential taken out again still stands. It runs
    `gitleaks git`, which came with gitleaks 8.19; without such a gitleaks the push is refused and
    `ai-core doctor` named, which installs it. `--install` writes nothing into such a repository
@@ -701,7 +683,7 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
 
 Run from a prompt or an agent's shell, with nothing on standard input, `ai-core pre-push` judges
 the current branch against its upstream: what `git push` would send. `tests/pre-push.test.sh`
-and `.ps1` drive both twins with git's input by hand, against a scratch repository, stand-ins
+drives it with git's input by hand, against a scratch repository, stand-ins
 for the check and for gitleaks, and a team-modes table of their own.
 
 ---
@@ -712,39 +694,33 @@ for the check and for gitleaks, and a team-modes table of their own.
 
 | Need | For | Notes |
 | :--- | :--- | :--- |
-| Git | `session-start`, worktrees, the exclude file | On Windows also Git Bash, for the `.sh` twins and Claude Code's Bash tool |
-| Bash 3.2+ or PowerShell 7 (`pwsh`) | the `.sh` and `.ps1` twins | `init.ps1` starts its child scripts with `pwsh`, so Windows PowerShell 5.1 alone is not enough |
-| `curl` and `tar` | remote install with `init.sh` | `init.ps1` uses `Invoke-WebRequest` and `Expand-Archive`, part of PowerShell |
+| Linux with Bash 3.2+ | every script | Windows runs the harness under WSL (section 5.9) |
+| Git | `session-start`, worktrees, the exclude file | |
+| `curl` and `tar` | remote install with `init.sh` | |
 | jq | every board and issue command reads GitHub's answers through it | `doctor` installs it |
-| gitleaks 8.19+ | the credential scan of the push gate, in a repository that carries `.gitleaks.toml` | `doctor` wants it where a repository of the project folder carries that file, and installs it: winget, brew, on Linux the GitHub release into `~/.local/bin` (apt's package is 8.16); `init` runs doctor in the folder it serves |
+| gitleaks 8.19+ | the credential scan of the push gate, in a repository that carries `.gitleaks.toml` | `doctor` wants it where a repository of the project folder carries that file, and installs it: brew, on Linux the GitHub release into `~/.local/bin` (apt's package is 8.16); `init` runs doctor in the folder it serves |
 | Node.js 20+ with `npm` and `npx` | `ai-core status`, which counts with Node.js; the team modes installed through `npx` | `doctor` installs it |
 | `gh`, logged in | the project harness is found, cloned and created through it; every board and issue command; `session-start` shows the GitHub user | `doctor` installs it; the login is yours |
 
 ### 5.2 Once per machine: `install`
 
 ```bash
-# Linux / macOS / Git Bash
+# Linux, or WSL on Windows
 curl -sSL https://raw.githubusercontent.com/kartalbas/setup-ai-core/master/bin/install.sh | bash
 ```
 
-```powershell
-# Windows, PowerShell 7
-irm https://raw.githubusercontent.com/kartalbas/setup-ai-core/master/bin/install.ps1 | iex
-```
-
 `install` clones this repository to `~/setup-ai-core`, adds its `bin/` (where the `ai-core`
-command lives) to the PATH (the shell profiles and the pwsh profile on Linux and macOS, the user
-PATH on Windows; open a new terminal afterwards) and runs `doctor`. Run it again to pull. If you
+command lives) to the PATH (the shell profiles; open a new terminal afterwards) and runs `doctor`. Run it again to pull. If you
 already have a clone, say so with `--source`: then nothing is cloned, that clone is the
 installation, and its `bin/` goes on the PATH. Options:
 
-| Bash | PowerShell | Effect |
-| :--- | :--- | :--- |
-| `--source <clone>` | `-Source <clone>` | use this existing clone of the repository; nothing is cloned |
-| `--dir <path>` | `-Dir <path>` | clone somewhere else than `~/setup-ai-core` |
-| `--repo <url>` | `-Repo <url>` | clone from this URL or path instead of GitHub (a mirror, a fork) |
-| `--no-path` | `-NoPath` | do not touch the PATH |
-| `--no-doctor` | `-NoDoctor` | do not run `doctor` at the end |
+| Option | Effect |
+| :--- | :--- |
+| `--source <clone>` | use this existing clone of the repository; nothing is cloned |
+| `--dir <path>` | clone somewhere else than `~/setup-ai-core` |
+| `--repo <url>` | clone from this URL or path instead of GitHub (a mirror, a fork) |
+| `--no-path` | do not touch the PATH |
+| `--no-doctor` | do not run `doctor` at the end |
 
 `install` exits 1 when `doctor` finds problems; setup-ai-core is installed anyway, and the problems
 are the next steps.
@@ -756,20 +732,20 @@ cd ~/repos/myorg/myproject
 ai-core init
 ```
 
-`ai-core init` is `bin/init.sh` or `bin/init.ps1` of the clone, run on the current directory. The
+`ai-core init` is `bin/init.sh` of the clone, run on the current directory. The
 scripts can still be called by path (`bash ~/setup-ai-core/bin/init.sh .`). There is no way to
 equip a checkout without the clone: the checkout gets no scripts of its own, so `ai-core` must be
 on the machine that runs the agent.
 
 ### 5.4 Options of `init`
 
-| Bash | PowerShell | Effect |
-| :--- | :--- | :--- |
-| `ai-core init [TARGET_DIR]` | `ai-core init [-TargetDir <path>]` | the repository to equip; default is the current directory |
-| `--all <folder>` | `-All <folder>` | run `init` in every git repository directly under the folder and in every worktree under its `.worktrees/`, then in the folder itself (section 5.8); `doctor` runs once; a failing repository is named in the summary and the exit code is 1 |
-| `--no-doctor` | `-NoDoctor` | do not run `doctor` first (CI, or a machine you have checked yourself) |
-| `--dry-run` | `-DryRun` | write nothing; print the report of what the run would create, refresh, keep and remove; `doctor` runs without installing; with `--all` every repository gets its dry run |
-| `-h`, `--help` | `-Help` | usage |
+| Option | Effect |
+| :--- | :--- |
+| `ai-core init [TARGET_DIR]` | the repository to equip; default is the current directory |
+| `--all <folder>` | run `init` in every git repository directly under the folder and in every worktree under its `.worktrees/`, then in the folder itself (section 5.8); `doctor` runs once; a failing repository is named in the summary and the exit code is 1 |
+| `--no-doctor` | do not run `doctor` first (CI, or a machine you have checked yourself) |
+| `--dry-run` | write nothing; print the report of what the run would create, refresh, keep and remove; `doctor` runs without installing; with `--all` every repository gets its dry run |
+| `-h`, `--help` | usage |
 
 An unknown option is an error.
 
@@ -810,7 +786,7 @@ first; the block was there already` when the origin had it, with `.gitignore not
 reason when the checkout is behind its origin with work of its own, with `.ai-core taken from the checkout <path>` when a
 worktree started empty and got the checkout's `.ai-core/` data first, with `core.hooksPath set to .githooks` when the repository carries the push gate's shim and the
 clone was not armed yet, and with the harness version. A second run on an unchanged checkout reports
-only the count of unchanged files, on both twins the same lines.
+only the count of unchanged files.
 
 `ai-core init --dry-run` prints the same report with `would change` and writes nothing, not
 even the exclude file, and creates no project harness: one that does not exist yet is announced
@@ -850,10 +826,6 @@ folder, one command runs `init` in each git repository directly under it and in 
 `start-issue` put under its `.worktrees/`, skips the folders that are not repositories, names the
 ones that failed, and then equips the folder itself:
 
-```powershell
-ai-core init -All C:\repos\myorg
-```
-
 ```bash
 ai-core init --all ~/repos/myorg
 ```
@@ -865,13 +837,12 @@ committed. An agent started in the folder has the rules from its first prompt, b
 as it works on files inside it, the way it loads nested `CLAUDE.md` files. Each repository still carries its own files, because a repository is also opened
 alone: by OpenHands, by CI, by a colleague with another layout.
 
-### 5.9 Windows before the quick start
+### 5.9 Windows
 
-Everything is typed into PowerShell 7 (`pwsh`), not the blue "Windows PowerShell". Before the
-quick start, once per machine: `winget install Microsoft.PowerShell`, open "PowerShell 7"
-(`$PSVersionTable.PSVersion` shows `7.x`), then `winget install Git.Git` and reopen the terminal.
-`doctor`, run by `install`, installs Node.js, jq and gh and names the login it cannot do for you.
-Then the quick start, which is the same on every system.
+The harness is written for Bash 3.2+ and runs on Linux. Windows runs it under WSL: install a WSL
+distribution, open it, and type everything of this README there, from the quick start on. A
+repository the agent works on lives inside the distribution's file system, where `git` and the
+`.sh` scripts behave as on Linux.
 
 With Claude Code: run `claude` in the project folder or the repository, answer **yes** to trusting
 the folder. Claude Code 2.1.277+
@@ -882,7 +853,7 @@ A new clone or worktree runs `ai-core init` once.
 ### 5.10 Update and uninstall
 
 **Update:** a release of setup-ai-core is a tag `vX.Y.Z` on the commit `VERSION` names, cut with
-`ai-core release X.Y.Z` only when the checks were green on both runners for that commit; what is
+`ai-core release X.Y.Z` only when the checks were green for that commit; what is
 not tagged reaches nobody. `install` checks the newest release out, `ai-core update` moves a clean
 clone to the newest one (a clone with uncommitted changes or commits not pushed is left alone and
 named; `--main` follows the development branch, for whoever works on setup-ai-core) and pulls
@@ -897,42 +868,41 @@ Nothing updates by itself.
 **Uninstall:** delete what section 4.2 lists, and remove the block between
 `# setup-ai-core start` and `# setup-ai-core end` from `.git/info/exclude`. On the machine: delete
 `~/setup-ai-core`, the harness clones beside the repositories (`<project folder>/<prefix>-ai-core`)
-and the PATH entry `install` added (the line marked `# setup-ai-core` in the shell profiles and the
-pwsh profile; the entry in the user PATH on Windows). `npx` keeps its cache.
+and the PATH entry `install` added (the line marked `# setup-ai-core` in the shell profiles). `npx` keeps its cache.
 
 ---
 
 ## 6. The scripts (today)
 
 All run as `ai-core <name>` from any directory inside the repository, or from the project folder,
-and accept `-h` / `--help` (`-Help` in PowerShell). `ai-core <name>` runs `bin/<name>.sh` in Bash
-and `bin/<name>.ps1` in PowerShell; a new script in `bin/` is a command without any registration.
+and accept `-h` / `--help`. `ai-core <name>` runs `bin/<name>.sh` in Bash;
+a new script in `bin/` is a command without any registration.
 
 | Script | Usage | Exit codes |
 | :--- | :--- | :--- |
-| `session-start` | `ai-core session-start [--json]` / `[-Json]`; the JSON says `refused`, and a refusal carries the lines of the team modes | 0 ready; 1 a team mode or the rules file missing |
-| `solution-path` | `ai-core solution-path <issue> <file> [--check]` / `<issue> <file> [-Check]` | section 7 |
-| `rules-check` | `ai-core rules-check [file-or-directory]` / `[-RulesFile <file-or-directory>]`; default `.ai-core/rules/rules.md`, or the `rules/` directory of setup-ai-core; a directory means its `NN-*.md` section files; a project harness (a directory with `rules/`, `skills/` or `agents/`) is checked whole: every skill has a front matter with its folder's name and a description, every agent a name and a description and no model below Sonnet, then its rule sections | 0 every rule tagged and nothing wrong in the harness; 1 otherwise |
-| `init` | `ai-core init [dir] [--all <folder>] [--no-doctor] [--dry-run]` / `[-TargetDir <dir>] [-All <folder>] [-NoDoctor] [-DryRun]` | 0 in place, or dry; 1 doctor failed, or a repository under `--all` failed |
-| `map` | `ai-core map [dir] [--all <folder>] [--no-push] [--dry-run]` / `[-TargetDir <dir>] [-All <folder>] [-NoPush] [-DryRun]` | 0 written (or unchanged, or dry); 1 no harness, the agent CLI failed or wrote something that is not a map, or a repository under `--all` failed |
-| `push` | `ai-core push [MESSAGE] [--harness <name>]` / `[-Message <text>] [-Harness <name>]`; runs `rules-check` on a clone with changes first and does not commit one it refuses | 0 every harness clone pushed or had nothing; 1 no clone, a clone `rules-check` refused, a commit or a push failed |
-| `update` | `ai-core update [--check] [--main]` / `[-Check] [-Main]` (section 5.10) | 0 done, or `--check`: everything current; 2 `--check`: a release or commits available; 1 an origin could not be reached |
+| `session-start` | `ai-core session-start [--json]`; the JSON says `refused`, and a refusal carries the lines of the team modes | 0 ready; 1 a team mode or the rules file missing |
+| `solution-path` | `ai-core solution-path <issue> <file> [--check]` | section 7 |
+| `rules-check` | `ai-core rules-check [file-or-directory]`; default `.ai-core/rules/rules.md`, or the `rules/` directory of setup-ai-core; a directory means its `NN-*.md` section files; a project harness (a directory with `rules/`, `skills/` or `agents/`) is checked whole: every skill has a front matter with its folder's name and a description, every agent a name and a description and no model below Sonnet, then its rule sections | 0 every rule tagged and nothing wrong in the harness; 1 otherwise |
+| `init` | `ai-core init [dir] [--all <folder>] [--no-doctor] [--dry-run]` | 0 in place, or dry; 1 doctor failed, or a repository under `--all` failed |
+| `map` | `ai-core map [dir] [--all <folder>] [--no-push] [--dry-run]` | 0 written (or unchanged, or dry); 1 no harness, the agent CLI failed or wrote something that is not a map, or a repository under `--all` failed |
+| `push` | `ai-core push [MESSAGE] [--harness <name>]`; runs `rules-check` on a clone with changes first and does not commit one it refuses | 0 every harness clone pushed or had nothing; 1 no clone, a clone `rules-check` refused, a commit or a push failed |
+| `update` | `ai-core update [--check] [--main]` (section 5.10) | 0 done, or `--check`: everything current; 2 `--check`: a release or commits available; 1 an origin could not be reached |
 | `release` | `ai-core release <version>` (in a clone of setup-ai-core, section 10) | 0 tagged and pushed; 1 refused, naming what is missing; 2 a wrong argument |
-| `pre-push` | `ai-core pre-push [--install [--all <folder>]]` / `[-Install [-All <folder>]]` (section 4.12) | 0 nothing refused the push, or the shim written; 1 refused, or a repository under `--all` is none; 2 a wrong argument |
-| `usage` | `ai-core usage [--stop-at N]` / `[-StopAt N]` | 0 every window below N; 3 a window at N or more; 2 nothing recorded yet, or a wrong argument. Prints the account's usage windows (five hours, week) as the status line last recorded them, each with its reset time, against the limit N: `--stop-at`, else `USAGE_STOP_AT` of the project's `config.env`, else 92; a window whose reset has passed counts as reset. One model's own weekly quota is not among them |
+| `pre-push` | `ai-core pre-push [--install [--all <folder>]]` (section 4.12) | 0 nothing refused the push, or the shim written; 1 refused, or a repository under `--all` is none; 2 a wrong argument |
+| `usage` | `ai-core usage [--stop-at N]` | 0 every window below N; 3 a window at N or more; 2 nothing recorded yet, or a wrong argument. Prints the account's usage windows (five hours, week) as the status line last recorded them, each with its reset time, against the limit N: `--stop-at`, else `USAGE_STOP_AT` of the project's `config.env`, else 92; a window whose reset has passed counts as reset. One model's own weekly quota is not among them |
 | `statusline` | the status line command `init` writes into `.claude/settings.json` | records the usage windows Claude Code hands it in `~/.ai-core/usage.json` and, at most once a minute, a line of them in `~/.ai-core/usage.log`, then shows a short line of the model and the windows |
 | the board and issue commands | `ai-core issue-new ...`, `ai-core start-issue N`, ... (section 8) | 0 done; 1 refused or gh refused; 2 a wrong argument |
-| `doctor` | `ai-core doctor [--no-install]` / `ai-core doctor [-NoInstall]` | 0 every required tool present and gh logged in; 1 otherwise, each problem with its instruction |
-| `install` | `bin/install.sh [--source <clone>] [--dir <path>] [--repo <url>] [--no-path] [--no-doctor]` / `bin/install.ps1 [-Source <clone>] [-Dir <path>] [-Repo <url>] [-NoPath] [-NoDoctor]` | 0 installed and doctor OK; 1 when doctor found problems |
+| `doctor` | `ai-core doctor [--no-install]` | 0 every required tool present and gh logged in; 1 otherwise, each problem with its instruction |
+| `install` | `bin/install.sh [--source <clone>] [--dir <path>] [--repo <url>] [--no-path] [--no-doctor]` | 0 installed and doctor OK; 1 when doctor found problems |
 | `ai-core` | `ai-core <command>`: any script in `bin/` by name, plus `version`, `help` | the command's exit code; 1 for an unknown command |
 
-`doctor` today checks Git, gh and its login, Bash, PowerShell 7 (required on Windows), Node.js 20+
+`doctor` today checks Git, gh and its login, Bash, Node.js 20+
 with `npx`, jq, the team modes, and reports whether `claude`, `agy` and `codex` are installed, with the install command
 of each. It takes out what a tool of an earlier layout left in the Claude Code configuration: a
 session-start hook in `~/.claude/settings.json` that starts a script beside the repositories, and
 a project memory folder `~/.claude/projects/<project>/memory` that is a link whose target is gone
-(Claude Code makes a real folder at the next memory it writes); `--no-install` only reports them. Required tools it installs with `winget` (Windows), `brew` (macOS) or `apt-get` (Linux);
-a login it cannot do for you. On Windows a tool installed a moment ago may need a new terminal.
+(Claude Code makes a real folder at the next memory it writes); `--no-install` only reports them. Required tools it installs with `brew` or `apt-get`;
+a login it cannot do for you.
 
 ---
 
@@ -955,16 +925,11 @@ ai-core solution-path 42 docs/solution-42.md --check   # validate only
 ai-core solution-path 42 docs/solution-42.md           # validate, then post it under issue 42 through issue-comment
 ```
 
-```powershell
-ai-core solution-path 42 docs/solution-42.md -Check
-```
-
 The issue number comes first and is required: a solution path is written for an issue, and posting
-it there is the normal end of the command; `--check` / `-Check` validates and posts nothing.
+it there is the normal end of the command; `--check` validates and posts nothing.
 
 A section counts as filled when something other than whitespace follows its heading, a required
-heading may stand only once, and both twins answer identically: `tests/solution-path.test.sh` and
-its PowerShell twin hold them to the same planted documents.
+heading may stand only once: `tests/solution-path.test.sh` holds that with planted documents.
 
 ---
 
@@ -972,13 +937,12 @@ its PowerShell twin hold them to the same planted documents.
 
 The rules say the plan is the issues (the working style for agents in the rules), and these commands are what holds
 that: one command per act on GitHub issues and a GitHub Projects board, driven from the terminal
-through `gh`. Each exists as `.sh` and `.ps1`, takes the same arguments, prints the same lines,
-and `tests/` holds the two to answering identically against a stand-in `gh`, so nothing in the
+through `gh`. Each is a `.sh` script, and `tests/` holds it to its answers against a stand-in `gh`, so nothing in the
 tests reaches github.com. Nothing here holds state: every command reads the board through `gh`
 and writes back to it, so the board is the truth and this is only a shorter way of reaching it.
 
 **Which board.** No project number is written down anywhere. A command resolves the board it acts
-on in this order: `--project N` / `-Project N`, the environment variable `GH_PROJECT_NUMBER`,
+on in this order: `--project N`, the environment variable `GH_PROJECT_NUMBER`,
 then the single open project the repository is linked to. A repository linked to none, or to more
 than one, stops the command with what to do; writing a card to the wrong board is silent
 otherwise. A board is written `N` or `ORG/N`: a bare number is a board of the repository's
@@ -996,12 +960,12 @@ yours from then on (the project harness will carry them):
 | `assignees.tsv` | repository → login: who a new issue in that repository belongs to. A repository not listed falls back to `@me`. |
 | `team-modes.tsv` | tool, mode, level, probe, install, verified: how each tool proves a mode is installed and how it is installed (section 4.6). |
 
-**The commands.** All run as `ai-core <name>` and take `--help` (`-Help`). A command that names
+**The commands.** All run as `ai-core <name>` and take `--help`. A command that names
 no repository acts on the one it runs in; `OWNER/REPO` before the issue number names another.
 
 | Command | Does |
 | :--- | :--- |
-| `start-issue [OWNER/REPO] N` | opens the worktree for issue N under `../.worktrees/<repo>/issue-N-<slug>`, on a branch of that name cut from `origin/<default>`, only when the issue is assigned to you and the checkout is clean and current; moves the card to `implementing`; runs `init` there, which takes the checkout's `.ai-core/` data first; prints the thread. For an issue of another repository whose work lands here, `OWNER/REPO N` (`-Repo` in PowerShell) cuts the worktree here and records the issue's repository on the branch (`git config branch.<branch>.issueRepository`), where `session-start`, `integrate-issue` and `finish-issue` read it. One run, because any one of these done alone is often not done. |
+| `start-issue [OWNER/REPO] N` | opens the worktree for issue N under `../.worktrees/<repo>/issue-N-<slug>`, on a branch of that name cut from `origin/<default>`, only when the issue is assigned to you and the checkout is clean and current; moves the card to `implementing`; runs `init` there, which takes the checkout's `.ai-core/` data first; prints the thread. For an issue of another repository whose work lands here, `OWNER/REPO N` cuts the worktree here and records the issue's repository on the branch (`git config branch.<branch>.issueRepository`), where `session-start`, `integrate-issue` and `finish-issue` read it. One run, because any one of these done alone is often not done. |
 | `integrate-issue [OWNER/REPO] N --reviewed-by R` | in the worktree of issue N, after the reviewer's GO: merges its branch with `--no-ff` into the newest `origin/<default>`, under the issue's title with `(#N)`, or `(OWNER/REPO#N)` for an issue of another repository, given or recorded on the branch (or `Merge <branch> (...)`, then `Merge issue-N (...)`, where the title does not fit 72 characters) and a `Reviewed-by: R` trailer, pushes `HEAD:<default>` through the gate, and checks the branch out again for `finish-issue`. The landings of one clone take turns: from the fetch to the end of the push it holds `ai-core-landing` in the clone's git directory, a landing that finds it held names the issue holding it and waits, and one whose holder no longer runs takes it over. Refuses without a reviewer, on a branch that is not issue N's, with changes in the tree, on a conflict and on a branch already integrated, each time with the branch checked out again and nothing pushed. The reviewer is a name given, not a review proven |
 | `finish-issue [OWNER/REPO] N [--landed]` | after the push that lands the work; the issue, its card and its comment are in the repository given or recorded on the branch: removes the worktree and branch of issue N, only a worktree named for issue N (a package's worktree, named for its first issue, stays while a later issue's branch is checked out in it), only when it has no changes and the change of every commit is on `origin/<default>`, by ancestry or as an equal patch (`git cherry`, so a cherry-picked branch passes); `--landed` removes it anyway where commits landed in another shape, only for a closed issue, and names them; refuses, moving no card and telling the issue nothing, when no commit on `origin/<default>` names the issue; moves the card to `testing` where the board has that column, and in a repository on no board says there is no card; comments on the issue what landed; runs `status-sync` for its repository and the issue's. `--sweep [--dry-run]` removes every worktree of the repository whose work landed more than a day ago; `start-issue` and `init --all` run it |
 | `issue-new` | creates an issue: `--title`, `--body-file`, labels, priority, the assignee from `assignees.tsv`, the card on the board, optionally a parent epic (`--parent OWNER/REPO#N`), which then follows its sub-issues as under `issue-status`. Refuses without `--asked-by LOGIN` and `--asked-in WHERE` and writes "Asked for by @login on DATE in WHERE." as the body's first line; a defect a session found in its own work (`type:bug`) takes `--found-in WHERE` instead and opens with "Found in WHERE on DATE, a defect filed without a yes.", because writing a found defect down is tracking, not new work. Reports a title over 70 characters, one with a backtick, or one that names an action and no stake. `--no-board` files it in a repository linked to no open board, a harness among them: no card, no status, no priority; refused where the repository is on a board, and together with `--project`, `--priority` or `--status`. |
@@ -1033,7 +997,6 @@ no repository acts on the one it runs in; `OWNER/REPO` before the issue number n
 | `incident-count` | the issues carrying each `incident:` label per ISO week |
 | `team-modes-check`, `team-modes-install` | section 4.6 |
 | `schema-check` | holds every GraphQL mutation in `bin/` and `lib/` against the schema github.com publishes; the one check that reaches the network, run by CI |
-| `case-check` | refuses a spelling in `bin/` or `lib/` that accepts more than it says: a PowerShell comparison against a text literal must say whether it folds case (`-ceq`, `-clike`, `switch -CaseSensitive`, `[StringComparison]::Ordinal`), because every Bash twin compares bytes |
 
 **The hooks.** A repository that wants the gate before every push carries the three-line shim
 `ai-core pre-push --install` writes into `.githooks/pre-push`, and beside it `.githooks/post-checkout`,
@@ -1055,9 +1018,9 @@ Every command `ai-core --help` lists exists today (sections 6 and 8). Planned:
 | `session-start` | additionally: re-assemble the checkout when a layer moved past `.ai-core/STAMP` |
 | `publish` | copy the assembled rules and the skills of the project harness into the organisation's `.agents` repository, so OpenHands loads them in every repository of the organisation (section 4.11) |
 
-Prerequisites `doctor` will know, with an install per platform (`winget`, `brew`, `apt`, or the
-tool's official installer): Git and Git Bash, `gh` with its login (install yes, login is a
-person's act), PowerShell 7 on Windows, Node.js LTS, the agent CLIs listed in `ai-core.json`, and
+Prerequisites `doctor` will know, with an install per platform (`brew`, `apt`, or the
+tool's official installer): Git, `gh` with its login (install yes, login is a
+person's act), Node.js LTS, the agent CLIs listed in `ai-core.json`, and
 the project tools listed there (`kubectl`, `helm`, ...). Everything GitHub-side goes through `gh`.
 Nothing runs in a container.
 
@@ -1071,33 +1034,28 @@ bash tests/check.sh 08-harness    # one section, by its file name
 ```
 
 The check is `tests/sections/*.sh`, one file per group of sections that share their fixtures, each
-sourcing `tests/lib.sh` (the root, `fail`, `native`, a throwaway directory of its own, the stand-in
+sourcing `tests/lib.sh` (the root, `fail`, a throwaway directory of its own, the stand-in
 `gh`). `tests/check.sh` starts them all at once, each in its own process, and prints the
-report in file order with the time each section took; a red section prints its whole log. A red
-run also says whether pwsh died during the run, because under parallel load pwsh can segfault or
-abort with a .NET stack overflow, and a red section may be that crash, not the code under test: a
-segfault from the kernel log since the start of the run, an abort from the runtime's
-`Stack overflow.` in the section logs. `tests/check.test.sh` proves that report against a
-stand-in `journalctl` and planted section logs. The
-board suites (`tests/run-all.sh`, `tests/run-all.ps1`) run their tests eight at a time
-(`CHECK_JOBS=<n>` for another number). Together the sections parse every script (`bash -n`, the PowerShell parser), run both `rules-check` twins
-over `rules/`, runs both `doctor` twins against a fake old Node.js and a fake unauthenticated gh
-and requires the same two problems, runs both installers against a temporary home (an existing clone with `--source`, a clone with
-`--repo`, a second run that pulls) and `init` through both `ai-core` commands, bootstraps a temporary checkout with each installer
-(data only, no scripts in the checkout), fails on any
-warning or error in either installer's output, diffs the two deployed file lists, proves the assembled `rules.md` has one section per source
-file, is byte-identical on both twins and passes `rules-check`, proves a second run creates
-nothing, compares `session-start`'s JSON between the twins, proves `git status` stays
-empty in a fresh repository and in a worktree with both twins, runs `init --all` over a folder
-and proves the folder's generated `AGENTS.md` lists exactly its repositories, stands a fake `gh`
-on the PATH and proves a project harness is created from the skeleton on the first `init`, cloned
+report in file order with the time each section took; a red section prints its whole log. The
+board suite (`tests/run-all.sh`) runs its tests eight at a time
+(`CHECK_JOBS=<n>` for another number). Together the sections parse every script (`bash -n`), run `rules-check`
+over `rules/`, run `doctor` against a fake old Node.js and a fake unauthenticated gh
+and require the two problems, run the installer against a temporary home (an existing clone with `--source`, a clone with
+`--repo`, a second run that pulls) and `init` through the `ai-core` command, bootstrap a temporary checkout
+(data only, no scripts in the checkout), fail on any
+warning or error in the output of `init`, prove the assembled `rules.md` has one section per source
+file and passes `rules-check`, prove a second run creates
+nothing, prove `git status` stays
+empty in a fresh repository and in a worktree, run `init --all` over a folder
+and prove the folder's generated `AGENTS.md` lists exactly its repositories, stand a fake `gh`
+on the PATH and prove a project harness is created from the skeleton on the first `init`, cloned
 on another machine, and that its rules, skills, docs, data files and `repos/<repo>/` are
-assembled identically by both twins, base first along an `extends` chain, and proves `push` commits
-and pushes a harness clone's change to its origin and has nothing on a second run, and requires `session-start` to exit 1 where the harness is
-absent, runs the two board suites (`tests/run-all.sh`, `tests/run-all.ps1`: one test pair per
-command against a stand-in `gh`, the push gate's pair among them, and the tree must be as the
-suite found it) and both `case-check` twins. It needs `bash`, `pwsh`, `node` and `jq` and never touches the network. CI runs it on Ubuntu
-and Windows for every push of a branch and every pull request, and then `schema-check`, which needs
+assembled, base first along an `extends` chain, prove `push` commits
+and pushes a harness clone's change to its origin and has nothing on a second run, require `session-start` to exit 1 where the harness is
+absent, and run the board suite (`tests/run-all.sh`: one test per
+command against a stand-in `gh`, the push gate's among them, and the tree must be as the
+suite found it). It needs `bash`, `node` and `jq` and never touches the network. CI runs it on Ubuntu
+for every push of a branch and every pull request, and then `schema-check`, which needs
 github.com; a tag names a commit whose checks already ran, so pushing it starts no second run.
 
 **A release** is one command, `ai-core release X.Y.Z`, run in the clone: it writes `VERSION` and
@@ -1110,11 +1068,10 @@ run is red or does not finish; nothing is tagged red. `install` and `update` fol
 tag, so `master` can carry a mistake without it reaching anybody.
 
 - **Add a file a checkout should get:** put it under `templates/` at the path it has in the
-  checkout. Both installers deploy it.
-- **Add a script:** both spellings in `bin/`, a help screen in each; `ai-core <name>` runs it
+  checkout. `init` deploys it.
+- **Add a script:** a `.sh` in `bin/` with a help screen; `ai-core <name>` runs it
   without any registration, and `ai-core --help`, where every `AGENTS.md` sends agents, lists it. A board
-  command gets a test pair in `tests/` that drives both twins against a stand-in `gh`, and its
-  PowerShell comparisons say whether they fold case, or `case-check` is red.
+  command gets a test in `tests/` that drives it against a stand-in `gh`.
 - **Change a rule:** edit its section file under `rules/`, keep the tag at the end of the rule,
   run `bash bin/rules-check.sh rules`. A rule may wrap over several lines; the tag ends the last
   one. A new section is a new `rules/NN-slug.md`; the number places it.
@@ -1145,7 +1102,6 @@ releases by tag, `update`, `push`, and `map`. Open:
 
 | Symptom | Cause and fix |
 | :--- | :--- |
-| `pwsh: command not found` / `'pwsh' is not recognized` | PowerShell 7 is not installed. Install it, or use the Bash twins from Git Bash. |
 | `session-start` exits 1 with `Not ready: no rules file found` | the harness is not installed here. Run `init`. |
 | `kept .claude/settings.json` in the report | jq is missing, so `init` could not merge the hook, the status line, the permission and the denials into the settings.json your repository had; install jq and run `init` again. |
 | `ai-core: command not found` from the session-start hook, or `ai-core on PATH  : ✗` in its output | Claude Code was started from a terminal opened before the install, whose PATH lacks `ai-core`. `init` writes the hook with the full path of `ai-core`, and `session-start` names that path for the agent's own shell; a terminal opened after the install has it on the PATH. |
@@ -1182,31 +1138,30 @@ setup-ai-core/
 ├── VERSION                              setup-ai-core version, copied to .ai-core/VERSION
 ├── auto-mode.tsv                        the steps Claude Code's classifier allows in every project (section 4.10)
 ├── bin/
-│   ├── install.sh / install.ps1         once per machine: clone to ~/setup-ai-core, PATH, doctor
-│   ├── doctor.sh / doctor.ps1           prerequisites: check, install, or fail
-│   ├── ai-core, ai-core.ps1, ai-core.cmd the command; runs any script here by name
-│   ├── init.sh / init.ps1               equips a checkout or a project folder with data
-│   ├── session-start.sh / .ps1          the session start
-│   ├── map.sh / map.ps1                 the map of a repository, written by the agent CLI into the harness
-│   ├── update.sh / update.ps1           this machine to the newest release, the harness clones to their origins
-│   ├── release.sh / release.ps1         commits VERSION, pushes, waits for green checks, tags
-│   ├── push.sh / push.ps1               commits and pushes the harness clones of the project folder
-│   ├── solution-path.sh / .ps1          8-section solution path validator
-│   ├── rules-check.sh / .ps1            enforcement-tag validator
+│   ├── install.sh                       once per machine: clone to ~/setup-ai-core, PATH, doctor
+│   ├── doctor.sh                        prerequisites: check, install, or fail
+│   ├── ai-core                          the command; runs any script here by name
+│   ├── init.sh                          equips a checkout or a project folder with data
+│   ├── session-start.sh                 the session start
+│   ├── map.sh                           the map of a repository, written by the agent CLI into the harness
+│   ├── update.sh                        this machine to the newest release, the harness clones to their origins
+│   ├── release.sh                       commits VERSION, pushes, waits for green checks, tags
+│   ├── push.sh                          commits and pushes the harness clones of the project folder
+│   ├── solution-path.sh                 8-section solution path validator
+│   ├── rules-check.sh                   enforcement-tag validator
 │   ├── team-modes-check / -install      the team modes of every tool on the machine
-│   ├── status.sh / status.ps1           the state of the work: board counts, agents, usage, tokens
+│   ├── status.sh                        the state of the work: board counts, agents, usage, tokens
 │   ├── usage, statusline                the account's usage windows: recorded by the status line, read against the limit
-│   ├── issue-*, start-issue, board-*,   the board and issue commands, one pair each
+│   ├── issue-*, start-issue, board-*,   the board and issue commands
 │   │   finish-issue, status-sync, ...
 │   ├── pre-push                         the push gate, and --install for the shim a repository carries
-│   └── schema-check, case-check         the checks of the board commands themselves
+│   └── schema-check                     the check of the board commands themselves
 ├── lib/
-│   ├── board.sh / Board.psm1            the library of the board commands
-│   ├── layers.sh / Layers.psm1          the project harness: from origin, beside the repositories, cloned, pulled, created, the extends chain
+│   ├── board.sh                         the library of the board commands
+│   ├── layers.sh                        the project harness: from origin, beside the repositories, cloned, pulled, created, the extends chain
 │   ├── gitignore-block                  the block init writes into a project's .gitignore
 │   ├── binding-rules.md                 the binding rules init puts on top of every map and into a project folder's AGENTS.md
-│   ├── status.mjs, status-now.mjs       what status counts and prints, in Node.js
-│   └── entry-point.ps1                  the one text every scripts/check.ps1 and build.ps1 is a copy of
+│   └── status.mjs, status-now.mjs       what status counts and prints, in Node.js
 ├── rules/
 │   ├── NN-slug.md                       the generic rules, one file per section
 │   └── skills.md                        when to use which skill
@@ -1221,13 +1176,12 @@ setup-ai-core/
 │   └── .openhands/                      microagents/repo-rules.md
 ├── tests/
 │   ├── check.sh                         the check: every section at once, the report in order
-│   ├── lib.sh                           what every section starts with: fail, native, a throwaway directory, the stand-ins
+│   ├── lib.sh                           what every section starts with: fail, a throwaway directory, the stand-ins
 │   ├── sections/*.sh                    the sections, one file per group that shares fixtures
-│   ├── check.test.sh                    the pwsh crash report of check.sh, against a stand-in journalctl
-│   ├── run-all.sh / run-all.ps1         the board suites, eight tests at a time
-│   └── *.test.sh / *.test.ps1           one test pair per board command
+│   ├── run-all.sh                       the board suite, eight tests at a time
+│   └── *.test.sh                        one test per board command
 ├── .githooks/                           pre-push and post-checkout: the shims this repository carries itself
-├── .github/workflows/check.yml          runs the check on Ubuntu and Windows
+├── .github/workflows/check.yml          runs the check on Ubuntu
 ├── LICENSE                              MIT
 └── README.md
 ```

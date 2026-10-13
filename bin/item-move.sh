@@ -63,15 +63,13 @@ cards_of() {  # cards_of <owner/repo>
               fieldValues(first:20) { nodes { ... on ProjectV2ItemFieldSingleSelectValue {
                 name field { ... on ProjectV2SingleSelectField { name } } } } } } } } } }')" || exit 1
     fi
-    # The carriage return is stripped here for the same reason board_items strips it: this is
-    # the jq BINARY rather than gh's own --jq, and on Windows that binary writes CRLF.
     printf '%s' "$page" | jq -r --arg r "$1" '
       .data.node.items.nodes[]
       | select(.content.number != null and .content.repository.nameWithOwner == $r)
       | . as $i
       | ($i.fieldValues.nodes | map(select(.field.name == "Status"))   | .[0].name // "") as $s
       | ($i.fieldValues.nodes | map(select(.field.name == "Priority")) | .[0].name // "") as $p
-      | "\($i.content.number)\t\($s)\t\($p)"' | tr -d '\r'
+      | "\($i.content.number)\t\($s)\t\($p)"'
     [ "$(printf '%s' "$page" | jq -r '.data.node.items.pageInfo.hasNextPage')" = 'true' ] || break
     after="$(printf '%s' "$page" | jq -r '.data.node.items.pageInfo.endCursor')"
   done

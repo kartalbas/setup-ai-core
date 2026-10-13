@@ -10,9 +10,7 @@
 #
 # THE NAME IS MATCHED WITHOUT CASE. A board spells its options however whoever made it typed them,
 # and issue-new carries `ready` as its default while a board may say `Ready`. Matched with case,
-# that default would never resolve, and every issue the tooling created would land with no status —
-# and the PowerShell twin did not have the problem, because its `-eq` on strings ignores case. Two
-# implementations of one rule answering differently for one input is the drift the rules forbid.
+# that default would never resolve, and every issue the tooling created would land with no status.
 #
 # A NAME THAT MATCHES NOTHING STOPS THE SCRIPT. `die` inside `$( )` exits the substitution and
 # nothing else, so a refused option printed its error, left an EMPTY value behind, and the mutation

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# The Bash twin of argument-binding.test.ps1, asserting the SAME rules against bin/*.sh.
+# What the parse loops of bin/*.sh refuse: an argument they do not take, a flag without its value,
+# a number that is not a number.
 #
 #   bash test/argument-binding.test.sh
 #
@@ -25,11 +26,9 @@
 # could equally be bash stopping for some reason of its own.
 #
 # WHAT THIS DOES NOT REACH, named rather than counted:
-#   - a VALUE that begins with a dash. `need_value` refuses `--title '-x marks the spot'`, and
-#     the PowerShell twin BINDS it, because its parser still knows which words were quoted and
-#     bash has lost that by the time "$2" is read. lib/board.sh states the asymmetry and what it
-#     costs. The twins answer differently for exactly that input and this suite asserts neither
-#     side of it as correct.
+#   - a VALUE that begins with a dash. `need_value` refuses `--title '-x marks the spot'`,
+#     because bash has lost which words were quoted by the time "$2" is read. lib/board.sh states
+#     what that costs.
 #   - whether gh accepts what it is handed. That is gh's own check and is not asked here.
 
 set -uo pipefail
@@ -141,22 +140,18 @@ check 'issue-label.sh --add followed by --remove'         yes \
 
 # --- 3. a number that is not a number ------------------------------------------------------------
 
-# THE TWELVE INPUTS, and the reason example-tools#22 exists. Measured 2026-09-05, PowerShell's
-# `[int]` binding against this shell's `case "$n" in ''|*[!0-9]*)` answered differently on ELEVEN
-# of them, and `12.6` bound to 13 - the command edited the neighbouring issue and said nothing.
-# The same twelve are driven here and in the PowerShell twin, and the two tables must read the
-# same, line for line.
+# THE TWELVE INPUTS, the shapes a number takes that `case "$n" in ''|*[!0-9]*)` has to refuse:
+# `12.6` rounded to 13 would edit the neighbouring issue and say nothing.
 #
 # solution-path is what they are driven through, because it reaches NOTHING: no board, no gh, no
 # network. A number that passes the guard runs to the end against a file that carries all eight
 # sections, so `ran` and `refused` say exactly which side of the rule the input fell on.
 #
-# `-12` is refused on both sides for two different reasons: here it is an argument beginning with
-# a dash, which the parse loop refuses because bash cannot tell it from a flag, and there it is
-# refused by the rule. The asymmetry is the one named at the top of this file; both refuse.
+# `-12` is refused because it is an argument beginning with a dash, which the parse loop cannot
+# tell from a flag.
 
 echo
-echo 'a number that is not a number is refused, on the same twelve inputs as the PowerShell twin'
+echo 'a number that is not a number is refused'
 
 printf '## Where a person meets this\n\nx\n\n## What they see today\n\nx\n\n## What the system does behind it\n\nx\n\n## The decision\n\nx\n\n## Options\n\nx\n\n## Recommendation\n\nx\n\n## Code facts\n\nx\n\n## Reuse manifest\n\nx\n' \
   > "$FAKE/path.md"

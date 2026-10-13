@@ -62,7 +62,6 @@ dress() {
   git -C "$1" config user.email 'test@example.invalid'
   git -C "$1" config user.name 'test'
   git -C "$1" config commit.gpgsign false
-  git -C "$1" config core.autocrlf false
 }
 
 origin="$fake/origin.git"
@@ -186,12 +185,9 @@ made="$(git -C "$work" for-each-ref --format='%(refname:short)' refs/heads | gre
 check 'exits zero'    0 "$rc"
 check 'the slug is 40 characters' 40 "$(printf '%s' "${made#issue-164-}" | wc -c | tr -d ' ')"
 
-# WHAT SEPARATES THE TWO TWINS. The title below carries U+212A KELVIN SIGN, which
-# .ToLowerInvariant() maps to `k` and `tr '[:upper:]' '[:lower:]'` leaves alone, so the same issue
-# produced issue-165-read-the-kelvin-board on one shell and issue-165-read-the-elvin-board on the
-# other. Both twins assert the same name here, which is what makes the pair provable rather than
-# merely both green.
-echo 'the two folds answer alike on a letter only one of them lowercases'
+# The title below carries U+212A KELVIN SIGN, which `tr '[:upper:]' '[:lower:]'` leaves alone, so
+# the slug is issue-165-read-the-elvin-board.
+echo 'a letter that tr does not lowercase stays out of the slug'
 kelvin="$fake/kelvin"
 mkdir -p "$kelvin"
 cat > "$kelvin/gh" <<'KELVIN'
@@ -242,7 +238,7 @@ check 'not landed: exits nonzero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)
 check 'not landed: it names the branch' yes "$(grep -q 'a branch for this issue exists already: origin/issue-182-read-the-board-whole' <<< "$out" && echo yes || echo no)"
 git -C "$work" branch -q issue-182-second
 out="$(run 182)"; rc=$?
-check 'two branches: both named, as the twin names them' yes "$(grep -q 'a branch for this issue exists already: issue-182-second, origin/issue-182-read-the-board-whole - use' <<< "$out" && echo yes || echo no)"
+check 'two branches: both named' yes "$(grep -q 'a branch for this issue exists already: issue-182-second, origin/issue-182-read-the-board-whole - use' <<< "$out" && echo yes || echo no)"
 
 echo 'an origin/HEAD naming a branch the remote no longer has: the default branch is asked of the remote'
 git -C "$work" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/gone

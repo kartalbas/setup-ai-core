@@ -85,9 +85,6 @@ name="issue-$number-$slug"
 # two repositories working the same issue number do not collide. The main checkout is found
 # through --git-common-dir, so this answers the same from inside another worktree.
 common="$(git rev-parse --git-common-dir)"
-# git's own spelling of that directory, not the shell's. On Windows the two differ - git says
-# C:/Users/... where Git Bash says /c/Users/... - and the worktree path is printed for a person
-# to open and handed to git in the same breath.
 main="$(cd "$common/.." && git rev-parse --show-toplevel)"
 repo_folder="${main##*/}"
 container="$(dirname "$main")/.worktrees/$repo_folder"

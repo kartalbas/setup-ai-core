@@ -108,7 +108,7 @@ cards_of_repo() {  # <owner/repo>
       | ((($landed.body // "") | (split("\n")[0] // "") | capture("^Landed on \\S+ of (?<r>[^\\s:]+/[^\\s:]+):") | .r) // "-") as $elsewhere
       | ([$said[] | select($landed != null and (.body | startswith("Proven on ")) and (.createdAt > $landed.createdAt))]
           | if length > 0 then 1 else 0 end) as $proven
-      | "\($status)\t\($i.number)\t\($i.subIssuesSummary.total // 0)\t\($sha)\t\($proven)\t\($elsewhere)"' | tr -d '\r' || exit 1
+      | "\($status)\t\($i.number)\t\($i.subIssuesSummary.total // 0)\t\($sha)\t\($proven)\t\($elsewhere)"' || exit 1
     next="$(printf '%s' "$page" | jq -r '.data.repository.issues.pageInfo | if .hasNextPage then .endCursor else empty end')"
     [ -n "$next" ] || break
     after="$next"

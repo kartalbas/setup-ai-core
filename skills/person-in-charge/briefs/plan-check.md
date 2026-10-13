@@ -28,7 +28,8 @@ names, the scan output, the spans the facts name.
    is not mechanical.
 5. Are `Verify:`, `Environment:` and `Checks:` filled from the criteria, so the build and the UI test
    can run from the section alone? Does `Environment:` hold the test and the production URL?
-6. Would the build fit 300k? Where not, say where to split.
+6. Would the build fit its context budget (300k, 250k in Codex)? Where not, say where to split. Was an
+   issue of this area and its contracts left out only to keep the package small? Name it.
 
 ## Probes
 

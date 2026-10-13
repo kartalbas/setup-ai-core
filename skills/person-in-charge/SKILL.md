@@ -122,8 +122,8 @@ package whose `After:` area has not landed, or whose `Waits for the owner:` is n
 built. Read TESTING: prove the live cards, 🔴 first; TREES: land or
 put to the owner. An issue a plan left out (`Left out:`) gets `incident:context` and goes to
 `backlog`. A question that is the owner's goes to the owner, its issues get `needs:owner`
-(`ai-core issue-label`) and keep their column. At the usage limit (`ai-core usage` exits 3; for
-Codex and agy a refusal for quota) every session finishes its step and reports, and you start
+(`ai-core issue-label`) and keep their column. At the usage limit (`ai-core usage` exits 3, in
+a Claude Code or a Codex shell, each with its own windows; for agy a refusal for quota) every session finishes its step and reports, and you start
 nothing until the reset. You never stop because your context grew: the tool compacts you, and
 your state is on the tracker, where `briefs/coordinator.md` reads it again. When the owner asks for the state, build the page
 `briefs/coordinator.md` describes.

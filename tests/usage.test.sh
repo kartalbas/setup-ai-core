@@ -11,6 +11,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 export HOME="$work/home" AI_CORE_HOME="$work/home"
+unset CODEX_THREAD_ID CODEX_SANDBOX CODEX_SANDBOX_NETWORK_DISABLED CODEX_HOME   # the Claude Code cases run as no Codex shell
 mkdir -p "$HOME" "$work/project"
 
 failed=0
@@ -54,6 +55,30 @@ rm -f "$HOME/.ai-core/usage.json"
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'exit 2'                   2 "$rc"
 check 'it says why'              yes "$(grep -q 'no usage recorded yet' <<< "$out" && echo yes || echo no)"
+
+echo "in a Codex shell: the windows Codex wrote last into its newest session file, never Claude's"
+printf '{"recorded_at":%s,"rate_limits":{"seven_day":{"used_percentage":99,"resets_at":%s}}}\n' "$now" "$later" > "$HOME/.ai-core/usage.json"
+sessions="$HOME/.codex/sessions/2026/10/13"; mkdir -p "$sessions"
+codex_line() { printf '{"timestamp":"2026-10-13T07:09:45.777Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":{"used_percent":%s,"window_minutes":10080,"resets_at":%s},"secondary":%s}}}\n' "$1" "$later" "$2"; }
+codex_line 99 null > "$sessions/rollout-old.jsonl"; touch -t 202601010000 "$sessions/rollout-old.jsonl"
+{ codex_line 3 null; codex_line 7 "{\"used_percent\":12.5,\"window_minutes\":300,\"resets_at\":$soon}"
+  printf '{"timestamp":"2026-10-13T07:10:00.000Z","type":"event_msg","payload":{"type":"token_count","rate_limits":null}}\n'; } > "$sessions/rollout-new.jsonl"
+touch -t 202601020000 "$sessions/rollout-new.jsonl"   # the newest file below has no window at all, so the one before it counts
+printf '{"timestamp":"2026-10-13T07:11:00.000Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":null,"secondary":null}}}\n' > "$sessions/rollout-newest.jsonl"
+out="$(cd "$work/project" && CODEX_THREAD_ID=t bash "$root/bin/usage.sh" 2>&1)"; rc=$?
+check 'exit 0, Claude at 99 % does not count'  0 "$rc"
+check 'the week'                 "seven_day    7 %  resets $(when "$later")" "$(sed -n 1p <<< "$out")"
+check 'the five hours'           "five_hour   12 %  resets $(when "$soon")" "$(sed -n 2p <<< "$out")"
+check 'when Codex recorded it'   "recorded $(when "$(jq -n '"2026-10-13T07:09:45Z" | fromdateiso8601')"), limit 92 %" "$(sed -n 3p <<< "$out")"
+out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
+check 'no Codex shell: Claude at 99 %, exit 3'  3 "$rc"
+codex_line 95 null >> "$sessions/rollout-new.jsonl"
+out="$(cd "$work/project" && CODEX_THREAD_ID=t bash "$root/bin/usage.sh" 2>&1)"; rc=$?
+check 'Codex at its limit: exit 3'  3 "$rc"
+rm -rf "$HOME/.codex"
+out="$(cd "$work/project" && CODEX_THREAD_ID=t bash "$root/bin/usage.sh" 2>&1)"; rc=$?
+check 'no Codex session file: exit 2'  2 "$rc"
+check 'it says why'              yes "$(grep -q 'no usage recorded yet: Codex records it' <<< "$out" && echo yes || echo no)"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

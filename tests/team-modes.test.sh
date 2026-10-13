@@ -96,10 +96,14 @@ EOF
 chmod +x "$fake/codex"
 mkdir -p "$HOME/.agents/skills/caveman"
 printf 'Installed plugins:\n  ponytail@ponytail\n  i-have-adhd@i-have-adhd\n' > "$fake/plugins.txt"
-out="$(CLAUDECODE=1 bash "$root/bin/team-modes-check.sh" 2>&1)"; code=$?
+out="$(env -u CODEX_SANDBOX -u CODEX_SANDBOX_NETWORK_DISABLED -u CODEX_THREAD_ID CLAUDECODE=1 bash "$root/bin/team-modes-check.sh" 2>&1)"; code=$?
 check 'exit 0'              0 "$code"
 check 'codex not mentioned' no  "$(grep -q 'codex' <<< "$out" && echo yes || echo no)"
 check 'claude checked'      yes "$(grep -q 'present for: claude' <<< "$out" && echo yes || echo no)"
+echo 'a Codex session started from a Claude Code shell carries both variables: Codex is checked'
+out="$(CLAUDECODE=1 CODEX_THREAD_ID=t bash "$root/bin/team-modes-check.sh" 2>&1)"
+check 'codex checked'       yes "$(grep -q -E '^(ok|MISSING) +codex ' <<< "$out" && echo yes || echo no)"
+check 'claude not checked'  no  "$(grep -q 'claude' <<< "$out" && echo yes || echo no)"
 
 echo 'a plugin that Codex lists as not installed is missing, not present'
 out="$(run_check --tool codex)"; code=$?

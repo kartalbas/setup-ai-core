@@ -98,5 +98,6 @@ issues it holds. The owner answers there; your next round reads the answer.
   folders of its start.
 - A session that finished is done; nothing is kept. Its report is on the issue, its last message in
   its output file.
-- Codex has no command the harness reads for its quota. A session refused for quota ends its phase;
-  every phase of this ecosystem waits until a call is answered again.
+- `ai-core usage` in a Codex shell reads Codex's own windows, from the newest `rate_limits` Codex
+  wrote into its session files, never Claude's. A session refused for quota ends its phase; every
+  phase of this ecosystem waits until a call is answered again.

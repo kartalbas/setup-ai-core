@@ -152,6 +152,13 @@ Check 'the row is named' 'True' ([bool]($out -match 'FAILED\s+probetool caveman:
 Check 'the count'        'True' ([bool]($out -match 'installed 0, failed 1, skipped 0\.'))
 $env:TEAM_MODES_FILE = $kept
 
+Write-Host 'a Codex session started from a Claude Code shell carries both variables: Codex is checked'
+$env:CLAUDECODE = '1'; $env:CODEX_THREAD_ID = 't'
+RunCheck @{}
+Remove-Item Env:CLAUDECODE, Env:CODEX_THREAD_ID
+Check 'codex checked'      'True' ([bool]((Count '^(ok|MISSING)\s+codex ') -gt 0))
+Check 'claude not checked' 0      (Count '^(ok|MISSING)\s+claude ')
+
 Write-Host 'session-start refuses before printing anything when a mode is missing'
 Set-Location $root
 $out = (& (Join-Path $root 'bin/session-start.ps1') -Tool claude 6>&1 2>&1 | Out-String)

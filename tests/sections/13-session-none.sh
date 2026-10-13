@@ -83,7 +83,7 @@ git -C "$base" remote set-url origin https://github.com/example-org/base-ai-core
 printf '{"setup-ai-core":">=1.1.0","extends":"example-org/base-ai-core"}\n' > "$source_repo/ai-core.json"
 for t in sh ps1; do
   start_source "$t" "$source_repo" json 0
-  jq -e '.rule_sources | length == 3 and (.[1] | endswith("base-ai-core/rules"))' "$WORK/start-$t.log" >/dev/null || fail "source start.$t omitted inherited rules"
+  jq -e '.rule_sources | length == 3 and (.[1] | gsub("\\\\"; "/") | endswith("base-ai-core/rules"))' "$WORK/start-$t.log" >/dev/null || fail "source start.$t omitted inherited rules"
 done
 git -C "$source_repo" restore ai-core.json
 

@@ -83,7 +83,10 @@ if ($All) {
   if (Test-Path -LiteralPath $worktrees) {
     foreach ($r in Get-ChildItem -LiteralPath $worktrees -Directory) {
       # a link beside the worktrees is a neighbour checkout, initialized as itself
-      $checkouts += @(Get-ChildItem -LiteralPath $r.FullName -Directory | Where-Object { -not $_.LinkType } | ForEach-Object { [pscustomobject]@{ Name = ".worktrees/$($r.Name)/$($_.Name)"; RepoFolder = $r.Name; Path = $_.FullName } })
+      # a worktree is named by the checkout it belongs to, whichever way .worktrees/ is laid out
+      $checkouts += @(Get-ChildItem -LiteralPath $r.FullName -Directory | Where-Object { -not $_.LinkType -and (Test-Path (Join-Path $_.FullName '.git')) } | ForEach-Object {
+        $common = [IO.Path]::GetFullPath("$(& git -C $_.FullName rev-parse --git-common-dir)".Trim(), $_.FullName)
+        [pscustomobject]@{ Name = ".worktrees/$($r.Name)/$($_.Name)"; RepoFolder = (Split-Path -Leaf (Split-Path -Parent $common)); Path = $_.FullName } })
     }
   }
   # a harness clone serves the repositories; it is not one of them, and neither is a worktree of one

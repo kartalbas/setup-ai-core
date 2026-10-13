@@ -14,6 +14,11 @@ for twin in sh ps; do
   for r in one x-ai-core; do git -C "$WORK/all-$twin/$r" commit -q --allow-empty -m start; done
   git -C "$WORK/all-$twin/one" worktree add -q -b issue-1-to-ai-core "$WORK/all-$twin/.worktrees/one/issue-1-to-ai-core"
   git -C "$WORK/all-$twin/x-ai-core" worktree add -q -b issue-2-rules "$WORK/all-$twin/.worktrees/x-ai-core/issue-2-rules"
+  # and the layout of a package that spans repositories, .worktrees/<issue>/<repository>/: one of the
+  # harness clone, and one of a repository under an issue whose name ends like a harness clone's
+  git -C "$WORK/all-$twin/two" commit -q --allow-empty -m start
+  git -C "$WORK/all-$twin/x-ai-core" worktree add -q -b issue-3-pkg "$WORK/all-$twin/.worktrees/issue-3-pkg/x-ai-core"
+  git -C "$WORK/all-$twin/two" worktree add -q -b issue-4-to-ai-core "$WORK/all-$twin/.worktrees/issue-4-to-ai-core/two"
   if [ "$twin" = sh ]; then
     bash "$ROOT/bin/init.sh" --all "$WORK/all-$twin" --no-doctor --dry-run > "$WORK/all-$twin-dry.log" 2>&1 && fail "init.sh --all --dry-run exited 0 with a failing repository"
     bash "$ROOT/bin/init.sh" --all "$WORK/all-$twin" --no-doctor > "$WORK/all-$twin.log" 2>&1 && fail "init.sh --all exited 0 with a failing repository"
@@ -21,13 +26,15 @@ for twin in sh ps; do
     pwsh -NoProfile -File "$ROOT/bin/init.ps1" -All "$(native "$WORK/all-$twin")" -NoDoctor -DryRun > "$WORK/all-$twin-dry.log" 2>&1 && fail "init.ps1 -All -DryRun exited 0 with a failing repository"
     pwsh -NoProfile -File "$ROOT/bin/init.ps1" -All "$(native "$WORK/all-$twin")" -NoDoctor > "$WORK/all-$twin.log" 2>&1 && fail "init.ps1 -All exited 0 with a failing repository"
   fi
-  grep -aq '3 repositories would be initialized; failed: broken' "$WORK/all-$twin-dry.log" || fail "init --all --dry-run summary wrong for $twin: $(grep -a 'repositories' "$WORK/all-$twin-dry.log")"
-  [ "$(grep -ac '^init would change in ' "$WORK/all-$twin-dry.log")" = 4 ] || fail "init --all --dry-run did not report every repository, the worktree and the folder ($twin)"
+  grep -aq '4 repositories would be initialized; failed: broken' "$WORK/all-$twin-dry.log" || fail "init --all --dry-run summary wrong for $twin: $(grep -a 'repositories' "$WORK/all-$twin-dry.log")"
+  [ "$(grep -ac '^init would change in ' "$WORK/all-$twin-dry.log")" = 5 ] || fail "init --all --dry-run did not report every repository, the worktree and the folder ($twin)"
   grep -aq '^  created .*AGENTS.md' "$WORK/all-$twin.log" || fail "init --all did not report what it created ($twin)"
-  grep -aq '3 repositories were initialized; failed: broken' "$WORK/all-$twin.log" || fail "init --all summary wrong for $twin: $(grep -a 'repositories' "$WORK/all-$twin.log")"
+  grep -aq '4 repositories were initialized; failed: broken' "$WORK/all-$twin.log" || fail "init --all summary wrong for $twin: $(grep -a 'repositories' "$WORK/all-$twin.log")"
   [ -f "$WORK/all-$twin/one/AGENTS.md" ] && [ -f "$WORK/all-$twin/two/AGENTS.md" ] || fail "init --all did not initialize the good repositories ($twin)"
   grep -aq '^### \.worktrees/one/issue-1-to-ai-core' "$WORK/all-$twin.log" && [ -f "$WORK/all-$twin/.worktrees/one/issue-1-to-ai-core/.ai-core/rules/rules.md" ] || fail "init --all did not initialize the worktree under .worktrees/ ($twin)"
   [ -e "$WORK/all-$twin/.worktrees/x-ai-core/issue-2-rules/.ai-core" ] && fail "init --all initialized a worktree of a harness clone ($twin)"
+  [ -e "$WORK/all-$twin/.worktrees/issue-3-pkg/x-ai-core/.ai-core" ] && fail "init --all initialized a worktree of a harness clone under .worktrees/<issue>/ ($twin)"
+  [ -f "$WORK/all-$twin/.worktrees/issue-4-to-ai-core/two/.ai-core/rules/rules.md" ] || fail "init --all skipped a repository's worktree under an issue named like a harness clone ($twin)"
   [ -e "$WORK/all-$twin/not-a-repo/.ai-core" ] && fail "init --all touched a folder that is not a repository ($twin)"
   [ -e "$WORK/all-$twin/x-ai-core/.ai-core" ] && fail "init --all initialized a harness clone ($twin)"
   grep -q 'x-ai-core' "$WORK/all-$twin/AGENTS.md" && fail "the project folder's AGENTS.md lists a harness clone ($twin)"
@@ -37,7 +44,7 @@ for twin in sh ps; do
   [ -f "$WORK/all-$twin/.ai-core/rules/rules.md" ] || fail "init --all did not give the project folder the rules ($twin)"
 done
 diff <(sed "s/^# all-sh$/# FOLDER/" "$WORK/all-sh/AGENTS.md") <(sed "s/^# all-ps$/# FOLDER/" "$WORK/all-ps/AGENTS.md") > /dev/null || fail "the project folder's AGENTS.md differs between the twins"
-echo "  2 repositories and a worktree under .worktrees/ initialized, 1 failed and named, the plain folder, the harness clone and its worktree untouched, the folder's AGENTS.md lists the three, on both twins"
+echo "  2 repositories and two worktrees under .worktrees/ initialized, 1 failed and named, the plain folder, the harness clone and its worktrees in both layouts untouched, the folder's AGENTS.md lists the three, on both twins"
 
 section "init --all gives the folder its rules before its repositories: a repository with the folder's rules names them without the @ in one run, the folder's rules older or missing; both twins"
 for twin in sh ps; do

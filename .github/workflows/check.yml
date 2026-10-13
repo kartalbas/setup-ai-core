@@ -6,22 +6,12 @@ on:
   pull_request:
 jobs:
   check:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - run: bash tests/check.sh
-        shell: bash
       # The one check that reaches github.com: every GraphQL mutation of the board commands
-      # against the schema GitHub publishes. Both twins, with the workflow's own token.
+      # against the schema GitHub publishes, with the workflow's own token.
       - run: bash bin/schema-check.sh
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-      - run: pwsh -NoProfile -File bin/schema-check.ps1
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

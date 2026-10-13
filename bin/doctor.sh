@@ -12,9 +12,9 @@ for arg in "$@"; do
     -h|--help)
       echo "Usage: doctor.sh [--no-install]"
       echo ""
-      echo "Checks Git, gh (with its login), Bash, PowerShell 7, Node.js 20+ with npx, and reports"
+      echo "Checks Git, gh (with its login), Bash, Node.js 20+ with npx, and reports"
       echo "the agent CLIs (claude, agy, codex). Missing required tools are installed with the"
-      echo "platform's package manager (winget, brew, apt-get). A login cannot be automated and"
+      echo "platform's package manager (brew, apt-get). A login cannot be automated and"
       echo "is reported with its command. Exit 1 when a required tool is still missing afterwards."
       echo ""
       echo "Options:"
@@ -27,7 +27,6 @@ for arg in "$@"; do
 done
 
 case "$(uname -s)" in
-  MINGW*|MSYS*|CYGWIN*) OS=windows ;;
   Darwin) OS=macos ;;
   Linux) OS=linux ;;
   *) OS=other ;;
@@ -35,7 +34,6 @@ esac
 
 PM=""
 case "$OS" in
-  windows) command -v winget >/dev/null 2>&1 && PM=winget ;;
   macos) command -v brew >/dev/null 2>&1 && PM=brew ;;
   linux) command -v apt-get >/dev/null 2>&1 && PM=apt-get ;;
 esac
@@ -46,24 +44,13 @@ INSTALLED_SOMETHING=0
 report() { printf '  %-12s %-12s %s\n' "$1" "$2" "$3"; }
 problem() { PROBLEMS=$((PROBLEMS + 1)); }
 
-# On Windows a tool installed a moment ago is not on this shell's PATH yet
-refresh_path() {
-  [ "$OS" = windows ] || return 0
-  for d in "/c/Program Files/Git/cmd" "/c/Program Files/nodejs" "/c/Program Files/PowerShell/7" "/c/Program Files/GitHub CLI"; do
-    [ -d "$d" ] && PATH="$PATH:$d"
-  done
-  [ -n "${LOCALAPPDATA:-}" ] && [ -d "$LOCALAPPDATA/Microsoft/WinGet/Links" ] && PATH="$PATH:$LOCALAPPDATA/Microsoft/WinGet/Links"
-  return 0
-}
-
-# install <tool> <winget id> <brew formula> <apt package>
+# install <tool> <brew formula> <apt package>
 install_tool() {
-  local tool="$1" winget_id="$2" brew_formula="$3" apt_pkg="$4"
+  local tool="$1" brew_formula="$2" apt_pkg="$3"
   [ "$NO_INSTALL" -eq 0 ] || return 1
   [ -n "$PM" ] || return 1
   echo "--> Installing $tool with $PM..."
   case "$PM" in
-    winget) winget install --id "$winget_id" -e --accept-source-agreements --accept-package-agreements --disable-interactivity >/dev/null || return 1 ;;
     brew) brew install "$brew_formula" >/dev/null || return 1 ;;
     apt-get)
       if [ "$(id -u)" = 0 ]; then apt-get install -y "$apt_pkg" >/dev/null || return 1
@@ -71,7 +58,6 @@ install_tool() {
       else return 1; fi ;;
   esac
   INSTALLED_SOMETHING=1
-  refresh_path
 }
 
 major_of() { echo "$1" | sed -E 's/^[^0-9]*([0-9]+).*/\1/'; }
@@ -79,7 +65,7 @@ major_of() { echo "$1" | sed -E 's/^[^0-9]*([0-9]+).*/\1/'; }
 echo "==> doctor: $OS, package manager: ${PM:-none}"
 
 # Git
-if ! command -v git >/dev/null 2>&1; then install_tool git Git.Git git git || true; fi
+if ! command -v git >/dev/null 2>&1; then install_tool git git git || true; fi
 if command -v git >/dev/null 2>&1; then
   report git present "$(git --version 2>/dev/null | head -1)"
 else
@@ -87,7 +73,7 @@ else
 fi
 
 # gh
-if ! command -v gh >/dev/null 2>&1; then install_tool gh GitHub.cli gh gh || true; fi
+if ! command -v gh >/dev/null 2>&1; then install_tool gh gh gh || true; fi
 if command -v gh >/dev/null 2>&1; then
   # the board commands write Projects v2, which a login with gh's default scopes cannot; a token
   # gh lists no scopes for (a fine-grained one, GH_TOKEN) is not judged
@@ -105,25 +91,10 @@ else
 fi
 
 # Bash (this script runs in it)
-report bash present "${BASH_VERSION%%(*}$([ "$OS" = windows ] && echo ' (Git Bash)')"
-
-# PowerShell 7: required on Windows, optional elsewhere
-if ! command -v pwsh >/dev/null 2>&1 && [ "$OS" = windows ]; then install_tool pwsh Microsoft.PowerShell powershell powershell || true; fi
-if command -v pwsh >/dev/null 2>&1; then
-  PWSH_VERSION="$(pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()' 2>/dev/null | tr -d '\r')"
-  if [ "$(major_of "$PWSH_VERSION")" -ge 7 ] 2>/dev/null; then
-    report pwsh present "PowerShell $PWSH_VERSION"
-  else
-    report pwsh "too old" "PowerShell $PWSH_VERSION; 7 or newer is needed"; problem
-  fi
-elif [ "$OS" = windows ]; then
-  report pwsh MISSING "install PowerShell 7: winget install Microsoft.PowerShell"; problem
-else
-  report pwsh optional "not installed; the .sh twins are enough here"
-fi
+report bash present "${BASH_VERSION%%(*}"
 
 # Node.js 20+ with npx
-if ! command -v node >/dev/null 2>&1; then install_tool node OpenJS.NodeJS.LTS node nodejs || true; fi
+if ! command -v node >/dev/null 2>&1; then install_tool node node nodejs || true; fi
 if command -v node >/dev/null 2>&1; then
   NODE_VERSION="$(node -v 2>/dev/null | tr -d '\r')"
   if [ "$(major_of "$NODE_VERSION")" -ge 20 ] 2>/dev/null; then
@@ -141,7 +112,7 @@ else
 fi
 
 # jq: every board and issue command reads GitHub's answers through it
-if ! command -v jq >/dev/null 2>&1; then install_tool jq jqlang.jq jq jq || true; fi
+if ! command -v jq >/dev/null 2>&1; then install_tool jq jq jq || true; fi
 if command -v jq >/dev/null 2>&1; then
   report jq present "$(jq --version 2>/dev/null | head -1)"
 else
@@ -150,7 +121,7 @@ fi
 
 # gitleaks, where a repository of this project folder carries .gitleaks.toml: the push gate reads
 # every push there with `gitleaks git`, which came with gitleaks 8.19, and refuses the push without
-# it. winget and brew have a recent one; apt's is 8.16 on every Ubuntu to date, so elsewhere the
+# it. brew has a recent one; apt's is 8.16 on every Ubuntu to date, so elsewhere the
 # release comes from GitHub, into ~/.local/bin.
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/layers.sh"
 LEAKS_REPOS=""
@@ -173,10 +144,9 @@ if [ -n "$LEAKS_REPOS" ]; then
   }
   LEAKS_NOTE=""; LEAKS_NEW=0
   if ! leaks_ok && [ "$NO_INSTALL" -eq 0 ]; then
-    case "$PM" in winget|brew) install_tool gitleaks Gitleaks.Gitleaks gitleaks - && LEAKS_NEW=1 ;; *) leaks_release && LEAKS_NEW=1 ;; esac
+    case "$PM" in brew) install_tool gitleaks gitleaks - && LEAKS_NEW=1 ;; *) leaks_release && LEAKS_NEW=1 ;; esac
   fi
   case "$OS" in
-    windows) how="winget install --id Gitleaks.Gitleaks -e" ;;
     macos) how="brew install gitleaks" ;;
     *) how="the gitleaks release for this machine from https://github.com/gitleaks/gitleaks/releases, unpacked into ~/.local/bin" ;;
   esac
@@ -202,8 +172,8 @@ for cli in claude agy codex; do
     report "$cli" present "$(command -v "$cli")"
   else
     case "$cli" in
-      claude) hint="Claude Code: https://claude.ai/install.ps1 or install.sh" ;;
-      agy) hint="Antigravity: https://antigravity.google/cli/install.ps1 or install.sh" ;;
+      claude) hint="Claude Code: https://claude.ai/install.sh" ;;
+      agy) hint="Antigravity: https://antigravity.google/cli/install.sh" ;;
       codex) hint="Codex: npm install -g @openai/codex" ;;
     esac
     report "$cli" absent "$hint"
@@ -211,15 +181,15 @@ for cli in claude agy codex; do
 done
 
 # A session-start hook in the machine-wide Claude Code settings that starts a script of an
-# earlier layout (a session-start.sh or .ps1 beside the repositories): the repository's own
+# earlier layout (a session-start.sh beside the repositories): the repository's own
 # .claude/settings.json carries the hook now, so the stale one is taken out.
 CLAUDE_SETTINGS="$HOME/.claude/settings.json"
 if [ -f "$CLAUDE_SETTINGS" ] && command -v jq >/dev/null 2>&1; then
-  STALE_HOOKS="$(jq '[.hooks.SessionStart[]?.hooks[]?.command // empty | select(test("session-start\\.(sh|ps1)"))] | length' "$CLAUDE_SETTINGS" 2>/dev/null || echo 0)"
+  STALE_HOOKS="$(jq '[.hooks.SessionStart[]?.hooks[]?.command // empty | select(test("session-start\\.sh"))] | length' "$CLAUDE_SETTINGS" 2>/dev/null || echo 0)"
   if [ "$STALE_HOOKS" -gt 0 ]; then
     if [ "$NO_INSTALL" -eq 1 ]; then report "claude hook" stale "$CLAUDE_SETTINGS starts a session-start script of an earlier layout; run doctor without --no-install to take it out"; problem
     else
-      jq '.hooks.SessionStart = [.hooks.SessionStart[]? | .hooks = [.hooks[]? | select((.command // "") | test("session-start\\.(sh|ps1)") | not)] | select(.hooks | length > 0)]' "$CLAUDE_SETTINGS" > "$CLAUDE_SETTINGS.tmp" && mv "$CLAUDE_SETTINGS.tmp" "$CLAUDE_SETTINGS"
+      jq '.hooks.SessionStart = [.hooks.SessionStart[]? | .hooks = [.hooks[]? | select((.command // "") | test("session-start\\.sh") | not)] | select(.hooks | length > 0)]' "$CLAUDE_SETTINGS" > "$CLAUDE_SETTINGS.tmp" && mv "$CLAUDE_SETTINGS.tmp" "$CLAUDE_SETTINGS"
       report "claude hook" repaired "$CLAUDE_SETTINGS started a session-start script of an earlier layout; taken out, the repository's own .claude/settings.json carries the hook now"
     fi
   fi

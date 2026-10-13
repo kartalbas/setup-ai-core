@@ -2,7 +2,7 @@
 # Verify the harness itself: every file under tests/sections/ is one section of the suite, and
 # they all run at once, each in its own process and its own throwaway directory. The report
 # comes in the order of the files, with the time each section took; a red section prints its
-# whole log. Needs bash, pwsh and node; nothing here reaches the network.
+# whole log. Needs bash and node; nothing here reaches the network.
 #
 #   bash tests/check.sh [section ...]       a section by its file name, e.g. 08-harness
 #
@@ -25,34 +25,6 @@ for s in "${SECTIONS[@]}"; do
 done
 wait
 
-# A red check can be a crash of pwsh rather than a defect of the code under test: under parallel
-# load pwsh now and then dies of SIGSEGV inside the .NET runtime, and the test that waited for it
-# reads the empty answer as a wrong one. The kernel logs every such death, so a red run says how
-# many fell into its time, or that it could not look. A log that gives no line at all is one this
-# user cannot read, since the kernel writes lines from the first second of a boot. pwsh also dies
-# of a .NET stack overflow, which is an abort, not a segfault: the kernel logs nothing, and the
-# runtime's "Stack overflow." on the dying process's stderr lands in the log of its section.
-pwsh_crashes() {
-  local log n
-  n="$(cat "$RUN"/*.log | grep -c 'Stack overflow\.')" || true
-  if [ "$n" -gt 0 ]; then
-    echo "pwsh aborted $n time(s) with a .NET stack overflow during this run (section logs): a red check above may be that crash, not the code under test"
-  else
-    echo "no stack overflow of pwsh in the section logs of this run"
-  fi
-  if [ -z "$(journalctl -k -q --no-pager -n 1 2>/dev/null)" ] \
-    || ! log="$(journalctl -k -q --no-pager --since "@$START" 2>/dev/null)"; then
-    echo "the kernel log could not be read, so a crash of pwsh during this run is not ruled out"
-    return
-  fi
-  n="$(grep -c 'pwsh\[[0-9]*\]: segfault' <<< "$log")"
-  if [ "$n" -gt 0 ]; then
-    echo "pwsh crashed $n time(s) on this machine during this run (kernel log): a red check above may be that crash, not the code under test"
-  else
-    echo "no crash of pwsh in the kernel log during this run"
-  fi
-}
-
 red=""
 for s in "${SECTIONS[@]}"; do
   n="$(basename "$s" .sh)"
@@ -62,5 +34,5 @@ for s in "${SECTIONS[@]}"; do
   echo
 done
 echo "==> the whole suite took $(( $(date +%s) - START ))s, ${#SECTIONS[@]} sections at once"
-[ -z "$red" ] || { echo "red:$red"; pwsh_crashes; exit 1; }
+[ -z "$red" ] || { echo "red:$red"; exit 1; }
 echo "OK"

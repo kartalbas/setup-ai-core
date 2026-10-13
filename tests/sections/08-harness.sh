@@ -11,7 +11,6 @@ new_checkout() {  # new_checkout <dir> <repo name> [org]
   git -C "$1" remote add origin "https://github.com/${3:-example-org}/$2.git"
 }
 # Two machines with a project folder each; a harness clone lands beside the checkouts in it
-# Two machines with a project folder each; a harness clone lands beside the checkouts in it
 mkdir -p "$WORK/home-sh" "$WORK/home-second" "$WORK/org-sh" "$WORK/org-second"
 new_checkout "$WORK/org-sh/shop-web" shop-web
 HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/shop-web" --no-doctor --dry-run > "$WORK/layers-sh-0.log" 2>&1 || fail "init.sh --dry-run before the project harness exists (see $WORK/layers-sh-0.log)"

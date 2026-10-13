@@ -80,9 +80,9 @@ source_rule_dirs() {
       || { echo "error: source README.md and rules must be tracked" >&2; return 1; }
     extends=""
     if [ "${full#*/}" = setup-ai-core ]; then
-      git -C "$dir" ls-files --error-unmatch VERSION bin/session-start.sh bin/session-start.ps1 lib/layers.sh lib/Layers.psm1 rules/skills.md >/dev/null 2>&1 \
+      git -C "$dir" ls-files --error-unmatch VERSION bin/session-start.sh lib/layers.sh rules/skills.md >/dev/null 2>&1 \
         || { echo "error: missing tracked setup-ai-core source inputs" >&2; return 1; }
-      for file in VERSION bin/session-start.sh bin/session-start.ps1 lib/layers.sh lib/Layers.psm1 rules/skills.md; do
+      for file in VERSION bin/session-start.sh lib/layers.sh rules/skills.md; do
         [ -s "$dir/$file" ] || { echo "error: missing setup-ai-core source inputs" >&2; return 1; }
       done
       [[ "$(tr -d '\r\n' < "$dir/VERSION")" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "error: invalid setup-ai-core VERSION" >&2; return 1; }

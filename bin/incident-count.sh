@@ -34,8 +34,7 @@ done
 case "$weeks" in ''|*[!0-9]*) die "--weeks must be numeric, not '$weeks'" ;; esac
 [ "$weeks" -ge 1 ] || die "--weeks must be at least 1"
 
-# GNU date and BSD date take opposite arguments for "N days ago", and this half of the pair runs
-# on macOS as well as on Linux and Git Bash. Which one is here is asked once.
+# GNU date and BSD date take opposite arguments for "N days ago". Which one is here is asked once.
 if date -u -d '1970-01-01' +%Y >/dev/null 2>&1; then
   date_kind=gnu
 else
@@ -121,16 +120,12 @@ for repo in "${repos[@]}"; do
            --search "created:>=$first_day" --json createdAt,labels)" || exit 1
   [ "$(printf '%s' "$found" | jq 'length')" -lt "$limit" ] \
     || die "more than $limit issues in the window for $repo - the count would be partial"
-  # The carriage returns come out here, not later. jq ends a line with CRLF on Windows, and a CR
-  # left on the label stops it matching the name read from labels.tsv - a table of zeroes on one
-  # platform and the right numbers on the other.
   while IFS=$'\t' read -r created label; do
     [ -n "$created" ] || continue
     printf '%s\t%s\n' "$label" "$(week_of "$created")" >> "$seen"
   done < <(printf '%s' "$found" \
            | jq -r '.[] | .createdAt as $c | .labels[].name
-                    | select(startswith("incident:")) | "\($c)\t\(.)"' \
-           | tr -d '\r')
+                    | select(startswith("incident:")) | "\($c)\t\(.)"')
 done
 
 printf '%-24s' 'label'

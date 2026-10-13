@@ -14,10 +14,9 @@
 #      origin already carries
 #   2. every pushed commit names its issue, or says why it does not
 #   3. the team modes are installed
-#   4. every Windows entry point in the tree is the one text, and not a copy that decides
-#   5. the names of the new directories are derived from the families the trees carry
-#   6. the repository's own scripts/check.sh is green, run in a working tree equal to the commit
-#   7. gitleaks over the commits the push carries, in a repository that carries .gitleaks.toml
+#   4. the names of the new directories are derived from the families the trees carry
+#   5. the repository's own scripts/check.sh is green, run in a working tree equal to the commit
+#   6. gitleaks over the commits the push carries, in a repository that carries .gitleaks.toml
 #
 # Run from a terminal, with nothing on standard input, it judges what `git push` would send from
 # the current branch: the commits its upstream does not have.
@@ -37,15 +36,12 @@ for arg in "$@"; do
     echo "default branch a commit origin already carries passes); a pushed commit names no issue (#<n>),"
     echo "does not open with 'release:', touches more than *.md and"
     echo "LICENSE files, and carries no 'No-issue: <who asked and why>' trailer; a team mode is"
-    echo "missing; a check.ps1 or build.ps1 differs from the one Windows entry point (lib/entry-point.ps1,"
-    echo "judged where scripts/check.sh exists); a file the push adds or changes starts with #! and is"
+    echo "missing; a file the push adds or changes starts with #! and is"
     echo "not executable; a subject is longer than 72 characters; a message carries an assistant's or a"
     echo "vendor's attribution, or its author or committer is an assistant; an added comment names an"
     echo "issue as (#<n>) or <repo>#<n>; an existing"
-    echo "migrations/*.sql is changed or removed (a 'Migration: <why>' trailer allows it); one spelling"
-    echo "of a script changes without the other where x.sh and x.ps1 both stand and the .ps1 is not"
-    echo "lib/entry-point.ps1 (a 'Twin: <why>' trailer"
-    echo "allows it); a new directory's name is invented where the families"
+    echo "migrations/*.sql is changed or removed (a 'Migration: <why>' trailer allows it);"
+    echo "a new directory's name is invented where the families"
     echo "of the trees give it (a 'Naming: <why>' trailer keeps one); the working tree differs from the commit where"
     echo "scripts/check.sh would run, or scripts/check.sh is red; or gitleaks"
     echo "finds a credential in the pushed commits (where .gitleaks.toml exists). Merges are not judged; a deletion runs"
@@ -209,7 +205,7 @@ excuse_gitignore_commits() {
 }
 # commit_only <repository> <subject> <trailer> <path>...: the paths, the shims with the executable
 # bit, as one commit on HEAD, whatever else is staged; built from an index of its own, because
-# `git commit -- <path>` reads the path from the working tree, which on Windows has no executable bit.
+# `git commit -- <path>` reads the path from the working tree, whose file may lack the executable bit.
 add_paths() {  # add_paths <repository> <path>...: into the index git works on; the shims with the executable bit
   local dir="$1" p; shift
   for p in "$@"; do
@@ -465,28 +461,6 @@ done <<< "$commits"
 bash "$CORE_ROOT/bin/team-modes-check.sh" \
   || refuse 'the team modes are missing - the lines above say which and how to install them'
 
-# THE WINDOWS ENTRY POINT IS ONE TEXT, AND THIS IS WHERE IT IS HELD. Where the checks are written
-# in scripts/check.sh, check.ps1 and build.ps1 decide nothing: each starts the .sh file of its own
-# name, so one text serves every repository. Overwrite one of them with two lines that print the
-# verdict and exit 0 and the person at the keyboard reads that the checks passed while nothing
-# ran. No other step here can see that, because every one of them reads the .sh side.
-#
-# THE FILE NAME IS THE RULE AND NO REPOSITORY IS LISTED. The name is matched in full and without
-# its folder: a pattern of *check.ps1 would take bin/case-check.ps1 with it, and that is a twin
-# implementation with a test of its own, not a copy of anything.
-if [ -f "$root/scripts/check.sh" ]; then
-  shim="$CORE_ROOT/lib/entry-point.ps1"
-  [ -f "$shim" ] || refuse "$shim is missing, and it is the one text every Windows entry point copies."
-  while IFS= read -r -d '' door; do
-    case "${door##*/}" in check.ps1|build.ps1) ;; *) continue ;; esac
-    [ -f "$root/$door" ] || continue
-    # Both sides are read without their carriage returns. A checkout that wrote CRLF runs the
-    # same program, and refusing it would report drift where there is none.
-    cmp -s <(tr -d '\r' < "$shim") <(tr -d '\r' < "$root/$door") \
-      || refuse "$door is not the Windows entry point every repository carries. It starts the .sh file of its own name and decides nothing, and this copy says something else. Restore it: cp '$shim' '$root/$door'"
-  done < <(git -C "$root" ls-files -z -- '*.ps1')   # -z: a path git would otherwise quote still matches
-fi
-
 # A FILE THAT STARTS WITH #! IS RUN BY ITS NAME, so it carries the executable bit: without it
 # ./release/release.sh fails and git skips a hook in .githooks. A tool that writes files (an agent's,
 # a copy made through an API) leaves the bit off, and git keeps what it was given. Judged on what the
@@ -567,32 +541,6 @@ while IFS= read -r sha; do
 done <<< "$commits"
 [ -z "$migrated" ] || refuse "these migrations exist already and are changed or removed:$migrated
   Move the schema forward with a new migration. A migration that never reached a database may change in a commit with a 'Migration: <why>' trailer."
-
-# THE TWO SPELLINGS OF A SCRIPT CHANGE TOGETHER (the harness rules): where x.sh and x.ps1 both stand,
-# they are one program, and a push that changes one of them changes the other. Where a fault lives in
-# one spelling alone, a commit of the push says so in a 'Twin: <why>' trailer. A .ps1 that is the
-# Windows entry point in the pushed tree, the blob git makes of lib/entry-point.ps1 at that path,
-# is no twin whatever its name: it starts the .sh of its own name and never changes with it.
-all_changed="$(while IFS= read -r sha; do [ -z "$sha" ] || git diff-tree --no-commit-id --root -r --name-only "$sha"; done <<< "$commits" | LC_ALL=C sort -u)"
-twin_excused=0
-while IFS= read -r sha; do
-  [ -n "$sha" ] || continue
-  [ -z "$(git log -1 --format='%(trailers:key=Twin,valueonly)' "$sha" | tr -d '[:space:]')" ] || twin_excused=1
-done <<< "$commits"
-one_sided=""
-if [ "$twin_excused" -eq 0 ]; then
-  tree_files="$(git ls-tree -r --name-only "$head" 2>/dev/null || true)"
-  while IFS= read -r path; do
-    case "$path" in *.sh) other="${path%.sh}.ps1"; ps1="$other" ;; *.ps1) other="${path%.ps1}.sh"; ps1="$path" ;; *) continue ;; esac
-    blob="$(git rev-parse -q --verify "$head:$ps1" 2>/dev/null || true)"
-    if [ -n "$blob" ] && [ -f "$CORE_ROOT/lib/entry-point.ps1" ] \
-      && [ "$blob" = "$(git hash-object --path="$ps1" "$CORE_ROOT/lib/entry-point.ps1" 2>/dev/null)" ]; then continue; fi
-    { grep -qxF -- "$path" <<< "$tree_files" && grep -qxF -- "$other" <<< "$tree_files"; } || continue
-    grep -qxF -- "$other" <<< "$all_changed" || one_sided="$one_sided $path (not $other)"
-  done <<< "$all_changed"
-fi
-[ -z "$one_sided" ] || refuse "one spelling of a script changed without the other:$one_sided
-  Change both in this push. Where the fault lives in one spelling alone, give a commit a 'Twin: <why>' trailer."
 
 # The findings of one directory in one tree, as words to compare: `family <a> <b>` where <a>
 # stands beside <b> and only one of the two says its side, `part <repository> <x>` where the name

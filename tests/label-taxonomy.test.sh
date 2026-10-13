@@ -28,7 +28,7 @@
 #
 # THE TRACKED FILE IS NEVER WRITTEN TO. Every plant goes into a copy in a temp directory,
 # named `labels.tsv` so the refusals still read as `labels.tsv:<line>`. Planting into the
-# repository's own file would stop the two twins running at the same time - each would read
+# repository's own file would stop two runs at the same time - each would read
 # the other's plant - and a killed run would leave the taxonomy damaged in the working tree.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

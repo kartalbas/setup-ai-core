@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Which issue a new issue is attached to when --parent is given. The Bash twin of
-# issue-parent.test.ps1, asserting the SAME rules against bin/issue-new.sh.
+# Which issue a new issue is attached to when --parent is given, asserted against
+# bin/issue-new.sh.
 #
 #   bash test/issue-parent.test.sh
 #
@@ -32,8 +32,7 @@ FAKE="$(mktemp -d)"
 export GH_CACHE_DIRECTORY="$FAKE/cache"
 REPO="example-org/example-repo"
 # A board number no real project carries, so the cache this seeds cannot be mistaken for
-# a live board's - and is removed again below. The PowerShell twin uses its own number,
-# so the two can run at the same time without reading each other's cache.
+# a live board's - and is removed again below.
 PROJECT_NUMBER=999992
 failed=0
 
@@ -168,10 +167,8 @@ check 'a reference that is no reference is refused' yes \
       "$(names "$(cat "$FAKE/err")" "'bogus' is not an issue reference")"
 check 'before gh was asked anything' 0 "$(grep -c . "$FAKE/calls")"
 
-# WHAT SEPARATES THE TWO TWINS. .NET's $ matches at the end of the string OR immediately before a
-# final newline, so `-notmatch '^[0-9]+$'` accepted "12\n" while the `case` glob below refused it,
-# and one reference resolved a parent on one side and was refused on the other. Both twins assert
-# the same two answers here, which is what makes the pair provable rather than merely both green.
+# A reference with a trailing newline or a leading space is no reference: the `case` glob refuses
+# both before gh is asked anything.
 new_issue $'12\n'
 check 'a number with a trailing newline is refused' yes \
       "$(names "$(cat "$FAKE/err")" 'is not an issue reference')"

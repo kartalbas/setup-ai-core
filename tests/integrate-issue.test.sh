@@ -44,7 +44,6 @@ dress() {
   git -C "$1" config user.email 'test@example.invalid'
   git -C "$1" config user.name 'test'
   git -C "$1" config commit.gpgsign false
-  git -C "$1" config core.autocrlf false
 }
 
 origin="$fake/origin.git"

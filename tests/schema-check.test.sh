@@ -7,7 +7,7 @@
 # field that is not on the payload refuses the whole mutation and nothing happens on the board. No
 # test in this repository could see that: every one of them runs against a fake gh that answers
 # whatever it is told. `updateProjectV2ItemPosition(...) { projectV2Item { id } }` therefore stood
-# in lib/board.sh and lib/Board.psm1 under two green tests, and item-top moved no card.
+# in lib/board.sh under a green test, and item-top moved no card.
 #
 # WHAT IS FAKED HERE, AND WHAT IS NOT. The interface is faked: gh answers a small hand-written
 # introspection payload naming two mutations, so this test reaches nothing, exactly like every
@@ -152,19 +152,12 @@ cat > "$tree/bin/comment.sh" <<'SH'
 #!/usr/bin/env bash
 # updateProjectV2ItemPosition(input:{projectId:$pid}) { projectV2Item { id } } is the defect
 SH
-cat > "$tree/bin/help.ps1" <<'PS'
-<#
-.NOTES
-updateProjectV2ItemPosition(input:{projectId:$pid}) { projectV2Item { id } } is the defect
-#>
-Write-Host 'nothing is sent here'
-PS
 run "$tree"; rc=$?
 check 'exits zero' 0 "$rc"
-check 'neither the shell comment nor the help block was counted' \
-      'schema-check: 2 mutation selection(s) in 4 file(s), every one on the payload the interface publishes.' \
+check 'the comment was not counted' \
+      'schema-check: 2 mutation selection(s) in 3 file(s), every one on the payload the interface publishes.' \
       "$(printf '%s\n' "$out" | tail -1)"
-rm -f "$tree/bin/comment.sh" "$tree/bin/help.ps1"
+rm -f "$tree/bin/comment.sh"
 
 echo 'a misspelt flag is refused, never read as a directory'
 run --dirctory "$tree"; rc=$?

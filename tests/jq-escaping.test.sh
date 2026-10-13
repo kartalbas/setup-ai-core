@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# What reaches gh, and what an archived card survives. The Bash twin of
-# jq-escaping.test.ps1, asserting the SAME rules against the same lib.
+# What reaches gh, and what an archived card survives.
 #
 #   bash test/jq-escaping.test.sh
 #
@@ -164,14 +163,10 @@ esac
 
 # The program goes through a FILE, so this hop adds no escaping of its own and what jq
 # compiles is exactly the bytes gh was handed.
-#
-# gh writes LF on Windows and the jq binary writes CRLF, so the CR is dropped here. A
-# stand-in that answered differently from the real command would put the callers' line
-# handling under test instead of their escaping.
 if [ -n "$prog" ]; then
   printf '%s' "$prog" > "$d/prog.jq"
   set -o pipefail
-  jq -r -f "$d/prog.jq" "$d/$payload" | tr -d '\r'
+  jq -r -f "$d/prog.jq" "$d/$payload"
   exit $?
 fi
 exec cat "$d/$payload"

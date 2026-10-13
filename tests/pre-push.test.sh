@@ -13,7 +13,7 @@
 # gitleaks is a stub that writes down its arguments, and a stub ai-core writes down what the
 # shim hands it. The cases are the ones a hand-written gate got wrong: a push from a worktree, an
 # empty `No-issue:` trailer, a LICENSE file under a folder, a remote sha this checkout does not
-# carry, a sha of sixty-four zeros, an annotated tag, and a Windows entry point that decides.
+# carry, a sha of sixty-four zeros, an annotated tag.
 
 set -uo pipefail
 
@@ -72,7 +72,7 @@ path_without_ai_core() {
 }
 
 # The repository: the stand-in check writes down its own path, which says which working tree it
-# was started in; both Windows entry points are the one text, and one .ps1 is neither.
+# was started in.
 mkdir -p "$repo/scripts" "$repo/bin"
 cat > "$repo/scripts/check.sh" <<EOF
 #!/usr/bin/env bash
@@ -82,13 +82,9 @@ echo 'check: FAIL — the stand-in was told to be red'
 exit 1
 EOF
 chmod +x "$repo/scripts/check.sh"
-cp "$root/lib/entry-point.ps1" "$repo/scripts/check.ps1"
-cp "$root/lib/entry-point.ps1" "$repo/build.ps1"
-printf '#!/usr/bin/env pwsh\nWrite-Host "not a shim, and never was"\n' > "$repo/bin/case-check.ps1"
 git -C "$repo" init -q -b master
 git -C "$repo" config user.email 'test@example.invalid'
 git -C "$repo" config user.name 'test'
-git -C "$repo" config core.autocrlf false
 git -C "$repo" add -A
 git -C "$repo" commit -q -m 'Set the repository up for the gate probe #1'
 
@@ -168,7 +164,7 @@ out="$(only_new "$repo")"; rc=$?
 check 'exit 0'                         0 "$rc"
 git -C "$repo" rm -q -- tools/run.sh; git -C "$repo" commit -q -m 'Remove the runner #7'
 
-# --- the commit messages, the comments, the migrations and the twins ----------------------------
+# --- the commit messages, the comments and the migrations ----------------------------
 yesno() { grep -qF -- "$1" <<< "$out" && echo yes || echo no; }
 echo 'a subject of 73 characters is refused and named; one of 72 passes'
 commit 'src/thing.txt' "$(printf 'A%.0s' {1..70}) #7"
@@ -259,39 +255,7 @@ check 'it names the migration'         yes "$(yesno 'changed or removed: db/migr
 git -C "$repo" commit -q --amend -m "$(printf 'Change the first migration #8\n\nMigration: it never left this machine')"
 out="$(only_new "$repo")"; rc=$?
 check 'exit 0'                         0 "$rc"
-echo "one spelling of a script changed alone is refused; both pass, and so does a 'Twin:' trailer"
-mkdir -p "$repo/tools"; printf 'echo one\n' > "$repo/tools/tidy.sh"; printf "Write-Host 'one'\n" > "$repo/tools/tidy.ps1"
-git -C "$repo" add tools; git -C "$repo" commit -q -m 'Add the tidy twins #9'
-out="$(only_new "$repo")"; rc=$?
-check 'exit 0 for both added'          0 "$rc"
-commit 'tools/tidy.sh' 'Tidy the sh spelling #9'
-out="$(only_new "$repo")"; rc=$?
-check 'exit 1'                         1 "$rc"
-check 'it names the other spelling'    yes "$(yesno 'tools/tidy.sh (not tools/tidy.ps1)')"
-commit 'tools/tidy.ps1' 'Tidy the ps1 spelling #9'
-out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$(git -C "$repo" rev-parse HEAD~2)")"; rc=$?
-check 'exit 0 for both in one push'    0 "$rc"
-commit 'tools/tidy.sh' "$(printf 'Tidy the sh spelling #9\n\nTwin: the fault is a bash quoting one')"
-out="$(only_new "$repo")"; rc=$?
-check 'exit 0 with the trailer'        0 "$rc"
-echo 'the Windows entry point is no twin: scripts/check.sh changed alone passes'
-printf '# the checks the push runs\n' >> "$repo/scripts/check.sh"
-git -C "$repo" add --chmod=+x scripts/check.sh; git -C "$repo" commit -q -m 'Say what the checks run #9'
-out="$(only_new "$repo")"; rc=$?
-check 'exit 0'                         0 "$rc"
-git -C "$repo" reset -q --hard HEAD~1
-echo 'a .ps1 that is the Windows entry point is no twin whatever its name; one with code of its own is'
-printf '#!/usr/bin/env bash\necho tests\n' > "$repo/scripts/test.sh"; chmod +x "$repo/scripts/test.sh"; cp "$root/lib/entry-point.ps1" "$repo/scripts/test.ps1"
-git -C "$repo" add --chmod=+x scripts/test.sh; git -C "$repo" add scripts/test.ps1; git -C "$repo" commit -q -m 'Add the test entry #9'
-printf '# one more test\n' >> "$repo/scripts/test.sh"; git -C "$repo" add scripts/test.sh; git -C "$repo" commit -q -m 'Run one more test #9'
-out="$(only_new "$repo")"; rc=$?
-check 'test.sh changed beside the entry point: exit 0' 0 "$rc"
-printf "Write-Host 'tests of its own'\n" > "$repo/scripts/test.ps1"; git -C "$repo" add scripts/test.ps1; git -C "$repo" commit -q -m 'Give the test entry code of its own #9'
-printf '# another test\n' >> "$repo/scripts/test.sh"; git -C "$repo" add scripts/test.sh; git -C "$repo" commit -q -m 'Run another test #9'
-out="$(only_new "$repo")"; rc=$?
-check 'test.sh changed beside a .ps1 with code: exit 1' 1 "$rc"
-check 'it names the other spelling'    yes "$(yesno 'scripts/test.sh (not scripts/test.ps1)')"
-git -C "$repo" rm -q -r -- tools db src/app.js scripts/test.sh scripts/test.ps1; git -C "$repo" commit -q -m 'Remove the probes #9'
+git -C "$repo" rm -q -r -- db src/app.js; git -C "$repo" commit -q -m 'Remove the probes #9'
 
 # --- a branch that merges the default branch -------------------------------------------------
 echo 'a branch that merges the default branch is judged on what it adds, not on what the default branch published'
@@ -540,8 +504,7 @@ commit '.gitleaks.toml' 'Arm the credential scan of the probe #15'
 before="$(git -C "$repo" rev-parse HEAD~1)"
 out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$before")"; rc=$?
 check 'exit 0'                    0 "$rc"
-# Only the range is compared: the tree is named the way the operating system writes a path,
-# which on Windows is not the form this shell writes.
+# Only the range is compared, not the tree.
 check 'gitleaks read that range'  "git --no-banner --log-opts=$(git -C "$repo" rev-parse HEAD) ^$before --not --remotes=origin" \
   "$(sed 's/^\[//; s/ [^ ]*$//' "$leaks_args")"
 
@@ -679,68 +642,32 @@ out="$(only_new "$repo")"; rc=$?
 check 'exit 1'                      1 "$rc"
 check 'the half-named family'       yes "$(grep -q 'feld/grün beside feld/grün-demo: one member of the family' <<< "$out" && echo yes || echo no)"
 
-# A folder name on Windows cannot hold a double quote, which git quotes in every path it prints
-case "$(uname -s)" in
-  MINGW*|MSYS*|CYGWIN*) echo '  skip a name below a folder with a double quote: Windows forbids the character' ;;
-  *)
-    echo 'a name below a folder with a double quote is read, not skipped'
-    seed_dirs 'Add the demo seeds of the quoted lab #24' 'q"x/lab/seeds-demo'
-    seed_dirs 'Add the seeds of the quoted lab #24' 'q"x/lab/seeds'
-    out="$(only_new "$repo")"; rc=$?
-    check 'exit 1'                      1 "$rc"
-    check 'the half-named family'       yes "$(grep -qF 'q"x/lab/seeds beside q"x/lab/seeds-demo: one member of the family' <<< "$out" && echo yes || echo no)"
+echo 'a name below a folder with a double quote is read, not skipped'
+seed_dirs 'Add the demo seeds of the quoted lab #24' 'q"x/lab/seeds-demo'
+seed_dirs 'Add the seeds of the quoted lab #24' 'q"x/lab/seeds'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                      1 "$rc"
+check 'the half-named family'       yes "$(grep -qF 'q"x/lab/seeds beside q"x/lab/seeds-demo: one member of the family' <<< "$out" && echo yes || echo no)"
 
-    echo 'a folder with a double quote moved with git mv keeps the names inside it'
-    seed_dirs 'Add the seeds of the quoted shop #24' 'q"x/shop/seeds' 'q"x/shop/seeds-demo'
-    moved 'Rename the quoted shop #24' 'q"x/shop' 'q"x/bike-shop'
-    out="$(only_new "$repo")"; rc=$?
-    check 'exit 0'                      0 "$rc" ;;
-esac
+echo 'a folder with a double quote moved with git mv keeps the names inside it'
+seed_dirs 'Add the seeds of the quoted shop #24' 'q"x/shop/seeds' 'q"x/shop/seeds-demo'
+moved 'Rename the quoted shop #24' 'q"x/shop' 'q"x/bike-shop'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                      0 "$rc"
 git -C "$repo" reset -q --hard "$mark"
 
-# --- the Windows entry point, held against the one text it copies ----------------------------
-#
-# check.ps1 and build.ps1 decide nothing: each starts the .sh file of its own name. Overwritten
-# with two lines that print the verdict and exit 0, a copy tells the person at the keyboard that
-# the checks passed while nothing ran. The planted bin/case-check.ps1 differs from the text and
-# must NOT be refused: without it, a green answer here could mean that no file was compared.
-stub_ps1() {  # stub_ps1 <path> - a copy that prints the verdict and runs nothing
-  printf "Write-Host 'check: OK — every check green'\nexit 0\n" > "$1"
-}
-# against the commit the worktree branched from: master has moved on since, and a push over that
-# would be a force push, which the gate refuses
-push_wt() { judge "$wt" "$(git -C "$wt" rev-parse HEAD)" "$(git -C "$wt" merge-base HEAD master)"; }
-
-echo 'a Windows entry point that is not the one text is refused, under either of its two names'
-out="$(push_wt)"; rc=$?
-check 'both entry points and the .ps1 that is neither: exit 0' 0 "$rc"
-stub_ps1 "$wt/scripts/check.ps1"
-out="$(push_wt)"; rc=$?
-check 'the green stub at scripts/check.ps1: exit 1' 1 "$rc"
-check 'the refusal names the file' yes \
-  "$(grep -qF 'scripts/check.ps1 is not the Windows entry point every repository carries' <<< "$out" && echo yes || echo no)"
-check 'and says how to restore it' yes "$(grep -q 'Restore it: cp ' <<< "$out" && echo yes || echo no)"
-git -C "$wt" checkout -q -- scripts/check.ps1
-stub_ps1 "$wt/build.ps1"
-out="$(push_wt)"; rc=$?
-check 'the green stub at build.ps1: exit 1' 1 "$rc"
-git -C "$wt" checkout -q -- build.ps1
-out="$(push_wt)"; rc=$?
-check 'both restored: exit 0' 0 "$rc"
-
-# --- a repository without a check entry point --------------------------------------------------
-echo 'a repository without scripts/check.sh: nothing runs before the push, and no entry point is judged'
+# --- a repository without scripts/check.sh --------------------------------------------------
+echo 'a repository without scripts/check.sh: nothing runs before the push'
 bare="$fake/bare.git"; git init -q --bare -b master "$bare"
 plain="$fake/plain"; git init -q -b master "$plain"
 git -C "$plain" config user.email 'test@example.invalid'; git -C "$plain" config user.name 'test'
-printf 'Write-Host "decides on its own"\n' > "$plain/build.ps1"
+printf 'a file\n' > "$plain/first.txt"
 git -C "$plain" add -A; git -C "$plain" commit -q -m 'A repository with no check #7'
 git -C "$plain" remote add origin "$bare"; git -C "$plain" push -q -u origin master 2>/dev/null
 printf 'more\n' > "$plain/more.txt"; git -C "$plain" add -A; git -C "$plain" commit -q -m 'Add more #7'
 out="$(only_new "$plain")"; rc=$?
 check 'exit 0'                              0 "$rc"
 check 'it says nothing runs'                yes "$(grep -q 'no scripts/check.sh in this repository' <<< "$out" && echo yes || echo no)"
-check 'the own build.ps1 is not refused'    no "$(grep -q 'Windows entry point' <<< "$out" && echo yes || echo no)"
 
 # --- from a prompt: the current branch against its upstream ----------------------------------
 echo 'with nothing on standard input, the branch is judged against its upstream'

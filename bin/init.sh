@@ -149,22 +149,12 @@ if [ "$PROJECT_FOLDER" -eq 0 ]; then
         neighbour="${neighbour%/}"; name="${neighbour##*/}"
         [ -d "$neighbour/.git" ] && [ "$neighbour" != "$main" ] || continue
         [ ! -e "$container/$name" ] && [ ! -L "$container/$name" ] || continue
-        # Git Bash's ln -s copies a directory instead of linking it; a junction links it, needs no
-        # privilege, and Git Bash takes it for a link. The doubled slashes keep Git Bash from
-        # rewriting /c and /J into paths.
-        if [ "$DRY" -eq 0 ]; then
-          case "$(uname -s)" in
-            MINGW*|MSYS*|CYGWIN*) cmd.exe //c mklink //J "$(cygpath -w "$container/$name")" "$(cygpath -w "$neighbour")" > /dev/null ;;
-            *) ln -s "../../$name" "$container/$name" ;;
-          esac
-        fi
+        [ "$DRY" -ne 0 ] || ln -s "../../$name" "$container/$name"
         NEIGHBOURS_LINKED="$NEIGHBOURS_LINKED $name"
       done
       for link in "$container"/*; do
         name="${link##*/}"
         [ -L "$link" ] && [ ! -e "$link" ] || continue
-        # Git Bash spells a junction's target in its own form, not as git spells the folder, so the
-        # place the link names is compared, not its spelling.
         to="$(readlink "$link")" || continue; to="${to%/}"
         [ "${to##*/}" = "$name" ] && (cd "$container" && [ "$(dirname "$to")" -ef "$folder" ]) || continue
         [ "$DRY" -eq 1 ] || rm -f "$link"
@@ -281,7 +271,7 @@ read_auto_mode() {  # read_auto_mode <file> <layer>
   [ -f "$1" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
     no=$((no + 1)); line="${line%$'\r'}"
-    if [ "$no" -eq 1 ]; then line="${line#$'\xef\xbb\xbf'}"; fi   # a byte-order mark, which PowerShell drops as well
+    if [ "$no" -eq 1 ]; then line="${line#$'\xef\xbb\xbf'}"; fi   # a byte-order mark
     case "$line" in ''|'#'*) continue ;; esac
     case "$line" in
       allow$'\t'?*|environment$'\t'?*) case "${line#*$'\t'}" in *$'\t'*) ;; *) printf '%s\t[%s] %s\n' "${line%%$'\t'*}" "$2" "${line#*$'\t'}" >> "$TMP/auto-mode.tsv"; continue ;; esac ;;
@@ -394,7 +384,7 @@ if [ -n "$DEPLOYED" ] || [ -n "$PREV_DEPLOYED" ]; then
 fi
 {
   # A section is written with LF and one blank line after it, whatever the clone it came from
-  # checked out, so the two twins and two machines assemble the same bytes
+  # checked out, so two machines assemble the same bytes
   for f in "$SECTIONS"/[0-9][0-9]-*.md; do
     printf '<!-- %s: rules/%s -->\n' "$(cat "$f.src")" "$(basename "$f")"
     printf '%s\n\n' "$(tr -d '\r' < "$f")"
@@ -497,7 +487,7 @@ done <<< "$( (cd "$CORE_ROOT/templates" && find . -type f | LC_ALL=C sort) | sed
 # started from a terminal opened before the install still runs them; the file is the machine's,
 # never committed. A settings.json the checkout had before (created once, never overwritten) gets
 # what it lacks merged in, and an ai-core hook of an older form gives way to this one. Without jq the template stays as it is.
-AI_CORE_CMD="$CORE_ROOT/bin/ai-core"; if command -v cygpath >/dev/null 2>&1; then AI_CORE_CMD="$(cygpath -m "$AI_CORE_CMD")"; fi
+AI_CORE_CMD="$CORE_ROOT/bin/ai-core"
 HOOK="\"$AI_CORE_CMD\" session-start --tool claude"
 STATUS_LINE="\"$AI_CORE_CMD\" statusline"
 SETTINGS="$TARGET/.claude/settings.json"
@@ -811,8 +801,7 @@ elif [ "$MAIN_CHECKOUT" -eq 1 ]; then
           # refused push would take them back with it: the block waits until they are committed
           GITIGNORE_REFUSED=1; GITIGNORE_NOTE="${CAUGHT:+$CAUGHT; }it has changes of its own; commit them or take them back, then run this again"
         elif gitignore_differs; then
-          # grep on Windows takes the CR off a line end before it looks, so the file is compared
-          # with itself without them
+          # a file with CRLF line ends keeps them: the block is written the way the file already is
           if [ -f "$GI" ] && ! tr -d '\r' < "$GI" | cmp -s - "$GI"; then awk '{ printf "%s\r\n", $0 }' "$TMP/gitignore" > "$GI"; else cp -f "$TMP/gitignore" "$GI"; fi
           GITIGNORE_SENT="$(commit_gitignore "$TARGET")" || GITIGNORE_REFUSED=1
           GITIGNORE_NOTE="${CAUGHT:+$CAUGHT; }$GITIGNORE_SENT"

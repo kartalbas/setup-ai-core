@@ -1,299 +1,206 @@
 #!/usr/bin/env bash
-# a checkout on both twins: bootstrap, install, the assembled rules, the second run, the session start; one section of the suite, run by tests/check.sh with the others
+# a checkout: bootstrap, install, the assembled rules, the second run, the session start; one section of the suite, run by tests/check.sh with the others
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 
-section "bootstrap both twins"
-for t in sh ps1; do
-  mkdir -p "$WORK/$t/.ai-core"
-  printf 'UPDATE_CHECK="never"\n' > "$WORK/$t/.ai-core/config.env"
-done
-bash "$ROOT/bin/init.sh" "$WORK/sh" --no-doctor > "$WORK/sh.log" 2>&1 || fail "init.sh exited $? (see $WORK/sh.log)"
-pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/ps1")" -NoDoctor > "$WORK/ps1.log" 2>&1 || fail "init.ps1 exited $?"
-for t in sh ps1; do
-  if grep -aiE 'warning|error' "$WORK/$t.log"; then fail "init.$t printed a warning or error"; fi
-done
+section "bootstrap"
+mkdir -p "$WORK/checkout/.ai-core"
+printf 'UPDATE_CHECK="never"\n' > "$WORK/checkout/.ai-core/config.env"
+bash "$ROOT/bin/init.sh" "$WORK/checkout" --no-doctor > "$WORK/checkout.log" 2>&1 || fail "init.sh exited $? (see $WORK/checkout.log)"
+if grep -aiE 'warning|error' "$WORK/checkout.log"; then fail "init.sh printed a warning or error"; fi
 
-for t in sh ps1; do
-  mkdir -p "$WORK/agents-$t/.ai-core"; printf 'UPDATE_CHECK="never"\nAGENTS="cursor claude"\n' > "$WORK/agents-$t/.ai-core/config.env"
-done
-bash "$ROOT/bin/init.sh" "$WORK/agents-sh" --no-doctor > /dev/null 2>&1 || fail "init.sh with AGENTS"
-pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/agents-ps1")" -NoDoctor > /dev/null 2>&1 || fail "init.ps1 with AGENTS"
-for t in sh ps1; do
-  [ -f "$WORK/agents-$t/.cursorrules" ] || fail "init.$t did not deploy the pointer of a served agent"
-  [ ! -e "$WORK/agents-$t/.windsurfrules" ] && [ ! -e "$WORK/agents-$t/.github" ] && [ ! -e "$WORK/agents-$t/.openhands" ] && [ ! -e "$WORK/agents-$t/.agents/mcp_config.json" ] || fail "init.$t deployed the pointer of an agent the project does not serve"
-done
-echo "  AGENTS=\"cursor claude\": .cursorrules deployed; windsurf, copilot, openhands and antigravity files not, on both twins"
+mkdir -p "$WORK/agents/.ai-core"; printf 'UPDATE_CHECK="never"\nAGENTS="cursor claude"\n' > "$WORK/agents/.ai-core/config.env"
+bash "$ROOT/bin/init.sh" "$WORK/agents" --no-doctor > /dev/null 2>&1 || fail "init.sh with AGENTS"
+[ -f "$WORK/agents/.cursorrules" ] || fail "init.sh did not deploy the pointer of a served agent"
+[ ! -e "$WORK/agents/.windsurfrules" ] && [ ! -e "$WORK/agents/.github" ] && [ ! -e "$WORK/agents/.openhands" ] && [ ! -e "$WORK/agents/.agents/mcp_config.json" ] || fail "init.sh deployed the pointer of an agent the project does not serve"
+echo "  AGENTS=\"cursor claude\": .cursorrules deployed; windsurf, copilot, openhands and antigravity files not"
 
-for t in sh ps1; do
-  mkdir -p "$WORK/typo-$t/.ai-core"; printf 'UPDATE_CHECK="never"\nAGENTS="claude cursr"\n' > "$WORK/typo-$t/.ai-core/config.env"
-done
-bash "$ROOT/bin/init.sh" "$WORK/typo-sh" --no-doctor > "$WORK/typo-sh.log" 2>&1 && fail "init.sh accepted an unknown name in AGENTS"
-pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/typo-ps1")" -NoDoctor > "$WORK/typo-ps1.log" 2>&1 && fail "init.ps1 accepted an unknown name in AGENTS"
-for t in sh ps1; do
-  grep -aq "error: AGENTS in .* names 'cursr'; known are claude, codex, antigravity, openhands, gemini, cursor, windsurf, copilot" "$WORK/typo-$t.log" || fail "init.$t did not name the unknown agent: $(tail -n 2 "$WORK/typo-$t.log")"
-  jq -e '.statusLine.command | test("ai-core\" statusline$")' "$WORK/typo-$t/.claude/settings.json" > /dev/null 2>&1 || fail "init.$t stopped before the settings.json when AGENTS named an unknown agent"
-  grep -aq 'Harness .* in place' "$WORK/typo-$t.log" && fail "init.$t reported the harness in place although AGENTS names an unknown agent"
-done
-echo "  AGENTS=\"claude cursr\": init deploys the rest, exits 1 and names 'cursr', on both twins"
+mkdir -p "$WORK/typo/.ai-core"; printf 'UPDATE_CHECK="never"\nAGENTS="claude cursr"\n' > "$WORK/typo/.ai-core/config.env"
+bash "$ROOT/bin/init.sh" "$WORK/typo" --no-doctor > "$WORK/typo.log" 2>&1 && fail "init.sh accepted an unknown name in AGENTS"
+grep -aq "error: AGENTS in .* names 'cursr'; known are claude, codex, antigravity, openhands, gemini, cursor, windsurf, copilot" "$WORK/typo.log" || fail "init.sh did not name the unknown agent: $(tail -n 2 "$WORK/typo.log")"
+jq -e '.statusLine.command | test("ai-core\" statusline$")' "$WORK/typo/.claude/settings.json" > /dev/null 2>&1 || fail "init.sh stopped before the settings.json when AGENTS named an unknown agent"
+grep -aq 'Harness .* in place' "$WORK/typo.log" && fail "init.sh reported the harness in place although AGENTS names an unknown agent"
+echo "  AGENTS=\"claude cursr\": init deploys the rest, exits 1 and names 'cursr'"
 
-(cd "$WORK/sh" && find . -type f | sort) > "$WORK/sh.list"
-(cd "$WORK/ps1" && find . -type f | sort) > "$WORK/ps1.list"
-if ! diff "$WORK/sh.list" "$WORK/ps1.list"; then fail "init.sh and init.ps1 deployed different files"; fi
-echo "  $(wc -l < "$WORK/sh.list") files, identical on both twins"
+(cd "$WORK/checkout" && find . -type f | sort) > "$WORK/checkout.list"
+echo "  $(wc -l < "$WORK/checkout.list") files"
 
 section "AGENTS.md without a map: the generic one under the binding rules; one of before replaced, one the repository tracks or somebody's own kept"
-for t in sh ps1; do
-  A="$WORK/$t/AGENTS.md"
-  grep -q '^<!-- ai-core map: none yet' <<< "$(head -n1 "$A")" && grep -qxF '## Binding rules' "$A" && grep -q '^- Before any work, read the three rules files below, whole, unless your tool has loaded them: .*every other tool loads none of them\.$' "$A" && grep -q '^- The engineering rules, .*: @\.ai-core/rules/rules\.md$' "$A" && grep -q '^- `ai-core --help`: ' "$A" && grep -qxF '# This repository has no map yet' "$A" || fail "init.$t did not put the binding rules on the generic map: $(head -n 12 "$A" | tr '\n' '|')"
+A="$WORK/checkout/AGENTS.md"
+grep -q '^<!-- ai-core map: none yet' <<< "$(head -n1 "$A")" && grep -qxF '## Binding rules' "$A" && grep -q '^- Before any work, read the three rules files below, whole, unless your tool has loaded them: .*every other tool loads none of them\.$' "$A" && grep -q '^- The engineering rules, .*: @\.ai-core/rules/rules\.md$' "$A" && grep -q '^- `ai-core --help`: ' "$A" && grep -qxF '# This repository has no map yet' "$A" || fail "init.sh did not put the binding rules on the generic map: $(head -n 12 "$A" | tr '\n' '|')"
+for c in before mine tracked; do
+  C="$WORK/agentsmd-$c"; mkdir -p "$C/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$C/.ai-core/config.env"; git init -q "$C"
+  case "$c" in
+    before) printf '# AGENTS.md \342\200\224 Repository Navigation & Operations\n\nthe generic file of before 1.3.20\n' > "$C/AGENTS.md" ;;
+    mine) printf '# mine\n' > "$C/AGENTS.md" ;;
+    tracked) printf '# tracked\n' > "$C/AGENTS.md"; git -C "$C" add AGENTS.md; git -C "$C" commit -q -m tracked ;;
+  esac
+  bash "$ROOT/bin/init.sh" "$C" --no-doctor > "$C.log" 2>&1 || fail "init.sh with an AGENTS.md $c (see $C.log)"
+  case "$c" in
+    before) grep -q '^<!-- ai-core map: none yet' <<< "$(head -n1 "$C/AGENTS.md")" || fail "init.sh kept the generic AGENTS.md of before" ;;
+    *) [ "$(cat "$C/AGENTS.md")" = "# $c" ] && grep -aq '^  kept .*AGENTS\.md' "$C.log" || fail "init.sh overwrote an AGENTS.md that is $c, or did not report it kept: $(head -n1 "$C/AGENTS.md")" ;;
+  esac
 done
-cmp -s "$WORK/sh/AGENTS.md" "$WORK/ps1/AGENTS.md" || fail "the generic map differs between the twins"
-for t in sh ps1; do
-  for c in before mine tracked; do
-    C="$WORK/agentsmd-$t-$c"; mkdir -p "$C/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$C/.ai-core/config.env"; git init -q "$C"
-    case "$c" in
-      before) printf '# AGENTS.md \342\200\224 Repository Navigation & Operations\n\nthe generic file of before 1.3.20\n' > "$C/AGENTS.md" ;;
-      mine) printf '# mine\n' > "$C/AGENTS.md" ;;
-      tracked) printf '# tracked\n' > "$C/AGENTS.md"; git -C "$C" add AGENTS.md; git -C "$C" commit -q -m tracked ;;
-    esac
-    if [ "$t" = sh ]; then bash "$ROOT/bin/init.sh" "$C" --no-doctor > "$C.log" 2>&1; else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$C")" -NoDoctor > "$C.log" 2>&1; fi || fail "init.$t with an AGENTS.md $c (see $C.log)"
-    case "$c" in
-      before) grep -q '^<!-- ai-core map: none yet' <<< "$(head -n1 "$C/AGENTS.md")" || fail "init.$t kept the generic AGENTS.md of before" ;;
-      *) [ "$(tr -d '\r' < "$C/AGENTS.md")" = "# $c" ] && grep -aq '^  kept .*AGENTS\.md' "$C.log" || fail "init.$t overwrote an AGENTS.md that is $c, or did not report it kept: $(head -n1 "$C/AGENTS.md")" ;;
-    esac
-  done
-done
-echo "  the generic map carries the binding rules, the same on both twins; the file of before is replaced, one the repository tracks or somebody's own is kept and reported"
+echo "  the generic map carries the binding rules; the file of before is replaced, one the repository tracks or somebody's own is kept and reported"
 
-section "install: --source uses the clone as it is, --repo clones and a second run pulls, the ai-core command runs init, on both twins"
-bash "$ROOT/bin/install.sh" --source "$ROOT" --dir "$WORK/not-created-sh" --no-path --no-doctor > "$WORK/install.sh.log" 2>&1 || fail "install.sh --source (see $WORK/install.sh.log)"
-[ ! -e "$WORK/not-created-sh" ] || fail "install.sh --source created something"
-CORE_SH="$WORK/home-sh/.setup-ai-core"
-bash "$ROOT/bin/install.sh" --repo "$ROOT" --dir "$CORE_SH" --no-path --no-doctor > "$WORK/install.sh.log" 2>&1 || fail "install.sh --repo (see $WORK/install.sh.log)"
-[ -d "$CORE_SH/.git" ] || fail "install.sh --repo did not clone"
-bash "$ROOT/bin/install.sh" --repo "$ROOT" --dir "$CORE_SH" --no-path --no-doctor > "$WORK/install.sh.log" 2>&1 || fail "install.sh second run (see $WORK/install.sh.log)"
-grep -q "updating" "$WORK/install.sh.log" || fail "install.sh second run did not update"
-[ "$("$CORE_SH/bin/ai-core" version)" = "$(git -C "$CORE_SH" show HEAD:VERSION | tr -d '\r\n')" ] || fail "ai-core version from the clone"
+section "install: --source uses the clone as it is, --repo clones and a second run pulls, the ai-core command runs init"
+bash "$ROOT/bin/install.sh" --source "$ROOT" --dir "$WORK/not-created" --no-path --no-doctor > "$WORK/install.log" 2>&1 || fail "install.sh --source (see $WORK/install.log)"
+[ ! -e "$WORK/not-created" ] || fail "install.sh --source created something"
+CORE="$WORK/home/.setup-ai-core"
+bash "$ROOT/bin/install.sh" --repo "$ROOT" --dir "$CORE" --no-path --no-doctor > "$WORK/install.log" 2>&1 || fail "install.sh --repo (see $WORK/install.log)"
+[ -d "$CORE/.git" ] || fail "install.sh --repo did not clone"
+bash "$ROOT/bin/install.sh" --repo "$ROOT" --dir "$CORE" --no-path --no-doctor > "$WORK/install.log" 2>&1 || fail "install.sh second run (see $WORK/install.log)"
+grep -q "updating" "$WORK/install.log" || fail "install.sh second run did not update"
+[ "$("$CORE/bin/ai-core" version)" = "$(git -C "$CORE" show HEAD:VERSION | tr -d '\r\n')" ] || fail "ai-core version from the clone"
 [ "$("$ROOT/bin/ai-core" version)" = "$(tr -d '\r\n' < "$ROOT/VERSION")" ] || fail "ai-core version"
 "$ROOT/bin/ai-core" help > /dev/null || fail "ai-core help"
 "$ROOT/bin/ai-core" no-such-command > /dev/null 2>&1 && fail "ai-core accepted an unknown command"
-mkdir -p "$WORK/via-sh/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$WORK/via-sh/.ai-core/config.env"
-"$ROOT/bin/ai-core" init "$WORK/via-sh" --no-doctor > /dev/null 2>&1 || fail "ai-core init through the command"
-(cd "$WORK/via-sh" && find . -type f | sort) | diff - "$WORK/sh.list" > /dev/null || fail "init through the command deployed a different file set"
-pwsh -NoProfile -File "$ROOT/bin/install.ps1" -Source "$(native "$ROOT")" -Dir "$(native "$WORK/not-created-ps")" -NoPath -NoDoctor > "$WORK/install.ps1.log" 2>&1 || fail "install.ps1 -Source (see $WORK/install.ps1.log)"
-[ ! -e "$WORK/not-created-ps" ] || fail "install.ps1 -Source created something"
-CORE_PS="$WORK/home-ps/.setup-ai-core"
-pwsh -NoProfile -File "$ROOT/bin/install.ps1" -Repo "$(native "$ROOT")" -Dir "$(native "$CORE_PS")" -NoPath -NoDoctor > "$WORK/install.ps1.log" 2>&1 || fail "install.ps1 -Repo (see $WORK/install.ps1.log)"
-[ -d "$CORE_PS/.git" ] || fail "install.ps1 -Repo did not clone"
-pwsh -NoProfile -File "$ROOT/bin/install.ps1" -Repo "$(native "$ROOT")" -Dir "$(native "$CORE_PS")" -NoPath -NoDoctor > "$WORK/install.ps1.log" 2>&1 || fail "install.ps1 second run (see $WORK/install.ps1.log)"
-grep -q "updating" "$WORK/install.ps1.log" || fail "install.ps1 second run did not update"
-[ "$(pwsh -NoProfile -File "$CORE_PS/bin/ai-core.ps1" version | tr -d '\r')" = "$(git -C "$CORE_PS" show HEAD:VERSION | tr -d '\r\n')" ] || fail "ai-core.ps1 version from the clone"
-mkdir -p "$WORK/via-ps/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$WORK/via-ps/.ai-core/config.env"
-pwsh -NoProfile -File "$ROOT/bin/ai-core.ps1" init -TargetDir "$(native "$WORK/via-ps")" -NoDoctor > /dev/null 2>&1 || fail "ai-core.ps1 init through the command"
-(cd "$WORK/via-ps" && find . -type f | sort) | diff - "$WORK/sh.list" > /dev/null || fail "init.ps1 through the command deployed a different file set"
-echo "  --source leaves the clone alone, --repo clones and pulls, init through both commands deploys the same files"
-# The PATH in a throwaway home, twice: a new pwsh terminal finds ai-core through its own profile, which reads no ~/.profile (on Windows install.ps1 sets the user PATH instead)
-case "$(uname -s)" in
-  MINGW*|MSYS*|CYGWIN*) echo "  the pwsh profile: not here, on Windows the user PATH carries ai-core" ;;
-  *)
-    for twin in sh ps1; do
-      PH="$WORK/path-home-$twin"; mkdir -p "$PH"; : > "$PH/.bashrc"
-      for run in 1 2; do
-        if [ "$twin" = sh ]; then env -u XDG_CONFIG_HOME HOME="$PH" bash "$ROOT/bin/install.sh" --source "$ROOT" --no-doctor > "$WORK/path-$twin.log" 2>&1
-        else env -u XDG_CONFIG_HOME HOME="$PH" pwsh -NoProfile -File "$ROOT/bin/install.ps1" -Source "$ROOT" -NoDoctor > "$WORK/path-$twin.log" 2>&1; fi || fail "install.$twin run $run with the PATH (see $WORK/path-$twin.log)"
-      done
-      P="$PH/.config/powershell/profile.ps1"
-      [ "$(grep -c '# setup-ai-core' "$P" 2>/dev/null)" = 1 ] || fail "install.$twin did not put ai-core on the PATH of pwsh exactly once: $(cat "$P" 2>/dev/null)"
-      [ "$(env -u XDG_CONFIG_HOME HOME="$PH" pwsh -NoProfile -Command '. (Join-Path $HOME ".config/powershell/profile.ps1"); Split-Path (Get-Command ai-core).Source')" = "$ROOT/bin" ] || fail "install.$twin: pwsh with that profile does not find ai-core in $ROOT/bin"
-    done
-    echo "  the PATH: once in the pwsh profile after two runs, and pwsh finds ai-core through it, on both twins" ;;
-esac
+mkdir -p "$WORK/via-command/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$WORK/via-command/.ai-core/config.env"
+"$ROOT/bin/ai-core" init "$WORK/via-command" --no-doctor > /dev/null 2>&1 || fail "ai-core init through the command"
+(cd "$WORK/via-command" && find . -type f | sort) | diff - "$WORK/checkout.list" > /dev/null || fail "init through the command deployed a different file set"
+echo "  --source leaves the clone alone, --repo clones and pulls, init through the command deploys the same files"
+# The PATH in a throwaway home, twice: the line goes into the shell profile exactly once
+PH="$WORK/path-home"; mkdir -p "$PH"; : > "$PH/.bashrc"
+for run in 1 2; do
+  env -u XDG_CONFIG_HOME HOME="$PH" bash "$ROOT/bin/install.sh" --source "$ROOT" --no-doctor > "$WORK/path.log" 2>&1 || fail "install.sh run $run with the PATH (see $WORK/path.log)"
+done
+[ "$(grep -c '# setup-ai-core' "$PH/.bashrc")" = 1 ] || fail "install.sh did not put ai-core on the PATH exactly once: $(cat "$PH/.bashrc")"
+echo "  the PATH: once in the shell profile after two runs"
 
-section "the assembled rules file: one section per source file, identical on both twins, every rule tagged"
+section "the assembled rules file: one section per source file, every rule tagged"
 SECTIONS="$(ls "$ROOT"/rules/[0-9][0-9]-*.md | wc -l | tr -d " ")"
-MARKERS="$(grep -c "^<!-- setup-ai-core " "$WORK/sh/.ai-core/rules/rules.md")"
+MARKERS="$(grep -c "^<!-- setup-ai-core " "$WORK/checkout/.ai-core/rules/rules.md")"
 [ "$MARKERS" = "$SECTIONS" ] || fail "assembled rules.md has $MARKERS section markers, expected $SECTIONS"
-cmp -s "$WORK/sh/.ai-core/rules/rules.md" "$WORK/ps1/.ai-core/rules/rules.md" || fail "assembled rules.md differs between the twins"
-bash "$ROOT/bin/rules-check.sh" "$WORK/sh/.ai-core/rules/rules.md" > /dev/null || fail "rules-check on the assembled rules.md"
+bash "$ROOT/bin/rules-check.sh" "$WORK/checkout/.ai-core/rules/rules.md" > /dev/null || fail "rules-check on the assembled rules.md"
 echo "  $SECTIONS sections assembled"
 
 section "second run creates nothing"
-bash "$ROOT/bin/init.sh" "$WORK/sh" --no-doctor > "$WORK/sh-2.log" 2>&1 || fail "init.sh second run"
-pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$WORK/ps1")" -NoDoctor > "$WORK/ps1-2.log" 2>&1 || fail "init.ps1 second run"
-for t in sh ps1; do
-  grep -aqE '^  (created|refreshed|removed) ' "$WORK/$t-2.log" && fail "init.$t is not idempotent: $(grep -aE '^  (created|refreshed|removed) ' "$WORK/$t-2.log")"
-  grep -aq '^  unchanged  [1-9][0-9]* file(s)$' "$WORK/$t-2.log" || fail "init.$t second run did not report the unchanged files"
-done
-(cd "$WORK/sh" && find . -type f | sort) | diff - "$WORK/sh.list" > /dev/null || fail "init.sh changed the file set on re-run"
+bash "$ROOT/bin/init.sh" "$WORK/checkout" --no-doctor > "$WORK/checkout-2.log" 2>&1 || fail "init.sh second run"
+grep -aqE '^  (created|refreshed|removed) ' "$WORK/checkout-2.log" && fail "init.sh is not idempotent: $(grep -aE '^  (created|refreshed|removed) ' "$WORK/checkout-2.log")"
+grep -aq '^  unchanged  [1-9][0-9]* file(s)$' "$WORK/checkout-2.log" || fail "init.sh second run did not report the unchanged files"
+(cd "$WORK/checkout" && find . -type f | sort) | diff - "$WORK/checkout.list" > /dev/null || fail "init.sh changed the file set on re-run"
 
-section "session-start in each target"
-[ ! -e "$WORK/sh/.ai-core/bin" ] || fail "init.sh copied scripts into the checkout"
-(cd "$WORK/sh" && "$ROOT/bin/ai-core" session-start > /dev/null) || fail "ai-core session-start in bash target"
-(cd "$WORK/sh" && "$ROOT/bin/ai-core" session-start --json > "$WORK/sh.json")
-(cd "$WORK/ps1" && pwsh -NoProfile -File "$(native "$ROOT/bin/ai-core.ps1")" session-start > /dev/null) || fail "ai-core.ps1 session-start in pwsh target"
-(cd "$WORK/ps1" && pwsh -NoProfile -File "$(native "$ROOT/bin/ai-core.ps1")" session-start -Json > "$WORK/ps1.json")
-node -e '
-  const fs = require("fs");
-  const [a, b] = process.argv.slice(1, 3).map(f => JSON.parse(fs.readFileSync(f, "utf8")));
-  const ka = Object.keys(a).sort().join(","), kb = Object.keys(b).sort().join(",");
-  if (ka !== kb) { console.error("  keys differ:\n   sh : " + ka + "\n   ps1: " + kb); process.exit(1); }
-  // repository and root name the two different temp directories; everything else must agree in value and type
-  for (const k of Object.keys(a).filter(k => k !== "repository" && k !== "root")) {
-    if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) { console.error("  " + k + ": sh=" + JSON.stringify(a[k]) + " ps1=" + JSON.stringify(b[k])); process.exit(1); }
-  }
-  if (a.harness_version !== fs.readFileSync(process.argv[3], "utf8").trim()) { console.error("  harness_version " + a.harness_version + " is not the repository VERSION"); process.exit(1); }
-' "$WORK/sh.json" "$WORK/ps1.json" "$ROOT/VERSION" || fail "session-start JSON differs between twins"
+section "session-start in the target"
+[ ! -e "$WORK/checkout/.ai-core/bin" ] || fail "init.sh copied scripts into the checkout"
+(cd "$WORK/checkout" && "$ROOT/bin/ai-core" session-start > /dev/null) || fail "ai-core session-start in the target"
+(cd "$WORK/checkout" && "$ROOT/bin/ai-core" session-start --json > "$WORK/checkout.json")
+jq -e --arg version "$(tr -d '\r\n' < "$ROOT/VERSION")" '.harness_version == $version' "$WORK/checkout.json" > /dev/null || fail "session-start harness_version is not the repository VERSION"
 # --tool <one tool>, the form the hooks use: the modes of that tool are switched on at the end of the output, a skill whole with its level; a row at level - is not switched on; the rules are not printed
 MH="$WORK/modes-home"; mkdir -p "$MH/.claude/skills/caveman" "$MH/.claude/skills/archify"; : > "$MH/.claude/.i-have-adhd-always"
 printf -- '---\nname: caveman\n---\nCAVEMAN RULES: short.\n' > "$MH/.claude/skills/caveman/SKILL.md"
 printf -- '---\nname: archify\n---\nARCHIFY BODY.\n' > "$MH/.claude/skills/archify/SKILL.md"
 printf 'claude\tcaveman\tlite\tskill:caveman\t-\t-\nclaude\tarchify\t-\tskill:archify\t-\t-\nclaude\tponytail\tfull\talways:ponytail\t-\t-\nclaude\ti-have-adhd\ton\tfile:~/.claude/.i-have-adhd-always\t-\t-\n' > "$WORK/modes.tsv"
-printf 'codex\tmode\ton\talways\t-\t-\n' >> "$WORK/modes.tsv"
-(cd "$WORK/sh" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude > "$WORK/modes-sh.log" 2>&1) || fail "session-start.sh --tool claude (see $WORK/modes-sh.log)"
-(cd "$WORK/ps1" && HOME="$MH" USERPROFILE="$(native "$MH")" TEAM_MODES_FILE="$(native "$WORK/modes.tsv")" pwsh -NoProfile -File "$ROOT/bin/session-start.ps1" -Tool claude > "$WORK/modes-ps1.log" 2>&1) || fail "session-start.ps1 -Tool claude (see $WORK/modes-ps1.log)"
-for twin in sh ps1; do
-  grep -aq '^CAVEMAN MODE ACTIVE — level: lite' "$WORK/modes-$twin.log" && grep -aq '^CAVEMAN RULES: short\.' "$WORK/modes-$twin.log" && grep -aq '^ARGUMENTS: lite' "$WORK/modes-$twin.log" || fail "session-start.$twin --tool claude does not switch the caveman skill on (see $WORK/modes-$twin.log)"
-  grep -aq '^name: caveman' "$WORK/modes-$twin.log" && fail "session-start.$twin prints the front matter of the skill"
-  grep -aq '^PONYTAIL MODE: full, switched on by its own hook' "$WORK/modes-$twin.log" && grep -aq '^I-HAVE-ADHD MODE: on, switched on by its own hook' "$WORK/modes-$twin.log" || fail "session-start.$twin --tool claude does not name the plugin modes (see $WORK/modes-$twin.log)"
-  grep -aq 'ARCHIFY' "$WORK/modes-$twin.log" && fail "session-start.$twin --tool claude switched on a skill at level - (see $WORK/modes-$twin.log)"
-  grep -aqE 'THE RULES OF THIS CHECKOUT|^## The code never lies' "$WORK/modes-$twin.log" && fail "session-start.$twin --tool claude prints the rules; Claude Code loads them through AGENTS.md"
-  [ "$(wc -c < "$WORK/modes-$twin.log")" -le 9500 ] || fail "session-start.$twin --tool claude wrote more than 9 500 bytes, more than Claude Code passes whole"
-done
+(cd "$WORK/checkout" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude > "$WORK/modes.log" 2>&1) || fail "session-start.sh --tool claude (see $WORK/modes.log)"
+grep -aq '^CAVEMAN MODE ACTIVE — level: lite' "$WORK/modes.log" && grep -aq '^CAVEMAN RULES: short\.' "$WORK/modes.log" && grep -aq '^ARGUMENTS: lite' "$WORK/modes.log" || fail "session-start.sh --tool claude does not switch the caveman skill on (see $WORK/modes.log)"
+grep -aq '^name: caveman' "$WORK/modes.log" && fail "session-start.sh prints the front matter of the skill"
+grep -aq '^PONYTAIL MODE: full, switched on by its own hook' "$WORK/modes.log" && grep -aq '^I-HAVE-ADHD MODE: on, switched on by its own hook' "$WORK/modes.log" || fail "session-start.sh --tool claude does not name the plugin modes (see $WORK/modes.log)"
+grep -aq 'ARCHIFY' "$WORK/modes.log" && fail "session-start.sh --tool claude switched on a skill at level - (see $WORK/modes.log)"
+grep -aqE 'THE RULES OF THIS CHECKOUT|^## The code never lies' "$WORK/modes.log" && fail "session-start.sh --tool claude prints the rules; Claude Code loads them through AGENTS.md"
+[ "$(wc -c < "$WORK/modes.log")" -le 9500 ] || fail "session-start.sh --tool claude wrote more than 9 500 bytes, more than Claude Code passes whole"
 # ai-core not on the PATH of the session, whatever the PATH of this shell: session-start says how to
 # call it; on the PATH, it says nothing of it
-AI_CORE_CMD="$ROOT/bin/ai-core"; if command -v cygpath >/dev/null 2>&1; then AI_CORE_CMD="$(cygpath -m "$AI_CORE_CMD")"; fi
-OFF_PATH="$(while IFS= read -r d; do [ -z "$d" ] || [ -e "$d/ai-core" ] || [ -e "$d/ai-core.exe" ] || [ -e "$d/ai-core.cmd" ] || [ -e "$d/ai-core.ps1" ] || printf '%s:' "$d"; done <<< "$(tr ':' '\n' <<< "$PATH")")"
-(cd "$WORK/sh" && PATH="$OFF_PATH" bash "$ROOT/bin/session-start.sh" > "$WORK/offpath-sh.log" 2>&1)
-(cd "$WORK/ps1" && PATH="$OFF_PATH" pwsh -NoProfile -File "$ROOT/bin/session-start.ps1" > "$WORK/offpath-ps1.log" 2>&1)
-for twin in sh ps1; do grep -aqF "ai-core on PATH  : ✗ not in this session; call it as \"$AI_CORE_CMD\"" "$WORK/offpath-$twin.log" || fail "session-start.$twin does not say that ai-core is missing from the PATH, and how to call it: $(grep -a 'ai-core on PATH\|Harness version' "$WORK/offpath-$twin.log")"; done
-(cd "$WORK/sh" && PATH="$ROOT/bin:$PATH" bash "$ROOT/bin/session-start.sh" > "$WORK/onpath-sh.log" 2>&1)
-(cd "$WORK/ps1" && PATH="$ROOT/bin:$PATH" pwsh -NoProfile -File "$ROOT/bin/session-start.ps1" > "$WORK/onpath-ps1.log" 2>&1)
-for twin in sh ps1; do grep -aq 'Harness version' "$WORK/onpath-$twin.log" && ! grep -aq 'ai-core on PATH' "$WORK/onpath-$twin.log" || fail "session-start.$twin warns about the PATH although ai-core is on it, or did not run (see $WORK/onpath-$twin.log)"; done
+AI_CORE_CMD="$ROOT/bin/ai-core"
+OFF_PATH="$(while IFS= read -r d; do [ -z "$d" ] || [ -e "$d/ai-core" ] || printf '%s:' "$d"; done <<< "$(tr ':' '\n' <<< "$PATH")")"
+(cd "$WORK/checkout" && PATH="$OFF_PATH" bash "$ROOT/bin/session-start.sh" > "$WORK/offpath.log" 2>&1)
+grep -aqF "ai-core on PATH  : ✗ not in this session; call it as \"$AI_CORE_CMD\"" "$WORK/offpath.log" || fail "session-start.sh does not say that ai-core is missing from the PATH, and how to call it: $(grep -a 'ai-core on PATH\|Harness version' "$WORK/offpath.log")"
+(cd "$WORK/checkout" && PATH="$ROOT/bin:$PATH" bash "$ROOT/bin/session-start.sh" > "$WORK/onpath.log" 2>&1)
+grep -aq 'Harness version' "$WORK/onpath.log" && ! grep -aq 'ai-core on PATH' "$WORK/onpath.log" || fail "session-start.sh warns about the PATH although ai-core is on it, or did not run (see $WORK/onpath.log)"
 # A skill too long for what Claude Code passes whole is named with the call that loads it, and the output stays below the limit
 MB="$WORK/modes-home-big"; mkdir -p "$MB/.claude/skills/caveman" "$MB/.claude/skills/archify"; : > "$MB/.claude/.i-have-adhd-always"
 cp "$MH/.claude/skills/archify/SKILL.md" "$MB/.claude/skills/archify/SKILL.md"
 { printf -- '---\nname: caveman\n---\n'; for i in $(seq 1 240); do printf 'CAVEMAN LONG RULE %03d: keep the answer short and the substance whole.\n' "$i"; done; } > "$MB/.claude/skills/caveman/SKILL.md"
-(cd "$WORK/sh" && HOME="$MB" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude > "$WORK/modes-big-sh.log" 2>&1) || fail "session-start.sh --tool claude with a long skill (see $WORK/modes-big-sh.log)"
-(cd "$WORK/ps1" && HOME="$MB" USERPROFILE="$(native "$MB")" TEAM_MODES_FILE="$(native "$WORK/modes.tsv")" pwsh -NoProfile -File "$ROOT/bin/session-start.ps1" -Tool claude > "$WORK/modes-big-ps1.log" 2>&1) || fail "session-start.ps1 -Tool claude with a long skill (see $WORK/modes-big-ps1.log)"
-for twin in sh ps1; do
-  grep -aq '^CAVEMAN MODE ACTIVE — level: lite: its skill is too long for this output; load it before your first answer, the skill `caveman` with the argument `lite`$' "$WORK/modes-big-$twin.log" || fail "session-start.$twin does not name a skill too long with the call that loads it (see $WORK/modes-big-$twin.log)"
-  grep -aq 'CAVEMAN LONG RULE' "$WORK/modes-big-$twin.log" && fail "session-start.$twin printed a skill too long for the hook's output"
-  [ "$(wc -c < "$WORK/modes-big-$twin.log")" -le 9500 ] || fail "session-start.$twin with a long skill wrote more than 9 500 bytes"
-done
-(cd "$WORK/sh" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude --json | jq -e '.repository' > /dev/null) || fail "session-start.sh --tool claude --json is not JSON"
+(cd "$WORK/checkout" && HOME="$MB" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude > "$WORK/modes-big.log" 2>&1) || fail "session-start.sh --tool claude with a long skill (see $WORK/modes-big.log)"
+grep -aq '^CAVEMAN MODE ACTIVE — level: lite: its skill is too long for this output; load it before your first answer, the skill `caveman` with the argument `lite`$' "$WORK/modes-big.log" || fail "session-start.sh does not name a skill too long with the call that loads it (see $WORK/modes-big.log)"
+grep -aq 'CAVEMAN LONG RULE' "$WORK/modes-big.log" && fail "session-start.sh printed a skill too long for the hook's output"
+[ "$(wc -c < "$WORK/modes-big.log")" -le 9500 ] || fail "session-start.sh with a long skill wrote more than 9 500 bytes"
+(cd "$WORK/checkout" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude --json | jq -e '.repository' > /dev/null) || fail "session-start.sh --tool claude --json is not JSON"
 # A refusal under --json is JSON too: refused, with the lines of the team modes; a session that starts says refused: false
 ME="$WORK/modes-home-empty"; mkdir -p "$ME/.claude"
-(cd "$WORK/sh" && HOME="$ME" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude --json > "$WORK/refused-sh.json" 2>/dev/null) && fail "session-start.sh --json exited 0 with the team modes missing"
-(cd "$WORK/ps1" && HOME="$ME" USERPROFILE="$(native "$ME")" TEAM_MODES_FILE="$(native "$WORK/modes.tsv")" pwsh -NoProfile -File "$ROOT/bin/session-start.ps1" -Tool claude -Json > "$WORK/refused-ps1.json" 2>/dev/null) && fail "session-start.ps1 -Json exited 0 with the team modes missing"
-for twin in sh ps1; do
-  jq -e '.refused == true and (.team_modes | any(startswith("MISSING")) and any(startswith("REFUSED")))' "$WORK/refused-$twin.json" > /dev/null || fail "session-start.$twin --json does not refuse as JSON: $(tr -d '\r\n' < "$WORK/refused-$twin.json" | cut -c1-300)"
-  jq -e '.refused == false' "$WORK/$twin.json" > /dev/null || fail "session-start.$twin --json does not say refused: false where the session starts"
-done
-(cd "$WORK/sh" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" > "$WORK/modes-none.log" 2>&1) || fail "session-start.sh without --tool (see $WORK/modes-none.log)"
+(cd "$WORK/checkout" && HOME="$ME" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude --json > "$WORK/refused.json" 2>/dev/null) && fail "session-start.sh --json exited 0 with the team modes missing"
+jq -e '.refused == true and (.team_modes | any(startswith("MISSING")) and any(startswith("REFUSED")))' "$WORK/refused.json" > /dev/null || fail "session-start.sh --json does not refuse as JSON: $(tr -d '\r\n' < "$WORK/refused.json" | cut -c1-300)"
+jq -e '.refused == false' "$WORK/checkout.json" > /dev/null || fail "session-start.sh --json does not say refused: false where the session starts"
+(cd "$WORK/checkout" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" > "$WORK/modes-none.log" 2>&1) || fail "session-start.sh without --tool (see $WORK/modes-none.log)"
 grep -aq 'MODE ACTIVE' "$WORK/modes-none.log" && fail "session-start.sh without --tool switches modes on"
-echo "  --tool claude: the caveman skill printed whole with its level, a skill at level - not switched on, a skill too long named with its call, the plugin modes named, no rules, at most 9 500 bytes, nothing of it in the JSON or without --tool, a refusal under --json as JSON, on both twins"
+echo "  --tool claude: the caveman skill printed whole with its level, a skill at level - not switched on, a skill too long named with its call, the plugin modes named, no rules, at most 9 500 bytes, nothing of it in the JSON or without --tool, a refusal under --json as JSON"
 
 # The hook names ai-core by its full path, so a Claude Code started from a terminal without it on the PATH still runs it
-AI_CORE_CMD="$ROOT/bin/ai-core"; if command -v cygpath >/dev/null 2>&1; then AI_CORE_CMD="$(cygpath -m "$AI_CORE_CMD")"; fi
-for t in sh ps1; do [ "$(jq -r '[.hooks.SessionStart[].hooks[].command] | join("|")' "$WORK/$t/.claude/settings.json")" = "\"$AI_CORE_CMD\" session-start --tool claude" ] || fail "the settings.json init.$t deployed does not start the session with ai-core by its full path: $(jq -c '.hooks.SessionStart' "$WORK/$t/.claude/settings.json")"; done
-cmp -s "$WORK/sh/.claude/settings.json" "$WORK/ps1/.claude/settings.json" || fail "the settings.json differs between the twins"
+[ "$(jq -r '[.hooks.SessionStart[].hooks[].command] | join("|")' "$WORK/checkout/.claude/settings.json")" = "\"$AI_CORE_CMD\" session-start --tool claude" ] || fail "the settings.json init.sh deployed does not start the session with ai-core by its full path: $(jq -c '.hooks.SessionStart' "$WORK/checkout/.claude/settings.json")"
 # OpenCode reads the nearest AGENTS.md and resolves no @ in it: opencode.json names the rules as its instructions
-for t in sh ps1; do jq -e '(.instructions | index(".ai-core/rules/rules.md") != null and index(".ai-core/rules/skills.md") != null and index(".ai-core/rules/rules.local.md") != null)' "$WORK/$t/opencode.json" > /dev/null || fail "init.$t did not lay an opencode.json with the rules: $(tr -d '\n' < "$WORK/$t/opencode.json" 2>/dev/null)"; done
-for t in sh ps1; do jq -e --slurpfile t "$ROOT/templates/.claude/settings.json" '(.permissions.deny == $t[0].permissions.deny) and (.permissions.deny | index("Read(**/.env)") != null) and (.permissions.deny | index("Bash(git push --force:*)") != null)' "$WORK/$t/.claude/settings.json" > /dev/null || fail "the settings.json init.$t deployed lacks the denials of the template: $(jq -c '.permissions.deny' "$WORK/$t/.claude/settings.json")"; done
-for t in sh ps1; do jq -e '(.permissions.allow | index("Bash(ai-core:*)")) != null' "$WORK/$t/.claude/settings.json" > /dev/null || fail "the settings.json deployed by init.$t does not allow the ai-core commands"; done
-for t in sh ps1; do [ "$(jq -r '.statusLine.command' "$WORK/$t/.claude/settings.json")" = "\"$AI_CORE_CMD\" statusline" ] || fail "the settings.json init.$t deployed does not record the usage windows through ai-core statusline by its full path: $(jq -c '.statusLine' "$WORK/$t/.claude/settings.json")"; done
+jq -e '(.instructions | index(".ai-core/rules/rules.md") != null and index(".ai-core/rules/skills.md") != null and index(".ai-core/rules/rules.local.md") != null)' "$WORK/checkout/opencode.json" > /dev/null || fail "init.sh did not lay an opencode.json with the rules: $(tr -d '\n' < "$WORK/checkout/opencode.json" 2>/dev/null)"
+jq -e --slurpfile t "$ROOT/templates/.claude/settings.json" '(.permissions.deny == $t[0].permissions.deny) and (.permissions.deny | index("Read(**/.env)") != null) and (.permissions.deny | index("Bash(git push --force:*)") != null)' "$WORK/checkout/.claude/settings.json" > /dev/null || fail "the settings.json init.sh deployed lacks the denials of the template: $(jq -c '.permissions.deny' "$WORK/checkout/.claude/settings.json")"
+jq -e '(.permissions.allow | index("Bash(ai-core:*)")) != null' "$WORK/checkout/.claude/settings.json" > /dev/null || fail "the settings.json deployed by init.sh does not allow the ai-core commands"
+[ "$(jq -r '.statusLine.command' "$WORK/checkout/.claude/settings.json")" = "\"$AI_CORE_CMD\" statusline" ] || fail "the settings.json init.sh deployed does not record the usage windows through ai-core statusline by its full path: $(jq -c '.statusLine' "$WORK/checkout/.claude/settings.json")"
 
 # A repository with a CLAUDE.md of its own: Claude Code reads that and not AGENTS.md, so init writes an untracked CLAUDE.local.md that imports AGENTS.md; somebody's own CLAUDE.local.md is left alone, with a note
-for t in sh ps1; do
-  C="$WORK/claude-$t"; git init -q "$C"; mkdir -p "$C/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$C/.ai-core/config.env"
-  printf '# The project\n' > "$C/CLAUDE.md"; git -C "$C" add CLAUDE.md; git -C "$C" commit -q -m 'its own CLAUDE.md #1'
-  for run in 1 2; do
-    [ "$run" = 1 ] || printf 'mine\n' > "$C/CLAUDE.local.md"
-    if [ "$t" = sh ]; then bash "$ROOT/bin/init.sh" "$C" --no-doctor > "$WORK/claude-$t-$run.log" 2>&1
-    else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$C")" -NoDoctor > "$WORK/claude-$t-$run.log" 2>&1; fi || fail "init.$t in a repository with its own CLAUDE.md (see $WORK/claude-$t-$run.log)"
-    [ "$run" = 2 ] || { [ "$(tail -n1 "$C/CLAUDE.local.md")" = '@AGENTS.md' ] && cp "$C/CLAUDE.local.md" "$WORK/claude-local-$t.md" || fail "init.$t did not write a CLAUDE.local.md that imports AGENTS.md"; }
-    [ -z "$(git -C "$C" status --porcelain CLAUDE.local.md)" ] || fail "init.$t left CLAUDE.local.md visible to git"
-  done
-  [ "$(cat "$C/CLAUDE.local.md")" = mine ] && grep -aq 'note: CLAUDE.local.md is yours and does not import AGENTS.md' "$WORK/claude-$t-2.log" || fail "init.$t overwrote somebody's own CLAUDE.local.md or did not say what to add (see $WORK/claude-$t-2.log)"
+C="$WORK/claude"; git init -q "$C"; mkdir -p "$C/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$C/.ai-core/config.env"
+printf '# The project\n' > "$C/CLAUDE.md"; git -C "$C" add CLAUDE.md; git -C "$C" commit -q -m 'its own CLAUDE.md #1'
+for run in 1 2; do
+  [ "$run" = 1 ] || printf 'mine\n' > "$C/CLAUDE.local.md"
+  bash "$ROOT/bin/init.sh" "$C" --no-doctor > "$WORK/claude-$run.log" 2>&1 || fail "init.sh in a repository with its own CLAUDE.md (see $WORK/claude-$run.log)"
+  [ "$run" = 2 ] || [ "$(tail -n1 "$C/CLAUDE.local.md")" = '@AGENTS.md' ] || fail "init.sh did not write a CLAUDE.local.md that imports AGENTS.md"
+  [ -z "$(git -C "$C" status --porcelain CLAUDE.local.md)" ] || fail "init.sh left CLAUDE.local.md visible to git"
 done
-cmp -s "$WORK/claude-local-sh.md" "$WORK/claude-local-ps1.md" || fail "the twins wrote different CLAUDE.local.md files"
-[ ! -e "$WORK/sh/CLAUDE.local.md" ] || fail "init.sh wrote CLAUDE.local.md into a checkout without a CLAUDE.md"
-echo "  a repository with its own CLAUDE.md gets an untracked CLAUDE.local.md that imports AGENTS.md, the same on both twins; somebody's own is kept, with a note"
-section "the model table follows the harness: an older copy in a checkout is brought up to date and reported, on both twins"
-for t in sh ps1; do
-  M="$WORK/models-$t"; mkdir -p "$M/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$M/.ai-core/config.env"
-  printf 'claude\tplan\thigh-risk\tclaude-fable-5-1\tmax\n' > "$M/.ai-core/models.tsv"
-  if [ "$t" = sh ]; then bash "$ROOT/bin/init.sh" "$M" --no-doctor > "$M.log" 2>&1 || fail "init.sh on a checkout with an older model table (see $M.log)"
-  else pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$M")" -NoDoctor > "$M.log" 2>&1 || fail "init.ps1 on a checkout with an older model table (see $M.log)"; fi
-  cmp -s <(tr -d '\r' < "$M/.ai-core/models.tsv") "$ROOT/templates/.ai-core/models.tsv" || fail "init.$t kept an older model table instead of the harness's"
-  grep -aq '^  refreshed .*\.ai-core/models\.tsv' "$M.log" || fail "init.$t did not report the model table as refreshed: $(grep -a 'models' "$M.log")"
-done
-echo "  an older .ai-core/models.tsv is replaced by the harness's and reported, on both twins"
+[ "$(cat "$C/CLAUDE.local.md")" = mine ] && grep -aq 'note: CLAUDE.local.md is yours and does not import AGENTS.md' "$WORK/claude-2.log" || fail "init.sh overwrote somebody's own CLAUDE.local.md or did not say what to add (see $WORK/claude-2.log)"
+[ ! -e "$WORK/checkout/CLAUDE.local.md" ] || fail "init.sh wrote CLAUDE.local.md into a checkout without a CLAUDE.md"
+echo "  a repository with its own CLAUDE.md gets an untracked CLAUDE.local.md that imports AGENTS.md; somebody's own is kept, with a note"
 
-section "Codex gets what Claude Code loads, written out in AGENTS.override.md, and its config reads it whole, on both twins"
-codex_init() {  # codex_init <twin> <dir>
-  if [ "$1" = sh ]; then CODEX_HOME="$CODEX_HOME-$1" bash "$ROOT/bin/init.sh" "$2" --no-doctor >> "$F.log" 2>&1 || fail "init.sh in $2 (see $F.log)"
-  else CODEX_HOME="$(native "$CODEX_HOME-$1")" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$2")" -NoDoctor >> "$F.log" 2>&1 || fail "init.ps1 in $2 (see $F.log)"; fi
+section "the model table follows the harness: an older copy in a checkout is brought up to date and reported"
+M="$WORK/models"; mkdir -p "$M/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$M/.ai-core/config.env"
+printf 'claude\tplan\thigh-risk\tclaude-fable-5-1\tmax\n' > "$M/.ai-core/models.tsv"
+bash "$ROOT/bin/init.sh" "$M" --no-doctor > "$M.log" 2>&1 || fail "init.sh on a checkout with an older model table (see $M.log)"
+cmp -s "$M/.ai-core/models.tsv" "$ROOT/templates/.ai-core/models.tsv" || fail "init.sh kept an older model table instead of the harness's"
+grep -aq '^  refreshed .*\.ai-core/models\.tsv' "$M.log" || fail "init.sh did not report the model table as refreshed: $(grep -a 'models' "$M.log")"
+echo "  an older .ai-core/models.tsv is replaced by the harness's and reported"
+
+section "Codex gets what Claude Code loads, written out in AGENTS.override.md, and its config reads it whole"
+codex_init() {  # codex_init <dir>
+  CODEX_HOME="$CODEX_HOME-folder" bash "$ROOT/bin/init.sh" "$1" --no-doctor >> "$F.log" 2>&1 || fail "init.sh in $1 (see $F.log)"
 }
-said_path() { if [ "$t" = sh ]; then printf '%s' "$1"; else native "$1"; fi; }  # the path as the twin prints it
-for t in sh ps1; do
-  F="$WORK/codex-folder-$t"; mkdir -p "$F/.ai-core" "$F/repo" "$CODEX_HOME-$t"
-  printf 'UPDATE_CHECK="never"\n' > "$F/.ai-core/config.env"; git -C "$F/repo" init -q
-  printf 'model = "m"\nproject_doc_max_bytes = 1000\n\n[profiles.p]\nproject_doc_max_bytes = 5\n' > "$CODEX_HOME-$t/config.toml"
-  printf "[auto_review]\npolicy = '''\nAllow:\n- [other-ai-core] Kept from another project.\n- [setup-ai-core] Stale.\n\nEnvironment:\n- [other-ai-core] Another fact.\n'''\n" > "$CODEX_HOME-$t/ai-core.config.toml"
-  codex_init "$t" "$F"
-  printf '\n- **The folder rule.** Planted by the check. [discipline]\n' >> "$F/.ai-core/rules/rules.local.md"
-  codex_init "$t" "$F"; codex_init "$t" "$F/repo"
-  O="$F/repo/AGENTS.override.md"
-  [ -f "$O" ] || fail "init.$t wrote no AGENTS.override.md in a checkout that serves Codex"
-  grep -q '^<!-- \.ai-core/rules/rules\.md, written out -->$' "$O" && grep -q '^<!-- \.ai-core/rules/skills\.md, written out -->$' "$O" || fail "init.$t: the checkout's override does not write out rules.md and skills.md"
-  grep -q '^## The code never lies to the person using it$' "$O" || fail "init.$t: the checkout's override lacks the text of rules.md"
-  grep -q 'The folder rule\.' "$O" || fail "init.$t: the checkout's override lacks the project folder's local rules"
-  grep -qxF '/AGENTS.override.md' "$F/repo/.git/info/exclude" || fail "init.$t did not keep AGENTS.override.md out of git"
-  [ -z "$(git -C "$F/repo" status --porcelain)" ] || fail "init.$t left the checkout dirty: $(git -C "$F/repo" status --porcelain | tr '\n' '|')"
-  [ "$(tr -d '\r' < "$CODEX_HOME-$t/config.toml")" = "$(printf 'model = "m"\nproject_doc_max_bytes = 262144\n\n[profiles.p]\nproject_doc_max_bytes = 5')" ] || fail "init.$t wrote Codex's config wrong: $(tr '\n' '|' < "$CODEX_HOME-$t/config.toml")"
-  grep -aqF "  codex: project_doc_max_bytes set to 262144 in $(said_path "$CODEX_HOME-$t/config.toml")" "$F.log" || fail "init.$t did not say it raised project_doc_max_bytes"
-  sed "s/codex-folder-$t/F/g" "$O" > "$WORK/codex-override-$t.md"
-  P="$CODEX_HOME-$t/ai-core.config.toml"
-  grep -qxF 'approvals_reviewer = "auto_review"' "$P" && grep -qxF 'network_access = false' "$P" || fail "init.$t wrote no Codex profile ai-core that closes the network and hands approvals to the reviewer"
-  grep -qF -- "- [setup-ai-core] $(grep -m1 '^allow' "$ROOT/auto-mode.tsv" | cut -f2)" "$P" || fail "init.$t: the profile ai-core lacks the auto-mode entries"
-  grep -aqF "the profile ai-core written to $(said_path "$P")" "$F.log" || fail "init.$t did not say it wrote the profile ai-core"
-  grep -qxF -- '- [other-ai-core] Kept from another project.' "$P" && grep -qxF -- '- [other-ai-core] Another fact.' "$P" || fail "init.$t dropped another project's entries from the profile ai-core"
-  ! grep -qxF -- '- [setup-ai-core] Stale.' "$P" || fail "init.$t kept a stale entry of its own layer in the profile ai-core"
-  R="$CODEX_HOME-$t/rules/ai-core.rules"
-  grep -qxF 'prefix_rule(pattern = ["ai-core"], decision = "allow")' "$R" || fail "init.$t did not allow ai-core in Codex's command rules"
-  grep -qxF 'prefix_rule(pattern = ["git", "push", "--force"], decision = "forbidden")' "$R" && ! grep -q '"--force"\], decision = "allow"' "$R" || fail "init.$t did not forbid what the template denies in Codex's command rules"
-  grep -aqF "the command rules written to $(said_path "$R")" "$F.log" || fail "init.$t did not say it wrote the command rules"
-done
-cmp -s "$CODEX_HOME-sh/rules/ai-core.rules" "$CODEX_HOME-ps1/rules/ai-core.rules" || fail "the twins wrote different command rules"
-# init.sh reads the template with jq; without it, init still runs and says it wrote no command
-# rules. Not on Windows, where Git Bash copies what ln -s names.
-if ! command -v cygpath >/dev/null 2>&1; then
-  J="$WORK/no-jq-bin"; mkdir -p "$J"
-  IFS=: read -ra path_dirs <<< "$PATH"
-  for d in "${path_dirs[@]}"; do for f in "$d"/*; do
-    n="${f##*/}"; [ -x "$f" ] && [ "$n" != jq ] && [ ! -e "$J/$n" ] && ln -s "$f" "$J/$n"
-  done; done 2>/dev/null
-  N="$WORK/codex-no-jq"; mkdir -p "$N/.ai-core" "$CODEX_HOME-no-jq"; printf 'UPDATE_CHECK="never"\n' > "$N/.ai-core/config.env"
-  PATH="$J" CODEX_HOME="$CODEX_HOME-no-jq" bash "$ROOT/bin/init.sh" "$N" --no-doctor > "$N.log" 2>&1 || fail "init.sh without jq failed where Codex is served: $(tail -2 "$N.log" | tr '\n' '|')"
-  [ ! -e "$CODEX_HOME-no-jq/rules" ] && grep -aq 'no command rules written: jq is missing' "$N.log" || fail "init.sh without jq did not say it wrote no command rules"
-fi
-cmp -s "$WORK/codex-override-sh.md" "$WORK/codex-override-ps1.md" || fail "the twins wrote different AGENTS.override.md files"
-cmp -s "$CODEX_HOME-sh/ai-core.config.toml" "$CODEX_HOME-ps1/ai-core.config.toml" || fail "the twins wrote different Codex profiles"
-for t in sh ps1; do
-  N="$WORK/codex-none-$t"; mkdir -p "$N/.ai-core"; printf 'UPDATE_CHECK="never"\nAGENTS="claude"\n' > "$N/.ai-core/config.env"
-  X="$CODEX_HOME-none-$t"; mkdir -p "$X"; printf 'project_doc_max_bytes = 999999\n' > "$X/config.toml"
-  if [ "$t" = sh ]; then CODEX_HOME="$X" bash "$ROOT/bin/init.sh" "$N" --no-doctor > "$N.log" 2>&1
-  else CODEX_HOME="$X" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$N")" -NoDoctor > "$N.log" 2>&1; fi
-  [ ! -e "$N/AGENTS.override.md" ] && [ ! -e "$X/ai-core.config.toml" ] && [ ! -e "$X/rules" ] || fail "init.$t wrote AGENTS.override.md, the Codex profile or its command rules where Codex is not served"
-  [ "$(tr -d '\r' < "$X/config.toml")" = 'project_doc_max_bytes = 999999' ] || fail "init.$t changed Codex's config where Codex is not served"
-  K="$WORK/codex-kept-$t"; mkdir -p "$K/.ai-core" "$CODEX_HOME-kept-$t"; printf 'UPDATE_CHECK="never"\n' > "$K/.ai-core/config.env"
-  git -C "$K" init -q; printf 'our own\n' > "$K/AGENTS.override.md"; git -C "$K" add AGENTS.override.md; git -C "$K" commit -q -m own
-  printf 'project_doc_max_bytes = 1_000_000\n' > "$CODEX_HOME-kept-$t/config.toml"
-  if [ "$t" = sh ]; then CODEX_HOME="$CODEX_HOME-kept-$t" bash "$ROOT/bin/init.sh" "$K" --no-doctor > "$K.log" 2>&1
-  else CODEX_HOME="$CODEX_HOME-kept-$t" pwsh -NoProfile -File "$ROOT/bin/init.ps1" -TargetDir "$(native "$K")" -NoDoctor > "$K.log" 2>&1; fi
-  [ "$(tr -d '\r' < "$K/AGENTS.override.md")" = 'our own' ] || fail "init.$t overwrote an AGENTS.override.md the repository tracks"
-  [ "$(tr -d '\r' < "$CODEX_HOME-kept-$t/config.toml")" = 'project_doc_max_bytes = 1_000_000' ] || fail "init.$t lowered project_doc_max_bytes written with underscores"
-done
-echo "  a checkout in a project folder gets the folder's and its own AGENTS.md with rules.md, skills.md and the folder's local rules written out, the same on both twins and kept out of git; Codex's config is raised before its first table, a table's key and a higher value stay, underscores read; an override the repository tracks is kept; the profile ai-core closes the network and gives the reviewer the auto-mode entries, another project's kept, the same on both twins; nothing where Codex is not served"
+F="$WORK/codex-folder"; mkdir -p "$F/.ai-core" "$F/repo" "$CODEX_HOME-folder"
+printf 'UPDATE_CHECK="never"\n' > "$F/.ai-core/config.env"; git -C "$F/repo" init -q
+printf 'model = "m"\nproject_doc_max_bytes = 1000\n\n[profiles.p]\nproject_doc_max_bytes = 5\n' > "$CODEX_HOME-folder/config.toml"
+printf "[auto_review]\npolicy = '''\nAllow:\n- [other-ai-core] Kept from another project.\n- [setup-ai-core] Stale.\n\nEnvironment:\n- [other-ai-core] Another fact.\n'''\n" > "$CODEX_HOME-folder/ai-core.config.toml"
+codex_init "$F"
+printf '\n- **The folder rule.** Planted by the check. [discipline]\n' >> "$F/.ai-core/rules/rules.local.md"
+codex_init "$F"; codex_init "$F/repo"
+O="$F/repo/AGENTS.override.md"
+[ -f "$O" ] || fail "init.sh wrote no AGENTS.override.md in a checkout that serves Codex"
+grep -q '^<!-- \.ai-core/rules/rules\.md, written out -->$' "$O" && grep -q '^<!-- \.ai-core/rules/skills\.md, written out -->$' "$O" || fail "init.sh: the checkout's override does not write out rules.md and skills.md"
+grep -q '^## The code never lies to the person using it$' "$O" || fail "init.sh: the checkout's override lacks the text of rules.md"
+grep -q 'The folder rule\.' "$O" || fail "init.sh: the checkout's override lacks the project folder's local rules"
+grep -qxF '/AGENTS.override.md' "$F/repo/.git/info/exclude" || fail "init.sh did not keep AGENTS.override.md out of git"
+[ -z "$(git -C "$F/repo" status --porcelain)" ] || fail "init.sh left the checkout dirty: $(git -C "$F/repo" status --porcelain | tr '\n' '|')"
+[ "$(cat "$CODEX_HOME-folder/config.toml")" = "$(printf 'model = "m"\nproject_doc_max_bytes = 262144\n\n[profiles.p]\nproject_doc_max_bytes = 5')" ] || fail "init.sh wrote Codex's config wrong: $(tr '\n' '|' < "$CODEX_HOME-folder/config.toml")"
+grep -aqF "  codex: project_doc_max_bytes set to 262144 in $CODEX_HOME-folder/config.toml" "$F.log" || fail "init.sh did not say it raised project_doc_max_bytes"
+P="$CODEX_HOME-folder/ai-core.config.toml"
+grep -qxF 'approvals_reviewer = "auto_review"' "$P" && grep -qxF 'network_access = false' "$P" || fail "init.sh wrote no Codex profile ai-core that closes the network and hands approvals to the reviewer"
+grep -qF -- "- [setup-ai-core] $(grep -m1 '^allow' "$ROOT/auto-mode.tsv" | cut -f2)" "$P" || fail "init.sh: the profile ai-core lacks the auto-mode entries"
+grep -aqF "the profile ai-core written to $P" "$F.log" || fail "init.sh did not say it wrote the profile ai-core"
+grep -qxF -- '- [other-ai-core] Kept from another project.' "$P" && grep -qxF -- '- [other-ai-core] Another fact.' "$P" || fail "init.sh dropped another project's entries from the profile ai-core"
+! grep -qxF -- '- [setup-ai-core] Stale.' "$P" || fail "init.sh kept a stale entry of its own layer in the profile ai-core"
+R="$CODEX_HOME-folder/rules/ai-core.rules"
+grep -qxF 'prefix_rule(pattern = ["ai-core"], decision = "allow")' "$R" || fail "init.sh did not allow ai-core in Codex's command rules"
+grep -qxF 'prefix_rule(pattern = ["git", "push", "--force"], decision = "forbidden")' "$R" && ! grep -q '"--force"\], decision = "allow"' "$R" || fail "init.sh did not forbid what the template denies in Codex's command rules"
+grep -aqF "the command rules written to $R" "$F.log" || fail "init.sh did not say it wrote the command rules"
+# init.sh reads the template with jq; without it, init still runs and says it wrote no command rules
+J="$WORK/no-jq-bin"; mkdir -p "$J"
+IFS=: read -ra path_dirs <<< "$PATH"
+for d in "${path_dirs[@]}"; do for f in "$d"/*; do
+  n="${f##*/}"; [ -x "$f" ] && [ "$n" != jq ] && [ ! -e "$J/$n" ] && ln -s "$f" "$J/$n"
+done; done 2>/dev/null
+N="$WORK/codex-no-jq"; mkdir -p "$N/.ai-core" "$CODEX_HOME-no-jq"; printf 'UPDATE_CHECK="never"\n' > "$N/.ai-core/config.env"
+PATH="$J" CODEX_HOME="$CODEX_HOME-no-jq" bash "$ROOT/bin/init.sh" "$N" --no-doctor > "$N.log" 2>&1 || fail "init.sh without jq failed where Codex is served: $(tail -2 "$N.log" | tr '\n' '|')"
+[ ! -e "$CODEX_HOME-no-jq/rules" ] && grep -aq 'no command rules written: jq is missing' "$N.log" || fail "init.sh without jq did not say it wrote no command rules"
+N="$WORK/codex-none"; mkdir -p "$N/.ai-core"; printf 'UPDATE_CHECK="never"\nAGENTS="claude"\n' > "$N/.ai-core/config.env"
+X="$CODEX_HOME-none"; mkdir -p "$X"; printf 'project_doc_max_bytes = 999999\n' > "$X/config.toml"
+CODEX_HOME="$X" bash "$ROOT/bin/init.sh" "$N" --no-doctor > "$N.log" 2>&1
+[ ! -e "$N/AGENTS.override.md" ] && [ ! -e "$X/ai-core.config.toml" ] && [ ! -e "$X/rules" ] || fail "init.sh wrote AGENTS.override.md, the Codex profile or its command rules where Codex is not served"
+[ "$(cat "$X/config.toml")" = 'project_doc_max_bytes = 999999' ] || fail "init.sh changed Codex's config where Codex is not served"
+K="$WORK/codex-kept"; mkdir -p "$K/.ai-core" "$CODEX_HOME-kept"; printf 'UPDATE_CHECK="never"\n' > "$K/.ai-core/config.env"
+git -C "$K" init -q; printf 'our own\n' > "$K/AGENTS.override.md"; git -C "$K" add AGENTS.override.md; git -C "$K" commit -q -m own
+printf 'project_doc_max_bytes = 1_000_000\n' > "$CODEX_HOME-kept/config.toml"
+CODEX_HOME="$CODEX_HOME-kept" bash "$ROOT/bin/init.sh" "$K" --no-doctor > "$K.log" 2>&1
+[ "$(cat "$K/AGENTS.override.md")" = 'our own' ] || fail "init.sh overwrote an AGENTS.override.md the repository tracks"
+[ "$(cat "$CODEX_HOME-kept/config.toml")" = 'project_doc_max_bytes = 1_000_000' ] || fail "init.sh lowered project_doc_max_bytes written with underscores"
+echo "  a checkout in a project folder gets the folder's and its own AGENTS.md with rules.md, skills.md and the folder's local rules written out and kept out of git; Codex's config is raised before its first table, a table's key and a higher value stay, underscores read; an override the repository tracks is kept; the profile ai-core closes the network and gives the reviewer the auto-mode entries, another project's kept; nothing where Codex is not served"
 
 exit 0

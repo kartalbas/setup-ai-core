@@ -66,7 +66,7 @@ check 'CLOSE is done' 3 "$(status_rank CLOSE)"
 # The decision above is pure, and everything that FEEDS it is not: the one query per repository
 # that reads its open issues with their cards and comments, the clone the release is read from,
 # and the board that is read only when no repository is named. A suite that only calls
-# derive_target cannot tell the two twins apart on any of them.
+# derive_target cannot see any of them.
 #
 # NOTHING REACHES github.com. A stand-in `gh` on PATH answers the board and the issues of each
 # repository and writes down every call. The clone is a real git repository whose origin is a
@@ -129,7 +129,6 @@ c20="$(commit_at "$seed" 1700000020 'Land #20')"
 git -C "$seed" push -q "$origin" master --tags
 git -C "$origin" symbolic-ref HEAD refs/heads/master
 mkdir -p "$FAKE/folder"; git clone -q "$origin" "$clone"
-# status-sync spells the folder as git does, which on Windows is C:/...; the expectations do too
 shown="$(dirname "$(git -C "$clone" rev-parse --show-toplevel)")"
 # The tags reach the clone through the fetch status-sync makes, not through the clone
 git -C "$clone" tag -l | xargs -r git -C "$clone" tag -d >/dev/null
@@ -198,9 +197,7 @@ case "\$*" in
                                           [ -e "$FAKE/lenient" ] && exit 0; echo 'no git remotes found' >&2; exit 1 ;;
   *) [ -e "$FAKE/lenient" ] && exit 0; echo "the stand-in gh has no answer for: \$*" >&2; exit 9 ;;
 esac
-# The jq BINARY writes CRLF on Windows where gh's own --jq writes LF, and stripping it is what
-# makes the stand-in answer the way gh does.
-if [ -n "\$prog" ]; then jq -r "\$prog" < "\$doc" | tr -d '\r'
+if [ -n "\$prog" ]; then jq -r "\$prog" < "\$doc"
 else cat "\$doc"; fi
 exit 0
 EOF

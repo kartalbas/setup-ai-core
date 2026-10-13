@@ -63,7 +63,7 @@ esac
 EOF
 chmod +x "$work/bin/gh"
 # The process list is read by the default view only, and through AI_CORE_PROCESSES there: a ps
-# that refuses, as the one of Git for Windows refuses -A, proves --tokens never asks for it.
+# that refuses proves --tokens never asks for it.
 printf '#!/usr/bin/env bash\necho "ps: unknown option -- A" >&2; exit 1\n' > "$work/bin/ps"
 chmod +x "$work/bin/ps"
 export PATH="$work/bin:$PATH"
@@ -74,18 +74,16 @@ printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":25,"rese
 for row in "$((now - 10800)) 1 83" "$((now - 7200)) 13 86" "$now 25 89"; do
   set -- $row; echo "$1 $2 $((now + 3600)) $3 $((now + 432000))"
 done > "$HOME/.ai-core/usage.log"
-# Claude Code writes the folder as the system spells it: on Windows C:/..., where Git Bash says /c/...
-seen_as="$(cygpath -m "$folder" 2>/dev/null || echo "$folder")"
-sessions="$work/transcripts/$(printf '%s' "$seen_as" | sed 's/[^A-Za-z0-9]/-/g')"
+sessions="$work/transcripts/$(printf '%s' "$folder" | sed 's/[^A-Za-z0-9]/-/g')"
 mkdir -p "$sessions"
 answer() { printf '{"type":"assistant","timestamp":"%s","cwd":"%s","message":{"id":"%s","usage":{"input_tokens":%s,"output_tokens":%s,"cache_creation_input_tokens":%s,"cache_read_input_tokens":%s}}}\n' "$(iso "$1")" "${@:2}"; }
 {
-  printf '{"type":"user","cwd":"%s"}\n' "$seen_as/.worktrees/example-repo/issue-4-fix"
-  answer $((now - 7200)) "$seen_as/.worktrees/example-repo/issue-4-fix" m1 100 50 10 1000
-  answer $((now - 7200)) "$seen_as/.worktrees/example-repo/issue-4-fix" m1 100 50 10 1000
-  answer $((now - 3600)) "$seen_as" m2 5000 0 0 0
-  answer $((now - 1800)) "$seen_as/.worktrees/example-repo/issue-6-add" m3 200 100 0 0
-  answer $((now - 2 * 86400)) "$seen_as" m4 99999 0 0 0
+  printf '{"type":"user","cwd":"%s"}\n' "$folder/.worktrees/example-repo/issue-4-fix"
+  answer $((now - 7200)) "$folder/.worktrees/example-repo/issue-4-fix" m1 100 50 10 1000
+  answer $((now - 7200)) "$folder/.worktrees/example-repo/issue-4-fix" m1 100 50 10 1000
+  answer $((now - 3600)) "$folder" m2 5000 0 0 0
+  answer $((now - 1800)) "$folder/.worktrees/example-repo/issue-6-add" m3 200 100 0 0
+  answer $((now - 2 * 86400)) "$folder" m4 99999 0 0 0
 } > "$sessions/session.jsonl"
 # Another folder of the machine used as many fresh tokens in the same hours: it carries half the rise
 mkdir -p "$work/transcripts/-elsewhere"
@@ -182,7 +180,7 @@ echo 'claude agents --json failed' > "$work/bad-agents"
 broken="$(cd "$folder" && AI_CORE_PROCESSES="$work/processes" AI_CORE_AGENTS="$work/bad-agents" AI_CORE_ROLLOUTS="$work/rollouts" bash "$root/bin/status.sh" --project example-org/7 2>&1)"
 check 'a list that failed is shown, not swallowed' 'claude agents --json gave no list: claude agents --json failed' "$(grep -m1 'gave no list' <<< "$broken" | sed 's/^ *//')"
 check 'and no command is guessed' '100 C claude —' "$(reach "$broken" 100)"
-# Where no stand-in names the rollouts, the twin asks find, which exits 1 on the processes it may
+# Where no stand-in names the rollouts, status asks find, which exits 1 on the processes it may
 # not read; what it found still reaches the page. Without /proc there is nothing to ask.
 mkdir -p "$work/findbin"
 cat > "$work/findbin/find" <<'STUB'
@@ -207,7 +205,7 @@ echo 'the testing cards and the worktrees the sweep keeps, read from git'
 # A second board in a folder of its own: its column after implementing and review is testing, and
 # its repository has release tags of two environments and four issue worktrees
 live="$work/live"; mkdir -p "$live/.ai-core" "$work/cache/8"
-# status spells the folder as node resolves it, which on Windows is C:\...; the expectation does too
+# status spells the folder as node resolves it; the expectation does too
 shown="$(node -e 'process.stdout.write(require("path").resolve(process.argv[1]))' "$live")"
 printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\nPROOF_HOURS=24\n' > "$live/.ai-core/config.env"
 echo PVT_example8 > "$work/cache/8/project-id"

@@ -65,11 +65,8 @@ check 'first author'  kadir "$(printf '%s' "$json" | jq -r '.comments[0].author'
 check 'first time'    '2026-08-20T09:00:00Z' "$(printf '%s' "$json" | jq -r '.comments[0].created_at')"
 check 'second body'   'Second read.' "$(printf '%s' "$json" | jq -r '.comments[1].body')"
 
-# The carriage returns come out before the comparison. jq ends every line with CRLF on
-# Windows and with LF everywhere else, so the layout is the same on both and only the
-# line terminator is not - comparing the bytes would fail on one platform or the other.
 echo 'the plain layout is what a person reads'
-out="$("$thread" "$repo" 163 | tr -d '\r')"
+out="$("$thread" "$repo" 163)"
 expected="$(cat <<'TEXT'
 #163 Carry the value through every renderer
 state: open
@@ -91,8 +88,8 @@ echo 'the repo resolves from the checkout when left out'
 "$thread" 163 --json >/dev/null 2>&1
 check 'default repo' yes "$(grep -q "repos/$repo/issues/163" "$log" && echo yes || echo no)"
 
-# An issue with nothing on it is the case the twins drifted on: an empty label list read
-# back as one label that is nothing, so the dash never printed and the JSON carried a null.
+# An issue with nothing on it: an empty label list must not read back as one label that is
+# nothing, or the dash never prints and the JSON carries a null.
 echo 'an issue with no label and no comment says so'
 bare="$fake/bare"
 mkdir -p "$bare"
@@ -106,10 +103,10 @@ esac
 BARE
 chmod +x "$bare/gh"
 check 'labels read as a dash' 'labels: -' \
-  "$(PATH="$bare:$PATH" "$thread" "$repo" 7 | tr -d '\r' | sed -n '3p')"
+  "$(PATH="$bare:$PATH" "$thread" "$repo" 7 | sed -n '3p')"
 check 'the json carries an empty list' \
   '{"number":7,"title":"Bare","state":"closed","labels":[],"body":"","comments":[]}' \
-  "$(PATH="$bare:$PATH" "$thread" "$repo" 7 --json | tr -d '\r')"
+  "$(PATH="$bare:$PATH" "$thread" "$repo" 7 --json)"
 
 # A real thread on an epic runs to tens of kilobytes. Handed to jq as an argument it dies with
 # "Argument list too long" - on exactly the issues worth reading - so it travels through a pipe.
@@ -131,8 +128,7 @@ chmod +x "$big/gh"
 check 'the whole body came through' 50000 \
   "$(PATH="$big:$PATH" "$thread" "$repo" 8 --json | jq -r '.comments[0].body | length')"
 
-# The team's texts use the em dash everywhere. Both twins print UTF-8, so the same thread reads
-# the same from either of them.
+# The team's texts use the em dash everywhere, and the thread prints it as UTF-8.
 echo 'an em dash comes out as an em dash'
 dashed="$fake/dashed"
 mkdir -p "$dashed"
@@ -145,8 +141,8 @@ case "$*" in
 esac
 DASH
 chmod +x "$dashed/gh"
-check 'in the body'    'a — b'     "$(PATH="$dashed:$PATH" "$thread" "$repo" 9 | tr -d '\r' | sed -n '5p')"
-check 'in a comment'   'one — two' "$(PATH="$dashed:$PATH" "$thread" "$repo" 9 | tr -d '\r' | sed -n '8p')"
+check 'in the body'    'a — b'     "$(PATH="$dashed:$PATH" "$thread" "$repo" 9 | sed -n '5p')"
+check 'in a comment'   'one — two' "$(PATH="$dashed:$PATH" "$thread" "$repo" 9 | sed -n '8p')"
 
 # A refused read is not an empty issue. gh writes its error body to stdout, which jq would
 # take for the issue, so the read goes through gh_read and the run stops.

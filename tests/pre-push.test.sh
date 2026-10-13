@@ -36,10 +36,11 @@ check_runs="$fake/check-runs.txt"
 # The team modes: a table whose probes pass, and one whose probe cannot. The check reads the rows
 # of the tools on PATH, and a stub claude on PATH is the tool it finds.
 green="$fake/modes-green.tsv"; red="$fake/modes-red.tsv"
-printf 'claude\tmode\ton\talways\t-\t-\n' > "$green"
-printf 'claude\tcaveman\tlite\tfile:%s/never-there\tnpx skills add example/caveman -g\t-\n' "$fake" > "$red"
+printf 'claude\tmode\ton\talways\t-\t-\ncodex\tmode\ton\talways\t-\t-\n' > "$green"
+for tool in claude codex; do printf '%s\tcaveman\tlite\tfile:%s/never-there\tnpx skills add example/caveman -g\t-\n' "$tool" "$fake"; done > "$red"
 export TEAM_MODES_FILE="$green"
 stub="$fake/stub"; mkdir -p "$stub"
+mkdir -p "$fake/lib"; cp "$root/lib/layers.sh" "$fake/lib/"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/claude"
 # The gitleaks stub writes down every argument it was given; asked for the help of `gitleaks git`,
 # it has the subcommand unless PROBE_LEAKS is old, a gitleaks from before 8.19
@@ -137,7 +138,7 @@ git -C "$repo" reset -q --hard HEAD~1
 echo 'a red modes check refuses, and the lines the refusal points at are in the output'
 out="$(TEAM_MODES_FILE="$red" only_new "$wt")"; rc=$?
 check 'exit 1'                    1 "$rc"
-check 'the MISSING line is there' yes "$(grep -q '^MISSING .*claude caveman' <<< "$out" && echo yes || echo no)"
+check 'the MISSING line is there' yes "$(grep -Eq '^MISSING .*(claude|codex) caveman' <<< "$out" && echo yes || echo no)"
 check 'and the refusal names the modes' yes "$(grep -q 'the team modes are missing' <<< "$out" && echo yes || echo no)"
 
 echo 'a red scripts/check.sh refuses'

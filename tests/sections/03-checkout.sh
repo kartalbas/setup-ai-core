@@ -84,6 +84,7 @@ section "session-start in the target"
 (cd "$WORK/checkout" && "$ROOT/bin/ai-core" session-start > /dev/null) || fail "ai-core session-start in the target"
 (cd "$WORK/checkout" && "$ROOT/bin/ai-core" session-start --json > "$WORK/checkout.json")
 jq -e --arg version "$(tr -d '\r\n' < "$ROOT/VERSION")" '.harness_version == $version' "$WORK/checkout.json" > /dev/null || fail "session-start harness_version is not the repository VERSION"
+jq -e '.harness_source == null and .source_ready == null and .rule_sources == [] and .harness_current == true and .rules_present == true and .refused == false' "$WORK/checkout.json" > /dev/null || fail "session-start of a product checkout reports source facts or no assembled rules"
 # --tool <one tool>, the form the hooks use: the modes of that tool are switched on at the end of the output, a skill whole with its level; a row at level - is not switched on; the rules are not printed
 MH="$WORK/modes-home"; mkdir -p "$MH/.claude/skills/caveman" "$MH/.claude/skills/archify"; : > "$MH/.claude/.i-have-adhd-always"
 printf -- '---\nname: caveman\n---\nCAVEMAN RULES: short.\n' > "$MH/.claude/skills/caveman/SKILL.md"

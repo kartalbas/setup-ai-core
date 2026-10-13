@@ -47,7 +47,7 @@ chmod +x "$fake/gh"
 export PATH="$fake:$PATH"
 # The team modes are not what this test proves; a table whose probes always pass keeps the
 # gate out of the way. team-modes.test.sh proves the gate itself.
-printf 'claude\tcaveman\tlite\talways\t-\t-\n' > "$fake/team-modes.tsv"
+printf 'claude\tcaveman\tlite\talways\t-\t-\ncodex\tmode\ton\talways\t-\t-\n' > "$fake/team-modes.tsv"
 export TEAM_MODES_FILE="$fake/team-modes.tsv"
 
 failed=0
@@ -304,6 +304,28 @@ check 'exits zero'                       0 "$rc"
 check 'no plain ready'                   no "$(grep -qx 'Ready for task execution.' <<< "$out" && echo yes || echo no)"
 check 'the last line names the miss'     yes "$(tail -n 1 <<< "$out" | grep -q '^Ready for task execution, but WITHOUT the issue: #171 could not be read (' && echo yes || echo no)"
 check 'the JSON names no repository'     null "$(started --json | jq -r 'if has("issue_repository") then .issue_repository else "absent" end')"
+
+echo 'a source issue worktree is opened without product assembly'
+source_origin="$fake/github.com/example-org/shop-ai-core.git"
+source_work="$fake/source-checkouts/shop-ai-core"
+mkdir -p "$(dirname "$source_origin")" "$(dirname "$source_work")"
+git init -q --bare -b master "$source_origin"
+git init -q -b master "$source_work"; dress "$source_work"
+cp -R "$root/skeleton/." "$source_work/"
+mkdir -p "$source_work/.githooks"; cp "$root/.githooks/post-checkout" "$source_work/.githooks/"
+git -C "$source_work" add .; git -C "$source_work" add --chmod=+x .githooks/post-checkout
+git -C "$source_work" commit -qm 'the source #1'
+git -C "$source_work" remote add origin "$source_origin"
+git -C "$source_work" push -qu origin master
+git -C "$source_work" remote set-head origin -a >/dev/null
+git -C "$source_work" config core.hooksPath .githooks
+touch "$fake/no-board"
+out="$(cd "$source_work" && PATH="$root/bin:$PATH" GH_PROJECT_NUMBER='' bash "$start" example-org/shop-ai-core 173 2>&1)"; rc=$?
+check 'source start exits zero' 0 "$rc"
+check 'source caller names the workflow' yes "$(grep -qF 'Harness source worktree: run ai-core session-start and read its source rules.' <<< "$out" && echo yes || echo no)"
+source_tree="$(git -C "$source_work" worktree list --porcelain | sed -n 's/^worktree //p' | tail -1)"
+check 'source tree has no assembly' no "$([ -e "$source_tree/.ai-core" ] && echo yes || echo no)"
+check 'source tree has no product map' no "$([ -e "$source_tree/AGENTS.md" ] && echo yes || echo no)"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

@@ -54,6 +54,12 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# Source worktrees must be refused before inherited product data or settings can be copied.
+if [ -z "$ALL_DIR" ] && [ -d "$TARGET" ] && harness_source_of "$TARGET" >/dev/null 2>&1; then
+  echo "error: $TARGET is a harness repository; init is for the repositories it serves" >&2
+  exit 1
+fi
+
 # The prerequisites first; nothing is deployed on a machine that cannot run the harness. A dry
 # run installs nothing either. Doctor runs in the folder init serves, so it sees what the
 # repositories of that project folder need (gitleaks, where one carries .gitleaks.toml).

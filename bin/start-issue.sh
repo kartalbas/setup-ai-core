@@ -24,6 +24,7 @@
 # finish-issue read it.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/layers.sh"
 
 BIN="$ROOT/bin"
 usage='usage: start-issue.sh [OWNER/REPO] NUMBER'
@@ -128,10 +129,12 @@ bash "$BIN/finish-issue.sh" --sweep 2>&1 | grep ': landed, removed$' || true
 # covers close (status-sync)
 released_repo="$(resolve_repo "")" && sync_released_cards "$released_repo" ${repo:+"$repo"}
 
-# The harness is not in the repository, so the new worktree gets it here: init takes the main
-# checkout's own .ai-core data (its config, its local rules, its documents) first and assembles
-# the rules. A worktree that starts without them starts without the rules.
-bash "$ROOT/bin/init.sh" "$path" --no-doctor \
-  || echo "the harness is NOT complete in the worktree: run 'ai-core init' there before you start" >&2
+# Products need the checkout's assembled rules; sources read their own rule inputs instead.
+if harness_source_of "$path" >/dev/null; then
+  echo "Harness source worktree: run ai-core session-start and read its source rules."
+else
+  bash "$ROOT/bin/init.sh" "$path" --no-doctor \
+    || echo "the harness is NOT complete in the worktree: run 'ai-core init' there before you start" >&2
+fi
 
 "$BIN/issue-thread.sh" ${repo:+"$repo"} "$number" || true

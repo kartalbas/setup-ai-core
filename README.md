@@ -1,4 +1,4 @@
-1 for an unknown command |# setup-ai-core
+# setup-ai-core
 
 **One harness for every AI coding agent, in every repository, on every machine.**
 

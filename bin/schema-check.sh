@@ -3,7 +3,7 @@
 #
 #   schema-check.sh [DIRECTORY]
 #
-# It reads every .sh, .ps1 and .psm1 under bin/ and lib/ of DIRECTORY - this repository when none
+# It reads every .sh under bin/ and lib/ of DIRECTORY - this repository when none
 # is named - finds the GraphQL mutations written in them, and holds each one against the schema
 # github.com publishes. Two things are asked of every mutation: the root field must be one the
 # interface has, and the field asked of its answer must stand on that mutation's payload type.
@@ -11,10 +11,10 @@
 # WHY THIS IS A COMMAND AND NOT A TEST. Every test here runs against a fake gh on PATH, so nothing
 # in test/ reaches github.com and nothing there can know whether a field name is real. That is
 # what let `updateProjectV2ItemPosition(...) { projectV2Item { id } }` stand in lib/board.sh and
-# lib/Board.psm1 under two green tests: the interface validates a mutation document before it
+# a green test: the interface validates a mutation document before it
 # executes it, so it refuses the whole thing and no card moves. This is the one step of
-# scripts/check.sh that reaches github.com, and it stands beside the two suites rather than inside
-# them, so test/ keeps reaching nothing.
+# scripts/check.sh that reaches github.com, and it stands beside the suite rather than inside
+# it, so test/ keeps reaching nothing.
 #
 # IT IS RED WHEN THE INTERFACE CANNOT BE READ, and never skipped. A check that passes itself when
 # it could not look reports green for a question nobody asked.
@@ -23,12 +23,8 @@
 # each mutation's answer. It does not read deeper selections, it does not read queries, and it
 # does not read the fields of the input object.
 #
-# COMMENTS ARE DROPPED BEFORE ANYTHING IS MATCHED, and both shells write them differently. A line
-# whose first character is a hash is dropped, and so is a PowerShell block comment - the lines
-# from the one that opens it to the one that closes it. Without the second, a mutation quoted in
-# a .ps1 help block is counted as code, and the two twins then disagree about the same tree,
-# because the shell twin drops that same sentence when it stands in a .sh file. A block comment
-# opened in the middle of a line is not dropped; no file here writes one.
+# COMMENTS ARE DROPPED BEFORE ANYTHING IS MATCHED: a line whose first character is a hash is
+# dropped, so a mutation quoted in a comment is not counted as code.
 #
 # ONE CALL ANSWERS EVERYTHING. The Mutation type's own fields carry both the name of every
 # mutation and, one level down, the fields of the payload it answers with.
@@ -64,10 +60,8 @@ if [ $? -ne 0 ]; then
 fi
 
 # One row per mutation: its name, the payload type it answers with, and that payload's fields.
-# tr strips the carriage return jq writes on Windows; an unstripped field name matches nothing and
-# every selection would be reported as absent.
 pairs="$(printf '%s' "$schema" | jq -r '.data.__type.fields[]
-  | [ .name, (.type.name // "-"), ((.type.fields // []) | map(.name) | join(",")) ] | @tsv' | tr -d '\r')"
+  | [ .name, (.type.name // "-"), ((.type.fields // []) | map(.name) | join(",")) ] | @tsv')"
 if [ $? -ne 0 ] || [ -z "$pairs" ]; then
   echo 'schema-check: FAIL - the interface named no mutation, so there was nothing to check against' >&2
   exit 1
@@ -77,11 +71,11 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 printf '%s\n' "$pairs" > "$tmp/schema.tsv"
 
-# LC_ALL=C, so the two twins list their refusals in the same order. A locale that folds
-# punctuation orders the same names differently, and the PowerShell twin sorts ordinally.
+# LC_ALL=C, so the refusals are listed in the same order on every machine. A locale that folds
+# punctuation orders the same names differently.
 files=()
 while IFS= read -r f; do [ -n "$f" ] && files+=("$f"); done <<EOF
-$(find "${where[@]}" -type f \( -name '*.sh' -o -name '*.ps1' -o -name '*.psm1' \) | LC_ALL=C sort)
+$(find "${where[@]}" -type f -name '*.sh' | LC_ALL=C sort)
 EOF
 if [ ${#files[@]} -eq 0 ]; then
   echo "schema-check: FAIL - no script was found under $root" >&2
@@ -144,11 +138,9 @@ function flush(   s, hit, p, q, r, f) {
   nfiles++
 }
 NR == FNR { payload[$1] = $2; fields[$1] = $3; next }
-FILENAME != cur { if (cur != "") flush(); cur = FILENAME; buf = ""; nl = 0; inblock = 0 }
+FILENAME != cur { if (cur != "") flush(); cur = FILENAME; buf = ""; nl = 0 }
 {
   nl++; L[nl] = $0
-  if ($0 ~ /^[ \t]*<#/) inblock = 1
-  if (inblock) { if ($0 ~ /#>[ \t]*$/) inblock = 0; next }
   if ($0 !~ /^[ \t]*#/) buf = buf " " $0
 }
 END {

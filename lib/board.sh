@@ -22,8 +22,8 @@ die() { echo "error: $*" >&2; exit 1; }
 # THE DATA FILES ARE THE PROJECT'S, NOT THE HARNESS'S: labels.tsv, assignees.tsv, team-modes.tsv,
 # models.tsv.
 # A checkout carries them in .ai-core/, put there by init; the clone's templates hold the
-# defaults a project starts from. Every reader asks here, so the two twins and every command
-# read the same file: the one of the repository the caller stands in, or of the project folder.
+# defaults a project starts from. Every reader asks here, so every command
+# reads the same file: the one of the repository the caller stands in, or of the project folder.
 data_dir() {
   local top
   top="$(git rev-parse --show-toplevel 2>/dev/null || true)"
@@ -77,24 +77,14 @@ origin_default_branch() {
 # named is resolved from the current directory - which is a real board, so nothing afterwards
 # can tell.
 #
-# THIS IS STRICTER THAN THE POWERSHELL TWIN, AND IT HAS TO BE. PowerShell's binder refuses the
-# two cases above on its own, and it also accepts a QUOTED value that begins with a dash - the
-# parser still knows which words were quoted when it decides what is a parameter name and what
-# is an argument. Measured on pwsh 7.6.5:
-#
-#   board-list.ps1 -Project              ->  Missing an argument for parameter 'Project'.
-#   board-list.ps1 -Project -Status Todo ->  Missing an argument for parameter 'Project'.
-#   issue-new.ps1  -Title '-x marks the spot'  ->  bound, Title=[-x marks the spot]
-#
-# Bash has no such knowledge: quoting is gone by the time "$2" is read, so `--title -x` and
-# `--title '-x marks the spot'` are the same two words here and no rule can tell them apart.
-# Of the two ways to be wrong, this one refuses, because the other one is the defect above -
-# a board number that is really the next flag, silently resolved from the current directory.
+# Quoting is gone by the time "$2" is read, so `--title -x` and `--title '-x marks the spot'`
+# are the same two words here and no rule can tell them apart. Of the two ways to be wrong, this
+# one refuses, because the other one is the defect above - a board number that is really the
+# next flag, silently resolved from the current directory.
 #
 # WHAT IT COSTS, stated rather than hidden: a VALUE beginning with a dash cannot be passed to
 # any bin/*.sh script - an issue title, a label, a view name. Nothing the scripts themselves
-# take is lost, because every flag in bin/ is a long `--flag`. The twins therefore answer
-# differently for exactly that input, and the bash side is the one that refuses.
+# take is lost, because every flag in bin/ is a long `--flag`.
 need_value() {  # need_value <flag> <the argument after it>
   case "${2-}" in
     '' | -*) die "$1 needs a value" ;;
@@ -171,7 +161,7 @@ LABEL_GROUPS='type area closes incident needs'
 #
 # THE FILE IS AN ARGUMENT, defaulting to the repository's own. A reader that could only
 # ever read one path would force the test to plant its shapes into the tracked file and put
-# it back afterwards - so the two twins could not run at the same time without each reading
+# it back afterwards - so two tests could not run at the same time without each reading
 # the other's plant, and a killed run would leave the taxonomy damaged in the working tree.
 #
 # Prints: <group>\t<name>\t<colour>\t<description>
@@ -267,10 +257,9 @@ issue_ref() {  # issue_ref <repo or empty> <number>
 # exactly one tab and neither column may begin or end with a space, so `example-org/x <TAB>one`
 # is refused by name rather than answered. Trimming it here instead would have this reader
 # repair a file, and dropping the row silently would hand the issue to @me with nobody told;
-# one invisible space would answer `one` on the PowerShell side and `@me` here. `IFS=$'	' read`
+# one invisible space would answer `one` or `@me` by chance. `IFS=$'	' read`
 # is not used for the split, because a tab is IFS whitespace: it collapses a run of tabs and
-# strips a leading one, so `x<TAB><TAB>one` would reach this as a valid two-column row while
-# the PowerShell reader saw three columns and refused.
+# strips a leading one, so `x<TAB><TAB>one` would reach this as a valid two-column row.
 assignee_for() {  # assignee_for <repo> [file]
   local repo="$1" file="${2:-$(data_file assignees.tsv)}" found="" line no=0 r l tab
   tab=$'\t'
@@ -863,13 +852,9 @@ board_items() {
           items(first:100) { pageInfo { hasNextPage endCursor }
             nodes { id content { ... on Issue { number repository { nameWithOwner } } } } } } } }')" || exit 1
     fi
-    # The carriage return is stripped HERE and not by each caller. This is the one place the jq
-    # BINARY is run rather than gh's own --jq, and on Windows that binary writes CRLF - so an
-    # unstripped number arrives as `19\r`, matches no issue, and is reported as "not on the
-    # board" — a wrong answer that reads like a real one.
     printf '%s' "$page" | jq -r '.data.node.items.nodes[]
       | select(.content.number != null)
-      | "\(.id)\t\(.content.repository.nameWithOwner)\t\(.content.number)"' | tr -d '\r'
+      | "\(.id)\t\(.content.repository.nameWithOwner)\t\(.content.number)"'
     [ "$(printf '%s' "$page" | jq -r '.data.node.items.pageInfo.hasNextPage')" = 'true' ] || break
     after="$(printf '%s' "$page" | jq -r '.data.node.items.pageInfo.endCursor')"
   done

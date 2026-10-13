@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# The Bash twin of assignee.test.ps1, asserting the SAME rules against the same
-# reader. Two implementations of one rule are two chances to drift, and this is
-# what makes the drift fail rather than surprise somebody months later.
+# What the assignee reader accepts and what it refuses.
 #
 # EVERY PLANT GOES INTO A FILE OF THIS RUN'S OWN. The reader takes the map as its
 # second argument, so nothing here writes the tracked assignees.tsv. A test that planted
@@ -62,13 +60,11 @@ printf 'example-org/x\tone\nexample-org/x\ttwo\n' > "$MAP"
 if (assignee_for 'example-org/x' "$MAP" >/dev/null 2>&1); then check 'duplicate row' 'died' 'returned'
 else check 'duplicate row' 'died' 'died'; fi
 
-# WHITESPACE AROUND A COLUMN, which is the divergence example-tools#21 measured and #22 closed.
-# `example-org/x<SPACE><TAB>one` answered `one` on the PowerShell side, which trimmed six times,
-# and `@me` here, which compared the raw field - one invisible space deciding who a new issue
-# lands on. The format is now stated in assignees.tsv's own header and both readers refuse the
-# row by name. The tab cases are the same question one class over: `IFS=$'\t' read` collapses a
-# run of tabs and strips a leading one, so this reader used to see a valid two-column row where
-# the PowerShell reader saw three columns and refused.
+# WHITESPACE AROUND A COLUMN. `example-org/x<SPACE><TAB>one` compared as the raw field would
+# answer `@me` - one invisible space deciding who a new issue lands on. The format is stated in
+# assignees.tsv's own header and the reader refuses the row by name. The tab cases are the same
+# question one class over: `IFS=$'\t' read` collapses a run of tabs and strips a leading one, so
+# the reader used to see a valid two-column row where the file has three columns.
 echo 'whitespace around a column is refused, and the row is named'
 
 refused_row() { # refused_row <line>

@@ -58,9 +58,8 @@ done
 [ -n "$field" ] || die "--field is required"
 [ -n "$name" ]  || die "--name is required"
 [ -z "$after" ] || [ -z "$replacing" ] || die "--after and --replacing exclude each other: a replaced option keeps its place"
-# The set is GitHub's own, and it is checked here so both twins answer the same way: the
-# PowerShell binder refuses a name outside it before the first call, and without this the
-# Bash twin would carry it as far as the mutation and answer with the API's wording.
+# The set is GitHub's own, and it is checked here so a name outside it is refused before the
+# first call, not carried as far as the mutation and answered with the API's wording.
 #
 # The set is a VARIABLE and not a literal in the `case` subject. A constant subject is how a
 # swapped-over `case` looks, so shellcheck reports one - and a warning left standing is what
@@ -82,11 +81,11 @@ fields="$(gh_read "the fields of board $(project_number)" api graphql -f pid="$(
       id name options { id name color description } } } } } } }')" || exit 1
 
 fid="$(printf '%s' "$fields" | jq -r --arg f "$field" \
-  '[.data.node.fields.nodes[] | select(.name == $f)] | first | .id // empty' | tr -d '\r')"
-[ -n "$fid" ] || die "no single-select field named '$field' on board $(project_number). There is: $(printf '%s' "$fields" | jq -r '.data.node.fields.nodes[] | select(.name != null) | .name' | tr -d '\r' | paste -sd' ' -)"
+  '[.data.node.fields.nodes[] | select(.name == $f)] | first | .id // empty')"
+[ -n "$fid" ] || die "no single-select field named '$field' on board $(project_number). There is: $(printf '%s' "$fields" | jq -r '.data.node.fields.nodes[] | select(.name != null) | .name' | paste -sd' ' -)"
 
 have="$(printf '%s' "$fields" | jq -r --arg f "$field" \
-  '.data.node.fields.nodes[] | select(.name == $f) | .options[].name' | tr -d '\r')"
+  '.data.node.fields.nodes[] | select(.name == $f) | .options[].name')"
 if grep -qxF -- "$name" <<< "$have"; then
   [ -z "$replacing" ] || die "field '$field' on board $(project_number) has both '$name' and '$replacing': nothing is replaced, because two options cannot become one; move the cards of '$replacing' by hand and delete it on the board"
   echo "board $(project_number): field '$field' already has '$name' - nothing sent"
@@ -131,4 +130,4 @@ after="$(gh_read "the options of '$field' on board $(project_number)" api graphq
 # the name just added is the one it cannot find.
 rm -f "$(cache_dir)/fields.tsv"
 
-echo "board $(project_number): field '$field' now has $(printf '%s\n' "$after" | tr -d '\r' | paste -sd' ' -)"
+echo "board $(project_number): field '$field' now has $(printf '%s\n' "$after" | paste -sd' ' -)"

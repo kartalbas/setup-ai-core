@@ -84,7 +84,6 @@ chmod +x "$repo/scripts/check.sh"
 git -C "$repo" init -q -b master
 git -C "$repo" config user.email 'test@example.invalid'
 git -C "$repo" config user.name 'test'
-git -C "$repo" config core.autocrlf false
 git -C "$repo" add -A
 git -C "$repo" commit -q -m 'Set the repository up for the gate probe #1'
 

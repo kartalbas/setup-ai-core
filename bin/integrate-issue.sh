@@ -25,8 +25,7 @@
 # THE LANDINGS OF ONE CLONE TAKE TURNS. Git fixes the old value of the remote branch when the push
 # starts, before the gate runs, so a landing that moves the default branch while another one's gate
 # runs refuses the other's push. From the fetch to the end of the push this holds the file
-# ai-core-landing in the clone's git directory, which every worktree of the clone shares and the
-# twin reads too: its process id and its issue. A landing that finds it held waits; one whose holder
+# ai-core-landing in the clone's git directory, which every worktree of the clone shares: its process id and its issue. A landing that finds it held waits; one whose holder
 # no longer runs takes it over.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"

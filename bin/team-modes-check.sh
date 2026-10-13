@@ -14,7 +14,7 @@
 # a file on disk can prove; session-start prints the three commands for the agent to run.
 #
 # THE TOOL LIST IS A STRING AND NOT AN ARRAY. bash 3.2 refuses `${#arr[@]}` on an empty array
-# while `set -u` is on, and this script runs on macOS as well as on Linux and Git Bash.
+# while `set -u` is on.
 #
 # TEAM_MODES_FILE overrides the table, for tests.
 
@@ -90,8 +90,8 @@ probe() {  # probe <tool> <probe> -> 0 installed, 1 missing, 2 no probe
     always) return 0 ;;
     none)   return 2 ;;
     plugin) plugin_list "$tool" | grep -qi -- "$name" ;;
-    # the four folders in the shell itself, as the .ps1 spelling does: read from a pipe, the loop
-    # returned at the first folder while the writer still wrote, and bash printed a broken pipe
+    # the four folders in the shell itself: read from a pipe, the loop returned at the first
+    # folder while the writer still wrote, and bash printed a broken pipe
     skill)  for d in "$HOME/.$tool/skills/$name" "./.$tool/skills/$name" "$HOME/.agents/skills/$name" "./.agents/skills/$name"; do [ -d "$d" ] && return 0; done; return 1 ;;
     file)   [ -e "${name/#\~/$HOME}" ] ;;
     *)      return 2 ;;

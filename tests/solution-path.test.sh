@@ -105,9 +105,8 @@ check 'nothing sent'  0 "$(grep -c . "$log" || true)"
 check 'what to do'    yes \
   "$(grep -q 'code starts after the solution path is posted' <<< "$out" && echo yes || echo no)"
 
-# A heading that stands twice has two bodies and only one of them is ever read - the first in
-# one shell, the last in the other - so the same file was accepted by one twin and refused by
-# the other.
+# A heading that stands twice has two bodies and only one of them is ever read, so the file is
+# refused.
 echo 'a heading that stands twice is refused, and nothing is sent'
 doubled="$fake/doubled.md"
 { cat "$whole"; printf '\n## Options\n'; } > "$doubled"

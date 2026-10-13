@@ -96,7 +96,7 @@ report bash present "${BASH_VERSION%%(*}"
 # Node.js 20+ with npx
 if ! command -v node >/dev/null 2>&1; then install_tool node node nodejs || true; fi
 if command -v node >/dev/null 2>&1; then
-  NODE_VERSION="$(node -v 2>/dev/null | tr -d '\r')"
+  NODE_VERSION="$(node -v 2>/dev/null)"
   if [ "$(major_of "$NODE_VERSION")" -ge 20 ] 2>/dev/null; then
     if command -v npx >/dev/null 2>&1; then
       report node present "Node.js $NODE_VERSION with npx"
@@ -152,7 +152,7 @@ if [ -n "$LEAKS_REPOS" ]; then
   esac
   [ "$NO_INSTALL" -eq 0 ] || how="run doctor without --no-install, which installs it, or: $how"
   if leaks_ok; then
-    v="$(gitleaks version 2>/dev/null | tr -d '\r' | sed -n '1s/^v\{0,1\}\([0-9][0-9.]*\)$/\1/p')"
+    v="$(gitleaks version 2>/dev/null | sed -n '1s/^v\{0,1\}\([0-9][0-9.]*\)$/\1/p')"
     report gitleaks "$([ "$LEAKS_NEW" -eq 1 ] && echo installed || echo present)" "gitleaks${v:+ $v}, for .gitleaks.toml in:$LEAKS_REPOS"
   elif command -v gitleaks >/dev/null 2>&1; then report gitleaks "too old" "$(command -v gitleaks) has no 'gitleaks git', which the push gate runs (8.19 or newer); $how"; problem
   else report gitleaks MISSING "the push gate reads every push with it where .gitleaks.toml is:$LEAKS_REPOS; $how"; problem; fi

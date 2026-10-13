@@ -9,8 +9,7 @@ Who works on what and what comes next is not measured; the coordinator says it, 
 knows. Where no agent runs, and with
 --tokens, it prints the usage windows, the pace, what an issue costs, the tokens and the context
 of the day, the open work, and what is ready to close or open on the last column. No model is
-involved: status.sh and status.ps1 read the board and the process list, and lib/status.mjs
-counts, so both print the same page.
+involved: status.sh reads the board and the process list, and lib/status.mjs counts.
 
 Without --tokens or --issues the page ends with two blocks git answers at that moment. TESTING
 lists every card in testing with where its work is live: the newest commit on the default branch

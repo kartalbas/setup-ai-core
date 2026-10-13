@@ -200,7 +200,7 @@ excuse_gitignore_commits() {
 }
 # commit_only <repository> <subject> <trailer> <path>...: the paths, the shims with the executable
 # bit, as one commit on HEAD, whatever else is staged; built from an index of its own, because
-# `git commit -- <path>` reads the path from the working tree, which on Windows has no executable bit.
+# `git commit -- <path>` reads the path from the working tree, whose file may lack the executable bit.
 add_paths() {  # add_paths <repository> <path>...: into the index git works on; the shims with the executable bit
   local dir="$1" p; shift
   for p in "$@"; do

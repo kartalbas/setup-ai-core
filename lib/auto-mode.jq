@@ -1,6 +1,6 @@
 # The auto-mode entries of the harness layers, merged into Claude Code's user settings, the input.
 # Its classifier reads autoMode only there, in managed settings and from --settings, never from a
-# repository's .claude/settings.json. Both twins of init run this one filter.
+# repository's .claude/settings.json. init runs this filter.
 #
 #   $e  the entries init read from the layers, one "<list>\t[<layer>] <entry>" per line
 #   $l  the names of the layers this run assembled, one per line

@@ -7,8 +7,8 @@
 # ticket needs one.
 #
 # THE GROUP IS THE PREFIX THE LABEL CARRIES. A row in group `area` is named
-# `area:something`, and nothing else is accepted - lib/board.sh and lib/Board.psm1
-# refuse the file otherwise. Without that rule a row filed under the wrong group is
+# `area:something`, and nothing else is accepted - lib/board.sh
+# refuses the file otherwise. Without that rule a row filed under the wrong group is
 # read by board-sync as the other family, and every ticket in the organisation is
 # reported as missing a label that is right there on it.
 #

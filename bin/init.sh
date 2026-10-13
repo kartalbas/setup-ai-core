@@ -87,7 +87,8 @@ if [ -n "$ALL_DIR" ]; then
     case "$repo" in "$ALL_DIR"/.worktrees/*) [ ! -L "$repo" ] || continue ;; esac   # a link beside the worktrees is a neighbour checkout, initialized as itself
     name="${repo#"$ALL_DIR"/}"; repo_folder="${name##*/}"
     # a worktree is named by the checkout it belongs to, whichever way .worktrees/ is laid out
-    case "$name" in .worktrees/*) repo_folder="$(cd "$repo" && cd "$(git rev-parse --git-common-dir)" && cd .. && basename "$PWD")" ;; esac
+    # (a broken worktree has no checkout to name: it is walked as before)
+    case "$name" in .worktrees/*) repo_folder="$(cd "$repo" && cd "$(git rev-parse --git-common-dir 2>/dev/null)" && cd .. && basename "$PWD")" || repo_folder="" ;; esac
     case "$repo_folder" in *-ai-core) continue ;; esac   # a harness clone serves the repositories; it is not one of them, and neither is a worktree of one
     echo ""; echo "### $name"
     if bash "${BASH_SOURCE[0]}" "$repo" "${PASS[@]}"; then OK=$((OK + 1)); else FAILED="$FAILED $name"; fi

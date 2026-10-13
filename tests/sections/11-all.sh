@@ -19,6 +19,7 @@ for twin in sh ps; do
   git -C "$WORK/all-$twin/two" commit -q --allow-empty -m start
   git -C "$WORK/all-$twin/x-ai-core" worktree add -q -b issue-3-pkg "$WORK/all-$twin/.worktrees/issue-3-pkg/x-ai-core"
   git -C "$WORK/all-$twin/two" worktree add -q -b issue-4-to-ai-core "$WORK/all-$twin/.worktrees/issue-4-to-ai-core/two"
+  mkdir -p "$WORK/all-$twin/.worktrees/issue-5-gone/three"; printf 'gitdir: /nonexistent/gone\n' > "$WORK/all-$twin/.worktrees/issue-5-gone/three/.git"   # a worktree whose checkout is gone is walked as before, and the run goes on
   if [ "$twin" = sh ]; then
     bash "$ROOT/bin/init.sh" --all "$WORK/all-$twin" --no-doctor --dry-run > "$WORK/all-$twin-dry.log" 2>&1 && fail "init.sh --all --dry-run exited 0 with a failing repository"
     bash "$ROOT/bin/init.sh" --all "$WORK/all-$twin" --no-doctor > "$WORK/all-$twin.log" 2>&1 && fail "init.sh --all exited 0 with a failing repository"
@@ -26,10 +27,10 @@ for twin in sh ps; do
     pwsh -NoProfile -File "$ROOT/bin/init.ps1" -All "$(native "$WORK/all-$twin")" -NoDoctor -DryRun > "$WORK/all-$twin-dry.log" 2>&1 && fail "init.ps1 -All -DryRun exited 0 with a failing repository"
     pwsh -NoProfile -File "$ROOT/bin/init.ps1" -All "$(native "$WORK/all-$twin")" -NoDoctor > "$WORK/all-$twin.log" 2>&1 && fail "init.ps1 -All exited 0 with a failing repository"
   fi
-  grep -aq '4 repositories would be initialized; failed: broken' "$WORK/all-$twin-dry.log" || fail "init --all --dry-run summary wrong for $twin: $(grep -a 'repositories' "$WORK/all-$twin-dry.log")"
-  [ "$(grep -ac '^init would change in ' "$WORK/all-$twin-dry.log")" = 5 ] || fail "init --all --dry-run did not report every repository, the worktree and the folder ($twin)"
+  grep -aq '5 repositories would be initialized; failed: broken' "$WORK/all-$twin-dry.log" || fail "init --all --dry-run summary wrong for $twin: $(grep -a 'repositories' "$WORK/all-$twin-dry.log")"
+  [ "$(grep -ac '^init would change in ' "$WORK/all-$twin-dry.log")" = 6 ] || fail "init --all --dry-run did not report every repository, the worktree and the folder ($twin)"
   grep -aq '^  created .*AGENTS.md' "$WORK/all-$twin.log" || fail "init --all did not report what it created ($twin)"
-  grep -aq '4 repositories were initialized; failed: broken' "$WORK/all-$twin.log" || fail "init --all summary wrong for $twin: $(grep -a 'repositories' "$WORK/all-$twin.log")"
+  grep -aq '5 repositories were initialized; failed: broken' "$WORK/all-$twin.log" || fail "init --all summary wrong for $twin: $(grep -a 'repositories' "$WORK/all-$twin.log")"
   [ -f "$WORK/all-$twin/one/AGENTS.md" ] && [ -f "$WORK/all-$twin/two/AGENTS.md" ] || fail "init --all did not initialize the good repositories ($twin)"
   grep -aq '^### \.worktrees/one/issue-1-to-ai-core' "$WORK/all-$twin.log" && [ -f "$WORK/all-$twin/.worktrees/one/issue-1-to-ai-core/.ai-core/rules/rules.md" ] || fail "init --all did not initialize the worktree under .worktrees/ ($twin)"
   [ -e "$WORK/all-$twin/.worktrees/x-ai-core/issue-2-rules/.ai-core" ] && fail "init --all initialized a worktree of a harness clone ($twin)"

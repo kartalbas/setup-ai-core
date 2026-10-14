@@ -37,7 +37,7 @@ claude	plan	normal-hard	claude-opus-5-5	xhigh
 claude	plan	high-risk	claude-opus-5-5	xhigh
 claude	plan-check	mechanical	claude-sonnet-5-5	high
 claude	plan-check	normal-hard	claude-opus-5-5	high
-claude	plan-check	high-risk	claude-opus-5-5	xhigh
+claude	plan-check	high-risk	claude-opus-5-5	high
 claude	build	mechanical	claude-sonnet-5-5	high
 claude	build	normal-hard	claude-sonnet-5-5	xhigh
 claude	build	high-risk	claude-opus-5-5	xhigh
@@ -54,7 +54,7 @@ codex	plan	normal-hard	gpt-6.1-sol	xhigh
 codex	plan	high-risk	gpt-6.1-sol	xhigh
 codex	plan-check	mechanical	gpt-6-sol	high
 codex	plan-check	normal-hard	gpt-6.1-sol	high
-codex	plan-check	high-risk	gpt-6.1-sol	xhigh
+codex	plan-check	high-risk	gpt-6.1-sol	high
 codex	build	mechanical	gpt-6-sol	high
 codex	build	normal-hard	gpt-6-sol	xhigh
 codex	build	high-risk	gpt-6.1-sol	xhigh

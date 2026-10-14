@@ -241,7 +241,18 @@ out="$(only_new "$repo")"; rc=$?
 check 'exit 1'                         1 "$rc"
 check 'it names the (#12) line'        yes "$(yesno "src/app.js: const a = 1; // read the board whole (#$n)")"
 check 'it names the <repo>#12 line'    yes "$(yesno 'src/app.py: # see acme-shop#12 for the order')"
-git -C "$repo" reset -q --hard HEAD~1
+echo 'a later commit of the same push that takes the number out of one comment clears that one only'
+printf 'const a = 1; // read the board whole\n' > "$repo/src/app.js"
+git -C "$repo" add src/app.js; git -C "$repo" commit -q -m 'Say what the line needs #12'
+out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$(git -C "$repo" rev-parse HEAD~2)")"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'it no longer names the (#12) line' no "$(yesno "src/app.js: const a = 1; // read the board whole (#$n)")"
+check 'it still names the <repo>#12 line' yes "$(yesno 'src/app.py: # see acme-shop#12 for the order')"
+printf '# the order the board reads\n' > "$repo/src/app.py"
+git -C "$repo" add src/app.py; git -C "$repo" commit -q -m 'Say what the order is #12'
+out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$(git -C "$repo" rev-parse HEAD~3)")"; rc=$?
+check 'both taken out: exit 0'         0 "$rc"
+git -C "$repo" reset -q --hard HEAD~3
 printf 'const ref = "acme-shop#12"; // the order the board reads\n' > "$repo/src/app.js"
 git -C "$repo" add src/app.js; git -C "$repo" commit -q -m 'Read the board whole #12'
 out="$(only_new "$repo")"; rc=$?

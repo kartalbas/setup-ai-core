@@ -510,7 +510,9 @@ done <<< "$commits"
 # tracker that moves on while the line stays. What the line needs is said in the comment, and the
 # issue is named in the commit message. Judged on the lines the push adds, in the two spellings a
 # number is written in, a hash and digits in brackets, and a repository's name, a hash and digits;
-# a number in code that is no comment is left alone.
+# a number in code that is no comment is left alone. A line counts only while it stands in the tree
+# the push leaves, so a later commit of the same push that takes it out clears it, and nothing has
+# to be rewritten.
 numbered=""
 while IFS= read -r sha; do
   [ -n "$sha" ] || continue
@@ -523,10 +525,14 @@ while IFS= read -r sha; do
       if (line ~ /^[[:space:]]*(#|\*|--|;|\/\/|\/\*|<!--)/) comment = line
       else if (match(line, /[^:]\/\/|\/\*/)) comment = substr(line, RSTART)
       else next
-      if (comment ~ /\(#[0-9]+\)|[A-Za-z0-9._-]+#[0-9]+/) print "  " file ": " line
+      if (comment ~ /\(#[0-9]+\)|[A-Za-z0-9._-]+#[0-9]+/) print file "\t" line
     }' <<< "$added")"
-  [ -z "$hits" ] || numbered="$numbered
-$hits"
+  while IFS=$'\t' read -r file line; do
+    [ -n "$file" ] || continue
+    git show "$head:$file" 2>/dev/null | grep -qxF -- "$line" || continue
+    numbered="$numbered
+  $file: $line"
+  done <<< "$hits"
 done <<< "$commits"
 [ -z "$numbered" ] || refuse "these added comments name an issue by its number:$numbered
   Say in the comment what the line needs, and name the issue in the commit message."

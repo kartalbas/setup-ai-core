@@ -527,9 +527,12 @@ while IFS= read -r sha; do
       else next
       if (comment ~ /\(#[0-9]+\)|[A-Za-z0-9._-]+#[0-9]+/) print file "\t" line
     }' <<< "$added")"
-  while IFS=$'\t' read -r file line; do
-    [ -n "$file" ] || continue
-    git show "$head:$file" 2>/dev/null | grep -qxF -- "$line" || continue
+  # split on the first tab only: a tab-indented line keeps its indent, and the tree is asked for
+  # the line in any file, so a later rename keeps it standing and a quoted path asks nothing wrong
+  while IFS= read -r hit; do
+    [ -n "$hit" ] || continue
+    file="${hit%%$'\t'*}"; line="${hit#*$'\t'}"
+    git grep -h -I -F -e "$line" "$head" -- . ':!*.md' ':!*.json' ':!*.lock' ':!CHANGELOG*' 2>/dev/null | grep -qxF -- "$line" || continue
     numbered="$numbered
   $file: $line"
   done <<< "$hits"

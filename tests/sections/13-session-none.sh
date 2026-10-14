@@ -18,7 +18,8 @@ printf '## Checked\n\n- **A real rule.** Every rule carries its enforcement. [re
 git -C "$source_repo" add rules/35-checked.md; git -C "$source_repo" commit -qm 'the source rule #1'
 
 start_source() { # start_source <directory> <format> <expected exit>
-  local dir="$1" format="$2" expected="$3" rc=0
+  local dir="$1" format="$2" expected="$3" rc=0 had=0
+  [ ! -e "$dir/AGENTS.md" ] || had=1
   (cd "$dir" && bash "$ROOT/bin/session-start.sh" ${format:+--json}) > "$WORK/start.log" 2>&1 || rc=$?
   [ "$rc" = "$expected" ] || fail "source start ($format): expected exit $expected, got $rc: $(cat "$WORK/start.log")"
   if [ "$format" = json ]; then
@@ -28,13 +29,64 @@ start_source() { # start_source <directory> <format> <expected exit>
     grep -aF 'Map              : – Harness source: read README.md' "$WORK/start.log" >/dev/null || fail "source start recommends a product map"
     grep -aF 'run ai-core init' "$WORK/start.log" >/dev/null && fail "source start recommends init"
   fi
-  [ ! -e "$dir/.ai-core" ] && [ ! -e "$dir/AGENTS.md" ] || fail "startup wrote product files into a source"
+  [ ! -e "$dir/.ai-core" ] || fail "startup wrote the assembled harness into a source"
+  if [ "$expected" = 0 ]; then
+    # The tool loads AGENTS.md: it names each rule file where it is written, base layer first
+    local file
+    for file in "$ROOT"/rules/[0-9]*.md; do
+      grep -aqxF "  - @$file" "$dir/AGENTS.md" || grep -aqxF "  - @${file#"$dir"/}" "$dir/AGENTS.md" || fail "the source's AGENTS.md does not name the base rule file ${file##*/} where it is written: $(cat "$dir/AGENTS.md" 2>&1)"
+    done
+    if [ -f "$dir/rules/35-checked.md" ]; then
+      grep -aqxF '  - @rules/35-checked.md' "$dir/AGENTS.md" || fail "the source's AGENTS.md does not name its own rule file"
+      [ "$(grep -n "@$ROOT/rules/" "$dir/AGENTS.md" | head -1 | cut -d: -f1)" -lt "$(grep -n '@rules/35-checked.md' "$dir/AGENTS.md" | cut -d: -f1)" ] || fail "the source's AGENTS.md does not name the base layer first"
+    fi
+    grep -aqF -- "- When a skill or a tool is used: @$ROOT/rules/skills.md" "$dir/AGENTS.md" || fail "the source's AGENTS.md does not name the skills file where it is written"
+    grep -aq 'rules\.md' "$dir/AGENTS.md" && fail "the source's AGENTS.md names an assembled copy"
+    [ -z "$(git -C "$dir" status --porcelain -- AGENTS.md)" ] || fail "the source's AGENTS.md shows in its status"
+  else
+    [ "$had" = 1 ] || [ ! -e "$dir/AGENTS.md" ] || fail "a source refused at start got an AGENTS.md"
+  fi
 }
 
 section "a tracked harness source starts without product assembly"
 start_source "$source_repo" '' 0
 start_source "$source_repo" json 0
 jq -e '.harness_source == "example-org/shop-ai-core" and .harness_current == null and .rules_present == false and .rules_path == "" and (.rule_sources | length) == 2' "$WORK/start.log" >/dev/null || fail "source facts are incorrect"
+
+section "a source's AGENTS.md left by an old assembly is replaced, and an unchanged one is not written"
+stale="$WORK/stale-source"; git clone -q "$source_repo" "$stale"
+git -C "$stale" remote set-url origin https://github.com/example-org/shop-ai-core.git
+# PLANTED: the AGENTS.md an assembly wrote, which loads a copy of the rules that ages
+printf '# old\n- The engineering rules: @.ai-core/rules/rules.md\n' > "$stale/AGENTS.md"
+printf '# a last line without its newline' > "$stale/.git/info/exclude"
+start_source "$stale" '' 0
+grep -aq 'Rule files       : AGENTS.md names the [1-9][0-9]* rule files' "$WORK/start.log" || fail "session start does not say how many rule files AGENTS.md names: $(cat "$WORK/start.log")"
+touch -d '2000-01-01' "$stale/AGENTS.md"
+start_source "$stale" '' 0
+[ "$(date -r "$stale/AGENTS.md" +%Y)" = 2000 ] || fail "session start rewrote an AGENTS.md whose text had not changed"
+[ "$(grep -c '^/AGENTS.md$' "$stale/.git/info/exclude")" = 1 ] || fail "session start registered AGENTS.md in the exclude file not exactly once: $(cat "$stale/.git/info/exclude")"
+grep -qx '# a last line without its newline' "$stale/.git/info/exclude" || fail "session start joined its entry to the exclude file's last line"
+printf '## Added\n\n- **A new rule.** It is read at once. [review]\n' > "$stale/rules/36-added.md"
+git -C "$stale" add rules/36-added.md; git -C "$stale" commit -qm 'a new rule #1'
+start_source "$stale" '' 0
+grep -aqxF '  - @rules/36-added.md' "$stale/AGENTS.md" || fail "a rule file added to the source is not named at the next session start"
+
+section "a source that commits its own AGENTS.md keeps it, and a space in a rule file's path is escaped"
+mine="$WORK/committed-source"; git clone -q "$source_repo" "$mine"
+git -C "$mine" remote set-url origin https://github.com/example-org/shop-ai-core.git
+# PLANTED: the source's own AGENTS.md, which is somebody's work
+printf '# ours\n' > "$mine/AGENTS.md"; git -C "$mine" add AGENTS.md; git -C "$mine" -c user.email=t@example.invalid -c user.name=t commit -qm 'our own AGENTS.md #1'
+(cd "$mine" && bash "$ROOT/bin/session-start.sh") > "$WORK/mine.log" 2>&1 || fail "a source with a committed AGENTS.md is refused: $(cat "$WORK/mine.log")"
+[ "$(cat "$mine/AGENTS.md")" = '# ours' ] || fail "session start overwrote the source's committed AGENTS.md"
+[ -z "$(git -C "$mine" status --porcelain)" ] || fail "session start left a change in a source with a committed AGENTS.md: $(git -C "$mine" status --porcelain)"
+grep -q '^/AGENTS.md$' "$mine/.git/info/exclude" && fail "session start excluded a committed AGENTS.md"
+grep -aq 'Rule files       : – AGENTS.md is committed here' "$WORK/mine.log" || fail "session start does not say it left the committed AGENTS.md: $(cat "$WORK/mine.log")"
+spaced="$WORK/spaced-source"; git clone -q "$source_repo" "$spaced"
+git -C "$spaced" remote set-url origin https://github.com/example-org/shop-ai-core.git
+printf '## Spaced\n\n- **A rule in a spaced file.** It is named. [review]\n' > "$spaced/rules/36 spaced.md"
+git -C "$spaced" add "rules/36 spaced.md"; git -C "$spaced" -c user.email=t@example.invalid -c user.name=t commit -qm 'a spaced rule file #1'
+(cd "$spaced" && bash "$ROOT/bin/session-start.sh") > "$WORK/spaced.log" 2>&1 || fail "a source with a spaced rule file is refused: $(cat "$WORK/spaced.log")"
+grep -aqxF '  - @rules/36\ spaced.md' "$spaced/AGENTS.md" || fail "the space in a rule file's path is not escaped: $(grep -a spaced "$spaced/AGENTS.md")"
 
 section "a source that also holds an assembled rules file reports it as measured"
 assembled="$WORK/assembled-source"; git clone -q "$source_repo" "$assembled"

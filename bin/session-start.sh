@@ -87,13 +87,57 @@ fi
 . "$CORE/lib/layers.sh"
 FOLDER="$(project_folder_of "$ROOT")"
 HARNESS_SOURCE="$(harness_source_of "$ROOT" || true)"
-SOURCE_READY=null; SOURCE_ERROR=""; RULE_SOURCES='[]'; READY="$RULES_OK"
+SOURCE_READY=null; SOURCE_ERROR=""; RULE_SOURCES='[]'; READY="$RULES_OK"; SOURCE_RULE_FILES=0; SOURCE_AGENTS=""
+# A harness source is never assembled, and the tool loads AGENTS.md: so in a source that file names
+# the rule files where they are written, base layer first, and the tool reads each as it is now. A
+# copy would age with the next change of a rule. This file is the one session start writes there,
+# only when its text changes, and the clone's exclude file keeps it out of every commit.
+write_source_agents() {  # write_source_agents <checkout> <rule directories, one per line>
+  local dir file text skills="" exclude
+  # A source that commits its own AGENTS.md keeps it: that file is somebody's work
+  if git -C "$1" ls-files --error-unmatch AGENTS.md >/dev/null 2>&1; then SOURCE_AGENTS=tracked; return 0; fi
+  # an import ends at a space, so a space in a path is escaped
+  text="<!-- ai-core session-start: written in a harness source at every session start; it names the rule files, it holds none -->
+# $HARNESS_SOURCE: a harness source
+
+## Binding rules
+- The engineering rules, read where they are written, base layer first; never edited here:"
+  while IFS= read -r dir; do
+    [ -n "$dir" ] || continue
+    for file in "$dir"/[0-9]*.md; do
+      [ -f "$file" ] || continue
+      file="${file#"$1"/}"
+      text="$text
+  - @${file// /\\ }"; SOURCE_RULE_FILES=$((SOURCE_RULE_FILES + 1))
+    done
+    [ ! -f "$dir/skills.md" ] || { file="${dir#"$1"/}/skills.md"; skills="$skills @${file// /\\ }"; }
+  done <<< "$2"
+  [ -z "$skills" ] || text="$text
+- When a skill or a tool is used:$skills"
+  text="$text
+- \`ai-core --help\`: every command of the harness, each with its own \`--help\`.
+- Where another instruction file, a machine-wide CLAUDE.md among them, names other places for these rules, it is out of date: these files win.
+- \`ai-core session-start\` before any work; the README is where to start."
+  if [ "$(cat "$1/AGENTS.md" 2>/dev/null)" != "$text" ]; then
+    { printf '%s\n' "$text" > "$1/AGENTS.md.$$" && mv "$1/AGENTS.md.$$" "$1/AGENTS.md"; } 2>/dev/null \
+      || { rm -f "$1/AGENTS.md.$$"; SOURCE_AGENTS=unwritten; return 0; }
+  fi
+  SOURCE_AGENTS=written
+  git -C "$1" check-ignore -q AGENTS.md 2>/dev/null && return 0
+  exclude="$(git -C "$1" rev-parse --git-path info/exclude 2>/dev/null)" || return 0
+  case "$exclude" in /*) ;; *) exclude="$1/$exclude" ;; esac
+  mkdir -p "$(dirname "$exclude")" || return 0
+  # appended after a last line that lacks its newline, the entry would join that line
+  [ ! -s "$exclude" ] || [ -z "$(tail -c1 "$exclude")" ] || echo >> "$exclude"
+  echo "/AGENTS.md" >> "$exclude"
+}
 if [ -n "$HARNESS_SOURCE" ]; then
   HARNESS_VERSION="$(tr -d '\r\n' 2>/dev/null < "$CORE/VERSION" || true)"
   SOURCE_READY=false; READY=0
   if source_dirs="$(source_rule_dirs "$ROOT" "$CORE" 2>&1)"; then
     SOURCE_READY=true; READY=1
     RULE_SOURCES="$(printf '%s\n' "$source_dirs" | jq -R -s 'split("\n") | map(select(length > 0))')"
+    write_source_agents "$ROOT" "$source_dirs"
   else
     SOURCE_ERROR="$source_dirs"
   fi
@@ -249,6 +293,11 @@ case "$RELEASE_STATE" in
 esac
 if [ -n "$HARNESS_SOURCE" ]; then
   echo "Rule sources     : $(printf '%s' "$RULE_SOURCES" | jq -r 'join("; ")')"
+  case "$SOURCE_AGENTS" in
+    written) echo "Rule files       : AGENTS.md names the $SOURCE_RULE_FILES rule files of these sources where they are written" ;;
+    tracked) echo "Rule files       : – AGENTS.md is committed here, so session start leaves it as it is" ;;
+    unwritten) echo "Rule files       : ✗ AGENTS.md could not be written here, so no rule file of these sources is named to the tool" ;;
+  esac
 else
   echo "Rules file       : $([ $RULES_OK -eq 1 ] && echo "✓ Present ($RULES_PATH)" || echo "✗ Missing")"
 fi

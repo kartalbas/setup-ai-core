@@ -9,6 +9,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      # The push gate's merge case runs the real gitleaks, which this image does not carry; the
+      # same release doctor installs on a Linux machine.
+      - run: |
+          gh release download --repo gitleaks/gitleaks --pattern 'gitleaks_*_linux_x64.tar.gz' --dir "$RUNNER_TEMP"
+          mkdir -p "$HOME/.local/bin"
+          tar -xzf "$RUNNER_TEMP"/gitleaks_*_linux_x64.tar.gz -C "$HOME/.local/bin" gitleaks
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        env:
+          GH_TOKEN: ${{ github.token }}
       - run: bash tests/check.sh
       # The one check that reaches github.com: every GraphQL mutation of the board commands
       # against the schema GitHub publishes, with the workflow's own token.

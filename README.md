@@ -695,12 +695,20 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    the commits are the only place a credential taken out again still stands. It runs
    `gitleaks git`, which came with gitleaks 8.19; without such a gitleaks the push is refused and
    `ai-core doctor` named, which installs it. `--install` writes nothing into such a repository
-   until one is there, because the push of its own shims would be refused.
+   until one is there, because the push of its own shims would be refused. A merge is read by
+   what its author wrote beyond git's own merge, a conflict resolution among it, which needs git
+   2.36; an older git is refused by name, because gitleaks would count git's error as no finding,
+   and `ai-core doctor` names it too. A merge of three or more branches at once is refused: git
+   shows no such diff for it. A finding names the commit, the file, the line and the rule, never
+   the value or the commit message;
+   a file that had a conflict is named `b/<path>` there, so a path allowlist or a rule path that
+   starts with `^` does not match it: the allowlist then refuses more, the rule misses the file.
 
 Run from a prompt or an agent's shell, with nothing on standard input, `ai-core pre-push` judges
 the current branch against its upstream: what `git push` would send. `tests/pre-push.test.sh`
 drives it with git's input by hand, against a scratch repository, stand-ins
-for the check and for gitleaks, and a team-modes table of their own.
+for the check and for gitleaks, and a team-modes table of their own; the merge case runs the real
+gitleaks, because only git's own output shows what a merge carries.
 
 ---
 
@@ -711,7 +719,7 @@ for the check and for gitleaks, and a team-modes table of their own.
 | Need | For | Notes |
 | :--- | :--- | :--- |
 | Linux with Bash 3.2+ | every script | Windows runs the harness under WSL (section 5.9) |
-| Git | `session-start`, worktrees, the exclude file | |
+| Git | `session-start`, worktrees, the exclude file | 2.36+ where `.gitleaks.toml` arms the push gate's scan |
 | `curl` and `tar` | remote install with `init.sh` | |
 | jq | every board and issue command reads GitHub's answers through it | `doctor` installs it |
 | gitleaks 8.19+ | the credential scan of the push gate, in a repository that carries `.gitleaks.toml` | `doctor` wants it where a repository of the project folder carries that file, and installs it: brew, on Linux the GitHub release into `~/.local/bin` (apt's package is 8.16); `init` runs doctor in the folder it serves |
@@ -1070,7 +1078,7 @@ assembled, base first along an `extends` chain, prove `push` commits
 and pushes a harness clone's change to its origin and has nothing on a second run, require `session-start` to exit 1 where the harness is
 absent, and run the board suite (`tests/run-all.sh`: one test per
 command against a stand-in `gh`, the push gate's among them, and the tree must be as the
-suite found it). It needs `bash`, `node` and `jq` and never touches the network. CI runs it on Ubuntu
+suite found it). It needs `bash`, `node`, `jq` and gitleaks 8.19+ and never touches the network. CI runs it on Ubuntu
 for every push of a branch and every pull request, and then `schema-check`, which needs
 github.com; a tag names a commit whose checks already ran, so pushing it starts no second run.
 

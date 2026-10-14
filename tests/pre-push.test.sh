@@ -40,6 +40,8 @@ printf 'claude\tmode\ton\talways\t-\t-\ncodex\tmode\ton\talways\t-\t-\n' > "$gre
 for tool in claude codex; do printf '%s\tcaveman\tlite\tfile:%s/never-there\tnpx skills add example/caveman -g\t-\n' "$tool" "$fake"; done > "$red"
 export TEAM_MODES_FILE="$green"
 stub="$fake/stub"; mkdir -p "$stub"
+# The real gitleaks, found before the stub shadows it: one case needs what git really shows it.
+real_gitleaks="$(command -v gitleaks || true)"
 mkdir -p "$fake/lib"; cp "$root/lib/layers.sh" "$fake/lib/"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/claude"
 # The gitleaks stub writes down every argument it was given; asked for the help of `gitleaks git`,
@@ -505,7 +507,7 @@ before="$(git -C "$repo" rev-parse HEAD~1)"
 out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$before")"; rc=$?
 check 'exit 0'                    0 "$rc"
 # Only the range is compared, not the tree.
-check 'gitleaks read that range'  "git --no-banner --log-opts=$(git -C "$repo" rev-parse HEAD) ^$before --not --remotes=origin" \
+check 'gitleaks read that range'  "git --no-banner --redact --report-format json --report-path - --log-opts=--diff-merges=remerge $(git -C "$repo" rev-parse HEAD) ^$before --not --remotes=origin" \
   "$(sed 's/^\[//; s/ [^ ]*$//' "$leaks_args")"
 
 echo 'a credential in a pushed commit refuses, and says it cannot be recalled'
@@ -517,6 +519,68 @@ echo 'a gitleaks without gitleaks git, one from before 8.19, refuses and names d
 out="$(PROBE_LEAKS=old only_new "$repo")"; rc=$?
 check 'exit 1'                 1 "$rc"
 check 'it names doctor'        yes "$(grep -q 'no gitleaks 8.19 or newer' <<< "$out" && grep -q 'Run ai-core doctor' <<< "$out" && echo yes || echo no)"
+
+# --- a credential that stands only in how a merge was resolved ---------------------------------
+# git log -p shows no patch for a merge unless asked to, so a push whose only new commit is a merge
+# handed gitleaks nothing to read. The stub cannot show that: the real gitleaks reads the range.
+echo 'a credential that stands only in a merge resolution is refused, by the real gitleaks'
+real="$fake/real"; mkdir -p "$real"
+[ -z "$real_gitleaks" ] || ln -s "$real_gitleaks" "$real/gitleaks"
+check 'a real gitleaks is on this machine (ai-core doctor installs it)' yes "$([ -n "$real_gitleaks" ] && echo yes || echo no)"
+merged="$fake/merged"; git init -q -b master "$merged"
+git -C "$merged" config user.email 'test@example.invalid'; git -C "$merged" config user.name 'test'
+printf '[extend]\nuseDefault = true\n' > "$merged/.gitleaks.toml"; printf 'value = 1\n' > "$merged/settings.txt"
+git -C "$merged" add -A; git -C "$merged" commit -q -m 'Set the merge probe up #15'
+git -C "$merged" checkout -q -b issue-15-merge
+printf 'value = 2\n' > "$merged/settings.txt"; git -C "$merged" commit -q -a -m 'Change the value on the branch #15'
+tip="$(git -C "$merged" rev-parse HEAD)"
+git -C "$merged" update-ref refs/remotes/origin/issue-15-merge "$tip"   # the branch is on the remote
+git -C "$merged" checkout -q master
+printf 'value = 3\n' > "$merged/settings.txt"; git -C "$merged" commit -q -a -m 'Change the value on master #15'
+git -C "$merged" update-ref refs/remotes/origin/master HEAD               # and so is master
+git -C "$merged" checkout -q issue-15-merge
+push_merge() {  # push_merge <resolution> [<message>] - merge master into the branch with a conflict, resolve it so, push the merge alone
+  git -C "$merged" reset -q --hard "$tip"
+  git -C "$merged" merge -q master >/dev/null 2>&1
+  printf '%s\n' "$1" > "$merged/settings.txt"; git -C "$merged" add settings.txt; git -C "$merged" commit -q -m "${2:-Catch up with master}"
+  printf 'refs/heads/issue-15-merge %s refs/heads/issue-15-merge %s\n' "$(git -C "$merged" rev-parse HEAD)" "$tip" \
+    | ( cd "$merged" && PATH="$real:$PATH" bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1 )
+}
+# Made here, so this file carries no string of a credential's shape.
+token="ghp_$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 36)"
+out="$(push_merge "value = 4")"; rc=$?
+check 'PLANTED INNOCENT: a resolution without a credential goes out' 0 "$rc"
+check 'and the merge was read'      yes "$(grep -q '1 commits scanned' <<< "$out" && echo yes || echo no)"
+other="ghp_$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 36)"
+in_message="ghp_$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 36)"
+out="$(push_merge "token = \"$token\" other = \"$other\"" "Catch up, with $in_message in the message")"; rc=$?
+check 'a resolution with a credential: exit 1' 1 "$rc"
+check 'it says what to do'          yes "$(grep -q 'a commit that is pushed cannot be recalled' <<< "$out" && echo yes || echo no)"
+# A file that had a conflict is b/<path> to gitleaks, as it parses git's conflict header.
+check 'it names the file, the line and the rule' yes "$(grep -q ' b/settings.txt:1 github-pat$' <<< "$out" && echo yes || echo no)"
+check 'and prints no part of any credential, the message one too' no "$(grep -qF -e "${token:4:12}" -e "${other:4:12}" -e "${in_message:4:12}" <<< "$out" && echo yes || echo no)"
+echo 'a merge of three branches at once is refused: git shows no diff of what its author wrote'
+git -C "$merged" reset -q --hard "$tip"
+git -C "$merged" checkout -q -b side master~1; printf 'x\n' > "$merged/side.txt"; git -C "$merged" add side.txt; git -C "$merged" commit -q -m 'A side branch #15'
+git -C "$merged" update-ref refs/remotes/origin/side HEAD
+git -C "$merged" checkout -q issue-15-merge
+git -C "$merged" merge -q --no-edit -s ours master side >/dev/null 2>&1
+out="$(printf 'refs/heads/issue-15-merge %s refs/heads/issue-15-merge %s\n' "$(git -C "$merged" rev-parse HEAD)" "$tip" \
+  | ( cd "$merged" && PATH="$real:$PATH" bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1 ))"; rc=$?
+check 'three parents'               3 "$(git -C "$merged" rev-list --parents -n1 HEAD | wc -w | tr -d ' ' | awk '{print $1-1}')"
+check 'exit 1'                      1 "$rc"
+check 'it says to merge one branch at a time' yes "$(grep -q 'Merge one branch at a time' <<< "$out" && echo yes || echo no)"
+echo 'a git without --diff-merges=remerge, one before 2.36, refuses by name and never passes unread'
+old_git="$fake/old-git"; mkdir -p "$old_git"
+cat > "$old_git/git" <<EOF
+#!/usr/bin/env bash
+case "\$*" in *--diff-merges=remerge*) echo "fatal: invalid value for '--diff-merges': 'remerge'" >&2; exit 128 ;; esac
+exec "$(command -v git)" "\$@"
+EOF
+chmod +x "$old_git/git"
+out="$(PATH="$old_git:$PATH" push_merge "value = 5")"; rc=$?
+check 'exit 1'                      1 "$rc"
+check 'it names the git it needs'   yes "$(grep -q 'git 2.36 or newer' <<< "$out" && echo yes || echo no)"
 
 # --- the names a push adds, derived from the families the trees already carry -------------------
 # Two sibling repositories beside the one pushed: acme-shop has the parts backend, docs and

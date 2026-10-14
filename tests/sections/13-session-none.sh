@@ -56,13 +56,15 @@ section "a source's AGENTS.md left by an old assembly is replaced, and an unchan
 stale="$WORK/stale-source"; git clone -q "$source_repo" "$stale"
 git -C "$stale" remote set-url origin https://github.com/example-org/shop-ai-core.git
 # PLANTED: the AGENTS.md an assembly wrote, which loads a copy of the rules that ages
-printf '# old\n- The engineering rules: @.ai-core/rules/rules.md\n' > "$stale/AGENTS.md"; echo /AGENTS.md >> "$stale/.git/info/exclude"
+printf '# old\n- The engineering rules: @.ai-core/rules/rules.md\n' > "$stale/AGENTS.md"
+printf '# a last line without its newline' > "$stale/.git/info/exclude"
 start_source "$stale" '' 0
 grep -aq 'Rules loaded     : AGENTS.md names the [1-9][0-9]* rule files' "$WORK/start.log" || fail "session start does not say how many rule files AGENTS.md names: $(cat "$WORK/start.log")"
 touch -d '2000-01-01' "$stale/AGENTS.md"
 start_source "$stale" '' 0
 [ "$(date -r "$stale/AGENTS.md" +%Y)" = 2000 ] || fail "session start rewrote an AGENTS.md whose text had not changed"
-[ "$(grep -c '^/AGENTS.md$' "$stale/.git/info/exclude")" = 1 ] || fail "session start registered AGENTS.md in the exclude file again"
+[ "$(grep -c '^/AGENTS.md$' "$stale/.git/info/exclude")" = 1 ] || fail "session start registered AGENTS.md in the exclude file not exactly once: $(cat "$stale/.git/info/exclude")"
+grep -qx '# a last line without its newline' "$stale/.git/info/exclude" || fail "session start joined its entry to the exclude file's last line"
 printf '## Added\n\n- **A new rule.** It is read at once. [review]\n' > "$stale/rules/36-added.md"
 git -C "$stale" add rules/36-added.md; git -C "$stale" commit -qm 'a new rule #1'
 start_source "$stale" '' 0

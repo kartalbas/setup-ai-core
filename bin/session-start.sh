@@ -120,7 +120,10 @@ write_source_agents() {  # write_source_agents <checkout> <rule directories, one
   git -C "$1" check-ignore -q AGENTS.md 2>/dev/null && return 0
   exclude="$(git -C "$1" rev-parse --git-path info/exclude 2>/dev/null)" || return 0
   case "$exclude" in /*) ;; *) exclude="$1/$exclude" ;; esac
-  mkdir -p "$(dirname "$exclude")" && echo "/AGENTS.md" >> "$exclude"
+  mkdir -p "$(dirname "$exclude")" || return 0
+  # appended after a last line that lacks its newline, the entry would join that line
+  [ ! -s "$exclude" ] || [ -z "$(tail -c1 "$exclude")" ] || echo >> "$exclude"
+  echo "/AGENTS.md" >> "$exclude"
 }
 if [ -n "$HARNESS_SOURCE" ]; then
   HARNESS_VERSION="$(tr -d '\r\n' 2>/dev/null < "$CORE/VERSION" || true)"

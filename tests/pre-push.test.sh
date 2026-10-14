@@ -253,15 +253,17 @@ git -C "$repo" add src/app.py; git -C "$repo" commit -q -m 'Say what the order i
 out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$(git -C "$repo" rev-parse HEAD~3)")"; rc=$?
 check 'both taken out: exit 0'         0 "$rc"
 git -C "$repo" reset -q --hard HEAD~3
-echo 'a tab-indented comment, a renamed file and a non-ASCII name still count while the line stands'
+echo 'a tab-indented comment, a renamed file, a non-ASCII name and a name with a space still count while the line stands'
 printf '\tx := 1 // read the board whole (#%s)\n' "$n" > "$repo/src/app.go"
 printf '# see acme-shop#12 for the order\n' > "$repo/src/über.py"
-git -C "$repo" add src/app.go src/über.py; git -C "$repo" commit -q -m 'Read the board in Go #12'
+printf '# the board in acme-shop#12, spaced\n' > "$repo/src/my file.py"
+git -C "$repo" add src/app.go src/über.py "src/my file.py"; git -C "$repo" commit -q -m 'Read the board in Go #12'
 git -C "$repo" mv src/app.go src/board.go; git -C "$repo" commit -q -m 'Name the file after the board #12'
 out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$(git -C "$repo" rev-parse HEAD~2)")"; rc=$?
 check 'exit 1'                         1 "$rc"
 check 'it names the tab-indented line of the renamed file' yes "$(yesno "src/app.go: 	x := 1 // read the board whole (#$n)")"
 check 'it names the line of the non-ASCII name' yes "$(yesno '# see acme-shop#12 for the order')"
+check 'it names the line of a name with a space' yes "$(yesno 'src/my file.py: # the board in acme-shop#12, spaced')"
 git -C "$repo" reset -q --hard HEAD~2
 printf 'const ref = "acme-shop#12"; // the order the board reads\n' > "$repo/src/app.js"
 git -C "$repo" add src/app.js; git -C "$repo" commit -q -m 'Read the board whole #12'

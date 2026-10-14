@@ -101,7 +101,7 @@ taken="$(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/or
   | while read -r ref; do
       if git merge-base --is-ancestor "$ref" "origin/$default"; then
         case "$ref" in origin/*) continue ;; esac
-        printf '%s\n' "$checked_out" | grep -qxF "$ref" || continue
+        grep -qxF "$ref" <<< "$checked_out" || continue
       fi
       printf '%s\n' "$ref"
     done || true)"

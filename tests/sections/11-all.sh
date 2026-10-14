@@ -162,6 +162,15 @@ git -C "$WORK/published-origin.git" symbolic-ref HEAD refs/heads/main
 bash "$ROOT/bin/init.sh" "$T" --no-doctor > "$F-5.log" 2>&1 || fail "init after a renamed default branch failed: $(tail -5 "$F-5.log")"
 [ "$(readlink "$F/.worktrees/app/cat")" = ../cat/origin-main ] || fail "the link stayed on the old default branch: $(readlink "$F/.worktrees/app/cat") (see $F-5.log)"
 [ "$(cat "$T/../cat/marker" 2>/dev/null)" = four ] || fail "from the worktree, ../cat does not show the renamed branch's tree"
+grep -aq 'copies of the old one stay.*\.worktrees/cat/origin-master' "$F-5.log" || fail "init does not name the copy of the old default branch it leaves (see $F-5.log)"
+# The copy's folder removed by hand while git still registers it: no link to the working copy
+rm -rf "$F/.worktrees/cat/origin-main"
+bash "$ROOT/bin/init.sh" "$T" --no-doctor > "$F-5b.log" 2>&1 || fail "init beside a removed but registered copy failed: $(tail -5 "$F-5b.log")"
+[ "$(readlink "$F/.worktrees/app/cat")" = ../cat/origin-main ] || fail "init replaced the link of a removed but registered copy with $(readlink "$F/.worktrees/app/cat")"
+grep -aq 'cannot become one.*: cat' "$F-5b.log" || fail "init does not name the copy git still registers (see $F-5b.log)"
+git -C "$F/cat" worktree prune
+bash "$ROOT/bin/init.sh" "$T" --no-doctor > "$F-5c.log" 2>&1 || fail "init after the prune failed: $(tail -5 "$F-5c.log")"
+[ "$(cat "$T/../cat/marker" 2>/dev/null)" = four ] || fail "after the prune, init did not add the copy again (see $F-5c.log)"
 # A neighbour whose copy's place holds a folder that is no worktree, and one whose origin names no
 # default branch: neither is linked to something that never moves, both are named
 for r in dog eel; do
@@ -174,7 +183,7 @@ git -C "$WORK/published-eel.git" symbolic-ref HEAD refs/heads/nothing
 bash "$ROOT/bin/init.sh" "$T" --no-doctor > "$F-6.log" 2>&1 || fail "init beside a blocked and an unnamed origin failed: $(tail -5 "$F-6.log")"
 [ -e "$F/.worktrees/app/dog" ] && fail "init linked dog although its copy's place holds a folder that is no worktree: $(readlink "$F/.worktrees/app/dog")"
 [ "$(cat "$F/.worktrees/dog/origin-master/note")" = somebodys ] || fail "init changed the folder that stands where dog's copy would go"
-grep -aq 'is no worktree: dog' "$F-6.log" || fail "init does not name the neighbour whose copy's place is taken (see $F-6.log)"
+grep -aq 'cannot become one.*: dog' "$F-6.log" || fail "init does not name the neighbour whose copy's place is taken (see $F-6.log)"
 [ "$(readlink "$F/.worktrees/app/eel")" = ../../eel ] || fail "eel, whose origin names no default branch, is not linked as its checkout: $(readlink "$F/.worktrees/app/eel" 2>&1)"
 grep -aq 'named no default branch.*: eel' "$F-6.log" || fail "init does not name the neighbour linked as its checkout (see $F-6.log)"
 echo "  ../cat from the worktree shows what cat published while its checkout carries somebody's change, the old link is replaced, a newer origin moves the copy, a copy with a change or a commit of its own is held and named, a renamed default branch is followed, a taken place and an origin without a default branch are named, pre-push --install and init --all leave the copy alone"

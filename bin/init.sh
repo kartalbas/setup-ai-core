@@ -83,7 +83,7 @@ if [ -n "$ALL_DIR" ]; then
     repo="${repo%/}"
     [ -e "$repo/.git" ] || continue
     case "${repo##*/}" in *-ai-core) continue ;; esac
-    [ "$(git -C "$repo" worktree list --porcelain 2>/dev/null | grep '^worktree ' | grep -v -c '/\.worktrees/[^/]*/origin-[^/]*$')" -gt 1 ] || continue
+    [ "$(git -C "$repo" worktree list --porcelain 2>/dev/null | grep '^worktree ' | grep -v -c '/\.worktrees/[^/]*/origin-')" -gt 1 ] || continue
     echo ""; echo "### ${repo##*/}: worktrees whose work landed"
     (cd "$repo" && bash "$CORE_ROOT/bin/finish-issue.sh" --sweep $([ "$DRY" -eq 1 ] && echo --dry-run)) 2>&1 | sed 's/^/  /' || true
   done
@@ -144,7 +144,7 @@ fi
 #     it is, except a link this step made, which follows the published branch, also when the origin
 #     renames it. A link of this shape whose checkout is gone since leads nowhere and goes; a link
 #     of anybody else stays.
-NEIGHBOURS_LINKED=""; NEIGHBOURS_IN=""; NEIGHBOURS_UNLINKED=""; NEIGHBOURS_HELD=""; NEIGHBOURS_UNPUBLISHED=""; NEIGHBOURS_BLOCKED=""
+NEIGHBOURS_LINKED=""; NEIGHBOURS_IN=""; NEIGHBOURS_UNLINKED=""; NEIGHBOURS_HELD=""; NEIGHBOURS_UNPUBLISHED=""; NEIGHBOURS_BLOCKED=""; NEIGHBOURS_LEFT=""
 # neighbour_published <checkout> <name>: sets NEIGHBOUR_TARGET, the link's target from the container,
 # or empties it where the copy stands but cannot be used
 neighbour_published() {
@@ -153,7 +153,8 @@ neighbour_published() {
   git -C "$1" remote get-url origin >/dev/null 2>&1 || return 0
   # refs/remotes/origin/HEAD, which the fetch below asked the origin for
   ref="$(git -C "$1" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)" || ref=""
-  [ -n "$ref" ] || { NEIGHBOURS_UNPUBLISHED="$NEIGHBOURS_UNPUBLISHED $2"; return 0; }
+  # a dry run fetched nothing, so a missing origin/HEAD says nothing about the origin there
+  [ -n "$ref" ] || { [ "$DRY" -eq 1 ] || NEIGHBOURS_UNPUBLISHED="$NEIGHBOURS_UNPUBLISHED $2"; return 0; }
   branch="${ref#origin/}"; copy="$folder/.worktrees/$2/origin-$branch"
   if [ -e "$copy" ] && [ ! -e "$copy/.git" ]; then
     # Not a worktree (pruned, or somebody's folder): it is never moved, so a link to it would age
@@ -167,8 +168,12 @@ neighbour_published() {
         git -C "$copy" checkout -q --detach "$ref" 2>/dev/null || true
       else NEIGHBOURS_HELD="$NEIGHBOURS_HELD $2"; fi
     else
-      # a second init at the same moment may have added it: then it is used as it stands
-      git -C "$1" worktree add -q --detach "$copy" "$ref" >/dev/null 2>&1 || [ -e "$copy/.git" ] || return 0
+      # A second init at the same moment may have added it: then it is used as it stands. Git
+      # also refuses where it still registers a copy whose folder was removed by hand; that
+      # registration may hold the only name of a commit, so it is named, never pruned here.
+      if ! git -C "$1" worktree add -q --detach "$copy" "$ref" >/dev/null 2>&1 && [ ! -e "$copy/.git" ]; then
+        NEIGHBOURS_BLOCKED="$NEIGHBOURS_BLOCKED $2"; NEIGHBOUR_TARGET=""; return 0
+      fi
     fi
   fi
   NEIGHBOUR_TARGET="../$2/origin-$branch"
@@ -204,6 +209,7 @@ if [ "$PROJECT_FOLDER" -eq 0 ]; then
               # with the origin, and the link with a renamed default branch
               neighbour_published "$neighbour" "$name"
               [ -n "$NEIGHBOUR_TARGET" ] && [ "$NEIGHBOUR_TARGET" != "$(readlink "$container/$name")" ] || continue
+              case "$(readlink "$container/$name")" in "../$name/origin-"*) NEIGHBOURS_LEFT="$NEIGHBOURS_LEFT .worktrees/${name}/$(readlink "$container/$name" | sed "s|^\.\./$name/||")" ;; esac
               [ "$DRY" -ne 0 ] || { rm -f "$container/$name"; ln -s "$NEIGHBOUR_TARGET" "$container/$name"; }
               NEIGHBOURS_LINKED="$NEIGHBOURS_LINKED $name"; continue ;;
           esac
@@ -908,7 +914,8 @@ if [ -n "$WORKTREE_DATA_FROM" ]; then echo "  .ai-core $([ "$DRY" -eq 1 ] && ech
 if [ -n "$NEIGHBOURS_LINKED" ]; then echo "  links to the neighbour checkouts $([ "$DRY" -eq 1 ] && echo "would be made" || echo "made") in $NEIGHBOURS_IN:$NEIGHBOURS_LINKED; .. finds them from the worktree as from the checkout"; fi
 if [ -n "$NEIGHBOURS_HELD" ]; then echo "  the published copies of these neighbours carry a change or a commit their origin lacks, so they were not moved to their origin's newest commit:$NEIGHBOURS_HELD (in .worktrees/<neighbour>/origin-<branch>)"; fi
 if [ -n "$NEIGHBOURS_UNPUBLISHED" ]; then echo "  the origins of these neighbours named no default branch, so they are linked as their checkouts, with whatever stands in them:$NEIGHBOURS_UNPUBLISHED"; fi
-if [ -n "$NEIGHBOURS_BLOCKED" ]; then echo "  these neighbours got no link to their published copy, because .worktrees/<neighbour>/origin-<branch> stands there and is no worktree:$NEIGHBOURS_BLOCKED"; fi
+if [ -n "$NEIGHBOURS_BLOCKED" ]; then echo "  these neighbours got no link to their published copy, because .worktrees/<neighbour>/origin-<branch> cannot become one: a folder that is no worktree stands there, or git still registers a copy whose folder was removed ('git -C <neighbour> worktree list' shows it as prunable):$NEIGHBOURS_BLOCKED"; fi
+if [ -n "$NEIGHBOURS_LEFT" ]; then echo "  the links now follow a renamed default branch; the copies of the old one stay, as nothing removes a worktree here:$NEIGHBOURS_LEFT"; fi
 if [ -n "$NEIGHBOURS_UNLINKED" ]; then echo "  links to checkouts that are gone $([ "$DRY" -eq 1 ] && echo "would be removed" || echo "removed") in $NEIGHBOURS_IN:$NEIGHBOURS_UNLINKED"; fi
 if [ "$HOOKS_ARMED" -eq 1 ]; then echo "  core.hooksPath $([ "$DRY" -eq 1 ] && echo "would be set" || echo "set") to .githooks: the push gate runs here"; fi
 if [ "$SHIMS_MODE" -eq 1 ] && [ "$DRY" -eq 1 ]; then echo "  the shims in .githooks are not executable, so git skips the push gate: ai-core pre-push --install would make them so"

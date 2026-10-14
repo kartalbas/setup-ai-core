@@ -186,5 +186,17 @@ bash "$ROOT/bin/init.sh" "$T" --no-doctor > "$F-6.log" 2>&1 || fail "init beside
 grep -aq 'cannot become one.*: dog' "$F-6.log" || fail "init does not name the neighbour whose copy's place is taken (see $F-6.log)"
 [ "$(readlink "$F/.worktrees/app/eel")" = ../../eel ] || fail "eel, whose origin names no default branch, is not linked as its checkout: $(readlink "$F/.worktrees/app/eel" 2>&1)"
 grep -aq 'named no default branch.*: eel' "$F-6.log" || fail "init does not name the neighbour linked as its checkout (see $F-6.log)"
+# A dry run asks no origin, so it names no origin as lacking a default branch; a default branch
+# with a slash makes a copy one folder deeper, which is still no worktree of anybody's work
+git init -q --bare -b release/1 "$WORK/published-fox.git"
+git clone -q "$WORK/published-fox.git" "$F/fox" 2>/dev/null
+git -C "$F/fox" -c user.email=t@example.invalid -c user.name=t commit -q --allow-empty -m one; git -C "$F/fox" push -q origin HEAD:release/1
+git -C "$F/fox" remote set-head origin -d 2>/dev/null || true
+bash "$ROOT/bin/init.sh" "$T" --no-doctor --dry-run > "$F-7.log" 2>&1 || fail "the dry run beside fox failed: $(tail -5 "$F-7.log")"
+grep -aq 'named no default branch.*fox' "$F-7.log" && fail "the dry run names fox's origin as lacking a default branch, without having asked it (see $F-7.log)"
+bash "$ROOT/bin/init.sh" "$T" --no-doctor > "$F-8.log" 2>&1 || fail "init beside fox failed: $(tail -5 "$F-8.log")"
+[ "$(readlink "$F/.worktrees/app/fox")" = ../fox/origin-release/1 ] || fail "fox is not linked to the copy of release/1: $(readlink "$F/.worktrees/app/fox" 2>&1) (see $F-8.log)"
+bash "$ROOT/bin/init.sh" --all "$F" --no-doctor > "$F-all2.log" 2>&1 || fail "the second init --all failed: $(grep -a -E '^###|error|failed' "$F-all2.log" | tail -8)"
+grep -aq '^### fox: worktrees whose work landed' "$F-all2.log" && fail "init --all counts fox's copy of release/1 as a worktree (see $F-all2.log)"
 echo "  ../cat from the worktree shows what cat published while its checkout carries somebody's change, the old link is replaced, a newer origin moves the copy, a copy with a change or a commit of its own is held and named, a renamed default branch is followed, a taken place and an origin without a default branch are named, pre-push --install and init --all leave the copy alone"
 exit 0

@@ -83,7 +83,7 @@ if [ -n "$ALL_DIR" ]; then
     repo="${repo%/}"
     [ -e "$repo/.git" ] || continue
     case "${repo##*/}" in *-ai-core) continue ;; esac
-    [ "$(git -C "$repo" worktree list --porcelain 2>/dev/null | grep -c '^worktree ')" -gt 1 ] || continue
+    [ "$(git -C "$repo" worktree list --porcelain 2>/dev/null | grep '^worktree ' | grep -v -c '/\.worktrees/[^/]*/origin-[^/]*$')" -gt 1 ] || continue
     echo ""; echo "### ${repo##*/}: worktrees whose work landed"
     (cd "$repo" && bash "$CORE_ROOT/bin/finish-issue.sh" --sweep $([ "$DRY" -eq 1 ] && echo --dry-run)) 2>&1 | sed 's/^/  /' || true
   done
@@ -91,7 +91,7 @@ if [ -n "$ALL_DIR" ]; then
     repo="${repo%/}"
     [ -e "$repo/.git" ] || continue
     case "$repo" in "$ALL_DIR"/.worktrees/*) [ ! -L "$repo" ] || continue ;; esac   # a link beside the worktrees is a neighbour checkout, initialized as itself
-    case "$repo" in "$ALL_DIR"/.worktrees/*/origin-*) continue ;; esac                # a published copy of a neighbour (0b) is nobody's place of work
+    case "$repo" in "$ALL_DIR"/.worktrees/*/origin-*) continue ;; esac                # a neighbour's published copy is read by checks, never worked in: the harness has no reader there
     name="${repo#"$ALL_DIR"/}"; repo_folder="${name##*/}"
     # a worktree is named by the checkout it belongs to, whichever way .worktrees/ is laid out
     # (a broken worktree has no checkout to name: it is walked as before)
@@ -139,22 +139,32 @@ fi
 #     what the neighbour published, its origin's default branch, kept as a detached worktree
 #     .worktrees/<neighbour>/origin-<branch>: the neighbour's checkout is somebody's working copy,
 #     on another branch or with a change nobody published, and a check that read it would judge
-#     that instead. A neighbour without an origin is linked as its checkout. An entry that stands
-#     there already is left as it is, except a link to the checkout itself, which now leads to the
-#     published branch. A link of this shape whose checkout is gone since leads nowhere and goes; a
-#     link of anybody else stays.
-NEIGHBOURS_LINKED=""; NEIGHBOURS_IN=""; NEIGHBOURS_UNLINKED=""; NEIGHBOURS_HELD=""
-# neighbour_published <checkout> <name>: sets NEIGHBOUR_TARGET, the link's target from the container
+#     that instead. A neighbour without an origin is linked as its checkout; one whose origin
+#     names no default branch is too, and is named. An entry that stands there already is left as
+#     it is, except a link this step made, which follows the published branch, also when the origin
+#     renames it. A link of this shape whose checkout is gone since leads nowhere and goes; a link
+#     of anybody else stays.
+NEIGHBOURS_LINKED=""; NEIGHBOURS_IN=""; NEIGHBOURS_UNLINKED=""; NEIGHBOURS_HELD=""; NEIGHBOURS_UNPUBLISHED=""; NEIGHBOURS_BLOCKED=""
+# neighbour_published <checkout> <name>: sets NEIGHBOUR_TARGET, the link's target from the container,
+# or empties it where the copy stands but cannot be used
 neighbour_published() {
   local ref branch copy
   NEIGHBOUR_TARGET="../../$2"
+  git -C "$1" remote get-url origin >/dev/null 2>&1 || return 0
+  # refs/remotes/origin/HEAD, which the fetch below asked the origin for
   ref="$(git -C "$1" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)" || ref=""
-  [ -n "$ref" ] || { git -C "$1" rev-parse -q --verify refs/remotes/origin/master >/dev/null 2>&1 && ref=origin/master; } || return 0
+  [ -n "$ref" ] || { NEIGHBOURS_UNPUBLISHED="$NEIGHBOURS_UNPUBLISHED $2"; return 0; }
   branch="${ref#origin/}"; copy="$folder/.worktrees/$2/origin-$branch"
+  if [ -e "$copy" ] && [ ! -e "$copy/.git" ]; then
+    # Not a worktree (pruned, or somebody's folder): it is never moved, so a link to it would age
+    NEIGHBOURS_BLOCKED="$NEIGHBOURS_BLOCKED $2"; NEIGHBOUR_TARGET=""; return 0
+  fi
   if [ "$DRY" -eq 0 ]; then
     if [ -e "$copy/.git" ]; then
-      # Moved only when clean: a change in it is somebody's, and the link then shows it as it stands
-      if [ -z "$(git -C "$copy" status --porcelain 2>/dev/null)" ]; then git -C "$copy" checkout -q --detach "$ref" 2>/dev/null || true
+      # Moved only while nothing in it is somebody's: no change in the tree and no commit the
+      # origin lacks, which a checkout of the origin's branch would leave behind unnamed
+      if [ -z "$(git -C "$copy" status --porcelain 2>/dev/null)" ] && git -C "$copy" merge-base --is-ancestor HEAD "$ref" 2>/dev/null; then
+        git -C "$copy" checkout -q --detach "$ref" 2>/dev/null || true
       else NEIGHBOURS_HELD="$NEIGHBOURS_HELD $2"; fi
     else
       # a second init at the same moment may have added it: then it is used as it stands
@@ -170,30 +180,37 @@ if [ "$PROJECT_FOLDER" -eq 0 ]; then
     container="$(dirname "$(git -C "$TARGET" rev-parse --show-toplevel)")"
     if [ "$container" = "$folder/.worktrees/${main##*/}" ]; then
       NEIGHBOURS_IN=".worktrees/${main##*/}/"
-      # The published branches are fetched first, all at once: one at a time costs a round trip each
+      # The published branches are fetched first, all at once: one at a time costs a round trip
+      # each. The origin also names its default branch, which a clone records but a pushed
+      # `git init` never does. No prompt: a neighbour whose origin wants a login the shell does not
+      # hold would stop init for a repository the issue never touched.
       if [ "$DRY" -eq 0 ]; then
         for neighbour in "$folder"/*/; do
           neighbour="${neighbour%/}"
           [ -d "$neighbour/.git" ] && [ "$neighbour" != "$main" ] || continue
-          git -C "$neighbour" remote get-url origin >/dev/null 2>&1 && git -C "$neighbour" fetch -q origin >/dev/null 2>&1 &
+          git -C "$neighbour" remote get-url origin >/dev/null 2>&1 || continue
+          { GIT_TERMINAL_PROMPT=0 git -C "$neighbour" fetch -q origin \
+              && GIT_TERMINAL_PROMPT=0 git -C "$neighbour" remote set-head origin --auto; } >/dev/null 2>&1 < /dev/null &
         done
         wait
       fi
       for neighbour in "$folder"/*/; do
         neighbour="${neighbour%/}"; name="${neighbour##*/}"
         [ -d "$neighbour/.git" ] && [ "$neighbour" != "$main" ] || continue
-        if [ -L "$container/$name" ] && [ "$(readlink "$container/$name")" = "../../$name" ]; then
-          neighbour_published "$neighbour" "$name"
-          [ "$NEIGHBOUR_TARGET" != "../../$name" ] || continue
-          [ "$DRY" -ne 0 ] || { rm -f "$container/$name"; ln -s "$NEIGHBOUR_TARGET" "$container/$name"; }
-          NEIGHBOURS_LINKED="$NEIGHBOURS_LINKED $name"; continue
+        if [ -L "$container/$name" ]; then
+          case "$(readlink "$container/$name")" in
+            "../../$name"|"../$name/origin-"*)
+              # A link this step made follows what the neighbour publishes now: the copy moves
+              # with the origin, and the link with a renamed default branch
+              neighbour_published "$neighbour" "$name"
+              [ -n "$NEIGHBOUR_TARGET" ] && [ "$NEIGHBOUR_TARGET" != "$(readlink "$container/$name")" ] || continue
+              [ "$DRY" -ne 0 ] || { rm -f "$container/$name"; ln -s "$NEIGHBOUR_TARGET" "$container/$name"; }
+              NEIGHBOURS_LINKED="$NEIGHBOURS_LINKED $name"; continue ;;
+          esac
         fi
-        if [ -e "$container/$name" ] || [ -L "$container/$name" ]; then
-          # A link to the published copy stands: the copy is moved to the newest the origin has
-          case "$(readlink "$container/$name" 2>/dev/null)" in "../$name/origin-"*) neighbour_published "$neighbour" "$name" ;; esac
-          continue
-        fi
+        [ ! -e "$container/$name" ] && [ ! -L "$container/$name" ] || continue
         neighbour_published "$neighbour" "$name"
+        [ -n "$NEIGHBOUR_TARGET" ] || continue
         [ "$DRY" -ne 0 ] || ln -s "$NEIGHBOUR_TARGET" "$container/$name"
         NEIGHBOURS_LINKED="$NEIGHBOURS_LINKED $name"
       done
@@ -201,7 +218,8 @@ if [ "$PROJECT_FOLDER" -eq 0 ]; then
         name="${link##*/}"
         [ -L "$link" ] && [ ! -e "$link" ] || continue
         to="$(readlink "$link")" || continue; to="${to%/}"
-        [ "${to##*/}" = "$name" ] && (cd "$container" && [ "$(dirname "$to")" -ef "$folder" ]) || continue
+        case "$to" in "../$name/origin-"*) [ ! -d "$folder/$name/.git" ] || continue ;;   # a published copy whose checkout went
+          *) [ "${to##*/}" = "$name" ] && (cd "$container" && [ "$(dirname "$to")" -ef "$folder" ]) || continue ;; esac
         [ "$DRY" -eq 1 ] || rm -f "$link"
         NEIGHBOURS_UNLINKED="$NEIGHBOURS_UNLINKED $name"
       done
@@ -888,7 +906,9 @@ fi
 [ "$GITIGNORE_OPEN" -eq 0 ] || echo "  .gitignore not written: ${GITIGNORE_PULLED:+$GITIGNORE_PULLED; }it has a '# setup-ai-core start' line and no '# setup-ai-core end' after it; end the block or delete its start line, then run this again"
 if [ -n "$WORKTREE_DATA_FROM" ]; then echo "  .ai-core $([ "$DRY" -eq 1 ] && echo "would be taken" || echo "taken") from the checkout $WORKTREE_DATA_FROM: a worktree starts with the checkout's configuration, local rules and documents"; fi
 if [ -n "$NEIGHBOURS_LINKED" ]; then echo "  links to the neighbour checkouts $([ "$DRY" -eq 1 ] && echo "would be made" || echo "made") in $NEIGHBOURS_IN:$NEIGHBOURS_LINKED; .. finds them from the worktree as from the checkout"; fi
-if [ -n "$NEIGHBOURS_HELD" ]; then echo "  the published copies of these neighbours carry a change, so they were not moved to their origin's newest commit:$NEIGHBOURS_HELD (in .worktrees/<neighbour>/origin-<branch>)"; fi
+if [ -n "$NEIGHBOURS_HELD" ]; then echo "  the published copies of these neighbours carry a change or a commit their origin lacks, so they were not moved to their origin's newest commit:$NEIGHBOURS_HELD (in .worktrees/<neighbour>/origin-<branch>)"; fi
+if [ -n "$NEIGHBOURS_UNPUBLISHED" ]; then echo "  the origins of these neighbours named no default branch, so they are linked as their checkouts, with whatever stands in them:$NEIGHBOURS_UNPUBLISHED"; fi
+if [ -n "$NEIGHBOURS_BLOCKED" ]; then echo "  these neighbours got no link to their published copy, because .worktrees/<neighbour>/origin-<branch> stands there and is no worktree:$NEIGHBOURS_BLOCKED"; fi
 if [ -n "$NEIGHBOURS_UNLINKED" ]; then echo "  links to checkouts that are gone $([ "$DRY" -eq 1 ] && echo "would be removed" || echo "removed") in $NEIGHBOURS_IN:$NEIGHBOURS_UNLINKED"; fi
 if [ "$HOOKS_ARMED" -eq 1 ]; then echo "  core.hooksPath $([ "$DRY" -eq 1 ] && echo "would be set" || echo "set") to .githooks: the push gate runs here"; fi
 if [ "$SHIMS_MODE" -eq 1 ] && [ "$DRY" -eq 1 ]; then echo "  the shims in .githooks are not executable, so git skips the push gate: ai-core pre-push --install would make them so"

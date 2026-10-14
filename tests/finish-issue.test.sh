@@ -324,6 +324,49 @@ check 'the worktree is gone'   no "$(has_tree issue-174-landed-changed)"
 check 'it names the commit'    yes "$(grep -q '^  [0-9a-f]* Land in another shape (#174)$' <<< "$out" && echo yes || echo no)"
 echo open > "$state"
 
+echo "a landed issue's merged branch on origin is deleted; one with more work, and one a worktree holds, stay"
+open issue-190-merged-on-origin
+land issue-190-merged-on-origin 'Land the merged one (#190)'
+git -C "$trees/issue-190-merged-on-origin" push -q origin HEAD:issue-190-merged-on-origin
+unlanded="$(git -C "$work" commit-tree -p origin/master -m 'Not landed (#190)' 'origin/master^{tree}')"
+git -C "$work" push -q origin "$unlanded:refs/heads/issue-190-more-work"
+git -C "$work" worktree add -q -b issue-190-held "$trees/issue-191-package" origin/master 2>/dev/null
+git -C "$work" push -q origin issue-190-held
+on_origin() { git -C "$origin" rev-parse -q --verify "refs/heads/$1" >/dev/null && echo yes || echo no; }
+out="$(run 190)"; rc=$?
+check 'exits zero'                          0 "$rc"
+check 'the merged branch on origin is gone' no "$(on_origin issue-190-merged-on-origin)"
+check 'the branch with more work stays'     yes "$(on_origin issue-190-more-work)"
+check 'and says why'                        yes "$(grep -q 'issue-190-more-work on origin stays: it has commits origin/master does not have' <<< "$out" && echo yes || echo no)"
+check 'the branch a worktree holds stays'   yes "$(on_origin issue-190-held)"
+check 'and says why'                        yes "$(grep -q 'issue-190-held on origin stays: a worktree has it checked out' <<< "$out" && echo yes || echo no)"
+
+echo 'a branch on origin that is gone already is named, and the card still moves'
+open issue-192-gone-on-origin
+land issue-192-gone-on-origin 'Land the one origin lost (#192)'
+git -C "$trees/issue-192-gone-on-origin" push -q origin HEAD:issue-192-gone-on-origin
+git -C "$origin" update-ref -d refs/heads/issue-192-gone-on-origin
+git -C "$work" config remote.origin.fetch '+refs/heads/master:refs/remotes/origin/master'
+: > "$log"; rm -rf "$fake/cache"
+out="$(run 192)"; rc=$?
+git -C "$work" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+check 'exits zero'                          0 "$rc"
+check 'it names the branch'                 yes "$(grep -q 'issue-192-gone-on-origin on origin could not be deleted and stays' <<< "$out" && echo yes || echo no)"
+check 'the card moved to testing'           1 "$(grep -c 'oid=OPT_test' "$log" || true)"
+
+echo 'a branch somebody pushed to after it was read stays on origin'
+open issue-193-moved-on-origin
+land issue-193-moved-on-origin 'Land the one that moves (#193)'
+git -C "$trees/issue-193-moved-on-origin" push -q origin HEAD:issue-193-moved-on-origin
+git -C "$work" config remote.origin.fetch '+refs/heads/master:refs/remotes/origin/master'
+later="$(git -C "$work" commit-tree -p origin/issue-193-moved-on-origin -m 'Pushed later (#193)' 'origin/master^{tree}')"
+git -C "$work" push -q origin "$later:refs/heads/issue-193-moved-on-origin"
+out="$(run 193)"; rc=$?
+git -C "$work" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+check 'exits zero'                          0 "$rc"
+check 'the moved branch stays on origin'    yes "$(on_origin issue-193-moved-on-origin)"
+check 'with the later commit'               "$later" "$(git -C "$origin" rev-parse refs/heads/issue-193-moved-on-origin)"
+
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo
 echo 'all passed'

@@ -176,8 +176,12 @@ for branch in $(git -C "$main" for-each-ref --format='%(refname:strip=3)' "refs/
   elif ! git -C "$main" merge-base --is-ancestor "origin/$branch" "origin/$default"; then
     echo "the branch $branch on origin stays: it has commits origin/$default does not have"
   else
-    git -C "$main" push -q origin --delete "$branch" || die "the branch $branch on origin could not be deleted (see above)"
-    echo "the branch $branch on origin deleted: every commit of it is on origin/$default"
+    # The lease deletes only the tip that was measured: a commit pushed since the fetch fails the push
+    if git -C "$main" push -q origin --force-with-lease="refs/heads/$branch:$(git -C "$main" rev-parse "origin/$branch")" --delete "$branch"; then
+      echo "the branch $branch on origin deleted: every commit of it is on origin/$default"
+    else
+      echo "the branch $branch on origin could not be deleted and stays (see above)"
+    fi
   fi
 done
 

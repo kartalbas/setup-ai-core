@@ -236,9 +236,15 @@ git -C "$work" fetch -q origin
 out="$(run 182)"; rc=$?
 check 'not landed: exits nonzero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
 check 'not landed: it names the branch' yes "$(grep -q 'a branch for this issue exists already: origin/issue-182-read-the-board-whole' <<< "$out" && echo yes || echo no)"
-git -C "$work" branch -q issue-182-second
+git -C "$work" branch -q issue-182-second origin/issue-182-read-the-board-whole
 out="$(run 182)"; rc=$?
 check 'two branches: both named' yes "$(grep -q 'a branch for this issue exists already: issue-182-second, origin/issue-182-read-the-board-whole - use' <<< "$out" && echo yes || echo no)"
+
+echo 'a landed branch left only locally is no obstacle: the new worktree takes it over'
+git -C "$work" branch -q issue-183-read-the-board-whole origin/master
+out="$(run 183)"; rc=$?
+check 'local landed: exits zero' 0 "$rc"
+check 'local landed: cut from origin/master' yes "$(grep -q '^Worktree .*issue-183-read-the-board-whole, cut from origin/master\.$' <<< "$out" && echo yes || echo no)"
 
 echo 'an origin/HEAD naming a branch the remote no longer has: the default branch is asked of the remote'
 git -C "$work" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/gone

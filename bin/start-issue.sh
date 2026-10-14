@@ -91,13 +91,18 @@ repo_folder="${main##*/}"
 container="$(dirname "$main")/.worktrees/$repo_folder"
 path="$container/$name"
 
-# A branch on origin whose every commit is on the default branch has landed: finish-issue removed
-# its worktree and local branch, and the next step of the same issue starts afresh. A local branch,
-# or one on origin with work the default branch lacks, is somebody's work.
+# A branch whose every commit is on the default branch has landed: finish-issue removed its
+# worktree, or a cleanup kept only the branch, and the next step of the same issue starts afresh.
+# A branch with work the default branch lacks, or a local one a worktree has checked out, where
+# somebody may be about to commit, is somebody's work.
+checked_out="$(git worktree list --porcelain 2>/dev/null | sed -n 's|^branch refs/heads/||p')"
 taken="$(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/origin 2>/dev/null \
   | grep -E "(^|/)issue-$number(-|$)" \
   | while read -r ref; do
-      case "$ref" in origin/*) git merge-base --is-ancestor "$ref" "origin/$default" && continue ;; esac
+      if git merge-base --is-ancestor "$ref" "origin/$default"; then
+        case "$ref" in origin/*) continue ;; esac
+        printf '%s\n' "$checked_out" | grep -qxF "$ref" || continue
+      fi
       printf '%s\n' "$ref"
     done || true)"
 [ -z "$taken" ] \
@@ -105,7 +110,9 @@ taken="$(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/or
 [ ! -e "$path" ] || die "$path is already there - use it, or remove it with 'git worktree remove'"
 
 mkdir -p "$container"
-made="$(git worktree add -b "$name" "$path" "origin/$default" 2>&1)" \
+# -B takes over a landed local branch of the same name; it is an ancestor of origin/$default, so
+# moving it there is a fast-forward and loses nothing
+made="$(git worktree add -B "$name" "$path" "origin/$default" 2>&1)" \
   || die "the worktree could not be created: $made"
 echo "Worktree $path on $name, cut from origin/$default."
 if [ "$(issue_ref "$repo" "$number")" != "#$number" ]; then

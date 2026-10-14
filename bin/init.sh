@@ -134,10 +134,33 @@ fi
 # 0b. A check of the repository may read a neighbour checkout of the project folder through `..`,
 #     and in a worktree `..` is .worktrees/<repository>/, where no neighbour stands: the check then
 #     finds nothing and proves less than in the checkout. So every other checkout of the folder
-#     gets a link there, and `..` finds the same neighbours from the worktree. An entry that stands
-#     there already is left as it is. A link of this shape whose checkout is gone since leads
-#     nowhere and goes; a link of anybody else stays.
-NEIGHBOURS_LINKED=""; NEIGHBOURS_IN=""; NEIGHBOURS_UNLINKED=""
+#     gets a link there, and `..` finds the same neighbours from the worktree. The link leads to
+#     what the neighbour published, its origin's default branch, kept as a detached worktree
+#     .worktrees/<neighbour>/origin-<branch>: the neighbour's checkout is somebody's working copy,
+#     on another branch or with a change nobody published, and a check that read it would judge
+#     that instead. A neighbour without an origin is linked as its checkout. An entry that stands
+#     there already is left as it is, except a link to the checkout itself, which now leads to the
+#     published branch. A link of this shape whose checkout is gone since leads nowhere and goes; a
+#     link of anybody else stays.
+NEIGHBOURS_LINKED=""; NEIGHBOURS_IN=""; NEIGHBOURS_UNLINKED=""; NEIGHBOURS_HELD=""
+# neighbour_published <checkout> <name>: sets NEIGHBOUR_TARGET, the link's target from the container
+neighbour_published() {
+  local ref branch copy
+  NEIGHBOUR_TARGET="../../$2"
+  ref="$(git -C "$1" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)" || ref=""
+  [ -n "$ref" ] || { git -C "$1" rev-parse -q --verify refs/remotes/origin/master >/dev/null 2>&1 && ref=origin/master; } || return 0
+  branch="${ref#origin/}"; copy="$folder/.worktrees/$2/origin-$branch"
+  if [ "$DRY" -eq 0 ]; then
+    if [ -e "$copy/.git" ]; then
+      # Moved only when clean: a change in it is somebody's, and the link then shows it as it stands
+      if [ -z "$(git -C "$copy" status --porcelain 2>/dev/null)" ]; then git -C "$copy" checkout -q --detach "$ref" 2>/dev/null || true
+      else NEIGHBOURS_HELD="$NEIGHBOURS_HELD $2"; fi
+    else
+      git -C "$1" worktree add -q --detach "$copy" "$ref" >/dev/null 2>&1 || return 0
+    fi
+  fi
+  NEIGHBOUR_TARGET="../$2/origin-$branch"
+}
 if [ "$PROJECT_FOLDER" -eq 0 ]; then
   common="$(git -C "$TARGET" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || common=""
   if [ -n "$common" ] && [ "$common" != "$(git -C "$TARGET" rev-parse --path-format=absolute --git-dir 2>/dev/null)" ]; then
@@ -145,11 +168,31 @@ if [ "$PROJECT_FOLDER" -eq 0 ]; then
     container="$(dirname "$(git -C "$TARGET" rev-parse --show-toplevel)")"
     if [ "$container" = "$folder/.worktrees/${main##*/}" ]; then
       NEIGHBOURS_IN=".worktrees/${main##*/}/"
+      # The published branches are fetched first, all at once: one at a time costs a round trip each
+      if [ "$DRY" -eq 0 ]; then
+        for neighbour in "$folder"/*/; do
+          neighbour="${neighbour%/}"
+          [ -d "$neighbour/.git" ] && [ "$neighbour" != "$main" ] || continue
+          git -C "$neighbour" remote get-url origin >/dev/null 2>&1 && git -C "$neighbour" fetch -q origin >/dev/null 2>&1 &
+        done
+        wait
+      fi
       for neighbour in "$folder"/*/; do
         neighbour="${neighbour%/}"; name="${neighbour##*/}"
         [ -d "$neighbour/.git" ] && [ "$neighbour" != "$main" ] || continue
-        [ ! -e "$container/$name" ] && [ ! -L "$container/$name" ] || continue
-        [ "$DRY" -ne 0 ] || ln -s "../../$name" "$container/$name"
+        if [ -L "$container/$name" ] && [ "$(readlink "$container/$name")" = "../../$name" ]; then
+          neighbour_published "$neighbour" "$name"
+          [ "$NEIGHBOUR_TARGET" != "../../$name" ] || continue
+          [ "$DRY" -ne 0 ] || { rm -f "$container/$name"; ln -s "$NEIGHBOUR_TARGET" "$container/$name"; }
+          NEIGHBOURS_LINKED="$NEIGHBOURS_LINKED $name"; continue
+        fi
+        if [ -e "$container/$name" ] || [ -L "$container/$name" ]; then
+          # A link to the published copy stands: the copy is moved to the newest the origin has
+          case "$(readlink "$container/$name" 2>/dev/null)" in "../$name/origin-"*) neighbour_published "$neighbour" "$name" ;; esac
+          continue
+        fi
+        neighbour_published "$neighbour" "$name"
+        [ "$DRY" -ne 0 ] || ln -s "$NEIGHBOUR_TARGET" "$container/$name"
         NEIGHBOURS_LINKED="$NEIGHBOURS_LINKED $name"
       done
       for link in "$container"/*; do
@@ -843,6 +886,7 @@ fi
 [ "$GITIGNORE_OPEN" -eq 0 ] || echo "  .gitignore not written: ${GITIGNORE_PULLED:+$GITIGNORE_PULLED; }it has a '# setup-ai-core start' line and no '# setup-ai-core end' after it; end the block or delete its start line, then run this again"
 if [ -n "$WORKTREE_DATA_FROM" ]; then echo "  .ai-core $([ "$DRY" -eq 1 ] && echo "would be taken" || echo "taken") from the checkout $WORKTREE_DATA_FROM: a worktree starts with the checkout's configuration, local rules and documents"; fi
 if [ -n "$NEIGHBOURS_LINKED" ]; then echo "  links to the neighbour checkouts $([ "$DRY" -eq 1 ] && echo "would be made" || echo "made") in $NEIGHBOURS_IN:$NEIGHBOURS_LINKED; .. finds them from the worktree as from the checkout"; fi
+if [ -n "$NEIGHBOURS_HELD" ]; then echo "  the published copies of these neighbours carry a change, so they were not moved to their origin's newest commit:$NEIGHBOURS_HELD (in .worktrees/<neighbour>/origin-<branch>)"; fi
 if [ -n "$NEIGHBOURS_UNLINKED" ]; then echo "  links to checkouts that are gone $([ "$DRY" -eq 1 ] && echo "would be removed" || echo "removed") in $NEIGHBOURS_IN:$NEIGHBOURS_UNLINKED"; fi
 if [ "$HOOKS_ARMED" -eq 1 ]; then echo "  core.hooksPath $([ "$DRY" -eq 1 ] && echo "would be set" || echo "set") to .githooks: the push gate runs here"; fi
 if [ "$SHIMS_MODE" -eq 1 ] && [ "$DRY" -eq 1 ]; then echo "  the shims in .githooks are not executable, so git skips the push gate: ai-core pre-push --install would make them so"

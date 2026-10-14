@@ -112,4 +112,34 @@ bash "$ROOT/bin/init.sh" --all "$F" --no-doctor > "$F-all.log" 2>&1 || fail "ini
 grep -aq '^### \.worktrees/app/issue-1-x' "$F-all.log" || fail "init --all did not init the worktree (see $F-all.log)"
 grep -aq '^### \.worktrees/app/tools' "$F-all.log" && fail "init --all took the link to a neighbour for a worktree (see $F-all.log)"
 echo "  a worktree finds the neighbour checkout through .., the dry run only names the link, an entry there, the repository itself and a plain folder get none, a link whose checkout is gone goes and a link of anybody else stays, init --all inits no link"
+
+section "a neighbour with an origin is linked as what it published, never as its working copy"
+F="$WORK/published"; T="$F/.worktrees/app/issue-2-y"
+mkdir -p "$F/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$F/.ai-core/config.env"
+git init -q --bare -b master "$WORK/published-origin.git"
+git clone -q "$WORK/published-origin.git" "$F/cat" 2>/dev/null
+git -C "$F/cat" config user.email t@example.invalid; git -C "$F/cat" config user.name t
+echo published > "$F/cat/marker"; git -C "$F/cat" add marker; git -C "$F/cat" commit -q -m one; git -C "$F/cat" push -q origin master
+git -C "$F/cat" remote set-head origin master
+for r in app; do git init -q "$F/$r"; mkdir -p "$F/$r/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$F/$r/.ai-core/config.env"; git -C "$F/$r" commit -q --allow-empty -m start; done
+git -C "$F/app" worktree add -q -b issue-2-y "$T"
+# PLANTED: the neighbour's checkout stands on another branch with a change nobody published
+git -C "$F/cat" switch -q -c somebodys-work; echo unpublished > "$F/cat/marker"
+ln -s ../../cat "$F/.worktrees/app/cat"              # a link of the old shape, to the checkout itself
+bash "$ROOT/bin/init.sh" "$T" --no-doctor > "$F-1.log" 2>&1 || fail "init on a worktree beside a published neighbour failed: $(tail -5 "$F-1.log")"
+[ "$(cat "$T/../cat/marker" 2>/dev/null)" = published ] || fail "from the worktree, ../cat shows $(cat "$T/../cat/marker" 2>&1), not what cat published (see $F-1.log)"
+[ "$(readlink "$F/.worktrees/app/cat")" = ../cat/origin-master ] || fail "the link of the old shape was not replaced: $(readlink "$F/.worktrees/app/cat")"
+[ "$(cat "$F/cat/marker")" = unpublished ] || fail "init changed the neighbour's working copy"
+# The origin moves on: a second init moves the copy; a copy with a change of its own is held and named
+git clone -q "$WORK/published-origin.git" "$WORK/published-pusher" 2>/dev/null
+git -C "$WORK/published-pusher" config user.email t@example.invalid; git -C "$WORK/published-pusher" config user.name t
+echo newer > "$WORK/published-pusher/marker"; git -C "$WORK/published-pusher" commit -q -am two; git -C "$WORK/published-pusher" push -q origin master
+bash "$ROOT/bin/init.sh" "$T" --no-doctor > "$F-2.log" 2>&1 || fail "the second init failed: $(tail -5 "$F-2.log")"
+[ "$(cat "$T/../cat/marker" 2>/dev/null)" = newer ] || fail "the second init did not move the copy to the newer origin (see $F-2.log)"
+echo edited > "$F/.worktrees/cat/origin-master/marker"
+echo newest > "$WORK/published-pusher/marker"; git -C "$WORK/published-pusher" commit -q -am three; git -C "$WORK/published-pusher" push -q origin master
+bash "$ROOT/bin/init.sh" "$T" --no-doctor > "$F-3.log" 2>&1 || fail "the third init failed: $(tail -5 "$F-3.log")"
+[ "$(cat "$F/.worktrees/cat/origin-master/marker")" = edited ] || fail "init moved a copy that carried a change"
+grep -aq 'were not moved to their origin.s newest commit: cat' "$F-3.log" || fail "init does not name the held copy (see $F-3.log)"
+echo "  ../cat from the worktree shows what cat published while its checkout carries somebody's change, the old link is replaced, a newer origin moves the copy, a copy with a change is held and named"
 exit 0

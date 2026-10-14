@@ -507,7 +507,7 @@ before="$(git -C "$repo" rev-parse HEAD~1)"
 out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$before")"; rc=$?
 check 'exit 0'                    0 "$rc"
 # Only the range is compared, not the tree.
-check 'gitleaks read that range'  "git --no-banner --redact --report-format csv --report-path - --log-opts=--diff-merges=remerge $(git -C "$repo" rev-parse HEAD) ^$before --not --remotes=origin" \
+check 'gitleaks read that range'  "git --no-banner --redact --report-format json --report-path - --log-opts=--diff-merges=remerge $(git -C "$repo" rev-parse HEAD) ^$before --not --remotes=origin" \
   "$(sed 's/^\[//; s/ [^ ]*$//' "$leaks_args")"
 
 echo 'a credential in a pushed commit refuses, and says it cannot be recalled'
@@ -539,10 +539,10 @@ git -C "$merged" checkout -q master
 printf 'value = 3\n' > "$merged/settings.txt"; git -C "$merged" commit -q -a -m 'Change the value on master #15'
 git -C "$merged" update-ref refs/remotes/origin/master HEAD               # and so is master
 git -C "$merged" checkout -q issue-15-merge
-push_merge() {  # push_merge <resolution> - merge master into the branch with a conflict, resolve it so, push the merge alone
+push_merge() {  # push_merge <resolution> [<message>] - merge master into the branch with a conflict, resolve it so, push the merge alone
   git -C "$merged" reset -q --hard "$tip"
   git -C "$merged" merge -q master >/dev/null 2>&1
-  printf '%s\n' "$1" > "$merged/settings.txt"; git -C "$merged" add settings.txt; git -C "$merged" commit -q --no-edit
+  printf '%s\n' "$1" > "$merged/settings.txt"; git -C "$merged" add settings.txt; git -C "$merged" commit -q -m "${2:-Catch up with master}"
   printf 'refs/heads/issue-15-merge %s refs/heads/issue-15-merge %s\n' "$(git -C "$merged" rev-parse HEAD)" "$tip" \
     | ( cd "$merged" && PATH="$real:$PATH" bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1 )
 }
@@ -552,12 +552,13 @@ out="$(push_merge "value = 4")"; rc=$?
 check 'PLANTED INNOCENT: a resolution without a credential goes out' 0 "$rc"
 check 'and the merge was read'      yes "$(grep -q '1 commits scanned' <<< "$out" && echo yes || echo no)"
 other="ghp_$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 36)"
-out="$(push_merge "token = \"$token\" other = \"$other\"")"; rc=$?
+in_message="ghp_$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 36)"
+out="$(push_merge "token = \"$token\" other = \"$other\"" "Catch up, with $in_message in the message")"; rc=$?
 check 'a resolution with a credential: exit 1' 1 "$rc"
 check 'it says what to do'          yes "$(grep -q 'a commit that is pushed cannot be recalled' <<< "$out" && echo yes || echo no)"
 # A file that had a conflict is b/<path> to gitleaks, as it parses git's conflict header.
-check 'it names the file it stands in' yes "$(grep -qF ',b/settings.txt,' <<< "$out" && echo yes || echo no)"
-check 'and prints no part of either credential' no "$(grep -qF -e "${token:4:12}" -e "${other:4:12}" <<< "$out" && echo yes || echo no)"
+check 'it names the file, the line and the rule' yes "$(grep -q ' b/settings.txt:1 github-pat$' <<< "$out" && echo yes || echo no)"
+check 'and prints no part of any credential, the message one too' no "$(grep -qF -e "${token:4:12}" -e "${other:4:12}" -e "${in_message:4:12}" <<< "$out" && echo yes || echo no)"
 echo 'a merge of three branches at once is refused: git shows no diff of what its author wrote'
 git -C "$merged" reset -q --hard "$tip"
 git -C "$merged" checkout -q -b side master~1; printf 'x\n' > "$merged/side.txt"; git -C "$merged" add side.txt; git -C "$merged" commit -q -m 'A side branch #15'

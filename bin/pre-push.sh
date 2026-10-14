@@ -699,7 +699,7 @@ if [ -f "$root/.gitleaks.toml" ]; then
     || refuse "no gitleaks 8.19 or newer (the one with 'gitleaks git') is on this path, and $root/.gitleaks.toml says the commits being pushed are read for credentials. Run ai-core doctor in this repository, which installs it."
   # gitleaks hands its log options to git and counts git's refusal of one as "no leaks found", so
   # a git that cannot show a merge's own diff would let every push out unread.
-  git -C "$root" log --diff-merges=remerge -n0 --all >/dev/null 2>&1 \
+  git -C "$root" log --diff-merges=remerge -n0 HEAD >/dev/null 2>&1 \
     || refuse "$(git --version) cannot show what a merge's author wrote beyond git's own merge (--diff-merges=remerge, git 2.36 or newer), and $root/.gitleaks.toml says the commits being pushed are read for credentials. Update git, then push again."
   while IFS= read -r scan_range; do
     [ -n "$scan_range" ] || continue
@@ -709,10 +709,12 @@ if [ -f "$root/.gitleaks.toml" ]; then
     # A merge shows no patch in git log unless asked to, and a credential that stands only in how a
     # conflict was resolved would go out unread. The remerge diff is what the merge's author wrote
     # beyond git's own merge: nothing the remote carries already. gitleaks names a file that had a
-    # conflict b/<path>, as it parses git's conflict header. The report names the commit, the file
-    # and the rule; --redact keeps the value out of it and out of the line around it.
-    gitleaks git --no-banner --redact --report-format csv --report-path - --log-opts="--diff-merges=remerge $scan_range" "$root" \
-      || refuse 'a credential stands in a commit this push carries. The report above names the commit, the file and the rule. Take it out of the history - a commit that is pushed cannot be recalled.'
+    # conflict b/<path>, as it parses git's conflict header. Of each finding only the commit, the
+    # file, the line and the rule are shown: the report's other fields carry the line around the
+    # value and the commit message, which gitleaks neither scans nor redacts.
+    findings="$(gitleaks git --no-banner --redact --report-format json --report-path - --log-opts="--diff-merges=remerge $scan_range" "$root")" && continue
+    jq -r '.[] | "pre-push: \(.Commit[0:12]) \(.File):\(.StartLine) \(.RuleID)"' <<< "$findings" >&2
+    refuse 'a credential stands in a commit this push carries. The lines above name the commit, the file and the rule. Take it out of the history - a commit that is pushed cannot be recalled.'
   done <<< "$scan_ranges"
 fi
 

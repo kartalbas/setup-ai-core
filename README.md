@@ -699,9 +699,10 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    what its author wrote beyond git's own merge, a conflict resolution among it, which needs git
    2.36; an older git is refused by name, because gitleaks would count git's error as no finding,
    and `ai-core doctor` names it too. A merge of three or more branches at once is refused: git
-   shows no such diff for it. A finding names the commit, the file and the rule, never the value;
-   a file that had a conflict is named `b/<path>` there, so a path allowlist that starts with `^`
-   does not match it.
+   shows no such diff for it. A finding names the commit, the file, the line and the rule, never
+   the value or the commit message;
+   a file that had a conflict is named `b/<path>` there, so a path allowlist or a rule path that
+   starts with `^` does not match it: the allowlist then refuses more, the rule misses the file.
 
 Run from a prompt or an agent's shell, with nothing on standard input, `ai-core pre-push` judges
 the current branch against its upstream: what `git push` would send. `tests/pre-push.test.sh`

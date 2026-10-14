@@ -128,7 +128,7 @@ git -C "$F/cat" switch -q -c somebodys-work; echo unpublished > "$F/cat/marker"
 ln -s ../../cat "$F/.worktrees/app/cat"              # a link of the old shape, to the checkout itself
 bash "$ROOT/bin/init.sh" "$T" --no-doctor > "$F-1.log" 2>&1 || fail "init on a worktree beside a published neighbour failed: $(tail -5 "$F-1.log")"
 [ "$(cat "$T/../cat/marker" 2>/dev/null)" = published ] || fail "from the worktree, ../cat shows $(cat "$T/../cat/marker" 2>&1), not what cat published (see $F-1.log)"
-[ "$(readlink "$F/.worktrees/app/cat")" = ../cat/origin-master ] || fail "the link of the old shape was not replaced: $(readlink "$F/.worktrees/app/cat")"
+[ "$(readlink "$F/.worktrees/app/cat")" = ../../.ai-core/neighbours/cat/origin-master ] || fail "the link of the old shape was not replaced: $(readlink "$F/.worktrees/app/cat")"
 [ "$(cat "$F/cat/marker")" = unpublished ] || fail "init changed the neighbour's working copy"
 # The origin moves on: a second init moves the copy; a copy with a change of its own is held and named
 git clone -q "$WORK/published-origin.git" "$WORK/published-pusher" 2>/dev/null
@@ -136,19 +136,20 @@ git -C "$WORK/published-pusher" config user.email t@example.invalid; git -C "$WO
 echo newer > "$WORK/published-pusher/marker"; git -C "$WORK/published-pusher" commit -q -am two; git -C "$WORK/published-pusher" push -q origin master
 bash "$ROOT/bin/init.sh" "$T" --no-doctor > "$F-2.log" 2>&1 || fail "the second init failed: $(tail -5 "$F-2.log")"
 [ "$(cat "$T/../cat/marker" 2>/dev/null)" = newer ] || fail "the second init did not move the copy to the newer origin (see $F-2.log)"
-echo edited > "$F/.worktrees/cat/origin-master/marker"
+echo edited > "$F/.ai-core/neighbours/cat/origin-master/marker"
 echo newest > "$WORK/published-pusher/marker"; git -C "$WORK/published-pusher" commit -q -am three; git -C "$WORK/published-pusher" push -q origin master
 bash "$ROOT/bin/init.sh" "$T" --no-doctor > "$F-3.log" 2>&1 || fail "the third init failed: $(tail -5 "$F-3.log")"
-[ "$(cat "$F/.worktrees/cat/origin-master/marker")" = edited ] || fail "init moved a copy that carried a change"
+[ "$(cat "$F/.ai-core/neighbours/cat/origin-master/marker")" = edited ] || fail "init moved a copy that carried a change"
 grep -aq 'were not moved to their origin.s newest commit: cat' "$F-3.log" || fail "init does not name the held copy (see $F-3.log)"
-rm -f "$F/.worktrees/cat/origin-master/marker"; git -C "$F/.worktrees/cat/origin-master" checkout -q -- marker
+rm -f "$F/.ai-core/neighbours/cat/origin-master/marker"; git -C "$F/.ai-core/neighbours/cat/origin-master" checkout -q -- marker
 (cd "$F/cat" && bash "$ROOT/bin/pre-push.sh" --install > "$F-shim.log" 2>&1) || true
-[ -z "$(git -C "$F/.worktrees/cat/origin-master" status --porcelain)" ] || fail "pre-push --install wrote into the published copy: $(git -C "$F/.worktrees/cat/origin-master" status --porcelain | head -3)"
+[ -z "$(git -C "$F/.ai-core/neighbours/cat/origin-master" status --porcelain)" ] || fail "pre-push --install wrote into the published copy: $(git -C "$F/.ai-core/neighbours/cat/origin-master" status --porcelain | head -3)"
 bash "$ROOT/bin/init.sh" --all "$F" --no-doctor > "$F-all.log" 2>&1 || fail "init --all over the folder failed: $(grep -a -E '^###|error|failed' "$F-all.log" | tail -8)"
-grep -aq '^### \.worktrees/cat/origin-master' "$F-all.log" && fail "init --all took the published copy for a place of work (see $F-all.log)"
+grep -aq '^### \.ai-core' "$F-all.log" && fail "init --all took the published copy for a place of work (see $F-all.log)"
 grep -aq '^### cat: worktrees whose work landed' "$F-all.log" && fail "init --all counts the published copy as a worktree of cat (see $F-all.log)"
+[ "$(cat "$T/../cat/marker" 2>/dev/null)" = newest ] || fail "init --all over the folder took the published copy away (see $F-all.log)"
 # A commit in the copy, with a clean tree: the origin lacks it, so the copy is held and the commit stays
-C="$F/.worktrees/cat/origin-master"
+C="$F/.ai-core/neighbours/cat/origin-master"
 git -C "$C" -c user.email=t@example.invalid -c user.name=t commit -q --allow-empty -m "somebody's fix"
 kept="$(git -C "$C" rev-parse HEAD)"
 echo four > "$WORK/published-pusher/marker"; git -C "$WORK/published-pusher" commit -q -am four; git -C "$WORK/published-pusher" push -q origin master
@@ -160,13 +161,13 @@ git -C "$C" checkout -q --detach origin/master
 git -C "$WORK/published-pusher" push -q origin master:main
 git -C "$WORK/published-origin.git" symbolic-ref HEAD refs/heads/main
 bash "$ROOT/bin/init.sh" "$T" --no-doctor > "$F-5.log" 2>&1 || fail "init after a renamed default branch failed: $(tail -5 "$F-5.log")"
-[ "$(readlink "$F/.worktrees/app/cat")" = ../cat/origin-main ] || fail "the link stayed on the old default branch: $(readlink "$F/.worktrees/app/cat") (see $F-5.log)"
+[ "$(readlink "$F/.worktrees/app/cat")" = ../../.ai-core/neighbours/cat/origin-main ] || fail "the link stayed on the old default branch: $(readlink "$F/.worktrees/app/cat") (see $F-5.log)"
 [ "$(cat "$T/../cat/marker" 2>/dev/null)" = four ] || fail "from the worktree, ../cat does not show the renamed branch's tree"
-grep -aq 'copies of the old one stay.*\.worktrees/cat/origin-master' "$F-5.log" || fail "init does not name the copy of the old default branch it leaves (see $F-5.log)"
+grep -aq 'copies of the old one stay.*\.ai-core/neighbours/cat/origin-master' "$F-5.log" || fail "init does not name the copy of the old default branch it leaves (see $F-5.log)"
 # The copy's folder removed by hand while git still registers it: no link to the working copy
-rm -rf "$F/.worktrees/cat/origin-main"
+rm -rf "$F/.ai-core/neighbours/cat/origin-main"
 bash "$ROOT/bin/init.sh" "$T" --no-doctor > "$F-5b.log" 2>&1 || fail "init beside a removed but registered copy failed: $(tail -5 "$F-5b.log")"
-[ "$(readlink "$F/.worktrees/app/cat")" = ../cat/origin-main ] || fail "init replaced the link of a removed but registered copy with $(readlink "$F/.worktrees/app/cat")"
+[ "$(readlink "$F/.worktrees/app/cat")" = ../../.ai-core/neighbours/cat/origin-main ] || fail "init replaced the link of a removed but registered copy with $(readlink "$F/.worktrees/app/cat")"
 grep -aq 'cannot become one.*: cat' "$F-5b.log" || fail "init does not name the copy git still registers (see $F-5b.log)"
 git -C "$F/cat" worktree prune
 bash "$ROOT/bin/init.sh" "$T" --no-doctor > "$F-5c.log" 2>&1 || fail "init after the prune failed: $(tail -5 "$F-5c.log")"
@@ -178,11 +179,11 @@ for r in dog eel; do
   git clone -q "$WORK/published-$r.git" "$F/$r" 2>/dev/null
   git -C "$F/$r" -c user.email=t@example.invalid -c user.name=t commit -q --allow-empty -m one; git -C "$F/$r" push -q origin master
 done
-mkdir -p "$F/.worktrees/dog/origin-master"; echo somebodys > "$F/.worktrees/dog/origin-master/note"
+mkdir -p "$F/.ai-core/neighbours/dog/origin-master"; echo somebodys > "$F/.ai-core/neighbours/dog/origin-master/note"
 git -C "$WORK/published-eel.git" symbolic-ref HEAD refs/heads/nothing
 bash "$ROOT/bin/init.sh" "$T" --no-doctor > "$F-6.log" 2>&1 || fail "init beside a blocked and an unnamed origin failed: $(tail -5 "$F-6.log")"
 [ -e "$F/.worktrees/app/dog" ] && fail "init linked dog although its copy's place holds a folder that is no worktree: $(readlink "$F/.worktrees/app/dog")"
-[ "$(cat "$F/.worktrees/dog/origin-master/note")" = somebodys ] || fail "init changed the folder that stands where dog's copy would go"
+[ "$(cat "$F/.ai-core/neighbours/dog/origin-master/note")" = somebodys ] || fail "init changed the folder that stands where dog's copy would go"
 grep -aq 'cannot become one.*: dog' "$F-6.log" || fail "init does not name the neighbour whose copy's place is taken (see $F-6.log)"
 [ "$(readlink "$F/.worktrees/app/eel")" = ../../eel ] || fail "eel, whose origin names no default branch, is not linked as its checkout: $(readlink "$F/.worktrees/app/eel" 2>&1)"
 grep -aq 'named no default branch.*: eel' "$F-6.log" || fail "init does not name the neighbour linked as its checkout (see $F-6.log)"
@@ -195,8 +196,38 @@ git -C "$F/fox" remote set-head origin -d 2>/dev/null || true
 bash "$ROOT/bin/init.sh" "$T" --no-doctor --dry-run > "$F-7.log" 2>&1 || fail "the dry run beside fox failed: $(tail -5 "$F-7.log")"
 grep -aq 'named no default branch.*fox' "$F-7.log" && fail "the dry run names fox's origin as lacking a default branch, without having asked it (see $F-7.log)"
 bash "$ROOT/bin/init.sh" "$T" --no-doctor > "$F-8.log" 2>&1 || fail "init beside fox failed: $(tail -5 "$F-8.log")"
-[ "$(readlink "$F/.worktrees/app/fox")" = ../fox/origin-release/1 ] || fail "fox is not linked to the copy of release/1: $(readlink "$F/.worktrees/app/fox" 2>&1) (see $F-8.log)"
+[ "$(readlink "$F/.worktrees/app/fox")" = ../../.ai-core/neighbours/fox/origin-release/1 ] || fail "fox is not linked to the copy of release/1: $(readlink "$F/.worktrees/app/fox" 2>&1) (see $F-8.log)"
 bash "$ROOT/bin/init.sh" --all "$F" --no-doctor > "$F-all2.log" 2>&1 || fail "the second init --all failed: $(grep -a -E '^###|error|failed' "$F-all2.log" | tail -8)"
 grep -aq '^### fox: worktrees whose work landed' "$F-all2.log" && fail "init --all counts fox's copy of release/1 as a worktree (see $F-all2.log)"
+[ -z "$(find "$F/.worktrees" -name 'origin-*')" ] || fail "a published copy stands in .worktrees/, where a project's tool counts it as a place of work: $(find "$F/.worktrees" -name 'origin-*')"
 echo "  ../cat from the worktree shows what cat published while its checkout carries somebody's change, the old link is replaced, a newer origin moves the copy, a copy with a change or a commit of its own is held and named, a renamed default branch is followed, a taken place and an origin without a default branch are named, pre-push --install and init --all leave the copy alone"
+
+section "a published copy left in .worktrees/ moves out with what it holds, and every link follows"
+F="$WORK/moved"; T="$F/.worktrees/app/issue-3-z"
+mkdir -p "$F/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$F/.ai-core/config.env"
+git init -q --bare -b release/1 "$WORK/moved-origin.git"
+git clone -q "$WORK/moved-origin.git" "$F/cat" 2>/dev/null
+git -C "$F/cat" -c user.email=t@example.invalid -c user.name=t commit -q --allow-empty -m one; git -C "$F/cat" push -q origin HEAD:release/1
+for r in app dog; do git init -q "$F/$r"; mkdir -p "$F/$r/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$F/$r/.ai-core/config.env"; git -C "$F/$r" commit -q --allow-empty -m start; done
+git -C "$F/app" worktree add -q -b issue-3-z "$T"
+git -C "$F/dog" worktree add -q -b issue-4-w "$F/.worktrees/dog/issue-4-w"
+# PLANTED: the copy where an earlier init put it, in .worktrees/, with a change in it, and linked
+# from two worktrees' folders
+git -C "$F/cat" worktree add -q --detach "$F/.worktrees/cat/origin-release/1" origin/release/1
+echo somebodys > "$F/.worktrees/cat/origin-release/1/note"
+ln -s ../cat/origin-release/1 "$F/.worktrees/app/cat"; ln -s ../cat/origin-release/1 "$F/.worktrees/dog/cat"
+bash "$ROOT/bin/init.sh" "$T" --no-doctor --dry-run > "$F-1.log" 2>&1 || fail "the dry run beside a copy in .worktrees/ failed: $(tail -5 "$F-1.log")"
+[ -f "$F/.worktrees/cat/origin-release/1/note" ] || fail "the dry run moved the copy"
+grep -aq 'would move out of \.worktrees/.*: cat' "$F-1.log" || fail "the dry run does not name the copy it would move (see $F-1.log)"
+bash "$ROOT/bin/init.sh" "$T" --no-doctor > "$F-2.log" 2>&1 || fail "init beside a copy in .worktrees/ failed: $(tail -5 "$F-2.log")"
+[ ! -e "$F/.worktrees/cat" ] || fail "the copy or its folder still stands in .worktrees/: $(find "$F/.worktrees/cat" | head -3)"
+[ "$(cat "$F/.ai-core/neighbours/cat/origin-release/1/note" 2>/dev/null)" = somebodys ] || fail "the move lost what the copy held (see $F-2.log)"
+for c in app dog; do
+  [ "$(readlink "$F/.worktrees/$c/cat")" = ../../.ai-core/neighbours/cat/origin-release/1 ] || fail "the link in .worktrees/$c/ did not follow the copy: $(readlink "$F/.worktrees/$c/cat")"
+done
+[ "$(cat "$T/../cat/note" 2>/dev/null)" = somebodys ] || fail "from the worktree, ../cat no longer reaches the copy"
+git -C "$F/cat" worktree list | grep -q '/\.ai-core/neighbours/cat/origin-release/1 ' || fail "git does not register the copy at its new place: $(git -C "$F/cat" worktree list)"
+grep -aq 'moved out of \.worktrees/.*: cat' "$F-2.log" || fail "init does not name the copy it moved (see $F-2.log)"
+grep -aq 'were not moved to their origin.s newest commit: cat' "$F-2.log" || fail "the moved copy with a change of its own is not held (see $F-2.log)"
+echo "  a copy in .worktrees/ moves to .ai-core/neighbours/ with what it holds, a slash branch's folders go with it, the links of every worktree follow, the dry run only names it"
 exit 0

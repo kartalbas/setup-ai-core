@@ -141,7 +141,7 @@ gh_read() {  # gh_read <what was asked for> <gh argument>...
 # The groups a row may stand in. The group is also the PREFIX the label carries, so
 # a row in group `area` is named `area:something` - the two cannot be told apart and
 # so cannot disagree.
-LABEL_GROUPS='type area closes incident needs'
+LABEL_GROUPS='type area closes incident needs goal'
 
 # EVERY READER OF labels.tsv COMES THROUGH HERE, and the file is held against its
 # shape before a single name leaves this function.

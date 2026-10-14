@@ -105,6 +105,9 @@ plant "$(printf 'area\tarea:gate\t1D76DB\tThe same name a second time')"
 check 'a name declared twice'                 yes \
       "$(names "$(outcome)" "labels.tsv:$(planted_line)")"
 
+plant "$(printf 'goal\tgoal:launch\t5319E7\tThe issues of one goal the owner follows')"
+check 'a row in the goal group is read'       read "$(outcome)"
+
 # WHAT THE REFUSALS ARE WORTH. board-sync's old reading of the same misspelt file, so the
 # checks above are shown to be the guard and not a reader that refuses whatever it is given.
 echo

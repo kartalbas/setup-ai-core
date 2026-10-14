@@ -95,3 +95,8 @@ incident	incident:unasked	E99695	The ticket was filed without a person's yes
 # and whoever takes the ticket up next reads the question on it instead of starting. The label
 # comes off with the answer.
 needs	needs:owner	FBCA04	The next step is the product owner's decision
+
+# WHICH GOAL OF THE OWNER'S THE TICKET SERVES, across every repository of the board. A goal
+# label lets the board show one goal's tickets together, whatever their type and area. Goals
+# belong to a project, so this generic set declares none: a project harness adds its own rows,
+# named goal:<goal>, to its labels.tsv.

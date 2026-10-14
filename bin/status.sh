@@ -86,7 +86,7 @@ if [ -z "$tokens$issues" ]; then
   : > "$work/trees"
   for repo in "$folder"/*/; do
     repo="${repo%/}"
-    [ -e "$repo/.git" ] && [ "$(git -C "$repo" worktree list --porcelain 2>/dev/null | grep '^worktree ' | grep -v -c '/\.worktrees/[^/]*/origin-')" -gt 1 ] || continue
+    [ -e "$repo/.git" ] && [ "$(git -C "$repo" worktree list --porcelain 2>/dev/null | grep '^worktree ' | grep -v -c -E '/\.ai-core/neighbours/|/\.worktrees/[^/]*/origin-')" -gt 1 ] || continue
     if said="$(cd "$repo" && bash "$here/finish-issue.sh" --sweep --dry-run 2>&1)"; then
       while IFS= read -r line; do printf '%s\t%s\n' "${repo##*/}" "$line"; done <<< "$said" >> "$work/trees"
     else

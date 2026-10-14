@@ -91,6 +91,7 @@ if [ -n "$ALL_DIR" ]; then
     repo="${repo%/}"
     [ -e "$repo/.git" ] || continue
     case "$repo" in "$ALL_DIR"/.worktrees/*) [ ! -L "$repo" ] || continue ;; esac   # a link beside the worktrees is a neighbour checkout, initialized as itself
+    case "$repo" in "$ALL_DIR"/.worktrees/*/origin-*) continue ;; esac                # a published copy of a neighbour (0b) is nobody's place of work
     name="${repo#"$ALL_DIR"/}"; repo_folder="${name##*/}"
     # a worktree is named by the checkout it belongs to, whichever way .worktrees/ is laid out
     # (a broken worktree has no checkout to name: it is walked as before)
@@ -156,7 +157,8 @@ neighbour_published() {
       if [ -z "$(git -C "$copy" status --porcelain 2>/dev/null)" ]; then git -C "$copy" checkout -q --detach "$ref" 2>/dev/null || true
       else NEIGHBOURS_HELD="$NEIGHBOURS_HELD $2"; fi
     else
-      git -C "$1" worktree add -q --detach "$copy" "$ref" >/dev/null 2>&1 || return 0
+      # a second init at the same moment may have added it: then it is used as it stands
+      git -C "$1" worktree add -q --detach "$copy" "$ref" >/dev/null 2>&1 || [ -e "$copy/.git" ] || return 0
     fi
   fi
   NEIGHBOUR_TARGET="../$2/origin-$branch"

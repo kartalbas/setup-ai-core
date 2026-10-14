@@ -141,5 +141,10 @@ echo newest > "$WORK/published-pusher/marker"; git -C "$WORK/published-pusher" c
 bash "$ROOT/bin/init.sh" "$T" --no-doctor > "$F-3.log" 2>&1 || fail "the third init failed: $(tail -5 "$F-3.log")"
 [ "$(cat "$F/.worktrees/cat/origin-master/marker")" = edited ] || fail "init moved a copy that carried a change"
 grep -aq 'were not moved to their origin.s newest commit: cat' "$F-3.log" || fail "init does not name the held copy (see $F-3.log)"
-echo "  ../cat from the worktree shows what cat published while its checkout carries somebody's change, the old link is replaced, a newer origin moves the copy, a copy with a change is held and named"
+rm -f "$F/.worktrees/cat/origin-master/marker"; git -C "$F/.worktrees/cat/origin-master" checkout -q -- marker
+(cd "$F/cat" && bash "$ROOT/bin/pre-push.sh" --install > "$F-shim.log" 2>&1) || true
+[ -z "$(git -C "$F/.worktrees/cat/origin-master" status --porcelain)" ] || fail "pre-push --install wrote into the published copy: $(git -C "$F/.worktrees/cat/origin-master" status --porcelain | head -3)"
+bash "$ROOT/bin/init.sh" --all "$F" --no-doctor > "$F-all.log" 2>&1 || fail "init --all over the folder failed: $(grep -a -E '^###|error|failed' "$F-all.log" | tail -8)"
+grep -aq '^### \.worktrees/cat/origin-master' "$F-all.log" && fail "init --all took the published copy for a place of work (see $F-all.log)"
+echo "  ../cat from the worktree shows what cat published while its checkout carries somebody's change, the old link is replaced, a newer origin moves the copy, a copy with a change is held and named, pre-push --install and init --all leave the copy alone"
 exit 0

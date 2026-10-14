@@ -273,6 +273,9 @@ install_shim() {  # install_shim <repository>: 0 written or unchanged, 1 not a r
     tree="${tree#worktree }"
     [ -n "$tree" ] && [ "$tree" != "$(cd "$dir" && pwd)" ] && [ "$tree" != "$(cd "$dir" && pwd -W 2>/dev/null)" ] || continue
     [ -d "$tree" ] || continue
+    # a published copy (init links it beside the worktrees as the neighbour) is nobody's work: a shim
+    # written there would be a change in it, and init then holds it on an old commit
+    case "$tree" in */.worktrees/*/origin-*) continue ;; esac
     write_shims "$tree" "$name (worktree $(basename "$tree"))" "; it goes out with that worktree's own commit"
   done <<< "$(git -C "$dir" worktree list --porcelain 2>/dev/null | grep '^worktree ' | tail -n +2)"
   commit_shim "$dir" "$name" || return 1

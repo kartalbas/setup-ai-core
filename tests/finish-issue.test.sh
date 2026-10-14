@@ -324,6 +324,23 @@ check 'the worktree is gone'   no "$(has_tree issue-174-landed-changed)"
 check 'it names the commit'    yes "$(grep -q '^  [0-9a-f]* Land in another shape (#174)$' <<< "$out" && echo yes || echo no)"
 echo open > "$state"
 
+echo "a landed issue's merged branch on origin is deleted; one with more work, and one a worktree holds, stay"
+open issue-190-merged-on-origin
+land issue-190-merged-on-origin 'Land the merged one (#190)'
+git -C "$trees/issue-190-merged-on-origin" push -q origin HEAD:issue-190-merged-on-origin
+unlanded="$(git -C "$work" commit-tree -p origin/master -m 'Not landed (#190)' 'origin/master^{tree}')"
+git -C "$work" push -q origin "$unlanded:refs/heads/issue-190-more-work"
+git -C "$work" worktree add -q -b issue-190-held "$trees/issue-191-package" origin/master 2>/dev/null
+git -C "$work" push -q origin issue-190-held
+on_origin() { git -C "$origin" rev-parse -q --verify "refs/heads/$1" >/dev/null && echo yes || echo no; }
+out="$(run 190)"; rc=$?
+check 'exits zero'                          0 "$rc"
+check 'the merged branch on origin is gone' no "$(on_origin issue-190-merged-on-origin)"
+check 'the branch with more work stays'     yes "$(on_origin issue-190-more-work)"
+check 'and says why'                        yes "$(grep -q 'issue-190-more-work on origin stays: it has commits origin/master does not have' <<< "$out" && echo yes || echo no)"
+check 'the branch a worktree holds stays'   yes "$(on_origin issue-190-held)"
+check 'and says why'                        yes "$(grep -q 'issue-190-held on origin stays: a worktree has it checked out' <<< "$out" && echo yes || echo no)"
+
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo
 echo 'all passed'

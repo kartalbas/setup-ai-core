@@ -21,6 +21,9 @@
 # card stays. An issue no commit on origin's default branch names has not landed: the run stops
 # before the card moves.
 #
+# THE ISSUE'S BRANCH ON origin GOES once every commit of it is on the default branch; one with more
+# work, or one a worktree has checked out, stays and is named.
+#
 # --sweep removes every worktree of this repository whose work has landed and has rested for a
 # day, and names the others it leaves; start-issue and init --all run it, so a worktree nobody
 # finished does not stay for good. A worktree that was never committed in is left alone.
@@ -162,6 +165,21 @@ done <<< "$(issue_worktrees)"
 commits="$(git -C "$main" log "origin/$default" -E --grep="(^|[^A-Za-z0-9._/-])${ref//./\\.}([^0-9]|$)" --format='- %h %s' -n 20)"
 [ -n "$commits" ] \
   || die "no commit on origin/$default names $ref, so the card stays and the issue is not told; a commit that touches an issue names it"
+
+# The issue's branches on origin. One whose every commit is on origin's default branch holds nothing
+# the default branch lacks, so it is deleted. Ancestry decides here, not
+# git cherry: a branch whose change landed in another shape still holds its own commits.
+held="$(git -C "$main" worktree list --porcelain | sed -n 's#^branch refs/heads/##p')"
+for branch in $(git -C "$main" for-each-ref --format='%(refname:strip=3)' "refs/remotes/origin/issue-$number" "refs/remotes/origin/issue-$number-*"); do
+  if grep -qxF "$branch" <<< "$held"; then
+    echo "the branch $branch on origin stays: a worktree has it checked out"
+  elif ! git -C "$main" merge-base --is-ancestor "origin/$branch" "origin/$default"; then
+    echo "the branch $branch on origin stays: it has commits origin/$default does not have"
+  else
+    git -C "$main" push -q origin --delete "$branch" || die "the branch $branch on origin could not be deleted (see above)"
+    echo "the branch $branch on origin deleted: every commit of it is on origin/$default"
+  fi
+done
 
 # The card: to testing
 if [ "$state" = closed ]; then

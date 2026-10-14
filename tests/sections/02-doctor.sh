@@ -45,9 +45,19 @@ leaks_doctor old "$LF" "$WORK/leaksbin-old:$NOLEAKS" && fail "doctor.sh exited 0
 grep -aq '^  gitleaks .*too old .*has no .gitleaks git., which the push gate runs (8.19 or newer)' "$WORK/leaks-old.log" || fail "doctor.sh did not report the gitleaks without 'gitleaks git' (see $WORK/leaks-old.log)"
 leaks_doctor new "$LF/shop" "$WORK/leaksbin-new:$NOLEAKS" || true   # started inside a repository of the folder
 grep -aq '^  gitleaks .*present .*gitleaks 8\.30\.1, for .gitleaks.toml in: shop' "$WORK/leaks-new.log" || fail "doctor.sh did not report gitleaks present (see $WORK/leaks-new.log)"
+grep -aq '^  git .*too old' "$WORK/leaks-new.log" && fail "doctor.sh called a git that shows remerge diffs too old (see $WORK/leaks-new.log)"
+# A git before 2.36 rejects --diff-merges=remerge; the gate refuses it, so doctor names it first
+mkdir -p "$WORK/gitbin-old"
+printf '#!/bin/sh
+case "$*" in *--diff-merges=remerge*) echo "fatal: unknown value for --diff-merges: remerge" >&2; exit 128 ;; esac
+exec %s "$@"
+' "$(command -v git)" > "$WORK/gitbin-old/git"
+chmod +x "$WORK/gitbin-old/git"
+leaks_doctor oldgit "$LF/shop" "$WORK/gitbin-old:$WORK/leaksbin-new:$NOLEAKS" && fail "doctor.sh exited 0 with a git that cannot show remerge diffs where .gitleaks.toml is"
+grep -aq '^  git .*too old .*--diff-merges=remerge, git 2.36 or newer.*where .gitleaks.toml is: shop' "$WORK/leaks-oldgit.log" || fail "doctor.sh did not report the git without remerge diffs (see $WORK/leaks-oldgit.log)"
 leaks_doctor none "$WORK/plain-folder" "$NOLEAKS" || true
 grep -aq '^  gitleaks' "$WORK/leaks-none.log" && fail "doctor.sh names gitleaks where no repository carries .gitleaks.toml"
-echo "  missing and too old are problems that name how to install it, present names the repositories, and no repository with .gitleaks.toml means no line"
+echo "  missing and too old are problems that name how to install it, present names the repositories, a git without remerge diffs is a problem too, and no repository with .gitleaks.toml means no line"
 
 section "init runs doctor in the folder it serves: a repository there with .gitleaks.toml stops it without gitleaks"
 F="$WORK/leaks-init"; git init -q "$F/shop"; : > "$F/shop/.gitleaks.toml"

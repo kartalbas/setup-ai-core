@@ -10,7 +10,7 @@ way it reads its state again from this brief, because the state is in the tracke
    partners, with their session names and folders, and the areas or issues the owner hands you.
 2. Each board has one plan issue whose title starts with "Plan: packages". Where a board has none,
    create it: `ai-core issue-new --repo <the board's first repository> --title "Plan: packages, or
-   no restart finds the state" --body-file <file> --label type:task --label area:<the harness's
+   no restart finds the state" --body-file <file> --label type:chore --label area:<the harness's
    area label> --priority P2 --status backlog --asked-by <the owner's login> --asked-in "start
    prompt of <date>"`, its body one sentence: "The package sections and the phase log of this
    board; read newest first." It is no work to plan.

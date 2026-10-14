@@ -157,6 +157,10 @@ if [ -n "$LEAKS_REPOS" ]; then
   elif command -v gitleaks >/dev/null 2>&1; then report gitleaks "too old" "$(command -v gitleaks) has no 'gitleaks git', which the push gate runs (8.19 or newer); $how"; problem
   else report gitleaks MISSING "the push gate reads every push with it where .gitleaks.toml is:$LEAKS_REPOS; $how"; problem; fi
   [ -z "$LEAKS_NOTE" ] || echo "$LEAKS_NOTE"
+  # The gate reads a merge by its remerge diff, which came with git 2.36, and refuses a git without it
+  set -- $LEAKS_REPOS
+  git -C "$(project_folder_of "$PWD")/$1" log --diff-merges=remerge -n0 --all >/dev/null 2>&1 \
+    || { report git "too old" "$(git --version 2>/dev/null) cannot show what a merge's author wrote (--diff-merges=remerge, git 2.36 or newer), which the push gate reads where .gitleaks.toml is:$LEAKS_REPOS; update git"; problem; }
 fi
 
 # An agent definition of this machine that names a model below Sonnet

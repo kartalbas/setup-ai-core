@@ -507,7 +507,7 @@ before="$(git -C "$repo" rev-parse HEAD~1)"
 out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$before")"; rc=$?
 check 'exit 0'                    0 "$rc"
 # Only the range is compared, not the tree.
-check 'gitleaks read that range'  "git --no-banner --verbose --redact --log-opts=--diff-merges=remerge $(git -C "$repo" rev-parse HEAD) ^$before --not --remotes=origin" \
+check 'gitleaks read that range'  "git --no-banner --redact --report-format csv --report-path - --log-opts=--diff-merges=remerge $(git -C "$repo" rev-parse HEAD) ^$before --not --remotes=origin" \
   "$(sed 's/^\[//; s/ [^ ]*$//' "$leaks_args")"
 
 echo 'a credential in a pushed commit refuses, and says it cannot be recalled'
@@ -551,11 +551,35 @@ token="ghp_$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 36)"
 out="$(push_merge "value = 4")"; rc=$?
 check 'PLANTED INNOCENT: a resolution without a credential goes out' 0 "$rc"
 check 'and the merge was read'      yes "$(grep -q '1 commits scanned' <<< "$out" && echo yes || echo no)"
-out="$(push_merge "token = \"$token\"")"; rc=$?
+other="ghp_$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 36)"
+out="$(push_merge "token = \"$token\" other = \"$other\"")"; rc=$?
 check 'a resolution with a credential: exit 1' 1 "$rc"
 check 'it says what to do'          yes "$(grep -q 'a commit that is pushed cannot be recalled' <<< "$out" && echo yes || echo no)"
-check 'it names the file it stands in' yes "$(grep -q 'settings.txt' <<< "$out" && echo yes || echo no)"
-check 'and never prints the credential' no "$(grep -qF "$token" <<< "$out" && echo yes || echo no)"
+# A file that had a conflict is b/<path> to gitleaks, as it parses git's conflict header.
+check 'it names the file it stands in' yes "$(grep -qF ',b/settings.txt,' <<< "$out" && echo yes || echo no)"
+check 'and prints no part of either credential' no "$(grep -qF -e "${token:4:12}" -e "${other:4:12}" <<< "$out" && echo yes || echo no)"
+echo 'a merge of three branches at once is refused: git shows no diff of what its author wrote'
+git -C "$merged" reset -q --hard "$tip"
+git -C "$merged" checkout -q -b side master~1; printf 'x\n' > "$merged/side.txt"; git -C "$merged" add side.txt; git -C "$merged" commit -q -m 'A side branch #15'
+git -C "$merged" update-ref refs/remotes/origin/side HEAD
+git -C "$merged" checkout -q issue-15-merge
+git -C "$merged" merge -q --no-edit -s ours master side >/dev/null 2>&1
+out="$(printf 'refs/heads/issue-15-merge %s refs/heads/issue-15-merge %s\n' "$(git -C "$merged" rev-parse HEAD)" "$tip" \
+  | ( cd "$merged" && PATH="$real:$PATH" bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1 ))"; rc=$?
+check 'three parents'               3 "$(git -C "$merged" rev-list --parents -n1 HEAD | wc -w | tr -d ' ' | awk '{print $1-1}')"
+check 'exit 1'                      1 "$rc"
+check 'it says to merge one branch at a time' yes "$(grep -q 'Merge one branch at a time' <<< "$out" && echo yes || echo no)"
+echo 'a git without --diff-merges=remerge, one before 2.36, refuses by name and never passes unread'
+old_git="$fake/old-git"; mkdir -p "$old_git"
+cat > "$old_git/git" <<EOF
+#!/usr/bin/env bash
+case "\$*" in *--diff-merges=remerge*) echo "fatal: invalid value for '--diff-merges': 'remerge'" >&2; exit 128 ;; esac
+exec "$(command -v git)" "\$@"
+EOF
+chmod +x "$old_git/git"
+out="$(PATH="$old_git:$PATH" push_merge "value = 5")"; rc=$?
+check 'exit 1'                      1 "$rc"
+check 'it names the git it needs'   yes "$(grep -q 'git 2.36 or newer' <<< "$out" && echo yes || echo no)"
 
 # --- the names a push adds, derived from the families the trees already carry -------------------
 # Two sibling repositories beside the one pushed: acme-shop has the parts backend, docs and

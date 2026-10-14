@@ -40,6 +40,7 @@ start_source() { # start_source <directory> <format> <expected exit>
       grep -aqxF '  - @rules/35-checked.md' "$dir/AGENTS.md" || fail "the source's AGENTS.md does not name its own rule file"
       [ "$(grep -n "@$ROOT/rules/" "$dir/AGENTS.md" | head -1 | cut -d: -f1)" -lt "$(grep -n '@rules/35-checked.md' "$dir/AGENTS.md" | cut -d: -f1)" ] || fail "the source's AGENTS.md does not name the base layer first"
     fi
+    grep -aqF -- "- When a skill or a tool is used: @$ROOT/rules/skills.md" "$dir/AGENTS.md" || fail "the source's AGENTS.md does not name the skills file where it is written"
     grep -aq 'rules\.md' "$dir/AGENTS.md" && fail "the source's AGENTS.md names an assembled copy"
     [ -z "$(git -C "$dir" status --porcelain -- AGENTS.md)" ] || fail "the source's AGENTS.md shows in its status"
   else
@@ -59,7 +60,7 @@ git -C "$stale" remote set-url origin https://github.com/example-org/shop-ai-cor
 printf '# old\n- The engineering rules: @.ai-core/rules/rules.md\n' > "$stale/AGENTS.md"
 printf '# a last line without its newline' > "$stale/.git/info/exclude"
 start_source "$stale" '' 0
-grep -aq 'Rules loaded     : AGENTS.md names the [1-9][0-9]* rule files' "$WORK/start.log" || fail "session start does not say how many rule files AGENTS.md names: $(cat "$WORK/start.log")"
+grep -aq 'Rule files       : AGENTS.md names the [1-9][0-9]* rule files' "$WORK/start.log" || fail "session start does not say how many rule files AGENTS.md names: $(cat "$WORK/start.log")"
 touch -d '2000-01-01' "$stale/AGENTS.md"
 start_source "$stale" '' 0
 [ "$(date -r "$stale/AGENTS.md" +%Y)" = 2000 ] || fail "session start rewrote an AGENTS.md whose text had not changed"
@@ -69,6 +70,23 @@ printf '## Added\n\n- **A new rule.** It is read at once. [review]\n' > "$stale/
 git -C "$stale" add rules/36-added.md; git -C "$stale" commit -qm 'a new rule #1'
 start_source "$stale" '' 0
 grep -aqxF '  - @rules/36-added.md' "$stale/AGENTS.md" || fail "a rule file added to the source is not named at the next session start"
+
+section "a source that commits its own AGENTS.md keeps it, and a space in a rule file's path is escaped"
+mine="$WORK/committed-source"; git clone -q "$source_repo" "$mine"
+git -C "$mine" remote set-url origin https://github.com/example-org/shop-ai-core.git
+# PLANTED: the source's own AGENTS.md, which is somebody's work
+printf '# ours\n' > "$mine/AGENTS.md"; git -C "$mine" add AGENTS.md; git -C "$mine" -c user.email=t@example.invalid -c user.name=t commit -qm 'our own AGENTS.md #1'
+(cd "$mine" && bash "$ROOT/bin/session-start.sh") > "$WORK/mine.log" 2>&1 || fail "a source with a committed AGENTS.md is refused: $(cat "$WORK/mine.log")"
+[ "$(cat "$mine/AGENTS.md")" = '# ours' ] || fail "session start overwrote the source's committed AGENTS.md"
+[ -z "$(git -C "$mine" status --porcelain)" ] || fail "session start left a change in a source with a committed AGENTS.md: $(git -C "$mine" status --porcelain)"
+grep -q '^/AGENTS.md$' "$mine/.git/info/exclude" && fail "session start excluded a committed AGENTS.md"
+grep -aq 'Rule files       : – AGENTS.md is committed here' "$WORK/mine.log" || fail "session start does not say it left the committed AGENTS.md: $(cat "$WORK/mine.log")"
+spaced="$WORK/spaced-source"; git clone -q "$source_repo" "$spaced"
+git -C "$spaced" remote set-url origin https://github.com/example-org/shop-ai-core.git
+printf '## Spaced\n\n- **A rule in a spaced file.** It is named. [review]\n' > "$spaced/rules/36 spaced.md"
+git -C "$spaced" add "rules/36 spaced.md"; git -C "$spaced" -c user.email=t@example.invalid -c user.name=t commit -qm 'a spaced rule file #1'
+(cd "$spaced" && bash "$ROOT/bin/session-start.sh") > "$WORK/spaced.log" 2>&1 || fail "a source with a spaced rule file is refused: $(cat "$WORK/spaced.log")"
+grep -aqxF '  - @rules/36\ spaced.md' "$spaced/AGENTS.md" || fail "the space in a rule file's path is not escaped: $(grep -a spaced "$spaced/AGENTS.md")"
 
 section "a source that also holds an assembled rules file reports it as measured"
 assembled="$WORK/assembled-source"; git clone -q "$source_repo" "$assembled"

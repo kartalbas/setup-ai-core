@@ -337,7 +337,7 @@ out="$(run 190)"; rc=$?
 check 'exits zero'                          0 "$rc"
 check 'the merged branch on origin is gone' no "$(on_origin issue-190-merged-on-origin)"
 check 'the branch with more work stays'     yes "$(on_origin issue-190-more-work)"
-check 'and says why'                        yes "$(grep -q 'issue-190-more-work on origin stays: it has commits origin/master does not have' <<< "$out" && echo yes || echo no)"
+check 'and says why'                        yes "$(grep -q 'issue-190-more-work on origin stays: it has commits whose change is not on origin/master' <<< "$out" && echo yes || echo no)"
 check 'the branch a worktree holds stays'   yes "$(on_origin issue-190-held)"
 check 'and says why'                        yes "$(grep -q 'issue-190-held on origin stays: a worktree has it checked out' <<< "$out" && echo yes || echo no)"
 
@@ -366,6 +366,52 @@ git -C "$work" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
 check 'exits zero'                          0 "$rc"
 check 'the moved branch stays on origin'    yes "$(on_origin issue-193-moved-on-origin)"
 check 'with the later commit'               "$later" "$(git -C "$origin" rev-parse refs/heads/issue-193-moved-on-origin)"
+
+echo 'a branch on origin that landed by rebase is deleted; one whose change landed reshaped stays'
+git -C "$work" pull -q --ff-only origin master
+git -C "$work" checkout -q -b issue-194-rebased origin/master
+echo 'rebased' > "$work/rebased.txt"
+git -C "$work" add rebased.txt && git -C "$work" commit -q -m 'Land by rebase (#194)'
+git -C "$work" push -q origin issue-194-rebased
+git -C "$work" checkout -q -b issue-194-reshaped origin/master
+echo 'reshaped' > "$work/reshaped.txt"
+git -C "$work" add reshaped.txt && git -C "$work" commit -q -m 'Land reshaped (#194)'
+git -C "$work" push -q origin issue-194-reshaped
+git -C "$work" checkout -q master
+# another landing first, so the rebased commit gets a new sha on master
+echo 'landed first' >> "$work/README.md"
+git -C "$work" commit -q -am 'Another landing first'
+git -C "$work" cherry-pick issue-194-rebased >/dev/null
+echo 'reshaped, as the conflict was resolved' > "$work/reshaped.txt"
+git -C "$work" add reshaped.txt && git -C "$work" commit -q -m 'Land reshaped, resolved (#194)'
+git -C "$work" push -q origin master
+git -C "$work" branch -q -D issue-194-rebased issue-194-reshaped
+check 'the rebased branch is no ancestor'   no "$(git -C "$work" merge-base --is-ancestor origin/issue-194-rebased origin/master && echo yes || echo no)"
+out="$(run 194)"; rc=$?
+check 'exits zero'                          0 "$rc"
+check 'the rebased branch on origin is gone' no "$(on_origin issue-194-rebased)"
+check 'and says so'                         yes "$(grep -q 'issue-194-rebased on origin deleted: the change of every commit of it is on origin/master' <<< "$out" && echo yes || echo no)"
+check 'the reshaped branch stays'           yes "$(on_origin issue-194-reshaped)"
+check 'and says why'                        yes "$(grep -q 'issue-194-reshaped on origin stays: it has commits whose change is not on origin/master' <<< "$out" && echo yes || echo no)"
+
+echo 'a branch on origin whose merge commit carries its own content stays'
+git -C "$work" pull -q --ff-only origin master
+git -C "$work" checkout -q -b issue-195-side origin/master
+echo 'side' > "$work/side.txt"
+git -C "$work" add side.txt && git -C "$work" commit -q -m 'Land the merged side (#195)'
+git -C "$work" checkout -q -b issue-195-merged origin/master
+git -C "$work" merge -q --no-ff --no-commit issue-195-side >/dev/null 2>&1
+echo 'only in the merge' > "$work/merge-only.txt"
+git -C "$work" add merge-only.txt && git -C "$work" commit -q -m 'Merge the side, with content of its own (#195)'
+git -C "$work" push -q origin issue-195-merged
+git -C "$work" checkout -q master
+git -C "$work" cherry-pick issue-195-side >/dev/null
+git -C "$work" push -q origin master
+git -C "$work" branch -q -D issue-195-side issue-195-merged
+out="$(run 195)"; rc=$?
+check 'exits zero'                          0 "$rc"
+check 'the merged branch stays on origin'   yes "$(on_origin issue-195-merged)"
+check 'and says why'                        yes "$(grep -q 'issue-195-merged on origin stays: it has commits whose change is not on origin/master' <<< "$out" && echo yes || echo no)"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

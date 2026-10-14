@@ -21,8 +21,9 @@
 # card stays. An issue no commit on origin's default branch names has not landed: the run stops
 # before the card moves.
 #
-# THE ISSUE'S BRANCH ON origin GOES once every commit of it is on the default branch; one with more
-# work, or one a worktree has checked out, stays and is named.
+# THE ISSUE'S BRANCH ON origin GOES once the change of every commit of it is on the default branch,
+# merged, cherry-picked or rebased; one with more work, a commit reshaped on landing, or one a
+# worktree has checked out, stays and is named.
 #
 # --sweep removes every worktree of this repository whose work has landed and has rested for a
 # day, and names the others it leaves; start-issue and init --all run it, so a worktree nobody
@@ -67,16 +68,20 @@ main="$(cd "$common/.." && git rev-parse --show-toplevel)"
 # the removal would run in a directory that is gone
 cd "$main" || die "cannot change to the main checkout $main"
 
-# unlanded <branch>: the commits of the branch whose change is not on origin's default branch, one
-# "<sha> <subject>" per line. A branch that landed by cherry-pick has new commits upstream, so
-# ancestry alone would hold it back; git cherry compares the changes. A git cherry that fails
-# answers a line of its own, so a branch it cannot read never counts as landed.
+# unlanded <ref>: the commits of the ref whose change is not on origin's default branch, one
+# "<sha> <subject>" per line. A branch that landed by cherry-pick or rebase has new commits upstream,
+# so ancestry alone would hold it back; git cherry compares the changes. git cherry passes over a
+# merge commit, whose own content (a resolved conflict) it never measures, so every merge the
+# default branch lacks counts as unlanded. A git command that fails answers a line of its own, so
+# a branch it cannot read never counts as landed.
 unlanded() {
   local out
-  out="$(git -C "$main" cherry -v "origin/$default" "refs/heads/$1" 2>&1)" || { echo "? $out"; return 0; }
+  out="$(git -C "$main" cherry -v "origin/$default" "$1" 2>&1)" || { echo "? $out"; return 0; }
   sed -n 's/^+ //p' <<< "$out"
+  out="$(git -C "$main" log --merges --format='%h %s' "origin/$default..$1" 2>&1)" || { echo "? $out"; return 0; }
+  [ -z "$out" ] || printf '%s\n' "$out"
 }
-landed() { [ -z "$(unlanded "$1")" ]; }
+landed() { [ -z "$(unlanded "refs/heads/$1")" ]; }
 # worked_in <branch>: the branch was committed on, not only cut. The reflog is read whole first: piped
 # into grep -q, grep stops at the first hit, git can die of the closed pipe, and under pipefail the
 # answer then turned into "never committed in" on a busy machine
@@ -143,7 +148,7 @@ while IFS=$'\t' read -r path branch; do
   found=1
   [ -z "$(git -C "$path" status --porcelain)" ] \
     || die "the worktree $path has changes - commit and push them, or put them aside, then run this again"
-  missing="$(unlanded "$branch")"
+  missing="$(unlanded "refs/heads/$branch")"
   if [ -n "$missing" ]; then
     # Work that landed in another shape, a resolved conflict or a changed context, is the owner's
     # word against git's: --landed takes it, and only for an issue somebody closed.
@@ -166,19 +171,19 @@ commits="$(git -C "$main" log "origin/$default" -E --grep="(^|[^A-Za-z0-9._/-])$
 [ -n "$commits" ] \
   || die "no commit on origin/$default names $ref, so the card stays and the issue is not told; a commit that touches an issue names it"
 
-# The issue's branches on origin. One whose every commit is on origin's default branch holds nothing
-# the default branch lacks, so it is deleted. Ancestry decides here, not
-# git cherry: a branch whose change landed in another shape still holds its own commits.
+# The issue's branches on origin. One whose every commit's change is on origin's default branch holds
+# nothing the default branch lacks, so it is deleted; a repository that lands by rebase never makes
+# the branch an ancestor. A commit reshaped on landing is no identical change, so its branch stays.
 held="$(git -C "$main" worktree list --porcelain | sed -n 's#^branch refs/heads/##p')"
 for branch in $(git -C "$main" for-each-ref --format='%(refname:strip=3)' "refs/remotes/origin/issue-$number" "refs/remotes/origin/issue-$number-*"); do
   if grep -qxF "$branch" <<< "$held"; then
     echo "the branch $branch on origin stays: a worktree has it checked out"
-  elif ! git -C "$main" merge-base --is-ancestor "origin/$branch" "origin/$default"; then
-    echo "the branch $branch on origin stays: it has commits origin/$default does not have"
+  elif [ -n "$(unlanded "refs/remotes/origin/$branch")" ]; then
+    echo "the branch $branch on origin stays: it has commits whose change is not on origin/$default"
   else
     # The lease deletes only the tip that was measured: a commit pushed since the fetch fails the push
     if git -C "$main" push -q origin --force-with-lease="refs/heads/$branch:$(git -C "$main" rev-parse "origin/$branch")" --delete "$branch"; then
-      echo "the branch $branch on origin deleted: every commit of it is on origin/$default"
+      echo "the branch $branch on origin deleted: the change of every commit of it is on origin/$default"
     else
       echo "the branch $branch on origin could not be deleted and stays (see above)"
     fi

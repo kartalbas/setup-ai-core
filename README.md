@@ -545,7 +545,7 @@ every checkout at the next session without running `init` again.
 
 | Agent | Reads at start | Mechanically active |
 | :--- | :--- | :--- |
-| Claude Code | `AGENTS.md` of the directory it starts in and of every directory above it, with the files each imports after `@` (the rules, the local rules, the skills file), and a repository's `AGENTS.md` once it works there; where a `CLAUDE.md` exists, that file and the `CLAUDE.local.md` that imports `AGENTS.md`; `.claude/settings.json`, `.claude/skills/` | the `SessionStart` hook `ai-core session-start --tool claude`, which switches the team modes on; the status line `ai-core statusline`; permissions from the harness |
+| Claude Code | `AGENTS.md` of the directory it starts in and of every directory above it, with the files each imports after `@` (the rules, the local rules, the skills file), and a repository's `AGENTS.md` once it works there; where a `CLAUDE.md` exists, that file and the `CLAUDE.local.md` that imports `AGENTS.md`; `.claude/settings.json`, `.claude/skills/` | the `SessionStart` hook `ai-core session-start --tool claude`, which switches the team modes on; the `PermissionRequest` hook `ai-core permission-request`, which denies a prompt nobody would answer in a background session; the status line `ai-core statusline`; permissions from the harness |
 | OpenAI Codex | `AGENTS.override.md`, else `AGENTS.md`, from the repository root down to the working directory, concatenated, raw (no `@` import) and up to `project_doc_max_bytes`: `init` writes the override where Codex is served, with what Claude Code loads there written out (the project folder's `AGENTS.md`, this one, every file either names after `@`), and raises `project_doc_max_bytes` in Codex's user config to 262144 where it is lower; `~/.codex/AGENTS.md` for the user; `.agents/skills/` in the repository and `~/.agents/skills/`; MCP servers from `.codex/config.toml` in the repository (read once the project is trusted) and from `~/.codex/config.toml` | skills; MCP from `.codex/config.toml`, not from `.mcp.json` |
 | OpenCode | the nearest `AGENTS.md`, without its `@` imports, and the files `opencode.json` names under `instructions`: the rules, the skills file and the local rules | nothing beyond its own defaults, which already refuse reading `.env` |
 | Zed, Aider | `AGENTS.md` | nothing; text only |
@@ -570,10 +570,13 @@ tools work; the harness gives them the text at the place they look.
   outranks every other section.`, `lite`, and that rule. The transcript,
   `~/.claude/projects/<project>/<session>.jsonl`, shows what each `SessionStart` hook delivered; an
   output marked `Output too large` reached the agent only as a 2 KB preview.
-- `.claude/settings.json` is created once with the `SessionStart` hook, the status line
+- `.claude/settings.json` is created once with the `SessionStart` hook, the `PermissionRequest`
+  hook `ai-core permission-request`, which answers a permission prompt in a background session
+  (`CLAUDE_JOB_DIR` set) with a deny and a message that names the call and the ways that need no
+  prompt, because nobody sits at that terminal and the prompt would wait for good, the status line
   `ai-core statusline`, which records the account's usage windows for `ai-core usage` (section 6),
   and the permission `Bash(ai-core:*)`, so an agent runs the harness commands without a prompt.
-  The hook and the status line name `ai-core` by its full path on this machine, so a Claude Code started from a terminal opened
+  The hooks and the status line name `ai-core` by its full path on this machine, so a Claude Code started from a terminal opened
   before the install still runs them; the file is the machine's and never committed. If your
   repository already has one, `init` keeps it, merges in the hook and the permission where they are
   missing, once, replaces an `ai-core` hook of an older form, and sets the status line to
@@ -914,6 +917,7 @@ a new script in `bin/` is a command without any registration.
 | `release` | `ai-core release <version>` (in a clone of setup-ai-core, section 10) | 0 tagged and pushed; 1 refused, naming what is missing; 2 a wrong argument |
 | `pre-push` | `ai-core pre-push [--install [--all <folder>]]` (section 4.12) | 0 nothing refused the push, or the shim written; 1 refused, or a repository under `--all` is none; 2 a wrong argument |
 | `usage` | `ai-core usage [--stop-at N]` | 0 every window below N; 3 a window at N or more; 2 nothing recorded yet, or a wrong argument. Prints the account's usage windows (five hours, week) as the status line last recorded them, each with its reset time, against the limit N: `--stop-at`, else `USAGE_STOP_AT` of the project's `config.env`, else 92; a window whose reset has passed counts as reset. One model's own weekly quota is not among them |
+| `permission-request` | the `PermissionRequest` hook `init` writes into `.claude/settings.json` | in a background session (`CLAUDE_JOB_DIR` set), answers the permission prompt Claude Code is about to show with a deny and a message naming the call, so the session goes on instead of waiting for nobody; elsewhere it prints nothing and the prompt is shown |
 | `statusline` | the status line command `init` writes into `.claude/settings.json` | records the usage windows Claude Code hands it in `~/.ai-core/usage.json` and, at most once a minute, a line of them in `~/.ai-core/usage.log`, then shows a short line of the model and the windows |
 | the board and issue commands | `ai-core issue-new ...`, `ai-core start-issue N`, ... (section 8) | 0 done; 1 refused or gh refused; 2 a wrong argument |
 | `doctor` | `ai-core doctor [--no-install]` | 0 every required tool present and gh logged in; 1 otherwise, each problem with its instruction |

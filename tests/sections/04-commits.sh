@@ -10,7 +10,7 @@ for t in repo wt; do
   mkdir -p "$WORK/$t/.ai-core" "$WORK/$t/.claude"
   printf 'UPDATE_CHECK="never"\n' > "$WORK/$t/.ai-core/config.env"
   printf '{"permissions":{"allow":["Bash(x)"]},"autoCompactWindow":500000}\n' > "$WORK/$t/.claude/settings.json"   # a settings.json from before the hook, with a compact window init takes out
-  [ "$t" = "repo" ] && printf '{"permissions":{"allow":["Bash(x)"],"deny":["Bash(rm -rf:*)"]},"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"ai-core session-start --tool claude","timeout":60},{"type":"command","command":"echo other"}]}]}}\n' > "$WORK/$t/.claude/settings.json"   # one with the hook of before 1.3.21 and a hook of somebody else's
+  [ "$t" = "repo" ] && printf '{"permissions":{"allow":["Bash(x)"],"deny":["Bash(rm -rf:*)"]},"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"ai-core session-start --tool claude","timeout":60},{"type":"command","command":"echo other"}]}],"PermissionRequest":[{"hooks":[{"type":"command","command":"ai-core permission-request","timeout":10},{"type":"command","command":"echo other-prompt"}]}]}}\n' > "$WORK/$t/.claude/settings.json"   # one with hooks of an older form and hooks of somebody else's
   for run in 1 2; do
     bash "$ROOT/bin/init.sh" "$WORK/$t" --no-doctor > "$WORK/$t-init.log" 2>&1 || fail "init.sh in $t (run $run)"
     if [ "$run" = 1 ]; then
@@ -34,6 +34,8 @@ for t in repo wt; do
   AI_CORE_CMD="$ROOT/bin/ai-core"
   jq -e --arg c "\"$AI_CORE_CMD\" session-start --tool claude" '([.hooks.SessionStart[].hooks[].command] - ["echo other"] == [$c]) and ((.permissions.allow | index("Bash(x)")) != null) and ((.permissions.allow | index("Bash(ai-core:*)")) != null) and ([.permissions.allow[] | select(. == "Bash(ai-core:*)")] | length == 1)' "$WORK/$t/.claude/settings.json" > /dev/null || fail "init.sh did not merge the session-start hook, by the full path of ai-core and once, and Bash(ai-core:*), once, into the settings.json $t had: $(tr -d '\n' < "$WORK/$t/.claude/settings.json")"
   [ "$t" = "repo" ] && { [ "$(jq '[.hooks.SessionStart[].hooks[].command] | index("echo other") != null' "$WORK/$t/.claude/settings.json")" = true ] || fail "init.sh took somebody else's hook out of the settings.json $t had"; }
+  jq -e --arg p "\"$AI_CORE_CMD\" permission-request" '[.hooks.PermissionRequest[].hooks[].command] - ["echo other-prompt"] == [$p]' "$WORK/$t/.claude/settings.json" > /dev/null || fail "init.sh did not merge the permission-request hook, by the full path of ai-core and once, into the settings.json $t had: $(jq -c '.hooks.PermissionRequest' "$WORK/$t/.claude/settings.json")"
+  [ "$t" = "repo" ] && { [ "$(jq '[.hooks.PermissionRequest[].hooks[].command] | index("echo other-prompt") != null' "$WORK/$t/.claude/settings.json")" = true ] || fail "init.sh took somebody else's permission-request hook out of the settings.json $t had"; }
   jq -e --slurpfile t "$ROOT/templates/.claude/settings.json" '(($t[0].permissions.deny - .permissions.deny) | length == 0) and ([.permissions.deny[] | select(. == "Read(**/.env)")] | length == 1)' "$WORK/$t/.claude/settings.json" > /dev/null || fail "init.sh did not merge the denials of the template, once, into the settings.json $t had: $(jq -c '.permissions.deny' "$WORK/$t/.claude/settings.json")"
   [ "$t" = "repo" ] && { [ "$(jq '.permissions.deny | index("Bash(rm -rf:*)") != null' "$WORK/$t/.claude/settings.json")" = true ] || fail "init.sh took the denial the settings.json of $t had out"; }
   # the context size is the coordinator's, per session; init sets none and takes an old one out
@@ -55,5 +57,5 @@ for t in repo wt; do
 done
 n="$(grep -c '^# setup-ai-core start' "$WORK/repo/.git/info/exclude")"
 [ "$n" = 1 ] || fail "exclude block written $n times by init.sh"
-echo "  git status empty in 2 targets, the checkouts' .gitignore committed by init with its trailer, the worktrees' left as their branch has it; exclude block written once each; the session-start hook merged into the settings.json each had, once; no compact window left in it; the status line set again where it was taken out or replaced"
+echo "  git status empty in 2 targets, the checkouts' .gitignore committed by init with its trailer, the worktrees' left as their branch has it; exclude block written once each; the session-start and permission-request hooks merged into the settings.json each had, once; no compact window left in it; the status line set again where it was taken out or replaced"
 exit 0

@@ -699,7 +699,11 @@ if [ -f "$root/.gitleaks.toml" ]; then
     || refuse "no gitleaks 8.19 or newer (the one with 'gitleaks git') is on this path, and $root/.gitleaks.toml says the commits being pushed are read for credentials. Run ai-core doctor in this repository, which installs it."
   while IFS= read -r scan_range; do
     [ -n "$scan_range" ] || continue
-    gitleaks git --no-banner --log-opts="$scan_range" "$root" \
+    # A merge shows no patch in git log unless asked to, and a credential that stands only in how a
+    # conflict was resolved would go out unread. The remerge diff (git 2.36 or newer) is what the
+    # merge's author wrote beyond git's own merge: nothing the remote carries already. --verbose
+    # names the commit, the file and the rule the refusal points at; --redact keeps the value out.
+    gitleaks git --no-banner --verbose --redact --log-opts="--diff-merges=remerge $scan_range" "$root" \
       || refuse 'a credential stands in a commit this push carries. The lines above name the commit, the file and the rule. Take it out of the history - a commit that is pushed cannot be recalled.'
   done <<< "$scan_ranges"
 fi

@@ -48,6 +48,9 @@ dialog: nobody sits at your terminal.
 
 - You touch files of this package's worktrees only. A file outside them is a question to the
   coordinator, not an edit.
+- You build it yourself, in your own tool. You start no other tool's command (agy, codex, claude)
+  and hand no part of the work to one, because each tool spends its own quota and only the owner
+  decides when one tool may use another.
 - No workaround, no shim, no skipped check, no `--no-verify`, no force push: an obstacle is reported.
 - Never a fabricated value, a faked success or a swallowed error. Where something cannot be
   guaranteed, the report says so.

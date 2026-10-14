@@ -74,11 +74,11 @@ agy	plan-check	normal-hard	gemini-4-argon-high	-
 agy	plan-check	high-risk	gemini-4-argon-high	-
 agy	build	mechanical	gemini-3.8-flash-high	-
 agy	build	normal-hard	gemini-3.8-flash-high	-
-agy	build	high-risk	claude-opus-5-5-high	-
+agy	build	high-risk	gemini-4-argon-high	-
 agy	review	mechanical	gemini-4-argon-high	-
 agy	review	normal-hard	gemini-4-argon-high	-
 agy	review	high-risk	gemini-4-argon-high	-
-agy	review-second	high-risk	claude-sonnet-5-5-high	-
+agy	review-second	high-risk	gemini-3.8-flash-high	-
 agy	ui-test	mechanical	gemini-3.8-flash-medium	-
 agy	ui-test	normal-hard	gemini-3.8-flash-high	-
 agy	ui-test	high-risk	gemini-3.8-flash-high	-

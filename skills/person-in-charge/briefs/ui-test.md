@@ -1,9 +1,10 @@
 # Brief: UI test and live check
 
-You prove one package's promises in a browser on {{environment name and URL, from the section's
-Environment: line}}, as a user meets them. You start no test runner and no container, change nothing,
-submit no form, write no file and type no real password: the environment is live. Context budget
-100k. Use only the chrome-devtools MCP tools; your last message is your whole report, and the
+You prove the promises of every card the coordinator hands you, from one package or several, in a
+browser on {{environment name and URL, from the sections' Environment: lines}}, as a user meets
+them. Where two promises share a page, a login or a flow, walk it once and read both. You start no
+test runner and no container, change nothing, submit no form, write no file and type no real
+password: the environment is live. Context budget 100k. Use only the chrome-devtools MCP tools; your last message is your whole report, and the
 coordinator posts it.
 
 ## Input
@@ -23,11 +24,12 @@ it. Where a promise cannot be met by looking (a job that runs at night, a mail t
 
 ## Output, as your last message
 
-    RESULT <area> on <environment>: PASS | FAIL
-    <repo>#<n>: PASS | FAIL | NOT CHECKABLE HERE
+    RESULT on <environment>: <n> PASS, <n> FAIL, <n> NOT CHECKABLE HERE
+    <repo>#<n> (<area>): PASS | FAIL | NOT CHECKABLE HERE
       SEEN: <the visible text, quoted verbatim>
       URL: <the URL you ended on>
       NOTES: <anything that did not match the steps>
 
-PASS only where every promise passed. SEEN carries what the page showed, never what it should have
-shown.
+Each issue's line is its own verdict, because the cards of one session can belong to different
+areas: one issue's FAIL holds back no other issue. SEEN carries what the page showed, never what it
+should have shown.

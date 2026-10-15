@@ -11,6 +11,8 @@ cut by file splits a contract and its two sides then release apart.
 
 - The area, as the coordinator names it: {{area}}
 - The issues: {{issues, each with its acceptance criteria and file:line facts}}
+- Where the area holds one ready issue, the ready issues of the areas that share its repositories,
+  each with its criteria and facts: {{neighbouring ready issues, or "none ready"}}
 - The clones of the project folder, by folder name, fetched by the coordinator: {{clone folder names}}
 - The partner folders that share contracts with this one, or none: {{partner folders}}
 - The open sections of other areas, with their repositories and the files their issues name:
@@ -39,7 +41,11 @@ cut by file splits a contract and its two sides then release apart.
    contracts goes into the one package, however many there are: each further package reads the same
    code and contracts again and pays its whole context. Split only where the build would not fit its
    context budget (300k, 250k in Codex): one section per part, named `<area>: <part>`, in landing
-   order.
+   order. A package holds at least two issues: where the area gives you one, the input holds the
+   ready issues of the areas that share its repositories, and you plan the one that shares the most
+   files with it into the same package. A package of one issue is cut only where that input is
+   empty, or the issue is a defect live on production that cannot wait; its `Issues:` line ends with
+   `(one issue: none ready beside it)` or `(one issue: live defect)`.
 6. Collect what the later phases need from the acceptance criteria: the verification command of each
    clone (its map, its `README` or its `scripts/`), the test and production environments the criteria
    name with their URLs, the demo account where a check needs one, and the clicks each promise takes.
@@ -58,7 +64,7 @@ cut by file splits a contract and its two sides then release apart.
     Innocent: <term> <clone> <file:line>, ... | none
     Partner: <folder> <clone> (producer | reader) | none
     After: <area> | none
-    Issues: <repo>#<n> <title>, ... (in landing order)
+    Issues: <repo>#<n> <title>, ... (in landing order) [(one issue: none ready beside it | live defect)]
     Verify: <clone>: <command>; ...
     Environment: test <URL>; production <URL>; demo account: <login or none>
     Checks: <repo>#<n>: <URL path>, <click>, <what to read>; ...

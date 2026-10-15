@@ -56,9 +56,11 @@
   decide what may leave the machine; the owner decides what counts as delivered. A card in testing
   is due for its proof once a release carries its work to the environment its acceptance criteria
   name: a UI test session proves it there, on the model the project's table names for that phase,
-  and the coordinator, in its next round, writes the proof on the issue, in a comment whose
-  first line is `Proven on <environment>:`; `ai-core status-sync` closes the card when that record
-  follows its landing and the release of the first environment of `LIVE_TAGS` carries its work.
+  together with every other card due on that environment, at least two where two are due, because
+  cards whose proofs share a page, a login or a flow pass with nearly the same steps; and the
+  coordinator, in its next round, writes the proof on the issue, in a comment whose first line is
+  `Proven on <environment>:`; `ai-core status-sync` closes the card when that record follows its
+  landing and the release of the first environment of `LIVE_TAGS` carries its work.
   [tool · review]
 - **A machine is never repaired by hand while the repository does not yet carry the repair.** Reading
   state and reproducing a failure on a machine stays allowed; leaving it changed does not, because

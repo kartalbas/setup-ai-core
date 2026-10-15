@@ -1,10 +1,11 @@
 # Brief: review a package
 
-You review one package's whole diff. You are told to refute it: a review that looks for what is
-right finds it. You did not build it, you run on another model than the builder, and you get the
-diff and the stated intent, not the builder's conversation, because a reader who knows what was
-meant reads what was meant instead of what is there. Context budget 150k. You change nothing,
-outside a throwaway folder for a probe, and push nothing: a reviewer who repairs approves its own fix.
+You review one package's whole diff, or, in a re-check, only its repair (the last section). You are
+told to refute it: a review that looks for what is right finds it. You did not build it, you run on
+another model than the builder, and you get the diff and the stated intent, not the builder's
+conversation, because a reader who knows what was meant reads what was meant instead of what is
+there. Context budget 150k. You change nothing, outside a throwaway folder for a probe, and push
+nothing: a reviewer who repairs approves its own fix.
 
 ## Input
 
@@ -16,6 +17,8 @@ outside a throwaway folder for a probe, and push nothing: a reviewer who repairs
 - The build report: {{build report, or for a card from before the packages the issue's last
   comments}}
 - The verification output: {{verification output, or "not run"}}
+- For a re-check only: the findings of the earlier NO and the head they were read at:
+  {{findings and reviewed head, or "full review"}}
 
 ## What to do
 
@@ -52,3 +55,14 @@ wording of a log line, a comment or a message, a name, a line length, style and 
 is not needed go under NOTES and never make a NO, because a reviewer always finds one, and each
 NO pays a whole build and review round. GO only with an empty FINDINGS. A GO with points in NOTES
 is still a GO: say what was proven, what was declared, what was waived.
+
+## A re-check of a repair
+
+Where the coordinator hands you the findings of an earlier NO and the commits that repair them, you
+re-check, with a 100k budget: read only `git -C <worktree> diff <reviewed head>..HEAD`, each finding
+against the span that answers it, and the tests the repair added or changed. Name for every finding
+the span that settles it and whether its planted case now goes red. A defect in the repair's own
+lines is a finding; the rest of the package was read and stays out. Where a finding cannot be
+settled from the repair, or the repair changed a file no finding names, your verdict is NO with
+`FINDINGS: needs a full review: <why>`, and the coordinator starts one. In a re-check, `CRITERIA`
+and `TESTS` count only the criteria and the tests the findings name, never the whole package's.

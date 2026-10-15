@@ -215,6 +215,25 @@ printf '%s\n\n# %s\n' "$(printf 'A%.0s' {1..72})" "$(printf 'B%.0s' {1..90})" > 
 check 'a subject of 72, a long comment line: exit 0' 0 "$rc"
 printf '%s\n%s\n\nbody\n' "$(printf 'A%.0s' {1..40})" "$(printf 'A%.0s' {1..40})" > "$msg"; judge_message
 check 'a subject over two lines, 81 as git reads it: exit 1' 1 "$rc"
+printf '#8 Check the admin cases\n\n%s\n' "$(printf 'B%.0s' {1..262})" > "$msg"; judge_message
+check 'a subject that starts with an issue number, a long body: exit 0' 0 "$rc"
+printf '#8 %s\n\n%s\n' "$(printf 'A%.0s' {1..70})" "$(printf 'B%.0s' {1..80})" > "$msg"; judge_message
+check 'that subject at 73 over a body of 80, too long either way: exit 1' 1 "$rc"
+check 'it quotes that subject'         yes "$(yesno 'the subject has 73 characters, at most 72 are allowed: #8 AAAA')"
+printf '#8 %s\n\nFix\n' "$(printf 'A%.0s' {1..70})" > "$msg"; judge_message
+check 'that subject over Fix, which an editor run records: exit 0, the push gate judges it' 0 "$rc"
+git -C "$repo" config core.commentChar ';'
+printf 'Fix\n; ------------------------ >8 ------------------------\n%s\n' "$(printf 'A%.0s' {1..73})" > "$msg"; judge_message
+check 'comment prefix ;, a long line below its scissors: exit 0, the push gate judges it' 0 "$rc"
+out="$( cd "$repo" && GIT_CONFIG=/dev/null bash "$root/bin/pre-push.sh" --message "$msg" 2>&1 )"; rc=$?
+check 'comment prefix ;, GIT_CONFIG pointing elsewhere: still exit 0' 0 "$rc"
+out="$( cd "$repo" && GIT_AUTHOR_NAME=Claude GIT_AUTHOR_EMAIL=noreply@anthropic.com bash "$root/bin/pre-push.sh" --message "$msg" 2>&1 )"; rc=$?
+check 'comment prefix ;, an assistant as author: still exit 1' 1 "$rc"
+git -C "$repo" config --unset core.commentChar
+git -C "$repo" config core.commentString '# extra'
+printf 'Fix\n# extra ------------------------ >8 ------------------------\n%s\n' "$(printf 'A%.0s' {1..73})" > "$msg"; judge_message
+check 'comment string "# extra", a long line below its scissors: exit 0' 0 "$rc"
+git -C "$repo" config --unset core.commentString
 printf 'Tune the reader #7\n\nCo-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>\n' > "$msg"; judge_message
 check 'an attribution: exit 1'         1 "$rc"
 check 'it says why'                    yes "$(yesno "an assistant's or a vendor's attribution")"

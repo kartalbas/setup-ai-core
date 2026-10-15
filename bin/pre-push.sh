@@ -104,13 +104,23 @@ ASSISTANT_IDENTITY_PATTERN='@(anthropic|openai)\.com>$|(claude|codex|copilot|cha
 if [ -n "$MESSAGE_FILE" ]; then
   git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 && exit 0
   [ -f "$MESSAGE_FILE" ] || { echo "error: there is no message file '$MESSAGE_FILE'" >&2; exit 2; }
-  # git commit -v puts the diff below a scissors line; the message ends there
+  # Git cleans the message after this hook and does not tell it how: an editor run strips the
+  # comment lines and cuts at the scissors line of -v, while -m and -F keep every line, a subject
+  # such as "#8 Fix" included. A fault is refused only where git records it either way; where the
+  # two cleanups differ, the push gate judges the subject each commit carries.
+  first_paragraph() { awk 'NF == 0 { exit } { printf "%s%s", (n++ ? " " : ""), $0 }'; }
   message="$(sed '/^# -* >8 -*$/,$d' "$MESSAGE_FILE" | git stripspace --strip-comments)"
-  # the subject as git reads it: the first paragraph, its lines joined by a space
-  subject="$(awk 'NF == 0 { exit } { printf "%s%s", (n++ ? " " : ""), $0 }' <<< "$message")"
+  subject="$(git stripspace < "$MESSAGE_FILE" | first_paragraph)"
+  stripped_subject="$(first_paragraph <<< "$message")"
   identities="$(for v in GIT_AUTHOR_IDENT GIT_COMMITTER_IDENT; do git var "$v" | sed 's/ [0-9]* [-+][0-9]*$//'; done)"
   faults=""
-  [ "${#subject}" -le 72 ] || faults="$faults
+  # Under a comment prefix other than "#" (core.commentChar, core.commentString, auto) the hook
+  # cannot tell what git strips or where it cuts, so the push gate alone judges the message.
+  # GIT_CONFIG redirects git config alone, never the cleanup of git commit, so it is dropped here.
+  if { env -u GIT_CONFIG git config --get-all core.commentChar; env -u GIT_CONFIG git config --get-all core.commentString; true; } | grep -qvx '#'; then
+    subject=""; stripped_subject=""; message=""
+  fi
+  [ "${#subject}" -le 72 ] || [ "${#stripped_subject}" -le 72 ] || faults="$faults
   the subject has ${#subject} characters, at most 72 are allowed: $subject
   Write it again as one sentence of at most 72 that says what changed."
   ! grep -qiE "$ATTRIBUTION_PATTERN" <<< "$message" || faults="$faults

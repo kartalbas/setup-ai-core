@@ -11,7 +11,7 @@ worktrees added; a plan, a plan check or a review from the first clone the area'
 the project folder added for the scan and the other clones for the diff.
 
     claude "Read <brief file> and do the phase it describes." --bg --name <name> --model <model> \
-      --effort <effort> --permission-mode auto --settings '{"autoCompactWindow":<budget>}' \
+      --effort <effort> --permission-mode auto --settings '{"autoCompactWindow":<window>}' \
       --add-dir <folder of the brief file> --add-dir <folder> ...
 
 - The prompt comes first, because `--add-dir` takes a list and would read a prompt after it as one
@@ -20,10 +20,14 @@ the project folder added for the scan and the other clones for the diff.
 - `--bg` starts only where Claude Code trusts the git repository, and the trust of a folder does not
   cover the clones inside it. On "Workspace not trusted", collect every clone your packages need and
   ask the owner once to run `claude` in each; never start the session in another folder instead.
-- `<budget>` is the session's budget in tokens, `300000` for a `300k` name. Claude Code compacts the
-  conversation as it nears that window instead of near the model's full window, so the phase's
-  answers stay near its budget instead of growing toward the full window. A report that says it
-  needed more is a GAP for the next plan.
+- `<window>` is the session's budget plus 100000, in tokens: `400000` for a `300k` name, `200000`
+  for a `100k` name. A session carries its base context before its first word (the system prompt,
+  the rules, the skills and the maps, about 70k in a project folder whose rules load at start), and
+  the budget is the room for the phase's own work above it. A window of the budget alone leaves a
+  100k session about 30k: every compaction frees almost nothing, and Claude Code stops it with
+  "Autocompact is thrashing". Claude Code compacts the conversation as it nears the window instead
+  of near the model's full window, so the phase's answers stay near its base and budget instead of
+  growing toward the full window. A report that says it needed more is a GAP for the next plan.
 - You run with a 400k window yourself: the owner starts you with
   `--settings '{"autoCompactWindow":400000}'`. A coordinator started without it compacts only near
   its model's full window, and every round re-reads all of it; ask the owner for a restart with it.
@@ -33,7 +37,7 @@ the project folder added for the scan and the other clones for the diff.
   issues:
 
       claude -p "$(cat <brief file>)" --model <model> --effort <effort> --permission-prompts none \
-        --settings '{"autoCompactWindow":100000}' --strict-mcp-config --no-session-persistence \
+        --settings '{"autoCompactWindow":200000}' --strict-mcp-config --no-session-persistence \
         --output-format text \
         --mcp-config '{"mcpServers":{"chrome-devtools":{"command":"npx","args":["-y","chrome-devtools-mcp@1.10.1","--executablePath","<path of Edge or Chrome>","--headless","--isolated","--viewport","1366x900"]}}}' \
         --allowedTools mcp__chrome-devtools > ~/.ai-core/sessions/<session name>.out

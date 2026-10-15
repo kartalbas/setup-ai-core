@@ -106,8 +106,8 @@ the next package of that area takes up first, so the defect becomes a planted ca
 promise NOT CHECKABLE HERE gets `needs:owner` with the question where it is seen. Context budgets
 are the planner's cut sizes and part of the session name, 150k for plan, plan check and review, 300k
 for a build (250k in Codex, whose models hold 272k), 100k for a UI test and a re-check; in Claude
-Code the start sets each as the session's compact window (`references/claude.md`), elsewhere nothing
-enforces them, and a build report's `CONTEXT: needed more` line is a GAP for the next plan of that
+Code the start sets each, above the base context a session starts with, as its compact window
+(`references/claude.md`), elsewhere nothing enforces them, and a build report's `CONTEXT: needed more` line is a GAP for the next plan of that
 area.
 
 ## Starting a phase

@@ -25,9 +25,9 @@ the board and the branches, so a restart loses nothing (`briefs/coordinator.md`)
 3. Model and effort follow the package's **class**, read from `.ai-core/models.tsv` for your tool.
    The strongest model runs only where the class needs it.
 4. **One fresh session per phase**, ended with its phase and never given the next one. Each session
-   compacts at its budget where its tool's start can set that (Claude Code: `references/claude.md`);
-   in a tool without such a setting no option stops a session at its budget. The planner cuts
-   packages so that a phase fits it.
+   compacts once its own work fills its budget above its base context, where its tool's start can
+   set that (Claude Code: `references/claude.md`); in a tool without such a setting no option stops
+   a session at its budget. The planner cuts packages so that a phase fits it.
 5. A package is **released as one**: start check on the bundle that ships together, one release per
    repository in plan order, the test stage, the UI test, production.
 6. **No session waits for you** and no package waits for a session you could start: phases of
@@ -106,9 +106,9 @@ the next package of that area takes up first, so the defect becomes a planted ca
 promise NOT CHECKABLE HERE gets `needs:owner` with the question where it is seen. Context budgets
 are the planner's cut sizes and part of the session name, 150k for plan, plan check and review, 300k
 for a build (250k in Codex, whose models hold 272k), 100k for a UI test and a re-check; in Claude
-Code the start sets each as the session's compact window (`references/claude.md`), elsewhere nothing
-enforces them, and a build report's `CONTEXT: needed more` line is a GAP for the next plan of that
-area.
+Code the start sets each, above the base context a session starts with, as its compact window
+(`references/claude.md`), elsewhere nothing enforces them, and a build report's `CONTEXT: needed
+more` line is a GAP for the next plan of that area.
 
 ## Starting a phase
 

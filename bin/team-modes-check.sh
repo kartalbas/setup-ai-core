@@ -89,7 +89,9 @@ probe() {  # probe <tool> <probe> -> 0 installed, 1 missing, 2 no probe
   case "$kind" in
     always) return 0 ;;
     none)   return 2 ;;
-    plugin) plugin_list "$tool" | grep -qi -- "$name" ;;
+    # grep reads the list to its end: with -q it would stop at the first match, the tool would die
+    # of SIGPIPE on a long list, and pipefail would report the mode missing
+    plugin) plugin_list "$tool" | grep -i -- "$name" >/dev/null ;;
     # the four folders in the shell itself: read from a pipe, the loop returned at the first
     # folder while the writer still wrote, and bash printed a broken pipe
     skill)  for d in "$HOME/.$tool/skills/$name" "./.$tool/skills/$name" "$HOME/.agents/skills/$name" "./.agents/skills/$name"; do [ -d "$d" ] && return 0; done; return 1 ;;

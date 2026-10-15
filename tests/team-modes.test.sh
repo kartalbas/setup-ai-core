@@ -168,6 +168,23 @@ check 'and says what is missing' yes "$(grep -q '^--tool needs a value' <<< "$ou
 out="$(bash "$root/bin/team-modes-install.sh" --tool 2>&1)"; code=$?
 check 'the installer exits 2' 2 "$code"
 
+echo 'a plugin list of megabytes, the plugins at its top: both found, every time'
+cat > "$fake/codex" <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+  "plugin list") printf 'PLUGIN  STATUS\nponytail@ponytail  installed, enabled\ni-have-adhd@i-have-adhd  installed, enabled\n'
+                 # a real tool that loses its reader ends non-zero; the fake ends as its writer did
+                 awk 'BEGIN { for (i = 0; i < 100000; i++) printf "offered-%d@market  available\n", i }'; exit \$? ;;
+esac
+exit 0
+EOF
+found=0
+for i in 1 2 3; do
+  out="$(run_check --tool codex)"
+  grep -q '^ok .*codex ponytail' <<< "$out" && grep -q '^ok .*codex i-have-adhd' <<< "$out" && found=$((found + 1))
+done
+check 'found in 3 of 3 runs' 3 "$found"
+
 echo 'session-start refuses before printing anything when a mode is missing'
 out="$(cd "$root" && bash "$root/bin/session-start.sh" --tool claude 2>&1)"; code=$?
 check 'exit 1'                     1 "$code"

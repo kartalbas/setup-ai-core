@@ -114,6 +114,11 @@ if [ -n "$MESSAGE_FILE" ]; then
   stripped_subject="$(first_paragraph <<< "$message")"
   identities="$(for v in GIT_AUTHOR_IDENT GIT_COMMITTER_IDENT; do git var "$v" | sed 's/ [0-9]* [-+][0-9]*$//'; done)"
   faults=""
+  # Under a comment prefix other than "#" (core.commentChar, core.commentString, auto) the hook
+  # cannot tell what git strips or where it cuts, so the push gate alone judges the message.
+  if [ -n "$(git config --get-regexp '^core\.comment(char|string)$' | awk '$2 != "#"')" ]; then
+    subject=""; stripped_subject=""; message=""
+  fi
   [ "${#subject}" -le 72 ] || [ "${#stripped_subject}" -le 72 ] || faults="$faults
   the subject has ${#subject} characters, at most 72 are allowed: $subject
   Write it again as one sentence of at most 72 that says what changed."

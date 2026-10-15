@@ -223,10 +223,10 @@ check 'it quotes that subject'         yes "$(yesno 'the subject has 73 characte
 printf '#8 %s\n\nFix\n' "$(printf 'A%.0s' {1..70})" > "$msg"; judge_message
 check 'that subject over Fix, which an editor run records: exit 0, the push gate judges it' 0 "$rc"
 git -C "$repo" config core.commentChar ';'
-printf '# %s\n\n%s\n' "$(printf 'A%.0s' {1..71})" "$(printf 'B%.0s' {1..80})" > "$msg"; judge_message
-check 'comment prefix ;, a subject that starts with # at 73: exit 1' 1 "$rc"
-printf '; note\n\n%s\n; more\n' "$(printf 'A%.0s' {1..73})" > "$msg"; judge_message
-check 'comment prefix ;, a short comment line above a subject of 73: exit 0' 0 "$rc"
+printf 'Fix\n; ------------------------ >8 ------------------------\n%s\n' "$(printf 'A%.0s' {1..73})" > "$msg"; judge_message
+check 'comment prefix ;, a long line below its scissors: exit 0, the push gate judges it' 0 "$rc"
+out="$( cd "$repo" && GIT_AUTHOR_NAME=Claude GIT_AUTHOR_EMAIL=noreply@anthropic.com bash "$root/bin/pre-push.sh" --message "$msg" 2>&1 )"; rc=$?
+check 'comment prefix ;, an assistant as author: still exit 1' 1 "$rc"
 git -C "$repo" config --unset core.commentChar
 printf 'Tune the reader #7\n\nCo-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>\n' > "$msg"; judge_message
 check 'an attribution: exit 1'         1 "$rc"

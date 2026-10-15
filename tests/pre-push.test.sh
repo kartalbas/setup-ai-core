@@ -225,6 +225,8 @@ check 'that subject over Fix, which an editor run records: exit 0, the push gate
 git -C "$repo" config core.commentChar ';'
 printf 'Fix\n; ------------------------ >8 ------------------------\n%s\n' "$(printf 'A%.0s' {1..73})" > "$msg"; judge_message
 check 'comment prefix ;, a long line below its scissors: exit 0, the push gate judges it' 0 "$rc"
+out="$( cd "$repo" && GIT_CONFIG=/dev/null bash "$root/bin/pre-push.sh" --message "$msg" 2>&1 )"; rc=$?
+check 'comment prefix ;, GIT_CONFIG pointing elsewhere: still exit 0' 0 "$rc"
 out="$( cd "$repo" && GIT_AUTHOR_NAME=Claude GIT_AUTHOR_EMAIL=noreply@anthropic.com bash "$root/bin/pre-push.sh" --message "$msg" 2>&1 )"; rc=$?
 check 'comment prefix ;, an assistant as author: still exit 1' 1 "$rc"
 git -C "$repo" config --unset core.commentChar

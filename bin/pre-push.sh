@@ -116,7 +116,8 @@ if [ -n "$MESSAGE_FILE" ]; then
   faults=""
   # Under a comment prefix other than "#" (core.commentChar, core.commentString, auto) the hook
   # cannot tell what git strips or where it cuts, so the push gate alone judges the message.
-  if { git config --get-all core.commentChar; git config --get-all core.commentString; true; } | grep -qvx '#'; then
+  # GIT_CONFIG redirects git config alone, never the cleanup of git commit, so it is dropped here.
+  if { env -u GIT_CONFIG git config --get-all core.commentChar; env -u GIT_CONFIG git config --get-all core.commentString; true; } | grep -qvx '#'; then
     subject=""; stripped_subject=""; message=""
   fi
   [ "${#subject}" -le 72 ] || [ "${#stripped_subject}" -le 72 ] || faults="$faults

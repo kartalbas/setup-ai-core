@@ -215,6 +215,11 @@ printf '%s\n\n# %s\n' "$(printf 'A%.0s' {1..72})" "$(printf 'B%.0s' {1..90})" > 
 check 'a subject of 72, a long comment line: exit 0' 0 "$rc"
 printf '%s\n%s\n\nbody\n' "$(printf 'A%.0s' {1..40})" "$(printf 'A%.0s' {1..40})" > "$msg"; judge_message
 check 'a subject over two lines, 81 as git reads it: exit 1' 1 "$rc"
+printf '#8 Check the admin cases\n\n%s\n' "$(printf 'B%.0s' {1..262})" > "$msg"; judge_message
+check 'a subject that starts with an issue number, a long body: exit 0' 0 "$rc"
+printf '#8 %s\n\nbody\n#\n#\tmodified:   a.sh\n' "$(printf 'A%.0s' {1..70})" > "$msg"; judge_message
+check 'that subject at 73: exit 1'     1 "$rc"
+check 'it quotes that subject'         yes "$(yesno 'the subject has 73 characters, at most 72 are allowed: #8 AAAA')"
 printf 'Tune the reader #7\n\nCo-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>\n' > "$msg"; judge_message
 check 'an attribution: exit 1'         1 "$rc"
 check 'it says why'                    yes "$(yesno "an assistant's or a vendor's attribution")"

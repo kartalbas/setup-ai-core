@@ -104,24 +104,17 @@ ASSISTANT_IDENTITY_PATTERN='@(anthropic|openai)\.com>$|(claude|codex|copilot|cha
 if [ -n "$MESSAGE_FILE" ]; then
   git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 && exit 0
   [ -f "$MESSAGE_FILE" ] || { echo "error: there is no message file '$MESSAGE_FILE'" >&2; exit 2; }
-  # Git cleans the message after this hook and does not say how. An editor run leaves git's own
-  # comment lines in the file, the comment prefix alone or followed by a blank, and strips every
-  # comment line afterwards, cutting at the scissors line of -v. -m and -F leave no such line and
-  # keep every line, a subject such as "#8 Fix" included.
-  comment="$(git config core.commentString || git config core.commentChar || echo '#')"
-  [ "$comment" != auto ] || comment='#'
-  if awk -v c="$comment" 'index($0, c) == 1 && (length($0) == length(c) || substr($0, length(c) + 1, 1) ~ /[ \t]/) { found = 1 }
-                          END { exit !found }' "$MESSAGE_FILE"; then
-    message="$(awk -v s="$comment ------------------------ >8 ------------------------" '$0 == s { exit } { print }' "$MESSAGE_FILE" \
-      | git stripspace --strip-comments)"
-  else
-    message="$(git stripspace < "$MESSAGE_FILE")"
-  fi
-  # the subject as git reads it: the first paragraph, its lines joined by a space
-  subject="$(awk 'NF == 0 { exit } { printf "%s%s", (n++ ? " " : ""), $0 }' <<< "$message")"
+  # Git cleans the message after this hook and does not tell it how: an editor run strips the
+  # comment lines and cuts at the scissors line of -v, while -m and -F keep every line, a subject
+  # such as "#8 Fix" included. A fault is refused only where git records it either way; where the
+  # two cleanups differ, the push gate judges the subject each commit carries.
+  first_paragraph() { awk 'NF == 0 { exit } { printf "%s%s", (n++ ? " " : ""), $0 }'; }
+  message="$(sed '/^# -* >8 -*$/,$d' "$MESSAGE_FILE" | git stripspace --strip-comments)"
+  subject="$(git stripspace < "$MESSAGE_FILE" | first_paragraph)"
+  stripped_subject="$(first_paragraph <<< "$message")"
   identities="$(for v in GIT_AUTHOR_IDENT GIT_COMMITTER_IDENT; do git var "$v" | sed 's/ [0-9]* [-+][0-9]*$//'; done)"
   faults=""
-  [ "${#subject}" -le 72 ] || faults="$faults
+  [ "${#subject}" -le 72 ] || [ "${#stripped_subject}" -le 72 ] || faults="$faults
   the subject has ${#subject} characters, at most 72 are allowed: $subject
   Write it again as one sentence of at most 72 that says what changed."
   ! grep -qiE "$ATTRIBUTION_PATTERN" <<< "$message" || faults="$faults

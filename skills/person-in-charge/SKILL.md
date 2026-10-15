@@ -16,15 +16,18 @@ the board and the branches, so a restart loses nothing (`briefs/coordinator.md`)
 
 1. A package is an **area**: one capability as the user meets it, across every repository it touches.
    A package cut by file splits a contract, and the two sides then release apart. It holds at least
-   two issues wherever the area or an area sharing its repositories has a second ready one, because
-   every package pays its plan, its build context and its reviews once, whatever it carries.
+   two issues, because every package pays its plan, its build context and its reviews once, whatever
+   it carries: you hand the planner the area's ready issues and, where the area has one, the ready
+   issues of an area sharing its repositories. A package of one issue is cut only where neither holds
+   a second, or the issue is a defect live on production that cannot wait, and its section says which.
 2. A **contract scan** runs before the cut (`ai-core contract-scan`). Both sides of every contract an
    issue touches join the package; the additive side lands and releases first, the strict side after.
 3. Model and effort follow the package's **class**, read from `.ai-core/models.tsv` for your tool.
    The strongest model runs only where the class needs it.
 4. **One fresh session per phase**, ended with its phase and never given the next one. Each session
-   compacts at its budget, which its start sets where the tool can (`references/<tool>.md`); the
-   planner cuts packages so that a phase fits it.
+   compacts at its budget where its tool's start can set that (Claude Code: `references/claude.md`);
+   in a tool without such a setting no option stops a session at its budget. The planner cuts
+   packages so that a phase fits it.
 5. A package is **released as one**: start check on the bundle that ships together, one release per
    repository in plan order, the test stage, the UI test, production.
 6. **No session waits for you** and no package waits for a session you could start: phases of
@@ -74,9 +77,9 @@ finishes them, an issue in `todo` that one of them needs is built with it, and e
 | start check | you: `START_CHECK` of `.ai-core/config.env` on the package's worktrees after `git -C <worktree> pull -q --no-rebase origin <default>` in each, which merges what landed since without touching the reviewed commits, so the bundle is the one that will be released; a merge conflict goes back to build; exit 0; empty: waived, and your `LAND` comment says so; a failure goes back to build with its output as the findings, counted as a review NO | your `LAND <area>` comment on the plan issue | `review` |
 | land | you: `ai-core integrate-issue <first> --reviewed-by <reviewer>` per repository, then `ai-core finish-issue <n>` per issue; the additive side lands first, and the strict side lands only once a release to the test stage carries the additive side, so no default branch ever holds a strict side whose additive side is unreleased; before the strict side lands, the start check runs again on the bundle as it then stands, with its own LAND line | every card in `testing` | `testing` |
 | release to the test stage | you: one release per repository, additive side first, as the project's map or `README` says a release is cut; the additive side's repository first, then, after the strict side landed, the strict side's. A release tags the whole default branch, and because a strict side lands only after its additive side is released, every release is safe to cut | every repository tagged | `testing` |
-| UI test on the test stage | `briefs/ui-test.md` with the section's test URL | PASS, posted by you on each issue | `testing` |
+| UI test on the test stage | `briefs/ui-test.md` with the section's test URL, one session for every card due on that stage, at least two where two are due (`briefs/clearing.md`) | PASS, posted by you on each issue | `testing` |
 | release to production | you: the test-stage tags themselves, promoted in the order they were cut, with the project's command for production, because that order already kept every additive side ahead of its strict side | every repository tagged | `testing` |
-| live check on production | `briefs/ui-test.md` with the production URL | PASS; you write `Proven on <environment>:` on each issue, and `status-sync` closes the cards | `done`, by `status-sync` |
+| live check on production | `briefs/ui-test.md` with the production URL, bundled the same way | PASS; you write `Proven on <environment>:` on each issue, and `status-sync` closes the cards | `done`, by `status-sync` |
 
 Every phase you run yourself and every verdict a session posts is answered by one comment of yours
 on the plan issue, the package's log, which a restart reads:
@@ -90,8 +93,8 @@ whole again: one re-check (`briefs/review.md`, its section on a re-check) reads 
 commits against the named findings, at `high` effort with a 100k budget, on the model of the reader
 who raised the findings, or of the other reader where that model built the repair, or else as a
 review picks its model. Its NO with findings counts as a review NO. A finding it cannot settle from
-the repair, or a repair that changed files no finding names, goes to a full review again, which
-counts as no NO. Before every build, plan or review session, read the
+the repair, or a repair that changed files no finding names, goes to a full review again; the
+re-check's NO that only asks for that full review is not counted, and the full review's NO is. Before every build, plan or review session, read the
 package's newest PHASE line: after the second NO of either kind the next round runs with the findings
 as its acceptance criteria and your own recommendation, without asking the owner; after the fourth
 NO no further round starts, and the package stops: its issues get `needs:owner`, and your PHASE line
@@ -100,8 +103,8 @@ with the SEEN text as its acceptance criterion (`ai-core issue-new ... --found-i
 which the next package of that area takes up first, so the defect becomes a planted case of a check;
 a promise NOT CHECKABLE HERE gets `needs:owner` with the question where it is seen. Context budgets are the planner's cut sizes
 and part of the session name, 150k for plan, plan check and review, 300k for a build (250k in Codex,
-whose models hold 272k), 100k for a UI test and a re-check; the start sets each as the session's
-compact window where the tool can (`references/<tool>.md`), and a build report's
+whose models hold 272k), 100k for a UI test and a re-check; in Claude Code the start sets each as
+the session's compact window (`references/claude.md`), elsewhere nothing enforces them, and a build report's
 `CONTEXT: needed more` line is a GAP for the next plan of that area.
 
 ## Starting a phase
@@ -134,7 +137,7 @@ put to the owner. An issue a plan left out (`Left out:`) gets `incident:context`
 `backlog`. A question that is the owner's goes to the owner, its issues get `needs:owner`
 (`ai-core issue-label`) and keep their column. At the usage limit (`ai-core usage` exits 3, in
 a Claude Code or a Codex shell, each with its own windows; for agy a refusal for quota) every session finishes its step and reports, and you start
-nothing until the reset. You never stop because your context grew: the tool compacts you at your window
-(`references/<tool>.md`), and
+nothing until the reset. You never stop because your context grew: the tool compacts you (in Claude Code at the window
+the owner started you with, `references/claude.md`), and
 your state is on the tracker, where `briefs/coordinator.md` reads it again. When the owner asks for the state, build the page
 `briefs/coordinator.md` describes.

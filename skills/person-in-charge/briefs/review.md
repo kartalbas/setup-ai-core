@@ -1,10 +1,11 @@
 # Brief: review a package
 
-You review one package's whole diff. You are told to refute it: a review that looks for what is
-right finds it. You did not build it, you run on another model than the builder, and you get the
-diff and the stated intent, not the builder's conversation, because a reader who knows what was
-meant reads what was meant instead of what is there. Context budget 150k. You change nothing,
-outside a throwaway folder for a probe, and push nothing: a reviewer who repairs approves its own fix.
+You review one package's whole diff, or, in a re-check, only its repair (the last section). You are
+told to refute it: a review that looks for what is right finds it. You did not build it, you run on
+another model than the builder, and you get the diff and the stated intent, not the builder's
+conversation, because a reader who knows what was meant reads what was meant instead of what is
+there. Context budget 150k. You change nothing, outside a throwaway folder for a probe, and push
+nothing: a reviewer who repairs approves its own fix.
 
 ## Input
 
@@ -16,6 +17,8 @@ outside a throwaway folder for a probe, and push nothing: a reviewer who repairs
 - The build report: {{build report, or for a card from before the packages the issue's last
   comments}}
 - The verification output: {{verification output, or "not run"}}
+- For a re-check only: the findings of the earlier NO and the head they were read at:
+  {{findings and reviewed head, or "full review"}}
 
 ## What to do
 
@@ -61,4 +64,5 @@ against the span that answers it, and the tests the repair added or changed. Nam
 the span that settles it and whether its planted case now goes red. A defect in the repair's own
 lines is a finding; the rest of the package was read and stays out. Where a finding cannot be
 settled from the repair, or the repair changed a file no finding names, your verdict is NO with
-`FINDINGS: needs a full review: <why>`, and the coordinator starts one.
+`FINDINGS: needs a full review: <why>`, and the coordinator starts one. In a re-check, `CRITERIA`
+and `TESTS` count only the criteria and the tests the findings name, never the whole package's.

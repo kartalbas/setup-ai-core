@@ -1,7 +1,8 @@
 # Brief: UI test and live check
 
-You prove one package's promises in a browser on {{environment name and URL, from the section's
-Environment: line}}, as a user meets them. You start no test runner and no container, change nothing,
+You prove the promises of every card the coordinator hands you, from one package or several, in a
+browser on {{environment name and URL, from the sections' Environment: lines}}, as a user meets
+them. Where two promises share a page, a login or a flow, walk it once and read both. You start no test runner and no container, change nothing,
 submit no form, write no file and type no real password: the environment is live. Context budget
 100k. Use only the chrome-devtools MCP tools; your last message is your whole report, and the
 coordinator posts it.

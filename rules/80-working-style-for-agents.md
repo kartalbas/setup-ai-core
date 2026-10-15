@@ -41,7 +41,8 @@
   model table (`.ai-core/models.tsv`), because the owner's start of the coordinator is the yes for
   them. A package is an area: one capability as the user meets it, across every repository it
   touches, with both sides of every contract an issue touches (`ai-core contract-scan` finds them),
-  of at most about 8 issues or 400 changed lines, split along the contracts above that: one
+  of at least two issues, where the area or an area sharing its repositories holds a second ready
+  one, and at most about 8 issues or 400 changed lines, split along the contracts above that: one
   worktree per repository, one commit per issue that names it, every issue's test case on the issue
   before the build ends, then one push gate run, one review of the whole package diff with its
   findings per issue, one integration and one release per repository with the additive side first,
@@ -73,7 +74,9 @@
   security, payments and contract work are never moved to a cheaper model to save money, and a
   `high-risk` review is read a second time by a model that neither built nor first reviewed it, the
   table's review-second row, or by the owner where the tool has none, because two
-  readers with the same habits share a blind spot.
+  readers with the same habits share a blind spot. The repair after a NO is re-checked by one
+  reader against the named findings, reading only the repair, because a whole package read again
+  for a few repaired lines costs a full review.
   A helper never builds, never gives the deciding review and never decides; its answer is a lead the
   session checks before it uses it. No task moves to another model, effort or tool because a quota
   ran out, because a fallback waters the result down from the bottom up: it waits. [review]

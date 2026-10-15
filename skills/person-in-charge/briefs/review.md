@@ -52,3 +52,13 @@ wording of a log line, a comment or a message, a name, a line length, style and 
 is not needed go under NOTES and never make a NO, because a reviewer always finds one, and each
 NO pays a whole build and review round. GO only with an empty FINDINGS. A GO with points in NOTES
 is still a GO: say what was proven, what was declared, what was waived.
+
+## A re-check of a repair
+
+Where the coordinator hands you the findings of an earlier NO and the commits that repair them, you
+re-check, with a 100k budget: read only `git -C <worktree> diff <reviewed head>..HEAD`, each finding
+against the span that answers it, and the tests the repair added or changed. Name for every finding
+the span that settles it and whether its planted case now goes red. A defect in the repair's own
+lines is a finding; the rest of the package was read and stays out. Where a finding cannot be
+settled from the repair, or the repair changed a file no finding names, your verdict is NO with
+`FINDINGS: needs a full review: <why>`, and the coordinator starts one.

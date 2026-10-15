@@ -39,7 +39,10 @@ cut by file splits a contract and its two sides then release apart.
    contracts goes into the one package, however many there are: each further package reads the same
    code and contracts again and pays its whole context. Split only where the build would not fit its
    context budget (300k, 250k in Codex): one section per part, named `<area>: <part>`, in landing
-   order.
+   order. A package holds at least two issues: where the area gives you one, ask the coordinator
+   for a ready issue of an area that shares its repositories, and plan both. A package of one issue
+   is cut only where no such issue is ready, or the issue is a defect live on production that cannot
+   wait; its `Issues:` line says which.
 6. Collect what the later phases need from the acceptance criteria: the verification command of each
    clone (its map, its `README` or its `scripts/`), the test and production environments the criteria
    name with their URLs, the demo account where a check needs one, and the clicks each promise takes.

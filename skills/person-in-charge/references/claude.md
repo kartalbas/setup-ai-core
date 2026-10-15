@@ -11,7 +11,8 @@ worktrees added; a plan, a plan check or a review from the first clone the area'
 the project folder added for the scan and the other clones for the diff.
 
     claude "Read <brief file> and do the phase it describes." --bg --name <name> --model <model> \
-      --effort <effort> --permission-mode auto --add-dir <folder of the brief file> --add-dir <folder> ...
+      --effort <effort> --permission-mode auto --settings '{"autoCompactWindow":<budget>}' \
+      --add-dir <folder of the brief file> --add-dir <folder> ...
 
 - The prompt comes first, because `--add-dir` takes a list and would read a prompt after it as one
   more folder: the session would start with no input and stand idle. The prompt is one sentence that
@@ -19,8 +20,12 @@ the project folder added for the scan and the other clones for the diff.
 - `--bg` starts only where Claude Code trusts the git repository, and the trust of a folder does not
   cover the clones inside it. On "Workspace not trusted", collect every clone your packages need and
   ask the owner once to run `claude` in each; never start the session in another folder instead.
-- No option stops a session at its context budget; the budget is the planner's cut and the name's
-  promise, and a report that says it needed more is a GAP for the next plan.
+- `<budget>` is the session's budget in tokens, `300000` for a `300k` name. Claude Code compacts the
+  conversation as it nears that window instead of near the model's full window, so no answer of the
+  phase re-reads more than its budget. A report that says it needed more is a GAP for the next plan.
+- You run with a 400k window yourself: the owner starts you with
+  `--settings '{"autoCompactWindow":400000}'`. A coordinator started without it compacts only near
+  its model's full window, and every round re-reads all of it; ask the owner for a restart with it.
 - A UI test session gets the isolated browser and nothing else, as one `-p` run from an empty
   throwaway directory, its output into `~/.ai-core/sessions/<session name>.out`, because its last
   message is its report, `--no-session-persistence` keeps nothing, and you post the report on the

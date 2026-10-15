@@ -15,13 +15,16 @@ the board and the branches, so a restart loses nothing (`briefs/coordinator.md`)
 ## The six principles, and why
 
 1. A package is an **area**: one capability as the user meets it, across every repository it touches.
-   A package cut by file splits a contract, and the two sides then release apart.
+   A package cut by file splits a contract, and the two sides then release apart. It holds at least
+   two issues wherever the area or an area sharing its repositories has a second ready one, because
+   every package pays its plan, its build context and its reviews once, whatever it carries.
 2. A **contract scan** runs before the cut (`ai-core contract-scan`). Both sides of every contract an
    issue touches join the package; the additive side lands and releases first, the strict side after.
 3. Model and effort follow the package's **class**, read from `.ai-core/models.tsv` for your tool.
    The strongest model runs only where the class needs it.
-4. **One fresh session per phase**, ended with its phase and never given the next one. The tool may
-   compact a long session on its own; the planner cuts packages so that a phase fits its budget.
+4. **One fresh session per phase**, ended with its phase and never given the next one. Each session
+   compacts at its budget, which its start sets where the tool can (`references/<tool>.md`); the
+   planner cuts packages so that a phase fits it.
 5. A package is **released as one**: start check on the bundle that ships together, one release per
    repository in plan order, the test stage, the UI test, production.
 6. **No session waits for you** and no package waits for a session you could start: phases of
@@ -82,7 +85,13 @@ on the plan issue, the package's log, which a restart reads:
     LAND <area>: start check <command> exit 0 | waived, START_CHECK empty; landed <repo> <merge sha>, ...
 
 A review that says NO starts a fresh build session with its findings; a plan check that says NO
-starts a fresh plan session with its GAPS. Before every build, plan or review session, read the
+starts a fresh plan session with its GAPS. The repair a build makes after a review NO is not reviewed
+whole again: one re-check (`briefs/review.md`, its section on a re-check) reads only the repair's
+commits against the named findings, at `high` effort with a 100k budget, on the model of the reader
+who raised the findings, or of the other reader where that model built the repair, or else as a
+review picks its model. Its NO with findings counts as a review NO. A finding it cannot settle from
+the repair, or a repair that changed files no finding names, goes to a full review again, which
+counts as no NO. Before every build, plan or review session, read the
 package's newest PHASE line: after the second NO of either kind the next round runs with the findings
 as its acceptance criteria and your own recommendation, without asking the owner; after the fourth
 NO no further round starts, and the package stops: its issues get `needs:owner`, and your PHASE line
@@ -91,7 +100,8 @@ with the SEEN text as its acceptance criterion (`ai-core issue-new ... --found-i
 which the next package of that area takes up first, so the defect becomes a planted case of a check;
 a promise NOT CHECKABLE HERE gets `needs:owner` with the question where it is seen. Context budgets are the planner's cut sizes
 and part of the session name, 150k for plan, plan check and review, 300k for a build (250k in Codex,
-whose models hold 272k), 100k for a UI test; no tool stops a session at them, and a build report's
+whose models hold 272k), 100k for a UI test and a re-check; the start sets each as the session's
+compact window where the tool can (`references/<tool>.md`), and a build report's
 `CONTEXT: needed more` line is a GAP for the next plan of that area.
 
 ## Starting a phase
@@ -124,6 +134,7 @@ put to the owner. An issue a plan left out (`Left out:`) gets `incident:context`
 `backlog`. A question that is the owner's goes to the owner, its issues get `needs:owner`
 (`ai-core issue-label`) and keep their column. At the usage limit (`ai-core usage` exits 3, in
 a Claude Code or a Codex shell, each with its own windows; for agy a refusal for quota) every session finishes its step and reports, and you start
-nothing until the reset. You never stop because your context grew: the tool compacts you, and
+nothing until the reset. You never stop because your context grew: the tool compacts you at your window
+(`references/<tool>.md`), and
 your state is on the tracker, where `briefs/coordinator.md` reads it again. When the owner asks for the state, build the page
 `briefs/coordinator.md` describes.

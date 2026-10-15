@@ -56,8 +56,8 @@ lines are counted like a package's.
 
 A round takes every card it can move, however many: the TESTING 🔴 first, then `implementing`, then
 the rest of `testing`. Group the cards whose work shares a release: one release carries them all.
-Group the cards due on the same environment the same way: one UI test session proves them all, at
-least two where two are due, because proofs that share a page, a login or a flow take nearly the
+Group the cards due on the same environment the same way: one UI test session proves as many as
+its 100k budget holds, at least two where two are due, because proofs that share a page, a login or a flow take nearly the
 same steps, and every session pays its browser and its context once.
 
 ## Output, after every round, as a comment on the plan issue

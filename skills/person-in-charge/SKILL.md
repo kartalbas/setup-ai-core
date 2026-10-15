@@ -88,24 +88,27 @@ on the plan issue, the package's log, which a restart reads:
     LAND <area>: start check <command> exit 0 | waived, START_CHECK empty; landed <repo> <merge sha>, ...
 
 A review that says NO starts a fresh build session with its findings; a plan check that says NO
-starts a fresh plan session with its GAPS. The repair a build makes after a review NO is not reviewed
-whole again: one re-check (`briefs/review.md`, its section on a re-check) reads only the repair's
-commits against the named findings, at `high` effort with a 100k budget, on the model of the reader
-who raised the findings, or of the other reader where that model built the repair, or else as a
-review picks its model. Its NO with findings counts as a review NO. A finding it cannot settle from
-the repair, or a repair that changed files no finding names, goes to a full review again; the
-re-check's NO that only asks for that full review is not counted, and the full review's NO is. Before every build, plan or review session, read the
-package's newest PHASE line: after the second NO of either kind the next round runs with the findings
-as its acceptance criteria and your own recommendation, without asking the owner; after the fourth
-NO no further round starts, and the package stops: its issues get `needs:owner`, and your PHASE line
-says why, because four misses mean the plan was wrong, not the code. A UI test that says FAIL keeps the cards in `testing` and opens one `type:bug` issue of the area
-with the SEEN text as its acceptance criterion (`ai-core issue-new ... --found-in <plan issue>`),
-which the next package of that area takes up first, so the defect becomes a planted case of a check;
-a promise NOT CHECKABLE HERE gets `needs:owner` with the question where it is seen. Context budgets are the planner's cut sizes
-and part of the session name, 150k for plan, plan check and review, 300k for a build (250k in Codex,
-whose models hold 272k), 100k for a UI test and a re-check; in Claude Code the start sets each as
-the session's compact window (`references/claude.md`), elsewhere nothing enforces them, and a build report's
-`CONTEXT: needed more` line is a GAP for the next plan of that area.
+starts a fresh plan session with its GAPS. The repair a build makes after a review NO is not
+reviewed whole again: one re-check (`briefs/review.md`, its section on a re-check) reads only the
+repair's commits against the named findings, at `high` effort with a 100k budget, on the model of
+the reader who raised the findings, or of the other reader where that model built the repair, or
+else as a review picks its model. Its NO with findings counts as a review NO. A finding it cannot
+settle from the repair, or a repair that changed files no finding names, goes to a full review
+again; the re-check's NO that only asks for that full review is not counted, and the full review's
+NO is. Before every build, plan or review session, read the package's newest PHASE line: after the
+second NO of either kind the next round runs with the findings as its acceptance criteria and your
+own recommendation, without asking the owner; after the fourth NO no further round starts, and the
+package stops: its issues get `needs:owner`, and your PHASE line says why, because four misses mean
+the plan was wrong, not the code. An issue whose line in a UI test says FAIL stays in `testing` and
+opens one `type:bug` issue of its area, while an issue that passed in the same session goes on, with
+the SEEN text as its acceptance criterion (`ai-core issue-new ... --found-in <plan issue>`), which
+the next package of that area takes up first, so the defect becomes a planted case of a check; a
+promise NOT CHECKABLE HERE gets `needs:owner` with the question where it is seen. Context budgets
+are the planner's cut sizes and part of the session name, 150k for plan, plan check and review, 300k
+for a build (250k in Codex, whose models hold 272k), 100k for a UI test and a re-check; in Claude
+Code the start sets each as the session's compact window (`references/claude.md`), elsewhere nothing
+enforces them, and a build report's `CONTEXT: needed more` line is a GAP for the next plan of that
+area.
 
 ## Starting a phase
 

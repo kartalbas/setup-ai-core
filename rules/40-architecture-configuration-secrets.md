@@ -8,10 +8,13 @@
   dependency is code the project updates, audits and trusts without having read it. [review]
 - **A change stays on its problem.** No reformatting of unrelated lines, no reordering, no incidental
   cleanup outside the change's reason. [review]
-- **Anything that differs between the environments that exist is configuration, on a named,
-  injected surface**, never a literal at the call site; a value no environment wants different is a
-  constant. A required setting has no default: when it is missing, start-up fails and names it.
-  [review]
+- **Anything that differs between the environments that exist, or that an operator may want to
+  change while the product runs (a retention, a schedule, a limit), is configuration, on a named,
+  injected surface**, never a literal at the call site; a value nobody will ever want different is a
+  constant. An operator's setting is edited where the product runs, takes effect at once without a
+  release or a restart, and carries the product's default; a deployment supplies at most its first
+  value and never overwrites a change. A required setting that only the deployment can know has no
+  default: when it is missing, start-up fails and names it. [review]
 - **A configuration change reaches every environment inventory that exists for the component**, not
   only the one being tested, and the deployed truth is read from those inventories, never assumed.
   [review]

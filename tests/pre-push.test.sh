@@ -228,6 +228,10 @@ check 'comment prefix ;, a long line below its scissors: exit 0, the push gate j
 out="$( cd "$repo" && GIT_AUTHOR_NAME=Claude GIT_AUTHOR_EMAIL=noreply@anthropic.com bash "$root/bin/pre-push.sh" --message "$msg" 2>&1 )"; rc=$?
 check 'comment prefix ;, an assistant as author: still exit 1' 1 "$rc"
 git -C "$repo" config --unset core.commentChar
+git -C "$repo" config core.commentString '# extra'
+printf 'Fix\n# extra ------------------------ >8 ------------------------\n%s\n' "$(printf 'A%.0s' {1..73})" > "$msg"; judge_message
+check 'comment string "# extra", a long line below its scissors: exit 0' 0 "$rc"
+git -C "$repo" config --unset core.commentString
 printf 'Tune the reader #7\n\nCo-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>\n' > "$msg"; judge_message
 check 'an attribution: exit 1'         1 "$rc"
 check 'it says why'                    yes "$(yesno "an assistant's or a vendor's attribution")"

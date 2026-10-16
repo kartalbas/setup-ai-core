@@ -25,11 +25,11 @@
 #         contracts outward, the push gate; outward means an interface somebody outside the
 #         project uses (a public API, a published package, a customer's data format), never a
 #         contract between the project's own repositories), normal-hard (everything else); *
-#         for every class.
+#         for every class. A tool without a plan row for a class does not take that class: such
+#         an issue goes back to the owner.
 # model   what the tool's --model takes (`claude --model`, `codex -m`, `agy --model`, as `agy models`
-#         lists it), or `agy:<model>` for a phase the owner moved to agy. agy runs Claude's models
-#         at high effort, never xhigh, so only a phase whose row may run at high moves there; a
-#         normal-hard build does, because its plan and its review stay on xhigh.
+#         lists it), or `agy:<model>` for a phase run on agy. agy runs at high effort, never
+#         xhigh. Only the owner moves a phase there.
 # effort  what the tool takes for it (`claude --effort`, `codex -c model_reasoning_effort=`); - where
 #         the model name carries it, as agy's names do.
 #

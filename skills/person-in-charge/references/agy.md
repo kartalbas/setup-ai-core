@@ -7,8 +7,9 @@ carry the effort, so no `--effort` is given. The brief is the filled file from `
 ## Measured
 
 On 2026-10-16 `agy -p "<prompt>" --model claude-sonnet-5-5-high --mode accept-edits --output-format
-json` ran shell commands with nobody to answer a prompt, wrote a file in its folder, and its JSON
-output carried `conversation_id`, `status` and `usage`.
+json` ran shell commands with nobody to answer a prompt, and its JSON output carried
+`conversation_id`. In a session name, the effort is the suffix of the model's name:
+`l10003-sonnet5.5-high-300k-afb89` for `claude-sonnet-5-5-high`.
 
 ## The coordinator itself
 
@@ -53,4 +54,4 @@ output into the session's file, and post its report on the issues yourself.
 - A finished session is done; nothing is kept. Its report is on the issue, its last message in its
   output file.
 - agy has no command the harness reads for its quota. A session refused for quota ends its phase;
-  every phase of this ecosystem waits until a call is answered again.
+  every package with a phase on agy waits until a call is answered again.

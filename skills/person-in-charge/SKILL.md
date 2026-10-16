@@ -124,7 +124,8 @@ more` line is a GAP for the next plan of that area.
    worktree paths and the verdicts. A brief with a placeholder left is not sent. Save the filled
    brief as `~/.ai-core/sessions/<session name>.brief.md`, the name step 4 gives; it is the session's
    whole world, and its name tells every later coordinator on the machine that the number ran.
-4. Start the session as `references/<tool>.md` says, named `l<n>-<model><version>-<effort>-<budget>k-<5
+4. Start the session as `references/<tool>.md` says, for a row that reads `agy:` as
+   `references/agy.md` says, named `l<n>-<model><version>-<effort>-<budget>k-<5
    hex>` (`l10003-sonnet5.5-xhigh-300k-afb89`), `<n>` the next number of your own block
    (`briefs/coordinator.md`), and post the PHASE line.
 5. Move the cards (`ai-core issue-status <n>... <column>`); `start-issue` and `finish-issue` move

@@ -31,10 +31,11 @@ the board and the branches, so a restart loses nothing (`briefs/coordinator.md`)
 5. A package is **released as one**: start check on the bundle that ships together, one release per
    repository in plan order, the test stage, the UI test, production.
 6. **No session waits for you** and no package waits for a session you could start. Packages that
-   share neither a file nor a contract run at the same time. Packages that share either take turns
-   in the order of their area's first section on the plan issue: the later one names the earlier in
-   its `After:` line and waits until it has landed. A phase never moves to another model, effort or tool because
-   a quota ran out, because a fallback waters the result down from the bottom up: its package waits.
+   share neither a file nor a contract run at the same time. Of packages that share either, read
+   from their sections' `Files:` and `Contracts:`, only one is between build and landing at a time:
+   of the ready ones, the one whose area's first section stands earliest on the plan issue starts,
+   and the next one is built on what it landed. A phase never moves to another model, effort or
+   tool because a quota ran out, because a fallback waters the result down from the bottom up: its package waits.
 
 ## Your tool is your ecosystem
 
@@ -137,10 +138,10 @@ more` line is a GAP for the next plan of that area.
 
 Wake yourself for it (`references/<tool>.md` says how). Read `ai-core status`. Answer every session
 it marks blocked and every report unanswered; end every session whose phase is done; start every
-phase that is due, across all packages, a blocker's first and before any new plan (a package whose
-area stands in another's `After:`, a side a partner waits for, a fault on a live environment); a
-package whose `After:` area has not landed, or whose `Waits for the owner:` is not answered, is not
-built. Read TESTING: prove the live cards, 🔴 first; TREES: land or
+phase that is due, across all packages, a blocker's first and before any new plan (a part another
+part names in its `After:`, a side a partner waits for, a fault on a live environment); a package
+whose `After:` part has not landed, that shares a file or a contract with a package between build
+and landing, or whose `Waits for the owner:` is not answered, is not built. Read TESTING: prove the live cards, 🔴 first; TREES: land or
 put to the owner. An issue a plan left out (`Left out:`) gets `incident:context` and goes to
 `backlog`. A session's question that the plan, the issues or the code answers, you answer yourself;
 only a decision the rules give the owner goes to the owner, the open ones of a round together in

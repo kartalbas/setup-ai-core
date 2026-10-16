@@ -60,8 +60,11 @@
   cards whose proofs share a page, a login or a flow pass with nearly the same steps; and the
   coordinator, in its next round, writes the proof on the issue, in a comment whose first line is
   `Proven on <environment>:`; `ai-core status-sync` closes the card when that record follows its
-  landing and the release of the first environment of `LIVE_TAGS` carries its work.
-  [tool · review]
+  landing and the release of the first environment of `LIVE_TAGS` carries its work. A test, on
+  any environment, reaches no real person. Every mail or message that a test sends, or makes the
+  product send, goes to the project's one test mailbox. Its address is one setting of the tests,
+  never a literal in a test case. Each test case adds its own name to the local part of that
+  address, so every mail names the test case that sent it. [tool · review]
 - **A machine is never repaired by hand while the repository does not yet carry the repair.** Reading
   state and reproducing a failure on a machine stays allowed; leaving it changed does not, because
   the hand that repairs destroys the state in which the fix could be proven. [discipline]

@@ -29,7 +29,10 @@
 # name, so its first tag is deploy/test/... beside deploy/prod/... and no release at all. A card
 # whose work landed in another repository is read in that repository's clone. A repository with no
 # clone here, in the checkout this runs in or beside it in the project folder, is named, and its
-# cards stay.
+# cards stay. A repository whose work is live once it lands, documentation read where it lands, a
+# template whose copies are released or a deployment that a run applies, has no release tag of its
+# own: its first environment of LIVE_TAGS says `landed` ("prod=landed"), and its landing on origin's
+# default branch is its release.
 #
 # THE CARDS ARE READ PER REPOSITORY: its open issues and their cards on this board, in one paged
 # query. start-issue and finish-issue run this for their own repository; read through the whole
@@ -143,8 +146,9 @@ release_tag_pattern() {  # <config.env>
 }
 
 # THE RELEASE OF ONE REPOSITORY, read once per run and kept for the next card that asks: sets
-# REL_CLONE (its clone, or empty), REL_REF (origin's default branch) and REL_TAG (the newest
-# release tag by date, or empty), and says once what it could not read. Called in this shell, never
+# REL_CLONE (its clone, or empty), REL_REF (origin's default branch), REL_TAG (the newest
+# release tag by date, or empty) and REL_LANDED (1 where LIVE_TAGS says `landed`, so the landing is
+# the release and no tag is read), and says once what it could not read. Called in this shell, never
 # as `$( )`, or what it keeps would end with the subshell.
 #
 # The pattern is LIVE_TAGS of the clone's own .ai-core/config.env: the project of that repository
@@ -159,11 +163,11 @@ release_of() {  # <owner/repo>
   local held said reason remote pattern t want odd=""
   held="$(printf '%s' "$_RELEASES" | awk -F'\t' -v r="$1" 'tolower($1) == tolower(r) { print; exit }')"
   if [ -n "$held" ]; then
-    IFS=$'\t' read -r _ REL_CLONE REL_REF REL_TAG <<< "$held"
+    IFS=$'\t' read -r _ REL_CLONE REL_REF REL_TAG REL_LANDED <<< "$held"
     [ "$REL_CLONE" != - ] || REL_CLONE=""; [ "$REL_REF" != - ] || REL_REF=""; [ "$REL_TAG" != - ] || REL_TAG=""
     return 0
   fi
-  REL_CLONE="$(clone_of "$1")"; REL_REF=""; REL_TAG=""
+  REL_CLONE="$(clone_of "$1")"; REL_REF=""; REL_TAG=""; REL_LANDED=0
   if [ -z "$REL_CLONE" ]; then
     echo "no clone of $1 in $(project_folder), so no release of it is read and its cards in testing stay"
   else
@@ -173,11 +177,13 @@ release_of() {  # <owner/repo>
       echo "fetching origin of $1 in $REL_CLONE failed: ${reason:-git gave no reason}; the refs it had are read"
     fi
     REL_REF="origin/$(cd "$REL_CLONE" && origin_default_branch)" || REL_REF=""
-    if remote="$(GIT_TERMINAL_PROMPT=0 git -C "$REL_CLONE" ls-remote --tags origin 2>/dev/null)"; then
+    pattern="$(release_tag_pattern "$REL_CLONE/.ai-core/config.env")"
+    if [ "$pattern" = landed ]; then
+      REL_LANDED=1
+    elif remote="$(GIT_TERMINAL_PROMPT=0 git -C "$REL_CLONE" ls-remote --tags origin 2>/dev/null)"; then
       # <tag> <the commit it stands on>: an annotated tag's own line names the tag object, its ^{} line the commit
       remote="$(printf '%s\n' "$remote" | awk '$2 != "" { n = $2; sub("^refs/tags/", "", n)
         if (sub("\\^\\{\\}$", "", n)) c[n] = $1; else if (!(n in c)) c[n] = $1 } END { for (n in c) print n "\t" c[n] }' | LC_ALL=C sort)"
-      pattern="$(release_tag_pattern "$REL_CLONE/.ai-core/config.env")"
       while IFS=$'\t' read -r t want; do
         # the pattern is a glob here as it is to git tag --list
         # shellcheck disable=SC2254
@@ -196,7 +202,7 @@ release_of() {  # <owner/repo>
       echo "origin of $1 could not be listed from $REL_CLONE, so no tag of it counts as a release and its cards in testing stay"
     fi
   fi
-  _RELEASES="${_RELEASES}$1"$'\t'"${REL_CLONE:--}"$'\t'"${REL_REF:--}"$'\t'"${REL_TAG:--}"$'\n'
+  _RELEASES="${_RELEASES}$1"$'\t'"${REL_CLONE:--}"$'\t'"${REL_REF:--}"$'\t'"${REL_TAG:--}"$'\t'"$REL_LANDED"$'\n'
 }
 
 # --- the sweep ----------------------------------------------------------------
@@ -264,11 +270,12 @@ for full in ${repos[@]+"${repos[@]}"}; do
       # The release of the repository the work landed in, read once where a card in testing asks
       landed="$full"; [ "$elsewhere" = - ] || landed="$elsewhere"
       release_of "$landed"
-      tag="$REL_TAG"; [ "$landed" = "$full" ] || tag="$landed $REL_TAG"
+      tag="$REL_TAG"; [ "$REL_LANDED" = 0 ] || tag="its landing on $REL_REF"; [ "$landed" = "$full" ] || tag="$landed $tag"
       on_master=0; rel=0
       if [ -n "$REL_REF" ] && [ "$sha" != - ] && commit="$(git -C "$REL_CLONE" rev-parse -q --verify "$sha^{commit}" 2>/dev/null)"; then
         git -C "$REL_CLONE" merge-base --is-ancestor "$commit" "$REL_REF" && on_master=1
         [ -n "$REL_TAG" ] && git -C "$REL_CLONE" merge-base --is-ancestor "$commit" "$REL_TAG" && rel=1
+        [ "$REL_LANDED" = 0 ] || rel="$on_master"
       fi
       target="$(derive_target "$st" "$on_master" "$rel" 0 "$proven")"
       [ -n "$target" ] || { [ "$rel" = 1 ] && echo "proof due    $label#$num  (released in $tag, no \"Proven on\" record after its landing)"; continue; }

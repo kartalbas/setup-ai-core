@@ -991,7 +991,7 @@ check 'the gate names the commit'     yes "$(grep -q 'Add x without a ticket nam
 check 'the push was refused, the commit stays' yes "$(grep -q 'the push was refused or failed (see above); the commit stays' <<< "$out" && echo yes || echo no)"
 git -C "$pushed" reset -q --hard origin/master   # the foreign commit goes; the origin is where the last push left it
 
-echo 'every worktree of the repository gets the shim too, and only the checkout commits it'
+echo "a worktree whose commit carries another gate gets this gate's shim, uncommitted; the post-checkout its commit carries is left; only the checkout commits"
 printf '#!/usr/bin/env bash\nexec bash ../tooling/hooks/pre-push "$@"\n' > "$pushed/.githooks/pre-push"
 git -C "$pushed" commit -q -am 'An older shim, as a worktree branched off it would carry #9'
 pushed_wt="$fake/pushed-wt"; git -C "$pushed" worktree add -q -b issue-9-probe "$pushed_wt" master
@@ -1001,10 +1001,29 @@ check 'exit 0'                              0 "$rc"
 check 'the checkout: refreshed, committed, pushed' yes "$(grep -q '^pre-push: pushed: .githooks/pre-push refreshed$' <<< "$out" && grep -q '^pre-push: pushed: pushed to origin/master$' <<< "$out" && echo yes || echo no)"
 check 'the worktree: refreshed, and left to its own commit' yes "$(grep -q "^pre-push: pushed (worktree pushed-wt): .githooks/pre-push refreshed; it goes out with that worktree's own commit$" <<< "$out" && echo yes || echo no)"
 check 'the worktree carries the shim'       yes "$(grep -qx 'exec ai-core pre-push "$@"' "$pushed_wt/.githooks/pre-push" && echo yes || echo no)"
-check 'and post-checkout, carried already'          yes "$(grep -q "^pre-push: pushed (worktree pushed-wt): .githooks/post-checkout unchanged; it goes out with that worktree's own commit$" <<< "$out" && grep -q 'ai-core init --no-doctor' "$pushed_wt/.githooks/post-checkout" && echo yes || echo no)"
-check 'the worktree has it uncommitted'     ' M .githooks/pre-push' "$(git -C "$pushed_wt" status --porcelain .githooks/pre-push)"
+check 'its post-checkout: not written'      no "$(grep -q '(worktree pushed-wt): .githooks/post-checkout' <<< "$out" && echo yes || echo no)"
+check 'the worktree has pre-push uncommitted, nothing else' ' M .githooks/pre-push' "$(git -C "$pushed_wt" status --porcelain)"
 check 'the checkout moved by one commit'    "$head_before" "$(git -C "$pushed" rev-parse HEAD~1)"
 git -C "$pushed" worktree remove --force "$pushed_wt" >/dev/null 2>&1
+
+echo "worktrees whose commit carries the shims stay clean: an earlier install's write goes back, a person's change stays; one cut before the shims gets them"
+printf '#!/usr/bin/env bash\n# an older post-checkout, executable\nai-core init --no-doctor\n' > "$pushed/.githooks/post-checkout"
+git -C "$pushed" commit -q -am 'An older post-checkout, as an issue branch cut before a hook commit carries it #10'
+older="$(git -C "$pushed" rev-parse HEAD)"; git -C "$pushed" reset -q --hard HEAD~1   # the branch only: master never had it
+current_checkout="$(git -C "$pushed" show HEAD:.githooks/post-checkout)"
+for w in same rewritten mine; do git -C "$pushed" worktree add -q -b "issue-10-$w" "$fake/wt-$w" "$older" < /dev/null >/dev/null 2>&1; done
+git -C "$pushed" worktree add -q -b issue-11-cut-before "$fake/wt-before" "$(git -C "$pushed" rev-list --max-parents=0 HEAD)" < /dev/null >/dev/null 2>&1
+printf '%s\n' "$current_checkout" > "$fake/wt-rewritten/.githooks/post-checkout"   # what an earlier install wrote there
+printf 'echo mine\n' >> "$fake/wt-mine/.githooks/post-checkout"
+out="$( cd "$pushed" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'exit 0'                              0 "$rc"
+check 'same: nothing written, clean'        'no|' "$(grep -q '(worktree wt-same)' <<< "$out" && echo yes || echo no)|$(git -C "$fake/wt-same" status --porcelain)"
+check 'rewritten: put back, named'          yes "$(grep -q "^pre-push: pushed (worktree wt-rewritten): .githooks/post-checkout was an earlier install's write; put back to that worktree's own commit$" <<< "$out" && echo yes || echo no)"
+check 'rewritten: clean, its commit on disk' "|$(git -C "$pushed" show "$older:.githooks/post-checkout")" "$(git -C "$fake/wt-rewritten" status --porcelain)|$(cat "$fake/wt-rewritten/.githooks/post-checkout")"
+check 'mine: named and kept'                yes "$(grep -q "^pre-push: pushed (worktree wt-mine): .githooks/post-checkout holds a change that is not ai-core's; it stays$" <<< "$out" && grep -q '^echo mine$' "$fake/wt-mine/.githooks/post-checkout" && echo yes || echo no)"
+check 'mine: still changed'                 ' M .githooks/post-checkout' "$(git -C "$fake/wt-mine" status --porcelain)"
+check 'cut before the shims: both written'  yes "$(grep -q "^pre-push: pushed (worktree wt-before): .githooks/pre-push created; it goes out with that worktree's own commit$" <<< "$out" && grep -q "^pre-push: pushed (worktree wt-before): .githooks/post-checkout created; it goes out with that worktree's own commit$" <<< "$out" && [ -x "$fake/wt-before/.githooks/pre-push" ] && echo yes || echo no)"
+for w in same rewritten mine before; do git -C "$pushed" worktree remove --force "$fake/wt-$w" >/dev/null 2>&1; done
 
 echo '--install --all: every repository under a folder, a plain folder skipped; a repository whose .gitattributes already makes the shims LF gets no rule'
 folder="$fake/folder"; mkdir -p "$folder/not-a-repo"

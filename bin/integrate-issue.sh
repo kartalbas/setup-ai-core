@@ -2,11 +2,12 @@
 # Integrate the reviewed branch of one issue into the default branch: a merge commit that names the
 # issue and its reviewer, pushed through the gate.
 #
-#   integrate-issue.sh [OWNER/REPO] NUMBER --reviewed-by REVIEWER
+#   integrate-issue.sh [OWNER/REPO] NUMBER --reviewed-by REVIEWER [--reviewed-by REVIEWER ...]
 #
 # Between start-issue and finish-issue. Run it in the worktree of the issue, on its branch, once the
 # reviewer gave the GO. It fetches origin, puts the worktree on the newest origin/<default>, merges
-# the branch with --no-ff under the issue's title and a 'Reviewed-by: REVIEWER' trailer, pushes
+# the branch with --no-ff under the issue's title and a 'Reviewed-by: REVIEWER' trailer per reviewer
+# (a high-risk change is read by two), pushes
 # HEAD:<default> through the gate, and checks the branch out again for finish-issue. The issue is read
 # in OWNER/REPO where it is given, else in the repository start-issue recorded on the branch, else in
 # the checkout's own.
@@ -31,13 +32,20 @@
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 
 BIN="$ROOT/bin"
-usage='usage: integrate-issue.sh [OWNER/REPO] NUMBER --reviewed-by REVIEWER'
+usage='usage: integrate-issue.sh [OWNER/REPO] NUMBER --reviewed-by REVIEWER [--reviewed-by REVIEWER ...]'
 
-repo=""; number=""; reviewer=""
+# Every --reviewed-by adds its reviewer, once, in the order given: a second one that overwrote the
+# first would drop a review from the history without a word
+repo=""; number=""; reviewers=()
+add_reviewer() {  # add_reviewer <name>
+  local known
+  for known in ${reviewers[@]+"${reviewers[@]}"}; do [ "$known" != "$1" ] || return 0; done
+  reviewers+=("$1")
+}
 while [ $# -gt 0 ]; do
   case "$1" in
-    --reviewed-by)   [ $# -ge 2 ] || die "--reviewed-by takes the reviewer's name - $usage"; reviewer="$2"; shift ;;
-    --reviewed-by=*) reviewer="${1#--reviewed-by=}" ;;
+    --reviewed-by)   [ $# -ge 2 ] || die "--reviewed-by takes the reviewer's name - $usage"; add_reviewer "$2"; shift ;;
+    --reviewed-by=*) add_reviewer "${1#--reviewed-by=}" ;;
     -*)              die "unknown argument '$1' - $usage" ;;
     */*)             [ -z "$repo" ] || die "$usage"; repo="$1" ;;
     *)               [ -z "$number" ] || die "$usage"; number="$1" ;;
@@ -45,8 +53,12 @@ while [ $# -gt 0 ]; do
   shift
 done
 case "$number" in ''|*[!0-9]*) die "the issue number must be numeric, not '$number' - $usage" ;; esac
-[ -n "${reviewer//[[:space:]]/}" ] || die "who reviewed the work? --reviewed-by names the reviewer whose GO this integrates - $usage"
-case "$reviewer" in *$'\n'*) die "--reviewed-by takes one line" ;; esac
+[ "${#reviewers[@]}" -gt 0 ] || die "who reviewed the work? --reviewed-by names the reviewer whose GO this integrates - $usage"
+for reviewer in "${reviewers[@]}"; do
+  [ -n "${reviewer//[[:space:]]/}" ] || die "who reviewed the work? --reviewed-by names the reviewer whose GO this integrates - $usage"
+  case "$reviewer" in *$'\n'*) die "--reviewed-by takes one line" ;; esac
+done
+trailers="$(printf 'Reviewed-by: %s\n' "${reviewers[@]}")"
 
 git rev-parse --show-toplevel >/dev/null 2>&1 \
   || die "not inside a git working copy - run this in the worktree of issue $number"
@@ -105,7 +117,7 @@ back_to_branch() {
 [ -n "$(git rev-list -n1 "$branch" --not "origin/$default")" ] \
   || die "nothing to integrate: $branch is in origin/$default already"
 git switch -q --detach "origin/$default" || die "the worktree could not be put on origin/$default (see above)"
-if ! git merge -q --no-ff --no-edit "$branch" -m "$subject" -m "Reviewed-by: $reviewer"; then
+if ! git merge -q --no-ff --no-edit "$branch" -m "$subject" -m "$trailers"; then
   git merge --abort 2>/dev/null
   back_to_branch "$branch does not merge cleanly into origin/$default - bring origin/$default into the branch, get the review of the result, then run this again"
 fi
@@ -113,7 +125,7 @@ merged="$(git rev-parse --short HEAD)"
 git push origin "HEAD:$default" \
   || back_to_branch "the push was refused (see above) - nothing reached origin, and $branch is checked out again"
 git switch -q "$branch" || die "$merged is on origin/$default, but $branch could not be checked out again - run git switch $branch before finish-issue"
-echo "integrated: $merged on origin/$default, $subject, Reviewed-by: $reviewer"
+echo "integrated: $merged on origin/$default, $subject, $(printf '%s' "$trailers" | paste -sd ',' - | sed 's/,/, /g')"
 # Every issue the merged commits name in parentheses, the integrated one first: a package lands
 # several issues in one merge, and the card of each moves on only through its own finish-issue. Only
 # the forms '(#N)' and '(owner/repo#N)' count: a number named in passing is no landing.

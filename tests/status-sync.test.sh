@@ -274,7 +274,12 @@ check '#18, without a proof, is due' \
   'proof due    example-repo#18  (released in its landing on origin/master, no "Proven on" record after its landing)' \
   "$(grep '^proof due    example-repo#18' <<< "$run")"
 check '#16 and #17, without a landing, stay' '' "$(grep -E '^would close  example-repo#1[67] ' <<< "$run")"
-check 'no tag of origin is listed' 0 "$(grep -c 'ls-remote' "$FAKE/calls.txt")"
+tip="$(git -C "$origin" rev-parse refs/heads/master)"; git -C "$origin" update-ref refs/heads/master "$c19"
+run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo 2>&1)"
+git -C "$origin" update-ref refs/heads/master "$tip"
+check 'with origin'"'"'s default branch back before #20, proven #20 stays, while #19 on it closes' \
+  '|would close  example-repo#19  (testing -> done, released in its landing on origin/master and proven)' \
+  "$(grep '^would close  example-repo#20' <<< "$run")|$(grep '^would close  example-repo#19' <<< "$run")"
 printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\n' > "$clone/.ai-core/config.env"
 
 echo 'no repository named: the board is read to learn its repositories, each read under its owner'

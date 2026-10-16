@@ -15,13 +15,13 @@ the board and the branches, so a restart loses nothing (`briefs/coordinator.md`)
 ## The six principles, and why
 
 1. A package is an **area**: one capability as the user meets it, across every repository it touches.
-   A package cut by file splits a contract, and the two sides then release apart. It holds at least
-   two issues, because every package pays its plan, its build context and its reviews once, whatever
-   it carries: you hand the planner the area's ready issues and, where the area has one, the ready
-   issues of an area sharing its repositories. A package of one issue is cut only where neither holds
-   a second, or the issue is a defect live on production that cannot wait, and its section says which.
-2. A **contract scan** runs before the cut (`ai-core contract-scan`). Both sides of every contract an
-   issue touches join the package; the additive side lands and releases first, the strict side after.
+   A package cut by file splits a contract, and the two sides then release apart. Every package pays
+   its plan, its build context and its reviews once, whatever it carries, so the planner puts every
+   issue of the area into it and cuts it so that one build session finishes it alone, without a
+   question back.
+2. Both sides of every **contract** an issue touches join the package, each named in the plan by
+   `file:line`, which the planner finds by reading what origin ships; the additive side lands and
+   releases first, the strict side after.
 3. Model and effort follow the package's **class**, read from `.ai-core/models.tsv` for your tool.
    The strongest model runs only where the class needs it.
 4. **One fresh session per phase**, ended with its phase and never given the next one. Each session
@@ -30,8 +30,9 @@ the board and the branches, so a restart loses nothing (`briefs/coordinator.md`)
    a session at its budget. The planner cuts packages so that a phase fits it.
 5. A package is **released as one**: start check on the bundle that ships together, one release per
    repository in plan order, the test stage, the UI test, production.
-6. **No session waits for you** and no package waits for a session you could start: phases of
-   different packages run side by side. A phase never moves to another model, effort or tool because
+6. **No session waits for you** and no package waits for a session you could start: packages that
+   share neither a file nor a contract run side by side, and one that shares either waits, named in
+   its `After:` line, until the other has landed. A phase never moves to another model, effort or tool because
    a quota ran out, because a fallback waters the result down from the bottom up: its package waits.
 
 ## Your tool is your ecosystem
@@ -49,10 +50,10 @@ packages on the table's rows; nothing else is started without asking.
 
 ## A contract across two project folders
 
-A board belongs to one project folder, and `contract-scan` reads that folder's clones. Where the
+A board belongs to one project folder, and its planner reads that folder's clones. Where the
 owner's start prompt names a partner, a coordinator of another folder with its session name, the two
-of you are partners: the scan runs in the partner's folder too (`cd <partner folder> && ai-core
-contract-scan <term>...`, read-only), and a term with a side there makes a package of two halves,
+of you are partners: the planner reads the partner's clones too, read-only, and a contract with a
+side there makes a package of two halves,
 one section on each board, each naming the other in a `Partner:` line. The additive half lands and
 releases first; its coordinator tells the partner before and after every release, and the strict
 half's coordinator lands and releases only on that message. Each release of a half is also posted on the
@@ -115,10 +116,10 @@ more` line is a GAP for the next plan of that area.
 ## Starting a phase
 
 1. Read the row `<your tool> <phase> <class>` of `.ai-core/models.tsv`: model and effort.
-2. Before a plan: `git -C <clone> fetch -q origin` for every clone of the folder, because the scan
-   reads what origin ships. Before a build: `ai-core start-issue <first issue>` in the first
+2. Before a plan: `git -C <clone> fetch -q origin` for every clone of the folder, because the
+   planner reads what origin ships. Before a build: `ai-core start-issue <first issue>` in the first
    repository's clone, and `ai-core start-issue <owner/repo> <first issue>` in the clone of every
-   other repository of the package, because a repository that joined through the scan has no issue
+   other repository of the package, because a repository that joined through a contract has no issue
    of its own there; where an issue's branch exists from before, give the build its worktree path.
 3. Fill the phase's brief: every `{{placeholder}}` from the package section, the issues' text, the
    worktree paths and the verdicts. A brief with a placeholder left is not sent. Save the filled
@@ -140,8 +141,9 @@ area stands in another's `After:`, a side a partner waits for, a fault on a live
 package whose `After:` area has not landed, or whose `Waits for the owner:` is not answered, is not
 built. Read TESTING: prove the live cards, 🔴 first; TREES: land or
 put to the owner. An issue a plan left out (`Left out:`) gets `incident:context` and goes to
-`backlog`. A question that is the owner's goes to the owner, its issues get `needs:owner`
-(`ai-core issue-label`) and keep their column. At the usage limit (`ai-core usage` exits 3, in
+`backlog`. A session's question that the plan, the issues or the code answers, you answer yourself;
+only a decision the rules give the owner goes to the owner, the open ones of a round together in
+one block, and its issues get `needs:owner` (`ai-core issue-label`) and keep their column. At the usage limit (`ai-core usage` exits 3, in
 a Claude Code or a Codex shell, each with its own windows; for agy a refusal for quota) every session finishes its step and reports, and you start
 nothing until the reset. You never stop because your context grew: the tool compacts you (in Claude Code at the window
 the owner started you with, `references/claude.md`), and

@@ -2,34 +2,41 @@
 
 You check one package section somebody else planned. You did not write it, and that is the point: a
 planner reads its own plan the way it meant it. Context budget 150k: the section, the issues it
-names, the scan output, the spans the facts name.
+names, the spans the facts and the contracts name.
 
 ## Input
 
 - The plan issue, where your verdict goes: {{plan issue reference}}
 - The package section: {{package section}}
 - The issues it names, with their acceptance criteria: {{issues}}
-- The scan, where the section names terms: the output of `ai-core contract-scan --package
-  {{repositories}} {{terms}}` and its exit code, run by the coordinator after a fetch: {{scan output
-  and exit code, or "no terms: a mechanical package"}}
+- The clones of the project folder and of each partner folder, fetched by the coordinator: {{clone
+  folder names}}
+- The open sections of other areas, with their repositories and the files their issues name:
+  {{open sections or none}}
 
 ## What to do
 
-1. The scan first, where there is one. Exit 3 means a term has a hit outside the package: a hit the
-   section lists under `Innocent:` with its `file:line` is no side; any other is: NO, naming the
-   term and the clone. Exit 1 means the scan refused: NO, with its message.
-2. For every issue: can a build session start from its acceptance criteria and `file:line` facts
-   without asking? Name every placeholder, contradiction, open question and scope beyond the issues.
+1. The contracts first. Open the `file:line` of every side in `Contracts:` and `Partner:` and
+   confirm that it reads or ships the name. Then look for the sides the planner missed: search what
+   ships for each name in every clone (`git -C <clone> grep -n -F <name> origin/HEAD`), and read the
+   code the issues change for a name built at run time or a shape without a fixed word, which no
+   search finds. A side the section does not name is a gap, naming the clone and its `file:line`.
+2. For every issue: can a build session start from its acceptance criteria and `file:line` facts,
+   and finish the package, without asking? Name every placeholder, contradiction, open question and
+   scope beyond the issues.
 3. For every contract: is the additive side ordered before the strict side? Does a test need a
-   second repository checked out beside the first, and does the section say so?
+   second repository checked out beside the first, and does the section say so? Does the package
+   share a file or a contract with an open section that its `After:` line does not name?
 4. Is the class right? A touched contract outward (outward means an interface somebody outside the project uses (a public API, a published package, a customer's data format), never a contract between the project's own repositories), a secret, a payment or the push gate is
-   `high-risk` whatever the text says. A `mechanical` section that names a term is not mechanical.
+   `high-risk` whatever the text says. A `mechanical` section that names a contract is not mechanical.
    Open the spans the issues name: a package called mechanical that changes a value anything reads
    is not mechanical.
 5. Are `Verify:`, `Environment:` and `Checks:` filled from the criteria, so the build and the UI test
    can run from the section alone? Does `Environment:` hold the test and the production URL?
-6. Would the build fit its context budget (300k, 250k in Codex)? Where not, say where to split. Was an
-   issue of this area and its contracts left out only to keep the package small? Name it.
+6. Would the build fit its context budget (300k, 250k in Codex)? Where not, say where to split. Do the
+   parts of a split package run one after the other, each naming the earlier one in its `After:`
+   line? Was an issue of this area and its contracts left out only to keep the package small? Name
+   it.
 
 ## Probes
 
@@ -40,7 +47,7 @@ names, the scan output, the spans the facts name.
 ## Output
 
     PLAN CHECK <area>: GO | NO
-    SCAN: exit <code> | none
+    CONTRACTS: ok | <name> <clone> <file:line>, ... not in the section
     GAPS:
     - <repo>#<n>: <what is missing, with file:line where it applies>
     ORDER: ok | <issue> before <issue> because <contract>

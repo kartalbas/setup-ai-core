@@ -9,7 +9,7 @@ Read this only when your tool is Claude Code. The model and effort come from the
 From the folder the phase works in, with every other folder it needs added, because a session may
 edit only inside the folders it was given: a build from the package's first worktree with the other
 worktrees added; a plan, a plan check or a review from the first clone the area's issues name, with
-the project folder added for the scan and the other clones for the diff.
+the project folder and each partner folder added, so it can read every clone.
 
     claude "Read <brief file> and do the phase it describes." --bg --name <name> --model <model> \
       --effort <effort> --permission-mode auto --settings '{"autoCompactWindow":<window>}' \

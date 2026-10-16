@@ -747,6 +747,36 @@ if serves codex; then
   fi
 fi
 
+# 2f. Antigravity (agy) follows no @ import either, and keeps a rule through a compaction only as an
+#     always_on rule in .agents/rules/, which it cuts after 24,000 bytes; all always_on rules share
+#     20,000 tokens, and past that it keeps only a pointer to the largest. Where it is served it gets
+#     the text Codex gets, without Codex's header, cut at line ends into parts below the cut, each
+#     with the frontmatter agy discards a rule without. A part no longer written is removed.
+AGY_PART_BYTES=23000
+AGY_NOTE=""
+mkdir -p "$TMP/agy-rules"
+if serves antigravity && [ -n "$AGENTS_SRC" ]; then
+  set --
+  if [ "$PROJECT_FOLDER" -eq 0 ] && FOLDER="$(enclosing_folder "$TARGET")" && [ -f "$FOLDER/AGENTS.md" ]; then set -- "$FOLDER/AGENTS.md" "$FOLDER"; fi
+  codex_override "$@" "$AGENTS_SRC" "$TARGET" | tail -n +2 | LC_ALL=C awk -v max="$AGY_PART_BYTES" -v dir="$TMP/agy-rules" -v version="$CORE_VERSION" '
+    function part() { n++; f = sprintf("%s/ai-core-%02d.md", dir, n); size = 0
+      printf "---\ntrigger: always_on\ndescription: the binding rules setup-ai-core %s wrote out for this folder, part %d\n---\n", version, n > f }
+    BEGIN { part() }
+    { if (size > 0 && size + length($0) + 1 > max) { close(f); part() }; print > f; size += length($0) + 1 }'
+  agy_bytes=0
+  for p in "$TMP"/agy-rules/ai-core-*.md; do
+    put "$p" ".agents/rules/$(basename "$p")" managed
+    agy_bytes=$((agy_bytes + $(wc -c < "$p")))
+  done
+  # About 4 bytes of English make a token; agy counts the real ones, so this only warns.
+  if [ "$agy_bytes" -gt 80000 ]; then
+    AGY_NOTE="warning: .agents/rules/ai-core-*.md hold $agy_bytes bytes, about $((agy_bytes / 4)) tokens, past the 20,000 tokens agy keeps of its always_on rules, so it keeps only a pointer to the largest part"
+  fi
+fi
+for p in "$TARGET"/.agents/rules/ai-core-[0-9][0-9].md; do
+  [ -e "$p" ] && [ ! -e "$TMP/agy-rules/$(basename "$p")" ] && drop ".agents/rules/$(basename "$p")"
+done
+
 # 2b. The auto-mode entries go into Claude Code's user settings, the machine's file, because its
 #     classifier reads autoMode there and in managed settings, never in a repository's settings.
 #     lib/auto-mode.jq merges them: the entries of the layers this run assembled are replaced, every
@@ -955,6 +985,7 @@ elif [ -s "$TMP/auto-mode-changes.txt" ]; then
   sed 's/^/    /' "$TMP/auto-mode-changes.txt"
 fi
 if [ -n "$CODEX_NOTE" ]; then echo "  codex: $CODEX_NOTE"; fi
+if [ -n "$AGY_NOTE" ]; then echo "  antigravity: $AGY_NOTE"; fi
 if [ "$DRY" -eq 1 ]; then echo "  nothing was written (dry run)"; elif [ -z "$AGENTS_UNKNOWN" ]; then echo "✓ Harness $CORE_VERSION in place. Run 'ai-core session-start' here to verify."; fi
 echo "=================================================="
 if [ -n "$AGENTS_UNKNOWN" ]; then echo "error: AGENTS in $CONFIG names '$AGENTS_UNKNOWN'; known are claude, codex, antigravity, openhands, gemini, cursor, windsurf, copilot" >&2; exit 1; fi

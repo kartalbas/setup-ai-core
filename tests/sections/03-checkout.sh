@@ -237,4 +237,20 @@ CODEX_HOME="$CODEX_HOME-kept" bash "$ROOT/bin/init.sh" "$K" --no-doctor > "$K.lo
 [ "$(cat "$CODEX_HOME-kept/config.toml")" = 'project_doc_max_bytes = 1_000_000' ] || fail "init.sh lowered project_doc_max_bytes written with underscores"
 echo "  a checkout in a project folder gets the folder's and its own AGENTS.md with rules.md, skills.md and the folder's local rules written out and kept out of git; Codex's config is raised before its first table, a table's key and a higher value stay, underscores read; an override the repository tracks is kept; the profile ai-core closes the network and gives the reviewer the auto-mode entries, another project's kept; nothing where Codex is not served"
 
+section "Antigravity gets the same text as always_on rules in .agents/rules/, each part below its cut"
+A="$F/repo/.agents/rules"
+printf 'stale\n' > "$A/ai-core-09.md"; printf -- '---\ntrigger: manual\n---\nours\n' > "$A/mine.md"
+codex_init "$F/repo"
+[ ! -e "$A/ai-core-09.md" ] || fail "init.sh kept a part it no longer writes"
+[ "$(cat "$A/mine.md")" = "$(printf -- '---\ntrigger: manual\n---\nours')" ] || fail "init.sh touched a rule of the project's own in .agents/rules/"
+set -- "$A"/ai-core-[0-9][0-9].md
+[ "$#" -ge 2 ] || fail "init.sh wrote $# part(s) for a text of $(wc -c < "$O") bytes, so the cut was never made"
+for p in "$@"; do
+  [ "$(head -n 2 "$p")" = "$(printf -- '---\ntrigger: always_on')" ] || fail "init.sh: $p does not open with the frontmatter agy needs"
+  [ "$(wc -c < "$p")" -le 24000 ] || fail "init.sh: $p has $(wc -c < "$p") bytes, past the 24,000 agy reads"
+done
+[ "$(for p in "$@"; do tail -n +5 "$p"; done)" = "$(tail -n +2 "$O")" ] || fail "init.sh: the parts do not hold the text Codex gets, line for line"
+[ ! -e "$WORK/codex-none/.agents/rules" ] || fail "init.sh wrote rules for Antigravity where it is not served"
+echo "  $# parts, each opening with trigger: always_on and at most 24,000 bytes, hold the text of AGENTS.override.md line for line; a part no longer written is removed, the project's own rule stays; nothing where Antigravity is not served"
+
 exit 0

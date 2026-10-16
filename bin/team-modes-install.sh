@@ -62,7 +62,7 @@ while IFS= read -r tool <&3; do
     case "$line" in
       MISSING*)
         mode="$(printf '%s' "$line" | awk '{print $3}')"
-        install="$(tr -d '\r' < "$TABLE" | awk -F'\t' -v t="$tool" -v m="$mode" '!/^#/ && $1 == t && $2 == m { print $5 }')"
+        install="$(tr -d '\r' < "$TABLE" | awk -F'\t' -v t="$tool" -v m="$mode" '!/^#/ && $1 == t && $2 == m { print $4 }')"
         if [ -z "$install" ] || [ "$install" = "-" ]; then
           echo "SKIPPED     $tool $mode: no install command in the table; see the mode's own documentation."
           skipped=$((skipped + 1)); continue

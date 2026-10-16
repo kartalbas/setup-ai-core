@@ -85,16 +85,12 @@ section "session-start in the target"
 (cd "$WORK/checkout" && "$ROOT/bin/ai-core" session-start --json > "$WORK/checkout.json")
 jq -e --arg version "$(tr -d '\r\n' < "$ROOT/VERSION")" '.harness_version == $version' "$WORK/checkout.json" > /dev/null || fail "session-start harness_version is not the repository VERSION"
 jq -e '.harness_source == null and .source_ready == null and .rule_sources == [] and .harness_current == true and .rules_present == true and .refused == false' "$WORK/checkout.json" > /dev/null || fail "session-start of a product checkout reports source facts or no assembled rules"
-# --tool <one tool>, the form the hooks use: the modes of that tool are switched on at the end of the output, a skill whole with its level; a row at level - is not switched on; the rules are not printed
-MH="$WORK/modes-home"; mkdir -p "$MH/.claude/skills/caveman" "$MH/.claude/skills/archify"; : > "$MH/.claude/.i-have-adhd-always"
-printf -- '---\nname: caveman\n---\nCAVEMAN RULES: short.\n' > "$MH/.claude/skills/caveman/SKILL.md"
+# --tool <one tool>, the form the hooks use: no skill and no rules are printed, so the output stays below what Claude Code passes whole
+MH="$WORK/modes-home"; mkdir -p "$MH/.claude/skills/archify"
 printf -- '---\nname: archify\n---\nARCHIFY BODY.\n' > "$MH/.claude/skills/archify/SKILL.md"
-printf 'claude\tcaveman\tlite\tskill:caveman\t-\t-\nclaude\tarchify\t-\tskill:archify\t-\t-\nclaude\tponytail\tfull\talways:ponytail\t-\t-\nclaude\ti-have-adhd\ton\tfile:~/.claude/.i-have-adhd-always\t-\t-\n' > "$WORK/modes.tsv"
+printf 'claude\tarchify\tskill:archify\t-\t-\n' > "$WORK/modes.tsv"
 (cd "$WORK/checkout" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude > "$WORK/modes.log" 2>&1) || fail "session-start.sh --tool claude (see $WORK/modes.log)"
-grep -aq '^CAVEMAN MODE ACTIVE — level: lite' "$WORK/modes.log" && grep -aq '^CAVEMAN RULES: short\.' "$WORK/modes.log" && grep -aq '^ARGUMENTS: lite' "$WORK/modes.log" || fail "session-start.sh --tool claude does not switch the caveman skill on (see $WORK/modes.log)"
-grep -aq '^name: caveman' "$WORK/modes.log" && fail "session-start.sh prints the front matter of the skill"
-grep -aq '^PONYTAIL MODE: full, switched on by its own hook' "$WORK/modes.log" && grep -aq '^I-HAVE-ADHD MODE: on, switched on by its own hook' "$WORK/modes.log" || fail "session-start.sh --tool claude does not name the plugin modes (see $WORK/modes.log)"
-grep -aq 'ARCHIFY' "$WORK/modes.log" && fail "session-start.sh --tool claude switched on a skill at level - (see $WORK/modes.log)"
+grep -aq 'ARCHIFY' "$WORK/modes.log" && fail "session-start.sh --tool claude printed a skill; the tool loads it when a task calls for it (see $WORK/modes.log)"
 grep -aqE 'THE RULES OF THIS CHECKOUT|^## The code never lies' "$WORK/modes.log" && fail "session-start.sh --tool claude prints the rules; Claude Code loads them through AGENTS.md"
 [ "$(wc -c < "$WORK/modes.log")" -le 9500 ] || fail "session-start.sh --tool claude wrote more than 9 500 bytes, more than Claude Code passes whole"
 # ai-core not on the PATH of the session, whatever the PATH of this shell: session-start says how to
@@ -105,23 +101,13 @@ OFF_PATH="$(while IFS= read -r d; do [ -z "$d" ] || [ -e "$d/ai-core" ] || print
 grep -aqF "ai-core on PATH  : ✗ not in this session; call it as \"$AI_CORE_CMD\"" "$WORK/offpath.log" || fail "session-start.sh does not say that ai-core is missing from the PATH, and how to call it: $(grep -a 'ai-core on PATH\|Harness version' "$WORK/offpath.log")"
 (cd "$WORK/checkout" && PATH="$ROOT/bin:$PATH" bash "$ROOT/bin/session-start.sh" > "$WORK/onpath.log" 2>&1)
 grep -aq 'Harness version' "$WORK/onpath.log" && ! grep -aq 'ai-core on PATH' "$WORK/onpath.log" || fail "session-start.sh warns about the PATH although ai-core is on it, or did not run (see $WORK/onpath.log)"
-# A skill too long for what Claude Code passes whole is named with the call that loads it, and the output stays below the limit
-MB="$WORK/modes-home-big"; mkdir -p "$MB/.claude/skills/caveman" "$MB/.claude/skills/archify"; : > "$MB/.claude/.i-have-adhd-always"
-cp "$MH/.claude/skills/archify/SKILL.md" "$MB/.claude/skills/archify/SKILL.md"
-{ printf -- '---\nname: caveman\n---\n'; for i in $(seq 1 240); do printf 'CAVEMAN LONG RULE %03d: keep the answer short and the substance whole.\n' "$i"; done; } > "$MB/.claude/skills/caveman/SKILL.md"
-(cd "$WORK/checkout" && HOME="$MB" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude > "$WORK/modes-big.log" 2>&1) || fail "session-start.sh --tool claude with a long skill (see $WORK/modes-big.log)"
-grep -aq '^CAVEMAN MODE ACTIVE — level: lite: its skill is too long for this output; load it before your first answer, the skill `caveman` with the argument `lite`$' "$WORK/modes-big.log" || fail "session-start.sh does not name a skill too long with the call that loads it (see $WORK/modes-big.log)"
-grep -aq 'CAVEMAN LONG RULE' "$WORK/modes-big.log" && fail "session-start.sh printed a skill too long for the hook's output"
-[ "$(wc -c < "$WORK/modes-big.log")" -le 9500 ] || fail "session-start.sh with a long skill wrote more than 9 500 bytes"
 (cd "$WORK/checkout" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude --json | jq -e '.repository' > /dev/null) || fail "session-start.sh --tool claude --json is not JSON"
 # A refusal under --json is JSON too: refused, with the lines of the team modes; a session that starts says refused: false
 ME="$WORK/modes-home-empty"; mkdir -p "$ME/.claude"
 (cd "$WORK/checkout" && HOME="$ME" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude --json > "$WORK/refused.json" 2>/dev/null) && fail "session-start.sh --json exited 0 with the team modes missing"
 jq -e '.refused == true and (.team_modes | any(startswith("MISSING")) and any(startswith("REFUSED")))' "$WORK/refused.json" > /dev/null || fail "session-start.sh --json does not refuse as JSON: $(tr -d '\r\n' < "$WORK/refused.json" | cut -c1-300)"
 jq -e '.refused == false' "$WORK/checkout.json" > /dev/null || fail "session-start.sh --json does not say refused: false where the session starts"
-(cd "$WORK/checkout" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" > "$WORK/modes-none.log" 2>&1) || fail "session-start.sh without --tool (see $WORK/modes-none.log)"
-grep -aq 'MODE ACTIVE' "$WORK/modes-none.log" && fail "session-start.sh without --tool switches modes on"
-echo "  --tool claude: the caveman skill printed whole with its level, a skill at level - not switched on, a skill too long named with its call, the plugin modes named, no rules, at most 9 500 bytes, nothing of it in the JSON or without --tool, a refusal under --json as JSON"
+echo "  --tool claude: no skill and no rules printed, at most 9 500 bytes, JSON under --json, a refusal under --json as JSON"
 
 # The hook names ai-core by its full path, so a Claude Code started from a terminal without it on the PATH still runs it
 [ "$(jq -r '[.hooks.SessionStart[].hooks[].command] | join("|")' "$WORK/checkout/.claude/settings.json")" = "\"$AI_CORE_CMD\" session-start --tool claude" ] || fail "the settings.json init.sh deployed does not start the session with ai-core by its full path: $(jq -c '.hooks.SessionStart' "$WORK/checkout/.claude/settings.json")"

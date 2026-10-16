@@ -725,7 +725,7 @@ naming_findings() {  # one finding per line
   while IFS= read -r sha; do
     [ -n "$sha" ] || continue
     [ -z "$(git log -1 --format='%(trailers:key=Naming,valueonly)' "$sha" | tr -d '[:space:]')" ] || continue
-    # -z hands every name over as git stores it, never quoted. ponytail: a name that holds a line
+    # -z hands every name over as git stores it, never quoted. A known limit: a name that holds a line
     # break still splits in two and goes unchecked, and one that holds a tab pairs no rename; read
     # NUL-separated to the end if one appears
     git diff-tree -z --no-commit-id --root -r --name-only --diff-filter=A "$sha" | tr '\0' '\n' \

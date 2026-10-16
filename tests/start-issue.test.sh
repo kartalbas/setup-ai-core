@@ -47,7 +47,7 @@ chmod +x "$fake/gh"
 export PATH="$fake:$PATH"
 # The team modes are not what this test proves; a table whose probes always pass keeps the
 # gate out of the way. team-modes.test.sh proves the gate itself.
-printf 'claude\tcaveman\tlite\talways\t-\t-\ncodex\tmode\ton\talways\t-\t-\n' > "$fake/team-modes.tsv"
+printf 'claude\tmode\talways\t-\t-\ncodex\tmode\talways\t-\t-\n' > "$fake/team-modes.tsv"
 export TEAM_MODES_FILE="$fake/team-modes.tsv"
 
 failed=0

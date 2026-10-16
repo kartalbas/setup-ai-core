@@ -24,7 +24,7 @@ export CLAUDE_CONFIG_DIR="$WORK/claude-config"
 # The same for Codex's user config, which init writes where Codex is served
 export CODEX_HOME="$WORK/codex-config"
 # A team-modes table whose probes always pass, so the tools of this machine never decide a check
-printf 'claude\tmode\ton\talways\t-\t-\ncodex\tmode\ton\talways\t-\t-\ngemini\tmode\ton\talways\t-\t-\n' > "$WORK/modes.tsv"; export TEAM_MODES_FILE="$WORK/modes.tsv"
+printf 'claude\tmode\talways\t-\t-\ncodex\tmode\talways\t-\t-\ngemini\tmode\talways\t-\t-\n' > "$WORK/modes.tsv"; export TEAM_MODES_FILE="$WORK/modes.tsv"
 
 # A stand-in gh keeps GitHub on this disk: bare repositories under $GH_FAKE/github.com/<org>/<name>.git
 make_gh_fake() {

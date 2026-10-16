@@ -21,7 +21,7 @@ for arg in "$@"; do
   echo "  --json        Print the same facts as JSON, a refusal too: refused, and the lines of the"
   echo "                team modes"
   echo "  --tool NAME   Check the team modes of this tool only (repeatable); with one tool, the"
-  echo "                form the hooks use, its modes are switched on at the end of the output"
+  echo "                form the hooks use, the issue thread is cut to fit a hook's output"
   echo ""
   echo "Harness sources use their tracked source inputs and rules, without product assembly."
   echo "Exit status is 1 when a team mode, product rules, or valid source inputs are missing."
@@ -201,39 +201,12 @@ if [ -n "$ISSUE" ]; then
   if MINE="$(bash "$CORE/bin/issue-mine.sh" ${ISSUE_REPO:+"$ISSUE_REPO"} "$ISSUE" 2>&1)"; then ASSIGNED=true; fi
 fi
 
-# 4. The team modes of the tool this session runs in, switched on. The hook's output is the
-#    agent's context, but Claude Code passes a hook's output whole only up to a size: in a measured
-#    run of Claude Code 2.1.282, 10 000 characters arrived whole and 15 000 arrived as a 2 KB
-#    preview, the rest in a file the agent never opens. So the output of one --tool stays below
-#    HOOK_LIMIT: a mode that is a skill is printed whole with its level where it fits and named
-#    with the skill call that loads it where it does not, and the issue thread and the list of
-#    uncommitted files are cut to leave room. A row whose level is "-" is a skill that loads when
-#    a task calls for it; it is not switched on here. A plugin switches itself on through its own
-#    hook and is named with its level. For one --tool, the form the hooks use, in the text output only.
-HOOK_LIMIT=9500
-MODES_TEXT=""; MODES_SHORT=""
-if [ "$TOOL_N" -eq 1 ] && [ "$as_json" -eq 0 ]; then
-  TABLE="${TEAM_MODES_FILE:-$(. "$CORE/lib/board.sh"; data_file team-modes.tsv)}"
-  while IFS=$'\t' read -r _ mode level pr _; do
-    [ -n "$mode" ] && [ "$level" != "-" ] || continue
-    upper="$(printf '%s' "$mode" | tr '[:lower:]' '[:upper:]')"
-    case "$pr" in
-      skill:*)
-        name="${pr#skill:}"; skill=""
-        for d in "$HOME/.$TOOL/skills/$name" "$PWD/.$TOOL/skills/$name" "$HOME/.agents/skills/$name" "$PWD/.agents/skills/$name"; do
-          [ -f "$d/SKILL.md" ] && { skill="$d/SKILL.md"; break; }
-        done
-        [ -n "$skill" ] || continue
-        MODES_TEXT="$MODES_TEXT$upper MODE ACTIVE — level: $level ($skill follows; it binds this session)"$'\n'"$(awk 'NR==1 && /^---/{f=1; next} f && /^---/{f=0; next} !f' "$skill" | tr -d '\r')"$'\n'"ARGUMENTS: $level"$'\n\n'
-        MODES_SHORT="$MODES_SHORT$upper MODE ACTIVE — level: $level: its skill is too long for this output; load it before your first answer, the skill \`$name\` with the argument \`$level\`"$'\n' ;;
-      *) MODES_TEXT="$MODES_TEXT$upper MODE: $level, switched on by its own hook"$'\n'
-         MODES_SHORT="$MODES_SHORT$upper MODE: $level, switched on by its own hook"$'\n' ;;
-    esac
-  done <<< "$(tr -d '\r' < "$TABLE" | awk -F'\t' -v t="$TOOL" '!/^#/ && NF >= 5 && $1 == t')"
-  if [ "${#THREAD}" -gt 3000 ]; then THREAD="${THREAD:0:3000}"$'\n'"[the thread goes on: ai-core issue-thread $ISSUE]"; fi
-  budget=$(( 1200 + ${#THREAD} + ${#MINE} ))
-  [ "$DIRTY_COUNT" -eq 0 ] || budget=$(( budget + 1700 ))
-  [ $(( budget + ${#MODES_TEXT} )) -le "$HOOK_LIMIT" ] || MODES_TEXT="$MODES_SHORT"
+# 4. The hook's output is the agent's context, but Claude Code passes a hook's output whole only
+#    up to a size: in a measured run of Claude Code 2.1.282, 10 000 characters arrived whole and
+#    15 000 arrived as a 2 KB preview, the rest in a file the agent never opens. So for one --tool,
+#    the form the hooks use, the text output cuts the issue thread and the list of uncommitted files.
+if [ "$TOOL_N" -eq 1 ] && [ "$as_json" -eq 0 ] && [ "${#THREAD}" -gt 3000 ]; then
+  THREAD="${THREAD:0:3000}"$'\n'"[the thread goes on: ai-core issue-thread $ISSUE]"
 fi
 
 bool() { [ "$1" -eq 1 ] && echo true || echo false; }
@@ -344,4 +317,3 @@ if [ -n "$ISSUE_UNREAD" ]; then
 else
   echo "Ready for task execution."
 fi
-[ -z "$MODES_TEXT" ] || { echo ""; printf '%s' "$MODES_TEXT"; }

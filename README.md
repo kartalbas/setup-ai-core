@@ -366,11 +366,10 @@ machine. Codex, Antigravity and OpenHands load `.agents/skills/<name>/` in the r
 loads the skills of a repository named `.agents` under the GitHub organisation, for every
 repository of that organisation, and `~/.agents/skills/` on a developer's machine.
 
-**Today** `rules/skills.md` says when an agent uses the three team modes, `caveman`, `ponytail`
-and `i-have-adhd`, and the skill `archify`; `.ai-core/team-modes.tsv` says, per tool, how the harness sees that a mode
-is installed (a plugin the tool lists, a skill folder, a file) and the command that installs it.
-A row at level `-`, archify's, is installed and checked but not switched on at session start: the
-tool loads the skill when a task calls for it.
+**Today** `rules/skills.md` names three practices of the agent, which nothing installs or switches
+on, and says when an agent uses the skill `archify`, the team mode; `.ai-core/team-modes.tsv`
+says, per tool, how the harness sees that a mode is installed (a plugin the tool lists, a skill
+folder, a file) and the command that installs it. The tool loads the skill when a task calls for it.
 `ai-core team-modes-check` probes the tools on the machine and refuses when a mode is missing;
 `session-start` and `start-issue` run it first, so no session starts without the modes;
 `ai-core team-modes-install` runs the install column for every missing one, and `doctor` runs it
@@ -522,21 +521,12 @@ readiness are null and the source directories are empty. Exit status is 1 when r
 rules or valid source inputs are missing; `refused` is true for that refusal.
 If `gh` is logged in, it makes one call to the GitHub API for the user name.
 
-With one `--tool <name>` (`-Tool <name>`), the form the hooks use, the output ends with the team
-modes of that tool switched on, one block per row of `team-modes.tsv`. A mode that is a skill is
-printed whole with its level: `CAVEMAN MODE ACTIVE — level: lite`, the skill, `ARGUMENTS: lite`;
-the hook's output is the agent's context, so the agent runs with it from the first prompt. A mode
-that is a plugin switches itself on through its own hook and is named: `PONYTAIL MODE: full,
-switched on by its own hook`. These lines in the transcript are how a session proves its modes.
-A row at level `-` is not switched on. Claude Code passes a hook's output whole only up to a size:
-in a measured run of Claude Code 2.1.282, 10 000 characters arrived whole and 15 000 arrived as a
-2 KB preview, the rest in a file the agent never opens. So the output of one `--tool` stays below
-9 500 characters: a skill that does not fit is named with the skill call that loads it (`CAVEMAN
-MODE ACTIVE — level: lite: its skill is too long for this output; load it before your first
-answer, ...`), the issue thread is cut after 3 000 characters and the uncommitted files after 20
-lines. The rules are not printed: Claude Code loads them through the binding rules in `AGENTS.md`.
-The `i-have-adhd` row of Claude Code is proven by the always-on flag its hook reads,
-`~/.claude/.i-have-adhd-always`, which its install column writes.
+With one `--tool <name>` (`-Tool <name>`), the form the hooks use, the output is the agent's
+context, and Claude Code passes a hook's output whole only up to a size: in a measured run of
+Claude Code 2.1.282, 10 000 characters arrived whole and 15 000 arrived as a 2 KB preview, the
+rest in a file the agent never opens. So the issue thread is cut after 3 000 characters and the
+uncommitted files after 20 lines. The rules are not printed: Claude Code loads them through the
+binding rules in `AGENTS.md`.
 
 It compares `.ai-core/STAMP` with the setup-ai-core clone and the project harness clones beside the
 repositories, and reports the checkout as assembled from the current harness or from an older one.
@@ -547,7 +537,7 @@ every checkout at the next session without running `init` again.
 
 | Agent | Reads at start | Mechanically active |
 | :--- | :--- | :--- |
-| Claude Code | `AGENTS.md` of the directory it starts in and of every directory above it, with the files each imports after `@` (the rules, the local rules, the skills file), and a repository's `AGENTS.md` once it works there; where a `CLAUDE.md` exists, that file and the `CLAUDE.local.md` that imports `AGENTS.md`; `.claude/settings.json`, `.claude/skills/` | the `SessionStart` hook `ai-core session-start --tool claude`, which switches the team modes on; the `PermissionRequest` hook `ai-core permission-request`, which denies a prompt nobody would answer in a background session; the status line `ai-core statusline`; permissions from the harness |
+| Claude Code | `AGENTS.md` of the directory it starts in and of every directory above it, with the files each imports after `@` (the rules, the local rules, the skills file), and a repository's `AGENTS.md` once it works there; where a `CLAUDE.md` exists, that file and the `CLAUDE.local.md` that imports `AGENTS.md`; `.claude/settings.json`, `.claude/skills/` | the `SessionStart` hook `ai-core session-start --tool claude`, which refuses a session without the team modes; the `PermissionRequest` hook `ai-core permission-request`, which denies a prompt nobody would answer in a background session; the status line `ai-core statusline`; permissions from the harness |
 | OpenAI Codex | `AGENTS.override.md`, else `AGENTS.md`, from the repository root down to the working directory, concatenated, raw (no `@` import) and up to `project_doc_max_bytes`: `init` writes the override where Codex is served, with what Claude Code loads there written out (the project folder's `AGENTS.md`, this one, every file either names after `@`), and raises `project_doc_max_bytes` in Codex's user config to 262144 where it is lower; `~/.codex/AGENTS.md` for the user; `.agents/skills/` in the repository and `~/.agents/skills/`; MCP servers from `.codex/config.toml` in the repository (read once the project is trusted) and from `~/.codex/config.toml` | skills; MCP from `.codex/config.toml`, not from `.mcp.json` |
 | OpenCode | the nearest `AGENTS.md`, without its `@` imports, and the files `opencode.json` names under `instructions`: the rules, the skills file and the local rules | nothing beyond its own defaults, which already refuse reading `.env` |
 | Zed, Aider | `AGENTS.md` | nothing; text only |
@@ -564,12 +554,12 @@ tools work; the harness gives them the text at the place they look.
   `CLAUDE.md`, and loads what it imports after `@`. Where the repository keeps a `CLAUDE.md` of its
   own, `init` writes an untracked `CLAUDE.local.md` with the line `@AGENTS.md`, so nothing is added
   by hand.
-- **Checking a session.** Started in a project folder or a checkout, a session has the rules, the
-  team modes and the map without a word from you. To see it, send this as the first message:
+- **Checking a session.** Started in a project folder or a checkout, a session has the rules and
+  the map without a word from you. To see it, send this as the first message:
   `Quote from your context only, without a tool and without reading a file: the first sentence
-  under the heading "The code never lies to the person using it", the CAVEMAN level of this
-  session, and the start of the first rule of your project harness.` The answer is `This section
-  outranks every other section.`, `lite`, and that rule. The transcript,
+  under the heading "The code never lies to the person using it", and the start of the first rule
+  of your project harness.` The answer is `This section outranks every other section.` and that
+  rule. The transcript,
   `~/.claude/projects/<project>/<session>.jsonl`, shows what each `SessionStart` hook delivered; an
   output marked `Output too large` reached the agent only as a 2 KB preview.
 - `.claude/settings.json` is created once with the `SessionStart` hook, the `PermissionRequest`

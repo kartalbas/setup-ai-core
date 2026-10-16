@@ -2,7 +2,7 @@
 
 This document specifies when and how an agent should trigger and apply specific skills and tools in this harness.
 
-The three modes of section 1 and 2, `i-have-adhd`, `caveman` and `ponytail`, are the team modes: `.ai-core/team-modes.tsv` says, per tool, how the harness sees that a mode is installed and how it is installed. `ai-core session-start` refuses a session while one is missing; `ai-core team-modes-install` installs them. Restart the tool afterwards: a plugin loads when the tool starts.
+`i-have-adhd`, `caveman` and `ponytail` in section 1 and 2 are practices of the agent, named after the skills they came from: nothing installs, checks or switches them on, and no skill of that name is loaded. `archify` is the team mode: `.ai-core/team-modes.tsv` says, per tool, how the harness sees that it is installed and how it is installed. `ai-core session-start` refuses a session while it is missing; `ai-core team-modes-install` installs it. Restart the tool afterwards: a plugin loads when the tool starts.
 
 ---
 
@@ -17,7 +17,7 @@ The three modes of section 1 and 2, `i-have-adhd`, `caveman` and `ponytail`, are
   - Remove all polite padding.
 
 ### `caveman` (Token Compressor)
-- **Trigger:** When the prompt contains `/caveman`, "less tokens", "be brief", or during high-volume batch runs.
+- **Trigger:** When the prompt contains "less tokens" or "be brief", or during high-volume batch runs.
 - **Behavior:**
   - Cuts grammatical fluff (articles, redundant verbs) while keeping 100% technical accuracy.
   - Retains code blocks, exact identifiers, file paths, and compiler error messages verbatim.

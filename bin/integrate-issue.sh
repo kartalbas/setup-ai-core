@@ -80,7 +80,7 @@ subject="$title ($ref)"
 [ "${#subject}" -le 72 ] || subject="Merge issue-$number ($ref)"
 
 landing="$(git rev-parse --path-format=absolute --git-common-dir)/ai-core-landing"
-# ponytail: two waiters that find the same dead holder can both take over, and the push then still
+# A known limit: two waiters that find the same dead holder can both take over, and the push then still
 # refuses the second, as it does without the lock; a holder's process id that an unrelated process
 # took over keeps the lock held, and the waiting line names that process
 waited=""; missing=0; nameless=0

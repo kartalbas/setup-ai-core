@@ -1,17 +1,13 @@
 #!/usr/bin/env bash
-# Are the three team modes installed for the agent tools on this machine?
+# Are the team modes installed for the agent tools on this machine?
 #
 #   team-modes-check.sh [--tool NAME ...] [--quiet]
 #
 # Reads team-modes.tsv, one row per tool and mode, and probes each row for the tools named
 # with --tool - or, without it, for every tool whose command is on PATH. Prints one line per
 # row and, where a mode is missing, the command that installs it. Exits 1 when any mode is
-# missing or unverifiable, because the rules say no work starts without the three, and this
-# check is what makes that sentence true: session-start, start-issue and the push hook run it
-# first.
-#
-# The activation inside a session (the mode's own slash command at its level) is not something
-# a file on disk can prove; session-start prints the three commands for the agent to run.
+# missing or unverifiable, because no work starts without the team modes, and this check is
+# what makes that sentence true: session-start, start-issue and the push hook run it first.
 #
 # THE TOOL LIST IS A STRING AND NOT AN ARRAY. bash 3.2 refuses `${#arr[@]}` on an empty array
 # while `set -u` is on.
@@ -50,8 +46,10 @@ done
 # exit: there is nothing here to hold, and refusing would stop a person who works through a tool
 # this table has never heard of.
 if [ -z "$tools" ]; then
-  # A Codex session started from a Claude Code shell inherits CLAUDECODE, so Codex is asked first.
+  # A Codex or agy session started from a Claude Code shell inherits CLAUDECODE, so both are
+  # asked first; agy sets ANTIGRAVITY_AGENT in its shells.
   if [ -n "${CODEX_SANDBOX:-}${CODEX_SANDBOX_NETWORK_DISABLED:-}${CODEX_THREAD_ID:-}" ]; then tools='codex'$'\n'
+  elif [ -n "${ANTIGRAVITY_AGENT:-}" ]; then tools='agy'$'\n'
   elif [ -n "${CLAUDECODE:-}" ]; then tools='claude'$'\n'
   elif [ -n "${GEMINI_CLI:-}" ]; then tools='gemini'$'\n'
   fi
@@ -81,6 +79,7 @@ plugin_list() {  # plugin_list <tool>
     # proves nothing; the lines that say "not installed" are dropped first.
     codex)  codex plugin list 2>/dev/null | awk 'tolower($0) !~ /not installed/' ;;
     gemini) gemini extensions list 2>/dev/null ;;
+    agy)    agy plugin list 2>/dev/null ;;
     *)      return 1 ;;
   esac
 }
@@ -113,15 +112,15 @@ while IFS= read -r tool <&3; do
     unverified=$((unverified + 1))
     continue
   fi
-  while IFS=$'\t' read -r _ mode level pr install verified <&4; do
+  while IFS=$'\t' read -r _ mode pr install verified <&4; do
     checked=$((checked + 1))
     if probe "$tool" "$pr"; then
-      say "ok          $tool $mode ($level)"
+      say "ok          $tool $mode"
     else
       case $? in
         2) say "UNVERIFIED  $tool $mode: no probe yet - fill the row in $(basename "$TABLE") (its install column says: ${install:--})."
            unverified=$((unverified + 1)) ;;
-        *) say "MISSING     $tool $mode ($level) - install: ${install:--}"
+        *) say "MISSING     $tool $mode - install: ${install:--}"
            missing=$((missing + 1)) ;;
       esac
     fi
@@ -129,7 +128,7 @@ while IFS= read -r tool <&3; do
 done 3<<< "$tools"
 
 if [ "$missing" -gt 0 ] || [ "$unverified" -gt 0 ]; then
-  echo "REFUSED: $missing mode(s) missing, $unverified unverifiable, for: $named. Run team-modes-install, restart the tool, then start again. No work starts without the three modes."
+  echo "REFUSED: $missing mode(s) missing, $unverified unverifiable, for: $named. Run team-modes-install, restart the tool, then start again. No work starts without the team modes."
   exit 1
 fi
 say "team modes: all $checked present for: $named."

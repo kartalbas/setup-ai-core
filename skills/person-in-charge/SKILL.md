@@ -31,8 +31,9 @@ the board and the branches, so a restart loses nothing (`briefs/coordinator.md`)
 5. A package is **released as one**: start check on the bundle that ships together, one release per
    repository in plan order, the test stage, the UI test, production.
 6. **No session waits for you** and no package waits for a session you could start. Packages that
-   share neither a file nor a contract run at the same time. One that shares either names the other
-   in its `After:` line and waits until the other has landed. A phase never moves to another model, effort or tool because
+   share neither a file nor a contract run at the same time. Packages that share either take turns
+   in the order of their area's first section on the plan issue: the later one names the earlier in
+   its `After:` line and waits until it has landed. A phase never moves to another model, effort or tool because
    a quota ran out, because a fallback waters the result down from the bottom up: its package waits.
 
 ## Your tool is your ecosystem

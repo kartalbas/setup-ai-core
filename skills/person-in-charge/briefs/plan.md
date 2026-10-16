@@ -11,9 +11,11 @@ cut by file splits a contract and its two sides then release apart.
 
 - The area, as the coordinator names it: {{area}}
 - The issues: {{issues, each with its acceptance criteria and file:line facts}}
-- The clones of the project folder, by folder name, fetched by the coordinator: {{clone folder names}}
+- The clones of the project folder and of each partner folder, by path, fetched by the coordinator:
+  {{clone paths}}
 - The partner folders that share contracts with this one, or none: {{partner folders}}
-- The open sections of other areas, with their repositories and the files their issues name:
+- The open sections of other areas, with their repositories, the files their issues name, and
+  whether each area's first section stands earlier or later on the plan issue than this area's:
   {{open sections or none}}
 - The plan issue: {{plan issue reference}}
 - What came back, where this plan is not the first: {{the plan check's GAPS, or the two reviews'
@@ -28,17 +30,20 @@ cut by file splits a contract and its two sides then release apart.
    without acceptance criteria stays out, and your output names it with what it lacks.
 2. Find every contract an issue touches: every name one repository reads and another ships (a file
    name, a manifest field, a configuration key, an environment variable, a route, a message type),
-   taken from the facts' spans, not from memory. Search every clone of the project folder and of
-   each partner folder for it in what ships (`git -C <clone path> grep -n -I -F -e <name>
-   origin/HEAD`; `-e` keeps a name that starts with a dash from being read as an option) and read
-   the hits. A name with hundreds of hits is too common to mark a contract: search its longer,
-   more specific spelling. A search finds only the words you give it, so a name built at run time or
-   a shape without a fixed word is found by reading the code that reads or ships it. Every clone that holds
+   taken from the facts' spans, not from memory. Search every clone for it in what ships: first
+   count (`git -C <clone path> grep -c -I -F -e <name> origin/HEAD`), then list the hits with `-n`
+   in place of `-c`. `-e` keeps a name that starts with a dash from being read as an option. A name
+   with hundreds of hits is too common to mark a contract: search its longer, more specific
+   spelling. A search finds only the words you give it, so a name built at run time or a shape
+   without a fixed word is found by reading the code that reads or ships it. Every clone that holds
    a side joins the package, the side's `file:line` in `Contracts:`; a side in a partner folder is a
    `Partner:` line. A hit that is no side (a README, a changelog, a fixture) stays out.
 3. Order the issues: the additive side of a contract before the strict side; an issue that unblocks
-   another first. A package that shares a file or a contract with an open section waits until that
-   section has landed: `After: <area>`. The open section was posted first, so it goes first.
+   another first. Areas take turns in the order of their first section on the plan issue, and an
+   area keeps its turn when it is planned again. A package that shares a file or a contract with
+   the open section of an area whose first section stands earlier waits until that section has
+   landed: `After: <area>`. An area whose first section stands later waits for yours, so it is never
+   in your `After:`.
 4. Judge the class from the contracts and the issue text. Cut so that one build session finishes the
    package alone, without a question back: every issue that belongs to the area and its contracts
    goes into the one package, however many there are, because each further package reads the same

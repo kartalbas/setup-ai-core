@@ -983,7 +983,7 @@ yours from then on (the project harness will carry them):
 | :--- | :--- |
 | `labels.tsv` | the label taxonomy: group, name, colour, description. Every issue carries one `type:` and one `area:` label; `closes:` says what has to happen before a ticket may be closed; `incident:` names what went wrong with a ticket. The group is the prefix the name carries, and every reader refuses the file otherwise. `issue-label` refuses a name outside it, `labels-sync` creates them, `board-sync` reports the tickets missing one. The template carries the generic groups; the `area:` rows are the project's. |
 | `assignees.tsv` | repository → login: who a new issue in that repository belongs to. A repository not listed falls back to `@me`. |
-| `team-modes.tsv` | tool, mode, level, probe, install, verified: how each tool proves a mode is installed and how it is installed (section 4.6). |
+| `team-modes.tsv` | tool, mode, probe, install, verified: how each tool proves a mode is installed and how it is installed (section 4.6). |
 
 **The commands.** All run as `ai-core <name>` and take `--help`. A command that names
 no repository acts on the one it runs in; `OWNER/REPO` before the issue number names another.
@@ -1141,7 +1141,8 @@ releases by tag, `update`, `push`, and `map`. Open:
 ## 13. Known limitations (today)
 
 - Claude Code passes a hook's output whole only up to a size (10 000 characters arrived whole in a
-  measured run, 15 000 did not); `session-start` stays below 9 500. Codex, OpenCode and Antigravity
+  measured run, 15 000 did not); `session-start --tool` cuts the issue thread after 3 000
+  characters and the uncommitted files after 20 lines, and nothing more. Codex, OpenCode and Antigravity
   do not import the files `AGENTS.md` names after `@`; they read where the rules are and open them.
 - `rules-check` validates `rules.md` only, not `rules.local.md`.
 - The board commands assume a GitHub Projects board with single-select fields `Status` (options

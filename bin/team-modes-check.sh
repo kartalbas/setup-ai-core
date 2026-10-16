@@ -38,6 +38,10 @@ while [ $# -gt 0 ]; do
 done
 
 [ -f "$TABLE" ] || { echo "REFUSED: $TABLE is missing - it is the table of the team modes."; exit 1; }
+# A row of another width would be read column by column all the same, its level or its install
+# taken as the probe, and refused for a probe it does not have; the table is named instead.
+widths="$(tr -d '\r' < "$TABLE" | awk -F'\t' '!/^#/ && NF > 0 && NF != 5 { printf "%s%d", sep, NR; sep = ", " }')"
+[ -z "$widths" ] || { echo "REFUSED: $TABLE has rows that are not the five columns tool, mode, probe, install, verified, on line(s) $widths."; exit 1; }
 
 # Without --tool, the tool that RUNS this session is the one checked, read from the variables
 # each tool sets in its shells: a tool that is merely installed beside it must not hold the

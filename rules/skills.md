@@ -2,7 +2,7 @@
 
 This document specifies when and how an agent should trigger and apply specific skills and tools in this harness.
 
-`i-have-adhd`, `caveman` and `ponytail` in section 1 and 2 are practices of the agent, named after the skills they came from: nothing installs, checks or switches them on, and no skill of that name is loaded. `archify` is the team mode: `.ai-core/team-modes.tsv` says, per tool, how the harness sees that it is installed and how it is installed. `ai-core session-start` refuses a session while it is missing; `ai-core team-modes-install` installs it. Restart the tool afterwards: a plugin loads when the tool starts.
+`i-have-adhd`, `caveman` and `ponytail` in section 1 and 2 are practices of the agent, named after the skills they came from: the harness installs, checks, loads and switches on none of them. `archify` is the team mode: `.ai-core/team-modes.tsv` says, per tool, how the harness sees that it is installed and how it is installed. `ai-core session-start` refuses a session while it is missing; `ai-core team-modes-install` installs it. Restart the tool afterwards: a plugin loads when the tool starts.
 
 ---
 

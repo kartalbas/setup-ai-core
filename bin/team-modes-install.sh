@@ -73,6 +73,8 @@ while IFS= read -r tool <&3; do
         else echo "FAILED      $tool $mode: the install command exited non-zero."; failed=$((failed + 1)); fi ;;
       UNVERIFIED*) echo "$line"; skipped=$((skipped + 1)) ;;
       ok*|"team modes"*) echo "$line" ;;
+      # a table the check cannot read row by row has no MISSING line to act on, and is no success
+      "REFUSED: "*" has rows that are not "*) echo "$line"; failed=$((failed + 1)) ;;
     esac
   done 4<<< "$report"
 done 3<<< "$tools"

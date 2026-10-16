@@ -77,6 +77,19 @@ out="$(TEAM_MODES_FILE="$real" run_check --tool agy)"; code=$?
 check 'the plugin listed is present' 0 "$code"
 rm -rf "$HOME/.agents/skills/archify"; : > "$fake/agy-plugins.txt"
 
+echo 'the agy install leaves no folder behind, and ends as agy plugin install ended'
+inst="$fake/inst"; mkdir -p "$inst/bin" "$inst/tmp"
+printf '#!/usr/bin/env bash\nmkdir -p "$HOME/.agents/skills/archify"\n' > "$inst/bin/npx"
+printf '#!/usr/bin/env bash\n[ "$1 $2" = "plugin install" ] && exit "${AGY_INSTALL_EXIT:-0}"\nexit 0\n' > "$inst/bin/agy"
+chmod +x "$inst/bin/npx" "$inst/bin/agy"
+agy_install="$(tr -d '\r' < "$real" | awk -F'\t' '!/^#/ && $1 == "agy" { print $4 }')"
+for want in 0 3; do
+  code=0; PATH="$inst/bin:$PATH" TMPDIR="$inst/tmp" AGY_INSTALL_EXIT="$want" bash -c "$agy_install" >/dev/null 2>&1 || code=$?
+  check "agy plugin install exits $want: so does the install" "$want" "$code"
+  check "agy plugin install exits $want: no folder left"      0 "$(ls -A "$inst/tmp" | wc -l | tr -d ' ')"
+done
+rm -rf "$HOME/.agents/skills/archify"
+
 echo 'nothing installed: two MISSING lines with their install commands, and a refusal'
 out="$(run_check --tool claude)"; code=$?
 check 'exit 1'                      1 "$code"
@@ -141,6 +154,12 @@ echo 'an agy session started from a Claude Code shell carries both variables: ag
 out="$("${no_tool_env[@]}" CLAUDECODE=1 ANTIGRAVITY_AGENT=1 TEAM_MODES_FILE="$real" bash "$root/bin/team-modes-check.sh" 2>&1)"
 check 'agy checked'         yes "$(grep -q -E '^(ok|MISSING) +agy archify' <<< "$out" && echo yes || echo no)"
 check 'claude not checked'  no  "$(grep -q 'claude' <<< "$out" && echo yes || echo no)"
+echo 'an agy session alone is agy; a Codex session started from agy is Codex'
+out="$("${no_tool_env[@]}" ANTIGRAVITY_AGENT=1 TEAM_MODES_FILE="$real" bash "$root/bin/team-modes-check.sh" 2>&1)"
+check 'agy alone checked'   yes "$(grep -q -E '^(ok|MISSING) +agy archify' <<< "$out" && echo yes || echo no)"
+out="$("${no_tool_env[@]}" ANTIGRAVITY_AGENT=1 CODEX_THREAD_ID=t TEAM_MODES_FILE="$real" bash "$root/bin/team-modes-check.sh" 2>&1)"
+check 'codex over agy'      yes "$(grep -q -E '^(ok|MISSING) +codex archify' <<< "$out" && echo yes || echo no)"
+check 'agy not checked'     no  "$(grep -q -E '^(ok|MISSING) +agy ' <<< "$out" && echo yes || echo no)"
 
 echo 'a plugin that Codex lists as not installed is missing, not present'
 out="$(run_check --tool codex)"; code=$?
@@ -153,6 +172,16 @@ echo 'a table whose probes always pass is what the other tests use'
 printf 'claude\tmode\talways\t-\t-\n' > "$fake/always.tsv"
 out="$(TEAM_MODES_FILE="$fake/always.tsv" run_check --tool claude)"; code=$?
 check 'exit 0' 0 "$code"
+
+echo 'a row that is not five columns wide is a refusal that names the table and the line, also for the installer'
+{ printf '# an old table that still carries a level column\n'; printf 'claude\tmode\ton\talways\t-\t-\n'; } > "$fake/six.tsv"
+out="$(TEAM_MODES_FILE="$fake/six.tsv" run_check --tool claude)"; code=$?
+check 'exit 1'  1 "$code"
+check 'names the columns and the line' yes "$(grep -q '^REFUSED: .*six.tsv has rows that are not the five columns tool, mode, probe, install, verified, on line(s) 2\.$' <<< "$out" && echo yes || echo no)"
+check 'no probe is blamed' no "$(grep -q '^UNVERIFIED' <<< "$out" && echo yes || echo no)"
+out="$(TEAM_MODES_FILE="$fake/six.tsv" bash "$root/bin/team-modes-install.sh" --tool claude 2>&1 </dev/null)"; code=$?
+check 'the installer exits 1'   1 "$code"
+check 'and passes the refusal on' yes "$(grep -q '^REFUSED: .*has rows that are not the five columns' <<< "$out" && echo yes || echo no)"
 
 echo 'a table that is not there is a refusal, not an empty pass'
 out="$(TEAM_MODES_FILE="$fake/no-such-table.tsv" run_check --tool claude)"; code=$?

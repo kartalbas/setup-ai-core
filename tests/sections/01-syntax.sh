@@ -27,7 +27,7 @@ printf -- '- of at least two issues, and of one only where a defect cannot wait\
 [ -z "$(package_caps "$P")" ] || fail "a minimum of two issues was reported as a cap: $(package_caps "$P")"
 for planted in 'and of at most about 8 issues or 400 changed lines' 'clears up to 10 cards a round' \
                'Split a package above 8 issues or about 400 changed lines' 'a 400-line package' \
-               'and of at most about 8\n  issues or 400 changed lines'; do
+               'and of at most about 8\n  issues'; do
   printf -- "- $planted\n" > "$P/planted.md"
   [ -n "$(package_caps "$P")" ] || fail "a planted cap stayed green: $planted"
 done

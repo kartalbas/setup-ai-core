@@ -29,10 +29,9 @@ cut by file splits a contract and its two sides then release apart.
    name, a manifest field, a configuration key, an environment variable, a route, a message type),
    taken from the facts' spans, not from memory. Search every clone for it in what ships: first
    count (`git -C <clone path> grep -I -F -e <name> origin/HEAD | wc -l`), then list the hits
-   (`grep -n -I -F -e <name> origin/HEAD`). `-e` keeps a name that starts with a dash from being
-   read as an option. A name
-   with hundreds of hits is too common to mark a contract: search its longer, more specific
-   spelling. A search finds only the words you give it, so a name built at run time or a shape
+   (`git -C <clone path> grep -n -I -F -e <name> origin/HEAD`). `-e` keeps a name that starts with
+   a dash from being read as an option. A name with hundreds of hits is too common to mark a
+   contract: search its longer, more specific spelling. A search finds only the words you give it, so a name built at run time or a shape
    without a fixed word is found by reading the code that reads or ships it. Every clone that holds
    a side joins the package, the side's `file:line` in `Contracts:`; a side in a partner folder is a
    `Partner:` line. A hit that is no side (a README, a changelog, a fixture) stays out.

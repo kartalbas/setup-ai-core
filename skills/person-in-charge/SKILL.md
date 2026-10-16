@@ -31,11 +31,16 @@ the board and the branches, so a restart loses nothing (`briefs/coordinator.md`)
 5. A package is **released as one**: start check on the bundle that ships together, one release per
    repository in plan order, the test stage, the UI test, production.
 6. **No session waits for you** and no package waits for a session you could start. Packages that
-   share neither a file nor a contract run at the same time. Of packages that share either, read
-   from their sections' `Files:` and `Contracts:`, only one is between build and landing at a time:
-   of the ready ones, the one whose area's first section stands earliest on the plan issue starts,
-   and the next one is built on what it landed. A phase never moves to another model, effort or
-   tool because a quota ran out, because a fallback waters the result down from the bottom up: its package waits.
+   share neither a file nor a contract run at the same time. Of packages that share either, only
+   one is between build and landing at a time. You read the overlap from the `Files:` and
+   `Contracts:` of every section on the plan issue, another ecosystem's sections included. A
+   package can start once its plan check said GO and its `Waits for the owner:` is answered. Of
+   those, one that fixes a fault on a live environment or carries a side a partner waits for starts
+   first; otherwise the one whose area's first section stands earliest on the plan issue starts.
+   The next one is built on what it landed. A package stopped for the owner (`needs:owner`) holds
+   nothing: the packages it overlaps go on, and when it resumes, it is built on what they landed.
+   A phase never moves to another model, effort or tool because a quota ran out, because a
+   fallback waters the result down from the bottom up: its package waits.
 
 ## Your tool is your ecosystem
 

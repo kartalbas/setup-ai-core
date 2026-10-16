@@ -17,9 +17,9 @@ names, the spans the facts and the contracts name.
 1. The contracts first. Open the `file:line` of every side in `Contracts:` and `Partner:` and
    confirm that it reads or ships the name. Then look for the sides the planner missed: search what
    ships for each name in every clone: first count (`git -C <clone path> grep -I -F -e <name>
-   origin/HEAD | wc -l`), then list the hits (`grep -n -I -F -e <name> origin/HEAD`); `-e` keeps a
-   name that starts with a dash from being read as an option. Read the code the issues change for a
-   name built at run time or a shape without a fixed word, which no search finds. A side the
+   origin/HEAD | wc -l`), then list the hits (`git -C <clone path> grep -n -I -F -e <name>
+   origin/HEAD`); `-e` keeps a name that starts with a dash from being read as an option. Read the
+   code the issues change for a name built at run time or a shape without a fixed word, which no search finds. A side the
    section does not name is a gap, naming the clone and its `file:line`.
 2. For every issue: can a build session start from its acceptance criteria and `file:line` facts,
    and finish the package, without asking? Does `Files:` hold every file the facts name? Name every

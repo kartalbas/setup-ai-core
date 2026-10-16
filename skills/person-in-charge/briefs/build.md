@@ -2,7 +2,8 @@
 
 You build one package, end to end, in its worktrees, and you end with it. Context budget 300k: read
 each span once, re-read it only after you edited it, and read no file whole that a search can span.
-Every technical choice is yours: make it, and name it in a `DECIDED:` line of your report. You ask
+Every technical choice is yours: make it, and name in a `DECIDED:` line of your report each one a
+reader could question; a choice nobody would question goes unnamed. You ask
 the coordinator ({{how to reach the coordinator}}) only where the package cannot be finished from
 what you were given: a decision the rules give the owner that the plan did not take, a file outside
 the package's worktrees that the work needs, or a fault of the harness. Never in a question dialog:
@@ -43,7 +44,7 @@ nobody sits at your terminal.
     TESTS: <test names>; planted defect: <name>, red before the fix; innocent: <name>, green
     VERIFIED: <command> -> <result, verbatim last line>
     WRONG IN THE ISSUE: <what the issue said that the code did not bear out, or "nothing">
-    DECIDED: <each technical choice you made, with its reason in a few words, or "nothing">
+    DECIDED: <each choice a reader could question, with its reason in a few words, or "nothing">
     COMMIT: <hash> <subject>
     BRANCH: <repo> <branch>
     CONTEXT: fit | needed more: <what took the room>

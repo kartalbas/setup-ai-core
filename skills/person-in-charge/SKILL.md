@@ -30,9 +30,9 @@ the board and the branches, so a restart loses nothing (`briefs/coordinator.md`)
    a session at its budget. The planner cuts packages so that a phase fits it.
 5. A package is **released as one**: start check on the bundle that ships together, one release per
    repository in plan order, the test stage, the UI test, production.
-6. **No session waits for you** and no package waits for a session you could start: packages that
-   share neither a file nor a contract run side by side, and one that shares either waits, named in
-   its `After:` line, until the other has landed. A phase never moves to another model, effort or tool because
+6. **No session waits for you** and no package waits for a session you could start. Packages that
+   share neither a file nor a contract run at the same time. One that shares either names the other
+   in its `After:` line and waits until the other has landed. A phase never moves to another model, effort or tool because
    a quota ran out, because a fallback waters the result down from the bottom up: its package waits.
 
 ## Your tool is your ecosystem
@@ -116,8 +116,8 @@ more` line is a GAP for the next plan of that area.
 ## Starting a phase
 
 1. Read the row `<your tool> <phase> <class>` of `.ai-core/models.tsv`: model and effort.
-2. Before a plan: `git -C <clone> fetch -q origin` for every clone of the folder, because the
-   planner reads what origin ships. Before a build: `ai-core start-issue <first issue>` in the first
+2. Before a plan and before a plan check: `git -C <clone> fetch -q origin` for every clone of the
+   folder and of each partner folder, because both read what origin ships. Before a build: `ai-core start-issue <first issue>` in the first
    repository's clone, and `ai-core start-issue <owner/repo> <first issue>` in the clone of every
    other repository of the package, because a repository that joined through a contract has no issue
    of its own there; where an issue's branch exists from before, give the build its worktree path.

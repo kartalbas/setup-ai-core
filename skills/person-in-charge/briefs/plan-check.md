@@ -9,24 +9,26 @@ names, the spans the facts and the contracts name.
 - The plan issue, where your verdict goes: {{plan issue reference}}
 - The package section: {{package section}}
 - The issues it names, with their acceptance criteria: {{issues}}
-- The clones of the project folder and of each partner folder, fetched by the coordinator: {{clone
-  folder names}}
-- The open sections of other areas, with their repositories and the files their issues name:
-  {{open sections or none}}
+- The clones of the project folder and of each partner folder, by path, fetched by the coordinator
+  right before this check: {{clone paths}}
+- The open sections of other areas that were posted before this section, with their repositories
+  and the files their issues name: {{earlier open sections or none}}
 
 ## What to do
 
 1. The contracts first. Open the `file:line` of every side in `Contracts:` and `Partner:` and
    confirm that it reads or ships the name. Then look for the sides the planner missed: search what
-   ships for each name in every clone (`git -C <clone> grep -n -F <name> origin/HEAD`), and read the
-   code the issues change for a name built at run time or a shape without a fixed word, which no
+   ships for each name in every clone (`git -C <clone path> grep -n -I -F -e <name> origin/HEAD`;
+   `-e` keeps a name that starts with a dash from being read as an option), and read the code the
+   issues change for a name built at run time or a shape without a fixed word, which no
    search finds. A side the section does not name is a gap, naming the clone and its `file:line`.
 2. For every issue: can a build session start from its acceptance criteria and `file:line` facts,
    and finish the package, without asking? Name every placeholder, contradiction, open question and
    scope beyond the issues.
 3. For every contract: is the additive side ordered before the strict side? Does a test need a
    second repository checked out beside the first, and does the section say so? Does the package
-   share a file or a contract with an open section that its `After:` line does not name?
+   share a file or a contract with an earlier open section that its `After:` line does not name? A
+   section posted after this one waits for this one, so it is not asked about here.
 4. Is the class right? A touched contract outward (outward means an interface somebody outside the project uses (a public API, a published package, a customer's data format), never a contract between the project's own repositories), a secret, a payment or the push gate is
    `high-risk` whatever the text says. A `mechanical` section that names a contract is not mechanical.
    Open the spans the issues name: a package called mechanical that changes a value anything reads

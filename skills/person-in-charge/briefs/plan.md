@@ -29,14 +29,16 @@ cut by file splits a contract and its two sides then release apart.
 2. Find every contract an issue touches: every name one repository reads and another ships (a file
    name, a manifest field, a configuration key, an environment variable, a route, a message type),
    taken from the facts' spans, not from memory. Search every clone of the project folder and of
-   each partner folder for it in what ships (`git -C <clone> grep -n -F <name> origin/HEAD`) and
-   read the hits: a search finds only the words you give it, so a name built at run time or a shape
-   without a fixed word is found by reading the code that reads or ships it. Every clone that holds
+   each partner folder for it in what ships (`git -C <clone path> grep -n -I -F -e <name>
+   origin/HEAD`; `-e` keeps a name that starts with a dash from being read as an option) and read
+   the hits. A name with hundreds of hits is too common to mark a contract: search its longer,
+   more specific spelling. A search finds only the words you give it, so a name built at run time or
+   a shape without a fixed word is found by reading the code that reads or ships it. Every clone that holds
    a side joins the package, the side's `file:line` in `Contracts:`; a side in a partner folder is a
    `Partner:` line. A hit that is no side (a README, a changelog, a fixture) stays out.
 3. Order the issues: the additive side of a contract before the strict side; an issue that unblocks
    another first. A package that shares a file or a contract with an open section waits until that
-   section has landed: `After: <area>`.
+   section has landed: `After: <area>`. The open section was posted first, so it goes first.
 4. Judge the class from the contracts and the issue text. Cut so that one build session finishes the
    package alone, without a question back: every issue that belongs to the area and its contracts
    goes into the one package, however many there are, because each further package reads the same

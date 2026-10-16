@@ -42,11 +42,11 @@
   them. A package is an area: one capability as the user meets it, across every repository it
   touches, with both sides of every contract an issue touches, each named in its plan by
   `file:line`. Its planner cuts it so that one build session finishes it alone, without a question
-  back: every issue of the area in it, one branch per repository, the owner's decisions taken
-  before the build starts. Packages that share a file or a contract run one after the other, the
-  later one built on what the earlier one landed; only packages that share neither run side by
-  side, and a package too large for one build's context budget is split into parts that run one
-  after the other the same way. A package has one worktree per repository, one commit per issue
+  back. Every issue of the area goes into it, and the owner's decisions are taken before the build
+  starts. Packages that share a file or a contract run one after the other. The later one is built
+  on what the earlier one landed. Only packages that share neither run at the same time. A package
+  too large for one build's context budget is split into parts that run one after the other in the
+  same way. A package has one worktree per repository, one commit per issue
   that names it, every issue's test case on the issue before the build ends, then one push gate run, one review of the whole package diff with its
   findings per issue, one integration and one release per repository with the additive side first,
   one UI test, and its issues close together. Every separate round pays the context, the install,

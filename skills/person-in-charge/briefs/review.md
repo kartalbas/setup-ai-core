@@ -28,8 +28,9 @@ nothing: a reviewer who repairs approves its own fix.
    the order of events that makes it wrong. A finding without a state is an opinion.
 3. Check the tests: does each one go red on the defect it claims to catch? Open the planted case and
    say whether it would. A test that passes through a special case for its input is a finding.
-4. Check the contracts: both sides in the diff, the additive side first, nothing read that nothing
-   ships.
+4. Check the contracts: open the `file:line` of every side the section names in `Contracts:` and
+   `Partner:`. Each side is in the diff or already ships what the other reads, the additive side
+   comes first, and nothing is read that nothing ships.
 5. Check what the change took the job of: anything commented out, parked, or left uncalled is a
    finding.
 6. Check the report against the diff: a claim the diff does not bear out is a finding.

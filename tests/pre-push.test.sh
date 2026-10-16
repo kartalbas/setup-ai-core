@@ -56,9 +56,13 @@ exit 0
 EOF
 # The ai-core stub writes down what the shim hands it: its arguments and git's input
 shim_args="$fake/shim-args.txt"
+# PROBE_RACE names a script the stub runs once, while git waits on the gate, as another session's
+# push to the same origin would; PROBE_GATE=red makes the gate refuse.
 cat > "$stub/ai-core" <<EOF
 #!/usr/bin/env bash
 printf '[%s] ' "\$*" >> "$shim_args"; cat >> "$shim_args"
+if [ -n "\${PROBE_RACE:-}" ] && [ ! -e "\$PROBE_RACE.done" ]; then : > "\$PROBE_RACE.done"; bash "\$PROBE_RACE" >/dev/null 2>&1; fi
+[ "\${PROBE_GATE:-green}" = green ] || { echo 'gate: refused'; exit 1; }
 exit 0
 EOF
 chmod +x "$stub/claude" "$stub/gitleaks" "$stub/ai-core"
@@ -868,6 +872,74 @@ check 'exit 0'                        0 "$rc"
 check 'pushed to origin/master'       yes "$(grep -q '^pre-push: pushed: pushed to origin/master$' <<< "$out" && echo yes || echo no)"
 check 'the origin has the commit'     "$(git -C "$pushed" rev-parse HEAD)" "$(git -C "$origin_bare" rev-parse master)"
 check 'and the push went through the shim, so through ai-core pre-push' yes "$(grep -q '^\[pre-push origin ' "$shim_args" && echo yes || echo no)"
+
+echo 'the origin moves on while the gate runs: the commit goes on top of it and is pushed once more'
+race_origin="$fake/race-origin.git"; git clone -q --bare "$origin_bare" "$race_origin" 2>/dev/null   # its own origin: the other cases count the commits of theirs
+racing="$fake/racing"; git clone -q "$race_origin" "$racing" 2>/dev/null
+git -C "$racing" config user.email 'test@example.invalid'; git -C "$racing" config user.name 'test'
+printf '#!/usr/bin/env bash\nexec bash ../tooling/hooks/pre-push "$@"\n' > "$racing/.githooks/pre-push"
+git -C "$racing" commit -q -am 'An older shim #11'; git -C "$racing" push -q --no-verify origin HEAD:master 2>/dev/null
+other="$fake/other"; git clone -q "$race_origin" "$other" 2>/dev/null
+git -C "$other" config user.email 'test@example.invalid'; git -C "$other" config user.name 'test'
+race="$fake/race.sh"; rm -f "$race.done"
+printf 'cd %q && git pull -q --no-rebase origin master && printf "o\\n" >> other.txt && git add other.txt && git commit -q -m "Other work #12" && git push -q --no-verify origin HEAD:master\n' "$other" > "$race"
+out="$( cd "$racing" && PROBE_RACE="$race" bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'exit 0'                        0 "$rc"
+check 'the race happened'             yes "$([ -e "$race.done" ] && echo yes || echo no)"
+check 'it says so'                    yes "$(grep -q '^pre-push: racing: the origin moved on during the push; the commit went on top of it and was pushed to origin/master$' <<< "$out" && echo yes || echo no)"
+check 'the origin has the commit'     "$(git -C "$racing" rev-parse HEAD)" "$(git -C "$race_origin" rev-parse master)"
+check 'on top of the other work'      'Other work #12' "$(git -C "$racing" log -1 --format=%s HEAD~1)"
+check 'and the tree is clean'         '' "$(git -C "$racing" status --porcelain --untracked-files=no)"
+
+echo 'the gate refuses the push of the hook commit: the commit is undone and the hooks are as they were'
+printf '#!/usr/bin/env bash\nexec bash ../tooling/hooks/pre-push "$@"\n' > "$racing/.githooks/pre-push"
+git -C "$racing" commit -q -am 'An older shim again #13'; git -C "$racing" push -q --no-verify origin HEAD:master 2>/dev/null
+head_r="$(git -C "$racing" rev-parse HEAD)"; old_shim="$(cat "$racing/.githooks/pre-push")"
+out="$( cd "$racing" && PROBE_GATE=red bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'exit 1'                        1 "$rc"
+check 'it says what it did'           yes "$(grep -q '^pre-push: racing: the push was refused (see above), so its commit is undone and the hooks are as they were; run ai-core pre-push --install here again once a push can go$' <<< "$out" && echo yes || echo no)"
+check 'no commit ahead of the origin' "$head_r" "$(git -C "$racing" rev-parse HEAD)"
+check 'the origin is unchanged'       "$head_r" "$(git -C "$race_origin" rev-parse master)"
+check 'the shim is the one it was'    "$old_shim" "$(cat "$racing/.githooks/pre-push")"
+check 'and the tree is clean'         '' "$(git -C "$racing" status --porcelain --untracked-files=no)"
+
+echo 'a session commits in the checkout while the gate runs, and the gate refuses: its commit and its file stay'
+printf '#!/usr/bin/env bash\nexec bash ../tooling/hooks/pre-push "$@"\n' > "$racing/.githooks/pre-push"
+git -C "$racing" commit -q -am 'An older shim a third time #14'; git -C "$racing" push -q --no-verify origin HEAD:master 2>/dev/null
+race="$fake/race-local.sh"; rm -f "$race.done"
+printf 'cd %q && printf "b\\n" > session-b.txt && git add session-b.txt && git commit -q -m "Session B work #15"\n' "$racing" > "$race"
+out="$( cd "$racing" && PROBE_RACE="$race" PROBE_GATE=red bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'exit 1'                        1 "$rc"
+check 'it says the commit stays'      yes "$(grep -q '^pre-push: racing: the push was refused (see above), and its commit could not be undone; it stays on master$' <<< "$out" && echo yes || echo no)"
+check 'the session commit is HEAD'    'Session B work #15' "$(git -C "$racing" log -1 --format=%s HEAD)"
+check 'and its file is there'         b "$(cat "$racing/session-b.txt" 2>/dev/null)"
+git -C "$racing" reset -q --hard origin/master; rm -f "$racing/session-b.txt"
+
+echo 'another session pushes the same hooks while the gate runs: nothing to push, and nothing undone'
+printf '#!/usr/bin/env bash\nexec bash ../tooling/hooks/pre-push "$@"\n' > "$racing/.githooks/pre-push"
+git -C "$racing" commit -q -am 'An older shim a fourth time #16'; git -C "$racing" push -q --no-verify origin HEAD:master 2>/dev/null
+race="$fake/race-same.sh"; rm -f "$race.done"
+printf 'cd %q && git pull -q --no-rebase origin master && cp %q/.githooks/pre-push %q/.githooks/post-checkout .githooks/ && git add .githooks && git commit -q -m "The same hooks #17" && git push -q --no-verify origin HEAD:master\n' "$other" "$racing" "$racing" > "$race"
+out="$( cd "$racing" && PROBE_RACE="$race" PROBE_GATE=red bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'exit 0'                        0 "$rc"
+check 'it says so'                    yes "$(grep -q '^pre-push: racing: the origin moved on during the push and carries these hooks already; nothing to push$' <<< "$out" && echo yes || echo no)"
+check 'level with the origin'         "$(git -C "$race_origin" rev-parse master)" "$(git -C "$racing" rev-parse HEAD)"
+check 'and the tree is clean'         '' "$(git -C "$racing" status --porcelain --untracked-files=no)"
+
+echo 'with rebase.autoStash on and a change of a person in the tree, the rebase refuses and the change stays as it was'
+printf '#!/usr/bin/env bash\nexec bash ../tooling/hooks/pre-push "$@"\n' > "$racing/.githooks/pre-push"
+git -C "$racing" commit -q -am 'An older shim a fifth time #18'; git -C "$racing" push -q --no-verify origin HEAD:master 2>/dev/null
+git -C "$racing" config rebase.autoStash true
+printf 'mine\n' >> "$racing/other.txt"; edit="$(cat "$racing/other.txt")"; head_r="$(git -C "$racing" rev-parse HEAD)"
+race="$fake/race-stash.sh"; rm -f "$race.done"
+printf 'cd %q && git pull -q --no-rebase origin master && printf "theirs\\n" >> other.txt && git commit -q -am "Other work again #19" && git push -q --no-verify origin HEAD:master\n' "$other" > "$race"
+out="$( cd "$racing" && PROBE_RACE="$race" bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'exit 1'                        1 "$rc"
+check 'the commit is undone'          "$head_r" "$(git -C "$racing" rev-parse HEAD)"
+check 'the change is as it was'       "$edit" "$(cat "$racing/other.txt")"
+check 'no stash was left'             '' "$(git -C "$racing" stash list)"
+check 'no file is unmerged'           '' "$(git -C "$racing" diff --name-only --diff-filter=U)"
+git -C "$racing" config --unset rebase.autoStash; git -C "$racing" checkout -q -- other.txt
 
 echo 'an unpushed commit that touches only .gitignore and names no issue gets the trailer, and the push goes through'
 printf 'node_modules/\n' > "$pushed/.gitignore"; git -C "$pushed" add .gitignore; git -C "$pushed" commit -q -m 'chore: ignore node_modules'

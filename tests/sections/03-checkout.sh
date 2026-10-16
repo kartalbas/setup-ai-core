@@ -256,7 +256,8 @@ parts_fit() {  # every part opens with agy's frontmatter and holds at most 24,00
   done
 }
 parts_hold() {  # parts_hold <how> <filter>: the bodies of the parts against the text Codex gets, both through <filter>
-  [ "$(for p in $(our_parts); do tail -n +5 "$p"; done | $2)" = "$(tail -n +2 "$O" | $2)" ] || fail "init.sh: the parts do not hold the text Codex gets, $1"
+  # the x keeps the trailing line breaks, which $( ) would drop
+  [ "$(for p in $(our_parts); do tail -n +5 "$p"; done | $2; echo x)" = "$(tail -n +2 "$O" | $2; echo x)" ] || fail "init.sh: the parts do not hold the text Codex gets, $1"
 }
 A="$F/repo/.agents/rules"
 ours_head 9 > "$A/ai-core-09.md"; printf 'the project uses this name too\n' > "$A/ai-core-08.md"
@@ -275,6 +276,12 @@ parts_fit; parts_hold "line for line" cat
 agy_init "$F/repo"
 parts_fit; parts_hold "with the line breaks taken out" 'tr -d \n'
 grep -aq 'antigravity: warning: .agents/rules/ai-core-\*.md hold [0-9]* bytes' "$WORK/agy.log" || fail "init.sh did not warn of agy's budget for $(cat "$A"/ai-core-[0-9][0-9].md | wc -c) bytes"
+# A file of the project's own in a slot init writes stays, and init says agy misses that part
+printf 'the project wrote this part\n' > "$A/ai-core-02.md"
+agy_init "$F/repo"
+[ "$(cat "$A/ai-core-02.md")" = 'the project wrote this part' ] || fail "init.sh wrote over a file of the project's own in a slot it writes"
+grep -aqF 'antigravity: .agents/rules/ai-core-02.md is the project'"'"'s own, so agy misses that part of the rules' "$WORK/agy.log" || fail "init.sh did not say that agy misses the part the project's own file holds"
+rm "$A/ai-core-02.md"
 # Where agy is not served, a part of init's own goes and a file of the project's own stays
 N="$WORK/codex-none"
 [ ! -e "$N/.agents/rules" ] || fail "init.sh wrote rules for Antigravity where it is not served"

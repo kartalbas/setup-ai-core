@@ -40,12 +40,14 @@
   ask; so is a phase session a person in charge starts for a package on the rows of the project's
   model table (`.ai-core/models.tsv`), because the owner's start of the coordinator is the yes for
   them. A package is an area: one capability as the user meets it, across every repository it
-  touches, with both sides of every contract an issue touches (`ai-core contract-scan` finds them),
-  of at least two issues, and of one only where neither the area nor an area sharing its
-  repositories holds a second ready one or a defect live on production cannot wait, which its plan
-  says, and no larger than one build's context budget, split along the contracts above that: one
-  worktree per repository, one commit per issue that names it, every issue's test case on the issue
-  before the build ends, then one push gate run, one review of the whole package diff with its
+  touches, with both sides of every contract an issue touches, each named in its plan by
+  `file:line`. Its planner cuts it so that one build session finishes it alone, without a question
+  back. Every issue of the area goes into it, and the owner's decisions are taken before the build
+  starts. Packages that share a file or a contract run one after the other. The later one is built
+  on what the earlier one landed. Only packages that share neither run at the same time. A package
+  too large for one build's context budget is split into parts that run one after the other in the
+  same way. A package has one worktree per repository, one commit per issue
+  that names it, every issue's test case on the issue before the build ends, then one push gate run, one review of the whole package diff with its
   findings per issue, one integration and one release per repository with the additive side first,
   one UI test, and its issues close together. Every separate round pays the context, the install,
   the gate, the review and the CI run again, five to ten times over for five to ten issues, and

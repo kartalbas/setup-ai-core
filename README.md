@@ -388,7 +388,8 @@ on start; no developer installs a skill by hand.
 
 - `person-in-charge` is the skill of the session the owner names coordinator of a project, in one
   tool: Claude Code, Codex or agy. Each tool is its own ecosystem, and no session calls another's
-  tool. The coordinator writes no code. It cuts the open issues into packages by area: one
+  tool, except a phase whose row in `models.tsv` reads `agy:<model>`: its coordinator starts that
+  phase on agy. The coordinator writes no code. It cuts the open issues into packages by area: one
   capability across every repository it touches, with both sides of each contract, found by
   `ai-core contract-scan`. Every package is a section of one plan issue per board, titled "Plan:
   packages", with its ecosystem, class, repositories, contracts and issues.

@@ -7,6 +7,8 @@
 # tool    claude, codex or agy, by the name of its command on PATH. Each tool is its own ecosystem
 #         with its own coordinator and its own models: no session of one calls another's tool, and
 #         a package runs in one of them from its plan to its release and never moves to another.
+#         The one exception is a row whose model reads `agy:<model>`: its coordinator starts that
+#         phase on agy, and the package stays in the coordinator's ecosystem.
 #         The issues nobody planned belong to the first tool of ECOSYSTEM_ORDER in config.env;
 #         a later tool plans what the owner hands its coordinator. A tool with
 #         no rows runs no phase, and a class without rows of a tool is not that tool's work.
@@ -25,7 +27,9 @@
 #         contract between the project's own repositories), normal-hard (everything else); *
 #         for every class.
 # model   what the tool's --model takes (`claude --model`, `codex -m`, `agy --model`, as `agy models`
-#         lists it).
+#         lists it), or `agy:<model>` for a phase the owner moved to agy. agy runs Claude's models
+#         at high effort, never xhigh, so only a phase whose row may run at high moves there; a
+#         normal-hard build does, because its plan and its review stay on xhigh.
 # effort  what the tool takes for it (`claude --effort`, `codex -c model_reasoning_effort=`); - where
 #         the model name carries it, as agy's names do.
 #
@@ -35,13 +39,13 @@
 
 claude	plan	normal-hard	claude-opus-5-5	xhigh
 claude	plan	high-risk	claude-opus-5-5	xhigh
-claude	plan-check	mechanical	claude-sonnet-5-5	high
+claude	plan-check	mechanical	agy:claude-sonnet-5-5-high	-
 claude	plan-check	normal-hard	claude-opus-5-5	high
 claude	plan-check	high-risk	claude-opus-5-5	high
-claude	build	mechanical	claude-sonnet-5-5	high
-claude	build	normal-hard	claude-sonnet-5-5	xhigh
+claude	build	mechanical	agy:claude-sonnet-5-5-high	-
+claude	build	normal-hard	agy:claude-sonnet-5-5-high	-
 claude	build	high-risk	claude-opus-5-5	xhigh
-claude	review	mechanical	claude-opus-5-5	high
+claude	review	mechanical	agy:claude-opus-5-5-high	-
 claude	review	normal-hard	claude-opus-5-5	xhigh
 claude	review	high-risk	claude-fable-5-1	xhigh
 claude	review-second	high-risk	claude-sonnet-5-5	xhigh
@@ -67,20 +71,13 @@ codex	ui-test	normal-hard	gpt-6-luna	high
 codex	ui-test	high-risk	gpt-6-luna	max
 codex	helper	*	gpt-6-luna	medium
 codex	coordinator	*	gpt-6.1-sol	high
-agy	plan	normal-hard	gemini-4-argon-high	-
-agy	plan	high-risk	gemini-4-argon-high	-
-agy	plan-check	mechanical	gemini-3.8-flash-high	-
-agy	plan-check	normal-hard	gemini-4-argon-high	-
-agy	plan-check	high-risk	gemini-4-argon-high	-
-agy	build	mechanical	gemini-3.8-flash-high	-
-agy	build	normal-hard	gemini-3.8-flash-high	-
-agy	build	high-risk	gemini-4-argon-high	-
-agy	review	mechanical	gemini-4-argon-high	-
-agy	review	normal-hard	gemini-4-argon-high	-
-agy	review	high-risk	gemini-4-argon-high	-
-agy	review-second	high-risk	gemini-3.8-flash-high	-
-agy	ui-test	mechanical	gemini-3.8-flash-medium	-
-agy	ui-test	normal-hard	gemini-3.8-flash-high	-
-agy	ui-test	high-risk	gemini-3.8-flash-high	-
-agy	helper	*	gemini-3.8-flash-medium	-
-agy	coordinator	*	gemini-4-argon-high	-
+agy	plan	normal-hard	claude-opus-5-5-high	-
+agy	plan-check	mechanical	claude-sonnet-5-5-high	-
+agy	plan-check	normal-hard	claude-opus-5-5-high	-
+agy	build	mechanical	claude-sonnet-5-5-high	-
+agy	build	normal-hard	claude-sonnet-5-5-high	-
+agy	review	mechanical	claude-opus-5-5-high	-
+agy	review	normal-hard	claude-opus-5-5-high	-
+agy	ui-test	*	claude-sonnet-5-5-high	-
+agy	helper	*	claude-sonnet-5-5-high	-
+agy	coordinator	*	claude-opus-5-5-high	-

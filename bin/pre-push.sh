@@ -182,13 +182,13 @@ write_shim() {  # write_shim <tree> <hook> <text>: the text into <tree>/.githook
   printf '%s' "$text" > "$path"
   chmod +x "$path"
 }
-write_shims() {  # write_shims <tree> <label> <suffix> [checkout]: both shims, one report line each, and the attributes rule where it is missing
-  local dir="$1" label="$2" suffix="$3"
-  echo "pre-push: $label: .githooks/pre-push $(write_shim "$dir" pre-push "$SHIM")$suffix"
-  echo "pre-push: $label: .githooks/post-checkout $(write_shim "$dir" post-checkout "$SHIM_CHECKOUT")$suffix"
+write_shims() {  # write_shims <checkout> <label>: both shims, one report line each, and the attributes rule where it is missing
+  local dir="$1" label="$2"
+  echo "pre-push: $label: .githooks/pre-push $(write_shim "$dir" pre-push "$SHIM")"
+  echo "pre-push: $label: .githooks/post-checkout $(write_shim "$dir" post-checkout "$SHIM_CHECKOUT")"
   if [ "$(write_attributes "$dir")" = added ]; then
-    echo "pre-push: $label: .gitattributes: $ATTR_RULE added; the shims check out LF everywhere$suffix"
-    [ "${4:-}" != checkout ] || ATTR_ADDED=1
+    echo "pre-push: $label: .gitattributes: $ATTR_RULE added; the shims check out LF everywhere"
+    ATTR_ADDED=1
   fi
 }
 # write_worktree_shims <worktree> <label> <checkout>: the shims a worktree's own commit does not
@@ -361,7 +361,7 @@ install_shim() {  # install_shim <repository>: 0 written or unchanged, 1 not a r
   # The checkout commits and pushes them; a worktree is somebody's issue and gets only the files its
   # own commit does not give it.
   ATTR_ADDED=0
-  write_shims "$dir" "$name" "" checkout
+  write_shims "$dir" "$name"
   while IFS= read -r tree; do
     tree="${tree#worktree }"
     [ -n "$tree" ] && [ "$tree" != "$(cd "$dir" && pwd)" ] && [ "$tree" != "$(cd "$dir" && pwd -W 2>/dev/null)" ] || continue

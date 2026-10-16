@@ -633,15 +633,18 @@ repositories: each repository carries a three-line `.githooks/pre-push` that onl
 harness: git runs it in the new tree after `git worktree add`, and where `.ai-core/` is missing it
 starts `ai-core init`; it exits 0 whatever happened, because a failing hook would fail the
 checkout too, and what went wrong stands on stderr. `ai-core pre-push --install`
-writes both shims into the current repository and into every worktree of it (a relative
-`core.hooksPath` is read from the tree git works in, and git runs the files on disk), sets
+writes both shims into the current repository, and into each worktree of it the shims that
+worktree's own commit lacks (a relative `core.hooksPath` is read from the tree git works in, and git
+runs the files on disk), sets
 `core.hooksPath`, and says what to commit; with `--all <folder>` it does so for every repository
 under a folder, and it commits the shims on their own (a `No-issue:` trailer naming the command)
 and pushes them by ref through the gate, after bringing the checkout level with its origin the
 way `init` does before its `.gitignore` commit; where that push is refused, a commit the origin
 moved past while the gate ran goes on top of it and is pushed once more, and any other refusal
 undoes the commit and leaves the hooks as they were, so no commit of it stays ahead of the origin;
-a worktree gets the files and keeps them for its own commit. Git runs the shims through bash, and a shim checked out with CRLF fails on its first
+a worktree keeps what it gets for its own commit, and a shim that an earlier install rewrote in a
+worktree whose commit carries it goes back to that commit, so `finish-issue` finds the worktree
+clean; any other change there stays and is named. Git runs the shims through bash, and a shim checked out with CRLF fails on its first
 line, so where no rule of the repository's `.gitattributes` makes them check out with LF the
 install adds `.githooks/* text eol=lf` to that file and commits it with them. An unpushed commit ahead of origin that names no
 issue and touches nothing but `.gitignore`, written by an `init` from before `init` committed the

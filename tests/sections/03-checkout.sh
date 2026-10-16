@@ -237,4 +237,62 @@ CODEX_HOME="$CODEX_HOME-kept" bash "$ROOT/bin/init.sh" "$K" --no-doctor > "$K.lo
 [ "$(cat "$CODEX_HOME-kept/config.toml")" = 'project_doc_max_bytes = 1_000_000' ] || fail "init.sh lowered project_doc_max_bytes written with underscores"
 echo "  a checkout in a project folder gets the folder's and its own AGENTS.md with rules.md, skills.md and the folder's local rules written out and kept out of git; Codex's config is raised before its first table, a table's key and a higher value stay, underscores read; an override the repository tracks is kept; the profile ai-core closes the network and gives the reviewer the auto-mode entries, another project's kept; nothing where Codex is not served"
 
+section "Antigravity gets the same text as always_on rules in .agents/rules/, each part at most its cut"
+agy_init() {  # agy_init <dir> [flag]: init with a log of its own, for what this run alone said
+  CODEX_HOME="$CODEX_HOME-folder" bash "$ROOT/bin/init.sh" "$1" --no-doctor ${2:+"$2"} > "$WORK/agy.log" 2>&1 || fail "init.sh in $1 (see $WORK/agy.log)"
+}
+ours_head() { printf -- '---\ntrigger: always_on\ndescription: the binding rules setup-ai-core 0 wrote out for this folder, part %s\n---\n' "$1"; }
+our_parts() {  # the parts init wrote, by the writer their description names
+  for p in "$A"/ai-core-[0-9][0-9].md; do
+    if head -n 3 "$p" | grep -q '^description: the binding rules setup-ai-core '; then echo "$p"; fi
+  done
+}
+parts_fit() {  # every part opens with agy's frontmatter and holds at most 24,000 bytes, and the cut was made
+  set -- $(our_parts)
+  [ "$#" -ge 2 ] || fail "init.sh wrote $# part(s) for a text of $(wc -c < "$O") bytes, so the cut was never made"
+  for p in "$@"; do
+    [ "$(head -n 2 "$p")" = "$(printf -- '---\ntrigger: always_on')" ] || fail "init.sh: $p does not open with the frontmatter agy needs"
+    [ "$(wc -c < "$p")" -le 24000 ] || fail "init.sh: $p has $(wc -c < "$p") bytes, past the 24,000 agy reads"
+  done
+}
+parts_hold() {  # parts_hold <how> <filter>: the bodies of the parts against the text Codex gets, both through <filter>
+  # the x keeps the trailing line breaks, which $( ) would drop
+  [ "$(for p in $(our_parts); do tail -n +5 "$p"; done | $2; echo x)" = "$(tail -n +2 "$O" | $2; echo x)" ] || fail "init.sh: the parts do not hold the text Codex gets, $1"
+}
+A="$F/repo/.agents/rules"
+ours_head 9 > "$A/ai-core-09.md"; printf 'the project uses this name too\n' > "$A/ai-core-08.md"
+printf -- '---\ntrigger: manual\n---\nours\n' > "$A/mine.md"
+agy_init "$F/repo" --dry-run
+[ -e "$A/ai-core-09.md" ] || fail "init.sh --dry-run removed a part"
+agy_init "$F/repo"
+[ ! -e "$A/ai-core-09.md" ] || fail "init.sh kept a part of its own it no longer writes"
+[ "$(cat "$A/ai-core-08.md")" = 'the project uses this name too' ] || fail "init.sh removed a file of the project's own that has a part's name"
+[ "$(cat "$A/mine.md")" = "$(printf -- '---\ntrigger: manual\n---\nours')" ] || fail "init.sh touched a rule of the project's own in .agents/rules/"
+parts_fit; parts_hold "line for line" cat
+! grep -aq 'antigravity: warning' "$WORK/agy.log" || fail "init.sh warned of agy's budget for $(cat "$A"/ai-core-[0-9][0-9].md | wc -c) bytes"
+[ -z "$(git -C "$F/repo" status --porcelain)" ] || fail "init.sh left the checkout dirty: $(git -C "$F/repo" status --porcelain | tr '\n' '|')"
+# One line of 60,000 bytes in 30,000 characters: cut inside, by bytes, and past agy's budget
+{ printf -- '- '; printf '\302\267%.0s' $(seq 30000); printf '\n'; } >> "$F/.ai-core/rules/rules.local.md"
+agy_init "$F/repo"
+parts_fit; parts_hold "with the line breaks taken out" 'tr -d \n'
+grep -aq 'antigravity: warning: .agents/rules/ai-core-\*.md hold [0-9]* bytes' "$WORK/agy.log" || fail "init.sh did not warn of agy's budget for $(cat "$A"/ai-core-[0-9][0-9].md | wc -c) bytes"
+# A file of the project's own in a slot init writes stays, and init says agy misses that part
+printf 'the project wrote this part\n' > "$A/ai-core-02.md"
+agy_init "$F/repo"
+[ "$(cat "$A/ai-core-02.md")" = 'the project wrote this part' ] || fail "init.sh wrote over a file of the project's own in a slot it writes"
+grep -aqF 'antigravity: .agents/rules/ai-core-02.md is the project'"'"'s own, so agy misses that part of the rules' "$WORK/agy.log" || fail "init.sh did not say that agy misses the part the project's own file holds"
+rm "$A/ai-core-02.md"
+# Where agy is not served, a part of init's own goes and a file of the project's own stays
+N="$WORK/codex-none"
+[ ! -e "$N/.agents/rules" ] || fail "init.sh wrote rules for Antigravity where it is not served"
+mkdir -p "$N/.agents/rules"; ours_head 1 > "$N/.agents/rules/ai-core-01.md"; printf 'the project\n' > "$N/.agents/rules/ai-core-02.md"
+CODEX_HOME="$CODEX_HOME-none" bash "$ROOT/bin/init.sh" "$N" --no-doctor > "$N.log" 2>&1
+[ ! -e "$N/.agents/rules/ai-core-01.md" ] && [ -e "$N/.agents/rules/ai-core-02.md" ] || fail "init.sh where agy is not served kept a part of its own or removed the project's file"
+# A part the repository tracks is neither written over nor removed
+ours_head 1 > "$A/ai-core-01.md"; git -C "$F/repo" add -f .agents/rules/ai-core-01.md
+git -C "$F/repo" -c user.name=check -c user.email=check@localhost commit -q -m "a tracked part"
+agy_init "$F/repo"
+[ "$(cat "$A/ai-core-01.md")" = "$(ours_head 1)" ] && [ -z "$(git -C "$F/repo" status --porcelain)" ] || fail "init.sh wrote over a part the repository tracks"
+echo "  each part opens with trigger: always_on and holds at most 24,000 bytes, a line of 60,000 cut inside by bytes and agy's budget warned of; the parts hold the Codex text line for line; a stale part of init's own goes, a file of the project's own under that name, a part git tracks and another rule stay; nothing under --dry-run or where agy is not served, and the checkout stays clean"
+
 exit 0

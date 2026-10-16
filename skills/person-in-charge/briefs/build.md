@@ -29,8 +29,9 @@ nobody sits at your terminal.
 3. One commit per issue, its subject naming the issue as `<owner/repo>#<n>` where the worktree's
    repository is not the issue's own, and `#<n>` where it is: a bare number in another repository
    names that repository's issue. Under 72 characters, the body saying why.
-4. The verification command once at the end, per worktree. Where the push gate runs it, the push is
-   that run.
+4. The verification command once at the end, per worktree, and every check an acceptance criterion
+   names, as it is written there, on the branch as it will be pushed. Where the push gate runs the
+   verification command, the push is that run.
 5. Push every issue branch through the push gate, never the default branch: the package lands
    through its review and `integrate-issue`. A refused push names a defect of the change: fix it
    here. A gate that is itself wrong is a fault of the harness: report it to the coordinator and

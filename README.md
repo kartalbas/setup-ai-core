@@ -638,8 +638,10 @@ writes both shims into the current repository and into every worktree of it (a r
 `core.hooksPath`, and says what to commit; with `--all <folder>` it does so for every repository
 under a folder, and it commits the shims on their own (a `No-issue:` trailer naming the command)
 and pushes them by ref through the gate, after bringing the checkout level with its origin the
-way `init` does before its `.gitignore` commit; a worktree gets the files and keeps them for its
-own commit. Git runs the shims through bash, and a shim checked out with CRLF fails on its first
+way `init` does before its `.gitignore` commit; where that push is refused, a commit the origin
+moved past while the gate ran goes on top of it and is pushed once more, and any other refusal
+undoes the commit and leaves the hooks as they were, so no commit of it stays ahead of the origin;
+a worktree gets the files and keeps them for its own commit. Git runs the shims through bash, and a shim checked out with CRLF fails on its first
 line, so where no rule of the repository's `.gitattributes` makes them check out with LF the
 install adds `.githooks/* text eol=lf` to that file and commits it with them. An unpushed commit ahead of origin that names no
 issue and touches nothing but `.gitignore`, written by an `init` from before `init` committed the

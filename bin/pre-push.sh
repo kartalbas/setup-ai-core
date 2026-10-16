@@ -252,10 +252,12 @@ commit_shim() {
   branch="$(git -C "$dir" symbolic-ref --short -q HEAD)"
   if git -C "$dir" rev-parse -q --verify "origin/$branch" >/dev/null 2>&1 && [ "$(git -C "$dir" rev-list --count "origin/$branch..HEAD")" -eq 0 ]; then echo "pre-push: $label: nothing to push"; return 0; fi
   excuse_gitignore_commits "$dir" "$label" "$branch" || return 1
+  # The commit of this run, read before the push: the rewording above gives it a new id, and a
+  # session that commits in this checkout while the gate runs moves HEAD past it
+  local ours=""; [ -z "$committed" ] || ours="$(git -C "$dir" rev-parse HEAD)"
   if git -C "$dir" push --quiet origin "HEAD:$branch"; then echo "pre-push: $label: pushed to origin/$branch"; return 0; fi
-  # The commit of this run is HEAD still: the rewording above rewrites only the commits under it
-  [ -n "$committed" ] || { echo "pre-push: $label: the push was refused or failed (see above); the commit stays" >&2; return 1; }
-  push_again_or_undo "$dir" "$label" "$branch" "$(git -C "$dir" rev-parse HEAD)"
+  [ -n "$ours" ] || { echo "pre-push: $label: the push was refused or failed (see above); the commit stays" >&2; return 1; }
+  push_again_or_undo "$dir" "$label" "$branch" "$ours"
 }
 # push_again_or_undo <repository> <label> <branch> <the commit of this run>: a refused push leaves
 # no commit of this run on the branch, because a commit the origin lacks makes every release that
@@ -263,18 +265,25 @@ commit_shim() {
 # this commit is the only one it lacks, the commit goes on top of the origin and is pushed once
 # more; otherwise, or when that fails as well, the commit is undone and the hooks are as they were.
 push_again_or_undo() {
-  local dir="$1" label="$2" branch="$3" ours="$4"
-  if git -C "$dir" fetch --quiet origin "$branch" 2>/dev/null \
-    && ! git -C "$dir" merge-base --is-ancestor FETCH_HEAD HEAD \
-    && [ "$(git -C "$dir" rev-list --count FETCH_HEAD..HEAD)" -eq 1 ]; then
-    if git -C "$dir" rebase --quiet FETCH_HEAD >/dev/null 2>&1; then
+  local dir="$1" label="$2" branch="$3" ours="$4" upstream
+  if [ "$(git -C "$dir" rev-parse HEAD)" = "$ours" ] && git -C "$dir" fetch --quiet origin "$branch" 2>/dev/null \
+    && upstream="$(git -C "$dir" rev-parse FETCH_HEAD)" \
+    && ! git -C "$dir" merge-base --is-ancestor "$upstream" HEAD \
+    && [ "$(git -C "$dir" rev-list --count "$upstream..HEAD")" -eq 1 ]; then
+    # Without autostash, so a tree with a person's change refuses instead of being merged into, and
+    # without hooks, because post-checkout would start an init this rebase has no use for
+    if git -C "$dir" -c core.hooksPath=/dev/null rebase --quiet --no-autostash "$upstream" >/dev/null 2>&1; then
+      if [ "$(git -C "$dir" rev-list --count "$upstream..HEAD")" -eq 0 ]; then
+        echo "pre-push: $label: the origin moved on during the push and carries these hooks already; nothing to push"
+        return 0
+      fi
       ours="$(git -C "$dir" rev-parse HEAD)"
       if git -C "$dir" push --quiet origin "HEAD:$branch"; then
         echo "pre-push: $label: the origin moved on during the push; the commit went on top of it and was pushed to origin/$branch"
         return 0
       fi
     else
-      git -C "$dir" rebase --abort >/dev/null 2>&1
+      git -C "$dir" -c core.hooksPath=/dev/null rebase --abort >/dev/null 2>&1
     fi
   fi
   if [ "$(git -C "$dir" rev-parse HEAD)" = "$ours" ] && git -C "$dir" reset --quiet --keep HEAD~1 >/dev/null 2>&1; then

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# the syntax of every script, and every rule tagged; one section of the suite, run by tests/check.sh with the others
+# the syntax of every script, every rule tagged, and no package cap in a rule or a skill; one section of the suite, run by tests/check.sh with the others
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 
 section "syntax"
@@ -9,6 +9,30 @@ for f in "$ROOT"/bin/*.sh "$ROOT/bin/ai-core"; do bash -n "$f" || fail "bash -n 
 hits="$(grep -nE '(printf|echo) [^|]*\| *(tr [^|]*\| *)?grep +-[a-zA-Z]*q' "$ROOT"/bin/*.sh "$ROOT"/lib/*.sh "$ROOT"/tests/*.sh "$ROOT"/tests/sections/*.sh || true)"
 [ -z "$hits" ] || fail "printf or echo piped into grep -q, which breaks the pipe under pipefail; give grep a here-string: $hits"
 echo "  $(ls "$ROOT"/bin/*.sh | wc -l | tr -d ' ') bash scripts and the ai-core launcher parse"
+
+section "no count in digits of issues, cards or lines caps a package"
+# Planners read such a count as a cap and split packages small, and every further package pays its
+# plan, gate and review again; only the build's context budget cuts a package. Prints each count in
+# digits of issues, cards or changed lines under the paths given, with its file. Each file is read
+# as one line, because a rule wrapped at 100 columns can break the count from its unit. A count in
+# words is not caught: rule 80 names "five to ten issues" as a cost, not as a limit.
+package_caps() {
+  local f
+  while IFS= read -r f; do
+    tr '\n' ' ' < "$f" | grep -oiE '[0-9]+[ -]+(sub-)?(issues?|cards?|changed lines?)|[0-9]+-line' | sed "s|^|$f: |"
+  done < <(grep -rlI '' "$@")
+}
+P="$WORK/package-caps"; mkdir -p "$P"
+printf -- '- of at least two issues, and of one only where a defect cannot wait\n' > "$P/innocent.md"
+[ -z "$(package_caps "$P")" ] || fail "a minimum of two issues was reported as a cap: $(package_caps "$P")"
+for planted in 'and of at most about 8 issues or 400 changed lines' 'clears up to 10 cards a round' \
+               'Split a package above 8 issues or about 400 changed lines' 'a 400-line package' \
+               'and of at most about 8\n  issues'; do
+  printf -- "- $planted\n" > "$P/planted.md"
+  [ -n "$(package_caps "$P")" ] || fail "a planted cap stayed green: $planted"
+done
+[ -z "$(package_caps "$ROOT/rules" "$ROOT/skills")" ] || fail "a rule or a skill caps a package by a count: $(package_caps "$ROOT/rules" "$ROOT/skills")"
+echo "  no rule and no skill names a count in digits of issues, cards or changed lines"
 
 section "every rule carries its enforcement tag"
 bash "$ROOT/bin/rules-check.sh" "$ROOT/rules" > /dev/null || fail "rules-check.sh on rules/"

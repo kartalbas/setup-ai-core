@@ -35,10 +35,11 @@ the board and the branches, so a restart loses nothing (`briefs/coordinator.md`)
    one is between build and landing at a time. You read the overlap from the `Files:` and
    `Contracts:` of every section on the plan issue, another ecosystem's sections included. A
    package can start once its plan check said GO and its `Waits for the owner:` is answered. Of
-   those, one that fixes a fault on a live environment or carries a side a partner waits for starts
-   first; otherwise the one whose area's first section stands earliest on the plan issue starts.
-   The next one is built on what it landed. A package stopped for the owner (`needs:owner`) holds
-   nothing: the packages it overlaps go on, and when it resumes, it is built on what they landed.
+   those, one that fixes a fault on a live environment, carries a side a partner waits for, or is a
+   part another part names in its `After:` starts first; otherwise the one whose area's first
+   section stands earliest on the plan issue starts. The next one is built on what it landed. A
+   package stopped for the owner (`needs:owner`) keeps its place, and your question to the owner
+   names the packages that wait for it.
    A phase never moves to another model, effort or tool because a quota ran out, because a
    fallback waters the result down from the bottom up: its package waits.
 

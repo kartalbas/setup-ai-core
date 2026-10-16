@@ -263,6 +263,18 @@ run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER
 check 'the newest tag is 0.1-newest, which carries #13 and not #19' \
   'would close  example-repo#13  (testing -> done, released in 0.1-newest and proven)' \
   "$(grep '^would close  example-repo#13' <<< "$run")"
+
+echo 'LIVE_TAGS "prod=landed": the landing on the default branch is the release, so a proven card on it closes and one without a proof is due'
+: > "$FAKE/calls.txt"; printf 'LIVE_TAGS="prod=landed"\n' > "$clone/.ai-core/config.env"
+run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo 2>&1)"
+check '#20, on master in no tag and proven, would close' \
+  'would close  example-repo#20  (testing -> done, released in its landing on origin/master and proven)' \
+  "$(grep '^would close  example-repo#20' <<< "$run")"
+check '#18, without a proof, is due' \
+  'proof due    example-repo#18  (released in its landing on origin/master, no "Proven on" record after its landing)' \
+  "$(grep '^proof due    example-repo#18' <<< "$run")"
+check '#16 and #17, without a landing, stay' '' "$(grep -E '^would close  example-repo#1[67] ' <<< "$run")"
+check 'no tag of origin is listed' 0 "$(grep -c 'ls-remote' "$FAKE/calls.txt")"
 printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\n' > "$clone/.ai-core/config.env"
 
 echo 'no repository named: the board is read to learn its repositories, each read under its owner'

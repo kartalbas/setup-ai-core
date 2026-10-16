@@ -1,13 +1,15 @@
 # agy: the coordinator's commands
 
-Read this only when your tool is agy. The model comes from the `agy` rows of `.ai-core/models.tsv`;
-agy's model names carry the effort. The brief is the filled file from `briefs/`.
+Read this when your tool is agy, or when a row of your tool reads `agy:<model>`. The model comes
+from the `agy` rows of `.ai-core/models.tsv`, or after `agy:` in your own row; agy's model names
+carry the effort, so no `--effort` is given. The brief is the filled file from `briefs/`.
 
-## Not measured
+## Measured
 
-Whether `agy -p --mode accept-edits` runs shell commands with nobody to answer a prompt, and whether
-its JSON output carries the conversation id, is not measured. Start one mechanical package and read
-its output file before an agy coordinator takes up more.
+On 2026-10-16 `agy -p "<prompt>" --model claude-sonnet-5-5-high --mode accept-edits --output-format
+json` ran shell commands with nobody to answer a prompt, and its JSON output carried
+`conversation_id`. In a session name, the effort is the suffix of the model's name:
+`l10003-sonnet5.5-high-300k-afb89` for `claude-sonnet-5-5-high`.
 
 ## The coordinator itself
 
@@ -52,4 +54,4 @@ output into the session's file, and post its report on the issues yourself.
 - A finished session is done; nothing is kept. Its report is on the issue, its last message in its
   output file.
 - agy has no command the harness reads for its quota. A session refused for quota ends its phase;
-  every phase of this ecosystem waits until a call is answered again.
+  every package with a phase on agy waits until a call is answered again.

@@ -1,7 +1,8 @@
 # Claude Code: the coordinator's commands
 
 Read this only when your tool is Claude Code. The model and effort come from the `claude` rows of
-`.ai-core/models.tsv`; the brief is the filled file from `briefs/`.
+`.ai-core/models.tsv`; the brief is the filled file from `briefs/`. A row whose model reads
+`agy:<model>` is not started here: `references/agy.md` says how.
 
 ## Start a phase session
 

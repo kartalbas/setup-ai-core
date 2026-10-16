@@ -37,8 +37,10 @@ the board and the branches, so a restart loses nothing (`briefs/coordinator.md`)
 ## Your tool is your ecosystem
 
 Claude Code, Codex and agy are three ecosystems, each with its own coordinator. You start only your
-own tool's sessions, read only your tool's rows of `models.tsv`, and never call another tool. A
-package stays in the ecosystem whose coordinator planned it, named in its `Ecosystem:` line. The
+own tool's sessions, read only your tool's rows of `models.tsv`, and never call another tool, except
+that a row of your tool whose model reads `agy:<model>` is started on agy (`references/agy.md`), with
+that model, under your package and your number block. A package stays in the ecosystem whose
+coordinator planned it, named in its `Ecosystem:` line. The
 issues nobody planned yet belong to the first tool of `ECOSYSTEM_ORDER` in `.ai-core/config.env`; a
 coordinator of a later tool plans only the areas or issues the owner's start prompt hands it, and the
 owner starts it when the ecosystems before it have no quota. `references/<tool>.md` holds your
@@ -122,7 +124,8 @@ more` line is a GAP for the next plan of that area.
    worktree paths and the verdicts. A brief with a placeholder left is not sent. Save the filled
    brief as `~/.ai-core/sessions/<session name>.brief.md`, the name step 4 gives; it is the session's
    whole world, and its name tells every later coordinator on the machine that the number ran.
-4. Start the session as `references/<tool>.md` says, named `l<n>-<model><version>-<effort>-<budget>k-<5
+4. Start the session as `references/<tool>.md` says, for a row that reads `agy:` as
+   `references/agy.md` says, named `l<n>-<model><version>-<effort>-<budget>k-<5
    hex>` (`l10003-sonnet5.5-xhigh-300k-afb89`), `<n>` the next number of your own block
    (`briefs/coordinator.md`), and post the PHASE line.
 5. Move the cards (`ai-core issue-status <n>... <column>`); `start-issue` and `finish-issue` move

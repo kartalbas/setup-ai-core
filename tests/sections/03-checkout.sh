@@ -153,6 +153,38 @@ cmp -s "$M/.ai-core/models.tsv" "$ROOT/templates/.ai-core/models.tsv" || fail "i
 grep -aq '^  refreshed .*\.ai-core/models\.tsv' "$M.log" || fail "init.sh did not report the model table as refreshed: $(grep -a 'models' "$M.log")"
 echo "  an older .ai-core/models.tsv is replaced by the harness's and reported"
 
+section "the model table keeps agy to high effort, keeps high-risk off agy and never reviews on the build model"
+# Prints one line per broken row of the table in $1, nothing for a table that holds.
+model_table_faults() {
+  awk -F'\t' '
+    /^#/ || NF < 5 { next }
+    { base = $4; sub(/^agy:/, "", base); sub(/-(low|medium|high|xhigh|max)$/, "", base) }
+    $4 ~ /^agy:/ && ($4 !~ /-high$/ || $5 != "-") { print "agy below or above high: " $0 }
+    ($1 == "agy" || $4 ~ /^agy:/) && ($3 == "high-risk" || ($4 ~ /^agy:/ && $3 == "*")) { print "high-risk on agy: " $0 }
+    ($1 == "agy" || $4 ~ /^agy:/) && $4 ~ /gemini/ { print "gemini on agy: " $0 }
+    $2 == "build" { build[$1, $3] = base }
+    $2 == "review" { review[$1, $3] = base }
+    END { for (k in build) if ((k in review) && build[k] == review[k]) { split(k, a, SUBSEP); print "review on the build model: " a[1] " " a[2] } }
+  ' "$1"
+}
+[ -z "$(model_table_faults "$ROOT/templates/.ai-core/models.tsv")" ] || fail "the harness's model table breaks its own rules: $(model_table_faults "$ROOT/templates/.ai-core/models.tsv")"
+T="$WORK/model-faults.tsv"
+printf 'claude\tbuild\tnormal-hard\tagy:claude-sonnet-5-5-high\t-\nclaude\treview\tnormal-hard\tclaude-opus-5-5\txhigh\n' > "$T"
+[ -z "$(model_table_faults "$T")" ] || fail "an agy build reviewed by Claude Opus was reported: $(model_table_faults "$T")"
+for planted in 'claude\tbuild\tmechanical\tagy:claude-sonnet-5-5-high\txhigh' \
+               'claude\tplan-check\tmechanical\tagy:claude-sonnet-5-5-medium\t-' \
+               'claude\tbuild\thigh-risk\tagy:claude-opus-5-5-high\t-' \
+               'agy\tplan\thigh-risk\tclaude-opus-5-5-high\t-' \
+               'claude\thelper\t*\tagy:claude-sonnet-5-5-high\t-' \
+               'agy\thelper\t*\tgemini-3.8-flash-medium\t-' \
+               'agy\treview\tnormal-hard\tclaude-sonnet-5-5-high\t-\nagy\tbuild\tnormal-hard\tclaude-sonnet-5-5-high\t-'; do
+  printf "$planted\n" > "$T"
+  [ -n "$(model_table_faults "$T")" ] || fail "a planted broken row stayed green: $(printf "$planted")"
+done
+printf 'claude\tbuild\tmechanical\tagy:claude-sonnet-5-5-high\t-\nclaude\treview\tmechanical\tclaude-sonnet-5-5\thigh\n' > "$T"
+[ -n "$(model_table_faults "$T")" ] || fail "a Claude Sonnet review of an agy Sonnet build stayed green"
+echo "  agy rows run at high only, high-risk stays off agy, no agy row names Gemini, and no review runs on its build model"
+
 section "Codex gets what Claude Code loads, written out in AGENTS.override.md, and its config reads it whole"
 codex_init() {  # codex_init <dir>
   CODEX_HOME="$CODEX_HOME-folder" bash "$ROOT/bin/init.sh" "$1" --no-doctor >> "$F.log" 2>&1 || fail "init.sh in $1 (see $F.log)"

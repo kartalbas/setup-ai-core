@@ -139,6 +139,14 @@ cmp -s "$M/.ai-core/models.tsv" "$ROOT/templates/.ai-core/models.tsv" || fail "i
 grep -aq '^  refreshed .*\.ai-core/models\.tsv' "$M.log" || fail "init.sh did not report the model table as refreshed: $(grep -a 'models' "$M.log")"
 echo "  an older .ai-core/models.tsv is replaced by the harness's and reported"
 
+section "the team-modes table follows the harness: an older copy in a checkout is brought up to date and reported"
+TM="$WORK/team-modes"; mkdir -p "$TM/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$TM/.ai-core/config.env"
+printf 'claude\tmode\ton\talways\t-\t-\n' > "$TM/.ai-core/team-modes.tsv"
+bash "$ROOT/bin/init.sh" "$TM" --no-doctor > "$TM.log" 2>&1 || fail "init.sh on a checkout with an older team-modes table (see $TM.log)"
+cmp -s "$TM/.ai-core/team-modes.tsv" "$ROOT/templates/.ai-core/team-modes.tsv" || fail "init.sh kept an older team-modes table instead of the harness's"
+grep -aq '^  refreshed .*\.ai-core/team-modes\.tsv' "$TM.log" || fail "init.sh did not report the team-modes table as refreshed: $(grep -a 'team-modes' "$TM.log")"
+echo "  an older .ai-core/team-modes.tsv is replaced by the harness's and reported"
+
 section "the model table keeps agy to high effort, keeps high-risk off agy and never reviews on the build model"
 # Prints one line per broken row of the table in $1, nothing for a table that holds.
 model_table_faults() {

@@ -52,7 +52,9 @@ for arg in "$@"; do
     echo "                    (ai-core init in a new worktree), into the current repository and every"
     echo "                    worktree of it, set core.hooksPath to .githooks, commit them on their own"
     echo "                    (No-issue: trailer) and push by ref to the branch checked out, through the"
-    echo "                    gate; a worktree gets the files only. An unpushed commit that names no"
+    echo "                    gate; a worktree gets only the files its own commit lacks, uncommitted,"
+    echo "                    and a file an earlier install rewrote there goes back to that commit,"
+    echo "                    so its finish-issue finds it clean. An unpushed commit that names no"
     echo "                    issue and touches nothing but .gitignore gets the trailer that says init"
     echo "                    wrote it, so the push goes through. The checkout catches up with its"
     echo "                    origin first; one behind it with work of its own gets nothing"
@@ -189,6 +191,47 @@ write_shims() {  # write_shims <tree> <label> <suffix> [checkout]: both shims, o
     [ "${4:-}" != checkout ] || ATTR_ADDED=1
   fi
 }
+# write_worktree_shims <worktree> <label> <checkout>: the shims a worktree's own commit does not
+# give it. A file written there is a change its branch never commits, because the default branch
+# carries the shims already, and finish-issue then refuses to remove the worktree. So pre-push is
+# written only where the commit lacks this gate's shim, executable, and post-checkout only where the
+# commit has none git runs: it starts init only in a worktree without .ai-core, which an existing
+# worktree has. A shim the commit gives that an earlier install rewrote goes back to the commit.
+write_worktree_shims() {
+  local tree="$1" label="$2" dir="$3" hook text path mode written=0
+  for hook in pre-push post-checkout; do
+    path=".githooks/$hook"; text="$SHIM"; [ "$hook" = pre-push ] || text="$SHIM_CHECKOUT"
+    mode="$(git -C "$tree" ls-tree HEAD -- "$path" | awk '{ print $1 }')"
+    if [ "$mode" != 100755 ] || { [ "$hook" = pre-push ] && [ "$(git -C "$tree" show "HEAD:$path" | tr -d '\r')" != "$(printf '%s' "$text")" ]; }; then
+      echo "pre-push: $label: $path $(write_shim "$tree" "$hook" "$text"); it goes out with that worktree's own commit"
+      written=1
+    else
+      put_back_own_write "$tree" "$label" "$dir" "$path" "$text"
+    fi
+  done
+  if [ "$written" -eq 1 ] && [ "$(write_attributes "$tree")" = added ]; then
+    echo "pre-push: $label: .gitattributes: $ATTR_RULE added; the shims check out LF everywhere; it goes out with that worktree's own commit"
+  fi
+}
+# put_back_own_write <worktree> <label> <checkout> <path> <text>: a shim the worktree's commit gives,
+# changed on disk to the text this run writes or to the one the checkout carries, is an earlier
+# install's own write: it goes back to the commit. Any other change is somebody's and stays.
+put_back_own_write() {
+  local tree="$1" label="$2" dir="$3" path="$4" text="$5" carried
+  git -C "$tree" diff --quiet HEAD -- "$path" 2>/dev/null && return 0
+  carried="$(git -C "$dir" rev-parse -q --verify "HEAD:$path" 2>/dev/null || true)"
+  if [ -f "$tree/$path" ] && { [ "$(tr -d '\r' < "$tree/$path")" = "$(printf '%s' "$text")" ] \
+    || { [ -n "$carried" ] && [ "$(git -C "$tree" hash-object -- "$path")" = "$carried" ]; }; }; then
+    # without hooks: a checkout of a path starts post-checkout, which has nothing to do here
+    if git -C "$tree" -c core.hooksPath=/dev/null checkout -q HEAD -- "$path"; then
+      echo "pre-push: $label: $path was an earlier install's write; put back to that worktree's own commit"
+    else
+      echo "pre-push: $label: $path was an earlier install's write and could not be put back (see above); it stays" >&2
+    fi
+  else
+    echo "pre-push: $label: $path holds a change that is not ai-core's; it stays"
+  fi
+}
 # commit_shim <repository> <label>: the shims committed on their own, with the executable bit,
 # and pushed by ref to the branch checked out; nothing when the commit already carries them
 # excuse_gitignore_commits <repository> <label> <branch>: an unpushed commit that names no issue
@@ -315,7 +358,8 @@ install_shim() {  # install_shim <repository>: 0 written or unchanged, 1 not a r
   fi
   # A relative core.hooksPath is read from the tree git works in, so every worktree of the
   # repository carries its own copy of the shims, and git runs the files on disk, committed or not.
-  # The checkout commits and pushes them; a worktree is somebody's issue and gets the files only.
+  # The checkout commits and pushes them; a worktree is somebody's issue and gets only the files its
+  # own commit does not give it.
   ATTR_ADDED=0
   write_shims "$dir" "$name" "" checkout
   while IFS= read -r tree; do
@@ -325,7 +369,7 @@ install_shim() {  # install_shim <repository>: 0 written or unchanged, 1 not a r
     # a published copy (init links it beside the worktrees as the neighbour) is nobody's work: a shim
     # written there would be a change in it, and init then holds it on an old commit
     case "$tree" in */.ai-core/neighbours/*|*/.worktrees/*/origin-*) continue ;; esac
-    write_shims "$tree" "$name (worktree $(basename "$tree"))" "; it goes out with that worktree's own commit"
+    write_worktree_shims "$tree" "$name (worktree $(basename "$tree"))" "$dir"
   done <<< "$(git -C "$dir" worktree list --porcelain 2>/dev/null | grep '^worktree ' | tail -n +2)"
   commit_shim "$dir" "$name" || return 1
   # a hook of the project's own that git skips for want of the executable bit is named, not changed

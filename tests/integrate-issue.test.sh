@@ -119,6 +119,9 @@ out="$(integrate "$wt12" 88 --reviewed-by l4 --reviewed-by=l5 --reviewed-by l4)"
 check 'exit 0'                         0 "$rc"
 check 'both trailers, in order, l4 once' 'l4 l5' "$(git --git-dir="$origin" log -1 --format='%(trailers:key=Reviewed-by,valueonly)' master | tr '\n' ' ' | sed 's/ *$//')"
 check 'the report names both'          yes "$(grep -q ', Reviewed-by: l4, Reviewed-by: l5$' <<< "$out" && echo yes || echo no)"
+wt13="$(new_tree 89 comma)"
+out="$(integrate "$wt13" 89 --reviewed-by 'Smith,J')"; rc=$?
+check 'a comma in a name stays in the report' yes "$(grep -q ', Reviewed-by: Smith,J$' <<< "$out" && echo yes || echo no)"
 
 echo 'a conflict leaves origin as it was and the worktree on its branch'
 wt3="$(new_tree 79 clash)"

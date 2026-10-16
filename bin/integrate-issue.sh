@@ -125,7 +125,7 @@ merged="$(git rev-parse --short HEAD)"
 git push origin "HEAD:$default" \
   || back_to_branch "the push was refused (see above) - nothing reached origin, and $branch is checked out again"
 git switch -q "$branch" || die "$merged is on origin/$default, but $branch could not be checked out again - run git switch $branch before finish-issue"
-echo "integrated: $merged on origin/$default, $subject, $(printf '%s' "$trailers" | paste -sd ',' - | sed 's/,/, /g')"
+echo "integrated: $merged on origin/$default, $subject$(printf ', Reviewed-by: %s' "${reviewers[@]}")"
 # Every issue the merged commits name in parentheses, the integrated one first: a package lands
 # several issues in one merge, and the card of each moves on only through its own finish-issue. Only
 # the forms '(#N)' and '(owner/repo#N)' count: a number named in passing is no landing.

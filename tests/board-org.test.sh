@@ -124,6 +124,20 @@ check 'through one line of the exclude file, the cache alone' '/.ai-core/.cache/
 ( cd "$plain" && env -u GH_CACHE_DIRECTORY GH_ORG=example-org bash "$ROOT/bin/board-list.sh" --project 999976 >/dev/null 2>&1 ) || true
 check 'a second run adds no second line' 1 "$(grep -cx '/.ai-core/.cache/' "$plain/.git/info/exclude")"
 
+echo 'an exclude file whose last line has no newline keeps that line whole'
+printf '*.log' > "$plain/.git/info/exclude"; rm -rf "$plain/.ai-core"
+( cd "$plain" && env -u GH_CACHE_DIRECTORY GH_ORG=example-org bash "$ROOT/bin/board-list.sh" --project 999976 >/dev/null 2>&1 ) || true
+check 'the old line stays as it was' '*.log' "$(head -1 "$plain/.git/info/exclude")"
+check 'the cache line follows on its own' '/.ai-core/.cache/' "$(sed -n 2p "$plain/.git/info/exclude")"
+check 'and git status stays clean' '' "$(git -C "$plain" status --porcelain)"
+
+echo 'a checkout whose exclude file names .ai-core/, as init writes it, gets no line of its own'
+deployed="$FAKE/deployed-clone"; git init -q -b master "$deployed"
+printf '/.ai-core/\n' >> "$deployed/.git/info/exclude"; before="$(cat "$deployed/.git/info/exclude")"
+( cd "$deployed" && env -u GH_CACHE_DIRECTORY GH_ORG=example-org bash "$ROOT/bin/board-list.sh" --project 999976 >/dev/null 2>&1 ) || true
+check 'the cache is where it always was' 'PVT_kworgtest' "$(cat "$deployed/.ai-core/.cache/999976/project-id" 2>/dev/null)"
+check 'and the exclude file is unchanged' "$before" "$(cat "$deployed/.git/info/exclude")"
+
 echo
 if [ "$failed" -eq 0 ]; then echo 'board-org: every check green'; exit 0
 else echo "board-org: $failed check(s) red"; exit 1; fi

@@ -454,7 +454,10 @@ make_cache_dir() {
   git -C "$top" check-ignore -q "$root" 2>/dev/null && return 0
   case "$root" in "$top"/*) ;; *) return 0 ;; esac
   exclude="$(git -C "$top" rev-parse --path-format=absolute --git-path info/exclude)" || return 0
-  mkdir -p "$(dirname "$exclude")" && printf '/%s/\n' "${root#"$top"/}" >> "$exclude"
+  mkdir -p "$(dirname "$exclude")" || return 0
+  # a last line without its newline would take this one onto itself and break both patterns
+  [ ! -s "$exclude" ] || [ -z "$(tail -c1 "$exclude")" ] || echo >> "$exclude"
+  printf '/%s/\n' "${root#"$top"/}" >> "$exclude"
 }
 
 # Every single-select field with all of its options, one per line:

@@ -8,7 +8,7 @@ printf '#!/bin/sh\necho v18.0.0\n' > "$WORK/doctorbin/node"
 printf '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "gh version 0.0.0"; else exit 1; fi\n' > "$WORK/doctorbin/gh"
 chmod +x "$WORK/doctorbin/node" "$WORK/doctorbin/gh"
 # the team modes of this machine are not what is judged here: a table whose probes always pass
-printf 'claude\tcaveman\tlite\talways\t-\t-\ncodex\tcaveman\tlite\talways\t-\t-\ngemini\tcaveman\tlite\talways\t-\t-\n' > "$WORK/always.tsv"
+printf 'claude\tmode\talways\t-\t-\ncodex\tmode\talways\t-\t-\ngemini\tmode\talways\t-\t-\n' > "$WORK/always.tsv"
 mkdir -p "$WORK/doctor-home/.claude/agents"; printf -- '---\nname: cheap\ndescription: runs on haiku\nmodel: haiku\n---\n' > "$WORK/doctor-home/.claude/agents/cheap.md"; HOME="$WORK/doctor-home" TEAM_MODES_FILE="$WORK/always.tsv" PATH="$WORK/doctorbin:$PATH" bash "$ROOT/bin/doctor.sh" --no-install > "$WORK/doctor.sh.log" 2>&1 && fail "doctor.sh exited 0 with an old Node.js"
 grep -aq 'node .*too old' "$WORK/doctor.sh.log" || fail "doctor.sh did not report the old Node.js"
 grep -aq 'gh .*not logged in' "$WORK/doctor.sh.log" || fail "doctor.sh did not report the missing gh login"

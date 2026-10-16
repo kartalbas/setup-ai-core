@@ -227,7 +227,7 @@ grep -aq '^# shop-web — the map' "$WORK/map-noise.log" && ! grep -aqE 'Done re
 map_run "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-dry.log" 2>&1 || fail "map.sh --dry-run (see $WORK/map-dry.log)"
 grep -aq '^# shop-web — the map' "$WORK/map-dry.log" && cmp -s "$M" "$WORK/map.before" || fail "map.sh --dry-run wrote something or printed nothing"
 # the session start, with a table whose probes always pass: the fake homes hold no team modes
-printf 'claude\tcaveman\tlite\talways\t-\t-\ncodex\tmode\ton\talways\t-\t-\n' > "$WORK/always.tsv"
+printf 'claude\tmode\talways\t-\t-\ncodex\tmode\talways\t-\t-\n' > "$WORK/always.tsv"
 # codex and agy write the map the same way, named by AI_CORE_MAP_TOOL for one machine; a tool map does not know is refused
 AI_CORE_MAP_TOOL=codex map_run "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-codex.log" 2>&1 || fail "map.sh with codex (see $WORK/map-codex.log)"
 grep -aq '^# shop-web — the map' "$WORK/map-codex.log" && grep -q 'exec --skip-git-repo-check -s read-only' "$MAPLOG" || fail "map.sh did not run codex exec read-only or printed no map (see $WORK/map-codex.log)"

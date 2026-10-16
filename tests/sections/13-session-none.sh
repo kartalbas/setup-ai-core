@@ -197,7 +197,7 @@ bash "$ROOT/bin/init.sh" "$WORK/source-work" --no-doctor > "$WORK/init-source.lo
 [ "$rc" = 1 ] && [ ! -e "$WORK/source-work/.ai-core" ] || fail "init assembled a source worktree"
 
 section "missing team modes refuse a valid source before readiness processing"
-printf 'codex\tmissing\ton\tfile:/a-path-that-does-not-exist\t-\t-\n' > "$WORK/missing-modes.tsv"
+printf 'codex\tmissing\tfile:/a-path-that-does-not-exist\t-\t-\n' > "$WORK/missing-modes.tsv"
 rc=0
 (cd "$source_repo" && TEAM_MODES_FILE="$WORK/missing-modes.tsv" bash "$ROOT/bin/session-start.sh" --tool codex --json) > "$WORK/mode.json" 2>&1 || rc=$?
 [ "$rc" = 1 ] || fail "missing source modes passed"

@@ -40,7 +40,7 @@ case "$number" in ''|*[!0-9]*) die "the issue number must be numeric, not '$numb
 git rev-parse --show-toplevel >/dev/null 2>&1 \
   || die 'not inside a git working copy - run this from the repository the work belongs to'
 
-# No worktree without the three team modes, for the same reason session-start refuses without
+# No worktree without the team modes, for the same reason session-start refuses without
 # them: the rules say no work starts, and a worktree is where work starts.
 if ! modes="$(bash "$BIN/team-modes-check.sh" 2>&1)"; then
   printf '%s\n' "$modes" >&2

@@ -62,7 +62,7 @@ while IFS= read -r tool <&3; do
     case "$line" in
       MISSING*)
         mode="$(printf '%s' "$line" | awk '{print $3}')"
-        install="$(tr -d '\r' < "$TABLE" | awk -F'\t' -v t="$tool" -v m="$mode" '!/^#/ && $1 == t && $2 == m { print $5 }')"
+        install="$(tr -d '\r' < "$TABLE" | awk -F'\t' -v t="$tool" -v m="$mode" '!/^#/ && $1 == t && $2 == m { print $4 }')"
         if [ -z "$install" ] || [ "$install" = "-" ]; then
           echo "SKIPPED     $tool $mode: no install command in the table; see the mode's own documentation."
           skipped=$((skipped + 1)); continue
@@ -73,6 +73,8 @@ while IFS= read -r tool <&3; do
         else echo "FAILED      $tool $mode: the install command exited non-zero."; failed=$((failed + 1)); fi ;;
       UNVERIFIED*) echo "$line"; skipped=$((skipped + 1)) ;;
       ok*|"team modes"*) echo "$line" ;;
+      # a table the check cannot read row by row has no MISSING line to act on, and is no success
+      "REFUSED: "*" has rows that are not "*) echo "$line"; failed=$((failed + 1)) ;;
     esac
   done 4<<< "$report"
 done 3<<< "$tools"

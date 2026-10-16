@@ -10,6 +10,24 @@ hits="$(grep -nE '(printf|echo) [^|]*\| *(tr [^|]*\| *)?grep +-[a-zA-Z]*q' "$ROO
 [ -z "$hits" ] || fail "printf or echo piped into grep -q, which breaks the pipe under pipefail; give grep a here-string: $hits"
 echo "  $(ls "$ROOT"/bin/*.sh | wc -l | tr -d ' ') bash scripts and the ai-core launcher parse"
 
+section "no count of issues, cards or lines caps a package"
+# Planners read such a count as a cap and split packages small, and every further package pays its
+# plan, gate and review again; only the build's context budget cuts a package. Prints each line
+# under the paths given that names a count as the most a package or a round may hold.
+package_caps() {
+  grep -rniE '(at most|up to|no more than)( about| approximately)? [0-9]+ (issues|cards|changed lines)' "$@" || true
+}
+P="$WORK/package-caps"; mkdir -p "$P"
+printf -- '- of at least two issues, and of one only where a defect cannot wait\n' > "$P/innocent.md"
+[ -z "$(package_caps "$P")" ] || fail "a minimum of two issues was reported as a cap: $(package_caps "$P")"
+for planted in 'and of at most about 8 issues or 400 changed lines' 'clears up to 10 cards a round' \
+               'one build of no more than approximately 400 changed lines'; do
+  printf -- '- %s\n' "$planted" > "$P/planted.md"
+  [ -n "$(package_caps "$P")" ] || fail "a planted cap stayed green: $planted"
+done
+[ -z "$(package_caps "$ROOT/rules" "$ROOT/skills")" ] || fail "a rule or a skill caps a package by a count: $(package_caps "$ROOT/rules" "$ROOT/skills")"
+echo "  no rule and no skill caps a package by a count of issues, cards or changed lines"
+
 section "every rule carries its enforcement tag"
 bash "$ROOT/bin/rules-check.sh" "$ROOT/rules" > /dev/null || fail "rules-check.sh on rules/"
 # A project harness is checked whole: a skill named for another folder and an agent below Sonnet are

@@ -43,7 +43,7 @@
   touches, with both sides of every contract an issue touches (`ai-core contract-scan` finds them),
   of at least two issues, and of one only where neither the area nor an area sharing its
   repositories holds a second ready one or a defect live on production cannot wait, which its plan
-  says, and of at most about 8 issues or 400 changed lines, split along the contracts above that: one
+  says, and no larger than one build's context budget, split along the contracts above that: one
   worktree per repository, one commit per issue that names it, every issue's test case on the issue
   before the build ends, then one push gate run, one review of the whole package diff with its
   findings per issue, one integration and one release per repository with the additive side first,

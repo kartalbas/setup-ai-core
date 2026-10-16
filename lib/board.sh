@@ -416,7 +416,7 @@ project_id() {
     *) die "$from is not a project id: $id" ;;
   esac
 
-  [ -s "$f" ] || { mkdir -p "$(cache_dir)"; printf '%s\n' "$id" > "$f"; }
+  [ -s "$f" ] || { make_cache_dir; printf '%s\n' "$id" > "$f"; }
   printf '%s\n' "$id"
 }
 
@@ -442,6 +442,21 @@ cache_dir() {
   else echo "$(cache_root)/$(project_org)/$(project_number)"; fi
 }
 
+# make_cache_dir: the board's cache directory, made where git does not see it. A checkout init
+# deployed names .ai-core/ in its exclude file; a harness clone gets no init, so without a line of
+# its own the cache stands in its tree as an untracked change, and a gate that compares the tree
+# with the commit refuses the next push from it.
+make_cache_dir() {
+  local dir root top exclude
+  dir="$(cache_dir)"; root="$(cache_root)"
+  mkdir -p "$dir" || return 1
+  top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || return 0
+  git -C "$top" check-ignore -q "$root" 2>/dev/null && return 0
+  case "$root" in "$top"/*) ;; *) return 0 ;; esac
+  exclude="$(git -C "$top" rev-parse --path-format=absolute --git-path info/exclude)" || return 0
+  mkdir -p "$(dirname "$exclude")" && printf '/%s/\n' "${root#"$top"/}" >> "$exclude"
+}
+
 # Every single-select field with all of its options, one per line:
 #   <field name>\t<field id>\t<option name>\t<option id>
 # The cache lives an hour: a board gains columns, and the page and the commands read them within
@@ -458,7 +473,7 @@ fields_tsv() {
           id name options { id name } } } } } } }' \
       --jq '.data.node.fields.nodes[] | select(.name != null) | .name as $n | .id as $f
             | .options[] | "\($n)\t\($f)\t\(.name)\t\(.id)"')" || return 1
-    mkdir -p "$(cache_dir)"
+    make_cache_dir
     printf '%s\n' "$rows" > "$f"
   }
   # And what the cache holds is held against the shape of a row, not trusted. The guard above

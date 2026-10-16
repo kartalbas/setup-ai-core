@@ -112,5 +112,18 @@ check 'and the board is named with its owner' yes "$(printf '%s
 ' "$out" | grep -q '#3 -> done (board other-org/1)' && echo yes || echo no)"
 
 echo
+echo 'in a clone whose exclude file does not name .ai-core/, as a harness clone has none, the cache stays out of git status'
+plain="$FAKE/plain-clone"; git init -q -b master "$plain"
+git -C "$plain" config user.email 'test@example.invalid'; git -C "$plain" config user.name 'test'
+printf 'x\n' > "$plain/x.txt"; git -C "$plain" add x.txt; git -C "$plain" commit -q -m 'Start'
+: > "$LOG"
+( cd "$plain" && env -u GH_CACHE_DIRECTORY GH_ORG=example-org bash "$ROOT/bin/board-list.sh" --project 999976 >/dev/null 2>&1 ) || true
+check 'the board id is cached in the clone' 'PVT_kworgtest' "$(cat "$plain/.ai-core/.cache/999976/project-id" 2>/dev/null)"
+check 'and git status stays clean' '' "$(git -C "$plain" status --porcelain)"
+check 'through one line of the exclude file, the cache alone' '/.ai-core/.cache/' "$(grep -x '/.ai-core/.cache/' "$plain/.git/info/exclude")"
+( cd "$plain" && env -u GH_CACHE_DIRECTORY GH_ORG=example-org bash "$ROOT/bin/board-list.sh" --project 999976 >/dev/null 2>&1 ) || true
+check 'a second run adds no second line' 1 "$(grep -cx '/.ai-core/.cache/' "$plain/.git/info/exclude")"
+
+echo
 if [ "$failed" -eq 0 ]; then echo 'board-org: every check green'; exit 0
 else echo "board-org: $failed check(s) red"; exit 1; fi

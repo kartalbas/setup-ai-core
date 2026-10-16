@@ -160,7 +160,7 @@ model_table_faults() {
     /^#/ || NF < 5 { next }
     { base = $4; sub(/^agy:/, "", base); sub(/-(low|medium|high|xhigh|max)$/, "", base) }
     $4 ~ /^agy:/ && ($4 !~ /-high$/ || $5 != "-") { print "agy below or above high: " $0 }
-    $4 ~ /^agy:/ && $3 == "high-risk" { print "high-risk on agy: " $0 }
+    ($1 == "agy" || $4 ~ /^agy:/) && ($3 == "high-risk" || ($4 ~ /^agy:/ && $3 == "*")) { print "high-risk on agy: " $0 }
     ($1 == "agy" || $4 ~ /^agy:/) && $4 ~ /gemini/ { print "gemini on agy: " $0 }
     $2 == "build" { build[$1, $3] = base }
     $2 == "review" { review[$1, $3] = base }
@@ -174,6 +174,8 @@ printf 'claude\tbuild\tnormal-hard\tagy:claude-sonnet-5-5-high\t-\nclaude\trevie
 for planted in 'claude\tbuild\tmechanical\tagy:claude-sonnet-5-5-high\txhigh' \
                'claude\tplan-check\tmechanical\tagy:claude-sonnet-5-5-medium\t-' \
                'claude\tbuild\thigh-risk\tagy:claude-opus-5-5-high\t-' \
+               'agy\tplan\thigh-risk\tclaude-opus-5-5-high\t-' \
+               'claude\thelper\t*\tagy:claude-sonnet-5-5-high\t-' \
                'agy\thelper\t*\tgemini-3.8-flash-medium\t-' \
                'agy\treview\tnormal-hard\tclaude-sonnet-5-5-high\t-\nagy\tbuild\tnormal-hard\tclaude-sonnet-5-5-high\t-'; do
   printf "$planted\n" > "$T"

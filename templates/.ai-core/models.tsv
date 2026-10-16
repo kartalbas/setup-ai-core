@@ -11,7 +11,7 @@
 #         phase on agy, and the package stays in the coordinator's ecosystem.
 #         The issues nobody planned belong to the first tool of ECOSYSTEM_ORDER in config.env;
 #         a later tool plans what the owner hands its coordinator. A tool with
-#         no rows runs no phase, and a class without rows of a tool is not that tool's work.
+#         no rows runs no phase.
 # phase   coordinator (the person in charge itself), plan, plan-check, build (build and test),
 #         review, review-second (the second reading of a high-risk review, by a model that
 #         neither built nor first reviewed it), ui-test (the UI test and the live check), helper (a bounded task inside any phase: a pre-review of a diff, a log, a
@@ -25,8 +25,8 @@
 #         contracts outward, the push gate; outward means an interface somebody outside the
 #         project uses (a public API, a published package, a customer's data format), never a
 #         contract between the project's own repositories), normal-hard (everything else); *
-#         for every class. A tool without a plan row for a class does not take that class: such
-#         an issue goes back to the owner.
+#         for every class. An issue whose plan runs on a high-risk row its tool lacks is not that
+#         tool's work: it goes back to the owner.
 # model   what the tool's --model takes (`claude --model`, `codex -m`, `agy --model`, as `agy models`
 #         lists it), or `agy:<model>` for a phase run on agy. agy runs at high effort, never
 #         xhigh. Only the owner moves a phase there.

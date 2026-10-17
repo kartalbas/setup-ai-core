@@ -29,6 +29,10 @@ the project folder and each partner folder added, so it can read every clone.
   "Autocompact is thrashing". Claude Code compacts the conversation as it nears the window instead
   of near the model's full window, so the phase's answers stay near its base and budget instead of
   growing toward the full window. A report that says it needed more is a GAP for the next plan.
+- Right after the start, subscribe to the session's end: `SendMessage` to `<name>` with no message
+  and `notify_when_idle: true`. One notice arrives when it next goes idle or exits, so a phase that
+  ends, or stops on a question, wakes you at once instead of at your next round. The subscription
+  holds for one notice: subscribe again after you answered a question.
 - You run with a 400k window yourself: the owner starts you with
   `--settings '{"autoCompactWindow":400000}'`. A coordinator started without it compacts only near
   its model's full window, and every round re-reads all of it; ask the owner for a restart with it.
@@ -42,6 +46,8 @@ the project folder and each partner folder added, so it can read every clone.
         --output-format text \
         --mcp-config '{"mcpServers":{"chrome-devtools":{"command":"npx","args":["-y","chrome-devtools-mcp@1.10.1","--executablePath","<path of Edge or Chrome>","--headless","--isolated","--viewport","1366x900"]}}}' \
         --allowedTools mcp__chrome-devtools > ~/.ai-core/sessions/<session name>.out
+
+  Start it with the Bash tool's `run_in_background`, so its end wakes you.
 
 `chrome-devtools-mcp@1.10.1` is a fixed version, never `@latest`; it drives Edge or Chrome headless
 with a throwaway profile, so it never sees anyone's logged-in sessions.
@@ -61,7 +67,8 @@ with a throwaway profile, so it never sees anyone's logged-in sessions.
 ## Wake yourself for the round
 
 `ScheduleWakeup` with 600 seconds and the prompt "the round", once at the end of every round; a
-`SendMessage` from a session or a partner wakes you earlier.
+`SendMessage` from a session or a partner, an idle notice and the end of a background run wake you
+earlier. The round is the net under them: it finds what none of them reported.
 
 ## The usage limit
 

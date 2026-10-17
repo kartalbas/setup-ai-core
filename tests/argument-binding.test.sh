@@ -226,7 +226,7 @@ check 'and with no number given, the environment is used' "PVT_kwboard$FROM_ENVI
 # the fallback a lost value lands on, and it is silent because it succeeds.
 board_reached --project "$GIVEN" --dry-run >/dev/null
 check 'the current directory was never asked' 'not asked' \
-      "$(case "$(cat "$FAKE/calls")" in *"repo view"*) echo 'gh repo view was called' ;; *) echo 'not asked' ;; esac)"
+      "$(case "$(cat "$FAKE/calls")" in *"repo view"*|*'repos/{owner}/{repo}'*) echo 'the directory was asked' ;; *) echo 'not asked' ;; esac)"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo; echo 'all passed'

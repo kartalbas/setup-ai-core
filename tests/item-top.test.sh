@@ -30,6 +30,7 @@ case "\$*" in
     for a in "\$@"; do case "\$a" in cid=*) echo "PVTI_\${a#cid=I_node}"; exit 0 ;; esac; done
     echo 'PVTI_unknown'; exit 0 ;;
 esac
+if [ "\$*" = "api repos/{owner}/{repo} --jq .full_name" ]; then echo 'example-org/example-repo'; exit 0; fi
 if [ "\$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
 echo '{}'
 exit 0

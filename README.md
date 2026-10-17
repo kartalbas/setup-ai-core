@@ -989,11 +989,13 @@ yours from then on (the project harness will carry them):
 **The commands.** All run as `ai-core <name>` and take `--help`. A command that names
 no repository acts on the one it runs in; `OWNER/REPO` before the issue number names another.
 
-A call GitHub refuses with a rate limit is repeated by every command: the harness asks GraphQL for
-`rateLimit` to tell the spent budget (waits until `resetAt`) from the limit for bursts (waits the
-`retry-after` named, else a minute, doubled per try), repeats the call three times at most, and then
-fails with a message that names the limit. A wait longer than 15 minutes fails at once.
-`AI_CORE_SLEEP` names the command that waits, `sleep` by default; the tests set it to a stand-in.
+A call GitHub refuses with a rate limit is repeated by every command that sources `lib/board.sh`
+(the issue, board and landing commands; `release`, `doctor`, `init` and the push gate do not): the harness asks GitHub which limit it is, GraphQL `rateLimit` and
+REST `rate_limit`, tells a spent budget (waits until its reset) from the limit for bursts (a minute,
+doubled per try), repeats the call three times at most, and then fails with a message that names
+the limit. A wait longer than 15 minutes fails at once. The wait notice goes to stderr, so a command
+that parses what it captured keeps the two apart. `ai-core issue-comment` posts and resolves its
+repository over REST. `AI_CORE_SLEEP` names the command that waits, `sleep` by default; the tests set it to a stand-in.
 
 | Command | Does |
 | :--- | :--- |

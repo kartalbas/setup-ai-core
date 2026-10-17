@@ -18,6 +18,7 @@ log="$fake/calls.txt"
 cat > "$fake/gh" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$log"
+if [ "\$*" = "api repos/{owner}/{repo} --jq .full_name" ]; then echo 'example-org/example-repo'; exit 0; fi
 if [ "\$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
 echo 'https://github.com/example-org/example-repo/issues/163#issuecomment-1'
 exit 0

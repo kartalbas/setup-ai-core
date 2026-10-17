@@ -19,6 +19,7 @@ log="$fake/calls.txt"
 cat > "$fake/gh" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$log"
+if [ "\$*" = "api repos/{owner}/{repo} --jq .full_name" ]; then echo 'example-org/example-repo'; exit 0; fi
 if [ "\$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
 echo 'https://github.com/example-org/example-repo/issues/94#issuecomment-1'
 exit 0
@@ -91,6 +92,7 @@ refusing="$fake/refusing"
 mkdir -p "$refusing"
 cat > "$refusing/gh" <<'NO'
 #!/usr/bin/env bash
+if [ "$*" = "api repos/{owner}/{repo} --jq .full_name" ]; then echo 'example-org/example-repo'; exit 0; fi
 if [ "$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
 echo '{"message":"Issue is locked"}'
 echo 'gh: HTTP 403' >&2
@@ -112,6 +114,7 @@ case "$*" in
     echo '{"message":"API rate limit already exceeded for user ID 1."}'
     echo 'gh: API rate limit already exceeded for user ID 1. (HTTP 403)' >&2
     exit 1 ;;
+  "api repos/{owner}/{repo} --jq .full_name") echo 'example-org/example-repo'; exit 0 ;;
   "api repos/"*"/comments "*) echo 'https://github.com/example-org/example-repo/issues/94#issuecomment-2'; exit 0 ;;
 esac
 echo "the stand-in gh has no answer for: $*" >&2; exit 9
@@ -124,6 +127,10 @@ check 'the comment url'     'https://github.com/example-org/example-repo/issues/
 check 'GraphQL never asked' 0 "$(grep -c 'graphql\|issue comment' "$LIMITED_LOG" || true)"
 out="$(PATH="$limited:$PATH" "$comment" "$repo" 94 'Inline words' 2>&1)"; rc=$?
 check 'inline: exits zero'  0 "$rc"
+# the repository named by the checkout, not by the caller: resolved over REST as well
+out="$(PATH="$limited:$PATH" "$comment" 94 'Inline words' 2>&1)"; rc=$?
+check 'without a repo: exits zero' 0 "$rc"
+check 'without a repo: GraphQL never asked' 0 "$(grep -c 'graphql\|issue comment\|repo view' "$LIMITED_LOG" || true)"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

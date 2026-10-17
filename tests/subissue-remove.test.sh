@@ -28,6 +28,7 @@ case "\$*" in
   *'projectsV2(first:50)'*) exit 0 ;;                  # the epic's repository is on no board
   *'subIssues(first'*)      printf 'todo\ntodo\n'; exit 0 ;;  # and the epic stays where it is
 esac
+if [ "\$*" = "api repos/{owner}/{repo} --jq .full_name" ]; then echo 'example-org/example-repo'; exit 0; fi
 if [ "\$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
 echo '{}'
 exit 0

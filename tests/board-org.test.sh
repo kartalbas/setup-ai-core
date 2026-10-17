@@ -27,6 +27,7 @@ case "\$line" in
   *"issues/3"*)         echo 'I_node3'; exit 0 ;;
   *projectItems*)       exit 0 ;;
 esac
+if [ "\$*" = "api repos/{owner}/{repo} --jq .full_name" ]; then [ -z "\${NO_REPO:-}" ] || exit 1; echo 'other-org/example-repo'; exit 0; fi
 if [ "\$1" = "repo" ]; then [ -z "\${NO_REPO:-}" ] || exit 1; echo 'other-org/example-repo'; exit 0; fi
 echo '{}'
 exit 0
@@ -98,6 +99,7 @@ case "\$line" in
   *"fields(first"*)     printf 'Status	F1	done	O_done
 '; exit 0 ;;
 esac
+if [ "\$*" = "api repos/{owner}/{repo} --jq .full_name" ]; then echo 'other-org/example-repo'; exit 0; fi
 if [ "\$1" = "repo" ]; then echo 'other-org/example-repo'; exit 0; fi
 echo '{}'
 exit 0

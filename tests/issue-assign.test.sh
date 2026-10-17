@@ -25,6 +25,7 @@ printf '%s\n' "\$*" >> "$log"
 case "\$*" in
   *"--method PATCH"*) cat > "$body"; echo '{}'; exit 0 ;;
 esac
+if [ "\$*" = "api repos/{owner}/{repo} --jq .full_name" ]; then echo 'example-org/example-repo'; exit 0; fi
 if [ "\$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
 echo '{"number":575,"assignees":[{"login":"kartalbas"},{"login":"anton"}]}'
 exit 0

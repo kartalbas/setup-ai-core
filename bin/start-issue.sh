@@ -62,7 +62,7 @@ behind="$(git rev-list --count "$default..origin/$default" 2>/dev/null || true)"
 
 # No worktree without an issue: the title is what it is named after, and the thread is what the
 # change will be measured against.
-thread="$("$BIN/issue-thread.sh" ${repo:+"$repo"} "$number" --json 2>&1)" \
+thread="$(apart "$BIN/issue-thread.sh" ${repo:+"$repo"} "$number" --json)" \
   || die "no worktree without an issue - the issue could not be read: $thread"
 title="$(printf '%s' "$thread" | jq -r '.title // ""')"
 [ -n "$(printf '%s' "$title" | tr -d '[:space:]')" ] \

@@ -209,7 +209,7 @@ case "\$*" in
   *"o=example-org -f n=example-repo"*"projectsV2(first:50)"*)
     [ -e "$FAKE/here" ] && doc="$FAKE/tools-projects.json"
     [ -e "$FAKE/here" ] || { [ -e "$FAKE/lenient" ] && exit 0; echo "the stand-in gh has no answer for: \$*" >&2; exit 9; } ;;
-  *"repo view"*)                          [ -e "$FAKE/here" ] && { echo 'example-org/example-repo'; exit 0; }
+  *"repo view"*|"api repos/{owner}/{repo} --jq .full_name"*)                          [ -e "$FAKE/here" ] && { echo 'example-org/example-repo'; exit 0; }
                                           [ -e "$FAKE/lenient" ] && exit 0; echo 'no git remotes found' >&2; exit 1 ;;
   *) [ -e "$FAKE/lenient" ] && exit 0; echo "the stand-in gh has no answer for: \$*" >&2; exit 9 ;;
 esac

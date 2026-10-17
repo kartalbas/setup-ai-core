@@ -31,6 +31,7 @@ case "\$j" in
   *'fields(first:50'*)             printf 'Status\tF1\tdone\tD1\nStatus\tF1\ttodo\tT1\n'; exit 0 ;;
   *addProjectV2ItemById*)          echo 'PVTI_item'; exit 0 ;;
 esac
+if [ "\$*" = "api repos/{owner}/{repo} --jq .full_name" ]; then echo 'example-org/example-repo'; exit 0; fi
 if [ "\$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
 echo '{}'
 exit 0
@@ -92,6 +93,7 @@ case "$*" in
   *projectItems*)       exit 0 ;;
   *'projectsV2(first'*) exit 0 ;;
 esac
+if [ "$*" = "api repos/{owner}/{repo} --jq .full_name" ]; then echo 'example-org/example-repo'; exit 0; fi
 if [ "$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
 echo '{}'
 exit 0

@@ -106,18 +106,54 @@ reject_options() {  # reject_options "$@"
   done
 }
 
+# A COMMAND'S DATA AND ITS STDERR, KEPT APART.
+#
+# `x="$(cmd 2>&1)"` makes everything the command says on stderr part of x. For a caller that parses
+# x, a line of the gh function below ("waiting 60s ...") then stands in front of the JSON or the
+# repository name, and the parse fails or reads a wrong value. A caller that parses what it
+# captured therefore takes it through `apart`: on success the data is the stdout alone and the
+# stderr goes on to the caller's own stderr; on failure both come out together, stdout first, as the
+# text for the caller's error message, and the exit status is passed on.
+#
+# run_split is the shared half: it runs a command with the two streams in separate places, sets
+# split_out and split_err and returns the command's status. Its temporary file goes with an
+# interrupt (INT, TERM); no script of this repository traps those two.
+run_split() {  # run_split <command>...
+  local err rc=0
+  err="$(mktemp)"
+  trap 'rm -f "$err"; exit 130' INT TERM
+  split_out="$("$@" 2>"$err")" || rc=$?
+  split_err="$(cat "$err")"
+  rm -f "$err"; trap - INT TERM
+  return "$rc"
+}
+
+apart() {  # apart <command>...
+  local rc=0
+  run_split "$@" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    [ -z "$split_err" ] || printf '%s\n' "$split_err" >&2
+    [ -z "$split_out" ] || printf '%s\n' "$split_out"
+  else
+    printf '%s\n' "${split_out:+$split_out$'\n'}$split_err"
+  fi
+  return "$rc"
+}
+
 # EVERY gh CALL OF THIS REPOSITORY MEETS GITHUB'S RATE LIMITS HERE, ONCE.
 #
 # A burst of calls from several sessions of one account is refused with "API rate limit already
-# exceeded" while `gh api rate_limit` still shows thousands of points left: the REST view does not
-# show the budget that GraphQL spends. So this function shadows `gh` in every script that sources
-# this file, and a refused call is told apart by asking GraphQL itself for `rateLimit`:
-#   remaining 0   the primary limit: wait until `resetAt`;
-#   remaining > 0 the secondary limit, the one for bursts: wait the seconds GitHub names in
-#                 `retry-after` where the refusal carries them, else a minute, doubled per try.
+# exceeded" while `gh api rate_limit` still shows thousands of points left for GraphQL: the REST
+# view does not show the budget that GraphQL spends. So this function shadows `gh` in every script
+# that sources this file (not release.sh or doctor.sh, which do not), and a refusal, recognised on
+# gh's STDERR alone because stdout may quote anything, is told apart by asking GitHub itself:
+#   GraphQL `rateLimit` remaining 0, or REST `rate_limit` core remaining 0:
+#                 the primary limit of that API: wait until its reset;
+#   both above 0: the secondary limit, the one for bursts: a minute, doubled per try.
 # The call is then repeated, GH_RATE_RETRIES times at most. A wait longer than GH_RATE_WAIT_MAX, or
 # the last refusal, ends in a message that names the limit and leaves gh's answer and exit status
 # to the caller, so gh_read and every bare call fail as they always did, with the limit named.
+# The wait notice goes to stderr, which is why a caller that parses its capture uses `apart`.
 #
 # A call that reads its request from standard input (`--input -`) is not repeated: the first try
 # consumed it. AI_CORE_SLEEP names the command that waits, `sleep` unless a test says otherwise.
@@ -126,48 +162,53 @@ GH_RATE_WAIT_BASE=60
 GH_RATE_WAIT_MAX=900
 
 gh() {
-  local out err rc try=0 text
+  local rc try=0 out err
   case " $* " in *" --input - "*) command gh "$@"; return ;; esac
-  err="$(mktemp)"
   while :; do
-    rc=0; out="$(command gh "$@" 2>"$err")" || rc=$?
-    text="$out$(cat "$err")"
-    if [ "$rc" -ne 0 ] && grep -qiE 'API rate limit (already )?exceeded|secondary rate limit' <<< "$text"; then
+    rc=0; run_split command gh "$@" || rc=$?
+    out="$split_out"; err="$split_err"
+    if [ "$rc" -ne 0 ] && grep -qiE 'API rate limit (already )?exceeded|secondary rate limit' <<< "$err"; then
       if [ "$try" -lt "$GH_RATE_RETRIES" ]; then
         try=$((try + 1))
-        gh_rate_wait "$text" "$try"
+        gh_rate_wait "$try"
         if [ "$gh_rate_seconds" -le "$GH_RATE_WAIT_MAX" ]; then
           echo "waiting ${gh_rate_seconds}s for $gh_rate_limit (try $try of $GH_RATE_RETRIES)" >&2
           "${AI_CORE_SLEEP:-sleep}" "$gh_rate_seconds"
           continue
         fi
-        echo "$gh_rate_limit refuses and does not lift within $GH_RATE_WAIT_MAX seconds" >&2
+        err="$err"$'\n'"$gh_rate_limit refuses and does not lift within $GH_RATE_WAIT_MAX seconds"
       else
-        echo "$gh_rate_limit still refuses after $try waits" >&2
+        err="$err"$'\n'"$gh_rate_limit still refuses after $try waits"
       fi
     fi
     [ -z "$out" ] || printf '%s\n' "$out"
-    cat "$err" >&2; rm -f "$err"
+    [ -z "$err" ] || printf '%s\n' "$err" >&2
     return "$rc"
   done
 }
 
 # Sets gh_rate_seconds and gh_rate_limit, a phrase that names the limit. Globals, because bash 3.2
 # has no way to return two values.
-gh_rate_wait() {  # gh_rate_wait <the refused call's output> <which try>
-  local probe remaining="" reset_epoch="" reset_at="" retry_after
-  probe="$(command gh api graphql -f query='{ rateLimit { remaining resetAt } }' 2>/dev/null \
-    | jq -r '.data.rateLimit | "\(.remaining) \(.resetAt | fromdateiso8601) \(.resetAt)"' 2>/dev/null)" || probe=""
-  read -r remaining reset_epoch reset_at <<< "$probe" || true
-  if [ "$remaining" = 0 ]; then
-    gh_rate_limit="GitHub's primary rate limit (spent until $reset_at)"
-    gh_rate_seconds=$(( reset_epoch - $(date +%s) + 1 ))
-    [ "$gh_rate_seconds" -ge 1 ] || gh_rate_seconds=1
-    return 0
-  fi
+gh_rate_wait() {  # gh_rate_wait <which try>
+  local api remaining reset_epoch probe
   gh_rate_limit="GitHub's secondary rate limit"
-  retry_after="$(grep -oiE 'retry-after:? *[0-9]+' <<< "$1" | grep -oE '[0-9]+' | head -n1 || true)"
-  gh_rate_seconds="${retry_after:-$(( GH_RATE_WAIT_BASE * (1 << ($2 - 1)) ))}"
+  gh_rate_seconds=$(( GH_RATE_WAIT_BASE * (1 << ($1 - 1)) ))
+  for api in GraphQL REST; do
+    if [ "$api" = GraphQL ]; then
+      probe="$(command gh api graphql -f query='{ rateLimit { remaining resetAt } }' 2>/dev/null \
+        | jq -r '.data.rateLimit | "\(.remaining) \(.resetAt | fromdateiso8601)"' 2>/dev/null)" || probe=""
+    else
+      probe="$(command gh api rate_limit 2>/dev/null | jq -r '.resources.core | "\(.remaining) \(.reset)"' 2>/dev/null)" || probe=""
+    fi
+    remaining=""; reset_epoch=""
+    read -r remaining reset_epoch <<< "$probe" || true
+    if [ "$remaining" = 0 ] && [ -n "$reset_epoch" ]; then
+      gh_rate_limit="GitHub's primary $api rate limit (spent until $(date -u -d "@$reset_epoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "$reset_epoch"))"
+      gh_rate_seconds=$(( reset_epoch - $(date +%s) + 1 ))
+      [ "$gh_rate_seconds" -ge 1 ] || gh_rate_seconds=1
+      return 0
+    fi
+  done
 }
 
 # EVERYTHING THIS REPOSITORY ASKS gh GOES THROUGH HERE.
@@ -274,13 +315,17 @@ label_names_in_group() {  # label_names_in_group <group> [file]
 # Which repo to act on. A colleague standing in their own checkout does not have to
 # type it; anyone driving another repo from elsewhere passes it explicitly.
 #
-# The ONE gh call that does not go through gh_read, and it still checks the same signal. What it
-# would gain there is gh's answer in the message, and there is none to gain: this call answers with
-# a name or with nothing. What a person needs here is what to type instead, so that is what it
-# says, and gh's own line on stderr says whether standing outside a checkout was the reason.
+# The ONE gh call that does not go through gh_read, and it still checks the same signal. What a
+# person needs on a failure is what to type instead, so that is what it says, with gh's own words
+# behind it.
+#
+# THE REPOSITORY IS READ OVER REST, through gh's {owner}/{repo} placeholders, not with `gh repo
+# view`: that is GraphQL, and a command that only names its repository must not depend on the limit
+# GraphQL is under. `gh api --help` of the installed gh says the placeholders take their values
+# from the repository of the current directory; `.full_name` is the name GitHub knows it by.
 default_repo() {
   local name
-  name="$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>&1)" \
+  name="$(apart gh api 'repos/{owner}/{repo}' --jq .full_name)" \
     || die "cannot tell which GitHub repo this is - pass the repo as OWNER/REPO: $name"
   echo "$name"
 }

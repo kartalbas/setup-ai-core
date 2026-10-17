@@ -26,6 +26,7 @@ sent="$fake/sent-body.md"
 cat > "$fake/gh" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$log"
+if [ "\$*" = "api repos/{owner}/{repo} --jq .full_name" ]; then echo 'example-org/example-repo'; exit 0; fi
 if [ "\$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
 case "\$*" in
   *--method\ PATCH*)
@@ -160,6 +161,7 @@ refusing="$fake/refusing"
 mkdir -p "$refusing"
 cat > "$refusing/gh" <<'NO'
 #!/usr/bin/env bash
+if [ "$*" = "api repos/{owner}/{repo} --jq .full_name" ]; then echo 'example-org/example-repo'; exit 0; fi
 if [ "$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
 echo '{"message":"Validation Failed"}'
 echo 'gh: HTTP 422' >&2

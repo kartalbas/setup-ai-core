@@ -16,6 +16,7 @@ fake="$(mktemp -d)"
 export GH_CACHE_DIRECTORY="$fake/cache"
 export GH_PROJECT_NUMBER=999982
 trap 'rm -rf "$fake"' EXIT
+export AI_CORE_SLEEP=true   # the waits of a refused call take no time here
 log="$fake/calls.txt"
 board="$fake/board.tsv"
 state="$fake/state.txt"
@@ -24,9 +25,15 @@ cat > "$fake/gh" <<EOF
 #!/usr/bin/env bash
 a="\$*"
 printf '%s\n' "\$a" >> "$log"
+if [ -e "$fake/refuse-once" ] && [[ "\$a" == *"issues/163"* ]] && [[ "\$a" != *"comments"* ]]; then
+  rm -f "$fake/refuse-once"
+  echo '{"message":"API rate limit already exceeded for user ID 1."}'
+  echo 'gh: API rate limit already exceeded for user ID 1. (HTTP 403)' >&2
+  exit 1
+fi
 case "\$a" in
   # like gh, which reads the repository of the directory it runs in and finds none in a removed one
-  *"repo view"*)            [ -d "\$PWD" ] || { echo 'failed to determine the repository' >&2; exit 1; }; echo 'example-org/example-repo' ;;
+  *"repo view"*|"api repos/{owner}/{repo} --jq .full_name"*)            [ -d "\$PWD" ] || { echo 'failed to determine the repository' >&2; exit 1; }; echo 'example-org/example-repo' ;;
   *"/comments -f body="*)   echo 'https://example.invalid/example-org/example-repo/issues/163#issuecomment-1' ;;
   # status-sync's query of the repository's issues names comments and projectItems too
   *"issues(states:OPEN"*)   [ -e "$fake/issues-down" ] && { echo 'the issues are down' >&2; exit 1; }; echo '{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}' ;;
@@ -112,11 +119,12 @@ check 'exits nonzero'       yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
 check 'it names the commit' yes "$(grep -q 'has 1 commit(s) whose change is not on origin/master' <<< "$out" && echo yes || echo no)"
 check 'the worktree stays'  yes "$(has_tree issue-163-read-the-board-whole)"
 
-echo 'a landed worktree goes with its branch, the card moves to testing, and the issue says what landed'
+echo 'a landed worktree goes with its branch, the card moves to testing, and the issue says what landed, the read of the issue refused once on the way'
 git -C "$trees/issue-163-read-the-board-whole" push -q origin HEAD:master
-: > "$log"; rm -rf "$fake/cache"
+: > "$log"; rm -rf "$fake/cache"; touch "$fake/refuse-once"
 out="$(run 163)"; rc=$?
 check 'exits zero'            0 "$rc"
+check 'the refusal was met and waited for' 1 "$(grep -c "^waiting 60s for GitHub's secondary rate limit" <<< "$out" || true)"
 check 'the worktree is gone'  no "$(has_tree issue-163-read-the-board-whole)"
 check 'the branch is gone'    no "$(has_branch issue-163-read-the-board-whole)"
 check 'the card moved to testing' 1 "$(grep -c 'oid=OPT_test' "$log" || true)"

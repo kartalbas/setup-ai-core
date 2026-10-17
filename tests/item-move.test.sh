@@ -47,6 +47,7 @@ JSON
   *projectItems*)         exit 0 ;;
   *"issues/42"*)          echo 'I_node42'; exit 0 ;;
 esac
+if [ "\$*" = "api repos/{owner}/{repo} --jq .full_name" ]; then echo 'example-org/example-repo'; exit 0; fi
 if [ "\$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
 echo '{}'
 exit 0

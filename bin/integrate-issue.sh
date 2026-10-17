@@ -73,7 +73,7 @@ esac
 [ -n "$repo" ] || repo="$(branch_issue_repo "$branch")"
 # The one GitHub call before anything moves. A refusal of it, a rate limit among them, says in plain
 # words that nothing landed: a coordinator that read a bare error as "landed" released without the work.
-title="$("$BIN/issue-thread.sh" ${repo:+"$repo"} "$number" --json 2>&1)" \
+title="$(apart "$BIN/issue-thread.sh" ${repo:+"$repo"} "$number" --json)" \
   || die "nothing landed: the issue $number could not be read from GitHub, so nothing was merged or pushed and origin is as it was: $title"
 title="$(printf '%s' "$title" | jq -r '.title // ""')"
 ref="$(issue_ref "$repo" "$number")"

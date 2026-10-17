@@ -198,7 +198,7 @@ fill_layer() {
   cp -R "$root/skeleton/." "$dir/"
   for f in config.env labels.tsv assignees.tsv; do cp "$root/templates/.ai-core/$f" "$dir/$f"; done
   git -C "$dir" add -A
-  git -C "$dir" -c user.name="${GIT_AUTHOR_NAME:-ai-core}" -c user.email="${GIT_AUTHOR_EMAIL:-ai-core@localhost}" commit -q -m "the project harness, from the skeleton of setup-ai-core"
+  git -C "$dir" commit -q -m "the project harness, from the skeleton of setup-ai-core"
 }
 
 # ensure_layer <org>/<name> <setup-ai-core root> <folder> [create|dry]: the clone is there and
@@ -258,6 +258,7 @@ ensure_layer() {
     echo "$dir"; return 0
   fi
   [ "$mode" = create ] || { echo "error: $full does not exist on GitHub" >&2; return 1; }
+  git var GIT_COMMITTER_IDENT >/dev/null || { echo "error: $full is not created: git holds no identity to commit it under (see above)" >&2; return 1; }
   mkdir -p "$dir"
   git -C "$dir" init -q
   fill_layer "$dir" "$root"

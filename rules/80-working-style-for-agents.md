@@ -28,8 +28,9 @@
   says why. Commit and push as often as the work needs; the owner reviews the finished work, not
   each commit. [machine · review]
 - **No assistant or vendor attribution** in a commit, as its author, its committer or a line of its
-  message, or in a pull request, because the history names who answers for a change, and a tool
-  cannot. [machine · review]
+  message, or in a pull request, and every pushed commit carries as author and committer address the
+  one the person pushing it set as their git identity, because the history names who answers for a
+  change, and a tool cannot. [machine · review]
 - **Never write a version, a price or an interface shape from memory.** Look it up at the source
   and state where it came from. [review]
 - **Ask once per package before starting its sub-agents** (an issue alone is a package of one), naming for each what it is for, which

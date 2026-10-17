@@ -50,6 +50,28 @@ config_value() {  # config_value <key> <default>
   echo "$2"
 }
 
+# THE PROVIDER OF A SUBJECT: the key named after the subject (TRACKER for tracker, FORGE for forge)
+# in the project's config.env or the environment names a folder of lib/, github when unset, and that
+# folder's <subject>.sh is sourced. A value with no such folder stops the command and names the
+# folders there are, and so does a provider that lacks a function of the interface, at once and not
+# at the first command that happens to call it.
+load_provider() {  # load_provider <subject> <the functions of the interface, separated by spaces>
+  local subject="$1" key value file f missing="" folders=""
+  key="$(printf '%s' "$subject" | tr '[:lower:]' '[:upper:]')"
+  value="$(config_value "$key" github | tr '[:upper:]' '[:lower:]')"
+  printf -v "$key" '%s' "$value"
+  # a name of letters and digits only cannot lead out of lib/
+  case "$value" in *[!a-z0-9]*) file="" ;; *) file="$HARNESS_ROOT/lib/$value/$subject.sh" ;; esac
+  if [ ! -f "$file" ]; then
+    for f in "$HARNESS_ROOT"/lib/*/"$subject.sh"; do folders="$folders $(basename "$(dirname "$f")")"; done
+    die "$key is '$value', and this harness has no $subject of that name. It has:$folders"
+  fi
+  # shellcheck source=/dev/null
+  . "$file"
+  for f in $2; do [ "$(type -t "$f")" = function ] || missing="$missing $f"; done
+  [ -z "$missing" ] || die "the $subject '$value' lacks these functions:$missing"
+}
+
 # A COMMAND'S DATA AND ITS STDERR, KEPT APART.
 #
 # `x="$(cmd 2>&1)"` makes everything the command says on stderr part of x. For a caller that parses

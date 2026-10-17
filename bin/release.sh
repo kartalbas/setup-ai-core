@@ -34,6 +34,7 @@ for arg in "$@"; do
 done
 
 CORE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$CORE/lib/forge.sh"
 [ $# -eq 1 ] || { echo "error: release takes one argument, the version (see --help)" >&2; exit 2; }
 version="$1"
 case "$version" in [0-9]*.[0-9]*.[0-9]*) ;; *) echo "error: '$version' is not a version of the form X.Y.Z" >&2; exit 2 ;; esac
@@ -68,17 +69,17 @@ fi
 
 # 3. The checks for exactly this commit, on every runner: one workflow run, completed and green,
 #    waited for
-#    A query that fails is no answer yet: gh or the network fails once while the checks run on,
-#    so only the deadline ends the wait, and it names what gh said last.
+#    A query that fails is no answer yet: the forge or the network fails once while the checks run on,
+#    so only the deadline ends the wait, and it names what the forge said last.
 poll="${AI_CORE_RELEASE_POLL:-20}"; limit="${AI_CORE_RELEASE_WAIT:-1800}"; deadline=$(( $(date +%s) + limit )); waiting=0
-said="$(mktemp)"; trap 'rm -f "$said"' EXIT
 while :; do
-  if runs="$(gh run list --commit "$sha" --workflow check --json status,conclusion --limit 5 2>"$said")" && [ -n "$runs" ]; then
-    failed_query=""
-    if [ "$(printf '%s' "$runs" | jq 'length')" -gt 0 ] && printf '%s' "$runs" | jq -e 'all(.status == "completed")' >/dev/null; then break; fi
-  else
-    failed_query="$(tr -s '\r\n' '  ' < "$said")"; failed_query="${failed_query:-an empty answer}"
-  fi
+  run_split commit_checked "$CORE" "$sha"
+  case "$split_out" in
+    green) break ;;
+    red) refuse "the checks for $sha are not green; nothing is released red" ;;
+    pending) failed_query="" ;;
+    *) failed_query="${split_err:-an empty answer}" ;;
+  esac
   if [ "$(date +%s)" -ge "$deadline" ]; then
     [ -z "$failed_query" ] || refuse "gh could not list the workflow runs of $sha until the deadline; it said last: ${failed_query% } (is gh logged in?)"
     refuse "the checks for $sha did not finish in $((limit / 60)) minute(s); run 'ai-core release $version' again when they have"
@@ -86,7 +87,6 @@ while :; do
   [ "$waiting" -eq 1 ] || { echo "release: waiting for the checks of ${sha:0:7} (asked every ${poll}s, $((limit / 60)) minute(s) at most)"; waiting=1; }
   sleep "$poll"
 done
-printf '%s' "$runs" | jq -e 'any(.conclusion == "success")' >/dev/null || refuse "the checks for $sha are not green; nothing is released red"
 
 # The tag goes on the commit whose checks were waited for, not on whatever HEAD is by now: a
 # commit made during the wait was never checked

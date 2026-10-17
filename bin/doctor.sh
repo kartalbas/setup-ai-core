@@ -38,6 +38,8 @@ case "$OS" in
   linux) command -v apt-get >/dev/null 2>&1 && PM=apt-get ;;
 esac
 
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/forge.sh"
+
 PROBLEMS=0
 INSTALLED_SOMETHING=0
 
@@ -72,23 +74,12 @@ else
   report git MISSING "install Git from https://git-scm.com"; problem
 fi
 
-# gh
-if ! command -v gh >/dev/null 2>&1; then install_tool gh gh gh || true; fi
-if command -v gh >/dev/null 2>&1; then
-  # the board commands write Projects v2, which a login with gh's default scopes cannot; a token
-  # gh lists no scopes for (a fine-grained one, GH_TOKEN) is not judged
-  if gh_status="$(gh auth status 2>&1)"; then
-    if grep -q 'Token scopes:' <<< "$gh_status" && ! grep -q "'project'" <<< "$gh_status"; then
-      report gh "no project scope" "the board commands read and write the project board; run: gh auth refresh -h github.com -s project"; problem
-    else
-      report gh present "$(gh --version 2>/dev/null | head -1), logged in"
-    fi
-  else
-    report gh "not logged in" "run: gh auth login"; problem
-  fi
-else
-  report gh MISSING "install GitHub CLI from https://cli.github.com"; problem
-fi
+# the tracker and the forge of the project, and the forge's tool (gh for GitHub)
+tracker="$(config_value TRACKER github | tr '[:upper:]' '[:lower:]')"
+echo "  tracker: $tracker"
+[ -f "$HARNESS_ROOT/lib/$tracker/tracker.sh" ] || { report tracker MISSING "TRACKER names no folder of lib/ with a tracker.sh"; problem; }
+echo "  forge: $FORGE"
+forge_doctor
 
 # Bash (this script runs in it)
 report bash present "${BASH_VERSION%%(*}"
@@ -129,14 +120,17 @@ for f in "$(project_folder_of "$PWD")"/*/.gitleaks.toml; do [ -f "$f" ] || conti
 if [ -n "$LEAKS_REPOS" ]; then
   leaks_ok() { command -v gitleaks >/dev/null 2>&1 && gitleaks git --help >/dev/null 2>&1; }
   leaks_release() {
-    local os arch tmp rc=0
+    local os arch tmp url rc=0
     case "$OS" in linux) os=linux ;; macos) os=darwin ;; *) return 1 ;; esac
     case "$(uname -m)" in x86_64|amd64) arch=x64 ;; aarch64|arm64) arch=arm64 ;; armv7l) arch=armv7 ;; *) return 1 ;; esac
-    command -v gh >/dev/null 2>&1 && command -v tar >/dev/null 2>&1 || return 1
+    command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && command -v tar >/dev/null 2>&1 || return 1
     echo "--> Installing gitleaks from its GitHub release into ~/.local/bin..."
     tmp="$(mktemp -d)"
-    { gh release download --repo gitleaks/gitleaks --pattern "gitleaks_*_${os}_${arch}.tar.gz" --dir "$tmp" >/dev/null 2>&1 \
-      && mkdir -p "$HOME/.local/bin" && tar -xzf "$tmp"/gitleaks_*.tar.gz -C "$HOME/.local/bin" gitleaks; } || rc=1
+    # an outside project's public release, read without a login, so it needs no forge tool
+    { url="$(curl -fsSL https://api.github.com/repos/gitleaks/gitleaks/releases/latest 2>/dev/null \
+             | jq -r --arg name "_${os}_${arch}.tar.gz" '[.assets[] | select(.name | startswith("gitleaks_") and endswith($name)) | .browser_download_url][0] // empty')" \
+      && [ -n "$url" ] && curl -fsSL "$url" -o "$tmp/gitleaks.tar.gz" 2>/dev/null \
+      && mkdir -p "$HOME/.local/bin" && tar -xzf "$tmp/gitleaks.tar.gz" -C "$HOME/.local/bin" gitleaks; } || rc=1
     rm -rf "$tmp"
     [ "$rc" -eq 0 ] || return 1
     case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) PATH="$HOME/.local/bin:$PATH"; LEAKS_NOTE="note: ~/.local/bin, where gitleaks is now, is not on the PATH of this shell; log in again (a login shell adds it once it exists) or add it to your profile" ;; esac

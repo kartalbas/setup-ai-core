@@ -7,7 +7,8 @@
 #   bash tests/tracker-provider.test.sh
 #
 # Nothing here reaches GitHub: board.sh is only sourced. The refusal is shown red on a copy of lib/
-# whose check is taken out, and green on the real one.
+# whose check is taken out, and green on the real one. The folder lookup is lib/common.sh's, shared
+# with lib/forge.sh.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$(mktemp -d)"
@@ -64,8 +65,8 @@ check "a name that leads out of lib/ is refused" "error: TRACKER is '../skeleton
 
 # the planted defect: a copy of lib/ whose refusal is taken out must make the same check go red
 mkdir -p "$WORK/planted"; cp -R "$ROOT/lib" "$WORK/planted/lib"
-sed -i.bak 's/^if \[ ! -f "\$tracker_known" \]; then/if false; then/' "$WORK/planted/lib/tracker.sh"
-cmp -s "$ROOT/lib/tracker.sh" "$WORK/planted/lib/tracker.sh" && { echo "  FAIL the planted copy equals the real tracker.sh"; failed=$((failed + 1)); }
+sed -i.bak 's/^  if \[ ! -f "\$file" \]; then/  if false; then/' "$WORK/planted/lib/common.sh"
+cmp -s "$ROOT/lib/common.sh" "$WORK/planted/lib/common.sh" && { echo "  FAIL the planted copy equals the real common.sh"; failed=$((failed + 1)); }
 check "planted: the copy without its refusal is not refused as the real one is" "no" \
   "$([ "$(dispatch "$WORK/planted" nonesuch)" = "$refusal" ] && echo yes || echo no)"
 check "innocent: the same copy still loads github" "tracker=github function" "$(dispatch "$WORK/planted" github)"
@@ -76,5 +77,33 @@ printf 'gh_org() { :; }\n' > "$WORK/planted/lib/lacking/tracker.sh"
 lacks="$(dispatch "$WORK/planted" lacking)"
 check "a provider without the functions is refused" "yes" "$(case "$lacks" in "error: the tracker 'lacking' lacks these functions: default_repo "*issue_rows*) echo yes ;; *) echo no ;; esac)"
 check "a provider with them all is not" "tracker=github function" "$(dispatch "$ROOT" github)"
+
+# the forge: FORGE names the folder of lib/ the same way, and the check of a commit answers four ways
+fdispatch() {  # fdispatch <lib root> <FORGE or 'unset'>
+  ( cd "$WORK/project" && { [ "$2" = unset ] && unset FORGE || export FORGE="$2"; } &&
+    bash -c '. "$1/lib/forge.sh" && echo "forge=$FORGE $(forge_host)"' _ "$1" 2>&1 | tail -n1 )
+}
+config ''
+check "no FORGE means github" "forge=github github.com" "$(fdispatch "$ROOT" unset)"
+check "a FORGE with no folder is refused and the folders are named" "error: FORGE is 'nonesuch', and this harness has no forge of that name. It has: github" "$(fdispatch "$ROOT" nonesuch)"
+mkdir -p "$WORK/fake"
+cat > "$WORK/fake/gh" <<'GH'
+#!/bin/sh
+case "$FAKE_RUNS" in
+  broken) echo 'HTTP 502: Bad Gateway' >&2; exit 1 ;;
+  *) echo "$FAKE_RUNS" ;;
+esac
+GH
+chmod +x "$WORK/fake/gh"
+checked() {  # checked <what the fake gh answers>
+  ( cd "$WORK/project" && PATH="$WORK/fake:$PATH" FAKE_RUNS="$1" bash -c '. "$1/lib/forge.sh"; commit_checked "$2" abc 2>&1' _ "$ROOT" "$WORK/project" )
+}
+check "commit_checked: a completed success is green" "green" "$(checked '[{"status":"completed","conclusion":"success"}]')"
+check "commit_checked: completed with no success is red" "red" "$(checked '[{"status":"completed","conclusion":"failure"},{"status":"completed","conclusion":"cancelled"}]')"
+check "commit_checked: a run still going is pending" "pending" "$(checked '[{"status":"in_progress","conclusion":null}]')"
+check "commit_checked: no run yet is pending" "pending" "$(checked '[]')"
+check "commit_checked: a failed query is unreadable, with the words of the forge" "unreadable
+HTTP 502: Bad Gateway " "$(checked broken)"
+check "commit_checked: an empty answer is unreadable" "unreadable" "$(checked '')"
 
 [ "$failed" -eq 0 ] || { echo "$failed failed"; exit 1; }

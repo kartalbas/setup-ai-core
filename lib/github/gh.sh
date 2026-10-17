@@ -11,8 +11,9 @@
 # A burst of calls from several sessions of one account is refused with "API rate limit already
 # exceeded" while `gh api rate_limit` still shows thousands of points left for GraphQL: the REST
 # view does not show the budget that GraphQL spends. So this function shadows `gh` in every script
-# that sources lib/board.sh (not release.sh or doctor.sh, which do not), and a refusal, recognised on
-# gh's STDERR alone because stdout may quote anything, is told apart by asking GitHub itself:
+# that sources lib/github/tracker.sh or lib/github/forge.sh, which is every script of this repository
+# that calls gh, and a refusal, recognised on gh's STDERR alone because stdout may quote anything, is
+# told apart by asking GitHub itself:
 #   GraphQL `rateLimit` remaining 0, or REST `rate_limit` core remaining 0:
 #                 the primary limit of that API: wait until its reset;
 #   both above 0: the secondary limit, the one for bursts: a minute, doubled per try.

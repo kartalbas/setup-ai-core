@@ -17,6 +17,7 @@
 # OWNER/REPO where two of the repositories asked for share a name.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/forge.sh"
 
 repos=()
 while [ $# -gt 0 ]; do
@@ -34,12 +35,10 @@ issues=""
 for repo in "${repos[@]}"; do
   rows="$(issue_rows "$repo")" || exit 1
   # A repository without a commit has no default branch and holds no file yet. The default branch
-  # and the file list are the repository's, not the tracker's: they stay GitHub's own reads here.
-  branch="$(gh_read "the default branch of $repo" api graphql -F owner="${repo%%/*}" -F name="${repo#*/}" -f query='
-    query($owner:String!, $name:String!) { repository(owner:$owner, name:$name) {
-      defaultBranchRef { name } } }')" || exit 1
-  if [ -n "$(jq -rn 'first(inputs | .data.repository.defaultBranchRef.name // empty)' <<< "$branch")" ]; then
-    gh_read "the files of $repo" api "repos/$repo/git/trees/HEAD?recursive=1" > "$work/tree.json"
+  # and the file list are the repository's, so the forge answers them, not the tracker.
+  branch="$(repo_default_branch "$repo")" || exit 1
+  if [ -n "$branch" ]; then
+    repo_file_tree "$repo" > "$work/tree.json"
   else
     echo '{"tree": []}' > "$work/tree.json"
   fi

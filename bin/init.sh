@@ -342,7 +342,7 @@ if [ -n "$LAYERS" ]; then
   while IFS= read -r l; do
     [ -n "$l" ] || continue
     if [ -d "$l" ]; then
-      echo "--> Project harness: $(git -C "$l" remote get-url origin 2>/dev/null | sed 's|.*github.com[:/]||; s|\.git$||') ($(git -C "$l" rev-parse --short HEAD 2>/dev/null)) at $l"
+      echo "--> Project harness: $(git -C "$l" remote get-url origin 2>/dev/null | sed "s|.*$(forge_host)[:/]||; s|\.git\$||") ($(git -C "$l" rev-parse --short HEAD 2>/dev/null)) at $l"
     else
       echo "--> Project harness: $(basename "$l") would be cloned to $l (dry run: not cloned)"
     fi

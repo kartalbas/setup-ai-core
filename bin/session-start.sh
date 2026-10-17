@@ -164,12 +164,7 @@ fi
 
 GH_LOGGED_IN=0
 GH_USER=""
-if command -v gh >/dev/null 2>&1; then
-  if gh auth status >/dev/null 2>&1; then
-    GH_LOGGED_IN=1
-    GH_USER="$(gh api user -q .login 2>/dev/null || echo "")"
-  fi
-fi
+if GH_USER="$(signed_in_user)"; then GH_LOGGED_IN=1; else GH_USER=""; fi
 
 # 3. The issue of this worktree: a branch or a directory named issue-N-<slug> carries issue N, of
 #    the repository start-issue recorded on the branch where the issue lives in another one.

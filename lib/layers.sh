@@ -15,21 +15,24 @@
 # put into the home directory (~/.<name>-ai-core) is moved beside the repositories when it is
 # needed there.
 #
-# EVERYTHING GITHUB-SIDE GOES THROUGH gh: reading whether the harness exists, cloning it, creating
-# it. That is what makes it one login for everything, and what lets the tests stand a fake gh on
-# the PATH so nothing reaches github.com.
+# EVERYTHING FORGE-SIDE GOES THROUGH lib/forge.sh: reading whether the harness exists, cloning it,
+# creating it. On GitHub that is gh, which makes it one login for everything and lets the tests
+# stand a fake gh on the PATH so nothing reaches github.com.
 #
 # A harness may extend another one, ai-core.json {"extends": "<org>/<name>-ai-core"}. The chain is
 # resolved base first, and a cycle or a chain longer than eight is refused.
 
+. "$(dirname "${BASH_SOURCE[0]}")/forge.sh"
+
 # origin_parts <checkout>: prints "<org>\t<repo>" from the origin of the checkout, nothing when
-# the checkout has no origin on github.com
+# the checkout has no origin on the forge
 origin_parts() {
-  local url
+  local url host
   url="$(git -C "$1" remote get-url origin 2>/dev/null)" || return 1
   url="${url%/}"; url="${url%.git}"
+  host="$(forge_host)"
   case "$url" in
-    *github.com[:/]*/*) url="${url#*github.com}"; url="${url#[:/]}" ;;
+    *"$host"[:/]*/*) url="${url#*"$host"}"; url="${url#[:/]}" ;;
     *) return 1 ;;
   esac
   case "$url" in */*/*) return 1 ;; esac
@@ -149,9 +152,6 @@ catch_up() {
 # layer_dir <org>/<name> <folder>: the clone, beside the repositories of the folder
 layer_dir() { echo "$2/${1#*/}"; }
 
-# The origin a clone of <org>/<name> must have
-layer_url() { echo "https://github.com/$1.git"; }
-
 # move_layer <org>/<name> <old> <new>: the clone an earlier version kept under the home
 # directory goes beside the repositories: copied file by file, never over a file already there,
 # so a move that was interrupted (the history here, the files still there) is completed by the
@@ -220,7 +220,7 @@ ensure_layer() {
   if [ -d "$dir/.git" ]; then
     origin="$(git -C "$dir" remote get-url origin 2>/dev/null || true)"
     case "${origin%.git}" in
-      *github.com[:/]"$full") ;;
+      *"$(forge_host)"[:/]"$full") ;;
       *) echo "error: $dir is a clone of ${origin:-nothing}, not of $full; move it away" >&2; return 1 ;;
     esac
     # A clone with no commit of an origin with none: the empty harness repository somebody with
@@ -244,9 +244,9 @@ ensure_layer() {
     layer_skeleton_file "$dir" "$root" "$full" .gitattributes 'every file LF' "$mode"
     echo "$dir"; return 0
   fi
-  if gh repo view "$full" --json name >/dev/null 2>&1; then
+  if repo_exists "$full" >/dev/null 2>&1; then
     [ "$mode" != dry ] || { echo "$dir"; return 0; }
-    gh repo clone "$full" "$dir" -- --quiet >/dev/null 2>&1 || { echo "error: could not clone $full to $dir" >&2; return 1; }
+    repo_clone "$full" "$dir" >/dev/null 2>&1 || { echo "error: could not clone $full to $dir" >&2; return 1; }
     # Empty on GitHub, made by hand by whoever has the right to create it there: the first init
     # fills it from the skeleton and pushes, the way it fills one it creates itself
     if ! git -C "$dir" rev-parse -q --verify HEAD >/dev/null 2>&1; then
@@ -262,7 +262,7 @@ ensure_layer() {
   mkdir -p "$dir"
   git -C "$dir" init -q
   fill_layer "$dir" "$root"
-  if ! gh repo create "$full" --private --source "$dir" --push >/dev/null 2>&1; then
+  if ! repo_create "$full" "$dir" >/dev/null 2>&1; then
     rm -rf "$dir"
     echo "error: could not create $full on GitHub (no permission, or gh is not logged in)" >&2
     return 1

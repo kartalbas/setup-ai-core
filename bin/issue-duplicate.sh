@@ -22,19 +22,10 @@ case "$canonical_num" in ''|*[!0-9]*) die "the canonical issue number must be nu
 case "$duplicate_num" in ''|*[!0-9]*) die "the duplicate issue number must be numeric, not '$duplicate_num'" ;; esac
 
 if [ -n "$undo" ]; then
-  # Both ids are resolved before the mutation, not inside it: a failed command substitution does
-  # not stop the command it stands in, so an id that could not be read would be sent as empty.
-  canonical_id="$(issue_node_id "$canonical_repo" "$canonical_num")" || exit 1
-  duplicate_id="$(issue_node_id "$duplicate_repo" "$duplicate_num")" || exit 1
-  mutation='mutation($canonical:ID!,$duplicate:ID!){unmarkIssueAsDuplicate(input:{canonicalId:$canonical,duplicateId:$duplicate}){duplicate{... on Issue{number}}}}'
-  gh_read "the duplicate mark taken off $duplicate_repo#$duplicate_num" api graphql \
-    -f canonical="$canonical_id" -f duplicate="$duplicate_id" -f query="$mutation" >/dev/null || exit 1
+  duplicate_unmark "$canonical_repo" "$canonical_num" "$duplicate_repo" "$duplicate_num"
   verb="is no longer marked as a duplicate of"
 else
-  canonical_ref="$canonical_repo#$canonical_num"
-  [ "$canonical_repo" = "$duplicate_repo" ] && canonical_ref="#$canonical_num"
-  gh_read "the duplicate mark on $duplicate_repo#$duplicate_num" api --method POST \
-    "repos/$duplicate_repo/issues/$duplicate_num/comments" -f "body=Duplicate of $canonical_ref" >/dev/null || exit 1
+  duplicate_mark "$canonical_repo" "$canonical_num" "$duplicate_repo" "$duplicate_num"
   verb="is marked as a duplicate of"
 fi
 

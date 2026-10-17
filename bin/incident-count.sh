@@ -58,10 +58,7 @@ week_of() { # week_of <UTC timestamp>
 every_board_repo() {
   local boards number
   org="$(gh_org)" || exit 1
-  boards="$(gh_read "the projects of $org" api graphql -f o="$org" -f query='
-    query($o:String!) { organization(login:$o) {
-      projectsV2(first:100) { nodes { number title closed } } } }' \
-    --jq '.data.organization.projectsV2.nodes[] | select(.closed == false) | "\(.number)\t\(.title)"')" || exit 1
+  boards="$(projects_of_org "$org")" || exit 1
   boards="$(grep -Fv "	$TEMPLATE_MARK" <<< "$boards" || true)"
   [ -n "$boards" ] || die "no open board in $org - name the repositories to count over"
   while IFS=$'\t' read -r number _; do
@@ -116,15 +113,14 @@ seen="$(mktemp)"
 trap 'rm -f "$seen"' EXIT
 
 for repo in "${repos[@]}"; do
-  found="$(gh_read "the issues of $repo" issue list --repo "$repo" --state all --limit "$limit" \
-           --search "created:>=$first_day" --json createdAt,labels)" || exit 1
+  found="$(issues_created_since "$repo" "$first_day" "$limit")" || exit 1
   [ "$(printf '%s' "$found" | jq 'length')" -lt "$limit" ] \
     || die "more than $limit issues in the window for $repo - the count would be partial"
   while IFS=$'\t' read -r created label; do
     [ -n "$created" ] || continue
     printf '%s\t%s\n' "$label" "$(week_of "$created")" >> "$seen"
   done < <(printf '%s' "$found" \
-           | jq -r '.[] | .createdAt as $c | .labels[].name
+           | jq -r '.[] | .createdAt as $c | .labels[]
                     | select(startswith("incident:")) | "\($c)\t\(.)"')
 done
 

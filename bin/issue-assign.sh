@@ -53,11 +53,9 @@ done
 as_set() { printf '%s\n' "$@" | sed '/^$/d' | sort -u; }
 
 for n in "$@"; do
-  # The issue is established as an answer before its assignees are read out of it: a refused
-  # query answers with an error body, and reading no login out of that is "assigned to nobody"
-  # - which the next lines would then write back onto the issue.
-  issue="$(gh_read "the issue $repo#$n" api "repos/$repo/issues/$n")" || exit 1
-  current="$(printf '%s' "$issue" | jq -r '.assignees[]?.login')"
+  # The assignees are established as an answer before they are compared: a refused query reads as
+  # "assigned to nobody" - which the next lines would then write back onto the issue.
+  current="$(issue_assignees "$repo" "$n")" || exit 1
 
   if [ ${#replace[@]} -gt 0 ]; then
     wanted="$(as_set "${replace[@]}")"
@@ -78,11 +76,8 @@ for n in "$@"; do
     continue
   fi
 
-  printf '%s\n' "$wanted" | jq -R . | jq -sc '{assignees: [.[] | select(. != "")]}' \
-    | gh api --method PATCH "repos/$repo/issues/$n" --input - >/dev/null \
-    || die "could not set the assignees of $repo#$n"
+  issue_assignees_set "$repo" "$n" "$wanted"
 
-  after="$(gh_read "the issue $repo#$n" api "repos/$repo/issues/$n")" || exit 1
-  now="$(printf '%s' "$after" | jq -r '.assignees[]?.login')"
+  now="$(issue_assignees "$repo" "$n")" || exit 1
   echo "#$n -> $(printf '%s\n' "$now" | sed '/^$/d' | paste -sd, - | sed -e 's/,/, /g' -e 's/^$/nobody/')"
 done

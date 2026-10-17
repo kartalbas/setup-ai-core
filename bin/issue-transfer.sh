@@ -27,4 +27,4 @@ fi
 case "$number" in ''|*[!0-9]*) die "the issue number must be numeric, not '$number'" ;; esac
 [[ "$target_repo" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]] || die "the target repository must be named OWNER/REPO"
 
-gh_read "the transfer of $repo#$number to $target_repo" issue transfer "$number" "$target_repo" --repo "$repo"
+issue_transfer "$repo" "$number" "$target_repo"

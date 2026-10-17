@@ -23,12 +23,10 @@ case "$num" in ''|*[!0-9]*) die "the issue number must be numeric, not '$num'" ;
 # error body to stdout, so a login read straight through a pipe would be the refusal text, and
 # an assignee list read the same way would be empty - which reads as "assigned to nobody", a
 # statement about the issue that the issue never made.
-who="$(gh_read "who gh is logged in as" api user)" || exit 1
-login="$(printf '%s' "$who" | jq -r '.login // ""')"
-[ -n "$login" ] || die "cannot read who gh is logged in as - run 'gh auth status'"
+login="$(tracker_login)" || exit 1
 
-issue="$(gh_read "the issue $repo#$num" api "repos/$repo/issues/$num")" || exit 1
-assignees="$(printf '%s' "$issue" | jq -r '[.assignees[]?.login] | join(" ")')"
+assigned="$(issue_assignees "$repo" "$num")" || exit 1
+assignees="$(printf '%s\n' "$assigned" | paste -sd' ' -)"
 
 for a in $assignees; do
   [ "$a" = "$login" ] && { echo "#$num is assigned to @$login."; exit 0; }

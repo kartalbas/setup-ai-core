@@ -432,3 +432,245 @@ issue_parent() {  # issue_parent <owner/repo> <number>
       parent { number repository { nameWithOwner } } } } }' \
     --jq '.data.repository.issue.parent | select(. != null) | "\(.repository.nameWithOwner) \(.number)"'
 }
+
+# --- the issue commands -------------------------------------------------------
+#
+# One function for each call an issue command makes. The command keeps its arguments, its output and
+# its exit codes; what is GitHub's here is the endpoint, the mutation and the words of its refusals.
+
+# issue_create <owner/repo> <title> <body file> <assignee> [label...]: prints the number of the new issue.
+# A create that fails is no read problem: gh names why on stderr, most often a label of labels.tsv
+# that labels-sync has not yet made in this repository, and nothing was created.
+issue_create() {
+  local repo="$1" title="$2" body="$3" assignee="$4" args l rc=0 url
+  shift 4
+  args=(--repo "$repo" --title "$title" --body-file "$body" --assignee "$assignee")
+  for l in "$@"; do args+=(--label "$l"); done
+  url="$(gh issue create "${args[@]}")" || rc=$?
+  [ "$rc" -eq 0 ] || die "the issue was NOT created in $repo - gh exited $rc, for the reason it wrote above. Where that is a label the repository does not have, run: ai-core labels-sync $repo"
+  echo "${url##*/}"
+}
+
+# The sub-issue link made with the addSubIssue mutation, which takes node ids and is not bound to one
+# repository the way the REST sub_issues endpoint is - posting a number there reads it in ONE
+# repository, and a parent meant for another silently becomes whatever issue carries that number here.
+# subissue_attach_resolved <parent node id> <owner/repo> <number>: the child is the issue <number>
+# of <owner/repo>; the parent was resolved before anything was created (parent_issue), so a reference
+# that resolves nowhere stopped the run with nothing made.
+subissue_attach_resolved() {
+  local child
+  child="$(issue_node_id "$2" "$3")" || exit 1
+  gh api graphql -f parent="$1" -f child="$child" -f query='
+    mutation($parent:ID!, $child:ID!) {
+      addSubIssue(input:{issueId:$parent, subIssueId:$child}) { issue { number } } }' >/dev/null
+}
+
+# subissue_attach <owner/repo> <parent number> <child owner/repo> <child number>
+subissue_attach() {
+  local child_id
+  # Resolved before the call, not inside it: a failed command substitution does not stop the command
+  # it stands in, so an id that could not be read would be posted as an empty one.
+  child_id="$(issue_db_id "$3" "$4")" || exit 1
+  gh api --method POST "repos/$1/issues/$2/sub_issues" -F sub_issue_id="$child_id" >/dev/null
+}
+
+# subissue_detach <owner/repo> <parent number> <child owner/repo> <child number>
+subissue_detach() {
+  local child_id
+  child_id="$(issue_db_id "$3" "$4")" || exit 1
+  gh_read "the detach of $3#$4 from $1#$2" api --method DELETE \
+    "repos/$1/issues/$2/sub_issue" -F sub_issue_id="$child_id" >/dev/null || exit 1
+}
+
+# issue_assignees <owner/repo> <number>: the logins assigned, one per line.
+# The issue is established as an answer before its assignees are read out of it: a refused query
+# answers with an error body, and reading no login out of that is "assigned to nobody".
+issue_assignees() {
+  local issue
+  issue="$(gh_read "the issue $1#$2" api "repos/$1/issues/$2")" || exit 1
+  printf '%s' "$issue" | jq -r '.assignees[]?.login'
+}
+
+# issue_assignees_set <owner/repo> <number> <logins, one per line>: the assignees become exactly these.
+issue_assignees_set() {
+  printf '%s\n' "$3" | jq -R . | jq -sc '{assignees: [.[] | select(. != "")]}' \
+    | gh api --method PATCH "repos/$1/issues/$2" --input - >/dev/null \
+    || die "could not set the assignees of $1#$2"
+}
+
+# THE ENDPOINT'S REPO IS THE BLOCKED ISSUE'S and the id is the BLOCKER's database id - resolved
+# BEFORE the call, so an id that could not be read stops the run instead of being posted as an empty
+# one, and in the shape the DELETE takes, so the two cannot come to disagree about which side of the
+# relationship is addressed.
+# issue_block <blocked owner/repo> <blocked number> <by owner/repo> <by number>
+issue_block() {
+  local by_id answer
+  by_id="$(issue_db_id "$3" "$4")" || exit 1
+  if ! answer="$(gh api --method POST "repos/$1/issues/$2/dependencies/blocked_by" \
+        -F issue_id="$by_id" 2>&1)"; then
+    case "$answer" in
+      *422*) die "$1#$2 is already blocked by $3#$4 - nothing was changed" ;;
+      *404*) die "an issue was not found - check OWNER/REPO and the numbers on both sides" ;;
+      *)     die "$answer" ;;
+    esac
+  fi
+}
+
+issue_unblock() {  # issue_unblock <blocked owner/repo> <blocked number> <by owner/repo> <by number>
+  local by_id answer
+  by_id="$(issue_db_id "$3" "$4")" || exit 1
+  if ! answer="$(gh api --method DELETE "repos/$1/issues/$2/dependencies/blocked_by/$by_id" 2>&1)"; then
+    case "$answer" in
+      *404*) die "$1#$2 is not blocked by $3#$4 - nothing was changed" ;;
+      *)     die "$answer" ;;
+    esac
+  fi
+}
+
+# issue_labels <owner/repo> <number>: the names of the labels on the issue, one per line.
+issue_labels() {
+  gh_read "the labels of $1#$2" issue view "$2" --repo "$1" --json labels -q '.labels[].name'
+}
+
+# issue_labels_set <owner/repo> <number> <+name | -name>...: +name puts a label on, -name takes it off.
+# A label name may hold a space - GitHub's own defaults include "help wanted" - so the gh call is
+# built as an argument array: glued into one word-split string, such a name arrives as two
+# arguments and gh removes a label that was never asked for.
+issue_labels_set() {
+  local repo="$1" n="$2" l edit=()
+  shift 2
+  for l in "$@"; do
+    case "$l" in
+      +*) edit+=(--add-label "${l#+}") ;;
+      -*) edit+=(--remove-label "${l#-}") ;;
+    esac
+  done
+  [ ${#edit[@]} -eq 0 ] || gh issue edit "$n" --repo "$repo" "${edit[@]}" >/dev/null
+}
+
+labels_create() {  # labels_create <owner/repo> <name> <colour> <description>
+  gh label create "$2" --repo "$1" --color "$3" --description "$4" --force >/dev/null
+}
+
+# labels_list <owner/repo>: the names of the labels the repository carries, one per line.
+labels_list() {
+  gh_read "the labels of $1" label list --repo "$1" --limit 200 --json name --jq '.[].name'
+}
+
+# tracker_login: the login the tracker knows the caller by. The answer is established as one before
+# the login is read out of it: a refused query writes its error body to stdout, so a login read
+# straight through a pipe would be the refusal text.
+tracker_login() {
+  local who login
+  who="$(gh_read "who gh is logged in as" api user)" || exit 1
+  login="$(printf '%s' "$who" | jq -r '.login // ""')"
+  [ -n "$login" ] || die "cannot read who gh is logged in as - run 'gh auth status'"
+  echo "$login"
+}
+
+# issue_close <owner/repo> <number> <completed | not-planned>
+issue_close() {
+  local state_reason="completed"
+  [ "$3" != not-planned ] || state_reason="not_planned"
+  gh_read "the close of $1#$2" api --method PATCH "repos/$1/issues/$2" \
+    -f state=closed -f state_reason="$state_reason" >/dev/null || exit 1
+}
+
+issue_reopen() {  # issue_reopen <owner/repo> <number>
+  gh_read "the reopen of $1#$2" api --method PATCH "repos/$1/issues/$2" -f state=open >/dev/null || exit 1
+}
+
+# issue_comment_post <owner/repo> <number> <text> <text file>: prints the comment's URL. One of the
+# two texts is empty. Over REST, not `gh issue comment`: that call is GraphQL, and a refusal of GraphQL
+# by a rate limit must not lose the comment. -F reads the file named after @ as it is; -f sends the
+# inline text as it is.
+issue_comment_post() {
+  local field
+  if [ -n "$4" ]; then field=(-F "body=@$4"); else field=(-f "body=$3"); fi
+  gh_read "the comment posted on $1#$2" api "repos/$1/issues/$2/comments" "${field[@]}" --jq .html_url
+}
+
+# duplicate_mark <canonical owner/repo> <number> <duplicate owner/repo> <number>: the duplicate gets a
+# comment that names the canonical issue.
+duplicate_mark() {
+  local canonical_ref="$1#$2"
+  [ "$1" = "$3" ] && canonical_ref="#$2"
+  gh_read "the duplicate mark on $3#$4" api --method POST \
+    "repos/$3/issues/$4/comments" -f "body=Duplicate of $canonical_ref" >/dev/null || exit 1
+}
+
+duplicate_unmark() {  # duplicate_unmark <canonical owner/repo> <number> <duplicate owner/repo> <number>
+  local canonical_id duplicate_id mutation
+  # Both ids are resolved before the mutation, not inside it: a failed command substitution does
+  # not stop the command it stands in, so an id that could not be read would be sent as empty.
+  canonical_id="$(issue_node_id "$1" "$2")" || exit 1
+  duplicate_id="$(issue_node_id "$3" "$4")" || exit 1
+  mutation='mutation($canonical:ID!,$duplicate:ID!){unmarkIssueAsDuplicate(input:{canonicalId:$canonical,duplicateId:$duplicate}){duplicate{... on Issue{number}}}}'
+  gh_read "the duplicate mark taken off $3#$4" api graphql \
+    -f canonical="$canonical_id" -f duplicate="$duplicate_id" -f query="$mutation" >/dev/null || exit 1
+}
+
+# issue_body <owner/repo> <number>: the body of the issue, as the tracker stores it.
+issue_body() {
+  gh_read "the body of $1#$2" api "repos/$1/issues/$2" --jq '.body'
+}
+
+# issue_edit <owner/repo> <number> <title or empty> <body file or empty>
+issue_edit() {
+  local call=(api --method PATCH "repos/$1/issues/$2")
+  [ -n "$3" ] && call+=(-f "title=$3")
+  [ -n "$4" ] && call+=(-F "body=@$4")
+  gh_read "the edit of $1#$2" "${call[@]}" >/dev/null || exit 1
+}
+
+issue_transfer() {  # issue_transfer <owner/repo> <number> <target owner/repo>: prints the new issue's URL
+  gh_read "the transfer of $1#$2 to $3" issue transfer "$2" "$3" --repo "$1"
+}
+
+# issue_rows <owner/repo>: the open issues of the repository, one JSON object per line, the issue row
+# of lib/tracker.sh:
+#   {repo, number, title, body, open, labels: [name], status, parent, blockedBy, blocking, cut}
+# parent, blockedBy and blocking name issues as "owner/repo#number"; status is the name of the issue's
+# first card's Status, or null; cut lists what the tracker gave in part ("labels shows 50 of 63"). The
+# priority, the closing time and the sub-issue count of the card row belong to card_rows.
+issue_rows() {
+  local repo="$1" page
+  page="$(gh_read "the open issues of $repo" api graphql --paginate -F owner="${repo%%/*}" -F name="${repo#*/}" -f query='
+    query($owner:String!, $name:String!, $endCursor:String) { repository(owner:$owner, name:$name) {
+      issues(states:OPEN, first:50, after:$endCursor) { pageInfo { hasNextPage endCursor } nodes {
+        number title body
+        labels(first:50) { totalCount nodes { name } }
+        parent { number repository { nameWithOwner } }
+        blockedBy(first:50) { totalCount nodes { number repository { nameWithOwner } } }
+        blocking(first:50) { totalCount nodes { number repository { nameWithOwner } } }
+        projectItems(first:5) { nodes { fieldValueByName(name:"Status") {
+          ... on ProjectV2ItemFieldSingleSelectValue { name } } } } } } } }')" || exit 1
+  jq -c --arg repo "$repo" '
+    .data.repository.issues.nodes[]
+    | def ref: "\(.repository.nameWithOwner)#\(.number)";
+      def cut($what; $list): if $list.totalCount > ($list.nodes | length)
+        then ["\($what) shows \($list.nodes | length) of \($list.totalCount)"] else [] end;
+      { repo: $repo, number, title, body: (.body // ""), open: true,
+        labels: [.labels.nodes[].name],
+        status: ([.projectItems.nodes[].fieldValueByName.name // empty][0]),
+        parent: (if .parent then (.parent | ref) else null end),
+        blockedBy: [.blockedBy.nodes[] | ref], blocking: [.blocking.nodes[] | ref],
+        cut: (cut("labels"; .labels) + cut("blocked by"; .blockedBy) + cut("blocks"; .blocking)) }' <<< "$page"
+}
+
+# issues_created_since <owner/repo> <YYYY-MM-DD> <limit>: the newest <limit> issues of the repository
+# created on that day or later, open or closed, as a JSON array of {createdAt, labels: [name]}.
+issues_created_since() {
+  local found
+  found="$(gh_read "the issues of $1" issue list --repo "$1" --state all --limit "$3" \
+           --search "created:>=$2" --json createdAt,labels)" || exit 1
+  printf '%s' "$found" | jq -c '[.[] | {createdAt, labels: [.labels[].name]}]'
+}
+
+# projects_of_org <organisation>: the open boards of the organisation, one "<number>\t<title>" per line.
+projects_of_org() {
+  gh_read "the projects of $1" api graphql -f o="$1" -f query='
+    query($o:String!) { organization(login:$o) {
+      projectsV2(first:100) { nodes { number title closed } } } }' \
+    --jq '.data.organization.projectsV2.nodes[] | select(.closed == false) | "\(.number)\t\(.title)"'
+}

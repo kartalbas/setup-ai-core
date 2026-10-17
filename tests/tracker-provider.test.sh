@@ -70,4 +70,11 @@ check "planted: the copy without its refusal is not refused as the real one is" 
   "$([ "$(dispatch "$WORK/planted" nonesuch)" = "$refusal" ] && echo yes || echo no)"
 check "innocent: the same copy still loads github" "tracker=github function" "$(dispatch "$WORK/planted" github)"
 
+# the interface: a provider that lacks a function is refused at once, and names it
+mkdir -p "$WORK/planted/lib/lacking"
+printf 'gh_org() { :; }\n' > "$WORK/planted/lib/lacking/tracker.sh"
+lacks="$(dispatch "$WORK/planted" lacking)"
+check "a provider without the functions is refused" "yes" "$(case "$lacks" in "error: the tracker 'lacking' lacks these functions: default_repo "*issue_rows*) echo yes ;; *) echo no ;; esac)"
+check "a provider with them all is not" "tracker=github function" "$(dispatch "$ROOT" github)"
+
 [ "$failed" -eq 0 ] || { echo "$failed failed"; exit 1; }

@@ -32,40 +32,29 @@ done
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 issues=""
 for repo in "${repos[@]}"; do
-  page="$(gh_read "the open issues of $repo" api graphql --paginate -F owner="${repo%%/*}" -F name="${repo#*/}" -f query='
-    query($owner:String!, $name:String!, $endCursor:String) { repository(owner:$owner, name:$name) {
-      defaultBranchRef { name } issues(states:OPEN, first:50, after:$endCursor) { pageInfo { hasNextPage endCursor } nodes {
-        number title body
-        labels(first:50) { totalCount nodes { name } }
-        parent { number repository { nameWithOwner } }
-        blockedBy(first:50) { totalCount nodes { number repository { nameWithOwner } } }
-        blocking(first:50) { totalCount nodes { number repository { nameWithOwner } } }
-        projectItems(first:5) { nodes { fieldValueByName(name:"Status") {
-          ... on ProjectV2ItemFieldSingleSelectValue { name } } } } } } } }')"
-  # A repository without a commit has no default branch and holds no file yet
-  if [ -n "$(jq -rn 'first(inputs | .data.repository.defaultBranchRef.name // empty)' <<< "$page")" ]; then
+  rows="$(issue_rows "$repo")" || exit 1
+  # A repository without a commit has no default branch and holds no file yet. The default branch
+  # and the file list are the repository's, not the tracker's: they stay GitHub's own reads here.
+  branch="$(gh_read "the default branch of $repo" api graphql -F owner="${repo%%/*}" -F name="${repo#*/}" -f query='
+    query($owner:String!, $name:String!) { repository(owner:$owner, name:$name) {
+      defaultBranchRef { name } } }')" || exit 1
+  if [ -n "$(jq -rn 'first(inputs | .data.repository.defaultBranchRef.name // empty)' <<< "$branch")" ]; then
     gh_read "the files of $repo" api "repos/$repo/git/trees/HEAD?recursive=1" > "$work/tree.json"
   else
     echo '{"tree": []}' > "$work/tree.json"
   fi
   # Every `path:line` of a body is a candidate; only a path its repository holds is a file, so a
   # version, a host with its port or a path on somebody's machine never reads as one
-  issues="$issues$(jq -c --arg repo "$repo" --slurpfile tree "$work/tree.json" '
+  issues="$issues$(jq -c --slurpfile tree "$work/tree.json" '
     ($tree[0] | [.tree[] | select(.type == "blob") | {key: .path, value: true}] | from_entries) as $files
     | ($tree[0].truncated // false) as $truncated
-    | .data.repository.issues.nodes[]
-    | def ref: "\(.repository.nameWithOwner)#\(.number)";
-      def tagged($group): [.labels.nodes[].name | select(startswith($group + ":")) | sub("^[^:]*:"; "")][0] // "-";
-      def cut($what; $list): if $list.totalCount > ($list.nodes | length)
-        then ["\($what) shows \($list.nodes | length) of \($list.totalCount)"] else [] end;
-      { repo: $repo, number, id: "\($repo)#\(.number)", title,
-        status: ([.projectItems.nodes[].fieldValueByName.name // empty][0] // "-"),
+    | def tagged($group): [.labels[] | select(startswith($group + ":")) | sub("^[^:]*:"; "")][0] // "-";
+      { repo, number, id: "\(.repo)#\(.number)", title,
+        status: (.status // "-"),
         type: tagged("type"), area: tagged("area"),
-        parent: (if .parent then (.parent | ref) else null end),
-        blockedBy: [.blockedBy.nodes[] | ref], blocking: [.blocking.nodes[] | ref],
+        parent, blockedBy, blocking,
         files: ([(.body // "") | scan("[A-Za-z0-9_./-]+(?=:[0-9])") | sub("^\\./"; "") | select($files[.])] | unique),
-        cut: (cut("labels"; .labels) + cut("blocked by"; .blockedBy) + cut("blocks"; .blocking)),
-        truncated: $truncated }' <<< "$page")
+        cut, truncated: $truncated }' <<< "$rows")
 "
 done
 

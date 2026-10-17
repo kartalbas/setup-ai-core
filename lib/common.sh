@@ -34,7 +34,7 @@ config_value() {  # config_value <key> <default>
   local key="$1" line
   if [ -n "${!key:-}" ]; then echo "${!key}"; return 0; fi
   if [ -f "$(data_dir)/config.env" ]; then
-    line="$(grep -E "^[[:space:]]*$key[[:space:]]*=" "$(data_dir)/config.env" | tail -n1 || true)"
+    line="$(grep -E "^[[:space:]]*${key}[[:space:]]*=" "$(data_dir)/config.env" | tail -n1 || true)"
     if [ -n "$line" ]; then
       line="${line#*=}"; line="${line%$'\r'}"
       line="${line#"${line%%[![:space:]]*}"}"

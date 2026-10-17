@@ -38,12 +38,5 @@ case "$number" in ''|*[!0-9]*) die "the issue number must be numeric, not '$numb
 [ -n "$body" ] || [ -n "$body_file" ] || die "name a body or a --body-file - a comment with no text is a mistake"
 [ -z "$body" ] || [ -z "$body_file" ] || die "name a body or a --body-file, not both - which one is the comment is not for a script to guess"
 
-# Over REST, not `gh issue comment`: that call is GraphQL, and a refusal of GraphQL by a rate limit
-# must not lose the comment. -F reads the file named after @ as it is; -f sends the inline text as it is.
-if [ -n "$body_file" ]; then
-  [ -f "$body_file" ] || die "the body file does not exist: $body_file"
-  field=(-F "body=@$body_file")
-else
-  field=(-f "body=$body")
-fi
-gh_read "the comment posted on $repo#$number" api "repos/$repo/issues/$number/comments" "${field[@]}" --jq .html_url
+[ -z "$body_file" ] || [ -f "$body_file" ] || die "the body file does not exist: $body_file"
+issue_comment_post "$repo" "$number" "$body" "$body_file"

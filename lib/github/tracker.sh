@@ -899,8 +899,10 @@ view_filter_set() {
 
 # mutation_schema: GitHub's GraphQL interface, the Mutation type with its fields and their payloads,
 # for schema-check. Exit 2 where gh is missing, the exit status of the read otherwise; gh writes its
-# error body to STDOUT where the answer would be, so a caller judges by the status.
+# error body to STDOUT where the answer would be, so a caller judges by the status. stderr is not
+# captured: the rate-limit wait of gh writes "waiting Ns ..." there, and it would stand in front of
+# the JSON.
 mutation_schema() {
   command -v gh >/dev/null 2>&1 || { echo "error: gh is not on PATH, and the schema is read through it" >&2; return 2; }
-  gh api graphql -f query='{ __type(name:"Mutation") { fields { name type { name fields { name } } } } }' 2>&1
+  gh api graphql -f query='{ __type(name:"Mutation") { fields { name type { name fields { name } } } } }'
 }

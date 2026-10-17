@@ -12,7 +12,9 @@
 # With --from-origin the branch lands as origin holds it, from a directory that is not the issue's
 # worktree: the worktree another session holds, with its uncommitted change and its commits that
 # origin lacks, stays as it was, the temporary worktree of the merge is gone afterwards, and a
-# missing branch, a conflict and a refused push leave origin as it was.
+# missing branch, a conflict and a refused push leave origin as it was. Where the merged tree
+# carries scripts/install.sh, it runs in the temporary worktree before the push, so a gate that
+# needs installed dependencies passes; a failing install refuses the landing before the gate runs.
 #
 #   bash tests/integrate-issue.test.sh
 
@@ -275,6 +277,7 @@ before="$(tip)"
 out="$(integrate "$work" 100 --reviewed-by l4 --from-origin)"; rc=$?
 check 'exit 0'                         0 "$rc"
 check 'it says which commit it merges' yes "$(grep -qxF "merging: origin/issue-100-held at $(git -C "$heldwt" rev-parse --short HEAD)" <<< "$out" && echo yes || echo no)"
+check 'no install step runs where the tree has none' no "$(grep -q '^installing: ' <<< "$out" && echo yes || echo no)"
 check 'one merge commit landed'        1 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
 check 'the first parent is the old tip' "$before" "$(git --git-dir="$origin" rev-parse master^1)"
 check 'the second parent is the pushed branch, with the sha the reviewer read' "$(git -C "$heldwt" rev-parse HEAD)" "$(git --git-dir="$origin" rev-parse master^2)"
@@ -358,6 +361,83 @@ check 'the held worktree is as it was' "$held_before" "$(held_state "$heldwt3")"
 check 'the temporary worktree is gone' "$trees_before" "$(trees_listed)"
 check 'and no folder of it is left'    0 "$(leftovers)"
 check 'and the lock is released'       no "$([ -e "$lock" ] && echo yes || echo no)"
+
+# The gate of a repository whose check needs installed dependencies, planted over the hook above: it
+# refuses a tree that differs from the commit, as bin/pre-push.sh does, refuses without the installed
+# marker, as the check of such a repository does, and records where it ran. The fixtures of each case
+# reach origin with no hook, so core.hooksPath is unset around them and set right before integrate.
+printf '#!/bin/sh\npwd > "%s"\n[ -z "$(git status --porcelain)" ] || { echo "pre-push: REFUSED - the working tree differs from the commit: $(git status --porcelain)"; exit 1; }\n[ -f node_modules/installed ] || { echo "check: FAIL - node_modules is missing"; echo "pre-push: REFUSED - planted"; exit 1; }\n' "$fake/checked.txt" > "$fake/hooks/pre-push"
+# commit_install_script <body>: scripts/install.sh with that body on master, pushed with no hook
+commit_install_script() {
+  git -C "$work" config --unset core.hooksPath
+  git -C "$work" pull -q origin master
+  mkdir -p "$work/scripts"
+  printf '#!/usr/bin/env bash\n%s\n' "$1" > "$work/scripts/install.sh"
+  printf 'node_modules/\n' > "$work/.gitignore"
+  git -C "$work" add -A && git -C "$work" commit -q -m 'Add the install step'
+  git -C "$work" push -q origin master 2>/dev/null
+}
+
+echo '--from-origin runs scripts/install.sh of the merged tree before the push, so the gate finds what it installed'
+commit_install_script 'mkdir -p node_modules && echo installed > node_modules/installed && echo "install: planted"'
+heldwt4="$(held_tree 103 installed)"
+held_before="$(held_state "$heldwt4")"
+trees_before="$(trees_listed)"
+before="$(tip)"
+rm -f "$fake/checked.txt"
+git -C "$work" config core.hooksPath "$fake/hooks"
+out="$(integrate "$work" 103 --reviewed-by l4 --from-origin)"; rc=$?
+check 'exit 0'                         0 "$rc"
+check 'it says the install runs'       yes "$(grep -q '^installing: scripts/install.sh' <<< "$out" && echo yes || echo no)"
+check 'the output of the install is visible' yes "$(grep -qxF 'install: planted' <<< "$out" && echo yes || echo no)"
+check 'the gate ran in the temporary worktree' yes "$([[ "$(cat "$fake/checked.txt" 2>/dev/null)" == */ai-core-integrate-103.* ]] && echo yes || echo no)"
+check 'one merge commit landed'        1 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+check 'the held worktree is as it was' "$held_before" "$(held_state "$heldwt4")"
+check 'the temporary worktree is gone, registered nowhere' "$trees_before" "$(trees_listed)"
+check 'and nothing it installed is left' 0 "$(leftovers)"
+check 'the lock is released'           no "$([ -e "$lock" ] && echo yes || echo no)"
+
+echo '--from-origin of a tree without scripts/install.sh runs no install, and the gate refuses what it needs'
+git -C "$work" config --unset core.hooksPath
+git -C "$work" pull -q origin master
+git -C "$work" rm -q scripts/install.sh
+git -C "$work" commit -q -m 'Drop the install step'
+git -C "$work" push -q origin master 2>/dev/null
+heldwt5="$(held_tree 104 missing)"
+held_before="$(held_state "$heldwt5")"
+trees_before="$(trees_listed)"
+after="$(tip)"
+rm -f "$fake/checked.txt"
+git -C "$work" config core.hooksPath "$fake/hooks"
+out="$(integrate "$work" 104 --reviewed-by l4 --from-origin)"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'no install step ran'            no "$(grep -q '^installing: ' <<< "$out" && echo yes || echo no)"
+check 'the gate says what is missing'  yes "$(grep -qF 'check: FAIL - node_modules is missing' <<< "$out" && echo yes || echo no)"
+check 'it says nothing reached origin' yes "$(grep -qF 'nothing reached origin' <<< "$out" && echo yes || echo no)"
+check 'origin did not move'            "$after" "$(tip)"
+check 'the held worktree is as it was' "$held_before" "$(held_state "$heldwt5")"
+check 'the temporary worktree is gone' "$trees_before" "$(trees_listed)"
+check 'and no folder of it is left'    0 "$(leftovers)"
+check 'the lock is released'           no "$([ -e "$lock" ] && echo yes || echo no)"
+
+echo '--from-origin with a failing scripts/install.sh pushes nothing, never starts the gate and names the script'
+commit_install_script 'echo "install: FAIL - planted"; exit 1'
+heldwt6="$(held_tree 105 broken)"
+held_before="$(held_state "$heldwt6")"
+trees_before="$(trees_listed)"
+after="$(tip)"
+rm -f "$fake/checked.txt"
+git -C "$work" config core.hooksPath "$fake/hooks"
+out="$(integrate "$work" 105 --reviewed-by l4 --from-origin)"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'it names the script that failed' yes "$(grep -qF 'scripts/install.sh failed' <<< "$out" && echo yes || echo no)"
+check 'the output of the install is visible' yes "$(grep -qxF 'install: FAIL - planted' <<< "$out" && echo yes || echo no)"
+check 'the gate never ran'             no "$([ -e "$fake/checked.txt" ] && echo yes || echo no)"
+check 'origin did not move'            "$after" "$(tip)"
+check 'the held worktree is as it was' "$held_before" "$(held_state "$heldwt6")"
+check 'the temporary worktree is gone' "$trees_before" "$(trees_listed)"
+check 'and no folder of it is left'    0 "$(leftovers)"
+check 'the lock is released'           no "$([ -e "$lock" ] && echo yes || echo no)"
 
 echo
 [ "$failed" -eq 0 ] && echo 'all passed' || echo "$failed failed"

@@ -18,7 +18,9 @@
 # way out, so the issue's worktree, its branch and its changes stay as they were. It is a flag, not
 # a detection: without it a run outside the issue's worktree stays refused, so a wrong directory
 # never lands a branch by accident. It merges origin/<branch> and says at which commit: what the
-# branch holds only locally does not land.
+# branch holds only locally does not land. Where the merged tree carries scripts/install.sh, it runs
+# there before the push, so the gate's check finds what it needs installed; a failing install
+# refuses the landing, and nothing is pushed.
 #
 # A MERGE COMMIT, NOT A REBASE: the reviewed commits land as they were read, with the shas the
 # reviewer saw, and the one new commit carries the issue and the reviewer.
@@ -150,6 +152,11 @@ if [ -n "$from_origin" ]; then
   git -C "$tree" merge -q --no-ff --no-edit "$tip" -m "$subject" -m "$trailers" \
     || die "origin/$branch does not merge cleanly into origin/$default - bring origin/$default into the branch, get the review of the result, then run this again; nothing was pushed"
   merged="$(git -C "$tree" rev-parse --short HEAD)"
+  if [ -f "$tree/scripts/install.sh" ]; then
+    echo "installing: scripts/install.sh of the merged tree runs in $tree, so the gate's check finds what it needs"
+    (cd "$tree" && bash scripts/install.sh) \
+      || die "scripts/install.sh failed in the temporary worktree (see above) - nothing was pushed, origin is as it was, and the worktree of $branch is as it was"
+  fi
   git -C "$tree" push origin "HEAD:$default" \
     || die "the push was refused (see above) - nothing reached origin, and the worktree of $branch is as it was"
 else

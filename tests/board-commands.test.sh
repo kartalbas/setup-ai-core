@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # What board-list, board-order, epics-top, board-unarchive, project-new, repo-link and view-filter
-# print, and the calls they send, word for word. They go through lib/tracker.sh, so a second tracker
+# print, and the calls they send, whole and word for word. They go through lib/tracker.sh, so a second tracker
 # can answer them; on GitHub the calls are the ones the commands always made. Also schema-check,
 # which holds mutations against GitHub's schema and says so, exiting 0, where TRACKER is another.
 #
@@ -20,7 +20,7 @@ printf 'Status\tF1\ttodo\tO1\nStatus\tF1\tdone\tO4\n' > "$GH_CACHE_DIRECTORY/7/f
 LOG="$WORK/calls"; export LOG
 cat > "$WORK/bin/gh" <<'GH'
 #!/usr/bin/env bash
-printf '%s' "$*" | tr -s ' \n' ' ' | cut -c1-80 >> "$LOG"; printf '\n' >> "$LOG"
+printf '%s' "$*" | tr -s ' \n' ' ' >> "$LOG"; printf '\n' >> "$LOG"
 case "$*" in
   *"fieldValues(first:20) { nodes { ... on ProjectV2ItemFieldSingleSelectValue {"*"state repository"*)
     printf 'todo\tP1\tshop\t4\tFour\t\ndone\tP2\tother-org/lib\t5\tFive\tclosed\n'; exit 0 ;;
@@ -64,30 +64,33 @@ check() {  # check <name> <expected> <actual>
   if [ "$2" = "$3" ]; then echo "  ok   $1"
   else echo "  FAIL $1"; echo "       expected:"; sed 's/^/         /' <<< "$2"; echo "       actual:"; sed 's/^/         /' <<< "$3"; failed=$((failed + 1)); fi
 }
-expected="board-list: done            P2  other-org/lib          #5    Five  [closed]|todo            P1  shop                   #4    Four|
+expected="$(cat <<'EXPECTED'
+board-list: done            P2  other-org/lib          #5    Five  [closed]|todo            P1  shop                   #4    Four|
 project-new: created: A board  ->  https://example.test/boards/12|12|
 repo-link: linked: example-org/shop|
 view-filter: Board: repo:example-org/shop|
 board-unarchive: #4 -> back on the board|
 board-order: ordered 1 card(s) on board 7, 0 not on it|
 epics-top: lifted      example-org/shop#3  EPIC · big|epics: 1 at the top of board 7|
-api graphql --paginate -f pid=PVT_board7 -f query= query(\$pid:ID!, \$endCursor:St
-api graphql -f o=example-org -f query= query(\$o:String!){ organization(login:\$o)
-api graphql -f o=example-org -F n=5 -f query= query(\$o:String!,\$n:Int!){ organiz
-api graphql -f pid=PVT_src -f oid=O_1 -f t=A board -f query= mutation(\$pid:ID!,\$
+api graphql --paginate -f pid=PVT_board7 -f query= query($pid:ID!, $endCursor:String) { node(id:$pid) { ... on ProjectV2 { items(first:100, after:$endCursor) { pageInfo { hasNextPage endCursor } nodes { fieldValues(first:20) { nodes { ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2SingleSelectField { name } } } } } content { ... on Issue { number title state repository { name nameWithOwner } } } } } } } } --jq .data.node.items.nodes[] | select(.content.number != null) | { n: .content.number, t: .content.title, closed: (.content.state == "CLOSED"), r: (.content.repository | if (.nameWithOwner | ascii_downcase) == ("example-org/" + (.name | ascii_downcase)) then .name else .nameWithOwner end), s: ([.fieldValues.nodes[] | select(.field.name == "Status") | .name] | first // "-"), p: ([.fieldValues.nodes[] | select(.field.name == "Priority") | .name] | first // "-") } | "\(.s)\t\(.p)\t\(.r)\t\(.n)\t\(.t)\t\(if .closed then "closed" else "" end)"
+api graphql -f o=example-org -f query= query($o:String!){ organization(login:$o){ id } } --jq .data.organization.id
+api graphql -f o=example-org -F n=5 -f query= query($o:String!,$n:Int!){ organization(login:$o){ projectV2(number:$n){ id } } } --jq .data.organization.projectV2.id
+api graphql -f pid=PVT_src -f oid=O_1 -f t=A board -f query= mutation($pid:ID!,$oid:ID!,$t:String!){ copyProjectV2(input:{projectId:$pid, ownerId:$oid, title:$t, includeDraftIssues:false}){ projectV2 { number url } } } --jq .data.copyProjectV2.projectV2 | "\(.number)\t\(.url)"
 api repos/example-org/shop --jq .node_id
-api graphql -f pid=PVT_board7 -f rid=R_shop -f query= mutation(\$pid:ID!, \$rid:ID
+api graphql -f pid=PVT_board7 -f rid=R_shop -f query= mutation($pid:ID!, $rid:ID!) { linkProjectV2ToRepository(input:{projectId:$pid, repositoryId:$rid}) { repository { nameWithOwner } } } --jq .data.linkProjectV2ToRepository.repository.nameWithOwner
 label list --repo example-org/shop --limit 200 --json name --jq .[].name
-api graphql -f pid=PVT_board7 -f query= query(\$pid:ID!){ node(id:\$pid){ ... on P
-api graphql -f vid=V_1 -f f=repo:example-org/shop -f query= mutation(\$vid:ID!,\$f
-api graphql -f o=example-org -f n=shop -F num=4 -f query= query(\$o:String!, \$n:S
-api graphql -f pid=PVT_board7 -f iid=PVTI_arch -f query= mutation(\$pid:ID!, \$iid
-api graphql -f pid=PVT_board7 -f query= query(\$pid:ID!) { node(id:\$pid) { ... on
-api graphql -f pid=PVT_board7 -f iid=PVTI_a -f query= mutation(\$pid:ID!, \$iid:ID
-api graphql -f pid=PVT_board7 -f query= query(\$pid:ID!) { node(id:\$pid) { ... on
+api graphql -f pid=PVT_board7 -f query= query($pid:ID!){ node(id:$pid){ ... on ProjectV2 { views(first:20){ nodes { id name filter } } } } } --jq .data.node.views.nodes[] | "\(.name)\t\(.id)"
+api graphql -f vid=V_1 -f f=repo:example-org/shop -f query= mutation($vid:ID!,$f:String!){ updateProjectV2View(input:{viewId:$vid, filter:$f}){ projectV2View { name filter } } } --jq .data.updateProjectV2View.projectV2View | "\(.name): \(if .filter == "" then "shows everything" else .filter end)"
+api graphql -f o=example-org -f n=shop -F num=4 -f query= query($o:String!, $n:String!, $num:Int!) { repository(owner:$o, name:$n) { issue(number:$num) { projectItems(first:20, includeArchived:true) { nodes { id isArchived project { id } } } } } } --jq .data.repository.issue.projectItems.nodes[] | select(.isArchived) | "\(.project.id)\t\(.id)"
+api graphql -f pid=PVT_board7 -f iid=PVTI_arch -f query= mutation($pid:ID!, $iid:ID!) { unarchiveProjectV2Item(input:{projectId:$pid, itemId:$iid}) { item { id } } } --jq .data.unarchiveProjectV2Item.item.id
+api graphql -f pid=PVT_board7 -f query= query($pid:ID!) { node(id:$pid) { ... on ProjectV2 { items(first:100) { pageInfo { hasNextPage endCursor } nodes { id content { ... on Issue { number repository { nameWithOwner } } } } } } } }
+api graphql -f pid=PVT_board7 -f iid=PVTI_a -f query= mutation($pid:ID!, $iid:ID!, $after:ID) { updateProjectV2ItemPosition(input:{ projectId:$pid, itemId:$iid, afterId:$after}) { items { totalCount } } }
+api graphql -f pid=PVT_board7 -f query= query($pid:ID!) { node(id:$pid) { ... on ProjectV2 { items(first:100) { pageInfo { hasNextPage endCursor } nodes { id content { ... on Issue { number repository { nameWithOwner } } } } } } } }
 issue view 3 --repo example-org/shop --json title --jq .title
 issue view 4 --repo example-org/shop --json title --jq .title
-api graphql -f pid=PVT_board7 -f iid=PVTI_a -f query= mutation(\$pid:ID!, \$iid:ID"
+api graphql -f pid=PVT_board7 -f iid=PVTI_a -f query= mutation($pid:ID!, $iid:ID!, $after:ID) { updateProjectV2ItemPosition(input:{ projectId:$pid, itemId:$iid, afterId:$after}) { items { totalCount } } }
+EXPECTED
+)"
 actual="$(run_all "$ROOT")"
 check "the seven commands say and send what they always did" "$expected" "$actual"
 
@@ -96,10 +99,19 @@ out="$(cd "$WORK/project" && TRACKER=plane bash "$ROOT/bin/schema-check.sh" 2>&1
 check "schema-check on another tracker exits 0" "0" "$rc"
 check "and prints one line that says so" "schema-check: TRACKER is plane, and the schema it checks against is GitHub's - nothing to check" "$out"
 
+# a part of a call past its 80th character is read: the field item_top adds to its mutation
+check "board-order and epics-top send afterId, which stands past the 80th character of the call" "2" "$(grep -c 'afterId:\$after}' <<< "$actual")"
+
 # the planted defect: a provider that sends another field must make the same comparison go red
 mkdir -p "$WORK/planted"; cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$WORK/planted/"
 sed -i.bak 's/-f rid="\$rid"/-f repositoryId="$rid"/' "$WORK/planted/lib/github/tracker.sh"
 planted="$(run_all "$WORK/planted")"
 check "planted: a provider that sends another field is caught" "no" "$([ "$planted" = "$expected" ] && echo yes || echo no)"
 check "innocent: the copy still prints what the real one prints" "$(grep -c '^[a-z-]*: ' <<< "$expected")" "$(grep -c '^[a-z-]*: ' <<< "$planted")"
+# the planted defect past the 80th character: a provider whose --jq filter differs
+mkdir -p "$WORK/planted-jq"; cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$WORK/planted-jq/"
+sed -i.bak 's/\.data\.organization\.id/.data.organization.node/' "$WORK/planted-jq/lib/github/tracker.sh"
+planted_jq="$(run_all "$WORK/planted-jq")"
+check "planted: a provider that sends another --jq filter is caught" "no" "$([ "$planted_jq" = "$expected" ] && echo yes || echo no)"
+check "innocent: the copy with the other filter still prints a line for each command" "$(grep -c '^[a-z-]*: ' <<< "$expected")" "$(grep -c '^[a-z-]*: ' <<< "$planted_jq")"
 [ "$failed" -eq 0 ] || { echo "$failed failed"; exit 1; }

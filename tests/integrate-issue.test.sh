@@ -9,6 +9,10 @@
 # out again; a branch already integrated, a conflict and a push the hook refuses leave origin as it
 # was and the worktree on its branch. The landings of one clone take turns: a lock a live process
 # holds is waited for, one whose process is gone is taken over, and the lock spans the push.
+# With --from-origin the branch lands as origin holds it, from a directory that is not the issue's
+# worktree: the worktree another session holds, with its uncommitted change and its commits that
+# origin lacks, stays as it was, the temporary worktree of the merge is gone afterwards, and a
+# missing branch, a conflict and a refused push leave origin as it was.
 #
 #   bash tests/integrate-issue.test.sh
 
@@ -18,6 +22,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fake="$(mktemp -d)"
 export GH_CACHE_DIRECTORY="$fake/cache"
 trap 'rm -rf "$fake"' EXIT
+mkdir "$fake/tmp"; export TMPDIR="$fake/tmp"   # where the temporary worktree of --from-origin is made
 title="$fake/title.txt"
 
 cat > "$fake/gh" <<EOF
@@ -247,6 +252,86 @@ out="$(integrate "$wt10" 86 --reviewed-by l4)"; rc=$?
 check 'a lock that names no process: exit 0' 0 "$rc"
 check 'it is taken over after one poll' yes "$(grep -qxF "taken over: a landing lock that names no process: 'half written'" <<< "$out" && echo yes || echo no)"
 
+# held_tree <number> <slug>: the worktree of an issue whose branch is pushed and whose session left
+# a change in the tree that no commit holds, as a stopped session does
+held_tree() {
+  local wt
+  wt="$(new_tree "$1" "$2")"
+  git -C "$wt" push -q origin "issue-$1-$2" 2>/dev/null
+  echo 'work in progress' >> "$wt/$2.txt"
+  echo 'a new file' > "$wt/untracked.txt"
+  printf '%s' "$wt"
+}
+# held_state <dir>: everything the integration must leave as it found it
+held_state() { printf '%s\n%s\n%s\n' "$(git -C "$1" rev-parse HEAD)" "$(git -C "$1" symbolic-ref --short HEAD)" "$(git -C "$1" status --porcelain; cat "$1"/*.txt)"; }
+trees_listed() { git -C "$work" worktree list | wc -l | tr -d ' '; }
+leftovers() { ls -A "$fake/tmp" | wc -l | tr -d ' '; }
+
+echo '--from-origin lands a pushed branch whose worktree holds an uncommitted change, and leaves that worktree alone'
+heldwt="$(held_tree 100 held)"
+held_before="$(held_state "$heldwt")"
+trees_before="$(trees_listed)"
+before="$(tip)"
+out="$(integrate "$work" 100 --reviewed-by l4 --from-origin)"; rc=$?
+check 'exit 0'                         0 "$rc"
+check 'it says which commit it merges' yes "$(grep -qxF "merging: origin/issue-100-held at $(git -C "$heldwt" rev-parse --short HEAD)" <<< "$out" && echo yes || echo no)"
+check 'one merge commit landed'        1 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+check 'the first parent is the old tip' "$before" "$(git --git-dir="$origin" rev-parse master^1)"
+check 'the second parent is the pushed branch, with the sha the reviewer read' "$(git -C "$heldwt" rev-parse HEAD)" "$(git --git-dir="$origin" rev-parse master^2)"
+check 'the subject is the title and the issue' 'Read the board whole (#100)' "$(git --git-dir="$origin" log -1 --format=%s master)"
+check 'it carries the trailer'         'l4' "$(git --git-dir="$origin" log -1 --format='%(trailers:key=Reviewed-by,valueonly)' master | tr -d '\n')"
+check 'it names the next step'         'next: ai-core finish-issue 100' "$(grep '^next: ' <<< "$out")"
+check 'the held worktree, its branch, HEAD and changes are as they were' "$held_before" "$(held_state "$heldwt")"
+check 'the temporary worktree is gone, registered nowhere' "$trees_before" "$(trees_listed)"
+check 'and no folder of it is left'    0 "$(leftovers)"
+check 'the lock is released'           no "$([ -e "$lock" ] && echo yes || echo no)"
+check 'the checkout it ran in is on its own branch' master "$(git -C "$work" symbolic-ref --short HEAD)"
+
+echo '--from-origin merges what origin holds: a commit only the held worktree has does not land'
+heldwt2="$(held_tree 101 local)"
+pushed="$(git -C "$heldwt2" rev-parse HEAD)"
+echo 'only here' > "$heldwt2/only-here.txt"; git -C "$heldwt2" add only-here.txt; git -C "$heldwt2" commit -q -m 'Not pushed #101'
+held_before="$(held_state "$heldwt2")"
+out="$(integrate "$work" 101 --reviewed-by l4 --from-origin)"; rc=$?
+check 'exit 0'                         0 "$rc"
+check 'it names the commit of origin'  yes "$(grep -qxF "merging: origin/issue-101-local at $(git -C "$heldwt2" rev-parse --short "$pushed")" <<< "$out" && echo yes || echo no)"
+check 'the second parent is the commit origin held' "$pushed" "$(git --git-dir="$origin" rev-parse master^2)"
+check 'the unpushed commit is not on origin' no "$(git --git-dir="$origin" cat-file -e "$(git -C "$heldwt2" rev-parse HEAD)" 2>/dev/null && echo yes || echo no)"
+check 'the held worktree is as it was' "$held_before" "$(held_state "$heldwt2")"
+
+heldwt3="$(held_tree 102 refused)"
+
+echo '--from-origin without a branch on origin, or of one already integrated, is refused before anything moves'
+after="$(tip)"
+out="$(integrate "$work" 99 --reviewed-by l4 --from-origin)"; rc=$?
+check 'no branch: exit 1'              1 "$rc"
+check 'it says origin has none'        yes "$(grep -qF 'origin has no branch issue-99-*' <<< "$out" && echo yes || echo no)"
+out="$(integrate "$work" 100 --reviewed-by l4 --from-origin)"; rc=$?
+check 'integrated already: exit 1'     1 "$rc"
+check 'it says nothing to integrate'   yes "$(grep -qF 'nothing to integrate' <<< "$out" && echo yes || echo no)"
+git -C "$work" push -q origin issue-77-board "issue-77-board:issue-77-board-again" 2>/dev/null
+out="$(integrate "$work" 77 --reviewed-by l4 --from-origin)"; rc=$?
+check 'two branches of one issue: exit 1' 1 "$rc"
+check 'it names that it does not guess' yes "$(grep -qF 'more than one branch for issue 77' <<< "$out" && echo yes || echo no)"
+git -C "$work" push -q origin --delete issue-77-board issue-77-board-again 2>/dev/null
+check 'origin did not move'            "$after" "$(tip)"
+check 'no folder of a temporary worktree is left' 0 "$(leftovers)"
+
+echo '--from-origin on a conflict leaves origin as it was, the held worktree untouched and no temporary worktree'
+git -C "$wt3" push -q origin issue-79-clash 2>/dev/null
+echo 'in progress' > "$wt3/loose.txt"
+held_before="$(held_state "$wt3")"
+trees_before="$(trees_listed)"
+out="$(integrate "$work" 79 --reviewed-by l4 --from-origin)"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'it names the conflict'          yes "$(grep -qF 'does not merge cleanly' <<< "$out" && echo yes || echo no)"
+check 'origin did not move'            "$after" "$(tip)"
+check 'the held worktree is as it was' "$held_before" "$(held_state "$wt3")"
+check 'the temporary worktree is gone' "$trees_before" "$(trees_listed)"
+check 'and no folder of it is left'    0 "$(leftovers)"
+check 'the lock is released'           no "$([ -e "$lock" ] && echo yes || echo no)"
+rm "$wt3/loose.txt"
+
 echo 'a push the hook refuses reaches nothing, and the branch is checked out again'
 wt4="$(new_tree 80 refused)"
 mkdir -p "$fake/hooks"; printf '#!/bin/sh\ncut -f2 "%s" > "%s"\necho "pre-push: REFUSED - planted"\nexit 1\n' "$lock" "$fake/held.txt" > "$fake/hooks/pre-push"; chmod +x "$fake/hooks/pre-push"
@@ -259,6 +344,20 @@ check 'origin did not move'            "$after" "$(tip)"
 check 'the worktree is on its branch'  'issue-80-refused' "$(git -C "$wt4" symbolic-ref --short HEAD)"
 check 'the lock was held during the push' '#80' "$(cat "$fake/held.txt" 2>/dev/null)"
 check 'and is released after the refusal' no "$([ -e "$lock" ] && echo yes || echo no)"
+
+echo '--from-origin: a push the hook refuses reaches nothing, and the held worktree is as it was'
+held_before="$(held_state "$heldwt3")"
+trees_before="$(trees_listed)"
+after="$(tip)"
+out="$(integrate "$work" 102 --reviewed-by l4 --from-origin)"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'it says nothing reached origin' yes "$(grep -qF 'nothing reached origin' <<< "$out" && echo yes || echo no)"
+check 'origin did not move'            "$after" "$(tip)"
+check 'the lock was held during the push' '#102' "$(cat "$fake/held.txt" 2>/dev/null)"
+check 'the held worktree is as it was' "$held_before" "$(held_state "$heldwt3")"
+check 'the temporary worktree is gone' "$trees_before" "$(trees_listed)"
+check 'and no folder of it is left'    0 "$(leftovers)"
+check 'and the lock is released'       no "$([ -e "$lock" ] && echo yes || echo no)"
 
 echo
 [ "$failed" -eq 0 ] && echo 'all passed' || echo "$failed failed"

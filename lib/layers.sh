@@ -258,6 +258,7 @@ ensure_layer() {
     echo "$dir"; return 0
   fi
   [ "$mode" = create ] || { echo "error: $full does not exist on GitHub" >&2; return 1; }
+  git var GIT_COMMITTER_IDENT >/dev/null || { echo "error: $full is not created: git holds no identity to commit it under (see above)" >&2; return 1; }
   mkdir -p "$dir"
   git -C "$dir" init -q
   fill_layer "$dir" "$root"

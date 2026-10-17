@@ -45,8 +45,8 @@ for arg in "$@"; do
     echo "a new directory's name is invented where the families"
     echo "of the trees give it (a 'Naming: <why>' trailer keeps one); the working tree differs from the commit where"
     echo "scripts/check.sh would run, or scripts/check.sh is red; or gitleaks"
-    echo "finds a credential in the pushed commits (where .gitleaks.toml exists). Merges are judged only by their"
-    echo "author and committer address; a deletion runs"
+    echo "finds a credential in the pushed commits (where .gitleaks.toml exists). The message of a merge is not"
+    echo "judged; its addresses are. A deletion runs"
     echo "no checks. Run from a terminal it judges the current branch against its upstream."
     echo ""
     echo "Options:"
@@ -607,8 +607,9 @@ done <<< "$commits"
 
 # Every commit this push sends, a merge among them, carries as author and committer the address
 # that git config user.email holds in this repository, compared without regard to case. Only the
-# ranges of this push are read, so a commit the remote has, another person's or a platform's,
-# never refuses a push.
+# ranges of this push are read, so a commit on a ref of origin this clone knows, another person's
+# or a platform's, never refuses a push; one origin has and this clone has not fetched is read as
+# new, which the refusal says.
 pushed="$(while IFS= read -r scan_range; do
   [ -n "$scan_range" ] || continue
   read -ra range_words <<< "$scan_range"
@@ -618,10 +619,10 @@ if [ -n "$pushed" ]; then
   pusher_email="$(git config user.email || true)"
   [ -n "$pusher_email" ] \
     || refuse "git holds no user.email, so the commits being pushed cannot be matched to the person pushing them. Set your own address: git config --global user.email <your address> (git config user.email inside this repository sets it for this repository alone)."
-  foreign="$(git log --no-walk=unsorted --stdin --format='%h%x09%ae%x09%ce' <<< "$pushed" \
+  foreign="$(git log --no-show-signature --no-walk=unsorted --stdin --format='%h%x09%ae%x09%ce' <<< "$pushed" \
     | awk -F'\t' -v want="$pusher_email" 'BEGIN { want = tolower(want) } tolower($2) != want || tolower($3) != want { printf "\n  %s author <%s>, committer <%s>", $1, $2, $3 }')"
   [ -z "$foreign" ] || refuse "these commits carry another address than yours, $pusher_email, the one git config user.email holds:$foreign
-  Every pushed commit names the person who pushes it, because the history names who answers for a change. Rewrite them under your own identity: git commit --amend --reset-author --no-edit for the last commit, or git rebase --exec 'git commit --amend --reset-author --no-edit' origin/$default for all of them."
+  A commit of somebody else that origin carries and this clone has not fetched yet is listed too: git fetch origin, then push again. Every pushed commit names the person who pushes it, because the history names who answers for a change, so rewrite your own commits under your identity, never another person's: git commit --amend --reset-author --no-edit for the last commit, or git rebase --exec 'git commit --amend --reset-author --no-edit' origin/$default for all of them."
 fi
 
 # AN ISSUE NUMBER IS NEVER WRITTEN INTO A COMMENT (the comment rules): it sends the reader to a

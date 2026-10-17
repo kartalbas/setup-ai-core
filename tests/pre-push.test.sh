@@ -205,6 +205,7 @@ check 'it says why'                    yes "$(yesno 'name an assistant as author
 git -C "$repo" commit -q --amend --no-edit --author='claude[bot] <209825114+claude[bot]@users.noreply.github.com>'
 out="$(only_new "$repo")"; rc=$?
 check "an assistant's GitHub bot: exit 1" 1 "$rc"
+check 'it says why'                    yes "$(yesno 'name an assistant as author or committer')"
 # as_identity <name> <address>: the repository's identity, and the newest commit rewritten under it
 # as author and committer, so only the assistant rule is in question
 as_identity() {
@@ -235,6 +236,15 @@ GIT_AUTHOR_EMAIL=TEST@Example.Invalid GIT_COMMITTER_EMAIL=Test@EXAMPLE.invalid g
 out="$(only_new "$repo")"; rc=$?
 check 'exit 0'                         0 "$rc"
 git -C "$repo" commit -q --amend --no-edit --reset-author
+echo 'a signed commit passes while log.showSignature is set: the signature lines git prints are no commits'
+check 'ssh-keygen is there to sign the probe commit' yes "$(command -v ssh-keygen >/dev/null 2>&1 && echo yes || echo no)"
+ssh-keygen -q -t ed25519 -N '' -C probe -f "$fake/signing-key" >/dev/null
+git -C "$repo" -c gpg.format=ssh -c user.signingkey="$fake/signing-key.pub" commit -q --amend --no-edit -S
+git -C "$repo" config log.showSignature true
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                         0 "$rc"
+git -C "$repo" config --unset log.showSignature
+git -C "$repo" commit -q --amend --no-edit
 echo 'a merge is read like any pushed commit: the pusher'"'"'s passes, another committer'"'"'s is refused'
 base="$(git -C "$repo" rev-parse HEAD)"
 git -C "$repo" checkout -q -b side; commit 'src/side.txt' 'Work on a side branch #7'

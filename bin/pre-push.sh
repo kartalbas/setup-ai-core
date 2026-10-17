@@ -27,6 +27,10 @@
 #
 set -uo pipefail
 
+# A person's log.showSignature prints signature lines into every formatted git log this gate reads;
+# one entry after the caller's own in git's environment configuration turns it off for all of them.
+n=${GIT_CONFIG_COUNT:-0}; export "GIT_CONFIG_KEY_$n=log.showSignature" "GIT_CONFIG_VALUE_$n=false" "GIT_CONFIG_COUNT=$((n + 1))"
+
 for arg in "$@"; do
   if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
     echo "Usage: pre-push.sh [--install [--all <folder>] | --message <file>]"
@@ -619,7 +623,7 @@ if [ -n "$pushed" ]; then
   pusher_email="$(git config user.email || true)"
   [ -n "$pusher_email" ] \
     || refuse "git holds no user.email, so the commits being pushed cannot be matched to the person pushing them. Set your own address: git config --global user.email <your address> (git config user.email inside this repository sets it for this repository alone)."
-  foreign="$(git log --no-show-signature --no-walk=unsorted --stdin --format='%h%x09%ae%x09%ce' <<< "$pushed" \
+  foreign="$(git log --no-walk=unsorted --stdin --format='%h%x09%ae%x09%ce' <<< "$pushed" \
     | awk -F'\t' -v want="$pusher_email" 'BEGIN { want = tolower(want) } tolower($2) != want || tolower($3) != want { printf "\n  %s author <%s>, committer <%s>", $1, $2, $3 }')"
   [ -z "$foreign" ] || refuse "these commits carry another address than yours, $pusher_email, the one git config user.email holds:$foreign
   A commit of somebody else that origin carries and this clone has not fetched yet is listed too: git fetch origin, then push again. Every pushed commit names the person who pushes it, because the history names who answers for a change, so rewrite your own commits under your identity, never another person's: git commit --amend --reset-author --no-edit for the last commit, or git rebase --exec 'git commit --amend --reset-author --no-edit' origin/$default for all of them."

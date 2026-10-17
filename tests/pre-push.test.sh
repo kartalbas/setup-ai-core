@@ -245,6 +245,23 @@ out="$(only_new "$repo")"; rc=$?
 check 'exit 0'                         0 "$rc"
 git -C "$repo" config --unset log.showSignature
 git -C "$repo" commit -q --amend --no-edit
+echo 'a signed commit that names no issue is refused while log.showSignature is set: the signature lines are no No-issue trailer'
+commit 'src/thing.txt' 'Tune the reader once more'
+git -C "$repo" -c gpg.format=ssh -c user.signingkey="$fake/signing-key.pub" commit -q --amend --no-edit -S
+git -C "$repo" config log.showSignature true
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'it names the missing issue'     yes "$(yesno 'names no issue')"
+git -C "$repo" config --unset log.showSignature
+out="$(only_new "$repo")"; rc=$?
+check 'the same commit without the setting: exit 1' 1 "$rc"
+git -C "$repo" commit -q --amend --no-edit -m 'Tune the reader once more #7'
+echo "a caller's own GIT_CONFIG_COUNT entries reach the gate, and the gate's entry follows them"
+out="$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.email GIT_CONFIG_VALUE_0=ada@example.invalid only_new "$repo")"; rc=$?
+check "the address the caller's entry sets is the one read: exit 1" 1 "$rc"
+check 'it names that address'          yes "$(yesno 'than yours, ada@example.invalid')"
+out="$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.quotepath GIT_CONFIG_VALUE_0=false only_new "$repo")"; rc=$?
+check 'an entry the gate does not read is carried along: exit 0' 0 "$rc"
 echo 'a merge is read like any pushed commit: the pusher'"'"'s passes, another committer'"'"'s is refused'
 base="$(git -C "$repo" rev-parse HEAD)"
 git -C "$repo" checkout -q -b side; commit 'src/side.txt' 'Work on a side branch #7'

@@ -74,6 +74,11 @@ cat > "$fake/third.1.json" <<JSON
   { "number": 1, "title": "Third one", "body": "", $(labels 0), "parent": null,
     "blockedBy": { $(links 1 "$(ref $r 4)") }, "blocking": { $(links 0) }, "projectItems": { "nodes": [] } } ] } } } }
 JSON
+cat > "$fake/fourth.1.json" <<JSON
+{ "data": { "repository": { "defaultBranchRef": { "name": "master" }, "issues": { "pageInfo": { "hasNextPage": false, "endCursor": "f" }, "nodes": [
+  { "number": 1, "title": "Fourth one", "body": "", $(labels 0), "parent": null,
+    "blockedBy": { $(links 0) }, "blocking": { $(links 1 "$(ref $r 5)") }, "projectItems": { "nodes": [] } } ] } } } }
+JSON
 # A repository without a commit: GitHub has no default branch for it and no file list
 cat > "$fake/empty.1.json" <<JSON
 { "data": { "repository": { "defaultBranchRef": null, "issues": { "pageInfo": { "hasNextPage": false, "endCursor": "d" }, "nodes": [
@@ -86,6 +91,8 @@ case "$*" in
   *"repos/other-org/example-repo/git/trees/"*) cat "$FAKE/other-tree.json" ;;
   *"repos/third-org/example-repo/git/trees/"*) cat "$FAKE/tree.json" ;;
   *graphql*"owner=third-org"*"name=example-repo"*) cat "$FAKE/third.1.json" ;;
+  *"repos/fourth-org/example-repo/git/trees/"*) cat "$FAKE/tree.json" ;;
+  *graphql*"owner=fourth-org"*"name=example-repo"*) cat "$FAKE/fourth.1.json" ;;
   *graphql*"owner=example-org"*"name=empty-repo"*) cat "$FAKE/empty.1.json" ;;
   *graphql*"owner=example-org"*"name=example-repo"*)
     cat "$FAKE/example.1.json"
@@ -139,6 +146,8 @@ check 'the parent keeps its owner' 'other-org/example-repo#6 - - - | Other six |
 
 out="$(bash "$root/bin/issue-map.sh" third-org/example-repo 2>&1)"
 check 'and so does a blocker' 'third-org/example-repo#1 - - - | Third one | blocked by example-org/example-repo#4' "$out"
+out="$(bash "$root/bin/issue-map.sh" fourth-org/example-repo 2>&1)"
+check 'and an issue it blocks' 'fourth-org/example-repo#1 - - - | Fourth one | blocks example-org/example-repo#5' "$out"
 
 echo 'a repository without a commit'
 out="$(bash "$root/bin/issue-map.sh" example-org/empty-repo 2>&1)"; rc=$?

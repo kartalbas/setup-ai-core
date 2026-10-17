@@ -37,8 +37,8 @@
 # reviewer of a package never runs on the model that built it. A project harness replaces the
 # whole file with its own: the same name replaces.
 
-claude	plan	normal-hard	claude-opus-5-5	xhigh
-claude	plan	high-risk	claude-opus-5-5	xhigh
+claude	plan	normal-hard	claude-fable-5-1	xhigh
+claude	plan	high-risk	claude-fable-5-1	xhigh
 claude	plan-check	mechanical	claude-sonnet-5-5	high
 claude	plan-check	normal-hard	claude-opus-5-5	high
 claude	plan-check	high-risk	claude-opus-5-5	high

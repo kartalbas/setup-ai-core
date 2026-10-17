@@ -2,8 +2,8 @@
 
 You plan one area of the project in `{{project folder}}`. You write no code and start no session:
 your whole output is one package section per package, each posted as its own comment on the plan
-issue, and the plan check reads it without you. Context budget 150k: read the issues, the spans
-their `file:line` facts name, and nothing else. A package is an area: one capability as the user
+issue, and the plan check reads it without you. Context budget 150k: read the issue map, the issues,
+the spans their `file:line` facts name, and nothing else. A package is an area: one capability as the user
 meets it, across every repository it touches, with both sides of every contract, because a package
 cut by file splits a contract and its two sides then release apart.
 

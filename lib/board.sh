@@ -106,6 +106,70 @@ reject_options() {  # reject_options "$@"
   done
 }
 
+# EVERY gh CALL OF THIS REPOSITORY MEETS GITHUB'S RATE LIMITS HERE, ONCE.
+#
+# A burst of calls from several sessions of one account is refused with "API rate limit already
+# exceeded" while `gh api rate_limit` still shows thousands of points left: the REST view does not
+# show the budget that GraphQL spends. So this function shadows `gh` in every script that sources
+# this file, and a refused call is told apart by asking GraphQL itself for `rateLimit`:
+#   remaining 0   the primary limit: wait until `resetAt`;
+#   remaining > 0 the secondary limit, the one for bursts: wait the seconds GitHub names in
+#                 `retry-after` where the refusal carries them, else a minute, doubled per try.
+# The call is then repeated, GH_RATE_RETRIES times at most. A wait longer than GH_RATE_WAIT_MAX, or
+# the last refusal, ends in a message that names the limit and leaves gh's answer and exit status
+# to the caller, so gh_read and every bare call fail as they always did, with the limit named.
+#
+# A call that reads its request from standard input (`--input -`) is not repeated: the first try
+# consumed it. AI_CORE_SLEEP names the command that waits, `sleep` unless a test says otherwise.
+GH_RATE_RETRIES=3
+GH_RATE_WAIT_BASE=60
+GH_RATE_WAIT_MAX=900
+
+gh() {
+  local out err rc try=0 text
+  case " $* " in *" --input - "*) command gh "$@"; return ;; esac
+  err="$(mktemp)"
+  while :; do
+    rc=0; out="$(command gh "$@" 2>"$err")" || rc=$?
+    text="$out$(cat "$err")"
+    if [ "$rc" -ne 0 ] && grep -qiE 'API rate limit (already )?exceeded|secondary rate limit' <<< "$text"; then
+      if [ "$try" -lt "$GH_RATE_RETRIES" ]; then
+        try=$((try + 1))
+        gh_rate_wait "$text" "$try"
+        if [ "$gh_rate_seconds" -le "$GH_RATE_WAIT_MAX" ]; then
+          echo "waiting ${gh_rate_seconds}s for $gh_rate_limit (try $try of $GH_RATE_RETRIES)" >&2
+          "${AI_CORE_SLEEP:-sleep}" "$gh_rate_seconds"
+          continue
+        fi
+        echo "$gh_rate_limit refuses and does not lift within $GH_RATE_WAIT_MAX seconds" >&2
+      else
+        echo "$gh_rate_limit still refuses after $try waits" >&2
+      fi
+    fi
+    [ -z "$out" ] || printf '%s\n' "$out"
+    cat "$err" >&2; rm -f "$err"
+    return "$rc"
+  done
+}
+
+# Sets gh_rate_seconds and gh_rate_limit, a phrase that names the limit. Globals, because bash 3.2
+# has no way to return two values.
+gh_rate_wait() {  # gh_rate_wait <the refused call's output> <which try>
+  local probe remaining="" reset_epoch="" reset_at="" retry_after
+  probe="$(command gh api graphql -f query='{ rateLimit { remaining resetAt } }' 2>/dev/null \
+    | jq -r '.data.rateLimit | "\(.remaining) \(.resetAt | fromdateiso8601) \(.resetAt)"' 2>/dev/null)" || probe=""
+  read -r remaining reset_epoch reset_at <<< "$probe" || true
+  if [ "$remaining" = 0 ]; then
+    gh_rate_limit="GitHub's primary rate limit (spent until $reset_at)"
+    gh_rate_seconds=$(( reset_epoch - $(date +%s) + 1 ))
+    [ "$gh_rate_seconds" -ge 1 ] || gh_rate_seconds=1
+    return 0
+  fi
+  gh_rate_limit="GitHub's secondary rate limit"
+  retry_after="$(grep -oiE 'retry-after:? *[0-9]+' <<< "$1" | grep -oE '[0-9]+' | head -n1 || true)"
+  gh_rate_seconds="${retry_after:-$(( GH_RATE_WAIT_BASE * (1 << ($2 - 1)) ))}"
+}
+
 # EVERYTHING THIS REPOSITORY ASKS gh GOES THROUGH HERE.
 #
 # A refused query is not an empty result. When the server refuses, gh writes the whole error body
@@ -215,8 +279,10 @@ label_names_in_group() {  # label_names_in_group <group> [file]
 # a name or with nothing. What a person needs here is what to type instead, so that is what it
 # says, and gh's own line on stderr says whether standing outside a checkout was the reason.
 default_repo() {
-  gh repo view --json nameWithOwner --jq '.nameWithOwner' \
-    || die "not inside a GitHub repo - pass the repo as OWNER/REPO"
+  local name
+  name="$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>&1)" \
+    || die "cannot tell which GitHub repo this is - pass the repo as OWNER/REPO: $name"
+  echo "$name"
 }
 
 # An argument that carries a slash is a repo; anything else is an issue number and

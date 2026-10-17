@@ -27,7 +27,7 @@ printf '%s\n' "\$a" >> "$log"
 case "\$a" in
   # like gh, which reads the repository of the directory it runs in and finds none in a removed one
   *"repo view"*)            [ -d "\$PWD" ] || { echo 'failed to determine the repository' >&2; exit 1; }; echo 'example-org/example-repo' ;;
-  *"issue comment"*)        echo 'https://example.invalid/example-org/example-repo/issues/163#issuecomment-1' ;;
+  *"/comments -f body="*)   echo 'https://example.invalid/example-org/example-repo/issues/163#issuecomment-1' ;;
   # status-sync's query of the repository's issues names comments and projectItems too
   *"issues(states:OPEN"*)   [ -e "$fake/issues-down" ] && { echo 'the issues are down' >&2; exit 1; }; echo '{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}' ;;
   *comments*)               echo '[]' ;;
@@ -120,7 +120,7 @@ check 'exits zero'            0 "$rc"
 check 'the worktree is gone'  no "$(has_tree issue-163-read-the-board-whole)"
 check 'the branch is gone'    no "$(has_branch issue-163-read-the-board-whole)"
 check 'the card moved to testing' 1 "$(grep -c 'oid=OPT_test' "$log" || true)"
-check 'the issue was told'    yes "$(grep -q 'issue comment 163 .*Landed on master:.*Not pushed yet (#163)' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
+check 'the issue was told'    yes "$(grep -q 'issues/163/comments -f body=Landed on master:.*Not pushed yet (#163)' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
 check 'the board is not read whole' 0 "$(grep -c 'items(first:100, after:' "$log" || true)"
 check 'the cards of its repository are swept, in one query (status-sync)' 1 "$(grep -c 'issues(states:OPEN' "$log" || true)"
 
@@ -219,7 +219,7 @@ check 'the worktree is gone'   no "$(has_tree issue-167-keep-the-harness-off-the
 check 'it says so'             yes "$(grep -q '^example-org/example-repo is on no board - there is no card to move$' <<< "$out" && echo yes || echo no)"
 check 'no card was moved'      0 "$(grep -c 'oid=OPT_' "$log" || true)"
 check 'and no card is swept'   0 "$(grep -c 'issues(states:OPEN' "$log" || true)"
-check 'the issue was told'     yes "$(grep -q 'issue comment 167 .*Landed on master:.*Keep the harness off the board (#167)' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
+check 'the issue was told'     yes "$(grep -q 'issues/167/comments -f body=Landed on master:.*Keep the harness off the board (#167)' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
 rm -f "$fake/no-board"
 
 # The issue lives in other-org/tracker and its work landed here: start-issue recorded that on the
@@ -235,7 +235,7 @@ check 'the worktree is gone'   no "$(has_tree issue-169-alert-on-a-stuck-run)"
 check 'the record went with the branch' '' "$(git -C "$work" config --get branch.issue-169-alert-on-a-stuck-run.issueRepository || true)"
 check 'the issue was read there' yes "$(grep -q 'other-org/tracker/issues/169' "$log" && echo yes || echo no)"
 check 'its board was asked'    yes "$(grep -q '^other-org/tracker is on no board - there is no card to move$' <<< "$out" && echo yes || echo no)"
-check 'the issue was told there' yes "$(grep -q 'issue comment 169 --repo other-org/tracker .*Landed on master of example-org/example-repo:.*(other-org/tracker#169)' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
+check 'the issue was told there' yes "$(grep -q 'other-org/tracker/issues/169/comments -f body=Landed on master of example-org/example-repo:.*(other-org/tracker#169)' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
 
 echo 'this repository'"'"'s own issue of the same number is not told of the other one'"'"'s commit'
 open issue-169-own-fix
@@ -243,7 +243,7 @@ land issue-169-own-fix 'Own fix (#169)'
 : > "$log"; rm -rf "$fake/cache"
 out="$(cd "$work" && GH_PROJECT_NUMBER='' bash "$finish" 169 2>&1)"; rc=$?
 check 'exits zero'             0 "$rc"
-check 'its own commit is named' yes "$(grep -q 'issue comment 169 --repo example-org/example-repo .*Landed on master:.*Own fix (#169)' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
+check 'its own commit is named' yes "$(grep -q 'example-org/example-repo/issues/169/comments -f body=Landed on master:.*Own fix (#169)' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
 check 'the other one is not'   no "$(grep -q 'other-org/tracker#169' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
 
 echo 'an issue of another repository on a board: the cards of both repositories are swept, in one run'
@@ -277,7 +277,7 @@ out="$(run 177)"; rc=$?
 check 'exit 1'                 1 "$rc"
 check 'it says why'            'error: no commit on origin/master names #177, so the card stays and the issue is not told; a commit that touches an issue names it' "$(grep '^error: ' <<< "$out")"
 check 'no card moved'          0 "$(grep -c 'oid=OPT_' "$log" || true)"
-check 'the issue was not told' 0 "$(grep -c 'issue comment 177' "$log" || true)"
+check 'the issue was not told' 0 "$(grep -c 'issues/177/comments -f body=' "$log" || true)"
 check 'no card is swept'       0 "$(grep -c 'issues(states:OPEN' "$log" || true)"
 
 echo 'an origin/HEAD naming a branch the remote no longer has: the default branch is asked of the remote'

@@ -79,8 +79,8 @@ echo 'without --check the file travels as a file'
 : > "$log"
 out="$("$path" 163 "$whole" 2>&1)"; rc=$?
 check 'exits zero'      0 "$rc"
-check 'the flag'        yes "$(grep -q -- "--body-file $whole" "$log" && echo yes || echo no)"
-check 'no inline body'  no  "$(grep -q -- '--body ' "$log" && echo yes || echo no)"
+check 'the flag'        yes "$(grep -q -- "-F body=@$whole" "$log" && echo yes || echo no)"
+check 'no inline body'  no  "$(grep -q -- '-f body=' "$log" && echo yes || echo no)"
 check 'what gh printed' 'https://github.com/example-org/example-repo/issues/163#issuecomment-1' \
   "$(printf '%s\n' "$out" | tail -n1)"
 

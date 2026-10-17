@@ -190,13 +190,13 @@ layer_skeleton_file() {
 }
 
 # fill_layer <clone> <setup-ai-core root>: the skeleton, what every project harness starts from,
-# plus the three data files and the config, so the first init already has something to read;
-# committed as the first commit of the clone. models.tsv is not among them: a copy would pin
-# today's table, and the project would never see a later one of setup-ai-core
+# plus the two data files and the config, so the first init already has something to read;
+# committed as the first commit of the clone. models.tsv and team-modes.tsv are not among them: a
+# copy would pin today's table, and the project would never see a later one of setup-ai-core
 fill_layer() {
   local dir="$1" root="$2"
   cp -R "$root/skeleton/." "$dir/"
-  for f in config.env labels.tsv assignees.tsv team-modes.tsv; do cp "$root/templates/.ai-core/$f" "$dir/$f"; done
+  for f in config.env labels.tsv assignees.tsv; do cp "$root/templates/.ai-core/$f" "$dir/$f"; done
   git -C "$dir" add -A
   git -C "$dir" -c user.name="${GIT_AUTHOR_NAME:-ai-core}" -c user.email="${GIT_AUTHOR_EMAIL:-ai-core@localhost}" commit -q -m "the project harness, from the skeleton of setup-ai-core"
 }

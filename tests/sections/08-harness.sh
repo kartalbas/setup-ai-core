@@ -22,6 +22,7 @@ grep -aq '^--> Project harness: example-org/shop-ai-core (' "$WORK/layers-sh-1.l
 [ -d "$GH_FAKE/github.com/example-org/shop-ai-core.git" ] || fail "the harness was not pushed to GitHub"
 [ -f "$WORK/org-sh/shop-ai-core/ai-core.json" ] && [ -f "$WORK/org-sh/shop-ai-core/labels.tsv" ] || fail "the clone beside the checkout lacks the skeleton"
 [ ! -e "$WORK/org-sh/shop-ai-core/models.tsv" ] || fail "the new harness pins a copy of the model table, so a later table of setup-ai-core never reaches it"
+[ ! -e "$WORK/org-sh/shop-ai-core/team-modes.tsv" ] || fail "the new harness pins a copy of the team-modes table, so a later table of setup-ai-core never reaches it"
 [ "$(wc -l < "$WORK/org-sh/shop-web/.ai-core/STAMP" | tr -d ' ')" = 2 ] && grep -q '^shop-ai-core ' "$WORK/org-sh/shop-web/.ai-core/STAMP" || fail "STAMP does not name setup-ai-core and the harness: $(cat "$WORK/org-sh/shop-web/.ai-core/STAMP" | tr '\n' '|')"
 cmp -s "$WORK/org-sh/shop-web/.ai-core/config.env" "$ROOT/templates/.ai-core/config.env" || fail "config.env of the checkout is not the harness's (the skeleton's copy of the template)"
 # The skeleton's .gitattributes makes every checkout of the harness LF; a clone made before the
@@ -67,6 +68,7 @@ assembled_ok() {  # assembled_ok <checkout> <label>
   grep -q '^AGENTS="claude"' "$c/.ai-core/config.env" || fail "$t: config.env is not the one from repos/shop-web/.ai-core/"
   [ -f "$c/.ai-core/labels.tsv" ] && [ -f "$c/.ai-core/team-modes.tsv" ] || fail "$t: the data files did not come from the harness"
   cmp -s "$c/.ai-core/models.tsv" "$WORK/author/models.tsv" || fail "$t: models.tsv is not the harness's own"
+  cmp -s "$c/.ai-core/team-modes.tsv" "$ROOT/templates/.ai-core/team-modes.tsv" || fail "$t: a harness without its own team-modes table did not give the checkout setup-ai-core's"
   [ -e "$c/.cursorrules" ] && fail "$t: a pointer file of an agent the harness does not serve was deployed"
   st="$(git -C "$c" status --porcelain | tr -d '\r' | sort | tr '\n' '|')"
   [ -z "$st" ] || fail "$t: git status is not clean after init: $st"

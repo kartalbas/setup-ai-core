@@ -68,6 +68,7 @@ assembled_ok() {  # assembled_ok <checkout> <label>
   grep -q '^AGENTS="claude"' "$c/.ai-core/config.env" || fail "$t: config.env is not the one from repos/shop-web/.ai-core/"
   [ -f "$c/.ai-core/labels.tsv" ] && [ -f "$c/.ai-core/team-modes.tsv" ] || fail "$t: the data files did not come from the harness"
   cmp -s "$c/.ai-core/models.tsv" "$WORK/author/models.tsv" || fail "$t: models.tsv is not the harness's own"
+  cmp -s "$c/.ai-core/team-modes.tsv" "$ROOT/templates/.ai-core/team-modes.tsv" || fail "$t: a harness without its own team-modes table did not give the checkout setup-ai-core's"
   [ -e "$c/.cursorrules" ] && fail "$t: a pointer file of an agent the harness does not serve was deployed"
   st="$(git -C "$c" status --porcelain | tr -d '\r' | sort | tr '\n' '|')"
   [ -z "$st" ] || fail "$t: git status is not clean after init: $st"

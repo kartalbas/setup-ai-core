@@ -73,7 +73,9 @@ cut by file splits a contract and its two sides then release apart.
 
 Post each with `ai-core issue-comment {{plan issue}} --body-file <file>`, one comment per section, so
 a second planner's comment never overwrites yours. Where a section replaces an earlier one of the
-same area, say so in its first line: `Replaces the section of <date>`. Then stop.
+same area, say so in its first line: `Replaces the section of <date>`. Then send the coordinator
+({{how to reach the coordinator}}) the first line of each section, because it sleeps between its
+rounds and a comment on an issue wakes nobody, and stop.
 
 ## Rules you keep
 

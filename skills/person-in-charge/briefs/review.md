@@ -50,6 +50,9 @@ nothing: a reviewer who repairs approves its own fix.
     TESTS: <n> go red on their defect; doubtful: <test, why>
     NOTES: <what you could not verify, and why>
 
+Once it is posted, send its first line to the coordinator ({{how to reach the coordinator}}),
+because a comment on an issue wakes nobody.
+
 A finding blocks, and only these are FINDINGS: behaviour that is wrong in a state you name, a test
 that is red or cannot go red on its defect, an unmet criterion, a broken contract, a leftover. The
 wording of a log line, a comment or a message, a name, a line length, style and a better way that

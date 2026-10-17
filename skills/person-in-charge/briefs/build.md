@@ -50,6 +50,9 @@ nobody sits at your terminal.
     BRANCH: <repo> <branch>
     CONTEXT: fit | needed more: <what took the room>
 
+Once the comments are posted, send the coordinator ({{how to reach the coordinator}}) the `REPORT`
+and `VERIFIED` lines of each issue, because a comment on an issue wakes nobody.
+
 ## Rules you keep
 
 - You touch files of this package's worktrees only. A file outside them is a question to the

@@ -128,19 +128,19 @@ printf '%s\t%s\t%s\t%s\t%s\n' 100 1 '1-01:00:00' Ss 'claude --resume exa-lead' 1
   108 100 '01:00' R 'node /usr/lib/node_modules/gemini-cli/bin/gemini.js -p check example-repo#3' \
   109 1 '05:00' S 'agy' 110 1 '30:00' Ssl '/home/x/.local/bin/claude daemon run --origin transient' \
   111 110 '29:00' SNsl 'claude bg-pty-host --bg-pty-host /tmp/x.sock 200 50 -- /home/x/.local/share/claude/versions/2.1.289 --session-id 22222222-2222-2222-2222-222222222222' \
-  112 111 '29:00' SNsl+ '/home/x/.local/share/claude/versions/2.1.289 --session-id 22222222-2222-2222-2222-222222222222 --name l1-sonnet5.5-low-100k-ab123 --model sonnet --effort low' \
+  112 111 '29:00' SNsl+ '/home/x/.local/share/claude/versions/2.1.289 --session-id 22222222-2222-2222-2222-222222222222 --name i1-sonnet5.5-low-100k-ab123 --model sonnet --effort low' \
   113 110 '40:00' SNsl+ 'claude bg-spare --bg-spare /tmp/x/spare/a1.claim.sock' \
   114 110 '20:00' SNsl+ 'claude bg-spare --bg-spare /tmp/x/spare/a2.claim.sock' \
   115 1 '50:00' Sl+ '/home/x/.local/bin/claude agents' \
   116 1 '3-00:00:00' Tl '/home/x/.local/bin/claude --resume old-lead' \
   > "$work/processes"
 printf '%s\n' '[{"pid":100,"kind":"interactive","status":"busy","name":"exa-lead","sessionId":"11111111-1111-1111-1111-111111111111","id":null},' \
-  '{"pid":112,"kind":"background","status":"idle","state":"blocked","name":"l1-sonnet5.5-low-100k-ab123","sessionId":"22222222-2222-2222-2222-222222222222","id":"22222222"},' \
-  '{"pid":113,"kind":"background","status":"busy","state":"working","name":"l2-opus5.5-high-300k-cd456","cwd":"/home/x/.worktrees/shop/issue-4-fix-the-thing","sessionId":"33333333-3333-3333-3333-333333333333","id":"33333333"},' \
+  '{"pid":112,"kind":"background","status":"idle","state":"blocked","name":"i1-sonnet5.5-low-100k-ab123","sessionId":"22222222-2222-2222-2222-222222222222","id":"22222222"},' \
+  '{"pid":113,"kind":"background","status":"busy","state":"working","name":"r2-opus5.5-high-300k-cd456","cwd":"/home/x/.worktrees/shop/issue-4-fix-the-thing","sessionId":"33333333-3333-3333-3333-333333333333","id":"33333333"},' \
   '{"pid":116,"kind":"interactive","status":"busy","state":"working","name":"old-lead","sessionId":"55555555-5555-5555-5555-555555555555","id":null}]' > "$work/agents"
 printf '%s\t%s\n' /proc/102/fd /home/x/.codex/sessions/2026/10/04/rollout-2026-10-04T11-52-48-01a106c2-71cd-7451-94ce-508f6229cd5b.jsonl \
   /proc/100/fd /home/x/.codex/sessions/2026/10/04/rollout-2026-10-04T11-00-00-01a10000-0000-7000-8000-000000000000.jsonl \
-  /proc/104/fd /home/x/.ai-core/sessions/l30001-gpt6.1sol-xhigh-150k-cdc28.out > "$work/rollouts"
+  /proc/104/fd /home/x/.ai-core/sessions/p30001-gpt6.1sol-xhigh-150k-cdc28.out > "$work/rollouts"
 view="$(cd "$folder" && AI_CORE_PROCESSES="$work/processes" AI_CORE_AGENTS="$work/agents" AI_CORE_ROLLOUTS="$work/rollouts" bash "$root/bin/status.sh" --project example-org/7 2>&1)"; rc=$?
 vline() { grep -m1 -F -- "$1" <<< "$view" | tr -s ' '; }
 check 'exit 0'        0 "$rc"
@@ -150,11 +150,11 @@ check 'the runs it started, through a script too, newest first' '│ └ G gemin
 check 'with model and effort' '│ └ X codex │ 102 │ big-model · high │ 3 min │ │ example-repo#1 │ run │' "$(vline '└ X codex')"
 check 'a run a run started' '│ └ A agy │ 103 │ cheap-model · high │ 2 min │ │ │ run │' "$(vline '└ A agy')"
 check 'indented one step deeper' 1 "$(grep -c '^│     └ A agy ' <<< "$view")"
-check 'a run no agent started stands alone' '│ X l30001-gpt6. │ 104 │ gpt6.1sol · xhigh │ 62 min │ │ │ resumed run │' "$(vline '│ X l30001-gpt6. ')"
+check 'a run no agent started stands alone' '│ X p30001-gpt6. │ 104 │ gpt6.1sol · xhigh │ 62 min │ │ │ resumed run │' "$(vline '│ X p30001-gpt6. ')"
 check 'an agent CLI without a prompt is a session' '│ A agy │ 109 │ │ 5 min │ │ │ session │' "$(vline '│ A agy ')"
-check 'a background session runs from the versioned binary' '│ C l1-sonnet5.5 │ 112 │ sonnet · low │ 29 min │ idle blocked │ │ session │' "$(vline '│ C l1-sonnet5.5 ')"
+check 'a background session runs from the versioned binary' '│ C i1-sonnet5.5 │ 112 │ sonnet · low │ 29 min │ idle blocked │ │ session │' "$(vline '│ C i1-sonnet5.5 ')"
 check 'its daemon and terminal host are no agents' 0 "$(grep -cE '│ 11[01] +│' <<< "$view" || true)"
-check 'a claimed spare: name, model and effort from its name, the issue from its worktree' '│ C l2-opus5.5-h │ 113 │ opus5.5 · high │ 40 min │ busy working │ shop#4 at start │ session │' "$(vline '│ C l2-opus5.5')"
+check 'a claimed spare: name, model and effort from its name, the issue from its worktree' '│ C r2-opus5.5-h │ 113 │ opus5.5 · high │ 40 min │ busy working │ shop#4 at start │ session │' "$(vline '│ C r2-opus5.5')"
 check 'a spare no session claimed and the agent list are no agents' 0 "$(grep -cE '│ 11[45] +│' <<< "$view" || true)"
 check 'a stopped session is shown stopped' '│ C old-lead │ 116 │ │ stopped │ │ │ session │' "$(vline '│ C old-lead ')"
 check 'in this order' '116 100 108 102 103 113 112 104 109' "$(awk -F'│' '$3 ~ /^ *[0-9]+ *$/ { printf "%s%s", sep, $3 + 0; sep = " " }' <<< "$view")"
@@ -163,17 +163,25 @@ check 'no token lines' '' "$(vline 'pace ')"
 printf '%s\t%s\t%s\t%s\t%s\n' 116 1 '3-00:00:00' Tl '/home/x/.local/bin/claude --resume old-lead' > "$work/stopped-only"
 only="$(cd "$folder" && AI_CORE_PROCESSES="$work/stopped-only" AI_CORE_AGENTS="$work/agents" AI_CORE_ROLLOUTS="$work/rollouts" bash "$root/bin/status.sh" --project example-org/7 2>&1)"
 check 'only a stopped one: none running' 'AGENTS 0 running; 1 stopped' "$(grep -m1 '^AGENTS  *[0-9]' <<< "$only" | tr -s ' ')"
-printf '%s\t%s\t%s\t%s\t%s\n' 117 1 '10:00' 'SNsl+' 'claude bg-spare --bg-spare /tmp/x/spare/a3.claim.sock' > "$work/unversioned"
-printf '%s\n' '[{"pid":117,"kind":"background","status":7,"state":["idle"],"name":"l3-sonnet-high-200k-ef789","cwd":"/home/x/repos","sessionId":"44444444-4444-4444-4444-444444444444","id":"44444444"}]' > "$work/unversioned-agents"
+printf '%s\t%s\t%s\t%s\t%s\n' 117 1 '10:00' 'SNsl+' 'claude bg-spare --bg-spare /tmp/x/spare/a3.claim.sock' \
+  118 1 '10:00' 'SNsl+' 'claude bg-spare --bg-spare /tmp/x/spare/a4.claim.sock' \
+  119 1 '10:00' 'SNsl+' 'claude bg-spare --bg-spare /tmp/x/spare/a5.claim.sock' > "$work/unversioned"
+# A name leads with the letter of its phase: p, i, r or t. Any other letter, the l of the names
+# before the phases had one among them, is no worker's name and carries no model
+printf '%s\n' '[{"pid":117,"kind":"background","status":7,"state":["idle"],"name":"t3-sonnet-high-200k-ef789","cwd":"/home/x/repos","sessionId":"44444444-4444-4444-4444-444444444444","id":"44444444"},' \
+  '{"pid":118,"kind":"background","status":7,"state":["idle"],"name":"i4-opus5.5-xhigh-300k-ab001","cwd":"/home/x/repos","sessionId":"66666666-6666-6666-6666-666666666666","id":"66666666"},' \
+  '{"pid":119,"kind":"background","status":7,"state":["idle"],"name":"l5-opus5.5-high-150k-ab002","cwd":"/home/x/repos","sessionId":"77777777-7777-7777-7777-777777777777","id":"77777777"}]' > "$work/unversioned-agents"
 plain="$(cd "$folder" && AI_CORE_PROCESSES="$work/unversioned" AI_CORE_AGENTS="$work/unversioned-agents" AI_CORE_ROLLOUTS="$work/rollouts" bash "$root/bin/status.sh" --project example-org/7 2>&1)"
-check 'a name without a version: its model and effort' '│ C l3-sonnet-hi │ 117 │ sonnet · high │ 10 min │ │ │ session │' "$(grep -m1 -F '│ C l3-sonnet' <<< "$plain" | tr -s ' ')"
+check 'a name without a version: its model and effort' '│ C t3-sonnet-hi │ 117 │ sonnet · high │ 10 min │ │ │ session │' "$(grep -m1 -F '│ C t3-sonnet' <<< "$plain" | tr -s ' ')"
+check 'a build: its model and effort from its name' '│ C i4-opus5.5-x │ 118 │ opus5.5 · xhigh │ 10 min │ │ │ session │' "$(grep -m1 -F '│ C i4-opus' <<< "$plain" | tr -s ' ')"
+check 'a name led by no phase letter: no model' '│ C l5-opus5.5-h │ 119 │ │ 10 min │ │ │ session │' "$(grep -m1 -F '│ C l5-opus' <<< "$plain" | tr -s ' ')"
 
 echo 'the command that reaches each agent, from what its CLI reports'
 reach() { awk '/^REACH$/ { on = 1; next } on' <<< "$1" | grep -m1 -E -- "^  $2 " | tr -s ' ' | sed 's/^ //'; }
 check 'an interactive session: resume it, a rollout it holds changes nothing' '100 C exa-lead claude --resume 11111111-1111-1111-1111-111111111111' "$(reach "$view" 100)"
-check 'a background session: attach to it' '112 C l1-sonnet5.5-low-100k-ab123 claude attach 22222222' "$(reach "$view" 112)"
+check 'a background session: attach to it' '112 C i1-sonnet5.5-low-100k-ab123 claude attach 22222222' "$(reach "$view" 112)"
 check 'a codex process: the rollout it holds open' '102 X codex codex resume 01a106c2-71cd-7451-94ce-508f6229cd5b' "$(reach "$view" 102)"
-check 'a codex process that holds none: a dash' '104 X l30001-gpt6.1sol-xhigh-150k-cdc28 —' "$(reach "$view" 104)"
+check 'a codex process that holds none: a dash' '104 X p30001-gpt6.1sol-xhigh-150k-cdc28 —' "$(reach "$view" 104)"
 check 'an agent its CLI says nothing about: a dash' '109 A agy —' "$(reach "$view" 109)"
 check 'every agent, in the order of the table' '116 100 108 102 103 113 112 104 109' "$(awk '/^REACH$/ { on = 1; next } on && /^  [0-9]/ { printf "%s%s", sep, $1; sep = " " }' <<< "$view")"
 echo 'claude agents --json failed' > "$work/bad-agents"

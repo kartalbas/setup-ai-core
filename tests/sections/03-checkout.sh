@@ -81,14 +81,15 @@ grep -aq '^  unchanged  [1-9][0-9]* file(s)$' "$WORK/checkout-2.log" || fail "in
 
 section "session-start in the target"
 [ ! -e "$WORK/checkout/.ai-core/bin" ] || fail "init.sh copied scripts into the checkout"
-(cd "$WORK/checkout" && "$ROOT/bin/ai-core" session-start > /dev/null) || fail "ai-core session-start in the target"
-(cd "$WORK/checkout" && "$ROOT/bin/ai-core" session-start --json > "$WORK/checkout.json")
-jq -e --arg version "$(tr -d '\r\n' < "$ROOT/VERSION")" '.harness_version == $version' "$WORK/checkout.json" > /dev/null || fail "session-start harness_version is not the repository VERSION"
-jq -e '.harness_source == null and .source_ready == null and .rule_sources == [] and .harness_current == true and .rules_present == true and .refused == false' "$WORK/checkout.json" > /dev/null || fail "session-start of a product checkout reports source facts or no assembled rules"
-# --tool <one tool>, the form the hooks use: no skill and no rules are printed, so the output stays below what Claude Code passes whole
+# The team modes come from a scratch home with a stand-in skill, so the line passes on every machine and refuses where the skill is missing
 MH="$WORK/modes-home"; mkdir -p "$MH/.claude/skills/archify"
 printf -- '---\nname: archify\n---\nARCHIFY BODY.\n' > "$MH/.claude/skills/archify/SKILL.md"
 printf 'claude\tarchify\tskill:archify\t-\t-\n' > "$WORK/modes.tsv"
+(cd "$WORK/checkout" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" "$ROOT/bin/ai-core" session-start > /dev/null) || fail "ai-core session-start in the target"
+(cd "$WORK/checkout" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" "$ROOT/bin/ai-core" session-start --json > "$WORK/checkout.json")
+jq -e --arg version "$(tr -d '\r\n' < "$ROOT/VERSION")" '.harness_version == $version' "$WORK/checkout.json" > /dev/null || fail "session-start harness_version is not the repository VERSION"
+jq -e '.harness_source == null and .source_ready == null and .rule_sources == [] and .harness_current == true and .rules_present == true and .refused == false' "$WORK/checkout.json" > /dev/null || fail "session-start of a product checkout reports source facts or no assembled rules"
+# --tool <one tool>, the form the hooks use: no skill and no rules are printed, so the output stays below what Claude Code passes whole
 (cd "$WORK/checkout" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude > "$WORK/modes.log" 2>&1) || fail "session-start.sh --tool claude (see $WORK/modes.log)"
 grep -aq 'ARCHIFY' "$WORK/modes.log" && fail "session-start.sh --tool claude printed a skill; the tool loads it when a task calls for it (see $WORK/modes.log)"
 grep -aqE 'THE RULES OF THIS CHECKOUT|^## The code never lies' "$WORK/modes.log" && fail "session-start.sh --tool claude prints the rules; Claude Code loads them through AGENTS.md"
@@ -97,9 +98,9 @@ grep -aqE 'THE RULES OF THIS CHECKOUT|^## The code never lies' "$WORK/modes.log"
 # call it; on the PATH, it says nothing of it
 AI_CORE_CMD="$ROOT/bin/ai-core"
 OFF_PATH="$(while IFS= read -r d; do [ -z "$d" ] || [ -e "$d/ai-core" ] || printf '%s:' "$d"; done <<< "$(tr ':' '\n' <<< "$PATH")")"
-(cd "$WORK/checkout" && PATH="$OFF_PATH" bash "$ROOT/bin/session-start.sh" > "$WORK/offpath.log" 2>&1)
+(cd "$WORK/checkout" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" PATH="$OFF_PATH" bash "$ROOT/bin/session-start.sh" > "$WORK/offpath.log" 2>&1)
 grep -aqF "ai-core on PATH  : ✗ not in this session; call it as \"$AI_CORE_CMD\"" "$WORK/offpath.log" || fail "session-start.sh does not say that ai-core is missing from the PATH, and how to call it: $(grep -a 'ai-core on PATH\|Harness version' "$WORK/offpath.log")"
-(cd "$WORK/checkout" && PATH="$ROOT/bin:$PATH" bash "$ROOT/bin/session-start.sh" > "$WORK/onpath.log" 2>&1)
+(cd "$WORK/checkout" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" PATH="$ROOT/bin:$PATH" bash "$ROOT/bin/session-start.sh" > "$WORK/onpath.log" 2>&1)
 grep -aq 'Harness version' "$WORK/onpath.log" && ! grep -aq 'ai-core on PATH' "$WORK/onpath.log" || fail "session-start.sh warns about the PATH although ai-core is on it, or did not run (see $WORK/onpath.log)"
 (cd "$WORK/checkout" && HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude --json | jq -e '.repository' > /dev/null) || fail "session-start.sh --tool claude --json is not JSON"
 # A refusal under --json is JSON too: refused, with the lines of the team modes; a session that starts says refused: false

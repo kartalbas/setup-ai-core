@@ -495,6 +495,18 @@ project_folder() {
   else pwd; fi
 }
 
+# THE WORKTREE CONTAINER: where the worktrees of this clone stand, <project folder>/.worktrees/<repository
+# folder>, beside the main checkout and never inside it. The main checkout is found through
+# --git-common-dir, so this answers the same from inside another worktree. start-issue cuts the worktree of
+# an issue here and integrate-issue --from-origin its temporary one, so a project test that walks up to a
+# sibling checkout finds the same neighbours in both.
+worktree_container() {
+  local common main
+  common="$(git rev-parse --git-common-dir)" || return 1
+  main="$(cd "$common/.." && git rev-parse --show-toplevel)" || return 1
+  printf '%s/.worktrees/%s\n' "$(dirname "$main")" "${main##*/}"
+}
+
 # --- epics --------------------------------------------------------------------
 #
 # An epic, an issue with sub-issues, is never moved by hand: it follows its sub-issues. It stands in

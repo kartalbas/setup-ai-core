@@ -374,7 +374,9 @@ check '#23 is closed' 1 "$(grep -c 'api --method PATCH repos/example-org/example
 check 'and no other issue' 2 "$(grep -c 'api --method PATCH repos/.*/issues/' "$FAKE/calls.txt")"
 check 'the cards no release carries are named here too' 2 "$(grep -c '^not released' <<< "$run")"
 check 'a card named "not finished" is named here too' 2 "$(grep -c '^not finished' <<< "$run")"
-check 'and its card does not move' 0 "$(grep -cE 'issues/(12|25)( |$)|updateProjectV2ItemFieldValue' "$FAKE/calls.txt")"
+# Each mover looks the repository up on a board first, and here the stand-in has none and stops it
+# before it names an issue, so the lookups count the movers: the two closes and the sweep's own
+check 'and no card is moved or closed for being named: no mover runs beyond the two closes' 3 "$(grep -c 'projectsV2(first:50)' "$FAKE/calls.txt")"
 rm -f "$FAKE/lenient"
 
 # The only card read is an epic whose one sub-issue is done: no card in testing has named a release

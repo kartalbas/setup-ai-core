@@ -22,6 +22,13 @@ promise. Where a step cannot be done (a login wall, a missing element), say so; 
 it. Where a promise cannot be met by looking (a job that runs at night, a mail that arrives), say
 `NOT CHECKABLE HERE` and what would show it.
 
+Read the page through `take_snapshot`, the text of its accessibility tree, and act on an element by
+the `uid` it carries there: `click`, `fill`, `fill_form`, `wait_for` a text, and `evaluate_script`
+for a value the snapshot does not show. An element is exact; a picture has to be interpreted, which
+is slower and less certain. Take a screenshot (`take_screenshot`, of the one element where you can)
+only where a promise is about how something looks, or to show what a FAIL saw, and say which in its
+NOTES.
+
 ## Output, as your last message
 
     RESULT on <environment>: <n> PASS, <n> FAIL, <n> NOT CHECKABLE HERE

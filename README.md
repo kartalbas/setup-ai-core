@@ -1040,7 +1040,7 @@ repository over REST. `AI_CORE_SLEEP` names the command that waits, `sleep` by d
 | `labels-sync` | applies `labels.tsv` to one repository, to named ones, or to every repository on a board |
 | `incident-count` | the issues carrying each `incident:` label per ISO week |
 | `team-modes-check`, `team-modes-install` | section 4.6 |
-| `schema-check` | holds every GraphQL mutation in `bin/` and `lib/` against the schema github.com publishes; the one check that reaches the network, run by CI |
+| `schema-check` | holds every GraphQL mutation in `bin/` and `lib/` against the schema github.com publishes; the one check that reaches the network, run by CI; where `TRACKER` is not `github` it says that the schema is GitHub's and exits 0 |
 
 **The hooks.** A repository that wants the gate before every push carries the three-line shim
 `ai-core pre-push --install` writes into `.githooks/pre-push`, and beside it `.githooks/post-checkout`,

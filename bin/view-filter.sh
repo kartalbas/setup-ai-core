@@ -31,9 +31,7 @@ done
 
 set_project "$project" >/dev/null
 
-rows="$(gh_read "the views of board $project" api graphql -f pid="$(project_id)" -f query='
-  query($pid:ID!){ node(id:$pid){ ... on ProjectV2 { views(first:20){ nodes { id name filter } } } } }' \
-  --jq '.data.node.views.nodes[] | "\(.name)\t\(.id)"')" || exit 1
+rows="$(board_views "$project")" || exit 1
 
 # The filter uses the same syntax the board's own filter box takes. Several repos are
 # one comma-separated repo: term, which is an OR.
@@ -48,6 +46,4 @@ fi
 
 # What the mutation answered is the line this prints, so it is established as an answer first
 # rather than written to the screen as the result of a filter that was never set.
-gh_read "the filter set on view '$view'" api graphql -f vid="$view_id" -f f="$filter" -f query='
-  mutation($vid:ID!,$f:String!){ updateProjectV2View(input:{viewId:$vid, filter:$f}){ projectV2View { name filter } } }' \
-  --jq '.data.updateProjectV2View.projectV2View | "\(.name): \(if .filter == "" then "shows everything" else .filter end)"'
+view_filter_set "$view_id" "$filter"

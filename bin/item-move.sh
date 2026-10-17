@@ -41,42 +41,9 @@ done
 [ "$from" != "$to" ] || die "--from and --to are the same project"
 [[ "$repo" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]] || die "--repo takes OWNER/REPO, not '$repo'"
 
-# Every card of this repository on the source board, with the two values worth carrying.
-# One page of 100 does not cover a board that has run for a while, so this pages.
-cards_of() {  # cards_of <owner/repo>
-  local after="" page
-  while :; do
-    if [ -n "$after" ]; then
-      page="$(gh_read "the cards of board $(project_number) after $after" api graphql -f pid="$(project_id)" -f after="$after" -f query='
-        query($pid:ID!, $after:String) { node(id:$pid) { ... on ProjectV2 {
-          items(first:100, after:$after) { pageInfo { hasNextPage endCursor }
-            nodes { id
-              content { ... on Issue { number repository { nameWithOwner } } }
-              fieldValues(first:20) { nodes { ... on ProjectV2ItemFieldSingleSelectValue {
-                name field { ... on ProjectV2SingleSelectField { name } } } } } } } } } }')" || exit 1
-    else
-      page="$(gh_read "the cards of board $(project_number)" api graphql -f pid="$(project_id)" -f query='
-        query($pid:ID!) { node(id:$pid) { ... on ProjectV2 {
-          items(first:100) { pageInfo { hasNextPage endCursor }
-            nodes { id
-              content { ... on Issue { number repository { nameWithOwner } } }
-              fieldValues(first:20) { nodes { ... on ProjectV2ItemFieldSingleSelectValue {
-                name field { ... on ProjectV2SingleSelectField { name } } } } } } } } } }')" || exit 1
-    fi
-    printf '%s' "$page" | jq -r --arg r "$1" '
-      .data.node.items.nodes[]
-      | select(.content.number != null and .content.repository.nameWithOwner == $r)
-      | . as $i
-      | ($i.fieldValues.nodes | map(select(.field.name == "Status"))   | .[0].name // "") as $s
-      | ($i.fieldValues.nodes | map(select(.field.name == "Priority")) | .[0].name // "") as $p
-      | "\($i.content.number)\t\($s)\t\($p)"'
-    [ "$(printf '%s' "$page" | jq -r '.data.node.items.pageInfo.hasNextPage')" = 'true' ] || break
-    after="$(printf '%s' "$page" | jq -r '.data.node.items.pageInfo.endCursor')"
-  done
-}
-
+# Every card of this repository on the source board, with the two values worth carrying
 set_project "$from" "$repo" >/dev/null
-rows="$(cards_of "$repo")" || exit 1
+rows="$(board_cards_of_repo "$repo")" || exit 1
 [ -n "$rows" ] || { echo "no cards from $repo on project $from"; exit 0; }
 
 count="$(grep -c . <<< "$rows")"

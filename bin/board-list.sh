@@ -35,21 +35,7 @@ set_project "$project" >/dev/null
 # and status-sync after it, names that repository and not one of the board's organisation
 org="$(project_org | tr '[:upper:]' '[:lower:]')"
 
-gh_read "the cards of board $(project_number)" api graphql --paginate -f pid="$(project_id)" -f query='
-  query($pid:ID!, $endCursor:String) { node(id:$pid) { ... on ProjectV2 {
-    items(first:100, after:$endCursor) {
-      pageInfo { hasNextPage endCursor }
-      nodes {
-        fieldValues(first:20) { nodes { ... on ProjectV2ItemFieldSingleSelectValue {
-          name field { ... on ProjectV2SingleSelectField { name } } } } }
-        content { ... on Issue { number title state repository { name nameWithOwner } } }
-      } } } } }' \
-  --jq '.data.node.items.nodes[] | select(.content.number != null)
-        | { n: .content.number, t: .content.title, closed: (.content.state == "CLOSED"),
-            r: (.content.repository | if (.nameWithOwner | ascii_downcase) == ("'"$org"'/" + (.name | ascii_downcase)) then .name else .nameWithOwner end),
-            s: ([.fieldValues.nodes[] | select(.field.name == "Status")   | .name] | first // "-"),
-            p: ([.fieldValues.nodes[] | select(.field.name == "Priority") | .name] | first // "-") }
-        | "\(.s)\t\(.p)\t\(.r)\t\(.n)\t\(.t)\t\(if .closed then "closed" else "" end)"' \
+board_card_lines "$org" \
 | awk -F'\t' -v ws="$want_status" -v wr="$want_repo" \
       '(ws == "" || $1 == ws) && (wr == "" || $3 == wr)' \
 | sort -t$'\t' -k1,1 -k2,2 -k3,3 -k4,4n \

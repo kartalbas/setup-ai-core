@@ -92,14 +92,7 @@ derive_target() {
 cards_of_repo() {  # <owner/repo>
   local repo="$1" after="" page next
   while :; do
-    page="$(gh_read "the open issues of $repo" api graphql -f o="${repo%%/*}" -f n="${repo#*/}" ${after:+-f after="$after"} -f query='
-      query($o:String!, $n:String!, $after:String) { repository(owner:$o, name:$n) {
-        issues(states:OPEN, first:50, after:$after) { pageInfo { hasNextPage endCursor } nodes {
-          number subIssuesSummary { total }
-          projectItems(first:20) { nodes { project { number owner { ... on Organization { login } ... on User { login } } }
-            status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } }
-          reopened: timelineItems(last:1, itemTypes:[REOPENED_EVENT]) { nodes { ... on ReopenedEvent { createdAt } } }
-          comments(last:50) { nodes { createdAt body authorAssociation } } } } } }')" || exit 1
+    page="$(open_issue_page "$repo" "$after")" || exit 1
     printf '%s' "$page" | jq -r --argjson board "$(project_number)" --arg org "$(project_org)" '
       .data.repository.issues.nodes[]
       | . as $i

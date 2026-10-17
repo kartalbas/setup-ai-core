@@ -75,10 +75,7 @@ set_project "$project" >/dev/null
 
 # Read whole, then decided on. gh's own --jq is not used here because the SAME answer is
 # read twice below - once for the field id and once for the options it already carries.
-fields="$(gh_read "the fields of board $(project_number)" api graphql -f pid="$(project_id)" -f query='
-  query($pid:ID!) { node(id:$pid) { ... on ProjectV2 {
-    fields(first:50) { nodes { ... on ProjectV2SingleSelectField {
-      id name options { id name color description } } } } } } }')" || exit 1
+fields="$(board_fields_json)" || exit 1
 
 fid="$(printf '%s' "$fields" | jq -r --arg f "$field" \
   '[.data.node.fields.nodes[] | select(.name == $f)] | first | .id // empty')"
@@ -122,8 +119,7 @@ printf '%s' "$fields" | jq \
                  elif $a != "" then ($o | map(.name) | index($a)) as $i | $o[:$i + 1] + [$new] + $o[$i + 1:]
                  else $o + [$new] end) } }' > "$body"
 
-after="$(gh_read "the options of '$field' on board $(project_number)" api graphql --input "$body" \
-  --jq '.data.updateProjectV2Field.projectV2Field.options[].name')" || exit 1
+after="$(field_options_replace "$field" "$body")" || exit 1
 
 # The board's field cache holds the option set as it was BEFORE this run. Left standing,
 # every later script resolves names against a list that no longer matches the board, and

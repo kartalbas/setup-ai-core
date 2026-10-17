@@ -38,21 +38,7 @@ stop="${stop#*=}"; stop="${stop%%#*}"; stop="${stop//[[:space:]\"\']/}"; stop="$
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 columns="$(fields_tsv)" || exit 1
 awk -F'\t' 'tolower($1) == "status" { print $3 }' <<< "$columns" > "$work/columns"
-# One card a line, then the cursor of the next page where there is one
-cards='(.data.node.items.nodes[] | tojson), (.data.node.items.pageInfo | select(.hasNextPage) | "after \(.endCursor)")'
-: > "$work/items"; after=""
-while :; do
-  out="$(gh_read "the cards of board $(project_number)" api graphql -f pid="$(project_id)" ${after:+-f after="$after"} -f query='
-    query($pid:ID!, $after:String) { node(id:$pid) { ... on ProjectV2 {
-      items(first:100, after:$after) { pageInfo { hasNextPage endCursor } nodes {
-        status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
-        priority: fieldValueByName(name:"Priority") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
-        content { ... on Issue { number title state closedAt body repository { nameWithOwner }
-          parent { number repository { nameWithOwner } } subIssuesSummary { total } } } } } } } }' --jq "$cards")" || exit 1
-  grep '^{' <<< "$out" >> "$work/items"
-  after="$(sed -n 's/^after //p' <<< "$out")"
-  [ -n "$after" ] || break
-done
+card_rows > "$work/items" || exit 1
 
 # Every process: its id, its parent, how long it runs ([[dd-]hh:]mm:ss), its state as ps writes it
 # and its command line, a tab between; AI_CORE_PROCESSES names a file that stands in for it. Only the default view reads it.

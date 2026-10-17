@@ -34,39 +34,10 @@ reject_options "$@"
 [ $# -eq 0 ] || die "repo-boards.sh takes no arguments - it reads the whole organisation"
 org="$(gh_org)" || exit 1
 
-# ONE ROW PER REPOSITORY, AND ONE MORE PER BOARD IT IS LINKED TO. Packing the boards into
-# the repository's own row would mean filtering rows by their board title below, and a
-# repository whose only link is to the template board would then vanish from the report
-# entirely - which is the one answer this script exists to never give.
-rows() {
-  local after="" page
-  while :; do
-    if [ -n "$after" ]; then
-      page="$(gh_read "the repositories of $org after $after" api graphql -f o="$org" -f after="$after" -f query='
-        query($o:String!, $after:String) { organization(login:$o) {
-          repositories(first:100, after:$after) { pageInfo { hasNextPage endCursor }
-            nodes { nameWithOwner isArchived
-              projectsV2(first:50) { nodes { number title closed } } } } } }')" || exit 1
-    else
-      page="$(gh_read "the repositories of $org" api graphql -f o="$org" -f query='
-        query($o:String!) { organization(login:$o) {
-          repositories(first:100) { pageInfo { hasNextPage endCursor }
-            nodes { nameWithOwner isArchived
-              projectsV2(first:50) { nodes { number title closed } } } } } }')" || exit 1
-    fi
-    printf '%s' "$page" | jq -r '.data.organization.repositories.nodes[] | . as $r
-      | "R\t\($r.nameWithOwner)\t\($r.isArchived)",
-        ($r.projectsV2.nodes[] | select(.closed == false)
-         | "B\t\($r.nameWithOwner)\t\(.number)\t\(.title)")'
-    [ "$(printf '%s' "$page" | jq -r '.data.organization.repositories.pageInfo.hasNextPage')" = 'true' ] || break
-    after="$(printf '%s' "$page" | jq -r '.data.organization.repositories.pageInfo.endCursor')"
-  done
-}
-
 # Read whole before it is split. A process substitution reports nothing about how the
 # command inside it ended, so a refused query would arrive as an organisation with no
 # repositories and the run would report that every one of them is linked.
-all="$(rows)" || exit 1
+all="$(repo_boards_rows "$org")" || exit 1
 
 unlinked=0
 ambiguous=0

@@ -674,3 +674,233 @@ projects_of_org() {
       projectsV2(first:100) { nodes { number title closed } } } }' \
     --jq '.data.organization.projectsV2.nodes[] | select(.closed == false) | "\(.number)\t\(.title)"'
 }
+
+# --- the board commands -------------------------------------------------------
+
+# item_unarchive <item id>: the card comes back onto the selected board.
+item_unarchive() {
+  gh api graphql -f pid="$(project_id)" -f iid="$1" -f query='
+    mutation($pid:ID!, $iid:ID!) {
+      unarchiveProjectV2Item(input:{projectId:$pid, itemId:$iid}) { item { id } } }' \
+    --jq '.data.unarchiveProjectV2Item.item.id' >/dev/null
+}
+
+# issue_numbers_closed <owner/repo>: the numbers of the newest 200 closed issues, one per line.
+issue_numbers_closed() {
+  gh_read "the closed issues of $1" issue list --repo "$1" --state closed --limit 200 \
+    --json number --jq '.[].number'
+}
+
+# issue_summaries <owner/repo>: the newest 500 issues, open or closed, one
+# "<number>\t<OPEN|CLOSED>\t<labels, comma between>\t<title>" per line. The title stands last because
+# it is the one field a person types.
+issue_summaries() {
+  gh_read "the issues of $1" issue list --repo "$1" --state all --limit 500 \
+    --json number,state,title,labels \
+    --jq '.[] | "\(.number)\t\(.state)\t\([.labels[].name] | join(","))\t\(.title)"'
+}
+
+issue_title() {  # issue_title <owner/repo> <number>
+  gh_read "the title of $1#$2" issue view "$2" --repo "$1" --json title --jq '.title'
+}
+
+# board_card_lines <organisation, lower case>: every card of the selected board that is an issue, one
+# "<status>\t<priority>\t<repository>\t<number>\t<title>\t<closed or empty>" per line. The repository
+# is written without its owner when the owner is the organisation.
+board_card_lines() {
+  gh_read "the cards of board $(project_number)" api graphql --paginate -f pid="$(project_id)" -f query='
+    query($pid:ID!, $endCursor:String) { node(id:$pid) { ... on ProjectV2 {
+      items(first:100, after:$endCursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          fieldValues(first:20) { nodes { ... on ProjectV2ItemFieldSingleSelectValue {
+            name field { ... on ProjectV2SingleSelectField { name } } } } }
+          content { ... on Issue { number title state repository { name nameWithOwner } } }
+        } } } } }' \
+    --jq '.data.node.items.nodes[] | select(.content.number != null)
+          | { n: .content.number, t: .content.title, closed: (.content.state == "CLOSED"),
+              r: (.content.repository | if (.nameWithOwner | ascii_downcase) == ("'"$1"'/" + (.name | ascii_downcase)) then .name else .nameWithOwner end),
+              s: ([.fieldValues.nodes[] | select(.field.name == "Status")   | .name] | first // "-"),
+              p: ([.fieldValues.nodes[] | select(.field.name == "Priority") | .name] | first // "-") }
+          | "\(.s)\t\(.p)\t\(.r)\t\(.n)\t\(.t)\t\(if .closed then "closed" else "" end)"'
+}
+
+# board_cards_of_repo <owner/repo>: every card of this repository on the selected board with the two
+# values worth carrying, one "<number>\t<status>\t<priority>" per line. One page of 100 does not
+# cover a board that has run for a while, so this pages.
+board_cards_of_repo() {
+  local after="" page
+  while :; do
+    if [ -n "$after" ]; then
+      page="$(gh_read "the cards of board $(project_number) after $after" api graphql -f pid="$(project_id)" -f after="$after" -f query='
+        query($pid:ID!, $after:String) { node(id:$pid) { ... on ProjectV2 {
+          items(first:100, after:$after) { pageInfo { hasNextPage endCursor }
+            nodes { id
+              content { ... on Issue { number repository { nameWithOwner } } }
+              fieldValues(first:20) { nodes { ... on ProjectV2ItemFieldSingleSelectValue {
+                name field { ... on ProjectV2SingleSelectField { name } } } } } } } } } }')" || exit 1
+    else
+      page="$(gh_read "the cards of board $(project_number)" api graphql -f pid="$(project_id)" -f query='
+        query($pid:ID!) { node(id:$pid) { ... on ProjectV2 {
+          items(first:100) { pageInfo { hasNextPage endCursor }
+            nodes { id
+              content { ... on Issue { number repository { nameWithOwner } } }
+              fieldValues(first:20) { nodes { ... on ProjectV2ItemFieldSingleSelectValue {
+                name field { ... on ProjectV2SingleSelectField { name } } } } } } } } } }')" || exit 1
+    fi
+    printf '%s' "$page" | jq -r --arg r "$1" '
+      .data.node.items.nodes[]
+      | select(.content.number != null and .content.repository.nameWithOwner == $r)
+      | . as $i
+      | ($i.fieldValues.nodes | map(select(.field.name == "Status"))   | .[0].name // "") as $s
+      | ($i.fieldValues.nodes | map(select(.field.name == "Priority")) | .[0].name // "") as $p
+      | "\($i.content.number)\t\($s)\t\($p)"'
+    [ "$(printf '%s' "$page" | jq -r '.data.node.items.pageInfo.hasNextPage')" = 'true' ] || break
+    after="$(printf '%s' "$page" | jq -r '.data.node.items.pageInfo.endCursor')"
+  done
+}
+
+# card_rows: every card of the selected board that is an issue, one JSON object per line, the card row
+# of lib/tracker.sh:
+#   {repo, number, title, open, closedAt, status, priority, parent, subs}
+# repo and parent are "owner/repo" and "owner/repo#number"; closedAt is an ISO 8601 time or null;
+# status and priority are the names of the card's Status and Priority, or null; subs counts sub-issues.
+card_rows() {
+  local after="" out cards
+  cards='(.data.node.items.nodes[] | tojson), (.data.node.items.pageInfo | select(.hasNextPage) | "after \(.endCursor)")'
+  while :; do
+    out="$(gh_read "the cards of board $(project_number)" api graphql -f pid="$(project_id)" ${after:+-f after="$after"} -f query='
+      query($pid:ID!, $after:String) { node(id:$pid) { ... on ProjectV2 {
+        items(first:100, after:$after) { pageInfo { hasNextPage endCursor } nodes {
+          status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+          priority: fieldValueByName(name:"Priority") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+          content { ... on Issue { number title state closedAt repository { nameWithOwner }
+            parent { number repository { nameWithOwner } } subIssuesSummary { total } } } } } } } }' --jq "$cards")" || exit 1
+    grep '^{' <<< "$out" | jq -c 'select(.content.number != null) | .content as $c
+      | { repo: $c.repository.nameWithOwner, number: $c.number, title: $c.title, open: ($c.state == "OPEN"),
+          closedAt: $c.closedAt, status: .status.name, priority: .priority.name,
+          parent: (if $c.parent then "\($c.parent.repository.nameWithOwner)#\($c.parent.number)" else null end),
+          subs: ($c.subIssuesSummary.total // 0) }'
+    after="$(sed -n 's/^after //p' <<< "$out")"
+    [ -n "$after" ] || break
+  done
+}
+
+# open_issue_page <owner/repo> [cursor]: one page of the open issues of the repository with their cards
+# (board number, owner and Status), the time of the last reopening and the last 50 comments, as the
+# tracker answers it; status-sync reads it and pages with the cursor.
+open_issue_page() {
+  gh_read "the open issues of $1" api graphql -f o="${1%%/*}" -f n="${1#*/}" ${2:+-f after="$2"} -f query='
+    query($o:String!, $n:String!, $after:String) { repository(owner:$o, name:$n) {
+      issues(states:OPEN, first:50, after:$after) { pageInfo { hasNextPage endCursor } nodes {
+        number subIssuesSummary { total }
+        projectItems(first:20) { nodes { project { number owner { ... on Organization { login } ... on User { login } } }
+          status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } }
+        reopened: timelineItems(last:1, itemTypes:[REOPENED_EVENT]) { nodes { ... on ReopenedEvent { createdAt } } }
+        comments(last:50) { nodes { createdAt body authorAssociation } } } } } }'
+}
+
+# board_fields_json: the single-select fields of the selected board with their options, as the tracker
+# answers it, for field-option-add to decide on.
+board_fields_json() {
+  gh_read "the fields of board $(project_number)" api graphql -f pid="$(project_id)" -f query='
+    query($pid:ID!) { node(id:$pid) { ... on ProjectV2 {
+      fields(first:50) { nodes { ... on ProjectV2SingleSelectField {
+        id name options { id name color description } } } } } } }'
+}
+
+# field_options_replace <field> <request body file>: sends the request body that carries the field's
+# whole new option list, and prints the option names that stand afterwards, one per line.
+field_options_replace() {
+  gh_read "the options of '$1' on board $(project_number)" api graphql --input "$2" \
+    --jq '.data.updateProjectV2Field.projectV2Field.options[].name'
+}
+
+# project_create <organisation> <number of the board to copy> <title>: prints "<number>\t<url>" of the
+# new board.
+project_create() {
+  local org src
+  org="$(gh_read "the id of $1" api graphql -f o="$1" -f query='
+    query($o:String!){ organization(login:$o){ id } }' \
+    --jq '.data.organization.id')" || exit 1
+  src="$(gh_read "the id of project $2 in $1" api graphql -f o="$1" -F n="$2" -f query='
+    query($o:String!,$n:Int!){ organization(login:$o){ projectV2(number:$n){ id } } }' \
+    --jq '.data.organization.projectV2.id')" || exit 1
+  [ -n "$src" ] || die "no project $2 in $1 to copy from"
+  gh_read "the board copied from project $2" api graphql -f pid="$src" -f oid="$org" -f t="$3" -f query='
+    mutation($pid:ID!,$oid:ID!,$t:String!){
+      copyProjectV2(input:{projectId:$pid, ownerId:$oid, title:$t, includeDraftIssues:false}){
+        projectV2 { number url } } }' \
+    --jq '.data.copyProjectV2.projectV2 | "\(.number)\t\(.url)"'
+}
+
+# ONE ROW PER REPOSITORY, AND ONE MORE PER BOARD IT IS LINKED TO. Packing the boards into the
+# repository's own row would mean filtering rows by their board title in the caller, and a repository
+# whose only link is to the template board would then vanish from the report entirely - which is the
+# one answer repo-boards exists to never give.
+# repo_boards_rows <organisation>: every repository of the organisation, paged, as one
+# "R\t<owner/repo>\t<archived true|false>" line and one "B\t<owner/repo>\t<number>\t<title>" line for
+# each open board it is linked to.
+repo_boards_rows() {
+  local org="$1" after="" page
+  while :; do
+    if [ -n "$after" ]; then
+      page="$(gh_read "the repositories of $org after $after" api graphql -f o="$org" -f after="$after" -f query='
+        query($o:String!, $after:String) { organization(login:$o) {
+          repositories(first:100, after:$after) { pageInfo { hasNextPage endCursor }
+            nodes { nameWithOwner isArchived
+              projectsV2(first:50) { nodes { number title closed } } } } } }')" || exit 1
+    else
+      page="$(gh_read "the repositories of $org" api graphql -f o="$org" -f query='
+        query($o:String!) { organization(login:$o) {
+          repositories(first:100) { pageInfo { hasNextPage endCursor }
+            nodes { nameWithOwner isArchived
+              projectsV2(first:50) { nodes { number title closed } } } } } }')" || exit 1
+    fi
+    printf '%s' "$page" | jq -r '.data.organization.repositories.nodes[] | . as $r
+      | "R\t\($r.nameWithOwner)\t\($r.isArchived)",
+        ($r.projectsV2.nodes[] | select(.closed == false)
+         | "B\t\($r.nameWithOwner)\t\(.number)\t\(.title)")'
+    [ "$(printf '%s' "$page" | jq -r '.data.organization.repositories.pageInfo.hasNextPage')" = 'true' ] || break
+    after="$(printf '%s' "$page" | jq -r '.data.organization.repositories.pageInfo.endCursor')"
+  done
+}
+
+# repo_link <owner/repo>: links the repository to the selected board and prints its name as the
+# tracker answers it. What the mutation answered is printed as the confirmation, so it is established
+# as an answer first: piped straight into sed, a refusal prints as `linked: {"data":null,...}`.
+repo_link() {
+  local rid
+  rid="$(gh_read "the node id of $1" api "repos/$1" --jq '.node_id')" || exit 1
+  gh_read "the link between $1 and board $(project_number)" api graphql \
+    -f pid="$(project_id)" -f rid="$rid" -f query='
+    mutation($pid:ID!, $rid:ID!) {
+      linkProjectV2ToRepository(input:{projectId:$pid, repositoryId:$rid}) {
+        repository { nameWithOwner } } }' \
+    --jq '.data.linkProjectV2ToRepository.repository.nameWithOwner'
+}
+
+# board_views <board as the caller named it>: the views of the selected board, one "<name>\t<id>" per line.
+board_views() {
+  gh_read "the views of board $1" api graphql -f pid="$(project_id)" -f query='
+    query($pid:ID!){ node(id:$pid){ ... on ProjectV2 { views(first:20){ nodes { id name filter } } } } }' \
+    --jq '.data.node.views.nodes[] | "\(.name)\t\(.id)"'
+}
+
+# view_filter_set <view id> <filter>: prints "<view>: <filter>" as the tracker answers it, "shows
+# everything" for an empty filter. What the mutation answered is the line this prints, so it is
+# established as an answer first rather than written to the screen as the result of a filter that
+# was never set.
+view_filter_set() {
+  gh_read "the filter set on view '$1'" api graphql -f vid="$1" -f f="$2" -f query='
+    mutation($vid:ID!,$f:String!){ updateProjectV2View(input:{viewId:$vid, filter:$f}){ projectV2View { name filter } } }' \
+    --jq '.data.updateProjectV2View.projectV2View | "\(.name): \(if .filter == "" then "shows everything" else .filter end)"'
+}
+
+# mutation_schema: GitHub's GraphQL interface, the Mutation type with its fields and their payloads,
+# for schema-check. Exit 2 where gh is missing, the exit status of the read otherwise; gh writes its
+# error body to STDOUT where the answer would be, so a caller judges by the status.
+mutation_schema() {
+  command -v gh >/dev/null 2>&1 || { echo "error: gh is not on PATH, and the schema is read through it" >&2; return 2; }
+  gh api graphql -f query='{ __type(name:"Mutation") { fields { name type { name fields { name } } } } }' 2>&1
+}

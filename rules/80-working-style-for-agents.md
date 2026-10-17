@@ -56,7 +56,7 @@
   integrated yet joins that package, and a package cut by file splits a contract and releases its
   two sides apart. Every agent's name follows `<phase><n>-<model><version>-<effort>-<budget>k-<5 hex>`,
   `<phase>` the letter of its phase, so a reader sees its role in the name: `p` plan and plan
-  check, `i` build, `r` review, second reading and re-check, `t` UI test and live check; `<n>` from a block of ten thousand that belongs to the coordinator starting it and stays its
+  check, `i` build, `r` review and re-check, `t` UI test and live check; `<n>` from a block of ten thousand that belongs to the coordinator starting it and stays its
   own across restarts (`10001` and on, `20001` and on), the next block above every number that
   runs or ran on the machine, so two coordinators never hand out the same number;
   the package it works on carries it in its `PHASE` line on the plan issue. Once approved, run independent agents in parallel, never for work that fits
@@ -76,11 +76,8 @@
   pre-review whose answer the session can check cheaply goes to the helper of the same tool, the
   table's helper row; a UI test or a live check is a phase of its own, on the table's model for it.
   A table's `high-risk` rows name a model at least as strong as its `normal-hard` rows, because
-  security, payments and contract work are never moved to a cheaper model to save money, and a
-  `high-risk` review is read a second time by a model that neither built nor first reviewed it, the
-  table's review-second row, or by the owner where the tool has none, because two
-  readers with the same habits share a blind spot. The repair after a NO is re-checked by one
-  reader against the named findings, reading only the repair, because a whole package read again
+  security, payments and contract work are never moved to a cheaper model to save money.
+  The repair after a NO is re-checked by one reader against the named findings, reading only the repair, because a whole package read again
   for a few repaired lines costs a full review.
   A helper never builds, never gives the deciding review and never decides; its answer is a lead the
   session checks before it uses it. No task moves to another model, effort or tool because a quota

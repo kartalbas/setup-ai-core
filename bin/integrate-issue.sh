@@ -6,9 +6,8 @@
 #
 # Between start-issue and finish-issue. Run it in the worktree of the issue, on its branch, once the
 # reviewer gave the GO. It fetches origin, puts the worktree on the newest origin/<default>, merges
-# the branch with --no-ff under the issue's title and a 'Reviewed-by: REVIEWER' trailer per reviewer
-# (a high-risk change is read by two), pushes
-# HEAD:<default> through the gate, and checks the branch out again for finish-issue. The issue is read
+# the branch with --no-ff under the issue's title and a 'Reviewed-by: REVIEWER' trailer per reviewer,
+# pushes HEAD:<default> through the gate, and checks the branch out again for finish-issue. The issue is read
 # in OWNER/REPO where it is given, else in the repository start-issue recorded on the branch, else in
 # the checkout's own.
 #

@@ -145,7 +145,7 @@ check 'exit 0'                         0 "$rc"
 check 'the subject names the branch'   'Merge issue-78-columns (#78)' "$(git --git-dir="$origin" log -1 --format=%s master)"
 echo 'Read the board whole' > "$title"
 
-echo 'two reviewers, as a high-risk change has: one trailer each, in the order given, and a name given twice once'
+echo 'two reviewers: one trailer each, in the order given, and a name given twice once'
 wt12="$(new_tree 88 two)"
 out="$(integrate "$wt12" 88 --reviewed-by l4 --reviewed-by=l5 --reviewed-by l4)"; rc=$?
 check 'exit 0'                         0 "$rc"

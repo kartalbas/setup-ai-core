@@ -71,10 +71,7 @@ for (( i=${#wanted[@]}-1; i>=0; i-- )); do
     placed=$(( placed + 1 ))
     continue
   fi
-  gh api graphql -f pid="$(project_id)" -f iid="$item" -f query='
-    mutation($pid:ID!, $iid:ID!) {
-      updateProjectV2ItemPosition(input:{projectId:$pid, itemId:$iid}) {
-        items { totalCount } } }' >/dev/null
+  item_top "$item"
   placed=$(( placed + 1 ))
 done
 

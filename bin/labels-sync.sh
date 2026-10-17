@@ -49,7 +49,7 @@ for repo in "$@"; do
   echo "$repo"
   while IFS=$'\t' read -r group name color desc; do
     [ -n "$name" ] || continue
-    gh label create "$name" --repo "$repo" --color "$color" --description "$desc" --force >/dev/null
+    labels_create "$repo" "$name" "$color" "$desc"
     printf '  %-8s %s\n' "$group" "$name"
   done <<< "$taxonomy"
 
@@ -57,7 +57,7 @@ for repo in "$@"; do
   # The list is read before it is filtered. The `|| true` below belongs to grep, which reports "no
   # line matched" the same way it reports an error - so a refused query would come out the other
   # side and be printed as labels this repository carries.
-  on="$(gh_read "the labels of $repo" label list --repo "$repo" --limit 200 --json name --jq '.[].name')" || exit 1
+  on="$(labels_list "$repo")" || exit 1
   extra="$(grep -vxF "$known" <<< "$on" || true)"
   [ -z "$extra" ] || {
     echo "  not in labels.tsv, left alone:"

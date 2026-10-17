@@ -30,15 +30,9 @@ set -- "${args[@]}"
 set_project "$project" >/dev/null
 
 for repo in "$@"; do
-  rid="$(gh_read "the node id of $repo" api "repos/$repo" --jq '.node_id')" || exit 1
   # What the mutation answered is printed as the confirmation, so it is established as an answer
   # first. Piping it straight into sed prints a refusal as `linked: {"data":null,...}`.
-  linked="$(gh_read "the link between $repo and board $(project_number)" api graphql \
-    -f pid="$(project_id)" -f rid="$rid" -f query='
-    mutation($pid:ID!, $rid:ID!) {
-      linkProjectV2ToRepository(input:{projectId:$pid, repositoryId:$rid}) {
-        repository { nameWithOwner } } }' \
-    --jq '.data.linkProjectV2ToRepository.repository.nameWithOwner')" || exit 1
+  linked="$(repo_link "$repo")" || exit 1
   echo "linked: $linked"
 done
 

@@ -154,7 +154,7 @@ project repository:
 setup-ai-core (public)
 ├── bin/          the ai-core command and every script: install, doctor, init, session-start, and the
 │                 board and issue commands (issue-new, start-issue, board-sync, status, ...)
-├── lib/          the libraries of the commands (board, layers, status), gitignore-block, binding-rules.md
+├── lib/          the libraries of the commands (board, tracker, common, github/, layers, status), gitignore-block, binding-rules.md
 ├── rules/        one file per section (NN-slug.md) and skills.md, generic
 ├── skills/       the skills every checkout gets: person-in-charge, helper
 ├── skeleton/     what a new project harness starts from
@@ -841,6 +841,8 @@ allowed; any other value is an error.
 | Key | Values | Meaning |
 | :--- | :--- | :--- |
 | `AGENTS` | names separated by spaces: `claude`, `codex`, `antigravity`, `openhands`, `gemini`, `cursor`, `windsurf`, `copilot`; default `claude codex antigravity openhands` | the agents this project serves. `init` deploys the file of each one named (`.cursorrules`, `.windsurfrules`, `.github/copilot-instructions.md`, `.openhands/microagents/repo-rules.md`) and no other. Empty: every pointer file. |
+| `TRACKER` | `github` (default) | where the project's issues and board live: the folder of `lib/` whose `tracker.sh` every issue and board command calls. A value with no such folder stops the command and names the folders there are. The environment variable `TRACKER` overrides it. |
+| `FORGE` | `github` (default) | where the project's code lives: the folder of `lib/` whose `forge.sh` creates and clones the harness repository, waits for the check of a release commit and names the signed-in user. A value with no such folder stops the command and names the folders there are. The environment variable `FORGE` overrides it. |
 | `GH_ORG` | a GitHub organisation or user | the owner the board commands act for when a command names no repository (`repo-boards`, `project-new`, `incident-count`, a bare board number). Unset: the owner of the repository the command runs in. The environment variable `GH_ORG` overrides both. |
 | `MAP_TOOL` | `claude` (default), `codex`, `agy` | the agent CLI `ai-core map` writes the map with, in its non-interactive read-only mode; `AI_CORE_MAP_TOOL` in the environment names the CLI of one machine instead, for example `agy` where Claude's quota is spent |
 | `MAP_MODEL` | a model id, or empty (default) | the model that CLI uses for the map; empty is the CLI's own default. It goes only with `MAP_TOOL`: `AI_CORE_MAP_MODEL` in the environment names the model of one machine, and a machine that names another CLI without it gets that CLI's default (`agy models` lists agy's, e.g. `claude-sonnet-5-5-high`) |
@@ -998,8 +1000,8 @@ yours from then on (the project harness will carry them):
 **The commands.** All run as `ai-core <name>` and take `--help`. A command that names
 no repository acts on the one it runs in; `OWNER/REPO` before the issue number names another.
 
-A call GitHub refuses with a rate limit is repeated by every command that sources `lib/board.sh`
-(the issue, board and landing commands; `release`, `doctor`, `init` and the push gate do not): the harness asks GitHub which limit it is, GraphQL `rateLimit` and
+A call GitHub refuses with a rate limit is repeated by every command, because every `gh` call of the harness
+goes through `lib/github/gh.sh` (the issue, board and landing commands, `release`, `doctor`, `init` and the push gate): the harness asks GitHub which limit it is, GraphQL `rateLimit` and
 REST `rate_limit`, tells a spent budget (waits until its reset) from the limit for bursts (a minute,
 doubled per try), repeats the call three times at most, and then fails with a message that names
 the limit. A wait longer than 15 minutes fails at once. The wait notice goes to stderr, so a command
@@ -1039,7 +1041,7 @@ repository over REST. `AI_CORE_SLEEP` names the command that waits, `sleep` by d
 | `labels-sync` | applies `labels.tsv` to one repository, to named ones, or to every repository on a board |
 | `incident-count` | the issues carrying each `incident:` label per ISO week |
 | `team-modes-check`, `team-modes-install` | section 4.6 |
-| `schema-check` | holds every GraphQL mutation in `bin/` and `lib/` against the schema github.com publishes; the one check that reaches the network, run by CI |
+| `schema-check` | holds every GraphQL mutation in `bin/` and `lib/` against the schema github.com publishes; the one check that reaches the network, run by CI; where `TRACKER` is not `github` it says that the schema is GitHub's and exits 0 |
 
 **The hooks.** A repository that wants the gate before every push carries the three-line shim
 `ai-core pre-push --install` writes into `.githooks/pre-push`, and beside it `.githooks/post-checkout`,
@@ -1202,6 +1204,10 @@ setup-ai-core/
 │   └── schema-check                     the check of the board commands themselves
 ├── lib/
 │   ├── board.sh                         the library of the board commands
+│   ├── tracker.sh                       reads TRACKER and sources lib/<TRACKER>/tracker.sh, the calls to the issue tracker
+│   ├── common.sh                        what the libraries and providers share: die, data_dir, config_value, apart
+│   ├── forge.sh                         reads FORGE and sources lib/<FORGE>/forge.sh, the calls to the code host
+│   ├── github/                          the GitHub provider: gh.sh (gh with the rate limits met), tracker.sh, forge.sh
 │   ├── layers.sh                        the project harness: from origin, beside the repositories, cloned, pulled, created, the extends chain
 │   ├── gitignore-block                  the block init writes into a project's .gitignore
 │   ├── binding-rules.md                 the binding rules init puts on top of every map and into a project folder's AGENTS.md

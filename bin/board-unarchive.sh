@@ -29,13 +29,6 @@ while [ $# -gt 0 ]; do
 done
 set -- "${args[@]}"
 
-unarchive() {  # unarchive <item id>
-  gh api graphql -f pid="$(project_id)" -f iid="$1" -f query='
-    mutation($pid:ID!, $iid:ID!) {
-      unarchiveProjectV2Item(input:{projectId:$pid, itemId:$iid}) { item { id } } }' \
-    --jq '.data.unarchiveProjectV2Item.item.id' >/dev/null
-}
-
 if [ $# -ge 2 ]; then
   repo="$(resolve_repo "$1")"; case "$1" in */*) shift ;; esac
   set_project "$project" "$repo" >/dev/null
@@ -43,7 +36,7 @@ if [ $# -ge 2 ]; then
     case "$n" in ''|*[!0-9]*) die "the issue number must be numeric, not '$n'" ;; esac
     id="$(archived_item_id "$repo" "$n")" || exit 1
     if [ -z "$id" ]; then echo "#$n is not archived"; continue; fi
-    unarchive "$id"
+    item_unarchive "$id"
     echo "#$n -> back on the board"
   done
   exit 0
@@ -58,12 +51,11 @@ swept=0
 # repo with no closed issues, and the run would end with "0 card(s) brought back".
 linked="$(project_repos)" || exit 1
 for repo in $linked; do
-  closed="$(gh_read "the closed issues of $repo" issue list --repo "$repo" --state closed --limit 200 \
-             --json number --jq '.[].number')" || exit 1
+  closed="$(issue_numbers_closed "$repo")" || exit 1
   for n in $closed; do
     id="$(archived_item_id "$repo" "$n")" || exit 1
     [ -n "$id" ] || continue
-    unarchive "$id"
+    item_unarchive "$id"
     echo "  $repo#$n -> back on the board"
     swept=$((swept + 1))
   done

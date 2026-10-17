@@ -24,8 +24,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "$reason" in
-  completed)   state_reason="completed" ;;
-  not-planned) state_reason="not_planned" ;;
+  completed|not-planned) ;;
   *) die "--reason must be completed or not-planned, not '$reason'" ;;
 esac
 
@@ -42,8 +41,7 @@ done
 # closed ONCE, but its cards are plural - a sub-issue of a cross-repository epic sits on two
 # boards, and one line saying "closed, done" about one of them is false about the other.
 for n in "${numbers[@]}"; do
-  gh_read "the close of $repo#$n" api --method PATCH "repos/$repo/issues/$n" \
-    -f state=closed -f state_reason="$state_reason" >/dev/null || exit 1
+  issue_close "$repo" "$n" "$reason"
   echo "#$n -> closed"
   for_each_board "$repo" "$n" Status done "done"
   update_parent_epic "$repo" "$n" || exit 1

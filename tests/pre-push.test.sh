@@ -46,7 +46,7 @@ export TEAM_MODES_FILE="$green"
 stub="$fake/stub"; mkdir -p "$stub"
 # The real gitleaks, found before the stub shadows it: one case needs what git really shows it.
 real_gitleaks="$(command -v gitleaks || true)"
-mkdir -p "$fake/lib"; cp "$root/lib/layers.sh" "$fake/lib/"
+mkdir -p "$fake/lib"; cp -R "$root/lib/." "$fake/lib/"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/claude"
 # The gitleaks stub writes down every argument it was given; asked for the help of `gitleaks git`,
 # it has the subcommand unless PROBE_LEAKS is old, a gitleaks from before 8.19

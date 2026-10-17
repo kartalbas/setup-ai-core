@@ -22,16 +22,5 @@ blocked_repo="$1"; blocked_num="$2"; by_repo="$3"; by_num="$4"
 case "$blocked_num" in ''|*[!0-9]*) die "the blocked issue number must be numeric, not '$blocked_num'" ;; esac
 case "$by_num" in ''|*[!0-9]*) die "the blocking issue number must be numeric, not '$by_num'" ;; esac
 
-# THE ENDPOINT'S REPO IS THE BLOCKED ISSUE'S and the id is the BLOCKER's database id -
-# resolved BEFORE the call, so an id that could not be read stops the run instead of being
-# posted as an empty one.
-by_id="$(issue_db_id "$by_repo" "$by_num")" || exit 1
-if ! answer="$(gh api --method POST "repos/$blocked_repo/issues/$blocked_num/dependencies/blocked_by" \
-      -F issue_id="$by_id" 2>&1)"; then
-  case "$answer" in
-    *422*) die "$blocked_repo#$blocked_num is already blocked by $by_repo#$by_num - nothing was changed" ;;
-    *404*) die "an issue was not found - check OWNER/REPO and the numbers on both sides" ;;
-    *)     die "$answer" ;;
-  esac
-fi
+issue_block "$blocked_repo" "$blocked_num" "$by_repo" "$by_num"
 echo "$blocked_repo#$blocked_num is blocked by $by_repo#$by_num"

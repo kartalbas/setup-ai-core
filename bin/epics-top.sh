@@ -46,7 +46,7 @@ items="$(board_items)" || exit 1
 epics=""
 while IFS=$'\t' read -r item repo number; do
   [ -n "$item" ] || continue
-  title="$(gh_read "the title of $repo#$number" issue view "$number" --repo "$repo" --json title --jq '.title')" || exit 1
+  title="$(issue_title "$repo" "$number")" || exit 1
   case "$title" in
     "EPIC · "*|"EPIC "*|"EPIC:"*) epics="$epics$item"$'\t'"$repo"$'\t'"$number"$'\t'"$title"$'\n' ;;
   esac
@@ -63,10 +63,7 @@ printf '%s' "$epics" | awk '{ line[NR] = $0 } END { for (i = NR; i > 0; i--) pri
     echo "would lift  $repo#$number  $title"
     continue
   fi
-  gh api graphql -f pid="$(project_id)" -f iid="$item" -f query='
-    mutation($pid:ID!, $iid:ID!) {
-      updateProjectV2ItemPosition(input:{projectId:$pid, itemId:$iid}) {
-        items { totalCount } } }' >/dev/null
+  item_top "$item"
   echo "lifted      $repo#$number  $title"
 done
 

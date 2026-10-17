@@ -76,7 +76,7 @@ send="$body"
 kept=""
 given=""; [ -z "$body" ] || IFS= read -r given < "$body" || true
 if [ -n "$body" ] && ! is_origin_line "${given%$'\r'}"; then
-  current="$(gh_read "the body of $repo#$num" api "repos/$repo/issues/$num" --jq '.body')" || exit 1
+  current="$(issue_body "$repo" "$num")" || exit 1
   # GitHub writes a body back with CRLF line endings, and the carriage return would travel into
   # the line being put back.
   first="$(printf '%s' "$current" | head -n 1)"
@@ -91,10 +91,7 @@ if [ -n "$body" ] && ! is_origin_line "${given%$'\r'}"; then
   fi
 fi
 
-call=(api --method PATCH "repos/$repo/issues/$num")
-[ -n "$title" ] && call+=(-f "title=$title")
-[ -n "$body" ] && call+=(-F "body=@$send")
-gh_read "the edit of $repo#$num" "${call[@]}" >/dev/null || exit 1
+issue_edit "$repo" "$num" "$title" "${body:+$send}"
 
 changed=""
 [ -n "$title" ] && changed="title"

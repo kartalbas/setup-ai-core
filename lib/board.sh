@@ -15,44 +15,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-die() { echo "error: $*" >&2; exit 1; }
-
-# --- where the data lives -----------------------------------------------------
-
-# THE DATA FILES ARE THE PROJECT'S, NOT THE HARNESS'S: labels.tsv, assignees.tsv, team-modes.tsv,
-# models.tsv.
-# A checkout carries them in .ai-core/, put there by init; the clone's templates hold the
-# defaults a project starts from. Every reader asks here, so every command
-# reads the same file: the one of the repository the caller stands in, or of the project folder.
-data_dir() {
-  local top
-  top="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-  [ -n "$top" ] || top="$PWD"
-  echo "$top/.ai-core"
-}
-data_file() {  # data_file <name>
-  local f
-  f="$(data_dir)/$1"
-  if [ -f "$f" ]; then echo "$f"; else echo "$ROOT/templates/.ai-core/$1"; fi
-}
-
-# THE ORGANISATION, for a command that names no repository: GH_ORG in the environment, then
-# GH_ORG= in the checkout's .ai-core/config.env (the project's setting, put there by init), then
-# the owner of the repository the caller stands in. The harness itself names none: it serves many.
-gh_org() {
-  local line repo
-  if [ -n "${GH_ORG:-}" ]; then echo "$GH_ORG"; return 0; fi
-  # Resolved once per process: the answer is exported so no later call asks gh again
-  if [ -f "$(data_dir)/config.env" ]; then
-    line="$(grep -E '^[[:space:]]*GH_ORG[[:space:]]*=' "$(data_dir)/config.env" | tail -n1 || true)"
-    line="${line#*=}"; line="${line%%#*}"; line=${line//[[:space:]\"\']/}
-    if [ -n "$line" ]; then export GH_ORG="$line"; echo "$line"; return 0; fi
-  fi
-  repo="$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)" \
-    || die "no organisation: set GH_ORG in .ai-core/config.env or the environment, or run this inside a repository of it"
-  export GH_ORG="${repo%%/*}"
-  echo "$GH_ORG"
-}
+# The tracker the project names (TRACKER in its config.env) brings in the functions that ask the
+# issue tracker, gh_org and project_id among them, and common.sh: die, data_dir, data_file, apart.
+. "$ROOT/lib/tracker.sh"
 
 # THE DEFAULT BRANCH OF ORIGIN: asked of the remote, else origin/HEAD where it resolves. A clone's
 # origin/HEAD is a copy that goes stale: it keeps the old branch after the default is renamed, or a
@@ -104,141 +69,6 @@ reject_options() {  # reject_options "$@"
   for a in "$@"; do
     case "$a" in -*) die "unknown argument '$a'" ;; esac
   done
-}
-
-# A COMMAND'S DATA AND ITS STDERR, KEPT APART.
-#
-# `x="$(cmd 2>&1)"` makes everything the command says on stderr part of x. For a caller that parses
-# x, a line of the gh function below ("waiting 60s ...") then stands in front of the JSON or the
-# repository name, and the parse fails or reads a wrong value. A caller that parses what it
-# captured therefore takes it through `apart`: on success the data is the stdout alone and the
-# stderr goes on to the caller's own stderr; on failure both come out together, stdout first, as the
-# text for the caller's error message, and the exit status is passed on.
-#
-# run_split is the shared half: it runs a command with the two streams in separate places, sets
-# split_out and split_err and returns the command's status. Its temporary file goes with an
-# interrupt (INT, TERM); no script of this repository traps those two.
-run_split() {  # run_split <command>...
-  local err rc=0
-  err="$(mktemp)"
-  trap 'rm -f "$err"; exit 130' INT TERM
-  split_out="$("$@" 2>"$err")" || rc=$?
-  split_err="$(cat "$err")"
-  rm -f "$err"; trap - INT TERM
-  return "$rc"
-}
-
-apart() {  # apart <command>...
-  local rc=0
-  run_split "$@" || rc=$?
-  if [ "$rc" -eq 0 ]; then
-    [ -z "$split_err" ] || printf '%s\n' "$split_err" >&2
-    [ -z "$split_out" ] || printf '%s\n' "$split_out"
-  else
-    printf '%s\n' "${split_out:+$split_out$'\n'}$split_err"
-  fi
-  return "$rc"
-}
-
-# EVERY gh CALL OF THIS REPOSITORY MEETS GITHUB'S RATE LIMITS HERE, ONCE.
-#
-# A burst of calls from several sessions of one account is refused with "API rate limit already
-# exceeded" while `gh api rate_limit` still shows thousands of points left for GraphQL: the REST
-# view does not show the budget that GraphQL spends. So this function shadows `gh` in every script
-# that sources this file (not release.sh or doctor.sh, which do not), and a refusal, recognised on
-# gh's STDERR alone because stdout may quote anything, is told apart by asking GitHub itself:
-#   GraphQL `rateLimit` remaining 0, or REST `rate_limit` core remaining 0:
-#                 the primary limit of that API: wait until its reset;
-#   both above 0: the secondary limit, the one for bursts: a minute, doubled per try.
-# The call is then repeated, GH_RATE_RETRIES times at most. A wait longer than GH_RATE_WAIT_MAX, or
-# the last refusal, ends in a message that names the limit and leaves gh's answer and exit status
-# to the caller, so gh_read and every bare call fail as they always did, with the limit named.
-# The wait notice goes to stderr, which is why a caller that parses its capture uses `apart`.
-#
-# A call that reads its request from standard input (`--input -`) is not repeated: the first try
-# consumed it. AI_CORE_SLEEP names the command that waits, `sleep` unless a test says otherwise.
-GH_RATE_RETRIES=3
-GH_RATE_WAIT_BASE=60
-GH_RATE_WAIT_MAX=900
-
-gh() {
-  local rc try=0 out err
-  case " $* " in *" --input - "*) command gh "$@"; return ;; esac
-  while :; do
-    rc=0; run_split command gh "$@" || rc=$?
-    out="$split_out"; err="$split_err"
-    if [ "$rc" -ne 0 ] && grep -qiE 'API rate limit (already )?exceeded|secondary rate limit' <<< "$err"; then
-      if [ "$try" -lt "$GH_RATE_RETRIES" ]; then
-        try=$((try + 1))
-        gh_rate_wait "$try"
-        if [ "$gh_rate_seconds" -le "$GH_RATE_WAIT_MAX" ]; then
-          echo "waiting ${gh_rate_seconds}s for $gh_rate_limit (try $try of $GH_RATE_RETRIES)" >&2
-          "${AI_CORE_SLEEP:-sleep}" "$gh_rate_seconds"
-          continue
-        fi
-        err="$err"$'\n'"$gh_rate_limit refuses and does not lift within $GH_RATE_WAIT_MAX seconds"
-      else
-        err="$err"$'\n'"$gh_rate_limit still refuses after $try waits"
-      fi
-    fi
-    [ -z "$out" ] || printf '%s\n' "$out"
-    [ -z "$err" ] || printf '%s\n' "$err" >&2
-    return "$rc"
-  done
-}
-
-# Sets gh_rate_seconds and gh_rate_limit, a phrase that names the limit. Globals, because bash 3.2
-# has no way to return two values.
-gh_rate_wait() {  # gh_rate_wait <which try>
-  local api remaining reset_epoch probe
-  gh_rate_limit="GitHub's secondary rate limit"
-  gh_rate_seconds=$(( GH_RATE_WAIT_BASE * (1 << ($1 - 1)) ))
-  for api in GraphQL REST; do
-    if [ "$api" = GraphQL ]; then
-      probe="$(command gh api graphql -f query='{ rateLimit { remaining resetAt } }' 2>/dev/null \
-        | jq -r '.data.rateLimit | "\(.remaining) \(.resetAt | fromdateiso8601)"' 2>/dev/null)" || probe=""
-    else
-      probe="$(command gh api rate_limit 2>/dev/null | jq -r '.resources.core | "\(.remaining) \(.reset)"' 2>/dev/null)" || probe=""
-    fi
-    remaining=""; reset_epoch=""
-    read -r remaining reset_epoch <<< "$probe" || true
-    if [ "$remaining" = 0 ] && [ -n "$reset_epoch" ]; then
-      gh_rate_limit="GitHub's primary $api rate limit (spent until $(date -u -d "@$reset_epoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "$reset_epoch"))"
-      gh_rate_seconds=$(( reset_epoch - $(date +%s) + 1 ))
-      [ "$gh_rate_seconds" -ge 1 ] || gh_rate_seconds=1
-      return 0
-    fi
-  done
-}
-
-# EVERYTHING THIS REPOSITORY ASKS gh GOES THROUGH HERE.
-#
-# A refused query is not an empty result. When the server refuses, gh writes the whole error body
-# to STDOUT - where the rows would be - puts a one-line complaint on stderr, and exits non-zero. It
-# does that even when --jq was given, because the jq program never runs at all. So a caller that
-# reads stdout and counts lines reads the complaint as data: a board with one row that is not a
-# card, a repo linked to no project, an archived card that is not there.
-#
-# The exit status is the one signal that tells an answer from a refusal, and it is the same signal
-# whatever shape the rows have - so it is checked HERE, once, and the output is handed on only when
-# gh said it answered. What gh wrote to STDERR is left where it is: that is the sentence naming
-# which query was refused, and a redirect silencing it leaves nothing on the screen but a run that
-# stopped.
-#
-# A caller that must stop rather than continue with nothing writes `x="$(gh_read ...)" || exit 1`.
-# `die` inside `$( )` exits the substitution and nothing else, which is the same trap set_select
-# names below.
-#
-# WHAT THIS CANNOT SAY is whether the answer is the one that was asked for: a query gh accepts
-# answers `{}` with exit 0 when the id it was given belongs to something else. That is a question
-# about the VALUE, and it is asked where the value is used - see project_id.
-gh_read() {  # gh_read <what was asked for> <gh argument>...
-  local what="$1"; shift
-  local out rc=0
-  out="$(gh "$@")" || rc=$?
-  [ "$rc" -eq 0 ] || die "cannot read $what - gh exited $rc${out:+, and answered: $out}"
-  [ -n "$out" ] || return 0
-  printf '%s\n' "$out"
 }
 
 # --- the label taxonomy -------------------------------------------------------
@@ -311,24 +141,6 @@ label_names_in_group() {  # label_names_in_group <group> [file]
 }
 
 # --- repositories -------------------------------------------------------------
-
-# Which repo to act on. A colleague standing in their own checkout does not have to
-# type it; anyone driving another repo from elsewhere passes it explicitly.
-#
-# The ONE gh call that does not go through gh_read, and it still checks the same signal. What a
-# person needs on a failure is what to type instead, so that is what it says, with gh's own words
-# behind it.
-#
-# THE REPOSITORY IS READ OVER REST, through gh's {owner}/{repo} placeholders, not with `gh repo
-# view`: that is GraphQL, and a command that only names its repository must not depend on the limit
-# GraphQL is under. `gh api --help` of the installed gh says the placeholders take their values
-# from the repository of the current directory; `.full_name` is the name GitHub knows it by.
-default_repo() {
-  local name
-  name="$(apart gh api 'repos/{owner}/{repo}' --jq .full_name)" \
-    || die "cannot tell which GitHub repo this is - pass the repo as OWNER/REPO: $name"
-  echo "$name"
-}
 
 # An argument that carries a slash is a repo; anything else is an issue number and
 # the repo comes from the current directory.
@@ -436,7 +248,7 @@ set_project() {
     [ -n "$repo" ] || repo="$(default_repo)" || exit 1
     n="$(resolve_project_for_repo "$repo")" || exit 1
   fi
-  case "$n" in ''|*[!0-9]*) die "the board number must be numeric, not '$n'" ;; esac
+  check_project_number "$n"
   if [ -z "$org" ]; then
     if [ -n "$repo" ]; then org="${repo%%/*}"; else org="$(gh_org)" || exit 1; fi
   fi
@@ -460,76 +272,6 @@ project_org() {
 # tracked on. It stays unlinked from every repo, and is skipped below in case
 # somebody links it.
 TEMPLATE_MARK='[TEMPLATE]'
-
-# A repo keeps its old boards after they are closed, so the live board is the one
-# open project it is linked to. Counting the closed ones would make every long-lived
-# repo ambiguous and force an explicit number on every call.
-resolve_project_for_repo() {  # resolve_project_for_repo <owner/repo>
-  local repo="$1" owner name rows
-  owner="${repo%%/*}"; name="${repo#*/}"
-  rows="$(gh_read "the projects of $repo" api graphql -f o="$owner" -f n="$name" -f query='
-    query($o:String!,$n:String!) { repository(owner:$o, name:$n) {
-      projectsV2(first:50) { nodes { number title closed } } } }' \
-    --jq '.data.repository.projectsV2.nodes[] | select(.closed == false) | "\(.number)\t\(.title)"')" || exit 1
-  # The template board is dropped AFTER the answer is established, so an empty list here means
-  # the repo has no board of its own and never that the query was refused.
-  rows="$(printf '%s\n' "$rows" | grep -Fv "	$TEMPLATE_MARK" || true)"
-
-  case "$(printf '%s\n' "$rows" | grep -c .)" in
-    0) die "$repo is not linked to an open project - run repo-link, or pass --project <number>" ;;
-    1) printf '%s\n' "$rows" | cut -f1 ;;
-    *) die "$repo is linked to more than one open project ($(printf '%s\n' "$rows" | awk -F'\t' '{ printf "%s%s %s", (NR>1 ? ", " : ""), $1, $2 }')) - pass --project <number>" ;;
-  esac
-}
-
-# The one open board carrying the template mark. Found by title so replacing the
-# template does not mean editing a number into a script.
-template_project_number() {
-  local rows org
-  org="$(gh_org)" || exit 1
-  rows="$(gh_read "the projects of $org" api graphql -f o="$org" -f query='
-    query($o:String!) { organization(login:$o) {
-      projectsV2(first:100) { nodes { number title closed } } } }' \
-    --jq '.data.organization.projectsV2.nodes[] | select(.closed == false) | "\(.number)\t\(.title)"')" || exit 1
-  rows="$(printf '%s\n' "$rows" | grep -F "	$TEMPLATE_MARK" || true)"
-
-  case "$(printf '%s\n' "$rows" | grep -c .)" in
-    0) die "no open project whose title starts with '$TEMPLATE_MARK' in $org - pass --like to name a board to copy" ;;
-    1) printf '%s\n' "$rows" | cut -f1 ;;
-    *) die "more than one open template board in $org: $(printf '%s\n' "$rows" | cut -f1 | paste -sd' ' -)" ;;
-  esac
-}
-
-project_id() {
-  local f id from
-  f="$(cache_dir)/project-id"
-  if [ -s "$f" ]; then
-    id="$(cat "$f")"; from="the id cached in $f"
-  else
-    id="$(gh_read "the id of project $(project_number) in $(project_org)" api graphql \
-      -f org="$(project_org)" -F num="$(project_number)" -f query='
-      query($org:String!, $num:Int!) {
-        organization(login:$org) { projectV2(number:$num) { id } } }' \
-      --jq '.data.organization.projectV2.id')" || exit 1
-    from="the answer for project $(project_number) of $(project_org)"
-  fi
-
-  # WHETHER gh ANSWERED IS NOT WHETHER IT ANSWERED THIS. A query naming an id that belongs to
-  # something other than a board is ACCEPTED: it comes back as `{}` with exit 0, which no status
-  # check can tell from a real answer. So the value itself is held against the one shape a project
-  # id has, wherever it came from.
-  #
-  # It is checked BEFORE the cache is written, because a file written here is the answer for every
-  # later run - nothing asks again once it is not empty - and AFTER the cache is read, because the
-  # file can be older than this check, or written by hand.
-  case "$id" in
-    PVT_*) ;;
-    *) die "$from is not a project id: $id" ;;
-  esac
-
-  [ -s "$f" ] || { make_cache_dir; printf '%s\n' "$id" > "$f"; }
-  printf '%s\n' "$id"
-}
 
 # One cache directory per board. Sharing one would hand a board the other's field
 # and option ids, and the API accepts a foreign id without complaining.
@@ -569,39 +311,6 @@ make_cache_dir() {
   # a last line without its newline would take this one onto itself and break both patterns
   [ ! -s "$exclude" ] || [ -z "$(tail -c1 "$exclude")" ] || echo >> "$exclude"
   printf '/%s/\n' "${root#"$top"/}" >> "$exclude"
-}
-
-# Every single-select field with all of its options, one per line:
-#   <field name>\t<field id>\t<option name>\t<option id>
-# The cache lives an hour: a board gains columns, and the page and the commands read them within
-# the hour; a name the cache does not know reads the board at once (fields_fresh).
-fields_tsv() {
-  local f rows row
-  f="$(cache_dir)/fields.tsv"
-  [ -s "$f" ] && [ -z "$(find "$f" -mmin +60)" ] || {
-    # Read whole, then written. Redirecting gh straight into the cache stores whatever it wrote
-    # under the name of an answer, and every later run finds a non-empty file and never asks again.
-    rows="$(gh_read "the fields of board $(project_number)" api graphql -f pid="$(project_id)" -f query='
-      query($pid:ID!) { node(id:$pid) { ... on ProjectV2 {
-        fields(first:50) { nodes { ... on ProjectV2SingleSelectField {
-          id name options { id name } } } } } } }' \
-      --jq '.data.node.fields.nodes[] | select(.name != null) | .name as $n | .id as $f
-            | .options[] | "\($n)\t\($f)\t\(.name)\t\(.id)"')" || return 1
-    make_cache_dir
-    printf '%s\n' "$rows" > "$f"
-  }
-  # And what the cache holds is held against the shape of a row, not trusted. The guard above
-  # covers what THIS run writes; the file it reads can be older than the guard, or written by
-  # hand. Without this a lookup reports a board that has no fields, which is a statement about the
-  # board, and on this path the board was never asked.
-  while IFS= read -r row; do
-    [ -n "$row" ] || continue
-    case "$row" in
-      *"	"*"	"*"	"*) ;;
-      *) die "$f does not hold field rows - delete $(cache_dir) and run again. It holds: $row" ;;
-    esac
-  done < "$f"
-  cat "$f"
 }
 
 # A field or option the cache does not know may have come to the board after the cache was written:
@@ -644,28 +353,6 @@ option_id() {  # option_id <field name> <option name>
 # Clears every board's cache, not just the selected one - it is not called by any
 # script and exists for the same reason README says to delete .cache/ by hand.
 cache_clear() { rm -rf "$(cache_root)"; }
-
-# Every repo linked to the selected project.
-project_repos() {
-  gh_read "the repos linked to board $(project_number)" api graphql -f pid="$(project_id)" -f query='
-    query($pid:ID!) { node(id:$pid) { ... on ProjectV2 {
-      repositories(first:100) { nodes { nameWithOwner } } } } }' \
-    --jq '.data.node.repositories.nodes[].nameWithOwner'
-}
-
-# The open boards a repo is linked to, one "<number>\t<title>" per line, EMPTY where it is
-# linked to none. It answers the question rather than deciding what to do about the answer,
-# because two callers want opposite things from "none": naming a board has to fail, and
-# setting a field on a card that cannot exist has to succeed quietly.
-repo_open_projects() {  # repo_open_projects <owner/repo>
-  local repo="$1" owner name rows
-  owner="${repo%%/*}"; name="${repo#*/}"
-  rows="$(gh_read "the projects of $repo" api graphql -f o="$owner" -f n="$name" -f query='
-    query($o:String!,$n:String!) { repository(owner:$o, name:$n) {
-      projectsV2(first:50) { nodes { number title closed } } } }' \
-    --jq '.data.repository.projectsV2.nodes[] | select(.closed == false) | "\(.number)\t\(.title)"')" || exit 1
-  printf '%s\n' "$rows" | grep -Fv "	$TEMPLATE_MARK" || true
-}
 
 # A repository ON NO BOARD: no board is named, by --project or GH_PROJECT_NUMBER, and the
 # repository is linked to no open one, as a harness or the tooling's own repository is. Its
@@ -746,153 +433,6 @@ report_title() {  # report_title <title>
   esac
 }
 
-# An issue and its whole comment thread, as one JSON object:
-#   {number,title,state,labels,body,comments:[{author,created_at,body}]}
-#
-# The comments are paged. A thread on an epic often runs past one page, and a page that is
-# dropped makes the thread look settled when it is not.
-#
-# Both documents reach jq through a PIPE and never as an argument. A busy thread is larger
-# than one command-line argument may be - the operating system refuses with "Argument list
-# too long" - so passing them in would fail on exactly the issues worth reading.
-#
-# EACH READ IS ESTABLISHED AS AN ANSWER FIRST. A refused query writes its error body to
-# stdout, which jq would read as the issue, so the two reads go through gh_read into
-# variables and only then into the program.
-issue_thread() {  # issue_thread <owner/repo> <number>
-  local issue comments
-  issue="$(gh_read "the issue $1#$2" api "repos/$1/issues/$2")" || exit 1
-  comments="$(gh_read "the comments of $1#$2" api --paginate "repos/$1/issues/$2/comments")" || exit 1
-  printf '%s\n%s\n' "$issue" "$comments" | jq -s '.[0] as $issue | .[1] as $comments | {
-    number:   $issue.number,
-    title:    $issue.title,
-    state:    $issue.state,
-    labels:   [$issue.labels[].name],
-    body:     ($issue.body // ""),
-    comments: [$comments[] | { author: .user.login, created_at: .created_at, body: (.body // "") }]
-  }'
-}
-
-# GitHub gives an issue two identities: a node id for GraphQL and a numeric
-# database id for the REST sub-issue endpoint. Both are needed.
-issue_node_id() {  # issue_node_id <owner/repo> <number>
-  gh_read "the node id of $1#$2" api "repos/$1/issues/$2" --jq '.node_id'
-}
-issue_db_id() {    # issue_db_id <owner/repo> <number>
-  gh_read "the database id of $1#$2" api "repos/$1/issues/$2" --jq '.id'
-}
-
-# A parent reference from the command line: OWNER/REPO#N, REPO#N, or a bare number. The
-# owner defaults to the owner of the repository being acted on, and a bare number stays
-# an issue of that repository itself.
-#
-# THE REFERENCE IS RESOLVED, NOT TRUSTED. Every repository numbers its own issues, so a
-# number meant for one repository resolves in any other, to whatever issue happens to
-# carry it there - and the sub-issue API accepts that issue without a word. Asking for
-# the issue first turns a reference that resolves nowhere into a refusal that names what
-# was asked for, and hands back the title so the caller can show which issue it found.
-#
-# Prints: <owner/repo>\t<number>\t<node id>\t<title>
-parent_issue() {  # parent_issue <reference> <owner/repo it is read against>
-  local ref="$1" repo="$2" prepo num row
-  case "$ref" in
-    *'#'*)
-      prepo="${ref%%#*}"; num="${ref#*#}"
-      case "$prepo" in
-        */*) ;;
-        '')  die "'$ref' is not an issue reference - write OWNER/REPO#N, REPO#N, or an issue number" ;;
-        *)   prepo="${repo%%/*}/$prepo" ;;
-      esac ;;
-    *) prepo="$repo"; num="$ref" ;;
-  esac
-  case "$num" in
-    ''|*[!0-9]*) die "'$ref' is not an issue reference - write OWNER/REPO#N, REPO#N, or an issue number" ;;
-  esac
-  row="$(gh_read "the parent issue $prepo#$num" api graphql \
-    -f o="${prepo%%/*}" -f n="${prepo#*/}" -F num="$num" -f query='
-    query($o:String!, $n:String!, $num:Int!) { repository(owner:$o, name:$n) {
-      issue(number:$num) { id title } } }' \
-    --jq '.data.repository.issue | "\(.id)\t\(.title)"')" || exit 1
-  printf '%s\t%s\t%s\n' "$prepo" "$num" "$row"
-}
-
-# The board item for an issue, adding it to the board if it is not on it yet.
-# Adding twice is harmless - GitHub returns the existing item.
-#
-# ARCHIVED STAYS ARCHIVED. Archiving is the owner's decision and nothing else's, and the mutation
-# below does not merely return an existing item - it takes it back OUT of the archive. So a card
-# somebody deliberately put away is on the board again after the next sweep, with nobody having
-# asked for it.
-#
-# It cannot be caught by looking at the board: a project's item list leaves archived items out, so
-# the sweep sees no card, concludes one is missing, and adds it. The question has to be asked from
-# the ISSUE, which is the one side that can be told to include them.
-#
-# THE QUESTION IS ASKED BEFORE THE MUTATION, AND A REFUSED ONE STOPS THE SCRIPT. A refusal that
-# left an empty value behind would read as "this issue has no archived card", and the next line
-# takes a card out of the archive - so the one answer that must never be guessed is the one that
-# is guessed by default.
-item_id() {  # item_id <owner/repo> <number>
-  local existing cid
-  existing="$(archived_item_id "$1" "$2")" || exit 1
-  if [ -n "$existing" ]; then
-    echo "$existing"
-    return 0
-  fi
-  cid="$(issue_node_id "$1" "$2")" || exit 1
-  gh_read "the board item added for $1#$2" api graphql -f pid="$(project_id)" -f cid="$cid" -f query='
-    mutation($pid:ID!, $cid:ID!) {
-      addProjectV2ItemById(input:{projectId:$pid, contentId:$cid}) { item { id } } }' \
-    --jq '.data.addProjectV2ItemById.item.id'
-}
-
-# The id of this issue's ARCHIVED item on this board, or nothing when it has none.
-#
-# THE BOARD IS PICKED OUT HERE AND NOT INSIDE THE jq PROGRAM. jq asks which items are archived;
-# which of them are on THIS board is decided afterwards, against a value that stays a value.
-# Writing the id into the program text instead makes the program depend on what the id contains,
-# and jq reads a double quote or a backslash in it as program, not as data.
-archived_item_id() {  # archived_item_id <owner/repo> <number>
-  local owner="${1%%/*}" name="${1#*/}" project_id rows found item
-  # The board this run is about, resolved before the rows are matched against it. An empty value
-  # here matches no row, which reads as "nothing of this issue is archived" - the one answer that
-  # puts a card back on the board.
-  project_id="$(project_id)" || exit 1
-  rows="$(gh_read "the project items of $1#$2" api graphql -f o="$owner" -f n="$name" -F num="$2" -f query='
-    query($o:String!, $n:String!, $num:Int!) { repository(owner:$o, name:$n) {
-      issue(number:$num) { projectItems(first:20, includeArchived:true) {
-        nodes { id isArchived project { id } } } } } }' \
-    --jq '.data.repository.issue.projectItems.nodes[]
-            | select(.isArchived) | "\(.project.id)\t\(.id)"')" || exit 1
-  printf '%s\n' "$rows" \
-  | while IFS=$'\t' read -r found item; do
-      [ "$found" = "$project_id" ] || continue
-      printf '%s\n' "$item"
-      break
-    done
-}
-
-# Every open board this issue has a card on, one line per board:
-#   <project number>\t<item id>
-#
-# The issue's own projectItems is the authoritative list. A REPO resolves to one board, but an
-# ISSUE can be on several - a cross-repository epic pulls its child onto its own board - and a
-# card that is stale on the second board makes that board lie to whoever filters it.
-# Every open board an issue has a card on, one `OWNER/N<tab><item id>` per line. THE BOARD IS
-# NAMED WITH ITS OWNER, because a number alone is resolved under the organisation of the
-# repository the command names (set_project), and a card can stand on another organisation's
-# board - which is exactly the card a command like issue-close has to reach (example-tools#26).
-issue_board_items() {  # issue_board_items <owner/repo> <number>
-  local owner="${1%%/*}" name="${1#*/}"
-  gh_read "the project items of $1#$2" api graphql -f o="$owner" -f n="$name" -F num="$2" -f query='
-    query($o:String!, $n:String!, $num:Int!) { repository(owner:$o, name:$n) {
-      issue(number:$num) { projectItems(first:20) {
-        nodes { id project { number closed owner { ... on Organization { login } ... on User { login } } } } } } } }' \
-    --jq '.data.repository.issue.projectItems.nodes[]
-          | select(.project.closed == false)
-          | "\(.project.owner.login)/\(.project.number)\t\(.id)"'
-}
-
 # One single-select write, applied to EVERY board the issue is on, printing one line per board -
 # a partial result must not read as a complete one. Each iteration selects its board first, so
 # the per-board caches stay coherent.
@@ -946,85 +486,6 @@ for_each_board() {  # for_each_board <owner/repo> <number> <field> <option> <pri
   done <<< "$rows"
 }
 
-# Put one card at the top of the board, or directly under another one.
-#
-# The second argument is what makes a NAMED ORDER possible: moving each card to the top would
-# reverse the names into a stack, so the caller hands the card moved before this one and this
-# lands right beneath it. With no second argument the card goes above everything, which is what
-# the FIRST name in a list wants. An empty string is treated as no argument at all, since an
-# omitted GraphQL variable is the absence of a value and not one that is empty.
-item_top() {  # item_top <item id> [after item id]
-  local iid="$1" after="${2:-}" call
-  call=(api graphql -f "pid=$(project_id)" -f "iid=$iid")
-  [ -n "$after" ] && call+=(-f "after=$after")
-  gh "${call[@]}" -f query='
-    mutation($pid:ID!, $iid:ID!, $after:ID) {
-      updateProjectV2ItemPosition(input:{
-        projectId:$pid, itemId:$iid, afterId:$after}) { items { totalCount } } }' >/dev/null
-}
-
-# Every card on this board, paged, one per line:
-#   <item id>\t<owner/repo>\t<issue number>
-# A board outgrows one page of 100 quickly, and a single unpaged query silently
-# reports the rest as absent.
-board_items() {
-  local after="" page
-  while :; do
-    if [ -n "$after" ]; then
-      page="$(gh_read "the cards of board $(project_number) after $after" api graphql -f pid="$(project_id)" -f after="$after" -f query='
-        query($pid:ID!, $after:String) { node(id:$pid) { ... on ProjectV2 {
-          items(first:100, after:$after) { pageInfo { hasNextPage endCursor }
-            nodes { id content { ... on Issue { number repository { nameWithOwner } } } } } } } }')" || exit 1
-    else
-      page="$(gh_read "the cards of board $(project_number)" api graphql -f pid="$(project_id)" -f query='
-        query($pid:ID!) { node(id:$pid) { ... on ProjectV2 {
-          items(first:100) { pageInfo { hasNextPage endCursor }
-            nodes { id content { ... on Issue { number repository { nameWithOwner } } } } } } } }')" || exit 1
-    fi
-    printf '%s' "$page" | jq -r '.data.node.items.nodes[]
-      | select(.content.number != null)
-      | "\(.id)\t\(.content.repository.nameWithOwner)\t\(.content.number)"'
-    [ "$(printf '%s' "$page" | jq -r '.data.node.items.pageInfo.hasNextPage')" = 'true' ] || break
-    after="$(printf '%s' "$page" | jq -r '.data.node.items.pageInfo.endCursor')"
-  done
-}
-
-# Takes a card off this board. The issue itself is untouched. Prints nothing and
-# returns non-zero when the issue was not on the board.
-remove_board_item() {  # remove_board_item <owner/repo> <number>
-  local rows item
-  # The board is read whole first: a refusal reaching the match below would come out as "the issue
-  # was not on the board", which is an answer about the board and the board did not answer.
-  rows="$(board_items)" || exit 1
-  item="$(printf '%s\n' "$rows" | awk -F'\t' -v r="$1" -v n="$2" '$2==r && $3==n {print $1; exit}')"
-  [ -n "$item" ] || return 1
-  gh api graphql -f pid="$(project_id)" -f iid="$item" -f query='
-    mutation($pid:ID!, $iid:ID!) {
-      deleteProjectV2Item(input:{projectId:$pid, itemId:$iid}) { deletedItemId } }' >/dev/null
-}
-
-# THE TWO LOOKUPS ARE RESOLVED BEFORE THE MUTATION, and a failed one STOPS THE SCRIPT.
-#
-# `die` inside `$( )` exits the substitution and nothing else. Written as arguments to the call
-# below, a field or an option that could not be resolved printed its refusal, left an EMPTY value
-# behind, and the mutation went ahead with it — so a person read the tool's own error, then a
-# second one from gh about an id that belongs to no field, and the script exited 0. A caller reading
-# that status was told the card had moved.
-#
-# `local x; x="$(...)" || exit 1` is what makes the substitution's failure the script's failure. It
-# is the same trap board-sync names about set_project, in the other direction.
-set_select() {  # set_select <item id> <field name> <option name>
-  local fid oid
-  fid="$(field_id "$2")" || exit 1
-  oid="$(option_id "$2" "$3")" || exit 1
-  gh api graphql -f pid="$(project_id)" -f iid="$1" \
-    -f fid="$fid" -f oid="$oid" -f query='
-    mutation($pid:ID!, $iid:ID!, $fid:ID!, $oid:String!) {
-      updateProjectV2ItemFieldValue(input:{
-        projectId:$pid, itemId:$iid, fieldId:$fid,
-        value:{singleSelectOptionId:$oid}}) { projectV2Item { id } } }' >/dev/null
-}
-
 # THE PROJECT FOLDER: the folder that holds the clone this runs in, its main checkout also from
 # one of its worktrees, or the current directory outside a repository.
 project_folder() {
@@ -1076,35 +537,6 @@ epic_target() {
   return 0
 }
 
-# epic_target_on_board <owner/repo> <number> - the epic_target of an issue, read from its own card
-# and its sub-issues' cards on the selected board, or on whichever board they are on when none is
-# selected; an issue without sub-issues gets nothing. A sub-issue with no card on the selected board,
-# often one of another repository on that repository's board, counts where its first card with a
-# status stands, and at most as testing: an open issue is done for its epic only where the epic's
-# own board says so, or the epic would close with that issue still open.
-epic_target_on_board() {
-  local repo="$1" n="$2" on="" rows cur="" first=1 st
-  [ -z "${PROJECT:-}" ] || on="select(.project.number == $(project_number) and .project.owner.login == \"$(project_org)\") |"
-  rows="$(gh_read "the sub-issues of $repo#$n" api graphql -f o="${repo%%/*}" -f r="${repo#*/}" -F n="$n" -f query='
-    query($o:String!, $r:String!, $n:Int!) { repository(owner:$o, name:$r) { issue(number:$n) {
-      state stateReason projectItems(first:20) { nodes { project { number owner { ... on Organization { login } ... on User { login } } }
-        status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } }
-      subIssues(first:100) { nodes { state stateReason projectItems(first:20) { nodes {
-        project { number owner { ... on Organization { login } ... on User { login } } }
-        status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } } } } } } }' \
-    --jq "def card: [.projectItems.nodes[] | $on (.status.name // \"backlog\")] | first;
-          def anycard: [.projectItems.nodes[] | .status.name | select(. != null)] | first
-            | if . != null and ascii_downcase == \"done\" then \"testing\" else . end;
-          def status(c): if .state == \"CLOSED\" then (if .stateReason == \"NOT_PLANNED\" or .stateReason == \"DUPLICATE\" then \"not planned\" else \"done\" end) else (c // \"backlog\") end;
-          .data.repository.issue | status(card), (.subIssues.nodes[] | status(card // anycard))")" || return 1
-  set --
-  while IFS= read -r st; do
-    st="$(printf '%s' "$st" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
-    if [ "$first" = 1 ]; then cur="$st"; first=0; else set -- "$@" "$st"; fi
-  done <<< "$rows"
-  epic_target "$cur" "$@"
-}
-
 # update_epic <owner/repo> <number> - move an epic to where its sub-issues stand, through the same
 # movers as every card, which move its own parent in turn; read on the board of the epic's
 # repository where the caller selected none, or where the caller's board holds no card of the
@@ -1134,10 +566,7 @@ update_epic() {
 # update_parent_epic <owner/repo> <number> - after a card moved, its epic follows
 update_parent_epic() {
   local parent
-  parent="$(gh_read "the parent of $1#$2" api graphql -f o="${1%%/*}" -f r="${1#*/}" -F n="$2" -f query='
-    query($o:String!, $r:String!, $n:Int!) { repository(owner:$o, name:$r) { issue(number:$n) {
-      parent { number repository { nameWithOwner } } } } }' \
-    --jq '.data.repository.issue.parent | select(. != null) | "\(.repository.nameWithOwner) \(.number)"')" || return 1
+  parent="$(issue_parent "$1" "$2")" || return 1
   [ -n "$parent" ] || return 0
   update_epic "${parent% *}" "${parent#* }"
 }

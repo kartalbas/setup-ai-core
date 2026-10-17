@@ -51,7 +51,7 @@ for dir in "$FOLDER"/*-ai-core; do
   [ -z "$ONLY" ] || [ "$name" = "$ONLY" ] || continue
   seen=$((seen + 1))
   origin="$(git -C "$dir" remote get-url origin 2>/dev/null)" || { echo "$name: no origin, not pushed ($dir)"; continue; }
-  origin="$(printf '%s' "$origin" | sed 's|.*github.com[:/]||; s|\.git$||')"
+  origin="$(printf '%s' "$origin" | sed "s|.*$(forge_host)[:/]||; s|\.git\$||")"
   # 1. commit what changed
   changed="$(git -C "$dir" status --porcelain | tr -d '\r')"
   if [ -n "$changed" ]; then

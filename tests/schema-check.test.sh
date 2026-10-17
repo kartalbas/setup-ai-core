@@ -52,6 +52,17 @@ if [ -f "$fake/refuse" ]; then
   echo '{"errors":[{"message":"Bad credentials"}]}'
   exit 1
 fi
+if [[ "\$*" == *__type* ]]; then
+  if [ -f "$fake/rate-limit-once" ]; then
+    rm -f "$fake/rate-limit-once"
+    echo 'gh: You have exceeded a secondary rate limit.' >&2
+    exit 1
+  fi
+  if [ -f "$fake/rate-limit-always" ]; then
+    echo 'gh: You have exceeded a secondary rate limit.' >&2
+    exit 1
+  fi
+fi
 cat "$fake/schema.json"
 EOF
 chmod +x "$fake/gh"
@@ -84,7 +95,7 @@ command="$root/bin/schema-check.sh"
 out=''
 run() {  # run <argument>...
   : > "$log"
-  out="$("$command" "$@" 2>&1)"
+  out="$(AI_CORE_SLEEP=true "$command" "$@" 2>&1)"
   return $?
 }
 line() {  # line <a word the line carries>
@@ -146,6 +157,28 @@ check 'says nothing was checked' \
       'schema-check: FAIL - the interface could not be read, so no mutation was checked' \
       "$(line 'no mutation was checked')"
 check 'and never prints a green verdict' '' "$(line 'every one on the payload')"
+
+# the rate-limit wrapper of lib/github/gh.sh writes "waiting Ns ..." to stderr before it tries again,
+# and the answer must not carry that line; AI_CORE_SLEEP=true makes the wait take no time
+echo 'a rate limit on the first try, then an answer, gives the verdict of a run without one'
+: > "$fake/rate-limit-once"
+run "$tree"; rc=$?
+rm -f "$fake/rate-limit-once"
+check 'exits zero' 0 "$rc"
+check 'the count'  'schema-check: 2 mutation selection(s) in 2 file(s), every one on the payload the interface publishes.' \
+      "$(printf '%s\n' "$out" | tail -1)"
+check 'no parse error and no false verdict about the schema' '' "$(line 'parse error')$(line 'named no mutation')"
+check 'the interface was asked twice' 2 "$(grep -c __type "$log" | tr -d ' ')"
+
+echo 'a rate limit that does not lift is an interface that could not be read'
+: > "$fake/rate-limit-always"
+run "$tree"; rc=$?
+rm -f "$fake/rate-limit-always"
+check 'exits nonzero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'says nothing was checked' \
+      'schema-check: FAIL - the interface could not be read, so no mutation was checked' \
+      "$(line 'no mutation was checked')"
+check 'and not that the interface named no mutation' '' "$(line 'named no mutation')"
 
 echo 'a comment naming a mutation is not code'
 cat > "$tree/bin/comment.sh" <<'SH'

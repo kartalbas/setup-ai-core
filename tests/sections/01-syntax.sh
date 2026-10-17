@@ -6,8 +6,17 @@ section "syntax"
 for f in "$ROOT"/bin/*.sh "$ROOT/bin/ai-core"; do bash -n "$f" || fail "bash -n $f"; done
 # A grep -q stops at its first match and breaks the pipe of a printf or echo still writing into it;
 # under pipefail the pipeline then fails although grep matched. A variable goes to grep as a here-string.
-hits="$(grep -nE '(printf|echo) [^|]*\| *(tr [^|]*\| *)?grep +-[a-zA-Z]*q' "$ROOT"/bin/*.sh "$ROOT"/lib/*.sh "$ROOT"/tests/*.sh "$ROOT"/tests/sections/*.sh || true)"
+pipe_lint() { grep -rnE --include='*.sh' '(printf|echo) [^|]*\| *(tr [^|]*\| *)?grep +-[a-zA-Z]*q' "$@" || true; }
+hits="$(pipe_lint "$ROOT"/bin "$ROOT"/lib "$ROOT"/tests/*.sh "$ROOT"/tests/sections/*.sh)"
 [ -z "$hits" ] || fail "printf or echo piped into grep -q, which breaks the pipe under pipefail; give grep a here-string: $hits"
+# the lint reads every .sh under lib/, so a provider folder is read too
+mkdir -p "$WORK/pipe/lib/github"
+cp "$ROOT/lib/github/tracker.sh" "$WORK/pipe/lib/github/tracker.sh"
+[ -z "$(pipe_lint "$WORK/pipe/lib")" ] || fail "the pipe lint reports a copy of lib/github/tracker.sh before a line is planted: $(pipe_lint "$WORK/pipe/lib")"
+# the planted line names grep through a variable, so the lint does not read this line as one of its hits
+planted_grep=grep
+printf '%s\n' "printf '%s' \"\$x\" | $planted_grep -q foo" >> "$WORK/pipe/lib/github/tracker.sh"
+[ -n "$(pipe_lint "$WORK/pipe/lib")" ] || fail "the pipe lint did not go red on a printf piped into grep -q in lib/github/tracker.sh"
 echo "  $(ls "$ROOT"/bin/*.sh | wc -l | tr -d ' ') bash scripts and the ai-core launcher parse"
 
 section "no count in digits of issues, cards or lines caps a package"

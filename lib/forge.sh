@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Where the project's code lives. FORGE in the project's .ai-core/config.env (or in the environment)
+# names the provider, the folder under lib/ whose forge.sh implements the functions below; github
+# when unset. lib/layers.sh, bin/release.sh, bin/session-start.sh, bin/doctor.sh and bin/issue-map.sh
+# call only these. Source it, do not run it.
+
+. "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+
+# THE INTERFACE:
+#   forge_host                   the host the origin of a checkout names
+#   repo_exists <owner/repo>     whether the repository is there
+#   repo_clone <owner/repo> <dir>
+#   repo_create <owner/repo> <dir>   private, from the checkout in <dir>, which it pushes
+#   repo_default_branch <owner/repo> its default branch, nothing for a repository with no commit
+#   repo_file_tree <owner/repo>      its files, as the JSON tree issue-map reads
+#   commit_checked <checkout> <sha>  green, red, pending or unreadable (what the forge said, on stderr)
+#   signed_in_user               the login, exit 1 where nobody is signed in
+#   forge_doctor                 the lines doctor prints for the forge, through its report and problem
+load_provider forge "
+  forge_host repo_exists repo_clone repo_create repo_default_branch repo_file_tree
+  commit_checked signed_in_user forge_doctor"

@@ -91,9 +91,7 @@ for repo in "${repos[@]}"; do
   #
   # The title stands LAST because it is the one field a person types: a tab inside it would take
   # the column after it, and there is none after the last.
-  issues="$(gh_read "the issues of $repo" issue list --repo "$repo" --state all --limit 500 \
-             --json number,state,title,labels \
-             --jq '.[] | "\(.number)\t\(.state)\t\([.labels[].name] | join(","))\t\(.title)"')" || exit 1
+  issues="$(issue_summaries "$repo")" || exit 1
   while IFS=$'\t' read -r num state labels title; do
     [ -n "$num" ] || continue
     item_id "$repo" "$num" >/dev/null

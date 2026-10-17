@@ -42,7 +42,17 @@ esac
 root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 [ -d "$root" ] || { echo "error: there is no directory at $root" >&2; exit 2; }
 
-command -v gh >/dev/null 2>&1 || { echo "error: gh is not on PATH, and the schema is read through it" >&2; exit 2; }
+# The schema is GitHub's own, and the mutations are the GitHub provider's. A project whose tracker is
+# another has no GitHub schema to hold anything against.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$here/../lib/common.sh"
+tracker="$(config_value TRACKER github | tr '[:upper:]' '[:lower:]')"
+if [ "$tracker" != github ]; then
+  echo "schema-check: TRACKER is $tracker, and the schema it checks against is GitHub's - nothing to check"
+  exit 0
+fi
+. "$here/../lib/github/tracker.sh"
+
 command -v jq >/dev/null 2>&1 || { echo "error: jq is not on PATH, and the schema is read through it" >&2; exit 2; }
 
 where=()
@@ -52,8 +62,10 @@ for d in bin lib; do [ -d "$root/$d" ] && where+=("$root/$d"); done
 # gh writes its error body to STDOUT where the answer would be and exits non-zero, so the status
 # is what decides, exactly as gh_read in lib/board.sh does. A caller reading the text alone would
 # take the complaint for a schema with no mutations in it.
-schema="$(gh api graphql -f query='{ __type(name:"Mutation") { fields { name type { name fields { name } } } } }' 2>&1)"
-if [ $? -ne 0 ]; then
+schema="$(mutation_schema)"
+rc=$?
+[ "$rc" -ne 2 ] || exit 2
+if [ "$rc" -ne 0 ]; then
   printf '%s\n' "$schema" >&2
   echo 'schema-check: FAIL - the interface could not be read, so no mutation was checked' >&2
   exit 1

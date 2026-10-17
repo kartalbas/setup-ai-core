@@ -74,7 +74,7 @@ TARGET="$(cd "$TARGET" && pwd)"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 # 1. The repository, its harness and the innermost layer, where the map lives
-parts="$(origin_parts "$TARGET")" || { echo "error: $TARGET has no origin on github.com; a map lives in the project harness" >&2; exit 1; }
+parts="$(origin_parts "$TARGET")" || { echo "error: $TARGET has no origin on the forge; a map lives in the project harness" >&2; exit 1; }
 org="${parts%%	*}"; repo="${parts#*	}"
 prefix="$(harness_of "$repo")" || { echo "error: $repo is setup-ai-core or a harness; map is for the repositories a harness serves" >&2; exit 1; }
 LAYERS="$(layer_chain "$org/$prefix-ai-core" "$CORE" "$(project_folder_of "$TARGET")")" || exit 1

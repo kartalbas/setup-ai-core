@@ -32,11 +32,7 @@ for child in "$@"; do
     *)     child_repo="$repo";        child_num="$child" ;;
   esac
   case "$child_num" in ''|*[!0-9]*) die "the child issue number must be numeric, not '$child_num' - write a number, or OWNER/REPO#N" ;; esac
-  # Resolved before the call, not inside it: a failed command substitution does not stop the
-  # command it stands in, so an id that could not be read would be posted as an empty one.
-  child_id="$(issue_db_id "$child_repo" "$child_num")" || exit 1
-  gh_read "the detach of $child_repo#$child_num from $repo#$parent" api --method DELETE \
-    "repos/$repo/issues/$parent/sub_issue" -F sub_issue_id="$child_id" >/dev/null || exit 1
+  subissue_detach "$repo" "$parent" "$child_repo" "$child_num"
   [ "$child_repo" = "$repo" ] && echo "#$child_num detached from #$parent" || echo "$child_repo#$child_num detached from #$parent"
 done
 update_epic "$repo" "$parent" || exit 1

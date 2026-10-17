@@ -30,7 +30,7 @@ repo="$(resolve_repo "$repo")" || exit 1
 for n in "${numbers[@]}"; do option_on_every_board "$repo" "$n" Status ready; done
 
 for n in "${numbers[@]}"; do
-  gh_read "the reopen of $repo#$n" api --method PATCH "repos/$repo/issues/$n" -f state=open >/dev/null || exit 1
+  issue_reopen "$repo" "$n"
   echo "#$n -> reopened"
   for_each_board "$repo" "$n" Status ready "ready"
 done

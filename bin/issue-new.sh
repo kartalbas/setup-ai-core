@@ -125,14 +125,7 @@ if [ -z "$no_board" ]; then
   option_id Priority "$priority" >/dev/null
 fi
 
-args=(--repo "$repo" --title "$title" --body-file "$sent" --assignee "$assignee")
-for l in "${labels[@]}"; do args+=(--label "$l"); done
-
-# A create that fails is no read problem: gh names why on stderr, most often a label of labels.tsv
-# that labels-sync has not yet made in this repository, and nothing was created.
-rc=0; url="$(gh issue create "${args[@]}")" || rc=$?
-[ "$rc" -eq 0 ] || die "the issue was NOT created in $repo - gh exited $rc, for the reason it wrote above. Where that is a label the repository does not have, run: ai-core labels-sync $repo"
-num="${url##*/}"
+num="$(issue_create "$repo" "$title" "$sent" "$assignee" "${labels[@]}")" || exit 1
 
 if [ -n "$no_board" ]; then
   echo "#$num -> on no board: $repo is linked to none" >&2
@@ -142,17 +135,8 @@ else
   set_select "$item" Priority "$priority"
 fi
 
-# The child id is resolved before the call, not inside it: a failed command substitution
-# does not stop the command it stands in, so an id that could not be read would be sent as
-# an empty one. The attach goes through the addSubIssue mutation, which takes node ids and
-# is not bound to one repository the way the REST sub_issues endpoint is - posting a number
-# there reads it in ONE repository, and a parent meant for another silently becomes
-# whatever issue carries that number here.
 if [ -n "$parent" ]; then
-  child="$(issue_node_id "$repo" "$num")" || exit 1
-  gh api graphql -f parent="$parent_id" -f child="$child" -f query='
-    mutation($parent:ID!, $child:ID!) {
-      addSubIssue(input:{issueId:$parent, subIssueId:$child}) { issue { number } } }' >/dev/null
+  subissue_attach_resolved "$parent_id" "$repo" "$num"
   echo "#$num -> sub-issue of $parent_repo#$parent_num  $parent_title" >&2
   update_epic "$parent_repo" "$parent_num" >&2 || exit 1
 fi

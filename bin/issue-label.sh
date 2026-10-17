@@ -96,17 +96,10 @@ done
 types="$(printf '%s\n' "$taxonomy" | awk -F'\t' '$1=="type" {print $2}')"
 areas="$(printf '%s\n' "$taxonomy" | awk -F'\t' '$1=="area" {print $2}')"
 
-# A label name may hold a space - GitHub's own defaults include "help wanted" - so the
-# gh call is built as an argument array. Glued into one word-split string, such a name
-# arrives as two arguments and gh removes a label that was never asked for.
-labels_of() {  # labels_of <owner/repo> <number>
-  gh_read "the labels of $1#$2" issue view "$2" --repo "$1" --json labels -q '.labels[].name'
-}
-
 joined() { local IFS=' '; printf '%s' "$*"; }
 
 for n in "${nums[@]}"; do
-  before="$(labels_of "$repo" "$n")" || exit 1
+  before="$(issue_labels "$repo" "$n")" || exit 1
 
   will_add=(); already=()
   for l in ${add[@]+"${add[@]}"}; do
@@ -118,11 +111,11 @@ for n in "${nums[@]}"; do
   done
 
   edit=()
-  for l in ${will_add[@]+"${will_add[@]}"};       do edit+=(--add-label "$l"); done
-  for l in ${will_remove[@]+"${will_remove[@]}"}; do edit+=(--remove-label "$l"); done
-  [ ${#edit[@]} -eq 0 ] || gh issue edit "$n" --repo "$repo" "${edit[@]}" >/dev/null
+  for l in ${will_add[@]+"${will_add[@]}"};       do edit+=("+$l"); done
+  for l in ${will_remove[@]+"${will_remove[@]}"}; do edit+=("-$l"); done
+  [ ${#edit[@]} -eq 0 ] || issue_labels_set "$repo" "$n" "${edit[@]}"
 
-  on="$(labels_of "$repo" "$n")" || exit 1
+  on="$(issue_labels "$repo" "$n")" || exit 1
   has_type=no; has_area=no
   while IFS= read -r l; do
     [ -n "$l" ] || continue

@@ -3,41 +3,101 @@
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 
 section "the providers: no command and no library outside lib/github/ calls gh, so a second provider needs no copy of any of them"
-# scan <root>: prints "<file>:<line>:<text>" for every line of bin/* and lib/*.sh that uses gh as a
-# command, gh_read, or command gh; a comment, `command -v gh` and the word in a message are no use of it
+# list_files <root>: every file under bin/ and lib/ of <root>, whatever its extension, except lib/github/
+list_files() { find "$1/bin" "$1/lib" -type f ! -path "$1/lib/github/*" | sort; }
+# scan_file <file> <name>: prints "<name>:<line>:<text>" for every line that uses gh. A line counts when
+# gh stands where a command stands (line start, or after ; & | ( { ! $( ` or then do else if elif while
+# until), behind any of the prefixes that pass the command on (VAR=x, exec, env, command, nohup, time,
+# sudo, nice, timeout N, xargs, apart, run_split), bare or in quotes; when gh_read is used; or when a
+# spawn or exec call of a .mjs file names gh first. The comment is cut where a # follows a space outside
+# quotes, so a # inside a string hides nothing; `command -v gh`, the word in a message and in a comment
+# are no use of gh, because no command position holds it.
+scan_file() {
+  awk -v f="$2" -v sq="'" '
+    function strip(s,   i, c, q, n) {
+      q = ""; n = length(s)
+      for (i = 1; i <= n; i++) {
+        c = substr(s, i, 1)
+        if (q == "\"" && c == "\\") { i++; continue }
+        if (q == "") {
+          if (c == "\"" || c == sq) q = c
+          else if (c == "#" && (i == 1 || substr(s, i - 1, 1) ~ /[[:space:]]/)) return substr(s, 1, i - 1)
+        } else if (c == q) q = ""
+      }
+      return s
+    }
+    BEGIN {
+      lead = "(^|[;&|(`!{]|\\$\\(|[[:space:]](then|do|else|if|elif|while|until))[[:space:]]*"
+      prefix = "(([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|exec|env|command|nohup|time|sudo|nice|xargs|apart|run_split|timeout[[:space:]]+[0-9a-z.]+)[[:space:]]+)*"
+      call = lead prefix "(gh([[:space:]]|$)|\"gh\"|" sq "gh" sq ")"
+      spawn = "(spawn|exec)[A-Za-z]*[[:space:]]*\\([[:space:]]*[\"`" sq "]gh([\"`" sq "]|[[:space:]])"
+    }
+    /^[[:space:]]*(\/\/|\/?\*)/ { next }
+    { line = " " strip($0) }
+    line ~ /(^|[^A-Za-z0-9_])gh_read([^A-Za-z0-9_]|$)/ || line ~ call || line ~ spawn { print f ":" NR ":" $0 }' "$1"
+}
 scan() {
   local f
-  for f in "$1"/bin/* "$1"/lib/*.sh; do
-    [ -f "$f" ] || continue
-    awk -v f="${f#"$1"/}" '
-      /^[[:space:]]*#/ { next }
-      { line = $0; sub(/[[:space:]]#[[:space:]].*$/, "", line) }
-      line ~ /(^|[^A-Za-z0-9_])gh_read([^A-Za-z0-9_]|$)/ || line ~ /command[[:space:]]+gh([[:space:]]|$)/ ||
-      line ~ /(apart|run_split|xargs)[[:space:]]+gh([[:space:]]|$)/ ||
-      line ~ /(^|[;&|(`!]|\$\(|[[:space:]](then|do|else|if|elif|while|until))[[:space:]]*gh([[:space:]]|$)/ { print f ":" NR ":" $0 }' "$f"
-  done
+  list_files "$1" | while IFS= read -r f; do scan_file "$f" "${f#"$1"/}"; done
 }
-files_read() { ls "$1"/bin/* "$1"/lib/*.sh 2>/dev/null | wc -l | tr -d ' '; }
+files_read() { list_files "$1" | wc -l | tr -d ' '; }
 
 found="$(scan "$ROOT")"
 [ -z "$found" ] || fail "gh is used outside lib/github/:
 $found"
 
 # the same scan finds gh where it is allowed, so it can see a call at all
-inside="$(for f in "$ROOT"/lib/github/*.sh; do awk '/^[[:space:]]*#/ { next } /(^|[^A-Za-z0-9_])gh_read([^A-Za-z0-9_]|$)/ || /command[[:space:]]+gh([[:space:]]|$)/' "$f"; done | wc -l | tr -d ' ')"
+inside="$(find "$ROOT/lib/github" -type f | while IFS= read -r f; do scan_file "$f" "$f"; done | wc -l | tr -d ' ')"
 [ "$inside" -gt 0 ] || fail "the scan finds no gh call in lib/github/, so it cannot be told to see one"
 
-# planted: three lines in a copy of a command, one of each shape, and the word in a comment, a
-# message and `command -v gh`, which are no use of gh
-plant="$WORK/plant"; mkdir -p "$plant/bin" "$plant/lib"
-cp "$ROOT/bin/issue-reopen.sh" "$plant/bin/issue-reopen.sh"
-cp "$ROOT/lib/common.sh" "$plant/lib/common.sh"
-printf '%s\n' 'gh issue view 4' 'x="$(gh_read "x" api repos/a/b)"' 'command gh api user' >> "$plant/bin/issue-reopen.sh"
-red="$(scan "$plant")"
-[ "$(printf '%s\n' "$red" | grep -c .)" = 3 ] || fail "the scan did not go red on three planted lines (gh issue view, gh_read, command gh); it found: $red"
-cp "$ROOT/bin/issue-reopen.sh" "$plant/bin/issue-reopen.sh"
-printf '%s\n' '# gh issue view 4 is the call this line once was' 'echo "gh is not on the PATH"' 'command -v gh >/dev/null 2>&1 || exit 2' >> "$plant/bin/issue-reopen.sh"
-green="$(scan "$plant")"
-[ -z "$green" ] || fail "the scan went red on the word gh in a comment, a message and command -v: $green"
-echo "  $(files_read "$ROOT") files of bin/ and lib/ read, none calls gh; red on three planted calls, green on the word in a comment, a message and command -v gh; $inside calls found in lib/github/"
+# plant_case <file in the plant> <red|green> <line>: the line alone in a fresh tree, the scan must find
+# it (red) or find nothing (green)
+plant="$WORK/plant"; planted=0
+plant_case() {
+  local target="$1" want="$2" line="$3" got
+  planted=$((planted + 1))
+  rm -rf "$plant"; mkdir -p "$plant/bin" "$plant/lib/plane"
+  printf '%s\n' "$line" > "$plant/$target"
+  got="$(scan "$plant")"
+  if [ "$want" = red ]; then
+    [ "$(printf '%s\n' "$got" | grep -c .)" = 1 ] || fail "the scan did not go red on one planted line in $target: $line; it found: $got"
+  else
+    [ -z "$got" ] || fail "the scan went red on an innocent line in $target: $line; it found: $got"
+  fi
+}
+while IFS= read -r line; do plant_case lib/plane/tracker.sh red "$line"; done <<'PLANTED'
+gh issue view 4
+  gh issue view 4
+x="$(gh_read "x" api repos/a/b)"
+command gh api user
+x=1; gh api user
+y="$(gh api user)"
+if gh auth status >/dev/null 2>&1; then :; fi
+while gh api user; do :; done
+until gh api user; do :; done
+{ gh release download v1; }
+GH_TOKEN=x gh api user
+exec gh api user
+timeout 5 gh api user
+env gh api user
+"gh" api user
+'gh' api user
+echo "a # b"; gh api user
+PLANTED
+plant_case lib/plane/tracker.sh red 'x | xargs gh api'
+plant_case lib/notes.txt red 'gh api user'
+plant_case bin/issue-new red 'if gh auth status; then :; fi'
+plant_case lib/call.mjs red "spawnSync('gh', ['api', 'user']);"
+plant_case lib/call.mjs red 'execFileSync("gh", ["api", "user"]);'
+plant_case lib/call.mjs red 'execSync(`gh api user`);'
+while IFS= read -r line; do plant_case lib/plane/tracker.sh green "$line"; done <<'INNOCENT'
+# gh issue view 4 is the call this line once was
+echo "gh is not on the PATH"
+printf '%s\n' "run gh issue view 4 yourself"
+command -v gh >/dev/null 2>&1 || exit 2
+x=1 # then gh api user
+INNOCENT
+plant_case lib/call.mjs green "// spawnSync('gh', ['api', 'user']);"
+plant_case lib/call.mjs green 'console.log("gh is missing");'
+echo "  $(files_read "$ROOT") files of bin/ and lib/ read, none calls gh; $planted planted cases, red on each spelling of a call and green on the word in a comment, a message and command -v gh; $inside calls found in lib/github/"
 exit 0

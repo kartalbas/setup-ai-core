@@ -198,7 +198,7 @@ fill_layer() {
   cp -R "$root/skeleton/." "$dir/"
   for f in config.env labels.tsv assignees.tsv; do cp "$root/templates/.ai-core/$f" "$dir/$f"; done
   git -C "$dir" add -A
-  git -C "$dir" -c user.name="${GIT_AUTHOR_NAME:-ai-core}" -c user.email="${GIT_AUTHOR_EMAIL:-ai-core@localhost}" commit -q -m "the project harness, from the skeleton of setup-ai-core"
+  git -C "$dir" commit -q -m "the project harness, from the skeleton of setup-ai-core"
 }
 
 # ensure_layer <org>/<name> <setup-ai-core root> <folder> [create|dry]: the clone is there and

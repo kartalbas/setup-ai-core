@@ -671,8 +671,13 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    attribution** (a `Co-Authored-By:` or `Generated with` line naming one), **and no author or
    committer is an assistant** (a vendor's address, an assistant's GitHub bot, or a name that is
    only an assistant's, the identity a cloud session commits under unless the person sets their
-   own); a person as co-author, or one named Claude with an address of their own, passes. None of
-   the three has an excuse.
+   own); a person as co-author, or one named Claude with an address of their own, passes. **Every
+   pushed commit, a merge too, carries as author and committer the address `git config user.email`
+   holds in the repository**, compared without regard to case: the refusal lists each commit as
+   `<hash> author <address>, committer <address>` with the `--reset-author` rewrite, and a
+   repository with no `user.email` is refused with the command that sets one. Only the commits the
+   push adds are read, so a commit the remote has, another person's or a platform bot's, never
+   refuses a push. None of the four has an excuse.
 6. **No added comment names an issue by its number**, `(#<n>)` or `<repo>#<n>`, judged on the
    comment part of the lines the push adds, Markdown, JSON and lock files left out; the issue is
    named in the commit message instead. A number in code that is no comment passes.

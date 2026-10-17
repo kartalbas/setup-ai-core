@@ -17,6 +17,10 @@
 
 set -uo pipefail
 
+# The commits of the scratch repository carry its configured identity, which the gate holds them
+# against: an identity in the caller's environment would make every one of them a stranger's.
+unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
+
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fake="$(mktemp -d)"
 trap 'git -C "$fake/checkouts/app" worktree remove --force "$fake/checkouts/.worktrees/app/issue-5-probe" >/dev/null 2>&1; rm -rf "$fake"' EXIT
@@ -201,13 +205,65 @@ check 'it says why'                    yes "$(yesno 'name an assistant as author
 git -C "$repo" commit -q --amend --no-edit --author='claude[bot] <209825114+claude[bot]@users.noreply.github.com>'
 out="$(only_new "$repo")"; rc=$?
 check "an assistant's GitHub bot: exit 1" 1 "$rc"
-git -C "$repo" commit -q --amend --no-edit --author='Claude Monet <claude@example.invalid>'
+# as_identity <name> <address>: the repository's identity, and the newest commit rewritten under it
+# as author and committer, so only the assistant rule is in question
+as_identity() {
+  git -C "$repo" config user.name "$1"; git -C "$repo" config user.email "$2"
+  git -C "$repo" commit -q --amend --no-edit --reset-author
+}
+as_identity 'Claude Monet' claude@example.invalid
 out="$(only_new "$repo")"; rc=$?
 check 'a person named Claude: exit 0'  0 "$rc"
-git -C "$repo" commit -q --amend --no-edit --author='dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>'
+as_identity 'dependabot[bot]' '49699333+dependabot[bot]@users.noreply.github.com'
 out="$(only_new "$repo")"; rc=$?
 check 'a bot that is no assistant: exit 0' 0 "$rc"
+as_identity test test@example.invalid
+
+echo 'a commit under another address than git config user.email is refused, as author or as committer'
+git -C "$repo" commit -q --amend --no-edit --author='Ada Lovelace <ada@example.invalid>'
+out="$(only_new "$repo")"; rc=$?
+check 'another author address: exit 1' 1 "$rc"
+check 'it names the commit and both addresses' yes "$(yesno "$(git -C "$repo" rev-parse --short HEAD) author <ada@example.invalid>, committer <test@example.invalid>")"
+check 'it gives the rewrite command'   yes "$(yesno 'git commit --amend --reset-author --no-edit')"
 git -C "$repo" commit -q --amend --no-edit --reset-author
+GIT_COMMITTER_EMAIL=ada@example.invalid git -C "$repo" commit -q --amend --no-edit
+out="$(only_new "$repo")"; rc=$?
+check 'another committer address: exit 1' 1 "$rc"
+check 'it names the commit and both addresses' yes "$(yesno "$(git -C "$repo" rev-parse --short HEAD) author <test@example.invalid>, committer <ada@example.invalid>")"
+echo 'the same address in other letter case passes'
+GIT_AUTHOR_EMAIL=TEST@Example.Invalid GIT_COMMITTER_EMAIL=Test@EXAMPLE.invalid git -C "$repo" commit -q --amend --no-edit --reset-author
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                         0 "$rc"
+git -C "$repo" commit -q --amend --no-edit --reset-author
+echo 'a merge is read like any pushed commit: the pusher'"'"'s passes, another committer'"'"'s is refused'
+base="$(git -C "$repo" rev-parse HEAD)"
+git -C "$repo" checkout -q -b side; commit 'src/side.txt' 'Work on a side branch #7'
+git -C "$repo" checkout -q master; commit 'src/thing.txt' 'Work on master #7'
+git -C "$repo" merge -q --no-ff side -m 'Merge side (#7)'
+out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$base")"; rc=$?
+check 'a merge by the pusher over the pusher'"'"'s commits: exit 0' 0 "$rc"
+GIT_COMMITTER_EMAIL=ada@example.invalid git -C "$repo" commit -q --amend --no-edit
+out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$base")"; rc=$?
+check 'the same merge under another committer: exit 1' 1 "$rc"
+check 'it names the merge'             yes "$(yesno "$(git -C "$repo" rev-parse --short HEAD) author <test@example.invalid>, committer <ada@example.invalid>")"
+git -C "$repo" reset -q --hard "$base"; git -C "$repo" branch -q -D side
+echo 'a commit the remote has already is not read, whoever wrote it'
+git -C "$repo" commit -q --amend --no-edit --author='Ada Lovelace <ada@example.invalid>'
+published="$(git -C "$repo" rev-parse HEAD)"
+commit 'src/thing.txt' 'Build on a commit of someone else #7'
+out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$published")"; rc=$?
+check 'a remote sha beneath the pusher'"'"'s commit: exit 0' 0 "$rc"
+git -C "$repo" update-ref refs/remotes/origin/master "$published"
+out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$zeros40")"; rc=$?
+check 'a new branch on top of a remote ref: exit 0' 0 "$rc"
+git -C "$repo" update-ref -d refs/remotes/origin/master
+git -C "$repo" reset -q --hard "$base"
+echo 'no user.email configured: refused, with the command that sets one'
+git -C "$repo" config --unset user.email
+out="$(GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 only_new "$repo")"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'it says how to set it'          yes "$(yesno 'git config --global user.email')"
+git -C "$repo" config user.email test@example.invalid
 echo '--message judges one message as the commit is made: the same rules, comment lines left out, a merge passed'
 msg="$fake/COMMIT_EDITMSG"
 judge_message() { out="$( cd "$repo" && bash "$root/bin/pre-push.sh" --message "$msg" 2>&1 )"; rc=$?; }

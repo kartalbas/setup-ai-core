@@ -345,5 +345,20 @@ binding_ok() {  # binding_ok
   grep -q '^- The engineering rules, .*: @\.ai-core/rules/rules\.md$' "$WORK/folder/shop-web/AGENTS.md" || fail "shop-web, whose harness adds rules the folder lacks, does not import its own: $(sed -n 4,9p "$WORK/folder/shop-web/AGENTS.md" | tr '\n' '|')"
 }
 binding_ok
+section "a new project harness is committed under the identity of the person who runs init, never a made-up one"
+F="$WORK/fill"; mkdir -p "$F"
+printf '[user]\n\tname = Ada Lovelace\n\temail = person@example.com\n' > "$F/identity"
+printf '[user]\n\tuseConfigOnly = true\n' > "$F/none"
+(
+  unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
+  export GIT_CONFIG_NOSYSTEM=1
+  . "$ROOT/lib/layers.sh"
+  git init -q "$F/mine"
+  GIT_CONFIG_GLOBAL="$F/identity" fill_layer "$F/mine" "$ROOT" || exit 11
+  [ "$(git -C "$F/mine" log -1 --format='%ae %ce')" = 'person@example.com person@example.com' ] || exit 12
+  git init -q "$F/nobody"
+  if GIT_CONFIG_GLOBAL="$F/none" fill_layer "$F/nobody" "$ROOT" 2>/dev/null; then exit 13; fi
+  if git -C "$F/nobody" rev-parse -q --verify HEAD >/dev/null; then exit 14; fi
+) || fail "fill_layer: the harness was not committed under the configured identity, or was committed where git holds none (exit $?)"
 echo "  created, cloned, an empty one on GitHub filled from the skeleton (cloned by init or by hand), moved from the home directory, an interrupted move completed, lost files restored, assembled; extends base first; a harness that cannot be had stops init; a harness checkout refused; the folder shares the base and its map skips the clones; maps written by the agent CLI, pushed and in the checkouts, people's rules kept, a bad output refused, --all over the folder"
 exit 0

@@ -38,13 +38,15 @@ for arg in "$@"; do
     echo "LICENSE files, and carries no 'No-issue: <who asked and why>' trailer; a team mode is"
     echo "missing; a file the push adds or changes starts with #! and is"
     echo "not executable; a subject is longer than 72 characters; a message carries an assistant's or a"
-    echo "vendor's attribution, or its author or committer is an assistant; an added comment names an"
+    echo "vendor's attribution, or its author or committer is an assistant; an author or committer"
+    echo "address, a merge's too, differs from git config user.email (none set is refused); an added comment names an"
     echo "issue as (#<n>) or <repo>#<n>; an existing"
     echo "migrations/*.sql is changed or removed (a 'Migration: <why>' trailer allows it);"
     echo "a new directory's name is invented where the families"
     echo "of the trees give it (a 'Naming: <why>' trailer keeps one); the working tree differs from the commit where"
     echo "scripts/check.sh would run, or scripts/check.sh is red; or gitleaks"
-    echo "finds a credential in the pushed commits (where .gitleaks.toml exists). Merges are not judged; a deletion runs"
+    echo "finds a credential in the pushed commits (where .gitleaks.toml exists). Merges are judged only by their"
+    echo "author and committer address; a deletion runs"
     echo "no checks. Run from a terminal it judges the current branch against its upstream."
     echo ""
     echo "Options:"
@@ -575,8 +577,12 @@ done < <(while IFS= read -r sha; do [ -z "$sha" ] || git diff-tree --no-commit-i
 # message carries an assistant's or a vendor's attribution, because the history names who answers
 # for a change, and a tool cannot. For the same reason no author or committer is an assistant: a
 # vendor's address, an assistant's GitHub bot, or a name that is only an assistant's, which is the
-# identity a cloud session commits under unless the person sets their own. Each message is read
-# whole before it is searched.
+# identity a cloud session commits under unless the person sets their own. The assistant check
+# names that reason when the configured identity is itself an assistant's; it does not replace the
+# check below it, which holds every pushed commit, a merge too, to the one address the person
+# pushing it set as their git identity: a commit made under a repository-local override, in another
+# environment or by another tool would otherwise name somebody who does not answer for it. Each
+# message is read whole before it is searched.
 long=""; attributed=""; assistant_identities=""
 while IFS= read -r sha; do
   [ -n "$sha" ] || continue
@@ -598,6 +604,25 @@ done <<< "$commits"
 [ -z "$attributed" ] || refuse "these commits carry an assistant's or a vendor's attribution:$attributed. Take the line out of the message (git commit --amend, or git rebase -i), because the history names who answers for a change."
 [ -z "$assistant_identities" ] || refuse "these commits name an assistant as author or committer:$assistant_identities
   Set your own identity (git config user.name and user.email), then rewrite them under it: git commit --amend --reset-author --no-edit for the last commit, or git rebase --exec 'git commit --amend --reset-author --no-edit' origin/$default for all of them."
+
+# Every commit this push sends, a merge among them, carries as author and committer the address
+# that git config user.email holds in this repository, compared without regard to case. Only the
+# ranges of this push are read, so a commit the remote has, another person's or a platform's,
+# never refuses a push.
+pushed="$(while IFS= read -r scan_range; do
+  [ -n "$scan_range" ] || continue
+  read -ra range_words <<< "$scan_range"
+  git rev-list "${range_words[@]}"
+done <<< "$scan_ranges" | awk '!seen[$0]++')"
+if [ -n "$pushed" ]; then
+  pusher_email="$(git config user.email || true)"
+  [ -n "$pusher_email" ] \
+    || refuse "git holds no user.email, so the commits being pushed cannot be matched to the person pushing them. Set your own address: git config --global user.email <your address> (git config user.email inside this repository sets it for this repository alone)."
+  foreign="$(git log --no-walk=unsorted --stdin --format='%h%x09%ae%x09%ce' <<< "$pushed" \
+    | awk -F'\t' -v want="$pusher_email" 'BEGIN { want = tolower(want) } tolower($2) != want || tolower($3) != want { printf "\n  %s author <%s>, committer <%s>", $1, $2, $3 }')"
+  [ -z "$foreign" ] || refuse "these commits carry another address than yours, $pusher_email, the one git config user.email holds:$foreign
+  Every pushed commit names the person who pushes it, because the history names who answers for a change. Rewrite them under your own identity: git commit --amend --reset-author --no-edit for the last commit, or git rebase --exec 'git commit --amend --reset-author --no-edit' origin/$default for all of them."
+fi
 
 # AN ISSUE NUMBER IS NEVER WRITTEN INTO A COMMENT (the comment rules): it sends the reader to a
 # tracker that moves on while the line stays. What the line needs is said in the comment, and the

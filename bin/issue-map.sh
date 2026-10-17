@@ -32,10 +32,9 @@ done
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 issues=""
 for repo in "${repos[@]}"; do
-  gh_read "the files of $repo" api "repos/$repo/git/trees/HEAD?recursive=1" > "$work/tree.json"
   page="$(gh_read "the open issues of $repo" api graphql --paginate -F owner="${repo%%/*}" -F name="${repo#*/}" -f query='
     query($owner:String!, $name:String!, $endCursor:String) { repository(owner:$owner, name:$name) {
-      issues(states:OPEN, first:50, after:$endCursor) { pageInfo { hasNextPage endCursor } nodes {
+      defaultBranchRef { name } issues(states:OPEN, first:50, after:$endCursor) { pageInfo { hasNextPage endCursor } nodes {
         number title body
         labels(first:50) { totalCount nodes { name } }
         parent { number repository { nameWithOwner } }
@@ -43,6 +42,12 @@ for repo in "${repos[@]}"; do
         blocking(first:50) { totalCount nodes { number repository { nameWithOwner } } }
         projectItems(first:5) { nodes { fieldValueByName(name:"Status") {
           ... on ProjectV2ItemFieldSingleSelectValue { name } } } } } } } }')"
+  # A repository without a commit has no default branch and holds no file yet
+  if [ -n "$(jq -rn 'first(inputs | .data.repository.defaultBranchRef.name // empty)' <<< "$page")" ]; then
+    gh_read "the files of $repo" api "repos/$repo/git/trees/HEAD?recursive=1" > "$work/tree.json"
+  else
+    echo '{"tree": []}' > "$work/tree.json"
+  fi
   # Every `path:line` of a body is a candidate; only a path its repository holds is a file, so a
   # version, a host with its port or a path on somebody's machine never reads as one
   issues="$issues$(jq -c --arg repo "$repo" --slurpfile tree "$work/tree.json" '
@@ -59,18 +64,21 @@ for repo in "${repos[@]}"; do
         parent: (if .parent then (.parent | ref) else null end),
         blockedBy: [.blockedBy.nodes[] | ref], blocking: [.blocking.nodes[] | ref],
         files: ([(.body // "") | scan("[A-Za-z0-9_./-]+(?=:[0-9])") | sub("^\\./"; "") | select($files[.])] | unique),
-        cut: (cut("labels"; .labels) + cut("blocked by"; .blockedBy) + cut("blocks"; .blocking)
-          + (if $truncated then ["files: GitHub cut the file list of \($repo)"] else [] end)) }' <<< "$page")
+        cut: (cut("labels"; .labels) + cut("blocked by"; .blockedBy) + cut("blocks"; .blocking)),
+        truncated: $truncated }' <<< "$page")
 "
 done
 
-# Joins and sorting run on the full name; a line shows the repository without its owner, unless two
-# of the repositories asked for share a name
-shared="$(printf '%s\n' "${repos[@]##*/}" | sort | uniq -d)"
-printf '%s' "$issues" | jq -rs --arg shared "$shared" '
-  def short: if $shared == "" then sub("^[^/]*/"; "") else . end;
+# Joins and sorting run on the full name; a line shows a repository without its owner, unless the map
+# meets its name under two owners
+printf '%s' "$issues" | jq -rs '
+  def name: split("#")[0] | sub("^[^/]*/"; "");
   def order: split("#") | [.[0], (.[1] | tonumber)];
   sort_by(.repo, .number) as $all
+  | ([$all[] | .id, .parent, .blockedBy[], .blocking[] | select(. != null) | split("#")[0]] | unique
+     | map(name) | group_by(.) | map(select(length > 1)[0])) as $twice
+  | def short: if IN(name; $twice[]) then . else sub("^[^/]*/"; "") end;
+  $all
   | ($all | map(.id)) as $ids
   | ($all | map("\(.id | short) \(.status) \(.type) \(.area) | \(.title)"
       + (if .parent then " | parent \(.parent | short)" else "" end)
@@ -82,8 +90,9 @@ printf '%s' "$issues" | jq -rs --arg shared "$shared" '
     ([$all[] | .id as $a | ([.parent] + .blockedBy + .blocking)[] | select(. != null and IN($ids[])) | [$a, .]] as $joins
      | reduce range(0; $all | length) as $pass ($all | map({key: .id, value: .id}) | from_entries;
          reduce $joins[] as $j (.; ([.[$j[0]], .[$j[1]]] | min) as $m | .[$j[0]] = $m | .[$j[1]] = $m))
-     | to_entries | group_by(.value) | map(select(length > 1) | map(.key) | sort_by(order))
+     | to_entries | group_by(.value) | map(select(length > 1) | map(.key))
      | sort_by(.[0] | order)[] | "group: \(map(short) | join(" "))"),
     ([$all[] | .repo as $r | .id as $i | .files[] | {file: "\($r | short) \(.)", id: $i}] | group_by(.file)
      | map(select(length > 1))[] | "file \(.[0].file): \(map(.id | short) | join(" "))"),
-    ($all[] | .id as $i | .cut[] | "cut: \($i | short) \(.)")'
+    ($all[] | .id as $i | .cut[] | "cut: \($i | short) \(.)"),
+    ([$all[] | select(.truncated) | .repo] | unique[] | "cut: files of \(short): GitHub gave its file list only in part")'

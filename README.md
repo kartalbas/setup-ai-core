@@ -309,9 +309,9 @@ to its first dash: `shop-web` and `shop-api` both belong to `shop-ai-core`. Noth
    repository with none, cloned by hand, is filled as in 2.
 2. It exists on GitHub: cloned there, through `gh`. An empty repository, made by hand by whoever
    has the right to create it under that owner (the owner of a repository you only push to, say),
-   is filled from `skeleton/` plus the three data files by the first `init` and pushed, said as
+   is filled from `skeleton/` plus `config.env`, `labels.tsv` and `assignees.tsv` by the first `init` and pushed, said as
    `filled: <org>/<prefix>-ai-core, empty on GitHub, from the skeleton`.
-3. It exists nowhere: created, private, from `skeleton/` of this repository plus the three data
+3. It exists nowhere: created, private, from `skeleton/` of this repository plus the same three
    files, and pushed, through `gh repo create`. The first developer of a project gets the harness
    made for them; without the right to create it, `init` says so and the checkout gets the generic
    harness only.

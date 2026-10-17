@@ -15,7 +15,7 @@ cut by file splits a contract and its two sides then release apart.
   {{clone paths}}
 - The partner folders that share contracts with this one, or none: {{partner folders}}
 - The plan issue: {{plan issue reference}}
-- What came back, where this plan is not the first: {{the plan check's GAPS, or the two reviews'
+- What came back, where this plan is not the first: {{the plan check's GAPS, or the review's
   FINDINGS, or "first plan"}}; and the last builds of this area that reported `CONTEXT: needed
   more`, from their PHASE lines: {{context lines or none}}. A plan that comes back changes what the findings name; the rest stands.
 - The classes: `mechanical` (a rename or a text, no contract touched), `high-risk` (security, payments,

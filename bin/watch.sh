@@ -6,15 +6,16 @@
 #   watch.sh [--session NAME]... [--ref CLONE:REF]... [--still S] [--every S] [--heartbeat S]
 #
 #   --session    a Claude Code session, by its name in `claude agents --json`; it wakes the caller
-#                once it has not been in the state `working` for --still seconds in a row, or has
-#                left the list for as long
+#                once it has not been `busy` for --still seconds in a row, or has left the list for
+#                as long. `state` says only whether a background job is finished, and an
+#                interactive session has none; `status` says whether it works at this moment
 #   --ref        a ref of a clone, such as /path/clone:origin/master; the clone is fetched every
 #                round, and the caller is woken when the ref moves
 #   --still      900 unless given: longer than a coordinator's round of 600 seconds, so a
 #                coordinator between two rounds wakes nobody
 #   --every      seconds between two rounds, 60 unless given
-#   --heartbeat  seconds after which it returns anyway, with every session's state and every ref's
-#                head, 1800 unless given: a session that hangs in `working` is still seen
+#   --heartbeat  seconds after which it returns anyway, with every session's status and every ref's
+#                head, 1800 unless given: a session that hangs in `busy` is still seen
 #
 # Exit 0: one line, "<HH:MM> <what happened>". Exit 1: a fetch or `claude agents` failed, named in
 # the line. Exit 2: a wrong argument, nothing to watch, or a ref that names nothing.
@@ -41,9 +42,11 @@ for n in "$still" "$every" "$heartbeat"; do
 done
 [ $((${#names[@]} + ${#refs[@]})) -gt 0 ] || { echo "error: nothing to watch - $usage" >&2; exit 2; }
 
+err="$(mktemp)"; trap 'rm -f "$err"' EXIT
 say() { echo "$(date +%H:%M) $1"; exit "${2:-0}"; }
 fetch() { local out; out="$(git -C "${clones[$1]}" fetch -q 2>&1)" || say "${clones[$1]}: the fetch failed: ${out##*$'\n'}" 1; }
-head_of() { git -C "${clones[$1]}" rev-parse --short "${refs[$1]}" 2>/dev/null; }
+# The full name: a short one grows as the clone does, and would read as a move
+head_of() { git -C "${clones[$1]}" rev-parse --verify -q "${refs[$1]}^{commit}"; }
 
 start="$(date +%s)"; heads=(); seen=()
 i=0; while [ "$i" -lt "${#refs[@]}" ]; do
@@ -58,22 +61,25 @@ while :; do
   now="$(date +%s)"; report=""
   i=0; while [ "$i" -lt "${#refs[@]}" ]; do
     fetch "$i"
-    head="$(head_of "$i")"
-    [ "$head" = "${heads[$i]}" ] || say "${clones[$i]}:${refs[$i]} moved: ${heads[$i]} -> ${head:-nothing}"
-    report="$report; ${clones[$i]}:${refs[$i]} at $head"
+    head="$(head_of "$i")"; short="${head:0:9}"
+    [ "$head" = "${heads[$i]}" ] || say "${clones[$i]}:${refs[$i]} moved: ${heads[$i]:0:9} -> ${short:-nothing}"
+    report="$report; ${clones[$i]}:${refs[$i]} at ${head:0:9}"
     i=$((i + 1))
   done
   if [ "${#names[@]}" -gt 0 ]; then
-    json="$(claude agents --json 2>&1)" || say "claude agents failed: ${json##*$'\n'}" 1
-    states="$(jq -r '.[] | "\(.name)\t\(.state)"' <<< "$json" 2>&1)" || say "claude agents gave no list: ${states##*$'\n'}" 1
+    json="$(claude agents --json 2> "$err")" || say "claude agents failed: $(tail -n1 "$err")" 1
   fi
   i=0; while [ "$i" -lt "${#names[@]}" ]; do
-    state="$(printf '%s\n' "$states" | awk -F'\t' -v n="${names[$i]}" '$1 == n { print $2; exit }')"
-    [ "$state" = working ] && seen[i]="$now"
+    # A name can stand on several entries, an interactive session and a background one: the
+    # session works while any of them is busy
+    status="$(jq -r --arg n "${names[$i]}" '[.[] | select(.name == $n) | .status]
+      | if length == 0 then "gone" elif any(. == "busy") then "busy" else unique | join(",") end' <<< "$json" 2>&1)" \
+      || say "claude agents gave no list: ${status##*$'\n'}" 1
+    [ "$status" = busy ] && seen[i]="$now"
     minutes=$(( (now - ${seen[$i]}) / 60 ))
     [ $((now - ${seen[$i]})) -lt "$still" ] \
-      || say "${names[$i]} is ${state:-gone} and has not worked for $minutes minutes"
-    report="$report; ${names[$i]} ${state:-gone}, $minutes minutes since it worked"
+      || say "${names[$i]} is $status and has not been busy for $minutes minutes"
+    report="$report; ${names[$i]} $status, $minutes minutes since it was busy"
     i=$((i + 1))
   done
   [ $((now - start)) -lt "$heartbeat" ] || say "heartbeat after $(( (now - start) / 60 )) minutes: ${report#; }"

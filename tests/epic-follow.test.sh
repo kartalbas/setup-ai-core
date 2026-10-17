@@ -27,6 +27,9 @@ check() {
 
 echo 'the rule: where an epic stands follows from its sub-issues, forward, and back from testing to implementing only'
 . "$ROOT/lib/board.sh"
+# board.sh turns on `set -e`; under it a mover that exits non-zero ends the test at `out=$(...)`,
+# before its exit code is checked, and the red run prints nothing for that case.
+set +e
 check 'nothing started'              ''             "$(epic_target todo todo backlog)"
 check 'one started'                  implementing   "$(epic_target todo implementing todo)"
 check 'all in testing or done'       testing        "$(epic_target implementing testing done)"

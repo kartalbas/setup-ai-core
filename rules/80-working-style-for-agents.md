@@ -76,9 +76,9 @@
   pre-review whose answer the session can check cheaply goes to the helper of the same tool, the
   table's helper row; a UI test or a live check is a phase of its own, on the table's model for it.
   A table's `high-risk` rows name a model at least as strong as its `normal-hard` rows, because
-  security, payments and contract work are never moved to a cheaper model to save money.
-  The repair after a NO is re-checked by one reader against the named findings, reading only the repair, because a whole package read again
-  for a few repaired lines costs a full review.
+  security, payments and contract work are never moved to a cheaper model to save money. The
+  repair after a NO is re-checked by one reader against the named findings, reading only the
+  repair, because a whole package read again for a few repaired lines costs a full review.
   A helper never builds, never gives the deciding review and never decides; its answer is a lead the
   session checks before it uses it. No task moves to another model, effort or tool because a quota
   ran out, because a fallback waters the result down from the bottom up: it waits. [review]

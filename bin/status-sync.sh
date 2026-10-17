@@ -7,6 +7,11 @@
 # It reads only facts and moves FORWARD only. The signal:
 #   - a card in testing whose landed commit the newest release tag carries, and whose issue carries
 #     a proof record written after that landing                    -> closed + done
+#   - a card in a column before testing whose issue a commit on origin's default branch names -> named
+#     "not finished", the card stays: finish-issue, run after the push that lands the issue, moves it
+#   - a card in testing whose landed commit the newest release tag does not carry     -> named
+#     "not released", with the tag; where origin has no tag of the first environment of LIVE_TAGS
+#     at all, the repository is named once, "no release", with the count of its cards in testing
 # The proof record is a comment whose first line is "Proven on <environment>:", written by the
 # session that proved the released work; what it checked follows below that line, in the
 # project's own form, and is not read here. Without it a released card stays in testing, because
@@ -133,22 +138,26 @@ clone_of() {  # <owner/repo>
   return 0
 }
 
-# THE TAGS OF THE RELEASE THAT CLOSES A CARD: the pattern of the first environment of LIVE_TAGS
-# in a config.env, or every tag where it names none
+# THE TAGS OF THE RELEASE THAT CLOSES A CARD: the first environment of LIVE_TAGS in a config.env
+# as <environment>=<pattern>, or the pattern * (every tag) where it names none
 release_tag_pattern() {  # <config.env>
   local line word
   line="$(grep -E '^[[:space:]]*LIVE_TAGS[[:space:]]*=' "$1" 2>/dev/null | tail -n1 || true)"
   line="${line#*=}"; line="${line%%#*}"; line="${line//[\"\']/}"
   for word in $line; do
-    case "$word" in ?*=?*) echo "${word#*=}"; return 0 ;; esac
+    case "$word" in ?*=?*) echo "$word"; return 0 ;; esac
   done
   echo '*'
 }
 
 # THE RELEASE OF ONE REPOSITORY, read once per run and kept for the next card that asks: sets
 # REL_CLONE (its clone, or empty), REL_REF (origin's default branch), REL_TAG (the newest
-# release tag by date, or empty) and REL_LANDED (1 where LIVE_TAGS says `landed`, so the landing is
-# the release and no tag is read), and says once what it could not read. Called in this shell, never
+# release tag by date, or empty), REL_LANDED (1 where LIVE_TAGS says `landed`, so the landing is
+# the release and no tag is read), REL_NOTAG (1 only where origin was listed and none of its tags
+# matches the pattern: an empty REL_TAG is also a repository with no clone, one whose tag stands
+# on another commit and one whose origin could not be listed, and none of those is a repository
+# that makes no release), REL_ENV (the environment the pattern belongs to, empty where LIVE_TAGS
+# names none) and REL_PATTERN, and says once what it could not read. Called in this shell, never
 # as `$( )`, or what it keeps would end with the subshell.
 #
 # The pattern is LIVE_TAGS of the clone's own .ai-core/config.env: the project of that repository
@@ -160,14 +169,15 @@ release_tag_pattern() {  # <config.env>
 # nothing is: then no tag counts. The fetch asks nobody for a password.
 _RELEASES=''
 release_of() {  # <owner/repo>
-  local held said reason remote pattern t want odd=""
+  local held said reason remote word pattern t want odd=""
   held="$(printf '%s' "$_RELEASES" | awk -F'\t' -v r="$1" 'tolower($1) == tolower(r) { print; exit }')"
   if [ -n "$held" ]; then
-    IFS=$'\t' read -r _ REL_CLONE REL_REF REL_TAG REL_LANDED <<< "$held"
+    IFS=$'\t' read -r _ REL_CLONE REL_REF REL_TAG REL_LANDED REL_NOTAG REL_ENV REL_PATTERN <<< "$held"
     [ "$REL_CLONE" != - ] || REL_CLONE=""; [ "$REL_REF" != - ] || REL_REF=""; [ "$REL_TAG" != - ] || REL_TAG=""
+    [ "$REL_ENV" != - ] || REL_ENV=""
     return 0
   fi
-  REL_CLONE="$(clone_of "$1")"; REL_REF=""; REL_TAG=""; REL_LANDED=0
+  REL_CLONE="$(clone_of "$1")"; REL_REF=""; REL_TAG=""; REL_LANDED=0; REL_NOTAG=0; REL_ENV=""; REL_PATTERN=""
   if [ -z "$REL_CLONE" ]; then
     echo "no clone of $1 in $(project_folder), so no release of it is read and its cards in testing stay"
   else
@@ -177,7 +187,9 @@ release_of() {  # <owner/repo>
       echo "fetching origin of $1 in $REL_CLONE failed: ${reason:-git gave no reason}; the refs it had are read"
     fi
     REL_REF="origin/$(cd "$REL_CLONE" && origin_default_branch)" || REL_REF=""
-    pattern="$(release_tag_pattern "$REL_CLONE/.ai-core/config.env")"
+    word="$(release_tag_pattern "$REL_CLONE/.ai-core/config.env")"
+    case "$word" in *=*) REL_ENV="${word%%=*}"; pattern="${word#*=}" ;; *) pattern="$word" ;; esac
+    REL_PATTERN="$pattern"
     if [ "$pattern" = landed ]; then
       REL_LANDED=1
     elif remote="$(GIT_TERMINAL_PROMPT=0 git -C "$REL_CLONE" ls-remote --tags origin 2>/dev/null)"; then
@@ -197,12 +209,13 @@ release_of() {  # <owner/repo>
           [ -n "$t" ] || continue
           if awk -F'\t' -v t="$t" '$1 == t { f = 1 } END { exit !f }' <<< "$remote"; then REL_TAG="$t"; break; fi
         done <<< "$(git -C "$REL_CLONE" tag --list "$pattern" --sort=-creatordate)"
+        [ -n "$REL_TAG" ] || REL_NOTAG=1
       fi
     else
       echo "origin of $1 could not be listed from $REL_CLONE, so no tag of it counts as a release and its cards in testing stay"
     fi
   fi
-  _RELEASES="${_RELEASES}$1"$'\t'"${REL_CLONE:--}"$'\t'"${REL_REF:--}"$'\t'"${REL_TAG:--}"$'\t'"$REL_LANDED"$'\n'
+  _RELEASES="${_RELEASES}$1"$'\t'"${REL_CLONE:--}"$'\t'"${REL_REF:--}"$'\t'"${REL_TAG:--}"$'\t'"$REL_LANDED"$'\t'"$REL_NOTAG"$'\t'"${REL_ENV:--}"$'\t'"${REL_PATTERN:--}"$'\n'
 }
 
 # --- the sweep ----------------------------------------------------------------
@@ -245,7 +258,7 @@ else
   done <<< "$(awk '$1 != "done" && $4 ~ /^#[0-9]+$/ { print $3 }' <<< "$cards" | sort -u)"
 fi
 
-moved=0; scanned=0
+moved=0; scanned=0; unreleased=""
 for full in ${repos[@]+"${repos[@]}"}; do
   cards="$(cards_of_repo "$full")" || exit 1
   label="${full#"$org"/}"
@@ -260,6 +273,16 @@ for full in ${repos[@]+"${repos[@]}"}; do
     if [ "$subs" -gt 0 ]; then
       target="$(epic_target_on_board "$full" "$num")" || exit 1
     else
+      # A card before testing whose issue a commit on the default branch names: the work may have
+      # landed with nobody running finish-issue, and this sweep reads testing alone. Named, never
+      # moved, because that the work is complete is the session's statement, which finish-issue records.
+      if [ "$(status_rank "$(printf '%s' "$st" | tr '[:upper:]' '[:lower:]')")" -lt 2 ]; then
+        release_of "$full"
+        named=""
+        [ -z "$REL_REF" ] || named="$(git -C "$REL_CLONE" log "$REL_REF" -E --grep="(^|[^A-Za-z0-9._/-])#${num}([^0-9]|$)" --format=%h -n 1)" || named=""
+        [ -z "$named" ] || echo "not finished $label#$num  (in $st, but $REL_REF has $named naming it: run ai-core finish-issue $full $num)"
+        continue
+      fi
       [ "$(printf '%s' "$st" | tr '[:upper:]' '[:lower:]')" = testing ] || continue
       # Without a landing record nothing here can tell where its work is, and the card never moves
       # on: named, so it does not wait unseen
@@ -278,7 +301,18 @@ for full in ${repos[@]+"${repos[@]}"}; do
         [ "$REL_LANDED" = 0 ] || rel="$on_master"
       fi
       target="$(derive_target "$st" "$on_master" "$rel" 0 "$proven")"
-      [ -n "$target" ] || { [ "$rel" = 1 ] && echo "proof due    $label#$num  (released in $tag, no \"Proven on\" record after its landing)"; continue; }
+      if [ -z "$target" ]; then
+        if [ "$rel" = 1 ]; then
+          echo "proof due    $label#$num  (released in $tag, no \"Proven on\" record after its landing)"
+        elif [ "$on_master" = 1 ] && [ -n "$REL_TAG" ]; then
+          where=""; [ "$landed" = "$full" ] || where=" of $landed"
+          echo "not released $label#$num  (landed in $sha; the newest ${REL_ENV:+$REL_ENV }release $REL_TAG$where does not carry it)"
+        elif [ "$on_master" = 1 ] && [ "$REL_NOTAG" = 1 ]; then
+          # The cause is the repository's, so it is named once for all its cards, after the sweep
+          unreleased="$(awk -F'\t' -v r="$landed" 'BEGIN { OFS = "\t" } $1 == "" { next } tolower($1) == tolower(r) { $2++; f = 1 } { print } END { if (!f) print r, 1 }' <<< "$unreleased")"
+        fi
+        continue
+      fi
     fi
     [ -n "$target" ] || continue
 
@@ -296,6 +330,15 @@ for full in ${repos[@]+"${repos[@]}"}; do
     moved=$((moved + 1))
   done <<< "$cards"
 done
+
+# A repository whose origin was listed and has no tag of its release pattern: its cards in testing
+# can never close, which no single card says
+while IFS=$'\t' read -r unreleased_repo count; do
+  [ -n "$unreleased_repo" ] || continue
+  release_of "$unreleased_repo"
+  if [ -n "$REL_ENV" ]; then what="$REL_ENV=$REL_PATTERN of LIVE_TAGS"; else what="$REL_PATTERN (LIVE_TAGS names no environment)"; fi
+  echo "no release   ${unreleased_repo#"$org"/}  (no tag of ${unreleased_repo#"$org"/} matches $what; $count card$([ "$count" = 1 ] || echo s) in testing wait)"
+done <<< "$unreleased"
 
 echo
 echo "$scanned active cards scanned, $moved $([ "$dry" = 1 ] && echo would move || echo moved) on board $resolved."

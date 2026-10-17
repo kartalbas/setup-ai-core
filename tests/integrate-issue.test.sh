@@ -366,7 +366,7 @@ check 'and the lock is released'       no "$([ -e "$lock" ] && echo yes || echo 
 # refuses a tree that differs from the commit, as bin/pre-push.sh does, refuses without the installed
 # marker, as the check of such a repository does, and records where it ran. The fixtures of each case
 # reach origin with no hook, so core.hooksPath is unset around them and set right before integrate.
-printf '#!/bin/sh\n[ -z "$(git status --porcelain)" ] || { echo "pre-push: REFUSED - the working tree differs from the commit: $(git status --porcelain)"; exit 1; }\n[ -f node_modules/installed ] || { echo "check: FAIL - node_modules is missing"; echo "pre-push: REFUSED - planted"; exit 1; }\npwd > "%s"\n' "$fake/checked.txt" > "$fake/hooks/pre-push"
+printf '#!/bin/sh\npwd > "%s"\n[ -z "$(git status --porcelain)" ] || { echo "pre-push: REFUSED - the working tree differs from the commit: $(git status --porcelain)"; exit 1; }\n[ -f node_modules/installed ] || { echo "check: FAIL - node_modules is missing"; echo "pre-push: REFUSED - planted"; exit 1; }\n' "$fake/checked.txt" > "$fake/hooks/pre-push"
 # commit_install_script <body>: scripts/install.sh with that body on master, pushed with no hook
 commit_install_script() {
   git -C "$work" config --unset core.hooksPath

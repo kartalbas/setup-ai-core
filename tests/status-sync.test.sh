@@ -77,10 +77,14 @@ check 'CLOSE is done' 3 "$(status_rank CLOSE)"
 #   abc20 on master, in no tag
 #
 # THE PLANTED CARDS, one per case:
-#   #12 implementing, its commit on master                          -> stays
+#   #12 implementing, its commit on master                          -> named "not finished", stays
+#   #1  implementing, no commit names it, though one names #12      -> not named (#1 is no prefix match)
+#   #24 implementing, no commit names it                            -> not named
+#   #25 Review, spelled as the board spells it, its commit on master -> named "not finished", stays
+#   #26 done, its commit on master                                  -> not named
 #   #13 testing, in deploy/prod/1, a "Proven on" record after it    -> would close, though a report
 #       that starts "Landed on" but lists no commit comes after its record and its proof
-#   #14 todo, an epic with ONE sub-issue                            -> named, follows it
+#   #14 todo, an epic with ONE sub-issue, a commit names it         -> named, follows it, not "not finished"
 #   #15 todo, a repository of another organisation                  -> read under its owner
 #   #16 testing, reopened after its work landed                     -> no landing, stays
 #   #17 testing, moved by hand: no "Landed on" record, only a report -> no landing, stays
@@ -122,10 +126,13 @@ origin="$FAKE/remote/example-org/example-repo.git"; seed="$FAKE/seed"; clone="$F
 git init -q --bare "$origin"; git init -q "$seed"; git -C "$seed" checkout -q -b master
 c12="$(commit_at "$seed" 1700000012 'Work of #12')"
 c13="$(commit_at "$seed" 1700000013 'Land #13')"; tag_at "$seed" deploy/prod/1 1700000013
+commit_at "$seed" 1700000014 'Work of #14' >/dev/null
 c16="$(commit_at "$seed" 1700000016 'Land #16')"
 c18="$(commit_at "$seed" 1700000018 'Land #18')"; tag_at "$seed" deploy/prod/2 1700000018; tag_at "$seed" 0.1-newest 1700000099
 c19="$(commit_at "$seed" 1700000019 'Land #19')"; tag_at "$seed" deploy/test/9 1700000019
 c20="$(commit_at "$seed" 1700000020 'Land #20')"
+commit_at "$seed" 1700000025 'Work of #25' >/dev/null
+commit_at "$seed" 1700000026 'Land #26' >/dev/null
 git -C "$seed" push -q "$origin" master --tags
 git -C "$origin" symbolic-ref HEAD refs/heads/master
 mkdir -p "$FAKE/folder"; git clone -q "$origin" "$clone"
@@ -164,7 +171,7 @@ issue() {  # issue <number> <status> <sub-issues> <comments> [reopened at]
 }
 page() { printf '{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":%s,"endCursor":%s},"nodes":[%s]}}}}\n' "$1" "$2" "$3"; }
 page true '"c1"' "$(issue 12 implementing 0 "$(landed 2026-09-01T10:00:00Z "$c12")"),$(issue 13 testing 0 "$(landed 2026-08-01T10:00:00Z 0000000),$(landed 2026-09-01T10:00:00Z "$c13"),{\"createdAt\":\"2026-09-02T12:00:00Z\",\"authorAssociation\":\"MEMBER\",\"body\":\"Landed on master as abc1313, the merge of the package\"},$(proven 2026-09-02T10:00:00Z),{\"createdAt\":\"2026-09-03T10:00:00Z\",\"authorAssociation\":\"MEMBER\",\"body\":\"Looks good, see 2222222\"}"),$(issue 14 todo 1 ''),$(issue 16 testing 0 "$(landed 2026-09-01T10:00:00Z "$c16"),$(proven 2026-09-02T10:00:00Z)" 2026-09-05T10:00:00Z),$(issue 17 testing 0 '{"createdAt":"2026-09-01T10:00:00Z","authorAssociation":"MEMBER","body":"Done in\n- abc1717 by hand"},{"createdAt":"2026-09-01T11:00:00Z","authorAssociation":"MEMBER","body":"Landed on master as abc1717, by hand"}')" > "$FAKE/issues-1.json"
-page false null "$(issue 18 testing 0 "$(proven 2026-08-30T10:00:00Z),$(landed 2026-09-01T10:00:00Z "$c18"),$(proven 2026-09-02T10:00:00Z NONE)"),$(issue 22 testing 0 "$(landed 2026-09-01T10:00:00Z "$c13" example-org/gone),$(proven 2026-09-02T10:00:00Z)"),$(issue 23 testing 0 "$(landed 2026-09-01T10:00:00Z "$t23" example-org/tools),$(proven 2026-09-02T10:00:00Z)"),$(issue 19 testing 0 "$(landed 2026-09-01T10:00:00Z "$c19"),$(proven 2026-09-02T10:00:00Z)"),$(issue 20 testing 0 "$(landed 2026-09-01T10:00:00Z "$c20"),$(proven 2026-09-02T10:00:00Z)"),$(issue 21 '' 0 '')" > "$FAKE/issues-2.json"
+page false null "$(issue 18 testing 0 "$(proven 2026-08-30T10:00:00Z),$(landed 2026-09-01T10:00:00Z "$c18"),$(proven 2026-09-02T10:00:00Z NONE)"),$(issue 22 testing 0 "$(landed 2026-09-01T10:00:00Z "$c13" example-org/gone),$(proven 2026-09-02T10:00:00Z)"),$(issue 23 testing 0 "$(landed 2026-09-01T10:00:00Z "$t23" example-org/tools),$(proven 2026-09-02T10:00:00Z)"),$(issue 19 testing 0 "$(landed 2026-09-01T10:00:00Z "$c19"),$(proven 2026-09-02T10:00:00Z)"),$(issue 20 testing 0 "$(landed 2026-09-01T10:00:00Z "$c20"),$(proven 2026-09-02T10:00:00Z)"),$(issue 21 '' 0 ''),$(issue 1 implementing 0 ''),$(issue 24 implementing 0 ''),$(issue 25 Review 0 ''),$(issue 26 done 0 '')" > "$FAKE/issues-2.json"
 page false null "$(issue 15 todo 0 '')" > "$FAKE/issues-other.json"
 # #14's one sub-issue was moved to testing by hand on the board; the epic itself stands in todo
 printf '%s\n' '{"data":{"repository":{"issue":{"state":"OPEN","projectItems":{"nodes":[{"project":{"number":999995,"owner":{"login":"example-org"}},"status":{"name":"todo"}}]},"subIssues":{"nodes":[{"state":"OPEN","projectItems":{"nodes":[{"project":{"number":999995,"owner":{"login":"example-org"}},"status":{"name":"testing"}}]}}]}}}}}' > "$FAKE/epic-14.json"
@@ -220,7 +227,13 @@ check 'and follows its sub-issue moved by hand' \
   'would move   example-repo#14  (todo -> testing)' \
   "$(grep '^would move   example-repo#14' <<< "$run")"
 check 'nothing else moves: not on master alone, not reopened, not by hand, not on test only, not untagged' \
-  '' "$(grep -E 'example-repo#(12|16|17|19|20|22)' <<< "$run" | grep -v -e '^proof due' -e '^no landing')"
+  '' "$(grep -E 'example-repo#(12|16|17|19|20|22)' <<< "$run" | grep -v -e '^proof due' -e '^no landing' -e '^not finished')"
+check 'a card before testing that a commit on the default branch names is named, in its column as the board spells it, and does not move' \
+  "not finished example-repo#12  (in implementing, but origin/master has $(git -C "$clone" log -1 --format=%h "$(git -C "$clone" log origin/master --grep='Work of #12' --format=%H)") naming it: run ai-core finish-issue example-org/example-repo 12)
+not finished example-repo#25  (in Review, but origin/master has $(git -C "$clone" log -1 --format=%h "$(git -C "$clone" log origin/master --grep='Work of #25' --format=%H)") naming it: run ai-core finish-issue example-org/example-repo 25)" \
+  "$(grep '^not finished' <<< "$run")"
+check 'a card no commit names is not named, nor one whose number is a prefix of a named one, nor a card in done, testing or an epic' \
+  '' "$(grep -E '^not finished +example-repo#(1|24|26|13|14|18|19|20|22|23) ' <<< "$run")"
 check 'a card in testing without a landing since it was last reopened, or moved by hand, is named' \
   'no landing   example-repo#16  (in testing, but no "Landed on" record names its work: where it landed, run ai-core finish-issue example-org/example-repo 16)
 no landing   example-repo#17  (in testing, but no "Landed on" record names its work: where it landed, run ai-core finish-issue example-org/example-repo 17)' \
@@ -230,7 +243,7 @@ check 'a landing in another repository is read there, and that one has no clone 
 check 'a landing in another repository closes through that one'"'"'s clone and release' \
   'would close  example-repo#23  (testing -> done, released in example-org/tools deploy/prod/7 and proven)' "$(grep '^would close  example-repo#23' <<< "$run")"
 check 'and the count says what it read, both pages' \
-  "10 active cards scanned, 3 would move on board $PROJECT_NUMBER." \
+  "13 active cards scanned, 3 would move on board $PROJECT_NUMBER." \
   "$(printf '%s\n' "$run" | tail -1)"
 check 'the board is not read' 0 "$(grep -c 'items(first:100' "$FAKE/calls.txt")"
 check 'the issues are read once per page' 2 "$(grep -c 'issues(states:OPEN' "$FAKE/calls.txt")"
@@ -242,7 +255,7 @@ echo 'the repositories alone, the board from GH_PROJECT_NUMBER'
 : > "$FAKE/calls.txt"
 run="$(cd "$clone" && GH_PROJECT_NUMBER="$PROJECT_NUMBER" bash "$ROOT/bin/status-sync.sh" example-org/example-repo other-org/example-repo --dry-run 2>&1)"
 check 'exit 0' 0 "$?"
-check 'both are read' "11 active cards scanned, 3 would move on board $PROJECT_NUMBER." "$(printf '%s\n' "$run" | tail -1)"
+check 'both are read' "14 active cards scanned, 3 would move on board $PROJECT_NUMBER." "$(printf '%s\n' "$run" | tail -1)"
 
 echo 'no board named: the board is the one the first repository named is linked to, not the checkout'"'"'s'
 : > "$FAKE/calls.txt"
@@ -288,7 +301,7 @@ run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER
 check 'exit 0' 0 "$?"
 check 'the board is read once' 1 "$(grep -c 'items(first:100, after:' "$FAKE/calls.txt")"
 check 'a repository of another organisation is read under its owner' 1 "$(grep -c 'graphql -f o=other-org -f n=example-repo' "$FAKE/calls.txt")"
-check 'its card is counted' "11 active cards scanned, 3 would move on board $PROJECT_NUMBER." "$(printf '%s\n' "$run" | tail -1)"
+check 'its card is counted' "14 active cards scanned, 3 would move on board $PROJECT_NUMBER." "$(printf '%s\n' "$run" | tail -1)"
 
 echo 'a repository with no clone here: said, and its cards in testing stay'
 : > "$FAKE/calls.txt"
@@ -326,6 +339,8 @@ check 'it says so' 'close        example-repo#13  (testing -> done, released in 
 check '#13 is closed' 1 "$(grep -c 'api --method PATCH repos/example-org/example-repo/issues/13 ' "$FAKE/calls.txt")"
 check '#23 is closed' 1 "$(grep -c 'api --method PATCH repos/example-org/example-repo/issues/23 ' "$FAKE/calls.txt")"
 check 'and no other issue' 2 "$(grep -c 'api --method PATCH repos/.*/issues/' "$FAKE/calls.txt")"
+check 'a card named "not finished" is named here too' 2 "$(grep -c '^not finished' <<< "$run")"
+check 'and its card does not move' 0 "$(grep -cE 'issues/(12|25)( |$)|updateProjectV2ItemFieldValue' "$FAKE/calls.txt")"
 rm -f "$FAKE/lenient"
 
 # The only card read is an epic whose one sub-issue is done: no card in testing has named a release

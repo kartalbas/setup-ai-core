@@ -7,6 +7,8 @@
 # It reads only facts and moves FORWARD only. The signal:
 #   - a card in testing whose landed commit the newest release tag carries, and whose issue carries
 #     a proof record written after that landing                    -> closed + done
+#   - a card in a column before testing whose issue a commit on origin's default branch names -> named
+#     "not finished", the card stays: finish-issue, run after the push that lands the issue, moves it
 # The proof record is a comment whose first line is "Proven on <environment>:", written by the
 # session that proved the released work; what it checked follows below that line, in the
 # project's own form, and is not read here. Without it a released card stays in testing, because
@@ -260,6 +262,16 @@ for full in ${repos[@]+"${repos[@]}"}; do
     if [ "$subs" -gt 0 ]; then
       target="$(epic_target_on_board "$full" "$num")" || exit 1
     else
+      # A card before testing whose issue a commit on the default branch names: the work may have
+      # landed with nobody running finish-issue, and this sweep reads testing alone. Named, never
+      # moved, because that the work is complete is the session's statement, which finish-issue records.
+      if [ "$(status_rank "$(printf '%s' "$st" | tr '[:upper:]' '[:lower:]')")" -lt 2 ]; then
+        release_of "$full"
+        named=""
+        [ -z "$REL_REF" ] || named="$(git -C "$REL_CLONE" log "$REL_REF" -E --grep="(^|[^A-Za-z0-9._/-])#${num}([^0-9]|$)" --format=%h -n 1)" || named=""
+        [ -z "$named" ] || echo "not finished $label#$num  (in $st, but $REL_REF has $named naming it: run ai-core finish-issue $full $num)"
+        continue
+      fi
       [ "$(printf '%s' "$st" | tr '[:upper:]' '[:lower:]')" = testing ] || continue
       # Without a landing record nothing here can tell where its work is, and the card never moves
       # on: named, so it does not wait unseen

@@ -14,12 +14,15 @@
 # --from-origin LANDS THE BRANCH AS ORIGIN HOLDS IT, FROM ANY DIRECTORY OF THE CLONE, for a branch
 # whose worktree another session holds and nobody may touch: its changes may be somebody's work in
 # progress. The merge is made in a temporary worktree of origin/<default>, which is removed on every
-# way out, so the issue's worktree, its branch and its changes stay as they were. It is a flag, not
-# a detection: without it a run outside the issue's worktree stays refused, so a wrong directory
-# never lands a branch by accident. It merges origin/<branch> and says at which commit: what the
-# branch holds only locally does not land. Where the merged tree carries scripts/install.sh, it runs
-# there before the push, so the gate's check finds what it needs installed; a failing install
-# refuses the landing, and nothing is pushed.
+# way out, so the issue's worktree, its branch and its changes stay as they were. It stands beside the
+# clone in .worktrees/<repo>/, where start-issue cuts the worktrees of the clone, named
+# integrate-<number>.XXXXXX (no issue's worktree is named so): a project test that walks up from its
+# checkout to a sibling checkout finds it there, as in any other worktree, and not under the
+# temporary folder of the machine. It is a flag, not a detection: without it a run outside the
+# issue's worktree stays refused, so a wrong directory never lands a branch by accident. It merges
+# origin/<branch> and says at which commit: what the branch holds only locally does not land.
+# Where the merged tree carries scripts/install.sh, it runs there before the push, so the gate's
+# check finds what it needs installed; a failing install refuses the landing, and nothing is pushed.
 #
 # A MERGE COMMIT, NOT A REBASE: the reviewed commits land as they were read, with the shas the
 # reviewer saw, and the one new commit carries the issue and the reviewer.
@@ -146,7 +149,8 @@ if [ -n "$from_origin" ]; then
   [ -n "$(git rev-list -n1 "$tip" --not "origin/$default")" ] \
     || die "nothing to integrate: origin/$branch is in origin/$default already"
   echo "merging: origin/$branch at $(git rev-parse --short "$tip")"
-  tree="$(mktemp -d "${TMPDIR:-/tmp}/ai-core-integrate-$number.XXXXXX")" || die "no temporary folder for the worktree"
+  container="$(worktree_container)" && mkdir -p "$container" \
+    && tree="$(mktemp -d "$container/integrate-$number.XXXXXX")" || die "no folder for the temporary worktree beside the clone"
   git worktree add -q --detach "$tree" "origin/$default" || die "the temporary worktree could not be made on origin/$default (see above)"
   git -C "$tree" merge -q --no-ff --no-edit "$tip" -m "$subject" -m "$trailers" \
     || die "origin/$branch does not merge cleanly into origin/$default - bring origin/$default into the branch, get the review of the result, then run this again; nothing was pushed"

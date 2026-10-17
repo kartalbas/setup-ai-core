@@ -83,12 +83,8 @@ slug="$(printf '%s' "$title" \
 name="issue-$number-$slug"
 
 # Where the worktrees stand: beside the CHECKOUT, never inside it, and grouped per repository so
-# two repositories working the same issue number do not collide. The main checkout is found
-# through --git-common-dir, so this answers the same from inside another worktree.
-common="$(git rev-parse --git-common-dir)"
-main="$(cd "$common/.." && git rev-parse --show-toplevel)"
-repo_folder="${main##*/}"
-container="$(dirname "$main")/.worktrees/$repo_folder"
+# two repositories working the same issue number do not collide.
+container="$(worktree_container)" || die "the folder for the worktrees could not be found"
 path="$container/$name"
 
 # A branch whose every commit is on the default branch has landed: finish-issue removed its

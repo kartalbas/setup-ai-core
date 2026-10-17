@@ -24,7 +24,6 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fake="$(mktemp -d)"
 export GH_CACHE_DIRECTORY="$fake/cache"
 trap 'rm -rf "$fake"' EXIT
-mkdir "$fake/tmp"; export TMPDIR="$fake/tmp"   # where the temporary worktree of --from-origin is made
 title="$fake/title.txt"
 
 cat > "$fake/gh" <<EOF
@@ -267,7 +266,8 @@ held_tree() {
 # held_state <dir>: everything the integration must leave as it found it
 held_state() { printf '%s\n%s\n%s\n' "$(git -C "$1" rev-parse HEAD)" "$(git -C "$1" symbolic-ref --short HEAD)" "$(git -C "$1" status --porcelain; cat "$1"/*.txt)"; }
 trees_listed() { git -C "$work" worktree list | wc -l | tr -d ' '; }
-leftovers() { ls -A "$fake/tmp" | wc -l | tr -d ' '; }
+# what stands in the worktree folder of the clone besides the worktrees of issues: the temporary worktree of --from-origin
+leftovers() { ls -A "$trees" | grep -vc '^issue-'; }
 
 echo '--from-origin lands a pushed branch whose worktree holds an uncommitted change, and leaves that worktree alone'
 heldwt="$(held_tree 100 held)"
@@ -390,7 +390,7 @@ out="$(integrate "$work" 103 --reviewed-by l4 --from-origin)"; rc=$?
 check 'exit 0'                         0 "$rc"
 check 'it says the install runs'       yes "$(grep -q '^installing: scripts/install.sh' <<< "$out" && echo yes || echo no)"
 check 'the output of the install is visible' yes "$(grep -qxF 'install: planted' <<< "$out" && echo yes || echo no)"
-check 'the gate ran in the temporary worktree' yes "$([[ "$(cat "$fake/checked.txt" 2>/dev/null)" == */ai-core-integrate-103.* ]] && echo yes || echo no)"
+check 'the gate ran in the temporary worktree beside the clone, where start-issue cuts its worktrees' yes "$([[ "$(cat "$fake/checked.txt" 2>/dev/null)" == "$trees"/integrate-103.* ]] && echo yes || echo no)"
 check 'one merge commit landed'        1 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
 check 'the held worktree is as it was' "$held_before" "$(held_state "$heldwt4")"
 check 'the temporary worktree is gone, registered nowhere' "$trees_before" "$(trees_listed)"
@@ -436,6 +436,58 @@ check 'the gate never ran'             no "$([ -e "$fake/checked.txt" ] && echo 
 check 'origin did not move'            "$after" "$(tip)"
 check 'the held worktree is as it was' "$held_before" "$(held_state "$heldwt6")"
 check 'the temporary worktree is gone' "$trees_before" "$(trees_listed)"
+check 'and no folder of it is left'    0 "$(leftovers)"
+check 'the lock is released'           no "$([ -e "$lock" ] && echo yes || echo no)"
+
+# A project test finds a sibling checkout by walking up from its own checkout. The gate planted here is
+# that test: it walks up from where it runs to a folder holding sibling-repo, as the census test of a
+# platform repository does, and refuses where it finds none.
+git -C "$work" config --unset core.hooksPath
+git -C "$work" pull -q origin master
+git -C "$work" rm -q scripts/install.sh
+git -C "$work" commit -q -m 'Drop the failing install step'
+git -C "$work" push -q origin master 2>/dev/null
+mkdir "$fake/checkouts/sibling-repo"
+mkdir -p "$fake/walk"
+printf '#!/bin/sh\npwd > "%s"\nd="$(pwd)"\nwhile [ "$d" != / ]; do\n  [ -d "$d/sibling-repo" ] && exit 0\n  d="$(dirname "$d")"\ndone\necho "check: FAIL - 0 censused, sibling-repo is not above $(pwd)"\nexit 1\n' "$fake/checked.txt" > "$fake/walk/pre-push"
+chmod +x "$fake/walk/pre-push"
+printf '#!/bin/sh\npwd > "%s"\nexit 0\n' "$fake/checked.txt" > "$fake/walk/innocent-pre-push"
+chmod +x "$fake/walk/innocent-pre-push"
+
+echo '--from-origin: a gate that walks up to a sibling checkout finds it from the temporary worktree'
+git -C "$work" config core.hooksPath "$fake/walk"
+heldwt7="$(held_tree 106 walk)"
+trees_before="$(trees_listed)"
+before="$(tip)"
+rm -f "$fake/checked.txt"
+out="$(integrate "$work" 106 --reviewed-by l4 --from-origin)"; rc=$?
+check 'exit 0'                         0 "$rc"
+check 'the gate ran beside the clone, not under the temporary folder' yes "$([[ "$(cat "$fake/checked.txt" 2>/dev/null)" == "$trees"/integrate-106.* ]] && echo yes || echo no)"
+check 'one merge commit landed'        1 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+check 'the temporary worktree is gone, registered nowhere' "$trees_before" "$(trees_listed)"
+check 'and no folder of it is left'    0 "$(leftovers)"
+
+echo '--from-origin: a gate with no such check stays green'
+git -C "$work" config core.hooksPath "$fake/walk"
+mv "$fake/walk/pre-push" "$fake/walk/walks-up"; mv "$fake/walk/innocent-pre-push" "$fake/walk/pre-push"
+heldwt8="$(held_tree 107 plain)"
+before="$(tip)"
+out="$(integrate "$work" 107 --reviewed-by l4 --from-origin)"; rc=$?
+check 'exit 0'                         0 "$rc"
+check 'one merge commit landed'        1 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+check 'and no folder of it is left'    0 "$(leftovers)"
+
+echo '--from-origin: an interruption removes the temporary worktree too'
+heldwt9="$(held_tree 108 stopped)"
+printf '#!/bin/sh\npwd > "%s"\nkill -TERM "$(cut -f1 "%s")"\nsleep 1\nexit 1\n' "$fake/checked.txt" "$lock" > "$fake/walk/pre-push"
+trees_before="$(trees_listed)"
+after="$(tip)"
+rm -f "$fake/checked.txt"
+out="$(integrate "$work" 108 --reviewed-by l4 --from-origin 2>/dev/null)"; rc=$?
+check 'the gate ran in the temporary worktree' yes "$([[ "$(cat "$fake/checked.txt" 2>/dev/null)" == "$trees"/integrate-108.* ]] && echo yes || echo no)"
+check 'the run ended on the signal'    143 "$rc"
+check 'origin did not move'            "$after" "$(tip)"
+check 'the temporary worktree is gone, registered nowhere' "$trees_before" "$(trees_listed)"
 check 'and no folder of it is left'    0 "$(leftovers)"
 check 'the lock is released'           no "$([ -e "$lock" ] && echo yes || echo no)"
 

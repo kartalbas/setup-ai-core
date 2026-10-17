@@ -2,7 +2,7 @@
 # Integrate the reviewed branch of one issue into the default branch: a merge commit that names the
 # issue and its reviewer, pushed through the gate.
 #
-#   integrate-issue.sh [OWNER/REPO] NUMBER --reviewed-by REVIEWER [--reviewed-by REVIEWER ...]
+#   integrate-issue.sh [OWNER/REPO] NUMBER --reviewed-by REVIEWER [--reviewed-by REVIEWER ...] [--from-origin]
 #
 # Between start-issue and finish-issue. Run it in the worktree of the issue, on its branch, once the
 # reviewer gave the GO. It fetches origin, puts the worktree on the newest origin/<default>, merges
@@ -11,6 +11,14 @@
 # HEAD:<default> through the gate, and checks the branch out again for finish-issue. The issue is read
 # in OWNER/REPO where it is given, else in the repository start-issue recorded on the branch, else in
 # the checkout's own.
+#
+# --from-origin LANDS THE BRANCH AS ORIGIN HOLDS IT, FROM ANY DIRECTORY OF THE CLONE, for a branch
+# whose worktree another session holds and nobody may touch: its changes may be somebody's work in
+# progress. The merge is made in a temporary worktree of origin/<default>, which is removed on every
+# way out, so the issue's worktree, its branch and its changes stay as they were. It is a flag, not
+# a detection: without it a run outside the issue's worktree stays refused, so a wrong directory
+# never lands a branch by accident. It merges origin/<branch> and says at which commit: what the
+# branch holds only locally does not land.
 #
 # A MERGE COMMIT, NOT A REBASE: the reviewed commits land as they were read, with the shas the
 # reviewer saw, and the one new commit carries the issue and the reviewer.
@@ -32,11 +40,11 @@
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 
 BIN="$ROOT/bin"
-usage='usage: integrate-issue.sh [OWNER/REPO] NUMBER --reviewed-by REVIEWER [--reviewed-by REVIEWER ...]'
+usage='usage: integrate-issue.sh [OWNER/REPO] NUMBER --reviewed-by REVIEWER [--reviewed-by REVIEWER ...] [--from-origin]'
 
 # Every --reviewed-by adds its reviewer, once, in the order given: a second one that overwrote the
 # first would drop a review from the history without a word
-repo=""; number=""; reviewers=()
+repo=""; number=""; reviewers=(); from_origin=""
 add_reviewer() {  # add_reviewer <name>
   local known
   for known in ${reviewers[@]+"${reviewers[@]}"}; do [ "$known" != "$1" ] || return 0; done
@@ -46,6 +54,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --reviewed-by)   [ $# -ge 2 ] || die "--reviewed-by takes the reviewer's name - $usage"; add_reviewer "$2"; shift ;;
     --reviewed-by=*) add_reviewer "${1#--reviewed-by=}" ;;
+    --from-origin)   from_origin=1 ;;
     -*)              die "unknown argument '$1' - $usage" ;;
     */*)             [ -z "$repo" ] || die "$usage"; repo="$1" ;;
     *)               [ -z "$number" ] || die "$usage"; number="$1" ;;
@@ -62,13 +71,24 @@ trailers="$(printf 'Reviewed-by: %s\n' "${reviewers[@]}")"
 
 git rev-parse --show-toplevel >/dev/null 2>&1 \
   || die "not inside a git working copy - run this in the worktree of issue $number"
-branch="$(git symbolic-ref --short -q HEAD)" || branch=""
-case "$branch" in
-  "issue-$number"|"issue-$number-"*) ;;
-  *) die "this runs in the worktree of issue $number, on its branch issue-$number-*; here ${branch:-no branch} is checked out" ;;
-esac
-[ -z "$(git status --porcelain)" ] \
-  || die "the worktree has changes - commit them for the review, or put them aside, then run this again"
+if [ -z "$from_origin" ]; then
+  branch="$(git symbolic-ref --short -q HEAD)" || branch=""
+  case "$branch" in
+    "issue-$number"|"issue-$number-"*) ;;
+    *) die "this runs in the worktree of issue $number, on its branch issue-$number-*; here ${branch:-no branch} is checked out (--from-origin lands the branch as origin holds it, from any directory)" ;;
+  esac
+  [ -z "$(git status --porcelain)" ] \
+    || die "the worktree has changes - commit them for the review, or put them aside, then run this again"
+else
+  # The name is read from origin itself: a clone that never fetched the branch has no ref to list
+  heads="$(git ls-remote --heads origin "refs/heads/issue-$number" "refs/heads/issue-$number-*" 2>&1)" \
+    || die "could not reach origin: $heads"
+  branch="$(printf '%s\n' "$heads" | awk '$2 ~ "^refs/heads/" { sub("^refs/heads/", "", $2); print $2 }')"
+  case "$branch" in
+    '')       die "origin has no branch issue-$number-* to integrate - push the reviewed branch, then run this again" ;;
+    *$'\n'*)  die "origin has more than one branch for issue $number, and which one the reviewer read is not for this command to guess: $(printf '%s' "$branch" | tr '\n' ' ')" ;;
+  esac
+fi
 
 [ -n "$repo" ] || repo="$(branch_issue_repo "$branch")"
 # The one GitHub call before anything moves. A refusal of it, a rate limit among them, says in plain
@@ -106,7 +126,10 @@ until said="$( (set -C; printf '%s\t%s\n' "$$" "$ref" > "$landing") 2>&1 )"; do
   [ -n "$waited" ] || [ "$nameless" -gt 0 ] || { waited=1; echo "waiting: ${holder#*$'\t'} is landing from this clone (process $pid); this one lands after it" >&2; }
   sleep 2
 done
-trap '[ "$(cut -f1 "$landing" 2>/dev/null)" != "$$" ] || rm -f "$landing"' EXIT
+# The temporary worktree of --from-origin goes first, on every way out, then the lock
+tree=""
+trap '[ -z "$tree" ] || git worktree remove --force "$tree" >/dev/null 2>&1 || rm -rf "$tree"
+  [ "$(cut -f1 "$landing" 2>/dev/null)" != "$$" ] || rm -f "$landing"' EXIT
 
 said="$(git fetch origin 2>&1)" || die "could not reach origin: $said"
 default="$(origin_default_branch)" || exit 1
@@ -117,17 +140,31 @@ back_to_branch() {
   die "$1"
 }
 
-[ -n "$(git rev-list -n1 "$branch" --not "origin/$default")" ] \
-  || die "nothing to integrate: $branch is in origin/$default already"
-git switch -q --detach "origin/$default" || die "the worktree could not be put on origin/$default (see above)"
-if ! git merge -q --no-ff --no-edit "$branch" -m "$subject" -m "$trailers"; then
-  git merge --abort 2>/dev/null
-  back_to_branch "$branch does not merge cleanly into origin/$default - bring origin/$default into the branch, get the review of the result, then run this again"
+if [ -n "$from_origin" ]; then
+  tip="$(git rev-parse -q --verify "origin/$branch^{commit}")" || die "origin/$branch is not there after the fetch - push the reviewed branch, then run this again"
+  [ -n "$(git rev-list -n1 "$tip" --not "origin/$default")" ] \
+    || die "nothing to integrate: origin/$branch is in origin/$default already"
+  echo "merging: origin/$branch at $(git rev-parse --short "$tip")"
+  tree="$(mktemp -d "${TMPDIR:-/tmp}/ai-core-integrate-$number.XXXXXX")" || die "no temporary folder for the worktree"
+  git worktree add -q --detach "$tree" "origin/$default" || die "the temporary worktree could not be made on origin/$default (see above)"
+  git -C "$tree" merge -q --no-ff --no-edit "$tip" -m "$subject" -m "$trailers" \
+    || die "origin/$branch does not merge cleanly into origin/$default - bring origin/$default into the branch, get the review of the result, then run this again; nothing was pushed"
+  merged="$(git -C "$tree" rev-parse --short HEAD)"
+  git -C "$tree" push origin "HEAD:$default" \
+    || die "the push was refused (see above) - nothing reached origin, and the worktree of $branch is as it was"
+else
+  [ -n "$(git rev-list -n1 "$branch" --not "origin/$default")" ] \
+    || die "nothing to integrate: $branch is in origin/$default already"
+  git switch -q --detach "origin/$default" || die "the worktree could not be put on origin/$default (see above)"
+  if ! git merge -q --no-ff --no-edit "$branch" -m "$subject" -m "$trailers"; then
+    git merge --abort 2>/dev/null
+    back_to_branch "$branch does not merge cleanly into origin/$default - bring origin/$default into the branch, get the review of the result, then run this again"
+  fi
+  merged="$(git rev-parse --short HEAD)"
+  git push origin "HEAD:$default" \
+    || back_to_branch "the push was refused (see above) - nothing reached origin, and $branch is checked out again"
+  git switch -q "$branch" || die "$merged is on origin/$default, but $branch could not be checked out again - run git switch $branch before finish-issue"
 fi
-merged="$(git rev-parse --short HEAD)"
-git push origin "HEAD:$default" \
-  || back_to_branch "the push was refused (see above) - nothing reached origin, and $branch is checked out again"
-git switch -q "$branch" || die "$merged is on origin/$default, but $branch could not be checked out again - run git switch $branch before finish-issue"
 echo "integrated: $merged on origin/$default, $subject$(printf ', Reviewed-by: %s' "${reviewers[@]}")"
 # Every issue the merged commits name in parentheses, the integrated one first: a package lands
 # several issues in one merge, and the card of each moves on only through its own finish-issue. Only

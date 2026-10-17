@@ -9,7 +9,7 @@ carry the effort, so no `--effort` is given. The brief is the filled file from `
 On 2026-10-16 `agy -p "<prompt>" --model claude-sonnet-5-5-high --mode accept-edits --output-format
 json` ran shell commands with nobody to answer a prompt, and its JSON output carried
 `conversation_id`. In a session name, the effort is the suffix of the model's name:
-`l10003-sonnet5.5-high-300k-afb89` for `claude-sonnet-5-5-high`.
+`i10003-sonnet5.5-high-300k-afb89` for `claude-sonnet-5-5-high`.
 
 ## The coordinator itself
 

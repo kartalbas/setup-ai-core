@@ -25,7 +25,7 @@ way it reads its state again from this brief, because the state is in the tracke
    line. Your session numbers come from a block of ten thousand that is yours alone, held by a
    claim file `~/.ai-core/sessions/l<N0000>.block` whose one line is your project folder and your
    tool. Where such a file names you, its block is yours, across restarts, and your numbers count
-   on from the highest of it that runs or ran. Where none does, take the next N0000 above every
+   on from the highest of it that runs or ran, whatever letter leads the name. Where none does, take the next N0000 above every
    number in `ai-core status` and in the names under `~/.ai-core/sessions/`, claim files among
    them, and write its claim file at once, only where it does not exist yet; where it does, take
    the next. Your sessions are N0001, N0002 and on, so no name of yours repeats another

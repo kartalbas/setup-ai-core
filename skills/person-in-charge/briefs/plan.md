@@ -23,6 +23,12 @@ cut by file splits a contract and its two sides then release apart.
 
 ## What to do
 
+Before the issues, read `ai-core issue-map <OWNER/REPO> ...` for the repository of every clone: one
+line per open issue with its parent, its `blocked by` and the files it names, then the groups and the
+shared files. It costs a tenth of reading the issues. An open issue outside your list that the map
+joins to one of yours, by a group or a shared file, is read too, because a package that shares a file
+with it runs before or after it.
+
 1. Map each issue to the files it changes, from its `file:line` facts; an issue without them or
    without acceptance criteria stays out, and your output names it with what it lacks.
 2. Find every contract an issue touches: every name one repository reads and another ships (a file

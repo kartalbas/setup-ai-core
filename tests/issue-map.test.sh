@@ -44,7 +44,7 @@ JSON
 cat > "$fake/example.2.json" <<JSON
 { "data": { "repository": { "defaultBranchRef": { "name": "master" }, "issues": { "pageInfo": { "hasNextPage": false, "endCursor": "b" }, "nodes": [
   { "number": 5, "title": "Unblocks", "body": "", $(labels 0), "parent": null,
-    "blockedBy": { $(links 0) }, "blocking": { $(links 1 "$(ref $r 4)") }, "projectItems": { "nodes": [] } },
+    "blockedBy": { $(links 0) }, "blocking": { $(links 2 "$(ref $r 4)") }, "projectItems": { "nodes": [] } },
   { "number": 6, "title": "Reads the file", "body": "The reader at \`bin/x.sh:10\`, \`lib/y.sh:3-9\` and ./bin/ai-core:4.", $(labels 0), $none },
   { "number": 7, "title": "Writes the file", "body": "The writer at bin/x.sh:20. Released 1.5.79:2 on example.com:8080, see https://example.invalid:443/a and /home/u/bin/x.sh:1.", $(labels 0), $none },
   { "number": 8, "title": "Alone", "body": "No file:line here.", $(labels 3 '{ "name": "type:bug" }'), "parent": null,
@@ -69,6 +69,11 @@ cat > "$fake/other.1.json" <<JSON
 ] } } } }
 JSON
 sed 's/"truncated": false/"truncated": true/' "$fake/tree.json" > "$fake/other-tree.json"
+cat > "$fake/third.1.json" <<JSON
+{ "data": { "repository": { "defaultBranchRef": { "name": "master" }, "issues": { "pageInfo": { "hasNextPage": false, "endCursor": "e" }, "nodes": [
+  { "number": 1, "title": "Third one", "body": "", $(labels 0), "parent": null,
+    "blockedBy": { $(links 1 "$(ref $r 4)") }, "blocking": { $(links 0) }, "projectItems": { "nodes": [] } } ] } } } }
+JSON
 # A repository without a commit: GitHub has no default branch for it and no file list
 cat > "$fake/empty.1.json" <<JSON
 { "data": { "repository": { "defaultBranchRef": null, "issues": { "pageInfo": { "hasNextPage": false, "endCursor": "d" }, "nodes": [
@@ -79,6 +84,8 @@ cat > "$fake/gh" <<'EOF'
 case "$*" in
   *"repos/example-org/example-repo/git/trees/"*) cat "$FAKE/tree.json" ;;
   *"repos/other-org/example-repo/git/trees/"*) cat "$FAKE/other-tree.json" ;;
+  *"repos/third-org/example-repo/git/trees/"*) cat "$FAKE/tree.json" ;;
+  *graphql*"owner=third-org"*"name=example-repo"*) cat "$FAKE/third.1.json" ;;
   *graphql*"owner=example-org"*"name=empty-repo"*) cat "$FAKE/empty.1.json" ;;
   *graphql*"owner=example-org"*"name=example-repo"*)
     cat "$FAKE/example.1.json"
@@ -115,6 +122,7 @@ group: example-repo#4 example-repo#5
 group: example-repo#97 example-repo#98 example-repo#100
 file example-repo bin/x.sh: example-repo#6 example-repo#7
 cut: example-repo#4 blocked by shows 1 of 2
+cut: example-repo#5 blocks shows 1 of 2
 cut: example-repo#8 labels shows 1 of 3" "$out"
 
 echo 'two repositories of one name'
@@ -125,9 +133,12 @@ group: other-org/example-repo#5 other-org/example-repo#9" "$(grep -E '^group: .*
 
 check 'a cut file list is named once' 'cut: files of other-org/example-repo: GitHub gave its file list only in part' "$(grep '^cut: files' <<< "$out")"
 
-echo 'one repository whose issue names a parent of the same name under another owner'
+echo 'one repository whose issue names a parent or a blocker of the same name under another owner'
 out="$(bash "$root/bin/issue-map.sh" other-org/example-repo 2>&1)"
 check 'the parent keeps its owner' 'other-org/example-repo#6 - - - | Other six | parent example-org/example-repo#1' "$(grep '#6 ' <<< "$out")"
+
+out="$(bash "$root/bin/issue-map.sh" third-org/example-repo 2>&1)"
+check 'and so does a blocker' 'third-org/example-repo#1 - - - | Third one | blocked by example-org/example-repo#4' "$out"
 
 echo 'a repository without a commit'
 out="$(bash "$root/bin/issue-map.sh" example-org/empty-repo 2>&1)"; rc=$?

@@ -71,7 +71,10 @@ esac
   || die "the worktree has changes - commit them for the review, or put them aside, then run this again"
 
 [ -n "$repo" ] || repo="$(branch_issue_repo "$branch")"
-title="$("$BIN/issue-thread.sh" ${repo:+"$repo"} "$number" --json 2>&1)" || die "the issue could not be read: $title"
+# The one GitHub call before anything moves. A refusal of it, a rate limit among them, says in plain
+# words that nothing landed: a coordinator that read a bare error as "landed" released without the work.
+title="$(apart "$BIN/issue-thread.sh" ${repo:+"$repo"} "$number" --json)" \
+  || die "nothing landed: the issue $number could not be read from GitHub, so nothing was merged or pushed and origin is as it was: $title"
 title="$(printf '%s' "$title" | jq -r '.title // ""')"
 ref="$(issue_ref "$repo" "$number")"
 # The subject the gate takes is 72 characters at most, so a longer one falls back, shortest last

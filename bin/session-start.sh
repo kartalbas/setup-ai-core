@@ -186,7 +186,7 @@ ISSUE="$(worktree_issue_number "$BRANCH")"
 THREAD=""; THREAD_JSON="null"; ASSIGNED=false; MINE=""; ISSUE_REPO=""; ISSUE_UNREAD=""
 if [ -n "$ISSUE" ]; then
   ISSUE_REPO="$(. "$CORE/lib/board.sh"; branch_issue_repo "$BRANCH")"
-  if THREAD_JSON="$(bash "$CORE/bin/issue-thread.sh" ${ISSUE_REPO:+"$ISSUE_REPO"} "$ISSUE" --json 2>&1)"; then
+  if THREAD_JSON="$(. "$CORE/lib/board.sh"; apart bash "$CORE/bin/issue-thread.sh" ${ISSUE_REPO:+"$ISSUE_REPO"} "$ISSUE" --json)"; then
     THREAD="$(printf '%s' "$THREAD_JSON" | jq -r '
       "#\(.number) \(.title)",
       "state: \(.state)",

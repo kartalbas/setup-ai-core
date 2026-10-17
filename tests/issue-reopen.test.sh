@@ -24,6 +24,7 @@ case "\$*" in
   *'projectV2(number'*)   echo 'PVT_kwreopen'; exit 0 ;;
   *'fields(first:50'*)    cat "$fake/fields.tsv"; exit 0 ;;
 esac
+if [ "\$*" = "api repos/{owner}/{repo} --jq .full_name" ]; then echo 'example-org/example-repo'; exit 0; fi
 if [ "\$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
 echo '{}'
 exit 0
@@ -81,6 +82,7 @@ refusing="$fake/refusing"
 mkdir -p "$refusing"
 cat > "$refusing/gh" <<'NO'
 #!/usr/bin/env bash
+if [ "$*" = "api repos/{owner}/{repo} --jq .full_name" ]; then echo 'example-org/example-repo'; exit 0; fi
 if [ "$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
 echo '{"message":"Not Found"}'
 echo 'gh: HTTP 404' >&2

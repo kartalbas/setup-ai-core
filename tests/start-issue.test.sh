@@ -24,8 +24,14 @@ cat > "$fake/gh" <<EOF
 #!/usr/bin/env bash
 a="\$*"
 printf '%s\n' "\$a" >> "$log"
+if [ -e "$fake/refuse-once" ] && [[ "\$a" == *"issues/163"* ]] && [[ "\$a" != *"comments"* ]]; then
+  rm -f "$fake/refuse-once"
+  echo '{"message":"API rate limit already exceeded for user ID 1."}'
+  echo 'gh: API rate limit already exceeded for user ID 1. (HTTP 403)' >&2
+  exit 1
+fi
 case "\$a" in
-  *"repo view"*)            echo 'example-org/example-repo' ;;
+  *"repo view"*|"api repos/{owner}/{repo} --jq .full_name"*)            echo 'example-org/example-repo' ;;
   # status-sync's query of the repository's issues names comments and projectItems too
   *"issues(states:OPEN"*)   [ -e "$fake/issues-down" ] && { echo 'the issues are down' >&2; exit 1; }; echo '{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}' ;;
   *comments*)               echo '[]' ;;
@@ -45,6 +51,7 @@ exit 0
 EOF
 chmod +x "$fake/gh"
 export PATH="$fake:$PATH"
+export AI_CORE_SLEEP=true   # the waits of a refused call take no time here
 # The team modes are not what this test proves; a table whose probes always pass keeps the
 # gate out of the way. team-modes.test.sh proves the gate itself.
 printf 'claude\tmode\talways\t-\t-\ncodex\tmode\talways\t-\t-\n' > "$fake/team-modes.tsv"
@@ -137,11 +144,13 @@ GIT_AUTHOR_DATE="$long_ago" GIT_COMMITTER_DATE="$long_ago" git -C "$old" commit 
 git -C "$old" push -q origin HEAD:master
 git -C "$work" pull -q --ff-only origin master
 
-echo 'the worktree, the card and the thread come out of one run'
-: > "$log"
+echo 'the worktree, the card and the thread come out of one run, the read of the issue refused once on the way'
+: > "$log"; touch "$fake/refuse-once"
 out="$(run 163)"; rc=$?
 tree="$checkouts/.worktrees/example-repo/issue-163-read-the-board-whole"
 check 'exits zero'        0 "$rc"
+check 'the refusal was met and waited for' 1 "$(grep -c "^waiting 60s for GitHub's secondary rate limit" <<< "$out" || true)"
+out="$(grep -v '^waiting ' <<< "$out")"
 check 'the worktree line' yes "$(printf '%s\n' "$out" | sed -n '1p' | grep -q "^Worktree .*issue-163-read-the-board-whole on issue-163-read-the-board-whole, cut from origin/master.$" && echo yes || echo no)"
 check 'it is there'       yes "$([ -d "$tree" ] && echo yes || echo no)"
 check 'and outside the checkout' no "$(grep -q "^$work/" <<< "$tree" && echo yes || echo no)"
@@ -171,7 +180,7 @@ mkdir -p "$long"
 cat > "$long/gh" <<'LONG'
 #!/usr/bin/env bash
 case "$*" in
-  *"repo view"*) echo 'example-org/example-repo' ;;
+  *"repo view"*|"api repos/{owner}/{repo} --jq .full_name"*) echo 'example-org/example-repo' ;;
   *comments*)    echo '[]' ;;
   *"api user"*)  echo '{"login":"tester"}' ;;
   *issues/*)     echo '{"number":164,"title":"Read the whole board before the count is printed, or the number is a guess","state":"open","labels":[],"assignees":[{"login":"tester"}],"body":"x"}' ;;
@@ -195,7 +204,7 @@ cat > "$kelvin/gh" <<'KELVIN'
 # U+212A KELVIN SIGN, written as its three UTF-8 bytes in octal so this file stays plain ASCII.
 sign="$(printf '\342\204\252')"
 case "$*" in
-  *"repo view"*) echo 'example-org/example-repo' ;;
+  *"repo view"*|"api repos/{owner}/{repo} --jq .full_name"*) echo 'example-org/example-repo' ;;
   *comments*)    echo '[]' ;;
   *"api user"*)  echo '{"login":"tester"}' ;;
   *issues/*)     echo '{"number":165,"title":"Read the '"$sign"'ELVIN board","state":"open","labels":[],"assignees":[{"login":"tester"}],"body":"x"}' ;;
@@ -269,7 +278,7 @@ cat > "$cross/gh" <<CROSS
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$clog"
 case "\$*" in
-  *"repo view"*)                     echo 'example-org/example-repo' ;;
+  *"repo view"*|"api repos/{owner}/{repo} --jq .full_name"*)                     echo 'example-org/example-repo' ;;
   *"api user"*)                      echo '{"login":"tester"}' ;;
   *"projectsV2(first"*)              ;;
   *other-org/tracker/issues/*/comments*) echo '[]' ;;

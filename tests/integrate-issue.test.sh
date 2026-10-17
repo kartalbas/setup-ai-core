@@ -23,8 +23,20 @@ title="$fake/title.txt"
 cat > "$fake/gh" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$fake/calls.txt"
+if [ -e "$fake/refuse-once" ] && [[ "\$*" == *"/issues/"* ]] && [[ "\$*" != *"comments"* ]]; then
+  rm -f "$fake/refuse-once"
+  echo '{"message":"API rate limit already exceeded for user ID 1."}'
+  echo 'gh: API rate limit already exceeded for user ID 1. (HTTP 403)' >&2
+  exit 1
+fi
+if [ -e "$fake/refuse-repo-once" ] && [[ "\$*" == "api repos/{owner}/{repo} --jq .full_name"* ]]; then
+  rm -f "$fake/refuse-repo-once"
+  echo '{"message":"API rate limit already exceeded for user ID 1."}'
+  echo 'gh: API rate limit already exceeded for user ID 1. (HTTP 403)' >&2
+  exit 1
+fi
 case "\$*" in
-  *"repo view"*) echo 'example-org/example-repo' ;;
+  *"repo view"*|"api repos/{owner}/{repo} --jq .full_name"*) if [ -e "$fake/limited" ]; then echo '{"message":"API rate limit already exceeded for user ID 1."}'; echo 'gh: API rate limit already exceeded for user ID 1. (HTTP 403)' >&2; exit 1; fi; echo 'example-org/example-repo' ;;
   *comments*)    echo '[]' ;;
   *issues/*)     printf '{"number":77,"title":"%s","state":"open","labels":[],"assignees":[],"body":"b"}\n' "\$(cat "$title")" ;;
   *)             echo '{}' ;;
@@ -33,6 +45,7 @@ exit 0
 EOF
 chmod +x "$fake/gh"
 export PATH="$fake:$PATH"
+export AI_CORE_SLEEP=true   # the waits of a refused call take no time here
 echo 'Read the board whole' > "$title"
 
 failed=0
@@ -89,9 +102,21 @@ check 'a tree with changes: exit 1'    1 "$rc"
 rm "$wt/loose.txt"
 check 'origin did not move'            "$before" "$(tip)"
 
-echo 'a clean run leaves one merge commit with the title and the trailer, and the branch checked out'
+echo 'a GitHub call refused by a rate limit says that nothing landed, and names the limit'
+touch "$fake/limited"
+out="$(integrate "$wt" 77 --reviewed-by l4)"; rc=$?
+rm -f "$fake/limited"
+check 'exit 1'                         1 "$rc"
+check 'it says nothing landed'         yes "$(grep -qF 'nothing landed' <<< "$out" && echo yes || echo no)"
+check 'it names the limit'             yes "$(grep -qF "GitHub's secondary rate limit still refuses after 3 waits" <<< "$out" && echo yes || echo no)"
+check 'origin did not move'            "$before" "$(tip)"
+check 'the worktree is on its branch'  'issue-77-board' "$(git -C "$wt" symbolic-ref --short HEAD)"
+
+echo 'a clean run leaves one merge commit with the title and the trailer, and the branch checked out, a refusal that lifts met twice on the way'
+touch "$fake/refuse-once" "$fake/refuse-repo-once"
 out="$(integrate "$wt" 77 --reviewed-by l4)"; rc=$?
 check 'exit 0'                         0 "$rc"
+check 'the repository read was refused once and waited for' 2 "$(grep -c "^waiting 60s for GitHub's secondary rate limit" <<< "$out" || true)"
 check 'the first parent is the old tip' "$before" "$(git --git-dir="$origin" rev-parse master^1)"
 check 'the second parent is the branch' "$(git -C "$wt" rev-parse HEAD)" "$(git --git-dir="$origin" rev-parse master^2)"
 check 'the subject is the title and the issue' 'Read the board whole (#77)' "$(git --git-dir="$origin" log -1 --format=%s master)"
@@ -154,6 +179,7 @@ check 'given as an argument: exit 0'   0 "$rc"
 check 'the issue was read there'       yes "$(grep -q 'other-org/tracker/issues/82' "$fake/calls.txt" && echo yes || echo no)"
 check 'the subject names its repository' 'Read the board whole (other-org/tracker#82)' "$(git --git-dir="$origin" log -1 --format=%s master)"
 wt7="$(new_tree 83 own)"
+touch "$fake/refuse-repo-once"
 out="$(integrate "$wt7" example-org/example-repo 83 --reviewed-by l4)"; rc=$?
 check 'its own repository named: exit 0' 0 "$rc"
 check 'the subject keeps the short form' 'Read the board whole (#83)' "$(git --git-dir="$origin" log -1 --format=%s master)"

@@ -135,7 +135,7 @@ if [ -z "$repo" ]; then
   done
 fi
 ref="$(issue_ref "$repo" "$number")"
-thread="$("$BIN/issue-thread.sh" ${repo:+"$repo"} "$number" --json 2>&1)" || die "the issue could not be read: $thread"
+thread="$(apart "$BIN/issue-thread.sh" ${repo:+"$repo"} "$number" --json)" || die "the issue could not be read: $thread"
 state="$(printf '%s' "$thread" | jq -r '.state // ""' | tr '[:upper:]' '[:lower:]')"
 found=0
 while IFS=$'\t' read -r path branch; do

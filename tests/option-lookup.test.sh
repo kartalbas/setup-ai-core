@@ -58,7 +58,7 @@ cat > "$FAKE/bin/gh" <<EOF
 #!/usr/bin/env bash
 case "\$*" in
   *"fields(first:50)"*) cat "$WORK/board.tsv"; echo read >> "$FAKE/board-reads" ;;
-  *"repo view"*) exit 1 ;;
+  *"repo view"*|"api repos/{owner}/{repo} --jq .full_name"*) exit 1 ;;
   *) echo "the mutation ran" >> "$FAKE/reached" ;;
 esac
 exit 0

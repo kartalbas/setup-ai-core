@@ -35,7 +35,7 @@ cat > "$FAKE/gh" <<EOF
 echo "\$*" >> "$LOG"
 case "\$1 \${2:-}" in
   "issue create") echo "https://github.com/o/r/issues/123"; exit 0 ;;
-  "repo view")    echo "example-org/mapped-repo"; exit 0 ;;
+  "repo view"|"api repos/{owner}/{repo}") echo "example-org/mapped-repo"; exit 0 ;;
 esac
 echo "{}"
 exit 0

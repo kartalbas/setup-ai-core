@@ -29,7 +29,9 @@ git_() { git -c user.name=test -c user.email=test@example.invalid "$@"; }
 git_ init -q -b master "$work/seed" && git_ -C "$work/seed" commit -q --allow-empty -m one
 git clone -q --bare "$work/seed" "$work/origin.git" && git clone -q "$work/origin.git" "$work/clone"
 first="$(git -C "$work/clone" rev-parse origin/master)"
-watch() { out="$(timeout "$1" bash "$root/bin/watch.sh" "${@:2}" 2>&1)"; rc=$?; out="${out#[0-9][0-9]:[0-9][0-9] }"; }
+# The line is on stdout. stderr stays out: `timeout` ends the whole process group, and bash may report
+# its killed `sleep` there as "Terminated", or not, by the order the two die in
+watch() { out="$(timeout "$1" bash "$root/bin/watch.sh" "${@:2}" 2>/dev/null)"; rc=$?; out="${out#[0-9][0-9]:[0-9][0-9] }"; }
 
 echo 'nothing moves and the session works: no return'
 agents busy

@@ -40,21 +40,25 @@ the board and the branches, so a restart loses nothing (`briefs/coordinator.md`)
    section stands earliest on the plan issue starts. The next one is built on what it landed. A
    package stopped for the owner (`needs:owner`) keeps its place, and your question to the owner
    names the packages that wait for it.
-   A phase never moves to another model, effort or tool because a quota ran out, because a
-   fallback waters the result down from the bottom up: its package waits.
+   No session moves a phase to another model, effort or tool on its own because a quota ran out,
+   because a fallback waters the result down from the bottom up: its package waits. The owner may
+   send a phase to another tool and model for a while; the session names that in its report.
 
 ## Your tool is your ecosystem
 
-Claude Code, Codex and agy are three ecosystems, each with its own coordinator. You start only your
-own tool's sessions, read only your tool's rows of `models.tsv`, and never call another tool, except
-that a row of your tool whose model reads `agy:<model>` is started on agy (`references/agy.md`), with
-that model, under your package and your number block. A package stays in the ecosystem whose
+Claude Code, Codex and agy are three ecosystems, each with its own coordinator. You start your own
+tool's sessions from your tool's rows of `models.tsv`, except that a row whose model reads
+`<tool>:<model>` for Codex or agy, or the owner's instruction for a phase on either tool, starts
+that phase on the named tool as `references/<tool>.md` says, under your package and your number
+block. The owner's instruction takes precedence until the owner withdraws it or the coordinator
+restarts; after a restart, your own table rows apply again. A package stays in the ecosystem whose
 coordinator planned it, named in its `Ecosystem:` line. The
 issues nobody planned yet belong to the first tool of `ECOSYSTEM_ORDER` in `.ai-core/config.env`; a
 coordinator of a later tool plans only the areas or issues the owner's start prompt hands it, and the
 owner starts it when the ecosystems before it have no quota. `references/<tool>.md` holds your
 tool's commands. The owner's start of a coordinator is the yes for every phase session of its
-packages on the table's rows; nothing else is started without asking.
+packages on the table's rows; an explicit instruction to send a phase to another tool also
+authorizes that start, and every other start needs the owner's yes.
 
 ## A contract across two project folders
 
@@ -123,7 +127,9 @@ more` line is a GAP for the next plan of that area.
 
 ## Starting a phase
 
-1. Read the row `<your tool> <phase> <class>` of `.ai-core/models.tsv`: model and effort.
+1. Read the row `<your tool> <phase> <class>` of `.ai-core/models.tsv`, then apply the owner's
+active instruction for that phase: the selected tool, model and effort; where the instruction leaves
+model or effort open, read the destination tool's row of the same phase and class.
 2. Before a plan and before a plan check: `git -C <clone> fetch -q origin` for every clone of the
    folder and of each partner folder, because both read what origin ships. Before a build: `ai-core start-issue <first issue>` in the first
    repository's clone, and `ai-core start-issue <owner/repo> <first issue>` in the clone of every
@@ -133,12 +139,11 @@ more` line is a GAP for the next plan of that area.
    worktree paths and the verdicts. A brief with a placeholder left is not sent. Save the filled
    brief as `~/.ai-core/sessions/<session name>.brief.md`, the name step 4 gives; it is the session's
    whole world, and its name tells every later coordinator on the machine that the number ran.
-4. Start the session as `references/<tool>.md` says, for a row that reads `agy:` as
-   `references/agy.md` says, named `<phase><n>-<model><version>-<effort>-<budget>k-<5
-   hex>` (`i10003-sonnet5.5-xhigh-300k-afb89` for a build), `<phase>` the letter rule 80 gives the
-   phase (`p` plan and plan check, `i` build, `r` review and re-check, `t` UI test
-   and live check), `<n>` the next number of your own block
-   (`briefs/coordinator.md`), and post the PHASE line.
+4. Start the session as the selected tool's `references/<tool>.md` says, after checking that tool's
+usage limit; a selected Codex phase uses `ai-core usage --tool codex`, and a selected Claude phase
+uses `ai-core usage --tool claude`. Name it `<phase><n>-<model><version>-<effort>-<budget>k-<5
+hex>`, using the selected tool's phase budget, the phase letter from rule 80 and the next number of
+your own block (`briefs/coordinator.md`), and post the PHASE line with any active owner selection.
 5. Move the cards (`ai-core issue-status <n>... <column>`); `start-issue` and `finish-issue` move
    their own.
 
@@ -153,9 +158,12 @@ and landing, or whose `Waits for the owner:` is not answered, is not built. Read
 put to the owner. An issue a plan left out (`Left out:`) gets `incident:context` and goes to
 `backlog`. A session's question that the plan, the issues or the code answers, you answer yourself;
 only a decision the rules give the owner goes to the owner, the open ones of a round together in
-one block, and its issues get `needs:owner` (`ai-core issue-label`) and keep their column. At the usage limit (`ai-core usage` exits 3, in
-a Claude Code or a Codex shell, each with its own windows; for agy a refusal for quota) every session finishes its step and reports, and you start
-nothing until the reset. You never stop because your context grew: the tool compacts you (in Claude Code at the window
+one block, and its issues get `needs:owner` (`ai-core issue-label`) and keep their column. At the
+usage limit (`ai-core usage --tool claude` or `ai-core usage --tool codex` exits 3; for agy a
+refusal for quota), every session using that limited account or model finishes its step and reports,
+and no new phase starts on it until the reset; another tool is used only under an existing table
+route or the owner's instruction. You never stop because your context grew: the tool compacts you
+(in Claude Code at the window
 the owner started you with, `references/claude.md`), and
 your state is on the tracker, where `briefs/coordinator.md` reads it again. When the owner asks for the state, build the page
 `briefs/coordinator.md` describes.

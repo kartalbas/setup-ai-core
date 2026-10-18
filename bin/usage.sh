@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# What the account's usage windows stand at, as the tool that runs this shell last recorded them, and
+# What the selected account's usage windows stand at, as its tool last recorded them, and
 # whether one has reached the limit at which every session finishes the step in hand and waits for
 # its reset. Claude Code's windows are what its status line records; Codex's are what Codex writes
 # into its session files after every answer.
 #
-#   usage.sh [--stop-at N]     N percent; else USAGE_STOP_AT of the project's config.env; else 92
+#   usage.sh [--tool claude|codex] [--stop-at N]     N percent; else USAGE_STOP_AT of the project's config.env; else 92
 #
 # Exit 0: every window below N. Exit 3: a window at N or more. Exit 2: nothing recorded yet, or a
 # wrong argument. A window whose reset time has passed counts as reset. One model's own weekly quota
@@ -14,13 +14,18 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/lib/common.sh"
 
-usage="usage: usage.sh [--stop-at N]"
+tool=""
+usage="usage: usage.sh [--tool claude|codex] [--stop-at N]"
 config="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.ai-core/config.env"
 stop="$(grep -E '^[[:space:]]*USAGE_STOP_AT[[:space:]]*=' "$config" 2>/dev/null | tail -n1 || true)"
 stop="${stop#*=}"; stop="${stop%%#*}"; stop="${stop//[[:space:]\"\']/}"; stop="${stop:-92}"
 while [ $# -gt 0 ]; do
   case "$1" in
-    -h|--help) echo "$usage"; exit 0 ;;
+    -h|--help) echo "$usage"
+      echo 'Reads last recorded windows, selected explicitly or by the session tool (Claude otherwise).'
+      echo 'Exit 2 means usage is unknown or an argument is invalid; it is not a successful preflight.'
+      exit 0 ;;
+    --tool) case "${2-}" in claude|codex) tool="$2"; shift 2 ;; *) echo "error: --tool takes claude or codex - $usage" >&2; exit 2 ;; esac ;;
     --stop-at) stop="${2:-}"; shift 2 || { echo "error: --stop-at takes a percentage - $usage" >&2; exit 2; } ;;
     *) echo "error: unknown argument '$1' - $usage" >&2; exit 2 ;;
   esac
@@ -29,7 +34,8 @@ case "$stop" in ''|*[!0-9]*) echo "error: --stop-at takes a whole percentage, no
 when() { LC_ALL=C date -d "@$1" '+%a %H:%M' 2>/dev/null || LC_ALL=C date -r "$1" '+%a %H:%M'; }
 # A Codex session started from a Claude Code shell inherits CLAUDECODE, so the Codex variables decide.
 # A record counts only with a window in it; a line whose windows are all null says nothing.
-if [ "$(session_tool)" = codex ]; then
+[ -n "$tool" ] || tool="$(session_tool)"
+if [ "$tool" = codex ]; then
   line="$(ls -t "${CODEX_HOME:-$HOME/.codex}"/sessions/*/*/*/rollout-*.jsonl 2>/dev/null | while IFS= read -r f; do
     r="$(grep -F '"rate_limits":{"' "$f" | grep -E '"(primary|secondary)":\{"' | tail -n1)"; [ -n "$r" ] && { printf '%s\n' "$r"; break; }; done)"
   [ -n "$line" ] || { echo "no usage recorded yet: Codex records it in its session files once a session has had an answer" >&2; exit 2; }

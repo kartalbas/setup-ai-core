@@ -388,9 +388,10 @@ on start; no developer installs a skill by hand.
 **The skills setup-ai-core brings.** Every checkout gets two:
 
 - `person-in-charge` is the skill of the session the owner names coordinator of a project, in one
-  tool: Claude Code, Codex or agy. Each tool is its own ecosystem, and no session calls another's
-  tool, except a phase whose row in `models.tsv` reads `agy:<model>`: its coordinator starts that
-  phase on agy. The coordinator writes no code. It cuts the open issues into packages by area: one
+  tool: Claude Code, Codex or agy. Each tool is its own ecosystem; a `<tool>:<model>` row or the
+  owner's temporary instruction starts a phase on that tool while the package keeps its
+  coordinator's ecosystem and number block. The coordinator writes no code. It cuts the open issues
+  into packages by area: one
   capability across every repository it touches, with both sides of each contract named by
   `file:line`, cut so that one build session finishes it alone; packages that share a file or a
   contract run one after the other. Every package is a section of one plan issue per board, titled "Plan:
@@ -407,13 +408,17 @@ on start; no developer installs a skill by hand.
   - The model and effort of each phase follow the package's class (`mechanical`, `normal-hard`,
     `high-risk`) and come from `.ai-core/models.tsv`, one block per tool; the plan runs on the
     `high-risk` or the `normal-hard` row, because the plan decides the class. The reviewer never runs on the
-    model that built the package, by the table's rows. A phase never moves to another model or tool because a
-    quota ran out: its package waits. The issues nobody planned belong to the first tool of
+    model that built the package, by the table's rows. A session never moves a phase to another
+    model or tool on its own because a quota ran out: its package waits; an owner's temporary
+    selection is reported and expires on withdrawal or coordinator restart, without changing the
+    template rows. The issues nobody planned belong to the first tool of
     `ECOSYSTEM_ORDER` in `.ai-core/config.env`; a later tool's coordinator plans what the owner
     hands it.
   - The cards move through `backlog`, `ready`, `planned`, `implementing`, `review`, `testing` and
     `done`; a question that is the owner's puts `needs:owner` on its issues.
-  - At the usage limit every session finishes its step, commits, reports and waits for the reset.
+  - At the usage limit every session using that limited account or model finishes its step, commits,
+    reports and waits for the reset; the coordinator checks the selected tool with
+    `ai-core usage --tool claude` or `ai-core usage --tool codex` before starting its phase.
     Asked for the state, the coordinator builds one page from `ai-core status`.
 - `helper` hands a bounded task inside a phase, such as a pre-review of a diff, facts across
   repositories, a log or a screenshot, to the small model of the session's own tool, the `helper`
@@ -932,7 +937,7 @@ a new script in `bin/` is a command without any registration.
 | `release` | `ai-core release <version>` (in a clone of setup-ai-core, section 10) | 0 tagged and pushed; 1 refused, naming what is missing; 2 a wrong argument |
 | `pre-push` | `ai-core pre-push [--install [--all <folder>]]` (section 4.12) | 0 nothing refused the push, or the shim written; 1 refused, or a repository under `--all` is none; 2 a wrong argument |
 | `git-credential` | `ai-core git-credential get` (git runs it; `store` and `erase` do nothing): the credential helper `init` and the clone set for an origin on the `FORGEJO_URL` instance, as `credential.<FORGEJO_URL>.helper` in the clone's own `.git/config`, an empty entry and then `!ai-core git-credential`: the empty entry drops the helpers git takes from the system and the user's configuration, a `store` or a cache among them, which would keep the token and answer with it after the token command changed. It answers git's `get` with the username `ai-core` and the token that `FORGEJO_TOKEN_COMMAND` prints at that moment, and answers nothing for any other host or for http where `FORGEJO_URL` is https. An origin over ssh needs none of it | 0 answered or nothing to answer; 1 the token command failed or printed nothing; 2 a wrong argument |
-| `usage` | `ai-core usage [--stop-at N]` | 0 every window below N; 3 a window at N or more; 2 nothing recorded yet, or a wrong argument. Prints the account's usage windows (five hours, week) as the status line last recorded them, each with its reset time, against the limit N: `--stop-at`, else `USAGE_STOP_AT` of the project's `config.env`, else 92; a window whose reset has passed counts as reset. One model's own weekly quota is not among them |
+| `usage` | `ai-core usage [--tool NAME] [--stop-at N]` | 0 every window below N; 3 a window at N or more; 2 nothing recorded yet, or a wrong argument. Prints the selected tool's last recorded usage windows (five hours, week); `--tool` overrides session detection, which defaults to Claude outside Codex, and exit 2 means unknown usage rather than a successful preflight. The selector accepts `claude` or `codex`. Each window has its reset time, against the limit N: `--stop-at`, else `USAGE_STOP_AT` of the project's `config.env`, else 92; a window whose reset has passed counts as reset. One model's own weekly quota is not among them |
 | `watch` | `ai-core watch [--session NAME]... [--ref CLONE:REF]... [--still S] [--every S] [--heartbeat S]`, run in the background by a session that oversees others, so its end wakes that session | 0 one line names what happened: a named session has not been `busy` in `claude agents` for `--still` seconds (900), or left it; a ref moved, its clone fetched every `--every` seconds (60); or the heartbeat (1800) passed, with every state; 1 a fetch or `claude agents` failed; 2 a wrong argument, nothing to watch, or a ref that names nothing |
 | `permission-request` | the `PermissionRequest` hook `init` writes into `.claude/settings.json` | in a background session (`CLAUDE_JOB_DIR` set), answers the permission prompt Claude Code is about to show with a deny and a message naming the call, so the session goes on instead of waiting for nobody; elsewhere it prints nothing and the prompt is shown |
 | `statusline` | the status line command `init` writes into `.claude/settings.json` | records the usage windows Claude Code hands it in `~/.ai-core/usage.json` and, at most once a minute, a line of them in `~/.ai-core/usage.log`, then shows a short line of the model and the windows |

@@ -153,13 +153,22 @@ section "the model table keeps agy to high effort, keeps high-risk off agy and n
 model_table_faults() {
   awk -F'\t' '
     /^#/ || NF < 5 { next }
-    { base = $4; sub(/^agy:/, "", base); sub(/-(low|medium|high|xhigh|max)$/, "", base) }
+    { base = $4; sub(/^(agy|codex):/, "", base); sub(/-(low|medium|high|xhigh|max)$/, "", base) }
     $4 ~ /^agy:/ && ($4 !~ /-high$/ || $5 != "-") { print "agy below or above high: " $0 }
     ($1 == "agy" || $4 ~ /^agy:/) && ($3 == "high-risk" || ($4 ~ /^agy:/ && $3 == "*")) { print "high-risk on agy: " $0 }
     ($1 == "agy" || $4 ~ /^agy:/) && $4 ~ /gemini/ { print "gemini on agy: " $0 }
     $2 == "build" { build[$1, $3] = base }
     $2 == "review" { review[$1, $3] = base }
     END { for (k in build) if ((k in review) && build[k] == review[k]) { split(k, a, SUBSEP); print "review on the build model: " a[1] " " a[2] } }
+  ' "$1"
+  awk -F'\t' '
+    /^#/ || NF < 5 { next }
+    $1 == "codex" && $4 !~ /:/ { models[$4] = 1; efforts[$5] = 1; next }
+    $4 ~ /^codex:/ { rows[++n] = $0; model[n] = substr($4, 7); effort[n] = $5 }
+    END { for (i = 1; i <= n; i++) {
+      if (!(model[i] in models)) print "unknown Codex model: " rows[i]
+      if (effort[i] == "-" || !(effort[i] in efforts)) print "unsupported Codex effort: " rows[i]
+    } }
   ' "$1"
 }
 [ -z "$(model_table_faults "$ROOT/templates/.ai-core/models.tsv")" ] || fail "the harness's model table breaks its own rules: $(model_table_faults "$ROOT/templates/.ai-core/models.tsv")"
@@ -178,6 +187,13 @@ for planted in 'claude\tbuild\tmechanical\tagy:claude-sonnet-5-5-high\txhigh' \
 done
 printf 'claude\tbuild\tmechanical\tagy:claude-sonnet-5-5-high\t-\nclaude\treview\tmechanical\tclaude-sonnet-5-5\thigh\n' > "$T"
 [ -n "$(model_table_faults "$T")" ] || fail "a Claude Sonnet review of an agy Sonnet build stayed green"
+native_codex() { awk -F'\t' '$1 == "codex" && $4 !~ /:/ && $0 !~ /^#/' "$ROOT/templates/.ai-core/models.tsv"; }
+for planted in 'claude\tplan\thigh-risk\tcodex:not-a-model\tmax' 'claude\tplan\thigh-risk\tcodex:gpt-6-astra\t-' 'claude\tbuild\thigh-risk\tcodex:gpt-6-astra\tmax\nclaude\treview\thigh-risk\tgpt-6-astra\tmax'; do
+  { native_codex; printf '%b\n' "$planted"; } > "$T"
+  [ -n "$(model_table_faults "$T")" ] || fail "a planted Codex routing fault stayed green: $(printf '%b' "$planted")"
+done
+{ native_codex; printf 'claude\tplan\thigh-risk\tcodex:gpt-6-astra\tmax\n'; } > "$T"
+[ -z "$(model_table_faults "$T")" ] || fail "a native Codex model at max was refused: $(model_table_faults "$T")"
 echo "  agy rows run at high only, high-risk stays off agy, no agy row names Gemini, and no review runs on its build model"
 
 section "Codex gets what Claude Code loads, written out in AGENTS.override.md, and its config reads it whole"

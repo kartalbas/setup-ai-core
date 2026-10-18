@@ -1,7 +1,9 @@
 # Codex: the coordinator's commands
 
-Read this only when your tool is Codex. The model and effort come from the `codex` rows of
-`.ai-core/models.tsv`; the brief is the filled file from `briefs/`.
+Read this when your tool is Codex or when a coordinator, including Claude Code, sends a phase to
+Codex through a `codex:<model>` row or the owner's instruction. Use that selection's model and
+effort, with the destination table row supplying anything the owner left open; the brief is the
+filled file from `briefs/`.
 
 ## Every session starts in the project folder
 
@@ -49,6 +51,12 @@ nothing of it has to survive:
     done
 
 ## Start a phase session
+
+Before starting, run `ai-core usage --tool codex` in the project context. Exit 0 permits the
+start; exit 3 waits for the selected account or model to reset. Exit 2 means usage is unknown:
+report it and do not start or fall back to another tool. These are last recorded windows, not
+a live server query. Record the selected tool, model, effort and expiry in the phase report,
+without changing `models.tsv`.
 
 In the background, its output in `~/.ai-core/sessions/<session name>.out`, the brief naming the
 package's worktrees or clones:
@@ -98,6 +106,7 @@ issues it holds. The owner answers there; your next round reads the answer.
   folders of its start.
 - A session that finished is done; nothing is kept. Its report is on the issue, its last message in
   its output file.
-- `ai-core usage` in a Codex shell reads Codex's own windows, from the newest `rate_limits` Codex
-  wrote into its session files, never Claude's. A session refused for quota ends its phase; every
-  phase of this ecosystem waits until a call is answered again.
+- `ai-core usage --tool codex` reads Codex's own last recorded windows from any coordinator's shell,
+  from the newest usable `rate_limits` in Codex's session files. A session refused for quota ends its
+  phase; phases assigned to that limited account or model wait until the limit resets, without an
+  automatic fallback.

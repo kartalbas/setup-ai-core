@@ -119,7 +119,7 @@ board_cache_name() { plane_cache_name "$(plane_setting PLANE_PROJECT)"; }
 
 plane_cache_name() {  # plane_cache_name <project identifier>
   printf 'plane/%s/%s/%s\n' \
-    "$(plane_setting PLANE_URL | sed 's|^[A-Za-z]*://||; s|/*$||; s|[^A-Za-z0-9._-]|_|g')" \
+    "$(plane_setting PLANE_URL | jq -Rr @uri)" \
     "$(plane_setting PLANE_WORKSPACE | sed 's|[^A-Za-z0-9._-]|_|g')" "$(printf '%s' "$1" | sed 's|[^A-Za-z0-9._-]|_|g')"
 }
 

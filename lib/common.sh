@@ -152,18 +152,29 @@ LANDING_WORKTREE_RE='/\.worktrees/[^/]*/integrate-[0-9]+\.[A-Za-z0-9]{6}$'
 # switches xtrace off first and back on, if it was on, when the token is let go. Each function does
 # this for itself, with its own `traced`, because a helper cannot restore the setting of its caller.
 token_from_command() {  # token_from_command <setting>
-  local key="$1" command token rc=0 traced=""
+  local key="$1" command token="" error="" rc=0 traced=""
   case $- in *x*) traced=1; set +x ;; esac
   command="$(config_value "$key" "")"
-  [ -n "$command" ] || die "$key is not set: set it in .ai-core/config.env or the environment to the command that prints the token"
-  token="$(bash -c "$command" 2>/dev/null </dev/null)" || rc=$?
-  [ "$rc" -eq 0 ] || die "the command of $key failed (exit $rc), so there is no token"
-  [ -n "$token" ] || die "the command of $key printed no token"
-  case "$token" in
-    *[[:cntrl:]]*) die "the command of $key printed a token with a control character in it (a line break or a carriage return among them): the token must be one line of printable characters" ;;
-  esac
-  printf '%s\n' "$token"
+  if [ -z "$command" ]; then
+    error="$key is not set: set it in .ai-core/config.env or the environment to the command that prints the token"
+  else
+    # read detects NUL before command substitution drops it; another control byte reaches the shared refusal.
+    token="$(set -o pipefail; bash -c "$command" 2>/dev/null </dev/null | {
+      if IFS= read -r -d '' token; then cat >/dev/null; printf '\001'
+      else printf '%s' "$token"; fi
+    })" || rc=$?
+    if [ "$rc" -ne 0 ]; then error="the command of $key failed (exit $rc), so there is no token"
+    elif [ -z "$token" ]; then error="the command of $key printed no token"
+    else
+      case "$token" in
+        *[[:cntrl:]]*) error="the command of $key printed a token with a control character in it (a line break or a carriage return among them): the token must be one line of printable characters" ;;
+      esac
+    fi
+  fi
+  [ -n "$error" ] || printf '%s\n' "$token"
+  token=""; command=""
   [ -z "$traced" ] || set -x
+  [ -z "$error" ] || die "$error"
   return 0
 }
 
@@ -182,8 +193,8 @@ curl_config_line() {  # curl_config_line <option> <value>
 http_call() {
   local key="$1" name="$2" prefix="$3" method="$4" url="$5" body="${6:-}" token dir rc=0 traced=""
   case $- in *x*) traced=1; set +x ;; esac   # see token_from_command: the token is expanded below
-  token="$(token_from_command "$key")" || exit 1
-  dir="$(mktemp -d)"
+  token="$(token_from_command "$key")" || { [ -z "$traced" ] || set -x; exit 1; }
+  dir="$(mktemp -d)" || { token=""; [ -z "$traced" ] || set -x; exit 1; }
   {
     curl_config_line url "$url"; curl_config_line request "$method"; curl_config_line header "$name: $prefix$token"
     if [ -n "$body" ]; then

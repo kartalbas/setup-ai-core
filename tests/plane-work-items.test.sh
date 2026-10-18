@@ -67,6 +67,37 @@ for mode in on off; do
 done
 echo "  under bash -x the token is in no trace line, and the caller's trace setting, on or off, is back after a call; planted: a copy that leaves the trace on shows the token in it"
 
+# Fatal token reads must restore tracing before the caller's EXIT trap runs.
+trace_on_exit() {  # trace_on_exit <call> <token command>
+  ( cd "$P" && PATH="$PATH_CURL" PLANE_TOKEN_COMMAND="$2" bash -c '
+    . "$1/lib/plane/api.sh"
+    trap '\''case $- in *x*) echo on >&3 ;; *) echo off >&3 ;; esac'\'' EXIT
+    set -x
+    eval "$2" >/dev/null
+  ' _ "$ROOT" "$1" 3>"$WORK/exit-setting" 2>"$WORK/exit-trace" )
+}
+for command in "exit 7" "printf 'probe\nbad\n'" "printf ''"; do
+  for call in 'token_from_command PLANE_TOKEN_COMMAND' 'http_call PLANE_TOKEN_COMMAND X-API-Key "" GET https://plane.example.test/api/v1/users/me/'; do
+    trace_on_exit "$call" "$command" && fail "a failing or invalid token was accepted: $call"
+    [ "$(cat "$WORK/exit-setting")" = on ] || fail "$call left xtrace off in the EXIT trap"
+    ! grep -q probe "$WORK/exit-trace" || fail "a refused token reached the fatal trace"
+  done
+done
+for call in 'token_from_command UNSET_TOKEN_COMMAND' 'http_call UNSET_TOKEN_COMMAND X-API-Key "" GET https://plane.example.test/api/v1/users/me/'; do
+  trace_on_exit "$call" "exit 7" && fail "a missing token setting was accepted: $call"
+  [ "$(cat "$WORK/exit-setting")" = on ] || fail "$call left xtrace off in the EXIT trap"
+done
+trace_on_exit 'plane_api "the user" GET /api/v1/users/me/' "printf 'wrong-token\n'" && fail "a refused request was accepted"
+[ "$(cat "$WORK/exit-setting")" = on ] || fail "a refused request left xtrace off in the EXIT trap"
+grep -q 'API answered 401' "$WORK/exit-trace" || fail "the refused request was not named"
+echo "  fatal trace restoration: failed, invalid and empty token reads and a refused request leave xtrace on in the EXIT trap"
+
+# A NUL must be rejected before command substitution can silently remove it.
+out="$(cd "$P" && PLANE_TOKEN_COMMAND="printf 'probe\000-token\n'" bash -c '. "$1/lib/common.sh"; token_from_command PLANE_TOKEN_COMMAND' _ "$ROOT" 2>&1)" && fail "a NUL token was accepted by token_from_command"
+grep -q 'PLANE_TOKEN_COMMAND printed a token with a control character' <<< "$out" || fail "a NUL token was not refused by its setting: $out"
+! grep -qE 'probe|ignored null byte' <<< "$out" || fail "the NUL refusal exposed or discarded token bytes: $out"
+echo "  NUL token refusal: token_from_command rejects probe, NUL, -token and newline without exposing the token"
+
 # A TOKEN OF MORE THAN ONE LINE would add a line to curl's configuration: it is refused by the name of the setting
 printf 'first\nrequest = DELETE\n#\n' > "$WORK/token"
 reset_log; out="$(ai issue-thread "$n" 2>&1)" && fail "a token of three lines was accepted"
@@ -186,6 +217,19 @@ sed -i.bak 's|^PLANE_URL=.*|PLANE_URL=https://plane2.example.test|' "$P/.ai-core
 reset_log; fields_of >/dev/null
 grep -q '/states/' "$CURL_FAKE_STATE/requests.log" || fail "another instance was answered from the cache of the first"
 sed -i.bak 's|^PLANE_URL=.*|PLANE_URL=https://plane.example.test|' "$P/.ai-core/config.env"
+# Different schemes and ports on one host can serve different projects with the same identifier.
+cp "$CURL_FAKE_STATE/plane.json" "$WORK/https-plane.json"
+for url in http://plane.example.test http://plane.example.test:8080; do
+  planeset 'p.id=require("crypto").randomUUID(); for (const x of p.states) { const n=require("crypto").randomUUID(); for (const i of p.issues) if (i.state===x.id) i.state=n; x.id=n; } for (const i of p.issues) i.project=p.id'
+  sed -i.bak "s|^PLANE_URL=.*|PLANE_URL=$url|" "$P/.ai-core/config.env"
+  reset_log; ready="$(fields_of)"
+  [ "$ready" = "$(planeq 'console.log(p.states.find((s)=>s.name==="ready").id)')" ] || fail "the full URL $url reused another instance's state UUID"
+  [ "$(plane_fn project_id)" = "$(planeq 'console.log(p.id)')" ] || fail "the full URL $url reused another instance's project UUID"
+  grep -q '/states/' "$CURL_FAKE_STATE/requests.log" || fail "the full URL $url was answered without reading its states"
+done
+cp "$WORK/https-plane.json" "$CURL_FAKE_STATE/plane.json"
+sed -i.bak 's|^PLANE_URL=.*|PLANE_URL=https://plane.example.test|' "$P/.ai-core/config.env"
+echo "  full URL cache identity: HTTP, HTTPS and another port on the same host each read fresh project and state UUIDs"
 planeset 's.workspace="ws2"; p.id=require("crypto").randomUUID(); for (const x of p.states) { const n=require("crypto").randomUUID(); for (const i of p.issues) if (i.state===x.id) i.state=n; x.id=n; } for (const i of p.issues) i.project=p.id'
 sed -i.bak 's|^PLANE_WORKSPACE=.*|PLANE_WORKSPACE=ws2|' "$P/.ai-core/config.env"
 second_ready="$(fields_of)"

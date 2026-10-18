@@ -57,3 +57,45 @@ printf '#!/bin/sh\nexec node "%s/tests/curl-fake.mjs" "$@"\n' "$ROOT" > "$WORK/c
 chmod +x "$WORK/curlbin/curl"
 PATH_CURL="$WORK/curlbin:$PATH"
 }
+
+# make_plane_project: $P, a project whose tracker is Plane at plane.example.test, answered by the stand-in curl,
+# its HOME and cache in $WORK, and the helpers the Plane tests share: ai <command> [args] runs bin/<command>.sh
+# of $ROOT (or of ROOT_UNDER_TEST) in the project; planeq <js> reads the stand-in's project ENG as `p`;
+# reset_log empties the logs of what curl was given.
+make_plane_project() {
+  export HOME="$WORK/home" AI_CORE_HOME="$WORK/ai-core-home" GH_CACHE_DIRECTORY="$WORK/cache" AI_CORE_SLEEP="$WORK/sleep"
+  mkdir -p "$HOME" "$AI_CORE_HOME"
+  printf '#!/bin/sh\necho "$@" >> "%s/slept"\n' "$WORK" > "$WORK/sleep"; chmod +x "$WORK/sleep"
+  make_curl_fake
+  printf 'plane-token-0123\n' > "$WORK/token"
+  P="$WORK/project"; mkdir -p "$P/.ai-core"; git init -q "$P"
+  git -C "$P" remote add origin https://forge.example.test/example-org/example-repo.git
+  cat > "$P/.ai-core/config.env" <<CONF
+TRACKER=plane
+PLANE_URL=https://plane.example.test
+PLANE_WORKSPACE=ws
+PLANE_PROJECT=ENG
+PLANE_TOKEN_COMMAND="cat $WORK/token"
+CONF
+}
+ai() { local c="$1"; shift; ( cd "$P" && PATH="$PATH_CURL" bash "${ROOT_UNDER_TEST:-$ROOT}/bin/$c.sh" "$@" ); }
+planeq() { node -e "const s=JSON.parse(require('fs').readFileSync('$CURL_FAKE_STATE/plane.json'));const p=s.projects[0];$1"; }
+reset_log() { : > "$CURL_FAKE_STATE/requests.log"; : > "$CURL_FAKE_STATE/argv.log"; : > "$CURL_FAKE_STATE/env.log"; }
+# plane_fn <function> [args]: a function of the tracker library, called in the project
+plane_fn() { ( cd "$P" && PATH="$PATH_CURL" bash -c '. "$1/lib/board.sh"; shift; "$@"' _ "${ROOT_UNDER_TEST:-$ROOT}" "$@" ); }
+# planeset <js>: changes the stand-in's state as another hand would; `s` is the state, `p` its project ENG
+planeset() {
+  CURL_FAKE_STATE="$CURL_FAKE_STATE" node -e "const fs=require('fs'),f=process.env.CURL_FAKE_STATE+'/plane.json',s=JSON.parse(fs.readFileSync(f)),p=s.projects[0];$1;fs.writeFileSync(f,JSON.stringify(s))"
+}
+# plane_add_item <sequence id> <title> [label name...]: a work item another hand put into ENG, in state ready,
+# the labels made where the project lacks them; ITEM_EXTERNAL_SOURCE and ITEM_EXTERNAL_ID in the environment
+# set the fields a carried item has
+plane_add_item() {
+  local seq="$1" title="$2"; shift 2
+  ITEM_SEQ="$seq" ITEM_TITLE="$title" ITEM_LABELS="$(printf '%s\n' "$@")" planeset '
+    const id=()=>require("crypto").randomUUID(), e=process.env;
+    const ids=e.ITEM_LABELS.split("\n").filter(Boolean).map((n)=>{let l=p.labels.find((x)=>x.name===n);if(!l){l={id:id(),name:n,color:"#000",description:""};p.labels.push(l);}return l.id;});
+    p.issues.push({id:id(),project:p.id,name:e.ITEM_TITLE,description_html:"<p></p>",priority:"none",parent:null,labels:ids,assignees:[],sort_order:65535,
+      external_source:e.ITEM_EXTERNAL_SOURCE||null,external_id:e.ITEM_EXTERNAL_ID||null,archived_at:null,created_at:"2026-10-18T08:00:00Z",updated_at:"2026-10-18T08:00:00Z",
+      completed_at:null,sequence_id:+e.ITEM_SEQ,state:p.states.find((x)=>x.name==="ready").id});'
+}

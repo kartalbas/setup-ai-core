@@ -5,24 +5,7 @@
 #
 #   bash tests/plane-work-items.test.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
-export HOME="$WORK/home" AI_CORE_HOME="$WORK/ai-core-home" GH_CACHE_DIRECTORY="$WORK/cache" AI_CORE_SLEEP="$WORK/sleep"
-mkdir -p "$HOME" "$AI_CORE_HOME"
-printf '#!/bin/sh\necho "$@" >> "%s/slept"\n' "$WORK" > "$WORK/sleep"; chmod +x "$WORK/sleep"
-make_curl_fake
-
-printf 'plane-token-0123\n' > "$WORK/token"
-P="$WORK/project"; mkdir -p "$P/.ai-core"; git init -q "$P"; git -C "$P" remote add origin https://forge.example.test/example-org/example-repo.git
-cat > "$P/.ai-core/config.env" <<CONF
-TRACKER=plane
-PLANE_URL=https://plane.example.test
-PLANE_WORKSPACE=ws
-PLANE_PROJECT=ENG
-PLANE_TOKEN_COMMAND="cat $WORK/token"
-CONF
-# ai <command> [args]: bin/<command>.sh of <root> (the real tree unless ROOT_UNDER_TEST names a copy) in the project
-ai() { local c="$1"; shift; ( cd "$P" && PATH="$PATH_CURL" bash "${ROOT_UNDER_TEST:-$ROOT}/bin/$c.sh" "$@" ); }
-planeq() { node -e "const s=JSON.parse(require('fs').readFileSync('$CURL_FAKE_STATE/plane.json'));const p=s.projects[0];$1"; }
-reset_log() { : > "$CURL_FAKE_STATE/requests.log"; : > "$CURL_FAKE_STATE/argv.log"; : > "$CURL_FAKE_STATE/env.log"; }
+make_plane_project
 printf 'The body & its <tag> at lib/x.sh:12\n\nsecond paragraph\n' > "$WORK/body.md"
 new() { ai issue-new --repo example-org/example-repo --title "$1" --body-file "$WORK/body.md" --label type:feature --label area:tooling --priority P2 --asked-by someone --asked-in "the test" "${@:2}" 2>/dev/null; }
 

@@ -45,15 +45,34 @@ default_repo() {
   plane_origin || die "cannot tell which repository this is - pass the repo as OWNER/REPO"
 }
 
-# ONE CHECKOUT, ONE REPOSITORY: a call that names another repository is refused, because the project the
-# checkout's PLANE_PROJECT names holds work items of every repository of one line, told apart by their
-# repo: label (#242), and acting on another repository's items from here would be a guess.
+# ONE CHECKOUT, ONE REPOSITORY: the project the checkout's PLANE_PROJECT names holds the work items of every
+# repository of one line, told apart by their repo: label (plane_item), and acting on another repository's
+# items from here would be a guess, so a call that names another repository is refused.
 plane_check_repo() {  # plane_check_repo <owner/repo>
   local here
   here="$(default_repo)" || exit 1
   [ "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$here" | tr '[:upper:]' '[:lower:]')" ] \
     || die "no Plane project is configured here for $1"
 }
+
+# plane_repo_label: the label that says a work item belongs to the checkout's repository, repo:<name> with
+# the name as the origin spells it
+plane_repo_label() {
+  local here
+  here="$(default_repo)" || exit 1
+  printf 'repo:%s\n' "${here#*/}"
+}
+
+# The repository of a work item whose labels are expanded: the owner of the checkout's origin and the name
+# its repo: label carries; failing that the repository a carried item names in its external_id
+# (<owner/repo>#<n> from GitHub); otherwise null. An item without either belongs to no repository, and is
+# never listed under the checkout's.
+PLANE_REPO='def repo($owner):
+  ([.labels[]? | .name | select(startswith("repo:")) | .[5:]][0]) as $l
+  | if $l then "\($owner)/\($l)"
+    elif .external_source == "github" and ((.external_id // "") | test("^[^/#]+/[^/#]+#[0-9]+$")) then .external_id | sub("#[0-9]+$"; "")
+    else null end;
+  def same($a; $b): ($a // "" | ascii_downcase) == ($b | ascii_downcase);'
 
 # A project is written by its identifier, the letters and digits before the dash of ENG-142
 check_project_number() {  # check_project_number <project identifier>
@@ -165,11 +184,17 @@ plane_priority() {  # plane_priority <P0..P3 | urgent..none>: Plane's word
 }
 
 # plane_item <owner/repo> <number>: the work item <IDENT>-<number> as JSON, its state, labels and parent
-# expanded
+# expanded. A work item whose repo: label names another repository is refused before anything is written,
+# because the number counts per project, and a number given in one checkout can be another repository's.
 plane_item() {
-  local repo="$1" n="$2" item
+  local repo="$1" n="$2" item other
   case "$n" in ''|*[!0-9]*) die "the issue number must be numeric, not '$n'" ;; esac
+  plane_check_repo "$repo"
   item="$(plane_api "the work item $(plane_setting PLANE_PROJECT)-$n" GET "$(plane_path "issues/$(plane_setting PLANE_PROJECT)-$n/")?expand=state,labels,parent")" || exit 1
+  other="$(printf '%s' "$item" | jq -r --arg me "$(plane_repo_label)" '
+    [.labels[].name | select(startswith("repo:"))] as $r
+    | if ($r | length) == 0 or any($r[]; ascii_downcase == ($me | ascii_downcase)) then empty else $r[0][5:] end')"
+  [ -z "$other" ] || die "#$n belongs to $other, not this checkout - nothing was changed"
   printf '%s\n' "$item"
 }
 
@@ -206,17 +231,24 @@ plane_state_id() {
   printf '%s\n' "$id"
 }
 
-# issue_create <owner/repo> <title> <body file> <assignee> [label...]: prints the number of the new work item
+# issue_create <owner/repo> <title> <body file> <assignee> [label...]: prints the number of the new work item,
+# with the label of the checkout's repository on it. Plane drops a label id of another project without a word,
+# so the item is read back and refused by name where the label is not there.
 issue_create() {
-  local repo="$1" title="$2" body="$3" assignee="$4" ids aid request created
+  local repo="$1" title="$2" body="$3" assignee="$4" label ids aid request created id n back
   shift 4
   plane_check_repo "$repo"
-  ids="$(plane_label_ids "$@")" || exit 1
+  label="$(plane_repo_label)"
+  ids="$(plane_label_ids "$@" "$label")" || exit 1
   aid="$(plane_user_id "$assignee")" || exit 1
   request="$(jq -n --arg name "$title" --arg html "$(plane_html_of "" "$body")" --argjson labels "$ids" --arg a "$aid" \
     '{name: $name, description_html: $html, labels: $labels, assignees: [$a], external_source: "ai-core"}')"
   created="$(plane_api "the issue created in $repo, which was NOT created" POST "$(plane_path "projects/$(plane_project_uuid)/issues/")" "$request")" || exit 1
-  printf '%s' "$created" | jq -r '.sequence_id'
+  id="$(printf '%s' "$created" | jq -r '.id')"; n="$(printf '%s' "$created" | jq -r '.sequence_id')"
+  back="$(plane_api "the work item $(plane_setting PLANE_PROJECT)-$n just created" GET "$(plane_path "projects/$(plane_project_uuid)/issues/$id/")?expand=labels")" || exit 1
+  printf '%s' "$back" | jq -e --arg l "$label" 'any(.labels[]; .name == $l)' >/dev/null \
+    || die "Plane dropped the label $label of #$n: the label id belongs to another project - #$n exists without it"
+  printf '%s\n' "$n"
 }
 
 # plane_label_ids <name>...: a JSON array of the uuids of these labels of the project; a name the project
@@ -277,7 +309,7 @@ issue_thread() {
     .[0] as $i | .[1:] as $c | {
       number: $i.sequence_id, title: $i.name,
       state: (if ($i.state.group | IN("completed", "cancelled")) then "closed" else "open" end),
-      labels: [$i.labels[].name], body: (($i.description_html // "") | text),
+      labels: [$i.labels[].name | select(startswith("repo:") | not)], body: (($i.description_html // "") | text),
       comments: ($c | sort_by(.created_at) | map({author: (.actor.display_name // .actor.email // ""),
                        created_at: .created_at, body: ((.comment_html // "") | text)})) }'
 }
@@ -293,7 +325,7 @@ issue_title() {  # issue_title <owner/repo> <number>
 # --- labels -------------------------------------------------------------------------
 
 issue_labels() {  # issue_labels <owner/repo> <number>: the names, one per line
-  plane_item "$1" "$2" | jq -r '.labels[].name'
+  plane_item "$1" "$2" | jq -r '.labels[].name | select(startswith("repo:") | not)'
 }
 
 # issue_labels_set <owner/repo> <number> <+name | -name>...: Plane replaces the labels of a work item by the
@@ -316,20 +348,28 @@ issue_labels_set() {
   plane_patch "the labels of $repo#$n" "$repo" "$n" "$(jq -nc --argjson l "$set" '{labels: $l}')"
 }
 
-# labels_create <owner/repo> <name> <colour> <description>: made once, left as it is when it stands
-labels_create() {
-  local rows
-  plane_check_repo "$1"
-  rows="$(plane_pages "the labels of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/labels/")")" || exit 1
-  printf '%s\n' "$rows" | jq -e --arg n "$2" 'select(.name == $n)' >/dev/null && return 0
+# plane_label_ensure <labels json lines> <name> <colour> <description>: made once, left as it is when it stands
+plane_label_ensure() {
+  printf '%s\n' "$1" | jq -e --arg n "$2" 'select(.name == $n)' >/dev/null && return 0
   plane_api "the label $2" POST "$(plane_path "projects/$(plane_project_uuid)/labels/")" \
     "$(jq -nc --arg n "$2" --arg c "#$3" --arg d "$4" '{name: $n, color: $c, description: $d}')" >/dev/null || exit 1
+}
+
+# labels_create <owner/repo> <name> <colour> <description>: made once, left as it is when it stands, and so
+# is the repo: label of the checkout's repository, which every work item it creates carries
+labels_create() {
+  local rows own
+  plane_check_repo "$1"
+  own="$(plane_repo_label)"
+  rows="$(plane_pages "the labels of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/labels/")")" || exit 1
+  plane_label_ensure "$rows" "$own" 6B7280 "Work of the repository ${own#repo:}"
+  [ "$2" = "$own" ] || plane_label_ensure "$rows" "$2" "$3" "$4"
 }
 
 # labels_list <owner/repo>: the names of the labels the project carries, one per line
 labels_list() {
   plane_check_repo "$1"
-  plane_pages "the labels of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/labels/")" | jq -r '.name'
+  plane_pages "the labels of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/labels/")" | jq -r '.name | select(startswith("repo:") | not)'
 }
 
 # --- assignees ------------------------------------------------------------------------
@@ -504,6 +544,46 @@ epic_target_on_board() {
   epic_target "$cur" "$@"
 }
 
+# --- the rows over the project ---------------------------------------------------------------
+
+# plane_all_items: every work item of the project that is not archived, open or closed, one JSON object per
+# line, with state, labels and parent expanded. Plane 1.4 has no filter on the list, so the reader filters.
+plane_all_items() {
+  plane_pages "the work items of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/issues/")?expand=state,labels,parent"
+}
+
+# issue_rows <owner/repo>: the open issues of the repository, the issue row of lib/tracker.sh, from the work
+# items whose repo: label names it. A work item without that label belongs to nobody and is not listed.
+# The relations are read one work item at a time, because Plane's list answers none: a repository of 100
+# open items costs 100 reads beside the listing, and a rate limit that runs out waits as every call does.
+# A relation to a work item of another project, or to one without a repo: label, has no name to give, and is
+# reported in cut instead.
+issue_rows() {
+  local repo="$1" all ids id held rels=""
+  plane_check_repo "$repo"
+  all="$(plane_all_items)" || exit 1
+  ids="$(printf '%s\n' "$all" | jq -r --arg o "${repo%%/*}" --arg r "$repo" "$PLANE_REPO"'
+    select(same(repo($o); $r) and (.state.group | IN("completed", "cancelled") | not)) | .id')"
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    held="$(plane_api "the relations of a work item of $repo" GET "$(plane_path "projects/$(plane_project_uuid)/work-items/$id/relations/")")" || exit 1
+    rels="$rels$(printf '%s' "$held" | jq -c --arg i "$id" '{id: $i, blockedBy: [.blocked_by[].issue_id], blocking: [.blocking[].issue_id]}')"$'\n'
+  done <<< "$ids"
+  printf '%s\n' "$all" | jq -cs --arg o "${repo%%/*}" --arg r "$repo" --argjson rels "$(printf '%s' "$rels" | jq -cs '.')" "$PLANE_REPO""$PLANE_TEXT"'
+    (map({key: .id, value: .}) | from_entries) as $byid
+    | def ref($uuid): ($byid[$uuid] // null) as $w | if $w and ($w | repo($o)) then "\($w | repo($o))#\($w.sequence_id)" else null end;
+      def cut($what; $uuids): ([$uuids[] | select(ref(.) == null)] | length) as $n
+        | if $n > 0 then ["\($what) names \($n) work item(s) of another project or without a repo: label"] else [] end;
+    .[] | select(same(repo($o); $r) and (.state.group | IN("completed", "cancelled") | not))
+    | . as $w | ($rels | map(select(.id == $w.id))[0] // {blockedBy: [], blocking: []}) as $x
+    | { repo: repo($o), number: .sequence_id, title: .name, body: ((.description_html // "") | text), open: true,
+        labels: [.labels[].name | select(startswith("repo:") | not)], status: .state.name,
+        parent: (if .parent then ref(.parent.id) else null end),
+        blockedBy: [$x.blockedBy[] | ref(.) | select(. != null)], blocking: [$x.blocking[] | ref(.) | select(. != null)],
+        cut: ((if .parent and ref(.parent.id) == null then ["parent names a work item of another project or without a repo: label"] else [] end)
+              + cut("blocked by"; $x.blockedBy) + cut("blocks"; $x.blocking)) }'
+}
+
 # --- what only the whole board can serve; built with the board commands (#229) -----------------
 
 plane_later() { die "$1 is not served on Plane yet"; }
@@ -515,7 +595,6 @@ remove_board_item() { plane_later remove_board_item; }
 issue_transfer() { plane_later issue_transfer; }
 issue_unblock() { plane_later issue_unblock; }
 duplicate_unmark() { plane_later duplicate_unmark; }
-issue_rows() { plane_later issue_rows; }
 issues_created_since() { plane_later issues_created_since; }
 projects_of_org() { plane_later projects_of_org; }
 item_unarchive() { plane_later item_unarchive; }

@@ -31,6 +31,13 @@ contains(base+'references/codex.md','Exit 2');
 contains(base+'references/codex.md','/dev/null');
 contains(base+'references/codex.md','codex-sessions.tsv');
 contains(base+'references/codex.md','last `agent_message`');
+contains(base+'references/codex.md','--file ~/.ai-core/sessions/<session name>.out');
+contains(base+'references/codex.md','sandbox_workspace_write.writable_roots=');
+if(read(base+'references/codex.md').includes('keeps the folders of its start'))throw Error('false resume folder claim');
+const reference=fs.readFileSync(root+'/'+base+'references/codex.md','utf8');
+const start=reference.split('## Start a phase session')[1].split('## Ask the owner')[0];
+if(start.indexOf(': > ~/.ai-core/sessions/<session name>.out')<0 || start.indexOf(': > ~/.ai-core/sessions/<session name>.out')>start.indexOf('    codex exec'))throw Error('output must exist before watching');
+
 contains('rules/80-working-style-for-agents.md','on its own because a quota ran out');
 contains('rules/80-working-style-for-agents.md','every session using that limited account or model');
 contains('README.md',"expires on withdrawal or coordinator restart");
@@ -43,7 +50,7 @@ mkdir -p "$WORK/rules" "$WORK/templates/.ai-core"
 cp "$ROOT/rules/80-working-style-for-agents.md" "$WORK/rules/"
 cp "$ROOT/templates/.ai-core/models.tsv" "$WORK/templates/.ai-core/"
 cp "$ROOT/README.md" "$WORK/"
-for pair in 'references/codex.md|including Claude Code' 'SKILL.md|until the owner withdraws it or the coordinator restarts' 'SKILL.md|after a restart, your own table rows apply again' 'references/codex.md|last `agent_message`'; do
+for pair in 'references/codex.md|including Claude Code' 'SKILL.md|until the owner withdraws it or the coordinator restarts' 'SKILL.md|after a restart, your own table rows apply again' 'references/codex.md|last `agent_message`' 'references/codex.md|--file ~/.ai-core/sessions/<session name>.out' 'references/codex.md|sandbox_workspace_write.writable_roots='; do
   file="${pair%%|*}"; phrase="${pair#*|}"
   FILE="$WORK/skills/person-in-charge/$file" PHRASE="$phrase" node -e 'const fs=require("fs"),p=process.env.FILE,s=fs.readFileSync(p,"utf8");fs.writeFileSync(p,s.replace(new RegExp(process.env.PHRASE.split(/\s+/).map(x=>x.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")).join("\\s+")),"stale instruction"))'
   if node "$WORK/check.mjs" "$WORK" > "$WORK/mutant.log" 2>&1; then fail "stale instruction escaped: $phrase"; fi
@@ -70,4 +77,14 @@ done
 # Claude's native default still names its own row and native start command.
 grep -qF 'claude "Read <brief file>' "$ROOT/skills/person-in-charge/references/claude.md" || fail 'native Claude start'
 awk -F'\t' '$1=="claude" && $2=="plan" && $3=="high-risk" { found=($4=="claude-fable-5-1" && $5=="xhigh") } END { exit !found }' "$ROOT/templates/.ai-core/models.tsv" || fail 'native Claude default'
+REF="$ROOT/skills/person-in-charge/references/codex.md" WORK="$WORK" node <<'JS'
+const fs=require('fs'),s=fs.readFileSync(process.env.REF,'utf8');
+const command=s.match(/^    codex exec resume[\s\S]*?(?=\n\n)/m)[0].replace(/^    /gm,'').replaceAll('<thread id>','fixture-thread').replaceAll('<text>','continue').replaceAll('/absolute/path/to/added-directory',process.env.WORK+'/added');
+fs.writeFileSync(process.env.WORK+'/resume',command+'\n');
+JS
+bash "$WORK/resume" > "$WORK/resume.out"
+node - "$CAPTURE" "$WORK" <<'JS'
+const fs=require('fs'),args=fs.readFileSync(process.argv[2],'utf8').trimEnd().split('\n'),work=process.argv[3];
+for(const value of ['exec','resume','fixture-thread','--skip-git-repo-check','sandbox_workspace_write.writable_roots=["'+work+'/added"]','continue'])if(!args.includes(value))throw Error('resume lost '+value);
+JS
 echo 'all Codex phase commands, routing contracts, and stale-instruction mutants passed'

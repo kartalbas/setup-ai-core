@@ -61,9 +61,21 @@ without changing `models.tsv`.
 In the background, its output in `~/.ai-core/sessions/<session name>.out`, the brief naming the
 package's worktrees or clones:
 
+    : > ~/.ai-core/sessions/<session name>.out
+
     codex exec -p ai-core -m <model> -c model_reasoning_effort=<effort> \
       -C <project folder> --skip-git-repo-check --add-dir ~/.ai-core \
       --json "$(cat <brief file>)" < /dev/null > ~/.ai-core/sessions/<session name>.out
+
+Create the output file before starting the background run. Add its exact path to the coordinator's
+existing background watcher, alongside the other active runs:
+
+    ai-core watch --file ~/.ai-core/sessions/<session name>.out
+
+One watcher can repeat `--file` for all active output paths and still watch sessions and refs.
+A still-file wakeup reports inactivity, not proof that the process is hung: a silent command can
+also stop file growth. The watcher observes only; the coordinator inspects the run. Keep the normal
+background-job completion wakeup and read the final message below.
 
 Standard input comes from `/dev/null`, because `codex exec` appends piped input to its prompt and
 waits for its end, and a session started from another's shell would wait forever.
@@ -102,8 +114,15 @@ issues it holds. The owner answers there; your next round reads the answer.
 ## Reach, answer, continue, stop
 
 - Answer a running session: `codex queue --thread <thread id> --message "<text>"`.
-- Continue a finished one within its phase: `codex exec resume <thread id> "<text>" < /dev/null`; it keeps the
-  folders of its start.
+- Continue a finished one within its phase from its original working folder. Extra writable
+  folders supplied with `--add-dir` are not restored by `exec resume`; pass every required added
+  directory again as an absolute path in `sandbox_workspace_write.writable_roots`. Outside a
+  trusted Git folder, resume also needs `--skip-git-repo-check`:
+
+    codex exec resume <thread id> --skip-git-repo-check \
+      -c 'sandbox_workspace_write.writable_roots=["/absolute/path/to/added-directory"]' \
+      "<text>" < /dev/null
+
 - A session that finished is done; nothing is kept. Its report is on the issue, its last message in
   its output file.
 - `ai-core usage --tool codex` reads Codex's own last recorded windows from any coordinator's shell,

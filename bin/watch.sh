@@ -3,7 +3,7 @@
 # names it, and returns. Run in the background, its end wakes the session that started it; that
 # session looks, acts and runs it again. Each run counts from its own start.
 #
-#   watch.sh [--session NAME]... [--ref CLONE:REF]... [--still S] [--every S] [--heartbeat S]
+#   watch.sh [--session NAME]... [--ref CLONE:REF]... [--file PATH]... [--still S] [--every S] [--heartbeat S]
 #
 #   --session    a Claude Code session, by its name in `claude agents --json`; it wakes the caller
 #                once it has not been `busy` for --still seconds in a row, or has left the list for
@@ -11,25 +11,30 @@
 #                interactive session has none; `status` says whether it works at this moment
 #   --ref        a ref of a clone, such as /path/clone:origin/master; the clone is fetched every
 #                round, and the caller is woken when the ref moves
+#   --file       a readable output file; wake after --still seconds without growth unless the last
+#                JSON event is turn.completed. Inactivity is not proof that a process is hung
 #   --still      900 unless given: longer than a coordinator's round of 600 seconds, so a
 #                coordinator between two rounds wakes nobody
 #   --every      seconds between two rounds, 60 unless given
 #   --heartbeat  seconds after which it returns anyway, with every session's status and every ref's
-#                head, 1800 unless given: a session that hangs in `busy` is still seen
+#                head, plus every file's path, bytes and minutes since growth, 1800 unless given
 #
-# Exit 0: one line, "<HH:MM> <what happened>". Exit 1: a fetch or `claude agents` failed, named in
-# the line. Exit 2: a wrong argument, nothing to watch, or a ref that names nothing.
+# Exit 0: one line, "<HH:MM> <what happened>". Exit 1: a fetch, `claude agents` or a file read failed,
+# named in the line. Exit 2: a wrong argument, nothing to watch, or a ref that names nothing, or an invalid file.
 set -uo pipefail
 
-usage="usage: watch.sh [--session NAME]... [--ref CLONE:REF]... [--still S] [--every S] [--heartbeat S]"
-names=(); clones=(); refs=(); still=900; every=60; heartbeat=1800
+usage="usage: watch.sh [--session NAME]... [--ref CLONE:REF]... [--file PATH]... [--still S] [--every S] [--heartbeat S]"
+names=(); clones=(); refs=(); files=(); still=900; every=60; heartbeat=1800
 while [ $# -gt 0 ]; do
+  case "$1" in -h|--help) awk 'NR == 1 && /^#!/ { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "${BASH_SOURCE[0]}"; exit 0 ;; esac
   [ $# -ge 2 ] || { echo "error: $1 takes a value - $usage" >&2; exit 2; }
   case "$1" in
     --session) names[${#names[@]}]="$2" ;;
     # A ref name never holds a colon, so the last one ends the clone's path
     --ref) case "$2" in *:*) ;; *) echo "error: --ref takes CLONE:REF, not '$2'" >&2; exit 2 ;; esac
       clones[${#clones[@]}]="${2%:*}"; refs[${#refs[@]}]="${2##*:}" ;;
+    --file) case "$2" in ''|--*) echo "error: --file takes a path - $usage" >&2; exit 2 ;; esac
+      files[${#files[@]}]="$2" ;;
     --still) still="$2" ;;
     --every) every="$2" ;;
     --heartbeat) heartbeat="$2" ;;
@@ -40,7 +45,12 @@ done
 for n in "$still" "$every" "$heartbeat"; do
   case "$n" in ''|*[!0-9]*|0) echo "error: --still, --every and --heartbeat take whole seconds above 0, not '$n'" >&2; exit 2 ;; esac
 done
-[ $((${#names[@]} + ${#refs[@]})) -gt 0 ] || { echo "error: nothing to watch - $usage" >&2; exit 2; }
+[ $((${#names[@]} + ${#refs[@]} + ${#files[@]})) -gt 0 ] || { echo "error: nothing to watch - $usage" >&2; exit 2; }
+
+# Validate every file before a ref fetch or a session query can have side effects.
+for file in ${files[@]+"${files[@]}"}; do
+  [ -f "$file" ] && [ -r "$file" ] || { echo "error: file is not readable: $file" >&2; exit 2; }
+done
 
 err="$(mktemp)"; trap 'rm -f "$err"' EXIT
 say() { echo "$(date +%H:%M) $1"; exit "${2:-0}"; }
@@ -48,7 +58,18 @@ fetch() { local out; out="$(git -C "${clones[$1]}" fetch -q 2>&1)" || say "${clo
 # The full name: a short one grows as the clone does, and would read as a move
 head_of() { git -C "${clones[$1]}" rev-parse --verify -q "${refs[$1]}^{commit}"; }
 
-start="$(date +%s)"; heads=(); seen=()
+file_size() {
+  local size file="${files[$1]}"
+  [ -f "$file" ] && [ -r "$file" ] || { echo "file is no longer readable: $file" >&2; return 1; }
+  size="$(wc -c < "$file")" || { echo "cannot read file size: $file" >&2; return 1; }
+  printf '%s\n' "${size//[[:space:]]/}"
+}
+
+start="$(date +%s)"; heads=(); seen=(); sizes=(); grown=()
+i=0; while [ "$i" -lt "${#files[@]}" ]; do
+  sizes[i]="$(file_size "$i")" || say "${files[$i]}: cannot read file size" 1
+  grown[i]="$start"; i=$((i + 1))
+done
 i=0; while [ "$i" -lt "${#refs[@]}" ]; do
   fetch "$i"
   heads[i]="$(head_of "$i")" || { echo "error: ${refs[$i]} names nothing in ${clones[$i]}" >&2; exit 2; }
@@ -80,6 +101,20 @@ while :; do
     [ $((now - ${seen[$i]})) -lt "$still" ] \
       || say "${names[$i]} is $status and has not been busy for $minutes minutes"
     report="$report; ${names[$i]} $status, $minutes minutes since it was busy"
+    i=$((i + 1))
+  done
+  i=0; while [ "$i" -lt "${#files[@]}" ]; do
+    size="$(file_size "$i")" || say "${files[$i]}: file is no longer readable" 1
+    if [ "$size" -gt "${sizes[$i]}" ]; then grown[i]="$now"; fi
+    sizes[i]="$size"
+    minutes=$(( (now - ${grown[$i]}) / 60 ))
+    if [ $((now - ${grown[$i]})) -ge "$still" ]; then
+      last="$(tail -n1 "${files[$i]}" 2> "$err")" || say "${files[$i]}: cannot read final event: $(tail -n1 "$err")" 1
+      if ! printf '%s' "$last" | jq -se 'length == 1 and (.[0] | type == "object" and .type == "turn.completed")' >/dev/null 2>/dev/null; then
+        say "${files[$i]} has not grown for $minutes minutes ($size bytes)"
+      fi
+    fi
+    report="$report; ${files[$i]}, $size bytes, $minutes minutes since growth"
     i=$((i + 1))
   done
   [ $((now - start)) -lt "$heartbeat" ] || say "heartbeat after $(( (now - start) / 60 )) minutes: ${report#; }"

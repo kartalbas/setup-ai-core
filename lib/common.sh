@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # What every library and every provider of this harness shares: the error exit, where the project's
-# data and settings live, the read of a setting, and a command's data kept apart from its stderr.
+# data and settings live, the read of a setting, a command's data kept apart from its stderr, the
+# repository and the project folder of a checkout, and a call to a service with a token.
 # lib/tracker.sh and lib/forge.sh source it, and so does every provider under lib/<provider>/, because
 # bin/release.sh and lib/layers.sh never source lib/board.sh. Source it, do not run it.
 
@@ -104,4 +105,110 @@ apart() {  # apart <command>...
     printf '%s\n' "${split_out:+$split_out$'\n'}$split_err"
   fi
   return "$rc"
+}
+
+# origin_repo [checkout]: "owner/repo" of the origin of the checkout (the current directory without one),
+# whatever the host and the way the address is spelled (https, scp-like or ssh://); exit 1 where there is none
+origin_repo() {
+  local url
+  url="$(git -C "${1:-.}" remote get-url origin 2>/dev/null)" || return 1
+  url="${url%/}"; url="${url%.git}"
+  url="$(printf '%s' "$url" | sed -n 's|^.*[:/]\([^:/][^:/]*/[^:/][^:/]*\)$|\1|p')"
+  [ -n "$url" ] || return 1
+  printf '%s\n' "$url"
+}
+
+# project_folder_of <directory>: the folder that holds the repositories: for a checkout the
+# parent of its main checkout (a worktree's too), for a directory that is no checkout the
+# directory itself
+project_folder_of() {
+  local common main
+  if common="$(git -C "$1" rev-parse --git-common-dir 2>/dev/null)" && [ -n "$common" ]; then
+    case "$common" in /*|[A-Za-z]:*) ;; *) common="$1/$common" ;; esac
+    main="$(cd "$common/.." && pwd)"
+    dirname "$main"
+  else
+    (cd "$1" && pwd)
+  fi
+}
+
+# LANDING_WORKTREE_RE: the path of the temporary worktree of a landing (integrate-issue --from-origin), as an
+# extended regular expression: .worktrees/<repository>/integrate-<issue number>.<six characters mktemp gave>.
+# The issue number is digits and nothing else, so a folder that starts the same way, such as integrate-7-release.abc123,
+# is somebody's work. init and doctor both read it from here.
+LANDING_WORKTREE_RE='/\.worktrees/[^/]*/integrate-[0-9]+\.[A-Za-z0-9]{6}$'
+
+# --- calls to a service with a token -------------------------------------------
+
+# A TOKEN IS READ WHEN A CALL NEEDS IT, from the command a setting names, and goes nowhere but into the
+# one call: not into an argument list, a file, the environment or the terminal. KEY is the setting
+# (PLANE_TOKEN_COMMAND, FORGEJO_TOKEN_COMMAND); its value is a command run by bash whose standard
+# output is the token. The command's standard error is dropped: it may carry what the token is read
+# from. A missing setting, a failing command, an empty answer and an answer with a control character
+# in it (a line break among them, which would add a line to the curl configuration or a field to git's
+# answer) each stop the caller and name KEY.
+# THE TRACE OF A CALLER STAYS OFF WHILE THE TOKEN IS HELD: under `set -x` the shell prints every
+# assignment and argument it expands, the token among them, so the code that holds the token
+# switches xtrace off first and back on, if it was on, when the token is let go. Each function does
+# this for itself, with its own `traced`, because a helper cannot restore the setting of its caller.
+token_from_command() {  # token_from_command <setting>
+  local key="$1" command token="" error="" rc=0 traced=""
+  case $- in *x*) traced=1; set +x ;; esac
+  command="$(config_value "$key" "")"
+  if [ -z "$command" ]; then
+    error="$key is not set: set it in .ai-core/config.env or the environment to the command that prints the token"
+  else
+    # read detects NUL before command substitution drops it; another control byte reaches the shared refusal.
+    token="$(set -o pipefail; bash -c "$command" 2>/dev/null </dev/null | {
+      if IFS= read -r -d '' token; then cat >/dev/null; printf '\001'
+      else printf '%s' "$token"; fi
+    })" || rc=$?
+    if [ "$rc" -ne 0 ]; then error="the command of $key failed (exit $rc), so there is no token"
+    elif [ -z "$token" ]; then error="the command of $key printed no token"
+    else
+      case "$token" in
+        *[[:cntrl:]]*) error="the command of $key printed a token with a control character in it (a line break or a carriage return among them): the token must be one line of printable characters" ;;
+      esac
+    fi
+  fi
+  [ -n "$error" ] || printf '%s\n' "$token" || error="cannot write the token from $key to standard output"
+  token=""; command=""
+  [ -z "$traced" ] || set -x
+  [ -z "$error" ] || die "$error"
+  return 0
+}
+
+# one line of a curl configuration: the option and its value in quotes, a backslash and a quote escaped
+curl_config_line() {  # curl_config_line <option> <value>
+  printf '%s = "%s"\n' "$1" "$(printf '%s' "$2" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+}
+
+# http_call <token setting> <header name> <header value prefix> <method> <url> [json body]: one HTTP call.
+# Sets http_status (000 where curl got no answer), http_body and http_headers, and returns 0 for any
+# answer, so the caller judges the status. THE TOKEN REACHES curl THROUGH ITS CONFIGURATION ON STANDARD
+# INPUT, because an argument is listed by ps and the environment by /proc: neither holds it. The body is
+# the caller's text and goes through a file of its own, never through the shell's arguments, because an
+# issue body outgrows what an argument may hold. Called in this shell, never as `$( )`, or what it sets
+# ends with the subshell.
+http_call() {
+  local key="$1" name="$2" prefix="$3" method="$4" url="$5" body="${6:-}" token dir rc=0 traced=""
+  case $- in *x*) traced=1; set +x ;; esac   # see token_from_command: the token is expanded below
+  token="$(token_from_command "$key")" || { [ -z "$traced" ] || set -x; exit 1; }
+  dir="$(mktemp -d)" || { token=""; [ -z "$traced" ] || set -x; exit 1; }
+  {
+    curl_config_line url "$url"; curl_config_line request "$method"; curl_config_line header "$name: $prefix$token"
+    if [ -n "$body" ]; then
+      printf '%s' "$body" > "$dir/request"
+      curl_config_line header "Content-Type: application/json"; curl_config_line data-binary "@$dir/request"
+    fi
+  } | curl --silent --show-error --connect-timeout 15 --max-time 120 --config - \
+        --output "$dir/answer" --dump-header "$dir/headers" --write-out '%{http_code}' > "$dir/status" 2> "$dir/error" || rc=$?
+  token=""
+  if [ "$rc" -eq 0 ]; then http_status="$(cat "$dir/status")"; else http_status=000; fi
+  http_body="$(cat "$dir/answer" 2>/dev/null || true)"
+  http_headers="$(cat "$dir/headers" 2>/dev/null || true)"
+  [ "$rc" -eq 0 ] || http_body="$(cat "$dir/error")"
+  rm -rf "$dir"
+  [ -z "$traced" ] || set -x
+  return 0
 }

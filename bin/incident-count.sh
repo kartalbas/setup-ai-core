@@ -63,8 +63,7 @@ every_board_repo() {
   [ -n "$boards" ] || die "no open board in $org - name the repositories to count over"
   while IFS=$'\t' read -r number _; do
     [ -n "$number" ] || continue
-    set_project "$number" >/dev/null
-    project_repos || exit 1
+    board_repos "$number" || return 1
   done <<< "$boards"
 }
 

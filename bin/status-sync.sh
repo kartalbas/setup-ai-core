@@ -54,7 +54,9 @@
 # point is that no person has to run it.
 #
 # It does not WRITE the board itself: it calls issue-status and issue-close, the movers that
-# already handle every board a card is on. One writer, one set of rules.
+# already handle every board a card is on. One writer, one set of rules. Where a tracker lets a checkout
+# act for its own repository only (writes_run_in_repo_clone), the movers run in the clone of the card's
+# repository, and a card whose repository has no clone here is named and stays.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 
@@ -93,7 +95,7 @@ cards_of_repo() {  # <owner/repo>
   local repo="$1" after="" page next
   while :; do
     page="$(open_issue_page "$repo" "$after")" || exit 1
-    printf '%s' "$page" | jq -r --argjson board "$(project_number)" --arg org "$(project_org)" '
+    printf '%s' "$page" | jq -r --argjson board "$(project_number_json)" --arg org "$(project_org)" '
       .data.repository.issues.nodes[]
       | . as $i
       | ([$i.projectItems.nodes[] | select(.project.number == $board and (.project.owner.login | ascii_downcase) == ($org | ascii_downcase))
@@ -245,10 +247,11 @@ if [ $# -gt 0 ]; then
   for want in "$@"; do case "$want" in */*) repos+=("$want") ;; *) repos+=("$org/$want") ;; esac; done
 else
   cards="$("$ROOT/bin/board-list.sh" --project "$resolved")" || exit 1
+  # A card that names no repository ("-") has no clone to read and is left out
   while read -r name; do
     [ -n "$name" ] || continue
     case "$name" in */*) repos+=("$name") ;; *) repos+=("$org/$name") ;; esac
-  done <<< "$(awk '$1 != "done" && $4 ~ /^#[0-9]+$/ { print $3 }' <<< "$cards" | sort -u)"
+  done <<< "$(awk '$1 != "done" && $3 != "-" && $4 ~ /^#[0-9]+$/ { print $3 }' <<< "$cards" | sort -u)"
 fi
 
 moved=0; scanned=0; unreleased=""
@@ -309,16 +312,41 @@ for full in ${repos[@]+"${repos[@]}"}; do
     fi
     [ -n "$target" ] || continue
 
+    # Where the tracker has the clone of a card's repository write it, the movers run there
+    mover_dir="."
+    if writes_run_in_repo_clone "$full"; then
+      mover_dir="$(clone_of "$full")"
+      if [ -z "$mover_dir" ]; then
+        echo "no clone     $label#$num  (no clone of $full in $(project_folder), and only its clone writes its cards, so the card stays)"
+        continue
+      fi
+      # A fresh shell reads the clone as the mover will, without this shell's loaded provider variables.
+      different="$(bash -c '
+        cd "$1" || exit 1
+        . "$2/lib/common.sh"; shift 2
+        for key in TRACKER PLANE_URL PLANE_WORKSPACE PLANE_PROJECT; do
+          if [ "$key" = TRACKER ]; then actual="$(config_value "$key" github | tr "[:upper:]" "[:lower:]")"
+          else actual="$(config_value "$key" "")"; fi
+          if [ "$actual" != "$1" ]; then printf "%s\n" "$key"; break; fi
+          shift
+        done
+      ' _ "$mover_dir" "$ROOT" "$TRACKER" "$(config_value PLANE_URL "")" "$(config_value PLANE_WORKSPACE "")" "$resolved")" || exit 1
+      if [ -n "$different" ]; then
+        echo "other board  $label#$num  ($mover_dir has a different $different, so the card stays)"
+        continue
+      fi
+    fi
+
     if [ "$target" = "CLOSE" ]; then
       # An epic names no release, and no card in testing may have been read before it
       if [ "$subs" -gt 0 ]; then why="every sub-issue done"; else why="released in $tag and proven"; fi
       if [ "$dry" = 1 ]; then echo "would close  $label#$num  ($st -> done, $why)"
       else echo "close        $label#$num  ($st -> done, $why)"
-        "$ROOT/bin/issue-close.sh" "$full" "$num" >/dev/null < /dev/null; fi
+        (cd "$mover_dir" && "$ROOT/bin/issue-close.sh" "$full" "$num") >/dev/null < /dev/null; fi
     else
       if [ "$dry" = 1 ]; then echo "would move   $label#$num  ($st -> $target)"
       else echo "move         $label#$num  ($st -> $target)"
-        "$ROOT/bin/issue-status.sh" "$full" "$num" "$target" >/dev/null < /dev/null; fi
+        (cd "$mover_dir" && "$ROOT/bin/issue-status.sh" "$full" "$num" "$target") >/dev/null < /dev/null; fi
     fi
     moved=$((moved + 1))
   done <<< "$cards"

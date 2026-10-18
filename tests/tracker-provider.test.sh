@@ -58,10 +58,10 @@ check "TRACKER is read without regard to case" "tracker=github function" "$(disp
 config 'TRACKER="github"\n'
 check "TRACKER in config.env" "tracker=github function" "$(dispatch "$ROOT" unset)"
 config 'TRACKER="nonesuch"\n'
-refusal="error: TRACKER is 'nonesuch', and this harness has no tracker of that name. It has: github"
+refusal="error: TRACKER is 'nonesuch', and this harness has no tracker of that name. It has: github plane"
 check "a name with no folder is refused and the folders are named" "$refusal" "$(dispatch "$ROOT" unset)"
 config ''
-check "a name that leads out of lib/ is refused" "error: TRACKER is '../skeleton', and this harness has no tracker of that name. It has: github" "$(dispatch "$ROOT" ../skeleton)"
+check "a name that leads out of lib/ is refused" "error: TRACKER is '../skeleton', and this harness has no tracker of that name. It has: github plane" "$(dispatch "$ROOT" ../skeleton)"
 
 # the planted defect: a copy of lib/ whose refusal is taken out must make the same check go red
 mkdir -p "$WORK/planted"; cp -R "$ROOT/lib" "$WORK/planted/lib"
@@ -85,7 +85,7 @@ fdispatch() {  # fdispatch <lib root> <FORGE or 'unset'>
 }
 config ''
 check "no FORGE means github" "forge=github github.com" "$(fdispatch "$ROOT" unset)"
-check "a FORGE with no folder is refused and the folders are named" "error: FORGE is 'nonesuch', and this harness has no forge of that name. It has: github" "$(fdispatch "$ROOT" nonesuch)"
+check "a FORGE with no folder is refused and the folders are named" "error: FORGE is 'nonesuch', and this harness has no forge of that name. It has: forgejo github" "$(fdispatch "$ROOT" nonesuch)"
 mkdir -p "$WORK/fake"
 cat > "$WORK/fake/gh" <<'GH'
 #!/bin/sh

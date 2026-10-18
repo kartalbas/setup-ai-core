@@ -275,6 +275,12 @@ run="$(cd "$clone" && GH_PROJECT_NUMBER="$PROJECT_NUMBER" bash "$ROOT/bin/status
 check 'exit 0' 0 "$?"
 check 'both are read' "16 active cards scanned, 3 would move on board $PROJECT_NUMBER." "$(printf '%s\n' "$run" | tail -1)"
 
+echo 'a board written with a leading zero is the board with that number'
+: > "$FAKE/calls.txt"
+run="$(cd "$clone" && GH_PROJECT_NUMBER="0$PROJECT_NUMBER" bash "$ROOT/bin/status-sync.sh" example-org/example-repo other-org/example-repo --dry-run 2>&1)"
+check 'exit 0' 0 "$?"
+check 'the cards of the board are read' "16 active cards scanned, 3 would move on board 0$PROJECT_NUMBER." "$(printf '%s\n' "$run" | tail -1)"
+
 echo 'no board named: the board is the one the first repository named is linked to, not the checkout'"'"'s'
 : > "$FAKE/calls.txt"
 run="$(cd "$clone" && env -u GH_PROJECT_NUMBER bash "$ROOT/bin/status-sync.sh" --dry-run example-org/tools 2>&1)"

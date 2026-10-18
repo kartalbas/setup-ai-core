@@ -6,6 +6,9 @@
 
 . "$(dirname "${BASH_SOURCE[0]}")/gh.sh"
 
+# tracker_name: the tracker as a message names it
+tracker_name() { echo GitHub; }
+
 # THE ORGANISATION, for a command that names no repository: GH_ORG in the environment, then
 # GH_ORG= in the checkout's .ai-core/config.env (the project's setting, put there by init), then
 # the owner of the repository the caller stands in. The harness itself names none: it serves many.
@@ -77,6 +80,9 @@ template_project_number() {
   esac
 }
 
+# board_cache_name: the directory of the board under the cache root, its number
+board_cache_name() { project_number; }
+
 project_id() {
   local f id from
   f="$(cache_dir)/project-id"
@@ -147,6 +153,12 @@ project_repos() {
     query($pid:ID!) { node(id:$pid) { ... on ProjectV2 {
       repositories(first:100) { nodes { nameWithOwner } } } } }' \
     --jq '.data.node.repositories.nodes[].nameWithOwner'
+}
+
+# board_repos <board>: every repo linked to that board, the board selected first
+board_repos() {
+  set_project "$1" >/dev/null
+  project_repos
 }
 
 # The open boards a repo is linked to, one "<number>\t<title>" per line, EMPTY where it is
@@ -557,6 +569,21 @@ labels_list() {
   gh_read "the labels of $1" label list --repo "$1" --limit 200 --json name --jq '.[].name'
 }
 
+# tracker_doctor: the lines `ai-core doctor` prints for the tracker. Where the forge is GitHub too, its doctor
+# checks gh with the same lines; where the forge is elsewhere, nothing else would, and the board commands
+# still need gh, its login and the project scope.
+tracker_doctor() {
+  echo "  tracker: github"
+  [ "$(config_value FORGE github | tr '[:upper:]' '[:lower:]')" = github ] || gh_doctor
+}
+
+# closing_column <completed | not-planned>: the Status a closed issue's card is put in; the board has one
+# column for both reasons
+closing_column() { echo done; }
+
+# writes_run_in_repo_clone <owner/repo>: never on GitHub, where a command acts for any repository it is given
+writes_run_in_repo_clone() { return 1; }
+
 # tracker_login: the login the tracker knows the caller by. The answer is established as one before
 # the login is read out of it: a refused query writes its error body to stdout, so a login read
 # straight through a pipe would be the refusal text.
@@ -820,6 +847,7 @@ field_options_replace() {
 # new board.
 project_create() {
   local org src
+  check_project_number "$2"
   org="$(gh_read "the id of $1" api graphql -f o="$1" -f query='
     query($o:String!){ organization(login:$o){ id } }' \
     --jq '.data.organization.id')" || exit 1

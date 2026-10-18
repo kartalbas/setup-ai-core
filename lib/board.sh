@@ -262,6 +262,15 @@ project_number() {
   echo "$PROJECT"
 }
 
+# project_number_json: the number of the selected board as a JSON value, for a comparison against what the
+# tracker's pages say. Digits are a number, so a board spelled 01 and the board 1 are equal; anything else,
+# a Plane project identifier, is a string.
+project_number_json() {
+  local n
+  n="$(project_number)" || exit 1
+  case "$n" in ''|*[!0-9]*) jq -Rn --arg n "$n" '$n' ;; *) printf '%s\n' "$n" ;; esac
+}
+
 # The organisation the selected board lives under - see set_project for how it is chosen.
 project_org() {
   [ -n "$PROJECT_ORG" ] || die "no project selected - call set_project first"
@@ -282,17 +291,17 @@ TEMPLATE_MARK='[TEMPLATE]'
 # not its own. Every test points this at its own temporary directory, which is why no
 # test writes inside the tree it is testing.
 cache_root() { echo "${GH_CACHE_DIRECTORY:-$(data_dir)/.cache}"; }
-# A board of the organisation (gh_org) caches under its number; a board of another organisation
-# under that organisation's name and its number, so board 1 of one never answers for board 1 of
-# the other.
+# A board of the organisation (gh_org) caches under its name (board_cache_name: its number on GitHub, the
+# instance, workspace and identifier on Plane); a board of another organisation under that organisation's
+# name and its own, so board 1 of one never answers for board 1 of the other.
 # Where the caller's organisation is not known, outside a checkout and without GH_ORG, the board's
 # own organisation stands in for it: the command named it with its repository, and asking gh_org
 # only printed an error and cached the board somewhere a checkout of that organisation does not.
 cache_dir() {
   local caller
   caller="$(gh_org 2>/dev/null)" || caller="$(project_org)"
-  if [ "$(project_org)" = "$caller" ]; then echo "$(cache_root)/$(project_number)"
-  else echo "$(cache_root)/$(project_org)/$(project_number)"; fi
+  if [ "$(project_org)" = "$caller" ]; then echo "$(cache_root)/$(board_cache_name)"
+  else echo "$(cache_root)/$(project_org)/$(board_cache_name)"; fi
 }
 
 # make_cache_dir: the board's cache directory, made where git does not see it. A checkout init

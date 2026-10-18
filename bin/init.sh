@@ -83,7 +83,7 @@ if [ -n "$ALL_DIR" ]; then
     repo="${repo%/}"
     [ -e "$repo/.git" ] || continue
     case "${repo##*/}" in *-ai-core) continue ;; esac
-    [ "$(git -C "$repo" worktree list --porcelain 2>/dev/null | grep '^worktree ' | grep -v -c -E '/\.ai-core/neighbours/|/\.worktrees/[^/]*/origin-')" -gt 1 ] || continue
+    [ "$(git -C "$repo" worktree list --porcelain 2>/dev/null | grep '^worktree ' | grep -v -c -E "/\.ai-core/neighbours/|/\.worktrees/[^/]*/origin-|$LANDING_WORKTREE_RE")" -gt 1 ] || continue
     echo ""; echo "### ${repo##*/}: worktrees whose work landed"
     (cd "$repo" && bash "$CORE_ROOT/bin/finish-issue.sh" --sweep $([ "$DRY" -eq 1 ] && echo --dry-run)) 2>&1 | sed 's/^/  /' || true
   done
@@ -92,6 +92,7 @@ if [ -n "$ALL_DIR" ]; then
     [ -e "$repo/.git" ] || continue
     case "$repo" in "$ALL_DIR"/.worktrees/*) [ ! -L "$repo" ] || continue ;; esac   # a link beside the worktrees is a neighbour checkout, initialized as itself
     case "$repo" in "$ALL_DIR"/.worktrees/*/origin-*) continue ;; esac                # a neighbour's published copy is read by checks, never worked in: the harness has no reader there
+    [[ "$repo" =~ $LANDING_WORKTREE_RE ]] && continue   # the temporary worktree of a landing (integrate-issue --from-origin) is gone when the landing ends, and nobody works in it
     name="${repo#"$ALL_DIR"/}"; repo_folder="${name##*/}"
     # a worktree is named by the checkout it belongs to, whichever way .worktrees/ is laid out
     # (a broken worktree has no checkout to name: it is walked as before)
@@ -311,7 +312,7 @@ chain_of() {  # chain_of <checkout>: the layer directories, base first, or nothi
   if [ "$DRY" -eq 1 ]; then
     # nothing is moved, cloned or created on a dry run: a harness that is not there yet is announced instead
     if layer_chain "$org/$prefix-ai-core" "$CORE_ROOT" "$FOLDER" dry 2>"$TMP/chain.err"; then cat "$TMP/chain.err" >&2; return 0; fi
-    if grep -q 'does not exist on GitHub' "$TMP/chain.err"; then echo "$org/$prefix-ai-core" > "$TMP/would-create"; else cat "$TMP/chain.err" >&2; fi
+    if grep -q "does not exist on $(forge_name)" "$TMP/chain.err"; then echo "$org/$prefix-ai-core" > "$TMP/would-create"; else cat "$TMP/chain.err" >&2; fi
     return 0
   fi
   layer_chain "$org/$prefix-ai-core" "$CORE_ROOT" "$FOLDER" create
@@ -350,7 +351,7 @@ if [ -n "$LAYERS" ]; then
 elif [ -f "$TMP/would-create" ]; then
   echo "--> Project harness: $(cat "$TMP/would-create") would be created from the skeleton, private, and this checkout would get it (dry run: not created)"
 elif [ "$PROJECT_FOLDER" -eq 0 ]; then
-  echo "--> No project harness: this checkout has no GitHub origin; the generic harness only"
+  echo "--> No project harness: this checkout has no $(forge_name) origin; the generic harness only"
 fi
 
 # The auto-mode entries of setup-ai-core and of every layer, read before anything is written, so a
@@ -868,6 +869,11 @@ if [ -f "$TARGET/.githooks/pre-push" ] && ! git -C "$TARGET" ls-files --error-un
   put "$CORE_ROOT/templates/.githooks/commit-msg" .githooks/commit-msg managed
 fi
 
+# 3a2. A checkout whose origin is on the forge signs in the way the forge asks, by a setting in its own
+#      .git/config (the forge's clone_sign_in); a forge that signs in once for the machine sets nothing.
+SIGN_IN_MODE=""; [ "$DRY" -eq 0 ] || SIGN_IN_MODE=dry
+SIGN_IN_NOTE="$(clone_sign_in "$TARGET" $SIGN_IN_MODE)"
+
 # 3b. The project's .gitignore carries a block naming every file an agent or the harness puts
 #     into a checkout (lib/gitignore-block), so no clone of this repository commits one, with or
 #     without the harness. The block is rewritten where it stands, between its markers, and every
@@ -990,6 +996,7 @@ if [ -n "$NEIGHBOURS_LEFT" ]; then echo "  the links now follow a renamed defaul
 if [ -n "$NEIGHBOURS_MOVED" ]; then echo "  the published copies of these neighbours $([ "$DRY" -eq 1 ] && echo "would move" || echo moved) out of .worktrees/ to .ai-core/neighbours/, with all they hold, and the links of every worktree $([ "$DRY" -eq 1 ] && echo "would follow" || echo followed):$NEIGHBOURS_MOVED"; fi
 if [ -n "$NEIGHBOURS_UNMOVED" ]; then echo "  these published copies could not move out of .worktrees/ (their place in .ai-core/neighbours/ is taken, or git refused the move), so a tool that reads .worktrees/ as the places of work still counts them:$NEIGHBOURS_UNMOVED"; fi
 if [ -n "$NEIGHBOURS_UNLINKED" ]; then echo "  links to checkouts that are gone $([ "$DRY" -eq 1 ] && echo "would be removed" || echo "removed") in $NEIGHBOURS_IN:$NEIGHBOURS_UNLINKED"; fi
+if [ -n "$SIGN_IN_NOTE" ]; then echo "  $SIGN_IN_NOTE"; fi
 if [ "$HOOKS_ARMED" -eq 1 ]; then echo "  core.hooksPath $([ "$DRY" -eq 1 ] && echo "would be set" || echo "set") to .githooks: the push gate runs here"; fi
 if [ "$SHIMS_MODE" -eq 1 ] && [ "$DRY" -eq 1 ]; then echo "  the shims in .githooks are not executable, so git skips the push gate: ai-core pre-push --install would make them so"
 elif [ "$SHIMS_MODE" -eq 1 ]; then echo "  the shims in .githooks were not executable, so git skipped the push gate: ai-core pre-push --install made them so"

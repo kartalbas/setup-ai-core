@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The project harness of a checkout: where it is on GitHub, where its clone is on this machine,
+# The project harness of a checkout: where it is on the forge, where its clone is on this machine,
 # and the chain of harnesses it extends. Sourced by init, push, update and session-start; do not
 # run it.
 #
@@ -17,7 +17,8 @@
 #
 # EVERYTHING FORGE-SIDE GOES THROUGH lib/forge.sh: reading whether the harness exists, cloning it,
 # creating it. On GitHub that is gh, which makes it one login for everything and lets the tests
-# stand a fake gh on the PATH so nothing reaches github.com.
+# stand a fake gh on the PATH so nothing reaches github.com; the messages name the host
+# forge_host gives.
 #
 # A harness may extend another one, ai-core.json {"extends": "<org>/<name>-ai-core"}. The chain is
 # resolved base first, and a cycle or a chain longer than eight is refused.
@@ -30,7 +31,7 @@ origin_parts() {
   local url host
   url="$(git -C "$1" remote get-url origin 2>/dev/null)" || return 1
   url="${url%/}"; url="${url%.git}"
-  host="$(forge_host)"
+  host="$(forge_host)" || return 1
   case "$url" in
     *"$host"[:/]*/*) url="${url#*"$host"}"; url="${url#[:/]}" ;;
     *) return 1 ;;
@@ -113,20 +114,6 @@ source_rule_dirs() {
   [ -z "$chain" ] || printf '%s' "$chain"
 }
 
-# project_folder_of <directory>: the folder that holds the repositories: for a checkout the
-# parent of its main checkout (a worktree's too), for a directory that is no checkout the
-# directory itself
-project_folder_of() {
-  local common main
-  if common="$(git -C "$1" rev-parse --git-common-dir 2>/dev/null)" && [ -n "$common" ]; then
-    case "$common" in /*|[A-Za-z]:*) ;; *) common="$1/$common" ;; esac
-    main="$(cd "$common/.." && pwd)"
-    dirname "$main"
-  else
-    (cd "$1" && pwd)
-  fi
-}
-
 # catch_up <checkout>: before ai-core commits a file of its own in a checkout, the checkout comes
 # level with its origin: fetched, and fast-forwarded where it is only behind, with no commit of its
 # own and no change to a tracked file. Prints what it did, or why it could not and returns 1 then:
@@ -206,7 +193,9 @@ fill_layer() {
 # when "create" is given; "dry" moves and creates nothing. Prints the clone directory. Exit 1
 # with a message when it cannot be had.
 ensure_layer() {
-  local full="$1" root="$2" folder="$3" mode="${4:-}" dir old origin
+  local full="$1" root="$2" folder="$3" mode="${4:-}" dir old origin host name
+  host="$(forge_host)" || return 1
+  name="$(forge_name)" || return 1
   dir="$(layer_dir "$full" "$folder")"
   old="$HOME/.${full#*/}"
   if [ -d "$old/.git" ]; then
@@ -220,17 +209,17 @@ ensure_layer() {
   if [ -d "$dir/.git" ]; then
     origin="$(git -C "$dir" remote get-url origin 2>/dev/null || true)"
     case "${origin%.git}" in
-      *"$(forge_host)"[:/]"$full") ;;
+      *"$host"[:/]"$full") ;;
       *) echo "error: $dir is a clone of ${origin:-nothing}, not of $full; move it away" >&2; return 1 ;;
     esac
     # A clone with no commit of an origin with none: the empty harness repository somebody with
     # the right to create it made by hand and cloned by hand; the first init fills it from the
     # skeleton and pushes, the way it fills one it creates itself
     if ! git -C "$dir" rev-parse -q --verify HEAD >/dev/null 2>&1 && [ -z "$(git -C "$dir" ls-remote --heads origin 2>/dev/null)" ]; then
-      if [ "$mode" = dry ]; then echo "note: $full is empty here and on GitHub and would be filled from the skeleton (dry run: not written)" >&2; echo "$dir"; return 0; fi
+      if [ "$mode" = dry ]; then echo "note: $full is empty here and on $name and would be filled from the skeleton (dry run: not written)" >&2; echo "$dir"; return 0; fi
       fill_layer "$dir" "$root" || { echo "error: could not fill $full at $dir from the skeleton" >&2; return 1; }
       git -C "$dir" push --quiet -u origin HEAD >/dev/null 2>&1 || { echo "error: could not push the skeleton to $full (no write access to it?); the clone at $dir keeps it" >&2; return 1; }
-      echo "filled: $full, empty on GitHub, from the skeleton, at $dir" >&2
+      echo "filled: $full, empty on $name, from the skeleton, at $dir" >&2
       echo "$dir"; return 0
     fi
     # A working tree that lost every tracked file (an interrupted move, cleaned up by hand) is
@@ -247,24 +236,24 @@ ensure_layer() {
   if repo_exists "$full" >/dev/null 2>&1; then
     [ "$mode" != dry ] || { echo "$dir"; return 0; }
     repo_clone "$full" "$dir" >/dev/null 2>&1 || { echo "error: could not clone $full to $dir" >&2; return 1; }
-    # Empty on GitHub, made by hand by whoever has the right to create it there: the first init
+    # Empty on the forge, made by hand by whoever has the right to create it there: the first init
     # fills it from the skeleton and pushes, the way it fills one it creates itself
     if ! git -C "$dir" rev-parse -q --verify HEAD >/dev/null 2>&1; then
       fill_layer "$dir" "$root" || { echo "error: could not fill $full at $dir from the skeleton" >&2; return 1; }
       git -C "$dir" push --quiet -u origin HEAD >/dev/null 2>&1 || { echo "error: could not push the skeleton to $full (no write access to it?); the clone at $dir keeps it" >&2; return 1; }
-      echo "filled: $full, empty on GitHub, from the skeleton, at $dir" >&2
+      echo "filled: $full, empty on $name, from the skeleton, at $dir" >&2
     fi
     layer_skeleton_file "$dir" "$root" "$full" .gitattributes 'every file LF'
     echo "$dir"; return 0
   fi
-  [ "$mode" = create ] || { echo "error: $full does not exist on GitHub" >&2; return 1; }
+  [ "$mode" = create ] || { echo "error: $full does not exist on $name" >&2; return 1; }
   git var GIT_COMMITTER_IDENT >/dev/null || { echo "error: $full is not created: git holds no identity to commit it under (see above)" >&2; return 1; }
   mkdir -p "$dir"
   git -C "$dir" init -q
   fill_layer "$dir" "$root"
   if ! repo_create "$full" "$dir" >/dev/null 2>&1; then
     rm -rf "$dir"
-    echo "error: could not create $full on GitHub (no permission, or gh is not logged in)" >&2
+    echo "error: could not create $full on $name (no permission, or $(not_signed_in_words))" >&2
     return 1
   fi
   echo "created: $full, private, from the skeleton, at $dir" >&2

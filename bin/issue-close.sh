@@ -37,12 +37,16 @@ for n in "${numbers[@]}"; do
   case "$n" in ''|*[!0-9]*) die "the issue number must be numeric, not '$n'" ;; esac
 done
 
+# The column of the card is the provider's for the reason: done, except where the board has a column of its own for
+# an issue closed as not planned
+column="$(closing_column "$reason")" || exit 1
+
 # The close is reported on its own line and each board on its own after it: the issue is
 # closed ONCE, but its cards are plural - a sub-issue of a cross-repository epic sits on two
 # boards, and one line saying "closed, done" about one of them is false about the other.
 for n in "${numbers[@]}"; do
   issue_close "$repo" "$n" "$reason"
   echo "#$n -> closed"
-  for_each_board "$repo" "$n" Status done "done"
+  for_each_board "$repo" "$n" Status "$column" "$column"
   update_parent_epic "$repo" "$n" || exit 1
 done

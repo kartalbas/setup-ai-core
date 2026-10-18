@@ -10,7 +10,8 @@
 # command. Without this file, every issue is created with `@me` and then corrected by
 # hand - which works exactly as long as nobody forgets, and somebody always does.
 #
-# The login is the GitHub ACCOUNT NAME, the one the API accepts, never the display name.
+# The login is the GitHub ACCOUNT NAME, the one the API accepts, never the display name. On a project
+# whose TRACKER is plane the second column is the EMAIL of the member in the Plane workspace instead.
 #
 # A repo that is not listed falls back to `@me`. That is deliberate: a new repo should
 # assign to the person setting it up rather than fail, and adding a line here is how it

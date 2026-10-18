@@ -132,6 +132,12 @@ project_folder_of() {
   fi
 }
 
+# LANDING_WORKTREE_RE: the path of the temporary worktree of a landing (integrate-issue --from-origin), as an
+# extended regular expression: .worktrees/<repository>/integrate-<issue number>.<six characters mktemp gave>.
+# The issue number is digits and nothing else, so a folder that starts the same way, such as integrate-7-release.abc123,
+# is somebody's work. init and doctor both read it from here.
+LANDING_WORKTREE_RE='/\.worktrees/[^/]*/integrate-[0-9]+\.[A-Za-z0-9]{6}$'
+
 # --- calls to a service with a token -------------------------------------------
 
 # A TOKEN IS READ WHEN A CALL NEEDS IT, from the command a setting names, and goes nowhere but into the

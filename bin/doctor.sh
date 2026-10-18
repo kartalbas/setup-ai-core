@@ -172,6 +172,7 @@ fi
 for tree in "$(project_folder_of "$PWD")"/.worktrees/*/integrate-[0-9]*.??????/; do
   [ -d "$tree" ] || continue
   tree="$(cd "$tree" && pwd -P)"
+  [[ "$tree" =~ $LANDING_WORKTREE_RE ]] || continue
   number="${tree##*/integrate-}"; number="${number%%.*}"
   container="$(dirname "$tree")"; checkout="$(dirname "$(dirname "$container")")/${container##*/}"
   held=""

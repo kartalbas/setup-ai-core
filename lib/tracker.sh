@@ -33,8 +33,8 @@ check_public_body() {
   visibility="$(repo_visibility "$repo")" || visibility=unknown
   [ "$visibility" != private ] || return 0
   addresses="$(printf '%s' "$text" | jq -Rrs '
-    scan("(?:\"[^\"\\r\\n]+\"|(?:[A-Za-z0-9.!#$%&\u0027*+/=?^_`{|}~\\[\\]-]|[^\\x00-\\x7f])+)@(?:\\[[^\\]\\r\\n]+\\]|[[:alnum:]][[:alnum:]\\p{M}._-]*)")
-    | . as $address | (split("@") | last | ascii_downcase | sub("[.]+$"; "")) as $domain
+    scan("(?:\"[^\"\\r\\n]+\"|(?:[A-Za-z0-9.!#$%&\u0027*+/=?^_`{|}~\\[\\]-]|[^\\x00-\\x7f])+)@(?:\\[[^\\]\\r\\n]+\\]|[[:alnum:]][[:alnum:]\\p{M}._\u3002\uff0e\uff61-]*)")
+    | . as $address | (split("@") | last | gsub("[\u3002\uff0e\uff61]"; ".") | ascii_downcase | sub("[.]+$"; "")) as $domain
     | select(($domain | test("[[:alpha:]]|^\\[")))
     | select(($domain | test("(^|\\.)(invalid|example|test|localhost|example\\.(com|net|org))$")) | not)
     | select($domain != "users.noreply.github.com")

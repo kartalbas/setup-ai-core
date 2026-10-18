@@ -106,8 +106,9 @@ fi
 
 # The body is written whole into a temporary file, and the ORIGINAL is left alone: a caller's
 # file is theirs, and a command that edits its own input cannot be run twice.
-sent="$(mktemp)"
+sent="$(mktemp)" || die "issue-new: cannot create temporary body file"
 trap 'rm -f "$sent"' EXIT
+trap 'exit 1' HUP INT TERM
 { printf '%s\n\n' "$asked"; cat "$body"; } > "$sent"
 
 # Reported, not enforced. Every check above refuses; this one only names what a reader will

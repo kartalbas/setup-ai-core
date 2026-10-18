@@ -509,20 +509,19 @@ issue_block() {
     "$(jq -nc --arg i "$(printf '%s' "$by" | jq -r '.id')" '{relation_type: "blocked_by", issues: [$i]}')" >/dev/null || exit 1
 }
 
-# duplicate_mark <canonical owner/repo> <number> <duplicate owner/repo> <number>: the relation duplicate, the
+# duplicate_mark <canonical owner/repo> <number> <duplicate owner/repo> <number> <comment>: the relation duplicate, the
 # comment GitHub gets, so a person reading the thread sees it, and the duplicate in Plane's own Cancelled,
 # because GitHub closes a duplicate and an open one would still hold its epic open. The state is resolved
 # before the first write, so a project without one changes nothing.
 duplicate_mark() {
-  local canonical duplicate cancelled ref="$1#$2"
+  local canonical duplicate cancelled
   canonical="$(plane_item "$1" "$2")" || exit 1
   duplicate="$(plane_item "$3" "$4")" || exit 1
   cancelled="$(plane_state_id group:cancelled)" || exit 1
-  [ "$1" != "$3" ] || ref="#$2"
   plane_api "the duplicate mark on $3#$4" POST "$(plane_path "$(plane_relations_path "$duplicate")")" \
     "$(jq -nc --arg i "$(printf '%s' "$canonical" | jq -r '.id')" '{relation_type: "duplicate", issues: [$i]}')" >/dev/null || exit 1
   plane_api "the duplicate mark on $3#$4" POST "$(plane_path "$(plane_issue_path "$duplicate")comments/")" \
-    "$(jq -nc --arg h "$(plane_html_of "Duplicate of $ref" "")" '{comment_html: $h}')" >/dev/null || exit 1
+    "$(jq -nc --arg h "$(plane_html_of "$5" "")" '{comment_html: $h}')" >/dev/null || exit 1
   plane_api "the cancel of the duplicate $3#$4" PATCH "$(plane_path "$(plane_issue_path "$duplicate")")" \
     "$(jq -nc --arg s "$cancelled" '{state: $s}')" >/dev/null || exit 1
 }

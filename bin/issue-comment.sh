@@ -45,5 +45,13 @@ case "$number" in ''|*[!0-9]*) die "the issue number must be numeric, not '$numb
 [ -z "$body" ] || [ -z "$body_file" ] || die "name a body or a --body-file, not both - which one is the comment is not for a script to guess"
 
 [ -z "$body_file" ] || [ -f "$body_file" ] || die "the body file does not exist: $body_file"
+if [ -n "$body_file" ]; then
+  [ -r "$body_file" ] || die "cannot read body file: $body_file"
+  sent="$(mktemp)" || die "issue-comment: cannot create temporary body file"
+  trap 'rm -f "$sent"' EXIT
+  trap 'exit 1' HUP INT TERM
+  cat "$body_file" > "$sent" || die "cannot read body file: $body_file"
+  body_file="$sent"
+fi
 check_public_body issue-comment "$repo" "$body" "$body_file"
 issue_comment_post "$repo" "$number" "$body" "$body_file"

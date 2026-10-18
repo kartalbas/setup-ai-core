@@ -35,6 +35,7 @@ cat > "$WORK/ghbin/gh" <<'EOF'
 #!/bin/sh
 if [ "$1 $2" = "repo view" ] && [ "${4-} ${5-}" = "--json isPrivate" ]; then
   printf 'visibility\n' >> "$GH_FAKE/body-calls.log"
+  [ -z "${GH_REWRITE_BODY_FILE:-}" ] || printf '%s' "$GH_REWRITE_BODY" > "$GH_REWRITE_BODY_FILE"
   case "${GH_VISIBILITY:-public}" in
     private) echo '{"isPrivate":true}' ;; public) echo '{"isPrivate":false}' ;;
     error) echo 'visibility denied' >&2; exit 1 ;; malformed) echo 'not json' ;;
@@ -51,11 +52,12 @@ if [ "${GH_BODY_FIXTURE:-}" = 1 ]; then
     api*) case "$*" in *--jq\ .body*) cat "$GH_FAKE/current-body"; exit 0 ;; esac; kind=comment ;;
     *) echo "unexpected fixture call: $*" >&2; exit 1 ;;
   esac
+  [ -z "${GH_BODY_WRITE_FAILURE:-}" ] || { echo 'body write refused' >&2; exit 1; }
   printf 'write %s\n' "$kind" >> "$GH_FAKE/body-calls.log"
   while [ $# -gt 0 ]; do
     case "$1" in
-      --body-file) cp "$2" "$GH_FAKE/sent-body"; shift ;;
-      body=@*) cp "${1#body=@}" "$GH_FAKE/sent-body" ;;
+      --body-file) cp "$2" "$GH_FAKE/sent-body"; ls -l "$2" | cut -c1-10 > "$GH_FAKE/sent-body-mode"; printf '%s' "$2" > "$GH_FAKE/sent-body-path"; shift ;;
+      body=@*) cp "${1#body=@}" "$GH_FAKE/sent-body"; ls -l "${1#body=@}" | cut -c1-10 > "$GH_FAKE/sent-body-mode"; printf '%s' "${1#body=@}" > "$GH_FAKE/sent-body-path" ;;
       body=*) printf '%s' "${1#body=}" > "$GH_FAKE/sent-body" ;;
     esac
     shift

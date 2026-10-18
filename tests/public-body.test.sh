@@ -2,8 +2,8 @@
 # Refusals reach every actual writer and leave no tracker mutations, including composed bodies.
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 make_gh_fake
-export HOME="$WORK/home" AI_CORE_HOME="$WORK/core" PATH="$PATH_SH" GH_BODY_FIXTURE=1 GH_VISIBILITY=public
-mkdir -p "$HOME" "$AI_CORE_HOME"
+export HOME="$WORK/home" AI_CORE_HOME="$WORK/core" PATH="$PATH_SH" GH_BODY_FIXTURE=1 GH_VISIBILITY=public TMPDIR="$WORK/body-tmp"
+mkdir -p "$HOME" "$AI_CORE_HOME" "$TMPDIR"
 printf 'The existing body.\n' > "$GH_FAKE/current-body"
 failed=0
 check() { if [ "$2" != "$3" ]; then echo "FAIL: $1: expected [$2], got [$3]"; failed=$((failed+1)); fi; }
@@ -14,6 +14,7 @@ unicode_local="$(printf '\303\251')"
 unicode_domain="$(printf '\303\251.company.ch')"
 unicode_mark="$(printf 'e\314\201')"
 unicode_symbol="$(printf '\360\237\223\247')"
+separators=("$(printf '\343\200\202')" "$(printf '\357\274\216')" "$(printf '\357\275\241')")
 root_under_test="$ROOT"
 invoke() {
   case "$path" in
@@ -44,6 +45,7 @@ case_body() {
   fi
   check "$path caller file preserved" yes "$(cmp -s "$WORK/body" "$WORK/before" && echo yes || echo no)"
   check "$path one visibility decision" 1 "$(grep -c '^visibility$' "$GH_FAKE/body-calls.log" || true)"
+  check "$path temporary bodies removed" '' "$(ls -A "$TMPDIR")"
 }
 for path in inline file new edit; do
   for address in "$real" "$unicode_local@company.ch" "ci@$unicode_domain" "$unicode_mark@company.ch" "$unicode_symbol@company.ch"; do
@@ -53,11 +55,64 @@ for path in inline file new edit; do
   case_body allow "$unicode_local@build.example.test"
   case_body allow $'A `backtick`, "quotes" and CRLF.\r\nNext line.\n'
   for address in "$bot" '49699333+dependabot[bot]@USERS.NOREPLY.GITHUB.COM'; do case_body allow "$address"; done
+  for separator in "${separators[@]}"; do
+    for prefix in users.noreply.github.com example.com; do
+      case_body refuse "ci@$prefix${separator}company.ch"
+    done
+    case_body allow "ci@build${separator}example${separator}test"
+  done
   case_body refuse "$bot $real"; case_body refuse "$real $bot"
   GH_VISIBILITY=private case_body allow "$real"
   for GH_VISIBILITY in error malformed null missing string; do export GH_VISIBILITY; case_body refuse "$real"; done
   export GH_VISIBILITY=public
 done
+# The visibility read must not change the bytes that are checked and then posted.
+for path in file new edit; do
+  text=$'Safe body.\r\nA `backtick` and trailing newlines.\n\n'
+  printf '%s' "$text" > "$WORK/body"; cp "$WORK/body" "$WORK/before"
+  : > "$GH_FAKE/body-calls.log"; rm -f "$GH_FAKE/sent-body"
+  rc=0; out="$(GH_REWRITE_BODY_FILE="$WORK/body" GH_REWRITE_BODY="$real" invoke 2>&1)" || rc=$?
+  check "$path changing original succeeds" 0 "$rc"
+  check "$path changing original planted" "$real" "$(cat "$WORK/body")"
+  check "$path changing original one write" 1 "$(grep -c '^write ' "$GH_FAKE/body-calls.log" || true)"
+  if [ -f "$GH_FAKE/sent-body" ]; then
+    if [ "$path" = new ]; then tail -n +3 "$GH_FAKE/sent-body" > "$WORK/posted"; else cp "$GH_FAKE/sent-body" "$WORK/posted"; fi
+    check "$path posts checked snapshot bytes" yes "$(cmp -s "$WORK/posted" "$WORK/before" && echo yes || echo no)"
+  else
+    check "$path posts checked snapshot bytes" yes no
+  fi
+  check "$path changing original one visibility" 1 "$(grep -c '^visibility$' "$GH_FAKE/body-calls.log" || true)"
+  check "$path snapshot private" '-rw-------' "$(cat "$GH_FAKE/sent-body-mode")"
+  check "$path snapshot path removed" no "$([ -e "$(cat "$GH_FAKE/sent-body-path")" ] && echo yes || echo no)"
+  check "$path changing original snapshot removed" '' "$(ls -A "$TMPDIR")"
+  printf '%s' "$text" > "$WORK/body"
+  rc=0; out="$(GH_BODY_WRITE_FAILURE=1 invoke 2>&1)" || rc=$?
+  check "$path writer failure propagated" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+  check "$path failed write snapshot removed" '' "$(ls -A "$TMPDIR")"
+done
+# Duplicate marking writes a generated comment and must check the receiving repository first.
+case_duplicate() {
+  local want="$1" canonical="$2" expected="$3"
+  : > "$GH_FAKE/body-calls.log"; rm -f "$GH_FAKE/sent-body"
+  rc=0; out="$(bash "$root_under_test/bin/issue-duplicate.sh" "$canonical" 1 example-org/example-repo 9 2>&1)" || rc=$?
+  check 'duplicate one visibility decision' 1 "$(grep -c '^visibility$' "$GH_FAKE/body-calls.log" || true)"
+  if [ "$want" = refuse ]; then
+    check 'duplicate refuses unsafe body' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+    check 'duplicate refusal names command' yes "$(grep -qF issue-duplicate <<< "$out" && echo yes || echo no)"
+    check 'duplicate zero writes' 0 "$(grep -c '^write ' "$GH_FAKE/body-calls.log" || true)"
+  else
+    check 'duplicate succeeds' 0 "$rc"
+    check 'duplicate one write' 1 "$(grep -c '^write ' "$GH_FAKE/body-calls.log" || true)"
+    check 'duplicate exact comment' "$expected" "$(cat "$GH_FAKE/sent-body")"
+  fi
+}
+case_duplicate refuse "$real/repo" ''
+for GH_VISIBILITY in error malformed null missing string; do export GH_VISIBILITY; case_duplicate refuse "$real/repo" ''; done
+export GH_VISIBILITY=public
+case_duplicate allow example-org/example-repo 'Duplicate of #1'
+case_duplicate allow example-org/other-repo 'Duplicate of example-org/other-repo#1'
+case_duplicate allow ci@example.test/repo 'Duplicate of ci@example.test/repo#1'
+GH_VISIBILITY=private case_duplicate allow "$real/repo" "Duplicate of $real/repo#1"
 path=inline
 for domain in invalid example test localhost example.com example.net example.org; do
   for address in "ci@$domain" "ci@build.$domain"; do case_body allow "$address"; done
@@ -92,6 +147,11 @@ for path in inline file new edit; do
   check "$path missing guard mutant writes" 1 "$(grep -c '^write ' "$GH_FAKE/body-calls.log" || true)"
   cp "$ROOT/bin/$command.sh" "$mutant/bin/$command.sh"
 done
+sed '/^  check_public_body /d' "$ROOT/bin/issue-duplicate.sh" > "$mutant/bin/issue-duplicate.sh"
+root_under_test="$mutant"; : > "$GH_FAKE/body-calls.log"
+out="$(bash "$root_under_test/bin/issue-duplicate.sh" "$real/repo" 1 example-org/example-repo 9 2>&1)" || true
+check 'duplicate missing guard mutant writes' 1 "$(grep -c '^write ' "$GH_FAKE/body-calls.log" || true)"
+cp "$ROOT/bin/issue-duplicate.sh" "$mutant/bin/issue-duplicate.sh"
 sed '/users.noreply.github.com/d' "$ROOT/lib/tracker.sh" > "$mutant/lib/tracker.sh"
 for path in inline file new edit; do
   text="$bot"; printf '%s' "$text" > "$WORK/body"; : > "$GH_FAKE/body-calls.log"; rc=0; out="$(invoke 2>&1)" || rc=$?
@@ -103,10 +163,10 @@ printf '\nrepo_visibility() { echo private; }\n' >> "$mutant/lib/github/tracker.
 path=inline; text="$real"; : > "$GH_FAKE/body-calls.log"; rc=0; out="$(invoke 2>&1)" || rc=$?
 check 'fabricated private visibility mutant permits unsafe body' 1 "$(grep -c '^write ' "$GH_FAKE/body-calls.log" || true)"
 root_under_test="$ROOT"
-for command in issue-new issue-comment issue-edit; do
+for command in issue-new issue-comment issue-edit issue-duplicate; do
   help="$(bash "$ROOT/bin/ai-core" "$command" --help)"
   check "$command actual help policy" yes "$(grep -q 'public' <<< "$help" && grep -q 'Plane' <<< "$help" && echo yes || echo no)"
-  check "$command actual help usage" yes "$(grep -q "$command.*OWNER/REPO\|$command --repo" <<< "$help" && echo yes || echo no)"
+  check "$command actual help usage" yes "$(grep -q "$command.*OWNER/REPO\|$command --repo\|$command.*CANONICAL_REPO" <<< "$help" && echo yes || echo no)"
 done
 # Unknown Plane visibility must apply the same policy, without consulting gh.
 make_plane_project
@@ -140,5 +200,15 @@ for path in inline file new edit; do
   esac
  done
 done
+# Plane must refuse before its relation, comment, or state write, even for an unresolved canonical repo.
+reset_log; rc=0; out="$(ai issue-duplicate "$real/repo" 1 example-org/example-repo "$seed" 2>&1)" || rc=$?
+check 'Plane duplicate refuses unsafe body' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'Plane duplicate refusal names guard' yes "$(grep -qF 'issue-duplicate: refused email address' <<< "$out" && echo yes || echo no)"
+check 'Plane duplicate refusal zero writes' 0 "$(grep -cE '^(POST|PATCH|DELETE) ' "$CURL_FAKE_STATE/requests.log" || true)"
+plane_add_item 99 'The canonical issue'
+reset_log; rc=0; out="$(ai issue-duplicate example-org/example-repo 99 example-org/example-repo "$seed" 2>&1)" || rc=$?
+check 'Plane duplicate safe succeeds' 0 "$rc"
+check 'Plane duplicate intended writes' 3 "$(grep -cE '^(POST|PATCH|DELETE) ' "$CURL_FAKE_STATE/requests.log" || true)"
+check 'Plane duplicate exact comment' '<pre>Duplicate of #99</pre>' "$(planeq 'console.log(p.comments[p.comments.length-1].comment_html)')"
 [ "$failed" -eq 0 ] || fail "$failed public body assertions failed"
 echo 'all public body writers, visibility answers, mutants, and innocent cases passed'

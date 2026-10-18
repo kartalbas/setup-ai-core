@@ -79,9 +79,16 @@ case "$num" in ''|*[!0-9]*) die "the issue number must be numeric, not '$num'" ;
 #
 # The caller's own file is left alone, the way issue-new leaves it: a command that edits its
 # input cannot be run twice.
-send="$body"
+send=""; snapshot=""
+if [ -n "$body" ]; then
+  snapshot="$(mktemp)" || die "issue-edit: cannot create temporary body file"
+  trap 'rm -f "$snapshot" "$send"' EXIT
+  trap 'exit 1' HUP INT TERM
+  cat "$body" > "$snapshot" || die "cannot read body file: $body"
+  send="$snapshot"
+fi
 kept=""
-given=""; [ -z "$body" ] || IFS= read -r given < "$body" || true
+given=""; [ -z "$body" ] || IFS= read -r given < "$snapshot" || true
 if [ -n "$body" ] && ! is_origin_line "${given%$'\r'}"; then
   current="$(issue_body "$repo" "$num")" || exit 1
   # GitHub writes a body back with CRLF line endings, and the carriage return would travel into
@@ -89,9 +96,8 @@ if [ -n "$body" ] && ! is_origin_line "${given%$'\r'}"; then
   first="$(printf '%s' "$current" | head -n 1)"
   first="${first%$'\r'}"
   if is_origin_line "$first"; then
-    send="$(mktemp)"
-    trap 'rm -f "$send"' EXIT
-    { printf '%s\n\n' "$first"; cat "$body"; } > "$send"
+    send="$(mktemp)" || die "issue-edit: cannot create temporary body file"
+    { printf '%s\n\n' "$first"; cat "$snapshot"; } > "$send"
     kept=", asked-for line kept"
   else
     echo "$repo#$num carries no asked-for line, so there is none to keep - an edit is not the place to invent one" >&2

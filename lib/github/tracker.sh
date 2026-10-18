@@ -629,13 +629,11 @@ issue_comment_post() {
   gh_read "the comment posted on $1#$2" api "repos/$1/issues/$2/comments" "${field[@]}" --jq .html_url
 }
 
-# duplicate_mark <canonical owner/repo> <number> <duplicate owner/repo> <number>: the duplicate gets a
+# duplicate_mark <canonical owner/repo> <number> <duplicate owner/repo> <number> <comment>: the duplicate gets a
 # comment that names the canonical issue.
 duplicate_mark() {
-  local canonical_ref="$1#$2"
-  [ "$1" = "$3" ] && canonical_ref="#$2"
   gh_read "the duplicate mark on $3#$4" api --method POST \
-    "repos/$3/issues/$4/comments" -f "body=Duplicate of $canonical_ref" >/dev/null || exit 1
+    "repos/$3/issues/$4/comments" -f "body=$5" >/dev/null || exit 1
 }
 
 duplicate_unmark() {  # duplicate_unmark <canonical owner/repo> <number> <duplicate owner/repo> <number>

@@ -152,6 +152,12 @@ project_repos() {
     --jq '.data.node.repositories.nodes[].nameWithOwner'
 }
 
+# board_repos <board>: every repo linked to that board, the board selected first
+board_repos() {
+  set_project "$1" >/dev/null
+  project_repos
+}
+
 # The open boards a repo is linked to, one "<number>\t<title>" per line, EMPTY where it is
 # linked to none. It answers the question rather than deciding what to do about the answer,
 # because two callers want opposite things from "none": naming a board has to fail, and
@@ -563,6 +569,10 @@ labels_list() {
 # tracker_doctor: the line `ai-core doctor` prints for the tracker. GitHub's tool and login are checked
 # with the forge's, which is the same gh.
 tracker_doctor() { echo "  tracker: github"; }
+
+# closing_column <completed | not-planned>: the Status a closed issue's card is put in; the board has one
+# column for both reasons
+closing_column() { echo done; }
 
 # writes_run_in_repo_clone <owner/repo>: never on GitHub, where a command acts for any repository it is given
 writes_run_in_repo_clone() { return 1; }

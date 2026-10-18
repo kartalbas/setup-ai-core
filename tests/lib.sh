@@ -96,15 +96,17 @@ plane_add_item() {
     const id=()=>require("crypto").randomUUID(), e=process.env;
     const ids=e.ITEM_LABELS.split("\n").filter(Boolean).map((n)=>{let l=p.labels.find((x)=>x.name===n);if(!l){l={id:id(),name:n,color:"#000",description:""};p.labels.push(l);}return l.id;});
     p.issues.push({id:id(),project:p.id,name:e.ITEM_TITLE,description_html:"<p></p>",priority:"none",parent:null,labels:ids,assignees:[],sort_order:65535,
-      external_source:e.ITEM_EXTERNAL_SOURCE||null,external_id:e.ITEM_EXTERNAL_ID||null,archived_at:null,created_at:"2026-10-18T08:00:00Z",updated_at:"2026-10-18T08:00:00Z",
+      external_source:e.ITEM_EXTERNAL_SOURCE||null,external_id:e.ITEM_EXTERNAL_ID||null,archived_at:null,created_at:s.day+"T08:00:00Z",updated_at:s.day+"T08:00:00Z",
       completed_at:null,sequence_id:+e.ITEM_SEQ,state:p.states.find((x)=>x.name==="ready").id});'
 }
-# plane_add_comment <sequence id> <text>: a comment by a member of the workspace on a work item of ENG, the text
-# as a person writes it, stored the way the harness stores one
+# plane_add_comment <sequence id> <text> [author email]: a comment on a work item of ENG, by a member of the project
+# unless an author is named (gone@example.test left the project, stranger@example.test never was in it), the text as
+# a person writes it, stored the way the harness stores one. is_member is true, as Plane computes it for the key's
+# own user, whoever the author is.
 plane_add_comment() {
-  COMMENT_SEQ="$1" COMMENT_TEXT="$2" planeset '
+  COMMENT_SEQ="$1" COMMENT_TEXT="$2" COMMENT_AUTHOR="${3:-me@example.test}" planeset '
     const it=p.issues.find((i)=>i.sequence_id===+process.env.COMMENT_SEQ), e=process.env.COMMENT_TEXT.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-    p.comments.push({id:require("crypto").randomUUID(),issue:it.id,comment_html:"<pre>"+e+"</pre>",created_at:new Date(Date.UTC(2026,9,18,9,0,++s.clock)).toISOString(),actor:s.users[0].id,is_member:true})'
+    p.comments.push({id:require("crypto").randomUUID(),issue:it.id,comment_html:"<pre>"+e+"</pre>",created_at:new Date(Date.parse(s.day+"T09:00:00Z")+ ++s.clock*1000).toISOString(),actor:s.users.find((u)=>u.email===process.env.COMMENT_AUTHOR).id,is_member:true})'
 }
 
 # make_forgejo_project: $F, a checkout whose forge is Forgejo, and the instance on this disk: the API answered by

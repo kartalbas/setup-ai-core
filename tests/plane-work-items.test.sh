@@ -93,10 +93,14 @@ reset_log; ai issue-close "$n" >/dev/null || fail "issue-close"
 [ "$(planeq 'console.log(p.states.find(s=>s.id===p.issues[0].state).name)')" = done ] || fail "issue-close did not move the work item to done"
 ai issue-reopen "$n" >/dev/null || fail "issue-reopen"
 [ "$(planeq 'console.log(p.states.find(s=>s.id===p.issues[0].state).name)')" = ready ] || fail "issue-reopen did not move the work item to ready"
-ai issue-close --reason not-planned "$n" >/dev/null 2>"$WORK/err" || fail "issue-close --reason not-planned"
-[ "$(planeq 'console.log(p.states.find(s=>s.id===p.issues[0].state).name)')" = Cancelled ] || fail "a not-planned close should stand in Cancelled, not be turned into done by the column write after it"
-grep -q 'stays Cancelled' "$WORK/err" || fail "the kept Cancelled is not said"
-echo "  issue-close: done; issue-reopen: ready; --reason not-planned: Cancelled, kept when the done column is written after it"
+reset_log; out="$(ai issue-close --reason not-planned "$n" 2>&1)" || fail "issue-close --reason not-planned: $out"
+[ "$(planeq 'console.log(p.states.find(s=>s.id===p.issues[0].state).name)')" = Cancelled ] || fail "a not-planned close should stand in Cancelled, not be turned into done"
+grep -q "^#$n -> Cancelled (board example-org/ENG)" <<< "$out" || fail "the column the card was put in is not said: $out"
+# an explicit state is applied wherever the work item stands: it is the command that moves a card out of Cancelled
+out="$(ai issue-status "$n" done 2>&1)" || fail "issue-status done on a cancelled work item: $out"
+[ "$(planeq 'console.log(p.states.find(s=>s.id===p.issues[0].state).name)')" = done ] || fail "issue-status done reported success and left the work item in $(planeq 'console.log(p.states.find(s=>s.id===p.issues[0].state).name)')"
+grep -q "^#$n -> done$" <<< "$out" || fail "the move is not reported: $out"
+echo "  issue-close: done; issue-reopen: ready; --reason not-planned: the card is put in Cancelled; issue-status done moves a cancelled work item to done"
 ai issue-reopen "$n" >/dev/null || fail "issue-reopen"
 
 # A STATE THE PROJECT LACKS is refused with the states there are, and nothing is written

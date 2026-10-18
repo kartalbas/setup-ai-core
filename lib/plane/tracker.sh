@@ -113,18 +113,21 @@ repo_open_projects() {  # repo_open_projects <owner/repo>
 # board_cache_name: where the cache of this project stands under the cache root (lib/board.sh cache_dir). The
 # same identifier in another workspace, or on another instance, is another project with other ids, and
 # a cache that does not say so answers for it with the ids of the first.
-board_cache_name() {
+board_cache_name() { plane_cache_name "$(plane_setting PLANE_PROJECT)"; }
+
+plane_cache_name() {  # plane_cache_name <project identifier>
   printf 'plane/%s/%s/%s\n' \
     "$(plane_setting PLANE_URL | sed 's|^[A-Za-z]*://||; s|/*$||; s|[^A-Za-z0-9._-]|_|g')" \
-    "$(plane_setting PLANE_WORKSPACE | sed 's|[^A-Za-z0-9._-]|_|g')" "$(plane_setting PLANE_PROJECT | sed 's|[^A-Za-z0-9._-]|_|g')"
+    "$(plane_setting PLANE_WORKSPACE | sed 's|[^A-Za-z0-9._-]|_|g')" "$(printf '%s' "$1" | sed 's|[^A-Za-z0-9._-]|_|g')"
 }
 
-# plane_project_uuid: the uuid of the project PLANE_PROJECT names, kept beside the other caches of the project.
-# The id of a project does not change, so the file is the answer until somebody deletes it.
+# plane_project_uuid [project identifier]: the uuid of the project, PLANE_PROJECT when none is named, kept
+# beside the other caches of the project. The id of a project does not change, so the file is the answer until
+# somebody deletes it.
 plane_project_uuid() {
   local ident f rows id
-  ident="$(plane_setting PLANE_PROJECT)"
-  f="$(cache_root)/$(board_cache_name)/project-id"
+  ident="${1:-$(plane_setting PLANE_PROJECT)}"
+  f="$(cache_root)/$(plane_cache_name "$ident")/project-id"
   if [ -s "$f" ]; then id="$(cat "$f")"
   else
     rows="$(plane_pages "the projects of $(plane_setting PLANE_WORKSPACE)" "$(plane_path projects/)")" || exit 1
@@ -555,26 +558,31 @@ issue_board_items() {
   printf '%s/%s\t%s\n' "${1%%/*}" "$(plane_setting PLANE_PROJECT)" "$id"
 }
 
-# set_select <uuid> <field name> <option name>: a state or a priority, matched without case. A work item
-# closed as not planned keeps its Cancelled when the closing column done is set after it: the close was one
-# write already, and done would turn the reason into a completion.
+# set_select <uuid> <field name> <option name>: a state or a priority, matched without case. The state asked for
+# is written, whatever the work item stands in now: a command that moves a card out of Cancelled moves it.
 set_select() {
-  local fid oid group item
+  local fid oid
   fid="$(field_id "$2")" || exit 1
   oid="$(option_id "$2" "$3")" || exit 1
   case "$fid" in
     status)
-      group="$(fields_tsv | awk -F'\t' -v o="$oid" '$4 == o { print $5; exit }')"
-      if [ "$group" = completed ]; then
-        item="$(plane_api "the work item $1" GET "$(plane_path "projects/$(plane_project_uuid)/issues/$1/")?expand=state")" || exit 1
-        if [ "$(printf '%s' "$item" | jq -r '.state.group')" = cancelled ]; then
-          printf '%s' "$item" | jq -r '"#\(.sequence_id) stays \(.state.name): it was closed as not planned, and reopening it comes first"' >&2
-          return 0
-        fi
-      fi
       plane_api "the state of $1" PATCH "$(plane_path "projects/$(plane_project_uuid)/issues/$1/")" "$(jq -nc --arg s "$oid" '{state: $s}')" >/dev/null || exit 1 ;;
     priority)
       plane_api "the priority of $1" PATCH "$(plane_path "projects/$(plane_project_uuid)/issues/$1/")" "$(jq -nc --arg p "$oid" '{priority: $p}')" >/dev/null || exit 1 ;;
+  esac
+}
+
+# closing_column <completed | not-planned>: the Status a closed issue's card is put in. An issue closed as
+# not planned stands in Plane's own Cancelled, which issue_close wrote already, so the column asked for
+# afterwards is that one and the reason is not turned into a completion.
+closing_column() {
+  local name
+  case "$1" in
+    not-planned)
+      name="$(plane_states | jq -r 'select(.group == "cancelled") | .name' | head -n1)"
+      [ -n "$name" ] || die "the Plane project $(plane_setting PLANE_PROJECT) has no state of the cancelled group"
+      echo "$name" ;;
+    *) echo done ;;
   esac
 }
 
@@ -600,10 +608,12 @@ epic_target_on_board() {
 
 # --- the rows over the project ---------------------------------------------------------------
 
-# plane_all_items: every work item of the project that is not archived, open or closed, one JSON object per
-# line, with state, labels and parent expanded. Plane 1.4 has no filter on the list, so the reader filters.
+# plane_all_items [project identifier]: every work item of the project, PLANE_PROJECT when none is named,
+# that is not archived, open or closed, one JSON object per line, with state, labels and parent expanded.
+# Plane 1.4 has no filter on the list, so the reader filters.
 plane_all_items() {
-  plane_pages "the work items of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/issues/")?expand=state,labels,parent"
+  local ident="${1:-$(plane_setting PLANE_PROJECT)}"
+  plane_pages "the work items of $ident" "$(plane_path "projects/$(plane_project_uuid "$ident")/issues/")?expand=state,labels,parent"
 }
 
 # issue_rows <owner/repo>: the open issues of the repository, the issue row of lib/tracker.sh, from the work
@@ -695,25 +705,45 @@ item_top() {
     "$(jq -nc --argjson s "$target" '{sort_order: $s}')" >/dev/null || exit 1
 }
 
-# project_repos: the repositories of the project, the ones a repo: label names, under the owner of the origin
-project_repos() {
-  plane_pages "the labels of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/labels/")" \
+# board_repos <project identifier>: the repositories of that project, the ones a repo: label names, under the
+# owner of the origin. incident-count reads every open project of the workspace, so this reads a project
+# that is not the one PLANE_PROJECT names.
+board_repos() {
+  plane_pages "the labels of $1" "$(plane_path "projects/$(plane_project_uuid "$1")/labels/")" \
     | jq -r --arg o "$(plane_owner)" 'select(.name | startswith("repo:")) | "\($o)/\(.name[5:])"'
 }
 
-# projects_of_org <organisation>: "<identifier>\t<name>" of the one project this checkout serves. Every call
-# after set_project reads PLANE_PROJECT, so the other projects of the workspace cannot be reached from here.
+# project_repos: the repositories of the project this checkout serves
+project_repos() { board_repos "$(plane_setting PLANE_PROJECT)"; }
+
+# plane_open_projects: the projects of the workspace that are not archived, one JSON object per line. The list
+# of Plane 1.4 answers the archived projects too, each with an archived_at.
+plane_open_projects() {
+  plane_pages "the projects of $(plane_setting PLANE_WORKSPACE)" "$(plane_path projects/)" | jq -c 'select(.archived_at == null)'
+}
+
+# projects_of_org <organisation>: "<identifier>\t<name>" of every open project of the workspace this checkout
+# names; the workspace stands for the organisation, so the argument is not read.
 projects_of_org() {
-  plane_pages "the projects of $(plane_setting PLANE_WORKSPACE)" "$(plane_path projects/)" \
-    | jq -r --arg i "$(plane_setting PLANE_PROJECT)" 'select(.identifier == $i) | "\(.identifier)\t\(.name)"'
+  local rows
+  rows="$(plane_open_projects)" || exit 1
+  printf '%s\n' "$rows" | jq -r '"\(.identifier)\t\(.name)"'
 }
 
 # issues_created_since <owner/repo> <YYYY-MM-DD> <limit>: the newest <limit> work items of the repository
-# created on that day or later, as a JSON array of {createdAt, labels: [name]}. Plane 1.4 filters the list by
+# created on that day or later, as a JSON array of {createdAt, labels: [name]}, over every open project of
+# the workspace: a repository that is linked in two projects is counted in both. Plane 1.4 filters the list by
 # nothing, so the whole list is read and cut here.
 issues_created_since() {
+  local projects ident rows="" items
   plane_check_owner "$1"
-  plane_all_items | jq -cs --arg o "$(plane_owner)" --arg r "$1" --arg d "$2" --argjson n "$3" "$PLANE_REPO"'
+  projects="$(projects_of_org "$(plane_owner)")" || exit 1
+  while IFS=$'\t' read -r ident _; do
+    [ -n "$ident" ] || continue
+    items="$(plane_all_items "$ident")" || exit 1
+    rows="$rows$items"$'\n'
+  done <<< "$projects"
+  printf '%s' "$rows" | jq -cs --arg o "$(plane_owner)" --arg r "$1" --arg d "$2" --argjson n "$3" "$PLANE_REPO"'
     [.[] | select(same(repo($o); $r) and .created_at >= $d)] | sort_by(.created_at) | reverse | .[:$n]
     | map({createdAt: .created_at, labels: [.labels[].name | select(startswith("repo:") | not)]})'
 }
@@ -739,25 +769,32 @@ issue_summaries() {
 # the time of the last reopening and the last 50 comments. status-sync reads the comments of a card in testing
 # alone, so those, and the state changes behind a reopening, are read for the work items in testing alone: a
 # page costs two reads beside the listing for each of them. The whole repository is one page.
+# A comment is a MEMBER's where its author is an active member of the project, read once from the project's
+# members: the is_member of a comment says whether the key's own user is a member (Plane CE 1.4.2,
+# apps/api/plane/api/views/issue.py, member_id=self.request.user.id), so it says nothing of the author.
 open_issue_page() {
-  local repo="$1" all closed ids id comments acts extra=""
+  local repo="$1" all closed ids id comments acts members="[]" extra=""
   plane_check_owner "$repo"
   all="$(plane_all_items)" || exit 1
   closed="$(plane_states | jq -cs '[.[] | select(.group | IN("completed", "cancelled")) | .id]')" || exit 1
   ids="$(printf '%s\n' "$all" | jq -r --arg o "$(plane_owner)" --arg r "$repo" "$PLANE_REPO""$PLANE_ROW"'
     select(same(repo($o); $r) and (closed | not) and (.state.name | ascii_downcase) == "testing") | .id')"
+  if [ -n "$ids" ]; then
+    members="$(plane_pages "the members of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/project-members-lite/")")" || exit 1
+    members="$(printf '%s\n' "$members" | jq -cs '[.[] | select(.is_active == true) | .id]')"
+  fi
   while IFS= read -r id; do
     [ -n "$id" ] || continue
     comments="$(plane_pages "the comments of a work item of $repo" "$(plane_path "projects/$(plane_project_uuid)/issues/$id/comments/")")" || exit 1
     acts="$(plane_pages "the state changes of a work item of $repo" "$(plane_path "projects/$(plane_project_uuid)/issues/$id/activities/")")" || exit 1
-    extra="$extra$(jq -cn --arg i "$id" --argjson closed "$closed" --argjson c "$(printf '%s' "$comments" | jq -cs '.')" --argjson a "$(printf '%s' "$acts" | jq -cs '.')" "$PLANE_TEXT"'
+    extra="$extra$(jq -cn --arg i "$id" --argjson closed "$closed" --argjson members "$members" --argjson c "$(printf '%s' "$comments" | jq -cs '.')" --argjson a "$(printf '%s' "$acts" | jq -cs '.')" "$PLANE_TEXT"'
       {id: $i,
        comments: ($c | sort_by(.created_at) | .[-50:] | map({createdAt: .created_at, body: ((.comment_html // "") | text),
-                   authorAssociation: (if .is_member then "MEMBER" else "NONE" end)})),
+                   authorAssociation: (if (.actor | if type == "object" then .id else . end) as $a | $members | index($a) then "MEMBER" else "NONE" end)})),
        reopenedAt: ([$a[] | select(.field == "state" and (.old_identifier | IN($closed[])) and ((.new_identifier | IN($closed[])) | not))]
                     | sort_by(.created_at) | last | .created_at)}')"$'\n'
   done <<< "$ids"
-  printf '%s\n' "$all" | jq -cs --arg o "$(plane_owner)" --arg r "$repo" --arg board "$(project_number)" --arg org "$(project_org)" \
+  printf '%s\n' "$all" | jq -cs --arg o "$(plane_owner)" --arg r "$repo" --argjson board "$(project_number_json)" --arg org "$(project_org)" \
     --argjson extra "$(printf '%s' "$extra" | jq -cs '.')" "$PLANE_REPO""$PLANE_ROW"'
     (map(select(.parent) | .parent.id) | group_by(.) | map({key: .[0], value: length}) | from_entries) as $subs
     | {data: {repository: {issues: {pageInfo: {hasNextPage: false, endCursor: null},

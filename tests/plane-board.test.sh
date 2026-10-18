@@ -135,19 +135,44 @@ refuse "removal of a duplicate mark is not served on Plane" issue-duplicate --un
 
 # THE READS OVER A REPOSITORY: its repositories, its numbers, its summaries and the incident count
 [ "$(plane_fn project_repos | sort | paste -sd' ' -)" = "example-org/example-repo example-org/other-repo" ] || fail "project_repos: $(plane_fn project_repos | paste -sd' ' -)"
-[ "$(plane_fn projects_of_org example-org)" = "$(printf 'ENG\tEngineering')" ] || fail "projects_of_org: $(plane_fn projects_of_org example-org)"
+# the workspace holds ENG, NEW (made above, open and empty), OPS, open, with a repository of its own and one incident,
+# and OLD, archived, with an incident of its own that must not be counted
+planeset '
+  const id=()=>require("crypto").randomUUID(), mk=(pr,labels)=>pr.issues.push({id:id(),project:pr.id,name:"An incident in "+pr.identifier,description_html:"<p></p>",priority:"none",parent:null,
+    labels:labels.map((n)=>pr.labels.find((l)=>l.name===n).id),assignees:[],sort_order:65535,external_source:null,external_id:null,archived_at:null,created_at:s.day+"T08:00:00Z",
+    updated_at:s.day+"T08:00:00Z",completed_at:null,sequence_id:1,state:pr.states[0].id});
+  const label=(n)=>({id:id(),name:n,color:"#000",description:""});
+  const ops=s.projects.find((x)=>x.identifier==="OPS");
+  ops.labels.push(label("repo:ops-repo"),label("incident:duplicate")); mk(ops,["repo:ops-repo","incident:duplicate"]);
+  const old={id:id(),identifier:"OLD",name:"Old",archived_at:"2026-01-01T00:00:00Z",states:[{id:id(),name:"done",color:"#000",group:"completed"}],
+    labels:[label("repo:old-repo"),label("incident:duplicate")],issues:[],comments:[],relations:[],activities:[],members:[]};
+  mk(old,["repo:old-repo","incident:duplicate"]); s.projects.push(old)'
+[ "$(plane_fn projects_of_org example-org | paste -sd' ' -)" = "$(printf 'ENG\tEngineering OPS\tOperations NEW\tThe new project')" ] || fail "projects_of_org: $(plane_fn projects_of_org example-org | paste -sd' ' -)"
+[ "$(plane_fn board_repos OPS | sort | paste -sd' ' -)" = "example-org/example-repo example-org/ops-repo" ] || fail "board_repos OPS: $(plane_fn board_repos OPS | paste -sd' ' -)"
+[ "$(plane_fn board_repos ENG | sort | paste -sd' ' -)" = "example-org/example-repo example-org/other-repo" ] || fail "board_repos ENG: $(plane_fn board_repos ENG | paste -sd' ' -)"
 [ "$(plane_fn issue_numbers_closed example-org/example-repo | paste -sd' ' -)" = 54 ] || fail "issue_numbers_closed: $(plane_fn issue_numbers_closed example-org/example-repo | paste -sd' ' -)"
 sum="$(plane_fn issue_summaries example-org/example-repo)" || fail "issue_summaries"
 [ "$(awk -F'\t' '$1 == 54 { print $2 }' <<< "$sum")" = CLOSED ] && [ "$(awk -F'\t' '$1 == 1 { print $2 "|" $3 "|" $4 }' <<< "$sum")" = "OPEN|type:feature,area:tooling|Move me to testing, or nobody sees it" ] \
   || fail "issue_summaries: $sum"
 plane_add_item 60 "The work already had a ticket" repo:example-repo incident:duplicate
-since="$(plane_fn issues_created_since example-org/example-repo "$(date -u +%F)" 500)" || fail "issues_created_since"
+day="$(planeq 'console.log(s.day)')"
+since="$(plane_fn issues_created_since example-org/example-repo "$day" 500)" || fail "issues_created_since"
 [ "$(jq -r '[.[] | select(.createdAt != null)] | length' <<< "$since")" -ge 3 ] || fail "issues_created_since: $since"
 [ "$(jq -r '[.[] | select(.labels | index("incident:duplicate"))] | length' <<< "$since")" = 1 ] || fail "the incident label is not in the rows of issues_created_since: $since"
 [ "$(plane_fn issues_created_since example-org/example-repo 2999-01-01 500)" = '[]' ] || fail "issues_created_since reads work items from before the day it was asked from"
+[ "$(plane_fn issues_created_since example-org/ops-repo "$day" 500 | jq -c '[.[] | .labels[]]')" = '["incident:duplicate"]' ] \
+  || fail "issues_created_since does not read the project OPS: $(plane_fn issues_created_since example-org/ops-repo "$day" 500)"
+[ "$(plane_fn issues_created_since example-org/old-repo "$day" 500)" = '[]' ] || fail "issues_created_since reads an archived project"
 table="$(ai incident-count --weeks 2 2>&1)" || fail "incident-count: $table"
-[ "$(awk '$1 == "incident:duplicate" { print $NF }' <<< "$table")" = 1 ] || fail "incident-count does not count the one incident: $table"
-echo "  project_repos, projects_of_org, issue_numbers_closed, issue_summaries, issues_created_since and incident-count read the repositories of the project by their labels"
+[ "$(awk '$1 == "incident:duplicate" { print $NF }' <<< "$table")" = 2 ] \
+  || fail "incident-count does not count the incident of ENG and the one of OPS, and not the one of the archived project: $table"
+# a project the count cannot read stops it: a table without that project would read as a table of all of them
+ops_id="$(planeq 'console.log(s.projects.find((x)=>x.identifier==="OPS").id)')"
+printf '[{"match":"/projects/%s/issues/","status":403,"times":9,"body":{"detail":"You do not have permission to perform this action."}}]' "$ops_id" > "$CURL_FAKE_STATE/inject.json"
+out="$(ai incident-count --weeks 2 2>&1)" && fail "incident-count printed a table over a project it could not read: $out"
+grep -q 'incident:duplicate' <<< "$out" && fail "incident-count printed rows beside a refused read: $out"
+printf '[]' > "$CURL_FAKE_STATE/inject.json"
+echo "  project_repos, board_repos, projects_of_org, issue_numbers_closed, issue_summaries, issues_created_since and incident-count read the repositories of the project by their labels, and incident-count every open project of the workspace and no archived one"
 
 # STATUS-SYNC reads the cards of each repository of the project, and the clone of each by the repository its
 # work item names: by the repo: label, or by external_id where it was carried and has no label
@@ -193,11 +218,28 @@ planeset 'p.issues.find((i)=>i.sequence_id===72).state=p.states.find((s)=>s.name
 plane_add_comment 72 "Landed on master:
 - $sha #72 Do the thing"
 plane_add_comment 72 "Proven on prod: it works"
-planeset 'const it=p.issues.find((i)=>i.sequence_id===72);p.activities.push({id:require("crypto").randomUUID(),issue:it.id,field:"state",old_identifier:p.states.find((x)=>x.name==="done").id,new_identifier:p.states.find((x)=>x.name==="ready").id,created_at:new Date(Date.UTC(2026,9,18,9,0,++s.clock)).toISOString()})'
+planeset 'const it=p.issues.find((i)=>i.sequence_id===72);p.activities.push({id:require("crypto").randomUUID(),issue:it.id,field:"state",old_identifier:p.states.find((x)=>x.name==="done").id,new_identifier:p.states.find((x)=>x.name==="ready").id,created_at:new Date(Date.parse(s.day+"T09:00:00Z")+ ++s.clock*1000).toISOString()})'
 out="$(ai status-sync --dry-run example-repo 2>&1)" || fail "status-sync --dry-run: $out"
 grep -q '^no landing   example-repo#72' <<< "$out" || fail "the landing record before a reopening still counted: $out"
 ! grep -q "would close  example-repo#72" <<< "$out" || fail "a reopened work item was closed on the record of its first landing: $out"
 echo "  status-sync: a reopening after the landing record voids it, read from the state changes of the work item"
+
+# WHO WROTE THE PROOF: a "Proven on" comment counts when its author is an active member of the project. Plane's
+# is_member says whether the key's own user is one, for every comment, so the author is looked up in the members
+for spec in "73 stranger@example.test" "74 gone@example.test" "75 other@example.test"; do
+  seq="${spec%% *}"; who="${spec#* }"
+  plane_add_item "$seq" "Proven by $who" repo:example-repo
+  planeset "p.issues.find((i)=>i.sequence_id===$seq).state=p.states.find((s)=>s.name==='testing').id"
+  plane_add_comment "$seq" "Landed on master:
+- $sha #$seq Do the thing"
+  plane_add_comment "$seq" "Proven on prod: it works" "$who"
+done
+out="$(ai status-sync --dry-run example-repo 2>&1)" || fail "status-sync --dry-run: $out"
+grep -q '^proof due    example-repo#73' <<< "$out" || fail "the proof of somebody who is not in the project counted: $out"
+grep -q '^proof due    example-repo#74' <<< "$out" || fail "the proof of somebody who left the project counted: $out"
+grep -q "would close  example-repo#75  (testing -> done, released in its landing on origin/master and proven)" <<< "$out" \
+  || fail "the proof of an active member other than the key's own user did not count: $out"
+echo "  status-sync: a proof counts when its author is an active member of the project; one by a stranger or by somebody who left does not"
 
 # A CARD OF ANOTHER REPOSITORY of the project is moved by the clone of that repository, and its epic is read from
 # here: the sweep applies, not only announces, and a repository with no clone here is named and left

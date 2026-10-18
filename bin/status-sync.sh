@@ -95,10 +95,10 @@ cards_of_repo() {  # <owner/repo>
   local repo="$1" after="" page next
   while :; do
     page="$(open_issue_page "$repo" "$after")" || exit 1
-    printf '%s' "$page" | jq -r --arg board "$(project_number)" --arg org "$(project_org)" '
+    printf '%s' "$page" | jq -r --argjson board "$(project_number_json)" --arg org "$(project_org)" '
       .data.repository.issues.nodes[]
       | . as $i
-      | ([$i.projectItems.nodes[] | select((.project.number | tostring) == $board and (.project.owner.login | ascii_downcase) == ($org | ascii_downcase))
+      | ([$i.projectItems.nodes[] | select(.project.number == $board and (.project.owner.login | ascii_downcase) == ($org | ascii_downcase))
           | (.status.name // "")] | first) as $status
       | select($status != null and $status != "")
       | (($i.reopened.nodes[0].createdAt) // "") as $reopenedAt

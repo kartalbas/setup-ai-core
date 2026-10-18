@@ -25,17 +25,21 @@ function uuid(st) { st.counter = (st.counter || 100) + 1; return `00000000-0000-
 
 function init(d) {
   fs.mkdirSync(d, { recursive: true });
-  const st = { counter: 100, clock: 1000, workspace: 'ws', token: 'plane-token-0123', users: [], projects: [] };
+  const st = { counter: 100, clock: 1000, day: new Date().toISOString().slice(0, 10), workspace: 'ws', token: 'plane-token-0123', users: [], projects: [] };
   const me = { id: uuid(st), email: 'me@example.test', display_name: 'me', first_name: 'Me', last_name: 'Tester' };
-  st.users.push(me, { id: uuid(st), email: 'other@example.test', display_name: 'other', first_name: 'O', last_name: 'T' });
-  const proj = { id: uuid(st), identifier: 'ENG', name: 'Engineering', states: [], labels: [], issues: [], comments: [], relations: [], activities: [] };
+  st.users.push(me, { id: uuid(st), email: 'other@example.test', display_name: 'other', first_name: 'O', last_name: 'T' },
+    { id: uuid(st), email: 'gone@example.test', display_name: 'gone', first_name: 'G', last_name: 'O' },        // left the project: an inactive member
+    { id: uuid(st), email: 'stranger@example.test', display_name: 'stranger', first_name: 'S', last_name: 'T' });   // never a member of it
+  const proj = { id: uuid(st), identifier: 'ENG', name: 'Engineering', states: [], labels: [], issues: [], comments: [], relations: [], activities: [],
+                 members: [{ user: me.id, is_active: true }, { user: st.users[1].id, is_active: true }, { user: st.users[2].id, is_active: false }] };
   for (const [name, group] of [['backlog', 'backlog'], ['ready', 'unstarted'], ['planned', 'unstarted'], ['implementing', 'started'],
                                 ['review', 'started'], ['testing', 'started'], ['done', 'completed'], ['Cancelled', 'cancelled']]) {
     proj.states.push({ id: uuid(st), name, color: '#60646C', group, sequence: 15000 * (proj.states.length + 1), default: name === 'backlog' });
   }
   for (const name of ['type:feature', 'type:bug', 'area:tooling', 'repo:example-repo']) proj.labels.push({ id: uuid(st), name, color: '#aaaaaa', description: '' });
   st.projects.push(proj);
-  const other = { id: uuid(st), identifier: 'OPS', name: 'Operations', states: [{ id: uuid(st), name: 'done', color: '#000', group: 'completed' }], labels: [{ id: uuid(st), name: 'repo:example-repo', color: '#000', description: '' }], issues: [], comments: [], relations: [], activities: [] };
+  const other = { id: uuid(st), identifier: 'OPS', name: 'Operations', states: [{ id: uuid(st), name: 'done', color: '#000', group: 'completed' }], labels: [{ id: uuid(st), name: 'repo:example-repo', color: '#000', description: '' }], issues: [], comments: [], relations: [], activities: [],
+                  members: [{ user: me.id, is_active: true }] };
   st.projects.push(other);
   fs.writeFileSync(path.join(d, 'plane.json'), JSON.stringify(st, null, 1));
   fs.writeFileSync(path.join(d, 'forgejo.json'), JSON.stringify({ token: 'forgejo-token-4567', user: { login: 'tester' }, repos: {}, statuses: {} }, null, 1));
@@ -91,7 +95,7 @@ function plane() {
   if (header('X-API-Key') !== st.token) reply(401, { detail: 'Authentication credentials were not provided.' });
   const p = url.pathname.replace(/^\/api\/v1\//, '').replace(/\/$/, '').split('/');
   const save = () => write('plane.json', st);
-  const tick = () => new Date(Date.UTC(2026, 9, 18, 8, 0, ++st.clock)).toISOString();
+  const tick = () => new Date(Date.parse(`${st.day}T08:00:00Z`) + ++st.clock * 1000).toISOString();
   const page = (rows) => {
     const per = +(q.get('per_page') || 1000), at = +((q.get('cursor') || '').split(':')[1] || 0);
     const slice = rows.slice(at * per, (at + 1) * per);
@@ -109,9 +113,9 @@ function plane() {
   }
   if (p[2] !== 'projects') reply(404, { detail: 'Not found.' });
   if (p.length === 3) {
-    if (method === 'GET') reply(200, page(st.projects.map(({ id, identifier, name }) => ({ id, identifier, name }))));
+    if (method === 'GET') reply(200, page(st.projects.map(({ id, identifier, name, archived_at }) => ({ id, identifier, name, archived_at: archived_at || null }))));
     if (st.projects.some((x) => x.identifier === json.identifier)) reply(409, { identifier: 'The project identifier is already taken' });
-    const pr = { id: uuid(st), identifier: json.identifier, name: json.name, states: [], labels: [], issues: [], comments: [], relations: [], activities: [] };
+    const pr = { id: uuid(st), identifier: json.identifier, name: json.name, states: [], labels: [], issues: [], comments: [], relations: [], activities: [], members: [{ user: st.users[0].id, is_active: true }] };
     for (const [name, group] of [['Backlog', 'backlog'], ['Todo', 'unstarted'], ['In Progress', 'started'], ['Done', 'completed'], ['Cancelled', 'cancelled'], ['Triage', 'triage']]) {
       pr.states.push({ id: uuid(st), name, color: '#60646C', group, sequence: 15000 + 10000 * pr.states.length, default: name === 'Backlog' });   // DEFAULT_STATES of plane/db/models/state.py
     }
@@ -121,6 +125,9 @@ function plane() {
   const pr = st.projects.find((x) => x.id === p[3]);
   if (!pr) reply(404, { detail: 'Not found.' });
   const what = p[4];
+  if (what === 'project-members-lite') {    // ProjectMemberLiteAPIEndpoint: every ProjectMember row, active or not, with is_active (apps/api/plane/api/serializers/member.py)
+    reply(200, page(pr.members.map((m) => ({ id: m.user, email: st.users.find((u) => u.id === m.user).email, role: 15, is_active: m.is_active }))));
+  }
   if (what === 'states') {
     if (p.length === 5) {
       if (method === 'GET') reply(200, page(pr.states.filter((s) => s.group !== 'triage').sort((a, b) => a.sequence - b.sequence)));
@@ -166,7 +173,7 @@ function plane() {
     reply(200, ser(st, pr, it, null));
   }
   if (sub === 'comments') {
-    if (method === 'GET') reply(200, page(pr.comments.filter((c) => c.issue === it.id).map((c) => ({ ...c, actor: q.get('expand') === 'actor' ? st.users[0] : c.actor }))));
+    if (method === 'GET') reply(200, page(pr.comments.filter((c) => c.issue === it.id).map((c) => ({ ...c, actor: q.get('expand') === 'actor' ? st.users.find((u) => u.id === c.actor) : c.actor }))));
     const c = { id: uuid(st), issue: it.id, comment_html: json.comment_html, created_at: tick(), actor: st.users[0].id, is_member: true };
     pr.comments.push(c); save(); reply(201, c);
   }

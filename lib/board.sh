@@ -262,6 +262,15 @@ project_number() {
   echo "$PROJECT"
 }
 
+# project_number_json: the number of the selected board as a JSON value, for a comparison against what the
+# tracker's pages say. Digits are a number, so a board spelled 01 and the board 1 are equal; anything else,
+# a Plane project identifier, is a string.
+project_number_json() {
+  local n
+  n="$(project_number)" || exit 1
+  case "$n" in ''|*[!0-9]*) jq -Rn --arg n "$n" '$n' ;; *) printf '%s\n' "$n" ;; esac
+}
+
 # The organisation the selected board lives under - see set_project for how it is chosen.
 project_org() {
   [ -n "$PROJECT_ORG" ] || die "no project selected - call set_project first"

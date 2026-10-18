@@ -1066,7 +1066,12 @@ a minute are waited out; `status-sync` reads the comments and the state changes 
 alone. A checkout acts on the work items of its own repository only: `board-order` and `epics-top` place those
 alone, and a work item that carries the labels of two repositories belongs to none and is refused for a
 write. `status-sync` moves the card of another repository of the project from the clone of that repository
-in the project folder, and names a card whose repository has no clone there and leaves it.
+in the project folder, and names a card whose repository has no clone there and leaves it; a `Proven on`
+comment counts when its author is an active member of the project, whoever the key's own user is.
+`issue-close --reason not-planned` puts the card in `Cancelled`, and `issue-status` writes the state it is
+given, so it moves a work item out of `Cancelled` too. `incident-count` reads every project of the workspace
+that is not archived, the repositories each one links by its `repo:` labels, and refuses to print a table
+when one of them cannot be read.
 
 **The hooks.** A repository that wants the gate before every push carries the three-line shim
 `ai-core pre-push --install` writes into `.githooks/pre-push`, and beside it `.githooks/post-checkout`,

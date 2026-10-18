@@ -171,7 +171,7 @@ token_from_command() {  # token_from_command <setting>
       esac
     fi
   fi
-  [ -n "$error" ] || printf '%s\n' "$token"
+  [ -n "$error" ] || printf '%s\n' "$token" || error="cannot write the token from $key to standard output"
   token=""; command=""
   [ -z "$traced" ] || set -x
   [ -z "$error" ] || die "$error"

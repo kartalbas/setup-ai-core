@@ -72,7 +72,7 @@ trace_on_exit() {  # trace_on_exit <call> <token command>
   ( cd "$P" && PATH="$PATH_CURL" PLANE_TOKEN_COMMAND="$2" bash -c '
     . "$1/lib/plane/api.sh"
     trap '\''case $- in *x*) echo on >&3 ;; *) echo off >&3 ;; esac'\'' EXIT
-    set -x
+    set -ex
     eval "$2" >/dev/null
   ' _ "$ROOT" "$1" 3>"$WORK/exit-setting" 2>"$WORK/exit-trace" )
 }
@@ -91,6 +91,14 @@ trace_on_exit 'plane_api "the user" GET /api/v1/users/me/' "printf 'wrong-token\
 [ "$(cat "$WORK/exit-setting")" = on ] || fail "a refused request left xtrace off in the EXIT trap"
 grep -q 'API answered 401' "$WORK/exit-trace" || fail "the refused request was not named"
 echo "  fatal trace restoration: failed, invalid and empty token reads and a refused request leave xtrace on in the EXIT trap"
+
+for call in 'token_from_command PLANE_TOKEN_COMMAND >&-' 'token_from_command PLANE_TOKEN_COMMAND >/dev/full'; do
+  trace_on_exit "$call" "cat $WORK/token" && fail "a failed token write was accepted: $call"
+  [ "$(cat "$WORK/exit-setting")" = on ] || fail "$call left xtrace off in the EXIT trap"
+  grep -q 'cannot write the token from PLANE_TOKEN_COMMAND to standard output' "$WORK/exit-trace" || fail "a failed token write did not name its setting: $call"
+  ! grep -q 'plane-token-0123' "$WORK/exit-trace" || fail "a failed token write exposed the token: $call"
+done
+echo "  fatal trace restoration: closed standard output and /dev/full fail by setting, restore xtrace in the EXIT trap and expose no token"
 
 # A NUL must be rejected before command substitution can silently remove it.
 out="$(cd "$P" && PLANE_TOKEN_COMMAND="printf 'probe\000-token\n'" bash -c '. "$1/lib/common.sh"; token_from_command PLANE_TOKEN_COMMAND' _ "$ROOT" 2>&1)" && fail "a NUL token was accepted by token_from_command"

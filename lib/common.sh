@@ -9,6 +9,26 @@ HARNESS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 die() { echo "error: $*" >&2; exit 1; }
 
+# A child tool inherits its parent's variables, so Codex and agy precede Claude.
+TOOL_ENVIRONMENT='codex CODEX_SANDBOX
+codex CODEX_SANDBOX_NETWORK_DISABLED
+codex CODEX_THREAD_ID
+agy ANTIGRAVITY_AGENT
+claude CLAUDECODE
+gemini GEMINI_CLI'
+
+tool_environment_variables() {
+  local tool variable
+  while read -r tool variable; do printf '%s\n' "$variable"; done <<< "$TOOL_ENVIRONMENT"
+}
+
+session_tool() {
+  local tool variable
+  while read -r tool variable; do
+    if [ -n "${!variable:-}" ]; then printf '%s\n' "$tool"; return 0; fi
+  done <<< "$TOOL_ENVIRONMENT"
+}
+
 # --- where the data lives -----------------------------------------------------
 
 # THE DATA FILES ARE THE PROJECT'S, NOT THE HARNESS'S: labels.tsv, assignees.tsv, team-modes.tsv,

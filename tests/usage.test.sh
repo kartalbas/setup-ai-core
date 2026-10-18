@@ -11,7 +11,8 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 export HOME="$work/home" AI_CORE_HOME="$work/home"
-unset CODEX_THREAD_ID CODEX_SANDBOX CODEX_SANDBOX_NETWORK_DISABLED CODEX_HOME   # the Claude Code cases run as no Codex shell
+. "$root/tests/tool-environment.sh"
+unset CODEX_HOME
 mkdir -p "$HOME" "$work/project"
 
 failed=0

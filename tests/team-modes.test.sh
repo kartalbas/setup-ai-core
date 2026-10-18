@@ -10,6 +10,8 @@
 
 set -uo pipefail
 
+. "$(dirname "${BASH_SOURCE[0]}")/tool-environment.sh"
+
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fake="$(mktemp -d)"
 trap 'rm -rf "$fake"' EXIT
@@ -50,7 +52,8 @@ check() {
 }
 run_check() { bash "$root/bin/team-modes-check.sh" "$@" 2>&1; }
 # The test itself may run inside an agent tool's shell, whose environment names that tool.
-no_tool_env=(env -u CLAUDECODE -u CODEX_SANDBOX -u CODEX_SANDBOX_NETWORK_DISABLED -u CODEX_THREAD_ID -u GEMINI_CLI -u ANTIGRAVITY_AGENT)
+no_tool_env=(env)
+while IFS= read -r variable; do no_tool_env+=(-u "$variable"); done < <(tool_environment_variables)
 
 echo 'the real table: archify, and nothing else, for each of the four tools'
 check 'one archify row per tool' 'agy claude codex gemini' \
@@ -160,6 +163,16 @@ check 'agy alone checked'   yes "$(grep -q -E '^(ok|MISSING) +agy archify' <<< "
 out="$("${no_tool_env[@]}" ANTIGRAVITY_AGENT=1 CODEX_THREAD_ID=t TEAM_MODES_FILE="$real" bash "$root/bin/team-modes-check.sh" 2>&1)"
 check 'codex over agy'      yes "$(grep -q -E '^(ok|MISSING) +codex archify' <<< "$out" && echo yes || echo no)"
 check 'agy not checked'     no  "$(grep -q -E '^(ok|MISSING) +agy ' <<< "$out" && echo yes || echo no)"
+
+echo 'each environment-selected tool still refuses a missing mode in production'
+printf 'claude\tmode\tfile:%s/missing\t-\t-\ncodex\tmode\tfile:%s/missing\t-\t-\nagy\tmode\tfile:%s/missing\t-\t-\ngemini\tmode\tfile:%s/missing\t-\t-\n' "$fake" "$fake" "$fake" "$fake" > "$fake/missing.tsv"
+while IFS= read -r variable; do
+  out="$("${no_tool_env[@]}" "$variable=fixture" TEAM_MODES_FILE="$fake/missing.tsv" bash "$root/bin/team-modes-check.sh" 2>&1)"; code=$?
+  check "$variable refuses" 1 "$code"
+  check "$variable missing" yes "$(grep -q '^MISSING' <<< "$out" && echo yes || echo no)"
+done < <(tool_environment_variables)
+out="$(CODEX_THREAD_ID=fixture run_check --tool claude)"; code=$?
+check 'explicit tool overrides identity' 0 "$code"
 
 echo 'a plugin that Codex lists as not installed is missing, not present'
 out="$(run_check --tool codex)"; code=$?

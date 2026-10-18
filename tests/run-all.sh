@@ -15,6 +15,8 @@
 
 set -uo pipefail
 
+. "$(dirname "${BASH_SOURCE[0]}")/tool-environment.sh"
+
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # The organisation the suites were written for; nothing here reaches github.com
 export GH_ORG=example-org

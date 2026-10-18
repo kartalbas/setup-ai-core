@@ -11,6 +11,9 @@
 # is not among the windows Claude Code hands the status line, so it is not here either.
 set -uo pipefail
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$ROOT/lib/common.sh"
+
 usage="usage: usage.sh [--stop-at N]"
 config="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.ai-core/config.env"
 stop="$(grep -E '^[[:space:]]*USAGE_STOP_AT[[:space:]]*=' "$config" 2>/dev/null | tail -n1 || true)"
@@ -26,7 +29,7 @@ case "$stop" in ''|*[!0-9]*) echo "error: --stop-at takes a whole percentage, no
 when() { LC_ALL=C date -d "@$1" '+%a %H:%M' 2>/dev/null || LC_ALL=C date -r "$1" '+%a %H:%M'; }
 # A Codex session started from a Claude Code shell inherits CLAUDECODE, so the Codex variables decide.
 # A record counts only with a window in it; a line whose windows are all null says nothing.
-if [ -n "${CODEX_THREAD_ID:-}${CODEX_SANDBOX:-}${CODEX_SANDBOX_NETWORK_DISABLED:-}" ]; then
+if [ "$(session_tool)" = codex ]; then
   line="$(ls -t "${CODEX_HOME:-$HOME/.codex}"/sessions/*/*/*/rollout-*.jsonl 2>/dev/null | while IFS= read -r f; do
     r="$(grep -F '"rate_limits":{"' "$f" | grep -E '"(primary|secondary)":\{"' | tail -n1)"; [ -n "$r" ] && { printf '%s\n' "$r"; break; }; done)"
   [ -n "$line" ] || { echo "no usage recorded yet: Codex records it in its session files once a session has had an answer" >&2; exit 2; }

@@ -3,6 +3,8 @@
 # its own, and the stand-ins a section puts on the PATH. Sourced by tests/sections/*.sh; not run.
 set -euo pipefail
 
+. "$(dirname "${BASH_SOURCE[0]}")/tool-environment.sh"
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 section() { echo "==> $1"; }

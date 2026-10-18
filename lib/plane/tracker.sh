@@ -34,15 +34,24 @@ default_repo() {
   origin_repo || die "cannot tell which repository this is - pass the repo as OWNER/REPO"
 }
 
+# plane_is_here <owner/repo>: whether it is the repository of this checkout
+plane_is_here() {
+  local here
+  here="$(default_repo)" || exit 1
+  [ "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$here" | tr '[:upper:]' '[:lower:]')" ]
+}
+
 # ONE CHECKOUT, ONE REPOSITORY: the project the checkout's PLANE_PROJECT names holds the work items of every
 # repository of one line, told apart by their repo: label (plane_item), and acting on another repository's
 # items from here would be a guess, so a call that names another repository is refused.
 plane_check_repo() {  # plane_check_repo <owner/repo>
-  local here
-  here="$(default_repo)" || exit 1
-  [ "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$here" | tr '[:upper:]' '[:lower:]')" ] \
-    || die "no Plane project is configured here for $1"
+  plane_is_here "$1" || die "no Plane project is configured here for $1"
 }
+
+# writes_run_in_repo_clone <owner/repo>: whether a write to a work item of that repository has to run in the
+# clone of that repository, which is so for every repository but this checkout's (status-sync moves the cards
+# of each repository of the project from the clone that acts for it)
+writes_run_in_repo_clone() { ! plane_is_here "$1"; }
 
 # plane_repo_label: the label that says a work item belongs to the checkout's repository, repo:<name> with
 # the name as the origin spells it
@@ -69,10 +78,12 @@ plane_check_owner() {
 # The repository of a work item whose labels are expanded: the owner of the checkout's origin and the name
 # its repo: label carries; failing that the repository a carried item names in its external_id
 # (<owner/repo>#<n> from GitHub); otherwise null. An item without either belongs to no repository, and is
-# never listed under the checkout's.
+# never listed under the checkout's. An item that carries two repo: labels names no one repository: it is
+# listed under none, and plane_check_item refuses to act on it.
 PLANE_REPO='def repo($owner):
-  ([.labels[]? | .name | select(startswith("repo:")) | .[5:]][0]) as $l
-  | if $l then "\($owner)/\($l)"
+  [.labels[]? | .name | select(startswith("repo:")) | .[5:]] as $l
+  | if ($l | length) > 1 then null
+    elif ($l | length) == 1 then "\($owner)/\($l[0])"
     elif .external_source == "github" and ((.external_id // "") | test("^[^/#]+/[^/#]+#[0-9]+$")) then .external_id | sub("#[0-9]+$"; "")
     else null end;
   def same($a; $b): ($a // "" | ascii_downcase) == ($b | ascii_downcase);'
@@ -197,18 +208,39 @@ plane_fetch() {
   plane_api "the work item $(plane_setting PLANE_PROJECT)-$1" GET "$(plane_path "issues/$(plane_setting PLANE_PROJECT)-$1/")?expand=state,labels,parent"
 }
 
-# plane_item <owner/repo> <number>: the work item, for a call that acts on it. One whose repo: label names
-# another repository is refused before anything is written, because the number counts per project, and a
-# number given in one checkout can be another repository's.
-plane_item() {
-  local item other
-  plane_check_repo "$1"
-  item="$(plane_fetch "$2")" || exit 1
-  other="$(printf '%s' "$item" | jq -r --arg me "$(plane_repo_label)" '
+# plane_check_item <work item json> <owner/repo> <number>: refused, naming the repository, where the work item
+# belongs to another repository than <owner/repo>, or carries two repo: labels and so belongs to none. The
+# number counts per project, and a number given for one repository can be another's.
+plane_check_item() {
+  local verdict
+  verdict="$(printf '%s' "$1" | jq -r --arg me "repo:${2#*/}" '
     [.labels[].name | select(startswith("repo:"))] as $r
-    | if ($r | length) == 0 or any($r[]; ascii_downcase == ($me | ascii_downcase)) then empty else $r[0][5:] end')"
-  [ -z "$other" ] || die "#$2 belongs to $other, not this checkout - nothing was changed"
+    | if ($r | length) > 1 then "many \($r | join(" "))"
+      elif ($r | length) == 1 and ($r[0] | ascii_downcase) != ($me | ascii_downcase) then "other \($r[0][5:])"
+      else empty end')"
+  case "$verdict" in
+    '') ;;
+    other\ *) if plane_is_here "$2"; then die "#$3 belongs to ${verdict#other }, not this checkout - nothing was changed"; fi
+              die "#$3 belongs to ${verdict#other }, not $2 - nothing was changed" ;;
+    *) die "#$3 carries more than one repository label (${verdict#many }), so it belongs to no one repository - nothing was changed" ;;
+  esac
+}
+
+# plane_item_read <owner/repo> <number>: the work item, for a call that only reads: any repository of the
+# owner the project holds, as long as the number is that repository's
+plane_item_read() {
+  local item
+  plane_check_owner "$1"
+  item="$(plane_fetch "$2")" || exit 1
+  plane_check_item "$item" "$1" "$2"
   printf '%s\n' "$item"
+}
+
+# plane_item <owner/repo> <number>: the work item, for a call that acts on it: this checkout's repository
+# only, and one whose repo: label names another is refused before anything is written
+plane_item() {
+  plane_check_repo "$1"
+  plane_item_read "$1" "$2"
 }
 
 # plane_issue_path <work item json>: the path of the work item to read and write by its uuid
@@ -331,10 +363,8 @@ issue_thread() {
 issue_node_id() { plane_item "$1" "$2" | jq -r '.id'; }
 issue_db_id() { issue_node_id "$@"; }
 
-# issue_title <owner/repo> <number>: a title is read of any work item of the project, because a listing over
-# the board (epics-top) names the work items of every repository in it, and a read changes nothing
-issue_title() {
-  plane_fetch "$2" | jq -r '.name'
+issue_title() {  # issue_title <owner/repo> <number>
+  plane_item "$1" "$2" | jq -r '.name'
 }
 
 # --- labels -------------------------------------------------------------------------
@@ -438,9 +468,10 @@ subissue_attach() {  # subissue_attach <owner/repo> <parent number> <child owner
 }
 
 subissue_detach() {  # subissue_detach <owner/repo> <parent number> <child owner/repo> <child number>
-  local child
+  local parent child
+  parent="$(plane_item "$1" "$2")" || exit 1
   child="$(plane_item "$3" "$4")" || exit 1
-  [ "$(printf '%s' "$child" | jq -r '.parent.sequence_id // ""')" = "$2" ] \
+  [ "$(printf '%s' "$child" | jq -r '.parent.id // ""')" = "$(printf '%s' "$parent" | jq -r '.id')" ] \
     || die "$3#$4 is not a sub-issue of $1#$2 - nothing was changed"
   plane_patch "the detach of $3#$4 from $1#$2" "$3" "$4" '{"parent": null}'
 }
@@ -549,10 +580,11 @@ set_select() {
 
 # epic_target_on_board <owner/repo> <number> - the epic_target of a work item, from its own state and the
 # states of its children: a state of the completed group counts as done, one of the cancelled group as not
-# planned, any other by its name. A work item without children gets nothing.
+# planned, any other by its name. A work item without children gets nothing. A read, so any repository of
+# the project: the sweep of status-sync asks it for the epics of each.
 epic_target_on_board() {
   local item children rows cur st first=1
-  item="$(plane_item "$1" "$2")" || exit 1
+  item="$(plane_item_read "$1" "$2")" || exit 1
   children="$(plane_pages "the work items of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/issues/")?expand=state&fields=id,parent,state")" || exit 1
   rows="$(printf '%s\n%s\n' "$item" "$children" | jq -rs '
     def status: if .state.group == "completed" then "done" elif .state.group == "cancelled" then "not planned" else (.state.name | ascii_downcase) end;
@@ -638,9 +670,11 @@ board_card_lines() {
        .sequence_id, (.name | gsub("[\t\n]"; " ")), (if closed then "closed" else "" end)] | map(tostring) | join("\t")'
 }
 
-# board_items: "<work item uuid>\t<owner/repo>\t<number>" for every work item that names a repository
+# board_items: "<work item uuid>\t<owner/repo>\t<number>" for every work item of this checkout's repository, the
+# only ones it may write. board-order and epics-top place what this lists, so a work item of another
+# repository is not on the board they see.
 board_items() {
-  plane_all_items | jq -r --arg o "$(plane_owner)" "$PLANE_REPO"'repo($o) as $r | select($r != null) | "\(.id)\t\($r)\t\(.sequence_id)"'
+  plane_all_items | jq -r --arg o "$(plane_owner)" --arg r "$(default_repo)" "$PLANE_REPO"'repo($o) as $x | select($x != null and same($x; $r)) | "\(.id)\t\($x)\t\(.sequence_id)"'
 }
 
 # item_top <work item uuid> [after work item uuid]: the work item goes to the top of the project's order, or

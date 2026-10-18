@@ -564,6 +564,9 @@ labels_list() {
 # with the forge's, which is the same gh.
 tracker_doctor() { echo "  tracker: github"; }
 
+# writes_run_in_repo_clone <owner/repo>: never on GitHub, where a command acts for any repository it is given
+writes_run_in_repo_clone() { return 1; }
+
 # tracker_login: the login the tracker knows the caller by. The answer is established as one before
 # the login is read out of it: a refused query writes its error body to stdout, so a login read
 # straight through a pipe would be the refusal text.

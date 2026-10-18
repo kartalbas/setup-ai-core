@@ -1063,8 +1063,10 @@ work item that names no repository by a `repo:` label (or, carried from GitHub, 
 `board-unarchive`, `issue-unblock` and `issue-duplicate --undo`, so each is refused with a sentence that says
 so and writes nothing. `issue-duplicate` relates the duplicate to the original, comments on it and moves it to `Cancelled`, as GitHub closes a duplicate. A listing reads the whole project, 100 work items to a page, and Plane's 60 requests
 a minute are waited out; `status-sync` reads the comments and the state changes of the cards in `testing`
-alone. A checkout acts on the work items of its own repository only, so a `status-sync` without a repository
-stops at the first card of another repository of the project that is due to move: name the repository.
+alone. A checkout acts on the work items of its own repository only: `board-order` and `epics-top` place those
+alone, and a work item that carries the labels of two repositories belongs to none and is refused for a
+write. `status-sync` moves the card of another repository of the project from the clone of that repository
+in the project folder, and names a card whose repository has no clone there and leaves it.
 
 **The hooks.** A repository that wants the gate before every push carries the three-line shim
 `ai-core pre-push --install` writes into `.githooks/pre-push`, and beside it `.githooks/post-checkout`,

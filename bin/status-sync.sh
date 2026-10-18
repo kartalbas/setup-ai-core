@@ -54,7 +54,9 @@
 # point is that no person has to run it.
 #
 # It does not WRITE the board itself: it calls issue-status and issue-close, the movers that
-# already handle every board a card is on. One writer, one set of rules.
+# already handle every board a card is on. One writer, one set of rules. Where a tracker lets a checkout
+# act for its own repository only (writes_run_in_repo_clone), the movers run in the clone of the card's
+# repository, and a card whose repository has no clone here is named and stays.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 
@@ -310,16 +312,26 @@ for full in ${repos[@]+"${repos[@]}"}; do
     fi
     [ -n "$target" ] || continue
 
+    # Where the tracker has the clone of a card's repository write it, the movers run there
+    mover_dir="."
+    if writes_run_in_repo_clone "$full"; then
+      mover_dir="$(clone_of "$full")"
+      if [ -z "$mover_dir" ]; then
+        echo "no clone     $label#$num  (no clone of $full in $(project_folder), and only its clone writes its cards, so the card stays)"
+        continue
+      fi
+    fi
+
     if [ "$target" = "CLOSE" ]; then
       # An epic names no release, and no card in testing may have been read before it
       if [ "$subs" -gt 0 ]; then why="every sub-issue done"; else why="released in $tag and proven"; fi
       if [ "$dry" = 1 ]; then echo "would close  $label#$num  ($st -> done, $why)"
       else echo "close        $label#$num  ($st -> done, $why)"
-        "$ROOT/bin/issue-close.sh" "$full" "$num" >/dev/null < /dev/null; fi
+        (cd "$mover_dir" && "$ROOT/bin/issue-close.sh" "$full" "$num") >/dev/null < /dev/null; fi
     else
       if [ "$dry" = 1 ]; then echo "would move   $label#$num  ($st -> $target)"
       else echo "move         $label#$num  ($st -> $target)"
-        "$ROOT/bin/issue-status.sh" "$full" "$num" "$target" >/dev/null < /dev/null; fi
+        (cd "$mover_dir" && "$ROOT/bin/issue-status.sh" "$full" "$num" "$target") >/dev/null < /dev/null; fi
     fi
     moved=$((moved + 1))
   done <<< "$cards"

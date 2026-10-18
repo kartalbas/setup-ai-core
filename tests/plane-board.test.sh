@@ -199,6 +199,33 @@ grep -q '^no landing   example-repo#72' <<< "$out" || fail "the landing record b
 ! grep -q "would close  example-repo#72" <<< "$out" || fail "a reopened work item was closed on the record of its first landing: $out"
 echo "  status-sync: a reopening after the landing record voids it, read from the state changes of the work item"
 
+# A CARD OF ANOTHER REPOSITORY of the project is moved by the clone of that repository, and its epic is read from
+# here: the sweep applies, not only announces, and a repository with no clone here is named and left
+git init -q --bare -b master "$WORK/origins/example-org/other-repo.git"
+git init -q -b master "$WORK/other-repo"; git -C "$WORK/other-repo" remote add origin "$WORK/origins/example-org/other-repo.git"
+for c in carried-repo other-repo; do
+  mkdir -p "$WORK/$c/.ai-core"
+  printf 'LIVE_TAGS="prod=landed"\nTRACKER=plane\nPLANE_URL=https://plane.example.test\nPLANE_WORKSPACE=ws\nPLANE_PROJECT=ENG\nPLANE_TOKEN_COMMAND="cat %s/token"\n' "$WORK" > "$WORK/$c/.ai-core/config.env"
+done
+commit "$WORK/other-repo" "Start the other repository" >/dev/null
+plane_add_item 80 "EPIC · the epic of the other repository" repo:other-repo
+plane_add_item 81 "Its child, begun" repo:other-repo
+planeset 'const e=p.issues.find((i)=>i.sequence_id===80),c=p.issues.find((i)=>i.sequence_id===81);c.parent=e.id;c.state=p.states.find((x)=>x.name==="implementing").id'
+out="$(ai status-sync --dry-run 2>&1)" || fail "status-sync --dry-run with the epic of another repository: $out"
+grep -q 'would move   other-repo#80  (ready -> implementing)' <<< "$out" || fail "the epic of another repository was not read from here: $out"
+out="$(ai status-sync 2>&1)" || fail "status-sync: $out"
+[ "$(state_of 80)" = implementing ] || fail "the epic of the other repository stands in $(state_of 80), not in implementing"
+[ "$(state_of 70)" = done ] || fail "the card of carried-repo stands in $(state_of 70), not in done"
+[ "$(state_of "$n")" = done ] || fail "the card of this checkout stands in $(state_of "$n"), not in done"
+echo "  status-sync: the cards of two other repositories are moved by their own clones (a closing and an epic followed to implementing), and the card of this checkout from here"
+planeset 'p.issues.find((i)=>i.sequence_id===81).state=p.states.find((x)=>x.name==="done").id'
+mkdir -p "$WORK/away"; mv "$WORK/other-repo" "$WORK/away/other-repo"
+out="$(ai status-sync 2>&1)" || fail "status-sync without the clone of another repository: $out"
+grep -q 'no clone     other-repo#80  (no clone of example-org/other-repo in ' <<< "$out" || fail "the missing clone is not named: $out"
+[ "$(state_of 80)" = implementing ] || fail "the epic of a repository with no clone was moved to $(state_of 80)"
+mv "$WORK/away/other-repo" "$WORK/other-repo"
+echo "  status-sync: a card whose repository has no clone here is named and stays"
+
 # repo-link: the repository joins the project by its label, made once
 planeset 'p.labels=p.labels.filter((l)=>l.name!=="repo:example-repo")'
 out="$(ai repo-link --project ENG 2>&1)" || fail "repo-link: $out"

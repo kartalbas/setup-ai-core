@@ -19,7 +19,7 @@
 # Refuses literal email addresses in titles and bodies for public or unknown visibility; reserved example domains
 # and GitHub noreply addresses are allowed. Private GitHub repositories bypass the check. Plane
 # cannot establish private visibility, so its text receives the public check.
-# The check reads the raw text, and an address dressed by Markdown, HTML, invisible or lookalike characters is not refused; the README names the cases.
+# The check reads the raw text, and an address dressed by Markdown, HTML, invisible or lookalike characters may pass; the README names the cases.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 
@@ -35,7 +35,7 @@ while [ $# -gt 0 ]; do
     -h|--help)   echo "$usage"; printf '%s\n' ' Refuses literal email addresses in titles and bodies for public or unknown visibility; reserved example domains
 and GitHub noreply addresses are allowed. Private GitHub repositories bypass the check. Plane
 cannot establish private visibility, so its text receives the public check.
-The check reads the raw text, and an address dressed by Markdown, HTML, invisible or lookalike characters is not refused; the README names the cases.'; exit 0 ;;
+The check reads the raw text, and an address dressed by Markdown, HTML, invisible or lookalike characters may pass; the README names the cases.'; exit 0 ;;
     -*)          die "unknown argument '$1'" ;;
     *)           numbers+=("$1"); shift ;;
   esac

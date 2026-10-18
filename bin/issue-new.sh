@@ -5,7 +5,7 @@
 # Refuses literal email addresses in titles, labels and bodies for public or unknown visibility; reserved example domains
 # and GitHub noreply addresses are allowed. Private GitHub repositories bypass the check. Plane
 # cannot establish private visibility, so its text receives the public check.
-# The check reads the raw text, and an address dressed by Markdown, HTML, invisible or lookalike characters is not refused; the README names the cases.
+# The check reads the raw text, and an address dressed by Markdown, HTML, invisible or lookalike characters may pass; the README names the cases.
 #
 #   issue-new --repo OWNER/REPO --title "Do the thing, or what it costs" --body-file PATH \
 #             --label type:feature --label area:gate --priority P1 [--status ready] \

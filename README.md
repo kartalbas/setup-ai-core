@@ -1043,13 +1043,14 @@ Reserved domains (`invalid`, `example`, `test`, `localhost`, `example.com`, `exa
 `example.org` and their subdomains) and the exact GitHub domain `users.noreply.github.com` are
 allowed, ignoring domain case. A local part containing `noreply` and an unverified Forgejo noreply
 domain grant no exemption. The check reads the raw text as written. It refuses an address written
-plainly, inside a code span or in a link. It does not refuse an address dressed so that the raw text
-differs from what a reader sees: a Markdown escape such as `\@`, a code span or emphasis inside the
-address, HTML such as a comment or a tag inside it, an invisible format character (U+200B, U+00AD,
-U+2060), a lookalike of `@` or `.` (U+FF20, U+FE6B, U+2024, U+FE52), or an address that overlaps an
-exempt or numeric match before it. Encoded addresses, images and an address written as “name at
-domain” are not covered either. It refuses rather than redacting and leaves the caller's file
-unchanged.
+plainly, inside a code span or in a link. An address dressed so that the raw text differs from what a
+reader sees may pass. Whether it passes depends on where the dressing stands in the address, so
+nobody may rely on the check for a dressed address. Dressings are, for example, a Markdown escape
+such as `\@`, a code span or emphasis in the address, HTML such as a comment or a tag in it, an
+invisible format character (U+200B, U+00AD, U+2060), a lookalike of `@` or `.` (U+FF20, U+FE6B,
+U+2024, U+FE52), or an address that overlaps an exempt or numeric match before it. Encoded addresses,
+images and an address written as “name at domain” are not covered either. It refuses rather than
+redacting and leaves the caller's file unchanged.
 
 | Command | Does |
 | :--- | :--- |
@@ -1067,7 +1068,7 @@ unchanged.
 | `issue-status N... STATUS` | moves cards between `backlog`, `ready`, `planned`, `implementing`, `review`, `testing`, `done`; in a repository on no board, with no board named, it says the status is not set and exits 0. The epic of a moved issue follows its sub-issues: `implementing` once one has started, `testing` once all stand in testing or done, closed and `done` once all are done; from `testing` it goes back to `implementing` once a sub-issue stands before testing again, and a closed epic stays closed |
 | `issue-priority N... P` | `P0` blocker, `P1` high, `P2` normal, `P3` low, `P9` parked; on no board, as `issue-status` |
 | `issue-label N --add/--remove` | labels checked against `labels.tsv`; a typo is refused, not minted |
-| `issue-assign N` | adds, removes or replaces assignees; additive by default. On GitHub an assignee with an ASCII `@` other than `@me` and `@copilot` is refused as an email address; one with a fullwidth `@` (U+FF20) is not |
+| `issue-assign N` | adds, removes or replaces assignees; additive by default. On GitHub an assignee with an ASCII `@` other than `@me` and `@copilot` is refused as an email address; one with a lookalike of `@` (U+FF20, U+FE6B) is not |
 | `issue-duplicate N OF M` | marks N the native duplicate of M, or removes it with `--undo` |
 | `issue-transfer N OWNER/REPO` | moves an issue to another repository; the card stays where it is |
 | `issue-block`, `issue-unblock` | records or clears a real `blocked by` dependency, across repositories |

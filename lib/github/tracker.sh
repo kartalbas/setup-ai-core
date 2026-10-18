@@ -824,6 +824,7 @@ field_options_replace() {
 # new board.
 project_create() {
   local org src
+  check_project_number "$2"
   org="$(gh_read "the id of $1" api graphql -f o="$1" -f query='
     query($o:String!){ organization(login:$o){ id } }' \
     --jq '.data.organization.id')" || exit 1

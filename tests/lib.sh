@@ -81,8 +81,8 @@ CONF
 ai() { local c="$1"; shift; ( cd "$P" && PATH="$PATH_CURL" bash "${ROOT_UNDER_TEST:-$ROOT}/bin/$c.sh" "$@" ); }
 planeq() { node -e "const s=JSON.parse(require('fs').readFileSync('$CURL_FAKE_STATE/plane.json'));const p=s.projects[0];$1"; }
 reset_log() { : > "$CURL_FAKE_STATE/requests.log"; : > "$CURL_FAKE_STATE/argv.log"; : > "$CURL_FAKE_STATE/env.log"; }
-# plane_fn <function> [args]: a function of the tracker library, called in the project
-plane_fn() { ( cd "$P" && PATH="$PATH_CURL" bash -c '. "$1/lib/board.sh"; shift; "$@"' _ "${ROOT_UNDER_TEST:-$ROOT}" "$@" ); }
+# plane_fn <function> [args]: a function of the tracker library, called in the project with its board selected
+plane_fn() { ( cd "$P" && PATH="$PATH_CURL" bash -c '. "$1/lib/board.sh"; shift; set_project >/dev/null; "$@"' _ "${ROOT_UNDER_TEST:-$ROOT}" "$@" ); }
 # planeset <js>: changes the stand-in's state as another hand would; `s` is the state, `p` its project ENG
 planeset() {
   CURL_FAKE_STATE="$CURL_FAKE_STATE" node -e "const fs=require('fs'),f=process.env.CURL_FAKE_STATE+'/plane.json',s=JSON.parse(fs.readFileSync(f)),p=s.projects[0];$1;fs.writeFileSync(f,JSON.stringify(s))"
@@ -98,4 +98,11 @@ plane_add_item() {
     p.issues.push({id:id(),project:p.id,name:e.ITEM_TITLE,description_html:"<p></p>",priority:"none",parent:null,labels:ids,assignees:[],sort_order:65535,
       external_source:e.ITEM_EXTERNAL_SOURCE||null,external_id:e.ITEM_EXTERNAL_ID||null,archived_at:null,created_at:"2026-10-18T08:00:00Z",updated_at:"2026-10-18T08:00:00Z",
       completed_at:null,sequence_id:+e.ITEM_SEQ,state:p.states.find((x)=>x.name==="ready").id});'
+}
+# plane_add_comment <sequence id> <text>: a comment by a member of the workspace on a work item of ENG, the text
+# as a person writes it, stored the way the harness stores one
+plane_add_comment() {
+  COMMENT_SEQ="$1" COMMENT_TEXT="$2" planeset '
+    const it=p.issues.find((i)=>i.sequence_id===+process.env.COMMENT_SEQ), e=process.env.COMMENT_TEXT.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    p.comments.push({id:require("crypto").randomUUID(),issue:it.id,comment_html:"<pre>"+e+"</pre>",created_at:new Date(Date.UTC(2026,9,18,9,0,++s.clock)).toISOString(),actor:s.users[0].id,is_member:true})'
 }

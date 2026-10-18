@@ -64,6 +64,7 @@ rows="$(plane_fn issue_rows example-org/example-repo)" || fail "issue_rows"
 [ "$(jq -c '.labels | sort' <<< "$rows")" = '["area:tooling","type:feature"]' ] || fail "the row's labels: $(jq -c '.labels | sort' <<< "$rows")"
 echo "  issue_rows: only the open work items whose repo: label names the repository, under the owner of the origin, without that label in labels"
 
-# nothing without a label is the checkout's
-[ "$(plane_fn issue_rows example-org/other-repo 2>&1 | grep -c 'no Plane project is configured here for example-org/other-repo')" = 1 ] || fail "another repository's rows were not refused"
-echo "  issue_rows of another repository: refused by name"
+# a repository of the project is read by its label; one of another owner is no repository of it
+[ "$(plane_fn issue_rows example-org/other-repo | jq -r '.number')" = 50 ] || fail "the rows of example-org/other-repo are not exactly its work item 50"
+[ "$(plane_fn issue_rows other-org/example-repo 2>&1 | grep -c 'no Plane project is configured here for other-org/example-repo')" = 1 ] || fail "the rows of another owner's repository were not refused"
+echo "  issue_rows: another repository of the project has its own (here #50); another owner's repository is refused by name"

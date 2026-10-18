@@ -93,10 +93,10 @@ cards_of_repo() {  # <owner/repo>
   local repo="$1" after="" page next
   while :; do
     page="$(open_issue_page "$repo" "$after")" || exit 1
-    printf '%s' "$page" | jq -r --argjson board "$(project_number)" --arg org "$(project_org)" '
+    printf '%s' "$page" | jq -r --arg board "$(project_number)" --arg org "$(project_org)" '
       .data.repository.issues.nodes[]
       | . as $i
-      | ([$i.projectItems.nodes[] | select(.project.number == $board and (.project.owner.login | ascii_downcase) == ($org | ascii_downcase))
+      | ([$i.projectItems.nodes[] | select((.project.number | tostring) == $board and (.project.owner.login | ascii_downcase) == ($org | ascii_downcase))
           | (.status.name // "")] | first) as $status
       | select($status != null and $status != "")
       | (($i.reopened.nodes[0].createdAt) // "") as $reopenedAt
@@ -245,10 +245,11 @@ if [ $# -gt 0 ]; then
   for want in "$@"; do case "$want" in */*) repos+=("$want") ;; *) repos+=("$org/$want") ;; esac; done
 else
   cards="$("$ROOT/bin/board-list.sh" --project "$resolved")" || exit 1
+  # A card that names no repository ("-") has no clone to read and is left out
   while read -r name; do
     [ -n "$name" ] || continue
     case "$name" in */*) repos+=("$name") ;; *) repos+=("$org/$name") ;; esac
-  done <<< "$(awk '$1 != "done" && $4 ~ /^#[0-9]+$/ { print $3 }' <<< "$cards" | sort -u)"
+  done <<< "$(awk '$1 != "done" && $3 != "-" && $4 ~ /^#[0-9]+$/ { print $3 }' <<< "$cards" | sort -u)"
 fi
 
 moved=0; scanned=0; unreleased=""

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The issue commands against Plane, one work item at a time: TRACKER=plane in a project whose curl is the
-# stand-in of tests/lib.sh. Each shape of defect the acceptance criteria of #184 rule out is planted and
+# stand-in of tests/lib.sh. Each shape of defect the Plane provider must refuse is planted and
 # shown red, and the innocent case beside it green. Nothing here reaches a network.
 #
 #   bash tests/plane-work-items.test.sh
@@ -60,7 +60,7 @@ ai issue-reopen "$n" >/dev/null || fail "issue-reopen"
 
 # A STATE THE PROJECT LACKS is refused with the states there are, and nothing is written
 reset_log; out="$(ai issue-status "$n" nonesuch 2>&1)" && fail "a state the project lacks was accepted"
-grep -q "has no option 'nonesuch'. It has: backlog ready planned implementing review testing done Cancelled" <<< "$out" || fail "the states there are are not named: $out"
+grep -q "has no option 'nonesuch'. It has: backlog ready planned implementing review testing Cancelled done" <<< "$out" || fail "the states there are are not named: $out"
 ! grep -q '^PATCH' "$CURL_FAKE_STATE/requests.log" || fail "a refused status still wrote"
 ai issue-status "$n" Testing >/dev/null || fail "issue-status Testing (matched without case)"
 [ "$(planeq 'console.log(p.states.find(s=>s.id===p.issues[0].state).name)')" = testing ] || fail "issue-status did not move the work item to testing"

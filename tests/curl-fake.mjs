@@ -110,7 +110,7 @@ function plane() {
     if (st.projects.some((x) => x.identifier === json.identifier)) reply(409, { identifier: 'The project identifier is already taken' });
     const pr = { id: uuid(st), identifier: json.identifier, name: json.name, states: [], labels: [], issues: [], comments: [], relations: [], activities: [] };
     for (const [name, group] of [['Backlog', 'backlog'], ['Todo', 'unstarted'], ['In Progress', 'started'], ['Done', 'completed'], ['Cancelled', 'cancelled'], ['Triage', 'triage']]) {
-      pr.states.push({ id: uuid(st), name, color: '#60646C', group, sequence: 15000 * (pr.states.length + 1), default: name === 'Backlog' });
+      pr.states.push({ id: uuid(st), name, color: '#60646C', group, sequence: 15000 + 10000 * pr.states.length, default: name === 'Backlog' });   // DEFAULT_STATES of plane/db/models/state.py
     }
     st.projects.push(pr); save();
     reply(201, { id: pr.id, identifier: pr.identifier, name: pr.name });
@@ -120,9 +120,9 @@ function plane() {
   const what = p[4];
   if (what === 'states') {
     if (p.length === 5) {
-      if (method === 'GET') reply(200, page(pr.states.filter((s) => s.group !== 'triage')));
+      if (method === 'GET') reply(200, page(pr.states.filter((s) => s.group !== 'triage').sort((a, b) => a.sequence - b.sequence)));
       if (pr.states.some((s) => s.name === json.name)) reply(409, { error: 'State with the same name already exists in the project' });
-      const s = { id: uuid(st), name: json.name, color: json.color, group: json.group, sequence: 15000 * (pr.states.length + 1), default: false };
+      const s = { id: uuid(st), name: json.name, color: json.color, group: json.group, sequence: pr.states.filter((x) => x.group !== 'triage').reduce((m, x) => Math.max(m, x.sequence), 0) + 15000, default: false };   // State.save: after the last, whatever is asked
       pr.states.push(s); save(); reply(200, s);
     }
     const s = pr.states.find((x) => x.id === p[5]);
@@ -205,7 +205,7 @@ function ser(st, pr, it, fields = null) {
   const expand = (q.get('expand') || '').split(',');
   const o = { ...it };
   if (expand.includes('state')) o.state = pr.states.find((s) => s.id === it.state) && (({ id, name, color, group }) => ({ id, name, color, group }))(pr.states.find((s) => s.id === it.state));
-  if (expand.includes('labels')) o.labels = it.labels.map((l) => pr.labels.find((x) => x.id === l));
+  if (expand.includes('labels')) o.labels = it.labels.map((l) => pr.labels.find((x) => x.id === l)).filter(Boolean);
   if (expand.includes('assignees')) o.assignees = it.assignees.map((a) => st.users.find((u) => u.id === a));
   if (expand.includes('parent') && it.parent) { const par = pr.issues.find((i) => i.id === it.parent); o.parent = { id: par.id, sequence_id: par.sequence_id, project_id: pr.id }; }
   if (fields) for (const k of Object.keys(o)) if (!fields.includes(k)) delete o[k];

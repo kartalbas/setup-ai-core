@@ -1045,6 +1045,21 @@ repository over REST. `AI_CORE_SLEEP` names the command that waits, `sleep` by d
 | `team-modes-check`, `team-modes-install` | section 4.6 |
 | `schema-check` | holds every GraphQL mutation in `bin/` and `lib/` against the schema github.com publishes; the one check that reaches the network, run by CI; where `TRACKER` is not `github` it says that the schema is GitHub's and exits 0 |
 
+**The board commands on Plane** (`TRACKER=plane`). The columns of the board are the states of the project
+`PLANE_PROJECT` names, and the priorities `P0` to `P3` are Plane's urgent, high, medium and low. `project-new
+TITLE` makes that project, with the eight states `backlog`, `ready`, `planned`, `implementing`, `review`,
+`testing`, `done` and Plane's own `Cancelled`, the labels of `labels.tsv` and `repo:<name>`; a board to copy
+is refused, because Plane copies none. `board-list`, `status`, `status-sync`, `epics-top`, `item-top`,
+`board-order`, `incident-count`, `labels-sync` and `repo-link` read and write the project's work items, a
+work item that names no repository by a `repo:` label (or, carried from GitHub, by its `external_id`) under
+`-`; `board-sync` says that every work item of a Plane project is on its board already and exits 0. Plane
+1.4.2's API cannot serve `item-move`, `issue-transfer`, `view-filter`, `field-option-add`, `repo-boards`,
+`board-unarchive`, `issue-unblock` and `issue-duplicate --undo`, so each is refused with a sentence that says
+so and writes nothing. A listing reads the whole project, 100 work items to a page, and Plane's 60 requests
+a minute are waited out; `status-sync` reads the comments and the state changes of the cards in `testing`
+alone. A checkout acts on the work items of its own repository only, so a `status-sync` without a repository
+stops at the first card of another repository of the project that is due to move: name the repository.
+
 **The hooks.** A repository that wants the gate before every push carries the three-line shim
 `ai-core pre-push --install` writes into `.githooks/pre-push`, and beside it `.githooks/post-checkout`,
 which starts `init` in a new worktree (section 4.12); the gate and `init` themselves never live in

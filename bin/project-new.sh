@@ -15,6 +15,9 @@
 # colour, a description, the order of the columns - and those are exactly what makes
 # two boards read differently to the same person. The items of the source board are
 # not copied.
+#
+# On Plane (TRACKER=plane) nothing is copied: the project PLANE_PROJECT names is made with the eight
+# states of the harness and the labels of labels.tsv, and a LIKE is refused.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 
@@ -25,7 +28,6 @@ case $# in
   2) title="$1"; like="$2" ;;
   *) die "usage: project-new.sh TITLE [LIKE]" ;;
 esac
-case "$like" in ''|*[!0-9]*) die "the board number must be numeric, not '$like'" ;; esac
 
 org_name="$(gh_org)" || exit 1
 

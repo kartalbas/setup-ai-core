@@ -158,11 +158,12 @@ and landing, or whose `Waits for the owner:` is not answered, is not built. Read
 put to the owner. An issue a plan left out (`Left out:`) gets `incident:context` and goes to
 `backlog`. A session's question that the plan, the issues or the code answers, you answer yourself;
 only a decision the rules give the owner goes to the owner, the open ones of a round together in
-one block, each written to be decided alone: the owner's goal and his earlier decisions on it, every
-word of the system placed by where it runs and what it does, today's state among the options. A
-question that reaches the owner through another session is checked against this by that session and
-rewritten where it falls short, never passed on as it came. Its issues get `needs:owner`
-(`ai-core issue-label`) and keep their column. At the
+one block, and the issues of those questions get `needs:owner` (`ai-core issue-label`) and keep
+their column. Each question is written to be decided alone: the owner's goal and the owner's
+earlier decisions on it, every word the owner may read in its everyday sense explained by where it
+runs and what it does, today's state among the options. A question that reaches the owner through
+another session is checked against this by that session and rewritten where it falls short, never
+passed on as it came. At the
 usage limit (`ai-core usage --tool claude` or `ai-core usage --tool codex` exits 3; for agy a
 refusal for quota), every session using that limited account or model finishes its step and reports,
 and no new phase starts on it until the reset; another tool is used only under an existing table

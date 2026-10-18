@@ -35,9 +35,8 @@ check_public_body() {
     visibility="$(repo_visibility "$repo")" || visibility=unknown
   fi
   [ "$visibility" != private ] || return 0
-  # A scoped package's opening Markdown backticks are not an address's local part.
   addresses="$(printf '%s' "$text" | jq -Rrs '
-    scan("`+@[[:alnum:]_.-]+/|((?:\"[^\"\\r\\n]+\"|(?:[A-Za-z0-9.!#$%&\u0027*+/=?^_`{|}~\\[\\]-]|[^\\x00-\\x7f])+)@(?:\\[[^\\]\\r\\n]+\\]|[[:alnum:]][[:alnum:]\\p{M}._\u3002\uff0e\uff61-]*))") | .[0] // empty
+    scan("(?:\"[^\"\\r\\n]+\"|(?:[A-Za-z0-9.!#$%&\u0027*+/=?^_`{|}~\\[\\]-]|[^\\x00-\\x7f])+)@(?:\\[[^\\]\\r\\n]+\\]|[[:alnum:]][[:alnum:]\\p{M}._\u3002\uff0e\uff61-]*)")
     | . as $address | (split("@") | last | gsub("[\u3002\uff0e\uff61]"; ".") | ascii_downcase | sub("[.]+$"; "")) as $domain
     | select(($domain | test("[[:alpha:]]|^\\[")))
     | select(($domain | test("(^|\\.)(invalid|example|test|localhost|example\\.(com|net|org))$")) | not)

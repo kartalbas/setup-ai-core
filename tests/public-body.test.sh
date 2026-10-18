@@ -17,6 +17,8 @@ unicode_domain="$(printf '\303\251.company.ch')"
 unicode_mark="$(printf 'e\314\201')"
 unicode_symbol="$(printf '\360\237\223\247')"
 separators=("$(printf '\343\200\202')" "$(printf '\357\274\216')" "$(printf '\357\275\241')")
+overlaps=('`@company.ch/' '`@scope/@company.ch')
+for separator in "${separators[@]}"; do overlaps+=('`@scope/@company'"${separator}ch"); done
 root_under_test="$ROOT"
 invoke() {
   case "$path" in
@@ -56,7 +58,7 @@ for path in inline file new edit; do
   done
   case_body allow "$unicode_local@build.example.test"
   case_body allow $'A `backtick`, "quotes" and CRLF.\r\nNext line.\n'
-  case_body allow "$scoped"
+  case_body refuse "$scoped"
   case_body allow "$unquoted_scoped"
   case_body refuse '`@company.ch'
   case_body refuse "$scoped $real"
@@ -265,7 +267,7 @@ metadata_invoke() {
   )
 }
 case_metadata() {
-  local want="$1" expected=1 name=area:tooling description='Safe description.' old='Safe description.'
+  local want="$1" expected=1 name=area:tooling description='Safe description.' old='Safe description.' label="$path $2 ($GH_VISIBILITY)" address="${3:-$real}"
   payload="$2"
   case "$path" in labels-name|repo-link-name|new-label|issue-label) name="area:$payload" ;; labels-description|repo-link-description) description="$payload" ;; field-existing) old="$payload" ;; esac
   printf 'type\ttype:feature\t0E8A16\tSafe description.\narea\t%s\t0E8A16\t%s\n' "$name" "$description" > "$audit_project/.ai-core/labels.tsv"
@@ -274,9 +276,9 @@ case_metadata() {
   rc=0; out="$(metadata_invoke 2>&1)" || rc=$?
   writes="$(grep -c '^write ' "$GH_FAKE/body-calls.log" || true)"
   if [ "$want" = refuse ]; then
-    check "$path refuses unsafe metadata" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-    check "$path unsafe metadata zero writes" 0 "$writes"
-    check "$path names metadata address" yes "$(grep -qF 'refused email address' <<< "$out" && grep -qF "$real" <<< "$out" && echo yes || echo no)"
+    check "$label refuses unsafe metadata" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+    check "$label unsafe metadata zero writes" 0 "$writes"
+    check "$label names metadata address" yes "$(grep -qF 'refused email address' <<< "$out" && grep -qF "$address" <<< "$out" && echo yes || echo no)"
   else
     case "$path" in labels-*) expected=2 ;; repo-link-*) expected=3 ;; esac
     check "$path safe metadata succeeds" 0 "$rc"
@@ -291,8 +293,12 @@ for path in labels-name labels-description repo-link-name repo-link-description 
   done
 done
 for path in labels-description repo-link-description field-description field-existing; do
-  case_metadata allow "$scoped"
-  case_metadata allow "$unquoted_scoped"
+  for GH_VISIBILITY in public error; do
+    export GH_VISIBILITY
+    case_metadata refuse "$scoped" '`@scope'
+    case_metadata allow "$unquoted_scoped"
+    for address in "${overlaps[@]}"; do case_metadata refuse "$address" "${address%%/*}"; done
+  done
 done
 export GH_VISIBILITY=public
 # File errors cannot become an empty safe body.
@@ -437,7 +443,7 @@ unset ROOT_UNDER_TEST GH_BODY_FIXTURE
 PATH="$PATH_CURL"
 for path in labels-name labels-description repo-link-label-name repo-link-label-description project-label-name project-label-description project-identifier; do
   payloads=("$real" ci@build.example.test)
-  case "$path" in *description) payloads+=("$scoped" "$unquoted_scoped") ;; esac
+  case "$path" in *description) payloads+=("$scoped" "$unquoted_scoped" "${overlaps[@]}") ;; esac
   for payload in "${payloads[@]}"; do
     name=area:tooling; description='Safe description.'; ident=NEW
     case "$path" in *label*name) name="area:$payload" ;; *label*description) description="$payload" ;; project-identifier) [ "$payload" != "$real" ] || ident="$payload" ;; esac
@@ -451,15 +457,17 @@ for path in labels-name labels-description repo-link-label-name repo-link-label-
       *) out="$(PLANE_PROJECT="$ident" ai project-new 'Keep the title, or it is lost' 2>&1)" || rc=$? ;;
     esac
     writes="$(grep -cE '^(POST|PATCH|DELETE) ' "$CURL_FAKE_STATE/requests.log" || true)"
-    if [ "$payload" = "$real" ]; then
-      check "Plane $path refuses metadata" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-      check "Plane $path metadata zero writes" 0 "$writes"
-      check "Plane $path names metadata address" yes "$(grep -qF 'refused email address' <<< "$out" && grep -qF "$real" <<< "$out" && echo yes || echo no)"
-    else
+    case "$payload" in
+    "$real"|"$scoped"|'`@'*)
+      address="$real"; [ "$payload" = "$real" ] || address='`@'
+      check "Plane $path $payload refuses metadata" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+      check "Plane $path $payload metadata zero writes" 0 "$writes"
+      check "Plane $path $payload names metadata address" yes "$(grep -qF 'refused email address' <<< "$out" && grep -qF "$address" <<< "$out" && echo yes || echo no)" ;;
+    *)
       check "Plane $path safe metadata succeeds" 0 "$rc"
       expected=3; case "$path" in project-*) expected=15 ;; esac
-      check "Plane $path safe metadata writes" "$expected" "$writes"
-    fi
+      check "Plane $path safe metadata writes" "$expected" "$writes" ;;
+    esac
   done
 done
 [ "$failed" -eq 0 ] || fail "$failed public body assertions failed"

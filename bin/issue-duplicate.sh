@@ -5,6 +5,10 @@
 #
 # The direction is explicit because GitHub's "Duplicate of #N" comment syntax is
 # directional from the issue receiving the comment and is easy to reverse.
+# Refuses literal email addresses in the comment for public or unknown visibility; reserved example
+# domains and GitHub noreply addresses are allowed. Private GitHub repositories bypass the check.
+# Plane cannot establish private visibility, so its comments receive the public check.
+# The check reads the raw text, and an address dressed by Markdown, HTML, invisible or lookalike characters may pass; the README names the cases.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 
@@ -25,7 +29,11 @@ if [ -n "$undo" ]; then
   duplicate_unmark "$canonical_repo" "$canonical_num" "$duplicate_repo" "$duplicate_num"
   verb="is no longer marked as a duplicate of"
 else
-  duplicate_mark "$canonical_repo" "$canonical_num" "$duplicate_repo" "$duplicate_num"
+  canonical_ref="$canonical_repo#$canonical_num"
+  [ "$canonical_repo" != "$duplicate_repo" ] || canonical_ref="#$canonical_num"
+  body="Duplicate of $canonical_ref"
+  check_public_body issue-duplicate "$duplicate_repo" "$body" ""
+  duplicate_mark "$canonical_repo" "$canonical_num" "$duplicate_repo" "$duplicate_num" "$body"
   verb="is marked as a duplicate of"
 fi
 

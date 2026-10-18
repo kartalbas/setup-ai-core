@@ -50,13 +50,8 @@ widths="$(tr -d '\r' < "$TABLE" | awk -F'\t' '!/^#/ && NF > 0 && NF != 5 { print
 # exit: there is nothing here to hold, and refusing would stop a person who works through a tool
 # this table has never heard of.
 if [ -z "$tools" ]; then
-  # A Codex or agy session started from a Claude Code shell inherits CLAUDECODE, so both are
-  # asked first; agy sets ANTIGRAVITY_AGENT in its shells.
-  if [ -n "${CODEX_SANDBOX:-}${CODEX_SANDBOX_NETWORK_DISABLED:-}${CODEX_THREAD_ID:-}" ]; then tools='codex'$'\n'
-  elif [ -n "${ANTIGRAVITY_AGENT:-}" ]; then tools='agy'$'\n'
-  elif [ -n "${CLAUDECODE:-}" ]; then tools='claude'$'\n'
-  elif [ -n "${GEMINI_CLI:-}" ]; then tools='gemini'$'\n'
-  fi
+  detected="$(session_tool)"
+  [ -z "$detected" ] || tools="$detected"$'\n'
 fi
 if [ -z "$tools" ]; then
   while IFS= read -r name; do

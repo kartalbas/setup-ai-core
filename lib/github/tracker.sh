@@ -9,6 +9,18 @@
 # tracker_name: the tracker as a message names it
 tracker_name() { echo GitHub; }
 
+# Only a successful boolean answer establishes a repository's visibility.
+repo_visibility() {
+  local json visibility
+  json="$(gh_read "the visibility of $1" repo view "$1" --json isPrivate)" || return 1
+  visibility="$(printf '%s' "$json" | jq -er 'if (.isPrivate | type) == "boolean" then
+    if .isPrivate then "private" else "public" end else error("isPrivate is not boolean") end' 2>/dev/null)" \
+    || { echo "cannot establish the visibility of $1: isPrivate was not a boolean" >&2; return 1; }
+  case "$visibility" in public|private) printf '%s\n' "$visibility" ;;
+    *) echo "cannot establish the visibility of $1: expected one repository" >&2; return 1 ;;
+  esac
+}
+
 # THE ORGANISATION, for a command that names no repository: GH_ORG in the environment, then
 # GH_ORG= in the checkout's .ai-core/config.env (the project's setting, put there by init), then
 # the owner of the repository the caller stands in. The harness itself names none: it serves many.
@@ -450,11 +462,23 @@ issue_parent() {  # issue_parent <owner/repo> <number>
 # One function for each call an issue command makes. The command keeps its arguments, its output and
 # its exit codes; what is GitHub's here is the endpoint, the mutation and the words of its refusals.
 
+# Email-to-member resolution belongs to Plane; GitHub takes logins or gh's special tokens.
+check_github_assignees() {  # check_github_assignees <command> <comma- or newline-separated assignees>
+  local command="$1" assignee
+  while IFS= read -r assignee; do
+    case "$assignee" in
+      @me|@copilot) ;;
+      *@*) die "$command: GitHub assignees must be logins, not email addresses: $assignee" ;;
+    esac
+  done < <(printf '%s\n' "$2" | tr ',' '\n')
+}
+
 # issue_create <owner/repo> <title> <body file> <assignee> [label...]: prints the number of the new issue.
 # A create that fails is no read problem: gh names why on stderr, most often a label of labels.tsv
 # that labels-sync has not yet made in this repository, and nothing was created.
 issue_create() {
   local repo="$1" title="$2" body="$3" assignee="$4" args l rc=0 url
+  check_github_assignees issue-new "$assignee"
   shift 4
   args=(--repo "$repo" --title "$title" --body-file "$body" --assignee "$assignee")
   for l in "$@"; do args+=(--label "$l"); done
@@ -505,6 +529,7 @@ issue_assignees() {
 
 # issue_assignees_set <owner/repo> <number> <logins, one per line>: the assignees become exactly these.
 issue_assignees_set() {
+  check_github_assignees issue-assign "$3"
   printf '%s\n' "$3" | jq -R . | jq -sc '{assignees: [.[] | select(. != "")]}' \
     | gh api --method PATCH "repos/$1/issues/$2" --input - >/dev/null \
     || die "could not set the assignees of $1#$2"
@@ -617,13 +642,11 @@ issue_comment_post() {
   gh_read "the comment posted on $1#$2" api "repos/$1/issues/$2/comments" "${field[@]}" --jq .html_url
 }
 
-# duplicate_mark <canonical owner/repo> <number> <duplicate owner/repo> <number>: the duplicate gets a
+# duplicate_mark <canonical owner/repo> <number> <duplicate owner/repo> <number> <comment>: the duplicate gets a
 # comment that names the canonical issue.
 duplicate_mark() {
-  local canonical_ref="$1#$2"
-  [ "$1" = "$3" ] && canonical_ref="#$2"
   gh_read "the duplicate mark on $3#$4" api --method POST \
-    "repos/$3/issues/$4/comments" -f "body=Duplicate of $canonical_ref" >/dev/null || exit 1
+    "repos/$3/issues/$4/comments" -f "body=$5" >/dev/null || exit 1
 }
 
 duplicate_unmark() {  # duplicate_unmark <canonical owner/repo> <number> <duplicate owner/repo> <number>

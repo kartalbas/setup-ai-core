@@ -4,6 +4,10 @@
 #
 #   project-new.sh TITLE [LIKE]
 #
+# Project visibility is unknown on GitHub and Plane. Names receive the public email-address check;
+# reserved example domains and GitHub noreply addresses are allowed.
+# The check reads the raw text, and an address dressed by Markdown, HTML, invisible or lookalike characters may pass; the README names the cases.
+#
 # Prints "created: TITLE -> URL" then the new project number on stdout.
 #
 # With no LIKE the source is the org's template board, found by its title rather than
@@ -31,6 +35,7 @@ esac
 
 org_name="$(gh_org)" || exit 1
 
+check_public_body project-new "$org_name" "$title" "" project
 made="$(project_create "$org_name" "$like" "$title")" || exit 1
 
 IFS=$'\t' read -r num url <<< "$made"

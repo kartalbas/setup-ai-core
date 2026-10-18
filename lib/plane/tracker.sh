@@ -21,6 +21,11 @@
 
 tracker_name() { echo Plane; }
 
+repo_visibility() {
+  echo "Plane cannot establish private destination visibility for $1; the public body check applies" >&2
+  return 1
+}
+
 # The organisation a command acts for: GH_ORG, then the owner of the checkout's origin.
 gh_org() {
   local org repo
@@ -504,20 +509,19 @@ issue_block() {
     "$(jq -nc --arg i "$(printf '%s' "$by" | jq -r '.id')" '{relation_type: "blocked_by", issues: [$i]}')" >/dev/null || exit 1
 }
 
-# duplicate_mark <canonical owner/repo> <number> <duplicate owner/repo> <number>: the relation duplicate, the
+# duplicate_mark <canonical owner/repo> <number> <duplicate owner/repo> <number> <comment>: the relation duplicate, the
 # comment GitHub gets, so a person reading the thread sees it, and the duplicate in Plane's own Cancelled,
 # because GitHub closes a duplicate and an open one would still hold its epic open. The state is resolved
 # before the first write, so a project without one changes nothing.
 duplicate_mark() {
-  local canonical duplicate cancelled ref="$1#$2"
+  local canonical duplicate cancelled
   canonical="$(plane_item "$1" "$2")" || exit 1
   duplicate="$(plane_item "$3" "$4")" || exit 1
   cancelled="$(plane_state_id group:cancelled)" || exit 1
-  [ "$1" != "$3" ] || ref="#$2"
   plane_api "the duplicate mark on $3#$4" POST "$(plane_path "$(plane_relations_path "$duplicate")")" \
     "$(jq -nc --arg i "$(printf '%s' "$canonical" | jq -r '.id')" '{relation_type: "duplicate", issues: [$i]}')" >/dev/null || exit 1
   plane_api "the duplicate mark on $3#$4" POST "$(plane_path "$(plane_issue_path "$duplicate")comments/")" \
-    "$(jq -nc --arg h "$(plane_html_of "Duplicate of $ref" "")" '{comment_html: $h}')" >/dev/null || exit 1
+    "$(jq -nc --arg h "$(plane_html_of "$5" "")" '{comment_html: $h}')" >/dev/null || exit 1
   plane_api "the cancel of the duplicate $3#$4" PATCH "$(plane_path "$(plane_issue_path "$duplicate")")" \
     "$(jq -nc --arg s "$cancelled" '{state: $s}')" >/dev/null || exit 1
 }
@@ -837,9 +841,12 @@ Cancelled	cancelled	#9AA4BC	Cancelled'
 # states and the labels of labels.tsv, and prints "<identifier>\t<address>". Plane copies no project, so a
 # board to copy is refused.
 project_create() {
-  local ident made pid states made_state n=0 name group colour was id description
+  local ident made pid states made_state n=0 name group colour was id description taxonomy repo
   [ -z "$2" ] || die "Plane copies no project: project-new takes the title alone, and PLANE_PROJECT names the identifier of the new project"
   ident="$(plane_setting PLANE_PROJECT)"
+  repo="$(default_repo)" || exit 1
+  taxonomy="$(labels_tsv)" || exit 1
+  check_public_body project-new "$ident" "$ident"$'\n'"$repo"$'\n'"$taxonomy" "" project
   states="$(plane_pages "the projects of $(plane_setting PLANE_WORKSPACE)" "$(plane_path projects/)")" || exit 1
   ! printf '%s\n' "$states" | jq -e --arg i "$ident" 'select(.identifier == $i)' >/dev/null \
     || die "the Plane project $ident exists already - set PLANE_PROJECT to the identifier of the project to make"
@@ -862,8 +869,8 @@ project_create() {
   done <<< "$PLANE_STATES"
   while IFS=$'\t' read -r group name colour description; do
     [ -n "$name" ] || continue
-    labels_create "$(default_repo)" "$name" "$colour" "$description"
-  done <<< "$(labels_tsv)"
+    labels_create "$repo" "$name" "$colour" "$description"
+  done <<< "$taxonomy"
   printf '%s\t%s/%s/projects/%s/issues/\n' "$ident" "$(plane_setting PLANE_URL | sed 's|/*$||')" "$(plane_setting PLANE_WORKSPACE)" "$pid"
 }
 

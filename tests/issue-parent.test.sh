@@ -64,6 +64,7 @@ printf 'Status\tF1\tReady\tO1\nPriority\tF2\tP2\tO2\n' > "$GH_CACHE_DIRECTORY/$P
 mkdir -p "$FAKE/bin"
 cat > "$FAKE/bin/gh" <<EOF
 #!/usr/bin/env bash
+if [ "\$1 \$2" = "repo view" ] && [ "\${4-} \${5-}" = "--json isPrivate" ]; then echo '{"isPrivate":false}'; exit 0; fi
 echo "\$*" >> "$FAKE/calls"
 line="\$*"
 if [ "\$1" = "issue" ] && [ "\$2" = "create" ]; then

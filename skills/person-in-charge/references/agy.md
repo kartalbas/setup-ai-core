@@ -1,8 +1,9 @@
 # agy: the coordinator's commands
 
-Read this when your tool is agy, or when a row of your tool reads `agy:<model>`. The model comes
-from the `agy` rows of `.ai-core/models.tsv`, or after `agy:` in your own row; agy's model names
-carry the effort, so no `--effort` is given. The brief is the filled file from `briefs/`.
+Read this when your tool is agy or when a row or the owner's instruction sends a phase to agy. The
+model comes from the active selection, with the destination row supplying anything the owner left
+open; agy's model names carry the effort, so no `--effort` is given. The brief is the filled file
+from `briefs/`.
 
 ## Measured
 
@@ -54,4 +55,5 @@ output into the session's file, and post its report on the issues yourself.
 - A finished session is done; nothing is kept. Its report is on the issue, its last message in its
   output file.
 - agy has no command the harness reads for its quota. A session refused for quota ends its phase;
-  every package with a phase on agy waits until a call is answered again.
+phases assigned to that limited agy account or model wait until a call is answered again, without an
+automatic fallback.

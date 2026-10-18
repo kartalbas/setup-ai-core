@@ -16,6 +16,11 @@
 #
 # THE ASKED-FOR LINE SURVIVES THE EDIT. It is kept, not asked for and not composed - see below.
 
+# Refuses literal email addresses in titles and bodies for public or unknown visibility; reserved example domains
+# and GitHub noreply addresses are allowed. Private GitHub repositories bypass the check. Plane
+# cannot establish private visibility, so its text receives the public check.
+# The check reads the raw text, and an address dressed by Markdown, HTML, invisible or lookalike characters may pass; the README names the cases.
+
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 
 usage='usage: issue-edit.sh [OWNER/REPO] NUMBER [--title T] [--body-file PATH]'
@@ -27,7 +32,10 @@ while [ $# -gt 0 ]; do
     --title)     need_value "$1" "${2-}"; title="$2"; shift 2 ;;
     --body-file) need_value "$1" "${2-}"; body="$2";  shift 2 ;;
     --title=*|--body-file=*) die "$1 is not supported - separate the flag and its value" ;;
-    -h|--help)   echo "$usage"; exit 0 ;;
+    -h|--help)   echo "$usage"; printf '%s\n' ' Refuses literal email addresses in titles and bodies for public or unknown visibility; reserved example domains
+and GitHub noreply addresses are allowed. Private GitHub repositories bypass the check. Plane
+cannot establish private visibility, so its text receives the public check.
+The check reads the raw text, and an address dressed by Markdown, HTML, invisible or lookalike characters may pass; the README names the cases.'; exit 0 ;;
     -*)          die "unknown argument '$1'" ;;
     *)           numbers+=("$1"); shift ;;
   esac
@@ -38,6 +46,7 @@ done
 [ -n "$title" ] || [ -n "$body" ] || die "name a --title or a --body-file - an edit that changes nothing is a mistake"
 if [ -n "$body" ]; then
   [ -f "$body" ] || die "the body file does not exist: $body"
+  [ -r "$body" ] || die "cannot read body file: $body"
 fi
 
 repo="$(resolve_repo "${numbers[0]}")" || exit 1
@@ -72,9 +81,16 @@ case "$num" in ''|*[!0-9]*) die "the issue number must be numeric, not '$num'" ;
 #
 # The caller's own file is left alone, the way issue-new leaves it: a command that edits its
 # input cannot be run twice.
-send="$body"
+send=""; snapshot=""
+if [ -n "$body" ]; then
+  snapshot="$(mktemp)" || die "issue-edit: cannot create temporary body file"
+  trap 'rm -f "$snapshot" "$send"' EXIT
+  trap 'exit 1' HUP INT TERM
+  cat "$body" > "$snapshot" || die "cannot read body file: $body"
+  send="$snapshot"
+fi
 kept=""
-given=""; [ -z "$body" ] || IFS= read -r given < "$body" || true
+given=""; [ -z "$body" ] || IFS= read -r given < "$snapshot" || true
 if [ -n "$body" ] && ! is_origin_line "${given%$'\r'}"; then
   current="$(issue_body "$repo" "$num")" || exit 1
   # GitHub writes a body back with CRLF line endings, and the carriage return would travel into
@@ -82,15 +98,15 @@ if [ -n "$body" ] && ! is_origin_line "${given%$'\r'}"; then
   first="$(printf '%s' "$current" | head -n 1)"
   first="${first%$'\r'}"
   if is_origin_line "$first"; then
-    send="$(mktemp)"
-    trap 'rm -f "$send"' EXIT
-    { printf '%s\n\n' "$first"; cat "$body"; } > "$send"
+    send="$(mktemp)" || die "issue-edit: cannot create temporary body file"
+    { printf '%s\n\n' "$first"; cat "$snapshot"; } > "$send"
     kept=", asked-for line kept"
   else
     echo "$repo#$num carries no asked-for line, so there is none to keep - an edit is not the place to invent one" >&2
   fi
 fi
 
+check_public_body issue-edit "$repo" "$title" "${body:+$send}"
 issue_edit "$repo" "$num" "$title" "${body:+$send}"
 
 changed=""

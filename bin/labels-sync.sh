@@ -46,6 +46,7 @@ esac
 taxonomy="$(labels_tsv)" || exit 1
 
 for repo in "$@"; do
+  check_public_body labels-sync "$repo" "$repo"$'\n'"$taxonomy" ""
   echo "$repo"
   while IFS=$'\t' read -r group name color desc; do
     [ -n "$name" ] || continue

@@ -57,6 +57,7 @@ check() { # name expected actual
 mkdir -p "$FAKE/bin"
 cat > "$FAKE/bin/gh" <<EOF
 #!/usr/bin/env bash
+if [ "\$1 \$2" = "repo view" ] && [ "\${4-} \${5-}" = "--json isPrivate" ]; then echo '{"isPrivate":false}'; exit 0; fi
 echo "\$*" >> "$FAKE/calls"
 echo '{"data":{"node":{"items":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}'
 exit 0

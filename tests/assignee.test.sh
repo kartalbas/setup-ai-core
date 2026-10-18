@@ -32,6 +32,7 @@ check() { # name expected actual
 # The stand-in: records what it was asked and answers the little the command reads.
 cat > "$FAKE/gh" <<EOF
 #!/usr/bin/env bash
+if [ "\$1 \$2" = "repo view" ] && [ "\${4-} \${5-}" = "--json isPrivate" ]; then echo '{"isPrivate":false}'; exit 0; fi
 echo "\$*" >> "$LOG"
 case "\$1 \${2:-}" in
   "issue create") echo "https://github.com/o/r/issues/123"; exit 0 ;;

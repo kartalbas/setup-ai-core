@@ -80,12 +80,15 @@
   repair after a NO is re-checked by one reader against the named findings, reading only the
   repair, because a whole package read again for a few repaired lines costs a full review.
   A helper never builds, never gives the deciding review and never decides; its answer is a lead the
-  session checks before it uses it. No task moves to another model, effort or tool because a quota
-  ran out, because a fallback waters the result down from the bottom up: it waits. [review]
+  session checks before it uses it. No session moves a task to another model, effort or tool on its
+  own because a quota ran out, because a fallback waters the result down from the bottom up: it
+  waits. The owner may send a phase to another tool and model for a while; the session names that in
+  its report. [review]
 - **Never announce that the context is running out and never stop work because of it.** Report the
-  work when it reaches a point, not because a budget did. A usage limit of the account is another
-  matter, because every session draws on it: at the limit the project sets, USAGE_STOP_AT in its
-  config.env (92 % unless set), of any of its windows, the five hours, the week or one model's quota,
-  every session finishes the step in hand, commits and reports it, starts nothing new and waits for
-  the reset, and what is left stays for the coordination and the reviews. `ai-core usage` reads the
+  work when it reaches a point, not because a budget did. A usage limit of an account is another
+  matter, because every session using that account draws on it: at the limit the project sets,
+  USAGE_STOP_AT in its config.env (92 % unless set), of any of its windows, the five hours, the week
+  or one model's quota, every session using that limited account or model finishes the step in hand,
+  commits and reports it, starts nothing new on that account or model and waits for the reset, and
+  what is left stays for the coordination and the reviews. `ai-core usage` reads the
   windows. [review · tool]

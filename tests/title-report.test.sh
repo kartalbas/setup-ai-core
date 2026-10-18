@@ -19,6 +19,7 @@ log="$fake/calls.txt"
 
 cat > "$fake/gh" <<EOF
 #!/usr/bin/env bash
+if [ "\$1 \$2" = "repo view" ] && [ "\${4-} \${5-}" = "--json isPrivate" ]; then echo '{"isPrivate":false}'; exit 0; fi
 echo "\$*" >> "$log"
 case "\$*" in
   *issue*create*)         printf 'https://github.com/example-org/example-repo/issues/999\n'; exit 0 ;;

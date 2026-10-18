@@ -56,6 +56,7 @@ FAKE="$(mktemp -d)"
 mkdir -p "$FAKE/bin"
 cat > "$FAKE/bin/gh" <<EOF
 #!/usr/bin/env bash
+if [ "\$1 \$2" = "repo view" ] && [ "\${4-} \${5-}" = "--json isPrivate" ]; then echo '{"isPrivate":false}'; exit 0; fi
 case "\$*" in
   *"fields(first:50)"*) cat "$WORK/board.tsv"; echo read >> "$FAKE/board-reads" ;;
   *"repo view"*|"api repos/{owner}/{repo} --jq .full_name"*) exit 1 ;;

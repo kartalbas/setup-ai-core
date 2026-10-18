@@ -18,7 +18,9 @@ log="$fake/calls.txt"
 
 cat > "$fake/gh" <<EOF
 #!/usr/bin/env bash
+if [ "\$1 \$2" = "repo view" ] && [ "\${4-} \${5-}" = "--json isPrivate" ]; then echo '{"isPrivate":false}'; exit 0; fi
 printf '%s\n' "\$*" >> "$log"
+for a in "\$@"; do case "\$a" in body=@*) cp "\${a#body=@}" "$fake/sent-body" ;; esac; done
 if [ "\$*" = "api repos/{owner}/{repo} --jq .full_name" ]; then echo 'example-org/example-repo'; exit 0; fi
 if [ "\$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
 echo 'https://github.com/example-org/example-repo/issues/94#issuecomment-1'
@@ -47,7 +49,9 @@ check 'the whole call' "api repos/$repo/issues/94/comments -f body=Comment here 
 echo 'a file travels as -F body=@file, never as its content'
 : > "$log"
 "$comment" "$repo" 94 --body-file "$body_file" >/dev/null 2>&1
-check 'the flag'            yes "$(grep -q -- "-F body=@$body_file" "$log" && echo yes || echo no)"
+check 'the flag'            yes "$(grep -q -- '-F body=@' "$log" && echo yes || echo no)"
+check 'a snapshot is sent'  no "$(grep -qF -- "-F body=@$body_file" "$log" && echo yes || echo no)"
+check 'the snapshot bytes'  yes "$(cmp -s "$body_file" "$fake/sent-body" && echo yes || echo no)"
 check 'the issue and repo'  yes "$(grep -q "api repos/$repo/issues/94/comments" "$log" && echo yes || echo no)"
 check 'no inline body'      no  "$(grep -q -- '-f body=' "$log" && echo yes || echo no)"
 
@@ -92,6 +96,7 @@ refusing="$fake/refusing"
 mkdir -p "$refusing"
 cat > "$refusing/gh" <<'NO'
 #!/usr/bin/env bash
+if [ "$1 $2" = "repo view" ] && [ "${4-} ${5-}" = "--json isPrivate" ]; then echo '{"isPrivate":false}'; exit 0; fi
 if [ "$*" = "api repos/{owner}/{repo} --jq .full_name" ]; then echo 'example-org/example-repo'; exit 0; fi
 if [ "$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
 echo '{"message":"Issue is locked"}'
@@ -108,6 +113,7 @@ limited="$fake/limited"
 mkdir -p "$limited"
 cat > "$limited/gh" <<'NO'
 #!/usr/bin/env bash
+if [ "$1 $2" = "repo view" ] && [ "${4-} ${5-}" = "--json isPrivate" ]; then echo '{"isPrivate":false}'; exit 0; fi
 printf '%s\n' "$*" >> "$LIMITED_LOG"
 case "$*" in
   *graphql*|"issue comment"*|"repo view"*)

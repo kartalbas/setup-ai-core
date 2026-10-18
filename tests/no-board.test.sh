@@ -17,6 +17,7 @@ log="$fake/calls.txt"
 # the whole distinction --no-board turns on, so the fake makes it rather than assuming it.
 cat > "$fake/gh" <<EOF
 #!/usr/bin/env bash
+if [ "\$1 \$2" = "repo view" ] && [ "\${4-} \${5-}" = "--json isPrivate" ]; then echo '{"isPrivate":false}'; exit 0; fi
 echo "\$*" >> "$log"
 case "\$*" in
   *n=example-harness*projectsV2*) exit 0 ;;

@@ -17,6 +17,7 @@ log="$fake/calls.txt"
 
 cat > "$fake/gh" <<EOF
 #!/usr/bin/env bash
+if [ "\$1 \$2" = "repo view" ] && [ "\${4-} \${5-}" = "--json isPrivate" ]; then echo '{"isPrivate":false}'; exit 0; fi
 printf '%s\n' "\$*" >> "$log"
 case "\$*" in
   *"issues/412"*) echo 'I_node412'; exit 0 ;;

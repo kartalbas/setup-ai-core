@@ -11,7 +11,8 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 export HOME="$work/home" AI_CORE_HOME="$work/home"
-unset CODEX_THREAD_ID CODEX_SANDBOX CODEX_SANDBOX_NETWORK_DISABLED CODEX_HOME   # the Claude Code cases run as no Codex shell
+. "$root/tests/tool-environment.sh"
+unset CODEX_HOME
 mkdir -p "$HOME" "$work/project"
 
 failed=0
@@ -72,9 +73,31 @@ check 'the five hours'           "five_hour   12 % used  resets $(when "$soon")"
 check 'when Codex recorded it'   "recorded $(when "$(jq -n '"2026-10-13T07:09:45Z" | fromdateiso8601')"), limit 92 %" "$(sed -n 3p <<< "$out")"
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'no Codex shell: Claude at 99 %, exit 3'  3 "$rc"
+echo 'an explicit selector reads the destination account despite inherited identity'
+out="$(cd "$work/project" && CLAUDECODE=1 bash "$root/bin/usage.sh" --tool codex 2>&1)"; rc=$?
+check 'explicit Codex below, Claude at 99' 0 "$rc"
+out="$(cd "$work/project" && CODEX_THREAD_ID=t CODEX_SANDBOX=fixture CODEX_SANDBOX_NETWORK_DISABLED=1 bash "$root/bin/usage.sh" --tool claude 2>&1)"; rc=$?
+check 'explicit Claude at limit' 3 "$rc"
+for flag in '--tool' '--tool agy' '--tool unknown' '--tool --stop-at 92'; do
+  out="$(cd "$work/project" && bash "$root/bin/usage.sh" $flag 2>&1)"; rc=$?
+  check "invalid selector $flag" 2 "$rc"
+done
 codex_line 95 null >> "$sessions/rollout-new.jsonl"
 out="$(cd "$work/project" && CODEX_THREAD_ID=t bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'Codex at its limit: exit 3'  3 "$rc"
+printf '{"recorded_at":%s,"rate_limits":{"seven_day":{"used_percentage":4,"resets_at":%s}}}\n' "$now" "$later" > "$HOME/.ai-core/usage.json"
+out="$(cd "$work/project" && CLAUDECODE=1 bash "$root/bin/usage.sh" --tool codex 2>&1)"; rc=$?
+check 'explicit Codex at limit despite Claude below' 3 "$rc"
+out="$(cd "$work/project" && CODEX_THREAD_ID=t bash "$root/bin/usage.sh" --tool claude 2>&1)"; rc=$?
+check 'explicit Claude below despite Codex at limit' 0 "$rc"
+mkdir -p "$work/mutant/bin" "$work/mutant/lib"
+cp "$root/lib/common.sh" "$work/mutant/lib/"
+sed 's/tool="$2"/tool="claude"/' "$root/bin/usage.sh" > "$work/mutant/bin/usage.sh"
+out="$(cd "$work/project" && bash "$work/mutant/bin/usage.sh" --tool codex 2>&1)"; rc=$?
+check 'ignoring selector is caught' 0 "$rc"
+sed 's/exit 3/exit 0/g' "$root/bin/usage.sh" > "$work/mutant/bin/usage.sh"
+out="$(cd "$work/project" && bash "$work/mutant/bin/usage.sh" --tool codex 2>&1)"; rc=$?
+check 'non-stopping mutant is caught' 0 "$rc"
 rm -rf "$HOME/.codex"
 out="$(cd "$work/project" && CODEX_THREAD_ID=t bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'no Codex session file: exit 2'  2 "$rc"

@@ -175,6 +175,10 @@ else
     || back_to_branch "the push was refused (see above) - nothing reached origin, and $branch is checked out again"
   git switch -q "$branch" || die "$merged is on origin/$default, but $branch could not be checked out again - run git switch $branch before finish-issue"
 fi
+checkout="$(cd "$(dirname "$landing")/.." && pwd)"
+if ! fast_forward_default_branch "$checkout"; then
+  echo "integration succeeded: $merged is on origin/$default; checkout $checkout was not refreshed" >&2
+fi
 echo "integrated: $merged on origin/$default, $subject$(printf ', Reviewed-by: %s' "${reviewers[@]}")"
 # Every issue the merged commits name in parentheses, the integrated one first: a package lands
 # several issues in one merge, and the card of each moves on only through its own finish-issue. Only

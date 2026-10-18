@@ -25,6 +25,7 @@ sent="$fake/sent-body.md"
 
 cat > "$fake/gh" <<EOF
 #!/usr/bin/env bash
+if [ "\$1 \$2" = "repo view" ] && [ "\${4-} \${5-}" = "--json isPrivate" ]; then echo '{"isPrivate":false}'; exit 0; fi
 printf '%s\n' "\$*" >> "$log"
 if [ "\$*" = "api repos/{owner}/{repo} --jq .full_name" ]; then echo 'example-org/example-repo'; exit 0; fi
 if [ "\$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
@@ -62,7 +63,9 @@ echo 'a body alone travels as a file reference'
 : > "$log"
 out="$("$edit" "$repo" 163 --body-file "$body" 2>/dev/null)"
 check 'what it says'    '#163 -> edited (body)' "$out"
-check 'the file'        yes "$(grep -q -- "-F body=@$body" "$log" && echo yes || echo no)"
+check 'a file snapshot' yes "$(grep -q -- '-F body=@' "$log" && echo yes || echo no)"
+check 'snapshot bytes'  yes "$(cmp -s "$body" "$sent" && echo yes || echo no)"
+check 'not the input'   no "$(grep -qF -- "-F body=@$body" "$log" && echo yes || echo no)"
 check 'no title sent'   no  "$(grep -q -- '-f title=' "$log" && echo yes || echo no)"
 check 'not its content' no  "$(grep -q 'backtick' "$log" && echo yes || echo no)"
 
@@ -120,7 +123,8 @@ echo 'a body that already carries the line is sent untouched, and the issue is n
 out="$("$edit" "$repo" 163 --body-file "$carrying" 2>/dev/null)"
 check 'what it says'          '#163 -> edited (body)' "$out"
 check 'the issue is not read' no  "$(grep -q -- '--jq .body' "$log" && echo yes || echo no)"
-check 'the file itself'       yes "$(grep -q -- "-F body=@$carrying" "$log" && echo yes || echo no)"
+check 'the body bytes'        yes "$(cmp -s "$carrying" "$sent" && echo yes || echo no)"
+check 'a snapshot is sent'    no "$(grep -qF -- "-F body=@$carrying" "$log" && echo yes || echo no)"
 check 'no second copy of the line' 1 "$(grep -c 'Asked for by' "$sent" || true)"
 
 echo 'an issue carrying no asked-for line is reported, and the body goes as given'
@@ -129,7 +133,8 @@ printf 'An issue opened on the web.\n' > "$reply"
 out="$("$edit" "$repo" 163 --body-file "$plain" 2>&1)"
 check 'says there is none to keep' yes "$(grep -q 'carries no asked-for line' <<< "$out" && echo yes || echo no)"
 check 'the edit still happened'    yes "$(grep -q -- '#163 -> edited (body)' <<< "$out" && echo yes || echo no)"
-check 'the file itself'            yes "$(grep -q -- "-F body=@$plain" "$log" && echo yes || echo no)"
+check 'the body bytes'             yes "$(cmp -s "$plain" "$sent" && echo yes || echo no)"
+check 'a snapshot is sent'         no "$(grep -qF -- "-F body=@$plain" "$log" && echo yes || echo no)"
 printf '{}\n' > "$reply"
 
 echo 'an edit that changes nothing stops before GitHub is reached'
@@ -161,6 +166,7 @@ refusing="$fake/refusing"
 mkdir -p "$refusing"
 cat > "$refusing/gh" <<'NO'
 #!/usr/bin/env bash
+if [ "$1 $2" = "repo view" ] && [ "${4-} ${5-}" = "--json isPrivate" ]; then echo '{"isPrivate":false}'; exit 0; fi
 if [ "$*" = "api repos/{owner}/{repo} --jq .full_name" ]; then echo 'example-org/example-repo'; exit 0; fi
 if [ "$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
 echo '{"message":"Validation Failed"}'

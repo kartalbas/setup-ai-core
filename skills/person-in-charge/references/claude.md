@@ -1,8 +1,9 @@
 # Claude Code: the coordinator's commands
 
 Read this only when your tool is Claude Code. The model and effort come from the `claude` rows of
-`.ai-core/models.tsv`; the brief is the filled file from `briefs/`. A row whose model reads
-`agy:<model>` is not started here: `references/agy.md` says how.
+`.ai-core/models.tsv`; the brief is the filled file from `briefs/`. A phase assigned to another tool
+by a `<tool>:<model>` row or the owner's instruction is started through `references/<tool>.md`; a
+Claude coordinator therefore reads `references/codex.md` for a phase it sends to Codex.
 
 ## Start a phase session
 
@@ -72,7 +73,8 @@ earlier. The round is the net under them: it finds what none of them reported.
 
 ## The usage limit
 
-`ai-core usage` reads the five-hour and the weekly window with their reset times; exit 3 means one
-stands at `USAGE_STOP_AT` or above. One model's own weekly quota is not among the windows: a
+`ai-core usage --tool claude` reads Claude's last recorded five-hour and weekly windows with their
+reset times, even when the calling shell carries another tool's variables; exit 3 means one stands
+at `USAGE_STOP_AT` or above. One model's own weekly quota is not among the windows: a
 session's limit error for a model, or the owner naming its percentage, counts as that limit for that
 model's phases.

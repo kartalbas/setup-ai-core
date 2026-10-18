@@ -88,6 +88,8 @@ for l in ${add[@]+"${add[@]}"}; do
     die "\"$l\" is not in the taxonomy. Add it to labels.tsv and run labels-sync, so every repository has it."
 done
 
+check_public_body issue-label "$repo" "$(printf '%s\n' ${add[@]+"${add[@]}"} ${remove[@]+"${remove[@]}"})" ""
+
 # WHAT IS MISSING IS REPORTED, NEVER FILLED IN. A type or an area guessed here is a lie
 # the board then tells everyone, so a ticket that ends up with only one of the two is
 # named and left for a person to decide. Removal is what makes that case common, so the

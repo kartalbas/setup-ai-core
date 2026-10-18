@@ -23,6 +23,7 @@ sent="$fake/sent-body.md"
 # deletes its temporary body the moment the call returns.
 cat > "$fake/gh" <<EOF
 #!/usr/bin/env bash
+if [ "\$1 \$2" = "repo view" ] && [ "\${4-} \${5-}" = "--json isPrivate" ]; then echo '{"isPrivate":false}'; exit 0; fi
 echo "\$*" >> "$log"
 case "\$*" in
   *issue*create*)

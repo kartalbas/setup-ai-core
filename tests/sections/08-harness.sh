@@ -61,6 +61,12 @@ assembled_ok() {  # assembled_ok <checkout> <label>
   bash "$ROOT/bin/rules-check.sh" "$c/.ai-core/rules/rules.md" > /dev/null || fail "$t: the assembled rules.md fails rules-check"
   [ -f "$c/.claude/skills/deploy/SKILL.md" ] && [ -f "$c/.agents/skills/deploy/SKILL.md" ] || fail "$t: the skill is not in both skill directories"
   [ -f "$c/.claude/skills/person-in-charge/SKILL.md" ] && [ -f "$c/.agents/skills/person-in-charge/SKILL.md" ] || fail "$t: the skill of setup-ai-core is not in both skill directories"
+  for dir in .claude .agents; do
+    cmp -s "$ROOT/skills/person-in-charge/SKILL.md" "$c/$dir/skills/person-in-charge/SKILL.md" || fail "$t: stale coordinator instructions in $dir"
+    for tool in claude codex agy; do
+      cmp -s "$ROOT/skills/person-in-charge/references/$tool.md" "$c/$dir/skills/person-in-charge/references/$tool.md" || fail "$t: stale $tool reference in $dir"
+    done
+  done
   [ -f "$c/.claude/agents/builder.md" ] || fail "$t: the agent definition is not in .claude/agents/"
   [ ! -e "$c/.claude/agents/README.md" ] || fail "$t: agents/README.md of the layer was deployed as an agent"
   [ -f "$c/.ai-core/docs/shop-ai-core/glossary.md" ] || fail "$t: the harness's docs are not under .ai-core/docs/shop-ai-core/"

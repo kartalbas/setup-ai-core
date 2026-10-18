@@ -69,6 +69,13 @@ Nothing updates by itself.
 
 ---
 
+`session-start` safely refreshes the checkout's local default branch before reporting its state.
+A clean checkout on that branch uses a fast-forward merge; another branch or detached HEAD keeps
+its selected commit, index and files while an unheld default ref advances. Dirty checkouts and
+Git operations in progress are refused before fetching. Local-only commits, missing refs, fetch
+failures and a default held by another worktree are named and skipped. Nothing is stashed or
+forced, and startup diagnostics stay on stderr so `--json` remains valid.
+
 ## 1. The problem and the idea
 
 Every AI coding agent reads its instructions from a different file. Codex and OpenCode read
@@ -388,9 +395,10 @@ on start; no developer installs a skill by hand.
 **The skills setup-ai-core brings.** Every checkout gets two:
 
 - `person-in-charge` is the skill of the session the owner names coordinator of a project, in one
-  tool: Claude Code, Codex or agy. Each tool is its own ecosystem, and no session calls another's
-  tool, except a phase whose row in `models.tsv` reads `agy:<model>`: its coordinator starts that
-  phase on agy. The coordinator writes no code. It cuts the open issues into packages by area: one
+  tool: Claude Code, Codex or agy. Each tool is its own ecosystem; a `<tool>:<model>` row or the
+  owner's temporary instruction starts a phase on that tool while the package keeps its
+  coordinator's ecosystem and number block. The coordinator writes no code. It cuts the open issues
+  into packages by area: one
   capability across every repository it touches, with both sides of each contract named by
   `file:line`, cut so that one build session finishes it alone; packages that share a file or a
   contract run one after the other. Every package is a section of one plan issue per board, titled "Plan:
@@ -407,13 +415,17 @@ on start; no developer installs a skill by hand.
   - The model and effort of each phase follow the package's class (`mechanical`, `normal-hard`,
     `high-risk`) and come from `.ai-core/models.tsv`, one block per tool; the plan runs on the
     `high-risk` or the `normal-hard` row, because the plan decides the class. The reviewer never runs on the
-    model that built the package, by the table's rows. A phase never moves to another model or tool because a
-    quota ran out: its package waits. The issues nobody planned belong to the first tool of
+    model that built the package, by the table's rows. A session never moves a phase to another
+    model or tool on its own because a quota ran out: its package waits; an owner's temporary
+    selection is reported and expires on withdrawal or coordinator restart, without changing the
+    template rows. The issues nobody planned belong to the first tool of
     `ECOSYSTEM_ORDER` in `.ai-core/config.env`; a later tool's coordinator plans what the owner
     hands it.
   - The cards move through `backlog`, `ready`, `planned`, `implementing`, `review`, `testing` and
     `done`; a question that is the owner's puts `needs:owner` on its issues.
-  - At the usage limit every session finishes its step, commits, reports and waits for the reset.
+  - At the usage limit every session using that limited account or model finishes its step, commits,
+    reports and waits for the reset; the coordinator checks the selected tool with
+    `ai-core usage --tool claude` or `ai-core usage --tool codex` before starting its phase.
     Asked for the state, the coordinator builds one page from `ai-core status`.
 - `helper` hands a bounded task inside a phase, such as a pre-review of a diff, facts across
   repositories, a log or a screenshot, to the small model of the session's own tool, the `helper`
@@ -932,8 +944,8 @@ a new script in `bin/` is a command without any registration.
 | `release` | `ai-core release <version>` (in a clone of setup-ai-core, section 10) | 0 tagged and pushed; 1 refused, naming what is missing; 2 a wrong argument |
 | `pre-push` | `ai-core pre-push [--install [--all <folder>]]` (section 4.12) | 0 nothing refused the push, or the shim written; 1 refused, or a repository under `--all` is none; 2 a wrong argument |
 | `git-credential` | `ai-core git-credential get` (git runs it; `store` and `erase` do nothing): the credential helper `init` and the clone set for an origin on the `FORGEJO_URL` instance, as `credential.<FORGEJO_URL>.helper` in the clone's own `.git/config`, an empty entry and then `!ai-core git-credential`: the empty entry drops the helpers git takes from the system and the user's configuration, a `store` or a cache among them, which would keep the token and answer with it after the token command changed. It answers git's `get` with the username `ai-core` and the token that `FORGEJO_TOKEN_COMMAND` prints at that moment, and answers nothing for any other host or for http where `FORGEJO_URL` is https. An origin over ssh needs none of it | 0 answered or nothing to answer; 1 the token command failed or printed nothing; 2 a wrong argument |
-| `usage` | `ai-core usage [--stop-at N]` | 0 every window below N; 3 a window at N or more; 2 nothing recorded yet, or a wrong argument. Prints the account's usage windows (five hours, week) as the status line last recorded them, each with its reset time, against the limit N: `--stop-at`, else `USAGE_STOP_AT` of the project's `config.env`, else 92; a window whose reset has passed counts as reset. One model's own weekly quota is not among them |
-| `watch` | `ai-core watch [--session NAME]... [--ref CLONE:REF]... [--still S] [--every S] [--heartbeat S]`, run in the background by a session that oversees others, so its end wakes that session | 0 one line names what happened: a named session has not been `busy` in `claude agents` for `--still` seconds (900), or left it; a ref moved, its clone fetched every `--every` seconds (60); or the heartbeat (1800) passed, with every state; 1 a fetch or `claude agents` failed; 2 a wrong argument, nothing to watch, or a ref that names nothing |
+| `usage` | `ai-core usage [--tool NAME] [--stop-at N]` | 0 every window below N; 3 a window at N or more; 2 nothing recorded yet, or a wrong argument. Prints the selected tool's last recorded usage windows (five hours, week); `--tool` overrides session detection, which defaults to Claude outside Codex, and exit 2 means unknown usage rather than a successful preflight. The selector accepts `claude` or `codex`. Each window has its reset time, against the limit N: `--stop-at`, else `USAGE_STOP_AT` of the project's `config.env`, else 92; a window whose reset has passed counts as reset. One model's own weekly quota is not among them |
+| `watch` | `ai-core watch [--session NAME]... [--ref CLONE:REF]... [--file PATH]... [--still S] [--every S] [--heartbeat S]`, run in the background by a session that oversees others, so its end wakes that session | 0 one line names what happened: a named session has not been `busy` in `claude agents` for `--still` seconds (900), or left it; a ref moved, its clone fetched every `--every` seconds (60); an output file stopped growing for `--still` seconds without a parsed final `turn.completed` event; or the heartbeat (1800) passed, with every session/ref and every file’s path, bytes and minutes since growth. File inactivity is not proof of a hung process. Files must exist and be readable before watching; 1 a fetch, `claude agents` or a file read failed; 2 a wrong argument, nothing to watch, a ref that names nothing or an invalid file |
 | `permission-request` | the `PermissionRequest` hook `init` writes into `.claude/settings.json` | in a background session (`CLAUDE_JOB_DIR` set), answers the permission prompt Claude Code is about to show with a deny and a message naming the call, so the session goes on instead of waiting for nobody; elsewhere it prints nothing and the prompt is shown |
 | `statusline` | the status line command `init` writes into `.claude/settings.json` | records the usage windows Claude Code hands it in `~/.ai-core/usage.json` and, at most once a minute, a line of them in `~/.ai-core/usage.log`, then shows a short line of the model and the windows |
 | the board and issue commands | `ai-core issue-new ...`, `ai-core start-issue N`, ... (section 8) | 0 done; 1 refused or gh refused; 2 a wrong argument |
@@ -1016,10 +1028,34 @@ the limit. A wait longer than 15 minutes fails at once. The wait notice goes to 
 that parses what it captured keeps the two apart. `ai-core issue-comment` posts and resolves its
 repository over REST. `AI_CORE_SLEEP` names the command that waits, `sleep` by default; the tests set it to a stand-in.
 
+`issue-new`, `issue-comment` and `issue-edit` check supplied titles, label names and the final
+composed body before any tracker write, including title-only edits. Unless the tracker confirms a
+private GitHub repository, a literal email address is refused locally with the command and address
+named. A failed or malformed visibility read uses
+this public policy. Plane currently cannot establish private destination visibility, so the check
+also applies to Plane text. `labels-sync`, `issue-label` and `repo-link` check label names and
+descriptions before writing. `project-new`, `field-option-add` and `view-filter` check project
+names, identifiers, label metadata, option names and descriptions, and view filters. Project
+visibility is not established by either provider, so these project fields use the public policy
+even when a repository is private. Each issue's title and body share one visibility decision.
+
+Reserved domains (`invalid`, `example`, `test`, `localhost`, `example.com`, `example.net`,
+`example.org` and their subdomains) and the exact GitHub domain `users.noreply.github.com` are
+allowed, ignoring domain case. A local part containing `noreply` and an unverified Forgejo noreply
+domain grant no exemption. The check reads the raw text as written. It refuses an address written
+plainly, inside a code span or in a link. An address dressed so that the raw text differs from what a
+reader sees may pass. Whether it passes depends on where the dressing stands in the address, so
+nobody may rely on the check for a dressed address. Dressings are, for example, a Markdown escape
+such as `\@`, a code span or emphasis in the address, HTML such as a comment or a tag in it, an
+invisible format character (U+200B, U+00AD, U+2060), a lookalike of `@` or `.` (U+FF20, U+FE6B,
+U+2024, U+FE52), or an address that overlaps an exempt or numeric match before it. Encoded addresses,
+images and an address written as “name at domain” are not covered either. It refuses rather than
+redacting and leaves the caller's file unchanged.
+
 | Command | Does |
 | :--- | :--- |
 | `start-issue [OWNER/REPO] N` | opens the worktree for issue N under `../.worktrees/<repo>/issue-N-<slug>`, on a branch of that name cut from `origin/<default>`, only when the issue is assigned to you and the checkout is clean and current; moves the card to `implementing`; runs `init` there, which takes the checkout's `.ai-core/` data first; prints the thread. For an issue of another repository whose work lands here, `OWNER/REPO N` cuts the worktree here and records the issue's repository on the branch (`git config branch.<branch>.issueRepository`), where `session-start`, `integrate-issue` and `finish-issue` read it. One run, because any one of these done alone is often not done. |
-| `integrate-issue [OWNER/REPO] N --reviewed-by R [--from-origin]` | in the worktree of issue N, after the reviewer's GO: merges its branch with `--no-ff` into the newest `origin/<default>`, under the issue's title with `(#N)`, or `(OWNER/REPO#N)` for an issue of another repository, given or recorded on the branch (or `Merge <branch> (...)`, then `Merge issue-N (...)`, where the title does not fit 72 characters) and a `Reviewed-by: R` trailer per `--reviewed-by`, pushes `HEAD:<default>` through the gate, and checks the branch out again for `finish-issue`. The landings of one clone take turns: from the fetch to the end of the push it holds `ai-core-landing` in the clone's git directory, a landing that finds it held names the issue holding it and waits, and one whose holder no longer runs takes it over. Where GitHub refuses the read of the issue, a rate limit among the causes, it says "nothing landed" and names the cause. With `--from-origin` it runs in any directory of the clone and lands `origin/<branch>` instead, in a temporary worktree of `origin/<default>`, named `integrate-N.XXXXXX` in `.worktrees/<repository>/` beside the clone, where `start-issue` cuts its worktrees (so a project test that walks up to a sibling checkout finds it), that is removed afterwards, so the issue's worktree, its branch and its uncommitted changes stay as they were; it names the commit it merges, and a commit the branch holds only locally does not land. Where the merged tree tracks `scripts/install.sh`, it runs there after the merge and before the push, with its output shown, so the gate's check finds what it needs installed; a failing install says so, pushes nothing and leaves the issue's worktree as it was. Refuses without a reviewer, on a branch that is not issue N's, with changes in the tree, on a conflict and on a branch already integrated, each time with the branch checked out again and nothing pushed. The reviewer is a name given, not a review proven |
+| `integrate-issue [OWNER/REPO] N --reviewed-by R [--from-origin]` | in the worktree of issue N, after the reviewer's GO: merges its branch with `--no-ff` into the newest `origin/<default>`, under the issue's title with `(#N)`, or `(OWNER/REPO#N)` for an issue of another repository, given or recorded on the branch (or `Merge <branch> (...)`, then `Merge issue-N (...)`, where the title does not fit 72 characters) and a `Reviewed-by: R` trailer per `--reviewed-by`, pushes `HEAD:<default>` through the gate, checks the branch out again for `finish-issue`, and safely fast-forwards the main checkout’s default branch. A skipped refresh names the checkout and reason; the successful integration stays successful. The landings of one clone take turns: from the fetch to the end of the push it holds `ai-core-landing` in the clone's git directory, a landing that finds it held names the issue holding it and waits, and one whose holder no longer runs takes it over. Where GitHub refuses the read of the issue, a rate limit among the causes, it says "nothing landed" and names the cause. With `--from-origin` it runs in any directory of the clone and lands `origin/<branch>` instead, in a temporary worktree of `origin/<default>`, named `integrate-N.XXXXXX` in `.worktrees/<repository>/` beside the clone, where `start-issue` cuts its worktrees (so a project test that walks up to a sibling checkout finds it), that is removed afterwards, so the issue's worktree, its branch and its uncommitted changes stay as they were; it names the commit it merges, and a commit the branch holds only locally does not land. Where the merged tree tracks `scripts/install.sh`, it runs there after the merge and before the push, with its output shown, so the gate's check finds what it needs installed; a failing install says so, pushes nothing and leaves the issue's worktree as it was. Refuses without a reviewer, on a branch that is not issue N's, with changes in the tree, on a conflict and on a branch already integrated, each time with the branch checked out again and nothing pushed. The reviewer is a name given, not a review proven |
 | `finish-issue [OWNER/REPO] N [--landed]` | after the push that lands the work; the issue, its card and its comment are in the repository given or recorded on the branch: removes the worktree and branch of issue N, only a worktree named for issue N (a package's worktree, named for its first issue, stays while a later issue's branch is checked out in it), only when it has no changes and the change of every commit is on `origin/<default>`, by ancestry or as an equal patch (`git cherry`, so a cherry-picked branch passes); `--landed` removes it anyway where commits landed in another shape, only for a closed issue, and names them; refuses, moving no card and telling the issue nothing, when no commit on `origin/<default>` names the issue; moves the card to `testing` where the board has that column, and in a repository on no board says there is no card; comments on the issue what landed; runs `status-sync` for its repository and the issue's. `--sweep [--dry-run]` removes every worktree of the repository whose work landed more than a day ago; `start-issue` and `init --all` run it |
 | `issue-new` | creates an issue: `--title`, `--body-file`, labels, priority, the assignee from `assignees.tsv`, the card on the board, optionally a parent epic (`--parent OWNER/REPO#N`), which then follows its sub-issues as under `issue-status`. Refuses without `--asked-by LOGIN` and `--asked-in WHERE` and writes "Asked for by @login on DATE in WHERE." as the body's first line; a defect a session found in its own work (`type:bug`) takes `--found-in WHERE` instead and opens with "Found in WHERE on DATE, a defect filed without a yes.", because writing a found defect down is tracking, not new work. Reports a title over 70 characters, one with a backtick, or one that names an action and no stake. `--no-board` files it in a repository linked to no open board, a harness among them: no card, no status, no priority; refused where the repository is on a board, and together with `--project`, `--priority` or `--status`. |
 | `issue-thread N [--json]` | the issue and every comment on it, for a person or as one JSON object |
@@ -1032,7 +1068,7 @@ repository over REST. `AI_CORE_SLEEP` names the command that waits, `sleep` by d
 | `issue-status N... STATUS` | moves cards between `backlog`, `ready`, `planned`, `implementing`, `review`, `testing`, `done`; in a repository on no board, with no board named, it says the status is not set and exits 0. The epic of a moved issue follows its sub-issues: `implementing` once one has started, `testing` once all stand in testing or done, closed and `done` once all are done; from `testing` it goes back to `implementing` once a sub-issue stands before testing again, and a closed epic stays closed |
 | `issue-priority N... P` | `P0` blocker, `P1` high, `P2` normal, `P3` low, `P9` parked; on no board, as `issue-status` |
 | `issue-label N --add/--remove` | labels checked against `labels.tsv`; a typo is refused, not minted |
-| `issue-assign N` | adds, removes or replaces assignees; additive by default |
+| `issue-assign N` | adds, removes or replaces assignees; additive by default. On GitHub an assignee with an ASCII `@` other than `@me` and `@copilot` is refused as an email address; one with a lookalike of `@` (U+FF20, U+FE6B) is not |
 | `issue-duplicate N OF M` | marks N the native duplicate of M, or removes it with `--undo` |
 | `issue-transfer N OWNER/REPO` | moves an issue to another repository; the card stays where it is |
 | `issue-block`, `issue-unblock` | records or clears a real `blocked by` dependency, across repositories |

@@ -93,6 +93,88 @@ watch 5 --ref "$work/clone";                                  check 'a ref witho
 watch 5 --ref "$work/clone:origin/none" --every 1;            check 'a ref that names nothing: exit 2' 2 "$rc"
 watch 5 --session;                                            check 'an option without value: exit 2' 2 "$rc"
 
+
+echo 'file growth uses an independent inactivity clock and parsed final events'
+file="$work/output file.jsonl"; other="$work/other.jsonl"
+printf '%s\n' '{"type":"thread.started","thread_id":"fixture"}' > "$file"
+watch 9 --file "$file" --still 2 --every 1 --heartbeat 60
+check 'stalled file wakes' 0 "$rc"
+check 'stalled file names path and minutes' yes "$(grep -qF "$file has not grown for 0 minutes" <<< "$out" && echo yes || echo no)"
+# Use the full observed completion record, rather than an invented external event schema.
+completed='{"type":"turn.completed","usage":{"input_tokens":2321047,"cached_input_tokens":2174976,"cache_write_input_tokens":0,"output_tokens":21658,"reasoning_output_tokens":11479}}'
+printf '  %s  \n' "$completed" > "$file"
+watch 5 --file "$file" --still 1 --every 1 --heartbeat 60
+check 'parsed completion stays quiet' 124 "$rc"; check 'completion no event output' '' "$out"
+for event in '' '{"type":"item.completed","item":{"type":"agent_message","text":"turn.completed"}}' '{"type":"turn.completed"' '{"type":"turn.failed","error":{"message":"fixture failure"}}' 'not JSON' '{"type":"turn.completed"} {"type":"turn.completed"}'; do
+ printf '%s\n' "$event" > "$file"
+ watch 8 --file "$file" --still 1 --every 1 --heartbeat 60
+ check "unfinished or nested event wakes: $event" 0 "$rc"
+ check 'not mistaken for completion' yes "$(grep -qF "$file has not grown" <<< "$out" && echo yes || echo no)"
+done
+printf 'start\n' > "$file"
+( for n in 1 2 3 4 5 6 7 8; do sleep 0.5; printf '%s\n' "$n" >> "$file"; done ) & appender=$!
+watch 4 --file "$file" --still 2 --every 1 --heartbeat 60
+check 'growing file stays quiet' 124 "$rc"; check 'growing file no output' '' "$out"
+wait "$appender"
+printf 'still\n' > "$other"
+( for n in 1 2 3 4 5 6; do sleep 0.5; printf '%s\n' "$n" >> "$file"; done ) & appender=$!
+watch 8 --file "$file" --file "$other" --still 2 --every 1 --heartbeat 60
+check 'growth does not hide another stalled file' yes "$(grep -qF "$other has not grown" <<< "$out" && echo yes || echo no)"
+wait "$appender"
+printf '%s\n' "$completed" > "$file"; printf 'active\n' > "$other"; agents busy
+bytes="$(wc -c < "$file" | tr -d ' ')"
+watch 9 --session dig --ref "$work/clone:origin/master" --file "$file" --file "$other" --still 60 --every 1 --heartbeat 2
+check 'mixed heartbeat' 0 "$rc"
+for target in "$file, $bytes bytes, 0 minutes since growth" "$other, 7 bytes, 0 minutes since growth" 'dig busy' "$work/clone:origin/master at"; do
+ check "heartbeat target $target" yes "$(grep -qF "$target" <<< "$out" && echo yes || echo no)"
+done
+for argument in "$work/absent" "$work"; do watch 5 --file "$argument" --every 1; check 'invalid file argument' 2 "$rc"; done
+watch 5 --file; check 'file without value' 2 "$rc"
+printf 'initial\n' > "$other"; chmod 000 "$other"
+watch 5 --file "$other" --every 1; check 'unreadable file argument' 2 "$rc"; chmod 600 "$other"
+printf 'initial\n' > "$other"; ( sleep 0.5; rm "$other" ) & remover=$!
+watch 6 --file "$other" --every 1; check 'file lost after validation' 1 "$rc"
+check 'lost file named' yes "$(grep -qF "$other" <<< "$out" && echo yes || echo no)"; wait "$remover"
+# No invalid file invocation may fetch, even if a ref appears first.
+mkdir -p "$work/gitbin"
+printf '#!/usr/bin/env bash\nprintf "called\\n" >> "%s/git-calls"\nexit 9\n' "$work" > "$work/gitbin/git"; chmod +x "$work/gitbin/git"
+PATH="$work/gitbin:$PATH" watch 5 --ref "$work/clone:origin/master" --file "$work/absent" --every 1
+check 'invalid file refuses before ref fetch' 2 "$rc"
+check 'invalid file no side effects' no "$([ -e "$work/git-calls" ] && echo yes || echo no)"
+# Mutants prove the deadlines, completion parser and heartbeat target checks can go red.
+watch_script="$work/mutant-watch.sh"
+printf 'still\n' > "$other"
+sed 's/if \[ "$size" -gt "${sizes\[\$i\]}" \]; then/if true; then/' "$root/bin/watch.sh" > "$watch_script"
+mutant_watch() { out="$(timeout "$1" bash "$watch_script" "${@:2}" 2>/dev/null)"; rc=$?; }
+mutant_watch 4 --file "$other" --still 2 --every 1 --heartbeat 60
+check 'reset-on-read mutant fails stalled deadline' 124 "$rc"
+sed 's/if \[ "$size" -gt "${sizes\[\$i\]}" \]; then/if false; then/' "$root/bin/watch.sh" > "$watch_script"
+( for n in 1 2 3 4 5 6; do sleep 0.5; printf '%s\n' "$n" >> "$other"; done ) & appender=$!
+mutant_watch 6 --file "$other" --still 2 --every 1 --heartbeat 60
+check 'never-reset mutant wakes growing file' 0 "$rc"; wait "$appender"
+# A parser replaced with a substring search must suppress the planted nested word.
+sed 's/jq -se .*2>\/dev\/null/grep -q turn.completed/' "$root/bin/watch.sh" > "$watch_script"
+printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"turn.completed"}}' > "$other"
+mutant_watch 4 --file "$other" --still 1 --every 1 --heartbeat 60
+check 'substring completion mutant hides unfinished output' 124 "$rc"
+# Shrinkage is not activity, and a later append below the old high-water mark is still growth.
+printf '%0100d\n' 0 > "$other"
+( sleep 0.5; : > "$other" ) & shrinker=$!
+watch 7 --file "$other" --still 2 --every 1 --heartbeat 60
+check 'shrink does not reset growth clock' 0 "$rc"; wait "$shrinker"
+printf '%0100d\n' 0 > "$other"
+( sleep 0.3; : > "$other"; sleep 1; for n in 1 2 3 4 5 6; do printf 'x' >> "$other"; sleep 0.5; done ) & appender=$!
+watch 4 --file "$other" --still 3 --every 1 --heartbeat 60
+check 'append after shrink below old size resets clock' 124 "$rc"; wait "$appender"
+printf '%s\n' "$completed" > "$file"; printf '%s\n' "$completed" > "$other"
+sed '/report="$report; ${files\[\$i\]}/d' "$root/bin/watch.sh" > "$watch_script"
+cmp -s "$watch_script" "$root/bin/watch.sh" && { echo '  FAIL heartbeat mutant unchanged'; failed=$((failed+1)); }
+mutant_watch 7 --file "$file" --file "$other" --still 60 --every 1 --heartbeat 2
+check 'omitted-file heartbeat mutant is caught' no "$(grep -qF "$file," <<< "$out" && echo yes || echo no)"
+printf 'initial\n' > "$other"; ( sleep 0.5; chmod 000 "$other" ) & changer=$!
+watch 6 --file "$other" --every 1; check 'file becomes unreadable at runtime' 1 "$rc"; wait "$changer"; chmod 600 "$other"
+echo 'file watcher stalled/growing/completed, target-set, validation, and mutation checks finished'
+
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo
 echo 'all passed'

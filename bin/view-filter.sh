@@ -46,4 +46,5 @@ fi
 
 # What the mutation answered is the line this prints, so it is established as an answer first
 # rather than written to the screen as the result of a filter that was never set.
+check_public_body view-filter "$(project_org)/$(project_number)" "$filter" "" project
 view_filter_set "$view_id" "$filter"

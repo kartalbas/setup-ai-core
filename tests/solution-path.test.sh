@@ -17,7 +17,9 @@ log="$fake/calls.txt"
 
 cat > "$fake/gh" <<EOF
 #!/usr/bin/env bash
+if [ "\$1 \$2" = "repo view" ] && [ "\${4-} \${5-}" = "--json isPrivate" ]; then echo '{"isPrivate":false}'; exit 0; fi
 printf '%s\n' "\$*" >> "$log"
+for a in "\$@"; do case "\$a" in body=@*) cp "\${a#body=@}" "$fake/sent-body" ;; esac; done
 if [ "\$*" = "api repos/{owner}/{repo} --jq .full_name" ]; then echo 'example-org/example-repo'; exit 0; fi
 if [ "\$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
 echo 'https://github.com/example-org/example-repo/issues/163#issuecomment-1'
@@ -80,7 +82,9 @@ echo 'without --check the file travels as a file'
 : > "$log"
 out="$("$path" 163 "$whole" 2>&1)"; rc=$?
 check 'exits zero'      0 "$rc"
-check 'the flag'        yes "$(grep -q -- "-F body=@$whole" "$log" && echo yes || echo no)"
+check 'the flag'        yes "$(grep -q -- '-F body=@' "$log" && echo yes || echo no)"
+check 'a snapshot is sent' no "$(grep -qF -- "-F body=@$whole" "$log" && echo yes || echo no)"
+check 'the snapshot bytes' yes "$(cmp -s "$whole" "$fake/sent-body" && echo yes || echo no)"
 check 'no inline body'  no  "$(grep -q -- '-f body=' "$log" && echo yes || echo no)"
 check 'what gh printed' 'https://github.com/example-org/example-repo/issues/163#issuecomment-1' \
   "$(printf '%s\n' "$out" | tail -n1)"

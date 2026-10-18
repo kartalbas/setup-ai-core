@@ -45,3 +45,15 @@ EOF
 chmod +x "$WORK/ghbin/gh"
 PATH_SH="$WORK/ghbin:$PATH"
 }
+
+# A stand-in curl keeps Plane and Forgejo on this disk: tests/curl-fake.mjs answers from the JSON files
+# of $CURL_FAKE_STATE (first state: plane.json and forgejo.json), logs every call, and plants an answer
+# on demand (inject.json). PATH_CURL is the PATH to run a command under.
+make_curl_fake() {
+CURL_FAKE_STATE="$WORK/fake"; export CURL_FAKE_STATE
+node "$ROOT/tests/curl-fake.mjs" --init "$CURL_FAKE_STATE"
+mkdir -p "$WORK/curlbin"
+printf '#!/bin/sh\nexec node "%s/tests/curl-fake.mjs" "$@"\n' "$ROOT" > "$WORK/curlbin/curl"
+chmod +x "$WORK/curlbin/curl"
+PATH_CURL="$WORK/curlbin:$PATH"
+}

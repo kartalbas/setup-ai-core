@@ -20,4 +20,4 @@ load_provider tracker "
   issue_rows issues_created_since projects_of_org
   item_unarchive issue_numbers_closed issue_summaries issue_title board_card_lines board_cards_of_repo
   card_rows open_issue_page board_fields_json field_options_replace project_create repo_boards_rows
-  repo_link board_views view_filter_set"
+  repo_link board_views view_filter_set tracker_doctor"

@@ -557,6 +557,10 @@ labels_list() {
   gh_read "the labels of $1" label list --repo "$1" --limit 200 --json name --jq '.[].name'
 }
 
+# tracker_doctor: the line `ai-core doctor` prints for the tracker. GitHub's tool and login are checked
+# with the forge's, which is the same gh.
+tracker_doctor() { echo "  tracker: github"; }
+
 # tracker_login: the login the tracker knows the caller by. The answer is established as one before
 # the login is read out of it: a refused query writes its error body to stdout, so a login read
 # straight through a pipe would be the refusal text.

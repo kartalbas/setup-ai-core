@@ -841,8 +841,10 @@ allowed; any other value is an error.
 | Key | Values | Meaning |
 | :--- | :--- | :--- |
 | `AGENTS` | names separated by spaces: `claude`, `codex`, `antigravity`, `openhands`, `gemini`, `cursor`, `windsurf`, `copilot`; default `claude codex antigravity openhands` | the agents this project serves. `init` deploys the file of each one named (`.cursorrules`, `.windsurfrules`, `.github/copilot-instructions.md`, `.openhands/microagents/repo-rules.md`) and no other. Empty: every pointer file. |
-| `TRACKER` | `github` (default) | where the project's issues and board live: the folder of `lib/` whose `tracker.sh` every issue and board command calls. A value with no such folder stops the command and names the folders there are. The environment variable `TRACKER` overrides it. |
+| `TRACKER` | `github` (default), `plane` | where the project's issues and board live: the folder of `lib/` whose `tracker.sh` every issue and board command calls. A value with no such folder stops the command and names the folders there are. The environment variable `TRACKER` overrides it. |
 | `FORGE` | `github` (default) | where the project's code lives: the folder of `lib/` whose `forge.sh` creates and clones the harness repository, waits for the check of a release commit and names the signed-in user. A value with no such folder stops the command and names the folders there are. The environment variable `FORGE` overrides it. |
+| `PLANE_URL`, `PLANE_WORKSPACE`, `PLANE_PROJECT` | with `TRACKER=plane`: the address of the Plane instance, the slug of the workspace and the identifier of the project, the `ENG` of `ENG-142`. None has a default: a call that needs one stops and names it. A work item's `#n` is its number in that project. Every Plane path is under `/api/v1`, the only prefix Plane CE 1.4.2 serves. |
+| `PLANE_TOKEN_COMMAND` | a command | with `TRACKER=plane`: the command whose output is the API key. It runs when a call needs the key; the key stands in no argument, no environment and no file, because curl gets it through its configuration on standard input. Setting it to `cat <file>` of a file in your home with mode 0600 is the way `gh` keeps its token. |
 | `GH_ORG` | a GitHub organisation or user | the owner the board commands act for when a command names no repository (`repo-boards`, `project-new`, `incident-count`, a bare board number). Unset: the owner of the repository the command runs in. The environment variable `GH_ORG` overrides both. |
 | `MAP_TOOL` | `claude` (default), `codex`, `agy` | the agent CLI `ai-core map` writes the map with, in its non-interactive read-only mode; `AI_CORE_MAP_TOOL` in the environment names the CLI of one machine instead, for example `agy` where Claude's quota is spent |
 | `MAP_MODEL` | a model id, or empty (default) | the model that CLI uses for the map; empty is the CLI's own default. It goes only with `MAP_TOOL`: `AI_CORE_MAP_MODEL` in the environment names the model of one machine, and a machine that names another CLI without it gets that CLI's default (`agy models` lists agy's, e.g. `claude-sonnet-5-5-high`) |
@@ -1208,6 +1210,7 @@ setup-ai-core/
 │   ├── common.sh                        what the libraries and providers share: die, data_dir, config_value, apart
 │   ├── forge.sh                         reads FORGE and sources lib/<FORGE>/forge.sh, the calls to the code host
 │   ├── github/                          the GitHub provider: gh.sh (gh with the rate limits met), tracker.sh, forge.sh
+│   ├── plane/                           the Plane provider: api.sh (curl with the key, the rate limit met), tracker.sh
 │   ├── layers.sh                        the project harness: from origin, beside the repositories, cloned, pulled, created, the extends chain
 │   ├── gitignore-block                  the block init writes into a project's .gitignore
 │   ├── binding-rules.md                 the binding rules init puts on top of every map and into a project folder's AGENTS.md

@@ -76,8 +76,13 @@ fi
 
 # the tracker and the forge of the project, and the forge's tool (gh for GitHub)
 tracker="$(config_value TRACKER github | tr '[:upper:]' '[:lower:]')"
-echo "  tracker: $tracker"
-[ -f "$HARNESS_ROOT/lib/$tracker/tracker.sh" ] || { report tracker MISSING "TRACKER names no folder of lib/ with a tracker.sh"; problem; }
+if [ -f "$HARNESS_ROOT/lib/$tracker/tracker.sh" ]; then
+  . "$HARNESS_ROOT/lib/tracker.sh"
+  tracker_doctor
+else
+  echo "  tracker: $tracker"
+  report tracker MISSING "TRACKER names no folder of lib/ with a tracker.sh"; problem
+fi
 echo "  forge: $FORGE"
 forge_doctor
 

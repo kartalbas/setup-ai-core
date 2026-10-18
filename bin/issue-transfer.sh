@@ -16,7 +16,8 @@
 # state named after the column and parent, and the GitHub issue is closed as not planned with a comment
 # that carries the work item's address. The GitHub side is read, and closed, by one process with
 # TRACKER=github and the Plane side written by another with TRACKER=plane. An issue carried before is
-# found again by its external_id and changes nothing; a sub-issue whose parent is not carried is refused.
+# found again by its external_id and changes nothing; a sub-issue whose parent is not carried is refused by name, the
+# rest of the selection goes on, and the exit status is non-zero when anything was refused.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 
@@ -45,19 +46,27 @@ if [ -n "$to" ]; then
     number="${args[0]}"
     case "$number" in ''|*[!0-9]*) die "the issue number must be numeric, not '$number'" ;; esac
   fi
-  stage() {  # stage <tracker> <function> [argument...]: a function of that tracker's provider, in a process of its own
+  in_tracker() {  # in_tracker <tracker> <function> [argument...]: a function of that tracker's provider, in a process of its own
     TRACKER="$1" bash -c '. "$1/lib/board.sh"; shift; "$@"' _ "$HARNESS_ROOT" "${@:2}"
   }
-  rows="$(stage github github_carry_rows "$repo" "$number" "$column")" || exit 1
+  rows="$(in_tracker github github_carry_rows "$repo" "$number" "$column")" || exit 1
+  [ -n "$rows" ] || { echo "nothing is left to carry: no open issue of $repo is selected"; exit 0; }
+  refused=0
   while IFS= read -r row; do
     n="$(jq -r '.number' <<< "$row")"
-    carried="$(printf '%s\n' "$row" | stage plane plane_carry "$repo")" || exit 1
+    if ! carried="$(printf '%s\n' "$row" | in_tracker plane plane_carry "$repo")"; then refused=1; continue; fi
     echo "#$n -> ${carried%%$'\t'*}"
     [ "$(jq -r '.open' <<< "$row")" = true ] || continue
-    stage github issue_comment_post "$repo" "$n" "Moved to ${carried#*$'\t'}" "" >/dev/null || exit 1
-    stage github issue_close "$repo" "$n" not-planned || exit 1
+    link="${carried#*$'\t'}"
+    # a close that failed after its comment leaves the comment: the rerun posts it once
+    if ! jq -e --arg u "$link" 'any(.comments[]; contains($u))' <<< "$row" >/dev/null; then
+      text="Moved to $link"
+      in_tracker github check_public_body issue-transfer "$repo" "$text" "" || { refused=1; continue; }
+      in_tracker github issue_comment_post "$repo" "$n" "$text" "" >/dev/null || { refused=1; continue; }
+    fi
+    in_tracker github issue_close "$repo" "$n" not-planned || refused=1
   done <<< "$rows"
-  exit 0
+  exit "$refused"
 fi
 
 set -- ${args[@]+"${args[@]}"}

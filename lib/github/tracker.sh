@@ -811,9 +811,8 @@ board_cards_of_repo() {
 }
 
 # github_carry_rows <owner/repo> <number or empty> <column or empty>: the issues issue-transfer carries into
-# another tracker, one JSON object per line, those without a parent first so that a parent stands in the
-# target before its sub-issue is asked for:
-#   {repo, number, title, body, labels: [name], open, status, priority, parent}
+# another tracker, one JSON object per line, every parent of the selection before its sub-issues at any depth:
+#   {repo, number, title, body, labels: [name], comments: [body], open, status, priority, parent}
 # status and priority are the names of the issue's card on the selected board, or null; parent is
 # "owner/repo number" or null. A column names the open issues whose card stands in it. The repository's
 # board is selected here.
@@ -833,11 +832,14 @@ github_carry_rows() {
     card="$(printf '%s\n' "$cards" | awk -F'\t' -v n="$n" '$1 == n { print; exit }')"
     rows="$rows$(jq -c --arg repo "$repo" --arg parent "$parent" --arg card "$card" '
       ($card | split("\t")) as $c
-      | {repo: $repo, number, title, body, labels, open: (.state == "open"),
+      | {repo: $repo, number, title, body, labels, comments: [.comments[].body], open: (.state == "open"),
          status: ($c[1] // "" | if . == "" then null else . end), priority: ($c[2] // "" | if . == "" then null else . end),
          parent: (if $parent == "" then null else $parent end)}' <<< "$thread")"$'\n'
   done <<< "$list"
-  printf '%s' "$rows" | jq -sc 'sort_by(.parent != null)[]'
+  printf '%s' "$rows" | jq -sc '
+    (map({key: "\(.repo)#\(.number)", value: .}) | from_entries) as $by
+    | def depth: if .parent == null then 0 else ($by[.parent | sub(" "; "#")]) as $p | if $p == null then 0 else 1 + ($p | depth) end end;
+    sort_by(depth)[]'
 }
 
 # card_rows: every card of the selected board that is an issue, one JSON object per line, the card row

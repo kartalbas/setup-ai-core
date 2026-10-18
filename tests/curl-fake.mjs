@@ -82,6 +82,7 @@ if (hit >= 0) {
   const i = inject[hit];
   if (--i.times <= 0) inject.splice(hit, 1);
   write('inject.json', inject);
+  if (i.status === 0) { process.stderr.write('curl: (28) Operation timed out\n'); process.exit(28); }   // no answer at all
   reply(i.status, i.body ?? '', i.headers || {});
 }
 
@@ -149,6 +150,11 @@ function plane() {
   if (what !== 'issues' && what !== 'work-items') reply(404, { detail: 'Not found.' });
   if (p.length === 5) {
     if (method === 'GET') {
+      if (q.get('external_id')) {   // GET .../issues/?external_id=&external_source= answers the one object, archived or not (v1.4.2)
+        const hit = pr.issues.find((i) => i.external_id === q.get('external_id') && i.external_source === q.get('external_source'));
+        if (!hit) reply(404, { error: 'Issue with the given external id and external source does not exist' });
+        reply(200, ser(st, pr, hit, null));
+      }
       const fields = q.get('fields') ? q.get('fields').split(',') : null;
       const rows = pr.issues.filter((i) => !i.archived_at).map((i) => ser(st, pr, i, fields));
       reply(200, page(rows));

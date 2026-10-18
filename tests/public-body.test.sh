@@ -129,6 +129,10 @@ case_body allow 'ci@EXAMPLE.TEST'
 case_body allow 'package@1.2.3'
 for address in "$real" 'name+tag@COMPANY.CH' '"quoted name"@company.ch' 'name@[192.0.2.1]' 'ci@example.com.company.ch' 'ci@notexample.com' 'noreply@company.ch' '123+noreply@company.ch' 'ci@sub.users.noreply.github.com' 'ci@users.noreply.github.com.company.ch'; do case_body refuse "mailto:$address, inside Markdown"; done
 case_body refuse "ci@build.example.test $real"
+remotes='Push to `ssh://git@forgejo.<fqdn>/<owner>/<repo>.git`, `git@github.com:owner/repo.git` or `https://x-access-token:{{ .pat }}@github.com`.'
+case_body allow "$remotes"
+case_body refuse "$remotes Ask $real."
+check 'address beside remotes is named' yes "$(grep -qF "refused email address $real" <<< "$out" && echo yes || echo no)"
 FORGE=forgejo case_body refuse 'noreply@company.ch'
 path=new; asked_in="$real"; case_body refuse 'Safe input.'; unset asked_in
 path=edit; printf 'Asked for by @someone on 2026-10-18 in %s.\n' "$real" > "$GH_FAKE/current-body"
@@ -330,6 +334,9 @@ for path in inline file new edit; do
   check "$path exemption removal refuses innocent" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
   check "$path exemption removal zero writes" 0 "$(grep -c '^write ' "$GH_FAKE/body-calls.log" || true)"
 done
+sed 's/^    gsub(.*/    ./; s/^    | gsub(.*/    | ./' "$ROOT/lib/tracker.sh" > "$mutant/lib/tracker.sh"
+path=edit; text="$remotes"; printf '%s' "$text" > "$WORK/body"; : > "$GH_FAKE/body-calls.log"; rc=0; out="$(invoke 2>&1)" || rc=$?
+check 'remote userinfo removal refuses innocent' yes "$([ "$rc" -ne 0 ] && grep -qF 'refused email address' <<< "$out" && echo yes || echo no)"
 cp "$ROOT/lib/tracker.sh" "$mutant/lib/tracker.sh"
 printf '\nrepo_visibility() { echo private; }\n' >> "$mutant/lib/github/tracker.sh"
 path=inline; text="$real"; : > "$GH_FAKE/body-calls.log"; rc=0; out="$(invoke 2>&1)" || rc=$?

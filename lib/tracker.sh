@@ -35,8 +35,13 @@ check_public_body() {
     visibility="$(repo_visibility "$repo")" || visibility=unknown
   fi
   [ "$visibility" != private ] || return 0
+  # A git remote's user is no address: the userinfo of a URL with a scheme, a template expression in it
+  # included because its spaces would end the URL, and the user of the scp-like SSH form are dropped
+  # before the scan. mailto: has no "//" and stays scanned.
   addresses="$(printf '%s' "$text" | jq -Rrs '
-    scan("(?:\"[^\"\\r\\n]+\"|(?:[A-Za-z0-9.!#$%&\u0027*+/=?^_`{|}~\\[\\]-]|[^\\x00-\\x7f])+)@(?:\\[[^\\]\\r\\n]+\\]|[[:alnum:]][[:alnum:]\\p{M}._\u3002\uff0e\uff61-]*)")
+    gsub("(?<s>[A-Za-z][A-Za-z0-9+.-]*://)(?:\\{\\{[^}]*\\}\\}|[^/\\s@{])*@"; "\(.s)")
+    | gsub("(?<![^\\s`(\\[<\"\u0027])[A-Za-z0-9._-]+@(?=[A-Za-z0-9<][A-Za-z0-9.<>_-]*:[^\\s])"; "")
+    | scan("(?:\"[^\"\\r\\n]+\"|(?:[A-Za-z0-9.!#$%&\u0027*+/=?^_`{|}~\\[\\]-]|[^\\x00-\\x7f])+)@(?:\\[[^\\]\\r\\n]+\\]|[[:alnum:]][[:alnum:]\\p{M}._\u3002\uff0e\uff61-]*)")
     | . as $address | (split("@") | last | gsub("[\u3002\uff0e\uff61]"; ".") | ascii_downcase | sub("[.]+$"; "")) as $domain
     | select(($domain | test("[[:alpha:]]|^\\[")))
     | select(($domain | test("(^|\\.)(invalid|example|test|localhost|example\\.(com|net|org))$")) | not)

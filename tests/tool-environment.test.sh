@@ -33,11 +33,20 @@ cp "$root/tests/lib.sh" "$copy/tests/lib.sh"
 sed 's/codex CODEX_SANDBOX/codex SYNTHETIC_TOOL\ncodex CODEX_SANDBOX/' "$copy/lib/common.sh" > "$work/mutant"
 cp "$work/mutant" "$copy/lib/common.sh"
 export SYNTHETIC_TOOL=fixture
-bash -c '. "$1/tests/tool-environment.sh"; [ -z "${SYNTHETIC_TOOL:-}" ]; [ "$UNRELATED_TOOL_SETTING" = keep ];
+declaration_parity() {
+  bash -ec '. "$1/tests/tool-environment.sh"; [ -z "${SYNTHETIC_TOOL:-}" ]; [ "$UNRELATED_TOOL_SETTING" = keep ];
   for v in $(tool_environment_variables); do
     result="$(export "$v=fixture"; session_tool)"; [ -n "$result" ] || exit 8
   done
-  SYNTHETIC_TOOL=fixture; [ "$(session_tool)" = codex ]' _ "$copy" || fail 'canonical declaration parity'
+  SYNTHETIC_TOOL=fixture; [ "$(session_tool)" = codex ]' _ "$copy"
+}
+declaration_parity || fail 'canonical declaration parity'
+# A cleanup list frozen at today's six inputs must fail when the declaration grows.
+sed 's/^while IFS=.*$/unset CODEX_SANDBOX CODEX_SANDBOX_NETWORK_DISABLED CODEX_THREAD_ID ANTIGRAVITY_AGENT CLAUDECODE GEMINI_CLI/' \
+  "$root/tests/tool-environment.sh" > "$copy/tests/tool-environment.sh"
+cmp -s "$root/tests/tool-environment.sh" "$copy/tests/tool-environment.sh" && fail 'hard-coded cleanup mutant unchanged'
+if declaration_parity; then fail 'hard-coded cleanup mutation escaped'; fi
+cp "$root/tests/tool-environment.sh" "$copy/tests/tool-environment.sh"
 # A detector that drops an input independently of enumeration is detected.
 printf '\nsession_tool() { :; }\n' >> "$copy/lib/common.sh"
 if bash -c '. "$1/tests/tool-environment.sh"; CODEX_THREAD_ID=fixture; [ "$(session_tool)" = codex ]' _ "$copy"; then fail 'detector drift escaped'; fi

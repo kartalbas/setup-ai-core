@@ -83,7 +83,7 @@ if [ -n "$ALL_DIR" ]; then
     repo="${repo%/}"
     [ -e "$repo/.git" ] || continue
     case "${repo##*/}" in *-ai-core) continue ;; esac
-    [ "$(git -C "$repo" worktree list --porcelain 2>/dev/null | grep '^worktree ' | grep -v -c -E '/\.ai-core/neighbours/|/\.worktrees/[^/]*/origin-')" -gt 1 ] || continue
+    [ "$(git -C "$repo" worktree list --porcelain 2>/dev/null | grep '^worktree ' | grep -v -c -E '/\.ai-core/neighbours/|/\.worktrees/[^/]*/origin-|/\.worktrees/[^/]*/integrate-[0-9]+\.[A-Za-z0-9]{6}$')" -gt 1 ] || continue
     echo ""; echo "### ${repo##*/}: worktrees whose work landed"
     (cd "$repo" && bash "$CORE_ROOT/bin/finish-issue.sh" --sweep $([ "$DRY" -eq 1 ] && echo --dry-run)) 2>&1 | sed 's/^/  /' || true
   done
@@ -92,6 +92,7 @@ if [ -n "$ALL_DIR" ]; then
     [ -e "$repo/.git" ] || continue
     case "$repo" in "$ALL_DIR"/.worktrees/*) [ ! -L "$repo" ] || continue ;; esac   # a link beside the worktrees is a neighbour checkout, initialized as itself
     case "$repo" in "$ALL_DIR"/.worktrees/*/origin-*) continue ;; esac                # a neighbour's published copy is read by checks, never worked in: the harness has no reader there
+    case "$repo" in "$ALL_DIR"/.worktrees/*/integrate-[0-9]*.??????) continue ;; esac   # the temporary worktree of a landing (integrate-issue --from-origin) is gone when the landing ends, and nobody works in it
     name="${repo#"$ALL_DIR"/}"; repo_folder="${name##*/}"
     # a worktree is named by the checkout it belongs to, whichever way .worktrees/ is laid out
     # (a broken worktree has no checkout to name: it is walked as before)

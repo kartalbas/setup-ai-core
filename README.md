@@ -864,7 +864,8 @@ allowed; any other value is an error.
 
 The unit of installation is one repository checkout. For a project with many repositories in one
 folder, one command runs `init` in each git repository directly under it and in each worktree
-`start-issue` put under its `.worktrees/`, skips the folders that are not repositories, names the
+`start-issue` put under its `.worktrees/`, skips the folders that are not repositories and the temporary
+worktree of a landing (`integrate-<issue>.XXXXXX`, which `integrate-issue --from-origin` removes when it ends), names the
 ones that failed, and then equips the folder itself:
 
 ```bash
@@ -942,7 +943,7 @@ a new script in `bin/` is a command without any registration.
 
 `doctor` today checks Git, gh and its login, Bash, Node.js 20+
 with `npx`, jq, the team modes, and reports whether `claude`, `agy` and `codex` are installed, with the install command
-of each. It takes out what a tool of an earlier layout left in the Claude Code configuration: a
+of each. It also names every `integrate-<issue>.XXXXXX` folder under the project folder's `.worktrees/<repository>/` whose landing no longer runs (no live process holds `ai-core-landing` in the clone's git directory for that issue), with the command that removes it; it removes nothing, and a leftover is not a problem that stops `init`. It takes out what a tool of an earlier layout left in the Claude Code configuration: a
 session-start hook in `~/.claude/settings.json` that starts a script beside the repositories, and
 a project memory folder `~/.claude/projects/<project>/memory` that is a link whose target is gone
 (Claude Code makes a real folder at the next memory it writes); `--no-install` only reports them. Required tools it installs with `brew` or `apt-get`;

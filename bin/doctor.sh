@@ -13,7 +13,9 @@ for arg in "$@"; do
       echo "Usage: doctor.sh [--no-install]"
       echo ""
       echo "Checks Git, gh (with its login), Bash, Node.js 20+ with npx, and reports"
-      echo "the agent CLIs (claude, agy, codex). Missing required tools are installed with the"
+      echo "the agent CLIs (claude, agy, codex), and names the temporary worktree of a landing that no"
+      echo "longer runs (.worktrees/<repository>/integrate-<issue>.XXXXXX) with the command that removes it."
+      echo "Missing required tools are installed with the"
       echo "platform's package manager (brew, apt-get). A login cannot be automated and"
       echo "is reported with its command. Exit 1 when a required tool is still missing afterwards."
       echo ""
@@ -160,6 +162,29 @@ if [ -n "$LEAKS_REPOS" ]; then
   git -C "$(project_folder_of "$PWD")/$1" log --diff-merges=remerge -n0 --all >/dev/null 2>&1 \
     || { report git "too old" "$(git --version 2>/dev/null) cannot show what a merge's author wrote (--diff-merges=remerge, git 2.36 or newer), which the push gate reads where .gitleaks.toml is:$LEAKS_REPOS; update git"; problem; }
 fi
+
+# The temporary worktree of a landing (integrate-issue --from-origin) stands in
+# <project folder>/.worktrees/<repository>/integrate-<issue number>.XXXXXX until the landing's EXIT trap
+# removes it. A landing killed before that leaves it, and nothing else names it. It is named here and never
+# removed: a landing that still runs holds ai-core-landing in the git directory of the clone, with its process
+# id and its issue, so a folder whose issue is not the one a running process holds is a leftover. The command
+# that removes it is for the person to run.
+for tree in "$(project_folder_of "$PWD")"/.worktrees/*/integrate-[0-9]*.??????/; do
+  [ -d "$tree" ] || continue
+  tree="$(cd "$tree" && pwd -P)"
+  number="${tree##*/integrate-}"; number="${number%%.*}"
+  container="$(dirname "$tree")"; checkout="$(dirname "$(dirname "$container")")/${container##*/}"
+  held=""
+  if [ -e "$checkout/.git" ] && common="$(git -C "$checkout" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" \
+     && holder="$(cat "$common/ai-core-landing" 2>/dev/null)"; then
+    pid="${holder%%$'\t'*}"
+    case "$pid" in ''|*[!0-9]*) ;; *) if ps -p "$pid" >/dev/null 2>&1 && [ "${holder##*#}" = "$number" ]; then held=1; fi ;; esac
+  fi
+  [ -z "$held" ] || continue
+  listed=""; [ ! -e "$checkout/.git" ] || listed="$(git -C "$checkout" worktree list --porcelain 2>/dev/null || true)"
+  if grep -qxF "worktree $tree" <<< "$listed"; then remove="$(printf 'git -C %q worktree remove --force %q' "$checkout" "$tree")"; else remove="$(printf 'rm -r %q' "$tree")"; fi
+  report landing leftover "$tree is what a landing of issue $number left behind; no running landing holds it. Remove it with: $remove"
+done
 
 # An agent definition of this machine that names a model below Sonnet
 for f in "$HOME"/.claude/agents/*.md; do

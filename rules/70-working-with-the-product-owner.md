@@ -1,9 +1,13 @@
 ## Working with the product owner
 
-- **A decision that is the owner's is put to the owner in the order of the solution path**: where a
-  person meets it, what they see today, what the system does behind it, the decision in one sentence,
-  the lettered options with what the person sees afterwards and what each costs, the recommendation
-  first and marked, the code facts last. A decision is the owner's when it is hard to undo or reaches
+- **A decision that is the owner's is put to the owner in the order of the solution path**, opening
+  with its frame: the goal the owner set, in the owner's words and with its date, the issues it
+  belongs to, each by title and one sentence, what the owner already decided on it, and which of the
+  reasons below makes it the owner's. Then where a person meets it, what they see today, what the
+  system does behind it and where that runs, the decision in one sentence, the lettered options,
+  each with what the person sees afterwards, where it runs, what changes against today and what it
+  costs, today's state marked among them, the recommendation first and marked, the code facts last. A
+  decision is the owner's when it is hard to undo or reaches
   beyond the issue's own branch and tracker entries (a release, a migration, a deletion of anything
   that is not the change's own leftover, anything published), widens the scope (a new dependency, a
   new public interface, new work that no issue holds yet), renames something that has a name or
@@ -19,12 +23,16 @@
   decision or a task in prose. The agent writes for the terminal it runs in: a text the owner is
   to copy, a command or a line of configuration, stands alone in a code block that begins at the
   left margin, never inside a quote, a list or an indentation, because whatever stands to its left
-  is copied along. Where the tool has a question dialog, every question goes into it and none
-  stands in the text, at most four at the end of the reply, the recommended option first, because
-  the owner answers on a phone with a tap and at most a few words in the free field. The dialog is
-  read alone: its question says, from what the person sees to what the system does behind it, what
-  is to be decided, and each option says in plain sentences what the person sees afterwards, what
-  it costs, and for the recommendation why. A tool without one gets the questions together in one block at the end of the reply, a
+  is copied along. A question goes to the owner only after everything the agent can settle itself is
+  settled, and the open questions on one goal go together in the same reply, the blocking ones
+  first; beyond four, the rest follows in the next reply. Where the tool has a question dialog,
+  every question goes into it and none stands in the text, at most four at the end of the reply,
+  the recommended option first, because the owner answers on a phone with a tap and at most a few
+  words in the free field. The dialog is read alone: its question opens with the frame of the first
+  point of this section and says, from what the person sees to what the system does behind it, what
+  is to be decided, and each option says in plain sentences what the person sees afterwards, where
+  it runs, what changes against today and what it costs, with today's state marked, and for the
+  recommendation why. A tool without one gets the questions together in one block at the end of the reply, a
   heading with ❓, how many there are and an example answer, then one list item per question: its
   label in bold, which stays the same until it is answered and takes its letter from the language
   of the conversation (Q1 in English, F1 in German), its topic in brackets and the question, with
@@ -34,8 +42,10 @@
   the same form. [review]
 - **A question or a task the owner cannot finish without asking back is a defect.** It carries its
   own context, names the concrete case with real values, and can be decided or done from the
-  rendered element alone. What a session can do itself, in the browser too, it does itself, after
-  the owner's choice where the choice is the owner's, and a person never becomes the hand that
+  rendered element alone. Every fact it rests on was read at that moment and names its path; a guess
+  is never what a question rests on, and where one appears at all, it is marked as a guess. What a
+  session can do itself, in the browser too, it does itself, after the owner's choice where the
+  choice is the owner's, and a person never becomes the hand that
   clicks for it. Where the tool's safety check blocks such a step, the session writes out one line
   that names the step and its target, for the owner to copy into the chat input, never into the
   question dialog or its free field, because the check reads what the person types there and no
@@ -54,8 +64,9 @@
   terminal selects whole lines and copies a table's borders and a wrapped line's break along.
   Nothing to copy ever stands in a cell. Under the last step stands one line: what to send back.
   [review]
-- **Lead with the bigger picture and be understood on the first read.** An explanation or a decision
-  is written in complete sentences that carry their own context, never in clipped fragments or a run
+- **Lead with the bigger picture and be understood on the first read.** An answer to a question the
+  owner asked is the first thing in the reply, ahead of any report, because an answer between
+  reports goes unseen. An explanation or a decision is written in complete sentences that carry their own context, never in clipped fragments or a run
   of labels. Open with the action a person
   takes, what they notice, and what the system does that produces it; only then the code facts, and
   only as far as they change the decision. Anchor every technical explanation in the filesystem by
@@ -76,8 +87,13 @@
   learns. Defending a decision that is already made teaches nothing. Report the change, not the
   standing state of the world. [review]
 - **Use the project's own word, every time**, spelled as the code spells it. Never a synonym, a
-  translation or a metaphor standing in for a fact. [review]
+  translation or a metaphor standing in for a fact, and never a word that neither the owner has used
+  nor the code spells. A word of the system that the owner may read in its everyday sense is
+  explained at its first use in what the owner reads, in one sentence: where it runs and what it
+  does. "Plugin", for example, sounds like something beside the program it extends, while it may
+  run inside that program's process. [review]
 - **No sentence exists to sound finished, and the test before sending takes one pass:** for every
   sentence ask what the reader holds afterwards, and keep it only for a path, a name, a number or a
-  decision; for every noun that names a part of the system ask whether the code spells it that way.
-  [discipline]
+  decision; for every noun that names a part of the system ask whether the code spells it that way;
+  for every question ask, as a person who knows the product and not the code, whether you would have
+  to ask back, guess or look something up, and rewrite it if so. [discipline]

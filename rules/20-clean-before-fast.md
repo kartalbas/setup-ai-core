@@ -15,10 +15,11 @@
   with one sentence of why; the fix lands there, never at the symptom and never as a second copy.
   The agent decides that place from the architecture; it is not a question for the owner. [review]
 - **Present a solution path before writing code.** Between the task and the first line of code the
-  owner sees the intended path, scaled to the change: the sections are where a person meets this,
-  what they see today, what the system does behind it, the decision with its options, their costs
-  and the recommendation where a decision is the owner's, the code facts, and the reuse manifest of
-  what already exists and is touched or resembled. Three sentences suffice for a small change; a
+  owner sees the intended path, scaled to the change: the sections are the owner's goal and what
+  the owner already decided on it, where a person meets this, what they see today, what the system
+  does behind it and where each part runs, the decision with its options and today's state among
+  them, the costs of the options and the recommendation where a decision is the owner's, the code
+  facts, and the reuse manifest of what already exists and is touched or resembled. Three sentences suffice for a small change; a
   change with a wide blast radius gets more; it is never skipped. A path that holds no decision of
   the owner's is followed at once; one that holds a decision waits for it. [tool · review]
 - **Always name exactly one recommendation, and let it be the correct answer, not the cheapest.**

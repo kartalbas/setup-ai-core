@@ -44,10 +44,12 @@ function init(d) {
 // --- what curl was given -------------------------------------------------------------
 let cfg = { header: [] };
 if (args.includes('--config')) {
+  // curl reads one option per line, the value quoted or not; a quote that is not closed on its line is part of the value
   for (const line of fs.readFileSync(0, 'utf8').split('\n')) {
-    const m = line.match(/^(\S+) = "(.*)"$/);
+    const m = line.match(/^\s*([A-Za-z-]+)\s*[=:\s]\s*(.*?)\s*$/);
     if (!m) continue;
-    const v = m[2].replace(/\\(.)/g, '$1');
+    const q = m[2].match(/^"(.*)"$/);
+    const v = q ? q[1].replace(/\\(.)/g, '$1') : m[2];
     if (m[1] === 'header') cfg.header.push(v); else cfg[m[1]] = v;
   }
 }
@@ -81,7 +83,7 @@ if (hit >= 0) {
 
 const json = (() => { try { return body ? JSON.parse(body) : {}; } catch { return null; } })();
 const header = (n) => (cfg.header.find((h) => h.toLowerCase().startsWith(n.toLowerCase() + ':')) || '').replace(/^[^:]*:\s*/, '');
-if (url.hostname === 'plane.example.test') plane(); else if (url.hostname === 'forge.example.test' || url.hostname === '127.0.0.1') forgejo(); else reply(404, 'no such host');
+if (/^plane[0-9]*\.example\.test$/.test(url.hostname)) plane(); else if (url.hostname === 'forge.example.test' || url.hostname === '127.0.0.1') forgejo(); else reply(404, 'no such host');
 
 // --- Plane ---------------------------------------------------------------------------------
 function plane() {

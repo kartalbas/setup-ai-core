@@ -138,16 +138,27 @@ project_folder_of() {
 # one call: not into an argument list, a file, the environment or the terminal. KEY is the setting
 # (PLANE_TOKEN_COMMAND, FORGEJO_TOKEN_COMMAND); its value is a command run by bash whose standard
 # output is the token. The command's standard error is dropped: it may carry what the token is read
-# from. A missing setting, a failing command and an empty answer each stop the caller and name KEY.
+# from. A missing setting, a failing command, an empty answer and an answer with a control character
+# in it (a line break among them, which would add a line to the curl configuration or a field to git's
+# answer) each stop the caller and name KEY.
+# THE TRACE OF A CALLER STAYS OFF WHILE THE TOKEN IS HELD: under `set -x` the shell prints every
+# assignment and argument it expands, the token among them, so the code that holds the token
+# switches xtrace off first and back on, if it was on, when the token is let go. Each function does
+# this for itself, with its own `traced`, because a helper cannot restore the setting of its caller.
 token_from_command() {  # token_from_command <setting>
-  local key="$1" command token rc=0
+  local key="$1" command token rc=0 traced=""
+  case $- in *x*) traced=1; set +x ;; esac
   command="$(config_value "$key" "")"
   [ -n "$command" ] || die "$key is not set: set it in .ai-core/config.env or the environment to the command that prints the token"
   token="$(bash -c "$command" 2>/dev/null </dev/null)" || rc=$?
   [ "$rc" -eq 0 ] || die "the command of $key failed (exit $rc), so there is no token"
-  token="${token%$'\n'}"; token="${token%$'\r'}"
   [ -n "$token" ] || die "the command of $key printed no token"
+  case "$token" in
+    *[[:cntrl:]]*) die "the command of $key printed a token with a control character in it (a line break or a carriage return among them): the token must be one line of printable characters" ;;
+  esac
   printf '%s\n' "$token"
+  [ -z "$traced" ] || set -x
+  return 0
 }
 
 # one line of a curl configuration: the option and its value in quotes, a backslash and a quote escaped
@@ -163,7 +174,8 @@ curl_config_line() {  # curl_config_line <option> <value>
 # issue body outgrows what an argument may hold. Called in this shell, never as `$( )`, or what it sets
 # ends with the subshell.
 http_call() {
-  local key="$1" name="$2" prefix="$3" method="$4" url="$5" body="${6:-}" token dir rc=0
+  local key="$1" name="$2" prefix="$3" method="$4" url="$5" body="${6:-}" token dir rc=0 traced=""
+  case $- in *x*) traced=1; set +x ;; esac   # see token_from_command: the token is expanded below
   token="$(token_from_command "$key")" || exit 1
   dir="$(mktemp -d)"
   {
@@ -180,5 +192,6 @@ http_call() {
   http_headers="$(cat "$dir/headers" 2>/dev/null || true)"
   [ "$rc" -eq 0 ] || http_body="$(cat "$dir/error")"
   rm -rf "$dir"
+  [ -z "$traced" ] || set -x
   return 0
 }

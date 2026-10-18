@@ -99,12 +99,21 @@ repo_open_projects() {  # repo_open_projects <owner/repo>
   printf '%s\t%s\n' "$(plane_setting PLANE_PROJECT)" "$(plane_setting PLANE_PROJECT)"
 }
 
-# plane_project_uuid: the uuid of the project PLANE_PROJECT names, kept beside the other caches. The id of a
-# project does not change, so the file is the answer until somebody deletes it.
+# board_cache_name: where the cache of this project stands under the cache root (lib/board.sh cache_dir). The
+# same identifier in another workspace, or on another instance, is another project with other ids, and
+# a cache that does not say so answers for it with the ids of the first.
+board_cache_name() {
+  printf 'plane/%s/%s/%s\n' \
+    "$(plane_setting PLANE_URL | sed 's|^[A-Za-z]*://||; s|/*$||; s|[^A-Za-z0-9._-]|_|g')" \
+    "$(plane_setting PLANE_WORKSPACE | sed 's|[^A-Za-z0-9._-]|_|g')" "$(plane_setting PLANE_PROJECT | sed 's|[^A-Za-z0-9._-]|_|g')"
+}
+
+# plane_project_uuid: the uuid of the project PLANE_PROJECT names, kept beside the other caches of the project.
+# The id of a project does not change, so the file is the answer until somebody deletes it.
 plane_project_uuid() {
   local ident f rows id
   ident="$(plane_setting PLANE_PROJECT)"
-  f="$(cache_root)/plane/$(plane_setting PLANE_WORKSPACE)-$ident.id"
+  f="$(cache_root)/$(board_cache_name)/project-id"
   if [ -s "$f" ]; then id="$(cat "$f")"
   else
     rows="$(plane_pages "the projects of $(plane_setting PLANE_WORKSPACE)" "$(plane_path projects/)")" || exit 1
@@ -181,14 +190,6 @@ plane_html_of() {  # plane_html_of <text> <file or empty>
 }
 
 # --- the work item ------------------------------------------------------------------
-
-# Priorities: the harness says P0 to P3, a person reads High in Plane
-plane_priority() {  # plane_priority <P0..P3 | urgent..none>: Plane's word
-  case "$1" in
-    P0|urgent) echo urgent ;; P1|high) echo high ;; P2|medium) echo medium ;; P3|low) echo low ;;
-    *) die "Plane has no priority '$1'. It has: P0 P1 P2 P3" ;;
-  esac
-}
 
 # plane_fetch <number>: the work item <IDENT>-<number> as JSON, its state, labels and parent expanded
 plane_fetch() {
@@ -467,17 +468,22 @@ issue_block() {
     "$(jq -nc --arg i "$(printf '%s' "$by" | jq -r '.id')" '{relation_type: "blocked_by", issues: [$i]}')" >/dev/null || exit 1
 }
 
-# duplicate_mark <canonical owner/repo> <number> <duplicate owner/repo> <number>: the relation duplicate, and
-# the comment GitHub gets, so a person reading the thread sees it
+# duplicate_mark <canonical owner/repo> <number> <duplicate owner/repo> <number>: the relation duplicate, the
+# comment GitHub gets, so a person reading the thread sees it, and the duplicate in Plane's own Cancelled,
+# because GitHub closes a duplicate and an open one would still hold its epic open. The state is resolved
+# before the first write, so a project without one changes nothing.
 duplicate_mark() {
-  local canonical duplicate ref="$1#$2"
+  local canonical duplicate cancelled ref="$1#$2"
   canonical="$(plane_item "$1" "$2")" || exit 1
   duplicate="$(plane_item "$3" "$4")" || exit 1
+  cancelled="$(plane_state_id group:cancelled)" || exit 1
   [ "$1" != "$3" ] || ref="#$2"
   plane_api "the duplicate mark on $3#$4" POST "$(plane_path "$(plane_relations_path "$duplicate")")" \
     "$(jq -nc --arg i "$(printf '%s' "$canonical" | jq -r '.id')" '{relation_type: "duplicate", issues: [$i]}')" >/dev/null || exit 1
   plane_api "the duplicate mark on $3#$4" POST "$(plane_path "$(plane_issue_path "$duplicate")comments/")" \
     "$(jq -nc --arg h "$(plane_html_of "Duplicate of $ref" "")" '{comment_html: $h}')" >/dev/null || exit 1
+  plane_api "the cancel of the duplicate $3#$4" PATCH "$(plane_path "$(plane_issue_path "$duplicate")")" \
+    "$(jq -nc --arg s "$cancelled" '{state: $s}')" >/dev/null || exit 1
 }
 
 # --- the board: one work item ---------------------------------------------------------------

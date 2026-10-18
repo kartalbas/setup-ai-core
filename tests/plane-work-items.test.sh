@@ -47,6 +47,47 @@ grep -q 'PLANE_TOKEN_COMMAND is not set' <<< "$out" || fail "a missing token com
 sed -i.bak "s|^PLANE_TOKEN_COMMAND=.*|PLANE_TOKEN_COMMAND=\"cat $WORK/token\"|" "$P/.ai-core/config.env"
 echo "  a wrong key and a missing token command are each refused by name"
 
+# THE TRACE: under set -x the shell prints every assignment and argument it expands, the token among them,
+# unless the code that holds the token switches the trace off, and the caller's setting is back afterwards
+traced() { ( cd "$P" && PATH="$PATH_CURL" bash -x "${ROOT_UNDER_TEST:-$ROOT}/bin/$1.sh" "${@:2}" 2>"$WORK/trace" ); }
+traced issue-thread "$n" --json >/dev/null || fail "issue-thread under bash -x gets no answer"
+grep -q 'plane_call' "$WORK/trace" || fail "the trace of bash -x is empty, so the check cannot go red"
+! grep -q 'plane-token-0123' "$WORK/trace" || fail "the token stands in the trace of bash -x: $(grep -m1 'plane-token-0123' "$WORK/trace")"
+cp "$ROOT/lib/common.sh" "$planted/lib/common.sh"
+sed -i.bak 's|traced=1; set +x|traced=1|' "$planted/lib/common.sh"
+cmp -s "$ROOT/lib/common.sh" "$planted/lib/common.sh" && fail "the planted copy equals the real lib/common.sh"
+ROOT_UNDER_TEST="$planted" traced issue-thread "$n" --json >/dev/null || fail "the copy that leaves the trace on should still get its answer"
+grep -q 'plane-token-0123' "$WORK/trace" || fail "planted: a token in the trace is not seen, so the check cannot go red"
+trace_after() {  # trace_after <on|off> <code>: whether xtrace is on after <code> ran with it <on|off>
+  PLANE_TOKEN_COMMAND="cat $WORK/token" PATH="$PATH_CURL" bash -c 'cd "$3"; . "$1/lib/common.sh"; [ "$2" != on ] || set -x; eval "$4" 2>/dev/null; case $- in *x*) echo on ;; *) echo off ;; esac' _ "$ROOT" "$1" "$P" "$2" 2>/dev/null
+}
+for mode in on off; do
+  [ "$(trace_after $mode 'http_call PLANE_TOKEN_COMMAND X-API-Key "" GET https://plane.example.test/api/v1/users/me/')" = "$mode" ] || fail "http_call changed the trace setting $mode of its caller"
+  [ "$(trace_after $mode 'token_from_command PLANE_TOKEN_COMMAND >/dev/null')" = "$mode" ] || fail "token_from_command changed the trace setting $mode of its caller"
+done
+echo "  under bash -x the token is in no trace line, and the caller's trace setting, on or off, is back after a call; planted: a copy that leaves the trace on shows the token in it"
+
+# A TOKEN OF MORE THAN ONE LINE would add a line to curl's configuration: it is refused by the name of the setting
+printf 'first\nrequest = DELETE\n#\n' > "$WORK/token"
+reset_log; out="$(ai issue-thread "$n" 2>&1)" && fail "a token of three lines was accepted"
+grep -q 'the command of PLANE_TOKEN_COMMAND printed a token with a control character in it' <<< "$out" || fail "a multiline token is not refused by the name of the setting: $out"
+! grep -q 'first' <<< "$out" || fail "the refusal prints the token: $out"
+[ ! -s "$CURL_FAKE_STATE/requests.log" ] || fail "curl was called with a refused token"
+printf 'plane-token-0123\r\n' > "$WORK/token"
+out="$(ai issue-thread "$n" 2>&1)" && fail "a token with a carriage return was accepted"
+grep -q 'PLANE_TOKEN_COMMAND printed a token with a control character' <<< "$out" || fail "a token with a carriage return is not refused by name: $out"
+printf 'plane-token\t0123\n' > "$WORK/token"
+out="$(ai issue-thread "$n" 2>&1)" && fail "a token with a tab was accepted"
+printf 'first\nrequest = DELETE\n#\n' > "$WORK/token"
+cp "$ROOT/lib/common.sh" "$planted/lib/common.sh"
+sed -i.bak '/\*\[\[:cntrl:\]\]\*)/d' "$planted/lib/common.sh"
+cmp -s "$ROOT/lib/common.sh" "$planted/lib/common.sh" && fail "the planted copy equals the real lib/common.sh"
+reset_log; ROOT_UNDER_TEST="$planted" ai issue-thread "$n" >/dev/null 2>&1 || true
+grep -q '^DELETE ' "$CURL_FAKE_STATE/requests.log" || fail "planted: a line added to curl's configuration by the token is not seen, so the check cannot go red"
+printf 'plane-token-0123\n' > "$WORK/token"
+ai issue-thread "$n" >/dev/null || fail "the innocent one-line token is refused"
+echo "  a token with a line break, a carriage return or a tab is refused by the name of the setting before curl is called; planted: without the check the extra line reaches curl"
+
 # CLOSE AND REOPEN: one write, and the reason of a not-planned close is kept
 reset_log; ai issue-close "$n" >/dev/null || fail "issue-close"
 [ "$(planeq 'console.log(p.states.find(s=>s.id===p.issues[0].state).name)')" = done ] || fail "issue-close did not move the work item to done"
@@ -102,6 +143,15 @@ out="$(ai issue-block example-org/example-repo "$a" example-org/example-repo "$b
 grep -q 'is already blocked by' <<< "$out" || fail "the repeated block is not named: $out"
 echo "  issue-block: the relation blocked_by is made once"
 
+# A DUPLICATE is cancelled as well as related: GitHub closes it, and an open one would hold its epic open
+state_of() { planeq "const it=p.issues.find((i)=>i.sequence_id===$1);console.log(p.states.find((s)=>s.id===it.state).name)"; }
+canon="$(new "The original, or the duplicate has nothing to copy")"; dup="$(new "The same thing again, or nobody notices")"
+out="$(ai issue-duplicate example-org/example-repo "$canon" example-org/example-repo "$dup" 2>&1)" || fail "issue-duplicate: $out"
+[ "$(state_of "$dup")" = Cancelled ] || fail "the duplicate stands in $(state_of "$dup"), not in Cancelled"
+[ "$(state_of "$canon")" = ready ] || fail "the original was moved to $(state_of "$canon")"
+[ "$(planeq 'console.log(p.relations.filter((r)=>r.relation_type==="duplicate").length)')" = 1 ] || fail "the duplicate relation was not made"
+echo "  issue-duplicate: the duplicate is related to the original and stands in Cancelled; the original stays where it was"
+
 # THE DOCTOR LINE: the tracker, where it answers, and that the key does, never the key
 line="$( cd "$P" && PATH="$PATH_CURL" bash -c 'report() { echo "report $*"; }; problem() { echo problem; }; . "$1/lib/tracker.sh"; tracker_doctor' _ "$ROOT" )"
 [ "$line" = "  tracker: plane (https://plane.example.test, the key answers)" ] || fail "the doctor line is '$line'"
@@ -111,5 +161,45 @@ grep -q 'problem' <<< "$line" || fail "a key Plane refuses is no problem for the
 grep -q 'wrong-token' <<< "$line" && fail "the doctor printed the key"
 printf 'plane-token-0123\n' > "$WORK/token"
 echo "  doctor: tracker: plane (<url>, the key answers), a refused key is a problem, the key is never printed"
+
+# A LISTING THAT DOES NOT ADVANCE: the same cursor answered again ends in a refusal, not in the same page for ever
+printf '[{"match":"/labels/","status":200,"times":9,"body":{"results":[{"id":"1","name":"a"}],"next_page_results":true,"next_cursor":"100:1:0"}}]' > "$CURL_FAKE_STATE/inject.json"
+reset_log; out="$(plane_fn labels_list example-org/example-repo 2>&1)" && fail "a listing that repeats its cursor was accepted"
+grep -q 'answered the page cursor 100:1:0 again, so the listing does not advance' <<< "$out" || fail "the repeated cursor is not named: $out"
+[ "$(grep -c '/labels/' "$CURL_FAKE_STATE/requests.log")" -le 3 ] || fail "the listing went on asking after the repeated cursor ($(grep -c '/labels/' "$CURL_FAKE_STATE/requests.log") asks)"
+printf '[{"match":"/labels/","status":200,"times":1,"body":{"results":[{"id":"1","name":"a"}],"next_page_results":true}}]' > "$CURL_FAKE_STATE/inject.json"
+out="$(plane_fn labels_list example-org/example-repo 2>&1)" && fail "a next page without a cursor was accepted"
+grep -q 'gave no cursor for it' <<< "$out" || fail "the missing cursor is not named: $out"
+printf '[]' > "$CURL_FAKE_STATE/inject.json"
+[ -n "$(plane_fn labels_list example-org/example-repo)" ] || fail "innocent: a listing that ends is refused"
+echo "  a listing that answers its cursor again, or a next page with no cursor, is refused by name; an ordinary listing is read to its end"
+
+# THE CACHES say whose they are: the same identifier in another workspace, or on another instance, is another project
+fields_of() { plane_fn fields_tsv | awk -F'\t' '$1 == "Status" && $3 == "ready" { print $4 }'; }
+first_ready="$(fields_of)"; [ -n "$first_ready" ] || fail "the first fields have no ready state"
+[ "$first_ready" = "$(planeq 'console.log(p.states.find((s)=>s.name==="ready").id)')" ] || fail "the first fields hold another id than the stand-in's"
+sed -i.bak 's|^PLANE_URL=.*|PLANE_URL=https://plane2.example.test|' "$P/.ai-core/config.env"
+reset_log; fields_of >/dev/null
+grep -q '/states/' "$CURL_FAKE_STATE/requests.log" || fail "another instance was answered from the cache of the first"
+sed -i.bak 's|^PLANE_URL=.*|PLANE_URL=https://plane.example.test|' "$P/.ai-core/config.env"
+planeset 's.workspace="ws2"; p.id=require("crypto").randomUUID(); for (const x of p.states) { const n=require("crypto").randomUUID(); for (const i of p.issues) if (i.state===x.id) i.state=n; x.id=n; } for (const i of p.issues) i.project=p.id'
+sed -i.bak 's|^PLANE_WORKSPACE=.*|PLANE_WORKSPACE=ws2|' "$P/.ai-core/config.env"
+second_ready="$(fields_of)"
+[ "$second_ready" = "$(planeq 'console.log(p.states.find((s)=>s.name==="ready").id)')" ] || fail "another workspace was answered with the state ids of the first: $second_ready"
+[ "$second_ready" != "$first_ready" ] || fail "the state ids of the two workspaces are the same, so the check cannot go red"
+[ "$(plane_fn project_id)" = "$(planeq 'console.log(p.id)')" ] || fail "another workspace was answered with the project id of the first"
+echo "  the project id and the fields are cached per instance, workspace and identifier: another workspace and another instance each read their own"
+
+# NO UNCALLED CODE in the Plane provider: every function it defines is named somewhere besides its definition
+dead_functions() {  # dead_functions <root>
+  local f
+  for f in $(grep -ho '^[a-z_][a-z_0-9]*()' "$1"/lib/plane/*.sh | tr -d '()'); do
+    [ "$(grep -rhw -- "$f" "$1/bin" "$1/lib" "$1/templates" 2>/dev/null | grep -vc "^$f()")" -gt 0 ] || echo "$f"
+  done
+}
+[ -z "$(dead_functions "$ROOT")" ] || fail "the Plane provider defines code nobody calls: $(dead_functions "$ROOT" | paste -sd' ' -)"
+printf '\nplane_uncalled_mapper() { echo urgent; }\n' >> "$planted/lib/plane/tracker.sh"
+[ "$(dead_functions "$planted")" = plane_uncalled_mapper ] || fail "planted: an uncalled function is not found, so the check cannot go red: $(dead_functions "$planted")"
+echo "  the Plane provider defines no function that nothing calls; planted: an uncalled function is found"
 
 echo "all passed"

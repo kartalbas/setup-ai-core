@@ -65,13 +65,20 @@ plane_api() {
 # plane_pages <what> <path with its query, or without> : every result of a listing, one JSON object per
 # line, read page by page (per_page and cursor are Plane's own, apps/api/plane/utils/paginator.py at
 # v1.4.2). A listing outgrows one page quickly, and a single unpaged read silently reports the rest absent.
+# A cursor that was asked for before, or none where more pages are announced, means the answer does not
+# advance: the read stops and says so, instead of reading the same page for ever.
 plane_pages() {
-  local what="$1" path="$2" cursor="" page sep="?"
+  local what="$1" path="$2" cursor="" seen=" " page sep="?"
   case "$path" in *"?"*) sep="&" ;; esac
   while :; do
     page="$(plane_api "$what" GET "$path${sep}per_page=100${cursor:+&cursor=$cursor}")" || exit 1
     printf '%s' "$page" | jq -c '.results[]'
     [ "$(printf '%s' "$page" | jq -r '.next_page_results // false')" = true ] || break
-    cursor="$(printf '%s' "$page" | jq -r '.next_cursor')"
+    cursor="$(printf '%s' "$page" | jq -r '.next_cursor // empty')"
+    [ -n "$cursor" ] || die "cannot read $what - the Plane API announced a next page and gave no cursor for it"
+    case "$seen" in
+      *" $cursor "*) die "cannot read $what - the Plane API answered the page cursor $cursor again, so the listing does not advance" ;;
+    esac
+    seen="$seen$cursor "
   done
 }

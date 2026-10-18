@@ -77,6 +77,9 @@ template_project_number() {
   esac
 }
 
+# board_cache_name: the directory of the board under the cache root, its number
+board_cache_name() { project_number; }
+
 project_id() {
   local f id from
   f="$(cache_dir)/project-id"

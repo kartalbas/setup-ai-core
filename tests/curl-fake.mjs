@@ -6,12 +6,13 @@
 //   argv.log      the arguments of every call, env.log the environment of every call (so a test can
 //                 look for a token in either)
 // Plane answers where PLANE_URL is https://plane.example.test, Forgejo where FORGEJO_URL is
-// https://forge.example.test. Shapes follow Plane CE 1.4.2 (apps/api/plane at tag v1.4.2) and Forgejo 15.0
+// https://forge.example.test or on the loopback address (tests/git-http-server.mjs serves its git over HTTP). Shapes follow Plane CE 1.4.2 (apps/api/plane at tag v1.4.2) and Forgejo 15.0
 // (routers/api/v1, modules/structs), read for this suite; they are not a copy of either server.
 //
 //   node tests/curl-fake.mjs --init <state dir> [plane|forgejo]    write the first state
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const args = process.argv.slice(2);
 if (args[0] === '--init') { init(args[1]); process.exit(0); }
@@ -80,7 +81,7 @@ if (hit >= 0) {
 
 const json = (() => { try { return body ? JSON.parse(body) : {}; } catch { return null; } })();
 const header = (n) => (cfg.header.find((h) => h.toLowerCase().startsWith(n.toLowerCase() + ':')) || '').replace(/^[^:]*:\s*/, '');
-if (url.hostname === 'plane.example.test') plane(); else if (url.hostname === 'forge.example.test') forgejo(); else reply(404, 'no such host');
+if (url.hostname === 'plane.example.test') plane(); else if (url.hostname === 'forge.example.test' || url.hostname === '127.0.0.1') forgejo(); else reply(404, 'no such host');
 
 // --- Plane ---------------------------------------------------------------------------------
 function plane() {
@@ -222,7 +223,9 @@ function forgejo() {
   if (p[0] === 'user' && p[1] === 'repos' || p[0] === 'orgs' && p[2] === 'repos') {
     const owner = p[0] === 'orgs' ? p[1] : st.user.login, full = `${owner}/${json.name}`;
     if (st.repos[full]) reply(409, { message: 'The repository with the same name already exists.' });
-    st.repos[full] = { name: json.name, full_name: full, private: json.private, empty: true, default_branch: json.default_branch || 'main', clone_url: `${process.env.CURL_FAKE_CLONE_ROOT || 'file:///nonexistent'}/${full}.git`, files: [] };
+    st.repos[full] = { name: json.name, full_name: full, private: json.private, empty: true, default_branch: json.default_branch || 'main', files: [] };
+    // as Forgejo does, the bare repository is made where the instance keeps them, when the test says where
+    if (process.env.CURL_FAKE_REPO_ROOT) { fs.mkdirSync(path.join(process.env.CURL_FAKE_REPO_ROOT, owner), { recursive: true }); execFileSync('git', ['init', '-q', '--bare', '-b', 'main', path.join(process.env.CURL_FAKE_REPO_ROOT, `${full}.git`)]); }
     save(); reply(201, st.repos[full]);
   }
   if (p[0] !== 'repos') reply(404, { message: 'not found' });

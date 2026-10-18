@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # What every library and every provider of this harness shares: the error exit, where the project's
-# data and settings live, the read of a setting, and a command's data kept apart from its stderr.
+# data and settings live, the read of a setting, a command's data kept apart from its stderr, the
+# repository and the project folder of a checkout, and a call to a service with a token.
 # lib/tracker.sh and lib/forge.sh source it, and so does every provider under lib/<provider>/, because
 # bin/release.sh and lib/layers.sh never source lib/board.sh. Source it, do not run it.
 
@@ -104,6 +105,31 @@ apart() {  # apart <command>...
     printf '%s\n' "${split_out:+$split_out$'\n'}$split_err"
   fi
   return "$rc"
+}
+
+# origin_repo [checkout]: "owner/repo" of the origin of the checkout (the current directory without one),
+# whatever the host and the way the address is spelled (https, scp-like or ssh://); exit 1 where there is none
+origin_repo() {
+  local url
+  url="$(git -C "${1:-.}" remote get-url origin 2>/dev/null)" || return 1
+  url="${url%/}"; url="${url%.git}"
+  url="$(printf '%s' "$url" | sed -n 's|^.*[:/]\([^:/][^:/]*/[^:/][^:/]*\)$|\1|p')"
+  [ -n "$url" ] || return 1
+  printf '%s\n' "$url"
+}
+
+# project_folder_of <directory>: the folder that holds the repositories: for a checkout the
+# parent of its main checkout (a worktree's too), for a directory that is no checkout the
+# directory itself
+project_folder_of() {
+  local common main
+  if common="$(git -C "$1" rev-parse --git-common-dir 2>/dev/null)" && [ -n "$common" ]; then
+    case "$common" in /*|[A-Za-z]:*) ;; *) common="$1/$common" ;; esac
+    main="$(cd "$common/.." && pwd)"
+    dirname "$main"
+  else
+    (cd "$1" && pwd)
+  fi
 }
 
 # --- calls to a service with a token -------------------------------------------

@@ -85,7 +85,7 @@ fdispatch() {  # fdispatch <lib root> <FORGE or 'unset'>
 }
 config ''
 check "no FORGE means github" "forge=github github.com" "$(fdispatch "$ROOT" unset)"
-check "a FORGE with no folder is refused and the folders are named" "error: FORGE is 'nonesuch', and this harness has no forge of that name. It has: github" "$(fdispatch "$ROOT" nonesuch)"
+check "a FORGE with no folder is refused and the folders are named" "error: FORGE is 'nonesuch', and this harness has no forge of that name. It has: forgejo github" "$(fdispatch "$ROOT" nonesuch)"
 mkdir -p "$WORK/fake"
 cat > "$WORK/fake/gh" <<'GH'
 #!/bin/sh

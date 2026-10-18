@@ -19,30 +19,19 @@
 
 # --- the repository, the project, the user --------------------------------------
 
-# plane_origin: "owner/repo" of the origin of the checkout the caller stands in, whatever the host and the
-# way it is spelled (https, scp-like or ssh://), nothing where there is none
-plane_origin() {
-  local url
-  url="$(git remote get-url origin 2>/dev/null)" || return 1
-  url="${url%/}"; url="${url%.git}"
-  url="$(printf '%s' "$url" | sed -n 's|^.*[:/]\([^:/][^:/]*/[^:/][^:/]*\)$|\1|p')"
-  [ -n "$url" ] || return 1
-  printf '%s\n' "$url"
-}
-
 # The organisation a command acts for: GH_ORG, then the owner of the checkout's origin.
 gh_org() {
   local org repo
   org="$(config_value GH_ORG "")"
   if [ -n "$org" ]; then export GH_ORG="$org"; echo "$org"; return 0; fi
-  repo="$(plane_origin)" \
+  repo="$(origin_repo)" \
     || die "no organisation: set GH_ORG in .ai-core/config.env or the environment, or run this inside a repository of it"
   export GH_ORG="${repo%%/*}"
   echo "$GH_ORG"
 }
 
 default_repo() {
-  plane_origin || die "cannot tell which repository this is - pass the repo as OWNER/REPO"
+  origin_repo || die "cannot tell which repository this is - pass the repo as OWNER/REPO"
 }
 
 # ONE CHECKOUT, ONE REPOSITORY: the project the checkout's PLANE_PROJECT names holds the work items of every

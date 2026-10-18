@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Where the project's code lives. FORGE in the project's .ai-core/config.env (or in the environment)
 # names the provider, the folder under lib/ whose forge.sh implements the functions below; github
-# when unset. lib/layers.sh, bin/release.sh, bin/session-start.sh, bin/doctor.sh and bin/issue-map.sh
-# call only these. Source it, do not run it.
+# when unset. lib/layers.sh, bin/init.sh, bin/release.sh, bin/session-start.sh, bin/doctor.sh and
+# bin/issue-map.sh call only these. Source it, do not run it.
 
 . "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
@@ -15,7 +15,9 @@
 #   repo_file_tree <owner/repo>      its files, as the JSON tree issue-map reads
 #   commit_checked <checkout> <sha>  green, red, pending or unreadable (what the forge said, on stderr)
 #   signed_in_user               the login, exit 1 where nobody is signed in
-#   forge_doctor                 the lines doctor prints for the forge, through its report and problem
+#   clone_sign_in <checkout> [dry]   what git needs to sign in to the forge from that checkout, set in the checkout
+#                                    itself; prints its report line when it set something (dry: would set), else nothing
+#   forge_doctor                 the lines doctor prints for the forge, "  forge: <name>" first, through its report and problem
 load_provider forge "
   forge_host repo_exists repo_clone repo_create repo_default_branch repo_file_tree
-  commit_checked signed_in_user forge_doctor"
+  commit_checked signed_in_user clone_sign_in forge_doctor"

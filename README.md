@@ -733,7 +733,8 @@ gitleaks, because only git's own output shows what a merge carries.
 | jq | every board and issue command reads GitHub's answers through it | `doctor` installs it |
 | gitleaks 8.19+ | the credential scan of the push gate, in a repository that carries `.gitleaks.toml` | `doctor` wants it where a repository of the project folder carries that file, and installs it: brew, on Linux the GitHub release into `~/.local/bin` (apt's package is 8.16); `init` runs doctor in the folder it serves |
 | Node.js 20+ with `npm` and `npx` | `ai-core status`, which counts with Node.js; the team modes installed through `npx` | `doctor` installs it |
-| `gh`, logged in | the project harness is found, cloned and created through it; every board and issue command; `session-start` shows the GitHub user | `doctor` installs it; the login is yours |
+| `gh`, logged in | with `FORGE=github`, the project harness is found, cloned and created through it, and `session-start` shows the GitHub user; with `TRACKER=github`, every board and issue command | `doctor` installs it; the login is yours |
+| `curl` and an access token | with `FORGE=forgejo`, the repository calls (section 5.7); git itself signs in with the same token through `ai-core git-credential` | the token is read from `FORGEJO_TOKEN_COMMAND` at each call; `doctor` asks the instance whether it answers |
 
 ### 5.2 Once per machine: `install`
 
@@ -818,7 +819,8 @@ The report closes with `.gitignore changed` when the block was written, committe
 first; the block was there already` when the origin had it, with `.gitignore not written` and the
 reason when the checkout is behind its origin with work of its own, with `.ai-core taken from the checkout <path>` when a
 worktree started empty and got the checkout's `.ai-core/` data first, with `core.hooksPath set to .githooks` when the repository carries the push gate's shim and the
-clone was not armed yet, and with the harness version. A second run on an unchanged checkout reports
+clone was not armed yet, with `credential.<FORGEJO_URL>.helper set` when the origin is on the Forgejo instance
+and the clone did not sign in through `ai-core git-credential` yet, and with the harness version. A second run on an unchanged checkout reports
 only the count of unchanged files.
 
 `ai-core init --dry-run` prints the same report with `would change` and writes nothing, not
@@ -842,7 +844,9 @@ allowed; any other value is an error.
 | :--- | :--- | :--- |
 | `AGENTS` | names separated by spaces: `claude`, `codex`, `antigravity`, `openhands`, `gemini`, `cursor`, `windsurf`, `copilot`; default `claude codex antigravity openhands` | the agents this project serves. `init` deploys the file of each one named (`.cursorrules`, `.windsurfrules`, `.github/copilot-instructions.md`, `.openhands/microagents/repo-rules.md`) and no other. Empty: every pointer file. |
 | `TRACKER` | `github` (default), `plane` | where the project's issues and board live: the folder of `lib/` whose `tracker.sh` every issue and board command calls. A value with no such folder stops the command and names the folders there are. The environment variable `TRACKER` overrides it. |
-| `FORGE` | `github` (default) | where the project's code lives: the folder of `lib/` whose `forge.sh` creates and clones the harness repository, waits for the check of a release commit and names the signed-in user. A value with no such folder stops the command and names the folders there are. The environment variable `FORGE` overrides it. |
+| `FORGE` | `github` (default), `forgejo` | where the project's code lives: the folder of `lib/` whose `forge.sh` creates and clones the harness repository, waits for the check of a release commit and names the signed-in user. A value with no such folder stops the command and names the folders there are. The environment variable `FORGE` overrides it. |
+| `FORGEJO_URL` | the scheme and host of the instance, such as `https://forge.example.test` | with `FORGE=forgejo`: the instance the repository calls go to, and the host `origin` names. No default, and no path: a call that needs it stops and names it. A new project names its forge in the environment of its first `ai-core init`, which creates the harness repository on that instance; the harness's own `config.env`, which every checkout gets, carries the settings from then on. |
+| `FORGEJO_TOKEN_COMMAND` | a command | with `FORGE=forgejo`: the command whose output is an access token of the instance. It runs when a call needs the token; the token stands in no argument, no environment and no file, because curl gets it through its configuration on standard input and git gets it from `ai-core git-credential`. A clone that has no `.ai-core/config.env` of its own, such as the clone of a project harness, reads the settings of its project folder. |
 | `PLANE_URL`, `PLANE_WORKSPACE`, `PLANE_PROJECT` | with `TRACKER=plane`: the address of the Plane instance, the slug of the workspace and the identifier of the project, the `ENG` of `ENG-142`. None has a default: a call that needs one stops and names it. A work item's `#n` is its number in that project, and one project holds the repositories of one line: a work item names its repository by the label `repo:<name>` (the name the origin spells), which `issue-new` puts on it and `labels-sync` makes once, and a `#n` whose label names another repository is refused. A work item with no such label belongs to no repository and is listed under none. Every Plane path is under `/api/v1`, the only prefix Plane CE 1.4.2 serves. |
 | `PLANE_TOKEN_COMMAND` | a command | with `TRACKER=plane`: the command whose output is the API key. It runs when a call needs the key; the key stands in no argument, no environment and no file, because curl gets it through its configuration on standard input. Setting it to `cat <file>` of a file in your home with mode 0600 is the way `gh` keeps its token. |
 | `GH_ORG` | a GitHub organisation or user | the owner the board commands act for when a command names no repository (`repo-boards`, `project-new`, `incident-count`, a bare board number). Unset: the owner of the repository the command runs in. The environment variable `GH_ORG` overrides both. |
@@ -926,12 +930,13 @@ a new script in `bin/` is a command without any registration.
 | `update` | `ai-core update [--check] [--main]` (section 5.10) | 0 done, or `--check`: everything current; 2 `--check`: a release or commits available; 1 an origin could not be reached |
 | `release` | `ai-core release <version>` (in a clone of setup-ai-core, section 10) | 0 tagged and pushed; 1 refused, naming what is missing; 2 a wrong argument |
 | `pre-push` | `ai-core pre-push [--install [--all <folder>]]` (section 4.12) | 0 nothing refused the push, or the shim written; 1 refused, or a repository under `--all` is none; 2 a wrong argument |
+| `git-credential` | `ai-core git-credential get` (git runs it; `store` and `erase` do nothing): the credential helper `init` and the clone set for an origin on the `FORGEJO_URL` instance, as `credential.<FORGEJO_URL>.helper` = `!ai-core git-credential` in the clone's own `.git/config`. It answers git's `get` with the username `ai-core` and the token that `FORGEJO_TOKEN_COMMAND` prints at that moment, and answers nothing for any other host or for http where `FORGEJO_URL` is https. An origin over ssh needs none of it | 0 answered or nothing to answer; 1 the token command failed or printed nothing; 2 a wrong argument |
 | `usage` | `ai-core usage [--stop-at N]` | 0 every window below N; 3 a window at N or more; 2 nothing recorded yet, or a wrong argument. Prints the account's usage windows (five hours, week) as the status line last recorded them, each with its reset time, against the limit N: `--stop-at`, else `USAGE_STOP_AT` of the project's `config.env`, else 92; a window whose reset has passed counts as reset. One model's own weekly quota is not among them |
 | `watch` | `ai-core watch [--session NAME]... [--ref CLONE:REF]... [--still S] [--every S] [--heartbeat S]`, run in the background by a session that oversees others, so its end wakes that session | 0 one line names what happened: a named session has not been `busy` in `claude agents` for `--still` seconds (900), or left it; a ref moved, its clone fetched every `--every` seconds (60); or the heartbeat (1800) passed, with every state; 1 a fetch or `claude agents` failed; 2 a wrong argument, nothing to watch, or a ref that names nothing |
 | `permission-request` | the `PermissionRequest` hook `init` writes into `.claude/settings.json` | in a background session (`CLAUDE_JOB_DIR` set), answers the permission prompt Claude Code is about to show with a deny and a message naming the call, so the session goes on instead of waiting for nobody; elsewhere it prints nothing and the prompt is shown |
 | `statusline` | the status line command `init` writes into `.claude/settings.json` | records the usage windows Claude Code hands it in `~/.ai-core/usage.json` and, at most once a minute, a line of them in `~/.ai-core/usage.log`, then shows a short line of the model and the windows |
 | the board and issue commands | `ai-core issue-new ...`, `ai-core start-issue N`, ... (section 8) | 0 done; 1 refused or gh refused; 2 a wrong argument |
-| `doctor` | `ai-core doctor [--no-install]` | 0 every required tool present and gh logged in; 1 otherwise, each problem with its instruction |
+| `doctor` | `ai-core doctor [--no-install]` | 0 every required tool present and the forge's login answering (gh logged in, or the Forgejo token accepted and `git ls-remote origin` answering); 1 otherwise, each problem with its instruction |
 | `install` | `bin/install.sh [--source <clone>] [--dir <path>] [--repo <url>] [--no-path] [--no-doctor]` | 0 installed and doctor OK; 1 when doctor found problems |
 | `ai-core` | `ai-core <command>`: any script in `bin/` by name, plus `version`, `help` | the command's exit code; 1 for an unknown command |
 
@@ -1122,8 +1127,9 @@ github.com; a tag names a commit whose checks already ran, so pushing it starts 
 
 **A release** is one command, `ai-core release X.Y.Z`, run in the clone: it writes `VERSION` and
 commits `release: X.Y.Z` when the file does not carry the version yet, pushes what is not pushed,
-waits for the workflow run of exactly that commit (asked every 20 seconds, 30 minutes at most)
-and, when the run is green, tags that commit `vX.Y.Z`, not one made during the wait, and pushes
+waits for the checks of exactly that commit (on GitHub the workflow run `check`; on Forgejo the combined state of the
+commit's statuses, of every context, among them the `check` the pipeline posts; asked every 20 seconds, 30 minutes at most)
+and, when they are green, tags that commit `vX.Y.Z`, not one made during the wait, and pushes
 the tag. It refuses, naming what is missing,
 when the tree is not clean, the branch is not the default one (`master`), origin has moved on, the tag exists, or the
 run is red or does not finish; nothing is tagged red. `install` and `update` follow the newest
@@ -1207,6 +1213,7 @@ setup-ai-core/
 │   ├── init.sh                          equips a checkout or a project folder with data
 │   ├── session-start.sh                 the session start
 │   ├── map.sh                           the map of a repository, written by the agent CLI into the harness
+│   ├── git-credential.sh                git's credential helper for an origin on the Forgejo instance: the token of FORGEJO_TOKEN_COMMAND
 │   ├── update.sh                        this machine to the newest release, the harness clones to their origins
 │   ├── release.sh                       commits VERSION, pushes, waits for green checks, tags
 │   ├── push.sh                          commits and pushes the harness clones of the project folder
@@ -1226,6 +1233,7 @@ setup-ai-core/
 │   ├── forge.sh                         reads FORGE and sources lib/<FORGE>/forge.sh, the calls to the code host
 │   ├── github/                          the GitHub provider: gh.sh (gh with the rate limits met), tracker.sh, forge.sh
 │   ├── plane/                           the Plane provider: api.sh (curl with the key, the rate limit met), tracker.sh
+│   ├── forgejo/                         the Forgejo provider: forge.sh (curl with the token), and the line that lets git sign in
 │   ├── layers.sh                        the project harness: from origin, beside the repositories, cloned, pulled, created, the extends chain
 │   ├── gitignore-block                  the block init writes into a project's .gitignore
 │   ├── binding-rules.md                 the binding rules init puts on top of every map and into a project folder's AGENTS.md

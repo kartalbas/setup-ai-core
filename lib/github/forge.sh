@@ -62,10 +62,14 @@ signed_in_user() {
   gh api user -q .login 2>/dev/null || echo ""
 }
 
+# clone_sign_in: a checkout signs in to GitHub through gh, once for the machine, so it needs nothing of its own
+clone_sign_in() { :; }
+
 # forge_doctor: the gh lines of `ai-core doctor`, through doctor's own report, problem and
 # install_tool, which doctor.sh defines.
 forge_doctor() {
   local gh_status
+  echo "  forge: github"
   if ! command -v gh >/dev/null 2>&1; then install_tool gh gh gh || true; fi
   if command -v gh >/dev/null 2>&1; then
     # the board commands write Projects v2, which a login with gh's default scopes cannot; a token

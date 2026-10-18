@@ -106,3 +106,49 @@ plane_add_comment() {
     const it=p.issues.find((i)=>i.sequence_id===+process.env.COMMENT_SEQ), e=process.env.COMMENT_TEXT.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     p.comments.push({id:require("crypto").randomUUID(),issue:it.id,comment_html:"<pre>"+e+"</pre>",created_at:new Date(Date.UTC(2026,9,18,9,0,++s.clock)).toISOString(),actor:s.users[0].id,is_member:true})'
 }
+
+# make_forgejo_project: $F, a checkout whose forge is Forgejo, and the instance on this disk: the API answered by
+# the stand-in curl, the git of its repositories served over HTTP by tests/git-http-server.mjs (bare repositories
+# under $REMOTE/<owner>/<name>.git, which the stand-in makes when the API creates one, and a login that is the
+# token in $WORK/server-token; the token command prints $WORK/ftoken, which holds the same). $FORGE_URL is the address of both. An `ai-core` on the PATH runs the command of this
+# tree, as the credential line git is given asks for. forge_fn <function> [args] calls a function of lib/forge.sh
+# in $F; forgejo_set <js> changes the stand-in's state as another hand would (`s` is the state); forgejo_repo
+# <owner/name> [files] adds a repository to it.
+make_forgejo_project() {
+  export HOME="$WORK/home" AI_CORE_HOME="$WORK/ai-core-home" GH_CACHE_DIRECTORY="$WORK/cache"
+  mkdir -p "$HOME" "$AI_CORE_HOME"
+  make_curl_fake
+  git config --global init.defaultBranch main   # a repository the instance makes is on main too: the stand-in does not move the default branch to the first one pushed
+  REMOTE="$WORK/remote"; mkdir -p "$REMOTE/example-org"; export CURL_FAKE_REPO_ROOT="$REMOTE"
+  printf 'forgejo-token-4567\n' > "$WORK/ftoken"; cp "$WORK/ftoken" "$WORK/server-token"   # the token command's answer, and the token the server accepts
+  GIT_SERVER_LOG="$WORK/git-server.log"; : > "$GIT_SERVER_LOG"
+  node "$ROOT/tests/git-http-server.mjs" "$REMOTE" "$WORK/server-token" "$GIT_SERVER_LOG" > "$WORK/git-server.port" &
+  GIT_SERVER_PID=$!
+  trap 'kill "$GIT_SERVER_PID" 2>/dev/null || true; [ -n "${KEEP_WORK:-}" ] || rm -rf "$WORK"' EXIT
+  local waited=0
+  while [ ! -s "$WORK/git-server.port" ]; do
+    waited=$((waited + 1)); [ "$waited" -le 100 ] || fail "the git server of the Forgejo stand-in did not start"
+    sleep 0.1
+  done
+  FORGE_URL="http://127.0.0.1:$(cat "$WORK/git-server.port")"; FORGE_HOST="${FORGE_URL#http://}"
+  mkdir -p "$WORK/aibin"
+  printf '#!/bin/sh\nexec bash "${ROOT_UNDER_TEST:-%s}/bin/ai-core" "$@"\n' "$ROOT" > "$WORK/aibin/ai-core"; chmod +x "$WORK/aibin/ai-core"
+  PATH_CURL="$WORK/aibin:$PATH_CURL"
+  F="$WORK/forge-project"; mkdir -p "$F/.ai-core"; git init -q "$F"
+  git -C "$F" remote add origin "$FORGE_URL/example-org/example-repo.git"
+  cat > "$F/.ai-core/config.env" <<CONF
+FORGE=forgejo
+FORGEJO_URL=$FORGE_URL
+FORGEJO_TOKEN_COMMAND="cat $WORK/ftoken"
+CONF
+}
+forge_fn() { ( cd "$F" && PATH="$PATH_CURL" bash -c '. "$1/lib/forge.sh"; shift; "$@"' _ "${ROOT_UNDER_TEST:-$ROOT}" "$@" ); }
+forgejo_set() {
+  CURL_FAKE_STATE="$CURL_FAKE_STATE" node -e "const fs=require('fs'),f=process.env.CURL_FAKE_STATE+'/forgejo.json',s=JSON.parse(fs.readFileSync(f));$1;fs.writeFileSync(f,JSON.stringify(s))"
+}
+# forgejo_repo <owner/name> [number of files]: a repository the instance has, with a commit when it has files
+forgejo_repo() {
+  REPO_FULL="$1" REPO_FILES="${2:-0}" forgejo_set '
+    const n=+process.env.REPO_FILES, full=process.env.REPO_FULL;
+    s.repos[full]={name:full.split("/")[1],full_name:full,private:true,empty:n===0,default_branch:"main",files:Array.from({length:n},(_,i)=>"dir/file-"+i+".txt")}'
+}

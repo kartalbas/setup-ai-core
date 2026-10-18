@@ -7,7 +7,7 @@
 #
 # One command does the whole release: VERSION gets the version when it does not carry it yet,
 # committed on its own as `release: <version>`; whatever is not pushed goes to origin by ref;
-# then the command waits for the check run of that commit (gh run list, every 20 seconds, 30
+# then the command waits for the check of that commit on the forge (every 20 seconds, 30
 # minutes at most; AI_CORE_RELEASE_POLL and AI_CORE_RELEASE_WAIT, in seconds, for a suite) and
 # tags it when the run is green. It refuses, naming what is missing, when the tree is not clean,
 # the branch is not the default branch, origin has moved on, the tag exists, or the checks are
@@ -81,7 +81,7 @@ while :; do
     *) failed_query="${split_err:-an empty answer}" ;;
   esac
   if [ "$(date +%s)" -ge "$deadline" ]; then
-    [ -z "$failed_query" ] || refuse "gh could not list the workflow runs of $sha until the deadline; it said last: ${failed_query% } (is gh logged in?)"
+    [ -z "$failed_query" ] || refuse "the checks of $sha could not be read from $(forge_host) until the deadline; it said last: ${failed_query% } (is anyone signed in there?)"
     refuse "the checks for $sha did not finish in $((limit / 60)) minute(s); run 'ai-core release $version' again when they have"
   fi
   [ "$waiting" -eq 1 ] || { echo "release: waiting for the checks of ${sha:0:7} (asked every ${poll}s, $((limit / 60)) minute(s) at most)"; waiting=1; }

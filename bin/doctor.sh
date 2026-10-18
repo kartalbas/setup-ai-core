@@ -83,7 +83,6 @@ else
   echo "  tracker: $tracker"
   report tracker MISSING "TRACKER names no folder of lib/ with a tracker.sh"; problem
 fi
-echo "  forge: $FORGE"
 forge_doctor
 
 # Bash (this script runs in it)

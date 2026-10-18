@@ -1021,6 +1021,19 @@ the limit. A wait longer than 15 minutes fails at once. The wait notice goes to 
 that parses what it captured keeps the two apart. `ai-core issue-comment` posts and resolves its
 repository over REST. `AI_CORE_SLEEP` names the command that waits, `sleep` by default; the tests set it to a stand-in.
 
+`issue-new`, `issue-comment` and body-bearing `issue-edit` check the final composed body before
+any tracker write. Unless the tracker confirms a private GitHub repository, a literal email address
+is refused locally with the command and address named. A failed or malformed visibility read uses
+this public policy. Plane currently cannot establish private destination visibility, so the check
+also applies to Plane bodies. Title-only edits keep their existing behavior.
+
+Reserved domains (`invalid`, `example`, `test`, `localhost`, `example.com`, `example.net`,
+`example.org` and their subdomains) and the exact GitHub domain `users.noreply.github.com` are
+allowed, ignoring domain case. A local part containing `noreply` and an unverified Forgejo noreply
+domain grant no exemption. The check covers literal addresses in text and Markdown, not encoded
+addresses, images or an address written as “name at domain.” It refuses rather than redacting and
+leaves the caller's file unchanged.
+
 | Command | Does |
 | :--- | :--- |
 | `start-issue [OWNER/REPO] N` | opens the worktree for issue N under `../.worktrees/<repo>/issue-N-<slug>`, on a branch of that name cut from `origin/<default>`, only when the issue is assigned to you and the checkout is clean and current; moves the card to `implementing`; runs `init` there, which takes the checkout's `.ai-core/` data first; prints the thread. For an issue of another repository whose work lands here, `OWNER/REPO N` cuts the worktree here and records the issue's repository on the branch (`git config branch.<branch>.issueRepository`), where `session-start`, `integrate-issue` and `finish-issue` read it. One run, because any one of these done alone is often not done. |

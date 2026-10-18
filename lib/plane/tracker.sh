@@ -21,6 +21,11 @@
 
 tracker_name() { echo Plane; }
 
+repo_visibility() {
+  echo "Plane cannot establish private destination visibility for $1; the public body check applies" >&2
+  return 1
+}
+
 # The organisation a command acts for: GH_ORG, then the owner of the checkout's origin.
 gh_org() {
   local org repo

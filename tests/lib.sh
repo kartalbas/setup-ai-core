@@ -33,6 +33,36 @@ make_gh_fake() {
 GH_FAKE="$WORK/github"; mkdir -p "$GH_FAKE/github.com/example-org" "$WORK/ghbin"; export GH_FAKE
 cat > "$WORK/ghbin/gh" <<'EOF'
 #!/bin/sh
+if [ "$1 $2" = "repo view" ] && [ "${4-} ${5-}" = "--json isPrivate" ]; then
+  printf 'visibility\n' >> "$GH_FAKE/body-calls.log"
+  case "${GH_VISIBILITY:-public}" in
+    private) echo '{"isPrivate":true}' ;; public) echo '{"isPrivate":false}' ;;
+    error) echo 'visibility denied' >&2; exit 1 ;; malformed) echo 'not json' ;;
+    null) echo '{"isPrivate":null}' ;; string) echo '{"isPrivate":"true"}' ;;
+    missing) echo '{}' ;; *) echo "$GH_VISIBILITY" ;;
+  esac
+  exit 0
+fi
+if [ "${GH_BODY_FIXTURE:-}" = 1 ]; then
+  case "$1 $2" in
+    'api graphql') case "$*" in *mutation*) echo 'write mutation' >> "$GH_FAKE/body-calls.log" ;; esac; exit 0 ;;
+    'issue create') kind=new ;;
+    'api --method') kind=edit ;;
+    api*) case "$*" in *--jq\ .body*) cat "$GH_FAKE/current-body"; exit 0 ;; esac; kind=comment ;;
+    *) echo "unexpected fixture call: $*" >&2; exit 1 ;;
+  esac
+  printf 'write %s\n' "$kind" >> "$GH_FAKE/body-calls.log"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --body-file) cp "$2" "$GH_FAKE/sent-body"; shift ;;
+      body=@*) cp "${1#body=@}" "$GH_FAKE/sent-body" ;;
+      body=*) printf '%s' "${1#body=}" > "$GH_FAKE/sent-body" ;;
+    esac
+    shift
+  done
+  echo 'https://github.com/example-org/example-repo/issues/9'
+  exit 0
+fi
 case "$1 $2" in
   "repo view")   [ -d "$GH_FAKE/github.com/$3.git" ] ;;
   "repo clone")  git clone -q "$GH_FAKE/github.com/$3.git" "$4" ;;

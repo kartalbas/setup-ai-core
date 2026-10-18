@@ -9,6 +9,18 @@
 # tracker_name: the tracker as a message names it
 tracker_name() { echo GitHub; }
 
+# Only a successful boolean answer establishes a repository's visibility.
+repo_visibility() {
+  local json visibility
+  json="$(gh_read "the visibility of $1" repo view "$1" --json isPrivate)" || return 1
+  visibility="$(printf '%s' "$json" | jq -er 'if (.isPrivate | type) == "boolean" then
+    if .isPrivate then "private" else "public" end else error("isPrivate is not boolean") end' 2>/dev/null)" \
+    || { echo "cannot establish the visibility of $1: isPrivate was not a boolean" >&2; return 1; }
+  case "$visibility" in public|private) printf '%s\n' "$visibility" ;;
+    *) echo "cannot establish the visibility of $1: expected one repository" >&2; return 1 ;;
+  esac
+}
+
 # THE ORGANISATION, for a command that names no repository: GH_ORG in the environment, then
 # GH_ORG= in the checkout's .ai-core/config.env (the project's setting, put there by init), then
 # the owner of the repository the caller stands in. The harness itself names none: it serves many.

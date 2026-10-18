@@ -18,6 +18,7 @@ log="$fake/calls.txt"
 
 cat > "$fake/gh" <<EOF
 #!/usr/bin/env bash
+if [ "\$1 \$2" = "repo view" ] && [ "\${4-} \${5-}" = "--json isPrivate" ]; then echo '{"isPrivate":false}'; exit 0; fi
 printf '%s\n' "\$*" >> "$log"
 if [ "\$*" = "api repos/{owner}/{repo} --jq .full_name" ]; then echo 'example-org/example-repo'; exit 0; fi
 if [ "\$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
@@ -92,6 +93,7 @@ refusing="$fake/refusing"
 mkdir -p "$refusing"
 cat > "$refusing/gh" <<'NO'
 #!/usr/bin/env bash
+if [ "$1 $2" = "repo view" ] && [ "${4-} ${5-}" = "--json isPrivate" ]; then echo '{"isPrivate":false}'; exit 0; fi
 if [ "$*" = "api repos/{owner}/{repo} --jq .full_name" ]; then echo 'example-org/example-repo'; exit 0; fi
 if [ "$1" = "repo" ]; then echo 'example-org/example-repo'; exit 0; fi
 echo '{"message":"Issue is locked"}'
@@ -108,6 +110,7 @@ limited="$fake/limited"
 mkdir -p "$limited"
 cat > "$limited/gh" <<'NO'
 #!/usr/bin/env bash
+if [ "$1 $2" = "repo view" ] && [ "${4-} ${5-}" = "--json isPrivate" ]; then echo '{"isPrivate":false}'; exit 0; fi
 printf '%s\n' "$*" >> "$LIMITED_LOG"
 case "$*" in
   *graphql*|"issue comment"*|"repo view"*)

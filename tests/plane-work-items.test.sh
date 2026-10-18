@@ -258,4 +258,9 @@ printf '\nplane_uncalled_mapper() { echo urgent; }\n' >> "$planted/lib/plane/tra
 [ "$(dead_functions "$planted")" = plane_uncalled_mapper ] || fail "planted: an uncalled function is not found, so the check cannot go red: $(dead_functions "$planted")"
 echo "  the Plane provider defines no function that nothing calls; planted: an uncalled function is found"
 
+reset_log
+out="$(plane_fn repo_visibility example-org/example-repo 2>&1)" && fail "Plane invented a visibility guarantee: $out"
+grep -q 'cannot establish private destination visibility' <<< "$out" || fail "Plane omitted its visibility limit: $out"
+[ ! -s "$CURL_FAKE_STATE/requests.log" ] || fail "Plane visibility invented an API field"
+echo "  Plane declares unsupported visibility without fabricating a private result or API field"
 echo "all passed"

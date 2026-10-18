@@ -16,6 +16,10 @@
 #
 # THE ASKED-FOR LINE SURVIVES THE EDIT. It is kept, not asked for and not composed - see below.
 
+# Refuses literal email addresses in bodies for public or unknown visibility; reserved example domains
+# and GitHub noreply addresses are allowed. Private GitHub repositories bypass the check. Plane
+# cannot establish private visibility, so its bodies receive the public check.
+
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 
 usage='usage: issue-edit.sh [OWNER/REPO] NUMBER [--title T] [--body-file PATH]'
@@ -27,7 +31,9 @@ while [ $# -gt 0 ]; do
     --title)     need_value "$1" "${2-}"; title="$2"; shift 2 ;;
     --body-file) need_value "$1" "${2-}"; body="$2";  shift 2 ;;
     --title=*|--body-file=*) die "$1 is not supported - separate the flag and its value" ;;
-    -h|--help)   echo "$usage"; exit 0 ;;
+    -h|--help)   echo "$usage"; printf '%s\n' ' Refuses literal email addresses in bodies for public or unknown visibility; reserved example domains
+and GitHub noreply addresses are allowed. Private GitHub repositories bypass the check. Plane
+cannot establish private visibility, so its bodies receive the public check.'; exit 0 ;;
     -*)          die "unknown argument '$1'" ;;
     *)           numbers+=("$1"); shift ;;
   esac
@@ -38,6 +44,7 @@ done
 [ -n "$title" ] || [ -n "$body" ] || die "name a --title or a --body-file - an edit that changes nothing is a mistake"
 if [ -n "$body" ]; then
   [ -f "$body" ] || die "the body file does not exist: $body"
+  [ -r "$body" ] || die "cannot read body file: $body"
 fi
 
 repo="$(resolve_repo "${numbers[0]}")" || exit 1
@@ -91,6 +98,7 @@ if [ -n "$body" ] && ! is_origin_line "${given%$'\r'}"; then
   fi
 fi
 
+[ -z "$body" ] || check_public_body issue-edit "$repo" "" "$send"
 issue_edit "$repo" "$num" "$title" "${body:+$send}"
 
 changed=""

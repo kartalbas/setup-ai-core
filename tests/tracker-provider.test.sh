@@ -78,6 +78,12 @@ lacks="$(dispatch "$WORK/planted" lacking)"
 check "a provider without the functions is refused" "yes" "$(case "$lacks" in "error: the tracker 'lacking' lacks these functions: default_repo "*issue_rows*) echo yes ;; *) echo no ;; esac)"
 check "a provider with them all is not" "tracker=github function" "$(dispatch "$ROOT" github)"
 
+cp -R "$ROOT/lib" "$WORK/visibility-lib"
+mkdir -p "$WORK/visibility-copy"; mv "$WORK/visibility-lib" "$WORK/visibility-copy/lib"
+sed '/^repo_visibility() {/,/^}/d' "$ROOT/lib/github/tracker.sh" > "$WORK/visibility-copy/lib/github/tracker.sh"
+lacks="$(dispatch "$WORK/visibility-copy" github)"
+check "missing visibility interface is named" yes "$(grep -q 'lacks these functions: repo_visibility' <<< "$lacks" && echo yes || echo no)"
+
 # the forge: FORGE names the folder of lib/ the same way, and the check of a commit answers four ways
 fdispatch() {  # fdispatch <lib root> <FORGE or 'unset'>
   ( cd "$WORK/project" && { [ "$2" = unset ] && unset FORGE || export FORGE="$2"; } &&

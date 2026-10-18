@@ -133,6 +133,7 @@ remotes='Push to `ssh://git@forgejo.<fqdn>/<owner>/<repo>.git`, `git@github.com:
 case_body allow "$remotes"
 case_body refuse "$remotes Ask $real."
 check 'address beside remotes is named' yes "$(grep -qF "refused email address $real" <<< "$out" && echo yes || echo no)"
+for text in "https://example.com?mail=$real" "https://example.com#$real" "https://example.com,$real" "[docs](https://example.com)[mail](mailto:$real)" "$real:25" "Ping $real:please" "Cc <$real>:note" $'https://{{ .host\nAsk '"$real"$'\nhttps://x:{{ .pat }}@github.com'; do case_body refuse "$text"; done
 FORGE=forgejo case_body refuse 'noreply@company.ch'
 path=new; asked_in="$real"; case_body refuse 'Safe input.'; unset asked_in
 path=edit; printf 'Asked for by @someone on 2026-10-18 in %s.\n' "$real" > "$GH_FAKE/current-body"
@@ -334,9 +335,12 @@ for path in inline file new edit; do
   check "$path exemption removal refuses innocent" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
   check "$path exemption removal zero writes" 0 "$(grep -c '^write ' "$GH_FAKE/body-calls.log" || true)"
 done
-sed 's/^    gsub(.*/    ./; s/^    | gsub(.*/    | ./' "$ROOT/lib/tracker.sh" > "$mutant/lib/tracker.sh"
-path=edit; text="$remotes"; printf '%s' "$text" > "$WORK/body"; : > "$GH_FAKE/body-calls.log"; rc=0; out="$(invoke 2>&1)" || rc=$?
-check 'remote userinfo removal refuses innocent' yes "$([ "$rc" -ne 0 ] && grep -qF 'refused email address' <<< "$out" && echo yes || echo no)"
+path=edit
+for rule in 'url:s/^    gsub(.*/    ./:Push to `ssh://git@forgejo.<fqdn>/<owner>/<repo>.git`.' 'scp:s/^    | gsub(.*/    | ./:Push to `git@github.com:owner/repo.git`.'; do
+  name="${rule%%:*}"; rest="${rule#*:}"; sed "${rest%%:*}" "$ROOT/lib/tracker.sh" > "$mutant/lib/tracker.sh"
+  text="${rest#*:}"; printf '%s' "$text" > "$WORK/body"; : > "$GH_FAKE/body-calls.log"; rc=0; out="$(invoke 2>&1)" || rc=$?
+  check "$name remote rule removal refuses innocent" yes "$([ "$rc" -ne 0 ] && grep -qF 'refused email address' <<< "$out" && echo yes || echo no)"
+done
 cp "$ROOT/lib/tracker.sh" "$mutant/lib/tracker.sh"
 printf '\nrepo_visibility() { echo private; }\n' >> "$mutant/lib/github/tracker.sh"
 path=inline; text="$real"; : > "$GH_FAKE/body-calls.log"; rc=0; out="$(invoke 2>&1)" || rc=$?

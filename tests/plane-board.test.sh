@@ -174,6 +174,15 @@ grep -q 'incident:duplicate' <<< "$out" && fail "incident-count printed rows bes
 printf '[]' > "$CURL_FAKE_STATE/inject.json"
 echo "  project_repos, board_repos, projects_of_org, issue_numbers_closed, issue_summaries, issues_created_since and incident-count read the repositories of the project by their labels, and incident-count every open project of the workspace and no archived one"
 
+# A failed repository discovery on an earlier board cannot be hidden by a readable later board.
+eng_id="$(planeq 'console.log(p.id)')"
+printf '[{"match":"/projects/%s/labels/","status":403,"times":9,"body":{"detail":"Labels are forbidden."}}]' "$eng_id" > "$CURL_FAKE_STATE/inject.json"
+out="$(ai incident-count --weeks 2 2>&1)" && fail "incident-count swallowed ENG's labels refusal before readable OPS: $out"
+grep -q 'cannot read the labels of ENG - the Plane API answered 403' <<< "$out" || fail "the labels refusal was not propagated: $out"
+! grep -qE '^label[[:space:]]|^incident:' <<< "$out" || fail "incident-count printed a table beside a labels refusal: $out"
+printf '[]' > "$CURL_FAKE_STATE/inject.json"
+echo "  incident discovery refusal: ENG labels answering 403 stops the count without a table even when OPS is readable"
+
 # STATUS-SYNC reads the cards of each repository of the project, and the clone of each by the repository its
 # work item names: by the repo: label, or by external_id where it was carried and has no label
 mkdir -p "$WORK/origins/example-org"

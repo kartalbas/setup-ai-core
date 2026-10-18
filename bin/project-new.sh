@@ -6,6 +6,7 @@
 #
 # Project visibility is unknown on GitHub and Plane. Names receive the public email-address check;
 # reserved example domains and GitHub noreply addresses are allowed.
+# The check reads the raw text, and an address dressed by Markdown, HTML, invisible or lookalike characters is not refused; the README names the cases.
 #
 # Prints "created: TITLE -> URL" then the new project number on stdout.
 #

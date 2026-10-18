@@ -8,6 +8,7 @@
 # Refuses literal email addresses in the comment for public or unknown visibility; reserved example
 # domains and GitHub noreply addresses are allowed. Private GitHub repositories bypass the check.
 # Plane cannot establish private visibility, so its comments receive the public check.
+# The check reads the raw text, and an address dressed by Markdown, HTML, invisible or lookalike characters is not refused; the README names the cases.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 

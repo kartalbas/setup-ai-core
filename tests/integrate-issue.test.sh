@@ -128,6 +128,7 @@ check 'the second parent is the branch' "$(git -C "$wt" rev-parse HEAD)" "$(git 
 check 'the subject is the title and the issue' 'Read the board whole (#77)' "$(git --git-dir="$origin" log -1 --format=%s master)"
 check 'it carries the trailer'         'l4' "$(git --git-dir="$origin" log -1 --format='%(trailers:key=Reviewed-by,valueonly)' master | tr -d '\n')"
 check 'the worktree is on its branch again' 'issue-77-board' "$(git -C "$wt" symbolic-ref --short HEAD)"
+check 'normal integration refreshes the main default' "$(tip)" "$(git -C "$work" rev-parse master)"
 
 echo 'a branch already integrated has nothing to integrate'
 after="$(tip)"
@@ -289,6 +290,7 @@ check 'the temporary worktree is gone, registered nowhere' "$trees_before" "$(tr
 check 'and no folder of it is left'    0 "$(leftovers)"
 check 'the lock is released'           no "$([ -e "$lock" ] && echo yes || echo no)"
 check 'the checkout it ran in is on its own branch' master "$(git -C "$work" symbolic-ref --short HEAD)"
+check 'from-origin integration refreshes the main default' "$(tip)" "$(git -C "$work" rev-parse master)"
 
 echo '--from-origin merges what origin holds: a commit only the held worktree has does not land'
 heldwt2="$(held_tree 101 local)"
@@ -490,6 +492,92 @@ check 'origin did not move'            "$after" "$(tip)"
 check 'the temporary worktree is gone, registered nowhere' "$trees_before" "$(trees_listed)"
 check 'and no folder of it is left'    0 "$(leftovers)"
 check 'the lock is released'           no "$([ -e "$lock" ] && echo yes || echo no)"
+
+echo 'integration refresh snapshots start only after the successful push, for both landing paths'
+FF_COPY="$fake/refresh-copy"; mkdir -p "$FF_COPY"
+cp -R "$root/bin" "$root/lib" "$root/templates" "$FF_COPY/"
+sed 's/^fast_forward_default_branch() {/fast_forward_default_branch_real() {/' "$root/lib/common.sh" > "$FF_COPY/lib/common.sh"
+sed -n '/^state() {/,/^}/p' "$root/tests/default-branch.test.sh" >> "$FF_COPY/lib/common.sh"
+cat >> "$FF_COPY/lib/common.sh" <<'WRAPPER'
+git() { [ -z "${RECORD_GIT:-}" ] || printf '%s\n' "$*" >> "$RECORD_GIT"; command git "$@"; }
+fast_forward_default_branch() {
+ local rc=0 RECORD_GIT="$FF_TRACE/calls" remote tip old
+ mkdir -p "$FF_TRACE"; : > "$RECORD_GIT"
+ if [ -n "${FF_PLANT_STALE:-}" ]; then
+   remote="$(command git -C "$1" remote get-url origin)"
+   tip="$(command git --git-dir="$remote" rev-parse HEAD)"; old="$(command git -C "$1" rev-parse HEAD)"
+   command git --git-dir="$remote" update-ref refs/heads/probe "$tip"
+   command git -C "$1" update-ref refs/remotes/origin/probe "$old"
+ fi
+ state "$1" > "$FF_TRACE/before"
+ fast_forward_default_branch_real "$1" || rc=$?
+ state "$1" > "$FF_TRACE/after"
+ printf '%s\n' "$rc" > "$FF_TRACE/rc"
+ return "$rc"
+}
+WRAPPER
+FF_N=0
+ff_fixture() {
+ FF_N=$((FF_N+1)); FF_DIR="$fake/refresh-$FF_N"; mkdir -p "$FF_DIR"
+ FF_DEFAULT="$1"; FF_SEED="$FF_DIR/seed"; FF_REPO="$FF_DIR/checkout"; FF_ORIGIN="$FF_DIR/origin.git"
+ git init -qb "$FF_DEFAULT" "$FF_SEED"; dress "$FF_SEED"
+ printf 'base\n' > "$FF_SEED/tracked"; git -C "$FF_SEED" add tracked; git -C "$FF_SEED" commit -qm base
+ git clone -q --bare "$FF_SEED" "$FF_ORIGIN"; git clone -q "$FF_ORIGIN" "$FF_REPO"; dress "$FF_REPO"
+ git -C "$FF_SEED" remote add origin "$FF_ORIGIN"
+ for commit in one two; do printf '%s\n' "$commit" > "$FF_SEED/remote-file"; git -C "$FF_SEED" add remote-file; git -C "$FF_SEED" commit -qm "$commit"; done
+ git -C "$FF_SEED" push -q origin "$FF_DEFAULT"
+ FF_ISSUE="$FF_DIR/issue-200-refresh"; git -C "$FF_REPO" worktree add -qb issue-200-refresh "$FF_ISSUE"; dress "$FF_ISSUE"
+ printf 'change\n' > "$FF_ISSUE/change"; git -C "$FF_ISSUE" add change; git -C "$FF_ISSUE" commit -qm 'Preserve the checkout (#200)'
+ git -C "$FF_ISSUE" push -q origin HEAD
+ FF_TRACE="$FF_DIR/trace"; export FF_TRACE
+ unset FF_PLANT_STALE
+}
+ff_land() { ( cd "$FF_ISSUE" && bash "$FF_COPY/bin/integrate-issue.sh" 200 --reviewed-by reader "$@" 2>&1 ); }
+for mode in normal from-origin; do
+ args=(); [ "$mode" != from-origin ] || args=(--from-origin)
+ for FF_DEFAULT in main master; do
+  ff_fixture "$FF_DEFAULT"; out="$(ff_land ${args[@]+"${args[@]}"})"; rc=$?
+  check "$mode $FF_DEFAULT succeeded" 0 "$rc"
+  check "$mode $FF_DEFAULT main matches origin" "$(git --git-dir="$FF_ORIGIN" rev-parse "$FF_DEFAULT")" "$(git -C "$FF_REPO" rev-parse "$FF_DEFAULT")"
+  check "$mode issue branch restored" issue-200-refresh "$(git -C "$FF_ISSUE" symbolic-ref --short HEAD)"
+ done
+ for state in staged unstaged untracked unmerged; do
+  ff_fixture main
+  case "$state" in
+   staged) printf 'mine\n' > "$FF_REPO/tracked"; git -C "$FF_REPO" add tracked ;;
+   unstaged) printf 'mine\n' > "$FF_REPO/tracked" ;;
+   untracked) printf 'mine\n' > "$FF_REPO/loose" ;;
+   unmerged)
+    git -C "$FF_REPO" switch -qc conflict; printf 'other\n' > "$FF_REPO/tracked"; git -C "$FF_REPO" commit -qam other
+    git -C "$FF_REPO" switch -q main; printf 'mine\n' > "$FF_REPO/tracked"; git -C "$FF_REPO" commit -qam mine
+    git -C "$FF_REPO" merge conflict >/dev/null 2>&1 ;;
+  esac
+  export FF_PLANT_STALE=1
+  out="$(ff_land ${args[@]+"${args[@]}"})"; rc=$?
+  check "$mode $state integration stays successful" 0 "$rc"
+  check "$mode $state snapshot unchanged" yes "$(cmp -s "$FF_TRACE/before" "$FF_TRACE/after" && echo yes || echo no)"
+  check "$mode $state helper does not fetch" 0 "$(grep -c ' fetch ' "$FF_TRACE/calls" || true)"
+  check "$mode $state names skipped checkout" yes "$(grep -qF "$FF_REPO was not refreshed" <<< "$out" && echo yes || echo no)"
+  check "$mode $state reports integrated" yes "$(grep -q '^integrated:' <<< "$out" && echo yes || echo no)"
+ done
+ ff_fixture main
+ printf '#!/bin/sh\nexit 1\n' > "$FF_ORIGIN/hooks/pre-receive"; chmod +x "$FF_ORIGIN/hooks/pre-receive"
+ out="$(ff_land ${args[@]+"${args[@]}"})"; rc=$?
+ check "$mode rejected push refuses" 1 "$rc"
+ check "$mode rejected push never refreshes" no "$([ -d "$FF_TRACE" ] && echo yes || echo no)"
+done
+# Losing the call leaves a clean checkout behind, despite a successful push.
+cp "$FF_COPY/bin/integrate-issue.sh" "$fake/integrate-with-refresh"
+sed '/^if ! fast_forward_default_branch /,/^fi/d' "$root/bin/integrate-issue.sh" > "$FF_COPY/bin/integrate-issue.sh"
+ff_fixture main; out="$(ff_land)"; rc=$?
+check 'missing integration call mutant still pushes' 0 "$rc"
+check 'missing integration call mutant is caught' no "$([ "$(git -C "$FF_REPO" rev-parse main)" = "$(git --git-dir="$FF_ORIGIN" rev-parse main)" ] && echo yes || echo no)"
+cp "$fake/integrate-with-refresh" "$FF_COPY/bin/integrate-issue.sh"
+printf '\nfast_forward_default_branch() { echo "not refreshed: $1: planted failure" >&2; return 1; }\n' >> "$FF_COPY/lib/common.sh"
+ff_fixture main; out="$(ff_land)"; rc=$?
+check 'post-push refresh failure keeps success' 0 "$rc"
+check 'post-push refresh failure reports integrated' yes "$(grep -q '^integrated:' <<< "$out" && echo yes || echo no)"
+check 'post-push refresh failure never claims nothing landed' no "$(grep -q 'nothing landed' <<< "$out" && echo yes || echo no)"
 
 echo
 [ "$failed" -eq 0 ] && echo 'all passed' || echo "$failed failed"

@@ -306,4 +306,68 @@ agy_init "$F/repo"
 [ "$(cat "$A/ai-core-01.md")" = "$(ours_head 1)" ] && [ -z "$(git -C "$F/repo" status --porcelain)" ] || fail "init.sh wrote over a part the repository tracks"
 echo "  each part opens with trigger: always_on and holds at most 24,000 bytes, a line of 60,000 cut inside by bytes and agy's budget warned of; the parts hold the Codex text line for line; a stale part of init's own goes, a file of the project's own under that name, a part git tracks and another rule stay; nothing under --dry-run or where agy is not served, and the checkout stays clean"
 
+
+section "session startup refreshes only safe default branches and keeps JSON separate"
+FF_COPY="$WORK/refresh-copy"; mkdir -p "$FF_COPY"
+cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$FF_COPY/"
+sed 's/^fast_forward_default_branch() {/fast_forward_default_branch_real() {/' "$ROOT/lib/common.sh" > "$FF_COPY/lib/common.sh"
+sed -n '/^state() {/,/^}/p' "$ROOT/tests/default-branch.test.sh" >> "$FF_COPY/lib/common.sh"
+
+cat >> "$FF_COPY/lib/common.sh" <<'WRAPPER'
+
+git() { [ -z "${RECORD_GIT:-}" ] || printf '%s\n' "$*" >> "$RECORD_GIT"; command git "$@"; }
+fast_forward_default_branch() {
+  local rc=0 RECORD_GIT="$FF_TRACE/calls"
+  mkdir -p "$FF_TRACE"; : > "$RECORD_GIT"
+  state "$1" > "$FF_TRACE/before"
+  fast_forward_default_branch_real "$1" || rc=$?
+  state "$1" > "$FF_TRACE/after"
+  printf '%s\n' "$rc" > "$FF_TRACE/rc"
+  return "$rc"
+}
+WRAPPER
+printf 'claude\tmode\talways\t-\t-\n' > "$WORK/refresh-modes"
+make_gh_fake
+FF_N=0
+ff_fixture() {
+ FF_N=$((FF_N+1)); FF_DIR="$WORK/startup-$FF_N"; mkdir -p "$FF_DIR"
+ FF_DEFAULT="$1"; FF_SEED="$FF_DIR/seed"; FF_REPO="$FF_DIR/checkout"; FF_ORIGIN="$FF_DIR/origin.git"
+ git init -qb "$FF_DEFAULT" "$FF_SEED"; printf 'base\n' > "$FF_SEED/tracked"; git -C "$FF_SEED" add tracked; git -C "$FF_SEED" commit -qm base
+ git clone -q --bare "$FF_SEED" "$FF_ORIGIN"; git clone -q "$FF_ORIGIN" "$FF_REPO"
+ bash "$ROOT/bin/init.sh" "$FF_REPO" --no-doctor > "$FF_DIR/init.log" 2>&1 || fail "startup fixture init"
+ git -C "$FF_SEED" remote add origin "$FF_ORIGIN"
+ git -C "$FF_SEED" pull -q --ff-only origin "$FF_DEFAULT"
+ for commit in one two; do printf '%s\n' "$commit" > "$FF_SEED/remote-file"; git -C "$FF_SEED" add remote-file; git -C "$FF_SEED" commit -qm "$commit"; done
+ git -C "$FF_SEED" push -q origin "$FF_DEFAULT"
+ FF_TRACE="$FF_DIR/trace"; export FF_TRACE
+}
+ff_start() { ( cd "$FF_REPO" && PATH="$PATH_SH" TEAM_MODES_FILE="$WORK/refresh-modes" bash "$1/bin/session-start.sh" --tool claude --json > "$FF_DIR/result.json" 2> "$FF_DIR/diagnostic" ); }
+for FF_DEFAULT in main master; do
+ ff_fixture "$FF_DEFAULT"; ff_start "$FF_COPY" || fail "startup failed: $(cat "$FF_DIR/diagnostic")"
+ [ "$(git -C "$FF_REPO" rev-parse HEAD)" = "$(git --git-dir="$FF_ORIGIN" rev-parse "$FF_DEFAULT")" ] || fail 'startup left clean default behind'
+ jq -e '.refused == false and .uncommitted_files == 0' "$FF_DIR/result.json" > /dev/null || fail 'startup refresh corrupted JSON or stale status'
+done
+for state in staged unstaged untracked unmerged; do
+ ff_fixture main
+ case "$state" in
+  staged) printf 'mine\n' > "$FF_REPO/tracked"; git -C "$FF_REPO" add tracked ;;
+  unstaged) printf 'mine\n' > "$FF_REPO/tracked" ;;
+  untracked) printf 'mine\n' > "$FF_REPO/loose" ;;
+  unmerged)
+   git -C "$FF_REPO" switch -qc conflict; printf 'other\n' > "$FF_REPO/tracked"; git -C "$FF_REPO" commit -qam other
+   git -C "$FF_REPO" switch -q main; printf 'mine\n' > "$FF_REPO/tracked"; git -C "$FF_REPO" commit -qam mine
+   git -C "$FF_REPO" merge conflict >/dev/null 2>&1 && fail 'startup conflict did not conflict' ;;
+ esac
+ ff_start "$FF_COPY" || fail 'startup stopped instead of reporting skipped refresh'
+ cmp -s "$FF_TRACE/before" "$FF_TRACE/after" || fail "startup changed $state state"
+ ! grep -q ' fetch ' "$FF_TRACE/calls" || fail "startup fetched before $state refusal"
+ grep -qF "$FF_REPO" "$FF_DIR/diagnostic" || fail 'startup omission of dirty path'
+ jq -e '.refused == false' "$FF_DIR/result.json" > /dev/null || fail 'dirty startup JSON corrupted'
+done
+ff_fixture main
+sed 's/fast_forward_default_branch "\$PWD" || true/:/' "$ROOT/bin/session-start.sh" > "$FF_COPY/bin/session-start.sh"
+ff_start "$FF_COPY" || fail 'startup mutant did not reach report'
+[ "$(git -C "$FF_REPO" rev-parse HEAD)" != "$(git --git-dir="$FF_ORIGIN" rev-parse main)" ] || fail 'removed startup call mutant escaped'
+echo "  clean main/master refresh; dirty states preserve all refs, FETCH_HEAD, index and files without fetch; removed caller stays behind"
+
 exit 0

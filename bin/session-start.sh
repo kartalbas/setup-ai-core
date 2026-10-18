@@ -54,6 +54,11 @@ if ! modes="$(bash "$CORE/bin/team-modes-check.sh" ${tool_args[@]+"${tool_args[@
   exit 1
 fi
 
+. "$CORE/lib/layers.sh"
+if git rev-parse --show-toplevel >/dev/null 2>&1; then
+  fast_forward_default_branch "$PWD" || true
+fi
+
 # 2. The checkout
 ROOT="$(pwd)"
 REPO_NAME="$(basename "$ROOT")"
@@ -84,7 +89,6 @@ fi
 # commit) against the clones beside the repositories; and the releases, asked from the origins by
 # update --check, unless UPDATE_CHECK is "never" (config.env, or AI_CORE_UPDATE_CHECK in the
 # environment). Nothing is updated here; the lines say what to run.
-. "$CORE/lib/layers.sh"
 FOLDER="$(project_folder_of "$ROOT")"
 HARNESS_SOURCE="$(harness_source_of "$ROOT" || true)"
 SOURCE_READY=null; SOURCE_ERROR=""; RULE_SOURCES='[]'; READY="$RULES_OK"; SOURCE_RULE_FILES=0; SOURCE_AGENTS=""

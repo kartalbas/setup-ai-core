@@ -7,6 +7,15 @@ mkdir -p "$WORK/none"
 (cd "$WORK/none" && bash "$ROOT/bin/session-start.sh" > /dev/null 2>&1) && fail "session-start.sh exited 0 without rules"
 
 make_gh_fake
+real_git="$(command -v git)"
+cat > "$WORK/ghbin/git" <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+  'ls-remote --symref origin HEAD'|*' fetch -q origin') echo 'fixture origin is unavailable' >&2; exit 1 ;;
+esac
+exec "$real_git" "\$@"
+EOF
+chmod +x "$WORK/ghbin/git"
 export PATH="$PATH_SH"
 source_repo="$WORK/renamed-source"
 git init -q "$source_repo"
@@ -20,7 +29,7 @@ git -C "$source_repo" add rules/35-checked.md; git -C "$source_repo" commit -qm 
 start_source() { # start_source <directory> <format> <expected exit>
   local dir="$1" format="$2" expected="$3" rc=0 had=0
   [ ! -e "$dir/AGENTS.md" ] || had=1
-  (cd "$dir" && bash "$ROOT/bin/session-start.sh" ${format:+--json}) > "$WORK/start.log" 2>&1 || rc=$?
+  (cd "$dir" && bash "$ROOT/bin/session-start.sh" ${format:+--json}) > "$WORK/start.log" 2> "$WORK/start.err" || rc=$?
   [ "$rc" = "$expected" ] || fail "source start ($format): expected exit $expected, got $rc: $(cat "$WORK/start.log")"
   if [ "$format" = json ]; then
     jq -e --argjson ready "$([ "$expected" = 0 ] && echo true || echo false)" '.source_ready == $ready and .refused == ($ready | not) and ((.source_error | length > 0) == ($ready | not))' "$WORK/start.log" >/dev/null || fail "source start has false readiness facts"
@@ -92,7 +101,7 @@ section "a source that also holds an assembled rules file reports it as measured
 assembled="$WORK/assembled-source"; git clone -q "$source_repo" "$assembled"
 git -C "$assembled" remote set-url origin https://github.com/example-org/shop-ai-core.git
 mkdir -p "$assembled/.ai-core/rules"; printf 'assembled\n' > "$assembled/.ai-core/rules/rules.md"
-(cd "$assembled" && bash "$ROOT/bin/session-start.sh" --json) > "$WORK/assembled.json" 2>&1 || fail "a source with an assembled rules file is refused: $(cat "$WORK/assembled.json")"
+(cd "$assembled" && bash "$ROOT/bin/session-start.sh" --json) > "$WORK/assembled.json" 2> "$WORK/start.err" || fail "a source with an assembled rules file is refused: $(cat "$WORK/assembled.json")"
 jq -e '.rules_present == true and .rules_path == ".ai-core/rules/rules.md"' "$WORK/assembled.json" >/dev/null || fail "a source with an assembled rules file reports no rules file"
 
 section "an origin is a harness source only by its repository name"
@@ -160,7 +169,7 @@ for defect in missing-version empty-version missing-skill-rules missing-section;
     missing-section) rm "$command_source/rules/10-the-code-never-lies.md" ;;
   esac
   rc=0
-  (cd "$source_repo" && bash "$command_source/bin/session-start.sh" --json) > "$WORK/generic.json" 2>&1 || rc=$?
+  (cd "$source_repo" && bash "$command_source/bin/session-start.sh" --json) > "$WORK/generic.json" 2> "$WORK/start.err" || rc=$?
   [ "$rc" = 1 ] || fail "$defect passed"
   jq -e '.refused and .source_ready == false and (.source_error | length > 0)' "$WORK/generic.json" >/dev/null || fail "$defect produced incorrect JSON"
   git -C "$command_source" restore VERSION rules
@@ -176,7 +185,7 @@ for impostor in suffix untracked product; do
     git -C "$bad" remote set-url origin https://github.com/example-org/shop-web.git
   fi
   rc=0
-  (cd "$bad" && bash "$ROOT/bin/session-start.sh" --json) > "$WORK/impostor.json" 2>&1 || rc=$?
+  (cd "$bad" && bash "$ROOT/bin/session-start.sh" --json) > "$WORK/impostor.json" 2> "$WORK/start.err" || rc=$?
   [ "$rc" = 1 ] || fail "$impostor passed source start"
 done
 

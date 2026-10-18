@@ -152,6 +152,74 @@ project_folder_of() {
   fi
 }
 
+# THE DEFAULT BRANCH OF ORIGIN: asked of the remote, else origin/HEAD where it resolves. A clone's
+# origin/HEAD is a copy that goes stale: it keeps the old branch after the default is renamed, or a
+# branch somebody pointed it at, and trusting it sends every comparison to the wrong branch. Asking
+# never prompts for credentials: a caller run from a terminal would wait on it without a word.
+origin_default_branch() {
+  local ref
+  ref="$(GIT_TERMINAL_PROMPT=0 git ls-remote --symref origin HEAD 2>/dev/null | awk '$1 == "ref:" && $3 == "HEAD" { sub("^refs/heads/", "", $2); print $2 }')"
+  if [ -z "$ref" ] && git rev-parse -q --verify refs/remotes/origin/HEAD >/dev/null 2>&1; then
+    ref="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null)" && ref="${ref#refs/remotes/origin/}"
+  fi
+  [ -n "$ref" ] || die "cannot read the default branch from origin or from origin/HEAD - run 'git remote set-head origin -a', then run this again"
+  echo "$ref"
+}
+
+# Refresh only the named checkout; a linked worktree never moves a held branch behind its index.
+fast_forward_default_branch() {
+  local checkout dirty state path selected default local_tip remote_tip held="" holding="" line output
+  checkout="$(git -C "$1" rev-parse --show-toplevel 2>/dev/null)" \
+    || { echo "not refreshed: $1: cannot read checkout" >&2; return 1; }
+  dirty="$(GIT_OPTIONAL_LOCKS=0 git -C "$checkout" status --porcelain --untracked-files=all)" \
+    || { echo "not refreshed: $checkout: cannot read status" >&2; return 1; }
+  if [ -n "$dirty" ]; then
+    echo "not refreshed: $checkout: uncommitted changes" >&2; return 1
+  fi
+  for state in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply sequencer BISECT_LOG; do
+    path="$(git -C "$checkout" rev-parse --path-format=absolute --git-path "$state")" \
+      || { echo "not refreshed: $checkout: cannot read Git operation state" >&2; return 1; }
+    [ ! -e "$path" ] || { echo "not refreshed: $checkout: Git operation in progress ($state)" >&2; return 1; }
+  done
+  selected="$(git -C "$checkout" symbolic-ref --short -q HEAD)" || selected=""
+  default="$(cd "$checkout" && origin_default_branch)" \
+    || { echo "not refreshed: $checkout: cannot read origin's default branch" >&2; return 1; }
+  local_tip="$(git -C "$checkout" rev-parse --verify -q "refs/heads/$default^{commit}")" \
+    || { echo "not refreshed: $checkout: local default $default is missing" >&2; return 1; }
+  output="$(GIT_TERMINAL_PROMPT=0 git -C "$checkout" fetch -q origin 2>&1)" \
+    || { echo "not refreshed: $checkout: origin fetch failed: $output" >&2; return 1; }
+  remote_tip="$(git -C "$checkout" rev-parse --verify -q "refs/remotes/origin/$default^{commit}")" \
+    || { echo "not refreshed: $checkout: origin/$default is missing" >&2; return 1; }
+  git -C "$checkout" merge-base --is-ancestor "$local_tip" "$remote_tip" \
+    || { echo "not refreshed: $checkout: $default has local commits absent from origin/$default" >&2; return 1; }
+  [ "$local_tip" != "$remote_tip" ] || return 0
+  output="$(git -C "$checkout" worktree list --porcelain)" \
+    || { echo "not refreshed: $checkout: cannot read worktrees" >&2; return 1; }
+  while IFS= read -r line; do
+    case "$line" in
+      'worktree '*) holding="${line#worktree }" ;;
+      "branch refs/heads/$default") held="$holding" ;;
+    esac
+  done <<< "$output"
+  if [ -n "$held" ] && [ "$held" != "$checkout" ]; then
+    echo "not refreshed: $checkout: $default is held by $held" >&2; return 1
+  fi
+  dirty="$(GIT_OPTIONAL_LOCKS=0 git -C "$checkout" status --porcelain --untracked-files=all)" \
+    || { echo "not refreshed: $checkout: cannot recheck status" >&2; return 1; }
+  if [ -n "$dirty" ] || [ "$(git -C "$checkout" symbolic-ref --short -q HEAD || true)" != "$selected" ] \
+    || [ "$(git -C "$checkout" rev-parse --verify -q "refs/heads/$default")" != "$local_tip" ]; then
+    echo "not refreshed: $checkout: checkout changed during refresh" >&2; return 1
+  fi
+  if [ "$selected" = "$default" ]; then
+    output="$(git -C "$checkout" merge --ff-only "refs/remotes/origin/$default" 2>&1)" \
+      || { echo "not refreshed: $checkout: fast-forward failed: $output" >&2; return 1; }
+  else
+    output="$(git -C "$checkout" fetch . "refs/remotes/origin/$default:refs/heads/$default" 2>&1)" \
+      || { echo "not refreshed: $checkout: default ref update failed: $output" >&2; return 1; }
+  fi
+  echo "refreshed: $checkout: $default fast-forwarded to origin/$default" >&2
+}
+
 # LANDING_WORKTREE_RE: the path of the temporary worktree of a landing (integrate-issue --from-origin), as an
 # extended regular expression: .worktrees/<repository>/integrate-<issue number>.<six characters mktemp gave>.
 # The issue number is digits and nothing else, so a folder that starts the same way, such as integrate-7-release.abc123,

@@ -29,6 +29,11 @@ set -- "${args[@]}"
 
 set_project "$project" >/dev/null
 
+taxonomy="$(labels_tsv)" || exit 1
+for repo in "$@"; do
+  check_public_body repo-link "$repo" "$repo"$'\n'"$taxonomy" ""
+done
+
 for repo in "$@"; do
   # What the mutation answered is printed as the confirmation, so it is established as an answer
   # first. Piping it straight into sed prints a refusal as `linked: {"data":null,...}`.

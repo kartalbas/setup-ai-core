@@ -126,9 +126,124 @@ path=new; asked_in="$real"; case_body refuse 'Safe input.'; unset asked_in
 path=edit; printf 'Asked for by @someone on 2026-10-18 in %s.\n' "$real" > "$GH_FAKE/current-body"
 case_body refuse 'Safe input.'
 printf 'The existing body.\n' > "$GH_FAKE/current-body"
-: > "$GH_FAKE/body-calls.log"
-bash "$ROOT/bin/issue-edit.sh" example-org/example-repo 9 --title 'Keep the title, or it is lost' > /dev/null 2>&1
-check 'title-only no visibility' 0 "$(grep -c '^visibility$' "$GH_FAKE/body-calls.log" || true)"
+# Titles share the body's visibility decision, including an edit with no body.
+title_provider=github
+title_invoke() {
+  if [ "$title_provider" = plane ]; then
+    case "$path" in
+      title-edit) ai issue-edit "$seed" --title "$title" ;;
+      title-both) ai issue-edit "$seed" --title "$title" --body-file "$WORK/body" ;;
+      title-new) ai issue-new --repo example-org/example-repo --title "$title" --body-file "$WORK/body" --label type:feature --label area:tooling --priority P2 --asked-by someone --asked-in 'the test' ;;
+      title-project)
+        planeset 's.projects=s.projects.filter(x=>x.identifier!=="NEW")'
+        rm -rf "$GH_CACHE_DIRECTORY/plane"
+        PLANE_PROJECT=NEW ai project-new "$title" ;;
+    esac
+  else
+    case "$path" in
+      title-edit) bash "$root_under_test/bin/issue-edit.sh" example-org/example-repo 9 --title "$title" ;;
+      title-both) bash "$root_under_test/bin/issue-edit.sh" example-org/example-repo 9 --title "$title" --body-file "$WORK/body" ;;
+      title-new) bash "$root_under_test/bin/issue-new.sh" --repo example-org/example-repo --title "$title" --body-file "$WORK/body" --label type:feature --label area:tooling --no-board --assignee someone --asked-by someone --asked-in 'the test' ;;
+      title-project) GH_ORG=example-org bash "$root_under_test/bin/project-new.sh" "$title" 1 ;;
+    esac
+  fi
+}
+case_title() {
+  local want="$1" label="$title_provider $path ${GH_VISIBILITY:-} ${TITLE_VISIBILITY:-}" reads=1 command
+  title="$2"; printf 'Safe body.\n' > "$WORK/body"
+  : > "$GH_FAKE/body-calls.log"; rm -f "$GH_FAKE/sent-title"
+  if [ "$title_provider" = plane ]; then reset_log; : > "$TITLE_VISIBILITY_LOG"; fi
+  rc=0; out="$(title_invoke 2>&1)" || rc=$?
+  if [ "$title_provider" = plane ]; then
+    writes="$(grep -cE '^(POST|PATCH|DELETE) ' "$CURL_FAKE_STATE/requests.log" || true)"
+    visibility_reads="$(wc -l < "$TITLE_VISIBILITY_LOG" | tr -d ' ')"
+  else
+    writes="$(grep -c '^write ' "$GH_FAKE/body-calls.log" || true)"
+    visibility_reads="$(grep -c '^visibility$' "$GH_FAKE/body-calls.log" || true)"
+  fi
+  # A repository's private answer cannot establish a project's visibility.
+  [ "$path" != title-project ] || reads=0
+  check "$label one visibility decision" "$reads" "$visibility_reads"
+  case "$path" in title-new) command=issue-new ;; title-project) command=project-new ;; *) command=issue-edit ;; esac
+  if [ "$want" = refuse ]; then
+    check "$label refuses unsafe title" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+    check "$label zero writes" 0 "$writes"
+    check "$label names command and address" yes "$(grep -qF "$command: refused email address $title" <<< "$out" && echo yes || echo no)"
+  else
+    check "$label safe title succeeds" 0 "$rc"
+    if [ "$title_provider" = github ]; then
+      check "$label one write" 1 "$writes"
+      check "$label exact title" "$title" "$(cat "$GH_FAKE/sent-title")"
+    else
+      case "$path" in
+        title-new) primary="$(grep -cE '^POST .*/issues/$' "$CURL_FAKE_STATE/requests.log" || true)"; check "$label intended writes" 3 "$writes"
+          posted_title="$(planeq 'console.log(p.issues[p.issues.length-1].name)')" ;;
+        title-project) primary="$(grep -cE '^POST /api/v1/workspaces/ws/projects/$' "$CURL_FAKE_STATE/requests.log" || true)"
+          posted_title="$(planeq 'console.log(s.projects.find(x=>x.identifier==="NEW").name)')"
+          planeset 's.projects=s.projects.filter(x=>x.identifier!=="NEW")' ;;
+        *) primary="$writes"; posted_title="$(ITEM_SEQ="$seed" planeq 'console.log(p.issues.find(i=>i.sequence_id===+process.env.ITEM_SEQ).name)')" ;;
+      esac
+      check "$label one primary write" 1 "$primary"
+      check "$label exact title" "$title" "$posted_title"
+    fi
+  fi
+  check "$label snapshots removed" '' "$(ls -A "$TMPDIR")"
+}
+for path in title-edit title-both title-new title-project; do
+  for GH_VISIBILITY in public error malformed null missing string; do
+    export GH_VISIBILITY
+    case_title refuse "$real"
+    case_title allow 'Keep the title, or it is lost'
+  done
+  if [ "$path" = title-project ]; then GH_VISIBILITY=private case_title refuse "$real"
+  else GH_VISIBILITY=private case_title allow "$real"; fi
+done
+export GH_VISIBILITY=public
+# The writer audit also covers metadata, including a late unsafe label before any create.
+audit_project="$WORK/metadata-project"; mkdir -p "$audit_project/.ai-core"; git init -q "$audit_project"
+export GH_ORG=example-org GH_CACHE_DIRECTORY="$WORK/metadata-cache"
+mkdir -p "$GH_CACHE_DIRECTORY/1"; echo fixture-id > "$GH_CACHE_DIRECTORY/1/project-id"
+metadata_invoke() {
+  (
+    cd "$audit_project"
+    case "$path" in
+      labels-name|labels-description) bash "$ROOT/bin/labels-sync.sh" example-org/example-repo ;;
+      repo-link-name|repo-link-description) bash "$ROOT/bin/repo-link.sh" --project 1 example-org/example-repo ;;
+      new-label) bash "$ROOT/bin/issue-new.sh" --repo example-org/example-repo --title 'Keep the title, or it is lost' --body-file "$WORK/body" --label type:feature --label "area:$payload" --no-board --assignee someone --asked-by someone --asked-in 'the test' ;;
+      issue-label) bash "$ROOT/bin/issue-label.sh" example-org/example-repo 9 --add "area:$payload" ;;
+      field-name) bash "$ROOT/bin/field-option-add.sh" --project 1 --field Priority --name "$payload" --color GRAY ;;
+      field-description|field-existing) bash "$ROOT/bin/field-option-add.sh" --project 1 --field Priority --name P9 --color GRAY --description "$payload" ;;
+      view-filter) bash "$ROOT/bin/view-filter.sh" --project 1 --repo-name "$payload" ;;
+    esac
+  )
+}
+case_metadata() {
+  local want="$1" expected=1 name=area:tooling description='Safe description.' old='Safe description.'
+  payload="$2"
+  case "$path" in labels-name|repo-link-name|new-label|issue-label) name="area:$payload" ;; labels-description|repo-link-description) description="$payload" ;; field-existing) old="$payload" ;; esac
+  printf 'type\ttype:feature\t0E8A16\tSafe description.\narea\t%s\t0E8A16\t%s\n' "$name" "$description" > "$audit_project/.ai-core/labels.tsv"
+  jq -n --arg d "$old" '{data:{node:{fields:{nodes:[{id:"FIELD_example",name:"Priority",options:[{id:"OPTION_example",name:"P2",color:"GRAY",description:$d}]}]}}}}' > "$GH_FAKE/fields.json"
+  printf 'Safe body.\n' > "$WORK/body"; : > "$GH_FAKE/body-calls.log"
+  rc=0; out="$(metadata_invoke 2>&1)" || rc=$?
+  writes="$(grep -c '^write ' "$GH_FAKE/body-calls.log" || true)"
+  if [ "$want" = refuse ]; then
+    check "$path refuses unsafe metadata" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+    check "$path unsafe metadata zero writes" 0 "$writes"
+    check "$path names metadata address" yes "$(grep -qF 'refused email address' <<< "$out" && grep -qF "$real" <<< "$out" && echo yes || echo no)"
+  else
+    case "$path" in labels-*) expected=2 ;; repo-link-*) expected=3 ;; esac
+    check "$path safe metadata succeeds" 0 "$rc"
+    check "$path safe intended writes" "$expected" "$writes"
+  fi
+}
+for path in labels-name labels-description repo-link-name repo-link-description new-label issue-label field-name field-description field-existing view-filter; do
+  for GH_VISIBILITY in public error; do
+    export GH_VISIBILITY
+    case_metadata refuse "$real"
+    case_metadata allow ci@build.example.test
+  done
+done
+export GH_VISIBILITY=public
 # File errors cannot become an empty safe body.
 printf '%s' "$real" > "$WORK/body"; chmod 000 "$WORK/body"
 for path in file new edit; do
@@ -167,6 +282,10 @@ for command in issue-new issue-comment issue-edit issue-duplicate; do
   help="$(bash "$ROOT/bin/ai-core" "$command" --help)"
   check "$command actual help policy" yes "$(grep -q 'public' <<< "$help" && grep -q 'Plane' <<< "$help" && echo yes || echo no)"
   check "$command actual help usage" yes "$(grep -q "$command.*OWNER/REPO\|$command --repo\|$command.*CANONICAL_REPO" <<< "$help" && echo yes || echo no)"
+done
+for command in issue-new issue-edit project-new; do
+  help="$(bash "$ROOT/bin/ai-core" "$command" --help)"
+  check "$command actual help covers title or name" yes "$(grep -qiE 'titles|names' <<< "$help" && echo yes || echo no)"
 done
 # Unknown Plane visibility must apply the same policy, without consulting gh.
 make_plane_project
@@ -210,5 +329,70 @@ reset_log; rc=0; out="$(ai issue-duplicate example-org/example-repo 99 example-o
 check 'Plane duplicate safe succeeds' 0 "$rc"
 check 'Plane duplicate intended writes' 3 "$(grep -cE '^(POST|PATCH|DELETE) ' "$CURL_FAKE_STATE/requests.log" || true)"
 check 'Plane duplicate exact comment' '<pre>Duplicate of #99</pre>' "$(planeq 'console.log(p.comments[p.comments.length-1].comment_html)')"
+# Exercise both explicit public and unknown decisions through the real Plane writers.
+title_provider=plane
+title_root="$WORK/title-root"; mkdir -p "$title_root"; cp -R "$ROOT/lib" "$ROOT/bin" "$ROOT/templates" "$title_root/"
+export TITLE_VISIBILITY_LOG="$WORK/title-visibility.log"
+cat >> "$title_root/lib/plane/tracker.sh" <<'EOF'
+
+repo_visibility() {
+  printf 'visibility\n' >> "$TITLE_VISIBILITY_LOG"
+  [ "$TITLE_VISIBILITY" = public ] || return 1
+  echo public
+}
+EOF
+export ROOT_UNDER_TEST="$title_root"
+for path in title-edit title-both title-new title-project; do
+  for TITLE_VISIBILITY in public unknown; do
+    export TITLE_VISIBILITY
+    case_title refuse "$real"
+    case_title allow 'Keep the title, or it is lost'
+  done
+done
+# Each missing title guard exposes the planted title on both providers.
+for title_provider in github plane; do
+  for path in title-edit title-new title-project; do
+    case "$path" in title-edit) command=issue-edit ;; title-new) command=issue-new ;; *) command=project-new ;; esac
+    sed '/check_public_body /s/"\$title"/""/g' "$ROOT/bin/$command.sh" > "$title_root/bin/$command.sh"
+    title="$real"; printf 'Safe body.\n' > "$WORK/body"
+    : > "$GH_FAKE/body-calls.log"; reset_log
+    if [ "$title_provider" = github ]; then
+      export GH_BODY_FIXTURE=1; PATH="$PATH_SH"; root_under_test="$title_root"
+    else unset GH_BODY_FIXTURE; PATH="$PATH_CURL"; fi
+    rc=0; out="$(title_invoke 2>&1)" || rc=$?
+    check "$title_provider $path missing title guard succeeds" 0 "$rc"
+    if [ "$title_provider" = github ]; then writes="$(grep -c '^write ' "$GH_FAKE/body-calls.log" || true)"
+    else writes="$(grep -cE '^(POST|PATCH|DELETE) ' "$CURL_FAKE_STATE/requests.log" || true)"; fi
+    check "$title_provider $path missing title guard writes" yes "$([ "$writes" -gt 0 ] && echo yes || echo no)"
+    cp "$ROOT/bin/$command.sh" "$title_root/bin/$command.sh"
+  done
+done
+# Plane project metadata must be checked before the project, states, or labels are created.
+unset ROOT_UNDER_TEST GH_BODY_FIXTURE
+PATH="$PATH_CURL"
+for path in labels-name labels-description repo-link-label-name repo-link-label-description project-label-name project-label-description project-identifier; do
+  for payload in "$real" ci@build.example.test; do
+    name=area:tooling; description='Safe description.'; ident=NEW
+    case "$path" in *label*name) name="area:$payload" ;; *label*description) description="$payload" ;; project-identifier) [ "$payload" != "$real" ] || ident="$payload" ;; esac
+    printf 'type\ttype:feature\t0E8A16\tSafe description.\narea\t%s\t0E8A16\t%s\n' "$name" "$description" > "$P/.ai-core/labels.tsv"
+    planeset 'p.labels=[];s.projects=s.projects.filter(x=>x.identifier==="ENG"||x.identifier==="OPS")'
+    rm -rf "$GH_CACHE_DIRECTORY/plane"
+    reset_log; rc=0
+    case "$path" in
+      labels-*) out="$(ai labels-sync 2>&1)" || rc=$? ;;
+      repo-link-*) out="$(ai repo-link --project ENG 2>&1)" || rc=$? ;;
+      *) out="$(PLANE_PROJECT="$ident" ai project-new 'Keep the title, or it is lost' 2>&1)" || rc=$? ;;
+    esac
+    writes="$(grep -cE '^(POST|PATCH|DELETE) ' "$CURL_FAKE_STATE/requests.log" || true)"
+    if [ "$payload" = "$real" ]; then
+      check "Plane $path refuses metadata" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+      check "Plane $path metadata zero writes" 0 "$writes"
+      check "Plane $path names metadata address" yes "$(grep -qF 'refused email address' <<< "$out" && grep -qF "$real" <<< "$out" && echo yes || echo no)"
+    else
+      check "Plane $path safe metadata succeeds" 0 "$rc"
+      check "Plane $path safe metadata writes" yes "$([ "$writes" -gt 0 ] && echo yes || echo no)"
+    fi
+  done
+done
 [ "$failed" -eq 0 ] || fail "$failed public body assertions failed"
 echo 'all public body writers, visibility answers, mutants, and innocent cases passed'

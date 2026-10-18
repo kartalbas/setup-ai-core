@@ -119,6 +119,8 @@ printf '%s' "$fields" | jq \
                  elif $a != "" then ($o | map(.name) | index($a)) as $i | $o[:$i + 1] + [$new] + $o[$i + 1:]
                  else $o + [$new] end) } }' > "$body"
 
+text="$(jq -r '.variables.opts[] | .name, .description' "$body")" || exit 1
+check_public_body field-option-add "$(project_org)/$(project_number)" "$text" "" project
 after="$(field_options_replace "$field" "$body")" || exit 1
 
 # The board's field cache holds the option set as it was BEFORE this run. Left standing,

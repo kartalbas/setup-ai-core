@@ -78,6 +78,9 @@ mkdir -p "$FAKE/bin"
 cat > "$FAKE/bin/gh" <<EOF
 #!/usr/bin/env bash
 echo "\$*" >> "$FAKE/calls"
+if [ "\$1 \$2" = 'repo view' ] && [ "\${4-} \${5-}" = '--json isPrivate' ]; then
+  echo '{"isPrivate":false}'; exit 0
+fi
 sub="\$2"; num="\$3"; shift 3
 case "\$sub" in
   view) cat "$FAKE/issue-\$num"; exit 0 ;;

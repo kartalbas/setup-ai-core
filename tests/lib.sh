@@ -46,16 +46,32 @@ if [ "$1 $2" = "repo view" ] && [ "${4-} ${5-}" = "--json isPrivate" ]; then
 fi
 if [ "${GH_BODY_FIXTURE:-}" = 1 ]; then
   case "$1 $2" in
-    'api graphql') case "$*" in *mutation*) echo 'write mutation' >> "$GH_FAKE/body-calls.log" ;; esac; exit 0 ;;
+    'api graphql')
+      case "$*" in
+        *mutation*|*--input*)
+          echo 'write mutation' >> "$GH_FAKE/body-calls.log"
+          for arg in "$@"; do case "$arg" in t=*) printf '%s' "${arg#t=}" > "$GH_FAKE/sent-title" ;; esac; done
+          printf '2\thttps://github.com/orgs/example-org/projects/2\n' ;;
+        *'fields(first:50)'*) cat "$GH_FAKE/fields.json" ;;
+        *'views(first:20)'*) printf 'ALL-ISSUES\tVIEW_example\n' ;;
+        *'organization(login:$o){ id }'*|*'projectV2(number:$n){ id }'*) echo fixture-id ;;
+      esac
+      exit 0 ;;
     'issue create') kind=new ;;
+    'issue view') echo type:feature; exit 0 ;;
+    'issue edit') kind=labels ;;
+    'label create') kind=label ;;
+    'label list') exit 0 ;;
     'api --method') kind=edit ;;
-    api*) case "$*" in *--jq\ .body*) cat "$GH_FAKE/current-body"; exit 0 ;; esac; kind=comment ;;
+    api*) case "$*" in *--jq\ .body*) cat "$GH_FAKE/current-body"; exit 0 ;; *--jq\ .node_id*) echo fixture-id; exit 0 ;; esac; kind=comment ;;
     *) echo "unexpected fixture call: $*" >&2; exit 1 ;;
   esac
   [ -z "${GH_BODY_WRITE_FAILURE:-}" ] || { echo 'body write refused' >&2; exit 1; }
   printf 'write %s\n' "$kind" >> "$GH_FAKE/body-calls.log"
   while [ $# -gt 0 ]; do
     case "$1" in
+      --title) printf '%s' "$2" > "$GH_FAKE/sent-title"; shift ;;
+      title=*) printf '%s' "${1#title=}" > "$GH_FAKE/sent-title" ;;
       --body-file) cp "$2" "$GH_FAKE/sent-body"; ls -l "$2" | cut -c1-10 > "$GH_FAKE/sent-body-mode"; printf '%s' "$2" > "$GH_FAKE/sent-body-path"; shift ;;
       body=@*) cp "${1#body=@}" "$GH_FAKE/sent-body"; ls -l "${1#body=@}" | cut -c1-10 > "$GH_FAKE/sent-body-mode"; printf '%s' "${1#body=@}" > "$GH_FAKE/sent-body-path" ;;
       body=*) printf '%s' "${1#body=}" > "$GH_FAKE/sent-body" ;;

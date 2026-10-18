@@ -2,9 +2,9 @@
 # Create an issue and put it on the board in one step - labels, priority, status
 # and, where it belongs to an epic, the parent link.
 #
-# Refuses literal email addresses in bodies for public or unknown visibility; reserved example domains
+# Refuses literal email addresses in titles, labels and bodies for public or unknown visibility; reserved example domains
 # and GitHub noreply addresses are allowed. Private GitHub repositories bypass the check. Plane
-# cannot establish private visibility, so its bodies receive the public check.
+# cannot establish private visibility, so its text receives the public check.
 #
 #   issue-new --repo OWNER/REPO --title "Do the thing, or what it costs" --body-file PATH \
 #             --label type:feature --label area:gate --priority P1 [--status ready] \
@@ -131,7 +131,7 @@ if [ -z "$no_board" ]; then
   option_id Priority "$priority" >/dev/null
 fi
 
-check_public_body issue-new "$repo" "" "$sent"
+check_public_body issue-new "$repo" "$(printf '%s\n' "$title" "${labels[@]}")" "$sent"
 num="$(issue_create "$repo" "$title" "$sent" "$assignee" "${labels[@]}")" || exit 1
 
 if [ -n "$no_board" ]; then

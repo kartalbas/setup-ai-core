@@ -841,9 +841,12 @@ Cancelled	cancelled	#9AA4BC	Cancelled'
 # states and the labels of labels.tsv, and prints "<identifier>\t<address>". Plane copies no project, so a
 # board to copy is refused.
 project_create() {
-  local ident made pid states made_state n=0 name group colour was id description
+  local ident made pid states made_state n=0 name group colour was id description taxonomy repo
   [ -z "$2" ] || die "Plane copies no project: project-new takes the title alone, and PLANE_PROJECT names the identifier of the new project"
   ident="$(plane_setting PLANE_PROJECT)"
+  repo="$(default_repo)" || exit 1
+  taxonomy="$(labels_tsv)" || exit 1
+  check_public_body project-new "$ident" "$ident"$'\n'"$repo"$'\n'"$taxonomy" "" project
   states="$(plane_pages "the projects of $(plane_setting PLANE_WORKSPACE)" "$(plane_path projects/)")" || exit 1
   ! printf '%s\n' "$states" | jq -e --arg i "$ident" 'select(.identifier == $i)' >/dev/null \
     || die "the Plane project $ident exists already - set PLANE_PROJECT to the identifier of the project to make"
@@ -866,8 +869,8 @@ project_create() {
   done <<< "$PLANE_STATES"
   while IFS=$'\t' read -r group name colour description; do
     [ -n "$name" ] || continue
-    labels_create "$(default_repo)" "$name" "$colour" "$description"
-  done <<< "$(labels_tsv)"
+    labels_create "$repo" "$name" "$colour" "$description"
+  done <<< "$taxonomy"
   printf '%s\t%s/%s/projects/%s/issues/\n' "$ident" "$(plane_setting PLANE_URL | sed 's|/*$||')" "$(plane_setting PLANE_WORKSPACE)" "$pid"
 }
 

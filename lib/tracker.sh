@@ -22,15 +22,18 @@ load_provider tracker "
   card_rows open_issue_page board_fields_json field_options_replace project_create repo_boards_rows
   repo_link board_views view_filter_set tracker_doctor tracker_name writes_run_in_repo_clone closing_column"
 
-# check_public_body <command> <owner/repo> <text> <file or empty>: check the final body before any write.
+# check_public_body <command> <destination> <text> <file or empty> [repo|project]: one visibility
+# decision for all supplied text. No provider currently establishes project visibility.
 check_public_body() {
   local command="$1" repo="$2" text="$3" file="$4" visibility addresses address
-  [ -z "$text" ] || [ -z "$file" ] || die "$command: body has two sources"
   if [ -n "$file" ]; then
     [ -f "$file" ] && [ -r "$file" ] || die "$command: cannot read body file: $file"
-    text="$(cat "$file")" || die "$command: cannot read body file: $file"
+    text="$text"$'\n'"$(cat "$file")" || die "$command: cannot read body file: $file"
   fi
-  visibility="$(repo_visibility "$repo")" || visibility=unknown
+  visibility=unknown
+  if [ "${5:-repo}" = repo ]; then
+    visibility="$(repo_visibility "$repo")" || visibility=unknown
+  fi
   [ "$visibility" != private ] || return 0
   addresses="$(printf '%s' "$text" | jq -Rrs '
     scan("(?:\"[^\"\\r\\n]+\"|(?:[A-Za-z0-9.!#$%&\u0027*+/=?^_`{|}~\\[\\]-]|[^\\x00-\\x7f])+)@(?:\\[[^\\]\\r\\n]+\\]|[[:alnum:]][[:alnum:]\\p{M}._\u3002\uff0e\uff61-]*)")

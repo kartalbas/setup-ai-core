@@ -1028,11 +1028,16 @@ the limit. A wait longer than 15 minutes fails at once. The wait notice goes to 
 that parses what it captured keeps the two apart. `ai-core issue-comment` posts and resolves its
 repository over REST. `AI_CORE_SLEEP` names the command that waits, `sleep` by default; the tests set it to a stand-in.
 
-`issue-new`, `issue-comment` and body-bearing `issue-edit` check the final composed body before
-any tracker write. Unless the tracker confirms a private GitHub repository, a literal email address
-is refused locally with the command and address named. A failed or malformed visibility read uses
+`issue-new`, `issue-comment` and `issue-edit` check supplied titles, label names and the final
+composed body before any tracker write, including title-only edits. Unless the tracker confirms a
+private GitHub repository, a literal email address is refused locally with the command and address
+named. A failed or malformed visibility read uses
 this public policy. Plane currently cannot establish private destination visibility, so the check
-also applies to Plane bodies. Title-only edits keep their existing behavior.
+also applies to Plane text. `labels-sync`, `issue-label` and `repo-link` check label names and
+descriptions before writing. `project-new`, `field-option-add` and `view-filter` check project
+names, identifiers, label metadata, option names and descriptions, and view filters. Project
+visibility is not established by either provider, so these project fields use the public policy
+even when a repository is private. Each issue's title and body share one visibility decision.
 
 Reserved domains (`invalid`, `example`, `test`, `localhost`, `example.com`, `example.net`,
 `example.org` and their subdomains) and the exact GitHub domain `users.noreply.github.com` are

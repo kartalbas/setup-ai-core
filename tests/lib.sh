@@ -63,7 +63,9 @@ if [ "${GH_BODY_FIXTURE:-}" = 1 ]; then
     'label create') kind=label ;;
     'label list') exit 0 ;;
     'api --method') kind=edit ;;
-    api*) case "$*" in *--jq\ .body*) cat "$GH_FAKE/current-body"; exit 0 ;; *--jq\ .node_id*) echo fixture-id; exit 0 ;; esac; kind=comment ;;
+    api*) case "$*" in *--jq\ .body*) cat "$GH_FAKE/current-body"; exit 0 ;; *--jq\ .node_id*) echo fixture-id; exit 0 ;; esac
+      if [ "$#" -eq 2 ] && [ -f "$GH_FAKE/current-assignees" ]; then cat "$GH_FAKE/current-assignees"; exit 0; fi
+      kind=comment ;;
     *) echo "unexpected fixture call: $*" >&2; exit 1 ;;
   esac
   [ -z "${GH_BODY_WRITE_FAILURE:-}" ] || { echo 'body write refused' >&2; exit 1; }
@@ -71,6 +73,8 @@ if [ "${GH_BODY_FIXTURE:-}" = 1 ]; then
   while [ $# -gt 0 ]; do
     case "$1" in
       --title) printf '%s' "$2" > "$GH_FAKE/sent-title"; shift ;;
+      --assignee) printf '%s' "$2" > "$GH_FAKE/sent-assignee"; shift ;;
+      --input) cat > "$GH_FAKE/sent-input"; jq '{assignees: [.assignees[] | {login: .}]}' "$GH_FAKE/sent-input" > "$GH_FAKE/current-assignees"; shift ;;
       title=*) printf '%s' "${1#title=}" > "$GH_FAKE/sent-title" ;;
       --body-file) cp "$2" "$GH_FAKE/sent-body"; ls -l "$2" | cut -c1-10 > "$GH_FAKE/sent-body-mode"; printf '%s' "$2" > "$GH_FAKE/sent-body-path"; shift ;;
       body=@*) cp "${1#body=@}" "$GH_FAKE/sent-body"; ls -l "${1#body=@}" | cut -c1-10 > "$GH_FAKE/sent-body-mode"; printf '%s' "${1#body=@}" > "$GH_FAKE/sent-body-path" ;;

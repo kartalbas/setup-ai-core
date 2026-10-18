@@ -9,6 +9,8 @@ failed=0
 check() { if [ "$2" != "$3" ]; then echo "FAIL: $1: expected [$2], got [$3]"; failed=$((failed+1)); fi; }
 # This synthetic non-reserved domain is never contacted; the fake only records bodies.
 real='someone@company.ch'
+scoped='Use the scoped package `@scope/pkg`.'
+unquoted_scoped='Use the scoped package @scope/pkg.'
 bot='49699333+dependabot[bot]@users.noreply.github.com'
 unicode_local="$(printf '\303\251')"
 unicode_domain="$(printf '\303\251.company.ch')"
@@ -54,6 +56,10 @@ for path in inline file new edit; do
   done
   case_body allow "$unicode_local@build.example.test"
   case_body allow $'A `backtick`, "quotes" and CRLF.\r\nNext line.\n'
+  case_body allow "$scoped"
+  case_body allow "$unquoted_scoped"
+  case_body refuse '`@company.ch'
+  case_body refuse "$scoped $real"
   for address in "$bot" '49699333+dependabot[bot]@USERS.NOREPLY.GITHUB.COM'; do case_body allow "$address"; done
   for separator in "${separators[@]}"; do
     for prefix in users.noreply.github.com example.com; do
@@ -199,6 +205,46 @@ for path in title-edit title-both title-new title-project; do
   else GH_VISIBILITY=private case_title allow "$real"; fi
 done
 export GH_VISIBILITY=public
+# GitHub receives logins, never literal addresses, for assignment and creation alike.
+assignee_invoke() {
+  case "$path" in
+    assign-add) bash "$root_under_test/bin/issue-assign.sh" example-org/example-repo 9 --add "$assignee" ;;
+    assign-replace) bash "$root_under_test/bin/issue-assign.sh" example-org/example-repo 9 --replace "$assignee" ;;
+    assignee-new) bash "$root_under_test/bin/issue-new.sh" --repo example-org/example-repo --title 'Keep the title, or it is lost' --body-file "$WORK/body" --label type:feature --label area:tooling --no-board --assignee "$assignee" --asked-by someone --asked-in 'the test' ;;
+  esac
+}
+case_assignee() {
+  local want="$1" command=issue-assign
+  assignee="$2"; printf 'Safe body.\n' > "$WORK/body"
+  printf '{"assignees":[]}\n' > "$GH_FAKE/current-assignees"
+  : > "$GH_FAKE/body-calls.log"; rm -f "$GH_FAKE/sent-assignee" "$GH_FAKE/sent-input"
+  rc=0; out="$(assignee_invoke 2>&1)" || rc=$?
+  writes="$(grep -c '^write ' "$GH_FAKE/body-calls.log" || true)"
+  [ "$path" != assignee-new ] || command=issue-new
+  if [ "$want" = refuse ]; then
+    check "$path refuses address assignee" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+    check "$path address assignee zero writes" 0 "$writes"
+    check "$path assignee refusal names command" yes "$(grep -qF "$command:" <<< "$out" && echo yes || echo no)"
+  else
+    check "$path login succeeds" 0 "$rc"
+    check "$path login one write" 1 "$writes"
+    if [ "$path" = assignee-new ]; then posted_assignee="$(cat "$GH_FAKE/sent-assignee")"
+    else posted_assignee="$(jq -r '.assignees | join("\n")' "$GH_FAKE/sent-input")"; fi
+    check "$path exact assignee" "$assignee" "$posted_assignee"
+  fi
+  check "$path snapshots removed" '' "$(ls -A "$TMPDIR")"
+}
+for path in assign-add assign-replace assignee-new; do
+  for GH_VISIBILITY in public error private; do
+    export GH_VISIBILITY
+    case_assignee refuse "$real"
+    case_assignee allow someone
+  done
+done
+path=assignee-new
+for assignee in @me @copilot someone,@me; do case_assignee allow "$assignee"; done
+case_assignee refuse "someone,$real"
+export GH_VISIBILITY=public
 # The writer audit also covers metadata, including a late unsafe label before any create.
 audit_project="$WORK/metadata-project"; mkdir -p "$audit_project/.ai-core"; git init -q "$audit_project"
 export GH_ORG=example-org GH_CACHE_DIRECTORY="$WORK/metadata-cache"
@@ -212,7 +258,8 @@ metadata_invoke() {
       new-label) bash "$ROOT/bin/issue-new.sh" --repo example-org/example-repo --title 'Keep the title, or it is lost' --body-file "$WORK/body" --label type:feature --label "area:$payload" --no-board --assignee someone --asked-by someone --asked-in 'the test' ;;
       issue-label) bash "$ROOT/bin/issue-label.sh" example-org/example-repo 9 --add "area:$payload" ;;
       field-name) bash "$ROOT/bin/field-option-add.sh" --project 1 --field Priority --name "$payload" --color GRAY ;;
-      field-description|field-existing) bash "$ROOT/bin/field-option-add.sh" --project 1 --field Priority --name P9 --color GRAY --description "$payload" ;;
+      field-description) bash "$ROOT/bin/field-option-add.sh" --project 1 --field Priority --name P9 --color GRAY --description "$payload" ;;
+      field-existing) bash "$ROOT/bin/field-option-add.sh" --project 1 --field Priority --name P9 --color GRAY --description 'Safe description.' ;;
       view-filter) bash "$ROOT/bin/view-filter.sh" --project 1 --repo-name "$payload" ;;
     esac
   )
@@ -242,6 +289,10 @@ for path in labels-name labels-description repo-link-name repo-link-description 
     case_metadata refuse "$real"
     case_metadata allow ci@build.example.test
   done
+done
+for path in labels-description repo-link-description field-description field-existing; do
+  case_metadata allow "$scoped"
+  case_metadata allow "$unquoted_scoped"
 done
 export GH_VISIBILITY=public
 # File errors cannot become an empty safe body.
@@ -293,6 +344,20 @@ unset GH_BODY_FIXTURE
 PATH="$PATH_CURL"; export PATH
 printf 'Safe body.\n' > "$WORK/seed-body"
 seed="$(ai issue-new --repo example-org/example-repo --title 'Preserve the body, or text is lost' --body-file "$WORK/seed-body" --label type:feature --label area:tooling --priority P2 --asked-by someone --asked-in 'the test' 2>/dev/null)"
+# Plane resolves an email locally and sends only its member UUID in either writer.
+planeset 's.users.push({id:"00000000-0000-0000-0000-000000000099",email:"someone@company.ch",display_name:"Someone"})'
+for path in assign-replace assignee-new; do
+  reset_log; rc=0
+  if [ "$path" = assign-replace ]; then out="$(ai issue-assign "$seed" --replace "$real" 2>&1)" || rc=$?
+  else out="$(ai issue-new --repo example-org/example-repo --title 'Keep the title, or it is lost' --body-file "$WORK/seed-body" --label type:feature --label area:tooling --priority P2 --assignee "$real" --asked-by someone --asked-in 'the test' 2>&1)" || rc=$?; fi
+  check "Plane $path email resolves" 0 "$rc"
+  expected=1; [ "$path" != assignee-new ] || expected=3
+  check "Plane $path intended writes" "$expected" "$(grep -cE '^(POST|PATCH|DELETE) ' "$CURL_FAKE_STATE/requests.log" || true)"
+  if [ "$path" = assign-replace ]; then actual="$(ITEM_SEQ="$seed" planeq 'console.log(p.issues.find(i=>i.sequence_id===+process.env.ITEM_SEQ).assignees.join("\n"))')"
+  else actual="$(planeq 'console.log(p.issues[p.issues.length-1].assignees.join("\n"))')"; fi
+  check "Plane $path sends member UUID" 00000000-0000-0000-0000-000000000099 "$actual"
+  check "Plane $path no email in requests" no "$(grep -qF "$real" "$CURL_FAKE_STATE/requests.log" && echo yes || echo no)"
+done
 plane_invoke() {
  case "$path" in
   inline) ai issue-comment "$seed" "$text" ;;
@@ -371,7 +436,9 @@ done
 unset ROOT_UNDER_TEST GH_BODY_FIXTURE
 PATH="$PATH_CURL"
 for path in labels-name labels-description repo-link-label-name repo-link-label-description project-label-name project-label-description project-identifier; do
-  for payload in "$real" ci@build.example.test; do
+  payloads=("$real" ci@build.example.test)
+  case "$path" in *description) payloads+=("$scoped" "$unquoted_scoped") ;; esac
+  for payload in "${payloads[@]}"; do
     name=area:tooling; description='Safe description.'; ident=NEW
     case "$path" in *label*name) name="area:$payload" ;; *label*description) description="$payload" ;; project-identifier) [ "$payload" != "$real" ] || ident="$payload" ;; esac
     printf 'type\ttype:feature\t0E8A16\tSafe description.\narea\t%s\t0E8A16\t%s\n' "$name" "$description" > "$P/.ai-core/labels.tsv"
@@ -390,7 +457,8 @@ for path in labels-name labels-description repo-link-label-name repo-link-label-
       check "Plane $path names metadata address" yes "$(grep -qF 'refused email address' <<< "$out" && grep -qF "$real" <<< "$out" && echo yes || echo no)"
     else
       check "Plane $path safe metadata succeeds" 0 "$rc"
-      check "Plane $path safe metadata writes" yes "$([ "$writes" -gt 0 ] && echo yes || echo no)"
+      expected=3; case "$path" in project-*) expected=15 ;; esac
+      check "Plane $path safe metadata writes" "$expected" "$writes"
     fi
   done
 done

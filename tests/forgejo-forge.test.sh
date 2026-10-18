@@ -207,6 +207,10 @@ for command in "printf 'x\npassword=injected\n'" "printf 'abc\r'" "printf 'a\tb'
   grep -q 'the command of FORGEJO_TOKEN_COMMAND printed a token with a control character in it' <<< "$out" || fail "the control character is not refused by the name of the setting ($command): $out"
   ! grep -q 'password=' <<< "$out" || fail "a token with a control character still gave a password ($command): $out"
 done
+out="$(cd "$F" && FORGEJO_TOKEN_COMMAND="printf 'probe\000-token\n'" bash "$ROOT/bin/git-credential.sh" get <<< "$(printf "$mine")" 2>&1)" && fail "git-credential accepted a NUL token"
+grep -q 'FORGEJO_TOKEN_COMMAND printed a token with a control character' <<< "$out" || fail "git-credential did not name the setting of a NUL token: $out"
+! grep -qE 'password=|probe|ignored null byte' <<< "$out" || fail "git-credential exposed or discarded NUL token bytes: $out"
+echo "  NUL credential refusal: get rejects probe, NUL, -token and newline without answering a password"
 cp "$ROOT/lib/common.sh" "$planted/lib/common.sh"
 sed -i.bak '/\*\[\[:cntrl:\]\]\*)/d' "$planted/lib/common.sh"
 cmp -s "$ROOT/lib/common.sh" "$planted/lib/common.sh" && fail "the planted copy equals the real lib/common.sh"
@@ -264,10 +268,13 @@ signs_in_alone() {  # signs_in_alone <checkout>: fill answers the token, approve
   printf '%s\n' "$TOKEN" > "$WORK/ftoken"
   [ "$got" = "password=rotated-token" ]
 }
-git config --global credential.helper store
+git config --global --add "$LINE_KEY" ""
+git config --global --add "$LINE_KEY" '!ai-core git-credential'
+git config --global --add credential.helper store
 git init -q "$WORK/stored-fresh"; git -C "$WORK/stored-fresh" remote add origin "$FORGE_URL/example-org/stored.git"
 forge_fn clone_sign_in "$WORK/stored-fresh" > /dev/null
-signs_in_alone "$WORK/stored-fresh" || fail "clone_sign_in: an inherited store was asked, or kept the token, or answered with an old one"
+signs_in_alone "$WORK/stored-fresh" || fail "clone_sign_in: an inherited URL pair hid the global store and kept the token"
+[ "$(git -C "$WORK/stored-fresh" config --local --get-all "$LINE_KEY")" = "$(printf '\n!ai-core git-credential')" ] || fail "clone_sign_in installed no local reset/helper pair under the inherited pair"
 git init -q "$WORK/stored-old"; git -C "$WORK/stored-old" remote add origin "$FORGE_URL/example-org/stored.git"
 git -C "$WORK/stored-old" config "$LINE_KEY" '!ai-core git-credential'
 signs_in_alone "$WORK/stored-old" && fail "planted: a line without the empty entry signs in alone under an inherited store, so the check cannot go red"
@@ -277,10 +284,13 @@ signs_in_alone "$WORK/stored-old" || fail "clone_sign_in did not repair the chec
 git init -q "$WORK/stored-seed"; git -C "$WORK/stored-seed" commit -q --allow-empty -m "the skeleton"
 forge_fn repo_create example-org/stored "$WORK/stored-seed" || fail "repo_create under an inherited store"
 signs_in_alone "$WORK/stored-seed" || fail "repo_create: an inherited store was asked, or kept the token, or answered with an old one"
+[ "$(git -C "$WORK/stored-seed" config --local --get-all "$LINE_KEY")" = "$(printf '\n!ai-core git-credential')" ] || fail "repo_create installed no local reset/helper pair under the inherited pair"
 forge_fn repo_clone example-org/stored "$WORK/clones/stored-clone" || fail "repo_clone under an inherited store"
 signs_in_alone "$WORK/clones/stored-clone" || fail "repo_clone: an inherited store was asked, or kept the token, or answered with an old one"
+[ "$(git -C "$WORK/clones/stored-clone" config --local --get-all "$LINE_KEY")" = "$(printf '\n!ai-core git-credential')" ] || fail "repo_clone installed no local reset/helper pair under the inherited pair"
 pgit -C "$WORK/clones/stored-clone" pull -q --ff-only || fail "a pull under an inherited store does not sign in through the line"
 git config --global --unset-all credential.helper
+git config --global --unset-all "$LINE_KEY"
 rm -f "$HOME/.git-credentials"
 echo "  clone_sign_in, repo_create and repo_clone: an empty entry drops the helpers git already has, so a store is neither asked nor fed and a rotated token is followed; planted: the line without it feeds the store"
 
@@ -370,12 +380,17 @@ grep -q "$LINE_KEY would be set in .git/config" <<< "$out" || fail "the dry run 
 grep -q 'example-org/example-ai-core would be created from the skeleton' <<< "$out" || fail "the dry run of init does not announce the harness: $out"
 [ -z "$(git -C "$WORK/proj/example-repo2" config --get "$LINE_KEY" || true)" ] || fail "the dry run set the sign-in line"
 ! requests | grep -q '^POST' || fail "the dry run created something on the instance"
+git config --global --add "$LINE_KEY" ""
+git config --global --add "$LINE_KEY" '!ai-core git-credential'
+git config --global --add credential.helper store
 out="$(init)" || fail "init on Forgejo: $out"
 grep -q 'created: example-org/example-ai-core, private, from the skeleton' <<< "$out" || fail "init did not create the harness repository: $out"
 grep -q "  $LINE_KEY set in .git/config" <<< "$out" || fail "init does not report the sign-in line: $out"
 requests | grep -q '^POST /api/v1/orgs/example-org/repos$' || fail "init did not create the harness repository on the instance"
 [ "$(git -C "$REMOTE/example-org/example-ai-core.git" rev-list --count --all)" = 1 ] || fail "the harness repository got no skeleton commit"
 [ "$(git -C "$WORK/proj/example-repo2" config --get "$LINE_KEY")" = '!ai-core git-credential' ] || fail "init did not set the sign-in line"
+[ "$(git -C "$WORK/proj/example-repo2" config --local --get-all "$LINE_KEY")" = "$(printf '\n!ai-core git-credential')" ] || fail "init installed no local reset/helper pair under the inherited pair"
+signs_in_alone "$WORK/proj/example-repo2" || fail "init: the inherited URL pair hid a store that kept the token"
 out="$(init)" || fail "second init on Forgejo: $out"
 ! grep -q 'credential\.' <<< "$out" || fail "a second init reports the sign-in line again: $out"
 rm -rf "$WORK/proj/example-ai-core"
@@ -384,6 +399,8 @@ out="$(init)" || fail "init with the harness on the instance and not on this dis
 [ -f "$WORK/proj/example-ai-core/ai-core.json" ] || fail "the harness repository was not cloned"
 ! requests | grep -q '^POST' || fail "init created a harness repository that exists"
 [ "$(git -C "$WORK/proj/example-ai-core" config --get "$LINE_KEY")" = '!ai-core git-credential' ] || fail "the cloned harness does not sign in through the helper"
+git config --global --unset-all credential.helper
+git config --global --unset-all "$LINE_KEY"
 echo "  init: the dry run announces; the run sets the sign-in line once and creates the harness private on the instance; a second machine clones it"
 
 # --- release: the combined status of the commit decides -------------------------------------------

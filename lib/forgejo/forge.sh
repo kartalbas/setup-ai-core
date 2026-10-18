@@ -26,7 +26,7 @@ sign_in_line_set() {
 
 # sign_in_line_stands <checkout> <url>: whether that is all the checkout has
 sign_in_line_stands() {
-  [ "$(git -C "$1" config --get-all "credential.$2.helper" 2>/dev/null || true)" = "$(printf '\n%s' "$FORGEJO_CREDENTIAL_HELPER")" ]
+  [ "$(git -C "$1" config --local --get-all "credential.$2.helper" 2>/dev/null || true)" = "$(printf '\n%s' "$FORGEJO_CREDENTIAL_HELPER")" ]
 }
 
 forgejo_url() {  # the scheme and host of the instance, without a closing slash

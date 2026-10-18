@@ -190,7 +190,7 @@ git init -q --bare -b master "$WORK/origins/example-org/example-repo.git"; git i
 git -C "$P" remote set-url origin "$WORK/origins/example-org/example-repo.git"
 git init -q -b master "$WORK/carried-repo"; git -C "$WORK/carried-repo" remote add origin "$WORK/origins/example-org/carried-repo.git"
 printf 'LIVE_TAGS="prod=landed"\n' >> "$P/.ai-core/config.env"
-mkdir -p "$WORK/carried-repo/.ai-core"; printf 'LIVE_TAGS="prod=landed"\n' > "$WORK/carried-repo/.ai-core/config.env"
+mkdir -p "$WORK/carried-repo/.ai-core"; cp "$P/.ai-core/config.env" "$WORK/carried-repo/.ai-core/config.env"
 commit() {  # commit <dir> <subject>: an empty commit pushed to origin's master; prints its short hash
   git -C "$1" -c user.name=Test -c user.email=test@example.test checkout -q -B master 2>/dev/null
   git -C "$1" -c user.name=Test -c user.email=test@example.test commit -q --allow-empty -m "$2"
@@ -276,6 +276,31 @@ grep -q 'no clone     other-repo#80  (no clone of example-org/other-repo in ' <<
 [ "$(state_of 80)" = implementing ] || fail "the epic of a repository with no clone was moved to $(state_of 80)"
 mv "$WORK/away/other-repo" "$WORK/other-repo"
 echo "  status-sync: a card whose repository has no clone here is named and stays"
+
+# The same issue number in another configured project must never receive this board's move.
+plane_add_item 82 "Another epic whose child has begun" repo:other-repo
+plane_add_item 83 "Its child" repo:other-repo
+planeset 'const e=p.issues.find((i)=>i.sequence_id===82),c=p.issues.find((i)=>i.sequence_id===83);c.parent=e.id;c.state=p.states.find((x)=>x.name==="implementing").id;
+  const ops=s.projects.find((x)=>x.identifier==="OPS"), label={id:require("crypto").randomUUID(),name:"repo:other-repo",color:"#000",description:""};ops.labels.push(label);
+  for (const name of ["ready","implementing"]) ops.states.push({id:require("crypto").randomUUID(),name,group:name==="ready"?"unstarted":"started",color:"#000"});
+  for (const n of [80,82]) { const it=JSON.parse(JSON.stringify(p.issues.find((i)=>i.sequence_id===n)));it.id=require("crypto").randomUUID();it.project=ops.id;it.labels=[label.id];it.parent=null;it.state=ops.states.find((x)=>x.name==="ready").id;ops.issues.push(it); }'
+cp "$WORK/other-repo/.ai-core/config.env" "$WORK/other-config"
+for spec in 'PLANE_PROJECT=OPS' 'PLANE_URL=http://plane.example.test' 'PLANE_WORKSPACE=other' 'TRACKER=github'; do
+  key="${spec%%=*}"
+  cp "$WORK/other-config" "$WORK/other-repo/.ai-core/config.env"
+  printf '%s\n' "$spec" >> "$WORK/other-repo/.ai-core/config.env"
+  reset_log; out="$(ai status-sync other-repo 2>&1)" || fail "status-sync with different $key: $out"
+  grep -q "other-repo#80.*$WORK/other-repo.*$key" <<< "$out" || fail "status-sync did not name the clone and differing $key: $out"
+  [ "$(grep -c "other-repo#80.*$key" <<< "$out")" = 1 ] || fail "the differing $key was not reported once for the card: $out"
+  [ "$(state_of 80)" = implementing ] && [ "$(state_of 82)" = ready ] || fail "a clone with different $key moved ENG's cards"
+  [ "$(planeq 'const ops=s.projects.find((x)=>x.identifier==="OPS");console.log(ops.issues.filter((i)=>[80,82].includes(i.sequence_id)).map((i)=>ops.states.find((x)=>x.id===i.state).name).join(" "))')" = 'ready ready' ] || fail "a clone with different $key moved OPS#80 or OPS#82"
+  ! grep -qE '^(PATCH|POST|PUT|DELETE) ' "$CURL_FAKE_STATE/requests.log" || fail "a clone with different $key wrote a card"
+done
+cp "$WORK/other-config" "$WORK/other-repo/.ai-core/config.env"
+out="$(ai status-sync other-repo 2>&1)" || fail "status-sync with matching tracker identity: $out"
+[ "$(state_of 80)" = done ] && [ "$(state_of 82)" = implementing ] || fail "a matching clone did not close ENG#80 and move ENG#82"
+[ "$(planeq 'const ops=s.projects.find((x)=>x.identifier==="OPS");console.log(ops.issues.filter((i)=>[80,82].includes(i.sequence_id)).map((i)=>ops.states.find((x)=>x.id===i.state).name).join(" "))')" = 'ready ready' ] || fail "a matching ENG clone changed OPS#80 or OPS#82"
+echo "  clone tracker identity: differing tracker, URL, workspace or project leaves both boards untouched; a matching clone closes ENG#80 and moves ENG#82 while OPS stays"
 
 # repo-link: the repository joins the project by its label, made once
 planeset 'p.labels=p.labels.filter((l)=>l.name!=="repo:example-repo")'

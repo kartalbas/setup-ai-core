@@ -320,6 +320,21 @@ for full in ${repos[@]+"${repos[@]}"}; do
         echo "no clone     $label#$num  (no clone of $full in $(project_folder), and only its clone writes its cards, so the card stays)"
         continue
       fi
+      # A fresh shell reads the clone as the mover will, without this shell's loaded provider variables.
+      different="$(bash -c '
+        cd "$1" || exit 1
+        . "$2/lib/common.sh"; shift 2
+        for key in TRACKER PLANE_URL PLANE_WORKSPACE PLANE_PROJECT; do
+          if [ "$key" = TRACKER ]; then actual="$(config_value "$key" github | tr "[:upper:]" "[:lower:]")"
+          else actual="$(config_value "$key" "")"; fi
+          if [ "$actual" != "$1" ]; then printf "%s\n" "$key"; break; fi
+          shift
+        done
+      ' _ "$mover_dir" "$ROOT" "$TRACKER" "$(config_value PLANE_URL "")" "$(config_value PLANE_WORKSPACE "")" "$resolved")" || exit 1
+      if [ -n "$different" ]; then
+        echo "other board  $label#$num  ($mover_dir has a different $different, so the card stays)"
+        continue
+      fi
     fi
 
     if [ "$target" = "CLOSE" ]; then

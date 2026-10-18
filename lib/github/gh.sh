@@ -107,3 +107,26 @@ gh_read() {  # gh_read <what was asked for> <gh argument>...
   [ -n "$out" ] || return 0
   printf '%s\n' "$out"
 }
+
+# gh_doctor: the gh lines of `ai-core doctor`, through doctor's own report, problem and install_tool, which
+# doctor.sh defines. The forge prints them where the forge is GitHub, and the tracker where only the
+# tracker is: either one alone needs gh, its login and the project scope.
+gh_doctor() {
+  local gh_status
+  if ! command -v gh >/dev/null 2>&1; then install_tool gh gh gh || true; fi
+  if command -v gh >/dev/null 2>&1; then
+    # the board commands write Projects v2, which a login with gh's default scopes cannot; a token
+    # gh lists no scopes for (a fine-grained one, GH_TOKEN) is not judged
+    if gh_status="$(gh auth status 2>&1)"; then
+      if grep -q 'Token scopes:' <<< "$gh_status" && ! grep -q "'project'" <<< "$gh_status"; then
+        report gh "no project scope" "the board commands read and write the project board; run: gh auth refresh -h github.com -s project"; problem
+      else
+        report gh present "$(gh --version 2>/dev/null | head -1), logged in"
+      fi
+    else
+      report gh "not logged in" "run: gh auth login"; problem
+    fi
+  else
+    report gh MISSING "install GitHub CLI from https://cli.github.com"; problem
+  fi
+}

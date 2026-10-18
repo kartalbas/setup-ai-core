@@ -19,6 +19,7 @@ section "the forge on Forgejo: the repository, the check of a commit, the signed
 
 # --- the host, a repository, the user -----------------------------------------------------------
 [ "$(forge_fn forge_host)" = "$FORGE_HOST" ] || fail "forge_host is not the host of FORGEJO_URL: $(forge_fn forge_host)"
+[ "$(forge_fn forge_name)" = "$FORGE_HOST" ] || fail "forge_name is not the host of FORGEJO_URL: $(forge_fn forge_name)"
 forgejo_repo example-org/example-repo 3
 forge_fn repo_exists example-org/example-repo || fail "repo_exists says a repository the instance has is not there"
 forge_fn repo_exists example-org/missing && fail "repo_exists says a repository the instance lacks is there"
@@ -56,8 +57,19 @@ reset_log
 tree="$(forge_fn repo_file_tree example-org/big-repo)" || fail "repo_file_tree of 2305 files: $tree"
 [ "$(jq '.tree | length' <<< "$tree")" = 2305 ] && [ "$(jq -r '.truncated' <<< "$tree")" = false ] || fail "repo_file_tree did not return all 2305 files, untruncated"
 [ "$(jq -r '.tree[] | select(.type == "blob") | .path' <<< "$tree" | sort -u | wc -l | tr -d ' ')" = 2305 ] || fail "a page was read twice or a file is missing"
-[ "$(requests | grep -c 'git/trees/HEAD?recursive=true&per_page=1000&page=')" = 3 ] || fail "2305 files should take three pages: $(requests | grep trees)"
+[ "$(requests | grep -c 'git/trees/.*recursive=true&per_page=1000&page=')" = 3 ] || fail "2305 files should take three pages: $(requests | grep trees)"
 echo "  repo_file_tree: 2305 files in three pages, all of them once, the end named by total_count and not by Forgejo's truncated flag"
+# the default branch moves while the pages are read: HEAD is resolved by each request, so the later pages ask for the tree
+# the first one answered; planted below, a reader that asks for HEAD every time mixes two trees and says it is whole
+forgejo_repo example-org/moving-repo 2305
+forgejo_set 's.repos["example-org/moving-repo"].trees={treeA:Array.from({length:2305},(_,i)=>"dir/file-"+i+".txt"),treeB:["moved/only.txt"]};s.repos["example-org/moving-repo"].head="treeA";s.repos["example-org/moving-repo"].head_after_next="treeB"'
+reset_log
+tree="$(forge_fn repo_file_tree example-org/moving-repo)" || fail "repo_file_tree of a branch that moves between two pages: $tree"
+[ "$(jq '.tree | length' <<< "$tree")" = 2305 ] && [ "$(jq -r '[.tree[] | select(.path | startswith("dir/file-"))] | length' <<< "$tree")" = 2305 ] \
+  || fail "the listing mixes two trees or is short: $(jq -c '[.tree | length, (.tree[-1].path)]' <<< "$tree")"
+[ "$(requests | grep -c 'git/trees/HEAD?')" = 1 ] && [ "$(requests | grep -c 'git/trees/treeA?')" = 2 ] \
+  || fail "the later pages are not asked for the tree of the first: $(requests | grep trees)"
+echo "  repo_file_tree: a default branch that moves between two pages does not mix two trees; the later pages ask for the tree the first one answered"
 inject "page=2" 200 '{"tree":[],"total_count":2305,"page":2,"truncated":true}'
 out="$(forge_fn repo_file_tree example-org/big-repo 2>&1)" && fail "repo_file_tree took a listing that ended early for a whole one"
 grep -q 'ended at 1000 of 2305 entries' <<< "$out" || fail "an early end is not named: $out"
@@ -176,6 +188,32 @@ out="$(cd "$F" && printf 'host=%s\n' "$FORGE_HOST" | bash "$ROOT/bin/git-credent
 out="$(cd "$F" && bash "$ROOT/bin/git-credential.sh" frobnicate 2>&1 < /dev/null)" && fail "an unknown verb was accepted"
 grep -q 'usage: ai-core git-credential get|store|erase' <<< "$out" || fail "the usage is not shown: $out"
 echo "  a failing token command is named and gives no password; store is accepted and says nothing; an unknown verb shows the usage"
+# THE TOKEN IN A TRACE: bash -x prints every assignment and argument it expands, so a helper run under it, as a person
+# debugging git's sign-in would, must not expand the token with the trace on
+trace="$WORK/helper-trace"
+( cd "$F" && printf "$mine" | PATH="$PATH_CURL" bash -x "$ROOT/bin/git-credential.sh" get > /dev/null 2> "$trace" ) || fail "the helper under bash -x did not answer"
+! grep -q "$TOKEN" "$trace" || fail "the token stands in the trace of the helper: $(grep -n "$TOKEN" "$trace" | head -2)"
+cp "$ROOT/bin/git-credential.sh" "$planted/bin/git-credential.sh"
+sed -i.bak '/^set +x$/d' "$planted/bin/git-credential.sh"
+cmp -s "$ROOT/bin/git-credential.sh" "$planted/bin/git-credential.sh" && fail "the planted helper equals the real one"
+( cd "$F" && printf "$mine" | PATH="$PATH_CURL" bash -x "$planted/bin/git-credential.sh" get > /dev/null 2> "$trace" ) || fail "the planted helper under bash -x did not answer"
+grep -q "$TOKEN" "$trace" || fail "planted: a helper that leaves the trace on shows no token in it, so the check cannot go red"
+rm -f "$trace"
+cp "$ROOT/bin/git-credential.sh" "$planted/bin/git-credential.sh"
+# A TOKEN WITH A LINE BREAK in it would add a field to git's answer (git takes the last password it reads), and a carriage
+# return or a tab is no character of a token: each is refused by the name of the setting and answered with nothing
+for command in "printf 'x\npassword=injected\n'" "printf 'abc\r'" "printf 'a\tb'"; do
+  out="$(cd "$F" && FORGEJO_TOKEN_COMMAND="$command" bash "$ROOT/bin/git-credential.sh" get <<< "$(printf "$mine")" 2>&1)" && fail "a token with a control character gave an answer: $command"
+  grep -q 'the command of FORGEJO_TOKEN_COMMAND printed a token with a control character in it' <<< "$out" || fail "the control character is not refused by the name of the setting ($command): $out"
+  ! grep -q 'password=' <<< "$out" || fail "a token with a control character still gave a password ($command): $out"
+done
+cp "$ROOT/lib/common.sh" "$planted/lib/common.sh"
+sed -i.bak '/\*\[\[:cntrl:\]\]\*)/d' "$planted/lib/common.sh"
+cmp -s "$ROOT/lib/common.sh" "$planted/lib/common.sh" && fail "the planted copy equals the real lib/common.sh"
+out="$(cd "$F" && FORGEJO_TOKEN_COMMAND="printf 'x\npassword=injected\n'" bash "$planted/bin/git-credential.sh" get <<< "$(printf "$mine")" 2>&1)" || fail "the planted helper should still answer"
+[ "$(grep -c '^password=' <<< "$out")" = 2 ] || fail "planted: without the check the answer does not hold a second password field, so the check cannot go red: $out"
+cp "$ROOT/lib/common.sh" "$planted/lib/common.sh"
+echo "  the helper keeps the token out of a bash -x trace; a token with a line break, a carriage return or a tab is refused by the name of the setting and gets no password; planted: each is seen"
 # the helper keeps the token out of every file: a planted copy that keeps it is seen by the scan, the real one is clean
 [ -z "$(leaked)" ] || fail "the helper wrote the token to a file: $(leaked)"
 sed -i.bak "s|^printf 'username|printf '%s' \"\$token\" > \"\$HOME/leak\"; printf 'username|" "$planted/bin/git-credential.sh"
@@ -195,7 +233,7 @@ set_line="$LINE_KEY set in .git/config: git asks ai-core git-credential for the 
 [ "$(forge_fn clone_sign_in "$WORK/fresh")" = "$set_line" ] || fail "clone_sign_in did not set the line"
 [ "$(git -C "$WORK/fresh" config --get "$LINE_KEY")" = '!ai-core git-credential' ] || fail "the line is not '!ai-core git-credential'"
 [ -z "$(forge_fn clone_sign_in "$WORK/fresh")" ] || fail "a second run set the line again or said so"
-[ "$(git -C "$WORK/fresh" config --get-all "$LINE_KEY" | wc -l | tr -d ' ')" = 1 ] || fail "the line is not alone after two runs"
+[ "$(git -C "$WORK/fresh" config --get-all "$LINE_KEY")" = "$(printf '\n!ai-core git-credential')" ] || fail "the checkout holds more than the empty entry and the line after two runs: $(git -C "$WORK/fresh" config --get-all "$LINE_KEY" | paste -sd'|' -)"
 for origin in git@127.0.0.1:example-org/ssh.git https://github.com/example-org/elsewhere.git; do
   git init -q "$WORK/other"; git -C "$WORK/other" remote add origin "$origin"
   [ -z "$(forge_fn clone_sign_in "$WORK/other")" ] || fail "a line was set for the origin $origin"
@@ -207,6 +245,45 @@ mkdir -p "$WORK/plain-folder"
 [ -z "$(cd "$F" && PATH="$PATH_CURL" FORGE=github bash -c '. "$1/lib/forge.sh"; clone_sign_in "$2"' _ "$ROOT" "$WORK/fresh")" ] || fail "GitHub's clone_sign_in says something"
 echo "  clone_sign_in: one line in the clone's own .git/config, once; a dry run writes nothing; an ssh origin and another host get none"
 
+# --- the helpers git already has -------------------------------------------------------------------
+# A store or a cache in the user's configuration is asked before the harness's line and answers first; it keeps the token the
+# line gave it, and answers with that after the token command has changed. The line therefore starts with an empty entry, which
+# drops every helper collected before it. Real git, offline: credential fill and approve under a store helper in a scratch HOME.
+fill() {  # fill <checkout>: what git credential fill answers for the instance
+  ( cd "$1" && printf 'protocol=%s\nhost=%s\n\n' "${FORGE_URL%%://*}" "$FORGE_HOST" | PATH="$PATH_CURL" GIT_TERMINAL_PROMPT=0 FORGEJO_URL="$FORGE_URL" FORGEJO_TOKEN_COMMAND="cat $WORK/ftoken" git credential fill 2>/dev/null )
+}
+signs_in_alone() {  # signs_in_alone <checkout>: fill answers the token, approve stores it nowhere else, and a rotated token is followed
+  local got
+  rm -f "$HOME/.git-credentials"
+  got="$(fill "$1")"
+  [ "$(grep '^password=' <<< "$got")" = "password=$TOKEN" ] || return 1
+  ( cd "$1" && printf '%s\n\n' "$got" | PATH="$PATH_CURL" git credential approve )
+  [ ! -s "$HOME/.git-credentials" ] || return 1
+  printf 'rotated-token\n' > "$WORK/ftoken"
+  got="$(fill "$1" | grep '^password=')"
+  printf '%s\n' "$TOKEN" > "$WORK/ftoken"
+  [ "$got" = "password=rotated-token" ]
+}
+git config --global credential.helper store
+git init -q "$WORK/stored-fresh"; git -C "$WORK/stored-fresh" remote add origin "$FORGE_URL/example-org/stored.git"
+forge_fn clone_sign_in "$WORK/stored-fresh" > /dev/null
+signs_in_alone "$WORK/stored-fresh" || fail "clone_sign_in: an inherited store was asked, or kept the token, or answered with an old one"
+git init -q "$WORK/stored-old"; git -C "$WORK/stored-old" remote add origin "$FORGE_URL/example-org/stored.git"
+git -C "$WORK/stored-old" config "$LINE_KEY" '!ai-core git-credential'
+signs_in_alone "$WORK/stored-old" && fail "planted: a line without the empty entry signs in alone under an inherited store, so the check cannot go red"
+rm -f "$HOME/.git-credentials"
+forge_fn clone_sign_in "$WORK/stored-old" > /dev/null
+signs_in_alone "$WORK/stored-old" || fail "clone_sign_in did not repair the checkout that holds the line without the empty entry"
+git init -q "$WORK/stored-seed"; git -C "$WORK/stored-seed" commit -q --allow-empty -m "the skeleton"
+forge_fn repo_create example-org/stored "$WORK/stored-seed" || fail "repo_create under an inherited store"
+signs_in_alone "$WORK/stored-seed" || fail "repo_create: an inherited store was asked, or kept the token, or answered with an old one"
+forge_fn repo_clone example-org/stored "$WORK/clones/stored-clone" || fail "repo_clone under an inherited store"
+signs_in_alone "$WORK/clones/stored-clone" || fail "repo_clone: an inherited store was asked, or kept the token, or answered with an old one"
+pgit -C "$WORK/clones/stored-clone" pull -q --ff-only || fail "a pull under an inherited store does not sign in through the line"
+git config --global --unset-all credential.helper
+rm -f "$HOME/.git-credentials"
+echo "  clone_sign_in, repo_create and repo_clone: an empty entry drops the helpers git already has, so a store is neither asked nor fed and a rotated token is followed; planted: the line without it feeds the store"
+
 # --- doctor --------------------------------------------------------------------------------------
 doctor_lines() {  # the lines forge_doctor prints, report and problem in the shape doctor.sh gives them
   ( cd "${1:-$F}" && PATH="$PATH_CURL" bash -c '. "$1/lib/forge.sh"; report() { printf "  %-12s %-12s %s\n" "$1" "$2" "$3"; }; problem() { echo "PROBLEM"; }; forge_doctor' _ "${ROOT_UNDER_TEST:-$ROOT}" 2>&1 )
@@ -217,7 +294,7 @@ out="$(doctor_lines)"
 grep -qxF "  forge: forgejo ($FORGE_URL, the token answers)" <<< "$out" || fail "the doctor does not say the token answers: $out"
 grep -q '  origin       answers' <<< "$out" || fail "the doctor does not say git reaches the origin: $out"
 ! grep -q "$TOKEN" <<< "$out" || fail "the doctor printed the token"
-git -C "$F" config --unset "$LINE_KEY"
+git -C "$F" config --unset-all "$LINE_KEY"
 out="$(doctor_lines)"
 grep -q 'origin       refused' <<< "$out" && grep -q PROBLEM <<< "$out" || fail "the doctor does not refuse an origin git cannot sign in to: $out"
 forge_fn clone_sign_in "$F" > /dev/null
@@ -242,8 +319,43 @@ out="$(doctor_lines)"
 grep -q "forge        unexpected   the API of $FORGE_URL answered 502" <<< "$out" || fail "the doctor does not name an unexpected answer: $out"
 ! grep -q 'the token answers' <<< "$out" || fail "the doctor says a 502 is the token answering: $out"
 echo "  doctor: the token answers; a wrong token, a missing or failing command, an origin git cannot sign in to and an unexpected answer are each named, and the token is never printed"
-out="$(cd "$F" && PATH="$PATH_CURL" bash "$ROOT/bin/doctor.sh" --no-install 2>&1 || true)"
+mkdir -p "$WORK/ghstub"; printf '#!/bin/sh\nexit 1\n' > "$WORK/ghstub/gh"; chmod +x "$WORK/ghstub/gh"   # the gh of this machine is not asked: the tracker checks it
+out="$(cd "$F" && PATH="$WORK/ghstub:$PATH_CURL" bash "$ROOT/bin/doctor.sh" --no-install 2>&1 || true)"
 [ "$(grep -c '^  forge:' <<< "$out")" = 1 ] && grep -q "^  forge: forgejo ($FORGE_URL, the token answers)\$" <<< "$out" || fail "bin/doctor.sh does not print the forge line of the provider once: $(grep forge <<< "$out")"
+
+# a tracker that stays on GitHub while the forge moves is still GitHub's: gh, its login and the project scope are the tracker's
+# to check. gh is a stand-in of this test: it is logged in where $WORK/gh-auth exists, and prints that file as its status.
+mkdir -p "$WORK/ghstub"
+cat > "$WORK/ghstub/gh" <<'EOF'
+#!/bin/sh
+case "$1 $2" in
+  "auth status") [ -f "$GH_STUB_AUTH" ] || { echo "You are not logged into any GitHub hosts." >&2; exit 1; }; cat "$GH_STUB_AUTH" ;;
+  "--version "*|"--version") echo "gh version 2.0.0 (stand-in)" ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$WORK/ghstub/gh"
+printf 'command() { if [ "${1:-}" = -v ] && [ "${2:-}" = gh ]; then return 1; fi; builtin command "$@"; }\n' > "$WORK/no-gh.sh"
+gh_doctor_lines() {  # gh_doctor_lines [doctor root]: the gh lines of bin/doctor.sh in $F, a tracker on GitHub and a forge on Forgejo
+  ( cd "$F" && PATH="$WORK/ghstub:$PATH_CURL" GH_STUB_AUTH="$WORK/gh-auth" bash "${1:-$ROOT}/bin/doctor.sh" --no-install 2>&1 | grep -E '^  (tracker|gh) ' || true )
+}
+rm -f "$WORK/gh-auth"
+out="$(gh_doctor_lines)"
+grep -q '^  gh           not logged in' <<< "$out" || fail "the doctor does not check the login of a GitHub tracker beside a Forgejo forge: $out"
+printf "Token scopes: 'repo', 'read:org'\n" > "$WORK/gh-auth"
+out="$(gh_doctor_lines)"
+grep -q '^  gh           no project scope' <<< "$out" || fail "the doctor does not check the project scope of a GitHub tracker beside a Forgejo forge: $out"
+printf "Token scopes: 'project', 'repo'\n" > "$WORK/gh-auth"
+out="$(gh_doctor_lines)"
+grep -q '^  gh           present' <<< "$out" && ! grep -q 'not logged in\|no project scope\|MISSING' <<< "$out" || fail "innocent: a logged-in gh with the project scope is reported as a problem: $out"
+out="$(cd "$F" && PATH="$WORK/ghstub:$PATH_CURL" GH_STUB_AUTH="$WORK/gh-auth" BASH_ENV="$WORK/no-gh.sh" bash "$ROOT/bin/doctor.sh" --no-install 2>&1 | grep -E '^  (tracker|gh) ' || true)"
+grep -q '^  gh           MISSING' <<< "$out" || fail "the doctor does not check that gh is there for a GitHub tracker beside a Forgejo forge: $out"
+rm -f "$WORK/gh-auth"
+cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$planted/"; cp "$ROOT/VERSION" "$planted/"
+sed -i.bak '/|| gh_doctor$/d' "$planted/lib/github/tracker.sh"
+cmp -s "$ROOT/lib/github/tracker.sh" "$planted/lib/github/tracker.sh" && fail "the planted tracker equals the real one"
+! grep -q '^  gh ' <<< "$(gh_doctor_lines "$planted")" || fail "planted: a tracker that checks nothing still reports gh, so the check cannot go red"
+echo "  doctor: a GitHub tracker beside a Forgejo forge checks gh, its login and the project scope itself; planted: without it the problems are not seen"
 
 # --- init: the checkout signs in; the harness repository is created, then cloned -----------------
 mkdir -p "$WORK/proj"; git init -q --bare -b main "$REMOTE/example-org/example-repo2.git"

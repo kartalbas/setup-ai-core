@@ -8,6 +8,10 @@
 
 # THE INTERFACE:
 #   forge_host                   the host the origin of a checkout names
+#   forge_name                   the forge as a message names it: GitHub, or the host of the instance
+#   not_signed_in_words          what a refused call most likely means, in the words of the forge's tool
+#   checks_unreadable_message <sha> <what the forge said last>
+#                                the refusal of a release that could not read the checks of the commit until its deadline
 #   repo_exists <owner/repo>     whether the repository is there
 #   repo_clone <owner/repo> <dir>
 #   repo_create <owner/repo> <dir>   private, from the checkout in <dir>, which it pushes
@@ -19,5 +23,5 @@
 #                                    itself; prints its report line when it set something (dry: would set), else nothing
 #   forge_doctor                 the lines doctor prints for the forge, "  forge: <name>" first, through its report and problem
 load_provider forge "
-  forge_host repo_exists repo_clone repo_create repo_default_branch repo_file_tree
+  forge_host forge_name not_signed_in_words checks_unreadable_message repo_exists repo_clone repo_create repo_default_branch repo_file_tree
   commit_checked signed_in_user clone_sign_in forge_doctor"

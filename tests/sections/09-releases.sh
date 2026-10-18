@@ -68,7 +68,7 @@ rc=0; out="$(upd --check)" || rc=$?
 : > "$GH_FAKE/run-broken"    # a gh that never answers: the deadline ends the wait and names what gh said
 rc=0; out="$(AI_CORE_RELEASE_WAIT=0 rel 9.9.2)" || rc=$?
 rm -f "$GH_FAKE/run-broken"
-[ "$rc" -ne 0 ] && grep -q 'until the deadline; it said last: HTTP 502: Bad Gateway (is anyone signed in there?)$' <<< "$out" || fail "release.sh with a gh that never answers: exit $rc, $out"
+[ "$rc" -ne 0 ] && grep -q 'until the deadline; it said last: HTTP 502: Bad Gateway (is gh logged in?)$' <<< "$out" || fail "release.sh with a gh that never answers: exit $rc, $out"
 git -C "$RO" rev-parse -q --verify refs/tags/v9.9.2 > /dev/null && fail "release.sh tagged v9.9.2 without an answer from gh"
 echo "  refused dirty and twice; an unpushed commit pushed and tagged; 9.9.1 written into VERSION, committed, pushed, waited for and tagged on the commit waited for, not on one made meanwhile; v9.9.0 installed, v9.9.1 announced and moved to, main followed on request, a dirty clone left alone"
 exit 0

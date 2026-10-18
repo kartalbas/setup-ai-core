@@ -11,8 +11,23 @@
 
 # THE LINE THAT LETS GIT SIGN IN: git runs this command through the shell and gives it get on its standard
 # input, and bin/git-credential.sh answers with the token. The token stands in no file, so a changed
-# FORGEJO_TOKEN_COMMAND takes effect at once.
+# FORGEJO_TOKEN_COMMAND takes effect at once. The line is two values of credential.<url>.helper, an empty one
+# and then this: git asks every helper it collected from the system and the user's configuration first, and a
+# store or a cache among them would keep the token this helper answered with, and go on answering with it after
+# the token command has changed; an empty value drops everything collected before it.
 FORGEJO_CREDENTIAL_HELPER='!ai-core git-credential'
+
+# sign_in_line_set <checkout> <url>: the helpers of this instance in the checkout's own .git/config are the
+# harness's alone
+sign_in_line_set() {
+  git -C "$1" config --replace-all "credential.$2.helper" ""
+  git -C "$1" config --add "credential.$2.helper" "$FORGEJO_CREDENTIAL_HELPER"
+}
+
+# sign_in_line_stands <checkout> <url>: whether that is all the checkout has
+sign_in_line_stands() {
+  [ "$(git -C "$1" config --get-all "credential.$2.helper" 2>/dev/null || true)" = "$(printf '\n%s' "$FORGEJO_CREDENTIAL_HELPER")" ]
+}
 
 forgejo_url() {  # the scheme and host of the instance, without a closing slash
   local url
@@ -30,6 +45,14 @@ forge_host() {
   url="$(forgejo_url)" || exit 1
   url="${url#*://}"
   printf '%s\n' "$url"
+}
+
+forge_name() { forge_host; }
+
+not_signed_in_words() { echo "nobody is signed in there"; }
+
+checks_unreadable_message() {  # checks_unreadable_message <sha> <what Forgejo said last>
+  echo "the checks of $1 could not be read from $(forge_host) until the deadline; it said last: $2 (is anyone signed in there?)"
 }
 
 # forgejo_call <method> <path under /api/v1> [json body]: sets forgejo_status (000 where curl got no answer) and
@@ -79,7 +102,7 @@ forgejo_git() {
 repo_clone() (  # repo_clone <owner/repo> <dir>: the clone keeps the line that lets git sign in
   local base
   base="$(forgejo_url)" || exit 1
-  forgejo_git clone --quiet -c "credential.$base.helper=$FORGEJO_CREDENTIAL_HELPER" "$base/$1.git" "$2"
+  forgejo_git clone --quiet -c "credential.$base.helper=" -c "credential.$base.helper=$FORGEJO_CREDENTIAL_HELPER" "$base/$1.git" "$2"
 )
 
 # repo_create <owner/repo> <dir>: private, and pushes the checkout in <dir>. The owner is the signed-in user or
@@ -98,7 +121,7 @@ repo_create() (
     *) echo "cannot create $1 - Forgejo answered $(forgejo_said)" >&2; exit 1 ;;
   esac
   git -C "$2" remote add origin "$base/$1.git"
-  git -C "$2" config "credential.$base.helper" "$FORGEJO_CREDENTIAL_HELPER"
+  sign_in_line_set "$2" "$base"
   forgejo_git -C "$2" push --quiet -u origin HEAD
 )
 
@@ -111,17 +134,26 @@ repo_default_branch() {
 
 # repo_file_tree <owner/repo>: every file of the default branch, as {tree: [{path, type}...], truncated: false}.
 # The listing is paged by total_count: the truncated flag of Forgejo is true on every page of a tree longer
-# than one, so it says nothing about the end. A listing that ends before total_count stops the caller.
+# than one, so it says nothing about the end. The first page names the default branch by HEAD and answers the
+# sha of its tree; every later page asks for that tree, because HEAD is resolved again by each request and a
+# branch that moves between two pages would otherwise mix two trees. The count of the first page is the count
+# to reach. A listing that ends before it stops the caller.
 repo_file_tree() {
-  local page=1 got=0 total chunk count entries
+  local page=1 got=0 total chunk count entries ref=HEAD tree=""
   entries="$(mktemp)"
   while :; do
-    chunk="$(forgejo_api "the files of $1" GET "/repos/$1/git/trees/HEAD?recursive=true&per_page=1000&page=$page")" || { rm -f "$entries"; exit 1; }
+    chunk="$(forgejo_api "the files of $1" GET "/repos/$1/git/trees/$ref?recursive=true&per_page=1000&page=$page")" || { rm -f "$entries"; exit 1; }
     jq -c '.tree[]?' <<< "$chunk" >> "$entries"
-    count="$(jq -r '(.tree // []) | length' <<< "$chunk")"; total="$(jq -r '.total_count // 0' <<< "$chunk")"
+    count="$(jq -r '(.tree // []) | length' <<< "$chunk")"
+    if [ "$page" -eq 1 ]; then
+      total="$(jq -r '.total_count // 0' <<< "$chunk")"
+      tree="$(jq -r '.sha // empty' <<< "$chunk")"
+    fi
     got=$((got + count))
     [ "$got" -lt "$total" ] || break
     [ "$count" -gt 0 ] || { rm -f "$entries"; die "the files of $1 ended at $got of $total entries"; }
+    [ -n "$tree" ] || { rm -f "$entries"; die "the files of $1: Forgejo named no tree for the default branch, so the next page cannot be pinned to it"; }
+    ref="$tree"
     page=$((page + 1))
   done
   jq -cs '{tree: ., truncated: false}' "$entries"
@@ -168,8 +200,8 @@ clone_sign_in() (
   [ -n "$url" ] || exit 0
   origin="$(git -C "$1" remote get-url origin 2>/dev/null)" || exit 0
   case "$origin" in "$url"/*) ;; *) exit 0 ;; esac
-  [ "$(git -C "$1" config --get "credential.$url.helper" 2>/dev/null || true)" != "$FORGEJO_CREDENTIAL_HELPER" ] || exit 0
-  [ "${2:-}" = dry ] || git -C "$1" config "credential.$url.helper" "$FORGEJO_CREDENTIAL_HELPER"
+  ! sign_in_line_stands "$1" "$url" || exit 0
+  [ "${2:-}" = dry ] || sign_in_line_set "$1" "$url"
   echo "credential.$url.helper $([ "${2:-}" = dry ] && echo "would be set" || echo set) in .git/config: git asks ai-core git-credential for the token"
 )
 

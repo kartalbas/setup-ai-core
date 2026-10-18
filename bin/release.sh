@@ -81,7 +81,7 @@ while :; do
     *) failed_query="${split_err:-an empty answer}" ;;
   esac
   if [ "$(date +%s)" -ge "$deadline" ]; then
-    [ -z "$failed_query" ] || refuse "the checks of $sha could not be read from $(forge_host) until the deadline; it said last: ${failed_query% } (is anyone signed in there?)"
+    [ -z "$failed_query" ] || refuse "$(checks_unreadable_message "$sha" "${failed_query% }")"
     refuse "the checks for $sha did not finish in $((limit / 60)) minute(s); run 'ai-core release $version' again when they have"
   fi
   [ "$waiting" -eq 1 ] || { echo "release: waiting for the checks of ${sha:0:7} (asked every ${poll}s, $((limit / 60)) minute(s) at most)"; waiting=1; }

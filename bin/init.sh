@@ -312,7 +312,7 @@ chain_of() {  # chain_of <checkout>: the layer directories, base first, or nothi
   if [ "$DRY" -eq 1 ]; then
     # nothing is moved, cloned or created on a dry run: a harness that is not there yet is announced instead
     if layer_chain "$org/$prefix-ai-core" "$CORE_ROOT" "$FOLDER" dry 2>"$TMP/chain.err"; then cat "$TMP/chain.err" >&2; return 0; fi
-    if grep -q 'does not exist on ' "$TMP/chain.err"; then echo "$org/$prefix-ai-core" > "$TMP/would-create"; else cat "$TMP/chain.err" >&2; fi
+    if grep -q "does not exist on $(forge_name)" "$TMP/chain.err"; then echo "$org/$prefix-ai-core" > "$TMP/would-create"; else cat "$TMP/chain.err" >&2; fi
     return 0
   fi
   layer_chain "$org/$prefix-ai-core" "$CORE_ROOT" "$FOLDER" create
@@ -351,7 +351,7 @@ if [ -n "$LAYERS" ]; then
 elif [ -f "$TMP/would-create" ]; then
   echo "--> Project harness: $(cat "$TMP/would-create") would be created from the skeleton, private, and this checkout would get it (dry run: not created)"
 elif [ "$PROJECT_FOLDER" -eq 0 ]; then
-  echo "--> No project harness: this checkout has no origin on $(forge_host); the generic harness only"
+  echo "--> No project harness: this checkout has no $(forge_name) origin; the generic harness only"
 fi
 
 # The auto-mode entries of setup-ai-core and of every layer, read before anything is written, so a

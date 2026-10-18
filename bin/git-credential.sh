@@ -35,5 +35,7 @@ while IFS= read -r line; do
 done
 
 [ "$protocol://$host" = "$(forgejo_url)" ] || exit 0
+# a trace of this script (bash -x) prints every assignment and argument it expands, the token among them
+set +x
 token="$(token_from_command FORGEJO_TOKEN_COMMAND)" || exit 1
 printf 'username=ai-core\npassword=%s\n' "$token"

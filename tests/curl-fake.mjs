@@ -249,7 +249,14 @@ function forgejo() {
   if (p[3] === 'git' && p[4] === 'trees') {
     const per = +(q.get('per_page') || 1000), at = +(q.get('page') || 1);
     if (repo.empty) reply(404, { message: 'sha not found' });
-    reply(200, { sha: p[5], tree: repo.files.slice((at - 1) * per, at * per).map((f) => ({ path: f, type: 'blob', mode: '100644', size: 1, sha: 'a', url: '' })), truncated: repo.files.length > per, page: at, total_count: repo.files.length });
+    // HEAD is resolved by each request, to the tree the default branch holds then; a tree is also asked for by its own sha.
+    // A test that moves the branch between two pages names the tree it moves to in head_after_next.
+    const trees = repo.trees || { tree0: repo.files };
+    const sha = p[5] === 'HEAD' ? (repo.head || 'tree0') : p[5];
+    const files = trees[sha];
+    if (!files) reply(404, { message: 'sha not found' });
+    if (p[5] === 'HEAD' && repo.head_after_next) { repo.head = repo.head_after_next; delete repo.head_after_next; save(); }
+    reply(200, { sha, tree: files.slice((at - 1) * per, at * per).map((f) => ({ path: f, type: 'blob', mode: '100644', size: 1, sha: 'a', url: '' })), truncated: files.length > per, page: at, total_count: files.length });
   }
   reply(404, { message: 'not found' });
 }

@@ -6,6 +6,9 @@
 
 . "$(dirname "${BASH_SOURCE[0]}")/gh.sh"
 
+# tracker_name: the tracker as a message names it
+tracker_name() { echo GitHub; }
+
 # THE ORGANISATION, for a command that names no repository: GH_ORG in the environment, then
 # GH_ORG= in the checkout's .ai-core/config.env (the project's setting, put there by init), then
 # the owner of the repository the caller stands in. The harness itself names none: it serves many.
@@ -566,9 +569,13 @@ labels_list() {
   gh_read "the labels of $1" label list --repo "$1" --limit 200 --json name --jq '.[].name'
 }
 
-# tracker_doctor: the line `ai-core doctor` prints for the tracker. GitHub's tool and login are checked
-# with the forge's, which is the same gh.
-tracker_doctor() { echo "  tracker: github"; }
+# tracker_doctor: the lines `ai-core doctor` prints for the tracker. Where the forge is GitHub too, its doctor
+# checks gh with the same lines; where the forge is elsewhere, nothing else would, and the board commands
+# still need gh, its login and the project scope.
+tracker_doctor() {
+  echo "  tracker: github"
+  [ "$(config_value FORGE github | tr '[:upper:]' '[:lower:]')" = github ] || gh_doctor
+}
 
 # closing_column <completed | not-planned>: the Status a closed issue's card is put in; the board has one
 # column for both reasons

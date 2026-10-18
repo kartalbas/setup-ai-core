@@ -19,6 +19,8 @@
 
 # --- the repository, the project, the user --------------------------------------
 
+tracker_name() { echo Plane; }
+
 # The organisation a command acts for: GH_ORG, then the owner of the checkout's origin.
 gh_org() {
   local org repo

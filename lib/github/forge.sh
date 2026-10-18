@@ -7,6 +7,14 @@
 
 forge_host() { echo github.com; }
 
+forge_name() { echo GitHub; }
+
+not_signed_in_words() { echo "gh is not logged in"; }
+
+checks_unreadable_message() {  # checks_unreadable_message <sha> <what gh said last>
+  echo "gh could not list the workflow runs of $1 until the deadline; it said last: $2 (is gh logged in?)"
+}
+
 repo_exists() {  # repo_exists <owner/repo>
   gh repo view "$1" --json name
 }
@@ -65,25 +73,8 @@ signed_in_user() {
 # clone_sign_in: a checkout signs in to GitHub through gh, once for the machine, so it needs nothing of its own
 clone_sign_in() { :; }
 
-# forge_doctor: the gh lines of `ai-core doctor`, through doctor's own report, problem and
-# install_tool, which doctor.sh defines.
+# forge_doctor: the lines of `ai-core doctor` for the forge: its name, and gh through gh_doctor.
 forge_doctor() {
-  local gh_status
   echo "  forge: github"
-  if ! command -v gh >/dev/null 2>&1; then install_tool gh gh gh || true; fi
-  if command -v gh >/dev/null 2>&1; then
-    # the board commands write Projects v2, which a login with gh's default scopes cannot; a token
-    # gh lists no scopes for (a fine-grained one, GH_TOKEN) is not judged
-    if gh_status="$(gh auth status 2>&1)"; then
-      if grep -q 'Token scopes:' <<< "$gh_status" && ! grep -q "'project'" <<< "$gh_status"; then
-        report gh "no project scope" "the board commands read and write the project board; run: gh auth refresh -h github.com -s project"; problem
-      else
-        report gh present "$(gh --version 2>/dev/null | head -1), logged in"
-      fi
-    else
-      report gh "not logged in" "run: gh auth login"; problem
-    fi
-  else
-    report gh MISSING "install GitHub CLI from https://cli.github.com"; problem
-  fi
+  gh_doctor
 }

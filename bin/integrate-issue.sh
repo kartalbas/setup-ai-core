@@ -98,7 +98,7 @@ fi
 # The one tracker call before anything moves. A refusal of it, a rate limit among them, says in plain
 # words that nothing landed: a coordinator that read a bare error as "landed" released without the work.
 title="$(apart "$BIN/issue-thread.sh" ${repo:+"$repo"} "$number" --json)" \
-  || die "nothing landed: the issue $number could not be read from the tracker ($TRACKER), so nothing was merged or pushed and origin is as it was: $title"
+  || die "nothing landed: the issue $number could not be read from $(tracker_name), so nothing was merged or pushed and origin is as it was: $title"
 title="$(printf '%s' "$title" | jq -r '.title // ""')"
 ref="$(issue_ref "$repo" "$number")"
 # The subject the gate takes is 72 characters at most, so a longer one falls back, shortest last

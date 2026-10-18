@@ -281,7 +281,7 @@ grep -aq 'created: example-org/store-ai-core, private, from the skeleton' "$WORK
 git init -q --bare "$GH_FAKE/github.com/example-org/blank-ai-core.git"
 new_checkout "$WORK/org-sh/blank-web" blank-web
 HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/blank-web" --no-doctor > "$WORK/layers-empty.log" 2>&1 || fail "init.sh with an empty harness repository (see $WORK/layers-empty.log)"
-grep -aq "filled: example-org/blank-ai-core, empty on github.com, from the skeleton, at " "$WORK/layers-empty.log" || fail "init.sh did not say it filled the empty harness (see $WORK/layers-empty.log)"
+grep -aq "filled: example-org/blank-ai-core, empty on GitHub, from the skeleton, at " "$WORK/layers-empty.log" || fail "init.sh did not say it filled the empty harness (see $WORK/layers-empty.log)"
 grep -aq 'created:' "$WORK/layers-empty.log" && fail "init.sh created a harness that exists"
 [ -f "$WORK/org-sh/blank-ai-core/ai-core.json" ] && [ -f "$WORK/org-sh/blank-ai-core/labels.tsv" ] && [ -f "$WORK/org-sh/blank-ai-core/.gitattributes" ] || fail "the filled harness lacks the skeleton"
 [ "$(git -C "$GH_FAKE/github.com/example-org/blank-ai-core.git" rev-list --count HEAD 2>/dev/null)" = 1 ] || fail "init.sh did not push the filled harness to GitHub"
@@ -294,8 +294,8 @@ new_checkout "$WORK/org-sh/hollow-web" hollow-web
 git clone -q "$GH_FAKE/github.com/example-org/hollow-ai-core.git" "$WORK/org-sh/hollow-ai-core" 2>/dev/null
 HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/hollow-web" --no-doctor --dry-run > "$WORK/layers-hollow-dry.log" 2>&1 || fail "init.sh --dry-run with an empty clone of an empty harness repository (see $WORK/layers-hollow-dry.log)"
 HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/hollow-web" --no-doctor > "$WORK/layers-hollow.log" 2>&1 || fail "init.sh with an empty clone of an empty harness repository (see $WORK/layers-hollow.log)"
-grep -aq "note: example-org/hollow-ai-core is empty here and on github.com and would be filled from the skeleton (dry run: not written)" "$WORK/layers-hollow-dry.log" || fail "init.sh dry run does not announce the fill of the empty clone (see $WORK/layers-hollow-dry.log)"
-grep -aq "filled: example-org/hollow-ai-core, empty on github.com, from the skeleton, at " "$WORK/layers-hollow.log" || fail "init.sh did not fill the empty clone (see $WORK/layers-hollow.log)"
+grep -aq "note: example-org/hollow-ai-core is empty here and on GitHub and would be filled from the skeleton (dry run: not written)" "$WORK/layers-hollow-dry.log" || fail "init.sh dry run does not announce the fill of the empty clone (see $WORK/layers-hollow-dry.log)"
+grep -aq "filled: example-org/hollow-ai-core, empty on GitHub, from the skeleton, at " "$WORK/layers-hollow.log" || fail "init.sh did not fill the empty clone (see $WORK/layers-hollow.log)"
 [ -f "$WORK/org-sh/hollow-ai-core/ai-core.json" ] && [ -f "$WORK/org-sh/hollow-ai-core/labels.tsv" ] || fail "the filled clone lacks the skeleton"
 [ ! -e "$WORK/org-sh/hollow-ai-core/models.tsv" ] || fail "the filled clone pins a copy of the model table"
 [ "$(git -C "$GH_FAKE/github.com/example-org/hollow-ai-core.git" rev-list --count HEAD 2>/dev/null)" = 1 ] || fail "init.sh did not push the filled clone to GitHub"
@@ -362,7 +362,7 @@ printf '[user]\n\tuseConfigOnly = true\n' > "$F/none"
   # the create path says what is missing and creates nothing, instead of blaming GitHub
   if out="$(HOME="$F/home" PATH="$PATH_SH" GIT_CONFIG_GLOBAL="$F/none" ensure_layer example-org/nobody-ai-core "$ROOT" "$F/folder" create 2>&1)"; then exit 15; fi
   case "$out" in *'example-org/nobody-ai-core is not created: git holds no identity to commit it under'*) ;; *) exit 16 ;; esac
-  case "$out" in *'nobody is signed in there'*) exit 17 ;; esac
+  case "$out" in *'gh is not logged in'*) exit 17 ;; esac
   if [ -e "$F/folder/nobody-ai-core" ]; then exit 18; fi
 ) || fail "a new project harness: not committed under the configured identity, committed where git holds none, or not refused by name where git holds none (exit $?)"
 echo "  created, cloned, an empty one on GitHub filled from the skeleton (cloned by init or by hand), moved from the home directory, an interrupted move completed, lost files restored, assembled; extends base first; a harness that cannot be had stops init; a harness checkout refused; the folder shares the base and its map skips the clones; maps written by the agent CLI, pushed and in the checkouts, people's rules kept, a bad output refused, --all over the folder"

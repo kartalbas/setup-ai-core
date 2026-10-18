@@ -193,8 +193,9 @@ fill_layer() {
 # when "create" is given; "dry" moves and creates nothing. Prints the clone directory. Exit 1
 # with a message when it cannot be had.
 ensure_layer() {
-  local full="$1" root="$2" folder="$3" mode="${4:-}" dir old origin host
+  local full="$1" root="$2" folder="$3" mode="${4:-}" dir old origin host name
   host="$(forge_host)" || return 1
+  name="$(forge_name)" || return 1
   dir="$(layer_dir "$full" "$folder")"
   old="$HOME/.${full#*/}"
   if [ -d "$old/.git" ]; then
@@ -215,10 +216,10 @@ ensure_layer() {
     # the right to create it made by hand and cloned by hand; the first init fills it from the
     # skeleton and pushes, the way it fills one it creates itself
     if ! git -C "$dir" rev-parse -q --verify HEAD >/dev/null 2>&1 && [ -z "$(git -C "$dir" ls-remote --heads origin 2>/dev/null)" ]; then
-      if [ "$mode" = dry ]; then echo "note: $full is empty here and on $host and would be filled from the skeleton (dry run: not written)" >&2; echo "$dir"; return 0; fi
+      if [ "$mode" = dry ]; then echo "note: $full is empty here and on $name and would be filled from the skeleton (dry run: not written)" >&2; echo "$dir"; return 0; fi
       fill_layer "$dir" "$root" || { echo "error: could not fill $full at $dir from the skeleton" >&2; return 1; }
       git -C "$dir" push --quiet -u origin HEAD >/dev/null 2>&1 || { echo "error: could not push the skeleton to $full (no write access to it?); the clone at $dir keeps it" >&2; return 1; }
-      echo "filled: $full, empty on $host, from the skeleton, at $dir" >&2
+      echo "filled: $full, empty on $name, from the skeleton, at $dir" >&2
       echo "$dir"; return 0
     fi
     # A working tree that lost every tracked file (an interrupted move, cleaned up by hand) is
@@ -240,19 +241,19 @@ ensure_layer() {
     if ! git -C "$dir" rev-parse -q --verify HEAD >/dev/null 2>&1; then
       fill_layer "$dir" "$root" || { echo "error: could not fill $full at $dir from the skeleton" >&2; return 1; }
       git -C "$dir" push --quiet -u origin HEAD >/dev/null 2>&1 || { echo "error: could not push the skeleton to $full (no write access to it?); the clone at $dir keeps it" >&2; return 1; }
-      echo "filled: $full, empty on $host, from the skeleton, at $dir" >&2
+      echo "filled: $full, empty on $name, from the skeleton, at $dir" >&2
     fi
     layer_skeleton_file "$dir" "$root" "$full" .gitattributes 'every file LF'
     echo "$dir"; return 0
   fi
-  [ "$mode" = create ] || { echo "error: $full does not exist on $host" >&2; return 1; }
+  [ "$mode" = create ] || { echo "error: $full does not exist on $name" >&2; return 1; }
   git var GIT_COMMITTER_IDENT >/dev/null || { echo "error: $full is not created: git holds no identity to commit it under (see above)" >&2; return 1; }
   mkdir -p "$dir"
   git -C "$dir" init -q
   fill_layer "$dir" "$root"
   if ! repo_create "$full" "$dir" >/dev/null 2>&1; then
     rm -rf "$dir"
-    echo "error: could not create $full on $host (no permission, or nobody is signed in there)" >&2
+    echo "error: could not create $full on $name (no permission, or $(not_signed_in_words))" >&2
     return 1
   fi
   echo "created: $full, private, from the skeleton, at $dir" >&2

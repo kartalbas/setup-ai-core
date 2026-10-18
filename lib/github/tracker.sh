@@ -810,6 +810,36 @@ board_cards_of_repo() {
   done
 }
 
+# github_carry_rows <owner/repo> <number or empty> <column or empty>: the issues issue-transfer carries into
+# another tracker, one JSON object per line, those without a parent first so that a parent stands in the
+# target before its sub-issue is asked for:
+#   {repo, number, title, body, labels: [name], open, status, priority, parent}
+# status and priority are the names of the issue's card on the selected board, or null; parent is
+# "owner/repo number" or null. A column names the open issues whose card stands in it. The repository's
+# board is selected here.
+github_carry_rows() {
+  local repo="$1" number="$2" column="$3" cards list n thread parent card rows=""
+  set_project "" "$repo" >/dev/null || exit 1
+  cards="$(board_cards_of_repo "$repo")" || exit 1
+  if [ -n "$number" ]; then list="$number"
+  else
+    list="$(printf '%s\n' "$cards" | awk -F'\t' -v c="$column" 'tolower($2) == tolower(c) { print $1 }')"
+    [ -n "$list" ] || die "no card of $repo stands in the column '$column'"
+  fi
+  while IFS= read -r n; do
+    thread="$(issue_thread "$repo" "$n")" || exit 1
+    [ -z "$column" ] || [ "$(jq -r '.state' <<< "$thread")" = open ] || continue
+    parent="$(issue_parent "$repo" "$n")" || exit 1
+    card="$(printf '%s\n' "$cards" | awk -F'\t' -v n="$n" '$1 == n { print; exit }')"
+    rows="$rows$(jq -c --arg repo "$repo" --arg parent "$parent" --arg card "$card" '
+      ($card | split("\t")) as $c
+      | {repo: $repo, number, title, body, labels, open: (.state == "open"),
+         status: ($c[1] // "" | if . == "" then null else . end), priority: ($c[2] // "" | if . == "" then null else . end),
+         parent: (if $parent == "" then null else $parent end)}' <<< "$thread")"$'\n'
+  done <<< "$list"
+  printf '%s' "$rows" | jq -sc 'sort_by(.parent != null)[]'
+}
+
 # card_rows: every card of the selected board that is an issue, one JSON object per line, the card row
 # of lib/tracker.sh:
 #   {repo, number, title, open, closedAt, status, priority, parent, subs}

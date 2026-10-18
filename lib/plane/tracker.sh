@@ -306,6 +306,51 @@ issue_create() {
   printf '%s\n' "$n"
 }
 
+# plane_carry <owner/repo>: a GitHub issue, the row github_carry_rows gives on standard input, carried into the
+# project as a work item with the same title, the body as written, the labels (made first where the project
+# lacks one, with the colour and description of labels.tsv), the priority, the state named after the card's
+# column, the parent, and external_source github with external_id <owner/repo>#<number>. Prints
+# "<IDENT>-<n>\t<address>". An issue carried before is found by that external_id and nothing is written. A
+# sub-issue whose parent is not carried is refused by name, before anything is written. A parent carried
+# itself as a sub-issue is found only after its own parent is: the rows come parents first, one level deep.
+plane_carry() {
+  local repo="$1" row ref items found parent pid names name rows colour desc ids state request created n
+  row="$(cat)"
+  plane_check_repo "$repo"
+  ref="$repo#$(jq -r '.number' <<< "$row")"
+  items="$(plane_all_items)" || exit 1
+  found="$(printf '%s\n' "$items" | jq -r --arg e "$ref" 'select(.external_source == "github" and .external_id == $e) | .sequence_id' | head -n1)"
+  if [ -n "$found" ]; then
+    printf '%s-%s\t%s\n' "$(plane_setting PLANE_PROJECT)" "$found" "$(plane_item_url "$found")"
+    return 0
+  fi
+  pid=""
+  parent="$(jq -r '.parent // empty' <<< "$row")"
+  if [ -n "$parent" ]; then
+    pid="$(printf '%s\n' "$items" | jq -r --arg e "${parent% *}#${parent##* }" 'select(.external_source == "github" and .external_id == $e) | .id' | head -n1)"
+    [ -n "$pid" ] || die "$ref is a sub-issue of ${parent% *}#${parent##* }, which is not carried into Plane yet - carry that first. Nothing was written"
+  fi
+  state=""
+  [ "$(jq -r '.status // ""' <<< "$row")" = "" ] || state="$(plane_state_id "$(jq -r '.status' <<< "$row")")" || exit 1
+  rows="$(labels_tsv)" || exit 1
+  labels_create "$repo" "$(plane_repo_label)" 6B7280 ""
+  names=()
+  while IFS= read -r name; do
+    colour="$(printf '%s\n' "$rows" | awk -F'\t' -v n="$name" '$2 == n { print $3; exit }')"
+    desc="$(printf '%s\n' "$rows" | awk -F'\t' -v n="$name" '$2 == n { print $4; exit }')"
+    labels_create "$repo" "$name" "${colour:-6B7280}" "${desc:-Carried from GitHub}"
+    names+=("$name")
+  done < <(jq -r '.labels[]' <<< "$row")
+  ids="$(plane_label_ids ${names[@]+"${names[@]}"} "$(plane_repo_label)")" || exit 1
+  request="$(jq -c --arg ext "$ref" --argjson labels "$ids" --arg state "$state" --arg parent "$pid" "$PLANE_HTML"'
+    {name: .title, description_html: (.body | html), labels: $labels, external_source: "github", external_id: $ext,
+     priority: ({P0: "urgent", P1: "high", P2: "medium", P3: "low"}[.priority // ""] // "none")}
+    + (if $state != "" then {state: $state} else {} end) + (if $parent != "" then {parent: $parent} else {} end)' <<< "$row")"
+  created="$(plane_api "the work item carried from $ref, which was NOT created" POST "$(plane_path "projects/$(plane_project_uuid)/issues/")" "$request")" || exit 1
+  n="$(printf '%s' "$created" | jq -r '.sequence_id')"
+  printf '%s-%s\t%s\n' "$(plane_setting PLANE_PROJECT)" "$n" "$(plane_item_url "$n")"
+}
+
 # plane_label_ids <name>...: a JSON array of the uuids of these labels of the project; a name the project
 # lacks stops the create and says how to make it, the way a missing label does on GitHub
 plane_label_ids() {
@@ -351,7 +396,12 @@ issue_comment_post() {
   item="$(plane_item "$1" "$2")" || exit 1
   plane_api "the comment posted on $1#$2" POST "$(plane_path "$(plane_issue_path "$item")comments/")" \
     "$(jq -nc --arg h "$(plane_html_of "$3" "$4")" '{comment_html: $h}')" >/dev/null || exit 1
-  printf '%s/%s/browse/%s-%s/\n' "$(plane_setting PLANE_URL | sed 's|/*$||')" "$(plane_setting PLANE_WORKSPACE)" "$(plane_setting PLANE_PROJECT)" "$2"
+  plane_item_url "$2"
+}
+
+# plane_item_url <number>: the address of the work item <IDENT>-<number> in the browser
+plane_item_url() {
+  printf '%s/%s/browse/%s-%s/\n' "$(plane_setting PLANE_URL | sed 's|/*$||')" "$(plane_setting PLANE_WORKSPACE)" "$(plane_setting PLANE_PROJECT)" "$1"
 }
 
 # issue_thread <owner/repo> <number>: the work item and its whole comment thread as one JSON object:

@@ -152,7 +152,7 @@ function plane() {
     if (method === 'GET') {
       if (q.get('external_id')) {   // GET .../issues/?external_id=&external_source= answers the one object, archived or not (v1.4.2)
         const hit = pr.issues.find((i) => i.external_id === q.get('external_id') && i.external_source === q.get('external_source'));
-        if (!hit) reply(404, { error: 'Issue with the given external id and external source does not exist' });
+        if (!hit) reply(404, { error: 'The requested resource does not exist.' });
         reply(200, ser(st, pr, hit, null));
       }
       const fields = q.get('fields') ? q.get('fields').split(',') : null;

@@ -312,7 +312,9 @@ issue_create() {
 plane_find_carried() {
   plane_call GET "$(plane_path "projects/$(plane_project_uuid)/issues/")?external_source=github&external_id=$(jq -rn --arg e "$1" '$e | @uri')"
   case "$plane_status" in
-    2??) printf '%s\n' "$plane_body" ;;
+    2??) printf '%s' "$plane_body" | jq -e --arg e "$1" 'type == "object" and .external_id == $e and .external_source == "github" and (.sequence_id | type == "number")' >/dev/null 2>&1 \
+           || die "the Plane API answered $plane_status for the work item carried from $1, and the answer is not that work item: $(printf '%s' "$plane_body" | tr -s '\r\n' '  ' | cut -c1-300)"
+         printf '%s\n' "$plane_body" ;;
     404) ;;
     000) die "cannot read the work item carried from $1 - the Plane API did not answer: $plane_body" ;;
     *)   die "cannot read the work item carried from $1 - the Plane API answered $plane_status${plane_body:+: $(printf '%s' "$plane_body" | tr -s '\r\n' '  ' | cut -c1-300)}" ;;
@@ -327,7 +329,7 @@ plane_find_carried() {
 # by name, before anything is written: a sub-issue whose parent is not carried or is of another repository, a
 # priority other than P0 to P3, and a title or body with an email address (check_public_body).
 plane_carry() {
-  local repo="$1" row ref found parent pref pid names name rows colour desc ids state request prio status n created
+  local repo="$1" row ref found parent pref pid names name rows colour desc ids state request prio status n
   row="$(cat)"
   plane_check_repo "$repo"
   ref="$repo#$(jq -r '.number' <<< "$row")"
@@ -374,7 +376,9 @@ plane_carry() {
     000) die "cannot tell whether the work item carried from $ref was created - the Plane API did not answer: $plane_body. Run the same command again: it finds the work item by its external_id if it exists" ;;
     *)   die "the work item carried from $ref was NOT created - the Plane API answered $plane_status${plane_body:+: $(printf '%s' "$plane_body" | tr -s '\r\n' '  ' | cut -c1-300)}" ;;
   esac
-  n="$(printf '%s' "$plane_body" | jq -r '.sequence_id')"
+  found="$(plane_find_carried "$ref")" || exit 1
+  [ -n "$found" ] || die "the create of the work item carried from $ref was answered $plane_status but Plane does not find the work item by its external_id afterwards: nothing is known to exist. Run the same command again"
+  n="$(jq -r '.sequence_id' <<< "$found")"
   printf '%s-%s\t%s\n' "$(plane_setting PLANE_PROJECT)" "$n" "$(plane_item_url "$n")"
 }
 

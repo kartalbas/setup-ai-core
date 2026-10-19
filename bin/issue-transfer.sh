@@ -16,8 +16,9 @@
 # state named after the column and parent, and the GitHub issue is closed as not planned with a comment
 # that carries the work item's address. The GitHub side is read, and closed, by one process with
 # TRACKER=github and the Plane side written by another with TRACKER=plane. An issue carried before is
-# found again by its external_id and changes nothing; a sub-issue whose parent is not carried is refused by name, the
-# rest of the selection goes on, and the exit status is non-zero when anything was refused.
+# found again by its external_id and writes nothing to Plane, and finishes a GitHub close that failed; a sub-issue whose
+# parent is not carried is refused by name, the rest of the selection goes on, and the exit status is non-zero when
+# anything was refused.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 

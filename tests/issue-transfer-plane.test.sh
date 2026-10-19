@@ -183,6 +183,28 @@ grep -q 'example-org/other-repo#3, a parent of another repository' <<< "$out" ||
 [ "$(writes)" = 0 ] || fail "a refused carry wrote to Plane: $(grep '^\(POST\|PATCH\) ' "$CURL_FAKE_STATE/requests.log")"
 echo "  P9, an email address in the body and a parent of another repository are each refused by name before any write"
 
+# an answer nobody checked must not close the GitHub issue: a lookup that answers 200 without the work item,
+# a lookup that answers something that is not JSON, and a create that answers 201 without one
+gh_issue 51 "Answered by nothing" "x" type:feature; cards "51 ready P2"
+reset_gh; reset_log
+printf '[{"match":"external_id=","status":200,"body":{"results":[]},"times":1}]' > "$CURL_FAKE_STATE/inject.json"
+out="$(ai issue-transfer 51 --to plane 2>&1)" && fail "a lookup that answered 200 without the work item was carried: $out"
+grep -q 'answered 200 for the work item carried from example-org/example-repo#51, and the answer is not that work item' <<< "$out" || fail "the empty lookup answer is not named: $out"
+! grep -q 'ENG-null' <<< "$out" || fail "a work item ENG-null was printed: $out"
+[ "$(writes)" = 0 ] && [ ! -s "$G/comments.log" ] && [ ! -s "$G/closes.log" ] || fail "an empty lookup answer wrote: $(cat "$G/comments.log" "$G/closes.log")"
+printf '[{"match":"external_id=","status":200,"body":"<html>maintenance</html>","times":1}]' > "$CURL_FAKE_STATE/inject.json"
+out="$(ai issue-transfer 51 --to plane 2>&1)" && fail "a lookup that answered 200 with HTML was carried: $out"
+grep -q 'answered 200 for the work item carried from example-org/example-repo#51, and the answer is not that work item: <html>maintenance' <<< "$out" || fail "the HTML answer is not named: $out"
+! grep -q 'parse error' <<< "$out" || fail "a bare jq parse error reached the person: $out"
+[ ! -s "$G/comments.log" ] && [ ! -s "$G/closes.log" ] || fail "a lookup answer that is no JSON closed the GitHub issue"
+reset_log
+printf '[{"match":"POST /api/v1/workspaces/ws/projects/","status":201,"body":{},"times":1}]' > "$CURL_FAKE_STATE/inject.json"
+out="$(ai issue-transfer 51 --to plane 2>&1)" && fail "a create that answered 201 without a work item was carried: $out"
+grep -q 'the create of the work item carried from example-org/example-repo#51 was answered 201 but Plane does not find' <<< "$out" || fail "the empty create answer is not named: $out"
+! grep -q 'ENG-null' <<< "$out" || fail "a work item ENG-null was printed: $out"
+[ ! -s "$G/comments.log" ] && [ ! -s "$G/closes.log" ] || fail "an empty create answer closed the GitHub issue: $(cat "$G/comments.log" "$G/closes.log")"
+echo "  a lookup answering 200 without the work item or with HTML, and a create answering 201 without one, are refused by name and leave the GitHub issue open"
+
 # no answer to the create: it is not known whether the work item exists
 gh_issue 50 "Times out" "x" type:feature; cards "50 ready P2"
 printf '[{"match":"POST /api/v1/workspaces/ws/projects/","status":0,"times":1}]' > "$CURL_FAKE_STATE/inject.json"

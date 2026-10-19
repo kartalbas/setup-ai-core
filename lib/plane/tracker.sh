@@ -307,6 +307,82 @@ issue_create() {
   printf '%s\n' "$n"
 }
 
+# plane_find_carried <external_id>: the work item carried from GitHub under that external_id, as JSON, or nothing.
+# Plane 1.4.2 serves this one query on the list: GET .../issues/?external_id=&external_source=github answers the
+# one object (apps/api/plane/api/views/issue.py at v1.4.2), archived items included. A 404 is read as "none".
+plane_find_carried() {
+  plane_call GET "$(plane_path "projects/$(plane_project_uuid)/issues/")?external_source=github&external_id=$(jq -rn --arg e "$1" '$e | @uri')"
+  case "$plane_status" in
+    2??) printf '%s' "$plane_body" | jq -e --arg e "$1" 'type == "object" and .external_id == $e and .external_source == "github" and (.sequence_id | type == "number")' >/dev/null 2>&1 \
+           || die "the Plane API answered $plane_status for the work item carried from $1, and the answer is not that work item: $(printf '%s' "$plane_body" | tr -s '\r\n' '  ' | cut -c1-300)"
+         printf '%s\n' "$plane_body" ;;
+    404) ;;
+    000) die "cannot read the work item carried from $1 - the Plane API did not answer: $plane_body" ;;
+    *)   die "cannot read the work item carried from $1 - the Plane API answered $plane_status${plane_body:+: $(printf '%s' "$plane_body" | tr -s '\r\n' '  ' | cut -c1-300)}" ;;
+  esac
+}
+
+# plane_carry <owner/repo>: a GitHub issue, the row github_carry_rows gives on standard input, carried into the
+# project as a work item with the same title, the body as written, the labels (made first where the project
+# lacks one, with the colour and description of labels.tsv), the priority, the state named after the card's
+# column, the parent, and external_source github with external_id <owner/repo>#<number>. Prints
+# "<IDENT>-<n>\t<address>". An issue carried before is found by that external_id and nothing is written. Refused
+# by name, before anything is written: a sub-issue whose parent is not carried or is of another repository, a
+# priority other than P0 to P3, and a title or body with an email address (check_public_body).
+plane_carry() {
+  local repo="$1" row ref found parent pref pid names name rows colour desc ids state request prio status n
+  row="$(cat)"
+  plane_check_repo "$repo"
+  ref="$repo#$(jq -r '.number' <<< "$row")"
+  found="$(plane_find_carried "$ref")" || exit 1
+  if [ -n "$found" ]; then
+    n="$(jq -r '.sequence_id' <<< "$found")"
+    printf '%s-%s\t%s\n' "$(plane_setting PLANE_PROJECT)" "$n" "$(plane_item_url "$n")"
+    return 0
+  fi
+  prio="$(jq -r '.priority // ""' <<< "$row")"
+  case "$prio" in
+    '') prio=none ;; P0) prio=urgent ;; P1) prio=high ;; P2) prio=medium ;; P3) prio=low ;;
+    *) die "$ref has the priority '$prio', and Plane has a value for P0 to P3 only. Nothing was written" ;;
+  esac
+  check_public_body issue-transfer "$repo" "$(jq -r '.title, .body' <<< "$row")" ""
+  pid=""
+  parent="$(jq -r '.parent // empty' <<< "$row")"
+  if [ -n "$parent" ]; then
+    pref="${parent% *}#${parent##* }"
+    [ "${parent% *}" = "$repo" ] || die "$ref is a sub-issue of $pref, a parent of another repository than $repo, which this carry does not serve. Nothing was written"
+    found="$(plane_find_carried "$pref")" || exit 1
+    pid="$(jq -r '.id // empty' <<< "${found:-null}")"
+    [ -n "$pid" ] || die "$ref is a sub-issue of $pref, which is not carried into Plane yet - carry that first. Nothing was written"
+  fi
+  state=""
+  status="$(jq -r '.status // ""' <<< "$row")"
+  [ -z "$status" ] || state="$(plane_state_id "$status")" || exit 1
+  rows="$(labels_tsv)" || exit 1
+  labels_create "$repo" "$(plane_repo_label)" 6B7280 ""
+  names=()
+  while IFS= read -r name; do
+    colour="$(printf '%s\n' "$rows" | awk -F'\t' -v n="$name" '$2 == n { print $3; exit }')"
+    desc="$(printf '%s\n' "$rows" | awk -F'\t' -v n="$name" '$2 == n { print $4; exit }')"
+    labels_create "$repo" "$name" "${colour:-6B7280}" "${desc:-Carried from GitHub}"
+    names+=("$name")
+  done < <(jq -r '.labels[]' <<< "$row")
+  ids="$(plane_label_ids ${names[@]+"${names[@]}"} "$(plane_repo_label)")" || exit 1
+  request="$(jq -c --arg ext "$ref" --argjson labels "$ids" --arg state "$state" --arg parent "$pid" --arg prio "$prio" "$PLANE_HTML"'
+    {name: .title, description_html: (.body | html), labels: $labels, external_source: "github", external_id: $ext, priority: $prio}
+    + (if $state != "" then {state: $state} else {} end) + (if $parent != "" then {parent: $parent} else {} end)' <<< "$row")"
+  plane_call POST "$(plane_path "projects/$(plane_project_uuid)/issues/")" "$request"
+  case "$plane_status" in
+    2??) ;;
+    000) die "cannot tell whether the work item carried from $ref was created - the Plane API did not answer: $plane_body. Run the same command again: it finds the work item by its external_id if it exists" ;;
+    *)   die "the work item carried from $ref was NOT created - the Plane API answered $plane_status${plane_body:+: $(printf '%s' "$plane_body" | tr -s '\r\n' '  ' | cut -c1-300)}" ;;
+  esac
+  found="$(plane_find_carried "$ref")" || exit 1
+  [ -n "$found" ] || die "the create of the work item carried from $ref was answered $plane_status but Plane does not find the work item by its external_id afterwards: nothing is known to exist. Run the same command again"
+  n="$(jq -r '.sequence_id' <<< "$found")"
+  printf '%s-%s\t%s\n' "$(plane_setting PLANE_PROJECT)" "$n" "$(plane_item_url "$n")"
+}
+
 # plane_label_ids <name>...: a JSON array of the uuids of these labels of the project; a name the project
 # lacks stops the create and says how to make it, the way a missing label does on GitHub
 plane_label_ids() {
@@ -352,7 +428,12 @@ issue_comment_post() {
   item="$(plane_item "$1" "$2")" || exit 1
   plane_api "the comment posted on $1#$2" POST "$(plane_path "$(plane_issue_path "$item")comments/")" \
     "$(jq -nc --arg h "$(plane_html_of "$3" "$4")" '{comment_html: $h}')" >/dev/null || exit 1
-  printf '%s/%s/browse/%s-%s/\n' "$(plane_setting PLANE_URL | sed 's|/*$||')" "$(plane_setting PLANE_WORKSPACE)" "$(plane_setting PLANE_PROJECT)" "$2"
+  plane_item_url "$2"
+}
+
+# plane_item_url <number>: the address of the work item <IDENT>-<number> in the browser
+plane_item_url() {
+  printf '%s/%s/browse/%s-%s/\n' "$(plane_setting PLANE_URL | sed 's|/*$||')" "$(plane_setting PLANE_WORKSPACE)" "$(plane_setting PLANE_PROJECT)" "$1"
 }
 
 # issue_thread <owner/repo> <number>: the work item and its whole comment thread as one JSON object:
@@ -617,7 +698,8 @@ epic_target_on_board() {
 
 # plane_all_items [project identifier]: every work item of the project, PLANE_PROJECT when none is named,
 # that is not archived, open or closed, one JSON object per line, with state, labels and parent expanded.
-# Plane 1.4 has no filter on the list, so the reader filters.
+# Plane 1.4 has no filter on the list, so the reader filters; the one query it serves is a work item by its
+# external_source and external_id (plane_find_carried).
 plane_all_items() {
   local ident="${1:-$(plane_setting PLANE_PROJECT)}"
   plane_pages "the work items of $ident" "$(plane_path "projects/$(plane_project_uuid "$ident")/issues/")?expand=state,labels,parent"
@@ -649,9 +731,9 @@ issue_rows() {
     | . as $w | ($rels | map(select(.id == $w.id))[0] // {blockedBy: [], blocking: []}) as $x
     | { repo: repo($o), number: .sequence_id, title: .name, body: ((.description_html // "") | text), open: true,
         labels: [.labels[].name | select(startswith("repo:") | not)], status: .state.name,
-        parent: (if .parent then ref(.parent.id) else null end),
+        parent: (if .parent.id then ref(.parent.id) else null end),
         blockedBy: [$x.blockedBy[] | ref(.) | select(. != null)], blocking: [$x.blocking[] | ref(.) | select(. != null)],
-        cut: ((if .parent and ref(.parent.id) == null then ["parent names a work item of another project or without a repo: label"] else [] end)
+        cut: ((if .parent.id and ref(.parent.id) == null then ["parent names a work item of another project or without a repo: label"] else [] end)
               + cut("blocked by"; $x.blockedBy) + cut("blocks"; $x.blocking)) }'
 }
 
@@ -668,11 +750,11 @@ PLANE_ROW='def closed: .state.group | IN("completed", "cancelled");
 card_rows() {
   plane_all_items | jq -cs --arg o "$(plane_owner)" "$PLANE_REPO""$PLANE_ROW"'
     (map({key: .id, value: .}) | from_entries) as $byid
-    | (map(select(.parent) | .parent.id) | group_by(.) | map({key: .[0], value: length}) | from_entries) as $subs
+    | (map(select(.parent.id) | .parent.id) | group_by(.) | map({key: .[0], value: length}) | from_entries) as $subs
     | .[] | {repo: repo($o), number: .sequence_id, title: .name, open: (closed | not),
              closedAt: (if closed then (.completed_at // .updated_at) else null end),
              status: .state.name, priority: prio,
-             parent: (if .parent then (.parent | ref($byid; $o)) else null end),
+             parent: (if .parent.id then (.parent | ref($byid; $o)) else null end),
              subs: ($subs[.id] // 0)}'
 }
 
@@ -803,7 +885,7 @@ open_issue_page() {
   done <<< "$ids"
   printf '%s\n' "$all" | jq -cs --arg o "$(plane_owner)" --arg r "$repo" --argjson board "$(project_number_json)" --arg org "$(project_org)" \
     --argjson extra "$(printf '%s' "$extra" | jq -cs '.')" "$PLANE_REPO""$PLANE_ROW"'
-    (map(select(.parent) | .parent.id) | group_by(.) | map({key: .[0], value: length}) | from_entries) as $subs
+    (map(select(.parent.id) | .parent.id) | group_by(.) | map({key: .[0], value: length}) | from_entries) as $subs
     | {data: {repository: {issues: {pageInfo: {hasNextPage: false, endCursor: null},
         nodes: [.[] | select(same(repo($o); $r) and (closed | not)) | . as $w
           | ($extra | map(select(.id == $w.id))[0] // {comments: [], reopenedAt: null}) as $x

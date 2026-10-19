@@ -1085,6 +1085,7 @@ redacting and leaves the caller's file unchanged.
 | `issue-assign N` | adds, removes or replaces assignees; additive by default. On GitHub an assignee with an ASCII `@` other than `@me` and `@copilot` is refused as an email address; one with a lookalike of `@` (U+FF20, U+FE6B) is not |
 | `issue-duplicate N OF M` | marks N the native duplicate of M, or removes it with `--undo` |
 | `issue-transfer N OWNER/REPO` | moves an issue to another repository; the card stays where it is |
+| `issue-transfer N --to plane`, `issue-transfer --column NAME --to plane` | carries a GitHub issue, or every open issue of one board column, into the Plane project of the checkout: title, body as written, labels (made first where the project lacks one), priority, the state named after the column and the parent; the GitHub issue is closed as not planned with a comment that carries the work item's address. A second run finds the work item by `external_id`, writes nothing to Plane, and finishes a GitHub close that failed; a sub-issue whose parent is not carried is refused by name |
 | `issue-block`, `issue-unblock` | records or clears a real `blocked by` dependency, across repositories |
 | `subissue-add`, `subissue-remove` | attaches issues to an epic as sub-issues, or detaches them; the epic then follows its sub-issues as under `issue-status` |
 | `board-sync` | puts every issue of every linked repository on the board and reports what is missing: labels, priorities, cards that were not on the board |

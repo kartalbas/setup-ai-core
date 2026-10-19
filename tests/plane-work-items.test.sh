@@ -189,6 +189,11 @@ out="$(plane_fn issue_comment_post example-org/example-repo "$n" "" "$WORK/no-su
 out="$(plane_fn issue_create example-org/example-repo "A title" "$WORK/no-such-body" me@example.test 2>&1)" && fail "issue_create took a body file that is not there: $out"
 ! grep -q '^POST' "$CURL_FAKE_STATE/requests.log" || fail "issue_create created a work item from a body it could not read"
 echo "  issue-close, issue-reopen, edit, comment and create: a state or a text that cannot be read stops the command, and nothing is written"
+reset_log
+out="$(PLANE_PROJECT=NOPE plane_fn plane_label_ensure "" a-new-label 6B7280 "a label" 2>&1)" && fail "plane_label_ensure went on with a project Plane does not have: $out"
+grep -q 'Plane has no project with the identifier NOPE' <<< "$out" || fail "a project Plane does not have is not named: $out"
+! grep -q '^POST' "$CURL_FAKE_STATE/requests.log" || fail "plane_label_ensure sent a write to a project it could not find: $(grep '^POST' "$CURL_FAKE_STATE/requests.log")"
+echo "  a project Plane does not have stops a write before it is sent"
 
 # THE RATE LIMIT: a 429 waits for X-RateLimit-Reset and goes on; one that never lifts is refused
 reset=$(( $(date +%s) + 7 ))

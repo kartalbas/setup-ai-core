@@ -91,9 +91,11 @@ case "$1 $2" in
   "repo view")   [ -d "$GH_FAKE/github.com/$3.git" ] ;;
   "repo clone")  git clone -q "$GH_FAKE/github.com/$3.git" "$4" ;;
   "repo create") [ "${3%%/*}" != nocreate-org ] && git init -q --bare "$GH_FAKE/github.com/$3.git" && git -C "$6" remote add origin "$GH_FAKE/github.com/$3.git" && git -C "$6" push -q -u origin HEAD ;;
-  "run list") if [ -f "$GH_FAKE/run-broken" ]; then echo 'HTTP 502: Bad Gateway' >&2; exit 1; fi
+  "run list") case " $* " in *" --workflow "*) echo 'could not find any workflows named check' >&2; exit 1 ;; esac   # as gh does where the repository has no workflow of that name
+              if [ -f "$GH_FAKE/run-broken" ]; then echo 'HTTP 502: Bad Gateway' >&2; exit 1; fi
               if [ -f "$GH_FAKE/run-fail" ]; then rm -f "$GH_FAKE/run-fail"; echo 'HTTP 502: Bad Gateway' >&2; exit 1; fi
-              if [ -f "$GH_FAKE/run-pending" ]; then rm -f "$GH_FAKE/run-pending"; [ -z "${GH_FAKE_MOVE:-}" ] || git -C "$GH_FAKE_MOVE" commit -q --allow-empty -m "moved during the wait" >/dev/null 2>&1; echo '[{"status":"in_progress","conclusion":null}]'; else echo '[{"status":"completed","conclusion":"success"}]'; fi ;;
+              if [ -f "$GH_FAKE/run-pending" ]; then rm -f "$GH_FAKE/run-pending"; [ -z "${GH_FAKE_MOVE:-}" ] || git -C "$GH_FAKE_MOVE" commit -q --allow-empty -m "moved during the wait" >/dev/null 2>&1; echo '[{"status":"in_progress","conclusion":null,"workflowName":"check"}]'; else echo '[{"status":"completed","conclusion":"success","workflowName":"check"}]'; fi ;;
+  "api repos/"*) echo '{"state":"pending","total_count":0}' ;;   # the commit statuses: none, as of a repository whose CI is Actions alone
   "auth status") exit 0 ;;
   *) exit 1 ;;
 esac

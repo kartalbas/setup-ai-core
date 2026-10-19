@@ -160,6 +160,16 @@ repo_file_tree() {
   rm -f "$entries"
 }
 
+# forge_repo_visibility <owner/repo>: public or private, from the private field of the repository; fails,
+# saying why, where Forgejo does not answer or the field is no boolean.
+forge_repo_visibility() (
+  local repo
+  repo="$(forgejo_api "the visibility of $1" GET "/repos/$1")" || exit 1
+  jq -er 'if (.private | type) == "boolean" then (if .private then "private" else "public" end)
+    else error("private is not boolean") end' <<< "$repo" 2>/dev/null \
+    || { echo "cannot establish the visibility of $1: private was not a boolean in Forgejo's answer" >&2; exit 1; }
+)
+
 # commit_checked <checkout> <sha>: the combined commit status of the sha, over every context (the pipeline posts
 # the context check). green on success; red on error, failure or warning; pending while it is pending or no status
 # exists yet (Forgejo answers {} then); unreadable when the query failed or the state is none of these, and

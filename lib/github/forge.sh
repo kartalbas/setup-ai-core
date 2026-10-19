@@ -12,7 +12,7 @@ forge_name() { echo GitHub; }
 not_signed_in_words() { echo "gh is not logged in"; }
 
 checks_unreadable_message() {  # checks_unreadable_message <sha> <what gh said last>
-  echo "gh could not list the workflow runs of $1 until the deadline; it said last: $2 (is gh logged in?)"
+  echo "gh could not read the checks of $1 until the deadline; it said last: $2 (is gh logged in?)"
 }
 
 repo_exists() {  # repo_exists <owner/repo>
@@ -42,19 +42,40 @@ repo_file_tree() {  # repo_file_tree <owner/repo>
   gh_read "the files of $1" api "repos/$1/git/trees/HEAD?recursive=1"
 }
 
-# commit_checked <checkout> <sha>: green when every workflow run `check` of the commit completed and one
-# succeeded, red when they completed and none did, pending while a run has not completed or none
-# exists, unreadable when the query failed or answered nothing; then gh's words are on stderr. A query
-# that fails is no answer yet: gh or the network fails once while the checks run on.
+# forge_repo_visibility <owner/repo>: public or private; fails, saying why, where the forge does not
+# establish it.
+forge_repo_visibility() {
+  gh_repo_visibility "$1"
+}
+
+# commit_checked <checkout> <sha>: the workflow runs `check` of the commit and its commit statuses (the
+# combined state; a pipeline that posts no run, such as tekton/ci, shows up only there). green when at
+# least one result exists, every run completed and one succeeded where runs exist, and the combined
+# state is success where statuses exist; red when the runs completed and none succeeded, or the combined
+# state is failure or error; pending otherwise; unreadable when a query failed or answered nothing,
+# then gh's words are on stderr. A query that fails is no answer yet: gh or the network fails once
+# while the checks run on. The runs are listed whatever their workflow and filtered here: `gh run list
+# --workflow check` fails on a repository that has no workflow of that name, which a repository with
+# statuses alone does not. The listing is wide because other workflows' runs share it.
 commit_checked() {
-  local runs said
+  local repo runs statuses answer said
   said="$(mktemp)"
-  if runs="$(cd "$1" && gh run list --commit "$2" --workflow check --json status,conclusion --limit 5 2>"$said")" && [ -n "$runs" ]; then
-    if [ "$(printf '%s' "$runs" | jq 'length')" -gt 0 ] && printf '%s' "$runs" | jq -e 'all(.status == "completed")' >/dev/null; then
-      if printf '%s' "$runs" | jq -e 'any(.conclusion == "success")' >/dev/null; then echo green; else echo red; fi
-    else
-      echo pending
-    fi
+  repo="$(origin_repo "$1")" || { echo unreadable; echo "$1 has no origin to ask for the checks" >&2; rm -f "$said"; return 0; }
+  if runs="$(gh run list -R "$repo" --commit "$2" --json status,conclusion,workflowName --limit 30 2>"$said")" && [ -n "$runs" ] \
+    && statuses="$(gh api "repos/$repo/commits/$2/status" 2>>"$said")" && [ -n "$statuses" ] \
+    && answer="$(jq -rn --argjson all "$runs" --argjson status "$statuses" '
+      if ($all | type) != "array" then error("the workflow runs are not a list") else . end
+      | ($all | map(select(.workflowName == "check"))) as $runs
+      | ($runs | length) as $runCount
+      | ($status.total_count // 0) as $statusCount
+      | ($status.state // "") as $state
+      | ($runs | all(.status == "completed")) as $runsDone
+      | ($runs | any(.conclusion == "success")) as $runPassed
+      | if $runCount == 0 and $statusCount == 0 then "pending"
+        elif ($runCount > 0 and $runsDone and ($runPassed | not)) or ($statusCount > 0 and ($state == "failure" or $state == "error")) then "red"
+        elif ($runCount == 0 or ($runsDone and $runPassed)) and ($statusCount == 0 or $state == "success") then "green"
+        else "pending" end' 2>>"$said")"; then
+    echo "$answer"
   else
     echo unreadable
     tr -s '\r\n' '  ' < "$said" >&2

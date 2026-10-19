@@ -27,6 +27,19 @@ inject "GET /api/v1/repos/example-org/example-repo" 502 "Bad Gateway"
 out="$(forge_fn repo_exists example-org/example-repo 2>&1)" && fail "repo_exists took a 502 for a repository that is there"
 grep -q 'cannot tell whether example-org/example-repo exists - Forgejo answered 502: Bad Gateway' <<< "$out" || fail "repo_exists does not say what Forgejo answered: $out"
 echo "  repo_exists: there, not there, and an answer that says neither is refused with Forgejo's words"
+# forgejo_repo makes a private repository
+[ "$(forge_fn forge_repo_visibility example-org/example-repo)" = private ] || fail "forge_repo_visibility: a private repository is not private"
+forgejo_set 's.repos["example-org/example-repo"].private=false'
+[ "$(forge_fn forge_repo_visibility example-org/example-repo)" = public ] || fail "forge_repo_visibility: a public repository is not public"
+forgejo_set 's.repos["example-org/example-repo"].private="false"'
+out="$(forge_fn forge_repo_visibility example-org/example-repo 2>&1)" && fail "forge_repo_visibility took a string for a boolean: $out"
+grep -q 'cannot establish the visibility of example-org/example-repo: private was not a boolean' <<< "$out" || fail "forge_repo_visibility does not say what was wrong: $out"
+forgejo_set 's.repos["example-org/example-repo"].private=true'
+inject "GET /api/v1/repos/example-org/example-repo" 502 "Bad Gateway"
+out="$(forge_fn forge_repo_visibility example-org/example-repo 2>&1)" && fail "forge_repo_visibility took a 502 for a visibility: $out"
+grep -q 'cannot read the visibility of example-org/example-repo - Forgejo answered 502: Bad Gateway' <<< "$out" || fail "forge_repo_visibility does not say what Forgejo answered: $out"
+out="$(forge_fn forge_repo_visibility example-org/missing 2>&1)" && fail "forge_repo_visibility took a missing repository for a visibility: $out"
+echo "  forge_repo_visibility: private and public by the private field; a string, a failed query and a missing repository are refused with Forgejo's words"
 [ "$(forge_fn signed_in_user)" = tester ] || fail "signed_in_user is not the login of the token"
 printf 'wrong-token\n' > "$WORK/ftoken"
 out="$(forge_fn signed_in_user 2>&1)" && fail "signed_in_user took a wrong token for a user: $out"

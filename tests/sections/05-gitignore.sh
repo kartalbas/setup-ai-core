@@ -96,7 +96,7 @@ bash "$ROOT/bin/init.sh" "$R" --no-doctor > "$R.log" 2>&1 || fail "init.sh in a 
 ! grep -aq '^fatal:' "$R.log" || fail "init.sh let git print a fatal in a clone with no earlier commit: $(grep -a '^fatal:' "$R.log")"
 git -C "$R" rev-parse -q --verify HEAD >/dev/null && fail "init.sh left its commit in a clone whose only commit it was: $(git -C "$R" log -1 --format=%s)"
 [ -z "$(git -C "$R" ls-files)" ] || fail "init.sh left a file in the index of the clone it took its commit back from: $(git -C "$R" ls-files)"
-grep -aq '^  .gitignore not written: the push was refused or failed (see above), so init took its commit back; it was the only commit of this clone' "$R.log" || fail "init.sh did not say it took the only commit back (see $R.log)"
+grep -aqxF "  .gitignore written but not committed: the push of init's commit was refused or failed (see above), and it was this clone's only commit, so init took it back; the block stays in the file as an uncommitted change" "$R.log" || fail "init.sh did not say it took the only commit back (see $R.log)"
 grep -aq 'setup-ai-core start' "$R/.gitignore" || fail "init.sh deleted the .gitignore of the clone it took its commit back from"
 echo "  a clone with no earlier commit: the refused push takes init's commit back with no git error, nothing stays committed or staged, and the file is kept"
 

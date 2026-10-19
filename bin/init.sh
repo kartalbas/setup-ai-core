@@ -922,7 +922,7 @@ commit_gitignore() {
     echo "the push was refused or failed (see above), so init took its commit back"; return 1
   fi
   git -C "$dir" update-ref -d HEAD >&2 && git -C "$dir" rm -q --cached -- .gitignore >&2 || { echo "committed; the push was refused or failed (see above), and init could not take its commit back"; return 0; }
-  echo "the push was refused or failed (see above), so init took its commit back; it was the only commit of this clone, so the file keeps the block as an uncommitted change"; return 1
+  echo "the push of init's commit was refused or failed (see above), and it was this clone's only commit, so init took it back; the block stays in the file as an uncommitted change"; return 2
 }
 gitignore_build() {  # the .gitignore the checkout should have, into $TMP/gitignore
   if [ -f "$GI" ]; then tr -d '\r' < "$GI" > "$TMP/gitignore-now"; else : > "$TMP/gitignore-now"; fi
@@ -976,7 +976,7 @@ elif [ "$MAIN_CHECKOUT" -eq 1 ]; then
         elif gitignore_differs; then
           # a file with CRLF line ends keeps them: the block is written the way the file already is
           if [ -f "$GI" ] && ! tr -d '\r' < "$GI" | cmp -s - "$GI"; then awk '{ printf "%s\r\n", $0 }' "$TMP/gitignore" > "$GI"; else cp -f "$TMP/gitignore" "$GI"; fi
-          GITIGNORE_SENT="$(commit_gitignore "$TARGET")" || GITIGNORE_REFUSED=1
+          GITIGNORE_SENT="$(commit_gitignore "$TARGET")" || GITIGNORE_REFUSED=$?
           GITIGNORE_NOTE="${CAUGHT:+$CAUGHT; }$GITIGNORE_SENT"
         else GITIGNORE_CHANGED=0; GITIGNORE_NOTE="$CAUGHT"; fi
       fi
@@ -1010,6 +1010,7 @@ if [ "$GITIGNORE_CHANGED" -eq 1 ]; then
   if [ "$DRY" -eq 1 ]; then echo "  .gitignore would change and be committed: the agent files of this repository are ignored"
   elif [ "$GITIGNORE_BEHIND" -eq 1 ]; then echo "  .gitignore not written: this checkout is $GITIGNORE_NOTE"
   elif [ "$GITIGNORE_REFUSED" -eq 1 ]; then echo "  .gitignore not written: $GITIGNORE_NOTE"
+  elif [ "$GITIGNORE_REFUSED" -eq 2 ]; then echo "  .gitignore written but not committed: $GITIGNORE_NOTE"
   else echo "  .gitignore changed: the agent files of this repository are ignored; $GITIGNORE_NOTE"; fi
 elif [ -n "$GITIGNORE_NOTE" ]; then echo "  .gitignore: $GITIGNORE_NOTE; the block was there already"
 fi

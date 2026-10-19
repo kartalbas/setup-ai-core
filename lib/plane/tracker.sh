@@ -290,15 +290,17 @@ plane_state_id() {
 # with the label of the checkout's repository on it. Plane drops a label id of another project without a word,
 # so the item is read back and refused by name where the label is not there.
 issue_create() {
-  local repo="$1" title="$2" body="$3" assignee="$4" label ids aid request created id n back
+  local repo="$1" title="$2" body="$3" assignee="$4" label ids aid html request created id n back project
   shift 4
   plane_check_repo "$repo"
   label="$(plane_repo_label)"
   ids="$(plane_label_ids "$@" "$label")" || exit 1
   aid="$(plane_user_id "$assignee")" || exit 1
-  request="$(jq -n --arg name "$title" --arg html "$(plane_html_of "" "$body")" --argjson labels "$ids" --arg a "$aid" \
+  html="$(plane_html_of "" "$body")" || exit 1
+  request="$(jq -n --arg name "$title" --arg html "$html" --argjson labels "$ids" --arg a "$aid" \
     '{name: $name, description_html: $html, labels: $labels, assignees: [$a], external_source: "ai-core"}')"
-  created="$(plane_api "the issue created in $repo, which was NOT created" POST "$(plane_path "projects/$(plane_project_uuid)/issues/")" "$request")" || exit 1
+  project="$(plane_project_uuid)" || exit 1
+  created="$(plane_api "the issue created in $repo, which was NOT created" POST "$(plane_path "projects/$project/issues/")" "$request")" || exit 1
   id="$(printf '%s' "$created" | jq -r '.id')"; n="$(printf '%s' "$created" | jq -r '.sequence_id')"
   back="$(plane_api "the work item $(plane_setting PLANE_PROJECT)-$n just created" GET "$(plane_path "projects/$(plane_project_uuid)/issues/$id/")?expand=labels")" \
     || die "#$n exists in $repo after the create; the read-back above failed, so do not create it again"
@@ -330,7 +332,7 @@ plane_find_carried() {
 # by name, before anything is written: a sub-issue whose parent is not carried or is of another repository, a
 # priority other than P0 to P3, and a title or body with an email address (check_public_body).
 plane_carry() {
-  local repo="$1" row ref found parent pref pid names name rows colour desc ids state request prio status n
+  local repo="$1" row ref found parent pref pid names name rows colour desc ids state request prio status n project
   row="$(cat)"
   plane_check_repo "$repo"
   ref="$repo#$(jq -r '.number' <<< "$row")"
@@ -371,7 +373,8 @@ plane_carry() {
   request="$(jq -c --arg ext "$ref" --argjson labels "$ids" --arg state "$state" --arg parent "$pid" --arg prio "$prio" "$PLANE_HTML"'
     {name: .title, description_html: (.body | html), labels: $labels, external_source: "github", external_id: $ext, priority: $prio}
     + (if $state != "" then {state: $state} else {} end) + (if $parent != "" then {parent: $parent} else {} end)' <<< "$row")"
-  plane_call POST "$(plane_path "projects/$(plane_project_uuid)/issues/")" "$request"
+  project="$(plane_project_uuid)" || exit 1
+  plane_call POST "$(plane_path "projects/$project/issues/")" "$request"
   case "$plane_status" in
     2??) ;;
     000) die "cannot tell whether the work item carried from $ref was created - the Plane API did not answer: $plane_body. Run the same command again: it finds the work item by its external_id if it exists" ;;
@@ -398,8 +401,9 @@ plane_label_ids() {
 
 # issue_edit <owner/repo> <number> <title or empty> <body file or empty>
 issue_edit() {
-  local request
-  request="$(jq -n --arg t "$3" --arg h "$([ -z "$4" ] || plane_html_of "" "$4")" \
+  local request html=""
+  [ -z "$4" ] || html="$(plane_html_of "" "$4")" || exit 1
+  request="$(jq -n --arg t "$3" --arg h "$html" \
     '{} + (if $t != "" then {name: $t} else {} end) + (if $h != "" then {description_html: $h} else {} end)')"
   plane_patch "the edit of $1#$2" "$1" "$2" "$request"
 }
@@ -412,22 +416,26 @@ issue_body() {
 # issue_close <owner/repo> <number> <completed | not-planned>: ONE WRITE, where GitHub needs two. completed
 # is the state `done`; not-planned is the state of the cancelled group, Plane's own Cancelled.
 issue_close() {
-  local target="done"
+  local target="done" state
   [ "$3" != not-planned ] || target="group:cancelled"
-  plane_patch "the close of $1#$2" "$1" "$2" "$(jq -nc --arg s "$(plane_state_id "$target")" '{state: $s}')"
+  state="$(plane_state_id "$target")" || exit 1
+  plane_patch "the close of $1#$2" "$1" "$2" "$(jq -nc --arg s "$state" '{state: $s}')"
 }
 
 issue_reopen() {  # issue_reopen <owner/repo> <number>: the state `ready`
-  plane_patch "the reopen of $1#$2" "$1" "$2" "$(jq -nc --arg s "$(plane_state_id ready)" '{state: $s}')"
+  local state
+  state="$(plane_state_id ready)" || exit 1
+  plane_patch "the reopen of $1#$2" "$1" "$2" "$(jq -nc --arg s "$state" '{state: $s}')"
 }
 
 # issue_comment_post <owner/repo> <number> <text> <text file>: prints the address of the work item, because
 # Plane's API answers no address for a comment
 issue_comment_post() {
-  local item
+  local item html
   item="$(plane_item "$1" "$2")" || exit 1
+  html="$(plane_html_of "$3" "$4")" || exit 1
   plane_api "the comment posted on $1#$2" POST "$(plane_path "$(plane_issue_path "$item")comments/")" \
-    "$(jq -nc --arg h "$(plane_html_of "$3" "$4")" '{comment_html: $h}')" >/dev/null || exit 1
+    "$(jq -nc --arg h "$html" '{comment_html: $h}')" >/dev/null || exit 1
   plane_item_url "$2"
 }
 
@@ -487,8 +495,10 @@ issue_labels_set() {
 
 # plane_label_ensure <labels json lines> <name> <colour> <description>: made once, left as it is when it stands
 plane_label_ensure() {
+  local project
   printf '%s\n' "$1" | jq -e --arg n "$2" 'select(.name == $n)' >/dev/null && return 0
-  plane_api "the label $2" POST "$(plane_path "projects/$(plane_project_uuid)/labels/")" \
+  project="$(plane_project_uuid)" || exit 1
+  plane_api "the label $2" POST "$(plane_path "projects/$project/labels/")" \
     "$(jq -nc --arg n "$2" --arg c "#$3" --arg d "$4" '{name: $n, color: $c, description: $d}')" >/dev/null || exit 1
 }
 
@@ -519,10 +529,11 @@ issue_assignees() {  # issue_assignees <owner/repo> <number>: the emails assigne
 
 # issue_assignees_set <owner/repo> <number> <emails, one per line>: the assignees become exactly these
 issue_assignees_set() {
-  local ids="[]" who
+  local ids="[]" who id
   while IFS= read -r who; do
     [ -n "$who" ] || continue
-    ids="$(jq -c --arg i "$(plane_user_id "$who")" '. + [$i]' <<< "$ids")" || exit 1
+    id="$(plane_user_id "$who")" || exit 1
+    ids="$(jq -c --arg i "$id" '. + [$i]' <<< "$ids")" || exit 1
   done <<< "$3"
   plane_patch "the assignees of $1#$2" "$1" "$2" "$(jq -nc --argjson a "$ids" '{assignees: $a}')"
 }
@@ -596,14 +607,15 @@ issue_block() {
 # because GitHub closes a duplicate and an open one would still hold its epic open. The state is resolved
 # before the first write, so a project without one changes nothing.
 duplicate_mark() {
-  local canonical duplicate cancelled
+  local canonical duplicate cancelled html
   canonical="$(plane_item "$1" "$2")" || exit 1
   duplicate="$(plane_item "$3" "$4")" || exit 1
   cancelled="$(plane_state_id group:cancelled)" || exit 1
   plane_api "the duplicate mark on $3#$4" POST "$(plane_path "$(plane_relations_path "$duplicate")")" \
     "$(jq -nc --arg i "$(printf '%s' "$canonical" | jq -r '.id')" '{relation_type: "duplicate", issues: [$i]}')" >/dev/null || exit 1
+  html="$(plane_html_of "$5" "")" || exit 1
   plane_api "the duplicate mark on $3#$4" POST "$(plane_path "$(plane_issue_path "$duplicate")comments/")" \
-    "$(jq -nc --arg h "$(plane_html_of "$5" "")" '{comment_html: $h}')" >/dev/null || exit 1
+    "$(jq -nc --arg h "$html" '{comment_html: $h}')" >/dev/null || exit 1
   plane_api "the cancel of the duplicate $3#$4" PATCH "$(plane_path "$(plane_issue_path "$duplicate")")" \
     "$(jq -nc --arg s "$cancelled" '{state: $s}')" >/dev/null || exit 1
 }
@@ -649,14 +661,15 @@ issue_board_items() {
 # set_select <uuid> <field name> <option name>: a state or a priority, matched without case. The state asked for
 # is written, whatever the work item stands in now: a command that moves a card out of Cancelled moves it.
 set_select() {
-  local fid oid
+  local fid oid project
   fid="$(field_id "$2")" || exit 1
   oid="$(option_id "$2" "$3")" || exit 1
+  project="$(plane_project_uuid)" || exit 1
   case "$fid" in
     status)
-      plane_api "the state of $1" PATCH "$(plane_path "projects/$(plane_project_uuid)/issues/$1/")" "$(jq -nc --arg s "$oid" '{state: $s}')" >/dev/null || exit 1 ;;
+      plane_api "the state of $1" PATCH "$(plane_path "projects/$project/issues/$1/")" "$(jq -nc --arg s "$oid" '{state: $s}')" >/dev/null || exit 1 ;;
     priority)
-      plane_api "the priority of $1" PATCH "$(plane_path "projects/$(plane_project_uuid)/issues/$1/")" "$(jq -nc --arg p "$oid" '{priority: $p}')" >/dev/null || exit 1 ;;
+      plane_api "the priority of $1" PATCH "$(plane_path "projects/$project/issues/$1/")" "$(jq -nc --arg p "$oid" '{priority: $p}')" >/dev/null || exit 1 ;;
   esac
 }
 
@@ -781,8 +794,9 @@ board_items() {
 # neighbours is a float's half. About fifty placements under one work item exhaust a float's halves,
 # and then two work items share an order; rewriting the whole order would lift that ceiling.
 item_top() {
-  local orders target
-  orders="$(plane_pages "the order of the work items of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/issues/")?fields=id,sort_order")" || exit 1
+  local orders target project
+  project="$(plane_project_uuid)" || exit 1
+  orders="$(plane_pages "the order of the work items of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$project/issues/")?fields=id,sort_order")" || exit 1
   target="$(printf '%s\n' "$orders" | jq -rs --arg a "${2:-}" '
     if $a == "" then (map(.sort_order) | min // 0) - 10000
     else (map(select(.id == $a))[0].sort_order) as $x
@@ -790,7 +804,7 @@ item_top() {
         else ([.[].sort_order | select(. > $x)] | min) as $next | if $next == null then $x + 10000 else ($x + $next) / 2 end end
     end')"
   [ -n "$target" ] || die "the work item to place it under is not in the project $(plane_setting PLANE_PROJECT)"
-  plane_api "the order of the work item $1" PATCH "$(plane_path "projects/$(plane_project_uuid)/issues/$1/")" \
+  plane_api "the order of the work item $1" PATCH "$(plane_path "projects/$project/issues/$1/")" \
     "$(jq -nc --argjson s "$target" '{sort_order: $s}')" >/dev/null || exit 1
 }
 

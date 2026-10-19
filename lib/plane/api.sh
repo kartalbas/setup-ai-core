@@ -50,15 +50,16 @@ plane_call() {
 
 # plane_api <what was asked for> <method> <path> [json body]: prints the answer. Anything but 2xx stops the
 # caller with "cannot read <what> - the Plane API answered <status>" and the words Plane gave, the way
-# gh_read does for gh: `x="$(plane_api ...)" || exit 1`.
+# gh_read does for gh: `x="$(plane_api ...)" || exit 1`. A call that is not a GET says "cannot write".
 plane_api() {
-  local what="$1"
+  local what="$1" verb=read
   shift
+  [ "$1" = GET ] || verb=write
   plane_call "$@"
   case "$plane_status" in
     2??) printf '%s\n' "$plane_body" ;;
-    000) die "cannot read $what - the Plane API did not answer: $plane_body" ;;
-    *)   die "cannot read $what - the Plane API answered $plane_status${plane_body:+: $(printf '%s' "$plane_body" | tr -s '\r\n' '  ' | cut -c1-300)}" ;;
+    000) die "cannot $verb $what - the Plane API did not answer: $plane_body" ;;
+    *)   die "cannot $verb $what - the Plane API answered $plane_status${plane_body:+: $(printf '%s' "$plane_body" | tr -s '\r\n' '  ' | cut -c1-300)}" ;;
   esac
 }
 

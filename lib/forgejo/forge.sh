@@ -218,7 +218,7 @@ clone_sign_in() (
 # forge_doctor: the lines `ai-core doctor` prints for the forge, through doctor's own report and problem, which
 # doctor.sh defines. The token is asked of the instance and never printed.
 forge_doctor() {
-  local url out origin said
+  local url out origin said line_args=()
   url="$(config_value FORGEJO_URL "")"
   if [ -z "$url" ] || [ -z "$(config_value FORGEJO_TOKEN_COMMAND "")" ]; then
     echo "  forge: forgejo"
@@ -240,11 +240,18 @@ forge_doctor() {
   # clone_sign_in sets
   origin="$(git remote get-url origin 2>/dev/null)" || return 0
   case "$origin" in *"$(forge_host)"[:/]*) ;; *) return 0 ;; esac
+  case "$origin" in "${url%/}"/*)
+    sign_in_line_stands . "${url%/}" || line_args=(-c "credential.${url%/}.helper=" -c "credential.${url%/}.helper=$FORGEJO_CREDENTIAL_HELPER") ;;
+  esac
   said="$(mktemp)"
-  if GIT_TERMINAL_PROMPT=0 git ls-remote origin >/dev/null 2>"$said"; then
-    report origin answers "git ls-remote reaches the origin of this checkout"
+  if GIT_TERMINAL_PROMPT=0 forgejo_git ${line_args[@]+"${line_args[@]}"} ls-remote origin >/dev/null 2>"$said"; then
+    if [ ${#line_args[@]} -gt 0 ]; then
+      report origin "no sign-in" "git ls-remote reaches the origin through the line init would set; the line is not set in this checkout, ai-core init sets it"
+    else
+      report origin answers "git ls-remote reaches the origin of this checkout"
+    fi
   else
-    report origin refused "git ls-remote could not read the origin: $(tr -s '\r\n' '  ' < "$said" | cut -c1-200); run ai-core init in this checkout to set its credential line"; problem
+    report origin refused "git ls-remote could not read the origin: $(tr -s '\r\n' '  ' < "$said" | cut -c1-200)"; problem
   fi
   rm -f "$said"
 }

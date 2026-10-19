@@ -154,6 +154,47 @@ echo "  issue-status: a state is matched without case; one the project lacks is 
 ai issue-priority "$n" P0 >/dev/null || fail "issue-priority"
 [ "$(planeq 'console.log(p.issues[0].priority)')" = urgent ] || fail "P0 is not urgent"
 
+# ASSIGNEES: a member is named by email; a name Plane does not know stops the command before any write, and a refused write says it was a write
+reset_log
+out="$(ai issue-assign example-org/example-repo "$n" --add other@example.test 2>&1)" || fail "issue-assign with a member of the workspace: $out"
+[ "$(planeq 'console.log(p.issues[0].assignees.length)')" = 2 ] || fail "the member was not assigned: $out"
+reset_log
+out="$(ai issue-assign example-org/example-repo "$n" --add nobody@example.test 2>&1)" && fail "issue-assign took a member the workspace does not have: $out"
+grep -q 'Plane has no member nobody@example.test in the workspace ws' <<< "$out" || fail "an unknown member is not named: $out"
+! grep -q 'cannot read the assignees' <<< "$out" || fail "an unknown member ended in an error about a read: $out"
+! grep -q '^PATCH' "$CURL_FAKE_STATE/requests.log" || fail "an unknown member still sent a write to Plane: $(grep '^PATCH' "$CURL_FAKE_STATE/requests.log")"
+[ "$(planeq 'console.log(p.issues[0].assignees.length)')" = 2 ] || fail "an unknown member changed the assignees"
+printf '[{"match":"PATCH ","status":400,"times":1,"body":"refused"}]' > "$CURL_FAKE_STATE/inject.json"
+out="$(ai issue-assign example-org/example-repo "$n" --add stranger@example.test 2>&1)" && fail "a write Plane refused was accepted: $out"
+grep -q 'cannot write the assignees of example-org/example-repo#1 - the Plane API answered 400' <<< "$out" || fail "a refused write does not say it was a write: $out"
+printf '[]' > "$CURL_FAKE_STATE/inject.json"
+out="$(bash "$ROOT/bin/ai-core" issue-assign --help | tr -s '\n ' ' ')" && grep -q 'on Plane the email of a member of the workspace' <<< "$out" || fail "the help of issue-assign does not say what Plane accepts: $out"
+echo "  issue-assign: a member is named by email; an unknown one stops it before any write; a refused write says it was a write; the help names what Plane accepts"
+
+# A LOOKUP THAT FAILS inside the request of a write stops the command, and nothing is sent
+for pair in "issue-close done" "issue-reopen ready"; do
+  command="${pair% *}"; state="${pair#* }"
+  planeset "p.hidden=p.states.filter((x)=>x.name==='$state'); p.states=p.states.filter((x)=>x.name!=='$state')"
+  reset_log
+  out="$(ai "$command" "$n" 2>&1)" && fail "$command went on in a project with no state $state: $out"
+  grep -q "has no state '$state'" <<< "$out" || fail "$command does not name the missing state $state: $out"
+  ! grep -q '^PATCH' "$CURL_FAKE_STATE/requests.log" || fail "$command sent a write although the state $state is not there: $(grep -A1 '^PATCH' "$CURL_FAKE_STATE/requests.log")"
+  planeset 'p.states=p.states.concat(p.hidden); delete p.hidden'
+done
+reset_log
+out="$(plane_fn issue_edit example-org/example-repo "$n" "" "$WORK/no-such-body" 2>&1)" && fail "issue_edit took a body file that is not there: $out"
+! grep -q '^PATCH' "$CURL_FAKE_STATE/requests.log" || fail "issue_edit sent a write for a body it could not read"
+out="$(plane_fn issue_comment_post example-org/example-repo "$n" "" "$WORK/no-such-body" 2>&1)" && fail "issue_comment_post took a text file that is not there: $out"
+! grep -q '^POST' "$CURL_FAKE_STATE/requests.log" || fail "issue_comment_post sent a comment it could not read"
+out="$(plane_fn issue_create example-org/example-repo "A title" "$WORK/no-such-body" me@example.test 2>&1)" && fail "issue_create took a body file that is not there: $out"
+! grep -q '^POST' "$CURL_FAKE_STATE/requests.log" || fail "issue_create created a work item from a body it could not read"
+echo "  issue-close, issue-reopen, edit, comment and create: a state or a text that cannot be read stops the command, and nothing is written"
+reset_log
+out="$(PLANE_PROJECT=NOPE plane_fn plane_label_ensure "" a-new-label 6B7280 "a label" 2>&1)" && fail "plane_label_ensure went on with a project Plane does not have: $out"
+grep -q 'Plane has no project with the identifier NOPE' <<< "$out" || fail "a project Plane does not have is not named: $out"
+! grep -q '^POST' "$CURL_FAKE_STATE/requests.log" || fail "plane_label_ensure sent a write to a project it could not find: $(grep '^POST' "$CURL_FAKE_STATE/requests.log")"
+echo "  a project Plane does not have stops a write before it is sent"
+
 # THE RATE LIMIT: a 429 waits for X-RateLimit-Reset and goes on; one that never lifts is refused
 reset=$(( $(date +%s) + 7 ))
 printf '[{"match":"/issues/ENG-1/","status":429,"times":1,"headers":{"X-RateLimit-Reset":"%s"}}]' "$reset" > "$CURL_FAKE_STATE/inject.json"

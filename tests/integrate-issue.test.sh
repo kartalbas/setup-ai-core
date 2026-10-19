@@ -49,7 +49,8 @@ if [ -e "$fake/refuse-repo-once" ] && [[ "\$*" == "api repos/{owner}/{repo} --jq
 fi
 # The checks and the visibility are planted by files: visibility (public, private, or a word that is no
 # answer; private when absent), runs (what gh run list answers; a completed success when absent) and
-# runs-queue (answers given first, one per call). A run query is a call of the checks, so tests count them.
+# runs-queue (answers given first, one per call), during-wait (a script run once, at the first run query:
+# what happens to origin while the checks are waited for). A run query is a call of the checks, so tests count them.
 case "\$*" in
   *"repo view"*"--json isPrivate"*)
     case "\$(cat "$fake/visibility" 2>/dev/null || echo private)" in
@@ -58,6 +59,7 @@ case "\$*" in
     esac
     exit 0 ;;
   "run list"*)
+    if [ -e "$fake/during-wait" ]; then mv "$fake/during-wait" "$fake/during-wait.ran"; bash "$fake/during-wait.ran" >/dev/null 2>&1; fi
     answer="\$(cat "$fake/runs" 2>/dev/null || echo '[{"status":"completed","conclusion":"success"}]')"
     if [ -s "$fake/runs-queue" ]; then answer="\$(head -n1 "$fake/runs-queue")"; sed -i 1d "$fake/runs-queue"; fi
     if [ "\$answer" = broken ]; then echo 'HTTP 502: Bad Gateway' >&2; exit 1; fi
@@ -181,11 +183,12 @@ check 'a comma in a name stays in the report' yes "$(grep -q ', Reviewed-by: Smi
 
 # the repository the forge is asked about is the one origin names: the last two parts of its address
 origin_repo="$(basename "$fake")/origin"
-# land_public <number> <slug> <runs> [wait]: a public repository, the planted answer of the checks, and an
+# land_public <number> <slug> <runs> [wait]: a public repository, the branch pushed, the planted answer of the checks, and an
 # issue branch to land; sets out, rc, wt and sha (the reviewed tip). The poll is 0 and the wait short, so
 # a test that waits takes no time.
 land_public() {
   wt="$(new_tree "$1" "$2")"; sha="$(git -C "$wt" rev-parse HEAD)"
+  git -C "$wt" push -q origin "issue-$1-$2" 2>/dev/null
   echo public > "$fake/visibility"; printf '%s\n' "$3" > "$fake/runs"; : > "$fake/runs-queue"; : > "$fake/calls.txt"
   out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT="${4:-5}" integrate "$wt" "$1" --reviewed-by l4)"; rc=$?
   rm -f "$fake/visibility" "$fake/runs"
@@ -214,6 +217,7 @@ check 'and no merge is left open'      '' "$(git -C "$wt" status --porcelain)"
 echo 'checks that are pending first are waited for, and the branch lands once they are green'
 before="$(tip)"
 wt="$(new_tree 122 waits-for-ci)"; sha="$(git -C "$wt" rev-parse HEAD)"
+git -C "$wt" push -q origin issue-122-waits-for-ci 2>/dev/null
 echo public > "$fake/visibility"; : > "$fake/calls.txt"
 printf '%s\n' '[{"status":"in_progress","conclusion":null}]' '[]' > "$fake/runs-queue"
 out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=30 integrate "$wt" 122 --reviewed-by l4)"; rc=$?
@@ -261,6 +265,67 @@ check 'it says nothing landed'         yes "$(grep -qF 'nothing landed: ' <<< "$
 check 'no check was asked'             0 "$(asked_checks)"
 check 'origin did not move'            "$before" "$(tip)"
 check 'the worktree is on its branch'  'issue-126-unknown' "$(git -C "$wt" symbolic-ref --short HEAD)"
+
+echo 'a public repository whose branch tip is not on origin is refused at once, before any wait'
+before="$(tip)"
+wt="$(new_tree 127 unpushed)"; echo public > "$fake/visibility"; : > "$fake/calls.txt"
+git -C "$wt" push -q origin issue-127-unpushed 2>/dev/null
+echo more > "$wt/more.txt"; git -C "$wt" add -A; git -C "$wt" commit -q -m 'Only here #127'
+sha="$(git -C "$wt" rev-parse HEAD)"
+out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=5 integrate "$wt" 127 --reviewed-by l4)"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'it says the commit has no checks' yes "$(grep -qF "nothing landed: $sha is not on origin, so it has no checks; push the branch, then run this again" <<< "$out" && echo yes || echo no)"
+check 'no check was asked'             0 "$(asked_checks)"
+check 'origin did not move'            "$before" "$(tip)"
+check 'the worktree is on its branch'  'issue-127-unpushed' "$(git -C "$wt" symbolic-ref --short HEAD)"
+git -C "$wt" push -q origin issue-127-unpushed 2>/dev/null
+echo "$success" > "$fake/runs"
+out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=5 integrate "$wt" 127 --reviewed-by l4)"; rc=$?
+rm -f "$fake/visibility" "$fake/runs"
+check 'pushed, the same branch lands'  0 "$rc"
+
+echo 'a tip that moves while its checks are waited for is refused, with nothing merged or pushed'
+before="$(tip)"
+wt="$(new_tree 128 moves)"; git -C "$wt" push -q origin issue-128-moves 2>/dev/null
+sha="$(git -C "$wt" rev-parse HEAD)"
+echo public > "$fake/visibility"; : > "$fake/calls.txt"
+printf '%s\n' '[{"status":"in_progress","conclusion":null}]' > "$fake/runs-queue"
+printf '#!/bin/sh\ncd "%s" && echo moved > moved.txt && git add -A && git commit -q -m "Moved #128" && git push -q origin issue-128-moves\n' "$wt" > "$fake/during-wait"
+out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=30 integrate "$wt" 128 --reviewed-by l4)"; rc=$?
+rm -f "$fake/visibility"
+moved="$(git -C "$wt" rev-parse HEAD)"
+check 'the tip did move'               no "$([ "$sha" = "$moved" ] && echo yes || echo no)"
+check 'exit 1'                         1 "$rc"
+check 'it names the old and the new tip' yes "$(grep -qF "nothing landed: origin/issue-128-moves moved from $sha to $moved while its checks were waited for; run this again" <<< "$out" && echo yes || echo no)"
+check 'origin did not move'            "$before" "$(tip)"
+check 'the worktree is on its branch'  'issue-128-moves' "$(git -C "$wt" symbolic-ref --short HEAD)"
+check 'the lock is released'           no "$([ -e "$work/.git/ai-core-landing" ] && echo yes || echo no)"
+
+echo 'the checks are waited for before the landing lock is taken'
+wt="$(new_tree 129 no-lock)"; git -C "$wt" push -q origin issue-129-no-lock 2>/dev/null
+echo public > "$fake/visibility"
+printf '%s\n' '[{"status":"in_progress","conclusion":null}]' > "$fake/runs-queue"
+printf '#!/bin/sh\necho "$(ls "%s" >/dev/null 2>&1 && [ -e "%s" ] && echo held || echo free)" > "%s"\n' "$work/.git" "$work/.git/ai-core-landing" "$fake/lock-during-wait" > "$fake/during-wait"
+out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=30 integrate "$wt" 129 --reviewed-by l4)"; rc=$?
+rm -f "$fake/visibility"
+check 'exit 0'                         0 "$rc"
+check 'no landing lock was held during the wait' free "$(cat "$fake/lock-during-wait")"
+
+echo 'an origin that names no repository refuses before any check is read'
+flat="$fake/flat-checkouts"; mkdir -p "$flat"
+git -c init.defaultBranch=master init -q --bare "$flat/flat.git"
+git -c init.defaultBranch=master init -q "$flat/repo"; dress "$flat/repo"
+git -C "$flat/repo" commit -q --allow-empty -m 'Start'
+git -C "$flat/repo" remote add origin ../flat.git
+git -C "$flat/repo" push -q origin master 2>/dev/null
+git -C "$flat/repo" switch -q -c issue-140-flat
+echo flat > "$flat/repo/flat.txt"; git -C "$flat/repo" add -A; git -C "$flat/repo" commit -q -m 'Flat #140'
+: > "$fake/calls.txt"
+out="$(integrate "$flat/repo" 140 --reviewed-by l4)"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'it says origin names no repository' yes "$(grep -qF 'nothing landed: origin names no repository, so its visibility cannot be established' <<< "$out" && echo yes || echo no)"
+check 'no check was asked'             0 "$(asked_checks)"
+check 'nothing reached origin'         '' "$(git --git-dir="$flat/flat.git" rev-parse -q --verify issue-140-flat 2>/dev/null; git --git-dir="$flat/flat.git" log -1 --format=%s master | grep -v '^Start$' || true)"
 
 echo 'a conflict leaves origin as it was and the worktree on its branch'
 wt3="$(new_tree 79 clash)"
@@ -445,6 +510,22 @@ rm -f "$fake/visibility"
 check 'private: exit 0'                0 "$rc"
 check 'it says the push gate is its check' yes "$(grep -qF 'its push gate is its check' <<< "$out" && echo yes || echo no)"
 check 'no check was asked'             0 "$(asked_checks)"
+
+echo '--from-origin: a tip that moves while its checks are waited for is refused, the held worktree untouched'
+heldwt12="$(held_tree 132 ci-moves)"
+sha="$(git -C "$heldwt12" rev-parse HEAD)"
+held_before="$(held_state "$heldwt12")"; before="$(tip)"; trees_before="$(trees_listed)"
+echo public > "$fake/visibility"
+printf '%s\n' '[{"status":"in_progress","conclusion":null}]' > "$fake/runs-queue"
+printf '#!/bin/sh\nd="$(mktemp -d)" && git clone -q "%s" "$d/c" && cd "$d/c" && git config user.email t@example.invalid && git config user.name t && git switch -q issue-132-ci-moves && echo m > m.txt && git add -A && git commit -q -m "Moved #132" && git push -q origin issue-132-ci-moves && git rev-parse HEAD > "%s"\n' "$origin" "$fake/moved-tip" > "$fake/during-wait"
+out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=30 integrate "$work" 132 --reviewed-by l4 --from-origin)"; rc=$?
+rm -f "$fake/visibility"
+check 'exit 1'                         1 "$rc"
+check 'it names the old and the new tip' yes "$(grep -qF "nothing landed: origin/issue-132-ci-moves moved from $sha to $(cat "$fake/moved-tip") while its checks were waited for; run this again" <<< "$out" && echo yes || echo no)"
+check 'origin did not move'            "$before" "$(tip)"
+check 'the held worktree is as it was' "$held_before" "$(held_state "$heldwt12")"
+check 'no temporary worktree was made' "$trees_before" "$(trees_listed)"
+check 'the lock is released'           no "$([ -e "$lock" ] && echo yes || echo no)"
 
 heldwt3="$(held_tree 102 refused)"
 

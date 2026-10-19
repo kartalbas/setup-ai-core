@@ -20,7 +20,8 @@
 # visibility and the checks from files, so each answer is planted. A public one that is green lands and
 # names the sha; one that is red, still pending at the deadline, unreadable or of unknown visibility
 # is refused with origin as it was, and one whose checks are pending first waits and then lands; a
-# private one lands without any check being read. Both paths are pinned, with and without --from-origin.
+# private one, and a public one of a project whose config.env sets CI_GATE="none", lands without any
+# check being read, and any other CI_GATE refuses. Both paths are pinned, with and without --from-origin.
 #
 #   bash tests/integrate-issue.test.sh
 
@@ -281,6 +282,51 @@ check 'no check was asked'             0 "$(asked_checks)"
 check 'no commit status was asked'     0 "$(grep -c 'commits/' "$fake/calls.txt" || true)"
 check 'no ci/ branch exists or was made' '' "$(git --git-dir="$origin" for-each-ref --format='%(refname)' refs/heads/ci)"
 check 'one merge commit landed, made in the issue worktree as before' 1 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+
+echo '.ai-core/' >> "$work/.git/info/exclude"   # the project's config.env is in the working tree, not tracked
+echo 'a public repository of a project with CI_GATE="none" pushes nothing to ci/, reads no check, and says its push gate is the check'
+before="$(tip)"
+wt="$(new_tree 135 gate-none)"; echo public > "$fake/visibility"; : > "$fake/calls.txt"; echo broken > "$fake/runs"
+mkdir -p "$wt/.ai-core"; echo 'CI_GATE="none"' > "$wt/.ai-core/config.env"
+git -C "$wt" push -q origin issue-135-gate-none 2>/dev/null
+out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=0 integrate "$wt" 135 --reviewed-by l4)"; rc=$?
+rm -f "$fake/visibility" "$fake/runs"
+check 'exit 0'                         0 "$rc"
+check 'it says the project reads no CI, its push gate is its check' yes "$(grep -qF "checks: $origin_repo is public and the CI_GATE of the project is none, its push gate is its check; the CI of GitHub is not read" <<< "$out" && echo yes || echo no)"
+check 'no check was asked'             0 "$(asked_checks)"
+check 'no ci/ branch exists or was made' '' "$(git --git-dir="$origin" for-each-ref --format='%(refname)' refs/heads/ci)"
+check 'one merge commit landed'        1 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+
+echo 'a CI_GATE that is neither public nor none refuses before anything is made, and names the key'
+before="$(tip)"
+wt="$(new_tree 136 gate-off)"; echo public > "$fake/visibility"; : > "$fake/calls.txt"
+mkdir -p "$wt/.ai-core"; echo 'CI_GATE="off"' > "$wt/.ai-core/config.env"
+git -C "$wt" push -q origin issue-136-gate-off 2>/dev/null
+out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=0 integrate "$wt" 136 --reviewed-by l4)"; rc=$?
+rm -f "$fake/visibility"
+check 'exit 1'                         1 "$rc"
+check 'it names the key, the value and the two values' yes "$(grep -qF "nothing landed: CI_GATE is 'off' in the config.env of the project; it is public or none" <<< "$out" && echo yes || echo no)"
+check 'no check was asked'             0 "$(asked_checks)"
+check 'no ci/ branch exists or was made' '' "$(git --git-dir="$origin" for-each-ref --format='%(refname)' refs/heads/ci)"
+check 'origin did not move'            "$before" "$(tip)"
+
+echo 'a CI_GATE in the environment is no setting of the project: red checks still refuse where config.env has no key'
+before="$(tip)"
+CI_GATE=none land_public 171 env-gate '[{"status":"completed","conclusion":"failure","workflowName":"check"}]'
+check 'exit 1'                         1 "$rc"
+check 'the checks were read and are red' yes "$(grep -qF "nothing landed: the checks for $(cat "$fake/ci-during") on ci/integrate-issue-171-env-gate are red" <<< "$out" && echo yes || echo no)"
+check 'origin did not move'            "$before" "$(tip)"
+
+echo 'CI_GATE is read without regard to case, as the other keys of config.env'
+before="$(tip)"
+wt="$(new_tree 172 gate-none-case)"; echo public > "$fake/visibility"; : > "$fake/calls.txt"
+mkdir -p "$wt/.ai-core"; echo 'CI_GATE="None"' > "$wt/.ai-core/config.env"
+git -C "$wt" push -q origin issue-172-gate-none-case 2>/dev/null
+out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=0 integrate "$wt" 172 --reviewed-by l4)"; rc=$?
+rm -f "$fake/visibility"
+check 'exit 0'                         0 "$rc"
+check 'no check was asked'             0 "$(asked_checks)"
+check 'one merge commit landed'        1 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
 
 echo 'a visibility the forge does not establish refuses, and no check is read'
 before="$(tip)"
@@ -700,6 +746,21 @@ check 'private: exit 0'                0 "$rc"
 check 'it says the push gate is its check' yes "$(grep -qF 'its push gate is its check' <<< "$out" && echo yes || echo no)"
 check 'no check was asked'             0 "$(asked_checks)"
 check 'no ci/ branch was made'         '' "$(git --git-dir="$origin" for-each-ref --format='%(refname)' refs/heads/ci)"
+
+echo '--from-origin: a public repository of a project with CI_GATE="none" lands with no ci/ branch and no check read'
+heldwt12="$(held_tree 156 held-gate-none)"
+held_before="$(held_state "$heldwt12")"; before="$(tip)"
+mkdir -p "$work/.ai-core"; echo 'CI_GATE="none"' > "$work/.ai-core/config.env"
+echo public > "$fake/visibility"; : > "$fake/calls.txt"; echo broken > "$fake/runs"
+out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=0 integrate "$work" 156 --reviewed-by l4 --from-origin)"; rc=$?
+rm -rf "$work/.ai-core"; rm -f "$fake/visibility" "$fake/runs"
+check 'exit 0'                         0 "$rc"
+check 'it says the project reads no CI' yes "$(grep -qF 'and the CI_GATE of the project is none, its push gate is its check' <<< "$out" && echo yes || echo no)"
+check 'no check was asked'             0 "$(asked_checks)"
+check 'no ci/ branch was made'         '' "$(git --git-dir="$origin" for-each-ref --format='%(refname)' refs/heads/ci)"
+check 'one merge commit landed'        1 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+check 'the held worktree is as it was' "$held_before" "$(held_state "$heldwt12")"
+check 'no temporary worktree is left'  0 "$(leftovers)"
 
 echo '--from-origin: the default branch or the reviewed tip moving while the checks run refuses, ci/integrate-<branch> deleted, the held worktree untouched'
 heldwt12="$(held_tree 152 ci-base-moves)"

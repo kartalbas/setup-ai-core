@@ -923,8 +923,12 @@ commit_gitignore() {
   git -C "$dir" remote get-url origin >/dev/null 2>&1 || { echo "committed; no origin, not pushed"; return 0; }
   branch="$(git -C "$dir" symbolic-ref --short -q HEAD)"
   if git -C "$dir" push --quiet origin "HEAD:$branch" >&2; then echo "committed and pushed to origin/$branch"; return 0; fi
-  git -C "$dir" reset -q --keep HEAD~1 >&2 || { echo "committed; the push was refused or failed (see above), and init could not take its commit back"; return 0; }
-  echo "the push was refused or failed (see above), so init took its commit back"; return 1
+  if git -C "$dir" rev-parse -q --verify HEAD~1 >/dev/null; then
+    git -C "$dir" reset -q --keep HEAD~1 >&2 || { echo "committed; the push was refused or failed (see above), and init could not take its commit back"; return 0; }
+    echo "the push was refused or failed (see above), so init took its commit back"; return 1
+  fi
+  git -C "$dir" update-ref -d HEAD >&2 && git -C "$dir" rm -q --cached -- .gitignore >&2 || { echo "committed; the push was refused or failed (see above), and init could not take its commit back"; return 0; }
+  echo "the push was refused or failed (see above), so init took its commit back; it was the only commit of this clone, so the file keeps the block as an uncommitted change"; return 1
 }
 gitignore_build() {  # the .gitignore the checkout should have, into $TMP/gitignore
   if [ -f "$GI" ]; then tr -d '\r' < "$GI" > "$TMP/gitignore-now"; else : > "$TMP/gitignore-now"; fi

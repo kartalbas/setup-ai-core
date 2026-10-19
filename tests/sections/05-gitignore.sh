@@ -87,6 +87,19 @@ grep -aqxF '  .gitignore not written: the push was refused or failed (see above)
 grep -aqxF '  .gitignore not written: it has changes of its own; commit them or take them back, then run this again' "$E.log" || fail "init.sh did not name the .gitignore with changes of its own (see $E.log)"
 echo "  off a branch and over local changes nothing is written, the refused push has its commit taken back, each named"
 
+section "a refused push takes init's commit back in a clone whose only commit it is: no git error, no commit left, the file kept"
+O="$WORK/root-origin.git"; git init -q --bare -b master "$O"
+printf '#!/bin/sh\necho "refused by the origin"\nexit 1\n' > "$O/hooks/pre-receive"; chmod +x "$O/hooks/pre-receive"
+R="$WORK/root-refused"; git init -q -b master "$R"; git -C "$R" remote add origin "$O"
+mkdir -p "$R/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$R/.ai-core/config.env"; git -C "$R" config user.name check; git -C "$R" config user.email check@localhost
+bash "$ROOT/bin/init.sh" "$R" --no-doctor > "$R.log" 2>&1 || fail "init.sh in a clone with no commit (see $R.log)"
+! grep -aq '^fatal:' "$R.log" || fail "init.sh let git print a fatal in a clone with no earlier commit: $(grep -a '^fatal:' "$R.log")"
+git -C "$R" rev-parse -q --verify HEAD >/dev/null && fail "init.sh left its commit in a clone whose only commit it was: $(git -C "$R" log -1 --format=%s)"
+[ -z "$(git -C "$R" ls-files)" ] || fail "init.sh left a file in the index of the clone it took its commit back from: $(git -C "$R" ls-files)"
+grep -aq '^  .gitignore not written: the push was refused or failed (see above), so init took its commit back; it was the only commit of this clone' "$R.log" || fail "init.sh did not say it took the only commit back (see $R.log)"
+grep -aq 'setup-ai-core start' "$R/.gitignore" || fail "init.sh deleted the .gitignore of the clone it took its commit back from"
+echo "  a clone with no earlier commit: the refused push takes init's commit back with no git error, nothing stays committed or staged, and the file is kept"
+
 section "a block without its end line that the catch-up brings is left alone as well"
 O="$WORK/open-origin.git"; git init -q --bare -b master "$O"
 A="$WORK/open-first"; git init -q -b master "$A"; git -C "$A" config user.name check; git -C "$A" config user.email check@localhost

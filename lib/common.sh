@@ -52,8 +52,14 @@ data_file() {  # data_file <name>
 # then DEFAULT. The value is what stands between the quotes, or up to a comment, so a command with
 # spaces in it is read whole. The last line of the file that sets KEY wins.
 config_value() {  # config_value <key> <default>
+  if [ -n "${!1:-}" ]; then echo "${!1}"; return 0; fi
+  config_file_value "$1" "$2"
+}
+
+# config_file_value <key> <default>: as config_value, without the environment, for a setting that only
+# the project's config.env may make.
+config_file_value() {
   local key="$1" line
-  if [ -n "${!key:-}" ]; then echo "${!key}"; return 0; fi
   if [ -f "$(data_dir)/config.env" ]; then
     line="$(grep -E "^[[:space:]]*${key}[[:space:]]*=" "$(data_dir)/config.env" | tail -n1 || true)"
     if [ -n "$line" ]; then

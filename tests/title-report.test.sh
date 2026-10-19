@@ -24,16 +24,20 @@ echo "\$*" >> "$log"
 case "\$*" in
   *issue*create*)         printf 'https://github.com/example-org/example-repo/issues/999\n'; exit 0 ;;
   *projectItems*)         exit 0 ;;
-  *addProjectV2ItemById*) echo 'PVTI_new'; exit 0 ;;
+  *addProjectV2ItemById*) [ -e "$fake/board-down" ] && { echo 'board unavailable' >&2; exit 1; }; echo 'PVTI_new'; exit 0 ;;
   *) echo '{}'; exit 0 ;;
 esac
 EOF
 chmod +x "$fake/gh"
 export PATH="$fake:$PATH"
 
-mkdir -p "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER"
-printf 'PVT_kwtitle%s\n' "$PROJECT_NUMBER" > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/project-id"
-printf 'Status\tF1\tready\tO1\nPriority\tF2\tP1\tO2\n' > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
+# The cache folder of a board is under the organisation's name when the caller's organisation (the
+# fake's `repo view` answers none) differs from the project's, and flat when GH_ORG names it.
+for dir in "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER" "$GH_CACHE_DIRECTORY/example-org/$PROJECT_NUMBER"; do
+  mkdir -p "$dir"
+  printf 'PVT_kwtitle%s\n' "$PROJECT_NUMBER" > "$dir/project-id"
+  printf 'Status\tF1\tready\tO1\nPriority\tF2\tP1\tO2\n' > "$dir/fields.tsv"
+done
 
 failed=0
 check() {
@@ -122,6 +126,29 @@ echo 'an edit with no title has no title to read'
 : > "$log"
 out="$(bash "$root/bin/issue-edit.sh" "$repo" 163 --body-file "$body" 2>&1 >/dev/null)"
 check 'nothing said about the title' no "$(grep -qE '^title (is|contains|names)' <<< "$out" && echo yes || echo no)"
+
+# A caller reads a non-zero exit as "nothing was made" and runs the command again. A title that is
+# only reported must exit 0 with one issue made; a failure after the create must name the issue.
+run_new() {
+  : > "$log"
+  rc=0; out="$(bash "$root/bin/issue-new.sh" --repo "$repo" --title "$1" --body-file "$body" \
+    --label type:feature --label area:tooling --priority P1 --project "$PROJECT_NUMBER" \
+    --asked-by kartalbas --asked-in 'the test' 2>&1)" || rc=$?
+  created="$(grep -c 'issue create' "$log" || true)"
+}
+echo 'a 97-character title is reported, the issue is made once, and the exit code is 0'
+run_new "$(printf 'a%.0s' $(seq 1 97))"
+check 'says how long it is' yes "$(grep -q 'title is 97 characters, over 70' <<< "$out" && echo yes || echo no)"
+check 'exit code'           0 "$rc"
+check 'issues created'      1 "$created"
+
+echo 'a board failure after the create exits non-zero and names the issue'
+: > "$fake/board-down"
+run_new "$good"
+rm -f "$fake/board-down"
+check 'exit code is non-zero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'issues created'        1 "$created"
+check 'names the issue and says it exists' yes "$(grep -q "$repo#999 exists" <<< "$out" && echo yes || echo no)"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

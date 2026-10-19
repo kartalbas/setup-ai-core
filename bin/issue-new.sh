@@ -24,6 +24,10 @@
 # A title outside that shape is REPORTED and the issue is created anyway: whether a title reads
 # well is a judgment, and a script cannot make it.
 #
+# AFTER THE CREATE, A FAILURE STILL EXITS NON-ZERO, AND SAYS THAT THE ISSUE EXISTS. The board, the
+# status, the priority and the parent are set after the issue is made; when one of them fails the
+# last line names the issue, so a caller does not run the command again and make a duplicate.
+#
 # NO ISSUE WITHOUT A PERSON'S YES. --asked-by names the login of whoever said yes and --asked-in
 # where they said it; the two are written into the first line of the body, so a ticket nobody
 # asked for reads as one on the board. Refusing here is the tool's half of that rule; whether
@@ -108,7 +112,8 @@ fi
 # The body is written whole into a temporary file, and the ORIGINAL is left alone: a caller's
 # file is theirs, and a command that edits its own input cannot be run twice.
 sent="$(mktemp)" || die "issue-new: cannot create temporary body file"
-trap 'rm -f "$sent"' EXIT
+created=""
+trap 'status=$?; rm -f "$sent"; [ "$status" -eq 0 ] || [ -z "$created" ] || echo "issue-new: issue $repo#$created exists; a step after the create failed, so do not run issue-new again for it" >&2' EXIT
 trap 'exit 1' HUP INT TERM
 { printf '%s\n\n' "$asked"; cat "$body"; } > "$sent"
 
@@ -134,6 +139,7 @@ fi
 
 check_public_body issue-new "$repo" "$(printf '%s\n' "$title" "${labels[@]}")" "$sent"
 num="$(issue_create "$repo" "$title" "$sent" "$assignee" "${labels[@]}")" || exit 1
+created="$num"
 
 if [ -n "$no_board" ]; then
   echo "#$num -> on no board: $repo is linked to none" >&2

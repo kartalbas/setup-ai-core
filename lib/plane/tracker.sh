@@ -695,8 +695,8 @@ board_items() {
 
 # item_top <work item uuid> [after work item uuid]: the work item goes to the top of the project's order, or
 # directly under the other one. Plane orders by sort_order, the smallest first, and a number between two
-# neighbours is a float's half. ponytail: about fifty placements under one work item exhaust a float's
-# halves; a rewrite of the whole order would be the upgrade.
+# neighbours is a float's half. About fifty placements under one work item exhaust a float's halves,
+# and then two work items share an order; rewriting the whole order would lift that ceiling.
 item_top() {
   local orders target
   orders="$(plane_pages "the order of the work items of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/issues/")?fields=id,sort_order")" || exit 1

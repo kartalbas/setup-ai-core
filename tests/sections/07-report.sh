@@ -8,7 +8,7 @@ init_quiet() {  # init_quiet <dir> <log> [--dry-run]: init without doctor
   bash "$ROOT/bin/init.sh" "$dir" --no-doctor "$@" > "$log" 2>&1
 }
 # The report lines of a log; the .gitignore line without its note, and Claude Code's folder under one name
-report_of() { sed -n '/^init would change in /,/^====/p; /^init changed in /,/^====/p' "$1" | grep -a '^  ' | tr -d '\r' | sed 's/^  \.gitignore .*/  .gitignore/; s#[^ ]*/claude-config#CLAUDE_CONFIG_DIR#g'; }
+report_of() { sed -n '/^init would change in /,/^====/p; /^init changed in /,/^====/p' "$1" | grep -a '^  ' | tr -d '\r' | sed 's/^  \.gitignore .*/  .gitignore/; s/would be written/written/; s#[^ ]*/claude-config#CLAUDE_CONFIG_DIR#g'; }
 D="$WORK/report"
 git init -q "$D"; echo readme > "$D/README.md"; git -C "$D" add README.md
 git -C "$D" -c user.name=check -c user.email=check@localhost commit -q -m init
@@ -43,6 +43,8 @@ grep -aq 'No such file or directory' "$WORK/folder-1.log" && fail "init.sh print
 init_quiet "$F" "$WORK/folder-2.log" || fail "init.sh run 2 on a project folder failed (see $WORK/folder-2.log)"
 grep -aqE '^  (created|refreshed|removed) ' "$WORK/folder-2.log" && fail "init.sh run 2 on a project folder changed something: $(grep -aE '^  (created|refreshed|removed) ' "$WORK/folder-2.log")"
 grep -q '^| `app` |' "$F/AGENTS.md" || fail "the folder's AGENTS.md lost the map"
+grep -aq "^  claude -p runs: the denials written to $AI_CORE_HOME/.ai-core/claude-run-settings.json$" "$WORK/report-1.log" || fail "init.sh run 1 did not report the denials it wrote for the claude -p runs: $(grep -a 'claude -p runs' "$WORK/report-1.log")"
+grep -aq 'claude -p runs' "$WORK/report-2.log" && fail "init.sh run 2 reported the denials for the claude -p runs again"
 echo "  dry run: nothing written, created/removed/kept/.gitignore announced; run 1 reports the same; run 2 only unchanged files"
 section "init adds the rules as instructions to an opencode.json the checkout had, beside its own MCP server; the run after changes nothing"
 G="$WORK/opencode-first"; git init -q "$G"; mkdir -p "$G/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$G/.ai-core/config.env"

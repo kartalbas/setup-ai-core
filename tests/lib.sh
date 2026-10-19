@@ -25,6 +25,8 @@ export AI_CORE_UPDATE_CHECK=never
 export CLAUDE_CONFIG_DIR="$WORK/claude-config"
 # The same for Codex's user config, which init writes where Codex is served
 export CODEX_HOME="$WORK/codex-config"
+# And for the machine's files under the ai-core home, such as the settings of the claude -p runs
+export AI_CORE_HOME="$WORK/ai-core-home"
 # A team-modes table whose probes always pass, so the tools of this machine never decide a check
 printf 'claude\tmode\talways\t-\t-\ncodex\tmode\talways\t-\t-\ngemini\tmode\talways\t-\t-\n' > "$WORK/modes.tsv"; export TEAM_MODES_FILE="$WORK/modes.tsv"
 

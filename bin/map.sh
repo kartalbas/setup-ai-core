@@ -96,6 +96,13 @@ case "$TOOL" in
   *) echo "error: MAP_TOOL=\"$TOOL\" (config.env, or AI_CORE_MAP_TOOL in the environment); map runs with claude, codex or agy" >&2; exit 1 ;;
 esac
 command -v "$TOOL" >/dev/null 2>&1 || { echo "error: $TOOL is not on the PATH; map writes the map with it (MAP_TOOL in config.env, AI_CORE_MAP_TOOL for this machine)" >&2; exit 1; }
+# A claude run reads the checkout's settings.json only where init ran, and map --all runs before init
+# --all: it takes the denials (secrets, git reset --hard, git clean) from the file init writes for
+# claude -p runs, and stops where that file does not exist.
+RUN_SETTINGS="${AI_CORE_HOME:-$HOME}/.ai-core/claude-run-settings.json"
+if [ "$TOOL" = claude ] && [ ! -f "$RUN_SETTINGS" ]; then
+  echo "error: $RUN_SETTINGS does not exist; ai-core init writes it, and map does not run claude without its denials" >&2; exit 1
+fi
 # agy keeps its sign-in in the desktop's keychain, and in a file of its own over SSH: a session it
 # cannot run in is found before the map is asked for, in agy's own words
 if [ "$TOOL" = agy ] && ! AGY_OUT="$(agy models < /dev/null 2>&1)"; then
@@ -133,9 +140,9 @@ RAW="$TMP/map.raw"; ERR="$TMP/map.err"
 # Each CLI in its non-interactive mode, reading only; the answer alone lands in RAW
 run_tool() {
   case "$TOOL" in
-    claude) claude -p "$PROMPT" --output-format text ${MODEL:+--model "$MODEL"} --allowedTools "Read,Glob,Grep" ;;
+    claude) claude -p "$PROMPT" --output-format text --settings "$RUN_SETTINGS" ${MODEL:+--model "$MODEL"} --allowedTools "Read,Glob,Grep" ;;
     codex)  codex exec --skip-git-repo-check -s read-only ${MODEL:+-m "$MODEL"} --output-last-message "$TMP/last.md" "$PROMPT" >/dev/null && cat "$TMP/last.md" ;;
-    agy)    agy --print "$PROMPT" --output-format text ${MODEL:+--model "$MODEL"} ;;
+    agy)    agy --print "$PROMPT" --output-format text --settings "$RUN_SETTINGS" ${MODEL:+--model "$MODEL"} ;;
   esac
 }
 if ! (cd "$TARGET" && run_tool) > "$RAW" 2>"$ERR"; then

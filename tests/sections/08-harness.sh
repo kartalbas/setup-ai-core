@@ -210,7 +210,8 @@ fi
 EOF
 tail -n +2 "$WORK/ghbin/claude"; } > "$WORK/ghbin/agy"; chmod +x "$WORK/ghbin/agy" "$WORK/ghbin/codex"
 MAPLOG="$WORK/map.args"
-map_run() { HOME="$WORK/home-sh" PATH="$PATH_SH" MAP_FAKE_LOG="$MAPLOG" bash "$ROOT/bin/map.sh" "$@"; }
+map_run() { HOME="$WORK/home-sh" AI_CORE_HOME="$WORK/home-sh" PATH="$PATH_SH" MAP_FAKE_LOG="$MAPLOG" bash "$ROOT/bin/map.sh" "$@"; }
+mkdir -p "$WORK/home-sh/.ai-core" && printf '{"permissions":{"deny":["Read(//**/*.env)"]}}\n' > "$WORK/home-sh/.ai-core/claude-run-settings.json"
 map_run "$WORK/org-sh/shop-web" > "$WORK/map-1.log" 2>&1 || fail "map.sh (see $WORK/map-1.log)"
 M="$WORK/org-sh/shop-ai-core/repos/shop-web/AGENTS.md"
 head -n1 "$M" | grep -qE '^<!-- ai-core map: generated [0-9-]+ from [0-9a-f]+; ' && [ "$(sed -n 2p "$M")" = "# shop-web — the map" ] || fail "map.sh did not write the map into the harness: $(head -n2 "$M" 2>/dev/null | tr '\n' '|')"
@@ -220,6 +221,11 @@ head -n1 "$WORK/org-sh/shop-web/AGENTS.md" | grep -q 'ai-core map: generated' ||
 [ "$(sed -n 4p "$WORK/org-sh/shop-web/AGENTS.md")" = '## Binding rules' ] && grep -q '^- The engineering rules, .*: @\.ai-core/rules/rules\.md$' "$WORK/org-sh/shop-web/AGENTS.md" && grep -q '^- When a skill or a tool is used: @\.ai-core/rules/skills\.md$' "$WORK/org-sh/shop-web/AGENTS.md" && grep -q '^## What it is' "$WORK/org-sh/shop-web/AGENTS.md" || fail "the map in the checkout, no project folder around it, does not open with the binding rules imported: $(sed -n 4,9p "$WORK/org-sh/shop-web/AGENTS.md" | tr '\n' '|')"
 grep -q '^## Binding rules' "$M" && fail "the map in the harness carries the contract; init adds it to the checkout's copy"
 grep -q -- '--allowedTools' "$MAPLOG" && grep -q 'Read the repository first, cheaply' "$MAPLOG" || fail "map.sh did not call the agent CLI with the prompt and the tools"
+grep -q -- "--settings $WORK/home-sh/.ai-core/claude-run-settings.json" "$MAPLOG" || fail "map.sh did not hand claude the denials of the run settings file: $(tail -c 300 "$MAPLOG")"
+mv "$WORK/home-sh/.ai-core/claude-run-settings.json" "$WORK/run-settings.bak"
+map_run "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-nosettings.log" 2>&1 && fail "map.sh ran claude without the run settings file"
+grep -q 'claude-run-settings.json does not exist' "$WORK/map-nosettings.log" || fail "map.sh did not say the run settings file is missing: $(tail -c 300 "$WORK/map-nosettings.log")"
+mv "$WORK/run-settings.bak" "$WORK/home-sh/.ai-core/claude-run-settings.json"
 # people write a rule into the map and push it as they push any edit of the harness; the next generation keeps it
 sed -i.bak 's/^(none yet: written by people, kept on every regeneration)$/- **Ship on Fridays never.** [review]/' "$M" && rm -f "$M.bak"
 (cd "$WORK/org-sh/shop-web" && HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/push.sh" "a rule of this repository" > "$WORK/map-rule-push.log" 2>&1) || fail "push.sh with the rule people wrote (see $WORK/map-rule-push.log)"

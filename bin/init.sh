@@ -575,7 +575,7 @@ done <<< "$( (cd "$CORE_ROOT/templates" && find . -type f | LC_ALL=C sort) | sed
 # that records the account's usage windows for `ai-core usage` (bin/statusline.sh), the permissions
 # of the template (the ai-core
 # commands) and its denials (the secrets of a checkout and the credentials of the machine are not
-# read, a push is not forced), each list read from the template, and its empty attribution, so
+# read, a push is not forced, git reset --hard and git clean are refused), each list read from the template, and its empty attribution, so
 # Claude Code asks no session to sign a commit or a pull request, which the commit rules forbid.
 # The hooks and the status line name ai-core by its full path on this machine, so a Claude Code
 # started from a terminal opened before the install still runs them; the file is the machine's,

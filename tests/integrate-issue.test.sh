@@ -16,6 +16,12 @@
 # carries scripts/install.sh, it runs in the temporary worktree before the push, so a gate that
 # needs installed dependencies passes; a failing install refuses the landing before the gate runs.
 #
+# A public repository lands only on green checks, a private one on its push gate: the fake gh answers the
+# visibility and the checks from files, so each answer is planted. A public one that is green lands and
+# names the sha; one that is red, still pending at the deadline, unreadable or of unknown visibility
+# is refused with origin as it was, and one whose checks are pending first waits and then lands; a
+# private one lands without any check being read. Both paths are pinned, with and without --from-origin.
+#
 #   bash tests/integrate-issue.test.sh
 
 set -uo pipefail
@@ -41,6 +47,24 @@ if [ -e "$fake/refuse-repo-once" ] && [[ "\$*" == "api repos/{owner}/{repo} --jq
   echo 'gh: API rate limit already exceeded for user ID 1. (HTTP 403)' >&2
   exit 1
 fi
+# The checks and the visibility are planted by files: visibility (public, private, or a word that is no
+# answer; private when absent), runs (what gh run list answers; a completed success when absent) and
+# runs-queue (answers given first, one per call). A run query is a call of the checks, so tests count them.
+case "\$*" in
+  *"repo view"*"--json isPrivate"*)
+    case "\$(cat "$fake/visibility" 2>/dev/null || echo private)" in
+      private) echo '{"isPrivate":true}' ;; public) echo '{"isPrivate":false}' ;;
+      *) echo 'visibility denied' >&2; exit 1 ;;
+    esac
+    exit 0 ;;
+  "run list"*)
+    answer="\$(cat "$fake/runs" 2>/dev/null || echo '[{"status":"completed","conclusion":"success"}]')"
+    if [ -s "$fake/runs-queue" ]; then answer="\$(head -n1 "$fake/runs-queue")"; sed -i 1d "$fake/runs-queue"; fi
+    if [ "\$answer" = broken ]; then echo 'HTTP 502: Bad Gateway' >&2; exit 1; fi
+    echo "\$answer"
+    exit 0 ;;
+  "api repos/{owner}/{repo}/commits/"*"/status") echo '{"state":"pending","total_count":0}'; exit 0 ;;
+esac
 case "\$*" in
   *"repo view"*|"api repos/{owner}/{repo} --jq .full_name"*) if [ -e "$fake/limited" ]; then echo '{"message":"API rate limit already exceeded for user ID 1."}'; echo 'gh: API rate limit already exceeded for user ID 1. (HTTP 403)' >&2; exit 1; fi; echo 'example-org/example-repo' ;;
   *comments*)    echo '[]' ;;
@@ -154,6 +178,89 @@ check 'the report names both'          yes "$(grep -q ', Reviewed-by: l4, Review
 wt13="$(new_tree 89 comma)"
 out="$(integrate "$wt13" 89 --reviewed-by 'Smith,J')"; rc=$?
 check 'a comma in a name stays in the report' yes "$(grep -q ', Reviewed-by: Smith,J$' <<< "$out" && echo yes || echo no)"
+
+# the repository the forge is asked about is the one origin names: the last two parts of its address
+origin_repo="$(basename "$fake")/origin"
+# land_public <number> <slug> <runs> [wait]: a public repository, the planted answer of the checks, and an
+# issue branch to land; sets out, rc, wt and sha (the reviewed tip). The poll is 0 and the wait short, so
+# a test that waits takes no time.
+land_public() {
+  wt="$(new_tree "$1" "$2")"; sha="$(git -C "$wt" rev-parse HEAD)"
+  echo public > "$fake/visibility"; printf '%s\n' "$3" > "$fake/runs"; : > "$fake/runs-queue"; : > "$fake/calls.txt"
+  out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT="${4:-5}" integrate "$wt" "$1" --reviewed-by l4)"; rc=$?
+  rm -f "$fake/visibility" "$fake/runs"
+}
+asked_checks() { grep -c '^run list ' "$fake/calls.txt" || true; }
+success='[{"status":"completed","conclusion":"success"}]'
+
+echo 'a public repository lands on green checks and names the sha it waited for'
+before="$(tip)"
+land_public 120 green "$success"
+check 'exit 0'                         0 "$rc"
+check 'the checks of the reviewed tip were asked' yes "$(grep -qF "run list --commit $sha " "$fake/calls.txt" && echo yes || echo no)"
+check 'it says the checks were green, with the sha' yes "$(grep -qxF "checks: green for ${sha:0:7} on GitHub; $origin_repo is public and lands only on green checks" <<< "$out" && echo yes || echo no)"
+check 'one merge commit landed'        1 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+check 'its second parent is the tip that was green' "$sha" "$(git --git-dir="$origin" rev-parse master^2)"
+
+echo 'a public repository with red checks is refused with nothing merged or pushed'
+before="$(tip)"
+land_public 121 red '[{"status":"completed","conclusion":"failure"}]'
+check 'exit 1'                         1 "$rc"
+check 'it says nothing landed and the checks are red' yes "$(grep -qF "nothing landed: the checks for $sha are red" <<< "$out" && echo yes || echo no)"
+check 'origin did not move'            "$before" "$(tip)"
+check 'the worktree is on its branch'  'issue-121-red' "$(git -C "$wt" symbolic-ref --short HEAD)"
+check 'and no merge is left open'      '' "$(git -C "$wt" status --porcelain)"
+
+echo 'checks that are pending first are waited for, and the branch lands once they are green'
+before="$(tip)"
+wt="$(new_tree 122 waits-for-ci)"; sha="$(git -C "$wt" rev-parse HEAD)"
+echo public > "$fake/visibility"; : > "$fake/calls.txt"
+printf '%s\n' '[{"status":"in_progress","conclusion":null}]' '[]' > "$fake/runs-queue"
+out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=30 integrate "$wt" 122 --reviewed-by l4)"; rc=$?
+rm -f "$fake/visibility"
+check 'exit 0'                         0 "$rc"
+check 'it said once that it waits'     1 "$(grep -c "^waiting: $origin_repo is public" <<< "$out" || true)"
+check 'it asked three times: two pending, then green' 3 "$(asked_checks)"
+check 'one merge commit landed'        1 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+
+echo 'checks still pending at the deadline refuse, with nothing merged or pushed'
+before="$(tip)"
+land_public 123 stuck '[{"status":"in_progress","conclusion":null}]' 0
+check 'exit 1'                         1 "$rc"
+check 'it says they did not finish'    yes "$(grep -qF "nothing landed: the checks for $sha did not finish in 0 minute(s)" <<< "$out" && echo yes || echo no)"
+check 'origin did not move'            "$before" "$(tip)"
+check 'the worktree is on its branch'  'issue-123-stuck' "$(git -C "$wt" symbolic-ref --short HEAD)"
+
+echo 'checks that cannot be read until the deadline refuse and name what the forge said'
+before="$(tip)"
+land_public 124 unreadable broken 0
+check 'exit 1'                         1 "$rc"
+check "it names the forge's words"     yes "$(grep -qF 'it said last: HTTP 502: Bad Gateway' <<< "$out" && echo yes || echo no)"
+check 'it says nothing landed'         yes "$(grep -qF 'nothing landed: ' <<< "$out" && echo yes || echo no)"
+check 'origin did not move'            "$before" "$(tip)"
+
+echo 'a private repository lands without any check being read, and says its push gate is the check'
+before="$(tip)"
+wt="$(new_tree 125 private)"; echo private > "$fake/visibility"; : > "$fake/calls.txt"; echo broken > "$fake/runs"
+out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=0 integrate "$wt" 125 --reviewed-by l4)"; rc=$?
+rm -f "$fake/visibility" "$fake/runs"
+check 'exit 0'                         0 "$rc"
+check 'it says the push gate is its check' yes "$(grep -qF 'its push gate is its check; the CI of GitHub is not read' <<< "$out" && echo yes || echo no)"
+check 'no check was asked'             0 "$(asked_checks)"
+check 'no commit status was asked'     0 "$(grep -c 'commits/' "$fake/calls.txt" || true)"
+check 'one merge commit landed'        1 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+
+echo 'a visibility the forge does not establish refuses, and no check is read'
+before="$(tip)"
+wt="$(new_tree 126 unknown)"; echo unknown > "$fake/visibility"; : > "$fake/calls.txt"
+out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=0 integrate "$wt" 126 --reviewed-by l4)"; rc=$?
+rm -f "$fake/visibility"
+check 'exit 1'                         1 "$rc"
+check 'it names the repository and the words of gh' yes "$(grep -qF "the visibility of $origin_repo" <<< "$out" && grep -qF 'visibility denied' <<< "$out" && echo yes || echo no)"
+check 'it says nothing landed'         yes "$(grep -qF 'nothing landed: ' <<< "$out" && echo yes || echo no)"
+check 'no check was asked'             0 "$(asked_checks)"
+check 'origin did not move'            "$before" "$(tip)"
+check 'the worktree is on its branch'  'issue-126-unknown' "$(git -C "$wt" symbolic-ref --short HEAD)"
 
 echo 'a conflict leaves origin as it was and the worktree on its branch'
 wt3="$(new_tree 79 clash)"
@@ -303,6 +410,41 @@ check 'it names the commit of origin'  yes "$(grep -qxF "merging: origin/issue-1
 check 'the second parent is the commit origin held' "$pushed" "$(git --git-dir="$origin" rev-parse master^2)"
 check 'the unpushed commit is not on origin' no "$(git --git-dir="$origin" cat-file -e "$(git -C "$heldwt2" rev-parse HEAD)" 2>/dev/null && echo yes || echo no)"
 check 'the held worktree is as it was' "$held_before" "$(held_state "$heldwt2")"
+
+echo '--from-origin: a public repository lands on green checks, and is refused on red ones with the held worktree untouched'
+success_tip() { git -C "$1" rev-parse HEAD; }
+heldwt10="$(held_tree 130 ci-green)"
+tipg="$(success_tip "$heldwt10")"
+held_before="$(held_state "$heldwt10")"; before="$(tip)"
+echo public > "$fake/visibility"; : > "$fake/calls.txt"
+out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=5 integrate "$work" 130 --reviewed-by l4 --from-origin)"; rc=$?
+check 'green: exit 0'                  0 "$rc"
+check 'the checks of the tip origin holds were asked' yes "$(grep -qF "run list --commit $tipg " "$fake/calls.txt" && echo yes || echo no)"
+check 'it says the checks were green, with the sha' yes "$(grep -qxF "checks: green for ${tipg:0:7} on GitHub; $origin_repo is public and lands only on green checks" <<< "$out" && echo yes || echo no)"
+check 'one merge commit landed'        1 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+check 'the held worktree is as it was' "$held_before" "$(held_state "$heldwt10")"
+heldwt11="$(held_tree 131 ci-red)"
+held_before="$(held_state "$heldwt11")"; before="$(tip)"; trees_before="$(trees_listed)"
+echo '[{"status":"completed","conclusion":"failure"}]' > "$fake/runs"
+out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=5 integrate "$work" 131 --reviewed-by l4 --from-origin)"; rc=$?
+check 'red: exit 1'                    1 "$rc"
+check 'it says nothing landed and the checks are red' yes "$(grep -qF "nothing landed: the checks for $(success_tip "$heldwt11") are red" <<< "$out" && echo yes || echo no)"
+check 'origin did not move'            "$before" "$(tip)"
+check 'the held worktree is as it was' "$held_before" "$(held_state "$heldwt11")"
+check 'no temporary worktree was made' "$trees_before" "$(trees_listed)"
+check 'the lock is released'           no "$([ -e "$lock" ] && echo yes || echo no)"
+echo unknown > "$fake/visibility"; rm -f "$fake/runs"
+out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=5 integrate "$work" 131 --reviewed-by l4 --from-origin)"; rc=$?
+check 'unknown visibility: exit 1'     1 "$rc"
+check 'it names the words of gh'       yes "$(grep -qF 'visibility denied' <<< "$out" && echo yes || echo no)"
+check 'origin did not move'            "$before" "$(tip)"
+rm -f "$fake/visibility"
+echo private > "$fake/visibility"; : > "$fake/calls.txt"
+out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=5 integrate "$work" 131 --reviewed-by l4 --from-origin)"; rc=$?
+rm -f "$fake/visibility"
+check 'private: exit 0'                0 "$rc"
+check 'it says the push gate is its check' yes "$(grep -qF 'its push gate is its check' <<< "$out" && echo yes || echo no)"
+check 'no check was asked'             0 "$(asked_checks)"
 
 heldwt3="$(held_tree 102 refused)"
 

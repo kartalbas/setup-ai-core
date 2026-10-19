@@ -24,6 +24,14 @@
 # Where the merged tree carries scripts/install.sh, it runs there before the push, so the gate's
 # check finds what it needs installed; a failing install refuses the landing, and nothing is pushed.
 #
+# A PUBLIC REPOSITORY LANDS ONLY ON GREEN CHECKS. Before the merge, the forge says whether the repository
+# of origin is public. If it is, this waits for the checks of the reviewed tip (every 20 seconds, 30
+# minutes at most; AI_CORE_INTEGRATE_POLL and AI_CORE_INTEGRATE_WAIT, in seconds, for a suite), goes on
+# when they are green and says which sha was green, and refuses with nothing merged or pushed when they
+# are red, do not finish in time or cannot be read. A private repository rests on its push gate, which
+# is its check: no CI is read and one line says so. A visibility the forge does not establish refuses.
+# The wait is the one release uses (wait_for_checks in lib/forge.sh), so it holds the landing lock.
+#
 # A MERGE COMMIT, NOT A REBASE: the reviewed commits land as they were read, with the shas the
 # reviewer saw, and the one new commit carries the issue and the reviewer.
 #
@@ -42,6 +50,7 @@
 # no longer runs takes it over.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
+. "$ROOT/lib/forge.sh"
 
 BIN="$ROOT/bin"
 usage='usage: integrate-issue.sh [OWNER/REPO] NUMBER --reviewed-by REVIEWER [--reviewed-by REVIEWER ...] [--from-origin]'
@@ -144,10 +153,33 @@ back_to_branch() {
   die "$1"
 }
 
+# land_only_on_green_checks <tip>: a public repository lands only when the checks of the reviewed tip are
+# green, a private one on its push gate. Nothing has moved when this stops the run.
+land_only_on_green_checks() {
+  local tip="$1" checked_repo visibility poll limit checks=0
+  checked_repo="$(origin_repo)" || die "nothing landed: origin names no repository, so its visibility cannot be established"
+  visibility="$(apart forge_repo_visibility "$checked_repo")" \
+    || die "nothing landed: the visibility of $checked_repo cannot be established, so it is not known whether its checks must be green: $visibility"
+  if [ "$visibility" = private ]; then
+    echo "checks: $checked_repo is private, its push gate is its check; the CI of $(forge_name) is not read"
+    return 0
+  fi
+  poll="${AI_CORE_INTEGRATE_POLL:-20}"; limit="${AI_CORE_INTEGRATE_WAIT:-1800}"
+  wait_for_checks "$PWD" "$tip" "$poll" "$limit" \
+    "waiting: $checked_repo is public and lands only on green checks; the checks of ${tip:0:7} are asked every ${poll}s, $((limit / 60)) minute(s) at most" || checks=$?
+  case "$checks" in
+    0) echo "checks: green for ${tip:0:7} on $(forge_name); $checked_repo is public and lands only on green checks" ;;
+    1) die "nothing landed: the checks for $tip are red, so nothing was merged or pushed and origin is as it was" ;;
+    2) die "nothing landed: the checks for $tip did not finish in $((limit / 60)) minute(s), so nothing was merged or pushed; run this again when they have" ;;
+    *) die "nothing landed: $(checks_unreadable_message "$tip" "$checks_said")" ;;
+  esac
+}
+
 if [ -n "$from_origin" ]; then
   tip="$(git rev-parse -q --verify "origin/$branch^{commit}")" || die "origin/$branch is not there after the fetch - push the reviewed branch, then run this again"
   [ -n "$(git rev-list -n1 "$tip" --not "origin/$default")" ] \
     || die "nothing to integrate: origin/$branch is in origin/$default already"
+  land_only_on_green_checks "$tip"
   echo "merging: origin/$branch at $(git rev-parse --short "$tip")"
   container="$(worktree_container)" && mkdir -p "$container" \
     && tree="$(mktemp -d "$container/integrate-$number.XXXXXX")" || die "no folder for the temporary worktree beside the clone"
@@ -165,6 +197,7 @@ if [ -n "$from_origin" ]; then
 else
   [ -n "$(git rev-list -n1 "$branch" --not "origin/$default")" ] \
     || die "nothing to integrate: $branch is in origin/$default already"
+  land_only_on_green_checks "$(git rev-parse "$branch^{commit}")"
   git switch -q --detach "origin/$default" || die "the worktree could not be put on origin/$default (see above)"
   if ! git merge -q --no-ff --no-edit "$branch" -m "$subject" -m "$trailers"; then
     git merge --abort 2>/dev/null

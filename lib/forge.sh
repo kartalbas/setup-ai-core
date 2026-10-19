@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Where the project's code lives. FORGE in the project's .ai-core/config.env (or in the environment)
 # names the provider, the folder under lib/ whose forge.sh implements the functions below; github
-# when unset. lib/layers.sh, bin/init.sh, bin/release.sh, bin/session-start.sh, bin/doctor.sh and
-# bin/issue-map.sh, bin/integrate-issue.sh call only these. Source it, do not run it.
+# when unset. lib/layers.sh, bin/init.sh, bin/release.sh, bin/integrate-issue.sh, bin/session-start.sh,
+# bin/doctor.sh and bin/issue-map.sh call only these. Source it, do not run it.
 
 . "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 

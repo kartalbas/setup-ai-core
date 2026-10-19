@@ -16,6 +16,7 @@ trap 'rm -rf "$WORK"' EXIT
 export HOME="$WORK/home" AI_CORE_HOME="$WORK/ai-core-home"
 mkdir -p "$HOME" "$AI_CORE_HOME" "$WORK/project/.ai-core"
 git init -q "$WORK/project"
+git -C "$WORK/project" remote add origin https://github.com/example-org/example-repo.git
 failed=0
 check() {  # check <name> <expected> <actual>
   if [ "$2" = "$3" ]; then echo "  ok   $1"
@@ -98,7 +99,9 @@ cat > "$WORK/fake/gh" <<'GH'
 # FAKE_RUNS answers `gh run list`, FAKE_STATUS the commit statuses (none when unset); "broken" fails the call
 case "$1" in
   api) answer="${FAKE_STATUS:-{\"state\":\"pending\",\"total_count\":0\}}" ;;
-  *) answer="$FAKE_RUNS" ;;
+  *) # as gh does where the repository has no workflow of that name, a status-only one among them
+     case " $* " in *" --workflow "*) echo 'could not find any workflows named check' >&2; exit 1 ;; esac
+     answer="$FAKE_RUNS" ;;
 esac
 case "$answer" in
   broken) echo 'HTTP 502: Bad Gateway' >&2; exit 1 ;;
@@ -109,9 +112,9 @@ chmod +x "$WORK/fake/gh"
 checked() {  # checked <what the fake gh answers for the runs> [what it answers for the commit statuses]
   ( cd "$WORK/project" && PATH="$WORK/fake:$PATH" FAKE_RUNS="$1" FAKE_STATUS="${2:-}" bash -c '. "$1/lib/forge.sh"; commit_checked "$2" abc 2>&1' _ "$ROOT" "$WORK/project" )
 }
-check "commit_checked: a completed success is green" "green" "$(checked '[{"status":"completed","conclusion":"success"}]')"
-check "commit_checked: completed with no success is red" "red" "$(checked '[{"status":"completed","conclusion":"failure"},{"status":"completed","conclusion":"cancelled"}]')"
-check "commit_checked: a run still going is pending" "pending" "$(checked '[{"status":"in_progress","conclusion":null}]')"
+check "commit_checked: a completed success is green" "green" "$(checked '[{"status":"completed","conclusion":"success","workflowName":"check"}]')"
+check "commit_checked: completed with no success is red" "red" "$(checked '[{"status":"completed","conclusion":"failure","workflowName":"check"},{"status":"completed","conclusion":"cancelled","workflowName":"check"}]')"
+check "commit_checked: a run still going is pending" "pending" "$(checked '[{"status":"in_progress","conclusion":null,"workflowName":"check"}]')"
 check "commit_checked: no run yet is pending" "pending" "$(checked '[]')"
 check "commit_checked: a failed query is unreadable, with the words of the forge" "unreadable
 HTTP 502: Bad Gateway " "$(checked broken)"
@@ -125,14 +128,22 @@ check "commit_checked: only a status, pending, is pending" "pending" "$(checked 
 check "commit_checked: a failed query for the statuses is unreadable, with the words of the forge" "unreadable
 HTTP 502: Bad Gateway " "$(checked "$none" broken)"
 check "commit_checked: an answer for the statuses that is no JSON is unreadable" "unreadable" "$(checked "$none" 'not json' | head -n1)"
+# a repository with statuses and no workflow `check` (hostyour-cloud): gh lists the runs of other workflows or none
+check "commit_checked: a status alone is green where gh finds no workflow check" "green" "$(checked '[]' '{"state":"success","total_count":1}')"
+other='[{"status":"completed","conclusion":"success","workflowName":"build"}]'
+check "commit_checked: a green run of another workflow is no check, so a green status decides" "green" "$(checked "$other" '{"state":"success","total_count":1}')"
+check "commit_checked: a green run of another workflow with no status is pending" "pending" "$(checked "$other")"
+check "commit_checked: a failed run of another workflow does not turn a green check red" "green" "$(checked '[{"status":"completed","conclusion":"failure","workflowName":"build"},{"status":"completed","conclusion":"success","workflowName":"check"}]')"
+check "commit_checked: a checkout with no origin is unreadable, and says so" "unreadable
+$WORK/no-origin has no origin to ask for the checks" "$(git init -q "$WORK/no-origin"; PATH="$WORK/fake:$PATH" FAKE_RUNS='[]' bash -c '. "$1/lib/forge.sh"; commit_checked "$2" abc 2>&1' _ "$ROOT" "$WORK/no-origin")"
 # runs and statuses together: green needs both, red needs one
-done_ok='[{"status":"completed","conclusion":"success"}]'
+done_ok='[{"status":"completed","conclusion":"success","workflowName":"check"}]'
 check "commit_checked: a green run and a green status are green" "green" "$(checked "$done_ok" '{"state":"success","total_count":1}')"
 check "commit_checked: a green run and a pending status are pending" "pending" "$(checked "$done_ok" '{"state":"pending","total_count":1}')"
 check "commit_checked: a green run and a failed status are red" "red" "$(checked "$done_ok" '{"state":"failure","total_count":1}')"
-check "commit_checked: a run still going and a green status are pending" "pending" "$(checked '[{"status":"in_progress","conclusion":null}]' '{"state":"success","total_count":1}')"
-check "commit_checked: a failed run and a green status are red" "red" "$(checked '[{"status":"completed","conclusion":"failure"}]' '{"state":"success","total_count":1}')"
-check "commit_checked: a run still going and a failed status are red" "red" "$(checked '[{"status":"in_progress","conclusion":null}]' '{"state":"failure","total_count":1}')"
+check "commit_checked: a run still going and a green status are pending" "pending" "$(checked '[{"status":"in_progress","conclusion":null,"workflowName":"check"}]' '{"state":"success","total_count":1}')"
+check "commit_checked: a failed run and a green status are red" "red" "$(checked '[{"status":"completed","conclusion":"failure","workflowName":"check"}]' '{"state":"success","total_count":1}')"
+check "commit_checked: a run still going and a failed status are red" "red" "$(checked '[{"status":"in_progress","conclusion":null,"workflowName":"check"}]' '{"state":"failure","total_count":1}')"
 
 # the visibility of a repository: the forge reads isPrivate as the tracker does, and both refuse what is no boolean
 cat > "$WORK/fake/gh" <<'GH'

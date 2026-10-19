@@ -24,17 +24,21 @@
 # Where the merged tree carries scripts/install.sh, it runs there before the push, so the gate's
 # check finds what it needs installed; a failing install refuses the landing, and nothing is pushed.
 #
-# A PUBLIC REPOSITORY LANDS ONLY ON GREEN CHECKS. Before the merge, the forge says whether the repository
-# of origin is public. If it is, this waits for the checks of the reviewed tip (every 20 seconds, 30
-# minutes at most; AI_CORE_INTEGRATE_POLL and AI_CORE_INTEGRATE_WAIT, in seconds, for a suite), goes on
-# when they are green and says which sha was green, and refuses with nothing merged or pushed when they
-# are red, do not finish in time or cannot be read. A private repository rests on its push gate, which
-# is its check: no CI is read and one line says so. A visibility the forge does not establish refuses.
-# The wait is the one release uses (wait_for_checks in lib/forge.sh). It happens before the landing lock is
-# taken, so a slow CI does not hold up the other landings of the clone; once the lock is held and origin is
-# fetched, the tip is read again, and a tip that moved since its checks were waited for refuses. Without
-# --from-origin, a public repository whose local branch tip is not the tip of origin/<branch> refuses at
-# once: a commit origin does not hold has no checks.
+# A PUBLIC REPOSITORY LANDS ONLY ON THE GREEN CHECKS OF THE COMMIT THAT LANDS. Before anything is made, the
+# forge says whether the repository of origin is public. If it is, in both paths the merge commit is made in
+# a temporary worktree of origin/<default> (so the issue's worktree is not touched), pushed to
+# ci/<issue branch>, which belongs to this landing alone and replaces a left-over of an earlier attempt, and
+# its checks are waited for (every 20 seconds, 30 minutes at most; AI_CORE_INTEGRATE_POLL and
+# AI_CORE_INTEGRATE_WAIT, in seconds, for a suite): the CI of a repository may run on ci/ branches and the
+# default branch only, so the issue branch itself may never get one. The wait is the one release uses
+# (wait_for_checks in lib/forge.sh) and happens before the landing lock is taken, so a slow CI holds up no
+# other landing. Green says which commit was green and on which branch; then, with the lock held and origin
+# fetched, the push to the default branch sends exactly that commit. Red checks, checks that do not finish
+# or cannot be read, an origin/<default> that moved while they ran and an issue branch whose tip moved
+# refuse with nothing pushed to the default branch. ci/<issue branch> is deleted on origin on every way out;
+# a delete that fails is named. Without --from-origin, a local branch tip that origin does not hold has no
+# checks and refuses at once. A private repository rests on its push gate, which is its check: nothing goes
+# to ci/ and no CI is read, and one line says so. A visibility the forge does not establish refuses.
 #
 # A MERGE COMMIT, NOT A REBASE: the reviewed commits land as they were read, with the shas the
 # reviewer saw, and the one new commit carries the issue and the reviewer.
@@ -120,43 +124,45 @@ subject="$title ($ref)"
 [ -n "$title" ] && [ "${#subject}" -le 72 ] || subject="Merge $branch ($ref)"
 [ "${#subject}" -le 72 ] || subject="Merge issue-$number ($ref)"
 
-# wait_for_green_checks: a public repository lands only when the checks of the reviewed tip are green, a
-# private one on its push gate. It runs before the landing lock and before anything moves, and sets
-# waited_tip to the tip whose checks were green; a private repository leaves it empty. The tip is the one
-# origin lists for --from-origin, else the local branch, which must be the tip origin holds too.
-waited_tip=""
-wait_for_green_checks() {
-  local checked_repo visibility tip poll limit checks=0 on_origin
-  checked_repo="$(origin_repo)" || die "nothing landed: origin names no repository, so its visibility cannot be established"
-  visibility="$(apart forge_repo_visibility "$checked_repo")" \
-    || die "nothing landed: the visibility of $checked_repo cannot be established, so it is not known whether its checks must be green: $visibility"
-  if [ "$visibility" = private ]; then
-    echo "checks: $checked_repo is private, its push gate is its check; the CI of $(forge_name) is not read"
-    return 0
+landing="$(git rev-parse --path-format=absolute --git-common-dir)/ai-core-landing"
+# The branch ci/<issue branch> on origin and the temporary worktree go first, on every way out, then the
+# lock. A branch that cannot be deleted is named and changes nothing about the outcome.
+tree=""; ci_branch=""
+delete_ci_branch() {
+  local said
+  [ -z "$ci_branch" ] || said="$(git push origin --delete "$ci_branch" 2>&1)" \
+    || echo "$ci_branch could not be deleted on origin, delete it by hand: $(printf '%s' "$said" | tr -s '\r\n' '  ')" >&2
+}
+trap 'delete_ci_branch
+  [ -z "$tree" ] || git worktree remove --force "$tree" >/dev/null 2>&1 || rm -rf "$tree"
+  [ "$(cut -f1 "$landing" 2>/dev/null)" != "$$" ] || rm -f "$landing"' EXIT
+
+# make_merge <tip> <name of the tip>: the merge commit of the tip into origin/<default>, made in a temporary
+# worktree beside the clone (tree), where scripts/install.sh of the merged tree runs if it has one, so the
+# gate's check finds what it needs. Sets base_tip (the origin/<default> it was made on), merged_sha, merged.
+make_merge() {
+  local container
+  [ -n "$(git rev-list -n1 "$1" --not "origin/$default")" ] \
+    || die "nothing to integrate: $2 is in origin/$default already"
+  [ -z "$from_origin" ] || echo "merging: $2 at $(git rev-parse --short "$1")"
+  container="$(worktree_container)" && mkdir -p "$container" \
+    && tree="$(mktemp -d "$container/integrate-$number.XXXXXX")" || die "no folder for the temporary worktree beside the clone"
+  git worktree add -q --detach "$tree" "origin/$default" || die "the temporary worktree could not be made on origin/$default (see above)"
+  base_tip="$(git rev-parse "origin/$default")"
+  git -C "$tree" merge -q --no-ff --no-edit "$1" -m "$subject" -m "$trailers" \
+    || die "$2 does not merge cleanly into origin/$default - bring origin/$default into the branch, get the review of the result, then run this again; nothing was pushed"
+  merged_sha="$(git -C "$tree" rev-parse HEAD)"
+  merged="$(git -C "$tree" rev-parse --short HEAD)"
+  if [ -f "$tree/scripts/install.sh" ]; then
+    echo "installing: scripts/install.sh of the merged tree runs in $tree, so the gate's check finds what it needs"
+    (cd "$tree" && bash scripts/install.sh) \
+      || die "scripts/install.sh failed in the temporary worktree (see above) - nothing was pushed, origin is as it was, and the worktree of $branch is as it was"
   fi
-  if [ -n "$from_origin" ]; then
-    tip="$listed_tip"
-  else
-    tip="$(git rev-parse "$branch^{commit}")"
-    on_origin="$(GIT_TERMINAL_PROMPT=0 git ls-remote origin "refs/heads/$branch" 2>&1)" \
-      || die "could not reach origin: $on_origin"
-    [ "${on_origin%%[[:space:]]*}" = "$tip" ] \
-      || die "nothing landed: $tip is not on origin, so it has no checks; push the branch, then run this again"
-  fi
-  poll="${AI_CORE_INTEGRATE_POLL:-20}"; limit="${AI_CORE_INTEGRATE_WAIT:-1800}"
-  wait_for_checks "$PWD" "$tip" "$poll" "$limit" \
-    "waiting: $checked_repo is public and lands only on green checks; the checks of ${tip:0:7} are asked every ${poll}s, $((limit / 60)) minute(s) at most" || checks=$?
-  case "$checks" in
-    0) echo "checks: green for ${tip:0:7} on $(forge_name); $checked_repo is public and lands only on green checks" ;;
-    1) die "nothing landed: the checks for $tip are red, so nothing was merged or pushed and origin is as it was" ;;
-    2) die "nothing landed: the checks for $tip did not finish in $((limit / 60)) minute(s), so nothing was merged or pushed; run this again when they have" ;;
-    *) die "nothing landed: $(checks_unreadable_message "$tip" "$checks_said")" ;;
-  esac
-  waited_tip="$tip"
 }
 
-# keep_waited_tip <ref>: once the lock is held and origin fetched, the tip that was waited for is still the
-# tip of <ref>, else nothing lands
+# keep_waited_tip <ref>: once the lock is held and origin fetched, the reviewed tip is still the tip of <ref>,
+# else nothing lands. Nothing is waited for in a private repository, so there it holds nothing.
+waited_tip=""
 keep_waited_tip() {
   local now
   [ -n "$waited_tip" ] || return 0
@@ -165,9 +171,53 @@ keep_waited_tip() {
     || die "nothing landed: $1 moved from $waited_tip to $now while its checks were waited for; run this again"
 }
 
-wait_for_green_checks
+# gate_public_repository: a public repository lands only on the green checks of the commit that lands. It
+# runs before the landing lock, so a slow CI holds up no other landing, and before anything reaches the
+# default branch. The merge commit is made in a temporary worktree and pushed to ci/<issue branch>, which
+# belongs to this landing alone, so a left-over of an earlier attempt is replaced; its checks are waited
+# for; the push to the default branch after the lock sends exactly that commit. A private repository
+# rests on its push gate: nothing is made or pushed here, and no CI is read. The reviewed tip is the one
+# origin lists for --from-origin, else the local branch, which must be the tip origin holds too.
+base_tip=""; merged_sha=""; merged=""
+gate_public_repository() {
+  local checked_repo visibility tip tip_name poll limit checks=0 on_origin said
+  checked_repo="$(origin_repo)" || die "nothing landed: origin names no repository, so its visibility cannot be established"
+  visibility="$(apart forge_repo_visibility "$checked_repo")" \
+    || die "nothing landed: the visibility of $checked_repo cannot be established, so it is not known whether its checks must be green: $visibility"
+  if [ "$visibility" = private ]; then
+    echo "checks: $checked_repo is private, its push gate is its check; the CI of $(forge_name) is not read"
+    return 0
+  fi
+  if [ -n "$from_origin" ]; then
+    tip="$listed_tip"; tip_name="origin/$branch"
+  else
+    tip="$(git rev-parse "$branch^{commit}")"; tip_name="$branch"
+    on_origin="$(GIT_TERMINAL_PROMPT=0 git ls-remote origin "refs/heads/$branch" 2>&1)" \
+      || die "could not reach origin: $on_origin"
+    [ "${on_origin%%[[:space:]]*}" = "$tip" ] \
+      || die "nothing landed: $tip is not on origin, so it has no checks; push the branch, then run this again"
+  fi
+  said="$(git fetch origin 2>&1)" || die "could not reach origin: $said"
+  default="$(origin_default_branch)" || exit 1
+  waited_tip="$tip"
+  keep_waited_tip "origin/$branch"
+  make_merge "$tip" "$tip_name"
+  said="$(git -C "$tree" push origin "+$merged_sha:refs/heads/ci/$branch" 2>&1)" \
+    || die "nothing landed: the merge commit ${merged_sha:0:7} could not be pushed to ci/$branch for its checks, and nothing reached $default: $said"
+  ci_branch="ci/$branch"
+  poll="${AI_CORE_INTEGRATE_POLL:-20}"; limit="${AI_CORE_INTEGRATE_WAIT:-1800}"
+  wait_for_checks "$tree" "$merged_sha" "$poll" "$limit" \
+    "waiting: $checked_repo is public and lands only on green checks; the checks of ${merged_sha:0:7} on $ci_branch are asked every ${poll}s, $((limit / 60)) minute(s) at most" || checks=$?
+  case "$checks" in
+    0) echo "checks: green for ${merged_sha:0:7} on $ci_branch at $(forge_name); $checked_repo is public and lands only on green checks" ;;
+    1) die "nothing landed: the checks for $merged_sha on $ci_branch are red, so nothing was pushed to $default and origin/$default is as it was" ;;
+    2) die "nothing landed: the checks for $merged_sha on $ci_branch did not finish in $((limit / 60)) minute(s), so nothing was pushed to $default; run this again when they have" ;;
+    *) die "nothing landed: $(checks_unreadable_message "$merged_sha" "$checks_said")" ;;
+  esac
+}
 
-landing="$(git rev-parse --path-format=absolute --git-common-dir)/ai-core-landing"
+gate_public_repository
+
 # A known limit: two waiters that find the same dead holder can both take over, and the push then still
 # refuses the second, as it does without the lock; a holder's process id that an unrelated process
 # took over keeps the lock held, and the waiting line names that process
@@ -191,11 +241,6 @@ until said="$( (set -C; printf '%s\t%s\n' "$$" "$ref" > "$landing") 2>&1 )"; do
   [ -n "$waited" ] || [ "$nameless" -gt 0 ] || { waited=1; echo "waiting: ${holder#*$'\t'} is landing from this clone (process $pid); this one lands after it" >&2; }
   sleep 2
 done
-# The temporary worktree of --from-origin goes first, on every way out, then the lock
-tree=""
-trap '[ -z "$tree" ] || git worktree remove --force "$tree" >/dev/null 2>&1 || rm -rf "$tree"
-  [ "$(cut -f1 "$landing" 2>/dev/null)" != "$$" ] || rm -f "$landing"' EXIT
-
 said="$(git fetch origin 2>&1)" || die "could not reach origin: $said"
 default="$(origin_default_branch)" || exit 1
 
@@ -205,28 +250,21 @@ back_to_branch() {
   die "$1"
 }
 
-if [ -n "$from_origin" ]; then
-  tip="$(git rev-parse -q --verify "origin/$branch^{commit}")" || die "origin/$branch is not there after the fetch - push the reviewed branch, then run this again"
+if [ -n "$waited_tip" ]; then
+  # The public repository: the merge commit made and checked before the lock lands as it is, if nothing moved
+  now="$(git rev-parse "origin/$default^{commit}")" || die "origin/$default is not there after the fetch"
+  [ "$now" = "$base_tip" ] \
+    || die "nothing landed: origin/$default moved from $base_tip to $now while the checks of $merged_sha ran; run this again"
   keep_waited_tip "origin/$branch"
-  [ -n "$(git rev-list -n1 "$tip" --not "origin/$default")" ] \
-    || die "nothing to integrate: origin/$branch is in origin/$default already"
-  echo "merging: origin/$branch at $(git rev-parse --short "$tip")"
-  container="$(worktree_container)" && mkdir -p "$container" \
-    && tree="$(mktemp -d "$container/integrate-$number.XXXXXX")" || die "no folder for the temporary worktree beside the clone"
-  git worktree add -q --detach "$tree" "origin/$default" || die "the temporary worktree could not be made on origin/$default (see above)"
-  git -C "$tree" merge -q --no-ff --no-edit "$tip" -m "$subject" -m "$trailers" \
-    || die "origin/$branch does not merge cleanly into origin/$default - bring origin/$default into the branch, get the review of the result, then run this again; nothing was pushed"
-  merged="$(git -C "$tree" rev-parse --short HEAD)"
-  if [ -f "$tree/scripts/install.sh" ]; then
-    echo "installing: scripts/install.sh of the merged tree runs in $tree, so the gate's check finds what it needs"
-    (cd "$tree" && bash scripts/install.sh) \
-      || die "scripts/install.sh failed in the temporary worktree (see above) - nothing was pushed, origin is as it was, and the worktree of $branch is as it was"
-  fi
+  [ -n "$from_origin" ] || keep_waited_tip "$branch"
+  git -C "$tree" push origin "HEAD:$default" \
+    || die "the push was refused (see above) - nothing reached origin, and the worktree of $branch is as it was"
+elif [ -n "$from_origin" ]; then
+  tip="$(git rev-parse -q --verify "origin/$branch^{commit}")" || die "origin/$branch is not there after the fetch - push the reviewed branch, then run this again"
+  make_merge "$tip" "origin/$branch"
   git -C "$tree" push origin "HEAD:$default" \
     || die "the push was refused (see above) - nothing reached origin, and the worktree of $branch is as it was"
 else
-  keep_waited_tip "origin/$branch"
-  keep_waited_tip "$branch"
   [ -n "$(git rev-list -n1 "$branch" --not "origin/$default")" ] \
     || die "nothing to integrate: $branch is in origin/$default already"
   git switch -q --detach "origin/$default" || die "the worktree could not be put on origin/$default (see above)"

@@ -12,7 +12,7 @@ forge_name() { echo GitHub; }
 not_signed_in_words() { echo "gh is not logged in"; }
 
 checks_unreadable_message() {  # checks_unreadable_message <sha> <what gh said last>
-  echo "gh could not list the workflow runs of $1 until the deadline; it said last: $2 (is gh logged in?)"
+  echo "gh could not read the checks of $1 until the deadline; it said last: $2 (is gh logged in?)"
 }
 
 repo_exists() {  # repo_exists <owner/repo>
@@ -54,14 +54,18 @@ forge_repo_visibility() {
 # state is success where statuses exist; red when the runs completed and none succeeded, or the combined
 # state is failure or error; pending otherwise; unreadable when a query failed or answered nothing,
 # then gh's words are on stderr. A query that fails is no answer yet: gh or the network fails once
-# while the checks run on.
+# while the checks run on. The runs are listed whatever their workflow and filtered here: `gh run list
+# --workflow check` fails on a repository that has no workflow of that name, which a repository with
+# statuses alone does not. The listing is wide because other workflows' runs share it.
 commit_checked() {
-  local runs statuses answer said
+  local repo runs statuses answer said
   said="$(mktemp)"
-  if runs="$(cd "$1" && gh run list --commit "$2" --workflow check --json status,conclusion --limit 5 2>"$said")" && [ -n "$runs" ] \
-    && statuses="$(cd "$1" && gh api "repos/{owner}/{repo}/commits/$2/status" 2>>"$said")" && [ -n "$statuses" ] \
-    && answer="$(jq -rn --argjson runs "$runs" --argjson status "$statuses" '
-      if ($runs | type) != "array" then error("the workflow runs are not a list") else . end
+  repo="$(origin_repo "$1")" || { echo unreadable; echo "$1 has no origin to ask for the checks" >&2; rm -f "$said"; return 0; }
+  if runs="$(gh run list -R "$repo" --commit "$2" --json status,conclusion,workflowName --limit 30 2>"$said")" && [ -n "$runs" ] \
+    && statuses="$(gh api "repos/$repo/commits/$2/status" 2>>"$said")" && [ -n "$statuses" ] \
+    && answer="$(jq -rn --argjson all "$runs" --argjson status "$statuses" '
+      if ($all | type) != "array" then error("the workflow runs are not a list") else . end
+      | ($all | map(select(.workflowName == "check"))) as $runs
       | ($runs | length) as $runCount
       | ($status.total_count // 0) as $statusCount
       | ($status.state // "") as $state

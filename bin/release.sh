@@ -67,8 +67,8 @@ if [ "$(git -C "$CORE" rev-parse -q --verify "origin/$branch" 2>/dev/null)" != "
   echo "release: ${sha:0:7} pushed to origin/$branch"
 fi
 
-# 3. The checks for exactly this commit, on every runner: one workflow run, completed and green,
-#    waited for. A query that fails is no answer yet, so only the deadline ends the wait, and the
+# 3. The checks for exactly this commit, workflow runs and commit statuses alike, all complete and
+#    green, waited for. A query that fails is no answer yet, so only the deadline ends the wait, and the
 #    refusal then names what the forge said last.
 poll="${AI_CORE_RELEASE_POLL:-20}"; limit="${AI_CORE_RELEASE_WAIT:-1800}"; checks=0
 wait_for_checks "$CORE" "$sha" "$poll" "$limit" \

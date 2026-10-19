@@ -587,11 +587,19 @@ tools work; the harness gives them the text at the place they look.
   repository already has one, `init` keeps it, merges in the hook and the permission where they are
   missing, once, replaces an `ai-core` hook of an older form, and sets the status line to
   `ai-core statusline` in place of another one, because `ai-core usage` reads what it records. It also denies, and merges into an existing one
-  the same way: reading or editing a checkout's `.env`, `.env.local` and `.env.*.local`, reading
+  the same way: reading or editing a checkout's `.env`, `.env.local`, `.env.*.local` and any `*.env`
+  (except `config.env`, the harness's own file, which the entry `!config.env` carves out) and any
+  `*.pem` and `*.key`, reading or editing `~/.netrc`, reading
   the machine's credentials (`~/.ssh`, `~/.aws`, `~/.git-credentials`, `~/.npmrc`, `~/.config/gh`,
-  `~/.docker/config.json`, `~/.kube`), and `git push --force`, `-f` and `--force-with-lease`. These
-  hold Claude Code's own file tools and the commands as written; a shell command such as `cat .env`
-  is not held by them. Claude Code applies allow rules from
+  `~/.docker/config.json`, `~/.kube`), `git push --force`, `-f` and `--force-with-lease`, `git reset --hard`
+  and every `git clean`. A Read or Edit denial holds Claude Code's file tools, the file commands it
+  recognizes in Bash (`cat`, `head`, `tail`, `sed`, `tee`) and the targets of redirections; it does not
+  hold a command that reads files without naming them, such as `grep -r pattern .`, or a script that opens
+  files itself (Claude Code's permissions documentation, section "Read and Edit"). A Bash denial
+  holds the command as written: `git -C . reset --hard` or `sh -c '...'` is not matched. A `claude -p` run from a throwaway folder reads
+  no checkout's `settings.json`, so `init` also writes the same denials, with `**/` patterns anchored at the
+  filesystem root (`//**/`) and without the `!config.env` entries, to `~/.ai-core/claude-run-settings.json`,
+  which the skills pass with `--settings`. Claude Code applies allow rules from
   a committed or excluded project `settings.json` only after you accept its trust dialog for the
   folder.
 - **Auto mode.** Claude Code's classifier reads `autoMode` only from the user settings,

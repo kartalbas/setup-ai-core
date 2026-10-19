@@ -596,6 +596,16 @@ if command -v jq >/dev/null 2>&1; then
       && [ -s "$TMP/settings.json" ] && put_file "$TMP/settings.json" "$SETTINGS" ".claude/settings.json" managed
   fi
 fi
+# The deny list for the `claude -p` runs the skills start from a throwaway folder, which read no
+# checkout's .claude/settings.json: the template's denials in one file under the ai-core home, for
+# `--settings`. A pattern starting with **/ is anchored at //, the filesystem root, because a
+# relative one reaches only below the throwaway folder; a ! entry is left out, because Claude
+# Code reads a ! pattern relative to the current folder and so cannot carve out of a //-rule.
+RUN_SETTINGS="${AI_CORE_HOME:-$HOME}/.ai-core/claude-run-settings.json"
+RUN_SETTINGS_MAKE='{permissions: {deny: [.permissions.deny[] | select(test("^[A-Za-z]+\\(!") | not) | sub("^(?<t>[A-Za-z]+)\\(\\*\\*/"; "\(.t)(//**/")]}}'
+if command -v jq >/dev/null 2>&1 && jq "$RUN_SETTINGS_MAKE" "$SETTINGS_TEMPLATE" 2>/dev/null | tr -d '\r' > "$TMP/claude-run-settings.json" && [ -s "$TMP/claude-run-settings.json" ]; then
+  put_file "$TMP/claude-run-settings.json" "$RUN_SETTINGS" "$RUN_SETTINGS" managed
+fi
 # 2a. A repository with a CLAUDE.md of its own: Claude Code then reads that file and not AGENTS.md.
 #     A CLAUDE.local.md beside it, which Claude Code loads the same way and git never sees, imports
 #     AGENTS.md, so the map and the binding rules load there too. Created once and never taken out;
@@ -732,7 +742,7 @@ if serves codex; then
     else
       {
         printf '# setup-ai-core %s: written by ai-core init, rewritten on every run. The commands Claude Code\n' "$CORE_VERSION"
-        printf '# runs without asking or never runs (templates/.claude/settings.json), the same in Codex.\n'
+        printf '# runs without asking or never runs (templates/.claude/settings.json, the entries of the form\n# Bash(words:*)), the same in Codex.\n'
         for list in allow:allow deny:forbidden; do
           tr -d '\r' < "$SETTINGS_TEMPLATE" | jq -r --arg l "${list%%:*}" '.permissions[$l][]? | select(test("^Bash\\([^:]*:\\*\\)$")) | .[5:-3]' \
             | while IFS= read -r c; do

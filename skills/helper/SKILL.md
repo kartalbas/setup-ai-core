@@ -20,8 +20,11 @@ path in the task, and remove the worktree afterwards.
 - claude, one call per task:
 
       claude -p "<task>" --model <model> --effort <effort> --permission-prompts none \
-        --strict-mcp-config --no-session-persistence --output-format text
+        --settings ~/.ai-core/claude-run-settings.json --strict-mcp-config --no-session-persistence --output-format text
 
+  `--settings ~/.ai-core/claude-run-settings.json` carries the deny list of the template (key files
+  and `.env` files unread, `git reset --hard` and `git clean` refused), which a call from a
+  disposable directory would not otherwise have; `ai-core init` writes the file.
   `--permission-prompts none` denies whatever would ask a question, so the call never waits at a
   terminal; `--strict-mcp-config` keeps every MCP server of yours out of it, a logged-in browser
   among them. Name the files it reads by absolute path.

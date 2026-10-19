@@ -117,9 +117,16 @@ echo "  --tool claude: no skill and no rules printed, at most 9 500 bytes, JSON 
 jq -e '(.instructions | index(".ai-core/rules/rules.md") != null and index(".ai-core/rules/skills.md") != null and index(".ai-core/rules/rules.local.md") != null)' "$WORK/checkout/opencode.json" > /dev/null || fail "init.sh did not lay an opencode.json with the rules: $(tr -d '\n' < "$WORK/checkout/opencode.json" 2>/dev/null)"
 jq -e --slurpfile t "$ROOT/templates/.claude/settings.json" '(.permissions.deny == $t[0].permissions.deny) and (.permissions.deny | index("Read(**/.env)") != null) and (.permissions.deny | index("Bash(git push --force:*)") != null)' "$WORK/checkout/.claude/settings.json" > /dev/null || fail "the settings.json init.sh deployed lacks the denials of the template: $(jq -c '.permissions.deny' "$WORK/checkout/.claude/settings.json")"
 # the secrets of a checkout (any *.env, *.pem, *.key, ~/.netrc) are neither read nor edited, git's hard cleanups are refused, and rm -rf stays allowed
-for entry in 'Read(**/*.env)' 'Edit(**/*.env)' 'Read(**/*.pem)' 'Edit(**/*.pem)' 'Read(**/*.key)' 'Edit(**/*.key)' 'Read(~/.netrc)' 'Edit(~/.netrc)' 'Bash(git reset *--hard*)' 'Bash(git clean *-f*)' 'Bash(git clean *--force*)'; do
+for entry in 'Read(**/*.env)' 'Edit(**/*.env)' 'Read(!config.env)' 'Edit(!config.env)' 'Read(**/*.pem)' 'Edit(**/*.pem)' 'Read(**/*.key)' 'Edit(**/*.key)' 'Read(~/.netrc)' 'Edit(~/.netrc)' 'Bash(git reset --hard:*)' 'Bash(git reset *--hard*)' 'Bash(git clean:*)'; do
   jq -e --arg e "$entry" '.permissions.deny | index($e) != null' "$WORK/checkout/.claude/settings.json" > /dev/null || fail "the settings.json init.sh deployed does not deny $entry"
 done
+# a ! entry carves out only of the rules listed before it: config.env, the harness's own file, stays readable
+for t in Read Edit; do
+  jq -e --arg t "$t" '.permissions.deny as $d | ($d | index($t + "(**/*.env)")) as $a | ($d | index($t + "(!config.env)")) as $b | $a != null and $b != null and $b > $a' "$WORK/checkout/.claude/settings.json" > /dev/null || fail "the settings.json init.sh deployed does not list $t(!config.env) after $t(**/*.env)"
+done
+# the file for the claude -p runs from a throwaway folder: every denial of the template, **/ anchored at //, no ! entry
+RUN_SETTINGS="${AI_CORE_HOME:-$HOME}/.ai-core/claude-run-settings.json"
+jq -e --slurpfile t "$ROOT/templates/.claude/settings.json" '.permissions.deny as $d | [$t[0].permissions.deny[] | select(test("^[A-Za-z]+\\(!") | not) | sub("^(?<k>[A-Za-z]+)\\(\\*\\*/"; "\(.k)(//**/")] as $want | ($want - $d | length == 0) and ($d - $want | length == 0) and ($d | index("Read(//**/*.env)") != null) and ($d | index("Bash(git clean:*)") != null) and all($d[]; test("\\(!") | not)' "$RUN_SETTINGS" > /dev/null || fail "init.sh did not write the denials of the template, // anchored and without ! entries, to $RUN_SETTINGS: $(jq -c '.permissions.deny' "$RUN_SETTINGS" 2>&1)"
 jq -e '[.permissions.deny[] | select(test("^Bash\\(rm( |:)"))] | length == 0' "$WORK/checkout/.claude/settings.json" > /dev/null || fail "the settings.json init.sh deployed denies rm: rm -rf of a temporary folder must stay allowed"
 jq -e '(.permissions.allow | index("Bash(ai-core:*)")) != null' "$WORK/checkout/.claude/settings.json" > /dev/null || fail "the settings.json deployed by init.sh does not allow the ai-core commands"
 [ "$(jq -r '.statusLine.command' "$WORK/checkout/.claude/settings.json")" = "\"$AI_CORE_CMD\" statusline" ] || fail "the settings.json init.sh deployed does not record the usage windows through ai-core statusline by its full path: $(jq -c '.statusLine' "$WORK/checkout/.claude/settings.json")"
@@ -230,6 +237,7 @@ grep -qxF -- '- [other-ai-core] Kept from another project.' "$P" && grep -qxF --
 R="$CODEX_HOME-folder/rules/ai-core.rules"
 grep -qxF 'prefix_rule(pattern = ["ai-core"], decision = "allow")' "$R" || fail "init.sh did not allow ai-core in Codex's command rules"
 grep -qxF 'prefix_rule(pattern = ["git", "push", "--force"], decision = "forbidden")' "$R" && ! grep -q '"--force"\], decision = "allow"' "$R" || fail "init.sh did not forbid what the template denies in Codex's command rules"
+for c in '"git", "reset", "--hard"' '"git", "clean"'; do grep -qxF "prefix_rule(pattern = [$c], decision = \"forbidden\")" "$R" || fail "init.sh did not forbid [$c] in Codex's command rules"; done
 grep -aqF "the command rules written to $R" "$F.log" || fail "init.sh did not say it wrote the command rules"
 # init.sh reads the template with jq; without it, init still runs and says it wrote no command rules
 J="$WORK/no-jq-bin"; mkdir -p "$J"

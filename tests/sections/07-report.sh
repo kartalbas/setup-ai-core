@@ -8,7 +8,7 @@ init_quiet() {  # init_quiet <dir> <log> [--dry-run]: init without doctor
   bash "$ROOT/bin/init.sh" "$dir" --no-doctor "$@" > "$log" 2>&1
 }
 # The report lines of a log; the .gitignore line without its note, and Claude Code's folder under one name
-report_of() { sed -n '/^init would change in /,/^====/p; /^init changed in /,/^====/p' "$1" | grep -a '^  ' | tr -d '\r' | sed 's/^  \.gitignore .*/  .gitignore/; s/would be written/written/; s#[^ ]*/claude-config#CLAUDE_CONFIG_DIR#g'; }
+report_of() { sed -n '/^init would change in /,/^====/p; /^init changed in /,/^====/p' "$1" | grep -a '^  ' | tr -d '\r' | sed 's/^  \.gitignore .*/  .gitignore/; s#[^ ]*/claude-config#CLAUDE_CONFIG_DIR#g'; }
 D="$WORK/report"
 git init -q "$D"; echo readme > "$D/README.md"; git -C "$D" add README.md
 git -C "$D" -c user.name=check -c user.email=check@localhost commit -q -m init
@@ -29,7 +29,7 @@ grep -aq '^  nothing was written (dry run)$' "$WORK/report-dry.log" || fail "ini
 # 2. the run: what the dry run announced, done and reported the same way
 init_quiet "$D" "$WORK/report-1.log" || fail "init.sh run 1 failed (see $WORK/report-1.log)"
 [ -f "$D/AGENTS.md" ] && [ ! -e "$D/.ai-core/bin" ] || fail "init.sh run 1 did not do what the dry run announced"
-diff <(report_of "$WORK/report-dry.log" | sed 's/would change/changed/; s/^  nothing was written (dry run)$//' | grep .) <(report_of "$WORK/report-1.log") > /dev/null || fail "init.sh: the run reports something else than its dry run announced: $(diff <(report_of "$WORK/report-dry.log") <(report_of "$WORK/report-1.log"))"
+diff <(report_of "$WORK/report-dry.log" | sed 's/would change/changed/; s/would be written/written/; s/^  nothing was written (dry run)$//' | grep .) <(report_of "$WORK/report-1.log") > /dev/null || fail "init.sh: the run reports something else than its dry run announced: $(diff <(report_of "$WORK/report-dry.log") <(report_of "$WORK/report-1.log"))"
 # 3. the second run: nothing created, refreshed or removed; the exclude file untouched
 cp "$D/.git/info/exclude" "$WORK/report.exclude"
 init_quiet "$D" "$WORK/report-2.log" || fail "init.sh run 2 failed (see $WORK/report-2.log)"

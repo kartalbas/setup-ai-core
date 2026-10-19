@@ -113,7 +113,12 @@ fi
 # file is theirs, and a command that edits its own input cannot be run twice.
 sent="$(mktemp)" || die "issue-new: cannot create temporary body file"
 created=""
-trap 'rc=$?; rm -f "$sent"; [ "$rc" -eq 0 ] || [ -z "$created" ] || echo "issue-new: issue $repo#$created exists; a step after the create failed, so do not run issue-new again for it" >&2' EXIT
+finish() {
+  local rc=$?
+  rm -f "$sent"
+  [ "$rc" -eq 0 ] || [ -z "$created" ] || echo "issue-new: issue $repo#$created exists; a step after the create failed, so do not run issue-new again for it" >&2
+}
+trap finish EXIT
 trap 'exit 1' HUP INT TERM
 { printf '%s\n\n' "$asked"; cat "$body"; } > "$sent"
 

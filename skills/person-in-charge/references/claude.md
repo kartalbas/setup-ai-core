@@ -40,10 +40,11 @@ the project folder and each partner folder added, so it can read every clone.
 - A UI test session gets the isolated browser and nothing else, as one `-p` run from an empty
   throwaway directory, its output into `~/.ai-core/sessions/<session name>.out`, because its last
   message is its report, `--no-session-persistence` keeps nothing, and you post the report on the
-  issues:
+  issues. `~/.ai-core/claude-run-settings.json` is the file `ai-core init` writes: the deny list of
+  the template, which a `-p` run from a throwaway folder would not otherwise carry:
 
       claude -p "$(cat <brief file>)" --model <model> --effort <effort> --permission-prompts none \
-        --settings '{"autoCompactWindow":200000}' --strict-mcp-config --no-session-persistence \
+        --settings "$(jq -c '. + {autoCompactWindow:200000}' ~/.ai-core/claude-run-settings.json)" --strict-mcp-config --no-session-persistence \
         --output-format text \
         --mcp-config '{"mcpServers":{"chrome-devtools":{"command":"npx","args":["-y","chrome-devtools-mcp@1.10.1","--executablePath","<path of Edge or Chrome>","--headless","--isolated","--viewport","1366x900"]}}}' \
         --allowedTools mcp__chrome-devtools > ~/.ai-core/sessions/<session name>.out

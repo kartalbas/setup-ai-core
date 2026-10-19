@@ -10,6 +10,16 @@
       "Edit(**/.env)",
       "Edit(**/.env.local)",
       "Edit(**/.env.*.local)",
+      "Read(**/*.env)",
+      "Edit(**/*.env)",
+      "Read(!config.env)",
+      "Edit(!config.env)",
+      "Read(**/*.pem)",
+      "Edit(**/*.pem)",
+      "Read(**/*.key)",
+      "Edit(**/*.key)",
+      "Read(~/.netrc)",
+      "Edit(~/.netrc)",
       "Read(~/.ssh/**)",
       "Edit(~/.ssh/**)",
       "Read(~/.aws/**)",
@@ -20,7 +30,10 @@
       "Read(~/.kube/**)",
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
-      "Bash(git push --force-with-lease:*)"
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git reset *--hard*)",
+      "Bash(git clean:*)"
     ]
   },
   "attribution": {

@@ -575,7 +575,7 @@ done <<< "$( (cd "$CORE_ROOT/templates" && find . -type f | LC_ALL=C sort) | sed
 # that records the account's usage windows for `ai-core usage` (bin/statusline.sh), the permissions
 # of the template (the ai-core
 # commands) and its denials (the secrets of a checkout and the credentials of the machine are not
-# read, a push is not forced), each list read from the template, and its empty attribution, so
+# read, a push is not forced, git reset --hard and git clean are refused), each list read from the template, and its empty attribution, so
 # Claude Code asks no session to sign a commit or a pull request, which the commit rules forbid.
 # The hooks and the status line name ai-core by its full path on this machine, so a Claude Code
 # started from a terminal opened before the install still runs them; the file is the machine's,
@@ -595,6 +595,16 @@ if command -v jq >/dev/null 2>&1; then
     jq --arg c "$HOOK" --arg p "$PERMISSION_HOOK" --arg s "$STATUS_LINE" --slurpfile t "$SETTINGS_TEMPLATE" "$SETTINGS_ADD" "$src" 2>/dev/null | tr -d '\r' > "$TMP/settings.json" \
       && [ -s "$TMP/settings.json" ] && put_file "$TMP/settings.json" "$SETTINGS" ".claude/settings.json" managed
   fi
+fi
+# The deny list for the `claude -p` runs the skills start from a throwaway folder, which read no
+# checkout's .claude/settings.json: the template's denials in one file under the ai-core home, for
+# `--settings`. A pattern starting with **/ is anchored at //, the filesystem root, because a
+# relative one reaches only below the throwaway folder; a ! entry is left out, because Claude
+# Code reads a ! pattern relative to the current folder and so cannot carve out of a //-rule.
+RUN_SETTINGS="${AI_CORE_HOME:-$HOME}/.ai-core/claude-run-settings.json"
+RUN_SETTINGS_MAKE='{permissions: {deny: [.permissions.deny[] | select(test("^[A-Za-z]+\\(!") | not) | sub("^(?<t>[A-Za-z]+)\\(\\*\\*/"; "\(.t)(//**/")]}}'
+if command -v jq >/dev/null 2>&1 && jq "$RUN_SETTINGS_MAKE" "$SETTINGS_TEMPLATE" 2>/dev/null | tr -d '\r' > "$TMP/claude-run-settings.json" && [ -s "$TMP/claude-run-settings.json" ]; then
+  put_file "$TMP/claude-run-settings.json" "$RUN_SETTINGS" "$RUN_SETTINGS" managed
 fi
 # 2a. A repository with a CLAUDE.md of its own: Claude Code then reads that file and not AGENTS.md.
 #     A CLAUDE.local.md beside it, which Claude Code loads the same way and git never sees, imports
@@ -732,7 +742,7 @@ if serves codex; then
     else
       {
         printf '# setup-ai-core %s: written by ai-core init, rewritten on every run. The commands Claude Code\n' "$CORE_VERSION"
-        printf '# runs without asking or never runs (templates/.claude/settings.json), the same in Codex.\n'
+        printf '# runs without asking or never runs (templates/.claude/settings.json, the entries of the form\n# Bash(words:*)), the same in Codex.\n'
         for list in allow:allow deny:forbidden; do
           tr -d '\r' < "$SETTINGS_TEMPLATE" | jq -r --arg l "${list%%:*}" '.permissions[$l][]? | select(test("^Bash\\([^:]*:\\*\\)$")) | .[5:-3]' \
             | while IFS= read -r c; do

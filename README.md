@@ -282,7 +282,7 @@ setup-ai-core keeps its rules as one file per section under `rules/`: `00-how-to
 `10-the-code-never-lies.md`, `20-clean-before-fast.md`, `30-done-means-proven.md`,
 `40-architecture-configuration-secrets.md`, `50-naming.md`, `60-documentation-and-comments.md`,
 `70-working-with-the-product-owner.md`, `80-working-style-for-agents.md` and
-`90-the-harness-in-a-repository.md`: 68 rules. Two digits order the files and leave room between
+`90-the-harness-in-a-repository.md`: 67 rules. Two digits order the files and leave room between
 them. They are generic: they name no product, no organisation, no repository and no tool of one
 project. `init` assembles them into one `.ai-core/rules/rules.md` in the checkout, each section
 headed by a comment that names its source file and the setup-ai-core version, so an agent reads one file

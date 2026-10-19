@@ -127,26 +127,10 @@ for t in Read Edit; do
     jq -e --arg t "$t" --arg c "$carve" '.permissions.deny as $d | ($d | index($t + "(**/*.env)")) as $a | ($d | index($t + "(!" + $c + ")")) as $b | $a != null and $b != null and $b > $a' "$WORK/checkout/.claude/settings.json" > /dev/null || fail "the settings.json init.sh deployed does not list $t(!$carve) after $t(**/*.env)"
   done
 done
-# the innocent case: the carve-outs let exactly the harness's config.env and files named *.example.env past; a real
-# secrets.env, a config.local.env and a .env stay under the deny. Every name is tried bare and under a folder, against
-# the ! entries of Read and of Edit (an Edit carve-out opens > secrets.env), and a pattern with a leading **/ is also
-# tried without it, because in gitignore **/ matches zero folders.
-carved() {  # carved <name>: succeeds when a ! entry of the deployed settings.json matches the name, bare or under a folder
-  local name g
-  for name in "$1" "sub/$1"; do
-    while IFS= read -r g; do
-      case "$name" in $g) return 0 ;; esac
-      case "$g" in '**/'*) case "$name" in ${g#'**/'}) return 0 ;; esac ;; esac
-    done < <(jq -r '.permissions.deny[] | select(startswith("Read(!") or startswith("Edit(!")) | .[6:-1]' "$WORK/checkout/.claude/settings.json")
-  done
-  return 1
-}
-for name in config.env config.example.env; do
-  carved "$name" || fail "no ! entry of the deployed settings.json carves $name out of the env denial"
-done
-for name in secrets.env config.local.env .env prod.example.env.bak; do
-  ! carved "$name" || fail "a ! entry of the deployed settings.json carves $name out of the env denial: it must stay denied"
-done
+# the innocent case: no other ! entry stands in the deployed file, whatever its spelling (!**/*.env, !/*.env and
+# !./*.env each reopen every *.env), so a real secrets.env, a config.local.env and a .env stay under the deny
+extra="$(jq -r '[.permissions.deny[] | select(test("^(Read|Edit)\\(!"))] - ["Read(!config.env)","Edit(!config.env)","Read(!*.example.env)","Edit(!*.example.env)"] | .[]' "$WORK/checkout/.claude/settings.json" | tr '\n' ' ')"
+[ -z "$extra" ] || fail "the settings.json init.sh deployed carries ! entries beyond config.env and *.example.env, which reopen *.env files that must stay denied: $extra"
 # the file for the claude -p runs from a throwaway folder: every denial of the template, **/ anchored at //, no ! entry
 RUN_SETTINGS="${AI_CORE_HOME:-$HOME}/.ai-core/claude-run-settings.json"
 jq -e --slurpfile t "$ROOT/templates/.claude/settings.json" '.permissions.deny as $d | [$t[0].permissions.deny[] | select(test("^[A-Za-z]+\\(!") | not) | sub("^(?<k>[A-Za-z]+)\\(\\*\\*/"; "\(.k)(//**/")] as $want | ($want - $d | length == 0) and ($d - $want | length == 0) and ($d | index("Read(//**/*.env)") != null) and ($d | index("Bash(git clean:*)") != null) and all($d[]; test("\\(!") | not)' "$RUN_SETTINGS" > /dev/null || fail "init.sh did not write the denials of the template, // anchored and without ! entries, to $RUN_SETTINGS: $(jq -c '.permissions.deny' "$RUN_SETTINGS" 2>&1)"

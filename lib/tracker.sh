@@ -44,13 +44,17 @@ check_public_body() {
   # and no letter, digit, dot, hyphen, underscore, at sign or non-ASCII character may follow it: a
   # longer name, an address inside the package part and a dotted scope, which is a domain, then keep
   # their letters and stay scanned. Any other follower, such as a backtick or a slash, stays in the
-  # text, so an address behind it is scanned as before. A quoted local part and a bracketed domain
-  # take no at sign, so one match cannot swallow an address that the replacement would then hide.
+  # text, so an address behind it is scanned as before. The scan runs twice and refuses what either
+  # run finds. One run lets a quoted local part hold an at sign, so the outer address of a quoted
+  # local part such as a quoted at sign before a domain is found. The other takes no at sign inside
+  # the quotes, so an address inside them is found instead of being swallowed with them. A bracketed
+  # domain takes no at sign in both runs.
   addresses="$(printf '%s' "$text" | jq -Rrs '
+    def addresses($quoted): scan("(?:" + $quoted + "|(?:[A-Za-z0-9.!#$%&\u0027*+/=?^_`{|}~\\[\\]-]|[^\\x00-\\x7f])+)@(?:\\[[^\\]@\\r\\n]+\\]|[[:alnum:]][[:alnum:]\\p{M}._\u3002\uff0e\uff61-]*)");
     gsub("(?<s>[A-Za-z][A-Za-z0-9+.-]*://)(?:\\{\\{[^}@\\r\\n]*\\}\\}|[^/?#\\s@{<>()\\[\\]\"\u0027`,;])*@"; "\(.s)")
     | gsub("(?<![^\\s`(\\[<\"\u0027])[A-Za-z0-9._-]+@(?=[A-Za-z0-9<][A-Za-z0-9.<>_-]*:[^\\s:]*(?:/|\\.git\\b))"; "")
     | gsub("(?<![A-Za-z0-9.!#$%&\u0027*+/=?^_`{|}~\\[\\]\"-]|[^\\x00-\\x7f])`?@[a-z0-9_-]+/[a-z0-9][a-z0-9._-]*(?![A-Za-z0-9.@_-]|[^\\x00-\\x7f])"; " ")
-    | scan("(?:\"[^\"@\\r\\n]+\"|(?:[A-Za-z0-9.!#$%&\u0027*+/=?^_`{|}~\\[\\]-]|[^\\x00-\\x7f])+)@(?:\\[[^\\]@\\r\\n]+\\]|[[:alnum:]][[:alnum:]\\p{M}._\u3002\uff0e\uff61-]*)")
+    | (addresses("\"[^\"\\r\\n]+\""), addresses("\"[^\"@\\r\\n]+\""))
     | . as $address | (split("@") | last | gsub("[\u3002\uff0e\uff61]"; ".") | ascii_downcase | sub("[.]+$"; "")) as $domain
     | select(($domain | test("[[:alpha:]]|^\\[")))
     | select(($domain | test("(^|\\.)(invalid|example|test|localhost|example\\.(com|net|org))$")) | not)

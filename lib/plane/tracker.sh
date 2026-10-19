@@ -300,7 +300,8 @@ issue_create() {
     '{name: $name, description_html: $html, labels: $labels, assignees: [$a], external_source: "ai-core"}')"
   created="$(plane_api "the issue created in $repo, which was NOT created" POST "$(plane_path "projects/$(plane_project_uuid)/issues/")" "$request")" || exit 1
   id="$(printf '%s' "$created" | jq -r '.id')"; n="$(printf '%s' "$created" | jq -r '.sequence_id')"
-  back="$(plane_api "the work item $(plane_setting PLANE_PROJECT)-$n just created" GET "$(plane_path "projects/$(plane_project_uuid)/issues/$id/")?expand=labels")" || exit 1
+  back="$(plane_api "the work item $(plane_setting PLANE_PROJECT)-$n just created" GET "$(plane_path "projects/$(plane_project_uuid)/issues/$id/")?expand=labels")" \
+    || die "#$n exists in $repo after the create; the read-back above failed, so do not create it again"
   printf '%s' "$back" | jq -e --arg l "$label" 'any(.labels[]; .name == $l)' >/dev/null \
     || die "Plane dropped the label $label of #$n: the label id belongs to another project - #$n exists without it"
   printf '%s\n' "$n"

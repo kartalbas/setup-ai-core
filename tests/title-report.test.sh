@@ -31,8 +31,10 @@ EOF
 chmod +x "$fake/gh"
 export PATH="$fake:$PATH"
 
-# The cache folder of a board is under the organisation's name when the caller's organisation (the
-# fake's `repo view` answers none) differs from the project's, and flat when GH_ORG names it.
+# The cache folder of a board is under the organisation's name when the caller's organisation differs
+# from the project's, and flat when it is the same. The fake's `repo view` answers `{}` with exit 0,
+# which gh_org takes as the organisation, so without GH_ORG the folder is under the name; run-all.sh
+# sets GH_ORG=example-org, so there it is flat. Both are made.
 for dir in "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER" "$GH_CACHE_DIRECTORY/example-org/$PROJECT_NUMBER"; do
   mkdir -p "$dir"
   printf 'PVT_kwtitle%s\n' "$PROJECT_NUMBER" > "$dir/project-id"

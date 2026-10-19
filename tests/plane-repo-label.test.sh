@@ -36,6 +36,15 @@ grep -q 'Plane dropped the label repo:example-repo of #2: the label id belongs t
 echo "  planted: Plane drops the label id of another project; the create is refused by name (#2 exists without it, and the message says so)"
 grep -q 'exists without it' <<< "$out" || fail "the message does not say the work item exists"
 
+# planted: the read-back after the create fails, so the work item exists and a caller must not create it again
+printf '[{"match":"expand=labels","status":500,"body":"Server Error","times":1}]' > "$CURL_FAKE_STATE/inject.json"
+before="$(planeq 'console.log(p.issues.length)')"
+out="$(new "A read-back that fails, or the work item is made twice")" && fail "a failed read-back after the create was accepted"
+[ "$(planeq 'console.log(p.issues.length)')" = $((before + 1)) ] || fail "the failed read-back did not follow a create"
+grep -q 'exists in example-org/example-repo after the create.*do not create it again' <<< "$out" || fail "the message does not say the work item exists: $out"
+ai issue-close 3 >/dev/null 2>&1 || fail "issue-close of the work item whose read-back failed"
+echo "  planted: the read-back after the create fails; the message says the work item exists and must not be created again"
+
 # another repository's work item is refused, and nothing is written
 plane_add_item 50 "Somebody else's work" repo:other-repo
 state_of() { planeq "const it=p.issues.find((i)=>i.sequence_id===$1);console.log(p.states.find((s)=>s.id===it.state).name)"; }

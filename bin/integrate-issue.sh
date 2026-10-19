@@ -35,8 +35,10 @@
 # other landing. Green says which commit was green and on which branch; then, with the lock held and origin
 # fetched, the push to the default branch sends exactly that commit. Red checks, checks that do not finish
 # or cannot be read, an origin/<default> that moved while they ran and an issue branch whose tip moved
-# refuse with nothing pushed to the default branch. ci/<issue branch> is deleted on origin on every way out;
-# a delete that fails is named. Without --from-origin, a local branch tip that origin does not hold has no
+# refuse with nothing pushed to the default branch. ci/<issue branch> is written and deleted only against
+# what this landing read or pushed (a lease), so a branch somebody else wrote is never overwritten or deleted,
+# and is named when it stays. It is deleted on every way out that can be trapped; a SIGKILL leaves it
+# behind, and the next landing of the branch replaces it. Without --from-origin, a local branch tip that origin does not hold has no
 # checks and refuses at once. A private repository rests on its push gate, which is its check: nothing goes
 # to ci/ and no CI is read, and one line says so. A visibility the forge does not establish refuses.
 #
@@ -126,12 +128,20 @@ subject="$title ($ref)"
 
 landing="$(git rev-parse --path-format=absolute --git-common-dir)/ai-core-landing"
 # The branch ci/<issue branch> on origin and the temporary worktree go first, on every way out, then the
-# lock. A branch that cannot be deleted is named and changes nothing about the outcome.
+# lock. The branch is deleted only while it still holds the merge commit of this landing (a lease), so a
+# branch somebody else replaced stays; a branch that is not there is nothing to delete. A branch that
+# stays or cannot be deleted is named in one line and changes nothing about the outcome. A kill that
+# cannot be trapped (SIGKILL) runs none of this and leaves the branch behind.
 tree=""; ci_branch=""
 delete_ci_branch() {
   local said
-  [ -z "$ci_branch" ] || said="$(git push origin --delete "$ci_branch" 2>&1)" \
-    || echo "$ci_branch could not be deleted on origin, delete it by hand: $(printf '%s' "$said" | tr -s '\r\n' '  ')" >&2
+  [ -n "$ci_branch" ] || return 0
+  [ -n "$(git ls-remote origin "refs/heads/$ci_branch" 2>/dev/null)" ] || return 0
+  said="$(git push origin "--force-with-lease=refs/heads/$ci_branch:$merged_sha" --delete "refs/heads/$ci_branch" 2>&1)" && return 0
+  case "$said" in
+    *"stale info"*|*"cannot lock ref"*) echo "$ci_branch on origin is no longer the merge commit ${merged_sha:0:7} of this landing, so it was left in place" >&2 ;;
+    *) echo "$ci_branch could not be deleted on origin, delete it by hand: $(printf '%s' "$said" | tr -s '\r\n' '  ')" >&2 ;;
+  esac
 }
 trap 'delete_ci_branch
   [ -z "$tree" ] || git worktree remove --force "$tree" >/dev/null 2>&1 || rm -rf "$tree"
@@ -148,7 +158,7 @@ make_merge() {
   container="$(worktree_container)" && mkdir -p "$container" \
     && tree="$(mktemp -d "$container/integrate-$number.XXXXXX")" || die "no folder for the temporary worktree beside the clone"
   git worktree add -q --detach "$tree" "origin/$default" || die "the temporary worktree could not be made on origin/$default (see above)"
-  base_tip="$(git rev-parse "origin/$default")"
+  base_tip="$(git -C "$tree" rev-parse HEAD)"
   git -C "$tree" merge -q --no-ff --no-edit "$1" -m "$subject" -m "$trailers" \
     || die "$2 does not merge cleanly into origin/$default - bring origin/$default into the branch, get the review of the result, then run this again; nothing was pushed"
   merged_sha="$(git -C "$tree" rev-parse HEAD)"
@@ -174,13 +184,15 @@ keep_waited_tip() {
 # gate_public_repository: a public repository lands only on the green checks of the commit that lands. It
 # runs before the landing lock, so a slow CI holds up no other landing, and before anything reaches the
 # default branch. The merge commit is made in a temporary worktree and pushed to ci/<issue branch>, which
-# belongs to this landing alone, so a left-over of an earlier attempt is replaced; its checks are waited
-# for; the push to the default branch after the lock sends exactly that commit. A private repository
+# belongs to this landing alone: a left-over of an earlier attempt is replaced, but only if it is still
+# what was read just before the push (a lease), so a branch somebody else wrote meanwhile is never
+# overwritten. Its checks are waited for; the push to the default branch after the lock sends exactly the
+# merge commit. A private repository
 # rests on its push gate: nothing is made or pushed here, and no CI is read. The reviewed tip is the one
 # origin lists for --from-origin, else the local branch, which must be the tip origin holds too.
 base_tip=""; merged_sha=""; merged=""
 gate_public_repository() {
-  local checked_repo visibility tip tip_name poll limit checks=0 on_origin said
+  local checked_repo visibility tip tip_name poll limit checks=0 on_origin said held
   checked_repo="$(origin_repo)" || die "nothing landed: origin names no repository, so its visibility cannot be established"
   visibility="$(apart forge_repo_visibility "$checked_repo")" \
     || die "nothing landed: the visibility of $checked_repo cannot be established, so it is not known whether its checks must be green: $visibility"
@@ -202,16 +214,20 @@ gate_public_repository() {
   waited_tip="$tip"
   keep_waited_tip "origin/$branch"
   make_merge "$tip" "$tip_name"
-  said="$(git -C "$tree" push origin "+$merged_sha:refs/heads/ci/$branch" 2>&1)" \
-    || die "nothing landed: the merge commit ${merged_sha:0:7} could not be pushed to ci/$branch for its checks, and nothing reached $default: $said"
   ci_branch="ci/$branch"
+  held="$(git ls-remote origin "refs/heads/$ci_branch" 2>&1)" || die "could not reach origin: $held"
+  held="${held%%[[:space:]]*}"
+  said="$(git -C "$tree" push origin "--force-with-lease=refs/heads/$ci_branch:$held" "$merged_sha:refs/heads/$ci_branch" 2>&1)" || case "$said" in
+    *"stale info"*|*"cannot lock ref"*) die "nothing landed: $ci_branch on origin changed after it was read, so another landing of this branch may be running; nothing was pushed to it or to $default: $said" ;;
+    *) die "nothing landed: the merge commit ${merged_sha:0:7} could not be pushed to $ci_branch for its checks, and nothing reached $default: $said" ;;
+  esac
   poll="${AI_CORE_INTEGRATE_POLL:-20}"; limit="${AI_CORE_INTEGRATE_WAIT:-1800}"
   wait_for_checks "$tree" "$merged_sha" "$poll" "$limit" \
     "waiting: $checked_repo is public and lands only on green checks; the checks of ${merged_sha:0:7} on $ci_branch are asked every ${poll}s, $((limit / 60)) minute(s) at most" || checks=$?
   case "$checks" in
     0) echo "checks: green for ${merged_sha:0:7} on $ci_branch at $(forge_name); $checked_repo is public and lands only on green checks" ;;
     1) die "nothing landed: the checks for $merged_sha on $ci_branch are red, so nothing was pushed to $default and origin/$default is as it was" ;;
-    2) die "nothing landed: the checks for $merged_sha on $ci_branch did not finish in $((limit / 60)) minute(s), so nothing was pushed to $default; run this again when they have" ;;
+    2) die "nothing landed: the checks for $merged_sha on $ci_branch did not finish in $((limit / 60)) minute(s), so nothing was pushed to $default. A new run makes a new merge commit and waits for a new CI run; set AI_CORE_INTEGRATE_WAIT (seconds, $limit now) higher if the CI takes longer" ;;
     *) die "nothing landed: $(checks_unreadable_message "$merged_sha" "$checks_said")" ;;
   esac
 }
@@ -257,7 +273,7 @@ if [ -n "$waited_tip" ]; then
     || die "nothing landed: origin/$default moved from $base_tip to $now while the checks of $merged_sha ran; run this again"
   keep_waited_tip "origin/$branch"
   [ -n "$from_origin" ] || keep_waited_tip "$branch"
-  git -C "$tree" push origin "HEAD:$default" \
+  git -C "$tree" push origin "$merged_sha:refs/heads/$default" \
     || die "the push was refused (see above) - nothing reached origin, and the worktree of $branch is as it was"
 elif [ -n "$from_origin" ]; then
   tip="$(git rev-parse -q --verify "origin/$branch^{commit}")" || die "origin/$branch is not there after the fetch - push the reviewed branch, then run this again"

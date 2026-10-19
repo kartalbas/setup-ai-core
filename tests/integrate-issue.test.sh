@@ -50,9 +50,10 @@ fi
 # The checks and the visibility are planted by files: visibility (public, private, or a word that is no
 # answer; private when absent), runs (what gh run list answers; a completed success when absent) and
 # runs-queue (answers given first, one per call), during-wait (a script run once, at the first run query:
-# what happens to origin while the checks are waited for). A run query is a call of the checks, so tests count them.
+# what happens to origin while the checks are waited for) and during-visibility (the same, at the visibility query). A run query is a call of the checks, so tests count them.
 case "\$*" in
   *"repo view"*"--json isPrivate"*)
+    if [ -e "$fake/during-visibility" ]; then mv "$fake/during-visibility" "$fake/during-visibility.ran"; bash "$fake/during-visibility.ran" >/dev/null 2>&1; fi
     case "\$(cat "$fake/visibility" 2>/dev/null || echo private)" in
       private) echo '{"isPrivate":true}' ;; public) echo '{"isPrivate":false}' ;;
       *) echo 'visibility denied' >&2; exit 1 ;;
@@ -200,6 +201,8 @@ land_public() {
   git -C "$wt" push -q origin "issue-$1-$2" 2>/dev/null
   echo public > "$fake/visibility"; printf '%s\n' "$3" > "$fake/runs"; : > "$fake/runs-queue"; : > "$fake/calls.txt"; rm -f "$fake/ci-during"
   plant_hook "issue-$1-$2" "${5:-}"
+  [ -z "${arm_shim:-}" ] || : > "$fake/after-worktree"   # the shim acts at the first worktree the landing makes, not at the test's own
+  [ -z "${arm_ls:-}" ] || : > "$fake/after-ls-remote"
   out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT="${4:-5}" integrate "$wt" "$1" --reviewed-by l4)"; rc=$?
   rm -f "$fake/visibility" "$fake/runs" "$fake/during-wait"
 }
@@ -252,6 +255,7 @@ before="$(tip)"
 land_public 123 stuck '[{"status":"in_progress","conclusion":null,"workflowName":"check"}]' 0
 check 'exit 1'                         1 "$rc"
 check 'it says they did not finish'    yes "$(grep -qF "nothing landed: the checks for $(cat "$fake/ci-during") on ci/issue-123-stuck did not finish in 0 minute(s)" <<< "$out" && echo yes || echo no)"
+check 'it says a new run makes a new merge commit and names the setting' yes "$(grep -qF 'A new run makes a new merge commit and waits for a new CI run; set AI_CORE_INTEGRATE_WAIT (seconds, 0 now) higher' <<< "$out" && echo yes || echo no)"
 check 'origin did not move'            "$before" "$(tip)"
 check 'ci/<branch> is deleted'         '' "$(ci_tip issue-123-stuck)"
 check 'the worktree is on its branch'  'issue-123-stuck' "$(git -C "$wt" symbolic-ref --short HEAD)"
@@ -355,6 +359,97 @@ check 'exit 0'                         0 "$rc"
 check 'the stale branch was replaced by the merge commit that landed' "$(tip)" "$(ci_tip issue-131-stale)"
 check 'the undeletable branch is named, on one line' 1 "$(grep -c '^ci/issue-131-stale could not be deleted on origin, delete it by hand: ' <<< "$out" || true)"
 git --git-dir="$origin" update-ref -d refs/heads/ci/issue-131-stale
+
+# A git on the PATH of a landing that acts after one of its commands, once, where the test armed it: after the
+# first worktree the landing adds (after-worktree) and after the read of ci/<branch> (after-ls-remote), the two
+# moments no hook of git can reach.
+real_git="$(command -v git)"; saved_path="$PATH"
+mkdir -p "$fake/shim"
+cat > "$fake/shim/git" <<SHIM
+#!/bin/sh
+"$real_git" "\$@"; rc=\$?
+case " \$* " in
+  *" worktree add "*) if [ -e "$fake/after-worktree" ]; then rm -f "$fake/after-worktree"; sh "$fake/after-worktree.sh"; fi ;;
+  *" ls-remote "*"refs/heads/ci/"*) if [ -e "$fake/after-ls-remote" ]; then rm -f "$fake/after-ls-remote"; sh "$fake/after-ls-remote.sh"; fi ;;
+esac
+exit \$rc
+SHIM
+chmod +x "$fake/shim/git"
+
+echo 'a ci/<branch> somebody else wrote between the read and the push is never overwritten, and is named when it stays'
+before="$(tip)"
+other_tip="$(git --git-dir="$origin" commit-tree -m other "$(git --git-dir="$origin" rev-parse master^{tree})")"
+printf 'git --git-dir="%s" update-ref refs/heads/ci/issue-132-a-lease %s\n' "$origin" "$other_tip" > "$fake/after-ls-remote.sh"
+arm_ls=1; PATH="$fake/shim:$saved_path"
+land_public 132 a-lease "$success"
+arm_ls=""; PATH="$saved_path"; rm -f "$fake/after-ls-remote"
+check 'exit 1'                         1 "$rc"
+check 'it says the branch changed after it was read' yes "$(grep -qF 'nothing landed: ci/issue-132-a-lease on origin changed after it was read' <<< "$out" && echo yes || echo no)"
+check "the other writer's branch was not overwritten" "$other_tip" "$(ci_tip issue-132-a-lease)"
+check 'and was left in place, said in one line' 1 "$(grep -c '^ci/issue-132-a-lease on origin is no longer the merge commit .* of this landing, so it was left in place' <<< "$out" || true)"
+check 'no check was asked'             0 "$(asked_checks)"
+check 'origin did not move'            "$before" "$(tip)"
+git --git-dir="$origin" update-ref -d refs/heads/ci/issue-132-a-lease
+
+echo 'the same race that the server meets first (the ref appears after the push began) is refused alike'
+mkdir -p "$fake/lease-hooks"
+printf '#!/bin/sh\nwhile read -r a b ref c; do\n  if [ "$ref" = refs/heads/ci/issue-133-lease ]; then git --git-dir="%s" update-ref refs/heads/ci/issue-133-lease %s; fi\ndone\nexit 0\n' "$origin" "$other_tip" > "$fake/lease-hooks/pre-push"
+chmod +x "$fake/lease-hooks/pre-push"; git -C "$work" config core.hooksPath "$fake/lease-hooks"
+land_public 133 lease "$success"
+git -C "$work" config --unset core.hooksPath
+check 'exit 1'                         1 "$rc"
+check 'it says the branch changed after it was read' yes "$(grep -qF 'nothing landed: ci/issue-133-lease on origin changed after it was read' <<< "$out" && echo yes || echo no)"
+check "the other writer's branch was not overwritten" "$other_tip" "$(ci_tip issue-133-lease)"
+check 'and was left in place, said in one line' 1 "$(grep -c '^ci/issue-133-lease on origin is no longer the merge commit .* of this landing, so it was left in place' <<< "$out" || true)"
+check 'no check was asked'             0 "$(asked_checks)"
+check 'origin did not move'            "$before" "$(tip)"
+git --git-dir="$origin" update-ref -d refs/heads/ci/issue-133-lease
+
+echo 'a ci/<branch> somebody else replaced during the wait is not deleted, and the landing is not changed'
+other_hook="git --git-dir='$origin' update-ref refs/heads/ci/issue-134-delete-lease $other_tip"
+land_public 134 delete-lease "$success" 5 "$other_hook"
+check 'exit 0'                         0 "$rc"
+check "the other writer's branch stays" "$other_tip" "$(ci_tip issue-134-delete-lease)"
+check 'it says so in one line'         1 "$(grep -c '^ci/issue-134-delete-lease on origin is no longer the merge commit .* of this landing, so it was left in place' <<< "$out" || true)"
+check 'the commit that was checked landed' "$(cat "$fake/ci-during")" "$(tip)"
+git --git-dir="$origin" update-ref -d refs/heads/ci/issue-134-delete-lease
+
+echo 'a push to ci/ that fails leaves nothing to delete, and says nothing about a delete'
+before="$(tip)"
+mkdir -p "$fake/refuse-ci-hooks"
+printf '#!/bin/sh\nwhile read -r a b ref c; do\n  case "$ref" in refs/heads/ci/*) echo "pre-push: REFUSED - planted"; exit 1 ;; esac\ndone\nexit 0\n' > "$fake/refuse-ci-hooks/pre-push"
+chmod +x "$fake/refuse-ci-hooks/pre-push"; git -C "$work" config core.hooksPath "$fake/refuse-ci-hooks"
+land_public 135 refused "$success"
+git -C "$work" config --unset core.hooksPath
+check 'exit 1'                         1 "$rc"
+check 'it says the merge commit could not be pushed to ci/' yes "$(grep -qF 'could not be pushed to ci/issue-135-refused for its checks, and nothing reached master' <<< "$out" && echo yes || echo no)"
+check 'no word about a delete'         0 "$(grep -c 'deleted on origin\|left in place' <<< "$out" || true)"
+check 'no check was asked'             0 "$(asked_checks)"
+check 'origin did not move'            "$before" "$(tip)"
+
+echo 'the base the default branch is compared with is the one the merge was made on, not the one read after it'
+before="$(tip)"
+printf '%s\ngit -C "%s" fetch -q origin\n' "$push_to_master" "$work" > "$fake/after-worktree.sh"
+arm_shim=1; PATH="$fake/shim:$saved_path"
+land_public 136 base-read "$success"
+arm_shim=""; PATH="$saved_path"; rm -f "$fake/after-worktree"
+moved="$(tip)"
+check 'exit 1'                         1 "$rc"
+check 'it names the base the merge was made on and the new tip' yes "$(grep -qF "nothing landed: origin/master moved from $before to $moved while the checks of $(cat "$fake/ci-during") ran" <<< "$out" && echo yes || echo no)"
+check 'only the other session landed'  0 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+check 'the default branch did move'    no "$([ "$before" = "$moved" ] && echo yes || echo no)"
+
+echo 'exactly the merge commit that was checked lands, whatever the install step left in the temporary worktree'
+git -C "$work" pull -q origin master 2>/dev/null
+mkdir -p "$work/scripts"; printf '#!/usr/bin/env bash\ngit commit -q --allow-empty -m "Extra from the install step #1"\n' > "$work/scripts/install.sh"
+git -C "$work" add -A && git -C "$work" commit -q -m 'Add an install step that commits'; git -C "$work" push -q origin master 2>/dev/null
+land_public 137 exact "$success"
+check 'exit 0'                         0 "$rc"
+check 'the install step ran'           yes "$(grep -q '^installing: ' <<< "$out" && echo yes || echo no)"
+check 'the commit on the default branch is the one on ci/<branch>' "$(cat "$fake/ci-during")" "$(tip)"
+check 'and is the merge, not the commit the install step made' yes "$([ "$(git --git-dir="$origin" log -1 --format=%s master)" = 'Read the board whole (#137)' ] && echo yes || echo no)"
+git -C "$work" pull -q origin master 2>/dev/null
+git -C "$work" rm -q scripts/install.sh && git -C "$work" commit -q -m 'Drop the install step that commits' && git -C "$work" push -q origin master 2>/dev/null
 
 echo 'the checks are waited for before the landing lock is taken'
 wt="$(new_tree 132 no-lock)"; git -C "$wt" push -q origin issue-132-no-lock 2>/dev/null
@@ -592,6 +687,20 @@ check 'exit 1'                         1 "$rc"
 check 'it names the old and the new tip' yes "$(grep -qF "nothing landed: origin/issue-153-ci-tip-moves moved from $sha to $moved while its checks were waited for; run this again" <<< "$out" && echo yes || echo no)"
 check 'origin did not move'            "$before" "$(tip)"
 check 'ci/<branch> is deleted'         '' "$(ci_tip issue-153-ci-tip-moves)"
+
+echo '--from-origin: a tip that moves between the listing and the fetch is refused before any merge, push or check'
+heldwt14="$(held_tree 154 ci-early)"
+sha="$(git -C "$heldwt14" rev-parse HEAD)"; before="$(tip)"; : > "$fake/calls.txt"
+echo public > "$fake/visibility"; rm -f "$fake/ci-during"
+printf '#!/bin/sh\nd=$(mktemp -d) && cd "$d" && git clone -q "%s" c && cd c && git config user.email t@example.invalid && git config user.name t && git switch -q issue-154-ci-early && echo m > m.txt && git add -A && git commit -q -m "Moved #154" && git push -q origin issue-154-ci-early\n' "$origin" > "$fake/during-visibility"
+out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=5 integrate "$work" 154 --reviewed-by l4 --from-origin)"; rc=$?
+rm -f "$fake/visibility"
+moved="$(git --git-dir="$origin" rev-parse issue-154-ci-early)"
+check 'exit 1'                         1 "$rc"
+check 'it names the old and the new tip' yes "$(grep -qF "nothing landed: origin/issue-154-ci-early moved from $sha to $moved while its checks were waited for; run this again" <<< "$out" && echo yes || echo no)"
+check 'no check was asked'             0 "$(asked_checks)"
+check 'nothing went to ci/'            '' "$(ci_tip issue-154-ci-early)"
+check 'origin did not move'            "$before" "$(tip)"
 
 heldwt3="$(held_tree 102 refused)"
 

@@ -611,8 +611,9 @@ if command -v jq >/dev/null 2>&1 && jq "$RUN_SETTINGS_MAKE" "$SETTINGS_TEMPLATE"
     RUN_SETTINGS_NOTE="the denials $([ "$DRY" -eq 1 ] && echo "would be written" || echo "written") to $RUN_SETTINGS"
     # mktemp makes 0600; the file holds no secret and other users' claude -p runs read it, so 0644
     if [ "$DRY" -eq 0 ]; then
-      mkdir -p "$(dirname "$RUN_SETTINGS")" && RUN_SETTINGS_TMP="$(mktemp "$RUN_SETTINGS.XXXXXX")" \
-        && { cp "$TMP/claude-run-settings.json" "$RUN_SETTINGS_TMP" && chmod 0644 "$RUN_SETTINGS_TMP" && mv -f "$RUN_SETTINGS_TMP" "$RUN_SETTINGS" || { rm -f "$RUN_SETTINGS_TMP"; false; }; }
+      mkdir -p "$(dirname "$RUN_SETTINGS")"
+      RUN_SETTINGS_TMP="$(mktemp "$RUN_SETTINGS.XXXXXX")"
+      cp "$TMP/claude-run-settings.json" "$RUN_SETTINGS_TMP" && chmod 0644 "$RUN_SETTINGS_TMP" && mv -f "$RUN_SETTINGS_TMP" "$RUN_SETTINGS" || { rm -f "$RUN_SETTINGS_TMP"; false; }
     fi
   fi
 fi

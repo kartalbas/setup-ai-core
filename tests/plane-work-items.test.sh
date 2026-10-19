@@ -171,6 +171,25 @@ printf '[]' > "$CURL_FAKE_STATE/inject.json"
 out="$(bash "$ROOT/bin/ai-core" issue-assign --help | tr -s '\n ' ' ')" && grep -q 'on Plane the email of a member of the workspace' <<< "$out" || fail "the help of issue-assign does not say what Plane accepts: $out"
 echo "  issue-assign: a member is named by email; an unknown one stops it before any write; a refused write says it was a write; the help names what Plane accepts"
 
+# A LOOKUP THAT FAILS inside the request of a write stops the command, and nothing is sent
+for pair in "issue-close done" "issue-reopen ready"; do
+  command="${pair% *}"; state="${pair#* }"
+  planeset "p.hidden=p.states.filter((x)=>x.name==='$state'); p.states=p.states.filter((x)=>x.name!=='$state')"
+  reset_log
+  out="$(ai "$command" "$n" 2>&1)" && fail "$command went on in a project with no state $state: $out"
+  grep -q "has no state '$state'" <<< "$out" || fail "$command does not name the missing state $state: $out"
+  ! grep -q '^PATCH' "$CURL_FAKE_STATE/requests.log" || fail "$command sent a write although the state $state is not there: $(grep -A1 '^PATCH' "$CURL_FAKE_STATE/requests.log")"
+  planeset 'p.states=p.states.concat(p.hidden); delete p.hidden'
+done
+reset_log
+out="$(plane_fn issue_edit example-org/example-repo "$n" "" "$WORK/no-such-body" 2>&1)" && fail "issue_edit took a body file that is not there: $out"
+! grep -q '^PATCH' "$CURL_FAKE_STATE/requests.log" || fail "issue_edit sent a write for a body it could not read"
+out="$(plane_fn issue_comment_post example-org/example-repo "$n" "" "$WORK/no-such-body" 2>&1)" && fail "issue_comment_post took a text file that is not there: $out"
+! grep -q '^POST' "$CURL_FAKE_STATE/requests.log" || fail "issue_comment_post sent a comment it could not read"
+out="$(plane_fn issue_create example-org/example-repo "A title" "$WORK/no-such-body" me@example.test 2>&1)" && fail "issue_create took a body file that is not there: $out"
+! grep -q '^POST' "$CURL_FAKE_STATE/requests.log" || fail "issue_create created a work item from a body it could not read"
+echo "  issue-close, issue-reopen, edit, comment and create: a state or a text that cannot be read stops the command, and nothing is written"
+
 # THE RATE LIMIT: a 429 waits for X-RateLimit-Reset and goes on; one that never lifts is refused
 reset=$(( $(date +%s) + 7 ))
 printf '[{"match":"/issues/ENG-1/","status":429,"times":1,"headers":{"X-RateLimit-Reset":"%s"}}]' "$reset" > "$CURL_FAKE_STATE/inject.json"

@@ -290,13 +290,14 @@ plane_state_id() {
 # with the label of the checkout's repository on it. Plane drops a label id of another project without a word,
 # so the item is read back and refused by name where the label is not there.
 issue_create() {
-  local repo="$1" title="$2" body="$3" assignee="$4" label ids aid request created id n back
+  local repo="$1" title="$2" body="$3" assignee="$4" label ids aid html request created id n back
   shift 4
   plane_check_repo "$repo"
   label="$(plane_repo_label)"
   ids="$(plane_label_ids "$@" "$label")" || exit 1
   aid="$(plane_user_id "$assignee")" || exit 1
-  request="$(jq -n --arg name "$title" --arg html "$(plane_html_of "" "$body")" --argjson labels "$ids" --arg a "$aid" \
+  html="$(plane_html_of "" "$body")" || exit 1
+  request="$(jq -n --arg name "$title" --arg html "$html" --argjson labels "$ids" --arg a "$aid" \
     '{name: $name, description_html: $html, labels: $labels, assignees: [$a], external_source: "ai-core"}')"
   created="$(plane_api "the issue created in $repo, which was NOT created" POST "$(plane_path "projects/$(plane_project_uuid)/issues/")" "$request")" || exit 1
   id="$(printf '%s' "$created" | jq -r '.id')"; n="$(printf '%s' "$created" | jq -r '.sequence_id')"
@@ -398,8 +399,9 @@ plane_label_ids() {
 
 # issue_edit <owner/repo> <number> <title or empty> <body file or empty>
 issue_edit() {
-  local request
-  request="$(jq -n --arg t "$3" --arg h "$([ -z "$4" ] || plane_html_of "" "$4")" \
+  local request html=""
+  [ -z "$4" ] || html="$(plane_html_of "" "$4")" || exit 1
+  request="$(jq -n --arg t "$3" --arg h "$html" \
     '{} + (if $t != "" then {name: $t} else {} end) + (if $h != "" then {description_html: $h} else {} end)')"
   plane_patch "the edit of $1#$2" "$1" "$2" "$request"
 }
@@ -412,22 +414,26 @@ issue_body() {
 # issue_close <owner/repo> <number> <completed | not-planned>: ONE WRITE, where GitHub needs two. completed
 # is the state `done`; not-planned is the state of the cancelled group, Plane's own Cancelled.
 issue_close() {
-  local target="done"
+  local target="done" state
   [ "$3" != not-planned ] || target="group:cancelled"
-  plane_patch "the close of $1#$2" "$1" "$2" "$(jq -nc --arg s "$(plane_state_id "$target")" '{state: $s}')"
+  state="$(plane_state_id "$target")" || exit 1
+  plane_patch "the close of $1#$2" "$1" "$2" "$(jq -nc --arg s "$state" '{state: $s}')"
 }
 
 issue_reopen() {  # issue_reopen <owner/repo> <number>: the state `ready`
-  plane_patch "the reopen of $1#$2" "$1" "$2" "$(jq -nc --arg s "$(plane_state_id ready)" '{state: $s}')"
+  local state
+  state="$(plane_state_id ready)" || exit 1
+  plane_patch "the reopen of $1#$2" "$1" "$2" "$(jq -nc --arg s "$state" '{state: $s}')"
 }
 
 # issue_comment_post <owner/repo> <number> <text> <text file>: prints the address of the work item, because
 # Plane's API answers no address for a comment
 issue_comment_post() {
-  local item
+  local item html
   item="$(plane_item "$1" "$2")" || exit 1
+  html="$(plane_html_of "$3" "$4")" || exit 1
   plane_api "the comment posted on $1#$2" POST "$(plane_path "$(plane_issue_path "$item")comments/")" \
-    "$(jq -nc --arg h "$(plane_html_of "$3" "$4")" '{comment_html: $h}')" >/dev/null || exit 1
+    "$(jq -nc --arg h "$html" '{comment_html: $h}')" >/dev/null || exit 1
   plane_item_url "$2"
 }
 
@@ -597,14 +603,15 @@ issue_block() {
 # because GitHub closes a duplicate and an open one would still hold its epic open. The state is resolved
 # before the first write, so a project without one changes nothing.
 duplicate_mark() {
-  local canonical duplicate cancelled
+  local canonical duplicate cancelled html
   canonical="$(plane_item "$1" "$2")" || exit 1
   duplicate="$(plane_item "$3" "$4")" || exit 1
   cancelled="$(plane_state_id group:cancelled)" || exit 1
   plane_api "the duplicate mark on $3#$4" POST "$(plane_path "$(plane_relations_path "$duplicate")")" \
     "$(jq -nc --arg i "$(printf '%s' "$canonical" | jq -r '.id')" '{relation_type: "duplicate", issues: [$i]}')" >/dev/null || exit 1
+  html="$(plane_html_of "$5" "")" || exit 1
   plane_api "the duplicate mark on $3#$4" POST "$(plane_path "$(plane_issue_path "$duplicate")comments/")" \
-    "$(jq -nc --arg h "$(plane_html_of "$5" "")" '{comment_html: $h}')" >/dev/null || exit 1
+    "$(jq -nc --arg h "$html" '{comment_html: $h}')" >/dev/null || exit 1
   plane_api "the cancel of the duplicate $3#$4" PATCH "$(plane_path "$(plane_issue_path "$duplicate")")" \
     "$(jq -nc --arg s "$cancelled" '{state: $s}')" >/dev/null || exit 1
 }

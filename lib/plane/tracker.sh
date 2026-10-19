@@ -519,10 +519,11 @@ issue_assignees() {  # issue_assignees <owner/repo> <number>: the emails assigne
 
 # issue_assignees_set <owner/repo> <number> <emails, one per line>: the assignees become exactly these
 issue_assignees_set() {
-  local ids="[]" who
+  local ids="[]" who id
   while IFS= read -r who; do
     [ -n "$who" ] || continue
-    ids="$(jq -c --arg i "$(plane_user_id "$who")" '. + [$i]' <<< "$ids")" || exit 1
+    id="$(plane_user_id "$who")" || exit 1
+    ids="$(jq -c --arg i "$id" '. + [$i]' <<< "$ids")" || exit 1
   done <<< "$3"
   plane_patch "the assignees of $1#$2" "$1" "$2" "$(jq -nc --argjson a "$ids" '{assignees: $a}')"
 }

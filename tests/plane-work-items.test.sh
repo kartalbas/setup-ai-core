@@ -154,6 +154,23 @@ echo "  issue-status: a state is matched without case; one the project lacks is 
 ai issue-priority "$n" P0 >/dev/null || fail "issue-priority"
 [ "$(planeq 'console.log(p.issues[0].priority)')" = urgent ] || fail "P0 is not urgent"
 
+# ASSIGNEES: a member is named by email; a name Plane does not know stops the command before any write, and a refused write says it was a write
+reset_log
+out="$(ai issue-assign example-org/example-repo "$n" --add other@example.test 2>&1)" || fail "issue-assign with a member of the workspace: $out"
+[ "$(planeq 'console.log(p.issues[0].assignees.length)')" = 2 ] || fail "the member was not assigned: $out"
+reset_log
+out="$(ai issue-assign example-org/example-repo "$n" --add nobody@example.test 2>&1)" && fail "issue-assign took a member the workspace does not have: $out"
+grep -q 'Plane has no member nobody@example.test in the workspace ws' <<< "$out" || fail "an unknown member is not named: $out"
+! grep -q 'cannot read the assignees' <<< "$out" || fail "an unknown member ended in an error about a read: $out"
+! grep -q '^PATCH' "$CURL_FAKE_STATE/requests.log" || fail "an unknown member still sent a write to Plane: $(grep '^PATCH' "$CURL_FAKE_STATE/requests.log")"
+[ "$(planeq 'console.log(p.issues[0].assignees.length)')" = 2 ] || fail "an unknown member changed the assignees"
+printf '[{"match":"PATCH ","status":400,"times":1,"body":"refused"}]' > "$CURL_FAKE_STATE/inject.json"
+out="$(ai issue-assign example-org/example-repo "$n" --add stranger@example.test 2>&1)" && fail "a write Plane refused was accepted: $out"
+grep -q 'cannot write the assignees of example-org/example-repo#1 - the Plane API answered 400' <<< "$out" || fail "a refused write does not say it was a write: $out"
+printf '[]' > "$CURL_FAKE_STATE/inject.json"
+out="$(bash "$ROOT/bin/ai-core" issue-assign --help | tr -s '\n ' ' ')" && grep -q 'on Plane the email of a member of the workspace' <<< "$out" || fail "the help of issue-assign does not say what Plane accepts: $out"
+echo "  issue-assign: a member is named by email; an unknown one stops it before any write; a refused write says it was a write; the help names what Plane accepts"
+
 # THE RATE LIMIT: a 429 waits for X-RateLimit-Reset and goes on; one that never lifts is refused
 reset=$(( $(date +%s) + 7 ))
 printf '[{"match":"/issues/ENG-1/","status":429,"times":1,"headers":{"X-RateLimit-Reset":"%s"}}]' "$reset" > "$CURL_FAKE_STATE/inject.json"

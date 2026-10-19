@@ -7,6 +7,11 @@
 #
 # The repo may be left out inside a checkout.
 #
+# LOGIN is the name the tracker knows a person by: on GitHub the login, on Plane the email of a
+# member of the workspace, which Plane matches without case, or @me for the key's own user. Plane
+# does not match a display name. A name the tracker does not know stops the command before
+# anything is written.
+#
 # Assignment is ADDITIVE by default, because the common case is a second name rather
 # than a replacement: the rules ask for the repository's responsible developer to be
 # added alongside whoever is doing the work, so they are informed. Replacing on every

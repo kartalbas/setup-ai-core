@@ -1048,7 +1048,7 @@ reader sees may pass. Whether it passes depends on where the dressing stands in 
 nobody may rely on the check for a dressed address. Dressings are, for example, a Markdown escape
 such as `\@`, a code span or emphasis in the address, HTML such as a comment or a tag in it, an
 invisible format character (U+200B, U+00AD, U+2060), a lookalike of `@` or `.` (U+FF20, U+FE6B,
-U+2024, U+FE52), or an address that overlaps an exempt or numeric match before it. Encoded addresses,
+U+2024, U+FE52), or an address whose local part is the domain of an exempt or numeric match before it, such as a reserved-domain address directly followed by an at sign and a real domain. Encoded addresses,
 images and an address written as “name at domain” are not covered either. It refuses rather than
 redacting and leaves the caller's file unchanged.
 

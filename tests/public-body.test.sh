@@ -17,8 +17,29 @@ unicode_domain="$(printf '\303\251.company.ch')"
 unicode_mark="$(printf 'e\314\201')"
 unicode_symbol="$(printf '\360\237\223\247')"
 separators=("$(printf '\343\200\202')" "$(printf '\357\274\216')" "$(printf '\357\275\241')")
-overlaps=('`@company.ch/' '`@scope/@company.ch' '`@scope/pkg@company.ch' '`@scope/pkg`@company.ch' '`@scope/pkg/@company.ch' 'bob`@scope/pkg' '"bob"@scope/pkg')
-for separator in "${separators[@]}"; do overlaps+=('`@scope/@company'"${separator}ch" '`@scope/pkg@company'"${separator}ch"); done
+# Each text beside the address the guard must name for it. A scoped package name is dropped before the
+# scan, so these are the shapes in which that drop must not hide, or must not lose, an address.
+overlaps=(); overlap_names=()
+overlap() { overlaps+=("$1"); overlap_names+=("$2"); }
+overlap '`@company.ch/' '`@company.ch'
+overlap '`@company.ch/pkg`' '`@company.ch'
+overlap 'x `@gmail.com/inbox` y' '`@gmail.com'
+overlap '`@scope/@company.ch' '`@scope'
+overlap '`@scope/pkg@company.ch' '`@scope'
+overlap '`@scope/pkg`@company.ch' '`@company.ch'
+overlap '`@scope/pkg/@company.ch' '/@company.ch'
+overlap 'bob`@scope/pkg' 'bob`@scope'
+overlap '"bob"@scope/pkg' '"bob"@scope'
+overlap "$(printf '\303\251')"'`@scope/pkg`' "$(printf '\303\251')"'`@scope'
+overlap 'Owners x@[bob@company.ch @1 @scope/pkg]' '[bob@company.ch'
+overlap 'x@[`bob@company.ch` @2 `@scope/pkg`]' '[`bob@company.ch'
+overlap 'x@[bob@company.ch @1]' '[bob@company.ch'
+overlap '"bob@company.ch"@1' 'bob@company.ch'
+overlap '"bob@company.ch"@localhost' 'bob@company.ch'
+for separator in "${separators[@]}"; do
+  overlap '`@scope/@company'"${separator}ch" '`@scope'
+  overlap '`@scope/pkg@company'"${separator}ch" '`@scope'
+done
 root_under_test="$ROOT"
 invoke() {
   case "$path" in
@@ -60,7 +81,10 @@ for path in inline file new edit; do
   case_body allow $'A `backtick`, "quotes" and CRLF.\r\nNext line.\n'
   case_body allow "$scoped"
   case_body allow "$unquoted_scoped"
-  for address in "${overlaps[@]}"; do case_body refuse "$address"; done
+  for index in "${!overlaps[@]}"; do
+    case_body refuse "${overlaps[index]}"
+    check "$path names ${overlap_names[index]}" yes "$(grep -qF "refused email address ${overlap_names[index]} " <<< "$out" && echo yes || echo no)"
+  done
   case_body refuse '`@company.ch'
   case_body refuse "$scoped $real"
   for address in "$bot" '49699333+dependabot[bot]@USERS.NOREPLY.GITHUB.COM'; do case_body allow "$address"; done
@@ -303,7 +327,7 @@ for path in labels-description repo-link-description field-description field-exi
   for GH_VISIBILITY in public error; do
     export GH_VISIBILITY
     case_metadata allow "$unquoted_scoped"
-    for address in "${overlaps[@]}"; do case_metadata refuse "$address" '@'; done
+    for index in "${!overlaps[@]}"; do case_metadata refuse "${overlaps[index]}" "${overlap_names[index]}"; done
   done
 done
 export GH_VISIBILITY=public
@@ -470,10 +494,10 @@ for path in labels-name labels-description repo-link-label-name repo-link-label-
     esac
     writes="$(grep -cE '^(POST|PATCH|DELETE) ' "$CURL_FAKE_STATE/requests.log" || true)"
     unsafe=no; [ "$payload" != "$real" ] || unsafe=yes
-    for address in "${overlaps[@]}"; do [ "$payload" != "$address" ] || unsafe=yes; done
+    for index in "${!overlaps[@]}"; do [ "$payload" != "${overlaps[index]}" ] || { unsafe=yes; named="${overlap_names[index]}"; }; done
     case "$unsafe" in
     yes)
-      address="$real"; [ "$payload" = "$real" ] || address='@'
+      address="$real"; [ "$payload" = "$real" ] || address="$named"
       check "Plane $path $payload refuses metadata" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
       check "Plane $path $payload metadata zero writes" 0 "$writes"
       check "Plane $path $payload names metadata address" yes "$(grep -qF 'refused email address' <<< "$out" && grep -qF "$address" <<< "$out" && echo yes || echo no)" ;;

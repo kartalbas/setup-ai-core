@@ -39,10 +39,23 @@ check_public_body() {
   # up to its first delimiter and with a template expression in it, because its spaces would end the
   # URL; and the user of the scp-like SSH form, only where a path with a slash or a .git follows the
   # colon. mailto: has no "//", and an address before a port or a word stays scanned.
+  # A scoped package name (an at sign, a scope without a dot, a slash, a package name) is replaced by a
+  # space, with its opening backtick. It must not stand behind a character of a local part or a quote,
+  # and no letter, digit, dot, hyphen, underscore, at sign or non-ASCII character may follow it: a
+  # longer name, an address inside the package part and a dotted scope, which is a domain, then keep
+  # their letters and stay scanned. Any other follower, such as a backtick or a slash, stays in the
+  # text, so an address behind it is scanned as before. The scan runs twice and refuses what either
+  # run finds. One run lets a quoted local part hold an at sign, so the outer address of a quoted
+  # local part such as a quoted at sign before a domain is found. The other takes no at sign inside
+  # the quotes, so an address inside them is found instead of being swallowed with them. The bracketed
+  # domain follows the same split: the first run lets it hold an at sign, so the outer address of a
+  # bracket that holds one is found, and the second takes none, so an address inside is not swallowed.
   addresses="$(printf '%s' "$text" | jq -Rrs '
+    def addresses($quoted; $bracketed): scan("(?:" + $quoted + "|(?:[A-Za-z0-9.!#$%&\u0027*+/=?^_`{|}~\\[\\]-]|[^\\x00-\\x7f])+)@(?:" + $bracketed + "|[[:alnum:]][[:alnum:]\\p{M}._\u3002\uff0e\uff61-]*)");
     gsub("(?<s>[A-Za-z][A-Za-z0-9+.-]*://)(?:\\{\\{[^}@\\r\\n]*\\}\\}|[^/?#\\s@{<>()\\[\\]\"\u0027`,;])*@"; "\(.s)")
     | gsub("(?<![^\\s`(\\[<\"\u0027])[A-Za-z0-9._-]+@(?=[A-Za-z0-9<][A-Za-z0-9.<>_-]*:[^\\s:]*(?:/|\\.git\\b))"; "")
-    | scan("(?:\"[^\"\\r\\n]+\"|(?:[A-Za-z0-9.!#$%&\u0027*+/=?^_`{|}~\\[\\]-]|[^\\x00-\\x7f])+)@(?:\\[[^\\]\\r\\n]+\\]|[[:alnum:]][[:alnum:]\\p{M}._\u3002\uff0e\uff61-]*)")
+    | gsub("(?<![A-Za-z0-9.!#$%&\u0027*+/=?^_`{|}~\\[\\]\"-]|[^\\x00-\\x7f])`?@[a-z0-9_-]+/[a-z0-9][a-z0-9._-]*(?![A-Za-z0-9.@_-]|[^\\x00-\\x7f])"; " ")
+    | (addresses("\"[^\"\\r\\n]+\""; "\\[[^\\]\\r\\n]+\\]"), addresses("\"[^\"@\\r\\n]+\""; "\\[[^\\]@\\r\\n]+\\]"))
     | . as $address | (split("@") | last | gsub("[\u3002\uff0e\uff61]"; ".") | ascii_downcase | sub("[.]+$"; "")) as $domain
     | select(($domain | test("[[:alpha:]]|^\\[")))
     | select(($domain | test("(^|\\.)(invalid|example|test|localhost|example\\.(com|net|org))$")) | not)

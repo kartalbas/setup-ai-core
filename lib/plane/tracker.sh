@@ -300,7 +300,8 @@ issue_create() {
     '{name: $name, description_html: $html, labels: $labels, assignees: [$a], external_source: "ai-core"}')"
   created="$(plane_api "the issue created in $repo, which was NOT created" POST "$(plane_path "projects/$(plane_project_uuid)/issues/")" "$request")" || exit 1
   id="$(printf '%s' "$created" | jq -r '.id')"; n="$(printf '%s' "$created" | jq -r '.sequence_id')"
-  back="$(plane_api "the work item $(plane_setting PLANE_PROJECT)-$n just created" GET "$(plane_path "projects/$(plane_project_uuid)/issues/$id/")?expand=labels")" || exit 1
+  back="$(plane_api "the work item $(plane_setting PLANE_PROJECT)-$n just created" GET "$(plane_path "projects/$(plane_project_uuid)/issues/$id/")?expand=labels")" \
+    || die "#$n exists in $repo after the create; the read-back above failed, so do not create it again"
   printf '%s' "$back" | jq -e --arg l "$label" 'any(.labels[]; .name == $l)' >/dev/null \
     || die "Plane dropped the label $label of #$n: the label id belongs to another project - #$n exists without it"
   printf '%s\n' "$n"
@@ -695,8 +696,8 @@ board_items() {
 
 # item_top <work item uuid> [after work item uuid]: the work item goes to the top of the project's order, or
 # directly under the other one. Plane orders by sort_order, the smallest first, and a number between two
-# neighbours is a float's half. ponytail: about fifty placements under one work item exhaust a float's
-# halves; a rewrite of the whole order would be the upgrade.
+# neighbours is a float's half. About fifty placements under one work item exhaust a float's halves,
+# and then two work items share an order; rewriting the whole order would lift that ceiling.
 item_top() {
   local orders target
   orders="$(plane_pages "the order of the work items of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/issues/")?fields=id,sort_order")" || exit 1

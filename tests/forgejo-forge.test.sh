@@ -416,6 +416,21 @@ git config --global --unset-all credential.helper
 git config --global --unset-all "$LINE_KEY"
 echo "  init: the dry run announces; the run sets the sign-in line once and creates the harness private on the instance; a second machine clones it"
 
+# init with its doctor: a checkout whose origin git cannot yet read gets the line first, so doctor passes; a wrong token still stops it
+init_with_doctor() { ( cd "$WORK/proj/example-repo2" && FORGE=forgejo FORGEJO_URL="$FORGE_URL" FORGEJO_TOKEN_COMMAND="cat $WORK/ftoken" GH_STUB_AUTH="$WORK/gh-auth" PATH="$WORK/ghstub:$PATH_CURL" bash "$ROOT/bin/init.sh" . "$@" 2>&1 ); }
+printf "Token scopes: 'project', 'repo'\n" > "$WORK/gh-auth"
+git -C "$WORK/proj/example-repo2" config --unset-all "$LINE_KEY"
+out="$(init_with_doctor)" || fail "init with its doctor refused a checkout that has no sign-in line yet: $out"
+grep -q "  $LINE_KEY set in .git/config" <<< "$out" || fail "init does not report the sign-in line it set before its doctor: $out"
+[ "$(git -C "$WORK/proj/example-repo2" config --get "$LINE_KEY")" = '!ai-core git-credential' ] || fail "init with its doctor did not set the sign-in line"
+git -C "$WORK/proj/example-repo2" config --unset-all "$LINE_KEY"
+printf 'wrong-token\n' > "$WORK/ftoken"
+out="$(init_with_doctor)" && fail "init went on with a token the instance refuses: $out"
+grep -q "refuses the token (status 401)" <<< "$out" && grep -q 'fix the problems doctor reported' <<< "$out" || fail "init does not stop at doctor for a wrong token: $out"
+printf '%s\n' "$TOKEN" > "$WORK/ftoken"
+rm -f "$WORK/gh-auth"
+echo "  init with its doctor: a checkout with no sign-in line gets it and passes; a wrong token still stops at doctor"
+
 # --- release: the combined status of the commit decides -------------------------------------------
 RD="$WORK/rel-dev"; mkdir -p "$RD"
 (cd "$ROOT" && git ls-files -co --exclude-standard -z | tar --null -cf - -T -) | tar -xf - -C "$RD"

@@ -108,6 +108,20 @@ gh_read() {  # gh_read <what was asked for> <gh argument>...
   printf '%s\n' "$out"
 }
 
+# gh_repo_visibility <owner/repo>: public or private. Only a successful boolean isPrivate establishes it;
+# anything else fails and says why. The tracker and the forge both read the visibility of a repository
+# here, so the two cannot disagree.
+gh_repo_visibility() {
+  local json visibility
+  json="$(gh_read "the visibility of $1" repo view "$1" --json isPrivate)" || return 1
+  visibility="$(printf '%s' "$json" | jq -er 'if (.isPrivate | type) == "boolean" then
+    if .isPrivate then "private" else "public" end else error("isPrivate is not boolean") end' 2>/dev/null)" \
+    || { echo "cannot establish the visibility of $1: isPrivate was not a boolean" >&2; return 1; }
+  case "$visibility" in public|private) printf '%s\n' "$visibility" ;;
+    *) echo "cannot establish the visibility of $1: expected one repository" >&2; return 1 ;;
+  esac
+}
+
 # gh_doctor: the gh lines of `ai-core doctor`, through doctor's own report, problem and install_tool, which
 # doctor.sh defines. The forge prints them where the forge is GitHub, and the tracker where only the
 # tracker is: either one alone needs gh, its login and the project scope.

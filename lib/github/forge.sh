@@ -42,19 +42,36 @@ repo_file_tree() {  # repo_file_tree <owner/repo>
   gh_read "the files of $1" api "repos/$1/git/trees/HEAD?recursive=1"
 }
 
-# commit_checked <checkout> <sha>: green when every workflow run `check` of the commit completed and one
-# succeeded, red when they completed and none did, pending while a run has not completed or none
-# exists, unreadable when the query failed or answered nothing; then gh's words are on stderr. A query
-# that fails is no answer yet: gh or the network fails once while the checks run on.
+# forge_repo_visibility <owner/repo>: public or private; fails, saying why, where the forge does not
+# establish it.
+forge_repo_visibility() {
+  gh_repo_visibility "$1"
+}
+
+# commit_checked <checkout> <sha>: the workflow runs `check` of the commit and its commit statuses (the
+# combined state; a pipeline that posts no run, such as tekton/ci, shows up only there). green when at
+# least one result exists, every run completed and one succeeded where runs exist, and the combined
+# state is success where statuses exist; red when the runs completed and none succeeded, or the combined
+# state is failure or error; pending otherwise; unreadable when a query failed or answered nothing,
+# then gh's words are on stderr. A query that fails is no answer yet: gh or the network fails once
+# while the checks run on.
 commit_checked() {
-  local runs said
+  local runs statuses answer said
   said="$(mktemp)"
-  if runs="$(cd "$1" && gh run list --commit "$2" --workflow check --json status,conclusion --limit 5 2>"$said")" && [ -n "$runs" ]; then
-    if [ "$(printf '%s' "$runs" | jq 'length')" -gt 0 ] && printf '%s' "$runs" | jq -e 'all(.status == "completed")' >/dev/null; then
-      if printf '%s' "$runs" | jq -e 'any(.conclusion == "success")' >/dev/null; then echo green; else echo red; fi
-    else
-      echo pending
-    fi
+  if runs="$(cd "$1" && gh run list --commit "$2" --workflow check --json status,conclusion --limit 5 2>"$said")" && [ -n "$runs" ] \
+    && statuses="$(cd "$1" && gh api "repos/{owner}/{repo}/commits/$2/status" 2>>"$said")" && [ -n "$statuses" ] \
+    && answer="$(jq -rn --argjson runs "$runs" --argjson status "$statuses" '
+      if ($runs | type) != "array" then error("the workflow runs are not a list") else . end
+      | ($runs | length) as $runCount
+      | ($status.total_count // 0) as $statusCount
+      | ($status.state // "") as $state
+      | ($runs | all(.status == "completed")) as $runsDone
+      | ($runs | any(.conclusion == "success")) as $runPassed
+      | if $runCount == 0 and $statusCount == 0 then "pending"
+        elif ($runCount > 0 and $runsDone and ($runPassed | not)) or ($statusCount > 0 and ($state == "failure" or $state == "error")) then "red"
+        elif ($runCount == 0 or ($runsDone and $runPassed)) and ($statusCount == 0 or $state == "success") then "green"
+        else "pending" end' 2>>"$said")"; then
+    echo "$answer"
   else
     echo unreadable
     tr -s '\r\n' '  ' < "$said" >&2

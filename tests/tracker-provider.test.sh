@@ -95,14 +95,19 @@ check "a FORGE with no folder is refused and the folders are named" "error: FORG
 mkdir -p "$WORK/fake"
 cat > "$WORK/fake/gh" <<'GH'
 #!/bin/sh
-case "$FAKE_RUNS" in
+# FAKE_RUNS answers `gh run list`, FAKE_STATUS the commit statuses (none when unset); "broken" fails the call
+case "$1" in
+  api) answer="${FAKE_STATUS:-{\"state\":\"pending\",\"total_count\":0\}}" ;;
+  *) answer="$FAKE_RUNS" ;;
+esac
+case "$answer" in
   broken) echo 'HTTP 502: Bad Gateway' >&2; exit 1 ;;
-  *) echo "$FAKE_RUNS" ;;
+  *) echo "$answer" ;;
 esac
 GH
 chmod +x "$WORK/fake/gh"
-checked() {  # checked <what the fake gh answers>
-  ( cd "$WORK/project" && PATH="$WORK/fake:$PATH" FAKE_RUNS="$1" bash -c '. "$1/lib/forge.sh"; commit_checked "$2" abc 2>&1' _ "$ROOT" "$WORK/project" )
+checked() {  # checked <what the fake gh answers for the runs> [what it answers for the commit statuses]
+  ( cd "$WORK/project" && PATH="$WORK/fake:$PATH" FAKE_RUNS="$1" FAKE_STATUS="${2:-}" bash -c '. "$1/lib/forge.sh"; commit_checked "$2" abc 2>&1' _ "$ROOT" "$WORK/project" )
 }
 check "commit_checked: a completed success is green" "green" "$(checked '[{"status":"completed","conclusion":"success"}]')"
 check "commit_checked: completed with no success is red" "red" "$(checked '[{"status":"completed","conclusion":"failure"},{"status":"completed","conclusion":"cancelled"}]')"
@@ -111,5 +116,40 @@ check "commit_checked: no run yet is pending" "pending" "$(checked '[]')"
 check "commit_checked: a failed query is unreadable, with the words of the forge" "unreadable
 HTTP 502: Bad Gateway " "$(checked broken)"
 check "commit_checked: an empty answer is unreadable" "unreadable" "$(checked '')"
+# a pipeline that posts a commit status and no run (tekton/ci): the statuses decide
+none='[]'
+check "commit_checked: only a status, success, is green" "green" "$(checked "$none" '{"state":"success","total_count":1}')"
+check "commit_checked: only a status, failure, is red" "red" "$(checked "$none" '{"state":"failure","total_count":1}')"
+check "commit_checked: only a status, error, is red" "red" "$(checked "$none" '{"state":"error","total_count":1}')"
+check "commit_checked: only a status, pending, is pending" "pending" "$(checked "$none" '{"state":"pending","total_count":1}')"
+check "commit_checked: a failed query for the statuses is unreadable, with the words of the forge" "unreadable
+HTTP 502: Bad Gateway " "$(checked "$none" broken)"
+check "commit_checked: an answer for the statuses that is no JSON is unreadable" "unreadable" "$(checked "$none" 'not json' | head -n1)"
+# runs and statuses together: green needs both, red needs one
+done_ok='[{"status":"completed","conclusion":"success"}]'
+check "commit_checked: a green run and a green status are green" "green" "$(checked "$done_ok" '{"state":"success","total_count":1}')"
+check "commit_checked: a green run and a pending status are pending" "pending" "$(checked "$done_ok" '{"state":"pending","total_count":1}')"
+check "commit_checked: a green run and a failed status are red" "red" "$(checked "$done_ok" '{"state":"failure","total_count":1}')"
+check "commit_checked: a run still going and a green status are pending" "pending" "$(checked '[{"status":"in_progress","conclusion":null}]' '{"state":"success","total_count":1}')"
+check "commit_checked: a failed run and a green status are red" "red" "$(checked '[{"status":"completed","conclusion":"failure"}]' '{"state":"success","total_count":1}')"
+check "commit_checked: a run still going and a failed status are red" "red" "$(checked '[{"status":"in_progress","conclusion":null}]' '{"state":"failure","total_count":1}')"
+
+# the visibility of a repository: the forge reads isPrivate as the tracker does, and both refuse what is no boolean
+cat > "$WORK/fake/gh" <<'GH'
+#!/bin/sh
+case "$FAKE_VISIBILITY" in
+  broken) echo 'visibility denied' >&2; exit 1 ;;
+  *) echo "$FAKE_VISIBILITY" ;;
+esac
+GH
+visible() {
+  ( cd "$WORK/project" && PATH="$WORK/fake:$PATH" FAKE_VISIBILITY="$2" bash -c '. "$1/lib/forge.sh"; . "$1/lib/tracker.sh"; "$2" example-org/example-repo 2>&1' _ "$ROOT" "$1" )
+}
+for fn in forge_repo_visibility repo_visibility; do
+  check "$fn: isPrivate false is public" "public" "$(visible $fn '{"isPrivate":false}')"
+  check "$fn: isPrivate true is private" "private" "$(visible $fn '{"isPrivate":true}')"
+  check "$fn: a string for isPrivate is refused" "yes" "$(case "$(visible $fn '{"isPrivate":"true"}')" in *'isPrivate was not a boolean'*) echo yes ;; *) echo no ;; esac)"
+  check "$fn: a refused query is refused with the words of gh" "yes" "$(case "$(visible $fn broken)" in *'visibility denied'*) echo yes ;; *) echo no ;; esac)"
+done
 
 [ "$failed" -eq 0 ] || { echo "$failed failed"; exit 1; }

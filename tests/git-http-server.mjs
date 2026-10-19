@@ -28,7 +28,7 @@ const server = http.createServer((req, res) => {
     if (req.headers['content-encoding']) env.HTTP_CONTENT_ENCODING = req.headers['content-encoding'];
     if (req.headers['git-protocol']) env.HTTP_GIT_PROTOCOL = req.headers['git-protocol'];
     const cgi = spawn('git', ['http-backend'], { env });
-    cgi.stdin.on('error', () => {});   // git may exit without reading the body; what it wrote is still the answer
+    cgi.stdin.on('error', (e) => { if (e.code !== 'EPIPE') throw e; });   // git may exit without reading the body
     cgi.stdin.end(body);
     const out = [];
     cgi.stdout.on('data', (c) => out.push(c));

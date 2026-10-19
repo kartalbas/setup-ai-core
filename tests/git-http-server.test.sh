@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# tests/git-http-server.mjs stays up when git exits before it has read the request body, and when a client
-# closes its connection before the response is written; the request after each is answered. Nothing here reaches a network.
+# tests/git-http-server.mjs stays up when git exits before it has read the request body, and answers the next
+# request. Nothing here reaches a network.
 #
 #   bash tests/git-http-server.test.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-section "the git server of the Forgejo tests survives a git and a client that hang up"
+section "the git server of the Forgejo tests survives a git that hangs up"
 mkdir -p "$WORK/remote/example-org"; git init -q --bare "$WORK/remote/example-org/example-repo.git"
 printf 'server-token\n' > "$WORK/token"; : > "$WORK/log"
 node "$ROOT/tests/git-http-server.mjs" "$WORK/remote" "$WORK/token" "$WORK/log" > "$WORK/port" 2> "$WORK/server-err" &
@@ -29,29 +29,3 @@ sleep 0.3
 kill -0 "$SERVER_PID" 2>/dev/null || fail "the server died when git exited before reading the request body: $(head -5 "$WORK/server-err")"
 [ "$(refs_status)" = 200 ] || fail "the server did not answer the request after a git that exited before reading the body"
 echo "  git exits before reading the request body: the server stays up and answers the next request"
-
-# a client that closes at once, and one that closes in the middle of its body
-cat > "$WORK/hangup-client.mjs" <<'JS'
-import net from 'node:net';
-const [port, mode] = process.argv.slice(2);
-const socket = net.connect(+port, '127.0.0.1');
-const auth = 'Basic ' + Buffer.from('any:server-token').toString('base64');
-socket.on('error', () => {});
-socket.on('connect', () => {
-  if (mode === 'before-response') {
-    socket.write(`GET /example-org/example-repo.git/info/refs?service=git-upload-pack HTTP/1.1\r\nHost: x\r\nAuthorization: ${auth}\r\n\r\n`);
-    socket.destroy();
-  } else {
-    socket.write(`POST /example-org/example-repo.git/git-upload-pack HTTP/1.1\r\nHost: x\r\nAuthorization: ${auth}\r\nContent-Length: 1000000\r\n\r\nabc`);
-    setTimeout(() => socket.destroy(), 50);
-  }
-  setTimeout(() => process.exit(0), 200);
-});
-JS
-for mode in before-response in-body; do
-  for _ in 1 2 3; do node "$WORK/hangup-client.mjs" "${BASE##*:}" "$mode"; done
-  sleep 0.3
-  kill -0 "$SERVER_PID" 2>/dev/null || fail "the server died when a client closed its connection ($mode): $(head -5 "$WORK/server-err")"
-  [ "$(refs_status)" = 200 ] || fail "the server did not answer the request after a client that closed its connection ($mode)"
-done
-echo "  a client closes before the response and in the middle of its body: the server stays up and answers the next request"

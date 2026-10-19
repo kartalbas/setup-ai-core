@@ -36,9 +36,9 @@
 # green and on which branch; then, with the lock held and origin fetched, the push to the default branch
 # sends exactly that commit. Red checks, checks that do not finish or cannot be read, an origin/<default>
 # that moved while they ran and an issue branch whose tip moved refuse with nothing pushed to the default
-# branch. The push to ci/integrate-<issue branch> replaces what stands there (the left-over of an earlier
-# landing of the issue that was killed), but only if it is still what was read just before the push (a
-# lease): a branch written in between is refused. The delete removes the branch only while it holds this
+# branch. The push to ci/integrate-<issue branch> replaces what stands there (a left-over of an earlier
+# landing of the issue, or the branch of one that still runs), but only if it is still what was read just
+# before the push (a lease): a branch written in between is refused. The delete removes the branch only while it holds this
 # landing's merge commit (a lease again), and names it in one line when it stays. It runs on every way out
 # that can be trapped; a SIGKILL leaves the branch behind, and the next landing of the issue replaces it.
 # Without --from-origin, a local branch tip that origin does not hold has no checks and refuses at once. A
@@ -107,8 +107,10 @@ if [ -z "$from_origin" ]; then
     || die "the worktree has changes - commit them for the review, or put them aside, then run this again"
 else
   # The name is read from origin itself: a clone that never fetched the branch has no ref to list
-  heads="$(git ls-remote --heads origin "refs/heads/issue-$number" "refs/heads/issue-$number-*" 2>&1)" \
-    || die "could not reach origin: $heads"
+  # Only stdout is read: a warning git writes on stderr is no ref
+  run_split git ls-remote --heads origin "refs/heads/issue-$number" "refs/heads/issue-$number-*" \
+    || die "could not reach origin: $split_out$split_err"
+  heads="$split_out"
   branch="$(printf '%s\n' "$heads" | awk '$2 ~ "^refs/heads/" { sub("^refs/heads/", "", $2); print $2 }')"
   listed_tip="$(printf '%s\n' "$heads" | awk '$2 ~ "^refs/heads/" { print $1 }')"
   case "$branch" in
@@ -136,10 +138,19 @@ landing="$(git rev-parse --path-format=absolute --git-common-dir)/ai-core-landin
 # stays or cannot be deleted is named in one line and changes nothing about the outcome. A kill that
 # cannot be trapped (SIGKILL) runs none of this and leaves the branch behind.
 tree=""; ci_branch=""
+# remote_ref_sha <full ref>: the sha origin holds for the ref, nothing where it has none. Only stdout is read,
+# so a warning git writes on stderr (a repository that was renamed, say) is no part of the sha; when git
+# fails, its words are printed and the status is 1.
+remote_ref_sha() {
+  local rc=0
+  GIT_TERMINAL_PROMPT=0 run_split git ls-remote origin "$1" || rc=$?
+  if [ "$rc" -ne 0 ]; then printf '%s\n' "$split_out$split_err"; return 1; fi
+  awk -v ref="$1" '$2 == ref { print $1 }' <<< "$split_out"
+}
 delete_ci_branch() {
   local said
   [ -n "$ci_branch" ] || return 0
-  said="$(git ls-remote origin "refs/heads/$ci_branch" 2>&1)" \
+  said="$(remote_ref_sha "refs/heads/$ci_branch")" \
     || { echo "$ci_branch could not be looked up on origin, so it was not deleted; delete it by hand if it stands: $(printf '%s' "$said" | tr -s '\r\n' '  ')" >&2; return 0; }
   [ -n "$said" ] || return 0
   said="$(git push origin "--force-with-lease=refs/heads/$ci_branch:$merged_sha" --delete "refs/heads/$ci_branch" 2>&1)" && return 0
@@ -189,7 +200,7 @@ keep_waited_tip() {
 # gate_public_repository: a public repository lands only on the green checks of the commit that lands. It
 # runs before the landing lock, so a slow CI holds up no other landing, and before anything reaches the
 # default branch. The merge commit is made in a temporary worktree and pushed to ci/integrate-<issue
-# branch>, which only a landing uses: a left-over of an earlier killed landing is replaced, but only if it is
+# branch>, which only a landing uses: a left-over of an earlier landing of the issue, or the branch of one that still runs, is replaced, but only if it is
 # still what was read just before the push (a lease), so a branch written meanwhile is refused. Its checks are waited for; the push to the default branch after the lock sends exactly the
 # merge commit. A private repository
 # rests on its push gate: nothing is made or pushed here, and no CI is read. The reviewed tip is the one
@@ -208,9 +219,8 @@ gate_public_repository() {
     tip="$listed_tip"; tip_name="origin/$branch"
   else
     tip="$(git rev-parse "$branch^{commit}")"; tip_name="$branch"
-    on_origin="$(GIT_TERMINAL_PROMPT=0 git ls-remote origin "refs/heads/$branch" 2>&1)" \
-      || die "could not reach origin: $on_origin"
-    [ "${on_origin%%[[:space:]]*}" = "$tip" ] \
+    on_origin="$(remote_ref_sha "refs/heads/$branch")" || die "could not reach origin: $on_origin"
+    [ "$on_origin" = "$tip" ] \
       || die "nothing landed: $tip is not on origin, so it has no checks; push the branch, then run this again"
   fi
   said="$(git fetch origin 2>&1)" || die "could not reach origin: $said"
@@ -219,8 +229,7 @@ gate_public_repository() {
   keep_waited_tip "origin/$branch"
   make_merge "$tip" "$tip_name"
   ci_branch="ci/integrate-$branch"
-  held="$(git ls-remote origin "refs/heads/$ci_branch" 2>&1)" || die "could not reach origin: $held"
-  held="${held%%[[:space:]]*}"
+  held="$(remote_ref_sha "refs/heads/$ci_branch")" || die "could not reach origin: $held"
   said="$(git -C "$tree" push origin "--force-with-lease=refs/heads/$ci_branch:$held" "$merged_sha:refs/heads/$ci_branch" 2>&1)" || case "$said" in
     *"stale info"*|*"cannot lock ref"*) die "nothing landed: $ci_branch on origin changed after it was read, so another landing of this branch may be running; nothing was pushed to it or to $default: $said" ;;
     *) die "nothing landed: the merge commit ${merged_sha:0:7} could not be pushed to $ci_branch for its checks, and nothing reached $default: $said" ;;

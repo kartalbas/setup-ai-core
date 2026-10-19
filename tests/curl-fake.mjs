@@ -223,6 +223,7 @@ function ser(st, pr, it, fields = null) {
   if (expand.includes('state')) o.state = pr.states.find((s) => s.id === it.state) && (({ id, name, color, group }) => ({ id, name, color, group }))(pr.states.find((s) => s.id === it.state));
   if (expand.includes('labels')) o.labels = it.labels.map((l) => pr.labels.find((x) => x.id === l)).filter(Boolean);
   if (expand.includes('assignees')) o.assignees = it.assignees.map((a) => st.users.find((u) => u.id === a));
+  if (expand.includes('parent') && !it.parent) o.parent = {}; // Plane answers an empty object, not null, for a work item without a parent
   if (expand.includes('parent') && it.parent) { const par = pr.issues.find((i) => i.id === it.parent); o.parent = { id: par.id, sequence_id: par.sequence_id, project_id: pr.id }; }
   if (fields) for (const k of Object.keys(o)) if (!fields.includes(k)) delete o[k];
   return o;

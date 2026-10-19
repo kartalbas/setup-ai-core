@@ -59,7 +59,8 @@ rows="$(plane_fn card_rows)" || fail "card_rows"
 [ "$(jq -c 'select(.number == 54) | [.status, .open, (.closedAt != null)]' <<< "$rows")" = '["done",false,true]' ] || fail "the card row of #54: $(jq -c 'select(.number == 54)' <<< "$rows")"
 [ "$(jq -c 'select(.number == 51) | .repo' <<< "$rows")" = null ] || fail "a work item without a repository has a repository in its row"
 [ "$(jq -r 'select(.number == 53) | .number' <<< "$rows")" = "" ] || fail "the archived work item has a card row"
-echo "  card_rows: the row of lib/tracker.sh, the parent as a repository reference, the sub-issue count, the closing time"
+[ "$(jq -c 'select(.number == 51) | [.parent, .subs]' <<< "$rows")" = '[null,0]' ] || fail "a work item whose parent is {} has a parent or sub-issues in its row: $(jq -c 'select(.number == 51)' <<< "$rows")"
+echo "  card_rows: the row of lib/tracker.sh, the parent as a repository reference, the sub-issue count, the closing time; a parent of {} is none"
 
 # a card that names no repository does not break the readers of the rows
 items="$WORK/items"; plane_fn card_rows > "$items"

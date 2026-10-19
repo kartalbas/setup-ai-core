@@ -726,9 +726,9 @@ issue_rows() {
     | . as $w | ($rels | map(select(.id == $w.id))[0] // {blockedBy: [], blocking: []}) as $x
     | { repo: repo($o), number: .sequence_id, title: .name, body: ((.description_html // "") | text), open: true,
         labels: [.labels[].name | select(startswith("repo:") | not)], status: .state.name,
-        parent: (if .parent then ref(.parent.id) else null end),
+        parent: (if .parent.id then ref(.parent.id) else null end),
         blockedBy: [$x.blockedBy[] | ref(.) | select(. != null)], blocking: [$x.blocking[] | ref(.) | select(. != null)],
-        cut: ((if .parent and ref(.parent.id) == null then ["parent names a work item of another project or without a repo: label"] else [] end)
+        cut: ((if .parent.id and ref(.parent.id) == null then ["parent names a work item of another project or without a repo: label"] else [] end)
               + cut("blocked by"; $x.blockedBy) + cut("blocks"; $x.blocking)) }'
 }
 
@@ -745,11 +745,11 @@ PLANE_ROW='def closed: .state.group | IN("completed", "cancelled");
 card_rows() {
   plane_all_items | jq -cs --arg o "$(plane_owner)" "$PLANE_REPO""$PLANE_ROW"'
     (map({key: .id, value: .}) | from_entries) as $byid
-    | (map(select(.parent) | .parent.id) | group_by(.) | map({key: .[0], value: length}) | from_entries) as $subs
+    | (map(select(.parent.id) | .parent.id) | group_by(.) | map({key: .[0], value: length}) | from_entries) as $subs
     | .[] | {repo: repo($o), number: .sequence_id, title: .name, open: (closed | not),
              closedAt: (if closed then (.completed_at // .updated_at) else null end),
              status: .state.name, priority: prio,
-             parent: (if .parent then (.parent | ref($byid; $o)) else null end),
+             parent: (if .parent.id then (.parent | ref($byid; $o)) else null end),
              subs: ($subs[.id] // 0)}'
 }
 
@@ -880,7 +880,7 @@ open_issue_page() {
   done <<< "$ids"
   printf '%s\n' "$all" | jq -cs --arg o "$(plane_owner)" --arg r "$repo" --argjson board "$(project_number_json)" --arg org "$(project_org)" \
     --argjson extra "$(printf '%s' "$extra" | jq -cs '.')" "$PLANE_REPO""$PLANE_ROW"'
-    (map(select(.parent) | .parent.id) | group_by(.) | map({key: .[0], value: length}) | from_entries) as $subs
+    (map(select(.parent.id) | .parent.id) | group_by(.) | map({key: .[0], value: length}) | from_entries) as $subs
     | {data: {repository: {issues: {pageInfo: {hasNextPage: false, endCursor: null},
         nodes: [.[] | select(same(repo($o); $r) and (closed | not)) | . as $w
           | ($extra | map(select(.id == $w.id))[0] // {comments: [], reopenedAt: null}) as $x

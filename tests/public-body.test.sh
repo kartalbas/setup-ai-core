@@ -36,6 +36,10 @@ overlap 'x@[`bob@company.ch` @2 `@scope/pkg`]' '[`bob@company.ch'
 overlap 'x@[bob@company.ch @1]' '[bob@company.ch'
 overlap '"bob@company.ch"@1' 'bob@company.ch'
 overlap '"bob@company.ch"@localhost' 'bob@company.ch'
+for quoted in 'Mail bob@[ @company.ch ] now' 'bob@[ @company.ch]' 'bob@[;@company.ch]' 'bob@[,@company.ch]'; do
+  name="$quoted"; case "$quoted" in 'Mail '*) name='bob@[ @company.ch ]' ;; esac
+  overlap "$quoted" "$name"
+done
 for quoted in '"@ops"@company.ch' '"A@"@company.ch' '"bob@"@company.ch' '"bob@ home"@company.ch' '"bob@1"@company.ch' '"@"@company.ch' '"very.unusual.@.unusual.com"@company.ch' 'Write to "@ops"@company.ch now'; do
   name="$quoted"; case "$quoted" in 'Write to '*) name='"@ops"@company.ch' ;; esac
   overlap "$quoted" "$name"

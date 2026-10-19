@@ -43,7 +43,8 @@
 # that can be trapped; a SIGKILL leaves the branch behind, and the next landing of the issue replaces it.
 # Without --from-origin, a local branch tip that origin does not hold has no checks and refuses at once. A
 # private repository rests on its push gate, which is its check: nothing goes to ci/ and no CI is read, and
-# one line says so. A visibility the forge does not establish refuses.
+# one line says so; so does a public one of a project whose config.env sets CI_GATE="none" (CI_GATE is public
+# when unset; any other value refuses before anything is made). A visibility the forge does not establish refuses.
 #
 # A MERGE COMMIT, NOT A REBASE: the reviewed commits land as they were read, with the shas the
 # reviewer saw, and the one new commit carries the issue and the reviewer.
@@ -207,12 +208,21 @@ keep_waited_tip() {
 # origin lists for --from-origin, else the local branch, which must be the tip origin holds too.
 base_tip=""; merged_sha=""; merged=""
 gate_public_repository() {
-  local checked_repo visibility tip tip_name poll limit checks=0 on_origin said held
+  local checked_repo visibility ci_gate tip tip_name poll limit checks=0 on_origin said held
+  ci_gate="$(config_value CI_GATE public)"
+  case "$ci_gate" in
+    public|none) ;;
+    *) die "nothing landed: CI_GATE is '$ci_gate' in the config.env of the project; it is public or none" ;;
+  esac
   checked_repo="$(origin_repo)" || die "nothing landed: origin names no repository, so its visibility cannot be established"
   visibility="$(apart forge_repo_visibility "$checked_repo")" \
     || die "nothing landed: the visibility of $checked_repo cannot be established, so it is not known whether its checks must be green: $visibility"
   if [ "$visibility" = private ]; then
     echo "checks: $checked_repo is private, its push gate is its check; the CI of $(forge_name) is not read"
+    return 0
+  fi
+  if [ "$ci_gate" = none ]; then
+    echo "checks: $checked_repo is public and the CI_GATE of the project is none, its push gate is its check; the CI of $(forge_name) is not read"
     return 0
   fi
   if [ -n "$from_origin" ]; then

@@ -20,12 +20,12 @@
 - **Never lie in code.** No fabricated value, no faked success, no invented default standing in for
   a real one, no swallowed error. An error is caught only to make it visible. [review]
 - **Every repository has a fixed set of checks that is green before work is called done**: the
-  linters, the type check, the tests and the build, run by one entry point. A private repository
-  runs all of it on the developer's machine before every push, its full test suites included and
-  without building a container image for a test, because its code goes to no outside service; where
-  the push gate runs that entry point, the push is that run, and nobody starts it a second time right
-  before pushing. A
-  public repository is tested by its CI, which an open-source project gets for free; running the
+  linters, the type check, the tests and the build, run by one entry point. A private repository,
+  and a public one whose CI would run on the project's own machines, runs all of it on the
+  developer's machine before every push, its full test suites included and without building a
+  container image for a test, because its code goes to no outside service; where the push gate runs
+  that entry point, the push is that run, and nobody starts it a second time right before pushing. A
+  public repository whose CI an outside service runs for free is tested by that CI; running the
   entry point locally as well is always allowed. [review]
 - **A green run proves what it covers and nothing more.** A check says how much it covered, and it
   carries a planted defect of each shape it must catch plus a planted innocent case, so it can be

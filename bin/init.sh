@@ -604,7 +604,11 @@ fi
 RUN_SETTINGS="${AI_CORE_HOME:-$HOME}/.ai-core/claude-run-settings.json"
 RUN_SETTINGS_MAKE='{permissions: {deny: [.permissions.deny[] | select(test("^[A-Za-z]+\\(!") | not) | sub("^(?<t>[A-Za-z]+)\\(\\*\\*/"; "\(.t)(//**/")]}}'
 if command -v jq >/dev/null 2>&1 && jq "$RUN_SETTINGS_MAKE" "$SETTINGS_TEMPLATE" 2>/dev/null | tr -d '\r' > "$TMP/claude-run-settings.json" && [ -s "$TMP/claude-run-settings.json" ]; then
-  put_file "$TMP/claude-run-settings.json" "$RUN_SETTINGS" "$RUN_SETTINGS" managed
+  # The machine's file, shared by every checkout: it is not one checkout's created or unchanged
+  # file, so it is written without a note, and only when it differs.
+  if [ "$DRY" -eq 0 ] && ! cmp -s "$TMP/claude-run-settings.json" "$RUN_SETTINGS"; then
+    mkdir -p "$(dirname "$RUN_SETTINGS")" && cp -f "$TMP/claude-run-settings.json" "$RUN_SETTINGS"
+  fi
 fi
 # 2a. A repository with a CLAUDE.md of its own: Claude Code then reads that file and not AGENTS.md.
 #     A CLAUDE.local.md beside it, which Claude Code loads the same way and git never sees, imports

@@ -14,6 +14,8 @@
       "Edit(**/*.env)",
       "Read(!config.env)",
       "Edit(!config.env)",
+      "Read(!*.example.env)",
+      "Edit(!*.example.env)",
       "Read(**/*.pem)",
       "Edit(**/*.pem)",
       "Read(**/*.key)",

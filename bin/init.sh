@@ -600,7 +600,9 @@ fi
 # checkout's .claude/settings.json: the template's denials in one file under the ai-core home, for
 # `--settings`. A pattern starting with **/ is anchored at //, the filesystem root, because a
 # relative one reaches only below the throwaway folder; a ! entry is left out, because Claude
-# Code reads a ! pattern relative to the current folder and so cannot carve out of a //-rule.
+# Code reads a ! pattern relative to the current folder and so cannot carve out of a //-rule
+# (measured: with Read(//**/*.env) and Read(!*.example.env) a run refused config.example.env too).
+# So a claude -p run reads no *.env file, a tracked config.example.env template and config.env included.
 RUN_SETTINGS="${AI_CORE_HOME:-$HOME}/.ai-core/claude-run-settings.json"; RUN_SETTINGS_NOTE=""
 RUN_SETTINGS_MAKE='{permissions: {deny: [.permissions.deny[] | select(test("^[A-Za-z]+\\(!") | not) | sub("^(?<t>[A-Za-z]+)\\(\\*\\*/"; "\(.t)(//**/")]}}'
 if command -v jq >/dev/null 2>&1 && jq "$RUN_SETTINGS_MAKE" "$SETTINGS_TEMPLATE" 2>/dev/null | tr -d '\r' > "$TMP/claude-run-settings.json" && [ -s "$TMP/claude-run-settings.json" ]; then

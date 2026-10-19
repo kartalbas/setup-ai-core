@@ -117,12 +117,23 @@ echo "  --tool claude: no skill and no rules printed, at most 9 500 bytes, JSON 
 jq -e '(.instructions | index(".ai-core/rules/rules.md") != null and index(".ai-core/rules/skills.md") != null and index(".ai-core/rules/rules.local.md") != null)' "$WORK/checkout/opencode.json" > /dev/null || fail "init.sh did not lay an opencode.json with the rules: $(tr -d '\n' < "$WORK/checkout/opencode.json" 2>/dev/null)"
 jq -e --slurpfile t "$ROOT/templates/.claude/settings.json" '(.permissions.deny == $t[0].permissions.deny) and (.permissions.deny | index("Read(**/.env)") != null) and (.permissions.deny | index("Bash(git push --force:*)") != null)' "$WORK/checkout/.claude/settings.json" > /dev/null || fail "the settings.json init.sh deployed lacks the denials of the template: $(jq -c '.permissions.deny' "$WORK/checkout/.claude/settings.json")"
 # the secrets of a checkout (any *.env, *.pem, *.key, ~/.netrc) are neither read nor edited, git's hard cleanups are refused, and rm -rf stays allowed
-for entry in 'Read(**/*.env)' 'Edit(**/*.env)' 'Read(!config.env)' 'Edit(!config.env)' 'Read(**/*.pem)' 'Edit(**/*.pem)' 'Read(**/*.key)' 'Edit(**/*.key)' 'Read(~/.netrc)' 'Edit(~/.netrc)' 'Bash(git reset --hard:*)' 'Bash(git reset *--hard*)' 'Bash(git clean:*)'; do
+for entry in 'Read(**/*.env)' 'Edit(**/*.env)' 'Read(!config.env)' 'Edit(!config.env)' 'Read(!*.example.env)' 'Edit(!*.example.env)' 'Read(**/*.pem)' 'Edit(**/*.pem)' 'Read(**/*.key)' 'Edit(**/*.key)' 'Read(~/.netrc)' 'Edit(~/.netrc)' 'Bash(git reset --hard:*)' 'Bash(git reset *--hard*)' 'Bash(git clean:*)'; do
   jq -e --arg e "$entry" '.permissions.deny | index($e) != null' "$WORK/checkout/.claude/settings.json" > /dev/null || fail "the settings.json init.sh deployed does not deny $entry"
 done
-# a ! entry carves out only of the rules listed before it: config.env, the harness's own file, stays readable
+# a ! entry carves out only of the rules listed before it: config.env, the harness's own file, and a tracked template
+# such as config.example.env stay readable
 for t in Read Edit; do
-  jq -e --arg t "$t" '.permissions.deny as $d | ($d | index($t + "(**/*.env)")) as $a | ($d | index($t + "(!config.env)")) as $b | $a != null and $b != null and $b > $a' "$WORK/checkout/.claude/settings.json" > /dev/null || fail "the settings.json init.sh deployed does not list $t(!config.env) after $t(**/*.env)"
+  for carve in config.env '*.example.env'; do
+    jq -e --arg t "$t" --arg c "$carve" '.permissions.deny as $d | ($d | index($t + "(**/*.env)")) as $a | ($d | index($t + "(!" + $c + ")")) as $b | $a != null and $b != null and $b > $a' "$WORK/checkout/.claude/settings.json" > /dev/null || fail "the settings.json init.sh deployed does not list $t(!$carve) after $t(**/*.env)"
+  done
+done
+# the innocent case: the carve-outs let exactly the harness's config.env and *.example.env templates past; a real
+# secrets.env, a config.local.env and a .env stay under the deny
+for name in config.env config.example.env; do
+  jq -r '.permissions.deny[] | select(startswith("Read(!")) | .[6:-1]' "$WORK/checkout/.claude/settings.json" | { while IFS= read -r g; do case "$name" in $g) exit 0 ;; esac; done; exit 1; } || fail "no ! entry of the deployed settings.json carves $name out of the env denial"
+done
+for name in secrets.env config.local.env .env prod.example.env.bak; do
+  ! jq -r '.permissions.deny[] | select(startswith("Read(!")) | .[6:-1]' "$WORK/checkout/.claude/settings.json" | { while IFS= read -r g; do case "$name" in $g) exit 0 ;; esac; done; exit 1; } || fail "a ! entry of the deployed settings.json carves $name out of the env denial: it must stay denied"
 done
 # the file for the claude -p runs from a throwaway folder: every denial of the template, **/ anchored at //, no ! entry
 RUN_SETTINGS="${AI_CORE_HOME:-$HOME}/.ai-core/claude-run-settings.json"

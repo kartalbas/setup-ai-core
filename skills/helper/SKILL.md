@@ -25,7 +25,7 @@ path in the task, and remove the worktree afterwards.
   `--settings ~/.ai-core/claude-run-settings.json` carries the deny list of the template (key files
   and `.env` files unread, `git reset --hard` and `git clean` refused), which a call from a
   disposable directory would not otherwise have; `ai-core init` writes the file. The helper
-  cannot read any `*.env` file, every `config.env` included, and its Grep tool leaves those files out
+  cannot read any `*.env` file, every `config.env` and every template such as `config.example.env` included, and its Grep tool leaves those files out
   without a word: when the question needs the content of such a file, hand it over in the task.
   `--permission-prompts none` denies whatever would ask a question, so the call never waits at a
   terminal; `--strict-mcp-config` keeps every MCP server of yours out of it, a logged-in browser

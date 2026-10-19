@@ -601,10 +601,21 @@ fi
 # `--settings`. A pattern starting with **/ is anchored at //, the filesystem root, because a
 # relative one reaches only below the throwaway folder; a ! entry is left out, because Claude
 # Code reads a ! pattern relative to the current folder and so cannot carve out of a //-rule.
-RUN_SETTINGS="${AI_CORE_HOME:-$HOME}/.ai-core/claude-run-settings.json"
+RUN_SETTINGS="${AI_CORE_HOME:-$HOME}/.ai-core/claude-run-settings.json"; RUN_SETTINGS_NOTE=""
 RUN_SETTINGS_MAKE='{permissions: {deny: [.permissions.deny[] | select(test("^[A-Za-z]+\\(!") | not) | sub("^(?<t>[A-Za-z]+)\\(\\*\\*/"; "\(.t)(//**/")]}}'
 if command -v jq >/dev/null 2>&1 && jq "$RUN_SETTINGS_MAKE" "$SETTINGS_TEMPLATE" 2>/dev/null | tr -d '\r' > "$TMP/claude-run-settings.json" && [ -s "$TMP/claude-run-settings.json" ]; then
-  put_file "$TMP/claude-run-settings.json" "$RUN_SETTINGS" "$RUN_SETTINGS" managed
+  # The machine's file, shared by every checkout: it is not one checkout's created or unchanged
+  # file, so it has a line of its own in the report. It is renamed into place, so a claude -p run
+  # reading it meanwhile never sees it half written.
+  if ! cmp -s "$TMP/claude-run-settings.json" "$RUN_SETTINGS"; then
+    RUN_SETTINGS_NOTE="the denials $([ "$DRY" -eq 1 ] && echo "would be written" || echo "written") to $RUN_SETTINGS"
+    # mktemp makes 0600; the file holds no secret and other users' claude -p runs read it, so 0644
+    if [ "$DRY" -eq 0 ]; then
+      mkdir -p "$(dirname "$RUN_SETTINGS")"
+      RUN_SETTINGS_TMP="$(mktemp "$RUN_SETTINGS.XXXXXX")"
+      cp "$TMP/claude-run-settings.json" "$RUN_SETTINGS_TMP" && chmod 0644 "$RUN_SETTINGS_TMP" && mv -f "$RUN_SETTINGS_TMP" "$RUN_SETTINGS" || { rm -f "$RUN_SETTINGS_TMP"; false; }
+    fi
+  fi
 fi
 # 2a. A repository with a CLAUDE.md of its own: Claude Code then reads that file and not AGENTS.md.
 #     A CLAUDE.local.md beside it, which Claude Code loads the same way and git never sees, imports
@@ -1017,6 +1028,7 @@ elif [ -s "$TMP/auto-mode-changes.txt" ]; then
   echo "  auto mode: $AUTO_MODE_FILE $([ "$DRY" -eq 1 ] && echo "would change" || echo "changed"):"
   sed 's/^/    /' "$TMP/auto-mode-changes.txt"
 fi
+if [ -n "$RUN_SETTINGS_NOTE" ]; then echo "  claude -p runs: $RUN_SETTINGS_NOTE"; fi
 if [ -n "$CODEX_NOTE" ]; then echo "  codex: $CODEX_NOTE"; fi
 if [ -n "$AGY_NOTE" ]; then echo "  antigravity: $AGY_NOTE"; fi
 if [ "$DRY" -eq 1 ]; then echo "  nothing was written (dry run)"; elif [ -z "$AGENTS_UNKNOWN" ]; then echo "✓ Harness $CORE_VERSION in place. Run 'ai-core session-start' here to verify."; fi

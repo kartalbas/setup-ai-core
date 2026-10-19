@@ -29,7 +29,7 @@ grep -aq '^  nothing was written (dry run)$' "$WORK/report-dry.log" || fail "ini
 # 2. the run: what the dry run announced, done and reported the same way
 init_quiet "$D" "$WORK/report-1.log" || fail "init.sh run 1 failed (see $WORK/report-1.log)"
 [ -f "$D/AGENTS.md" ] && [ ! -e "$D/.ai-core/bin" ] || fail "init.sh run 1 did not do what the dry run announced"
-diff <(report_of "$WORK/report-dry.log" | sed 's/would change/changed/; s/^  nothing was written (dry run)$//' | grep .) <(report_of "$WORK/report-1.log") > /dev/null || fail "init.sh: the run reports something else than its dry run announced: $(diff <(report_of "$WORK/report-dry.log") <(report_of "$WORK/report-1.log"))"
+diff <(report_of "$WORK/report-dry.log" | sed 's/would change/changed/; s/would be written/written/; s/^  nothing was written (dry run)$//' | grep .) <(report_of "$WORK/report-1.log") > /dev/null || fail "init.sh: the run reports something else than its dry run announced: $(diff <(report_of "$WORK/report-dry.log") <(report_of "$WORK/report-1.log"))"
 # 3. the second run: nothing created, refreshed or removed; the exclude file untouched
 cp "$D/.git/info/exclude" "$WORK/report.exclude"
 init_quiet "$D" "$WORK/report-2.log" || fail "init.sh run 2 failed (see $WORK/report-2.log)"
@@ -43,6 +43,8 @@ grep -aq 'No such file or directory' "$WORK/folder-1.log" && fail "init.sh print
 init_quiet "$F" "$WORK/folder-2.log" || fail "init.sh run 2 on a project folder failed (see $WORK/folder-2.log)"
 grep -aqE '^  (created|refreshed|removed) ' "$WORK/folder-2.log" && fail "init.sh run 2 on a project folder changed something: $(grep -aE '^  (created|refreshed|removed) ' "$WORK/folder-2.log")"
 grep -q '^| `app` |' "$F/AGENTS.md" || fail "the folder's AGENTS.md lost the map"
+grep -aq "^  claude -p runs: the denials written to $AI_CORE_HOME/.ai-core/claude-run-settings.json$" "$WORK/report-1.log" || fail "init.sh run 1 did not report the denials it wrote for the claude -p runs: $(grep -a 'claude -p runs' "$WORK/report-1.log")"
+grep -aq 'claude -p runs' "$WORK/report-2.log" && fail "init.sh run 2 reported the denials for the claude -p runs again"
 echo "  dry run: nothing written, created/removed/kept/.gitignore announced; run 1 reports the same; run 2 only unchanged files"
 section "init adds the rules as instructions to an opencode.json the checkout had, beside its own MCP server; the run after changes nothing"
 G="$WORK/opencode-first"; git init -q "$G"; mkdir -p "$G/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$G/.ai-core/config.env"

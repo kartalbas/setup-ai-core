@@ -142,7 +142,7 @@ run_tool() {
   case "$TOOL" in
     claude) claude -p "$PROMPT" --output-format text --settings "$RUN_SETTINGS" ${MODEL:+--model "$MODEL"} --allowedTools "Read,Glob,Grep" ;;
     codex)  codex exec --skip-git-repo-check -s read-only ${MODEL:+-m "$MODEL"} --output-last-message "$TMP/last.md" "$PROMPT" >/dev/null && cat "$TMP/last.md" ;;
-    agy)    agy --print "$PROMPT" --output-format text --settings "$RUN_SETTINGS" ${MODEL:+--model "$MODEL"} ;;
+    agy)    agy --print "$PROMPT" --output-format text ${MODEL:+--model "$MODEL"} ;;
   esac
 }
 if ! (cd "$TARGET" && run_tool) > "$RAW" 2>"$ERR"; then

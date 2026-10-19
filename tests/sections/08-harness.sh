@@ -207,6 +207,7 @@ if [ "${1:-}" = models ]; then
   [ -z "${MAP_FAKE_SIGNED_OUT:-}" ] || { echo 'Using file-based token storage because SSH session detected'; echo 'not signed in'; exit 1; }
   printf 'gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n'; exit 0
 fi
+case " $* " in *" --settings "*) echo "flags provided but not defined: -settings" >&2; exit 2 ;; esac   # agy has no such flag
 EOF
 tail -n +2 "$WORK/ghbin/claude"; } > "$WORK/ghbin/agy"; chmod +x "$WORK/ghbin/agy" "$WORK/ghbin/codex"
 MAPLOG="$WORK/map.args"

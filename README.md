@@ -450,7 +450,9 @@ No directory trees and no symbol lists: a search finds those.
 agent CLI named by `MAP_TOOL` in `.ai-core/config.env` (`claude`, `codex` or `agy`, each in its
 non-interactive read-only mode; `MAP_MODEL` when not the CLI's default; `AI_CORE_MAP_TOOL` and
 `AI_CORE_MAP_MODEL` in the environment name the CLI and the model of one machine, and the
-project's model goes only with the project's CLI) reads the repository cheaply, its
+project's model goes only with the project's CLI; a `claude` run gets the denials of
+`~/.ai-core/claude-run-settings.json` through `--settings`, and `map` stops with exit 1 where
+that file is missing, which `ai-core init` writes) reads the repository cheaply, its
 manifests and the README, and
 outputs the file in the fixed shape; `map` checks that shape (the title `# <repo> — the map`,
 the five headings in order, at most 80 lines) and refuses anything else, keeping the output at
@@ -946,7 +948,7 @@ a new script in `bin/` is a command without any registration.
 | `solution-path` | `ai-core solution-path <issue> <file> [--check]` | section 7 |
 | `rules-check` | `ai-core rules-check [file-or-directory]`; default `.ai-core/rules/rules.md`, or the `rules/` directory of setup-ai-core; a directory means its `NN-*.md` section files; a project harness (a directory with `rules/`, `skills/` or `agents/`) is checked whole: every skill has a front matter with its folder's name and a description, every agent a name and a description and no model below Sonnet, then its rule sections | 0 every rule tagged and nothing wrong in the harness; 1 otherwise |
 | `init` | `ai-core init [dir] [--all <folder>] [--no-doctor] [--dry-run]` | 0 in place, or dry; 1 doctor failed, or a repository under `--all` failed |
-| `map` | `ai-core map [dir] [--all <folder>] [--no-push] [--dry-run]` | 0 written (or unchanged, or dry); 1 no harness, the agent CLI failed or wrote something that is not a map, or a repository under `--all` failed |
+| `map` | `ai-core map [dir] [--all <folder>] [--no-push] [--dry-run]` | 0 written (or unchanged, or dry); 1 no harness, `~/.ai-core/claude-run-settings.json` missing for a `claude` run, the agent CLI failed or wrote something that is not a map, or a repository under `--all` failed |
 | `push` | `ai-core push [MESSAGE] [--harness <name>]`; runs `rules-check` on a clone with changes first and does not commit one it refuses | 0 every harness clone pushed or had nothing; 1 no clone, a clone `rules-check` refused, a commit or a push failed |
 | `update` | `ai-core update [--check] [--main]` (section 5.10) | 0 done, or `--check`: everything current; 2 `--check`: a release or commits available; 1 an origin could not be reached |
 | `release` | `ai-core release <version>` (in a clone of setup-ai-core, section 10) | 0 tagged and pushed; 1 refused, naming what is missing; 2 a wrong argument |

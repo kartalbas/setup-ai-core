@@ -590,7 +590,7 @@ tools work; the harness gives them the text at the place they look.
   missing, once, replaces an `ai-core` hook of an older form, and sets the status line to
   `ai-core statusline` in place of another one, because `ai-core usage` reads what it records. It also denies, and merges into an existing one
   the same way: reading or editing a checkout's `.env`, `.env.local`, `.env.*.local` and any `*.env`
-  (except `config.env`, the harness's own file, and the tracked templates `*.example.env`, which the entries
+  (except `config.env`, the harness's own file, and the files named `*.example.env`, the convention for a tracked template (the carve-out goes by name, so such a file holding real values is readable too), which the entries
   `!config.env` and `!*.example.env` carve out) and any
   `*.pem` and `*.key`, reading or editing `~/.netrc`, reading
   the machine's credentials (`~/.ssh`, `~/.aws`, `~/.git-credentials`, `~/.npmrc`, `~/.config/gh`,

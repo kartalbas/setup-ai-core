@@ -120,20 +120,32 @@ jq -e --slurpfile t "$ROOT/templates/.claude/settings.json" '(.permissions.deny 
 for entry in 'Read(**/*.env)' 'Edit(**/*.env)' 'Read(!config.env)' 'Edit(!config.env)' 'Read(!*.example.env)' 'Edit(!*.example.env)' 'Read(**/*.pem)' 'Edit(**/*.pem)' 'Read(**/*.key)' 'Edit(**/*.key)' 'Read(~/.netrc)' 'Edit(~/.netrc)' 'Bash(git reset --hard:*)' 'Bash(git reset *--hard*)' 'Bash(git clean:*)'; do
   jq -e --arg e "$entry" '.permissions.deny | index($e) != null' "$WORK/checkout/.claude/settings.json" > /dev/null || fail "the settings.json init.sh deployed does not deny $entry"
 done
-# a ! entry carves out only of the rules listed before it: config.env, the harness's own file, and a tracked template
-# such as config.example.env stay readable
+# a ! entry carves out only of the rules listed before it: config.env, the harness's own file, and the files named
+# *.example.env, the convention for a tracked template, stay readable (by name: such a file with real values is readable too)
 for t in Read Edit; do
   for carve in config.env '*.example.env'; do
     jq -e --arg t "$t" --arg c "$carve" '.permissions.deny as $d | ($d | index($t + "(**/*.env)")) as $a | ($d | index($t + "(!" + $c + ")")) as $b | $a != null and $b != null and $b > $a' "$WORK/checkout/.claude/settings.json" > /dev/null || fail "the settings.json init.sh deployed does not list $t(!$carve) after $t(**/*.env)"
   done
 done
-# the innocent case: the carve-outs let exactly the harness's config.env and *.example.env templates past; a real
-# secrets.env, a config.local.env and a .env stay under the deny
+# the innocent case: the carve-outs let exactly the harness's config.env and files named *.example.env past; a real
+# secrets.env, a config.local.env and a .env stay under the deny. Every name is tried bare and under a folder, against
+# the ! entries of Read and of Edit (an Edit carve-out opens > secrets.env), and a pattern with a leading **/ is also
+# tried without it, because in gitignore **/ matches zero folders.
+carved() {  # carved <name>: succeeds when a ! entry of the deployed settings.json matches the name, bare or under a folder
+  local name g
+  for name in "$1" "sub/$1"; do
+    while IFS= read -r g; do
+      case "$name" in $g) return 0 ;; esac
+      case "$g" in '**/'*) case "$name" in ${g#'**/'}) return 0 ;; esac ;; esac
+    done < <(jq -r '.permissions.deny[] | select(startswith("Read(!") or startswith("Edit(!")) | .[6:-1]' "$WORK/checkout/.claude/settings.json")
+  done
+  return 1
+}
 for name in config.env config.example.env; do
-  jq -r '.permissions.deny[] | select(startswith("Read(!")) | .[6:-1]' "$WORK/checkout/.claude/settings.json" | { while IFS= read -r g; do case "$name" in $g) exit 0 ;; esac; done; exit 1; } || fail "no ! entry of the deployed settings.json carves $name out of the env denial"
+  carved "$name" || fail "no ! entry of the deployed settings.json carves $name out of the env denial"
 done
 for name in secrets.env config.local.env .env prod.example.env.bak; do
-  ! jq -r '.permissions.deny[] | select(startswith("Read(!")) | .[6:-1]' "$WORK/checkout/.claude/settings.json" | { while IFS= read -r g; do case "$name" in $g) exit 0 ;; esac; done; exit 1; } || fail "a ! entry of the deployed settings.json carves $name out of the env denial: it must stay denied"
+  ! carved "$name" || fail "a ! entry of the deployed settings.json carves $name out of the env denial: it must stay denied"
 done
 # the file for the claude -p runs from a throwaway folder: every denial of the template, **/ anchored at //, no ! entry
 RUN_SETTINGS="${AI_CORE_HOME:-$HOME}/.ai-core/claude-run-settings.json"

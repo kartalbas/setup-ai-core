@@ -908,8 +908,9 @@ SIGN_IN_NOTE="$(clone_sign_in "$TARGET" $SIGN_IN_MODE)"
 # commit_gitignore <checkout>: the block committed on its own and pushed by ref to the branch
 # checked out, which catch_up has made sure of. Prints the note for the report; the push's own
 # output, the gate's among it, goes to the terminal. A push that is refused or fails takes the
-# commit back and returns 1: a commit nobody pushes leaves the checkout off its origin, and the
-# next start-issue there refuses it.
+# commit back, because a commit nobody pushes leaves the checkout off its origin, and the next
+# start-issue there refuses it: it returns 1, or 2 where the commit was the clone's only one and
+# the file stays, uncommitted.
 commit_gitignore() {
   local dir="$1" branch
   git -C "$dir" add -- .gitignore

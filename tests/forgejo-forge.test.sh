@@ -319,10 +319,14 @@ grep -q '  origin       answers' <<< "$out" || fail "the doctor does not say git
 ! grep -q "$TOKEN" <<< "$out" || fail "the doctor printed the token"
 git -C "$F" config --unset-all "$LINE_KEY"
 out="$(doctor_lines)"
-grep -q 'origin       no sign-in   the sign-in line of this checkout is not set; ai-core init sets it' <<< "$out" || fail "the doctor does not name the missing sign-in line: $out"
+grep -q 'origin       no sign-in   git ls-remote reaches the origin through the line init would set; the line is not set in this checkout, ai-core init sets it' <<< "$out" || fail "the doctor does not name the missing sign-in line after reading the origin through it: $out"
 ! grep -q PROBLEM <<< "$out" || fail "the doctor refuses a checkout whose only lack is the sign-in line init sets: $out"
-forge_fn clone_sign_in "$F" > /dev/null
+[ -z "$(git -C "$F" config --local --get-all "$LINE_KEY" || true)" ] || fail "the doctor wrote the sign-in line"
 git -C "$F" remote set-url origin "$FORGE_URL/example-org/missing.git"
+out="$(doctor_lines)"
+grep -q 'origin       refused' <<< "$out" && grep -q PROBLEM <<< "$out" || fail "the doctor does not refuse an origin git cannot read, with no sign-in line: $out"
+[ -z "$(git -C "$F" config --local --get-all "$LINE_KEY" || true)" ] || fail "the doctor wrote the sign-in line for an origin it refused"
+forge_fn clone_sign_in "$F" > /dev/null
 out="$(doctor_lines)"
 grep -q 'origin       refused' <<< "$out" && grep -q PROBLEM <<< "$out" || fail "the doctor does not refuse an origin git cannot read through the line: $out"
 git -C "$F" remote set-url origin "$FORGE_URL/example-org/example-repo.git"
@@ -423,12 +427,12 @@ git config --global --unset-all credential.helper
 git config --global --unset-all "$LINE_KEY"
 echo "  init: the dry run announces; the run sets the sign-in line once and creates the harness private on the instance; a second machine clones it"
 
-# init with its doctor: a checkout whose origin git cannot yet read gets the line first, so doctor passes; a wrong token still stops it
+# init with its doctor: doctor reads the origin through the line init would set, so a checkout without the line passes and gets it; a wrong token or an origin that cannot be read stops it
 init_with_doctor() { ( cd "$WORK/proj/example-repo2" && FORGE=forgejo FORGEJO_URL="$FORGE_URL" FORGEJO_TOKEN_COMMAND="cat $WORK/ftoken" GH_STUB_AUTH="$WORK/gh-auth" PATH="$WORK/ghstub:$PATH_CURL" bash "$ROOT/bin/init.sh" . "$@" 2>&1 ); }
 printf "Token scopes: 'project', 'repo'\n" > "$WORK/gh-auth"
 git -C "$WORK/proj/example-repo2" config --unset-all "$LINE_KEY"
 out="$(init_with_doctor)" || fail "init with its doctor refused a checkout that has no sign-in line yet: $out"
-grep -q "  $LINE_KEY set in .git/config" <<< "$out" || fail "init does not report the sign-in line it set before its doctor: $out"
+grep -q "  $LINE_KEY set in .git/config" <<< "$out" || fail "init does not report the sign-in line it set: $out"
 [ "$(git -C "$WORK/proj/example-repo2" config --get "$LINE_KEY")" = '!ai-core git-credential' ] || fail "init with its doctor did not set the sign-in line"
 git -C "$WORK/proj/example-repo2" config --unset-all "$LINE_KEY"
 out="$(init_with_doctor --dry-run)" || fail "init --dry-run with its doctor refused a checkout that has no sign-in line yet: $out"
@@ -439,8 +443,13 @@ out="$(init_with_doctor)" && fail "init went on with a token the instance refuse
 [ -z "$(git -C "$WORK/proj/example-repo2" config --get "$LINE_KEY" || true)" ] || fail "a refused init left the sign-in line set"
 grep -q "refuses the token (status 401)" <<< "$out" && grep -q 'fix the problems doctor reported' <<< "$out" || fail "init does not stop at doctor for a wrong token: $out"
 printf '%s\n' "$TOKEN" > "$WORK/ftoken"
+git -C "$WORK/proj/example-repo2" remote set-url origin "$FORGE_URL/example-org/missing.git"
+out="$(init_with_doctor)" && fail "init went on with an origin that cannot be read: $out"
+grep -q 'origin       refused' <<< "$out" && grep -q 'fix the problems doctor reported' <<< "$out" || fail "init does not stop at doctor for an origin that cannot be read: $out"
+[ -z "$(git -C "$WORK/proj/example-repo2" config --get "$LINE_KEY" || true)" ] || fail "init set the sign-in line although doctor refused the origin"
+git -C "$WORK/proj/example-repo2" remote set-url origin "$FORGE_URL/example-org/example-repo2.git"
 rm -f "$WORK/gh-auth"
-echo "  init with its doctor: a checkout with no sign-in line gets it and passes; a dry run passes and sets nothing; a wrong token stops at doctor and leaves no line"
+echo "  init with its doctor: a checkout with no sign-in line gets it and passes; a dry run passes and sets nothing; a wrong token or an origin that cannot be read stops at doctor and leaves no line"
 
 # --- release: the combined status of the commit decides -------------------------------------------
 RD="$WORK/rel-dev"; mkdir -p "$RD"

@@ -319,7 +319,14 @@ grep -q '  origin       answers' <<< "$out" || fail "the doctor does not say git
 ! grep -q "$TOKEN" <<< "$out" || fail "the doctor printed the token"
 git -C "$F" config --unset-all "$LINE_KEY"
 out="$(doctor_lines)"
-grep -q 'origin       refused' <<< "$out" && grep -q PROBLEM <<< "$out" || fail "the doctor does not refuse an origin git cannot sign in to: $out"
+grep -q 'origin       no sign-in   the sign-in line of this checkout is not set; ai-core init sets it' <<< "$out" || fail "the doctor does not name the missing sign-in line: $out"
+! grep -q PROBLEM <<< "$out" || fail "the doctor refuses a checkout whose only lack is the sign-in line init sets: $out"
+forge_fn clone_sign_in "$F" > /dev/null
+git -C "$F" remote set-url origin "$FORGE_URL/example-org/missing.git"
+out="$(doctor_lines)"
+grep -q 'origin       refused' <<< "$out" && grep -q PROBLEM <<< "$out" || fail "the doctor does not refuse an origin git cannot read through the line: $out"
+git -C "$F" remote set-url origin "$FORGE_URL/example-org/example-repo.git"
+git -C "$F" config --unset-all "$LINE_KEY"
 forge_fn clone_sign_in "$F" > /dev/null
 printf 'wrong-token\n' > "$WORK/ftoken"
 out="$(doctor_lines)"
@@ -424,12 +431,16 @@ out="$(init_with_doctor)" || fail "init with its doctor refused a checkout that 
 grep -q "  $LINE_KEY set in .git/config" <<< "$out" || fail "init does not report the sign-in line it set before its doctor: $out"
 [ "$(git -C "$WORK/proj/example-repo2" config --get "$LINE_KEY")" = '!ai-core git-credential' ] || fail "init with its doctor did not set the sign-in line"
 git -C "$WORK/proj/example-repo2" config --unset-all "$LINE_KEY"
+out="$(init_with_doctor --dry-run)" || fail "init --dry-run with its doctor refused a checkout that has no sign-in line yet: $out"
+grep -q "$LINE_KEY would be set in .git/config" <<< "$out" || fail "the dry run with its doctor does not announce the sign-in line: $out"
+[ -z "$(git -C "$WORK/proj/example-repo2" config --get "$LINE_KEY" || true)" ] || fail "the dry run with its doctor set the sign-in line"
 printf 'wrong-token\n' > "$WORK/ftoken"
 out="$(init_with_doctor)" && fail "init went on with a token the instance refuses: $out"
+[ -z "$(git -C "$WORK/proj/example-repo2" config --get "$LINE_KEY" || true)" ] || fail "a refused init left the sign-in line set"
 grep -q "refuses the token (status 401)" <<< "$out" && grep -q 'fix the problems doctor reported' <<< "$out" || fail "init does not stop at doctor for a wrong token: $out"
 printf '%s\n' "$TOKEN" > "$WORK/ftoken"
 rm -f "$WORK/gh-auth"
-echo "  init with its doctor: a checkout with no sign-in line gets it and passes; a wrong token still stops at doctor"
+echo "  init with its doctor: a checkout with no sign-in line gets it and passes; a dry run passes and sets nothing; a wrong token stops at doctor and leaves no line"
 
 # --- release: the combined status of the commit decides -------------------------------------------
 RD="$WORK/rel-dev"; mkdir -p "$RD"

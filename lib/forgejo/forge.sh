@@ -240,6 +240,12 @@ forge_doctor() {
   # clone_sign_in sets
   origin="$(git remote get-url origin 2>/dev/null)" || return 0
   case "$origin" in *"$(forge_host)"[:/]*) ;; *) return 0 ;; esac
+  case "$origin" in "${url%/}"/*)
+    if ! sign_in_line_stands . "${url%/}"; then
+      report origin "no sign-in" "the sign-in line of this checkout is not set; ai-core init sets it"
+      return 0
+    fi ;;
+  esac
   said="$(mktemp)"
   if GIT_TERMINAL_PROMPT=0 git ls-remote origin >/dev/null 2>"$said"; then
     report origin answers "git ls-remote reaches the origin of this checkout"

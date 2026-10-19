@@ -63,12 +63,6 @@ fi
 # The prerequisites first; nothing is deployed on a machine that cannot run the harness. A dry
 # run installs nothing either. Doctor runs in the folder init serves, so it sees what the
 # repositories of that project folder need (gitleaks, where one carries .gitleaks.toml).
-# The sign-in line goes before doctor, whose read of the origin needs it; a dry run sets nothing.
-SIGN_IN_NOTE=""
-if [ "$RUN_DOCTOR" -eq 1 ] && [ "$DRY" -eq 0 ]; then
-  SIGN_IN_NOTE="$(cd "${ALL_DIR:-$TARGET}" 2>/dev/null && clone_sign_in . || true)"
-  [ -z "$ALL_DIR" ] || [ -z "$SIGN_IN_NOTE" ] || echo "  $SIGN_IN_NOTE"
-fi
 if [ "$RUN_DOCTOR" -eq 1 ]; then
   DOCTOR_ARGS=(); [ "$DRY" -eq 1 ] && DOCTOR_ARGS+=(--no-install)
   ( cd "${ALL_DIR:-$TARGET}" 2>/dev/null || true; bash "$CORE_ROOT/bin/doctor.sh" ${DOCTOR_ARGS[@]+"${DOCTOR_ARGS[@]}"} ) || { echo "error: fix the problems doctor reported, then run init again (or pass --no-doctor)." >&2; exit 1; }
@@ -901,7 +895,7 @@ fi
 # 3a2. A checkout whose origin is on the forge signs in the way the forge asks, by a setting in its own
 #      .git/config (the forge's clone_sign_in); a forge that signs in once for the machine sets nothing.
 SIGN_IN_MODE=""; [ "$DRY" -eq 0 ] || SIGN_IN_MODE=dry
-[ -n "$SIGN_IN_NOTE" ] || SIGN_IN_NOTE="$(clone_sign_in "$TARGET" $SIGN_IN_MODE)"
+SIGN_IN_NOTE="$(clone_sign_in "$TARGET" $SIGN_IN_MODE)"
 
 # 3b. The project's .gitignore carries a block naming every file an agent or the harness puts
 #     into a checkout (lib/gitignore-block), so no clone of this repository commits one, with or

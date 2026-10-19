@@ -116,6 +116,11 @@ echo "  --tool claude: no skill and no rules printed, at most 9 500 bytes, JSON 
 # OpenCode reads the nearest AGENTS.md and resolves no @ in it: opencode.json names the rules as its instructions
 jq -e '(.instructions | index(".ai-core/rules/rules.md") != null and index(".ai-core/rules/skills.md") != null and index(".ai-core/rules/rules.local.md") != null)' "$WORK/checkout/opencode.json" > /dev/null || fail "init.sh did not lay an opencode.json with the rules: $(tr -d '\n' < "$WORK/checkout/opencode.json" 2>/dev/null)"
 jq -e --slurpfile t "$ROOT/templates/.claude/settings.json" '(.permissions.deny == $t[0].permissions.deny) and (.permissions.deny | index("Read(**/.env)") != null) and (.permissions.deny | index("Bash(git push --force:*)") != null)' "$WORK/checkout/.claude/settings.json" > /dev/null || fail "the settings.json init.sh deployed lacks the denials of the template: $(jq -c '.permissions.deny' "$WORK/checkout/.claude/settings.json")"
+# the secrets of a checkout (any *.env, *.pem, *.key, ~/.netrc) are neither read nor edited, git's hard cleanups are refused, and rm -rf stays allowed
+for entry in 'Read(**/*.env)' 'Edit(**/*.env)' 'Read(**/*.pem)' 'Edit(**/*.pem)' 'Read(**/*.key)' 'Edit(**/*.key)' 'Read(~/.netrc)' 'Edit(~/.netrc)' 'Bash(git reset *--hard*)' 'Bash(git clean *-f*)' 'Bash(git clean *--force*)'; do
+  jq -e --arg e "$entry" '.permissions.deny | index($e) != null' "$WORK/checkout/.claude/settings.json" > /dev/null || fail "the settings.json init.sh deployed does not deny $entry"
+done
+jq -e '[.permissions.deny[] | select(test("^Bash\\(rm( |:)"))] | length == 0' "$WORK/checkout/.claude/settings.json" > /dev/null || fail "the settings.json init.sh deployed denies rm: rm -rf of a temporary folder must stay allowed"
 jq -e '(.permissions.allow | index("Bash(ai-core:*)")) != null' "$WORK/checkout/.claude/settings.json" > /dev/null || fail "the settings.json deployed by init.sh does not allow the ai-core commands"
 [ "$(jq -r '.statusLine.command' "$WORK/checkout/.claude/settings.json")" = "\"$AI_CORE_CMD\" statusline" ] || fail "the settings.json init.sh deployed does not record the usage windows through ai-core statusline by its full path: $(jq -c '.statusLine' "$WORK/checkout/.claude/settings.json")"
 

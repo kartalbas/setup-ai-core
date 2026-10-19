@@ -128,7 +128,7 @@ for t in Read Edit; do
   done
 done
 # the innocent case: no other ! entry stands in the deployed file, whatever its spelling (!**/*.env, !/*.env and
-# !./*.env each reopen every *.env), so a real secrets.env, a config.local.env and a .env stay under the deny
+# !./*.env each reopen a *.env that must stay denied), so a real secrets.env, a config.local.env and a .env stay under the deny
 extra="$(jq -r '[.permissions.deny[] | select(test("^(Read|Edit)\\(!"))] - ["Read(!config.env)","Edit(!config.env)","Read(!*.example.env)","Edit(!*.example.env)"] | .[]' "$WORK/checkout/.claude/settings.json" | tr '\n' ' ')"
 [ -z "$extra" ] || fail "the settings.json init.sh deployed carries ! entries beyond config.env and *.example.env, which reopen *.env files that must stay denied: $extra"
 # the file for the claude -p runs from a throwaway folder: every denial of the template, **/ anchored at //, no ! entry

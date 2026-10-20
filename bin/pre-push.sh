@@ -80,23 +80,33 @@ for arg in "$@"; do
     echo "                    an attribution, an assistant as author or committer) while the commit is"
     echo "                    made, where a fault costs no rewrite: init deploys .githooks/commit-msg,"
     echo "                    which runs this. A merge is not judged"
+    echo "  --runs            List the runs of the gate recorded on this machine, newest first: the time,"
+    echo "                    the repository, the worktree, the commit, the verdict (green, red, or no"
+    echo "                    check), the seconds scripts/check.sh took and its last line. Every run of"
+    echo "                    the gate appends one, to \${AI_CORE_HOME:-\$HOME}/.ai-core/pre-push-runs.tsv"
+    echo "  --repo OWNER/REPO With --runs: the runs of that repository only"
+    echo "  --since TIME      With --runs: the runs at or after TIME, in UTC as recorded (2026-10-20T06:00)"
     echo "  -h, --help        Show this help message"
     echo ""
     echo "Examples:"
     echo "  ai-core pre-push"
     echo "  ai-core pre-push --install"
     echo "  ai-core pre-push --install --all ../my-org"
+    echo "  ai-core pre-push --runs --repo my-org/my-repo --since 2026-10-20"
     exit 0
   fi
 done
 
 CORE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-INSTALL=0; ALL_DIR=""; MESSAGE_FILE=""
+INSTALL=0; ALL_DIR=""; MESSAGE_FILE=""; RUNS=0; RUNS_REPO=""; RUNS_SINCE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --install) INSTALL=1 ;;
     --all) shift; [ $# -gt 0 ] || { echo "error: --all needs a folder" >&2; exit 2; }; ALL_DIR="$1" ;;
     --message) shift; [ $# -gt 0 ] || { echo "error: --message needs a file" >&2; exit 2; }; MESSAGE_FILE="$1" ;;
+    --runs) RUNS=1 ;;
+    --repo) shift; [ $# -gt 0 ] || { echo "error: --repo needs OWNER/REPO" >&2; exit 2; }; RUNS_REPO="$1" ;;
+    --since) shift; [ $# -gt 0 ] || { echo "error: --since needs a time" >&2; exit 2; }; RUNS_SINCE="$1" ;;
     -*) echo "error: unknown option '$1' (see --help)" >&2; exit 2 ;;
     *) # git hands the hook the remote's name and URL; they are not needed here
        [ "$INSTALL" -eq 0 ] || { echo "error: unexpected argument '$1' (see --help)" >&2; exit 2; } ;;
@@ -105,9 +115,20 @@ while [ $# -gt 0 ]; do
 done
 [ -z "$ALL_DIR" ] || [ "$INSTALL" -eq 1 ] || { echo "error: --all goes with --install" >&2; exit 2; }
 [ -z "$MESSAGE_FILE" ] || [ "$INSTALL" -eq 0 ] || { echo "error: --message does not go with --install" >&2; exit 2; }
+[ "$RUNS" -eq 1 ] || [ -z "$RUNS_REPO$RUNS_SINCE" ] || { echo "error: --repo and --since go with --runs" >&2; exit 2; }
+GATE_RUNS_FILE="${AI_CORE_HOME:-$HOME}/.ai-core/pre-push-runs.tsv"
+if [ "$RUNS" -eq 1 ]; then
+  [ -s "$GATE_RUNS_FILE" ] || { echo "no run of the gate is recorded on this machine yet ($GATE_RUNS_FILE)"; exit 0; }
+  head -1 "$GATE_RUNS_FILE"
+  tail -n +2 "$GATE_RUNS_FILE" \
+    | awk -F'\t' -v repo="$RUNS_REPO" -v since="$RUNS_SINCE" '(repo == "" || tolower($2) == tolower(repo)) && (since == "" || $1 >= since)' \
+    | sort -r
+  exit 0
+fi
 
 . "$CORE_ROOT/lib/layers.sh"
-refuse() { echo "pre-push: REFUSED — $*" >&2; exit 1; }
+GATE_REFUSAL=""
+refuse() { GATE_REFUSAL="$(printf '%s\n' "$*" | head -1)"; echo "pre-push: REFUSED — $*" >&2; exit 1; }
 
 # An assistant's or a vendor's attribution in a message, and an assistant as author or committer
 # ("Name <address>" per line): the commit rules, judged on every pushed commit below and on one
@@ -423,6 +444,26 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
 root="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "error: not inside a git repository" >&2; exit 2; }
 head="$(git rev-parse HEAD 2>/dev/null)" || { echo "error: this repository has no commit yet" >&2; exit 2; }
 
+# EVERY RUN OF THE GATE LEAVES ONE RECORD on this machine, because what a push checked is printed
+# only in the terminal of whoever pushed: pre-push --runs reads them back.
+GATE_CHECK=absent; GATE_CHECK_SECONDS=-; GATE_CHECK_LAST=""; GATE_COMMIT=""
+record_gate_run() {
+  local rc=$? verdict repository last
+  if [ "$rc" -ne 0 ]; then verdict=red; elif [ "$GATE_CHECK" = ran ]; then verdict=green; else verdict="no check"; fi
+  last="$GATE_CHECK_LAST"; [ "$GATE_CHECK" = ran ] || last="$GATE_REFUSAL"
+  repository="$(git -C "$root" remote get-url origin 2>/dev/null | sed 's#\.git$##; s#.*[:/]\([^/:]*/[^/:]*\)$#\1#')"
+  if mkdir -p "$(dirname "$GATE_RUNS_FILE")" 2>/dev/null; then
+    [ -s "$GATE_RUNS_FILE" ] || printf 'time\trepository\tworktree\tcommit\tverdict\tseconds\tlast line\n' >> "$GATE_RUNS_FILE"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${repository:--}" "$root" "${GATE_COMMIT:-$head}" \
+      "$verdict" "$GATE_CHECK_SECONDS" "$(printf '%s' "$last" | tr '\t\n' '  ')" >> "$GATE_RUNS_FILE" \
+      || echo "pre-push: this run could not be recorded in $GATE_RUNS_FILE" >&2
+  else
+    echo "pre-push: this run could not be recorded: no folder $(dirname "$GATE_RUNS_FILE")" >&2
+  fi
+  rm -rf "$TMPD"
+}
+trap record_gate_run EXIT
+
 # A sha of nothing but zeros, whatever length the repository's object format writes. SHA-1 sends
 # forty digits and SHA-256 sends sixty-four, and a written-out constant reads the longer one as
 # a real commit.
@@ -459,6 +500,7 @@ landing=''   # the commit a push to the default branch lands, judged below where
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ -n "${local_sha:-}" ] || continue
   all_zero "$local_sha" && continue                   # a deletion sends no commit
+  GATE_COMMIT="$local_sha"
   pushing=1
   # WHAT IS PUSHED IS RESOLVED TO A COMMIT FIRST. An annotated tag hands its own object's sha
   # here, never the commit it names, so comparing it to HEAD unresolved refuses every annotated
@@ -842,7 +884,11 @@ if [ -f "$root/scripts/check.sh" ]; then
 $(sed 's/^/  /' <<< "$dirty")
   Commit these files, ignore them, or move them out of the tree, then push again."
   echo "pre-push: $root/scripts/check.sh runs here, before anything leaves this machine."
-  with_caller_git_config bash "$root/scripts/check.sh" || refuse 'a check failed - the lines above name which one.'
+  GATE_CHECK=ran; check_started="$(date +%s)"; check_rc=0
+  with_caller_git_config bash "$root/scripts/check.sh" 2>&1 | tee "$TMPD/check.log" || check_rc=$?
+  GATE_CHECK_SECONDS=$(( $(date +%s) - check_started ))
+  GATE_CHECK_LAST="$(grep -v '^[[:space:]]*$' "$TMPD/check.log" | tail -1)"
+  [ "$check_rc" -eq 0 ] || refuse 'a check failed - the lines above name which one.'
 else
   echo 'pre-push: no scripts/check.sh in this repository; nothing runs before the push.'
 fi

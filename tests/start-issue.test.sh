@@ -13,6 +13,8 @@ set -uo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fake="$(mktemp -d)"
+# Every run of the gate leaves a record under AI_CORE_HOME; a test writes none into the machine's own
+export AI_CORE_HOME="$fake/ai-core-home"
 export GH_CACHE_DIRECTORY="$fake/cache"
 # The board number is one no board has, so the ids this test invents land in a cache directory
 # of their own and are taken away with it.

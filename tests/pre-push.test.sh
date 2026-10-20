@@ -23,6 +23,8 @@ unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fake="$(mktemp -d)"
+# Every run of the gate leaves a record under AI_CORE_HOME; a test writes none into the machine's own
+export AI_CORE_HOME="$fake/ai-core-home"
 trap 'git -C "$fake/checkouts/app" worktree remove --force "$fake/checkouts/.worktrees/app/issue-5-probe" >/dev/null 2>&1; rm -rf "$fake"' EXIT
 
 failed=0
@@ -1164,6 +1166,33 @@ check 'it names doctor'             yes "$(grep -q 'so the push of the shims wou
 check 'no shims'                    no "$([ -e "$leaky/.githooks" ] && echo yes || echo no)"
 check 'core.hooksPath untouched'    '' "$(git -C "$leaky" config --get core.hooksPath)"
 check 'no commit'                   "$head0" "$(git -C "$leaky" rev-parse HEAD)"
+
+# What a push checked is printed only in the terminal of whoever pushed; the record keeps it.
+echo 'every run of the gate leaves one record, and pre-push --runs lists them newest first'
+runs="$AI_CORE_HOME/.ai-core/pre-push-runs.tsv"; rm -f "$runs"
+commit 'src/thing.txt' 'Record a green check #7'
+out="$(only_new "$repo")"; rc=$?
+check 'a green check: exit 0'             0 "$rc"
+commit 'src/thing.txt' 'Record a red check #7'
+out="$(PROBE_CHECK=red only_new "$repo")"; rc=$?
+check 'a red check: exit 1'               1 "$rc"
+nocheck="$fake/nocheck"; git -C "$fake" init -q -b master nocheck
+git -C "$nocheck" config user.email 'test@example.invalid'; git -C "$nocheck" config user.name 'test'
+printf 'one\n' > "$nocheck/README.md"; git -C "$nocheck" add -A; git -C "$nocheck" commit -q -m 'Start the repository #1'
+printf 'two\n' >> "$nocheck/README.md"; git -C "$nocheck" commit -q -am 'Push with nothing to check #2'
+out="$(only_new "$nocheck")"; rc=$?
+check 'no check to run: exit 0'           0 "$rc"
+check 'three records under a header'      4 "$(wc -l < "$runs" | tr -d ' ')"
+check 'the green one, with the last line of the check' \
+  "green	check: OK — every check green" "$(sed -n 2p "$runs" | awk -F'\t' '{print $5 "\t" $7}')"
+check 'the red one, with the last line of the check' \
+  "red	check: FAIL — the stand-in was told to be red" "$(sed -n 3p "$runs" | awk -F'\t' '{print $5 "\t" $7}')"
+check 'the run with no check is never green' 'no check' "$(sed -n 4p "$runs" | cut -f5)"
+check 'it names the worktree and the commit' "$nocheck	$(git -C "$nocheck" rev-parse HEAD)" "$(sed -n 4p "$runs" | cut -f3,4)"
+check 'the seconds of a check are counted'  yes "$(sed -n 2p "$runs" | cut -f6 | grep -qx '[0-9][0-9]*' && echo yes || echo no)"
+listed="$(bash "$root/bin/pre-push.sh" --runs)"
+check '--runs: the header first, then the newest' 'no check' "$(sed -n 2p <<< "$listed" | cut -f5)"
+check '--since in the future lists none'   1 "$(bash "$root/bin/pre-push.sh" --runs --since 2999-01-01 | wc -l | tr -d ' ')"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

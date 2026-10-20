@@ -18,8 +18,12 @@ cut by file splits a contract and its two sides then release apart.
 - What came back, where this plan is not the first: {{the plan check's GAPS, or the review's
   FINDINGS, or "first plan"}}; and the last builds of this area that reported `CONTEXT: needed
   more`, from their PHASE lines: {{context lines or none}}. A plan that comes back changes what the findings name; the rest stands.
-- The classes: `mechanical` (a rename or a text, no contract touched), `high-risk` (security, payments,
-  contracts outward, the push gate; outward means an interface somebody outside the project uses (a public API, a published package, a customer's data format), never a contract between the project's own repositories), `normal-hard` (everything else)
+- The classes: `mechanical` (the change stays in one repository; it touches no contract between the
+  project's repositories and no contract outward; it touches no secret, no payment and not the
+  push gate; the issue already names every span it changes as `file:line`, and its acceptance
+  criteria), `high-risk` (security, payments,
+  contracts outward, the push gate; outward means an interface somebody outside the project uses (a public API, a published package, a customer's data format), never a contract between the project's own repositories), `normal-hard` (everything else). The coordinator has already taken every
+  `mechanical` package out of the plans: yours is `normal-hard` or `high-risk`.
 
 ## What to do
 
@@ -63,7 +67,7 @@ with it runs before or after it.
 
     ### Package: {{area}}
     Ecosystem: {{tool}}
-    Class: mechanical | normal-hard | high-risk
+    Class: normal-hard | high-risk
     Repositories: <clone folder>, <clone folder>
     Files: <clone> <path>, ...                          (every file the issues change)
     Contracts: <name> (<producer clone> <file:line> -> <reader clone> <file:line>), ... | none

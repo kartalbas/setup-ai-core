@@ -27,9 +27,7 @@ names, the spans the facts and the contracts name.
 3. For every contract: is the additive side ordered before the strict side? Does a test need a
    second repository checked out beside the first, and does the section say so?
 4. Is the class right? A touched contract outward (outward means an interface somebody outside the project uses (a public API, a published package, a customer's data format), never a contract between the project's own repositories), a secret, a payment or the push gate is
-   `high-risk` whatever the text says. A `mechanical` section that names a contract is not mechanical.
-   Open the spans the issues name: a package called mechanical that changes a value anything reads
-   is not mechanical.
+   `high-risk` whatever the text says.
 5. Are `Verify:`, `Environment:` and `Checks:` filled from the criteria, so the build and the UI test
    can run from the section alone? Does `Environment:` hold the test and the production URL?
 6. Would the build fit its context budget (300k, 250k in Codex)? Where not, say where to split. Do the

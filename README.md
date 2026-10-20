@@ -406,7 +406,8 @@ on start; no developer installs a skill by hand.
   - Before the first plan, the coordinator clears what earlier sessions left in `implementing` and
     `testing` (`briefs/clearing.md`). A package then runs through its phases: plan, plan check,
     build and test, review, start check, land, release to the test stage, UI test, release to
-    production and live check. The plan, the plan
+    production and live check. A `mechanical` package, which the coordinator decides from its
+    issues, has no plan and no plan check and starts at its build. The plan, the plan
     check, the build, the review and the UI test are fresh sessions, each ended with its phase and
     started with one brief from the skill's `briefs/` (its input, what to do, the exact shape of
     its output) on the commands of `references/<tool>.md`; the start check (`START_CHECK` of
@@ -414,8 +415,8 @@ on start; no developer installs a skill by hand.
     given a second phase, because the state lives in the tracker and on the branch.
   - The model and effort of each phase follow the package's class (`mechanical`, `normal-hard`,
     `high-risk`) and come from `.ai-core/models.tsv`, one block per tool; the plan runs on the
-    `high-risk` or the `normal-hard` row, because the plan decides the class, and every plan session
-    after the first plan, a re-plan, runs on the `re-plan` row. The reviewer never runs on the
+    `high-risk` or the `normal-hard` row, because the plan decides between those two classes, and
+    every plan session after the first plan, a re-plan, runs on the `re-plan` row. The reviewer never runs on the
     model that built the package, by the table's rows. A session never moves a phase to another
     model or tool on its own because a quota ran out: its package waits; an owner's temporary
     selection is reported and expires on withdrawal or coordinator restart, without changing the

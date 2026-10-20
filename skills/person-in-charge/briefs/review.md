@@ -11,7 +11,7 @@ nothing: a reviewer who repairs approves its own fix.
 
 - The plan issue, where your verdict goes: {{plan issue reference}}
 - The intent: the package section and each issue's acceptance criteria, or, for a card from before
-  the packages, the issues' criteria alone: {{package section and issues}}
+  the packages or a mechanical package, the issues' criteria alone: {{package section and issues}}
 - The diff, per worktree: `git -C <worktree> diff origin/<default>...HEAD`: {{worktree paths and
   default branches}}
 - The build report: {{build report, or for a card from before the packages the issue's last

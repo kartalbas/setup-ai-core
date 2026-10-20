@@ -147,6 +147,20 @@ issue_ref() {  # issue_ref <repo or empty> <number>
   if [ -n "$1" ] && [ "$(printf '%s' "$1" | $lower)" != "$(default_repo 2>/dev/null | $lower)" ]; then echo "$1#$2"; else echo "#$2"; fi
 }
 
+# What a commit message of <commit repo> holds when it names issue <number> of <issue repo>, as a
+# pattern for `git log -E -i --grep`: '<issue repo>#<number>' always, and '#<number>' alone where the
+# issue belongs to the commit's own repository. A reference stands alone, so '#12' is not '#123', and
+# 'other/repo#12' is not '#12'.
+issue_mention_pattern() {  # issue_mention_pattern <issue repo> <number> <commit repo>
+  local lower='tr A-Z a-z' spelled
+  spelled="$(printf '%s' "$1" | sed 's/\./\\./g')"
+  if [ "$(printf '%s' "$1" | $lower)" = "$(printf '%s' "$3" | $lower)" ]; then
+    printf '(^|[^A-Za-z0-9._/-])(%s)?#%s([^0-9]|$)' "$spelled" "$2"
+  else
+    printf '(^|[^A-Za-z0-9._/-])%s#%s([^0-9]|$)' "$spelled" "$2"
+  fi
+}
+
 # Who a new issue in this repo belongs to.
 #
 # An issue lands on whoever OWNS the repository, not on whoever typed the command,

@@ -275,7 +275,7 @@ for full in ${repos[@]+"${repos[@]}"}; do
       if [ "$(status_rank "$(printf '%s' "$st" | tr '[:upper:]' '[:lower:]')")" -lt 2 ]; then
         release_of "$full"
         named=""
-        [ -z "$REL_REF" ] || named="$(git -C "$REL_CLONE" log "$REL_REF" -E --grep="(^|[^A-Za-z0-9._/-])#${num}([^0-9]|$)" --format=%h -n 1)" || named=""
+        [ -z "$REL_REF" ] || named="$(git -C "$REL_CLONE" log "$REL_REF" -E -i --grep="$(issue_mention_pattern "$full" "$num" "$full")" --format=%h -n 1)" || named=""
         [ -z "$named" ] || echo "not finished $label#$num  (in $st, but $REL_REF has $named naming it: run ai-core finish-issue $full $num)"
         continue
       fi

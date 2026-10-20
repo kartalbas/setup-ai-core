@@ -288,6 +288,28 @@ check 'no card moved'          0 "$(grep -c 'oid=OPT_' "$log" || true)"
 check 'the issue was not told' 0 "$(grep -c 'issues/177/comments -f body=' "$log" || true)"
 check 'no card is swept'       0 "$(grep -c 'issues(states:OPEN' "$log" || true)"
 
+# A commit may name its issue written out, the way an integration of two issues names the second one
+# in a body. The own repository written out names the issue; another repository's never does.
+echo 'a commit that names the issue as <owner>/<repo>#<n> of its own repository has landed it'
+open issue-178-name-it-in-full
+land issue-178-name-it-in-full 'Land the work of another issue (#179)
+
+Carries Example-Org/example-repo#178 as well.'
+out="$(run 178)"; rc=$?
+check 'exits zero'                0 "$rc"
+check 'the worktree is gone'      no "$(has_tree issue-178-name-it-in-full)"
+
+echo 'a commit that names only <other owner>/<other repo>#<n> has not landed this issue'
+: > "$log"
+open issue-180-another-repository
+land issue-180-another-repository 'Land the work (#179)
+
+Carries other-org/other-repo#180, an issue over there.'
+out="$(run 180)"; rc=$?
+check 'exit 1'                    1 "$rc"
+check 'it says why'               'error: no commit on origin/master names #180, so the card stays and the issue is not told; a commit that touches an issue names it' "$(grep '^error: ' <<< "$out")"
+check 'no card moved'             0 "$(grep -c 'oid=OPT_' "$log" || true)"
+
 echo 'an origin/HEAD naming a branch the remote no longer has: the default branch is asked of the remote'
 open issue-168-read-the-default-branch
 land issue-168-read-the-default-branch 'Read the default branch from the remote (#168)'

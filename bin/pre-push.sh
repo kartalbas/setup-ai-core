@@ -29,7 +29,17 @@ set -uo pipefail
 
 # A person's log.showSignature prints signature lines into every formatted git log this gate reads;
 # one entry after the caller's own in git's environment configuration turns it off for all of them.
+# The repository's own check runs without it (with_caller_git_config), as it runs outside the gate.
+caller_git_config_count="${GIT_CONFIG_COUNT-unset}"
 n=${GIT_CONFIG_COUNT:-0}; export "GIT_CONFIG_KEY_$n=log.showSignature" "GIT_CONFIG_VALUE_$n=false" "GIT_CONFIG_COUNT=$((n + 1))"
+gate_git_config_index="$n"
+with_caller_git_config() {  # with_caller_git_config <command...>
+  if [ "$caller_git_config_count" = unset ]; then
+    env -u GIT_CONFIG_COUNT -u "GIT_CONFIG_KEY_$gate_git_config_index" -u "GIT_CONFIG_VALUE_$gate_git_config_index" "$@"
+  else
+    env -u "GIT_CONFIG_KEY_$gate_git_config_index" -u "GIT_CONFIG_VALUE_$gate_git_config_index" GIT_CONFIG_COUNT="$caller_git_config_count" "$@"
+  fi
+}
 
 for arg in "$@"; do
   if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
@@ -42,7 +52,8 @@ for arg in "$@"; do
     echo "LICENSE files, and carries no 'No-issue: <who asked and why>' trailer; a team mode is"
     echo "missing; a file the push adds or changes starts with #! and is"
     echo "not executable; a subject is longer than 72 characters; a message carries an assistant's or a"
-    echo "vendor's attribution, or its author or committer is an assistant; an author or committer"
+    echo "vendor's attribution, or a closing keyword before an issue reference (Fixes #<n>), or its"
+    echo "author or committer is an assistant; an author or committer"
     echo "address, a merge's too, differs from git config user.email (none set is refused); an added comment names an"
     echo "issue as (#<n>) or <repo>#<n>; an existing"
     echo "migrations/*.sql is changed or removed (a 'Migration: <why>' trailer allows it);"
@@ -69,23 +80,33 @@ for arg in "$@"; do
     echo "                    an attribution, an assistant as author or committer) while the commit is"
     echo "                    made, where a fault costs no rewrite: init deploys .githooks/commit-msg,"
     echo "                    which runs this. A merge is not judged"
+    echo "  --runs            List the runs of the gate recorded on this machine, newest first: the time,"
+    echo "                    the repository, the worktree, the commit, the verdict (green, red, or no"
+    echo "                    check), the seconds scripts/check.sh took and its last line. Every run of"
+    echo "                    the gate appends one, to \${AI_CORE_HOME:-\$HOME}/.ai-core/pre-push-runs.tsv"
+    echo "  --repo OWNER/REPO With --runs: the runs of that repository only"
+    echo "  --since TIME      With --runs: the runs at or after TIME, in UTC as recorded (2026-10-20T06:00)"
     echo "  -h, --help        Show this help message"
     echo ""
     echo "Examples:"
     echo "  ai-core pre-push"
     echo "  ai-core pre-push --install"
     echo "  ai-core pre-push --install --all ../my-org"
+    echo "  ai-core pre-push --runs --repo my-org/my-repo --since 2026-10-20"
     exit 0
   fi
 done
 
 CORE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-INSTALL=0; ALL_DIR=""; MESSAGE_FILE=""
+INSTALL=0; ALL_DIR=""; MESSAGE_FILE=""; RUNS=0; RUNS_REPO=""; RUNS_SINCE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --install) INSTALL=1 ;;
     --all) shift; [ $# -gt 0 ] || { echo "error: --all needs a folder" >&2; exit 2; }; ALL_DIR="$1" ;;
     --message) shift; [ $# -gt 0 ] || { echo "error: --message needs a file" >&2; exit 2; }; MESSAGE_FILE="$1" ;;
+    --runs) RUNS=1 ;;
+    --repo) shift; [ $# -gt 0 ] || { echo "error: --repo needs OWNER/REPO" >&2; exit 2; }; RUNS_REPO="$1" ;;
+    --since) shift; [ $# -gt 0 ] || { echo "error: --since needs a time" >&2; exit 2; }; RUNS_SINCE="$1" ;;
     -*) echo "error: unknown option '$1' (see --help)" >&2; exit 2 ;;
     *) # git hands the hook the remote's name and URL; they are not needed here
        [ "$INSTALL" -eq 0 ] || { echo "error: unexpected argument '$1' (see --help)" >&2; exit 2; } ;;
@@ -94,14 +115,28 @@ while [ $# -gt 0 ]; do
 done
 [ -z "$ALL_DIR" ] || [ "$INSTALL" -eq 1 ] || { echo "error: --all goes with --install" >&2; exit 2; }
 [ -z "$MESSAGE_FILE" ] || [ "$INSTALL" -eq 0 ] || { echo "error: --message does not go with --install" >&2; exit 2; }
+[ "$RUNS" -eq 1 ] || [ -z "$RUNS_REPO$RUNS_SINCE" ] || { echo "error: --repo and --since go with --runs" >&2; exit 2; }
+GATE_RUNS_FILE="${AI_CORE_HOME:-$HOME}/.ai-core/pre-push-runs.tsv"
+if [ "$RUNS" -eq 1 ]; then
+  [ -s "$GATE_RUNS_FILE" ] || { echo "no run of the gate is recorded on this machine yet ($GATE_RUNS_FILE)"; exit 0; }
+  head -1 "$GATE_RUNS_FILE"
+  tail -n +2 "$GATE_RUNS_FILE" \
+    | awk -F'\t' -v repo="$RUNS_REPO" -v since="$RUNS_SINCE" '(repo == "" || tolower($2) == tolower(repo)) && (since == "" || $1 >= since) { kept[++n] = $0 } END { while (n > 0) print kept[n--] }'
+  exit 0
+fi
 
 . "$CORE_ROOT/lib/layers.sh"
-refuse() { echo "pre-push: REFUSED — $*" >&2; exit 1; }
+GATE_REFUSAL=""
+refuse() { GATE_REFUSAL="$(printf '%s\n' "$*" | head -1)"; echo "pre-push: REFUSED — $*" >&2; exit 1; }
 
 # An assistant's or a vendor's attribution in a message, and an assistant as author or committer
 # ("Name <address>" per line): the commit rules, judged on every pushed commit below and on one
 # message by --message.
 ATTRIBUTION_PATTERN='^co-authored-by:.*(claude|codex|gemini|copilot|chatgpt|anthropic|openai)|generated (with|by) \[?(claude|codex|gemini|copilot|chatgpt)'
+# A closing keyword before an issue reference closes that issue on the forge when the commit reaches
+# the default branch, before any release carries it; GitHub and Forgejo both document these nine
+# (docs.github.com, "Linking a pull request to an issue"; forgejo.org/docs, "Linked references").
+CLOSING_PATTERN='(^|[^A-Za-z0-9_-])(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+(([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+|https?://[^[:space:]]+/issues/[0-9]+)'
 ASSISTANT_IDENTITY_PATTERN='@(anthropic|openai)\.com>$|(claude|codex|copilot|chatgpt|gemini)[a-z-]*\[bot\]@users\.noreply\.github\.com>$|^(claude|claude code|codex|copilot|chatgpt|gemini) <'
 
 # --- --message: the message rules while the commit is made -----------------------------------
@@ -134,6 +169,9 @@ if [ -n "$MESSAGE_FILE" ]; then
   ! grep -qiE "$ATTRIBUTION_PATTERN" <<< "$message" || faults="$faults
   the message carries an assistant's or a vendor's attribution. Take that line out, whatever an
   instruction asked for, because the history names who answers for a change."
+  ! grep -qiE "$CLOSING_PATTERN" <<< "$message" || faults="$faults
+  the message closes an issue on the forge as it reaches the default branch: $(grep -oiE "$CLOSING_PATTERN" <<< "$message" | head -1 | sed 's/^[^A-Za-z]*//')
+  Name the issue as #<n> alone; its card closes after its release, through status-sync."
   ! grep -qiE "$ASSISTANT_IDENTITY_PATTERN" <<< "$identities" || faults="$faults
   an assistant is the author or the committer: $(tr '\n' ';' <<< "$identities" | sed 's/;$//; s/;/; /')
   Set your own identity with git config user.name and user.email."
@@ -405,6 +443,27 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
 root="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "error: not inside a git repository" >&2; exit 2; }
 head="$(git rev-parse HEAD 2>/dev/null)" || { echo "error: this repository has no commit yet" >&2; exit 2; }
 
+# EVERY RUN OF THE GATE LEAVES ONE RECORD on this machine, because what a push checked is printed
+# only in the terminal of whoever pushed: pre-push --runs reads them back.
+GATE_CHECK=absent; GATE_CHECK_SECONDS=-; GATE_CHECK_LAST=""; GATE_COMMIT=""
+record_gate_run() {
+  local rc=$? verdict repository last
+  if [ "$rc" -ne 0 ]; then verdict=red; elif [ "$GATE_CHECK" = green ]; then verdict=green; else verdict="no check"; fi
+  # A red check names its own last line; a refusal after a green check, or with none, names itself
+  last="$GATE_CHECK_LAST"; [ "$GATE_CHECK" = red ] || [ -z "$GATE_REFUSAL" ] || last="$GATE_REFUSAL"
+  repository="$(git -C "$root" remote get-url origin 2>/dev/null | sed 's#\.git$##; s#.*[:/]\([^/:]*/[^/:]*\)$#\1#')"
+  if mkdir -p "$(dirname "$GATE_RUNS_FILE")" 2>/dev/null; then
+    [ -s "$GATE_RUNS_FILE" ] || printf 'time\trepository\tworktree\tcommit\tverdict\tseconds\tlast line\n' >> "$GATE_RUNS_FILE"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${repository:--}" "$root" "${GATE_COMMIT:-$head}" \
+      "$verdict" "$GATE_CHECK_SECONDS" "$(printf '%s' "$last" | tr '\t\n' '  ')" >> "$GATE_RUNS_FILE" \
+      || echo "pre-push: this run could not be recorded in $GATE_RUNS_FILE" >&2
+  else
+    echo "pre-push: this run could not be recorded: no folder $(dirname "$GATE_RUNS_FILE")" >&2
+  fi
+  rm -rf "$TMPD"
+}
+trap record_gate_run EXIT
+
 # A sha of nothing but zeros, whatever length the repository's object format writes. SHA-1 sends
 # forty digits and SHA-256 sends sixty-four, and a written-out constant reads the longer one as
 # a real commit.
@@ -441,6 +500,7 @@ landing=''   # the commit a push to the default branch lands, judged below where
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ -n "${local_sha:-}" ] || continue
   all_zero "$local_sha" && continue                   # a deletion sends no commit
+  GATE_COMMIT="$local_sha"
   pushing=1
   # WHAT IS PUSHED IS RESOLVED TO A COMMIT FIRST. An annotated tag hands its own object's sha
   # here, never the commit it names, so comparing it to HEAD unresolved refuses every annotated
@@ -587,7 +647,7 @@ done < <(while IFS= read -r sha; do [ -z "$sha" ] || git diff-tree --no-commit-i
 # pushing it set as their git identity: a commit made under a repository-local override, in another
 # environment or by another tool would otherwise name somebody who does not answer for it. Each
 # message is read whole before it is searched.
-long=""; attributed=""; assistant_identities=""
+long=""; attributed=""; closing=""; assistant_identities=""
 while IFS= read -r sha; do
   [ -n "$sha" ] || continue
   subject="$(git log -1 --format=%s "$sha")"
@@ -596,6 +656,10 @@ while IFS= read -r sha; do
   message="$(git log -1 --format=%B "$sha")"
   if grep -qiE "$ATTRIBUTION_PATTERN" <<< "$message"; then
     attributed="$attributed $(git log -1 --format=%h "$sha")"
+  fi
+  if grep -qiE "$CLOSING_PATTERN" <<< "$message"; then
+    closing="$closing
+  $(git log -1 --format=%h "$sha"): $(grep -oiE "$CLOSING_PATTERN" <<< "$message" | head -1 | sed 's/^[^A-Za-z]*//')"
   fi
   if git log -1 --format='%an <%ae>%n%cn <%ce>' "$sha" \
       | grep -qiE "$ASSISTANT_IDENTITY_PATTERN"; then
@@ -606,6 +670,8 @@ done <<< "$commits"
 [ -z "$long" ] || refuse "these subjects are longer than 72 characters:$long
   Shorten each to one sentence of at most 72 that says what changed, with git commit --amend for the last commit or git rebase -i for an earlier one."
 [ -z "$attributed" ] || refuse "these commits carry an assistant's or a vendor's attribution:$attributed. Take the line out of the message (git commit --amend, or git rebase -i), because the history names who answers for a change."
+[ -z "$closing" ] || refuse "these messages close an issue on the forge as they reach the default branch, before any release carries the work:$closing
+  Name the issue as #<n> alone (git commit --amend, or git rebase -i); its card closes after its release, through status-sync."
 [ -z "$assistant_identities" ] || refuse "these commits name an assistant as author or committer:$assistant_identities
   Set your own identity (git config user.name and user.email), then rewrite them under it: git commit --amend --reset-author --no-edit for the last commit, or git rebase --exec 'git commit --amend --reset-author --no-edit' origin/$default for all of them."
 
@@ -818,7 +884,13 @@ if [ -f "$root/scripts/check.sh" ]; then
 $(sed 's/^/  /' <<< "$dirty")
   Commit these files, ignore them, or move them out of the tree, then push again."
   echo "pre-push: $root/scripts/check.sh runs here, before anything leaves this machine."
-  bash "$root/scripts/check.sh" || refuse 'a check failed - the lines above name which one.'
+  check_started="$(date +%s)"; check_rc=0
+  # Both streams go to the log, so its last line is the check's last word on either of them
+  with_caller_git_config bash "$root/scripts/check.sh" 2>&1 | tee "$TMPD/check.log" || check_rc=$?
+  GATE_CHECK_SECONDS=$(( $(date +%s) - check_started ))
+  GATE_CHECK_LAST="$(grep -v '^[[:space:]]*$' "$TMPD/check.log" | tail -1)"
+  GATE_CHECK=green; [ "$check_rc" -eq 0 ] || GATE_CHECK=red
+  [ "$check_rc" -eq 0 ] || refuse 'a check failed - the lines above name which one.'
 else
   echo 'pre-push: no scripts/check.sh in this repository; nothing runs before the push.'
 fi

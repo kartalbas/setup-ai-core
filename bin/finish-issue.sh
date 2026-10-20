@@ -165,9 +165,9 @@ done <<< "$(issue_worktrees)"
 [ "$found" -eq 1 ] || echo "no worktree of issue $number stands here - only the card and the issue are brought up to date"
 
 # What landed. An issue no commit on origin names has not landed, whatever its worktree held: the
-# card does not move and the issue is not told. The reference stands alone: '#<N>' must not match
-# '<OWNER/REPO>#<N>', an issue of another repository.
-commits="$(git -C "$main" log "origin/$default" -E --grep="(^|[^A-Za-z0-9._/-])${ref//./\\.}([^0-9]|$)" --format='- %h %s' -n 20)"
+# card does not move and the issue is not told.
+own="$(default_repo 2>/dev/null)"
+commits="$(git -C "$main" log "origin/$default" -E -i --grep="$(issue_mention_pattern "${repo:-$own}" "$number" "$own")" --format='- %h %s' -n 20)"
 [ -n "$commits" ] \
   || die "no commit on origin/$default names $ref, so the card stays and the issue is not told; a commit that touches an issue names it"
 

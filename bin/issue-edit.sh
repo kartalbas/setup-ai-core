@@ -56,7 +56,7 @@ num="${numbers[0]}"
 case "$num" in ''|*[!0-9]*) die "the issue number must be numeric, not '$num'" ;; esac
 
 # Reported, not enforced.
-[ -z "$title" ] || report_title "$title"
+[ -z "$title" ] || report_title "$title" "the title is set anyway"
 
 # THE FIRST LINE OF AN ISSUE BODY NAMES WHO ASKED FOR THE WORK, AND PATCH REPLACES THE WHOLE
 # BODY. A file that does not carry that line therefore deletes it, with exit 0 and a verdict

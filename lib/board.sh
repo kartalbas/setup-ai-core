@@ -147,6 +147,22 @@ issue_ref() {  # issue_ref <repo or empty> <number>
   if [ -n "$1" ] && [ "$(printf '%s' "$1" | $lower)" != "$(default_repo 2>/dev/null | $lower)" ]; then echo "$1#$2"; else echo "#$2"; fi
 }
 
+# What a commit message of <commit repo> holds when it names issue <number> of <issue repo>, as a
+# pattern for `git log -E -i --grep`: '<issue repo>#<number>' always, and '#<number>' alone where the
+# issue belongs to the commit's own repository. A reference stands alone, so a longer number never
+# matches, and another repository's reference to the same number names nothing here.
+issue_mention_pattern() {  # issue_mention_pattern <issue repo> <number> <commit repo>
+  local lower='tr A-Z a-z' spelled
+  spelled="$(printf '%s' "$1" | sed 's/\./\\./g')"
+  if [ -z "$1" ]; then
+    printf '(^|[^A-Za-z0-9._/-])#%s([^0-9]|$)' "$2"
+  elif [ "$(printf '%s' "$1" | $lower)" = "$(printf '%s' "$3" | $lower)" ]; then
+    printf '(^|[^A-Za-z0-9._/-])(%s)?#%s([^0-9]|$)' "$spelled" "$2"
+  else
+    printf '(^|[^A-Za-z0-9._/-])%s#%s([^0-9]|$)' "$spelled" "$2"
+  fi
+}
+
 # Who a new issue in this repo belongs to.
 #
 # An issue lands on whoever OWNS the repository, not on whoever typed the command,
@@ -411,19 +427,19 @@ is_origin_line() { case "$1" in "$ASKED_PREFIX"*|"$FOUND_PREFIX"*"$FOUND_TAIL") 
 # narrow on purpose: it opens with one of six verbs that name an artifact and carries none of
 # the three joins, which is the exact shape of "Add the board-sync command" - a title that
 # fits twenty other tickets. A title outside that shape is not judged at all.
-report_title() {  # report_title <title>
-  local title="$1" n
+report_title() {  # report_title <title> <what goes ahead anyway>
+  local title="$1" anyway="(reported only: $2)" n
   n="$(printf '%s' "$title" | LC_ALL=C tr -d '\200-\277' | wc -c | tr -d ' ')"
   [ "$n" -le 70 ] \
-    || echo "title is $n characters, over 70 - a title is one sentence a stranger understands; the reason and the code go into the body" >&2
+    || echo "title is $n characters, over 70 - a title is one sentence a stranger understands; the reason and the code go into the body $anyway" >&2
   case "$title" in
-    *'`'*) echo "title contains a backtick - no code name in a title" >&2 ;;
+    *'`'*) echo "title contains a backtick - no code name in a title $anyway" >&2 ;;
   esac
   case "$title" in
     Add\ *|Create\ *|Write\ *|Implement\ *|Introduce\ *|Define\ *)
       case "$title" in
         *", so "*|*", or "*|*:*) ;;
-        *) echo "title names an action and no stake - write what is wrong today or what it costs, joined with \", so \", \", or \" or a colon" >&2 ;;
+        *) echo "title names an action and no stake - write what is wrong today or what it costs, joined with \", so \", \", or \" or a colon $anyway" >&2 ;;
       esac ;;
   esac
 }

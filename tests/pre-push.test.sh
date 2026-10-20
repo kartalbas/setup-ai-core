@@ -23,6 +23,8 @@ unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fake="$(mktemp -d)"
+# Every run of the gate leaves a record under AI_CORE_HOME; a test writes none into the machine's own
+export AI_CORE_HOME="$fake/ai-core-home"
 trap 'git -C "$fake/checkouts/app" worktree remove --force "$fake/checkouts/.worktrees/app/issue-5-probe" >/dev/null 2>&1; rm -rf "$fake"' EXIT
 
 failed=0
@@ -87,6 +89,7 @@ mkdir -p "$repo/scripts" "$repo/bin"
 cat > "$repo/scripts/check.sh" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$0" >> "$check_runs"
+env | grep '^GIT_CONFIG_\(COUNT\|KEY_\|VALUE_\)' | sort > "$check_runs.git-config"
 if [ "\${PROBE_CHECK:-green}" = green ]; then echo 'check: OK — every check green'; exit 0; fi
 echo 'check: FAIL — the stand-in was told to be red'
 exit 1
@@ -151,6 +154,18 @@ check 'exit 1'                    1 "$rc"
 check 'the MISSING line is there' yes "$(grep -Eq '^MISSING .*(claude|codex) diagrams' <<< "$out" && echo yes || echo no)"
 check 'and the refusal names the modes' yes "$(grep -q 'the team modes are missing' <<< "$out" && echo yes || echo no)"
 
+# The gate turns log.showSignature off for its own git calls through git's environment configuration.
+# The repository's check runs in the caller's, or a suite that reads it is red only in the gate.
+echo "the check runs with the caller's git environment configuration, not the gate's own entry"
+commit 'src/thing.txt' 'Read the caller configuration #7'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                              0 "$rc"
+check 'no entry reaches the check'          '' "$(cat "$check_runs.git-config")"
+git -C "$repo" commit -q --amend -m 'Read the caller configuration again #7'
+out="$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.quotePath GIT_CONFIG_VALUE_0=false only_new "$repo")"; rc=$?
+check 'exit 0 with an entry of the caller'  0 "$rc"
+check 'the check sees exactly that entry'   "$(printf 'GIT_CONFIG_COUNT=1\nGIT_CONFIG_KEY_0=core.quotePath\nGIT_CONFIG_VALUE_0=false')" "$(cat "$check_runs.git-config")"
+
 echo 'a red scripts/check.sh refuses'
 out="$(PROBE_CHECK=red only_new "$wt")"; rc=$?
 check 'exit 1'          1 "$rc"
@@ -192,6 +207,15 @@ check 'it says why'                    yes "$(yesno "an assistant's or a vendor'
 git -C "$repo" commit -q --amend -m "$(printf 'Tune the reader #7\n\nCo-Authored-By: Ada Lovelace <ada@example.invalid>')"
 out="$(only_new "$repo")"; rc=$?
 check 'exit 0'                         0 "$rc"
+echo 'a closing keyword before an issue reference is refused at the push; the word in another sense passes'
+commit 'src/thing.txt' "$(printf 'Tune the reader #7\n\nFixes example-org/example-repo#7')"
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'it names the keyword'           yes "$(yesno 'Fixes example-org/example-repo#7')"
+check 'it says how to name the issue'  yes "$(yesno 'Name the issue as #<n> alone')"
+git -C "$repo" commit -q --amend -m "$(printf 'Fix the reader, or it drops a card (#7)\n\nIt fixes the layout too.')"
+out="$(only_new "$repo")"; rc=$?
+check 'the word in another sense: exit 0' 0 "$rc"
 echo 'an assistant as author or committer is refused; a person who shares the name passes'
 git -C "$repo" commit -q --amend --no-edit --author='Claude <noreply@anthropic.com>'
 out="$(only_new "$repo")"; rc=$?
@@ -326,6 +350,13 @@ check 'an attribution: exit 1'         1 "$rc"
 check 'it says why'                    yes "$(yesno "an assistant's or a vendor's attribution")"
 printf 'Tune the reader #7\n\nCo-Authored-By: Ada Lovelace <ada@example.invalid>\n' > "$msg"; judge_message
 check 'a person as co-author: exit 0'  0 "$rc"
+printf 'Tune the reader #7\n\ncloses: #7\n' > "$msg"; judge_message
+check 'closes: #7 at the commit: exit 1' 1 "$rc"
+check 'it says why'                    yes "$(yesno 'the message closes an issue on the forge')"
+printf 'Tune the reader #7\n\nResolved https://github.com/example-org/example-repo/issues/7\n' > "$msg"; judge_message
+check 'resolved before an issue link: exit 1' 1 "$rc"
+printf 'Fix the reader, or it drops a card (#7)\n\nIt fixes the layout, and close to #8 is fine.\n' > "$msg"; judge_message
+check 'fix and close in another sense: exit 0' 0 "$rc"
 out="$( cd "$repo" && GIT_AUTHOR_NAME=Claude GIT_AUTHOR_EMAIL=noreply@anthropic.com bash "$root/bin/pre-push.sh" --message "$msg" 2>&1 )"; rc=$?
 check 'an assistant as author: exit 1' 1 "$rc"
 check 'it names the identity'          yes "$(yesno 'Claude <noreply@anthropic.com>')"
@@ -479,7 +510,7 @@ git -C "$repo" update-ref -d refs/remotes/origin/issue-74-landed
 echo 'a commit naming its issue anywhere in the message passes'
 commit 'src/thing.txt' 'Read the install order from one file
 
-It closes #163.'
+It is the work of #163.'
 out="$(only_new "$repo")"; rc=$?
 check 'exit 0' 0 "$rc"
 
@@ -1135,6 +1166,40 @@ check 'it names doctor'             yes "$(grep -q 'so the push of the shims wou
 check 'no shims'                    no "$([ -e "$leaky/.githooks" ] && echo yes || echo no)"
 check 'core.hooksPath untouched'    '' "$(git -C "$leaky" config --get core.hooksPath)"
 check 'no commit'                   "$head0" "$(git -C "$leaky" rev-parse HEAD)"
+
+# What a push checked is printed only in the terminal of whoever pushed; the record keeps it.
+echo 'every run of the gate leaves one record, and pre-push --runs lists them newest first'
+runs="$AI_CORE_HOME/.ai-core/pre-push-runs.tsv"; rm -f "$runs"
+commit 'src/thing.txt' 'Record a green check #7'
+out="$(only_new "$repo")"; rc=$?
+check 'a green check: exit 0'             0 "$rc"
+commit 'src/thing.txt' 'Record a red check #7'
+out="$(PROBE_CHECK=red only_new "$repo")"; rc=$?
+check 'a red check: exit 1'               1 "$rc"
+nocheck="$fake/nocheck"; git -C "$fake" init -q -b master nocheck
+git -C "$nocheck" config user.email 'test@example.invalid'; git -C "$nocheck" config user.name 'test'
+printf 'one\n' > "$nocheck/README.md"; git -C "$nocheck" add -A; git -C "$nocheck" commit -q -m 'Start the repository #1'
+printf 'two\n' >> "$nocheck/README.md"; git -C "$nocheck" commit -q -am 'Push with nothing to check #2'
+out="$(only_new "$nocheck")"; rc=$?
+check 'no check to run: exit 0'           0 "$rc"
+check 'three records under a header'      4 "$(wc -l < "$runs" | tr -d ' ')"
+check 'the green one, with the last line of the check' \
+  "green	check: OK — every check green" "$(sed -n 2p "$runs" | awk -F'\t' '{print $5 "\t" $7}')"
+check 'the red one, with the last line of the check' \
+  "red	check: FAIL — the stand-in was told to be red" "$(sed -n 3p "$runs" | awk -F'\t' '{print $5 "\t" $7}')"
+check 'the run with no check is never green' 'no check' "$(sed -n 4p "$runs" | cut -f5)"
+check 'it names the worktree and the commit' "$nocheck	$(git -C "$nocheck" rev-parse HEAD)" "$(sed -n 4p "$runs" | cut -f3,4)"
+check 'the seconds of a check are counted'  yes "$(sed -n 2p "$runs" | cut -f6 | grep -qx '[0-9][0-9]*' && echo yes || echo no)"
+printf '[extend]\nuseDefault = true\n' > "$repo/.gitleaks.toml"; git -C "$repo" add .gitleaks.toml
+git -C "$repo" commit -q -m 'Arm the scan after a green check #7'
+out="$(PROBE_LEAKS=red only_new "$repo")"; rc=$?
+check 'a refusal after a green check: exit 1' 1 "$rc"
+check 'it is recorded with the refusal, not the green line' \
+  "red	a credential stands in a commit" "$(tail -1 "$runs" | awk -F'\t' '{print $5 "\t" substr($7, 1, 31)}')"
+git -C "$repo" rm -q .gitleaks.toml; git -C "$repo" commit -q -m 'Disarm the scan again #7'
+listed="$(bash "$root/bin/pre-push.sh" --runs)"
+check '--runs: the header first, then the newest, in the order they ran' "$(printf 'red\nno check\nred\ngreen')" "$(sed -n '2,5p' <<< "$listed" | cut -f5)"
+check '--since in the future lists none'   1 "$(bash "$root/bin/pre-push.sh" --runs --since 2999-01-01 | wc -l | tr -d ' ')"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

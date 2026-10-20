@@ -144,6 +144,19 @@ check 'says how long it is' yes "$(grep -q 'title is 97 characters, over 70' <<<
 check 'exit code'           0 "$rc"
 check 'issues created'      1 "$created"
 
+# A report that reads like a refusal makes the caller run the command again, and the repository gets
+# the issue twice. Every report line says the issue is made anyway.
+echo 'a 93-character title says it is only reported and that the issue is created anyway'
+run_new "$(printf 'a%.0s' $(seq 1 93))"
+check 'says it is only a report'     yes "$(grep -q 'title is 93 characters, over 70 .*(reported only: the issue is created anyway)' <<< "$out" && echo yes || echo no)"
+check 'issues created'               1 "$created"
+run_new 'Add the `board_items` reader'
+check 'every report line says so'    0 "$(grep -E '^title (is|contains|names)' <<< "$out" | grep -vc '(reported only: the issue is created anyway)$')"
+check 'and there were two of them'   2 "$(grep -cE '^title (contains|names)' <<< "$out")"
+: > "$log"
+out="$(bash "$root/bin/issue-edit.sh" "$repo" 163 --title "$over70" 2>&1 >/dev/null)"
+check 'issue-edit says the title is set anyway' yes "$(grep -q '(reported only: the title is set anyway)$' <<< "$out" && echo yes || echo no)"
+
 echo 'a board failure after the create exits non-zero and names the issue'
 : > "$fake/board-down"
 run_new "$good"

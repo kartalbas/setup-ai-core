@@ -94,6 +94,13 @@ jq -e '.harness_source == null and .source_ready == null and .rule_sources == []
 grep -aq 'ARCHIFY' "$WORK/modes.log" && fail "session-start.sh --tool claude printed a skill; the tool loads it when a task calls for it (see $WORK/modes.log)"
 grep -aqE 'THE RULES OF THIS CHECKOUT|^## The code never lies' "$WORK/modes.log" && fail "session-start.sh --tool claude prints the rules; Claude Code loads them through AGENTS.md"
 [ "$(wc -c < "$WORK/modes.log")" -le 9500 ] || fail "session-start.sh --tool claude wrote more than 9 500 bytes, more than Claude Code passes whole"
+# After a compaction the hook's event says so on standard input, and the report names every rules file
+# to read again; at a start it does not
+(cd "$WORK/checkout" && printf '{"hook_event_name":"SessionStart","source":"compact"}' | HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude > "$WORK/compact.log" 2>&1) || fail "session-start.sh --tool claude after a compaction (see $WORK/compact.log)"
+grep -aq '^After compaction: read every rules file whole again now' "$WORK/compact.log" || fail "session-start after a compaction does not ask for the rules again (see $WORK/compact.log)"
+grep -aqx "  $WORK/checkout/.ai-core/rules/rules.md" "$WORK/compact.log" || fail "session-start after a compaction does not name the assembled rules file (see $WORK/compact.log)"
+(cd "$WORK/checkout" && printf '{"hook_event_name":"SessionStart","source":"startup"}' | HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude > "$WORK/startup.log" 2>&1) || fail "session-start.sh --tool claude at a start (see $WORK/startup.log)"
+grep -aq '^After compaction' "$WORK/startup.log" && fail "session-start at a start asks for the rules again, as after a compaction (see $WORK/startup.log)"
 # ai-core not on the PATH of the session, whatever the PATH of this shell: session-start says how to
 # call it; on the PATH, it says nothing of it
 AI_CORE_CMD="$ROOT/bin/ai-core"

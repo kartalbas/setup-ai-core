@@ -2,7 +2,8 @@
 
 - **Run the session start before any work, and after every compaction read every rules file whole
   again before the next step**, in every repository, with every tool, because a summary keeps the
-  work and loses the rules. [tool]
+  work and loses the rules; in Claude Code the session start names them after a compaction.
+  [tool · discipline]
 - **Read spans, not files, and gather them.** Locate code with a search and open only the span to
   edit, because a whole file spends the context the rest of the task needs; fetch every lookup a
   step needs in one answer, as parallel tool calls or one command, because every answer reads the

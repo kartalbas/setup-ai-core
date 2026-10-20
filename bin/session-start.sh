@@ -48,7 +48,7 @@ done
 # rules, so then the report names every rules file to read again. A terminal passes no event.
 AFTER_COMPACTION=0
 if [ "$TOOL_N" -eq 1 ] && [ ! -t 0 ]; then
-  HOOK_INPUT=""; IFS= read -r -t 2 -d '' HOOK_INPUT || true
+  HOOK_INPUT=""; IFS= read -r -t 1 -d '' HOOK_INPUT || true
   [ "$(printf '%s' "$HOOK_INPUT" | jq -r '.source? // empty' 2>/dev/null)" != compact ] || AFTER_COMPACTION=1
 fi
 
@@ -323,7 +323,7 @@ if [ "$AFTER_COMPACTION" -eq 1 ]; then
   echo "After compaction: read every rules file whole again now, before the next step:"
   { if [ -n "$HARNESS_SOURCE" ]; then printf '%s' "$SOURCE_RULE_PATHS"
     else [ -z "$RULES_PATH" ] || echo "$RULES_PATH"; [ ! -f .ai-core/rules/skills.md ] || echo .ai-core/rules/skills.md; fi
-    [ "$LOCAL_RULES_OK" -eq 0 ] || echo .ai-core/rules/rules.local.md; } | sed "/^\$/d; s#^#  $ROOT/#"
+    [ "$LOCAL_RULES_OK" -eq 0 ] || echo .ai-core/rules/rules.local.md; } | sed "/^\$/d; s#^\([^/]\)#  $ROOT/\1#; s#^/#  /#"
 fi
 # A start without the issue it was opened for is not the start it looks like, so the last line says so
 if [ -n "$ISSUE_UNREAD" ]; then

@@ -1190,8 +1190,15 @@ check 'the red one, with the last line of the check' \
 check 'the run with no check is never green' 'no check' "$(sed -n 4p "$runs" | cut -f5)"
 check 'it names the worktree and the commit' "$nocheck	$(git -C "$nocheck" rev-parse HEAD)" "$(sed -n 4p "$runs" | cut -f3,4)"
 check 'the seconds of a check are counted'  yes "$(sed -n 2p "$runs" | cut -f6 | grep -qx '[0-9][0-9]*' && echo yes || echo no)"
+printf '[extend]\nuseDefault = true\n' > "$repo/.gitleaks.toml"; git -C "$repo" add .gitleaks.toml
+git -C "$repo" commit -q -m 'Arm the scan after a green check #7'
+out="$(PROBE_LEAKS=red only_new "$repo")"; rc=$?
+check 'a refusal after a green check: exit 1' 1 "$rc"
+check 'it is recorded with the refusal, not the green line' \
+  "red	a credential stands in a commit" "$(tail -1 "$runs" | awk -F'\t' '{print $5 "\t" substr($7, 1, 31)}')"
+git -C "$repo" rm -q .gitleaks.toml; git -C "$repo" commit -q -m 'Disarm the scan again #7'
 listed="$(bash "$root/bin/pre-push.sh" --runs)"
-check '--runs: the header first, then the newest' 'no check' "$(sed -n 2p <<< "$listed" | cut -f5)"
+check '--runs: the header first, then the newest, in the order they ran' "$(printf 'red\nno check\nred\ngreen')" "$(sed -n '2,5p' <<< "$listed" | cut -f5)"
 check '--since in the future lists none'   1 "$(bash "$root/bin/pre-push.sh" --runs --since 2999-01-01 | wc -l | tr -d ' ')"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi

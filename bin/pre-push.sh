@@ -121,8 +121,7 @@ if [ "$RUNS" -eq 1 ]; then
   [ -s "$GATE_RUNS_FILE" ] || { echo "no run of the gate is recorded on this machine yet ($GATE_RUNS_FILE)"; exit 0; }
   head -1 "$GATE_RUNS_FILE"
   tail -n +2 "$GATE_RUNS_FILE" \
-    | awk -F'\t' -v repo="$RUNS_REPO" -v since="$RUNS_SINCE" '(repo == "" || tolower($2) == tolower(repo)) && (since == "" || $1 >= since)' \
-    | sort -r
+    | awk -F'\t' -v repo="$RUNS_REPO" -v since="$RUNS_SINCE" '(repo == "" || tolower($2) == tolower(repo)) && (since == "" || $1 >= since) { kept[++n] = $0 } END { while (n > 0) print kept[n--] }'
   exit 0
 fi
 
@@ -449,8 +448,9 @@ head="$(git rev-parse HEAD 2>/dev/null)" || { echo "error: this repository has n
 GATE_CHECK=absent; GATE_CHECK_SECONDS=-; GATE_CHECK_LAST=""; GATE_COMMIT=""
 record_gate_run() {
   local rc=$? verdict repository last
-  if [ "$rc" -ne 0 ]; then verdict=red; elif [ "$GATE_CHECK" = ran ]; then verdict=green; else verdict="no check"; fi
-  last="$GATE_CHECK_LAST"; [ "$GATE_CHECK" = ran ] || last="$GATE_REFUSAL"
+  if [ "$rc" -ne 0 ]; then verdict=red; elif [ "$GATE_CHECK" = green ]; then verdict=green; else verdict="no check"; fi
+  # A red check names its own last line; a refusal after a green check, or with none, names itself
+  last="$GATE_CHECK_LAST"; [ "$GATE_CHECK" = red ] || [ -z "$GATE_REFUSAL" ] || last="$GATE_REFUSAL"
   repository="$(git -C "$root" remote get-url origin 2>/dev/null | sed 's#\.git$##; s#.*[:/]\([^/:]*/[^/:]*\)$#\1#')"
   if mkdir -p "$(dirname "$GATE_RUNS_FILE")" 2>/dev/null; then
     [ -s "$GATE_RUNS_FILE" ] || printf 'time\trepository\tworktree\tcommit\tverdict\tseconds\tlast line\n' >> "$GATE_RUNS_FILE"
@@ -884,10 +884,12 @@ if [ -f "$root/scripts/check.sh" ]; then
 $(sed 's/^/  /' <<< "$dirty")
   Commit these files, ignore them, or move them out of the tree, then push again."
   echo "pre-push: $root/scripts/check.sh runs here, before anything leaves this machine."
-  GATE_CHECK=ran; check_started="$(date +%s)"; check_rc=0
+  check_started="$(date +%s)"; check_rc=0
+  # Both streams go to the log, so its last line is the check's last word on either of them
   with_caller_git_config bash "$root/scripts/check.sh" 2>&1 | tee "$TMPD/check.log" || check_rc=$?
   GATE_CHECK_SECONDS=$(( $(date +%s) - check_started ))
   GATE_CHECK_LAST="$(grep -v '^[[:space:]]*$' "$TMPD/check.log" | tail -1)"
+  GATE_CHECK=green; [ "$check_rc" -eq 0 ] || GATE_CHECK=red
   [ "$check_rc" -eq 0 ] || refuse 'a check failed - the lines above name which one.'
 else
   echo 'pre-push: no scripts/check.sh in this repository; nothing runs before the push.'

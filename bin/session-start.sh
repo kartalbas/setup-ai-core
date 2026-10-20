@@ -43,6 +43,15 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Claude Code starts the hook with the event on standard input, whose "source" is "compact" after a
+# compaction (code.claude.com/docs/en/hooks, SessionStart). A summary keeps the work and loses the
+# rules, so then the report names every rules file to read again. A terminal passes no event.
+AFTER_COMPACTION=0
+if [ "$TOOL_N" -eq 1 ] && [ ! -t 0 ]; then
+  HOOK_INPUT=""; IFS= read -r -t 2 -d '' HOOK_INPUT || true
+  [ "$(printf '%s' "$HOOK_INPUT" | jq -r '.source? // empty' 2>/dev/null)" != compact ] || AFTER_COMPACTION=1
+fi
+
 # 1. The gate: no session without the team modes. team-modes-check prints its own lines and the
 #    refusal; nothing else is printed before it. With --json the refusal is JSON too.
 if ! modes="$(bash "$CORE/bin/team-modes-check.sh" ${tool_args[@]+"${tool_args[@]}"} 2>&1)"; then
@@ -91,7 +100,7 @@ fi
 # environment). Nothing is updated here; the lines say what to run.
 FOLDER="$(project_folder_of "$ROOT")"
 HARNESS_SOURCE="$(harness_source_of "$ROOT" || true)"
-SOURCE_READY=null; SOURCE_ERROR=""; RULE_SOURCES='[]'; READY="$RULES_OK"; SOURCE_RULE_FILES=0; SOURCE_AGENTS=""
+SOURCE_READY=null; SOURCE_ERROR=""; RULE_SOURCES='[]'; READY="$RULES_OK"; SOURCE_RULE_FILES=0; SOURCE_AGENTS=""; SOURCE_RULE_PATHS=""
 # A harness source is never assembled, and the tool loads AGENTS.md: so in a source that file names
 # the rule files where they are written, base layer first, and the tool reads each as it is now. A
 # copy would age with the next change of a rule. This file is the one session start writes there,
@@ -112,9 +121,9 @@ write_source_agents() {  # write_source_agents <checkout> <rule directories, one
       [ -f "$file" ] || continue
       file="${file#"$1"/}"
       text="$text
-  - @${file// /\\ }"; SOURCE_RULE_FILES=$((SOURCE_RULE_FILES + 1))
+  - @${file// /\\ }"; SOURCE_RULE_FILES=$((SOURCE_RULE_FILES + 1)); SOURCE_RULE_PATHS="$SOURCE_RULE_PATHS$file"$'\n'
     done
-    [ ! -f "$dir/skills.md" ] || { file="${dir#"$1"/}/skills.md"; skills="$skills @${file// /\\ }"; }
+    [ ! -f "$dir/skills.md" ] || { file="${dir#"$1"/}/skills.md"; skills="$skills @${file// /\\ }"; SOURCE_RULE_PATHS="$SOURCE_RULE_PATHS$file"$'\n'; }
   done <<< "$2"
   [ -z "$skills" ] || text="$text
 - When a skill or a tool is used:$skills"
@@ -309,6 +318,12 @@ if [ "$READY" -eq 0 ]; then
   if [ -n "$HARNESS_SOURCE" ]; then printf 'Not ready: source inputs failed validation.\n%s\n' "$SOURCE_ERROR" >&2
   else echo "Not ready: no rules file found. Run ai-core init in this repository." >&2; fi
   exit 1
+fi
+if [ "$AFTER_COMPACTION" -eq 1 ]; then
+  echo "After compaction: read every rules file whole again now, before the next step:"
+  { if [ -n "$HARNESS_SOURCE" ]; then printf '%s' "$SOURCE_RULE_PATHS"
+    else [ -z "$RULES_PATH" ] || echo "$RULES_PATH"; [ ! -f .ai-core/rules/skills.md ] || echo .ai-core/rules/skills.md; fi
+    [ "$LOCAL_RULES_OK" -eq 0 ] || echo .ai-core/rules/rules.local.md; } | sed "/^\$/d; s#^#  $ROOT/#"
 fi
 # A start without the issue it was opened for is not the start it looks like, so the last line says so
 if [ -n "$ISSUE_UNREAD" ]; then

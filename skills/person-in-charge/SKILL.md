@@ -40,7 +40,7 @@ the board and the branches, so a restart loses nothing (`briefs/coordinator.md`)
    those, one that fixes a fault on a live environment, carries a side a partner waits for, or is a
    part another part names in its `After:` starts first; otherwise the one whose area's first
    section stands earliest on the plan issue starts, a mechanical package standing where its
-   `classified` `PHASE` line stands. The next one is built on what it landed. A
+   `planned` `PHASE` line stands. The next one is built on what it landed. A
    package stopped for the owner (`needs:owner`) keeps its place, and your question to the owner
    names the packages that wait for it.
    No session moves a phase to another model, effort or tool on its own because a quota ran out,
@@ -90,23 +90,22 @@ Before any plan session you classify each package from its issues and the spans 
 is `mechanical` when the change of all its issues together meets four points: the change stays in
 one repository; it touches no contract between the project's repositories and no contract outward;
 it touches no secret, no payment and not the push gate; the issue already names every span it
-changes as `file:line`, and its acceptance criteria. A package is classed `mechanical` only when
-each issue's acceptance criteria also name the environment and the visible result its proof checks,
-or say that the issue changes code only and is delivered by its landing and a green gate; else it
-goes to a plan. A mechanical package has no plan session and no plan check: its issues' acceptance
-criteria and `file:line` facts stand in for the package section, as for a card from before the
-packages (`briefs/clearing.md`), and you put them in the brief's package section under the
-heading `Class: mechanical`. You name its area `mechanical
+changes as `file:line`, and its acceptance criteria. A mechanical package has no plan session and no
+plan check: its issues' acceptance criteria and `file:line` facts stand in for the package section,
+as for a card from before the packages (`briefs/clearing.md`), and you put them in the brief's
+package section under the heading `Class: mechanical`. You name its area `mechanical
 <repo>#<n>[, <repo>#<n> ...]` after its issues, as a card from before is `clearing <repo>#<n>`, and
-post its first PHASE line, phase `classified`, when you classify it, so every PHASE and LAND line of
-the package carries its class and its issues. It goes straight to its build and then its review, on
-the `mechanical` rows. A build that meets a span its issue does not name, a contract, a secret, a
-payment or the push gate stops, commits nothing past that point and reports it, and a review that
-finds the same in the diff says NO with `needs a plan`; you then send the package to its first plan,
-on the `plan` row of its class, not to a re-plan. The build after that plan is a new build, not the
-repair after a review NO: its review reads the whole package diff, the mechanical build's earlier
-commits included, on the review row of the class the plan set, never as a re-check. Every other
-package goes to a plan.
+post its first PHASE line, phase `planned`, when you classify it, moving its cards to `planned` as
+after a plan, so every PHASE and LAND line of the package carries its class and its issues. It goes
+straight to its build and then its review, on the `mechanical` rows. A build that meets a span its
+issue does not name, a contract, a secret, a payment or the push gate stops, commits nothing past
+that point and reports it, and a review that finds the same in the diff says NO with `needs a
+plan`; you then send the package to its first plan, on the `plan` row of its class, not to a
+re-plan. That plan keeps the area name `mechanical <repo>#<n>`, so its plan and review counts stay
+on one name, and once a section names the package, its `Class:` line decides its class, not the
+area name. The build after that plan is a new build, not the repair after a review NO: its review
+reads the whole package diff, the mechanical build's earlier commits included, on the review row of
+the class the plan set, never as a re-check. Every other package goes to a plan.
 
 | Phase | Brief | Done when | Card after it |
 | :--- | :--- | :--- | :--- |

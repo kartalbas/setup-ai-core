@@ -154,7 +154,9 @@ issue_ref() {  # issue_ref <repo or empty> <number>
 issue_mention_pattern() {  # issue_mention_pattern <issue repo> <number> <commit repo>
   local lower='tr A-Z a-z' spelled
   spelled="$(printf '%s' "$1" | sed 's/\./\\./g')"
-  if [ "$(printf '%s' "$1" | $lower)" = "$(printf '%s' "$3" | $lower)" ]; then
+  if [ -z "$1" ]; then
+    printf '(^|[^A-Za-z0-9._/-])#%s([^0-9]|$)' "$2"
+  elif [ "$(printf '%s' "$1" | $lower)" = "$(printf '%s' "$3" | $lower)" ]; then
     printf '(^|[^A-Za-z0-9._/-])(%s)?#%s([^0-9]|$)' "$spelled" "$2"
   else
     printf '(^|[^A-Za-z0-9._/-])%s#%s([^0-9]|$)' "$spelled" "$2"

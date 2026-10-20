@@ -166,7 +166,7 @@ done <<< "$(issue_worktrees)"
 
 # What landed. An issue no commit on origin names has not landed, whatever its worktree held: the
 # card does not move and the issue is not told.
-own="$(default_repo)"
+own="$(default_repo 2>/dev/null)"
 commits="$(git -C "$main" log "origin/$default" -E -i --grep="$(issue_mention_pattern "${repo:-$own}" "$number" "$own")" --format='- %h %s' -n 20)"
 [ -n "$commits" ] \
   || die "no commit on origin/$default names $ref, so the card stays and the issue is not told; a commit that touches an issue names it"

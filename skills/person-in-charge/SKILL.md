@@ -102,10 +102,11 @@ issue does not name, a contract, a secret, a payment or the push gate stops, com
 that point and reports it, and a review that finds the same in the diff says NO with `needs a
 plan`; you then send the package to its first plan, on the `plan` row of its class, not to a
 re-plan. That plan keeps the area name `mechanical <repo>#<n>`, so its plan and review counts stay
-on one name, and once a section names the package, its `Class:` line decides its class, not the
-area name. The build after that plan is a new build, not the repair after a review NO: its review
-reads the whole package diff, the mechanical build's earlier commits included, on the review row of
-the class the plan set, never as a re-check. Every other package goes to a plan.
+on one name; the name carries the class until the plan's section names the package, and from then
+on the section's `Class:` line decides it. The build after that plan is a new build, not the repair
+after a review NO: its review reads the whole package diff, the mechanical build's earlier commits
+included, on the review row of the class the plan set, never as a re-check. Every other package
+goes to a plan.
 
 | Phase | Brief | Done when | Card after it |
 | :--- | :--- | :--- | :--- |

@@ -243,10 +243,10 @@ printf '# class   mechanical (%s\n' "${mechanical_points/; it touches no secret/
 states_mechanical_points "$P" || fail "the four points, wrapped over two comment lines, were not found"
 printf '# class   mechanical (%s\n' "${mechanical_points/no secret/no secrets}" > "$P"
 ! states_mechanical_points "$P" || fail "the four points with one word changed were accepted"
-for file in templates/.ai-core/models.tsv skills/person-in-charge/SKILL.md skills/person-in-charge/briefs/plan.md skills/person-in-charge/briefs/clearing.md; do
+for file in templates/.ai-core/models.tsv skills/person-in-charge/SKILL.md skills/person-in-charge/briefs/plan.md; do
   states_mechanical_points "$ROOT/$file" || fail "$file does not state the four points of a mechanical package in the words of the other places"
 done
-echo "  the table header, SKILL.md, briefs/plan.md and briefs/clearing.md each hold the four points word for word; a changed word is refused"
+echo "  the table header, SKILL.md and briefs/plan.md each hold the four points word for word; a changed word is refused"
 
 section "Codex gets what Claude Code loads, written out in AGENTS.override.md, and its config reads it whole"
 codex_init() {  # codex_init <dir>

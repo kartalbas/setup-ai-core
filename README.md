@@ -403,8 +403,8 @@ on start; no developer installs a skill by hand.
   `file:line`, cut so that one build session finishes it alone; packages that share a file or a
   contract run one after the other. Every package is a section of one plan issue per board, titled "Plan:
   packages", with its ecosystem, class, repositories, contracts and issues.
-  - Before the first plan, the coordinator clears what earlier sessions left in `implementing` and
-    `testing` (`briefs/clearing.md`). A package then runs through its phases: plan, plan check,
+  - Before any plan and any build of a mechanical package, the coordinator clears what earlier
+    sessions left in `implementing` and `testing` (`briefs/clearing.md`). A package then runs through its phases: plan, plan check,
     build and test, review, start check, land, release to the test stage, UI test, release to
     production and live check. A `mechanical` package, which the coordinator decides from its
     issues, has no plan and no plan check and starts at its build. The plan, the plan

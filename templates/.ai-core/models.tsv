@@ -14,7 +14,8 @@
 #         no rows runs no phase.
 # phase   coordinator (the person in charge itself), plan, re-plan (every plan session of a package
 #         after its first plan: after a plan-check NO, a plan repair, an amendment, a review that
-#         sends the package back to plan), plan-check, build (build and test),
+#         sends the package back to plan, but not the plan of a mechanical package sent to a
+#         plan, which is its first), plan-check, build (build and test),
 #         review, ui-test (the UI test and the live check), helper (a bounded task inside any phase: a pre-review of a diff, a log, a
 #         screenshot, a long span; its answer is checked by the session that asked). The start
 #         check is START_CHECK of config.env and has no row. The plan runs on the high-risk row

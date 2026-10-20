@@ -39,8 +39,8 @@ the board and the branches, so a restart loses nothing (`briefs/coordinator.md`)
    `Waits for the owner:` is answered. Of
    those, one that fixes a fault on a live environment, carries a side a partner waits for, or is a
    part another part names in its `After:` starts first; otherwise the one whose area's first
-   section stands earliest on the plan issue starts, a mechanical package standing where its first
-   `PHASE` line stands. The next one is built on what it landed. A
+   section stands earliest on the plan issue starts, a mechanical package standing where its
+   `classified` `PHASE` line stands. The next one is built on what it landed. A
    package stopped for the owner (`needs:owner`) keeps its place, and your question to the owner
    names the packages that wait for it.
    No session moves a phase to another model, effort or tool on its own because a quota ran out,
@@ -78,7 +78,7 @@ question for the owner, never a release on hope.
 ## First: clear what earlier sessions left
 
 A board with cards in `implementing` and `testing` from before holds work nobody owns. Before any
-plan, run `briefs/clearing.md` round after round until `implementing` holds only cards with
+plan and before any build of a mechanical package, run `briefs/clearing.md` round after round until `implementing` holds only cards with
 `needs:owner`: landed work goes to
 `testing`, finished branches get their review and land, half-done branches get a build session that
 finishes them, an issue in `todo` that one of them needs is built with it, and every card in
@@ -90,21 +90,28 @@ Before any plan session you classify each package from its issues and the spans 
 is `mechanical` when the change of all its issues together meets four points: the change stays in
 one repository; it touches no contract between the project's repositories and no contract outward;
 it touches no secret, no payment and not the push gate; the issue already names every span it
-changes as `file:line`, and its acceptance criteria. A mechanical package has no plan session and
-no plan check: its issues' acceptance criteria and `file:line` facts stand in for the package
-section, as for a card from before the packages (`briefs/clearing.md`), and you put them in the
-brief's package section under the heading `Class: mechanical`. It goes straight to its build and
-then its review, on the `mechanical` rows. The PHASE line you post when you start its build carries
-`Class: mechanical` and its issues as `<repo>#<n>` in the next-step field, because that line is all
-a restart finds of the package. A build that meets a span its issue does not name, a contract, a
-secret, a payment or the push gate stops, commits nothing past that point and reports it, and a
-review that finds the same in the diff says NO with `needs a plan`; you then send the package to a
-plan, as any package that needs one. Every other package goes to a plan.
+changes as `file:line`, and its acceptance criteria. A package is classed `mechanical` only when
+each issue's acceptance criteria also name the environment and the visible result its proof checks,
+or say that the issue changes code only and is delivered by its landing and a green gate; else it
+goes to a plan. A mechanical package has no plan session and no plan check: its issues' acceptance
+criteria and `file:line` facts stand in for the package section, as for a card from before the
+packages (`briefs/clearing.md`), and you put them in the brief's package section under the
+heading `Class: mechanical`. You name its area `mechanical
+<repo>#<n>[, <repo>#<n> ...]` after its issues, as a card from before is `clearing <repo>#<n>`, and
+post its first PHASE line, phase `classified`, when you classify it, so every PHASE and LAND line of
+the package carries its class and its issues. It goes straight to its build and then its review, on
+the `mechanical` rows. A build that meets a span its issue does not name, a contract, a secret, a
+payment or the push gate stops, commits nothing past that point and reports it, and a review that
+finds the same in the diff says NO with `needs a plan`; you then send the package to its first plan,
+on the `plan` row of its class, not to a re-plan. The build after that plan is a new build, not the
+repair after a review NO: its review reads the whole package diff, the mechanical build's earlier
+commits included, on the review row of the class the plan set, never as a re-check. Every other
+package goes to a plan.
 
 | Phase | Brief | Done when | Card after it |
 | :--- | :--- | :--- | :--- |
 | plan | `briefs/plan.md` for a package that is not `mechanical`, on the `high-risk` plan row where an issue names a secret, a payment, a contract outward or the push gate (outward means an interface somebody outside the project uses (a public API, a published package, a customer's data format), never a contract between the project's own repositories), else on the `normal-hard` row; the plan judges between those two classes, and a plan check that raises it sends the re-plan to the higher class's `re-plan` row | one package section per package stands as a comment on the plan issue | `planned` (its issues) |
-| re-plan | `briefs/plan.md`, on the `re-plan` row of the class picked as for a plan: every plan session of a package after its first plan, so a plan after a plan-check NO, a plan repair, an amendment, and a plan after a review that sends the package back | the section it replaces stands as a comment on the plan issue, its first line `Replaces the section of <date>` | `planned` (its issues) |
+| re-plan | `briefs/plan.md`, on the `re-plan` row of the class picked as for a plan: every plan session of a package after its first plan, so a plan after a plan-check NO, a plan repair, an amendment, and a plan after a review that sends the package back; the plan of a mechanical package sent to a plan is its first plan, not a re-plan | the section it replaces stands as a comment on the plan issue, its first line `Replaces the section of <date>` | `planned` (its issues) |
 | plan check | `briefs/plan-check.md`; after a re-plan, never on the re-plan's model: where the `plan-check` row names that model, the plan check runs on the model of the class's `plan` row, at the plan-check row's effort; where that is the re-plan's model too, on the model of the class's build row; where the build row names it too, the package goes to the owner (`needs:owner`) | GO | `planned` |
 | build and test | `briefs/build.md` | every issue has its commit and tests, every issue branch is pushed through the push gate | `review` |
 | review | `briefs/review.md`, never the model that built the work: where the review row names that model, the review runs on the model of the class's build row, at the review row's effort, unless that model built it too, which goes to the owner (`needs:owner`) | GO | `review` |

@@ -9,6 +9,9 @@ coordinator posts it.
 
 ## Input
 
+For a mechanical package, which has no section, the environment, the account and the checks come
+from its issues' acceptance criteria.
+
 - The promises, one per issue, from the acceptance criteria: {{promises}}
 - The account, where a check needs one: {{demo account from the section, or "none"}}, never another
 - The checks, in steps, from the section's `Checks:` lines: {{for each promise: the URL, each click,

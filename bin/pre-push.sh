@@ -29,7 +29,17 @@ set -uo pipefail
 
 # A person's log.showSignature prints signature lines into every formatted git log this gate reads;
 # one entry after the caller's own in git's environment configuration turns it off for all of them.
+# The repository's own check runs without it (with_caller_git_config), as it runs outside the gate.
+caller_git_config_count="${GIT_CONFIG_COUNT-unset}"
 n=${GIT_CONFIG_COUNT:-0}; export "GIT_CONFIG_KEY_$n=log.showSignature" "GIT_CONFIG_VALUE_$n=false" "GIT_CONFIG_COUNT=$((n + 1))"
+gate_git_config_index="$n"
+with_caller_git_config() {  # with_caller_git_config <command...>
+  if [ "$caller_git_config_count" = unset ]; then
+    env -u GIT_CONFIG_COUNT -u "GIT_CONFIG_KEY_$gate_git_config_index" -u "GIT_CONFIG_VALUE_$gate_git_config_index" "$@"
+  else
+    env -u "GIT_CONFIG_KEY_$gate_git_config_index" -u "GIT_CONFIG_VALUE_$gate_git_config_index" GIT_CONFIG_COUNT="$caller_git_config_count" "$@"
+  fi
+}
 
 for arg in "$@"; do
   if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
@@ -832,7 +842,7 @@ if [ -f "$root/scripts/check.sh" ]; then
 $(sed 's/^/  /' <<< "$dirty")
   Commit these files, ignore them, or move them out of the tree, then push again."
   echo "pre-push: $root/scripts/check.sh runs here, before anything leaves this machine."
-  bash "$root/scripts/check.sh" || refuse 'a check failed - the lines above name which one.'
+  with_caller_git_config bash "$root/scripts/check.sh" || refuse 'a check failed - the lines above name which one.'
 else
   echo 'pre-push: no scripts/check.sh in this repository; nothing runs before the push.'
 fi

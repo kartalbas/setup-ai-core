@@ -87,6 +87,7 @@ mkdir -p "$repo/scripts" "$repo/bin"
 cat > "$repo/scripts/check.sh" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$0" >> "$check_runs"
+env | grep '^GIT_CONFIG_\(COUNT\|KEY_\|VALUE_\)' | sort > "$check_runs.git-config"
 if [ "\${PROBE_CHECK:-green}" = green ]; then echo 'check: OK — every check green'; exit 0; fi
 echo 'check: FAIL — the stand-in was told to be red'
 exit 1
@@ -150,6 +151,18 @@ out="$(TEAM_MODES_FILE="$red" only_new "$wt")"; rc=$?
 check 'exit 1'                    1 "$rc"
 check 'the MISSING line is there' yes "$(grep -Eq '^MISSING .*(claude|codex) diagrams' <<< "$out" && echo yes || echo no)"
 check 'and the refusal names the modes' yes "$(grep -q 'the team modes are missing' <<< "$out" && echo yes || echo no)"
+
+# The gate turns log.showSignature off for its own git calls through git's environment configuration.
+# The repository's check runs in the caller's, or a suite that reads it is red only in the gate.
+echo "the check runs with the caller's git environment configuration, not the gate's own entry"
+commit 'src/thing.txt' 'Read the caller configuration #7'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                              0 "$rc"
+check 'no entry reaches the check'          '' "$(cat "$check_runs.git-config")"
+git -C "$repo" commit -q --amend -m 'Read the caller configuration again #7'
+out="$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.quotePath GIT_CONFIG_VALUE_0=false only_new "$repo")"; rc=$?
+check 'exit 0 with an entry of the caller'  0 "$rc"
+check 'the check sees exactly that entry'   "$(printf 'GIT_CONFIG_COUNT=1\nGIT_CONFIG_KEY_0=core.quotePath\nGIT_CONFIG_VALUE_0=false')" "$(cat "$check_runs.git-config")"
 
 echo 'a red scripts/check.sh refuses'
 out="$(PROBE_CHECK=red only_new "$wt")"; rc=$?

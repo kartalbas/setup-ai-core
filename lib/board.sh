@@ -411,19 +411,19 @@ is_origin_line() { case "$1" in "$ASKED_PREFIX"*|"$FOUND_PREFIX"*"$FOUND_TAIL") 
 # narrow on purpose: it opens with one of six verbs that name an artifact and carries none of
 # the three joins, which is the exact shape of "Add the board-sync command" - a title that
 # fits twenty other tickets. A title outside that shape is not judged at all.
-report_title() {  # report_title <title>
-  local title="$1" n
+report_title() {  # report_title <title> <what goes ahead anyway>
+  local title="$1" anyway="(reported only: $2)" n
   n="$(printf '%s' "$title" | LC_ALL=C tr -d '\200-\277' | wc -c | tr -d ' ')"
   [ "$n" -le 70 ] \
-    || echo "title is $n characters, over 70 - a title is one sentence a stranger understands; the reason and the code go into the body" >&2
+    || echo "title is $n characters, over 70 - a title is one sentence a stranger understands; the reason and the code go into the body $anyway" >&2
   case "$title" in
-    *'`'*) echo "title contains a backtick - no code name in a title" >&2 ;;
+    *'`'*) echo "title contains a backtick - no code name in a title $anyway" >&2 ;;
   esac
   case "$title" in
     Add\ *|Create\ *|Write\ *|Implement\ *|Introduce\ *|Define\ *)
       case "$title" in
         *", so "*|*", or "*|*:*) ;;
-        *) echo "title names an action and no stake - write what is wrong today or what it costs, joined with \", so \", \", or \" or a colon" >&2 ;;
+        *) echo "title names an action and no stake - write what is wrong today or what it costs, joined with \", so \", \", or \" or a colon $anyway" >&2 ;;
       esac ;;
   esac
 }

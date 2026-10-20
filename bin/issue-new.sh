@@ -124,7 +124,7 @@ trap 'exit 1' HUP INT TERM
 
 # Reported, not enforced. Every check above refuses; this one only names what a reader will
 # struggle with, and the issue is created either way.
-report_title "$title"
+report_title "$title" "the issue is created anyway"
 
 # The parent is resolved before anything is created: a reference that resolves nowhere
 # stops the run with nothing made, instead of leaving a fresh issue attached to nothing.

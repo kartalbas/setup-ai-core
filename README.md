@@ -414,7 +414,8 @@ on start; no developer installs a skill by hand.
     given a second phase, because the state lives in the tracker and on the branch.
   - The model and effort of each phase follow the package's class (`mechanical`, `normal-hard`,
     `high-risk`) and come from `.ai-core/models.tsv`, one block per tool; the plan runs on the
-    `high-risk` or the `normal-hard` row, because the plan decides the class. The reviewer never runs on the
+    `high-risk` or the `normal-hard` row, because the plan decides the class, and every plan session
+    after the first plan, a re-plan, runs on the `re-plan` row. The reviewer never runs on the
     model that built the package, by the table's rows. A session never moves a phase to another
     model or tool on its own because a quota ran out: its package waits; an owner's temporary
     selection is reported and expires on withdrawal or coordinator restart, without changing the

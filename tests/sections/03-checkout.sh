@@ -174,7 +174,7 @@ cmp -s "$TM/.ai-core/team-modes.tsv" "$ROOT/templates/.ai-core/team-modes.tsv" |
 grep -aq '^  refreshed .*\.ai-core/team-modes\.tsv' "$TM.log" || fail "init.sh did not report the team-modes table as refreshed: $(grep -a 'team-modes' "$TM.log")"
 echo "  an older .ai-core/team-modes.tsv is replaced by the harness's and reported"
 
-section "the model table keeps agy to high effort, keeps high-risk off agy and never reviews on the build model"
+section "the model table keeps agy to high effort, keeps high-risk off agy, never reviews on the build model and gives every plan its re-plan row"
 # Prints one line per broken row of the table in $1, nothing for a table that holds.
 model_table_faults() {
   awk -F'\t' '
@@ -185,7 +185,12 @@ model_table_faults() {
     ($1 == "agy" || $4 ~ /^agy:/) && $4 ~ /gemini/ { print "gemini on agy: " $0 }
     $2 == "build" { build[$1, $3] = base }
     $2 == "review" { review[$1, $3] = base }
-    END { for (k in build) if ((k in review) && build[k] == review[k]) { split(k, a, SUBSEP); print "review on the build model: " a[1] " " a[2] } }
+    $2 == "plan" { plan[$1, $3] = 1 }
+    $2 == "re-plan" { replan[$1, $3] = 1 }
+    END {
+      for (k in build) if ((k in review) && build[k] == review[k]) { split(k, a, SUBSEP); print "review on the build model: " a[1] " " a[2] }
+      for (k in plan) if (!(k in replan)) { split(k, a, SUBSEP); print "plan without a re-plan row: " a[1] " " a[2] }
+    }
   ' "$1"
   awk -F'\t' '
     /^#/ || NF < 5 { next }
@@ -204,23 +209,28 @@ printf 'claude\tbuild\tnormal-hard\tagy:claude-sonnet-5-5-high\t-\nclaude\trevie
 for planted in 'claude\tbuild\tmechanical\tagy:claude-sonnet-5-5-high\txhigh' \
                'claude\tplan-check\tmechanical\tagy:claude-sonnet-5-5-medium\t-' \
                'claude\tbuild\thigh-risk\tagy:claude-opus-5-5-high\t-' \
-               'agy\tplan\thigh-risk\tclaude-opus-5-5-high\t-' \
+               'agy\tplan\thigh-risk\tclaude-opus-5-5-high\t-\nagy\tre-plan\thigh-risk\tclaude-opus-5-5-high\t-' \
                'claude\thelper\t*\tagy:claude-sonnet-5-5-high\t-' \
                'agy\thelper\t*\tgemini-3.8-flash-medium\t-' \
-               'agy\treview\tnormal-hard\tclaude-sonnet-5-5-high\t-\nagy\tbuild\tnormal-hard\tclaude-sonnet-5-5-high\t-'; do
+               'agy\treview\tnormal-hard\tclaude-sonnet-5-5-high\t-\nagy\tbuild\tnormal-hard\tclaude-sonnet-5-5-high\t-' \
+               'claude\tplan\tnormal-hard\tclaude-fable-5-1\txhigh' \
+               'claude\tplan\thigh-risk\tclaude-fable-5-1\txhigh\nclaude\tre-plan\tnormal-hard\tclaude-opus-5-5\tmax' \
+               'claude\tplan\tnormal-hard\tclaude-fable-5-1\txhigh\nclaude\tre-plan\tnormal-hard\tclaude-opus-5-5\tmax\ncodex\tplan\tnormal-hard\tgpt-6-astra\txhigh'; do
   printf "$planted\n" > "$T"
   [ -n "$(model_table_faults "$T")" ] || fail "a planted broken row stayed green: $(printf "$planted")"
 done
 printf 'claude\tbuild\tmechanical\tagy:claude-sonnet-5-5-high\t-\nclaude\treview\tmechanical\tclaude-sonnet-5-5\thigh\n' > "$T"
 [ -n "$(model_table_faults "$T")" ] || fail "a Claude Sonnet review of an agy Sonnet build stayed green"
+printf 'claude\tplan\tnormal-hard\tclaude-fable-5-1\txhigh\nclaude\tre-plan\tnormal-hard\tclaude-opus-5-5\tmax\nagy\tplan\tnormal-hard\tclaude-opus-5-5-high\t-\nagy\tre-plan\tnormal-hard\tclaude-opus-5-5-high\t-\n' > "$T"
+[ -z "$(model_table_faults "$T")" ] || fail "plan rows that each have their re-plan row were reported: $(model_table_faults "$T")"
 native_codex() { awk -F'\t' '$1 == "codex" && $4 !~ /:/ && $0 !~ /^#/' "$ROOT/templates/.ai-core/models.tsv"; }
-for planted in 'claude\tplan\thigh-risk\tcodex:not-a-model\tmax' 'claude\tplan\thigh-risk\tcodex:gpt-6-astra\t-' 'claude\tbuild\thigh-risk\tcodex:gpt-6-astra\tmax\nclaude\treview\thigh-risk\tgpt-6-astra\tmax'; do
+for planted in 'claude\tplan\thigh-risk\tcodex:not-a-model\tmax\nclaude\tre-plan\thigh-risk\tclaude-opus-5-5\tmax' 'claude\tplan\thigh-risk\tcodex:gpt-6-astra\t-\nclaude\tre-plan\thigh-risk\tclaude-opus-5-5\tmax' 'claude\tbuild\thigh-risk\tcodex:gpt-6-astra\tmax\nclaude\treview\thigh-risk\tgpt-6-astra\tmax'; do
   { native_codex; printf '%b\n' "$planted"; } > "$T"
   [ -n "$(model_table_faults "$T")" ] || fail "a planted Codex routing fault stayed green: $(printf '%b' "$planted")"
 done
-{ native_codex; printf 'claude\tplan\thigh-risk\tcodex:gpt-6-astra\tmax\n'; } > "$T"
+{ native_codex; printf 'claude\tplan\thigh-risk\tcodex:gpt-6-astra\tmax\nclaude\tre-plan\thigh-risk\tclaude-opus-5-5\tmax\n'; } > "$T"
 [ -z "$(model_table_faults "$T")" ] || fail "a native Codex model at max was refused: $(model_table_faults "$T")"
-echo "  agy rows run at high only, high-risk stays off agy, no agy row names Gemini, and no review runs on its build model"
+echo "  agy rows run at high only, high-risk stays off agy, no agy row names Gemini, no review runs on its build model, and every plan row has its re-plan row"
 
 section "Codex gets what Claude Code loads, written out in AGENTS.override.md, and its config reads it whole"
 codex_init() {  # codex_init <dir>

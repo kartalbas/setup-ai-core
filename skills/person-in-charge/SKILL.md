@@ -86,7 +86,8 @@ finishes them, an issue in `todo` that one of them needs is built with it, and e
 | Phase | Brief | Done when | Card after it |
 | :--- | :--- | :--- | :--- |
 | plan | `briefs/plan.md`, on the `high-risk` plan row where an issue names a secret, a payment, a contract outward or the push gate (outward means an interface somebody outside the project uses (a public API, a published package, a customer's data format), never a contract between the project's own repositories), else on the `normal-hard` row; the plan judges the class, and a plan check that raises it sends the plan to the higher row | one package section per package stands as a comment on the plan issue | `planned` (its issues) |
-| plan check | `briefs/plan-check.md` | GO | `planned` |
+| re-plan | `briefs/plan.md`, on the `re-plan` row of the class picked as for a plan: every plan session of a package after its first plan, so a plan after a plan-check NO, a plan repair, an amendment, and a plan after a review that sends the package back | the section it replaces stands as a comment on the plan issue, its first line `Replaces the section of <date>` | `planned` (its issues) |
+| plan check | `briefs/plan-check.md`; after a re-plan, never on the re-plan's model: where the `plan-check` row names that model, the plan check runs on the model of the class's build row, at the plan-check row's effort, unless the build row names that model too, which goes to the owner (`needs:owner`) | GO | `planned` |
 | build and test | `briefs/build.md` | every issue has its commit and tests, every issue branch is pushed through the push gate | `review` |
 | review | `briefs/review.md`, never the model that built the work: where the review row names that model, the review runs on the model of the class's build row, at the review row's effort, unless that model built it too, which goes to the owner (`needs:owner`) | GO | `review` |
 | start check | you: `START_CHECK` of `.ai-core/config.env` on the package's worktrees after `git -C <worktree> pull -q --no-rebase origin <default>` in each, which merges what landed since without touching the reviewed commits, so the bundle is the one that will be released; a merge conflict goes back to build; exit 0; empty: waived, and your `LAND` comment says so; a failure goes back to build with its output as the findings, counted as a review NO | your `LAND <area>` comment on the plan issue | `review` |
@@ -103,7 +104,7 @@ on the plan issue, the package's log, which a restart reads:
     LAND <area>: start check <command> exit 0 | waived, START_CHECK empty; landed <repo> <merge sha>, ...
 
 A review that says NO starts a fresh build session with its findings; a plan check that says NO
-starts a fresh plan session with its GAPS. The repair a build makes after a review NO is not
+starts a fresh re-plan session with its GAPS. The repair a build makes after a review NO is not
 reviewed whole again: one re-check (`briefs/review.md`, its section on a re-check) reads only the
 repair's commits against the named findings, at `high` effort with a 100k budget, on the model of
 the reader who raised the findings, or of the other reader where that model built the repair, or
@@ -142,8 +143,9 @@ model or effort open, read the destination tool's row of the same phase and clas
 4. Start the session as the selected tool's `references/<tool>.md` says, after checking that tool's
 usage limit; a selected Codex phase uses `ai-core usage --tool codex`, and a selected Claude phase
 uses `ai-core usage --tool claude`. Name it `<phase><n>-<model><version>-<effort>-<budget>k-<5
-hex>`, using the selected tool's phase budget, the phase letter from rule 80 and the next number of
-your own block (`briefs/coordinator.md`), and post the PHASE line with any active owner selection.
+hex>`, using the selected tool's phase budget, the phase letter from rule 80 (`p` for a re-plan
+too) and the next number of your own block (`briefs/coordinator.md`), and post the PHASE line with
+any active owner selection.
 5. Move the cards (`ai-core issue-status <n>... <column>`); `start-issue` and `finish-issue` move
    their own.
 

@@ -149,8 +149,8 @@ issue_ref() {  # issue_ref <repo or empty> <number>
 
 # What a commit message of <commit repo> holds when it names issue <number> of <issue repo>, as a
 # pattern for `git log -E -i --grep`: '<issue repo>#<number>' always, and '#<number>' alone where the
-# issue belongs to the commit's own repository. A reference stands alone, so '#12' is not '#123', and
-# 'other/repo#12' is not '#12'.
+# issue belongs to the commit's own repository. A reference stands alone, so a longer number never
+# matches, and another repository's reference to the same number names nothing here.
 issue_mention_pattern() {  # issue_mention_pattern <issue repo> <number> <commit repo>
   local lower='tr A-Z a-z' spelled
   spelled="$(printf '%s' "$1" | sed 's/\./\\./g')"

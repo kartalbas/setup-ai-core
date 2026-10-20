@@ -79,8 +79,8 @@ check 'CLOSE is done' 3 "$(status_rank CLOSE)"
 # THE PLANTED CARDS, one per case:
 #   #12 implementing, its commit on master                          -> named "not finished", stays
 #   #1  implementing, no commit names it, though one names #12      -> not named (#1 is no prefix match)
-#   #24 implementing, only other-org/other-repo#24 is named           -> not named (an issue of another repository)
-#   #27 implementing, its commit names Example-Org/example-repo#27   -> named "not finished" (the own repository, written out)
+#   #24 implementing, only another repository's issue of that number is named -> not named
+#   #27 implementing, its commit names it with the own repository written out -> named "not finished"
 #   #25 Review, spelled as the board spells it, its commit on master -> named "not finished", stays
 #   #26 done, its commit on master                                  -> not named
 #   #13 testing, in deploy/prod/1, a "Proven on" record after it    -> would close, though a report

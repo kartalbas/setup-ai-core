@@ -1129,8 +1129,10 @@ when one of them cannot be read.
 `ai-core pre-push --install` writes into `.githooks/pre-push`, and beside it `.githooks/post-checkout`,
 which starts `init` in a new worktree (section 4.12); the gate and `init` themselves never live in
 a repository. Where the shim stands, `init` writes `.githooks/commit-msg` beside it, never committed:
-it runs `ai-core pre-push --message`, so a subject over 72 characters, an assistant's attribution or
-an assistant as author is refused while the commit is made, where the fault costs no rewrite.
+it runs `ai-core pre-push --message`, so a subject over 72 characters, an assistant's attribution,
+a closing keyword before an issue reference (`Fixes #12`, which closes the issue on the forge before
+any release) or an assistant as author is refused while the commit is made, where the fault costs no
+rewrite.
 
 ---
 

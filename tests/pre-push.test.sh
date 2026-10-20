@@ -192,6 +192,15 @@ check 'it says why'                    yes "$(yesno "an assistant's or a vendor'
 git -C "$repo" commit -q --amend -m "$(printf 'Tune the reader #7\n\nCo-Authored-By: Ada Lovelace <ada@example.invalid>')"
 out="$(only_new "$repo")"; rc=$?
 check 'exit 0'                         0 "$rc"
+echo 'a closing keyword before an issue reference is refused at the push; the word in another sense passes'
+commit 'src/thing.txt' "$(printf 'Tune the reader #7\n\nFixes example-org/example-repo#7')"
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'it names the keyword'           yes "$(yesno 'Fixes example-org/example-repo#7')"
+check 'it says how to name the issue'  yes "$(yesno 'Name the issue as #<n> alone')"
+git -C "$repo" commit -q --amend -m "$(printf 'Fix the reader, or it drops a card (#7)\n\nIt fixes the layout too.')"
+out="$(only_new "$repo")"; rc=$?
+check 'the word in another sense: exit 0' 0 "$rc"
 echo 'an assistant as author or committer is refused; a person who shares the name passes'
 git -C "$repo" commit -q --amend --no-edit --author='Claude <noreply@anthropic.com>'
 out="$(only_new "$repo")"; rc=$?
@@ -326,6 +335,13 @@ check 'an attribution: exit 1'         1 "$rc"
 check 'it says why'                    yes "$(yesno "an assistant's or a vendor's attribution")"
 printf 'Tune the reader #7\n\nCo-Authored-By: Ada Lovelace <ada@example.invalid>\n' > "$msg"; judge_message
 check 'a person as co-author: exit 0'  0 "$rc"
+printf 'Tune the reader #7\n\ncloses: #7\n' > "$msg"; judge_message
+check 'closes: #7 at the commit: exit 1' 1 "$rc"
+check 'it says why'                    yes "$(yesno 'the message closes an issue on the forge')"
+printf 'Tune the reader #7\n\nResolved https://github.com/example-org/example-repo/issues/7\n' > "$msg"; judge_message
+check 'resolved before an issue link: exit 1' 1 "$rc"
+printf 'Fix the reader, or it drops a card (#7)\n\nIt fixes the layout, and close to #8 is fine.\n' > "$msg"; judge_message
+check 'fix and close in another sense: exit 0' 0 "$rc"
 out="$( cd "$repo" && GIT_AUTHOR_NAME=Claude GIT_AUTHOR_EMAIL=noreply@anthropic.com bash "$root/bin/pre-push.sh" --message "$msg" 2>&1 )"; rc=$?
 check 'an assistant as author: exit 1' 1 "$rc"
 check 'it names the identity'          yes "$(yesno 'Claude <noreply@anthropic.com>')"
@@ -479,7 +495,7 @@ git -C "$repo" update-ref -d refs/remotes/origin/issue-74-landed
 echo 'a commit naming its issue anywhere in the message passes'
 commit 'src/thing.txt' 'Read the install order from one file
 
-It closes #163.'
+It is the work of #163.'
 out="$(only_new "$repo")"; rc=$?
 check 'exit 0' 0 "$rc"
 

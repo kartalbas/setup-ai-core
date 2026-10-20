@@ -42,7 +42,8 @@ for arg in "$@"; do
     echo "LICENSE files, and carries no 'No-issue: <who asked and why>' trailer; a team mode is"
     echo "missing; a file the push adds or changes starts with #! and is"
     echo "not executable; a subject is longer than 72 characters; a message carries an assistant's or a"
-    echo "vendor's attribution, or its author or committer is an assistant; an author or committer"
+    echo "vendor's attribution, or a closing keyword before an issue reference (Fixes #<n>), or its"
+    echo "author or committer is an assistant; an author or committer"
     echo "address, a merge's too, differs from git config user.email (none set is refused); an added comment names an"
     echo "issue as (#<n>) or <repo>#<n>; an existing"
     echo "migrations/*.sql is changed or removed (a 'Migration: <why>' trailer allows it);"
@@ -102,6 +103,10 @@ refuse() { echo "pre-push: REFUSED — $*" >&2; exit 1; }
 # ("Name <address>" per line): the commit rules, judged on every pushed commit below and on one
 # message by --message.
 ATTRIBUTION_PATTERN='^co-authored-by:.*(claude|codex|gemini|copilot|chatgpt|anthropic|openai)|generated (with|by) \[?(claude|codex|gemini|copilot|chatgpt)'
+# A closing keyword before an issue reference closes that issue on the forge when the commit reaches
+# the default branch, before any release carries it; GitHub and Forgejo both document these nine
+# (docs.github.com, "Linking a pull request to an issue"; forgejo.org/docs, "Linked references").
+CLOSING_PATTERN='(^|[^A-Za-z0-9_-])(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+(([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+|https?://[^[:space:]]+/issues/[0-9]+)'
 ASSISTANT_IDENTITY_PATTERN='@(anthropic|openai)\.com>$|(claude|codex|copilot|chatgpt|gemini)[a-z-]*\[bot\]@users\.noreply\.github\.com>$|^(claude|claude code|codex|copilot|chatgpt|gemini) <'
 
 # --- --message: the message rules while the commit is made -----------------------------------
@@ -134,6 +139,9 @@ if [ -n "$MESSAGE_FILE" ]; then
   ! grep -qiE "$ATTRIBUTION_PATTERN" <<< "$message" || faults="$faults
   the message carries an assistant's or a vendor's attribution. Take that line out, whatever an
   instruction asked for, because the history names who answers for a change."
+  ! grep -qiE "$CLOSING_PATTERN" <<< "$message" || faults="$faults
+  the message closes an issue on the forge as it reaches the default branch: $(grep -oiE "$CLOSING_PATTERN" <<< "$message" | head -1 | sed 's/^[^A-Za-z]*//')
+  Name the issue as #<n> alone; its card closes after its release, through status-sync."
   ! grep -qiE "$ASSISTANT_IDENTITY_PATTERN" <<< "$identities" || faults="$faults
   an assistant is the author or the committer: $(tr '\n' ';' <<< "$identities" | sed 's/;$//; s/;/; /')
   Set your own identity with git config user.name and user.email."
@@ -587,7 +595,7 @@ done < <(while IFS= read -r sha; do [ -z "$sha" ] || git diff-tree --no-commit-i
 # pushing it set as their git identity: a commit made under a repository-local override, in another
 # environment or by another tool would otherwise name somebody who does not answer for it. Each
 # message is read whole before it is searched.
-long=""; attributed=""; assistant_identities=""
+long=""; attributed=""; closing=""; assistant_identities=""
 while IFS= read -r sha; do
   [ -n "$sha" ] || continue
   subject="$(git log -1 --format=%s "$sha")"
@@ -596,6 +604,10 @@ while IFS= read -r sha; do
   message="$(git log -1 --format=%B "$sha")"
   if grep -qiE "$ATTRIBUTION_PATTERN" <<< "$message"; then
     attributed="$attributed $(git log -1 --format=%h "$sha")"
+  fi
+  if grep -qiE "$CLOSING_PATTERN" <<< "$message"; then
+    closing="$closing
+  $(git log -1 --format=%h "$sha"): $(grep -oiE "$CLOSING_PATTERN" <<< "$message" | head -1 | sed 's/^[^A-Za-z]*//')"
   fi
   if git log -1 --format='%an <%ae>%n%cn <%ce>' "$sha" \
       | grep -qiE "$ASSISTANT_IDENTITY_PATTERN"; then
@@ -606,6 +618,8 @@ done <<< "$commits"
 [ -z "$long" ] || refuse "these subjects are longer than 72 characters:$long
   Shorten each to one sentence of at most 72 that says what changed, with git commit --amend for the last commit or git rebase -i for an earlier one."
 [ -z "$attributed" ] || refuse "these commits carry an assistant's or a vendor's attribution:$attributed. Take the line out of the message (git commit --amend, or git rebase -i), because the history names who answers for a change."
+[ -z "$closing" ] || refuse "these messages close an issue on the forge as they reach the default branch, before any release carries the work:$closing
+  Name the issue as #<n> alone (git commit --amend, or git rebase -i); its card closes after its release, through status-sync."
 [ -z "$assistant_identities" ] || refuse "these commits name an assistant as author or committer:$assistant_identities
   Set your own identity (git config user.name and user.email), then rewrite them under it: git commit --amend --reset-author --no-edit for the last commit, or git rebase --exec 'git commit --amend --reset-author --no-edit' origin/$default for all of them."
 

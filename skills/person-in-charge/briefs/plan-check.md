@@ -56,4 +56,4 @@ wrong order or class. Wording and a better way that is not needed are no gaps. G
 empty GAPS. Post it as a comment on the plan issue (`ai-core issue-comment`), send its first line to
 the coordinator ({{how to reach the coordinator}}), because a comment on an issue wakes nobody, then
 stop. You change nothing in the section: the planner does, in the next plan session, with your GAPS
-as its input; a CLASS line that raises the class sends the plan to that class's plan row.
+as its input; a CLASS line that raises the class sends the re-plan to that class's `re-plan` row.

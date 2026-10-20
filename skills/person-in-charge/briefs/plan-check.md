@@ -11,9 +11,10 @@ names, the spans the facts and the contracts name.
 - The issues it names, with their acceptance criteria: {{issues}}
 - The clones of the project folder and of each partner folder, by path, fetched by the coordinator
   right before this check: {{clone paths}}
-- For a re-check after a re-plan only: the GAPS of the earlier NO and the changed parts of the
-  re-plan, the before and after of each changed section or the diff of the plan comment:
-  {{GAPS and changed parts, or "full check"}}
+- For a re-check after a re-plan only: the reason for the re-plan (the GAPS of a plan-check NO, the
+  findings of the review that sent the package back, the owner's amendment, or the build's context
+  lines) and the changed parts of the re-plan, the before and after of each changed section or the
+  diff of the plan comment: {{reason and changed parts, or "full check" for a first plan}}
 
 ## What to do
 
@@ -63,10 +64,10 @@ as its input; a CLASS line that raises the class sends the re-plan to that class
 
 ## A re-check after a re-plan
 
-Where the coordinator hands you the GAPS of an earlier NO and the changed parts of the re-plan that
-answers them, you re-check, with a 100k budget: read only the changed parts, each GAP against the
-part that answers it, and the spans and contracts a changed part names. Say for every GAP, in your
-last message, GO with the part that settles it or NO with what is still missing. A change that
-opens a new gap is a NO. Your block holds under `GAPS` only the GAPS that stay open and the new
-ones, so GO still means an empty `GAPS`. The rest of the section was read by the first plan check
-and stays out.
+Where the coordinator hands you the reason for a re-plan and the changed parts that answer it, you
+re-check, with a 100k budget: read only the changed parts, each point of the reason against the part
+that answers it, and the spans and contracts a changed part names. Say for every point, in your last
+message, GO with the part that settles it or NO with what is still missing. A change that opens a
+new gap is a NO. Your block holds under `GAPS` only the points that stay open and the new gaps, so
+GO still means an empty `GAPS`. The rest of the section was read by the first plan check and stays
+out.

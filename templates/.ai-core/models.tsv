@@ -43,9 +43,10 @@
 # it waits; the owner may temporarily select another tool and model, and the session reports that
 # choice. The
 # reviewer of a package never runs on the model that built it. A plan check after a re-plan is a
-# re-check at high effort: it runs on the model of the reader who raised the GAPS, or, where that
-# model wrote the re-plan, on the model of the class's plan row; where that is the re-plan's model
-# too, on the model of the class's build row; else the owner decides. A project harness replaces the
+# re-check at high effort: it runs on the model of the reader who raised the reason for the
+# re-plan, where one did and did not write the re-plan, else on the model of the class's plan row;
+# where that is the re-plan's model too, on the model of the class's build row; else the owner
+# decides. A project harness replaces the
 # whole file with its own: the same name replaces.
 
 claude	plan	normal-hard	claude-fable-5-1	xhigh

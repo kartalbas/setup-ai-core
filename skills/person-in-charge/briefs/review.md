@@ -11,7 +11,7 @@ nothing: a reviewer who repairs approves its own fix.
 
 - The plan issue, where your verdict goes: {{plan issue reference}}
 - The intent: the package section and each issue's acceptance criteria, or, for a card from before
-  the packages, the issues' criteria alone: {{package section and issues}}
+  the packages or a mechanical package, the issues' criteria alone: {{package section and issues}}
 - The diff, per worktree: `git -C <worktree> diff origin/<default>...HEAD`: {{worktree paths and
   default branches}}
 - The build report: {{build report, or for a card from before the packages the issue's last
@@ -54,10 +54,12 @@ Once it is posted, send its first line to the coordinator ({{how to reach the co
 because a comment on an issue wakes nobody.
 
 A finding blocks, and only these are FINDINGS: behaviour that is wrong in a state you name, a test
-that is red or cannot go red on its defect, an unmet criterion, a broken contract, a leftover. The
-wording of a log line, a comment or a message, a name, a line length, style and a better way that
-is not needed go under NOTES and never make a NO, because a reviewer always finds one, and each
-NO pays a whole build and review round. GO only with an empty FINDINGS. A GO with points in NOTES
+that is red or cannot go red on its defect, an unmet criterion, a broken contract, a leftover. In a
+mechanical package, a diff that changes a span its issue does not name, or touches a contract, a
+secret, a payment or the push gate, is a finding too, and the verdict is NO with `FINDINGS: needs a
+plan: <why>`. The wording of a log line, a comment or a message, a name, a line length, style and a
+better way that is not needed go under NOTES and never make a NO, because a reviewer always finds
+one, and each NO pays a whole build and review round. GO only with an empty FINDINGS. A GO with points in NOTES
 is still a GO: say what was proven, what was declared, what was waived.
 
 ## A re-check of a repair

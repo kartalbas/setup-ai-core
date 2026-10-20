@@ -12,15 +12,22 @@
 #         The issues nobody planned belong to the first tool of ECOSYSTEM_ORDER in config.env;
 #         a later tool plans what the owner hands its coordinator. A tool with
 #         no rows runs no phase.
-# phase   coordinator (the person in charge itself), plan, plan-check, build (build and test),
+# phase   coordinator (the person in charge itself), plan, re-plan (every plan session of a package
+#         after its first plan: after a plan-check NO, a plan repair, an amendment, a review that
+#         sends the package back to plan, but not the plan of a mechanical package sent to a
+#         plan, which is its first), plan-check, build (build and test),
 #         review, ui-test (the UI test and the live check), helper (a bounded task inside any phase: a pre-review of a diff, a log, a
 #         screenshot, a long span; its answer is checked by the session that asked). The start
 #         check is START_CHECK of config.env and has no row. The plan runs on the high-risk row
 #         where an issue names a secret, a payment, a contract outward or the push gate (the
 #         class line below says what outward means), else on
-#         the normal-hard row, because the plan decides the class and a mechanical package is
-#         planned by the normal-hard planner; its plan check runs on the mechanical row.
-# class   mechanical (a rename or a text, no contract touched), high-risk (security, payments,
+#         the normal-hard row, because the plan decides between those two classes. The coordinator
+#         decides mechanical from the issues, before any plan: a mechanical package has no plan and
+#         no plan check.
+# class   mechanical (the change stays in one repository; it touches no contract between the
+#         project's repositories and no contract outward; it touches no secret, no payment and not
+#         the push gate; the issue already names every span it changes as `file:line`, and its
+#         acceptance criteria), high-risk (security, payments,
 #         contracts outward, the push gate; outward means an interface somebody outside the
 #         project uses (a public API, a published package, a customer's data format), never a
 #         contract between the project's own repositories), normal-hard (everything else); *
@@ -35,12 +42,17 @@
 # A session never moves a phase to another model, effort or tool on its own because a quota ran out:
 # it waits; the owner may temporarily select another tool and model, and the session reports that
 # choice. The
-# reviewer of a package never runs on the model that built it. A project harness replaces the
+# reviewer of a package never runs on the model that built it. A plan check after a re-plan is a
+# re-check at high effort: it runs on the model of the reader who raised the reason for the
+# re-plan, where one did and did not write the re-plan, else on the model of the class's plan row;
+# where that is the re-plan's model too, on the model of the class's build row; else the owner
+# decides. A project harness replaces the
 # whole file with its own: the same name replaces.
 
 claude	plan	normal-hard	claude-fable-5-1	xhigh
 claude	plan	high-risk	claude-fable-5-1	xhigh
-claude	plan-check	mechanical	claude-sonnet-5-5	high
+claude	re-plan	normal-hard	claude-opus-5-5	max
+claude	re-plan	high-risk	claude-opus-5-5	max
 claude	plan-check	normal-hard	claude-opus-5-5	high
 claude	plan-check	high-risk	claude-opus-5-5	high
 claude	build	mechanical	claude-sonnet-5-5	high
@@ -56,7 +68,8 @@ claude	helper	*	claude-haiku-5-5	medium
 claude	coordinator	*	claude-opus-5-5	high
 codex	plan	normal-hard	gpt-6-astra	xhigh
 codex	plan	high-risk	gpt-6-astra	max
-codex	plan-check	mechanical	gpt-6-astra	xhigh
+codex	re-plan	normal-hard	gpt-6-astra	xhigh
+codex	re-plan	high-risk	gpt-6-astra	max
 codex	plan-check	normal-hard	gpt-6-astra	xhigh
 codex	plan-check	high-risk	gpt-6-astra	max
 codex	build	mechanical	gpt-6-sol	xhigh
@@ -71,7 +84,7 @@ codex	ui-test	high-risk	gpt-6-luna	max
 codex	helper	*	gpt-6-luna	medium
 codex	coordinator	*	gpt-6.1-sol	high
 agy	plan	normal-hard	claude-opus-5-5-high	-
-agy	plan-check	mechanical	claude-sonnet-5-5-high	-
+agy	re-plan	normal-hard	claude-opus-5-5-high	-
 agy	plan-check	normal-hard	claude-opus-5-5-high	-
 agy	build	mechanical	claude-sonnet-5-5-high	-
 agy	build	normal-hard	claude-sonnet-5-5-high	-

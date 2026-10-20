@@ -11,6 +11,10 @@ names, the spans the facts and the contracts name.
 - The issues it names, with their acceptance criteria: {{issues}}
 - The clones of the project folder and of each partner folder, by path, fetched by the coordinator
   right before this check: {{clone paths}}
+- For a re-check after a re-plan only: the reason for the re-plan (the GAPS of a plan-check NO, the
+  findings of the review that sent the package back, the owner's amendment, or the build's context
+  lines) and the changed parts of the re-plan, the before and after of each changed section or the
+  diff of the plan comment: {{reason and changed parts, or "full check" for a first plan}}
 
 ## What to do
 
@@ -27,9 +31,7 @@ names, the spans the facts and the contracts name.
 3. For every contract: is the additive side ordered before the strict side? Does a test need a
    second repository checked out beside the first, and does the section say so?
 4. Is the class right? A touched contract outward (outward means an interface somebody outside the project uses (a public API, a published package, a customer's data format), never a contract between the project's own repositories), a secret, a payment or the push gate is
-   `high-risk` whatever the text says. A `mechanical` section that names a contract is not mechanical.
-   Open the spans the issues name: a package called mechanical that changes a value anything reads
-   is not mechanical.
+   `high-risk` whatever the text says.
 5. Are `Verify:`, `Environment:` and `Checks:` filled from the criteria, so the build and the UI test
    can run from the section alone? Does `Environment:` hold the test and the production URL?
 6. Would the build fit its context budget (300k, 250k in Codex)? Where not, say where to split. Do the
@@ -58,4 +60,14 @@ wrong order or class. Wording and a better way that is not needed are no gaps. G
 empty GAPS. Post it as a comment on the plan issue (`ai-core issue-comment`), send its first line to
 the coordinator ({{how to reach the coordinator}}), because a comment on an issue wakes nobody, then
 stop. You change nothing in the section: the planner does, in the next plan session, with your GAPS
-as its input; a CLASS line that raises the class sends the plan to that class's plan row.
+as its input; a CLASS line that raises the class sends the re-plan to that class's `re-plan` row.
+
+## A re-check after a re-plan
+
+Where the coordinator hands you the reason for a re-plan and the changed parts that answer it, you
+re-check, with a 100k budget: read only the changed parts, each point of the reason against the part
+that answers it, and the spans and contracts a changed part names. Say for every point, in your last
+message, GO with the part that settles it or NO with what is still missing. A change that opens a
+new gap is a NO. Your block holds under `GAPS` only the points that stay open and the new gaps, so
+GO still means an empty `GAPS`. The rest of the section was read by the first plan check and stays
+out.

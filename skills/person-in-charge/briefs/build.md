@@ -11,13 +11,15 @@ nobody sits at your terminal.
 
 ## Input
 
-- The package section: {{package section}}
+- The package section, or for a card from before the packages and for a mechanical package the
+  issues' acceptance criteria and `file:line` facts alone, headed `Class: mechanical` for a
+  mechanical package: {{package section}}
 - The issues in landing order, each with its acceptance criteria: {{issues}}
 - The worktrees, one per repository, opened for you: {{worktree paths}}. Work there by `cd` and
   absolute paths; never move to another folder and never open a worktree yourself.
 - The verification command of each worktree, from the section's `Verify:` line, or for a card from
-  before the packages "the command the clone's map or README names; find it": {{verification
-  commands}}
+  before the packages and a mechanical package "the command the clone's map or README names; find
+  it": {{verification commands}}
 - The findings of the last review, where this is the second round: {{findings or "first round"}}
 
 ## What to do, in this order
@@ -55,6 +57,9 @@ and `VERIFIED` lines of each issue, because a comment on an issue wakes nobody.
 
 ## Rules you keep
 
+- A package headed `Class: mechanical` has no plan: where you meet a span its issue does not name, a
+  contract, a secret, a payment or the push gate, you stop there, commit nothing past that point and
+  report it to the coordinator ({{how to reach the coordinator}}), which sends the package to a plan.
 - You touch files of this package's worktrees only. A file outside them is a question to the
   coordinator, not an edit.
 - You build it yourself, in your own tool. You start no other tool's command (agy, codex, claude)

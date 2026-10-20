@@ -33,11 +33,14 @@ the board and the branches, so a restart loses nothing (`briefs/coordinator.md`)
 6. **No session waits for you** and no package waits for a session you could start. Packages that
    share neither a file nor a contract run at the same time. Of packages that share either, only
    one is between build and landing at a time. You read the overlap from the `Files:` and
-   `Contracts:` of every section on the plan issue, another ecosystem's sections included. A
-   package can start once its plan check said GO and its `Waits for the owner:` is answered. Of
+   `Contracts:` of every section on the plan issue, another ecosystem's sections included, and for a
+   mechanical package, which has no section, from the files its issues' `file:line` facts name. A
+   package can start once its plan check said GO (a mechanical package: once classified) and its
+   `Waits for the owner:` is answered. Of
    those, one that fixes a fault on a live environment, carries a side a partner waits for, or is a
    part another part names in its `After:` starts first; otherwise the one whose area's first
-   section stands earliest on the plan issue starts. The next one is built on what it landed. A
+   section stands earliest on the plan issue starts, a mechanical package standing where its
+   `planned` `PHASE` line stands. The next one is built on what it landed. A
    package stopped for the owner (`needs:owner`) keeps its place, and your question to the owner
    names the packages that wait for it.
    No session moves a phase to another model, effort or tool on its own because a quota ran out,
@@ -75,7 +78,7 @@ question for the owner, never a release on hope.
 ## First: clear what earlier sessions left
 
 A board with cards in `implementing` and `testing` from before holds work nobody owns. Before any
-plan, run `briefs/clearing.md` round after round until `implementing` holds only cards with
+plan and before any build of a mechanical package, run `briefs/clearing.md` round after round until `implementing` holds only cards with
 `needs:owner`: landed work goes to
 `testing`, finished branches get their review and land, half-done branches get a build session that
 finishes them, an issue in `todo` that one of them needs is built with it, and every card in
@@ -83,10 +86,33 @@ finishes them, an issue in `todo` that one of them needs is built with it, and e
 
 ## The phases of a package
 
+Before any plan session you classify each package from its issues and the spans they name. A package
+is `mechanical` when the change of all its issues together meets four points: the change stays in
+one repository; it touches no contract between the project's repositories and no contract outward;
+it touches no secret, no payment and not the push gate; the issue already names every span it
+changes as `file:line`, and its acceptance criteria. A mechanical package has no plan session and no
+plan check: its issues' acceptance criteria and `file:line` facts stand in for the package section,
+as for a card from before the packages (`briefs/clearing.md`), and you put them in the brief's
+package section under the heading `Class: mechanical`. You name its area `mechanical
+<repo>#<n>[, <repo>#<n> ...]` after its issues, as a card from before is `clearing <repo>#<n>`, and
+post its first PHASE line, phase `planned`, when you classify it, moving its cards to `planned` as
+after a plan, so every PHASE and LAND line of the package carries its class and its issues. It goes
+straight to its build and then its review, on the `mechanical` rows. A build that meets a span its
+issue does not name, a contract, a secret, a payment or the push gate stops, commits nothing past
+that point and reports it, and a review that finds the same in the diff says NO with `needs a
+plan`; you then send the package to its first plan, on the `plan` row of its class, not to a
+re-plan. That plan keeps the area name `mechanical <repo>#<n>`, so its plan and review counts stay
+on one name; the name carries the class until the plan's section names the package, and from then
+on the section's `Class:` line decides it. The build after that plan is a new build, not the repair
+after a review NO: its review reads the whole package diff, the mechanical build's earlier commits
+included, on the review row of the class the plan set, never as a re-check. Every other package
+goes to a plan.
+
 | Phase | Brief | Done when | Card after it |
 | :--- | :--- | :--- | :--- |
-| plan | `briefs/plan.md`, on the `high-risk` plan row where an issue names a secret, a payment, a contract outward or the push gate (outward means an interface somebody outside the project uses (a public API, a published package, a customer's data format), never a contract between the project's own repositories), else on the `normal-hard` row; the plan judges the class, and a plan check that raises it sends the plan to the higher row | one package section per package stands as a comment on the plan issue | `planned` (its issues) |
-| plan check | `briefs/plan-check.md` | GO | `planned` |
+| plan | `briefs/plan.md` for a package that is not `mechanical`, on the `high-risk` plan row where an issue names a secret, a payment, a contract outward or the push gate (outward means an interface somebody outside the project uses (a public API, a published package, a customer's data format), never a contract between the project's own repositories), else on the `normal-hard` row; the plan judges between those two classes, and a plan check that raises it sends the re-plan to the higher class's `re-plan` row | one package section per package stands as a comment on the plan issue | `planned` (its issues) |
+| re-plan | `briefs/plan.md`, on the `re-plan` row of the class picked as for a plan: every plan session of a package after its first plan, so a plan after a plan-check NO, a plan repair, an amendment, and a plan after a review that sends the package back; the plan of a mechanical package sent to a plan is its first plan, not a re-plan | the section it replaces stands as a comment on the plan issue, its first line `Replaces the section of <date>` | `planned` (its issues) |
+| plan check | `briefs/plan-check.md`; after a re-plan it is a re-check (its section "A re-check after a re-plan"): it reads only what the re-plan changed, against the reason for the re-plan (the GAPS of a plan-check NO, the findings of the review that sent the package back, the owner's amendment, or the build's context lines), at `high` effort with a 100k budget, on the model of the reader who raised that reason, where one did and did not write the re-plan, else on the model of the class's `plan` row, which did not write the changes; where that is the re-plan's model too, on the model of the class's build row; where the build row names it too, the package goes to the owner (`needs:owner`) | GO | `planned` |
 | build and test | `briefs/build.md` | every issue has its commit and tests, every issue branch is pushed through the push gate | `review` |
 | review | `briefs/review.md`, never the model that built the work: where the review row names that model, the review runs on the model of the class's build row, at the review row's effort, unless that model built it too, which goes to the owner (`needs:owner`) | GO | `review` |
 | start check | you: `START_CHECK` of `.ai-core/config.env` on the package's worktrees after `git -C <worktree> pull -q --no-rebase origin <default>` in each, which merges what landed since without touching the reviewed commits, so the bundle is the one that will be released; a merge conflict goes back to build; exit 0; empty: waived, and your `LAND` comment says so; a failure goes back to build with its output as the findings, counted as a review NO | your `LAND <area>` comment on the plan issue | `review` |
@@ -103,7 +129,7 @@ on the plan issue, the package's log, which a restart reads:
     LAND <area>: start check <command> exit 0 | waived, START_CHECK empty; landed <repo> <merge sha>, ...
 
 A review that says NO starts a fresh build session with its findings; a plan check that says NO
-starts a fresh plan session with its GAPS. The repair a build makes after a review NO is not
+starts a fresh re-plan session with its GAPS. The repair a build makes after a review NO is not
 reviewed whole again: one re-check (`briefs/review.md`, its section on a re-check) reads only the
 repair's commits against the named findings, at `high` effort with a 100k budget, on the model of
 the reader who raised the findings, or of the other reader where that model built the repair, or
@@ -142,8 +168,9 @@ model or effort open, read the destination tool's row of the same phase and clas
 4. Start the session as the selected tool's `references/<tool>.md` says, after checking that tool's
 usage limit; a selected Codex phase uses `ai-core usage --tool codex`, and a selected Claude phase
 uses `ai-core usage --tool claude`. Name it `<phase><n>-<model><version>-<effort>-<budget>k-<5
-hex>`, using the selected tool's phase budget, the phase letter from rule 80 and the next number of
-your own block (`briefs/coordinator.md`), and post the PHASE line with any active owner selection.
+hex>`, using the selected tool's phase budget, the phase letter from rule 80 (`p` for a re-plan
+too) and the next number of your own block (`briefs/coordinator.md`), and post the PHASE line with
+any active owner selection.
 5. Move the cards (`ai-core issue-status <n>... <column>`); `start-issue` and `finish-issue` move
    their own.
 

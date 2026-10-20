@@ -32,7 +32,8 @@ way it reads its state again from this brief, because the state is in the tracke
    coordinator's or a predecessor's. For Codex and agy, which the page shows without a name, a session
    runs while its output file `~/.ai-core/sessions/<session name>.out` has no final message; one
    that ended holds it there; a phase whose output file is missing is run again.
-5. Where `implementing` holds cards no section names, run `briefs/clearing.md` first.
+5. Where `implementing` holds cards that neither a section nor the `PHASE` line of a mechanical
+   package (its area is named `mechanical <repo>#<n>[, <repo>#<n> ...]`) names, run `briefs/clearing.md` first.
 6. Do one round (the skill). Nothing is started before the round has read everything.
 
 ## When the owner restarts you

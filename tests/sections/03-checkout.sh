@@ -234,6 +234,20 @@ done
 [ -z "$(model_table_faults "$T")" ] || fail "a native Codex model at max was refused: $(model_table_faults "$T")"
 echo "  agy rows run at high only, high-risk stays off agy, no agy row names Gemini, no review runs on its build model, every plan row has its re-plan row, and no mechanical package has a plan check"
 
+section "the four points of a mechanical package read the same in the table header and in every skill text that states them"
+mechanical_points='the change stays in one repository; it touches no contract between the project'"'"'s repositories and no contract outward; it touches no secret, no payment and not the push gate; the issue already names every span it changes as `file:line`, and its acceptance criteria'
+# A file states the points when its text, with line breaks and comment marks read as one space, holds them whole.
+states_mechanical_points() { tr '\n' ' ' < "$1" | sed -E 's/ # +/ /g' | tr -s ' ' | grep -qF -- "$mechanical_points"; }
+P="$WORK/mechanical-points.txt"
+printf '# class   mechanical (%s\n' "${mechanical_points/; it touches no secret/;$'\n'#         it touches no secret}" > "$P"
+states_mechanical_points "$P" || fail "the four points, wrapped over two comment lines, were not found"
+printf '# class   mechanical (%s\n' "${mechanical_points/no secret/no secrets}" > "$P"
+! states_mechanical_points "$P" || fail "the four points with one word changed were accepted"
+for file in templates/.ai-core/models.tsv skills/person-in-charge/SKILL.md skills/person-in-charge/briefs/plan.md skills/person-in-charge/briefs/clearing.md; do
+  states_mechanical_points "$ROOT/$file" || fail "$file does not state the four points of a mechanical package in the words of the other places"
+done
+echo "  the table header, SKILL.md, briefs/plan.md and briefs/clearing.md each hold the four points word for word; a changed word is refused"
+
 section "Codex gets what Claude Code loads, written out in AGENTS.override.md, and its config reads it whole"
 codex_init() {  # codex_init <dir>
   CODEX_HOME="$CODEX_HOME-folder" bash "$ROOT/bin/init.sh" "$1" --no-doctor >> "$F.log" 2>&1 || fail "init.sh in $1 (see $F.log)"

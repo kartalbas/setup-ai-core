@@ -39,7 +39,8 @@ the board and the branches, so a restart loses nothing (`briefs/coordinator.md`)
    `Waits for the owner:` is answered. Of
    those, one that fixes a fault on a live environment, carries a side a partner waits for, or is a
    part another part names in its `After:` starts first; otherwise the one whose area's first
-   section stands earliest on the plan issue starts. The next one is built on what it landed. A
+   section stands earliest on the plan issue starts, a mechanical package standing where its first
+   `PHASE` line stands. The next one is built on what it landed. A
    package stopped for the owner (`needs:owner`) keeps its place, and your question to the owner
    names the packages that wait for it.
    No session moves a phase to another model, effort or tool on its own because a quota ran out,
@@ -93,10 +94,12 @@ changes as `file:line`, and its acceptance criteria. A mechanical package has no
 no plan check: its issues' acceptance criteria and `file:line` facts stand in for the package
 section, as for a card from before the packages (`briefs/clearing.md`), and you put them in the
 brief's package section under the heading `Class: mechanical`. It goes straight to its build and
-then its review, on the `mechanical` rows. A build that meets a span its issue does not name, a
-contract, a secret, a payment or the push gate stops, commits nothing past that point and reports
-it; you then send the package to a plan, as any package that needs one. Every other package goes to
-a plan.
+then its review, on the `mechanical` rows. The PHASE line you post when you start its build carries
+`Class: mechanical` and its issues as `<repo>#<n>` in the next-step field, because that line is all
+a restart finds of the package. A build that meets a span its issue does not name, a contract, a
+secret, a payment or the push gate stops, commits nothing past that point and reports it, and a
+review that finds the same in the diff says NO with `needs a plan`; you then send the package to a
+plan, as any package that needs one. Every other package goes to a plan.
 
 | Phase | Brief | Done when | Card after it |
 | :--- | :--- | :--- | :--- |

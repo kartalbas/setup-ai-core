@@ -353,6 +353,35 @@ carry_comment_request_by_argument='carry_comment_request() { local c; c="$(cat)"
 plant_line bulk_plane_check lib/plane/tracker.sh 'carry_comment_request()' "$carry_comment_request_by_argument" "a comment handed to jq as an argument"
 echo "  1,508 cards and 200 comments of 1,500 characters read whole, a comment of 135,000 characters once escaped carried as written; an argument in place of a file or standard input goes red; the gh stand-in writes its whole answer, and one that exits right after writing is cut at 64 KiB"
 
+# A REPOSITORY WITH NO ISSUE HAS NOTHING TO CARRY, so it needs no destination and stops nothing; one with issues and none
+# still stops the run before the first write. The world gets two such repositories, one with issues disabled and one that
+# simply holds none, and a clone of neither.
+no_issue_world() {
+  reset_plane; world; reset_log
+  gh_set 's.repositories.push({nameWithOwner:"example-org/off",isArchived:false,hasIssuesEnabled:false},{nameWithOwner:"example-org/empty",isArchived:false})'
+}
+carries_past_no_issues() {  # carries_past_no_issues <root>: 0 where the project is carried whole, and the report names the two
+  no_issue_world
+  ROOT_UNDER_TEST="$1" carry --to plane || return 1
+  grep -q '^repositories with no issue, which need no destination: example-org/off, example-org/empty$' "$WORK/out.txt" \
+    && grep -q '^carried 14 of 14 issues' "$WORK/out.txt" && [ "$(writes)" != 0 ]
+}
+refuses_a_repository_with_issues() {  # refuses_a_repository_with_issues <root>: 0 where a repository with issues and no clone refuses the run before any write
+  no_issue_world; mkdir -p "$WORK/off"; mv "$WORK/tools" "$WORK/off/tools"
+  local rc=0
+  ROOT_UNDER_TEST="$1" carry --to plane || rc=$?
+  mv "$WORK/off/tools" "$WORK/tools"
+  [ "$rc" != 0 ] && grep -q 'no clone of example-org/tools' "$WORK/err.txt" && [ "$(writes)" = 0 ]
+}
+carries_past_no_issues "$ROOT" || fail "the project was not carried past a repository with issues disabled and one with none: $(cat "$WORK/out.txt" "$WORK/err.txt")"
+refuses_a_repository_with_issues "$ROOT" || fail "a repository with issues and no clone did not refuse the run before any write: $(cat "$WORK/err.txt")"
+! grep -q 'example-org/off\|example-org/empty' "$WORK/err.txt" || fail "the refusal names a repository with no issue: $(cat "$WORK/err.txt")"
+plant carries_past_no_issues lib/carry.sh 's/<<< "\$line")" = 0 \]; then no_issues/<<< "$line")" = -1 ]; then no_issues/' 'every repository asked for a destination, the loop as it was'
+plant carries_past_no_issues lib/github/tracker.sh 's/ hasIssuesEnabled issues{ totalCount }//' 'the repository listing without the count of issues'
+plant_copy; sed -i.bak 's/<<< "\$line")" = 0 \]; then no_issues/<<< "$line")" = -1 ]; then no_issues/' "$planted/lib/carry.sh"
+refuses_a_repository_with_issues "$planted" || fail "the innocent case, a repository with issues and no clone, is not refused on the copy with the old loop"
+echo "  a repository with issues disabled and one with none are named and need no destination, a repository with issues and no clone still refuses the run before any write; the old loop and a listing without the count each turn the first red, and the second stays green"
+
 # the project counted on 2026-10-20: 4,100 issues, 624 archived cards, 18 open ones on no board, three boards' worth of cards, several
 # threads over 100 comments. The run is stopped at its first write, because the stand-in curl costs a process and a rewrite of the
 # whole state per request: what is proven here is the source read whole and the report whole before that write

@@ -66,7 +66,14 @@ const respond = () => {
   }
   if (query.includes('rateLimit')) return data({ rateLimit: { remaining: 100, resetAt: '2026-10-21T10:00:00Z' } });
 
-  if (query.includes('organization(login:$o){ repositories(')) return data({ organization: { repositories: page(st.repositories, 100, v.c, st.page.repositories) } });
+  if (query.includes('organization(login:$o){ repositories(')) {
+    const p = page(st.repositories, 100, v.c, st.page.repositories);
+    // the count of issues and whether they are enabled are answered where the query asks for them
+    if (query.includes('hasIssuesEnabled') && query.includes('issues{ totalCount }')) {
+      p.nodes = p.nodes.map((r) => ({ ...r, hasIssuesEnabled: r.hasIssuesEnabled !== false, issues: { totalCount: (st.issues[r.nameWithOwner] || []).length } }));
+    }
+    return data({ organization: { repositories: p } });
+  }
   if (query.includes('repository(owner:$o,name:$n){ issues(')) {
     const rows = (st.issues[`${v.o}/${v.n}`] || []);
     const p = page(rows, first(/issues\(first:(\d+)/), v.c, st.page.issues);

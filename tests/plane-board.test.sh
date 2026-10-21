@@ -532,3 +532,62 @@ planted_run 's/oid="\$(option_id "\$2" "\$3")" || exit 1/oid=none/' 732 P7 >/dev
 seed_item 733
 planted_run 's/\[.labels\[\].id, \$p\] | unique/[$p]/' 733 P9 >/dev/null; [ "$(item_labels 733)" = "P9" ] || fail "planted: a label list built from P9 alone should leave $(item_labels 733)"
 echo "  planted defects, each caught: no label made, no native none, no P9 removal, no validation before the write, other labels not kept"
+
+# --- a repository whose LIVE_TAGS says command, on Plane -------------------------------------------------------------
+# The landing and the proof are comments of a work item, timed as Plane times them (milliseconds, a clock of its own); the
+# reader of the engine's clone answers the commit of its clone and the time the test sets, before the comments or after.
+echo "  a repository whose LIVE_TAGS says command: its work items are closed, and drawn, by the delivery its reader answers"
+day="$(planeq 'console.log(s.day)')"
+export AI_CORE_NOW="$(node -e 'console.log(Date.parse(process.argv[1]) / 1000)' "${day}T23:59:59Z")"
+git init -q --bare -b master "$WORK/origins/example-org/engine.git"
+git init -q -b master "$WORK/engine"; git -C "$WORK/engine" remote add origin "$WORK/origins/example-org/engine.git"
+mkdir -p "$WORK/engine/.ai-core" "$WORK/engine/tools"
+cp "$P/.ai-core/config.env" "$WORK/engine/.ai-core/config.env"
+sed -i.bak 's/^LIVE_TAGS=.*$/LIVE_TAGS="prod=command"/' "$WORK/engine/.ai-core/config.env"; rm -f "$WORK/engine/.ai-core/config.env.bak"
+printf 'LIVE_RELEASE_COMMAND="tools/read"\n' >> "$WORK/engine/.ai-core/config.env"
+esha="$(commit "$WORK/engine" "Do the engine thing")"
+cat > "$WORK/engine/tools/read" <<READER
+#!/usr/bin/env bash
+printf '{"repository":"%s","environment":"%s","commit":"%s","releasedAt":"%s","source":"run 12"}\n' "\$1" "\$2" "\$(git rev-parse HEAD)" "\$(cat "$WORK/released-at")"
+READER
+chmod +x "$WORK/engine/tools/read"
+none="$WORK/none"; : > "$none"
+plane_status() { ( cd "$P" && PATH="$PATH_CURL" AI_CORE_PROCESSES="$none" AI_CORE_AGENTS="$none" AI_CORE_ROLLOUTS="$none" bash "${ROOT_UNDER_TEST:-$ROOT}/bin/status.sh" 2>&1 ); }
+engine_item() {  # engine_item <number> <proof header>: a work item in testing whose work landed in the engine, and a proof of it
+  plane_add_item "$1" "Landed in the engine" repo:example-repo
+  planeset "p.issues.find((i)=>i.sequence_id===$1).state=p.states.find((s)=>s.name==='testing').id"
+  plane_add_comment "$1" "Landed on master of example-org/engine:
+- $esha #$1 Do the engine thing"
+  plane_add_comment "$1" "$2: it works"
+}
+engine_item 90 "Proven on prod (https://example.test)"
+printf '%sT08:00:00Z\n' "$day" > "$WORK/released-at"
+reset_log
+out="$(ai status-sync --dry-run example-repo 2>&1)" || fail "status-sync --dry-run with a reader: $out"
+grep -q "would close  example-repo#90  (testing -> done, released in example-org/engine prod delivery run 12 at ${day}T08:00:00Z and proven)" <<< "$out" \
+  || fail "the delivery before the proof did not close the work item: $(grep 'example-repo#90' <<< "$out")"
+! grep -qE '^(PATCH|POST|PUT|DELETE) ' "$CURL_FAKE_STATE/requests.log" || fail "a dry run with a reader wrote to Plane"
+printf '%sT10:00:00Z\n' "$day" > "$WORK/released-at"
+out="$(ai status-sync --dry-run example-repo 2>&1)" || fail "status-sync --dry-run with a later delivery: $out"
+grep -q "proof due    example-repo#90  (released in example-org/engine prod delivery run 12 at ${day}T10:00:00Z, no \"Proven on prod\" record after both its landing and that delivery)" <<< "$out" \
+  || fail "a proof before the delivery counted: $(grep 'example-repo#90' <<< "$out")"
+printf '%sT08:00:00Z\n' "$day" > "$WORK/released-at"
+out="$(ai status-sync example-repo 2>&1)" || fail "status-sync with a reader: $out"
+[ "$(state_of 90)" = done ] || fail "the work item stands in $(state_of 90), not in done, after the applied run: $out"
+echo "    status-sync: a delivery before the proof closes the work item through its own clone, a delivery after it makes the proof due, and a dry run writes nothing"
+
+engine_item 91 "Proven on prod"; engine_item 92 "Proven on prod"
+out="$(plane_status)" || fail "status with a reader: $out"
+for seq in 91 92; do
+  grep -qE "^  🟢 example-repo#$seq +live on prod since .* \(run 12, ${day}T08:00:00Z\)  Landed in the engine$" <<< "$out" || fail "the work item $seq is not live on prod by the delivery: $(grep "example-repo#$seq" <<< "$out")"
+done
+! grep -q '❓' <<< "$out" || fail "a card is unknown although every read was answered: $(grep '❓' <<< "$out")"
+for listing in states project-members-lite comments activities; do
+  printf '[{"match":"/%s/","status":502,"times":1}]' "$listing" > "$CURL_FAKE_STATE/inject.json"
+  out="$(plane_status)" && fail "status exited 0 although the $listing read of a card was refused"
+  [ "$(grep -c '^  ❓ unknown' <<< "$out")" = 1 ] || fail "the refused $listing read did not make exactly one card unknown: $(grep '❓' <<< "$out")"
+  grep -qE "^  🟢 example-repo#92 +live on prod" <<< "$out" || fail "the card that could be read is not drawn after the refused $listing read: $out"
+  printf '[]' > "$CURL_FAKE_STATE/inject.json"
+done
+echo "    status: each of the states, members, comments and state changes read of a card, refused, makes that card unknown with the exit 1 and leaves the others drawn"
+unset AI_CORE_NOW

@@ -5,6 +5,7 @@
 set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$here/../lib/board.sh"
+. "$here/../lib/live-release.sh"
 
 usage="usage: status.sh [--project N] [--tokens] [--issues]"
 project=""; issues=""; tokens=""
@@ -39,6 +40,53 @@ work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 columns="$(fields_tsv)" || exit 1
 awk -F'\t' 'tolower($1) == "status" { print $3 }' <<< "$columns" > "$work/columns"
 card_rows > "$work/items" || exit 1
+
+# WHAT THE TESTING BLOCK READS OF EACH CARD IN TESTING, one JSON object a line in $work/testing, for lib/status.mjs:
+#   {repository, number, pattern, context, reason, landing, landingClone}
+# pattern is how a commit message names the issue (issue_mention_pattern). context says whether the landing
+# of the issue was asked of the tracker: "none" where no clone of the project folder declares an environment
+# of LIVE_TAGS as `command`, so that no card pays for a read it does not need; "read", with landing the
+# newest landing record the trusted comments of the issue still hold ({repository, commit, createdAt}, or null
+# where there is none) and landingClone the clone of its repository, empty where there is none; "failed", with
+# the last line the tracker said, which names what it could not read. One read of the tracker per card, as the tracker answers it, at most; a read that
+# fails is that card's line, never the end of the others.
+write_testing_records() {
+  local column clone declared="" repo number pattern context thread landing reason landing_clone
+  column="$(awk 'tolower($0) == "testing" { print; exit }' "$work/columns")"
+  : > "$work/testing"
+  [ -n "$column" ] || return 0
+  for clone in "$folder"/*/; do
+    clone="${clone%/}"
+    [ -e "$clone/.git" ] || continue
+    if live_tags_names_command "$(live_tags_declaration "$clone")"; then declared=1; break; fi
+  done
+  while IFS=$'\t' read -r repo number; do
+    [ -n "$number" ] || continue
+    pattern="$(issue_mention_pattern "$repo" "$number" "$repo")"
+    context=none; landing=null; reason=""; landing_clone=""
+    if [ -n "$declared" ]; then
+      if thread="$( (issue_landing_context "$repo" "$number") 2> "$work/context-error")" \
+        && landing="$(jq -c --argjson window "$LANDING_COMMENT_WINDOW" --arg issue "$repo" "$LANDING_RECORD_JQ"'
+            (.reopenedAt // "") as $reopenedAt
+            | [.comments | .[(0 - $window):] | .[] | trusted] | selected_landing($reopenedAt; $issue)' <<< "$thread" 2> "$work/context-error")"; then
+        context="read"
+        [ "$landing" = null ] || landing_clone="$(clone_of "$(jq -r '.repository' <<< "$landing")")"
+      else
+        reason="$(grep -v '^[[:space:]]*$' "$work/context-error" | tail -n1 | tr -s ' \t' ' ' || true)"
+        context="failed"; landing=null
+        reason="${reason:-the tracker gave no reason}"
+      fi
+    fi
+    jq -nc --arg repository "$repo" --argjson number "$number" --arg pattern "$pattern" --arg context "$context" \
+      --arg reason "$reason" --argjson landing "$landing" --arg landingClone "$landing_clone" \
+      '{repository: $repository, number: $number, pattern: $pattern, context: $context, reason: $reason, landing: $landing, landingClone: $landingClone}' >> "$work/testing"
+  done <<< "$(jq -r --arg column "$column" 'select(.open and (.repo // "") != "" and ((.status // "") | ascii_downcase) == ($column | ascii_downcase)) | "\(.repo)\t\(.number)"' "$work/items" | sort -u)"
+}
+testing_file=()
+if [ -z "$tokens$issues" ]; then
+  write_testing_records || exit 1
+  testing_file=(--testing-file "$work/testing")
+fi
 
 # Every process: its id, its parent, how long it runs ([[dd-]hh:]mm:ss), its state as ps writes it
 # and its command line, a tab between; AI_CORE_PROCESSES names a file that stands in for it. Only the default view reads it.
@@ -87,4 +135,4 @@ fi
 
 node "$here/../lib/status.mjs" --items-file "$work/items" --columns-file "$work/columns" \
   --board "$(project_org)/$(project_number)" --folder "$folder" --stop-at "$stop" --config-file "$config" \
-  ${processes[@]+"${processes[@]}"} $tokens $issues
+  ${processes[@]+"${processes[@]}"} ${testing_file[@]+"${testing_file[@]}"} $tokens $issues

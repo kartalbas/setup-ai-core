@@ -173,6 +173,22 @@ clone_of() {  # <owner/repo>
   return 0
 }
 
+# What a commit message of <commit repo> holds when it names issue <number> of <issue repo>, as a
+# pattern for `git log -E -i --grep`: '<issue repo>#<number>' always, and '#<number>' alone where the
+# issue belongs to the commit's own repository. A reference stands alone, so a longer number never
+# matches, and another repository's reference to the same number names nothing here.
+issue_mention_pattern() {  # issue_mention_pattern <issue repo> <number> <commit repo>
+  local lower='tr A-Z a-z' spelled
+  spelled="$(printf '%s' "$1" | sed 's/\./\\./g')"
+  if [ -z "$1" ]; then
+    printf '(^|[^A-Za-z0-9._/-])#%s([^0-9]|$)' "$2"
+  elif [ "$(printf '%s' "$1" | $lower)" = "$(printf '%s' "$3" | $lower)" ]; then
+    printf '(^|[^A-Za-z0-9._/-])(%s)?#%s([^0-9]|$)' "$spelled" "$2"
+  else
+    printf '(^|[^A-Za-z0-9._/-])%s#%s([^0-9]|$)' "$spelled" "$2"
+  fi
+}
+
 # THE SETTINGS A CLONE'S COMMANDS WILL READ: tracker (lower case, github unless set), PLANE_URL,
 # PLANE_WORKSPACE and PLANE_PROJECT, tab-separated on one line, read by a fresh process that stands in the
 # clone, without this shell's loaded provider variables. The environment still takes precedence, as for every

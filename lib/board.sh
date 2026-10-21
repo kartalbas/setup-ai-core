@@ -147,22 +147,6 @@ issue_ref() {  # issue_ref <repo or empty> <number>
   if [ -n "$1" ] && [ "$(printf '%s' "$1" | $lower)" != "$(default_repo 2>/dev/null | $lower)" ]; then echo "$1#$2"; else echo "#$2"; fi
 }
 
-# What a commit message of <commit repo> holds when it names issue <number> of <issue repo>, as a
-# pattern for `git log -E -i --grep`: '<issue repo>#<number>' always, and '#<number>' alone where the
-# issue belongs to the commit's own repository. A reference stands alone, so a longer number never
-# matches, and another repository's reference to the same number names nothing here.
-issue_mention_pattern() {  # issue_mention_pattern <issue repo> <number> <commit repo>
-  local lower='tr A-Z a-z' spelled
-  spelled="$(printf '%s' "$1" | sed 's/\./\\./g')"
-  if [ -z "$1" ]; then
-    printf '(^|[^A-Za-z0-9._/-])#%s([^0-9]|$)' "$2"
-  elif [ "$(printf '%s' "$1" | $lower)" = "$(printf '%s' "$3" | $lower)" ]; then
-    printf '(^|[^A-Za-z0-9._/-])(%s)?#%s([^0-9]|$)' "$spelled" "$2"
-  else
-    printf '(^|[^A-Za-z0-9._/-])%s#%s([^0-9]|$)' "$spelled" "$2"
-  fi
-}
-
 # Who a new issue in this repo belongs to.
 #
 # An issue lands on whoever OWNS the repository, not on whoever typed the command,
@@ -416,6 +400,11 @@ def commit_lines: split("\n") | map(select(test("^- [0-9a-f]{7,40} ")));
 def landing_records($reopenedAt): [.[] | trusted | select(.body | startswith("Landed on "))
   | select(.body | commit_lines | length > 0) | select($reopenedAt == "" or .createdAt > $reopenedAt)] | sort_by(.createdAt);
 def landing_repo($issueRepo): (.body | split("\n")[0] | capture("^Landed on \\S+ of (?<r>[^\\s:]+/[^\\s:]+):") | .r) // $issueRepo;
+def selected_landing($reopenedAt; $issueRepo): landing_records($reopenedAt) | last
+  | if . then {repository: landing_repo($issueRepo), commit: (.body | commit_lines | first | split(" ")[1]), createdAt: .createdAt} else null end;
+def instant: capture("^(?<s>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?<f>\\.[0-9]+)?(Z|\\+00:00)$")
+  | "\((.s + "Z") | fromdateiso8601).\(((.f // ".0")[1:] + "000000000")[:9])";
+def proof_environment: capture("^Proven on (?<token>[^ \\t:]+)([ \\t]+\\([^)]*\\))?:") | .token;
 def lists($shas): (.body | commit_lines | map(split(" ")[1])) as $listed
   | $shas | all(. as $sha | $listed | any(. as $one | ($one | startswith($sha)) or ($sha | startswith($one))));
 '

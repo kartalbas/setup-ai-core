@@ -210,6 +210,7 @@ case "\$*" in
   *"projectV2(number:"*)                  doc="$FAKE/project-id.json" ;;
   *"items(first:100, after:"*)            doc="$FAKE/board.json" ;;
   *"o=other-org"*"issues(states:OPEN"*)   doc="$FAKE/issues-other.json" ;;
+  *"n=component"*"issues(states:OPEN"*)   doc="$FAKE/issues-component.json" ;;
   *"after=c1"*"issues(states:OPEN"*)      doc="$FAKE/issues-2.json" ;;
   *"issues(states:OPEN"*)                 doc="$FAKE/issues-1.json" ;;
   *"--method PATCH"*)                     doc="$FAKE/empty.json" ;;
@@ -446,6 +447,237 @@ check 'applied: the leaf was sent its close' 1 "$(grep -c 'api --method PATCH re
 check 'applied: the epic was sent none' 0 "$(grep -c 'api --method PATCH repos/example-org/example-repo/issues/34 ' "$FAKE/calls.txt")"
 check 'applied: nothing says the sweep failed' '' "$(grep -iE 'error|did NOT' <<< "$run")"
 rm -f "$FAKE/epic-34.json"; mv "$FAKE/issues-1.saved" "$FAKE/issues-1.json"
+
+# --- environments delivered by a project's own reader (LIVE_TAGS "prod=command") ----------------------
+#
+# Two repositories that are never tagged for their release, and what carries them out:
+#   example-org/component  is released by a carrier: a separate repository whose tags prod/N and test/N each
+#       hold a file pins/component naming the commit of the component the release ships. Its reader reads
+#       that file AT THE TAG, never at the carrier's tip, which pins another commit than the newest release.
+#       The component has a stale tag of its own, deploy/prod/0, that a tag glob would read.
+#   example-org/service    is released by a redeploy: its reader reads the run records in $FAKE/runs.jsonl,
+#       the last successful run, whatever came after it.
+# Both readers are real executables over real scratch Git objects and planted records; the cards are the
+# ones of example-repo, whose own tags are no part of it, and a card of the component itself.
+#
+# THE CARDS, all in testing, their work landed in the component unless written otherwise:
+#   101 proven on prod after the delivery -> closes while the carrier's newest release pins its commit
+#   102 landed after the pin of release 1 -> not released, with that release; 103 no proof -> proof due
+#   104 proof AT the delivery's second, 105 on another environment, 106 before its landing, 107 between its
+#       landing and the delivery, 109 by a stranger: none of them proves; 108 a fraction of a second after
+#       the delivery's second does
+#   110 "Proven on PROD:" and 111 "Proven on prod (https://example.test):" prove; 112 production, 113 prod-extra,
+#       114 "test (prod)", 115 no colon, 116 an annotation and no colon after it, 117 the words in a later line,
+#       118 behind a heading do not
+#   120 landed on a branch that is not the default branch -> nothing is said of it
+#   124 landed after what release 1 pins, proven on test only -> only the first environment decides
+#   130 to 132 landed in the service; 140 is the component's own card
+echo 'a repository released by a carrier that pins it: the delivery is what the carrier'"'"'s release holds, and the proof must follow it'
+carrier="$FAKE/carrier"; component_origin="$FAKE/remote/example-org/component.git"; component="$FAKE/folder/component"
+service_origin="$FAKE/remote/example-org/service.git"; service="$FAKE/folder/service"
+git init -q --bare "$component_origin"; git init -q "$FAKE/component-seed"; git -C "$FAKE/component-seed" checkout -q -b master
+k0="$(commit_at "$FAKE/component-seed" 1700000100 'Before the pins')"; tag_at "$FAKE/component-seed" deploy/prod/0 1700000100
+k1="$(commit_at "$FAKE/component-seed" 1700000101 'Land #101 and the rest')"
+k2="$(commit_at "$FAKE/component-seed" 1700000102 'Land #102')"
+k3="$(commit_at "$FAKE/component-seed" 1700000103 'Land #124 on the tip')"
+git -C "$FAKE/component-seed" checkout -q -b side "$k1"; kx="$(commit_at "$FAKE/component-seed" 1700000104 'Work on a branch')"
+git -C "$FAKE/component-seed" push -q "$component_origin" master side --tags
+git -C "$component_origin" symbolic-ref HEAD refs/heads/master
+git clone -q "$component_origin" "$component"
+git -C "$component" tag -l | xargs -r git -C "$component" tag -d >/dev/null
+git init -q --bare "$service_origin"; git init -q "$FAKE/service-seed"; git -C "$FAKE/service-seed" checkout -q -b master
+s1="$(commit_at "$FAKE/service-seed" 1700000201 'Land #130')"; s2="$(commit_at "$FAKE/service-seed" 1700000202 'Land #131')"; s3="$(commit_at "$FAKE/service-seed" 1700000203 'Land #132')"
+git -C "$FAKE/service-seed" push -q "$service_origin" master
+git -C "$service_origin" symbolic-ref HEAD refs/heads/master
+git clone -q "$service_origin" "$service"
+# the carrier: each release is a commit that sets the pin, tagged on its own date; its tip pins the commit of the tip
+git init -q "$carrier"; git -C "$carrier" checkout -q -b master; mkdir -p "$carrier/pins"
+release_at() {  # release_at <tag> <pinned commit> <ISO time>: the carrier's release, a commit and an annotated tag at that time
+  printf '%s\n' "$2" > "$carrier/pins/component"; git -C "$carrier" add -A
+  GIT_AUTHOR_DATE="$3" GIT_COMMITTER_DATE="$3" gitc "$carrier" commit -q -m "release $1"
+  GIT_COMMITTER_DATE="$3" gitc "$carrier" tag -a -m "$1" "$1"
+}
+release_at prod/1 "$k1" 2026-09-02T08:00:00Z
+release_at test/1 "$k3" 2026-09-02T08:00:00Z
+mkdir -p "$component/tools" "$service/tools"
+cat > "$component/tools/read pin" <<EOF
+#!/usr/bin/env bash
+# the reader of a carrier that pins the component: the pin of the newest release of the environment, read at the release
+echo "\$PWD|\$#|\$1|\$2" >> "$FAKE/reader-calls.txt"
+if [ "\$(cat "$FAKE/pin-mode" 2>/dev/null)" = fail ]; then echo 'the carrier is down' >&2; exit 3; fi
+tag="\$(git -C "$carrier" tag --list "\$2/*" --sort=-creatordate | head -n1)"
+[ -n "\$tag" ] || { echo null; exit 0; }
+at="\$(TZ=UTC git -C "$carrier" for-each-ref --format='%(creatordate:iso-strict)' "refs/tags/\$tag" | sed 's/+00:00\$/Z/')"
+printf '{"repository":"%s","environment":"%s","commit":"%s","releasedAt":"%s","source":"carrier %s"}\n' "\$1" "\$2" "\$(git -C "$carrier" show "\$tag:pins/component")" "\$at" "\$tag"
+EOF
+cat > "$service/tools/read-run" <<EOF
+#!/usr/bin/env bash
+# the reader of a redeploy: the last successful run of the environment in the run records
+echo "\$PWD|\$#|\$1|\$2" >> "$FAKE/reader-calls.txt"
+last="\$(jq -c --arg e "\$2" 'select(.environment == \$e and .status == "success")' "$FAKE/runs.jsonl" | tail -n1)"
+[ -n "\$last" ] || { echo null; exit 0; }
+jq -c --arg r "\$1" '{repository: \$r, environment, commit, releasedAt: .finishedAt, source: .run}' <<< "\$last"
+EOF
+chmod +x "$component/tools/read pin" "$service/tools/read-run"
+mkdir -p "$component/.ai-core" "$service/.ai-core"
+printf 'LIVE_TAGS="prod=command test=command"\nLIVE_RELEASE_COMMAND="tools/read pin"\n' > "$component/.ai-core/config.env"
+printf 'LIVE_TAGS="prod=command"\nLIVE_RELEASE_COMMAND="tools/read-run"\n' > "$service/.ai-core/config.env"
+: > "$FAKE/runs.jsonl"
+
+proof_at() {  # proof_at <time> <first line> [author association] [a second line]
+  printf '{"createdAt":"%s","authorAssociation":"%s","body":"%s%s"}' "$1" "${3:-MEMBER}" "$2" "${4:+\\n$4}"
+}
+card_of() {  # card_of <number> <commit> <repository the work landed in> [proof]: a card of example-repo in testing
+  issue "$1" testing 0 "$(landed 2026-09-01T10:00:00Z "$2" "$3")${4:+,$4}"
+}
+P=example-org/component
+cmd_cards() {  # the page of example-repo: every card of the block
+  page false null "$(card_of 101 "$k1" $P "$(proof_at 2026-09-03T10:00:00Z 'Proven on prod:')"),$(card_of 102 "$k2" $P "$(proof_at 2026-09-03T10:00:00Z 'Proven on prod:')"),$(card_of 103 "$k1" $P),$(card_of 104 "$k1" $P "$(proof_at 2026-09-02T08:00:00Z 'Proven on prod:')"),$(card_of 105 "$k1" $P "$(proof_at 2026-09-03T10:00:00Z 'Proven on test:')"),$(card_of 106 "$k1" $P "$(proof_at 2026-08-30T10:00:00Z 'Proven on prod:')"),$(card_of 107 "$k1" $P "$(proof_at 2026-09-01T12:00:00Z 'Proven on prod:')"),$(card_of 108 "$k1" $P "$(proof_at 2026-09-02T08:00:00.500Z 'Proven on prod:')"),$(card_of 109 "$k1" $P "$(proof_at 2026-09-03T10:00:00Z 'Proven on prod:' NONE)"),$(card_of 110 "$k1" $P "$(proof_at 2026-09-03T10:00:00Z 'Proven on PROD:')"),$(card_of 111 "$k1" $P "$(proof_at 2026-09-03T10:00:00Z 'Proven on prod (https://example.test):')"),$(card_of 112 "$k1" $P "$(proof_at 2026-09-03T10:00:00Z 'Proven on production:')"),$(card_of 113 "$k1" $P "$(proof_at 2026-09-03T10:00:00Z 'Proven on prod-extra:')"),$(card_of 114 "$k1" $P "$(proof_at 2026-09-03T10:00:00Z 'Proven on test (prod):')"),$(card_of 115 "$k1" $P "$(proof_at 2026-09-03T10:00:00Z 'Proven on prod')"),$(card_of 116 "$k1" $P "$(proof_at 2026-09-03T10:00:00Z 'Proven on prod (https://example.test)')"),$(card_of 117 "$k1" $P "$(proof_at 2026-09-03T10:00:00Z 'Verified by hand:' 'Proven on prod:')"),$(card_of 118 "$k1" $P "$(proof_at 2026-09-03T10:00:00Z '# Proven on prod:')"),$(card_of 120 "$kx" $P "$(proof_at 2026-09-03T10:00:00Z 'Proven on prod:')"),$(card_of 122 "$k2" $P "$(proof_at 2026-09-05T10:00:00Z 'Proven on prod:')"),$(card_of 123 "$k1" $P "$(proof_at 2026-09-07T10:00:00Z 'Proven on prod:')"),$(card_of 124 "$k3" $P "$(proof_at 2026-09-03T10:00:00Z 'Proven on test:')"),$(card_of 130 "$s1" example-org/service "$(proof_at 2026-09-03T10:00:00Z 'Proven on prod:')"),$(card_of 131 "$s2" example-org/service "$(proof_at 2026-09-06T10:00:00Z 'Proven on prod:')"),$(card_of 132 "$s3" example-org/service "$(proof_at 2026-09-06T10:00:00Z 'Proven on prod:')")" > "$FAKE/issues-1.json"
+  page false null "$(issue 140 testing 0 "$(landed 2026-09-01T10:00:00Z "$k1"),$(proof_at 2026-09-03T10:00:00Z 'Proven on prod:')")" > "$FAKE/issues-component.json"
+}
+cp "$FAKE/issues-1.json" "$FAKE/issues-1.saved"
+cmd_cards
+sync_dry() { run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo example-org/component 2>&1)"; rc=$?; }
+said() { grep " example-repo#$1  (" <<< "$run" || true; }   # the line of a card of example-repo
+at1='example-org/component prod delivery carrier prod/1 at 2026-09-02T08:00:00Z'
+due1="released in $at1, no \"Proven on prod\" record after both its landing and that delivery"
+: > "$FAKE/calls.txt"; : > "$FAKE/reader-calls.txt"
+sync_dry
+check 'exit 0' 0 "$rc"
+check 'proven after the delivery of the carrier release that pins its commit: it would close, with the carrier release named' \
+  "would close  example-repo#101  (testing -> done, released in $at1 and proven)" "$(said 101)"
+check 'landed after the pinned commit: not released, with the release it read, and the stale tag of the component is no release' \
+  "not released example-repo#102  (landed in $(printf '%s' "$k2" | cut -c1-7); the newest prod delivery of example-org/component, carrier prod/1 at 2026-09-02T08:00:00Z, does not carry it)" "$(said 102)"
+check 'delivered and not proven: proof due' "proof due    example-repo#103  ($due1)" "$(said 103)"
+for n in 104 105 106 107 109 112 113 114 115 116 117 118; do
+  check "#$n has no proof that qualifies: proof due, never close" "proof due    example-repo#$n  ($due1)" "$(said $n)"
+done
+check 'a proof a fraction of a second after the second of the delivery qualifies, and one at that second does not' \
+  "would close  example-repo#108  (testing -> done, released in $at1 and proven)" "$(said 108)"
+check 'the environment of the proof is read whatever its case' "would close  example-repo#110  (testing -> done, released in $at1 and proven)" "$(said 110)"
+check 'and with an annotation, whose colon is no delimiter' "would close  example-repo#111  (testing -> done, released in $at1 and proven)" "$(said 111)"
+check 'a landing that is not on the default branch is not said' '' "$(said 120)"
+check 'only the first environment decides: a card proven on test and not on prod stays, though the carrier delivered test' \
+  "not released example-repo#124  (landed in $(printf '%s' "$k3" | cut -c1-7); the newest prod delivery of example-org/component, carrier prod/1 at 2026-09-02T08:00:00Z, does not carry it)" "$(said 124)"
+check 'the card of the component itself is read the same way' \
+  "would close  component#140  (testing -> done, released in prod delivery carrier prod/1 at 2026-09-02T08:00:00Z and proven)" "$(grep '^would close  component#140' <<< "$run")"
+check 'a read of the cards and a read of the carrier write nothing, and the carrier was asked once for the environment of the component, in its clone, with two arguments' \
+  "0|1|$component|2|example-org/component|prod|0" \
+  "$(grep -c -- '--method' "$FAKE/calls.txt")|$(grep -c "^$component|" "$FAKE/reader-calls.txt")|$(grep -m1 "^$component|" "$FAKE/reader-calls.txt")|$(grep "^$component|" "$FAKE/reader-calls.txt" | grep -vc '|prod$')"
+
+echo 'a new release moves the delivery, and a proof before it proves nothing of it'
+release_at prod/2 "$k2" 2026-09-04T08:00:00Z
+release_at test/2 "$k3" 2026-09-04T09:00:00Z
+sync_dry
+at2='example-org/component prod delivery carrier prod/2 at 2026-09-04T08:00:00Z'
+check 'the commit of the release before it is carried as well, and its proof of 09-03 came before this delivery' \
+  "proof due    example-repo#101  (released in $at2, no \"Proven on prod\" record after both its landing and that delivery)" "$(said 101)"
+check 'a card the new release carries and a proof that follows it close' "would close  example-repo#122  (testing -> done, released in $at2 and proven)" "$(said 122)"
+check 'the release is read at its tag: the tip of the carrier, a release of test, pins the commit of #124, and #124 stays out' \
+  "not released example-repo#124  (landed in $(printf '%s' "$k3" | cut -c1-7); the newest prod delivery of example-org/component, carrier prod/2 at 2026-09-04T08:00:00Z, does not carry it)" "$(said 124)"
+
+echo 'a rollback is a delivery of an older commit, and nothing remembers the one before'
+release_at prod/3 "$k1" 2026-09-06T08:00:00Z
+sync_dry
+at3='example-org/component prod delivery carrier prod/3 at 2026-09-06T08:00:00Z'
+check 'what the rollback no longer holds is not released again' \
+  "not released example-repo#122  (landed in $(printf '%s' "$k2" | cut -c1-7); the newest prod delivery of example-org/component, carrier prod/3 at 2026-09-06T08:00:00Z, does not carry it)" "$(said 122)"
+check 'what it holds and a proof after the rollback closes' "would close  example-repo#123  (testing -> done, released in $at3 and proven)" "$(said 123)"
+
+echo 'a pin that is no commit of the component: every card of it is unknown, and none closes'
+carrier_commit="$(git -C "$carrier" rev-parse HEAD)"
+release_at prod/4 "$carrier_commit" 2026-09-08T08:00:00Z
+sync_dry
+check 'a commit of the carrier'"'"'s own graph is named, not read as no delivery' \
+  "unknown      example-repo#123  (the reader $component/tools/read pin answered for example-org/component prod with the commit $carrier_commit, and the clone $component, fetched, has no such commit; the card stays)" "$(said 123)"
+check 'and nothing of it closes or is due' '' "$(grep -E '^(would close|proof due|not released) +example-repo#1(0[1-9]|1[0-9]|2[0-4]) ' <<< "$run")"
+git -C "$carrier" tag -d prod/4 >/dev/null
+printf 'fail\n' > "$FAKE/pin-mode"
+sync_dry
+check 'a reader that fails is unknown, with its own words, though a stale tag of the component holds the commit of the card' \
+  "unknown      example-repo#103  (the reader $component/tools/read pin exited 3 for example-org/component prod: the carrier is down; the card stays)" "$(said 103)"
+check 'and no card of it closes' '' "$(grep -E '^would close +example-repo#1' <<< "$run")"
+rm -f "$FAKE/pin-mode"
+git -C "$component" remote set-url origin "$FAKE/gone/example-org/component.git"
+sync_dry
+check 'a fetch that fails leaves the delivery unread, whatever the refs the clone has' \
+  "unknown      example-repo#103  (fetching origin of example-org/component in $shown/component failed: fatal: '$FAKE/gone/example-org/component.git' does not appear to be a git repository, so the delivery of prod is not read; the card stays)" "$(said 103)"
+git -C "$component" remote set-url origin "$component_origin"
+
+echo 'a repository delivered by a redeploy: the last successful run decides, never an attempt, a failure or the tip of the default branch'
+run_at() {  # run_at <number> <status> <commit> <finish time or empty>
+  jq -cn --arg n "$1" --arg s "$2" --arg c "$3" --arg t "$4" '{environment: "prod", status: $s, commit: $c, run: ("run " + $n), finishedAt: (if $t == "" then null else $t end)}' >> "$FAKE/runs.jsonl"
+}
+sync_dry
+check 'no run at all: not released, the missing delivery named' \
+  "not released example-repo#130  (landed in $(printf '%s' "$s1" | cut -c1-7); no completed prod delivery of example-org/service is recorded)" "$(said 130)"
+run_at 1 success "$s1" 2026-09-02T09:00:00Z
+sync_dry
+sv1='example-org/service prod delivery run 1 at 2026-09-02T09:00:00Z'
+check 'a successful run of the commit, proven later: it would close' "would close  example-repo#130  (testing -> done, released in $sv1 and proven)" "$(said 130)"
+check 'a later commit than the run fetched is not carried by it' \
+  "not released example-repo#131  (landed in $(printf '%s' "$s2" | cut -c1-7); the newest prod delivery of example-org/service, run 1 at 2026-09-02T09:00:00Z, does not carry it)" "$(said 131)"
+run_at 2 failure "$s2" 2026-09-04T09:00:00Z
+run_at 3 pending "$s3" ""
+sync_dry
+check 'a failed run and a pending one deliver nothing' \
+  "not released example-repo#131  (landed in $(printf '%s' "$s2" | cut -c1-7); the newest prod delivery of example-org/service, run 1 at 2026-09-02T09:00:00Z, does not carry it)" "$(said 131)"
+check 'and the tip of the default branch is no delivery' \
+  "not released example-repo#132  (landed in $(printf '%s' "$s3" | cut -c1-7); the newest prod delivery of example-org/service, run 1 at 2026-09-02T09:00:00Z, does not carry it)" "$(said 132)"
+run_at 4 success "$s2" 2026-09-05T09:00:00Z
+sync_dry
+sv4='example-org/service prod delivery run 4 at 2026-09-05T09:00:00Z'
+check 'the later successful run carries the card, and its proof of 09-06 follows' "would close  example-repo#131  (testing -> done, released in $sv4 and proven)" "$(said 131)"
+check 'the card of the run before it has a proof from before this delivery' \
+  "proof due    example-repo#130  (released in $sv4, no \"Proven on prod\" record after both its landing and that delivery)" "$(said 130)"
+run_at 5 success "$s1" 2026-09-07T09:00:00Z
+sync_dry
+check 'a rollback run takes the commit it fetched, and the card it no longer holds is not released' \
+  "not released example-repo#131  (landed in $(printf '%s' "$s2" | cut -c1-7); the newest prod delivery of example-org/service, run 5 at 2026-09-07T09:00:00Z, does not carry it)" "$(said 131)"
+
+echo 'closing happens in the clone of the repository that owns the card, and a second applied run invents no other transition'
+: > "$FAKE/calls.txt"; touch "$FAKE/lenient"
+run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" example-org/example-repo 2>&1)"; rc=$?
+first_run="$run"
+check 'applied: exit 0' 0 "$rc"
+check 'applied: the card the rollback delivered and a proof followed closes' "close        example-repo#123  (testing -> done, released in $at3 and proven)" "$(said 123)"
+check 'applied: only the owning repository was written, and only that issue' \
+  "1|1|0" "$(grep -c 'api --method PATCH repos/example-org/example-repo/issues/123 ' "$FAKE/calls.txt")|$(grep -c -- '--method PATCH' "$FAKE/calls.txt")|$(grep -c 'api --method PATCH repos/example-org/\(component\|service\)/' "$FAKE/calls.txt")"
+: > "$FAKE/calls.txt"
+run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" example-org/example-repo 2>&1)"; rc=$?
+rm -f "$FAKE/lenient"
+check 'a second applied run says the same and writes the same one close' "0|1" "$([ "$run" = "$first_run" ] && echo 0 || echo 1)|$(grep -c -- '--method PATCH' "$FAKE/calls.txt")"
+
+echo 'two sweeps at once keep their own evidence: each reader waits until the other has started, and each answers its own repository'
+mkdir -p "$FAKE/barrier"
+wrap_reader() {  # wrap_reader <reader> <its name> <the other's name>: the reader that starts, waits for the other one to have started, and then answers as it did
+  mv "$1" "$1.real"
+  cat > "$1" <<EOF
+#!/usr/bin/env bash
+touch "$FAKE/barrier/$2"
+for i in \$(seq 1 100); do [ -e "$FAKE/barrier/$3" ] && break; sleep 0.2; done
+[ -e "$FAKE/barrier/$3" ] && echo seen > "$FAKE/barrier/seen-$2"
+exec "$1.real" "\$@"
+EOF
+  chmod +x "$1"
+}
+wrap_reader "$component/tools/read pin" component service
+wrap_reader "$service/tools/read-run" service component
+rm -f "$FAKE/barrier"/*
+page false null "$(card_of 130 "$s1" example-org/service "$(proof_at 2026-09-08T10:00:00Z 'Proven on prod:')")" > "$FAKE/issues-1.json"
+page false null "$(issue 141 testing 0 "$(landed 2026-09-01T10:00:00Z "$k1"),$(proof_at 2026-09-07T10:00:00Z 'Proven on prod:')")" > "$FAKE/issues-component.json"
+( cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo > "$FAKE/sweep-service.txt" 2>&1 ) &
+first_pid=$!
+( cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/component > "$FAKE/sweep-component.txt" 2>&1 ) &
+second_pid=$!
+wait "$first_pid" "$second_pid"
+check 'each reader saw the other running before it answered' 'seen|seen' "$(cat "$FAKE/barrier/seen-component" 2>/dev/null)|$(cat "$FAKE/barrier/seen-service" 2>/dev/null)"
+check 'the sweep of the service answered its own card' "would close  example-repo#130  (testing -> done, released in example-org/service prod delivery run 5 at 2026-09-07T09:00:00Z and proven)" \
+  "$(grep '^would close  example-repo#130' "$FAKE/sweep-service.txt")"
+check 'the sweep of the component answered its own card' "would close  component#141  (testing -> done, released in prod delivery carrier prod/3 at 2026-09-06T08:00:00Z and proven)" "$(grep '^would close  component#141' "$FAKE/sweep-component.txt")"
+check 'neither sweep names a card of the other' '' "$(grep -h 'component#141' "$FAKE/sweep-service.txt"; grep -h 'example-repo#130' "$FAKE/sweep-component.txt")"
+mv "$component/tools/read pin.real" "$component/tools/read pin"; mv "$service/tools/read-run.real" "$service/tools/read-run"
+cp "$FAKE/issues-1.saved" "$FAKE/issues-1.json"; rm -f "$FAKE/issues-component.json"
 
 echo
 if [ "$failed" -gt 0 ]; then echo "$failed failed"; exit 1; fi

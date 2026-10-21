@@ -33,6 +33,10 @@ question "where is this seen", and stays.
                                       LIVE_TAGS (needs:owner on the plan issue)
       ⏸ no commit names it          → it never landed: treat it as implementing
       ⏸ no checkout                 → the repository has no clone in the folder: needs:owner
+      ⏸ no landing record           → the issue holds no `Landed on` record of a trusted author after its last
+                                      reopening: ai-core finish-issue <n>, then as above
+      ❓ unknown                    → a landing, a delivery or a fetch could not be read, and the line says which:
+                                      mend what it names and read status again; a card never moves on a guess
     implementing
       landed on the default branch  → ai-core finish-issue <n> → testing, unless a UI test said
                                       FAIL after its `Landed on` record

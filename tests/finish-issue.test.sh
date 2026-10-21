@@ -386,6 +386,15 @@ check 'exit 1'                      1 "$rc"
 check 'it says why'                 'error: no commit on origin/master names #187, so the card stays and the issue is not told; a commit that touches an issue names it' "$(grep '^error: ' <<< "$out")"
 check 'it does not say the repository holds no work' 0 "$(grep -c 'holds no work of' <<< "$out" || true)"
 
+echo 'two worktrees of one issue, one never committed in and one committed in, and no commit names the issue: refused'
+open issue-188-never-committed
+open issue-188-worked-in
+land issue-188-worked-in 'A change that names no issue either'
+out="$(run 188)"; rc=$?
+check 'exit 1'                      1 "$rc"
+check 'it says why'                 'error: no commit on origin/master names #188, so the card stays and the issue is not told; a commit that touches an issue names it' "$(grep '^error: ' <<< "$out")"
+check 'it does not say the repository holds no work' 0 "$(grep -c 'holds no work of' <<< "$out" || true)"
+
 echo 'an origin/HEAD naming a branch the remote no longer has: the default branch is asked of the remote'
 open issue-168-read-the-default-branch
 land issue-168-read-the-default-branch 'Read the default branch from the remote (#168)'

@@ -6,6 +6,12 @@
 #
 # The repo may be left out inside a checkout. A superseded or rejected design closes as
 # not planned; recording it as completed says work shipped when it did not.
+#
+# AN ISSUE WITH AN OPEN SUB-ISSUE IS NOT CLOSED, as completed or as not planned: an epic carries no
+# work of its own and is done once all its sub-issues are, and one closed early says on the board that
+# work is delivered which is not. The command names the open sub-issues and changes nothing for that
+# issue, no close and no card. The sub-issues are read from the tracker, every page of them, and a
+# read that fails refuses the close too.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 
@@ -45,6 +51,8 @@ column="$(closing_column "$reason")" || exit 1
 # closed ONCE, but its cards are plural - a sub-issue of a cross-repository epic sits on two
 # boards, and one line saying "closed, done" about one of them is false about the other.
 for n in "${numbers[@]}"; do
+  open="$(open_subissues "$repo" "$n")" || exit 1
+  [ -z "$open" ] || die "$repo#$n has open sub-issues, so it stays open and its card where it is: $(paste -sd' ' - <<< "$open") - close them first, or take them out of it"
   issue_close "$repo" "$n" "$reason"
   echo "#$n -> closed"
   for_each_board "$repo" "$n" Status "$column" "$column"

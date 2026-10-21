@@ -21,6 +21,11 @@
 # card stays. An issue no commit on origin's default branch names has not landed: the run stops
 # before the card moves.
 #
+# A WORKTREE THAT WAS NEVER COMMITTED IN holds no work: it goes with its branch, and where no commit on
+# origin's default branch names the issue either, this repository holds no work of it. The run says
+# so, leaves the card and the issue alone, and ends well. A branch that was committed in is
+# different: with no commit naming the issue it is the fault of the commits, and the run refuses.
+#
 # THE ISSUE'S BRANCH ON origin GOES once the change of every commit of it is on the default branch,
 # merged, cherry-picked or rebased; one with more work, a commit reshaped on landing, or one a
 # worktree has checked out, stays and is named.
@@ -82,13 +87,18 @@ unlanded() {
   [ -z "$out" ] || printf '%s\n' "$out"
 }
 landed() { [ -z "$(unlanded "refs/heads/$1")" ]; }
-# worked_in <branch>: the branch was committed on, not only cut. The reflog is read whole first: piped
-# into grep -q, grep stops at the first hit, git can die of the closed pipe, and under pipefail the
-# answer then turned into "never committed in" on a busy machine
-worked_in() {
+# branch_history <branch>: what the reflog says happened to the branch. It is read whole before anything
+# looks into it: piped into grep -q, grep stops at the first hit, git can die of the closed pipe, and
+# under pipefail the answer then turned into "never committed in" on a busy machine
+branch_history() { git -C "$main" reflog show --format=%gs "refs/heads/$1" 2>/dev/null || true; }
+# worked_in <branch>: the branch was committed on, not only cut
+worked_in() { grep -qv '^branch: Created' <<< "$(branch_history "$1")"; }
+# cut_only <branch>: the reflog holds the cutting of the branch and nothing else; an empty reflog says
+# nothing, so it never counts
+cut_only() {
   local log
-  log="$(git -C "$main" reflog show --format=%gs "refs/heads/$1" 2>/dev/null || true)"
-  grep -qv '^branch: Created' <<< "$log"
+  log="$(branch_history "$1")"
+  [ -n "$log" ] && ! grep -qv '^branch: Created' <<< "$log"
 }
 
 remove_worktree() {  # remove_worktree <path> <branch>
@@ -137,7 +147,7 @@ fi
 ref="$(issue_ref "$repo" "$number")"
 thread="$(apart "$BIN/issue-thread.sh" ${repo:+"$repo"} "$number" --json)" || die "the issue could not be read: $thread"
 state="$(printf '%s' "$thread" | jq -r '.state // ""' | tr '[:upper:]' '[:lower:]')"
-found=0
+found=0; cut_only_removed=0; worked_in_removed=0
 while IFS=$'\t' read -r path branch; do
   [ -n "$path" ] || continue
   case "$branch" in "issue-$number"|"issue-$number-"*) ;; *) continue ;; esac
@@ -159,8 +169,13 @@ while IFS=$'\t' read -r path branch; do
     echo "removed with --landed, these commits not found on origin/$default by their change:"
     sed 's/^/  /' <<< "$missing"
   fi
+  if cut_only "$branch"; then
+    cut_only_removed=$((cut_only_removed + 1)); because="it was never committed in"
+  else
+    worked_in_removed=$((worked_in_removed + 1)); because="its work is on origin/$default"
+  fi
   remove_worktree "$path" "$branch"
-  echo "Worktree $path and its branch $branch removed: its work is on origin/$default. Open $main to go on."
+  echo "Worktree $path and its branch $branch removed: $because. Open $main to go on."
 done <<< "$(issue_worktrees)"
 [ "$found" -eq 1 ] || echo "no worktree of issue $number stands here - only the card and the issue are brought up to date"
 
@@ -168,8 +183,12 @@ done <<< "$(issue_worktrees)"
 # card does not move and the issue is not told.
 own="$(default_repo 2>/dev/null)"
 commits="$(git -C "$main" log "origin/$default" -E -i --grep="$(issue_mention_pattern "${repo:-$own}" "$number" "$own")" --format='- %h %s' -n 20)"
-[ -n "$commits" ] \
-  || die "no commit on origin/$default names $ref, so the card stays and the issue is not told; a commit that touches an issue names it"
+if [ -z "$commits" ]; then
+  [ "$cut_only_removed" -gt 0 ] && [ "$worked_in_removed" -eq 0 ] \
+    || die "no commit on origin/$default names $ref, so the card stays and the issue is not told; a commit that touches an issue names it"
+  echo "${own:-this repository} holds no work of $ref: its worktree was never committed in and no commit on origin/$default names it. The card and the issue stay as they are."
+  exit 0
+fi
 
 # The issue's branches on origin. One whose every commit's change is on origin's default branch holds
 # nothing the default branch lacks, so it is deleted; a repository that lands by rebase never makes
@@ -208,13 +227,24 @@ else
   fi
 fi
 
-# What landed, in the issue, for whoever reads it next
-# An issue of another repository is told which repository the commits are in
+# What landed, in the issue, for whoever reads it next; once: an issue that holds a record listing these
+# commits is not told again. An issue of another repository is told which repository the commits are in.
+# A comment that cannot be read leaves open whether the record is there, so then nothing is written.
 landed_on="$default"; [ "$ref" = "#$number" ] || landed_on="$default of $(default_repo)"
-body="$(printf 'Landed on %s:\n\n%s\n' "$landed_on" "$commits")"
-"$BIN/issue-comment.sh" ${repo:+"$repo"} "$number" "$body" >/dev/null \
-  && echo "the issue says what landed" \
-  || echo "the issue was NOT told what landed - add the commits by hand" >&2
+issue_repo="${repo:-$own}"
+if ! context="$(issue_landing_context "$issue_repo" "$number")"; then
+  echo "the issue was NOT told what landed: its comments could not be read, so a record it holds is not known - add the commits by hand" >&2
+else
+  recorded=0; landing_recorded "$state" "$context" "$own" "$issue_repo" "$commits" || recorded=$?
+  case "$recorded" in
+    0) echo "the issue holds this record already - nothing added" ;;
+    1) body="$(printf 'Landed on %s:\n\n%s\n' "$landed_on" "$commits")"
+       "$BIN/issue-comment.sh" ${repo:+"$repo"} "$number" "$body" >/dev/null \
+         && echo "the issue says what landed" \
+         || echo "the issue was NOT told what landed - add the commits by hand" >&2 ;;
+    *) echo "the issue was NOT told what landed: its comments could not be compared with the commits - add the commits by hand" >&2 ;;
+  esac
+fi
 
 # The cards of this repository and of the issue's whose work a release carries and a proof covers close (status-sync)
 released_repo="$(resolve_repo "")" && sync_released_cards "$released_repo" ${repo:+"$repo"}

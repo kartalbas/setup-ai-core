@@ -396,6 +396,48 @@ sync_released_cards() {  # sync_released_cards <owner/repo>...
   done
 }
 
+# --- the landing record -------------------------------------------------------
+#
+# finish-issue writes "Landed on <branch>:" or "Landed on <branch> of <owner/repo>:", then one
+# "- <sha> <subject>" line per commit, in the issue when it moves the card to testing. status-sync
+# closes the card by that record: the first commit it lists must be in the release, and a "Proven on"
+# comment must follow it. Both decide by the jq definitions below, so what one counts is what the
+# other writes and looks for.
+#
+# A comment counts only when it was written by the repository's owner, a member or a collaborator: on
+# a public repository anybody can write "Landed on" and "Proven on". A record counts only when it came
+# after the issue was last reopened: a ticket reopened for rework still carries the record of the work
+# that closed it the first time. The tracker gives status-sync the last LANDING_COMMENT_WINDOW comments
+# of an open issue, and a record further back does not exist for it.
+LANDING_COMMENT_WINDOW=50
+LANDING_RECORD_JQ='
+def trusted: select(.authorAssociation == "OWNER" or .authorAssociation == "MEMBER" or .authorAssociation == "COLLABORATOR");
+def commit_lines: split("\n") | map(select(test("^- [0-9a-f]{7,40} ")));
+def landing_records($reopenedAt): [.[] | trusted | select(.body | startswith("Landed on "))
+  | select(.body | commit_lines | length > 0) | select($reopenedAt == "" or .createdAt > $reopenedAt)] | sort_by(.createdAt);
+def landing_repo($issueRepo): (.body | split("\n")[0] | capture("^Landed on \\S+ of (?<r>[^\\s:]+/[^\\s:]+):") | .r) // $issueRepo;
+def lists($shas): (.body | commit_lines | map(split(" ")[1])) as $listed
+  | $shas | all(. as $sha | $listed | any(. as $one | ($one | startswith($sha)) or ($sha | startswith($one))));
+'
+
+# landing_recorded <state> <landing context> <landing repository> <issue repository> <commit lines>: true
+# when the issue holds one record of the landing in <landing repository> that lists every commit of the
+# lines, "- <sha> <subject>" as finish-issue writes them, so that writing them again adds a copy and
+# nothing else. The context is what issue_landing_context answers. Of an open issue the record must
+# also stand after its last reopening and within the comments status-sync reads, or it would not
+# serve the card; a closed issue has no proof pending, so any trusted record of it serves. Exit 1 is
+# no; any other status is a context it could not read, which is no answer either way.
+landing_recorded() {
+  local state="$1" context="$2" landing="$3" issue="$4" commits="$5" shas
+  shas="$(sed -n 's/^- \([0-9a-f]*\) .*/\1/p' <<< "$commits" | jq -R . | jq -sc .)" || return 2
+  printf '%s' "$context" | jq -e --arg state "$state" --arg landing "$landing" --arg issue "$issue" \
+    --argjson shas "$shas" --argjson window "$LANDING_COMMENT_WINDOW" "$LANDING_RECORD_JQ"'
+    (.reopenedAt // "") as $reopenedAt
+    | (if $state == "open" then (.comments | .[(0 - $window):]) else .comments end) as $read
+    | $read | landing_records(if $state == "open" then $reopenedAt else "" end)
+    | any(((landing_repo($issue) | ascii_downcase) == ($landing | ascii_downcase)) and lists($shas))' >/dev/null
+}
+
 # --- issues -------------------------------------------------------------------
 
 # HOW THE FIRST LINE OF EVERY ISSUE BODY OPENS. `issue-new` builds that line out of arguments it

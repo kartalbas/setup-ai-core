@@ -27,7 +27,11 @@ case "$line" in
   *"items(first:100"*) out < "$G/cards.json" ;;
   *"issue(number:\$n)"*) out < "$G/parent-$n.json" ;;
   "api --paginate repos/example-org/example-repo/issues/"*"/comments")
-    id="${line#*issues/}"; id="${id%%/*}"; cat "$G/comments-$id.json" 2>/dev/null || echo '[]' ;;
+    id="${line#*issues/}"; id="${id%%/*}"
+    # gh --paginate prints one array per page: $G/page-size comments to a page
+    if [ -s "$G/page-size" ] && [ -s "$G/comments-$id.json" ]; then
+      jq -c --argjson s "$(cat "$G/page-size")" '[range(0; length; $s) as $i | .[$i:$i + $s]] | .[]' "$G/comments-$id.json"
+    else cat "$G/comments-$id.json" 2>/dev/null || echo '[]'; fi ;;
   "api repos/example-org/example-repo/issues/"*"/comments "*)
     id="${line#*issues/}"; id="${id%%/*}"
     echo "$text" >> "$G/comments.log"
@@ -144,8 +148,10 @@ grep -q 'nothing is left to carry' <<< "$out" || fail "a fully carried column do
 [ "$(writes)" = 0 ] || fail "a fully carried column wrote to Plane: $(grep '^\(POST\|PATCH\) ' "$CURL_FAKE_STATE/requests.log")"
 echo "  a column that is carried already: 'nothing is left to carry', exit 0, no POST"
 
-# a close that fails after its comment: the rerun finishes the close and posts no second comment
+# a close that fails after its comment: the rerun finishes the close and posts no second comment, though the
+# comment stands on the second page of the thread, behind an earlier one
 gh_issue 30 "Close fails once" "x" type:feature; cards "30 review P2"
+echo '[{"user":{"login":"kadir"},"created_at":"2026-10-18T00:00:00Z","body":"Earlier talk."}]' > "$G/comments-30.json"; echo 1 > "$G/page-size"
 touch "$G/fail-close"; reset_gh
 out="$(ai issue-transfer 30 --to plane 2>&1)" && fail "a failed close was reported as success: $out"
 [ "$(grep -c . "$G/comments.log")" = 1 ] && [ ! -s "$G/closes.log" ] || fail "the failed close left comments=$(grep -c . "$G/comments.log") closes=$(grep -c . "$G/closes.log")"
@@ -153,7 +159,9 @@ rm "$G/fail-close"
 out="$(ai issue-transfer 30 --to plane 2>&1)" || fail "the rerun after a failed close: $out"
 [ "$(grep -c . "$G/comments.log")" = 1 ] || fail "the rerun posted a second 'Moved to' comment: $(cat "$G/comments.log")"
 [ "$(grep -c . "$G/closes.log")" = 1 ] || fail "the rerun did not close the issue"
-echo "  a failed close leaves one comment; the rerun posts no second one and closes"
+[ "$(jq length "$G/comments-30.json")" = 2 ] || fail "the thread of #30 holds $(jq length "$G/comments-30.json") comments, not the earlier one and one 'Moved to'"
+rm "$G/page-size"
+echo "  a failed close leaves one comment; the rerun posts no second one, though it stands on the second page, and closes"
 
 # three levels in reverse card order are carried parents first; a child whose parent is outside the selection
 # is refused by name, the rest goes on, and the run ends non-zero

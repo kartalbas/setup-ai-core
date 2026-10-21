@@ -108,6 +108,44 @@ check 'the json carries an empty list' \
   '{"number":7,"title":"Bare","state":"closed","labels":[],"body":"","comments":[]}' \
   "$(PATH="$bare:$PATH" "$thread" "$repo" 7 --json)"
 
+# gh prints one JSON array per page of a paginated read. A thread on an epic runs past one page, and a
+# reader that keeps the first array only makes a settled-looking thread of the first page.
+echo 'a thread of several pages is read to its end, in the shape a script reads'
+paged="$fake/paged"
+mkdir -p "$paged"
+cat > "$paged/gh" <<'GH'
+#!/usr/bin/env bash
+case "$*" in
+  *REOPENED_EVENT*) [ -e "${PAGED_NEVER_REOPENED:-/nonexistent}" ] && echo null || echo '2026-08-22T08:00:00Z'; exit 0 ;;
+  *comments*) echo '[ { "user": { "login": "kadir" }, "author_association": "OWNER", "created_at": "2026-08-20T09:00:00Z", "body": "Page one." } ]'
+              echo '[ { "user": { "login": "anton" }, "author_association": "MEMBER", "created_at": "2026-08-21T11:30:00Z", "body": "Page two." },
+                    { "user": { "login": "stranger" }, "author_association": "NONE", "created_at": "2026-08-21T12:00:00Z", "body": null } ]'
+              exit 0 ;;
+  *"repos/example-org/example-repo/issues/"*) echo '{ "number": 163, "title": "Paged", "state": "open", "labels": [], "body": "Body." }'; exit 0 ;;
+  *) printf 'example-org/example-repo\n'; exit 0 ;;
+esac
+GH
+chmod +x "$paged/gh"
+json="$(PATH="$paged:$PATH" "$thread" "$repo" 163 --json)"
+check 'three comments, not the first page'  3 "$(printf '%s' "$json" | jq -r '.comments | length')"
+check 'in the order of the pages'           'kadir anton stranger' "$(printf '%s' "$json" | jq -r '[.comments[].author] | join(" ")')"
+check 'a comment keeps its three fields'    'author created_at body' "$(printf '%s' "$json" | jq -r '.comments[0] | keys_unsorted | join(" ")')"
+check 'a body that is null reads empty'     '' "$(printf '%s' "$json" | jq -r '.comments[2].body')"
+check 'the plain layout prints every page'  3 "$(PATH="$paged:$PATH" "$thread" "$repo" 163 | grep -c '^--- ')"
+
+# What decides whether an issue holds a record of a landing is not in the thread: the association of each
+# author with the repository, and the last reopening. It reaches finish-issue as the landing context.
+echo 'the landing context holds every comment with its author association, and the last reopening'
+context() { PATH="$paged:$PATH" bash -c '. "$1/lib/board.sh"; issue_landing_context example-org/example-repo 163' _ "$root"; }
+ctx="$(context)"
+check 'every comment of every page'         3 "$(printf '%s' "$ctx" | jq -r '.comments | length')"
+check 'with the association of its author'  'OWNER MEMBER NONE' "$(printf '%s' "$ctx" | jq -r '[.comments[].authorAssociation] | join(" ")')"
+check 'and the fields the record rules read' 'createdAt body authorAssociation' "$(printf '%s' "$ctx" | jq -r '.comments[0] | keys_unsorted | join(" ")')"
+check 'the last reopening'                  '2026-08-22T08:00:00Z' "$(printf '%s' "$ctx" | jq -r '.reopenedAt')"
+touch "$paged/never-reopened"
+check 'an issue never reopened has none'    null "$(PAGED_NEVER_REOPENED="$paged/never-reopened" context | jq -c '.reopenedAt')"
+rm -f "$paged/never-reopened"
+
 # A real thread on an epic runs to tens of kilobytes. Handed to jq as an argument it dies with
 # "Argument list too long" - on exactly the issues worth reading - so it travels through a pipe.
 echo 'a comment larger than one command-line argument is read whole'
@@ -161,6 +199,10 @@ out="$(PATH="$refusing:$PATH" "$thread" "$repo" 404 2>&1)" && rc=0 || rc=$?
 check 'exits nonzero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
 check 'and says what could not be read' yes \
   "$(grep -q 'cannot read the issue example-org/example-repo#404' <<< "$out" && echo yes || echo no)"
+out="$(PATH="$refusing:$PATH" bash -c '. "$1/lib/board.sh"; issue_landing_context example-org/example-repo 404' _ "$root" 2>&1)" && rc=0 || rc=$?
+check 'the landing context of a refused read is an error, not an empty one' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'and says what could not be read' yes \
+  "$(grep -q 'cannot read the comments of example-org/example-repo#404' <<< "$out" && echo yes || echo no)"
 
 echo 'a call with no number is refused'
 out="$("$thread" 2>&1)" && rc=0 || rc=$?

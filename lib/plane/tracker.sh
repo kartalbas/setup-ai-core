@@ -689,22 +689,35 @@ closing_column() {
 
 # epic_target_on_board <owner/repo> <number> - the epic_target of a work item, from its own state and the
 # states of its children: a state of the completed group counts as done, one of the cancelled group as not
-# planned, any other by its name. A work item without children gets nothing. A read, so any repository of
-# the project: the sweep of status-sync asks it for the epics of each.
+# planned, any other by its name, except that a child still open counts at most as testing, whatever the
+# state is called, one called done or not planned included, or the epic would close with that work item
+# still open. Every child is read, page after page. A work item without children gets nothing. A read, so
+# any repository of the project: the sweep of status-sync asks it for the epics of each.
 epic_target_on_board() {
   local item children rows cur st first=1
   item="$(plane_item_read "$1" "$2")" || exit 1
   children="$(plane_pages "the work items of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/issues/")?expand=state&fields=id,parent,state")" || exit 1
   rows="$(printf '%s\n%s\n' "$item" "$children" | jq -rs '
     def status: if .state.group == "completed" then "done" elif .state.group == "cancelled" then "not planned" else (.state.name | ascii_downcase) end;
+    def childstatus: if .state.group | IN("completed", "cancelled") then status else status | if IN("done", "not planned") then "testing" else . end end;
     .[0] as $i | ([.[1:][] | select(.parent == $i.id)]) as $kids
-    | if ($kids | length) == 0 then empty else ($i | status), ($kids[] | status) end')"
+    | if ($kids | length) == 0 then empty else ($i | status), ($kids[] | childstatus) end')"
   [ -n "$rows" ] || return 0
   set --
   while IFS= read -r st; do
     if [ "$first" = 1 ]; then cur="$st"; first=0; else set -- "$@" "$st"; fi
   done <<< "$rows"
   epic_target "$cur" "$@"
+}
+
+# open_subissues <owner/repo> <number>: the children of a work item that are not closed, one "<owner/repo>#<number>"
+# a line, none where it has none. Closed is the completed and cancelled groups of the state, never its name. A
+# child that names no repository is written as Plane writes it, <project>-<number>.
+open_subissues() {
+  local item
+  item="$(plane_item_read "$1" "$2")" || exit 1
+  plane_all_items | jq -rs --arg o "$(plane_owner)" --arg id "$(printf '%s' "$item" | jq -r '.id')" --arg project "$(plane_setting PLANE_PROJECT)" "$PLANE_REPO""$PLANE_ROW"'
+    .[] | select(.parent.id == $id and (closed | not)) | "\(repo($o) // $project)\(if repo($o) then "#" else "-" end)\(.sequence_id)"'
 }
 
 # --- the rows over the project ---------------------------------------------------------------
@@ -867,35 +880,65 @@ issue_summaries() {
     | "\(.sequence_id)\t\(if closed then "CLOSED" else "OPEN" end)\t\([.labels[].name | select(startswith("repo:") | not)] | join(","))\t\(.name | gsub("[\t\n]"; " "))"'
 }
 
+# plane_closed_state_ids: the ids of the states of the completed and cancelled groups, the closed states, as a JSON array
+plane_closed_state_ids() {
+  local states
+  states="$(plane_states)" || exit 1
+  printf '%s\n' "$states" | jq -cs '[.[] | select(.group | IN("completed", "cancelled")) | .id]'
+}
+
+# plane_active_member_ids: the ids of the active members of the project, as a JSON array
+plane_active_member_ids() {
+  local rows
+  rows="$(plane_pages "the members of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/project-members-lite/")")" || exit 1
+  printf '%s\n' "$rows" | jq -cs '[.[] | select(.is_active == true) | .id]'
+}
+
+# plane_landing_context <work item id> <what it is, for a refusal> <closed state ids> <active member ids>: the
+# landing context of lib/tracker.sh (issue_landing_context) of a work item, read from its comments and its
+# state changes: {reopenedAt, comments:[{createdAt, body, authorAssociation}]}. A comment is a MEMBER's
+# where its author is an active member of the project: the is_member of a comment says whether the key's
+# own user is a member (Plane CE 1.4.2, apps/api/plane/api/views/issue.py, member_id=self.request.user.id),
+# so it says nothing of the author. The reopening is the last change of the state from a closed to an open one.
+plane_landing_context() {
+  local id="$1" what="$2" closed="$3" members="$4" comments acts
+  comments="$(plane_pages "the comments of $what" "$(plane_path "projects/$(plane_project_uuid)/issues/$id/comments/")")" || exit 1
+  acts="$(plane_pages "the state changes of $what" "$(plane_path "projects/$(plane_project_uuid)/issues/$id/activities/")")" || exit 1
+  jq -cn --argjson closed "$closed" --argjson members "$members" --argjson c "$(printf '%s' "$comments" | jq -cs '.')" --argjson a "$(printf '%s' "$acts" | jq -cs '.')" "$PLANE_TEXT"'
+    {comments: ($c | sort_by(.created_at) | map({createdAt: .created_at, body: ((.comment_html // "") | text),
+                authorAssociation: (if (.actor | if type == "object" then .id else . end) as $a | $members | index($a) then "MEMBER" else "NONE" end)})),
+     reopenedAt: ([$a[] | select(.field == "state" and (.old_identifier | IN($closed[])) and ((.new_identifier | IN($closed[])) | not))]
+                  | sort_by(.created_at) | last | .created_at)}'
+}
+
+# issue_landing_context <owner/repo> <number>: the landing context of lib/tracker.sh of a work item, every comment
+# of it
+issue_landing_context() {
+  local item closed members
+  item="$(plane_item_read "$1" "$2")" || exit 1
+  closed="$(plane_closed_state_ids)" || exit 1
+  members="$(plane_active_member_ids)" || exit 1
+  plane_landing_context "$(printf '%s' "$item" | jq -r '.id')" "$1#$2" "$closed" "$members"
+}
+
 # open_issue_page <owner/repo> [cursor]: the open work items of the repository, as the page GitHub answers to
 # status-sync (lib/github/tracker.sh): the number, the sub-issue total, the one board it is on with its Status,
-# the time of the last reopening and the last 50 comments. status-sync reads the comments of a card in testing
-# alone, so those, and the state changes behind a reopening, are read for the work items in testing alone: a
-# page costs two reads beside the listing for each of them. The whole repository is one page.
-# A comment is a MEMBER's where its author is an active member of the project, read once from the project's
-# members: the is_member of a comment says whether the key's own user is a member (Plane CE 1.4.2,
-# apps/api/plane/api/views/issue.py, member_id=self.request.user.id), so it says nothing of the author.
+# the time of the last reopening and the last LANDING_COMMENT_WINDOW comments. status-sync reads the comments
+# of a card in testing alone, so those, and the state changes behind a reopening, are read for the work items
+# in testing alone: a page costs two reads beside the listing for each of them. The whole repository is one
+# page. The members are read once, and plane_landing_context judges each comment's author by them.
 open_issue_page() {
-  local repo="$1" all closed ids id comments acts members="[]" extra=""
+  local repo="$1" all closed ids id record members="[]" extra=""
   plane_check_owner "$repo"
   all="$(plane_all_items)" || exit 1
-  closed="$(plane_states | jq -cs '[.[] | select(.group | IN("completed", "cancelled")) | .id]')" || exit 1
+  closed="$(plane_closed_state_ids)" || exit 1
   ids="$(printf '%s\n' "$all" | jq -r --arg o "$(plane_owner)" --arg r "$repo" "$PLANE_REPO""$PLANE_ROW"'
     select(same(repo($o); $r) and (closed | not) and (.state.name | ascii_downcase) == "testing") | .id')"
-  if [ -n "$ids" ]; then
-    members="$(plane_pages "the members of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/project-members-lite/")")" || exit 1
-    members="$(printf '%s\n' "$members" | jq -cs '[.[] | select(.is_active == true) | .id]')"
-  fi
+  if [ -n "$ids" ]; then members="$(plane_active_member_ids)" || exit 1; fi
   while IFS= read -r id; do
     [ -n "$id" ] || continue
-    comments="$(plane_pages "the comments of a work item of $repo" "$(plane_path "projects/$(plane_project_uuid)/issues/$id/comments/")")" || exit 1
-    acts="$(plane_pages "the state changes of a work item of $repo" "$(plane_path "projects/$(plane_project_uuid)/issues/$id/activities/")")" || exit 1
-    extra="$extra$(jq -cn --arg i "$id" --argjson closed "$closed" --argjson members "$members" --argjson c "$(printf '%s' "$comments" | jq -cs '.')" --argjson a "$(printf '%s' "$acts" | jq -cs '.')" "$PLANE_TEXT"'
-      {id: $i,
-       comments: ($c | sort_by(.created_at) | .[-50:] | map({createdAt: .created_at, body: ((.comment_html // "") | text),
-                   authorAssociation: (if (.actor | if type == "object" then .id else . end) as $a | $members | index($a) then "MEMBER" else "NONE" end)})),
-       reopenedAt: ([$a[] | select(.field == "state" and (.old_identifier | IN($closed[])) and ((.new_identifier | IN($closed[])) | not))]
-                    | sort_by(.created_at) | last | .created_at)}')"$'\n'
+    record="$(plane_landing_context "$id" "a work item of $repo" "$closed" "$members")" || exit 1
+    extra="$extra$(jq -c --arg i "$id" --argjson k "$LANDING_COMMENT_WINDOW" '{id: $i, comments: (.comments | .[(0 - $k):]), reopenedAt}' <<< "$record")"$'\n'
   done <<< "$ids"
   printf '%s\n' "$all" | jq -cs --arg o "$(plane_owner)" --arg r "$repo" --argjson board "$(project_number_json)" --arg org "$(project_org)" \
     --argjson extra "$(printf '%s' "$extra" | jq -cs '.')" "$PLANE_REPO""$PLANE_ROW"'

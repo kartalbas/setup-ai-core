@@ -86,29 +86,24 @@ derive_target() {
 # The commit is the first one finish-issue listed in its newest "Landed on <branch>:" comment,
 # the record it writes when it moves the card to testing; a report that starts with the same words
 # but lists no commit is not that record; "Landed on <branch> of <owner/repo>:"
-# names the repository the work landed in. A comment counts only when it came after the issue was
-# last reopened: a ticket reopened for rework still carries the record of the work that closed it
-# the first time. A proof record counts only when it came after that landing. Only the comments of
-# the repository's owner, members and collaborators count: on a public repository anybody can
-# write "Landed on" and "Proven on".
+# names the repository the work landed in. Which comments are records is decided in lib/board.sh
+# (LANDING_RECORD_JQ), as finish-issue decides whether the issue holds one. A proof record counts
+# only when it came after that landing, written by an author who counts as there.
 cards_of_repo() {  # <owner/repo>
   local repo="$1" after="" page next
   while :; do
     page="$(open_issue_page "$repo" "$after")" || exit 1
-    printf '%s' "$page" | jq -r --argjson board "$(project_number_json)" --arg org "$(project_org)" '
+    printf '%s' "$page" | jq -r --argjson board "$(project_number_json)" --arg org "$(project_org)" "$LANDING_RECORD_JQ"'
       .data.repository.issues.nodes[]
       | . as $i
       | ([$i.projectItems.nodes[] | select(.project.number == $board and (.project.owner.login | ascii_downcase) == ($org | ascii_downcase))
           | (.status.name // "")] | first) as $status
       | select($status != null and $status != "")
       | (($i.reopened.nodes[0].createdAt) // "") as $reopenedAt
-      | [$i.comments.nodes[] | select(.authorAssociation == "OWNER" or .authorAssociation == "MEMBER" or .authorAssociation == "COLLABORATOR")] as $said
-      | ([$said[] | select(.body | startswith("Landed on "))
-          | select(.body | split("\n") | any(test("^- [0-9a-f]{7,40} ")))
-          | select($reopenedAt == "" or (.createdAt > $reopenedAt))] | sort_by(.createdAt) | last) as $landed
-      | (($landed.body // "") | split("\n") | map(select(test("^- [0-9a-f]{7,40} "))) | first
-          | if . then (split(" ")[1]) else "-" end) as $sha
-      | ((($landed.body // "") | (split("\n")[0] // "") | capture("^Landed on \\S+ of (?<r>[^\\s:]+/[^\\s:]+):") | .r) // "-") as $elsewhere
+      | [$i.comments.nodes[] | trusted] as $said
+      | ($said | landing_records($reopenedAt) | last) as $landed
+      | (($landed.body // "") | commit_lines | first | if . then (split(" ")[1]) else "-" end) as $sha
+      | (if $landed then ($landed | landing_repo("-")) else "-" end) as $elsewhere
       | ([$said[] | select($landed != null and (.body | startswith("Proven on ")) and (.createdAt > $landed.createdAt))]
           | if length > 0 then 1 else 0 end) as $proven
       | "\($status)\t\($i.number)\t\($i.subIssuesSummary.total // 0)\t\($sha)\t\($proven)\t\($elsewhere)"' || exit 1

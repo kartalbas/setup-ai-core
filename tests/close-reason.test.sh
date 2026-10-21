@@ -25,6 +25,9 @@ cat > "$fake/gh" <<EOF
 printf '%s\n' "\$*" >> "$log"
 j="\$*"
 case "\$j" in
+  # the open sub-issues of the issue asked for (-F n=), as the --jq of the query prints them, one a line
+  *'subIssues(first'*)             [ -e "$fake/children-down" ] && { echo 'gh: HTTP 502' >&2; exit 1; }
+                                   cat "$fake/open-children-\$(printf '%s\n' "\$@" | sed -n 's/^n=\([0-9]*\)\$/\1/p')" 2>/dev/null; exit 0 ;;
   *projectItems*)                  printf 'example-org/998\tPVTI_item\n'; exit 0 ;;
   *'projectsV2(first'*)            printf '998\talpha\n'; exit 0 ;;
   *'projectV2(number'*)            echo 'PVT_kwclose'; exit 0 ;;
@@ -90,6 +93,7 @@ mkdir -p "$lonely"
 cat > "$lonely/gh" <<'NO'
 #!/usr/bin/env bash
 case "$*" in
+  *'subIssues(first'*)  exit 0 ;;
   *projectItems*)       exit 0 ;;
   *'projectsV2(first'*) exit 0 ;;
 esac
@@ -104,6 +108,47 @@ check 'exits zero'      0 "$rc"
 check 'the close line'  '#270 -> closed' "$(printf '%s\n' "$out" | sed -n '1p')"
 check 'and says why there is no card' "#270 -> done (issue only; $repo is on no board)" \
   "$(printf '%s\n' "$out" | sed -n '2p')"
+
+# An epic carries no work of its own: closed with an open sub-issue, as completed or as not planned, it says
+# done on the board while its work is not, or leaves the sub-issues without the issue that tracks them
+echo 'an issue with an open sub-issue is refused, with both reasons, and nothing is written for it'
+printf 'example-org/example-repo#271\nother-org/tracker#9\n' > "$fake/open-children-270"
+for reason in '' not-planned; do
+  : > "$log"
+  out="$("$close" "$repo" ${reason:+--reason "$reason"} 270 2>&1)"; rc=$?
+  check "${reason:-completed}: exits nonzero" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+  check "${reason:-completed}: it names the open sub-issues as <repo>#<n>" \
+    "error: $repo#270 has open sub-issues, so it stays open and its card where it is: example-org/example-repo#271 other-org/tracker#9 - close them first, or take them out of it" \
+    "$out"
+  check "${reason:-completed}: nothing was closed" 0 "$(grep -c 'api --method PATCH' "$log" || true)"
+  check "${reason:-completed}: no card was moved" 0 "$(grep -cE 'updateProjectV2ItemFieldValue|addProjectV2ItemById' "$log" || true)"
+done
+check 'the sub-issues were read before anything was written' yes "$(grep -q 'subIssues(first' "$log" && echo yes || echo no)"
+
+echo 'two numbers: the one with an open sub-issue is refused where it stands, the one before it is closed'
+: > "$log"
+rm -f "$fake/open-children-270"; printf 'example-org/example-repo#272\n' > "$fake/open-children-271"
+out="$("$close" "$repo" 270 271 2>&1)"; rc=$?
+check 'the first of the two is closed' 1 "$(grep -c 'api --method PATCH repos/example-org/example-repo/issues/270 ' "$log" || true)"
+check 'exits nonzero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'the second is not closed' 0 "$(grep -c 'api --method PATCH repos/example-org/example-repo/issues/271 ' "$log" || true)"
+rm -f "$fake/open-children-271"
+
+echo 'a read of the sub-issues that fails closes nothing: no answer is not "no sub-issues"'
+: > "$log"; touch "$fake/children-down"
+out="$("$close" "$repo" 270 2>&1)"; rc=$?
+rm -f "$fake/children-down"
+check 'exits nonzero'    yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'it says what it could not read' yes "$(grep -q "cannot read the sub-issues of $repo#270" <<< "$out" && echo yes || echo no)"
+check 'nothing was closed' 0 "$(grep -c 'api --method PATCH' "$log" || true)"
+check 'no card was moved'  0 "$(grep -cE 'updateProjectV2ItemFieldValue' "$log" || true)"
+
+echo 'an issue whose sub-issues are all closed is closed, as is a leaf'
+: > "$log"
+out="$("$close" "$repo" 270 2>&1)"; rc=$?
+check 'exits zero'       0 "$rc"
+check 'the close line'   '#270 -> closed' "$(printf '%s\n' "$out" | sed -n '1p')"
+check 'closed'           1 "$(grep -c 'api --method PATCH repos/example-org/example-repo/issues/270 ' "$log" || true)"
 
 echo 'a number that is not one is refused before anything is sent'
 : > "$log"

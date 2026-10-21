@@ -183,7 +183,8 @@ repo_open_projects() {  # repo_open_projects <owner/repo>
 #   {number,title,state,labels,body,comments:[{author,created_at,body}]}
 #
 # The comments are paged. A thread on an epic often runs past one page, and a page that is
-# dropped makes the thread look settled when it is not.
+# dropped makes the thread look settled when it is not: gh prints one JSON array per page, and every
+# page is read.
 #
 # Both documents reach jq through a PIPE and never as an argument. A busy thread is larger
 # than one command-line argument may be - the operating system refuses with "Argument list
@@ -196,13 +197,32 @@ issue_thread() {  # issue_thread <owner/repo> <number>
   local issue comments
   issue="$(gh_read "the issue $1#$2" api "repos/$1/issues/$2")" || exit 1
   comments="$(gh_read "the comments of $1#$2" api --paginate "repos/$1/issues/$2/comments")" || exit 1
-  printf '%s\n%s\n' "$issue" "$comments" | jq -s '.[0] as $issue | .[1] as $comments | {
+  printf '%s\n%s\n' "$issue" "$comments" | jq -s '.[0] as $issue | (.[1:] | add // []) as $comments | {
     number:   $issue.number,
     title:    $issue.title,
     state:    $issue.state,
     labels:   [$issue.labels[].name],
     body:     ($issue.body // ""),
     comments: [$comments[] | { author: .user.login, created_at: .created_at, body: (.body // "") }]
+  }'
+}
+
+# issue_landing_context <owner/repo> <number>: what decides whether the issue holds a record of a landing
+# (landing_recorded in lib/board.sh), as one JSON object:
+#   {reopenedAt, comments:[{createdAt, body, authorAssociation}]}
+# every comment of the thread in the order it was written, each with the association of its author with
+# the repository as the tracker names it, and the time of the last reopening, or null. The thread of
+# issue_thread has neither the association nor the reopening.
+issue_landing_context() {
+  local comments reopened
+  comments="$(gh_read "the comments of $1#$2" api --paginate "repos/$1/issues/$2/comments")" || exit 1
+  reopened="$(gh_read "the last reopening of $1#$2" api graphql -f o="${1%%/*}" -f n="${1#*/}" -F i="$2" -f query='
+    query($o:String!, $n:String!, $i:Int!) { repository(owner:$o, name:$n) { issue(number:$i) {
+      reopened: timelineItems(last:1, itemTypes:[REOPENED_EVENT]) { nodes { ... on ReopenedEvent { createdAt } } } } } }' \
+    --jq '.data.repository.issue.reopened.nodes[0].createdAt')" || exit 1
+  printf '%s\n' "$comments" | jq -s --arg reopened "$reopened" '{
+    reopenedAt: (if $reopened == "" or $reopened == "null" then null else $reopened end),
+    comments:   [(add // [])[] | { createdAt: .created_at, body: (.body // ""), authorAssociation: .author_association }]
   }'
 }
 
@@ -406,27 +426,52 @@ set_select() {  # set_select <item id> <field name> <option name>
         value:{singleSelectOptionId:$oid}}) { projectV2Item { id } } }' >/dev/null
 }
 
+# github_subissues <owner/repo> <number> <fields of the issue> <fields of a sub-issue> <jq program>: the jq
+# program run over the issue and over every page of its sub-issues, its lines printed in page order. The
+# program reads .data.repository.issue and may ask onfirstpage, true on the first page alone, for what is
+# said once. A page is read until the tracker says there is no further one; a read that fails ends the whole
+# read, so no part of the sub-issues is ever taken for all of them.
+github_subissues() {
+  local after="" first=true out
+  while :; do
+    out="$(gh_read "the sub-issues of $1#$2" api graphql -f o="${1%%/*}" -f r="${1#*/}" -F n="$2" ${after:+-f after="$after"} -f query='
+      query($o:String!, $r:String!, $n:Int!, $after:String) { repository(owner:$o, name:$r) { issue(number:$n) {
+        '"$3"'
+        subIssues(first:100, after:$after) { pageInfo { hasNextPage endCursor } nodes { '"$4"' } } } } }' \
+      --jq "def onfirstpage: $first; ($5), (.data.repository.issue.subIssues.pageInfo | select(.hasNextPage) | \"after \(.endCursor)\")")" || return 1
+    after="$(sed -n 's/^after //p' <<< "$out")"
+    grep -v '^after ' <<< "$out" || true
+    [ -n "$after" ] || break
+    first=false
+  done
+}
+
+# open_subissues <owner/repo> <number>: the sub-issues of an issue that are not closed, one "<owner/repo>#<number>"
+# a line, none where it has none. Whether one is closed is the issue's own state, never the column of a card.
+open_subissues() {
+  github_subissues "$1" "$2" '' 'number state repository { nameWithOwner }' \
+    '.data.repository.issue.subIssues.nodes[] | select(.state != "CLOSED") | "\(.repository.nameWithOwner)#\(.number)"' || exit 1
+}
+
 # epic_target_on_board <owner/repo> <number> - the epic_target of an issue, read from its own card
 # and its sub-issues' cards on the selected board, or on whichever board they are on when none is
-# selected; an issue without sub-issues gets nothing. A sub-issue with no card on the selected board,
-# often one of another repository on that repository's board, counts where its first card with a
-# status stands, and at most as testing: an open issue is done for its epic only where the epic's
-# own board says so, or the epic would close with that issue still open.
+# selected; an issue without sub-issues gets nothing. A sub-issue counts as done or as not planned only
+# when it is closed: an open one counts at most as testing, whatever column its card stands in, a column
+# called done or not planned included, or the epic would close with that issue still open. One with no
+# card on the selected board, often one of another repository on that repository's board, counts where
+# its first card with a status stands.
 epic_target_on_board() {
   local repo="$1" n="$2" on="" rows cur="" first=1 st
   [ -z "${PROJECT:-}" ] || on="select(.project.number == $(project_number) and .project.owner.login == \"$(project_org)\") |"
-  rows="$(gh_read "the sub-issues of $repo#$n" api graphql -f o="${repo%%/*}" -f r="${repo#*/}" -F n="$n" -f query='
-    query($o:String!, $r:String!, $n:Int!) { repository(owner:$o, name:$r) { issue(number:$n) {
-      state stateReason projectItems(first:20) { nodes { project { number owner { ... on Organization { login } ... on User { login } } }
-        status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } }
-      subIssues(first:100) { nodes { state stateReason projectItems(first:20) { nodes {
-        project { number owner { ... on Organization { login } ... on User { login } } }
-        status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } } } } } } }' \
-    --jq "def card: [.projectItems.nodes[] | $on (.status.name // \"backlog\")] | first;
-          def anycard: [.projectItems.nodes[] | .status.name | select(. != null)] | first
-            | if . != null and ascii_downcase == \"done\" then \"testing\" else . end;
-          def status(c): if .state == \"CLOSED\" then (if .stateReason == \"NOT_PLANNED\" or .stateReason == \"DUPLICATE\" then \"not planned\" else \"done\" end) else (c // \"backlog\") end;
-          .data.repository.issue | status(card), (.subIssues.nodes[] | status(card // anycard))")" || return 1
+  local fields='state stateReason projectItems(first:20) { nodes { project { number owner { ... on Organization { login } ... on User { login } } }
+        status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } }'
+  rows="$(github_subissues "$repo" "$n" "$fields" "$fields" "
+    def card: [.projectItems.nodes[] | $on (.status.name // \"backlog\")] | first;
+    def anycard: [.projectItems.nodes[] | .status.name | select(. != null)] | first;
+    def closed: if .stateReason == \"NOT_PLANNED\" or .stateReason == \"DUPLICATE\" then \"not planned\" else \"done\" end;
+    def unclosed(c): (c // \"backlog\") | if (ascii_downcase | IN(\"done\", \"not planned\")) then \"testing\" else . end;
+    (.data.repository.issue | if onfirstpage then (if .state == \"CLOSED\" then closed else (card // \"backlog\") end) else empty end),
+    (.data.repository.issue.subIssues.nodes[] | if .state == \"CLOSED\" then closed else unclosed(card // anycard) end)")" || return 1
   set --
   while IFS= read -r st; do
     st="$(printf '%s' "$st" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
@@ -861,17 +906,17 @@ card_rows() {
 }
 
 # open_issue_page <owner/repo> [cursor]: one page of the open issues of the repository with their cards
-# (board number, owner and Status), the time of the last reopening and the last 50 comments, as the
-# tracker answers it; status-sync reads it and pages with the cursor.
+# (board number, owner and Status), the time of the last reopening and the last LANDING_COMMENT_WINDOW
+# comments, as the tracker answers it; status-sync reads it and pages with the cursor.
 open_issue_page() {
   gh_read "the open issues of $1" api graphql -f o="${1%%/*}" -f n="${1#*/}" ${2:+-f after="$2"} -f query='
-    query($o:String!, $n:String!, $after:String) { repository(owner:$o, name:$n) {
+    query($o:String!, $n:String!, $k:Int!, $after:String) { repository(owner:$o, name:$n) {
       issues(states:OPEN, first:50, after:$after) { pageInfo { hasNextPage endCursor } nodes {
         number subIssuesSummary { total }
         projectItems(first:20) { nodes { project { number owner { ... on Organization { login } ... on User { login } } }
           status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } }
         reopened: timelineItems(last:1, itemTypes:[REOPENED_EVENT]) { nodes { ... on ReopenedEvent { createdAt } } }
-        comments(last:50) { nodes { createdAt body authorAssociation } } } } } }'
+        comments(last:$k) { nodes { createdAt body authorAssociation } } } } } }' -F k="$LANDING_COMMENT_WINDOW"
 }
 
 # board_fields_json: the single-select fields of the selected board with their options, as the tracker

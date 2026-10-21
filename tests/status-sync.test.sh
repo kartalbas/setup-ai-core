@@ -99,6 +99,10 @@ check 'CLOSE is done' 3 "$(status_rank CLOSE)"
 #       although its commit is in deploy/prod/1 of this repository
 #   #23 testing, proven, landed in example-org/tools, whose clone stands in the project folder
 #       with its own LIVE_TAGS and its tag deploy/prod/7 on that commit -> would close
+#   #31 testing, proven, its work landed in this repository and then in docs and in gone, the newest record the one of
+#       gone, which has no clone here                                 -> would close, by the record of its own repository
+#   #32 testing, proven, landed in docs and then in gone only        -> stays, named: its newest record is read, and gone has no clone
+#   #33 testing, proven, its record names a commit origin/master does not hold -> stays, named as having no landing
 # and #18 has a "Proven on" comment by somebody outside the repository, which is no proof.
 #
 # lib/board.sh, which the source above brought in, carries `set -e`. An assertion that counts
@@ -185,7 +189,7 @@ issue() {  # issue <number> <status> <sub-issues> <comments> [reopened at]
 }
 page() { printf '{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":%s,"endCursor":%s},"nodes":[%s]}}}}\n' "$1" "$2" "$3"; }
 page true '"c1"' "$(issue 12 implementing 0 "$(landed 2026-09-01T10:00:00Z "$c12")"),$(issue 13 testing 0 "$(landed 2026-08-01T10:00:00Z 0000000),$(landed 2026-09-01T10:00:00Z "$c13"),{\"createdAt\":\"2026-09-02T12:00:00Z\",\"authorAssociation\":\"MEMBER\",\"body\":\"Landed on master as abc1313, the merge of the package\"},$(proven 2026-09-02T10:00:00Z),{\"createdAt\":\"2026-09-03T10:00:00Z\",\"authorAssociation\":\"MEMBER\",\"body\":\"Looks good, see 2222222\"}"),$(issue 14 todo 1 ''),$(issue 16 testing 0 "$(landed 2026-09-01T10:00:00Z "$c16"),$(proven 2026-09-02T10:00:00Z)" 2026-09-05T10:00:00Z),$(issue 17 testing 0 '{"createdAt":"2026-09-01T10:00:00Z","authorAssociation":"MEMBER","body":"Done in\n- abc1717 by hand"},{"createdAt":"2026-09-01T11:00:00Z","authorAssociation":"MEMBER","body":"Landed on master as abc1717, by hand"}')" > "$FAKE/issues-1.json"
-page false null "$(issue 18 testing 0 "$(proven 2026-08-30T10:00:00Z),$(landed 2026-09-01T10:00:00Z "$c18"),$(proven 2026-09-02T10:00:00Z NONE)"),$(issue 22 testing 0 "$(landed 2026-09-01T10:00:00Z "$c13" example-org/gone),$(proven 2026-09-02T10:00:00Z)"),$(issue 23 testing 0 "$(landed 2026-09-01T10:00:00Z "$t23" example-org/tools),$(proven 2026-09-02T10:00:00Z)"),$(issue 19 testing 0 "$(landed 2026-09-01T10:00:00Z "$c19"),$(proven 2026-09-02T10:00:00Z)"),$(issue 20 testing 0 "$(landed 2026-09-01T10:00:00Z "$c20"),$(proven 2026-09-02T10:00:00Z)"),$(issue 21 '' 0 ''),$(issue 1 implementing 0 ''),$(issue 24 implementing 0 ''),$(issue 25 Review 0 ''),$(issue 27 implementing 0 ''),$(issue 26 done 0 ''),$(issue 28 testing 0 "$(landed 2026-09-01T10:00:00Z "$d28" example-org/docs),$(proven 2026-09-02T10:00:00Z)"),$(issue 29 testing 0 "$(landed 2026-09-01T10:00:00Z "$d29" example-org/docs),$(proven 2026-09-02T10:00:00Z)")" > "$FAKE/issues-2.json"
+page false null "$(issue 18 testing 0 "$(proven 2026-08-30T10:00:00Z),$(landed 2026-09-01T10:00:00Z "$c18"),$(proven 2026-09-02T10:00:00Z NONE)"),$(issue 22 testing 0 "$(landed 2026-09-01T10:00:00Z "$c13" example-org/gone),$(proven 2026-09-02T10:00:00Z)"),$(issue 23 testing 0 "$(landed 2026-09-01T10:00:00Z "$t23" example-org/tools),$(proven 2026-09-02T10:00:00Z)"),$(issue 19 testing 0 "$(landed 2026-09-01T10:00:00Z "$c19"),$(proven 2026-09-02T10:00:00Z)"),$(issue 20 testing 0 "$(landed 2026-09-01T10:00:00Z "$c20"),$(proven 2026-09-02T10:00:00Z)"),$(issue 21 '' 0 ''),$(issue 1 implementing 0 ''),$(issue 24 implementing 0 ''),$(issue 25 Review 0 ''),$(issue 27 implementing 0 ''),$(issue 26 done 0 ''),$(issue 28 testing 0 "$(landed 2026-09-01T10:00:00Z "$d28" example-org/docs),$(proven 2026-09-02T10:00:00Z)"),$(issue 29 testing 0 "$(landed 2026-09-01T10:00:00Z "$d29" example-org/docs),$(proven 2026-09-02T10:00:00Z)"),$(issue 31 testing 0 "$(landed 2026-09-01T10:00:00Z "$c13"),$(landed 2026-09-01T11:00:00Z "$d28" example-org/docs),$(landed 2026-09-01T12:00:00Z "$c13" example-org/gone),$(proven 2026-09-02T10:00:00Z)"),$(issue 32 testing 0 "$(landed 2026-09-01T10:00:00Z "$d28" example-org/docs),$(landed 2026-09-01T12:00:00Z "$c13" example-org/gone),$(proven 2026-09-02T10:00:00Z)"),$(issue 33 testing 0 "$(landed 2026-09-01T10:00:00Z abcdef0123),$(proven 2026-09-02T10:00:00Z)")" > "$FAKE/issues-2.json"
 page false null "$(issue 15 todo 0 '')" > "$FAKE/issues-other.json"
 # #14's one sub-issue was moved to testing by hand on the board; the epic itself stands in todo
 printf '%s\n' '{"data":{"repository":{"issue":{"state":"OPEN","projectItems":{"nodes":[{"project":{"number":999995,"owner":{"login":"example-org"}},"status":{"name":"todo"}}]},"subIssues":{"nodes":[{"state":"OPEN","projectItems":{"nodes":[{"project":{"number":999995,"owner":{"login":"example-org"}},"status":{"name":"testing"}}]}}]}}}}}' > "$FAKE/epic-14.json"
@@ -246,13 +250,20 @@ check 'and follows its sub-issue moved by hand' \
   'would move   example-repo#14  (todo -> testing)' \
   "$(grep '^would move   example-repo#14' <<< "$run")"
 check 'nothing else moves: not on master alone, not reopened, not by hand, not on test only, not untagged' \
-  '' "$(grep -E 'example-repo#(12|16|17|19|20|22)' <<< "$run" | grep -v -e '^proof due' -e '^no landing' -e '^not finished' -e '^not released')"
+  '' "$(grep -E 'example-repo#(12|16|17|19|20)' <<< "$run" | grep -v -e '^proof due' -e '^no landing' -e '^not finished' -e '^not released')"
+check 'work that landed in several repositories is read by the newest record of the repository of its issue, so a newer record of a repository with no clone here does not hide it' \
+  'would close  example-repo#31  (testing -> done, released in deploy/prod/2 and proven)' \
+  "$(grep '^would close  example-repo#31' <<< "$run")"
+check 'a card whose records are all of other repositories is read by the newest one, and said where that repository has no clone here' \
+  "unknown      example-repo#22  (no clone of example-org/gone in $shown, so its release is not read; the card stays)
+unknown      example-repo#32  (no clone of example-org/gone in $shown, so its release is not read; the card stays)" \
+  "$(grep -E '^unknown +example-repo#' <<< "$run")"
 check 'a card whose commit is on the default branch and in no newer release than the newest one is named, with that tag' \
   "not released example-repo#19  (landed in $(printf '%s' "$c19" | cut -c1-7); the newest prod release deploy/prod/2 does not carry it)
 not released example-repo#20  (landed in $(printf '%s' "$c20" | cut -c1-7); the newest prod release deploy/prod/2 does not carry it)" \
   "$(grep '^not released' <<< "$run")"
 check 'a card a release carries, or with no landing, or no commit on a release at all, is not named so' \
-  '' "$(grep -E '^not released +example-repo#(12|13|14|16|17|18|22|23|28|29) ' <<< "$run")"
+  '' "$(grep -E '^not released +example-repo#(12|13|14|16|17|18|22|23|28|29|31|32|33) ' <<< "$run")"
 check 'a repository without a tag is named once, with the cards that ask for its release, wherever they stand' \
   'no release   docs  (no tag of docs matches * (LIVE_TAGS names no environment); 2 cards in testing wait)' \
   "$(grep '^no release' <<< "$run")"
@@ -263,16 +274,17 @@ not finished example-repo#27  (in implementing, but origin/master has $(git -C "
   "$(grep '^not finished' <<< "$run")"
 check 'a card no commit names is not named, nor one whose number is a prefix of a named one, nor a card in done, testing or an epic' \
   '' "$(grep -E '^not finished +example-repo#(1|24|26|13|14|18|19|20|22|23) ' <<< "$run")"
-check 'a card in testing without a landing since it was last reopened, or moved by hand, is named' \
+check 'a card in testing without a landing since it was last reopened, or moved by hand, is named, and so is one whose record names a commit its repository does not hold' \
   'no landing   example-repo#16  (in testing, but no "Landed on" record names its work: where it landed, run ai-core finish-issue example-org/example-repo 16)
-no landing   example-repo#17  (in testing, but no "Landed on" record names its work: where it landed, run ai-core finish-issue example-org/example-repo 17)' \
+no landing   example-repo#17  (in testing, but no "Landed on" record names its work: where it landed, run ai-core finish-issue example-org/example-repo 17)
+no landing   example-repo#33  (in testing, but its "Landed on" record names abcdef0, which origin/master of example-org/example-repo does not hold: where it landed, run ai-core finish-issue example-org/example-repo 33)' \
   "$(grep '^no landing' <<< "$run")"
 check 'a landing in another repository is read there, and that one has no clone here' \
   "no clone of example-org/gone in $shown, so no release of it is read and its cards in testing stay" "$(grep '^no clone' <<< "$run")"
 check 'a landing in another repository closes through that one'"'"'s clone and release' \
   'would close  example-repo#23  (testing -> done, released in example-org/tools deploy/prod/7 and proven)' "$(grep '^would close  example-repo#23' <<< "$run")"
 check 'and the count says what it read, both pages' \
-  "16 active cards scanned, 3 would move on board $PROJECT_NUMBER." \
+  "19 active cards scanned, 4 would move on board $PROJECT_NUMBER." \
   "$(printf '%s\n' "$run" | tail -1)"
 check 'the board is not read' 0 "$(grep -c 'items(first:100' "$FAKE/calls.txt")"
 check 'the issues are read once per page' 2 "$(grep -c 'issues(states:OPEN' "$FAKE/calls.txt")"
@@ -280,17 +292,33 @@ check 'nothing asks GitHub for a tag or a compare' 0 "$(grep -cE '/tags|/compare
 check 'the fetch brought the tags' yes "$(git -C "$clone" rev-parse -q --verify refs/tags/deploy/prod/2 >/dev/null && echo yes || echo no)"
 check 'and kept the one origin never had, which no fetch prunes' yes "$(git -C "$clone" rev-parse -q --verify refs/tags/deploy/prod/3 >/dev/null && echo yes || echo no)"
 
+echo 'planted: a card of several repositories read by the newest record of all, and a card nothing else names left unsaid'
+# sweep_mutant <file of the copy> <sed expression> [more repositories]: a copy of the harness with one defect in one file of it, and the sweep of example-repo with it
+sweep_mutant() {
+  local mutant="$FAKE/mutant"
+  rm -rf "$mutant"; mkdir -p "$mutant"; cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$mutant/"; cp "$ROOT/VERSION" "$mutant/"
+  sed -i.bak "$2" "$mutant/$1"
+  cmp -s "$ROOT/$1" "$mutant/$1" && { echo "  FAIL the planted copy equals $1: $2"; failed=$((failed + 1)); }
+  mutant_run="$(cd "$clone" && bash "$mutant/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo ${3:-} 2>&1)"
+}
+sweep_mutant lib/board.sh 's/^  | (\[\$all.*$/  | ($all | last)/'
+check 'the newest record of all decides: #31 is read in a repository with no clone here and no longer closes' no "$(grep -q '^would close  example-repo#31' <<< "$mutant_run" && echo yes || echo no)"
+check 'and #13, whose records are its own alone, closes as before' 'would close  example-repo#13  (testing -> done, released in deploy/prod/2 and proven)' "$(grep '^would close  example-repo#13' <<< "$mutant_run")"
+sweep_mutant bin/status-sync.sh '/^        elif \[ -z "\$REL_CLONE" \]; then$/,/could not be read, as said where it was first asked for/d'
+check 'without the line for a card nothing else names, #22, #32 and #33 are named nowhere' 0 "$(grep -cE ' example-repo#(22|32|33)  \(' <<< "$mutant_run")"
+check 'and #13 is closed, #16 named as before' '1 1' "$(grep -c '^would close  example-repo#13' <<< "$mutant_run") $(grep -c '^no landing   example-repo#16' <<< "$mutant_run")"
+
 echo 'the repositories alone, the board from GH_PROJECT_NUMBER'
 : > "$FAKE/calls.txt"
 run="$(cd "$clone" && GH_PROJECT_NUMBER="$PROJECT_NUMBER" bash "$ROOT/bin/status-sync.sh" example-org/example-repo other-org/example-repo --dry-run 2>&1)"
 check 'exit 0' 0 "$?"
-check 'both are read' "17 active cards scanned, 3 would move on board $PROJECT_NUMBER." "$(printf '%s\n' "$run" | tail -1)"
+check 'both are read' "20 active cards scanned, 4 would move on board $PROJECT_NUMBER." "$(printf '%s\n' "$run" | tail -1)"
 
 echo 'a board written with a leading zero is the board with that number'
 : > "$FAKE/calls.txt"
 run="$(cd "$clone" && GH_PROJECT_NUMBER="0$PROJECT_NUMBER" bash "$ROOT/bin/status-sync.sh" example-org/example-repo other-org/example-repo --dry-run 2>&1)"
 check 'exit 0' 0 "$?"
-check 'the cards of the board are read' "17 active cards scanned, 3 would move on board 0$PROJECT_NUMBER." "$(printf '%s\n' "$run" | tail -1)"
+check 'the cards of the board are read' "20 active cards scanned, 4 would move on board 0$PROJECT_NUMBER." "$(printf '%s\n' "$run" | tail -1)"
 
 echo 'no board named: the board is the one the first repository named is linked to, not the checkout'"'"'s'
 : > "$FAKE/calls.txt"
@@ -337,8 +365,8 @@ printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\n' > "$clone/.ai-core/
 echo 'LIVE_TAGS names a pattern no tag of origin matches: the repository is named once, with its count, and no card is named singly'
 printf 'LIVE_TAGS="prod=release/*"\n' > "$clone/.ai-core/config.env"
 run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo 2>&1)"
-check 'once, with the environment, the pattern and the four cards in testing that ask' \
-  'no release   example-repo  (no tag of example-repo matches prod=release/* of LIVE_TAGS; 4 cards in testing wait)' \
+check 'once, with the environment, the pattern and the five cards in testing that ask' \
+  'no release   example-repo  (no tag of example-repo matches prod=release/* of LIVE_TAGS; 5 cards in testing wait)' \
   "$(grep '^no release   example-repo' <<< "$run")"
 check 'none is named singly, and nothing closes or is due' '' "$(grep -E '^(not released|would close|proof due) +example-repo#(13|18|19|20) ' <<< "$run")"
 printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\n' > "$clone/.ai-core/config.env"
@@ -349,7 +377,7 @@ run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER
 check 'exit 0' 0 "$?"
 check 'the board is read once' 1 "$(grep -c 'items(first:100, after:' "$FAKE/calls.txt")"
 check 'a repository of another organisation is read under its owner' 1 "$(grep -c 'graphql -f o=other-org -f n=example-repo' "$FAKE/calls.txt")"
-check 'its card is counted' "17 active cards scanned, 3 would move on board $PROJECT_NUMBER." "$(printf '%s\n' "$run" | tail -1)"
+check 'its card is counted' "20 active cards scanned, 4 would move on board $PROJECT_NUMBER." "$(printf '%s\n' "$run" | tail -1)"
 
 echo 'a repository with no clone here: said, and its cards in testing stay'
 : > "$FAKE/calls.txt"
@@ -388,12 +416,13 @@ check 'exit 0' 0 "$?"
 check 'it says so' 'close        example-repo#13  (testing -> done, released in deploy/prod/2 and proven)' "$(grep '^close        example-repo#13' <<< "$run")"
 check '#13 is closed' 1 "$(grep -c 'api --method PATCH repos/example-org/example-repo/issues/13 ' "$FAKE/calls.txt")"
 check '#23 is closed' 1 "$(grep -c 'api --method PATCH repos/example-org/example-repo/issues/23 ' "$FAKE/calls.txt")"
-check 'and no other issue' 2 "$(grep -c 'api --method PATCH repos/.*/issues/' "$FAKE/calls.txt")"
+check '#31 is closed' 1 "$(grep -c 'api --method PATCH repos/example-org/example-repo/issues/31 ' "$FAKE/calls.txt")"
+check 'and no other issue' 3 "$(grep -c 'api --method PATCH repos/.*/issues/' "$FAKE/calls.txt")"
 check 'the cards no release carries are named here too' 2 "$(grep -c '^not released' <<< "$run")"
 check 'a card named "not finished" is named here too' 3 "$(grep -c '^not finished' <<< "$run")"
 # Each mover looks the repository up on a board first, and here the stand-in has none and stops it
-# before it names an issue, so the lookups count the movers: the two closes and the sweep's own
-check 'and no card is moved or closed for being named: no mover runs beyond the two closes' 3 "$(grep -c 'projectsV2(first:50)' "$FAKE/calls.txt")"
+# before it names an issue, so the lookups count the movers: the three closes and the sweep's own
+check 'and no card is moved or closed for being named: no mover runs beyond the three closes' 4 "$(grep -c 'projectsV2(first:50)' "$FAKE/calls.txt")"
 rm -f "$FAKE/lenient"
 
 # The only card read is an epic whose one sub-issue is done: no card in testing has named a release
@@ -469,7 +498,7 @@ rm -f "$FAKE/epic-34.json"; mv "$FAKE/issues-1.saved" "$FAKE/issues-1.json"
 #   110 "Proven on PROD:" and 111 "Proven on prod (https://example.test):" prove; 112 production, 113 prod-extra,
 #       114 "test (prod)", 115 no colon, 116 an annotation and no colon after it, 117 the words in a later line,
 #       118 behind a heading do not
-#   120 landed on a branch that is not the default branch -> nothing is said of it
+#   120 landed on a branch that is not the default branch -> named, as having no landing on it
 #   124 landed after what release 1 pins, proven on test only -> only the first environment decides
 #   130 to 132 landed in the service; 140 is the component's own card
 #   150 has no "Landed on" record at all, 151 a record whose time is no time: 150 is named as having no landing, 151 as unknown
@@ -557,7 +586,8 @@ check 'a proof a fraction of a second after the second of the delivery qualifies
   "would close  example-repo#108  (testing -> done, released in $at1 and proven)" "$(said 108)"
 check 'the environment of the proof is read whatever its case' "would close  example-repo#110  (testing -> done, released in $at1 and proven)" "$(said 110)"
 check 'and with an annotation, whose colon is no delimiter' "would close  example-repo#111  (testing -> done, released in $at1 and proven)" "$(said 111)"
-check 'a landing that is not on the default branch is not said' '' "$(said 120)"
+check 'a landing that is not on the default branch is named, with the commit and the branch it is not on' \
+  "no landing   example-repo#120  (in testing, but its \"Landed on\" record names $(printf '%s' "$kx" | cut -c1-7), which origin/master of example-org/component does not hold: where it landed, run ai-core finish-issue example-org/example-repo 120)" "$(said 120)"
 check 'a card with no landing record at all is named as having none, never as one whose landing time cannot be read' \
   "no landing   example-repo#150  (in testing, but no \"Landed on\" record names its work: where it landed, run ai-core finish-issue example-org/example-repo 150)" "$(said 150)"
 check 'a record whose time cannot be read is unknown, and the line says that it is the time' \
@@ -573,7 +603,7 @@ ss="$FAKE/ss"; rm -rf "$ss"; mkdir -p "$ss"; cp -R "$ROOT/bin" "$ROOT/lib" "$ROO
 sed -i.bak 's/^      if \[ "\$sha" = - \]; then$/      if false; then/' "$ss/bin/status-sync.sh"
 cmp -s "$ROOT/bin/status-sync.sh" "$ss/bin/status-sync.sh" && { echo "  FAIL the planted copy equals bin/status-sync.sh"; failed=$((failed + 1)); }
 planted_run="$(cd "$clone" && bash "$ss/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo example-org/component 2>&1)"
-check 'planted: without its check for a missing landing, the card with none is no longer named as that' no "$(grep -q 'no landing   example-repo#150' <<< "$planted_run" && echo yes || echo no)"
+check 'planted: without its check for a missing landing, the card with none is no longer named as that' no "$([ "$(grep ' example-repo#150  (' <<< "$planted_run")" = "$(said 150)" ] && echo yes || echo no)"
 check 'and the card with an unreadable time is named as before' "$(said 151)" "$(grep ' example-repo#151  (' <<< "$planted_run" || true)"
 
 echo 'a new release moves the delivery, and a proof before it proves nothing of it'

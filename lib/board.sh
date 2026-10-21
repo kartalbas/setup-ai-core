@@ -385,8 +385,10 @@ sync_released_cards() {  # sync_released_cards <owner/repo>...
 # finish-issue writes "Landed on <branch>:" or "Landed on <branch> of <owner/repo>:", then one
 # "- <sha> <subject>" line per commit, in the issue when it moves the card to testing. status-sync
 # closes the card by that record: the first commit it lists must be in the release, and a "Proven on"
-# comment must follow it. Both decide by the jq definitions below, so what one counts is what the
-# other writes and looks for.
+# comment must follow it. Of several records, a card is read by the newest one of the issue's own
+# repository, and by the newest of all only where it has none of its own: work that landed in several
+# repositories is released with the repository that holds the issue. Both decide by the jq
+# definitions below, so what one counts is what the other writes and looks for.
 #
 # A comment counts only when it was written by the repository's owner, a member or a collaborator: on
 # a public repository anybody can write "Landed on" and "Proven on". A record counts only when it came
@@ -400,7 +402,8 @@ def commit_lines: split("\n") | map(select(test("^- [0-9a-f]{7,40} ")));
 def landing_records($reopenedAt): [.[] | trusted | select(.body | startswith("Landed on "))
   | select(.body | commit_lines | length > 0) | select($reopenedAt == "" or .createdAt > $reopenedAt)] | sort_by(.createdAt);
 def landing_repo($issueRepo): (.body | split("\n")[0] | capture("^Landed on \\S+ of (?<r>[^\\s:]+/[^\\s:]+):") | .r) // $issueRepo;
-def selected_landing($reopenedAt; $issueRepo): landing_records($reopenedAt) | last
+def selected_landing($reopenedAt; $issueRepo): landing_records($reopenedAt) as $all
+  | ([$all[] | select((landing_repo($issueRepo) | ascii_downcase) == ($issueRepo | ascii_downcase))] | last) // ($all | last)
   | if . then {repository: landing_repo($issueRepo), commit: (.body | commit_lines | first | split(" ")[1]), createdAt: .createdAt} else null end;
 def instant: capture("^(?<s>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?<f>\\.[0-9]+)?(Z|\\+00:00)$")
   | "\((.s + "Z") | fromdateiso8601).\(((.f // ".0")[1:] + "000000000")[:9])";

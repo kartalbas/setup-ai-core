@@ -103,7 +103,7 @@ cards_of_repo() {  # <owner/repo>
   local repo="$1" after="" page next
   while :; do
     page="$(open_issue_page "$repo" "$after")" || exit 1
-    printf '%s' "$page" | jq -r --argjson board "$(project_number_json)" --arg org "$(project_org)" "$LANDING_RECORD_JQ"'
+    printf '%s' "$page" | jq -r --argjson board "$(project_number_json)" --arg org "$(project_org)" --arg repo "$repo" "$LANDING_RECORD_JQ"'
       .data.repository.issues.nodes[]
       | . as $i
       | ([$i.projectItems.nodes[] | select(.project.number == $board and (.project.owner.login | ascii_downcase) == ($org | ascii_downcase))
@@ -111,9 +111,9 @@ cards_of_repo() {  # <owner/repo>
       | select($status != null and $status != "")
       | (($i.reopened.nodes[0].createdAt) // "") as $reopenedAt
       | [$i.comments.nodes[] | trusted] as $said
-      | ($said | selected_landing($reopenedAt; "-")) as $landing
+      | ($said | selected_landing($reopenedAt; $repo)) as $landing
       | ($landing.commit // "-") as $sha
-      | ($landing.repository // "-") as $elsewhere
+      | (if $landing == null or ($landing.repository | ascii_downcase) == ($repo | ascii_downcase) then "-" else $landing.repository end) as $elsewhere
       | ([$said[] | select($landing != null and (.body | startswith("Proven on ")) and (.createdAt > $landing.createdAt))]
           | if length > 0 then 1 else 0 end) as $proven
       | (first($landing.createdAt // empty | instant) // "-") as $landedAt
@@ -382,6 +382,14 @@ for full in ${repos[@]+"${repos[@]}"}; do
         elif [ "$on_master" = 1 ] && [ "$REL_NOTAG" = 1 ]; then
           # The cause is the repository's, so it is named once for all its cards, after the sweep
           unreleased="$(awk -F'\t' -v r="$landed" 'BEGIN { OFS = "\t" } $1 == "" { next } tolower($1) == tolower(r) { $2++; f = 1 } { print } END { if (!f) print r, 1 }' <<< "$unreleased")"
+        elif [ -z "$REL_CLONE" ]; then
+          echo "unknown      $label#$num  (no clone of $landed in $(project_folder), so its release is not read; the card stays)"
+        elif [ -z "$REL_REF" ]; then
+          echo "unknown      $label#$num  (the default branch of origin of $landed could not be read, so its release is not read; the card stays)"
+        elif [ "$on_master" = 0 ]; then
+          echo "no landing   $label#$num  (in testing, but its \"Landed on\" record names $sha, which $REL_REF of $landed does not hold: where it landed, run ai-core finish-issue $full $num)"
+        else
+          echo "unknown      $label#$num  (the release of $landed could not be read, as said where it was first asked for; the card stays)"
         fi
         continue
       fi

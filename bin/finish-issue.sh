@@ -227,13 +227,24 @@ else
   fi
 fi
 
-# What landed, in the issue, for whoever reads it next
-# An issue of another repository is told which repository the commits are in
+# What landed, in the issue, for whoever reads it next; once: an issue that holds a record listing these
+# commits is not told again. An issue of another repository is told which repository the commits are in.
+# A comment that cannot be read leaves open whether the record is there, so then nothing is written.
 landed_on="$default"; [ "$ref" = "#$number" ] || landed_on="$default of $(default_repo)"
-body="$(printf 'Landed on %s:\n\n%s\n' "$landed_on" "$commits")"
-"$BIN/issue-comment.sh" ${repo:+"$repo"} "$number" "$body" >/dev/null \
-  && echo "the issue says what landed" \
-  || echo "the issue was NOT told what landed - add the commits by hand" >&2
+issue_repo="${repo:-$own}"
+if ! context="$(issue_landing_context "$issue_repo" "$number")"; then
+  echo "the issue was NOT told what landed: its comments could not be read, so a record it holds is not known - add the commits by hand" >&2
+else
+  recorded=0; landing_recorded "$state" "$context" "$own" "$issue_repo" "$commits" || recorded=$?
+  case "$recorded" in
+    0) echo "the issue holds this record already - nothing added" ;;
+    1) body="$(printf 'Landed on %s:\n\n%s\n' "$landed_on" "$commits")"
+       "$BIN/issue-comment.sh" ${repo:+"$repo"} "$number" "$body" >/dev/null \
+         && echo "the issue says what landed" \
+         || echo "the issue was NOT told what landed - add the commits by hand" >&2 ;;
+    *) echo "the issue was NOT told what landed: its comments could not be compared with the commits - add the commits by hand" >&2 ;;
+  esac
+fi
 
 # The cards of this repository and of the issue's whose work a release carries and a proof covers close (status-sync)
 released_repo="$(resolve_repo "")" && sync_released_cards "$released_repo" ${repo:+"$repo"}

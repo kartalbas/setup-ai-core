@@ -31,13 +31,25 @@ if [ -e "$fake/refuse-once" ] && [[ "\$a" == *"issues/163"* ]] && [[ "\$a" != *"
   echo 'gh: API rate limit already exceeded for user ID 1. (HTTP 403)' >&2
   exit 1
 fi
+# The comments of an issue are kept in a file of their own, as the tracker keeps them: a comment posted by one
+# run is read by the next, "$fake/page-size" cuts a read into pages of that many comments, and a comment
+# planted by plant_comment carries the author association the test names
+path=""; text=""
+for x in "\$@"; do case "\$x" in repos/*/issues/*/comments) path="\$x" ;; body=*) text="\${x#body=}" ;; esac; done
+store="$fake/comments/\$(printf '%s' "\$path" | tr '/' '_').json"
 case "\$a" in
   # like gh, which reads the repository of the directory it runs in and finds none in a removed one
   *"repo view"*|"api repos/{owner}/{repo} --jq .full_name"*)            [ -d "\$PWD" ] || { echo 'failed to determine the repository' >&2; exit 1; }; echo 'example-org/example-repo' ;;
-  *"/comments -f body="*)   echo 'https://example.invalid/example-org/example-repo/issues/163#issuecomment-1' ;;
+  *"/comments -f body="*)
+    mkdir -p "$fake/comments"; [ -s "\$store" ] || echo '[]' > "\$store"
+    jq --arg b "\$text" '. + [{user: {login: "tester"}, author_association: "OWNER", body: \$b,
+      created_at: ("2026-10-21T10:" + (length | tostring | if length < 2 then "0" + . else . end) + ":00Z")}]' "\$store" > "\$store.new" && mv "\$store.new" "\$store"
+    echo 'https://example.invalid/example-org/example-repo/issues/163#issuecomment-1' ;;
   # status-sync's query of the repository's issues names comments and projectItems too
   *"issues(states:OPEN"*)   [ -e "$fake/issues-down" ] && { echo 'the issues are down' >&2; exit 1; }; echo '{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}' ;;
-  *comments*)               echo '[]' ;;
+  # the last reopening of one issue, as --jq prints it
+  *REOPENED_EVENT*)         [ -e "$fake/reopened-down" ] && { echo 'the timeline is down' >&2; exit 1; }; cat "$fake/reopened-at" 2>/dev/null || echo null ;;
+  *comments*)               if [ -s "\$store" ]; then jq -c --argjson s "\$(cat "$fake/page-size" 2>/dev/null || echo 1000)" '[range(0; length; \$s) as \$i | .[\$i:\$i + \$s]] | .[]' "\$store"; else echo '[]'; fi ;;
   *"--jq .node_id"*)        echo 'I_node163' ;;
   *"projectV2(number:"*)    echo 'PVT_kwfinish' ;;
   *"fields(first:50)"*)     cat "$board" ;;
@@ -498,6 +510,183 @@ out="$(run 195)"; rc=$?
 check_runs "$rc"
 check 'the merged branch stays on origin'   yes "$(on_origin issue-195-merged)"
 check 'and says why'                        yes "$(grep -q 'issue-195-merged on origin stays: it has commits whose change is not on origin/master' <<< "$out" && echo yes || echo no)"
+
+# --- the issue is told once what landed ---------------------------------------------------------
+#
+# The comments of an issue stay in the stand-in, so what one run writes the next one reads. A run lists
+# the commits of the default branch that name the issue, and an issue that holds ONE record of the landing
+# in this repository listing all of them, written by the repository's owner, a member or a collaborator,
+# is not told again. Of an open issue that record must also stand after its last reopening and within the
+# last 50 comments, the ones status-sync reads, or it would not serve the card. A closed issue has no proof
+# pending, so any such record of it serves.
+comments_file() { echo "$fake/comments/$(printf '%s' "repos/$1/issues/$2/comments" | tr '/' '_').json"; }
+# plant_comment <repo> <number> <author association> <time> <body>: a comment the issue holds already
+plant_comment() {
+  local f; f="$(comments_file "$1" "$2")"; mkdir -p "$fake/comments"; [ -s "$f" ] || echo '[]' > "$f"
+  jq --arg a "$3" --arg t "$4" --arg b "$5" '. + [{user: {login: "somebody"}, author_association: $a, body: $b, created_at: $t}]' "$f" > "$f.new" && mv "$f.new" "$f"
+}
+landings_of() { jq '[.[] | select(.body | startswith("Landed on "))] | length' "$(comments_file example-org/example-repo "$1")" 2>/dev/null || echo 0; }
+last_landing_of() { jq -r '[.[] | select(.body | startswith("Landed on "))] | last | .body' "$(comments_file example-org/example-repo "$1")"; }
+commits_of() { git -C "$work" log origin/master -E -i --grep="(^|[^A-Za-z0-9._/-])#$1([^0-9]|$)" --format='- %h %s' -n 20; }
+posted() { grep -c 'comments -f body=' "$log" || true; }
+holds_already() { grep -q '^the issue holds this record already - nothing added$' <<< "$out" && echo yes || echo no; }
+repo=example-org/example-repo
+
+echo 'an issue is told what landed once: finishing it again adds no copy'
+open issue-301-tell-once
+land issue-301-tell-once 'Tell once (#301)'
+: > "$log"; rm -rf "$fake/cache"
+out="$(run 301)"; rc=$?
+check_runs "$rc"
+check 'the first run tells the issue'   1 "$(landings_of 301)"
+check 'and says so'                     yes "$(grep -q '^the issue says what landed$' <<< "$out" && echo yes || echo no)"
+: > "$log"; rm -rf "$fake/cache"
+out="$(run 301)"; rc=$?
+check_runs "$rc"
+check 'the second run leaves one record' 1 "$(landings_of 301)"
+check 'it posts nothing'                 0 "$(posted)"
+check 'and says the issue holds it'      yes "$(holds_already)"
+
+echo 'a commit the record does not list is told as the full record, as today'
+open issue-301-more
+land issue-301-more 'Tell once, the rest (#301)'
+: > "$log"; rm -rf "$fake/cache"
+out="$(run 301)"; rc=$?
+check_runs "$rc"
+check 'a second record'                  2 "$(landings_of 301)"
+check 'it lists every commit'            "Landed on master:
+
+$(commits_of 301)" "$(last_landing_of 301)"
+check 'it lists both'                    2 "$(grep -c '(#301)$' <<< "$(last_landing_of 301)" || true)"
+: > "$log"; rm -rf "$fake/cache"
+out="$(run 301)"; rc=$?
+check 'and that covers the next run'     2 "$(landings_of 301)"
+
+echo 'a closed issue is not told again, and one with no record yet is told once'
+echo closed > "$state"
+out="$(run 301)"; rc=$?
+check_runs "$rc"
+check 'no copy on the closed issue'      2 "$(landings_of 301)"
+check 'it says the issue holds it'       yes "$(holds_already)"
+open issue-302-closed-first
+land issue-302-closed-first 'Closed first (#302)'
+out="$(run 302)"; rc=$?
+check_runs "$rc"
+check 'the closed issue gets its record' 1 "$(landings_of 302)"
+out="$(run 302)"; rc=$?
+check 'and keeps one'                    1 "$(landings_of 302)"
+echo open > "$state"
+
+echo 'a record that lists more commits than this run covers it'
+open issue-303-superset
+land issue-303-superset 'Superset (#303)'
+plant_comment $repo 303 OWNER 2026-10-21T09:00:00Z "Landed on master:
+
+$(commits_of 303)
+- 0123abc An older step (#303)"
+out="$(run 303)"; rc=$?
+check_runs "$rc"
+check 'nothing is added'                 1 "$(landings_of 303)"
+check 'it says the issue holds it'       yes "$(holds_already)"
+
+echo 'a record of the landing in another repository covers nothing here'
+open issue-304-elsewhere
+land issue-304-elsewhere 'Elsewhere (#304)'
+plant_comment $repo 304 OWNER 2026-10-21T09:00:00Z "Landed on master of other-org/other-repo:
+
+$(commits_of 304)"
+out="$(run 304)"; rc=$?
+check_runs "$rc"
+check 'this landing is told too'         2 "$(landings_of 304)"
+out="$(run 304)"; rc=$?
+check 'and then covers the next run'     2 "$(landings_of 304)"
+
+echo 'a record on a later page of the comments is found'
+open issue-305-paged
+land issue-305-paged 'Paged (#305)'
+plant_comment $repo 305 OWNER 2026-10-21T09:00:00Z "Landed on master:
+
+$(commits_of 305)"
+for t in 01 02 03; do plant_comment $repo 305 OWNER "2026-10-21T09:$t:00Z" "talk $t"; done
+echo 1 > "$fake/page-size"
+out="$(run 305)"; rc=$?
+rm -f "$fake/page-size"
+check_runs "$rc"
+check 'nothing is added'                 1 "$(landings_of 305)"
+check 'it says the issue holds it'       yes "$(holds_already)"
+
+echo 'an open issue reopened after its record is told again; a closed one is not'
+open issue-306-reopened
+land issue-306-reopened 'Reopened (#306)'
+plant_comment $repo 306 OWNER 2026-10-21T09:00:00Z "Landed on master:
+
+$(commits_of 306)"
+echo 2026-10-21T09:30:00Z > "$fake/reopened-at"
+out="$(run 306)"; rc=$?
+check_runs "$rc"
+check 'the open issue gets a record after the reopening' 2 "$(landings_of 306)"
+open issue-307-reopened-closed
+land issue-307-reopened-closed 'Reopened, closed again (#307)'
+plant_comment $repo 307 OWNER 2026-10-21T09:00:00Z "Landed on master:
+
+$(commits_of 307)"
+echo closed > "$state"
+out="$(run 307)"; rc=$?
+echo open > "$state"; rm -f "$fake/reopened-at"
+check_runs "$rc"
+check 'the closed issue keeps its old record' 1 "$(landings_of 307)"
+
+echo 'a record of a stranger covers nothing, on an open issue or on a closed one'
+open issue-308-stranger
+land issue-308-stranger 'Stranger (#308)'
+plant_comment $repo 308 NONE 2026-10-21T09:00:00Z "Landed on master:
+
+$(commits_of 308)"
+out="$(run 308)"; rc=$?
+check_runs "$rc"
+check 'the open issue is told'           2 "$(landings_of 308)"
+open issue-309-stranger-closed
+land issue-309-stranger-closed 'Stranger, closed (#309)'
+plant_comment $repo 309 NONE 2026-10-21T09:00:00Z "Landed on master:
+
+$(commits_of 309)"
+echo closed > "$state"
+out="$(run 309)"; rc=$?
+echo open > "$state"
+check_runs "$rc"
+check 'the closed issue is told'         2 "$(landings_of 309)"
+
+echo 'a record further back than the last 50 comments covers a closed issue, not an open one'
+for n in 310 311; do
+  open "issue-$n-far-back"
+  land "issue-$n-far-back" "Far back (#$n)"
+  plant_comment $repo $n OWNER 2026-10-21T08:00:00Z "Landed on master:
+
+$(commits_of $n)"
+  for t in $(seq 10 59); do plant_comment $repo $n OWNER "2026-10-21T09:$t:00Z" "talk $t"; done
+done
+out="$(run 310)"; rc=$?
+check_runs "$rc"
+check 'the open issue is told'           2 "$(landings_of 310)"
+echo closed > "$state"
+out="$(run 311)"; rc=$?
+echo open > "$state"
+check_runs "$rc"
+check 'the closed issue is not'          1 "$(landings_of 311)"
+
+echo 'comments that cannot be read are no empty list: nothing is written, and it says so'
+open issue-312-unreadable
+land issue-312-unreadable 'Unreadable (#312)'
+touch "$fake/reopened-down"
+: > "$log"; rm -rf "$fake/cache"
+out="$(run 312)"; rc=$?
+rm -f "$fake/reopened-down"
+check_runs "$rc"
+check 'the issue is not told'            0 "$(landings_of 312)"
+check 'nothing was posted'               0 "$(posted)"
+check 'it says so'                       yes "$(grep -q '^the issue was NOT told what landed: its comments could not be read' <<< "$out" && echo yes || echo no)"
+out="$(run 312)"; rc=$?
+check 'a run that can read tells it'     1 "$(landings_of 312)"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

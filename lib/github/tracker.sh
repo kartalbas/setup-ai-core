@@ -183,7 +183,8 @@ repo_open_projects() {  # repo_open_projects <owner/repo>
 #   {number,title,state,labels,body,comments:[{author,created_at,body}]}
 #
 # The comments are paged. A thread on an epic often runs past one page, and a page that is
-# dropped makes the thread look settled when it is not.
+# dropped makes the thread look settled when it is not: gh prints one JSON array per page, and every
+# page is read.
 #
 # Both documents reach jq through a PIPE and never as an argument. A busy thread is larger
 # than one command-line argument may be - the operating system refuses with "Argument list
@@ -196,13 +197,32 @@ issue_thread() {  # issue_thread <owner/repo> <number>
   local issue comments
   issue="$(gh_read "the issue $1#$2" api "repos/$1/issues/$2")" || exit 1
   comments="$(gh_read "the comments of $1#$2" api --paginate "repos/$1/issues/$2/comments")" || exit 1
-  printf '%s\n%s\n' "$issue" "$comments" | jq -s '.[0] as $issue | .[1] as $comments | {
+  printf '%s\n%s\n' "$issue" "$comments" | jq -s '.[0] as $issue | (.[1:] | add // []) as $comments | {
     number:   $issue.number,
     title:    $issue.title,
     state:    $issue.state,
     labels:   [$issue.labels[].name],
     body:     ($issue.body // ""),
     comments: [$comments[] | { author: .user.login, created_at: .created_at, body: (.body // "") }]
+  }'
+}
+
+# issue_landing_context <owner/repo> <number>: what decides whether the issue holds a record of a landing
+# (landing_recorded in lib/board.sh), as one JSON object:
+#   {reopenedAt, comments:[{createdAt, body, authorAssociation}]}
+# every comment of the thread in the order it was written, each with the association of its author with
+# the repository as the tracker names it, and the time of the last reopening, or null. The thread of
+# issue_thread has neither the association nor the reopening.
+issue_landing_context() {
+  local comments reopened
+  comments="$(gh_read "the comments of $1#$2" api --paginate "repos/$1/issues/$2/comments")" || exit 1
+  reopened="$(gh_read "the last reopening of $1#$2" api graphql -f o="${1%%/*}" -f n="${1#*/}" -F i="$2" -f query='
+    query($o:String!, $n:String!, $i:Int!) { repository(owner:$o, name:$n) { issue(number:$i) {
+      reopened: timelineItems(last:1, itemTypes:[REOPENED_EVENT]) { nodes { ... on ReopenedEvent { createdAt } } } } } }' \
+    --jq '.data.repository.issue.reopened.nodes[0].createdAt')" || exit 1
+  printf '%s\n' "$comments" | jq -s --arg reopened "$reopened" '{
+    reopenedAt: (if $reopened == "" or $reopened == "null" then null else $reopened end),
+    comments:   [(add // [])[] | { createdAt: .created_at, body: (.body // ""), authorAssociation: .author_association }]
   }'
 }
 
@@ -861,17 +881,17 @@ card_rows() {
 }
 
 # open_issue_page <owner/repo> [cursor]: one page of the open issues of the repository with their cards
-# (board number, owner and Status), the time of the last reopening and the last 50 comments, as the
-# tracker answers it; status-sync reads it and pages with the cursor.
+# (board number, owner and Status), the time of the last reopening and the last LANDING_COMMENT_WINDOW
+# comments, as the tracker answers it; status-sync reads it and pages with the cursor.
 open_issue_page() {
   gh_read "the open issues of $1" api graphql -f o="${1%%/*}" -f n="${1#*/}" ${2:+-f after="$2"} -f query='
-    query($o:String!, $n:String!, $after:String) { repository(owner:$o, name:$n) {
+    query($o:String!, $n:String!, $k:Int!, $after:String) { repository(owner:$o, name:$n) {
       issues(states:OPEN, first:50, after:$after) { pageInfo { hasNextPage endCursor } nodes {
         number subIssuesSummary { total }
         projectItems(first:20) { nodes { project { number owner { ... on Organization { login } ... on User { login } } }
           status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } }
         reopened: timelineItems(last:1, itemTypes:[REOPENED_EVENT]) { nodes { ... on ReopenedEvent { createdAt } } }
-        comments(last:50) { nodes { createdAt body authorAssociation } } } } } }'
+        comments(last:$k) { nodes { createdAt body authorAssociation } } } } } }' -F k="$LANDING_COMMENT_WINDOW"
 }
 
 # board_fields_json: the single-select fields of the selected board with their options, as the tracker

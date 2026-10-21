@@ -85,6 +85,15 @@ sed '/^repo_visibility() {/,/^}/d' "$ROOT/lib/github/tracker.sh" > "$WORK/visibi
 lacks="$(dispatch "$WORK/visibility-copy" github)"
 check "missing visibility interface is named" yes "$(grep -q 'lacks these functions: repo_visibility' <<< "$lacks" && echo yes || echo no)"
 
+# a provider that answers no landing context cannot tell finish-issue whether an issue holds a record
+for provider in github plane; do
+  cp -R "$ROOT/lib" "$WORK/context-lib"
+  mkdir -p "$WORK/context-copy"; rm -rf "$WORK/context-copy/lib"; mv "$WORK/context-lib" "$WORK/context-copy/lib"
+  sed '/^issue_landing_context() {/,/^}/d' "$ROOT/lib/$provider/tracker.sh" > "$WORK/context-copy/lib/$provider/tracker.sh"
+  lacks="$(dispatch "$WORK/context-copy" "$provider")"
+  check "$provider without its landing context is named" yes "$(grep -q 'lacks these functions: issue_landing_context' <<< "$lacks" && echo yes || echo no)"
+done
+
 # the forge: FORGE names the folder of lib/ the same way, and the check of a commit answers four ways
 fdispatch() {  # fdispatch <lib root> <FORGE or 'unset'>
   ( cd "$WORK/project" && { [ "$2" = unset ] && unset FORGE || export FORGE="$2"; } &&

@@ -402,6 +402,22 @@ check 'exit 0' 0 "$?"
 check 'it would close, as its sub-issues stand' 'would close  example-repo#31  (todo -> done, every sub-issue done)' "$(grep '^would close' <<< "$run")"
 mv "$FAKE/issues-1.saved" "$FAKE/issues-1.json"; mv "$FAKE/epic-14.saved" "$FAKE/epic-14.json"
 
+# finish-issue tells an issue once what landed (it adds no copy of a record the issue holds), and these are
+# the two cards that rule leaves to this sweep: the record and the proof of a landing it did not repeat,
+# and the proof of a landing that a later record of new work has left behind
+echo 'a rerun of finish-issue adds no record, so the old record and its proof still close the card; a record of new work asks for a new proof'
+cp "$FAKE/issues-1.json" "$FAKE/issues-1.saved"
+page false null "$(issue 32 testing 0 "$(landed 2026-09-01T10:00:00Z "$c13"),$(proven 2026-09-02T10:00:00Z)"),$(issue 30 testing 0 "$(landed 2026-09-01T10:00:00Z "$c13"),$(proven 2026-09-02T10:00:00Z),$(landed 2026-09-03T10:00:00Z "$c18")"),$(issue 33 testing 0 "{\"createdAt\":\"2026-09-01T10:00:00Z\",\"authorAssociation\":\"NONE\",\"body\":\"Landed on master:\\n\\n- $(printf '%s' "$c13" | cut -c1-7) Its subject\"},$(proven 2026-09-02T10:00:00Z)")" > "$FAKE/issues-1.json"
+run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo 2>&1)"
+check 'exit 0' 0 "$?"
+check 'one record and its proof close' 'would close  example-repo#32  (testing -> done, released in deploy/prod/2 and proven)' "$(grep '^would close  example-repo#32' <<< "$run")"
+check 'a record after the proof is a landing the proof does not cover' \
+  'proof due    example-repo#30  (released in deploy/prod/2, no "Proven on" record after its landing)' "$(grep '^proof due    example-repo#30' <<< "$run")"
+check 'and it does not close' '' "$(grep '^would close  example-repo#30' <<< "$run")"
+check 'a record by a stranger is no record' \
+  'no landing   example-repo#33  (in testing, but no "Landed on" record names its work: where it landed, run ai-core finish-issue example-org/example-repo 33)' "$(grep '^no landing   example-repo#33' <<< "$run")"
+mv "$FAKE/issues-1.saved" "$FAKE/issues-1.json"
+
 echo
 if [ "$failed" -gt 0 ]; then echo "$failed failed"; exit 1; fi
 echo 'all passed'

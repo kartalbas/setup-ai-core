@@ -19,8 +19,9 @@ throwaway folder for a probe.
 - The build report: {{build report, or for a card from before the packages the issue's last
   comments}}
 - The verification output: {{verification output, or "not run"}}
-- For a re-check only: the findings of the earlier NO and the head they were read at:
-  {{findings and reviewed head, or "full review"}}
+- For a re-check only: the findings of the earlier NO and the head that review left, its own
+  REPAIRED commits included, so they are not read as the repair: {{findings and reviewed head, or
+  "full review"}}
 
 ## What to do
 

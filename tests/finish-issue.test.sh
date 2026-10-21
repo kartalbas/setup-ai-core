@@ -623,10 +623,10 @@ check 'and then covers the next run'     2 "$(landings_of 304)"
 echo 'a record on a later page of the comments is found'
 open issue-305-paged
 land issue-305-paged 'Paged (#305)'
-plant_comment $repo 305 OWNER 2026-10-21T09:00:00Z "Landed on master:
+for t in 01 02 03; do plant_comment $repo 305 OWNER "2026-10-21T09:$t:00Z" "talk $t"; done
+plant_comment $repo 305 OWNER 2026-10-21T09:10:00Z "Landed on master:
 
 $(commits_of 305)"
-for t in 01 02 03; do plant_comment $repo 305 OWNER "2026-10-21T09:$t:00Z" "talk $t"; done
 echo 1 > "$fake/page-size"
 out="$(run 305)"; rc=$?
 rm -f "$fake/page-size"

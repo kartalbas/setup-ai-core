@@ -882,7 +882,9 @@ issue_summaries() {
 
 # plane_closed_state_ids: the ids of the states of the completed and cancelled groups, the closed states, as a JSON array
 plane_closed_state_ids() {
-  plane_states | jq -cs '[.[] | select(.group | IN("completed", "cancelled")) | .id]'
+  local states
+  states="$(plane_states)" || exit 1
+  printf '%s\n' "$states" | jq -cs '[.[] | select(.group | IN("completed", "cancelled")) | .id]'
 }
 
 # plane_active_member_ids: the ids of the active members of the project, as a JSON array
@@ -912,9 +914,11 @@ plane_landing_context() {
 # issue_landing_context <owner/repo> <number>: the landing context of lib/tracker.sh of a work item, every comment
 # of it
 issue_landing_context() {
-  local item
+  local item closed members
   item="$(plane_item_read "$1" "$2")" || exit 1
-  plane_landing_context "$(printf '%s' "$item" | jq -r '.id')" "$1#$2" "$(plane_closed_state_ids)" "$(plane_active_member_ids)"
+  closed="$(plane_closed_state_ids)" || exit 1
+  members="$(plane_active_member_ids)" || exit 1
+  plane_landing_context "$(printf '%s' "$item" | jq -r '.id')" "$1#$2" "$closed" "$members"
 }
 
 # open_issue_page <owner/repo> [cursor]: the open work items of the repository, as the page GitHub answers to

@@ -275,6 +275,20 @@ page="$(plane_fn open_issue_page example-org/example-repo)" || fail "open_issue_
 out="$(plane_fn issue_landing_context example-org/example-repo 9999 2>&1)" && fail "the landing context of a work item that does not exist was answered: $out"
 echo "  issue_landing_context: all 54 comments of #76 with MEMBER and NONE for their authors and the last reopening, where the page of status-sync holds the last 50; a work item that does not exist is refused"
 
+# The closed states are read where nothing else of the project is: a read that fails is no empty list, whatever the
+# caller does with pipe failures, or a reopening would never be found. The same call with the read answered lists the
+# ids of the completed and the cancelled state
+closed_states() {  # closed_states [refuse]: plane_closed_state_ids with pipefail off, the states read refused once after the setup where one is named
+  ( cd "$P" && PATH="$PATH_CURL" REFUSE="${1:-}" bash -c '. "$1/lib/board.sh"; set_project >/dev/null
+      [ -z "$REFUSE" ] || printf "[{\"match\":\"/states/\",\"status\":502,\"times\":1}]" > "$CURL_FAKE_STATE/inject.json"
+      set +o pipefail; plane_closed_state_ids' _ "${ROOT_UNDER_TEST:-$ROOT}" 2>&1 )
+}
+out="$(closed_states refuse)" && fail "the closed states were answered although their read was refused: $out"
+printf '[]' > "$CURL_FAKE_STATE/inject.json"
+out="$(closed_states)" || fail "plane_closed_state_ids: $out"
+[ "$(jq 'length' <<< "$out")" = 2 ] || fail "the closed states are not the completed and the cancelled one: $out"
+echo "  plane_closed_state_ids: a states read that fails fails the call, with pipefail off too; read, it lists the completed and the cancelled state"
+
 # finish-issue tells a work item what landed once. The comment it wrote is read back from Plane, written by the
 # key's own user, an active member, so the record counts; a commit the record does not list is told in full
 landings() { planeq "const it=p.issues.find((i)=>i.sequence_id===$1);console.log(p.comments.filter((c)=>c.issue===it.id&&c.comment_html.includes('Landed on')).length)"; }
@@ -289,6 +303,34 @@ commit "$P" "#$m Do the rest" >/dev/null
 out="$(ai finish-issue "$m" 2>&1)" || fail "finish-issue after a new commit: $out"
 [ "$(landings "$m")" = 2 ] || fail "a commit the record lacks was not told: $(landings "$m") records"
 echo "  finish-issue on a work item: the first run writes its record, a rerun adds no copy and says the work item holds it, a new commit gets the full record"
+
+# A READ THAT FAILS leaves the last reopening, or who wrote each comment, unknown, and a record from before a
+# reopening then reads as current: finish-issue must say its comments could not be read and write nothing, never
+# that the work item holds the record. The same run with every read answered writes the record again, as the
+# reopening voided the first.
+reopened_after_landing() {  # reopened_after_landing <title>: a work item that landed, closed and reopened; prints its number
+  local k
+  k="$(new "$1")" || fail "issue-new"
+  commit "$P" "#$k Do it" >/dev/null
+  ai finish-issue "$k" >/dev/null 2>&1 || fail "finish-issue on the first landing of #$k"
+  ai issue-close "$k" >/dev/null 2>&1 || fail "issue-close $k"
+  ai issue-reopen "$k" >/dev/null 2>&1 || fail "issue-reopen $k"
+  printf '%s\n' "$k"
+}
+for refused in states project-members-lite; do
+  m="$(reopened_after_landing "Reopened, and its $refused cannot be read")"
+  [ "$(landings "$m")" = 1 ] || fail "#$m does not hold exactly its first record before the failing run: $(landings "$m")"
+  printf '[{"match":"/projects/%s/%s/","status":502,"times":1}]' "$(planeq 'console.log(p.id)')" "$refused" > "$CURL_FAKE_STATE/inject.json"
+  out="$(ai finish-issue "$m" 2>&1)" || fail "finish-issue with the $refused refused: $out"
+  ! grep -q 'holds this record already' <<< "$out" || fail "a record from before the reopening was taken as current while the $refused could not be read: $out"
+  grep -q 'its comments could not be read' <<< "$out" || fail "the failed read of the $refused is not said: $out"
+  [ "$(landings "$m")" = 1 ] || fail "a record was written while the $refused could not be read: $(landings "$m") records"
+  printf '[]' > "$CURL_FAKE_STATE/inject.json"
+done
+m="$(reopened_after_landing "Reopened, and everything can be read")"
+out="$(ai finish-issue "$m" 2>&1)" || fail "finish-issue after the reopening: $out"
+[ "$(landings "$m")" = 2 ] || fail "the reopening did not void the first record: $(landings "$m") records: $out"
+echo "  finish-issue on a reopened work item: a states or members read that fails leaves it untold and says so; read, they void the record from before the reopening and the full record is written"
 
 # A CARD OF ANOTHER REPOSITORY of the project is moved by the clone of that repository, and its epic is read from
 # here: the sweep applies, not only announces, and a repository with no clone here is named and left

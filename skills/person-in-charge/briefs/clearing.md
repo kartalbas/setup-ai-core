@@ -34,7 +34,10 @@ question "where is this seen", and stays.
       ⏸ no commit names it          → it never landed: treat it as implementing
       ⏸ no checkout                 → the repository has no clone in the folder: needs:owner
     implementing
-      landed on the default branch  → ai-core finish-issue <n> → testing
+      landed on the default branch  → ai-core finish-issue <n> → testing, unless a UI test said
+                                      FAIL after its `Landed on` record
+      landed, a UI test said FAIL   → a build session (briefs/build.md) from the issue's criteria
+                                      and the SEEN text as a new one, then review, land, as below
       branch pushed, not merged     → a review session (briefs/review.md) on that branch; GO →
                                       the skill's start check and land, with the LAND line; NO →
                                       a build session with the findings, as in a package; after the

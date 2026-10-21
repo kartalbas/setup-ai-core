@@ -58,6 +58,11 @@ with it runs before or after it.
 5. Collect what the later phases need from the acceptance criteria: the verification command of each
    clone (its map, its `README` or its `scripts/`), the test and production environments the criteria
    name with their URLs, the demo account where a check needs one, and the clicks each promise takes.
+   Then walk each promise as the person meets it on that environment, and name what else must hold
+   for it to show. That means the seed rows it draws, the login it needs, and the member or route
+   that serves it. It also means what must be released before it, the answer an outside service
+   really gives (read, never a stand-in), and a second run of the same command at the same time.
+   Each of these is a criterion of the package, so the UI test proves it instead of finding it.
 6. Where an issue holds a decision of the owner's (a new dependency, a public interface, a deletion
    beyond the change's own leftovers, a rename of something that has a name or a new word a person
    meets, a cost of a multiple of the issue), write the solution path on
@@ -91,6 +96,9 @@ rounds and a comment on an issue wakes nobody, and stop.
 
 - A contract side you did not open is not in the section. A side outside the package is a refusal
   of your own plan: widen the package or split it into parts that run one after the other, never
-  ignore it.
+  ignore it. A defect you read in a span of the package joins the package as a criterion of the
+  issue it touches. The same holds for the same shape of defect in a sibling call, and for another
+  copy of a changed name or text that `git grep` finds in any clone. Only a defect outside the
+  package's files and contracts becomes its own issue, and the section names it under `Left out:`.
 - Never make a package a parent issue: an issue has one parent, and that is its epic.
 - Names stay spelled as the code spells them.

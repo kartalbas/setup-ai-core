@@ -42,4 +42,4 @@ NOTES.
 
 Each issue's line is its own verdict, because the cards of one session can belong to different
 areas: one issue's FAIL holds back no other issue. SEEN carries what the page showed, never what it
-should have shown.
+should have shown. A FAIL of a card's own promise is that card's FAIL, not a new defect.

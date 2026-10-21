@@ -81,6 +81,7 @@ git -c init.defaultBranch=master init -q --bare "$origin"
 git -c init.defaultBranch=master init -q "$work"
 dress "$work"
 echo 'one' > "$work/README.md"
+echo 'notes' > "$work/notes.txt"
 git -C "$work" add -A && git -C "$work" commit -q -m 'the first commit'
 git -C "$work" remote add origin "$origin"
 git -C "$work" push -q -u origin master
@@ -104,27 +105,140 @@ check 'nothing was read' 0 "$(grep -c . "$log" || true)"
 out="$(run not-a-number)"; rc=$?
 check 'a number that is not one is refused' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
 
-echo 'a working copy with changes in it opens no worktree'
-echo 'unsaved' >> "$work/README.md"
-out="$(run 163)"; rc=$?
-check 'exits nonzero'    yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'it says which'    yes "$(grep -q 'the working copy has changes' <<< "$out" && echo yes || echo no)"
-check 'no branch made'   master "$(branches)"
-check 'one worktree'     1 "$(worktrees)"
-git -C "$work" checkout -q -- README.md
+# The worktree is cut from origin, so a checkout behind it, with changes in it, or with commits of
+# its own opens a worktree all the same and is named in one line. Every checkout below is a clone of
+# its own, so one case never stands on another's leftovers.
+echo 'a checkout behind origin, with changes, or with commits of its own opens its worktree from origin and is left as it is'
+states="$fake/states"
+git_real="$(command -v git)"
+gitfail="$fake/gitfail"
+mkdir -p "$states" "$gitfail"
+# A git that fails for the one subcommand named in FAIL_GIT and is the real git for every other
+cat > "$gitfail/git" <<GITFAIL
+#!/usr/bin/env bash
+for a in "\$@"; do
+  if [ "\$a" = "\${FAIL_GIT:-.}" ]; then echo "fatal: planted failure of git \$a" >&2; exit 128; fi
+done
+exec "$git_real" "\$@"
+GITFAIL
+chmod +x "$gitfail/git"
 
-echo 'a master behind origin is pulled first, not branched from'
+harness_data() {
+  mkdir -p "$1/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$1/.ai-core/config.env"
+  printf '/.ai-core/\n' >> "$1/.git/info/exclude"
+}
+make_source() { git clone -q "$origin" "$states/$1"; dress "$states/$1"; harness_data "$states/$1"; }
+add_changes() {  # a staged change, a change not staged, and an untracked file
+  echo 'staged' >> "$states/$1/README.md"; git -C "$states/$1" add README.md
+  echo 'unstaged' >> "$states/$1/notes.txt"
+  echo 'untracked' > "$states/$1/untracked.txt"
+}
+add_commit() {
+  echo 'local only' > "$states/$1/local.txt"
+  git -C "$states/$1" add local.txt && git -C "$states/$1" commit -q -m 'a commit only this checkout has'
+}
+# All that start-issue must leave as it was: the branch or the detached state, HEAD, the branch
+# tips, the index entries and the index file itself, the status, and every file with its content.
+snapshot() {
+  { git -C "$1" symbolic-ref -q HEAD || echo detached
+    git -C "$1" rev-parse -q --verify HEAD || echo unborn
+    git -C "$1" for-each-ref --format='%(refname) %(objectname)' refs/heads | grep -v '^refs/heads/issue-'
+    GIT_OPTIONAL_LOCKS=0 git -C "$1" status --porcelain=v1 --untracked-files=all
+    git -C "$1" ls-files -s
+    cksum < "$1/.git/index" 2>/dev/null
+    git -C "$1" stash list
+    (cd "$1" && find . -path ./.git -prune -o -type f -exec cksum {} + | sort)
+  } 2>&1
+}
+state_line() {  # NAME WHERE STATE
+  echo "The checkout $(git -C "$states/$1" rev-parse --show-toplevel) ($2) $3. The new worktree starts from origin/master and does not see that; the checkout's branch, index, files and commits stay as they were."
+}
+source_case() {  # NAME NUMBER WANTED-LINE (empty: no line)
+  local src="$states/$1" n="$2" before after out rc tree
+  tree="$states/.worktrees/$1/issue-$n-read-the-board-whole"
+  before="$(snapshot "$src")"
+  out="$(cd "$src" && bash "$start" "$n" 2>&1)"; rc=$?
+  after="$(snapshot "$src")"
+  check "$1: exits zero"                         0 "$rc"
+  check "$1: the worktree is cut from origin"    "$(git -C "$src" rev-parse refs/remotes/origin/master)" "$(git -C "$tree" rev-parse HEAD 2>/dev/null)"
+  check "$1: the state is named"                 "$3" "$(grep '^The checkout ' <<< "$out")"
+  check "$1: the checkout is as it was"          "$before" "$after"
+  check "$1: none of its changes is in the tree" '' "$(git -C "$tree" status --porcelain 2>&1)$(ls "$tree" | grep -E '^(untracked|local)\.txt$')"
+}
+
+make_source behind
+make_source both;     add_changes both
+make_source diverged; add_commit diverged
+make_source feature;  git -C "$states/feature" checkout -q -b feature; git -C "$states/feature" branch -q -D master
+make_source detached; git -C "$states/detached" checkout -q --detach
+make_source faulty
+git init -q -b trunk "$states/unborn"; dress "$states/unborn"; harness_data "$states/unborn"
+git -C "$states/unborn" remote add origin "$origin"
 other="$fake/other"
 git clone -q "$origin" "$other"
 dress "$other"
 echo 'two' >> "$other/README.md"
 git -C "$other" add -A && git -C "$other" commit -q -m 'a commit somebody else pushed'
 git -C "$other" push -q origin HEAD:master
-out="$(run 163)"; rc=$?
-check 'exits nonzero'   yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'it says how far' yes "$(grep -q 'master is 1 commit(s) behind origin/master' <<< "$out" && echo yes || echo no)"
-check 'no branch made'  master "$(branches)"
+make_source current
+make_source dirty;    add_changes dirty
+make_source ahead;    add_commit ahead
+
+source_case behind   201 "$(state_line behind 'branch master' 'is 1 commit(s) behind origin/master')"
+source_case dirty    202 "$(state_line dirty 'branch master' 'has changes')"
+source_case both     203 "$(state_line both 'branch master' 'has changes, is 1 commit(s) behind origin/master')"
+source_case ahead    204 "$(state_line ahead 'branch master' 'is 1 commit(s) ahead of origin/master')"
+source_case diverged 205 "$(state_line diverged 'branch master' 'is 1 commit(s) behind and 1 commit(s) ahead of origin/master')"
+source_case feature  206 "$(state_line feature 'branch feature' 'is 1 commit(s) behind origin/master')"
+source_case detached 207 "$(state_line detached "detached HEAD at $(git -C "$states/detached" rev-parse --short HEAD)" 'is 1 commit(s) behind origin/master')"
+source_case unborn   208 "$(state_line unborn 'branch trunk' 'has no commit yet')"
+source_case current  209 ''
+check 'diverged: its own commit survives' 'a commit only this checkout has' "$(git -C "$states/diverged" log -1 --format=%s)"
+check 'diverged: and its file' 'local only' "$(cat "$states/diverged/local.txt")"
 git -C "$work" pull -q --ff-only origin master
+
+echo 'a checkout with changes and behind origin still refuses what else was refused'
+out="$(cd "$states/both" && ASSIGNEE=somebody bash "$start" 210 2>&1)"; rc=$?
+check "another one's issue: exits nonzero" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'it names both'                      yes "$(grep -q '#210 is assigned to @somebody, not to @tester' <<< "$out" && echo yes || echo no)"
+check 'no branch made'                     '' "$(git -C "$states/both" for-each-ref --format='%(refname:short)' 'refs/heads/issue-210*')"
+out="$(cd "$states/both" && bash "$start" 203 2>&1)"; rc=$?
+check 'a branch for the issue exists: exits nonzero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'it names the branch'                yes "$(grep -q 'a branch for this issue exists already: issue-203-read-the-board-whole' <<< "$out" && echo yes || echo no)"
+
+echo 'a failed read of origin or of the checkout is reported, and nothing is made'
+faulty_made() { git -C "$states/faulty" for-each-ref --format='%(refname)' refs/heads; git -C "$states/faulty" worktree list; }
+faulty_start() {  # NUMBER [VARIABLE=VALUE ...]
+  local n="$1"; shift
+  : > "$log"
+  (cd "$states/faulty" && env ${1+"$@"} bash "$start" "$n" 2>&1)
+}
+faulty_untouched() { check "$1: no branch and no worktree made" "$made_before" "$(faulty_made)"; check "$1: no issue read, no card moved" 0 "$(grep -c 'issues/\|OPT_impl' "$log" || true)"; }
+made_before="$(faulty_made)"
+git -C "$states/faulty" remote set-url origin "$fake/nowhere.git"
+out="$(faulty_start 211)"; rc=$?
+check 'fetch fails: exits nonzero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'fetch fails: it says so'    yes "$(grep -q 'could not reach origin' <<< "$out" && echo yes || echo no)"
+faulty_untouched 'fetch fails'
+git -C "$states/faulty" remote set-url origin "$origin"
+git -C "$states/faulty" config remote.origin.fetch '+refs/heads/no-such-branch*:refs/remotes/origin/no-such-branch*'
+git -C "$states/faulty" update-ref -d refs/remotes/origin/master
+out="$(faulty_start 212)"; rc=$?
+check 'no remote commit: exits nonzero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'no remote commit: it says so'    yes "$(grep -q 'origin has no branch master to cut the worktree from' <<< "$out" && echo yes || echo no)"
+faulty_untouched 'no remote commit'
+git -C "$states/faulty" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+git -C "$states/faulty" fetch -q origin
+out="$(faulty_start 213 PATH="$gitfail:$PATH" FAIL_GIT=status)"; rc=$?
+check 'status fails: exits nonzero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'status fails: it says so'    yes "$(grep -q 'cannot read the status of the checkout' <<< "$out" && echo yes || echo no)"
+faulty_untouched 'status fails'
+out="$(faulty_start 214 PATH="$gitfail:$PATH" FAIL_GIT=rev-list)"; rc=$?
+check 'comparison fails: exits nonzero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'comparison fails: it says so'    yes "$(grep -q 'cannot compare the checkout.s HEAD with origin/master' <<< "$out" && echo yes || echo no)"
+faulty_untouched 'comparison fails'
+out="$(faulty_start 215)"; rc=$?
+check 'the same checkout, nothing planted: exits zero' 0 "$rc"
 
 echo "somebody else's issue opens no worktree"
 : > "$log"

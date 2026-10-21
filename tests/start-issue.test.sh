@@ -186,6 +186,8 @@ make_source ahead;    add_commit ahead
 make_source touched;  touch -t 202001010000 "$states/touched/README.md"   # stat changed, content not
 make_source hidden;   git -C "$states/hidden" config status.showUntrackedFiles no; echo 'untracked' > "$states/hidden/untracked.txt"
 make_source treehead; echo "$(git -C "$states/treehead" rev-parse 'HEAD^{tree}')" > "$states/treehead/.git/refs/heads/master"
+make_source locked
+make_source ambiguous; git -C "$states/ambiguous" branch -q origin/master
 make_source racer;    echo 'edit' >> "$states/racer/README.md"
 
 source_case behind   201 "$(state_line behind 'branch master' 'is 1 commit(s) behind origin/master')"
@@ -235,6 +237,31 @@ out="$(cd "$states/treehead" && bash "$start" 219 2>&1)"; rc=$?
 check 'unreadable HEAD: exits nonzero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
 check 'unreadable HEAD: it says so'    yes "$(grep -q 'cannot read the checkout.s HEAD, so its state cannot be named' <<< "$out" && echo yes || echo no)"
 check 'unreadable HEAD: nothing made'  "$made_before" "$(git -C "$states/treehead" worktree list; git -C "$states/treehead" for-each-ref --format='%(refname)' refs/heads)"
+
+# A step of the creation that fails leaves no worktree, so the next run, without the fault, completes
+echo 'a config file that is locked during the run leaves no worktree, and the next run completes the start'
+locked_made() { git -C "$states/locked" worktree list; }
+made_before="$(locked_made)"
+touch "$states/locked/.git/config.lock"
+out="$(cd "$states/locked" && bash "$start" 220 2>&1)"; rc=$?
+check 'locked config: exits nonzero'     yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'locked config: it says so'        yes "$(grep -q 'the worktree could not be created' <<< "$out" && echo yes || echo no)"
+check 'locked config: no worktree made'  "$made_before" "$(locked_made)"
+rm -f "$states/locked/.git/config.lock"
+: > "$log"
+out="$(cd "$states/locked" && bash "$start" 220 2>&1)"; rc=$?
+tree="$states/.worktrees/locked/issue-220-read-the-board-whole"
+check 'locked config, again without it: exits zero'   0 "$rc"
+check 'it tracks origin/master'          'origin master' "$(git -C "$states/locked" config branch.issue-220-read-the-board-whole.remote) $(git -C "$states/locked" config branch.issue-220-read-the-board-whole.merge | sed 's|^refs/heads/||')"
+check 'init ran in the worktree'         yes "$([ -f "$tree/.ai-core/config.env" ] && echo yes || echo no)"
+check 'the card moved'                   yes "$(grep -q 'oid=OPT_impl' "$log" && echo yes || echo no)"
+
+echo 'a local branch named origin/master does not make the start ambiguous'
+out="$(cd "$states/ambiguous" && bash "$start" 221 2>&1)"; rc=$?
+tree="$states/.worktrees/ambiguous/issue-221-read-the-board-whole"
+check 'ambiguous name: exits zero'       0 "$rc"
+check 'it starts at the commit of origin/master' "$(git -C "$states/ambiguous" rev-parse refs/remotes/origin/master)" "$(git -C "$tree" rev-parse HEAD 2>/dev/null)"
+check 'it tracks origin/master'          'origin master' "$(git -C "$states/ambiguous" config branch.issue-221-read-the-board-whole.remote) $(git -C "$states/ambiguous" config branch.issue-221-read-the-board-whole.merge | sed 's|^refs/heads/||')"
 
 echo 'a checkout with changes and behind origin still refuses what else was refused'
 out="$(cd "$states/both" && ASSIGNEE=somebody bash "$start" 210 2>&1)"; rc=$?

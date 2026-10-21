@@ -131,20 +131,21 @@ taken="$(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/or
 
 mkdir -p "$container"
 # The worktree starts at the commit measured above, not at whatever origin/$default is by now: a
-# fetch into this clone since then must not move it. -B takes over a landed local branch of the
-# same name; it is an ancestor of that commit, so moving it there is a fast-forward and loses nothing.
-made="$(git worktree add -B "$name" "$path" "$origin_tip" 2>&1)" \
-  || die "the worktree could not be created: $made"
-# a start point that is a commit id sets no upstream, and push and pre-push read origin/$default there
-made="$(git branch --set-upstream-to="origin/$default" "$name" 2>&1)" \
-  || die "the branch $name could not be set to track origin/$default: $made"
+# fetch into this clone since then must not move it. The branch is made, set to track origin/$default
+# (which push and pre-push read) and, for an issue of another repository, marked with it BEFORE any
+# worktree exists. A step that fails then leaves only a branch at a commit of origin that no worktree
+# has checked out, and the next run takes it over: a landed local branch is an ancestor of that
+# commit, so moving it loses nothing.
+other_repo=""
+[ "$(issue_ref "$repo" "$number")" = "#$number" ] || other_repo="$repo"
+made="$(git branch -f --no-track "$name" "$origin_tip" 2>&1 \
+  && git branch --set-upstream-to="refs/remotes/origin/$default" "$name" 2>&1 \
+  && { [ -z "$other_repo" ] || git config "branch.$name.issueRepository" "$other_repo" 2>&1; } \
+  && git worktree add "$path" "$name" 2>&1)" \
+  || die "the worktree could not be created: $made - no worktree was made; run start-issue again once that is fixed"
 echo "Worktree $path on $name, cut from origin/$default."
 [ -z "$state" ] || echo "The checkout $(git rev-parse --show-toplevel) ($position) $state. The new worktree starts from origin/$default and does not see that; the checkout's branch, index, files and commits stay as they were."
-if [ "$(issue_ref "$repo" "$number")" != "#$number" ]; then
-  git config "branch.$name.issueRepository" "$repo" \
-    || die "the issue's repository could not be recorded on $name - run git config branch.$name.issueRepository $repo"
-  echo "The issue lives in $repo: recorded on $name, where session-start, integrate-issue and finish-issue read it."
-fi
+[ -z "$other_repo" ] || echo "The issue lives in $other_repo: recorded on $name, where session-start, integrate-issue and finish-issue read it."
 
 # The card and the worktree move together, and a card that did not move is said out loud rather
 # than left for the next person to notice on the board.

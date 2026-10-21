@@ -78,6 +78,22 @@ function reply(status, value, headers = {}) {
   process.exit(0);
 }
 
+// ONE REQUEST AT A TIME: every call reads the state files, changes them and writes them back, so two curl
+// processes at once would overwrite each other. A call takes the lock directory of the state, and gives it back
+// when the process ends. CURL_FAKE_BARRIER names a folder: a POST whose path holds CURL_FAKE_BARRIER_MATCH waits,
+// before it asks for the lock, until two such calls are in flight, so a test makes two commands meet at one
+// write instead of hoping that they do.
+if (method === 'POST' && process.env.CURL_FAKE_BARRIER && url.pathname.includes(process.env.CURL_FAKE_BARRIER_MATCH || '/')) {
+  fs.mkdirSync(process.env.CURL_FAKE_BARRIER, { recursive: true });
+  fs.writeFileSync(path.join(process.env.CURL_FAKE_BARRIER, `at.${process.pid}`), '');
+  for (let i = 0; i < 400 && fs.readdirSync(process.env.CURL_FAKE_BARRIER).filter((f) => f.startsWith('at.')).length < 2; i++) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+}
+const lockDir = path.join(dir, 'state.lock');
+for (;;) {
+  try { fs.mkdirSync(lockDir); break; } catch (e) { if (e.code !== 'EEXIST') throw e; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5); }
+}
+process.on('exit', () => fs.rmSync(lockDir, { recursive: true, force: true }));
+
 // a planted answer: a file inject.json lists {match, status, body, headers, times}; the first entry whose
 // match is in "<METHOD> <path+query>" answers, and one that ran out of times is dropped
 const inject = read('inject.json', []);
@@ -227,7 +243,7 @@ function write_issue(st, pr, it, j) {
     it.state = s.id; it.completed_at = s.group === 'completed' ? new Date().toISOString() : null;
   }
   if (j.parent !== undefined) { if (j.parent !== null && !pr.issues.some((i) => i.id === j.parent)) return ['Parent is not valid issue_id please pass a valid issue_id']; it.parent = j.parent; }
-  if (j.labels !== undefined) it.labels = j.labels.filter((l) => pr.labels.some((x) => x.id === l));
+  if (j.labels !== undefined) it.labels = j.labels.filter((l) => pr.labels.some((x) => x.id === l && x.name !== process.env.CURL_FAKE_DROP_LABEL));   // CURL_FAKE_DROP_LABEL: a write that answers well and keeps that label out
   if (j.assignees !== undefined) it.assignees = j.assignees.filter((a) => st.users.some((u) => u.id === a));
   return null;
 }

@@ -481,6 +481,19 @@ out="$(ai issue-new --repo example-org/example-repo --title "Never made" --body-
 [ "$(planeq "console.log(p.issues.length)") $(writes)" = "$before 0" ] || fail "an invalid creation priority made a work item or wrote"
 echo "  issue-new --priority P9 writes the same representation; an invalid creation priority refuses before the item is made"
 
+# the option is matched without case on every board, so p9 parks as P9 does and p1 sets P1; the spelling typed decides nothing
+seed_item 740 high
+out="$(ai issue-priority 740 p9 2>&1)" || fail "issue-priority 740 p9: $out"
+[ "$(item_native 740) $(item_labels 740) $(prio_of 740) $(line_prio 740)" = "none P9,area:tooling,repo:example-repo P9 P9" ] \
+  || fail "p9 left native $(item_native 740), labels $(item_labels 740), row $(prio_of 740), line $(line_prio 740), not none, the label P9, P9 and P9"
+out="$(ai issue-priority 740 p1 2>&1)" || fail "issue-priority 740 p1: $out"
+[ "$(item_native 740) $(item_labels 740) $(prio_of 740) $(line_prio 740)" = "high area:tooling,repo:example-repo P1 P1" ] \
+  || fail "p1 after p9 left native $(item_native 740), labels $(item_labels 740), row $(prio_of 740), line $(line_prio 740)"
+out="$(ai issue-new --repo example-org/example-repo --title "Parked in lower case" --body-file "$WORK/body.md" --label type:feature --label area:tooling --priority p9 --asked-by someone --asked-in "the test" 2>&1)" || fail "issue-new --priority p9: $out"
+new_n="$(planeq "console.log(Math.max(...p.issues.map((i)=>i.sequence_id)))")"
+[ "$(item_native "$new_n") $(item_labels "$new_n")" = "none P9,area:tooling,repo:example-repo,type:feature" ] || fail "a work item made with p9 has $(item_native "$new_n") and $(item_labels "$new_n")"
+echo "  p9 in lower case parks as P9 does, with the label and the native none, and p1 sets P1 and takes the label away; issue-new --priority p9 writes the same representation"
+
 # failures: nothing says done that was not read back, and no pair is half written
 seed_item 710; seed_item 711
 fails() {  # fails <inject json> <message>: issue-priority 710 P9 must fail, leaving the item as it was
@@ -532,6 +545,10 @@ planted_run 's/oid="\$(option_id "\$2" "\$3")" || exit 1/oid=none/' 732 P7 >/dev
 seed_item 733
 planted_run 's/\[.labels\[\].id, \$p\] | unique/[$p]/' 733 P9 >/dev/null; [ "$(item_labels 733)" = "P9" ] || fail "planted: a label list built from P9 alone should leave $(item_labels 733)"
 echo "  planted defects, each caught: no label made, no native none, no P9 removal, no validation before the write, other labels not kept"
+seed_item 741
+planted_run 's/priority) plane_set_priority "\$1" "\$oid" ;;/priority) plane_set_priority "$1" "$oid" "$3" ;;/; s/^  if \[ "\$2" = none \]; then$/  if [ "${3:-}" = P9 ]; then/' 741 p9 >/dev/null || true
+[ "$(item_labels 741)" != "P9,area:tooling,repo:example-repo" ] || fail "planted: a decision on the spelling typed still parked p9"
+echo "  planted: a decision on the spelling typed instead of the option it resolves to does not park p9, and is caught"
 
 # --- a repository whose LIVE_TAGS says command, on Plane -------------------------------------------------------------
 # The landing and the proof are comments of a work item, timed as Plane times them (milliseconds, a clock of its own); the

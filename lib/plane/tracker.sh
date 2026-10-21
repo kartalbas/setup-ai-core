@@ -819,11 +819,12 @@ set_select() {
   case "$fid" in
     status)
       plane_api "the state of $1" PATCH "$(plane_path "projects/$project/issues/$1/")" "$(jq -nc --arg s "$oid" '{state: $s}')" >/dev/null || exit 1 ;;
-    priority) plane_set_priority "$1" "$3" "$oid" ;;
+    priority) plane_set_priority "$1" "$oid" ;;
   esac
 }
 
-# plane_set_priority <work item uuid> <option name> <native priority>: P9 is the label P9 and the native priority
+# plane_set_priority <work item uuid> <native priority>: the native priority is what the option the person named
+# resolved to, so the spelling typed, P9 or p9, decides nothing here. P9 is the label P9 and the native priority
 # none, P0 to P3 a native priority without that label, so a work item never reads as two. The labels of a work
 # item are replaced by the list a write gives, so the one PATCH carries the priority and the whole label list,
 # and the work item is read back before the command says it is done. A PATCH and a readback show what the work
@@ -833,7 +834,7 @@ plane_set_priority() {
   project="$(plane_project_uuid)" || exit 1
   item_path="$(plane_path "projects/$project/issues/$1/")"
   item="$(plane_api "the labels of the work item $1" GET "${item_path}?expand=labels")" || exit 1
-  if [ "$2" = P9 ]; then
+  if [ "$2" = none ]; then
     rows="$(plane_pages "the labels of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$project/labels/")")" || exit 1
     plane_label_ensure "$rows" P9 6B7280 "Parked: the work waits, and Plane has no priority for that"
     rows="$(plane_pages "the labels of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$project/labels/")")" || exit 1
@@ -843,10 +844,10 @@ plane_set_priority() {
   else
     labels="$(printf '%s' "$item" | jq -c '[.labels[] | select(.name != "P9") | .id] | unique')"
   fi
-  plane_api "the priority of $1" PATCH "$item_path" "$(jq -nc --arg p "$3" --argjson l "$labels" '{priority: $p, labels: $l}')" >/dev/null || exit 1
+  plane_api "the priority of $1" PATCH "$item_path" "$(jq -nc --arg p "$2" --argjson l "$labels" '{priority: $p, labels: $l}')" >/dev/null || exit 1
   read_back="$(plane_api "the priority of $1 after the write" GET "${item_path}?expand=labels")" || exit 1
-  printf '%s' "$read_back" | jq -e --arg p "$3" --arg n "$2" --argjson l "$labels" '
-    .priority == $p and ([.labels[].id] | sort) == ($l | sort) and ([.labels[] | select(.name == "P9")] | length) == (if $n == "P9" then 1 else 0 end)' >/dev/null \
+  printf '%s' "$read_back" | jq -e --arg p "$2" --argjson l "$labels" '
+    .priority == $p and ([.labels[].id] | sort) == ($l | sort) and ([.labels[] | select(.name == "P9")] | length) == (if $p == "none" then 1 else 0 end)' >/dev/null \
     || die "the priority of $1 was NOT confirmed: Plane answered the write, and the work item reads priority $(printf '%s' "$read_back" | jq -r '.priority') with the labels $(printf '%s' "$read_back" | jq -r '[.labels[].name] | join(", ")')"
 }
 

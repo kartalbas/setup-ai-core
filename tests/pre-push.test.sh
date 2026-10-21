@@ -72,6 +72,27 @@ if [ -n "\${PROBE_RACE:-}" ] && [ ! -e "\$PROBE_RACE.done" ]; then : > "\$PROBE_
 exit 0
 EOF
 chmod +x "$stub/claude" "$stub/gitleaks" "$stub/ai-core"
+. "$root/tests/load-stubs.sh"; make_load_stubs "$stub"
+real_sleep="$(command -v sleep)"; real_mktemp="$(command -v mktemp)"; real_ln="$(command -v ln)"
+# While PROBE_LN is fail, no link can be made, as on a filesystem without hard links
+cat > "$stub/ln" <<EOF
+#!/usr/bin/env bash
+[ "\${PROBE_LN:-}" != fail ] || exit 1
+exec "$real_ln" "\$@"
+EOF
+chmod +x "$stub/ln"
+# While PROBE_MKTEMP_BARRIER names a folder, the run log's temporary file is made only when two gates
+# have both come to make it: the two then meet at the one moment where a log that does not exist is created
+cat > "$stub/mktemp" <<EOF
+#!/usr/bin/env bash
+case "\$*" in *pre-push-runs.tsv*) if [ -n "\${PROBE_MKTEMP_BARRIER:-}" ]; then
+  : > "\$PROBE_MKTEMP_BARRIER/at.\$\$"
+  for _ in \$(seq 400); do [ "\$(ls "\$PROBE_MKTEMP_BARRIER" | grep -c '^at\.')" -ge 2 ] && break; "$real_sleep" 0.05; done
+fi ;; esac
+exec "$real_mktemp" "\$@"
+EOF
+chmod +x "$stub/mktemp"
+export PROBE_STATE="$fake/state-default"; mkdir -p "$PROBE_STATE"; echo 0.10 > "$PROBE_STATE/loads"
 # A second ai-core behind the stand-in, the way a developer's shell carries its own: a run without
 # ai-core on the PATH has to take both away
 machine="$fake/machine"; mkdir -p "$machine"; printf '#!/bin/sh\nexit 0\n' > "$machine/ai-core"; chmod +x "$machine/ai-core"
@@ -112,7 +133,7 @@ commit() {  # commit <path> <message> - one file, one commit
 # which is what git does before it starts a hook.
 judge() {  # judge <working tree> <local sha> <remote sha>
   printf 'refs/heads/master %s refs/heads/master %s\n' "$2" "$3" \
-    | ( cd "$1" && bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1 )
+    | ( cd "$1" && ${GATE_TIMEOUT:+timeout "$GATE_TIMEOUT"} bash "${GATE_SCRIPT:-$root/bin/pre-push.sh}" origin 'https://example.invalid/x.git' 2>&1 )
 }
 only_new() {  # only_new <working tree> - judge the newest commit alone
   judge "$1" "$(git -C "$1" rev-parse HEAD)" "$(git -C "$1" rev-parse HEAD~1)"
@@ -1189,6 +1210,8 @@ check 'the red one, with the last line of the check' \
   "red	check: FAIL — the stand-in was told to be red" "$(sed -n 3p "$runs" | awk -F'\t' '{print $5 "\t" $7}')"
 check 'the run with no check is never green' 'no check' "$(sed -n 4p "$runs" | cut -f5)"
 check 'it names the worktree and the commit' "$nocheck	$(git -C "$nocheck" rev-parse HEAD)" "$(sed -n 4p "$runs" | cut -f3,4)"
+check 'the load at check start: the stand-in 0.10 for a check, - for no check' '0.10 - 0.10' "$(sed -n 2p "$runs" | cut -f8) $(sed -n 4p "$runs" | cut -f8) $(sed -n 3p "$runs" | cut -f8)"
+check 'the header has the eight fields, the last one named' 'load at check start' "$(head -1 "$runs" | cut -f8)"
 check 'the seconds of a check are counted'  yes "$(sed -n 2p "$runs" | cut -f6 | grep -qx '[0-9][0-9]*' && echo yes || echo no)"
 printf '[extend]\nuseDefault = true\n' > "$repo/.gitleaks.toml"; git -C "$repo" add .gitleaks.toml
 git -C "$repo" commit -q -m 'Arm the scan after a green check #7'
@@ -1200,6 +1223,260 @@ git -C "$repo" rm -q .gitleaks.toml; git -C "$repo" commit -q -m 'Disarm the sca
 listed="$(bash "$root/bin/pre-push.sh" --runs)"
 check '--runs: the header first, then the newest, in the order they ran' "$(printf 'red\nno check\nred\ngreen')" "$(sed -n '2,5p' <<< "$listed" | cut -f5)"
 check '--since in the future lists none'   1 "$(bash "$root/bin/pre-push.sh" --runs --since 2999-01-01 | wc -l | tr -d ' ')"
+
+# --- the wait for a lower load ---------------------------------------------------------------
+# A scratch repository of its own: its check writes down when it started (by the injected clock), how
+# long it takes, and, while PROBE_BARRIER names a folder, waits for a second gate to be in its check.
+lw="$fake/lw"; git init -q -b master "$lw"
+git -C "$lw" config user.email 'test@example.invalid'; git -C "$lw" config user.name 'test'
+printf '.ai-core/\n' >> "$lw/.git/info/exclude"; mkdir -p "$lw/scripts" "$lw/.ai-core"
+cat > "$lw/scripts/check.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "$(cat "$PROBE_STATE/clock" 2>/dev/null || echo -)" >> "$PROBE_STATE/checks"
+if [ -n "${PROBE_BARRIER:-}" ]; then
+  : > "$PROBE_BARRIER/in.$$"
+  for _ in $(seq 400); do [ "$(ls "$PROBE_BARRIER" | grep -c '^in\.')" -ge 2 ] && break; sleep 0.05; done
+fi
+[ -z "${PROBE_CHECK_TAKES:-}" ] || echo $(( $(cat "$PROBE_STATE/clock") + PROBE_CHECK_TAKES )) > "$PROBE_STATE/clock"
+if [ "${PROBE_CHECK:-green}" = green ]; then echo 'check: OK'; exit 0; fi
+echo 'check: FAIL'; exit 1
+EOF
+chmod +x "$lw/scripts/check.sh"; printf 'one\n' > "$lw/one.txt"
+git -C "$lw" add -A; git -C "$lw" commit -q -m 'Set up the load probe #8'
+runs="$AI_CORE_HOME/.ai-core/pre-push-runs.tsv"; plans=0
+plan() {  # plan <load...> - a state of its own for each case
+  plans=$((plans + 1)); export PROBE_STATE="$fake/state-$plans"; plan_load "$PROBE_STATE" "$@"
+}
+settings() {  # settings <limit> <bound> [file] - the checkout's config.env
+  printf 'PRE_PUSH_LOAD_LIMIT="%s"\nPRE_PUSH_LOAD_WAIT_SECONDS="%s"\n' "$1" "$2" > "${3:-$lw/.ai-core/config.env}"
+}
+on_sleep() {  # on_sleep <n> <limit> <bound> - what the checkout's config.env becomes during the n-th sleep
+  settings "$2" "$3" "$fake/next-$1.env"; printf 'cp "%s" "%s"\n' "$fake/next-$1.env" "$lw/.ai-core/config.env" > "$PROBE_STATE/on-sleep-$1"
+}
+lw_commit() {  # lw_commit <tree> - one more commit to judge
+  printf 'more\n' >> "$1/one.txt"; git -C "$1" commit -q -am "Move the load probe on #8"
+}
+gate_lw() { lw_commit "$lw"; out="$(only_new "$lw")"; rc=$?; }
+n_calls() { cat "$PROBE_STATE/uptime-calls" 2>/dev/null || echo 0; }
+slept() { [ ! -f "$PROBE_STATE/sleeps" ] || tr '\n' ' ' < "$PROBE_STATE/sleeps"; }
+n_checks() { if [ -f "$PROBE_STATE/checks" ]; then wc -l < "$PROBE_STATE/checks" | tr -d ' '; else echo 0; fi; }
+says() { grep -c -- "$1" <<< "$out" || true; }
+last_run() { tail -1 "$runs" | awk -F'\t' -v f="$1" '{ print $f }'; }
+waiting='waiting for the 1-minute load to fall below'
+
+echo 'a load at or above the limit is waited for, announced once, and the check starts below it with that load on record'
+plan 25 24 23.5; settings 24 300; PROBE_CHECK_TAKES=3 gate_lw
+check 'exit 0'                                   0 "$rc"
+check 'it slept twice, five seconds each'        '5 5 ' "$(slept)"
+check 'one announcement, naming the load and the limit' 1 "$(says "$waiting 24; it is 25")"
+check 'a line says the load fell'                1 "$(says 'fell to 23.5, below 24')"
+check 'one check, started after the wait'        '1010' "$(cat "$PROBE_STATE/checks")"
+check 'three readings'                           3 "$(n_calls)"
+check 'the record holds the sample the check started with' 23.5 "$(last_run 8)"
+check 'the first seven fields keep their meaning: green, and the last line of the check' 'green	check: OK' "$(last_run 5)	$(last_run 7)"
+
+echo 'a low load starts at once: no wait, no announcement, one reading'
+plan 0.5; settings 24 300; gate_lw
+check 'exit 0'                                   0 "$rc"
+check 'no sleep'                                 '' "$(slept)"
+check 'no announcement'                          0 "$(says "$waiting")"
+check 'one reading, one check'                   '1 1' "$(n_calls) $(n_checks)"
+check 'the record holds 0.5'                     0.5 "$(last_run 8)"
+
+echo 'a load that stays above the limit is waited for up to the bound, then the check starts and the push says so; the seconds of the check leave the wait out'
+plan 30; settings 24 12; PROBE_CHECK_TAKES=3 gate_lw
+check 'exit 0'                                   0 "$rc"
+check 'polls of five seconds, the last one shortened to the bound' '5 5 2 ' "$(slept)"
+check 'one announcement'                         1 "$(says "$waiting")"
+check 'one line says it starts at or above the limit' 1 "$(says 'the wait is over; the check starts at a 1-minute load of 30, at or above the limit of 24')"
+check 'one check'                                1 "$(n_checks)"
+check 'the record holds the high sample'         30 "$(last_run 8)"
+check 'the seconds are the check, three, not the wait' 3 "$(last_run 6)"
+plan 30; settings 24 5; PROBE_CHECK=red gate_lw
+check 'a red check after the bound still refuses' 1 "$rc"
+check 'and is recorded red with the high sample' 'red	30' "$(last_run 5)	$(last_run 8)"
+
+echo 'with both settings above zero, a load that cannot be read refuses before the check, also at the bound'
+for bad in FAIL EMPTY JUNK; do
+  plan "$bad"; settings 24 300; gate_lw
+  check "$bad: exit 1"                           1 "$rc"
+  check "$bad: it says the load could not be read" 1 "$(says 'the 1-minute load could not be read from uptime')"
+  check "$bad: no check, no sleep"               '0' "$(n_checks)$(slept)"
+  check "$bad: the record holds -"               '-' "$(last_run 8)"
+done
+plan 30 FAIL; settings 24 5; gate_lw
+check 'a reading that fails at the bound refuses and does not reuse the sample before it' '1 0' "$rc $(n_checks)"
+
+echo 'PRE_PUSH_LOAD_LIMIT=0 turns the wait off: one reading for the record, one check at once'
+plan 99; settings 0 300; gate_lw
+check 'exit 0'                                   0 "$rc"
+check 'no sleep, no announcement, no threshold message' '0 0 0' "$(slept | wc -w | tr -d ' ') $(says "$waiting") $(says 'at or above')"
+check 'one reading, one check'                   '1 1' "$(n_calls) $(n_checks)"
+check 'the record holds 99'                      99 "$(last_run 8)"
+for bad in FAIL EMPTY JUNK; do
+  plan "$bad"; settings 0 300; gate_lw
+  check "$bad: the check runs, exit 0"           '0 1' "$rc $(n_checks)"
+  check "$bad: it says the load could not be measured" 1 "$(says 'the 1-minute load could not be measured')"
+  check "$bad: the record holds -"               '-' "$(last_run 8)"
+done
+plan FAIL; settings 0 300; PROBE_CHECK=red gate_lw
+check 'a red check is still refused with the reader failing' '1 red' "$rc $(last_run 5)"
+plan 99; settings 0 0; gate_lw
+check 'both settings zero: the limit-zero rules, no threshold message' '0 99 0' "$rc $(last_run 8) $(says 'at or above')"
+
+echo 'PRE_PUSH_LOAD_WAIT_SECONDS=0 starts at once, and says so when the load is at or above the limit'
+plan 25; settings 24 0; gate_lw
+check 'exit 0, no sleep, one reading, one check' '0 0 1 1' "$rc $(slept | wc -w | tr -d ' ') $(n_calls) $(n_checks)"
+check 'it says it starts at or above the limit without waiting' 1 "$(says 'at or above the limit of 24: PRE_PUSH_LOAD_WAIT_SECONDS is 0')"
+check 'the record holds 25'                      25 "$(last_run 8)"
+plan 23.5; settings 24 0; gate_lw
+check 'below the limit: no such message, the sample on record' '0 23.5' "$(says 'at or above') $(last_run 8)"
+for bad in FAIL EMPTY JUNK; do
+  plan "$bad"; settings 24 0; gate_lw
+  check "$bad: the check runs, said and recorded as -" '0 1 - 1' "$rc $(n_checks) $(last_run 8) $(says 'could not be measured')"
+done
+
+echo 'the settings come from the checkout: defaults when missing, never from the environment, and an invalid value names its key'
+plan 30; rm -f "$lw/.ai-core/config.env"; gate_lw
+check 'no settings: the defaults wait 300 seconds in all' '300' "$(awk '{ s += $1 } END { print s }' "$PROBE_STATE/sleeps")"
+check 'and start at the bound'                   '0 1' "$rc $(n_checks)"
+plan 25 10; settings 24 300; PRE_PUSH_LOAD_LIMIT=0 PRE_PUSH_LOAD_WAIT_SECONDS=0 gate_lw
+check 'exported names do not override the checkout' '5 ' "$(slept)"
+plan 1; settings abc 0; gate_lw
+check 'an invalid limit refuses and names the key, even with the bound at 0' '1 1' "$rc $(says 'PRE_PUSH_LOAD_LIMIT is .abc.')"
+plan 1; settings 0 5x; gate_lw
+check 'an invalid bound refuses and names the key, even with the limit at 0' '1 1' "$rc $(says 'PRE_PUSH_LOAD_WAIT_SECONDS is .5x.')"
+check 'no check ran for either'                  0 "$(n_checks)"
+check 'the template carries the documented defaults' '24 300' "$(sed -n 's/^PRE_PUSH_LOAD_LIMIT="\(.*\)"$/\1/p' "$root/templates/.ai-core/config.env") $(sed -n 's/^PRE_PUSH_LOAD_WAIT_SECONDS="\(.*\)"$/\1/p' "$root/templates/.ai-core/config.env")"
+check 'the help and the README name both settings' '2 2' "$(bash "$root/bin/pre-push.sh" --help | grep -c 'PRE_PUSH_LOAD_\(LIMIT\|WAIT_SECONDS\) (') $(grep -c '^| `PRE_PUSH_LOAD_\(LIMIT\|WAIT_SECONDS\)` | .*`\(24\|300\)` when unset' "$root/README.md")"
+
+echo 'a setting edited during the wait takes effect at the next poll and does not restart the wait'
+plan 30; settings 24 300; on_sleep 1 24 8; gate_lw
+check 'five seconds were slept, then the three that remain of the new bound' '0 5 3 ' "$rc $(slept)"
+plan 30; settings 24 300; on_sleep 1 0 300; gate_lw
+check 'the limit set to 0 ends the wait with one more reading and no threshold message' '0 5  2 0' "$rc $(slept) $(n_calls) $(says 'at or above')"
+plan 30; settings 24 300; on_sleep 1 24 0; gate_lw
+check 'the bound set to 0 starts the check, above the limit, and says so' '0 1' "$rc $(says 'PRE_PUSH_LOAD_WAIT_SECONDS is 0')"
+
+echo 'a commit or a change of the tree during the wait is refused against the commit judged, and no check starts'
+plan 30; settings 24 300; printf 'git -C "%s" commit -q --allow-empty -m "Moved while waiting #8"\n' "$lw" > "$PROBE_STATE/on-sleep-1"; gate_lw
+check 'HEAD moved: exit 1'                       1 "$rc"
+check 'it names the move'                        1 "$(says 'HEAD moved from')"
+check 'no check'                                 0 "$(n_checks)"
+check 'the record names the commit that was judged' "$(git -C "$lw" rev-parse HEAD~1)" "$(last_run 4)"
+check 'and holds - for the load'                 '-' "$(last_run 8)"
+plan 30; settings 24 300; printf 'echo late > "%s"\n' "$lw/late.txt" > "$PROBE_STATE/on-sleep-1"; gate_lw
+check 'a file that appears: exit 1, the tree named' '1 1' "$rc $(says 'the working tree differs from the commit being pushed')"
+check 'no check'                                 0 "$(n_checks)"
+rm -f "$lw/late.txt"
+
+echo 'a gate stopped during the wait starts no check and records no green run'
+plan 30; settings 24 300; : > "$PROBE_STATE/block"; lw_commit "$lw"
+printf 'refs/heads/master %s refs/heads/master %s\n' "$(git -C "$lw" rev-parse HEAD)" "$(git -C "$lw" rev-parse HEAD~1)" > "$fake/stop-input"
+( cd "$lw" && exec bash "$root/bin/pre-push.sh" < "$fake/stop-input" > "$fake/stop-out" 2>&1 ) & stopped=$!
+for _ in $(seq 200); do [ -e "$PROBE_STATE/sleeping" ] && break; "$real_sleep" 0.05; done
+kill -TERM "$stopped"; : > "$PROBE_STATE/wake"; wait "$stopped" 2>/dev/null; rc=$?
+check 'the gate ended on the signal'             143 "$rc"
+check 'no check ran'                             0 "$(n_checks)"
+check 'the run is recorded as one with no check, not green, without a load' 'no check -' "$(last_run 5) $(last_run 8)"
+
+echo 'a repository without scripts/check.sh reads no load and never waits'
+plan 99; settings 24 300
+printf 'three\n' >> "$nocheck/README.md"; git -C "$nocheck" commit -q -am 'Push with nothing to wait for #2'
+out="$(only_new "$nocheck")"; rc=$?
+check 'exit 0, no reading, no sleep'             '0 0 0' "$rc $(n_calls) $(slept | wc -w | tr -d ' ')"
+check 'the record of a run with no check holds -' '-' "$(last_run 8)"
+
+echo 'the listing reads rows of seven and of eight fields under the header of the log, shows the current header, and keeps its filters'
+legacy_header=$'time\trepository\tworktree\tcommit\tverdict\tseconds\tlast line'
+printf '%s\n2026-10-01T10:00:00Z\texample/old\t/old\t%s\tgreen\t4\told line\n2026-10-02T10:00:00Z\texample/other\t/other\t%s\tred\t5\tother line\n' "$legacy_header" aaaa bbbb > "$runs"
+plan 0.7; settings 24 300; gate_lw
+check 'the legacy header and rows of the log are unchanged' "$(printf '%s\n2026-10-01T10:00:00Z\texample/old\t/old\taaaa\tgreen\t4\told line\n2026-10-02T10:00:00Z\texample/other\t/other\tbbbb\tred\t5\tother line' "$legacy_header")" "$(head -3 "$runs")"
+listed="$(bash "$root/bin/pre-push.sh" --runs)"
+check 'the listing shows the current header'     'load at check start' "$(head -1 <<< "$listed" | cut -f8)"
+check 'the newest first, every row of eight fields' '8 8 8' "$(awk -F'\t' 'NR > 1 { printf "%s ", NF }' <<< "$listed" | sed 's/ $//')"
+check 'a row of seven fields is shown with - as its load' '-' "$(grep -F "aaaa" <<< "$listed" | cut -f8)"
+check 'the order is newest first'                "$(git -C "$lw" rev-parse HEAD) bbbb aaaa" "$(cut -f4 <<< "$listed" | sed -n '2,4p' | tr '\n' ' ' | sed 's/ $//')"
+check '--repo filters the old rows'              'aaaa' "$(bash "$root/bin/pre-push.sh" --runs --repo example/old | sed -n 2p | cut -f4)"
+check '--since filters the old rows'             '0 1' "$(bash "$root/bin/pre-push.sh" --runs --since 2026-10-02 | grep -c aaaa) $(bash "$root/bin/pre-push.sh" --runs --since 2026-10-02 | grep -c bbbb)"
+rm -f "$runs"
+
+echo 'two gates at the same time share one run log: one header, one whole row each, the sample and the verdict of its own run'
+lw2="$fake/lw2"; git clone -q "$lw" "$lw2"; git -C "$lw2" config user.email 'test@example.invalid'; git -C "$lw2" config user.name 'test'
+printf '.ai-core/\n' >> "$lw2/.git/info/exclude"; mkdir -p "$lw2/.ai-core"
+both() {  # both - two gates at once, each with a clock, loads and settings of its own, meeting in their checks and, for a new log, at its creation
+  local state_a state_b barrier="$fake/barrier-$((plans + 1))"; mkdir -p "$barrier"
+  plan 25 10; state_a="$PROBE_STATE"; plan 0.5; state_b="$PROBE_STATE"
+  settings 24 300; mkdir -p "$lw2/.ai-core"; cp "$lw/.ai-core/config.env" "$lw2/.ai-core/config.env"
+  lw_commit "$lw"; lw_commit "$lw2"
+  for each in "$lw:$state_a:green" "$lw2:$state_b:red"; do
+    IFS=: read -r tree state verdict <<< "$each"
+    printf 'refs/heads/master %s refs/heads/master %s\n' "$(git -C "$tree" rev-parse HEAD)" "$(git -C "$tree" rev-parse HEAD~1)" > "$state/input"
+    ( cd "$tree" && PROBE_STATE="$state" PROBE_BARRIER="$barrier" PROBE_MKTEMP_BARRIER="$barrier" PROBE_CHECK="$verdict" \
+        exec timeout 60 bash "${GATE_SCRIPT:-$root/bin/pre-push.sh}" < "$state/input" > "$state/out" 2>&1 ) &
+  done
+  wait
+}
+rm -f "$runs"; both
+check 'a log made by two gates at once has one header' 1 "$(grep -c $'^time\trepository' "$runs")"
+check 'and one row of eight fields for each run' '2 0' "$(grep -vc $'^time\trepository' "$runs") $(awk -F'\t' 'NR > 1 && NF != 8 { n++ } END { print n + 0 }' "$runs")"
+check 'each row holds the verdict and the sample of its own run' "green 10 red 0.5" "$(awk -F'\t' -v a="$lw" -v b="$lw2" 'NR > 1 && ($3 == a || $3 == b) { print $5, $8 }' "$runs" | sort | tr '\n' ' ' | sed 's/ $//')"
+check 'no stray temporary file is left beside the log' 1 "$(ls "$(dirname "$runs")" | grep -c '^pre-push-runs')"
+printf '%s\n2026-10-01T10:00:00Z\texample/old\t/old\taaaa\tgreen\t4\told line\n' "$legacy_header" > "$runs"
+both
+check 'two gates appending to a log of seven fields leave its header and row as they were' "$(printf '%s\n2026-10-01T10:00:00Z\texample/old\t/old\taaaa\tgreen\t4\told line' "$legacy_header")" "$(head -2 "$runs")"
+check 'and add one whole row each'                 '4 2' "$(wc -l < "$runs" | tr -d ' ') $(awk -F'\t' 'NR > 2 && NF == 8 { n++ } END { print n }' "$runs")"
+check 'with the sample of its own run'             "green 10 red 0.5" "$(awk -F'\t' -v a="$lw" -v b="$lw2" 'NR > 2 && ($3 == a || $3 == b) { print $5, $8 }' "$runs" | sort | tr '\n' ' ' | sed 's/ $//')"
+
+echo 'a new log that cannot be linked into place is not written another way: the run is said not to be recorded, and no log, header or temporary file stands'
+rm -f "$runs"; plan 0.5; settings 24 300; PROBE_LN=fail gate_lw
+check 'the push is judged as ever: exit 0, one check' '0 1' "$rc $(n_checks)"
+check 'the gate says the run could not be recorded, once' 1 "$(says "this run could not be recorded in $runs")"
+check 'no log and no temporary file stand beside where it was to be' 0 "$(find "$(dirname "$runs")" -maxdepth 1 -name 'pre-push-runs*' | wc -l | tr -d ' ')"
+echo 'a log that exists needs no link: with the link failing, a run still adds its row and says nothing of it'
+printf '%s\n2026-10-01T10:00:00Z\texample/old\t/old\taaaa\tgreen\t4\told line\n' "$legacy_header" > "$runs"
+plan 0.5; settings 24 300; PROBE_LN=fail gate_lw
+check 'one row was added under the header, and nothing was said of the record' '3 0' "$(wc -l < "$runs" | tr -d ' ') $(says 'could not be recorded')"
+rm -f "$runs"
+
+# --- planted defects: each of these copies of the gate must turn the named case red ------------
+mkdir -p "$fake/mutant/bin"; ln -s "$root/lib" "$fake/mutant/lib"
+mutate() {  # mutate <sed expression> - a copy of the gate with one defect, in GATE_SCRIPT
+  sed "$1" "$root/bin/pre-push.sh" > "$fake/mutant/bin/pre-push.sh"
+  cmp -s "$root/bin/pre-push.sh" "$fake/mutant/bin/pre-push.sh" && { echo "  FAIL the planted defect changed nothing: $1"; failed=$((failed + 1)); }
+  export GATE_SCRIPT="$fake/mutant/bin/pre-push.sh"
+}
+echo 'planted: no wait at all'
+mutate 's/exit !(sample + 0 >= limit + 0)/exit 1/'
+plan 25 24 23.5; settings 24 300; gate_lw
+check 'the slept seconds are not what the wait sleeps' no "$([ "$(slept)" = '5 5 ' ] && echo yes || echo no)"
+echo 'planted: a load exactly at the limit is below it'
+mutate 's/sample + 0 >= limit + 0/sample + 0 > limit + 0/'
+plan 25 24 23.5; settings 24 300; gate_lw
+check 'the wait ends one sample early and records 24' no "$([ "$(slept)" = '5 5 ' ] && [ "$(last_run 8)" = 23.5 ] && echo yes || echo no)"
+echo 'planted: no bound'
+mutate 's/\[ "\$remaining" -le 0 \]/false/'
+plan 30; settings 24 12; GATE_TIMEOUT=10 gate_lw
+check 'a load that never falls is waited for without end: the run is cut off, no check started' no "$([ "$rc" = 0 ] && [ "$(n_checks)" = 1 ] && echo yes || echo no)"
+echo 'planted: the first sample is the one recorded'
+mutate 's/^    if ! at_or_above "\$sample" "\$LOAD_LIMIT"; then$/    first="${first:-$sample}"; &/; s/^  LOAD_AT_START="\$sample"$/  LOAD_AT_START="${first:-$sample}"/'
+plan 25 24 23.5; settings 24 300; gate_lw
+check 'the record holds 25, not the start sample' no "$([ "$(last_run 8)" = 23.5 ] && echo yes || echo no)"
+echo 'planted: an unreadable load refuses in a zero mode'
+mutate 's/^        sample=-$/        refuse "unreadable"/'
+plan FAIL; settings 0 300; gate_lw
+check 'the limit-zero case with a failing reader no longer starts the check' no "$([ "$rc" = 0 ] && [ "$(n_checks)" = 1 ] && echo yes || echo no)"
+plan FAIL; settings 24 0; gate_lw
+check 'nor the bound-zero case'                  no "$([ "$rc" = 0 ] && [ "$(n_checks)" = 1 ] && echo yes || echo no)"
+echo 'planted: a header written by whoever finds no log, as the gate wrote it before'
+mutate "s|^  if \[ ! -e \"\$GATE_RUNS_FILE\" \]; then\$|  [ -s \"\$GATE_RUNS_FILE\" ] \|\| missing=1\n  mktemp -u \"\$GATE_RUNS_FILE.XXXXXX\" >/dev/null\n  [ -z \"\${missing:-}\" ] \|\| printf '%s\\\\n' \"\$GATE_RUNS_HEADER\" >> \"\$GATE_RUNS_FILE\"\n  if false; then|"
+rm -f "$runs"; both
+check 'two gates at once write two headers'      2 "$(grep -c $'^time\trepository' "$runs")"
+echo 'planted: a link that failed is followed by the append that writes the log, as the gate wrote it before'
+mutate 's/^    \[ -e "\$GATE_RUNS_FILE" \] || return 1$/    [ -s "$GATE_RUNS_FILE" ] || echo "$GATE_RUNS_HEADER" >> "$GATE_RUNS_FILE"/'
+rm -f "$runs"; plan 0.5; settings 24 300; PROBE_LN=fail gate_lw
+check 'a log stands though no link could be made, with no word that the run was not recorded' 'yes 0' "$([ -s "$runs" ] && echo yes || echo no) $(says 'could not be recorded')"
+unset GATE_SCRIPT GATE_TIMEOUT
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

@@ -638,13 +638,19 @@ issue_labels_set() {
   plane_patch "the labels of $repo#$n" "$repo" "$n" "$(jq -nc --argjson l "$set" '{labels: $l}')"
 }
 
-# plane_label_ensure <labels json lines> <name> <colour> <description>: made once, left as it is when it stands
+# plane_label_ensure <labels json lines> <name> <colour> <description>: made once, left as it is when it stands.
+# A write Plane refuses may be the answer to another command having made the label first, so a refusal is
+# followed by a fresh listing, and the command goes on only when that shows the exact name.
 plane_label_ensure() {
-  local project
+  local project rows
   printf '%s\n' "$1" | jq -e --arg n "$2" 'select(.name == $n)' >/dev/null && return 0
   project="$(plane_project_uuid)" || exit 1
-  plane_api "the label $2" POST "$(plane_path "projects/$project/labels/")" \
-    "$(jq -nc --arg n "$2" --arg c "#$3" --arg d "$4" '{name: $n, color: $c, description: $d}')" >/dev/null || exit 1
+  plane_call POST "$(plane_path "projects/$project/labels/")" \
+    "$(jq -nc --arg n "$2" --arg c "#$3" --arg d "$4" '{name: $n, color: $c, description: $d}')"
+  case "$plane_status" in 2??) return 0 ;; esac
+  rows="$(plane_pages "the labels of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$project/labels/")")" || exit 1
+  printf '%s\n' "$rows" | jq -e --arg n "$2" 'select(.name == $n)' >/dev/null && return 0
+  die "cannot write the label $2 - the Plane API answered ${plane_status}${plane_body:+: $(printf '%s' "$plane_body" | tr -s '\r\n' '  ' | cut -c1-300)} and a fresh listing does not show it"
 }
 
 # labels_create <owner/repo> <name> <colour> <description>: made once, left as it is when it stands, and so
@@ -771,7 +777,7 @@ duplicate_mark() {
 #   <field name>\t<field id>\t<option name>\t<option id>\t<state group>
 # Status is the project's states in the order of their sequence, with the cancelled and then the completed
 # ones last, because lib/status.mjs reads the last column as the finished one; Priority the words P0 to P3
-# over Plane's four. The fifth column is read by this provider alone. The cache lives an hour, as on GitHub.
+# over Plane's four, and P9, parked, over none with the label P9. The fifth column is read by this provider alone. The cache lives an hour, as on GitHub.
 fields_tsv() {
   local f rows row
   f="$(cache_dir)/fields.tsv"
@@ -779,7 +785,7 @@ fields_tsv() {
     rows="$(plane_states)" || return 1
     rows="$(printf '%s\n' "$rows" | jq -rs 'sort_by([(if .group == "completed" then 2 elif .group == "cancelled" then 1 else 0 end), .sequence])[]
       | "Status\tstatus\t\(.name)\t\(.id)\t\(.group)"')"
-    rows="$rows"$'\n'"$(printf 'Priority\tpriority\tP0\turgent\t\nPriority\tpriority\tP1\thigh\t\nPriority\tpriority\tP2\tmedium\t\nPriority\tpriority\tP3\tlow\t')"
+    rows="$rows"$'\n'"$(printf 'Priority\tpriority\tP0\turgent\t\nPriority\tpriority\tP1\thigh\t\nPriority\tpriority\tP2\tmedium\t\nPriority\tpriority\tP3\tlow\t\nPriority\tpriority\tP9\tnone\t')"
     make_cache_dir
     printf '%s\n' "$rows" > "$f"
   }
@@ -813,9 +819,36 @@ set_select() {
   case "$fid" in
     status)
       plane_api "the state of $1" PATCH "$(plane_path "projects/$project/issues/$1/")" "$(jq -nc --arg s "$oid" '{state: $s}')" >/dev/null || exit 1 ;;
-    priority)
-      plane_api "the priority of $1" PATCH "$(plane_path "projects/$project/issues/$1/")" "$(jq -nc --arg p "$oid" '{priority: $p}')" >/dev/null || exit 1 ;;
+    priority) plane_set_priority "$1" "$oid" ;;
   esac
+}
+
+# plane_set_priority <work item uuid> <native priority>: the native priority is what the option the person named
+# resolved to, so the spelling typed, P9 or p9, decides nothing here. P9 is the label P9 and the native priority
+# none, P0 to P3 a native priority without that label, so a work item never reads as two. The labels of a work
+# item are replaced by the list a write gives, so the one PATCH carries the priority and the whole label list,
+# and the work item is read back before the command says it is done. A PATCH and a readback show what the work
+# item held then; they do not stop another client writing its labels at the same moment.
+plane_set_priority() {
+  local project item_path item rows p9 labels read_back
+  project="$(plane_project_uuid)" || exit 1
+  item_path="$(plane_path "projects/$project/issues/$1/")"
+  item="$(plane_api "the labels of the work item $1" GET "${item_path}?expand=labels")" || exit 1
+  if [ "$2" = none ]; then
+    rows="$(plane_pages "the labels of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$project/labels/")")" || exit 1
+    plane_label_ensure "$rows" P9 6B7280 "Parked: the work waits, and Plane has no priority for that"
+    rows="$(plane_pages "the labels of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$project/labels/")")" || exit 1
+    p9="$(printf '%s\n' "$rows" | jq -r 'select(.name == "P9") | .id' | head -n1)"
+    [ -n "$p9" ] || die "the Plane project has no label P9 after it was made"
+    labels="$(printf '%s' "$item" | jq -c --arg p "$p9" '[.labels[].id, $p] | unique')"
+  else
+    labels="$(printf '%s' "$item" | jq -c '[.labels[] | select(.name != "P9") | .id] | unique')"
+  fi
+  plane_api "the priority of $1" PATCH "$item_path" "$(jq -nc --arg p "$2" --argjson l "$labels" '{priority: $p, labels: $l}')" >/dev/null || exit 1
+  read_back="$(plane_api "the priority of $1 after the write" GET "${item_path}?expand=labels")" || exit 1
+  printf '%s' "$read_back" | jq -e --arg p "$2" --argjson l "$labels" '
+    .priority == $p and ([.labels[].id] | sort) == ($l | sort) and ([.labels[] | select(.name == "P9")] | length) == (if $p == "none" then 1 else 0 end)' >/dev/null \
+    || die "the priority of $1 was NOT confirmed: Plane answered the write, and the work item reads priority $(printf '%s' "$read_back" | jq -r '.priority') with the labels $(printf '%s' "$read_back" | jq -r '[.labels[].name] | join(", ")')"
 }
 
 # closing_column <completed | not-planned>: the Status a closed issue's card is put in. An issue closed as

@@ -425,3 +425,186 @@ out="$(ai repo-link --project ENG 2>&1)" || fail "repo-link: $out"
 grep -q 'linked: example-org/example-repo' <<< "$out" || fail "repo-link did not print what it linked: $out"
 [ "$(planeq 'console.log(p.labels.filter((l)=>l.name==="repo:example-repo").length)')" = 1 ] || fail "repo-link did not make the repository label"
 echo "  repo-link: the repository label is made, and the link printed"
+
+# --- issue-priority P9 on Plane ---------------------------------------------------------------
+# P9 is the label P9 with the native priority none, the form the carry writes; P0 to P3 are native priorities
+# without that label. One PATCH carries both, and the work item is read back before the command says it is done.
+section "issue-priority on Plane: P9 parks a card as the label P9 and the native priority none"
+seed_item() {  # seed_item <number> [native priority]: an owned work item with an unrelated label, a parent and an assignee
+  plane_add_item "$1" "Item $1" repo:example-repo area:tooling
+  N="$1" NATIVE="${2:-high}" planeset 'const e=process.env,i=p.issues.find((x)=>x.sequence_id===+e.N);i.priority=e.NATIVE;i.parent=p.issues[0].id;i.assignees=[s.users[0].id]'
+}
+item_labels() { planeq "const i=p.issues.find((x)=>x.sequence_id===$1);console.log(i.labels.map((id)=>p.labels.find((l)=>l.id===id).name).sort().join(','))"; }
+item_native() { planeq "console.log(p.issues.find((x)=>x.sequence_id===$1).priority)"; }
+item_kept() { planeq "const i=p.issues.find((x)=>x.sequence_id===$1);console.log(JSON.stringify([i.name,i.description_html,i.state,i.parent,i.assignees]))"; }
+p9_labels() { planeq "console.log(p.labels.filter((l)=>l.name==='P9').length)"; }
+line_prio() { plane_fn board_card_lines example-org | awk -F'\t' -v n="$1" '$4 == n { print $2 }'; }
+writes() { grep -c '^\(POST\|PATCH\) ' "$CURL_FAKE_STATE/requests.log" || true; }
+
+drop_p9_label() { planeset 'const l=p.labels.find((x)=>x.name==="P9");if(l){p.issues.forEach((i)=>{i.labels=i.labels.filter((x)=>x!==l.id)});p.labels=p.labels.filter((x)=>x!==l)}'; }
+drop_p9_label   # an earlier case made one
+seed_item 700; seed_item 701 none
+kept="$(item_kept 700)"; [ "$(p9_labels)" = 0 ] || fail "the fixture starts with a P9 label"
+out="$(ai issue-priority 700 P9 2>&1)" || fail "issue-priority 700 P9: $out"
+[ "$out" = "#700 -> P9" ] || fail "issue-priority says '$out'"
+[ "$(p9_labels)" = 1 ] || fail "$(p9_labels) P9 labels in the project after the first P9, not one"
+[ "$(item_labels 700)" = "P9,area:tooling,repo:example-repo" ] || fail "the labels of the parked item are $(item_labels 700)"
+[ "$(item_native 700)" = none ] || fail "the native priority of the parked item is $(item_native 700), not none"
+[ "$(item_kept 700)" = "$kept" ] || fail "parking changed the title, body, state, parent or assignee: $(item_kept 700)"
+[ "$(prio_of 700)" = P9 ] && [ "$(line_prio 700)" = P9 ] || fail "the card row reads $(prio_of 700) and the board line $(line_prio 700), not P9"
+[ "$(prio_of 701)" != P9 ] && [ "$(line_prio 701)" != P9 ] || fail "an item with native none and no P9 reads as parked"
+echo "  P9: the label is made once, the item carries it and native none, its other labels, parent and assignee stay, the card row and the board line read P9; an item with native none and no label is not parked"
+ai issue-priority 700 P9 >/dev/null 2>&1 || fail "a second P9 failed"
+[ "$(item_labels 700)" = "P9,area:tooling,repo:example-repo" ] && [ "$(p9_labels)" = 1 ] || fail "a second P9 changed the membership: $(item_labels 700), $(p9_labels) labels"
+for p in P0:urgent P1:high P2:medium P3:low; do
+  ai issue-priority 700 P9 >/dev/null 2>&1; ai issue-priority 700 "${p%%:*}" >/dev/null 2>&1 || fail "issue-priority 700 ${p%%:*}"
+  [ "$(item_native 700) $(item_labels 700) $(prio_of 700) $(line_prio 700)" = "${p##*:} area:tooling,repo:example-repo ${p%%:*} ${p%%:*}" ] \
+    || fail "${p%%:*} after P9 leaves: native $(item_native 700), labels $(item_labels 700), row $(prio_of 700), line $(line_prio 700)"
+done
+[ "$(item_kept 700)" = "$kept" ] || fail "setting P0 to P3 changed the title, body, state, parent or assignee"
+echo "  a second P9 changes nothing; each of P0 to P3 sets its native priority and takes the label P9 away, and the row and the line follow"
+
+reset_log
+out="$(ai issue-priority 700 P7 2>&1)" && fail "issue-priority accepted P7"
+grep -q 'P0' <<< "$out" && grep -q 'P1' <<< "$out" && grep -q 'P2' <<< "$out" && grep -q 'P3' <<< "$out" && grep -q 'P9' <<< "$out" || fail "the refusal does not name the five values: $out"
+[ "$(writes)" = 0 ] || fail "a refused value wrote $(writes) times"
+cache="$(find "$WORK" -name fields.tsv -path '*cache*' | head -n1)"; [ -n "$cache" ] || fail "no fields cache to age"
+sed -i.bak '/	P9	/d' "$cache"; ai issue-priority 700 P9 >/dev/null 2>&1 || fail "an old fields cache without P9 did not refresh itself"
+[ "$(item_native 700) $(item_labels 700)" = "none P9,area:tooling,repo:example-repo" ] || fail "P9 through an old cache left $(item_native 700) $(item_labels 700)"
+echo "  a value outside P0 to P3 and P9 is refused naming all five, with no write; a cache without P9 refreshes by itself"
+
+out="$(ai issue-new --repo example-org/example-repo --title "Parked on arrival" --body-file "$WORK/body.md" --label type:feature --label area:tooling --priority P9 --asked-by someone --asked-in "the test" 2>&1)" || fail "issue-new --priority P9: $out"
+new_n="$(planeq "console.log(Math.max(...p.issues.map((i)=>i.sequence_id)))")"
+[ "$(item_native "$new_n") $(item_labels "$new_n")" = "none P9,area:tooling,repo:example-repo,type:feature" ] || fail "a work item made with P9 has $(item_native "$new_n") and $(item_labels "$new_n")"
+before="$(planeq "console.log(p.issues.length)")"; reset_log
+out="$(ai issue-new --repo example-org/example-repo --title "Never made" --body-file "$WORK/body.md" --label type:feature --label area:tooling --priority P7 --asked-by someone --asked-in "the test" 2>&1)" && fail "issue-new accepted P7"
+[ "$(planeq "console.log(p.issues.length)") $(writes)" = "$before 0" ] || fail "an invalid creation priority made a work item or wrote"
+echo "  issue-new --priority P9 writes the same representation; an invalid creation priority refuses before the item is made"
+
+# the option is matched without case on every board, so p9 parks as P9 does and p1 sets P1; the spelling typed decides nothing
+seed_item 740 high
+out="$(ai issue-priority 740 p9 2>&1)" || fail "issue-priority 740 p9: $out"
+[ "$(item_native 740) $(item_labels 740) $(prio_of 740) $(line_prio 740)" = "none P9,area:tooling,repo:example-repo P9 P9" ] \
+  || fail "p9 left native $(item_native 740), labels $(item_labels 740), row $(prio_of 740), line $(line_prio 740), not none, the label P9, P9 and P9"
+out="$(ai issue-priority 740 p1 2>&1)" || fail "issue-priority 740 p1: $out"
+[ "$(item_native 740) $(item_labels 740) $(prio_of 740) $(line_prio 740)" = "high area:tooling,repo:example-repo P1 P1" ] \
+  || fail "p1 after p9 left native $(item_native 740), labels $(item_labels 740), row $(prio_of 740), line $(line_prio 740)"
+out="$(ai issue-new --repo example-org/example-repo --title "Parked in lower case" --body-file "$WORK/body.md" --label type:feature --label area:tooling --priority p9 --asked-by someone --asked-in "the test" 2>&1)" || fail "issue-new --priority p9: $out"
+new_n="$(planeq "console.log(Math.max(...p.issues.map((i)=>i.sequence_id)))")"
+[ "$(item_native "$new_n") $(item_labels "$new_n")" = "none P9,area:tooling,repo:example-repo,type:feature" ] || fail "a work item made with p9 has $(item_native "$new_n") and $(item_labels "$new_n")"
+echo "  p9 in lower case parks as P9 does, with the label and the native none, and p1 sets P1 and takes the label away; issue-new --priority p9 writes the same representation"
+
+# failures: nothing says done that was not read back, and no pair is half written
+seed_item 710; seed_item 711
+fails() {  # fails <inject json> <message>: issue-priority 710 P9 must fail, leaving the item as it was
+  printf '%s' "$1" > "$CURL_FAKE_STATE/inject.json"
+  out="$(ai issue-priority 710 P9 2>&1)" && fail "$2: it said done: $out"
+  printf '[]' > "$CURL_FAKE_STATE/inject.json"
+  [ "$(item_native 710) $(item_labels 710)" = "high area:tooling,repo:example-repo" ] || fail "$2: the item changed to $(item_native 710) $(item_labels 710)"
+  grep -q '^#710 -> P9' <<< "$out" && fail "$2: the success line was printed"
+  return 0
+}
+fails '[{"match":"expand=labels","status":502,"times":9}]' "the item cannot be read"
+fails '[{"match":"/labels/?","status":502,"times":9}]' "the labels cannot be read"
+fails '[{"match":"/labels/","status":403,"skip":1,"times":1}]' "the label is refused"
+fails '[{"match":"PATCH","status":400,"times":1,"body":{"detail":"no"}}]' "the write is refused"
+out="$(CURL_FAKE_DROP_LABEL=P9 ai issue-priority 710 P9 2>&1)" && fail "a write that dropped the label was reported as done: $out"
+grep -q 'was NOT confirmed' <<< "$out" || fail "a dropped label is not named: $out"
+printf '[{"match":"PATCH","status":0,"commit":true,"times":1}]' > "$CURL_FAKE_STATE/inject.json"
+out="$(ai issue-priority 711 P9 2>&1)" && fail "a write whose answer was lost was reported as done: $out"
+printf '[]' > "$CURL_FAKE_STATE/inject.json"
+[ "$(item_native 711) $(item_labels 711)" = "none P9,area:tooling,repo:example-repo" ] || fail "the committed write is not in the state: $(item_native 711) $(item_labels 711)"
+ai issue-priority 711 P9 >/dev/null 2>&1 || fail "the rerun after a lost answer failed"
+[ "$(item_labels 711)" = "P9,area:tooling,repo:example-repo" ] && [ "$(p9_labels)" = 1 ] || fail "the rerun left $(item_labels 711), $(p9_labels) P9 labels"
+echo "  failures: an unreadable item, an unreadable label list, a refused label, a refused write, a write that drops the label and a lost answer each end with an error and no success line; a rerun reads what was committed"
+
+# two commands from the no-label state meet at the write of the label: one label, one membership each
+seed_item 720; seed_item 721
+drop_p9_label; rm -rf "$WORK/barrier"
+( CURL_FAKE_BARRIER="$WORK/barrier" CURL_FAKE_BARRIER_MATCH=/labels/ ai issue-priority 720 P9 > "$WORK/p9-a.out" 2>&1; echo $? > "$WORK/p9-a.rc" ) &
+( CURL_FAKE_BARRIER="$WORK/barrier" CURL_FAKE_BARRIER_MATCH=/labels/ ai issue-priority 721 P9 > "$WORK/p9-b.out" 2>&1; echo $? > "$WORK/p9-b.rc" ) &
+wait
+[ "$(cat "$WORK/p9-a.rc") $(cat "$WORK/p9-b.rc")" = "0 0" ] || fail "two P9 commands at once: $(cat "$WORK/p9-a.out" "$WORK/p9-b.out")"
+[ "$(p9_labels) $(item_labels 720) $(item_labels 721)" = "1 P9,area:tooling,repo:example-repo P9,area:tooling,repo:example-repo" ] || fail "two P9 commands at once left $(p9_labels) labels, $(item_labels 720) and $(item_labels 721)"
+echo "  two P9 commands at one write of the label: one label, and each item carries it once"
+
+# planted defects, each in a copy of the library
+planted_run() {  # planted_run <sed expression> <number> <priority>: the command with one defect, as issue-priority runs it
+  rm -rf "$planted"; mkdir -p "$planted"; cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$planted/"; cp "$ROOT/VERSION" "$planted/"
+  sed -i.bak "$1" "$planted/lib/plane/tracker.sh"
+  cmp -s "$ROOT/lib/plane/tracker.sh" "$planted/lib/plane/tracker.sh" && fail "the planted copy equals lib/plane/tracker.sh: $1"
+  ROOT_UNDER_TEST="$planted" ai issue-priority "$2" "$3" 2>&1
+}
+seed_item 730; drop_p9_label
+planted_run 's/^    plane_label_ensure "\$rows" P9 .*$/    :/' 730 P9 >/dev/null && fail "planted: without the creation of the label P9 the command succeeded"
+planted_run "s/{priority: \$p, labels: \$l}/{labels: \$l}/" 730 P9 >/dev/null && fail "planted: without the native priority none the command succeeded"
+seed_item 731; ai issue-priority 731 P9 >/dev/null 2>&1
+planted_run 's/select(.name != "P9") | //' 731 P1 >/dev/null && fail "planted: without the removal of P9 the command succeeded"
+seed_item 732; reset_log
+planted_run 's/oid="\$(option_id "\$2" "\$3")" || exit 1/oid=none/' 732 P7 >/dev/null; [ "$(writes)" -gt 0 ] || fail "planted: without the validation an invalid value wrote nothing"
+seed_item 733
+planted_run 's/\[.labels\[\].id, \$p\] | unique/[$p]/' 733 P9 >/dev/null; [ "$(item_labels 733)" = "P9" ] || fail "planted: a label list built from P9 alone should leave $(item_labels 733)"
+echo "  planted defects, each caught: no label made, no native none, no P9 removal, no validation before the write, other labels not kept"
+seed_item 741
+planted_run 's/priority) plane_set_priority "\$1" "\$oid" ;;/priority) plane_set_priority "$1" "$oid" "$3" ;;/; s/^  if \[ "\$2" = none \]; then$/  if [ "${3:-}" = P9 ]; then/' 741 p9 >/dev/null || true
+[ "$(item_labels 741)" != "P9,area:tooling,repo:example-repo" ] || fail "planted: a decision on the spelling typed still parked p9"
+echo "  planted: a decision on the spelling typed instead of the option it resolves to does not park p9, and is caught"
+
+# --- a repository whose LIVE_TAGS says command, on Plane -------------------------------------------------------------
+# The landing and the proof are comments of a work item, timed as Plane times them (milliseconds, a clock of its own); the
+# reader of the engine's clone answers the commit of its clone and the time the test sets, before the comments or after.
+echo "  a repository whose LIVE_TAGS says command: its work items are closed, and drawn, by the delivery its reader answers"
+day="$(planeq 'console.log(s.day)')"
+export AI_CORE_NOW="$(node -e 'console.log(Date.parse(process.argv[1]) / 1000)' "${day}T23:59:59Z")"
+git init -q --bare -b master "$WORK/origins/example-org/engine.git"
+git init -q -b master "$WORK/engine"; git -C "$WORK/engine" remote add origin "$WORK/origins/example-org/engine.git"
+mkdir -p "$WORK/engine/.ai-core" "$WORK/engine/tools"
+cp "$P/.ai-core/config.env" "$WORK/engine/.ai-core/config.env"
+sed -i.bak 's/^LIVE_TAGS=.*$/LIVE_TAGS="prod=command"/' "$WORK/engine/.ai-core/config.env"; rm -f "$WORK/engine/.ai-core/config.env.bak"
+printf 'LIVE_RELEASE_COMMAND="tools/read"\n' >> "$WORK/engine/.ai-core/config.env"
+esha="$(commit "$WORK/engine" "Do the engine thing")"
+cat > "$WORK/engine/tools/read" <<READER
+#!/usr/bin/env bash
+printf '{"repository":"%s","environment":"%s","commit":"%s","releasedAt":"%s","source":"run 12"}\n' "\$1" "\$2" "\$(git rev-parse HEAD)" "\$(cat "$WORK/released-at")"
+READER
+chmod +x "$WORK/engine/tools/read"
+none="$WORK/none"; : > "$none"
+plane_status() { ( cd "$P" && PATH="$PATH_CURL" AI_CORE_PROCESSES="$none" AI_CORE_AGENTS="$none" AI_CORE_ROLLOUTS="$none" bash "${ROOT_UNDER_TEST:-$ROOT}/bin/status.sh" 2>&1 ); }
+engine_item() {  # engine_item <number> <proof header>: a work item in testing whose work landed in the engine, and a proof of it
+  plane_add_item "$1" "Landed in the engine" repo:example-repo
+  planeset "p.issues.find((i)=>i.sequence_id===$1).state=p.states.find((s)=>s.name==='testing').id"
+  plane_add_comment "$1" "Landed on master of example-org/engine:
+- $esha #$1 Do the engine thing"
+  plane_add_comment "$1" "$2: it works"
+}
+engine_item 90 "Proven on prod (https://example.test)"
+printf '%sT08:00:00Z\n' "$day" > "$WORK/released-at"
+reset_log
+out="$(ai status-sync --dry-run example-repo 2>&1)" || fail "status-sync --dry-run with a reader: $out"
+grep -q "would close  example-repo#90  (testing -> done, released in example-org/engine prod delivery run 12 at ${day}T08:00:00Z and proven)" <<< "$out" \
+  || fail "the delivery before the proof did not close the work item: $(grep 'example-repo#90' <<< "$out")"
+! grep -qE '^(PATCH|POST|PUT|DELETE) ' "$CURL_FAKE_STATE/requests.log" || fail "a dry run with a reader wrote to Plane"
+printf '%sT10:00:00Z\n' "$day" > "$WORK/released-at"
+out="$(ai status-sync --dry-run example-repo 2>&1)" || fail "status-sync --dry-run with a later delivery: $out"
+grep -q "proof due    example-repo#90  (released in example-org/engine prod delivery run 12 at ${day}T10:00:00Z, no \"Proven on prod\" record after both its landing and that delivery)" <<< "$out" \
+  || fail "a proof before the delivery counted: $(grep 'example-repo#90' <<< "$out")"
+printf '%sT08:00:00Z\n' "$day" > "$WORK/released-at"
+out="$(ai status-sync example-repo 2>&1)" || fail "status-sync with a reader: $out"
+[ "$(state_of 90)" = done ] || fail "the work item stands in $(state_of 90), not in done, after the applied run: $out"
+echo "    status-sync: a delivery before the proof closes the work item through its own clone, a delivery after it makes the proof due, and a dry run writes nothing"
+
+engine_item 91 "Proven on prod"; engine_item 92 "Proven on prod"
+out="$(plane_status)" || fail "status with a reader: $out"
+for seq in 91 92; do
+  grep -qE "^  🟢 example-repo#$seq +live on prod since .* \(run 12, ${day}T08:00:00Z\)  Landed in the engine$" <<< "$out" || fail "the work item $seq is not live on prod by the delivery: $(grep "example-repo#$seq" <<< "$out")"
+done
+! grep -q '❓' <<< "$out" || fail "a card is unknown although every read was answered: $(grep '❓' <<< "$out")"
+for listing in states project-members-lite comments activities; do
+  printf '[{"match":"/%s/","status":502,"times":1}]' "$listing" > "$CURL_FAKE_STATE/inject.json"
+  out="$(plane_status)" && fail "status exited 0 although the $listing read of a card was refused"
+  [ "$(grep -c '^  ❓ unknown' <<< "$out")" = 1 ] || fail "the refused $listing read did not make exactly one card unknown: $(grep '❓' <<< "$out")"
+  grep -qE "^  🟢 example-repo#92 +live on prod" <<< "$out" || fail "the card that could be read is not drawn after the refused $listing read: $out"
+  printf '[]' > "$CURL_FAKE_STATE/inject.json"
+done
+echo "    status: each of the states, members, comments and state changes read of a card, refused, makes that card unknown with the exit 1 and leaves the others drawn"
+unset AI_CORE_NOW

@@ -468,7 +468,7 @@ git -C "$work" config remote.origin.fetch '+refs/heads/master:refs/remotes/origi
 out="$(run 192)"; rc=$?
 git -C "$work" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
 check_runs "$rc"
-check 'it names the branch'                 yes "$(grep -q 'issue-192-gone-on-origin on origin could not be deleted and stays' <<< "$out" && echo yes || echo no)"
+check 'it says the branch is gone already' yes "$(grep -q 'issue-192-gone-on-origin on origin is already gone: it was deleted since it was measured' <<< "$out" && echo yes || echo no)"
 check 'the card moved to testing'           1 "$(grep -c 'oid=OPT_test' "$log" || true)"
 
 echo 'a branch somebody pushed to after it was read stays on origin'
@@ -482,6 +482,7 @@ out="$(run 193)"; rc=$?
 git -C "$work" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
 check_runs "$rc"
 check 'the moved branch stays on origin'    yes "$(on_origin issue-193-moved-on-origin)"
+check 'and says its tip moved'              yes "$(grep -q 'issue-193-moved-on-origin on origin stays: its tip moved from' <<< "$out" && echo yes || echo no)"
 check 'with the later commit'               "$later" "$(git -C "$origin" rev-parse refs/heads/issue-193-moved-on-origin)"
 
 echo 'a branch on origin that landed by rebase is deleted; one whose change landed reshaped stays'
@@ -529,6 +530,266 @@ out="$(run 195)"; rc=$?
 check_runs "$rc"
 check 'the merged branch stays on origin'   yes "$(on_origin issue-195-merged)"
 check 'and says why'                        yes "$(grep -q 'issue-195-merged on origin stays: it has commits whose change is not on origin/master' <<< "$out" && echo yes || echo no)"
+
+# --- --landed clears the origin branches of a closed issue ------------------------------------
+# Branches that live on origin only, no worktree: a commit whose change landed reshaped, a merge with
+# content of its own, a branch wholly contained in the default branch.
+reshaped() {  # reshaped <number> <slug> [unnamed]: a branch on origin whose change landed in another shape on master
+  local b="issue-$1-$2" tag=" (#$1)"
+  [ "${3:-}" != unnamed ] || tag=""
+  setup git -C "$work" pull -q --ff-only origin master
+  setup git -C "$work" checkout -q -b "$b" origin/master
+  echo "mine" > "$work/$b.txt"; setup git -C "$work" add "$b.txt"; setup git -C "$work" commit -q -m "Work of $b (#$1)"
+  setup git -C "$work" push -q origin "$b"
+  setup git -C "$work" checkout -q master
+  echo "as the conflict was resolved" > "$work/$b.txt"; setup git -C "$work" add "$b.txt"; setup git -C "$work" commit -q -m "Landed $b reshaped$tag"
+  setup git -C "$work" push -q origin master
+  setup git -C "$work" branch -q -D "$b"
+}
+rebased() {  # rebased <number> <slug>: a branch on origin whose commit is on master by cherry-pick
+  local b="issue-$1-$2"
+  setup git -C "$work" pull -q --ff-only origin master
+  setup git -C "$work" checkout -q -b "$b" origin/master
+  echo "picked" > "$work/$b.txt"; setup git -C "$work" add "$b.txt"; setup git -C "$work" commit -q -m "Work of $b (#$1)"
+  setup git -C "$work" push -q origin "$b"
+  setup git -C "$work" checkout -q master
+  echo "first" >> "$work/README.md"; setup git -C "$work" commit -q -am "Another landing before $b"
+  setup git -C "$work" cherry-pick "$b" >/dev/null
+  setup git -C "$work" push -q origin master
+  setup git -C "$work" branch -q -D "$b"
+}
+merged_content() {  # merged_content <number> <slug>: a merge commit with content of its own, the side cherry-picked
+  local b="issue-$1-$2"
+  setup git -C "$work" pull -q --ff-only origin master
+  setup git -C "$work" checkout -q -b "$b-side" origin/master
+  echo side > "$work/$b-side.txt"; setup git -C "$work" add . ; setup git -C "$work" commit -q -m "Side of $b (#$1)"
+  setup git -C "$work" checkout -q -b "$b" origin/master
+  git -C "$work" merge -q --no-ff --no-commit "$b-side" >/dev/null 2>&1
+  echo only > "$work/$b-merge.txt"; setup git -C "$work" add . ; setup git -C "$work" commit -q -m "Merge of $b with content of its own (#$1)"
+  setup git -C "$work" push -q origin "$b"
+  setup git -C "$work" checkout -q master
+  setup git -C "$work" cherry-pick "$b-side" >/dev/null
+  setup git -C "$work" push -q origin master
+  setup git -C "$work" branch -q -D "$b-side" "$b"
+}
+contained() {  # contained <number> <slug>: a branch on origin that master contains, no commit of it names the issue
+  local b="issue-$1-$2"
+  setup git -C "$work" pull -q --ff-only origin master
+  setup git -C "$work" checkout -q -b "$b" origin/master
+  echo "work" > "$work/$b.txt"; setup git -C "$work" add "$b.txt"; setup git -C "$work" commit -q -m "Work of $b without a name"
+  setup git -C "$work" push -q origin "$b"; setup git -C "$work" push -q origin "$b:master"
+  setup git -C "$work" checkout -q master; setup git -C "$work" pull -q --ff-only origin master
+  setup git -C "$work" branch -q -D "$b"
+}
+tip_of() { git -C "$origin" rev-parse -q --verify "refs/heads/$1" || echo gone; }
+said() { grep -qF -- "$1" <<< "$out" && echo yes || echo no; }
+writes() { grep -c "oid=OPT_\|comments -f body=\|issues(states:OPEN" "$log" || true; }
+fresh() { : > "$log"; rm -rf "$fake/cache"; }
+real_git="$(command -v git)"
+mkdir -p "$fake/gitshim"
+# The stand-in git: PROBE_CHERRY_FAIL and PROBE_MERGES_FAIL make a measurement fail; PROBE_AFTER_MEASURE names a script
+# run once after the merge-history read (another session pushing, a fetch moving the tracking ref); PROBE_PUSH_BARRIER
+# names a folder in which two runs meet before their delete
+cat > "$fake/gitshim/git" <<EOF
+#!/usr/bin/env bash
+case " \$* " in
+  *" cherry "*) [ -z "\${PROBE_CHERRY_FAIL:-}" ] || { echo 'fatal: planted failure of git cherry' >&2; exit 128; } ;;
+  *" log --merges "*) [ -z "\${PROBE_MERGES_FAIL:-}" ] || { echo 'fatal: planted failure of the merge history' >&2; exit 128; } ;;
+  *" push "*" --delete "*) if [ -n "\${PROBE_PUSH_BARRIER:-}" ]; then
+      : > "\$PROBE_PUSH_BARRIER/at.\$\$"
+      for _ in \$(seq 400); do [ "\$(ls "\$PROBE_PUSH_BARRIER" | grep -c '^at\\.')" -ge 2 ] && break; sleep 0.05; done
+    fi ;;
+esac
+"$real_git" "\$@"; rc=\$?
+case " \$* " in *" log --merges "*) if [ -n "\${PROBE_AFTER_MEASURE:-}" ] && [ -e "\$PROBE_AFTER_MEASURE" ]; then bash "\$PROBE_AFTER_MEASURE"; rm -f "\$PROBE_AFTER_MEASURE"; fi ;; esac
+exit \$rc
+EOF
+chmod +x "$fake/gitshim/git"
+shimmed() { (PATH="$fake/gitshim:$PATH" "$@"); }
+
+echo 'a closed issue with branches on origin only: without --landed the reshaped ones stay and name the way out; the contained and rebased go'
+reshaped 400 reshaped; rebased 400 rebased; merged_content 400 merged; contained 400 contained
+echo closed > "$state"; fresh
+out="$(run 400)"; rc=$?
+check_runs "$rc"
+check 'the reshaped branch stays'              yes "$(on_origin issue-400-reshaped)"
+check 'the merge with content of its own stays' yes "$(on_origin issue-400-merged)"
+check 'the message names --landed as the way out' yes "$(said 'issue-400-reshaped on origin stays: it has commits whose change is not on origin/master; where the issue is closed and they landed in another shape, run finish-issue 400 --landed')"
+check 'the rebased branch is gone'             no "$(on_origin issue-400-rebased)"
+check 'and the contained one, which no commit names' no "$(on_origin issue-400-contained)"
+echo '--landed deletes the rest at the tip it measured and prints the commits it did not find by their change'
+reshaped_tip="$(tip_of issue-400-reshaped)"; fresh
+out="$(run 400 --landed)"; rc=$?
+check_runs "$rc"
+check 'the reshaped branch is gone'            no "$(on_origin issue-400-reshaped)"
+check 'its commit is printed'                  yes "$(grep -q '^  [0-9a-f]* Work of issue-400-reshaped (#400)$' <<< "$out" && echo yes || echo no)"
+check 'the merge with content of its own is gone' no "$(on_origin issue-400-merged)"
+check 'its merge commit is printed'            yes "$(grep -q '^  [0-9a-f]* Merge of issue-400-merged with content of its own (#400)$' <<< "$out" && echo yes || echo no)"
+
+echo 'a branch a worktree holds stays under --landed, and so does one whose worktree is dirty; the dirty worktree stops the run'
+reshaped 401 held
+setup git -C "$work" worktree add -q "$trees/issue-402-holder" issue-401-held
+fresh; out="$(run 401 --landed)"; rc=$?
+check 'the origin branch of the holder stays'  yes "$(on_origin issue-401-held)"
+check 'the holding worktree is not touched'    yes "$(has_tree issue-402-holder)"
+setup git -C "$work" worktree remove --force "$trees/issue-402-holder"; setup git -C "$work" branch -q -D issue-401-held
+open issue-403-dirty
+echo mine >> "$trees/issue-403-dirty/README.md"
+fresh; out="$(run 403 --landed)"; rc=$?
+check 'a dirty own worktree stops the run'     '1 yes' "$rc $(has_tree issue-403-dirty)"
+setup git -C "$trees/issue-403-dirty" checkout -q -- README.md
+echo open > "$state"
+
+echo '--landed on an open issue refuses before any removal, a fully contained own worktree included; an unlanded branch of an open issue stays'
+open issue-404-contained
+land issue-404-contained 'Contained work (#404)'
+reshaped 404 origin-only
+fresh; out="$(run 404 --landed)"; rc=$?
+check 'refused, naming the open issue'         '1 yes' "$rc $(said '--landed removes the work of a closed issue only, and #404 is open')"
+check 'the contained worktree stays'           yes "$(has_tree issue-404-contained)"
+check 'and so does its branch'                 yes "$(has_branch issue-404-contained)"
+check 'the origin branch stays'                yes "$(on_origin issue-404-origin-only)"
+setup git -C "$work" worktree remove --force "$trees/issue-404-contained"; setup git -C "$work" branch -q -D issue-404-contained
+reshaped 409 origin-only; fresh; out="$(run 409)"; rc=$?
+check 'an open issue without the flag keeps its unlanded origin branch, as it always did' 'yes yes' "$(on_origin issue-409-origin-only) $(said 'issue-409-origin-only on origin stays: it has commits whose change is not on origin/master')"
+echo closed > "$state"
+
+echo 'a closed issue no commit of the default branch names: --landed deletes the contained branch, says why, and tells nobody'
+contained 405 contained; reshaped 405 reshaped unnamed
+fresh; out="$(run 405)"; rc=$?
+check 'without the flag the run is refused and the branch stays' '1 yes' "$rc $(on_origin issue-405-contained)"
+fresh; out="$(run 405 --landed)"; rc=$?
+check_runs "$rc"
+check 'the contained branch is gone'           no "$(on_origin issue-405-contained)"
+check 'the run says that the card and the issue were not updated' yes "$(said 'names #405, so the card stays and the issue is not told')"
+check 'no card, comment or status-sync write'  0 "$(writes)"
+check 'the reshaped branch is gone too'        no "$(on_origin issue-405-reshaped)"
+check 'the closing line sends the reader to the branches it deleted, and does not say that it removed nothing' 'yes no' "$(said 'the lines above say what it removed and what stays') $(said 'so it removed nothing')"
+echo 'the same, where a branch stays: the closing line sends the reader to the lines above and claims no clearing'
+reshaped 420 held unnamed
+setup git -C "$work" worktree add -q "$trees/issue-421-holder" issue-420-held
+fresh; out="$(run 420 --landed)"; rc=$?
+check_runs "$rc"
+check 'the branch a worktree holds stays on origin, and says so' 'yes yes' "$(on_origin issue-420-held) $(said 'issue-420-held on origin stays: a worktree has it checked out')"
+check 'the closing line says that the card stays and the issue is not told' yes "$(said 'names #420, so the card stays and the issue is not told')"
+check 'it sends the reader to the lines above for what was removed and what stays' yes "$(said 'the lines above say what it removed and what stays')"
+check 'and does not say that it cleared what the issue left' no "$(said 'cleared what the closed issue left')"
+setup git -C "$work" worktree remove --force "$trees/issue-421-holder"; setup git -C "$work" branch -q -D issue-420-held
+
+echo '--landed that meets no worktree and no branch: the closing line says that it removed nothing, and sends nobody to lines that are not there'
+fresh; out="$(run 430 --landed)"; rc=$?
+check_runs "$rc"
+check 'the closing line says that the card stays and the issue is not told' yes "$(said 'names #430, so the card stays and the issue is not told')"
+check 'and that it found no worktree and no branch, and removed nothing' yes "$(said '--landed found no worktree of it in this clone and no branch of it on origin, so it removed nothing')"
+check 'it sends the reader to no lines above' no "$(said 'the lines above')"
+check 'the line about the missing worktree promises no update that the run does not make' no "$(said 'brought up to date')"
+check 'no card, comment or status-sync write' 0 "$(writes)"
+echo 'the same, where it met a worktree of the issue, and where it met one named for another issue: the lines above are there'
+open issue-431-cut
+fresh; out="$(run 431 --landed)"; rc=$?
+check_runs "$rc"
+check 'the worktree never committed in is removed' no "$(has_tree issue-431-cut)"
+check 'the closing line sends the reader to the lines above' yes "$(said 'the lines above say what it removed and what stays')"
+check 'and does not say that it removed nothing' no "$(said 'so it removed nothing')"
+open issue-433-package; setup git -C "$trees/issue-433-package" checkout -q -b issue-432-later origin/master
+fresh; out="$(run 432 --landed)"; rc=$?
+check_runs "$rc"
+check 'the package worktree stays and says why' 'yes yes' "$(has_tree issue-433-package) $(said 'issue-433-package is named for another issue and has issue-432-later checked out: it stays')"
+check 'the closing line sends the reader to the lines above' yes "$(said 'the lines above say what it removed and what stays')"
+check 'and does not say that it removed nothing' no "$(said 'so it removed nothing')"
+setup git -C "$work" worktree remove --force "$trees/issue-433-package"; setup git -C "$work" branch -q -D issue-432-later issue-433-package
+
+echo 'a failed git cherry or merge-history read removes nothing, in the worktree path and on origin, whatever --landed says'
+reshaped 406 origin; open issue-406-tree
+echo mine >> "$trees/issue-406-tree/README.md"; setup git -C "$trees/issue-406-tree" commit -q -am 'Own work (#406)'
+for failing in PROBE_CHERRY_FAIL PROBE_MERGES_FAIL; do
+  fresh; out="$(env "$failing=1" bash -c 'PATH="$1:$PATH"; cd "$2" && bash "$3" 406 --landed 2>&1' _ "$fake/gitshim" "$work" "$finish")"; rc=$?
+  check "$failing: the run stops"              1 "$rc"
+  check "$failing: the worktree stays"         yes "$(has_tree issue-406-tree)"
+  check "$failing: it says the history could not be read" yes "$(said 'could not be read, so nothing is removed')"
+done
+setup git -C "$trees/issue-406-tree" push -q origin HEAD:master; setup git -C "$work" pull -q --ff-only origin master
+setup git -C "$work" worktree remove --force "$trees/issue-406-tree"; setup git -C "$work" branch -q -D issue-406-tree
+for failing in PROBE_CHERRY_FAIL PROBE_MERGES_FAIL; do
+  fresh; out="$(env "$failing=1" bash -c 'PATH="$1:$PATH"; cd "$2" && bash "$3" 406 --landed 2>&1' _ "$fake/gitshim" "$work" "$finish")"; rc=$?
+  check "$failing: the origin branch stays"    yes "$(on_origin issue-406-origin)"
+  check "$failing: it says its history could not be read" yes "$(said 'issue-406-origin on origin stays: its history could not be read')"
+done
+
+echo 'a branch that moves on origin after it was measured is protected by the lease of the measured tip, though a fetch moved the tracking ref'
+reshaped 407 moving
+later_tip="$(git -C "$work" commit-tree -p "$(tip_of issue-407-moving)" -m 'Pushed after the measuring' "$(git -C "$origin" rev-parse 'master^{tree}')")"
+printf 'git -C "%s" push -q -f origin %s:refs/heads/issue-407-moving\ngit -C "%s" fetch -q origin\n' "$work" "$later_tip" "$work" > "$fake/after-measure.sh"
+fresh; out="$(PROBE_AFTER_MEASURE="$fake/after-measure.sh" shimmed run 407 --landed)"; rc=$?
+check 'the branch stays at the tip pushed later' "$later_tip" "$(tip_of issue-407-moving)"
+check 'the run says the tip moved'              yes "$(said 'issue-407-moving on origin stays: its tip moved from')"
+check 'the tracking ref did move with the fetch' "$later_tip" "$(git -C "$work" rev-parse origin/issue-407-moving)"
+
+echo 'two cleanups started together: one deletes, the other says the branch is gone already, and neither invents a landing'
+contained 408 twice
+rm -rf "$fake/meet"; mkdir -p "$fake/meet"; fresh
+( PROBE_PUSH_BARRIER="$fake/meet" shimmed run 408 --landed > "$fake/twice-1.out" 2>&1; echo $? > "$fake/twice-1.rc" ) &
+( PROBE_PUSH_BARRIER="$fake/meet" shimmed run 408 --landed > "$fake/twice-2.out" 2>&1; echo $? > "$fake/twice-2.rc" ) &
+wait
+out="$(cat "$fake/twice-1.out" "$fake/twice-2.out")"
+check 'both ended well'                         '0 0' "$(cat "$fake/twice-1.rc") $(cat "$fake/twice-2.rc")"
+check 'the branch is gone'                      no "$(on_origin issue-408-twice)"
+check 'one run deleted it and one found it gone' '1 1' "$(grep -c 'issue-408-twice on origin deleted' <<< "$out") $(grep -c 'issue-408-twice on origin is already gone' <<< "$out")"
+check 'no card, comment or status-sync write by either' 0 "$(writes)"
+
+echo 'planted defects in disposable copies of the command: each makes the case it breaks turn red'
+rm -rf "$fake/fm"; mkdir -p "$fake/fm"; cp -R "$root/bin" "$fake/fm/bin"; ln -s "$root/lib" "$fake/fm/lib"
+finish_mutant() {  # finish_mutant <sed expression>: the command with one defect, in $finish
+  sed "$1" "$root/bin/finish-issue.sh" > "$fake/fm/bin/finish-issue.sh"
+  cmp -s "$root/bin/finish-issue.sh" "$fake/fm/bin/finish-issue.sh" && { echo "  FAIL the planted defect changed nothing: $1"; failed=$((failed + 1)); }
+  finish="$fake/fm/bin/finish-issue.sh"
+}
+finish_mutant '/^\[ "\$landed_flag" -eq 0 \] || \[ "\$state" = closed \] \\$/,+1d'
+echo open > "$state"; reshaped 410 mutant-open; fresh; out="$(run 410 --landed)"; rc=$?
+check 'ignoring the closed state: --landed on an open issue no longer keeps the origin branch' no "$(on_origin issue-410-mutant-open)"
+echo closed > "$state"
+finish_mutant 's/^    if grep -qxF "\$branch" <<< "\$held"; then$/    if false; then/'
+reshaped 411 mutant-held; setup git -C "$work" worktree add -q "$trees/issue-412-holder" issue-411-mutant-held
+fresh; out="$(run 411 --landed)"; rc=$?
+check 'ignoring a held branch: the branch of the holding worktree is gone from origin' no "$(on_origin issue-411-mutant-held)"
+setup git -C "$work" worktree remove --force "$trees/issue-412-holder"; setup git -C "$work" branch -q -D issue-411-mutant-held
+finish_mutant '/^unlanded() {$/,/^}$/s/ return 1; }/ return 0; }/'
+reshaped 413 mutant-read; fresh; out="$(env PROBE_CHERRY_FAIL=1 bash -c 'PATH="$1:$PATH"; cd "$2" && bash "$3" 413 --landed 2>&1' _ "$fake/gitshim" "$work" "$finish")"
+check 'a read error taken as a missing commit: the branch is deleted on a failed read' no "$(on_origin issue-413-mutant-read)"
+finish_mutant 's/--force-with-lease="refs\/heads\/\$branch:\$tip"/--force-with-lease="refs\/heads\/$branch:$(git -C "$main" rev-parse "refs\/remotes\/origin\/$branch")"/'
+reshaped 414 mutant-lease
+later_tip="$(git -C "$work" commit-tree -p "$(tip_of issue-414-mutant-lease)" -m 'Pushed after the measuring' "$(git -C "$origin" rev-parse 'master^{tree}')")"
+printf 'git -C "%s" push -q -f origin %s:refs/heads/issue-414-mutant-lease\ngit -C "%s" fetch -q origin\n' "$work" "$later_tip" "$work" > "$fake/after-measure.sh"
+fresh; out="$(PROBE_AFTER_MEASURE="$fake/after-measure.sh" shimmed run 414 --landed)"
+check 'a lease taken from the refreshed tip: the commit pushed later is deleted with the branch' gone "$(tip_of issue-414-mutant-lease)"
+finish_mutant 's/^  if \[ "\$landed_flag" -eq 1 \]; then$/  if false; then/'
+contained 415 mutant-early; fresh; out="$(run 415 --landed)"; rc=$?
+check 'the old early exit: the contained branch of a closed issue no commit names stays on origin' yes "$(on_origin issue-415-mutant-early)"
+finish_mutant 's/^    exit 0$/    :/'
+contained 416 mutant-notify; fresh; out="$(run 416 --landed)"; rc=$?
+check 'the tracker told on that path: it is asked for cards and comments' 0 "$(writes)"
+finish_mutant 's/--landed went through what the closed issue left in this clone and on origin, and the lines above say what it removed and what stays\./--landed cleared what the closed issue left in this clone and on origin./'
+reshaped 422 mutant-claim unnamed; setup git -C "$work" worktree add -q "$trees/issue-423-holder" issue-422-mutant-claim
+fresh; out="$(run 422 --landed)"; rc=$?
+check 'the old closing line claims a clearing though a branch stays' 'yes yes' "$(on_origin issue-422-mutant-claim) $(said 'cleared what the closed issue left')"
+setup git -C "$work" worktree remove --force "$trees/issue-423-holder"; setup git -C "$work" branch -q -D issue-422-mutant-claim
+finish_mutant 's/^    if \[ "\$met" -eq 0 \]; then$/    if false; then/'
+fresh; out="$(run 434 --landed)"; rc=$?
+check 'the old closing line where nothing was met: it sends the reader to lines that are not there, and says nothing of removing nothing' 'yes no' "$(said 'the lines above say what it removed and what stays') $(said 'so it removed nothing')"
+finish_mutant '/^clear_origin_branches() {$/,/^}$/s/^    met=\$((met + 1))$//'
+contained 435 mutant-count
+fresh; out="$(run 435 --landed)"; rc=$?
+check 'a branch of origin not counted: the run says that it removed nothing though it deleted the branch and says so' 'no yes' "$(on_origin issue-435-mutant-count) $(said 'so it removed nothing')"
+finish_mutant '/is named for another issue and has/,/continue/s/^    met=\$((met + 1))$//'
+open issue-438-package; setup git -C "$trees/issue-438-package" checkout -q -b issue-437-mutant-foreign origin/master
+fresh; out="$(run 437 --landed)"; rc=$?
+check 'a worktree named for another issue not counted: the run says that it removed nothing though the worktree stays and says so' 'yes yes' "$(has_tree issue-438-package) $(said 'so it removed nothing')"
+setup git -C "$work" worktree remove --force "$trees/issue-438-package"; setup git -C "$work" branch -q -D issue-437-mutant-foreign issue-438-package
+finish_mutant 's/^  found=1; met=\$((met + 1))$/  found=1/'
+open issue-439-cut
+fresh; out="$(run 439 --landed)"; rc=$?
+check 'a worktree of the issue not counted: the run says that it removed nothing though it removed the worktree' 'no yes' "$(has_tree issue-439-cut) $(said 'so it removed nothing')"
+finish="$root/bin/finish-issue.sh"
 
 # --- the issue is told once what landed ---------------------------------------------------------
 #

@@ -912,11 +912,13 @@ CARRY_ISSUE_ROW='{kind: "issue", repo: $repo, number, id, url, title, body, stat
          memberships: (if .projectItems.pageInfo.hasNextPage then .projectItems.pageInfo.endCursor else null end),
          timeline: (if .timelineItems.pageInfo.hasNextPage then .timelineItems.pageInfo.endCursor else null end)}}'
 
-# github_carry_repositories <owner>: {kind: "repository", repo, archived} for every repository of the organisation
+# github_carry_repositories <owner>: {kind: "repository", repo, archived, issues} for every repository of the organisation,
+# issues being how many issues it holds, open and closed, and 0 where it has issues disabled: such a repository has nothing to
+# carry, and needs no destination
 github_carry_repositories() {
   carry_pages "the repositories of $1" .data.organization.repositories \
-    'query($o:String!,$c:String){ organization(login:$o){ repositories(first:100, after:$c){ nodes{ nameWithOwner isArchived } pageInfo{ hasNextPage endCursor } } } }' -f o="$1" \
-    | jq -c '{kind: "repository", repo: .nameWithOwner, archived: .isArchived}'
+    'query($o:String!,$c:String){ organization(login:$o){ repositories(first:100, after:$c){ nodes{ nameWithOwner isArchived hasIssuesEnabled issues{ totalCount } } pageInfo{ hasNextPage endCursor } } } }' -f o="$1" \
+    | jq -c '{kind: "repository", repo: .nameWithOwner, archived: .isArchived, issues: (if .hasIssuesEnabled then .issues.totalCount else 0 end)}'
 }
 
 # github_carry_issues <owner/repo> [number]: the issues of the repository (or the one), one row each:

@@ -2,7 +2,7 @@
 # Close the worktree of one issue once its work has landed, move its card one column on, and say
 # in the issue what landed.
 #
-#   finish-issue.sh [OWNER/REPO] NUMBER
+#   finish-issue.sh [OWNER/REPO] NUMBER [--landed]
 #   finish-issue.sh --sweep [--dry-run]
 #
 # The counterpart of start-issue. A worktree left behind after its work landed holds a copy of
@@ -28,7 +28,12 @@
 #
 # THE ISSUE'S BRANCH ON origin GOES once the change of every commit of it is on the default branch,
 # merged, cherry-picked or rebased; one with more work, a commit reshaped on landing, or one a
-# worktree has checked out, stays and is named.
+# worktree has checked out, stays and is named. With --landed on a closed issue a branch with more
+# work goes too, and the commits whose change the default branch lacks are printed; each branch is
+# deleted at the tip that was measured, so a commit pushed meanwhile keeps it. A closed issue
+# whose commits on the default branch do not name it has its branches cleared the same way, and
+# the run says that the card and the issue were not updated; where it met no worktree and no
+# branch of the issue, it says that it removed nothing.
 #
 # --sweep removes every worktree of this repository whose work has landed and has rested for a
 # day, and names the others it leaves; start-issue and init --all run it, so a worktree nobody
@@ -77,16 +82,16 @@ cd "$main" || die "cannot change to the main checkout $main"
 # "<sha> <subject>" per line. A branch that landed by cherry-pick or rebase has new commits upstream,
 # so ancestry alone would hold it back; git cherry compares the changes. git cherry passes over a
 # merge commit, whose own content (a resolved conflict) it never measures, so every merge the
-# default branch lacks counts as unlanded. A git command that fails answers a line of its own, so
-# a branch it cannot read never counts as landed.
+# default branch lacks counts as unlanded. A git command that fails makes the whole measurement fail:
+# status 1 and git's words, which no flag waives, so a branch it cannot read never counts as landed.
 unlanded() {
   local out
-  out="$(git -C "$main" cherry -v "origin/$default" "$1" 2>&1)" || { echo "? $out"; return 0; }
+  out="$(git -C "$main" cherry -v "origin/$default" "$1" 2>&1)" || { printf '%s\n' "$out"; return 1; }
   sed -n 's/^+ //p' <<< "$out"
-  out="$(git -C "$main" log --merges --format='%h %s' "origin/$default..$1" 2>&1)" || { echo "? $out"; return 0; }
+  out="$(git -C "$main" log --merges --format='%h %s' "origin/$default..$1" 2>&1)" || { printf '%s\n' "$out"; return 1; }
   [ -z "$out" ] || printf '%s\n' "$out"
 }
-landed() { [ -z "$(unlanded "refs/heads/$1")" ]; }
+landed() { local missing; missing="$(unlanded "refs/heads/$1")" && [ -z "$missing" ]; }
 # branch_history <branch>: what the reflog says happened to the branch. It is read whole before anything
 # looks into it: piped into grep -q, grep stops at the first hit, git can die of the closed pipe, and
 # under pipefail the answer then turned into "never committed in" on a busy machine
@@ -147,25 +152,26 @@ fi
 ref="$(issue_ref "$repo" "$number")"
 thread="$(apart "$BIN/issue-thread.sh" ${repo:+"$repo"} "$number" --json)" || die "the issue could not be read: $thread"
 state="$(printf '%s' "$thread" | jq -r '.state // ""' | tr '[:upper:]' '[:lower:]')"
-found=0; cut_only_removed=0; worked_in_removed=0
+[ "$landed_flag" -eq 0 ] || [ "$state" = closed ] \
+  || die "--landed removes the work of a closed issue only, and $ref is open - close it once its work is on origin/$default"
+found=0; met=0; cut_only_removed=0; worked_in_removed=0
 while IFS=$'\t' read -r path branch; do
   [ -n "$path" ] || continue
   case "$branch" in "issue-$number"|"issue-$number-"*) ;; *) continue ;; esac
   if ! own_worktree "$path" "$branch"; then
     echo "the worktree $path is named for another issue and has $branch checked out: it stays, and the branch with it"
+    met=$((met + 1))
     continue
   fi
-  found=1
+  found=1; met=$((met + 1))
   [ -z "$(git -C "$path" status --porcelain)" ] \
     || die "the worktree $path has changes - commit and push them, or put them aside, then run this again"
-  missing="$(unlanded "refs/heads/$branch")"
+  missing="$(unlanded "refs/heads/$branch")" || die "the history of $branch could not be read, so nothing is removed: $missing"
   if [ -n "$missing" ]; then
     # Work that landed in another shape, a resolved conflict or a changed context, is the owner's
     # word against git's: --landed takes it, and only for an issue somebody closed.
     [ "$landed_flag" -eq 1 ] \
       || die "the worktree $path has $(grep -c . <<< "$missing") commit(s) whose change is not on origin/$default - push them, then run this again; where they landed in another shape, run finish-issue $number --landed once the issue is closed"
-    [ "$state" = closed ] \
-      || die "--landed removes the work of a closed issue only, and $ref is open - close it once its work is on origin/$default"
     echo "removed with --landed, these commits not found on origin/$default by their change:"
     sed 's/^/  /' <<< "$missing"
   fi
@@ -177,37 +183,70 @@ while IFS=$'\t' read -r path branch; do
   remove_worktree "$path" "$branch"
   echo "Worktree $path and its branch $branch removed: $because. Open $main to go on."
 done <<< "$(issue_worktrees)"
-[ "$found" -eq 1 ] || echo "no worktree of issue $number stands here - only the card and the issue are brought up to date"
+[ "$found" -eq 1 ] || echo "no worktree of issue $number stands here"
+
+# clear_origin_branches: the issue's branches on origin. One whose every commit's change is on origin's
+# default branch holds nothing the default branch lacks, so it is deleted; a repository that lands by
+# rebase never makes the branch an ancestor. A commit reshaped on landing is no identical change, so its
+# branch stays, unless --landed says the closed issue's work landed in another shape. A branch is
+# measured and deleted at one tip, taken once, so a fetch or a push meanwhile never changes what the
+# lease protects; the worktrees are listed again before each branch. The check for a worktree is a
+# measurement, not a lock: a worktree made after it is not seen.
+clear_origin_branches() {
+  local branch tip held missing now
+  for branch in $(git -C "$main" for-each-ref --format='%(refname:strip=3)' "refs/remotes/origin/issue-$number" "refs/remotes/origin/issue-$number-*"); do
+    met=$((met + 1))
+    tip="$(git -C "$main" rev-parse "refs/remotes/origin/$branch")" || { echo "the branch $branch on origin stays: its tip could not be read"; continue; }
+    held="$(git -C "$main" worktree list --porcelain | sed -n 's#^branch refs/heads/##p')"
+    if grep -qxF "$branch" <<< "$held"; then
+      echo "the branch $branch on origin stays: a worktree has it checked out"
+      continue
+    fi
+    missing="$(unlanded "$tip")" || { echo "the branch $branch on origin stays: its history could not be read: $missing"; continue; }
+    if [ -n "$missing" ] && [ "$landed_flag" -eq 0 ]; then
+      echo "the branch $branch on origin stays: it has commits whose change is not on origin/$default; where the issue is closed and they landed in another shape, run finish-issue $number --landed"
+      continue
+    fi
+    if [ -n "$missing" ]; then
+      echo "the branch $branch on origin has these commits, whose change is not on origin/$default; --landed deletes it:"
+      sed 's/^/  /' <<< "$missing"
+    fi
+    if git -C "$main" push -q origin --force-with-lease="refs/heads/$branch:$tip" --delete "$branch"; then
+      if [ -n "$missing" ]; then echo "the branch $branch on origin deleted with --landed"
+      else echo "the branch $branch on origin deleted: the change of every commit of it is on origin/$default"; fi
+    elif ! now="$(git -C "$main" ls-remote --heads origin "refs/heads/$branch" 2>&1)"; then
+      echo "the branch $branch on origin could not be deleted, and origin could not be read to say why: $now"
+    elif [ -z "$now" ]; then
+      echo "the branch $branch on origin is already gone: it was deleted since it was measured"
+    elif [ "${now%%$'\t'*}" != "$tip" ]; then
+      echo "the branch $branch on origin stays: its tip moved from $tip to ${now%%$'\t'*} since it was measured"
+    else
+      echo "the branch $branch on origin could not be deleted and stays (see above)"
+    fi
+  done
+}
 
 # What landed. An issue no commit on origin names has not landed, whatever its worktree held: the
 # card does not move and the issue is not told.
 own="$(default_repo 2>/dev/null)"
 commits="$(git -C "$main" log "origin/$default" -E -i --grep="$(issue_mention_pattern "${repo:-$own}" "$number" "$own")" --format='- %h %s' -n 20)"
 if [ -z "$commits" ]; then
+  if [ "$landed_flag" -eq 1 ]; then
+    clear_origin_branches
+    if [ "$met" -eq 0 ]; then
+      echo "No commit on origin/$default names $ref, so the card stays and the issue is not told; --landed found no worktree of it in this clone and no branch of it on origin, so it removed nothing."
+    else
+      echo "No commit on origin/$default names $ref, so the card stays and the issue is not told; --landed went through what the closed issue left in this clone and on origin, and the lines above say what it removed and what stays."
+    fi
+    exit 0
+  fi
   [ "$cut_only_removed" -gt 0 ] && [ "$worked_in_removed" -eq 0 ] \
     || die "no commit on origin/$default names $ref, so the card stays and the issue is not told; a commit that touches an issue names it"
   echo "${own:-this repository} holds no work of $ref: its worktree was never committed in and no commit on origin/$default names it. The card and the issue stay as they are."
   exit 0
 fi
 
-# The issue's branches on origin. One whose every commit's change is on origin's default branch holds
-# nothing the default branch lacks, so it is deleted; a repository that lands by rebase never makes
-# the branch an ancestor. A commit reshaped on landing is no identical change, so its branch stays.
-held="$(git -C "$main" worktree list --porcelain | sed -n 's#^branch refs/heads/##p')"
-for branch in $(git -C "$main" for-each-ref --format='%(refname:strip=3)' "refs/remotes/origin/issue-$number" "refs/remotes/origin/issue-$number-*"); do
-  if grep -qxF "$branch" <<< "$held"; then
-    echo "the branch $branch on origin stays: a worktree has it checked out"
-  elif [ -n "$(unlanded "refs/remotes/origin/$branch")" ]; then
-    echo "the branch $branch on origin stays: it has commits whose change is not on origin/$default"
-  else
-    # The lease deletes only the tip that was measured: a commit pushed since the fetch fails the push
-    if git -C "$main" push -q origin --force-with-lease="refs/heads/$branch:$(git -C "$main" rev-parse "origin/$branch")" --delete "$branch"; then
-      echo "the branch $branch on origin deleted: the change of every commit of it is on origin/$default"
-    else
-      echo "the branch $branch on origin could not be deleted and stays (see above)"
-    fi
-  fi
-done
+clear_origin_branches
 
 # The card: to testing
 if [ "$state" = closed ]; then

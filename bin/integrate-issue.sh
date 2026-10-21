@@ -133,12 +133,12 @@ subject="$title ($ref)"
 [ "${#subject}" -le 72 ] || subject="Merge issue-$number ($ref)"
 
 landing="$(git rev-parse --path-format=absolute --git-common-dir)/ai-core-landing"
-# The branch ci/integrate-<issue branch> on origin and the temporary worktree go first, on every way out,
-# then the lock. The branch is deleted only while it still holds the merge commit of this landing (a lease),
-# so a branch somebody else wrote stays; a branch that is not there is nothing to delete. A branch that
-# stays or cannot be deleted is named in one line and changes nothing about the outcome. A kill that
-# cannot be trapped (SIGKILL) runs none of this and leaves the branch behind.
-tree=""; ci_branch=""
+# The branch ci/integrate-<issue branch> on origin, the temporary worktree and the file with the output of
+# the push go first, on every way out, then the lock. The branch is deleted only while it still holds the
+# merge commit of this landing (a lease), so a branch somebody else wrote stays; a branch that is not there
+# is nothing to delete. A branch that stays or cannot be deleted is named in one line and changes nothing
+# about the outcome. A kill that cannot be trapped (SIGKILL) runs none of this and leaves the branch behind.
+tree=""; ci_branch=""; pushed=""
 # remote_ref_sha <full ref>: the sha origin holds for the ref, nothing where it has none. Only stdout is read,
 # so a warning git writes on stderr (a repository that was renamed, say) is no part of the sha; when git
 # fails, its words are printed and the status is 1.
@@ -162,6 +162,7 @@ delete_ci_branch() {
 }
 trap 'delete_ci_branch
   [ -z "$tree" ] || git worktree remove --force "$tree" >/dev/null 2>&1 || rm -rf "$tree"
+  [ -z "$pushed" ] || rm -f "$pushed"
   [ "$(cut -f1 "$landing" 2>/dev/null)" != "$$" ] || rm -f "$landing"' EXIT
 
 # make_merge <tip> <name of the tip>: the merge commit of the tip into origin/<default>, made in a temporary
@@ -208,7 +209,7 @@ keep_waited_tip() {
 # origin lists for --from-origin, else the local branch, which must be the tip origin holds too.
 base_tip=""; merged_sha=""; merged=""
 gate_public_repository() {
-  local checked_repo visibility ci_gate tip tip_name poll limit checks=0 on_origin said held
+  local checked_repo visibility ci_gate tip tip_name poll limit checks=0 on_origin said held push_status
   ci_gate="$(config_file_value CI_GATE public | tr '[:upper:]' '[:lower:]')"
   case "$ci_gate" in
     public|none) ;;
@@ -240,9 +241,15 @@ gate_public_repository() {
   make_merge "$tip" "$tip_name"
   ci_branch="ci/integrate-$branch"
   held="$(remote_ref_sha "refs/heads/$ci_branch")" || die "could not reach origin: $held"
-  said="$(git -C "$tree" push origin "--force-with-lease=refs/heads/$ci_branch:$held" "$merged_sha:refs/heads/$ci_branch" 2>&1)" || case "$said" in
-    *"stale info"*|*"cannot lock ref"*) die "nothing landed: $ci_branch on origin changed after it was read, so another landing of this branch may be running; nothing was pushed to it or to $default: $said" ;;
-    *) die "nothing landed: the merge commit ${merged_sha:0:7} could not be pushed to $ci_branch for its checks, and nothing reached $default: $said" ;;
+  # The push gate runs inside this push and may wait for a lower load before its check: its words are
+  # shown as they come, and kept only to tell a race from a refusal.
+  pushed="$(mktemp)" || die "no temporary file for the output of the push to $ci_branch"
+  push_status=0
+  git -C "$tree" push origin "--force-with-lease=refs/heads/$ci_branch:$held" "$merged_sha:refs/heads/$ci_branch" 2>&1 | tee "$pushed" >&2 || push_status="${PIPESTATUS[0]}"
+  said="$(cat "$pushed")"; rm -f "$pushed"
+  [ "$push_status" -eq 0 ] || case "$said" in
+    *"stale info"*|*"cannot lock ref"*) die "nothing landed: $ci_branch on origin changed after it was read, so another landing of this branch may be running; nothing was pushed to it or to $default (git's words are above)" ;;
+    *) die "nothing landed: the merge commit ${merged_sha:0:7} could not be pushed to $ci_branch for its checks, and nothing reached $default (the words of git and of the push gate are above)" ;;
   esac
   poll="${AI_CORE_INTEGRATE_POLL:-20}"; limit="${AI_CORE_INTEGRATE_WAIT:-1800}"
   wait_for_checks "$tree" "$merged_sha" "$poll" "$limit" \

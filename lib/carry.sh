@@ -51,7 +51,7 @@ CARRY_WORK=""
 # is non-zero when the source cannot be read whole or an issue is left incomplete
 carry_run() {
   local repo="$1" number="$2" column="$3" owner source destinations plan line problems="" clone key m=0 l=0 pages missing
-  local issues_complete=0 issues_new=0 issues_resumed=0 incomplete=0 boards_complete=0 boards_new=0 boards_incomplete=0 batch_clone="" batch="" label results numbers
+  local issues_complete=0 issues_new=0 issues_resumed=0 incomplete=0 boards_complete=0 boards_new=0 boards_incomplete=0 batch_clone="" batch="" label results numbers no_issues=""
   work="$(mktemp -d)"; CARRY_WORK="$work"; trap 'rm -rf "$CARRY_WORK"' EXIT
   export CARRY_RUN="$work/run"; mkdir -p "$CARRY_RUN"; : > "$CARRY_RUN/addresses.tsv"
   source="$work/source.jsonl"; : > "$source"; : > "$work/clones.tsv"
@@ -62,6 +62,7 @@ carry_run() {
     cat "$work/repositories.jsonl" >> "$source"
     while IFS= read -r line; do
       [ "$(jq -r '.archived' <<< "$line")" = false ] || continue
+      if [ "$(jq -r '.issues' <<< "$line")" = 0 ]; then no_issues="${no_issues:+$no_issues, }$(jq -r '.repo' <<< "$line")"; continue; fi
       line="$(carry_destination_of "$(jq -r '.repo' <<< "$line")")"
       case "$line" in '!'*) problems="$problems"$'\n'"  ${line#!}" ;; *) printf '%s\n' "$line" >> "$work/clones.tsv" ;; esac
     done < "$work/repositories.jsonl"
@@ -103,6 +104,7 @@ carry_run() {
     l=$(( l + missing ))
   done
   carry_report "$plan" "$m" "$l"
+  [ "$label" = full ] && echo "repositories with no issue, which need no destination: ${no_issues:-none}"
 
   results="$work/results.tsv"; : > "$results"
   flush_batch() {

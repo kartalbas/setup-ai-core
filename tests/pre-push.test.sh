@@ -73,7 +73,14 @@ exit 0
 EOF
 chmod +x "$stub/claude" "$stub/gitleaks" "$stub/ai-core"
 . "$root/tests/load-stubs.sh"; make_load_stubs "$stub"
-real_sleep="$(command -v sleep)"; real_mktemp="$(command -v mktemp)"
+real_sleep="$(command -v sleep)"; real_mktemp="$(command -v mktemp)"; real_ln="$(command -v ln)"
+# While PROBE_LN is fail, no link can be made, as on a filesystem without hard links
+cat > "$stub/ln" <<EOF
+#!/usr/bin/env bash
+[ "\${PROBE_LN:-}" != fail ] || exit 1
+exec "$real_ln" "\$@"
+EOF
+chmod +x "$stub/ln"
 # While PROBE_MKTEMP_BARRIER names a folder, the run log's temporary file is made only when two gates
 # have both come to make it: the two then meet at the one moment where a log that does not exist is created
 cat > "$stub/mktemp" <<EOF
@@ -1421,6 +1428,17 @@ check 'two gates appending to a log of seven fields leave its header and row as 
 check 'and add one whole row each'                 '4 2' "$(wc -l < "$runs" | tr -d ' ') $(awk -F'\t' 'NR > 2 && NF == 8 { n++ } END { print n }' "$runs")"
 check 'with the sample of its own run'             "green 10 red 0.5" "$(awk -F'\t' -v a="$lw" -v b="$lw2" 'NR > 2 && ($3 == a || $3 == b) { print $5, $8 }' "$runs" | sort | tr '\n' ' ' | sed 's/ $//')"
 
+echo 'a new log that cannot be linked into place is not written another way: the run is said not to be recorded, and no log, header or temporary file stands'
+rm -f "$runs"; plan 0.5; settings 24 300; PROBE_LN=fail gate_lw
+check 'the push is judged as ever: exit 0, one check' '0 1' "$rc $(n_checks)"
+check 'the gate says the run could not be recorded, once' 1 "$(says "this run could not be recorded in $runs")"
+check 'no log and no temporary file stand beside where it was to be' 0 "$(find "$(dirname "$runs")" -maxdepth 1 -name 'pre-push-runs*' | wc -l | tr -d ' ')"
+echo 'a log that exists needs no link: with the link failing, a run still adds its row and says nothing of it'
+printf '%s\n2026-10-01T10:00:00Z\texample/old\t/old\taaaa\tgreen\t4\told line\n' "$legacy_header" > "$runs"
+plan 0.5; settings 24 300; PROBE_LN=fail gate_lw
+check 'one row was added under the header, and nothing was said of the record' '3 0' "$(wc -l < "$runs" | tr -d ' ') $(says 'could not be recorded')"
+rm -f "$runs"
+
 # --- planted defects: each of these copies of the gate must turn the named case red ------------
 mkdir -p "$fake/mutant/bin"; ln -s "$root/lib" "$fake/mutant/lib"
 mutate() {  # mutate <sed expression> - a copy of the gate with one defect, in GATE_SCRIPT
@@ -1454,6 +1472,10 @@ echo 'planted: a header written by whoever finds no log, as the gate wrote it be
 mutate "s|^  if \[ ! -e \"\$GATE_RUNS_FILE\" \]; then\$|  [ -s \"\$GATE_RUNS_FILE\" ] \|\| missing=1\n  mktemp -u \"\$GATE_RUNS_FILE.XXXXXX\" >/dev/null\n  [ -z \"\${missing:-}\" ] \|\| printf '%s\\\\n' \"\$GATE_RUNS_HEADER\" >> \"\$GATE_RUNS_FILE\"\n  if false; then|"
 rm -f "$runs"; both
 check 'two gates at once write two headers'      2 "$(grep -c $'^time\trepository' "$runs")"
+echo 'planted: a link that failed is followed by the append that writes the log, as the gate wrote it before'
+mutate 's/^    \[ -e "\$GATE_RUNS_FILE" \] || return 1$/    [ -s "$GATE_RUNS_FILE" ] || echo "$GATE_RUNS_HEADER" >> "$GATE_RUNS_FILE"/'
+rm -f "$runs"; plan 0.5; settings 24 300; PROBE_LN=fail gate_lw
+check 'a log stands though no link could be made, with no word that the run was not recorded' 'yes 0' "$([ -s "$runs" ] && echo yes || echo no) $(says 'could not be recorded')"
 unset GATE_SCRIPT GATE_TIMEOUT
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi

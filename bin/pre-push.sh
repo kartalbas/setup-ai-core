@@ -461,7 +461,8 @@ head="$(git rev-parse HEAD 2>/dev/null)" || { echo "error: this repository has n
 GATE_CHECK=absent; GATE_CHECK_SECONDS=-; GATE_CHECK_LAST=""; GATE_COMMIT=""; GATE_LOAD=-
 # write_gate_run <row>: a new log is made whole, header and first row, and linked into place, so two
 # gates that both find none cannot both write a header; a log that exists, whatever header it carries,
-# only gets the row, appended in one write.
+# only gets the row, appended in one write. Where the new log cannot be linked into place and none stands
+# there afterwards, the run is not recorded: the status is 1, and no second way writes a header.
 write_gate_run() {
   local row="$1" made linked
   if [ ! -e "$GATE_RUNS_FILE" ]; then
@@ -470,8 +471,8 @@ write_gate_run() {
     linked=$?
     rm -f "$made"
     [ "$linked" -ne 0 ] || return 0
+    [ -e "$GATE_RUNS_FILE" ] || return 1
   fi
-  [ -s "$GATE_RUNS_FILE" ] || printf '%s\n' "$GATE_RUNS_HEADER" >> "$GATE_RUNS_FILE"
   printf '%s\n' "$row" >> "$GATE_RUNS_FILE"
 }
 record_gate_run() {

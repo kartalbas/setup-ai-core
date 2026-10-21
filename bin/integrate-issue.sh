@@ -133,12 +133,12 @@ subject="$title ($ref)"
 [ "${#subject}" -le 72 ] || subject="Merge issue-$number ($ref)"
 
 landing="$(git rev-parse --path-format=absolute --git-common-dir)/ai-core-landing"
-# The branch ci/integrate-<issue branch> on origin and the temporary worktree go first, on every way out,
-# then the lock. The branch is deleted only while it still holds the merge commit of this landing (a lease),
-# so a branch somebody else wrote stays; a branch that is not there is nothing to delete. A branch that
-# stays or cannot be deleted is named in one line and changes nothing about the outcome. A kill that
-# cannot be trapped (SIGKILL) runs none of this and leaves the branch behind.
-tree=""; ci_branch=""
+# The branch ci/integrate-<issue branch> on origin, the temporary worktree and the file with the output of
+# the push go first, on every way out, then the lock. The branch is deleted only while it still holds the
+# merge commit of this landing (a lease), so a branch somebody else wrote stays; a branch that is not there
+# is nothing to delete. A branch that stays or cannot be deleted is named in one line and changes nothing
+# about the outcome. A kill that cannot be trapped (SIGKILL) runs none of this and leaves the branch behind.
+tree=""; ci_branch=""; pushed=""
 # remote_ref_sha <full ref>: the sha origin holds for the ref, nothing where it has none. Only stdout is read,
 # so a warning git writes on stderr (a repository that was renamed, say) is no part of the sha; when git
 # fails, its words are printed and the status is 1.
@@ -162,6 +162,7 @@ delete_ci_branch() {
 }
 trap 'delete_ci_branch
   [ -z "$tree" ] || git worktree remove --force "$tree" >/dev/null 2>&1 || rm -rf "$tree"
+  [ -z "$pushed" ] || rm -f "$pushed"
   [ "$(cut -f1 "$landing" 2>/dev/null)" != "$$" ] || rm -f "$landing"' EXIT
 
 # make_merge <tip> <name of the tip>: the merge commit of the tip into origin/<default>, made in a temporary
@@ -208,7 +209,7 @@ keep_waited_tip() {
 # origin lists for --from-origin, else the local branch, which must be the tip origin holds too.
 base_tip=""; merged_sha=""; merged=""
 gate_public_repository() {
-  local checked_repo visibility ci_gate tip tip_name poll limit checks=0 on_origin said held pushed push_status
+  local checked_repo visibility ci_gate tip tip_name poll limit checks=0 on_origin said held push_status
   ci_gate="$(config_file_value CI_GATE public | tr '[:upper:]' '[:lower:]')"
   case "$ci_gate" in
     public|none) ;;

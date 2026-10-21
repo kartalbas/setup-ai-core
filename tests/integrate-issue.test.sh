@@ -1115,26 +1115,44 @@ lines_of() { if [ -f "$1" ]; then wc -l < "$1" | tr -d ' '; else echo 0; fi; }
 load_plan() { PROBE_STATE="$fake/gate-state"; plan_load "$PROBE_STATE" "$@"; rm -f "$fake/hold-check" "$fake/release-check" "$gate_runs"; : > "$gate_runs"; }
 announced='waiting for the 1-minute load to fall below'
 ended='the wait is over; the check starts at a 1-minute load of 30, at or above the limit of 24'
-# await_in <file> <text> <pid>: until the text stands in the file, the process still running, 10 seconds at most
-await_in() { local _; for _ in $(seq 200); do grep -qF -- "$2" "$1" 2>/dev/null && return 0; kill -0 "$3" 2>/dev/null || return 1; "$real_sleep" 0.05; done; return 1; }
+# await <pid> <seconds> <command...>: until the command succeeds or the process is gone. The seconds are a ceiling that
+# only a defect reaches, so a slow machine never turns correct code red; a planted defect, which can never succeed,
+# is given a short one by its case (VISIBLE_WITHIN)
+await() { local pid="$1" tries=$(( $2 * 20 )) _; shift 2; for _ in $(seq "$tries"); do "$@" 2>/dev/null && return 0; kill -0 "$pid" 2>/dev/null || return 1; "$real_sleep" 0.05; done; return 1; }
+shows() { grep -qF -- "$2" "$1"; }   # shows <file> <text>
 
-# public_landing <number> <slug> <entry...>: a public repository lands on green checks while the gate of the CI push waits
-# for a lower load, then holds its check; what the person sees is read from the output while it runs
-public_landing() {
+# start_landing <number> <slug> <entry...>: a public repository's landing, in the background, its pid in landing_pid. The gate of
+# its CI push waits for a lower load, then holds its check. The output file is emptied here, before the launch, so that
+# whatever is read from it afterwards is the output of this landing and of no earlier one, however late the child starts
+# (PROBE_LAUNCH_DELAY seconds, for a case that plants that); LANDING_TMPDIR names the folder the child makes temporary files in;
+# LANDING_GROUP makes it the leader of a process group of its own, which a case can signal as a whole.
+start_landing() {
   local n="$1" slug="$2"; shift 2
-  local wt dir pid seen_wait seen_over in_flight
+  local wt dir
   wt="$(gated_tree "$n" "$slug" 24 10)"; load_plan 30; : > "$fake/hold-check"; : > "$PROBE_STATE/block"
   echo public > "$fake/visibility"; : > "$fake/calls.txt"; rm -f "$fake/ci-during"; plant_hook "issue-$n-$slug" ""
   dir="$wt"; [[ " $* " != *" --from-origin "* ]] || dir="$work"
-  ( cd "$dir" && git config core.hooksPath "$fake/gate-hooks" && PATH="$fake/loadstubs:$PATH" PROBE_STATE="$PROBE_STATE" AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=5 \
-      exec bash "${INTEGRATE_SCRIPT:-$root/bin/integrate-issue.sh}" "$n" --reviewed-by l4 "$@" > "$fake/landing.out" 2>&1 ) & pid=$!
-  await_in "$fake/landing.out" "$announced" "$pid" && seen_wait=yes || seen_wait=no
+  : > "$fake/landing.out"
+  ( cd "$dir" && git config core.hooksPath "$fake/gate-hooks" && "$real_sleep" "${PROBE_LAUNCH_DELAY:-0}" \
+      && { [ -z "${LANDING_TMPDIR:-}" ] || export TMPDIR="$LANDING_TMPDIR"; } \
+      && PATH="$fake/loadstubs:$PATH" PROBE_STATE="$PROBE_STATE" AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=5 \
+      exec ${LANDING_GROUP:+setsid} bash "${INTEGRATE_SCRIPT:-$root/bin/integrate-issue.sh}" "$n" --reviewed-by l4 "$@" > "$fake/landing.out" 2>&1 ) & landing_pid=$!
+}
+end_landing() { git -C "$work" config --unset core.hooksPath; rm -f "$fake/visibility" "$fake/hold-check"; out="$(cat "$fake/landing.out")"; }
+
+# public_landing <number> <slug> <entry...>: a public repository lands on green checks while the gate of the CI push waits
+# for a lower load, then holds its check; what the person sees is read from the output while it runs, and only once the
+# gate stands in its first wait, because before that no word of it can be on screen
+public_landing() {
+  local seen_wait seen_over in_flight within="${VISIBLE_WITHIN:-180}"
+  start_landing "$@"
+  await "$landing_pid" 180 test -e "$PROBE_STATE/sleeping" || true
+  await "$landing_pid" "$within" shows "$fake/landing.out" "$announced" && seen_wait=yes || seen_wait=no
   : > "$PROBE_STATE/wake"
-  await_in "$fake/landing.out" "$ended" "$pid" && seen_over=yes || seen_over=no
-  kill -0 "$pid" 2>/dev/null && in_flight=yes || in_flight=no
-  : > "$fake/release-check"; wait "$pid"; rc=$?
-  git -C "$work" config --unset core.hooksPath; rm -f "$fake/visibility" "$fake/hold-check"
-  out="$(cat "$fake/landing.out")"; seen="$seen_wait $seen_over $in_flight"
+  await "$landing_pid" "$within" shows "$fake/landing.out" "$ended" && seen_over=yes || seen_over=no
+  kill -0 "$landing_pid" 2>/dev/null && in_flight=yes || in_flight=no
+  : > "$fake/release-check"; wait "$landing_pid"; rc=$?
+  end_landing; seen="$seen_wait $seen_over $in_flight"
 }
 echo 'a landing whose repository has no scripts/check.sh reads no load and waits for nothing'
 before="$(tip)"
@@ -1188,12 +1206,52 @@ for variant in private none; do
   check "$variant: the commit landed"            1 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
 done
 
+# mutant_integrate <folder> <sed expression>: a copy of the harness with one defect in integrate-issue.sh and every other
+# file linked, so the planted copy runs as far as the real one does and fails for its defect alone
+mutant_integrate() {
+  local entry
+  rm -rf "$1"; mkdir -p "$1/bin"
+  for entry in "$root"/* "$root"/bin/*; do
+    case "$entry" in "$root/bin"|"$root/bin/integrate-issue.sh") continue ;; "$root"/bin/*) ln -s "$entry" "$1/bin/${entry##*/}" ;; *) ln -s "$entry" "$1/${entry##*/}" ;; esac
+  done
+  sed "$2" "$root/bin/integrate-issue.sh" > "$1/bin/integrate-issue.sh"; chmod +x "$1/bin/integrate-issue.sh"
+  cmp -s "$root/bin/integrate-issue.sh" "$1/bin/integrate-issue.sh" && { echo '  FAIL the planted defect changed nothing'; failed=$((failed + 1)); }
+  return 0
+}
+
 echo 'planted: the output of the push to ci/ is buffered until the push is over, as it was'
-mkdir -p "$fake/mutant-integrate/bin"; ln -sfn "$root/lib" "$fake/mutant-integrate/lib"
-sed 's/2>&1 | tee "\$pushed" >&2 ||/> "$pushed" 2>\&1 ||/' "$root/bin/integrate-issue.sh" > "$fake/mutant-integrate/bin/integrate-issue.sh"
-cmp -s "$root/bin/integrate-issue.sh" "$fake/mutant-integrate/bin/integrate-issue.sh" && { echo '  FAIL the planted defect changed nothing'; failed=$((failed + 1)); }
-INTEGRATE_SCRIPT="$fake/mutant-integrate/bin/integrate-issue.sh" public_landing 166 buffered
+mutant_integrate "$fake/mutant-integrate" 's/2>&1 | tee "\$pushed" >&2 ||/> "$pushed" 2>\&1 ||/'
+# The child starts one second late, so that the output of the landing before, which carries every phrase waited for,
+# would be read as this one's if the file were not emptied before the launch
+VISIBLE_WITHIN=3 PROBE_LAUNCH_DELAY=1 INTEGRATE_SCRIPT="$fake/mutant-integrate/bin/integrate-issue.sh" public_landing 166 buffered
+check 'the planted copy reached the wait of the gate, so what it did not show is its own silence' yes "$([ -e "$PROBE_STATE/sleeping" ] && echo yes || echo no)"
 check 'the announcement is not on screen before the push ends' no "$(case "$seen" in yes\ *) echo yes ;; *) echo no ;; esac)"
+unset INTEGRATE_SCRIPT
+
+echo 'a landing interrupted while the gate of its push to ci/ waits leaves no file of that push behind; the planted copy, which removes it only after a push that ended, leaves one'
+mutant_integrate "$fake/mutant-leftover" '/^  \[ -z "\$pushed" \] || rm -f "\$pushed"$/d'
+# stopped_landing <number> <slug>: every process of the landing is sent SIGTERM while the gate waits, as ^C reaches them; files_during
+# counts the temporary files of the landing while it stood there, files_after the ones that outlived it (the gate keeps a folder
+# of its own there)
+files_in() { find "$1" -maxdepth 1 -type f | wc -l | tr -d ' '; }
+group_gone() { ! kill -0 -- "-$1" 2>/dev/null; }
+stopped_landing() {
+  local scratch="$fake/landing-tmp-$1"
+  rm -rf "$scratch"; mkdir -p "$scratch"
+  LANDING_GROUP=yes LANDING_TMPDIR="$scratch" start_landing "$1" "$2"
+  await "$landing_pid" 180 test -e "$PROBE_STATE/sleeping" || true
+  files_during="$(files_in "$scratch")"
+  kill -TERM -- "-$landing_pid"
+  wait "$landing_pid"; rc=$?
+  await "$$" 60 group_gone "$landing_pid" || true
+  files_after="$(files_in "$scratch")"
+  end_landing
+}
+stopped_landing 167 stopped
+check 'the landing ended on the signal'            143 "$rc"
+check 'the output of the push stood in a file while the gate waited, and none outlives the landing' '1 0' "$files_during $files_after"
+INTEGRATE_SCRIPT="$fake/mutant-leftover/bin/integrate-issue.sh" stopped_landing 168 stopped-planted
+check 'the planted copy leaves that file behind'   '1 1' "$files_during $files_after"
 unset INTEGRATE_SCRIPT
 
 echo

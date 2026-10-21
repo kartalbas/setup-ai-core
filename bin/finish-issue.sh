@@ -32,7 +32,8 @@
 # work goes too, and the commits whose change the default branch lacks are printed; each branch is
 # deleted at the tip that was measured, so a commit pushed meanwhile keeps it. A closed issue
 # whose commits on the default branch do not name it has its branches cleared the same way, and
-# the run says that the card and the issue were not updated.
+# the run says that the card and the issue were not updated; where it met no worktree and no
+# branch of the issue, it says that it removed nothing.
 #
 # --sweep removes every worktree of this repository whose work has landed and has rested for a
 # day, and names the others it leaves; start-issue and init --all run it, so a worktree nobody
@@ -153,15 +154,16 @@ thread="$(apart "$BIN/issue-thread.sh" ${repo:+"$repo"} "$number" --json)" || di
 state="$(printf '%s' "$thread" | jq -r '.state // ""' | tr '[:upper:]' '[:lower:]')"
 [ "$landed_flag" -eq 0 ] || [ "$state" = closed ] \
   || die "--landed removes the work of a closed issue only, and $ref is open - close it once its work is on origin/$default"
-found=0; cut_only_removed=0; worked_in_removed=0
+found=0; met=0; cut_only_removed=0; worked_in_removed=0
 while IFS=$'\t' read -r path branch; do
   [ -n "$path" ] || continue
   case "$branch" in "issue-$number"|"issue-$number-"*) ;; *) continue ;; esac
   if ! own_worktree "$path" "$branch"; then
     echo "the worktree $path is named for another issue and has $branch checked out: it stays, and the branch with it"
+    met=$((met + 1))
     continue
   fi
-  found=1
+  found=1; met=$((met + 1))
   [ -z "$(git -C "$path" status --porcelain)" ] \
     || die "the worktree $path has changes - commit and push them, or put them aside, then run this again"
   missing="$(unlanded "refs/heads/$branch")" || die "the history of $branch could not be read, so nothing is removed: $missing"
@@ -181,7 +183,7 @@ while IFS=$'\t' read -r path branch; do
   remove_worktree "$path" "$branch"
   echo "Worktree $path and its branch $branch removed: $because. Open $main to go on."
 done <<< "$(issue_worktrees)"
-[ "$found" -eq 1 ] || echo "no worktree of issue $number stands here - only the card and the issue are brought up to date"
+[ "$found" -eq 1 ] || echo "no worktree of issue $number stands here"
 
 # clear_origin_branches: the issue's branches on origin. One whose every commit's change is on origin's
 # default branch holds nothing the default branch lacks, so it is deleted; a repository that lands by
@@ -193,6 +195,7 @@ done <<< "$(issue_worktrees)"
 clear_origin_branches() {
   local branch tip held missing now
   for branch in $(git -C "$main" for-each-ref --format='%(refname:strip=3)' "refs/remotes/origin/issue-$number" "refs/remotes/origin/issue-$number-*"); do
+    met=$((met + 1))
     tip="$(git -C "$main" rev-parse "refs/remotes/origin/$branch")" || { echo "the branch $branch on origin stays: its tip could not be read"; continue; }
     held="$(git -C "$main" worktree list --porcelain | sed -n 's#^branch refs/heads/##p')"
     if grep -qxF "$branch" <<< "$held"; then
@@ -230,7 +233,11 @@ commits="$(git -C "$main" log "origin/$default" -E -i --grep="$(issue_mention_pa
 if [ -z "$commits" ]; then
   if [ "$landed_flag" -eq 1 ]; then
     clear_origin_branches
-    echo "No commit on origin/$default names $ref, so the card stays and the issue is not told; --landed went through what the closed issue left in this clone and on origin, and the lines above say what it removed and what stays."
+    if [ "$met" -eq 0 ]; then
+      echo "No commit on origin/$default names $ref, so the card stays and the issue is not told; --landed found no worktree of it in this clone and no branch of it on origin, so it removed nothing."
+    else
+      echo "No commit on origin/$default names $ref, so the card stays and the issue is not told; --landed went through what the closed issue left in this clone and on origin, and the lines above say what it removed and what stays."
+    fi
     exit 0
   fi
   [ "$cut_only_removed" -gt 0 ] && [ "$worked_in_removed" -eq 0 ] \

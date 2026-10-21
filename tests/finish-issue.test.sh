@@ -664,6 +664,7 @@ check 'the contained branch is gone'           no "$(on_origin issue-405-contain
 check 'the run says that the card and the issue were not updated' yes "$(said 'names #405, so the card stays and the issue is not told')"
 check 'no card, comment or status-sync write'  0 "$(writes)"
 check 'the reshaped branch is gone too'        no "$(on_origin issue-405-reshaped)"
+check 'the closing line sends the reader to the branches it deleted, and does not say that it removed nothing' 'yes no' "$(said 'the lines above say what it removed and what stays') $(said 'so it removed nothing')"
 echo 'the same, where a branch stays: the closing line sends the reader to the lines above and claims no clearing'
 reshaped 420 held unnamed
 setup git -C "$work" worktree add -q "$trees/issue-421-holder" issue-420-held
@@ -674,6 +675,29 @@ check 'the closing line says that the card stays and the issue is not told' yes 
 check 'it sends the reader to the lines above for what was removed and what stays' yes "$(said 'the lines above say what it removed and what stays')"
 check 'and does not say that it cleared what the issue left' no "$(said 'cleared what the closed issue left')"
 setup git -C "$work" worktree remove --force "$trees/issue-421-holder"; setup git -C "$work" branch -q -D issue-420-held
+
+echo '--landed that meets no worktree and no branch: the closing line says that it removed nothing, and sends nobody to lines that are not there'
+fresh; out="$(run 430 --landed)"; rc=$?
+check_runs "$rc"
+check 'the closing line says that the card stays and the issue is not told' yes "$(said 'names #430, so the card stays and the issue is not told')"
+check 'and that it found no worktree and no branch, and removed nothing' yes "$(said '--landed found no worktree of it in this clone and no branch of it on origin, so it removed nothing')"
+check 'it sends the reader to no lines above' no "$(said 'the lines above')"
+check 'the line about the missing worktree promises no update that the run does not make' no "$(said 'brought up to date')"
+check 'no card, comment or status-sync write' 0 "$(writes)"
+echo 'the same, where it met a worktree of the issue, and where it met one named for another issue: the lines above are there'
+open issue-431-cut
+fresh; out="$(run 431 --landed)"; rc=$?
+check_runs "$rc"
+check 'the worktree never committed in is removed' no "$(has_tree issue-431-cut)"
+check 'the closing line sends the reader to the lines above' yes "$(said 'the lines above say what it removed and what stays')"
+check 'and does not say that it removed nothing' no "$(said 'so it removed nothing')"
+open issue-433-package; setup git -C "$trees/issue-433-package" checkout -q -b issue-432-later origin/master
+fresh; out="$(run 432 --landed)"; rc=$?
+check_runs "$rc"
+check 'the package worktree stays and says why' 'yes yes' "$(has_tree issue-433-package) $(said 'issue-433-package is named for another issue and has issue-432-later checked out: it stays')"
+check 'the closing line sends the reader to the lines above' yes "$(said 'the lines above say what it removed and what stays')"
+check 'and does not say that it removed nothing' no "$(said 'so it removed nothing')"
+setup git -C "$work" worktree remove --force "$trees/issue-433-package"; setup git -C "$work" branch -q -D issue-432-later issue-433-package
 
 echo 'a failed git cherry or merge-history read removes nothing, in the worktree path and on origin, whatever --landed says'
 reshaped 406 origin; open issue-406-tree
@@ -749,6 +773,22 @@ reshaped 422 mutant-claim unnamed; setup git -C "$work" worktree add -q "$trees/
 fresh; out="$(run 422 --landed)"; rc=$?
 check 'the old closing line claims a clearing though a branch stays' 'yes yes' "$(on_origin issue-422-mutant-claim) $(said 'cleared what the closed issue left')"
 setup git -C "$work" worktree remove --force "$trees/issue-423-holder"; setup git -C "$work" branch -q -D issue-422-mutant-claim
+finish_mutant 's/^    if \[ "\$met" -eq 0 \]; then$/    if false; then/'
+fresh; out="$(run 434 --landed)"; rc=$?
+check 'the old closing line where nothing was met: it sends the reader to lines that are not there, and says nothing of removing nothing' 'yes no' "$(said 'the lines above say what it removed and what stays') $(said 'so it removed nothing')"
+finish_mutant '/^clear_origin_branches() {$/,/^}$/s/^    met=\$((met + 1))$//'
+contained 435 mutant-count
+fresh; out="$(run 435 --landed)"; rc=$?
+check 'a branch of origin not counted: the run says that it removed nothing though it deleted the branch and says so' 'no yes' "$(on_origin issue-435-mutant-count) $(said 'so it removed nothing')"
+finish_mutant '/is named for another issue and has/,/continue/s/^    met=\$((met + 1))$//'
+open issue-438-package; setup git -C "$trees/issue-438-package" checkout -q -b issue-437-mutant-foreign origin/master
+fresh; out="$(run 437 --landed)"; rc=$?
+check 'a worktree named for another issue not counted: the run says that it removed nothing though the worktree stays and says so' 'yes yes' "$(has_tree issue-438-package) $(said 'so it removed nothing')"
+setup git -C "$work" worktree remove --force "$trees/issue-438-package"; setup git -C "$work" branch -q -D issue-437-mutant-foreign issue-438-package
+finish_mutant 's/^  found=1; met=\$((met + 1))$/  found=1/'
+open issue-439-cut
+fresh; out="$(run 439 --landed)"; rc=$?
+check 'a worktree of the issue not counted: the run says that it removed nothing though it removed the worktree' 'no yes' "$(has_tree issue-439-cut) $(said 'so it removed nothing')"
 finish="$root/bin/finish-issue.sh"
 
 # --- the issue is told once what landed ---------------------------------------------------------

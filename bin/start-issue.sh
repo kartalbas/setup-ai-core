@@ -142,7 +142,11 @@ made="$(git branch -f --no-track "$name" "$origin_tip" 2>&1 \
   && git branch --set-upstream-to="refs/remotes/origin/$default" "$name" 2>&1 \
   && { [ -z "$other_repo" ] || git config "branch.$name.issueRepository" "$other_repo" 2>&1; } \
   && git worktree add "$path" "$name" 2>&1)" \
-  || die "the worktree could not be created: $made - no worktree was made; run start-issue again once that is fixed"
+  || if [ -e "$path" ]; then
+       die "the worktree could not be created cleanly: $made - a worktree stands at $path on $name, at the commit read; use it, or remove it with 'git worktree remove' before running start-issue again"
+     else
+       die "the worktree could not be created: $made - no worktree stands at $path; run start-issue again once that is fixed"
+     fi
 echo "Worktree $path on $name, cut from origin/$default."
 [ -z "$state" ] || echo "The checkout $(git rev-parse --show-toplevel) ($position) $state. The new worktree starts from origin/$default and does not see that; the checkout's branch, index, files and commits stay as they were."
 [ -z "$other_repo" ] || echo "The issue lives in $other_repo: recorded on $name, where session-start, integrate-issue and finish-issue read it."

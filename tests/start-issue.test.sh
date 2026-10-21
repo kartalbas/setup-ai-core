@@ -187,6 +187,7 @@ make_source touched;  touch -t 202001010000 "$states/touched/README.md"   # stat
 make_source hidden;   git -C "$states/hidden" config status.showUntrackedFiles no; echo 'untracked' > "$states/hidden/untracked.txt"
 make_source treehead; echo "$(git -C "$states/treehead" rev-parse 'HEAD^{tree}')" > "$states/treehead/.git/refs/heads/master"
 make_source locked
+make_source hooked;   printf '#!/bin/sh\nexit 1\n' > "$states/hooked/.git/hooks/post-checkout"; chmod +x "$states/hooked/.git/hooks/post-checkout"
 make_source ambiguous; git -C "$states/ambiguous" branch -q origin/master
 make_source racer;    echo 'edit' >> "$states/racer/README.md"
 
@@ -245,7 +246,7 @@ made_before="$(locked_made)"
 touch "$states/locked/.git/config.lock"
 out="$(cd "$states/locked" && bash "$start" 220 2>&1)"; rc=$?
 check 'locked config: exits nonzero'     yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'locked config: it says so'        yes "$(grep -q 'the worktree could not be created' <<< "$out" && echo yes || echo no)"
+check 'locked config: it says so'        yes "$(grep -q 'the worktree could not be created: ' <<< "$out" && grep -q -- ' - no worktree stands at ' <<< "$out" && echo yes || echo no)"
 check 'locked config: no worktree made'  "$made_before" "$(locked_made)"
 rm -f "$states/locked/.git/config.lock"
 : > "$log"
@@ -255,6 +256,14 @@ check 'locked config, again without it: exits zero'   0 "$rc"
 check 'it tracks origin/master'          'origin master' "$(git -C "$states/locked" config branch.issue-220-read-the-board-whole.remote) $(git -C "$states/locked" config branch.issue-220-read-the-board-whole.merge | sed 's|^refs/heads/||')"
 check 'init ran in the worktree'         yes "$([ -f "$tree/.ai-core/config.env" ] && echo yes || echo no)"
 check 'the card moved'                   yes "$(grep -q 'oid=OPT_impl' "$log" && echo yes || echo no)"
+
+echo 'a post-checkout hook that fails leaves a worktree, and the message names it'
+tree="$states/.worktrees/hooked/issue-222-read-the-board-whole"
+out="$(cd "$states/hooked" && bash "$start" 222 2>&1)"; rc=$?
+check 'failing hook: exits nonzero'           yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'failing hook: the worktree is there'   yes "$([ -d "$tree" ] && echo yes || echo no)"
+check 'failing hook: the message names it'    yes "$(grep -qF "a worktree stands at $tree on issue-222-read-the-board-whole" <<< "$out" && echo yes || echo no)"
+check 'failing hook: it does not say there is none' no "$(grep -q 'no worktree' <<< "$out" && echo yes || echo no)"
 
 echo 'a local branch named origin/master does not make the start ambiguous'
 out="$(cd "$states/ambiguous" && bash "$start" 221 2>&1)"; rc=$?

@@ -128,8 +128,10 @@ on the plan issue, the package's log, which a restart reads:
     PHASE <area>: <phase> | <session name or you> | plans <n> | reviews <n> | context <fit, or needed more: what took the room> | <next step>
     LAND <area>: start check <command> exit 0 | waived, START_CHECK empty; landed <repo> <merge sha>, ...
 
-A review that says NO starts a fresh build session with its findings; a plan check that says NO
-starts a fresh re-plan session with its GAPS. The repair a build makes after a review NO is not
+A plan check and a review repair what is small themselves and say GO with REPAIRED lines, so a NO
+is left for what is too large for a few lines or needs a decision. A review that says NO starts a
+fresh build session with its findings; a plan check that says NO starts a fresh re-plan session
+with its GAPS. The repair a build makes after a review NO is not
 reviewed whole again: one re-check (`briefs/review.md`, its section on a re-check) reads only the
 repair's commits against the named findings, at `high` effort with a 100k budget, on the model of
 the reader who raised the findings, or of the other reader where that model built the repair, or

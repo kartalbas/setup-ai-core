@@ -69,11 +69,14 @@
   and reports what changed, what it verified and what in the specification was wrong. A specialist
   is consulted with a briefing, never with a running conversation. When a result misses, fix the
   prompt, the scope or the missing context before changing model or effort. [discipline]
-- **A review is independent and read-only.** The reviewer gets the diff of the whole package and the
-  stated intent of each of its issues, not the conversation; one handed a single issue of a running
-  package asks for the package. It writes findings instead of pushing into the tree under review.
-  Deciding whether a finding is real is a separate step from repairing it, and whoever wrote a fix
-  does not approve it. The reviewer's model and effort follow the class of the change, as the
+- **A review is independent, and it repairs what is small, as a person reviewing does.** The
+  reviewer gets the diff of the whole package and the stated intent of each of its issues, not the
+  conversation; one handed a single issue of a running package asks for the package. A small
+  finding (a text, a test, a wrong `file:line`, a few lines) it repairs itself, in the package's
+  branch or section, names as REPAIRED and lets land, because a NO for it pays a whole round. A
+  finding too large for a few lines, or one that needs a decision, it writes down instead; deciding
+  whether such a finding is real is a separate step from repairing it, and whoever wrote that
+  repair does not approve it. The reviewer's model and effort follow the class of the change, as the
   project's model table (`.ai-core/models.tsv`) names them for the tool the session runs in, and
   never the model that wrote the work. A sweep, a collection of facts, a draft of test cases or a
   pre-review whose answer the session can check cheaply goes to the helper of the same tool, the

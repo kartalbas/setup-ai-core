@@ -49,6 +49,8 @@ names, the spans the facts and the contracts name.
 
     PLAN CHECK <area>: GO | NO
     CONTRACTS: ok | <name> <clone> <file:line>, ... not in the section
+    REPAIRED:
+    - <repo>#<n>: <what was wrong, with file:line>; <how the section now says it>
     GAPS:
     - <repo>#<n>: <what is missing, with file:line where it applies>
     ORDER: ok | <issue> before <issue> because <contract>
@@ -57,11 +59,13 @@ names, the spans the facts and the contracts name.
 A gap is only what stops a build session from starting or makes it build the wrong thing: a
 missing criterion or `file:line`, a contradiction, a side of a contract outside the package, a
 wrong order or class. Each gap names the issue of the package it belongs to, so that the re-plan
-widens that issue. A gap never becomes an issue of its own. Wording and a better way that is not needed are no gaps. GO only with an
-empty GAPS. Post it as a comment on the plan issue (`ai-core issue-comment`), send its first line to
+widens that issue. A gap never becomes an issue of its own. Wording and a better way that is not needed are no gaps. A gap you can close
+from the code and the issues you close yourself, as a person reviewing does: post the whole section
+again as `Replaces the section ... (comment <id>)`, list each repair under REPAIRED, and leave it
+out of GAPS. Only a gap that needs the owner's decision, a new issue or a new cut of the package
+stays under GAPS. GO only with an empty GAPS. Post it as a comment on the plan issue (`ai-core issue-comment`), send its first line to
 the coordinator ({{how to reach the coordinator}}), because a comment on an issue wakes nobody, then
-stop. You change nothing in the section: the planner does, in the next plan session, with your GAPS
-as its input; a CLASS line that raises the class sends the re-plan to that class's `re-plan` row.
+stop. A gap left under GAPS goes to the planner, in the next plan session, as its input; a CLASS line that raises the class sends the re-plan to that class's `re-plan` row.
 
 ## A re-check after a re-plan
 

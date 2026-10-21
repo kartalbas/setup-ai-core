@@ -720,6 +720,30 @@ check 'neither sweep names a card of the other' '' "$(grep -h 'component#141' "$
 mv "$component/tools/read pin.real" "$component/tools/read pin"; mv "$service/tools/read-run.real" "$service/tools/read-run"
 cp "$FAKE/issues-1.saved" "$FAKE/issues-1.json"; rm -f "$FAKE/issues-component.json"
 
+echo 'a repository that sets its own LIVE_TAGS is released by them: a glob over its tags, and prod=landed, as status reads them'
+plug_origin="$FAKE/remote/example-org/plug.git"; plug="$FAKE/folder/plug"
+git init -q --bare "$plug_origin"; git init -q "$FAKE/plug-seed"; git -C "$FAKE/plug-seed" checkout -q -b master
+p1="$(commit_at "$FAKE/plug-seed" 1700000301 'Land #201')"; tag_at "$FAKE/plug-seed" 0.5.022-stable-20261021150415 1700000301
+p2="$(commit_at "$FAKE/plug-seed" 1700000302 'Land #202')"
+git -C "$FAKE/plug-seed" push -q "$plug_origin" master --tags; git -C "$plug_origin" symbolic-ref HEAD refs/heads/master
+git clone -q "$plug_origin" "$plug"; git -C "$plug" tag -l | xargs -r git -C "$plug" tag -d >/dev/null
+mkdir -p "$plug/.ai-core"; printf 'LIVE_TAGS="prod=[0-9]*-stable-*"\n' > "$plug/.ai-core/config.env"
+lnd_origin="$FAKE/remote/example-org/lnd.git"; lnd="$FAKE/folder/lnd"
+git init -q --bare "$lnd_origin"; git init -q "$FAKE/lnd-seed"; git -C "$FAKE/lnd-seed" checkout -q -b master
+l1="$(commit_at "$FAKE/lnd-seed" 1700000303 'Land #203')"
+git -C "$FAKE/lnd-seed" push -q "$lnd_origin" master; git -C "$lnd_origin" symbolic-ref HEAD refs/heads/master
+git clone -q "$lnd_origin" "$lnd"; mkdir -p "$lnd/.ai-core"; printf 'LIVE_TAGS="prod=landed"\n' > "$lnd/.ai-core/config.env"
+page false null "$(card_of 201 "$p1" example-org/plug "$(proof_at 2026-09-03T10:00:00Z 'Proven on prod:')"),$(card_of 202 "$p2" example-org/plug "$(proof_at 2026-09-03T10:00:00Z 'Proven on prod:')"),$(card_of 203 "$l1" example-org/lnd "$(proof_at 2026-09-03T10:00:00Z 'Proven on prod:')")" > "$FAKE/issues-1.json"
+run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo 2>&1)"; rc=$?
+check 'exit 0' 0 "$rc"
+check 'a tag of the glob of the repository'"'"'s own list carries its card, which closes' \
+  'would close  example-repo#201  (testing -> done, released in example-org/plug 0.5.022-stable-20261021150415 and proven)' "$(grep '^would close  example-repo#201' <<< "$run")"
+check 'a commit after that tag is not carried, and the tag named is the one of the repository'"'"'s own list' \
+  "not released example-repo#202  (landed in $(printf '%s' "$p2" | cut -c1-7); the newest prod release 0.5.022-stable-20261021150415 of example-org/plug does not carry it)" "$(grep '^not released example-repo#202' <<< "$run")"
+check 'a repository that says prod=landed releases its card from its landing' \
+  'would close  example-repo#203  (testing -> done, released in example-org/lnd its landing on origin/master and proven)' "$(grep '^would close  example-repo#203' <<< "$run")"
+cp "$FAKE/issues-1.saved" "$FAKE/issues-1.json"
+
 echo
 if [ "$failed" -gt 0 ]; then echo "$failed failed"; exit 1; fi
 echo 'all passed'

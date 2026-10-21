@@ -529,13 +529,13 @@ check 'the own full reference and the bare reference of a message body find thei
   "tagged#40 tagged#41|tagged#42 tagged#43 tagged#410" "$(grep -oE '^  🔴 tagged#(40|41) ' <<< "$page" | grep -oE 'tagged#[0-9]+' | tr '\n' ' ' | sed 's/ $//')|$(grep '⏸ no commit' <<< "$page" | sed 's/.*names it: //')"
 
 echo 'a clone that sets its own LIVE_TAGS is read by it; a clone that sets none, by the caller'"'"'s'
-# plugin: "prod=[0-9]*-stable-* qa=qa/*", its first commit in a tag the caller's list does not name, its second in qa/1;
+# plugin: "oops prod=[0-9]*-stable-* qa=qa/*" (oops is no environment), its first commit in a tag the caller's list does not name, its second in qa/1;
 # landing: "prod=landed"; tagged sets none, and its card is in deploy/test/1, which the caller's list names
 cmd_repo plugin
 commit_at "$work/seed-plugin" 90000 'Land the first (#1)'; git -C "$work/seed-plugin" tag 0.5.022-stable-20261021150415
 commit_at "$work/seed-plugin" 7200 'Land the second (#2)'; git -C "$work/seed-plugin" tag qa/1
 commit_at "$work/seed-plugin" 3600 'Land the third (#3)'
-cmd_clone plugin 'prod=[0-9]*-stable-* qa=qa/*'
+cmd_clone plugin 'oops prod=[0-9]*-stable-* qa=qa/*'
 cmd_repo landing; commit_at "$work/seed-landing" 80000 'Land the first (#1)'; cmd_clone landing 'prod=landed'
 { cmd_card 1 plugin 'G1 is in the tag of its own list'; cmd_card 2 plugin 'G2 is on its second environment'; cmd_card 3 plugin 'G3 is in no tag'; cmd_card 1 landing 'H1 lands where it is live'; cmd_card 1 tagged 'T1 has no list of its own'; } > "$work/page9"
 run_status
@@ -550,13 +550,42 @@ check 'a later environment of its own list is yellow within the PROOF_HOURS of t
   "  🟡 $(printf '%-26s' plugin#2) live on qa since 2 h (qa/1)  G2 is on its second environment" "$(line_of 'plugin#2 ')"
 check 'a card in none of the tags of its own list is not live' '  ⏸ not live: plugin#3' "$(grep '⏸ not live:' <<< "$page")"
 check 'a clone that sets none is read by the caller'"'"'s list, as before' "yes" "$(grep -qE "^  🔴 tagged#1 +live on test since 2[0-9] h \(deploy/test/1\)  T1 has no list of its own$" <<< "$page" && echo yes || echo no)"
-mutant="$work/mutant"; rm -rf "$mutant"; mkdir -p "$mutant"; cp -R "$root/bin" "$root/lib" "$root/templates" "$mutant/"; cp "$root/VERSION" "$mutant/"
-sed -i.bak 's/const list = set.envs.length ? set : caller;/const list = caller;/' "$mutant/lib/status-live.mjs"
-cmp -s "$root/lib/status-live.mjs" "$mutant/lib/status-live.mjs" && { echo "  FAIL the planted copy equals lib/status-live.mjs"; failed=$((failed + 1)); }
-planted="$(cd "$cmd" && AI_CORE_PROCESSES="$work/no-processes9" AI_CORE_AGENTS="$work/no-agents9" AI_CORE_ROLLOUTS="$work/no-agents9" bash "$mutant/bin/status.sh" --project example-org/9 2>&1)"
+check 'a word of a clone'"'"'s own LIVE_TAGS that is no environment is named with its file, once, and the clones whose lists are whole say nothing' \
+  "  LIVE_TAGS of $cmd/plugin/.ai-core/config.env has 'oops', which is no <environment>=<tag pattern>; it is left out" "$(grep -E "^  LIVE_TAGS (of .* )?has " <<< "$page")"
+own="$(cd "$cmd/plugin" && AI_CORE_PROCESSES="$work/no-processes9" AI_CORE_AGENTS="$work/no-agents9" AI_CORE_ROLLOUTS="$work/no-agents9" bash "$root/bin/status.sh" --project example-org/9 2>&1)"
+check 'where the caller is that clone, the word is named once, as the caller'"'"'s' \
+  "  LIVE_TAGS has 'oops', which is no <environment>=<tag pattern>; it is left out" "$(grep -E "^  LIVE_TAGS (of .* )?has " <<< "$own")"
+# status_mutant <sed expression> [directory to run in]: the page of board 9 in $planted, from a copy of the harness whose lib/status-live.mjs has one defect
+status_mutant() {
+  local mutant="$work/mutant"
+  rm -rf "$mutant"; mkdir -p "$mutant"; cp -R "$root/bin" "$root/lib" "$root/templates" "$mutant/"; cp "$root/VERSION" "$mutant/"
+  sed -i.bak "$1" "$mutant/lib/status-live.mjs"
+  cmp -s "$root/lib/status-live.mjs" "$mutant/lib/status-live.mjs" && { echo "  FAIL the planted copy equals lib/status-live.mjs: $1"; failed=$((failed + 1)); }
+  planted="$(cd "${2:-$cmd}" && AI_CORE_PROCESSES="$work/no-processes9" AI_CORE_AGENTS="$work/no-agents9" AI_CORE_ROLLOUTS="$work/no-agents9" bash "$mutant/bin/status.sh" --project example-org/9 2>&1)"
+}
+status_mutant 's/const list = set.envs.length ? set : caller;/const list = caller;/'
 planted_not_live="$(grep -oE '⏸ not live: .*' <<< "$planted" | cut -d' ' -f4- | tr ' ' '\n' | grep -E '^(plugin|landing)' | sort | tr '\n' ' ')"
 check 'planted: the caller'"'"'s list for every card leaves the cards of the clones that set their own not live, and the one that sets none as it was' \
   'landing#1 plugin#1 plugin#2 plugin#3 |1' "$planted_not_live|$(grep -c '^  🔴 tagged' <<< "$planted")"
+status_mutant 's/^      if (!isCallerFile(file)) for (const word of declared.bad) out.push.*$//'
+check 'planted: the words of a clone'"'"'s own list dropped with no line, as they were' '' "$(grep -E "^  LIVE_TAGS (of .* )?has " <<< "$planted")"
+status_mutant 's/if (!isCallerFile(file)) for (const word/for (const word/' "$cmd/plugin"
+check 'planted: a word of the caller'"'"'s own file named a second time as a clone'"'"'s, where the caller is that clone' 2 "$(grep -cE "^  LIVE_TAGS (of .* )?has " <<< "$planted")"
+
+echo 'a card of a clone that declares command, whose work landed in a repository whose clone declares none: the unknown line names the declaration that is missing'
+{ cmd_card 11 engine 'S1 landed in a repository whose clone declares no command'; } > "$work/page9"
+context engine 11 "$(member_landing 2026-09-01T10:00:00Z "$(head_of tagged)" example-org/tagged)"
+run_status
+check 'exit 1' 1 "$rc"
+check 'the file named is the one whose list says command, and the clone that lacks the declaration is the one the work landed in' \
+  "  ❓ unknown example-org/engine#11: LIVE_TAGS of $cmd/engine/.ai-core/config.env says prod=command, and the clone of example-org/tagged, where the work of example-org/engine#11 landed, declares no command: only a clone that does can have its reader run, so prod is not read" \
+  "$(grep '^  ❓' <<< "$page")"
+status_mutant 's/^          const reader = .*$/          const reader = `the clone of ${card.repo}`;/'
+check 'planted: the clone of the card named as the one that lacks the declaration, though it declares command' 'no yes' \
+  "$(grep -qF 'the clone of example-org/tagged, where the work' <<< "$planted" && echo yes || echo no) $(grep -qF 'and the clone of example-org/engine declares no command' <<< "$planted" && echo yes || echo no)"
+status_mutant 's/LIVE_TAGS of ${listFile || /LIVE_TAGS of ${configFile || /'
+check 'planted: the file of the caller named as the list that says command, though the list is the clone'"'"'s' 'no yes' \
+  "$(grep -qF "LIVE_TAGS of $cmd/engine/.ai-core/config.env says" <<< "$planted" && echo yes || echo no) $(grep -qF "LIVE_TAGS of $cmd/.ai-core/config.env says" <<< "$planted" && echo yes || echo no)"
 
 echo 'the handoff of the cards is read as it is: a record that is missing or malformed is no context'
 printf 'Todo\ntesting\nDone\n' > "$work/cmd-columns"

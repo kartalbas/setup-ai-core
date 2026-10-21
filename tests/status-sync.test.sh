@@ -264,8 +264,8 @@ not released example-repo#20  (landed in $(printf '%s' "$c20" | cut -c1-7); the 
   "$(grep '^not released' <<< "$run")"
 check 'a card a release carries, or with no landing, or no commit on a release at all, is not named so' \
   '' "$(grep -E '^not released +example-repo#(12|13|14|16|17|18|22|23|28|29|31|32|33) ' <<< "$run")"
-check 'a repository without a tag is named once, with the cards that ask for its release, wherever they stand' \
-  'no release   docs  (no tag of docs matches * (LIVE_TAGS names no environment); 2 cards in testing wait)' \
+check 'a repository without a tag and with no LIVE_TAGS of its own is read by the list of the checkout, and named once, with the cards that ask for its release, wherever they stand' \
+  'no release   docs  (no tag of docs matches prod=deploy/prod/* of LIVE_TAGS; 2 cards in testing wait)' \
   "$(grep '^no release' <<< "$run")"
 check 'a card before testing that a commit on the default branch names is named, in its column as the board spells it, and does not move' \
   "not finished example-repo#12  (in implementing, but origin/master has $(git -C "$clone" log -1 --format=%h "$(git -C "$clone" log origin/master --grep='Work of #12' --format=%H)") naming it: run ai-core finish-issue example-org/example-repo 12)
@@ -342,6 +342,9 @@ check 'the newest tag is 0.1-newest, which carries #13 and not #19' \
 check 'and #19 is named against it, without an environment' \
   "not released example-repo#19  (landed in $(printf '%s' "$c19" | cut -c1-7); the newest release 0.1-newest does not carry it)" \
   "$(grep '^not released example-repo#19' <<< "$run")"
+check 'where neither the checkout nor the repository names an environment, the repository without a tag is read by every tag, and says so' \
+  'no release   docs  (no tag of docs matches * (LIVE_TAGS names no environment); 2 cards in testing wait)' \
+  "$(grep '^no release' <<< "$run")"
 
 echo 'LIVE_TAGS "prod=landed": the landing on the default branch is the release, so a proven card on it closes and one without a proof is due'
 : > "$FAKE/calls.txt"; printf 'LIVE_TAGS="prod=landed"\n' > "$clone/.ai-core/config.env"
@@ -742,6 +745,39 @@ check 'a commit after that tag is not carried, and the tag named is the one of t
   "not released example-repo#202  (landed in $(printf '%s' "$p2" | cut -c1-7); the newest prod release 0.5.022-stable-20261021150415 of example-org/plug does not carry it)" "$(grep '^not released example-repo#202' <<< "$run")"
 check 'a repository that says prod=landed releases its card from its landing' \
   'would close  example-repo#203  (testing -> done, released in example-org/lnd its landing on origin/master and proven)' "$(grep '^would close  example-repo#203' <<< "$run")"
+sweep_mutant bin/status-sync.sh 's/^    word="\$(first_environment "\$REL_CLONE\/.ai-core\/config.env")"$/    word=""/'
+check 'planted: the list of the checkout for every clone leaves the repository that sets its own list unreleased, #201 and #203 do not close' 'no no' \
+  "$(grep -q '^would close  example-repo#201' <<< "$mutant_run" && echo yes || echo no) $(grep -q '^would close  example-repo#203' <<< "$mutant_run" && echo yes || echo no)"
+cp "$FAKE/issues-1.saved" "$FAKE/issues-1.json"
+
+echo 'a repository that sets no LIVE_TAGS is released by the list of the checkout this runs in, as status reads it, and not by its newest tag of all'
+# relay sets none; its newest tag, deploy/test/1, holds #211, and the only tag of the first environment of the checkout's list, deploy/prod/1, stands on #210
+printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\n' > "$clone/.ai-core/config.env"
+relay_origin="$FAKE/remote/example-org/relay.git"; relay="$FAKE/folder/relay"
+git init -q --bare "$relay_origin"; git init -q "$FAKE/relay-seed"; git -C "$FAKE/relay-seed" checkout -q -b master
+y0="$(commit_at "$FAKE/relay-seed" 1700000401 'Land #210')"; tag_at "$FAKE/relay-seed" deploy/prod/1 1700000401
+y1="$(commit_at "$FAKE/relay-seed" 1700000402 'Land #211')"; tag_at "$FAKE/relay-seed" deploy/test/1 1700000402
+git -C "$FAKE/relay-seed" push -q "$relay_origin" master --tags; git -C "$relay_origin" symbolic-ref HEAD refs/heads/master
+git clone -q "$relay_origin" "$relay"; git -C "$relay" tag -l | xargs -r git -C "$relay" tag -d >/dev/null
+mkdir -p "$relay/.ai-core"; printf 'LIVE_TAGS=""\n' > "$relay/.ai-core/config.env"
+page false null "$(card_of 210 "$y0" example-org/relay "$(proof_at 2026-09-03T10:00:00Z 'Proven on prod:')"),$(card_of 211 "$y1" example-org/relay "$(proof_at 2026-09-03T10:00:00Z 'Proven on test:')")" > "$FAKE/issues-1.json"
+run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo 2>&1)"
+check 'a card the first environment of the checkout'"'"'s list carries closes, by that tag' \
+  'would close  example-repo#210  (testing -> done, released in example-org/relay deploy/prod/1 and proven)' "$(grep '^would close  example-repo#210' <<< "$run")"
+check 'a card that only the newest tag of all, of a later environment, carries stays, and the tag named is the one of the first environment' \
+  "not released example-repo#211  (landed in $(printf '%s' "$y1" | cut -c1-7); the newest prod release deploy/prod/1 of example-org/relay does not carry it)" "$(grep '^not released example-repo#211' <<< "$run")"
+check 'it is not closed, though a proof of the later environment follows its landing' '' "$(grep '^would close  example-repo#211' <<< "$run")"
+sweep_mutant bin/status-sync.sh '/^    \[ -n "\$word" \] || { word="\$(first_environment "\$caller_config")"; from_caller=1; }$/d'
+check 'planted: the newest tag of all for a clone that names none closes #211 on the tag of the later environment' yes "$(grep -q '^would close  example-repo#211' <<< "$mutant_run" && echo yes || echo no)"
+printf 'LIVE_TAGS="prod=command test=deploy/test/*"\n' > "$clone/.ai-core/config.env"
+run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo 2>&1)"
+shown_config="$(git -C "$clone" rev-parse --show-toplevel)/.ai-core/config.env"
+check 'a command of the checkout'"'"'s list is no reader of a clone that declares none: its cards are unknown, and the missing declaration is named' \
+  "unknown      example-repo#210  (LIVE_TAGS of $shown_config says prod=command, and the clone of example-org/relay declares no command: only a clone that does can have its reader run, so prod is not read; the card stays)
+unknown      example-repo#211  (LIVE_TAGS of $shown_config says prod=command, and the clone of example-org/relay declares no command: only a clone that does can have its reader run, so prod is not read; the card stays)" \
+  "$(grep -E '^unknown +example-repo#21[01]' <<< "$run")"
+check 'and no card of it closes' '' "$(grep -E '^would close +example-repo#21[01]' <<< "$run")"
+printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\n' > "$clone/.ai-core/config.env"
 cp "$FAKE/issues-1.saved" "$FAKE/issues-1.json"
 
 echo

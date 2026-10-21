@@ -34,12 +34,14 @@
 #
 # THE RELEASE IS READ FROM THE CLONE, after one fetch: the newest tag by date that matches the
 # first environment of LIVE_TAGS in that clone's .ai-core/config.env ("prod=deploy/prod/* ..."
-# gives deploy/prod/*), or the newest tag of all where LIVE_TAGS names none; where that environment
-# says `command` ("prod=command"), the delivery its reader answers and no tag. GitHub lists tags by
-# name, so its first tag is deploy/test/... beside deploy/prod/... and no release at all. A card
-# whose work landed in another repository is read in that repository's clone. A repository with no
-# clone here, in the checkout this runs in or beside it in the project folder, is named, and its
-# cards stay. A repository whose work is live once it lands, documentation read where it lands, a
+# gives deploy/prod/*), else in the .ai-core/config.env of the checkout this runs in, as `status`
+# reads a card, or the newest tag of all where neither names an environment; where that
+# environment says `command` ("prod=command"), the delivery its reader answers and no tag, and a
+# `command` of the checkout's list is no reader of a clone that declares none: its cards are
+# unknown. GitHub lists tags by name, so its first tag is deploy/test/... beside deploy/prod/...
+# and no release at all. A card whose work landed in another repository is read in that
+# repository's clone. A repository with no clone here, in the checkout this runs in or beside it
+# in the project folder, is named, and its cards stay. A repository whose work is live once it lands, documentation read where it lands, a
 # template whose copies are released or a deployment that a run applies, has no release tag of its
 # own: its first environment of LIVE_TAGS says `landed` ("prod=landed"), and its landing on origin's
 # default branch is its release.
@@ -126,16 +128,15 @@ cards_of_repo() {  # <owner/repo>
   done
 }
 
-# THE TAGS OF THE RELEASE THAT CLOSES A CARD: the first environment of LIVE_TAGS in a config.env
-# as <environment>=<pattern>, or the pattern * (every tag) where it names none
-release_tag_pattern() {  # <config.env>
+# THE FIRST ENVIRONMENT of the LIVE_TAGS of a config.env, as <environment>=<pattern>; nothing where it names none
+first_environment() {  # <config.env>
   local line word
   line="$(grep -E '^[[:space:]]*LIVE_TAGS[[:space:]]*=' "$1" 2>/dev/null | tail -n1 || true)"
   line="${line#*=}"; line="${line%%#*}"; line="${line//[\"\']/}"
   for word in $line; do
     case "$word" in ?*=?*) echo "$word"; return 0 ;; esac
   done
-  echo '*'
+  return 0
 }
 
 # THE RELEASE OF ONE REPOSITORY, read once per run and kept for the next card that asks: sets
@@ -147,20 +148,23 @@ release_tag_pattern() {  # <config.env>
 # that makes no release), REL_ENV (the environment the pattern belongs to, empty where LIVE_TAGS
 # names none) and REL_PATTERN, and says once what it could not read. Where LIVE_TAGS says `command`,
 # REL_COMMAND is 1 and no tag is read: the release is what the project's reader answers, which
-# delivery_of asks for a card in testing, and REL_ERROR is set here where the fetch failed. Called
-# in this shell, never as `$( )`, or what it keeps would end with the subshell.
+# delivery_of asks for a card in testing, and REL_ERROR is set here where the fetch failed or where
+# the `command` is the checkout's list and the clone declares none. Called in this shell, never as
+# `$( )`, or what it keeps would end with the subshell.
 #
-# The pattern is LIVE_TAGS of the clone's own .ai-core/config.env: the project of that repository
-# decides what its release is, never the folder this runs in. A tag counts only where origin has it
-# on the same commit: a fetch never prunes and never moves a tag the clone holds, so a tag a
-# refused push left in the clone, one deleted on origin or one origin moved would read as a
-# release. Where a tag of the pattern stands on origin on another commit than in the clone, or not
-# in the clone at all, which one is the newest is not known, and where origin cannot be listed,
-# nothing is: then no tag counts. The fetch asks nobody for a password. A reader's answer is no
-# release either where that fetch failed: its commit would be read from the refs the clone had.
+# The pattern is the first environment of LIVE_TAGS of the clone's own .ai-core/config.env: the
+# project of that repository decides what its release is. A clone that names none is read by the
+# list of the checkout this runs in, as `status` reads it, and by every tag where that names none
+# either. A tag counts only where origin has it on the same commit: a fetch never prunes and
+# never moves a tag the clone holds, so a tag a refused push left in the clone, one deleted on
+# origin or one origin moved would read as a release. Where a tag of the pattern stands on origin
+# on another commit than in the clone, or not in the clone at all, which one is the newest is not
+# known, and where origin cannot be listed, nothing is: then no tag counts. The fetch asks nobody
+# for a password. A reader's answer is no release either where that fetch failed: its commit
+# would be read from the refs the clone had.
 _RELEASES=''
 release_of() {  # <owner/repo>
-  local held said reason remote word pattern t want odd="" fetch_failed=""
+  local held said reason remote word pattern t want caller_config odd="" fetch_failed="" from_caller=""
   held="$(printf '%s' "$_RELEASES" | awk -F'\t' -v r="$1" 'tolower($1) == tolower(r) { print; exit }')"
   if [ -n "$held" ]; then
     IFS=$'\t' read -r _ REL_CLONE REL_REF REL_TAG REL_LANDED REL_NOTAG REL_ENV REL_PATTERN REL_COMMAND REL_ERROR <<< "$held"
@@ -180,14 +184,17 @@ release_of() {  # <owner/repo>
       echo "$fetch_failed; the refs it had are read"
     fi
     REL_REF="origin/$(cd "$REL_CLONE" && origin_default_branch)" || REL_REF=""
-    word="$(release_tag_pattern "$REL_CLONE/.ai-core/config.env")"
-    case "$word" in *=*) REL_ENV="${word%%=*}"; pattern="${word#*=}" ;; *) pattern="$word" ;; esac
+    caller_config="$(data_dir)/config.env"
+    word="$(first_environment "$REL_CLONE/.ai-core/config.env")"
+    [ -n "$word" ] || { word="$(first_environment "$caller_config")"; from_caller=1; }
+    case "$word" in *=*) REL_ENV="${word%%=*}"; pattern="${word#*=}" ;; *) pattern='*' ;; esac
     REL_PATTERN="$pattern"
     if [ "$pattern" = landed ]; then
       REL_LANDED=1
     elif [ "$pattern" = command ]; then
       REL_COMMAND=1
       [ -z "$fetch_failed" ] || REL_ERROR="$fetch_failed, so the delivery of $REL_ENV is not read"
+      [ -z "$from_caller" ] || REL_ERROR="LIVE_TAGS of $caller_config says $REL_ENV=command, and the clone of $1 declares no command: only a clone that does can have its reader run, so $REL_ENV is not read"
     elif remote="$(GIT_TERMINAL_PROMPT=0 git -C "$REL_CLONE" ls-remote --tags origin 2>/dev/null)"; then
       # <tag> <the commit it stands on>: an annotated tag's own line names the tag object, its ^{} line the commit
       remote="$(printf '%s\n' "$remote" | awk '$2 != "" { n = $2; sub("^refs/tags/", "", n)

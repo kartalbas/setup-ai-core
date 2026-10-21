@@ -66,15 +66,24 @@ plane_api() {
 # plane_pages <what> <path with its query, or without> : every result of a listing, one JSON object per
 # line, read page by page (per_page and cursor are Plane's own, apps/api/plane/utils/paginator.py at
 # v1.4.2). A listing outgrows one page quickly, and a single unpaged read silently reports the rest absent.
+# EVERY PAGE IS ONE JSON OBJECT WITH A results ARRAY, or the read stops: a 200 answer that is a proxy's HTML
+# page, nothing, two documents or another shape is no empty listing. The rows are held until the last page has
+# passed, so a bad later page prints no row, and the failure does not depend on the caller's pipefail.
 # A cursor that was asked for before, or none where more pages are announced, means the answer does not
 # advance: the read stops and says so, instead of reading the same page for ever.
 plane_pages() {
-  local what="$1" path="$2" cursor="" seen=" " page sep="?"
+  local what="$1" path="$2" cursor="" seen=" " page sep="?" rows="" more
   case "$path" in *"?"*) sep="&" ;; esac
   while :; do
     page="$(plane_api "$what" GET "$path${sep}per_page=100${cursor:+&cursor=$cursor}")" || exit 1
-    printf '%s' "$page" | jq -c '.results[]'
-    [ "$(printf '%s' "$page" | jq -r '.next_page_results // false')" = true ] || break
+    more="$(printf '%s' "$page" | jq -s -r '
+      if length == 1 and (.[0] | type == "object" and (.results | type == "array")
+                          and ((.next_page_results // false) | type == "boolean") and ((.next_cursor // "") | type == "string"))
+      then (.[0].next_page_results // false | tostring) else "invalid" end' 2>/dev/null)" || more=invalid
+    [ "$more" != invalid ] \
+      || die "cannot read $what - the Plane API answered 2xx, and the answer is not the required JSON object with a results array: $(printf '%s' "$page" | tr -s '\r\n' '  ' | cut -c1-200)"
+    rows="$rows$(printf '%s' "$page" | jq -c '.results[]')"$'\n'
+    [ "$more" = true ] || break
     cursor="$(printf '%s' "$page" | jq -r '.next_cursor // empty')"
     [ -n "$cursor" ] || die "cannot read $what - the Plane API announced a next page and gave no cursor for it"
     case "$seen" in
@@ -82,4 +91,5 @@ plane_pages() {
     esac
     seen="$seen$cursor "
   done
+  printf '%s' "$rows" | grep -v '^$' || true
 }

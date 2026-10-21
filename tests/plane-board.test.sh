@@ -79,7 +79,7 @@ grep -q 'cursor=' "$CURL_FAKE_STATE/requests.log" || fail "the second page was n
 echo "  a full page of 100 followed by a second: all $total work items are read, and the second page was asked for by its cursor"
 # planted: a reader that stops after the first page misses the rest
 planted="$WORK/planted"; mkdir -p "$planted"; cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$planted/"; cp "$ROOT/VERSION" "$planted/"
-sed -i.bak "s|\[ \"\$(printf '%s' \"\$page\" \| jq -r '.next_page_results // false')\" = true \] \|\| break|break|" "$planted/lib/plane/api.sh"
+sed -i.bak 's|\[ "\$more" = true \] \|\| break|break|' "$planted/lib/plane/api.sh"
 cmp -s "$ROOT/lib/plane/api.sh" "$planted/lib/plane/api.sh" && fail "the planted copy equals the real lib/plane/api.sh"
 [ "$(ROOT_UNDER_TEST="$planted" plane_fn card_rows | wc -l | tr -d ' ')" = 100 ] || fail "planted: a reader that stops after one page should read 100 work items"
 echo "  planted: a reader that stops after the first page reads 100 of $total, which the check above would refuse"
@@ -327,6 +327,28 @@ for refused in states project-members-lite; do
   [ "$(landings "$m")" = 1 ] || fail "a record was written while the $refused could not be read: $(landings "$m") records"
   printf '[]' > "$CURL_FAKE_STATE/inject.json"
 done
+# The same read answered 200 with a proxy's HTML page is no empty listing either: the landing context fails with the
+# line that names the listing and prints nothing, and finish-issue writes no record and does not call the old one current.
+for html in states project-members-lite comments activities; do
+  m="$(reopened_after_landing "Reopened, and its $html answer is HTML")"
+  printf '[{"match":"/%s/","status":200,"times":1,"body":"<html>502 Bad Gateway</html>"}]' "$html" > "$CURL_FAKE_STATE/inject.json"
+  out="$(plane_fn issue_landing_context example-org/example-repo "$m" 2>"$WORK/err")" && fail "the landing context was answered although the $html listing was HTML: $out"
+  [ -z "$out" ] || fail "the landing context printed '$out' although the $html listing was HTML"
+  grep -q 'the answer is not the required JSON object with a results array' "$WORK/err" || fail "the HTML $html listing is not named: $(cat "$WORK/err")"
+  printf '[{"match":"/%s/","status":200,"times":1,"body":"<html>502 Bad Gateway</html>"}]' "$html" > "$CURL_FAKE_STATE/inject.json"
+  if [ "$html" = comments ]; then   # the thread of the work item is read before the landing context, and stops finish-issue there
+    out="$(ai finish-issue "$m" 2>&1)" && fail "finish-issue went on although the comments listing was HTML: $out"
+    grep -q 'the answer is not the required JSON object with a results array' <<< "$out" || fail "the HTML comments listing is not named: $out"
+  else
+    out="$(ai finish-issue "$m" 2>&1)" || fail "finish-issue with the $html listing as HTML: $out"
+    grep -q 'its comments could not be read' <<< "$out" || fail "the HTML $html listing is not said to be unreadable: $out"
+  fi
+  ! grep -q 'holds this record already' <<< "$out" || fail "a record from before the reopening was taken as current while the $html listing was HTML: $out"
+  [ "$(landings "$m")" = 1 ] || fail "a record was written while the $html listing was HTML: $(landings "$m") records"
+  printf '[]' > "$CURL_FAKE_STATE/inject.json"
+done
+echo "  the landing context fails closed on a 200 answer with HTML for the states, members, comments or state changes: nothing printed, the listing named, and finish-issue writes no record and does not call the old one current"
+
 m="$(reopened_after_landing "Reopened, and everything can be read")"
 out="$(ai finish-issue "$m" 2>&1)" || fail "finish-issue after the reopening: $out"
 [ "$(landings "$m")" = 2 ] || fail "the reopening did not void the first record: $(landings "$m") records: $out"

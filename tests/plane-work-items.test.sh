@@ -302,6 +302,62 @@ printf '[]' > "$CURL_FAKE_STATE/inject.json"
 [ -n "$(plane_fn labels_list example-org/example-repo)" ] || fail "innocent: a listing that ends is refused"
 echo "  a listing that answers its cursor again, or a next page with no cursor, is refused by name; an ordinary listing is read to its end"
 
+# A 2XX ANSWER THAT IS NO LISTING is no empty listing: HTML from a proxy, nothing, a scalar, an array, a missing or
+# wrong results, two documents, a wrong pagination field and a bad second page each stop the read with a line that
+# names the listing, print no row, and do so whatever the caller does with pipefail and errexit.
+labels_path="/api/v1/workspaces/ws/projects/$(planeq 'console.log(p.id)')/labels/"
+listing() {  # listing <root> <inject json>: plane_pages on the labels with that answer planted; prints status=<n>, then stdout=[...], then the error line
+  printf '%s' "$2" > "$CURL_FAKE_STATE/inject.json"
+  ( cd "$P" && PATH="$PATH_CURL" bash -c '. "$1/lib/board.sh"; set_project >/dev/null; set +e +o pipefail
+      rows="$(plane_pages "the labels of ENG" "$2" 2>"$3")"; echo "status=$?"; echo "stdout=[$rows]"; cat "$3"' _ "$1" "$labels_path" "$WORK/listing-err" )
+}
+valid_first='{"results":[{"id":"1","name":"a"}],"next_page_results":true,"next_cursor":"100:1:0"}'
+bad_answers=(
+  '[{"match":"/labels/","status":200,"times":1,"body":"<html>502 Bad Gateway</html>"}]'
+  '[{"match":"/labels/","status":200,"times":1,"body":""}]'
+  '[{"match":"/labels/","status":200,"times":1,"body":5}]'
+  '[{"match":"/labels/","status":200,"times":1,"body":[]}]'
+  '[{"match":"/labels/","status":200,"times":1,"body":{"count":0}}]'
+  '[{"match":"/labels/","status":200,"times":1,"body":{"results":{"a":1}}}]'
+  '[{"match":"/labels/","status":200,"times":1,"body":"{\"results\":[]}\n{\"results\":[]}"}]'
+  '[{"match":"/labels/","status":200,"times":1,"body":{"results":[],"next_page_results":"yes"}}]'
+  '[{"match":"/labels/","status":200,"times":1,"body":{"results":[{"id":"1"}],"next_page_results":true,"next_cursor":7}}]'
+  "[{\"match\":\"/labels/\",\"status\":200,\"times\":1,\"body\":$valid_first},{\"match\":\"/labels/\",\"status\":200,\"times\":1,\"body\":\"<html>second page</html>\"}]"
+)
+listing_refused() {  # listing_refused <root>: 0 when every bad answer failed with the named line and no row, and a valid empty listing and a valid two-page listing succeeded
+  local a out
+  for a in "${bad_answers[@]}"; do
+    out="$(listing "$1" "$a")"
+    grep -q '^status=[1-9]' <<< "$out" || { echo "accepted: $a -> $out"; return 1; }
+    grep -q '^stdout=\[\]$' <<< "$out" || { echo "printed rows: $a -> $out"; return 1; }
+    grep -q 'cannot read the labels of ENG - the Plane API answered 2xx, and the answer is not the required JSON object with a results array' <<< "$out" || { echo "not named: $a -> $out"; return 1; }
+  done
+  out="$(listing "$1" '[{"match":"/labels/","status":200,"times":1,"body":{"results":[]}}]')"
+  [ "$out" = $'status=0\nstdout=[]' ] || { echo "a valid empty listing: $out"; return 1; }
+  out="$(listing "$1" "[{\"match\":\"/labels/\",\"status\":200,\"times\":1,\"body\":$valid_first},{\"match\":\"/labels/\",\"status\":200,\"times\":1,\"body\":{\"results\":[{\"id\":\"2\",\"name\":\"b\"}]}}]")"
+  [ "$out" = $'status=0\nstdout=[{"id":"1","name":"a"}\n{"id":"2","name":"b"}]' ] || { echo "a valid two-page listing: $out"; return 1; }
+}
+out="$(listing_refused "$ROOT")" || fail "a 2xx answer that is no listing was read as one: $out"
+cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$planted/"; cp "$ROOT/VERSION" "$planted/"
+cat >> "$planted/lib/plane/api.sh" <<'DEFECT'
+plane_pages() {
+  local what="$1" path="$2" cursor="" seen=" " page sep="?"
+  case "$path" in *"?"*) sep="&" ;; esac
+  while :; do
+    page="$(plane_api "$what" GET "$path${sep}per_page=100${cursor:+&cursor=$cursor}")" || exit 1
+    printf '%s' "$page" | jq -c '.results[]'
+    [ "$(printf '%s' "$page" | jq -r '.next_page_results // false')" = true ] || break
+    cursor="$(printf '%s' "$page" | jq -r '.next_cursor // empty')"
+    [ -n "$cursor" ] || die "cannot read $what - the Plane API announced a next page and gave no cursor for it"
+    case "$seen" in *" $cursor "*) die "cannot read $what - the Plane API answered the page cursor $cursor again" ;; esac
+    seen="$seen$cursor "
+  done
+}
+DEFECT
+! listing_refused "$planted" >/dev/null || fail "planted: the plane_pages that reads HTML as an empty listing passes the check, so it cannot go red"
+printf '[]' > "$CURL_FAKE_STATE/inject.json"
+echo "  a 2xx answer that is HTML, empty, a scalar, an array, without results, with two documents, with a wrong pagination field or with a bad second page stops the read by name and prints no row, with pipefail and errexit off too; a valid empty and a valid two-page listing are read; the old plane_pages fails this check"
+
 # THE CACHES say whose they are: the same identifier in another workspace, or on another instance, is another project
 fields_of() { plane_fn fields_tsv | awk -F'\t' '$1 == "Status" && $3 == "ready" { print $4 }'; }
 first_ready="$(fields_of)"; [ -n "$first_ready" ] || fail "the first fields have no ready state"

@@ -10,19 +10,22 @@
 # transfer is a decision, not a consequence. board-sync puts it on the right one, or
 # item-move carries it across explicitly.
 #
-# --to plane carries a GitHub issue, or every open issue whose card stands in the column NAME of the
-# repository's board, into the Plane project this checkout is set up for (PLANE_URL, PLANE_WORKSPACE,
-# PLANE_PROJECT, PLANE_TOKEN_COMMAND). Each becomes a work item with its title, body, labels, priority,
-# state named after the column and parent, and the GitHub issue is closed as not planned with a comment
-# that carries the work item's address. The GitHub side is read, and closed, by one process with
-# TRACKER=github and the Plane side written by another with TRACKER=plane. An issue carried before is
-# found again by its external_id and writes nothing to Plane, and finishes a GitHub close that failed; a sub-issue whose
-# parent is not carried is refused by name, the rest of the selection goes on, and the exit status is non-zero when
-# anything was refused.
+# --to plane carries issues from GitHub into Plane and changes nothing on GitHub: no comment, no close.
+#   issue-transfer.sh --to plane          every issue, open and closed, of every repository of the organisation that is
+#                                         not archived, with its comments, close reason, board memberships (archived
+#                                         ones too) and parent, and every board, into the Plane project each
+#                                         repository's clone is set up for (PLANE_URL, PLANE_WORKSPACE, PLANE_PROJECT,
+#                                         PLANE_TOKEN_COMMAND of that clone); run it in the project folder
+#   issue-transfer.sh NUMBER --to plane   one issue of this checkout's repository
+#   issue-transfer.sh --column NAME --to plane
+#                                         every open issue whose card stands in that column of the repository's board
+# The counts and the bound on the requests are printed before the first write. A rerun writes nothing that stands in
+# Plane already and finishes what an earlier run left; what a person changed in Plane is never written back. Every
+# issue left incomplete is named, and the exit status is non-zero then.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 
-usage='usage: issue-transfer.sh [OWNER/REPO] NUMBER TARGET_REPO | [OWNER/REPO] NUMBER --to plane | [OWNER/REPO] --column NAME --to plane'
+usage='usage: issue-transfer.sh [OWNER/REPO] NUMBER TARGET_REPO | --to plane | [OWNER/REPO] NUMBER --to plane | [OWNER/REPO] --column NAME --to plane'
 to=""; column=""; args=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -39,35 +42,17 @@ if [ -n "$to" ]; then
   [ ${#args[@]} -le 2 ] || die "$usage"
   repo=""; number=""
   case "${args[0]:-}" in */*) repo="${args[0]}"; args=("${args[@]:1}") ;; esac
-  repo="$(resolve_repo "$repo")" || exit 1
   if [ -n "$column" ]; then
     [ ${#args[@]} -eq 0 ] || die "--column carries a column, not a number: $usage"
-  else
+  elif [ -n "$repo" ] || [ ${#args[@]} -gt 0 ]; then
     [ ${#args[@]} -eq 1 ] || die "$usage"
     number="${args[0]}"
     case "$number" in ''|*[!0-9]*) die "the issue number must be numeric, not '$number'" ;; esac
   fi
-  in_tracker() {  # in_tracker <tracker> <function> [argument...]: a function of that tracker's provider, in a process of its own
-    TRACKER="$1" bash -c '. "$1/lib/board.sh"; shift; "$@"' _ "$HARNESS_ROOT" "${@:2}"
-  }
-  rows="$(in_tracker github github_carry_rows "$repo" "$number" "$column")" || exit 1
-  [ -n "$rows" ] || { echo "nothing is left to carry: no open issue of $repo is selected"; exit 0; }
-  refused=0
-  while IFS= read -r row; do
-    n="$(jq -r '.number' <<< "$row")"
-    if ! carried="$(printf '%s\n' "$row" | in_tracker plane plane_carry "$repo")"; then refused=1; continue; fi
-    echo "#$n -> ${carried%%$'\t'*}"
-    [ "$(jq -r '.open' <<< "$row")" = true ] || continue
-    link="${carried#*$'\t'}"
-    # a close that failed after its comment leaves the comment: the rerun posts it once
-    if ! jq -e --arg u "$link" 'any(.comments[]; contains($u))' <<< "$row" >/dev/null; then
-      text="Moved to $link"
-      in_tracker github check_public_body issue-transfer "$repo" "$text" "" || { refused=1; continue; }
-      in_tracker github issue_comment_post "$repo" "$n" "$text" "" >/dev/null || { refused=1; continue; }
-    fi
-    in_tracker github issue_close "$repo" "$n" not-planned || refused=1
-  done <<< "$rows"
-  exit "$refused"
+  if [ -n "$number" ] || [ -n "$column" ]; then repo="$(resolve_repo "$repo")" || exit 1; fi
+  . "$HARNESS_ROOT/lib/carry.sh"
+  carry_run "$repo" "$number" "$column"
+  exit $?
 fi
 
 set -- ${args[@]+"${args[@]}"}

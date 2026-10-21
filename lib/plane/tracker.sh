@@ -324,66 +324,187 @@ plane_find_carried() {
   esac
 }
 
-# plane_carry <owner/repo>: a GitHub issue, the row github_carry_rows gives on standard input, carried into the
-# project as a work item with the same title, the body as written, the labels (made first where the project
-# lacks one, with the colour and description of labels.tsv), the priority, the state named after the card's
-# column, the parent, and external_source github with external_id <owner/repo>#<number>. Prints
-# "<IDENT>-<n>\t<address>". An issue carried before is found by that external_id and nothing is written. Refused
-# by name, before anything is written: a sub-issue whose parent is not carried or is of another repository, a
-# priority other than P0 to P3, and a title or body with an email address (check_public_body).
-plane_carry() {
-  local repo="$1" row ref found parent pref pid names name rows colour desc ids state request prio status n project
+# --- the issue carry: a work item for every row of lib/carry-plan.jq ---------------------------
+# Run in the clone that owns the destination, with TRACKER=plane and CARRY_RUN naming the directory of this run.
+# A destination is read ONCE per run: its project, states and labels stand in files of CARRY_RUN, scoped by the full
+# URL, workspace and project; so do the work items carried so far (ref, uuid, number), which a sub-issue of the same
+# destination reads without a request. WHAT A PERSON CHANGED IN PLANE IS NEVER WRITTEN BACK: a work item found by
+# its external id is not patched, not its state, parent, archive date, title, body, labels or priority, and a comment
+# found by its external id is not edited. State, parent and archive date are set in the one create request.
+
+carry_dir() {
+  local d
+  d="${CARRY_RUN:?CARRY_RUN names the directory of this run}/$(printf '%s|%s|%s' "$(plane_setting PLANE_URL)" "$(plane_setting PLANE_WORKSPACE)" "$(plane_setting PLANE_PROJECT)" | cksum | cut -d' ' -f1)"
+  mkdir -p "$d"
+  printf '%s\n' "$d"
+}
+
+# plane_carry_metadata: reads the project, its states and its labels once for this destination and prints
+# the number of pages that took: "metadata <n>"
+plane_carry_metadata() {
+  local dir pages=0 ident project
+  dir="$(carry_dir)"
+  if [ ! -s "$dir/states.jsonl" ]; then
+    ident="$(plane_setting PLANE_PROJECT)"
+    [ -s "$(cache_root)/$(plane_cache_name "$ident")/project-id" ] || pages=1
+    project="$(plane_project_uuid)" || exit 1
+    plane_states > "$dir/states.jsonl" || exit 1
+    plane_pages "the labels of $ident" "$(plane_path "projects/$project/labels/")" > "$dir/labels.jsonl" || exit 1
+    pages=$(( pages + $(wc -l < "$dir/states.jsonl") / 100 + 1 + $(wc -l < "$dir/labels.jsonl") / 100 + 1 ))
+    : >> "$dir/carried.tsv"
+  fi
+  echo "metadata $pages"
+}
+
+# plane_carry_missing_labels: the rows of the plan for this destination on standard input; prints how many of their
+# labels the project lacks
+plane_carry_missing_labels() {
+  jq -s --slurpfile have "$(carry_dir)/labels.jsonl" '[.[].labels[]] | unique | map(select(. as $n | $have | map(.name) | index($n) | not)) | length'
+}
+
+# carry_state_id <mode> <name>: the state a work item is created in. A named state must belong to an open group; the
+# default is the project's own default state, which must belong to one too; done is the state done of the completed
+# group, and a cancelled issue stands in the first state of the cancelled group
+carry_state_id() {
+  local dir id
+  dir="$(carry_dir)"
+  case "$1" in
+    status)    id="$(jq -r --arg n "$2" 'select((.name | ascii_downcase) == ($n | ascii_downcase) and (.group | IN("backlog", "unstarted", "started"))) | .id' "$dir/states.jsonl" | head -n1)" ;;
+    done)      id="$(jq -r 'select(.group == "completed") | [(.name | ascii_downcase) == "done", .id] | @tsv' "$dir/states.jsonl" | sort -r | head -n1 | cut -f2)" ;;
+    cancelled) id="$(jq -r 'select(.group == "cancelled") | .id' "$dir/states.jsonl" | head -n1)" ;;
+  esac
+  if [ -z "${id:-}" ] && { [ "$1" = status ] || [ "$1" = default ]; }; then
+    id="$(jq -r 'select(.default == true and (.group | IN("backlog", "unstarted", "started"))) | .id' "$dir/states.jsonl" | head -n1)"
+    [ -n "$id" ] || die "the Plane project $(plane_setting PLANE_PROJECT) has no default state in an open group, and the work item cannot be given an open state without a guess"
+  fi
+  [ -n "${id:-}" ] || die "the Plane project $(plane_setting PLANE_PROJECT) has no state for '$1' in the group the source close reason names"
+  printf '%s\n' "$id"
+}
+
+# carry_label_id <name>: the uuid of that label, made first where the project lacks it, with the colour and the
+# description of labels.tsv; a 409 means the cache is behind, and the labels are read again once
+carry_label_id() {
+  local dir id rows colour desc
+  dir="$(carry_dir)"
+  id="$(jq -r --arg n "$1" 'select(.name == $n) | .id' "$dir/labels.jsonl" | head -n1)"
+  if [ -z "$id" ]; then
+    rows="$(labels_tsv)" || exit 1
+    colour="$(printf '%s\n' "$rows" | awk -F'\t' -v n="$1" '$2 == n { print $3; exit }')"
+    desc="$(printf '%s\n' "$rows" | awk -F'\t' -v n="$1" '$2 == n { print $4; exit }')"
+    plane_call POST "$(plane_path "projects/$(plane_project_uuid)/labels/")" "$(jq -nc --arg n "$1" --arg c "#${colour:-6B7280}" --arg d "${desc:-Carried from GitHub}" '{name: $n, color: $c, description: $d}')"
+    case "$plane_status" in
+      2??) printf '%s\n' "$plane_body" | jq -c '.' >> "$dir/labels.jsonl"; id="$(printf '%s' "$plane_body" | jq -r '.id')" ;;
+      409) plane_pages "the labels of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/labels/")" > "$dir/labels.jsonl" || exit 1
+           id="$(jq -r --arg n "$1" 'select(.name == $n) | .id' "$dir/labels.jsonl" | head -n1)" ;;
+      *)   die "cannot write the label $1 - the Plane API answered $plane_status${plane_body:+: $(printf '%s' "$plane_body" | tr -s '\r\n' '  ' | cut -c1-300)}" ;;
+    esac
+  fi
+  [ -n "$id" ] || die "the label $1 is not in the Plane project after it was made"
+  printf '%s\n' "$id"
+}
+
+# carry_known <ref>: the uuid of the work item carried from that ref in this run, "-" where this destination has none
+carry_known() { awk -F'\t' -v r="$1" '$1 == r { print $2; exit }' "$(carry_dir)/carried.tsv"; }
+
+# carry_remember <ref> <work item json | none>
+carry_remember() {
+  if [ "$2" = none ]; then printf '%s\t-\t-\n' "$1" >> "$(carry_dir)/carried.tsv"
+  else printf '%s\t%s\n' "$1" "$(jq -r '[.id, .sequence_id] | @tsv' <<< "$2")" >> "$(carry_dir)/carried.tsv"; fi
+}
+
+# carry_comments <comments path> : every comment of the work item by its uuid, archived or not
+carry_comments() { plane_pages "the comments of $1" "$(plane_path "$2")"; }
+
+# plane_carry_row: one row of the plan on standard input, carried: the work item created with its state, parent,
+# archive date and labels in the one request, then every missing comment and the provenance comment by external id.
+# Prints "<ref>\t<IDENT-n>\t<address>\t<complete | created | resumed>"; dies naming the reason where it is incomplete.
+plane_carry_row() {
+  local row ref kind found project id seq request state parent_ref parent_id mode ids name pending have missing path html comment posts=0 notes="" outcome verify=1
   row="$(cat)"
-  plane_check_repo "$repo"
-  ref="$repo#$(jq -r '.number' <<< "$row")"
-  found="$(plane_find_carried "$ref")" || exit 1
-  if [ -n "$found" ]; then
-    n="$(jq -r '.sequence_id' <<< "$found")"
-    printf '%s-%s\t%s\n' "$(plane_setting PLANE_PROJECT)" "$n" "$(plane_item_url "$n")"
-    return 0
-  fi
-  prio="$(jq -r '.priority // ""' <<< "$row")"
-  case "$prio" in
-    '') prio=none ;; P0) prio=urgent ;; P1) prio=high ;; P2) prio=medium ;; P3) prio=low ;;
-    *) die "$ref has the priority '$prio', and Plane has a value for P0 to P3 only. Nothing was written" ;;
-  esac
-  check_public_body issue-transfer "$repo" "$(jq -r '.title, .body' <<< "$row")" ""
-  pid=""
-  parent="$(jq -r '.parent // empty' <<< "$row")"
-  if [ -n "$parent" ]; then
-    pref="${parent% *}#${parent##* }"
-    [ "${parent% *}" = "$repo" ] || die "$ref is a sub-issue of $pref, a parent of another repository than $repo, which this carry does not serve. Nothing was written"
-    found="$(plane_find_carried "$pref")" || exit 1
-    pid="$(jq -r '.id // empty' <<< "${found:-null}")"
-    [ -n "$pid" ] || die "$ref is a sub-issue of $pref, which is not carried into Plane yet - carry that first. Nothing was written"
-  fi
-  state=""
-  status="$(jq -r '.status // ""' <<< "$row")"
-  [ -z "$status" ] || state="$(plane_state_id "$status")" || exit 1
-  rows="$(labels_tsv)" || exit 1
-  labels_create "$repo" "$(plane_repo_label)" 6B7280 ""
-  names=()
-  while IFS= read -r name; do
-    colour="$(printf '%s\n' "$rows" | awk -F'\t' -v n="$name" '$2 == n { print $3; exit }')"
-    desc="$(printf '%s\n' "$rows" | awk -F'\t' -v n="$name" '$2 == n { print $4; exit }')"
-    labels_create "$repo" "$name" "${colour:-6B7280}" "${desc:-Carried from GitHub}"
-    names+=("$name")
-  done < <(jq -r '.labels[]' <<< "$row")
-  ids="$(plane_label_ids ${names[@]+"${names[@]}"} "$(plane_repo_label)")" || exit 1
-  request="$(jq -c --arg ext "$ref" --argjson labels "$ids" --arg state "$state" --arg parent "$pid" --arg prio "$prio" "$PLANE_HTML"'
-    {name: .title, description_html: (.body | html), labels: $labels, external_source: "github", external_id: $ext, priority: $prio}
-    + (if $state != "" then {state: $state} else {} end) + (if $parent != "" then {parent: $parent} else {} end)' <<< "$row")"
+  ref="$(jq -r '.ref' <<< "$row")"; kind="$(jq -r '.kind' <<< "$row")"
+  [ "$kind" != issue ] || plane_check_repo "$(jq -r '.repo' <<< "$row")"
   project="$(plane_project_uuid)" || exit 1
-  plane_call POST "$(plane_path "projects/$project/issues/")" "$request"
-  case "$plane_status" in
-    2??) ;;
-    000) die "cannot tell whether the work item carried from $ref was created - the Plane API did not answer: $plane_body. Run the same command again: it finds the work item by its external_id if it exists" ;;
-    *)   die "the work item carried from $ref was NOT created - the Plane API answered $plane_status${plane_body:+: $(printf '%s' "$plane_body" | tr -s '\r\n' '  ' | cut -c1-300)}" ;;
-  esac
   found="$(plane_find_carried "$ref")" || exit 1
-  [ -n "$found" ] || die "the create of the work item carried from $ref was answered $plane_status but Plane does not find the work item by its external_id afterwards: nothing is known to exist. Run the same command again"
-  n="$(jq -r '.sequence_id' <<< "$found")"
-  printf '%s-%s\t%s\n' "$(plane_setting PLANE_PROJECT)" "$n" "$(plane_item_url "$n")"
+  outcome=complete
+  if [ -z "$found" ]; then
+    outcome=created
+    mode="$(jq -r '.parent.mode // ""' <<< "$row")"; parent_ref="$(jq -r '.parent.ref // ""' <<< "$row")"; parent_id=""
+    case "$mode" in
+      selected) parent_id="$(carry_known "$parent_ref")"
+                [ -n "$parent_id" ] && [ "$parent_id" != - ] || die "$ref is a sub-issue of $parent_ref, which is not carried into Plane in this destination - the sub-issue waits for the parent. Nothing was written for it" ;;
+      outside)  parent_id="$(carry_known "$parent_ref")"
+                if [ -z "$parent_id" ]; then
+                  found="$(plane_find_carried "$parent_ref")" || exit 1
+                  if [ -n "$found" ]; then carry_remember "$parent_ref" "$found"; else carry_remember "$parent_ref" none; fi
+                  parent_id="$(carry_known "$parent_ref")"
+                fi
+                [ "$parent_id" != - ] || parent_id="" ;;
+    esac
+    state="$(carry_state_id "$(jq -r '.state.mode' <<< "$row")" "$(jq -r '.state.name // ""' <<< "$row")")" || exit 1
+    ids="[]"
+    while IFS= read -r name; do
+      ids="$(jq -c --arg i "$(carry_label_id "$name")" '. + [$i]' <<< "$ids")"
+    done < <(jq -r '.labels[]' <<< "$row")
+    request="$(jq -c --arg state "$state" --arg parent "$parent_id" --argjson labels "$ids" --arg today "$(date -u +%F)" "$PLANE_HTML"'
+      {name: .title, description_html: (.body | html), labels: $labels, external_source: "github", external_id: .ref, priority: .priority, state: $state}
+      + (if $parent != "" then {parent: $parent} else {} end) + (if .archived then {archived_at: $today} else {} end)' <<< "$row")"
+    plane_call POST "$(plane_path "projects/$project/issues/")" "$request"
+    case "$plane_status" in
+      2??) ;;
+      000) notes="the answer to the create did not arrive" ;;
+      409) notes="Plane answered 409 to the create"; outcome=resumed; verify=0 ;;
+      *)   die "the work item carried from $ref was NOT created - the Plane API answered $plane_status${plane_body:+: $(printf '%s' "$plane_body" | tr -s '\r\n' '  ' | cut -c1-300)}" ;;
+    esac
+    found="$(plane_find_carried "$ref")" || exit 1
+    [ -n "$found" ] || die "the work item carried from $ref was not found by its external_id after the create (${notes:-Plane answered $plane_status}): nothing is known to exist. Run the same command again"
+    [ "$verify" = 0 ] || jq -e --arg s "$state" --arg p "$parent_id" --argjson a "$(jq '.archived' <<< "$row")" \
+      '.state == $s and ((.parent // "") == $p) and ((.archived_at != null) == $a)' <<< "$found" >/dev/null \
+      || die "the work item carried from $ref was stored with another state, parent or archive date than it was given: $(jq -c '{state, parent, archived_at}' <<< "$found")"
+  fi
+  id="$(jq -r '.id' <<< "$found")"; seq="$(jq -r '.sequence_id' <<< "$found")"
+  carry_remember "$ref" "$found"
+  if [ "$kind" = issue ]; then
+    path="projects/$project/issues/$id/comments/"
+    pending="$(jq -c '[.comments[], .provenance] | map({external_id, created_at, text})' <<< "$row")"
+    have="[]"
+    if [ "$outcome" != created ]; then
+      have="$(carry_comments "$ref" "$path" | jq -sc 'map(select(.external_source == "github") | .external_id)')" || exit 1
+    fi
+    missing="$(jq -c --argjson have "$have" 'map(select(.external_id as $e | $have | index($e) | not))' <<< "$pending")"
+    while IFS= read -r comment; do
+      [ -n "$comment" ] || continue
+      html="$(jq -j '.text' <<< "$comment" | jq -Rrs "$PLANE_HTML"' html')"
+      plane_call POST "$(plane_path "$path")" "$(jq -nc --arg h "$html" --argjson c "$comment" '{comment_html: $h, external_source: "github", external_id: $c.external_id, created_at: $c.created_at}')"
+      posts=$((posts + 1))
+      case "$plane_status" in
+        2??) ;;
+        000) notes="$notes; the answer to the comment $(jq -r '.external_id' <<< "$comment") did not arrive" ;;
+        409) notes="$notes; the comment identity $(jq -r '.external_id' <<< "$comment") stands on another work item of the project" ;;
+        *)   notes="$notes; the comment $(jq -r '.external_id' <<< "$comment") was refused with $plane_status" ;;
+      esac
+    done < <(jq -c '.[]' <<< "$missing")
+    if [ "$posts" -gt 0 ]; then
+      have="$(carry_comments "$ref" "$path" | jq -sc 'map(select(.external_source == "github") | .external_id)')" || exit 1
+      missing="$(jq -c --argjson have "$have" 'map(select(.external_id as $e | $have | index($e) | not) | .external_id)' <<< "$pending")"
+      [ "$missing" = "[]" ] || die "the work item $ref is incomplete: $(jq -r 'length' <<< "$missing") of its comments or its provenance are not in Plane${notes:+ ($notes)}. Run the same command again: it finishes what is missing"
+      [ "$outcome" != complete ] || outcome=resumed
+    fi
+  fi
+  printf '%s\t%s-%s\t%s\t%s\n' "$ref" "$(plane_setting PLANE_PROJECT)" "$seq" "$(plane_item_url "$seq")" "$outcome"
+}
+
+# plane_carry_batch: rows of the plan on standard input, each carried alone; prints "OK\t<row result>" or
+# "INCOMPLETE\t<ref>\t<reason>" for each, and goes on after an incomplete one
+plane_carry_batch() {
+  local row ref err
+  err="$(carry_dir)/error"
+  while IFS= read -r row; do
+    [ -n "$row" ] || continue
+    ref="$(jq -r '.ref' <<< "$row")"
+    if out="$( (plane_carry_row <<< "$row") 2>"$err")"; then printf 'OK\t%s\n' "$out"
+    else printf 'INCOMPLETE\t%s\t%s\n' "$ref" "$(sed 's/^error: //' "$err" | tr -s '\r\n' '  ' | cut -c1-400)"; fi
+    grep -v '^error:' "$err" >&2 || true
+  done
 }
 
 # plane_label_ids <name>...: a JSON array of the uuids of these labels of the project; a name the project
@@ -766,9 +887,10 @@ issue_rows() {
 # --- the cards of the project --------------------------------------------------------------
 
 # The columns of a card row (lib/tracker.sh). A closed work item is one in a state of the completed or the
-# cancelled group; Plane's four priorities stand for P0 to P3, and none for no priority.
+# cancelled group; Plane's four priorities stand for P0 to P3, and none for no priority. The label P9 says parked,
+# which Plane has no priority for (an issue carry sets it), and it outranks the native priority.
 PLANE_ROW='def closed: .state.group | IN("completed", "cancelled");
-  def prio: ({urgent: "P0", high: "P1", medium: "P2", low: "P3"})[.priority // "none"];
+  def prio: if any(.labels[]?; .name == "P9") then "P9" else ({urgent: "P0", high: "P1", medium: "P2", low: "P3"})[.priority // "none"] end;
   def ref($byid; $o): ($byid[.id] // null) as $w | if $w and ($w | repo($o)) then "\($w | repo($o))#\($w.sequence_id)" else null end;'
 
 # card_rows: every work item of the project, one JSON object per line, the card row of lib/tracker.sh. A work

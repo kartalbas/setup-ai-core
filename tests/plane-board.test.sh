@@ -70,6 +70,19 @@ out="$(cd "$P" && node "$ROOT/lib/status.mjs" --items-file "$items" --columns-fi
 grep -q -- '-#51' <<< "$out" || fail "status.mjs does not list the work item with no repository: $out"
 echo "  status.mjs: a card with no repository is listed as -#51, and done is the last column"
 
+# THE LABEL P9 says parked, which Plane has no priority for: the card row reads it whatever the native priority is, and an item
+# without the label reads as before
+ITEM_EXTERNAL_SOURCE=github ITEM_EXTERNAL_ID=example-org/example-repo#300 plane_add_item 300 "Parked" P9 repo:example-repo
+ITEM_EXTERNAL_SOURCE=github ITEM_EXTERNAL_ID=example-org/example-repo#301 plane_add_item 301 "Not parked" repo:example-repo
+planeset 'p.issues.find((i)=>i.sequence_id===300).priority="high";p.issues.find((i)=>i.sequence_id===301).priority="high"'
+prio_of() { ROOT_UNDER_TEST="${2:-$ROOT}" plane_fn card_rows | jq -r --argjson n "$1" 'select(.number == $n) | .priority'; }
+[ "$(prio_of 300)" = P9 ] && [ "$(prio_of 301)" = P1 ] || fail "the card row of a parked item reads $(prio_of 300) and of an item without the label $(prio_of 301), not P9 and P1"
+planted="$WORK/planted"; rm -rf "$planted"; mkdir -p "$planted"; cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$planted/"; cp "$ROOT/VERSION" "$planted/"
+sed -i.bak 's/if any(.labels\[\]?; .name == "P9") then "P9" else/if false then "P9" else/' "$planted/lib/plane/tracker.sh"
+cmp -s "$ROOT/lib/plane/tracker.sh" "$planted/lib/plane/tracker.sh" && fail "the planted copy equals lib/plane/tracker.sh"
+[ "$(prio_of 300 "$planted")" = P1 ] || fail "planted: a card row that ignores the label P9 should read the native priority"
+echo "  the card row reads the label P9 as priority P9 whatever the native priority is; an item without it reads P1 as before; a reader that ignores the label is caught"
+
 # A FULL PAGE FOLLOWED BY A SECOND ONE: 120 more work items, and every one of them is read
 planeset 'for (let i = 0; i < 120; i++) { const it = JSON.parse(JSON.stringify(p.issues[0])); it.id = require("crypto").randomUUID(); it.sequence_id = 100 + i; it.name = "Bulk " + i; it.parent = null; it.labels = []; p.issues.push(it); }'
 reset_log

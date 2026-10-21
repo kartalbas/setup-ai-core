@@ -113,21 +113,6 @@ cards_of_repo() {  # <owner/repo>
   done
 }
 
-# THE CLONE OF <owner/repo> ON THIS MACHINE: the checkout this runs in when its origin is that
-# repository, else a folder of the project folder whose origin is. Prints nothing where none is.
-clone_of() {  # <owner/repo>
-  local want dir url
-  want="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
-  for dir in "$(git rev-parse --show-toplevel 2>/dev/null || true)" "$(project_folder)"/*/; do
-    dir="${dir%/}"
-    [ -n "$dir" ] || continue
-    url="$(git -C "$dir" remote get-url origin 2>/dev/null | tr '[:upper:]' '[:lower:]')" || continue
-    url="${url//\\//}"; url="${url%.git}"
-    case "$url" in *[:/]"$want") echo "$dir"; return 0 ;; esac
-  done
-  return 0
-}
-
 # THE TAGS OF THE RELEASE THAT CLOSES A CARD: the first environment of LIVE_TAGS in a config.env
 # as <environment>=<pattern>, or the pattern * (every tag) where it names none
 release_tag_pattern() {  # <config.env>
@@ -316,16 +301,7 @@ for full in ${repos[@]+"${repos[@]}"}; do
         continue
       fi
       # A fresh shell reads the clone as the mover will, without this shell's loaded provider variables.
-      different="$(bash -c '
-        cd "$1" || exit 1
-        . "$2/lib/common.sh"; shift 2
-        for key in TRACKER PLANE_URL PLANE_WORKSPACE PLANE_PROJECT; do
-          if [ "$key" = TRACKER ]; then actual="$(config_value "$key" github | tr "[:upper:]" "[:lower:]")"
-          else actual="$(config_value "$key" "")"; fi
-          if [ "$actual" != "$1" ]; then printf "%s\n" "$key"; break; fi
-          shift
-        done
-      ' _ "$mover_dir" "$ROOT" "$TRACKER" "$(config_value PLANE_URL "")" "$(config_value PLANE_WORKSPACE "")" "$resolved")" || exit 1
+      different="$(clone_setting_difference "$mover_dir" "$TRACKER" "$(config_value PLANE_URL "")" "$(config_value PLANE_WORKSPACE "")" "$resolved")" || exit 1
       if [ -n "$different" ]; then
         echo "other board  $label#$num  ($mover_dir has a different $different, so the card stays)"
         continue

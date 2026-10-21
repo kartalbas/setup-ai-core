@@ -64,8 +64,13 @@ const url = new URL(cfg.url || args.find((a) => /^https?:/.test(a)));
 const body = cfg['data-binary'] ? (cfg['data-binary'].startsWith('@') ? fs.readFileSync(cfg['data-binary'].slice(1), 'utf8') : cfg['data-binary']) : '';
 const q = url.searchParams;
 fs.appendFileSync(path.join(dir, 'requests.log'), `${method} ${url.pathname}${url.search}\n${body}\n`);
+// CURL_FAKE_STDOUT names the file the command under test writes its standard output to: the size it has at each
+// write is logged, so a test can tell what had been printed before the first write
+if (method !== 'GET' && process.env.CURL_FAKE_STDOUT) fs.appendFileSync(path.join(dir, 'stdout-at-write.log'), `${method} ${url.pathname} ${fs.statSync(process.env.CURL_FAKE_STDOUT).size}\n`);
 
+let lost = false;   // an injected {"status":0,"commit":true}: the call is carried out, and its answer never arrives
 function reply(status, value, headers = {}) {
+  if (lost) { process.stderr.write('curl: (28) Operation timed out\n'); process.exit(28); }
   const head = `HTTP/2 ${status}\r\n` + Object.entries(headers).map(([k, v]) => `${k}: ${v}\r\n`).join('') + '\r\n';
   if (args.includes('--dump-header')) fs.writeFileSync(out('--dump-header'), head);
   if (args.includes('--output')) fs.writeFileSync(out('--output'), typeof value === 'string' ? value : JSON.stringify(value));
@@ -77,13 +82,15 @@ function reply(status, value, headers = {}) {
 // match is in "<METHOD> <path+query>" answers, and one that ran out of times is dropped
 const inject = read('inject.json', []);
 const call = `${method} ${url.pathname}${url.search}`;
-const hit = inject.findIndex((i) => call.includes(i.match));
+const hit = inject.findIndex((i) => call.includes(i.match) && !((i.skip || 0) > 0 && (i.skip--, true)));   // skip: let that many matching calls through first
+if (inject.length) write('inject.json', inject);
 if (hit >= 0) {
   const i = inject[hit];
   if (--i.times <= 0) inject.splice(hit, 1);
   write('inject.json', inject);
-  if (i.status === 0) { process.stderr.write('curl: (28) Operation timed out\n'); process.exit(28); }   // no answer at all
-  reply(i.status, i.body ?? '', i.headers || {});
+  if (i.status === 0 && i.commit) lost = true;   // the write is made below, and its answer is dropped by reply()
+  else if (i.status === 0) { process.stderr.write('curl: (28) Operation timed out\n'); process.exit(28); }   // no answer at all
+  else reply(i.status, i.body ?? '', i.headers || {});
 }
 
 const json = (() => { try { return body ? JSON.parse(body) : {}; } catch { return null; } })();
@@ -109,7 +116,7 @@ function plane() {
     const [ident, n] = p[3].split('-');
     const pr = st.projects.find((x) => x.identifier === ident);
     const it = pr && pr.issues.find((i) => i.sequence_id === +n);
-    if (!it) reply(404, { detail: 'Not found.' });
+    if (!it || it.archived_at) reply(404, { detail: 'Not found.' });   // views/issue.py:240-249 reads Issue.issue_objects, which leaves archived items out
     reply(200, ser(st, pr, it));
   }
   if (p[2] !== 'projects') reply(404, { detail: 'Not found.' });
@@ -160,16 +167,20 @@ function plane() {
       reply(200, page(rows));
     }
     if (!json.name) reply(400, { name: ['This field is required.'] });
+    const twin = json.external_id && pr.issues.find((i) => i.external_id === json.external_id && i.external_source === json.external_source);
+    if (twin) reply(409, { error: 'Issue with the same external id and external source already exists', id: twin.id });   // views/issue.py:467-496
     const it = { id: uuid(st), project: pr.id, name: json.name, description_html: json.description_html || '<p></p>', priority: 'none', parent: null, labels: [], assignees: [],
                  sort_order: 65535, external_source: json.external_source || null, external_id: json.external_id || null, archived_at: null, created_at: tick(), updated_at: tick(), completed_at: null };
     it.sequence_id = pr.issues.reduce((m, i) => Math.max(m, i.sequence_id), 0) + 1;
     const bad = write_issue(st, pr, it, json); if (bad) reply(400, bad);
+    if (json.archived_at) it.archived_at = json.archived_at;   // writable at the create, a date (serializers/issue.py:70-73, models/issue.py:160)
     if (!it.state) it.state = (pr.states.find((s) => s.default) || pr.states[0]).id;
     pr.issues.push(it); save(); reply(201, ser(st, pr, it));
   }
   const it = pr.issues.find((i) => i.id === p[5]);
   if (!it) reply(404, { detail: 'Not found.' });
   const sub = p[6];
+  if (!sub && it.archived_at) reply(404, { detail: 'Not found.' });   // views/issue.py:582-587: the same manager on the uuid read and write
   if (!sub) {
     if (method === 'PATCH') {
       const was = it.state, bad = write_issue(st, pr, it, json); if (bad) reply(400, bad);
@@ -180,7 +191,11 @@ function plane() {
   }
   if (sub === 'comments') {
     if (method === 'GET') reply(200, page(pr.comments.filter((c) => c.issue === it.id).map((c) => ({ ...c, actor: q.get('expand') === 'actor' ? st.users.find((u) => u.id === c.actor) : c.actor }))));
-    const c = { id: uuid(st), issue: it.id, comment_html: json.comment_html, created_at: tick(), actor: st.users[0].id, is_member: true };
+    if (json.external_id && pr.comments.some((c) => c.external_id === json.external_id && c.external_source === json.external_source)) {
+      reply(409, { error: 'Issue comment with the same external id and external source already exists', id: pr.comments.find((c) => c.external_id === json.external_id && c.external_source === json.external_source).id });   // views/issue.py:1456-1478: per project, not per item
+    }
+    const c = { id: uuid(st), issue: it.id, comment_html: json.comment_html, created_at: json.created_at || tick(), actor: st.users[0].id, is_member: true,
+                external_source: json.external_source || null, external_id: json.external_id || null };   // created_at is read-only in the serializer and still taken (views/issue.py:1485)
     pr.comments.push(c); save(); reply(201, c);
   }
   if (sub === 'activities') reply(200, page(pr.activities.filter((a) => a.issue === it.id)));

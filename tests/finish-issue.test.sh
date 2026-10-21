@@ -61,6 +61,15 @@ check() {
   if [ "$2" = "$3" ]; then echo "  ok   $1"
   else echo "  FAIL $1"; echo "       expected: $2"; echo "       actual:   $3"; failed=$((failed + 1)); fi
 }
+# check_runs <rc>: exit zero, and where it is not, what finish-issue said, which is the reason
+check_runs() { check 'exits zero' 0 "$1"; [ "$1" = 0 ] || sed 's/^/       said:     /' <<< "$out"; }
+# setup <command>...: a step that arranges a case. Where it fails the run is red and says which step and why;
+# a step that fails unseen leaves the case testing something other than what it names
+setup() {
+  local said
+  said="$("$@" 2>&1)" && return 0
+  echo "  FAIL setup: $*"; sed 's/^/       said:     /' <<< "$said"; failed=$((failed + 1))
+}
 dress() {
   git -C "$1" config user.email 'test@example.invalid'
   git -C "$1" config user.name 'test'
@@ -84,14 +93,14 @@ git -C "$work" remote set-head origin -a >/dev/null
 finish="$root/bin/finish-issue.sh"
 run() { (cd "$work" && bash "$finish" "$@" 2>&1); }
 # open <branch>: a worktree on a new issue branch, cut from origin/master
-open() { git -C "$work" worktree add -q -b "$1" "$trees/$1" origin/master 2>/dev/null; dress "$trees/$1"; }
+open() { setup git -C "$work" worktree add -q -b "$1" "$trees/$1" origin/master; dress "$trees/$1"; }
 # land <branch> <message> [date]: a commit in the worktree, pushed to master
 land() {
   echo "$2" >> "$trees/$1/README.md"
-  git -C "$trees/$1" add -A
-  GIT_AUTHOR_DATE="${3:-}" GIT_COMMITTER_DATE="${3:-}" git -C "$trees/$1" commit -q -m "$2"
-  git -C "$trees/$1" push -q origin HEAD:master
-  git -C "$work" pull -q --ff-only origin master
+  setup git -C "$trees/$1" add -A
+  GIT_AUTHOR_DATE="${3:-}" GIT_COMMITTER_DATE="${3:-}" setup git -C "$trees/$1" commit -q -m "$2"
+  setup git -C "$trees/$1" push -q origin HEAD:master
+  setup git -C "$work" pull -q --ff-only origin master
 }
 has_tree() { [ -d "$trees/$1" ] && echo yes || echo no; }
 has_branch() { git -C "$work" rev-parse -q --verify "refs/heads/$1" >/dev/null && echo yes || echo no; }
@@ -123,7 +132,7 @@ echo 'a landed worktree goes with its branch, the card moves to testing, and the
 git -C "$trees/issue-163-read-the-board-whole" push -q origin HEAD:master
 : > "$log"; rm -rf "$fake/cache"; touch "$fake/refuse-once"
 out="$(run 163)"; rc=$?
-check 'exits zero'            0 "$rc"
+check_runs "$rc"
 check 'the refusal was met and waited for' 1 "$(grep -c "^waiting 60s for GitHub's secondary rate limit" <<< "$out" || true)"
 check 'the worktree is gone'  no "$(has_tree issue-163-read-the-board-whole)"
 check 'the branch is gone'    no "$(has_branch issue-163-read-the-board-whole)"
@@ -135,7 +144,7 @@ check 'the cards of its repository are swept, in one query (status-sync)' 1 "$(g
 echo 'a status-sync that fails is said, and finish-issue still completes'
 touch "$fake/issues-down"; : > "$log"; rm -rf "$fake/cache"
 out="$(run 163)"; rc=$?
-check 'exits zero'            0 "$rc"
+check_runs "$rc"
 check 'it says so'            yes "$(grep -q '^status-sync did NOT run for example-org/example-repo: ' <<< "$out" && echo yes || echo no)"
 rm -f "$fake/issues-down"
 
@@ -144,7 +153,7 @@ open issue-170-run-from-inside
 land issue-170-run-from-inside 'Run from inside (#170)'
 : > "$log"; rm -rf "$fake/cache"
 out="$(cd "$trees/issue-170-run-from-inside" && bash "$finish" 170 2>&1)"; rc=$?
-check 'exits zero'            0 "$rc"
+check_runs "$rc"
 check 'the worktree is gone'  no "$(has_tree issue-170-run-from-inside)"
 check 'the card moved to testing' 1 "$(grep -c 'oid=OPT_test' "$log" || true)"
 
@@ -154,7 +163,7 @@ git -C "$trees/issue-177-package" checkout -q -b issue-182-a-later-part origin/m
 land issue-177-package 'A later part (#182)'
 : > "$log"; rm -rf "$fake/cache"
 out="$(cd "$trees/issue-177-package" && bash "$finish" 182 2>&1)"; rc=$?
-check 'exits zero'                 0 "$rc"
+check_runs "$rc"
 check 'the package worktree stays' yes "$(has_tree issue-177-package)"
 check 'and the branch in it'       yes "$(has_branch issue-182-a-later-part)"
 check 'it says why'                yes "$(grep -q 'issue-177-package is named for another issue and has issue-182-a-later-part checked out: it stays' <<< "$out" && echo yes || echo no)"
@@ -164,7 +173,7 @@ echo 'a board without a testing column: the card stays'
 printf 'Status\tFID\ttodo\tOPT_todo\nStatus\tFID\timplementing\tOPT_impl\nStatus\tFID\tdone\tOPT_done\n' > "$board"
 : > "$log"; rm -rf "$fake/cache"
 out="$(run 163)"; rc=$?
-check 'exits zero'          0 "$rc"
+check_runs "$rc"
 check 'it says so'          yes "$(grep -q 'the board has no testing column - the card stays' <<< "$out" && echo yes || echo no)"
 check 'the card did not move' 0 "$(grep -c 'oid=OPT_' "$log" || true)"
 
@@ -173,21 +182,21 @@ echo 'a cache written before the board gained testing: the board is read again a
 printf 'Status\tFID\ttodo\tOPT_todo\nStatus\tFID\timplementing\tOPT_impl\nStatus\tFID\ttesting\tOPT_test\nStatus\tFID\tdone\tOPT_done\n' > "$board"
 : > "$log"
 out="$(run 163)"; rc=$?
-check 'exits zero'                0 "$rc"
+check_runs "$rc"
 check 'the card moved to testing' 1 "$(grep -c 'oid=OPT_test' "$log" || true)"
 
 echo 'a board with ready, planned and review: the card goes to testing, never to the column after implementing'
 printf 'Status\tFID\tready\tOPT_ready\nStatus\tFID\tplanned\tOPT_plan\nStatus\tFID\timplementing\tOPT_impl\nStatus\tFID\treview\tOPT_rev\nStatus\tFID\ttesting\tOPT_test\nStatus\tFID\tdone\tOPT_done\n' > "$board"
 : > "$log"; rm -rf "$fake/cache"
 out="$(run 163)"; rc=$?
-check 'exits zero'          0 "$rc"
+check_runs "$rc"
 check 'the card went to testing' 1 "$(grep -c 'oid=OPT_test' "$log" || true)"
 check 'not to review'       0 "$(grep -c 'oid=OPT_rev' "$log" || true)"
 
 echo 'a closed issue keeps its card'
 echo closed > "$state"; : > "$log"; rm -rf "$fake/cache"
 out="$(run 163)"; rc=$?
-check 'exits zero'          0 "$rc"
+check_runs "$rc"
 check 'it says so'          yes "$(grep -q 'the issue is closed already' <<< "$out" && echo yes || echo no)"
 check 'the card did not move' 0 "$(grep -c 'oid=OPT_' "$log" || true)"
 echo open > "$state"
@@ -206,7 +215,7 @@ check 'dry run: exits zero'            0 "$rc"
 check 'dry run: it would remove the rested one' yes "$(grep -q 'issue-201-rested: landed, would be removed' <<< "$out" && echo yes || echo no)"
 check 'dry run: nothing removed'       yes "$(has_tree issue-201-rested)"
 out="$(run --sweep)"; rc=$?
-check 'exits zero'                     0 "$rc"
+check_runs "$rc"
 check 'the rested one is gone'         no "$(has_tree issue-201-rested)"
 check 'with its branch'                no "$(has_branch issue-201-rested)"
 check 'the fresh one stays'            yes "$(has_tree issue-202-fresh)"
@@ -222,7 +231,7 @@ open issue-167-keep-the-harness-off-the-board
 land issue-167-keep-the-harness-off-the-board 'Keep the harness off the board (#167)'
 touch "$fake/no-board"; : > "$log"; rm -rf "$fake/cache"
 out="$(cd "$work" && GH_PROJECT_NUMBER='' bash "$finish" 167 2>&1)"; rc=$?
-check 'exits zero'             0 "$rc"
+check_runs "$rc"
 check 'the worktree is gone'   no "$(has_tree issue-167-keep-the-harness-off-the-board)"
 check 'it says so'             yes "$(grep -q '^example-org/example-repo is on no board - there is no card to move$' <<< "$out" && echo yes || echo no)"
 check 'no card was moved'      0 "$(grep -c 'oid=OPT_' "$log" || true)"
@@ -238,7 +247,7 @@ git -C "$work" config branch.issue-169-alert-on-a-stuck-run.issueRepository othe
 land issue-169-alert-on-a-stuck-run 'Alert on a stuck run (other-org/tracker#169)'
 touch "$fake/no-board"; : > "$log"; rm -rf "$fake/cache"
 out="$(cd "$work" && GH_PROJECT_NUMBER='' bash "$finish" 169 2>&1)"; rc=$?
-check 'exits zero'             0 "$rc"
+check_runs "$rc"
 check 'the worktree is gone'   no "$(has_tree issue-169-alert-on-a-stuck-run)"
 check 'the record went with the branch' '' "$(git -C "$work" config --get branch.issue-169-alert-on-a-stuck-run.issueRepository || true)"
 check 'the issue was read there' yes "$(grep -q 'other-org/tracker/issues/169' "$log" && echo yes || echo no)"
@@ -250,7 +259,7 @@ open issue-169-own-fix
 land issue-169-own-fix 'Own fix (#169)'
 : > "$log"; rm -rf "$fake/cache"
 out="$(cd "$work" && GH_PROJECT_NUMBER='' bash "$finish" 169 2>&1)"; rc=$?
-check 'exits zero'             0 "$rc"
+check_runs "$rc"
 check 'its own commit is named' yes "$(grep -q 'example-org/example-repo/issues/169/comments -f body=Landed on master:.*Own fix (#169)' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
 check 'the other one is not'   no "$(grep -q 'other-org/tracker#169' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
 
@@ -260,7 +269,7 @@ git -C "$work" config branch.issue-179-sweep-both-repositories.issueRepository o
 land issue-179-sweep-both-repositories 'Sweep both repositories (other-org/tracker#179)'
 : > "$log"; rm -rf "$fake/cache"
 out="$(run 179)"; rc=$?
-check 'exits zero'             0 "$rc"
+check_runs "$rc"
 # a query of one repository's open issues: its first line names the repository, its third the issues
 swept() { grep -A2 -F "graphql -f o=$1 -f n=$2 -f query=" "$log" | grep -c 'issues(states:OPEN' || true; }
 check 'the cards of this repository are swept' 1 "$(swept example-org example-repo)"
@@ -296,7 +305,7 @@ land issue-178-name-it-in-full 'Land the work of another issue (#179)
 
 Carries Example-Org/example-repo#178 as well.'
 out="$(run 178)"; rc=$?
-check 'exits zero'                0 "$rc"
+check_runs "$rc"
 check 'the worktree is gone'      no "$(has_tree issue-178-name-it-in-full)"
 
 echo 'a commit that names only <other owner>/<other repo>#<n> has not landed this issue'
@@ -315,20 +324,22 @@ open issue-168-read-the-default-branch
 land issue-168-read-the-default-branch 'Read the default branch from the remote (#168)'
 git -C "$work" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/gone
 out="$(run 168)"; rc=$?
-check 'exits zero'             0 "$rc"
+check_runs "$rc"
 check 'the worktree is gone'   no "$(has_tree issue-168-read-the-default-branch)"
 git -C "$work" remote set-head origin -a >/dev/null
 
 echo 'a branch that landed by cherry-pick goes without a flag'
 open issue-173-landed-by-cherry-pick
 echo 'picked' >> "$trees/issue-173-landed-by-cherry-pick/README.md"
-git -C "$trees/issue-173-landed-by-cherry-pick" commit -q -am 'Land by cherry-pick (#173)'
-git -C "$work" pull -q --ff-only origin master
-git -C "$work" cherry-pick "$(git -C "$trees/issue-173-landed-by-cherry-pick" rev-parse HEAD)" >/dev/null
-git -C "$work" push -q origin master
+setup git -C "$trees/issue-173-landed-by-cherry-pick" commit -q -am 'Land by cherry-pick (#173)'
+check 'the worktree holds the commit to pick' 1 "$(git -C "$trees/issue-173-landed-by-cherry-pick" rev-list --count origin/master..HEAD)"
+setup git -C "$work" pull -q --ff-only origin master
+setup git -C "$work" cherry-pick "$(git -C "$trees/issue-173-landed-by-cherry-pick" rev-parse HEAD)"
+setup git -C "$work" push -q origin master
 out="$(run 173)"; rc=$?
-check 'exits zero'             0 "$rc"
+check_runs "$rc"
 check 'the worktree is gone'   no "$(has_tree issue-173-landed-by-cherry-pick)"
+check 'it went as landed work, not as an empty worktree' yes "$(grep -q 'removed: its work is on origin/master\.' <<< "$out" && echo yes || echo no)"
 
 echo 'a branch whose change landed in another shape stays, and names --landed'
 open issue-174-landed-changed
@@ -349,7 +360,7 @@ check 'the worktree stays'     yes "$(has_tree issue-174-landed-changed)"
 echo '--landed on a closed issue removes the worktree and names the commit it did not find'
 echo closed > "$state"
 out="$(run 174 --landed)"; rc=$?
-check 'exits zero'             0 "$rc"
+check_runs "$rc"
 check 'the worktree is gone'   no "$(has_tree issue-174-landed-changed)"
 check 'it names the commit'    yes "$(grep -q '^  [0-9a-f]* Land in another shape (#174)$' <<< "$out" && echo yes || echo no)"
 echo open > "$state"
@@ -364,7 +375,7 @@ git -C "$work" worktree add -q -b issue-190-held "$trees/issue-191-package" orig
 git -C "$work" push -q origin issue-190-held
 on_origin() { git -C "$origin" rev-parse -q --verify "refs/heads/$1" >/dev/null && echo yes || echo no; }
 out="$(run 190)"; rc=$?
-check 'exits zero'                          0 "$rc"
+check_runs "$rc"
 check 'the merged branch on origin is gone' no "$(on_origin issue-190-merged-on-origin)"
 check 'the branch with more work stays'     yes "$(on_origin issue-190-more-work)"
 check 'and says why'                        yes "$(grep -q 'issue-190-more-work on origin stays: it has commits whose change is not on origin/master' <<< "$out" && echo yes || echo no)"
@@ -380,7 +391,7 @@ git -C "$work" config remote.origin.fetch '+refs/heads/master:refs/remotes/origi
 : > "$log"; rm -rf "$fake/cache"
 out="$(run 192)"; rc=$?
 git -C "$work" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
-check 'exits zero'                          0 "$rc"
+check_runs "$rc"
 check 'it names the branch'                 yes "$(grep -q 'issue-192-gone-on-origin on origin could not be deleted and stays' <<< "$out" && echo yes || echo no)"
 check 'the card moved to testing'           1 "$(grep -c 'oid=OPT_test' "$log" || true)"
 
@@ -393,7 +404,7 @@ later="$(git -C "$work" commit-tree -p origin/issue-193-moved-on-origin -m 'Push
 git -C "$work" push -q origin "$later:refs/heads/issue-193-moved-on-origin"
 out="$(run 193)"; rc=$?
 git -C "$work" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
-check 'exits zero'                          0 "$rc"
+check_runs "$rc"
 check 'the moved branch stays on origin'    yes "$(on_origin issue-193-moved-on-origin)"
 check 'with the later commit'               "$later" "$(git -C "$origin" rev-parse refs/heads/issue-193-moved-on-origin)"
 
@@ -418,7 +429,7 @@ git -C "$work" push -q origin master
 git -C "$work" branch -q -D issue-194-rebased issue-194-reshaped
 check 'the rebased branch is no ancestor'   no "$(git -C "$work" merge-base --is-ancestor origin/issue-194-rebased origin/master && echo yes || echo no)"
 out="$(run 194)"; rc=$?
-check 'exits zero'                          0 "$rc"
+check_runs "$rc"
 check 'the rebased branch on origin is gone' no "$(on_origin issue-194-rebased)"
 check 'and says so'                         yes "$(grep -q 'issue-194-rebased on origin deleted: the change of every commit of it is on origin/master' <<< "$out" && echo yes || echo no)"
 check 'the reshaped branch stays'           yes "$(on_origin issue-194-reshaped)"
@@ -439,7 +450,7 @@ git -C "$work" cherry-pick issue-195-side >/dev/null
 git -C "$work" push -q origin master
 git -C "$work" branch -q -D issue-195-side issue-195-merged
 out="$(run 195)"; rc=$?
-check 'exits zero'                          0 "$rc"
+check_runs "$rc"
 check 'the merged branch stays on origin'   yes "$(on_origin issue-195-merged)"
 check 'and says why'                        yes "$(grep -q 'issue-195-merged on origin stays: it has commits whose change is not on origin/master' <<< "$out" && echo yes || echo no)"
 

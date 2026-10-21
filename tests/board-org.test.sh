@@ -93,6 +93,7 @@ printf '%s
 ' >> "$LOG"
 line="\$*"
 case "\$line" in
+  *"subIssues(first"*)  exit 0 ;;
   *projectItems*)       printf 'other-org/1	PVTI_card3
 '; exit 0 ;;
   *"projectV2(number"*) echo 'PVT_kworgtest'; exit 0 ;;

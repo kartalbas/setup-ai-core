@@ -11,7 +11,7 @@ load_provider tracker "
   project_id board_cache_name fields_tsv project_repos board_repos repo_open_projects
   issue_thread issue_landing_context issue_node_id issue_db_id parent_issue issue_parent
   item_id archived_item_id issue_board_items item_top board_items remove_board_item set_select
-  epic_target_on_board
+  epic_target_on_board open_subissues
   repo_visibility issue_create issue_edit issue_close issue_reopen issue_comment_post issue_body issue_transfer
   issue_labels issue_labels_set labels_create labels_list
   issue_assignees issue_assignees_set tracker_login

@@ -236,6 +236,41 @@ out="$(ai issue-duplicate example-org/example-repo "$canon" example-org/example-
 [ "$(planeq 'console.log(p.relations.filter((r)=>r.relation_type==="duplicate").length)')" = 1 ] || fail "the duplicate relation was not made"
 echo "  issue-duplicate: the duplicate is related to the original and stands in Cancelled; the original stays where it was"
 
+# AN EPIC WITH AN OPEN CHILD IS NOT CLOSED, as completed or as not planned, and writes nothing. Closed is the
+# completed and cancelled groups of the state, so a child still open is not done whatever its state is called
+epic="$(new "An epic that owes its child, or it says done early")"
+kid_closed="$(new "The child that is done" --parent "$epic")"; kid_open="$(new "The child that is not" --parent "$epic")"
+ai issue-close "$kid_closed" >/dev/null 2>&1 || fail "issue-close on the first child"
+for reason in '' not-planned; do
+  reset_log; out="$(ai issue-close ${reason:+--reason "$reason"} "$epic" 2>&1)" && fail "the epic with an open child was closed (${reason:-completed})"
+  grep -q "error: example-org/example-repo#$epic has open sub-issues, so it stays open and its card where it is: example-org/example-repo#$kid_open - close them first, or take them out of it" <<< "$out" \
+    || fail "the refusal does not name the open child (${reason:-completed}): $out"
+  [ "$(state_of "$epic")" != done ] && [ "$(state_of "$epic")" != Cancelled ] || fail "the refused epic stands in $(state_of "$epic")"
+  ! grep -q '^\(PATCH\|POST\|PUT\|DELETE\) ' "$CURL_FAKE_STATE/requests.log" || fail "a refused close wrote (${reason:-completed}): $(grep '^\(PATCH\|POST\|PUT\|DELETE\) ' "$CURL_FAKE_STATE/requests.log")"
+done
+# a child that is open stands in a state called done of a group that is not completed: it is not done, so closing
+# its sibling moves the epic to testing at most and never closes it
+planeset 'const k=p.issues.find((i)=>i.sequence_id==='"$kid_open"');const st={id:require("crypto").randomUUID(),name:"done",group:"started",color:"#000",sequence:99};p.states.push(st);k.state=st.id'
+epic2="$(new "A second epic, or the first proves nothing")"
+sib1="$(new "The sibling that gets closed" --parent "$epic2")"; sib2="$(new "The sibling called done and not" --parent "$epic2")"
+planeset 'const k=p.issues.find((i)=>i.sequence_id==='"$sib2"');k.state=p.states.find((s)=>s.name==="done"&&s.group==="started").id'
+ai issue-close "$sib1" >/dev/null 2>&1 || fail "closing a child beside one called done that is not: the command failed"
+[ "$(state_of "$epic2")" = testing ] || fail "the epic stands in $(state_of "$epic2"), not in testing, beside a child called done that is open"
+[ "$(planeq 'const k=p.issues.find((i)=>i.sequence_id==='"$epic2"');console.log(k.completed_at)')" = null ] || fail "the epic was closed beside a child called done that is open"
+# all its children closed: an epic closes, with either reason, and so does a leaf
+epic3="$(new "A third epic, closed by hand")"; kid3="$(new "Its only child" --parent "$epic3")"
+planeset 'const k=p.issues.find((i)=>i.sequence_id==='"$kid3"');k.state=p.states.find((s)=>s.name==="done").id'
+ai issue-close "$epic3" >/dev/null 2>&1 || fail "an epic whose children are all closed as completed was refused"
+[ "$(state_of "$epic3")" = done ] || fail "that epic stands in $(state_of "$epic3"), not in done"
+epic4="$(new "A fourth epic, rejected whole")"; kid4="$(new "Its only child, rejected too" --parent "$epic4")"
+planeset 'const k=p.issues.find((i)=>i.sequence_id==='"$kid4"');k.state=p.states.find((s)=>s.name==="Cancelled").id'
+ai issue-close --reason not-planned "$epic4" >/dev/null 2>&1 || fail "an epic whose children are all cancelled was refused its not-planned close"
+[ "$(state_of "$epic4")" = Cancelled ] || fail "that epic stands in $(state_of "$epic4"), not in Cancelled"
+leaf="$(new "A leaf with nothing under it")"
+ai issue-close "$leaf" >/dev/null 2>&1 || fail "a leaf was refused its close"
+[ "$(state_of "$leaf")" = done ] || fail "the leaf stands in $(state_of "$leaf"), not in done"
+echo "  an epic with an open child is refused, completed and not planned, naming the child and writing nothing; a child called done that is open keeps its epic at testing; an epic with all its children closed, a leaf and a not-planned close go through"
+
 # THE DOCTOR LINE: the tracker, where it answers, and that the key does, never the key
 line="$( cd "$P" && PATH="$PATH_CURL" bash -c 'report() { echo "report $*"; }; problem() { echo problem; }; . "$1/lib/tracker.sh"; tracker_doctor' _ "$ROOT" )"
 [ "$line" = "  tracker: plane (https://plane.example.test, the key answers)" ] || fail "the doctor line is '$line'"

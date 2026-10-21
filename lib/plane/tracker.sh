@@ -689,22 +689,35 @@ closing_column() {
 
 # epic_target_on_board <owner/repo> <number> - the epic_target of a work item, from its own state and the
 # states of its children: a state of the completed group counts as done, one of the cancelled group as not
-# planned, any other by its name. A work item without children gets nothing. A read, so any repository of
-# the project: the sweep of status-sync asks it for the epics of each.
+# planned, any other by its name, except that a child still open counts at most as testing, whatever the
+# state is called, or the epic would close with that work item still open. Every child is read, page after
+# page. A work item without children gets nothing. A read, so any repository of the project: the sweep of
+# status-sync asks it for the epics of each.
 epic_target_on_board() {
   local item children rows cur st first=1
   item="$(plane_item_read "$1" "$2")" || exit 1
   children="$(plane_pages "the work items of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/issues/")?expand=state&fields=id,parent,state")" || exit 1
   rows="$(printf '%s\n%s\n' "$item" "$children" | jq -rs '
     def status: if .state.group == "completed" then "done" elif .state.group == "cancelled" then "not planned" else (.state.name | ascii_downcase) end;
+    def childstatus: if .state.group | IN("completed", "cancelled") then status else status | if . == "done" then "testing" else . end end;
     .[0] as $i | ([.[1:][] | select(.parent == $i.id)]) as $kids
-    | if ($kids | length) == 0 then empty else ($i | status), ($kids[] | status) end')"
+    | if ($kids | length) == 0 then empty else ($i | status), ($kids[] | childstatus) end')"
   [ -n "$rows" ] || return 0
   set --
   while IFS= read -r st; do
     if [ "$first" = 1 ]; then cur="$st"; first=0; else set -- "$@" "$st"; fi
   done <<< "$rows"
   epic_target "$cur" "$@"
+}
+
+# open_subissues <owner/repo> <number>: the children of a work item that are not closed, one "<owner/repo>#<number>"
+# a line, none where it has none. Closed is the completed and cancelled groups of the state, never its name. A
+# child that names no repository is written as Plane writes it, <project>-<number>.
+open_subissues() {
+  local item
+  item="$(plane_item_read "$1" "$2")" || exit 1
+  plane_all_items | jq -rs --arg o "$(plane_owner)" --arg id "$(printf '%s' "$item" | jq -r '.id')" --arg project "$(plane_setting PLANE_PROJECT)" "$PLANE_REPO""$PLANE_ROW"'
+    .[] | select(.parent.id == $id and (closed | not)) | "\(repo($o) // $project)\(if repo($o) then "#" else "-" end)\(.sequence_id)"'
 }
 
 # --- the rows over the project ---------------------------------------------------------------

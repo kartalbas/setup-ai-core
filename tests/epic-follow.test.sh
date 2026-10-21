@@ -50,10 +50,19 @@ cat > "$FAKE/bin/gh" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$*" | tr '\n' ' ' >> "$FAKE/calls"; printf '\n' >> "$FAKE/calls"
 num="\$(printf '%s\n' "\$@" | sed -n 's/^\(num\|n\)=\([0-9]*\)$/\2/p' | head -1)"
+after="\$(printf '%s\n' "\$@" | sed -n 's/^after=\(.*\)$/\1/p' | head -1)"
+prog=""; prev=""; for a in "\$@"; do [ "\$prev" = --jq ] && prog="\$a"; prev="\$a"; done
 case "\$*" in
-  *'subIssues(first'*)        if [ -f "$FAKE/epic-44.json" ]; then
-                                prev=""; for a in "\$@"; do [ "\$prev" = --jq ] && prog="\$a"; prev="\$a"; done
-                                jq -r "\$prog" < "$FAKE/epic-44.json" | tr -d '\r'
+  # the open sub-issues of an issue, the query of issue-close: its own --jq runs over children-<number>.json,
+  # and children-<number>-<cursor>.json is the page behind that cursor
+  *'subIssues(first'*'nameWithOwner'*)
+                              [ -e "$FAKE/children-down" ] && { echo 'gh: HTTP 502' >&2; exit 1; }
+                              [ -f "$FAKE/children-\$num\${after:+-\$after}.json" ] || exit 0
+                              jq -r "\$prog" < "$FAKE/children-\$num\${after:+-\$after}.json" | tr -d '\r' ;;
+  # the sub-issues of the epic as the target reads them: epic-44.json, epic-44-<cursor>.json, or the lines of
+  # epic-44 as that program would have printed them
+  *'subIssues(first'*)        if [ -f "$FAKE/epic-44\${after:+-\$after}.json" ]; then
+                                jq -r "\$prog" < "$FAKE/epic-44\${after:+-\$after}.json" | tr -d '\r'
                               else cat "$FAKE/epic-44"; fi ;;
   *'--jq .id'*)               echo "90\$num" ;;
   *'--method POST'*|*'--method DELETE'*) echo '{}' ;;
@@ -156,6 +165,142 @@ out="$(bash "$ROOT/bin/issue-status.sh" --project 7 example-org/example-repo 3 t
 check 'Done on another board, still open: exit 0' 0 "$rc"
 check 'counts as testing, so the epic goes to testing and is not closed' 'epic example-org/example-repo#44 -> testing, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
 rm -f "$FAKE/epic-44.json"
+
+# --- an epic with an open sub-issue stays open -------------------------------------------------------
+#
+# Where the card of an OPEN sub-issue says done on the selected board, the epic must not read that as
+# done: it would be closed with a sub-issue open. The sub-issues are read through the query's own jq, so
+# the state of the issue decides and the column of a card does not.
+pageinfo() {  # pageinfo [cursor]: the page info of a page that has a page behind it where a cursor is given
+  if [ -n "${1:-}" ]; then printf '{"hasNextPage":true,"endCursor":"%s"}' "$1"; else printf '{"hasNextPage":false,"endCursor":null}'; fi
+}
+planted() {  # planted <epic status> <the sub-issues, as JSON nodes> [page cursor]: the epic read as the target reads it
+  printf '{"data":{"repository":{"issue":{"state":"OPEN","stateReason":null,"projectItems":{"nodes":[{"project":{"number":7,"owner":{"login":"example-org"}},"status":{"name":"%s"}},{"project":{"number":5,"owner":{"login":"example-org"}},"status":{"name":"%s"}}]},"subIssues":{"pageInfo":%s,"nodes":[%s]}}}}}\n' \
+    "$1" "$1" "$(pageinfo "${3:-}")" "$2"
+}
+closed_child='{"state":"CLOSED","stateReason":"COMPLETED","projectItems":{"nodes":[]}}'
+done_card_child='{"state":"OPEN","stateReason":null,"projectItems":{"nodes":[{"project":{"number":7,"owner":{"login":"example-org"}},"status":{"name":"done"}}]}}'
+plain() { grep -o 'PATCH repos/example-org/example-repo/issues/[0-9]*' "$FAKE/calls" | sed 's#.*/issues/#issues/#' | tr '\n' ' ' | sed 's/ $//'; }
+
+echo 'issue-close: a sub-issue closed beside an open one whose card says done moves the epic to testing and closes nothing more'
+: > "$FAKE/calls"; planted implementing "$closed_child,$done_card_child" > "$FAKE/epic-44.json"
+out="$(bash "$ROOT/bin/issue-close.sh" example-org/example-repo 3 2>&1)"; rc=$?
+check 'exit 0'                  0 "$rc"
+check 'the epic goes to testing' 'epic example-org/example-repo#44 -> testing, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
+check 'the epic is not closed'  'issues/3' "$(plain)"
+rm -f "$FAKE/epic-44.json"
+
+echo 'the same epic already in testing stays there: no move, no close, exit 0'
+: > "$FAKE/calls"; planted testing "$closed_child,$done_card_child" > "$FAKE/epic-44.json"
+out="$(bash "$ROOT/bin/issue-close.sh" example-org/example-repo 3 2>&1)"; rc=$?
+check 'exit 0'                  0 "$rc"
+check 'no epic line'            '' "$(grep '^epic' <<< "$out")"
+check 'only the sub-issue closed' 'issues/3' "$(plain)"
+check 'the epic card did not move' '' "$(grep -o 'iid=PVTI_card44' "$FAKE/calls" | sort -u | tr '\n' ' ')"
+rm -f "$FAKE/epic-44.json"
+
+echo 'issue-status, subissue-add and subissue-remove: an open sub-issue whose card says done moves the epic to testing, never closes it'
+: > "$FAKE/calls"; planted implementing "$closed_child,$done_card_child" > "$FAKE/epic-44.json"
+out="$(bash "$ROOT/bin/issue-status.sh" --project 7 example-org/example-repo 3 testing 2>&1)"; rc=$?
+check 'issue-status: exit 0'    0 "$rc"
+check 'issue-status: the epic goes to testing' 'epic example-org/example-repo#44 -> testing, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
+: > "$FAKE/calls"
+out="$(bash "$ROOT/bin/subissue-add.sh" example-org/example-repo 44 5 2>&1)"; rc=$?
+check 'subissue-add: exit 0'    0 "$rc"
+check 'subissue-add: the epic goes to testing' 'epic example-org/example-repo#44 -> testing, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
+: > "$FAKE/calls"
+out="$(bash "$ROOT/bin/subissue-remove.sh" example-org/example-repo 44 5 2>&1)"; rc=$?
+check 'subissue-remove: exit 0' 0 "$rc"
+check 'subissue-remove: the epic goes to testing' 'epic example-org/example-repo#44 -> testing, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
+check 'no command sent a close' '' "$(plain)"
+planted testing "$closed_child,$done_card_child" > "$FAKE/epic-44.json"
+: > "$FAKE/calls"
+out="$(bash "$ROOT/bin/subissue-add.sh" example-org/example-repo 44 5 2>&1)"; rc=$?
+check 'an epic in testing stays: exit 0' 0 "$rc"
+check 'and no epic line'        '' "$(grep '^epic' <<< "$out")"
+rm -f "$FAKE/epic-44.json"
+
+echo 'an open sub-issue beyond the first page of sub-issues keeps the epic open as well'
+: > "$FAKE/calls"
+planted implementing "$closed_child" c2 > "$FAKE/epic-44.json"
+planted implementing "$done_card_child" > "$FAKE/epic-44-c2.json"
+out="$(bash "$ROOT/bin/issue-close.sh" example-org/example-repo 3 2>&1)"; rc=$?
+check 'exit 0'                  0 "$rc"
+check 'the epic goes to testing' 'epic example-org/example-repo#44 -> testing, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
+check 'the second page was read' 1 "$(grep -c 'after=c2' "$FAKE/calls" || true)"
+check 'the epic is not closed'  'issues/3' "$(plain)"
+rm -f "$FAKE/epic-44.json" "$FAKE/epic-44-c2.json"
+
+echo 'every sub-issue closed as completed closes the epic, also over two pages; a mix with not planned and duplicate as well'
+: > "$FAKE/calls"
+planted implementing "$closed_child" c2 > "$FAKE/epic-44.json"
+planted implementing "$closed_child" > "$FAKE/epic-44-c2.json"
+out="$(bash "$ROOT/bin/issue-close.sh" example-org/example-repo 3 2>&1)"; rc=$?
+check 'exit 0'                  0 "$rc"
+check 'the epic is closed'      'epic example-org/example-repo#44 -> closed, every sub-issue done' "$(grep '^epic' <<< "$out")"
+check 'both issues closed'      'issues/3 issues/44' "$(plain)"
+rm -f "$FAKE/epic-44-c2.json"
+: > "$FAKE/calls"
+planted testing "$closed_child,{\"state\":\"CLOSED\",\"stateReason\":\"NOT_PLANNED\",\"projectItems\":{\"nodes\":[]}},{\"state\":\"CLOSED\",\"stateReason\":\"DUPLICATE\",\"projectItems\":{\"nodes\":[]}}" > "$FAKE/epic-44.json"
+out="$(bash "$ROOT/bin/issue-close.sh" example-org/example-repo 3 2>&1)"; rc=$?
+check 'a mix with at least one completed: exit 0' 0 "$rc"
+check 'the epic is closed'      'epic example-org/example-repo#44 -> closed, every sub-issue done' "$(grep '^epic' <<< "$out")"
+: > "$FAKE/calls"
+planted testing "{\"state\":\"CLOSED\",\"stateReason\":\"NOT_PLANNED\",\"projectItems\":{\"nodes\":[]}},{\"state\":\"CLOSED\",\"stateReason\":\"DUPLICATE\",\"projectItems\":{\"nodes\":[]}}" > "$FAKE/epic-44.json"
+out="$(bash "$ROOT/bin/issue-close.sh" example-org/example-repo 3 2>&1)"; rc=$?
+check 'all cancelled: exit 0'   0 "$rc"
+check 'the epic does not move'  '' "$(grep '^epic' <<< "$out")"
+check 'only the sub-issue closed' 'issues/3' "$(plain)"
+rm -f "$FAKE/epic-44.json"
+
+echo 'issue-close of the epic itself: refused with an open sub-issue, whatever its card says, with both reasons, and nothing is written'
+child_of() {  # child_of <number> <repository> <state> <card status or empty>: a sub-issue as the query of issue-close reads it
+  printf '{"number":%s,"state":"%s","repository":{"nameWithOwner":"%s"}}' "$1" "$3" "$2"
+}
+children() { printf '{"data":{"repository":{"issue":{"subIssues":{"pageInfo":%s,"nodes":[%s]}}}}}\n' "$(pageinfo "${2:-}")" "$1"; }
+children "$(child_of 7 example-org/example-repo CLOSED),$(child_of 8 example-org/example-repo OPEN),$(child_of 9 other-org/tracker OPEN)" > "$FAKE/children-44.json"
+for reason in '' not-planned; do
+  : > "$FAKE/calls"
+  out="$(bash "$ROOT/bin/issue-close.sh" example-org/example-repo ${reason:+--reason "$reason"} 44 2>&1)"; rc=$?
+  check "${reason:-completed}: exit 1" 1 "$rc"
+  check "${reason:-completed}: it names the open sub-issues, not the closed one" \
+    'error: example-org/example-repo#44 has open sub-issues, so it stays open and its card where it is: example-org/example-repo#8 other-org/tracker#9 - close them first, or take them out of it' "$out"
+  check "${reason:-completed}: nothing was closed or moved" '' "$(grep -E 'PATCH|updateProjectV2ItemFieldValue|addProjectV2ItemById' "$FAKE/calls" || true)"
+done
+
+echo 'an open sub-issue on the second page of sub-issues is named too'
+: > "$FAKE/calls"
+children "$(child_of 7 example-org/example-repo CLOSED)" c2 > "$FAKE/children-44.json"
+children "$(child_of 12 example-org/example-repo OPEN)" > "$FAKE/children-44-c2.json"
+out="$(bash "$ROOT/bin/issue-close.sh" example-org/example-repo 44 2>&1)"; rc=$?
+check 'exit 1'                  1 "$rc"
+check 'the open one is named'   'error: example-org/example-repo#44 has open sub-issues, so it stays open and its card where it is: example-org/example-repo#12 - close them first, or take them out of it' "$out"
+check 'nothing was closed'      '' "$(grep -E 'PATCH' "$FAKE/calls" || true)"
+rm -f "$FAKE/children-44-c2.json"
+
+echo 'a read of the sub-issues that fails refuses the close: no answer is not "none open"'
+: > "$FAKE/calls"; touch "$FAKE/children-down"
+out="$(bash "$ROOT/bin/issue-close.sh" example-org/example-repo 44 2>&1)"; rc=$?
+rm -f "$FAKE/children-down"
+check 'exit 1'                  1 "$rc"
+check 'it says what it could not read' yes "$(grep -q 'cannot read the sub-issues of example-org/example-repo#44' <<< "$out" && echo yes || echo no)"
+check 'nothing was closed or moved' '' "$(grep -E 'PATCH|updateProjectV2ItemFieldValue' "$FAKE/calls" || true)"
+
+echo 'all its sub-issues closed: the epic closes, as completed and as not planned; a leaf closes'
+children "$(child_of 7 example-org/example-repo CLOSED),$(child_of 9 other-org/tracker CLOSED)" > "$FAKE/children-44.json"
+: > "$FAKE/calls"
+out="$(bash "$ROOT/bin/issue-close.sh" example-org/example-repo 44 2>&1)"; rc=$?
+check 'completed: exit 0'       0 "$rc"
+check 'completed: closed'       'issues/44' "$(plain)"
+: > "$FAKE/calls"
+out="$(bash "$ROOT/bin/issue-close.sh" example-org/example-repo --reason not-planned 44 2>&1)"; rc=$?
+check 'not planned: exit 0'     0 "$rc"
+check 'not planned: closed'     'issues/44' "$(plain)"
+rm -f "$FAKE/children-44.json"
+: > "$FAKE/calls"
+out="$(bash "$ROOT/bin/issue-close.sh" example-org/example-repo 3 2>&1)"; rc=$?
+check 'a leaf: exit 0'          0 "$rc"
+check 'a leaf: closed'          'issues/3' "$(plain)"
 
 echo
 if [ "$failed" -gt 0 ]; then echo "$failed failed"; exit 1; fi

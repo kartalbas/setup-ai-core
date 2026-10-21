@@ -113,6 +113,7 @@ trap 'rm -rf "$FAKE"' EXIT
 mkdir -p "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER"
 printf '%s\n' "$PROJECT_ID" > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/project-id"
 echo '{}' > "$FAKE/empty.json"
+echo '{"data":{"repository":{"issue":{"subIssues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}}' > "$FAKE/no-open-children.json"
 printf '{"data":{"repository":{"projectsV2":{"nodes":[{"number":%s,"title":"Board","closed":false}]}}}}\n' "$PROJECT_NUMBER" > "$FAKE/tools-projects.json"
 printf '{"data":{"organization":{"projectV2":{"id":"%s"}}}}\n' "$PROJECT_ID" > "$FAKE/project-id.json"
 
@@ -200,8 +201,12 @@ for a in "\$@"; do
   [ "\$prev" = "--jq" ] && prog="\$a"
   prev="\$a"
 done
+num="\$(printf '%s\n' "\$@" | sed -n 's/^n=\([0-9]*\)\$/\1/p' | head -1)"
 case "\$*" in
-  *"subIssues(first"*)                    doc="$FAKE/epic-14.json" ;;
+  # the open sub-issues of an issue, the query of issue-close: none of the issues planted here has an open one
+  *"subIssues(first"*"nameWithOwner"*)    doc="$FAKE/no-open-children.json" ;;
+  # the sub-issues of an epic as its target reads them: the epic-<number> planted for it, else the one of #14
+  *"subIssues(first"*)                    doc="$FAKE/epic-\$num.json"; [ -f "\$doc" ] || doc="$FAKE/epic-14.json" ;;
   *"projectV2(number:"*)                  doc="$FAKE/project-id.json" ;;
   *"items(first:100, after:"*)            doc="$FAKE/board.json" ;;
   *"o=other-org"*"issues(states:OPEN"*)   doc="$FAKE/issues-other.json" ;;
@@ -417,6 +422,30 @@ check 'and it does not close' '' "$(grep '^would close  example-repo#30' <<< "$r
 check 'a record by a stranger is no record' \
   'no landing   example-repo#33  (in testing, but no "Landed on" record names its work: where it landed, run ai-core finish-issue example-org/example-repo 33)' "$(grep '^no landing   example-repo#33' <<< "$run")"
 mv "$FAKE/issues-1.saved" "$FAKE/issues-1.json"
+
+# An epic ahead of a released and proven leaf, one of its sub-issues closed and the other still open with
+# its card in done on this board. The epic is not done: it moves to testing, nothing closes it, and the
+# sweep goes on to the leaf behind it, dry run and applied, and ends well
+echo 'an epic with an open sub-issue in done is not closed by the sweep, and the sweep reaches the leaf behind it'
+cp "$FAKE/issues-1.json" "$FAKE/issues-1.saved"
+page false null "$(issue 34 implementing 2 ''),$(issue 35 testing 0 "$(landed 2026-09-01T10:00:00Z "$c13"),$(proven 2026-09-02T10:00:00Z)")" > "$FAKE/issues-1.json"
+printf '{"data":{"repository":{"issue":{"state":"OPEN","stateReason":null,"projectItems":{"nodes":[{"project":{"number":%s,"owner":{"login":"example-org"}},"status":{"name":"implementing"}}]},"subIssues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{"state":"CLOSED","stateReason":"COMPLETED","projectItems":{"nodes":[]}},{"state":"OPEN","stateReason":null,"projectItems":{"nodes":[{"project":{"number":%s,"owner":{"login":"example-org"}},"status":{"name":"done"}}]}}]}}}}}\n' \
+  "$PROJECT_NUMBER" "$PROJECT_NUMBER" > "$FAKE/epic-34.json"
+run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo 2>&1)"
+check 'dry run: exit 0' 0 "$?"
+check 'dry run: the epic would move to testing' 'would move   example-repo#34  (implementing -> testing)' "$(grep '^would move   example-repo#34' <<< "$run")"
+check 'dry run: the epic is not reported closed' '' "$(grep -E '^(would close|close) +example-repo#34' <<< "$run")"
+check 'dry run: the leaf behind it is reached' 'would close  example-repo#35  (testing -> done, released in deploy/prod/2 and proven)' "$(grep '^would close  example-repo#35' <<< "$run")"
+: > "$FAKE/calls.txt"; touch "$FAKE/lenient"
+run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" example-org/example-repo 2>&1)"; rc=$?
+rm -f "$FAKE/lenient"
+check 'applied: exit 0' 0 "$rc"
+check 'applied: the epic is moved, not closed' 'move         example-repo#34  (implementing -> testing)' "$(grep -E '^(move|close) +example-repo#34' <<< "$run")"
+check 'applied: the leaf behind it is closed' 'close        example-repo#35  (testing -> done, released in deploy/prod/2 and proven)' "$(grep '^close        example-repo#35' <<< "$run")"
+check 'applied: the leaf was sent its close' 1 "$(grep -c 'api --method PATCH repos/example-org/example-repo/issues/35 ' "$FAKE/calls.txt")"
+check 'applied: the epic was sent none' 0 "$(grep -c 'api --method PATCH repos/example-org/example-repo/issues/34 ' "$FAKE/calls.txt")"
+check 'applied: nothing says the sweep failed' '' "$(grep -iE 'error|did NOT' <<< "$run")"
+rm -f "$FAKE/epic-34.json"; mv "$FAKE/issues-1.saved" "$FAKE/issues-1.json"
 
 echo
 if [ "$failed" -gt 0 ]; then echo "$failed failed"; exit 1; fi

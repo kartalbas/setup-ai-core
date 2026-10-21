@@ -34,8 +34,11 @@ fi
 # The comments of an issue are kept in a file of their own, as the tracker keeps them: a comment posted by one
 # run is read by the next, "$fake/page-size" cuts a read into pages of that many comments, and a comment
 # planted by plant_comment carries the author association the test names
-path=""; text=""
-for x in "\$@"; do case "\$x" in repos/*/issues/*/comments) path="\$x" ;; body=*) text="\${x#body=}" ;; esac; done
+path=""; text=""; prog=""; prev=""
+for x in "\$@"; do
+  case "\$x" in repos/*/issues/*/comments) path="\$x" ;; body=*) text="\${x#body=}" ;; esac
+  [ "\$prev" = --jq ] && prog="\$x"; prev="\$x"
+done
 store="$fake/comments/\$(printf '%s' "\$path" | tr '/' '_').json"
 case "\$a" in
   # like gh, which reads the repository of the directory it runs in and finds none in a removed one
@@ -46,7 +49,14 @@ case "\$a" in
       created_at: ("2026-10-21T10:" + (length | tostring | if length < 2 then "0" + . else . end) + ":00Z")}]' "\$store" > "\$store.new" && mv "\$store.new" "\$store"
     echo 'https://example.invalid/example-org/example-repo/issues/163#issuecomment-1' ;;
   # status-sync's query of the repository's issues names comments and projectItems too
-  *"issues(states:OPEN"*)   [ -e "$fake/issues-down" ] && { echo 'the issues are down' >&2; exit 1; }; echo '{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}' ;;
+  *"issues(states:OPEN"*)   [ -e "$fake/issues-down" ] && { echo 'the issues are down' >&2; exit 1; }
+                            if [ -s "$fake/open-issues.json" ]; then cat "$fake/open-issues.json"
+                            else echo '{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}'; fi ;;
+  # the sub-issues of an epic: the open ones of an issue to close (none here), and the ones its target reads, as planted
+  *"subIssues(first"*"nameWithOwner"*)  exit 0 ;;
+  *"subIssues(first"*)      jq -r "\$prog" < "$fake/epic.json" ;;
+  # no issue here has a parent: the answer of --jq to an issue without one is nothing
+  *"parent { number"*)      exit 0 ;;
   # the last reopening of one issue, as --jq prints it
   *REOPENED_EVENT*)         [ -e "$fake/reopened-down" ] && { echo 'the timeline is down' >&2; exit 1; }; cat "$fake/reopened-at" 2>/dev/null || echo null ;;
   *comments*)               if [ -s "\$store" ]; then jq -c --argjson s "\$(cat "$fake/page-size" 2>/dev/null || echo 1000)" '[range(0; length; \$s) as \$i | .[\$i:\$i + \$s]] | .[]' "\$store"; else echo '[]'; fi ;;
@@ -687,6 +697,22 @@ check 'nothing was posted'               0 "$(posted)"
 check 'it says so'                       yes "$(grep -q '^the issue was NOT told what landed: its comments could not be read' <<< "$out" && echo yes || echo no)"
 out="$(run 312)"; rc=$?
 check 'a run that can read tells it'     1 "$(landings_of 312)"
+
+# status-sync runs for the repository after every finish. An epic ahead of the landed card, one sub-issue
+# closed and the other open with its card in done, is not closed: it moves to testing, and the run goes on
+echo 'an epic with an open sub-issue in done ahead of a landed card is moved, not closed, and status-sync is not said to have failed'
+open issue-320-behind-the-epic
+land issue-320-behind-the-epic 'Behind the epic (#320)'
+printf '{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{"number":400,"subIssuesSummary":{"total":2},"projectItems":{"nodes":[{"project":{"number":999982,"owner":{"login":"example-org"}},"status":{"name":"implementing"}}]},"reopened":{"nodes":[]},"comments":{"nodes":[]}}]}}}}\n' > "$fake/open-issues.json"
+printf '{"data":{"repository":{"issue":{"state":"OPEN","stateReason":null,"projectItems":{"nodes":[{"project":{"number":999982,"owner":{"login":"example-org"}},"status":{"name":"implementing"}}]},"subIssues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{"state":"CLOSED","stateReason":"COMPLETED","projectItems":{"nodes":[]}},{"state":"OPEN","stateReason":null,"projectItems":{"nodes":[{"project":{"number":999982,"owner":{"login":"example-org"}},"status":{"name":"done"}}]}}]}}}}}\n' > "$fake/epic.json"
+: > "$log"; rm -rf "$fake/cache"
+out="$(run 320)"; rc=$?
+rm -f "$fake/open-issues.json" "$fake/epic.json"
+check_runs "$rc"
+check 'status-sync did not fail'       0 "$(grep -c 'status-sync did NOT run' <<< "$out" || true)"
+check 'the sweep read the epic'        1 "$(grep -c 'subIssues(first' "$log" || true)"
+check 'no epic was closed'             0 "$(grep -cE 'method PATCH.*issues/400|issues/400.*state=closed' "$log" || true)"
+check 'both cards moved to testing: the landed one and the epic' 2 "$(grep -c 'oid=OPT_test' "$log" || true)"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

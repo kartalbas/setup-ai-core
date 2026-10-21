@@ -426,27 +426,51 @@ set_select() {  # set_select <item id> <field name> <option name>
         value:{singleSelectOptionId:$oid}}) { projectV2Item { id } } }' >/dev/null
 }
 
+# github_subissues <owner/repo> <number> <fields of the issue> <fields of a sub-issue> <jq program>: the jq
+# program run over the issue and over every page of its sub-issues, its lines printed in page order. The
+# program reads .data.repository.issue and may ask onfirstpage, true on the first page alone, for what is
+# said once. A page is read until the tracker says there is no further one; a read that fails ends the whole
+# read, so no part of the sub-issues is ever taken for all of them.
+github_subissues() {
+  local after="" first=true out
+  while :; do
+    out="$(gh_read "the sub-issues of $1#$2" api graphql -f o="${1%%/*}" -f r="${1#*/}" -F n="$2" ${after:+-f after="$after"} -f query='
+      query($o:String!, $r:String!, $n:Int!, $after:String) { repository(owner:$o, name:$r) { issue(number:$n) {
+        '"$3"'
+        subIssues(first:100, after:$after) { pageInfo { hasNextPage endCursor } nodes { '"$4"' } } } } }' \
+      --jq "def onfirstpage: $first; ($5), (.data.repository.issue.subIssues.pageInfo | select(.hasNextPage) | \"after \(.endCursor)\")")" || return 1
+    after="$(sed -n 's/^after //p' <<< "$out")"
+    grep -v '^after ' <<< "$out" || true
+    [ -n "$after" ] || break
+    first=false
+  done
+}
+
+# open_subissues <owner/repo> <number>: the sub-issues of an issue that are not closed, one "<owner/repo>#<number>"
+# a line, none where it has none. Whether one is closed is the issue's own state, never the column of a card.
+open_subissues() {
+  github_subissues "$1" "$2" '' 'number state repository { nameWithOwner }' \
+    '.data.repository.issue.subIssues.nodes[] | select(.state != "CLOSED") | "\(.repository.nameWithOwner)#\(.number)"' || exit 1
+}
+
 # epic_target_on_board <owner/repo> <number> - the epic_target of an issue, read from its own card
 # and its sub-issues' cards on the selected board, or on whichever board they are on when none is
-# selected; an issue without sub-issues gets nothing. A sub-issue with no card on the selected board,
-# often one of another repository on that repository's board, counts where its first card with a
-# status stands, and at most as testing: an open issue is done for its epic only where the epic's
-# own board says so, or the epic would close with that issue still open.
+# selected; an issue without sub-issues gets nothing. A sub-issue counts as done only when it is closed:
+# an open one counts at most as testing, whatever column its card stands in, or the epic would close
+# with that issue still open. One with no card on the selected board, often one of another repository on
+# that repository's board, counts where its first card with a status stands.
 epic_target_on_board() {
   local repo="$1" n="$2" on="" rows cur="" first=1 st
   [ -z "${PROJECT:-}" ] || on="select(.project.number == $(project_number) and .project.owner.login == \"$(project_org)\") |"
-  rows="$(gh_read "the sub-issues of $repo#$n" api graphql -f o="${repo%%/*}" -f r="${repo#*/}" -F n="$n" -f query='
-    query($o:String!, $r:String!, $n:Int!) { repository(owner:$o, name:$r) { issue(number:$n) {
-      state stateReason projectItems(first:20) { nodes { project { number owner { ... on Organization { login } ... on User { login } } }
-        status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } }
-      subIssues(first:100) { nodes { state stateReason projectItems(first:20) { nodes {
-        project { number owner { ... on Organization { login } ... on User { login } } }
-        status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } } } } } } }' \
-    --jq "def card: [.projectItems.nodes[] | $on (.status.name // \"backlog\")] | first;
-          def anycard: [.projectItems.nodes[] | .status.name | select(. != null)] | first
-            | if . != null and ascii_downcase == \"done\" then \"testing\" else . end;
-          def status(c): if .state == \"CLOSED\" then (if .stateReason == \"NOT_PLANNED\" or .stateReason == \"DUPLICATE\" then \"not planned\" else \"done\" end) else (c // \"backlog\") end;
-          .data.repository.issue | status(card), (.subIssues.nodes[] | status(card // anycard))")" || return 1
+  local fields='state stateReason projectItems(first:20) { nodes { project { number owner { ... on Organization { login } ... on User { login } } }
+        status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } }'
+  rows="$(github_subissues "$repo" "$n" "$fields" "$fields" "
+    def card: [.projectItems.nodes[] | $on (.status.name // \"backlog\")] | first;
+    def anycard: [.projectItems.nodes[] | .status.name | select(. != null)] | first;
+    def closed: if .stateReason == \"NOT_PLANNED\" or .stateReason == \"DUPLICATE\" then \"not planned\" else \"done\" end;
+    def unclosed(c): (c // \"backlog\") | if ascii_downcase == \"done\" then \"testing\" else . end;
+    (.data.repository.issue | if onfirstpage then (if .state == \"CLOSED\" then closed else (card // \"backlog\") end) else empty end),
+    (.data.repository.issue.subIssues.nodes[] | if .state == \"CLOSED\" then closed else unclosed(card // anycard) end)")" || return 1
   set --
   while IFS= read -r st; do
     st="$(printf '%s' "$st" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"

@@ -257,6 +257,15 @@ planeset 'const k=p.issues.find((i)=>i.sequence_id==='"$sib2"');k.state=p.states
 ai issue-close "$sib1" >/dev/null 2>&1 || fail "closing a child beside one called done that is not: the command failed"
 [ "$(state_of "$epic2")" = testing ] || fail "the epic stands in $(state_of "$epic2"), not in testing, beside a child called done that is open"
 [ "$(planeq 'const k=p.issues.find((i)=>i.sequence_id==='"$epic2"');console.log(k.completed_at)')" = null ] || fail "the epic was closed beside a child called done that is open"
+# a child that is open stands in a state called not planned of a group that is not cancelled: the epic leaves a
+# cancelled child out, and this one is not cancelled, so it counts at most as testing and the epic never reaches a close
+planeset 'const st={id:require("crypto").randomUUID(),name:"not planned",group:"started",color:"#000",sequence:98};p.states.push(st)'
+epic5="$(new "A fifth epic, with a child called not planned")"
+sib5="$(new "The sibling that gets closed beside it" --parent "$epic5")"; open5="$(new "The sibling called not planned and open" --parent "$epic5")"
+planeset 'const k=p.issues.find((i)=>i.sequence_id==='"$open5"');k.state=p.states.find((s)=>s.name==="not planned"&&s.group==="started").id'
+ai issue-close "$sib5" >/dev/null 2>&1 || fail "closing a child beside one called not planned that is open: the command failed"
+[ "$(state_of "$epic5")" = testing ] || fail "the epic stands in $(state_of "$epic5"), not in testing, beside a child called not planned that is open"
+[ "$(planeq 'const k=p.issues.find((i)=>i.sequence_id==='"$epic5"');console.log(k.completed_at)')" = null ] || fail "the epic was closed beside a child called not planned that is open"
 # all its children closed: an epic closes, with either reason, and so does a leaf
 epic3="$(new "A third epic, closed by hand")"; kid3="$(new "Its only child" --parent "$epic3")"
 planeset 'const k=p.issues.find((i)=>i.sequence_id==='"$kid3"');k.state=p.states.find((s)=>s.name==="done").id'
@@ -269,7 +278,7 @@ ai issue-close --reason not-planned "$epic4" >/dev/null 2>&1 || fail "an epic wh
 leaf="$(new "A leaf with nothing under it")"
 ai issue-close "$leaf" >/dev/null 2>&1 || fail "a leaf was refused its close"
 [ "$(state_of "$leaf")" = done ] || fail "the leaf stands in $(state_of "$leaf"), not in done"
-echo "  an epic with an open child is refused, completed and not planned, naming the child and writing nothing; a child called done that is open keeps its epic at testing; an epic with all its children closed, a leaf and a not-planned close go through"
+echo "  an epic with an open child is refused, completed and not planned, naming the child and writing nothing; a child called done or not planned that is open keeps its epic at testing; an epic with all its children closed, a leaf and a not-planned close go through"
 
 # THE DOCTOR LINE: the tracker, where it answers, and that the key does, never the key
 line="$( cd "$P" && PATH="$PATH_CURL" bash -c 'report() { echo "report $*"; }; problem() { echo problem; }; . "$1/lib/tracker.sh"; tracker_doctor' _ "$ROOT" )"

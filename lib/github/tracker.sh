@@ -455,10 +455,11 @@ open_subissues() {
 
 # epic_target_on_board <owner/repo> <number> - the epic_target of an issue, read from its own card
 # and its sub-issues' cards on the selected board, or on whichever board they are on when none is
-# selected; an issue without sub-issues gets nothing. A sub-issue counts as done only when it is closed:
-# an open one counts at most as testing, whatever column its card stands in, or the epic would close
-# with that issue still open. One with no card on the selected board, often one of another repository on
-# that repository's board, counts where its first card with a status stands.
+# selected; an issue without sub-issues gets nothing. A sub-issue counts as done or as not planned only
+# when it is closed: an open one counts at most as testing, whatever column its card stands in, a column
+# called done or not planned included, or the epic would close with that issue still open. One with no
+# card on the selected board, often one of another repository on that repository's board, counts where
+# its first card with a status stands.
 epic_target_on_board() {
   local repo="$1" n="$2" on="" rows cur="" first=1 st
   [ -z "${PROJECT:-}" ] || on="select(.project.number == $(project_number) and .project.owner.login == \"$(project_org)\") |"
@@ -468,7 +469,7 @@ epic_target_on_board() {
     def card: [.projectItems.nodes[] | $on (.status.name // \"backlog\")] | first;
     def anycard: [.projectItems.nodes[] | .status.name | select(. != null)] | first;
     def closed: if .stateReason == \"NOT_PLANNED\" or .stateReason == \"DUPLICATE\" then \"not planned\" else \"done\" end;
-    def unclosed(c): (c // \"backlog\") | if ascii_downcase == \"done\" then \"testing\" else . end;
+    def unclosed(c): (c // \"backlog\") | if (ascii_downcase | IN(\"done\", \"not planned\")) then \"testing\" else . end;
     (.data.repository.issue | if onfirstpage then (if .state == \"CLOSED\" then closed else (card // \"backlog\") end) else empty end),
     (.data.repository.issue.subIssues.nodes[] | if .state == \"CLOSED\" then closed else unclosed(card // anycard) end)")" || return 1
   set --

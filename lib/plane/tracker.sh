@@ -690,16 +690,16 @@ closing_column() {
 # epic_target_on_board <owner/repo> <number> - the epic_target of a work item, from its own state and the
 # states of its children: a state of the completed group counts as done, one of the cancelled group as not
 # planned, any other by its name, except that a child still open counts at most as testing, whatever the
-# state is called, or the epic would close with that work item still open. Every child is read, page after
-# page. A work item without children gets nothing. A read, so any repository of the project: the sweep of
-# status-sync asks it for the epics of each.
+# state is called, one called done or not planned included, or the epic would close with that work item
+# still open. Every child is read, page after page. A work item without children gets nothing. A read, so
+# any repository of the project: the sweep of status-sync asks it for the epics of each.
 epic_target_on_board() {
   local item children rows cur st first=1
   item="$(plane_item_read "$1" "$2")" || exit 1
   children="$(plane_pages "the work items of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/issues/")?expand=state&fields=id,parent,state")" || exit 1
   rows="$(printf '%s\n%s\n' "$item" "$children" | jq -rs '
     def status: if .state.group == "completed" then "done" elif .state.group == "cancelled" then "not planned" else (.state.name | ascii_downcase) end;
-    def childstatus: if .state.group | IN("completed", "cancelled") then status else status | if . == "done" then "testing" else . end end;
+    def childstatus: if .state.group | IN("completed", "cancelled") then status else status | if IN("done", "not planned") then "testing" else . end end;
     .[0] as $i | ([.[1:][] | select(.parent == $i.id)]) as $kids
     | if ($kids | length) == 0 then empty else ($i | status), ($kids[] | childstatus) end')"
   [ -n "$rows" ] || return 0

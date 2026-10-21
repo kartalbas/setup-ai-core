@@ -1087,6 +1087,115 @@ check 'post-push refresh failure keeps success' 0 "$rc"
 check 'post-push refresh failure reports integrated' yes "$(grep -q '^integrated:' <<< "$out" && echo yes || echo no)"
 check 'post-push refresh failure never claims nothing landed' no "$(grep -q 'nothing landed' <<< "$out" && echo yes || echo no)"
 
+# --- the real push gate beside the landing: one wait for a lower load at each local check --------
+# The hook is the real gate, the check is planted in the branch, and the load, the clock and the sleeping
+# are stand-ins: no case burns CPU or waits on the host. A check writes down that it ran, and holds while
+# hold-check exists and release-check does not.
+. "$root/tests/load-stubs.sh"; make_load_stubs "$fake/loadstubs"; real_sleep="$(command -v sleep)"
+printf 'claude\tmode\talways\t-\t-\n' > "$fake/modes-green.tsv"; export TEAM_MODES_FILE="$fake/modes-green.tsv"
+mkdir -p "$fake/gate-hooks"; printf '#!/bin/sh\nexec bash "%s/bin/pre-push.sh" "$@"\n' "$root" > "$fake/gate-hooks/pre-push"; chmod +x "$fake/gate-hooks/pre-push"
+gate_runs="$fake/gate-checks.txt"
+# The gate holds every commit against the identity configured in the repository: one in the caller's environment would make them strangers'
+unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
+git -C "$work" config --unset core.hooksPath 2>/dev/null   # the earlier cases leave their own hook set
+# gated_tree <number> <slug> <load limit> <bound> [CI_GATE]: an issue worktree whose commit carries the planted check and the settings
+gated_tree() {
+  local wt="$trees/issue-$1-$2"
+  git -C "$work" worktree add -q -b "issue-$1-$2" "$wt" origin/master; dress "$wt"
+  mkdir -p "$wt/scripts" "$wt/.ai-core"
+  printf '#!/usr/bin/env bash\n# issue %s\necho "$(cat "$PROBE_STATE/clock")" >> "%s"\nwhile [ -e "%s/hold-check" ] && [ ! -e "%s/release-check" ]; do "%s" 0.05; done\n[ "${PROBE_CHECK:-green}" = green ] || { echo "check: FAIL"; exit 1; }\necho "check: OK"\n' "$1" "$gate_runs" "$fake" "$fake" "$real_sleep" > "$wt/scripts/check.sh"
+  chmod +x "$wt/scripts/check.sh"
+  printf 'PRE_PUSH_LOAD_LIMIT="%s"\nPRE_PUSH_LOAD_WAIT_SECONDS="%s"\n%s' "$3" "$4" "${5:+CI_GATE=\"$5\"}" > "$wt/.ai-core/config.env"
+  git -C "$wt" add -f -A && git -C "$wt" commit -q -m "Plant the check #$1"
+  git -C "$wt" push -q origin "issue-$1-$2" 2>/dev/null
+  printf '%s' "$wt"
+}
+integrate_here() { AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=0 bash "$root/bin/integrate-issue.sh" "$1" --reviewed-by l4 2>&1; }
+lines_of() { if [ -f "$1" ]; then wc -l < "$1" | tr -d ' '; else echo 0; fi; }
+load_plan() { PROBE_STATE="$fake/gate-state"; plan_load "$PROBE_STATE" "$@"; rm -f "$fake/hold-check" "$fake/release-check" "$gate_runs"; : > "$gate_runs"; }
+announced='waiting for the 1-minute load to fall below'
+ended='the wait is over; the check starts at a 1-minute load of 30, at or above the limit of 24'
+# await_in <file> <text> <pid>: until the text stands in the file, the process still running, 10 seconds at most
+await_in() { local _; for _ in $(seq 200); do grep -qF -- "$2" "$1" 2>/dev/null && return 0; kill -0 "$3" 2>/dev/null || return 1; "$real_sleep" 0.05; done; return 1; }
+
+# public_landing <number> <slug> <entry...>: a public repository lands on green checks while the gate of the CI push waits
+# for a lower load, then holds its check; what the person sees is read from the output while it runs
+public_landing() {
+  local n="$1" slug="$2"; shift 2
+  local wt dir pid seen_wait seen_over in_flight
+  wt="$(gated_tree "$n" "$slug" 24 10)"; load_plan 30; : > "$fake/hold-check"; : > "$PROBE_STATE/block"
+  echo public > "$fake/visibility"; : > "$fake/calls.txt"; rm -f "$fake/ci-during"; plant_hook "issue-$n-$slug" ""
+  dir="$wt"; [[ " $* " != *" --from-origin "* ]] || dir="$work"
+  ( cd "$dir" && git config core.hooksPath "$fake/gate-hooks" && PATH="$fake/loadstubs:$PATH" PROBE_STATE="$PROBE_STATE" AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=5 \
+      exec bash "${INTEGRATE_SCRIPT:-$root/bin/integrate-issue.sh}" "$n" --reviewed-by l4 "$@" > "$fake/landing.out" 2>&1 ) & pid=$!
+  await_in "$fake/landing.out" "$announced" "$pid" && seen_wait=yes || seen_wait=no
+  : > "$PROBE_STATE/wake"
+  await_in "$fake/landing.out" "$ended" "$pid" && seen_over=yes || seen_over=no
+  kill -0 "$pid" 2>/dev/null && in_flight=yes || in_flight=no
+  : > "$fake/release-check"; wait "$pid"; rc=$?
+  git -C "$work" config --unset core.hooksPath; rm -f "$fake/visibility" "$fake/hold-check"
+  out="$(cat "$fake/landing.out")"; seen="$seen_wait $seen_over $in_flight"
+}
+echo 'a landing whose repository has no scripts/check.sh reads no load and waits for nothing'
+before="$(tip)"
+wt="$(new_tree 165 no-check)"; git -C "$wt" push -q origin issue-165-no-check 2>/dev/null; load_plan 99; echo private > "$fake/visibility"
+git -C "$work" config core.hooksPath "$fake/gate-hooks"
+out="$(cd "$wt" && PATH="$fake/loadstubs:$PATH" PROBE_STATE="$PROBE_STATE" integrate_here 165)"; rc=$?
+git -C "$work" config --unset core.hooksPath; rm -f "$fake/visibility"
+check 'exit 0, no reading of the load, no sleep, no check' '0 0 0 0' "$rc $(cat "$PROBE_STATE/uptime-calls" 2>/dev/null || echo 0) $(lines_of "$PROBE_STATE/sleeps") $(lines_of "$gate_runs")"
+check 'and it landed'                            1 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+
+before="$(tip)"
+echo 'a public landing shows the wait for a lower load while its CI push waits, then the check, and lands the commit its checks were green for'
+public_landing 160 streamed
+check 'exit 0'                                   0 "$rc"
+check 'the announcement, and the start above the limit, were on screen while the check still ran' 'yes yes yes' "$seen"
+check 'the announcement stands once for each of the two local checks' 2 "$(grep -c "$announced" <<< "$out")"
+check 'and so does the start above the limit'    2 "$(grep -c "$ended" <<< "$out")"
+check 'each check ran once, after its wait'      '2 1010 1020' "$(lines_of "$gate_runs") $(sed -n 1p "$gate_runs") $(sed -n 2p "$gate_runs")"
+check 'the checks of the CI were asked on their own, and the commit that landed is the one that was checked' "$(cat "$fake/ci-during")" "$(tip)"
+check 'the CI answered green, said once'         1 "$(grep -c '^checks: green for' <<< "$out")"
+check 'one merge commit landed'                  1 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+before="$(tip)"
+echo 'the same with --from-origin'
+public_landing 161 streamed-origin --from-origin
+check 'exit 0 and the same words on screen while the check ran' '0 yes yes yes' "$rc $seen"
+check 'one merge commit landed, the commit of its ci/ branch' "$(cat "$fake/ci-during") 1" "$(tip) $(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+
+echo 'a red check after the wait refuses: nothing on the default branch, the gate named once, the wait said once'
+before="$(tip)"
+wt="$(gated_tree 162 red-after-wait 24 10)"; load_plan 30; echo public > "$fake/visibility"; plant_hook issue-162-red-after-wait ""
+git -C "$work" config core.hooksPath "$fake/gate-hooks"
+out="$(cd "$wt" && PROBE_CHECK=red PATH="$fake/loadstubs:$PATH" PROBE_STATE="$PROBE_STATE" AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=5 bash "$root/bin/integrate-issue.sh" 162 --reviewed-by l4 2>&1)"; rc=$?
+git -C "$work" config --unset core.hooksPath; rm -f "$fake/visibility"
+check 'exit 1'                                   1 "$rc"
+check 'the failed check of the gate is shown'    yes "$(grep -qF 'check: FAIL' <<< "$out" && echo yes || echo no)"
+check 'the refusal names the cause and points at the words above' yes "$(grep -qF 'could not be pushed to ci/integrate-issue-162-red-after-wait for its checks, and nothing reached master (the words of git and of the push gate are above)' <<< "$out" && echo yes || echo no)"
+check 'the wait was said once, not again in the refusal' 1 "$(grep -c "$announced" <<< "$out")"
+check 'origin did not move'                      "$before" "$(tip)"
+
+echo 'a private landing and one under CI_GATE="none" reach the single wait of their check through the hook, and read no check of the CI'
+for variant in private none; do
+  before="$(tip)"; n=$([ "$variant" = private ] && echo 163 || echo 164)
+  wt="$(gated_tree "$n" "gate-$variant" 24 300 "$([ "$variant" = none ] && echo none)")"; load_plan 25 24 23.5
+  [ "$variant" = private ] && echo private > "$fake/visibility" || echo public > "$fake/visibility"; : > "$fake/calls.txt"
+  git -C "$work" config core.hooksPath "$fake/gate-hooks"
+  out="$(cd "$wt" && PATH="$fake/loadstubs:$PATH" PROBE_STATE="$PROBE_STATE" integrate_here "$n")"; rc=$?
+  git -C "$work" config --unset core.hooksPath; rm -f "$fake/visibility"
+  check "$variant: exit 0"                       0 "$rc"
+  check "$variant: one wait, two sleeps of five, one check at 1010" "1 5 5  1 1010" "$(grep -c "$announced" <<< "$out") $(tr '\n' ' ' < "$PROBE_STATE/sleeps") $(lines_of "$gate_runs") $(cat "$gate_runs")"
+  check "$variant: no check of the CI was asked" 0 "$(asked_checks)"
+  check "$variant: the commit landed"            1 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+done
+
+echo 'planted: the output of the push to ci/ is buffered until the push is over, as it was'
+mkdir -p "$fake/mutant-integrate/bin"; ln -sfn "$root/lib" "$fake/mutant-integrate/lib"
+sed 's/2>&1 | tee "\$pushed" >&2 ||/> "$pushed" 2>\&1 ||/' "$root/bin/integrate-issue.sh" > "$fake/mutant-integrate/bin/integrate-issue.sh"
+cmp -s "$root/bin/integrate-issue.sh" "$fake/mutant-integrate/bin/integrate-issue.sh" && { echo '  FAIL the planted defect changed nothing'; failed=$((failed + 1)); }
+INTEGRATE_SCRIPT="$fake/mutant-integrate/bin/integrate-issue.sh" public_landing 166 buffered
+check 'the announcement is not on screen before the push ends' no "$(case "$seen" in yes\ *) echo yes ;; *) echo no ;; esac)"
+unset INTEGRATE_SCRIPT
+
 echo
 [ "$failed" -eq 0 ] && echo 'all passed' || echo "$failed failed"
 [ "$failed" -eq 0 ]

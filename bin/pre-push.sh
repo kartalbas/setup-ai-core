@@ -15,7 +15,8 @@
 #   2. every pushed commit names its issue, or says why it does not
 #   3. the team modes are installed
 #   4. the names of the new directories are derived from the families the trees carry
-#   5. the repository's own scripts/check.sh is green, run in a working tree equal to the commit
+#   5. the repository's own scripts/check.sh is green, run in a working tree equal to the commit,
+#      started once the 1-minute load is below PRE_PUSH_LOAD_LIMIT or PRE_PUSH_LOAD_WAIT_SECONDS is up
 #   6. gitleaks over the commits the push carries, in a repository that carries .gitleaks.toml
 #
 # Run from a terminal, with nothing on standard input, it judges what `git push` would send from
@@ -64,6 +65,14 @@ for arg in "$@"; do
     echo "judged; its addresses are. A deletion runs"
     echo "no checks. Run from a terminal it judges the current branch against its upstream."
     echo ""
+    echo "Before scripts/check.sh starts, the gate waits while the 1-minute load average (uptime) is at or"
+    echo "above PRE_PUSH_LOAD_LIMIT (24 when unset) in the .ai-core/config.env of the checkout, at most"
+    echo "PRE_PUSH_LOAD_WAIT_SECONDS (300 when unset), and then starts the check and says it started above"
+    echo "the limit. Both settings are read again at every poll. With both positive, a load that cannot be"
+    echo "read refuses the push. With PRE_PUSH_LOAD_LIMIT 0 the wait is off, and with"
+    echo "PRE_PUSH_LOAD_WAIT_SECONDS 0 the check starts at once: the load is still measured once for the"
+    echo "record, and a reading that fails is said and recorded as -, never as a number."
+    echo ""
     echo "Options:"
     echo "  --install         Write the two shims, .githooks/pre-push (this gate) and .githooks/post-checkout"
     echo "                    (ai-core init in a new worktree), into the current repository and every"
@@ -82,7 +91,9 @@ for arg in "$@"; do
     echo "                    which runs this. A merge is not judged"
     echo "  --runs            List the runs of the gate recorded on this machine, newest first: the time,"
     echo "                    the repository, the worktree, the commit, the verdict (green, red, or no"
-    echo "                    check), the seconds scripts/check.sh took and its last line. Every run of"
+    echo "                    check), the seconds scripts/check.sh took (the wait for a lower load not"
+    echo "                    counted), its last line and the load at check start (- where none was"
+    echo "                    measured, as in a run recorded before the field existed). Every run of"
     echo "                    the gate appends one, to \${AI_CORE_HOME:-\$HOME}/.ai-core/pre-push-runs.tsv"
     echo "  --repo OWNER/REPO With --runs: the runs of that repository only"
     echo "  --since TIME      With --runs: the runs at or after TIME, in UTC as recorded (2026-10-20T06:00)"
@@ -117,11 +128,13 @@ done
 [ -z "$MESSAGE_FILE" ] || [ "$INSTALL" -eq 0 ] || { echo "error: --message does not go with --install" >&2; exit 2; }
 [ "$RUNS" -eq 1 ] || [ -z "$RUNS_REPO$RUNS_SINCE" ] || { echo "error: --repo and --since go with --runs" >&2; exit 2; }
 GATE_RUNS_FILE="${AI_CORE_HOME:-$HOME}/.ai-core/pre-push-runs.tsv"
+GATE_RUNS_HEADER=$'time\trepository\tworktree\tcommit\tverdict\tseconds\tlast line\tload at check start'
 if [ "$RUNS" -eq 1 ]; then
   [ -s "$GATE_RUNS_FILE" ] || { echo "no run of the gate is recorded on this machine yet ($GATE_RUNS_FILE)"; exit 0; }
-  head -1 "$GATE_RUNS_FILE"
+  echo "$GATE_RUNS_HEADER"
+  # A row of seven fields was recorded before the load field existed: its load was not measured
   tail -n +2 "$GATE_RUNS_FILE" \
-    | awk -F'\t' -v repo="$RUNS_REPO" -v since="$RUNS_SINCE" '(repo == "" || tolower($2) == tolower(repo)) && (since == "" || $1 >= since) { kept[++n] = $0 } END { while (n > 0) print kept[n--] }'
+    | awk -F'\t' -v repo="$RUNS_REPO" -v since="$RUNS_SINCE" '(repo == "" || tolower($2) == tolower(repo)) && (since == "" || $1 >= since) { kept[++n] = (NF == 7 ? $0 "\t-" : $0) } END { while (n > 0) print kept[n--] }'
   exit 0
 fi
 
@@ -445,7 +458,22 @@ head="$(git rev-parse HEAD 2>/dev/null)" || { echo "error: this repository has n
 
 # EVERY RUN OF THE GATE LEAVES ONE RECORD on this machine, because what a push checked is printed
 # only in the terminal of whoever pushed: pre-push --runs reads them back.
-GATE_CHECK=absent; GATE_CHECK_SECONDS=-; GATE_CHECK_LAST=""; GATE_COMMIT=""
+GATE_CHECK=absent; GATE_CHECK_SECONDS=-; GATE_CHECK_LAST=""; GATE_COMMIT=""; GATE_LOAD=-
+# write_gate_run <row>: a new log is made whole, header and first row, and linked into place, so two
+# gates that both find none cannot both write a header; a log that exists, whatever header it carries,
+# only gets the row, appended in one write.
+write_gate_run() {
+  local row="$1" made linked
+  if [ ! -e "$GATE_RUNS_FILE" ]; then
+    made="$(mktemp "$GATE_RUNS_FILE.XXXXXX")" || return 1
+    printf '%s\n%s\n' "$GATE_RUNS_HEADER" "$row" > "$made" && ln "$made" "$GATE_RUNS_FILE" 2>/dev/null
+    linked=$?
+    rm -f "$made"
+    [ "$linked" -ne 0 ] || return 0
+  fi
+  [ -s "$GATE_RUNS_FILE" ] || printf '%s\n' "$GATE_RUNS_HEADER" >> "$GATE_RUNS_FILE"
+  printf '%s\n' "$row" >> "$GATE_RUNS_FILE"
+}
 record_gate_run() {
   local rc=$? verdict repository last
   if [ "$rc" -ne 0 ]; then verdict=red; elif [ "$GATE_CHECK" = green ]; then verdict=green; else verdict="no check"; fi
@@ -453,9 +481,8 @@ record_gate_run() {
   last="$GATE_CHECK_LAST"; [ "$GATE_CHECK" = red ] || [ -z "$GATE_REFUSAL" ] || last="$GATE_REFUSAL"
   repository="$(git -C "$root" remote get-url origin 2>/dev/null | sed 's#\.git$##; s#.*[:/]\([^/:]*/[^/:]*\)$#\1#')"
   if mkdir -p "$(dirname "$GATE_RUNS_FILE")" 2>/dev/null; then
-    [ -s "$GATE_RUNS_FILE" ] || printf 'time\trepository\tworktree\tcommit\tverdict\tseconds\tlast line\n' >> "$GATE_RUNS_FILE"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${repository:--}" "$root" "${GATE_COMMIT:-$head}" \
-      "$verdict" "$GATE_CHECK_SECONDS" "$(printf '%s' "$last" | tr '\t\n' '  ')" >> "$GATE_RUNS_FILE" \
+    write_gate_run "$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${repository:--}" "$root" "${GATE_COMMIT:-$head}" \
+      "$verdict" "$GATE_CHECK_SECONDS" "$(printf '%s' "$last" | tr '\t\n' '  ')" "$GATE_LOAD")" \
       || echo "pre-push: this run could not be recorded in $GATE_RUNS_FILE" >&2
   else
     echo "pre-push: this run could not be recorded: no folder $(dirname "$GATE_RUNS_FILE")" >&2
@@ -875,14 +902,84 @@ if [ -n "$findings" ]; then
   refuse "the names above are invented where they should be derived from what they belong to. Rename them, or give the commit that adds them a 'Naming: <why>' trailer. A folder moved whole keeps the names inside it where git still pairs its files as renames: move it in a commit of its own."
 fi
 
-# The wait is announced here and not earlier, so a push that is refused above is not first
-# promised a run it never gets. How long it takes is the repository's own business.
-if [ -f "$root/scripts/check.sh" ]; then
-  # The check reads the working tree, so it proves the pushed commit only where the two are equal.
+# THE WAIT FOR A LOWER LOAD. A check that starts on a busy machine goes red on timing, not on the code,
+# so it starts once the 1-minute load is below PRE_PUSH_LOAD_LIMIT, or when PRE_PUSH_LOAD_WAIT_SECONDS are
+# used up. A sample reserves no CPU and the load can rise again after it. Both settings are the
+# checkout's own and are read again at every poll; a zero is a mode of its own and still measures once.
+LOAD_POLL_SECONDS=5
+read_load_settings() {  # sets LOAD_LIMIT and LOAD_WAIT_SECONDS, or refuses
+  local decimal='^[0-9]+(\.[0-9]+)?$' whole='^[0-9]+$'
+  LOAD_LIMIT="$(config_file_value PRE_PUSH_LOAD_LIMIT 24)"
+  LOAD_WAIT_SECONDS="$(config_file_value PRE_PUSH_LOAD_WAIT_SECONDS 300)"
+  [[ "$LOAD_LIMIT" =~ $decimal ]] \
+    || refuse "PRE_PUSH_LOAD_LIMIT is '$LOAD_LIMIT' in $root/.ai-core/config.env; it is the 1-minute load below which a check starts, a number of 0 or more such as 24 or 23.5, and 0 turns the wait off"
+  [[ "$LOAD_WAIT_SECONDS" =~ $whole ]] \
+    || refuse "PRE_PUSH_LOAD_WAIT_SECONDS is '$LOAD_WAIT_SECONDS' in $root/.ai-core/config.env; it is the seconds the gate waits for a lower load, a whole number of 0 or more, and 0 starts the check at once"
+}
+read_load() {  # the 1-minute load average, or nothing and status 1; the locale is the reader's alone
+  local line load
+  line="$(LC_ALL=C uptime 2>/dev/null)" || return 1
+  load="$(sed -n 's/.*load averages\{0,1\}:[[:space:]]*\([0-9][0-9]*\(\.[0-9][0-9]*\)\{0,1\}\).*/\1/p' <<< "$line")"
+  [ -n "$load" ] || return 1
+  printf '%s\n' "$load"
+}
+is_zero() { awk -v v="$1" 'BEGIN { exit !(v + 0 == 0) }'; }
+at_or_above() { awk -v sample="$1" -v limit="$2" 'BEGIN { exit !(sample + 0 >= limit + 0) }'; }
+wait_for_lower_load() {  # sets LOAD_AT_START to the sample the check starts with, or -
+  local started now remaining step sample announced=0
+  started="$(date +%s)"
+  while :; do
+    read_load_settings
+    if is_zero "$LOAD_LIMIT" || [ "$LOAD_WAIT_SECONDS" -eq 0 ]; then
+      if sample="$(read_load)"; then
+        if ! is_zero "$LOAD_LIMIT" && at_or_above "$sample" "$LOAD_LIMIT"; then
+          echo "pre-push: the check starts at a 1-minute load of $sample, at or above the limit of $LOAD_LIMIT: PRE_PUSH_LOAD_WAIT_SECONDS is 0, so it does not wait."
+        fi
+      else
+        echo "pre-push: the 1-minute load could not be measured, so no load is recorded for this check; the wait for a lower load is off (PRE_PUSH_LOAD_LIMIT or PRE_PUSH_LOAD_WAIT_SECONDS is 0)."
+        sample=-
+      fi
+      break
+    fi
+    sample="$(read_load)" \
+      || refuse "the 1-minute load could not be read from uptime, so the check cannot wait for a lower one. Fix uptime, or set PRE_PUSH_LOAD_LIMIT or PRE_PUSH_LOAD_WAIT_SECONDS to 0 in $root/.ai-core/config.env to start without waiting."
+    if ! at_or_above "$sample" "$LOAD_LIMIT"; then
+      [ "$announced" -eq 0 ] || echo "pre-push: the 1-minute load fell to $sample, below $LOAD_LIMIT; the check starts."
+      break
+    fi
+    if [ "$announced" -eq 0 ]; then
+      echo "pre-push: waiting for the 1-minute load to fall below $LOAD_LIMIT; it is $sample. It waits $LOAD_WAIT_SECONDS seconds at most (PRE_PUSH_LOAD_LIMIT, PRE_PUSH_LOAD_WAIT_SECONDS in $root/.ai-core/config.env)."
+      announced=1
+    fi
+    now="$(date +%s)"; remaining=$((LOAD_WAIT_SECONDS - (now - started)))
+    if [ "$remaining" -le 0 ]; then
+      echo "pre-push: the wait is over; the check starts at a 1-minute load of $sample, at or above the limit of $LOAD_LIMIT."
+      break
+    fi
+    step="$LOAD_POLL_SECONDS"; [ "$remaining" -ge "$step" ] || step="$remaining"
+    sleep "$step"
+  done
+  LOAD_AT_START="$sample"
+}
+refuse_if_tree_differs() {
+  local dirty
   dirty="$(git -C "$root" -c core.quotePath=false status --porcelain)"
   [ -z "$dirty" ] || refuse "the working tree differs from the commit being pushed, so the check would prove a tree that is not sent:
 $(sed 's/^/  /' <<< "$dirty")
   Commit these files, ignore them, or move them out of the tree, then push again."
+}
+
+# The run is announced after the refusals above, so a push that is refused is not first promised a run
+# it never gets. How long it takes is the repository's own business.
+if [ -f "$root/scripts/check.sh" ]; then
+  # The check reads the working tree, so it proves the pushed commit only where the two are equal.
+  refuse_if_tree_differs
+  wait_for_lower_load
+  # The commit and the tree are judged again: both can change while the push waits.
+  [ "$(git -C "$root" rev-parse HEAD)" = "$head" ] \
+    || refuse "HEAD moved from ${head:0:12} to $(git -C "$root" rev-parse --short=12 HEAD) while the push waited for a lower load, so the check would prove a commit that is not the one judged. Push again."
+  refuse_if_tree_differs
+  GATE_LOAD="$LOAD_AT_START"
   echo "pre-push: $root/scripts/check.sh runs here, before anything leaves this machine."
   check_started="$(date +%s)"; check_rc=0
   # Both streams go to the log, so its last line is the check's last word on either of them

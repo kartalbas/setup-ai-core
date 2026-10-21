@@ -208,7 +208,7 @@ keep_waited_tip() {
 # origin lists for --from-origin, else the local branch, which must be the tip origin holds too.
 base_tip=""; merged_sha=""; merged=""
 gate_public_repository() {
-  local checked_repo visibility ci_gate tip tip_name poll limit checks=0 on_origin said held
+  local checked_repo visibility ci_gate tip tip_name poll limit checks=0 on_origin said held pushed push_status
   ci_gate="$(config_file_value CI_GATE public | tr '[:upper:]' '[:lower:]')"
   case "$ci_gate" in
     public|none) ;;
@@ -240,9 +240,15 @@ gate_public_repository() {
   make_merge "$tip" "$tip_name"
   ci_branch="ci/integrate-$branch"
   held="$(remote_ref_sha "refs/heads/$ci_branch")" || die "could not reach origin: $held"
-  said="$(git -C "$tree" push origin "--force-with-lease=refs/heads/$ci_branch:$held" "$merged_sha:refs/heads/$ci_branch" 2>&1)" || case "$said" in
-    *"stale info"*|*"cannot lock ref"*) die "nothing landed: $ci_branch on origin changed after it was read, so another landing of this branch may be running; nothing was pushed to it or to $default: $said" ;;
-    *) die "nothing landed: the merge commit ${merged_sha:0:7} could not be pushed to $ci_branch for its checks, and nothing reached $default: $said" ;;
+  # The push gate runs inside this push and may wait for a lower load before its check: its words are
+  # shown as they come, and kept only to tell a race from a refusal.
+  pushed="$(mktemp)" || die "no temporary file for the output of the push to $ci_branch"
+  push_status=0
+  git -C "$tree" push origin "--force-with-lease=refs/heads/$ci_branch:$held" "$merged_sha:refs/heads/$ci_branch" 2>&1 | tee "$pushed" >&2 || push_status="${PIPESTATUS[0]}"
+  said="$(cat "$pushed")"; rm -f "$pushed"
+  [ "$push_status" -eq 0 ] || case "$said" in
+    *"stale info"*|*"cannot lock ref"*) die "nothing landed: $ci_branch on origin changed after it was read, so another landing of this branch may be running; nothing was pushed to it or to $default (git's words are above)" ;;
+    *) die "nothing landed: the merge commit ${merged_sha:0:7} could not be pushed to $ci_branch for its checks, and nothing reached $default (the words of git and of the push gate are above)" ;;
   esac
   poll="${AI_CORE_INTEGRATE_POLL:-20}"; limit="${AI_CORE_INTEGRATE_WAIT:-1800}"
   wait_for_checks "$tree" "$merged_sha" "$poll" "$limit" \

@@ -70,5 +70,21 @@ rc=0; out="$(AI_CORE_RELEASE_WAIT=0 rel 9.9.2)" || rc=$?
 rm -f "$GH_FAKE/run-broken"
 [ "$rc" -ne 0 ] && grep -q 'until the deadline; it said last: HTTP 502: Bad Gateway (is gh logged in?)$' <<< "$out" || fail "release.sh with a gh that never answers: exit $rc, $out"
 git -C "$RO" rev-parse -q --verify refs/tags/v9.9.2 > /dev/null && fail "release.sh tagged v9.9.2 without an answer from gh"
-echo "  refused dirty and twice; an unpushed commit pushed and tagged; 9.9.1 written into VERSION, committed, pushed, waited for and tagged on the commit waited for, not on one made meanwhile; v9.9.0 installed, v9.9.1 announced and moved to, main followed on request, a dirty clone left alone"
+# The real gate reaches a release through its push: one wait for a lower load at the one local check, none at the tag push
+. "$ROOT/tests/load-stubs.sh"; make_load_stubs "$WORK/loadstubs"
+printf 'claude\tmode\talways\t-\t-\n' > "$WORK/modes-green.tsv"
+mkdir -p "$WORK/gate-hooks" "$RD/scripts" "$RD/.ai-core"; printf '#!/bin/sh\nexec bash "%s/bin/pre-push.sh" "$@"\n' "$RD" > "$WORK/gate-hooks/pre-push"; chmod +x "$WORK/gate-hooks/pre-push"
+printf '#!/usr/bin/env bash\ncat "$PROBE_STATE/clock" >> "%s"\necho "check: OK"\n' "$WORK/release-checks.txt" > "$RD/scripts/check.sh"; chmod +x "$RD/scripts/check.sh"
+printf '.ai-core/\n' >> "$RD/.git/info/exclude"; printf 'PRE_PUSH_LOAD_LIMIT="24"\nPRE_PUSH_LOAD_WAIT_SECONDS="300"\n' > "$RD/.ai-core/config.env"
+git -C "$RD" config user.email check@localhost; git -C "$RD" config user.name check
+git -C "$RD" add scripts/check.sh; git -C "$RD" commit -q -m 'Plant the check #1'
+git -C "$RD" config core.hooksPath "$WORK/gate-hooks"
+PROBE_STATE="$WORK/load-state"; plan_load "$PROBE_STATE" 25 24 23.5; : > "$WORK/release-checks.txt"
+out="$(TEAM_MODES_FILE="$WORK/modes-green.tsv" PROBE_STATE="$PROBE_STATE" PATH="$WORK/loadstubs:$PATH_SH" AI_CORE_RELEASE_POLL=1 bash "$RD/bin/release.sh" 9.9.3 2>&1)" || fail "release.sh 9.9.3 through the real gate: $out"
+[ "$(grep -c 'waiting for the 1-minute load to fall below 24; it is 25' <<< "$out")" = 1 ] || fail "the release did not show the wait for a lower load once: $out"
+[ "$(tr '\n' ' ' < "$PROBE_STATE/sleeps")" = '5 5 ' ] || fail "the release slept $(tr '\n' ' ' < "$PROBE_STATE/sleeps") instead of two polls of the gate: the wait is not the gate's alone, or the reading of the checks was delayed by the load"
+[ "$(cat "$PROBE_STATE/uptime-calls")" = 3 ] || fail "the load was read $(cat "$PROBE_STATE/uptime-calls") times: the tag push, which sends no commit, must not wait"
+[ "$(cat "$WORK/release-checks.txt")" = 1010 ] || fail "the check did not run once, after the wait: $(cat "$WORK/release-checks.txt" | tr '\n' ' ')"
+[ "$(git -C "$RO" rev-parse 'v9.9.3^{commit}')" = "$(git -C "$RO" rev-parse main)" ] || fail "v9.9.3 is not on the release commit the gate let out"
+echo "  refused dirty and twice; the real gate waited once for a lower load at the release commit and not at the tag; an unpushed commit pushed and tagged; 9.9.1 written into VERSION, committed, pushed, waited for and tagged on the commit waited for, not on one made meanwhile; v9.9.0 installed, v9.9.1 announced and moved to, main followed on request, a dirty clone left alone"
 exit 0

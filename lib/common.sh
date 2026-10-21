@@ -158,6 +158,47 @@ project_folder_of() {
   fi
 }
 
+# THE CLONE OF <owner/repo> ON THIS MACHINE: the checkout this runs in when its origin is that
+# repository, else a folder of the project folder whose origin is. Prints nothing where none is.
+clone_of() {  # <owner/repo>
+  local want dir url
+  want="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  for dir in "$(git rev-parse --show-toplevel 2>/dev/null || true)" "$(project_folder_of "$PWD")"/*/; do
+    dir="${dir%/}"
+    [ -n "$dir" ] || continue
+    url="$(git -C "$dir" remote get-url origin 2>/dev/null | tr '[:upper:]' '[:lower:]')" || continue
+    url="${url//\\//}"; url="${url%.git}"
+    case "$url" in *[:/]"$want") echo "$dir"; return 0 ;; esac
+  done
+  return 0
+}
+
+# THE SETTINGS A CLONE'S COMMANDS WILL READ: tracker (lower case, github unless set), PLANE_URL,
+# PLANE_WORKSPACE and PLANE_PROJECT, tab-separated on one line, read by a fresh process that stands in the
+# clone, without this shell's loaded provider variables. The environment still takes precedence, as for every
+# command.
+clone_settings() {  # clone_settings <clone>
+  bash -c '
+    cd "$1" || exit 1
+    . "$2/lib/common.sh"
+    printf "%s\t%s\t%s\t%s\n" "$(config_value TRACKER github | tr "[:upper:]" "[:lower:]")" \
+      "$(config_value PLANE_URL "")" "$(config_value PLANE_WORKSPACE "")" "$(config_value PLANE_PROJECT "")"
+  ' _ "$1" "$HARNESS_ROOT"
+}
+
+# clone_setting_difference <clone> <tracker> <PLANE_URL> <PLANE_WORKSPACE> <PLANE_PROJECT>: the name of the
+# first of the four settings the clone reads differently from the values given, nothing where all four agree
+clone_setting_difference() {
+  local settings key actual
+  settings="$(clone_settings "$1")" || return 1
+  shift
+  for key in TRACKER PLANE_URL PLANE_WORKSPACE PLANE_PROJECT; do
+    actual="${settings%%$'\t'*}"; settings="${settings#*$'\t'}"
+    if [ "$actual" != "$1" ]; then printf '%s\n' "$key"; return 0; fi
+    shift
+  done
+}
+
 # THE DEFAULT BRANCH OF ORIGIN: asked of the remote, else origin/HEAD where it resolves. A clone's
 # origin/HEAD is a copy that goes stale: it keeps the old branch after the default is renamed, or a
 # branch somebody pointed it at, and trusting it sends every comparison to the wrong branch. Asking

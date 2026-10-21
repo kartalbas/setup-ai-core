@@ -847,36 +847,158 @@ board_cards_of_repo() {
   done
 }
 
-# github_carry_rows <owner/repo> <number or empty> <column or empty>: the issues issue-transfer carries into
-# another tracker, one JSON object per line, every parent of the selection before its sub-issues at any depth:
-#   {repo, number, title, body, labels: [name], comments: [body], open, status, priority, parent}
-# status and priority are the names of the issue's card on the selected board, or null; parent is
-# "owner/repo number" or null. A column names the open issues whose card stands in it. The repository's
-# board is selected here.
-github_carry_rows() {
-  local repo="$1" number="$2" column="$3" cards list n thread parent card rows=""
-  set_project "" "$repo" >/dev/null || exit 1
-  cards="$(board_cards_of_repo "$repo")" || exit 1
-  if [ -n "$number" ]; then list="$number"
+# --- the whole source of an issue carry -----------------------------------------------------
+# Everything the carry reads from GitHub, and only reads: the repositories of the owner, the issues of a
+# repository with their comments, labels, parent and every board membership (archived ones too), and the boards
+# of the owner with their linked repositories and items (archived ones too). A page, a nested overflow and an
+# error answer are checked here: an incomplete read dies naming what it was reading, and is never an empty one.
+
+# carry_pages <what> <jq path to the connection> <query> [gh argument...]: the nodes of a connection, one JSON
+# object per line, every page read. CARRY_AFTER names the cursor to start after.
+carry_pages() {
+  local what="$1" path="$2" query="$3" page conn cursor="${CARRY_AFTER:-}" seen=" "
+  shift 3
+  while :; do
+    if [ -n "$cursor" ]; then page="$(gh_read "$what" api graphql -f query="$query" "$@" -f c="$cursor")" || exit 1
+    else page="$(gh_read "$what" api graphql -f query="$query" "$@")" || exit 1; fi
+    conn="$(jq -c "if ((.errors // []) | length) > 0 then error(\"errors\") else $path end" <<< "$page" 2>/dev/null)" \
+      || die "cannot read $what - GitHub answered with errors or not with JSON: $(printf '%s' "$page" | tr -s '\r\n' '  ' | cut -c1-300)"
+    [ "$conn" != null ] && jq -e '(.nodes | type) == "array"' <<< "$conn" >/dev/null 2>&1 \
+      || die "cannot read $what - GitHub answered without the connection"
+    jq -c '.nodes[]' <<< "$conn"
+    [ "$(jq -r '.pageInfo.hasNextPage' <<< "$conn")" = true ] || break
+    cursor="$(jq -r '.pageInfo.endCursor // empty' <<< "$conn")"
+    [ -n "$cursor" ] || die "cannot read $what - GitHub announced a next page and gave no cursor for it"
+    case "$seen" in *" $cursor "*) die "cannot read $what - GitHub answered the page cursor $cursor again, so the listing does not advance" ;; esac
+    seen="$seen$cursor "
+  done
+}
+
+# carry_overflow <what> <node id> <GraphQL type> <connection> <extra arguments> <selection> <cursor>: the nodes of a
+# connection of one node after the first page, which the issue or board query read with its parent
+carry_overflow() {
+  CARRY_AFTER="$7" carry_pages "$1" ".data.node.$4" \
+    'query($id:ID!,$c:String){ node(id:$id){ ... on '"$3"' { '"$4"'(first:100, after:$c'"$5"') { nodes{ '"$6"' } pageInfo{ hasNextPage endCursor } } } } }' -f id="$2"
+}
+
+# carry_append <row> <field> <values>: the row with these JSON values, one per line, added to the end of its field. The row and the
+# values reach jq on standard input, never as an argument: Linux refuses one argument over 128 KiB, and a thread or a board outgrows it.
+carry_append() { { printf '%s\n' "$1"; printf '%s\n' "$3"; } | jq -nc --arg k "$2" 'input as $row | [inputs] as $e | $row | .[$k] += $e'; }
+
+CARRY_FIELD_VALUES='fieldValues(first:20){ nodes{ ... on ProjectV2ItemFieldSingleSelectValue{ name field{ ... on ProjectV2SingleSelectField{ name } } } } }'
+CARRY_COMMENT='id url createdAt body author{ login }'
+CARRY_MEMBERSHIP='id isArchived project{ id } '"$CARRY_FIELD_VALUES"
+# the close and reopen events of an issue, which tell a close a person made after the old carry's from the old carry's own
+CARRY_TIMELINE='__typename ... on ClosedEvent{ createdAt } ... on ReopenedEvent{ createdAt }'
+CARRY_TIMELINE_TYPES='itemTypes: [CLOSED_EVENT, REOPENED_EVENT]'
+CARRY_TIMELINE_EVENT='select(.__typename == "ClosedEvent" or .__typename == "ReopenedEvent") | {kind: (if .__typename == "ClosedEvent" then "closed" else "reopened" end), at: .createdAt}'
+# stateReason(enableDuplicate: true) is the only spelling that tells DUPLICATE from NOT_PLANNED, and
+# projectItems(includeArchived: true) the only one that shows an archived card
+CARRY_ISSUE='id number title body state stateReason(enableDuplicate: true) url
+  labels(first:100){ nodes{ name } pageInfo{ hasNextPage endCursor } }
+  comments(first:100){ nodes{ '"$CARRY_COMMENT"' } pageInfo{ hasNextPage endCursor } }
+  parent{ id number url repository{ nameWithOwner } }
+  projectItems(first:50, includeArchived: true){ nodes{ '"$CARRY_MEMBERSHIP"' } pageInfo{ hasNextPage endCursor } }
+  timelineItems(first:100, '"$CARRY_TIMELINE_TYPES"'){ nodes{ '"$CARRY_TIMELINE"' } pageInfo{ hasNextPage endCursor } }'
+CARRY_STATUS='(first(.fieldValues.nodes[]? | select(.field.name == "Status") | .name) // null)'
+CARRY_PRIORITY='(first(.fieldValues.nodes[]? | select(.field.name == "Priority") | .name) // null)'
+CARRY_ISSUE_ROW='{kind: "issue", repo: $repo, number, id, url, title, body, state, reason: .stateReason, labels: [.labels.nodes[].name],
+  comments: [.comments.nodes[] | {id, url, createdAt, body, author: (.author.login // null)}],
+  parent: (if .parent == null then null else {id: .parent.id, repo: .parent.repository.nameWithOwner, number: .parent.number, url: .parent.url} end),
+  memberships: [.projectItems.nodes[] | {item: .id, board: .project.id, archived: .isArchived, status: '"$CARRY_STATUS"', priority: '"$CARRY_PRIORITY"'}],
+  timeline: [.timelineItems.nodes[] | '"$CARRY_TIMELINE_EVENT"'],
+  more: {labels: (if .labels.pageInfo.hasNextPage then .labels.pageInfo.endCursor else null end),
+         comments: (if .comments.pageInfo.hasNextPage then .comments.pageInfo.endCursor else null end),
+         memberships: (if .projectItems.pageInfo.hasNextPage then .projectItems.pageInfo.endCursor else null end),
+         timeline: (if .timelineItems.pageInfo.hasNextPage then .timelineItems.pageInfo.endCursor else null end)}}'
+
+# github_carry_repositories <owner>: {kind: "repository", repo, archived} for every repository of the organisation
+github_carry_repositories() {
+  carry_pages "the repositories of $1" .data.organization.repositories \
+    'query($o:String!,$c:String){ organization(login:$o){ repositories(first:100, after:$c){ nodes{ nameWithOwner isArchived } pageInfo{ hasNextPage endCursor } } } }' -f o="$1" \
+    | jq -c '{kind: "repository", repo: .nameWithOwner, archived: .isArchived}'
+}
+
+# github_carry_issues <owner/repo> [number]: the issues of the repository (or the one), one row each:
+#   {kind, repo, number, id, url, title, body, state, reason, labels: [name], comments: [{id, url, createdAt, body, author}],
+#    parent: {id, repo, number, url} | null, memberships: [{item, board, archived, status, priority}],
+#    timeline: [{kind: "closed" | "reopened", at}]}
+# in the order they were opened, with every nested connection read to its end.
+github_carry_issues() {
+  local repo="$1" nodes row kind cursor extra what
+  if [ -n "${2:-}" ]; then
+    nodes="$(gh_read "the issue $repo#$2" api graphql -f o="${repo%%/*}" -f n="${repo#*/}" -F i="$2" -f query='query($o:String!,$n:String!,$i:Int!){ repository(owner:$o,name:$n){ issue(number:$i){ '"$CARRY_ISSUE"' } } }')" || exit 1
+    nodes="$(jq -c 'if ((.errors // []) | length) > 0 or .data.repository.issue == null then error("no issue") else .data.repository.issue end' <<< "$nodes" 2>/dev/null)" \
+      || die "cannot read the issue $repo#$2 - GitHub answered with errors or without it"
   else
-    list="$(printf '%s\n' "$cards" | awk -F'\t' -v c="$column" 'tolower($2) == tolower(c) { print $1 }')"
-    [ -n "$list" ] || die "no card of $repo stands in the column '$column'"
+    nodes="$(carry_pages "the issues of $repo" .data.repository.issues \
+      'query($o:String!,$n:String!,$c:String){ repository(owner:$o,name:$n){ issues(first:50, after:$c, orderBy:{field:CREATED_AT, direction:ASC}){ nodes{ '"$CARRY_ISSUE"' } pageInfo{ hasNextPage endCursor } } } }' \
+      -f o="${repo%%/*}" -f n="${repo#*/}")" || exit 1
   fi
-  while IFS= read -r n; do
-    thread="$(issue_thread "$repo" "$n")" || exit 1
-    [ -z "$column" ] || [ "$(jq -r '.state' <<< "$thread")" = open ] || continue
-    parent="$(issue_parent "$repo" "$n")" || exit 1
-    card="$(printf '%s\n' "$cards" | awk -F'\t' -v n="$n" '$1 == n { print; exit }')"
-    rows="$rows$(jq -c --arg repo "$repo" --arg parent "$parent" --arg card "$card" '
-      ($card | split("\t")) as $c
-      | {repo: $repo, number, title, body, labels, comments: [.comments[].body], open: (.state == "open"),
-         status: ($c[1] // "" | if . == "" then null else . end), priority: ($c[2] // "" | if . == "" then null else . end),
-         parent: (if $parent == "" then null else $parent end)}' <<< "$thread")"$'\n'
-  done <<< "$list"
-  printf '%s' "$rows" | jq -sc '
-    (map({key: "\(.repo)#\(.number)", value: .}) | from_entries) as $by
-    | def depth: if .parent == null then 0 else ($by[.parent | sub(" "; "#")]) as $p | if $p == null then 0 else 1 + ($p | depth) end end;
-    sort_by(depth)[]'
+  printf '%s\n' "$nodes" | jq -r --arg repo "$repo" "$CARRY_ISSUE_ROW"' | ([.more.labels, .more.comments, .more.memberships, .more.timeline] | map(. // "") | join(",")) + "\t" + (del(.more) | tojson)' | while IFS=$'\t' read -r more row; do
+    if [ "$more" != ",,," ]; then
+      for kind in labels comments memberships timeline; do
+        cursor="$(printf '%s' "$more" | cut -d, -f"$(case "$kind" in labels) echo 1 ;; comments) echo 2 ;; memberships) echo 3 ;; *) echo 4 ;; esac)")"
+        [ -n "$cursor" ] || continue
+        what="of the issue $repo#$(jq -r .number <<< "$row")"
+        case "$kind" in
+          labels)      extra="$(carry_overflow "the labels $what" "$(jq -r .id <<< "$row")" Issue labels "" 'name' "$cursor" | jq -c '.name')" ;;
+          comments)    extra="$(carry_overflow "the comments $what" "$(jq -r .id <<< "$row")" Issue comments "" "$CARRY_COMMENT" "$cursor" | jq -c '{id, url, createdAt, body, author: (.author.login // null)}')" ;;
+          memberships) extra="$(carry_overflow "the board memberships $what" "$(jq -r .id <<< "$row")" Issue projectItems ", includeArchived: true" "$CARRY_MEMBERSHIP" "$cursor" | jq -c '{item: .id, board: .project.id, archived: .isArchived, status: '"$CARRY_STATUS"', priority: '"$CARRY_PRIORITY"'}')" ;;
+          timeline)    extra="$(carry_overflow "the close and reopen events $what" "$(jq -r .id <<< "$row")" Issue timelineItems ", $CARRY_TIMELINE_TYPES" "$CARRY_TIMELINE" "$cursor" | jq -c "$CARRY_TIMELINE_EVENT")" ;;
+        esac
+        row="$(carry_append "$row" "$kind" "$extra")"
+      done
+    fi
+    printf '%s\n' "$row"
+  done
+}
+
+# github_carry_column_numbers <owner/repo> <column>: the numbers of the issues whose card stands in that column of the
+# repository's board, one per line (the open ones are chosen by the caller, after it has read them)
+github_carry_column_numbers() {
+  local cards list
+  set_project "" "$1" >/dev/null || exit 1
+  cards="$(board_cards_of_repo "$1")" || exit 1
+  list="$(printf '%s\n' "$cards" | awk -F'\t' -v c="$2" 'tolower($2) == tolower(c) { print $1 }')"
+  [ -n "$list" ] || die "no card of $1 stands in the column '$2'"
+  printf '%s\n' "$list"
+}
+
+# github_carry_boards <owner>: every board of the organisation, closed and empty ones too, one row each:
+#   {kind: "board", id, number, title, url, closed, readme, repositories: [{repo, archived}],
+#    items: [{item, issue, repo, number, archived, status, priority}]}
+# items are the cards of the board, archived ones included (archivedStates asks for both); issue is null for a card
+# that is a draft or another repository's pull request.
+github_carry_boards() {
+  local nodes row id n extra
+  local item='id isArchived content{ ... on Issue{ id number repository{ nameWithOwner } } } '"$CARRY_FIELD_VALUES"
+  local archived='archivedStates:[ARCHIVED, NOT_ARCHIVED]'
+  local item_row='{item: .id, issue: .content.id, repo: .content.repository.nameWithOwner, number: .content.number, archived: .isArchived, status: '"$CARRY_STATUS"', priority: '"$CARRY_PRIORITY"'}'
+  carry_pages "the boards of $1" .data.organization.projectsV2 \
+    'query($o:String!,$c:String){ organization(login:$o){ projectsV2(first:20, after:$c){ nodes{ id number title url closed readme
+        repositories(first:100){ nodes{ nameWithOwner isArchived } pageInfo{ hasNextPage endCursor } }
+        items(first:100, '"$archived"'){ nodes{ '"$item"' } pageInfo{ hasNextPage endCursor } } }
+      pageInfo{ hasNextPage endCursor } } } }' -f o="$1" \
+    | jq -c '{kind: "board", id, number, title, url, closed, readme: (.readme // ""),
+              repositories: [.repositories.nodes[] | {repo: .nameWithOwner, archived: .isArchived}],
+              items: [.items.nodes[] | '"$item_row"'],
+              more: {repositories: (if .repositories.pageInfo.hasNextPage then .repositories.pageInfo.endCursor else null end),
+                     items: (if .items.pageInfo.hasNextPage then .items.pageInfo.endCursor else null end)}}' \
+    | while IFS= read -r row; do
+        id="$(jq -r .id <<< "$row")"; n="$(jq -r .number <<< "$row")"
+        extra="$(jq -r '.more.repositories // empty' <<< "$row")"
+        if [ -n "$extra" ]; then
+          nodes="$(carry_overflow "the linked repositories of the board $n" "$id" ProjectV2 repositories "" 'nameWithOwner isArchived' "$extra" | jq -c '{repo: .nameWithOwner, archived: .isArchived}')"
+          row="$(carry_append "$row" repositories "$nodes")"
+        fi
+        extra="$(jq -r '.more.items // empty' <<< "$row")"
+        if [ -n "$extra" ]; then
+          nodes="$(carry_overflow "the cards of the board $n" "$id" ProjectV2 items ", $archived" "$item" "$extra" | jq -c "$item_row")"
+          row="$(carry_append "$row" items "$nodes")"
+        fi
+        jq -c 'del(.more)' <<< "$row"
+      done
 }
 
 # card_rows: every card of the selected board that is an issue, one JSON object per line, the card row

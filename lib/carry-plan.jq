@@ -37,7 +37,7 @@ def lifecycle:
       end
     elif ($i.reason == "NOT_PLANNED" or $i.reason == "DUPLICATE")
     then {mode: "cancelled", archived: $all_archived, why: "closed as \($i.reason)"}
-    else {mode: "done", archived: $all_archived, why: "closed as \($i.reason // "COMPLETED")"} end;
+    else {mode: "done", archived: $all_archived, why: (if $i.reason == null then "closed with no reason stated, carried as completed" else "closed as \($i.reason)" end)} end;
 
 def native_priority:
   . as $i
@@ -45,16 +45,25 @@ def native_priority:
   | (if ($active | length) > 0 then $active else $i.memberships end | map(.priority // "") | unique) as $values
   | if ($values | length) == 1 then (priority_name[$values[0]] // "none") else "none" end;
 
+# The address in the latest "Moved to <address>" comment of an issue closed as NOT_PLANNED that was closed after that comment and not
+# reopened since: what the close of an earlier carry (the old issue-transfer commented and closed) looks like. That the address is a
+# work item that stood in Plane before is for the writer to establish; a close a person made after a reopening is the issue's own.
+def moved_to:
+  . as $i
+  | ($i.timeline // []) as $t
+  | if $i.state != "CLOSED" or $i.reason != "NOT_PLANNED" then null
+    else [$i.comments[] | select(.body | test("^Moved to \\S+\\s*$")) | {at: .createdAt, link: (.body | capture("^Moved to (?<link>\\S+)\\s*$").link)}]
+         | map(select(. as $m | ($t | any(.kind == "closed" and .at >= $m.at)) and ($t | all(.kind != "reopened" or .at < $m.at))))
+         | last | .link end;
+
 def comment_text($i; $n; $total):
   "Comment \($n) of \($total) by \(if .author == null then "an unavailable author" else "@" + .author end) on \(.createdAt)\n\(.url)\n\n\(.body)";
 
 def provenance($i; $life; $parent; $destination):
   ($i.memberships) as $m
   | "Carried from GitHub \($i.repo)#\($i.number) (\($i.url)); source issue \($i.id); GitHub read at \($now).\n"
-    + "Source state: \($i.state), close reason: \($i.reason // "none")."
-    + (if $i.reason == "NOT_PLANNED" and ($i.comments | any(.body | test("^Moved to https?://[^ ]*/browse/[A-Za-z0-9_]+-[0-9]+/?\\s*$")))
-       then " The issue carries a \"Moved to\" comment, so this close may be the close of an earlier carry; its cause is not established." else "" end)
-    + "\nLifecycle: \($life.mode) (\($life.why))" + (if $life.archived then ", archived on the date of this carry" else "" end) + ".\n"
+    + "Source state: \($i.state), close reason: \($i.reason // "none").\n"
+    + "Lifecycle: \($life.mode) (\($life.why))" + (if $life.archived then ", archived on the date of this carry" else "" end) + ".\n"
     + "Board memberships (\($m | length)): "
     + (if ($m | length) == 0 then "none" else ($m | map("board \($board_by[.board].number // .board) \"\($board_by[.board].title // "")\" item \(.item): Status \(.status // "none"), Priority \(.priority // "none"), \(if .archived then "archived" else "active" end)") | join("; ")) end) + ".\n"
     + (if ($m | any(.priority == "P9")) then "Priority P9 (parked) is carried as the label P9; Plane has no such priority and the native priority is \($i | native_priority).\n" else "" end)
@@ -67,12 +76,12 @@ def issue_row:
   | ($destinations[$i.repo]) as $dest
   | (if $i.parent == null then null
      else ($i.parent + {ref: "\($i.parent.repo)#\($i.parent.number)"}) as $p
-       | $p + (if $by[$p.ref] == null then {mode: "outside", how: "outside the selected issues; it is used when it is carried into this destination already"}
+       | $p + (if $by[$p.ref] == null then {mode: "outside", how: "outside the selected issues; it is the Plane parent only where it stands in this destination already"}
                elif $destinations[$p.repo] == $dest then {mode: "selected", how: "a sub-issue in Plane"}
                else {mode: "reference", how: "in another destination, so it is a recorded relationship and not a Plane sub-issue"} end) end) as $parent
   | {kind: "issue", ref: "\($i.repo)#\($i.number)", dest: $dest, repo: $i.repo, title: $i.title, body: $i.body,
      labels: ([$i.labels[], "repo:\($i.repo | split("/")[1])"] + (if ($i.memberships | any(.priority == "P9")) then ["P9"] else [] end) | unique),
-     priority: ($i | native_priority), state: ($life | {mode, name, group: .mode}), archived: $life.archived, parent: $parent,
+     priority: ($i | native_priority), state: ($life | {mode, name, group: .mode}), archived: $life.archived, parent: $parent, moved_to: ($i | moved_to),
      comments: (($i.comments | length) as $total | [$i.comments | to_entries[] | .key as $k | .value | {external_id: .id, created_at: .createdAt, text: comment_text($i; $k + 1; $total)}]),
      provenance: {external_id: $i.id, created_at: $now, text: provenance($i; $life; $parent; $dest)}};
 

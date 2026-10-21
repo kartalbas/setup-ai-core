@@ -51,9 +51,9 @@ CARRY_WORK=""
 # is non-zero when the source cannot be read whole or an issue is left incomplete
 carry_run() {
   local repo="$1" number="$2" column="$3" owner source destinations plan line problems="" clone key m=0 l=0 pages missing
-  local issues_complete=0 issues_new=0 issues_resumed=0 incomplete=0 boards_complete=0 boards_new=0 boards_incomplete=0 batch_clone="" batch="" label results
+  local issues_complete=0 issues_new=0 issues_resumed=0 incomplete=0 boards_complete=0 boards_new=0 boards_incomplete=0 batch_clone="" batch="" label results numbers
   work="$(mktemp -d)"; CARRY_WORK="$work"; trap 'rm -rf "$CARRY_WORK"' EXIT
-  export CARRY_RUN="$work/run"; mkdir -p "$CARRY_RUN"
+  export CARRY_RUN="$work/run"; mkdir -p "$CARRY_RUN"; : > "$CARRY_RUN/addresses.tsv"
   source="$work/source.jsonl"; : > "$source"; : > "$work/clones.tsv"
 
   if [ -z "$repo" ]; then
@@ -77,7 +77,8 @@ carry_run() {
     printf '%s\n' "$line" > "$work/clones.tsv"
     if [ -n "$number" ]; then carry_in_tracker github github_carry_issues "$repo" "$number" >> "$source" || exit 1
     else
-      for number in $(carry_in_tracker github github_carry_column_numbers "$repo" "$column"); do
+      numbers="$(carry_in_tracker github github_carry_column_numbers "$repo" "$column")" || exit 1
+      for number in $numbers; do
         carry_in_tracker github github_carry_issues "$repo" "$number" >> "$source" || exit 1
       done
       jq -c 'select(.kind != "issue" or .state == "OPEN")' "$source" > "$work/open.jsonl" && mv "$work/open.jsonl" "$source"

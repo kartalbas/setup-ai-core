@@ -30,6 +30,23 @@ carry() { CURL_FAKE_STDOUT="$WORK/out.txt" ai issue-transfer "$@" > "$WORK/out.t
 pq() { local i="$1"; shift; node -e "const s=JSON.parse(require('fs').readFileSync('$CURL_FAKE_STATE/plane.json'));const p=s.projects[$i];const N=(r)=>p.issues.find((i)=>i.external_id===r);const S=(i)=>p.states.find((x)=>x.id===i.state);const L=(i)=>i.labels.map((l)=>p.labels.find((x)=>x.id===l).name).sort().join(',');const C=(i)=>p.comments.filter((c)=>c.issue===i.id);$1"; }
 github_writes() { grep -c 'mutation\|--method\|--input\|issue close\|issue comment' "$G/calls.log" || true; }
 
+# a check is a function that takes the root of a tree and returns 0 when that tree does right; each is shown red on a copy of
+# the tree with one defect planted, and green on the tree as it is
+planted="$WORK/planted"
+plant_copy() { rm -rf "$planted"; mkdir -p "$planted"; cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$planted/"; cp "$ROOT/VERSION" "$planted/"; }
+plant() {  # plant <check> <file> <sed expression> <what is planted> [argument of the check...]
+  local check="$1" file="$2" what="$4" expression="$3"
+  shift 4; plant_copy; sed -i.bak "$expression" "$planted/$file"; cmp -s "$ROOT/$file" "$planted/$file" && fail "the planted copy equals $file ($what)"
+  ! "$check" "$planted" "$@" >/dev/null 2>&1 || fail "planted: $what passes the check, so it cannot go red"
+}
+plant_line() {  # plant_line <check> <file> <start of a line> <the line instead> <what is planted> [argument of the check...]
+  local check="$1" file="$2" start="$3" line="$4" what="$5"
+  shift 5; plant_copy
+  START="$start" LINE="$line" awk 'index($0, ENVIRON["START"]) == 1 && !done { print ENVIRON["LINE"]; done = 1; next } { print }' "$ROOT/$file" > "$planted/$file"
+  cmp -s "$ROOT/$file" "$planted/$file" && fail "no line of $file starts with '$start' ($what)"
+  ! "$check" "$planted" "$@" >/dev/null 2>&1 || fail "planted: $what passes the check, so it cannot go red"
+}
+
 section "issue-transfer --to plane: one issue, then a column"
 world
 carry 1 --to plane || fail "issue-transfer 1 --to plane: $(cat "$WORK/out.txt" "$WORK/err.txt")"
@@ -53,6 +70,20 @@ carry --column ready --to plane || fail "--column ready: $(cat "$WORK/out.txt" "
 grep -q '^#2 -> ENG-2$' "$WORK/out.txt" && ! grep -q '#3 ->' "$WORK/out.txt" || fail "the column carried the wrong issues (#3 is closed): $(cat "$WORK/out.txt")"
 [ "$(pq 0 'console.log(p.issues.find((i)=>i.id===N("example-org/example-repo#2").parent).external_id)')" = "example-org/example-repo#1" ] || fail "#2 is not a sub-issue of #1"
 echo "  --column ready: the open issue #2 is carried under #1, the closed #3 on the card is left"
+
+# a column no card stands in, and a board that cannot be read, are no empty selection: each stops the carry, named
+column_check() {  # column_check <root>
+  ROOT_UNDER_TEST="$1" carry --column nosuch --to plane && return 1
+  grep -q "no card of example-org/example-repo stands in the column 'nosuch'" "$WORK/err.txt" || return 1
+  gh_set 's.fail=[{match:"items(first:100) {",times:99,rate:true}]'
+  if ROOT_UNDER_TEST="$1" carry --column ready --to plane; then gh_set 's.fail=[]'; return 1; fi
+  gh_set 's.fail=[]'
+  grep -q 'cannot read the cards of board' "$WORK/err.txt" || return 1
+  ! grep -q 'nothing is left to carry' "$WORK/out.txt"
+}
+column_check "$ROOT" || fail "a column no card stands in, or a board that cannot be read, did not stop the carry with a name: $(cat "$WORK/out.txt" "$WORK/err.txt")"
+plant column_check lib/carry.sh '/github_carry_column_numbers/ s/ || exit 1$/ || true/' "a column read whose status is dropped"
+echo "  a column no card stands in, and a board that cannot be read, each stop --column with their name and a non-zero status, never 'nothing is left to carry'; a dropped status goes red"
 
 section "issue-transfer --to plane: the project, every case at once"
 reset_plane() { planeset 's.projects.forEach((q)=>{q.issues=[];q.comments=[]})'; }
@@ -98,12 +129,13 @@ prov() { pq 0 "const c=C(N('$1')).pop();console.log(c.comment_html)"; }
 prov example-org/example-repo#2 | grep -q 'Parent: example-org/example-repo#1 .*, a sub-issue in Plane' || fail "the parent of #2 is not in its provenance: $(prov example-org/example-repo#2)"
 [ "$(pq 0 'console.log(N("example-org/example-repo#7").parent)')" = null ] || fail "#7 got a native parent although its parent stands in another destination"
 prov example-org/example-repo#7 | grep -q 'Parent: example-org/tools#1 (https://github.com/example-org/tools/issues/1), in another destination' || fail "the parent in another destination is not recorded: $(prov example-org/example-repo#7)"
+prov example-org/example-repo#7 | grep -qF "Plane parent link: https://plane.example.test/ws/browse/OPS-$(pq 1 'console.log(N("example-org/tools#1").sequence_id)')/" || fail "the provenance of #7 does not name the Plane link of its parent tools#1 in the other destination: $(prov example-org/example-repo#7)"
 prov example-org/example-repo#11 | grep -q 'Parent: example-org/old#1 .* outside the selected issues' || fail "the parent in an archived repository is not recorded: $(prov example-org/example-repo#11)"
 prov example-org/example-repo#5 | grep -q 'close reason: DUPLICATE' || fail "the duplicate close reason is lost: $(prov example-org/example-repo#5)"
-prov example-org/example-repo#12 | grep -q 'may be the close of an earlier carry' || fail "the \"Moved to\" close is not marked as possibly the old carry's: $(prov example-org/example-repo#12)"
+! prov example-org/example-repo#12 | grep -q 'earlier carry' || fail "#12 has a \"Moved to\" comment but no work item stood in Plane before, and its provenance speaks of an earlier carry: $(prov example-org/example-repo#12)"
 prov example-org/example-repo#9 | grep -q 'board 2 "Second" item PVTI_b9: Status planned' || fail "the second membership of #9 is not in its provenance: $(prov example-org/example-repo#9)"
 pq 0 'console.log(JSON.stringify(N("example-org/example-repo#6")))' | grep -q '"archived_at":null' || fail "a reopened issue was archived"
-echo "  230 comments and the provenance on one work item; author, own time, order and trailing newline of a comment; a deleted author; parents across destinations and outside the selection; DUPLICATE; the old carry's close; every membership"
+echo "  230 comments and the provenance on one work item; author, own time, order and trailing newline of a comment; a deleted author; parents across destinations, with the Plane link, and outside the selection; DUPLICATE; a \"Moved to\" comment that no earlier carry made; every membership"
 
 # the request shapes: no detail read of an item (an archived one answers 404 there), the metadata once per destination, the pages of a thread bounded
 ! grep -E '^GET /api/v1/workspaces/ws/(issues/[A-Z]+-[0-9]+|projects/[0-9a-f-]{36}/issues/[0-9a-f-]{36}/(\?|$))' "$CURL_FAKE_STATE/requests.log" || fail "the carry read a work item by its detail endpoint"
@@ -125,7 +157,7 @@ grep -q 'carried 14 of 14 issues: 14 already complete, 0 newly created, 0 finish
 echo "  a rerun with the caches gone writes nothing: 14 already complete; a changed state, an unarchived item, a new title, priority, labels and parent, and an edited comment all stay"
 
 # GitHub is never written, on any path; the removed close and comment path shows the check red
-planted="$WORK/planted"; rm -rf "$planted"; mkdir -p "$planted"; cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$planted/"; cp "$ROOT/VERSION" "$planted/"
+plant_copy
 sed -i.bak 's|if \[ "\$label" = short \]; then echo|carry_in_tracker github issue_close "${ref%#*}" "${ref##*#}" not-planned \|\| true; if [ "$label" = short ]; then echo|' "$planted/lib/carry.sh"
 cmp -s "$ROOT/lib/carry.sh" "$planted/lib/carry.sh" && fail "the planted copy equals lib/carry.sh"
 : > "$G/calls.log"; ROOT_UNDER_TEST="$planted" carry 1 --to plane >/dev/null 2>&1 || true
@@ -177,8 +209,6 @@ for at in 0 1 3 4; do   # POST number 0 is the create, 1 to 3 the comments, 4 th
   [ "$(pq 0 'const i=p.issues[0];console.log(S(i).name+"|"+L(i))')" = "ready|area:gate,repo:example-repo,type:feature" ] || fail "the rerun after POST $at left the work item as $(pq 0 'console.log(JSON.stringify(p.issues[0]))')"
   reset_log; carry 1 --to plane; [ "$(writes)" = 0 ] || fail "the next complete run wrote after POST $at"
 done
-reset_plane; reset_log; carry 1 --to plane >/dev/null
-planeset 'const o=p.issues[0];p.comments.push({id:require("crypto").randomUUID(),issue:p.issues[0].id,comment_html:"x",created_at:s.day,actor:s.users[0].id,external_source:"github",external_id:"I_example-repo1"});p.issues.pop()' 
 echo "  the answer to the create, to a comment and to the provenance lost, or the write refused: a lost answer heals, a lost write is named and the rerun finishes it, one work item and 4 comments each time, and the next run writes nothing"
 reset_plane
 planeset 'p.issues.push({id:require("crypto").randomUUID(),project:p.id,name:"other",description_html:"",priority:"none",parent:null,labels:[],assignees:[],external_source:"x",external_id:"y",archived_at:null,created_at:s.day,updated_at:s.day,sequence_id:77,state:p.states[1].id});
@@ -210,15 +240,118 @@ world_check() {  # world_check <root>: the small world carried by that root; 0 w
   [ "$(pq 0 'console.log(!!N("example-org/example-repo#3"))')" = true ] && pq 0 'console.log(JSON.stringify(N("example-org/example-repo#3")))' | grep -q '"archived_at":"' || { echo "the archived card is lost"; return 1; }
 }
 world_check "$ROOT" || fail "the real code does not carry the small world right: $(cat "$WORK/out.txt" "$WORK/err.txt" | tail -3)"
-plant() {  # plant <file> <sed expression> <what is planted>
-  rm -rf "$planted"; mkdir -p "$planted"; cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$planted/"; cp "$ROOT/VERSION" "$planted/"
-  sed -i.bak "$2" "$planted/$1"; cmp -s "$ROOT/$1" "$planted/$1" && fail "the planted copy equals $1 ($3)"
-  ! world_check "$planted" >/dev/null 2>&1 || fail "planted: $3 passes the check, so it cannot go red"
-}
-plant lib/github/tracker.sh 's/stateReason(enableDuplicate: true)/stateReason/' "a query without enableDuplicate"
-plant lib/github/tracker.sh 's/projectItems(first:50, includeArchived: true)/projectItems(first:50)/' "a membership query without includeArchived"
-plant lib/carry.sh 's/ + (\$r.comments_original + \$r.comments_provenance) + 2 \*/ + 2 */' "a bound without its comment term"
+plant world_check lib/github/tracker.sh 's/stateReason(enableDuplicate: true)/stateReason/' "a query without enableDuplicate"
+plant world_check lib/github/tracker.sh 's/projectItems(first:50, includeArchived: true)/projectItems(first:50)/' "a membership query without includeArchived"
+plant world_check lib/carry.sh 's/ + (\$r.comments_original + \$r.comments_provenance) + 2 \*/ + 2 */' "a bound without its comment term"
 echo "  planted and red: a query without enableDuplicate, one without includeArchived, a bound that omits the comments; the code as it is, green"
+
+# the close of an earlier carry: the old issue-transfer commented "Moved to <address of the work item>" and closed the issue as not
+# planned. The provenance says so only for an issue whose work item stood in Plane before, whose comment names that work item, and
+# whose close came after the comment with no reopening since; a close a person made later is the issue's own
+section "the close of an earlier carry"
+legacy_world() {
+  world
+  gh_set 'const R="example-org/example-repo",T=(type,createdAt)=>({type,createdAt}),at="2026-10-04T10:00:00Z",closed=T("CLOSED_EVENT","2026-10-04T10:00:05Z");
+    const mk=(n,link,timeline)=>({number:n,id:"I_example-repo"+n,title:"closed "+n,body:"b\n",state:"CLOSED",stateReason:"NOT_PLANNED",url:"https://github.com/"+R+"/issues/"+n,labels:["type:feature"],
+      comments:[{id:"IC_"+n+"m",url:"https://github.com/x",createdAt:at,body:"Moved to https://plane.example.test/ws/browse/ENG-"+link+"/",author:"kadir"}],parent:null,items:[],timeline});
+    s.issues[R].push(mk(21,77,[closed]),mk(22,78,[closed]),mk(23,80,[closed,T("REOPENED_EVENT","2026-10-05T09:00:00Z"),T("CLOSED_EVENT","2026-10-06T09:00:00Z")]),
+      mk(24,82,[closed]),mk(25,81,[T("CLOSED_EVENT","2026-09-01T10:00:00Z"),T("REOPENED_EVENT","2026-09-02T10:00:00Z"),closed]))'
+  planeset 'const item=(n,seq)=>({id:require("crypto").randomUUID(),project:p.id,name:"closed "+n,description_html:"",priority:"none",parent:null,labels:[],assignees:[],external_source:"github",
+      external_id:"example-org/example-repo#"+n,archived_at:null,created_at:s.day,updated_at:s.day,sequence_id:seq,state:p.states[1].id});
+    p.issues.push(item(21,77),item(22,79),item(23,80),item(25,81))'
+}
+earlier_carry() { pq 0 "console.log(C(N('example-org/example-repo#$1')).pop().comment_html)" | grep -q 'may be the close of an earlier carry'; }
+legacy_check() {  # legacy_check <root> [number...]: 0 when the sentence stands for #21 and #25 and for none of #22, #23 and #24, among the numbers carried
+  local root="$1" n state numbers
+  shift; numbers="${*:-21 22 23 24 25}"
+  reset_plane; legacy_world
+  state="$(pq 0 'console.log(N("example-org/example-repo#21").state)')"
+  for n in $numbers; do
+    ROOT_UNDER_TEST="$root" carry "$n" --to plane || return 1
+    case "$n" in
+      21|25) earlier_carry "$n" || return 1 ;;   # the work item stood in Plane, the comment names it, the close came last
+      *)     ! earlier_carry "$n" || return 1 ;;   # 22 names another work item; 23 was reopened after the comment and closed again; 24 had no work item before, and its comment names the address the new one gets
+    esac
+  done
+  case " $numbers " in *" 21 "*)
+    pq 0 "console.log(C(N('example-org/example-repo#21')).pop().comment_html)" | grep -qF 'the work item https://plane.example.test/ws/browse/ENG-77/ stood in Plane before this carry' || return 1
+    [ "$(pq 0 'console.log(N("example-org/example-repo#21").state)')" = "$state" ] || return 1 ;;   # the state of a work item that stood in Plane is not touched
+  esac
+}
+legacy_check "$ROOT" || fail "the earlier carry's close is not recognised exactly: $(for n in 21 22 23 24 25; do earlier_carry $n && echo -n "#$n yes " || echo -n "#$n no "; done) $(tail -2 "$WORK/err.txt")"
+plant legacy_check lib/plane/tracker.sh 's/\[ "\$preexisting" = 1 \] && //' "a close assumed to be the earlier carry's where no work item stood in Plane" 24
+plant legacy_check lib/plane/tracker.sh 's/ && \[ "\$moved_to" = "\$(plane_item_url "\$seq")" \]//' "a Moved to comment taken for the earlier carry's whatever work item it names" 22
+plant legacy_check lib/carry-plan.jq 's/ and (\$t | all(.kind != "reopened" or .at < \$m.at))//' "a reopening after the comment ignored" 23
+plant legacy_check lib/carry-plan.jq 's/\.kind != "reopened" or \.at < \$m\.at/.kind != "reopened"/' "a reopening before the comment taken for one after it" 25
+echo "  the sentence stands for the work item that stood in Plane and is named by the comment, the close last (also after an older reopening); not for another work item, a reopening, or an item no earlier carry made; four plants red"
+
+# a sub-issue whose parent stands in another destination: Plane has no parent across projects, so the provenance of the sub-issue
+# names the parent and the Plane link of the parent, which the run made first. A parent that was not carried leaves the sub-issue
+# waiting, with nothing written for it
+section "a parent in another destination"
+parent_check() {  # parent_check <root>: 0 when example-repo#7 names the Plane link of its parent tools#1 of the project OPS
+  reset_plane; world pair
+  ROOT_UNDER_TEST="$1" carry --to plane || return 1
+  [ "$(pq 0 'console.log(N("example-org/example-repo#7").parent)')" = null ] || return 1
+  local html
+  html="$(pq 0 'console.log(C(N("example-org/example-repo#7")).pop().comment_html)')"
+  grep -qF 'Parent: example-org/tools#1 (https://github.com/example-org/tools/issues/1), in another destination' <<< "$html" \
+    && grep -qF "Plane parent link: https://plane.example.test/ws/browse/OPS-$(pq 1 'console.log(N("example-org/tools#1").sequence_id)')/" <<< "$html"
+}
+parent_check "$ROOT" || fail "the sub-issue example-repo#7 does not name the Plane link of its parent tools#1: $(cat "$WORK/err.txt"); $(pq 0 'console.log(C(N("example-org/example-repo#7")).pop().comment_html)')"
+plant parent_check lib/plane/tracker.sh 's/Plane parent link: \$parent_link//' "a parent in another destination recorded without its Plane link"
+plant parent_check lib/carry-plan.jq 's/(if \$parent == null then "" else "Parent: /(if true then "" else "Parent: /' "a parent in another destination dropped from the provenance"
+reset_plane; world pair
+printf '[{"match":"POST /api/v1/workspaces/ws/projects/%s/issues/","status":503,"times":1}]' "$(pq 1 'console.log(p.id)')" > "$CURL_FAKE_STATE/inject.json"
+carry --to plane && fail "a parent that was not created left the carry complete"
+grep -q 'INCOMPLETE example-org/example-repo#7: .*waits for the parent' "$WORK/err.txt" || fail "the sub-issue that waits for its parent is not named: $(cat "$WORK/err.txt")"
+[ "$(pq 0 'console.log(p.issues.length+" "+p.comments.length)')" = "0 0" ] || fail "something was written for a sub-issue that waits for its parent: $(pq 0 'console.log(p.issues.length+" "+p.comments.length)')"
+printf '[]' > "$CURL_FAKE_STATE/inject.json"
+carry --to plane || fail "the rerun after the parent was refused: $(cat "$WORK/err.txt")"
+pq 0 'console.log(C(N("example-org/example-repo#7")).pop().comment_html)' | grep -qF "Plane parent link: https://plane.example.test/ws/browse/OPS-$(pq 1 'console.log(N("example-org/tools#1").sequence_id)')/" || fail "after the rerun the sub-issue does not name its parent's Plane link"
+echo "  example-repo#7 names the Plane link of its parent tools#1 in the other project; with the parent refused it waits and nothing is written for it, the rerun carries both; the parent or its link left out goes red"
+
+# answers larger than one command-line argument, which Linux caps at 128 KiB: a board of 1,508 cards, 200 comments of 1,500 characters,
+# and one comment of 27,000 ampersands whose escaped text is 135,000 characters. They cross as files or standard input, never as an argument
+section "answers larger than one command-line argument"
+bulk_source() {  # bulk_source <root> <function> [argument...]: a reader of the GitHub provider of that root, in a process of its own as the carry runs it
+  local root="$1"; shift
+  ( cd "$P" && PATH="$PATH_CURL" TRACKER=github bash -c '. "$1/lib/board.sh"; shift; "$@"' _ "$root" "$@" )
+}
+bulk_check() {  # bulk_check <root>: 0 when that root reads the cards of the first board and the comments of #13 and #14 whole
+  world bulk
+  bulk_source "$1" github_carry_boards example-org > "$WORK/bulk-boards.jsonl" 2> "$WORK/bulk-err.txt" || return 1
+  bulk_source "$1" github_carry_issues example-org/example-repo > "$WORK/bulk-issues.jsonl" 2>> "$WORK/bulk-err.txt" || return 1
+  node -e "const s=JSON.parse(require('fs').readFileSync('$G/github.json')),out=[];
+    for (const m of s.boards[0].items) out.push('card '+m.id+' '+m.issue.id+' '+m.issue.repository+'#'+m.issue.number+' '+m.isArchived+' '+m.status);
+    for (const i of s.issues['example-org/example-repo'].filter((x) => x.number>=13)) for (const c of i.comments) out.push('comment '+i.number+' '+c.id+' '+c.createdAt+' '+c.body);
+    console.log(out.join('\n'))" > "$WORK/bulk-want.txt"
+  { jq -r 'select(.kind == "board" and .number == 1) | .items[] | "card \(.item) \(.issue) \(.repo)#\(.number) \(.archived) \(.status)"' "$WORK/bulk-boards.jsonl"
+    jq -r 'select(.kind == "issue" and .number >= 13) | .number as $n | .comments[] | "comment \($n) \(.id) \(.createdAt) \(.body)"' "$WORK/bulk-issues.jsonl"; } > "$WORK/bulk-got.txt"
+  cmp -s "$WORK/bulk-want.txt" "$WORK/bulk-got.txt"
+}
+bulk_plane_check() {  # bulk_plane_check <root>: 0 when that root carries the comment of #14, 135,000 characters once escaped, as it was written
+  reset_plane; world bulk
+  ROOT_UNDER_TEST="$1" carry 14 --to plane || return 1
+  [ "$(pq 0 'const c=C(N("example-org/example-repo#14"));console.log(c.length+" "+(c[0].comment_html.length > 131072)+" "+c[0].comment_html.endsWith("&amp;".repeat(27000)+"</pre>"))')" = "2 true true" ]
+}
+bulk_check "$ROOT" || fail "the cards of a board of 1,508, or the 200 comments of 1,500 characters, were not read whole: $(tail -3 "$WORK/bulk-err.txt")"
+read -r cardbytes commentbytes <<< "$(node -e "const s=JSON.parse(require('fs').readFileSync('$G/github.json'));console.log(JSON.stringify(s.boards[0].items.slice(100)).length+' '+JSON.stringify(s.issues['example-org/example-repo'].find((i)=>i.number===13).comments.slice(100)).length)")"
+[ "$cardbytes" -gt 131072 ] && [ "$commentbytes" -gt 131072 ] || fail "the bulk world is not larger than 128 KiB in each overflow: the cards after the first page are $cardbytes bytes, the comments after the first page $commentbytes"
+bulk_plane_check "$ROOT" || fail "the comment of 27,000 ampersands was not carried as written: $(tail -3 "$WORK/err.txt"); $(pq 0 'const c=C(N("example-org/example-repo#14"));console.log(c.length+" "+(c[0]||{comment_html:""}).comment_html.length)')"
+fake_flush_check() {  # fake_flush_check <gh stand-in>: 0 when a reader that starts late gets the whole answer for #13, 100 comments of 1,500 characters
+  GH_CARRY_STATE="$G" node "$1" api graphql -f o=example-org -f n=example-repo -F i=13 -f query='query($o:String!,$n:String!,$i:Int!){ repository(owner:$o,name:$n){ issue(number:$i){ id } } }' \
+    | { sleep 1; jq -e '.data.repository.issue.comments.nodes | length == 100' > /dev/null; }
+}
+fake_flush_check "$ROOT/tests/gh-carry-fake.mjs" || fail "the gh stand-in does not write its whole answer to a reader that starts late"
+sed 's/^process.exitCode = answer.code;.*/process.exit(answer.code);/' "$ROOT/tests/gh-carry-fake.mjs" > "$WORK/gh-carry-fake-cut.mjs"
+cmp -s "$ROOT/tests/gh-carry-fake.mjs" "$WORK/gh-carry-fake-cut.mjs" && fail "the planted stand-in equals the real one"
+! fake_flush_check "$WORK/gh-carry-fake-cut.mjs" || fail "planted: a stand-in that ends the process right after writing passes the check, so it cannot go red"
+carry_append_by_argument='carry_append() { jq -c --arg k "$2" --argjson e "$(printf "%s\n" "$3" | jq -sc .)" ".[\$k] += \$e" <<< "$1"; }'
+plant_line bulk_check lib/github/tracker.sh 'carry_append()' "$carry_append_by_argument" "an overflow page handed to jq as an argument"
+carry_comment_request_by_argument='carry_comment_request() { local c; c="$(cat)"; jq -nc --arg h "$(jq -r .text <<< "$c" | jq -Rrs "$PLANE_HTML html")" --argjson c "$c" "{comment_html: \$h, external_source: \"github\", external_id: \$c.external_id, created_at: \$c.created_at}"; }'
+plant_line bulk_plane_check lib/plane/tracker.sh 'carry_comment_request()' "$carry_comment_request_by_argument" "a comment handed to jq as an argument"
+echo "  1,508 cards and 200 comments of 1,500 characters read whole, a comment of 135,000 characters once escaped carried as written; an argument in place of a file or standard input goes red; the gh stand-in writes its whole answer, and one that exits right after writing is cut at 64 KiB"
 
 # the project counted on 2026-10-20: 4,100 issues, 624 archived cards, 18 open ones on no board, three boards' worth of cards, several
 # threads over 100 comments. The run is stopped at its first write, because the stand-in curl costs a process and a rewrite of the
@@ -230,17 +363,18 @@ kill -- "-$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; set +m
 [ -s "$CURL_FAKE_STATE/stdout-at-write.log" ] || fail "the run of 4,100 issues came to no write: $(tail -3 "$WORK/err.txt")"
 known="$(node -e "const s=JSON.parse(require('fs').readFileSync('$G/github.json'));const all=Object.entries(s.issues).filter(([r])=>!r.endsWith('/old')).flatMap(([,v])=>v);
   console.log([all.length,all.reduce((a,i)=>a+i.items.filter((m)=>m.isArchived).length,0),all.filter((i)=>!i.items.length).length,all.filter((i)=>!i.items.length&&i.state==='OPEN').length,
-  all.reduce((a,i)=>a+i.comments.length,0),all.reduce((a,i)=>a+Math.ceil((i.comments.length+1)/100),0),all.filter((i)=>i.comments.length>100).length].join(' '))")"
-read -r n a boardless open c pages over <<< "$known"
-[ "$n $a $open" = "4100 624 18" ] && [ "$over" -ge 5 ] || fail "the fixture is not the project counted: $known"
-for want in "$n issues of 3 repositories" "$c original and $n provenance, $((c + n)) in all, in $pages pages" "($a archived, on " "$boardless of $n issues on no board" "destinations: 3"; do
+  all.reduce((a,i)=>a+i.comments.length,0),all.reduce((a,i)=>a+Math.ceil((i.comments.length+1)/100),0),all.filter((i)=>i.comments.length>100).length,s.boards.reduce((a,b)=>a+b.items.length,0),s.boards[0].items.length].join(' '))")"
+read -r n a boardless open c pages over cards firstboard <<< "$known"
+[ "$n $a $open" = "4100 624 18" ] && [ "$over" -ge 5 ] && [ "$firstboard" -gt 800 ] || fail "the fixture is not the project counted, or its first board is not over 800 cards: $known"
+for want in "$n issues of 3 repositories" "$c original and $n provenance, $((c + n)) in all, in $pages pages" "($a archived, on " "$boardless of $n issues on no board" "$cards cards in all" "11 board records to create" "destinations: 3"; do
   grep -qF -- "$want" "$WORK/out.txt" || fail "the report of 4,100 issues lacks '$want': $(head -c 1500 "$WORK/out.txt")"
 done
 line="$(grep 'Plane requests, at most' "$WORK/out.txt")"; r="$(sed -n 's/.*at most: \([0-9]*\) =.*/\1/p' <<< "$line")"
 m="$(sed -n 's/.* + \([0-9]*\) metadata pages.*/\1/p' <<< "$line")"; l="$(sed -n 's/.* + \([0-9]*\) new labels.*/\1/p' <<< "$line")"; u="$(sed -n 's/.* + \([0-9]*\) outside parents.*/\1/p' <<< "$line")"
-[ "$r" = "$((3 * (n + 10) + c + n + 2 * pages + m + l + u))" ] || fail "the bound $r of 4,100 issues is not 3 x (N + B) + C + 2P + M + L + U = $((3 * (n + 10) + c + n + 2 * pages + m + l + u))"
+# B is 11: the first board reaches all three destinations (3), the second and third one each (1 and 1), the empty and the closed one every destination of the selection (3 and 3)
+[ "$r" = "$((3 * (n + 11) + c + n + 2 * pages + m + l + u))" ] || fail "the bound $r of 4,100 issues is not 3 x (N + B) + C + 2P + M + L + U = $((3 * (n + 11) + c + n + 2 * pages + m + l + u))"
 grep -qF "that is $(( (r + 59) / 60 )) minutes" <<< "$line" || fail "the minutes of $r requests are not $(( (r + 59) / 60 )): $line"
 [ "$(awk '{print $3}' "$CURL_FAKE_STATE/stdout-at-write.log" | head -n1)" -ge "$(grep -b 'Plane requests, at most' "$WORK/out.txt" | head -n1 | cut -d: -f1)" ] || fail "a write came before the report of 4,100 issues was printed"
 [ "$(github_writes)" = 0 ] || fail "reading 4,100 issues wrote to GitHub"
-echo "  4,100 issues, 624 archived cards, 18 open ones on no board, $over threads over 100 comments: the source read whole, and the report with $r requests ($(( (r + 59) / 60 )) minutes) printed before the first write"
+echo "  4,100 issues, 624 archived cards, 18 open ones on no board, $over threads over 100 comments, $firstboard cards on the first board: the source read whole, and the report with $r requests ($(( (r + 59) / 60 )) minutes) printed before the first write"
 echo "all passed"

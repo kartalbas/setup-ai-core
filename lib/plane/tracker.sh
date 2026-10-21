@@ -406,11 +406,26 @@ carry_label_id() {
 # carry_known <ref>: the uuid of the work item carried from that ref in this run, "-" where this destination has none
 carry_known() { awk -F'\t' -v r="$1" '$1 == r { print $2; exit }' "$(carry_dir)/carried.tsv"; }
 
-# carry_remember <ref> <work item json | none>
+# carry_remember <ref> <work item json | none>: the work item is known to this destination (ref, uuid, number) and, for every
+# destination of the run, by its address in the browser
 carry_remember() {
-  if [ "$2" = none ]; then printf '%s\t-\t-\n' "$1" >> "$(carry_dir)/carried.tsv"
-  else printf '%s\t%s\n' "$1" "$(jq -r '[.id, .sequence_id] | @tsv' <<< "$2")" >> "$(carry_dir)/carried.tsv"; fi
+  local id seq
+  if [ "$2" = none ]; then printf '%s\t-\t-\n' "$1" >> "$(carry_dir)/carried.tsv"; return; fi
+  IFS=$'\t' read -r id seq <<< "$(jq -r '[.id, .sequence_id] | @tsv' <<< "$2")"
+  printf '%s\t%s\t%s\n' "$1" "$id" "$seq" >> "$(carry_dir)/carried.tsv"
+  printf '%s\t%s\n' "$1" "$(plane_item_url "$seq")" >> "$CARRY_RUN/addresses.tsv"
 }
+
+# carry_address <ref>: the address in the browser of the work item carried from that ref in any destination of this run, or nothing
+carry_address() { awk -F'\t' -v r="$1" '$1 == r { print $2; exit }' "$CARRY_RUN/addresses.tsv"; }
+
+# carry_missing <pending comments> <external ids already in Plane>: the pending comments whose external id is not there yet.
+# Both reach jq on standard input: a thread can outgrow the 128 KiB Linux allows one argument.
+carry_missing() { { printf '%s\n' "$1"; printf '%s\n' "$2"; } | jq -nc 'input as $pending | input as $have | $pending | map(select(.external_id as $e | $have | index($e) | not))'; }
+
+# carry_comment_request: the comment to carry (external_id, created_at, text) on standard input; the body of the POST that writes it,
+# the text escaped as in a work item. The text can be 65,536 characters of "<", which escape to 262,144.
+carry_comment_request() { jq -c "$PLANE_HTML"' {comment_html: (.text | html), external_source: "github", external_id, created_at}'; }
 
 # carry_comments <comments path> : every comment of the work item by its uuid, archived or not
 carry_comments() { plane_pages "the comments of $1" "$(plane_path "$2")"; }
@@ -419,16 +434,22 @@ carry_comments() { plane_pages "the comments of $1" "$(plane_path "$2")"; }
 # archive date and labels in the one request, then every missing comment and the provenance comment by external id.
 # Prints "<ref>\t<IDENT-n>\t<address>\t<complete | created | resumed>"; dies naming the reason where it is incomplete.
 plane_carry_row() {
-  local row ref kind found project id seq request state parent_ref parent_id mode ids name pending have missing path html comment posts=0 notes="" outcome verify=1
+  local row ref kind found project id seq request state parent_ref parent_id mode ids name pending have missing path comment posts=0 notes="" outcome verify=1
+  local preexisting=1 provenance_end="" parent_link moved_to
   row="$(cat)"
   ref="$(jq -r '.ref' <<< "$row")"; kind="$(jq -r '.kind' <<< "$row")"
   [ "$kind" != issue ] || plane_check_repo "$(jq -r '.repo' <<< "$row")"
   project="$(plane_project_uuid)" || exit 1
+  mode="$(jq -r '.parent.mode // ""' <<< "$row")"; parent_ref="$(jq -r '.parent.ref // ""' <<< "$row")"; parent_id=""
+  if [ "$mode" = reference ]; then
+    parent_link="$(carry_address "$parent_ref")"
+    [ -n "$parent_link" ] || die "$ref is a sub-issue of $parent_ref, which stands in another destination and is not carried into Plane yet - the provenance of the sub-issue names the Plane link of its parent, so the sub-issue waits for the parent. Nothing was written for it"
+    provenance_end="$provenance_end"$'\n'"Plane parent link: $parent_link"
+  fi
   found="$(plane_find_carried "$ref")" || exit 1
   outcome=complete
   if [ -z "$found" ]; then
-    outcome=created
-    mode="$(jq -r '.parent.mode // ""' <<< "$row")"; parent_ref="$(jq -r '.parent.ref // ""' <<< "$row")"; parent_id=""
+    outcome=created; preexisting=0
     case "$mode" in
       selected) parent_id="$(carry_known "$parent_ref")"
                 [ -n "$parent_id" ] && [ "$parent_id" != - ] || die "$ref is a sub-issue of $parent_ref, which is not carried into Plane in this destination - the sub-issue waits for the parent. Nothing was written for it" ;;
@@ -452,7 +473,7 @@ plane_carry_row() {
     case "$plane_status" in
       2??) ;;
       000) notes="the answer to the create did not arrive" ;;
-      409) notes="Plane answered 409 to the create"; outcome=resumed; verify=0 ;;
+      409) notes="Plane answered 409 to the create"; outcome=resumed; verify=0; preexisting=1 ;;
       *)   die "the work item carried from $ref was NOT created - the Plane API answered $plane_status${plane_body:+: $(printf '%s' "$plane_body" | tr -s '\r\n' '  ' | cut -c1-300)}" ;;
     esac
     found="$(plane_find_carried "$ref")" || exit 1
@@ -463,18 +484,21 @@ plane_carry_row() {
   fi
   id="$(jq -r '.id' <<< "$found")"; seq="$(jq -r '.sequence_id' <<< "$found")"
   carry_remember "$ref" "$found"
+  moved_to="$(jq -r '.moved_to // ""' <<< "$row")"
+  if [ "$preexisting" = 1 ] && [ -n "$moved_to" ] && [ "$moved_to" = "$(plane_item_url "$seq")" ]; then
+    provenance_end="$provenance_end"$'\n'"Earlier carry: the work item $moved_to stood in Plane before this carry, the issue holds the comment \"Moved to $moved_to\", and its NOT_PLANNED close came after that comment with no reopening since, so this close may be the close of an earlier carry; its cause is not established."
+  fi
   if [ "$kind" = issue ]; then
     path="projects/$project/issues/$id/comments/"
-    pending="$(jq -c '[.comments[], .provenance] | map({external_id, created_at, text})' <<< "$row")"
+    pending="$(jq -c --arg end "$provenance_end" '[.comments[], .provenance] | map({external_id, created_at, text}) | .[-1].text += $end' <<< "$row")"
     have="[]"
     if [ "$outcome" != created ]; then
       have="$(carry_comments "$ref" "$path" | jq -sc 'map(select(.external_source == "github") | .external_id)')" || exit 1
     fi
-    missing="$(jq -c --argjson have "$have" 'map(select(.external_id as $e | $have | index($e) | not))' <<< "$pending")"
+    missing="$(carry_missing "$pending" "$have")"
     while IFS= read -r comment; do
       [ -n "$comment" ] || continue
-      html="$(jq -j '.text' <<< "$comment" | jq -Rrs "$PLANE_HTML"' html')"
-      plane_call POST "$(plane_path "$path")" "$(jq -nc --arg h "$html" --argjson c "$comment" '{comment_html: $h, external_source: "github", external_id: $c.external_id, created_at: $c.created_at}')"
+      plane_call POST "$(plane_path "$path")" "$(carry_comment_request <<< "$comment")"
       posts=$((posts + 1))
       case "$plane_status" in
         2??) ;;
@@ -485,7 +509,7 @@ plane_carry_row() {
     done < <(jq -c '.[]' <<< "$missing")
     if [ "$posts" -gt 0 ]; then
       have="$(carry_comments "$ref" "$path" | jq -sc 'map(select(.external_source == "github") | .external_id)')" || exit 1
-      missing="$(jq -c --argjson have "$have" 'map(select(.external_id as $e | $have | index($e) | not) | .external_id)' <<< "$pending")"
+      missing="$(carry_missing "$pending" "$have" | jq -c 'map(.external_id)')"
       [ "$missing" = "[]" ] || die "the work item $ref is incomplete: $(jq -r 'length' <<< "$missing") of its comments or its provenance are not in Plane${notes:+ ($notes)}. Run the same command again: it finishes what is missing"
       [ "$outcome" != complete ] || outcome=resumed
     fi

@@ -881,25 +881,36 @@ carry_overflow() {
     'query($id:ID!,$c:String){ node(id:$id){ ... on '"$3"' { '"$4"'(first:100, after:$c'"$5"') { nodes{ '"$6"' } pageInfo{ hasNextPage endCursor } } } } }' -f id="$2"
 }
 
+# carry_append <row> <field> <values>: the row with these JSON values, one per line, added to the end of its field. The row and the
+# values reach jq on standard input, never as an argument: Linux refuses one argument over 128 KiB, and a thread or a board outgrows it.
+carry_append() { { printf '%s\n' "$1"; printf '%s\n' "$3"; } | jq -nc --arg k "$2" 'input as $row | [inputs] as $e | $row | .[$k] += $e'; }
+
 CARRY_FIELD_VALUES='fieldValues(first:20){ nodes{ ... on ProjectV2ItemFieldSingleSelectValue{ name field{ ... on ProjectV2SingleSelectField{ name } } } } }'
 CARRY_COMMENT='id url createdAt body author{ login }'
 CARRY_MEMBERSHIP='id isArchived project{ id } '"$CARRY_FIELD_VALUES"
+# the close and reopen events of an issue, which tell a close a person made after the old carry's from the old carry's own
+CARRY_TIMELINE='__typename ... on ClosedEvent{ createdAt } ... on ReopenedEvent{ createdAt }'
+CARRY_TIMELINE_TYPES='itemTypes: [CLOSED_EVENT, REOPENED_EVENT]'
+CARRY_TIMELINE_EVENT='select(.__typename == "ClosedEvent" or .__typename == "ReopenedEvent") | {kind: (if .__typename == "ClosedEvent" then "closed" else "reopened" end), at: .createdAt}'
 # stateReason(enableDuplicate: true) is the only spelling that tells DUPLICATE from NOT_PLANNED, and
 # projectItems(includeArchived: true) the only one that shows an archived card
 CARRY_ISSUE='id number title body state stateReason(enableDuplicate: true) url
   labels(first:100){ nodes{ name } pageInfo{ hasNextPage endCursor } }
   comments(first:100){ nodes{ '"$CARRY_COMMENT"' } pageInfo{ hasNextPage endCursor } }
   parent{ id number url repository{ nameWithOwner } }
-  projectItems(first:50, includeArchived: true){ nodes{ '"$CARRY_MEMBERSHIP"' } pageInfo{ hasNextPage endCursor } }'
+  projectItems(first:50, includeArchived: true){ nodes{ '"$CARRY_MEMBERSHIP"' } pageInfo{ hasNextPage endCursor } }
+  timelineItems(first:100, '"$CARRY_TIMELINE_TYPES"'){ nodes{ '"$CARRY_TIMELINE"' } pageInfo{ hasNextPage endCursor } }'
 CARRY_STATUS='(first(.fieldValues.nodes[]? | select(.field.name == "Status") | .name) // null)'
 CARRY_PRIORITY='(first(.fieldValues.nodes[]? | select(.field.name == "Priority") | .name) // null)'
 CARRY_ISSUE_ROW='{kind: "issue", repo: $repo, number, id, url, title, body, state, reason: .stateReason, labels: [.labels.nodes[].name],
   comments: [.comments.nodes[] | {id, url, createdAt, body, author: (.author.login // null)}],
   parent: (if .parent == null then null else {id: .parent.id, repo: .parent.repository.nameWithOwner, number: .parent.number, url: .parent.url} end),
   memberships: [.projectItems.nodes[] | {item: .id, board: .project.id, archived: .isArchived, status: '"$CARRY_STATUS"', priority: '"$CARRY_PRIORITY"'}],
+  timeline: [.timelineItems.nodes[] | '"$CARRY_TIMELINE_EVENT"'],
   more: {labels: (if .labels.pageInfo.hasNextPage then .labels.pageInfo.endCursor else null end),
          comments: (if .comments.pageInfo.hasNextPage then .comments.pageInfo.endCursor else null end),
-         memberships: (if .projectItems.pageInfo.hasNextPage then .projectItems.pageInfo.endCursor else null end)}}'
+         memberships: (if .projectItems.pageInfo.hasNextPage then .projectItems.pageInfo.endCursor else null end),
+         timeline: (if .timelineItems.pageInfo.hasNextPage then .timelineItems.pageInfo.endCursor else null end)}}'
 
 # github_carry_repositories <owner>: {kind: "repository", repo, archived} for every repository of the organisation
 github_carry_repositories() {
@@ -910,10 +921,11 @@ github_carry_repositories() {
 
 # github_carry_issues <owner/repo> [number]: the issues of the repository (or the one), one row each:
 #   {kind, repo, number, id, url, title, body, state, reason, labels: [name], comments: [{id, url, createdAt, body, author}],
-#    parent: {id, repo, number, url} | null, memberships: [{item, board, archived, status, priority}]}
+#    parent: {id, repo, number, url} | null, memberships: [{item, board, archived, status, priority}],
+#    timeline: [{kind: "closed" | "reopened", at}]}
 # in the order they were opened, with every nested connection read to its end.
 github_carry_issues() {
-  local repo="$1" nodes row kind cursor extra
+  local repo="$1" nodes row kind cursor extra what
   if [ -n "${2:-}" ]; then
     nodes="$(gh_read "the issue $repo#$2" api graphql -f o="${repo%%/*}" -f n="${repo#*/}" -F i="$2" -f query='query($o:String!,$n:String!,$i:Int!){ repository(owner:$o,name:$n){ issue(number:$i){ '"$CARRY_ISSUE"' } } }')" || exit 1
     nodes="$(jq -c 'if ((.errors // []) | length) > 0 or .data.repository.issue == null then error("no issue") else .data.repository.issue end' <<< "$nodes" 2>/dev/null)" \
@@ -923,17 +935,19 @@ github_carry_issues() {
       'query($o:String!,$n:String!,$c:String){ repository(owner:$o,name:$n){ issues(first:50, after:$c, orderBy:{field:CREATED_AT, direction:ASC}){ nodes{ '"$CARRY_ISSUE"' } pageInfo{ hasNextPage endCursor } } } }' \
       -f o="${repo%%/*}" -f n="${repo#*/}")" || exit 1
   fi
-  printf '%s\n' "$nodes" | jq -r --arg repo "$repo" "$CARRY_ISSUE_ROW"' | ([.more.labels, .more.comments, .more.memberships] | map(. // "") | join(",")) + "\t" + (del(.more) | tojson)' | while IFS=$'\t' read -r more row; do
-    if [ "$more" != ",," ]; then
-      for kind in labels comments memberships; do
-        cursor="$(printf '%s' "$more" | cut -d, -f"$(case "$kind" in labels) echo 1 ;; comments) echo 2 ;; *) echo 3 ;; esac)")"
+  printf '%s\n' "$nodes" | jq -r --arg repo "$repo" "$CARRY_ISSUE_ROW"' | ([.more.labels, .more.comments, .more.memberships, .more.timeline] | map(. // "") | join(",")) + "\t" + (del(.more) | tojson)' | while IFS=$'\t' read -r more row; do
+    if [ "$more" != ",,," ]; then
+      for kind in labels comments memberships timeline; do
+        cursor="$(printf '%s' "$more" | cut -d, -f"$(case "$kind" in labels) echo 1 ;; comments) echo 2 ;; memberships) echo 3 ;; *) echo 4 ;; esac)")"
         [ -n "$cursor" ] || continue
+        what="of the issue $repo#$(jq -r .number <<< "$row")"
         case "$kind" in
-          labels)      extra="$(carry_overflow "the labels of the issue $repo#$(jq -r .number <<< "$row")" "$(jq -r .id <<< "$row")" Issue labels "" 'name' "$cursor" | jq -c '.name')" ;;
-          comments)    extra="$(carry_overflow "the comments of the issue $repo#$(jq -r .number <<< "$row")" "$(jq -r .id <<< "$row")" Issue comments "" "$CARRY_COMMENT" "$cursor" | jq -c '{id, url, createdAt, body, author: (.author.login // null)}')" ;;
-          memberships) extra="$(carry_overflow "the board memberships of the issue $repo#$(jq -r .number <<< "$row")" "$(jq -r .id <<< "$row")" Issue projectItems ", includeArchived: true" "$CARRY_MEMBERSHIP" "$cursor" | jq -c '{item: .id, board: .project.id, archived: .isArchived, status: '"$CARRY_STATUS"', priority: '"$CARRY_PRIORITY"'}')" ;;
+          labels)      extra="$(carry_overflow "the labels $what" "$(jq -r .id <<< "$row")" Issue labels "" 'name' "$cursor" | jq -c '.name')" ;;
+          comments)    extra="$(carry_overflow "the comments $what" "$(jq -r .id <<< "$row")" Issue comments "" "$CARRY_COMMENT" "$cursor" | jq -c '{id, url, createdAt, body, author: (.author.login // null)}')" ;;
+          memberships) extra="$(carry_overflow "the board memberships $what" "$(jq -r .id <<< "$row")" Issue projectItems ", includeArchived: true" "$CARRY_MEMBERSHIP" "$cursor" | jq -c '{item: .id, board: .project.id, archived: .isArchived, status: '"$CARRY_STATUS"', priority: '"$CARRY_PRIORITY"'}')" ;;
+          timeline)    extra="$(carry_overflow "the close and reopen events $what" "$(jq -r .id <<< "$row")" Issue timelineItems ", $CARRY_TIMELINE_TYPES" "$CARRY_TIMELINE" "$cursor" | jq -c "$CARRY_TIMELINE_EVENT")" ;;
         esac
-        row="$(jq -c --arg k "$kind" --argjson e "$(printf '%s\n' "$extra" | jq -sc '.')" '.[$k] += $e' <<< "$row")"
+        row="$(carry_append "$row" "$kind" "$extra")"
       done
     fi
     printf '%s\n' "$row"
@@ -957,7 +971,7 @@ github_carry_column_numbers() {
 # items are the cards of the board, archived ones included (archivedStates asks for both); issue is null for a card
 # that is a draft or another repository's pull request.
 github_carry_boards() {
-  local board row id n extra
+  local nodes row id n extra
   local item='id isArchived content{ ... on Issue{ id number repository{ nameWithOwner } } } '"$CARRY_FIELD_VALUES"
   local archived='archivedStates:[ARCHIVED, NOT_ARCHIVED]'
   local item_row='{item: .id, issue: .content.id, repo: .content.repository.nameWithOwner, number: .content.number, archived: .isArchived, status: '"$CARRY_STATUS"', priority: '"$CARRY_PRIORITY"'}'
@@ -975,13 +989,13 @@ github_carry_boards() {
         id="$(jq -r .id <<< "$row")"; n="$(jq -r .number <<< "$row")"
         extra="$(jq -r '.more.repositories // empty' <<< "$row")"
         if [ -n "$extra" ]; then
-          board="$(carry_overflow "the linked repositories of the board $n" "$id" ProjectV2 repositories "" 'nameWithOwner isArchived' "$extra" | jq -sc 'map({repo: .nameWithOwner, archived: .isArchived})')"
-          row="$(jq -c --argjson e "$board" '.repositories += $e' <<< "$row")"
+          nodes="$(carry_overflow "the linked repositories of the board $n" "$id" ProjectV2 repositories "" 'nameWithOwner isArchived' "$extra" | jq -c '{repo: .nameWithOwner, archived: .isArchived}')"
+          row="$(carry_append "$row" repositories "$nodes")"
         fi
         extra="$(jq -r '.more.items // empty' <<< "$row")"
         if [ -n "$extra" ]; then
-          board="$(carry_overflow "the cards of the board $n" "$id" ProjectV2 items ", $archived" "$item" "$extra" | jq -sc 'map('"$item_row"')')"
-          row="$(jq -c --argjson e "$board" '.items += $e' <<< "$row")"
+          nodes="$(carry_overflow "the cards of the board $n" "$id" ProjectV2 items ", $archived" "$item" "$extra" | jq -c "$item_row")"
+          row="$(carry_append "$row" items "$nodes")"
         fi
         jq -c 'del(.more)' <<< "$row"
       done

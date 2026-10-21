@@ -58,7 +58,7 @@ origin_tip="$(git rev-parse -q --verify "refs/remotes/origin/$default^{commit}")
 # The worktree is cut from origin, so the state of the checkout this runs in reaches it in no way.
 # That checkout is somebody's working copy: it is measured here, read-only, and named after the
 # worktree exists; it is never pulled, cleaned or switched.
-changes="$(GIT_OPTIONAL_LOCKS=0 git status --porcelain)" \
+changes="$(GIT_OPTIONAL_LOCKS=0 git status --porcelain --untracked-files=all)" \
   || die "cannot read the status of the checkout, so its state cannot be named - fix that first"
 state=""
 if source_head="$(git rev-parse -q --verify 'HEAD^{commit}')"; then
@@ -119,7 +119,7 @@ checked_out="$(git worktree list --porcelain 2>/dev/null | sed -n 's|^branch ref
 taken="$(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/origin 2>/dev/null \
   | grep -E "(^|/)issue-$number(-|$)" \
   | while read -r ref; do
-      if git merge-base --is-ancestor "$ref" "origin/$default"; then
+      if git merge-base --is-ancestor "$ref" "$origin_tip"; then
         case "$ref" in origin/*) continue ;; esac
         grep -qxF "$ref" <<< "$checked_out" || continue
       fi
@@ -130,10 +130,14 @@ taken="$(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/or
 [ ! -e "$path" ] || die "$path is already there - use it, or remove it with 'git worktree remove'"
 
 mkdir -p "$container"
-# -B takes over a landed local branch of the same name; it is an ancestor of origin/$default, so
-# moving it there is a fast-forward and loses nothing
-made="$(git worktree add -B "$name" "$path" "origin/$default" 2>&1)" \
+# The worktree starts at the commit measured above, not at whatever origin/$default is by now: a
+# fetch into this clone since then must not move it. -B takes over a landed local branch of the
+# same name; it is an ancestor of that commit, so moving it there is a fast-forward and loses nothing.
+made="$(git worktree add -B "$name" "$path" "$origin_tip" 2>&1)" \
   || die "the worktree could not be created: $made"
+# a start point that is a commit id sets no upstream, and push and pre-push read origin/$default there
+made="$(git branch --set-upstream-to="origin/$default" "$name" 2>&1)" \
+  || die "the branch $name could not be set to track origin/$default: $made"
 echo "Worktree $path on $name, cut from origin/$default."
 [ -z "$state" ] || echo "The checkout $(git rev-parse --show-toplevel) ($position) $state. The new worktree starts from origin/$default and does not see that; the checkout's branch, index, files and commits stay as they were."
 if [ "$(issue_ref "$repo" "$number")" != "#$number" ]; then

@@ -183,6 +183,10 @@ git -C "$other" push -q origin HEAD:master
 make_source current
 make_source dirty;    add_changes dirty
 make_source ahead;    add_commit ahead
+make_source touched;  touch -t 202001010000 "$states/touched/README.md"   # stat changed, content not
+make_source hidden;   git -C "$states/hidden" config status.showUntrackedFiles no; echo 'untracked' > "$states/hidden/untracked.txt"
+make_source treehead; echo "$(git -C "$states/treehead" rev-parse 'HEAD^{tree}')" > "$states/treehead/.git/refs/heads/master"
+make_source racer;    echo 'edit' >> "$states/racer/README.md"
 
 source_case behind   201 "$(state_line behind 'branch master' 'is 1 commit(s) behind origin/master')"
 source_case dirty    202 "$(state_line dirty 'branch master' 'has changes')"
@@ -193,9 +197,44 @@ source_case feature  206 "$(state_line feature 'branch feature' 'is 1 commit(s) 
 source_case detached 207 "$(state_line detached "detached HEAD at $(git -C "$states/detached" rev-parse --short HEAD)" 'is 1 commit(s) behind origin/master')"
 source_case unborn   208 "$(state_line unborn 'branch trunk' 'has no commit yet')"
 source_case current  209 ''
+source_case touched  216 ''
+source_case hidden   217 "$(state_line hidden 'branch master' 'has changes')"
 check 'diverged: its own commit survives' 'a commit only this checkout has' "$(git -C "$states/diverged" log -1 --format=%s)"
 check 'diverged: and its file' 'local only' "$(cat "$states/diverged/local.txt")"
 git -C "$work" pull -q --ff-only origin master
+
+# origin moves, and the checkout fetches it, after the run has read origin and before it creates the
+# worktree: the worktree must start at the commit that was read and measured
+echo 'a fetch into the checkout during the run changes neither the commit the worktree starts at nor the state named'
+racegh="$fake/racegh"
+mkdir -p "$racegh"
+cat > "$racegh/gh" <<RACEGH
+#!/usr/bin/env bash
+if [[ "\$*" == *issues/* && "\$*" != *comments* && -e "$fake/race-once" ]]; then
+  rm -f "$fake/race-once"
+  git -C "$other" commit -q --allow-empty -m 'a commit pushed while start-issue runs'
+  git -C "$other" push -q origin HEAD:master
+  git -C "$states/racer" fetch -q origin
+fi
+exec "$fake/gh" "\$@"
+RACEGH
+chmod +x "$racegh/gh"
+read_tip="$(git -C "$states/racer" rev-parse refs/remotes/origin/master)"
+touch "$fake/race-once"
+out="$(cd "$states/racer" && PATH="$racegh:$PATH" bash "$start" 218 2>&1)"; rc=$?
+tree="$states/.worktrees/racer/issue-218-read-the-board-whole"
+check 'race: exits zero'                              0 "$rc"
+check 'race: origin moved during the run'             yes "$([ "$(git -C "$states/racer" rev-parse refs/remotes/origin/master)" != "$read_tip" ] && echo yes || echo no)"
+check 'race: the worktree starts at the commit read'  "$read_tip" "$(git -C "$tree" rev-parse HEAD 2>/dev/null)"
+check 'race: the state line matches that commit'      "$(state_line racer 'branch master' 'has changes')" "$(grep '^The checkout ' <<< "$out")"
+check 'race: the branch tracks origin/master'         'origin/master' "$(git -C "$tree" rev-parse --abbrev-ref '@{upstream}' 2>&1)"
+
+echo 'a checkout whose HEAD cannot be read as a commit is refused before anything is made'
+made_before="$(git -C "$states/treehead" worktree list; git -C "$states/treehead" for-each-ref --format='%(refname)' refs/heads)"
+out="$(cd "$states/treehead" && bash "$start" 219 2>&1)"; rc=$?
+check 'unreadable HEAD: exits nonzero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'unreadable HEAD: it says so'    yes "$(grep -q 'cannot read the checkout.s HEAD, so its state cannot be named' <<< "$out" && echo yes || echo no)"
+check 'unreadable HEAD: nothing made'  "$made_before" "$(git -C "$states/treehead" worktree list; git -C "$states/treehead" for-each-ref --format='%(refname)' refs/heads)"
 
 echo 'a checkout with changes and behind origin still refuses what else was refused'
 out="$(cd "$states/both" && ASSIGNEE=somebody bash "$start" 210 2>&1)"; rc=$?

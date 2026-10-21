@@ -230,7 +230,7 @@ commits="$(git -C "$main" log "origin/$default" -E -i --grep="$(issue_mention_pa
 if [ -z "$commits" ]; then
   if [ "$landed_flag" -eq 1 ]; then
     clear_origin_branches
-    echo "No commit on origin/$default names $ref, so the card stays and the issue is not told; --landed cleared what the closed issue left in this clone and on origin."
+    echo "No commit on origin/$default names $ref, so the card stays and the issue is not told; --landed went through what the closed issue left in this clone and on origin, and the lines above say what it removed and what stays."
     exit 0
   fi
   [ "$cut_only_removed" -gt 0 ] && [ "$worked_in_removed" -eq 0 ] \

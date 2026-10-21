@@ -664,6 +664,16 @@ check 'the contained branch is gone'           no "$(on_origin issue-405-contain
 check 'the run says that the card and the issue were not updated' yes "$(said 'names #405, so the card stays and the issue is not told')"
 check 'no card, comment or status-sync write'  0 "$(writes)"
 check 'the reshaped branch is gone too'        no "$(on_origin issue-405-reshaped)"
+echo 'the same, where a branch stays: the closing line sends the reader to the lines above and claims no clearing'
+reshaped 420 held unnamed
+setup git -C "$work" worktree add -q "$trees/issue-421-holder" issue-420-held
+fresh; out="$(run 420 --landed)"; rc=$?
+check_runs "$rc"
+check 'the branch a worktree holds stays on origin, and says so' 'yes yes' "$(on_origin issue-420-held) $(said 'issue-420-held on origin stays: a worktree has it checked out')"
+check 'the closing line says that the card stays and the issue is not told' yes "$(said 'names #420, so the card stays and the issue is not told')"
+check 'it sends the reader to the lines above for what was removed and what stays' yes "$(said 'the lines above say what it removed and what stays')"
+check 'and does not say that it cleared what the issue left' no "$(said 'cleared what the closed issue left')"
+setup git -C "$work" worktree remove --force "$trees/issue-421-holder"; setup git -C "$work" branch -q -D issue-420-held
 
 echo 'a failed git cherry or merge-history read removes nothing, in the worktree path and on origin, whatever --landed says'
 reshaped 406 origin; open issue-406-tree
@@ -734,6 +744,11 @@ check 'the old early exit: the contained branch of a closed issue no commit name
 finish_mutant 's/^    exit 0$/    :/'
 contained 416 mutant-notify; fresh; out="$(run 416 --landed)"; rc=$?
 check 'the tracker told on that path: it is asked for cards and comments' 0 "$(writes)"
+finish_mutant 's/--landed went through what the closed issue left in this clone and on origin, and the lines above say what it removed and what stays\./--landed cleared what the closed issue left in this clone and on origin./'
+reshaped 422 mutant-claim unnamed; setup git -C "$work" worktree add -q "$trees/issue-423-holder" issue-422-mutant-claim
+fresh; out="$(run 422 --landed)"; rc=$?
+check 'the old closing line claims a clearing though a branch stays' 'yes yes' "$(on_origin issue-422-mutant-claim) $(said 'cleared what the closed issue left')"
+setup git -C "$work" worktree remove --force "$trees/issue-423-holder"; setup git -C "$work" branch -q -D issue-422-mutant-claim
 finish="$root/bin/finish-issue.sh"
 
 # --- the issue is told once what landed ---------------------------------------------------------

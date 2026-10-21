@@ -133,6 +133,7 @@ if [ -z "$tokens$issues" ]; then
   processes=(--processes-file "$work/processes" --agents-file "$work/agents" --rollouts-file "$work/rollouts" --trees-file "$work/trees")
 fi
 
+# LIVE_TAGS and PROOF_HOURS are the project folder's, so a card reads the same from every checkout
 node "$here/../lib/status.mjs" --items-file "$work/items" --columns-file "$work/columns" \
-  --board "$(project_org)/$(project_number)" --folder "$folder" --stop-at "$stop" --config-file "$config" \
+  --board "$(project_org)/$(project_number)" --folder "$folder" --stop-at "$stop" --config-file "$folder/.ai-core/config.env" \
   ${processes[@]+"${processes[@]}"} ${testing_file[@]+"${testing_file[@]}"} $tokens $issues

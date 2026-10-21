@@ -153,6 +153,8 @@ git -C "$clone" tag -l | xargs -r git -C "$clone" tag -d >/dev/null
 # A release run whose push was refused left this tag in the clone alone, newer than every other
 GIT_COMMITTER_DATE="@1700000300 +0000" gitc "$clone" tag -a -m 'never pushed' deploy/prod/3 "$c20"
 mkdir -p "$clone/.ai-core"; printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\n' > "$clone/.ai-core/config.env"
+# The project folder's own list, the one a repository that sets none is read by
+mkdir -p "$FAKE/folder/.ai-core"; printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\n' > "$FAKE/folder/.ai-core/config.env"
 # A third repository of the project that is never released: no tag, and no LIVE_TAGS
 docs_origin="$FAKE/remote/example-org/docs.git"; docs="$FAKE/folder/docs"
 git init -q --bare "$docs_origin"; git init -q "$FAKE/docs-seed"; git -C "$FAKE/docs-seed" checkout -q -b master
@@ -215,6 +217,7 @@ case "\$*" in
   *"items(first:100, after:"*)            doc="$FAKE/board.json" ;;
   *"o=other-org"*"issues(states:OPEN"*)   doc="$FAKE/issues-other.json" ;;
   *"n=component"*"issues(states:OPEN"*)   doc="$FAKE/issues-component.json" ;;
+  *"n=relay"*"issues(states:OPEN"*)       doc="$FAKE/issues-relay.json" ;;
   *"after=c1"*"issues(states:OPEN"*)      doc="$FAKE/issues-2.json" ;;
   *"issues(states:OPEN"*)                 doc="$FAKE/issues-1.json" ;;
   *"--method PATCH"*)                     doc="$FAKE/empty.json" ;;
@@ -293,13 +296,13 @@ check 'the fetch brought the tags' yes "$(git -C "$clone" rev-parse -q --verify 
 check 'and kept the one origin never had, which no fetch prunes' yes "$(git -C "$clone" rev-parse -q --verify refs/tags/deploy/prod/3 >/dev/null && echo yes || echo no)"
 
 echo 'planted: a card of several repositories read by the newest record of all, and a card nothing else names left unsaid'
-# sweep_mutant <file of the copy> <sed expression> [more repositories]: a copy of the harness with one defect in one file of it, and the sweep of example-repo with it
+# sweep_mutant <file of the copy> <sed expression> [more repositories]: a copy of the harness with one defect in one file of it, and the sweep of example-repo with it, run from $sweep_dir where that is set, else from the clone
 sweep_mutant() {
   local mutant="$FAKE/mutant"
   rm -rf "$mutant"; mkdir -p "$mutant"; cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$mutant/"; cp "$ROOT/VERSION" "$mutant/"
   sed -i.bak "$2" "$mutant/$1"
   cmp -s "$ROOT/$1" "$mutant/$1" && { echo "  FAIL the planted copy equals $1: $2"; failed=$((failed + 1)); }
-  mutant_run="$(cd "$clone" && bash "$mutant/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo ${3:-} 2>&1)"
+  mutant_run="$(cd "${sweep_dir:-$clone}" && bash "$mutant/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo ${3:-} 2>&1)"
 }
 sweep_mutant lib/board.sh 's/^  | (\[\$all.*$/  | ($all | last)/'
 check 'the newest record of all decides: #31 is read in a repository with no clone here and no longer closes' no "$(grep -q '^would close  example-repo#31' <<< "$mutant_run" && echo yes || echo no)"
@@ -334,7 +337,7 @@ check 'its card on this board is read' "1 active cards scanned, 0 would move on 
 rm -f "$FAKE/here"
 
 echo 'without LIVE_TAGS the newest tag by date decides, whatever its name'
-: > "$FAKE/calls.txt"; : > "$clone/.ai-core/config.env"
+: > "$FAKE/calls.txt"; : > "$clone/.ai-core/config.env"; : > "$FAKE/folder/.ai-core/config.env"
 run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo 2>&1)"
 check 'the newest tag is 0.1-newest, which carries #13 and not #19' \
   'would close  example-repo#13  (testing -> done, released in 0.1-newest and proven)' \
@@ -342,9 +345,10 @@ check 'the newest tag is 0.1-newest, which carries #13 and not #19' \
 check 'and #19 is named against it, without an environment' \
   "not released example-repo#19  (landed in $(printf '%s' "$c19" | cut -c1-7); the newest release 0.1-newest does not carry it)" \
   "$(grep '^not released example-repo#19' <<< "$run")"
-check 'where neither the checkout nor the repository names an environment, the repository without a tag is read by every tag, and says so' \
+check 'where neither the project folder nor the repository names an environment, the repository without a tag is read by every tag, and says so' \
   'no release   docs  (no tag of docs matches * (LIVE_TAGS names no environment); 2 cards in testing wait)' \
   "$(grep '^no release' <<< "$run")"
+printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\n' > "$FAKE/folder/.ai-core/config.env"
 
 echo 'LIVE_TAGS "prod=landed": the landing on the default branch is the release, so a proven card on it closes and one without a proof is due'
 : > "$FAKE/calls.txt"; printf 'LIVE_TAGS="prod=landed"\n' > "$clone/.ai-core/config.env"
@@ -750,9 +754,10 @@ check 'planted: the list of the checkout for every clone leaves the repository t
   "$(grep -q '^would close  example-repo#201' <<< "$mutant_run" && echo yes || echo no) $(grep -q '^would close  example-repo#203' <<< "$mutant_run" && echo yes || echo no)"
 cp "$FAKE/issues-1.saved" "$FAKE/issues-1.json"
 
-echo 'a repository that sets no LIVE_TAGS is released by the list of the checkout this runs in, as status reads it, and not by its newest tag of all'
-# relay sets none; its newest tag, deploy/test/1, holds #211, and the only tag of the first environment of the checkout's list, deploy/prod/1, stands on #210
-printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\n' > "$clone/.ai-core/config.env"
+echo 'a repository that sets no LIVE_TAGS is released by the list of the project folder, whichever checkout runs the sweep, and not by its newest tag of all'
+# relay sets none; its newest tag, deploy/test/1, holds #211, and the only tag of the first environment of the folder's list, deploy/prod/1, stands on #210.
+# The sweep of its own cards runs from the folder and from inside relay itself, as finish-issue and start-issue run it, and so does the sweep of cards of example-repo whose work landed in relay,
+# the second also from inside a clone whose own list is another one
 relay_origin="$FAKE/remote/example-org/relay.git"; relay="$FAKE/folder/relay"
 git init -q --bare "$relay_origin"; git init -q "$FAKE/relay-seed"; git -C "$FAKE/relay-seed" checkout -q -b master
 y0="$(commit_at "$FAKE/relay-seed" 1700000401 'Land #210')"; tag_at "$FAKE/relay-seed" deploy/prod/1 1700000401
@@ -760,23 +765,37 @@ y1="$(commit_at "$FAKE/relay-seed" 1700000402 'Land #211')"; tag_at "$FAKE/relay
 git -C "$FAKE/relay-seed" push -q "$relay_origin" master --tags; git -C "$relay_origin" symbolic-ref HEAD refs/heads/master
 git clone -q "$relay_origin" "$relay"; git -C "$relay" tag -l | xargs -r git -C "$relay" tag -d >/dev/null
 mkdir -p "$relay/.ai-core"; printf 'LIVE_TAGS=""\n' > "$relay/.ai-core/config.env"
+printf 'LIVE_TAGS="prod=deploy/test/*"\n' > "$clone/.ai-core/config.env"
 page false null "$(card_of 210 "$y0" example-org/relay "$(proof_at 2026-09-03T10:00:00Z 'Proven on prod:')"),$(card_of 211 "$y1" example-org/relay "$(proof_at 2026-09-03T10:00:00Z 'Proven on test:')")" > "$FAKE/issues-1.json"
-run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo 2>&1)"
-check 'a card the first environment of the checkout'"'"'s list carries closes, by that tag' \
-  'would close  example-repo#210  (testing -> done, released in example-org/relay deploy/prod/1 and proven)' "$(grep '^would close  example-repo#210' <<< "$run")"
-check 'a card that only the newest tag of all, of a later environment, carries stays, and the tag named is the one of the first environment' \
-  "not released example-repo#211  (landed in $(printf '%s' "$y1" | cut -c1-7); the newest prod release deploy/prod/1 of example-org/relay does not carry it)" "$(grep '^not released example-repo#211' <<< "$run")"
-check 'it is not closed, though a proof of the later environment follows its landing' '' "$(grep '^would close  example-repo#211' <<< "$run")"
-sweep_mutant bin/status-sync.sh '/^    \[ -n "\$word" \] || { word="\$(first_environment "\$caller_config")"; from_caller=1; }$/d'
+page false null "$(issue 210 testing 0 "$(landed 2026-09-01T10:00:00Z "$y0"),$(proof_at 2026-09-03T10:00:00Z 'Proven on prod:')"),$(issue 211 testing 0 "$(landed 2026-09-01T10:00:00Z "$y1"),$(proof_at 2026-09-03T10:00:00Z 'Proven on test:')")" > "$FAKE/issues-relay.json"
+want_210='would close  example-repo#210  (testing -> done, released in example-org/relay deploy/prod/1 and proven)
+would close  relay#210  (testing -> done, released in deploy/prod/1 and proven)'
+want_211="not released example-repo#211  (landed in $(printf '%s' "$y1" | cut -c1-7); the newest prod release deploy/prod/1 of example-org/relay does not carry it)
+not released relay#211  (landed in $(printf '%s' "$y1" | cut -c1-7); the newest prod release deploy/prod/1 does not carry it)"
+for from in "$FAKE/folder" "$relay" "$clone"; do
+  run="$(cd "$from" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo example-org/relay 2>&1)"
+  check "run from ${from#"$FAKE"/}: a card that the first environment of the folder's list carries closes, by that tag" "$want_210" "$(grep -E '^would close +(example-repo|relay)#210' <<< "$run")"
+  check "run from ${from#"$FAKE"/}: a card that only the newest tag of all, of a later environment, carries stays, and the tag named is the one of the first environment" "$want_211" "$(grep -E '^not released +(example-repo|relay)#211' <<< "$run")"
+  check "run from ${from#"$FAKE"/}: it is not closed, though a proof of the later environment follows its landing" '' "$(grep -E '^would close +(example-repo|relay)#211' <<< "$run")"
+done
+sweep_dir="$relay" sweep_mutant bin/status-sync.sh 's/^    folder_config="\$(project_folder)\/\.ai-core\/config\.env"$/    folder_config="$(data_dir)\/config.env"/' example-org/relay
+check 'planted: the list of the checkout the sweep runs in, where it is relay itself, reads relay by its newest tag of all and closes #211, of its own and of example-repo' 'yes yes' \
+  "$(grep -q '^would close  relay#211' <<< "$mutant_run" && echo yes || echo no) $(grep -q '^would close  example-repo#211' <<< "$mutant_run" && echo yes || echo no)"
+sweep_dir="$clone" sweep_mutant bin/status-sync.sh 's/^    folder_config="\$(project_folder)\/\.ai-core\/config\.env"$/    folder_config="$(data_dir)\/config.env"/'
+check 'planted: the list of the checkout the sweep runs in, where that is a clone with a list of its own, reads relay by it and closes #211' yes "$(grep -q '^would close  example-repo#211' <<< "$mutant_run" && echo yes || echo no)"
+sweep_dir="$FAKE/folder" sweep_mutant bin/status-sync.sh 's/^    folder_config="\$(project_folder)\/\.ai-core\/config\.env"$/    folder_config="$(data_dir)\/config.env"/'
+check 'planted: the same copy run from the project folder stays as it is, the folder is the checkout there, so #211 stays' no "$(grep -q '^would close  example-repo#211' <<< "$mutant_run" && echo yes || echo no)"
+sweep_mutant bin/status-sync.sh '/^    \[ -n "\$word" \] || { word="\$(first_environment "\$folder_config")"; from_folder=1; }$/d'
 check 'planted: the newest tag of all for a clone that names none closes #211 on the tag of the later environment' yes "$(grep -q '^would close  example-repo#211' <<< "$mutant_run" && echo yes || echo no)"
-printf 'LIVE_TAGS="prod=command test=deploy/test/*"\n' > "$clone/.ai-core/config.env"
+printf 'LIVE_TAGS="prod=command test=deploy/test/*"\n' > "$FAKE/folder/.ai-core/config.env"
 run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo 2>&1)"
-shown_config="$(git -C "$clone" rev-parse --show-toplevel)/.ai-core/config.env"
-check 'a command of the checkout'"'"'s list is no reader of a clone that declares none: its cards are unknown, and the missing declaration is named' \
+shown_config="$FAKE/folder/.ai-core/config.env"
+check 'a command of the folder'"'"'s list is no reader of a clone that declares none: its cards are unknown, and the missing declaration is named' \
   "unknown      example-repo#210  (LIVE_TAGS of $shown_config says prod=command, and the clone of example-org/relay declares no command: only a clone that does can have its reader run, so prod is not read; the card stays)
 unknown      example-repo#211  (LIVE_TAGS of $shown_config says prod=command, and the clone of example-org/relay declares no command: only a clone that does can have its reader run, so prod is not read; the card stays)" \
   "$(grep -E '^unknown +example-repo#21[01]' <<< "$run")"
 check 'and no card of it closes' '' "$(grep -E '^would close +example-repo#21[01]' <<< "$run")"
+printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\n' > "$FAKE/folder/.ai-core/config.env"
 printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\n' > "$clone/.ai-core/config.env"
 cp "$FAKE/issues-1.saved" "$FAKE/issues-1.json"
 

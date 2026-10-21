@@ -285,7 +285,7 @@ check 'young and landed ones are not listed' '' "$(grep -E 'example-repo#4[34]' 
 sed 's/^LIVE_TAGS=.*$//' "$live/.ai-core/config.env" > "$live/.ai-core/config.tmp" && mv "$live/.ai-core/config.tmp" "$live/.ai-core/config.env"
 bare="$(cd "$live" && AI_CORE_PROCESSES="$work/no-processes" AI_CORE_AGENTS="$work/no-agents" AI_CORE_ROLLOUTS="$work/no-agents" bash "$root/bin/status.sh" --project example-org/8 2>&1)"
 check 'without LIVE_TAGS, the testing line' 'TESTING 7 cards in testing: 5 landed, 1 without a landing commit, 1 without a checkout' "$(grep '^TESTING' <<< "$bare")"
-check 'and why' '  LIVE_TAGS in .ai-core/config.env names no environment, so where the work is live is not read' "$(grep 'names no environment' <<< "$bare")"
+check 'and why' "  LIVE_TAGS in the project folder's .ai-core/config.env names no environment, so where the work is live is not read" "$(grep 'names no environment' <<< "$bare")"
 check 'the landed cards, none called not live' '  ⏸ landed: example-repo#37 example-repo#34 example-repo#33 example-repo#32 example-repo#31|' "$(grep '⏸ landed:' <<< "$bare")|$(grep 'not live' <<< "$bare")"
 printf 'LIVE_TAGS="prod=landed"\n' > "$live/.ai-core/config.env"
 landed="$(cd "$live" && AI_CORE_PROCESSES="$work/no-processes" AI_CORE_AGENTS="$work/no-agents" AI_CORE_ROLLOUTS="$work/no-agents" bash "$root/bin/status.sh" --project example-org/8 2>&1)"
@@ -309,7 +309,7 @@ check 'a sweep that cannot run is named' yes "$(grep -q '^  example-repo: the sw
 # GitHub (Node finds a clone by its origin):
 #   engine   LIVE_TAGS "prod=command qa=command", a reader of its own; commits e1 to e4 and e5, which names #11
 #   engine2  "live=command prod=command"       engine3  "stage=command Prod=command"
-#   tagged   no LIVE_TAGS of its own: its cards are read by the caller's list, prod and test, as before
+#   tagged   no LIVE_TAGS of its own: its cards are read by the project folder's list, prod and test, as before
 # The readers answer what the test planted for an environment, with commits of the clone; a card's landing is a
 # comment of its issue, as GitHub gives it, behind a stand-in gh that writes down every call it gets.
 echo 'a repository whose LIVE_TAGS says command: its cards are read by the landing and the delivery, every other card as before'
@@ -408,7 +408,7 @@ line_of() { grep -F "$1" <<< "$page" || true; }
 
 echo 'the testing line counts each card by the list it was read against: first or later environment by its own name, zero buckets, and the categories add up'
 { cmd_card 1 engine 'A1 is live on its first environment'; cmd_card 4 engine 'A4 landed after what is delivered'; cmd_card 1 engine2 'B1 on a later environment'; cmd_card 1 engine3 'C1 on a later environment, spelled Prod'
-  cmd_card 1 tagged 'L1 is read by the caller'; cmd_card 2 tagged 'L2 has no commit'; cmd_card 6 engine 'N1 has no landing record'; cmd_card 1 lost 'M1 has no clone'; cmd_card 5 engine 'U1 cannot be read'; } > "$work/page9"
+  cmd_card 1 tagged 'L1 is read by the project folder'; cmd_card 2 tagged 'L2 has no commit'; cmd_card 6 engine 'N1 has no landing record'; cmd_card 1 lost 'M1 has no clone'; cmd_card 5 engine 'U1 cannot be read'; } > "$work/page9"
 context engine 1 "$(member_landing 2026-09-01T10:00:00Z "$e1")"
 context engine 4 "$(member_landing 2026-09-01T10:00:00Z "$e4")"
 context engine2 1 "$(member_landing 2026-09-01T10:00:00Z "$f1")"
@@ -417,13 +417,13 @@ context tagged 1 ''; context tagged 2 ''; context engine 6 ''; context lost 1 ''
 touch "$work/ctx/engine-5.refuse-comments"
 run_status
 check 'exit 1: a card could not be read' 1 "$rc"
-check 'the header: live buckets by exact name and place, the caller list first, then the clone lists in the order of their repositories, and the rest, adding up to 9' \
+check 'the header: live buckets by exact name and place, the project folder'"'"'s list first, then the clone lists in the order of their repositories, and the rest, adding up to 9' \
   'TESTING 9 cards in testing: 1 live on prod, 1 live on test only, 0 live on qa only, 0 live on live, 1 live on prod only, 0 live on stage, 1 live on Prod only, 1 not live, 2 without a landing, 1 without a checkout, 1 unknown' "$(grep '^TESTING' <<< "$page")"
 check 'the first environment of a clone list is green, with what the reader inspected and when' \
   "  🟢 $(printf '%-26s' engine#1) live on prod since 2 h (registry release 7, $(iso $((now - 7200))))  A1 is live on its first environment" "$(line_of 'engine#1 ')"
 check 'a later one of its own list is yellow, and within PROOF_HOURS' "  🟡 $(printf '%-26s' engine2#1) live on prod since 1 h (registry release 3, $(iso $((now - 5400))))  B1 on a later environment" "$(line_of 'engine2#1 ')"
 check 'the same word spelled otherwise is another environment' "  🟡 $(printf '%-26s' engine3#1) live on Prod since 1 h (registry release 4, $(iso $((now - 5400))))  C1 on a later environment, spelled Prod" "$(line_of 'engine3#1 ')"
-check 'a card of a clone that sets no list of its own is read by the caller'"'"'s list' "yes" "$(grep -qE "^  🔴 tagged#1 +live on test since 2[0-9] h \(deploy/test/1\)  L1 is read by the caller$" <<< "$page" && echo yes || echo no)"
+check 'a card of a clone that sets no list of its own is read by the project folder'"'"'s list' "yes" "$(grep -qE "^  🔴 tagged#1 +live on test since 2[0-9] h \(deploy/test/1\)  L1 is read by the project folder$" <<< "$page" && echo yes || echo no)"
 check 'a card no commit names, a card with no landing record, a card without a clone, and a card that could not be read are each named' \
   "  ⏸ not live: engine#4
   ⏸ no commit on the default branch names it: tagged#2
@@ -437,7 +437,7 @@ check 'each reader was started once in its clone with two arguments, the same on
   "$cmd/engine|2|example-org/engine|prod" "$(grep -m1 '^'"$cmd"'/engine|' "$work/reader-calls.log")"
 rm -f "$work/ctx/engine-5.refuse-comments"
 
-echo 'with the caller'"'"'s list empty, a card of it is landed and the header says so'
+echo 'with the project folder'"'"'s list empty, a card of it is landed and the header says so'
 printf 'PROOF_HOURS=24\n' > "$cmd/.ai-core/config.env"
 { cmd_card 1 engine 'A1'; cmd_card 1 tagged 'L1'; } > "$work/page9"
 run_status
@@ -501,14 +501,14 @@ check 'a clone declares it: three cards, six requests, none beyond' 6 "$(reads)"
 for name in engine engine2 engine3; do sed -i.bak 's/=command/=deploy\/x\/*/g' "$cmd/$name/.ai-core/config.env"; rm -f "$cmd/$name/.ai-core/config.env.bak"; done
 run_status
 check 'no clone declares it: the default view reads nothing of the tracker for its cards' 0 "$(reads)"
-check 'and it counts by the list of each clone that sets one and the caller'"'"'s list for the rest' 'TESTING 3 cards in testing: 0 live on prod, 1 live on test only, 0 live on qa only, 0 not live, 2 without a landing commit' "$(grep '^TESTING' <<< "$page")"
+check 'and it counts by the list of each clone that sets one and the project folder'"'"'s list for the rest' 'TESTING 3 cards in testing: 0 live on prod, 1 live on test only, 0 live on qa only, 0 not live, 2 without a landing commit' "$(grep '^TESTING' <<< "$page")"
 for name in engine engine2 engine3; do sed -i.bak 's/=deploy\/x\/\*/=command/g' "$cmd/$name/.ai-core/config.env"; rm -f "$cmd/$name/.ai-core/config.env.bak"; done
 run_status --tokens
 check '--tokens reads no landing, though a clone declares command' 0 "$(reads)"
 run_status --issues
 check '--issues reads no landing either' 0 "$(reads)"
 
-echo 'the caller'"'"'s own command is no reader of a clone that did not declare it, and the environment does not select one'
+echo 'the project folder'"'"'s own command is no reader of a clone that did not declare it, and the environment does not select one'
 printf 'LIVE_TAGS="prod=command test=deploy/test/*"\n' > "$cmd/.ai-core/config.env"
 { cmd_card 1 tagged 'L1'; } > "$work/page9"; context tagged 1 ''
 run_status
@@ -518,7 +518,7 @@ check 'and exits 1' 1 "$rc"
 printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\n' > "$cmd/.ai-core/config.env"
 : > "$work/reader-calls.log"
 page="$(cd "$cmd" && LIVE_TAGS='prod=command' LIVE_RELEASE_COMMAND="$cmd/engine/tools/read" AI_CORE_PROCESSES="$work/no-processes9" AI_CORE_AGENTS="$work/no-agents9" AI_CORE_ROLLOUTS="$work/no-agents9" bash "$root/bin/status.sh" --project example-org/9 2>&1)"; rc=$?
-check 'exported LIVE_TAGS and LIVE_RELEASE_COMMAND change nothing: the caller'"'"'s file and the clone'"'"'s decide, and no reader ran' "0|0" "$rc|$(grep -c . "$work/reader-calls.log")"
+check 'exported LIVE_TAGS and LIVE_RELEASE_COMMAND change nothing: the project folder'"'"'s file and the clone'"'"'s decide, and no reader ran' "0|0" "$rc|$(grep -c . "$work/reader-calls.log")"
 
 echo 'a commit message names its issue in its whole text, and only the issue'
 { cmd_card 40 tagged 'S1 own reference in the body'; cmd_card 41 tagged 'S2 bare reference in the body'; cmd_card 42 tagged 'S3 a foreign reference only'; cmd_card 43 tagged 'S4 a foreign reference'; cmd_card 410 tagged 'S5 a longer number'; } > "$work/page9"
@@ -528,9 +528,9 @@ run_status
 check 'the own full reference and the bare reference of a message body find their cards; a foreign reference and a longer number do not' \
   "tagged#40 tagged#41|tagged#42 tagged#43 tagged#410" "$(grep -oE '^  🔴 tagged#(40|41) ' <<< "$page" | grep -oE 'tagged#[0-9]+' | tr '\n' ' ' | sed 's/ $//')|$(grep '⏸ no commit' <<< "$page" | sed 's/.*names it: //')"
 
-echo 'a clone that sets its own LIVE_TAGS is read by it; a clone that sets none, by the caller'"'"'s'
-# plugin: "oops prod=[0-9]*-stable-* qa=qa/*" (oops is no environment), its first commit in a tag the caller's list does not name, its second in qa/1;
-# landing: "prod=landed"; tagged sets none, and its card is in deploy/test/1, which the caller's list names
+echo 'a clone that sets its own LIVE_TAGS is read by it; a clone that sets none, by the project folder'"'"'s'
+# plugin: "oops prod=[0-9]*-stable-* qa=qa/*" (oops is no environment), its first commit in a tag the project folder's list does not name, its second in qa/1;
+# landing: "prod=landed"; tagged sets none, and its card is in deploy/test/1, which the project folder's list names
 cmd_repo plugin
 commit_at "$work/seed-plugin" 90000 'Land the first (#1)'; git -C "$work/seed-plugin" tag 0.5.022-stable-20261021150415
 commit_at "$work/seed-plugin" 7200 'Land the second (#2)'; git -C "$work/seed-plugin" tag qa/1
@@ -540,37 +540,63 @@ cmd_repo landing; commit_at "$work/seed-landing" 80000 'Land the first (#1)'; cm
 { cmd_card 1 plugin 'G1 is in the tag of its own list'; cmd_card 2 plugin 'G2 is on its second environment'; cmd_card 3 plugin 'G3 is in no tag'; cmd_card 1 landing 'H1 lands where it is live'; cmd_card 1 tagged 'T1 has no list of its own'; } > "$work/page9"
 run_status
 check 'exit 0' 0 "$rc"
-check 'the header counts each card by the list of its clone: the caller'"'"'s first, then the clones'"'"' in the order of their repositories' \
+check 'the header counts each card by the list of its clone: the project folder'"'"'s first, then the clones'"'"' in the order of their repositories' \
   'TESTING 5 cards in testing: 2 live on prod, 1 live on test only, 1 live on qa only, 1 not live, 0 without a landing commit' "$(grep '^TESTING' <<< "$page")"
-check 'a tag of the clone'"'"'s own pattern carries its card on the first environment, though the caller'"'"'s list names no such tag' \
+check 'a tag of the clone'"'"'s own pattern carries its card on the first environment, though the project folder'"'"'s list names no such tag' \
   "  🟢 $(printf '%-26s' plugin#1) live on prod since 25 h (0.5.022-stable-20261021150415)  G1 is in the tag of its own list" "$(line_of 'plugin#1 ')"
 check 'a clone that says prod=landed carries a landed card from its landing' \
   "  🟢 $(printf '%-26s' landing#1) live on prod since 22 h (landed on origin/master)  H1 lands where it is live" "$(line_of 'landing#1 ')"
-check 'a later environment of its own list is yellow within the PROOF_HOURS of the caller' \
+check 'a later environment of its own list is yellow within the PROOF_HOURS of the project folder' \
   "  🟡 $(printf '%-26s' plugin#2) live on qa since 2 h (qa/1)  G2 is on its second environment" "$(line_of 'plugin#2 ')"
 check 'a card in none of the tags of its own list is not live' '  ⏸ not live: plugin#3' "$(grep '⏸ not live:' <<< "$page")"
-check 'a clone that sets none is read by the caller'"'"'s list, as before' "yes" "$(grep -qE "^  🔴 tagged#1 +live on test since 2[0-9] h \(deploy/test/1\)  T1 has no list of its own$" <<< "$page" && echo yes || echo no)"
+check 'a clone that sets none is read by the project folder'"'"'s list, as before' "yes" "$(grep -qE "^  🔴 tagged#1 +live on test since 2[0-9] h \(deploy/test/1\)  T1 has no list of its own$" <<< "$page" && echo yes || echo no)"
 check 'a word of a clone'"'"'s own LIVE_TAGS that is no environment is named with its file, once, and the clones whose lists are whole say nothing' \
   "  LIVE_TAGS of $cmd/plugin/.ai-core/config.env has 'oops', which is no <environment>=<tag pattern>; it is left out" "$(grep -E "^  LIVE_TAGS (of .* )?has " <<< "$page")"
-own="$(cd "$cmd/plugin" && AI_CORE_PROCESSES="$work/no-processes9" AI_CORE_AGENTS="$work/no-agents9" AI_CORE_ROLLOUTS="$work/no-agents9" bash "$root/bin/status.sh" --project example-org/9 2>&1)"
-check 'where the caller is that clone, the word is named once, as the caller'"'"'s' \
-  "  LIVE_TAGS has 'oops', which is no <environment>=<tag pattern>; it is left out" "$(grep -E "^  LIVE_TAGS (of .* )?has " <<< "$own")"
-# status_mutant <sed expression> [directory to run in]: the page of board 9 in $planted, from a copy of the harness whose lib/status-live.mjs has one defect
+# status_mutant <sed expression> [directory to run in] [file of the copy]: the page of board 9 in $planted, from a copy of the harness whose lib/status-live.mjs, or the file named, has one defect
 status_mutant() {
-  local mutant="$work/mutant"
+  local mutant="$work/mutant" file="${3:-lib/status-live.mjs}"
   rm -rf "$mutant"; mkdir -p "$mutant"; cp -R "$root/bin" "$root/lib" "$root/templates" "$mutant/"; cp "$root/VERSION" "$mutant/"
-  sed -i.bak "$1" "$mutant/lib/status-live.mjs"
-  cmp -s "$root/lib/status-live.mjs" "$mutant/lib/status-live.mjs" && { echo "  FAIL the planted copy equals lib/status-live.mjs: $1"; failed=$((failed + 1)); }
+  sed -i.bak "$1" "$mutant/$file"
+  cmp -s "$root/$file" "$mutant/$file" && { echo "  FAIL the planted copy equals $file: $1"; failed=$((failed + 1)); }
   planted="$(cd "${2:-$cmd}" && AI_CORE_PROCESSES="$work/no-processes9" AI_CORE_AGENTS="$work/no-agents9" AI_CORE_ROLLOUTS="$work/no-agents9" bash "$mutant/bin/status.sh" --project example-org/9 2>&1)"
 }
-status_mutant 's/const list = set.envs.length ? set : caller;/const list = caller;/'
+status_mutant 's/const list = set.envs.length ? set : folderList;/const list = folderList;/'
 planted_not_live="$(grep -oE '⏸ not live: .*' <<< "$planted" | cut -d' ' -f4- | tr ' ' '\n' | grep -E '^(plugin|landing)' | sort | tr '\n' ' ')"
-check 'planted: the caller'"'"'s list for every card leaves the cards of the clones that set their own not live, and the one that sets none as it was' \
+check 'planted: the project folder'"'"'s list for every card leaves the cards of the clones that set their own not live, and the one that sets none as it was' \
   'landing#1 plugin#1 plugin#2 plugin#3 |1' "$planted_not_live|$(grep -c '^  🔴 tagged' <<< "$planted")"
-status_mutant 's/^      if (!isCallerFile(file)) for (const word of declared.bad) out.push.*$//'
+status_mutant 's/^      for (const word of declared.bad) out.push.*$//'
 check 'planted: the words of a clone'"'"'s own list dropped with no line, as they were' '' "$(grep -E "^  LIVE_TAGS (of .* )?has " <<< "$planted")"
-status_mutant 's/if (!isCallerFile(file)) for (const word/for (const word/' "$cmd/plugin"
-check 'planted: a word of the caller'"'"'s own file named a second time as a clone'"'"'s, where the caller is that clone' 2 "$(grep -cE "^  LIVE_TAGS (of .* )?has " <<< "$planted")"
+
+echo 'the list and PROOF_HOURS of the project folder are read whichever checkout runs status: from inside a clone, the testing block is the one of the folder'
+testing_block() { awk '/^TESTING/ { on = 1 } on' <<< "$1"; }   # testing_block <page>: its TESTING block, which git answers by the configured lists and the rest of the page does not
+printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\nPROOF_HOURS=1\n' > "$cmd/.ai-core/config.env"
+run_status
+folder_block="$(testing_block "$page")"
+status_in() {  # status_in <directory>: the page of board 9 run from inside that directory, in $inside
+  inside="$(cd "$1" && AI_CORE_PROCESSES="$work/no-processes9" AI_CORE_AGENTS="$work/no-agents9" AI_CORE_ROLLOUTS="$work/no-agents9" bash "$root/bin/status.sh" --project example-org/9 2>&1)"
+}
+status_in "$cmd/tagged"
+check 'from inside the clone that sets none, whose own file holds an empty list, the testing block is the block of the folder' "$folder_block" "$(testing_block "$inside")"
+check 'and its card is live on test by the folder'"'"'s list, not landed by the empty list of the clone it runs in' yes \
+  "$(grep -qE "^  🔴 tagged#1 +live on test since 2[0-9] h \(deploy/test/1\)  T1 has no list of its own$" <<< "$inside" && echo yes || echo no)"
+check 'and the PROOF_HOURS of the folder applies: a card two hours on a later environment is overdue at one hour, though the clone sets none' yes \
+  "$(grep -qE "^  🔴 plugin#2 +live on qa since 2 h" <<< "$inside" && echo yes || echo no)"
+status_in "$cmd/plugin"
+check 'from inside a clone that sets a list of its own, with a word in it that is no environment, the block is the same, and the word is named once, with its file' "$folder_block" "$(testing_block "$inside")"
+status_mutant 's#--config-file "\$folder/\.ai-core/config\.env"#--config-file "$config"#' "$cmd/tagged" bin/status.sh
+check 'planted: the file of the checkout status runs in, where that is the clone that sets none, reads the card of that clone as landed and not live on test, and the later environment as within PROOF_HOURS' '0|1|1' \
+  "$(grep -c '^  🔴 tagged#1' <<< "$planted")|$(grep -c '⏸ landed: .*tagged#1' <<< "$planted")|$(grep -c '^  🟡 plugin#2' <<< "$planted")"
+status_mutant 's#--config-file "\$folder/\.ai-core/config\.env"#--config-file "$config"#' "$cmd" bin/status.sh
+check 'planted: the same copy run from the project folder reads as the folder does, where the checkout is the folder' "$folder_block" "$(testing_block "$planted")"
+printf 'PROOF_HOURS=24\n' > "$cmd/.ai-core/config.env"
+run_status
+check 'with the folder'"'"'s list empty, the cards of the clones that set their own are read by them, and a clone that sets none has its card landed' \
+  'TESTING 5 cards in testing: 2 live on prod, 1 live on qa only, 1 landed, 1 not live, 0 without a landing commit' "$(grep '^TESTING' <<< "$page")"
+check 'and the page does not say that no environment is named, as clones'"'"' own lists name them' '' "$(grep 'names no environment' <<< "$page")"
+status_mutant 's/if (!mixed \&\& !named) out.push/if (!mixed \&\& !folderList.envs.length) out.push/'
+check 'planted: the note that no environment is named by the folder'"'"'s list alone is printed though the clones'"'"' own lists name some' \
+  "  LIVE_TAGS in the project folder's .ai-core/config.env names no environment, so where the work is live is not read" "$(grep 'names no environment' <<< "$planted")"
+printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\n' > "$cmd/.ai-core/config.env"
 
 echo 'a card of a clone that declares command, whose work landed in a repository whose clone declares none: the unknown line names the declaration that is missing'
 { cmd_card 11 engine 'S1 landed in a repository whose clone declares no command'; } > "$work/page9"
@@ -584,7 +610,7 @@ status_mutant 's/^          const reader = .*$/          const reader = `the clo
 check 'planted: the clone of the card named as the one that lacks the declaration, though it declares command' 'no yes' \
   "$(grep -qF 'the clone of example-org/tagged, where the work' <<< "$planted" && echo yes || echo no) $(grep -qF 'and the clone of example-org/engine declares no command' <<< "$planted" && echo yes || echo no)"
 status_mutant 's/LIVE_TAGS of ${listFile || /LIVE_TAGS of ${configFile || /'
-check 'planted: the file of the caller named as the list that says command, though the list is the clone'"'"'s' 'no yes' \
+check 'planted: the file of the project folder named as the list that says command, though the list is the clone'"'"'s' 'no yes' \
   "$(grep -qF "LIVE_TAGS of $cmd/engine/.ai-core/config.env says" <<< "$planted" && echo yes || echo no) $(grep -qF "LIVE_TAGS of $cmd/.ai-core/config.env says" <<< "$planted" && echo yes || echo no)"
 
 echo 'the handoff of the cards is read as it is: a record that is missing or malformed is no context'

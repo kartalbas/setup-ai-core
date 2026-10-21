@@ -51,14 +51,38 @@ fi
 said="$(git fetch origin 2>&1)" \
   || die "could not reach origin: $said - fix the connection first, this worktree is cut from what origin has"
 
-[ -z "$(git status --porcelain)" ] \
-  || die 'the working copy has changes - commit or put them aside before opening a worktree'
-
 default="$(origin_default_branch)" || exit 1
+origin_tip="$(git rev-parse -q --verify "refs/remotes/origin/$default^{commit}")" \
+  || die "origin has no branch $default to cut the worktree from"
 
-behind="$(git rev-list --count "$default..origin/$default" 2>/dev/null || true)"
-[ -n "$behind" ] || die "cannot compare $default with origin/$default - is the remote branch there?"
-[ "$behind" -eq 0 ] || die "$default is $behind commit(s) behind origin/$default - pull, then run this again"
+# The worktree is cut from origin, so the state of the checkout this runs in reaches it in no way.
+# That checkout is somebody's working copy: it is measured here, read-only, and named after the
+# worktree exists; it is never pulled, cleaned or switched.
+changes="$(GIT_OPTIONAL_LOCKS=0 git status --porcelain --untracked-files=all)" \
+  || die "cannot read the status of the checkout, so its state cannot be named - fix that first"
+state=""
+if source_head="$(git rev-parse -q --verify 'HEAD^{commit}')"; then
+  counts="$(git rev-list --left-right --count "$source_head...$origin_tip")" \
+    || die "cannot compare the checkout's HEAD with origin/$default"
+  read -r ahead behind <<< "$counts"
+  if [ "$behind" -gt 0 ] && [ "$ahead" -gt 0 ]; then
+    state="is $behind commit(s) behind and $ahead commit(s) ahead of origin/$default"
+  elif [ "$behind" -gt 0 ]; then
+    state="is $behind commit(s) behind origin/$default"
+  elif [ "$ahead" -gt 0 ]; then
+    state="is $ahead commit(s) ahead of origin/$default"
+  fi
+else
+  unborn_ref="$(git symbolic-ref -q HEAD)" && ! git rev-parse -q --verify "$unborn_ref" >/dev/null \
+    || die "cannot read the checkout's HEAD, so its state cannot be named"
+  state="has no commit yet"
+fi
+[ -z "$changes" ] || state="has changes${state:+, $state}"
+if branch="$(git symbolic-ref -q --short HEAD)"; then
+  position="branch $branch"
+else
+  position="detached HEAD at $(git rev-parse --short HEAD)"
+fi
 
 # No worktree without an issue: the title is what it is named after, and the thread is what the
 # change will be measured against.
@@ -95,7 +119,7 @@ checked_out="$(git worktree list --porcelain 2>/dev/null | sed -n 's|^branch ref
 taken="$(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/origin 2>/dev/null \
   | grep -E "(^|/)issue-$number(-|$)" \
   | while read -r ref; do
-      if git merge-base --is-ancestor "$ref" "origin/$default"; then
+      if git merge-base --is-ancestor "$ref" "$origin_tip"; then
         case "$ref" in origin/*) continue ;; esac
         grep -qxF "$ref" <<< "$checked_out" || continue
       fi
@@ -106,16 +130,26 @@ taken="$(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/or
 [ ! -e "$path" ] || die "$path is already there - use it, or remove it with 'git worktree remove'"
 
 mkdir -p "$container"
-# -B takes over a landed local branch of the same name; it is an ancestor of origin/$default, so
-# moving it there is a fast-forward and loses nothing
-made="$(git worktree add -B "$name" "$path" "origin/$default" 2>&1)" \
-  || die "the worktree could not be created: $made"
+# The worktree starts at the commit measured above, not at whatever origin/$default is by now: a
+# fetch into this clone since then must not move it. The branch is made, set to track origin/$default
+# (which push and pre-push read) and, for an issue of another repository, marked with it BEFORE any
+# worktree exists. A step that fails then leaves only a branch at a commit of origin that no worktree
+# has checked out, and the next run takes it over: a landed local branch is an ancestor of that
+# commit, so moving it loses nothing.
+other_repo=""
+[ "$(issue_ref "$repo" "$number")" = "#$number" ] || other_repo="$repo"
+made="$(git branch -f --no-track "$name" "$origin_tip" 2>&1 \
+  && git branch --set-upstream-to="refs/remotes/origin/$default" "$name" 2>&1 \
+  && { [ -z "$other_repo" ] || git config "branch.$name.issueRepository" "$other_repo" 2>&1; } \
+  && git worktree add "$path" "$name" 2>&1)" \
+  || if [ -e "$path" ]; then
+       die "the worktree could not be created cleanly: $made - a worktree stands at $path on $name, at the commit read; use it, or remove it with 'git worktree remove' before running start-issue again"
+     else
+       die "the worktree could not be created: $made - no worktree stands at $path; run start-issue again once that is fixed"
+     fi
 echo "Worktree $path on $name, cut from origin/$default."
-if [ "$(issue_ref "$repo" "$number")" != "#$number" ]; then
-  git config "branch.$name.issueRepository" "$repo" \
-    || die "the issue's repository could not be recorded on $name - run git config branch.$name.issueRepository $repo"
-  echo "The issue lives in $repo: recorded on $name, where session-start, integrate-issue and finish-issue read it."
-fi
+[ -z "$state" ] || echo "The checkout $(git rev-parse --show-toplevel) ($position) $state. The new worktree starts from origin/$default and does not see that; the checkout's branch, index, files and commits stay as they were."
+[ -z "$other_repo" ] || echo "The issue lives in $other_repo: recorded on $name, where session-start, integrate-issue and finish-issue read it."
 
 # The card and the worktree move together, and a card that did not move is said out loud rather
 # than left for the next person to notice on the board.

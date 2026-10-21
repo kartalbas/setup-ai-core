@@ -319,6 +319,51 @@ check 'exit 1'                    1 "$rc"
 check 'it says why'               'error: no commit on origin/master names #180, so the card stays and the issue is not told; a commit that touches an issue names it' "$(grep '^error: ' <<< "$out")"
 check 'no card moved'             0 "$(grep -c 'oid=OPT_' "$log" || true)"
 
+# A package gives an issue a worktree in each repository it touches, and the work often lands in one.
+# The other worktrees were cut and never committed in: they hold nothing, and nothing names the issue.
+echo 'a worktree that was never committed in, and an issue no commit names: removed, said, and nothing else is touched'
+open issue-181-never-committed
+: > "$log"; rm -rf "$fake/cache"
+out="$(run 181)"; rc=$?
+check_runs "$rc"
+check 'the worktree is gone'        no "$(has_tree issue-181-never-committed)"
+check 'the branch is gone'          no "$(has_branch issue-181-never-committed)"
+check 'it says this repository holds no work of the issue' yes "$(grep -q '^example-org/example-repo holds no work of #181: ' <<< "$out" && echo yes || echo no)"
+check 'it says why the worktree went' yes "$(grep -q 'removed: it was never committed in\.' <<< "$out" && echo yes || echo no)"
+check 'it claims no landing'        0 "$(grep -c 'its work is on origin' <<< "$out" || true)"
+check 'it says nothing of a fault'  0 "$(grep -c '^error: ' <<< "$out" || true)"
+check 'no card moved'               0 "$(grep -c 'oid=OPT_' "$log" || true)"
+check 'the issue was not told'      0 "$(grep -c 'issues/181/comments -f body=' "$log" || true)"
+check 'no card is swept'            0 "$(grep -c 'issues(states:OPEN' "$log" || true)"
+check 'nothing was written at all'  0 "$(grep -cE 'method (POST|PATCH|PUT|DELETE)|mutation|-f body=' "$log" || true)"
+
+echo 'a worktree that was never committed in, with changes, stays'
+open issue-184-empty-with-changes
+echo 'unsaved' >> "$trees/issue-184-empty-with-changes/README.md"
+out="$(run 184)"; rc=$?
+check 'exits nonzero'               yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'it says which'               yes "$(grep -q 'issue-184-empty-with-changes has changes' <<< "$out" && echo yes || echo no)"
+check 'the worktree stays'          yes "$(has_tree issue-184-empty-with-changes)"
+check 'and the branch'              yes "$(has_branch issue-184-empty-with-changes)"
+
+echo "a package worktree's later branch that was never committed in stays with its worktree, and no commit names it: refused"
+open issue-185-package
+git -C "$trees/issue-185-package" checkout -q -b issue-186-a-later-part origin/master
+out="$(cd "$trees/issue-185-package" && bash "$finish" 186 2>&1)"; rc=$?
+check 'exit 1'                      1 "$rc"
+check 'it says why'                 yes "$(grep -q 'issue-185-package is named for another issue and has issue-186-a-later-part checked out: it stays' <<< "$out" && echo yes || echo no)"
+check 'and that no commit names it' 'error: no commit on origin/master names #186, so the card stays and the issue is not told; a commit that touches an issue names it' "$(grep '^error: ' <<< "$out")"
+check 'the package worktree stays'  yes "$(has_tree issue-185-package)"
+check 'and the branch in it'        yes "$(has_branch issue-186-a-later-part)"
+
+echo 'a branch that was committed in, with all its commits on origin and none naming the issue: refused as before'
+open issue-187-worked-in
+land issue-187-worked-in 'A change that names no issue'
+out="$(run 187)"; rc=$?
+check 'exit 1'                      1 "$rc"
+check 'it says why'                 'error: no commit on origin/master names #187, so the card stays and the issue is not told; a commit that touches an issue names it' "$(grep '^error: ' <<< "$out")"
+check 'it does not say the repository holds no work' 0 "$(grep -c 'holds no work of' <<< "$out" || true)"
+
 echo 'an origin/HEAD naming a branch the remote no longer has: the default branch is asked of the remote'
 open issue-168-read-the-default-branch
 land issue-168-read-the-default-branch 'Read the default branch from the remote (#168)'

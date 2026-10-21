@@ -1122,9 +1122,7 @@ await() { local pid="$1" tries=$(( $2 * 20 )) _; shift 2; for _ in $(seq "$tries
 shows() { grep -qF -- "$2" "$1"; }   # shows <file> <text>
 
 # start_landing <number> <slug> <entry...>: a public repository's landing, in the background, its pid in landing_pid. The gate of
-# its CI push waits for a lower load, then holds its check. The output file is emptied here, before the launch, so that
-# whatever is read from it afterwards is the output of this landing and of no earlier one, however late the child starts
-# (PROBE_LAUNCH_DELAY seconds, for a case that plants that); LANDING_TMPDIR names the folder the child makes temporary files in;
+# its CI push waits for a lower load, then holds its check. LANDING_TMPDIR names the folder the child makes temporary files in;
 # LANDING_GROUP makes it the leader of a process group of its own, which a case can signal as a whole.
 start_landing() {
   local n="$1" slug="$2"; shift 2
@@ -1132,8 +1130,7 @@ start_landing() {
   wt="$(gated_tree "$n" "$slug" 24 10)"; load_plan 30; : > "$fake/hold-check"; : > "$PROBE_STATE/block"
   echo public > "$fake/visibility"; : > "$fake/calls.txt"; rm -f "$fake/ci-during"; plant_hook "issue-$n-$slug" ""
   dir="$wt"; [[ " $* " != *" --from-origin "* ]] || dir="$work"
-  : > "$fake/landing.out"
-  ( cd "$dir" && git config core.hooksPath "$fake/gate-hooks" && "$real_sleep" "${PROBE_LAUNCH_DELAY:-0}" \
+  ( cd "$dir" && git config core.hooksPath "$fake/gate-hooks" \
       && { [ -z "${LANDING_TMPDIR:-}" ] || export TMPDIR="$LANDING_TMPDIR"; } \
       && PATH="$fake/loadstubs:$PATH" PROBE_STATE="$PROBE_STATE" AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=5 \
       exec ${LANDING_GROUP:+setsid} bash "${INTEGRATE_SCRIPT:-$root/bin/integrate-issue.sh}" "$n" --reviewed-by l4 "$@" > "$fake/landing.out" 2>&1 ) & landing_pid=$!
@@ -1221,9 +1218,7 @@ mutant_integrate() {
 
 echo 'planted: the output of the push to ci/ is buffered until the push is over, as it was'
 mutant_integrate "$fake/mutant-integrate" 's/2>&1 | tee "\$pushed" >&2 ||/> "$pushed" 2>\&1 ||/'
-# The child starts one second late, so that the output of the landing before, which carries every phrase waited for,
-# would be read as this one's if the file were not emptied before the launch
-VISIBLE_WITHIN=3 PROBE_LAUNCH_DELAY=1 INTEGRATE_SCRIPT="$fake/mutant-integrate/bin/integrate-issue.sh" public_landing 166 buffered
+VISIBLE_WITHIN=3 INTEGRATE_SCRIPT="$fake/mutant-integrate/bin/integrate-issue.sh" public_landing 166 buffered
 check 'the planted copy reached the wait of the gate, so what it did not show is its own silence' yes "$([ -e "$PROBE_STATE/sleeping" ] && echo yes || echo no)"
 check 'the announcement is not on screen before the push ends' no "$(case "$seen" in yes\ *) echo yes ;; *) echo no ;; esac)"
 unset INTEGRATE_SCRIPT

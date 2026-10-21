@@ -43,6 +43,21 @@ contains('rules/80-working-style-for-agents.md','every session using that limite
 contains('README.md',"expires on withdrawal or coordinator restart");
 contains('templates/.ai-core/models.tsv',"A temporary owner instruction leaves these rows unchanged");
 contains(base+'briefs/build.md',"You build it yourself, in your own tool");
+contains(base+'briefs/plan.md',"Then walk each promise as the person meets it on that environment");
+contains(base+'briefs/plan.md',"so the UI test proves it instead of finding it");
+contains(base+'briefs/plan.md',"A defect you read in a span of the package joins the package as a criterion of the issue it touches");
+contains(base+'briefs/plan-check.md',"Each gap names the issue of the package it belongs to");
+contains(base+'briefs/plan-check.md',"A gap never becomes an issue of its own");
+contains(base+'briefs/review.md',"A defect you meet outside the diff but in the package's files or contracts is a FINDING");
+contains(base+'briefs/review.md',"only an `OUTSIDE:` line may become a new issue");
+contains(base+'briefs/review.md',"goes under NOTES as `OUTSIDE:`, never into FINDINGS");
+contains(base+'SKILL.md',"goes back to `implementing`, with the SEEN text as a new acceptance criterion on that same issue");
+contains(base+'SKILL.md',"A `type:bug` issue opens only for what the card's own criteria do not cover");
+contains(base+'briefs/ui-test.md',"A FAIL of a card's own promise is that card's FAIL, not a new defect.");
+contains(base+'briefs/coordinator.md',"One defect is one issue, in the repository that owns it");
+for (const file of ['SKILL.md','briefs/plan.md','briefs/plan-check.md','briefs/review.md','briefs/ui-test.md','briefs/coordinator.md'])
+  for (const stale of ['--found-in','opens one `type:bug`','stays in `testing`'])
+    if(read(base+file).includes(stale))throw Error(file+': a failed UI test still opens an issue: '+stale);
 JS
 node "$WORK/check.mjs" "$ROOT" || fail 'phase routing contract'
 cp -R "$ROOT/skills" "$WORK/skills"
@@ -50,7 +65,7 @@ mkdir -p "$WORK/rules" "$WORK/templates/.ai-core"
 cp "$ROOT/rules/80-working-style-for-agents.md" "$WORK/rules/"
 cp "$ROOT/templates/.ai-core/models.tsv" "$WORK/templates/.ai-core/"
 cp "$ROOT/README.md" "$WORK/"
-for pair in 'references/codex.md|including Claude Code' 'SKILL.md|until the owner withdraws it or the coordinator restarts' 'SKILL.md|after a restart, your own table rows apply again' 'references/codex.md|last `agent_message`' 'references/codex.md|--file ~/.ai-core/sessions/<session name>.out' 'references/codex.md|sandbox_workspace_write.writable_roots='; do
+for pair in 'references/codex.md|including Claude Code' 'SKILL.md|until the owner withdraws it or the coordinator restarts' 'SKILL.md|after a restart, your own table rows apply again' 'references/codex.md|last `agent_message`' 'references/codex.md|--file ~/.ai-core/sessions/<session name>.out' 'references/codex.md|sandbox_workspace_write.writable_roots=' 'briefs/plan.md|so the UI test proves it instead of finding it' 'briefs/plan.md|joins the package as a criterion of the issue it touches' 'briefs/plan-check.md|A gap never becomes an issue of its own' 'briefs/review.md|only an `OUTSIDE:` line may become a new issue' 'briefs/review.md|never into FINDINGS' 'SKILL.md|goes back to `implementing`' 'briefs/ui-test.md|not a new defect' 'briefs/coordinator.md|One defect is one issue'; do
   file="${pair%%|*}"; phrase="${pair#*|}"
   FILE="$WORK/skills/person-in-charge/$file" PHRASE="$phrase" node -e 'const fs=require("fs"),p=process.env.FILE,s=fs.readFileSync(p,"utf8");fs.writeFileSync(p,s.replace(new RegExp(process.env.PHRASE.split(/\s+/).map(x=>x.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")).join("\\s+")),"stale instruction"))'
   if node "$WORK/check.mjs" "$WORK" > "$WORK/mutant.log" 2>&1; then fail "stale instruction escaped: $phrase"; fi

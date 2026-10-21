@@ -140,12 +140,12 @@ NO is. Before every build, plan or review session, read the package's newest PHA
 second NO of either kind the next round runs with the findings as its acceptance criteria and your
 own recommendation, without asking the owner; after the fourth NO no further round starts, and the
 package stops: its issues get `needs:owner`, and your PHASE line says why, because four misses mean
-the plan was wrong, not the code. An issue whose line in a UI test says FAIL stays in `testing` and
-opens one `type:bug` issue of its area, while an issue that passed in the same session goes on, with
-the SEEN text as its acceptance criterion (`ai-core issue-new ... --found-in <plan issue>`), which
-the next package of that area takes up first, so the defect becomes a planted case of a check; a
-promise NOT CHECKABLE HERE gets `needs:owner` with the question where it is seen. Context budgets
-are the planner's cut sizes and part of the session name, 150k for plan, plan check and review, 300k
+the plan was wrong, not the code. An issue whose line in a UI test says FAIL goes back to
+`implementing`, with the SEEN text as a new acceptance criterion on that same issue, while an issue
+that passed in the same session goes on. Its package's next build round repairs it, so the defect
+becomes a planted case of a check. A `type:bug` issue opens only for what the card's own criteria
+do not cover; a promise NOT CHECKABLE HERE gets `needs:owner` with the question where it is seen.
+Context budgets are the planner's cut sizes and part of the session name, 150k for plan, plan check and review, 300k
 for a build (250k in Codex, whose models hold 272k), 100k for a UI test and a re-check; in Claude
 Code the start sets each, above the base context a session starts with, as its compact window
 (`references/claude.md`), elsewhere nothing enforces them, and a build report's `CONTEXT: needed

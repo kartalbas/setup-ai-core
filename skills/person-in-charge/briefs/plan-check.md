@@ -56,7 +56,8 @@ names, the spans the facts and the contracts name.
 
 A gap is only what stops a build session from starting or makes it build the wrong thing: a
 missing criterion or `file:line`, a contradiction, a side of a contract outside the package, a
-wrong order or class. Wording and a better way that is not needed are no gaps. GO only with an
+wrong order or class. Each gap names the issue of the package it belongs to, so that the re-plan
+widens that issue. A gap never becomes an issue of its own. Wording and a better way that is not needed are no gaps. GO only with an
 empty GAPS. Post it as a comment on the plan issue (`ai-core issue-comment`), send its first line to
 the coordinator ({{how to reach the coordinator}}), because a comment on an issue wakes nobody, then
 stop. You change nothing in the section: the planner does, in the next plan session, with your GAPS

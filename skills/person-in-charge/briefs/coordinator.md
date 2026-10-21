@@ -36,6 +36,9 @@ way it reads its state again from this brief, because the state is in the tracke
    package (its area is named `mechanical <repo>#<n>[, <repo>#<n> ...]`) names, run `briefs/clearing.md` first.
 6. Do one round (the skill). Nothing is started before the round has read everything.
 
+One defect is one issue, in the repository that owns it, with every other repository's copy as a
+`file:line` fact. A package already lands one issue in several repositories.
+
 ## When the owner restarts you
 
 Before the restart, post one comment on each plan issue: every area with its PHASE line, and the open questions of the

@@ -54,10 +54,12 @@ Once it is posted, send its first line to the coordinator ({{how to reach the co
 because a comment on an issue wakes nobody.
 
 A finding blocks, and only these are FINDINGS: behaviour that is wrong in a state you name, a test
-that is red or cannot go red on its defect, an unmet criterion, a broken contract, a leftover. In a
-mechanical package, a diff that changes a span its issue does not name, or touches a contract, a
-secret, a payment or the push gate, is a finding too, and the verdict is NO with `FINDINGS: needs a
-plan: <why>`. The wording of a log line, a comment or a message, a name, a line length, style and a
+that is red or cannot go red on its defect, an unmet criterion, a broken contract, a leftover. A defect you meet outside the diff but in the
+package's files or contracts is a FINDING when you name its state, so the repair round fixes it. One
+outside the package's files goes under NOTES as `OUTSIDE: <file:line> <state>`, and only an
+`OUTSIDE:` line may become a new issue. In a mechanical package, a diff that changes a span its issue
+does not name, or touches a contract, a secret, a payment or the push gate, is a finding too, and
+the verdict is NO with `FINDINGS: needs a plan: <why>`. The wording of a log line, a comment or a message, a name, a line length, style and a
 better way that is not needed go under NOTES and never make a NO, because a reviewer always finds
 one, and each NO pays a whole build and review round. GO only with an empty FINDINGS. A GO with points in NOTES
 is still a GO: say what was proven, what was declared, what was waived.
@@ -68,7 +70,8 @@ Where the coordinator hands you the findings of an earlier NO and the commits th
 re-check, with a 100k budget: read only `git -C <worktree> diff <reviewed head>..HEAD`, each finding
 against the span that answers it, and the tests the repair added or changed. Name for every finding
 the span that settles it and whether its planted case now goes red. A defect in the repair's own
-lines is a finding; the rest of the package was read and stays out. Where a finding cannot be
+lines is a finding; the rest of the package was read and stays out: a defect you meet there anyway
+goes under NOTES as `OUTSIDE:`, never into FINDINGS. Where a finding cannot be
 settled from the repair, or the repair changed a file no finding names, your verdict is NO with
 `FINDINGS: needs a full review: <why>`, and the coordinator starts one. In a re-check, `CRITERIA`
 and `TESTS` count only the criteria and the tests the findings name, never the whole package's.

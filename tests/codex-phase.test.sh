@@ -55,7 +55,11 @@ contains(base+'SKILL.md',"goes back to `implementing`, with the SEEN text as a n
 contains(base+'SKILL.md',"A `type:bug` issue opens only for what the card's own criteria do not cover");
 contains(base+'briefs/ui-test.md',"A FAIL of a card's own promise is that card's FAIL, not a new defect.");
 contains(base+'briefs/coordinator.md',"One defect is one issue, in the repository that owns it");
-for (const file of ['SKILL.md','briefs/plan.md','briefs/plan-check.md','briefs/review.md','briefs/ui-test.md','briefs/coordinator.md'])
+contains(base+'briefs/clearing.md',"→ testing, unless a UI test said FAIL after its `Landed on` record");
+contains(base+'briefs/clearing.md',"landed, a UI test said FAIL → a build session (briefs/build.md)");
+contains(base+'SKILL.md',"landed work goes to `testing` unless a UI test said FAIL after its landing");
+const files=['SKILL.md','briefs/plan.md','briefs/plan-check.md','briefs/review.md','briefs/ui-test.md','briefs/coordinator.md','briefs/clearing.md','briefs/build.md'];
+for (const file of files)
   for (const stale of ['--found-in','opens one `type:bug`','stays in `testing`'])
     if(read(base+file).includes(stale))throw Error(file+': a failed UI test still opens an issue: '+stale);
 JS
@@ -65,12 +69,21 @@ mkdir -p "$WORK/rules" "$WORK/templates/.ai-core"
 cp "$ROOT/rules/80-working-style-for-agents.md" "$WORK/rules/"
 cp "$ROOT/templates/.ai-core/models.tsv" "$WORK/templates/.ai-core/"
 cp "$ROOT/README.md" "$WORK/"
-for pair in 'references/codex.md|including Claude Code' 'SKILL.md|until the owner withdraws it or the coordinator restarts' 'SKILL.md|after a restart, your own table rows apply again' 'references/codex.md|last `agent_message`' 'references/codex.md|--file ~/.ai-core/sessions/<session name>.out' 'references/codex.md|sandbox_workspace_write.writable_roots=' 'briefs/plan.md|so the UI test proves it instead of finding it' 'briefs/plan.md|joins the package as a criterion of the issue it touches' 'briefs/plan-check.md|A gap never becomes an issue of its own' 'briefs/review.md|only an `OUTSIDE:` line may become a new issue' 'briefs/review.md|never into FINDINGS' 'SKILL.md|goes back to `implementing`' 'briefs/ui-test.md|not a new defect' 'briefs/coordinator.md|One defect is one issue'; do
+for pair in 'references/codex.md|including Claude Code' 'SKILL.md|until the owner withdraws it or the coordinator restarts' 'SKILL.md|after a restart, your own table rows apply again' 'references/codex.md|last `agent_message`' 'references/codex.md|--file ~/.ai-core/sessions/<session name>.out' 'references/codex.md|sandbox_workspace_write.writable_roots=' 'briefs/plan.md|so the UI test proves it instead of finding it' 'briefs/plan.md|joins the package as a criterion of the issue it touches' 'briefs/plan-check.md|A gap never becomes an issue of its own' 'briefs/review.md|only an `OUTSIDE:` line may become a new issue' 'briefs/review.md|never into FINDINGS' 'SKILL.md|goes back to `implementing`' 'briefs/ui-test.md|not a new defect' 'briefs/coordinator.md|One defect is one issue' 'briefs/clearing.md|unless a UI test said FAIL after its `Landed on` record' 'briefs/clearing.md|a build session (briefs/build.md) from the issue' 'SKILL.md|unless a UI test said FAIL after its landing'; do
   file="${pair%%|*}"; phrase="${pair#*|}"
   FILE="$WORK/skills/person-in-charge/$file" PHRASE="$phrase" node -e 'const fs=require("fs"),p=process.env.FILE,s=fs.readFileSync(p,"utf8");fs.writeFileSync(p,s.replace(new RegExp(process.env.PHRASE.split(/\s+/).map(x=>x.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")).join("\\s+")),"stale instruction"))'
   if node "$WORK/check.mjs" "$WORK" > "$WORK/mutant.log" 2>&1; then fail "stale instruction escaped: $phrase"; fi
   cp "$ROOT/skills/person-in-charge/$file" "$WORK/skills/person-in-charge/$file"
 done
+# A stale sentence planted in any file of the check goes red; the restored tree stays green.
+for file in SKILL.md briefs/plan.md briefs/plan-check.md briefs/review.md briefs/ui-test.md briefs/coordinator.md briefs/clearing.md briefs/build.md; do
+  for stale in '--found-in' 'opens one `type:bug`' 'stays in `testing`'; do
+    printf '\n%s\n' "$stale" >> "$WORK/skills/person-in-charge/$file"
+    if node "$WORK/check.mjs" "$WORK" > "$WORK/mutant.log" 2>&1; then fail "stale sentence escaped in $file: $stale"; fi
+    cp "$ROOT/skills/person-in-charge/$file" "$WORK/skills/person-in-charge/$file"
+  done
+done
+node "$WORK/check.mjs" "$WORK" || fail 'restored tree must stay green'
 # Run the command from the reference rather than a separately maintained launcher.
 REF="$ROOT/skills/person-in-charge/references/codex.md" WORK="$WORK" node <<'JS'
 const fs=require('fs'),s=fs.readFileSync(process.env.REF,'utf8').split('## Start a phase session')[1];

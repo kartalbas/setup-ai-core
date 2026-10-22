@@ -395,7 +395,7 @@ member_check() {  # member_check <root>: 0 when a key's user who is no active me
   done
 }
 member_check "$ROOT" || fail "a key's user who is no active member of the project did not stop the carry before the first write: $(cat "$WORK/err.txt")"
-plant member_check lib/plane/tracker.sh 's/|| die "the Plane key.s user is not an active member/|| : "/' "a key's user who is no member of the project let through"
+plant member_check lib/plane/tracker.sh 's/|| die "\$3 is not an active member/|| : "/' "a key's user who is no member of the project let through"
 plant member_check lib/plane/tracker.sh 's/ and \.role >= 15)/)/' "a key's user who is a guest of the project let through"
 echo "  a Plane that keeps no assignee although the create names one leaves the issue incomplete, named; a key's user who is no active member of the project, or a guest in it, stops the carry before the first write; each check left out is red"
 

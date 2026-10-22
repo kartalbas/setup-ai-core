@@ -165,7 +165,7 @@ grep -q 'Plane has no member nobody@example.test in the workspace ws' <<< "$out"
 ! grep -q '^PATCH' "$CURL_FAKE_STATE/requests.log" || fail "an unknown member still sent a write to Plane: $(grep '^PATCH' "$CURL_FAKE_STATE/requests.log")"
 [ "$(planeq 'console.log(p.issues[0].assignees.length)')" = 2 ] || fail "an unknown member changed the assignees"
 printf '[{"match":"PATCH ","status":400,"times":1,"body":"refused"}]' > "$CURL_FAKE_STATE/inject.json"
-out="$(ai issue-assign example-org/example-repo "$n" --add stranger@example.test 2>&1)" && fail "a write Plane refused was accepted: $out"
+out="$(ai issue-assign example-org/example-repo "$n" --replace other@example.test 2>&1)" && fail "a write Plane refused was accepted: $out"
 grep -q 'cannot write the assignees of example-org/example-repo#1 - the Plane API answered 400' <<< "$out" || fail "a refused write does not say it was a write: $out"
 printf '[]' > "$CURL_FAKE_STATE/inject.json"
 out="$(bash "$ROOT/bin/ai-core" issue-assign --help | tr -s '\n ' ' ')" && grep -q 'on Plane the email of a member of the workspace' <<< "$out" || fail "the help of issue-assign does not say what Plane accepts: $out"
@@ -472,6 +472,53 @@ second_ready="$(fields_of)"
 [ "$second_ready" != "$first_ready" ] || fail "the state ids of the two workspaces are the same, so the check cannot go red"
 [ "$(plane_fn project_id)" = "$(planeq 'console.log(p.id)')" ] || fail "another workspace was answered with the project id of the first"
 echo "  the project id and the fields are cached per instance, workspace and identifier: another workspace and another instance each read their own"
+
+# AN ASSIGNEE PLANE WOULD DROP. Plane keeps an assignee only who is an active member of the project with a role of 15 or more, and
+# drops every other without a word. issue-new and issue-assign read the members before the write and refuse such an assignee by name,
+# the way they refuse a name Plane does not know. The stand-in's users: other is an active member, gone a member who left, stranger
+# never a member, and a guest is other with the role 5.
+section "an assignee Plane would drop is refused before the write"
+me_id="$(planeq 'console.log(s.users[0].id)')"; other_id="$(planeq 'console.log(s.users[1].id)')"
+assignees_of() { ITEM_SEQ="$1" planeq 'console.log(p.issues.find((i)=>i.sequence_id===+process.env.ITEM_SEQ).assignees.join(","))'; }
+plane_writes() { grep -cE '^(POST|PATCH|PUT|DELETE) ' "$CURL_FAKE_STATE/requests.log" || true; }
+new_for() {  # new_for <assignee>: issue-new for that assignee, its output and its status
+  ai issue-new --repo example-org/example-repo --title "An assignee Plane keeps, or the issue is not made" --body-file "$WORK/body.md" --label type:feature --label area:tooling --priority P2 --asked-by someone --asked-in "the test" --assignee "$1" 2>&1
+}
+guard_check() {  # guard_check <root>: 0 when issue-new and issue-assign refuse an inactive member, a guest and a non-member before any write, and keep an active member
+  local root="$1" seq count who change rc out
+  planeset 'p.members.forEach((m)=>delete m.role)'
+  seq="$(ROOT_UNDER_TEST="$root" new "An assignee Plane keeps, or the issue has none")" || return 1
+  for who in gone@example.test stranger@example.test other@example.test; do
+    change=''; [ "$who" != other@example.test ] || change='p.members.find((m)=>m.user===s.users[1].id).role=5'
+    planeset "$change"
+    count="$(planeq 'console.log(p.issues.length)')"
+    reset_log; rc=0; out="$(ROOT_UNDER_TEST="$root" new_for "$who")" || rc=$?
+    [ "$rc" != 0 ] && grep -qF "the assignee $who is not an active member of the project ENG with a role of 15 or more" <<< "$out" \
+      && [ "$(plane_writes)" = 0 ] && [ "$(planeq 'console.log(p.issues.length)')" = "$count" ] \
+      || { echo "issue-new --assignee $who: status $rc, $(plane_writes) writes, $(planeq 'console.log(p.issues.length)') of $count work items: $out"; return 1; }
+    reset_log; rc=0; out="$(ROOT_UNDER_TEST="$root" ai issue-assign "$seq" --replace "$who" 2>&1)" || rc=$?
+    [ "$rc" != 0 ] && grep -qF "the assignee $who is not an active member of the project ENG with a role of 15 or more" <<< "$out" \
+      && [ "$(plane_writes)" = 0 ] && [ "$(assignees_of "$seq")" = "$me_id" ] \
+      || { echo "issue-assign --replace $who: status $rc, $(plane_writes) writes, assignees $(assignees_of "$seq"): $out"; return 1; }
+  done
+  planeset 'p.members.forEach((m)=>delete m.role)'
+  ROOT_UNDER_TEST="$root" ai issue-assign "$seq" --replace other@example.test > /dev/null 2>&1 || { echo "issue-assign refused an active member"; return 1; }
+  [ "$(assignees_of "$seq")" = "$other_id" ] || { echo "an active member was not assigned: $(assignees_of "$seq")"; return 1; }
+  seq="$(ROOT_UNDER_TEST="$root" new "An active member is assigned" --assignee other@example.test)" || { echo "issue-new refused an active member"; return 1; }
+  [ "$(assignees_of "$seq")" = "$other_id" ] || { echo "the new work item stands assigned to $(assignees_of "$seq")"; return 1; }
+}
+planted_copy() {  # planted_copy <file> <sed expression> <what is planted> [check root...]: the tree with one defect in <file>, shown red
+  local file="$1" expression="$2" what="$3"
+  rm -rf "$planted"; mkdir -p "$planted"; cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$planted/"; cp "$ROOT/VERSION" "$planted/"
+  sed -i.bak "$expression" "$planted/$file"; cmp -s "$ROOT/$file" "$planted/$file" && fail "the planted copy equals $file ($what)"
+  ! guard_check "$planted" > /dev/null 2>&1 || fail "planted: $what passes the check, so it cannot go red"
+}
+guard_check "$ROOT" || fail "an assignee Plane would drop was not refused before the write, or an active member was: $(guard_check "$ROOT" 2>&1 | tail -2)"
+planted_copy lib/plane/tracker.sh 's/aid="\$(plane_assignee_id "\$assignee" "\$members")"/aid="$(plane_user_id "$assignee")"/' "issue-new without the check of its assignee"
+planted_copy lib/plane/tracker.sh 's/id="\$(plane_assignee_id "\$who" "\$members")"/id="$(plane_user_id "$who")"/' "issue-assign without the check of its assignees"
+planted_copy lib/plane/tracker.sh 's/ and \.role >= 15)/)/' "a guest taken for an assignee Plane keeps, in the one check all three writers call"
+rm -rf "$planted"; mkdir -p "$planted"; cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$planted/"; cp "$ROOT/VERSION" "$planted/"
+echo "  issue-new and issue-assign refuse an inactive member, a guest and a non-member by name before any write, and keep an active member; planted and red: no check in issue-new, none in issue-assign, a guest let through the one check"
 
 # NO UNCALLED CODE in the Plane provider: every function it defines is named somewhere besides its definition
 dead_functions() {  # dead_functions <root>

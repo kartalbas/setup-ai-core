@@ -167,6 +167,23 @@ plane_user_id() {
   printf '%s\n' "$id"
 }
 
+# plane_check_assignable <user id> <member rows> <who, as the refusal names it>: dies unless that user is an active member of the
+# project with a role of 15 or more, the only kind of user Plane keeps as an assignee: it drops every other without a word
+# (validate() of apps/api/plane/api/serializers/issue.py at v1.4.2), and a project's default assignee takes the place of an empty list
+plane_check_assignable() {
+  printf '%s\n' "$2" | jq -e --arg i "$1" 'select(.id == $i and .is_active == true and .role >= 15)' > /dev/null \
+    || die "$3 is not an active member of the project $(plane_setting PLANE_PROJECT) with a role of 15 or more, and Plane keeps no assignee who is not one: nothing was written"
+}
+
+# plane_assignee_id <email | @me> <member rows>: the uuid of that user, checked to be one Plane keeps as an assignee; the rows are
+# those of plane_member_rows, read once by the caller for all its assignees
+plane_assignee_id() {
+  local id
+  id="$(plane_user_id "$1")" || exit 1
+  plane_check_assignable "$id" "$2" "the assignee $1"
+  printf '%s\n' "$id"
+}
+
 # tracker_login: the email the key's user is known by, which is what a Plane assignee is written as
 tracker_login() {
   local who email
@@ -289,14 +306,15 @@ plane_state_id() {
 
 # issue_create <owner/repo> <title> <body file> <assignee> [label...]: prints the number of the new work item,
 # with the label of the checkout's repository on it. Plane drops a label id of another project without a word,
-# so the item is read back and refused by name where the label is not there.
+# so the item is read back and refused by name where the label is not there; the assignee is checked before the write.
 issue_create() {
-  local repo="$1" title="$2" body="$3" assignee="$4" label ids aid html request created id n back project
+  local repo="$1" title="$2" body="$3" assignee="$4" label ids members aid html request created id n back project
   shift 4
   plane_check_repo "$repo"
   label="$(plane_repo_label)"
   ids="$(plane_label_ids "$@" "$label")" || exit 1
-  aid="$(plane_user_id "$assignee")" || exit 1
+  members="$(plane_member_rows)" || exit 1
+  aid="$(plane_assignee_id "$assignee" "$members")" || exit 1
   html="$(plane_html_of "" "$body")" || exit 1
   request="$(jq -n --arg name "$title" --arg html "$html" --argjson labels "$ids" --arg a "$aid" \
     '{name: $name, description_html: $html, labels: $labels, assignees: [$a], external_source: "ai-core"}')"
@@ -363,15 +381,13 @@ plane_carry_missing_labels() {
   jq -s --slurpfile have "$(carry_dir)/labels.jsonl" '[.[].labels[]] | unique | map(select(. as $n | $have | map(.name) | index($n) | not)) | length'
 }
 
-# plane_carry_key_user: reads once for this destination who the Plane key's user is and that the project holds it as an active
-# member of role 15 or more, because Plane keeps no assignee who is not one and says nothing; stores its id for plane_carry_row
-# and prints "key-user <requests>", the most requests it made
+# plane_carry_key_user: reads once for this destination who the Plane key's user is and that it can be an assignee; stores its id
+# for plane_carry_row and prints "key-user <requests>", the most requests it made
 plane_carry_key_user() {
   local id rows
   id="$(plane_user_id @me)" || exit 1
   rows="$(plane_member_rows)" || exit 1
-  printf '%s\n' "$rows" | jq -e --arg i "$id" 'select(.id == $i and .is_active == true and .role >= 15)' > /dev/null \
-    || die "the Plane key's user is not an active member of the project $(plane_setting PLANE_PROJECT) with a role of 15 or more, and Plane keeps no assignee who is not one: nothing was written"
+  plane_check_assignable "$id" "$rows" "the Plane key's user"
   printf '%s\n' "$id" > "$(carry_dir)/key-user"
   echo "key-user $(( 1 + $(printf '%s\n' "$rows" | wc -l) / 100 + 1 ))"
 }
@@ -738,12 +754,13 @@ issue_assignees() {  # issue_assignees <owner/repo> <number>: the emails assigne
   plane_api "the assignees of $1#$2" GET "$(plane_path "$(plane_issue_path "$item")")?expand=assignees" | jq -r '.assignees[]?.email'
 }
 
-# issue_assignees_set <owner/repo> <number> <emails, one per line>: the assignees become exactly these
+# issue_assignees_set <owner/repo> <number> <emails, one per line>: the assignees become exactly these, each checked before the write
 issue_assignees_set() {
-  local ids="[]" who id
+  local ids="[]" who id members=""
   while IFS= read -r who; do
     [ -n "$who" ] || continue
-    id="$(plane_user_id "$who")" || exit 1
+    [ -n "$members" ] || members="$(plane_member_rows)" || exit 1
+    id="$(plane_assignee_id "$who" "$members")" || exit 1
     ids="$(jq -c --arg i "$id" '. + [$i]' <<< "$ids")" || exit 1
   done <<< "$3"
   plane_patch "the assignees of $1#$2" "$1" "$2" "$(jq -nc --argjson a "$ids" '{assignees: $a}')"

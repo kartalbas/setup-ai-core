@@ -208,10 +208,11 @@ for lines in 'closed\ndone\ndone' 'closed\nnot planned\nnot planned' 'closed\ndo
 done
 
 # Each rule is shown red on a copy of the tree with one planted defect
-mutant_tree() {  # mutant_tree <sed expression>: a copy of the tree with lib/board.sh changed by it, in $FAKE/mutant; prints its path
+mutant_tree() {  # mutant_tree <sed expression> [file]: a copy of the tree with the file, lib/board.sh where none is named, changed by it, in $FAKE/mutant; prints its path
+  local file="${2:-lib/board.sh}"
   rm -rf "$FAKE/mutant"; mkdir -p "$FAKE/mutant"; cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$FAKE/mutant/"; cp "$ROOT/VERSION" "$FAKE/mutant/"
-  sed -i.bak "$1" "$FAKE/mutant/lib/board.sh"
-  cmp -s "$ROOT/lib/board.sh" "$FAKE/mutant/lib/board.sh" && { echo "the planted defect changed nothing: $1" >&2; exit 1; }
+  sed -i.bak "$1" "$FAKE/mutant/$file"
+  cmp -s "$ROOT/$file" "$FAKE/mutant/$file" && { echo "the planted defect changed nothing: $1" >&2; exit 1; }
   printf '%s' "$FAKE/mutant"
 }
 in_mutant() {  # in_mutant <command>...: the command with a cache of its own, because a planted defect may make a board read its fields again
@@ -419,6 +420,21 @@ out="$(bash "$ROOT/bin/issue-close.sh" example-org/example-repo 3 2>&1)"; rc=$?
 check 'all cancelled: exit 0'   0 "$rc"
 check 'the epic does not move'  '' "$(grep '^epic' <<< "$out")"
 check 'only the sub-issue closed' 'issues/3' "$(plain)"
+rm -f "$FAKE/epic-44.json"
+
+echo 'subissue-add: a closed epic reads as closed through the query'"'"'s own jq, whatever its cards say, and is reopened'
+closed_epic() {  # closed_epic <the sub-issues, as JSON nodes>: a closed epic whose cards say done, read as the target reads it
+  planted done "$1" | jq -c '.data.repository.issue += {state: "CLOSED", stateReason: "COMPLETED"}'
+}
+: > "$FAKE/calls"; closed_epic "$closed_child,$(open_child_with_card 5 backlog)" > "$FAKE/epic-44.json"
+out="$(bash "$ROOT/bin/subissue-add.sh" example-org/example-repo 44 5 2>&1)"; rc=$?
+check 'exit 0'                  0 "$rc"
+check 'it says so'              'epic example-org/example-repo#44 -> reopened in implementing, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
+check 'the epic was reopened'   'issues/44' "$(plain)"
+M="$(mutant_tree 's/then \\"closed\\" else (card/then closed else (card/' lib/github/tracker.sh)" || exit 1
+: > "$FAKE/calls"
+out="$(in_mutant bash "$M/bin/subissue-add.sh" example-org/example-repo 44 5 2>&1)"
+check 'planted: the closed epic read as done is moved and left closed' 'epic example-org/example-repo#44 -> implementing, as its sub-issues stand|' "$(grep '^epic' <<< "$out")|$(plain)"
 rm -f "$FAKE/epic-44.json"
 
 echo 'issue-close of the epic itself: refused with an open sub-issue, whatever its card says, with both reasons, and nothing is written'

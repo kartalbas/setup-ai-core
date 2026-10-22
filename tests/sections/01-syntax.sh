@@ -25,6 +25,8 @@ section "no count in digits of issues, cards or lines caps a package"
 # digits of issues, cards or changed lines under the paths given, with its file. Each file is read
 # as one line, because a rule wrapped at 100 columns can break the count from its unit. A count in
 # words is not caught: rule 80 names "five to ten issues" as a cost, not as a limit.
+# The size of a mechanical package, in lines outside tests, is not caught either: it decides only
+# whether a package needs a plan, and it cuts nothing.
 package_caps() {
   local f
   while IFS= read -r f; do

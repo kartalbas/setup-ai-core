@@ -59,9 +59,9 @@ and `VERIFIED` lines of each issue, because a comment on an issue wakes nobody.
 
 - A package headed `Class: mechanical` has no plan, and you find its spans yourself and name each as
   `file:line` in your report. Where you meet a contract, a secret, a payment or the push gate, or find
-  that the change needs more than 150 lines outside tests, you stop there, commit nothing past that
-  point and report it to the coordinator ({{how to reach the coordinator}}), which sends the package
-  to a plan.
+  that the change needs more than 150 lines outside tests (the added and the deleted lines of the
+  package's diff in files that are not tests), you stop there, commit nothing past that point and
+  report it to the coordinator ({{how to reach the coordinator}}), which sends the package to a plan.
 - You touch files of this package's worktrees only. A file outside them is a question to the
   coordinator, not an edit.
 - You build it yourself, in your own tool. You start no other tool's command (agy, codex, claude)

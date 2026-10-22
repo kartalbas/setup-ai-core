@@ -24,7 +24,9 @@ cp "$GH_CACHE_DIRECTORY/7/fields.tsv" "$GH_CACHE_DIRECTORY/5/fields.tsv"
 failed=0
 check() {
   if [ "$2" = "$3" ]; then echo "  ok   $1"
-  else echo "  FAIL $1"; echo "       expected: [$2]"; echo "       actual:   [$3]"; failed=$((failed + 1)); fi
+  else echo "  FAIL $1"; echo "       expected: [$2]"; echo "       actual:   [$3]"
+       [ -z "${out:-}" ] || printf '       output of the last command: %s\n' "$(printf '%s' "$out" | tr '\n' '|' | cut -c1-600)"
+       failed=$((failed + 1)); fi
 }
 
 echo 'the rule: where an epic stands follows from its counted sub-issues alone, forward and back'

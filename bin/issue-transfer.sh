@@ -13,12 +13,14 @@
 # --to plane carries issues from GitHub into Plane and changes nothing on GitHub: no comment, no close.
 #   issue-transfer.sh --to plane          every issue, open and closed, of every repository of the organisation that is
 #                                         not archived, with its comments, close reason, board memberships (archived
-#                                         ones too) and parent, and every board, into the Plane project each
+#                                         ones too), parent and assignee, and every board, into the Plane project each
 #                                         repository's clone is set up for (PLANE_URL, PLANE_WORKSPACE, PLANE_PROJECT,
 #                                         PLANE_TOKEN_COMMAND of that clone); run it in the project folder
 #   issue-transfer.sh NUMBER --to plane   one issue of this checkout's repository
 #   issue-transfer.sh --column NAME --to plane
 #                                         every open issue whose card stands in that column of the repository's board
+# The assignee that is carried is the account that runs the carry, as the user of the Plane key; the report names every other
+# login with its issue, and the work item gets none for it.
 # The counts and the bound on the requests are printed before the first write. A rerun writes nothing that stands in
 # Plane already and finishes what an earlier run left; what a person changed in Plane is never written back. Every
 # issue left incomplete is named, and the exit status is non-zero then.

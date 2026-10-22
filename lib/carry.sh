@@ -29,20 +29,22 @@ carry_destination_of() {
   printf '%s\t%s\t%s|%s|%s\n' "$1" "$clone" "${url%/}" "$workspace" "$project"
 }
 
-# carry_report <plan> <metadata pages> <missing labels>: every count of the plan, then the bound on the requests
+# carry_report <plan> <metadata pages> <missing labels> <reads of the key's user>: every count of the plan, then the bound on the requests
 carry_report() {
-  jq -r --argjson m "$2" --argjson l "$3" '
+  jq -r --argjson m "$2" --argjson l "$3" --argjson k "$4" --arg user "the Plane key's user" '
     .report as $r
     | ($r.issues + $r.board_records) as $items
-    | (3 * $items + ($r.comments_original + $r.comments_provenance) + 2 * $r.comment_pages + $m + $l + $r.parents_outside_distinct) as $bound
+    | (3 * $items + ($r.comments_original + $r.comments_provenance) + 2 * $r.comment_pages + $m + $l + $r.parents_outside_distinct + $k) as $bound
     | "issue carry: \($r.issues) issues of \($r.repositories_selected) repositories (open \($r.issues_open), closed as completed \($r.issues_done), closed as not planned or duplicate \($r.issues_cancelled)); skipped archived repositories: \(if ($r.repositories_skipped | length) == 0 then "none" else ($r.repositories_skipped | join(", ")) end)",
       "comments to carry: \($r.comments_original) original and \($r.comments_provenance) provenance, \($r.comments_original + $r.comments_provenance) in all, in \($r.comment_pages) pages of 100",
       "board memberships: \($r.memberships) on issues (\($r.archived_memberships) archived, on \($r.archived_issues) issues of \($r.issues)), \($r.boardless_issues) of \($r.issues) issues on no board",
       "parent links: \($r.parent_links) (\($r.parents_native) sub-issues, \($r.parents_reference) recorded relationships across destinations, \($r.parents_outside) outside the selection, \($r.parents_outside_distinct) distinct)",
       "boards: \($r.boards_source) on GitHub (\($r.boards_empty) empty, \($r.boards_closed) closed, \($r.boards_spanning) in several destinations), \($r.board_records) board records to create, \($r.board_memberships_total) cards in all",
+      "assignees to carry: \($r.assignees_carried) of \($r.issues) issues, as \($user)\(if $r.assignee_login == "" then "" else " (the GitHub login \($r.assignee_login) of the account that runs the carry)" end)",
+      "assignees not carried: \($r.assignees_not_carried | length)\(if ($r.assignees_not_carried | length) == 0 then "" else " (a Plane member is never guessed from a GitHub login): " + ($r.assignees_not_carried | group_by(.login) | map("\(.[0].login) on \(map(.ref) | join(", "))") | join("; ")) end)",
       "cases: priority P9 on \($r.p9_issues) of \($r.issues) issues; an email address in \($r.address_issues) of \($r.issues) issues (\($r.address_titles) titles, \($r.address_bodies) bodies, \($r.address_comments) of \($r.comments_original) comments); differing active Status values on \($r.conflicting_status_issues) of \($r.issues) issues",
       "destinations: \($r.destinations | length) (\($r.destinations | join("; ")))",
-      "Plane requests, at most: \($bound) = 3 x (\($r.issues) issues + \($r.board_records) board records) + \($r.comments_original + $r.comments_provenance) comments + 2 x \($r.comment_pages) comment pages + \($m) metadata pages + \($l) new labels + \($r.parents_outside_distinct) outside parents; at 60 a minute that is \(($bound + 59) / 60 | floor) minutes of API capacity, without retries and their waits"
+      "Plane requests, at most: \($bound) = 3 x (\($r.issues) issues + \($r.board_records) board records) + \($r.comments_original + $r.comments_provenance) comments + 2 x \($r.comment_pages) comment pages + \($m) metadata pages + \($l) new labels + \($r.parents_outside_distinct) outside parents + \($k) reads of \($user); at 60 a minute that is \(($bound + 59) / 60 | floor) minutes of API capacity, without retries and their waits"
   ' <<< "$1"
 }
 
@@ -50,7 +52,7 @@ CARRY_WORK=""
 # carry_run <repo or empty> <number or empty> <column or empty>: carries the selection and prints what it did; the status
 # is non-zero when the source cannot be read whole or an issue is left incomplete
 carry_run() {
-  local repo="$1" number="$2" column="$3" owner source destinations plan line problems="" clone key m=0 l=0 pages missing
+  local repo="$1" number="$2" column="$3" owner source destinations plan line problems="" clone key m=0 l=0 k=0 pages missing reads login=""
   local issues_complete=0 issues_new=0 issues_resumed=0 incomplete=0 boards_complete=0 boards_new=0 boards_incomplete=0 batch_clone="" batch="" label results numbers no_issues=""
   work="$(mktemp -d)"; CARRY_WORK="$work"; trap 'rm -rf "$CARRY_WORK"' EXIT
   export CARRY_RUN="$work/run"; mkdir -p "$CARRY_RUN"; : > "$CARRY_RUN/addresses.tsv"
@@ -91,7 +93,9 @@ carry_run() {
   fi
 
   destinations="$(jq -Rn '[inputs | split("\t") | {key: .[0], value: .[2]}] | from_entries' < "$work/clones.tsv")"
-  plan="$(jq -n -f "$HARNESS_ROOT/lib/carry-plan.jq" --slurpfile source "$source" --argjson destinations "$destinations" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)")" || exit 1
+  # gh is asked who it is only where an issue names an assignee
+  if jq -e 'select(.kind == "issue" and (.assignees | length) > 0) | true' "$source" > /dev/null; then login="$(carry_in_tracker github tracker_login)" || exit 1; fi
+  plan="$(jq -n -f "$HARNESS_ROOT/lib/carry-plan.jq" --slurpfile source "$source" --argjson destinations "$destinations" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg login "$login")" || exit 1
   [ -n "$(jq -r '.report.issues_without_destination[]?' <<< "$plan")" ] && die "issues without a destination: $(jq -r '.report.issues_without_destination | join(", ")' <<< "$plan")"
   printf '%s\n' "$plan" > "$work/plan.json"
 
@@ -102,8 +106,12 @@ carry_run() {
     m=$(( m + ${pages#metadata } ))
     missing="$(jq -c --arg k "$key" 'select(.dest == $k)' <<< "$(jq -c '.rows[]' <<< "$plan")" | carry_in_clone "$clone" plane_carry_missing_labels)" || exit 1
     l=$(( l + missing ))
+    if jq -e --arg k "$key" '.report.key_user_destinations | index($k)' <<< "$plan" > /dev/null; then
+      reads="$(carry_in_clone "$clone" plane_carry_key_user)" || exit 1
+      k=$(( k + ${reads#key-user } ))
+    fi
   done
-  carry_report "$plan" "$m" "$l"
+  carry_report "$plan" "$m" "$l" "$k"
   [ "$label" = full ] && echo "repositories with no issue, which need no destination: ${no_issues:-none}"
 
   results="$work/results.tsv"; : > "$results"

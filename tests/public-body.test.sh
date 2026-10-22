@@ -395,8 +395,8 @@ unset GH_BODY_FIXTURE
 PATH="$PATH_CURL"; export PATH
 printf 'Safe body.\n' > "$WORK/seed-body"
 seed="$(ai issue-new --repo example-org/example-repo --title 'Preserve the body, or text is lost' --body-file "$WORK/seed-body" --label type:feature --label area:tooling --priority P2 --asked-by someone --asked-in 'the test' 2>/dev/null)"
-# Plane resolves an email locally and sends only its member UUID in either writer.
-planeset 's.users.push({id:"00000000-0000-0000-0000-000000000099",email:"someone@company.ch",display_name:"Someone"})'
+# Plane resolves an email locally and sends only its member UUID in either writer; Plane keeps an assignee only who is an active member of the project.
+planeset 's.users.push({id:"00000000-0000-0000-0000-000000000099",email:"someone@company.ch",display_name:"Someone"});p.members.push({user:"00000000-0000-0000-0000-000000000099",is_active:true})'
 for path in assign-replace assignee-new; do
   reset_log; rc=0
   if [ "$path" = assign-replace ]; then out="$(ai issue-assign "$seed" --replace "$real" 2>&1)" || rc=$?

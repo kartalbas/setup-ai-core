@@ -463,6 +463,119 @@ issue_commits() {
   for sha in $shas; do git -C "$clone" show -s --format="$format" "$sha" || return 1; done
 }
 
+# --- which work item a branch or a worktree belongs to ------------------------------------
+
+# name_issue_number <name>: the number in the last part of a branch or directory name of the form
+# issue-<number>-<words>, nothing for any other name. The number is the one the name was cut with,
+# which after a carry from GitHub can be a GitHub number.
+name_issue_number() {
+  local tail="${1##*/}" number
+  case "$tail" in
+    issue-[0-9]*) number="${tail#issue-}"; number="${number%%-*}"
+                  case "$number" in ''|*[!0-9]*) return 0 ;; esac; echo "$number" ;;
+  esac
+}
+
+# branch_started_at <branch> [<origin's default branch>]: when the branch was started, in whole seconds
+# since 1970, nothing where that cannot be told. It is the earliest of the committer time of the oldest
+# commit the default branch of origin lacks, on the local branch and on origin's, and the time of the
+# oldest entry of the local branch's reflog, which start-issue's `git branch -f` writes and which stays
+# until the branch is deleted, a rebase included. Nothing is told for a branch only on origin whose every
+# commit landed. Without the default branch, origin/HEAD of the clone names it; where that is not there
+# either, only the reflog speaks. Run in the clone.
+branch_started_at() {
+  local branch="$1" default="${2:-}" ref times=""
+  if [ -z "$default" ]; then
+    default="$(git symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null || true)"; default="${default#refs/remotes/origin/}"
+  fi
+  if [ -n "$default" ] && git rev-parse -q --verify "refs/remotes/origin/$default" >/dev/null 2>&1; then
+    for ref in "refs/heads/$branch" "refs/remotes/origin/$branch"; do
+      git rev-parse -q --verify "$ref" >/dev/null 2>&1 || continue
+      times="$times$(git log --format=%ct "refs/remotes/origin/$default..$ref" 2>/dev/null || true)"$'\n'
+    done
+  fi
+  times="$times$(git reflog show --date=unix --format=%gd "refs/heads/$branch" 2>/dev/null | sed -n 's/^.*@{\([0-9][0-9]*\)}$/\1/p' || true)"
+  printf '%s\n' "$times" | sed '/^$/d' | sort -n | sed -n 1p
+}
+
+# reference_answer <issue repo> <number> <time or empty>: the work item that a reference to <number> made
+# at <time> (whole seconds since 1970) names, by the tracker's `referenced_issue`. Sets WORK_ITEM to its
+# number, or to nothing where the reference names none, and WORK_ITEM_REASON to what the tracker said
+# about that. The reference is a branch or a directory named issue-<number>-..., or a commit's (#<number>).
+reference_answer() {
+  local answer
+  answer="$(referenced_issue "$@")" || return 1
+  WORK_ITEM="${answer%%$'\t'*}"; WORK_ITEM_REASON=""
+  case "$answer" in *$'\t'*) WORK_ITEM_REASON="${answer#*$'\t'}" ;; esac
+}
+
+# branch_work_item <issue repo> <branch> [<origin's default branch>]: sets WORK_ITEM and WORK_ITEM_REASON
+# for a branch named issue-<number>-..., by the time it was started
+branch_work_item() {
+  reference_answer "$1" "$(name_issue_number "$2")" "$(branch_started_at "$2" "${3:-}")"
+}
+
+# carried_branch_number <issue repo, or empty for the checkout's own> <thread json>: the number the issue was carried
+# from, where that is a number of the issue's own repository, else nothing. A branch cut before the carry is named by it.
+carried_branch_number() {
+  local from repo
+  from="$(jq -r '.carriedFrom // ""' <<< "$2")"
+  [ -n "$from" ] || return 0
+  repo="${1:-$(default_repo)}"
+  [ "$(printf '%s' "${from%#*}" | tr '[:upper:]' '[:lower:]')" != "$(printf '%s' "$repo" | tr '[:upper:]' '[:lower:]')" ] || printf '%s\n' "${from##*#}"
+}
+
+# issue_branch_owners <issue repo> <origin's default branch> <number>...: the branches, local and on origin, named
+# issue-<number> or issue-<number>-... for one of the numbers, one line each, tab-separated: the branch name, the
+# work item it belongs to by its name at the time it was started (a hyphen where it belongs to none) and what the
+# tracker said about that. A branch whose recorded issue repository is another one than the issue's belongs to no
+# work item of it. Run in the clone.
+issue_branch_owners() {
+  local issue_repo="$1" default="$2" n name recorded
+  shift 2
+  { for n in "$@"; do
+      git for-each-ref --format='%(refname:short)' "refs/heads/issue-$n" "refs/heads/issue-$n-*"
+      git for-each-ref --format='%(refname:strip=3)' "refs/remotes/origin/issue-$n" "refs/remotes/origin/issue-$n-*"
+    done; } | sort -u | while IFS= read -r name; do
+      [ -n "$name" ] || continue
+      recorded="$(branch_issue_repo "$name")"
+      if [ -n "$recorded" ] && [ "$(printf '%s' "$recorded" | tr '[:upper:]' '[:lower:]')" != "$(printf '%s' "$issue_repo" | tr '[:upper:]' '[:lower:]')" ]; then
+        WORK_ITEM=""; WORK_ITEM_REASON="belongs to an issue of $recorded"
+      else
+        branch_work_item "$issue_repo" "$name" "$default" || exit 1
+      fi
+      printf '%s\t%s\t%s\n' "$name" "${WORK_ITEM:--}" "$WORK_ITEM_REASON"
+    done
+}
+
+# worktree_issue: what the worktree the current directory is in stands for, as one JSON object: named, the number
+# its name carries (empty for a worktree that names no issue); repository, the issue's where start-issue recorded
+# another one on the branch; workItem, the work item that number names at the time the worktree was cut (empty
+# where it names none); reason, what the tracker said about that; error, the tracker's words where it could not
+# say. The name is the checked-out branch's where that is an issue branch, else the directory's, and only a branch
+# gives the time.
+worktree_issue() {
+  local branch named issue_repo="" at="" answer="" error="" item="" reason=""
+  branch="$(git symbolic-ref --short -q HEAD || true)"
+  named="$(name_issue_number "$branch")"
+  if [ -n "$named" ]; then
+    issue_repo="$(branch_issue_repo "$branch")"
+    at="$(branch_started_at "$branch")"
+  else
+    named="$(name_issue_number "$(git rev-parse --show-toplevel)")"
+  fi
+  if [ -n "$named" ]; then
+    if answer="$(apart referenced_issue "$issue_repo" "$named" "$at")"; then
+      item="${answer%%$'\t'*}"
+      case "$answer" in *$'\t'*) reason="${answer#*$'\t'}" ;; esac
+    else
+      error="$answer"
+    fi
+  fi
+  jq -nc --arg named "$named" --arg repository "$issue_repo" --arg workItem "$item" --arg reason "$reason" --arg error "$error" \
+    '{named: $named, repository: $repository, workItem: $workItem, reason: $reason, error: $error}'
+}
+
 # --- issues -------------------------------------------------------------------
 
 # HOW THE FIRST LINE OF EVERY ISSUE BODY OPENS. `issue-new` builds that line out of arguments it

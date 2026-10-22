@@ -136,7 +136,24 @@ if [ -z "$tokens$issues" ]; then
       printf '%s\terror: %s\n' "${repo##*/}" "$said" >> "$work/trees"
     fi
   done
-  processes=(--processes-file "$work/processes" --agents-file "$work/agents" --rollouts-file "$work/rollouts" --trees-file "$work/trees")
+  # The work item each of those worktrees, and each worktree an agent session stands in, belongs to. After a carry from
+  # GitHub a worktree named issue-<GitHub number>-... belongs to the work item that number named when it was cut, so
+  # each is asked in a fresh process inside the worktree, which reads the tracker of its own clone. A line is
+  # "<worktree path><TAB><number of its work item>", the number empty where its name names no issue or no work item.
+  : > "$work/worktree-issues"
+  { awk -F'\t' '{ print $2 }' "$work/trees" | sed -n 's/^worktree \(.*\): .*, stays$/\1/p'
+    jq -r '.[]? | .cwd // empty' "$work/agents" 2> /dev/null | sed 's|/$||' | grep -E '/issue-[0-9]+(-[^/]*)?$' || true
+  } | sort -u | while IFS= read -r tree; do
+    [ -d "$tree" ] || continue
+    info="$(cd "$tree" && bash -c '. "$1/lib/board.sh"; worktree_issue' _ "$here/.." 2> "$work/worktree-issue-error")" || info=""
+    if [ -z "$info" ] || [ -n "$(jq -r '.error' <<< "$info")" ]; then
+      echo "status: could not tell the work item of $tree: ${info:+$(jq -r '.error' <<< "$info")}$(tr -s '\n' ' ' < "$work/worktree-issue-error")" >&2
+      printf '%s\t\n' "$tree" >> "$work/worktree-issues"
+    else
+      printf '%s\t%s\n' "$tree" "$(jq -r '.workItem' <<< "$info")" >> "$work/worktree-issues"
+    fi
+  done
+  processes=(--processes-file "$work/processes" --agents-file "$work/agents" --rollouts-file "$work/rollouts" --trees-file "$work/trees" --worktree-issues-file "$work/worktree-issues")
 fi
 
 # LIVE_TAGS and PROOF_HOURS are the project folder's, so a card reads the same from every checkout

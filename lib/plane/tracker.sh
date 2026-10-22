@@ -606,6 +606,50 @@ issue_thread() {
                        created_at: .created_at, body: ((.comment_html // "") | text)})) }'
 }
 
+# referenced_issue <owner/repo or empty> <number> <time or empty>: the work item that a reference to <number> of the repository
+# (the checkout's own where none is given),
+# made at <time> (whole seconds since 1970), names. The reference is a branch or a directory named
+# issue-<number>-..., or a commit's (#<number>). After a carry from GitHub a number is both a GitHub number of the
+# repository and the number of a work item of the project, and the time tells which was meant. The own item is the
+# work item <number> where it exists and belongs to the repository (no label of another one), and the carried item
+# is the one carried from <owner/repo>#<number>, which counts where its own number is not <number>. Prints the
+# number of the work item, or a tab and the reason where the reference names none:
+#   the own item, where it was made at or before the time;
+#   after the time: the carried item, or none, the reference names a GitHub issue nothing was carried from;
+#   no time: the own item where nothing was carried from the reference, none where both exist;
+#   no own item: the carried item, else <number> itself, which the reader of it then answers for.
+# A repository of another owner is not in the project: its reference stays <number>.
+referenced_issue() {
+  local repo="${1:-$(default_repo)}" number="$2" at="${3:-}" own="" own_at="" carried="" c=""
+  if [ "$(printf '%s' "${repo%%/*}" | tr '[:upper:]' '[:lower:]')" != "$(plane_owner | tr '[:upper:]' '[:lower:]')" ]; then
+    printf '%s\n' "$number"; return 0
+  fi
+  plane_call GET "$(plane_path "issues/$(plane_setting PLANE_PROJECT)-$number/")?expand=labels"
+  case "$plane_status" in
+    2??) printf '%s' "$plane_body" | jq -e 'type == "object" and (.created_at | type == "string")' >/dev/null 2>&1 \
+           || die "the Plane API answered $plane_status for the work item $(plane_setting PLANE_PROJECT)-$number, and the answer is not that work item: $(printf '%s' "$plane_body" | tr -s '\r\n' '  ' | cut -c1-300)"
+         if printf '%s' "$plane_body" | jq -e --arg l "repo:${repo#*/}" '
+              [.labels[]?.name | select(startswith("repo:"))] as $r
+              | ($r | length) == 0 or (($r | length) == 1 and (($r[0] | ascii_downcase) == ($l | ascii_downcase)))' >/dev/null; then
+           own="$number"; own_at="$(instant_seconds "$(printf '%s' "$plane_body" | jq -r '.created_at')")" || exit 1
+         fi ;;
+    404) ;;
+    000) die "cannot read the work item $(plane_setting PLANE_PROJECT)-$number - the Plane API did not answer: $plane_body" ;;
+    *)   die "cannot read the work item $(plane_setting PLANE_PROJECT)-$number - the Plane API answered $plane_status${plane_body:+: $(printf '%s' "$plane_body" | tr -s '\r\n' '  ' | cut -c1-300)}" ;;
+  esac
+  if [ -n "$own" ] && [ -n "$at" ] && [ "$at" -ge "$own_at" ]; then printf '%s\n' "$own"; return 0; fi
+  carried="$(plane_find_carried "$repo#$number")" || exit 1
+  [ -z "$carried" ] || c="$(printf '%s' "$carried" | jq -r '.sequence_id')"
+  [ "$c" != "$number" ] || c=""
+  if [ -z "$own" ]; then printf '%s\n' "${c:-$number}"
+  elif [ -n "$at" ]; then
+    if [ -n "$c" ]; then printf '%s\n' "$c"
+    else printf '\tnames GitHub %s#%s, which no work item was carried from\n' "$repo" "$number"; fi
+  elif [ -n "$c" ]; then
+    printf '\tnames both #%s and #%s, which was carried from %s#%s, and when it was made cannot be read\n' "$number" "$c" "$repo" "$number"
+  else printf '%s\n' "$own"; fi
+}
+
 # A work item has one identity here, its uuid
 issue_node_id() { plane_item "$1" "$2" | jq -r '.id'; }
 issue_db_id() { issue_node_id "$@"; }

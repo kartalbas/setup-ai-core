@@ -55,7 +55,8 @@
 # `testing` by finish-issue; both are a session's statement and this sweep writes neither. It
 # never moves a card BACKWARD, so a state a person set by hand stands. An EPIC carries no work and has no signals of
 # its own: it follows its sub-issues alone (epic_target in lib/board.sh), forward and back, so a
-# sub-issue moved by hand on the board moves its epic here too. Nothing is guessed: a card only moves on a signal.
+# sub-issue moved by hand on the board moves its epic here too, except an epic whose card stands in done, which
+# this sweep does not read. Nothing is guessed: a card only moves on a signal.
 #
 # --dry-run prints what it would do and writes nothing. Default is to apply, because the whole
 # point is that no person has to run it.

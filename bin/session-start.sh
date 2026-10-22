@@ -182,23 +182,29 @@ if GH_USER="$(signed_in_user)"; then GH_LOGGED_IN=1; else GH_USER=""; fi
 # 3. The issue of this worktree: a branch or a directory named issue-N-<slug> carries issue N, of
 #    the repository start-issue recorded on the branch where the issue lives in another one.
 #    Its thread is read through issue-thread, and issue-mine says whether it is assigned to you.
-worktree_issue_number() {  # worktree_issue_number <name>
-  local tail="${1##*/}" number
-  case "$tail" in
-    issue-[0-9]*) number="${tail#issue-}"; number="${number%%-*}"
-                  case "$number" in ''|*[!0-9]*) return 0 ;; esac; echo "$number" ;;
-  esac
-}
-ISSUE="$(worktree_issue_number "$BRANCH")"
-[ -n "$ISSUE" ] || ISSUE="$(worktree_issue_number "$ROOT")"
 THREAD=""; THREAD_JSON="null"; ASSIGNED=false; MINE=""; ISSUE_REPO=""; ISSUE_UNREAD=""
-if [ -n "$ISSUE" ]; then
-  ISSUE_REPO="$(. "$CORE/lib/board.sh"; branch_issue_repo "$BRANCH")"
-  if THREAD_JSON="$(. "$CORE/lib/board.sh"; apart bash "$CORE/bin/issue-thread.sh" ${ISSUE_REPO:+"$ISSUE_REPO"} "$ISSUE" --json)"; then
-    THREAD="$(printf '%s' "$THREAD_JSON" | jq -r '
+# board.sh, and so the tracker, is loaded only for a worktree or branch named like an issue's
+case "${BRANCH##*/}:${ROOT##*/}" in
+  issue-[0-9]*|*:issue-[0-9]*) WORKTREE_ISSUE="$(. "$CORE/lib/board.sh"; worktree_issue)" ;;
+  *) WORKTREE_ISSUE='{"named":"","repository":"","workItem":"","reason":"","error":""}' ;;
+esac
+ISSUE_NAMED="$(jq -r '.named' <<< "$WORKTREE_ISSUE")"
+ISSUE="$(jq -r '.workItem' <<< "$WORKTREE_ISSUE")"
+if [ -n "$ISSUE_NAMED" ]; then
+  ISSUE_REPO="$(jq -r '.repository' <<< "$WORKTREE_ISSUE")"
+  WORKTREE_ERROR="$(jq -r '.error' <<< "$WORKTREE_ISSUE")"
+  if [ -n "$WORKTREE_ERROR" ]; then
+    ISSUE="$ISSUE_NAMED"; ISSUE_UNREAD="$(printf '%s\n' "$WORKTREE_ERROR" | grep -m1 . || true)"
+    THREAD="The work item of ${ISSUE_REPO}#$ISSUE could not be told: $WORKTREE_ERROR"
+  elif [ -z "$ISSUE" ]; then
+    ISSUE="$ISSUE_NAMED"; ISSUE_UNREAD="this worktree $(jq -r '.reason' <<< "$WORKTREE_ISSUE")"
+    THREAD="The worktree is named by the number $ISSUE, and it names no work item: $(jq -r '.reason' <<< "$WORKTREE_ISSUE")"
+  elif THREAD_JSON="$(. "$CORE/lib/board.sh"; apart bash "$CORE/bin/issue-thread.sh" ${ISSUE_REPO:+"$ISSUE_REPO"} "$ISSUE" --json)"; then
+    THREAD="$(printf '%s' "$THREAD_JSON" | jq -r --arg named "$ISSUE_NAMED" '
       "#\(.number) \(.title)",
       "state: \(.state)",
       "labels: \(if (.labels | length) == 0 then "-" else (.labels | join(", ")) end)",
+      (if .carriedFrom != null and (.number | tostring) != $named then "carried from \(.carriedFrom): this worktree is named by that GitHub number \($named), and its commits name #\(.number) from now on" else empty end),
       "",
       .body,
       (.comments[] | "", "--- \(.author) \(.created_at)", .body)')"
@@ -206,7 +212,9 @@ if [ -n "$ISSUE" ]; then
     ISSUE_UNREAD="$(printf '%s\n' "$THREAD_JSON" | grep -m1 . || true)"
     THREAD="The thread of ${ISSUE_REPO}#$ISSUE could not be read: $THREAD_JSON"; THREAD_JSON="null"
   fi
-  if MINE="$(bash "$CORE/bin/issue-mine.sh" ${ISSUE_REPO:+"$ISSUE_REPO"} "$ISSUE" 2>&1)"; then ASSIGNED=true; fi
+  if [ -z "$WORKTREE_ERROR" ] && [ -n "$(jq -r '.workItem' <<< "$WORKTREE_ISSUE")" ]; then
+    if MINE="$(bash "$CORE/bin/issue-mine.sh" ${ISSUE_REPO:+"$ISSUE_REPO"} "$ISSUE" 2>&1)"; then ASSIGNED=true; fi
+  fi
 fi
 
 # 4. The hook's output is the agent's context, but Claude Code passes a hook's output whole only

@@ -56,12 +56,31 @@ config_value() {  # config_value <key> <default>
   config_file_value "$1" "$2"
 }
 
+# THE FIVE SETTINGS OF THE TRACKER ARE THE CHECKOUT'S, NOT THE WORKTREE'S: one repository has one tracker. A
+# worktree gets its own copy of .ai-core/config.env once, when init makes it, and no later run refreshes it, so a
+# tracker switched afterwards would still read as the old one there; and the server the key goes to and the
+# command that yields it must come from one file. These five are read from the main checkout's file, the one in
+# the parent of the git common directory; every other setting stays the worktree's own.
+TRACKER_SETTINGS=" TRACKER PLANE_URL PLANE_WORKSPACE PLANE_PROJECT PLANE_TOKEN_COMMAND "
+
+# config_file_of <key>: the config.env a setting is read from
+config_file_of() {
+  local common
+  case "$TRACKER_SETTINGS" in
+    *" $1 "*)
+      common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+      case "$common" in */.git) printf '%s\n' "${common%/.git}/.ai-core/config.env"; return 0 ;; esac ;;
+  esac
+  printf '%s\n' "$(data_dir)/config.env"
+}
+
 # config_file_value <key> <default>: as config_value, without the environment, for a setting that only
 # the project's config.env may make.
 config_file_value() {
-  local key="$1" line
-  if [ -f "$(data_dir)/config.env" ]; then
-    line="$(grep -E "^[[:space:]]*${key}[[:space:]]*=" "$(data_dir)/config.env" | tail -n1 || true)"
+  local key="$1" line file
+  file="$(config_file_of "$key")"
+  if [ -f "$file" ]; then
+    line="$(grep -E "^[[:space:]]*${key}[[:space:]]*=" "$file" | tail -n1 || true)"
     if [ -n "$line" ]; then
       line="${line#*=}"; line="${line%$'\r'}"
       line="${line#"${line%%[![:space:]]*}"}"

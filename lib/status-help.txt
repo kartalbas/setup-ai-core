@@ -30,7 +30,9 @@ each, which is the time it adds. A card whose landing, delivery or fetch could n
 `unknown`, with its full repository and the reason: it is counted as unknown, never read from the
 commits instead, and the command exits 1 after the page. The live counts are per environment, by
 its exact name and by whether it is the first of its list or a later one. TREES lists the issue worktrees `finish-issue --sweep --dry-run` keeps whose
-last commit or uncommitted change is older than a day, with the sweep's reason. The clone of each
+last commit or uncommitted change is older than a day, with the sweep's reason; it and the agent table
+name a worktree by the work item it belongs to, which after a carry from GitHub is not always the number
+of its directory. The clone of each
 repository with a card in testing, the folder whose origin is that repository, is fetched once per
 call, for at most a minute.
 

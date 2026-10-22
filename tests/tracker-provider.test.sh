@@ -85,14 +85,20 @@ sed '/^repo_visibility() {/,/^}/d' "$ROOT/lib/github/tracker.sh" > "$WORK/visibi
 lacks="$(dispatch "$WORK/visibility-copy" github)"
 check "missing visibility interface is named" yes "$(grep -q 'lacks these functions: repo_visibility' <<< "$lacks" && echo yes || echo no)"
 
-# a provider that answers no landing context cannot tell finish-issue whether an issue holds a record
+# a provider that answers no landing context cannot tell finish-issue whether an issue holds a record, and one that
+# cannot name the work item a reference means cannot tell finish-issue, integrate-issue, start-issue or session-start
+# which branch is an issue's
 for provider in github plane; do
-  cp -R "$ROOT/lib" "$WORK/context-lib"
-  mkdir -p "$WORK/context-copy"; rm -rf "$WORK/context-copy/lib"; mv "$WORK/context-lib" "$WORK/context-copy/lib"
-  sed '/^issue_landing_context() {/,/^}/d' "$ROOT/lib/$provider/tracker.sh" > "$WORK/context-copy/lib/$provider/tracker.sh"
-  lacks="$(dispatch "$WORK/context-copy" "$provider")"
-  check "$provider without its landing context is named" yes "$(grep -q 'lacks these functions: issue_landing_context' <<< "$lacks" && echo yes || echo no)"
+  for function in issue_landing_context referenced_issue; do
+    cp -R "$ROOT/lib" "$WORK/context-lib"
+    mkdir -p "$WORK/context-copy"; rm -rf "$WORK/context-copy/lib"; mv "$WORK/context-lib" "$WORK/context-copy/lib"
+    sed "/^$function() {/,/^}/d" "$ROOT/lib/$provider/tracker.sh" > "$WORK/context-copy/lib/$provider/tracker.sh"
+    cmp -s "$ROOT/lib/$provider/tracker.sh" "$WORK/context-copy/lib/$provider/tracker.sh" && { echo "  FAIL the planted copy equals $provider's $function"; failed=$((failed + 1)); }
+    lacks="$(dispatch "$WORK/context-copy" "$provider")"
+    check "$provider without $function is named" yes "$(grep -q "lacks these functions: $function" <<< "$lacks" && echo yes || echo no)"
+  done
 done
+check "github names the number a reference gives, whatever the time" "287" "$( cd "$WORK/project" && bash -c '. "$1/lib/board.sh"; referenced_issue example-org/example-repo 287 1700000000' _ "$ROOT" )"
 
 # the forge: FORGE names the folder of lib/ the same way, and the check of a commit answers four ways
 fdispatch() {  # fdispatch <lib root> <FORGE or 'unset'>

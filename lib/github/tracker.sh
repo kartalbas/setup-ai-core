@@ -210,6 +210,14 @@ issue_thread() {  # issue_thread <owner/repo> <number>
   }'
 }
 
+# referenced_issue <owner/repo> <number> <time or empty>: the number of the issue that a reference to <number> of the
+# repository, made at <time> (whole seconds since 1970), names. GitHub never gives a number of a repository twice, so
+# it is <number>, whatever the time. lib/plane/tracker.sh answers by the time, and prints a tab and the reason where
+# the reference names no work item.
+referenced_issue() {
+  printf '%s\n' "$2"
+}
+
 # issue_landing_context <owner/repo> <number>: what decides whether the issue holds a record of a landing
 # (landing_recorded in lib/board.sh), as one JSON object:
 #   {reopenedAt, comments:[{createdAt, body, authorAssociation}]}

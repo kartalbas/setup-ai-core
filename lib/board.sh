@@ -401,8 +401,8 @@ sync_released_cards() {  # sync_released_cards <owner/repo>...
 # summer time, "2026-10-22T08:31:17.295431+02:00", and the two meet in one thread when a carry copies
 # GitHub's comments into Plane. `instant_key` is the instant as [whole seconds since 1970, nine digits of
 # fraction], which jq orders as the time is; `instant` is the same as the text "<seconds>.<nine digits>";
-# neither reads a text that is no RFC 3339 time with a zone: it answers nothing, and jq stops at a date the
-# calendar does not have.
+# neither reads a text that is no RFC 3339 time with a zone: it answers nothing, and jq stops at a field out
+# of its range, a month 13 or an hour 25, while it carries 2026-02-30 into March.
 INSTANT_JQ='
 def instant_key: capture("^(?<s>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?<f>\\.[0-9]+)?(?<z>Z|(?<d>[+-])(?<h>[01][0-9]|2[0-3]):(?<m>[0-5][0-9]))$")
   | (if .z == "Z" then 0 else ("1970-01-01T\(.h):\(.m):00Z" | fromdateiso8601) * (if .d == "-" then -1 else 1 end) end) as $offset

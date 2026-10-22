@@ -430,6 +430,36 @@ landing_recorded() {
     | any(((landing_repo($issue) | ascii_downcase) == ($landing | ascii_downcase)) and lists($shas))' >/dev/null
 }
 
+# --- the commits that name an issue ---------------------------------------------------------
+
+# instant_seconds <time>: the whole seconds since 1970 of a time as a tracker writes it, read by the
+# `instant` of LANDING_RECORD_JQ
+instant_seconds() {
+  jq -nr --arg t "$1" "$LANDING_RECORD_JQ"'$t | instant | split(".")[0]' 2>/dev/null || die "cannot read the time '$1' of an issue"
+}
+
+# issue_commits <clone> <ref> <issue repo> <number> <commit repo> <createdAt> <carriedFrom> <git log format> <count>:
+# the commits of the ref in the clone that name the issue, newest first, each printed as the git log format
+# says, the <count> taken from the commits that pass the time rule below and never handed to git before it.
+# After a carry from GitHub every number up to the count of carried issues is both a GitHub number of a
+# repository and the number of a work item of the project, so a commit names an issue by its number only
+# from the issue's creation on, and by the reference it was carried from only before it. The comparison is
+# by committer time in whole seconds, read as %ct and as `instant` reads the tracker's time. <carriedFrom>
+# is "<owner/repo>#<number>", or empty where the issue was not carried. On GitHub the rule drops nothing:
+# no commit names an issue before the issue exists.
+issue_commits() {
+  local clone="$1" ref="$2" issue_repo="$3" number="$4" commit_repo="$5" created="$6" carried="$7" format="$8" count="$9"
+  local at younger older="" shas sha
+  [ -n "$created" ] || die "the tracker gave no creation time for ${issue_repo:+$issue_repo}#$number, and a commit names an issue only from its creation on"
+  at="$(instant_seconds "$created")" || exit 1
+  younger="$(git -C "$clone" log "$ref" -E -i --grep="$(issue_mention_pattern "$issue_repo" "$number" "$commit_repo")" --format='%ct %H' | awk -v at="$at" '$1 >= at')" || return 1
+  if [ -n "$carried" ]; then
+    older="$(git -C "$clone" log "$ref" -E -i --grep="$(issue_mention_pattern "${carried%#*}" "${carried##*#}" "$commit_repo")" --format='%ct %H' | awk -v at="$at" '$1 < at')" || return 1
+  fi
+  shas="$(printf '%s\n%s\n' "$younger" "$older" | sed '/^$/d' | sort -s -k1,1nr | awk -v n="$count" '!seen[$2]++ && ++kept <= n { print $2 }')" || return 1
+  for sha in $shas; do git -C "$clone" show -s --format="$format" "$sha" || return 1; done
+}
+
 # --- issues -------------------------------------------------------------------
 
 # HOW THE FIRST LINE OF EVERY ISSUE BODY OPENS. `issue-new` builds that line out of arguments it

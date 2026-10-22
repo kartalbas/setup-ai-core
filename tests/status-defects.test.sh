@@ -58,7 +58,7 @@ DEFECTS="$W/defects.tsv"
   printf '%s\t' lib/status-live.mjs 's/l.where.env === env.name \&\& (l.where.n === 0) === (n === 0)/l.where.n === n/'
   printf '%s\t%s\n' status.test.sh 'the header: live buckets'
   printf '%s\t' 'the own full reference of a message body is not a reference'
-  printf '%s\t' lib/status-live.mjs 's/`--grep=\${record.pattern}`/`--grep=(^|[^A-Za-z0-9._\/-])#${card.number}([^0-9]|$)`/'
+  printf '%s\t' lib/status-live.mjs 's/named(record.pattern, /named(`(^|[^A-Za-z0-9._\/-])#${record.number}([^0-9]|$)`, /'
   printf '%s\t%s\n' status.test.sh 'the own full reference and the bare reference'
   printf '%s\t' 'a card whose landing could not be read is counted as not live'
   printf '%s\t' lib/status-live.mjs "s/if (record.context === 'failed') return result('unknown', { reason: record.reason });/if (record.context === 'failed') return result('notLive');/"

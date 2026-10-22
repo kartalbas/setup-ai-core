@@ -91,7 +91,6 @@ unlanded() {
   out="$(git -C "$main" log --merges --format='%h %s' "origin/$default..$1" 2>&1)" || { printf '%s\n' "$out"; return 1; }
   [ -z "$out" ] || printf '%s\n' "$out"
 }
-landed() { local missing; missing="$(unlanded "refs/heads/$1")" && [ -z "$missing" ]; }
 # branch_history <branch>: what the reflog says happened to the branch. It is read whole before anything
 # looks into it: piped into grep -q, grep stops at the first hit, git can die of the closed pipe, and
 # under pipefail the answer then turned into "never committed in" on a busy machine
@@ -132,7 +131,10 @@ if [ "$sweep" -eq 1 ]; then
     [ -n "$path" ] || continue
     if ! own_worktree "$path" "$branch"; then echo "worktree $path: named for another issue, holds $branch, stays"
     elif [ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]; then echo "worktree $path: has changes, stays"
-    elif ! landed "$branch"; then echo "worktree $path: has work origin/$default does not have yet, stays"
+    elif ! missing="$(unlanded "refs/heads/$branch")"; then
+      # git's words on one line, their colons spelled as dashes: the line of a kept worktree is read back as "<path>: <reason>, stays"
+      echo "worktree $path: could not be measured against origin/$default - $(tr -s '\n' ' ' <<< "$missing" | sed 's/: / - /g; s/ *$//'), stays"
+    elif [ -n "$missing" ]; then echo "worktree $path: has work origin/$default does not have yet, stays"
     elif ! worked_in "$branch"; then echo "worktree $path: never committed in, stays"
     elif [ $((now - $(git -C "$main" log -1 --format=%ct "refs/heads/$branch"))) -lt "$REST_SECONDS" ]; then
       echo "worktree $path: landed less than a day ago, stays; finish-issue removes it at once"
@@ -229,7 +231,7 @@ clear_origin_branches() {
 # What landed. An issue no commit on origin names has not landed, whatever its worktree held: the
 # card does not move and the issue is not told.
 own="$(default_repo 2>/dev/null)"
-commits="$(git -C "$main" log "origin/$default" -E -i --grep="$(issue_mention_pattern "${repo:-$own}" "$number" "$own")" --format='- %h %s' -n 20)"
+commits="$(issue_commits "$main" "origin/$default" "${repo:-$own}" "$number" "$own" "$(jq -r '.createdAt // ""' <<< "$thread")" "$(jq -r '.carriedFrom // ""' <<< "$thread")" '- %h %s' 20)"
 if [ -z "$commits" ]; then
   if [ "$landed_flag" -eq 1 ]; then
     clear_origin_branches

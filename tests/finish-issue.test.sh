@@ -68,7 +68,7 @@ case "\$a" in
   *"projectsV2(first"*)     [ -e "$fake/no-board" ] || echo '{}' ;;
   *graphql*)                echo '{}' ;;
   *"api user"*)             echo '{"login":"tester"}' ;;
-  *issues/*)                echo '{"number":163,"title":"Read the board whole","state":"'"\$(cat "$state")"'","labels":[],"assignees":[],"body":"The count is a guess."}' ;;
+  *issues/*)                echo '{"number":163,"title":"Read the board whole","state":"'"\$(cat "$state")"'","labels":[],"created_at":"2026-01-01T00:00:00Z","assignees":[],"body":"The count is a guess."}' ;;
   *)                        echo '{}' ;;
 esac
 exit 0
@@ -983,6 +983,55 @@ check 'status-sync did not fail'       0 "$(grep -c 'status-sync did NOT run' <<
 check 'the sweep read the epic'        1 "$(grep -c 'subIssues(first' "$log" || true)"
 check 'no epic was closed'             0 "$(grep -cE 'method PATCH.*issues/400|issues/400.*state=closed' "$log" || true)"
 check 'both cards moved to testing: the landed one and the epic' 2 "$(grep -c 'oid=OPT_test' "$log" || true)"
+
+
+# A carried issue has a number of its own and the GitHub reference it came from. A commit names it by that number only
+# from the issue's creation on, and by the reference only before it (issue_commits in lib/board.sh). The thread is the
+# tracker's answer, so a stand-in of bin/issue-thread.sh in a copy of the commands gives it the two fields.
+echo 'a carried issue lists the commits that name its GitHub reference from before it was made and those that name its own number from then on'
+carried_copy() {  # carried_copy <directory> [sed expression for lib/board.sh]: the commands with a stand-in thread, and the planted defect where one is named
+  rm -rf "$1"; mkdir -p "$1"; cp -R "$root/bin" "$1/bin"; cp -R "$root/lib" "$1/lib"
+  printf '#!/usr/bin/env bash\ncat "$THREAD_FILE"\n' > "$1/bin/issue-thread.sh"
+  [ -z "${2:-}" ] || sed -i.bak "$2" "$1/lib/board.sh"
+  [ -z "${2:-}" ] || ! cmp -s "$root/lib/board.sh" "$1/lib/board.sh" || { echo "  FAIL the planted copy equals lib/board.sh: $2"; failed=$((failed + 1)); }
+}
+commit_at() {  # commit_at <date> <subject>: an empty commit on origin's master
+  GIT_AUTHOR_DATE="$1" GIT_COMMITTER_DATE="$1" setup git -C "$work" commit -q --allow-empty -m "$2"
+  setup git -C "$work" push -q origin HEAD:master
+}
+setup git -C "$work" pull -q --ff-only origin master
+commit_at 2026-05-01T00:00:00Z 'Old work (#287)'
+commit_at 2026-07-01T00:00:00Z 'New work (#412)'
+commit_at 2026-07-02T00:00:00Z 'After the carry (#287)'
+commit_at 2026-04-01T00:00:00Z 'Before the carry (#412)'
+printf '{"number":412,"title":"Carried card","state":"open","labels":[],"body":"","carriedFrom":"example-org/example-repo#287","createdAt":"2026-06-01T00:00:00Z","comments":[]}\n' > "$fake/thread.json"
+carried_list() {  # carried_list <directory of the commands>: the subjects the record of #412 lists, after a run of finish-issue 412
+  rm -f "$fake"/comments/*issues_412_comments.json; fresh
+  (cd "$work" && THREAD_FILE="$fake/thread.json" bash "$1/bin/finish-issue.sh" 412 > "$fake/carried.out" 2>&1)
+  jq -r '.[].body' "$fake"/comments/*issues_412_comments.json 2>/dev/null | sed -n 's/^- [0-9a-f]* //p' | sort | tr '\n' '|'
+}
+carried_copy "$fake/fc"
+check 'the record lists the commit of the GitHub reference from before the carry and the one of its own number from after it, and no other' \
+  'New work (#412)|Old work (#287)|' "$(carried_list "$fake/fc")"
+carried_copy "$fake/fc" 's/if \[ -n "\$carried" \]; then/if false; then/'
+check 'planted: the carried reference not searched lists the work of its own number alone' 'New work (#412)|' "$(carried_list "$fake/fc")"
+carried_copy "$fake/fc" "s/awk -v at=\"\$at\" '\\\$1 >= at'/awk '1'/"
+check 'planted: the lower bound dropped lists the commit made before the carry that names its own number' 'Before the carry (#412)|New work (#412)|Old work (#287)|' "$(carried_list "$fake/fc")"
+carried_copy "$fake/fc" "s/awk -v at=\"\$at\" '\\\$1 < at'/awk '1'/"
+check 'planted: the upper bound dropped lists the commit made after the carry that names the GitHub reference' 'After the carry (#287)|New work (#412)|Old work (#287)|' "$(carried_list "$fake/fc")"
+
+echo 'the sweep says that a branch could not be measured, with git'"'"'s words, where its history cannot be read'
+open issue-421-unmeasured
+open issue-422-ahead
+echo ahead >> "$trees/issue-422-ahead/README.md"; setup git -C "$trees/issue-422-ahead" add -A; setup git -C "$trees/issue-422-ahead" commit -q -m 'Work not on origin (#422)'
+out="$(env PROBE_CHERRY_FAIL=1 bash -c 'PATH="$1:$PATH"; cd "$2" && bash "$3" --sweep --dry-run 2>&1' _ "$fake/gitshim" "$work" "$finish")"
+check 'a branch whose history cannot be read is named as unmeasured, with git'"'"'s words' \
+  "worktree $trees/issue-421-unmeasured: could not be measured against origin/master - fatal - planted failure of git cherry, stays" "$(grep 'issue-421-unmeasured' <<< "$out")"
+out="$(run --sweep --dry-run)"
+check 'and where it can be read, the branch with work origin lacks says so, as before' \
+  "worktree $trees/issue-422-ahead: has work origin/master does not have yet, stays" "$(grep 'issue-422-ahead' <<< "$out")"
+setup git -C "$work" worktree remove --force "$trees/issue-421-unmeasured"; setup git -C "$work" branch -q -D issue-421-unmeasured
+setup git -C "$work" worktree remove --force "$trees/issue-422-ahead"; setup git -C "$work" branch -q -D issue-422-ahead
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

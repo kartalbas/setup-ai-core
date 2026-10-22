@@ -84,14 +84,15 @@ plane_check_owner() {
 
 # The repository of a work item whose labels are expanded: the owner of the checkout's origin and the name
 # its repo: label carries; failing that the repository a carried item names in its external_id
-# (<owner/repo>#<n> from GitHub); otherwise null. An item without either belongs to no repository, and is
+# (<owner/repo>#<n> from GitHub); otherwise null. carried_from is that external_id of a carried item, else null. An item without either belongs to no repository, and is
 # never listed under the checkout's. An item that carries two repo: labels names no one repository: it is
 # listed under none, and plane_check_item refuses to act on it.
-PLANE_REPO='def repo($owner):
+PLANE_REPO='def carried_from: if .external_source == "github" and ((.external_id // "") | test("^[^/#]+/[^/#]+#[0-9]+$")) then .external_id else null end;
+  def repo($owner):
   [.labels[]? | .name | select(startswith("repo:")) | .[5:]] as $l
   | if ($l | length) > 1 then null
     elif ($l | length) == 1 then "\($owner)/\($l[0])"
-    elif .external_source == "github" and ((.external_id // "") | test("^[^/#]+/[^/#]+#[0-9]+$")) then .external_id | sub("#[0-9]+$"; "")
+    elif carried_from then carried_from | sub("#[0-9]+$"; "")
     else null end;
   def same($a; $b): ($a // "" | ascii_downcase) == ($b | ascii_downcase);'
 
@@ -590,14 +591,15 @@ plane_item_url() {
 }
 
 # issue_thread <owner/repo> <number>: the work item and its whole comment thread as one JSON object:
-#   {number,title,state,labels,body,comments:[{author,created_at,body}]}
+#   {number,title,state,labels,body,carriedFrom,createdAt,comments:[{author,created_at,body}]}
+# carriedFrom is the GitHub reference a carried work item came from, else null; createdAt is the work item's
 issue_thread() {
   local item comments
   item="$(plane_item "$1" "$2")" || exit 1
   comments="$(plane_pages "the comments of $1#$2" "$(plane_path "$(plane_issue_path "$item")comments/")?expand=actor")" || exit 1
-  printf '%s\n%s\n' "$item" "$comments" | jq -s "$PLANE_TEXT"'
+  printf '%s\n%s\n' "$item" "$comments" | jq -s "$PLANE_REPO""$PLANE_TEXT"'
     .[0] as $i | .[1:] as $c | {
-      number: $i.sequence_id, title: $i.name,
+      number: $i.sequence_id, title: $i.name, carriedFrom: ($i | carried_from), createdAt: $i.created_at,
       state: (if ($i.state.group | IN("completed", "cancelled")) then "closed" else "open" end),
       labels: [$i.labels[].name | select(startswith("repo:") | not)], body: (($i.description_html // "") | text),
       comments: ($c | sort_by(.created_at) | map({author: (.actor.display_name // .actor.email // ""),
@@ -958,6 +960,7 @@ card_rows() {
     | (map(select(.parent.id) | .parent.id) | group_by(.) | map({key: .[0], value: length}) | from_entries) as $subs
     | .[] | {repo: repo($o), number: .sequence_id, title: .name, open: (closed | not),
              closedAt: (if closed then (.completed_at // .updated_at) else null end),
+             createdAt: .created_at, carriedFrom: carried_from,
              status: .state.name, priority: prio,
              parent: (if .parent.id then (.parent | ref($byid; $o)) else null end),
              subs: ($subs[.id] // 0)}'
@@ -1079,15 +1082,36 @@ plane_active_member_ids() {
 # where its author is an active member of the project: the is_member of a comment says whether the key's
 # own user is a member (Plane CE 1.4.2, apps/api/plane/api/views/issue.py, member_id=self.request.user.id),
 # so it says nothing of the author. The reopening is the last change of the state from a closed to an open one.
+#
+# A CARRIED COMMENT is one with external_source github and an external_id, the mark the carry posts
+# (carry_comment_request); every other comment is a Plane comment, judged as above whatever its text says. The
+# carry writes each GitHub comment under the header lib/carry-plan.jq makes, "Comment N of T by @login
+# (ASSOCIATION) on <time>", the address and an empty line. A carried comment is read from that header: its time
+# is the header's, never its created_at, which Plane may set to the time of the carry; its body follows the
+# header; its association is GitHub's word in the header, and only where its actor is an active member
+# of the project, NONE otherwise and where the header has no word (carried before the header held it). The
+# provenance comment of a carry is no comment of a person: it is left out, and the reopening on GitHub it
+# names ("Last reopened on GitHub at <time>.") counts beside Plane's own, the later of the two.
 plane_landing_context() {
   local id="$1" what="$2" closed="$3" members="$4" comments acts
   comments="$(plane_pages "the comments of $what" "$(plane_path "projects/$(plane_project_uuid)/issues/$id/comments/")")" || exit 1
   acts="$(plane_pages "the state changes of $what" "$(plane_path "projects/$(plane_project_uuid)/issues/$id/activities/")")" || exit 1
-  jq -cn --argjson closed "$closed" --argjson members "$members" --argjson c "$(printf '%s' "$comments" | jq -cs '.')" --argjson a "$(printf '%s' "$acts" | jq -cs '.')" "$PLANE_TEXT"'
-    {comments: ($c | sort_by(.created_at) | map({createdAt: .created_at, body: ((.comment_html // "") | text),
-                authorAssociation: (if (.actor | if type == "object" then .id else . end) as $a | $members | index($a) then "MEMBER" else "NONE" end)})),
-     reopenedAt: ([$a[] | select(.field == "state" and (.old_identifier | IN($closed[])) and ((.new_identifier | IN($closed[])) | not))]
-                  | sort_by(.created_at) | last | .created_at)}'
+  jq -cn --arg what "$what" --argjson closed "$closed" --argjson members "$members" --argjson c "$(printf '%s' "$comments" | jq -cs '.')" --argjson a "$(printf '%s' "$acts" | jq -cs '.')" "$PLANE_TEXT"'
+    def member: (.actor | if type == "object" then .id else . end) as $a | $members | index($a) != null;
+    def carried: .external_source == "github" and ((.external_id // "") != "");
+    def provenance: carried and (.text | startswith("Carried from GitHub "));
+    def unwrapped: (.text | split("\n")) as $l
+      | (($l[0] | capture("^Comment [0-9]+ of [0-9]+ by (?:@[^ ]+|an unavailable author)(?: \\((?<word>[A-Z_]+)\\))? on (?<at>[^ ]+)$"))
+         // error("the header of a carried comment of \($what) cannot be read: \($l[0])")) as $h
+      | {createdAt: $h.at, body: ($l[3:] | join("\n")), authorAssociation: (if member then ($h.word // "NONE") else "NONE" end)};
+    ($c | map(. + {text: ((.comment_html // "") | text)})) as $all
+    | {comments: ($all | map(select(provenance | not)
+                | if carried then unwrapped else {createdAt: .created_at, body: .text, authorAssociation: (if member then "MEMBER" else "NONE" end)} end)
+                | sort_by(.createdAt)),
+       reopenedAt: ([([$a[] | select(.field == "state" and (.old_identifier | IN($closed[])) and ((.new_identifier | IN($closed[])) | not))]
+                      | sort_by(.created_at) | last | .created_at),
+                     ($all[] | select(provenance) | .text | split("\n")[] | capture("^Last reopened on GitHub at (?<t>[^ ]+)\\.$") | .t)]
+                    | map(select(. != null)) | max)}'
 }
 
 # issue_landing_context <owner/repo> <number>: the landing context of lib/tracker.sh of a work item, every comment
@@ -1125,7 +1149,7 @@ open_issue_page() {
     | {data: {repository: {issues: {pageInfo: {hasNextPage: false, endCursor: null},
         nodes: [.[] | select(same(repo($o); $r) and (closed | not)) | . as $w
           | ($extra | map(select(.id == $w.id))[0] // {comments: [], reopenedAt: null}) as $x
-          | {number: .sequence_id, subIssuesSummary: {total: ($subs[.id] // 0)},
+          | {number: .sequence_id, createdAt: .created_at, carriedFrom: carried_from, subIssuesSummary: {total: ($subs[.id] // 0)},
              projectItems: {nodes: [{project: {number: $board, owner: {login: $org}}, status: {name: .state.name}}]},
              reopened: {nodes: (if $x.reopenedAt then [{createdAt: $x.reopenedAt}] else [] end)},
              comments: {nodes: $x.comments}}]}}}}'

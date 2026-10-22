@@ -10,7 +10,7 @@ const scale = mode === 'scale', bulk = mode === 'bulk', pair = mode === 'pair';
 const org = 'example-org', R = { repo: `${org}/example-repo`, tools: `${org}/tools`, web: `${org}/web`, old: `${org}/old` };
 const url = (r, n) => `https://github.com/${r}/issues/${n}`;
 const iss = (r, n, o = {}) => ({ number: n, id: `I_${r.split('/')[1]}${n}`, title: `${r.split('/')[1]} issue ${n}`, body: `body of ${n}\n`, state: 'OPEN', stateReason: null, url: url(r, n), labels: ['type:feature'], comments: [], parent: null, items: [], ...o });
-const cm = (id, at, body, author = 'kadir') => ({ id, url: `https://github.com/x/issues/1#${id}`, createdAt: at, body, author });
+const cm = (id, at, body, author = 'kadir', authorAssociation = 'MEMBER') => ({ id, url: `https://github.com/x/issues/1#${id}`, createdAt: at, body, author, authorAssociation });
 const mem = (id, board, status, priority, isArchived = false) => ({ id, project: board, status, priority, isArchived });
 const event = (type, createdAt) => ({ type, createdAt });
 const nodeId = (prefix, n) => `${prefix}_kwDOBqBU3c4AbCdEzgJk${n}`;   // as long as the node ids GitHub hands out
@@ -23,7 +23,7 @@ const issues = {
     iss(R.repo, 3, { state: 'CLOSED', stateReason: 'COMPLETED', items: [mem('PVTI_a3', 'PVT_A', 'Done', 'P2', true)] }),
     iss(R.repo, 4, { state: 'CLOSED', stateReason: 'NOT_PLANNED', items: [mem('PVTI_a4', 'PVT_A', 'Done', null, true)] }),
     iss(R.repo, 5, { state: 'CLOSED', stateReason: 'DUPLICATE' }),
-    iss(R.repo, 6, { stateReason: 'REOPENED', items: [mem('PVTI_a6', 'PVT_A', 'Done', 'P3', true)] }),
+    iss(R.repo, 6, { stateReason: 'REOPENED', items: [mem('PVTI_a6', 'PVT_A', 'Done', 'P3', true)], timeline: [event('CLOSED_EVENT', '2026-10-05T08:00:00Z'), event('REOPENED_EVENT', '2026-10-05T09:00:00Z')] }),
     iss(R.repo, 7, { parent: { id: 'I_tools1', number: 1, url: url(R.tools, 1), repository: R.tools } }),
     iss(R.repo, 8, { items: [mem('PVTI_a8', 'PVT_A', 'backlog', 'P9')] }),
     iss(R.repo, 9, { items: [mem('PVTI_a9', 'PVT_A', 'ready', 'P2'), mem('PVTI_b9', 'PVT_B', 'planned', 'P2')] }),

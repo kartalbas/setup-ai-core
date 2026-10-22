@@ -180,7 +180,8 @@ repo_open_projects() {  # repo_open_projects <owner/repo>
 }
 
 # An issue and its whole comment thread, as one JSON object:
-#   {number,title,state,labels,body,comments:[{author,created_at,body}]}
+#   {number,title,state,labels,body,carriedFrom,createdAt,comments:[{author,created_at,body}]}
+# carriedFrom is null on GitHub, and createdAt is when the issue was made
 #
 # The comments are paged. A thread on an epic often runs past one page, and a page that is
 # dropped makes the thread look settled when it is not: gh prints one JSON array per page, and every
@@ -200,6 +201,8 @@ issue_thread() {  # issue_thread <owner/repo> <number>
   printf '%s\n%s\n' "$issue" "$comments" | jq -s '.[0] as $issue | (.[1:] | add // []) as $comments | {
     number:   $issue.number,
     title:    $issue.title,
+    carriedFrom: null,
+    createdAt: ($issue.created_at // ""),
     state:    $issue.state,
     labels:   [$issue.labels[].name],
     body:     ($issue.body // ""),
@@ -886,7 +889,7 @@ carry_overflow() {
 carry_append() { { printf '%s\n' "$1"; printf '%s\n' "$3"; } | jq -nc --arg k "$2" 'input as $row | [inputs] as $e | $row | .[$k] += $e'; }
 
 CARRY_FIELD_VALUES='fieldValues(first:20){ nodes{ ... on ProjectV2ItemFieldSingleSelectValue{ name field{ ... on ProjectV2SingleSelectField{ name } } } } }'
-CARRY_COMMENT='id url createdAt body author{ login }'
+CARRY_COMMENT='id url createdAt body authorAssociation author{ login }'
 CARRY_MEMBERSHIP='id isArchived project{ id } '"$CARRY_FIELD_VALUES"
 # the close and reopen events of an issue, which tell a close a person made after the old carry's from the old carry's own
 CARRY_TIMELINE='__typename ... on ClosedEvent{ createdAt } ... on ReopenedEvent{ createdAt }'
@@ -903,7 +906,7 @@ CARRY_ISSUE='id number title body state stateReason(enableDuplicate: true) url
 CARRY_STATUS='(first(.fieldValues.nodes[]? | select(.field.name == "Status") | .name) // null)'
 CARRY_PRIORITY='(first(.fieldValues.nodes[]? | select(.field.name == "Priority") | .name) // null)'
 CARRY_ISSUE_ROW='{kind: "issue", repo: $repo, number, id, url, title, body, state, reason: .stateReason, labels: [.labels.nodes[].name],
-  comments: [.comments.nodes[] | {id, url, createdAt, body, author: (.author.login // null)}],
+  comments: [.comments.nodes[] | {id, url, createdAt, body, authorAssociation, author: (.author.login // null)}],
   parent: (if .parent == null then null else {id: .parent.id, repo: .parent.repository.nameWithOwner, number: .parent.number, url: .parent.url} end),
   memberships: [.projectItems.nodes[] | {item: .id, board: .project.id, archived: .isArchived, status: '"$CARRY_STATUS"', priority: '"$CARRY_PRIORITY"'}],
   timeline: [.timelineItems.nodes[] | '"$CARRY_TIMELINE_EVENT"'],
@@ -922,7 +925,7 @@ github_carry_repositories() {
 }
 
 # github_carry_issues <owner/repo> [number]: the issues of the repository (or the one), one row each:
-#   {kind, repo, number, id, url, title, body, state, reason, labels: [name], comments: [{id, url, createdAt, body, author}],
+#   {kind, repo, number, id, url, title, body, state, reason, labels: [name], comments: [{id, url, createdAt, body, authorAssociation, author}],
 #    parent: {id, repo, number, url} | null, memberships: [{item, board, archived, status, priority}],
 #    timeline: [{kind: "closed" | "reopened", at}]}
 # in the order they were opened, with every nested connection read to its end.
@@ -945,7 +948,7 @@ github_carry_issues() {
         what="of the issue $repo#$(jq -r .number <<< "$row")"
         case "$kind" in
           labels)      extra="$(carry_overflow "the labels $what" "$(jq -r .id <<< "$row")" Issue labels "" 'name' "$cursor" | jq -c '.name')" ;;
-          comments)    extra="$(carry_overflow "the comments $what" "$(jq -r .id <<< "$row")" Issue comments "" "$CARRY_COMMENT" "$cursor" | jq -c '{id, url, createdAt, body, author: (.author.login // null)}')" ;;
+          comments)    extra="$(carry_overflow "the comments $what" "$(jq -r .id <<< "$row")" Issue comments "" "$CARRY_COMMENT" "$cursor" | jq -c '{id, url, createdAt, body, authorAssociation, author: (.author.login // null)}')" ;;
           memberships) extra="$(carry_overflow "the board memberships $what" "$(jq -r .id <<< "$row")" Issue projectItems ", includeArchived: true" "$CARRY_MEMBERSHIP" "$cursor" | jq -c '{item: .id, board: .project.id, archived: .isArchived, status: '"$CARRY_STATUS"', priority: '"$CARRY_PRIORITY"'}')" ;;
           timeline)    extra="$(carry_overflow "the close and reopen events $what" "$(jq -r .id <<< "$row")" Issue timelineItems ", $CARRY_TIMELINE_TYPES" "$CARRY_TIMELINE" "$cursor" | jq -c "$CARRY_TIMELINE_EVENT")" ;;
         esac
@@ -1005,8 +1008,9 @@ github_carry_boards() {
 
 # card_rows: every card of the selected board that is an issue, one JSON object per line, the card row
 # of lib/tracker.sh:
-#   {repo, number, title, open, closedAt, status, priority, parent, subs}
+#   {repo, number, title, open, closedAt, createdAt, carriedFrom, status, priority, parent, subs}
 # repo and parent are "owner/repo" and "owner/repo#number"; closedAt is an ISO 8601 time or null;
+# createdAt is when the issue was made; carriedFrom is null here, an issue of GitHub was carried from nowhere;
 # status and priority are the names of the card's Status and Priority, or null; subs counts sub-issues.
 card_rows() {
   local after="" out cards
@@ -1017,11 +1021,11 @@ card_rows() {
         items(first:100, after:$after) { pageInfo { hasNextPage endCursor } nodes {
           status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
           priority: fieldValueByName(name:"Priority") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
-          content { ... on Issue { number title state closedAt repository { nameWithOwner }
+          content { ... on Issue { number title state closedAt createdAt repository { nameWithOwner }
             parent { number repository { nameWithOwner } } subIssuesSummary { total } } } } } } } }' --jq "$cards")" || exit 1
     grep '^{' <<< "$out" | jq -c 'select(.content.number != null) | .content as $c
       | { repo: $c.repository.nameWithOwner, number: $c.number, title: $c.title, open: ($c.state == "OPEN"),
-          closedAt: $c.closedAt, status: .status.name, priority: .priority.name,
+          closedAt: $c.closedAt, createdAt: $c.createdAt, carriedFrom: null, status: .status.name, priority: .priority.name,
           parent: (if $c.parent then "\($c.parent.repository.nameWithOwner)#\($c.parent.number)" else null end),
           subs: ($c.subIssuesSummary.total // 0) }'
     after="$(sed -n 's/^after //p' <<< "$out")"
@@ -1036,7 +1040,7 @@ open_issue_page() {
   gh_read "the open issues of $1" api graphql -f o="${1%%/*}" -f n="${1#*/}" ${2:+-f after="$2"} -f query='
     query($o:String!, $n:String!, $k:Int!, $after:String) { repository(owner:$o, name:$n) {
       issues(states:OPEN, first:50, after:$after) { pageInfo { hasNextPage endCursor } nodes {
-        number subIssuesSummary { total }
+        number createdAt subIssuesSummary { total }
         projectItems(first:20) { nodes { project { number owner { ... on Organization { login } ... on User { login } } }
           status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } }
         reopened: timelineItems(last:1, itemTypes:[REOPENED_EVENT]) { nodes { ... on ReopenedEvent { createdAt } } }

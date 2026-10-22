@@ -205,9 +205,11 @@ git -C "$P" remote set-url origin "$WORK/origins/example-org/example-repo.git"
 git init -q -b master "$WORK/carried-repo"; git -C "$WORK/carried-repo" remote add origin "$WORK/origins/example-org/carried-repo.git"
 printf 'LIVE_TAGS="prod=landed"\n' >> "$P/.ai-core/config.env"
 mkdir -p "$WORK/carried-repo/.ai-core"; cp "$P/.ai-core/config.env" "$WORK/carried-repo/.ai-core/config.env"
-commit() {  # commit <dir> <subject>: an empty commit pushed to origin's master; prints its short hash
+day="$(planeq 'console.log(s.day)')"
+commit() {  # commit <dir> <subject>: an empty commit pushed to origin's master, made at COMMIT_AT, else late in the stand-in's day, after every work item it made; prints its short hash
+  local at="${COMMIT_AT:-${day}T23:30:00Z}"
   git -C "$1" -c user.name=Test -c user.email=test@example.test checkout -q -B master 2>/dev/null
-  git -C "$1" -c user.name=Test -c user.email=test@example.test commit -q --allow-empty -m "$2"
+  GIT_AUTHOR_DATE="$at" GIT_COMMITTER_DATE="$at" git -C "$1" -c user.name=Test -c user.email=test@example.test commit -q --allow-empty -m "$2"
   git -C "$1" push -q origin master 2>/dev/null; git -C "$1" rev-parse --short HEAD
 }
 n="$(new "Landed, released and proven")" || fail "issue-new"
@@ -263,6 +265,132 @@ grep -q '^proof due    example-repo#74' <<< "$out" || fail "the proof of somebod
 grep -q "would close  example-repo#75  (testing -> done, released in its landing on origin/master and proven)" <<< "$out" \
   || fail "the proof of an active member other than the key's own user did not count: $out"
 echo "  status-sync: a proof counts when its author is an active member of the project; one by a stranger or by somebody who left does not"
+
+# A CARRIED CARD. The work item the carry made from GitHub issue example-org/carried-repo#N has a number of its own and
+# is created when the carry runs; the commits made before that name the GitHub number, and those made after it name the
+# work item. Its landing and its proof are comments the carry posted (external_source github), each under the header
+# "Comment N of T by @login (ASSOCIATION) on <time>", the address and an empty line.
+before_carry="${day}T07:00:00Z"   # before every work item of the stand-in, which makes them at 08:00 and later
+carried_commit() {  # carried_commit <GitHub number> [commit time]: a commit of carried-repo naming that GitHub issue; prints its short hash
+  COMMIT_AT="${2:-$before_carry}" commit "$WORK/carried-repo" "#$1 Do the old thing"
+}
+carried_comment() {  # carried_comment <number> <n> <header word, or - for none> <header time> <text> [author] [created_at]
+  local header="Comment $2 of 2 by @kadir${3:+ ($3)} on $4"
+  [ "$3" != - ] || header="Comment $2 of 2 by @kadir on $4"
+  COMMENT_EXTERNAL_ID="gh-$1-$2" COMMENT_CREATED_AT="${7:-}" plane_add_comment "$1" "$header
+https://github.com/example-org/carried-repo/issues/$1#issuecomment-$2
+
+$5" "${6:-me@example.test}"
+}
+carried_item() {  # carried_item <number> <GitHub number> <proof header word, or - for none> [proof header time] [proof author]: a carried work item in testing, its landing and its proof carried
+  local sha
+  sha="$(git -C "$WORK/carried-repo" log --format=%h -n 1 --grep="#$2 ")"
+  ITEM_EXTERNAL_SOURCE=github ITEM_EXTERNAL_ID="example-org/carried-repo#$2" plane_add_item "$1" "Carried from GitHub $2"
+  planeset "p.issues.find((i)=>i.sequence_id===$1).state=p.states.find((s)=>s.name==='testing').id"
+  carried_comment "$1" 1 MEMBER "${day}T06:00:00Z" "Landed on master:
+
+- $sha #$2 Do the old thing"
+  carried_comment "$1" 2 "$3" "${4:-${day}T06:30:00Z}" "Proven on prod: it works" "${5:-me@example.test}" "${day}T23:00:00Z"
+}
+for g in 19 20 21 22 23 24; do carried_commit "$g" >/dev/null; done
+carried_item 600 19 MEMBER
+carried_item 601 20 NONE
+carried_item 602 21 CONTRIBUTOR
+carried_item 603 22 -
+carried_item 604 23 MEMBER "${day}T05:00:00Z"
+carried_item 605 24 OWNER "${day}T06:30:00Z" gone@example.test
+plane_add_item 607 "Created after the switch" repo:carried-repo
+planeset "p.issues.find((i)=>i.sequence_id===607).state=p.states.find((s)=>s.name==='testing').id"
+sha207="$(commit "$WORK/carried-repo" "#607 Do the new thing")"
+plane_add_comment 607 "Landed on master:
+- $sha207 #607 Do the new thing"
+plane_add_comment 607 "Proven on prod: it works"
+for spec in "606 stranger@example.test" "608 me@example.test"; do
+  plane_add_item "${spec%% *}" "A header, written in Plane" repo:carried-repo
+  planeset "p.issues.find((i)=>i.sequence_id===${spec%% *}).state=p.states.find((s)=>s.name==='testing').id"
+  plane_add_comment "${spec%% *}" "Landed on master:
+- $sha207 #${spec%% *} Do the new thing"
+  plane_add_comment "${spec%% *}" "Comment 1 of 1 by @x (OWNER) on ${day}T22:00:00Z
+https://github.com/example-org/carried-repo/issues/1#issuecomment-1
+
+Proven on prod: it works" "${spec#* }"
+done
+carried_sync() { ROOT_UNDER_TEST="${1:-$ROOT}" ai status-sync --dry-run carried-repo 2>&1; }
+out="$(carried_sync)" || fail "status-sync --dry-run carried-repo: $out"
+closes() { grep -q "would close  carried-repo#$2  (testing -> done, released in its landing on origin/master and proven)" <<< "$1"; }
+due() { grep -q "^proof due    carried-repo#$2" <<< "$1"; }
+closes "$out" 600 || fail "a carried landing and a proof carried with (MEMBER) did not close the card: $(grep 'carried-repo#600' <<< "$out")"
+echo "  status-sync: a carried card is closed by its carried landing record and its carried proof, whose author GitHub called a MEMBER"
+for item in 601 602 603; do due "$out" "$item" || fail "the carried proof of #$item without a trusted association did not leave the proof due: $(grep "carried-repo#$item" <<< "$out")"; done
+due "$out" 604 || fail "a carried proof dated before the carried landing counted: $(grep 'carried-repo#604' <<< "$out")"
+due "$out" 605 || fail "the carried proof of an author who left the project counted: $(grep 'carried-repo#605' <<< "$out")"
+due "$out" 606 || fail "a comment without the mark, in the form of a header, by an author outside the project counted: $(grep 'carried-repo#606' <<< "$out")"
+closes "$out" 607 || fail "a work item made after the switch, proven by a member in Plane, did not close: $(grep 'carried-repo#607' <<< "$out")"
+due "$out" 608 || fail "a comment without the carry's mark, written in the form of a header by a member, counted as a proof: $(grep 'carried-repo#608' <<< "$out")"
+echo "  status-sync: a carried proof counts by GitHub's word in its header: (NONE), (CONTRIBUTOR) and none leave it due, as do a proof carried before the landing and an author who left; a comment without the mark is no carried comment, whoever wrote it"
+
+mutant_root() {  # mutant_root <file> <sed expression>: a copy of the tree with one planted defect, in $WORK/mutant; prints its path
+  rm -rf "$WORK/mutant"; mkdir -p "$WORK/mutant"; cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$WORK/mutant/"; cp "$ROOT/VERSION" "$WORK/mutant/"
+  sed -i.bak "$2" "$WORK/mutant/$1"
+  cmp -s "$ROOT/$1" "$WORK/mutant/$1" && fail "the planted defect changed nothing in $1: $2"
+  printf '%s' "$WORK/mutant"
+}
+planted="$(mutant_root lib/plane/tracker.sh 's/if carried then unwrapped else/if false then unwrapped else/')"
+closes "$(carried_sync "$planted")" 600 && fail "planted: a carried header that is not unwrapped still closed the card"
+grep -q "^no landing   carried-repo#600" <<< "$(carried_sync "$planted")" || fail "planted: without the unwrap the carried card is not 'no landing'"
+planted="$(mutant_root lib/plane/tracker.sh 's/(if member then (\$h.word \/\/ "NONE") else "NONE" end)/(if member then "MEMBER" else "NONE" end)/')"
+closes "$(carried_sync "$planted")" 601 || fail "planted: the association read from the actor should let the (NONE) proof close the card"
+planted="$(mutant_root lib/plane/tracker.sh 's/createdAt: \$h.at, body/createdAt: .created_at, body/')"
+closes "$(carried_sync "$planted")" 604 || fail "planted: the time read from created_at should let the early proof close the card"
+planted="$(mutant_root lib/plane/tracker.sh 's/def carried: .*/def carried: (.text | startswith("Comment "));/')"
+closes "$(carried_sync "$planted")" 608 || fail "planted: every comment in the form of a header read as carried should let the member's comment close the card"
+planted="$(mutant_root lib/plane/tracker.sh 's/(if member then (\$h.word \/\/ "NONE") else "NONE" end)/($h.word \/\/ "NONE")/')"
+closes "$(carried_sync "$planted")" 605 || fail "planted: the actor not checked should let the departed member's proof close the card"
+echo "  planted defects, each caught: the header not unwrapped, the association from the actor, the time from created_at, every header-shaped comment read as carried, the actor not checked"
+
+# A reopening on GitHub is carried in the provenance comment, and voids the carried landing record as Plane's own does
+reopened_item() {  # reopened_item <number> <GitHub number> <time of the reopening>
+  carried_item "$1" "$2" MEMBER
+  COMMENT_EXTERNAL_ID="gh-node-$1" plane_add_comment "$1" "Carried from GitHub example-org/carried-repo#$2 (https://github.com/example-org/carried-repo/issues/$2); source issue I_$2; GitHub read at ${day}T07:30:00Z.
+Source state: OPEN, close reason: none.
+Last reopened on GitHub at $3.
+Destination: ENG."
+}
+for g in 27 28; do carried_commit "$g" >/dev/null; done
+reopened_item 615 27 "${day}T06:45:00Z"
+reopened_item 616 28 "${day}T05:00:00Z"
+out="$(carried_sync)" || fail "status-sync --dry-run carried-repo: $out"
+grep -q '^no landing   carried-repo#615' <<< "$out" || fail "a reopening on GitHub after the carried landing record did not void it: $(grep 'carried-repo#615' <<< "$out")"
+closes "$out" 616 || fail "a reopening on GitHub before the carried landing record voided it: $(grep 'carried-repo#616' <<< "$out")"
+echo "  status-sync: the reopening on GitHub that the provenance names voids a carried landing record that came before it, and one that came after it stands"
+planted="$(mutant_root lib/plane/tracker.sh 's/capture("^Last reopened on GitHub at/capture("^Never reopened on GitHub at/')"
+grep -q '^no landing   carried-repo#615' <<< "$(carried_sync "$planted")" && fail "planted: the provenance line unread should leave the reopened card closing"
+
+# A work item is named by a commit from its creation on; the GitHub issue it was carried from, before it
+ready_item() {  # ready_item <number> [GitHub number]: a work item in ready, carried from carried-repo#<GitHub number> where one is given
+  ITEM_EXTERNAL_SOURCE="${2:+github}" ITEM_EXTERNAL_ID="${2:+example-org/carried-repo#$2}" plane_add_item "$1" "Ready $1" ${2:-repo:carried-repo}
+}
+COMMIT_AT="$before_carry" commit "$WORK/carried-repo" "#610 Named before the item existed" >/dev/null
+ready_item 610
+ready_item 611; sha211="$(commit "$WORK/carried-repo" "#611 Named after the item was made")"
+ready_item 612 30; sha212="$(carried_commit 30)"
+ready_item 613 31; carried_commit 31 "${day}T23:30:00Z" >/dev/null
+ready_item 614 32; sha214="$(carried_commit 32)"; carried_commit 32 "${day}T23:30:00Z" >/dev/null
+out="$(carried_sync)" || fail "status-sync --dry-run carried-repo: $out"
+named() { grep -q "^not finished carried-repo#$2  (in ready, but origin/master has ${3:-[0-9a-f]*} naming it" <<< "$1"; }
+! named "$out" 610 || fail "a commit older than the work item named it: $(grep 'carried-repo#610' <<< "$out")"
+named "$out" 611 "$sha211" || fail "a commit younger than the work item did not name it: $(grep 'carried-repo#611' <<< "$out")"
+named "$out" 612 "$sha212" || fail "a commit older than the carried work item, naming the GitHub issue it came from, did not name it: $(grep 'carried-repo#612' <<< "$out")"
+! named "$out" 613 || fail "a commit younger than the carried work item, naming the GitHub issue it came from, named it: $(grep 'carried-repo#613' <<< "$out")"
+named "$out" 614 "$sha214" || fail "the older commit of the GitHub issue was not read beside a newer one: $(grep 'carried-repo#614' <<< "$out")"
+echo "  status-sync: 'not finished' names a work item by a commit made since its creation, a carried one by a commit that names its GitHub issue from before it; a newer commit of the same number hides neither"
+planted="$(mutant_root lib/board.sh "s/awk -v at=\"\$at\" '\$1 >= at'/awk '1'/")"
+named "$(carried_sync "$planted")" 610 || fail "planted: without the lower bound the older commit should name the work item"
+planted="$(mutant_root lib/board.sh "s/awk -v at=\"\$at\" '\$1 < at'/awk '1'/")"
+named "$(carried_sync "$planted")" 613 || fail "planted: without the upper bound the younger commit should name the carried item"
+planted="$(mutant_root lib/board.sh 's/-E -i --grep=/-n 1 -E -i --grep=/g')"
+named "$(carried_sync "$planted")" 614 && fail "planted: -n 1 taken before the time rule should lose the older commit of the carried item"
+echo "  planted defects, each caught: the lower bound dropped, the upper bound dropped, the count taken before the time rule"
 
 # THE LANDING CONTEXT: finish-issue asks whether an issue holds a record of its landing, and so it needs every
 # comment of the work item with the association of its author and the last reopening; status-sync's page holds
@@ -607,4 +735,29 @@ for listing in states project-members-lite comments activities; do
   printf '[]' > "$CURL_FAKE_STATE/inject.json"
 done
 echo "    status: each of the states, members, comments and state changes read of a card, refused, makes that card unknown with the exit 1 and leaves the others drawn"
+
+# THE CARRIED CARD IN STATUS: the commit that names its GitHub issue from before the carry, bounded in time
+carried_commit 29 "${day}T23:30:00Z" >/dev/null; carried_item 817 29 NONE
+plane_add_item 818 "Made after its number was named" repo:carried-repo
+planeset "p.issues.find((i)=>i.sequence_id===818).state=p.states.find((s)=>s.name==='testing').id"
+COMMIT_AT="$before_carry" commit "$WORK/carried-repo" "#818 Named before the item existed" >/dev/null
+carried_commit 34 >/dev/null; carried_item 820 34 NONE
+carried_commit 33 >/dev/null; carried_commit 33 "${day}T23:30:00Z" >/dev/null; carried_item 819 33 NONE
+out="$(plane_status)" || fail "status with carried cards: $out"
+live_on_prod() { grep -qE "^  🟢 carried-repo#$2 +live on prod since ${3:-[0-9]+} h \(landed on origin/master\)" <<< "$1"; }
+unnamed() { grep -E '^  ⏸ no commit on the default branch names it:' <<< "$1" | grep -q "carried-repo#$2"; }
+live_on_prod "$out" 820 || fail "the carried card is not live on prod by the commit that names its GitHub issue: $(grep 'carried-repo#820' <<< "$out")"
+unnamed "$out" 817 || fail "a carried card whose GitHub number only a commit made after the carry names was read by it: $(grep 'carried-repo#817' <<< "$out")"
+unnamed "$out" 818 || fail "a work item was read by a commit older than itself: $(grep 'carried-repo#818' <<< "$out")"
+live_on_prod "$out" 819 16 || fail "the newer commit of the same number hid the older one that names the carried card: $(grep 'carried-repo#819' <<< "$out")"
+echo "    status: a carried card is live by the commit that names its GitHub issue from before the carry; a commit after the carry, or before a work item, names nothing; a newer commit of the number does not hide the older"
+planted="$(mutant_root bin/status.sh 's/^    \[ "\$carried" = - \] || carried_pattern=.*$/    carried_pattern=""/')"
+live_on_prod "$(ROOT_UNDER_TEST="$planted" plane_status)" 820 && fail "planted: without the carried pattern the carried card should not be live"
+planted="$(mutant_root lib/status-live.mjs 's/named(record.carriedPattern, (ct) => ct < at)/named(record.carriedPattern, () => true)/')"
+unnamed "$(ROOT_UNDER_TEST="$planted" plane_status)" 817 && fail "planted: without the upper bound the later commit should draw the carried card"
+planted="$(mutant_root lib/status-live.mjs 's/named(record.pattern, (ct) => ct >= at)/named(record.pattern, () => true)/')"
+unnamed "$(ROOT_UNDER_TEST="$planted" plane_status)" 818 && fail "planted: without the lower bound the older commit should name the work item"
+planted="$(mutant_root lib/status-live.mjs "s/'log', ref, '-E'/'log', ref, '-n', '1', '-E'/")"
+live_on_prod "$(ROOT_UNDER_TEST="$planted" plane_status)" 819 16 && fail "planted: -n 1 taken before the time rule should lose the older commit"
+echo "    planted defects, each caught: the carried pattern dropped, the upper bound dropped, the lower bound dropped, the count taken before the time rule"
 unset AI_CORE_NOW

@@ -213,14 +213,13 @@ function plane() {
                  sort_order: 65535, external_source: json.external_source || null, external_id: json.external_id || null, archived_at: null, created_at: tick(), updated_at: tick(), completed_at: null };
     it.sequence_id = pr.issues.reduce((m, i) => Math.max(m, i.sequence_id), 0) + 1;
     const bad = write_issue(st, pr, it, json); if (bad) reply(400, bad);
-    if (json.archived_at) it.archived_at = json.archived_at;   // writable at the create, a date (serializers/issue.py:70-73, models/issue.py:160)
     if (!it.state) it.state = (pr.states.find((s) => s.default) || pr.states[0]).id;
     pr.issues.push(it); save(); reply(201, ser(st, pr, it));
   }
   const it = pr.issues.find((i) => i.id === p[5]);
   if (!it) reply(404, { detail: 'Not found.' });
   const sub = p[6];
-  if (!sub && it.archived_at) reply(404, { detail: 'Not found.' });   // views/issue.py:582-587: the same manager on the uuid read and write
+  if (!sub && it.archived_at && method !== 'PATCH') reply(404, { detail: 'Not found.' });   // views/issue.py:582-587: the read answers 404 for an archived item; a PATCH of it answers 200 (measured on Plane 1.4.2)
   if (!sub) {
     if (method === 'PATCH') {
       const was = it.state, bad = write_issue(st, pr, it, json); if (bad) reply(400, bad);
@@ -267,7 +266,11 @@ function write_issue(st, pr, it, j) {
     if (!s) return ['State is not valid please pass a valid state_id'];
     it.state = s.id; it.completed_at = s.group === 'completed' ? new Date().toISOString() : null;
   }
-  if (j.parent !== undefined) { if (j.parent !== null && !pr.issues.some((i) => i.id === j.parent)) return ['Parent is not valid issue_id please pass a valid issue_id']; it.parent = j.parent; }
+  if (j.parent !== undefined) {   // the serializer takes a parent from Issue.issue_objects, which leaves an archived work item out: Plane 1.4.2 answers a create under one with this body
+    if (j.parent !== null && !pr.issues.some((i) => i.id === j.parent && !i.archived_at)) return { parent: [`Invalid pk "${j.parent}" - object does not exist.`] };
+    it.parent = j.parent;
+  }
+  if (j.archived_at !== undefined && !(method === 'PATCH' && process.env.CURL_FAKE_DROP_ARCHIVE)) it.archived_at = j.archived_at;   // writable at the create and by a PATCH, measured on Plane 1.4.2; null brings the work item back. CURL_FAKE_DROP_ARCHIVE: a PATCH that answers well and archives nothing
   if (j.labels !== undefined) it.labels = j.labels.filter((l) => pr.labels.some((x) => x.id === l && x.name !== process.env.CURL_FAKE_DROP_LABEL));   // CURL_FAKE_DROP_LABEL: a write that answers well and keeps that label out
   if (j.assignees !== undefined) it.assignees = j.assignees.filter((a) => pr.members.some((m) => m.user === a && m.is_active && (m.role ?? 15) >= 15) && !process.env.CURL_FAKE_DROP_ASSIGNEE);   // CURL_FAKE_DROP_ASSIGNEE: a write that answers well and keeps no assignee
   return null;

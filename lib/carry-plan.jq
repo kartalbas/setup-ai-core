@@ -4,7 +4,7 @@
 # one column, those of github_carry_issues and github_carry_board_names (the number and title of each board the issues name);
 # `destinations` maps each repository that has a destination to its destination key; `login` is the GitHub login of the
 # account that runs the carry. The answer is
-#   {rows: [work item to create, parents before sub-issues, boards last], report: {every count the run prints first}}
+#   {rows: [work item to create, parents before sub-issues, then the late archives, boards last], report: {every count the run prints first}}
 # Nothing is written here and nothing is guessed: a value Plane has no field for goes into the text of the
 # provenance comment, and the issue body is the source body to the byte. The one assignee Plane can be told of is the
 # user of its key, which is the account that runs the carry: an assignee with that login is carried, any other is named in the report.
@@ -26,7 +26,14 @@ def assigned_to_key_user: .assignees | any(lc == ($login | lc));
 
 | def depth: if .parent == null then 0 else ($by["\(.parent.repo)#\(.parent.number)"]) as $p | if $p == null then 0 else 1 + ($p | depth) end end;
 
-def lifecycle:
+# parent ref -> the refs of its sub-issues that stand in the same destination: Plane takes no sub-issue under an archived work item,
+# so a parent that is to end archived is created open and archived after the last of these stands
+($issues | map(select($destinations[.repo] != null and .parent != null)
+    | select($by["\(.parent.repo)#\(.parent.number)"] != null and $destinations[.parent.repo] == $destinations[.repo])
+    | {parent: "\(.parent.repo)#\(.parent.number)", child: "\(.repo)#\(.number)"})
+  | group_by(.parent) | map({key: .[0].parent, value: map(.child)}) | from_entries) as $children_of
+
+| def lifecycle:
   . as $i
   | ($i.memberships | map(select(.archived | not))) as $active
   | ($active | map(.status // "") | unique_by(lc)) as $statuses
@@ -81,12 +88,12 @@ def issue_row:
   | ($destinations[$i.repo]) as $dest
   | (if $i.parent == null then null
      else ($i.parent + {ref: "\($i.parent.repo)#\($i.parent.number)"}) as $p
-       | $p + (if $by[$p.ref] == null then {mode: "outside", how: "outside the selected issues; it is the Plane parent only where it stands in this destination already"}
-               elif $destinations[$p.repo] == $dest then {mode: "selected", how: "a sub-issue in Plane"}
+       | $p + (if $by[$p.ref] == null then {mode: "outside", how: "outside the selected issues; it is the Plane parent only where it stands in this destination already and is not archived there"}
+               elif $destinations[$p.repo] == $dest then {mode: "selected", how: "a sub-issue in Plane unless the parent stands archived there"}
                else {mode: "reference", how: "in another destination, so it is a recorded relationship and not a Plane sub-issue"} end) end) as $parent
   | {kind: "issue", ref: "\($i.repo)#\($i.number)", dest: $dest, repo: $i.repo, title: $i.title, body: $i.body,
      labels: ([$i.labels[], "repo:\($i.repo | split("/")[1])"] + (if ($i.memberships | any(.priority == "P9")) then ["P9"] else [] end) | unique),
-     priority: ($i | native_priority), assigned_to_key_user: ($i | assigned_to_key_user), state: ($life | {mode, name, group: .mode}), archived: $life.archived, parent: $parent, moved_to: ($i | moved_to),
+     priority: ($i | native_priority), assigned_to_key_user: ($i | assigned_to_key_user), state: ($life | {mode, name, group: .mode}), archived: $life.archived, archive_late: ($life.archived and ($children_of["\($i.repo)#\($i.number)"] != null)), parent: $parent, moved_to: ($i | moved_to),
      comments: (($i.comments | length) as $total | [$i.comments | to_entries[] | .key as $k | .value | {external_id: .id, created_at: .createdAt, text: comment_text($i; $k + 1; $total)}]),
      provenance: {external_id: $i.id, created_at: $now, text: provenance($i; $life; $parent; $dest)}};
 
@@ -109,13 +116,14 @@ def board_text:
 | ($selected | map(issue_row)) as $issue_rows
 | ($boards | map(. as $b | ($b | board_destinations)[] as $d
       | {kind: "board", ref: $b.id, dest: $d, repo: null, title: $b.title, body: ($b | board_text), labels: [], priority: "none",
-         assigned_to_key_user: false, state: {mode: "done", group: "done"}, archived: true, parent: null, comments: [], provenance: null})) as $board_rows
+         assigned_to_key_user: false, state: {mode: "done", group: "done"}, archived: true, archive_late: false, parent: null, comments: [], provenance: null})) as $board_rows
 
+| ($issue_rows | map(select(.archive_late) | {kind: "archive", ref, dest, repo, after: $children_of[.ref]})) as $archive_rows
 | ($selected | map(.comments | length) | add // 0) as $original_comments
 | ($selected | map(select(.parent != null))) as $with_parent
 | ($issue_rows | map(select(.parent != null))) as $parents
 | ($selected | map(.memberships | map(select(.archived)) | length) | add // 0) as $archived_memberships
-| {rows: ($issue_rows + $board_rows),
+| {rows: ($issue_rows + $archive_rows + $board_rows),
    report: {
      repositories_selected: ($destinations | length),
      repositories_skipped: [$repositories[] | select(.archived) | .repo],
@@ -131,6 +139,7 @@ def board_text:
      archived_issues: ($selected | map(select(.memberships | any(.archived))) | length),
      memberships: ($selected | map(.memberships | length) | add // 0),
      boardless_issues: ($selected | map(select(.memberships | length == 0)) | length),
+     archives_late: ($archive_rows | length),
      parent_links: ($parents | length),
      parents_native: ($parents | map(select(.parent.mode == "selected")) | length),
      parents_reference: ($parents | map(select(.parent.mode == "reference")) | length),

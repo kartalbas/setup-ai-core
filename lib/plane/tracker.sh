@@ -352,7 +352,10 @@ plane_find_carried() {
 # URL, workspace and project; so do the work items carried so far (ref, uuid, number), which a sub-issue of the same
 # destination reads without a request. WHAT A PERSON CHANGED IN PLANE IS NEVER WRITTEN BACK: a work item found by
 # its external id is not patched, not its state, parent, archive date, assignee, title, body, labels or priority, and a comment
-# found by its external id is not edited. State, parent, archive date and assignee are set in the one create request.
+# found by its external id is not edited. State, parent, archive date and assignee are set in the one create request, with two
+# exceptions that follow from Plane, which takes no sub-issue under an archived work item: a parent that is to end archived is
+# created open and archived by plane_carry_archive after the last of its sub-issues stands, and a sub-issue of a parent that an
+# earlier run left archived is created without a Plane parent and records the relationship in its provenance.
 
 carry_dir() {
   local d
@@ -381,7 +384,7 @@ plane_carry_metadata() {
 # plane_carry_missing_labels: the rows of the plan for this destination on standard input; prints how many of their
 # labels the project lacks
 plane_carry_missing_labels() {
-  jq -s --slurpfile have "$(carry_dir)/labels.jsonl" '[.[].labels[]] | unique | map(select(. as $n | $have | map(.name) | index($n) | not)) | length'
+  jq -s --slurpfile have "$(carry_dir)/labels.jsonl" '[.[] | select(.kind != "archive") | .labels[]] | unique | map(select(. as $n | $have | map(.name) | index($n) | not)) | length'
 }
 
 # plane_carry_key_user: reads once for this destination who the Plane key's user is and that it can be an assignee; stores its id
@@ -439,13 +442,16 @@ carry_label_id() {
 # carry_known <ref>: the uuid of the work item carried from that ref in this run, "-" where this destination has none
 carry_known() { awk -F'\t' -v r="$1" '$1 == r { print $2; exit }' "$(carry_dir)/carried.tsv"; }
 
-# carry_remember <ref> <work item json | none>: the work item is known to this destination (ref, uuid, number) and, for every
-# destination of the run, by its address in the browser
+# carry_archived_number <ref>: the number of the work item carried from that ref where Plane holds it archived, else nothing
+carry_archived_number() { awk -F'\t' -v r="$1" '$1 == r && $4 == "archived" { print $3; exit }' "$(carry_dir)/carried.tsv"; }
+
+# carry_remember <ref> <work item json | none>: the work item is known to this destination (ref, uuid, number, archived or active)
+# and, for every destination of the run, by its address in the browser
 carry_remember() {
-  local id seq
-  if [ "$2" = none ]; then printf '%s\t-\t-\n' "$1" >> "$(carry_dir)/carried.tsv"; return; fi
-  IFS=$'\t' read -r id seq <<< "$(jq -r '[.id, .sequence_id] | @tsv' <<< "$2")"
-  printf '%s\t%s\t%s\n' "$1" "$id" "$seq" >> "$(carry_dir)/carried.tsv"
+  local id seq archived
+  if [ "$2" = none ]; then printf '%s\t-\t-\t-\n' "$1" >> "$(carry_dir)/carried.tsv"; return; fi
+  IFS=$'\t' read -r id seq archived <<< "$(jq -r '[.id, .sequence_id, (if .archived_at != null then "archived" else "active" end)] | @tsv' <<< "$2")"
+  printf '%s\t%s\t%s\t%s\n' "$1" "$id" "$seq" "$archived" >> "$(carry_dir)/carried.tsv"
   printf '%s\t%s\n' "$1" "$(plane_item_url "$seq")" >> "$CARRY_RUN/addresses.tsv"
 }
 
@@ -465,12 +471,14 @@ carry_comments() { plane_pages "the comments of $1" "$(plane_path "$2")"; }
 
 # plane_carry_row: one row of the plan on standard input, carried: the work item created with its state, parent,
 # archive date, assignee and labels in the one request, then every missing comment and the provenance comment by external id.
-# Prints "<ref>\t<IDENT-n>\t<address>\t<complete | created | resumed>"; dies naming the reason where it is incomplete.
+# Prints "<ref>\t<IDENT-n>\t<address>\t<complete | created | resumed>\t<the archived parent that is no Plane parent, or ->";
+# dies naming the reason where it is incomplete. A row of kind archive is plane_carry_archive's.
 plane_carry_row() {
   local row ref kind found project id seq request state parent_ref parent_id mode ids name pending have missing path comment posts=0 notes="" outcome verify=1
-  local preexisting=1 provenance_end="" parent_link moved_to assignee=""
+  local preexisting=1 provenance_end="" parent_link moved_to assignee="" archived_parent="-" archived_number
   row="$(cat)"
   ref="$(jq -r '.ref' <<< "$row")"; kind="$(jq -r '.kind' <<< "$row")"
+  if [ "$kind" = archive ]; then plane_carry_archive "$row"; return; fi
   [ "$kind" != issue ] || plane_check_repo "$(jq -r '.repo' <<< "$row")"
   project="$(plane_project_uuid)" || exit 1
   mode="$(jq -r '.parent.mode // ""' <<< "$row")"; parent_ref="$(jq -r '.parent.ref // ""' <<< "$row")"; parent_id=""
@@ -494,6 +502,13 @@ plane_carry_row() {
                 fi
                 [ "$parent_id" != - ] || parent_id="" ;;
     esac
+    if [ -n "$parent_id" ]; then
+      archived_number="$(carry_archived_number "$parent_ref")"
+      if [ -n "$archived_number" ]; then
+        archived_parent="$parent_ref"; parent_id=""
+        provenance_end="$provenance_end"$'\n'"Plane parent link: $(plane_item_url "$archived_number")"$'\n'"The parent stands archived in Plane, and Plane takes no sub-issue under an archived work item, so this is a recorded relationship and not a Plane sub-issue."
+      fi
+    fi
     state="$(carry_state_id "$(jq -r '.state.mode' <<< "$row")" "$(jq -r '.state.name // ""' <<< "$row")")" || exit 1
     ids="[]"
     while IFS= read -r name; do
@@ -502,7 +517,7 @@ plane_carry_row() {
     if [ "$(jq -r '.assigned_to_key_user' <<< "$row")" = true ]; then assignee="$(cat "$(carry_dir)/key-user")" || exit 1; fi
     request="$(jq -c --arg state "$state" --arg parent "$parent_id" --arg assignee "$assignee" --argjson labels "$ids" --arg today "$(date -u +%F)" "$PLANE_HTML"'
       {name: .title, description_html: (.body | html), labels: $labels, external_source: "github", external_id: .ref, priority: .priority, state: $state}
-      + (if $parent != "" then {parent: $parent} else {} end) + (if $assignee != "" then {assignees: [$assignee]} else {} end) + (if .archived then {archived_at: $today} else {} end)' <<< "$row")"
+      + (if $parent != "" then {parent: $parent} else {} end) + (if $assignee != "" then {assignees: [$assignee]} else {} end) + (if .archived and (.archive_late | not) then {archived_at: $today} else {} end)' <<< "$row")"
     plane_call POST "$(plane_path "projects/$project/issues/")" "$request"
     case "$plane_status" in
       2??) ;;
@@ -512,12 +527,16 @@ plane_carry_row() {
     esac
     found="$(plane_find_carried "$ref")" || exit 1
     [ -n "$found" ] || die "the work item carried from $ref was not found by its external_id after the create (${notes:-Plane answered $plane_status}): nothing is known to exist. Run the same command again"
-    [ "$verify" = 0 ] || jq -e --arg s "$state" --arg p "$parent_id" --arg u "$assignee" --argjson a "$(jq '.archived' <<< "$row")" \
+    [ "$verify" = 0 ] || jq -e --arg s "$state" --arg p "$parent_id" --arg u "$assignee" --argjson a "$(jq '.archived and (.archive_late | not)' <<< "$row")" \
       '.state == $s and ((.parent // "") == $p) and ((.archived_at != null) == $a) and ($u == "" or ((.assignees // []) | index($u) != null))' <<< "$found" >/dev/null \
       || die "the work item carried from $ref was stored with another state, parent, archive date or assignee than it was given: $(jq -c '{state, parent, archived_at, assignees}' <<< "$found")"
   fi
   id="$(jq -r '.id' <<< "$found")"; seq="$(jq -r '.sequence_id' <<< "$found")"
   carry_remember "$ref" "$found"
+  if [ "$outcome" = created ]; then
+    if [ "$(jq -r '.archive_late' <<< "$row")" = true ]; then printf '%s\n' "$ref" >> "$(carry_dir)/late-archive.txt"; fi
+    if [ -n "$parent_id" ]; then printf '%s\n' "$parent_ref" >> "$(carry_dir)/late-archive.txt"; fi
+  fi
   moved_to="$(jq -r '.moved_to // ""' <<< "$row")"
   if [ "$preexisting" = 1 ] && [ -n "$moved_to" ] && [ "$moved_to" = "$(plane_item_url "$seq")" ]; then
     provenance_end="$provenance_end"$'\n'"Earlier carry: the work item $moved_to stood in Plane before this carry, the issue holds the comment \"Moved to $moved_to\", and its NOT_PLANNED close came after that comment with no reopening since, so this close may be the close of an earlier carry; its cause is not established."
@@ -548,19 +567,46 @@ plane_carry_row() {
       [ "$outcome" != complete ] || outcome=resumed
     fi
   fi
-  printf '%s\t%s-%s\t%s\t%s\n' "$ref" "$(plane_setting PLANE_PROJECT)" "$seq" "$(plane_item_url "$seq")" "$outcome"
+  printf '%s\t%s-%s\t%s\t%s\t%s\n' "$ref" "$(plane_setting PLANE_PROJECT)" "$seq" "$(plane_item_url "$seq")" "$outcome" "$archived_parent"
+}
+
+# plane_carry_archive: a row of kind archive on standard input: the parent that the plan ends archived, archived now that every
+# sub-issue of the plan in this destination stands. It archives a parent that this run created, or under which this run created a
+# sub-issue, and no other: a work item that stood in Plane before is not changed. Prints "<ref>\t<IDENT-n>\t<address>", or nothing
+# where there is nothing to archive; dies naming the reason where the parent stays open, which a rerun finishes.
+plane_carry_archive() {
+  local row="$1" ref id child found
+  ref="$(jq -r '.ref' <<< "$row")"
+  grep -qxF "$ref" "$(carry_dir)/late-archive.txt" 2>/dev/null || return 0
+  id="$(carry_known "$ref")"
+  [ -n "$id" ] && [ "$id" != - ] || return 0
+  while IFS= read -r child; do
+    [ -n "$(carry_known "$child")" ] && [ "$(carry_known "$child")" != - ] \
+      || die "the work item carried from $ref stays open: its sub-issue $child is not in Plane yet, and Plane takes no sub-issue under an archived work item. Run the same command again: it archives the parent once the sub-issue stands"
+  done < <(jq -r '.after[]' <<< "$row")
+  plane_call PATCH "$(plane_path "projects/$(plane_project_uuid)/issues/$id/")" "$(jq -nc --arg today "$(date -u +%F)" '{archived_at: $today}')"
+  case "$plane_status" in
+    2??) ;;
+    *)   die "the work item carried from $ref stays open: the archive was refused - the Plane API answered $plane_status${plane_body:+: $(printf '%s' "$plane_body" | tr -s '\r\n' '  ' | cut -c1-300)}. Run the same command again" ;;
+  esac
+  found="$(plane_find_carried "$ref")" || exit 1
+  jq -e --arg id "$id" '.id == $id and .archived_at != null' <<< "$found" >/dev/null \
+    || die "the work item carried from $ref was not archived although Plane answered $plane_status: $(jq -c '{archived_at}' <<< "$found")"
+  printf '%s\t%s-%s\t%s\n' "$ref" "$(plane_setting PLANE_PROJECT)" "$(jq -r '.sequence_id' <<< "$found")" "$(plane_item_url "$(jq -r '.sequence_id' <<< "$found")")"
 }
 
 # plane_carry_batch: rows of the plan on standard input, each carried alone; prints "OK\t<row result>" or
-# "INCOMPLETE\t<ref>\t<reason>" for each, and goes on after an incomplete one
+# "INCOMPLETE\t<ref>\t<reason>" for each, and goes on after an incomplete one; a row of kind archive prints
+# "ARCHIVED\t<row result>" or "UNARCHIVED\t<ref>\t<reason>", and nothing where it had nothing to archive
 plane_carry_batch() {
-  local row ref err
+  local row ref err ok=OK bad=INCOMPLETE
   err="$(carry_dir)/error"
   while IFS= read -r row; do
     [ -n "$row" ] || continue
     ref="$(jq -r '.ref' <<< "$row")"
-    if out="$( (plane_carry_row <<< "$row") 2>"$err")"; then printf 'OK\t%s\n' "$out"
-    else printf 'INCOMPLETE\t%s\t%s\n' "$ref" "$(sed 's/^error: //' "$err" | tr -s '\r\n' '  ' | cut -c1-400)"; fi
+    if [ "$(jq -r '.kind' <<< "$row")" = archive ]; then ok=ARCHIVED; bad=UNARCHIVED; else ok=OK; bad=INCOMPLETE; fi
+    if out="$( (plane_carry_row <<< "$row") 2>"$err")"; then [ -z "$out" ] || printf '%s\t%s\n' "$ok" "$out"
+    else printf '%s\t%s\t%s\n' "$bad" "$ref" "$(sed 's/^error: //' "$err" | tr -s '\r\n' '  ' | cut -c1-400)"; fi
     grep -v '^error:' "$err" >&2 || true
   done
 }

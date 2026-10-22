@@ -1,13 +1,13 @@
 // The GitHub of tests/issue-transfer-plane.test.sh: node tests/carry-fixture.mjs <state dir> [bulk | scale] writes github.json
 // for tests/gh-carry-fake.mjs. The small world has four repositories (one archived), five boards and the cases the owner's
 // selection names. The account that runs the carry is `tester`: it is assigned to the first two issues of example-repo (spelled TESTER
-// on the second, beside anton, who is not it) and to the first of tools; anton alone is assigned to the third of example-repo. "pair" is two issues of it, a sub-issue and its parent in another destination, and no board. "bulk" adds the answers larger than one command-line argument (128 KiB on Linux): a board of 1,500 more
+// on the second, beside anton, who is not it) and to the first of tools; anton alone is assigned to the third of example-repo. "pair" is two issues of it, a sub-issue and its parent in another destination, and no board. "tree" is example-repo alone, eight issues: two archived families of parents and sub-issues, an archived issue with none, and an open parent with an open sub-issue. "bulk" adds the answers larger than one command-line argument (128 KiB on Linux): a board of 1,500 more
 // cards, an issue of 200 comments of 1,500 characters and one comment of 27,000 ampersands, 135,000 characters once escaped.
 // "scale" is the project counted on 2026-10-20: 4,100 issues, 624 of them archived cards, 18 open ones on no board, three
 // boards, and the first board holds a card for every issue that has one.
 import fs from 'node:fs';
 const [dir, mode] = process.argv.slice(2);
-const scale = mode === 'scale', bulk = mode === 'bulk', pair = mode === 'pair';
+const scale = mode === 'scale', bulk = mode === 'bulk', pair = mode === 'pair', tree = mode === 'tree';
 const LOGIN = 'tester', org = 'example-org', R = { repo: `${org}/example-repo`, tools: `${org}/tools`, web: `${org}/web`, old: `${org}/old` };
 const url = (r, n) => `https://github.com/${r}/issues/${n}`;
 const iss = (r, n, o = {}) => ({ number: n, id: `I_${r.split('/')[1]}${n}`, title: `${r.split('/')[1]} issue ${n}`, body: `body of ${n}\n`, state: 'OPEN', stateReason: null, url: url(r, n), labels: ['type:feature'], assignees: [], comments: [], parent: null, items: [], ...o });
@@ -69,6 +69,17 @@ if (scale) {   // 4,100 issues in example-repo, tools and web: 624 archived card
     issues[r].push(iss(r, o.number, o));
     for (const m of o.items) boards[0].items.push({ id: m.id, isArchived: m.isArchived, issue: { id: o.id, number: o.number, repository: r }, status: m.status, priority: m.priority });
   }
+}
+if (tree) {   // example-repo alone: closed parents whose cards are all archived, with their sub-issues, and the cases that must stay as they are
+  const closed = (n, o = {}) => iss(R.repo, n, { state: 'CLOSED', stateReason: 'COMPLETED', items: [mem(`PVTI_t${n}`, 'PVT_A', 'Done', 'P2', true)], ...o });
+  const under = (n) => ({ id: `I_example-repo${n}`, number: n, url: url(R.repo, n), repository: R.repo });
+  state.repositories = state.repositories.filter((r) => r.nameWithOwner === R.repo);
+  state.issues = { [R.repo]: [
+    closed(1), closed(2, { parent: under(1) }), closed(3),                                                   // an archived parent with an archived sub-issue; an archived issue with none
+    iss(R.repo, 4, { items: [mem('PVTI_t4', 'PVT_A', 'ready', 'P2')] }), iss(R.repo, 5, { parent: under(4), items: [mem('PVTI_t5', 'PVT_A', 'ready', 'P2')] }),   // an open parent with an open sub-issue
+    closed(6), closed(7, { parent: under(6) }), closed(8, { parent: under(7) }),                              // three archived generations
+  ] };
+  state.boards = [];
 }
 if (pair) {
   state.repositories = state.repositories.filter((r) => [R.repo, R.tools].includes(r.nameWithOwner));

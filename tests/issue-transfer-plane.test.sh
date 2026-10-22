@@ -98,7 +98,7 @@ out="$(cat "$WORK/out.txt")"
 for want in '14 issues of 3 repositories' 'skipped archived repositories: example-org/old' '234 original and 14 provenance, 248 in all, in 16 pages' \
   '3 archived, on 3 issues of 14), 5 of 14 issues on no board' '(1 sub-issues, 1 recorded relationships across destinations, 1 outside the selection, 1 distinct)' \
   '5 on GitHub (2 empty, 1 closed, 3 in several destinations), 10 board records' 'priority P9 on 1 of 14 issues; an email address in 1 of 14 issues (0 titles, 0 bodies, 1 of 234 comments); differing active Status values on 1 of 14' \
-  'destinations: 3' "Plane requests, at most: 370 = 3 x (14 issues + 10 board records) + 248 comments + 2 x 16 comment pages + 8 metadata pages + 5 new labels + 1 outside parents + 4 reads of the Plane key's user; at 60 a minute that is 7 minutes" \
+  'destinations: 3' "Plane requests, at most: 370 = 3 x (14 issues + 10 board records) + 248 comments + 2 x 16 comment pages + 8 metadata pages + 5 new labels + 1 outside parents + 2 x 0 late archives + 4 reads of the Plane key's user; at 60 a minute that is 7 minutes" \
   "assignees to carry: 3 of 14 issues, as the Plane key's user (the GitHub login tester of the account that runs the carry)" \
   'assignees not carried: 2 (a Plane member is never guessed from a GitHub login): anton on example-org/example-repo#2, example-org/example-repo#3'; do
   grep -qF -- "$want" <<< "$out" || fail "the report lacks '$want': $out"
@@ -375,6 +375,60 @@ printf '[]' > "$CURL_FAKE_STATE/inject.json"
 carry --to plane || fail "the rerun after the parent was refused: $(cat "$WORK/err.txt")"
 pq 0 'console.log(C(N("example-org/example-repo#7")).pop().comment_html)' | grep -qF "Plane parent link: https://plane.example.test/ws/browse/OPS-$(pq 1 'console.log(N("example-org/tools#1").sequence_id)')/" || fail "after the rerun the sub-issue does not name its parent's Plane link"
 echo "  example-repo#7 names the Plane link of its parent tools#1 in the other project; with the parent refused it waits and nothing is written for it, the rerun carries both; the parent or its link left out goes red"
+
+# A sub-issue under a parent whose cards are all archived. Plane keeps an archived work item out of the queryset it validates a parent
+# against and answers a create under one with 400, so a parent that is to end archived is created open and archived after the last
+# sub-issue of its destination stands (a PATCH with archived_at, measured on Plane 1.4.2). A parent that an earlier run left archived
+# is no parent any more: its sub-issue is created without one and names the Plane link of the parent in its provenance. The
+# example-repo issues of the tree world: #1 is archived with the archived sub-issue #2, #3 is archived with none, #4 is open with the
+# open sub-issue #5, and #6, #7 and #8 are three archived generations
+section "a sub-issue of an archived parent"
+family() {  # family: for #1 to #8, "archived" or "open", the number of the Plane parent or none
+  local n
+  for n in 1 2 3 4 5 6 7 8; do pq 0 "const i=N('example-org/example-repo#$n');const q=i&&i.parent&&p.issues.find((x)=>x.id===i.parent);console.log(i?(i.archived_at?'archived':'open')+'|'+(q?q.external_id.split('#')[1]:'none'):'missing')"; done | tr '\n' ' '
+}
+within_bound() { [ "$(grep -c '^[A-Z]' "$CURL_FAKE_STATE/requests.log")" -le "$(sed -n 's/^Plane requests, at most: \([0-9]*\) =.*/\1/p' "$WORK/out.txt")" ]; }
+fresh_check() {  # fresh_check <root>: 0 when every sub-issue has its Plane parent and the parents that end archived are archived after them
+  reset_plane; world tree; reset_log
+  ROOT_UNDER_TEST="$1" carry --to plane || return 1
+  [ "$(family)" = "archived|none archived|1 archived|none open|none open|4 archived|none archived|6 archived|7 " ] || return 1
+  grep -q 'parents archived after their last sub-issue: 3 archived, 0 left open, of 3 planned' "$WORK/out.txt" || return 1
+  grep -q 'parents archived in Plane: 0 sub-issues' "$WORK/out.txt" || return 1
+  [ "$(grep -c '^PATCH ' "$CURL_FAKE_STATE/requests.log")" = 3 ] && within_bound
+}
+fresh_check "$ROOT" || fail "the tree was not carried with its parents and archived after them: $(family) $(cat "$WORK/err.txt")"
+plant fresh_check lib/carry-plan.jq 's/archive_late: (\$life\.archived and (\$children_of\[[^]]*\] != null))/archive_late: false/' "a parent that ends archived created archived, so its sub-issue loses its Plane parent"
+plant fresh_check lib/plane/tracker.sh 's/^plane_carry_archive() {$/plane_carry_archive() { return 0/' "the late archive taken out"
+earlier_world() {  # earlier_world: #1 and #6 stand archived in Plane, as an earlier run made them, and nothing else of the tree
+  reset_plane; world tree
+  planeset 'const item=(n,seq)=>({id:require("crypto").randomUUID(),project:p.id,name:"example-repo issue "+n,description_html:"",priority:"none",parent:null,labels:[],assignees:[],external_source:"github",
+      external_id:"example-org/example-repo#"+n,archived_at:s.day,created_at:s.day,updated_at:s.day,sequence_id:seq,state:p.states[1].id});
+    p.issues.push(item(1,41),item(6,42))'
+  reset_log
+}
+earlier_check() {  # earlier_check <root>: 0 when the sub-issues of the archived parents stand without a Plane parent and name its link, and nothing that stood is changed
+  local html
+  earlier_world
+  ROOT_UNDER_TEST="$1" carry --to plane || return 1
+  [ "$(family)" = "archived|none archived|none archived|none open|none open|4 archived|none archived|none archived|7 " ] || return 1
+  grep -q 'parents archived in Plane: 2 sub-issues carried without a Plane parent, under 2 parents' "$WORK/out.txt" || return 1
+  grep -q 'parents archived after their last sub-issue: 1 archived, 0 left open, of 3 planned' "$WORK/out.txt" || return 1
+  grep -q 'carried 8 of 8 issues: 0 already complete, 6 newly created, 2 finished from an earlier run, 0 incomplete' "$WORK/out.txt" || return 1
+  html="$(prov example-org/example-repo#2)"
+  grep -qF 'Plane parent link: https://plane.example.test/ws/browse/ENG-41/' <<< "$html" || return 1
+  grep -qF 'Plane takes no sub-issue under an archived work item' <<< "$html" || return 1
+  grep -qF 'Plane parent link: https://plane.example.test/ws/browse/ENG-42/' <<< "$(prov example-org/example-repo#7)" || return 1
+  [ "$(grep -c '^PATCH ' "$CURL_FAKE_STATE/requests.log")" = 1 ] && within_bound
+}
+earlier_check "$ROOT" || fail "a sub-issue of a parent that an earlier run left archived was not carried as a recorded relationship: $(family) $(tail -4 "$WORK/out.txt") $(cat "$WORK/err.txt")"
+plant earlier_check lib/plane/tracker.sh 's/archived_number="\$(carry_archived_number "\$parent_ref")"/archived_number=""/' "an archived parent sent as the Plane parent although Plane refuses it (the fallback taken out)"
+plant earlier_check lib/plane/tracker.sh '/^  grep -qxF "\$ref" .*late-archive.txt/ s/ || return 0$/ || true/' "a parent that stood in Plane before archived again"
+# a late archive that Plane answers and does not keep is named, the parent stays open, and the carry ends non-zero
+reset_plane; world tree
+CURL_FAKE_DROP_ARCHIVE=1 carry --to plane && fail "an archive that Plane did not keep left the carry complete"
+grep -q 'UNARCHIVED example-org/example-repo#1: .*was not archived although Plane answered' "$WORK/err.txt" && grep -q 'parents archived after their last sub-issue: 0 archived, 3 left open, of 3 planned' "$WORK/out.txt" \
+  || fail "an archive that Plane did not keep is not named: $(cat "$WORK/err.txt")"
+echo "  a tree carried with its Plane parents and its parents archived after them (an archived issue with no sub-issue and an open parent unchanged); a rerun after parents stood archived carries their sub-issues with the parent's link and changes nothing that stood; an archive Plane does not keep is named; four plants red"
 
 # The assignee. The account that runs the carry, spelled as GitHub names it in any case, becomes the Plane key's user in the create request:
 # Plane takes a user id, and the key's user is the one Plane user the carry can tell from a login. Another login is named in the report and

@@ -395,18 +395,31 @@ sync_released_cards() {  # sync_released_cards <owner/repo>...
 # after the issue was last reopened: a ticket reopened for rework still carries the record of the work
 # that closed it the first time. The tracker gives status-sync the last LANDING_COMMENT_WINDOW comments
 # of an open issue, and a record further back does not exist for it.
+#
+# A time of a tracker is read as an instant, never ordered or compared as text: GitHub writes
+# "2026-10-22T06:31:17Z", Plane the clock of its server with microseconds and an offset that follows the
+# summer time, "2026-10-22T08:31:17.295431+02:00", and the two meet in one thread when a carry copies
+# GitHub's comments into Plane. `instant_key` is the instant as [whole seconds since 1970, nine digits of
+# fraction], which jq orders as the time is; `instant` is the same as the text "<seconds>.<nine digits>";
+# neither reads a text that is no RFC 3339 time with a zone: it answers nothing, and jq stops at a date the
+# calendar does not have.
+INSTANT_JQ='
+def instant_key: capture("^(?<s>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?<f>\\.[0-9]+)?(?<z>Z|(?<d>[+-])(?<h>[01][0-9]|2[0-3]):(?<m>[0-5][0-9]))$")
+  | (if .z == "Z" then 0 else ("1970-01-01T\(.h):\(.m):00Z" | fromdateiso8601) * (if .d == "-" then -1 else 1 end) end) as $offset
+  | [((.s + "Z") | fromdateiso8601) - $offset, ((.f // ".0")[1:] + "000000000")[:9]];
+def instant: instant_key | "\(.[0]).\(.[1])";
+def later($a; $b): ($a | instant_key) > ($b | instant_key);
+'
 LANDING_COMMENT_WINDOW=50
-LANDING_RECORD_JQ='
+LANDING_RECORD_JQ="$INSTANT_JQ"'
 def trusted: select(.authorAssociation == "OWNER" or .authorAssociation == "MEMBER" or .authorAssociation == "COLLABORATOR");
 def commit_lines: split("\n") | map(select(test("^- [0-9a-f]{7,40} ")));
 def landing_records($reopenedAt): [.[] | trusted | select(.body | startswith("Landed on "))
-  | select(.body | commit_lines | length > 0) | select($reopenedAt == "" or .createdAt > $reopenedAt)] | sort_by(.createdAt);
+  | select(.body | commit_lines | length > 0) | select($reopenedAt == "" or later(.createdAt; $reopenedAt))] | sort_by(.createdAt | instant_key);
 def landing_repo($issueRepo): (.body | split("\n")[0] | capture("^Landed on \\S+ of (?<r>[^\\s:]+/[^\\s:]+):") | .r) // $issueRepo;
 def selected_landing($reopenedAt; $issueRepo): landing_records($reopenedAt) as $all
   | ([$all[] | select((landing_repo($issueRepo) | ascii_downcase) == ($issueRepo | ascii_downcase))] | last) // ($all | last)
   | if . then {repository: landing_repo($issueRepo), commit: (.body | commit_lines | first | split(" ")[1]), createdAt: .createdAt} else null end;
-def instant: capture("^(?<s>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?<f>\\.[0-9]+)?(Z|\\+00:00)$")
-  | "\((.s + "Z") | fromdateiso8601).\(((.f // ".0")[1:] + "000000000")[:9])";
 def proof_environment: capture("^Proven on (?<token>[^ \\t:]+)([ \\t]+\\([^)]*\\))?:") | .token;
 def lists($shas): (.body | commit_lines | map(split(" ")[1])) as $listed
   | $shas | all(. as $sha | $listed | any(. as $one | ($one | startswith($sha)) or ($sha | startswith($one))));
@@ -433,10 +446,10 @@ landing_recorded() {
 # --- the commits that name an issue ---------------------------------------------------------
 
 # instant_seconds <time>: the whole seconds since 1970 of a time as a tracker writes it, read by the
-# `instant` of LANDING_RECORD_JQ, which answers nothing for a time it cannot read
+# `instant` of INSTANT_JQ, which answers nothing for a time it cannot read
 instant_seconds() {
   local seconds
-  seconds="$(jq -nr --arg t "$1" "$LANDING_RECORD_JQ"'$t | instant | split(".")[0]' 2>/dev/null)" && [ -n "$seconds" ] \
+  seconds="$(jq -nr --arg t "$1" "$INSTANT_JQ"'$t | instant | split(".")[0]' 2>/dev/null)" && [ -n "$seconds" ] \
     || die "cannot read the time '$1' of an issue"
   printf '%s\n' "$seconds"
 }

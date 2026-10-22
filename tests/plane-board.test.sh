@@ -369,6 +369,55 @@ echo "  status-sync: the reopening on GitHub that the provenance names voids a c
 planted="$(mutant_root lib/plane/tracker.sh 's/capture("^Last reopened on GitHub at/capture("^Never reopened on GitHub at/')"
 grep -q '^no landing   carried-repo#615' <<< "$(carried_sync "$planted")" && fail "planted: the provenance line unread should leave the reopened card closing"
 
+# THE TIMES ARE INSTANTS. Plane prints a time with the offset of its server, which follows the summer time, and a
+# carried comment keeps GitHub's UTC time, so the text of two times says nothing of their order. The summer time of
+# 2026 ended on 2026-10-25 at 01:00 UTC: T1 is printed 02:30+02:00, T2 02:50+02:00 and T3 02:05+01:00, which sorts
+# before both as text and comes after both as a time. T4 is printed 03:00+01:00.
+T1=2026-10-25T00:30:00Z; T2=2026-10-25T00:50:00Z; T3=2026-10-25T01:05:00Z; T4=2026-10-25T02:00:00Z
+instant_card() { plane_add_item "$1" "Ordered by instant $1" repo:carried-repo; planeset "p.issues.find((i)=>i.sequence_id===$1).state=p.states.find((s)=>s.name==='testing').id"; }
+said() { COMMENT_CREATED_AT="$2" plane_add_comment "$1" "$3"; }   # said <number> <time> <text>: a comment of a member, made at that time
+landing_of() { printf 'Landed on master:\n- %s #%s Do the new thing' "$sha207" "$1"; }
+reopened_at() {  # reopened_at <number> <time>: the work item went from done back to ready at that time
+  planeset "const it=p.issues.find((i)=>i.sequence_id===$1);p.activities.push({id:require('crypto').randomUUID(),issue:it.id,field:'state',old_identifier:p.states.find((x)=>x.name==='done').id,new_identifier:p.states.find((x)=>x.name==='ready').id,created_at:'$2'})"
+}
+instant_card 620; said 620 "$T3" "$(landing_of 620)"; said 620 "$T1" "Proven on prod: it works"     # the proof is 35 minutes before the landing
+instant_card 621; said 621 "$T1" "$(landing_of 621)"; said 621 "$T3" "Proven on prod: it works"     # the proof is 35 minutes after the landing
+instant_card 622; said 622 "$T3" "$(landing_of 622)"; said 622 "$T1" "Landed on master:
+- 1111111 #622 A commit that is nowhere"; said 622 "$T4" "Proven on prod: it works"                  # the newest of two records is the one made at T3
+instant_card 624; said 624 "$T2" "$(landing_of 624)"; said 624 "$T4" "Proven on prod: it works"; reopened_at 624 "$T1"; reopened_at 624 "$T3"
+instant_card 625; said 625 "$T2" "$(landing_of 625)"; said 625 "$T4" "Proven on prod: it works"; reopened_at 625 "$T1"
+COMMENT_EXTERNAL_ID="gh-node-625" said 625 "$T4" "Carried from GitHub example-org/carried-repo#625 (https://github.com/example-org/carried-repo/issues/625); source issue I_625; GitHub read at $T4.
+Source state: OPEN, close reason: none.
+Last reopened on GitHub at $T3.
+Destination: ENG."
+instant_card 626; said 626 "$T1" "$(landing_of 626)"; said 626 "$T2" "Proven on prod: it works"     # both printed with the same offset: any order of the text is the order of the times
+plane_add_item 623 "Two comments, the later one written first" repo:example-repo
+said 623 "$T3" "the second comment in time"; said 623 "$T1" "the first comment in time"
+out="$(carried_sync)" || fail "status-sync --dry-run carried-repo: $out"
+due "$out" 620 || fail "a proof made 35 minutes before the landing record counted, because its text sorts after: $(grep 'carried-repo#620' <<< "$out")"
+closes "$out" 621 || fail "a proof made 35 minutes after the landing record did not count, because its text sorts before: $(grep 'carried-repo#621' <<< "$out")"
+closes "$out" 622 || fail "the landing record made first in time was read as the newest, because its text sorts after: $(grep 'carried-repo#622' <<< "$out")"
+grep -q '^no landing   carried-repo#624' <<< "$out" || fail "the last reopening was read by the text of its time: $(grep 'carried-repo#624' <<< "$out")"
+grep -q '^no landing   carried-repo#625' <<< "$out" || fail "the reopening on GitHub, later than Plane's own, was not the one that counts: $(grep 'carried-repo#625' <<< "$out")"
+closes "$out" 626 || fail "the innocent case, a proof after the landing with both printed in the same offset, did not close: $(grep 'carried-repo#626' <<< "$out")"
+thread="$(ai issue-thread 623 2>&1)" || fail "issue-thread 623: $thread"
+[ "$(grep -n 'comment in time' <<< "$thread" | sed -n 's/^[0-9]*:\(the [a-z]*\) .*/\1/p' | paste -sd, -)" = "the first,the second" ] || fail "the thread is not in the order of its times: $thread"
+echo "  status-sync and issue-thread: times with different offsets are ordered as the times they are, across the end of the summer time: the proof against the landing record, the newest of two records, the last reopening of Plane and the later of it and GitHub's"
+planted="$(mutant_root bin/status-sync.sh 's/later(\.createdAt; \$landing\.createdAt)/.createdAt > $landing.createdAt/')"
+out="$(carried_sync "$planted")" || fail "planted: status-sync: $out"
+closes "$out" 620 || fail "planted: the proof compared by the text of its time should close the card made first"
+due "$out" 621 || fail "planted: the proof compared by the text of its time should leave the card with the later proof due"
+closes "$out" 626 || fail "planted innocent: the cards printed with one offset close with the text compared as well"
+planted="$(mutant_root lib/board.sh 's/sort_by(\.createdAt | instant_key)\]/sort_by(.createdAt)]/;s/sort_by(\.createdAt | instant_key);/sort_by(.createdAt);/')"
+closes "$(carried_sync "$planted")" 622 && fail "planted: the records sorted by the text of their time should read the one made second in time as the newest"
+planted="$(mutant_root lib/plane/tracker.sh 's/| sort_by(\.created_at | instant_key) | last | \.created_at)/| sort_by(.created_at) | last | .created_at)/')"
+grep -q '^no landing   carried-repo#624' <<< "$(carried_sync "$planted")" && fail "planted: the last reopening taken by the text of its time should let the record stand"
+planted="$(mutant_root lib/plane/tracker.sh 's/| max_by(instant_key))}/| max)}/')"
+grep -q '^no landing   carried-repo#625' <<< "$(carried_sync "$planted")" && fail "planted: the later reopening taken by the text of its time should let the record stand"
+planted="$(mutant_root lib/plane/tracker.sh 's/sort_by(\.created_at | instant_key) | map({author:/sort_by(.created_at) | map({author:/')"
+[ "$(ROOT_UNDER_TEST="$planted" ai issue-thread 623 2>&1 | grep -n 'comment in time' | sed -n 's/^[0-9]*:\(the [a-z]*\) .*/\1/p' | paste -sd, -)" = "the second,the first" ] || fail "planted: the thread sorted by the text of the times should print the second comment first"
+echo "  planted defects, each caught: the proof, the newest record, the last reopening and the later reopening compared by the text of their time, the thread sorted by it"
+
 # A work item is named by a commit from its creation on; the GitHub issue it was carried from, before it
 ready_item() {  # ready_item <number> [GitHub number]: a work item in ready, carried from carried-repo#<GitHub number> where one is given
   ITEM_EXTERNAL_SOURCE="${2:+github}" ITEM_EXTERNAL_ID="${2:+example-org/carried-repo#$2}" plane_add_item "$1" "Ready $1" ${2:-repo:carried-repo}
@@ -764,3 +813,25 @@ planted="$(mutant_root lib/status-live.mjs "s/'log', ref, '-E'/'log', ref, '-n',
 live_on_prod "$(ROOT_UNDER_TEST="$planted" plane_status)" 819 16 && fail "planted: -n 1 taken before the time rule should lose the older commit"
 echo "    planted defects, each caught: the carried pattern dropped, the upper bound dropped, the lower bound dropped, the count taken before the time rule"
 unset AI_CORE_NOW
+
+# THE READS OVER A REPOSITORY ARE IN THE ORDER OF THE INSTANTS, and a day is a day of UTC, as GitHub's search takes
+# it: a work item made at 22:30 UTC on 2020-06-01 was made on 2020-06-02 in Zurich and is no work item of that day
+ITEM_CREATED_AT=2020-06-01T22:30:00Z plane_add_item 630 "Made at 22:30 UTC on the 1st, on the 2nd in Zurich" repo:example-repo
+ITEM_CREATED_AT=2020-06-02T00:30:00Z plane_add_item 631 "Made at 00:30 UTC on the 2nd" repo:example-repo
+ITEM_CREATED_AT=$T1 plane_add_item 632 "Made at T1, printed 02:30+02:00" repo:example-repo
+ITEM_CREATED_AT=$T3 plane_add_item 633 "Made at T3, printed 02:05+01:00, after T1" repo:example-repo
+planeset "for (const [n, at] of [[634, '$T1'], [635, '$T3']]) { p.issues.push({id:require('crypto').randomUUID(),project:p.id,name:'Closed '+n,description_html:'<p></p>',priority:'none',parent:null,labels:p.labels.filter((l)=>l.name==='repo:example-repo').map((l)=>l.id),assignees:[],sort_order:65535,external_source:null,external_id:null,archived_at:null,created_at:'2020-01-01T00:00:00Z',updated_at:'2020-01-01T00:00:00Z',completed_at:at,sequence_id:n,state:p.states.find((x)=>x.name==='done').id}); }"
+since_2020() { ROOT_UNDER_TEST="${1:-$ROOT}" plane_fn issues_created_since example-org/example-repo 2020-06-02 500 | jq -r '[.[] | .createdAt | select(startswith("2020-"))] | .[]' | while read -r at; do date -u -d "$at" +%FT%TZ; done | paste -sd' ' -; }
+position() { ROOT_UNDER_TEST="${1:-$ROOT}" plane_fn issue_summaries example-org/example-repo | awk -F'\t' -v a=632 -v b=633 '$1 == a { x = NR } $1 == b { y = NR } END { print (y < x ? "newest first" : "oldest first") }'; }
+closed_order() { ROOT_UNDER_TEST="${1:-$ROOT}" plane_fn issue_numbers_closed example-org/example-repo | grep -E '^63[45]$' | paste -sd' ' -; }
+[ "$(since_2020)" = "2020-06-02T00:30:00Z" ] || fail "issues_created_since 2020-06-02 holds the work item made at 22:30 UTC on the 1st: $(since_2020)"
+[ "$(position)" = "newest first" ] || fail "issue_summaries put the work item made at T1 before the one made at T3, an hour and 35 minutes later in time: $(position)"
+[ "$(closed_order)" = "635 634" ] || fail "issue_numbers_closed put the work item closed at T1 before the one closed at T3: $(closed_order)"
+echo "  issues_created_since reads the day in UTC, and issue_summaries and issue_numbers_closed put the newest first by the instants, across the end of the summer time"
+planted="$(mutant_root lib/plane/tracker.sh 's/(\.created_at | instant_key) >= (\$d + "T00:00:00Z" | instant_key)/.created_at >= $d/')"
+[ "$(since_2020 "$planted")" = "2020-06-02T00:30:00Z 2020-06-01T22:30:00Z" ] || fail "planted: the text of the time compared with the day should hold both: $(since_2020 "$planted")"
+planted="$(mutant_root lib/plane/tracker.sh 's/sort_by(\.created_at | instant_key) | reverse | \.\[:500\]/sort_by(.created_at) | reverse | .[:500]/')"
+[ "$(position "$planted")" = "oldest first" ] || fail "planted: the summaries sorted by the text of the time should put T1 after T3"
+planted="$(mutant_root lib/plane/tracker.sh 's/sort_by((\.completed_at \/\/ \.updated_at) | instant_key)/sort_by(.completed_at \/\/ .updated_at)/')"
+[ "$(closed_order "$planted")" = "634 635" ] || fail "planted: the closed work items sorted by the text of the time should put T1 first: $(closed_order "$planted")"
+echo "  planted defects, each caught: the day compared as text, the summaries and the closed numbers sorted by the text of their times"

@@ -118,7 +118,7 @@ cards_of_repo() {  # <owner/repo>
       | ($said | selected_landing($reopenedAt; $repo)) as $landing
       | ($landing.commit // "-") as $sha
       | (if $landing == null or ($landing.repository | ascii_downcase) == ($repo | ascii_downcase) then "-" else $landing.repository end) as $elsewhere
-      | ([$said[] | select($landing != null and (.body | startswith("Proven on ")) and (.createdAt > $landing.createdAt))]
+      | ([$said[] | select($landing != null and (.body | startswith("Proven on ")) and later(.createdAt; $landing.createdAt))]
           | if length > 0 then 1 else 0 end) as $proven
       | (first($landing.createdAt // empty | instant) // "-") as $landedAt
       | ([$said[] | (.createdAt | instant) as $at | (.body | split("\n")[0] | proof_environment) as $token | "\($at)=\($token)"]

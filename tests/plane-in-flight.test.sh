@@ -52,6 +52,9 @@ mutant_root() {  # mutant_root <file> <sed expression>: a copy of the tree with 
   printf '%s' "$WORK/mutant"
 }
 repo=example-org/example-repo
+# a copy of the tree whose `instant` reads only a time written with Z, as it did when the live Plane first met it
+zulu_only_root() { mutant_root lib/board.sh 's#(?<z>Z|(?<d>\[+-\])(?<h>\[01\]\[0-9\]|2\[0-3\]):(?<m>\[0-5\]\[0-9\]))\$")#(?<z>Z)\$")#'; }
+unreadable() { grep -qE "cannot read the time '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+[+-][0-9]{2}:[0-9]{2}' of an issue" <<< "$1"; }
 
 # --- the work items ---------------------------------------------------------------------------------
 item 44 "Carried one" 2026-03-10T12:00:00Z "$repo#287" repo:example-repo
@@ -64,6 +67,51 @@ item 293 "Fresh 293" 2026-03-10T12:00:00Z "" repo:example-repo
 item 47 "Carried four" 2026-03-10T12:00:00Z "$repo#289" repo:example-repo
 item 289 "Fresh 289" 2026-03-12T12:00:00Z "" repo:example-repo
 item 50 "Carried from its own number" 2026-03-10T12:00:00Z "$repo#50" repo:example-repo
+
+section "instant_seconds: a time as the live Plane writes it"
+cat > "$WORK/probe.sh" <<'PROBE'
+. "$1/lib/board.sh"
+case "$2" in
+  seconds)  instant_seconds "$3" ;;
+  newest)   jq -r --arg reopenedAt "$4" "$LANDING_RECORD_JQ"'selected_landing($reopenedAt; "example-org/example-repo") | .commit' <<< "$3" ;;
+  standing) landing_recorded open "$(jq -nc --arg at "$3" --arg re "$4" '{reopenedAt: $re, comments: [{createdAt: $at, authorAssociation: "MEMBER", body: "Landed on master:
+- aaaaaaa One"}]}')" \
+              example-org/example-repo example-org/example-repo '- aaaaaaa One' ;;
+esac
+PROBE
+probe() { ( cd "$P" && PATH="$PATH_CURL" bash "$WORK/probe.sh" "${ROOT_UNDER_TEST:-$ROOT}" "$@" 2>&1 ); }
+seconds_of() { probe seconds "$1"; }
+live=2026-10-22T08:31:17.295431+02:00   # created_at as the owner's Plane answered it on 2026-10-22
+[ "$(seconds_of "$live")" = 1792650677 ] || fail "the time the live Plane wrote, $live, is not 2026-10-22T06:31:17Z: $(seconds_of "$live")"
+for same in 2026-10-22T06:31:17Z 2026-10-22T06:31:17.295431Z 2026-10-22T06:31:17+00:00 2026-10-22T08:31:17+02:00 2026-10-21T22:31:17.000001-08:00 2026-10-22T12:01:17+05:30; do
+  [ "$(seconds_of "$same")" = 1792650677 ] || fail "$same is the instant of $live: $(seconds_of "$same")"
+done
+[ "$(seconds_of 2026-12-01T10:00:00.5+01:00)" = "$(epoch 2026-12-01T09:00:00Z)" ] || fail "a winter time of the same server, +01:00, is not read: $(seconds_of 2026-12-01T10:00:00.5+01:00)"
+for bad in '2026-10-22 08:31:17+02:00' 2026-10-22T08:31:17 2026-10-22T08:31:17+2:00 2026-10-22T08:31:17+24:00 2026-10-22T08:31:17+02:60 2026-13-40T08:31:17Z yesterday ''; do
+  [ "$(seconds_of "$bad")" = "error: cannot read the time '$bad' of an issue" ] \
+    || fail "the time '$bad' is not a time of a tracker, and instant_seconds did not refuse it by its name: $(seconds_of "$bad")"
+done
+echo "  instant_seconds: $live is 2026-10-22T06:31:17Z, as are the same instant written with Z, +00:00, a fraction and an offset in either direction; a time without a zone, with a short or impossible offset, or that is no date is refused by its name"
+planted="$(zulu_only_root)"
+[ "$(ROOT_UNDER_TEST="$planted" seconds_of "$live")" = "error: cannot read the time '$live' of an issue" ] || fail "planted: an instant that reads only Z should refuse the time of the live Plane by its name"
+[ "$(ROOT_UNDER_TEST="$planted" seconds_of 2026-10-22T06:31:17Z)" = 1792650677 ] || fail "planted innocent: a time written with Z is read in the same tree"
+echo "  planted: an instant that reads only Z refuses $live by its name; the time of GitHub, 2026-10-22T06:31:17Z, is read as before"
+
+section "the landing records of a thread, ordered and compared as instants"
+records='[{"createdAt":"2026-10-22T07:00:00+02:00","authorAssociation":"MEMBER","body":"Landed on master:\n- aaaaaaa One"},
+          {"createdAt":"2026-10-22T06:00:00Z","authorAssociation":"MEMBER","body":"Landed on master:\n- bbbbbbb Two"}]'
+newest() { probe newest "$1" "$2"; }
+standing() { probe standing "$1" "$2" > /dev/null; }   # standing <comment time> <reopening time>: whether the record made at the first time stands after the reopening
+[ "$(newest "$records" "")" = bbbbbbb ] || fail "of two records, 07:00+02:00 (05:00Z) and 06:00Z, the second is the newest: $(newest "$records" "")"
+standing 2026-10-22T07:00:00+02:00 2026-10-22T06:00:00Z && fail "a record made at 05:00Z stood after a reopening at 06:00Z"
+standing 2026-10-22T09:00:00+02:00 2026-10-22T06:00:00Z || fail "a record made at 07:00Z did not stand after a reopening at 06:00Z"
+echo "  landing records: of two the later in time is the newest whatever the offsets, and a record stands after a reopening by the instants, not the text"
+planted="$(mutant_root lib/board.sh 's/sort_by(\.createdAt | instant_key);/sort_by(.createdAt);/')"
+[ "$(ROOT_UNDER_TEST="$planted" newest "$records" "")" = aaaaaaa ] || fail "planted: the records sorted by the text of their time should make the first the newest"
+planted="$(mutant_root lib/board.sh 's/later(\.createdAt; \$reopenedAt)/.createdAt > $reopenedAt/')"
+ROOT_UNDER_TEST="$planted" standing 2026-10-22T07:00:00+02:00 2026-10-22T06:00:00Z || fail "planted: the text of the time compared with the reopening should let the early record stand"
+ROOT_UNDER_TEST="$planted" standing 2026-10-22T09:00:00+02:00 2026-10-22T06:00:00Z || fail "planted innocent: the late record stands in the same tree"
+echo "  planted: the records sorted by the text of their time, and a record compared with the reopening by it, are caught; the late record stands in both"
 
 section "referenced_issue: which work item a reference to a number means"
 ref() { plane_fn referenced_issue "$repo" "$@"; }
@@ -151,6 +199,10 @@ planted="$(mutant_root lib/plane/tracker.sh 's/if \[ -n "\$own" \] \&\& \[ -n "\
 out="$(ROOT_UNDER_TEST="$planted" start_here issue-287-the-slug)"
 grep -q '^#287 Fresh 287$' <<< "$out" || fail "planted: without the time rule session-start should print the thread of work item #287"
 echo "  planted: without the time rule the thread of work item #287 is printed in the worktree of #44"
+planted="$(zulu_only_root)"
+out="$(ROOT_UNDER_TEST="$planted" start_here issue-287-the-slug)"
+unreadable "$out" || fail "planted: an instant that reads only Z should make session-start name the time it cannot read: $out"
+echo "  planted: an instant that reads only Z leaves session-start with a time it cannot read, named"
 
 section "finish-issue after the switch: the worktree issue-287-the-slug is work item #44's"
 forget() { planeset "const it=p.issues.find((i)=>i.sequence_id===$1);p.comments=p.comments.filter((c)=>c.issue!==it.id)"; set_state "$1" "${2:-implementing}"; }   # forget <number> [state]: no comment, in that state
@@ -175,6 +227,11 @@ grep -q 'no worktree of issue 44 stands here' <<< "$out" || fail "planted: the c
 stays || fail "planted: the carried number not matched should leave the branches in place"
 forget 44
 echo "  planted: with the carried number not matched, finish-issue 44 finds no worktree and the origin branch stays"
+planted="$(zulu_only_root)"
+out="$(ROOT_UNDER_TEST="$planted" ai finish-issue 44 2>&1)" && fail "planted: an instant that reads only Z should stop finish-issue 44: $out"
+unreadable "$out" || fail "planted: finish-issue 44 should name the time it cannot read: $out"
+[ -d "$WORK/trees/issue-287-the-slug" ] || fail "planted: finish-issue 44 removed the worktree beside a time it could not read"
+echo "  planted: an instant that reads only Z stops finish-issue 44 at the time it cannot read, and the worktree stays"
 
 planted="$(mutant_root lib/plane/tracker.sh 's/if \[ -n "\$own" \] \&\& \[ -n "\$at" \] \&\& \[ "\$at" -ge "\$own_at" \]; then/if [ -n "$own" ] \&\& [ -n "$at" ]; then/')"
 ROOT_UNDER_TEST="$planted" ai finish-issue 287 > /dev/null 2>&1 || true
@@ -261,6 +318,13 @@ out="$(ROOT_UNDER_TEST="$planted" land_from_origin 289)" || fail "planted: integ
 fetch; [ "$(subject_of)" = "Fresh 289 (#289)" ] || fail "planted: without the time rule integrate-issue 289 should merge the branch of #47: $(subject_of)"
 git -C "$P" push -q origin --delete issue-289-planted
 echo "  planted: without the time rule integrate-issue 289 --from-origin merges the branch of #47"
+planted="$(zulu_only_root)"
+origin_branch issue-289-blind 2026-03-02T00:00:00Z "Blind (#289)"
+out="$(ROOT_UNDER_TEST="$planted" land_from_origin 289)" && fail "planted: an instant that reads only Z should stop integrate-issue 289 --from-origin: $out"
+unreadable "$out" || fail "planted: integrate-issue 289 --from-origin should name the time it cannot read: $out"
+on_origin issue-289-blind || fail "planted: the branch issue-289-blind is gone from origin beside a time that could not be read"
+git -C "$P" push -q origin --delete issue-289-blind
+echo "  planted: an instant that reads only Z stops integrate-issue 289 --from-origin at the time it cannot read, before anything is merged"
 origin_branch issue-289-four 2026-03-02T00:00:00Z "Four (#289)"
 before="$(git -C "$P" rev-parse origin/master)"
 out="$(land_from_origin 289)" && fail "integrate-issue 289 --from-origin took the branch of #47: $out"
@@ -386,3 +450,8 @@ grep -qE '^ +project#287 .*has work origin/master does not have yet' <<< "$(ROOT
 planted="$(mutant_root lib/status-now.mjs "s/const treeNumber = workItems.has(treeDir) ? workItems.get(treeDir) : tree ? tree\[2\] : '';/const treeNumber = tree ? tree[2] : '';/")"
 grep -qE 'trees#287 at start' <<< "$(ROOT_UNDER_TEST="$planted" status_page)" || fail "planted: the key read from the directory should be trees#287 at start in the agent table"
 echo "  planted: the key read from the directory's number gives project#287 in the TREES block and trees#287 in the agent table"
+planted="$(zulu_only_root)"
+page="$(ROOT_UNDER_TEST="$planted" status_page)"
+unreadable "$page" || fail "planted: an instant that reads only Z should make status name the time it cannot read: $page"
+grep -qE '^ +project#44 ' <<< "$page" && fail "planted: the worktree of #44 was keyed beside a time that could not be read: $(grep -A8 '^TREES' <<< "$page")"
+echo "  planted: an instant that reads only Z leaves status unable to tell the work item of a worktree, and it says so"

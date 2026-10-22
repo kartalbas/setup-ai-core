@@ -167,6 +167,23 @@ plane_user_id() {
   printf '%s\n' "$id"
 }
 
+# plane_check_assignable <user id> <member rows> <who, as the refusal names it>: dies unless that user is an active member of the
+# project with a role of 15 or more, the only kind of user Plane keeps as an assignee: it drops every other without a word
+# (validate() of apps/api/plane/api/serializers/issue.py at v1.4.2), and a project's default assignee takes the place of an empty list
+plane_check_assignable() {
+  printf '%s\n' "$2" | jq -e --arg i "$1" 'select(.id == $i and .is_active == true and .role >= 15)' > /dev/null \
+    || die "$3 is not an active member of the project $(plane_setting PLANE_PROJECT) with a role of 15 or more, and Plane keeps no assignee who is not one: nothing was written"
+}
+
+# plane_assignee_id <email | @me> <member rows>: the uuid of that user, checked to be one Plane keeps as an assignee; the rows are
+# those of plane_member_rows, read once by the caller for all its assignees
+plane_assignee_id() {
+  local id
+  id="$(plane_user_id "$1")" || exit 1
+  plane_check_assignable "$id" "$2" "the assignee $1"
+  printf '%s\n' "$id"
+}
+
 # tracker_login: the email the key's user is known by, which is what a Plane assignee is written as
 tracker_login() {
   local who email
@@ -289,14 +306,15 @@ plane_state_id() {
 
 # issue_create <owner/repo> <title> <body file> <assignee> [label...]: prints the number of the new work item,
 # with the label of the checkout's repository on it. Plane drops a label id of another project without a word,
-# so the item is read back and refused by name where the label is not there.
+# so the item is read back and refused by name where the label is not there; the assignee is checked before the write.
 issue_create() {
-  local repo="$1" title="$2" body="$3" assignee="$4" label ids aid html request created id n back project
+  local repo="$1" title="$2" body="$3" assignee="$4" label ids members aid html request created id n back project
   shift 4
   plane_check_repo "$repo"
   label="$(plane_repo_label)"
   ids="$(plane_label_ids "$@" "$label")" || exit 1
-  aid="$(plane_user_id "$assignee")" || exit 1
+  members="$(plane_member_rows)" || exit 1
+  aid="$(plane_assignee_id "$assignee" "$members")" || exit 1
   html="$(plane_html_of "" "$body")" || exit 1
   request="$(jq -n --arg name "$title" --arg html "$html" --argjson labels "$ids" --arg a "$aid" \
     '{name: $name, description_html: $html, labels: $labels, assignees: [$a], external_source: "ai-core"}')"
@@ -330,8 +348,8 @@ plane_find_carried() {
 # A destination is read ONCE per run: its project, states and labels stand in files of CARRY_RUN, scoped by the full
 # URL, workspace and project; so do the work items carried so far (ref, uuid, number), which a sub-issue of the same
 # destination reads without a request. WHAT A PERSON CHANGED IN PLANE IS NEVER WRITTEN BACK: a work item found by
-# its external id is not patched, not its state, parent, archive date, title, body, labels or priority, and a comment
-# found by its external id is not edited. State, parent and archive date are set in the one create request.
+# its external id is not patched, not its state, parent, archive date, assignee, title, body, labels or priority, and a comment
+# found by its external id is not edited. State, parent, archive date and assignee are set in the one create request.
 
 carry_dir() {
   local d
@@ -361,6 +379,17 @@ plane_carry_metadata() {
 # labels the project lacks
 plane_carry_missing_labels() {
   jq -s --slurpfile have "$(carry_dir)/labels.jsonl" '[.[].labels[]] | unique | map(select(. as $n | $have | map(.name) | index($n) | not)) | length'
+}
+
+# plane_carry_key_user: reads once for this destination who the Plane key's user is and that it can be an assignee; stores its id
+# for plane_carry_row and prints "key-user <requests>", the most requests it made
+plane_carry_key_user() {
+  local id rows
+  id="$(plane_user_id @me)" || exit 1
+  rows="$(plane_member_rows)" || exit 1
+  plane_check_assignable "$id" "$rows" "the Plane key's user"
+  printf '%s\n' "$id" > "$(carry_dir)/key-user"
+  echo "key-user $(( 1 + $(printf '%s\n' "$rows" | wc -l) / 100 + 1 ))"
 }
 
 # carry_state_id <mode> <name>: the state a work item is created in. A named state must belong to an open group; the
@@ -432,11 +461,11 @@ carry_comment_request() { jq -c "$PLANE_HTML"' {comment_html: (.text | html), ex
 carry_comments() { plane_pages "the comments of $1" "$(plane_path "$2")"; }
 
 # plane_carry_row: one row of the plan on standard input, carried: the work item created with its state, parent,
-# archive date and labels in the one request, then every missing comment and the provenance comment by external id.
+# archive date, assignee and labels in the one request, then every missing comment and the provenance comment by external id.
 # Prints "<ref>\t<IDENT-n>\t<address>\t<complete | created | resumed>"; dies naming the reason where it is incomplete.
 plane_carry_row() {
   local row ref kind found project id seq request state parent_ref parent_id mode ids name pending have missing path comment posts=0 notes="" outcome verify=1
-  local preexisting=1 provenance_end="" parent_link moved_to
+  local preexisting=1 provenance_end="" parent_link moved_to assignee=""
   row="$(cat)"
   ref="$(jq -r '.ref' <<< "$row")"; kind="$(jq -r '.kind' <<< "$row")"
   [ "$kind" != issue ] || plane_check_repo "$(jq -r '.repo' <<< "$row")"
@@ -467,9 +496,10 @@ plane_carry_row() {
     while IFS= read -r name; do
       ids="$(jq -c --arg i "$(carry_label_id "$name")" '. + [$i]' <<< "$ids")"
     done < <(jq -r '.labels[]' <<< "$row")
-    request="$(jq -c --arg state "$state" --arg parent "$parent_id" --argjson labels "$ids" --arg today "$(date -u +%F)" "$PLANE_HTML"'
+    if [ "$(jq -r '.assigned_to_key_user' <<< "$row")" = true ]; then assignee="$(cat "$(carry_dir)/key-user")" || exit 1; fi
+    request="$(jq -c --arg state "$state" --arg parent "$parent_id" --arg assignee "$assignee" --argjson labels "$ids" --arg today "$(date -u +%F)" "$PLANE_HTML"'
       {name: .title, description_html: (.body | html), labels: $labels, external_source: "github", external_id: .ref, priority: .priority, state: $state}
-      + (if $parent != "" then {parent: $parent} else {} end) + (if .archived then {archived_at: $today} else {} end)' <<< "$row")"
+      + (if $parent != "" then {parent: $parent} else {} end) + (if $assignee != "" then {assignees: [$assignee]} else {} end) + (if .archived then {archived_at: $today} else {} end)' <<< "$row")"
     plane_call POST "$(plane_path "projects/$project/issues/")" "$request"
     case "$plane_status" in
       2??) ;;
@@ -479,9 +509,9 @@ plane_carry_row() {
     esac
     found="$(plane_find_carried "$ref")" || exit 1
     [ -n "$found" ] || die "the work item carried from $ref was not found by its external_id after the create (${notes:-Plane answered $plane_status}): nothing is known to exist. Run the same command again"
-    [ "$verify" = 0 ] || jq -e --arg s "$state" --arg p "$parent_id" --argjson a "$(jq '.archived' <<< "$row")" \
-      '.state == $s and ((.parent // "") == $p) and ((.archived_at != null) == $a)' <<< "$found" >/dev/null \
-      || die "the work item carried from $ref was stored with another state, parent or archive date than it was given: $(jq -c '{state, parent, archived_at}' <<< "$found")"
+    [ "$verify" = 0 ] || jq -e --arg s "$state" --arg p "$parent_id" --arg u "$assignee" --argjson a "$(jq '.archived' <<< "$row")" \
+      '.state == $s and ((.parent // "") == $p) and ((.archived_at != null) == $a) and ($u == "" or ((.assignees // []) | index($u) != null))' <<< "$found" >/dev/null \
+      || die "the work item carried from $ref was stored with another state, parent, archive date or assignee than it was given: $(jq -c '{state, parent, archived_at, assignees}' <<< "$found")"
   fi
   id="$(jq -r '.id' <<< "$found")"; seq="$(jq -r '.sequence_id' <<< "$found")"
   carry_remember "$ref" "$found"
@@ -724,12 +754,13 @@ issue_assignees() {  # issue_assignees <owner/repo> <number>: the emails assigne
   plane_api "the assignees of $1#$2" GET "$(plane_path "$(plane_issue_path "$item")")?expand=assignees" | jq -r '.assignees[]?.email'
 }
 
-# issue_assignees_set <owner/repo> <number> <emails, one per line>: the assignees become exactly these
+# issue_assignees_set <owner/repo> <number> <emails, one per line>: the assignees become exactly these, each checked before the write
 issue_assignees_set() {
-  local ids="[]" who id
+  local ids="[]" who id members=""
   while IFS= read -r who; do
     [ -n "$who" ] || continue
-    id="$(plane_user_id "$who")" || exit 1
+    [ -n "$members" ] || members="$(plane_member_rows)" || exit 1
+    id="$(plane_assignee_id "$who" "$members")" || exit 1
     ids="$(jq -c --arg i "$id" '. + [$i]' <<< "$ids")" || exit 1
   done <<< "$3"
   plane_patch "the assignees of $1#$2" "$1" "$2" "$(jq -nc --argjson a "$ids" '{assignees: $a}')"
@@ -1113,10 +1144,15 @@ plane_closed_state_ids() {
   printf '%s\n' "$states" | jq -cs '[.[] | select(.group | IN("completed", "cancelled")) | .id]'
 }
 
+# plane_member_rows: the members of the project, active or not, one JSON object each
+plane_member_rows() {
+  plane_pages "the members of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/project-members-lite/")"
+}
+
 # plane_active_member_ids: the ids of the active members of the project, as a JSON array
 plane_active_member_ids() {
   local rows
-  rows="$(plane_pages "the members of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/project-members-lite/")")" || exit 1
+  rows="$(plane_member_rows)" || exit 1
   printf '%s\n' "$rows" | jq -cs '[.[] | select(.is_active == true) | .id]'
 }
 

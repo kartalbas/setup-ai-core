@@ -1,10 +1,12 @@
 # The plan of an issue carry, from what GitHub holds to what Plane is to be given. Run by lib/carry.sh as
-#   jq -n -f lib/carry-plan.jq --slurpfile source <rows> --argjson destinations <repo -> destination> --arg now <ISO time>
+#   jq -n -f lib/carry-plan.jq --slurpfile source <rows> --argjson destinations <repo -> destination> --arg now <ISO time> --arg login <login>
 # `source` holds the rows of github_carry_repositories, github_carry_issues and github_carry_boards;
-# `destinations` maps each repository that has a destination to its destination key. The answer is
+# `destinations` maps each repository that has a destination to its destination key; `login` is the GitHub login of the
+# account that runs the carry. The answer is
 #   {rows: [work item to create, parents before sub-issues, boards last], report: {every count the run prints first}}
 # Nothing is written here and nothing is guessed: a value Plane has no field for goes into the text of the
-# provenance comment, and the issue body is the source body to the byte.
+# provenance comment, and the issue body is the source body to the byte. The one assignee Plane can be told of is the
+# user of its key, which is the account that runs the carry: an assignee with that login is carried, any other is named in the report.
 
 def lc: ascii_downcase;
 def address: test("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}");
@@ -12,6 +14,7 @@ def terminal: (. // "" | lc) == "done";
 def nonempty: select(. != null and . != "");
 def priority_name: {P0: "urgent", P1: "high", P2: "medium", P3: "low"};
 def names($xs): $xs | map(. // "none") | join(", ");
+def assigned_to_key_user: .assignees | any(lc == ($login | lc));
 
 ($source | map(select(.kind == "repository"))) as $repositories
 | ($source | map(select(.kind == "issue"))) as $issues
@@ -82,7 +85,7 @@ def issue_row:
                else {mode: "reference", how: "in another destination, so it is a recorded relationship and not a Plane sub-issue"} end) end) as $parent
   | {kind: "issue", ref: "\($i.repo)#\($i.number)", dest: $dest, repo: $i.repo, title: $i.title, body: $i.body,
      labels: ([$i.labels[], "repo:\($i.repo | split("/")[1])"] + (if ($i.memberships | any(.priority == "P9")) then ["P9"] else [] end) | unique),
-     priority: ($i | native_priority), state: ($life | {mode, name, group: .mode}), archived: $life.archived, parent: $parent, moved_to: ($i | moved_to),
+     priority: ($i | native_priority), assigned_to_key_user: ($i | assigned_to_key_user), state: ($life | {mode, name, group: .mode}), archived: $life.archived, parent: $parent, moved_to: ($i | moved_to),
      comments: (($i.comments | length) as $total | [$i.comments | to_entries[] | .key as $k | .value | {external_id: .id, created_at: .createdAt, text: comment_text($i; $k + 1; $total)}]),
      provenance: {external_id: $i.id, created_at: $now, text: provenance($i; $life; $parent; $dest)}};
 
@@ -105,7 +108,7 @@ def board_text:
 | ($selected | map(issue_row)) as $issue_rows
 | ($boards | map(. as $b | ($b | board_destinations)[] as $d
       | {kind: "board", ref: $b.id, dest: $d, repo: null, title: $b.title, body: ($b | board_text), labels: [], priority: "none",
-         state: {mode: "done", group: "done"}, archived: true, parent: null, comments: [], provenance: null})) as $board_rows
+         assigned_to_key_user: false, state: {mode: "done", group: "done"}, archived: true, parent: null, comments: [], provenance: null})) as $board_rows
 
 | ($selected | map(.comments | length) | add // 0) as $original_comments
 | ($selected | map(select(.parent != null))) as $with_parent
@@ -138,6 +141,10 @@ def board_text:
      boards_closed: ($boards | map(select(.closed)) | length),
      boards_spanning: ($boards | map(select((board_destinations | length) > 1)) | length),
      board_memberships_total: ($boards | map(.items | length) | add // 0),
+     assignees_carried: ($selected | map(select(assigned_to_key_user)) | length),
+     assignees_not_carried: [$selected | sort_by([.repo, .number])[] | . as $i | $i.assignees[] | select(lc != ($login | lc)) | {login: ., ref: "\($i.repo)#\($i.number)"}],
+     assignee_login: $login,
+     key_user_destinations: ($issue_rows | map(select(.assigned_to_key_user) | .dest) | unique),
      p9_issues: ($selected | map(select(.memberships | any(.priority == "P9"))) | length),
      address_issues: ($selected | map(select(([.title, .body] + (.comments | map(.body))) | any(address))) | length),
      address_titles: ($selected | map(select(.title | address)) | length),

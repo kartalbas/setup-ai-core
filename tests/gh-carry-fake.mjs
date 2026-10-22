@@ -7,8 +7,10 @@
 // `itemTypes` names, and a connection is paged by `first`. The whole answer is written before the process ends: a pipe
 // takes 64 KiB at a time, and an answer cut there would be read as a shorter listing.
 //
-// github.json: {page: {repositories, issues, nested}, repositories: [{nameWithOwner, isArchived}],
-//   issues: {"owner/repo": [{number, id, title, body, state, stateReason, url, labels: [name], comments: [{id, url,
+// `gh api user` answers {login} from github.json, the account that runs the carry.
+//
+// github.json: {login, page: {repositories, issues, nested}, repositories: [{nameWithOwner, isArchived}],
+//   issues: {"owner/repo": [{number, id, title, body, state, stateReason, url, labels: [name], assignees: [login], comments: [{id, url,
 //   createdAt, body, author, authorAssociation}], parent: {id, number, url, repository}, items: [{id, isArchived, project, status, priority}],
 //   timeline: [{type: "CLOSED_EVENT" | "REOPENED_EVENT", createdAt}]}]},
 //   boards: [{id, number, title, url, closed, readme, repositories: [{nameWithOwner, isArchived}], items: [{id, isArchived,
@@ -45,6 +47,7 @@ const timeline = (i, after) => page((i.timeline || []).filter((e) => itemTypes.i
 const issueNode = (repo, i) => ({
   id: i.id, number: i.number, title: i.title, body: i.body, state: i.state, stateReason: reason(i), url: i.url,
   labels: ((p) => ({ nodes: p.nodes.map((name) => ({ name })), pageInfo: p.pageInfo }))(page(i.labels, 100, null, st.page.nested)),
+  ...(query.includes('assignees(first:') ? { assignees: { nodes: (i.assignees || []).slice(0, first(/assignees\(first:(\d+)/)).map((login) => ({ login })) } } : {}),
   comments: page(i.comments.map((c) => ({ ...c, author: c.author ? { login: c.author } : null })), 100, null, st.page.nested),
   parent: i.parent ? { id: i.parent.id, number: i.parent.number, url: i.parent.url, repository: { nameWithOwner: i.parent.repository } } : null,
   projectItems: items(i, null),
@@ -54,6 +57,7 @@ const cardNodes = (board) => board.items.filter((m) => query.includes('archivedS
   .map((m) => ({ id: m.id, isArchived: m.isArchived, content: m.issue ? { id: m.issue.id, number: m.issue.number, repository: { nameWithOwner: m.issue.repository } } : {}, fieldValues: fieldValues(m) }));
 
 const respond = () => {
+  if (args[0] === 'api' && args[1] === 'user') return { out: JSON.stringify({ login: st.login }) + '\n', code: 0 };
   if (args[0] !== 'api' || args[1] !== 'graphql') return { err: `unexpected gh call: ${args.join(' ')}\n`, code: 1 };
   if (st.fail) {
     const hit = st.fail.findIndex((f) => query.includes(f.match) || args.join(' ').includes(f.match));

@@ -904,16 +904,18 @@ CARRY_TIMELINE='__typename ... on ClosedEvent{ createdAt } ... on ReopenedEvent{
 CARRY_TIMELINE_TYPES='itemTypes: [CLOSED_EVENT, REOPENED_EVENT]'
 CARRY_TIMELINE_EVENT='select(.__typename == "ClosedEvent" or .__typename == "ReopenedEvent") | {kind: (if .__typename == "ClosedEvent" then "closed" else "reopened" end), at: .createdAt}'
 # stateReason(enableDuplicate: true) is the only spelling that tells DUPLICATE from NOT_PLANNED, and
-# projectItems(includeArchived: true) the only one that shows an archived card
+# projectItems(includeArchived: true) the only one that shows an archived card; GitHub allows 10 assignees at most,
+# so one page of them is all of them
 CARRY_ISSUE='id number title body state stateReason(enableDuplicate: true) url
   labels(first:100){ nodes{ name } pageInfo{ hasNextPage endCursor } }
+  assignees(first:10){ nodes{ login } }
   comments(first:100){ nodes{ '"$CARRY_COMMENT"' } pageInfo{ hasNextPage endCursor } }
   parent{ id number url repository{ nameWithOwner } }
   projectItems(first:50, includeArchived: true){ nodes{ '"$CARRY_MEMBERSHIP"' } pageInfo{ hasNextPage endCursor } }
   timelineItems(first:100, '"$CARRY_TIMELINE_TYPES"'){ nodes{ '"$CARRY_TIMELINE"' } pageInfo{ hasNextPage endCursor } }'
 CARRY_STATUS='(first(.fieldValues.nodes[]? | select(.field.name == "Status") | .name) // null)'
 CARRY_PRIORITY='(first(.fieldValues.nodes[]? | select(.field.name == "Priority") | .name) // null)'
-CARRY_ISSUE_ROW='{kind: "issue", repo: $repo, number, id, url, title, body, state, reason: .stateReason, labels: [.labels.nodes[].name],
+CARRY_ISSUE_ROW='{kind: "issue", repo: $repo, number, id, url, title, body, state, reason: .stateReason, labels: [.labels.nodes[].name], assignees: [.assignees.nodes[].login],
   comments: [.comments.nodes[] | {id, url, createdAt, body, authorAssociation, author: (.author.login // null)}],
   parent: (if .parent == null then null else {id: .parent.id, repo: .parent.repository.nameWithOwner, number: .parent.number, url: .parent.url} end),
   memberships: [.projectItems.nodes[] | {item: .id, board: .project.id, archived: .isArchived, status: '"$CARRY_STATUS"', priority: '"$CARRY_PRIORITY"'}],
@@ -933,7 +935,7 @@ github_carry_repositories() {
 }
 
 # github_carry_issues <owner/repo> [number]: the issues of the repository (or the one), one row each:
-#   {kind, repo, number, id, url, title, body, state, reason, labels: [name], comments: [{id, url, createdAt, body, authorAssociation, author}],
+#   {kind, repo, number, id, url, title, body, state, reason, labels: [name], assignees: [login], comments: [{id, url, createdAt, body, authorAssociation, author}],
 #    parent: {id, repo, number, url} | null, memberships: [{item, board, archived, status, priority}],
 #    timeline: [{kind: "closed" | "reopened", at}]}
 # in the order they were opened, with every nested connection read to its end.

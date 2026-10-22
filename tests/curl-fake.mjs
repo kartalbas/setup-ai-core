@@ -174,7 +174,7 @@ function plane() {
   if (!pr) reply(404, { detail: 'Not found.' });
   const what = p[4];
   if (what === 'project-members-lite') {    // ProjectMemberLiteAPIEndpoint: every ProjectMember row, active or not, with is_active (apps/api/plane/api/serializers/member.py)
-    reply(200, page(pr.members.map((m) => ({ id: m.user, email: st.users.find((u) => u.id === m.user).email, role: 15, is_active: m.is_active }))));
+    reply(200, page(pr.members.map((m) => ({ id: m.user, email: st.users.find((u) => u.id === m.user).email, role: m.role ?? 15, is_active: m.is_active }))));
   }
   if (what === 'states') {
     if (p.length === 5) {
@@ -255,7 +255,8 @@ function plane() {
   reply(404, { detail: 'Not found.' });
 }
 
-// the serializer of IssueSerializer.create/update: ids, with a label of another project dropped without a word
+// the serializer of IssueSerializer.create/update: ids, with a label of another project dropped without a word, and an assignee who is not
+// an active member of the project with a role of 15 or more too (validate() of serializers/issue.py at v1.4.2; a member without a role has 15)
 function write_issue(st, pr, it, j) {
   if (j.name !== undefined) it.name = j.name;
   if (j.description_html !== undefined) it.description_html = j.description_html;
@@ -268,7 +269,7 @@ function write_issue(st, pr, it, j) {
   }
   if (j.parent !== undefined) { if (j.parent !== null && !pr.issues.some((i) => i.id === j.parent)) return ['Parent is not valid issue_id please pass a valid issue_id']; it.parent = j.parent; }
   if (j.labels !== undefined) it.labels = j.labels.filter((l) => pr.labels.some((x) => x.id === l && x.name !== process.env.CURL_FAKE_DROP_LABEL));   // CURL_FAKE_DROP_LABEL: a write that answers well and keeps that label out
-  if (j.assignees !== undefined) it.assignees = j.assignees.filter((a) => st.users.some((u) => u.id === a));
+  if (j.assignees !== undefined) it.assignees = j.assignees.filter((a) => pr.members.some((m) => m.user === a && m.is_active && (m.role ?? 15) >= 15) && !process.env.CURL_FAKE_DROP_ASSIGNEE);   // CURL_FAKE_DROP_ASSIGNEE: a write that answers well and keeps no assignee
   return null;
 }
 

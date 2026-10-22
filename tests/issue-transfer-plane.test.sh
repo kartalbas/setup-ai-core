@@ -29,6 +29,10 @@ writes() { grep -c '^\(POST\|PATCH\|PUT\|DELETE\) ' "$CURL_FAKE_STATE/requests.l
 carry() { CURL_FAKE_STDOUT="$WORK/out.txt" ai issue-transfer "$@" > "$WORK/out.txt" 2> "$WORK/err.txt"; }
 pq() { local i="$1"; shift; node -e "const s=JSON.parse(require('fs').readFileSync('$CURL_FAKE_STATE/plane.json'));const p=s.projects[$i];const N=(r)=>p.issues.find((i)=>i.external_id===r);const S=(i)=>p.states.find((x)=>x.id===i.state);const L=(i)=>i.labels.map((l)=>p.labels.find((x)=>x.id===l).name).sort().join(',');const C=(i)=>p.comments.filter((c)=>c.issue===i.id);$1"; }
 github_writes() { grep -c 'mutation\|--method\|--input\|issue close\|issue comment' "$G/calls.log" || true; }
+me="$(planeq 'console.log(s.users[0].id)')"   # the user of the Plane key, whom the stand-in answers at users/me
+who() {  # who <project index> <external id>: the assignees of that work item, comma between, or nobody
+  pq "$1" "const i=N('$2');console.log(i.assignees.join(',')||'nobody')"
+}
 
 # a check is a function that takes the root of a tree and returns 0 when that tree does right; each is shown red on a copy of
 # the tree with one defect planted, and green on the tree as it is
@@ -94,16 +98,18 @@ out="$(cat "$WORK/out.txt")"
 for want in '14 issues of 3 repositories' 'skipped archived repositories: example-org/old' '234 original and 14 provenance, 248 in all, in 16 pages' \
   '3 archived, on 3 issues of 14), 5 of 14 issues on no board' '(1 sub-issues, 1 recorded relationships across destinations, 1 outside the selection, 1 distinct)' \
   '5 on GitHub (2 empty, 1 closed, 3 in several destinations), 10 board records' 'priority P9 on 1 of 14 issues; an email address in 1 of 14 issues (0 titles, 0 bodies, 1 of 234 comments); differing active Status values on 1 of 14' \
-  'destinations: 3' 'Plane requests, at most: 366 = 3 x (14 issues + 10 board records) + 248 comments + 2 x 16 comment pages + 8 metadata pages + 5 new labels + 1 outside parents; at 60 a minute that is 7 minutes'; do
+  'destinations: 3' "Plane requests, at most: 370 = 3 x (14 issues + 10 board records) + 248 comments + 2 x 16 comment pages + 8 metadata pages + 5 new labels + 1 outside parents + 4 reads of the Plane key's user; at 60 a minute that is 7 minutes" \
+  "assignees to carry: 3 of 14 issues, as the Plane key's user (the GitHub login tester of the account that runs the carry)" \
+  'assignees not carried: 2 (a Plane member is never guessed from a GitHub login): anton on example-org/example-repo#2, example-org/example-repo#3'; do
   grep -qF -- "$want" <<< "$out" || fail "the report lacks '$want': $out"
 done
-echo "  the report: the counts of the fixture, the skipped repository named, and the bound of 366 requests in 7 minutes"
+echo "  the report: the counts of the fixture, the skipped repository named, the assignees carried and the one not carried with its issues, and the bound of 370 requests in 7 minutes"
 [ "$(head -n1 "$CURL_FAKE_STATE/stdout-at-write.log" | awk '{print $3}')" -ge "$(grep -b 'Plane requests, at most' "$WORK/out.txt" | head -n1 | cut -d: -f1)" ] || fail "a write came before the report was printed"
 echo "  the whole report stood in the output before the first write"
 grep -q 'carried 14 of 14 issues: 0 already complete, 14 newly created, 0 finished from an earlier run, 0 incomplete' <<< "$out" || fail "the issue total is not '14 of 14': $out"
 grep -q 'board records: 10 of 10' <<< "$out" || fail "the board total is not 10 of 10: $out"
 [ "$(github_writes)" = 0 ] || fail "the carry wrote to GitHub: $(grep 'mutation\|--method' "$G/calls.log")"
-total="$(grep -c '^[A-Z]' "$CURL_FAKE_STATE/requests.log")"; [ "$total" -le 366 ] || fail "the carry made $total requests, more than the 366 it printed"
+total="$(grep -c '^[A-Z]' "$CURL_FAKE_STATE/requests.log")"; [ "$total" -le 370 ] || fail "the carry made $total requests, more than the 370 it printed"
 state_of() { pq "$1" "const i=N('$2');console.log(i?S(i).name+'|'+(i.archived_at?'archived':'active')+'|'+i.priority+'|'+L(i):'none')"; }
 [ "$(state_of 0 example-org/example-repo#3)" = "done|archived|medium|repo:example-repo,type:feature" ] || fail "#3 (completed, card archived in Done): $(state_of 0 example-org/example-repo#3)"
 [ "$(state_of 0 example-org/example-repo#4)" = "Cancelled|archived|none|repo:example-repo,type:feature" ] || fail "#4 (not planned, card archived in Done): $(state_of 0 example-org/example-repo#4)"
@@ -115,7 +121,13 @@ state_of() { pq "$1" "const i=N('$2');console.log(i?S(i).name+'|'+(i.archived_at
 [ "$(state_of 0 example-org/example-repo#1)" = "ready|active|high|area:gate,repo:example-repo,type:feature" ] || fail "#1: $(state_of 0 example-org/example-repo#1)"
 [ "$(state_of 1 example-org/tools#1)" = "ready|active|urgent|repo:tools,type:feature" ] || fail "tools#1 in its own project: $(state_of 1 example-org/tools#1)"
 [ "$(state_of 2 example-org/web#1)" = "Backlog|active|none|repo:web,type:feature" ] || fail "web#1 has no state called ready, so it stands in the open default Backlog: $(state_of 2 example-org/web#1)"
-echo "  completed and archived, not planned and archived, a duplicate, a reopened issue, no card, P9 as a label, two Status values, three destinations: each in the state its facts name"
+[ "$(who 0 example-org/example-repo#1)" = "$me" ] && [ "$(who 0 example-org/example-repo#2)" = "$me" ] && [ "$(who 1 example-org/tools#1)" = "$me" ] \
+  || fail "an issue assigned to the account that runs the carry does not stand assigned to the Plane key's user: #1 $(who 0 example-org/example-repo#1), #2 $(who 0 example-org/example-repo#2), tools#1 $(who 1 example-org/tools#1)"
+[ "$(who 0 example-org/example-repo#3)" = nobody ] && [ "$(who 0 example-org/example-repo#4)" = nobody ] && [ "$(who 2 example-org/web#1)" = nobody ] \
+  || fail "an issue assigned to another login or to nobody stands assigned: #3 $(who 0 example-org/example-repo#3), #4 $(who 0 example-org/example-repo#4), web#1 $(who 2 example-org/web#1)"
+[ "$(grep -c '^GET /api/v1/users/me/' "$CURL_FAKE_STATE/requests.log")" = 2 ] && [ "$(grep -cx 'api user' "$G/calls.log")" = 1 ] \
+  || fail "the Plane key's user was not read once for each of the two destinations that hold an assigned issue, or gh was not asked once who it is"
+echo "  completed and archived, not planned and archived, a duplicate, a reopened issue, no card, P9 as a label, two Status values, three destinations: each in the state its facts name; the account that runs the carry as the assignee, anton and nobody as none"
 
 # the thread: 230 comments and the provenance on one work item, the others with theirs; author, time, order and the body kept
 [ "$(pq 0 'console.log(C(N("example-org/example-repo#10")).length)')" = 231 ] || fail "#10 holds $(pq 0 'console.log(C(N("example-org/example-repo#10")).length)') comments, not its 230 and the provenance"
@@ -234,12 +246,13 @@ echo "  issue-transfer N OWNER/REPO is refused on Plane as before; an unknown fl
 world_check() {  # world_check <root>: the small world carried by that root; 0 when the bound, the duplicate and the archived card are right
   reset_plane; world
   ROOT_UNDER_TEST="$1" carry --to plane || return 1
-  local line r m l u
+  local line r m l u k
   line="$(grep 'Plane requests, at most' "$WORK/out.txt")"
   r="$(sed -n 's/.*at most: \([0-9]*\) =.*/\1/p' <<< "$line")"; m="$(sed -n 's/.* + \([0-9]*\) metadata pages.*/\1/p' <<< "$line")"
   l="$(sed -n 's/.* + \([0-9]*\) new labels.*/\1/p' <<< "$line")"; u="$(sed -n 's/.* + \([0-9]*\) outside parents.*/\1/p' <<< "$line")"
+  k="$(sed -n 's/.* + \([0-9]*\) reads of the Plane key.*/\1/p' <<< "$line")"
   # the fixture's own figures: 3 x (14 issues + 10 board records), 248 comments with the provenance, 2 x 16 comment pages
-  [ "$r" = "$((72 + 248 + 32 + m + l + u))" ] || { echo "the bound $r is not the sum of its terms"; return 1; }
+  [ "$r" = "$((72 + 248 + 32 + m + l + u + k))" ] || { echo "the bound $r is not the sum of its terms"; return 1; }
   pq 0 'console.log(C(N("example-org/example-repo#5")).pop().comment_html)' | grep -q 'close reason: DUPLICATE' || { echo "the duplicate is lost"; return 1; }
   [ "$(pq 0 'console.log(!!N("example-org/example-repo#3"))')" = true ] && pq 0 'console.log(JSON.stringify(N("example-org/example-repo#3")))' | grep -q '"archived_at":"' || { echo "the archived card is lost"; return 1; }
 }
@@ -314,6 +327,77 @@ printf '[]' > "$CURL_FAKE_STATE/inject.json"
 carry --to plane || fail "the rerun after the parent was refused: $(cat "$WORK/err.txt")"
 pq 0 'console.log(C(N("example-org/example-repo#7")).pop().comment_html)' | grep -qF "Plane parent link: https://plane.example.test/ws/browse/OPS-$(pq 1 'console.log(N("example-org/tools#1").sequence_id)')/" || fail "after the rerun the sub-issue does not name its parent's Plane link"
 echo "  example-repo#7 names the Plane link of its parent tools#1 in the other project; with the parent refused it waits and nothing is written for it, the rerun carries both; the parent or its link left out goes red"
+
+# The assignee. The account that runs the carry, spelled as GitHub names it in any case, becomes the Plane key's user in the create request:
+# Plane takes a user id, and the key's user is the one Plane user the carry can tell from a login. Another login is named in the report and
+# written nowhere. An issue that names nobody asks neither gh who it is nor Plane who the key's user is, and a work item that stood in
+# Plane before is not changed. The example-repo issues of the fixture: #1 names tester, #2 TESTER and anton, #3 anton alone, #5 nobody
+section "the assignee of a carried issue"
+assignee_check() {  # assignee_check <root>: 0 when #2 stands assigned to the key's user alone and issue-mine takes it up, #3 and #5 stand assigned to nobody, and the report of each says what it carries
+  local seq
+  reset_plane; world; reset_log
+  ROOT_UNDER_TEST="$1" carry 2 --to plane || return 1
+  [ "$(who 0 example-org/example-repo#2)" = "$me" ] || { echo "#2 stands assigned to $(who 0 example-org/example-repo#2)"; return 1; }
+  grep -qF "\"assignees\":[\"$me\"]" "$CURL_FAKE_STATE/requests.log" || { echo "the create request of #2 names no assignee"; return 1; }
+  [ "$(grep -cx 'api user' "$G/calls.log")" = 1 ] || { echo "gh was not asked once who it is"; return 1; }
+  seq="$(pq 0 'console.log(N("example-org/example-repo#2").sequence_id)')"
+  ROOT_UNDER_TEST="$1" ai issue-mine "$seq" > "$WORK/mine.txt" 2>&1 || { echo "issue-mine refuses #2 as ENG-$seq: $(cat "$WORK/mine.txt")"; return 1; }
+  grep -qF "assignees to carry: 1 of 1 issues, as the Plane key's user (the GitHub login tester" "$WORK/out.txt" \
+    && grep -qF 'assignees not carried: 1 (a Plane member is never guessed from a GitHub login): anton on example-org/example-repo#2' "$WORK/out.txt" \
+    || { echo "the report of #2: $(grep '^assignees' "$WORK/out.txt")"; return 1; }
+  ROOT_UNDER_TEST="$1" carry 3 --to plane || return 1
+  [ "$(who 0 example-org/example-repo#3)" = nobody ] || { echo "#3, which names anton alone, stands assigned to $(who 0 example-org/example-repo#3)"; return 1; }
+  grep -qF 'assignees to carry: 0 of 1 issues' "$WORK/out.txt" && grep -qF 'anton on example-org/example-repo#3' "$WORK/out.txt" \
+    || { echo "the report of #3: $(grep '^assignees' "$WORK/out.txt")"; return 1; }
+  : > "$G/calls.log"; reset_log
+  ROOT_UNDER_TEST="$1" carry 5 --to plane || return 1
+  [ "$(who 0 example-org/example-repo#5)" = nobody ] || { echo "#5, which names nobody, stands assigned to $(who 0 example-org/example-repo#5)"; return 1; }
+  ! grep -qx 'api user' "$G/calls.log" && ! grep -q '/users/me/' "$CURL_FAKE_STATE/requests.log" || { echo "an issue that names nobody asked who the account is"; return 1; }
+  grep -qF 'assignees to carry: 0 of 1 issues' "$WORK/out.txt" && grep -qx 'assignees not carried: 0' "$WORK/out.txt" || { echo "the report of #5: $(grep '^assignees' "$WORK/out.txt")"; return 1; }
+  seq="$(pq 0 'console.log(N("example-org/example-repo#5").sequence_id)')"
+  ! ROOT_UNDER_TEST="$1" ai issue-mine "$seq" > "$WORK/mine.txt" 2>&1 && grep -q "REFUSED: #$seq is assigned to nobody" "$WORK/mine.txt" || { echo "issue-mine takes up #5 as ENG-$seq: $(cat "$WORK/mine.txt")"; return 1; }
+}
+assignee_check "$ROOT" || fail "the assignee is not carried as the key's user alone: $(cat "$WORK/err.txt")"
+plant assignee_check lib/plane/tracker.sh 's/ + (if \$assignee != "" then {assignees: \[\$assignee\]} else {} end)//' "an assignee left out of the create request"
+plant assignee_check lib/carry-plan.jq 's/def assigned_to_key_user: .assignees | any(lc == (\$login | lc));/def assigned_to_key_user: .assignees | length > 0;/' "another login written as the key's user"
+plant assignee_check lib/carry.sh 's/\\(if (\$r.assignees_not_carried | length) == 0 then/\\(if true then/' "a report that names no login it cannot carry"
+plant assignee_check lib/github/tracker.sh 's/^  assignees(first:10){ nodes{ login } }$//' "a GitHub query that does not ask for the assignees"
+echo "  #2 (tester as TESTER, and anton) stands assigned to the key's user in the create request, anton is named with the issue in the report and written nowhere, #3 (anton alone) and #5 (nobody) stand assigned to nobody and #5 asks neither gh nor Plane who the account is; issue-mine takes up #2 and refuses #5 as assigned to nobody; four plants red: the assignee left out of the request, anton taken for the key's user, a report without the login, a query that does not ask for the assignees"
+
+carried_before_check() {  # carried_before_check <root>: 0 when a work item carried before its issue named the account stays without it, and the rerun writes nothing
+  reset_plane; world
+  gh_set 's.issues["example-org/example-repo"][0].assignees=[]'
+  ROOT_UNDER_TEST="$1" carry 1 --to plane || return 1
+  [ "$(who 0 example-org/example-repo#1)" = nobody ] || return 1
+  world; reset_log
+  ROOT_UNDER_TEST="$1" carry 1 --to plane || return 1
+  [ "$(writes)" = 0 ] && [ "$(who 0 example-org/example-repo#1)" = nobody ]
+}
+carried_before_check "$ROOT" || fail "a work item carried before was given the assignee its issue names now: $(who 0 example-org/example-repo#1); $(cat "$WORK/err.txt")"
+plant carried_before_check lib/plane/tracker.sh '/^  carry_remember "\$ref" "\$found"$/a\  plane_call PATCH "$(plane_path "projects/$project/issues/$id/")" "{}"' "a work item that stood in Plane patched"
+echo "  #1 carried before its issue named the account stays without it, and the rerun writes nothing; a rerun that patches the found work item is red"
+
+dropped_check() {  # dropped_check <root>: 0 when a Plane that keeps no assignee although the create names one leaves the issue incomplete, named
+  reset_plane; world; reset_log
+  CURL_FAKE_DROP_ASSIGNEE=1 ROOT_UNDER_TEST="$1" carry 1 --to plane && return 1
+  grep -q 'INCOMPLETE example-org/example-repo#1: .*another state, parent, archive date or assignee' "$WORK/err.txt"
+}
+dropped_check "$ROOT" || fail "a Plane that kept no assignee was not read back as incomplete: $(cat "$WORK/err.txt")"
+plant dropped_check lib/plane/tracker.sh 's/ and (\$u == "" or ((.assignees \/\/ \[\]) | index(\$u) != null))//' "a read-back that does not look at the assignee"
+member_check() {  # member_check <root>: 0 when a key's user who is no active member of the project, or a guest in it, stops the carry before the first write, named
+  local rc=0 how
+  for how in 'is_active=false' 'role=5'; do
+    reset_plane; world; reset_log
+    planeset "p.members.find((m)=>m.user===s.users[0].id).$how"
+    rc=0; ROOT_UNDER_TEST="$1" carry 1 --to plane || rc=$?
+    planeset 'const m=p.members.find((m)=>m.user===s.users[0].id);m.is_active=true;delete m.role'
+    [ "$rc" != 0 ] && grep -q 'is not an active member of the project ENG with a role of 15 or more' "$WORK/err.txt" && [ "$(writes)" = 0 ] || return 1
+  done
+}
+member_check "$ROOT" || fail "a key's user who is no active member of the project did not stop the carry before the first write: $(cat "$WORK/err.txt")"
+plant member_check lib/plane/tracker.sh 's/|| die "\$3 is not an active member/|| : "/' "a key's user who is no member of the project let through"
+plant member_check lib/plane/tracker.sh 's/ and \.role >= 15)/)/' "a key's user who is a guest of the project let through"
+echo "  a Plane that keeps no assignee although the create names one leaves the issue incomplete, named; a key's user who is no active member of the project, or a guest in it, stops the carry before the first write; each check left out is red"
 
 # answers larger than one command-line argument, which Linux caps at 128 KiB: a board of 1,508 cards, 200 comments of 1,500 characters,
 # and one comment of 27,000 ampersands whose escaped text is 135,000 characters. They cross as files or standard input, never as an argument
@@ -404,8 +488,9 @@ for want in "$n issues of 3 repositories" "$c original and $n provenance, $((c +
 done
 line="$(grep 'Plane requests, at most' "$WORK/out.txt")"; r="$(sed -n 's/.*at most: \([0-9]*\) =.*/\1/p' <<< "$line")"
 m="$(sed -n 's/.* + \([0-9]*\) metadata pages.*/\1/p' <<< "$line")"; l="$(sed -n 's/.* + \([0-9]*\) new labels.*/\1/p' <<< "$line")"; u="$(sed -n 's/.* + \([0-9]*\) outside parents.*/\1/p' <<< "$line")"
+k="$(sed -n 's/.* + \([0-9]*\) reads of the Plane key.*/\1/p' <<< "$line")"
 # B is 11: the first board reaches all three destinations (3), the second and third one each (1 and 1), the empty and the closed one every destination of the selection (3 and 3)
-[ "$r" = "$((3 * (n + 11) + c + n + 2 * pages + m + l + u))" ] || fail "the bound $r of 4,100 issues is not 3 x (N + B) + C + 2P + M + L + U = $((3 * (n + 11) + c + n + 2 * pages + m + l + u))"
+[ "$r" = "$((3 * (n + 11) + c + n + 2 * pages + m + l + u + k))" ] || fail "the bound $r of 4,100 issues is not 3 x (N + B) + C + 2P + M + L + U + K = $((3 * (n + 11) + c + n + 2 * pages + m + l + u + k))"
 grep -qF "that is $(( (r + 59) / 60 )) minutes" <<< "$line" || fail "the minutes of $r requests are not $(( (r + 59) / 60 )): $line"
 [ "$(awk '{print $3}' "$CURL_FAKE_STATE/stdout-at-write.log" | head -n1)" -ge "$(grep -b 'Plane requests, at most' "$WORK/out.txt" | head -n1 | cut -d: -f1)" ] || fail "a write came before the report of 4,100 issues was printed"
 [ "$(github_writes)" = 0 ] || fail "reading 4,100 issues wrote to GitHub"

@@ -71,6 +71,10 @@ check "a harness clone reads a setting beyond the five as before: not from the l
 check "the environment wins over the layer's config.env" "env" "$( cd "$harness" && PLANE_PROJECT=env bash -c '. "$1/lib/common.sh"; config_value PLANE_PROJECT none' _ "$ROOT" )"
 check "a product clone with a config.env at its root still reads its own .ai-core/config.env" "OWN" "$(read_in "$ROOT" "$product" PLANE_PROJECT none)"
 check "a product clone with no .ai-core/config.env does not read a config.env at its root" "none" "$(read_in "$ROOT" "$unbound" PLANE_PROJECT none)"
+owned="$WORK/tool-ai-core"; mkdir -p "$owned/.ai-core"; git init -q "$owned"
+git -C "$owned" remote add origin https://github.com/example-org/tool-ai-core.git
+printf 'PLANE_PROJECT=LAYER\n' > "$owned/config.env"; printf 'PLANE_PROJECT=OWN\n' > "$owned/.ai-core/config.env"
+check "a harness clone with its own .ai-core/config.env reads that file, not the layer's" "OWN" "$(read_in "$ROOT" "$owned" PLANE_PROJECT none)"
 mkdir -p "$WORK/planted-layer"; rm -rf "$WORK/planted-layer/lib"; cp -R "$ROOT/lib" "$WORK/planted-layer/lib"
 sed -i.bak 's|&& is_harness_clone "\$main"; then|\&\& false; then|' "$WORK/planted-layer/lib/common.sh"
 cmp -s "$ROOT/lib/common.sh" "$WORK/planted-layer/lib/common.sh" && { echo "  FAIL the planted copy equals the real common.sh"; failed=$((failed + 1)); }

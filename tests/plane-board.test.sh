@@ -36,8 +36,10 @@ cached_new_id() {  # cached_new_id <root>: 0 where project-new lists the project
   planeset 's.projects=s.projects.filter((x)=>x.identifier!=="NEW")'
   dir="$(ROOT_UNDER_TEST="$root" plane_fn plane_project_cache_dir NEW)"
   rm -rf "$dir"; mkdir -p "$dir"; printf '00000000-0000-0000-0000-000000000000\n' > "$dir/project-id"; printf 'stale\n' > "$dir/fields.tsv"
+  mkdir -p "$(dirname "$dir")/OTHER"; printf 'kept\n' > "$(dirname "$dir")/OTHER/fields.tsv"
   reset_log
   ROOT_UNDER_TEST="$root" ai project-new "The new project" > /dev/null 2>&1 || return 1
+  [ "$(cat "$(dirname "$dir")/OTHER/fields.tsv" 2>/dev/null)" = kept ] || return 1
   [ "$(grep -cE '^GET /api/v1/workspaces/ws/projects/(\?|$)' "$CURL_FAKE_STATE/requests.log")" = 1 ] || return 1
   made="$(planeq 'console.log(s.projects.find((x)=>x.identifier==="NEW").id)')"
   [ "$(cat "$dir/project-id" 2>/dev/null)" = "$made" ] || return 1

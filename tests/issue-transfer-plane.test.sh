@@ -192,6 +192,19 @@ carry --to plane || fail "GitHub's rate limit stopped the read: $(cat "$WORK/err
 grep -q '^60$' "$WORK/slept" || fail "the GitHub rate limit was not waited out through AI_CORE_SLEEP: $(cat "$WORK/slept")"
 echo "  a repository without a clone and a partial GraphQL answer each stop the carry, named, before any write; GitHub's rate limit is waited out through AI_CORE_SLEEP"
 
+# a harness clone has no .ai-core/config.env: its destination is the layer's config.env at its root; a product clone's
+# own .ai-core/config.env is read as before, a config.env at the root of a product clone is not
+mkdir -p "$WORK/tools-ai-core"; git init -q "$WORK/tools-ai-core"; git -C "$WORK/tools-ai-core" remote add origin https://github.com/example-org/tools-ai-core.git
+printf 'TRACKER="github"\nPLANE_URL=https://plane.example.test\nPLANE_WORKSPACE=ws\nPLANE_PROJECT=OPS\nPLANE_TOKEN_COMMAND="cat %s/token"\n' "$WORK" > "$WORK/tools-ai-core/config.env"
+destination_of() { ( cd "$P" && bash -c '. "$1/lib/carry.sh"; carry_destination_of "$2"' _ "$1" "$2" ); }
+harness_destination() {  # harness_destination <root>: 0 where the harness clone's destination is its layer's project and the product clone's is its own
+  [ "$(destination_of "$1" example-org/tools-ai-core)" = "$(printf 'example-org/tools-ai-core\t%s\thttps://plane.example.test|ws|OPS' "$WORK/tools-ai-core")" ] \
+    && [ "$(destination_of "$1" example-org/web)" = "$(printf 'example-org/web\t%s\thttps://plane.example.test|ws|WEB' "$WORK/web")" ]
+}
+harness_destination "$ROOT" || fail "the destination of a harness clone is not read from its layer's config.env: $(destination_of "$ROOT" example-org/tools-ai-core)"
+plant harness_destination lib/common.sh 's|&& is_harness_clone "\$main"; then|\&\& false; then|' "the layer's config.env not read for a harness clone"
+echo "  a harness clone's destination is the project its layer's config.env names; a product clone's is still its own, and the planted copy that reads no layer's config.env is caught"
+
 # the fake Plane is as strict as Plane 1.4.2, asserted on its own
 pid="$(planeq 'console.log(p.id)')"; ident="$(pq 0 'console.log("ENG-"+N("example-org/example-repo#4").sequence_id)')"; four="$(pq 0 'console.log(N("example-org/example-repo#4").id)')"
 http() { local body="${3:-}"; printf 'url = "https://plane.example.test%s"\nrequest = "%s"\nheader = "X-API-Key: plane-token-0123"\n%s' "$2" "$1" "${body:+data-binary = \"$(printf '%s' "$body" | sed 's/[\\"]/\\&/g')\"}" | PATH="$PATH_CURL" curl --config - --silent --output "$WORK/http-body"; }

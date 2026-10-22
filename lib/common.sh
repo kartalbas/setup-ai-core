@@ -61,15 +61,33 @@ config_value() {  # config_value <key> <default>
 # tracker switched afterwards would still read as the old one there; and the server the key goes to and the
 # command that yields it must come from one file. These five are read from the main checkout's file, the one in
 # the parent of the git common directory; every other setting stays the worktree's own.
+# A harness clone, the clone of a project harness layer, has no .ai-core/config.env: init deploys into the
+# repositories a layer serves and never into the layer. Its five settings are the layer's own config.env at the
+# root of the clone, the file init copies into the repositories it serves.
 TRACKER_SETTINGS=" TRACKER PLANE_URL PLANE_WORKSPACE PLANE_PROJECT PLANE_TOKEN_COMMAND "
+
+# is_harness_clone <checkout>: whether the checkout is a harness repository, by the one test init and the push gate
+# use. A subshell loads the forge provider of lib/layers.sh, so the caller's shell stays as it was.
+is_harness_clone() {
+  ( . "$HARNESS_ROOT/lib/layers.sh" && harness_source_of "$1" ) >/dev/null 2>&1
+}
 
 # config_file_of <key>: the config.env a setting is read from
 config_file_of() {
-  local common
+  local common main
   case "$TRACKER_SETTINGS" in
     *" $1 "*)
       common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
-      case "$common" in */.git) printf '%s\n' "${common%/.git}/.ai-core/config.env"; return 0 ;; esac ;;
+      case "$common" in
+        */.git)
+          main="${common%/.git}"
+          if [ ! -f "$main/.ai-core/config.env" ] && [ -f "$main/config.env" ] && is_harness_clone "$main"; then
+            printf '%s\n' "$main/config.env"
+          else
+            printf '%s\n' "$main/.ai-core/config.env"
+          fi
+          return 0 ;;
+      esac ;;
   esac
   printf '%s\n' "$(data_dir)/config.env"
 }

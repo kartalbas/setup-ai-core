@@ -47,6 +47,36 @@ check "an empty value gives the default" "dflt" "$(ask TKEY dflt)"
 config 'TKEY=file\n'
 check "the environment wins over the file" "env" "$( cd "$WORK/project" && TKEY=env bash -c '. "$1/lib/common.sh"; config_value TKEY dflt' _ "$ROOT" )"
 
+# a harness clone has no .ai-core/config.env: its five tracker settings are the layer's config.env at its root,
+# the file init copies into the repositories the layer serves. Every other setting, and a product clone, read as before.
+harness="$WORK/shop-ai-core"; mkdir -p "$harness"; git init -q "$harness"
+git -C "$harness" remote add origin https://github.com/example-org/shop-ai-core.git
+printf 'TRACKER="plane"\nPLANE_URL=https://plane.example.test\nPLANE_WORKSPACE=ws\nPLANE_PROJECT=SHOP\nTKEY=layer-only\n' > "$harness/config.env"
+product="$WORK/shop-web"; mkdir -p "$product/.ai-core"; git init -q "$product"
+git -C "$product" remote add origin https://github.com/example-org/shop-web.git
+printf 'TRACKER=github\nPLANE_PROJECT=OWN\n' > "$product/.ai-core/config.env"
+printf 'TRACKER=plane\nPLANE_PROJECT=ROOT\n' > "$product/config.env"
+unbound="$WORK/shop-api"; mkdir -p "$unbound"; git init -q "$unbound"
+git -C "$unbound" remote add origin https://github.com/example-org/shop-api.git
+printf 'TRACKER=plane\nPLANE_PROJECT=ROOT\n' > "$unbound/config.env"
+git -C "$harness" -c user.name=t -c user.email=t@example.test commit -q --allow-empty -m start
+git -C "$harness" worktree add -q "$WORK/shop-ai-core-tree" -b layer-tree
+read_in() {  # read_in <lib root> <directory> <key> <default>
+  ( cd "$2" && env -u TRACKER -u PLANE_PROJECT -u TKEY bash -c '. "$1/lib/common.sh"; config_value "$2" "$3"' _ "$1" "$3" "$4" )
+}
+check "a harness clone reads TRACKER from the layer's config.env" "plane" "$(read_in "$ROOT" "$harness" TRACKER github)"
+check "a harness clone reads PLANE_PROJECT from the layer's config.env" "SHOP" "$(read_in "$ROOT" "$harness" PLANE_PROJECT none)"
+check "a worktree of a harness clone reads the layer's config.env too" "SHOP" "$(read_in "$ROOT" "$WORK/shop-ai-core-tree" PLANE_PROJECT none)"
+check "a harness clone reads a setting beyond the five as before: not from the layer's file" "none" "$(read_in "$ROOT" "$harness" TKEY none)"
+check "the environment wins over the layer's config.env" "env" "$( cd "$harness" && PLANE_PROJECT=env bash -c '. "$1/lib/common.sh"; config_value PLANE_PROJECT none' _ "$ROOT" )"
+check "a product clone with a config.env at its root still reads its own .ai-core/config.env" "OWN" "$(read_in "$ROOT" "$product" PLANE_PROJECT none)"
+check "a product clone with no .ai-core/config.env does not read a config.env at its root" "none" "$(read_in "$ROOT" "$unbound" PLANE_PROJECT none)"
+mkdir -p "$WORK/planted-layer"; rm -rf "$WORK/planted-layer/lib"; cp -R "$ROOT/lib" "$WORK/planted-layer/lib"
+sed -i.bak 's|&& is_harness_clone "\$main"; then|\&\& false; then|' "$WORK/planted-layer/lib/common.sh"
+cmp -s "$ROOT/lib/common.sh" "$WORK/planted-layer/lib/common.sh" && { echo "  FAIL the planted copy equals the real common.sh"; failed=$((failed + 1)); }
+check "planted: without the read from the layer's config.env a harness clone reads nothing" "none" "$(read_in "$WORK/planted-layer" "$harness" PLANE_PROJECT none)"
+check "innocent: the same copy still reads a product clone's own .ai-core/config.env" "OWN" "$(read_in "$WORK/planted-layer" "$product" PLANE_PROJECT none)"
+
 # the dispatch: sourcing board.sh in the project with TRACKER set as asked; prints what happened
 dispatch() {  # dispatch <lib root> <TRACKER or 'unset'>
   ( cd "$WORK/project" && { [ "$2" = unset ] && unset TRACKER || export TRACKER="$2"; } &&

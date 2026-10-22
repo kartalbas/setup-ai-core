@@ -533,10 +533,7 @@ plane_carry_row() {
   fi
   id="$(jq -r '.id' <<< "$found")"; seq="$(jq -r '.sequence_id' <<< "$found")"
   carry_remember "$ref" "$found"
-  if [ "$outcome" = created ]; then
-    if [ "$(jq -r '.archive_late' <<< "$row")" = true ]; then printf '%s\n' "$ref" >> "$(carry_dir)/late-archive.txt"; fi
-    if [ -n "$parent_id" ]; then printf '%s\n' "$parent_ref" >> "$(carry_dir)/late-archive.txt"; fi
-  fi
+  if [ "$outcome" = created ] && [ "$(jq -r '.archive_late' <<< "$row")" = true ]; then printf '%s\n' "$ref" >> "$(carry_dir)/late-archive.txt"; fi
   moved_to="$(jq -r '.moved_to // ""' <<< "$row")"
   if [ "$preexisting" = 1 ] && [ -n "$moved_to" ] && [ "$moved_to" = "$(plane_item_url "$seq")" ]; then
     provenance_end="$provenance_end"$'\n'"Earlier carry: the work item $moved_to stood in Plane before this carry, the issue holds the comment \"Moved to $moved_to\", and its NOT_PLANNED close came after that comment with no reopening since, so this close may be the close of an earlier carry; its cause is not established."
@@ -571,9 +568,9 @@ plane_carry_row() {
 }
 
 # plane_carry_archive: a row of kind archive on standard input: the parent that the plan ends archived, archived now that every
-# sub-issue of the plan in this destination stands. It archives a parent that this run created, or under which this run created a
-# sub-issue, and no other: a work item that stood in Plane before is not changed. Prints "<ref>\t<IDENT-n>\t<address>", or nothing
-# where there is nothing to archive; dies naming the reason where the parent stays open, which a rerun finishes.
+# sub-issue of the plan in this destination stands. It archives a parent that this run created and no other: a work item that stood
+# in Plane before is not changed. Prints "<ref>\t<IDENT-n>\t<address>", or nothing where there is nothing to archive; dies naming
+# the reason where the parent stays open, which a rerun does not change, because the parent then stood in Plane before it.
 plane_carry_archive() {
   local row="$1" ref id child found
   ref="$(jq -r '.ref' <<< "$row")"
@@ -582,16 +579,16 @@ plane_carry_archive() {
   [ -n "$id" ] && [ "$id" != - ] || return 0
   while IFS= read -r child; do
     [ -n "$(carry_known "$child")" ] && [ "$(carry_known "$child")" != - ] \
-      || die "the work item carried from $ref stays open: its sub-issue $child is not in Plane yet, and Plane takes no sub-issue under an archived work item. Run the same command again: it archives the parent once the sub-issue stands"
+      || die "the work item carried from $ref stays open in its closed state: its sub-issue $child is not in Plane yet, and Plane takes no sub-issue under an archived work item. A rerun carries the sub-issue under it and does not archive it, because it then stood in Plane before: archive it in Plane once the sub-issue stands"
   done < <(jq -r '.after[]' <<< "$row")
   plane_call PATCH "$(plane_path "projects/$(plane_project_uuid)/issues/$id/")" "$(jq -nc --arg today "$(date -u +%F)" '{archived_at: $today}')"
   case "$plane_status" in
     2??) ;;
-    *)   die "the work item carried from $ref stays open: the archive was refused - the Plane API answered $plane_status${plane_body:+: $(printf '%s' "$plane_body" | tr -s '\r\n' '  ' | cut -c1-300)}. Run the same command again" ;;
+    *)   die "the work item carried from $ref stays open in its closed state: the archive was refused - the Plane API answered $plane_status${plane_body:+: $(printf '%s' "$plane_body" | tr -s '\r\n' '  ' | cut -c1-300)}. A rerun does not archive it, because it then stood in Plane before: archive it in Plane" ;;
   esac
   found="$(plane_find_carried "$ref")" || exit 1
   jq -e --arg id "$id" '.id == $id and .archived_at != null' <<< "$found" >/dev/null \
-    || die "the work item carried from $ref was not archived although Plane answered $plane_status: $(jq -c '{archived_at}' <<< "$found")"
+    || die "the work item carried from $ref was not archived although Plane answered $plane_status: $(jq -c '{archived_at}' <<< "$found"). It stays open in its closed state, and a rerun does not archive it, because it then stood in Plane before: archive it in Plane"
   printf '%s\t%s-%s\t%s\n' "$ref" "$(plane_setting PLANE_PROJECT)" "$(jq -r '.sequence_id' <<< "$found")" "$(plane_item_url "$(jq -r '.sequence_id' <<< "$found")")"
 }
 

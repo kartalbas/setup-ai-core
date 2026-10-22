@@ -54,7 +54,7 @@ CARRY_WORK=""
 carry_run() {
   local repo="$1" number="$2" column="$3" owner source destinations plan line problems="" clone key m=0 l=0 k=0 pages missing reads login=""
   local membership_boards="" issues_complete=0 issues_new=0 issues_resumed=0 incomplete=0 boards_complete=0 boards_new=0 boards_incomplete=0 batch_clone="" batch="" label results numbers no_issues=""
-  local archived_late=0 unarchived=0 archived_parents=""
+  local archived_late=0 unarchived=0 archived_parents="" planned
   work="$(mktemp -d)"; CARRY_WORK="$work"; trap 'rm -rf "$CARRY_WORK"' EXIT
   export CARRY_RUN="$work/run"; mkdir -p "$CARRY_RUN"; : > "$CARRY_RUN/addresses.tsv"
   source="$work/source.jsonl"; : > "$source"; : > "$work/clones.tsv"
@@ -148,8 +148,9 @@ carry_run() {
     esac
   done < "$results"
   echo "carried $((issues_complete + issues_new + issues_resumed)) of $(jq -r '.report.issues' <<< "$plan") issues: $issues_complete already complete, $issues_new newly created, $issues_resumed finished from an earlier run, $incomplete incomplete"
-  echo "parents archived in Plane: $(printf '%s' "$archived_parents" | grep -c . || true) sub-issues carried without a Plane parent, under $(printf '%s' "$archived_parents" | sort -u | grep -c . || true) parents that an earlier run left archived; each names the parent's Plane link in its provenance"
-  echo "parents archived after their last sub-issue: $archived_late archived, $unarchived left open, of $(jq -r '.report.archives_late' <<< "$plan") planned; a parent that stood in Plane before this run is not changed"
+  echo "parents archived in Plane: $(printf '%s' "$archived_parents" | grep -c . || true) sub-issues carried without a Plane parent, under $(printf '%s' "$archived_parents" | sort -u | grep -c . || true) parents that stood archived in Plane before this run; each names the parent's Plane link in its provenance"
+  planned="$(jq -r '.report.archives_late' <<< "$plan")"
+  echo "parents archived after their last sub-issue: $archived_late archived, $unarchived left open, $((planned - archived_late - unarchived)) not archived by this run (each stood in Plane before the run, or was not carried), of $planned planned"
   if [ "$label" = full ]; then
     echo "board records: $((boards_complete + boards_new)) of $(jq -r '.report.board_records' <<< "$plan") ($boards_complete already there, $boards_new newly created, $boards_incomplete incomplete) for $(jq -r '.report.boards_source' <<< "$plan") boards"
   fi

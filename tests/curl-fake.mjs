@@ -268,7 +268,7 @@ function write_issue(st, pr, it, j) {
   }
   if (j.parent !== undefined) {   // the serializer takes a parent from Issue.issue_objects, which leaves an archived work item out: Plane 1.4.2 answers a create under one with this body
     if (j.parent !== null && !pr.issues.some((i) => i.id === j.parent && !i.archived_at)) return { parent: [`Invalid pk "${j.parent}" - object does not exist.`] };
-    it.parent = j.parent;
+    it.parent = process.env.CURL_FAKE_DROP_PARENT ? null : j.parent;   // CURL_FAKE_DROP_PARENT: a write that answers well and keeps no parent
   }
   if (j.archived_at !== undefined && !(method === 'PATCH' && process.env.CURL_FAKE_DROP_ARCHIVE)) it.archived_at = j.archived_at;   // writable at the create and by a PATCH, measured on Plane 1.4.2; null brings the work item back. CURL_FAKE_DROP_ARCHIVE: a PATCH that answers well and archives nothing
   if (j.labels !== undefined) it.labels = j.labels.filter((l) => pr.labels.some((x) => x.id === l && x.name !== process.env.CURL_FAKE_DROP_LABEL));   // CURL_FAKE_DROP_LABEL: a write that answers well and keeps that label out

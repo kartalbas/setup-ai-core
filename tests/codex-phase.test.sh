@@ -48,7 +48,7 @@ contains(base+'briefs/plan.md',"so the UI test proves it instead of finding it")
 contains(base+'briefs/plan.md',"A defect you read in a span of the package joins the package as a criterion of the issue it touches");
 contains(base+'briefs/plan-check.md',"Each gap names the issue of the package it belongs to");
 contains(base+'briefs/plan-check.md',"A gap never becomes an issue of its own");
-contains(base+'briefs/review.md',"A defect you meet outside the diff but in the package's files or contracts is a FINDING");
+contains(base+'briefs/review.md',"A defect you meet outside the diff but in the package's files or contracts you repair too");
 contains(base+'briefs/review.md',"only an `OUTSIDE:` line may become a new issue");
 contains(base+'briefs/review.md',"goes under NOTES as `OUTSIDE:`, never into FINDINGS");
 contains(base+'SKILL.md',"goes back to `implementing`, with the SEEN text as a new acceptance criterion on that same issue");

@@ -280,6 +280,92 @@ ai issue-close "$leaf" >/dev/null 2>&1 || fail "a leaf was refused its close"
 [ "$(state_of "$leaf")" = done ] || fail "the leaf stands in $(state_of "$leaf"), not in done"
 echo "  an epic with an open child is refused, completed and not planned, naming the child and writing nothing; a child called done or not planned that is open keeps its epic at testing; an epic with all its children closed, a leaf and a not-planned close go through"
 
+# A CLOSED EPIC IS REOPENED once an open child that counts stands under it, and goes to where its children stand;
+# a child closed as not planned counts not at all
+open_of() { planeq 'const it=p.issues.find((i)=>i.sequence_id==='"$1"');console.log(p.states.find((s)=>s.id===it.state).group)'; }
+epic6="$(new "A sixth epic, closed and then given a child")"; kid6="$(new "Its first child, done" --parent "$epic6")"
+ai issue-close "$kid6" >/dev/null 2>&1 || fail "issue-close on the only child of the sixth epic"
+[ "$(state_of "$epic6")" = done ] || fail "the sixth epic stands in $(state_of "$epic6"), not in done, once its only child is done"
+new6="$(new "A second child, made under the closed epic" --parent "$epic6")" || fail "issue-new --parent under a closed epic: $new6"
+[ "$(state_of "$epic6")" = implementing ] && [ "$(open_of "$epic6")" = started ] || fail "the epic stands in $(state_of "$epic6") ($(open_of "$epic6")) beside a new child under it, not in implementing, open: a done child has started"
+ai issue-status "$new6" backlog >/dev/null 2>&1 || fail "issue-status of the new child"
+[ "$(state_of "$epic6")" = implementing ] || fail "issue-status of the new child moved the epic to $(state_of "$epic6")"
+epic7="$(new "A seventh epic, whose only child was rejected")"; kid7="$(new "Its only child, rejected" --parent "$epic7")"
+ai issue-close --reason not-planned "$kid7" >/dev/null 2>&1 || fail "issue-close --reason not-planned on the only child of the seventh epic"
+ai issue-close --reason not-planned "$epic7" >/dev/null 2>&1 || fail "issue-close --reason not-planned on the seventh epic"
+[ "$(state_of "$epic7")" = Cancelled ] || fail "the seventh epic stands in $(state_of "$epic7"), not in Cancelled, once it is rejected"
+new7="$(new "A child under the rejected epic" --parent "$epic7")" || fail "issue-new --parent under a closed epic: $new7"
+[ "$(state_of "$epic7")" = ready ] && [ "$(open_of "$epic7")" = unstarted ] || fail "the epic stands in $(state_of "$epic7") ($(open_of "$epic7")) beside a child that has not started, not in ready, open"
+epic8="$(new "An eighth epic, closed, then given a child by subissue-add")"; kid8="$(new "Its done child" --parent "$epic8")"; add8="$(new "A work item of its own")"
+ai issue-close "$kid8" >/dev/null 2>&1 || fail "issue-close on the child of the eighth epic"
+ai subissue-add "$epic8" "$add8" >/dev/null 2>&1 || fail "subissue-add under a closed epic"
+[ "$(state_of "$epic8")" = implementing ] || fail "subissue-add of an open work item left the closed epic in $(state_of "$epic8")"
+# a child moved back to ready by hand under the closed epic: the next issue-status of that child reopens the epic
+ai issue-close "$add8" >/dev/null 2>&1 || fail "issue-close on the last open child of the eighth epic"
+[ "$(state_of "$epic8")" = done ] || fail "the eighth epic stands in $(state_of "$epic8"), not in done, once all its children are done"
+planeset 'p.issues.find((i)=>i.sequence_id==='"$kid8"').state=p.states.find((s)=>s.name==="ready").id'
+ai issue-status "$kid8" implementing >/dev/null 2>&1 || fail "issue-status of a child moved back by hand under the closed eighth epic"
+[ "$(state_of "$epic8")" = implementing ] && [ "$(open_of "$epic8")" = started ] || fail "issue-status of an open child left the closed epic in $(state_of "$epic8") ($(open_of "$epic8"))"
+# the cases that change nothing, and write nothing to the epic: every child done, every child rejected, a child added already rejected
+written() { planeq 'console.log(p.issues.find((i)=>i.sequence_id==='"$1"').updated_at)'; }
+epic9="$(new "A ninth epic, closed with its children")"; kid9="$(new "Its child, done" --parent "$epic9")"
+ai issue-close "$kid9" >/dev/null 2>&1; rej9="$(new "A work item rejected before it joins")"; ai issue-close --reason not-planned "$rej9" >/dev/null 2>&1
+before="$(written "$epic9")"
+ai subissue-add "$epic9" "$rej9" >/dev/null 2>&1 || fail "subissue-add of a rejected work item under a closed epic"
+[ "$(state_of "$epic9")" = done ] || fail "a child added already rejected moved the closed epic to $(state_of "$epic9")"
+done9="$(new "A work item done before it joins")"; ai issue-close "$done9" >/dev/null 2>&1
+ai subissue-add "$epic9" "$done9" >/dev/null 2>&1 || fail "subissue-add of a done work item under a closed epic"
+[ "$(state_of "$epic9")" = done ] && [ "$(written "$epic9")" = "$before" ] || fail "a child added already done moved the closed epic to $(state_of "$epic9"), or wrote to it"
+rej4="$(new "A work item rejected before it joins the rejected epic")"; ai issue-close --reason not-planned "$rej4" >/dev/null 2>&1
+before="$(written "$epic4")"
+ai subissue-add "$epic4" "$rej4" >/dev/null 2>&1 || fail "subissue-add of a rejected work item under an epic whose children are all rejected"
+[ "$(state_of "$epic4")" = Cancelled ] && [ "$(written "$epic4")" = "$before" ] || fail "an epic whose children are all rejected was moved to $(state_of "$epic4"), or written to"
+[ "$(state_of "$epic3")" = done ] || fail "the epic closed with all its children stands in $(state_of "$epic3"), not in done"
+echo "  a closed epic with an open child under it is reopened, into implementing where a child is done or started and into ready where none is, through issue-new --parent, issue-status and subissue-add; one whose children are all done, all rejected or added already closed stays closed"
+mutant_root() {  # mutant_root <file> <sed expression>: a copy of the tree with one planted defect, in $WORK/mutant; prints its path
+  rm -rf "$WORK/mutant"; mkdir -p "$WORK/mutant"; cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$WORK/mutant/"; cp "$ROOT/VERSION" "$WORK/mutant/"
+  sed -i.bak "$2" "$WORK/mutant/$1"
+  cmp -s "$ROOT/$1" "$WORK/mutant/$1" && fail "the planted defect changed nothing in $1: $2"
+  printf '%s' "$WORK/mutant"
+}
+# CASE B: an epic follows its children back as well as forward: two went to implementing and came back to backlog
+epic13="$(new "A thirteenth epic, whose children go forward and back")"
+for i in 1 2 3 4; do c13[$i]="$(new "Child $i of the thirteenth epic" --parent "$epic13")"; done
+ai issue-status "${c13[1]}" implementing >/dev/null 2>&1; ai issue-status "${c13[2]}" implementing >/dev/null 2>&1
+[ "$(state_of "$epic13")" = implementing ] || fail "the thirteenth epic stands in $(state_of "$epic13") beside two children in implementing"
+ai issue-status "${c13[1]}" backlog >/dev/null 2>&1; ai issue-status "${c13[2]}" backlog >/dev/null 2>&1
+[ "$(state_of "$epic13")" = backlog ] || fail "case B: the epic stands in $(state_of "$epic13") once the two children are back in backlog and the rest in ready, not in backlog"
+ai issue-status "${c13[1]}" ready >/dev/null 2>&1; ai issue-status "${c13[2]}" ready >/dev/null 2>&1
+[ "$(state_of "$epic13")" = ready ] || fail "the epic stands in $(state_of "$epic13") once every child stands in ready, not in ready"
+# an epic that stands where its children derive gets no write
+before="$(written "$epic13")"
+ai issue-status "${c13[3]}" ready >/dev/null 2>&1
+[ "$(written "$epic13")" = "$before" ] || fail "an epic that already stood where its children derive was written to"
+echo "  case B: an epic whose children went back from implementing to backlog follows them to backlog and then to ready, and one that stands where they derive is not written"
+epic10="$(new "A tenth epic, rejected")"; kid10="$(new "Its rejected child" --parent "$epic10")"
+ai issue-close --reason not-planned "$kid10" >/dev/null 2>&1; ai issue-close --reason not-planned "$epic10" >/dev/null 2>&1
+planted="$(mutant_root lib/board.sh '/issue-reopen.sh/d')"
+new10="$(ROOT_UNDER_TEST="$planted" new "A child the planted tree cannot reopen the epic for" --parent "$epic10")" || fail "planted: issue-new --parent: $new10"
+[ "$(state_of "$epic10")" = Cancelled ] || fail "planted: the reopen taken out should leave the epic in Cancelled, where no move follows it: $(state_of "$epic10")"
+epic14="$(new "A fourteenth epic, whose children go forward and back")"
+for i in 1 2 3; do c14[$i]="$(new "Child $i of the fourteenth epic" --parent "$epic14")"; done
+ai issue-status "${c14[1]}" implementing >/dev/null 2>&1
+planted="$(mutant_root lib/board.sh 's/^  \[ "\$t" != "\$cur" \] || return 0$/&\n  [ "$cur" = implementing ] \&\& [ "$t" != testing ] \&\& [ "$t" != CLOSE ] \&\& return 0/')"
+ROOT_UNDER_TEST="$planted" ai issue-status "${c14[1]}" backlog >/dev/null 2>&1
+[ "$(state_of "$epic14")" = implementing ] || fail "planted: the move back from implementing taken out should leave the epic in implementing: $(state_of "$epic14")"
+ai issue-status "${c14[1]}" backlog >/dev/null 2>&1
+[ "$(state_of "$epic14")" = backlog ] || fail "the epic stands in $(state_of "$epic14") once its only started child is back in backlog, not in backlog"
+planted="$(mutant_root lib/board.sh 's/if \[ "\$e" -lt "\$early_rank" \]; then/if [ -z "$early" ] || [ "$e" -gt "$early_rank" ]; then/')"
+ROOT_UNDER_TEST="$planted" ai issue-status "${c14[3]}" ready >/dev/null 2>&1
+[ "$(state_of "$epic14")" = ready ] || fail "planted: the furthest place instead of the least advanced should move the epic to ready: $(state_of "$epic14")"
+epic12="$(new "A twelfth epic, closed with its only child")"; kid12="$(new "Its done child" --parent "$epic12")"; ai issue-close "$kid12" >/dev/null 2>&1
+planted="$(mutant_root lib/board.sh 's/\[ "\$cur" = closed \] || echo CLOSE/echo CLOSE/')"
+done12="$(new "A work item done before it joins")"; ai issue-close "$done12" >/dev/null 2>&1
+before="$(written "$epic12")"
+ROOT_UNDER_TEST="$planted" ai subissue-add "$epic12" "$done12" >/dev/null 2>&1 || true
+[ "$(written "$epic12")" != "$before" ] || fail "planted: a closed epic closed again beside children that are all done should write to the epic, so the innocent case can go red"
+echo "  planted defects, each caught: the reopen taken out leaves a rejected epic where it is, the move back from implementing taken out leaves case B where it is, the furthest place instead of the least advanced moves the epic on, a closed epic closed again is written to"
+
 # THE DOCTOR LINE: the tracker, where it answers, and that the key does, never the key
 line="$( cd "$P" && PATH="$PATH_CURL" bash -c 'report() { echo "report $*"; }; problem() { echo problem; }; . "$1/lib/tracker.sh"; tracker_doctor' _ "$ROOT" )"
 [ "$line" = "  tracker: plane (https://plane.example.test, the key answers)" ] || fail "the doctor line is '$line'"

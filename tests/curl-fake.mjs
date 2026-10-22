@@ -68,9 +68,33 @@ fs.appendFileSync(path.join(dir, 'requests.log'), `${method} ${url.pathname}${ur
 // write is logged, so a test can tell what had been printed before the first write
 if (method !== 'GET' && process.env.CURL_FAKE_STDOUT) fs.appendFileSync(path.join(dir, 'stdout-at-write.log'), `${method} ${url.pathname} ${fs.statSync(process.env.CURL_FAKE_STDOUT).size}\n`);
 
+// THE TIMES PLANE WRITES. Plane holds a time as an instant and prints it in the zone of its server, with
+// microseconds and that zone's offset, "2026-10-22T08:31:17.295431+02:00", the offset changing with the summer
+// time: not as GitHub does, "2026-10-22T06:31:17Z". Every `created_at`, `updated_at` and `completed_at` of an
+// answer of the Plane stand-in is printed so, whatever form the state holds it in, so the suite runs on the live
+// shape. The microseconds are the milliseconds of the instant and three more digits, never all zero and in the
+// order of the instants.
+const PLANE_ZONE = 'Europe/Zurich';
+const planeClock = new Intl.DateTimeFormat('en-GB', { timeZone: PLANE_ZONE, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
+                                                       hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'longOffset' });
+function planeTime(text) {
+  const at = Date.parse(text);
+  if (Number.isNaN(at)) return text;
+  const part = Object.fromEntries(planeClock.formatToParts(at).map((p) => [p.type, p.value]));
+  const offset = part.timeZoneName === 'GMT' ? '+00:00' : part.timeZoneName.slice(3);
+  const micros = String(at % 1000).padStart(3, '0') + String(1 + (Math.floor(at / 1000) % 999)).padStart(3, '0');
+  return `${part.year}-${part.month}-${part.day}T${part.hour}:${part.minute}:${part.second}.${micros}${offset}`;
+}
+const planeTimes = (value) => Array.isArray(value) ? value.map(planeTimes)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([k, v]) =>
+      [k, ['created_at', 'updated_at', 'completed_at'].includes(k) && typeof v === 'string' ? planeTime(v) : planeTimes(v)]))
+  : value;
+const isPlane = /^plane[0-9]*\.example\.test$/.test(url.hostname);
+
 let lost = false;   // an injected {"status":0,"commit":true}: the call is carried out, and its answer never arrives
 function reply(status, value, headers = {}) {
   if (lost) { process.stderr.write('curl: (28) Operation timed out\n'); process.exit(28); }
+  if (isPlane) value = planeTimes(value);
   const head = `HTTP/2 ${status}\r\n` + Object.entries(headers).map(([k, v]) => `${k}: ${v}\r\n`).join('') + '\r\n';
   if (args.includes('--dump-header')) fs.writeFileSync(out('--dump-header'), head);
   if (args.includes('--output')) fs.writeFileSync(out('--output'), typeof value === 'string' ? value : JSON.stringify(value));
@@ -111,7 +135,7 @@ if (hit >= 0) {
 
 const json = (() => { try { return body ? JSON.parse(body) : {}; } catch { return null; } })();
 const header = (n) => (cfg.header.find((h) => h.toLowerCase().startsWith(n.toLowerCase() + ':')) || '').replace(/^[^:]*:\s*/, '');
-if (/^plane[0-9]*\.example\.test$/.test(url.hostname)) plane(); else if (url.hostname === 'forge.example.test' || url.hostname === '127.0.0.1') forgejo(); else reply(404, 'no such host');
+if (isPlane) plane(); else if (url.hostname === 'forge.example.test' || url.hostname === '127.0.0.1') forgejo(); else reply(404, 'no such host');
 
 // --- Plane ---------------------------------------------------------------------------------
 function plane() {

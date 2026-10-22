@@ -54,8 +54,9 @@
 # The card is put in `implementing` by start-issue, at the moment the worktree is opened, and in
 # `testing` by finish-issue; both are a session's statement and this sweep writes neither. It
 # never moves a card BACKWARD, so a state a person set by hand stands. An EPIC carries no work and has no signals of
-# its own: it follows its sub-issues (epic_target in lib/board.sh), back from testing to
-# implementing too, so a sub-issue moved by hand on the board moves its epic here too. Nothing is guessed: a card only moves on a signal.
+# its own: it follows its sub-issues alone (epic_target in lib/board.sh), forward and back, so a
+# sub-issue moved by hand on the board moves its epic here too, except an epic whose card stands in done, which
+# this sweep does not read. Nothing is guessed: a card only moves on a signal.
 #
 # --dry-run prints what it would do and writes nothing. Default is to apply, because the whole
 # point is that no person has to run it.
@@ -118,7 +119,7 @@ cards_of_repo() {  # <owner/repo>
       | ($said | selected_landing($reopenedAt; $repo)) as $landing
       | ($landing.commit // "-") as $sha
       | (if $landing == null or ($landing.repository | ascii_downcase) == ($repo | ascii_downcase) then "-" else $landing.repository end) as $elsewhere
-      | ([$said[] | select($landing != null and (.body | startswith("Proven on ")) and (.createdAt > $landing.createdAt))]
+      | ([$said[] | select($landing != null and (.body | startswith("Proven on ")) and later(.createdAt; $landing.createdAt))]
           | if length > 0 then 1 else 0 end) as $proven
       | (first($landing.createdAt // empty | instant) // "-") as $landedAt
       | ([$said[] | (.createdAt | instant) as $at | (.body | split("\n")[0] | proof_environment) as $token | "\($at)=\($token)"]

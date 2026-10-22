@@ -597,12 +597,12 @@ issue_thread() {
   local item comments
   item="$(plane_item "$1" "$2")" || exit 1
   comments="$(plane_pages "the comments of $1#$2" "$(plane_path "$(plane_issue_path "$item")comments/")?expand=actor")" || exit 1
-  printf '%s\n%s\n' "$item" "$comments" | jq -s "$PLANE_REPO""$PLANE_TEXT"'
+  printf '%s\n%s\n' "$item" "$comments" | jq -s "$INSTANT_JQ""$PLANE_REPO""$PLANE_TEXT"'
     .[0] as $i | .[1:] as $c | {
       number: $i.sequence_id, title: $i.name, carriedFrom: ($i | carried_from), createdAt: $i.created_at,
       state: (if ($i.state.group | IN("completed", "cancelled")) then "closed" else "open" end),
       labels: [$i.labels[].name | select(startswith("repo:") | not)], body: (($i.description_html // "") | text),
-      comments: ($c | sort_by(.created_at) | map({author: (.actor.display_name // .actor.email // ""),
+      comments: ($c | sort_by(.created_at | instant_key) | map({author: (.actor.display_name // .actor.email // ""),
                        created_at: .created_at, body: ((.comment_html // "") | text)})) }'
 }
 
@@ -925,7 +925,7 @@ epic_target_on_board() {
     def status: if .state.group == "completed" then "done" elif .state.group == "cancelled" then "not planned" else (.state.name | ascii_downcase) end;
     def childstatus: if .state.group | IN("completed", "cancelled") then status else status | if IN("done", "not planned") then "testing" else . end end;
     .[0] as $i | ([.[1:][] | select(.parent == $i.id)]) as $kids
-    | if ($kids | length) == 0 then empty else ($i | status), ($kids[] | childstatus) end')"
+    | if ($kids | length) == 0 then empty else ($i | if .state.group | IN("completed", "cancelled") then "closed" else status end), ($kids[] | childstatus) end')"
   [ -n "$rows" ] || return 0
   set --
   while IFS= read -r st; do
@@ -1085,24 +1085,24 @@ issues_created_since() {
     items="$(plane_all_items "$ident")" || exit 1
     rows="$rows$items"$'\n'
   done <<< "$projects"
-  printf '%s' "$rows" | jq -cs --arg o "$(plane_owner)" --arg r "$1" --arg d "$2" --argjson n "$3" "$PLANE_REPO"'
-    [.[] | select(same(repo($o); $r) and .created_at >= $d)] | sort_by(.created_at) | reverse | .[:$n]
+  printf '%s' "$rows" | jq -cs --arg o "$(plane_owner)" --arg r "$1" --arg d "$2" --argjson n "$3" "$INSTANT_JQ""$PLANE_REPO"'
+    [.[] | select(same(repo($o); $r) and (.created_at | instant_key) >= ($d + "T00:00:00Z" | instant_key))] | sort_by(.created_at | instant_key) | reverse | .[:$n]
     | map({createdAt: .created_at, labels: [.labels[].name | select(startswith("repo:") | not)]})'
 }
 
 # issue_numbers_closed <owner/repo>: the numbers of the newest 200 closed work items of the repository
 issue_numbers_closed() {
   plane_check_owner "$1"
-  plane_all_items | jq -rs --arg o "$(plane_owner)" --arg r "$1" "$PLANE_REPO""$PLANE_ROW"'
-    [.[] | select(same(repo($o); $r) and closed)] | sort_by(.completed_at // .updated_at) | reverse | .[:200][] | .sequence_id'
+  plane_all_items | jq -rs --arg o "$(plane_owner)" --arg r "$1" "$INSTANT_JQ""$PLANE_REPO""$PLANE_ROW"'
+    [.[] | select(same(repo($o); $r) and closed)] | sort_by((.completed_at // .updated_at) | instant_key) | reverse | .[:200][] | .sequence_id'
 }
 
 # issue_summaries <owner/repo>: the newest 500 work items of the repository, open or closed, one
 # "<number>\t<OPEN|CLOSED>\t<labels, comma between>\t<title>" per line, the title last
 issue_summaries() {
   plane_check_owner "$1"
-  plane_all_items | jq -rs --arg o "$(plane_owner)" --arg r "$1" "$PLANE_REPO""$PLANE_ROW"'
-    [.[] | select(same(repo($o); $r))] | sort_by(.created_at) | reverse | .[:500][]
+  plane_all_items | jq -rs --arg o "$(plane_owner)" --arg r "$1" "$INSTANT_JQ""$PLANE_REPO""$PLANE_ROW"'
+    [.[] | select(same(repo($o); $r))] | sort_by(.created_at | instant_key) | reverse | .[:500][]
     | "\(.sequence_id)\t\(if closed then "CLOSED" else "OPEN" end)\t\([.labels[].name | select(startswith("repo:") | not)] | join(","))\t\(.name | gsub("[\t\n]"; " "))"'
 }
 
@@ -1140,7 +1140,7 @@ plane_landing_context() {
   local id="$1" what="$2" closed="$3" members="$4" comments acts
   comments="$(plane_pages "the comments of $what" "$(plane_path "projects/$(plane_project_uuid)/issues/$id/comments/")")" || exit 1
   acts="$(plane_pages "the state changes of $what" "$(plane_path "projects/$(plane_project_uuid)/issues/$id/activities/")")" || exit 1
-  jq -cn --arg what "$what" --argjson closed "$closed" --argjson members "$members" --argjson c "$(printf '%s' "$comments" | jq -cs '.')" --argjson a "$(printf '%s' "$acts" | jq -cs '.')" "$PLANE_TEXT"'
+  jq -cn --arg what "$what" --argjson closed "$closed" --argjson members "$members" --argjson c "$(printf '%s' "$comments" | jq -cs '.')" --argjson a "$(printf '%s' "$acts" | jq -cs '.')" "$INSTANT_JQ""$PLANE_TEXT"'
     def member: (.actor | if type == "object" then .id else . end) as $a | $members | index($a) != null;
     def carried: .external_source == "github" and ((.external_id // "") != "");
     def provenance: carried and (.text | startswith("Carried from GitHub "));
@@ -1151,11 +1151,11 @@ plane_landing_context() {
     ($c | map(. + {text: ((.comment_html // "") | text)})) as $all
     | {comments: ($all | map(select(provenance | not)
                 | if carried then unwrapped else {createdAt: .created_at, body: .text, authorAssociation: (if member then "MEMBER" else "NONE" end)} end)
-                | sort_by(.createdAt)),
+                | sort_by(.createdAt | instant_key)),
        reopenedAt: ([([$a[] | select(.field == "state" and (.old_identifier | IN($closed[])) and ((.new_identifier | IN($closed[])) | not))]
-                      | sort_by(.created_at) | last | .created_at),
+                      | sort_by(.created_at | instant_key) | last | .created_at),
                      ($all[] | select(provenance) | .text | split("\n")[] | capture("^Last reopened on GitHub at (?<t>[^ ]+)\\.$") | .t)]
-                    | map(select(. != null)) | max)}'
+                    | map(select(. != null)) | max_by(instant_key))}'
 }
 
 # issue_landing_context <owner/repo> <number>: the landing context of lib/tracker.sh of a work item, every comment

@@ -187,9 +187,11 @@ http() { local body="${3:-}"; printf 'url = "https://plane.example.test%s"\nrequ
 [ "$(http GET "/api/v1/workspaces/ws/projects/$pid/issues/$four/comments/")" = 200 ] || fail "the comments of an archived work item cannot be listed"
 other="$(pq 0 'console.log(N("example-org/example-repo#1").id)')"
 [ "$(http POST "/api/v1/workspaces/ws/projects/$pid/issues/$other/comments/" '{"comment_html":"x","external_source":"github","external_id":"IC_1a","created_at":"2020-01-02T03:04:05Z"}')" = 409 ] || fail "a comment external id used again on another work item is accepted"
-[ "$(http POST "/api/v1/workspaces/ws/projects/$pid/issues/$other/comments/" '{"comment_html":"y","external_source":"github","external_id":"IC_new","created_at":"2020-01-02T03:04:05Z"}')" = 201 ] && grep -q '"created_at":"2020-01-02T03:04:05Z"' "$WORK/http-body" || fail "created_at of a comment is not kept: $(cat "$WORK/http-body")"
+[ "$(http POST "/api/v1/workspaces/ws/projects/$pid/issues/$other/comments/" '{"comment_html":"y","external_source":"github","external_id":"IC_new","created_at":"2020-01-02T03:04:05Z"}')" = 201 ] \
+  && [ "$(date -u -d "$(jq -r .created_at "$WORK/http-body")" +%s)" = "$(date -u -d 2020-01-02T03:04:05Z +%s)" ] \
+  && jq -e '.created_at | test("^2020-01-02T04:04:05\\.[0-9]{6}\\+01:00$")' "$WORK/http-body" > /dev/null || fail "created_at of a comment is not kept as the instant, written in the zone of the server with microseconds: $(cat "$WORK/http-body")"
 [ "$(http POST "/api/v1/workspaces/ws/projects/$pid/issues/" '{"name":"twin","external_source":"github","external_id":"example-org/example-repo#4"}')" = 409 ] || fail "an item external id used twice is accepted"
-echo "  the stand-in answers 404 to both detail reads of an archived item, lists its comments, refuses a comment external id used on another item, keeps created_at and an item external id is unique"
+echo "  the stand-in answers 404 to both detail reads of an archived item, lists its comments, refuses a comment external id used on another item, keeps the instant of created_at, written in the zone of the server, and an item external id is unique"
 
 # an interruption at every stage of one issue: after the create, after an early comment, before the provenance and after it,
 # each as a write that was lost and a write that was made without its answer; a rerun without caches finishes the rest

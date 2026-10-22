@@ -395,18 +395,31 @@ sync_released_cards() {  # sync_released_cards <owner/repo>...
 # after the issue was last reopened: a ticket reopened for rework still carries the record of the work
 # that closed it the first time. The tracker gives status-sync the last LANDING_COMMENT_WINDOW comments
 # of an open issue, and a record further back does not exist for it.
+#
+# A time of a tracker is read as an instant, never ordered or compared as text: GitHub writes
+# "2026-10-22T06:31:17Z", Plane the clock of its server with microseconds and an offset that follows the
+# summer time, "2026-10-22T08:31:17.295431+02:00", and the two meet in one thread when a carry copies
+# GitHub's comments into Plane. `instant_key` is the instant as [whole seconds since 1970, nine digits of
+# fraction], which jq orders as the time is; `instant` is the same as the text "<seconds>.<nine digits>";
+# neither reads a text that is no RFC 3339 time with a zone: it answers nothing, and jq stops at a field out
+# of its range, a month 13 or an hour 25, while it carries 2026-02-30 into March.
+INSTANT_JQ='
+def instant_key: capture("^(?<s>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?<f>\\.[0-9]+)?(?<z>Z|(?<d>[+-])(?<h>[01][0-9]|2[0-3]):(?<m>[0-5][0-9]))$")
+  | (if .z == "Z" then 0 else ("1970-01-01T\(.h):\(.m):00Z" | fromdateiso8601) * (if .d == "-" then -1 else 1 end) end) as $offset
+  | [((.s + "Z") | fromdateiso8601) - $offset, ((.f // ".0")[1:] + "000000000")[:9]];
+def instant: instant_key | "\(.[0]).\(.[1])";
+def later($a; $b): ($a | instant_key) > ($b | instant_key);
+'
 LANDING_COMMENT_WINDOW=50
-LANDING_RECORD_JQ='
+LANDING_RECORD_JQ="$INSTANT_JQ"'
 def trusted: select(.authorAssociation == "OWNER" or .authorAssociation == "MEMBER" or .authorAssociation == "COLLABORATOR");
 def commit_lines: split("\n") | map(select(test("^- [0-9a-f]{7,40} ")));
 def landing_records($reopenedAt): [.[] | trusted | select(.body | startswith("Landed on "))
-  | select(.body | commit_lines | length > 0) | select($reopenedAt == "" or .createdAt > $reopenedAt)] | sort_by(.createdAt);
+  | select(.body | commit_lines | length > 0) | select($reopenedAt == "" or later(.createdAt; $reopenedAt))] | sort_by(.createdAt | instant_key);
 def landing_repo($issueRepo): (.body | split("\n")[0] | capture("^Landed on \\S+ of (?<r>[^\\s:]+/[^\\s:]+):") | .r) // $issueRepo;
 def selected_landing($reopenedAt; $issueRepo): landing_records($reopenedAt) as $all
   | ([$all[] | select((landing_repo($issueRepo) | ascii_downcase) == ($issueRepo | ascii_downcase))] | last) // ($all | last)
   | if . then {repository: landing_repo($issueRepo), commit: (.body | commit_lines | first | split(" ")[1]), createdAt: .createdAt} else null end;
-def instant: capture("^(?<s>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?<f>\\.[0-9]+)?(Z|\\+00:00)$")
-  | "\((.s + "Z") | fromdateiso8601).\(((.f // ".0")[1:] + "000000000")[:9])";
 def proof_environment: capture("^Proven on (?<token>[^ \\t:]+)([ \\t]+\\([^)]*\\))?:") | .token;
 def lists($shas): (.body | commit_lines | map(split(" ")[1])) as $listed
   | $shas | all(. as $sha | $listed | any(. as $one | ($one | startswith($sha)) or ($sha | startswith($one))));
@@ -433,10 +446,10 @@ landing_recorded() {
 # --- the commits that name an issue ---------------------------------------------------------
 
 # instant_seconds <time>: the whole seconds since 1970 of a time as a tracker writes it, read by the
-# `instant` of LANDING_RECORD_JQ, which answers nothing for a time it cannot read
+# `instant` of INSTANT_JQ, which answers nothing for a time it cannot read
 instant_seconds() {
   local seconds
-  seconds="$(jq -nr --arg t "$1" "$LANDING_RECORD_JQ"'$t | instant | split(".")[0]' 2>/dev/null)" && [ -n "$seconds" ] \
+  seconds="$(jq -nr --arg t "$1" "$INSTANT_JQ"'$t | instant | split(".")[0]' 2>/dev/null)" && [ -n "$seconds" ] \
     || die "cannot read the time '$1' of an issue"
   printf '%s\n' "$seconds"
 }
@@ -700,12 +713,14 @@ worktree_container() {
 
 # --- epics --------------------------------------------------------------------
 #
-# An epic, an issue with sub-issues, is never moved by hand: it follows its sub-issues. It stands in
-# implementing once one has started (a sub-issue in review has started too), in testing once all
-# stand in testing or done, and is closed once all are done. As nothing else moves it, it also takes
-# the one step back its sub-issues make true again: from testing to implementing, once a sub-issue
-# stands before testing.
-# A closed epic stays closed.
+# An epic, an issue with sub-issues, is never moved by hand: where it stands follows from its counted
+# sub-issues alone, forward and back. A sub-issue closed as not planned or as a duplicate does not count,
+# so an epic whose sub-issues are all of that kind does not move. The epic is closed and in done once all
+# that count are closed; in testing once all stand in testing or done; in implementing once one has
+# started (a done one has, and so has one in review); and else where the least advanced of them stands,
+# in the order backlog, ready, planned. An epic that stands elsewhere is moved there by the next move of a
+# sub-issue, whether it stands too far on, as a done or closed epic that has an open sub-issue again, or
+# not far enough. A closed epic is reopened first.
 
 status_rank() {  # status_rank <status> - backlog, ready and planned < implementing and review < testing < done
   case "$1" in
@@ -716,12 +731,13 @@ status_rank() {  # status_rank <status> - backlog, ready and planned < implement
   esac
 }
 
-# epic_target <the epic's status> <a sub-issue's status>... - a closed sub-issue counts as done, one
-# closed as not planned or as a duplicate ("not planned") not at all, so an epic whose sub-issues
-# are all of that kind does not move. Echoes implementing, testing or CLOSE, or nothing where the
-# epic stands there or further, except that an epic in testing goes back to implementing.
+# epic_target <the epic's status> <a sub-issue's status>... - the place the sub-issues derive for the epic
+# when it does not stand there: implementing, testing, backlog, ready, planned or CLOSE, and "reopen" and
+# the place where the epic itself is closed (its status is "closed", else its column). A closed sub-issue
+# counts as done, one closed as not planned or as a duplicate ("not planned") not at all. Nothing where
+# the epic stands in that place, or no sub-issue counts.
 epic_target() {
-  local cur="$1" s r low=3 high=0 t="" counted=0
+  local cur="$1" s r low=3 high=0 counted=0 early="" early_rank=9 e t
   shift
   for s in "$@"; do
     [ "$s" = 'not planned' ] && continue
@@ -729,14 +745,22 @@ epic_target() {
     r="$(status_rank "$s")"
     [ "$r" -lt "$low" ] && low="$r"
     [ "$r" -gt "$high" ] && high="$r"
+    if [ "$r" -eq 0 ]; then
+      case "$s" in ready) e=1 ;; planned) e=2 ;; *) e=0 ;; esac
+      if [ "$e" -lt "$early_rank" ]; then early_rank="$e"; early="$s"; fi
+    fi
   done
   [ "$counted" -eq 1 ] || return 0
   if [ "$low" -eq 3 ]; then t=CLOSE
   elif [ "$low" -eq 2 ]; then t=testing
   elif [ "$high" -ge 1 ]; then t=implementing
+  else t="$early"
   fi
-  [ -n "$t" ] || return 0
-  if [ "$(status_rank "$t")" -gt "$(status_rank "$cur")" ] || [ "$cur $t" = 'testing implementing' ]; then echo "$t"; fi
+  [ "$t" != "$cur" ] || return 0
+  if [ "$t" = CLOSE ]; then [ "$cur" = closed ] || echo CLOSE
+  elif [ "$cur" = closed ]; then echo "reopen $t"
+  else echo "$t"
+  fi
   return 0
 }
 
@@ -759,6 +783,12 @@ update_epic() {
       '') exit 0 ;;
       CLOSE) out="$(bash "$bin/issue-close.sh" "$repo" "$n")" || exit 1
              echo "epic $repo#$n -> closed, every sub-issue done" ;;
+      reopen\ *) target="${target#reopen }"
+             bash "$bin/issue-reopen.sh" "$repo" "$n" >/dev/null || exit 1
+             # issue-reopen leaves the card in ready; a move from there reaches the epic's own parent, a stay in ready does not
+             if [ "$target" = ready ]; then out="$(update_parent_epic "$repo" "$n")" || exit 1
+             else out="$(bash "$bin/issue-status.sh" ${PROJECT:+--project "$(project_org)/$(project_number)"} "$repo" "$n" "$target")" || exit 1; fi
+             echo "epic $repo#$n -> reopened in $target, as its sub-issues stand" ;;
       *)     out="$(bash "$bin/issue-status.sh" ${PROJECT:+--project "$(project_org)/$(project_number)"} "$repo" "$n" "$target")" || exit 1
              echo "epic $repo#$n -> $target, as its sub-issues stand" ;;
     esac

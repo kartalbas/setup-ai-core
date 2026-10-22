@@ -925,7 +925,7 @@ epic_target_on_board() {
     def status: if .state.group == "completed" then "done" elif .state.group == "cancelled" then "not planned" else (.state.name | ascii_downcase) end;
     def childstatus: if .state.group | IN("completed", "cancelled") then status else status | if IN("done", "not planned") then "testing" else . end end;
     .[0] as $i | ([.[1:][] | select(.parent == $i.id)]) as $kids
-    | if ($kids | length) == 0 then empty else ($i | status), ($kids[] | childstatus) end')"
+    | if ($kids | length) == 0 then empty else ($i | if .state.group | IN("completed", "cancelled") then "closed" else status end), ($kids[] | childstatus) end')"
   [ -n "$rows" ] || return 0
   set --
   while IFS= read -r st; do

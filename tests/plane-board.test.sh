@@ -49,12 +49,13 @@ list="$(ai board-list)" || fail "board-list: $list"
 ! grep -q '#53' <<< "$list" || fail "the archived work item is listed: $list"
 echo "  board-list: #1 under testing with P1; a repository from the repo: label, from external_id, none for neither; the archived card is not listed"
 
-# THE CARD ROWS: the shape of lib/tracker.sh, parents by repository, sub-issues counted, closed ones dated
+# THE CARD ROWS: the shape of lib/tracker.sh, parents by repository, sub-issues counted, closed ones dated; #1 goes back from testing to ready
+# with the sub-issue it is given, which stands in ready
 ai subissue-add 1 2 >/dev/null 2>&1 || fail "subissue-add"
 new "A closed one" >/dev/null || fail "issue-new"
 ai issue-close 54 >/dev/null 2>&1 || fail "issue-close 54"
 rows="$(plane_fn card_rows)" || fail "card_rows"
-[ "$(jq -c 'select(.number == 1) | [.repo, .status, .priority, .subs, .open]' <<< "$rows")" = '["example-org/example-repo","testing","P1",1,true]' ] || fail "the card row of #1: $(jq -c 'select(.number == 1)' <<< "$rows")"
+[ "$(jq -c 'select(.number == 1) | [.repo, .status, .priority, .subs, .open]' <<< "$rows")" = '["example-org/example-repo","ready","P1",1,true]' ] || fail "the card row of #1: $(jq -c 'select(.number == 1)' <<< "$rows")"
 [ "$(jq -c 'select(.number == 2) | [.parent, .status, .priority, .open, .closedAt]' <<< "$rows")" = '["example-org/example-repo#1","ready","P3",true,null]' ] || fail "the card row of #2: $(jq -c 'select(.number == 2)' <<< "$rows")"
 [ "$(jq -c 'select(.number == 54) | [.status, .open, (.closedAt != null)]' <<< "$rows")" = '["done",false,true]' ] || fail "the card row of #54: $(jq -c 'select(.number == 54)' <<< "$rows")"
 [ "$(jq -c 'select(.number == 51) | .repo' <<< "$rows")" = null ] || fail "a work item without a repository has a repository in its row"

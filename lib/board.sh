@@ -713,12 +713,14 @@ worktree_container() {
 
 # --- epics --------------------------------------------------------------------
 #
-# An epic, an issue with sub-issues, is never moved by hand: it follows its sub-issues. It stands in
-# implementing once one has started (a sub-issue in review has started too), in testing once all
-# stand in testing or done, and is closed once all are done. As nothing else moves it, it also takes
-# the one step back its sub-issues make true again: from testing to implementing, once a sub-issue
-# stands before testing.
-# A closed epic stays closed.
+# An epic, an issue with sub-issues, is never moved by hand: where it stands follows from its counted
+# sub-issues alone, forward and back. A sub-issue closed as not planned or as a duplicate does not count,
+# so an epic whose sub-issues are all of that kind does not move. The epic is closed and in done once all
+# that count are closed; in testing once all stand in testing or done; in implementing once one has
+# started (a done one has, and so has one in review); and else where the least advanced of them stands,
+# in the order backlog, ready, planned. An epic that stands elsewhere is moved there by the next move of a
+# sub-issue, whether it stands too far on, as a done or closed epic that has an open sub-issue again, or
+# not far enough. A closed epic is reopened first.
 
 status_rank() {  # status_rank <status> - backlog, ready and planned < implementing and review < testing < done
   case "$1" in
@@ -729,12 +731,13 @@ status_rank() {  # status_rank <status> - backlog, ready and planned < implement
   esac
 }
 
-# epic_target <the epic's status> <a sub-issue's status>... - a closed sub-issue counts as done, one
-# closed as not planned or as a duplicate ("not planned") not at all, so an epic whose sub-issues
-# are all of that kind does not move. Echoes implementing, testing or CLOSE, or nothing where the
-# epic stands there or further, except that an epic in testing goes back to implementing.
+# epic_target <the epic's status> <a sub-issue's status>... - the place the sub-issues derive for the epic
+# when it does not stand there: implementing, testing, backlog, ready, planned or CLOSE, and "reopen" and
+# the place where the epic itself is closed (its status is "closed", else its column). A closed sub-issue
+# counts as done, one closed as not planned or as a duplicate ("not planned") not at all. Nothing where
+# the epic stands in that place, or no sub-issue counts.
 epic_target() {
-  local cur="$1" s r low=3 high=0 t="" counted=0
+  local cur="$1" s r low=3 high=0 counted=0 early="" early_rank=9 e t
   shift
   for s in "$@"; do
     [ "$s" = 'not planned' ] && continue
@@ -742,14 +745,22 @@ epic_target() {
     r="$(status_rank "$s")"
     [ "$r" -lt "$low" ] && low="$r"
     [ "$r" -gt "$high" ] && high="$r"
+    if [ "$r" -eq 0 ]; then
+      case "$s" in ready) e=1 ;; planned) e=2 ;; *) e=0 ;; esac
+      if [ "$e" -lt "$early_rank" ]; then early_rank="$e"; early="$s"; fi
+    fi
   done
   [ "$counted" -eq 1 ] || return 0
   if [ "$low" -eq 3 ]; then t=CLOSE
   elif [ "$low" -eq 2 ]; then t=testing
   elif [ "$high" -ge 1 ]; then t=implementing
+  else t="$early"
   fi
-  [ -n "$t" ] || return 0
-  if [ "$(status_rank "$t")" -gt "$(status_rank "$cur")" ] || [ "$cur $t" = 'testing implementing' ]; then echo "$t"; fi
+  [ "$t" != "$cur" ] || return 0
+  if [ "$t" = CLOSE ]; then [ "$cur" = closed ] || echo CLOSE
+  elif [ "$cur" = closed ]; then echo "reopen $t"
+  else echo "$t"
+  fi
   return 0
 }
 
@@ -772,6 +783,12 @@ update_epic() {
       '') exit 0 ;;
       CLOSE) out="$(bash "$bin/issue-close.sh" "$repo" "$n")" || exit 1
              echo "epic $repo#$n -> closed, every sub-issue done" ;;
+      reopen\ *) target="${target#reopen }"
+             bash "$bin/issue-reopen.sh" "$repo" "$n" >/dev/null || exit 1
+             # issue-reopen leaves the card in ready; a move from there reaches the epic's own parent, a stay in ready does not
+             if [ "$target" = ready ]; then out="$(update_parent_epic "$repo" "$n")" || exit 1
+             else out="$(bash "$bin/issue-status.sh" ${PROJECT:+--project "$(project_org)/$(project_number)"} "$repo" "$n" "$target")" || exit 1; fi
+             echo "epic $repo#$n -> reopened in $target, as its sub-issues stand" ;;
       *)     out="$(bash "$bin/issue-status.sh" ${PROJECT:+--project "$(project_org)/$(project_number)"} "$repo" "$n" "$target")" || exit 1
              echo "epic $repo#$n -> $target, as its sub-issues stand" ;;
     esac

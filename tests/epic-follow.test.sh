@@ -2,7 +2,9 @@
 # An epic follows its sub-issues through the movers: issue-status moves it to testing once every
 # sub-issue stands in testing or done, issue-close closes it with the last one, and an epic in
 # testing goes back to implementing once a sub-issue stands before testing, also when subissue-add
-# attaches one; subissue-remove lets it follow the sub-issues it keeps. epic_target, the rule
+# attaches one, and an epic in done or closed goes back to where its sub-issues stand once one that
+# counts is open under it (a closed one is reopened first); subissue-remove lets it follow the
+# sub-issues it keeps. epic_target, the rule
 # itself, is checked on its own first. A fake gh answers, so nothing leaves the machine.
 #
 #   bash tests/epic-follow.test.sh
@@ -15,7 +17,7 @@ trap 'rm -rf "$FAKE"' EXIT
 export GH_ORG=example-org GH_CACHE_DIRECTORY="$FAKE/cache"
 mkdir -p "$GH_CACHE_DIRECTORY/7" "$FAKE/bin"
 echo PVT_epic7 > "$GH_CACHE_DIRECTORY/7/project-id"
-printf 'Status\tF1\t%s\tO%s\n' todo 1 implementing 2 testing 3 done 4 > "$GH_CACHE_DIRECTORY/7/fields.tsv"
+printf 'Status\tF1\t%s\tO%s\n' todo 1 implementing 2 testing 3 done 4 ready 5 backlog 6 planned 7 review 8 > "$GH_CACHE_DIRECTORY/7/fields.tsv"
 mkdir -p "$GH_CACHE_DIRECTORY/5"; echo PVT_own5 > "$GH_CACHE_DIRECTORY/5/project-id"
 cp "$GH_CACHE_DIRECTORY/7/fields.tsv" "$GH_CACHE_DIRECTORY/5/fields.tsv"
 
@@ -25,24 +27,43 @@ check() {
   else echo "  FAIL $1"; echo "       expected: [$2]"; echo "       actual:   [$3]"; failed=$((failed + 1)); fi
 }
 
-echo 'the rule: where an epic stands follows from its sub-issues, forward, and back from testing to implementing only'
+echo 'the rule: where an epic stands follows from its counted sub-issues alone, forward and back'
 . "$ROOT/lib/board.sh"
 # board.sh turns on `set -e`; under it a mover that exits non-zero ends the test at `out=$(...)`,
 # before its exit code is checked, and the red run prints nothing for that case.
 set +e
-check 'nothing started'              ''             "$(epic_target todo todo backlog)"
+check 'nothing started, the epic stands there' ''   "$(epic_target todo todo backlog)"
 check 'one started'                  implementing   "$(epic_target todo implementing todo)"
+check 'one in review has started'    implementing   "$(epic_target backlog review backlog)"
 check 'all in testing or done'       testing        "$(epic_target implementing testing done)"
 check 'all done'                     CLOSE          "$(epic_target testing done done)"
 check 'from testing back to implementing' implementing "$(epic_target testing implementing testing)"
-check 'and so with a new todo beside one in testing' implementing "$(epic_target testing testing todo todo)"
-check 'never back to todo'           ''             "$(epic_target testing todo todo)"
-check 'never back from implementing' ''             "$(epic_target implementing todo backlog)"
-check 'a closed epic stays closed'   ''             "$(epic_target done implementing todo)"
+check 'and so with a new backlog beside one in testing' implementing "$(epic_target testing testing backlog backlog)"
+check 'from testing back to the least advanced place' backlog "$(epic_target testing backlog backlog)"
+check 'case B: two went back from implementing to backlog' backlog "$(epic_target implementing backlog backlog ready backlog)"
+check 'the least advanced of backlog, ready, planned: ready' ready "$(epic_target implementing planned ready ready)"
+check 'the least advanced of backlog, ready, planned: planned' planned "$(epic_target implementing planned planned)"
+check 'the least advanced of backlog, ready, planned: backlog' backlog "$(epic_target ready planned backlog ready)"
+check 'forward within the places that have not started' ready "$(epic_target backlog ready planned)"
+check 'an epic that stands in the place its sub-issues derive stays' '' "$(epic_target ready planned ready)"
+check 'implementing stays where one has started' '' "$(epic_target implementing implementing backlog)"
+check 'an epic in done goes back to implementing' implementing "$(epic_target done implementing backlog)"
+check 'an epic in done goes back to backlog, none started' backlog "$(epic_target done backlog backlog)"
+check 'an epic in done goes back to testing' testing "$(epic_target done testing done)"
+check 'an open epic in done beside sub-issues that are all done is closed' CLOSE "$(epic_target done done done)"
+check 'a closed epic is reopened into implementing' 'reopen implementing' "$(epic_target closed implementing backlog)"
+check 'a done sub-issue has started: a closed epic with a new one under it' 'reopen implementing' "$(epic_target closed done backlog)"
+check 'a closed epic is reopened into backlog, none started' 'reopen backlog' "$(epic_target closed backlog backlog)"
+check 'a closed epic is reopened into ready' 'reopen ready' "$(epic_target closed ready planned)"
+check 'a closed epic is reopened into testing' 'reopen testing' "$(epic_target closed testing done)"
+check 'a closed epic beside a sub-issue closed as not planned is reopened as the open ones stand' 'reopen planned' "$(epic_target closed planned 'not planned')"
+check 'a closed epic whose sub-issues are all done stays closed' '' "$(epic_target closed done done)"
+check 'a closed epic whose sub-issues are all not planned stays closed' '' "$(epic_target closed 'not planned' 'not planned')"
+check 'a closed epic whose sub-issues are done or not planned stays closed' '' "$(epic_target closed done 'not planned')"
 check 'no sub-issues, nothing'       ''             "$(epic_target todo)"
 check 'not planned left out'         CLOSE          "$(epic_target testing done 'not planned')"
 check 'only not planned, nothing'    ''             "$(epic_target testing 'not planned')"
-check 'a closed epic never moves'    ''             "$(epic_target 'not planned' implementing)"
+check 'an epic closed as not planned with open sub-issues is reopened as the others' 'reopen implementing' "$(epic_target closed implementing)"
 
 # The fake gh: #3 is a sub-issue of #44, #44 has no parent; $FAKE/epic-44 holds the statuses of
 # #44 and of its sub-issues as the board gives them, one a line, the epic first
@@ -108,12 +129,124 @@ check 'exit 0'        0 "$rc"
 check 'it says so'    'epic example-org/example-repo#44 -> testing, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
 check 'only the epic moved' 'iid=PVTI_card44' "$(moves)"
 
-echo 'subissue-add: a closed epic is not reopened'
-: > "$FAKE/calls"; printf 'done\ndone\ntodo\n' > "$FAKE/epic-44"
+# A closed epic is reopened through issue-reopen, which puts its card in ready, and then moved to where its sub-issues stand.
+# The stand-in answers the epic's first line as its own status: closed for a closed epic, a column name for an open one.
+patched() { grep -o 'PATCH repos/example-org/example-repo/issues/[0-9]*' "$FAKE/calls" | sed 's#.*/issues/#issues/#' | tr '\n' ' ' | sed 's/ $//'; }
+echo 'subissue-add: a closed epic with a todo sub-issue attached is reopened and goes to implementing, a done sub-issue having started'
+: > "$FAKE/calls"; printf 'closed\ndone\ntodo\n' > "$FAKE/epic-44"
 out="$(bash "$ROOT/bin/subissue-add.sh" example-org/example-repo 44 5 2>&1)"; rc=$?
 check 'exit 0'        0 "$rc"
-check 'no epic line'  '' "$(grep '^epic' <<< "$out")"
-check 'nothing moved' '' "$(moves)"
+check 'it says so'    'epic example-org/example-repo#44 -> reopened in implementing, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
+check 'the epic was reopened' 'issues/44' "$(patched)"
+check 'its card went to ready, then to implementing' 'iid=PVTI_card44 iid=PVTI_card44' "$(moves)"
+
+echo 'issue-status: a sub-issue moved to todo under a closed epic whose others are done reopens it into implementing'
+: > "$FAKE/calls"; printf 'closed\ntodo\ndone\n' > "$FAKE/epic-44"
+out="$(bash "$ROOT/bin/issue-status.sh" --project 7 example-org/example-repo 3 todo 2>&1)"; rc=$?
+check 'exit 0'        0 "$rc"
+check 'it says so'    'epic example-org/example-repo#44 -> reopened in implementing, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
+check 'the epic was reopened' 'issues/44' "$(patched)"
+check 'the sub-issue moved, then the epic twice' 'iid=PVTI_card3 iid=PVTI_card44 iid=PVTI_card44' "$(moves)"
+
+echo 'issue-status: a closed epic whose only open sub-issue stands in ready is reopened into ready, and moved no further'
+: > "$FAKE/calls"; printf 'closed\nready\n' > "$FAKE/epic-44"
+out="$(bash "$ROOT/bin/issue-status.sh" --project 7 example-org/example-repo 3 ready 2>&1)"; rc=$?
+check 'exit 0'        0 "$rc"
+check 'it says so'    'epic example-org/example-repo#44 -> reopened in ready, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
+check 'the epic was reopened' 'issues/44' "$(patched)"
+check 'the sub-issue moved, then the epic once, to ready' 'iid=PVTI_card3 iid=PVTI_card44' "$(moves)"
+
+echo 'issue-status: a closed epic whose only open sub-issue stands in backlog is reopened into backlog'
+: > "$FAKE/calls"; printf 'closed\nbacklog\n' > "$FAKE/epic-44"
+out="$(bash "$ROOT/bin/issue-status.sh" --project 7 example-org/example-repo 3 backlog 2>&1)"; rc=$?
+check 'exit 0'        0 "$rc"
+check 'it says so'    'epic example-org/example-repo#44 -> reopened in backlog, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
+check 'the epic was reopened, then moved' 'iid=PVTI_card3 iid=PVTI_card44 iid=PVTI_card44' "$(moves)"
+
+echo 'issue-status: an open epic whose card stands in done goes back to where its sub-issues stand, and says so again each time it is asked'
+for round in 1 2; do
+  : > "$FAKE/calls"; printf 'done\nimplementing\nbacklog\n' > "$FAKE/epic-44"
+  out="$(bash "$ROOT/bin/issue-status.sh" --project 7 example-org/example-repo 3 implementing 2>&1)"; rc=$?
+  check "round $round: exit 0"     0 "$rc"
+  check "round $round: it says so" 'epic example-org/example-repo#44 -> implementing, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
+  check "round $round: the epic stays open" '' "$(patched)"
+  check "round $round: the sub-issue and the epic moved" 'iid=PVTI_card3 iid=PVTI_card44' "$(moves)"
+done
+: > "$FAKE/calls"; printf 'done\nbacklog\nbacklog\n' > "$FAKE/epic-44"
+out="$(bash "$ROOT/bin/issue-status.sh" --project 7 example-org/example-repo 3 backlog 2>&1)"; rc=$?
+check 'none started: exit 0'      0 "$rc"
+check 'none started: back to backlog' 'epic example-org/example-repo#44 -> backlog, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
+
+echo 'case B: an epic in implementing whose two sub-issues went back to backlog goes to backlog, the least advanced place'
+: > "$FAKE/calls"; printf 'implementing\nbacklog\nbacklog\nready\n' > "$FAKE/epic-44"
+out="$(bash "$ROOT/bin/issue-status.sh" --project 7 example-org/example-repo 3 backlog 2>&1)"; rc=$?
+check 'exit 0'        0 "$rc"
+check 'it says so'    'epic example-org/example-repo#44 -> backlog, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
+check 'the sub-issue and the epic moved' 'iid=PVTI_card3 iid=PVTI_card44' "$(moves)"
+: > "$FAKE/calls"; printf 'implementing\nready\nplanned\nready\n' > "$FAKE/epic-44"
+out="$(bash "$ROOT/bin/issue-status.sh" --project 7 example-org/example-repo 3 ready 2>&1)"; rc=$?
+check 'ready is the least advanced of ready and planned' 'epic example-org/example-repo#44 -> ready, as its sub-issues stand' "$(grep '^epic' <<< "$out")"
+
+echo 'an epic that already stands where its sub-issues derive gets no write'
+for lines in 'implementing\nimplementing\nbacklog' 'backlog\nbacklog\nready' 'testing\ntesting\ndone' 'closed\ndone\ndone'; do
+  : > "$FAKE/calls"; printf "$lines\n" > "$FAKE/epic-44"
+  out="$(bash "$ROOT/bin/issue-status.sh" --project 7 example-org/example-repo 3 "$(sed -n 2p "$FAKE/epic-44")" 2>&1)"; rc=$?
+  check "$(sed 's/\\n/ /g' <<< "$lines"): exit 0" 0 "$rc"
+  check "$(sed 's/\\n/ /g' <<< "$lines"): no epic line" '' "$(grep '^epic' <<< "$out")"
+  check "$(sed 's/\\n/ /g' <<< "$lines"): only the sub-issue moved" 'iid=PVTI_card3' "$(moves)"
+done
+
+echo 'a closed epic stays closed where nothing open counts under it: all sub-issues done, all not planned, one done and one not planned'
+for lines in 'closed\ndone\ndone' 'closed\nnot planned\nnot planned' 'closed\ndone\nnot planned'; do
+  : > "$FAKE/calls"; printf "$lines\n" > "$FAKE/epic-44"
+  out="$(bash "$ROOT/bin/subissue-add.sh" example-org/example-repo 44 5 2>&1)"; rc=$?
+  check "$(printf '%s' "$lines" | tr '\n' ' ' | sed 's/\\n/ /g'): exit 0"        0 "$rc"
+  check "$(printf '%s' "$lines" | sed 's/\\n/ /g'): no epic line"  '' "$(grep '^epic' <<< "$out")"
+  check "$(printf '%s' "$lines" | sed 's/\\n/ /g'): nothing reopened or moved" '' "$(patched)$(moves)"
+done
+
+# Each rule is shown red on a copy of the tree with one planted defect
+mutant_tree() {  # mutant_tree <sed expression>: a copy of the tree with lib/board.sh changed by it, in $FAKE/mutant; prints its path
+  rm -rf "$FAKE/mutant"; mkdir -p "$FAKE/mutant"; cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$FAKE/mutant/"; cp "$ROOT/VERSION" "$FAKE/mutant/"
+  sed -i.bak "$1" "$FAKE/mutant/lib/board.sh"
+  cmp -s "$ROOT/lib/board.sh" "$FAKE/mutant/lib/board.sh" && { echo "the planted defect changed nothing: $1" >&2; exit 1; }
+  printf '%s' "$FAKE/mutant"
+}
+in_mutant() {  # in_mutant <command>...: the command with a cache of its own, because a planted defect may make a board read its fields again
+  rm -rf "$FAKE/mutant-cache"; cp -R "$GH_CACHE_DIRECTORY" "$FAKE/mutant-cache"
+  GH_CACHE_DIRECTORY="$FAKE/mutant-cache" "$@"
+}
+epic_line() { grep '^epic' <<< "$1"; }
+echo 'planted: the reopen taken out leaves a closed epic closed'
+M="$(mutant_tree '/issue-reopen.sh/d')" || exit 1
+: > "$FAKE/calls"; printf 'closed\ndone\nbacklog\n' > "$FAKE/epic-44"
+in_mutant bash "$M/bin/subissue-add.sh" example-org/example-repo 44 5 > /dev/null 2>&1
+check 'the epic was not reopened' '' "$(patched)"
+echo 'planted: the move back from done taken out leaves an epic in done'
+M="$(mutant_tree 's/^  \[ "\$t" != "\$cur" \] || return 0$/  [ "$t" != "$cur" ] \&\& [ "$cur" != done ] || return 0/')" || exit 1
+: > "$FAKE/calls"; printf 'done\nimplementing\nbacklog\n' > "$FAKE/epic-44"
+out="$(in_mutant bash "$M/bin/issue-status.sh" --project 7 example-org/example-repo 3 implementing 2>&1)"
+check 'no epic line' '' "$(epic_line "$out")"
+echo 'planted: the move back from implementing taken out leaves case B where it is'
+M="$(mutant_tree 's/^  \[ "\$t" != "\$cur" \] || return 0$/&\n  [ "$cur" = implementing ] \&\& [ "$t" != testing ] \&\& [ "$t" != CLOSE ] \&\& return 0/')" || exit 1
+: > "$FAKE/calls"; printf 'implementing\nbacklog\nbacklog\nready\n' > "$FAKE/epic-44"
+out="$(in_mutant bash "$M/bin/issue-status.sh" --project 7 example-org/example-repo 3 backlog 2>&1)"
+check 'no epic line' '' "$(epic_line "$out")"
+echo 'planted: the furthest of the places that have not started instead of the least advanced'
+M="$(mutant_tree 's/if \[ "\$e" -lt "\$early_rank" \]; then/if [ -z "$early" ] || [ "$e" -gt "$early_rank" ]; then/')" || exit 1
+: > "$FAKE/calls"; printf 'implementing\nbacklog\nbacklog\nready\n' > "$FAKE/epic-44"
+out="$(in_mutant bash "$M/bin/issue-status.sh" --project 7 example-org/example-repo 3 backlog 2>&1)"
+check 'the epic goes to ready, not to backlog' 'epic example-org/example-repo#44 -> ready, as its sub-issues stand' "$(epic_line "$out")"
+echo 'planted: a closed epic closed again beside sub-issues that are all done'
+M="$(mutant_tree 's/\[ "\$cur" = closed \] || echo CLOSE/echo CLOSE/')" || exit 1
+: > "$FAKE/calls"; printf 'closed\ndone\ndone\n' > "$FAKE/epic-44"
+in_mutant bash "$M/bin/subissue-add.sh" example-org/example-repo 44 5 > /dev/null 2>&1
+check 'the innocent case is closed again, so its check can go red' 'issues/44' "$(patched)"
+echo 'planted: an epic written to where it already stands'
+M="$(mutant_tree '/^  \[ "\$t" != "\$cur" \] || return 0$/d')" || exit 1
+: > "$FAKE/calls"; printf 'implementing\nimplementing\nbacklog\n' > "$FAKE/epic-44"
+out="$(in_mutant bash "$M/bin/issue-status.sh" --project 7 example-org/example-repo 3 implementing 2>&1)"
+check 'the epic is written, so the check of no write can go red' 'epic example-org/example-repo#44 -> implementing, as its sub-issues stand' "$(epic_line "$out")"
 
 echo 'issue-close: the last sub-issue closed closes its epic'
 : > "$FAKE/calls"; printf 'testing\ndone\ndone\n' > "$FAKE/epic-44"

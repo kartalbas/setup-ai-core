@@ -481,7 +481,7 @@ epic_target_on_board() {
     def anycard: [.projectItems.nodes[] | .status.name | select(. != null)] | first;
     def closed: if .stateReason == \"NOT_PLANNED\" or .stateReason == \"DUPLICATE\" then \"not planned\" else \"done\" end;
     def unclosed(c): (c // \"backlog\") | if (ascii_downcase | IN(\"done\", \"not planned\")) then \"testing\" else . end;
-    (.data.repository.issue | if onfirstpage then (if .state == \"CLOSED\" then closed else (card // \"backlog\") end) else empty end),
+    (.data.repository.issue | if onfirstpage then (if .state == \"CLOSED\" then \"closed\" else (card // \"backlog\") end) else empty end),
     (.data.repository.issue.subIssues.nodes[] | if .state == \"CLOSED\" then closed else unclosed(card // anycard) end)")" || return 1
   set --
   while IFS= read -r st; do

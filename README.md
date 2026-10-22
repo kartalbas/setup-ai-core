@@ -1179,7 +1179,7 @@ for it.
 `PLANE_PROJECT` names, and the priorities `P0` to `P3` are Plane's urgent, high, medium and low. `project-new
 TITLE` makes that project, with the eight states `backlog`, `ready`, `planned`, `implementing`, `review`,
 `testing`, `done` and Plane's own `Cancelled`, the labels of `labels.tsv` and `repo:<name>`; a board to copy
-is refused, because Plane copies none. `board-list`, `status`, `status-sync`, `epics-top`, `item-top`,
+is refused, because Plane copies none. It writes the id of the project it made into the cache of its checkout and drops what that checkout had cached for the identifier, and another checkout that read a deleted project of the identifier keeps its cached id until its `<cache root>/plane/.../<identifier>/` directory is removed. `board-list`, `status`, `status-sync`, `epics-top`, `item-top`,
 `board-order`, `incident-count`, `labels-sync` and `repo-link` read and write the project's work items, a
 work item that names no repository by a `repo:` label (or, carried from GitHub, by its `external_id`) under
 `-`; `board-sync` says that every work item of a Plane project is on its board already and exits 0. Plane

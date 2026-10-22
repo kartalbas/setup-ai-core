@@ -202,6 +202,17 @@ boards_named "$ROOT" || fail "a carry of one issue or one column does not name i
 plant boards_named lib/carry.sh '/github_carry_board_names/ s/^.*$/    :/' "the board read taken out of the carry of one issue"
 echo "  a carry of one issue and of one column names each board of the memberships by number and title, one read per board and no listing of the boards; an issue on no board reads none and gets no board line; with the board read taken out the check is red"
 
+# a board of a membership that GitHub does not answer for stops the carry of one issue, named, before any write
+board_unread_refused() {  # board_unread_refused <root>: 0 where the carry refuses, names the board and writes nothing
+  local root="$1"
+  reset_plane; world; reset_log
+  gh_set 's.boards=s.boards.filter((b)=>b.id!=="PVT_B")'
+  ! ROOT_UNDER_TEST="$root" carry 9 --to plane && grep -q 'cannot read the board PVT_B' "$WORK/err.txt" && [ "$(writes)" = 0 ]
+}
+board_unread_refused "$ROOT" || fail "a board GitHub does not answer for did not stop the carry of one issue before any write: $(cat "$WORK/err.txt")"
+plant_line board_unread_refused lib/github/tracker.sh '      || die "cannot read the board $id' '      || true' "a board that cannot be read passed over"
+echo "  a board of a membership that GitHub does not answer for stops the carry of one issue before any write, and names the board; with the refusal taken out the check is red"
+
 # a source that cannot be read whole stops before any write: a missing clone, a partial GraphQL answer
 reset_plane; world; reset_log; mkdir -p "$WORK/off"; mv "$WORK/tools" "$WORK/off/tools"
 carry --to plane && fail "a repository without a clone was carried past"

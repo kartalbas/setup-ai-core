@@ -42,8 +42,11 @@ awk -F'\t' 'tolower($1) == "status" { print $3 }' <<< "$columns" > "$work/column
 card_rows > "$work/items" || exit 1
 
 # WHAT THE TESTING BLOCK READS OF EACH CARD IN TESTING, one JSON object a line in $work/testing, for lib/status.mjs:
-#   {repository, number, pattern, context, reason, landing, landingClone}
-# pattern is how a commit message names the issue (issue_mention_pattern). context says whether the landing
+#   {repository, number, pattern, carriedPattern, createdAt, context, reason, landing, landingClone}
+# pattern is how a commit message names the issue (issue_mention_pattern), and createdAt is when the issue was
+# made: a commit names the issue by its number only from then on. carriedPattern is how a commit names the
+# GitHub reference a carried issue came from, which counts only before createdAt, and empty where the issue
+# was not carried (the time rule of issue_commits, which lib/status-live.mjs applies again). context says whether the landing
 # of the issue was asked of the tracker: "none" where no clone of the project folder declares an environment
 # of LIVE_TAGS as `command`, so that no card pays for a read it does not need; "read", with landing the
 # newest landing record the trusted comments of the issue still hold ({repository, commit, createdAt}, or null
@@ -51,7 +54,7 @@ card_rows > "$work/items" || exit 1
 # the last line the tracker said, which names what it could not read. One read of the tracker per card, as the tracker answers it, at most; a read that
 # fails is that card's line, never the end of the others.
 write_testing_records() {
-  local column clone declared="" repo number pattern context thread landing reason landing_clone
+  local column clone declared="" repo number created carried pattern carried_pattern context thread landing reason landing_clone
   column="$(awk 'tolower($0) == "testing" { print; exit }' "$work/columns")"
   : > "$work/testing"
   [ -n "$column" ] || return 0
@@ -60,9 +63,12 @@ write_testing_records() {
     [ -e "$clone/.git" ] || continue
     if live_tags_names_command "$(live_tags_declaration "$clone")"; then declared=1; break; fi
   done
-  while IFS=$'\t' read -r repo number; do
+  while IFS=$'\t' read -r repo number created carried; do
     [ -n "$number" ] || continue
     pattern="$(issue_mention_pattern "$repo" "$number" "$repo")"
+    carried_pattern=""
+    [ "$created" != - ] || created=""
+    [ "$carried" = - ] || carried_pattern="$(issue_mention_pattern "${carried%#*}" "${carried##*#}" "$repo")"
     context=none; landing=null; reason=""; landing_clone=""
     if [ -n "$declared" ]; then
       if thread="$( (issue_landing_context "$repo" "$number") 2> "$work/context-error")" \
@@ -77,10 +83,10 @@ write_testing_records() {
         reason="${reason:-the tracker gave no reason}"
       fi
     fi
-    jq -nc --arg repository "$repo" --argjson number "$number" --arg pattern "$pattern" --arg context "$context" \
-      --arg reason "$reason" --argjson landing "$landing" --arg landingClone "$landing_clone" \
-      '{repository: $repository, number: $number, pattern: $pattern, context: $context, reason: $reason, landing: $landing, landingClone: $landingClone}' >> "$work/testing"
-  done <<< "$(jq -r --arg column "$column" 'select(.open and (.repo // "") != "" and ((.status // "") | ascii_downcase) == ($column | ascii_downcase)) | "\(.repo)\t\(.number)"' "$work/items" | sort -u)"
+    jq -nc --arg repository "$repo" --argjson number "$number" --arg pattern "$pattern" --arg carriedPattern "$carried_pattern" --arg createdAt "$created" \
+      --arg context "$context" --arg reason "$reason" --argjson landing "$landing" --arg landingClone "$landing_clone" \
+      '{repository: $repository, number: $number, pattern: $pattern, carriedPattern: $carriedPattern, createdAt: $createdAt, context: $context, reason: $reason, landing: $landing, landingClone: $landingClone}' >> "$work/testing"
+  done <<< "$(jq -r --arg column "$column" 'select(.open and (.repo // "") != "" and ((.status // "") | ascii_downcase) == ($column | ascii_downcase)) | "\(.repo)\t\(.number)\t\(.createdAt // "-")\t\(.carriedFrom // "-")"' "$work/items" | sort -u)"
 }
 testing_file=()
 if [ -z "$tokens$issues" ]; then

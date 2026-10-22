@@ -9,7 +9,7 @@
 //
 // github.json: {page: {repositories, issues, nested}, repositories: [{nameWithOwner, isArchived}],
 //   issues: {"owner/repo": [{number, id, title, body, state, stateReason, url, labels: [name], comments: [{id, url,
-//   createdAt, body, author}], parent: {id, number, url, repository}, items: [{id, isArchived, project, status, priority}],
+//   createdAt, body, author, authorAssociation}], parent: {id, number, url, repository}, items: [{id, isArchived, project, status, priority}],
 //   timeline: [{type: "CLOSED_EVENT" | "REOPENED_EVENT", createdAt}]}]},
 //   boards: [{id, number, title, url, closed, readme, repositories: [{nameWithOwner, isArchived}], items: [{id, isArchived,
 //   issue: {id, number, repository}, status, priority}]}], cards: <the answer of the board query of board_cards_of_repo>,

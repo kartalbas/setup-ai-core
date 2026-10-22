@@ -186,7 +186,7 @@ proven() { printf '{"createdAt":"%s","authorAssociation":"%s","body":"Proven on 
 # The card of board 5 and the one of a board numbered like this one under another owner are not
 # this board's
 issue() {  # issue <number> <status> <sub-issues> <comments> [reopened at]
-  printf '{"number":%s,"subIssuesSummary":{"total":%s},"projectItems":{"nodes":[{"project":{"number":5,"owner":{"login":"example-org"}},"status":{"name":"done"}},{"project":{"number":%s,"owner":{"login":"other-org"}},"status":{"name":"done"}},{"project":{"number":%s,"owner":{"login":"example-org"}},"status":{"name":"%s"}}]},"reopened":{"nodes":[%s]},"comments":{"nodes":[%s]}}' \
+  printf '{"number":%s,"createdAt":"2020-01-01T00:00:00Z","subIssuesSummary":{"total":%s},"projectItems":{"nodes":[{"project":{"number":5,"owner":{"login":"example-org"}},"status":{"name":"done"}},{"project":{"number":%s,"owner":{"login":"other-org"}},"status":{"name":"done"}},{"project":{"number":%s,"owner":{"login":"example-org"}},"status":{"name":"%s"}}]},"reopened":{"nodes":[%s]},"comments":{"nodes":[%s]}}' \
     "$1" "$3" "$PROJECT_NUMBER" "$PROJECT_NUMBER" "$2" "${5:+{\"createdAt\":\"$5\"\}}" "$4"
 }
 page() { printf '{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":%s,"endCursor":%s},"nodes":[%s]}}}}\n' "$1" "$2" "$3"; }

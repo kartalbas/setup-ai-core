@@ -147,24 +147,26 @@ planeset() {
 }
 # plane_add_item <sequence id> <title> [label name...]: a work item another hand put into ENG, in state ready,
 # the labels made where the project lacks them; ITEM_EXTERNAL_SOURCE and ITEM_EXTERNAL_ID in the environment
-# set the fields a carried item has
+# set the fields a carried item has, and ITEM_CREATED_AT the time it was made (the stand-in's day at 08:00 unless set)
 plane_add_item() {
   local seq="$1" title="$2"; shift 2
   ITEM_SEQ="$seq" ITEM_TITLE="$title" ITEM_LABELS="$(printf '%s\n' "$@")" planeset '
     const id=()=>require("crypto").randomUUID(), e=process.env;
     const ids=e.ITEM_LABELS.split("\n").filter(Boolean).map((n)=>{let l=p.labels.find((x)=>x.name===n);if(!l){l={id:id(),name:n,color:"#000",description:""};p.labels.push(l);}return l.id;});
     p.issues.push({id:id(),project:p.id,name:e.ITEM_TITLE,description_html:"<p></p>",priority:"none",parent:null,labels:ids,assignees:[],sort_order:65535,
-      external_source:e.ITEM_EXTERNAL_SOURCE||null,external_id:e.ITEM_EXTERNAL_ID||null,archived_at:null,created_at:s.day+"T08:00:00Z",updated_at:s.day+"T08:00:00Z",
+      external_source:e.ITEM_EXTERNAL_SOURCE||null,external_id:e.ITEM_EXTERNAL_ID||null,archived_at:null,created_at:e.ITEM_CREATED_AT||s.day+"T08:00:00Z",updated_at:s.day+"T08:00:00Z",
       completed_at:null,sequence_id:+e.ITEM_SEQ,state:p.states.find((x)=>x.name==="ready").id});'
 }
 # plane_add_comment <sequence id> <text> [author email]: a comment on a work item of ENG, by a member of the project
 # unless an author is named (gone@example.test left the project, stranger@example.test never was in it), the text as
 # a person writes it, stored the way the harness stores one. is_member is true, as Plane computes it for the key's
-# own user, whoever the author is.
+# own user, whoever the author is. COMMENT_EXTERNAL_ID in the environment marks it as one the carry posted
+# (external_source github, that external id), and COMMENT_CREATED_AT sets the time Plane holds for it.
 plane_add_comment() {
   COMMENT_SEQ="$1" COMMENT_TEXT="$2" COMMENT_AUTHOR="${3:-me@example.test}" planeset '
     const it=p.issues.find((i)=>i.sequence_id===+process.env.COMMENT_SEQ), e=process.env.COMMENT_TEXT.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-    p.comments.push({id:require("crypto").randomUUID(),issue:it.id,comment_html:"<pre>"+e+"</pre>",created_at:new Date(Date.parse(s.day+"T09:00:00Z")+ ++s.clock*1000).toISOString(),actor:s.users.find((u)=>u.email===process.env.COMMENT_AUTHOR).id,is_member:true})'
+    p.comments.push({id:require("crypto").randomUUID(),issue:it.id,comment_html:"<pre>"+e+"</pre>",created_at:process.env.COMMENT_CREATED_AT||new Date(Date.parse(s.day+"T09:00:00Z")+ ++s.clock*1000).toISOString(),actor:s.users.find((u)=>u.email===process.env.COMMENT_AUTHOR).id,is_member:true,
+      external_source:process.env.COMMENT_EXTERNAL_ID?"github":null,external_id:process.env.COMMENT_EXTERNAL_ID||null})'
 }
 
 # make_forgejo_project: $F, a checkout whose forge is Forgejo, and the instance on this disk: the API answered by

@@ -30,7 +30,7 @@ iso() { LC_ALL=C date -u -d "@$1" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || LC_ALL=C 
 echo PVT_example7 > "$work/cache/7/project-id"
 printf 'Status\tF1\t%s\tO%s\n' Backlog 1 Todo 2 'In progress' 3 Done 4 > "$work/cache/7/fields.tsv"
 card() {  # card <number> <status> <priority> <state> <closed at> <parent> <sub-issues> <title> [body]
-  printf '{"status":{"name":"%s"},"priority":%s,"content":{"number":%s,"title":"%s","state":"%s","closedAt":%s,"body":"%s","repository":{"nameWithOwner":"example-org/example-repo"},"parent":%s,"subIssuesSummary":{"total":%s}}}\n' \
+  printf '{"status":{"name":"%s"},"priority":%s,"content":{"number":%s,"title":"%s","state":"%s","closedAt":%s,"createdAt":"2026-01-01T00:00:00Z","body":"%s","repository":{"nameWithOwner":"example-org/example-repo"},"parent":%s,"subIssuesSummary":{"total":%s}}}\n' \
     "$2" "$([ "$3" = - ] && echo null || echo "{\"name\":\"$3\"}")" "$1" "$8" "$4" \
     "$([ "$5" = - ] && echo null || echo "\"$(iso "$5")\"")" "${9:-}" \
     "$([ "$6" = - ] && echo null || echo "{\"number\":$6,\"repository\":{\"nameWithOwner\":\"example-org/example-repo\"}}")" "$7"
@@ -295,7 +295,7 @@ check 'and no environment is missing' '' "$(grep 'names no environment' <<< "$la
 printf 'LIVE_TAGS="oops prod=deploy/prod/* test=deploy/test/*"\nPROOF_HOURS=1\n' > "$live/.ai-core/config.env"
 short="$(cd "$live" && AI_CORE_PROCESSES="$work/no-processes" AI_CORE_AGENTS="$work/no-agents" AI_CORE_ROLLOUTS="$work/no-agents" bash "$root/bin/status.sh" --project example-org/8 2>&1)"
 check 'PROOF_HOURS is read: two hours on test are overdue at one' "  🔴 $(printf '%-26s' example-repo#37) live on test since 2 h (deploy/test/4)  Card 37" "$(grep 'example-repo#37 ' <<< "$short")"
-check 'a word of LIVE_TAGS that is no environment is named' "  LIVE_TAGS has 'oops', which is no <environment>=<tag pattern>; it is left out" "$(grep "LIVE_TAGS has" <<< "$short")"
+check 'a word of LIVE_TAGS that is no environment is named, with the project folder'"'"'s file' "  LIVE_TAGS of $live/.ai-core/config.env has 'oops', which is no <environment>=<tag pattern>; it is left out" "$(grep "LIVE_TAGS of .* has" <<< "$short")"
 git -C "$repo" remote set-url origin "$work/gone/example-org/example-repo.git"
 gone="$(cd "$live" && AI_CORE_PROCESSES="$work/no-processes" AI_CORE_AGENTS="$work/no-agents" AI_CORE_ROLLOUTS="$work/no-agents" bash "$root/bin/status.sh" --project example-org/8 2>&1)"
 git -C "$repo" remote set-url origin "$origin"
@@ -592,10 +592,15 @@ printf 'PROOF_HOURS=24\n' > "$cmd/.ai-core/config.env"
 run_status
 check 'with the folder'"'"'s list empty, the cards of the clones that set their own are read by them, and a clone that sets none has its card landed' \
   'TESTING 5 cards in testing: 2 live on prod, 1 live on qa only, 1 landed, 1 not live, 0 without a landing commit' "$(grep '^TESTING' <<< "$page")"
-check 'and the page does not say that no environment is named, as clones'"'"' own lists name them' '' "$(grep 'names no environment' <<< "$page")"
-status_mutant 's/if (!mixed \&\& !named) out.push/if (!mixed \&\& !folderList.envs.length) out.push/'
-check 'planted: the note that no environment is named by the folder'"'"'s list alone is printed though the clones'"'"' own lists name some' \
-  "  LIVE_TAGS in the project folder's .ai-core/config.env names no environment, so where the work is live is not read" "$(grep 'names no environment' <<< "$planted")"
+check 'and the page says that the folder'"'"'s empty list served the card of the clone that sets none, though other clones'"'"' own lists name environments' \
+  "  LIVE_TAGS in the project folder's .ai-core/config.env names no environment, so where the work is live is not read" "$(grep 'names no environment' <<< "$page")"
+status_mutant 's/if (emptyFolderListServed) out.push/if (!mixed \&\& !named) out.push/'
+check 'planted: the note printed only where no list in use names an environment is missing, and the landed card says nothing of why' '' "$(grep 'names no environment' <<< "$planted")"
+printf 'LIVE_TAGS="oops"\nPROOF_HOURS=24\n' > "$cmd/.ai-core/config.env"
+run_status
+check 'a malformed word of the project folder'"'"'s list is named with the folder'"'"'s file' "  LIVE_TAGS of $cmd/.ai-core/config.env has 'oops', which is no <environment>=<tag pattern>; it is left out" "$(grep -F "LIVE_TAGS of $cmd/.ai-core/config.env has" <<< "$page")"
+status_mutant "s#LIVE_TAGS of \${configFile || path.join(folder, '.ai-core', 'config.env')} has#LIVE_TAGS has#"
+check 'planted: the line of a malformed word of the folder'"'"'s list names no file' "  LIVE_TAGS has 'oops', which is no <environment>=<tag pattern>; it is left out" "$(grep 'LIVE_TAGS has' <<< "$planted")"
 printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\n' > "$cmd/.ai-core/config.env"
 
 echo 'a card of a clone that declares command, whose work landed in a repository whose clone declares none: the unknown line names the declaration that is missing'
@@ -617,7 +622,7 @@ echo 'the handoff of the cards is read as it is: a record that is missing or mal
 printf 'Todo\ntesting\nDone\n' > "$work/cmd-columns"
 { cmd_card 1 engine 'A1'; cmd_card 1 tagged 'L1'; } > "$work/cmd-items"
 # the card rows of the tracker, as bin/status.sh hands them to Node: one JSON object a line
-jq -c '{repo: .content.repository.nameWithOwner, number: .content.number, title: .content.title, open: true, status: .status.name, priority: null, parent: null, subs: 0, closedAt: null}' "$work/cmd-items" > "$work/cmd-rows"
+jq -c '{repo: .content.repository.nameWithOwner, number: .content.number, title: .content.title, open: true, status: .status.name, priority: null, parent: null, subs: 0, closedAt: null, createdAt: "2026-01-01T00:00:00Z", carriedFrom: null}' "$work/cmd-items" > "$work/cmd-rows"
 node_status() {  # node_status <testing file or empty for none>
   local files=(); [ -z "$1" ] || files=(--testing-file "$1")
   : > "$work/no-agents9"
@@ -631,7 +636,7 @@ node_status "$work/bad-records"
 check 'a record that is no JSON, and one of the wrong shape, give no card a verdict: both are unknown, and the exit is 1' \
   "1|  ❓ unknown example-org/engine#1: the record bin/status.sh hands over for example-org/engine#1 is missing or malformed
   ❓ unknown example-org/tagged#1: the record bin/status.sh hands over for example-org/tagged#1 is missing or malformed" "$rc|$(grep '^  ❓' <<< "$page")"
-printf '{"repository":"example-org/engine","number":1,"pattern":"x","context":"none","reason":"","landing":null,"landingClone":""}\n' > "$work/stale-records"
+printf '{"repository":"example-org/engine","number":1,"pattern":"x","carriedPattern":"","createdAt":"2026-01-01T00:00:00Z","context":"none","reason":"","landing":null,"landingClone":""}\n' > "$work/stale-records"
 node_status "$work/stale-records"
 check 'a card of a clone that declares command, whose landing was never asked of the tracker, is not read from its commits' \
   "1|  ❓ unknown example-org/engine#1: the landing of example-org/engine#1 was not read from the tracker, and $cmd/engine declares an environment as command" "$rc|$(grep '^  ❓ unknown example-org/engine#1' <<< "$page")"

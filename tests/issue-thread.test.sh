@@ -97,7 +97,7 @@ cat > "$bare/gh" <<'BARE'
 #!/usr/bin/env bash
 case "$*" in
   *comments*) echo '[]'; exit 0 ;;
-  *issues/*)  echo '{"number":7,"title":"Bare","state":"closed","labels":[],"body":null}'; exit 0 ;;
+  *issues/*)  echo '{"number":7,"title":"Bare","created_at":"2026-08-01T08:00:00Z","state":"closed","labels":[],"body":null}'; exit 0 ;;
   *) printf 'example-org/example-repo\n'; exit 0 ;;
 esac
 BARE
@@ -105,7 +105,7 @@ chmod +x "$bare/gh"
 check 'labels read as a dash' 'labels: -' \
   "$(PATH="$bare:$PATH" "$thread" "$repo" 7 | sed -n '3p')"
 check 'the json carries an empty list' \
-  '{"number":7,"title":"Bare","state":"closed","labels":[],"body":"","comments":[]}' \
+  '{"number":7,"title":"Bare","carriedFrom":null,"createdAt":"2026-08-01T08:00:00Z","state":"closed","labels":[],"body":"","comments":[]}' \
   "$(PATH="$bare:$PATH" "$thread" "$repo" 7 --json)"
 
 # gh prints one JSON array per page of a paginated read. A thread on an epic runs past one page, and a

@@ -57,12 +57,13 @@ def moved_to:
          | last | .link end;
 
 def comment_text($i; $n; $total):
-  "Comment \($n) of \($total) by \(if .author == null then "an unavailable author" else "@" + .author end) on \(.createdAt)\n\(.url)\n\n\(.body)";
+  "Comment \($n) of \($total) by \(if .author == null then "an unavailable author (NONE)" else "@" + .author + " (" + (.authorAssociation // "NONE") + ")" end) on \(.createdAt)\n\(.url)\n\n\(.body)";
 
 def provenance($i; $life; $parent; $destination):
   ($i.memberships) as $m
   | "Carried from GitHub \($i.repo)#\($i.number) (\($i.url)); source issue \($i.id); GitHub read at \($now).\n"
     + "Source state: \($i.state), close reason: \($i.reason // "none").\n"
+    + (([$i.timeline[]? | select(.kind == "reopened") | .at] | max) as $reopened | if $reopened == null then "" else "Last reopened on GitHub at \($reopened).\n" end)
     + "Lifecycle: \($life.mode) (\($life.why))" + (if $life.archived then ", archived on the date of this carry" else "" end) + ".\n"
     + "Board memberships (\($m | length)): "
     + (if ($m | length) == 0 then "none" else ($m | map("board \($board_by[.board].number // .board) \"\($board_by[.board].title // "")\" item \(.item): Status \(.status // "none"), Priority \(.priority // "none"), \(if .archived then "archived" else "active" end)") | join("; ")) end) + ".\n"

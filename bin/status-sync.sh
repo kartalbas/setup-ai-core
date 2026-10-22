@@ -100,7 +100,9 @@ derive_target() {
 # only when it came after that landing, written by an author who counts as there. An instant is
 # the seconds since 1970 and nine digits of fraction, so that two compare as the times they are
 # whatever fraction a tracker writes; a proof is listed with the environment its first line names,
-# for a release read by a command (lib/live-release.sh), which compares it with the delivery.
+# for a release read by a command (lib/live-release.sh), which compares it with the delivery. The last two
+# columns are the issue's creation time and the reference it was carried from, for the commit search of
+# a card before testing (issue_commits), "-" where there is none.
 cards_of_repo() {  # <owner/repo>
   local repo="$1" after="" page next
   while :; do
@@ -121,7 +123,7 @@ cards_of_repo() {  # <owner/repo>
       | (first($landing.createdAt // empty | instant) // "-") as $landedAt
       | ([$said[] | (.createdAt | instant) as $at | (.body | split("\n")[0] | proof_environment) as $token | "\($at)=\($token)"]
           | if length > 0 then join(" ") else "-" end) as $proofs
-      | "\($status)\t\($i.number)\t\($i.subIssuesSummary.total // 0)\t\($sha)\t\($proven)\t\($elsewhere)\t\($landedAt)\t\($proofs)"' || exit 1
+      | "\($status)\t\($i.number)\t\($i.subIssuesSummary.total // 0)\t\($sha)\t\($proven)\t\($elsewhere)\t\($landedAt)\t\($proofs)\t\($i.createdAt // "-")\t\($i.carriedFrom // "-")"' || exit 1
     next="$(printf '%s' "$page" | jq -r '.data.repository.issues.pageInfo | if .hasNextPage then .endCursor else empty end')"
     [ -n "$next" ] || break
     after="$next"
@@ -313,7 +315,7 @@ moved=0; scanned=0; unreleased=""
 for full in ${repos[@]+"${repos[@]}"}; do
   cards="$(cards_of_repo "$full")" || exit 1
   label="${full#"$org"/}"
-  while IFS=$'\t' read -r st num subs sha proven elsewhere landedat proofs; do
+  while IFS=$'\t' read -r st num subs sha proven elsewhere landedat proofs createdat carriedfrom; do
     [ -n "$num" ] || continue
     [ "$(printf '%s' "$st" | tr '[:upper:]' '[:lower:]')" != 'done' ] || continue
     scanned=$((scanned + 1))
@@ -330,7 +332,8 @@ for full in ${repos[@]+"${repos[@]}"}; do
       if [ "$(status_rank "$(printf '%s' "$st" | tr '[:upper:]' '[:lower:]')")" -lt 2 ]; then
         release_of "$full"
         named=""
-        [ -z "$REL_REF" ] || named="$(git -C "$REL_CLONE" log "$REL_REF" -E -i --grep="$(issue_mention_pattern "$full" "$num" "$full")" --format=%h -n 1)" || named=""
+        [ "$createdat" != - ] || createdat=""; [ "$carriedfrom" != - ] || carriedfrom=""
+        [ -z "$REL_REF" ] || named="$(issue_commits "$REL_CLONE" "$REL_REF" "$full" "$num" "$full" "$createdat" "$carriedfrom" %h 1)" || named=""
         [ -z "$named" ] || echo "not finished $label#$num  (in $st, but $REL_REF has $named naming it: run ai-core finish-issue $full $num)"
         continue
       fi

@@ -1019,6 +1019,13 @@ carried_copy "$fake/fc" "s/awk -v at=\"\$at\" '\\\$1 >= at'/awk '1'/"
 check 'planted: the lower bound dropped lists the commit made before the carry that names its own number' 'Before the carry (#412)|New work (#412)|Old work (#287)|' "$(carried_list "$fake/fc")"
 carried_copy "$fake/fc" "s/awk -v at=\"\$at\" '\\\$1 < at'/awk '1'/"
 check 'planted: the upper bound dropped lists the commit made after the carry that names the GitHub reference' 'After the carry (#287)|New work (#412)|Old work (#287)|' "$(carried_list "$fake/fc")"
+printf '{"number":412,"title":"Carried card","state":"open","labels":[],"body":"","carriedFrom":"example-org/example-repo#287","createdAt":"2026-06-01T02:00:00+02:00","comments":[]}\n' > "$fake/thread.json"
+carried_copy "$fake/fc"
+check 'a creation time the time rule cannot read stops finish-issue, naming the time, and nothing is listed' \
+  '|1' "$(carried_list "$fake/fc")|$(grep -c "cannot read the time '2026-06-01T02:00:00+02:00' of an issue" "$fake/carried.out")"
+carried_copy "$fake/fc" 's/ && \[ -n "\$seconds" \]//'
+check 'planted: the unread time taken as a bound lists the commit before the carry that names its own number, and drops the GitHub reference' \
+  'Before the carry (#412)|New work (#412)||0' "$(carried_list "$fake/fc")|$(grep -c 'cannot read the time' "$fake/carried.out")"
 
 echo 'the sweep says that a branch could not be measured, with git'"'"'s words, where its history cannot be read'
 open issue-421-unmeasured

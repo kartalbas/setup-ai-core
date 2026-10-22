@@ -433,9 +433,12 @@ landing_recorded() {
 # --- the commits that name an issue ---------------------------------------------------------
 
 # instant_seconds <time>: the whole seconds since 1970 of a time as a tracker writes it, read by the
-# `instant` of LANDING_RECORD_JQ
+# `instant` of LANDING_RECORD_JQ, which answers nothing for a time it cannot read
 instant_seconds() {
-  jq -nr --arg t "$1" "$LANDING_RECORD_JQ"'$t | instant | split(".")[0]' 2>/dev/null || die "cannot read the time '$1' of an issue"
+  local seconds
+  seconds="$(jq -nr --arg t "$1" "$LANDING_RECORD_JQ"'$t | instant | split(".")[0]' 2>/dev/null)" && [ -n "$seconds" ] \
+    || die "cannot read the time '$1' of an issue"
+  printf '%s\n' "$seconds"
 }
 
 # issue_commits <clone> <ref> <issue repo> <number> <commit repo> <createdAt> <carriedFrom> <git log format> <count>:

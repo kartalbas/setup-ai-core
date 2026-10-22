@@ -1128,7 +1128,9 @@ steps are in this order, and a carried card keeps its GitHub number in the commi
    and nothing lands from that run until the switch: a commit made in that window names a GitHub number but is younger
    than the work items, and is read as naming the work item of that number. Comments may still be written on GitHub
    until the carry's last run, which adds what was written since its first and runs again until no issue is
-   incomplete, right before `TRACKER="plane"` goes into every clone's `.ai-core/config.env`. Then `ai-core labels-sync`
+   incomplete, right before `TRACKER="plane"` goes into every clone's `.ai-core/config.env`. The later runs add
+   comments and nothing else: a card moved, closed or reopened on GitHub after the first run keeps in Plane the state
+   and the provenance the first run gave it. Then `ai-core labels-sync`
    per repository for its `repo:<name>` label. A branch or a worktree in flight, named `issue-<GitHub number>-…`, is
    not read by the commands of a Plane card until the part of this work that handles branches is released: a package
    in flight lands and finishes before the carry's first run.

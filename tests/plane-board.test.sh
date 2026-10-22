@@ -292,13 +292,15 @@ carried_item() {  # carried_item <number> <GitHub number> <proof header word, or
 - $sha #$2 Do the old thing"
   carried_comment "$1" 2 "$3" "${4:-${day}T06:30:00Z}" "Proven on prod: it works" "${5:-me@example.test}" "${day}T23:00:00Z"
 }
-for g in 19 20 21 22 23 24; do carried_commit "$g" >/dev/null; done
+for g in 19 20 21 22 23 24 25; do carried_commit "$g" >/dev/null; done
 carried_item 600 19 MEMBER
 carried_item 601 20 NONE
 carried_item 602 21 CONTRIBUTOR
 carried_item 603 22 -
 carried_item 604 23 MEMBER "${day}T05:00:00Z"
 carried_item 605 24 OWNER "${day}T06:30:00Z" gone@example.test
+carried_item 609 25 NONE
+plane_add_comment 609 "Proven on prod: written again after the switch, for Comment 2 of 2 by @kadir"
 plane_add_item 607 "Created after the switch" repo:carried-repo
 planeset "p.issues.find((i)=>i.sequence_id===607).state=p.states.find((s)=>s.name==='testing').id"
 sha207="$(commit "$WORK/carried-repo" "#607 Do the new thing")"
@@ -325,9 +327,10 @@ for item in 601 602 603; do due "$out" "$item" || fail "the carried proof of #$i
 due "$out" 604 || fail "a carried proof dated before the carried landing counted: $(grep 'carried-repo#604' <<< "$out")"
 due "$out" 605 || fail "the carried proof of an author who left the project counted: $(grep 'carried-repo#605' <<< "$out")"
 due "$out" 606 || fail "a comment without the mark, in the form of a header, by an author outside the project counted: $(grep 'carried-repo#606' <<< "$out")"
+closes "$out" 609 || fail "a proof written in Plane after the switch by a member did not close the carried card its carried landing serves: $(grep 'carried-repo#609' <<< "$out")"
 closes "$out" 607 || fail "a work item made after the switch, proven by a member in Plane, did not close: $(grep 'carried-repo#607' <<< "$out")"
 due "$out" 608 || fail "a comment without the carry's mark, written in the form of a header by a member, counted as a proof: $(grep 'carried-repo#608' <<< "$out")"
-echo "  status-sync: a carried proof counts by GitHub's word in its header: (NONE), (CONTRIBUTOR) and none leave it due, as do a proof carried before the landing and an author who left; a comment without the mark is no carried comment, whoever wrote it"
+echo "  status-sync: a carried proof counts by GitHub's word in its header: (NONE), (CONTRIBUTOR) and none leave it due, as do a proof carried before the landing and an author who left; a comment without the mark is no carried comment, whoever wrote it; a proof written again in Plane after the switch closes the carried card"
 
 mutant_root() {  # mutant_root <file> <sed expression>: a copy of the tree with one planted defect, in $WORK/mutant; prints its path
   rm -rf "$WORK/mutant"; mkdir -p "$WORK/mutant"; cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$WORK/mutant/"; cp "$ROOT/VERSION" "$WORK/mutant/"

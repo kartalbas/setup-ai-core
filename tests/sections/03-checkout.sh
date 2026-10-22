@@ -235,7 +235,7 @@ done
 echo "  agy rows run at high only, high-risk stays off agy, no agy row names Gemini, no review runs on its build model, every plan row has its re-plan row, and no mechanical package has a plan check"
 
 section "the four points of a mechanical package read the same in the table header and in every skill text that states them"
-mechanical_points='the change stays in one repository; it touches no contract between the project'"'"'s repositories and no contract outward; it touches no secret, no payment and not the push gate; the issue already names every span it changes as `file:line`, and its acceptance criteria'
+mechanical_points='the change stays in one repository; it touches no contract between the project'"'"'s repositories and no contract outward; it touches no secret, no payment and not the push gate; the change of all its issues together is at most 150 lines outside tests, and each issue has its acceptance criteria'
 # A file states the points when its text, with line breaks and comment marks read as one space, holds them whole.
 states_mechanical_points() { tr '\n' ' ' < "$1" | sed -E 's/ # +/ /g' | tr -s ' ' | grep -qF -- "$mechanical_points"; }
 P="$WORK/mechanical-points.txt"

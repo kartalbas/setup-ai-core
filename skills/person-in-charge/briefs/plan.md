@@ -20,10 +20,11 @@ cut by file splits a contract and its two sides then release apart.
   more`, from their PHASE lines: {{context lines or none}}. A plan that comes back changes what the findings name; the rest stands.
 - The classes: `mechanical` (the change stays in one repository; it touches no contract between the
   project's repositories and no contract outward; it touches no secret, no payment and not the
-  push gate; the issue already names every span it changes as `file:line`, and its acceptance
-  criteria), `high-risk` (security, payments,
+  push gate; the change of all its issues together is at most 150 lines outside tests, and each issue has its acceptance criteria), `high-risk` (security, payments,
   contracts outward, the push gate; outward means an interface somebody outside the project uses (a public API, a published package, a customer's data format), never a contract between the project's own repositories), `normal-hard` (everything else). The coordinator has already taken every
-  `mechanical` package out of the plans: yours is `normal-hard` or `high-risk`.
+  `mechanical` package out of the plans: yours is `normal-hard` or `high-risk`. Where the package
+  you are handed meets the four points of `mechanical`, you plan nothing: you answer
+  `MECHANICAL: <the reason, per point>` and stop.
 
 ## What to do
 

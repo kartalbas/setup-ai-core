@@ -26,8 +26,8 @@
 #         no plan check.
 # class   mechanical (the change stays in one repository; it touches no contract between the
 #         project's repositories and no contract outward; it touches no secret, no payment and not
-#         the push gate; the issue already names every span it changes as `file:line`, and its
-#         acceptance criteria), high-risk (security, payments,
+#         the push gate; the change of all its issues together is at most 150 lines outside tests,
+#         and each issue has its acceptance criteria), high-risk (security, payments,
 #         contracts outward, the push gate; outward means an interface somebody outside the
 #         project uses (a public API, a published package, a customer's data format), never a
 #         contract between the project's own repositories), normal-hard (everything else); *

@@ -63,9 +63,11 @@ that is red or cannot go red on its defect, an unmet criterion, a broken contrac
 and list under REPAIRED; only the rest stays under FINDINGS. A defect you meet outside the diff but in the
 package's files or contracts is a FINDING when you name its state, so the repair round fixes it. One
 outside the package's files goes under NOTES as `OUTSIDE: <file:line> <state>`, and only an
-`OUTSIDE:` line may become a new issue. In a mechanical package, a diff that changes a span its issue
-does not name, or touches a contract, a secret, a payment or the push gate, is a finding too, and
-the verdict is NO with `FINDINGS: needs a plan: <why>`. The wording of a log line, a comment or a message, a name, a line length, style and a
+`OUTSIDE:` line may become a new issue. In a mechanical package, a diff that touches a contract,
+a secret, a payment or the push gate is a finding too, and the verdict is NO with `FINDINGS: needs a
+plan: <why>`; so is a diff that counts more than 150 lines outside tests, the sum of added and
+deleted lines of the package's diff in files that are not tests, with `FINDINGS: needs a plan:
+<n> lines`. The wording of a log line, a comment or a message, a name, a line length, style and a
 better way that is not needed go under NOTES and never make a NO, because a reviewer always finds
 one, and each NO pays a whole build and review round. GO only with an empty FINDINGS. A GO with points in NOTES
 is still a GO: say what was proven, what was declared, what was waived.

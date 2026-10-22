@@ -34,7 +34,7 @@ the board and the branches, so a restart loses nothing (`briefs/coordinator.md`)
    share neither a file nor a contract run at the same time. Of packages that share either, only
    one is between build and landing at a time. You read the overlap from the `Files:` and
    `Contracts:` of every section on the plan issue, another ecosystem's sections included, and for a
-   mechanical package, which has no section, from the files its issues' `file:line` facts name. A
+   mechanical package, which has no section, from the files its issues name. A
    package can start once its plan check said GO (a mechanical package: once classified) and its
    `Waits for the owner:` is answered. Of
    those, one that fixes a fault on a live environment, carries a side a partner waits for, or is a
@@ -86,27 +86,29 @@ them needs is built with it, and every card in `testing` gets its proof or its r
 
 ## The phases of a package
 
-Before any plan session you classify each package from its issues and the spans they name. A package
-is `mechanical` when the change of all its issues together meets four points: the change stays in
-one repository; it touches no contract between the project's repositories and no contract outward;
-it touches no secret, no payment and not the push gate; the issue already names every span it
-changes as `file:line`, and its acceptance criteria. A mechanical package has no plan session and no
-plan check: its issues' acceptance criteria and `file:line` facts stand in for the package section,
-as for a card from before the packages (`briefs/clearing.md`), and you put them in the brief's
+Before any plan session you classify each package from its issues. A package is `mechanical` when
+the change of all its issues together meets four points: the change stays in one repository; it
+touches no contract between the project's repositories and no contract outward; it touches no
+secret, no payment and not the push gate; the change of all its issues together is at most 150
+lines outside tests, and each issue has its acceptance criteria. Every package that meets the four
+points is `mechanical`, whether or not its issues already name their spans as `file:line`: the
+build finds the spans and names each as `file:line` in its report. A mechanical package has no plan
+session and no plan check: its issues' acceptance criteria stand in for the package section, as
+for a card from before the packages (`briefs/clearing.md`), and you put them in the brief's
 package section under the heading `Class: mechanical`. You name its area `mechanical
 <repo>#<n>[, <repo>#<n> ...]` after its issues, as a card from before is `clearing <repo>#<n>`, and
 post its first PHASE line, phase `planned`, when you classify it, moving its cards to `planned` as
 after a plan, so every PHASE and LAND line of the package carries its class and its issues. It goes
-straight to its build and then its review, on the `mechanical` rows. A build that meets a span its
-issue does not name, a contract, a secret, a payment or the push gate stops, commits nothing past
-that point and reports it, and a review that finds the same in the diff says NO with `needs a
-plan`; you then send the package to its first plan, on the `plan` row of its class, not to a
-re-plan. That plan keeps the area name `mechanical <repo>#<n>`, so its plan and review counts stay
-on one name; the name carries the class until the plan's section names the package, and from then
-on the section's `Class:` line decides it. The build after that plan is a new build, not the repair
-after a review NO: its review reads the whole package diff, the mechanical build's earlier commits
-included, on the review row of the class the plan set, never as a re-check. Every other package
-goes to a plan.
+straight to its build and then its review, on the `mechanical` rows. A build that meets a contract,
+a secret, a payment or the push gate, or finds that the change needs more than 150 lines outside
+tests, stops, commits nothing past that point and reports it, and a review that finds the same in
+the diff says NO with `needs a plan`; you then send the package to its first plan, on the `plan`
+row of its class, not to a re-plan. That plan keeps the area name `mechanical <repo>#<n>`, so its
+plan and review counts stay on one name; the name carries the class until the plan's section names
+the package, and from then on the section's `Class:` line decides it. The build after that plan is
+a new build, not the repair after a review NO: its review reads the whole package diff, the
+mechanical build's earlier commits included, on the review row of the class the plan set, never as
+a re-check. Every other package goes to a plan.
 
 | Phase | Brief | Done when | Card after it |
 | :--- | :--- | :--- | :--- |

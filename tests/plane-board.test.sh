@@ -28,6 +28,34 @@ grep -q 'the Plane project NEW exists already' <<< "$out" || fail "the taken ide
 out="$(ai project-new "With a copy" 12 2>&1)" && fail "project-new accepted a board to copy"
 grep -q 'Plane copies no project' <<< "$out" || fail "the copy is not refused by name: $out"
 echo "  project-new: eight states in their groups and order, the labels of labels.tsv and repo:example-repo; a taken identifier and a board to copy are refused by name"
+
+# project-new writes the id of the project it made into the cache, and drops what was cached for the identifier before,
+# so a checkout that read a deleted project of that identifier is not answered by its id
+cached_new_id() {  # cached_new_id <root>: 0 where project-new lists the projects once (to see the identifier is free), the cache then holds the made project's id and none of an earlier project's files, and the next command lists none
+  local root="$1" dir made
+  planeset 's.projects=s.projects.filter((x)=>x.identifier!=="NEW")'
+  dir="$(ROOT_UNDER_TEST="$root" plane_fn plane_project_cache_dir NEW)"
+  rm -rf "$dir"; mkdir -p "$dir"; printf '00000000-0000-0000-0000-000000000000\n' > "$dir/project-id"; printf 'stale\n' > "$dir/fields.tsv"
+  mkdir -p "$(dirname "$dir")/OTHER"; printf 'kept\n' > "$(dirname "$dir")/OTHER/fields.tsv"
+  reset_log
+  ROOT_UNDER_TEST="$root" ai project-new "The new project" > /dev/null 2>&1 || return 1
+  [ "$(cat "$(dirname "$dir")/OTHER/fields.tsv" 2>/dev/null)" = kept ] || return 1
+  [ "$(grep -cE '^GET /api/v1/workspaces/ws/projects/(\?|$)' "$CURL_FAKE_STATE/requests.log")" = 1 ] || return 1
+  made="$(planeq 'console.log(s.projects.find((x)=>x.identifier==="NEW").id)')"
+  [ "$(cat "$dir/project-id" 2>/dev/null)" = "$made" ] || return 1
+  [ ! -e "$dir/fields.tsv" ] || return 1
+  reset_log
+  [ "$(ROOT_UNDER_TEST="$root" plane_fn project_id 2> /dev/null)" = "$made" ] || return 1
+  ! grep -qE '^GET /api/v1/workspaces/ws/projects/(\?|$)' "$CURL_FAKE_STATE/requests.log"
+}
+cached_new_id "$ROOT" || fail "project-new did not leave the id of the project it made, and nothing older, in the cache"
+for planted_cache in 's|^  printf .%s\\n. "\$pid" > "\$(plane_project_cache_dir "\$ident")/project-id"$|  true|' 's|^  rm -rf "\$(plane_project_cache_dir "\$ident")"; mkdir|  mkdir|'; do
+  planted="$WORK/planted-cache"; rm -rf "$planted"; mkdir -p "$planted"; cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$planted/"; cp "$ROOT/VERSION" "$planted/"
+  sed -i.bak "$planted_cache" "$planted/lib/plane/tracker.sh"
+  cmp -s "$ROOT/lib/plane/tracker.sh" "$planted/lib/plane/tracker.sh" && fail "the planted copy equals lib/plane/tracker.sh: $planted_cache"
+  ! cached_new_id "$planted" || fail "planted: a project-new that leaves the cache as it was passes the check, so it cannot go red: $planted_cache"
+done
+echo "  project-new: the cache holds the made project's id and none of the files of an earlier project, project-new lists the projects once and the next command none; with the id not written, or the old files not dropped, the check goes red"
 sed -i.bak '/^PLANE_PROJECT=NEW$/d' "$P/.ai-core/config.env"
 
 # THE CARDS

@@ -178,6 +178,41 @@ cmp -s "$ROOT/lib/carry.sh" "$planted/lib/carry.sh" && fail "the planted copy eq
 [ "$(github_writes)" != 0 ] || fail "planted: a carry that closes the GitHub issue is not seen by the write check, so it cannot go red"
 echo "  the GitHub request log holds no write, no comment, no close; a carry that closes the issue as before is caught"
 
+# the carry of one issue or one column names each board of the issue's memberships by number and title, reading those boards and
+# no others, within the request bound it printed; an issue on no board gets no board line and no board read
+boards_named() {  # boards_named <root>: 0 where all of that holds
+  local root="$1" text
+  reset_plane; world; reset_log
+  ROOT_UNDER_TEST="$root" carry 9 --to plane || return 1
+  [ "$(grep -c '^[A-Z]' "$CURL_FAKE_STATE/requests.log")" -le "$(sed -n 's/^Plane requests, at most: \([0-9]*\) =.*/\1/p' "$WORK/out.txt")" ] || return 1
+  text="$(prov example-org/example-repo#9)"
+  grep -qF 'board 1 "Main" item PVTI_a9: Status ready' <<< "$text" && grep -qF 'board 2 "Second" item PVTI_b9: Status planned' <<< "$text" || return 1
+  [ "$(grep -c 'on ProjectV2 { id number title }' "$G/calls.log")" = 2 ] && ! grep -q 'projectsV2' "$G/calls.log" || return 1
+  gh_set 's.cards={data:{node:{items:{pageInfo:{hasNextPage:false,endCursor:null},nodes:[{id:"PVTI_a2",content:{number:2,repository:{nameWithOwner:"example-org/example-repo"}},fieldValues:{nodes:[{name:"ready",field:{name:"Status"}}]}}]}}}}'
+  : > "$G/calls.log"
+  ROOT_UNDER_TEST="$root" carry --column ready --to plane || return 1
+  grep -qF 'board 1 "Main" item PVTI_a2: Status ready' <<< "$(prov example-org/example-repo#2)" || return 1
+  [ "$(grep -c 'on ProjectV2 { id number title }' "$G/calls.log")" = 1 ] || return 1
+  : > "$G/calls.log"
+  ROOT_UNDER_TEST="$root" carry 5 --to plane || return 1
+  text="$(prov example-org/example-repo#5)"
+  grep -qF 'Board memberships (0): none.' <<< "$text" && ! grep -q '^Board memberships.*board ' <<< "$text" && ! grep -q 'on ProjectV2 { id number title }' "$G/calls.log"
+}
+boards_named "$ROOT" || fail "a carry of one issue or one column does not name its boards by number and title, or reads more than they name: $(prov example-org/example-repo#9)"
+plant boards_named lib/carry.sh '/github_carry_board_names/ s/^.*$/    :/' "the board read taken out of the carry of one issue"
+echo "  a carry of one issue and of one column names each board of the memberships by number and title, one read per board and no listing of the boards; an issue on no board reads none and gets no board line; with the board read taken out the check is red"
+
+# a board of a membership that GitHub does not answer for stops the carry of one issue, named, before any write
+board_unread_refused() {  # board_unread_refused <root>: 0 where the carry refuses, names the board and writes nothing
+  local root="$1"
+  reset_plane; world; reset_log
+  gh_set 's.boards=s.boards.filter((b)=>b.id!=="PVT_B")'
+  ! ROOT_UNDER_TEST="$root" carry 9 --to plane && grep -q 'cannot read the board PVT_B' "$WORK/err.txt" && [ "$(writes)" = 0 ]
+}
+board_unread_refused "$ROOT" || fail "a board GitHub does not answer for did not stop the carry of one issue before any write: $(cat "$WORK/err.txt")"
+plant_line board_unread_refused lib/github/tracker.sh '      || die "cannot read the board $id' '      || true' "a board that cannot be read passed over"
+echo "  a board of a membership that GitHub does not answer for stops the carry of one issue before any write, and names the board; with the refusal taken out the check is red"
+
 # a source that cannot be read whole stops before any write: a missing clone, a partial GraphQL answer
 reset_plane; world; reset_log; mkdir -p "$WORK/off"; mv "$WORK/tools" "$WORK/off/tools"
 carry --to plane && fail "a repository without a clone was carried past"
@@ -191,6 +226,19 @@ gh_set 's.fail=[{match:"repositories(first:100",times:1,rate:true}]'; : > "$WORK
 carry --to plane || fail "GitHub's rate limit stopped the read: $(cat "$WORK/err.txt")"
 grep -q '^60$' "$WORK/slept" || fail "the GitHub rate limit was not waited out through AI_CORE_SLEEP: $(cat "$WORK/slept")"
 echo "  a repository without a clone and a partial GraphQL answer each stop the carry, named, before any write; GitHub's rate limit is waited out through AI_CORE_SLEEP"
+
+# a harness clone has no .ai-core/config.env: its destination is the layer's config.env at its root; a product clone's
+# own .ai-core/config.env is read as before, a config.env at the root of a product clone is not
+mkdir -p "$WORK/tools-ai-core"; git init -q "$WORK/tools-ai-core"; git -C "$WORK/tools-ai-core" remote add origin https://github.com/example-org/tools-ai-core.git
+printf 'TRACKER="github"\nPLANE_URL=https://plane.example.test\nPLANE_WORKSPACE=ws\nPLANE_PROJECT=OPS\nPLANE_TOKEN_COMMAND="cat %s/token"\n' "$WORK" > "$WORK/tools-ai-core/config.env"
+destination_of() { ( cd "$P" && bash -c '. "$1/lib/carry.sh"; carry_destination_of "$2"' _ "$1" "$2" ); }
+harness_destination() {  # harness_destination <root>: 0 where the harness clone's destination is its layer's project and the product clone's is its own
+  [ "$(destination_of "$1" example-org/tools-ai-core)" = "$(printf 'example-org/tools-ai-core\t%s\thttps://plane.example.test|ws|OPS' "$WORK/tools-ai-core")" ] \
+    && [ "$(destination_of "$1" example-org/web)" = "$(printf 'example-org/web\t%s\thttps://plane.example.test|ws|WEB' "$WORK/web")" ]
+}
+harness_destination "$ROOT" || fail "the destination of a harness clone is not read from its layer's config.env: $(destination_of "$ROOT" example-org/tools-ai-core)"
+plant harness_destination lib/common.sh 's|&& is_harness_clone "\$main"; then|\&\& false; then|' "the layer's config.env not read for a harness clone"
+echo "  a harness clone's destination is the project its layer's config.env names; a product clone's is still its own, and the planted copy that reads no layer's config.env is caught"
 
 # the fake Plane is as strict as Plane 1.4.2, asserted on its own
 pid="$(planeq 'console.log(p.id)')"; ident="$(pq 0 'console.log("ENG-"+N("example-org/example-repo#4").sequence_id)')"; four="$(pq 0 'console.log(N("example-org/example-repo#4").id)')"

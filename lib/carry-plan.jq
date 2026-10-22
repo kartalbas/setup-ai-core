@@ -1,6 +1,7 @@
 # The plan of an issue carry, from what GitHub holds to what Plane is to be given. Run by lib/carry.sh as
 #   jq -n -f lib/carry-plan.jq --slurpfile source <rows> --argjson destinations <repo -> destination> --arg now <ISO time> --arg login <login>
-# `source` holds the rows of github_carry_repositories, github_carry_issues and github_carry_boards;
+# `source` holds the rows of github_carry_repositories, github_carry_issues and github_carry_boards, or, for one issue or
+# one column, those of github_carry_issues and github_carry_board_names (the number and title of each board the issues name);
 # `destinations` maps each repository that has a destination to its destination key; `login` is the GitHub login of the
 # account that runs the carry. The answer is
 #   {rows: [work item to create, parents before sub-issues, boards last], report: {every count the run prints first}}
@@ -20,7 +21,7 @@ def assigned_to_key_user: .assignees | any(lc == ($login | lc));
 | ($source | map(select(.kind == "issue"))) as $issues
 | ($source | map(select(.kind == "board"))) as $boards
 | ($issues | map({key: "\(.repo)#\(.number)", value: .}) | from_entries) as $by
-| ($boards | map({key: .id, value: .}) | from_entries) as $board_by
+| ($source | map(select(.kind == "board" or .kind == "board_name") | {key: .id, value: .}) | from_entries) as $board_by
 | ($destinations | to_entries | map(.value) | unique) as $all_destinations
 
 | def depth: if .parent == null then 0 else ($by["\(.parent.repo)#\(.parent.number)"]) as $p | if $p == null then 0 else 1 + ($p | depth) end end;

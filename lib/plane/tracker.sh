@@ -129,13 +129,16 @@ plane_cache_name() {  # plane_cache_name <project identifier>
     "$(plane_setting PLANE_WORKSPACE | sed 's|[^A-Za-z0-9._-]|_|g')" "$(printf '%s' "$1" | sed 's|[^A-Za-z0-9._-]|_|g')"
 }
 
+# plane_project_cache_dir <project identifier>: where this checkout caches what it read of the project
+plane_project_cache_dir() { printf '%s/%s\n' "$(cache_root)" "$(plane_cache_name "$1")"; }
+
 # plane_project_uuid [project identifier]: the uuid of the project, PLANE_PROJECT when none is named, kept
 # beside the other caches of the project. The id of a project does not change, so the file is the answer until
-# somebody deletes it.
+# somebody deletes it; project_create writes it for a project it made.
 plane_project_uuid() {
   local ident f rows id
   ident="${1:-$(plane_setting PLANE_PROJECT)}"
-  f="$(cache_root)/$(plane_cache_name "$ident")/project-id"
+  f="$(plane_project_cache_dir "$ident")/project-id"
   if [ -s "$f" ]; then id="$(cat "$f")"
   else
     rows="$(plane_pages "the projects of $(plane_setting PLANE_WORKSPACE)" "$(plane_path projects/)")" || exit 1
@@ -365,7 +368,7 @@ plane_carry_metadata() {
   dir="$(carry_dir)"
   if [ ! -s "$dir/states.jsonl" ]; then
     ident="$(plane_setting PLANE_PROJECT)"
-    [ -s "$(cache_root)/$(plane_cache_name "$ident")/project-id" ] || pages=1
+    [ -s "$(plane_project_cache_dir "$ident")/project-id" ] || pages=1
     project="$(plane_project_uuid)" || exit 1
     plane_states > "$dir/states.jsonl" || exit 1
     plane_pages "the labels of $ident" "$(plane_path "projects/$project/labels/")" > "$dir/labels.jsonl" || exit 1
@@ -1276,6 +1279,9 @@ project_create() {
   made="$(plane_api "the project $ident, which was NOT made" POST "$(plane_path projects/)" \
     "$(jq -nc --arg n "$3" --arg i "$ident" '{name: $n, identifier: $i}')")" || exit 1
   pid="$(printf '%s' "$made" | jq -r '.id')"
+  # what this checkout cached for the identifier belonged to a project that is gone
+  rm -rf "$(plane_project_cache_dir "$ident")"; mkdir -p "$(plane_project_cache_dir "$ident")"
+  printf '%s\n' "$pid" > "$(plane_project_cache_dir "$ident")/project-id"
   states="$(plane_pages "the states of $ident" "$(plane_path "projects/$pid/states/")")" || exit 1
   while IFS=$'\t' read -r name group colour was; do
     n=$((n + 1))

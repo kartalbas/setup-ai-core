@@ -980,6 +980,17 @@ github_carry_column_numbers() {
   printf '%s\n' "$list"
 }
 
+# github_carry_board_names <board id>...: {kind: "board_name", id, number, title} for each board named, one read each, for the carry
+# of one issue or one column, which reads no board whole
+github_carry_board_names() {
+  local id page
+  for id in "$@"; do
+    page="$(gh_read "the board $id" api graphql -f id="$id" -f query='query($id:ID!){ node(id:$id){ ... on ProjectV2 { id number title } } }')" || exit 1
+    jq -c 'if ((.errors // []) | length) > 0 or .data.node.number == null then error("no board") else {kind: "board_name", id: .data.node.id, number: .data.node.number, title: .data.node.title} end' <<< "$page" 2>/dev/null \
+      || die "cannot read the board $id - GitHub answered with errors or without it"
+  done
+}
+
 # github_carry_boards <owner>: every board of the organisation, closed and empty ones too, one row each:
 #   {kind: "board", id, number, title, url, closed, readme, repositories: [{repo, archived}],
 #    items: [{item, issue, repo, number, archived, status, priority}]}

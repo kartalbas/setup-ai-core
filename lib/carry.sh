@@ -53,7 +53,7 @@ CARRY_WORK=""
 # is non-zero when the source cannot be read whole or an issue is left incomplete
 carry_run() {
   local repo="$1" number="$2" column="$3" owner source destinations plan line problems="" clone key m=0 l=0 k=0 pages missing reads login=""
-  local issues_complete=0 issues_new=0 issues_resumed=0 incomplete=0 boards_complete=0 boards_new=0 boards_incomplete=0 batch_clone="" batch="" label results numbers no_issues=""
+  local membership_boards="" issues_complete=0 issues_new=0 issues_resumed=0 incomplete=0 boards_complete=0 boards_new=0 boards_incomplete=0 batch_clone="" batch="" label results numbers no_issues=""
   work="$(mktemp -d)"; CARRY_WORK="$work"; trap 'rm -rf "$CARRY_WORK"' EXIT
   export CARRY_RUN="$work/run"; mkdir -p "$CARRY_RUN"; : > "$CARRY_RUN/addresses.tsv"
   source="$work/source.jsonl"; : > "$source"; : > "$work/clones.tsv"
@@ -90,6 +90,8 @@ carry_run() {
     if [ ! "$(jq -s 'map(select(.kind == "issue")) | length' "$source")" -gt 0 ]; then
       echo "nothing is left to carry: no issue of $repo is selected"; return 0
     fi
+    membership_boards="$(jq -r 'select(.kind == "issue") | .memberships[].board' "$source" | sort -u)"
+    if [ -n "$membership_boards" ]; then carry_in_tracker github github_carry_board_names $membership_boards >> "$source" || exit 1; fi
   fi
 
   destinations="$(jq -Rn '[inputs | split("\t") | {key: .[0], value: .[2]}] | from_entries' < "$work/clones.tsv")"

@@ -178,6 +178,30 @@ cmp -s "$ROOT/lib/carry.sh" "$planted/lib/carry.sh" && fail "the planted copy eq
 [ "$(github_writes)" != 0 ] || fail "planted: a carry that closes the GitHub issue is not seen by the write check, so it cannot go red"
 echo "  the GitHub request log holds no write, no comment, no close; a carry that closes the issue as before is caught"
 
+# the carry of one issue or one column names each board of the issue's memberships by number and title, reading those boards and
+# no others, within the request bound it printed; an issue on no board gets no board line and no board read
+boards_named() {  # boards_named <root>: 0 where all of that holds
+  local root="$1" text
+  reset_plane; world; reset_log
+  ROOT_UNDER_TEST="$root" carry 9 --to plane || return 1
+  [ "$(grep -c '^[A-Z]' "$CURL_FAKE_STATE/requests.log")" -le "$(sed -n 's/^Plane requests, at most: \([0-9]*\) =.*/\1/p' "$WORK/out.txt")" ] || return 1
+  text="$(prov example-org/example-repo#9)"
+  grep -qF 'board 1 "Main" item PVTI_a9: Status ready' <<< "$text" && grep -qF 'board 2 "Second" item PVTI_b9: Status planned' <<< "$text" || return 1
+  [ "$(grep -c 'on ProjectV2 { id number title }' "$G/calls.log")" = 2 ] && ! grep -q 'projectsV2' "$G/calls.log" || return 1
+  gh_set 's.cards={data:{node:{items:{pageInfo:{hasNextPage:false,endCursor:null},nodes:[{id:"PVTI_a2",content:{number:2,repository:{nameWithOwner:"example-org/example-repo"}},fieldValues:{nodes:[{name:"ready",field:{name:"Status"}}]}}]}}}}'
+  : > "$G/calls.log"
+  ROOT_UNDER_TEST="$root" carry --column ready --to plane || return 1
+  grep -qF 'board 1 "Main" item PVTI_a2: Status ready' <<< "$(prov example-org/example-repo#2)" || return 1
+  [ "$(grep -c 'on ProjectV2 { id number title }' "$G/calls.log")" = 1 ] || return 1
+  : > "$G/calls.log"
+  ROOT_UNDER_TEST="$root" carry 5 --to plane || return 1
+  text="$(prov example-org/example-repo#5)"
+  grep -qF 'Board memberships (0): none.' <<< "$text" && ! grep -q '^Board memberships.*board ' <<< "$text" && ! grep -q 'on ProjectV2 { id number title }' "$G/calls.log"
+}
+boards_named "$ROOT" || fail "a carry of one issue or one column does not name its boards by number and title, or reads more than they name: $(prov example-org/example-repo#9)"
+plant boards_named lib/carry.sh '/github_carry_board_names/ s/^.*$/    :/' "the board read taken out of the carry of one issue"
+echo "  a carry of one issue and of one column names each board of the memberships by number and title, one read per board and no listing of the boards; an issue on no board reads none and gets no board line; with the board read taken out the check is red"
+
 # a source that cannot be read whole stops before any write: a missing clone, a partial GraphQL answer
 reset_plane; world; reset_log; mkdir -p "$WORK/off"; mv "$WORK/tools" "$WORK/off/tools"
 carry --to plane && fail "a repository without a clone was carried past"

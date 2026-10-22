@@ -97,6 +97,7 @@ const respond = () => {
   }
   if (query.includes('node(id:$id)')) {
     const board = st.boards.find((b) => b.id === v.id);
+    if (board && query.includes('... on ProjectV2 { id number title }')) return data({ node: { id: board.id, number: board.number, title: board.title } });
     if (board && query.includes('repositories(first:100')) return data({ node: { repositories: page(board.repositories, 100, v.c, st.page.nested) } });
     if (board && query.includes('items(first:100')) return data({ node: { items: page(cardNodes(board), 100, v.c, st.page.nested) } });
     const found = Object.values(st.issues).flat().find((i) => i.id === v.id);

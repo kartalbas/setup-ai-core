@@ -1156,7 +1156,9 @@ and the GitHub reference it was carried from (`OWNER/REPO#N`, or `#N` in that re
 committer time in seconds, so a commit made before the switch that names `#57` never names work item 57. `status`,
 `status-sync` and `finish-issue` apply it, and take the newest commit that passes it. A machine whose clock stands
 behind the tracker's by more than the time between a card's creation and its first commit reads that commit as older
-than the card.
+than the card. A rebase or an amend gives every commit it rewrites a new committer time, so a commit made before the
+switch and rebased after it reads as made after it, and its `#N` as the work item of that number: a branch in flight
+takes `origin/<default>` in by a merge.
 
 A branch or a worktree named `issue-<number>-…` is read by the same rule at the time it was started: the earlier of the
 committer time of its oldest commit that `origin/<default>` lacks and its oldest reflog entry, which `start-issue`

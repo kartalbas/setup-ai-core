@@ -79,14 +79,17 @@ tab=$'\t'
 [ "$(ref 291 "$(epoch 2026-03-01T00:00:00Z)")" = 46 ] || fail "(d) an item of another repository is no own item: the carried one is the answer"
 [ "$(ref 291 "$(epoch 2026-03-20T00:00:00Z)")" = 46 ] || fail "(d) an item of another repository is no own item, however late the reference was made"
 [ "$(ref 999 "$(epoch 2026-03-20T00:00:00Z)")" = 999 ] || fail "(d) where nothing exists the number itself stays, for its reader to refuse"
-[ "$(ref 50 "$(epoch 2026-03-01T00:00:00Z)")" = "${tab}names GitHub $repo#50, which no work item was carried from" ] || fail "an item carried from its own number is not a second item"
+[ "$(ref 50 "$(epoch 2026-03-01T00:00:00Z)")" = 50 ] || fail "a reference made before the carry names the item carried from it under the same number: $(ref 50 "$(epoch 2026-03-01T00:00:00Z)")"
+[ "$(ref 50)" = 50 ] || fail "with no time, an item carried from its own number is one work item, not both: $(ref 50)"
 [ "$(plane_fn referenced_issue other-org/example-repo 287 "$(epoch 2026-03-01T00:00:00Z)")" = 287 ] || fail "a repository of another owner is not in the project: its reference stays"
-echo "  referenced_issue: the own item from its creation on, the carried item before it or none, both named when the time is unknown, the carried item or the number itself without an own item"
+echo "  referenced_issue: the own item from its creation on, the carried item before it or none, both named when the time is unknown, the carried item or the number itself without an own item, an item carried under its own number at any time"
 planted="$(mutant_root lib/plane/tracker.sh 's/if \[ -n "\$own" \] \&\& \[ -n "\$at" \] \&\& \[ "\$at" -ge "\$own_at" \]; then/if [ -n "$own" ] \&\& [ -n "$at" ]; then/')"
 [ "$(ROOT_UNDER_TEST="$planted" ref 287 "$(epoch 2026-03-01T00:00:00Z)")" = 287 ] || fail "planted: without the time rule a reference made before work item 287 should name it"
-planted="$(mutant_root lib/plane/tracker.sh 's/\[ "\$c" != "\$number" \] || c=""/true/')"
-[ "$(ROOT_UNDER_TEST="$planted" ref 50 "$(epoch 2026-03-01T00:00:00Z)")" = 50 ] || fail "planted: an item carried from its own number should be taken for a second item"
-echo "  planted: without the time rule 287 is answered before it existed; an item carried from its own number is taken for a second item"
+planted="$(mutant_root lib/plane/tracker.sh 's/^  if \[ "\$c" = "\$number" \]; then printf .*$/  [ "$c" != "$number" ] || c=""/')"
+[ "$(ROOT_UNDER_TEST="$planted" ref 50 "$(epoch 2026-03-01T00:00:00Z)")" = "${tab}names GitHub $repo#50, which no work item was carried from" ] || fail "planted: with an item carried under its own number dropped, a reference made before the carry should name none"
+planted="$(mutant_root lib/plane/tracker.sh 's/^  if \[ "\$c" = "\$number" \]; then printf .*$/  true/')"
+[ "$(ROOT_UNDER_TEST="$planted" ref 50)" = "${tab}names both #50 and #50, which was carried from $repo#50, and when it was made cannot be read" ] || fail "planted: without the rule for an item carried under its own number, a reference without a time should name it twice"
+echo "  planted: without the time rule 287 is answered before it existed; an item carried under its own number is dropped before the carry, or named twice without a time"
 
 section "branch_started_at: the earliest of the oldest commit origin lacks and the oldest entry of the reflog"
 started() { ( cd "$P" && PATH="$PATH_CURL" bash -c '. "$1/lib/board.sh"; shift; branch_started_at "$@"' _ "${ROOT_UNDER_TEST:-$ROOT}" "$@" ); }
@@ -287,6 +290,23 @@ out="$(ai start-issue 287 2>&1)" && fail "start-issue 287 moved issue-287-the-sl
 grep -q 'the name issue-287-the-slug is the name of a branch of another work item already: issue-287-the-slug (belongs to #44)' <<< "$out" || fail "the name collision is not named: $out"
 [ "$(git -C "$P" rev-parse refs/heads/issue-287-the-slug)" = "$tip" ] || fail "start-issue 287 moved the branch of #44"
 echo "  start-issue: 44 is refused where issue-287-the-slug stands; 287 is refused where its own name would move the branch of #44, and that branch stays at its commit"
+
+# a landed local branch of 44 under the new name, cut before 287 existed and checked out by no worktree: moved, it would keep its reflog
+cut issue-287-landed-one 2026-03-01T00:00:00Z
+git -C "$P" worktree remove --force "$WORK/trees/issue-287-landed-one"
+NEW_NAME="Landed one" rename 287
+out="$(ai start-issue 287 2>&1)" && fail "start-issue 287 took over issue-287-landed-one, the landed branch of #44: $out"
+grep -q 'the name issue-287-landed-one is the name of a branch of another work item already: issue-287-landed-one (belongs to #44; it has landed and no worktree has it checked out: git branch -d issue-287-landed-one deletes it)' <<< "$out" \
+  || fail "the landed branch of #44 under the new name is not named with the way on: $out"
+planted="$(mutant_root bin/start-issue.sh 's/^      \[ "\$owner" != "\$number" \] && \[ "\$ref" = "\$name" \] || continue$/      continue/')"
+ROOT_UNDER_TEST="$planted" ai start-issue 287 > /dev/null 2>&1 || fail "planted: without the check of a landed branch start-issue 287 should take over issue-287-landed-one"
+landed_tree="$(git -C "$P" worktree list --porcelain | sed -n 's|^worktree \(.*issue-287-landed-one\)$|\1|p')"
+[ -n "$landed_tree" ] && [ "$(cd "$landed_tree" && PATH="$PATH_CURL" bash -c '. "$1/lib/board.sh"; worktree_issue' _ "$ROOT" | jq -r '.workItem')" = 44 ] \
+  || fail "planted: the worktree start-issue 287 cut on issue-287-landed-one should read as the worktree of #44"
+git -C "$P" worktree remove --force "$landed_tree"; git -C "$P" branch -q -D issue-287-landed-one
+NEW_NAME="The slug" rename 287
+set_state 287 ready
+echo "  start-issue 287 is refused where its name is the landed local branch of #44, and names the way on; planted: taken over, the new worktree reads as #44's"
 
 planted="$(mutant_root bin/start-issue.sh 's/^  owner="\$(awk .*$/  owner="$number"/')"
 NEW_NAME="Fresh 287" rename 287

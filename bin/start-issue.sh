@@ -124,16 +124,23 @@ owners="$(issue_branch_owners "$repo" "$default" "$number" ${carried_number:+"$c
 taken=""; clash=""
 while IFS= read -r ref; do
   [ -n "$ref" ] || continue
-  if git merge-base --is-ancestor "$ref" "$origin_tip"; then
-    case "$ref" in origin/*) continue ;; esac
-    grep -qxF "$ref" <<< "$checked_out" || continue
-  fi
   # a ref the table does not list, such as a branch of another folder that merely contains the name, is this issue's as before
   owner="$(awk -F'\t' -v b="${ref#origin/}" -v d="$number" '$1 == b { r = $2; f = 1; exit } END { print f ? r : d }' <<< "$owners")"
+  # A landed local branch of another work item under the new name stops the run too: git branch -f would move it
+  # and keep its reflog, which still dates the branch to that work item.
+  idle=""
+  if git merge-base --is-ancestor "$ref" "$origin_tip"; then
+    case "$ref" in origin/*) continue ;; esac
+    if ! grep -qxF "$ref" <<< "$checked_out"; then
+      [ "$owner" != "$number" ] && [ "$ref" = "$name" ] || continue
+      idle=1
+    fi
+  fi
   if [ "$owner" = "$number" ]; then taken="$taken$ref"$'\n'
   elif [ "${ref#origin/}" = "$name" ]; then
     whose="belongs to #$owner"
     [ "$owner" != - ] || whose="$(awk -F'\t' -v b="$name" '$1 == b { print $3; exit }' <<< "$owners")"
+    [ -z "$idle" ] || whose="$whose; it has landed and no worktree has it checked out: git branch -d $ref deletes it"
     clash="$clash$ref ($whose)"$'\n'
   fi
 done <<< "$(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/origin 2>/dev/null \

@@ -612,8 +612,8 @@ issue_thread() {
 # issue-<number>-..., or a commit's (#<number>). After a carry from GitHub a number is both a GitHub number of the
 # repository and the number of a work item of the project, and the time tells which was meant. The own item is the
 # work item <number> where it exists and belongs to the repository (no label of another one), and the carried item
-# is the one carried from <owner/repo>#<number>, which counts where its own number is not <number>. Prints the
-# number of the work item, or a tab and the reason where the reference names none:
+# is the one carried from <owner/repo>#<number>; carried under that same number, it is the own item, and the answer
+# whatever the time. Prints the number of the work item, or a tab and the reason where the reference names none:
 #   the own item, where it was made at or before the time;
 #   after the time: the carried item, or none, the reference names a GitHub issue nothing was carried from;
 #   no time: the own item where nothing was carried from the reference, none where both exist;
@@ -640,7 +640,7 @@ referenced_issue() {
   if [ -n "$own" ] && [ -n "$at" ] && [ "$at" -ge "$own_at" ]; then printf '%s\n' "$own"; return 0; fi
   carried="$(plane_find_carried "$repo#$number")" || exit 1
   [ -z "$carried" ] || c="$(printf '%s' "$carried" | jq -r '.sequence_id')"
-  [ "$c" != "$number" ] || c=""
+  if [ "$c" = "$number" ]; then printf '%s\n' "$number"; return 0; fi
   if [ -z "$own" ]; then printf '%s\n' "${c:-$number}"
   elif [ -n "$at" ]; then
     if [ -n "$c" ]; then printf '%s\n' "$c"

@@ -12,8 +12,8 @@ nobody sits at your terminal.
 ## Input
 
 - The package section, or for a card from before the packages and for a mechanical package the
-  issues' acceptance criteria and `file:line` facts alone, headed `Class: mechanical` for a
-  mechanical package: {{package section}}
+  issues' acceptance criteria and `file:line` facts alone, where they name any, headed
+  `Class: mechanical` for a mechanical package: {{package section}}
 - The issues in landing order, each with its acceptance criteria: {{issues}}
 - The worktrees, one per repository, opened for you: {{worktree paths}}. Work there by `cd` and
   absolute paths; never move to another folder and never open a worktree yourself.
@@ -57,8 +57,10 @@ and `VERIFIED` lines of each issue, because a comment on an issue wakes nobody.
 
 ## Rules you keep
 
-- A package headed `Class: mechanical` has no plan: where you meet a span its issue does not name, a
-  contract, a secret, a payment or the push gate, you stop there, commit nothing past that point and
+- A package headed `Class: mechanical` has no plan, and you find its spans yourself and name each as
+  `file:line` in your report. Where you meet a contract, a secret, a payment or the push gate, or find
+  that the change needs more than 150 lines outside tests (the added and the deleted lines of the
+  package's diff in files that are not tests), you stop there, commit nothing past that point and
   report it to the coordinator ({{how to reach the coordinator}}), which sends the package to a plan.
 - You touch files of this package's worktrees only. A file outside them is a question to the
   coordinator, not an edit.

@@ -69,22 +69,23 @@
   and reports what changed, what it verified and what in the specification was wrong. A specialist
   is consulted with a briefing, never with a running conversation. When a result misses, fix the
   prompt, the scope or the missing context before changing model or effort. [discipline]
-- **A review is independent, and it repairs what is small, as a person reviewing does.** The
-  reviewer gets the diff of the whole package and the stated intent of each of its issues, not the
-  conversation; one handed a single issue of a running package asks for the package. A small
-  finding (a text, a test, a wrong `file:line`, a few lines) it repairs itself, in the package's
-  branch or section, names as REPAIRED and lets land, because a NO for it pays a whole round. A
-  finding too large for a few lines, or one that needs a decision, it writes down instead; deciding
-  whether such a finding is real is a separate step from repairing it, and whoever wrote that
-  repair does not approve it. The reviewer's model and effort follow the class of the change, as the
-  project's model table (`.ai-core/models.tsv`) names them for the tool the session runs in, and
-  never the model that wrote the work. A sweep, a collection of facts, a draft of test cases or a
+- **A review is independent, and it repairs what lies in the package, as a person reviewing
+  does.** The reviewer gets the diff of the whole package and the stated intent of each of its
+  issues, not the conversation; one handed a single issue of a running package asks for the
+  package. Every finding it can repair inside the package's own files and contracts it repairs
+  itself, in the package's branch or section, names as REPAIRED and lets land, so the card goes on
+  to testing, because a NO pays a whole round; the gate's run on the repaired head and the test
+  phase check that repair. Only a finding that needs a decision of the owner, or a change beyond
+  the package's files and contracts, it writes down instead, and the package does not land. The
+  reviewer's model and effort follow the class of the change, as the project's model table
+  (`.ai-core/models.tsv`) names them for the tool the session runs in, and never the model that
+  wrote the work. A sweep, a collection of facts, a draft of test cases or a
   pre-review whose answer the session can check cheaply goes to the helper of the same tool, the
   table's helper row; a UI test or a live check is a phase of its own, on the table's model for it.
   A table's `high-risk` rows name a model at least as strong as its `normal-hard` rows, because
   security, payments and contract work are never moved to a cheaper model to save money. The
   repair after a NO is re-checked by one reader against the named findings, reading only the
-  repair, because a whole package read again for a few repaired lines costs a full review.
+  repair, because a whole package read again for its repaired lines costs a full review.
   A helper never builds, never gives the deciding review and never decides; its answer is a lead the
   session checks before it uses it. No session moves a task to another model, effort or tool on its
   own because a quota ran out, because a fallback waters the result down from the bottom up: it

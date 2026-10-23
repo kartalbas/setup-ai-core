@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,7 +7,7 @@ import { after, before, describe, it } from 'node:test';
 import { PartialCompletionError } from '../api/client.mts';
 import { composeLandedRecord, composeProvenRecord } from '../domain/workflow.mts';
 import { PreconditionError, UsageError } from '../domain/refusals.mts';
-import { contextFor, seedLabels, startFakeForgejo } from '../testing/fake-forgejo.mts';
+import { contextFor, FAKE_TOKEN, seedLabels, startFakeForgejo } from '../testing/fake-forgejo.mts';
 import type { FakeForgejo } from '../testing/fake-forgejo.mts';
 import { createGitFixture, git } from '../testing/git-fixture.mts';
 import { createRecordingHarness } from '../testing/recording-harness.mts';
@@ -430,6 +431,22 @@ describe('integrate-issue', () => {
       await assert.rejects(integrateIssue.run([main.full, String(number), '--reviewed-by', 'alice', '--reviewed-head', 'zzzzzzz'], ctx(tree)), UsageError);
       await assert.rejects(integrateIssue.run([main.full, String(number), '--reviewed-by', 'alice', '--reviewed-head', 'abcdef1'], ctx(tree)), /is no commit of this clone/);
     });
+  });
+
+  it('writes the lines of the push gate to the stderr of cli.mts, the token redacted (planted: the gate prints the token)', async () => {
+    const { number, tree, head } = await worked(main, 'Through the command line, so that the person reads the gate');
+    fixture.installHook(main.checkout, 'pre-push', `echo "gate line with ${FAKE_TOKEN}" >&2; exit 1`);
+    const environment = { ...process.env, FORGEJO_URL: fake.url, TRACKER: 'forgejo', FORGEJO_TOKEN_COMMAND: `printf '%s' ${FAKE_TOKEN}`, CI_GATE: 'none' };
+    const outcome = await new Promise<{ status: number | null; stderr: string }>((done) => {
+      const child = spawn('node', [join(import.meta.dirname, '..', 'cli.mts'), 'integrate-issue', ...integrateArguments(main, number, head)], { cwd: tree, env: environment });
+      let stderr = '';
+      child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+      child.on('close', (status) => done({ status, stderr }));
+    }).finally(() => rmSync(join(main.checkout, '.git', 'hooks', 'pre-push')));
+    assert.equal(outcome.status, 1, outcome.stderr);
+    assert.match(outcome.stderr, /^landing: this worktree goes onto origin\/master/m);
+    assert.match(outcome.stderr, /^gate line with \[token\]$/m);
+    assert.equal(outcome.stderr.includes(FAKE_TOKEN), false);
   });
 
   it('lands through a push gate that needs a file only the worktree of the issue has (planted: the gate runs elsewhere)', async () => {

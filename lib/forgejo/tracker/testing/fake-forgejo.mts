@@ -808,6 +808,7 @@ export function contextFor(fake: FakeForgejo, overrides: Partial<CommandContext>
     now: () => new Date(2026, 9, 23, 12, 0, 0),
     api: () => client,
     harness: createRecordingHarness(),
+    stderr: () => {},
     ...overrides,
   };
 }

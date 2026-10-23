@@ -319,7 +319,7 @@ describe('integrate-issue', () => {
       const { number, tree, head } = await worked(main, 'Red gate, so that it is refused');
       fixture.installHook(main.checkout, 'pre-push', 'echo "gate is red: planted" >&2; exit 1');
       try {
-        await refusal(async () => ({ number, tree, args: integrateArguments(main, number, head) }), /nothing landed: the push to master was refused[\s\S]*gate is red: planted/);
+        await refusal(async () => ({ number, tree, args: integrateArguments(main, number, head) }), /nothing landed: the push to master was refused.*gate is red: planted/);
       } finally {
         rmSync(join(main.checkout, '.git', 'hooks', 'pre-push'));
       }
@@ -327,15 +327,24 @@ describe('integrate-issue', () => {
       assert.match(innocent.stdout, /integrated:/, 'the same landing goes through once the gate is green');
     });
 
-    it('a push gate that is red shows every line it printed and leaves the worktree on its branch', async () => {
+    it('a push gate that is red shows every line it printed while it runs and leaves the worktree on its branch (planted: shown only at the end)', async () => {
       const { number, tree, branch, head } = await worked(main, 'Chatty gate, so that every line shows');
       const lines = Array.from({ length: 12 }, (_, n) => `gate line ${n}`);
-      fixture.installHook(main.checkout, 'pre-push', `${lines.map((line) => `echo "${line}" >&2`).join('; ')}; exit 1`);
+      const seen = join(scratch, `seen-${number}`);
+      // the gate goes on only once the person has read its first lines, and gives up after ten seconds
+      const waitUntilSeen = `n=0; until [ -e '${seen}' ]; do n=$((n + 1)); [ $n -lt 200 ] || { echo "nobody saw the gate while it ran" >&2; exit 1; }; sleep 0.05; done`;
+      fixture.installHook(main.checkout, 'pre-push', `${lines.map((line) => `echo "${line}" >&2`).join('; ')}; ${waitUntilSeen}; echo "gate is red: planted" >&2; exit 1`);
+      const shown: string[] = [];
+      const watching = { ...ctx(tree), stderr: (text: string) => { shown.push(text); if (text.includes('gate line 11')) writeFileSync(seen, ''); } };
       try {
-        await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree)), (error: unknown) => error instanceof PreconditionError && lines.every((line) => error.message.includes(line)));
+        await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), watching), /nothing landed: the push to master was refused.*gate is red: planted/);
       } finally {
         rmSync(join(main.checkout, '.git', 'hooks', 'pre-push'));
       }
+      const said = shown.join('');
+      assert.ok(lines.every((line) => said.includes(`${line}\n`)), said);
+      assert.doesNotMatch(said, /nobody saw the gate/);
+      assert.match(said, new RegExp(`^landing: this worktree goes onto origin/master .* git switch ${branch} puts it back$`, 'm'));
       assert.equal(await client.currentBranch(tree), branch, 'the worktree is back on its branch');
       assert.equal(git(tree, 'rev-parse', 'HEAD'), head);
       assert.equal(await client.isClean(tree), true);

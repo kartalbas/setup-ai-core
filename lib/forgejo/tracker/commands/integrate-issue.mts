@@ -19,8 +19,9 @@ Lands the reviewed branch of one issue on the default branch of origin: a merge 
 carries a "Reviewed-by: NAME" line for each reviewer, pushed through the push gate of the repository. Run it in
 the worktree of the issue, on its branch, after the reviewer's GO. Where the push gate is the check, the merge is
 made and pushed in that worktree, detached on origin/<default>, so the gate finds the tools installed there, and the
-worktree is on its branch again afterwards, whether the push landed or was refused; a refused push shows every line
-the gate printed. Where the checks of Forgejo are read, the merge is made in a temporary worktree. Then every issue it lands (the one given and
+worktree is on its branch again afterwards, whether the push landed or was refused; a run stopped before that
+leaves it detached, and its first line names the git switch that puts it back. The lines of git and of the push
+gate show while the push runs. Where the checks of Forgejo are read, the merge is made in a temporary worktree. Then every issue it lands (the one given and
 each --also) gets status/testing and the record "Landed on <branch>:" with the reviewed head, the landed commit
 and the reviewers. It discovers no other issue from the history of Git.
 
@@ -74,11 +75,6 @@ function refusal(error: unknown, what: string): unknown {
   return error instanceof GitError ? new PreconditionError(`nothing landed: ${what} (${error.message})`) : error;
 }
 
-// A refused push shows every line git printed, the lines of the push gate among them.
-function pushRefusal(error: unknown, what: string): unknown {
-  return error instanceof GitError ? new PreconditionError(`nothing landed: ${what}\n${error.stderrLines.join('\n')}`) : error;
-}
-
 interface Landing {
   readonly commit: string;
   readonly lines: string[];
@@ -123,8 +119,12 @@ async function landReviewedHead(context: CommandContext, api: ForgejoClient, inp
   let landed: string | undefined;
   let failure: unknown;
   try {
-    if (checked) await git.addDetachedWorktree(cwd, tree, `refs/remotes/origin/${defaultBranch}`);
-    else await git.switchDetached(cwd, `refs/remotes/origin/${defaultBranch}`);
+    if (checked) {
+      await git.addDetachedWorktree(cwd, tree, `refs/remotes/origin/${defaultBranch}`);
+    } else {
+      context.stderr(`landing: this worktree goes onto origin/${defaultBranch} for the merge and the push gate, and back to ${branch} when the push lands or is refused; if this run is stopped before that, git switch ${branch} puts it back\n`);
+      await git.switchDetached(cwd, `refs/remotes/origin/${defaultBranch}`);
+    }
     const base = await git.resolveCommit(tree, 'HEAD');
     let merged: string;
     try {
@@ -137,7 +137,7 @@ async function landReviewedHead(context: CommandContext, api: ForgejoClient, inp
       const ciBranch = `ci/integrate-${branch}`;
       const held = await git.remoteBranchTip(cwd, ciBranch);
       try {
-        await git.pushWithLease(tree, merged, ciBranch, held);
+        await git.pushWithLease(tree, merged, ciBranch, held, context.stderr);
       } catch (error) {
         throw refusal(error, `the merge commit ${merged.slice(0, 7)} could not be pushed to ${ciBranch} for its checks`);
       }
@@ -161,9 +161,9 @@ async function landReviewedHead(context: CommandContext, api: ForgejoClient, inp
     const now = await git.resolveCommit(cwd, `refs/remotes/origin/${defaultBranch}`);
     if (now !== base) throw new PreconditionError(`nothing landed: origin/${defaultBranch} moved from ${base} to ${now} while the merge was made; run this again`);
     try {
-      await git.push(tree, merged, defaultBranch);
+      await git.push(tree, merged, defaultBranch, context.stderr);
     } catch (error) {
-      throw pushRefusal(error, `the push to ${defaultBranch} was refused; nothing reached origin${checked ? '' : `, and ${branch} is checked out again`}`);
+      throw refusal(error, `the push to ${defaultBranch} was refused; nothing reached origin${checked ? '' : `, and ${branch} is checked out again`}`);
     }
     landed = merged;
   } catch (error) {

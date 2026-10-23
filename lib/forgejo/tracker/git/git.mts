@@ -19,14 +19,17 @@ export interface Worktree {
 export class GitError extends Error {
   readonly arguments: readonly string[];
   readonly exitCode: number | undefined;
+  // Every line git wrote to stderr, which includes every line a hook printed.
+  readonly stderrLines: readonly string[];
 
   constructor(args: readonly string[], exitCode: number | undefined, stderr: string) {
-    const lines = stderr.trim().split('\n').filter((line) => line !== '').slice(-MESSAGE_STDERR_LINES);
-    const said = lines.map(hideCredentials).join(' | ');
+    const allLines = stderr.trim().split('\n').filter((line) => line !== '').map(hideCredentials);
+    const said = allLines.slice(-MESSAGE_STDERR_LINES).join(' | ');
     super(`git ${args[0] ?? ''}${said === '' ? '' : `: ${said}`}`);
     this.name = 'GitError';
     this.arguments = args;
     this.exitCode = exitCode;
+    this.stderrLines = allLines;
   }
 }
 
@@ -126,7 +129,13 @@ export class GitClient {
   }
 
   async isClean(cwd: string): Promise<boolean> {
-    return (await this.output(cwd, ['status', '--porcelain', '--untracked-files=all'])) === '';
+    return (await this.listChanges(cwd)).length === 0;
+  }
+
+  // One line per changed or untracked path, staged or not, as `git status --porcelain` spells it.
+  async listChanges(cwd: string): Promise<string[]> {
+    const status = await this.output(cwd, ['status', '--porcelain', '--untracked-files=all']);
+    return status === '' ? [] : status.split('\n');
   }
 
   async currentBranch(cwd: string): Promise<string | undefined> {
@@ -189,6 +198,14 @@ export class GitClient {
 
   async addDetachedWorktree(cwd: string, path: string, startPoint: string): Promise<void> {
     await this.run(cwd, ['worktree', 'add', '--quiet', '--detach', path, startPoint]);
+  }
+
+  async switchDetached(cwd: string, commit: string): Promise<void> {
+    await this.run(cwd, ['switch', '--quiet', '--detach', commit]);
+  }
+
+  async switchBranch(cwd: string, branch: string): Promise<void> {
+    await this.run(cwd, ['switch', '--quiet', branch]);
   }
 
   // Never forced: a worktree with changes in it stays.

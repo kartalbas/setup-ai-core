@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
@@ -319,12 +319,37 @@ describe('integrate-issue', () => {
       const { number, tree, head } = await worked(main, 'Red gate, so that it is refused');
       fixture.installHook(main.checkout, 'pre-push', 'echo "gate is red: planted" >&2; exit 1');
       try {
-        await refusal(async () => ({ number, tree, args: integrateArguments(main, number, head) }), /nothing landed: the push to master was refused.*gate is red: planted/);
+        await refusal(async () => ({ number, tree, args: integrateArguments(main, number, head) }), /nothing landed: the push to master was refused[\s\S]*gate is red: planted/);
       } finally {
         rmSync(join(main.checkout, '.git', 'hooks', 'pre-push'));
       }
       const innocent = await integrateIssue.run(integrateArguments(main, number, head), ctx(tree));
       assert.match(innocent.stdout, /integrated:/, 'the same landing goes through once the gate is green');
+    });
+
+    it('a push gate that is red shows every line it printed and leaves the worktree on its branch', async () => {
+      const { number, tree, branch, head } = await worked(main, 'Chatty gate, so that every line shows');
+      const lines = Array.from({ length: 12 }, (_, n) => `gate line ${n}`);
+      fixture.installHook(main.checkout, 'pre-push', `${lines.map((line) => `echo "${line}" >&2`).join('; ')}; exit 1`);
+      try {
+        await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree)), (error: unknown) => error instanceof PreconditionError && lines.every((line) => error.message.includes(line)));
+      } finally {
+        rmSync(join(main.checkout, '.git', 'hooks', 'pre-push'));
+      }
+      assert.equal(await client.currentBranch(tree), branch, 'the worktree is back on its branch');
+      assert.equal(git(tree, 'rev-parse', 'HEAD'), head);
+      assert.equal(await client.isClean(tree), true);
+    });
+
+    it('a worktree with changes, naming them, before anything moves', async () => {
+      const { number, tree, branch, head } = await worked(main, 'Dirty and named, so that it is refused');
+      writeFileSync(join(tree, 'staged.txt'), 'x');
+      git(tree, 'add', 'staged.txt');
+      writeFileSync(join(tree, 'loose.txt'), 'x');
+      const remoteBefore = tipOf(main);
+      await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree)), (error: unknown) => error instanceof PreconditionError && /A  staged\.txt\n\?\? loose\.txt/.test(error.message));
+      assert.equal(tipOf(main), remoteBefore);
+      assert.equal(await client.currentBranch(tree), branch);
     });
 
     it('a branch that does not merge cleanly', async () => {
@@ -347,6 +372,22 @@ describe('integrate-issue', () => {
       await assert.rejects(integrateIssue.run([main.full, String(number), '--reviewed-by', 'alice', '--reviewed-head', 'zzzzzzz'], ctx(tree)), UsageError);
       await assert.rejects(integrateIssue.run([main.full, String(number), '--reviewed-by', 'alice', '--reviewed-head', 'abcdef1'], ctx(tree)), /is no commit of this clone/);
     });
+  });
+
+  it('lands through a push gate that needs a file only the worktree of the issue has (planted: the gate runs elsewhere)', async () => {
+    const { number, tree, branch, head } = await worked(main, 'Gate needs tools, so that it runs in the worktree');
+    mkdirSync(join(tree, 'node_modules'));
+    writeFileSync(join(tree, 'node_modules', '.ok'), '');
+    appendFileSync(join(main.checkout, '.git', 'info', 'exclude'), 'node_modules/\n');
+    fixture.installHook(main.checkout, 'pre-push', 'test -f node_modules/.ok || { echo "node_modules is missing" >&2; exit 1; }');
+    try {
+      const result = await integrateIssue.run(integrateArguments(main, number, head), ctx(tree));
+      assert.match(result.stdout, /integrated:/);
+    } finally {
+      rmSync(join(main.checkout, '.git', 'hooks', 'pre-push'));
+    }
+    assert.equal(await client.currentBranch(tree), branch, 'the worktree is on its branch again');
+    assert.equal(git(tree, 'rev-parse', 'HEAD'), head);
   });
 
   describe('under CI_GATE=public', () => {

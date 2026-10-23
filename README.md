@@ -770,6 +770,8 @@ gitleaks, because only git's own output shows what a merge carries.
 | jq | every board and issue command reads GitHub's answers through it | `doctor` installs it |
 | gitleaks 8.19+ | the credential scan of the push gate, in a repository that carries `.gitleaks.toml` | `doctor` wants it where a repository of the project folder carries that file, and installs it: brew, on Linux the GitHub release into `~/.local/bin` (apt's package is 8.16); `init` runs doctor in the folder it serves |
 | Node.js 20+ with `npm` and `npx` | `ai-core status`, which counts with Node.js; the team modes installed through `npx` | `doctor` installs it |
+| Node.js that runs `.mts` files without a flag (CI runs 24; measured on v24.21.0) | with `TRACKER=forgejo`, every issue command, which runs from `lib/forgejo/tracker` (section 8.1) | no npm package is loaded at runtime; `doctor` runs the tracker and asks, it compares no version number |
+| `npm ci --prefix tests/typescript` | developing the Forgejo tracker: the strict type check of section 16 of the suite | development only: it installs the pinned `typescript` and `@types/node` of the Node line CI runs; the runtime never loads them, and a missing compiler turns the check red |
 | `gh`, logged in | with `FORGE=github`, the project harness is found, cloned and created through it, and `session-start` shows the GitHub user; with `TRACKER=github`, every board and issue command | `doctor` installs it; the login is yours |
 | `curl` and an access token | with `FORGE=forgejo`, the repository calls (section 5.7); git itself signs in with the same token through `ai-core git-credential` | the token is read from `FORGEJO_TOKEN_COMMAND` at each call; `doctor` asks the instance whether it answers |
 
@@ -880,7 +882,7 @@ allowed; any other value is an error.
 | Key | Values | Meaning |
 | :--- | :--- | :--- |
 | `AGENTS` | names separated by spaces: `claude`, `codex`, `antigravity`, `openhands`, `gemini`, `cursor`, `windsurf`, `copilot`; default `claude codex antigravity openhands` | the agents this project serves. `init` deploys the file of each one named (`.cursorrules`, `.windsurfrules`, `.github/copilot-instructions.md`, `.openhands/microagents/repo-rules.md`) and no other. Empty: every pointer file. |
-| `TRACKER` | `github` (default), `plane` | where the project's issues and board live: the folder of `lib/` whose `tracker.sh` every issue and board command calls. A value with no such folder stops the command and names the folders there are. The environment variable `TRACKER` overrides it. `TRACKER`, `PLANE_URL`, `PLANE_WORKSPACE`, `PLANE_PROJECT` and `PLANE_TOKEN_COMMAND` are read from the main checkout's `.ai-core/config.env` (in the parent of the git common directory), never from a worktree's own copy, which `init` makes once and nothing refreshes: after the switch every worktree in flight reads the checkout's tracker, and the server the key goes to and the command that yields it come from that one file. A harness clone, the clone of a project harness layer, has no `.ai-core/config.env`, because `init` deploys into the repositories a layer serves and never into the layer: where it has none, it reads these five from the layer's own `config.env` at the root of the main checkout, for a worktree of it as for the clone itself, so the issues of a harness repository move and are read like any other. A product clone reads its `.ai-core/config.env` only, a `config.env` at its root included. Every other key stays the worktree's own. |
+| `TRACKER` | `github` (default), `plane`, `forgejo` | where the project's issues live: the folder of `lib/` whose `tracker.sh` every issue and board command calls; `forgejo` is the exception, a tracker with no board and no Bash provider, whose issue commands run in Node from `lib/forgejo/tracker` (section 8.1). Any other value with no such folder stops the command and names the folders there are. The environment variable `TRACKER` overrides it. `TRACKER`, `PLANE_URL`, `PLANE_WORKSPACE`, `PLANE_PROJECT`, `PLANE_TOKEN_COMMAND`, `FORGE`, `FORGEJO_URL` and `FORGEJO_TOKEN_COMMAND` are read from the main checkout's `.ai-core/config.env` (in the parent of the git common directory), never from a worktree's own copy, which `init` makes once and nothing refreshes: after the switch every worktree in flight reads the checkout's tracker, and the server the key goes to and the command that yields it come from that one file. A harness clone, the clone of a project harness layer, has no `.ai-core/config.env`, because `init` deploys into the repositories a layer serves and never into the layer: where it has none, it reads these eight from the layer's own `config.env` at the root of the main checkout, for a worktree of it as for the clone itself, so the issues of a harness repository move and are read like any other. A product clone reads its `.ai-core/config.env` only, a `config.env` at its root included. Every other key stays the worktree's own. |
 | `FORGE` | `github` (default), `forgejo` | where the project's code lives: the folder of `lib/` whose `forge.sh` creates and clones the harness repository, waits for the check of a release commit or of a reviewed tip, says whether a repository is public and names the signed-in user. A value with no such folder stops the command and names the folders there are. The environment variable `FORGE` overrides it. |
 | `FORGEJO_URL` | the scheme and host of the instance, such as `https://forge.example.test` | with `FORGE=forgejo`: the instance the repository calls go to, and the host `origin` names. No default, and no path: a call that needs it stops and names it. A new project names its forge in the environment of its first `ai-core init`, which creates the harness repository on that instance; the harness's own `config.env`, which every checkout gets, carries the settings from then on. |
 | `FORGEJO_TOKEN_COMMAND` | a command | with `FORGE=forgejo`: the command whose output is an access token of the instance. It runs when a call needs the token; the token stands in no argument, no environment and no file, and in no trace of `bash -x`, because curl gets it through its configuration on standard input and git gets it from `ai-core git-credential`. A token with a control character in it, a line break, a carriage return or a tab among them, is refused by the name of this setting before curl or git sees it. A clone that has no `.ai-core/config.env` of its own, such as the clone of a project harness, reads the settings of its project folder. |
@@ -895,7 +897,7 @@ allowed; any other value is an error.
 | `LIVE_RELEASE_COMMAND` | one executable file, an absolute path or one relative to the clone; no default | the reader of the `command` environments of this clone's `LIVE_TAGS`, read from this clone's own `.ai-core/config.env` and from no exported variable. It is started in the clone, never through a shell, with two arguments, the full `OWNER/REPO` of the clone and the environment, and only reads. It prints one JSON object whose five fields are nonempty strings, `repository` and `environment` as they were given, `commit` the full object ID, in that repository, of the newest completed delivery of the environment, `releasedAt` when that delivery completed, UTC `YYYY-MM-DDTHH:MM:SSZ` and not in the future, and `source` the release or the successful run it inspected; or JSON `null` with exit 0 where there is no completed delivery. For a repository pinned by the release of another one it is the commit the newest completed release pins, read from that release's own contents; for a redeploy it is the commit the last successful run fetched, which a rollback changes, and a failed or pending attempt and the tip of the default branch are none. A missing or non-executable reader, a non-zero exit, no output, text that is no JSON, more than one value, another repository or environment, a time that is none, and a commit the clone, fetched, does not hold are errors, and nothing stands in for an error: no tag, no `landed`, no tip, no earlier answer. The harness checks the shape and the identity of the answer; whether the reader told the truth about a deployment outside the clones is the project's, and so is the deadline of every request it makes: the harness cannot know that an executable stops. Both commands start it once per repository and environment and run, and keep nothing of it for the next run. `status-sync` closes a card of a `command` environment when the landing commit is on the default branch and in the delivered commit, and a `Proven on <environment>:` comment of a trusted author came later than both the landing record and `releasedAt`: the environment is the first word of the first line after `Proven on `, up to a space, a tab or the colon, and equals the first environment of the list whatever the case of its letters; it may be followed by an annotation in parentheses before the colon, `Proven on prod (https://example.test):`. A proof before the delivery, at its second, of another environment or of a longer word proves nothing |
 
 | `ECOSYSTEM_ORDER` | tool names of `models.tsv`, `claude codex agy` when unset | the order the owner starts the coordinators in; a package stays in the ecosystem whose coordinator planned it |
-| `CI_GATE` | `public` (default), `none` | whether a public repository of the project lands only on green checks of its CI (`public`), or lands like a private one on its push gate, with nothing pushed to `ci/` and no CI read (`none`), for a project whose CI runs on its own machines; any other value refuses a landing |
+| `CI_GATE` | `public` (default), `none` | whether a public repository of the project lands only on green checks of its CI (`public`), or lands like a private one on its push gate, with nothing pushed to `ci/` and no CI read (`none`), for a project whose CI runs on its own machines; any other value refuses a landing. On Forgejo `integrate-issue` reads it the same way (section 8.1) |
 | `PRE_PUSH_LOAD_LIMIT` | a number of 0 or more, `24` when unset | the 1-minute load average below which the push gate starts `scripts/check.sh`; at or above it the gate waits. An absolute load, not a share of the cores. `0` turns the wait off. Read from this file only, at every poll, so an edit takes effect during a wait |
 | `PRE_PUSH_LOAD_WAIT_SECONDS` | a whole number of 0 or more, `300` when unset | the seconds the gate waits for the load to fall below the limit; then the check starts and the gate says it started above the limit. `0` starts it at once. With either setting at `0` the load is still measured once for the record of the run; a reading that fails is said and recorded as `-` and refuses nothing, while with both above `0` a load that cannot be read refuses the push. An invalid value refuses, naming the key |
 | `START_CHECK` | a command, empty when unset | run by the person in charge on the bundle of a package's branches before it lands; empty means the project names none |
@@ -960,7 +962,9 @@ and the PATH entry `install` added (the line marked `# setup-ai-core` in the she
 
 All run as `ai-core <name>` from any directory inside the repository, or from the project folder,
 and accept `-h` / `--help`. `ai-core <name>` runs `bin/<name>.sh` in Bash;
-a new script in `bin/` is a command without any registration.
+a new script in `bin/` is a command without any registration. The one exception is the Forgejo tracker: with
+`TRACKER=forgejo`, the issue commands of section 8.1 run in Node from `lib/forgejo/tracker/cli.mts`, and the
+board commands are refused there. Every other command, with any tracker, is Bash.
 
 | Script | Usage | Exit codes |
 | :--- | :--- | :--- |
@@ -984,7 +988,9 @@ a new script in `bin/` is a command without any registration.
 | `ai-core` | `ai-core <command>`: any script in `bin/` by name, plus `version`, `help` | the command's exit code; 1 for an unknown command |
 
 `doctor` today checks Git, gh and its login, Bash, Node.js 20+
-with `npx`, jq, the team modes, and reports whether `claude`, `agy` and `codex` are installed, with the install command
+with `npx`, jq, the team modes, and with `TRACKER=forgejo` the Forgejo tracker (it runs
+`node lib/forgejo/tracker/cli.mts --version`, which a Node that cannot run `.mts` files fails, and then asks the
+tracker, which tells "not configured", "not authorized" and "healthy" apart), and reports whether `claude`, `agy` and `codex` are installed, with the install command
 of each. It also names every `integrate-<issue>.XXXXXX` folder under the project folder's `.worktrees/<repository>/` whose landing no longer runs (no live process holds `ai-core-landing` in the clone's git directory for that issue), with the command that removes it; it removes nothing, and a leftover is not a problem that stops `init`. It takes out what a tool of an earlier layout left in the Claude Code configuration: a
 session-start hook in `~/.claude/settings.json` that starts a script beside the repositories, and
 a project memory folder `~/.claude/projects/<project>/memory` that is a link whose target is gone
@@ -1206,6 +1212,68 @@ a closing keyword before an issue reference (`Fixes #12`, which closes the issue
 any release) or an assistant as author is refused while the commit is made, where the fault costs no
 rewrite.
 
+### 8.1 The Forgejo tracker
+
+With `TRACKER=forgejo` the issue commands run in `lib/forgejo/tracker/cli.mts`, TypeScript that Node runs as it is
+(no build step, no package at runtime), and `ai-core` hands it `FORGEJO_URL` (a scheme and a host), the command in
+`FORGEJO_TOKEN_COMMAND`, which prints the token when the first request needs it, the path of the label
+catalog, and `CI_GATE` and `LIVE_TAGS` as the other commands read them. It has no board and no epics. Every request has 15 seconds to connect and 120 seconds in all, and a
+failure says which of these it is: the token refused (401), a permission missing (403), nothing there (404), no
+answer, or an answer that breaks the contract of the API (a status other than the documented one, text that is
+not JSON, a field the client needs missing). A list is read to its last page or refused. A comment or a change
+whose answer was lost is reported as uncertain and is never sent again by the command itself.
+
+| Treatment | Commands |
+| :--- | :--- |
+| Run in Node | `issue-new`, `issue-comment`, `issue-close`, `issue-reopen`, `issue-edit`, `issue-label`, `issue-priority`, `issue-status`, `issue-assign`, `issue-block`, `issue-unblock`, `issue-thread`, `issue-mine`, `start-issue`, `integrate-issue`, `finish-issue`, `issue-release`, `issue-proof`, `status`, `labels-sync` |
+| Refused with exit 2 and one line | `board-list`, `board-order`, `board-sync`, `board-unarchive`, `field-option-add`, `item-move`, `item-top`, `project-new`, `repo-boards`, `repo-link`, `view-filter`, `epics-top`, `subissue-add`, `subissue-remove`, `status-sync`, `issue-transfer`, `issue-duplicate`, `issue-map`, `incident-count` |
+
+| Tracker | How the commands of section 8 run |
+| :--- | :--- |
+| GitHub, Plane | each command is the Bash script `bin/<name>.sh`; the board and the epics are theirs |
+| Forgejo | the commands of the first row above run in Node; the commands of the second row are refused; every other command of `ai-core` is the Bash script it is for any tracker, and the entries that used to load the board code (`session-start`, `solution-path`, `team-modes-check`, `team-modes-install`, `init --all`, `doctor`) do not load it with `TRACKER=forgejo` |
+
+The exit codes are 0 for success, 1 for a precondition that refuses (an issue is closed as completed by
+`issue-proof`, not by `issue-close`; a literal email address in text for a public repository), 2 for invalid input
+or settings, 3 for a failure of Forgejo or of Git, and 4 for an action that partly completed, which names what was
+done. `issue-close --reason completed` is refused until `issue-proof` records the proof of a delivery.
+
+**Labels.** The state of an issue is a label of the `status/` family (`backlog`, `ready`, `planned`, `implementing`,
+`review`, `testing`, `done`, `not-planned`) and its priority one of `priority/` (`p0`, `p1`, `p2`, `p3`, `p9`). The
+families `status/`, `priority/`, `type/`, `goal/` and `test/` are exclusive: an issue carries one label of each;
+`area/` is not. Every other label keeps its name (`needs:owner`, `closes:*`, `incident:*`). A label of `labels.tsv`
+written `type:bug` there is `type/bug` on Forgejo, and the commands read either spelling. `labels-sync --org ORG`
+creates and updates the labels of an organization from `labels.tsv` and from these two families, deletes none, and
+writes nothing when the organization already matches. A label change adds with one request and removes with
+another and never replaces the whole set, because Forgejo then drops every second label of an exclusive family.
+
+**Dependencies.** `issue-block BLOCKED_REPO N BY_REPO M` writes Forgejo's own relation, the blocked issue first.
+
+**The lifecycle** is written into the issue at the moment each fact happens; a card's state is never rebuilt from
+commit messages or release history. Each record is a comment whose first line names it:
+
+| Command | What it does | Record |
+| :--- | :--- | :--- |
+| `start-issue [OWNER/REPO] N` | cuts `.worktrees/<repository>/issue-N-<slug>` from the fetched default branch of origin, for an issue that is open, assigned to the signed-in account and in `ready`, `planned`, `implementing` or `review`, after the team modes check, which refuses it while a mode is missing; runs `init` in the new worktree, as on GitHub (a harness source needs none); sets `status/implementing` | `Started on <branch>:` with the base commit |
+| `integrate-issue [OWNER/REPO] N --reviewed-by NAME --reviewed-head SHA [--also OWNER/REPO#N ...]` | in the worktree of the issue: refuses a worktree with changes, a head that is not `--reviewed-head`, an issue that is closed or not assigned to the signed-in account; merges the reviewed commits into the default branch with a merge commit that names the issue and a `Reviewed-by` line per reviewer, and pushes it through the push gate; fast-forwards the default branch of the main checkout where it is only behind, and names a checkout it cannot refresh while the landing stands; sets `status/testing` on every issue it lands. It finds no issue from the history of Git | `Landed on <branch>:` (`... of OWNER/REPO:` where the issue lives in another repository) with the reviewed head, the landed commit and the reviewers |
+| `finish-issue [OWNER/REPO] N` | removes the worktree of that one issue and its branch when the worktree has no changes and its head is on the default branch; writes nothing and looks at no other worktree | none |
+| `issue-release --repo OWNER/REPO --tag TAG N...` | checks that the tag exists, makes or reuses the milestone named TAG in that repository and sets it on each issue of it; an issue of another repository (`OWNER/REPO#N`) gets a comment instead, because a milestone belongs to one repository. It publishes nothing | the milestone, or `Released in OWNER/REPO TAG:` |
+| `issue-proof [OWNER/REPO] N --environment ENV --body-file PATH` | refuses unless the issue records a landing and, for every repository the landing names, a release that came after it, or `LIVE_TAGS` names ENV with the pattern `landed`; then writes the proof, sets `status/done` and closes the issue as completed | `Proven on ENV:` with the evidence |
+
+`CI_GATE=public` (the default) makes `integrate-issue` push the merge commit of a public repository to
+`ci/integrate-<branch>`, wait for the combined commit status of Forgejo (`AI_CORE_INTEGRATE_POLL` seconds apart,
+`AI_CORE_INTEGRATE_WAIT` seconds at most, 20 and 1800 unless set) and land exactly that commit when it is green; a
+private repository, and `CI_GATE=none`, land on the push gate alone. A record counts only when its author may write
+to the repository and it follows the last reopening of the issue, read from the timeline of the issue; the
+permission of another account is readable only for an administrator of the repository, so the token of these
+commands must belong to one. When the work landed and a record could not be written, `integrate-issue` exits 4 and
+names what is done; run again, it sees that the reviewed head is on the default branch, merges and pushes nothing
+and writes only the records that are missing. `issue-close --reason completed` closes only an issue that records a
+proof after its newest landing and its last reopening.
+
+**`status`** lists the issues the tracker records, every page of them, per owner, for the repositories named or for
+the clones beside the current checkout. It reports what the tracker records, not an observed deployment.
+
 ---
 
 ## 9. Planned commands
@@ -1255,8 +1323,12 @@ assembled, base first along an `extends` chain, prove `push` commits
 and pushes a harness clone's change to its origin and has nothing on a second run, require `session-start` to exit 1 where the harness is
 absent, and run the board suite (`tests/run-all.sh`: one test per
 command against a stand-in `gh`, the push gate's among them, and the tree must be as the
-suite found it). It needs `bash`, `node`, `jq` and gitleaks 8.19+ and never touches the network. CI runs it on Ubuntu
-for every push of a branch and every pull request, and then `schema-check`, which needs
+suite found it) and the Forgejo tracker (section 16: the strict type check of `lib/forgejo/tracker` with the
+development-only compiler under `tests/typescript`, every test of it against a fake Forgejo on `127.0.0.1`, and the shared
+entries run with `TRACKER=forgejo` against a copy of the harness whose board code fails the run when it is loaded; a missing
+compiler or a red check makes the section red, it is never skipped). It needs `bash`, `node`, `jq`, gitleaks 8.19+ and, for the
+type check, `npm ci --prefix tests/typescript`, and never touches the network. CI sets up the Node line of the tracker, installs the
+compiler and runs it on Ubuntu for every push of a branch and every pull request, and then `schema-check`, which needs
 github.com; a tag names a commit whose checks already ran, so pushing it starts no second run.
 
 **A release** is one command, `ai-core release X.Y.Z`, run in the clone: it writes `VERSION` and
@@ -1278,6 +1350,62 @@ tag, so `master` can carry a mistake without it reaching anybody.
   run `bash bin/rules-check.sh rules`. A rule may wrap over several lines; the tag ends the last
   one. A new section is a new `rules/NN-slug.md`; the number places it.
 - **Release:** `ai-core release X.Y.Z`; `init` copies the version to `.ai-core/VERSION`.
+- **Change the Forgejo tracker** (`lib/forgejo/tracker/`, TypeScript that Node runs as it is): it needs a Node.js that
+  runs `.mts` files without a flag (measured on v24.21.0), and, to type-check, the development-only
+  compiler under `tests/typescript`, which the runtime never loads: `npm ci --prefix tests/typescript` installs the
+  two pinned packages, `typescript` and `@types/node`. `bash tests/check.sh 16-forgejo` runs the strict type check
+  and every test of the tree against a fake Forgejo on `127.0.0.1`; a missing compiler turns the section red. The
+  paths and definitions of the API that the client uses are in `lib/forgejo/tracker/api/schema.json`, which the
+  fake answers from. Extract it again, after adding a path to `used`, from the swagger of a Forgejo instance (the
+  address in `FORGEJO_URL`, read without a token):
+
+```bash
+curl -fsS "$FORGEJO_URL/swagger.v1.json" | node -e '
+const fs = require("fs");
+const swagger = JSON.parse(fs.readFileSync(0, "utf8"));
+const used = {
+  "/user": ["get"],
+  "/repos/{owner}/{repo}": ["get"],
+  "/repos/{owner}/{repo}/issues": ["post"],
+  "/repos/{owner}/{repo}/issues/{index}": ["get", "patch"],
+  "/repos/{owner}/{repo}/issues/{index}/comments": ["get", "post"],
+  "/repos/{owner}/{repo}/assignees": ["get"],
+  "/repos/{owner}/{repo}/issues/{index}/dependencies": ["get", "post", "delete"],
+  "/repos/{owner}/{repo}/issues/{index}/labels": ["post"],
+  "/repos/{owner}/{repo}/issues/{index}/labels/{identifier}": ["delete"],
+  "/repos/{owner}/{repo}/labels": ["get"],
+  "/orgs/{org}/labels": ["get", "post"],
+  "/orgs/{org}/labels/{id}": ["patch"],
+  "/repos/issues/search": ["get"],
+  "/repos/{owner}/{repo}/tags/{tag}": ["get"],
+  "/repos/{owner}/{repo}/milestones": ["get", "post"],
+  "/repos/{owner}/{repo}/issues/{index}/timeline": ["get"],
+  "/repos/{owner}/{repo}/collaborators/{collaborator}/permission": ["get"],
+  "/repos/{owner}/{repo}/commits/{ref}/status": ["get"],
+};
+const paths = {}, definitions = {}, responses = {};
+const collect = (node) => {
+  if (Array.isArray(node)) return node.forEach(collect);
+  if (node === null || typeof node !== "object") return;
+  for (const [key, value] of Object.entries(node)) {
+    if (key !== "$ref") { collect(value); continue; }
+    const name = value.split("/").pop();
+    if (value.startsWith("#/responses/") && !responses[name]) { responses[name] = swagger.responses[name]; collect(responses[name]); }
+    if (value.startsWith("#/definitions/") && !definitions[name]) { definitions[name] = swagger.definitions[name]; collect(definitions[name]); }
+  }
+};
+for (const [path, methods] of Object.entries(used)) {
+  paths[path] = {};
+  for (const method of methods) {
+    if (!swagger.paths[path]?.[method]) throw new Error(`the swagger has no ${method} ${path}`);
+    paths[path][method] = swagger.paths[path][method];
+  }
+}
+collect(paths);
+const schema = { swagger: swagger.swagger, info: { title: swagger.info.title, version: swagger.info.version }, basePath: swagger.basePath, paths, definitions, responses };
+fs.writeFileSync("lib/forgejo/tracker/api/schema.json", JSON.stringify(schema, null, 1) + "\n");
+'
+```
 
 Run the check before every commit.
 

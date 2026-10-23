@@ -1,0 +1,662 @@
+import assert from 'node:assert/strict';
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { after, before, describe, it } from 'node:test';
+import { PartialCompletionError } from '../api/client.mts';
+import { composeLandedRecord, composeProvenRecord } from '../domain/workflow.mts';
+import { PreconditionError, UsageError } from '../domain/refusals.mts';
+import { contextFor, seedLabels, startFakeForgejo } from '../testing/fake-forgejo.mts';
+import type { FakeForgejo } from '../testing/fake-forgejo.mts';
+import { createGitFixture, git } from '../testing/git-fixture.mts';
+import { createRecordingHarness } from '../testing/recording-harness.mts';
+import type { RecordingHarness } from '../testing/recording-harness.mts';
+import type { GitFixture } from '../testing/git-fixture.mts';
+import { GitClient } from '../git/git.mts';
+import type { CommandContext } from './command.mts';
+import * as finishIssue from './finish-issue.mts';
+import * as integrateIssue from './integrate-issue.mts';
+import * as issueProof from './issue-proof.mts';
+import * as issueRelease from './issue-release.mts';
+import * as issueState from './issue-state.mts';
+import * as startIssue from './start-issue.mts';
+
+// The commits these tests make through GitClient need an identity, and a runner has none.
+Object.assign(process.env, { GIT_AUTHOR_NAME: 'Example', GIT_AUTHOR_EMAIL: 'example@example.test', GIT_COMMITTER_NAME: 'Example', GIT_COMMITTER_EMAIL: 'example@example.test' });
+
+const FAST = { integratePollSeconds: '0.01', integrateWaitSeconds: '5' };
+
+interface World {
+  readonly full: string;
+  readonly remote: string;
+  readonly checkout: string;
+  // Another clone of the same remote, where somebody else works.
+  readonly second: string;
+}
+
+let fake: FakeForgejo;
+let fixture: GitFixture;
+let main: World;
+let privateWorld: World;
+let sibling: World;
+const scratch = mkdtempSync(join(tmpdir(), 'forgejo-workflow-'));
+const client = new GitClient();
+
+function must<T>(value: T | undefined): T {
+  assert.notEqual(value, undefined);
+  return value as T;
+}
+
+function makeWorld(full: string, isPrivate: boolean): World {
+  const [owner = '', name = ''] = full.split('/');
+  fake.addRepository(full, { isPrivate });
+  const remote = fixture.createRemote(owner, name);
+  return { full, remote, checkout: fixture.clone(remote, `project-${owner}`, name), second: fixture.clone(remote, `second-${owner}`, name) };
+}
+
+before(async () => {
+  fake = await startFakeForgejo();
+  fixture = createGitFixture();
+  seedLabels(fake, 'o');
+  main = makeWorld('o/r', false);
+  privateWorld = makeWorld('o/priv', true);
+  sibling = makeWorld('o/sibling', true);
+  // its issue numbers start above those of o/r, so that no branch of one is named like a branch of the other
+  for (let n = 0; n < 300; n++) fake.addIssue(sibling.full, { title: `Filler ${n}, so that the numbers differ`, state: 'closed' });
+});
+after(async () => {
+  await fake.close();
+  fixture.dispose();
+  rmSync(scratch, { recursive: true, force: true });
+});
+
+function ctx(cwd: string, settings: Partial<CommandContext['settings']> = {}, harness: RecordingHarness = createRecordingHarness()): CommandContext {
+  return contextFor(fake, { cwd, harness, settings: { forgejoUrl: fake.url, tokenCommand: `printf '%s' ${fake.token}`, labelsFile: undefined, ciGate: 'none', ...settings } });
+}
+
+function newIssue(world: World, title = 'Work, so that it gets done', options: { labels?: string[]; assignees?: string[] } = {}): number {
+  return fake.addIssue(world.full, { title, labels: options.labels ?? ['status/ready'], assignees: options.assignees ?? ['fake-user'] });
+}
+
+async function treeOf(world: World, number: number): Promise<string> {
+  const found = (await client.listWorktrees(world.checkout)).find((worktree) => new RegExp(`^issue-${number}(-|$)`).test(worktree.branch ?? ''));
+  return must(found).path;
+}
+
+async function started(world: World, title?: string): Promise<{ number: number; tree: string; branch: string }> {
+  const number = newIssue(world, title);
+  await startIssue.run([world.full, String(number)], ctx(world.checkout));
+  const tree = await treeOf(world, number);
+  return { number, tree, branch: must(await client.currentBranch(tree)) };
+}
+
+async function worked(world: World, title?: string): Promise<{ number: number; tree: string; branch: string; head: string }> {
+  const issue = await started(world, title);
+  const head = fixture.commit(issue.tree, `work-${issue.number}.txt`, 'work\n');
+  return { ...issue, head };
+}
+
+function integrateArguments(world: World, number: number, head: string, ...extra: string[]): string[] {
+  return [world.full, String(number), '--reviewed-by', 'alice', '--reviewed-head', head, ...extra];
+}
+
+const tipOf = (world: World): string => git(world.remote, 'rev-parse', 'refs/heads/master');
+const writesOf = (): number => fake.writes().length;
+const commentsOf = (world: World, number: number): string[] => fake.readIssue(world.full, number).comments;
+const remoteBranches = (world: World): string => git(world.remote, 'branch', '--list');
+
+describe('start-issue', () => {
+  it('cuts the worktree from the fetched default branch, sets status/implementing and writes Started on', async () => {
+    const number = newIssue(main, 'Start the work, so that it begins');
+    const moved = fixture.commit(main.second, `moved-${number}.txt`, 'moved\n');
+    git(main.second, 'push', '-q', 'origin', 'master');
+    const harness = createRecordingHarness();
+    const result = await startIssue.run([String(number)], ctx(main.checkout, {}, harness));
+    const tree = await treeOf(main, number);
+    assert.equal(tree, join(fixture.root, 'project-o', '.worktrees', 'r', `issue-${number}-start-the-work-so-that-it-begins`));
+    assert.equal(git(tree, 'rev-parse', 'HEAD'), moved, 'cut from the fetched default, which the checkout never pulled');
+    assert.equal(git(tree, 'rev-parse', '--abbrev-ref', '@{upstream}'), 'origin/master');
+    const issue = fake.readIssue('o/r', number);
+    assert.deepEqual(issue.labels, ['status/implementing']);
+    assert.equal(issue.comments.length, 1);
+    assert.match(issue.comments[0] ?? '', new RegExp(`^Started on issue-${number}-start-the-work-so-that-it-begins:\\n\\nBase: master at ${moved}\\n$`));
+    assert.match(result.stdout, /status\/implementing/);
+    assert.deepEqual(harness.calls, [`checkTeamModes ${main.checkout}`, `assembleWorktree ${tree}`], 'the team modes first, then the harness in the new worktree');
+    assert.match(result.stdout, /init: assembled/);
+    assert.equal(result.stderr, '');
+  });
+
+  it('refuses while a team mode is missing, and cuts and writes nothing (planted: no team mode)', async () => {
+    const number = newIssue(main, 'No team modes, so that nothing starts');
+    const harness = createRecordingHarness();
+    harness.failing.add('checkTeamModes');
+    const [worktrees, before] = [(await client.listWorktrees(main.checkout)).length, writesOf()];
+    await assert.rejects(startIssue.run([String(number)], ctx(main.checkout, {}, harness)), (error: unknown) => error instanceof PreconditionError && /planted: checkTeamModes failed\nthe team modes are missing/.test(error.message));
+    assert.equal(writesOf(), before);
+    assert.equal((await client.listWorktrees(main.checkout)).length, worktrees);
+  });
+
+  it('starts the work and names a harness that init could not assemble in the new worktree (planted: init fails)', async () => {
+    const number = newIssue(main, 'Init fails, so that it is named');
+    const harness = createRecordingHarness();
+    harness.failing.add('assembleWorktree');
+    const result = await startIssue.run([String(number)], ctx(main.checkout, {}, harness));
+    const tree = await treeOf(main, number);
+    assert.match(result.stderr, new RegExp(`the harness is NOT complete in the worktree: run 'ai-core init ${tree.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} --no-doctor'`));
+    assert.deepEqual(fake.readIssue('o/r', number).labels, ['status/implementing']);
+  });
+
+  it('is run again without cutting or writing twice (innocent case)', async () => {
+    const { number, tree } = await started(main, 'Start twice, so that it is safe');
+    const before = writesOf();
+    const harness = createRecordingHarness();
+    const again = await startIssue.run([String(number)], ctx(main.checkout, {}, harness));
+    assert.match(again.stdout, /stands on .* already/);
+    assert.deepEqual(harness.calls, [`checkTeamModes ${main.checkout}`], 'a worktree that stands is not assembled again');
+    assert.equal(fake.readIssue('o/r', number).comments.length, 1);
+    assert.equal(writesOf(), before, 'the labels already stand and the record is there');
+    assert.ok(existsSync(tree));
+  });
+
+  it('writes what a failed run left out, when it is run again', async () => {
+    const number = newIssue(main, 'Start after a failure, so that it recovers');
+    fake.fail({ method: 'POST', path: `/repos/o/r/issues/${number}/comments`, mode: { kind: 'status', status: 500, message: 'planted' } });
+    await assert.rejects(startIssue.run([String(number)], ctx(main.checkout)), (error: unknown) => error instanceof PartialCompletionError && /cut the worktree/.test(error.message));
+    assert.equal(fake.readIssue('o/r', number).comments.length, 0);
+    await startIssue.run([String(number)], ctx(main.checkout));
+    assert.equal(fake.readIssue('o/r', number).comments.length, 1);
+  });
+
+  const unready: [string, () => number, RegExp][] = [
+    ['an issue assigned to nobody', () => newIssue(main, 'Unassigned, so that it is refused', { assignees: [] }), /assigned to nobody/],
+    ['an issue assigned to somebody else', () => fake.addIssue('o/r', { title: 'Theirs, so that it is refused', labels: ['status/ready'], assignees: ['second-user'] }), /not to @fake-user/],
+    ['an issue in the backlog', () => newIssue(main, 'Backlog, so that it is refused', { labels: ['status/backlog'] }), /in status\/backlog, and work starts from/],
+    ['an issue that landed', () => newIssue(main, 'Landed, so that it is refused', { labels: ['status/testing'] }), /in status\/testing/],
+    ['an issue with no status', () => newIssue(main, 'Unlabeled, so that it is refused', { labels: [] }), /no status\/ label/],
+    ['a closed issue', () => fake.addIssue('o/r', { title: 'Closed, so that it is refused', state: 'closed', labels: ['status/done'], assignees: ['fake-user'] }), /is closed/],
+  ];
+  for (const [name, make, message] of unready) {
+    it(`refuses ${name}, and cuts and writes nothing`, async () => {
+      const number = make();
+      const worktrees = (await client.listWorktrees(main.checkout)).length;
+      const before = writesOf();
+      await assert.rejects(startIssue.run([String(number)], ctx(main.checkout)), (error: unknown) => error instanceof PreconditionError && message.test(error.message));
+      assert.equal(writesOf(), before);
+      assert.equal((await client.listWorktrees(main.checkout)).length, worktrees);
+    });
+  }
+
+  it('refuses a branch of the issue that is not its worktree, local or on origin', async () => {
+    const local = newIssue(main, 'Local branch, so that it clashes');
+    git(main.checkout, 'branch', `issue-${local}-someone-else`);
+    await assert.rejects(startIssue.run([String(local)], ctx(main.checkout)), /a branch for issue \d+ exists already: issue-\d+-someone-else/);
+    const remote = newIssue(main, 'Remote branch, so that it clashes');
+    git(main.second, 'push', '-q', 'origin', `HEAD:refs/heads/issue-${remote}-pushed`);
+    await assert.rejects(startIssue.run([String(remote)], ctx(main.checkout)), /origin\/issue-\d+-pushed/);
+    assert.equal(fake.readIssue('o/r', local).comments.length, 0);
+  });
+
+  it('records on the branch that the issue lives in another repository, and writes there (innocent case)', async () => {
+    const number = newIssue(sibling, 'Elsewhere, so that the repository differs');
+    await startIssue.run([sibling.full, String(number)], ctx(main.checkout));
+    const tree = await treeOf(main, number);
+    const branch = must(await client.currentBranch(tree));
+    assert.equal(git(main.checkout, 'config', '--get', `branch.${branch}.issueRepository`), sibling.full);
+    assert.deepEqual(fake.readIssue(sibling.full, number).labels, ['status/implementing']);
+  });
+});
+
+describe('integrate-issue', () => {
+  it('lands the reviewed commits as they were read, in a merge commit that names the issue and the reviewers, and records the landing', async () => {
+    const { number, tree, head } = await worked(main, 'Land the work, so that it ships');
+    const before = tipOf(main);
+    const harness = createRecordingHarness();
+    const result = await integrateIssue.run([...integrateArguments(main, number, head), '--reviewed-by', 'bob'], ctx(tree, {}, harness));
+    const merged = tipOf(main);
+    assert.notEqual(merged, before);
+    assert.deepEqual(git(main.remote, 'rev-list', '--parents', '-n', '1', merged).split(' ').slice(1), [before, head], 'a merge of the old tip and the reviewed head');
+    assert.equal(git(main.remote, 'log', '-1', '--format=%s', merged), `Land the work, so that it ships (#${number})`);
+    assert.match(git(main.remote, 'log', '-1', '--format=%b', merged), /^Reviewed-by: alice\nReviewed-by: bob\n?$/);
+    const issue = fake.readIssue('o/r', number);
+    assert.deepEqual(issue.labels, ['status/testing']);
+    assert.match(issue.comments[1] ?? '', new RegExp(`^Landed on master:\\n\\nReviewed head: ${head}\\nLanded commit: ${merged}\\nReviewed by: alice, bob\\n$`));
+    assert.match(result.stdout, new RegExp(`next: ai-core finish-issue o/r ${number}`));
+    assert.deepEqual(readdirSync(join(fixture.root, 'project-o', '.worktrees', 'r')).filter((name) => name.startsWith('integrate-')), [], 'the temporary worktree is gone');
+    assert.equal(await client.isClean(tree), true, 'the worktree of the issue was never touched');
+    assert.deepEqual(harness.calls, [`refreshCheckout ${main.checkout}`], 'the main checkout is brought up to the landing');
+    assert.match(result.stdout, /refreshed: the checkout/);
+  });
+
+  it('names a main checkout it could not refresh, and the landing stands (planted: the refresh fails)', async () => {
+    const { number, tree, head } = await worked(main, 'Refresh fails, so that it is named');
+    const harness = createRecordingHarness();
+    harness.failing.add('refreshCheckout');
+    const result = await integrateIssue.run(integrateArguments(main, number, head), ctx(tree, {}, harness));
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stderr, new RegExp(`planted: refreshCheckout failed\nintegration succeeded: [0-9a-f]{7} is on origin/master; checkout ${main.checkout.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} was not refreshed`));
+    assert.deepEqual(fake.readIssue('o/r', number).labels, ['status/testing']);
+  });
+
+  it('lands every issue it is given and writes where the work landed for an issue of another repository', async () => {
+    const { number, tree, head } = await worked(main, 'Land two issues, so that both move');
+    const second = newIssue(main, 'Second issue, so that it lands too', { labels: ['status/implementing'] });
+    const third = newIssue(sibling, 'Third issue elsewhere, so that its repository differs', { labels: ['status/implementing'] });
+    await integrateIssue.run(integrateArguments(main, number, head, '--also', `o/r#${second}`, '--also', `${sibling.full}#${third}`), ctx(tree));
+    for (const [world, n] of [[main, number], [main, second], [sibling, third]] as const) {
+      assert.deepEqual(fake.readIssue(world.full, n).labels, ['status/testing'], `${world.full}#${n}`);
+    }
+    assert.match(commentsOf(main, second)[0] ?? '', /^Landed on master:\n/);
+    assert.match(commentsOf(sibling, third)[0] ?? '', /^Landed on master of o\/r:\n/);
+  });
+
+  it('discovers no issue from the history: a commit that names another issue gains nothing', async () => {
+    const { number, tree, head } = await worked(main, 'Land one issue, so that only it moves');
+    const bystander = newIssue(main, 'Named in passing, so that it stays', { labels: ['status/implementing'] });
+    git(tree, 'commit', '-q', '--allow-empty', '-m', `Touches the other one (#${bystander})`);
+    const reviewed = git(tree, 'rev-parse', 'HEAD');
+    await integrateIssue.run(integrateArguments(main, number, reviewed), ctx(tree));
+    assert.deepEqual(fake.readIssue('o/r', bystander).labels, ['status/implementing']);
+    assert.equal(fake.readIssue('o/r', bystander).comments.length, 0);
+    assert.notEqual(head, reviewed);
+  });
+
+  describe('refuses, with nothing merged, pushed or written', () => {
+    const refusal = async (prepare: () => Promise<{ number: number; tree: string; args: string[] }>, message: RegExp, kind: new (...args: never[]) => Error = PreconditionError): Promise<void> => {
+      const { tree, args } = await prepare();
+      const [remoteBefore, writesBefore] = [tipOf(main), writesOf()];
+      await assert.rejects(integrateIssue.run(args, ctx(tree)), (error: unknown) => error instanceof kind && message.test((error as Error).message));
+      assert.equal(tipOf(main), remoteBefore, 'origin is as it was');
+      assert.equal(writesOf(), writesBefore, 'the tracker is as it was');
+    };
+
+    it('a head that changed after the review', async () => {
+      await refusal(async () => {
+        const { number, tree, head } = await worked(main, 'Changed after review, so that it is refused');
+        fixture.commit(tree, 'sneaked.txt', 'x\n');
+        return { number, tree, args: integrateArguments(main, number, head) };
+      }, /the head of .* is [0-9a-f]{40}, not the reviewed head [0-9a-f]{40}/);
+    });
+
+    it('a worktree with changes', async () => {
+      await refusal(async () => {
+        const { number, tree, head } = await worked(main, 'Dirty, so that it is refused');
+        writeFileSync(join(tree, 'dirty.txt'), 'x');
+        return { number, tree, args: integrateArguments(main, number, head) };
+      }, /the worktree has changes/);
+    });
+
+    it('a directory that is not the worktree of the issue', async () => {
+      await refusal(async () => {
+        const { number, head } = await worked(main, 'Wrong place, so that it is refused');
+        return { number, tree: main.checkout, args: integrateArguments(main, number, head) };
+      }, /this runs in the worktree of issue \d+/);
+    });
+
+    it('an issue assigned to somebody else', async () => {
+      await refusal(async () => {
+        const { number, tree, head } = await worked(main, 'Not mine, so that it is refused');
+        const theirs = fake.addIssue('o/r', { title: 'Theirs, so that it is refused', labels: ['status/implementing'], assignees: ['second-user'] });
+        return { number, tree, args: integrateArguments(main, number, head, '--also', `o/r#${theirs}`) };
+      }, /not to @fake-user/);
+    });
+
+    it('a closed issue', async () => {
+      await refusal(async () => {
+        const { number, tree, head } = await worked(main, 'Closed meanwhile, so that it is refused');
+        const done = fake.addIssue('o/r', { title: 'Closed, so that it is refused', state: 'closed', labels: ['status/done'], assignees: ['fake-user'] });
+        return { number, tree, args: integrateArguments(main, number, head, '--also', `o/r#${done}`) };
+      }, /is closed/);
+    });
+
+    it('a CI_GATE that is neither public nor none', async () => {
+      const { number, tree, head } = await worked(main, 'Bad gate, so that it is refused');
+      const before = tipOf(main);
+      await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree, { ciGate: 'sometimes' })), /CI_GATE is 'sometimes'.*public or none/);
+      assert.equal(tipOf(main), before);
+    });
+
+    it('a push gate that is red, showing what the gate said', async () => {
+      const { number, tree, head } = await worked(main, 'Red gate, so that it is refused');
+      fixture.installHook(main.checkout, 'pre-push', 'echo "gate is red: planted" >&2; exit 1');
+      try {
+        await refusal(async () => ({ number, tree, args: integrateArguments(main, number, head) }), /nothing landed: the push to master was refused.*gate is red: planted/);
+      } finally {
+        rmSync(join(main.checkout, '.git', 'hooks', 'pre-push'));
+      }
+      const innocent = await integrateIssue.run(integrateArguments(main, number, head), ctx(tree));
+      assert.match(innocent.stdout, /integrated:/, 'the same landing goes through once the gate is green');
+    });
+
+    it('a branch that does not merge cleanly', async () => {
+      await refusal(async () => {
+        const { number, tree } = await worked(main, 'Conflict, so that it is refused');
+        fixture.commit(tree, 'conflict.txt', 'branch\n');
+        const head = git(tree, 'rev-parse', 'HEAD');
+        fixture.commit(main.second, 'conflict.txt', 'main\n');
+        git(main.second, 'pull', '-q', '--rebase', 'origin', 'master');
+        git(main.second, 'push', '-q', 'origin', 'master');
+        return { number, tree, args: integrateArguments(main, number, head) };
+      }, /does not merge cleanly into origin\/master/);
+      assert.equal(await client.isClean(main.checkout), true);
+    });
+
+    it('a missing reviewer, a missing head and a head that is no commit', async () => {
+      const { number, tree, head } = await worked(main, 'Unreviewed, so that it is refused');
+      await assert.rejects(integrateIssue.run([main.full, String(number), '--reviewed-head', head], ctx(tree)), UsageError);
+      await assert.rejects(integrateIssue.run([main.full, String(number), '--reviewed-by', 'alice'], ctx(tree)), UsageError);
+      await assert.rejects(integrateIssue.run([main.full, String(number), '--reviewed-by', 'alice', '--reviewed-head', 'zzzzzzz'], ctx(tree)), UsageError);
+      await assert.rejects(integrateIssue.run([main.full, String(number), '--reviewed-by', 'alice', '--reviewed-head', 'abcdef1'], ctx(tree)), /is no commit of this clone/);
+    });
+  });
+
+  describe('under CI_GATE=public', () => {
+    const publicSettings = { ciGate: undefined, ...FAST };
+
+    it('lands exactly the commit whose checks were green, removes the branch it pushed for them, and reads the checks of a public repository only', async () => {
+      const { number, tree, head } = await worked(main, 'Land on green, so that checks decide');
+      fake.setChecks(main.full, ['pending', 'success']);
+      const before = fake.requests.length;
+      const result = await integrateIssue.run(integrateArguments(main, number, head), ctx(tree, publicSettings));
+      const merged = tipOf(main);
+      const asked = fake.requests.slice(before).filter((request) => request.path.includes('/commits/')).map((request) => request.path);
+      assert.ok(asked.length >= 2 && asked.every((path) => path === `/repos/o/r/commits/${merged}/status`), `the checks of the commit that landed: ${asked.join()}`);
+      assert.doesNotMatch(remoteBranches(main), /ci\/integrate/);
+      assert.match(result.stdout, /checks: green for/);
+    });
+
+    it('lands nothing on red checks, and removes the branch it pushed for them (planted: red)', async () => {
+      const { number, tree, head } = await worked(main, 'Red checks, so that it is refused');
+      fake.setChecks(main.full, ['failure']);
+      const [before, writes] = [tipOf(main), writesOf()];
+      await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree, publicSettings)), /the checks for [0-9a-f]{40} on ci\/integrate-.* are red/);
+      assert.equal(tipOf(main), before);
+      assert.equal(writesOf(), writes);
+      assert.doesNotMatch(remoteBranches(main), /ci\/integrate/);
+    });
+
+    it('lands nothing on checks that do not finish (planted: pending for good)', async () => {
+      const { number, tree, head } = await worked(main, 'Unfinished checks, so that it is refused');
+      fake.setChecks(main.full, ['pending']);
+      const before = tipOf(main);
+      await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree, { ciGate: undefined, integratePollSeconds: '0.01', integrateWaitSeconds: '0.05' })), /did not finish in 0.05 seconds/);
+      assert.equal(tipOf(main), before);
+      assert.doesNotMatch(remoteBranches(main), /ci\/integrate/);
+    });
+
+    it('lands nothing when the default branch moved while the checks ran', async () => {
+      const { number, tree, head } = await worked(main, 'Moved meanwhile, so that it is refused');
+      fake.setChecks(main.full, ['success']);
+      const marker = join(scratch, `moved-${number}`);
+      const mover = `unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE; [ ! -e '${marker}' ] || exit 0; touch '${marker}'; cd '${main.second}' && git pull -q --rebase origin master && echo moved > moved-meanwhile.txt && git add moved-meanwhile.txt && git commit -qm moved && git push -q origin HEAD:master`;
+      fixture.installHook(main.checkout, 'pre-push', mover);
+      try {
+        const writes = writesOf();
+        await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree, publicSettings)), /origin\/master moved from [0-9a-f]{40} to [0-9a-f]{40}/);
+        assert.equal(git(main.remote, 'log', '-1', '--format=%s', 'refs/heads/master'), 'moved');
+        assert.equal(writesOf(), writes);
+        assert.doesNotMatch(remoteBranches(main), /ci\/integrate/);
+      } finally {
+        rmSync(join(main.checkout, '.git', 'hooks', 'pre-push'));
+      }
+    });
+
+    it('rests on the push gate for a private repository and reads no checks (innocent case)', async () => {
+      const { number, tree, head } = await worked(privateWorld, 'Private, so that the gate is the check');
+      fake.setChecks(privateWorld.full, ['failure']);
+      const before = fake.requests.length;
+      const result = await integrateIssue.run(integrateArguments(privateWorld, number, head), ctx(tree, publicSettings));
+      assert.equal(fake.requests.slice(before).some((request) => request.path.includes('/commits/')), false);
+      assert.match(result.stdout, /is private, its push gate is its check/);
+      assert.deepEqual(fake.readIssue(privateWorld.full, number).labels, ['status/testing']);
+    });
+  });
+
+  describe('after a failure of the tracker', () => {
+    it('exits partly done with the landing named, and a second run merges and pushes nothing and writes only what is missing', async () => {
+      const { number, tree, head } = await worked(main, 'Fail after landing, so that it recovers');
+      fake.fail({ method: 'POST', path: `/repos/o/r/issues/${number}/comments`, mode: { kind: 'status', status: 500, message: 'planted' } });
+      await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree)), (error: unknown) => error instanceof PartialCompletionError && /landed [0-9a-f]{40} on origin\/master/.test(error.message) && /run the same command again/.test(error.message));
+      const landed = tipOf(main);
+      assert.equal(git(main.remote, 'merge-base', '--is-ancestor', head, landed) === '', true);
+      assert.equal(commentsOf(main, number).filter((text) => text.startsWith('Landed on')).length, 0);
+
+      const again = await integrateIssue.run(integrateArguments(main, number, head), ctx(tree));
+      assert.equal(tipOf(main), landed, 'no second merge and no second push');
+      assert.match(again.stdout, /already landed/);
+      assert.equal(commentsOf(main, number).filter((text) => text.startsWith('Landed on')).length, 1);
+      assert.match(commentsOf(main, number).find((text) => text.startsWith('Landed on')) ?? '', new RegExp(`Landed commit: ${landed}`));
+      assert.deepEqual(fake.readIssue('o/r', number).labels, ['status/testing']);
+
+      const before = writesOf();
+      await integrateIssue.run(integrateArguments(main, number, head), ctx(tree));
+      assert.equal(writesOf(), before, 'a third run writes nothing');
+    });
+
+    it('does not write the record twice when the answer of the comment was lost (planted: a lost answer)', async () => {
+      const { number, tree, head } = await worked(main, 'Lost answer, so that nothing repeats');
+      fake.fail({ method: 'POST', path: `/repos/o/r/issues/${number}/comments`, mode: { kind: 'drop-after' } });
+      await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree)), PartialCompletionError);
+      await integrateIssue.run(integrateArguments(main, number, head), ctx(tree));
+      assert.equal(commentsOf(main, number).filter((text) => text.startsWith('Landed on')).length, 1);
+      assert.deepEqual(fake.readIssue('o/r', number).labels, ['status/testing']);
+    });
+  });
+});
+
+describe('finish-issue', () => {
+  it('removes the worktree and the branch of the issue that landed, writes nothing, and leaves every other worktree', async () => {
+    const landed = await worked(main, 'Finish after landing, so that it is removed');
+    const other = await worked(main, 'Another issue in work, so that it stays');
+    await integrateIssue.run(integrateArguments(main, landed.number, landed.head), ctx(landed.tree));
+    const writes = writesOf();
+    const result = await finishIssue.run([String(landed.number)], ctx(main.checkout));
+    assert.equal(writesOf(), writes, 'the card moved at the landing; this writes nothing');
+    assert.ok(!existsSync(landed.tree));
+    assert.ok(!(await client.listBranchNames(main.checkout)).includes(landed.branch));
+    assert.ok(existsSync(other.tree), 'the worktree of another issue stays');
+    assert.match(result.stdout, /removed the worktree/);
+  });
+
+  it('removes the worktree it is run from, as a session in it would', async () => {
+    const landed = await worked(main, 'Finish from inside, so that it works');
+    await integrateIssue.run(integrateArguments(main, landed.number, landed.head), ctx(landed.tree));
+    await finishIssue.run([String(landed.number)], ctx(landed.tree));
+    assert.ok(!existsSync(landed.tree));
+  });
+
+  it('keeps a worktree whose work did not land, and one with changes (planted: unlanded and dirty)', async () => {
+    const unlanded = await worked(main, 'Not landed, so that it stays');
+    await assert.rejects(finishIssue.run([String(unlanded.number)], ctx(main.checkout)), /is not on origin\/master: the work did not land/);
+    assert.ok(existsSync(unlanded.tree));
+    const landed = await worked(main, 'Dirty after landing, so that it stays');
+    await integrateIssue.run(integrateArguments(main, landed.number, landed.head), ctx(landed.tree));
+    writeFileSync(join(landed.tree, 'somebody.txt'), 'work in progress');
+    await assert.rejects(finishIssue.run([String(landed.number)], ctx(main.checkout)), /has changes, so it stays/);
+    assert.ok(existsSync(join(landed.tree, 'somebody.txt')));
+  });
+
+  it('refuses an issue with no worktree here', async () => {
+    await assert.rejects(finishIssue.run(['99999'], ctx(main.checkout)), /no worktree of o\/r#99999 stands in this clone/);
+  });
+
+  it('finds the worktree of an issue of another repository by the repository start-issue recorded', async () => {
+    const number = newIssue(sibling, 'Elsewhere and finished, so that it is found', { labels: ['status/ready'] });
+    await startIssue.run([sibling.full, String(number)], ctx(main.checkout));
+    await assert.rejects(finishIssue.run([String(number)], ctx(main.checkout)), /no worktree of o\/r#\d+ stands/, 'the number alone means the issue of this clone');
+    const tree = await treeOf(main, number);
+    fixture.commit(tree, `elsewhere-${number}.txt`, 'work\n');
+    await assert.rejects(finishIssue.run([sibling.full, String(number)], ctx(main.checkout)), /is not on origin\/master/);
+    assert.ok(existsSync(tree));
+  });
+});
+
+describe('issue-release', () => {
+  it('refuses a tag that does not exist, and writes nothing', async () => {
+    const number = newIssue(main, 'Released too early, so that it is refused', { labels: ['status/testing'] });
+    const before = writesOf();
+    await assert.rejects(issueRelease.run(['--repo', main.full, '--tag', 'v9.9.9', String(number)], ctx(main.checkout)), /has no tag v9.9.9, so nothing is released/);
+    assert.equal(writesOf(), before);
+  });
+
+  it('sets the milestone of the tag on the issues of the repository and writes "Released in" on an issue of another', async () => {
+    fake.addTag(main.full, 'v1.0.0');
+    const first = newIssue(main, 'Released one, so that it has the milestone', { labels: ['status/testing'] });
+    const second = newIssue(main, 'Released two, so that it shares the milestone', { labels: ['status/testing'] });
+    const foreign = newIssue(sibling, 'Released elsewhere, so that it gets a comment', { labels: ['status/testing'] });
+    const result = await issueRelease.run(['--repo', main.full, '--tag', 'v1.0.0', String(first), String(second), `${sibling.full}#${foreign}`], ctx(main.checkout));
+    assert.equal(fake.readIssue(main.full, first).milestone, 'v1.0.0');
+    assert.equal(fake.readIssue(main.full, second).milestone, 'v1.0.0');
+    assert.deepEqual(fake.listMilestones(main.full).filter((milestone) => milestone.title === 'v1.0.0').length, 1, 'one milestone for both');
+    assert.equal(fake.readIssue(sibling.full, foreign).milestone, undefined, 'a milestone belongs to one repository');
+    assert.deepEqual(commentsOf(sibling, foreign), ['Released in o/r v1.0.0:\n']);
+    assert.match(result.stdout, /created the milestone v1.0.0/);
+
+    const writes = writesOf();
+    await issueRelease.run(['--repo', main.full, '--tag', 'v1.0.0', String(first), `${sibling.full}#${foreign}`], ctx(main.checkout));
+    assert.equal(writesOf(), writes, 'run again, it writes nothing');
+  });
+
+  it('names what is done when a later issue fails', async () => {
+    fake.addTag(main.full, 'v1.1.0');
+    const first = newIssue(main, 'Released first, so that it is done', { labels: ['status/testing'] });
+    const second = newIssue(main, 'Released second, so that it fails', { labels: ['status/testing'] });
+    fake.fail({ method: 'PATCH', path: `/repos/o/r/issues/${second}`, mode: { kind: 'status', status: 500, message: 'planted' } });
+    await assert.rejects(issueRelease.run(['--repo', main.full, '--tag', 'v1.1.0', String(first), String(second)], ctx(main.checkout)), (error: unknown) => error instanceof PartialCompletionError && error.completed.includes(`o/r#${first}`));
+  });
+
+  it('refuses a call with no issue and a tag that is not given', async () => {
+    await assert.rejects(issueRelease.run(['--repo', main.full, '--tag', 'v1.0.0'], ctx(main.checkout)), UsageError);
+    await assert.rejects(issueRelease.run(['--repo', main.full, '1'], ctx(main.checkout)), UsageError);
+  });
+});
+
+describe('issue-proof and the close as completed', () => {
+  const evidence = (): string => {
+    const path = join(scratch, `evidence-${Math.random().toString(16).slice(2)}.md`);
+    writeFileSync(path, 'Opened the page and saw the change work.\n');
+    return path;
+  };
+  const proofArguments = (number: number, environment = 'prod'): string[] => [main.full, String(number), '--environment', environment, '--body-file', evidence()];
+
+  async function delivered(title: string): Promise<{ number: number; head: string }> {
+    const { number, tree, head } = await worked(main, title);
+    await integrateIssue.run(integrateArguments(main, number, head), ctx(tree));
+    fake.addTag(main.full, `v-${number}`);
+    await issueRelease.run(['--repo', main.full, '--tag', `v-${number}`, String(number)], ctx(main.checkout));
+    return { number, head };
+  }
+
+  it('writes the proof of a delivered issue, sets status/done and closes it as completed', async () => {
+    const { number } = await delivered('Proven after delivery, so that it closes');
+    const result = await issueProof.run(proofArguments(number), ctx(main.checkout));
+    const issue = fake.readIssue('o/r', number);
+    assert.equal(issue.state, 'closed');
+    assert.deepEqual(issue.labels, ['status/done']);
+    assert.equal(issue.comments.at(-1), 'Proven on prod:\n\nOpened the page and saw the change work.\n');
+    assert.match(result.stdout, /proven on prod/);
+  });
+
+  it('refuses a proof before delivery: no landing, a landing with no release after it (planted: neither)', async () => {
+    const none = newIssue(main, 'Never landed, so that no proof is written', { labels: ['status/implementing'] });
+    const before = writesOf();
+    await assert.rejects(issueProof.run(proofArguments(none), ctx(main.checkout)), /not delivered, so nothing is proven: no "Landed on" record/);
+    const { number, tree, head } = await worked(main, 'Landed only, so that no proof is written');
+    await integrateIssue.run(integrateArguments(main, number, head), ctx(tree));
+    const writes = writesOf();
+    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout)), /no release of o\/r follows its landing/);
+    assert.equal(writesOf(), writes);
+    assert.equal(before <= writes, true);
+    assert.equal(fake.readIssue('o/r', number).state, 'open');
+  });
+
+  it('counts no record of an account without write permission (planted: a stranger lands, releases and would prove)', async () => {
+    const number = newIssue(main, 'Faked records, so that no proof is written', { labels: ['status/testing'] });
+    const landing = composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'r' }, reviewedHead: 'a'.repeat(40), landedCommit: 'b'.repeat(40), reviewers: ['x'] }, { owner: 'o', repo: 'r' });
+    fake.addComment('o/r', number, 'stranger', landing);
+    fake.addComment('o/r', number, 'stranger', 'Released in o/r v1:\n');
+    const before = writesOf();
+    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout)), /no "Landed on" record of an account with write permission/);
+    assert.equal(writesOf(), before);
+  });
+
+  it('refuses a proof of work that was reopened after its delivery, until it is delivered again', async () => {
+    const { number } = await delivered('Reopened after delivery, so that the old records are stale');
+    await issueProof.run(proofArguments(number), ctx(main.checkout));
+    await issueState.runReopen([main.full, String(number), '--status', 'testing'], ctx(main.checkout));
+    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout)), /no "Landed on" record .* follows the last reopening/);
+    await assert.rejects(issueState.runClose([main.full, String(number)], ctx(main.checkout)), /no proof that follows its landing and its last reopening/);
+    const landing = composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'r' }, reviewedHead: 'c'.repeat(40), landedCommit: 'd'.repeat(40), reviewers: ['x'] }, { owner: 'o', repo: 'r' });
+    fake.addComment('o/r', number, 'fake-user', landing);
+    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout)), /no release of o\/r follows its landing/);
+    fake.addTag(main.full, `v-again-${number}`);
+    await issueRelease.run(['--repo', main.full, '--tag', `v-again-${number}`, String(number)], ctx(main.checkout));
+    await issueProof.run(proofArguments(number), ctx(main.checkout));
+    assert.equal(fake.readIssue('o/r', number).state, 'closed');
+  });
+
+  it('takes a landing as the delivery where LIVE_TAGS names the environment with the pattern landed, and only that environment', async () => {
+    const { number, tree, head } = await worked(main, 'Landing is delivery, so that no release is needed');
+    await integrateIssue.run(integrateArguments(main, number, head), ctx(tree));
+    await assert.rejects(issueProof.run(proofArguments(number, 'test'), ctx(main.checkout, { liveTags: 'prod=landed test=deploy/test/*' })), /no release of o\/r follows its landing/);
+    await issueProof.run(proofArguments(number, 'prod'), ctx(main.checkout, { liveTags: 'prod=landed test=deploy/test/*' }));
+    assert.equal(fake.readIssue('o/r', number).state, 'closed');
+  });
+
+  it('writes its own proof where only an account without write permission wrote one (planted: a stranger proves first)', async () => {
+    const { number } = await delivered('Proven by a stranger first, so that the real proof is still written');
+    fake.addComment('o/r', number, 'stranger', composeProvenRecord('prod', 'Trust me.'));
+    await issueProof.run(proofArguments(number), ctx(main.checkout));
+    const issue = fake.readIssue('o/r', number);
+    assert.equal(issue.state, 'closed');
+    assert.equal(issue.comments.at(-1), 'Proven on prod:\n\nOpened the page and saw the change work.\n');
+  });
+
+  it('writes the proof once when a run failed after it, and closes on the second run', async () => {
+    const { number } = await delivered('Closed after a failure, so that the proof stays single');
+    fake.fail({ method: 'PATCH', path: `/repos/o/r/issues/${number}`, mode: { kind: 'status', status: 500, message: 'planted' } });
+    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout)), (error: unknown) => error instanceof PartialCompletionError && /wrote the record "Proven on prod:"/.test(error.message));
+    assert.equal(fake.readIssue('o/r', number).state, 'open');
+    await issueProof.run(proofArguments(number), ctx(main.checkout));
+    const issue = fake.readIssue('o/r', number);
+    assert.equal(issue.state, 'closed');
+    assert.equal(issue.comments.filter((text) => text.startsWith('Proven on')).length, 1);
+  });
+
+  it('refuses evidence that is empty, an environment that is no word and a closed issue', async () => {
+    const { number } = await delivered('Refused input, so that nothing is written');
+    const empty = join(scratch, 'empty.md');
+    writeFileSync(empty, '\n');
+    await assert.rejects(issueProof.run([main.full, String(number), '--environment', 'prod', '--body-file', empty], ctx(main.checkout)), /the evidence is empty/);
+    await assert.rejects(issueProof.run(proofArguments(number, 'prod:1'), ctx(main.checkout)), UsageError);
+    await assert.rejects(issueProof.run([main.full, String(number), '--environment', 'prod'], ctx(main.checkout)), UsageError);
+    await issueProof.run(proofArguments(number), ctx(main.checkout));
+    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout)), /is closed/);
+  });
+
+  it('refuses evidence with a literal email address for a public repository', async () => {
+    const { number } = await delivered('Evidence with an address, so that it is refused');
+    const path = join(scratch, 'address.md');
+    writeFileSync(path, 'Signed in as someone@private-company.com and saw it work.\n');
+    await assert.rejects(issueProof.run([main.full, String(number), '--environment', 'prod', '--body-file', path], ctx(main.checkout)), PreconditionError);
+    assert.equal(fake.readIssue('o/r', number).state, 'open');
+  });
+
+  it('closes as completed with issue-close once a proof of a trusted account follows the landing (and not before)', async () => {
+    const { number } = await delivered('Closed with a proof, so that close works');
+    await assert.rejects(issueState.runClose([main.full, String(number)], ctx(main.checkout)), /has no proof that follows its landing/);
+    fake.addComment('o/r', number, 'stranger', composeProvenRecord('prod', 'ok'));
+    await assert.rejects(issueState.runClose([main.full, String(number)], ctx(main.checkout)), /has no proof/);
+    fake.addComment('o/r', number, 'fake-user', composeProvenRecord('prod', 'ok'));
+    const result = await issueState.runClose([main.full, String(number)], ctx(main.checkout));
+    assert.match(result.stdout, /closed as completed/);
+    assert.deepEqual(fake.readIssue('o/r', number).labels, ['status/done']);
+    assert.equal(fake.readIssue('o/r', number).state, 'closed');
+  });
+
+  it('does not count a proof that came before the landing', async () => {
+    const number = newIssue(main, 'Proven too early, so that it does not count', { labels: ['status/testing'] });
+    fake.addComment('o/r', number, 'fake-user', composeProvenRecord('prod', 'too early'));
+    fake.addComment('o/r', number, 'fake-user', composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'r' }, reviewedHead: 'a'.repeat(40), landedCommit: 'b'.repeat(40), reviewers: ['x'] }, { owner: 'o', repo: 'r' }));
+    await assert.rejects(issueState.runClose([main.full, String(number)], ctx(main.checkout)), /has no proof/);
+  });
+});

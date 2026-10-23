@@ -59,8 +59,9 @@
   together with every other card due on that environment, at least two where two are due, because
   cards whose proofs share a page, a login or a flow pass with nearly the same steps; and the
   coordinator, in its next round, writes the proof on the issue, in a comment whose first line is
-  `Proven on <environment>:`; `ai-core status-sync` closes the card when that record follows its
-  landing and the release of the first environment of `LIVE_TAGS` carries its work. A test, on
+  `Proven on <environment>:`; on GitHub `ai-core status-sync` closes the card when that record follows its
+  landing and the release of the first environment of `LIVE_TAGS` carries its work; on Forgejo
+  `ai-core issue-proof` writes the record and closes the issue under the same conditions. A test, on
   any environment, reaches no real person. Every mail or message that a test sends, or makes the
   product send, goes to the project's one test mailbox. Its address is one setting of the tests,
   never a literal in a test case. Each test case adds its own name to the local part of that

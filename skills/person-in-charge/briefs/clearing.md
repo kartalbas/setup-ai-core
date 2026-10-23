@@ -14,7 +14,8 @@ question "where is this seen", and stays.
 
 - `ai-core status --project <board>`: the TESTING block (where each card's work is live) and the
   TREES block (the worktrees that hold unlanded work or uncommitted changes).
-- `ai-core board-list --project <board>`: every card in `implementing` and `testing`.
+- `ai-core board-list --project <board>`: every card in `implementing` and `testing`. On Forgejo, which has
+  no board, read them with `ai-core status --label status/implementing` and `ai-core status --label status/testing`.
 - Per card: the issue's last comments (`ai-core issue-thread <n>`), and for its worktree
   `git -C <worktree> status --porcelain` and `git -C <worktree> log origin/<default>..HEAD --oneline`.
 

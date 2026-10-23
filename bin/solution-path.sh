@@ -15,9 +15,15 @@
 #
 # --check validates and posts nothing, for a writer who wants to know before they send.
 
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
+set -euo pipefail
+LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)"
+. "$LIB/common.sh"
+# the board code is for a tracker that has a board; the Forgejo tracker has none
+if tracker_is_forgejo; then ROOT="$(cd "$LIB/.." && pwd)"; else . "$LIB/board.sh"; fi
 
 BIN="$ROOT/bin"
+issue_comment=("$BIN/issue-comment.sh")
+if tracker_is_forgejo; then issue_comment=(bash "$BIN/ai-core" issue-comment); fi
 usage='usage: solution-path.sh NUMBER FILE [--check]'
 
 # The headings a solution path must carry, in the order a reader walks them.
@@ -117,6 +123,6 @@ fi
 
 # The file travels as a file: its backticks, quotes and newlines reach GitHub as they were
 # written, because no shell reads them on the way.
-posted="$("$BIN/issue-comment.sh" "$number" --body-file "$file" 2>&1)" \
+posted="$("${issue_comment[@]}" "$number" --body-file "$file" 2>&1)" \
   || die "the solution path was NOT posted: $posted"
 printf '%s\n' "$posted"

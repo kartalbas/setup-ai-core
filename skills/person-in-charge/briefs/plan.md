@@ -30,7 +30,8 @@ cut by file splits a contract and its two sides then release apart.
 
 Before the issues, read `ai-core issue-map <OWNER/REPO> ...` for the repository of every clone: one
 line per open issue with its parent, its `blocked by` and the files it names, then the groups and the
-shared files. It costs a tenth of reading the issues. An open issue outside your list that the map
+shared files. It costs a tenth of reading the issues. On Forgejo there is no `issue-map`: read
+`ai-core status --json` for the open issues and their labels, and the files an issue names in its body. An open issue outside your list that the map
 joins to one of yours, by a group or a shared file, is read too, because a package that shares a file
 with it runs before or after it.
 

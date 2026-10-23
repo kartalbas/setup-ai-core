@@ -12,7 +12,8 @@ for arg in "$@"; do
     -h|--help)
       echo "Usage: doctor.sh [--no-install]"
       echo ""
-      echo "Checks Git, gh (with its login), Bash, Node.js 20+ with npx, and reports"
+      echo "Checks Git, gh (with its login), Bash, Node.js 20+ with npx, with TRACKER=forgejo the Forgejo"
+      echo "tracker (it must run in this Node, and say not configured, not authorized or healthy), and reports"
       echo "the agent CLIs (claude, agy, codex), and names the temporary worktree of a landing that no"
       echo "longer runs (.worktrees/<repository>/integrate-<issue>.XXXXXX) with the command that removes it."
       echo "Missing required tools are installed with the"
@@ -81,6 +82,26 @@ tracker="$(config_value TRACKER github | tr '[:upper:]' '[:lower:]')"
 if [ -f "$HARNESS_ROOT/lib/$tracker/tracker.sh" ]; then
   . "$HARNESS_ROOT/lib/tracker.sh"
   tracker_doctor
+elif [ "$tracker" = forgejo ]; then
+  # the Forgejo tracker has no Bash provider: it runs in Node, which must run .mts files without a flag, so the
+  # capability is asked of the tracker itself and no version number is compared
+  echo "  tracker: forgejo"
+  if ! command -v node >/dev/null 2>&1; then
+    report tracker MISSING "the Forgejo tracker runs in Node; install a Node.js that runs .mts files without a flag, from https://nodejs.org"; problem
+  elif ! tracker_version="$(node "$HARNESS_ROOT/lib/forgejo/tracker/cli.mts" --version 2>&1)"; then
+    report tracker "cannot run" "node $(node -v 2>/dev/null) does not run lib/forgejo/tracker/cli.mts without a flag: $(printf '%s' "$tracker_version" | grep -m1 . || echo 'no message')"; problem
+  else
+    report tracker present "$tracker_version"
+    tracker_lines="$( (forgejo_tracker_exec doctor) 2>&1 || true )"
+    while IFS= read -r line; do
+      case "$line" in
+        "ok: "*) report tracker ok "${line#ok: }" ;;
+        "problem: "*) report tracker problem "${line#problem: }"; problem ;;
+        "") ;;
+        *) report tracker problem "the Forgejo doctor said: $line"; problem ;;
+      esac
+    done <<< "$tracker_lines"
+  fi
 else
   echo "  tracker: $tracker"
   report tracker MISSING "TRACKER names no folder of lib/ with a tracker.sh"; problem

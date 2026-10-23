@@ -179,13 +179,38 @@ GH_LOGGED_IN=0
 GH_USER=""
 if GH_USER="$(signed_in_user)"; then GH_LOGGED_IN=1; else GH_USER=""; fi
 
+# The thread and the assignment of an issue come from the tracker of the project. The Forgejo tracker runs in Node
+# through ai-core and loads no board code; the others run their Bash scripts, as before.
+read_issue_thread() {  # read_issue_thread <repository or empty> <number>
+  if tracker_is_forgejo; then apart bash "$CORE/bin/ai-core" issue-thread ${1:+"$1"} "$2" --json
+  else ( . "$CORE/lib/board.sh"; apart bash "$CORE/bin/issue-thread.sh" ${1:+"$1"} "$2" --json ); fi
+}
+read_issue_mine() {  # read_issue_mine <repository or empty> <number>
+  if tracker_is_forgejo; then bash "$CORE/bin/ai-core" issue-mine ${1:+"$1"} "$2" 2>&1
+  else bash "$CORE/bin/issue-mine.sh" ${1:+"$1"} "$2" 2>&1; fi
+}
+# What the worktree stands for on Forgejo, as worktree_issue of lib/board.sh answers it: a branch or a directory
+# named issue-N-... carries issue N, of the repository start-issue recorded on the branch; there is no carry, so the
+# number is the work item.
+forgejo_worktree_issue() {
+  local branch named="" repository="" tail
+  branch="$(git symbolic-ref --short -q HEAD || true)"
+  tail="${branch##*/}"
+  case "$tail" in issue-[0-9]*) named="${tail#issue-}"; named="${named%%-*}"; repository="$(git config --get "branch.$branch.issueRepository" 2>/dev/null || true)" ;; esac
+  if [ -z "$named" ]; then tail="$(git rev-parse --show-toplevel)"; tail="${tail##*/}"; case "$tail" in issue-[0-9]*) named="${tail#issue-}"; named="${named%%-*}" ;; esac; fi
+  case "$named" in *[!0-9]*) named="" ;; esac
+  jq -nc --arg named "$named" --arg repository "$repository" '{named: $named, repository: $repository, workItem: $named, reason: "", error: ""}'
+}
+
 # 3. The issue of this worktree: a branch or a directory named issue-N-<slug> carries issue N, of
 #    the repository start-issue recorded on the branch where the issue lives in another one.
 #    Its thread is read through issue-thread, and issue-mine says whether it is assigned to you.
 THREAD=""; THREAD_JSON="null"; ASSIGNED=false; MINE=""; ISSUE_REPO=""; ISSUE_UNREAD=""
 # board.sh, and so the tracker, is loaded only for a worktree or branch named like an issue's
 case "${BRANCH##*/}:${ROOT##*/}" in
-  issue-[0-9]*|*:issue-[0-9]*) WORKTREE_ISSUE="$(. "$CORE/lib/board.sh"; worktree_issue)" ;;
+  issue-[0-9]*|*:issue-[0-9]*)
+    if tracker_is_forgejo; then WORKTREE_ISSUE="$(forgejo_worktree_issue)"
+    else WORKTREE_ISSUE="$(. "$CORE/lib/board.sh"; worktree_issue)"; fi ;;
   *) WORKTREE_ISSUE='{"named":"","repository":"","workItem":"","reason":"","error":""}' ;;
 esac
 ISSUE_NAMED="$(jq -r '.named' <<< "$WORKTREE_ISSUE")"
@@ -199,7 +224,7 @@ if [ -n "$ISSUE_NAMED" ]; then
   elif [ -z "$ISSUE" ]; then
     ISSUE="$ISSUE_NAMED"; ISSUE_UNREAD="this worktree $(jq -r '.reason' <<< "$WORKTREE_ISSUE")"
     THREAD="The worktree is named by the number $ISSUE, and it names no work item: $(jq -r '.reason' <<< "$WORKTREE_ISSUE")"
-  elif THREAD_JSON="$(. "$CORE/lib/board.sh"; apart bash "$CORE/bin/issue-thread.sh" ${ISSUE_REPO:+"$ISSUE_REPO"} "$ISSUE" --json)"; then
+  elif THREAD_JSON="$(read_issue_thread "$ISSUE_REPO" "$ISSUE")"; then
     THREAD="$(printf '%s' "$THREAD_JSON" | jq -r --arg named "$ISSUE_NAMED" '
       "#\(.number) \(.title)",
       "state: \(.state)",
@@ -213,7 +238,7 @@ if [ -n "$ISSUE_NAMED" ]; then
     THREAD="The thread of ${ISSUE_REPO}#$ISSUE could not be read: $THREAD_JSON"; THREAD_JSON="null"
   fi
   if [ -z "$WORKTREE_ERROR" ] && [ -n "$(jq -r '.workItem' <<< "$WORKTREE_ISSUE")" ]; then
-    if MINE="$(bash "$CORE/bin/issue-mine.sh" ${ISSUE_REPO:+"$ISSUE_REPO"} "$ISSUE" 2>&1)"; then ASSIGNED=true; fi
+    if MINE="$(read_issue_mine "$ISSUE_REPO" "$ISSUE")"; then ASSIGNED=true; fi
   fi
 fi
 

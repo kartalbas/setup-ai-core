@@ -56,20 +56,33 @@ config_value() {  # config_value <key> <default>
   config_file_value "$1" "$2"
 }
 
-# THE FIVE SETTINGS OF THE TRACKER ARE THE CHECKOUT'S, NOT THE WORKTREE'S: one repository has one tracker. A
-# worktree gets its own copy of .ai-core/config.env once, when init makes it, and no later run refreshes it, so a
+# THE EIGHT SETTINGS OF THE TRACKER ARE THE CHECKOUT'S, NOT THE WORKTREE'S: one repository has one tracker and one
+# forge. A worktree gets its own copy of .ai-core/config.env once, when init makes it, and no later run refreshes it, so a
 # tracker switched afterwards would still read as the old one there; and the server the key goes to and the
-# command that yields it must come from one file. These five are read from the main checkout's file, the one in
+# command that yields it must come from one file. These eight are read from the main checkout's file, the one in
 # the parent of the git common directory; every other setting stays the worktree's own.
 # A harness clone, the clone of a project harness layer, has no .ai-core/config.env: init deploys into the
-# repositories a layer serves and never into the layer. Its five settings are the layer's own config.env at the
+# repositories a layer serves and never into the layer. Its eight settings are the layer's own config.env at the
 # root of the clone, the file init copies into the repositories it serves.
-TRACKER_SETTINGS=" TRACKER PLANE_URL PLANE_WORKSPACE PLANE_PROJECT PLANE_TOKEN_COMMAND "
+TRACKER_SETTINGS=" TRACKER PLANE_URL PLANE_WORKSPACE PLANE_PROJECT PLANE_TOKEN_COMMAND FORGE FORGEJO_URL FORGEJO_TOKEN_COMMAND "
 
-# is_harness_clone <checkout>: whether the checkout is a harness repository, by the one test init and the push gate
-# use. A subshell loads the forge provider of lib/layers.sh, so the caller's shell stays as it was.
+# harness_of <repo name>: the prefix, or nothing for setup-ai-core and for a harness itself
+harness_of() {
+  case "$1" in
+    setup-ai-core) return 1 ;;
+    *-ai-core) return 1 ;;
+    *-*) echo "${1%%-*}" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+# is_harness_clone <checkout>: whether the checkout is a harness repository, judged by the name of its origin alone.
+# It loads no provider: FORGE is one of the settings above, so a provider loaded to find the file that holds FORGE
+# would read FORGE again, and the choice of the file would never end.
 is_harness_clone() {
-  ( . "$HARNESS_ROOT/lib/layers.sh" && harness_source_of "$1" ) >/dev/null 2>&1
+  local repo
+  repo="$(origin_repo "$1")" || return 1
+  ! harness_of "${repo#*/}" >/dev/null
 }
 
 # config_file_of <key>: the config.env a setting is read from
@@ -112,6 +125,25 @@ config_file_value() {
     fi
   fi
   echo "$2"
+}
+
+# tracker_is_forgejo: whether the project's tracker is the Forgejo tracker, which runs in Node from
+# lib/forgejo/tracker and has no board, no epics and no Bash provider to load.
+tracker_is_forgejo() { [ "$(config_value TRACKER github | tr '[:upper:]' '[:lower:]')" = forgejo ]; }
+
+# forgejo_tracker_exec <command> [argument...]: replaces the shell with the Forgejo tracker running the command.
+# The settings that are not secret travel in the environment; the token does not, node reads it by running
+# FORGEJO_TOKEN_COMMAND when the first request needs it. Run it in a subshell.
+forgejo_tracker_exec() {
+  command -v node >/dev/null 2>&1 || die "the Forgejo tracker runs in Node, and node is not installed"
+  export TRACKER=forgejo
+  FORGEJO_URL="$(config_value FORGEJO_URL "")"
+  FORGEJO_TOKEN_COMMAND="$(config_value FORGEJO_TOKEN_COMMAND "")"
+  AI_CORE_LABELS_FILE="$(data_file labels.tsv)"
+  CI_GATE="$(config_value CI_GATE public)"
+  LIVE_TAGS="$(config_value LIVE_TAGS "")"
+  export FORGEJO_URL FORGEJO_TOKEN_COMMAND AI_CORE_LABELS_FILE CI_GATE LIVE_TAGS
+  exec node "$HARNESS_ROOT/lib/forgejo/tracker/cli.mts" "$@"
 }
 
 # THE PROVIDER OF A SUBJECT: the key named after the subject (TRACKER for tracker, FORGE for forge)

@@ -17,8 +17,8 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# The library is sourced for data_file only; its set -e is undone, this script judges its own steps
-. "$ROOT/lib/board.sh"; set +e
+# The library is sourced for data_file only: this script needs no tracker, so a project without a board runs it too
+. "$ROOT/lib/common.sh"
 TABLE="${TEAM_MODES_FILE:-$(data_file team-modes.tsv)}"
 usage='usage: team-modes-check.sh [--tool NAME ...] [--quiet]'
 

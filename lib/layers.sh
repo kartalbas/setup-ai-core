@@ -41,16 +41,6 @@ origin_parts() {
   printf '%s\t%s\n' "${url%%/*}" "${url#*/}"
 }
 
-# harness_of <repo name>: the prefix, or nothing for setup-ai-core and for a harness itself
-harness_of() {
-  case "$1" in
-    setup-ai-core) return 1 ;;
-    *-ai-core) return 1 ;;
-    *-*) echo "${1%%-*}" ;;
-    *) echo "$1" ;;
-  esac
-}
-
 # harness_source_of <checkout>: the source identity comes from Git, never a directory name.
 harness_source_of() {
   local parts repo

@@ -84,6 +84,8 @@ if [ -n "$ALL_DIR" ]; then
     [ -e "$repo/.git" ] || continue
     case "${repo##*/}" in *-ai-core) continue ;; esac
     [ "$(git -C "$repo" worktree list --porcelain 2>/dev/null | grep '^worktree ' | grep -v -c -E "/\.ai-core/neighbours/|/\.worktrees/[^/]*/origin-|$LANDING_WORKTREE_RE")" -gt 1 ] || continue
+    # on Forgejo finish-issue removes the one worktree it is given and sweeps no other
+    ! (cd "$repo" && tracker_is_forgejo) || continue
     echo ""; echo "### ${repo##*/}: worktrees whose work landed"
     (cd "$repo" && bash "$CORE_ROOT/bin/finish-issue.sh" --sweep $([ "$DRY" -eq 1 ] && echo --dry-run)) 2>&1 | sed 's/^/  /' || true
   done

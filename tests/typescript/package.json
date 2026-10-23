@@ -1,0 +1,9 @@
+{
+  "name": "setup-ai-core-typescript-check",
+  "private": true,
+  "description": "Development only: the compiler and the Node declarations that type-check lib/forgejo/tracker. The runtime loads neither.",
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "7.0.2"
+  }
+}

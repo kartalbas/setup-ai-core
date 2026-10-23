@@ -38,8 +38,8 @@ export interface IssueComment {
   readonly url: string;
 }
 
-// The JSON that lib/github/tracker.sh prints for `issue-thread --json`, which session-start and the
-// engine guard read.
+// The JSON that `issue-thread --json` prints, which session-start and the engine guard read: the
+// object lib/github/tracker.sh prints, and the logins the issue is assigned to.
 export interface Thread {
   readonly number: number;
   readonly title: string;
@@ -47,6 +47,7 @@ export interface Thread {
   readonly createdAt: string;
   readonly state: IssueState;
   readonly labels: readonly string[];
+  readonly assignees: readonly string[];
   readonly body: string;
   readonly comments: readonly { readonly author: string; readonly created_at: string; readonly body: string }[];
 }
@@ -164,6 +165,7 @@ export async function readThread(api: ForgejoClient, ref: IssueRef): Promise<Thr
     createdAt: issue.createdAt,
     state: issue.state,
     labels: issue.labels,
+    assignees: issue.assignees,
     body: issue.body,
     comments: comments.map((comment) => ({ author: comment.author, created_at: comment.createdAt, body: comment.body })),
   };

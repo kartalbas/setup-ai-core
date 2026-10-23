@@ -17,7 +17,7 @@ describe('issue-thread', () => {
     fake = await startFakeForgejo();
     fake.addRepository('o/r');
     seedLabels(fake, 'o');
-    fake.addIssue('o/r', { title: 'Threaded, so that it has comments', body: 'The body', labels: ['status/ready', 'area/gate'] });
+    fake.addIssue('o/r', { title: 'Threaded, so that it has comments', body: 'The body', labels: ['status/ready', 'area/gate'], assignees: ['fake-user', 'second-user'] });
     fake.addComment('o/r', 1, 'someone', 'First comment');
     fake.addComment('o/r', 1, 'someone-else', 'Second comment');
     fake.addIssue('o/r', { title: 'Bare, so that it has no labels' });
@@ -34,7 +34,13 @@ describe('issue-thread', () => {
     assert.equal(thread.state, 'open');
     assert.deepEqual(thread.labels, ['status/ready', 'area/gate']);
     assert.equal(thread.body, 'The body');
+    assert.deepEqual(thread.assignees, ['fake-user', 'second-user']);
     assert.deepEqual((thread.comments as { author: string; body: string }[]).map((comment) => [comment.author, comment.body]), [['someone', 'First comment'], ['someone-else', 'Second comment']]);
+  });
+
+  it('prints the assignees as a list of logins, an empty list for an issue nobody carries', async () => {
+    const bare = JSON.parse((await issueThread.run(['o/r', '2', '--json'], contextFor(fake))).stdout) as Record<string, unknown>;
+    assert.deepEqual(bare.assignees, []);
   });
 
   it('lays the thread out for a person', async () => {

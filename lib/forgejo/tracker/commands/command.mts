@@ -31,6 +31,8 @@ export interface HarnessSteps {
   assembleWorktree(path: string): Promise<StepOutcome>;
   // Fast-forwards the default branch of the checkout where it is only behind origin.
   refreshCheckout(checkout: string): Promise<StepOutcome>;
+  // Runs scripts/install.sh of the worktree, its lines shown while it runs; the outcome holds the last of them.
+  installTools(worktree: string, show: (text: string) => void): Promise<StepOutcome>;
 }
 
 export interface StepOutcome {

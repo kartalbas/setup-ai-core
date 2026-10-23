@@ -37,7 +37,7 @@ function hideCredentials(text: string): string {
 }
 
 // Whole lines only, so that an address split across two chunks is still hidden.
-function showLines(stream: Readable, show: (text: string) => void): void {
+export function showLines(stream: Readable, show: (text: string) => void): void {
   let pending = '';
   stream.on('data', (chunk: string | Buffer) => {
     pending += String(chunk);

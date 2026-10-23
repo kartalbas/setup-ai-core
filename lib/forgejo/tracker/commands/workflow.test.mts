@@ -14,6 +14,7 @@ import { createRecordingHarness } from '../testing/recording-harness.mts';
 import type { RecordingHarness } from '../testing/recording-harness.mts';
 import type { GitFixture } from '../testing/git-fixture.mts';
 import { GitClient } from '../git/git.mts';
+import { bashHarness } from '../harness.mts';
 import type { CommandContext } from './command.mts';
 import * as finishIssue from './finish-issue.mts';
 import * as integrateIssue from './integrate-issue.mts';
@@ -478,6 +479,51 @@ describe('integrate-issue', () => {
       assert.ok(asked.length >= 2 && asked.every((path) => path === `/repos/o/r/commits/${merged}/status`), `the checks of the commit that landed: ${asked.join()}`);
       assert.doesNotMatch(remoteBranches(main), /ci\/integrate/);
       assert.match(result.stdout, /checks: green for/);
+    });
+
+    it('installs the tools in the temporary worktree before the push, so a gate that needs them lets the landing through (planted: no install)', async () => {
+      const { number, tree } = await worked(main, 'Install first, so that the gate finds its tools');
+      mkdirSync(join(tree, 'scripts'), { recursive: true });
+      writeFileSync(join(tree, 'scripts', 'install.sh'), 'mkdir -p node_modules && echo "installing the tools" && touch node_modules/.ok\n');
+      git(tree, 'add', 'scripts/install.sh');
+      git(tree, 'commit', '-q', '-m', 'Add the install');
+      const installed = git(tree, 'rev-parse', 'HEAD');
+      appendFileSync(join(main.checkout, '.git', 'info', 'exclude'), 'node_modules/\n');
+      // the delete of the branch for the checks runs from the worktree of the issue, which holds no tools
+      fixture.installHook(main.checkout, 'pre-push', 'read -r ref sha rest; case "$sha" in 0*) exit 0;; esac\ntest -f node_modules/.ok || { echo "node_modules is missing" >&2; exit 1; }');
+      fake.setChecks(main.full, ['success']);
+      const shown: string[] = [];
+      const harness = { ...createRecordingHarness(), installTools: bashHarness.installTools };
+      try {
+        const result = await integrateIssue.run(integrateArguments(main, number, installed), { ...ctx(tree, publicSettings, harness), stderr: (text) => shown.push(text) });
+        assert.match(result.stdout, /checks: green for/);
+        assert.match(shown.join(''), /^installing the tools$/m);
+      } finally {
+        rmSync(join(main.checkout, '.git', 'hooks', 'pre-push'));
+      }
+      git(main.remote, 'merge-base', '--is-ancestor', installed, tipOf(main));
+      assert.doesNotMatch(remoteBranches(main), /ci\/integrate/);
+    });
+
+    it('lands nothing when the install fails, and shows its lines (planted: the install exits 1)', async () => {
+      const { number, tree } = await worked(main, 'Install fails, so that it is refused');
+      mkdirSync(join(tree, 'scripts'), { recursive: true });
+      writeFileSync(join(tree, 'scripts', 'install.sh'), 'echo "the install broke" >&2\nexit 1\n');
+      git(tree, 'add', 'scripts/install.sh');
+      git(tree, 'commit', '-q', '-m', 'Add a failing install');
+      const installed = git(tree, 'rev-parse', 'HEAD');
+      fake.setChecks(main.full, ['success']);
+      const [before, writes] = [tipOf(main), writesOf()];
+      const shown: string[] = [];
+      const harness = { ...createRecordingHarness(), installTools: bashHarness.installTools };
+      await assert.rejects(
+        integrateIssue.run(integrateArguments(main, number, installed), { ...ctx(tree, publicSettings, harness), stderr: (text) => shown.push(text) }),
+        (error: unknown) => error instanceof PreconditionError && /nothing landed: scripts\/install.sh failed.*the install broke/.test(error.message),
+      );
+      assert.match(shown.join(''), /^the install broke$/m);
+      assert.equal(tipOf(main), before);
+      assert.equal(writesOf(), writes);
+      assert.doesNotMatch(remoteBranches(main), /ci\/integrate/);
     });
 
     it('lands nothing on red checks, and removes the branch it pushed for them (planted: red)', async () => {

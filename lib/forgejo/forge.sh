@@ -49,7 +49,7 @@ forge_host() {
 
 forge_name() { forge_host; }
 
-not_signed_in_words() { echo "nobody is signed in there"; }
+not_signed_in_words() { echo "FORGEJO_URL or FORGEJO_TOKEN_COMMAND is not set, or the instance refuses the token"; }
 
 checks_unreadable_message() {  # checks_unreadable_message <sha> <what Forgejo said last>
   echo "the checks of $1 could not be read from $(forge_host) until the deadline; it said last: $2 (is anyone signed in there?)"

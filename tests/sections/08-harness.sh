@@ -266,6 +266,10 @@ AI_CORE_MAP_TOOL=hermes map_run "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-h
 grep -aq 'map runs with claude, codex or agy' "$WORK/map-hermes.log" || fail "map.sh does not name the tools it runs with (see $WORK/map-hermes.log)"
 (cd "$WORK/org-sh/shop-web" && HOME="$WORK/home-sh" PATH="$PATH_SH" AI_CORE_UPDATE_CHECK=never TEAM_MODES_FILE="$WORK/always.tsv" bash "$ROOT/bin/session-start.sh" > "$WORK/map-session.log" 2>&1) || fail "session-start.sh with a map (see $WORK/map-session.log): $(tail -n 3 "$WORK/map-session.log" | tr '\n' '|')"
 grep -aq '^Map              : ✓ Generated from [0-9a-f]*, current$' "$WORK/map-session.log" || fail "session-start.sh does not name the map: $(grep -a '^Map' "$WORK/map-session.log")"
+grep -aq '^Forge status     : ✓ Authenticated on GitHub as @' "$WORK/map-session.log" || fail "session-start.sh does not name GitHub in its sign-in line: $(grep -a '^Forge status' "$WORK/map-session.log")"
+mkdir -p "$WORK/ghdown"; printf '#!/bin/sh\nexit 1\n' > "$WORK/ghdown/gh"; chmod +x "$WORK/ghdown/gh"
+(cd "$WORK/org-sh/shop-web" && HOME="$WORK/home-sh" PATH="$WORK/ghdown:$PATH_SH" AI_CORE_UPDATE_CHECK=never TEAM_MODES_FILE="$WORK/always.tsv" bash "$ROOT/bin/session-start.sh" > "$WORK/map-session-down.log" 2>&1) || fail "session-start.sh with gh signed out (see $WORK/map-session-down.log)"
+grep -aq '^Forge status     : ✗ GitHub: gh is missing or not logged in$' "$WORK/map-session-down.log" || fail "session-start.sh does not name GitHub and what is missing when gh is signed out: $(grep -a '^Forge status' "$WORK/map-session-down.log")"
 echo x >> "$WORK/org-sh/shop-web/README.md"; git -C "$WORK/org-sh/shop-web" -c user.name=check -c user.email=check@localhost commit -qam 'A change #1'
 (cd "$WORK/org-sh/shop-web" && HOME="$WORK/home-sh" PATH="$PATH_SH" AI_CORE_UPDATE_CHECK=never TEAM_MODES_FILE="$WORK/always.tsv" bash "$ROOT/bin/session-start.sh" --json > "$WORK/map-session.json" 2>/dev/null) || true
 [ "$(jq -r '.map_behind' "$WORK/map-session.json")" = 1 ] || fail "session-start.sh --json does not count the commits behind the map: $(jq -c '{map_commit, map_behind}' "$WORK/map-session.json")"
@@ -400,7 +404,7 @@ printf '[user]\n\tuseConfigOnly = true\n' > "$F/none"
   # the create path says what is missing and creates nothing, instead of blaming GitHub
   if out="$(HOME="$F/home" PATH="$PATH_SH" GIT_CONFIG_GLOBAL="$F/none" ensure_layer example-org/nobody-ai-core "$ROOT" "$F/folder" create 2>&1)"; then exit 15; fi
   case "$out" in *'example-org/nobody-ai-core is not created: git holds no identity to commit it under'*) ;; *) exit 16 ;; esac
-  case "$out" in *'gh is not logged in'*) exit 17 ;; esac
+  case "$out" in *'not logged in'*) exit 17 ;; esac
   if [ -e "$F/folder/nobody-ai-core" ]; then exit 18; fi
 ) || fail "a new project harness: not committed under the configured identity, committed where git holds none, or not refused by name where git holds none (exit $?)"
 echo "  created, cloned, an empty one on GitHub filled from the skeleton (cloned by init or by hand), moved from the home directory, an interrupted move completed, lost files restored, assembled; extends base first; a harness that cannot be had stops init; a harness checkout refused; the folder shares the base and its map skips the clones; maps written by the agent CLI, pushed and in the checkouts, people's rules kept, a bad output refused, --all over the folder"

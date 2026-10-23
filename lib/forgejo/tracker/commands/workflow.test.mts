@@ -503,12 +503,14 @@ describe('integrate-issue', () => {
       }
       git(main.remote, 'merge-base', '--is-ancestor', installed, tipOf(main));
       assert.doesNotMatch(remoteBranches(main), /ci\/integrate/);
+      assert.ok(!existsSync(join(tree, 'node_modules')), 'the install never ran in the worktree of the issue');
+      assert.deepEqual(readdirSync(join(fixture.root, 'project-o', '.worktrees', 'r')).filter((name) => name.startsWith('integrate-')), [], 'the temporary worktree is gone, with what the install wrote');
     });
 
-    it('lands nothing when the install fails, and shows its lines (planted: the install exits 1)', async () => {
+    it('lands nothing when the install fails, shows its lines and leaves no half-installed tree (planted: the install writes, then exits 1)', async () => {
       const { number, tree } = await worked(main, 'Install fails, so that it is refused');
       mkdirSync(join(tree, 'scripts'), { recursive: true });
-      writeFileSync(join(tree, 'scripts', 'install.sh'), 'echo "the install broke" >&2\nexit 1\n');
+      writeFileSync(join(tree, 'scripts', 'install.sh'), 'mkdir -p node_modules && touch node_modules/.half\necho "the install broke" >&2\nexit 1\n');
       git(tree, 'add', 'scripts/install.sh');
       git(tree, 'commit', '-q', '-m', 'Add a failing install');
       const installed = git(tree, 'rev-parse', 'HEAD');
@@ -524,6 +526,8 @@ describe('integrate-issue', () => {
       assert.equal(tipOf(main), before);
       assert.equal(writesOf(), writes);
       assert.doesNotMatch(remoteBranches(main), /ci\/integrate/);
+      assert.deepEqual(readdirSync(join(fixture.root, 'project-o', '.worktrees', 'r')).filter((name) => name.startsWith('integrate-')), [], 'the temporary worktree is gone, with what the install wrote');
+      assert.doesNotMatch(git(main.checkout, 'worktree', 'list', '--porcelain'), /integrate-/, 'no temporary worktree stays registered');
     });
 
     it('lands nothing on red checks, and removes the branch it pushed for them (planted: red)', async () => {

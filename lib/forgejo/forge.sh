@@ -29,17 +29,19 @@ sign_in_line_stands() {
   [ "$(git -C "$1" config --local --get-all "credential.$2.helper" 2>/dev/null || true)" = "$(printf '\n%s' "$FORGEJO_CREDENTIAL_HELPER")" ]
 }
 
-# sign_in_line_export: the same line in git's environment configuration, after the entries already there, and the
-# two settings it reads exported, as forgejo_git passes them: git started from this shell signs in in any directory
+# sign_in_line_export: the same line in git's environment configuration, after the entries already there, for git
+# started from this shell in any directory. The helper's own command carries the two settings it reads, quoted for
+# git's shell, so no other command sees them in its environment and reads them instead of its own config.env.
 sign_in_line_export() {
-  local n
-  FORGEJO_URL="$(forgejo_url)" || return 1
-  FORGEJO_TOKEN_COMMAND="$(config_value FORGEJO_TOKEN_COMMAND "")"
-  export FORGEJO_URL FORGEJO_TOKEN_COMMAND
+  local url command n tick="'" quoted_tick="'\\''"
+  url="$(forgejo_url)" || return 1
+  command="$(config_value FORGEJO_TOKEN_COMMAND "")"
   n=${GIT_CONFIG_COUNT:-0}
-  export "GIT_CONFIG_KEY_$n=credential.$FORGEJO_URL.helper" "GIT_CONFIG_VALUE_$n="
+  export "GIT_CONFIG_KEY_$n=credential.$url.helper" "GIT_CONFIG_VALUE_$n="
   n=$((n + 1))
-  export "GIT_CONFIG_KEY_$n=credential.$FORGEJO_URL.helper" "GIT_CONFIG_VALUE_$n=$FORGEJO_CREDENTIAL_HELPER" "GIT_CONFIG_COUNT=$((n + 1))"
+  export "GIT_CONFIG_KEY_$n=credential.$url.helper" \
+    "GIT_CONFIG_VALUE_$n=!FORGEJO_URL='${url//$tick/$quoted_tick}' FORGEJO_TOKEN_COMMAND='${command//$tick/$quoted_tick}' ${FORGEJO_CREDENTIAL_HELPER#!}" \
+    "GIT_CONFIG_COUNT=$((n + 1))"
 }
 
 forgejo_url() {  # the scheme and host of the instance, without a closing slash

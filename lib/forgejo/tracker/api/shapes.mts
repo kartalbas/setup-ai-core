@@ -122,6 +122,12 @@ export interface RepositoryMeta {
 }
 export const repositoryMetaShape = defineShape<RepositoryMeta>('RepositoryMeta', { full_name: required(string) });
 
+export interface Milestone {
+  readonly id: number;
+  readonly title: string;
+}
+export const milestoneShape = defineShape<Milestone>('Milestone', { id: required(integer), title: required(string) });
+
 export interface Issue {
   readonly number: number;
   readonly title: string;
@@ -133,6 +139,7 @@ export interface Issue {
   readonly created_at: string;
   readonly html_url: string;
   readonly repository: RepositoryMeta | undefined;
+  readonly milestone: Milestone | null | undefined;
 }
 export const issueShape = defineShape<Issue>('Issue', {
   number: required(integer),
@@ -145,6 +152,7 @@ export const issueShape = defineShape<Issue>('Issue', {
   created_at: required(string),
   html_url: required(string),
   repository: optional(repositoryMetaShape.type),
+  milestone: optional(nullable(milestoneShape.type)),
 });
 
 export interface Comment {
@@ -173,6 +181,42 @@ export const repositoryShape = defineShape<Repository>('Repository', {
   default_branch: required(string),
 });
 
+export interface Tag {
+  readonly name: string;
+}
+export const tagShape = defineShape<Tag>('Tag', { name: required(string) });
+
+// One entry of the timeline of an issue: a comment, and the events (close, reopen, milestone, ...) that
+// are no comment. Forgejo names the kind of each in `type`.
+export interface TimelineEvent {
+  readonly id: number;
+  readonly type: string;
+  readonly body: string;
+  readonly created_at: string;
+  readonly user: User | null;
+  readonly milestone: Milestone | null | undefined;
+}
+export const timelineEventShape = defineShape<TimelineEvent>('TimelineComment', {
+  id: required(integer),
+  type: required(string),
+  body: required(string),
+  created_at: required(string),
+  user: required(nullable(userShape.type)),
+  milestone: optional(nullable(milestoneShape.type)),
+});
+
+export interface CollaboratorPermission {
+  readonly permission: string;
+}
+export const collaboratorPermissionShape = defineShape<CollaboratorPermission>('RepoCollaboratorPermission', { permission: required(string) });
+
+// Forgejo answers an empty object for a commit that no check has reported on.
+export interface CombinedStatus {
+  readonly state: string | undefined;
+  readonly total_count: number | undefined;
+}
+export const combinedStatusShape = defineShape<CombinedStatus>('CombinedStatus', { state: optional(string), total_count: optional(integer) });
+
 // The bodies the client sends. The fake Forgejo refuses a field these do not name.
 export interface CreateIssueBody {
   readonly title: string;
@@ -186,6 +230,10 @@ export interface EditIssueBody {
   readonly body?: string;
   readonly state?: 'open' | 'closed';
   readonly assignees?: readonly string[];
+  readonly milestone?: number;
+}
+export interface CreateMilestoneBody {
+  readonly title: string;
 }
 export interface CreateCommentBody {
   readonly body: string;
@@ -216,4 +264,16 @@ export interface ShapeDescription {
   readonly spec: Readonly<Record<string, Field<unknown>>>;
 }
 
-export const allShapes: readonly ShapeDescription[] = [userShape, labelShape, repositoryMetaShape, issueShape, commentShape, repositoryShape];
+export const allShapes: readonly ShapeDescription[] = [
+  userShape,
+  labelShape,
+  repositoryMetaShape,
+  milestoneShape,
+  issueShape,
+  commentShape,
+  repositoryShape,
+  tagShape,
+  timelineEventShape,
+  collaboratorPermissionShape,
+  combinedStatusShape,
+];

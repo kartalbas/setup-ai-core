@@ -1,0 +1,250 @@
+import { ContractError, NotFoundError, PermissionError, segment } from '../api/client.mts';
+import type { ForgejoClient } from '../api/client.mts';
+import { collaboratorPermissionShape, timelineEventShape } from '../api/shapes.mts';
+import { formatIssue, formatRepository, isSameRepository, issuePath, parseRepository, repositoryPath } from './issues.mts';
+import type { Issue, IssueRef, RepositoryRef } from './issues.mts';
+import { UsageError } from './refusals.mts';
+
+// The records the workflow writes into an issue at the moment a fact happens, and the reading of them. A
+// card's state is never rebuilt from commit messages or release history: it is what these records say.
+//
+//   Started on <branch>:                      the work began
+//   Landed on <branch>[ of <owner/repo>]:     the reviewed work reached the default branch
+//   Released in <owner/repo> <tag>:           a release of that repository carries the work
+//   Proven on <environment>:                  the delivered work was seen to work there
+
+export interface StartedRecord {
+  readonly branch: string;
+  readonly baseBranch: string;
+  readonly baseCommit: string;
+}
+
+export interface LandedRecord {
+  // The default branch the work landed on.
+  readonly branch: string;
+  // The repository the work landed in.
+  readonly repository: RepositoryRef;
+  readonly reviewedHead: string;
+  readonly landedCommit: string;
+  readonly reviewers: readonly string[];
+}
+
+export function composeStartedRecord(record: StartedRecord): string {
+  return `Started on ${record.branch}:\n\nBase: ${record.baseBranch} at ${record.baseCommit}\n`;
+}
+
+// "Landed on master:" when the work landed in the repository of the issue, else "Landed on master of owner/repo:".
+export function composeLandedRecord(record: LandedRecord, issueRepository: RepositoryRef): string {
+  const where = isSameRepository(record.repository, issueRepository) ? '' : ` of ${formatRepository(record.repository)}`;
+  return `Landed on ${record.branch}${where}:\n\nReviewed head: ${record.reviewedHead}\nLanded commit: ${record.landedCommit}\nReviewed by: ${record.reviewers.join(', ')}\n`;
+}
+
+export function composeReleasedRecord(repository: RepositoryRef, tag: string): string {
+  return `Released in ${formatRepository(repository)} ${tag}:\n`;
+}
+
+export function composeProvenRecord(environment: string, evidence: string): string {
+  return `Proven on ${environment}:\n\n${evidence.trimEnd()}\n`;
+}
+
+const NAME = '[A-Za-z0-9_.-]+';
+const LANDED_LINE = new RegExp(`^Landed on ([^\\s:]+)(?: of (${NAME}/${NAME}))?:$`);
+const RELEASED_LINE = new RegExp(`^Released in (${NAME}/${NAME}) (\\S+):$`);
+const PROVEN_LINE = /^Proven on ([^\s:]+)[^:]*:$/;
+const STARTED_LINE = /^Started on ([^\s:]+):$/;
+
+function firstLine(body: string): string {
+  return (body.split('\n', 1)[0] ?? '').replace(/\r$/, '').trimEnd();
+}
+
+function fieldOf(body: string, label: string): string | undefined {
+  const match = new RegExp(`^${label}: (\\S.*)$`, 'm').exec(body);
+  return match?.[1]?.trim();
+}
+
+// --- the timeline ------------------------------------------------------------
+
+export interface TimelineEntry {
+  readonly kind: 'comment' | 'reopen' | 'close' | 'milestone' | 'other';
+  // Milliseconds since 1970: a time is compared as an instant, never as text.
+  readonly at: number;
+  readonly author: string;
+  readonly body: string;
+  readonly milestoneTitle: string | undefined;
+}
+
+function kindOf(type: string): TimelineEntry['kind'] {
+  return type === 'comment' || type === 'reopen' || type === 'close' || type === 'milestone' ? type : 'other';
+}
+
+function instantOf(text: string, name: string): number {
+  const instant = Date.parse(text);
+  if (Number.isNaN(instant) || !/(Z|[+-][0-9]{2}:[0-9]{2})$/.test(text)) throw new ContractError(name, `'${text}' is no time with a zone`);
+  return instant;
+}
+
+// The comments and the events of the issue, every page of them.
+export async function readTimeline(api: ForgejoClient, ref: IssueRef): Promise<TimelineEntry[]> {
+  const name = `read the timeline of issue ${formatIssue(ref)}`;
+  const wires = await api.callAll({ name, path: `${issuePath(ref)}/timeline`, readItem: timelineEventShape.type.read });
+  return wires.map((wire) => ({
+    kind: kindOf(wire.type),
+    at: instantOf(wire.created_at, name),
+    author: wire.user?.login ?? '',
+    body: wire.body,
+    milestoneTitle: wire.milestone?.title,
+  }));
+}
+
+// --- who counts ---------------------------------------------------------------
+
+const WRITING_PERMISSIONS: readonly string[] = ['write', 'admin', 'owner'];
+
+// Whether an account may write to the repository. A record counts only from such an account, because on a
+// public repository anybody can write "Landed on" or "Proven on". An account Forgejo does not know has no
+// permission. A refused read is an error: it is never taken for "no permission".
+export function createTrustCheck(api: ForgejoClient, repository: RepositoryRef): (login: string) => Promise<boolean> {
+  const answers = new Map<string, boolean>();
+  return async (login) => {
+    const known = answers.get(login);
+    if (known !== undefined) return known;
+    const name = `read the permission of ${login} in ${formatRepository(repository)}`;
+    let trusted: boolean;
+    try {
+      const found = await api.call({ name, method: 'GET', path: `${repositoryPath(repository)}/collaborators/${segment(login)}/permission`, success: 200, read: collaboratorPermissionShape.type.read });
+      trusted = WRITING_PERMISSIONS.includes(found.permission);
+    } catch (error) {
+      if (error instanceof NotFoundError) trusted = false;
+      else if (error instanceof PermissionError) {
+        throw new PermissionError(name, `${error.message.slice(name.length + 2)}. Forgejo lets only an administrator of the repository read the permission of another account`);
+      } else throw error;
+    }
+    answers.set(login, trusted);
+    return trusted;
+  };
+}
+
+// --- the history of an issue ---------------------------------------------------
+
+export interface LandingFact {
+  readonly at: number;
+  readonly repository: RepositoryRef;
+  readonly branch: string;
+}
+
+export interface ReleaseFact {
+  readonly at: number;
+  readonly repository: RepositoryRef;
+  readonly tag: string;
+}
+
+export interface ProofFact {
+  readonly at: number;
+  readonly environment: string;
+}
+
+// What the issue records since it was last reopened, from accounts that may write to its repository.
+export interface IssueHistory {
+  readonly reopenedAt: number | undefined;
+  readonly landings: readonly LandingFact[];
+  readonly releases: readonly ReleaseFact[];
+  readonly proofs: readonly ProofFact[];
+}
+
+export async function readIssueHistory(api: ForgejoClient, issue: Issue, entries: readonly TimelineEntry[]): Promise<IssueHistory> {
+  const reopenings = entries.filter((entry) => entry.kind === 'reopen').map((entry) => entry.at);
+  const reopenedAt = reopenings.length === 0 ? undefined : Math.max(...reopenings);
+  const current = entries.filter((entry) => reopenedAt === undefined || entry.at > reopenedAt);
+  const isTrusted = createTrustCheck(api, issue.ref);
+
+  const landings: LandingFact[] = [];
+  const releases: ReleaseFact[] = [];
+  const proofs: ProofFact[] = [];
+  for (const entry of current) {
+    if (entry.kind !== 'comment') continue;
+    const line = firstLine(entry.body);
+    const landed = LANDED_LINE.exec(line);
+    const released = RELEASED_LINE.exec(line);
+    const proven = PROVEN_LINE.exec(line);
+    if (landed === null && released === null && proven === null) continue;
+    if (!(await isTrusted(entry.author))) continue;
+    if (landed?.[1] !== undefined) landings.push({ at: entry.at, branch: landed[1], repository: landed[2] === undefined ? { owner: issue.ref.owner, repo: issue.ref.repo } : parseRepository(landed[2]) });
+    if (released?.[1] !== undefined && released[2] !== undefined) releases.push({ at: entry.at, repository: parseRepository(released[1]), tag: released[2] });
+    if (proven?.[1] !== undefined) proofs.push({ at: entry.at, environment: proven[1] });
+  }
+
+  // A milestone is a release of the issue's own repository. Its event is written by an account that may edit the issue.
+  if (issue.milestone !== undefined) {
+    const set = current.filter((entry) => entry.kind === 'milestone');
+    const latest = set[set.length - 1];
+    if (latest?.milestoneTitle === issue.milestone.title) releases.push({ at: latest.at, repository: { owner: issue.ref.owner, repo: issue.ref.repo }, tag: issue.milestone.title });
+  }
+  return { reopenedAt, landings, releases, proofs };
+}
+
+// --- the facts the commands decide by -------------------------------------------
+
+function newest<T extends { readonly at: number }>(facts: readonly T[]): T | undefined {
+  return facts.reduce<T | undefined>((latest, fact) => (latest === undefined || fact.at > latest.at ? fact : latest), undefined);
+}
+
+// The lines that say why the work is not delivered; none when it is. A repository the work landed in is
+// delivered by a release that came after its landing, or, where its landing is its delivery, by the landing.
+export function listMissingDelivery(history: IssueHistory, landingIsDelivery: readonly RepositoryRef[]): string[] {
+  if (history.landings.length === 0) {
+    return [`no "Landed on" record of an account with write permission follows ${history.reopenedAt === undefined ? 'the start of the issue' : 'the last reopening'}`];
+  }
+  const missing: string[] = [];
+  const seen = new Set<string>();
+  for (const landing of history.landings) {
+    const key = formatRepository(landing.repository).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (landingIsDelivery.some((repository) => isSameRepository(repository, landing.repository))) continue;
+    const latestLanding = newest(history.landings.filter((other) => isSameRepository(other.repository, landing.repository)));
+    const released = history.releases.some((release) => isSameRepository(release.repository, landing.repository) && latestLanding !== undefined && release.at > latestLanding.at);
+    if (!released) missing.push(`no release of ${formatRepository(landing.repository)} follows its landing: issue-release --repo ${formatRepository(landing.repository)} --tag TAG`);
+  }
+  return missing;
+}
+
+// A proof counts once the newest landing is behind it: a proof of earlier work does not cover later work.
+export function findCurrentProof(history: IssueHistory): ProofFact | undefined {
+  const landing = newest(history.landings);
+  if (landing === undefined) return undefined;
+  return newest(history.proofs.filter((proof) => proof.at > landing.at));
+}
+
+// The environments of LIVE_TAGS (`env=pattern` separated by spaces) whose pattern is `landed`: there the landing is the delivery.
+export function landedEnvironments(liveTags: string | undefined): string[] {
+  const environments: string[] = [];
+  for (const entry of (liveTags ?? '').split(/\s+/).filter((text) => text !== '')) {
+    const equals = entry.indexOf('=');
+    if (equals <= 0 || equals === entry.length - 1) throw new UsageError(`LIVE_TAGS has '${entry}' where env=pattern belongs`);
+    if (entry.slice(equals + 1) === 'landed') environments.push(entry.slice(0, equals));
+  }
+  return environments;
+}
+
+// --- finding a record that is already written ---------------------------------------
+
+export function hasStartedRecord(entries: readonly TimelineEntry[], branch: string): boolean {
+  return entries.some((entry) => entry.kind === 'comment' && STARTED_LINE.exec(firstLine(entry.body))?.[1] === branch);
+}
+
+export function hasLandedRecord(entries: readonly TimelineEntry[], reviewedHead: string, landedCommit: string): boolean {
+  return entries.some((entry) => entry.kind === 'comment' && LANDED_LINE.test(firstLine(entry.body)) && fieldOf(entry.body, 'Reviewed head') === reviewedHead && fieldOf(entry.body, 'Landed commit') === landedCommit);
+}
+
+export function hasReleasedRecord(entries: readonly TimelineEntry[], repository: RepositoryRef, tag: string): boolean {
+  return entries.some((entry) => {
+    if (entry.kind !== 'comment') return false;
+    const found = RELEASED_LINE.exec(firstLine(entry.body));
+    return found?.[1] !== undefined && found[2] === tag && isSameRepository(parseRepository(found[1]), repository);
+  });
+}
+
+// The proof of this environment that came after the newest landing, trusted or not: the writer asks it to write nothing twice.
+export function hasProvenRecord(entries: readonly TimelineEntry[], environment: string, afterLanding: number): boolean {
+  return entries.some((entry) => entry.kind === 'comment' && entry.at > afterLanding && PROVEN_LINE.exec(firstLine(entry.body))?.[1] === environment);
+}

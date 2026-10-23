@@ -3,6 +3,8 @@ import { fileURLToPath } from 'node:url';
 import { ForgejoClient, ForgejoError, PartialCompletionError } from './api/client.mts';
 import type { TokenSource } from './api/client.mts';
 import { createTokenSource } from './api/credentials.mts';
+import * as finishIssue from './commands/finish-issue.mts';
+import * as integrateIssue from './commands/integrate-issue.mts';
 import * as issueAssign from './commands/issue-assign.mts';
 import * as issueComment from './commands/issue-comment.mts';
 import * as issueDependency from './commands/issue-dependency.mts';
@@ -10,10 +12,13 @@ import * as issueEdit from './commands/issue-edit.mts';
 import * as issueLabel from './commands/issue-label.mts';
 import * as issueMine from './commands/issue-mine.mts';
 import * as issueNew from './commands/issue-new.mts';
+import * as issueProof from './commands/issue-proof.mts';
+import * as issueRelease from './commands/issue-release.mts';
 import * as issueState from './commands/issue-state.mts';
 import * as issueStatus from './commands/issue-status.mts';
 import * as issueThread from './commands/issue-thread.mts';
 import * as labelsSync from './commands/labels-sync.mts';
+import * as startIssue from './commands/start-issue.mts';
 import * as status from './commands/status.mts';
 import * as doctor from './commands/doctor.mts';
 import type { Command, CommandContext, CommandResult } from './commands/command.mts';
@@ -40,6 +45,11 @@ const COMMANDS: readonly Command[] = [
   { name: 'issue-unblock', help: issueDependency.unblockHelp, run: issueDependency.runUnblock },
   { name: 'issue-thread', help: issueThread.help, run: issueThread.run },
   { name: 'issue-mine', help: issueMine.help, run: issueMine.run },
+  { name: 'start-issue', help: startIssue.help, run: startIssue.run },
+  { name: 'integrate-issue', help: integrateIssue.help, run: integrateIssue.run },
+  { name: 'finish-issue', help: finishIssue.help, run: finishIssue.run },
+  { name: 'issue-release', help: issueRelease.help, run: issueRelease.run },
+  { name: 'issue-proof', help: issueProof.help, run: issueProof.run },
   { name: 'status', help: status.help, run: status.run },
   { name: 'labels-sync', help: labelsSync.help, run: labelsSync.run },
   { name: 'doctor', help: doctor.help, run: doctor.run },

@@ -1210,8 +1210,8 @@ rewrite.
 
 With `TRACKER=forgejo` the issue commands run in `lib/forgejo/tracker/cli.mts`, TypeScript that Node runs as it is
 (no build step, no package at runtime), and `ai-core` hands it `FORGEJO_URL` (a scheme and a host), the command in
-`FORGEJO_TOKEN_COMMAND`, which prints the token when the first request needs it, and the path of the label
-catalog. It has no board and no epics. Every request has 15 seconds to connect and 120 seconds in all, and a
+`FORGEJO_TOKEN_COMMAND`, which prints the token when the first request needs it, the path of the label
+catalog, and `CI_GATE` and `LIVE_TAGS` as the other commands read them. It has no board and no epics. Every request has 15 seconds to connect and 120 seconds in all, and a
 failure says which of these it is: the token refused (401), a permission missing (403), nothing there (404), no
 answer, or an answer that breaks the contract of the API (a status other than the documented one, text that is
 not JSON, a field the client needs missing). A list is read to its last page or refused. A comment or a change
@@ -1219,7 +1219,7 @@ whose answer was lost is reported as uncertain and is never sent again by the co
 
 | Treatment | Commands |
 | :--- | :--- |
-| Run in Node | `issue-new`, `issue-comment`, `issue-close`, `issue-reopen`, `issue-edit`, `issue-label`, `issue-priority`, `issue-status`, `issue-assign`, `issue-block`, `issue-unblock`, `issue-thread`, `issue-mine`, `status`, `labels-sync` |
+| Run in Node | `issue-new`, `issue-comment`, `issue-close`, `issue-reopen`, `issue-edit`, `issue-label`, `issue-priority`, `issue-status`, `issue-assign`, `issue-block`, `issue-unblock`, `issue-thread`, `issue-mine`, `start-issue`, `integrate-issue`, `finish-issue`, `issue-release`, `issue-proof`, `status`, `labels-sync` |
 | Refused with exit 2 and one line | `board-list`, `board-order`, `board-sync`, `board-unarchive`, `field-option-add`, `item-move`, `item-top`, `project-new`, `repo-boards`, `repo-link`, `view-filter`, `epics-top`, `subissue-add`, `subissue-remove`, `status-sync`, `issue-transfer`, `issue-duplicate`, `issue-map`, `incident-count` |
 
 The exit codes are 0 for success, 1 for a precondition that refuses (an issue is closed as completed by
@@ -1237,6 +1237,28 @@ writes nothing when the organization already matches. A label change adds with o
 another and never replaces the whole set, because Forgejo then drops every second label of an exclusive family.
 
 **Dependencies.** `issue-block BLOCKED_REPO N BY_REPO M` writes Forgejo's own relation, the blocked issue first.
+
+**The lifecycle** is written into the issue at the moment each fact happens; a card's state is never rebuilt from
+commit messages or release history. Each record is a comment whose first line names it:
+
+| Command | What it does | Record |
+| :--- | :--- | :--- |
+| `start-issue [OWNER/REPO] N` | cuts `.worktrees/<repository>/issue-N-<slug>` from the fetched default branch of origin, for an issue that is open, assigned to the signed-in account and in `ready`, `planned`, `implementing` or `review`; sets `status/implementing` | `Started on <branch>:` with the base commit |
+| `integrate-issue [OWNER/REPO] N --reviewed-by NAME --reviewed-head SHA [--also OWNER/REPO#N ...]` | in the worktree of the issue: refuses a worktree with changes, a head that is not `--reviewed-head`, an issue that is closed or not assigned to the signed-in account; merges the reviewed commits into the default branch with a merge commit that names the issue and a `Reviewed-by` line per reviewer, and pushes it through the push gate; sets `status/testing` on every issue it lands. It finds no issue from the history of Git | `Landed on <branch>:` (`... of OWNER/REPO:` where the issue lives in another repository) with the reviewed head, the landed commit and the reviewers |
+| `finish-issue [OWNER/REPO] N` | removes the worktree of that one issue and its branch when the worktree has no changes and its head is on the default branch; writes nothing and looks at no other worktree | none |
+| `issue-release --repo OWNER/REPO --tag TAG N...` | checks that the tag exists, makes or reuses the milestone named TAG in that repository and sets it on each issue of it; an issue of another repository (`OWNER/REPO#N`) gets a comment instead, because a milestone belongs to one repository. It publishes nothing | the milestone, or `Released in OWNER/REPO TAG:` |
+| `issue-proof [OWNER/REPO] N --environment ENV --body-file PATH` | refuses unless the issue records a landing and, for every repository the landing names, a release that came after it, or `LIVE_TAGS` names ENV with the pattern `landed`; then writes the proof, sets `status/done` and closes the issue as completed | `Proven on ENV:` with the evidence |
+
+`CI_GATE=public` (the default) makes `integrate-issue` push the merge commit of a public repository to
+`ci/integrate-<branch>`, wait for the combined commit status of Forgejo (`AI_CORE_INTEGRATE_POLL` seconds apart,
+`AI_CORE_INTEGRATE_WAIT` seconds at most, 20 and 1800 unless set) and land exactly that commit when it is green; a
+private repository, and `CI_GATE=none`, land on the push gate alone. A record counts only when its author may write
+to the repository and it follows the last reopening of the issue, read from the timeline of the issue; the
+permission of another account is readable only for an administrator of the repository, so the token of these
+commands must belong to one. When the work landed and a record could not be written, `integrate-issue` exits 4 and
+names what is done; run again, it sees that the reviewed head is on the default branch, merges and pushes nothing
+and writes only the records that are missing. `issue-close --reason completed` closes only an issue that records a
+proof after its newest landing and its last reopening.
 
 **`status`** lists the issues the tracker records, every page of them, per owner, for the repositories named or for
 the clones beside the current checkout. It reports what the tracker records, not an observed deployment.
@@ -1340,6 +1362,11 @@ const used = {
   "/orgs/{org}/labels": ["get", "post"],
   "/orgs/{org}/labels/{id}": ["patch"],
   "/repos/issues/search": ["get"],
+  "/repos/{owner}/{repo}/tags/{tag}": ["get"],
+  "/repos/{owner}/{repo}/milestones": ["get", "post"],
+  "/repos/{owner}/{repo}/issues/{index}/timeline": ["get"],
+  "/repos/{owner}/{repo}/collaborators/{collaborator}/permission": ["get"],
+  "/repos/{owner}/{repo}/commits/{ref}/status": ["get"],
 };
 const paths = {}, definitions = {}, responses = {};
 const collect = (node) => {

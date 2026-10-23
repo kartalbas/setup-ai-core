@@ -1033,6 +1033,333 @@
      }
     }
    }
+  },
+  "/repos/{owner}/{repo}/tags/{tag}": {
+   "get": {
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "repository"
+    ],
+    "summary": "Get the tag of a repository by tag name",
+    "operationId": "repoGetTag",
+    "parameters": [
+     {
+      "type": "string",
+      "description": "owner of the repo",
+      "name": "owner",
+      "in": "path",
+      "required": true
+     },
+     {
+      "type": "string",
+      "description": "name of the repo",
+      "name": "repo",
+      "in": "path",
+      "required": true
+     },
+     {
+      "type": "string",
+      "description": "name of tag",
+      "name": "tag",
+      "in": "path",
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "$ref": "#/responses/Tag"
+     },
+     "404": {
+      "$ref": "#/responses/notFound"
+     }
+    }
+   }
+  },
+  "/repos/{owner}/{repo}/milestones": {
+   "get": {
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "issue"
+    ],
+    "summary": "Get all of a repository's opened milestones",
+    "operationId": "issueGetMilestonesList",
+    "parameters": [
+     {
+      "type": "string",
+      "description": "owner of the repo",
+      "name": "owner",
+      "in": "path",
+      "required": true
+     },
+     {
+      "type": "string",
+      "description": "name of the repo",
+      "name": "repo",
+      "in": "path",
+      "required": true
+     },
+     {
+      "type": "string",
+      "description": "Milestone state, Recognized values are open, closed and all. Defaults to \"open\"",
+      "name": "state",
+      "in": "query"
+     },
+     {
+      "type": "string",
+      "description": "filter by milestone name",
+      "name": "name",
+      "in": "query"
+     },
+     {
+      "type": "integer",
+      "description": "page number of results to return (1-based)",
+      "name": "page",
+      "in": "query"
+     },
+     {
+      "type": "integer",
+      "description": "page size of results",
+      "name": "limit",
+      "in": "query"
+     }
+    ],
+    "responses": {
+     "200": {
+      "$ref": "#/responses/MilestoneList"
+     },
+     "404": {
+      "$ref": "#/responses/notFound"
+     }
+    }
+   },
+   "post": {
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "issue"
+    ],
+    "summary": "Create a milestone",
+    "operationId": "issueCreateMilestone",
+    "parameters": [
+     {
+      "type": "string",
+      "description": "owner of the repo",
+      "name": "owner",
+      "in": "path",
+      "required": true
+     },
+     {
+      "type": "string",
+      "description": "name of the repo",
+      "name": "repo",
+      "in": "path",
+      "required": true
+     },
+     {
+      "name": "body",
+      "in": "body",
+      "schema": {
+       "$ref": "#/definitions/CreateMilestoneOption"
+      }
+     }
+    ],
+    "responses": {
+     "201": {
+      "$ref": "#/responses/Milestone"
+     },
+     "404": {
+      "$ref": "#/responses/notFound"
+     }
+    }
+   }
+  },
+  "/repos/{owner}/{repo}/issues/{index}/timeline": {
+   "get": {
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "issue"
+    ],
+    "summary": "List all comments and events on an issue",
+    "operationId": "issueGetCommentsAndTimeline",
+    "parameters": [
+     {
+      "type": "string",
+      "description": "owner of the repo",
+      "name": "owner",
+      "in": "path",
+      "required": true
+     },
+     {
+      "type": "string",
+      "description": "name of the repo",
+      "name": "repo",
+      "in": "path",
+      "required": true
+     },
+     {
+      "type": "integer",
+      "format": "int64",
+      "description": "index of the issue",
+      "name": "index",
+      "in": "path",
+      "required": true
+     },
+     {
+      "type": "string",
+      "format": "date-time",
+      "description": "if provided, only comments updated since the specified time are returned.",
+      "name": "since",
+      "in": "query"
+     },
+     {
+      "type": "integer",
+      "description": "page number of results to return (1-based)",
+      "name": "page",
+      "in": "query"
+     },
+     {
+      "type": "integer",
+      "description": "page size of results",
+      "name": "limit",
+      "in": "query"
+     },
+     {
+      "type": "string",
+      "format": "date-time",
+      "description": "if provided, only comments updated before the provided time are returned.",
+      "name": "before",
+      "in": "query"
+     }
+    ],
+    "responses": {
+     "200": {
+      "$ref": "#/responses/TimelineList"
+     },
+     "404": {
+      "$ref": "#/responses/notFound"
+     },
+     "422": {
+      "$ref": "#/responses/validationError"
+     },
+     "500": {
+      "$ref": "#/responses/internalServerError"
+     }
+    }
+   }
+  },
+  "/repos/{owner}/{repo}/collaborators/{collaborator}/permission": {
+   "get": {
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "repository"
+    ],
+    "summary": "Get repository permissions for a user",
+    "operationId": "repoGetRepoPermissions",
+    "parameters": [
+     {
+      "type": "string",
+      "description": "owner of the repo",
+      "name": "owner",
+      "in": "path",
+      "required": true
+     },
+     {
+      "type": "string",
+      "description": "name of the repo",
+      "name": "repo",
+      "in": "path",
+      "required": true
+     },
+     {
+      "type": "string",
+      "description": "username of the collaborator",
+      "name": "collaborator",
+      "in": "path",
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "$ref": "#/responses/RepoCollaboratorPermission"
+     },
+     "403": {
+      "$ref": "#/responses/forbidden"
+     },
+     "404": {
+      "$ref": "#/responses/notFound"
+     }
+    }
+   }
+  },
+  "/repos/{owner}/{repo}/commits/{ref}/status": {
+   "get": {
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "repository"
+    ],
+    "summary": "Get a commit's combined status, by branch/tag/commit reference",
+    "operationId": "repoGetCombinedStatusByRef",
+    "parameters": [
+     {
+      "type": "string",
+      "description": "owner of the repo",
+      "name": "owner",
+      "in": "path",
+      "required": true
+     },
+     {
+      "type": "string",
+      "description": "name of the repo",
+      "name": "repo",
+      "in": "path",
+      "required": true
+     },
+     {
+      "type": "string",
+      "description": "name of branch/tag/commit",
+      "name": "ref",
+      "in": "path",
+      "required": true
+     },
+     {
+      "type": "integer",
+      "description": "page number of results to return (1-based)",
+      "name": "page",
+      "in": "query"
+     },
+     {
+      "type": "integer",
+      "description": "page size of results",
+      "name": "limit",
+      "in": "query"
+     }
+    ],
+    "responses": {
+     "200": {
+      "$ref": "#/responses/CombinedStatus"
+     },
+     "400": {
+      "$ref": "#/responses/error"
+     },
+     "404": {
+      "$ref": "#/responses/notFound"
+     }
+    }
+   }
   }
  },
  "definitions": {
@@ -2421,6 +2748,370 @@
     }
    },
    "x-go-package": "forgejo.org/modules/structs"
+  },
+  "Tag": {
+   "description": "Tag represents a repository tag",
+   "type": "object",
+   "properties": {
+    "archive_download_count": {
+     "$ref": "#/definitions/TagArchiveDownloadCount"
+    },
+    "commit": {
+     "$ref": "#/definitions/CommitMeta"
+    },
+    "id": {
+     "type": "string",
+     "x-go-name": "ID"
+    },
+    "message": {
+     "type": "string",
+     "x-go-name": "Message"
+    },
+    "name": {
+     "type": "string",
+     "x-go-name": "Name"
+    },
+    "tarball_url": {
+     "type": "string",
+     "x-go-name": "TarballURL"
+    },
+    "zipball_url": {
+     "type": "string",
+     "x-go-name": "ZipballURL"
+    }
+   },
+   "x-go-package": "forgejo.org/modules/structs"
+  },
+  "TagArchiveDownloadCount": {
+   "description": "TagArchiveDownloadCount counts how many times a archive was downloaded",
+   "type": "object",
+   "properties": {
+    "tar_gz": {
+     "type": "integer",
+     "format": "int64",
+     "x-go-name": "TarGz"
+    },
+    "zip": {
+     "type": "integer",
+     "format": "int64",
+     "x-go-name": "Zip"
+    }
+   },
+   "x-go-package": "forgejo.org/modules/structs"
+  },
+  "CommitMeta": {
+   "type": "object",
+   "title": "CommitMeta contains meta information of a commit in terms of API.",
+   "properties": {
+    "created": {
+     "type": "string",
+     "format": "date-time",
+     "x-go-name": "Created"
+    },
+    "sha": {
+     "type": "string",
+     "x-go-name": "SHA"
+    },
+    "url": {
+     "type": "string",
+     "x-go-name": "URL"
+    }
+   },
+   "x-go-package": "forgejo.org/modules/structs"
+  },
+  "CreateMilestoneOption": {
+   "description": "CreateMilestoneOption options for creating a milestone",
+   "type": "object",
+   "properties": {
+    "description": {
+     "type": "string",
+     "x-go-name": "Description"
+    },
+    "due_on": {
+     "type": "string",
+     "format": "date-time",
+     "x-go-name": "Deadline"
+    },
+    "state": {
+     "type": "string",
+     "enum": [
+      "open",
+      "closed"
+     ],
+     "x-go-name": "State"
+    },
+    "title": {
+     "type": "string",
+     "x-go-name": "Title"
+    }
+   },
+   "x-go-package": "forgejo.org/modules/structs"
+  },
+  "TimelineComment": {
+   "description": "TimelineComment represents a timeline comment (comment of any type) on a commit or issue",
+   "type": "object",
+   "properties": {
+    "assignee": {
+     "$ref": "#/definitions/User"
+    },
+    "assignee_team": {
+     "$ref": "#/definitions/Team"
+    },
+    "body": {
+     "type": "string",
+     "x-go-name": "Body"
+    },
+    "created_at": {
+     "type": "string",
+     "format": "date-time",
+     "x-go-name": "Created"
+    },
+    "dependent_issue": {
+     "$ref": "#/definitions/Issue"
+    },
+    "html_url": {
+     "type": "string",
+     "x-go-name": "HTMLURL"
+    },
+    "id": {
+     "type": "integer",
+     "format": "int64",
+     "x-go-name": "ID"
+    },
+    "issue_url": {
+     "type": "string",
+     "x-go-name": "IssueURL"
+    },
+    "label": {
+     "$ref": "#/definitions/Label"
+    },
+    "milestone": {
+     "$ref": "#/definitions/Milestone"
+    },
+    "new_ref": {
+     "type": "string",
+     "x-go-name": "NewRef"
+    },
+    "new_title": {
+     "type": "string",
+     "x-go-name": "NewTitle"
+    },
+    "old_milestone": {
+     "$ref": "#/definitions/Milestone"
+    },
+    "old_project_id": {
+     "type": "integer",
+     "format": "int64",
+     "x-go-name": "OldProjectID"
+    },
+    "old_ref": {
+     "type": "string",
+     "x-go-name": "OldRef"
+    },
+    "old_title": {
+     "type": "string",
+     "x-go-name": "OldTitle"
+    },
+    "project_id": {
+     "type": "integer",
+     "format": "int64",
+     "x-go-name": "ProjectID"
+    },
+    "pull_request_url": {
+     "type": "string",
+     "x-go-name": "PRURL"
+    },
+    "ref_action": {
+     "type": "string",
+     "x-go-name": "RefAction"
+    },
+    "ref_comment": {
+     "$ref": "#/definitions/Comment"
+    },
+    "ref_commit_sha": {
+     "description": "commit SHA where issue/PR was referenced",
+     "type": "string",
+     "x-go-name": "RefCommitSHA"
+    },
+    "ref_issue": {
+     "$ref": "#/definitions/Issue"
+    },
+    "removed_assignee": {
+     "description": "whether the assignees were removed or added",
+     "type": "boolean",
+     "x-go-name": "RemovedAssignee"
+    },
+    "resolve_doer": {
+     "$ref": "#/definitions/User"
+    },
+    "review_id": {
+     "type": "integer",
+     "format": "int64",
+     "x-go-name": "ReviewID"
+    },
+    "tracked_time": {
+     "$ref": "#/definitions/TrackedTime"
+    },
+    "type": {
+     "type": "string",
+     "x-go-name": "Type"
+    },
+    "updated_at": {
+     "type": "string",
+     "format": "date-time",
+     "x-go-name": "Updated"
+    },
+    "user": {
+     "$ref": "#/definitions/User"
+    }
+   },
+   "x-go-package": "forgejo.org/modules/structs"
+  },
+  "TrackedTime": {
+   "description": "TrackedTime worked time for an issue / pr",
+   "type": "object",
+   "properties": {
+    "created": {
+     "type": "string",
+     "format": "date-time",
+     "x-go-name": "Created"
+    },
+    "id": {
+     "type": "integer",
+     "format": "int64",
+     "x-go-name": "ID"
+    },
+    "issue": {
+     "$ref": "#/definitions/Issue"
+    },
+    "issue_id": {
+     "description": "deprecated (only for backwards compatibility)",
+     "type": "integer",
+     "format": "int64",
+     "x-go-name": "IssueID"
+    },
+    "time": {
+     "description": "Time in seconds",
+     "type": "integer",
+     "format": "int64",
+     "x-go-name": "Time"
+    },
+    "user_id": {
+     "description": "deprecated (only for backwards compatibility)",
+     "type": "integer",
+     "format": "int64",
+     "x-go-name": "UserID"
+    },
+    "user_name": {
+     "type": "string",
+     "x-go-name": "UserName"
+    }
+   },
+   "x-go-package": "forgejo.org/modules/structs"
+  },
+  "RepoCollaboratorPermission": {
+   "description": "RepoCollaboratorPermission to get repository permission for a collaborator",
+   "type": "object",
+   "properties": {
+    "permission": {
+     "type": "string",
+     "x-go-name": "Permission"
+    },
+    "role_name": {
+     "type": "string",
+     "x-go-name": "RoleName"
+    },
+    "user": {
+     "$ref": "#/definitions/User"
+    }
+   },
+   "x-go-package": "forgejo.org/modules/structs"
+  },
+  "CombinedStatus": {
+   "description": "CombinedStatus holds the combined state of several statuses for a single commit",
+   "type": "object",
+   "properties": {
+    "commit_url": {
+     "type": "string",
+     "x-go-name": "CommitURL"
+    },
+    "repository": {
+     "$ref": "#/definitions/Repository"
+    },
+    "sha": {
+     "type": "string",
+     "x-go-name": "SHA"
+    },
+    "state": {
+     "$ref": "#/definitions/CommitStatusState"
+    },
+    "statuses": {
+     "type": "array",
+     "items": {
+      "$ref": "#/definitions/CommitStatus"
+     },
+     "x-go-name": "Statuses"
+    },
+    "total_count": {
+     "type": "integer",
+     "format": "int64",
+     "x-go-name": "TotalCount"
+    },
+    "url": {
+     "type": "string",
+     "x-go-name": "URL"
+    }
+   },
+   "x-go-package": "forgejo.org/modules/structs"
+  },
+  "CommitStatusState": {
+   "description": "CommitStatusState holds the state of a CommitStatus\nIt can be \"pending\", \"success\", \"error\", \"failure\", \"warning\", or \"skipped\"",
+   "type": "string",
+   "x-go-package": "forgejo.org/modules/structs"
+  },
+  "CommitStatus": {
+   "description": "CommitStatus holds a single status of a single Commit",
+   "type": "object",
+   "properties": {
+    "context": {
+     "type": "string",
+     "x-go-name": "Context"
+    },
+    "created_at": {
+     "type": "string",
+     "format": "date-time",
+     "x-go-name": "Created"
+    },
+    "creator": {
+     "$ref": "#/definitions/User"
+    },
+    "description": {
+     "type": "string",
+     "x-go-name": "Description"
+    },
+    "id": {
+     "type": "integer",
+     "format": "int64",
+     "x-go-name": "ID"
+    },
+    "status": {
+     "$ref": "#/definitions/CommitStatusState"
+    },
+    "target_url": {
+     "type": "string",
+     "x-go-name": "TargetURL"
+    },
+    "updated_at": {
+     "type": "string",
+     "format": "date-time",
+     "x-go-name": "Updated"
+    },
+    "url": {
+     "type": "string",
+     "x-go-name": "URL"
+    }
+   },
+   "x-go-package": "forgejo.org/modules/structs"
   }
  },
  "responses": {
@@ -2565,6 +3256,62 @@
     "items": {
      "$ref": "#/definitions/Issue"
     }
+   }
+  },
+  "Tag": {
+   "description": "Tag",
+   "schema": {
+    "$ref": "#/definitions/Tag"
+   }
+  },
+  "MilestoneList": {
+   "description": "MilestoneList",
+   "schema": {
+    "type": "array",
+    "items": {
+     "$ref": "#/definitions/Milestone"
+    }
+   },
+   "headers": {
+    "X-Total-Count": {
+     "type": "integer",
+     "format": "int64",
+     "description": "The total number of milestones"
+    }
+   }
+  },
+  "Milestone": {
+   "description": "Milestone",
+   "schema": {
+    "$ref": "#/definitions/Milestone"
+   }
+  },
+  "TimelineList": {
+   "description": "TimelineList",
+   "schema": {
+    "type": "array",
+    "items": {
+     "$ref": "#/definitions/TimelineComment"
+    }
+   },
+   "headers": {
+    "X-Total-Count": {
+     "type": "integer",
+     "format": "int64",
+     "description": "The total number of timeline comments"
+    }
+   }
+  },
+  "RepoCollaboratorPermission": {
+   "description": "RepoCollaboratorPermission",
+   "schema": {
+    "$ref": "#/definitions/RepoCollaboratorPermission"
+   }
+  },
+  "CombinedStatus": {
+   "description": "CombinedStatus",
+   "schema": {
+    "$ref": "#/definitions/CombinedStatus"
    }
   }
  }

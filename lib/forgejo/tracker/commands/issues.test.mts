@@ -157,10 +157,10 @@ describe('issue-close and issue-reopen', () => {
     assert.deepEqual(closed.labels.sort(), ['area/gate', 'needs:owner', 'status/not-planned']);
   });
 
-  it('refuses to close as completed, names issue-proof, and sends nothing', async () => {
-    const before = fake.requests.length;
+  it('refuses to close as completed without a current proof, names issue-proof, and writes nothing', async () => {
+    const before = fake.writes().length;
     await assert.rejects(issueState.runClose(['o/r', String(number)], context), (error: unknown) => error instanceof PreconditionError && /issue-proof/.test(error.message));
-    assert.equal(fake.requests.length, before);
+    assert.equal(fake.writes().length, before);
     await assert.rejects(issueState.runClose(['o/r', String(number), '--reason', 'whatever'], context), UsageError);
   });
 

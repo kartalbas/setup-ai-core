@@ -91,6 +91,25 @@ export async function takeIssue(positionals: readonly string[], git: GitClient, 
   return { ref: { ...repository, number: parseIssueNumber(number) }, rest: rest.slice(1) };
 }
 
+// `OWNER/REPO#NUMBER`, the way an issue of another repository is named.
+export function parseIssueReference(text: string): IssueRef {
+  const match = /^([^#]+)#([0-9]+)$/.exec(text);
+  if (match?.[1] === undefined || match[2] === undefined) throw new UsageError(`${text} is not OWNER/REPO#NUMBER`);
+  return { ...parseRepository(match[1]), number: parseIssueNumber(match[2]) };
+}
+
+// As takeIssue, but where no repository is named, the issue of a branch that start-issue marked as the issue of
+// another repository (branch.<name>.issueRepository) is that repository's.
+export async function takeIssueOfWorktree(positionals: readonly string[], git: GitClient, cwd: string, usage: string): Promise<{ ref: IssueRef; rest: readonly string[] }> {
+  const first = positionals[0];
+  const branch = first !== undefined && first.includes('/') ? undefined : await git.currentBranch(cwd);
+  const recorded = branch === undefined ? undefined : await git.getConfig(cwd, `branch.${branch}.issueRepository`);
+  if (recorded === undefined) return takeIssue(positionals, git, cwd, usage);
+  const number = positionals[0];
+  if (number === undefined) throw new UsageError(usage);
+  return { ref: { ...parseRepository(recorded), number: parseIssueNumber(number) }, rest: positionals.slice(1) };
+}
+
 export function refuseExtra(rest: readonly string[], usage: string): void {
   if (rest.length > 0) throw new UsageError(`unexpected '${rest[0] ?? ''}'. ${usage}`);
 }

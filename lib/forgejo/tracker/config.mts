@@ -13,6 +13,10 @@ export interface Settings {
   readonly forgejoUrl: string | undefined;
   readonly tokenCommand: string | undefined;
   readonly labelsFile: string | undefined;
+  readonly ciGate: string | undefined;
+  readonly liveTags: string | undefined;
+  readonly integratePollSeconds: string | undefined;
+  readonly integrateWaitSeconds: string | undefined;
 }
 
 export interface Config {
@@ -25,7 +29,16 @@ export function readSettings(env: Readonly<Record<string, string | undefined>>):
     const found = env[name];
     return found === undefined || found.trim() === '' ? undefined : found;
   };
-  return { tracker: value('TRACKER'), forgejoUrl: value('FORGEJO_URL'), tokenCommand: value('FORGEJO_TOKEN_COMMAND'), labelsFile: value('AI_CORE_LABELS_FILE') };
+  return {
+    tracker: value('TRACKER'),
+    forgejoUrl: value('FORGEJO_URL'),
+    tokenCommand: value('FORGEJO_TOKEN_COMMAND'),
+    labelsFile: value('AI_CORE_LABELS_FILE'),
+    ciGate: value('CI_GATE'),
+    liveTags: value('LIVE_TAGS'),
+    integratePollSeconds: value('AI_CORE_INTEGRATE_POLL'),
+    integrateWaitSeconds: value('AI_CORE_INTEGRATE_WAIT'),
+  };
 }
 
 // Scheme and host, no credentials, no path: the API path is the client's.

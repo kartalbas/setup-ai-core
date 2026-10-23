@@ -84,3 +84,58 @@ describe('the fake Forgejo refuses what the contract refuses', () => {
     assert.equal((await call(fake, 'GET', '/repos/o/r/issues/1')).status, 200);
   });
 });
+
+describe('the fake Forgejo answers the lifecycle paths as the swagger documents them', () => {
+  let fake: FakeForgejo;
+  before(async () => {
+    fake = await startFakeForgejo();
+    fake.addRepository('o/r');
+    fake.addTag('o/r', 'v1');
+    fake.addIssue('o/r', { title: 'First, so that there is one' });
+    fake.setPermission('o/r', 'writer', 'write');
+  });
+  after(async () => {
+    await fake.close();
+  });
+
+  it('answers a tag that is there with 200 and one that is not with 404', async () => {
+    assert.equal((await call(fake, 'GET', '/repos/o/r/tags/v1')).status, 200);
+    assert.equal((await call(fake, 'GET', '/repos/o/r/tags/v2')).status, 404);
+  });
+
+  it('creates a milestone with 201, refuses a field the definition does not name, and sets it on an issue, refusing one that is not there', async () => {
+    assert.equal((await call(fake, 'POST', '/repos/o/r/milestones', { title: 'x', bogus: 1 })).status, 422);
+    const made = await call(fake, 'POST', '/repos/o/r/milestones', { title: 'v1' });
+    assert.equal(made.status, 201);
+    const id = (made.json as { id: number }).id;
+    const set = await call(fake, 'PATCH', '/repos/o/r/issues/1', { milestone: id });
+    assert.equal(set.status, 201);
+    assert.equal((set.json as { milestone: { title: string } }).milestone.title, 'v1');
+    assert.equal((await call(fake, 'PATCH', '/repos/o/r/issues/1', { milestone: id + 1 })).status, 422);
+    assert.equal(((await call(fake, 'GET', '/repos/o/r/milestones?state=all')).json as unknown[]).length, 1);
+  });
+
+  it('puts comments and events on the timeline in the order they happened, and pages it', async () => {
+    fake.addComment('o/r', 1, 'writer', 'a comment');
+    await call(fake, 'PATCH', '/repos/o/r/issues/1', { state: 'closed' });
+    await call(fake, 'PATCH', '/repos/o/r/issues/1', { state: 'open' });
+    const timeline = (await call(fake, 'GET', '/repos/o/r/issues/1/timeline')).json as { type: string }[];
+    assert.deepEqual(timeline.map((entry) => entry.type), ['milestone', 'comment', 'close', 'reopen']);
+    const page = await call(fake, 'GET', '/repos/o/r/issues/1/timeline?page=2&limit=3');
+    assert.equal((page.json as unknown[]).length, 1);
+    assert.equal(page.headers.get('x-total-count'), '4');
+  });
+
+  it('answers the permission of a known account, and 404 for one it never heard of', async () => {
+    assert.deepEqual((await call(fake, 'GET', '/repos/o/r/collaborators/writer/permission')).json, { permission: 'write', role_name: 'write', user: { login: 'writer', id: 6, full_name: '', email: '', avatar_url: '' } });
+    assert.equal((await call(fake, 'GET', '/repos/o/r/collaborators/nobody/permission')).status, 404);
+  });
+
+  it('answers the combined status as queued, and an empty object when nothing was queued', async () => {
+    assert.deepEqual((await call(fake, 'GET', '/repos/o/r/commits/abc/status')).json, {});
+    fake.setChecks('o/r', ['pending', 'success']);
+    assert.equal(((await call(fake, 'GET', '/repos/o/r/commits/abc/status')).json as { state: string }).state, 'pending');
+    assert.equal(((await call(fake, 'GET', '/repos/o/r/commits/abc/status')).json as { state: string }).state, 'success');
+    assert.equal(((await call(fake, 'GET', '/repos/o/r/commits/abc/status')).json as { state: string }).state, 'success');
+  });
+});

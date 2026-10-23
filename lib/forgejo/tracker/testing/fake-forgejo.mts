@@ -66,6 +66,17 @@ interface Reference {
   repo: string;
   index: number;
 }
+interface FakeEvent {
+  id: number;
+  type: 'close' | 'reopen' | 'milestone';
+  login: string;
+  created_at: string;
+  milestone: FakeMilestone | undefined;
+}
+interface FakeMilestone {
+  id: number;
+  title: string;
+}
 interface FakeIssue {
   id: number;
   number: number;
@@ -75,6 +86,8 @@ interface FakeIssue {
   labels: number[];
   assignees: string[];
   comments: FakeComment[];
+  events: FakeEvent[];
+  milestone: FakeMilestone | undefined;
   dependencies: Reference[];
   created_at: string;
 }
@@ -85,6 +98,10 @@ interface FakeRepository {
   defaultBranch: string;
   assignable: string[];
   issues: FakeIssue[];
+  tags: string[];
+  milestones: FakeMilestone[];
+  permissions: Record<string, string>;
+  checks: string[];
 }
 
 export type FailureMode =
@@ -121,10 +138,16 @@ export interface FakeForgejo {
   readonly token: string;
   readonly requests: RecordedRequest[];
   addRepository(fullName: string, options?: { isPrivate?: boolean; assignable?: string[]; defaultBranch?: string }): void;
+  addTag(fullName: string, tag: string): void;
+  // The permission the repository gives an account: none, read, write, admin or owner. An account no one ever named answers 404.
+  setPermission(fullName: string, login: string, permission: string): void;
+  // The states the combined status of any commit of the repository answers one after the other, the last one for good. No state: an empty answer.
+  setChecks(fullName: string, states: string[]): void;
+  listMilestones(fullName: string): { title: string; issues: number[] }[];
   addLabel(owner: string, label: { name: string; color?: string; description?: string; exclusive?: boolean }): number;
   addIssue(fullName: string, issue: { title: string; body?: string; state?: 'open' | 'closed'; labels?: string[]; assignees?: string[] }): number;
   addComment(fullName: string, number: number, login: string, body: string): void;
-  readIssue(fullName: string, number: number): { title: string; body: string; state: string; labels: string[]; assignees: string[]; comments: string[]; dependencies: string[] };
+  readIssue(fullName: string, number: number): { title: string; body: string; state: string; labels: string[]; assignees: string[]; comments: string[]; dependencies: string[]; milestone: string | undefined };
   listLabels(owner: string): { name: string; color: string; description: string; exclusive: boolean }[];
   fail(rule: FailureRule): void;
   writes(): RecordedRequest[];
@@ -149,6 +172,7 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
   const repositories = new Map<string, FakeRepository>();
   const organizations = new Set<string>();
   const labels: FakeLabel[] = [];
+  const knownLogins = new Set<string>(['fake-user']);
   const rules: (FailureRule & { left: number })[] = [];
   const requests: RecordedRequest[] = [];
   const pageMaximum = options.pageMaximum ?? DEFAULT_PAGE_MAXIMUM;
@@ -195,7 +219,12 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
     url: `https://${FAKE_HOST}/api/v1/repos/${repository.owner}/${repository.name}/issues/${issue.number}`,
     user: userWire('author'),
     repository: { id: 1, name: repository.name, owner: repository.owner, full_name: `${repository.owner}/${repository.name}` },
+    milestone: issue.milestone === undefined ? null : milestoneWire(issue.milestone),
   });
+  const milestoneWire = (milestone: FakeMilestone): Json => ({ id: milestone.id, title: milestone.title, description: '', state: 'open', open_issues: 0, closed_issues: 0 });
+  const eventOf = (issue: FakeIssue, type: FakeEvent['type'], milestone?: FakeMilestone): void => {
+    issue.events.push({ id: newId(), type, login: 'fake-user', created_at: clock(), milestone });
+  };
 
   const paginate = (items: Json[], operation: OperationSchema, query: Record<string, string>): Answer => {
     const paged = (operation.parameters ?? []).some((parameter) => parameter.name === 'page');
@@ -242,6 +271,8 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
         labels: [],
         assignees: [],
         comments: [],
+        events: [],
+        milestone: undefined,
         dependencies: [],
         created_at: clock(),
       };
@@ -269,7 +300,14 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
       if (typeof body.body === 'string') issue.body = body.body;
       if (typeof body.state === 'string') {
         if (body.state !== 'open' && body.state !== 'closed') throw new HttpFailure(422, 'state must be open or closed');
+        if (body.state !== issue.state) eventOf(issue, body.state === 'closed' ? 'close' : 'reopen');
         issue.state = body.state;
+      }
+      if (typeof body.milestone === 'number') {
+        const milestone = body.milestone === 0 ? undefined : repository.milestones.find((candidate) => candidate.id === body.milestone);
+        if (body.milestone !== 0 && milestone === undefined) throw new HttpFailure(422, `milestone does not exist [id: ${body.milestone}]`);
+        if (milestone?.id !== issue.milestone?.id) eventOf(issue, 'milestone', milestone);
+        issue.milestone = milestone;
       }
       if (Array.isArray(body.assignees)) {
         for (const login of body.assignees as string[]) {
@@ -385,6 +423,58 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
       if (typeof body.description === 'string') label.description = body.description;
       if (typeof body.exclusive === 'boolean') label.exclusive = body.exclusive;
       return { status: 200, body: labelWire(label) };
+    },
+    repoGetTag: ({ params }) => {
+      const repository = findRepository(params.owner ?? '', params.repo ?? '');
+      const tag = params.tag ?? '';
+      if (!repository.tags.includes(tag)) throw new HttpFailure(404, `tag does not exist [name: ${tag}]`);
+      return { status: 200, body: { name: tag, id: 'f'.repeat(40), message: '' } };
+    },
+    issueGetMilestonesList: ({ params, operation, query }) => {
+      const repository = findRepository(params.owner ?? '', params.repo ?? '');
+      return paginate(repository.milestones.filter((milestone) => query.name === undefined || milestone.title === query.name).map(milestoneWire), operation, query);
+    },
+    issueCreateMilestone: ({ params, body }) => {
+      const repository = findRepository(params.owner ?? '', params.repo ?? '');
+      const milestone: FakeMilestone = { id: newId(), title: String(body.title) };
+      repository.milestones.push(milestone);
+      return { status: 201, body: milestoneWire(milestone) };
+    },
+    issueGetCommentsAndTimeline: ({ params, operation, query }) => {
+      const repository = findRepository(params.owner ?? '', params.repo ?? '');
+      const issue = findIssue(repository, Number(params.index));
+      const entries: { id: number; wire: Json }[] = [
+        ...issue.comments.map((comment) => ({
+          id: comment.id,
+          wire: { id: comment.id, type: 'comment', body: comment.body, created_at: comment.created_at, updated_at: comment.created_at, html_url: `https://${FAKE_HOST}/comment/${comment.id}`, user: userWire(comment.login) },
+        })),
+        ...issue.events.map((event) => ({
+          id: event.id,
+          wire: {
+            id: event.id,
+            type: event.type,
+            body: '',
+            created_at: event.created_at,
+            updated_at: event.created_at,
+            user: userWire(event.login),
+            ...(event.milestone === undefined ? {} : { milestone: milestoneWire(event.milestone) }),
+          },
+        })),
+      ];
+      return paginate(entries.sort((a, b) => a.id - b.id).map((entry) => entry.wire), operation, query);
+    },
+    repoGetRepoPermissions: ({ params }) => {
+      const repository = findRepository(params.owner ?? '', params.repo ?? '');
+      const login = params.collaborator ?? '';
+      const permission = repository.permissions[login] ?? (knownLogins.has(login) ? 'read' : undefined);
+      if (permission === undefined) throw new HttpFailure(404, `user does not exist [name: ${login}]`);
+      return { status: 200, body: { permission, role_name: permission, user: userWire(login) } };
+    },
+    repoGetCombinedStatusByRef: ({ params }) => {
+      const repository = findRepository(params.owner ?? '', params.repo ?? '');
+      const state = repository.checks.length > 1 ? repository.checks.shift() : repository.checks[0];
+      const body: Json = state === undefined ? {} : { state, total_count: 1, sha: params.ref ?? '', statuses: [] };
+      return { status: 200, body };
     },
     issueSearchIssues: ({ query, operation }) => {
       const state = query.state ?? 'open';
@@ -607,7 +697,30 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
         defaultBranch: repositoryOptions.defaultBranch ?? 'master',
         assignable: repositoryOptions.assignable ?? ['fake-user'],
         issues: [],
+        tags: [],
+        milestones: [],
+        permissions: { 'fake-user': 'write' },
+        checks: [],
       });
+      for (const login of repositoryOptions.assignable ?? ['fake-user']) knownLogins.add(login);
+    },
+    addTag(fullName, tag) {
+      const [owner = '', name = ''] = fullName.split('/');
+      findRepository(owner, name).tags.push(tag);
+    },
+    setPermission(fullName, login, permission) {
+      const [owner = '', name = ''] = fullName.split('/');
+      findRepository(owner, name).permissions[login] = permission;
+      knownLogins.add(login);
+    },
+    setChecks(fullName, states) {
+      const [owner = '', name = ''] = fullName.split('/');
+      findRepository(owner, name).checks = [...states];
+    },
+    listMilestones(fullName) {
+      const [owner = '', name = ''] = fullName.split('/');
+      const repository = findRepository(owner, name);
+      return repository.milestones.map((milestone) => ({ title: milestone.title, issues: repository.issues.filter((issue) => issue.milestone?.id === milestone.id).map((issue) => issue.number) }));
     },
     addLabel(owner, label) {
       organizations.add(owner);
@@ -635,6 +748,8 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
         labels: (issue.labels ?? []).map((labelName) => labelByName(owner, labelName).id),
         assignees: issue.assignees ?? [],
         comments: [],
+        events: [],
+        milestone: undefined,
         dependencies: [],
         created_at: clock(),
       };
@@ -643,6 +758,7 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
     },
     addComment(fullName, number, login, body) {
       const [owner = '', name = ''] = fullName.split('/');
+      knownLogins.add(login);
       findIssue(findRepository(owner, name), number).comments.push({ id: newId(), login, body, created_at: clock() });
     },
     readIssue(fullName, number) {
@@ -656,6 +772,7 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
         assignees: issue.assignees,
         comments: issue.comments.map((comment) => comment.body),
         dependencies: issue.dependencies.map((reference) => `${reference.owner}/${reference.repo}#${reference.index}`),
+        milestone: issue.milestone?.title,
       };
     },
     listLabels(owner) {

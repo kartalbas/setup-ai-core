@@ -188,6 +188,29 @@ describe('the dispatch of bin/ai-core', () => {
   });
 });
 
+describe('the settings of the lifecycle commands, from the config.env of the project to the Node part', () => {
+  it('hands over CI_GATE and LIVE_TAGS, with public and an empty list where the project sets none', async () => {
+    const shims = join(work, 'shims');
+    mkdirSync(shims, { recursive: true });
+    const seen = join(work, 'seen');
+    writeFileSync(join(shims, 'node'), `#!/bin/sh\nprintf '%s|%s' "$CI_GATE" "$LIVE_TAGS" > '${seen}'\n`);
+    chmodSync(join(shims, 'node'), 0o755);
+    const path = `${shims}:${process.env.PATH ?? ''}`;
+    const configured = join(work, 'lifecycle-configured');
+    mkdirSync(join(configured, '.ai-core'), { recursive: true });
+    await run('git', ['init', '-q', configured], {});
+    writeFileSync(join(configured, '.ai-core', 'config.env'), 'TRACKER=forgejo\nFORGEJO_URL=http://127.0.0.1:1\nFORGEJO_TOKEN_COMMAND="printf token"\nCI_GATE=none\nLIVE_TAGS="prod=landed test=deploy/test/*"\n');
+    await run('bash', [join(HARNESS_ROOT, 'bin', 'ai-core'), 'integrate-issue', '1'], { PATH: path }, configured);
+    assert.equal(readFileSync(seen, 'utf8'), 'none|prod=landed test=deploy/test/*');
+    const plain = join(work, 'lifecycle-plain');
+    mkdirSync(join(plain, '.ai-core'), { recursive: true });
+    await run('git', ['init', '-q', plain], {});
+    writeFileSync(join(plain, '.ai-core', 'config.env'), 'TRACKER=forgejo\nFORGEJO_URL=http://127.0.0.1:1\nFORGEJO_TOKEN_COMMAND="printf token"\n');
+    await run('bash', [join(HARNESS_ROOT, 'bin', 'ai-core'), 'issue-proof', '1'], { PATH: path }, plain);
+    assert.equal(readFileSync(seen, 'utf8'), 'public|');
+  });
+});
+
 describe('the README', () => {
   const readme = readFileSync(join(HARNESS_ROOT, 'README.md'), 'utf8');
   const row = (label: string): string[] => {

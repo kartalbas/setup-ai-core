@@ -125,3 +125,91 @@ describe('a checkout and its remote', () => {
     assert.ok(!existsSync(tree));
   });
 });
+
+describe('what the lifecycle commands ask of Git', () => {
+  let fixture: GitFixture;
+  let remote: string;
+  let checkout: string;
+  before(() => {
+    fixture = createGitFixture();
+    remote = fixture.createRemote('example-owner', 'lifecycle');
+    checkout = fixture.clone(remote, 'project', 'lifecycle');
+  });
+  after(() => fixture.dispose());
+
+  it('names the main checkout and the folder of the worktrees from the checkout and from a worktree of it', async () => {
+    const tree = join(fixture.root, 'project', '.worktrees', 'lifecycle', 'issue-5-x');
+    await client.addWorktree(checkout, tree, 'issue-5-x', 'HEAD');
+    for (const place of [checkout, tree]) {
+      assert.equal(await client.mainCheckout(place), checkout);
+      assert.equal(await client.worktreeContainer(place), join(fixture.root, 'project', '.worktrees', 'lifecycle'));
+    }
+    await client.removeWorktree(checkout, tree);
+  });
+
+  it('reads a setting that is there and says nothing for one that is not', async () => {
+    assert.equal(await client.getConfig(checkout, 'branch.nothing.issueRepository'), undefined);
+    await client.setConfig(checkout, 'branch.nothing.issueRepository', 'example-owner/other');
+    assert.equal(await client.getConfig(checkout, 'branch.nothing.issueRepository'), 'example-owner/other');
+  });
+
+  it('lists the branches of the clone and of origin, and deletes only a branch that landed', async () => {
+    git(checkout, 'branch', 'issue-6-landed');
+    git(checkout, 'branch', 'issue-7-open');
+    git(checkout, 'checkout', '-q', 'issue-7-open');
+    fixture.commit(checkout, 'seven.txt', 'seven\n');
+    git(checkout, 'checkout', '-q', 'master');
+    const names = await client.listBranchNames(checkout);
+    assert.ok(names.includes('issue-6-landed') && names.includes('master'));
+    assert.ok(!names.some((name) => name.startsWith('origin')), 'the local branches only');
+    await client.deleteBranch(checkout, 'issue-6-landed');
+    await assert.rejects(client.deleteBranch(checkout, 'issue-7-open'), GitError);
+    assert.ok((await client.listBranchNames(checkout)).includes('issue-7-open'));
+  });
+
+  it('asks origin for its branches by pattern, also the ones the clone never fetched', async () => {
+    const work = fixture.clone(remote, 'listing', 'lifecycle');
+    git(work, 'push', '-q', 'origin', 'HEAD:refs/heads/issue-8-theirs');
+    git(work, 'push', '-q', 'origin', 'HEAD:refs/heads/issue-80-other');
+    assert.deepEqual(await client.listRemoteBranchNames(checkout, ['issue-8', 'issue-8-*']), ['issue-8-theirs']);
+    assert.deepEqual(await client.listRemoteBranchNames(checkout, ['issue-9', 'issue-9-*']), []);
+  });
+
+  it('finds the merge that brought a commit in, or the commit itself where nothing came after it', async () => {
+    const work = fixture.clone(remote, 'landing', 'lifecycle');
+    git(work, 'checkout', '-q', '-b', 'side');
+    const side = fixture.commit(work, 'side.txt', 'side\n');
+    git(work, 'checkout', '-q', 'master');
+    fixture.commit(work, 'main.txt', 'main\n');
+    const merged = await client.merge(work, side, 'merge side');
+    fixture.commit(work, 'after.txt', 'after\n');
+    assert.equal(await client.findLandingCommit(work, side, 'master'), merged);
+    assert.equal(await client.findLandingCommit(work, merged, merged), merged);
+  });
+
+  it('merges in a detached worktree and discards it, whatever it holds', async () => {
+    const tree = join(fixture.root, 'project', '.worktrees', 'lifecycle', 'integrate-1.test');
+    await client.addDetachedWorktree(checkout, tree, 'refs/remotes/origin/master');
+    assert.equal(await client.currentBranch(tree), undefined);
+    writeFileSync(join(tree, 'left-behind.txt'), 'x');
+    await assert.rejects(client.removeWorktree(checkout, tree), GitError);
+    await client.discardWorktree(checkout, tree);
+    assert.ok(!existsSync(tree));
+  });
+
+  it('replaces a branch of origin only while it holds what was read (planted: it changed meanwhile), and deletes it on the same terms', async () => {
+    const work = fixture.clone(remote, 'leased', 'lifecycle');
+    const first = fixture.commit(work, 'one.txt', '1\n');
+    assert.equal(await client.remoteBranchTip(work, 'ci/integrate-x'), undefined);
+    await client.pushWithLease(work, first, 'ci/integrate-x', undefined);
+    assert.equal(await client.remoteBranchTip(work, 'ci/integrate-x'), first);
+    const second = fixture.commit(work, 'two.txt', '2\n');
+    await assert.rejects(client.pushWithLease(work, second, 'ci/integrate-x', undefined), GitError);
+    await assert.rejects(client.pushWithLease(work, second, 'ci/integrate-x', 'a'.repeat(40)), GitError);
+    await client.pushWithLease(work, second, 'ci/integrate-x', first);
+    await assert.rejects(client.deleteRemoteBranch(work, 'ci/integrate-x', first), GitError);
+    assert.equal(await client.remoteBranchTip(work, 'ci/integrate-x'), second);
+    await client.deleteRemoteBranch(work, 'ci/integrate-x', second);
+    assert.equal(await client.remoteBranchTip(work, 'ci/integrate-x'), undefined);
+  });
+});

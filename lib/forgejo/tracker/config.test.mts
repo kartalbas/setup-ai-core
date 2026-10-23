@@ -18,6 +18,16 @@ describe('the settings of the environment', () => {
   });
 });
 
+describe('the settings of the lifecycle commands', () => {
+  it('are read from the environment, and an empty value is not set', () => {
+    const settings = readSettings({ CI_GATE: 'none', LIVE_TAGS: 'prod=landed', AI_CORE_INTEGRATE_POLL: '5', AI_CORE_INTEGRATE_WAIT: ' ' });
+    assert.equal(settings.ciGate, 'none');
+    assert.equal(settings.liveTags, 'prod=landed');
+    assert.equal(settings.integratePollSeconds, '5');
+    assert.equal(settings.integrateWaitSeconds, undefined);
+  });
+});
+
 describe('FORGEJO_URL', () => {
   it('is a scheme and a host, as typed or with a closing slash (innocent cases)', () => {
     assert.equal(parseForgejoUrl('https://forge.example.test'), 'https://forge.example.test');

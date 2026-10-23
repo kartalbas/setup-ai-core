@@ -28,6 +28,7 @@ export interface Issue {
   readonly commentCount: number;
   readonly createdAt: string;
   readonly url: string;
+  readonly milestone: { readonly id: number; readonly title: string } | undefined;
 }
 
 export interface IssueComment {
@@ -73,6 +74,10 @@ export function isSameIssue(a: IssueRef, b: IssueRef): boolean {
   return a.number === b.number && a.owner.toLowerCase() === b.owner.toLowerCase() && a.repo.toLowerCase() === b.repo.toLowerCase();
 }
 
+export function isSameRepository(a: RepositoryRef, b: RepositoryRef): boolean {
+  return a.owner.toLowerCase() === b.owner.toLowerCase() && a.repo.toLowerCase() === b.repo.toLowerCase();
+}
+
 export function repositoryPath(repository: RepositoryRef): string {
   return `/repos/${segment(repository.owner)}/${segment(repository.repo)}`;
 }
@@ -94,6 +99,7 @@ function toIssue(wire: WireIssue, ref: IssueRef, operation: string): Issue {
     commentCount: wire.comments,
     createdAt: wire.created_at,
     url: wire.html_url,
+    milestone: wire.milestone === null || wire.milestone === undefined ? undefined : { id: wire.milestone.id, title: wire.milestone.title },
   };
 }
 
@@ -177,6 +183,15 @@ export async function setAssignees(api: ForgejoClient, ref: IssueRef, logins: re
     throw new ContractError(`set the assignees of issue ${formatIssue(ref)}`, `Forgejo kept ${actual.join(', ') || 'nobody'} instead of ${expected.join(', ') || 'nobody'}`);
   }
   return issue;
+}
+
+// Why the signed-in account may not take the issue up, or nothing when it is assigned to it. An issue assigned
+// to nobody is refused too: the product owner assigns it first.
+export function explainMissingAssignment(issue: Issue, login: string): string | undefined {
+  if (issue.assignees.some((assignee) => assignee.toLowerCase() === login.toLowerCase())) return undefined;
+  const name = formatIssue(issue.ref);
+  if (issue.assignees.length === 0) return `${name} is assigned to nobody: the product owner assigns it before it is taken up`;
+  return `${name} is assigned to ${issue.assignees.map((assignee) => `@${assignee}`).join(', ')}, not to @${login}: ask them or the product owner to reassign it`;
 }
 
 export async function currentLogin(api: ForgejoClient): Promise<string> {

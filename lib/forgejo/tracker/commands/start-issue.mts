@@ -1,0 +1,106 @@
+import { mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
+import { addComment, afterStep, currentLogin, explainMissingAssignment, formatIssue, formatRepository, getIssue, isSameRepository } from '../domain/issues.mts';
+import type { Issue } from '../domain/issues.mts';
+import { replaceFamilyLabel, statusLabel } from '../domain/labels.mts';
+import type { StatusValue } from '../domain/labels.mts';
+import { PreconditionError } from '../domain/refusals.mts';
+import { composeStartedRecord, hasStartedRecord, readTimeline } from '../domain/workflow.mts';
+import { parseArguments, refuseExtra, takeIssue } from './arguments.mts';
+import { succeeded } from './command.mts';
+import type { CommandContext, CommandResult } from './command.mts';
+
+const USAGE = 'usage: start-issue [OWNER/REPO] NUMBER';
+export const help = `${USAGE}
+
+Cuts the worktree of one issue from the fetched default branch of origin, sets status/implementing and writes the
+record "Started on <branch>:" with the branch and its base. Run it in the clone the work belongs to; the issue may
+be in another repository (OWNER/REPO), which is then recorded on the branch.
+
+The issue must be open, assigned to the signed-in account and in ready, planned, implementing or review. A branch
+or a folder of this issue that is not its own worktree refuses the run. Where the worktree stands already, nothing
+is cut again and only the records that are missing are written. It does not assemble the harness in the new
+worktree: it prints the ai-core init command that does.`;
+
+const STARTABLE: readonly StatusValue[] = ['ready', 'planned', 'implementing', 'review'];
+const SLUG_LENGTH = 40;
+
+function slugOf(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, SLUG_LENGTH)
+    .replace(/-+$/, '');
+}
+
+function statusOf(issue: Issue): string | undefined {
+  return issue.labels.find((label) => label.startsWith('status/'));
+}
+
+function refuseUnreadyIssue(issue: Issue): void {
+  const name = formatIssue(issue.ref);
+  if (issue.state !== 'open') throw new PreconditionError(`${name} is closed: reopen it with issue-reopen --status ready before work starts`);
+  const status = statusOf(issue);
+  if (status === undefined) throw new PreconditionError(`${name} has no status/ label: set one with issue-status`);
+  if (!STARTABLE.some((value) => statusLabel(value) === status)) {
+    throw new PreconditionError(`${name} is in ${status}, and work starts from ${STARTABLE.map(statusLabel).join(', ')}`);
+  }
+}
+
+export async function run(args: readonly string[], context: CommandContext): Promise<CommandResult> {
+  const parsed = parseArguments(args, {});
+  const { ref, rest } = await takeIssue(parsed.positionals, context.git, context.cwd, USAGE);
+  refuseExtra(rest, USAGE);
+  const { git, cwd } = context;
+  const api = context.api();
+
+  const login = await currentLogin(api);
+  const issue = await getIssue(api, ref);
+  refuseUnreadyIssue(issue);
+  const unassigned = explainMissingAssignment(issue, login);
+  if (unassigned !== undefined) throw new PreconditionError(unassigned);
+  if (issue.title.trim() === '') throw new PreconditionError(`${formatIssue(ref)} has no title, so no worktree name can be built from it`);
+
+  const origin = await git.originRepository(cwd);
+  const defaultBranch = await git.defaultBranch(cwd);
+  await git.fetchBranch(cwd, defaultBranch);
+  const base = await git.resolveCommit(cwd, `refs/remotes/origin/${defaultBranch}`);
+
+  const branch = `issue-${ref.number}-${slugOf(issue.title)}`.replace(/-$/, '');
+  const container = await git.worktreeContainer(cwd);
+  const path = join(container, branch);
+  const worktrees = await git.listWorktrees(cwd);
+  const cut = worktrees.find((worktree) => worktree.branch === branch);
+  if (cut !== undefined && cut.path !== path) throw new PreconditionError(`the branch ${branch} is checked out in ${cut.path}, not in ${path}`);
+  const resuming = cut !== undefined;
+
+  if (!resuming) {
+    const pattern = new RegExp(`^issue-${ref.number}(-.*)?$`);
+    const local = (await git.listBranchNames(cwd)).filter((name) => pattern.test(name));
+    const remote = (await git.listRemoteBranchNames(cwd, [`issue-${ref.number}`, `issue-${ref.number}-*`])).map((name) => `origin/${name}`);
+    const taken = [...local, ...remote];
+    if (taken.length > 0) throw new PreconditionError(`a branch for issue ${ref.number} exists already: ${taken.join(', ')}. Use its worktree, or finish that issue first`);
+    if (worktrees.some((worktree) => worktree.path === path)) throw new PreconditionError(`${path} is a worktree of another branch`);
+    await mkdir(container, { recursive: true });
+    await git.addWorktree(cwd, path, branch, `refs/remotes/origin/${defaultBranch}`);
+    if (!isSameRepository(ref, origin)) await git.setConfig(cwd, `branch.${branch}.issueRepository`, formatRepository(ref));
+  }
+
+  const lines = [resuming ? `Worktree ${path} stands on ${branch} already.` : `Worktree ${path} on ${branch}, cut from origin/${defaultBranch} at ${base}.`];
+  await afterStep(
+    `record the start of issue ${formatIssue(ref)}`,
+    `${resuming ? 'found' : 'cut'} the worktree ${path} on ${branch}`,
+    async () => {
+      await replaceFamilyLabel(api, ref, issue, statusLabel('implementing'));
+      const entries = await readTimeline(api, ref);
+      if (hasStartedRecord(entries, branch)) return;
+      await addComment(api, ref, composeStartedRecord({ branch, baseBranch: defaultBranch, baseCommit: base }));
+    },
+  );
+  lines.push(`${formatIssue(ref)} -> ${statusLabel('implementing')}; recorded "Started on ${branch}:"`);
+  if (!isSameRepository(ref, origin)) lines.push(`The issue lives in ${formatRepository(ref)}: recorded on ${branch}, where integrate-issue and finish-issue read it.`);
+  if (!resuming) lines.push(`The harness is not assembled in the worktree yet: ai-core init ${path} --no-doctor (a harness source needs none)`);
+  lines.push(`Read the issue: ai-core issue-thread ${formatRepository(ref)} ${ref.number}`);
+  return succeeded(lines);
+}

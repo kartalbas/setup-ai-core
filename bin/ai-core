@@ -28,7 +28,7 @@ usage() {
 # With TRACKER=forgejo the issue commands run in Node, from lib/forgejo/tracker/cli.mts, and the board commands do
 # not exist. These two lists are the commands of that treatment; tests/sections/16-forgejo.sh holds them equal to
 # the ones cli.mts knows.
-FORGEJO_NODE_COMMANDS=" issue-new issue-comment issue-close issue-reopen issue-edit issue-label issue-priority issue-status issue-assign issue-block issue-unblock issue-thread issue-mine status labels-sync "
+FORGEJO_NODE_COMMANDS=" issue-new issue-comment issue-close issue-reopen issue-edit issue-label issue-priority issue-status issue-assign issue-block issue-unblock issue-thread issue-mine start-issue integrate-issue finish-issue issue-release issue-proof status labels-sync "
 FORGEJO_REFUSED_COMMANDS=" board-list board-order board-sync board-unarchive field-option-add item-move item-top project-new repo-boards repo-link view-filter epics-top subissue-add subissue-remove status-sync issue-transfer issue-duplicate issue-map incident-count "
 
 # forgejo_setting <key> <default>: a setting of the project, read as every command reads it
@@ -49,7 +49,9 @@ case "$command" in
           FORGEJO_URL="$(forgejo_setting FORGEJO_URL "")"
           FORGEJO_TOKEN_COMMAND="$(forgejo_setting FORGEJO_TOKEN_COMMAND "")"
           AI_CORE_LABELS_FILE="$( . "$CORE/lib/common.sh"; data_file labels.tsv )"
-          export FORGEJO_URL FORGEJO_TOKEN_COMMAND AI_CORE_LABELS_FILE
+          CI_GATE="$(forgejo_setting CI_GATE public)"
+          LIVE_TAGS="$(forgejo_setting LIVE_TAGS "")"
+          export FORGEJO_URL FORGEJO_TOKEN_COMMAND AI_CORE_LABELS_FILE CI_GATE LIVE_TAGS
           exec node "$CORE/lib/forgejo/tracker/cli.mts" "$command" "$@"
         fi ;;
     esac

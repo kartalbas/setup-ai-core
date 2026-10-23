@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { readdir } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 const MAXIMUM_OUTPUT_BYTES = 64 * 1024 * 1024;
 const MESSAGE_STDERR_LINES = 6;
@@ -78,9 +78,7 @@ export class GitClient {
   // The repositories of the clones that lie beside this checkout: the folders of the project folder
   // (the parent of the main checkout, also from a worktree) that are Git checkouts with an origin.
   async listCloneOrigins(cwd: string): Promise<RepositoryAddress[]> {
-    const common = await this.output(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
-    if (!common.endsWith('/.git')) throw new GitError(['rev-parse'], undefined, `${common} is not the .git folder of a checkout`);
-    const projectFolder = dirname(dirname(common));
+    const projectFolder = dirname(await this.mainCheckout(cwd));
     const found: RepositoryAddress[] = [];
     for (const entry of await readdir(projectFolder, { withFileTypes: true })) {
       if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
@@ -120,6 +118,13 @@ export class GitClient {
     return (await this.run(cwd, ['merge-base', '--is-ancestor', ancestor, descendant], [0, 1])).exitCode === 0;
   }
 
+  // The commit on the first-parent line of `ref` that brought `commit` in: the merge that landed it, or
+  // the commit itself where `ref` is at it.
+  async findLandingCommit(cwd: string, commit: string, ref: string): Promise<string> {
+    const path = await this.output(cwd, ['rev-list', '--first-parent', '--ancestry-path', '--reverse', `${commit}..${ref}`]);
+    return path.split('\n')[0] || commit;
+  }
+
   async isClean(cwd: string): Promise<boolean> {
     return (await this.output(cwd, ['status', '--porcelain', '--untracked-files=all'])) === '';
   }
@@ -127,6 +132,43 @@ export class GitClient {
   async currentBranch(cwd: string): Promise<string | undefined> {
     const branch = await this.run(cwd, ['symbolic-ref', '--short', '-q', 'HEAD'], [0, 1]);
     return branch.exitCode === 0 ? branch.stdout.trim() : undefined;
+  }
+
+  // The main checkout of the clone, also from one of its worktrees.
+  async mainCheckout(cwd: string): Promise<string> {
+    const common = await this.output(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+    if (!common.endsWith('/.git')) throw new GitError(['rev-parse'], undefined, `${common} is not the .git folder of a checkout`);
+    return dirname(common);
+  }
+
+  // Where the worktrees of the clone stand: .worktrees/<name of the checkout> beside the checkout, as lib/board.sh puts them.
+  async worktreeContainer(cwd: string): Promise<string> {
+    const main = await this.mainCheckout(cwd);
+    return join(dirname(main), '.worktrees', basename(main));
+  }
+
+  async getConfig(cwd: string, key: string): Promise<string | undefined> {
+    const answer = await this.run(cwd, ['config', '--get', key], [0, 1]);
+    return answer.exitCode === 0 ? answer.stdout.trim() : undefined;
+  }
+
+  async setConfig(cwd: string, key: string, value: string): Promise<void> {
+    await this.run(cwd, ['config', key, value]);
+  }
+
+  async listBranchNames(cwd: string): Promise<string[]> {
+    const listing = await this.output(cwd, ['for-each-ref', '--format=%(refname:short)', 'refs/heads']);
+    return listing.split('\n').filter((name) => name !== '');
+  }
+
+  // The branches origin holds whose names match the patterns, asked of origin itself and not of the clone's last fetch.
+  async listRemoteBranchNames(cwd: string, patterns: readonly string[]): Promise<string[]> {
+    const listing = await this.output(cwd, ['ls-remote', '--heads', 'origin', ...patterns.map((pattern) => `refs/heads/${pattern}`)]);
+    return listing
+      .split('\n')
+      .map((line) => line.split('\t')[1] ?? '')
+      .filter((ref) => ref.startsWith('refs/heads/'))
+      .map((ref) => ref.slice('refs/heads/'.length));
   }
 
   async listWorktrees(cwd: string): Promise<Worktree[]> {
@@ -145,9 +187,23 @@ export class GitClient {
     await this.run(cwd, ['worktree', 'add', '-b', branch, path, startPoint]);
   }
 
+  async addDetachedWorktree(cwd: string, path: string, startPoint: string): Promise<void> {
+    await this.run(cwd, ['worktree', 'add', '--quiet', '--detach', path, startPoint]);
+  }
+
   // Never forced: a worktree with changes in it stays.
   async removeWorktree(cwd: string, path: string): Promise<void> {
     await this.run(cwd, ['worktree', 'remove', path]);
+  }
+
+  // For the temporary worktree of a landing, which this program made and nobody works in.
+  async discardWorktree(cwd: string, path: string): Promise<void> {
+    await this.run(cwd, ['worktree', 'remove', '--force', path]);
+  }
+
+  // Deletes only a branch whose commits the upstream or HEAD already holds, never forced.
+  async deleteBranch(cwd: string, branch: string): Promise<void> {
+    await this.run(cwd, ['branch', '-d', branch]);
   }
 
   // A merge commit that names its parents; a merge that conflicts is aborted and leaves the checkout as it was.
@@ -164,5 +220,20 @@ export class GitClient {
   // Never forced: a remote that moved refuses it.
   async push(cwd: string, commit: string, branch: string): Promise<void> {
     await this.run(cwd, ['push', 'origin', `${commit}:refs/heads/${branch}`]);
+  }
+
+  // The commit origin holds for the branch, asked of origin itself.
+  async remoteBranchTip(cwd: string, branch: string): Promise<string | undefined> {
+    const answer = await this.output(cwd, ['ls-remote', '--heads', 'origin', `refs/heads/${branch}`]);
+    return answer === '' ? undefined : answer.split('\t')[0];
+  }
+
+  // Replaces the branch only while origin still holds `expected` (nothing when it is to be new).
+  async pushWithLease(cwd: string, commit: string, branch: string, expected: string | undefined): Promise<void> {
+    await this.run(cwd, ['push', `--force-with-lease=refs/heads/${branch}:${expected ?? ''}`, 'origin', `${commit}:refs/heads/${branch}`]);
+  }
+
+  async deleteRemoteBranch(cwd: string, branch: string, expected: string): Promise<void> {
+    await this.run(cwd, ['push', `--force-with-lease=refs/heads/${branch}:${expected}`, 'origin', '--delete', `refs/heads/${branch}`]);
   }
 }

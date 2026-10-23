@@ -686,7 +686,7 @@ modeless=""
 while IFS= read -r path; do
   [ -n "$path" ] || continue
   [ "$(git ls-tree "$head" -- "$path" | cut -d' ' -f1)" = 100644 ] || continue
-  [ "$(git cat-file -p "$head:$path" 2>/dev/null | head -c 2 || true)" = '#!' ] || continue
+  [ "$(git cat-file -p "$head:$path" 2>/dev/null | head -c 2 | tr -d '\0' || true)" = '#!' ] || continue
   modeless="$modeless $path"
 done < <(while IFS= read -r sha; do [ -z "$sha" ] || git diff-tree --no-commit-id --root -r --name-only --diff-filter=AMR "$sha"; done <<< "$commits" | sort -u)
 [ -z "$modeless" ] || refuse "these files start with #! and are not executable, so running them by name fails and git skips a hook among them:$modeless. Set the bit and commit it: git update-index --chmod=+x$modeless"
@@ -760,7 +760,7 @@ fi
 numbered=""
 while IFS= read -r sha; do
   [ -n "$sha" ] || continue
-  added="$(git show --format= --unified=0 --no-color "$sha" -- . ':!*.md' ':!*.json' ':!*.lock' ':!CHANGELOG*' 2>/dev/null || true)"
+  added="$(git show --format= --unified=0 --no-color "$sha" -- . ':!*.md' ':!*.json' ':!*.lock' ':!CHANGELOG*' 2>/dev/null | tr -d '\0' || true)"
   hits="$(awk '
     # git ends a name that holds a space with a tab, which would join the line read after it
     /^\+\+\+ / { file = substr($0, 7); sub(/\t$/, "", file); next }

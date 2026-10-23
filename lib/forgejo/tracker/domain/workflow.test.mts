@@ -168,6 +168,15 @@ describe('what an issue records', () => {
     assert.deepEqual(listMissingDelivery(await history(), []), []);
   });
 
+  it('takes the landing of a harness layer as its delivery, and not the landing of setup-ai-core', async () => {
+    const landedIn = (repository: { owner: string; repo: string }): string =>
+      composeLandedRecord({ branch: 'master', repository, reviewedHead: HEAD, landedCommit: MERGE, reviewers: ['r'] }, code);
+    fake.addComment('o/r', ref.number, 'writer', landedIn({ owner: 'o', repo: 'shop-AI-core' }));
+    assert.deepEqual(listMissingDelivery(await history(), []), []);
+    fake.addComment('o/r', ref.number, 'writer', landedIn({ owner: 'o', repo: 'setup-ai-core' }));
+    assert.match(listMissingDelivery(await history(), []).join(), /no release of o\/setup-ai-core follows its landing/);
+  });
+
   it('reads a timeline of several pages whole', async () => {
     for (let n = 0; n < 120; n++) fake.addComment('o/r', ref.number, 'writer', `comment ${n}`);
     fake.addComment('o/r', ref.number, 'writer', landing());

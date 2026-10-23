@@ -363,8 +363,8 @@ binding_ok() {  # binding_ok
 }
 binding_ok
 # An origin that moved to a host other than the configured forge's must not make init take the harness out of a checkout it assembled
-tree_digest() {  # tree_digest <checkout>: every file but .git, with its content
-  (cd "$1" && find . -path ./.git -prune -o -type f -print0 | sort -z | xargs -0 cksum)
+tree_digest() {  # tree_digest <checkout or folder>: every file outside a .git, with its content
+  (cd "$1" && find . -name .git -prune -o -type f -print0 | sort -z | xargs -0 cksum)
 }
 mkdir -p "$WORK/moved"
 cp -R "$WORK/org-sh/shop-web" "$WORK/moved/shop-web"
@@ -386,6 +386,14 @@ git init -q "$WORK/moved/never"; git -C "$WORK/moved/never" remote add origin ht
 HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/moved/never" --no-doctor > "$WORK/moved-never.log" 2>&1 || fail "init.sh refused a checkout that never had a project harness (see $WORK/moved-never.log)"
 grep -aq '^--> No project harness: this checkout has no GitHub origin; the generic harness only$' "$WORK/moved-never.log" || fail "init.sh does not fall back to the generic harness for a checkout that never had a layer (see $WORK/moved-never.log)"
 HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/shop-web" --no-doctor > "$WORK/moved-same-forge.log" 2>&1 || fail "init.sh refused a checkout whose origin is on the configured forge (see $WORK/moved-same-forge.log)"
+# a project folder whose repositories moved: init --all inits the folder first, and it would take the shared layer out of it
+cp -R "$WORK/folder" "$WORK/moved/folder"
+grep -q '^store-ai-core ' "$WORK/moved/folder/.ai-core/STAMP" || fail "the folder to move does not carry its layer in STAMP"
+for r in shop-web store-api; do git -C "$WORK/moved/folder/$r" remote set-url origin "https://forge.example.test/example-org/$r.git"; done
+before="$(tree_digest "$WORK/moved/folder")"
+HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/moved/folder" --no-doctor > "$WORK/moved-folder.log" 2>&1 && fail "init.sh went on in a project folder whose repositories moved to another forge (see $WORK/moved-folder.log)"
+grep -aq 'This project folder was assembled from store-ai-core, and init would remove everything' "$WORK/moved-folder.log" || fail "init.sh does not say that the project folder would lose its harness (see $WORK/moved-folder.log)"
+[ "$(tree_digest "$WORK/moved/folder")" = "$before" ] || fail "init.sh changed the project folder it refused"
 rm -rf "$WORK/moved"
 section "a new project harness is committed under the identity of the person who runs init, never a made-up one"
 F="$WORK/fill"; mkdir -p "$F"

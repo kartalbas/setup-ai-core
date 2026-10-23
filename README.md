@@ -349,7 +349,7 @@ commit of setup-ai-core and of every layer the checkout was assembled from. `.ai
 records what the layers put into the checkout (skills, agents, docs, the files of `repos/<repo>/`);
 what a layer no longer provides is taken out again at the next `init`, a file the repository
 tracks excepted. A checkout whose `STAMP` names a layer, and whose `origin` is now on a host other than the
-configured forge's, finds no harness, so `init` stops before it writes or removes anything and says which
+configured forge's, finds no harness, and so does a project folder whose `STAMP` names a layer and which holds a repository with such an origin, so `init` stops before it writes or removes anything and says which
 settings to put in the environment for that one run (`FORGE`, `TRACKER` and, for Forgejo, `FORGEJO_URL`
 and `FORGEJO_TOKEN_COMMAND`).
 

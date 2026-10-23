@@ -62,7 +62,8 @@ config_value() {  # config_value <key> <default>
 # command that yields it must come from one file. These eight are read from the main checkout's file, the one in
 # the parent of the git common directory; every other setting stays the worktree's own.
 # Before a layer supplies that file, an assembled project folder provides these eight: the main
-# checkout's parent, outside Git, whose STAMP names a project layer as well as setup-ai-core.
+# checkout's parent, outside Git, whose STAMP names a project layer as well as setup-ai-core, and
+# whose FORGEJO_URL names the host of the main checkout's origin.
 # A harness clone, the clone of a project harness layer, has no .ai-core/config.env: init deploys into the
 # repositories a layer serves and never into the layer. Its eight settings are the layer's own config.env at the
 # root of the clone, the file init copies into the repositories it serves.
@@ -89,7 +90,7 @@ is_harness_clone() {
 
 # config_file_of <key>: the config.env a setting is read from
 config_file_of() {
-  local common main folder stamp
+  local common main folder stamp host
   case "$TRACKER_SETTINGS" in
     *" $1 "*)
       common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
@@ -105,9 +106,13 @@ config_file_of() {
             if [ -f "$folder/.ai-core/config.env" ] && [ -f "$folder/.ai-core/STAMP" ] \
                && ! git -C "$folder" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
               stamp="$(awk 'NF { print $1 }' "$folder/.ai-core/STAMP")"
-              case "$stamp" in
-                setup-ai-core$'\n'?*) printf '%s\n' "$folder/.ai-core/config.env"; return 0 ;;
-              esac
+              host="$(config_value_in_file "$folder/.ai-core/config.env" FORGEJO_URL "")"; host="${host#*://}"; host="${host%/}"
+              case "$stamp" in setup-ai-core$'\n'?*) ;; *) host="" ;; esac
+              if [ -n "$host" ]; then
+                case "$(git -C "$main" remote get-url origin 2>/dev/null || true)" in
+                  *"$host"[:/]*/*) printf '%s\n' "$folder/.ai-core/config.env"; return 0 ;;
+                esac
+              fi
             fi
           fi
           printf '%s\n' "$main/.ai-core/config.env"
@@ -119,9 +124,11 @@ config_file_of() {
 
 # config_file_value <key> <default>: as config_value, without the environment, for a setting that only
 # the project's config.env may make.
-config_file_value() {
-  local key="$1" line file
-  file="$(config_file_of "$key")"
+config_file_value() { config_value_in_file "$(config_file_of "$1")" "$1" "$2"; }
+
+# config_value_in_file <file> <key> <default>: KEY= in that one file, read as config_value reads it
+config_value_in_file() {
+  local file="$1" key="$2" line
   if [ -f "$file" ]; then
     line="$(grep -E "^[[:space:]]*${key}[[:space:]]*=" "$file" | tail -n1 || true)"
     if [ -n "$line" ]; then
@@ -136,7 +143,7 @@ config_file_value() {
       if [ -n "$line" ]; then echo "$line"; return 0; fi
     fi
   fi
-  echo "$2"
+  echo "$3"
 }
 
 # tracker_is_forgejo: whether the project's tracker is the Forgejo tracker, which runs in Node from

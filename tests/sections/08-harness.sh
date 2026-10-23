@@ -510,16 +510,23 @@ cp "$project/.ai-core/STAMP" "$WORK/outside/.ai-core/STAMP"
 assert_tracker_file "$WORK/outside/nested/shop-web" "$WORK/outside/nested/shop-web/.ai-core/config.env" "an assembled grandparent is not the project folder"
 git init -q "$WORK/outside"
 assert_tracker_file "$outside" "$outside/.ai-core/config.env" "a parent checkout is not a project folder"
+elsewhere="$project/other-web"; git init -q "$elsewhere"
+git -C "$elsewhere" remote add origin https://github.com/example-org/other-web.git
+assert_tracker_file "$elsewhere" "$elsewhere/.ai-core/config.env" "a checkout whose origin is not on the folder's Forgejo"
+[ "$(project_setting "$elsewhere" FORGE github)" = github ] || fail "a GitHub checkout in a Forgejo project folder no longer uses GitHub"
+rm -rf "$elsewhere"
 
 github="$WORK/github-project"; mkdir -p "$github/.ai-core"
 cp "$ROOT/templates/.ai-core/config.env" "$github/.ai-core/config.env"
+printf 'TRACKER="plane"\nPLANE_PROJECT="SHOP"\n' >> "$github/.ai-core/config.env"
 cp "$project/.ai-core/STAMP" "$github/.ai-core/STAMP"
 git init -q "$github/shop-web"; git -C "$github/shop-web" remote add origin https://github.com/example-org/shop-web.git
+assert_tracker_file "$github/shop-web" "$github/shop-web/.ai-core/config.env" "a fresh clone in a GitHub project"
 [ "$(project_setting "$github/shop-web" FORGE github)" = github ] || fail "a GitHub project no longer uses GitHub"
 ( cd "$github/shop-web" && PATH="$PATH_SH" bash -c '. "$1/lib/layers.sh"; [ "$(origin_parts "$PWD")" = "$(printf "example-org\tshop-web")" ]' _ "$ROOT" ) || fail "a GitHub project no longer finds its harness from the origin"
 PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$github/shop-web" --no-doctor > "$WORK/project-github.log" 2>&1 || fail "init in a GitHub project failed: $(tail -5 "$WORK/project-github.log")"
 grep -q '^shop-ai-core ' "$github/shop-web/.ai-core/STAMP" || fail "init in a GitHub project did not find its harness"
-echo "  controls: layer config kept; GitHub unchanged; no fallback outside an assembled project folder, through a grandparent, or from a parent checkout"
+echo "  controls: layer config kept; GitHub unchanged; no fallback outside an assembled project folder, through a grandparent, from a parent checkout, or for an origin off the folder's Forgejo"
 
 check_project_init() {  # check_project_init <fresh|template>
   local state="$1" checkout="$project/shop-$1" log="$WORK/project-$1.log"

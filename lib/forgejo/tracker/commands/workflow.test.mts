@@ -432,6 +432,53 @@ describe('integrate-issue', () => {
       assert.equal(writesOf(), before, 'a third run writes nothing');
     });
 
+    it('writes only the records a timeline that could not be read left out, also for an issue whose worktree was removed meanwhile', async () => {
+      const number = newIssue(main, 'Timeline fails twice, so that two records are missing');
+      const timeline = { method: 'GET', path: `/repos/o/r/issues/${number}/timeline`, mode: { kind: 'status', status: 500, message: 'planted' } } as const;
+      fake.fail(timeline);
+      await assert.rejects(startIssue.run([String(number)], ctx(main.checkout)), (error: unknown) => error instanceof PartialCompletionError && /cut the worktree/.test(error.message));
+      assert.deepEqual(fake.readIssue('o/r', number).labels, ['status/implementing']);
+      assert.equal(commentsOf(main, number).length, 0);
+      const tree = await treeOf(main, number);
+      const branch = must(await client.currentBranch(tree));
+      const head = fixture.commit(tree, `work-${number}.txt`, 'work\n');
+      fake.fail(timeline);
+      await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree)), (error: unknown) => error instanceof PartialCompletionError && /landed [0-9a-f]{40} on origin\/master/.test(error.message));
+      const landed = tipOf(main);
+      assert.equal(commentsOf(main, number).length, 0);
+
+      // the state finish-issue left before it asked for the landing record: the work landed, the worktree and the branch are gone
+      await client.removeWorktree(main.checkout, tree);
+      await client.deleteBranch(main.checkout, branch);
+      await client.addWorktree(main.checkout, tree, branch, head);
+
+      await startIssue.run([String(number)], ctx(main.checkout));
+      assert.deepEqual(commentsOf(main, number).map((text) => text.split(':')[0]), [`Started on ${branch}`], 'the worktree stands again: only the start record is written');
+      assert.deepEqual(fake.readIssue('o/r', number).labels, ['status/implementing']);
+      await integrateIssue.run(integrateArguments(main, number, head), ctx(tree));
+      assert.equal(tipOf(main), landed, 'nothing is merged or pushed again');
+      assert.deepEqual(commentsOf(main, number).map((text) => text.split(':')[0]), [`Started on ${branch}`, 'Landed on master']);
+      assert.match(commentsOf(main, number)[1] ?? '', new RegExp(`Reviewed head: ${head}\\nLanded commit: ${landed}`));
+      assert.deepEqual(fake.readIssue('o/r', number).labels, ['status/testing']);
+      const before = writesOf();
+      await assert.rejects(startIssue.run([String(number)], ctx(main.checkout)), /in status\/testing, and work starts from/, 'start-issue does not start work that landed');
+      assert.equal(writesOf(), before);
+    });
+
+    it('writes the start record of an issue whose worktree and branch are gone by cutting a worktree again, from the default branch as it stands', async () => {
+      const number = newIssue(main, 'Worktree gone before the start record, so that it is cut again');
+      fake.fail({ method: 'GET', path: `/repos/o/r/issues/${number}/timeline`, mode: { kind: 'status', status: 500, message: 'planted' } });
+      await assert.rejects(startIssue.run([String(number)], ctx(main.checkout)), PartialCompletionError);
+      const tree = await treeOf(main, number);
+      const branch = must(await client.currentBranch(tree));
+      await client.removeWorktree(main.checkout, tree);
+      await client.deleteBranch(main.checkout, branch);
+      await startIssue.run([String(number)], ctx(main.checkout));
+      assert.equal(await treeOf(main, number), tree);
+      assert.match(commentsOf(main, number)[0] ?? '', new RegExp(`^Started on ${branch}:\\n\\nBase: master at ${tipOf(main)}\\n$`));
+      assert.equal(commentsOf(main, number).length, 1);
+    });
+
     it('does not write the record twice when the answer of the comment was lost (planted: a lost answer)', async () => {
       const { number, tree, head } = await worked(main, 'Lost answer, so that nothing repeats');
       fake.fail({ method: 'POST', path: `/repos/o/r/issues/${number}/comments`, mode: { kind: 'drop-after' } });

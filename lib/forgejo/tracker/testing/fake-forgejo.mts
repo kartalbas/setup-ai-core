@@ -236,7 +236,8 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
     const limit = Math.min(Number(query.limit ?? String(pageMaximum)), pageMaximum);
     const body = items.slice((page - 1) * limit, page * limit);
     if (count === 'none') return { status: 200, body };
-    return { status: 200, body, headers: { 'X-Total-Count': String(count === 'list' ? items.length : body.length) } };
+    // an empty page of the timeline is a Go nil slice, which Forgejo v17.0.0 writes as null
+    return { status: 200, body: count === 'page' && body.length === 0 ? null : body, headers: { 'X-Total-Count': String(count === 'list' ? items.length : body.length) } };
   };
 
   const addLabelToIssue = (issue: FakeIssue, label: FakeLabel): void => {

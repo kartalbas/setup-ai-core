@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ai-core git-credential get|store|erase: git's credential helper for a checkout whose origin is on the
 # Forgejo instance FORGEJO_URL names. git runs it, as the line `credential.<FORGEJO_URL>.helper` of the
-# clone says (ai-core init and the clone set it), gives it the host it wants a login for on standard input,
+# clone says (ai-core init and the clone set it) or the push gate passes to a repository's check
+# (sign_in_line_export), gives it the host it wants a login for on standard input,
 # and the helper answers with the token, read from FORGEJO_TOKEN_COMMAND at that moment. The token stands in
 # no file and no argument; a changed command takes effect at once, because nothing was copied.
 #

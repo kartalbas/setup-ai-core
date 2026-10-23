@@ -35,22 +35,17 @@ caller_git_config_count="${GIT_CONFIG_COUNT-unset}"
 n=${GIT_CONFIG_COUNT:-0}; export "GIT_CONFIG_KEY_$n=log.showSignature" "GIT_CONFIG_VALUE_$n=false" "GIT_CONFIG_COUNT=$((n + 1))"
 gate_git_config_index="$n"
 with_caller_git_config() (  # with_caller_git_config <command...>
-  local n
   unset "GIT_CONFIG_KEY_$gate_git_config_index" "GIT_CONFIG_VALUE_$gate_git_config_index"
   if [ "$caller_git_config_count" = unset ]; then
     unset GIT_CONFIG_COUNT
   else
     export GIT_CONFIG_COUNT="$caller_git_config_count"
   fi
-  if [ "$FORGE" = forgejo ]; then
-    FORGEJO_URL="$(forgejo_url)" || exit 1
-    FORGEJO_TOKEN_COMMAND="$(config_value FORGEJO_TOKEN_COMMAND "")"
-    export FORGEJO_URL FORGEJO_TOKEN_COMMAND
-    n=${GIT_CONFIG_COUNT:-0}
-    export "GIT_CONFIG_KEY_$n=credential.$FORGEJO_URL.helper" "GIT_CONFIG_VALUE_$n="
-    n=$((n + 1))
-    export "GIT_CONFIG_KEY_$n=credential.$FORGEJO_URL.helper" "GIT_CONFIG_VALUE_$n=$FORGEJO_CREDENTIAL_HELPER" "GIT_CONFIG_COUNT=$((n + 1))"
-  fi
+  "$@"
+)
+# On Forgejo, git that the command starts outside the checkout, such as a package manager's fetch, signs in too.
+with_sign_in_line() (  # with_sign_in_line <command...>
+  [ "$FORGE" != forgejo ] || sign_in_line_export || exit 1
   "$@"
 )
 
@@ -1017,7 +1012,7 @@ if [ -f "$root/scripts/check.sh" ]; then
   echo "pre-push: $root/scripts/check.sh runs here, before anything leaves this machine."
   check_started="$(date +%s)"; check_rc=0
   # Both streams go to the log, so its last line is the check's last word on either of them
-  with_caller_git_config bash "$root/scripts/check.sh" 2>&1 | tee "$TMPD/check.log" || check_rc=$?
+  with_caller_git_config with_sign_in_line bash "$root/scripts/check.sh" 2>&1 | tee "$TMPD/check.log" || check_rc=$?
   GATE_CHECK_SECONDS=$(( $(date +%s) - check_started ))
   GATE_CHECK_LAST="$(grep -v '^[[:space:]]*$' "$TMPD/check.log" | tail -1)"
   GATE_CHECK=green; [ "$check_rc" -eq 0 ] || GATE_CHECK=red

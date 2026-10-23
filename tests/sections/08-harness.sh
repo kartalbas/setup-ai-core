@@ -378,6 +378,10 @@ for dry in "" --dry-run; do
   grep -aq 'Nothing was written' "$WORK/moved-refused.log" && ! grep -aq '^  removed' "$WORK/moved-refused.log" || fail "init.sh${dry:+ $dry} went on to remove files (see $WORK/moved-refused.log)"
   [ "$(tree_digest "$WORK/moved/shop-web")" = "$before" ] || fail "init.sh${dry:+ $dry} changed the checkout it refused"
 done
+# a worktree not yet initialized has no .ai-core of its own: the STAMP of its main checkout names the layer
+git -C "$WORK/moved/shop-web" worktree add -q -b issue-1-moved "$WORK/moved/shop-web-issue-1" 2>/dev/null || fail "no worktree for the moved checkout"
+HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/moved/shop-web-issue-1" --no-doctor > "$WORK/moved-worktree.log" 2>&1 && fail "init.sh went on in a new worktree of a checkout whose origin moved (see $WORK/moved-worktree.log)"
+grep -aq 'This checkout was assembled from store-ai-core shop-ai-core,' "$WORK/moved-worktree.log" && [ ! -e "$WORK/moved/shop-web-issue-1/.ai-core" ] || fail "init.sh did not refuse the new worktree by its main checkout's layer, or wrote into it (see $WORK/moved-worktree.log)"
 # innocent cases: a checkout without an origin, one that never had a layer, one whose origin is on the configured forge
 cp -R "$WORK/org-sh/shop-web" "$WORK/moved/no-origin"; git -C "$WORK/moved/no-origin" remote remove origin
 HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/moved/no-origin" --no-doctor > "$WORK/moved-no-origin.log" 2>&1 || fail "init.sh refused a checkout without an origin (see $WORK/moved-no-origin.log)"

@@ -112,6 +112,18 @@ describe('the settings of the Bash part, read from the main checkout', () => {
     assert.equal(read('OTHER_SETTING'), 'worktree');
   });
 
+  it('hands the tracker the assignee map and the label catalog of the worktree it runs in', () => {
+    const shim = join(work, 'shim');
+    mkdirSync(shim, { recursive: true });
+    writeFileSync(join(shim, 'node'), '#!/bin/sh\nprintf "%s\\n%s\\n" "$AI_CORE_ASSIGNEES_FILE" "$AI_CORE_LABELS_FILE"\n', { mode: 0o755 });
+    writeFileSync(join(tree, '.ai-core', 'assignees.tsv'), 'example-org/shop-web\tfirst\n');
+    const result = bashIn(tree, HARNESS_ROOT, '. "$1/lib/common.sh"; forgejo_tracker_exec issue-new', { PATH: `${shim}:${process.env.PATH ?? ''}` });
+    assert.equal(result.status, 0, result.stderr);
+    const [assignees, labels] = result.stdout.split('\n');
+    assert.equal(assignees, join(tree, '.ai-core', 'assignees.tsv'));
+    assert.equal(labels, join(HARNESS_ROOT, 'templates', '.ai-core', 'labels.tsv'), 'planted: a worktree without labels.tsv falls back to the template, as the assignee map does');
+  });
+
   it('lets the environment win', () => {
     assert.equal(bashIn(tree, HARNESS_ROOT, '. "$1/lib/common.sh"; config_value FORGEJO_URL none', { FORGEJO_URL: 'https://env.example.test' }).stdout, 'https://env.example.test');
   });

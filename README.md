@@ -1219,8 +1219,8 @@ rewrite.
 
 With `TRACKER=forgejo` the issue commands run in `lib/forgejo/tracker/cli.mts`, TypeScript that Node runs as it is
 (no build step, no package at runtime), and `ai-core` hands it `FORGEJO_URL` (a scheme and a host), the command in
-`FORGEJO_TOKEN_COMMAND`, which prints the token when the first request needs it, the path of the label
-catalog, and `CI_GATE` and `LIVE_TAGS` as the other commands read them. It has no board and no epics. Every request has 15 seconds to connect and 120 seconds in all, and a
+`FORGEJO_TOKEN_COMMAND`, which prints the token when the first request needs it, the paths of the label
+catalog and of the assignee map, and `CI_GATE` and `LIVE_TAGS` as the other commands read them. It has no board and no epics. Every request has 15 seconds to connect and 120 seconds in all, and a
 failure says which of these it is: the token refused (401), a permission missing (403), nothing there (404), no
 answer, or an answer that breaks the contract of the API (a status other than the documented one, text that is
 not JSON, a field the client needs missing). A list is read to its last page or refused; a page whose body is `null`, which is how Forgejo answers a page of an issue's timeline past its end, is an empty page. A comment or a change

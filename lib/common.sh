@@ -140,9 +140,10 @@ forgejo_tracker_exec() {
   FORGEJO_URL="$(config_value FORGEJO_URL "")"
   FORGEJO_TOKEN_COMMAND="$(config_value FORGEJO_TOKEN_COMMAND "")"
   AI_CORE_LABELS_FILE="$(data_file labels.tsv)"
+  AI_CORE_ASSIGNEES_FILE="$(data_file assignees.tsv)"
   CI_GATE="$(config_value CI_GATE public)"
   LIVE_TAGS="$(config_value LIVE_TAGS "")"
-  export FORGEJO_URL FORGEJO_TOKEN_COMMAND AI_CORE_LABELS_FILE CI_GATE LIVE_TAGS
+  export FORGEJO_URL FORGEJO_TOKEN_COMMAND AI_CORE_LABELS_FILE AI_CORE_ASSIGNEES_FILE CI_GATE LIVE_TAGS
   exec node "$HARNESS_ROOT/lib/forgejo/tracker/cli.mts" "$@"
 }
 

@@ -25,7 +25,7 @@ before(async () => {
   fake.addRepository('o/r', { assignable: ['fake-user', 'second-user'] });
   fake.addRepository('o/hidden', { isPrivate: true });
   seedLabels(fake, 'o');
-  context = contextFor(fake);
+  context = contextFor(fake, { settings: { forgejoUrl: fake.url, tokenCommand: `printf '%s' ${fake.token}`, labelsFile: undefined, assigneesFile: file('assignees-empty.tsv', '# nobody is named\n') } });
 });
 after(async () => {
   await fake.close();
@@ -52,6 +52,40 @@ describe('issue-new', () => {
     assert.deepEqual(created.labels.sort(), ['area/gate', 'priority/p1', 'status/ready', 'type/feature']);
     assert.equal(created.body.split('\n')[0], 'Asked for by @person on 2026-10-23 in the chat of 2026-10-23.');
     assert.ok(created.body.endsWith('The body.\n'));
+  });
+
+  describe('assigns the new issue', () => {
+    const withMap = (rows: string): CommandContext => contextFor(fake, { settings: { forgejoUrl: fake.url, tokenCommand: `printf '%s' ${fake.token}`, labelsFile: undefined, assigneesFile: file('assignees.tsv', rows) } });
+    const create = async (using: CommandContext): Promise<string[]> => fake.readIssue('o/r', Number((await issueNew.run([...newArguments(), ...ASKED], using)).stdout.trim())).assignees;
+
+    it('to the login assignees.tsv names for the repository', async () => {
+      assert.deepEqual(await create(withMap('# owners\no/other\tsomebody-else\no/r\tsecond-user\n')), ['second-user']);
+    });
+
+    it('to the signed-in account where assignees.tsv names none for the repository (innocent case)', async () => {
+      assert.deepEqual(await create(withMap('# owners\no/other\tsecond-user\n')), ['fake-user']);
+      assert.deepEqual(await create(context), ['fake-user']);
+    });
+
+    it('and refuses a login Forgejo does not offer, naming it, before the issue is created', async () => {
+      const [requests, writes] = [fake.requests.length, fake.writes().length];
+      await assert.rejects(issueNew.run([...newArguments(), ...ASKED], withMap('o/r\tnobody-here\n')), (error: unknown) => error instanceof UsageError && /does not offer nobody-here as an assignee of o\/r, so no issue was created: nobody-here is the login assignees.tsv names for it/.test(error.message));
+      assert.equal(fake.writes().length, writes);
+      assert.ok(fake.requests.length > requests, 'planted: the check asks Forgejo, it is not a guess');
+    });
+
+    it('and refuses a signed-in account that Forgejo does not offer where the file names none', async () => {
+      fake.addRepository('o/closed', { assignable: ['second-user'] });
+      const writes = fake.writes().length;
+      await assert.rejects(issueNew.run(newArguments().map((value) => (value === 'o/r' ? 'o/closed' : value)).concat(ASKED), context), /does not offer fake-user as an assignee of o\/closed, so no issue was created: fake-user is the signed-in account, because assignees.tsv names nobody for it/);
+      assert.equal(fake.writes().length, writes);
+    });
+
+    it('and refuses a file that is wrong, naming the row, before any request', async () => {
+      const before = fake.requests.length;
+      await assert.rejects(issueNew.run([...newArguments(), ...ASKED], withMap('o/r second-user\n')), /assignees.tsv:1 is not 'repo<TAB>login'/);
+      assert.equal(fake.requests.length, before);
+    });
   });
 
   it('takes --status and a defect found in the work', async () => {

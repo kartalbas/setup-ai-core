@@ -18,6 +18,21 @@ export interface CommandContext {
     readonly integrateWaitSeconds?: string | undefined;
   };
   readonly now: () => Date;
+  readonly harness: HarnessSteps;
+}
+
+// The steps of the Bash harness that start-issue and integrate-issue take as their Bash commands do.
+export interface HarnessSteps {
+  checkTeamModes(cwd: string): Promise<StepOutcome>;
+  // init in a new worktree, or the line that a worktree of a harness source needs none.
+  assembleWorktree(path: string): Promise<StepOutcome>;
+  // Fast-forwards the default branch of the checkout where it is only behind origin.
+  refreshCheckout(checkout: string): Promise<StepOutcome>;
+}
+
+export interface StepOutcome {
+  readonly succeeded: boolean;
+  readonly output: string;
 }
 
 // A command returns its result; only cli.mts prints and exits.

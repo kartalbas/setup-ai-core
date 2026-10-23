@@ -26,7 +26,8 @@ account, a worktree with changes, a branch head that is not --reviewed-head, a C
 nor none, and, at the push, a default branch that moved, a red gate and, for a public repository under
 CI_GATE=public, checks that are red or unfinished. CI_GATE=public pushes the merge commit to
 ci/integrate-<branch>, waits for its combined commit status and lands exactly that commit; CI_GATE=none and a
-private repository land on the push gate alone.
+private repository land on the push gate alone. After the landing the default branch of the main checkout is
+fast-forwarded where it is only behind; a checkout that cannot be is named, and the landing stands.
 
 When the work landed and a record could not be written, the exit status is 4 and the message says what is done.
 Run the same command again: it sees that the reviewed head is on the default branch, merges and pushes nothing,
@@ -212,6 +213,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   }
 
   const lines: string[] = [];
+  const warnings: string[] = [];
   const defaultTip = await git.resolveCommit(cwd, `refs/remotes/origin/${defaultBranch}`);
   let landedCommit: string;
   let landedNow = false;
@@ -225,6 +227,13 @@ export async function run(args: readonly string[], context: CommandContext): Pro
     landedCommit = landing.commit;
     landedNow = true;
     lines.push(...landing.lines, `integrated: ${landedCommit.slice(0, 7)} on origin/${defaultBranch}, ${subject}, Reviewed-by: ${reviewers.join(', ')}`);
+    const checkout = await git.mainCheckout(cwd);
+    const refreshed = await context.harness.refreshCheckout(checkout);
+    if (refreshed.succeeded) {
+      if (refreshed.output !== '') lines.push(refreshed.output);
+    } else {
+      warnings.push(refreshed.output, `integration succeeded: ${landedCommit.slice(0, 7)} is on origin/${defaultBranch}; checkout ${checkout} was not refreshed`);
+    }
   }
 
   const done: string[] = [`${landedNow ? 'landed' : 'found'} ${landedCommit} on origin/${defaultBranch}`];
@@ -242,5 +251,5 @@ export async function run(args: readonly string[], context: CommandContext): Pro
     throw new PartialCompletionError('record the landing', done, `${error instanceof Error ? error.message : String(error)}. The work is on origin/${defaultBranch}; run the same command again, it writes only what is missing`);
   }
   lines.push(`next: ai-core finish-issue ${formatRepository(ref)} ${ref.number}`);
-  return succeeded(lines);
+  return succeeded(lines, warnings);
 }

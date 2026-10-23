@@ -25,6 +25,7 @@ import type { Command, CommandContext, CommandResult } from './commands/command.
 import { ConfigError, readSettings, requireConfig } from './config.mts';
 import { PreconditionError, UsageError } from './domain/refusals.mts';
 import { GitClient, GitError } from './git/git.mts';
+import { bashHarness } from './harness.mts';
 
 const EXIT_PRECONDITION = 1;
 const EXIT_INVALID = 2;
@@ -145,6 +146,7 @@ export async function main(io: Io): Promise<number> {
     git: new GitClient(),
     settings,
     now: () => new Date(),
+    harness: bashHarness,
     api: () => {
       if (client === undefined) {
         const config = requireConfig(settings);

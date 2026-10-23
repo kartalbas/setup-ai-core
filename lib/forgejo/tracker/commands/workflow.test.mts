@@ -9,6 +9,8 @@ import { PreconditionError, UsageError } from '../domain/refusals.mts';
 import { contextFor, seedLabels, startFakeForgejo } from '../testing/fake-forgejo.mts';
 import type { FakeForgejo } from '../testing/fake-forgejo.mts';
 import { createGitFixture, git } from '../testing/git-fixture.mts';
+import { createRecordingHarness } from '../testing/recording-harness.mts';
+import type { RecordingHarness } from '../testing/recording-harness.mts';
 import type { GitFixture } from '../testing/git-fixture.mts';
 import { GitClient } from '../git/git.mts';
 import type { CommandContext } from './command.mts';
@@ -68,8 +70,8 @@ after(async () => {
   rmSync(scratch, { recursive: true, force: true });
 });
 
-function ctx(cwd: string, settings: Partial<CommandContext['settings']> = {}): CommandContext {
-  return contextFor(fake, { cwd, settings: { forgejoUrl: fake.url, tokenCommand: `printf '%s' ${fake.token}`, labelsFile: undefined, ciGate: 'none', ...settings } });
+function ctx(cwd: string, settings: Partial<CommandContext['settings']> = {}, harness: RecordingHarness = createRecordingHarness()): CommandContext {
+  return contextFor(fake, { cwd, harness, settings: { forgejoUrl: fake.url, tokenCommand: `printf '%s' ${fake.token}`, labelsFile: undefined, ciGate: 'none', ...settings } });
 }
 
 function newIssue(world: World, title = 'Work, so that it gets done', options: { labels?: string[]; assignees?: string[] } = {}): number {
@@ -108,7 +110,8 @@ describe('start-issue', () => {
     const number = newIssue(main, 'Start the work, so that it begins');
     const moved = fixture.commit(main.second, `moved-${number}.txt`, 'moved\n');
     git(main.second, 'push', '-q', 'origin', 'master');
-    const result = await startIssue.run([String(number)], ctx(main.checkout));
+    const harness = createRecordingHarness();
+    const result = await startIssue.run([String(number)], ctx(main.checkout, {}, harness));
     const tree = await treeOf(main, number);
     assert.equal(tree, join(fixture.root, 'project-o', '.worktrees', 'r', `issue-${number}-start-the-work-so-that-it-begins`));
     assert.equal(git(tree, 'rev-parse', 'HEAD'), moved, 'cut from the fetched default, which the checkout never pulled');
@@ -118,14 +121,38 @@ describe('start-issue', () => {
     assert.equal(issue.comments.length, 1);
     assert.match(issue.comments[0] ?? '', new RegExp(`^Started on issue-${number}-start-the-work-so-that-it-begins:\\n\\nBase: master at ${moved}\\n$`));
     assert.match(result.stdout, /status\/implementing/);
-    assert.match(result.stdout, new RegExp(`ai-core init ${tree.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} --no-doctor`));
+    assert.deepEqual(harness.calls, [`checkTeamModes ${main.checkout}`, `assembleWorktree ${tree}`], 'the team modes first, then the harness in the new worktree');
+    assert.match(result.stdout, /init: assembled/);
+    assert.equal(result.stderr, '');
+  });
+
+  it('refuses while a team mode is missing, and cuts and writes nothing (planted: no team mode)', async () => {
+    const number = newIssue(main, 'No team modes, so that nothing starts');
+    const harness = createRecordingHarness();
+    harness.failing.add('checkTeamModes');
+    const [worktrees, before] = [(await client.listWorktrees(main.checkout)).length, writesOf()];
+    await assert.rejects(startIssue.run([String(number)], ctx(main.checkout, {}, harness)), (error: unknown) => error instanceof PreconditionError && /planted: checkTeamModes failed\nthe team modes are missing/.test(error.message));
+    assert.equal(writesOf(), before);
+    assert.equal((await client.listWorktrees(main.checkout)).length, worktrees);
+  });
+
+  it('starts the work and names a harness that init could not assemble in the new worktree (planted: init fails)', async () => {
+    const number = newIssue(main, 'Init fails, so that it is named');
+    const harness = createRecordingHarness();
+    harness.failing.add('assembleWorktree');
+    const result = await startIssue.run([String(number)], ctx(main.checkout, {}, harness));
+    const tree = await treeOf(main, number);
+    assert.match(result.stderr, new RegExp(`the harness is NOT complete in the worktree: run 'ai-core init ${tree.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} --no-doctor'`));
+    assert.deepEqual(fake.readIssue('o/r', number).labels, ['status/implementing']);
   });
 
   it('is run again without cutting or writing twice (innocent case)', async () => {
     const { number, tree } = await started(main, 'Start twice, so that it is safe');
     const before = writesOf();
-    const again = await startIssue.run([String(number)], ctx(main.checkout));
+    const harness = createRecordingHarness();
+    const again = await startIssue.run([String(number)], ctx(main.checkout, {}, harness));
     assert.match(again.stdout, /stands on .* already/);
+    assert.deepEqual(harness.calls, [`checkTeamModes ${main.checkout}`], 'a worktree that stands is not assembled again');
     assert.equal(fake.readIssue('o/r', number).comments.length, 1);
     assert.equal(writesOf(), before, 'the labels already stand and the record is there');
     assert.ok(existsSync(tree));
@@ -183,7 +210,8 @@ describe('integrate-issue', () => {
   it('lands the reviewed commits as they were read, in a merge commit that names the issue and the reviewers, and records the landing', async () => {
     const { number, tree, head } = await worked(main, 'Land the work, so that it ships');
     const before = tipOf(main);
-    const result = await integrateIssue.run([...integrateArguments(main, number, head), '--reviewed-by', 'bob'], ctx(tree));
+    const harness = createRecordingHarness();
+    const result = await integrateIssue.run([...integrateArguments(main, number, head), '--reviewed-by', 'bob'], ctx(tree, {}, harness));
     const merged = tipOf(main);
     assert.notEqual(merged, before);
     assert.deepEqual(git(main.remote, 'rev-list', '--parents', '-n', '1', merged).split(' ').slice(1), [before, head], 'a merge of the old tip and the reviewed head');
@@ -195,6 +223,18 @@ describe('integrate-issue', () => {
     assert.match(result.stdout, new RegExp(`next: ai-core finish-issue o/r ${number}`));
     assert.deepEqual(readdirSync(join(fixture.root, 'project-o', '.worktrees', 'r')).filter((name) => name.startsWith('integrate-')), [], 'the temporary worktree is gone');
     assert.equal(await client.isClean(tree), true, 'the worktree of the issue was never touched');
+    assert.deepEqual(harness.calls, [`refreshCheckout ${main.checkout}`], 'the main checkout is brought up to the landing');
+    assert.match(result.stdout, /refreshed: the checkout/);
+  });
+
+  it('names a main checkout it could not refresh, and the landing stands (planted: the refresh fails)', async () => {
+    const { number, tree, head } = await worked(main, 'Refresh fails, so that it is named');
+    const harness = createRecordingHarness();
+    harness.failing.add('refreshCheckout');
+    const result = await integrateIssue.run(integrateArguments(main, number, head), ctx(tree, {}, harness));
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stderr, new RegExp(`planted: refreshCheckout failed\nintegration succeeded: [0-9a-f]{7} is on origin/master; checkout ${main.checkout.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} was not refreshed`));
+    assert.deepEqual(fake.readIssue('o/r', number).labels, ['status/testing']);
   });
 
   it('lands every issue it is given and writes where the work landed for an issue of another repository', async () => {

@@ -19,8 +19,9 @@ be in another repository (OWNER/REPO), which is then recorded on the branch.
 
 The issue must be open, assigned to the signed-in account and in ready, planned, implementing or review. A branch
 or a folder of this issue that is not its own worktree refuses the run. Where the worktree stands already, nothing
-is cut again and only the records that are missing are written. It does not assemble the harness in the new
-worktree: it prints the ai-core init command that does.`;
+is cut again and only the records that are missing are written. Before anything it runs the team modes check and
+refuses with its lines when a mode is missing. It runs ai-core init in a new worktree, so the harness is there
+before the work starts; a worktree of a harness source needs none.`;
 
 const STARTABLE: readonly StatusValue[] = ['ready', 'planned', 'implementing', 'review'];
 const SLUG_LENGTH = 40;
@@ -53,6 +54,8 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   const { ref, rest } = await takeIssue(parsed.positionals, context.git, context.cwd, USAGE);
   refuseExtra(rest, USAGE);
   const { git, cwd } = context;
+  const modes = await context.harness.checkTeamModes(cwd);
+  if (!modes.succeeded) throw new PreconditionError(`${modes.output}\nthe team modes are missing - the lines above say which and how to install them`);
   const api = context.api();
 
   const login = await currentLogin(api);
@@ -88,6 +91,12 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   }
 
   const lines = [resuming ? `Worktree ${path} stands on ${branch} already.` : `Worktree ${path} on ${branch}, cut from origin/${defaultBranch} at ${base}.`];
+  const warnings: string[] = [];
+  if (!resuming) {
+    const assembled = await context.harness.assembleWorktree(path);
+    if (assembled.output !== '') lines.push(assembled.output);
+    if (!assembled.succeeded) warnings.push(`the harness is NOT complete in the worktree: run 'ai-core init ${path} --no-doctor' before you start`);
+  }
   await afterStep(
     `record the start of issue ${formatIssue(ref)}`,
     `${resuming ? 'found' : 'cut'} the worktree ${path} on ${branch}`,
@@ -100,7 +109,6 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   );
   lines.push(`${formatIssue(ref)} -> ${statusLabel('implementing')}; recorded "Started on ${branch}:"`);
   if (!isSameRepository(ref, origin)) lines.push(`The issue lives in ${formatRepository(ref)}: recorded on ${branch}, where integrate-issue and finish-issue read it.`);
-  if (!resuming) lines.push(`The harness is not assembled in the worktree yet: ai-core init ${path} --no-doctor (a harness source needs none)`);
   lines.push(`Read the issue: ai-core issue-thread ${formatRepository(ref)} ${ref.number}`);
-  return succeeded(lines);
+  return succeeded(lines, warnings);
 }

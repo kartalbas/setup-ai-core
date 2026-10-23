@@ -7,6 +7,7 @@ import type { ClientOptions } from '../api/client.mts';
 import { createTokenSource } from '../api/credentials.mts';
 import type { CommandContext } from '../commands/command.mts';
 import { GitClient } from '../git/git.mts';
+import { createRecordingHarness } from './recording-harness.mts';
 
 // A Forgejo that runs on this machine. It refuses what api/schema.json refuses: a path or a method
 // the schema does not hold, a query parameter or a body field it does not name, a missing required
@@ -805,6 +806,7 @@ export function contextFor(fake: FakeForgejo, overrides: Partial<CommandContext>
     settings: { forgejoUrl: fake.url, tokenCommand: `printf '%s' ${fake.token}`, labelsFile: undefined },
     now: () => new Date(2026, 9, 23, 12, 0, 0),
     api: () => client,
+    harness: createRecordingHarness(),
     ...overrides,
   };
 }

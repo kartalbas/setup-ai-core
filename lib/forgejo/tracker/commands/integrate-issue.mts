@@ -17,21 +17,24 @@ export const help = `${USAGE}
 
 Lands the reviewed branch of one issue on the default branch of origin: a merge commit that names the issue and
 carries a "Reviewed-by: NAME" line for each reviewer, pushed through the push gate of the repository. Run it in
-the worktree of the issue, on its branch, after the reviewer's GO. Where the push gate is the check, the merge is
-made and pushed in that worktree, detached on origin/<default>, so the gate finds the tools installed there, and the
-worktree is on its branch again afterwards, whether the push landed or was refused; a run stopped before that
-leaves it detached, and its first line names the git switch that puts it back. The lines of git and of the push
-gate show while the push runs. Where the checks of Forgejo are read, the merge is made in a temporary worktree. Then every issue it lands (the one given and
-each --also) gets status/testing and the record "Landed on <branch>:" with the reviewed head, the landed commit
-and the reviewers. It discovers no other issue from the history of Git.
+the worktree of the issue, on its branch, after the reviewer's GO. Where the push gate is the check, the merge
+is made and pushed in that worktree, detached on origin/<default>, so the gate finds the tools installed there,
+and the worktree is on its branch again afterwards, whether the push landed or was refused; a run stopped
+before that leaves it detached, and its first line names the git switch that puts it back. The lines of git and
+of the push gate show while the push runs. Where the checks of Forgejo are read, the merge is made in a
+temporary worktree. Then every issue it lands (the one given and each --also) gets status/testing and the
+record "Landed on <branch>:" with the reviewed head, the landed commit and the reviewers. It discovers no other
+issue from the history of Git.
 
 It refuses, before anything is merged or pushed: an issue that is closed or not assigned to the signed-in
-account, a worktree with changes (at most twenty named, and their count where there are more), a branch head that is not --reviewed-head, a CI_GATE that is neither public
-nor none, an ignored file of the worktree that origin/<default> tracks, which the landing would overwrite, and, at the push, a default branch that moved, a red gate and, for a public repository under
-CI_GATE=public, checks that are red or unfinished. CI_GATE=public pushes the merge commit to
-ci/integrate-<branch>, waits for its combined commit status and lands exactly that commit; CI_GATE=none and a
-private repository land on the push gate alone. After the landing the default branch of the main checkout is
-fast-forwarded where it is only behind; a checkout that cannot be is named, and the landing stands.
+account, a worktree with changes (at most twenty named, and their count where there are more), a branch head
+that is not --reviewed-head, a CI_GATE that is neither public nor none, an ignored file of the worktree that
+origin/<default> tracks, which the landing would overwrite, and, at the push, a default branch that moved, a
+red gate and, for a public repository under CI_GATE=public, checks that are red or unfinished. CI_GATE=public
+pushes the merge commit to ci/integrate-<branch>, waits for its combined commit status and lands exactly that
+commit; CI_GATE=none and a private repository land on the push gate alone. After the landing the default branch
+of the main checkout is fast-forwarded where it is only behind; a checkout that cannot be is named, and the
+landing stands.
 
 When the work landed and a record could not be written, the exit status is 4 and the message says what is done.
 Run the same command again: it sees that the reviewed head is on the default branch, merges and pushes nothing,

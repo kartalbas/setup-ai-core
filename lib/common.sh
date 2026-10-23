@@ -128,7 +128,7 @@ config_file_value() {
 }
 
 # tracker_is_forgejo: whether the project's tracker is the Forgejo tracker, which runs in Node from
-# lib/forgejo/tracker and has no board, no epics and no Bash provider to load.
+# lib/forgejo/tracker, carries no board or epics, and has no Bash provider to load.
 tracker_is_forgejo() { [ "$(config_value TRACKER github | tr '[:upper:]' '[:lower:]')" = forgejo ]; }
 
 # forgejo_tracker_exec <command> [argument...]: replaces the shell with the Forgejo tracker running the command.

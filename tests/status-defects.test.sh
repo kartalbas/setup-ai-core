@@ -75,8 +75,8 @@ DEFECTS="$W/defects.tsv"
 } > "$DEFECTS"
 
 # red_at <output of a test> <words of an assertion>: whether a FAIL line of the output names the assertion. The FAIL
-# lines are held in a variable first: grep -q stops at its first match, and a producer still writing into that pipe
-# is killed by SIGPIPE, which pipefail turns into a "no" whenever the output is longer than the pipe takes.
+# lines are held in a variable first: grep -q stops at its first match, and a grep that still writes into that pipe
+# after it is killed by SIGPIPE, which pipefail reads as no match.
 red_at() {
   local failures
   failures="$(grep 'FAIL' <<< "$1")"

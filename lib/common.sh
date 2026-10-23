@@ -61,6 +61,8 @@ config_value() {  # config_value <key> <default>
 # tracker switched afterwards would still read as the old one there; and the server the key goes to and the
 # command that yields it must come from one file. These eight are read from the main checkout's file, the one in
 # the parent of the git common directory; every other setting stays the worktree's own.
+# Before a layer supplies that file, an assembled project folder provides these eight: the main
+# checkout's parent, outside Git, whose STAMP names a project layer as well as setup-ai-core.
 # A harness clone, the clone of a project harness layer, has no .ai-core/config.env: init deploys into the
 # repositories a layer serves and never into the layer. Its eight settings are the layer's own config.env at the
 # root of the clone, the file init copies into the repositories it serves.
@@ -87,7 +89,7 @@ is_harness_clone() {
 
 # config_file_of <key>: the config.env a setting is read from
 config_file_of() {
-  local common main
+  local common main folder stamp
   case "$TRACKER_SETTINGS" in
     *" $1 "*)
       common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
@@ -96,9 +98,19 @@ config_file_of() {
           main="${common%/.git}"
           if [ ! -f "$main/.ai-core/config.env" ] && [ -f "$main/config.env" ] && is_harness_clone "$main"; then
             printf '%s\n' "$main/config.env"
-          else
-            printf '%s\n' "$main/.ai-core/config.env"
+            return 0
           fi
+          if [ ! -f "$main/.ai-core/config.env" ] || { [ -f "$main/.ai-core/STAMP" ] && [ "$(awk 'NF { print $1 }' "$main/.ai-core/STAMP")" = setup-ai-core ]; }; then
+            folder="$(dirname "$main")"
+            if [ -f "$folder/.ai-core/config.env" ] && [ -f "$folder/.ai-core/STAMP" ] \
+               && ! git -C "$folder" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+              stamp="$(awk 'NF { print $1 }' "$folder/.ai-core/STAMP")"
+              case "$stamp" in
+                setup-ai-core$'\n'?*) printf '%s\n' "$folder/.ai-core/config.env"; return 0 ;;
+              esac
+            fi
+          fi
+          printf '%s\n' "$main/.ai-core/config.env"
           return 0 ;;
       esac ;;
   esac

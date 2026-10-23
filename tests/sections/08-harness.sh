@@ -440,4 +440,114 @@ printf '[user]\n\tuseConfigOnly = true\n' > "$F/none"
   if [ -e "$F/folder/nobody-ai-core" ]; then exit 18; fi
 ) || fail "a new project harness: not committed under the configured identity, committed where git holds none, or not refused by name where git holds none (exit $?)"
 echo "  created, cloned, an empty one on GitHub filled from the skeleton (cloned by init or by hand), moved from the home directory, an interrupted move completed, lost files restored, assembled; extends base first; a harness that cannot be had stops init; a harness checkout refused; the folder shares the base and its map skips the clones; maps written by the agent CLI, pushed and in the checkouts, people's rules kept, a bad output refused, --all over the folder"
+
+section "Forgejo project settings: a fresh clone and a template-only checkout find their harness in one init"
+make_forgejo_project
+PATH_CURL="$WORK/ghbin:$PATH_CURL"
+project="$WORK/forge folder"; author="$WORK/forge-author"
+git init -q "$author"; cp -R "$ROOT/skeleton/." "$author/"
+cat > "$author/config.env" <<CONF
+AGENTS="claude"
+UPDATE_CHECK="never"
+TRACKER="forgejo"
+PLANE_URL="https://plane.example.test"
+PLANE_WORKSPACE="example-workspace"
+PLANE_PROJECT="SHOP"
+PLANE_TOKEN_COMMAND="printf plane-test"
+FORGE="forgejo"
+FORGEJO_URL="$FORGE_URL"
+FORGEJO_TOKEN_COMMAND="cat $WORK/ftoken"
+CONF
+git -C "$author" add -A; git -C "$author" commit -q -m "The project harness"
+git init -q --bare "$REMOTE/example-org/shop-ai-core.git"
+git -C "$author" remote add origin "$REMOTE/example-org/shop-ai-core.git"
+git -C "$author" push -qu origin HEAD
+forgejo_repo example-org/shop-ai-core 1
+seed="$WORK/forge-seed"; git init -q "$seed"
+git -C "$seed" commit -q --allow-empty -m "The project repository"
+mkdir -p "$project/.ai-core"
+cp "$author/config.env" "$project/.ai-core/config.env"
+printf 'setup-ai-core %s\nshop-ai-core %s\n' "$(git -C "$ROOT" rev-parse --short HEAD)" "$(git -C "$author" rev-parse --short HEAD)" > "$project/.ai-core/STAMP"
+
+tracker_files() {  # tracker_files <checkout>
+  ( cd "$1" && bash -c '
+    . "$1/lib/common.sh"
+    for key in TRACKER PLANE_URL PLANE_WORKSPACE PLANE_PROJECT PLANE_TOKEN_COMMAND FORGE FORGEJO_URL FORGEJO_TOKEN_COMMAND; do
+      config_file_of "$key"
+    done
+  ' _ "$ROOT" )
+}
+assert_tracker_file() {  # assert_tracker_file <checkout> <expected file> <case>
+  local files
+  files="$(tracker_files "$1" | sort -u)"
+  [ "$files" = "$2" ] || fail "$3: the eight tracker settings read $files instead of $2"
+}
+project_setting() {  # project_setting <checkout> <key> <default>
+  ( cd "$1" && bash -c '. "$1/lib/common.sh"; config_value "$2" "$3"' _ "$ROOT" "$2" "$3" )
+}
+
+own="$project/shop-own"; git init -q "$own"; mkdir -p "$own/.ai-core"
+git -C "$own" remote add origin "$FORGE_URL/example-org/shop-own.git"
+printf 'FORGE="github"\nTRACKER="plane"\nPLANE_PROJECT="OWN"\n' > "$own/.ai-core/config.env"
+assert_tracker_file "$own" "$own/.ai-core/config.env" "a checkout with no STAMP keeps its own config"
+cp "$project/.ai-core/STAMP" "$own/.ai-core/STAMP"
+assert_tracker_file "$own" "$own/.ai-core/config.env" "a checkout assembled from a layer keeps its own config"
+[ "$(project_setting "$own" FORGE none)" = github ] && [ "$(project_setting "$own" PLANE_PROJECT none)" = OWN ] || fail "the project's settings replaced a layer's own settings"
+
+outside="$WORK/outside/shop-web"; git init -q "$outside"
+git -C "$outside" remote add origin "$FORGE_URL/example-org/shop-web.git"
+assert_tracker_file "$outside" "$outside/.ai-core/config.env" "a checkout outside a project folder"
+[ "$(project_setting "$outside" FORGE github)" = github ] || fail "a checkout outside a project folder no longer uses the default forge"
+PATH="$PATH_CURL" bash "$ROOT/bin/init.sh" "$outside" --no-doctor > "$WORK/project-outside.log" 2>&1 || fail "init outside a project folder failed"
+[ "$(awk '{ print $1 }' "$outside/.ai-core/STAMP")" = setup-ai-core ] || fail "init outside a project folder no longer assembles setup-ai-core alone"
+rm -rf "$outside/.ai-core"
+mkdir -p "$WORK/outside/.ai-core"; cp "$project/.ai-core/config.env" "$WORK/outside/.ai-core/config.env"
+assert_tracker_file "$outside" "$outside/.ai-core/config.env" "a parent with config but no STAMP"
+printf 'setup-ai-core abc123\n' > "$WORK/outside/.ai-core/STAMP"
+assert_tracker_file "$outside" "$outside/.ai-core/config.env" "a parent with no project layer"
+mkdir -p "$WORK/outside/nested"; git init -q "$WORK/outside/nested/shop-web"
+cp "$project/.ai-core/STAMP" "$WORK/outside/.ai-core/STAMP"
+assert_tracker_file "$WORK/outside/nested/shop-web" "$WORK/outside/nested/shop-web/.ai-core/config.env" "an assembled grandparent is not the project folder"
+git init -q "$WORK/outside"
+assert_tracker_file "$outside" "$outside/.ai-core/config.env" "a parent checkout is not a project folder"
+
+github="$WORK/github-project"; mkdir -p "$github/.ai-core"
+cp "$ROOT/templates/.ai-core/config.env" "$github/.ai-core/config.env"
+cp "$project/.ai-core/STAMP" "$github/.ai-core/STAMP"
+git init -q "$github/shop-web"; git -C "$github/shop-web" remote add origin https://github.com/example-org/shop-web.git
+[ "$(project_setting "$github/shop-web" FORGE github)" = github ] || fail "a GitHub project no longer uses GitHub"
+( cd "$github/shop-web" && PATH="$PATH_SH" bash -c '. "$1/lib/layers.sh"; [ "$(origin_parts "$PWD")" = "$(printf "example-org\tshop-web")" ]' _ "$ROOT" ) || fail "a GitHub project no longer finds its harness from the origin"
+PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$github/shop-web" --no-doctor > "$WORK/project-github.log" 2>&1 || fail "init in a GitHub project failed: $(tail -5 "$WORK/project-github.log")"
+grep -q '^shop-ai-core ' "$github/shop-web/.ai-core/STAMP" || fail "init in a GitHub project did not find its harness"
+echo "  controls: layer config kept; GitHub unchanged; no fallback outside an assembled project folder, through a grandparent, or from a parent checkout"
+
+check_project_init() {  # check_project_init <fresh|template>
+  local state="$1" checkout="$project/shop-$1" log="$WORK/project-$1.log"
+  local files tree="$WORK/trees/shop-$1" tree_files
+  git clone -q --bare "$seed" "$REMOTE/example-org/shop-$state.git"
+  git clone -q "$REMOTE/example-org/shop-$state.git" "$checkout"
+  git -C "$checkout" remote set-url origin "$FORGE_URL/example-org/shop-$state.git"
+  if [ "$state" = template ]; then
+    mv "$project/.ai-core" "$WORK/folder-data"
+    PATH="$PATH_CURL" bash "$ROOT/bin/init.sh" "$checkout" --no-doctor > "$log" 2>&1 || fail "the first init before the project folder was assembled: $(tail -5 "$log")"
+    mv "$WORK/folder-data" "$project/.ai-core"
+    cmp -s "$ROOT/templates/.ai-core/config.env" "$checkout/.ai-core/config.env" || fail "the first init did not reproduce the template config"
+    [ "$(awk '{ print $1 }' "$checkout/.ai-core/STAMP")" = setup-ai-core ] || fail "the first init already found a project layer"
+  fi
+  files="$(tracker_files "$checkout" | sort -u)"
+  git -C "$checkout" worktree add -q -b "issue-329-$state" "$tree"
+  mkdir -p "$tree/.ai-core"; printf 'AGENTS="cursor"\nFORGE="github"\n' > "$tree/.ai-core/config.env"
+  tree_files="$(tracker_files "$tree" | sort -u)"
+  [ "$(project_setting "$tree" AGENTS none)" = cursor ] || fail "$state: a non-tracker setting did not stay in the worktree"
+  PATH="$PATH_CURL" bash "$ROOT/bin/init.sh" "$checkout" --no-doctor > "$log" 2>&1 || fail "$state: init failed: $(tail -5 "$log")"
+  grep -q '^shop-ai-core ' "$checkout/.ai-core/STAMP" || fail "$state: one init did not find the project harness"
+  cmp -s "$author/config.env" "$checkout/.ai-core/config.env" || fail "$state: one init did not copy the harness config"
+  [ "$(git -C "$checkout" config --local --get-all "credential.$FORGE_URL.helper")" = "$(printf '\n!ai-core git-credential')" ] || fail "$state: one init did not set the sign-in line"
+  [ "$files" = "$project/.ai-core/config.env" ] && [ "$tree_files" = "$files" ] || fail "$state: the clone and its worktree did not read all eight tracker settings from the main checkout's project folder"
+  assert_tracker_file "$checkout" "$checkout/.ai-core/config.env" "$state: the assembled checkout reads its own config"
+  [ "$(project_setting "$checkout" FORGE none)" = forgejo ] || fail "$state: the assembled checkout did not keep Forgejo"
+  echo "  $state: one init found the harness, copied its config, and set the sign-in line"
+}
+check_project_init fresh
+check_project_init template
 exit 0

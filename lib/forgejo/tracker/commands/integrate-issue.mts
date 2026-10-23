@@ -167,7 +167,7 @@ async function landReviewedHead(context: CommandContext, api: ForgejoClient, inp
     try {
       await git.push(tree, merged, defaultBranch, context.stderr);
     } catch (error) {
-      throw refusal(error, `the push to ${defaultBranch} was refused; nothing reached origin${checked ? '' : `, and ${branch} is checked out again`}`);
+      throw refusal(error, `the push to ${defaultBranch} was refused; nothing reached origin`);
     }
     landed = merged;
   } catch (error) {
@@ -178,9 +178,14 @@ async function landReviewedHead(context: CommandContext, api: ForgejoClient, inp
         notes.push(`the temporary worktree ${tree} could not be removed: ${error instanceof Error ? error.message : String(error)}`);
       });
     } else {
-      await git.switchBranch(cwd, branch).catch((error: unknown) => {
-        notes.push(`${branch} could not be checked out again, run git switch ${branch} before finish-issue: ${error instanceof Error ? error.message : String(error)}`);
-      });
+      await git.switchBranch(cwd, branch).then(
+        () => {
+          if (landed === undefined) notes.push(`this worktree is on ${branch}`);
+        },
+        (error: unknown) => {
+          notes.push(`${branch} could not be checked out again, run git switch ${branch} before finish-issue: ${error instanceof Error ? error.message : String(error)}`);
+        },
+      );
     }
   }
   if (landed === undefined) {

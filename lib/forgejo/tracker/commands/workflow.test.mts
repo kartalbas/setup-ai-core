@@ -337,7 +337,7 @@ describe('integrate-issue', () => {
       const shown: string[] = [];
       const watching = { ...ctx(tree), stderr: (text: string) => { shown.push(text); if (text.includes('gate line 11')) writeFileSync(seen, ''); } };
       try {
-        await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), watching), /nothing landed: the push to master was refused.*gate is red: planted/);
+        await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), watching), new RegExp(`nothing landed: the push to master was refused.*gate is red: planted.*\\. this worktree is on ${branch}$`));
       } finally {
         rmSync(join(main.checkout, '.git', 'hooks', 'pre-push'));
       }
@@ -348,6 +348,27 @@ describe('integrate-issue', () => {
       assert.equal(await client.currentBranch(tree), branch, 'the worktree is back on its branch');
       assert.equal(git(tree, 'rev-parse', 'HEAD'), head);
       assert.equal(await client.isClean(tree), true);
+    });
+
+    it('a gate that leaves a change behind, which keeps the worktree off its branch and says so, never that it is back (planted: the claim)', async () => {
+      const { number, tree, branch, head } = await worked(main, 'Gate leaves a change, so that the branch cannot come back');
+      const drift = `drift-${number}.txt`;
+      fixture.commit(main.second, drift, 'on master\n');
+      git(main.second, 'pull', '-q', '--rebase', 'origin', 'master');
+      git(main.second, 'push', '-q', 'origin', 'master');
+      fixture.installHook(main.checkout, 'pre-push', `echo changed >> ${drift}; echo "gate is red: planted" >&2; exit 1`);
+      try {
+        await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree)), (error: unknown) => {
+          const message = error instanceof PreconditionError ? error.message : '';
+          return message.includes(`${branch} could not be checked out again, run git switch ${branch} before finish-issue`) && !message.includes(`${branch} is checked out again`) && !message.includes('this worktree is on');
+        });
+      } finally {
+        rmSync(join(main.checkout, '.git', 'hooks', 'pre-push'));
+      }
+      assert.equal(await client.currentBranch(tree), undefined, 'the worktree stays detached, as the message says');
+      git(tree, 'checkout', '-q', '--', drift);
+      git(tree, 'switch', '-q', branch);
+      assert.equal(git(tree, 'rev-parse', 'HEAD'), head);
     });
 
     it('a worktree with changes, naming them, before anything moves', async () => {
@@ -375,17 +396,21 @@ describe('integrate-issue', () => {
       assert.equal(git(tree, 'rev-parse', 'HEAD'), head);
     });
 
-    it('a branch that does not merge cleanly', async () => {
+    it('a branch that does not merge cleanly, leaving the worktree clean on its branch', async () => {
+      let conflicted = { tree: '', branch: '', head: '' };
       await refusal(async () => {
-        const { number, tree } = await worked(main, 'Conflict, so that it is refused');
-        fixture.commit(tree, 'conflict.txt', 'branch\n');
-        const head = git(tree, 'rev-parse', 'HEAD');
+        const { number, tree, branch } = await worked(main, 'Conflict, so that it is refused');
+        const head = fixture.commit(tree, 'conflict.txt', 'branch\n');
+        conflicted = { tree, branch, head };
         fixture.commit(main.second, 'conflict.txt', 'main\n');
         git(main.second, 'pull', '-q', '--rebase', 'origin', 'master');
         git(main.second, 'push', '-q', 'origin', 'master');
         return { number, tree, args: integrateArguments(main, number, head) };
-      }, /does not merge cleanly into origin\/master/);
+      }, /does not merge cleanly into origin\/master.*\. this worktree is on issue-\d+-conflict-so-that-it-is-refused$/);
       assert.equal(await client.isClean(main.checkout), true);
+      assert.equal(await client.currentBranch(conflicted.tree), conflicted.branch);
+      assert.equal(git(conflicted.tree, 'rev-parse', 'HEAD'), conflicted.head);
+      assert.equal(await client.isClean(conflicted.tree), true);
     });
 
     it('a missing reviewer, a missing head and a head that is no commit', async () => {

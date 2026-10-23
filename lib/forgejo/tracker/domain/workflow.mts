@@ -244,7 +244,9 @@ export function hasReleasedRecord(entries: readonly TimelineEntry[], repository:
   });
 }
 
-// The proof of this environment that came after the newest landing, trusted or not: the writer asks it to write nothing twice.
-export function hasProvenRecord(entries: readonly TimelineEntry[], environment: string, afterLanding: number): boolean {
-  return entries.some((entry) => entry.kind === 'comment' && entry.at > afterLanding && PROVEN_LINE.exec(firstLine(entry.body))?.[1] === environment);
+// Whether the history holds a proof of this environment after the newest landing, so the writer writes none twice.
+// Only a trusted proof counts: on a public repository anybody can write "Proven on" before the writer does.
+export function hasProvenRecord(history: IssueHistory, environment: string): boolean {
+  const landing = newest(history.landings);
+  return landing !== undefined && history.proofs.some((proof) => proof.environment === environment && proof.at > landing.at);
 }

@@ -196,8 +196,12 @@ describe('what an issue records', () => {
     assert.equal(hasReleasedRecord(entries, other, 'v1'), true);
     assert.equal(hasReleasedRecord(entries, other, 'v2'), false);
     assert.equal(hasReleasedRecord(entries, code, 'v1'), false);
-    assert.equal(hasProvenRecord(entries, 'prod', 0), true);
-    assert.equal(hasProvenRecord(entries, 'test', 0), false);
-    assert.equal(hasProvenRecord(entries, 'prod', Date.now() + 1e9), false);
+    const found = await history();
+    assert.equal(hasProvenRecord(found, 'prod'), true);
+    assert.equal(hasProvenRecord(found, 'test'), false);
+    fake.addComment('o/r', ref.number, 'writer', landing('d'.repeat(40)));
+    assert.equal(hasProvenRecord(await history(), 'prod'), false, 'the proof came before the newest landing');
+    fake.addComment('o/r', ref.number, 'reader', composeProvenRecord('prod', 'faked'));
+    assert.equal(hasProvenRecord(await history(), 'prod'), false, 'planted: a proof of an account that may not write');
   });
 });

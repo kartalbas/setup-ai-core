@@ -562,6 +562,15 @@ describe('issue-proof and the close as completed', () => {
     assert.equal(fake.readIssue('o/r', number).state, 'closed');
   });
 
+  it('writes its own proof where only an account without write permission wrote one (planted: a stranger proves first)', async () => {
+    const { number } = await delivered('Proven by a stranger first, so that the real proof is still written');
+    fake.addComment('o/r', number, 'stranger', composeProvenRecord('prod', 'Trust me.'));
+    await issueProof.run(proofArguments(number), ctx(main.checkout));
+    const issue = fake.readIssue('o/r', number);
+    assert.equal(issue.state, 'closed');
+    assert.equal(issue.comments.at(-1), 'Proven on prod:\n\nOpened the page and saw the change work.\n');
+  });
+
   it('writes the proof once when a run failed after it, and closes on the second run', async () => {
     const { number } = await delivered('Closed after a failure, so that the proof stays single');
     fake.fail({ method: 'PATCH', path: `/repos/o/r/issues/${number}`, mode: { kind: 'status', status: 500, message: 'planted' } });

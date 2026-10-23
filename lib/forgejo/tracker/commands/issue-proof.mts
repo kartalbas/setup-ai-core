@@ -39,8 +39,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   if (missing.length > 0) throw new PreconditionError(`${name} is not delivered, so nothing is proven: ${missing.join('; ')}`);
   await checkPublicText(api, 'issue-proof', ref, evidence);
 
-  const lastLanding = Math.max(...history.landings.map((landing) => landing.at));
-  if (!hasProvenRecord(entries, environment, lastLanding)) await addComment(api, ref, composeProvenRecord(environment, evidence));
+  if (!hasProvenRecord(history, environment)) await addComment(api, ref, composeProvenRecord(environment, evidence));
   await afterStep(`close issue ${name} as completed`, `wrote the record "Proven on ${environment}:"`, async () => {
     await replaceFamilyLabel(api, ref, issue, statusLabel('done'));
     await editIssue(api, ref, { state: 'closed' });

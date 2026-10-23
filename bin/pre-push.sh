@@ -519,17 +519,16 @@ default="${default#origin/}"; [ -n "$default" ] || default=master
 
 # A checkout keeps no record of origin's tags, and its own tags need not be origin's, so the
 # commits origin carries under a tag are read from origin: once per push, as the commit each
-# tag line names (a peeled line names the commit of an annotated tag). A commit this checkout does
-# not have is skipped. Each one becomes ^<sha> in every range, before the --not that flips the
-# meaning of what follows it. When origin cannot be asked, nothing more is left out than the
-# branches of origin leave out.
+# tag line names (a peeled line names the commit of an annotated tag). One cat-file keeps the
+# objects this checkout has that are commits, so a tag object, whose peeled line follows it, and a
+# commit this checkout lacks are skipped. Each one becomes ^<sha> in every range, before the --not
+# that flips the meaning of what follows it. The ask neither prompts for a password nor waits on a
+# stalled transfer; when origin cannot be asked, nothing more is left out than the branches of
+# origin leave out.
+tagged_lines="$(GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=10 ls-remote --tags origin 2>/dev/null)" || tagged_lines=''
 tag_exclusions=''
-tagged_lines="$(git ls-remote --tags origin 2>/dev/null)" || tagged_lines=''
-while read -r tagged_sha _; do
-  [ -n "$tagged_sha" ] || continue
-  tagged_commit="$(git rev-parse --quiet --verify "${tagged_sha}^{commit}" 2>/dev/null)" || continue
-  tag_exclusions="$tag_exclusions ^$tagged_commit"
-done <<< "$tagged_lines"
+[ -z "$tagged_lines" ] || tag_exclusions="$(cut -f1 <<< "$tagged_lines" | git cat-file --batch-check='%(objectname) %(objecttype)' \
+  | awk '$2 == "commit" { printf " ^%s", $1 }')"
 
 # Every commit this push sends, across every ref on standard input, and the ranges they came from.
 commits=''

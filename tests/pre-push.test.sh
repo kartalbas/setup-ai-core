@@ -507,6 +507,11 @@ git -C "$repo" tag v3 "$snapshot"
 out="$(push_join)"; rc=$?
 check 'exit 1'                                       1 "$rc"
 check 'it names the tagged commit'                   yes "$(grep -qF 'Snapshot of the old tracker' <<< "$out" && echo yes || echo no)"
+echo 'an origin that cannot be asked leaves nothing out, a local tag on the commit notwithstanding'
+git -C "$repo" remote set-url origin "$fake/no-such-origin.git"
+out="$(push_join)"; rc=$?
+check 'exit 1'                                       1 "$rc"
+check 'it names the tagged commit'                   yes "$(grep -qF 'Snapshot of the old tracker' <<< "$out" && echo yes || echo no)"
 git -C "$repo" tag -d v3 >/dev/null
 git -C "$repo" remote remove origin
 git -C "$repo" checkout -q master; git -C "$repo" reset -q --hard "$base"

@@ -99,6 +99,9 @@ export interface PagedOperation<T> {
   readonly path: string;
   readonly query?: Readonly<Record<string, QueryValue>>;
   readonly readItem: Reader<T>;
+  // Forgejo counts the page and not the list in X-Total-Count of some lists (the timeline of an issue,
+  // routers/api/v1/repo/issue_comment.go of v17.0.0), so such a list ends only at an empty page.
+  readonly totalCountsPage?: boolean;
 }
 
 export interface TokenSource {
@@ -165,7 +168,7 @@ export class ForgejoClient {
         raw,
       );
       items.push(...pageItems);
-      const total = parseTotal(raw.headers['x-total-count']);
+      const total = operation.totalCountsPage === true ? undefined : parseTotal(raw.headers['x-total-count']);
       if (total !== undefined) {
         if (items.length >= total) return items;
         if (pageItems.length === 0) {

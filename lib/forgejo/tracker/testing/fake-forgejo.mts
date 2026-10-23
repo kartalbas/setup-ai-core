@@ -226,16 +226,16 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
     issue.events.push({ id: newId(), type, login: 'fake-user', created_at: clock(), milestone });
   };
 
-  const paginate = (items: Json[], operation: OperationSchema, query: Record<string, string>): Answer => {
+  // X-Total-Count as Forgejo v17.0.0 sends it: the length of the list for most lists, the length of the page for
+  // the timeline (routers/api/v1/repo/issue_comment.go), and none for the dependencies (issue_dependency.go).
+  const paginate = (items: Json[], operation: OperationSchema, query: Record<string, string>, count: 'list' | 'page' | 'none' = 'list'): Answer => {
     const paged = (operation.parameters ?? []).some((parameter) => parameter.name === 'page');
     if (!paged) return { status: 200, body: items };
     const page = Math.max(1, Number(query.page ?? '1'));
     const limit = Math.min(Number(query.limit ?? String(pageMaximum)), pageMaximum);
-    return {
-      status: 200,
-      body: items.slice((page - 1) * limit, page * limit),
-      headers: { 'X-Total-Count': String(items.length) },
-    };
+    const body = items.slice((page - 1) * limit, page * limit);
+    if (count === 'none') return { status: 200, body };
+    return { status: 200, body, headers: { 'X-Total-Count': String(count === 'list' ? items.length : body.length) } };
   };
 
   const addLabelToIssue = (issue: FakeIssue, label: FakeLabel): void => {
@@ -343,7 +343,7 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
         const other = findRepository(reference.owner, reference.repo);
         return issueWire(other, findIssue(other, reference.index));
       });
-      return paginate(blockers, operation, query);
+      return paginate(blockers, operation, query, 'none');
     },
     issueCreateIssueDependencies: ({ params, body }) => {
       const repository = findRepository(params.owner ?? '', params.repo ?? '');
@@ -461,7 +461,7 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
           },
         })),
       ];
-      return paginate(entries.sort((a, b) => a.id - b.id).map((entry) => entry.wire), operation, query);
+      return paginate(entries.sort((a, b) => a.id - b.id).map((entry) => entry.wire), operation, query, 'page');
     },
     repoGetRepoPermissions: ({ params }) => {
       const repository = findRepository(params.owner ?? '', params.repo ?? '');

@@ -86,7 +86,7 @@ function instantOf(text: string, name: string): number {
 // The comments and the events of the issue, every page of them.
 export async function readTimeline(api: ForgejoClient, ref: IssueRef): Promise<TimelineEntry[]> {
   const name = `read the timeline of issue ${formatIssue(ref)}`;
-  const wires = await api.callAll({ name, path: `${issuePath(ref)}/timeline`, readItem: timelineEventShape.type.read });
+  const wires = await api.callAll({ name, path: `${issuePath(ref)}/timeline`, readItem: timelineEventShape.type.read, totalCountsPage: true });
   return wires.map((wire) => ({
     kind: kindOf(wire.type),
     at: instantOf(wire.created_at, name),

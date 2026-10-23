@@ -59,7 +59,7 @@ cd "${ALL_DIR:-$TARGET}"
 . "$CORE_ROOT/lib/layers.sh"
 
 # Source worktrees must be refused before inherited product data or settings can be copied.
-if [ -z "$ALL_DIR" ] && [ -d "$TARGET" ] && harness_source_of "$TARGET" >/dev/null 2>&1; then
+if [ -z "$ALL_DIR" ] && harness_source_of "$TARGET" >/dev/null 2>&1; then
   echo "error: $TARGET is a harness repository; init is for the repositories it serves" >&2
   exit 1
 fi
@@ -69,7 +69,7 @@ fi
 # repositories of that project folder need (gitleaks, where one carries .gitleaks.toml).
 if [ "$RUN_DOCTOR" -eq 1 ]; then
   DOCTOR_ARGS=(); [ "$DRY" -eq 1 ] && DOCTOR_ARGS+=(--no-install)
-  ( cd "${ALL_DIR:-$TARGET}" 2>/dev/null || true; bash "$CORE_ROOT/bin/doctor.sh" ${DOCTOR_ARGS[@]+"${DOCTOR_ARGS[@]}"} ) || { echo "error: fix the problems doctor reported, then run init again (or pass --no-doctor)." >&2; exit 1; }
+  bash "$CORE_ROOT/bin/doctor.sh" ${DOCTOR_ARGS[@]+"${DOCTOR_ARGS[@]}"} || { echo "error: fix the problems doctor reported, then run init again (or pass --no-doctor)." >&2; exit 1; }
 fi
 
 # --all: the folder itself first, as a repository compares its rules with the folder's (1a), then

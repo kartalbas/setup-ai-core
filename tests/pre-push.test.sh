@@ -470,6 +470,48 @@ check 'and not the published one'      no "$(grep -qF 'A commit another flow wro
 git -C "$repo" checkout -q master; git -C "$repo" reset -q --hard "$base"; git -C "$repo" branch -q -D issue-11-catch-up
 git -C "$repo" update-ref -d refs/remotes/origin/master; git -C "$repo" update-ref -d refs/remotes/origin/issue-11-catch-up
 
+# --- a commit origin carries only under a tag ---------------------------------------------------
+echo 'a branch that merges a commit origin carries only under a tag is not judged on that commit'
+tag_origin="$fake/origin-tags.git"
+git init -q --bare "$tag_origin"
+git -C "$repo" remote add origin "$tag_origin"
+base="$(git -C "$repo" rev-parse HEAD)"
+git -C "$repo" checkout -q -b release-snapshot
+commit 'src/snapshot.txt' 'Snapshot of the old tracker'                         # names no issue
+snapshot="$(git -C "$repo" rev-parse HEAD)"
+git -C "$repo" checkout -q master
+git -C "$repo" push -q --no-verify origin "$snapshot:refs/tags/v1"              # only a tag holds it on origin
+git -C "$repo" checkout -q -b issue-317-join
+git -C "$repo" merge -q --no-ff -m 'Join the release history (#317)' "$snapshot"
+join_tip="$(git -C "$repo" rev-parse HEAD)"
+push_join() { printf 'refs/heads/issue-317-join %s refs/heads/issue-317-join %s\n' "$join_tip" "$base" \
+  | ( cd "$repo" && bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1 ); }
+out="$(push_join)"; rc=$?
+check 'exit 0'                                       0 "$rc"
+check 'the tagged commit is not named'               no "$(grep -qF 'Snapshot of the old tracker' <<< "$out" && echo yes || echo no)"
+check 'the merge, a tree origin never had, is checked' yes "$(grep -q 'check: OK' <<< "$out" && echo yes || echo no)"
+echo 'an annotated tag on origin leaves its commit out too, though this checkout lacks the tag object'
+git -C "$tag_origin" update-ref -d refs/tags/v1
+git -C "$repo" tag -a -m 'Release two' v2 "$snapshot"
+git -C "$repo" push -q --no-verify origin refs/tags/v2
+git -C "$repo" tag -d v2 >/dev/null
+out="$(push_join)"; rc=$?
+check 'exit 0'                                       0 "$rc"
+echo 'the same commit without the tag on origin is judged and refused'
+git -C "$tag_origin" update-ref -d refs/tags/v2
+out="$(push_join)"; rc=$?
+check 'exit 1'                                       1 "$rc"
+check 'it names the tagged commit'                   yes "$(grep -qF "$(git -C "$repo" rev-parse --short "$snapshot") Snapshot of the old tracker" <<< "$out" && echo yes || echo no)"
+echo 'a local tag that origin does not have leaves nothing out'
+git -C "$repo" tag v3 "$snapshot"
+out="$(push_join)"; rc=$?
+check 'exit 1'                                       1 "$rc"
+check 'it names the tagged commit'                   yes "$(grep -qF 'Snapshot of the old tracker' <<< "$out" && echo yes || echo no)"
+git -C "$repo" tag -d v3 >/dev/null
+git -C "$repo" remote remove origin
+git -C "$repo" checkout -q master; git -C "$repo" reset -q --hard "$base"
+git -C "$repo" branch -q -D issue-317-join release-snapshot
+
 # --- a default branch that goes live -----------------------------------------------------------
 echo 'where the default branch goes live, a landing without a Reviewed-by trailer is refused'
 mkdir -p "$repo/.ai-core"; printf 'DEFAULT_BRANCH_IS_LIVE="yes"\n' > "$repo/.ai-core/config.env"

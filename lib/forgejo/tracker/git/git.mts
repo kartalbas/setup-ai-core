@@ -1,0 +1,168 @@
+import { execFile } from 'node:child_process';
+import { readdir } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+
+const MAXIMUM_OUTPUT_BYTES = 64 * 1024 * 1024;
+const MESSAGE_STDERR_LINES = 6;
+
+export interface RepositoryAddress {
+  readonly owner: string;
+  readonly repo: string;
+}
+
+export interface Worktree {
+  readonly path: string;
+  readonly head: string | undefined;
+  readonly branch: string | undefined;
+}
+
+export class GitError extends Error {
+  readonly arguments: readonly string[];
+  readonly exitCode: number | undefined;
+
+  constructor(args: readonly string[], exitCode: number | undefined, stderr: string) {
+    const lines = stderr.trim().split('\n').filter((line) => line !== '').slice(-MESSAGE_STDERR_LINES);
+    const said = lines.map(hideCredentials).join(' | ');
+    super(`git ${args[0] ?? ''}${said === '' ? '' : `: ${said}`}`);
+    this.name = 'GitError';
+    this.arguments = args;
+    this.exitCode = exitCode;
+  }
+}
+
+// A remote address may carry a user and a password; neither belongs in a message.
+function hideCredentials(text: string): string {
+  return text.replace(/(\/\/)[^/@\s]*@/g, '$1***@');
+}
+
+// "owner/repo" of a remote address, whatever the host and the way the address is spelled (https,
+// scp-like or ssh://), as origin_repo of lib/common.sh reads it.
+export function parseRemoteAddress(address: string): RepositoryAddress {
+  const trimmed = address.trim().replace(/\/+$/, '').replace(/\.git$/, '');
+  const match = /[:/]([^:/]+)\/([^:/]+)$/.exec(trimmed);
+  if (match?.[1] === undefined || match[2] === undefined) throw new GitError(['remote'], undefined, `the remote address ${hideCredentials(address)} names no owner and repository`);
+  return { owner: match[1], repo: match[2] };
+}
+
+export class GitClient {
+  run(cwd: string, args: readonly string[], acceptedExitCodes: readonly number[] = [0]): Promise<{ stdout: string; exitCode: number }> {
+    return new Promise((resolve, reject) => {
+      execFile(
+        'git',
+        ['-C', cwd, ...args],
+        { maxBuffer: MAXIMUM_OUTPUT_BYTES, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C' } },
+        (error, stdout, stderr) => {
+          if (error === null) {
+            resolve({ stdout, exitCode: 0 });
+            return;
+          }
+          const exitCode = typeof error.code === 'number' ? error.code : undefined;
+          if (exitCode !== undefined && acceptedExitCodes.includes(exitCode)) {
+            resolve({ stdout, exitCode });
+            return;
+          }
+          reject(new GitError(args, exitCode, stderr === '' ? error.message : stderr));
+        },
+      );
+    });
+  }
+
+  private async output(cwd: string, args: readonly string[]): Promise<string> {
+    return (await this.run(cwd, args)).stdout.replace(/\n$/, '');
+  }
+
+  async originRepository(cwd: string): Promise<RepositoryAddress> {
+    return parseRemoteAddress(await this.output(cwd, ['remote', 'get-url', 'origin']));
+  }
+
+  // The repositories of the clones that lie beside this checkout: the folders of the project folder
+  // (the parent of the main checkout, also from a worktree) that are Git checkouts with an origin.
+  async listCloneOrigins(cwd: string): Promise<RepositoryAddress[]> {
+    const common = await this.output(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+    if (!common.endsWith('/.git')) throw new GitError(['rev-parse'], undefined, `${common} is not the .git folder of a checkout`);
+    const projectFolder = dirname(dirname(common));
+    const found: RepositoryAddress[] = [];
+    for (const entry of await readdir(projectFolder, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+      const clone = join(projectFolder, entry.name);
+      if (!(await this.isCheckout(clone))) continue;
+      const remote = await this.run(clone, ['remote', 'get-url', 'origin'], [0, 2]);
+      if (remote.exitCode === 0) found.push(parseRemoteAddress(remote.stdout));
+    }
+    return found;
+  }
+
+  private async isCheckout(directory: string): Promise<boolean> {
+    const top = await this.run(directory, ['rev-parse', '--show-toplevel'], [0, 128]);
+    return top.exitCode === 0 && top.stdout.trim() === directory;
+  }
+
+  // The default branch of origin, asked of the remote and, where that is unreachable, origin/HEAD.
+  async defaultBranch(cwd: string): Promise<string> {
+    const asked = await this.run(cwd, ['ls-remote', '--symref', 'origin', 'HEAD'], [0, 128]);
+    const fromRemote = /^ref: refs\/heads\/(\S+)\tHEAD$/m.exec(asked.stdout)?.[1];
+    if (fromRemote !== undefined) return fromRemote;
+    const local = await this.run(cwd, ['symbolic-ref', '-q', 'refs/remotes/origin/HEAD'], [0, 1, 128]);
+    const fromHead = /^refs\/remotes\/origin\/(\S+)$/m.exec(local.stdout)?.[1];
+    if (fromHead !== undefined) return fromHead;
+    throw new GitError(['ls-remote'], undefined, 'cannot read the default branch from origin or from origin/HEAD');
+  }
+
+  async fetchBranch(cwd: string, branch: string): Promise<void> {
+    await this.run(cwd, ['fetch', '--quiet', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`]);
+  }
+
+  async resolveCommit(cwd: string, ref: string): Promise<string> {
+    return this.output(cwd, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
+  }
+
+  async isAncestor(cwd: string, ancestor: string, descendant: string): Promise<boolean> {
+    return (await this.run(cwd, ['merge-base', '--is-ancestor', ancestor, descendant], [0, 1])).exitCode === 0;
+  }
+
+  async isClean(cwd: string): Promise<boolean> {
+    return (await this.output(cwd, ['status', '--porcelain', '--untracked-files=all'])) === '';
+  }
+
+  async currentBranch(cwd: string): Promise<string | undefined> {
+    const branch = await this.run(cwd, ['symbolic-ref', '--short', '-q', 'HEAD'], [0, 1]);
+    return branch.exitCode === 0 ? branch.stdout.trim() : undefined;
+  }
+
+  async listWorktrees(cwd: string): Promise<Worktree[]> {
+    const listing = await this.output(cwd, ['worktree', 'list', '--porcelain']);
+    return listing
+      .split('\n\n')
+      .filter((block) => block.trim() !== '')
+      .map((block) => {
+        const lines = block.split('\n');
+        const value = (key: string): string | undefined => lines.find((line) => line.startsWith(`${key} `))?.slice(key.length + 1);
+        return { path: value('worktree') ?? '', head: value('HEAD'), branch: value('branch')?.replace(/^refs\/heads\//, '') };
+      });
+  }
+
+  async addWorktree(cwd: string, path: string, branch: string, startPoint: string): Promise<void> {
+    await this.run(cwd, ['worktree', 'add', '-b', branch, path, startPoint]);
+  }
+
+  // Never forced: a worktree with changes in it stays.
+  async removeWorktree(cwd: string, path: string): Promise<void> {
+    await this.run(cwd, ['worktree', 'remove', path]);
+  }
+
+  // A merge commit that names its parents; a merge that conflicts is aborted and leaves the checkout as it was.
+  async merge(cwd: string, commit: string, message: string): Promise<string> {
+    try {
+      await this.run(cwd, ['merge', '--no-ff', '-m', message, commit]);
+    } catch (error) {
+      await this.run(cwd, ['merge', '--abort'], [0, 128]);
+      throw error;
+    }
+    return this.resolveCommit(cwd, 'HEAD');
+  }
+
+  // Never forced: a remote that moved refuses it.
+  async push(cwd: string, commit: string, branch: string): Promise<void> {
+    await this.run(cwd, ['push', 'origin', `${commit}:refs/heads/${branch}`]);
+  }
+}

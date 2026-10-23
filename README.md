@@ -1278,6 +1278,57 @@ tag, so `master` can carry a mistake without it reaching anybody.
   run `bash bin/rules-check.sh rules`. A rule may wrap over several lines; the tag ends the last
   one. A new section is a new `rules/NN-slug.md`; the number places it.
 - **Release:** `ai-core release X.Y.Z`; `init` copies the version to `.ai-core/VERSION`.
+- **Change the Forgejo tracker** (`lib/forgejo/tracker/`, TypeScript that Node runs as it is): it needs a Node.js that
+  runs `.mts` files without a flag (measured on v24.21.0), and, to type-check, the development-only
+  compiler under `tests/typescript`, which the runtime never loads: `npm ci --prefix tests/typescript` installs the
+  two pinned packages, `typescript` and `@types/node`. `bash tests/check.sh 16-forgejo` runs the strict type check
+  and every test of the tree against a fake Forgejo on `127.0.0.1`; a missing compiler turns the section red. The
+  paths and definitions of the API that the client uses are in `lib/forgejo/tracker/api/schema.json`, which the
+  fake answers from. Extract it again, after adding a path to `used`, from the swagger of a Forgejo instance (the
+  address in `FORGEJO_URL`, read without a token):
+
+```bash
+curl -fsS "$FORGEJO_URL/swagger.v1.json" | node -e '
+const fs = require("fs");
+const swagger = JSON.parse(fs.readFileSync(0, "utf8"));
+const used = {
+  "/user": ["get"],
+  "/repos/{owner}/{repo}": ["get"],
+  "/repos/{owner}/{repo}/issues": ["post"],
+  "/repos/{owner}/{repo}/issues/{index}": ["get", "patch"],
+  "/repos/{owner}/{repo}/issues/{index}/comments": ["get", "post"],
+  "/repos/{owner}/{repo}/assignees": ["get"],
+  "/repos/{owner}/{repo}/issues/{index}/dependencies": ["get", "post", "delete"],
+  "/repos/{owner}/{repo}/issues/{index}/labels": ["post"],
+  "/repos/{owner}/{repo}/issues/{index}/labels/{identifier}": ["delete"],
+  "/repos/{owner}/{repo}/labels": ["get"],
+  "/orgs/{org}/labels": ["get", "post"],
+  "/orgs/{org}/labels/{id}": ["patch"],
+  "/repos/issues/search": ["get"],
+};
+const paths = {}, definitions = {}, responses = {};
+const collect = (node) => {
+  if (Array.isArray(node)) return node.forEach(collect);
+  if (node === null || typeof node !== "object") return;
+  for (const [key, value] of Object.entries(node)) {
+    if (key !== "$ref") { collect(value); continue; }
+    const name = value.split("/").pop();
+    if (value.startsWith("#/responses/") && !responses[name]) { responses[name] = swagger.responses[name]; collect(responses[name]); }
+    if (value.startsWith("#/definitions/") && !definitions[name]) { definitions[name] = swagger.definitions[name]; collect(definitions[name]); }
+  }
+};
+for (const [path, methods] of Object.entries(used)) {
+  paths[path] = {};
+  for (const method of methods) {
+    if (!swagger.paths[path]?.[method]) throw new Error(`the swagger has no ${method} ${path}`);
+    paths[path][method] = swagger.paths[path][method];
+  }
+}
+collect(paths);
+const schema = { swagger: swagger.swagger, info: { title: swagger.info.title, version: swagger.info.version }, basePath: swagger.basePath, paths, definitions, responses };
+fs.writeFileSync("lib/forgejo/tracker/api/schema.json", JSON.stringify(schema, null, 1) + "\n");
+'
+```
 
 Run the check before every commit.
 

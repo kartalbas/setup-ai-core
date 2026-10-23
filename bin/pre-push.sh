@@ -764,7 +764,8 @@ while IFS= read -r sha; do
   while IFS= read -r hit; do
     [ -n "$hit" ] || continue
     file="${hit%%$'\t'*}"; line="${hit#*$'\t'}"
-    git grep -h -I -F -e "$line" "$head" -- . ':!*.md' ':!*.json' ':!*.lock' ':!CHANGELOG*' 2>/dev/null | grep -qxF -- "$line" || continue
+    standing="$(git grep -h -I -F -e "$line" "$head" -- . ':!*.md' ':!*.json' ':!*.lock' ':!CHANGELOG*' 2>/dev/null)"
+    grep -qxF -- "$line" <<< "$standing" || continue
     numbered="$numbered
   $file: $line"
   done <<< "$hits"

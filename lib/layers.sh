@@ -147,10 +147,11 @@ layer_dir() { echo "$2/${1#*/}"; }
 # so a move that was interrupted (the history here, the files still there) is completed by the
 # next run; the old directory goes once every file of it is here unchanged.
 move_layer() {
-  local full="$1" old="$2" new="$3"
+  local full="$1" old="$2" new="$3" differences
   mkdir -p "$new"
   cp -Rpn "$old"/. "$new"/ 2>/dev/null || true   # the exit status of cp -n differs between versions; the comparison judges
-  if diff -rq "$old" "$new" 2>/dev/null | grep -qvF "Only in $new" || ! git -C "$new" rev-parse --verify HEAD >/dev/null 2>&1; then
+  differences="$(diff -rq "$old" "$new" 2>/dev/null)" || true
+  if { [ -n "$differences" ] && grep -qvF "Only in $new" <<< "$differences"; } || ! git -C "$new" rev-parse --verify HEAD >/dev/null 2>&1; then
     echo "error: $full is not whole at $new after the move from $old; both directories stay" >&2; return 1
   fi
   rm -rf "$old"

@@ -660,7 +660,7 @@ fi
 if [ "$PROJECT_FOLDER" -eq 0 ] && { [ -f "$TARGET/CLAUDE.md" ] || [ -f "$TARGET/.claude/CLAUDE.md" ]; }; then
   printf '%s\n%s\n' '<!-- written by ai-core init: this repository has its own CLAUDE.md, so Claude Code reads it instead of AGENTS.md; this import loads AGENTS.md as well, the map and the binding rules -->' '@AGENTS.md' > "$TMP/CLAUDE.local.md"
   put "$TMP/CLAUDE.local.md" CLAUDE.local.md once
-  if [ -f "$TARGET/CLAUDE.local.md" ] && ! tr -d '\r' < "$TARGET/CLAUDE.local.md" | grep -qx '@AGENTS.md'; then
+  if [ -f "$TARGET/CLAUDE.local.md" ] && ! grep -qx '@AGENTS.md' <<< "$(tr -d '\r' < "$TARGET/CLAUDE.local.md")"; then
     echo "note: CLAUDE.local.md is yours and does not import AGENTS.md; add the line @AGENTS.md so Claude Code loads the map and the binding rules here"
   fi
 fi

@@ -14,6 +14,7 @@ import { createRecordingHarness } from '../testing/recording-harness.mts';
 import type { RecordingHarness } from '../testing/recording-harness.mts';
 import type { GitFixture } from '../testing/git-fixture.mts';
 import { GitClient } from '../git/git.mts';
+import { bashHarness } from '../harness.mts';
 import type { CommandContext } from './command.mts';
 import * as finishIssue from './finish-issue.mts';
 import * as integrateIssue from './integrate-issue.mts';
@@ -480,6 +481,55 @@ describe('integrate-issue', () => {
       assert.match(result.stdout, /checks: green for/);
     });
 
+    it('installs the tools in the temporary worktree before the push, so a gate that needs them lets the landing through (planted: no install)', async () => {
+      const { number, tree } = await worked(main, 'Install first, so that the gate finds its tools');
+      mkdirSync(join(tree, 'scripts'), { recursive: true });
+      writeFileSync(join(tree, 'scripts', 'install.sh'), 'mkdir -p node_modules && echo "installing the tools" && touch node_modules/.ok\n');
+      git(tree, 'add', 'scripts/install.sh');
+      git(tree, 'commit', '-q', '-m', 'Add the install');
+      const installed = git(tree, 'rev-parse', 'HEAD');
+      appendFileSync(join(main.checkout, '.git', 'info', 'exclude'), 'node_modules/\n');
+      // the delete of the branch for the checks runs from the worktree of the issue, which holds no tools
+      fixture.installHook(main.checkout, 'pre-push', 'read -r ref sha rest; case "$sha" in 0*) exit 0;; esac\ntest -f node_modules/.ok || { echo "node_modules is missing" >&2; exit 1; }');
+      fake.setChecks(main.full, ['success']);
+      const shown: string[] = [];
+      const harness = { ...createRecordingHarness(), installTools: bashHarness.installTools };
+      try {
+        const result = await integrateIssue.run(integrateArguments(main, number, installed), { ...ctx(tree, publicSettings, harness), stderr: (text) => shown.push(text) });
+        assert.match(result.stdout, /checks: green for/);
+        assert.match(shown.join(''), /^installing the tools$/m);
+      } finally {
+        rmSync(join(main.checkout, '.git', 'hooks', 'pre-push'));
+      }
+      git(main.remote, 'merge-base', '--is-ancestor', installed, tipOf(main));
+      assert.doesNotMatch(remoteBranches(main), /ci\/integrate/);
+      assert.ok(!existsSync(join(tree, 'node_modules')), 'the install never ran in the worktree of the issue');
+      assert.deepEqual(readdirSync(join(fixture.root, 'project-o', '.worktrees', 'r')).filter((name) => name.startsWith('integrate-')), [], 'the temporary worktree is gone, with what the install wrote');
+    });
+
+    it('lands nothing when the install fails, shows its lines and leaves no half-installed tree (planted: the install writes, then exits 1)', async () => {
+      const { number, tree } = await worked(main, 'Install fails, so that it is refused');
+      mkdirSync(join(tree, 'scripts'), { recursive: true });
+      writeFileSync(join(tree, 'scripts', 'install.sh'), 'mkdir -p node_modules && touch node_modules/.half\necho "the install broke" >&2\nexit 1\n');
+      git(tree, 'add', 'scripts/install.sh');
+      git(tree, 'commit', '-q', '-m', 'Add a failing install');
+      const installed = git(tree, 'rev-parse', 'HEAD');
+      fake.setChecks(main.full, ['success']);
+      const [before, writes] = [tipOf(main), writesOf()];
+      const shown: string[] = [];
+      const harness = { ...createRecordingHarness(), installTools: bashHarness.installTools };
+      await assert.rejects(
+        integrateIssue.run(integrateArguments(main, number, installed), { ...ctx(tree, publicSettings, harness), stderr: (text) => shown.push(text) }),
+        (error: unknown) => error instanceof PreconditionError && /nothing landed: scripts\/install.sh failed.*the install broke/.test(error.message),
+      );
+      assert.match(shown.join(''), /^the install broke$/m);
+      assert.equal(tipOf(main), before);
+      assert.equal(writesOf(), writes);
+      assert.doesNotMatch(remoteBranches(main), /ci\/integrate/);
+      assert.deepEqual(readdirSync(join(fixture.root, 'project-o', '.worktrees', 'r')).filter((name) => name.startsWith('integrate-')), [], 'the temporary worktree is gone, with what the install wrote');
+      assert.doesNotMatch(git(main.checkout, 'worktree', 'list', '--porcelain'), /integrate-/, 'no temporary worktree stays registered');
+    });
+
     it('lands nothing on red checks, and removes the branch it pushed for them (planted: red)', async () => {
       const { number, tree, head } = await worked(main, 'Red checks, so that it is refused');
       fake.setChecks(main.full, ['failure']);
@@ -674,6 +724,19 @@ describe('finish-issue', () => {
 
   it('refuses an issue with no worktree here', async () => {
     await assert.rejects(finishIssue.run(['99999'], ctx(main.checkout)), /no worktree of o\/r#99999 stands in this clone/);
+  });
+
+  it('names a worktree that stands detached, as a killed landing leaves it, and removes nothing (planted: detached; innocent case: no worktree)', async () => {
+    const landed = await worked(main, 'Detached after landing, so that it is named');
+    await integrateIssue.run(integrateArguments(main, landed.number, landed.head), ctx(landed.tree));
+    git(landed.tree, 'switch', '--quiet', '--detach', 'HEAD');
+    await assert.rejects(finishIssue.run([String(landed.number)], ctx(main.checkout)), (error: unknown) => error instanceof PreconditionError && error.message.includes(landed.tree) && error.message.includes(`git switch ${landed.branch}`) && !error.message.includes('stands in this clone'));
+    assert.ok(existsSync(landed.tree), 'the worktree stays');
+    assert.ok((await client.listBranchNames(main.checkout)).includes(landed.branch), 'the branch stays');
+    git(landed.tree, 'switch', '--quiet', landed.branch);
+    await finishIssue.run([String(landed.number)], ctx(main.checkout));
+    assert.ok(!existsSync(landed.tree));
+    await assert.rejects(finishIssue.run([String(landed.number)], ctx(main.checkout)), /stands in this clone, so nothing is removed/);
   });
 
   it('finds the worktree of an issue of another repository by the repository start-issue recorded', async () => {

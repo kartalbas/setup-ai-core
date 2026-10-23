@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ForgejoClient } from '../api/client.mts';
@@ -22,9 +23,10 @@ is made and pushed in that worktree, detached on origin/<default>, so the gate f
 and the worktree is on its branch again afterwards, whether the push landed or was refused; a run stopped
 before that leaves it detached, and its first line names the git switch that puts it back. The lines of git and
 of the push gate show while the push runs. Where the checks of Forgejo are read, the merge is made in a
-temporary worktree. Then every issue it lands (the one given and each --also) gets status/testing and the
-record "Landed on <branch>:" with the reviewed head, the landed commit and the reviewers. It discovers no other
-issue from the history of Git.
+temporary worktree, where scripts/install.sh of the merged tree runs first if it has one, its lines shown, and
+a failing install refuses the landing with nothing pushed. Then every issue it lands (the one given and each
+--also) gets status/testing and the record "Landed on <branch>:" with the reviewed head, the landed commit and
+the reviewers. It discovers no other issue from the history of Git.
 
 It refuses, before anything is merged or pushed: an issue that is closed or not assigned to the signed-in
 account, a worktree with changes (at most twenty named, and their count where there are more), a branch head
@@ -143,6 +145,11 @@ async function landReviewedHead(context: CommandContext, api: ForgejoClient, inp
     }
 
     if (checked) {
+      if (existsSync(join(tree, 'scripts', 'install.sh'))) {
+        context.stderr(`installing: scripts/install.sh of the merged tree runs in ${tree}, so the gate's check finds what it needs\n`);
+        const installed = await context.harness.installTools(tree, context.stderr);
+        if (!installed.succeeded) throw new PreconditionError(`nothing landed: scripts/install.sh failed in the temporary worktree, nothing was pushed and the worktree of ${branch} is as it was (${installed.output.split('\n').join(' | ')})`);
+      }
       const ciBranch = `ci/integrate-${branch}`;
       const held = await git.remoteBranchTip(cwd, ciBranch);
       try {

@@ -98,9 +98,9 @@ run_defect() {  # run_defect <index> <name> <file> <sed expression> <test> <asse
 
 echo 'the verdict on a long output: the assertion that turned red is found whatever the output holds'
 many="$(printf '  FAIL the first assertion\n'; for n in $(seq 1 20000); do printf '  FAIL assertion number %s of a defect that breaks the whole page\n' "$n"; done)"
-red_at "$many" 'the first assertion' || { echo "  FAIL a red assertion in a long output is not found"; failed=$((failed + 1)); }
-red_at "$many" 'an assertion nobody wrote' && { echo "  FAIL an assertion that did not turn red is found"; failed=$((failed + 1)); }
-echo '  ok   found in a long output, and not found where it is not there'
+if ! red_at "$many" 'the first assertion'; then echo "  FAIL a red assertion in a long output is not found"; failed=$((failed + 1))
+elif red_at "$many" 'an assertion nobody wrote'; then echo "  FAIL an assertion that did not turn red is found"; failed=$((failed + 1))
+else echo '  ok   found in a long output, and not found where it is not there'; fi
 
 echo 'each rule of a release read by a command is planted as a defect, and the test that holds it must turn red there'
 k=0; running=0

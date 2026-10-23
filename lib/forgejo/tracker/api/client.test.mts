@@ -206,6 +206,10 @@ describe('paging', () => {
     assert.deepEqual(issues.map((issue) => issue.number), [1, 2]);
   });
 
+  it('reads a first page whose body is null as an empty list, for an issue with no timeline entries', async () => {
+    assert.deepEqual(await pagedAnswers({ 1: 'null' }, readTwo), []);
+  });
+
   it('still refuses a page that is neither a list nor null (planted: an object, a string)', async () => {
     for (const body of ['{}', '"x"', '7']) {
       await assert.rejects(pagedAnswers({ 1: JSON.stringify([stubIssue(1)]), 2: body }, readTwo), (error: unknown) => error instanceof ContractError && /read the timeline \(page 2\).*a list was expected/.test(error.message));

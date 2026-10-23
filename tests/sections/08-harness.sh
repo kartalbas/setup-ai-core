@@ -358,6 +358,31 @@ binding_ok() {  # binding_ok
   grep -q '^- The engineering rules, .*: @\.ai-core/rules/rules\.md$' "$WORK/folder/shop-web/AGENTS.md" || fail "shop-web, whose harness adds rules the folder lacks, does not import its own: $(sed -n 4,9p "$WORK/folder/shop-web/AGENTS.md" | tr '\n' '|')"
 }
 binding_ok
+# An origin that moved to a host other than the configured forge's must not make init take the harness out of a checkout it assembled
+tree_digest() {  # tree_digest <checkout>: every file but .git, with its content
+  (cd "$1" && find . -path ./.git -prune -o -type f -print0 | sort -z | xargs -0 cksum)
+}
+mkdir -p "$WORK/moved"
+cp -R "$WORK/org-sh/shop-web" "$WORK/moved/shop-web"
+grep -q '^shop-ai-core ' "$WORK/moved/shop-web/.ai-core/STAMP" || fail "the checkout to move does not carry its layer in STAMP"
+git -C "$WORK/moved/shop-web" remote set-url origin https://forge.example.test/example-org/shop-web.git
+before="$(tree_digest "$WORK/moved/shop-web")"
+for dry in "" --dry-run; do
+  HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/moved/shop-web" --no-doctor $dry > "$WORK/moved-refused.log" 2>&1 && fail "init.sh${dry:+ $dry} went on with an origin on another forge than the configured one (see $WORK/moved-refused.log)"
+  grep -aq 'is on forge.example.test, which is not the host of the configured forge (GitHub)' "$WORK/moved-refused.log" || fail "init.sh${dry:+ $dry} does not name the origin's host and the configured forge (see $WORK/moved-refused.log)"
+  grep -aq 'shop-ai-core' "$WORK/moved-refused.log" && grep -aq 'FORGE, TRACKER and, for Forgejo, FORGEJO_URL and FORGEJO_TOKEN_COMMAND' "$WORK/moved-refused.log" || fail "init.sh${dry:+ $dry} does not name the harness or the settings to set (see $WORK/moved-refused.log)"
+  grep -aq 'Nothing was written' "$WORK/moved-refused.log" && ! grep -aq '^  removed' "$WORK/moved-refused.log" || fail "init.sh${dry:+ $dry} went on to remove files (see $WORK/moved-refused.log)"
+  [ "$(tree_digest "$WORK/moved/shop-web")" = "$before" ] || fail "init.sh${dry:+ $dry} changed the checkout it refused"
+done
+# innocent cases: a checkout without an origin, one that never had a layer, one whose origin is on the configured forge
+cp -R "$WORK/org-sh/shop-web" "$WORK/moved/no-origin"; git -C "$WORK/moved/no-origin" remote remove origin
+HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/moved/no-origin" --no-doctor > "$WORK/moved-no-origin.log" 2>&1 || fail "init.sh refused a checkout without an origin (see $WORK/moved-no-origin.log)"
+grep -aq '^--> No project harness: this checkout has no GitHub origin; the generic harness only$' "$WORK/moved-no-origin.log" || fail "init.sh does not fall back to the generic harness without an origin (see $WORK/moved-no-origin.log)"
+git init -q "$WORK/moved/never"; git -C "$WORK/moved/never" remote add origin https://forge.example.test/example-org/never-web.git
+HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/moved/never" --no-doctor > "$WORK/moved-never.log" 2>&1 || fail "init.sh refused a checkout that never had a project harness (see $WORK/moved-never.log)"
+grep -aq '^--> No project harness: this checkout has no GitHub origin; the generic harness only$' "$WORK/moved-never.log" || fail "init.sh does not fall back to the generic harness for a checkout that never had a layer (see $WORK/moved-never.log)"
+HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/shop-web" --no-doctor > "$WORK/moved-same-forge.log" 2>&1 || fail "init.sh refused a checkout whose origin is on the configured forge (see $WORK/moved-same-forge.log)"
+rm -rf "$WORK/moved"
 section "a new project harness is committed under the identity of the person who runs init, never a made-up one"
 F="$WORK/fill"; mkdir -p "$F"
 printf '[user]\n\tname = Ada Lovelace\n\temail = person@example.com\n' > "$F/identity"

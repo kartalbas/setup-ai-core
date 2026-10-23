@@ -348,7 +348,10 @@ configuration. A file the repository tracks is never overwritten. `.ai-core/STAM
 commit of setup-ai-core and of every layer the checkout was assembled from. `.ai-core/DEPLOYED`
 records what the layers put into the checkout (skills, agents, docs, the files of `repos/<repo>/`);
 what a layer no longer provides is taken out again at the next `init`, a file the repository
-tracks excepted.
+tracks excepted. A checkout whose `STAMP` names a layer, and whose `origin` is now on a host other than the
+configured forge's, finds no harness, so `init` stops before it writes or removes anything and says which
+settings to put in the environment for that one run (`FORGE`, `TRACKER` and, for Forgejo, `FORGEJO_URL`
+and `FORGEJO_TOKEN_COMMAND`).
 
 A project folder (section 5.8) gets the layers every repository under it shares: the company
 harness when the repositories belong to different projects that extend it, the project harness when

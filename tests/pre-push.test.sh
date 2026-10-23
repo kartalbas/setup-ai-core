@@ -488,6 +488,12 @@ check 'an attribution: exit 1'         1 "$rc"
 check 'it says why'                    yes "$(yesno "an assistant's or a vendor's attribution")"
 printf 'Tune the reader #7\n\nCo-Authored-By: Ada Lovelace <ada@example.invalid>\n' > "$msg"; judge_message
 check 'a person as co-author: exit 0'  0 "$rc"
+echo 'a line that says an assistant wrote the commit is refused; a message about an assistant as a tool passes'
+printf 'Tune the reader #7\n\nWritten by the build i12123 on Codex; committed by a coordinator.\n' > "$msg"; judge_message
+check 'a writer line: exit 1'          1 "$rc"
+check 'it says why'                    yes "$(yesno "an assistant's or a vendor's attribution")"
+printf 'Write the Codex brief from the model table #7\n\nBuilt the reader on the new table, so Claude and Codex read one file.\n' > "$msg"; judge_message
+check 'a tool named in a message: exit 0' 0 "$rc"
 printf 'Tune the reader #7\n\ncloses: #7\n' > "$msg"; judge_message
 check 'closes: #7 at the commit: exit 1' 1 "$rc"
 check 'it says why'                    yes "$(yesno 'the message closes an issue on the forge')"

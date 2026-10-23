@@ -95,6 +95,18 @@ cat > "$FAKE/gh/no-archived.json" <<'EOF'
 {"data":{"repository":{"issue":{"projectItems":{"nodes":[]}}}}}
 EOF
 
+# More archived rows than a pipe holds, with the match first.
+{
+  printf '{"data":{"repository":{"issue":{"projectItems":{"nodes":[\n'
+  printf '  {"id":"PVTI_first","isArchived":true,"project":{"id":"PVT_kwtestboard"}}'
+  i=0
+  while [ "$i" -lt 4000 ]; do
+    printf ',\n  {"id":"PVTI_other%s","isArchived":true,"project":{"id":"PVT_kwotherboard"}}' "$i"
+    i=$((i + 1))
+  done
+  printf ']}}}}}\n'
+} > "$FAKE/gh/many-archived.json"
+
 cat > "$FAKE/gh/added.json" <<'EOF'
 {"data":{"addProjectV2ItemById":{"item":{"id":"PVTI_added"}}}}
 EOF
@@ -153,7 +165,7 @@ done
 payload=""
 case "$query" in
   *addProjectV2ItemById*) payload=added.json ;;
-  *projectItems*)         if [ "$num" = "8" ]; then payload=no-archived.json; else payload=archived.json; fi ;;
+  *projectItems*)         case "$num" in 8) payload=no-archived.json ;; 9) payload=many-archived.json ;; *) payload=archived.json ;; esac ;;
   *"projectsV2(first:50)"*) payload=repo-projects.json ;;
   *"projectV2(number:"*)  payload=project-id.json ;;
   *"items(first:100"*)    payload=items.json ;;
@@ -201,6 +213,11 @@ check 'the project id is read back' 'PVT_kwtestboard' "$(project_id)"
 echo 'an archived card is found from the issue, and stays archived'
 check 'the archived item on THIS board' 'PVTI_archived' \
       "$(archived_item_id example-org/example-repo 7)"
+
+echo 'more archived rows than a pipe holds: the first match comes back, and the read succeeds'
+answer="$(archived_item_id example-org/example-repo 9 2>&1)" && status=0 || status=$?
+check 'the first archived item on THIS board' 'PVTI_first' "$answer"
+check 'and the read exits 0' 0 "$status"
 
 : > "$FAKE/gh/calls"
 check 'item_id hands the archived id back' 'PVTI_archived' \

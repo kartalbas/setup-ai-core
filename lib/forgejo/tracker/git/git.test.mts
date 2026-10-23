@@ -81,6 +81,18 @@ describe('a checkout and its remote', () => {
     assert.equal(git(remote, 'rev-parse', 'refs/heads/master'), remoteBefore);
   });
 
+  it('shows what a hook says while the push runs, with a password in an address hidden (planted: a password)', async () => {
+    const work = fixture.clone(remote, 'shown', 'example-repo');
+    const head = fixture.commit(work, 'shown.txt', 'x\n');
+    fixture.installHook(work, 'pre-push', `echo "checking" >&2; echo "fatal: unable to access 'https://user:hunter2@forge.example.test/o/r.git/'" >&2; exit 1`);
+    const shown: string[] = [];
+    await assert.rejects(client.push(work, head, 'master', (text) => shown.push(text)), GitError);
+    const said = shown.join('');
+    assert.match(said, /^checking\n/);
+    assert.match(said, /'https:\/\/\*\*\*@forge\.example\.test\/o\/r\.git\/'\n/);
+    assert.equal(said.includes('hunter2'), false);
+  });
+
   it('pushes a commit that no hook refuses (innocent case), and refuses a push to a remote that moved', async () => {
     const work = fixture.clone(remote, 'pushed', 'example-repo');
     const head = fixture.commit(work, 'pushed.txt', 'x\n');

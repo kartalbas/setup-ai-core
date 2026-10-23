@@ -20,6 +20,8 @@ export interface CommandContext {
   };
   readonly now: () => Date;
   readonly harness: HarnessSteps;
+  // What the person reads while the command runs, such as the lines of a push gate; the result comes after.
+  readonly stderr: (text: string) => void;
 }
 
 // The steps of the Bash harness that start-issue and integrate-issue take as their Bash commands do.

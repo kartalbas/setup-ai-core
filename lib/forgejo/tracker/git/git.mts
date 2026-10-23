@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { readdir } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
+import type { Readable } from 'node:stream';
 
 const MAXIMUM_OUTPUT_BYTES = 64 * 1024 * 1024;
 const MESSAGE_STDERR_LINES = 6;
@@ -35,6 +36,21 @@ function hideCredentials(text: string): string {
   return text.replace(/(\/\/)[^/@\s]*@/g, '$1***@');
 }
 
+// Whole lines only, so that an address split across two chunks is still hidden.
+function showLines(stream: Readable, show: (text: string) => void): void {
+  let pending = '';
+  stream.on('data', (chunk: string | Buffer) => {
+    pending += String(chunk);
+    const end = pending.lastIndexOf('\n') + 1;
+    if (end === 0) return;
+    show(hideCredentials(pending.slice(0, end)));
+    pending = pending.slice(end);
+  });
+  stream.on('end', () => {
+    if (pending !== '') show(`${hideCredentials(pending)}\n`);
+  });
+}
+
 // "owner/repo" of a remote address, whatever the host and the way the address is spelled (https,
 // scp-like or ssh://), as origin_repo of lib/common.sh reads it.
 export function parseRemoteAddress(address: string): RepositoryAddress {
@@ -45,9 +61,10 @@ export function parseRemoteAddress(address: string): RepositoryAddress {
 }
 
 export class GitClient {
-  run(cwd: string, args: readonly string[], acceptedExitCodes: readonly number[] = [0]): Promise<{ stdout: string; exitCode: number }> {
+  // `showStderr` gets what git writes to stderr while it runs, the lines of a hook among them.
+  run(cwd: string, args: readonly string[], acceptedExitCodes: readonly number[] = [0], showStderr?: (text: string) => void): Promise<{ stdout: string; exitCode: number }> {
     return new Promise((resolve, reject) => {
-      execFile(
+      const child = execFile(
         'git',
         ['-C', cwd, ...args],
         { maxBuffer: MAXIMUM_OUTPUT_BYTES, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C' } },
@@ -64,6 +81,7 @@ export class GitClient {
           reject(new GitError(args, exitCode, stderr === '' ? error.message : stderr));
         },
       );
+      if (showStderr !== undefined && child.stderr !== null) showLines(child.stderr, showStderr);
     });
   }
 
@@ -126,7 +144,13 @@ export class GitClient {
   }
 
   async isClean(cwd: string): Promise<boolean> {
-    return (await this.output(cwd, ['status', '--porcelain', '--untracked-files=all'])) === '';
+    return (await this.listChanges(cwd)).length === 0;
+  }
+
+  // One line per changed or untracked path, staged or not, as `git status --porcelain` spells it.
+  async listChanges(cwd: string): Promise<string[]> {
+    const status = await this.output(cwd, ['status', '--porcelain', '--untracked-files=all']);
+    return status === '' ? [] : status.split('\n');
   }
 
   async currentBranch(cwd: string): Promise<string | undefined> {
@@ -191,6 +215,15 @@ export class GitClient {
     await this.run(cwd, ['worktree', 'add', '--quiet', '--detach', path, startPoint]);
   }
 
+  // An ignored file the commit tracks refuses the switch: by default git overwrites it, and it may be somebody's own.
+  async switchDetached(cwd: string, commit: string): Promise<void> {
+    await this.run(cwd, ['switch', '--quiet', '--no-overwrite-ignore', '--detach', commit]);
+  }
+
+  async switchBranch(cwd: string, branch: string): Promise<void> {
+    await this.run(cwd, ['switch', '--quiet', branch]);
+  }
+
   // Never forced: a worktree with changes in it stays.
   async removeWorktree(cwd: string, path: string): Promise<void> {
     await this.run(cwd, ['worktree', 'remove', path]);
@@ -218,8 +251,8 @@ export class GitClient {
   }
 
   // Never forced: a remote that moved refuses it.
-  async push(cwd: string, commit: string, branch: string): Promise<void> {
-    await this.run(cwd, ['push', 'origin', `${commit}:refs/heads/${branch}`]);
+  async push(cwd: string, commit: string, branch: string, showStderr?: (text: string) => void): Promise<void> {
+    await this.run(cwd, ['push', 'origin', `${commit}:refs/heads/${branch}`], [0], showStderr);
   }
 
   // The commit origin holds for the branch, asked of origin itself.
@@ -229,8 +262,8 @@ export class GitClient {
   }
 
   // Replaces the branch only while origin still holds `expected` (nothing when it is to be new).
-  async pushWithLease(cwd: string, commit: string, branch: string, expected: string | undefined): Promise<void> {
-    await this.run(cwd, ['push', `--force-with-lease=refs/heads/${branch}:${expected ?? ''}`, 'origin', `${commit}:refs/heads/${branch}`]);
+  async pushWithLease(cwd: string, commit: string, branch: string, expected: string | undefined, showStderr?: (text: string) => void): Promise<void> {
+    await this.run(cwd, ['push', `--force-with-lease=refs/heads/${branch}:${expected ?? ''}`, 'origin', `${commit}:refs/heads/${branch}`], [0], showStderr);
   }
 
   async deleteRemoteBranch(cwd: string, branch: string, expected: string): Promise<void> {

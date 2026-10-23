@@ -36,7 +36,6 @@ done
 
 CORE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [ -d "$CORE_ROOT/templates" ] && [ -f "$CORE_ROOT/VERSION" ] || { echo "error: $CORE_ROOT is not a clone of setup-ai-core; run init from the clone (ai-core init)" >&2; exit 1; }
-. "$CORE_ROOT/lib/layers.sh"
 
 TARGET="."
 RUN_DOCTOR=1
@@ -54,8 +53,13 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# The project's settings are read in the directory a command runs in, so init runs in the one it serves.
+if [ -n "$ALL_DIR" ]; then ALL_DIR="$(cd "$ALL_DIR" && pwd)"; else TARGET="$(cd "$TARGET" && pwd)"; fi
+cd "${ALL_DIR:-$TARGET}"
+. "$CORE_ROOT/lib/layers.sh"
+
 # Source worktrees must be refused before inherited product data or settings can be copied.
-if [ -z "$ALL_DIR" ] && [ -d "$TARGET" ] && harness_source_of "$TARGET" >/dev/null 2>&1; then
+if [ -z "$ALL_DIR" ] && harness_source_of "$TARGET" >/dev/null 2>&1; then
   echo "error: $TARGET is a harness repository; init is for the repositories it serves" >&2
   exit 1
 fi
@@ -65,18 +69,17 @@ fi
 # repositories of that project folder need (gitleaks, where one carries .gitleaks.toml).
 if [ "$RUN_DOCTOR" -eq 1 ]; then
   DOCTOR_ARGS=(); [ "$DRY" -eq 1 ] && DOCTOR_ARGS+=(--no-install)
-  ( cd "${ALL_DIR:-$TARGET}" 2>/dev/null || true; bash "$CORE_ROOT/bin/doctor.sh" ${DOCTOR_ARGS[@]+"${DOCTOR_ARGS[@]}"} ) || { echo "error: fix the problems doctor reported, then run init again (or pass --no-doctor)." >&2; exit 1; }
+  bash "$CORE_ROOT/bin/doctor.sh" ${DOCTOR_ARGS[@]+"${DOCTOR_ARGS[@]}"} || { echo "error: fix the problems doctor reported, then run init again (or pass --no-doctor)." >&2; exit 1; }
 fi
 
 # --all: the folder itself first, as a repository compares its rules with the folder's (1a), then
 # every git repository directly under it and every worktree `ai-core start-issue` put under its
 # .worktrees/<repository>/
 if [ -n "$ALL_DIR" ]; then
-  ALL_DIR="$(cd "$ALL_DIR" && pwd)"
   OK=0; FAILED=""; FOLDER_OK=1
   PASS=(--no-doctor); [ "$DRY" -eq 1 ] && PASS+=(--dry-run)
   echo ""; echo "### $(basename "$ALL_DIR") (the folder itself)"
-  bash "${BASH_SOURCE[0]}" "$ALL_DIR" "${PASS[@]}" || FOLDER_OK=0
+  bash "$CORE_ROOT/bin/init.sh" "$ALL_DIR" "${PASS[@]}" || FOLDER_OK=0
   # Worktrees whose work landed a day ago or more go first (finish-issue --sweep): a rollout frees
   # what nobody finished, and does not init a worktree that is about to go
   for repo in "$ALL_DIR"/*/; do
@@ -101,15 +104,13 @@ if [ -n "$ALL_DIR" ]; then
     case "$name" in .worktrees/*) repo_folder="$(cd "$repo" && cd "$(git rev-parse --git-common-dir 2>/dev/null)" && cd .. && basename "$PWD")" || repo_folder="" ;; esac
     case "$repo_folder" in *-ai-core) continue ;; esac   # a harness clone serves the repositories; it is not one of them, and neither is a worktree of one
     echo ""; echo "### $name"
-    if bash "${BASH_SOURCE[0]}" "$repo" "${PASS[@]}"; then OK=$((OK + 1)); else FAILED="$FAILED $name"; fi
+    if bash "$CORE_ROOT/bin/init.sh" "$repo" "${PASS[@]}"; then OK=$((OK + 1)); else FAILED="$FAILED $name"; fi
   done
   [ "$FOLDER_OK" -eq 1 ] || FAILED="$FAILED $(basename "$ALL_DIR")/"
   echo ""; echo "==> init --all: $OK repositories $([ "$DRY" -eq 1 ] && echo "would be" || echo "were") initialized${FAILED:+; failed:$FAILED}"
   [ -z "$FAILED" ]
   exit $?
 fi
-
-TARGET="$(cd "$TARGET" && pwd)"
 
 # A project folder is no git work tree and holds git checkouts directly below it
 PROJECT_FOLDER=0

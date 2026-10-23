@@ -390,6 +390,14 @@ git init -q "$WORK/moved/never"; git -C "$WORK/moved/never" remote add origin ht
 HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/moved/never" --no-doctor > "$WORK/moved-never.log" 2>&1 || fail "init.sh refused a checkout that never had a project harness (see $WORK/moved-never.log)"
 grep -aq '^--> No project harness: this checkout has no GitHub origin; the generic harness only$' "$WORK/moved-never.log" || fail "init.sh does not fall back to the generic harness for a checkout that never had a layer (see $WORK/moved-never.log)"
 HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/shop-web" --no-doctor > "$WORK/moved-same-forge.log" 2>&1 || fail "init.sh refused a checkout whose origin is on the configured forge (see $WORK/moved-same-forge.log)"
+# a checkout configured for the forge its origin moved to is judged by its own settings, wherever init is started
+cp -R "$WORK/org-sh/shop-web" "$WORK/moved/configured"
+git -C "$WORK/moved/configured" remote set-url origin https://forge.example.test/example-org/shop-web.git
+printf 'FORGE="forgejo"\nFORGEJO_URL="https://forge.example.test"\n' >> "$WORK/moved/configured/.ai-core/config.env"
+inside=0; (cd "$WORK/moved/configured" && HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/moved/configured" --no-doctor --dry-run) > "$WORK/moved-configured-inside.log" 2>&1 || inside=$?
+outside=0; (cd "$WORK" && HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/moved/configured" --no-doctor --dry-run) > "$WORK/moved-configured-outside.log" 2>&1 || outside=$?
+grep -aq 'which is not the host of the configured forge' "$WORK/moved-configured-outside.log" && fail "init.sh started outside a checkout configured for Forgejo judged it by the settings of the directory it was started in (see $WORK/moved-configured-outside.log)"
+[ "$outside" = "$inside" ] && cmp -s "$WORK/moved-configured-inside.log" "$WORK/moved-configured-outside.log" || fail "init.sh gives another result started outside the checkout than inside it (exit $outside against $inside; see $WORK/moved-configured-outside.log)"
 # a project folder whose repositories moved: init --all inits the folder first, and it would take the shared layer out of it
 cp -R "$WORK/folder" "$WORK/moved/folder"
 grep -q '^store-ai-core ' "$WORK/moved/folder/.ai-core/STAMP" || fail "the folder to move does not carry its layer in STAMP"

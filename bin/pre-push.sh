@@ -760,7 +760,7 @@ fi
 numbered=""
 while IFS= read -r sha; do
   [ -n "$sha" ] || continue
-  added="$(git show --format= --unified=0 --no-color "$sha" -- . ':!*.md' ':!*.json' ':!*.lock' ':!CHANGELOG*' 2>/dev/null || true)"
+  added="$(git show --format= --unified=0 --no-color "$sha" -- . ':!*.md' ':!*.json' ':!*.lock' ':!CHANGELOG*' 2>/dev/null | tr -d '\0' || true)"
   hits="$(awk '
     # git ends a name that holds a space with a tab, which would join the line read after it
     /^\+\+\+ / { file = substr($0, 7); sub(/\t$/, "", file); next }

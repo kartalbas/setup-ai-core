@@ -30,17 +30,24 @@ set -uo pipefail
 
 # A person's log.showSignature prints signature lines into every formatted git log this gate reads;
 # one entry after the caller's own in git's environment configuration turns it off for all of them.
-# The repository's own check runs without it (with_caller_git_config), as it runs outside the gate.
+# The repository's own check runs without this entry (with_caller_git_config).
 caller_git_config_count="${GIT_CONFIG_COUNT-unset}"
 n=${GIT_CONFIG_COUNT:-0}; export "GIT_CONFIG_KEY_$n=log.showSignature" "GIT_CONFIG_VALUE_$n=false" "GIT_CONFIG_COUNT=$((n + 1))"
 gate_git_config_index="$n"
-with_caller_git_config() {  # with_caller_git_config <command...>
+with_caller_git_config() (  # with_caller_git_config <command...>
+  unset "GIT_CONFIG_KEY_$gate_git_config_index" "GIT_CONFIG_VALUE_$gate_git_config_index"
   if [ "$caller_git_config_count" = unset ]; then
-    env -u GIT_CONFIG_COUNT -u "GIT_CONFIG_KEY_$gate_git_config_index" -u "GIT_CONFIG_VALUE_$gate_git_config_index" "$@"
+    unset GIT_CONFIG_COUNT
   else
-    env -u "GIT_CONFIG_KEY_$gate_git_config_index" -u "GIT_CONFIG_VALUE_$gate_git_config_index" GIT_CONFIG_COUNT="$caller_git_config_count" "$@"
+    export GIT_CONFIG_COUNT="$caller_git_config_count"
   fi
-}
+  "$@"
+)
+# On Forgejo, git that the command starts outside the checkout, such as a package manager's fetch, signs in too.
+with_sign_in_line() (  # with_sign_in_line <command...>
+  [ "$FORGE" != forgejo ] || sign_in_line_export || exit 1
+  "$@"
+)
 
 for arg in "$@"; do
   if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
@@ -72,6 +79,12 @@ for arg in "$@"; do
     echo "read refuses the push. With PRE_PUSH_LOAD_LIMIT 0 the wait is off, and with"
     echo "PRE_PUSH_LOAD_WAIT_SECONDS 0 the check starts at once: the load is still measured once for the"
     echo "record, and a reading that fails is said and recorded as -, never as a number."
+    echo ""
+    echo "With FORGE=forgejo, scripts/check.sh gets credential.<FORGEJO_URL>.helper in git's environment"
+    echo "configuration after the caller's entries: an empty value, then 'ai-core git-credential' with the"
+    echo "checkout's FORGEJO_URL and FORGEJO_TOKEN_COMMAND set for that helper alone, so git started outside"
+    echo "the checkout can sign in to that instance. The check's own environment gets neither setting, and"
+    echo "only the command that prints the token is passed. With FORGE=github the check gets nothing added."
     echo ""
     echo "Options:"
     echo "  --install         Write the two shims, .githooks/pre-push (this gate) and .githooks/post-checkout"
@@ -999,7 +1012,7 @@ if [ -f "$root/scripts/check.sh" ]; then
   echo "pre-push: $root/scripts/check.sh runs here, before anything leaves this machine."
   check_started="$(date +%s)"; check_rc=0
   # Both streams go to the log, so its last line is the check's last word on either of them
-  with_caller_git_config bash "$root/scripts/check.sh" 2>&1 | tee "$TMPD/check.log" || check_rc=$?
+  with_caller_git_config with_sign_in_line bash "$root/scripts/check.sh" 2>&1 | tee "$TMPD/check.log" || check_rc=$?
   GATE_CHECK_SECONDS=$(( $(date +%s) - check_started ))
   GATE_CHECK_LAST="$(grep -v '^[[:space:]]*$' "$TMPD/check.log" | tail -1)"
   GATE_CHECK=green; [ "$check_rc" -eq 0 ] || GATE_CHECK=red

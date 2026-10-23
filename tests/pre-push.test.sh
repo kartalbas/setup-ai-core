@@ -66,6 +66,7 @@ shim_args="$fake/shim-args.txt"
 # push to the same origin would; PROBE_GATE=red makes the gate refuse.
 cat > "$stub/ai-core" <<EOF
 #!/usr/bin/env bash
+if [ "\${1:-}" = git-credential ]; then shift; exec bash "$root/bin/git-credential.sh" "\$@"; fi
 printf '[%s] ' "\$*" >> "$shim_args"; cat >> "$shim_args"
 if [ -n "\${PROBE_RACE:-}" ] && [ ! -e "\$PROBE_RACE.done" ]; then : > "\$PROBE_RACE.done"; bash "\$PROBE_RACE" >/dev/null 2>&1; fi
 [ "\${PROBE_GATE:-green}" = green ] || { echo 'gate: refused'; exit 1; }
@@ -111,6 +112,7 @@ cat > "$repo/scripts/check.sh" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$0" >> "$check_runs"
 env | grep '^GIT_CONFIG_\(COUNT\|KEY_\|VALUE_\)' | sort > "$check_runs.git-config"
+if [ -n "\${PROBE_CREDENTIAL_CHECK:-}" ]; then bash "\$PROBE_CREDENTIAL_CHECK" || exit \$?; fi
 if [ "\${PROBE_CHECK:-green}" = green ]; then echo 'check: OK — every check green'; exit 0; fi
 echo 'check: FAIL — the stand-in was told to be red'
 exit 1
@@ -186,6 +188,107 @@ git -C "$repo" commit -q --amend -m 'Read the caller configuration again #7'
 out="$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.quotePath GIT_CONFIG_VALUE_0=false only_new "$repo")"; rc=$?
 check 'exit 0 with an entry of the caller'  0 "$rc"
 check 'the check sees exactly that entry'   "$(printf 'GIT_CONFIG_COUNT=1\nGIT_CONFIG_KEY_0=core.quotePath\nGIT_CONFIG_VALUE_0=false')" "$(cat "$check_runs.git-config")"
+
+# --- the Forgejo sign-in follows git outside the checkout ------------------------------------
+credential_url=https://forge.example.test
+credential_key="credential.$credential_url.helper"
+credential_command="printf 'called\\n' >> '$fake/token-command-runs'; printf gate-fake-token"
+# The helper entry carries both settings to the helper alone, each in single quotes for git's shell
+credential_helper="!FORGEJO_URL='$credential_url' FORGEJO_TOKEN_COMMAND='printf '\\''called\\n'\\'' >> '\\''$fake/token-command-runs'\\''; printf gate-fake-token' ai-core git-credential"
+: > "$fake/token-command-runs"
+mkdir -p "$repo/.ai-core" "$fake/outside" "$fake/fixture/.ai-core"
+printf 'FORGEJO_URL="https://fixture.example.test"\nFORGEJO_TOKEN_COMMAND="printf fixture-token"\n' > "$fake/fixture/.ai-core/config.env"
+printf '/.ai-core/\n' >> "$repo/.git/info/exclude"
+printf 'FORGE=forgejo\nFORGEJO_URL="%s/"\nFORGEJO_TOKEN_COMMAND="%s"\n' "$credential_url" "$credential_command" > "$repo/.ai-core/config.env"
+git -C "$repo" config --replace-all "$credential_key" ''
+git -C "$repo" config --add "$credential_key" '!ai-core git-credential'
+cat > "$fake/unwanted-helper" <<EOF
+#!/usr/bin/env bash
+printf 'called\n' >> "$fake/unwanted-helper-runs"
+EOF
+cat > "$fake/refuse-askpass" <<EOF
+#!/usr/bin/env bash
+printf 'refused\n' >> "$fake/askpass-runs"
+exit 1
+EOF
+chmod +x "$fake/unwanted-helper" "$fake/refuse-askpass"
+git config --file "$fake/credential.gitconfig" credential.helper "!$fake/unwanted-helper"
+cat > "$fake/credential-check.sh" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$fake/outside"
+echo "exported settings: \$(env | grep -c '^FORGEJO_\(URL\|TOKEN_COMMAND\)=' || true)"
+echo "fixture: \$(cd "$fake/fixture" && . "$root/lib/common.sh" && printf '%s %s' "\$(config_value FORGEJO_URL '')" "\$(config_value FORGEJO_TOKEN_COMMAND '')")"
+if [ "\$PROBE_CREDENTIAL_EXPECT" = answer ]; then
+  printf 'protocol=https\nhost=%s\n\n' "\$PROBE_CREDENTIAL_HOST" | git credential fill | awk '
+    /^username=ai-core$/ { username = 1 }
+    /^password=gate-fake-token$/ { password = 1 }
+    END { if (username && password) print "credential: answered"; else exit 1 }
+  '
+else
+  if printf 'protocol=https\nhost=%s\n\n' "\$PROBE_CREDENTIAL_HOST" | git credential fill > /dev/null 2>&1; then
+    echo 'credential: an unexpected answer'; exit 1
+  fi
+  echo 'credential: refused'
+fi
+EOF
+credential_gate() (  # credential_gate <checkout> <host> <answer|refuse>
+  unset FORGE FORGEJO_URL FORGEJO_TOKEN_COMMAND
+  export GIT_CONFIG_GLOBAL="$fake/credential.gitconfig" GIT_CONFIG_NOSYSTEM=1
+  export GIT_ASKPASS="$fake/refuse-askpass" SSH_ASKPASS="$fake/refuse-askpass" GIT_TERMINAL_PROMPT=0
+  export PROBE_CREDENTIAL_CHECK="$fake/credential-check.sh" PROBE_CREDENTIAL_HOST="$2" PROBE_CREDENTIAL_EXPECT="$3"
+  only_new "$1"
+)
+
+echo 'a Forgejo check in a worktree signs in from outside the checkout'
+out="$(credential_gate "$wt" forge.example.test answer)"; rc=$?
+check 'the outside git gets the helper answer' 0 "$rc"
+check 'the helper answered' yes "$(grep -q '^credential: answered$' <<< "$out" && echo yes || echo no)"
+check 'the check gets the two ordered helper entries' \
+  "$(printf 'GIT_CONFIG_COUNT=2\nGIT_CONFIG_KEY_0=%s\nGIT_CONFIG_KEY_1=%s\nGIT_CONFIG_VALUE_0=\nGIT_CONFIG_VALUE_1=%s' "$credential_key" "$credential_key" "$credential_helper")" "$(cat "$check_runs.git-config")"
+check 'the check itself gets neither setting' 'exported settings: 0' "$(grep '^exported settings:' <<< "$out")"
+check "the check's own config_value reads its fixture, not the gate's settings" \
+  'fixture: https://fixture.example.test printf fixture-token' "$(grep '^fixture:' <<< "$out")"
+check 'the reset prevents an earlier helper from running' no "$([ -f "$fake/unwanted-helper-runs" ] && echo yes || echo no)"
+check 'git did not ask for a username' no "$([ -f "$fake/askpass-runs" ] && echo yes || echo no)"
+check 'only the helper runs the token command' called "$(cat "$fake/token-command-runs")"
+
+echo 'the Forgejo helper entries follow all caller entries'
+rm -f "$fake/unwanted-helper-runs"
+out="$(GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=core.quotePath GIT_CONFIG_VALUE_0=false \
+  GIT_CONFIG_KEY_1="$credential_key" GIT_CONFIG_VALUE_1="!$fake/unwanted-helper" credential_gate "$repo" forge.example.test answer)"; rc=$?
+check 'the outside git still signs in' 0 "$rc"
+check 'the caller entries stay before the two helper entries' \
+  "$(printf 'GIT_CONFIG_COUNT=4\nGIT_CONFIG_KEY_0=core.quotePath\nGIT_CONFIG_KEY_1=%s\nGIT_CONFIG_KEY_2=%s\nGIT_CONFIG_KEY_3=%s\nGIT_CONFIG_VALUE_0=false\nGIT_CONFIG_VALUE_1=!%s/unwanted-helper\nGIT_CONFIG_VALUE_2=\nGIT_CONFIG_VALUE_3=%s' "$credential_key" "$credential_key" "$credential_key" "$fake" "$credential_helper")" "$(cat "$check_runs.git-config")"
+check 'the reset also drops a caller helper for this host' no "$([ -f "$fake/unwanted-helper-runs" ] && echo yes || echo no)"
+
+echo 'a Forgejo check gets no credentials for another host'
+: > "$fake/token-command-runs"; rm -f "$fake/askpass-runs"
+out="$(credential_gate "$repo" other.example.test refuse)"; rc=$?
+check 'the check proves the refusal' 0 "$rc"
+check 'git had to ask for a username' yes "$([ -s "$fake/askpass-runs" ] && echo yes || echo no)"
+check 'the token command did not run' '' "$(cat "$fake/token-command-runs")"
+
+echo 'a GitHub check gets no Forgejo helper entries or settings'
+sed 's/^FORGE=forgejo$/FORGE=github/' "$repo/.ai-core/config.env" > "$fake/github-config"
+mv "$fake/github-config" "$repo/.ai-core/config.env"
+rm -f "$fake/askpass-runs"
+out="$(credential_gate "$repo" forge.example.test refuse)"; rc=$?
+check 'the check proves no credentials reached it' 0 "$rc"
+check 'no entries were added' '' "$(cat "$check_runs.git-config")"
+check 'no settings were exported' 'exported settings: 0' "$(grep '^exported settings:' <<< "$out")"
+check 'git had to ask for a username' yes "$([ -s "$fake/askpass-runs" ] && echo yes || echo no)"
+check 'the token command did not run' '' "$(cat "$fake/token-command-runs")"
+
+echo 'a Forgejo repository without FORGEJO_URL is refused, naming it, and its check does not run'
+printf 'FORGE=forgejo\nFORGEJO_TOKEN_COMMAND="%s"\n' "$credential_command" > "$repo/.ai-core/config.env"
+: > "$check_runs"
+out="$(credential_gate "$repo" forge.example.test answer)"; rc=$?
+check 'exit 1' 1 "$rc"
+check 'it names FORGEJO_URL' yes "$(grep -q '^error: FORGEJO_URL is not set' <<< "$out" && echo yes || echo no)"
+check 'the check did not run' '' "$(cat "$check_runs")"
+rm -rf "$repo/.ai-core"
+git -C "$repo" config --unset-all "$credential_key"
 
 echo 'a red scripts/check.sh refuses'
 out="$(PROBE_CHECK=red only_new "$wt")"; rc=$?

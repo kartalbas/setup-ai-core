@@ -215,8 +215,9 @@ export class GitClient {
     await this.run(cwd, ['worktree', 'add', '--quiet', '--detach', path, startPoint]);
   }
 
+  // An ignored file the commit tracks refuses the switch: by default git overwrites it, and it may be somebody's own.
   async switchDetached(cwd: string, commit: string): Promise<void> {
-    await this.run(cwd, ['switch', '--quiet', '--detach', commit]);
+    await this.run(cwd, ['switch', '--quiet', '--no-overwrite-ignore', '--detach', commit]);
   }
 
   async switchBranch(cwd: string, branch: string): Promise<void> {

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
@@ -359,6 +359,20 @@ describe('integrate-issue', () => {
       await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree)), (error: unknown) => error instanceof PreconditionError && /A  staged\.txt\n\?\? loose\.txt/.test(error.message));
       assert.equal(tipOf(main), remoteBefore);
       assert.equal(await client.currentBranch(tree), branch);
+    });
+
+    it('an ignored file of the worktree that origin/master tracks, which stays as it was (planted: the switch overwrites it)', async () => {
+      const { number, tree, branch } = await started(main, 'Ignored and mine, so that it is refused');
+      const kept = `kept-${number}.txt`;
+      const head = fixture.commit(tree, '.gitignore', `${kept}\n`);
+      writeFileSync(join(tree, kept), 'my own\n');
+      fixture.commit(main.second, kept, 'tracked on master\n');
+      git(main.second, 'pull', '-q', '--rebase', 'origin', 'master');
+      git(main.second, 'push', '-q', 'origin', 'master');
+      await refusal(async () => ({ number, tree, args: integrateArguments(main, number, head) }), new RegExp(`nothing landed: this worktree could not be put on origin/master for the merge .*${kept}`));
+      assert.equal(readFileSync(join(tree, kept), 'utf8'), 'my own\n');
+      assert.equal(await client.currentBranch(tree), branch);
+      assert.equal(git(tree, 'rev-parse', 'HEAD'), head);
     });
 
     it('a branch that does not merge cleanly', async () => {

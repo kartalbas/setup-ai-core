@@ -27,7 +27,7 @@ and the reviewers. It discovers no other issue from the history of Git.
 
 It refuses, before anything is merged or pushed: an issue that is closed or not assigned to the signed-in
 account, a worktree with changes (named), a branch head that is not --reviewed-head, a CI_GATE that is neither public
-nor none, and, at the push, a default branch that moved, a red gate and, for a public repository under
+nor none, an ignored file of the worktree that origin/<default> tracks, which the landing would overwrite, and, at the push, a default branch that moved, a red gate and, for a public repository under
 CI_GATE=public, checks that are red or unfinished. CI_GATE=public pushes the merge commit to
 ci/integrate-<branch>, waits for its combined commit status and lands exactly that commit; CI_GATE=none and a
 private repository land on the push gate alone. After the landing the default branch of the main checkout is
@@ -123,7 +123,11 @@ async function landReviewedHead(context: CommandContext, api: ForgejoClient, inp
       await git.addDetachedWorktree(cwd, tree, `refs/remotes/origin/${defaultBranch}`);
     } else {
       context.stderr(`landing: this worktree goes onto origin/${defaultBranch} for the merge and the push gate, and back to ${branch} when the push lands or is refused; if this run is stopped before that, git switch ${branch} puts it back\n`);
-      await git.switchDetached(cwd, `refs/remotes/origin/${defaultBranch}`);
+      try {
+        await git.switchDetached(cwd, `refs/remotes/origin/${defaultBranch}`);
+      } catch (error) {
+        throw refusal(error, `this worktree could not be put on origin/${defaultBranch} for the merge`);
+      }
     }
     const base = await git.resolveCommit(tree, 'HEAD');
     let merged: string;

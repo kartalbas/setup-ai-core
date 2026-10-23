@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { PartialCompletionError } from '../api/client.mts';
 import { composeLandedRecord, composeProvenRecord } from '../domain/workflow.mts';
 import { PreconditionError, UsageError } from '../domain/refusals.mts';
-import { contextFor, seedLabels, startFakeForgejo } from '../testing/fake-forgejo.mts';
+import { contextFor, FAKE_TOKEN, seedLabels, startFakeForgejo } from '../testing/fake-forgejo.mts';
 import type { FakeForgejo } from '../testing/fake-forgejo.mts';
 import { createGitFixture, git } from '../testing/git-fixture.mts';
 import { createRecordingHarness } from '../testing/recording-harness.mts';
@@ -327,17 +328,100 @@ describe('integrate-issue', () => {
       assert.match(innocent.stdout, /integrated:/, 'the same landing goes through once the gate is green');
     });
 
-    it('a branch that does not merge cleanly', async () => {
+    it('a push gate that is red shows every line it printed while it runs and leaves the worktree on its branch (planted: shown only at the end)', async () => {
+      const { number, tree, branch, head } = await worked(main, 'Chatty gate, so that every line shows');
+      const lines = Array.from({ length: 12 }, (_, n) => `gate line ${n}`);
+      const seen = join(scratch, `seen-${number}`);
+      // the gate goes on only once the person has read its first lines, and gives up after ten seconds
+      const waitUntilSeen = `n=0; until [ -e '${seen}' ]; do n=$((n + 1)); [ $n -lt 200 ] || { echo "nobody saw the gate while it ran" >&2; exit 1; }; sleep 0.05; done`;
+      fixture.installHook(main.checkout, 'pre-push', `${lines.map((line) => `echo "${line}" >&2`).join('; ')}; ${waitUntilSeen}; echo "gate is red: planted" >&2; exit 1`);
+      const shown: string[] = [];
+      const watching = { ...ctx(tree), stderr: (text: string) => { shown.push(text); if (text.includes('gate line 11')) writeFileSync(seen, ''); } };
+      try {
+        await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), watching), new RegExp(`nothing landed: the push to master was refused.*gate is red: planted.*\\. this worktree is on ${branch}$`));
+      } finally {
+        rmSync(join(main.checkout, '.git', 'hooks', 'pre-push'));
+      }
+      const said = shown.join('');
+      assert.ok(lines.every((line) => said.includes(`${line}\n`)), said);
+      assert.doesNotMatch(said, /nobody saw the gate/);
+      assert.match(said, new RegExp(`^landing: this worktree goes onto origin/master .* git switch ${branch} puts it back$`, 'm'));
+      assert.equal(await client.currentBranch(tree), branch, 'the worktree is back on its branch');
+      assert.equal(git(tree, 'rev-parse', 'HEAD'), head);
+      assert.equal(await client.isClean(tree), true);
+    });
+
+    it('a gate that leaves a change behind, which keeps the worktree off its branch and says so, never that it is back (planted: the claim)', async () => {
+      const { number, tree, branch, head } = await worked(main, 'Gate leaves a change, so that the branch cannot come back');
+      const drift = `drift-${number}.txt`;
+      fixture.commit(main.second, drift, 'on master\n');
+      git(main.second, 'pull', '-q', '--rebase', 'origin', 'master');
+      git(main.second, 'push', '-q', 'origin', 'master');
+      fixture.installHook(main.checkout, 'pre-push', `echo changed >> ${drift}; echo "gate is red: planted" >&2; exit 1`);
+      try {
+        await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree)), (error: unknown) => {
+          const message = error instanceof PreconditionError ? error.message : '';
+          return message.includes(`${branch} could not be checked out again, run git switch ${branch} before finish-issue`) && !message.includes(`${branch} is checked out again`) && !message.includes('this worktree is on');
+        });
+      } finally {
+        rmSync(join(main.checkout, '.git', 'hooks', 'pre-push'));
+      }
+      assert.equal(await client.currentBranch(tree), undefined, 'the worktree stays detached, as the message says');
+      git(tree, 'checkout', '-q', '--', drift);
+      git(tree, 'switch', '-q', branch);
+      assert.equal(git(tree, 'rev-parse', 'HEAD'), head);
+    });
+
+    it('a worktree with changes, naming them, before anything moves', async () => {
+      const { number, tree, branch, head } = await worked(main, 'Dirty and named, so that it is refused');
+      writeFileSync(join(tree, 'staged.txt'), 'x');
+      git(tree, 'add', 'staged.txt');
+      writeFileSync(join(tree, 'loose.txt'), 'x');
+      const remoteBefore = tipOf(main);
+      await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree)), (error: unknown) => error instanceof PreconditionError && /A  staged\.txt\n\?\? loose\.txt/.test(error.message));
+      assert.equal(tipOf(main), remoteBefore);
+      assert.equal(await client.currentBranch(tree), branch);
+    });
+
+    it('a worktree with an untracked folder of many files, naming twenty of them and how many there are (planted: 25 files)', async () => {
+      const { number, tree, head } = await worked(main, 'Many loose files, so that the list stays short');
+      mkdirSync(join(tree, 'loose'));
+      for (let n = 0; n < 25; n++) writeFileSync(join(tree, 'loose', `file-${String(n).padStart(2, '0')}.txt`), 'x');
+      await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree)), (error: unknown) => {
+        const listed = error instanceof PreconditionError ? error.message.split('\n').slice(1) : [];
+        return listed.length === 21 && listed[0] === '?? loose/file-00.txt' && listed[19] === '?? loose/file-19.txt' && listed[20] === 'and 5 more, 25 in all';
+      });
+    });
+
+    it('an ignored file of the worktree that origin/master tracks, which stays as it was (planted: the switch overwrites it)', async () => {
+      const { number, tree, branch } = await started(main, 'Ignored and mine, so that it is refused');
+      const kept = `kept-${number}.txt`;
+      const head = fixture.commit(tree, '.gitignore', `${kept}\n`);
+      writeFileSync(join(tree, kept), 'my own\n');
+      fixture.commit(main.second, kept, 'tracked on master\n');
+      git(main.second, 'pull', '-q', '--rebase', 'origin', 'master');
+      git(main.second, 'push', '-q', 'origin', 'master');
+      await refusal(async () => ({ number, tree, args: integrateArguments(main, number, head) }), new RegExp(`nothing landed: this worktree could not be put on origin/master for the merge .*${kept}`));
+      assert.equal(readFileSync(join(tree, kept), 'utf8'), 'my own\n');
+      assert.equal(await client.currentBranch(tree), branch);
+      assert.equal(git(tree, 'rev-parse', 'HEAD'), head);
+    });
+
+    it('a branch that does not merge cleanly, leaving the worktree clean on its branch', async () => {
+      let conflicted = { tree: '', branch: '', head: '' };
       await refusal(async () => {
-        const { number, tree } = await worked(main, 'Conflict, so that it is refused');
-        fixture.commit(tree, 'conflict.txt', 'branch\n');
-        const head = git(tree, 'rev-parse', 'HEAD');
+        const { number, tree, branch } = await worked(main, 'Conflict, so that it is refused');
+        const head = fixture.commit(tree, 'conflict.txt', 'branch\n');
+        conflicted = { tree, branch, head };
         fixture.commit(main.second, 'conflict.txt', 'main\n');
         git(main.second, 'pull', '-q', '--rebase', 'origin', 'master');
         git(main.second, 'push', '-q', 'origin', 'master');
         return { number, tree, args: integrateArguments(main, number, head) };
-      }, /does not merge cleanly into origin\/master/);
+      }, /does not merge cleanly into origin\/master.*\. this worktree is on issue-\d+-conflict-so-that-it-is-refused$/);
       assert.equal(await client.isClean(main.checkout), true);
+      assert.equal(await client.currentBranch(conflicted.tree), conflicted.branch);
+      assert.equal(git(conflicted.tree, 'rev-parse', 'HEAD'), conflicted.head);
+      assert.equal(await client.isClean(conflicted.tree), true);
     });
 
     it('a missing reviewer, a missing head and a head that is no commit', async () => {
@@ -347,6 +431,38 @@ describe('integrate-issue', () => {
       await assert.rejects(integrateIssue.run([main.full, String(number), '--reviewed-by', 'alice', '--reviewed-head', 'zzzzzzz'], ctx(tree)), UsageError);
       await assert.rejects(integrateIssue.run([main.full, String(number), '--reviewed-by', 'alice', '--reviewed-head', 'abcdef1'], ctx(tree)), /is no commit of this clone/);
     });
+  });
+
+  it('writes the lines of the push gate to the stderr of cli.mts, the token redacted (planted: the gate prints the token)', async () => {
+    const { number, tree, head } = await worked(main, 'Through the command line, so that the person reads the gate');
+    fixture.installHook(main.checkout, 'pre-push', `echo "gate line with ${FAKE_TOKEN}" >&2; exit 1`);
+    const environment = { ...process.env, FORGEJO_URL: fake.url, TRACKER: 'forgejo', FORGEJO_TOKEN_COMMAND: `printf '%s' ${FAKE_TOKEN}`, CI_GATE: 'none' };
+    const outcome = await new Promise<{ status: number | null; stderr: string }>((done) => {
+      const child = spawn('node', [join(import.meta.dirname, '..', 'cli.mts'), 'integrate-issue', ...integrateArguments(main, number, head)], { cwd: tree, env: environment });
+      let stderr = '';
+      child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+      child.on('close', (status) => done({ status, stderr }));
+    }).finally(() => rmSync(join(main.checkout, '.git', 'hooks', 'pre-push')));
+    assert.equal(outcome.status, 1, outcome.stderr);
+    assert.match(outcome.stderr, /^landing: this worktree goes onto origin\/master/m);
+    assert.match(outcome.stderr, /^gate line with \[token\]$/m);
+    assert.equal(outcome.stderr.includes(FAKE_TOKEN), false);
+  });
+
+  it('lands through a push gate that needs a file only the worktree of the issue has (planted: the gate runs elsewhere)', async () => {
+    const { number, tree, branch, head } = await worked(main, 'Gate needs tools, so that it runs in the worktree');
+    mkdirSync(join(tree, 'node_modules'));
+    writeFileSync(join(tree, 'node_modules', '.ok'), '');
+    appendFileSync(join(main.checkout, '.git', 'info', 'exclude'), 'node_modules/\n');
+    fixture.installHook(main.checkout, 'pre-push', 'test -f node_modules/.ok || { echo "node_modules is missing" >&2; exit 1; }');
+    try {
+      const result = await integrateIssue.run(integrateArguments(main, number, head), ctx(tree));
+      assert.match(result.stdout, /integrated:/);
+    } finally {
+      rmSync(join(main.checkout, '.git', 'hooks', 'pre-push'));
+    }
+    assert.equal(await client.currentBranch(tree), branch, 'the worktree is on its branch again');
+    assert.equal(git(tree, 'rev-parse', 'HEAD'), head);
   });
 
   describe('under CI_GATE=public', () => {

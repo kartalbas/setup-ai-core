@@ -17,17 +17,24 @@ export const help = `${USAGE}
 
 Lands the reviewed branch of one issue on the default branch of origin: a merge commit that names the issue and
 carries a "Reviewed-by: NAME" line for each reviewer, pushed through the push gate of the repository. Run it in
-the worktree of the issue, on its branch, after the reviewer's GO. Then every issue it lands (the one given and
-each --also) gets status/testing and the record "Landed on <branch>:" with the reviewed head, the landed commit
-and the reviewers. It discovers no other issue from the history of Git.
+the worktree of the issue, on its branch, after the reviewer's GO. Where the push gate is the check, the merge
+is made and pushed in that worktree, detached on origin/<default>, so the gate finds the tools installed there,
+and the worktree is on its branch again afterwards, whether the push landed or was refused; a run stopped
+before that leaves it detached, and its first line names the git switch that puts it back. The lines of git and
+of the push gate show while the push runs. Where the checks of Forgejo are read, the merge is made in a
+temporary worktree. Then every issue it lands (the one given and each --also) gets status/testing and the
+record "Landed on <branch>:" with the reviewed head, the landed commit and the reviewers. It discovers no other
+issue from the history of Git.
 
 It refuses, before anything is merged or pushed: an issue that is closed or not assigned to the signed-in
-account, a worktree with changes, a branch head that is not --reviewed-head, a CI_GATE that is neither public
-nor none, and, at the push, a default branch that moved, a red gate and, for a public repository under
-CI_GATE=public, checks that are red or unfinished. CI_GATE=public pushes the merge commit to
-ci/integrate-<branch>, waits for its combined commit status and lands exactly that commit; CI_GATE=none and a
-private repository land on the push gate alone. After the landing the default branch of the main checkout is
-fast-forwarded where it is only behind; a checkout that cannot be is named, and the landing stands.
+account, a worktree with changes (at most twenty named, and their count where there are more), a branch head
+that is not --reviewed-head, a CI_GATE that is neither public nor none, an ignored file of the worktree that
+origin/<default> tracks, which the landing would overwrite, and, at the push, a default branch that moved, a
+red gate and, for a public repository under CI_GATE=public, checks that are red or unfinished. CI_GATE=public
+pushes the merge commit to ci/integrate-<branch>, waits for its combined commit status and lands exactly that
+commit; CI_GATE=none and a private repository land on the push gate alone. After the landing the default branch
+of the main checkout is fast-forwarded where it is only behind; a checkout that cannot be is named, and the
+landing stands.
 
 When the work landed and a record could not be written, the exit status is 4 and the message says what is done.
 Run the same command again: it sees that the reviewed head is on the default branch, merges and pushes nothing,
@@ -35,6 +42,8 @@ and writes only the records that are missing.`;
 
 const POLL_SECONDS = 20;
 const WAIT_SECONDS = 1800;
+// An untracked folder lists every file in it, which can be thousands of lines.
+const SHOWN_CHANGES = 20;
 
 function positiveSeconds(text: string | undefined, fallback: number, name: string): number {
   if (text === undefined) return fallback;
@@ -103,14 +112,28 @@ async function landReviewedHead(context: CommandContext, api: ForgejoClient, inp
     lines.push('checks: CI_GATE is none, the push gate is the check; the checks of Forgejo are not read');
   }
 
-  const container = await git.worktreeContainer(cwd);
-  await mkdir(container, { recursive: true });
-  const tree = await mkdtemp(join(container, `integrate-${input.number}.`));
+  // Where the push gate is the check, the merge is made and pushed in the issue's own worktree, which holds the
+  // tools the gate needs; where the checks of Forgejo are read, it is made in a temporary worktree.
+  let tree = cwd;
+  if (checked) {
+    const container = await git.worktreeContainer(cwd);
+    await mkdir(container, { recursive: true });
+    tree = await mkdtemp(join(container, `integrate-${input.number}.`));
+  }
   const notes: string[] = [];
   let landed: string | undefined;
   let failure: unknown;
   try {
-    await git.addDetachedWorktree(cwd, tree, `refs/remotes/origin/${defaultBranch}`);
+    if (checked) {
+      await git.addDetachedWorktree(cwd, tree, `refs/remotes/origin/${defaultBranch}`);
+    } else {
+      context.stderr(`landing: this worktree goes onto origin/${defaultBranch} for the merge and the push gate, and back to ${branch} when the push lands or is refused; if this run is stopped before that, git switch ${branch} puts it back\n`);
+      try {
+        await git.switchDetached(cwd, `refs/remotes/origin/${defaultBranch}`);
+      } catch (error) {
+        throw refusal(error, `this worktree could not be put on origin/${defaultBranch} for the merge`);
+      }
+    }
     const base = await git.resolveCommit(tree, 'HEAD');
     let merged: string;
     try {
@@ -123,7 +146,7 @@ async function landReviewedHead(context: CommandContext, api: ForgejoClient, inp
       const ciBranch = `ci/integrate-${branch}`;
       const held = await git.remoteBranchTip(cwd, ciBranch);
       try {
-        await git.pushWithLease(tree, merged, ciBranch, held);
+        await git.pushWithLease(tree, merged, ciBranch, held, context.stderr);
       } catch (error) {
         throw refusal(error, `the merge commit ${merged.slice(0, 7)} could not be pushed to ${ciBranch} for its checks`);
       }
@@ -147,7 +170,7 @@ async function landReviewedHead(context: CommandContext, api: ForgejoClient, inp
     const now = await git.resolveCommit(cwd, `refs/remotes/origin/${defaultBranch}`);
     if (now !== base) throw new PreconditionError(`nothing landed: origin/${defaultBranch} moved from ${base} to ${now} while the merge was made; run this again`);
     try {
-      await git.push(tree, merged, defaultBranch);
+      await git.push(tree, merged, defaultBranch, context.stderr);
     } catch (error) {
       throw refusal(error, `the push to ${defaultBranch} was refused; nothing reached origin`);
     }
@@ -155,9 +178,20 @@ async function landReviewedHead(context: CommandContext, api: ForgejoClient, inp
   } catch (error) {
     failure = error;
   } finally {
-    await git.discardWorktree(cwd, tree).catch((error: unknown) => {
-      notes.push(`the temporary worktree ${tree} could not be removed: ${error instanceof Error ? error.message : String(error)}`);
-    });
+    if (checked) {
+      await git.discardWorktree(cwd, tree).catch((error: unknown) => {
+        notes.push(`the temporary worktree ${tree} could not be removed: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    } else {
+      await git.switchBranch(cwd, branch).then(
+        () => {
+          if (landed === undefined) notes.push(`this worktree is on ${branch}`);
+        },
+        (error: unknown) => {
+          notes.push(`${branch} could not be checked out again, run git switch ${branch} before finish-issue: ${error instanceof Error ? error.message : String(error)}`);
+        },
+      );
+    }
   }
   if (landed === undefined) {
     if (failure instanceof Error && notes.length > 0) failure.message = `${failure.message}. ${notes.join(' ')}`;
@@ -184,7 +218,11 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   if (branch === undefined || !new RegExp(`^issue-${ref.number}(-.*)?$`).test(branch)) {
     throw new PreconditionError(`this runs in the worktree of issue ${ref.number}, on its branch issue-${ref.number}-*; here ${branch ?? 'no branch'} is checked out`);
   }
-  if (!(await git.isClean(cwd))) throw new PreconditionError('the worktree has changes: commit them for the review, or put them aside, then run this again');
+  const changes = await git.listChanges(cwd);
+  if (changes.length > 0) {
+    const shown = changes.length > SHOWN_CHANGES ? [...changes.slice(0, SHOWN_CHANGES), `and ${changes.length - SHOWN_CHANGES} more, ${changes.length} in all`] : changes;
+    throw new PreconditionError(`the worktree has changes: commit them for the review, or put them aside, then run this again\n${shown.join('\n')}`);
+  }
 
   const api = context.api();
   const login = await currentLogin(api);

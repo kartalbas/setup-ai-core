@@ -147,6 +147,7 @@ export async function main(io: Io): Promise<number> {
     settings,
     now: () => new Date(),
     harness: bashHarness,
+    stderr: (text) => io.stderr(tokens === undefined ? text : tokens.redact(text)),
     api: () => {
       if (client === undefined) {
         const config = requireConfig(settings);

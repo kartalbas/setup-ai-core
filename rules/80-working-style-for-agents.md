@@ -13,7 +13,8 @@
   It carries the full case, which is the context, the code facts as `file:line` and the acceptance
   criteria, under a title that names the action and its stake so it survives being read alone in a
   list. Independent pieces are split into their own issues before any detail is refined. Epics and
-  the board belong to the trackers that have them; Forgejo has neither. An epic,
+  the board belong to the trackers whose API carries them. Forgejo has no epics, and its API cannot
+  create or move the cards of its projects, so there an issue's `status/` label holds its state. An epic,
   an issue with sub-issues, carries no work of its own, which goes into a sub-issue, and is never
   moved by hand: it stands in `implementing` once one sub-issue has started, in `testing` once all
   stand in testing or done, and is done and closed once all are done; a sub-issue closed as not

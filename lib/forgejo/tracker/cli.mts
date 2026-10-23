@@ -56,7 +56,7 @@ const COMMANDS: readonly Command[] = [
   { name: 'doctor', help: doctor.help, run: doctor.run },
 ];
 
-const NO_BOARD = 'Forgejo has no board and no epics';
+const NO_BOARD = "Forgejo has no epics, and its API cannot create or move the cards of its projects: an issue's status/ label holds its state";
 export const REFUSED_ON_FORGEJO: Readonly<Record<string, string>> = {
   'board-list': NO_BOARD,
   'board-order': NO_BOARD,

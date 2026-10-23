@@ -275,6 +275,14 @@ check 'the check proves no Forgejo settings or credentials reached it' 0 "$rc"
 check 'no entries were added' '' "$(cat "$check_runs.git-config")"
 check 'git had to ask for a username' yes "$([ -s "$fake/askpass-runs" ] && echo yes || echo no)"
 check 'the token command did not run' '' "$(cat "$fake/token-command-runs")"
+
+echo 'a Forgejo repository without FORGEJO_URL is refused, naming it, and its check does not run'
+printf 'FORGE=forgejo\nFORGEJO_TOKEN_COMMAND="%s"\n' "$credential_command" > "$repo/.ai-core/config.env"
+: > "$check_runs"
+out="$(credential_gate "$repo" forge.example.test answer)"; rc=$?
+check 'exit 1' 1 "$rc"
+check 'it names FORGEJO_URL' yes "$(grep -q '^error: FORGEJO_URL is not set' <<< "$out" && echo yes || echo no)"
+check 'the check did not run' '' "$(cat "$check_runs")"
 rm -rf "$repo/.ai-core"
 git -C "$repo" config --unset-all "$credential_key"
 

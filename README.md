@@ -348,7 +348,10 @@ configuration. A file the repository tracks is never overwritten. `.ai-core/STAM
 commit of setup-ai-core and of every layer the checkout was assembled from. `.ai-core/DEPLOYED`
 records what the layers put into the checkout (skills, agents, docs, the files of `repos/<repo>/`);
 what a layer no longer provides is taken out again at the next `init`, a file the repository
-tracks excepted.
+tracks excepted. A checkout whose `STAMP` names a layer, and whose `origin` is now on a host other than the
+configured forge's, finds no harness, and so does a project folder whose `STAMP` names a layer and which holds a repository with such an origin, so `init` stops before it writes or removes anything and says which
+settings to put in the environment for that one run (`FORGE`, `TRACKER` and, for Forgejo, `FORGEJO_URL`
+and `FORGEJO_TOKEN_COMMAND`).
 
 A project folder (section 5.8) gets the layers every repository under it shares: the company
 harness when the repositories belong to different projects that extend it, the project harness when
@@ -509,6 +512,8 @@ Map              : ✓ Generated from 1a2b3c4, current
 GitHub status    : ✓ Authenticated as @you
 Ready for task execution.
 ```
+
+On Forgejo the sign-in line is `Forgejo status   : ✓ Authenticated on <host> as @you`, the host of `FORGEJO_URL`.
 
 In a project folder the branch line says `not-a-git-repo`.
 
@@ -1216,11 +1221,11 @@ rewrite.
 
 With `TRACKER=forgejo` the issue commands run in `lib/forgejo/tracker/cli.mts`, TypeScript that Node runs as it is
 (no build step, no package at runtime), and `ai-core` hands it `FORGEJO_URL` (a scheme and a host), the command in
-`FORGEJO_TOKEN_COMMAND`, which prints the token when the first request needs it, the path of the label
-catalog, and `CI_GATE` and `LIVE_TAGS` as the other commands read them. It has no board and no epics. Every request has 15 seconds to connect and 120 seconds in all, and a
+`FORGEJO_TOKEN_COMMAND`, which prints the token when the first request needs it, the paths of the label
+catalog and of the assignee map, and `CI_GATE` and `LIVE_TAGS` as the other commands read them. It has no board and no epics. Every request has 15 seconds to connect and 120 seconds in all, and a
 failure says which of these it is: the token refused (401), a permission missing (403), nothing there (404), no
 answer, or an answer that breaks the contract of the API (a status other than the documented one, text that is
-not JSON, a field the client needs missing). A list is read to its last page or refused. A comment or a change
+not JSON, a field the client needs missing). A list is read to its last page or refused; a page whose body is `null`, which is how Forgejo answers a page of an issue's timeline past its end, is an empty page. A comment or a change
 whose answer was lost is reported as uncertain and is never sent again by the command itself.
 
 | Treatment | Commands |
@@ -1256,7 +1261,7 @@ commit messages or release history. Each record is a comment whose first line na
 | :--- | :--- | :--- |
 | `start-issue [OWNER/REPO] N` | cuts `.worktrees/<repository>/issue-N-<slug>` from the fetched default branch of origin, for an issue that is open, assigned to the signed-in account and in `ready`, `planned`, `implementing` or `review`, after the team modes check, which refuses it while a mode is missing; runs `init` in the new worktree, as on GitHub (a harness source needs none); sets `status/implementing` | `Started on <branch>:` with the base commit |
 | `integrate-issue [OWNER/REPO] N --reviewed-by NAME --reviewed-head SHA [--also OWNER/REPO#N ...]` | in the worktree of the issue: refuses a worktree with changes, a head that is not `--reviewed-head`, an issue that is closed or not assigned to the signed-in account; merges the reviewed commits into the default branch with a merge commit that names the issue and a `Reviewed-by` line per reviewer, and pushes it through the push gate; fast-forwards the default branch of the main checkout where it is only behind, and names a checkout it cannot refresh while the landing stands; sets `status/testing` on every issue it lands. It finds no issue from the history of Git | `Landed on <branch>:` (`... of OWNER/REPO:` where the issue lives in another repository) with the reviewed head, the landed commit and the reviewers |
-| `finish-issue [OWNER/REPO] N` | removes the worktree of that one issue and its branch when the worktree has no changes and its head is on the default branch; writes nothing and looks at no other worktree | none |
+| `finish-issue [OWNER/REPO] N` | removes the worktree of that one issue and its branch when the worktree has no changes, its head is on the default branch and the issue carries the `Landed on` record of that head from an account that may write; where the record is missing it removes nothing, exits 1 and names the `integrate-issue` command that writes it; writes nothing and looks at no other worktree | none |
 | `issue-release --repo OWNER/REPO --tag TAG N...` | checks that the tag exists, makes or reuses the milestone named TAG in that repository and sets it on each issue of it; an issue of another repository (`OWNER/REPO#N`) gets a comment instead, because a milestone belongs to one repository. It publishes nothing | the milestone, or `Released in OWNER/REPO TAG:` |
 | `issue-proof [OWNER/REPO] N --environment ENV --body-file PATH` | refuses unless the issue records a landing and, for every repository the landing names, a release that came after it, or `LIVE_TAGS` names ENV with the pattern `landed`; then writes the proof, sets `status/done` and closes the issue as completed | `Proven on ENV:` with the evidence |
 

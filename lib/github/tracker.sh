@@ -329,12 +329,11 @@ archived_item_id() {  # archived_item_id <owner/repo> <number>
         nodes { id isArchived project { id } } } } } }' \
     --jq '.data.repository.issue.projectItems.nodes[]
             | select(.isArchived) | "\(.project.id)\t\(.id)"')" || exit 1
-  printf '%s\n' "$rows" \
-  | while IFS=$'\t' read -r found item; do
-      [ "$found" = "$project_id" ] || continue
-      printf '%s\n' "$item"
-      break
-    done
+  while IFS=$'\t' read -r found item; do
+    [ "$found" = "$project_id" ] || continue
+    printf '%s\n' "$item"
+    break
+  done <<< "$rows"
 }
 
 # Every open board this issue has a card on, one line per board:

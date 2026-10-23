@@ -124,6 +124,9 @@ describe('the fake Forgejo answers the lifecycle paths as the swagger documents 
     const page = await call(fake, 'GET', '/repos/o/r/issues/1/timeline?page=2&limit=3');
     assert.equal((page.json as unknown[]).length, 1);
     assert.equal(page.headers.get('x-total-count'), '1', 'Forgejo v17.0.0 counts the page here, not the timeline');
+    const past = await call(fake, 'GET', '/repos/o/r/issues/1/timeline?page=3&limit=3');
+    assert.equal(past.json, null, 'Forgejo v17.0.0 answers a page past the end of the timeline with null');
+    assert.equal(past.headers.get('x-total-count'), '0');
   });
 
   it('answers the permission of a known account, and 404 for one it never heard of', async () => {

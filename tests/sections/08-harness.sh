@@ -266,6 +266,10 @@ AI_CORE_MAP_TOOL=hermes map_run "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-h
 grep -aq 'map runs with claude, codex or agy' "$WORK/map-hermes.log" || fail "map.sh does not name the tools it runs with (see $WORK/map-hermes.log)"
 (cd "$WORK/org-sh/shop-web" && HOME="$WORK/home-sh" PATH="$PATH_SH" AI_CORE_UPDATE_CHECK=never TEAM_MODES_FILE="$WORK/always.tsv" bash "$ROOT/bin/session-start.sh" > "$WORK/map-session.log" 2>&1) || fail "session-start.sh with a map (see $WORK/map-session.log): $(tail -n 3 "$WORK/map-session.log" | tr '\n' '|')"
 grep -aq '^Map              : ✓ Generated from [0-9a-f]*, current$' "$WORK/map-session.log" || fail "session-start.sh does not name the map: $(grep -a '^Map' "$WORK/map-session.log")"
+grep -aq '^GitHub status    : ✓ Authenticated as @' "$WORK/map-session.log" || fail "session-start.sh does not keep the GitHub sign-in line as it was: $(grep -a 'status    :' "$WORK/map-session.log")"
+mkdir -p "$WORK/ghdown"; printf '#!/bin/sh\nexit 1\n' > "$WORK/ghdown/gh"; chmod +x "$WORK/ghdown/gh"
+(cd "$WORK/org-sh/shop-web" && HOME="$WORK/home-sh" PATH="$WORK/ghdown:$PATH_SH" AI_CORE_UPDATE_CHECK=never TEAM_MODES_FILE="$WORK/always.tsv" bash "$ROOT/bin/session-start.sh" > "$WORK/map-session-down.log" 2>&1) || fail "session-start.sh with gh signed out (see $WORK/map-session-down.log)"
+grep -aq '^GitHub status    : ✗ Not logged in / gh missing$' "$WORK/map-session-down.log" || fail "session-start.sh does not keep the GitHub sign-in line as it was when gh is signed out: $(grep -a 'status    :' "$WORK/map-session-down.log")"
 echo x >> "$WORK/org-sh/shop-web/README.md"; git -C "$WORK/org-sh/shop-web" -c user.name=check -c user.email=check@localhost commit -qam 'A change #1'
 (cd "$WORK/org-sh/shop-web" && HOME="$WORK/home-sh" PATH="$PATH_SH" AI_CORE_UPDATE_CHECK=never TEAM_MODES_FILE="$WORK/always.tsv" bash "$ROOT/bin/session-start.sh" --json > "$WORK/map-session.json" 2>/dev/null) || true
 [ "$(jq -r '.map_behind' "$WORK/map-session.json")" = 1 ] || fail "session-start.sh --json does not count the commits behind the map: $(jq -c '{map_commit, map_behind}' "$WORK/map-session.json")"
@@ -358,6 +362,43 @@ binding_ok() {  # binding_ok
   grep -q '^- The engineering rules, .*: @\.ai-core/rules/rules\.md$' "$WORK/folder/shop-web/AGENTS.md" || fail "shop-web, whose harness adds rules the folder lacks, does not import its own: $(sed -n 4,9p "$WORK/folder/shop-web/AGENTS.md" | tr '\n' '|')"
 }
 binding_ok
+# An origin that moved to a host other than the configured forge's must not make init take the harness out of a checkout it assembled
+tree_digest() {  # tree_digest <checkout or folder>: every file outside a .git, with its content
+  (cd "$1" && find . -name .git -prune -o -type f -print0 | sort -z | xargs -0 cksum)
+}
+mkdir -p "$WORK/moved"
+cp -R "$WORK/org-sh/shop-web" "$WORK/moved/shop-web"
+grep -q '^shop-ai-core ' "$WORK/moved/shop-web/.ai-core/STAMP" || fail "the checkout to move does not carry its layer in STAMP"
+git -C "$WORK/moved/shop-web" remote set-url origin https://forge.example.test/example-org/shop-web.git
+before="$(tree_digest "$WORK/moved/shop-web")"
+for dry in "" --dry-run; do
+  HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/moved/shop-web" --no-doctor $dry > "$WORK/moved-refused.log" 2>&1 && fail "init.sh${dry:+ $dry} went on with an origin on another forge than the configured one (see $WORK/moved-refused.log)"
+  grep -aq 'is on forge.example.test, which is not the host of the configured forge (GitHub)' "$WORK/moved-refused.log" || fail "init.sh${dry:+ $dry} does not name the origin's host and the configured forge (see $WORK/moved-refused.log)"
+  grep -aq 'shop-ai-core' "$WORK/moved-refused.log" && grep -aq 'FORGE, TRACKER and, for Forgejo, FORGEJO_URL and FORGEJO_TOKEN_COMMAND' "$WORK/moved-refused.log" || fail "init.sh${dry:+ $dry} does not name the harness or the settings to set (see $WORK/moved-refused.log)"
+  grep -aq 'Nothing was written' "$WORK/moved-refused.log" && ! grep -aq '^  removed' "$WORK/moved-refused.log" || fail "init.sh${dry:+ $dry} went on to remove files (see $WORK/moved-refused.log)"
+  [ "$(tree_digest "$WORK/moved/shop-web")" = "$before" ] || fail "init.sh${dry:+ $dry} changed the checkout it refused"
+done
+# a worktree not yet initialized has no .ai-core of its own: the STAMP of its main checkout names the layer
+git -C "$WORK/moved/shop-web" worktree add -q -b issue-1-moved "$WORK/moved/shop-web-issue-1" 2>/dev/null || fail "no worktree for the moved checkout"
+HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/moved/shop-web-issue-1" --no-doctor > "$WORK/moved-worktree.log" 2>&1 && fail "init.sh went on in a new worktree of a checkout whose origin moved (see $WORK/moved-worktree.log)"
+grep -aq 'This checkout was assembled from store-ai-core shop-ai-core,' "$WORK/moved-worktree.log" && [ ! -e "$WORK/moved/shop-web-issue-1/.ai-core" ] || fail "init.sh did not refuse the new worktree by its main checkout's layer, or wrote into it (see $WORK/moved-worktree.log)"
+# innocent cases: a checkout without an origin, one that never had a layer, one whose origin is on the configured forge
+cp -R "$WORK/org-sh/shop-web" "$WORK/moved/no-origin"; git -C "$WORK/moved/no-origin" remote remove origin
+HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/moved/no-origin" --no-doctor > "$WORK/moved-no-origin.log" 2>&1 || fail "init.sh refused a checkout without an origin (see $WORK/moved-no-origin.log)"
+grep -aq '^--> No project harness: this checkout has no GitHub origin; the generic harness only$' "$WORK/moved-no-origin.log" || fail "init.sh does not fall back to the generic harness without an origin (see $WORK/moved-no-origin.log)"
+git init -q "$WORK/moved/never"; git -C "$WORK/moved/never" remote add origin https://forge.example.test/example-org/never-web.git
+HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/moved/never" --no-doctor > "$WORK/moved-never.log" 2>&1 || fail "init.sh refused a checkout that never had a project harness (see $WORK/moved-never.log)"
+grep -aq '^--> No project harness: this checkout has no GitHub origin; the generic harness only$' "$WORK/moved-never.log" || fail "init.sh does not fall back to the generic harness for a checkout that never had a layer (see $WORK/moved-never.log)"
+HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-sh/shop-web" --no-doctor > "$WORK/moved-same-forge.log" 2>&1 || fail "init.sh refused a checkout whose origin is on the configured forge (see $WORK/moved-same-forge.log)"
+# a project folder whose repositories moved: init --all inits the folder first, and it would take the shared layer out of it
+cp -R "$WORK/folder" "$WORK/moved/folder"
+grep -q '^store-ai-core ' "$WORK/moved/folder/.ai-core/STAMP" || fail "the folder to move does not carry its layer in STAMP"
+for r in shop-web store-api; do git -C "$WORK/moved/folder/$r" remote set-url origin "https://forge.example.test/example-org/$r.git"; done
+before="$(tree_digest "$WORK/moved/folder")"
+HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/moved/folder" --no-doctor > "$WORK/moved-folder.log" 2>&1 && fail "init.sh went on in a project folder whose repositories moved to another forge (see $WORK/moved-folder.log)"
+grep -aq 'This project folder was assembled from store-ai-core, and init would remove everything' "$WORK/moved-folder.log" || fail "init.sh does not say that the project folder would lose its harness (see $WORK/moved-folder.log)"
+[ "$(tree_digest "$WORK/moved/folder")" = "$before" ] || fail "init.sh changed the project folder it refused"
+rm -rf "$WORK/moved"
 section "a new project harness is committed under the identity of the person who runs init, never a made-up one"
 F="$WORK/fill"; mkdir -p "$F"
 printf '[user]\n\tname = Ada Lovelace\n\temail = person@example.com\n' > "$F/identity"

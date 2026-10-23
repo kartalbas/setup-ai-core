@@ -11,6 +11,7 @@ export interface CommandContext {
     readonly forgejoUrl: string | undefined;
     readonly tokenCommand: string | undefined;
     readonly labelsFile: string | undefined;
+    readonly assigneesFile?: string | undefined;
     // The settings of the lifecycle commands: CI_GATE, LIVE_TAGS and the seconds integrate-issue waits for checks.
     readonly ciGate?: string | undefined;
     readonly liveTags?: string | undefined;

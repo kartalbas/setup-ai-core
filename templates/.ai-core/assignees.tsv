@@ -12,10 +12,12 @@
 #
 # The login is the GitHub ACCOUNT NAME, the one the API accepts, never the display name. On a project
 # whose TRACKER is plane the second column is the EMAIL of the member in the Plane workspace instead.
+# On a project whose TRACKER is forgejo it is the Forgejo login, and the first column is OWNER/REPO.
 #
-# A repo that is not listed falls back to `@me`. That is deliberate: a new repo should
-# assign to the person setting it up rather than fail, and adding a line here is how it
-# stops doing that. An explicit --assignee / -Assignee always wins over both.
+# A repo that is not listed falls back to `@me`, the signed-in account (on Forgejo, the account of the
+# token). That is deliberate: a new repo should assign to the person setting it up rather than fail, and
+# adding a line here is how it stops doing that. An explicit --assignee / -Assignee always wins over both,
+# except on forgejo, whose issue-new takes none.
 #
 # Adding an owner means adding a line here, never passing the login by hand each time.
 #

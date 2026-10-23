@@ -81,9 +81,9 @@ describe('reads and edits against the fake', () => {
     await assert.rejects(getIssue(clientFor(fake), { owner: 'o', repo: 'r', number: 77 }), NotFoundError);
   });
 
-  it('prints the thread in the JSON shape of the GitHub part', async () => {
+  it('prints the thread in the JSON shape of the GitHub part, and the assignees', async () => {
     const thread = await readThread(clientFor(fake), { owner: 'o', repo: 'r', number: 1 });
-    assert.deepEqual(Object.keys(thread).sort(), ['body', 'carriedFrom', 'comments', 'createdAt', 'labels', 'number', 'state', 'title']);
+    assert.deepEqual(Object.keys(thread).sort(), ['assignees', 'body', 'carriedFrom', 'comments', 'createdAt', 'labels', 'number', 'state', 'title']);
     assert.deepEqual(thread.comments.map((comment) => Object.keys(comment).sort()), [['author', 'body', 'created_at'], ['author', 'body', 'created_at']]);
     assert.deepEqual(thread.comments.map((comment) => comment.author), ['someone', 'someone-else']);
     assert.equal(thread.carriedFrom, null);

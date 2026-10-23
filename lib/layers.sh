@@ -41,6 +41,19 @@ origin_parts() {
   printf '%s\t%s\n' "${url%%/*}" "${url#*/}"
 }
 
+# origin_host <checkout>: the host the origin names, with its port as the origin spells it; fails
+# for a checkout without an origin. An origin that is a path on this disk names itself.
+origin_host() {
+  local url host
+  url="$(git -C "$1" remote get-url origin 2>/dev/null)" || return 1
+  case "$url" in
+    *://*) host="${url#*://}"; host="${host%%/*}"; host="${host#*@}" ;;
+    *@*:*) host="${url#*@}"; host="${host%%:*}" ;;
+    *) host="$url" ;;
+  esac
+  printf '%s\n' "$host"
+}
+
 # harness_source_of <checkout>: the source identity comes from Git, never a directory name.
 harness_source_of() {
   local parts repo

@@ -117,6 +117,37 @@ if ! git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   for d in "$TARGET"/*/; do [ -e "$d.git" ] && { PROJECT_FOLDER=1; break; }; done
 fi
 
+# A checkout or a project folder assembled from a project harness, where an origin now names a host other than
+# the configured forge's, finds no harness below, and the run would take every file of the harness out of it. It
+# stops before anything is written. The layers are the lines of .ai-core/STAMP after the first, which names
+# setup-ai-core; a worktree not yet initialized reads the STAMP of its main checkout. A project folder is judged
+# by the origins of the repositories below it, from which it takes its layers.
+stamp="$TARGET/.ai-core/STAMP"; assembled="checkout"; checkouts=("$TARGET")
+if [ "$PROJECT_FOLDER" -eq 1 ]; then
+  assembled="project folder"; checkouts=()
+  for d in "$TARGET"/*/; do
+    d="${d%/}"; [ -e "$d/.git" ] || continue
+    case "$(basename "$d")" in *-ai-core) continue ;; esac
+    checkouts+=("$d")
+  done
+elif [ ! -d "$TARGET/.ai-core" ]; then
+  common="$(git -C "$TARGET" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || common=""
+  [ -z "$common" ] || stamp="$(dirname "$common")/.ai-core/STAMP"
+fi
+deployed_layers="$( { tr -d '\r' < "$stamp" | sed '1d; s/ .*//; /^$/d' | tr '\n' ' '; } 2>/dev/null || true)"
+if [ -n "$deployed_layers" ]; then
+  for checkout in ${checkouts[@]+"${checkouts[@]}"}; do
+    if origin_host_now="$(origin_host "$checkout")" && ! origin_parts "$checkout" >/dev/null \
+       && [ "$origin_host_now" != "$(forge_host 2>/dev/null || true)" ]; then
+      echo "error: the origin of $checkout is on $origin_host_now, which is not the host of the configured forge ($(forge_name 2>/dev/null || config_value FORGE github))." >&2
+      echo "       This $assembled was assembled from ${deployed_layers% }, and init would remove everything that harness put into it. Nothing was written." >&2
+      echo "       If the project moved to another forge, run init again with the settings that name the forge and the tracker in the environment for this one run" >&2
+      echo "       (FORGE, TRACKER and, for Forgejo, FORGEJO_URL and FORGEJO_TOKEN_COMMAND); init then writes them into .ai-core/config.env." >&2
+      exit 1
+    fi
+  done
+fi
+
 echo "=================================================="
 echo "Initializing the harness in: $TARGET$([ "$DRY" -eq 1 ] && echo ' (dry run: nothing is written)')"
 [ "$PROJECT_FOLDER" -eq 1 ] && echo "A project folder: the repositories below it get their own init"

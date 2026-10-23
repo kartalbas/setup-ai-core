@@ -13,6 +13,7 @@ export interface Settings {
   readonly forgejoUrl: string | undefined;
   readonly tokenCommand: string | undefined;
   readonly labelsFile: string | undefined;
+  readonly assigneesFile: string | undefined;
   readonly ciGate: string | undefined;
   readonly liveTags: string | undefined;
   readonly integratePollSeconds: string | undefined;
@@ -34,6 +35,7 @@ export function readSettings(env: Readonly<Record<string, string | undefined>>):
     forgejoUrl: value('FORGEJO_URL'),
     tokenCommand: value('FORGEJO_TOKEN_COMMAND'),
     labelsFile: value('AI_CORE_LABELS_FILE'),
+    assigneesFile: value('AI_CORE_ASSIGNEES_FILE'),
     ciGate: value('CI_GATE'),
     liveTags: value('LIVE_TAGS'),
     integratePollSeconds: value('AI_CORE_INTEGRATE_POLL'),

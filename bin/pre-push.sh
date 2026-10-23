@@ -517,6 +517,19 @@ git rev-parse -q --verify "refs/remotes/$default" >/dev/null 2>&1 \
   || default="$(git ls-remote --symref origin HEAD 2>/dev/null | awk '$1 == "ref:" && $3 == "HEAD" { sub("^refs/heads/", "", $2); print $2 }')"
 default="${default#origin/}"; [ -n "$default" ] || default=master
 
+# A checkout keeps no record of origin's tags, and its own tags need not be origin's, so the
+# commits origin carries under a tag are read from origin: once per push, as the commit each
+# tag line names (a peeled line names the commit of an annotated tag). One cat-file keeps the
+# objects this checkout has that are commits, so a tag object, whose peeled line follows it, and a
+# commit this checkout lacks are skipped. Each one becomes ^<sha> in every range, before the --not
+# that flips the meaning of what follows it. The ask neither prompts for a password nor waits on a
+# stalled transfer; when origin cannot be asked, nothing more is left out than the branches of
+# origin leave out.
+tagged_lines="$(GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=10 ls-remote --tags origin 2>/dev/null)" || tagged_lines=''
+tag_exclusions=''
+[ -z "$tagged_lines" ] || tag_exclusions="$(cut -f1 <<< "$tagged_lines" | git cat-file --batch-check='%(objectname) %(objecttype)' \
+  | awk '$2 == "commit" { printf " ^%s", $1 }')"
+
 # Every commit this push sends, across every ref on standard input, and the ranges they came from.
 commits=''
 scan_ranges=''
@@ -541,9 +554,10 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     # compare with. Reading that as "everything reachable" judges the whole history - every commit
     # already published, by whatever rule held when it was written. A TAG is exactly that case: it
     # names a commit the branch already carries, so what it introduces is nothing at all.
-    # Excluding every remote ref this checkout knows asks the question this loop means to ask -
-    # which commits does this push add - and answers it with none where none are added.
-    range="$local_commit --not --remotes=origin"
+    # Excluding every remote branch this checkout knows and every tag origin carries asks the
+    # question this loop means to ask - which commits does this push add - and answers it with
+    # none where none are added.
+    range="$local_commit$tag_exclusions --not --remotes=origin"
   else
     # A remote sha this checkout does not carry cannot be measured from. Letting `git rev-list`
     # fail quietly would leave the range empty, and an empty range is read below as a push with
@@ -554,11 +568,11 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     # history everybody else builds on, so it is refused, whatever tool or person forced it.
     [ "$remote_ref" != "refs/heads/$default" ] || git merge-base --is-ancestor "$remote_sha" "$local_commit" \
       || refuse "the push to $default is not a fast-forward: it would drop commits the remote has. Fetch, rebase onto origin/$default and push again; a force push to the default branch is refused."
-    # What the remote carries on ANY ref is published already. A branch that merged the default
+    # What the remote carries on ANY branch or tag is published already. A branch that merged the default
     # branch brings every commit the default branch gained since the fork; judging those again
     # holds commits other flows wrote to today's rules, and the branch could only catch up by a
     # rebase and a force push.
-    range="$local_commit ^$remote_sha --not --remotes=origin"
+    range="$local_commit ^$remote_sha$tag_exclusions --not --remotes=origin"
   fi
   # Work is pushed by ref (`git push origin HEAD:<branch>`). A local sha that is not HEAD means
   # the tree the checks are about to run in is not the tree being sent. Only a ref beside the

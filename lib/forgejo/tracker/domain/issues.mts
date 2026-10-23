@@ -38,8 +38,8 @@ export interface IssueComment {
   readonly url: string;
 }
 
-// The JSON that lib/github/tracker.sh prints for `issue-thread --json`, which session-start and the
-// engine guard read.
+// The JSON that `issue-thread --json` prints, which session-start and the engine guard read: the
+// object lib/github/tracker.sh prints, and the logins the issue is assigned to.
 export interface Thread {
   readonly number: number;
   readonly title: string;
@@ -47,6 +47,7 @@ export interface Thread {
   readonly createdAt: string;
   readonly state: IssueState;
   readonly labels: readonly string[];
+  readonly assignees: readonly string[];
   readonly body: string;
   readonly comments: readonly { readonly author: string; readonly created_at: string; readonly body: string }[];
 }
@@ -118,16 +119,21 @@ export interface NewIssue {
   readonly title: string;
   readonly body: string;
   readonly labels: readonly { readonly id: number; readonly name: string }[];
+  readonly assignees: readonly string[];
 }
 
 export async function createIssue(api: ForgejoClient, repository: RepositoryRef, input: NewIssue): Promise<Issue> {
   const name = `create an issue in ${formatRepository(repository)}`;
-  const body: CreateIssueBody = { title: input.title, body: input.body, labels: input.labels.map((label) => label.id) };
+  const body: CreateIssueBody = { title: input.title, body: input.body, labels: input.labels.map((label) => label.id), assignees: input.assignees };
   const wire = await api.call({ name, method: 'POST', path: `${repositoryPath(repository)}/issues`, body, success: 201, read: issueShape.type.read });
   const issue = toIssue(wire, { ...repository, number: wire.number }, name);
   const wanted = input.labels.map((label) => label.name).sort();
   if ([...issue.labels].sort().join('\n') !== wanted.join('\n')) {
     throw new PartialCompletionError(name, [`created ${formatIssue(issue.ref)}`], `it carries ${issue.labels.join(', ') || 'no labels'} instead of ${wanted.join(', ')}; do not create it again`);
+  }
+  const wantedAssignees = input.assignees.map((login) => login.toLowerCase()).sort();
+  if (issue.assignees.map((login) => login.toLowerCase()).sort().join('\n') !== wantedAssignees.join('\n')) {
+    throw new PartialCompletionError(name, [`created ${formatIssue(issue.ref)}`], `it is assigned to ${issue.assignees.join(', ') || 'nobody'} instead of ${input.assignees.join(', ')}; do not create it again`);
   }
   return issue;
 }
@@ -164,6 +170,7 @@ export async function readThread(api: ForgejoClient, ref: IssueRef): Promise<Thr
     createdAt: issue.createdAt,
     state: issue.state,
     labels: issue.labels,
+    assignees: issue.assignees,
     body: issue.body,
     comments: comments.map((comment) => ({ author: comment.author, created_at: comment.createdAt, body: comment.body })),
   };

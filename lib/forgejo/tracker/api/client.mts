@@ -150,7 +150,8 @@ export class ForgejoClient {
   }
 
   // Every page, until the server's total is reached. A list shorter than the total, or a page that
-  // ends the list early, is a contract failure and never a shorter result.
+  // ends the list early, is a contract failure and never a shorter result. A page whose body is null is
+  // an empty page: Forgejo answers an empty slice of the timeline so, and no other non-list is read.
   async callAll<T>(operation: PagedOperation<T>): Promise<T[]> {
     const items: T[] = [];
     for (let page = 1; page <= MAXIMUM_PAGES; page++) {
@@ -161,6 +162,7 @@ export class ForgejoClient {
           name: `${operation.name} (page ${page})`,
           success: 200,
           read: (value: unknown, where: string): T[] => {
+            if (value === null) return [];
             if (!Array.isArray(value)) throw new ContractError(where, 'a list was expected');
             return value.map((item: unknown, index: number) => operation.readItem(item, `${where}[${index}]`));
           },

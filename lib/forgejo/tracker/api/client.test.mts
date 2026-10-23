@@ -182,6 +182,39 @@ describe('paging', () => {
       server.close();
     }
   });
+
+  async function pagedAnswers(pages: Record<string, string>, run: (client: ForgejoClient) => Promise<unknown>): Promise<unknown> {
+    const server = createServer((request, response) => {
+      const page = new URL(request.url ?? '/', 'http://localhost').searchParams.get('page') ?? '1';
+      response.writeHead(200, { 'Content-Type': 'application/json', 'X-Total-Count': page === '1' ? '2' : '0' });
+      response.end(pages[page] ?? 'null');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as AddressInfo;
+    try {
+      return await run(new ForgejoClient({ baseUrl: `http://127.0.0.1:${port}`, token: createTokenSource("printf '%s' t") }));
+    } finally {
+      server.closeAllConnections();
+      server.close();
+    }
+  }
+  const readTwo = (client: ForgejoClient): Promise<Issue[]> =>
+    client.callAll({ name: 'read the timeline', path: '/t', readItem: issueShape.type.read, totalCountsPage: true });
+
+  it('ends a list at a page whose body is null, as Forgejo answers a page of the timeline past its end', async () => {
+    const issues = (await pagedAnswers({ 1: JSON.stringify([stubIssue(1), stubIssue(2)]), 2: 'null' }, readTwo)) as Issue[];
+    assert.deepEqual(issues.map((issue) => issue.number), [1, 2]);
+  });
+
+  it('reads a first page whose body is null as an empty list, for an issue with no timeline entries', async () => {
+    assert.deepEqual(await pagedAnswers({ 1: 'null' }, readTwo), []);
+  });
+
+  it('still refuses a page that is neither a list nor null (planted: an object, a string)', async () => {
+    for (const body of ['{}', '"x"', '7']) {
+      await assert.rejects(pagedAnswers({ 1: JSON.stringify([stubIssue(1)]), 2: body }, readTwo), (error: unknown) => error instanceof ContractError && /read the timeline \(page 2\).*a list was expected/.test(error.message));
+    }
+  });
 });
 
 function stubIssue(number: number): unknown {

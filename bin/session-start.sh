@@ -322,7 +322,11 @@ elif [ -z "$MAP_COMMIT" ]; then echo "Map              : – Generic (run ai-cor
 elif [ -z "$MAP_BEHIND" ]; then echo "Map              : ? Generated from $MAP_COMMIT, a commit this clone does not have"
 elif [ "$MAP_BEHIND" -eq 0 ]; then echo "Map              : ✓ Generated from $MAP_COMMIT, current"
 else echo "Map              : ! Generated from $MAP_COMMIT, $MAP_BEHIND commit(s) behind (run ai-core map)"; fi
-if [ "$GH_LOGGED_IN" -eq 1 ]; then
+if [ "$FORGE" = forgejo ]; then
+  FORGE_HOST="$(forge_host 2>/dev/null)" || FORGE_HOST=""
+  if [ "$GH_LOGGED_IN" -eq 1 ]; then echo "Forgejo status   : ✓ Authenticated on $FORGE_HOST as @$GH_USER"
+  else echo "Forgejo status   : ✗ ${FORGE_HOST:+$FORGE_HOST: }$(not_signed_in_words)"; fi
+elif [ "$GH_LOGGED_IN" -eq 1 ]; then
   echo "GitHub status    : ✓ Authenticated as @$GH_USER"
 else
   echo "GitHub status    : ✗ Not logged in / gh missing"

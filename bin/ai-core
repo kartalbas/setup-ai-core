@@ -31,8 +31,8 @@ usage() {
 FORGEJO_NODE_COMMANDS=" issue-new issue-comment issue-close issue-reopen issue-edit issue-label issue-priority issue-status issue-assign issue-block issue-unblock issue-thread issue-mine start-issue integrate-issue finish-issue issue-release issue-proof status labels-sync "
 FORGEJO_REFUSED_COMMANDS=" board-list board-order board-sync board-unarchive field-option-add item-move item-top project-new repo-boards repo-link view-filter epics-top subissue-add subissue-remove status-sync issue-transfer issue-duplicate issue-map incident-count "
 
-# forgejo_setting <key> <default>: a setting of the project, read as every command reads it
-forgejo_setting() { ( . "$CORE/lib/common.sh"; config_value "$1" "$2" ); }
+# tracker_of_project: the tracker the project names, as every command reads it
+tracker_of_project() { ( . "$CORE/lib/common.sh"; config_value TRACKER github | tr '[:upper:]' '[:lower:]' ); }
 
 command="${1:-help}"
 [ $# -gt 0 ] && shift
@@ -43,16 +43,9 @@ case "$command" in
   *)
     case "$FORGEJO_NODE_COMMANDS$FORGEJO_REFUSED_COMMANDS" in
       *" $command "*)
-        if [ "$(forgejo_setting TRACKER github | tr '[:upper:]' '[:lower:]')" = forgejo ]; then
-          command -v node >/dev/null 2>&1 || { echo "error: the Forgejo tracker runs in Node, and node is not installed" >&2; exit 1; }
-          export TRACKER=forgejo
-          FORGEJO_URL="$(forgejo_setting FORGEJO_URL "")"
-          FORGEJO_TOKEN_COMMAND="$(forgejo_setting FORGEJO_TOKEN_COMMAND "")"
-          AI_CORE_LABELS_FILE="$( . "$CORE/lib/common.sh"; data_file labels.tsv )"
-          CI_GATE="$(forgejo_setting CI_GATE public)"
-          LIVE_TAGS="$(forgejo_setting LIVE_TAGS "")"
-          export FORGEJO_URL FORGEJO_TOKEN_COMMAND AI_CORE_LABELS_FILE CI_GATE LIVE_TAGS
-          exec node "$CORE/lib/forgejo/tracker/cli.mts" "$command" "$@"
+        if [ "$(tracker_of_project)" = forgejo ]; then
+          rc=0; ( . "$CORE/lib/common.sh"; forgejo_tracker_exec "$command" "$@" ) || rc=$?
+          exit "$rc"
         fi ;;
     esac
     if [ -f "$CORE/bin/$command.sh" ]; then

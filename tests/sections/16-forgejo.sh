@@ -29,3 +29,7 @@ while IFS= read -r file; do tests+=("$file"); done < <(find "$TRACKER_DIR" -name
 [ "${#tests[@]}" -gt 0 ] || fail "no test of the Forgejo tracker found"
 node --test "${tests[@]}" > "$WORK/node-test.log" 2>&1 || { cat "$WORK/node-test.log"; fail "node --test of the Forgejo tracker"; }
 echo "  ${#tests[@]} test files: $(grep -E '^ℹ (tests|pass|fail) ' "$WORK/node-test.log" | tr -s ' ' | paste -sd ',' - | sed 's/ℹ //g')"
+
+section "the shared entries with TRACKER=forgejo: no board code is loaded, the GitHub path still loads it"
+bash "$ROOT/tests/forgejo-entries.sh" > "$WORK/entries.log" 2>&1 || { cat "$WORK/entries.log"; fail "tests/forgejo-entries.sh"; }
+grep -a '^  ' "$WORK/entries.log"

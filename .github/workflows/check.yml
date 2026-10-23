@@ -9,6 +9,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      # The Forgejo tracker is TypeScript that Node runs as it is, and its type check needs the development-only
+      # compiler under tests/typescript; the Node line here is the line of @types/node in that package.json.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm ci --prefix tests/typescript
       # The push gate's merge case runs the real gitleaks, which this image does not carry; the
       # same release doctor installs on a Linux machine.
       - run: |

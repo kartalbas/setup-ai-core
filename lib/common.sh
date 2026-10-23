@@ -127,6 +127,25 @@ config_file_value() {
   echo "$2"
 }
 
+# tracker_is_forgejo: whether the project's tracker is the Forgejo tracker, which runs in Node from
+# lib/forgejo/tracker and has no board, no epics and no Bash provider to load.
+tracker_is_forgejo() { [ "$(config_value TRACKER github | tr '[:upper:]' '[:lower:]')" = forgejo ]; }
+
+# forgejo_tracker_exec <command> [argument...]: replaces the shell with the Forgejo tracker running the command.
+# The settings that are not secret travel in the environment; the token does not, node reads it by running
+# FORGEJO_TOKEN_COMMAND when the first request needs it. Run it in a subshell.
+forgejo_tracker_exec() {
+  command -v node >/dev/null 2>&1 || die "the Forgejo tracker runs in Node, and node is not installed"
+  export TRACKER=forgejo
+  FORGEJO_URL="$(config_value FORGEJO_URL "")"
+  FORGEJO_TOKEN_COMMAND="$(config_value FORGEJO_TOKEN_COMMAND "")"
+  AI_CORE_LABELS_FILE="$(data_file labels.tsv)"
+  CI_GATE="$(config_value CI_GATE public)"
+  LIVE_TAGS="$(config_value LIVE_TAGS "")"
+  export FORGEJO_URL FORGEJO_TOKEN_COMMAND AI_CORE_LABELS_FILE CI_GATE LIVE_TAGS
+  exec node "$HARNESS_ROOT/lib/forgejo/tracker/cli.mts" "$@"
+}
+
 # THE PROVIDER OF A SUBJECT: the key named after the subject (TRACKER for tracker, FORGE for forge)
 # in the project's config.env or the environment names a folder of lib/, github when unset, and that
 # folder's <subject>.sh is sourced. A value with no such folder stops the command and names the

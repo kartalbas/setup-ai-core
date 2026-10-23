@@ -1,7 +1,8 @@
 ## The harness in a repository
 
-- **Every automation script is written for Bash 3.2+ and has no second spelling**, because a
-  second spelling is a second program to keep equal, test and review. The harness runs on Linux;
+- **Every automation script is written for Bash 3.2+, except the Forgejo part of ai-core, which is
+  TypeScript that Node runs without a build step and without packages; neither has a second
+  spelling**, because a second spelling is a second program to keep equal, test and review. The harness runs on Linux;
   Windows runs it under WSL. [review]
 - **Nothing the harness deploys is tracked by the repository.** It lives in the working tree,
   registered in the clone's own exclude file, and is assembled by the harness from its layers.

@@ -74,6 +74,15 @@ DEFECTS="$W/defects.tsv"
   printf '%s\t%s\n' status.test.sh 'the card is unknown, and the missing declaration is named'
 } > "$DEFECTS"
 
+# red_at <output of a test> <words of an assertion>: whether a FAIL line of the output names the assertion. The FAIL
+# lines are held in a variable first: grep -q stops at its first match, and a producer still writing into that pipe
+# is killed by SIGPIPE, which pipefail turns into a "no" whenever the output is longer than the pipe takes.
+red_at() {
+  local failures
+  failures="$(grep 'FAIL' <<< "$1")"
+  grep -qF -- "$2" <<< "$failures"
+}
+
 run_defect() {  # run_defect <index> <name> <file> <sed expression> <test> <assertion>: the verdict goes to $W/verdict.<index>
   local k="$1" name="$2" file="$3" expression="$4" test="$5" assertion="$6" copy="$W/tree.$1" out
   mkdir -p "$copy/tests"
@@ -83,9 +92,15 @@ run_defect() {  # run_defect <index> <name> <file> <sed expression> <test> <asse
   if cmp -s "$ROOT/$file" "$copy/$file"; then echo "FAIL the defect '$name' did not change $file" > "$W/verdict.$k"; return; fi
   out="$(cd "$copy" && . tests/tool-environment.sh && GH_ORG=example-org CODEX_HOME=/nonexistent/codex-home bash "tests/$test" 2>&1)" && {
     echo "FAIL $test stays green on: $name" > "$W/verdict.$k"; return; }
-  if grep 'FAIL' <<< "$out" | grep -qF -- "$assertion"; then echo "ok   $test is red on: $name" > "$W/verdict.$k"
+  if red_at "$out" "$assertion"; then echo "ok   $test is red on: $name" > "$W/verdict.$k"
   else echo "FAIL $test is red on: $name, but not at '$assertion': $(grep -m3 'FAIL' <<< "$out" | tr '\n' '|')" > "$W/verdict.$k"; fi
 }
+
+echo 'the verdict on a long output: the assertion that turned red is found whatever the output holds'
+many="$(printf '  FAIL the first assertion\n'; for n in $(seq 1 20000); do printf '  FAIL assertion number %s of a defect that breaks the whole page\n' "$n"; done)"
+red_at "$many" 'the first assertion' || { echo "  FAIL a red assertion in a long output is not found"; failed=$((failed + 1)); }
+red_at "$many" 'an assertion nobody wrote' && { echo "  FAIL an assertion that did not turn red is found"; failed=$((failed + 1)); }
+echo '  ok   found in a long output, and not found where it is not there'
 
 echo 'each rule of a release read by a command is planted as a defect, and the test that holds it must turn red there'
 k=0; running=0

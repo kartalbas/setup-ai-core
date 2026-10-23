@@ -504,6 +504,40 @@ describe('finish-issue', () => {
     assert.match(result.stdout, /removed the worktree/);
   });
 
+  it('keeps the worktree of work that landed without its record, names integrate-issue, and removes it once the record is written (planted: the record is missing)', async () => {
+    const { number, tree, branch, head } = await worked(main, 'Landed without a record, so that it stays');
+    fake.fail({ method: 'POST', path: `/repos/o/r/issues/${number}/comments`, mode: { kind: 'status', status: 500, message: 'planted' }, times: 1 });
+    await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree)), PartialCompletionError);
+    const before = writesOf();
+    await assert.rejects(finishIssue.run([String(number)], ctx(main.checkout)), (error: unknown) => error instanceof PreconditionError && new RegExp(`carries no "Landed on" record of ${head}.*ai-core integrate-issue o/r ${number} --reviewed-by NAME --reviewed-head ${head}`).test(error.message));
+    assert.equal(writesOf(), before);
+    assert.ok(existsSync(tree), 'the worktree stays');
+    assert.ok((await client.listBranchNames(main.checkout)).includes(branch), 'the branch stays');
+
+    await integrateIssue.run(integrateArguments(main, number, head), ctx(tree));
+    const result = await finishIssue.run([String(number)], ctx(main.checkout));
+    assert.match(result.stdout, /removed the worktree/);
+    assert.ok(!existsSync(tree));
+    assert.ok(!(await client.listBranchNames(main.checkout)).includes(branch));
+  });
+
+  it('does not take the record of an account without write permission, nor one that names another head, for the landing (planted: two forged records)', async () => {
+    const { number, tree, branch, head } = await worked(main, 'Forged record, so that it stays');
+    fake.fail({ method: 'POST', path: `/repos/o/r/issues/${number}/comments`, mode: { kind: 'status', status: 500, message: 'planted' }, times: 1 });
+    await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree)), PartialCompletionError);
+    const landed = tipOf(main);
+    fake.setPermission(main.full, 'stranger', 'read');
+    const record = (reviewedHead: string): string => composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'r' }, reviewedHead, landedCommit: landed, reviewers: ['alice'] }, { owner: 'o', repo: 'r' });
+    fake.addComment(main.full, number, 'stranger', record(head));
+    fake.addComment(main.full, number, 'fake-user', record('d'.repeat(40)));
+    await assert.rejects(finishIssue.run([String(number)], ctx(main.checkout)), /carries no "Landed on" record of/);
+    assert.ok(existsSync(tree));
+    fake.addComment(main.full, number, 'fake-user', record(head));
+    await finishIssue.run([String(number)], ctx(main.checkout));
+    assert.ok(!existsSync(tree));
+    assert.ok(!(await client.listBranchNames(main.checkout)).includes(branch));
+  });
+
   it('removes the worktree it is run from, as a session in it would', async () => {
     const landed = await worked(main, 'Finish from inside, so that it works');
     await integrateIssue.run(integrateArguments(main, landed.number, landed.head), ctx(landed.tree));

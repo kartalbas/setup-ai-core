@@ -1,5 +1,6 @@
 import { formatIssue, formatRepository, isSameRepository, parseRepository } from '../domain/issues.mts';
 import { PartialCompletionError, PreconditionError } from '../domain/refusals.mts';
+import { hasTrustedLandedRecord, readTimeline } from '../domain/workflow.mts';
 import { GitError } from '../git/git.mts';
 import { parseArguments, refuseExtra, takeIssue } from './arguments.mts';
 import { succeeded } from './command.mts';
@@ -10,8 +11,10 @@ export const help = `${USAGE}
 
 Removes the worktree of one issue and its branch once the work landed. It writes nothing to the tracker: the card
 moved to testing when integrate-issue landed the work. It removes only the worktree of the issue named, only
-when that worktree has no changes and its head is on the default branch of origin, and never forces a removal.
-It looks at no other worktree.`;
+when that worktree has no changes, its head is on the default branch of origin and the issue carries the record
+"Landed on <branch>:" of that head, written by an account with write permission, and never forces a removal.
+Where the work landed and the record is missing, it removes nothing and names the integrate-issue command that
+writes it. It looks at no other worktree.`;
 
 export async function run(args: readonly string[], context: CommandContext): Promise<CommandResult> {
   const parsed = parseArguments(args, {});
@@ -38,6 +41,15 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   const head = await git.resolveCommit(worktree.path, 'HEAD');
   if (!(await git.isAncestor(main, head, `refs/remotes/origin/${defaultBranch}`))) {
     throw new PreconditionError(`the head ${head.slice(0, 7)} of ${worktree.branch} is not on origin/${defaultBranch}: the work did not land, so the worktree ${worktree.path} stays`);
+  }
+
+  const landedCommit = await git.findLandingCommit(main, head, `refs/remotes/origin/${defaultBranch}`);
+  const api = context.api();
+  if (!(await hasTrustedLandedRecord(api, ref, await readTimeline(api, ref), head, landedCommit))) {
+    throw new PreconditionError(
+      `${formatIssue(ref)} carries no "Landed on" record of ${head}, so the worktree ${worktree.path} stays: the work is on origin/${defaultBranch}, and the record is written by integrate-issue, which merges and pushes nothing again: ` +
+        `ai-core integrate-issue ${formatRepository(ref)} ${ref.number} --reviewed-by NAME --reviewed-head ${head}, run in that worktree`,
+    );
   }
 
   await git.removeWorktree(main, worktree.path);

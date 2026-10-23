@@ -236,6 +236,17 @@ export function hasLandedRecord(entries: readonly TimelineEntry[], reviewedHead:
   return entries.some((entry) => entry.kind === 'comment' && LANDED_LINE.test(firstLine(entry.body)) && fieldOf(entry.body, 'Reviewed head') === reviewedHead && fieldOf(entry.body, 'Landed commit') === landedCommit);
 }
 
+// Whether the issue carries the landing of this head: a "Landed on" record of an account with write permission
+// that names the reviewed head and the landed commit.
+export async function hasTrustedLandedRecord(api: ForgejoClient, ref: IssueRef, entries: readonly TimelineEntry[], reviewedHead: string, landedCommit: string): Promise<boolean> {
+  const isTrusted = createTrustCheck(api, ref);
+  for (const entry of entries) {
+    if (!hasLandedRecord([entry], reviewedHead, landedCommit)) continue;
+    if (await isTrusted(entry.author)) return true;
+  }
+  return false;
+}
+
 export function hasReleasedRecord(entries: readonly TimelineEntry[], repository: RepositoryRef, tag: string): boolean {
   return entries.some((entry) => {
     if (entry.kind !== 'comment') return false;

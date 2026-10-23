@@ -1,6 +1,7 @@
 import { formatIssue, formatRepository, isSameRepository, parseRepository } from '../domain/issues.mts';
 import { PartialCompletionError, PreconditionError } from '../domain/refusals.mts';
 import { hasTrustedLandedRecord, readTimeline } from '../domain/workflow.mts';
+import { basename } from 'node:path';
 import { GitError } from '../git/git.mts';
 import { parseArguments, refuseExtra, takeIssue } from './arguments.mts';
 import { succeeded } from './command.mts';
@@ -14,7 +15,8 @@ moved to testing when integrate-issue landed the work. It removes only the workt
 when that worktree has no changes, its head is on the default branch of origin and the issue carries the record
 "Landed on <branch>:" of that head, written by an account with write permission, and never forces a removal.
 Where the work landed and the record is missing, it removes nothing and names the integrate-issue command that
-writes it. It looks at no other worktree.`;
+writes it. A worktree of the issue that stands detached, as a killed landing leaves it, it names with the
+git switch to run in it first, and removes nothing. It looks at no other worktree.`;
 
 export async function run(args: readonly string[], context: CommandContext): Promise<CommandResult> {
   const parsed = parseArguments(args, {});
@@ -25,15 +27,22 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   const origin = await git.originRepository(main);
 
   const named = new RegExp(`^issue-${ref.number}(-.*)?$`);
+  const localBranches = await git.listBranchNames(main);
   const candidates = [];
   for (const worktree of await git.listWorktrees(main)) {
-    if (worktree.branch === undefined || !named.test(worktree.branch)) continue;
-    const recorded = await git.getConfig(main, `branch.${worktree.branch}.issueRepository`);
-    if (isSameRepository(recorded === undefined ? origin : parseRepository(recorded), ref)) candidates.push({ ...worktree, branch: worktree.branch });
+    // A detached worktree is the issue's when it stands in the directory of a local branch of the issue, as start-issue names them.
+    const branch = worktree.branch ?? (localBranches.includes(basename(worktree.path)) ? basename(worktree.path) : undefined);
+    if (branch === undefined || !named.test(branch)) continue;
+    const recorded = await git.getConfig(main, `branch.${branch}.issueRepository`);
+    if (isSameRepository(recorded === undefined ? origin : parseRepository(recorded), ref)) candidates.push({ ...worktree, branch, isDetached: worktree.branch === undefined });
   }
   const worktree = candidates[0];
   if (worktree === undefined) throw new PreconditionError(`no worktree of ${formatIssue(ref)} stands in this clone, so nothing is removed`);
   if (candidates.length > 1) throw new PreconditionError(`more than one worktree belongs to ${formatIssue(ref)}: ${candidates.map((candidate) => candidate.path).join(', ')}; which one to remove is not for this command to guess`);
+
+  if (worktree.isDetached) {
+    throw new PreconditionError(`the worktree ${worktree.path} of ${formatIssue(ref)} stands detached, not on ${worktree.branch}, so nothing is removed: run git switch ${worktree.branch} in it first`);
+  }
 
   const defaultBranch = await git.defaultBranch(main);
   await git.fetchBranch(main, defaultBranch);

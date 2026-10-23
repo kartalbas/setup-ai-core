@@ -676,6 +676,19 @@ describe('finish-issue', () => {
     await assert.rejects(finishIssue.run(['99999'], ctx(main.checkout)), /no worktree of o\/r#99999 stands in this clone/);
   });
 
+  it('names a worktree that stands detached, as a killed landing leaves it, and removes nothing (planted: detached; innocent case: no worktree)', async () => {
+    const landed = await worked(main, 'Detached after landing, so that it is named');
+    await integrateIssue.run(integrateArguments(main, landed.number, landed.head), ctx(landed.tree));
+    git(landed.tree, 'switch', '--quiet', '--detach', 'HEAD');
+    await assert.rejects(finishIssue.run([String(landed.number)], ctx(main.checkout)), (error: unknown) => error instanceof PreconditionError && error.message.includes(landed.tree) && error.message.includes(`git switch ${landed.branch}`) && !error.message.includes('stands in this clone'));
+    assert.ok(existsSync(landed.tree), 'the worktree stays');
+    assert.ok((await client.listBranchNames(main.checkout)).includes(landed.branch), 'the branch stays');
+    git(landed.tree, 'switch', '--quiet', landed.branch);
+    await finishIssue.run([String(landed.number)], ctx(main.checkout));
+    assert.ok(!existsSync(landed.tree));
+    await assert.rejects(finishIssue.run([String(landed.number)], ctx(main.checkout)), /stands in this clone, so nothing is removed/);
+  });
+
   it('finds the worktree of an issue of another repository by the repository start-issue recorded', async () => {
     const number = newIssue(sibling, 'Elsewhere and finished, so that it is found', { labels: ['status/ready'] });
     await startIssue.run([sibling.full, String(number)], ctx(main.checkout));

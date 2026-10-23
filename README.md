@@ -1206,6 +1206,41 @@ a closing keyword before an issue reference (`Fixes #12`, which closes the issue
 any release) or an assistant as author is refused while the commit is made, where the fault costs no
 rewrite.
 
+### 8.1 The Forgejo tracker
+
+With `TRACKER=forgejo` the issue commands run in `lib/forgejo/tracker/cli.mts`, TypeScript that Node runs as it is
+(no build step, no package at runtime), and `ai-core` hands it `FORGEJO_URL` (a scheme and a host), the command in
+`FORGEJO_TOKEN_COMMAND`, which prints the token when the first request needs it, and the path of the label
+catalog. It has no board and no epics. Every request has 15 seconds to connect and 120 seconds in all, and a
+failure says which of these it is: the token refused (401), a permission missing (403), nothing there (404), no
+answer, or an answer that breaks the contract of the API (a status other than the documented one, text that is
+not JSON, a field the client needs missing). A list is read to its last page or refused. A comment or a change
+whose answer was lost is reported as uncertain and is never sent again by the command itself.
+
+| Treatment | Commands |
+| :--- | :--- |
+| Run in Node | `issue-new`, `issue-comment`, `issue-close`, `issue-reopen`, `issue-edit`, `issue-label`, `issue-priority`, `issue-status`, `issue-assign`, `issue-block`, `issue-unblock`, `issue-thread`, `issue-mine`, `status`, `labels-sync` |
+| Refused with exit 2 and one line | `board-list`, `board-order`, `board-sync`, `board-unarchive`, `field-option-add`, `item-move`, `item-top`, `project-new`, `repo-boards`, `repo-link`, `view-filter`, `epics-top`, `subissue-add`, `subissue-remove`, `status-sync`, `issue-transfer`, `issue-duplicate`, `issue-map`, `incident-count` |
+
+The exit codes are 0 for success, 1 for a precondition that refuses (an issue is closed as completed by
+`issue-proof`, not by `issue-close`; a literal email address in text for a public repository), 2 for invalid input
+or settings, 3 for a failure of Forgejo or of Git, and 4 for an action that partly completed, which names what was
+done. `issue-close --reason completed` is refused until `issue-proof` records the proof of a delivery.
+
+**Labels.** The state of an issue is a label of the `status/` family (`backlog`, `ready`, `planned`, `implementing`,
+`review`, `testing`, `done`, `not-planned`) and its priority one of `priority/` (`p0`, `p1`, `p2`, `p3`, `p9`). The
+families `status/`, `priority/`, `type/`, `goal/` and `test/` are exclusive: an issue carries one label of each;
+`area/` is not. Every other label keeps its name (`needs:owner`, `closes:*`, `incident:*`). A label of `labels.tsv`
+written `type:bug` there is `type/bug` on Forgejo, and the commands read either spelling. `labels-sync --org ORG`
+creates and updates the labels of an organization from `labels.tsv` and from these two families, deletes none, and
+writes nothing when the organization already matches. A label change adds with one request and removes with
+another and never replaces the whole set, because Forgejo then drops every second label of an exclusive family.
+
+**Dependencies.** `issue-block BLOCKED_REPO N BY_REPO M` writes Forgejo's own relation, the blocked issue first.
+
+**`status`** lists the issues the tracker records, every page of them, per owner, for the repositories named or for
+the clones beside the current checkout. It reports what the tracker records, not an observed deployment.
+
 ---
 
 ## 9. Planned commands

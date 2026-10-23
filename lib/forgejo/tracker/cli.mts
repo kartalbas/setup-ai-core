@@ -3,6 +3,19 @@ import { fileURLToPath } from 'node:url';
 import { ForgejoClient, ForgejoError, PartialCompletionError } from './api/client.mts';
 import type { TokenSource } from './api/client.mts';
 import { createTokenSource } from './api/credentials.mts';
+import * as issueAssign from './commands/issue-assign.mts';
+import * as issueComment from './commands/issue-comment.mts';
+import * as issueDependency from './commands/issue-dependency.mts';
+import * as issueEdit from './commands/issue-edit.mts';
+import * as issueLabel from './commands/issue-label.mts';
+import * as issueMine from './commands/issue-mine.mts';
+import * as issueNew from './commands/issue-new.mts';
+import * as issueState from './commands/issue-state.mts';
+import * as issueStatus from './commands/issue-status.mts';
+import * as issueThread from './commands/issue-thread.mts';
+import * as labelsSync from './commands/labels-sync.mts';
+import * as status from './commands/status.mts';
+import * as doctor from './commands/doctor.mts';
 import type { Command, CommandContext, CommandResult } from './commands/command.mts';
 import { ConfigError, readSettings, requireConfig } from './config.mts';
 import { PreconditionError, UsageError } from './domain/refusals.mts';
@@ -13,7 +26,24 @@ const EXIT_INVALID = 2;
 const EXIT_EXTERNAL = 3;
 const EXIT_PARTIAL = 4;
 
-const COMMANDS: readonly Command[] = [];
+const COMMANDS: readonly Command[] = [
+  { name: 'issue-new', help: issueNew.help, run: issueNew.run },
+  { name: 'issue-comment', help: issueComment.help, run: issueComment.run },
+  { name: 'issue-close', help: issueState.closeHelp, run: issueState.runClose },
+  { name: 'issue-reopen', help: issueState.reopenHelp, run: issueState.runReopen },
+  { name: 'issue-edit', help: issueEdit.help, run: issueEdit.run },
+  { name: 'issue-label', help: issueLabel.labelHelp, run: issueLabel.runLabel },
+  { name: 'issue-priority', help: issueLabel.priorityHelp, run: issueLabel.runPriority },
+  { name: 'issue-status', help: issueStatus.help, run: issueStatus.run },
+  { name: 'issue-assign', help: issueAssign.help, run: issueAssign.run },
+  { name: 'issue-block', help: issueDependency.blockHelp, run: issueDependency.runBlock },
+  { name: 'issue-unblock', help: issueDependency.unblockHelp, run: issueDependency.runUnblock },
+  { name: 'issue-thread', help: issueThread.help, run: issueThread.run },
+  { name: 'issue-mine', help: issueMine.help, run: issueMine.run },
+  { name: 'status', help: status.help, run: status.run },
+  { name: 'labels-sync', help: labelsSync.help, run: labelsSync.run },
+  { name: 'doctor', help: doctor.help, run: doctor.run },
+];
 
 const NO_BOARD = 'Forgejo has no board and no epics';
 export const REFUSED_ON_FORGEJO: Readonly<Record<string, string>> = {

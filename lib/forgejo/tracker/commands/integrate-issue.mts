@@ -26,7 +26,7 @@ each --also) gets status/testing and the record "Landed on <branch>:" with the r
 and the reviewers. It discovers no other issue from the history of Git.
 
 It refuses, before anything is merged or pushed: an issue that is closed or not assigned to the signed-in
-account, a worktree with changes (named), a branch head that is not --reviewed-head, a CI_GATE that is neither public
+account, a worktree with changes (at most twenty named, and their count where there are more), a branch head that is not --reviewed-head, a CI_GATE that is neither public
 nor none, an ignored file of the worktree that origin/<default> tracks, which the landing would overwrite, and, at the push, a default branch that moved, a red gate and, for a public repository under
 CI_GATE=public, checks that are red or unfinished. CI_GATE=public pushes the merge commit to
 ci/integrate-<branch>, waits for its combined commit status and lands exactly that commit; CI_GATE=none and a
@@ -39,6 +39,8 @@ and writes only the records that are missing.`;
 
 const POLL_SECONDS = 20;
 const WAIT_SECONDS = 1800;
+// An untracked folder lists every file in it, which can be thousands of lines.
+const SHOWN_CHANGES = 20;
 
 function positiveSeconds(text: string | undefined, fallback: number, name: string): number {
   if (text === undefined) return fallback;
@@ -214,7 +216,10 @@ export async function run(args: readonly string[], context: CommandContext): Pro
     throw new PreconditionError(`this runs in the worktree of issue ${ref.number}, on its branch issue-${ref.number}-*; here ${branch ?? 'no branch'} is checked out`);
   }
   const changes = await git.listChanges(cwd);
-  if (changes.length > 0) throw new PreconditionError(`the worktree has changes: commit them for the review, or put them aside, then run this again\n${changes.join('\n')}`);
+  if (changes.length > 0) {
+    const shown = changes.length > SHOWN_CHANGES ? [...changes.slice(0, SHOWN_CHANGES), `and ${changes.length - SHOWN_CHANGES} more, ${changes.length} in all`] : changes;
+    throw new PreconditionError(`the worktree has changes: commit them for the review, or put them aside, then run this again\n${shown.join('\n')}`);
+  }
 
   const api = context.api();
   const login = await currentLogin(api);

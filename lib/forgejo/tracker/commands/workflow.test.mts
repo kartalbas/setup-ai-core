@@ -382,6 +382,16 @@ describe('integrate-issue', () => {
       assert.equal(await client.currentBranch(tree), branch);
     });
 
+    it('a worktree with an untracked folder of many files, naming twenty of them and how many there are (planted: 25 files)', async () => {
+      const { number, tree, head } = await worked(main, 'Many loose files, so that the list stays short');
+      mkdirSync(join(tree, 'loose'));
+      for (let n = 0; n < 25; n++) writeFileSync(join(tree, 'loose', `file-${String(n).padStart(2, '0')}.txt`), 'x');
+      await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree)), (error: unknown) => {
+        const listed = error instanceof PreconditionError ? error.message.split('\n').slice(1) : [];
+        return listed.length === 21 && listed[0] === '?? loose/file-00.txt' && listed[19] === '?? loose/file-19.txt' && listed[20] === 'and 5 more, 25 in all';
+      });
+    });
+
     it('an ignored file of the worktree that origin/master tracks, which stays as it was (planted: the switch overwrites it)', async () => {
       const { number, tree, branch } = await started(main, 'Ignored and mine, so that it is refused');
       const kept = `kept-${number}.txt`;

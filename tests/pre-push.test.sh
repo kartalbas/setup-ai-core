@@ -312,6 +312,13 @@ commit 'src/thing.txt' 'Touch another file #7'
 out="$(only_new "$repo")"; rc=$?
 check 'exit 0'                         0 "$rc"
 git -C "$repo" rm -q -- tools/run.sh; git -C "$repo" commit -q -m 'Remove the runner #7'
+echo 'a pushed file that starts with null bytes is read without a warning, and one that starts with # and a null byte is no script'
+printf '\000\000\000\030ftypmp42' > "$repo/src/clip.mp4"; printf '#\000!/bin/sh\n' > "$repo/src/not-a-script"
+git -C "$repo" add -- src/clip.mp4 src/not-a-script; git -C "$repo" commit -q -m 'Add a clip and a file that only looks like a script #7'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 0'                         0 "$rc"
+check 'no null byte warning'           '' "$(grep -F 'null byte' <<< "$out")"
+git -C "$repo" rm -q -- src/clip.mp4 src/not-a-script; git -C "$repo" commit -q -m 'Remove the clip #7'
 
 # --- the commit messages, the comments and the migrations ----------------------------
 yesno() { grep -qF -- "$1" <<< "$out" && echo yes || echo no; }

@@ -155,6 +155,13 @@ for run in 1 2; do
   [ -z "$(git -C "$C" status --porcelain CLAUDE.local.md)" ] || fail "init.sh left CLAUDE.local.md visible to git"
 done
 [ "$(cat "$C/CLAUDE.local.md")" = mine ] && grep -aq 'note: CLAUDE.local.md is yours and does not import AGENTS.md' "$WORK/claude-2.log" || fail "init.sh overwrote somebody's own CLAUDE.local.md or did not say what to add (see $WORK/claude-2.log)"
+# A long CLAUDE.local.md of somebody's own: the import on its first line is read, and one without the import gets the note
+for run in 3 4; do
+  { [ "$run" = 4 ] || echo '@AGENTS.md'; for i in $(seq 1 20000); do printf 'line %s of the notes of somebody who writes a lot\n' "$i"; done; } > "$C/CLAUDE.local.md"
+  bash "$ROOT/bin/init.sh" "$C" --no-doctor > "$WORK/claude-$run.log" 2>&1 || fail "init.sh with a long CLAUDE.local.md of somebody's own (see $WORK/claude-$run.log)"
+done
+! grep -aq 'note: CLAUDE.local.md is yours' "$WORK/claude-3.log" || fail "init.sh says that a long CLAUDE.local.md does not import AGENTS.md, though its first line does (see $WORK/claude-3.log)"
+grep -aq 'note: CLAUDE.local.md is yours and does not import AGENTS.md' "$WORK/claude-4.log" || fail "init.sh did not say what to add to a long CLAUDE.local.md without the import (see $WORK/claude-4.log)"
 [ ! -e "$WORK/checkout/CLAUDE.local.md" ] || fail "init.sh wrote CLAUDE.local.md into a checkout without a CLAUDE.md"
 echo "  a repository with its own CLAUDE.md gets an untracked CLAUDE.local.md that imports AGENTS.md; somebody's own is kept, with a note"
 

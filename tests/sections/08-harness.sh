@@ -95,6 +95,18 @@ mkdir -p "$WORK/home-second/.shop-ai-core/.git"; mv "$WORK/org-second/shop-ai-co
 HOME="$WORK/home-second" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-second/shop-web" --no-doctor > "$WORK/layers-second-1c.log" 2>&1 || fail "init.sh completing an interrupted move (see $WORK/layers-second-1c.log)"
 grep -aq 'moved: example-org/shop-ai-core from ' "$WORK/layers-second-1c.log" || fail "init.sh did not complete the interrupted move (see $WORK/layers-second-1c.log)"
 [ ! -e "$WORK/home-second/.shop-ai-core" ] && [ -z "$(git -C "$WORK/org-second/shop-ai-core" status --porcelain)" ] || fail "the interrupted move was not completed: $(git -C "$WORK/org-second/shop-ai-core" status --porcelain | tr '\n' '|')"
+# A copy that is not whole is refused however long the comparison of the two directories runs, and the old
+# directory stays; a whole copy beside many files of the new place's own is moved however long that list runs
+M="$WORK/move-long"; long_name="$(printf 'f%.0s' {1..200})"
+git init -q "$M/old"; git -C "$M/old" -c user.name=check -c user.email=check@localhost commit -q --allow-empty -m "the harness"
+mkdir -p "$M/old/many" "$M/new/many"
+for i in $(seq 1000 2999); do printf 'here\n' > "$M/old/many/$long_name-$i"; printf 'changed\n' > "$M/new/many/$long_name-$i"; done
+( . "$ROOT/lib/layers.sh"; move_layer example-org/long-ai-core "$M/old" "$M/new" ) > "$M/refused.log" 2>&1 && fail "move_layer moved a copy in which 2000 files differ"
+[ -d "$M/old/many" ] && grep -aq 'example-org/long-ai-core is not whole at' "$M/refused.log" || fail "move_layer removed the old directory of a copy that is not whole, after a long comparison: $(head -c 300 "$M/refused.log")"
+rm -rf "$M/new" "$M/old/many"; mkdir -p "$M/new/many"
+for i in $(seq 1000 2999); do printf 'its own\n' > "$M/new/many/$long_name-$i"; done
+( . "$ROOT/lib/layers.sh"; move_layer example-org/long-ai-core "$M/old" "$M/new" ) > "$M/moved.log" 2>&1 || fail "move_layer refused a whole copy beside 2000 files of the new place's own: $(head -c 300 "$M/moved.log")"
+[ ! -e "$M/old" ] && [ -d "$M/new/.git" ] || fail "move_layer did not complete the move of a whole copy beside 2000 files of the new place's own"
 rm -rf "$WORK/org-second/shop-ai-core"
 HOME="$WORK/home-second" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/org-second/shop-web" --no-doctor > "$WORK/layers-second-1b.log" 2>&1 || fail "init.sh with the harness to clone (see $WORK/layers-second-1b.log)"
 grep -aqE 'created:|moved:' "$WORK/layers-second-1b.log" && fail "init.sh created or moved a harness that is on GitHub"

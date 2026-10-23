@@ -427,6 +427,17 @@ printf 'const ref = "acme-shop#12"; // the order the board reads\n' > "$repo/src
 git -C "$repo" add src/app.js; git -C "$repo" commit -q -m 'Read the board whole #12'
 out="$(only_new "$repo")"; rc=$?
 check 'exit 0'                         0 "$rc"
+echo 'a comment naming an issue counts while it stands whole, also above thousands of lines that only hold it inside them'
+{ printf '// read the board whole (#%s)\n' "$n"; for i in $(seq 1 20000); do printf 'const a%s = "x:// read the board whole (#%s)";\n' "$i" "$n"; done; } > "$repo/src/many.js"
+git -C "$repo" add src/many.js; git -C "$repo" commit -q -m 'Read many boards whole #12'
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'it names the line that stands whole' yes "$(yesno "src/many.js: // read the board whole (#$n)")"
+tail -n +2 "$repo/src/many.js" > "$repo/src/many.js.next" && mv "$repo/src/many.js.next" "$repo/src/many.js"
+git -C "$repo" add src/many.js; git -C "$repo" commit -q -m 'Say what the boards need #12'
+out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$(git -C "$repo" rev-parse HEAD~2)")"; rc=$?
+check 'taken out, and held only inside other lines: exit 0' 0 "$rc"
+git -C "$repo" reset -q --hard HEAD~2
 echo "a migration added passes; changed later it is refused, and passes with a 'Migration:' trailer"
 commit 'db/migrations/0001_init.sql' 'Add the first migration #8'
 out="$(only_new "$repo")"; rc=$?

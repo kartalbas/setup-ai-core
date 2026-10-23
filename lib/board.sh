@@ -775,7 +775,7 @@ update_epic() {
   (
     if [ -n "${PROJECT:-}" ]; then
       items="$(issue_board_items "$repo" "$n")" || exit 1
-      cut -f1 <<< "$items" | grep -qxF "$(project_org)/$(project_number)" || { PROJECT=""; PROJECT_ORG=""; GH_PROJECT_NUMBER=""; }
+      grep -qxF "$(project_org)/$(project_number)" <<< "$(cut -f1 <<< "$items")" || { PROJECT=""; PROJECT_ORG=""; GH_PROJECT_NUMBER=""; }
     fi
     [ -n "${PROJECT:-}" ] || on_no_board "$repo" || set_project "" "$repo" >/dev/null || exit 1
     target="$(epic_target_on_board "$repo" "$n")" || exit 1

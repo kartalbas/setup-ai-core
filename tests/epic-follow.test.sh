@@ -274,6 +274,19 @@ check 'it says so'    'epic example-org/example-repo#44 -> testing, as its sub-i
 check 'the sub-issue moved on the selected board 7' 'pid=PVT_epic7' "$(grep 'iid=PVTI_card3 ' "$FAKE/calls" | grep -o 'pid=PVT_[a-z0-9]*')"
 check 'the epic moved on its own board 5, not on 7' 'pid=PVT_own5' "$(grep 'iid=PVTI_card44 ' "$FAKE/calls" | grep -o 'pid=PVT_[a-z0-9]*')"
 
+echo 'issue-status: the selected board is found first among 20001 boards of the epic, and among 20000 without it the epic moves on its own board'
+: > "$FAKE/calls"; printf 'implementing\ntesting\ntesting\n' > "$FAKE/epic-44"
+{ printf 'example-org/7\tPVTI_card44\n'; for i in $(seq 1 20000); do printf 'other-org/%s\tPVTI_elsewhere%s\n' "$i" "$i"; done; } > "$FAKE/boards-44"
+out="$(bash "$ROOT/bin/issue-status.sh" --project 7 example-org/example-repo 3 testing 2>&1)"; rc=$?
+check 'exit 0'        0 "$rc"
+check 'the epic moved on the selected board 7' 'pid=PVT_epic7' "$(grep 'iid=PVTI_card44 ' "$FAKE/calls" | grep -o 'pid=PVT_[a-z0-9]*')"
+: > "$FAKE/calls"; printf 'implementing\ntesting\ntesting\n' > "$FAKE/epic-44"
+for i in $(seq 1 20000); do printf 'other-org/%s\tPVTI_elsewhere%s\n' "$i" "$i"; done > "$FAKE/boards-44"
+out="$(bash "$ROOT/bin/issue-status.sh" --project 7 example-org/example-repo 3 testing 2>&1)"; rc=$?
+rm -f "$FAKE/boards-44"
+check 'exit 0'        0 "$rc"
+check 'without board 7 among them, the epic moved on its own board 5' 'pid=PVT_own5' "$(grep 'iid=PVTI_card44 ' "$FAKE/calls" | grep -o 'pid=PVT_[a-z0-9]*')"
+
 # Read through the query's own jq: the sub-issue of another repository has no card on board 7,
 # a card without a status on other-org/3 and one with a status on other-org/5, and counts there
 echo 'issue-status: a sub-issue with no card on the selected board counts where its own card stands'

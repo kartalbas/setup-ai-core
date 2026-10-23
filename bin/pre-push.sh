@@ -30,17 +30,29 @@ set -uo pipefail
 
 # A person's log.showSignature prints signature lines into every formatted git log this gate reads;
 # one entry after the caller's own in git's environment configuration turns it off for all of them.
-# The repository's own check runs without it (with_caller_git_config), as it runs outside the gate.
+# The repository's own check runs without this entry (with_caller_git_config).
 caller_git_config_count="${GIT_CONFIG_COUNT-unset}"
 n=${GIT_CONFIG_COUNT:-0}; export "GIT_CONFIG_KEY_$n=log.showSignature" "GIT_CONFIG_VALUE_$n=false" "GIT_CONFIG_COUNT=$((n + 1))"
 gate_git_config_index="$n"
-with_caller_git_config() {  # with_caller_git_config <command...>
+with_caller_git_config() (  # with_caller_git_config <command...>
+  local n
+  unset "GIT_CONFIG_KEY_$gate_git_config_index" "GIT_CONFIG_VALUE_$gate_git_config_index"
   if [ "$caller_git_config_count" = unset ]; then
-    env -u GIT_CONFIG_COUNT -u "GIT_CONFIG_KEY_$gate_git_config_index" -u "GIT_CONFIG_VALUE_$gate_git_config_index" "$@"
+    unset GIT_CONFIG_COUNT
   else
-    env -u "GIT_CONFIG_KEY_$gate_git_config_index" -u "GIT_CONFIG_VALUE_$gate_git_config_index" GIT_CONFIG_COUNT="$caller_git_config_count" "$@"
+    export GIT_CONFIG_COUNT="$caller_git_config_count"
   fi
-}
+  if [ "$FORGE" = forgejo ]; then
+    FORGEJO_URL="$(forgejo_url)" || exit 1
+    FORGEJO_TOKEN_COMMAND="$(config_value FORGEJO_TOKEN_COMMAND "")"
+    export FORGEJO_URL FORGEJO_TOKEN_COMMAND
+    n=${GIT_CONFIG_COUNT:-0}
+    export "GIT_CONFIG_KEY_$n=credential.$FORGEJO_URL.helper" "GIT_CONFIG_VALUE_$n="
+    n=$((n + 1))
+    export "GIT_CONFIG_KEY_$n=credential.$FORGEJO_URL.helper" "GIT_CONFIG_VALUE_$n=$FORGEJO_CREDENTIAL_HELPER" "GIT_CONFIG_COUNT=$((n + 1))"
+  fi
+  "$@"
+)
 
 for arg in "$@"; do
   if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
@@ -72,6 +84,12 @@ for arg in "$@"; do
     echo "read refuses the push. With PRE_PUSH_LOAD_LIMIT 0 the wait is off, and with"
     echo "PRE_PUSH_LOAD_WAIT_SECONDS 0 the check starts at once: the load is still measured once for the"
     echo "record, and a reading that fails is said and recorded as -, never as a number."
+    echo ""
+    echo "With FORGE=forgejo, scripts/check.sh gets credential.<FORGEJO_URL>.helper in git's environment"
+    echo "configuration after the caller's entries: an empty value, then '!ai-core git-credential'."
+    echo "The checkout's FORGEJO_URL and FORGEJO_TOKEN_COMMAND are exported, so git started outside the"
+    echo "checkout can sign in to that instance. Only the command that prints the token is passed."
+    echo "With FORGE=github the check gets no added configuration or settings."
     echo ""
     echo "Options:"
     echo "  --install         Write the two shims, .githooks/pre-push (this gate) and .githooks/post-checkout"

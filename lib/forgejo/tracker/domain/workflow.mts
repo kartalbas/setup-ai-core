@@ -188,6 +188,12 @@ function newest<T extends { readonly at: number }>(facts: readonly T[]): T | und
   return facts.reduce<T | undefined>((latest, fact) => (latest === undefined || fact.at > latest.at ? fact : latest), undefined);
 }
 
+// A harness layer is never released: init assembles every checkout it serves from its default branch.
+function isHarnessLayer(repository: RepositoryRef): boolean {
+  const name = repository.repo.toLowerCase();
+  return name.endsWith('-ai-core') && name !== 'setup-ai-core';
+}
+
 // The lines that say why the work is not delivered; none when it is. A repository the work landed in is
 // delivered by a release that came after its landing, or, where its landing is its delivery, by the landing.
 export function listMissingDelivery(history: IssueHistory, landingIsDelivery: readonly RepositoryRef[]): string[] {
@@ -200,7 +206,7 @@ export function listMissingDelivery(history: IssueHistory, landingIsDelivery: re
     const key = formatRepository(landing.repository).toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    if (landingIsDelivery.some((repository) => isSameRepository(repository, landing.repository))) continue;
+    if (isHarnessLayer(landing.repository) || landingIsDelivery.some((repository) => isSameRepository(repository, landing.repository))) continue;
     const latestLanding = newest(history.landings.filter((other) => isSameRepository(other.repository, landing.repository)));
     const released = history.releases.some((release) => isSameRepository(release.repository, landing.repository) && latestLanding !== undefined && release.at > latestLanding.at);
     if (!released) missing.push(`no release of ${formatRepository(landing.repository)} follows its landing: issue-release --repo ${formatRepository(landing.repository)} --tag TAG`);

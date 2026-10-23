@@ -13,7 +13,8 @@ export const help = `${USAGE}
 Writes the record "Proven on ENV:" with the evidence of PATH, sets status/done and closes the issue as completed.
 It refuses unless the issue records a landing and, for every repository the landing names, a release that came
 after it, all of an account with write permission and after the last reopening of the issue. Where LIVE_TAGS names
-ENV with the pattern landed, the landing in this clone's repository is its delivery and needs no release. Text
+ENV with the pattern landed, the landing in this clone's repository is its delivery and needs no release, and so
+is a landing in a harness layer, a repository named <prefix>-ai-core, which init deploys from its default branch. Text
 with a literal email address is refused for a public repository. Run again after a failure, it writes only
 what is missing.`;
 

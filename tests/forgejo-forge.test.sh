@@ -53,10 +53,10 @@ git -C "$S" remote add origin "$FORGE_URL/example-org/example-repo.git"; printf 
 printf '# rules\n' > "$S/.ai-core/rules/rules.md"
 printf 'FORGE=forgejo\nFORGEJO_URL=%s\nFORGEJO_TOKEN_COMMAND="cat %s"\nUPDATE_CHECK="never"\n' "$FORGE_URL" "$WORK/ftoken" > "$S/.ai-core/config.env"
 git -C "$S" commit -q --allow-empty -m "first"
-forge_line() { ( cd "$S" && PATH="$PATH_CURL" bash "$ROOT/bin/session-start.sh" 2>&1 | grep -a '^Forge status' ); }
-[ "$(forge_line)" = "Forge status     : ✓ Authenticated on $FORGE_HOST as @tester" ] || fail "the sign-in line of the session start does not name the Forgejo instance: $(forge_line)"
+forge_line() { ( cd "$S" && PATH="$PATH_CURL" bash "$ROOT/bin/session-start.sh" 2>&1 | grep -a 'status   :' ); }
+[ "$(forge_line)" = "Forgejo status   : ✓ Authenticated on $FORGE_HOST as @tester" ] || fail "the sign-in line of the session start does not name the Forgejo instance: $(forge_line)"
 printf 'wrong-token\n' > "$WORK/ftoken"
-[ "$(forge_line)" = "Forge status     : ✗ $FORGE_HOST: FORGEJO_URL or FORGEJO_TOKEN_COMMAND is not set, or the instance refuses the token" ] || fail "the failed sign-in line of the session start does not name the instance and what is missing: $(forge_line)"
+[ "$(forge_line)" = "Forgejo status   : ✗ $FORGE_HOST: FORGEJO_URL or FORGEJO_TOKEN_COMMAND is not set, or the instance refuses the token" ] || fail "the failed sign-in line of the session start does not name the instance and what is missing: $(forge_line)"
 printf '%s\n' "$TOKEN" > "$WORK/ftoken"
 echo "  session start: the sign-in line names the instance, and on failure what is missing there"
 

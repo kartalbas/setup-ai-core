@@ -9,7 +9,7 @@ forge_host() { echo github.com; }
 
 forge_name() { echo GitHub; }
 
-not_signed_in_words() { echo "gh is missing or not logged in"; }
+not_signed_in_words() { echo "gh is not logged in"; }
 
 checks_unreadable_message() {  # checks_unreadable_message <sha> <what gh said last>
   echo "gh could not read the checks of $1 until the deadline; it said last: $2 (is gh logged in?)"

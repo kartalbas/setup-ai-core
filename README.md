@@ -509,9 +509,11 @@ Releases         : ✓ Current
 Rules file       : ✓ Present (.ai-core/rules/rules.md)
 Local rules      : ✓ Present (.ai-core/rules/rules.local.md)
 Map              : ✓ Generated from 1a2b3c4, current
-Forge status     : ✓ Authenticated on GitHub as @you
+GitHub status    : ✓ Authenticated as @you
 Ready for task execution.
 ```
+
+On Forgejo the sign-in line is `Forgejo status   : ✓ Authenticated on <host> as @you`, the host of `FORGEJO_URL`.
 
 In a project folder the branch line says `not-a-git-repo`.
 
@@ -775,7 +777,7 @@ gitleaks, because only git's own output shows what a merge carries.
 | Node.js 20+ with `npm` and `npx` | `ai-core status`, which counts with Node.js; the team modes installed through `npx` | `doctor` installs it |
 | Node.js that runs `.mts` files without a flag (CI runs 24; measured on v24.21.0) | with `TRACKER=forgejo`, every issue command, which runs from `lib/forgejo/tracker` (section 8.1) | no npm package is loaded at runtime; `doctor` runs the tracker and asks, it compares no version number |
 | `npm ci --prefix tests/typescript` | developing the Forgejo tracker: the strict type check of section 16 of the suite | development only: it installs the pinned `typescript` and `@types/node` of the Node line CI runs; the runtime never loads them, and a missing compiler turns the check red |
-| `gh`, logged in | with `FORGE=github`, the project harness is found, cloned and created through it, and `session-start` shows the signed-in GitHub user; with `TRACKER=github`, every board and issue command | `doctor` installs it; the login is yours |
+| `gh`, logged in | with `FORGE=github`, the project harness is found, cloned and created through it, and `session-start` shows the GitHub user; with `TRACKER=github`, every board and issue command | `doctor` installs it; the login is yours |
 | `curl` and an access token | with `FORGE=forgejo`, the repository calls (section 5.7); git itself signs in with the same token through `ai-core git-credential` | the token is read from `FORGEJO_TOKEN_COMMAND` at each call; `doctor` asks the instance whether it answers |
 
 ### 5.2 Once per machine: `install`

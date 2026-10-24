@@ -147,6 +147,13 @@ describe('changing the labels of an issue against the fake', () => {
     assert.deepEqual([...after].filter((name) => name.startsWith('goal/')), ['goal/b']);
   });
 
+  it('removes an organization label by its name, as Forgejo finds none by its id', async () => {
+    const api = clientFor(fake);
+    const after = await applyLabelChange(api, ref, await getIssue(api, ref), { add: [], remove: ['needs:owner'] });
+    assert.equal(after.includes('needs:owner'), false);
+    assert.ok(fake.requests.some((request) => request.method === 'DELETE' && request.path.endsWith(`/labels/${encodeURIComponent('needs:owner')}`)));
+  });
+
   it('refuses an unknown label before it writes anything', async () => {
     const api = clientFor(fake);
     const writes = fake.writes().length;

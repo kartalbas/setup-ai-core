@@ -268,10 +268,10 @@ export async function applyLabelChange(api: ForgejoClient, ref: IssueRef, issue:
     if (plan.remove.length > 0) ids = (await getIssue(api, ref)).labelIds;
   }
   for (const name of plan.remove) {
-    const id = ids[name];
-    if (id === undefined) continue;
+    if (ids[name] === undefined) continue;
     try {
-      await api.call({ name: `remove the label ${name} from issue ${formatIssue(ref)}`, method: 'DELETE', path: `${issuePath(ref)}/labels/${segment(id)}`, success: 204, read: expectNoBody });
+      // Forgejo finds an organization's label here by its name only, never by its id.
+      await api.call({ name: `remove the label ${name} from issue ${formatIssue(ref)}`, method: 'DELETE', path: `${issuePath(ref)}/labels/${segment(name)}`, success: 204, read: expectNoBody });
     } catch (error) {
       if (done.length === 0) throw error;
       throw new PartialCompletionError(operation, done, `removing ${name} failed: ${error instanceof Error ? error.message : String(error)}`);

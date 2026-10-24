@@ -192,6 +192,16 @@ describe('what an issue records', () => {
     await assert.rejects(readTimeline(clientFor(fake), ref), ContractError);
   });
 
+  it('leaves out a timeline entry that Forgejo answers as null, and reads the records around it', async () => {
+    fake.addComment('o/r', ref.number, 'writer', 'before');
+    fake.addComment('o/r', ref.number, 'writer', landing());
+    fake.fail({ method: 'GET', path: `/repos/o/r/issues/${ref.number}/timeline`, mode: { kind: 'insert-null', at: 1 } });
+    const api = clientFor(fake);
+    const entries = await readTimeline(api, ref);
+    assert.deepEqual(entries.map((entry) => entry.body), ['before', landing()]);
+    assert.equal(hasLandedRecord(entries, HEAD, MERGE), true);
+  });
+
   it('finds a record that is written already, and none that is not (what makes a second run write only what is missing)', async () => {
     fake.addComment('o/r', ref.number, 'writer', composeStartedRecord({ branch: 'issue-1-x', baseBranch: 'master', baseCommit: HEAD }));
     fake.addComment('o/r', ref.number, 'writer', landing());

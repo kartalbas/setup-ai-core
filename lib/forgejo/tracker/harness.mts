@@ -4,10 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type { HarnessSteps, StepOutcome } from './commands/command.mts';
 import { showLines } from './git/git.mts';
 
-// The steps of the harness around a worktree run the harness's own Bash, so each has one spelling: the
-// team modes check, init in a new worktree as bin/start-issue.sh runs it, and fast_forward_default_branch of
-// lib/common.sh as bin/integrate-issue.sh runs it. The install of a merged tree runs the repository's own
-// scripts/install.sh, as bin/integrate-issue.sh runs it.
+// The lifecycle commands run the harness's Bash so each step has one spelling.
 
 const CORE = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../..');
 const MAXIMUM_OUTPUT_BYTES = 16 * 1024 * 1024;
@@ -19,6 +16,7 @@ const ASSEMBLE = [
   'else bash "$1/bin/init.sh" "$2" --no-doctor; fi',
 ].join('\n');
 const REFRESH = '. "$1/lib/common.sh" && fast_forward_default_branch "$2"';
+const LIVE_TAGS = '. "$1/lib/common.sh" && . "$1/lib/live-release.sh" && live_tags_declaration "$2"';
 
 function runBash(cwd: string, args: readonly string[]): Promise<StepOutcome> {
   return new Promise((done) => {
@@ -49,5 +47,6 @@ export const bashHarness: HarnessSteps = {
   checkTeamModes: (cwd) => runBash(cwd, [`${CORE}/bin/team-modes-check.sh`]),
   assembleWorktree: (path) => runBash(path, ['-c', ASSEMBLE, 'assemble-worktree', CORE, path]),
   refreshCheckout: (checkout) => runBash(checkout, ['-c', REFRESH, 'refresh-checkout', CORE, checkout]),
+  readLiveTags: (checkout) => runBash(checkout, ['-c', LIVE_TAGS, 'read-live-tags', CORE, checkout]),
   installTools: runInstall,
 };

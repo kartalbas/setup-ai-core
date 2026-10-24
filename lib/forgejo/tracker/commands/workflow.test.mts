@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { PartialCompletionError } from '../api/client.mts';
 import { composeLandedRecord, composeProvenRecord } from '../domain/workflow.mts';
@@ -798,6 +798,15 @@ describe('issue-proof and the close as completed', () => {
   };
   const proofArguments = (number: number, environment = 'prod'): string[] => [main.full, String(number), '--environment', environment, '--body-file', evidence()];
 
+  function liveTagsHarness(): RecordingHarness {
+    const harness = createRecordingHarness();
+    harness.readLiveTags = (checkout) => {
+      harness.calls.push(`readLiveTags ${checkout}`);
+      return bashHarness.readLiveTags(checkout);
+    };
+    return harness;
+  }
+
   async function delivered(title: string): Promise<{ number: number; head: string }> {
     const { number, tree, head } = await worked(main, title);
     await integrateIssue.run(integrateArguments(main, number, head), ctx(tree));
@@ -860,6 +869,49 @@ describe('issue-proof and the close as completed', () => {
     await assert.rejects(issueProof.run(proofArguments(number, 'test'), ctx(main.checkout, { liveTags: 'prod=landed test=deploy/test/*' })), /no release of o\/r follows its landing/);
     await issueProof.run(proofArguments(number, 'prod'), ctx(main.checkout, { liveTags: 'prod=landed test=deploy/test/*' }));
     assert.equal(fake.readIssue('o/r', number).state, 'closed');
+  });
+
+  it('takes a neighbour landing as delivery by its own LIVE_TAGS from a worktree', async () => {
+    const { number, tree, head } = await worked(main, 'Neighbour delivered by landing, so that the issue can be proven');
+    await integrateIssue.run(integrateArguments(main, number, head), ctx(tree));
+    fake.addTag(main.full, `v-${number}`);
+    await issueRelease.run(['--repo', main.full, '--tag', `v-${number}`, String(number)], ctx(main.checkout));
+    fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'sibling' }, reviewedHead: 'a'.repeat(40), landedCommit: 'b'.repeat(40), reviewers: ['alice'] }, { owner: 'o', repo: 'r' }));
+    mkdirSync(join(sibling.checkout, '.ai-core'), { recursive: true });
+    writeFileSync(join(sibling.checkout, '.ai-core', 'config.env'), 'LIVE_TAGS="prod=landed test=deploy/test/*"\n');
+    const harness = liveTagsHarness();
+
+    await issueProof.run(proofArguments(number), ctx(tree, { liveTags: 'prod=v*' }, harness));
+
+    assert.equal(fake.readIssue(main.full, number).state, 'closed');
+    assert.deepEqual(harness.calls, [`readLiveTags ${sibling.checkout}`]);
+  });
+
+  it('refuses a neighbour landing whose own LIVE_TAGS needs a release (planted)', async () => {
+    const { number } = await delivered('Neighbour needs a release, so that the clone setting cannot exempt it');
+    fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'sibling' }, reviewedHead: 'a'.repeat(40), landedCommit: 'b'.repeat(40), reviewers: ['alice'] }, { owner: 'o', repo: 'r' }));
+    mkdirSync(join(sibling.checkout, '.ai-core'), { recursive: true });
+    writeFileSync(join(sibling.checkout, '.ai-core', 'config.env'), 'LIVE_TAGS="prod=deploy/prod/* test=landed"\n');
+    const harness = liveTagsHarness();
+    const before = writesOf();
+
+    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=landed' }, harness)), /no release of o\/sibling follows its landing/);
+
+    assert.deepEqual(harness.calls, [`readLiveTags ${sibling.checkout}`]);
+    assert.equal(writesOf(), before);
+    assert.equal(fake.readIssue(main.full, number).state, 'open');
+  });
+
+  it('refuses a missing neighbour and names the checkout it looked for', async () => {
+    const { number } = await delivered('Neighbour is missing, so that the refusal names its path');
+    fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'missing-neighbour' }, reviewedHead: 'a'.repeat(40), landedCommit: 'b'.repeat(40), reviewers: ['alice'] }, { owner: 'o', repo: 'r' }));
+    const checkout = join(dirname(main.checkout), 'missing-neighbour');
+    const before = writesOf();
+
+    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=landed' }, liveTagsHarness())), (error: unknown) => error instanceof PreconditionError && error.message.includes(checkout));
+
+    assert.equal(writesOf(), before);
+    assert.equal(fake.readIssue(main.full, number).state, 'open');
   });
 
   it('writes its own proof where only an account without write permission wrote one (planted: a stranger proves first)', async () => {

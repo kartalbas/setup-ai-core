@@ -155,10 +155,13 @@ fi
 GATE_REFUSAL=""
 refuse() { GATE_REFUSAL="$(printf '%s\n' "$*" | head -1)"; echo "pre-push: REFUSED — $*" >&2; exit 1; }
 
-# An assistant's or a vendor's attribution in a message, and an assistant as author or committer
+# An assistant's or a vendor's attribution in a message (a trailer, or a line that says an assistant wrote,
+# made or built the commit: the line must end at the assistant's name, one word of its model allowed, so
+# that "Built with Claude Code hooks in mind" talks about a tool and passes), and an assistant as author
+# or committer
 # ("Name <address>" per line): the commit rules, judged on every pushed commit below and on one
 # message by --message.
-ATTRIBUTION_PATTERN='^co-authored-by:.*(claude|codex|gemini|copilot|chatgpt|anthropic|openai)|generated (with|by) \[?(claude|codex|gemini|copilot|chatgpt)'
+ATTRIBUTION_PATTERN='^co-authored-by:.*(claude|codex|gemini|copilot|chatgpt|anthropic|openai)|generated (with|by) \[?(claude|codex|gemini|copilot|chatgpt)|^(written|made|built|authored|created|drafted|generated|produced|committed)[[:space:]]+(by|with|using)[[:space:]]+([^[:space:]]+[[:space:]]+){0,4}(claude|codex|gemini|copilot|chatgpt|anthropic|openai)([[:space:]]+[^[:space:]]+){0,1}[[:space:]]*([;,.]|$|[[:space:]](from|and|for|to|as|at|on)[[:space:]])'
 # A closing keyword before an issue reference closes that issue on the forge when the commit reaches
 # the default branch, before any release carries it; GitHub and Forgejo both document these nine
 # (docs.github.com, "Linking a pull request to an issue"; forgejo.org/docs, "Linked references").

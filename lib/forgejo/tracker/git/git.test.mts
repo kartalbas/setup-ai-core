@@ -104,6 +104,14 @@ describe('a checkout and its remote', () => {
     assert.match(said, /^REFUSED$/m);
   });
 
+  it('returns the stdout a caller parses also when it shows it (innocent case)', async () => {
+    const head = git(checkout, 'rev-parse', 'HEAD');
+    const shown: string[] = [];
+    assert.equal((await client.run(checkout, ['rev-parse', 'HEAD'])).stdout.trim(), head);
+    assert.equal((await client.run(checkout, ['rev-parse', 'HEAD'], [0], (text) => shown.push(text))).stdout.trim(), head);
+    assert.equal(shown.join('').trim(), head);
+  });
+
   it('pushes a commit that no hook refuses (innocent case), and refuses a push to a remote that moved', async () => {
     const work = fixture.clone(remote, 'pushed', 'example-repo');
     const head = fixture.commit(work, 'pushed.txt', 'x\n');

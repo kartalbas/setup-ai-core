@@ -23,7 +23,6 @@ export interface Issue {
   readonly body: string;
   readonly state: IssueState;
   readonly labels: readonly string[];
-  readonly labelIds: Readonly<Record<string, number>>;
   readonly assignees: readonly string[];
   readonly commentCount: number;
   readonly createdAt: string;
@@ -95,7 +94,6 @@ function toIssue(wire: WireIssue, ref: IssueRef, operation: string): Issue {
     body: wire.body,
     state: wire.state,
     labels: (wire.labels ?? []).map((label) => label.name),
-    labelIds: Object.fromEntries((wire.labels ?? []).map((label) => [label.name, label.id])),
     assignees: (wire.assignees ?? []).map((user) => user.login),
     commentCount: wire.comments,
     createdAt: wire.created_at,

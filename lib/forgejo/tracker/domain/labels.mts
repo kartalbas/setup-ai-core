@@ -258,17 +258,17 @@ export async function applyLabelChange(api: ForgejoClient, ref: IssueRef, issue:
   if (plan.add.length === 0 && plan.remove.length === 0) return issue.labels;
   const operation = `change the labels of issue ${formatIssue(ref)}`;
   const done: string[] = [];
-  let ids = issue.labelIds;
+  let carried = issue.labels;
   if (plan.add.length > 0) {
     const visible = await listVisibleLabels(api, ref);
     const labels = resolveLabels(visible, plan.add, ref);
     const body: IssueLabelsBody = { labels: labels.map((label) => label.id) };
     await api.call({ name: `add labels to issue ${formatIssue(ref)}`, method: 'POST', path: `${issuePath(ref)}/labels`, body, success: 200, read: arrayOf(labelShape.type).read });
     done.push(`added ${plan.add.join(', ')}`);
-    if (plan.remove.length > 0) ids = (await getIssue(api, ref)).labelIds;
+    if (plan.remove.length > 0) carried = (await getIssue(api, ref)).labels;
   }
   for (const name of plan.remove) {
-    if (ids[name] === undefined) continue;
+    if (!carried.includes(name)) continue;
     try {
       // Forgejo finds an organization's label here by its name only, never by its id.
       await api.call({ name: `remove the label ${name} from issue ${formatIssue(ref)}`, method: 'DELETE', path: `${issuePath(ref)}/labels/${segment(name)}`, success: 204, read: expectNoBody });

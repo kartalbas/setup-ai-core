@@ -151,7 +151,6 @@ export interface ProofFact {
 }
 
 export interface IssueHistory {
-  readonly reopenedAt: number | undefined;
   readonly deliveryReopenedAt: number | undefined;
   readonly landings: readonly LandingFact[];
   readonly releases: readonly ReleaseFact[];
@@ -170,7 +169,6 @@ export async function readIssueHistory(api: ForgejoClient, issue: Issue, entries
   const isTrusted = createTrustCheck(api, issue.ref);
   const reopenings = entries.flatMap((entry, index) => entry.kind === 'reopen' ? [index] : []);
   const lastReopening = reopenings[reopenings.length - 1];
-  const reopenedAt = lastReopening === undefined ? undefined : entries[lastReopening]?.at;
   let deliveryStart = 0;
   for (const [index, reopening] of reopenings.entries()) {
     if (!(await isTestingReopening(entries.slice(reopening + 1, reopenings[index + 1]), isTrusted))) deliveryStart = reopening + 1;
@@ -200,7 +198,7 @@ export async function readIssueHistory(api: ForgejoClient, issue: Issue, entries
     const latest = set[set.length - 1];
     if (latest?.milestoneTitle === issue.milestone.title) releases.push({ at: latest.at, repository: { owner: issue.ref.owner, repo: issue.ref.repo }, tag: issue.milestone.title });
   }
-  return { reopenedAt, deliveryReopenedAt, landings, releases, proofs };
+  return { deliveryReopenedAt, landings, releases, proofs };
 }
 
 // --- the facts the commands decide by -------------------------------------------

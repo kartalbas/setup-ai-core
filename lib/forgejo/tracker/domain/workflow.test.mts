@@ -124,7 +124,7 @@ describe('what an issue records', () => {
     await reopen();
     const stale = await history();
     assert.deepEqual([stale.landings.length, stale.releases.length, stale.proofs.length], [0, 0, 0]);
-    assert.notEqual(stale.reopenedAt, undefined);
+    assert.notEqual(stale.deliveryReopenedAt, undefined);
     fake.addComment('o/r', ref.number, 'writer', landing('d'.repeat(40)));
     assert.equal((await history()).landings.length, 1);
   });
@@ -143,7 +143,6 @@ describe('what an issue records', () => {
     await replaceFamilyLabel(api, ref, await getIssue(api, ref), 'status/testing');
     const found = await history();
     assert.deepEqual([found.landings.length, found.releases.length, found.proofs.length], [1, 2, 0]);
-    assert.notEqual(found.reopenedAt, undefined);
     assert.equal(found.deliveryReopenedAt, undefined);
     assert.deepEqual(listMissingDelivery(found, []), []);
     assert.equal(findCurrentProof(found), undefined);
@@ -163,7 +162,7 @@ describe('what an issue records', () => {
     fake.addLabelEvent('o/r', ref.number, 'writer', 'status/testing', true);
     const found = await history();
     assert.deepEqual([found.landings.length, found.releases.length, found.proofs.length], [0, 0, 0]);
-    assert.equal(found.deliveryReopenedAt, found.reopenedAt);
+    assert.notEqual(found.deliveryReopenedAt, undefined);
     assert.match(listMissingDelivery(found, []).join(), /follows the last reopening for new work/);
   });
 
@@ -175,7 +174,7 @@ describe('what an issue records', () => {
     fake.addLabelEvent('o/r', ref.number, 'reader', 'status/testing', true);
     const found = await history();
     assert.deepEqual([found.landings.length, found.releases.length, found.proofs.length], [0, 0, 0]);
-    assert.equal(found.deliveryReopenedAt, found.reopenedAt);
+    assert.notEqual(found.deliveryReopenedAt, undefined);
     assert.match(listMissingDelivery(found, []).join(), /follows the last reopening for new work/);
   });
 
@@ -194,24 +193,32 @@ describe('what an issue records', () => {
       const found = await history();
       assert.deepEqual([found.landings.length, found.releases.length, found.proofs.length], [1, 1, 0]);
       assert.equal(found.releases[0]?.tag, 'v1');
-      assert.equal(found.deliveryReopenedAt, first.reopenedAt);
-      assert.notEqual(found.reopenedAt, first.reopenedAt);
+      assert.equal(found.deliveryReopenedAt, first.deliveryReopenedAt);
     }
   });
 
-  it('reads the status after a reopening in timeline order when their timestamps are equal', async () => {
+  it('reads the timeline in order when every timestamp is equal: a proof before the reopening is dropped, one after it counts', async () => {
     fake.addComment('o/r', ref.number, 'writer', landing());
     fake.addComment('o/r', ref.number, 'writer', composeReleasedRecord(code, 'v1'));
+    fake.addComment('o/r', ref.number, 'writer', composeProvenRecord('prod', 'before'));
     await reopen();
     fake.addLabelEvent('o/r', ref.number, 'writer', 'status/done', false);
     fake.addLabelEvent('o/r', ref.number, 'writer', 'status/testing', true);
+    fake.addComment('o/r', ref.number, 'writer', composeProvenRecord('prod', 'after'));
     const api = clientFor(fake);
     const entries = await readTimeline(api, ref);
-    const reopenedAt = entries.find((entry) => entry.kind === 'reopen')?.at;
-    assert.ok(reopenedAt !== undefined);
-    const sameTime = entries.map((entry) => entry.at >= reopenedAt ? { ...entry, at: reopenedAt } : entry);
+    const sameTime = entries.map((entry) => ({ ...entry, at: 0 }));
     const found = await readIssueHistory(api, await getIssue(api, ref), sameTime);
-    assert.deepEqual([found.landings.length, found.releases.length, found.proofs.length], [1, 1, 0]);
+    assert.deepEqual([found.landings.length, found.releases.length, found.proofs.length], [1, 1, 1]);
+  });
+
+  it('starts new work at a reopening with no status label added, as the web page reopens', async () => {
+    fake.addComment('o/r', ref.number, 'writer', landing());
+    fake.addComment('o/r', ref.number, 'writer', composeReleasedRecord(code, 'v1'));
+    await reopen();
+    const found = await history();
+    assert.deepEqual([found.landings.length, found.releases.length], [0, 0]);
+    assert.notEqual(found.deliveryReopenedAt, undefined);
   });
 
   it('wants a release after the landing it carries, and a proof after the newest landing', async () => {

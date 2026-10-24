@@ -150,6 +150,26 @@ describe('what an issue records', () => {
     assert.notEqual(findCurrentProof(await history()), undefined);
   });
 
+  it('wants a release and a proof after a landing that comes after a reopening to testing', async () => {
+    const api = clientFor(fake);
+    fake.addComment('o/r', ref.number, 'writer', landing());
+    const { milestone } = await ensureReleaseMilestone(api, code, 'v1');
+    await setReleaseMilestone(api, ref, milestone);
+    await reopen();
+    fake.addLabelEvent('o/r', ref.number, 'writer', 'status/testing', true);
+    fake.addComment('o/r', ref.number, 'writer', composeProvenRecord('prod', 'before the second landing'));
+    fake.addComment('o/r', ref.number, 'writer', landing('d'.repeat(40)));
+    const landedAgain = await history();
+    assert.match(listMissingDelivery(landedAgain, []).join(), /no release of o\/r follows its landing/);
+    assert.equal(findCurrentProof(landedAgain), undefined);
+    fake.addComment('o/r', ref.number, 'writer', composeReleasedRecord(code, 'v2'));
+    const released = await history();
+    assert.deepEqual(listMissingDelivery(released, []), []);
+    assert.equal(findCurrentProof(released), undefined);
+    fake.addComment('o/r', ref.number, 'writer', composeProvenRecord('prod', 'after the second landing'));
+    assert.notEqual(findCurrentProof(await history()), undefined);
+  });
+
   it('starts new work at the first added status after a reopening, even when testing is added later', async () => {
     const api = clientFor(fake);
     fake.addComment('o/r', ref.number, 'writer', landing());

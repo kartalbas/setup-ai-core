@@ -1280,7 +1280,9 @@ commit messages or release history. Each record is a comment whose first line na
 `ci/integrate-<branch>`, wait for the combined commit status of Forgejo (`AI_CORE_INTEGRATE_POLL` seconds apart,
 `AI_CORE_INTEGRATE_WAIT` seconds at most, 20 and 1800 unless set) and land exactly that commit when it is green; a
 private repository, and `CI_GATE=none`, land on the push gate alone. A record counts only when its author may write
-to the repository and it follows the last reopening of the issue, read from the timeline of the issue; the
+to the repository and it follows the last reopening of the issue for new work, read from the timeline of the issue;
+a reopening whose first `status/` label added by such an account is `status/testing` starts no new work, so the
+landings and releases before it still count, and a proof counts only after the last reopening of any kind; the
 permission of another account is readable only for an administrator of the repository, so the token of these
 commands must belong to one. When the work landed and a record could not be written, `integrate-issue` exits 4 and
 names what is done; run again, it sees that the reviewed head is on the default branch, merges and pushes nothing

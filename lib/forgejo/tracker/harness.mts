@@ -4,7 +4,11 @@ import { fileURLToPath } from 'node:url';
 import type { HarnessSteps, StepOutcome } from './commands/command.mts';
 import { showLines } from './git/git.mts';
 
-// The lifecycle commands run the harness's Bash so each step has one spelling.
+// The steps of the harness around a worktree run the harness's own Bash, so each has one spelling: the
+// team modes check, init in a new worktree as bin/start-issue.sh runs it, fast_forward_default_branch of
+// lib/common.sh as bin/integrate-issue.sh runs it, and live_tags_declaration of lib/live-release.sh as
+// bin/status.sh runs it. The install of a merged tree runs the repository's own scripts/install.sh, as
+// bin/integrate-issue.sh runs it.
 
 const CORE = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../..');
 const MAXIMUM_OUTPUT_BYTES = 16 * 1024 * 1024;

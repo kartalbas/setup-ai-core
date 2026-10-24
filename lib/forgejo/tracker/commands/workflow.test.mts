@@ -939,6 +939,34 @@ describe('issue-proof and the close as completed', () => {
     assert.equal(fake.readIssue(main.full, number).state, 'open');
   });
 
+  it('needs no checkout for a landing in a harness layer', async () => {
+    const { number } = await delivered('Harness layer landed, so that no neighbour is read');
+    fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'shop-ai-core' }, reviewedHead: 'a'.repeat(40), landedCommit: 'b'.repeat(40), reviewers: ['alice'] }, { owner: 'o', repo: 'r' }));
+    const harness = liveTagsHarness();
+
+    await issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=v*' }, harness));
+
+    assert.equal(fake.readIssue(main.full, number).state, 'closed');
+    assert.deepEqual(harness.calls, []);
+  });
+
+  it('refuses a neighbour directory that is another repository (planted: it declares landed)', async () => {
+    const { number } = await delivered('Stranger beside the clone, so that its LIVE_TAGS is not believed');
+    fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'lookalike' }, reviewedHead: 'a'.repeat(40), landedCommit: 'b'.repeat(40), reviewers: ['alice'] }, { owner: 'o', repo: 'r' }));
+    const stranger = join(dirname(main.checkout), 'lookalike');
+    git(dirname(main.checkout), 'clone', '--quiet', sibling.remote, stranger);
+    mkdirSync(join(stranger, '.ai-core'), { recursive: true });
+    writeFileSync(join(stranger, '.ai-core', 'config.env'), 'LIVE_TAGS="prod=landed"\n');
+    const harness = liveTagsHarness();
+    const before = writesOf();
+
+    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=v*' }, harness)), (error: unknown) => error instanceof PreconditionError && error.message.includes(`${stranger} is not a checkout of o/lookalike`));
+
+    assert.deepEqual(harness.calls, []);
+    assert.equal(writesOf(), before);
+    assert.equal(fake.readIssue(main.full, number).state, 'open');
+  });
+
   it('writes its own proof where only an account without write permission wrote one (planted: a stranger proves first)', async () => {
     const { number } = await delivered('Proven by a stranger first, so that the real proof is still written');
     fake.addComment('o/r', number, 'stranger', composeProvenRecord('prod', 'Trust me.'));

@@ -4,7 +4,7 @@ import type { RepositoryRef } from '../domain/issues.mts';
 import { replaceFamilyLabel, statusLabel } from '../domain/labels.mts';
 import { checkPublicText } from '../domain/public-text.mts';
 import { PreconditionError, UsageError } from '../domain/refusals.mts';
-import { composeProvenRecord, hasProvenRecord, landedEnvironments, listMissingDelivery, readIssueHistory, readTimeline } from '../domain/workflow.mts';
+import { composeProvenRecord, hasProvenRecord, isHarnessLayer, landedEnvironments, listMissingDelivery, readIssueHistory, readTimeline } from '../domain/workflow.mts';
 import { parseArguments, readTextFile, refuseExtra, requireValue, takeIssue } from './arguments.mts';
 import { succeeded } from './command.mts';
 import type { CommandContext, CommandResult } from './command.mts';
@@ -22,6 +22,17 @@ its default branch. Text with a literal email address is refused for a public re
 failure, it writes only what is missing.`;
 
 const ENVIRONMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+async function requireCheckoutOf(context: CommandContext, checkout: string, repository: RepositoryRef, name: string): Promise<void> {
+  const refusal = `${name} is not delivered, so nothing is proven: ${checkout} is not a checkout of ${formatRepository(repository)}`;
+  let origin: RepositoryRef;
+  try {
+    origin = await context.git.originRepository(checkout);
+  } catch (error) {
+    throw new PreconditionError(`${refusal}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!isSameRepository(origin, repository)) throw new PreconditionError(`${refusal}, its origin is ${formatRepository(origin)}`);
+}
 
 export async function run(args: readonly string[], context: CommandContext): Promise<CommandResult> {
   const parsed = parseArguments(args, { '--environment': 'value', '--body-file': 'value' });
@@ -44,11 +55,12 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   const seen = new Set<string>();
   for (const { repository } of history.landings) {
     const key = formatRepository(repository).toLowerCase();
-    if (seen.has(key)) continue;
+    if (seen.has(key) || isHarnessLayer(repository)) continue;
     seen.add(key);
     let liveTags = context.settings.liveTags;
     if (!isSameRepository(repository, clone)) {
       const checkout = join(projectFolder, repository.repo);
+      await requireCheckoutOf(context, checkout, repository, name);
       const read = await context.harness.readLiveTags(checkout);
       if (!read.succeeded) throw new PreconditionError(`${name} is not delivered, so nothing is proven: could not read LIVE_TAGS in ${checkout}: ${read.output}`);
       liveTags = read.output;

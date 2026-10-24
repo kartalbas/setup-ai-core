@@ -1,6 +1,7 @@
 import { ContractError, NotFoundError, PermissionError, segment } from '../api/client.mts';
 import type { ForgejoClient } from '../api/client.mts';
 import { collaboratorPermissionShape, timelineEventShape } from '../api/shapes.mts';
+import type { TimelineEvent } from '../api/shapes.mts';
 import { formatIssue, formatRepository, isSameRepository, issuePath, parseRepository, repositoryPath } from './issues.mts';
 import type { Issue, IssueRef, RepositoryRef } from './issues.mts';
 import { UsageError } from './refusals.mts';
@@ -83,10 +84,14 @@ function instantOf(text: string, name: string): number {
   return instant;
 }
 
-// The comments and the events of the issue, every page of them.
+// The comments and the events of the issue, every page of them. Forgejo answers null for an event whose
+// issue, comment, label or milestone it cannot load (services/convert/issue_comment.go of v17.0.0); a
+// comment refers to none of these, so leaving such an entry out loses no record.
 export async function readTimeline(api: ForgejoClient, ref: IssueRef): Promise<TimelineEntry[]> {
   const name = `read the timeline of issue ${formatIssue(ref)}`;
-  const wires = await api.callAll({ name, path: `${issuePath(ref)}/timeline`, readItem: timelineEventShape.type.read, totalCountsPage: true });
+  const readItem = (item: unknown, where: string): TimelineEvent | undefined => (item === null ? undefined : timelineEventShape.type.read(item, where));
+  const answers = await api.callAll({ name, path: `${issuePath(ref)}/timeline`, readItem, totalCountsPage: true });
+  const wires = answers.filter((wire): wire is TimelineEvent => wire !== undefined);
   return wires.map((wire) => ({
     kind: kindOf(wire.type),
     at: instantOf(wire.created_at, name),

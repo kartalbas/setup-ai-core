@@ -113,7 +113,8 @@ export type FailureMode =
   | { kind: 'malformed' }
   | { kind: 'success-status'; status: number }
   | { kind: 'omit-field'; field: string }
-  | { kind: 'truncate-list' };
+  | { kind: 'truncate-list' }
+  | { kind: 'insert-null'; at: number };
 
 export interface FailureRule {
   method?: string;
@@ -672,6 +673,7 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
       const status = mode?.kind === 'success-status' ? mode.status : answer.status;
       let body = mode?.kind === 'omit-field' ? omit(answer.body, mode.field) : answer.body;
       if (mode?.kind === 'truncate-list' && Array.isArray(body)) body = body.slice(0, -1);
+      if (mode?.kind === 'insert-null' && Array.isArray(body)) body = [...body.slice(0, mode.at), null, ...body.slice(mode.at)];
       send(status, body, answer.headers);
     });
   });

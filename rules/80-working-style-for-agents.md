@@ -70,7 +70,10 @@
   runs or ran on the machine, so two coordinators never hand out the same number;
   the package it works on carries it in its `PHASE` line on the plan issue. Once approved, run independent agents in parallel, never for work that fits
   in one or two tool calls, give every call an explicit model and effort, and relay the
-  conclusion, never the raw output. A delegated implementation gets a specification that names
+  conclusion, never the raw output. Every wait on an agent or a job has a deadline, its measured
+  duration and half again: the wait ends there whether or not the job did, the session reads at
+  once why it is not done and reports it, and it follows the job by its process, never by a
+  pattern its own command line matches. A delegated implementation gets a specification that names
   the files to touch, the interfaces, the acceptance criteria and the exact verification commands,
   and reports what changed, what it verified and what in the specification was wrong. A specialist
   is consulted with a briefing, never with a running conversation. When a result misses, fix the

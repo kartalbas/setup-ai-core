@@ -2,7 +2,7 @@ import { addComment, applyInOrder, formatIssue, formatRepository, getIssue, isSa
 import type { IssueRef, RepositoryRef } from '../domain/issues.mts';
 import { ensureReleaseMilestone, setReleaseMilestone, tagExists } from '../domain/milestones.mts';
 import { PreconditionError, UsageError } from '../domain/refusals.mts';
-import { composeReleasedRecord, hasReleasedRecord, readTimeline } from '../domain/workflow.mts';
+import { composeReleasedRecord, hasReleasedRecord, readIssueHistory, readTimeline } from '../domain/workflow.mts';
 import { parseArguments, parseIssueReference, requireValue } from './arguments.mts';
 import { succeeded } from './command.mts';
 import type { CommandContext, CommandResult } from './command.mts';
@@ -11,9 +11,10 @@ const USAGE = 'usage: issue-release --repo OWNER/REPO --tag TAG ISSUE...  (ISSUE
 export const help = `${USAGE}
 
 Records that the release TAG of --repo carries the work of each issue. TAG must exist in --repo. For an issue of
---repo, the milestone named TAG of that repository (made if it is not there) is set on it. For an issue of
-another repository it writes the comment "Released in OWNER/REPO TAG:" instead, because a milestone belongs to
-one repository. It publishes nothing and creates no tag. Run again, it writes only what is missing.`;
+--repo, the milestone named TAG of that repository (made if it is not there) is set on it. If a newer landing
+follows that milestone, it also writes the comment "Released in OWNER/REPO TAG:". For an issue of another
+repository it writes that comment instead, because a milestone belongs to one repository. It publishes nothing
+and creates no tag. Run again, it writes only what is missing.`;
 
 function parseIssues(texts: readonly string[], repository: RepositoryRef): IssueRef[] {
   if (texts.length === 0) throw new UsageError(USAGE);
@@ -36,14 +37,19 @@ export async function run(args: readonly string[], context: CommandContext): Pro
     if (milestone !== undefined && isSameRepository(ref, repository)) {
       const issue = await getIssue(api, ref);
       if (issue.milestone?.id === milestone.milestone.id) {
-        lines.push(`${formatIssue(ref)} has the milestone ${tag} already`);
+        const history = await readIssueHistory(api, issue, await readTimeline(api, ref));
+        const needsReleaseRecord = history.landings.some((landing) => isSameRepository(landing.repository, repository)
+          && !history.releases.some((release) => isSameRepository(release.repository, repository) && release.tag === tag && release.at > landing.at));
+        if (!needsReleaseRecord) {
+          lines.push(`${formatIssue(ref)} has the milestone ${tag} already`);
+          return;
+        }
+      } else {
+        await setReleaseMilestone(api, ref, milestone.milestone);
+        lines.push(`${formatIssue(ref)} -> milestone ${tag}${issue.milestone === undefined ? '' : ` (it was ${issue.milestone.title})`}`);
         return;
       }
-      await setReleaseMilestone(api, ref, milestone.milestone);
-      lines.push(`${formatIssue(ref)} -> milestone ${tag}${issue.milestone === undefined ? '' : ` (it was ${issue.milestone.title})`}`);
-      return;
-    }
-    if (hasReleasedRecord(await readTimeline(api, ref), repository, tag)) {
+    } else if (hasReleasedRecord(await readTimeline(api, ref), repository, tag)) {
       lines.push(`${formatIssue(ref)} records the release ${tag} of ${formatRepository(repository)} already`);
       return;
     }

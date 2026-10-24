@@ -194,7 +194,7 @@ function newest<T extends { readonly at: number }>(facts: readonly T[]): T | und
 }
 
 // A harness layer is never released: init assembles every checkout it serves from its default branch.
-function isHarnessLayer(repository: RepositoryRef): boolean {
+export function isHarnessLayer(repository: RepositoryRef): boolean {
   const name = repository.repo.toLowerCase();
   return name.endsWith('-ai-core') && name !== 'setup-ai-core';
 }

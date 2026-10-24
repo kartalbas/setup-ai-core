@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 import { bashHarness } from './harness.mts';
@@ -39,5 +39,25 @@ describe('the harness steps', () => {
     const outcome = await bashHarness.assembleWorktree(source);
     assert.equal(outcome.succeeded, true, outcome.output);
     assert.match(outcome.output, /^Harness source worktree: run ai-core session-start/);
+  });
+
+  it('read LIVE_TAGS through the Bash configuration reader, ignoring the environment', async () => {
+    mkdirSync(join(checkout, '.ai-core'), { recursive: true });
+    writeFileSync(join(checkout, '.ai-core', 'config.env'), 'LIVE_TAGS="test=landed"\n  LIVE_TAGS = \'prod=landed test=deploy/test/*\' # the last declaration wins\n');
+    const previous = process.env.LIVE_TAGS;
+    process.env.LIVE_TAGS = 'prod=deploy/prod/*';
+    try {
+      const outcome = await bashHarness.readLiveTags(checkout);
+      assert.deepEqual(outcome, { succeeded: true, output: 'prod=landed test=deploy/test/*' });
+    } finally {
+      if (previous === undefined) delete process.env.LIVE_TAGS;
+      else process.env.LIVE_TAGS = previous;
+    }
+  });
+
+  it('refuse to read LIVE_TAGS from a checkout that is missing (planted)', async () => {
+    const outcome = await bashHarness.readLiveTags(join(fixture.root, 'missing'));
+    assert.equal(outcome.succeeded, false);
+    assert.notEqual(outcome.output, '');
   });
 });

@@ -24,13 +24,15 @@ export interface CommandContext {
   readonly stderr: (text: string) => void;
 }
 
-// The steps of the Bash harness that start-issue and integrate-issue take as their Bash commands do.
+// The steps of the Bash harness that start-issue, integrate-issue and issue-proof take as their Bash commands do.
 export interface HarnessSteps {
   checkTeamModes(cwd: string): Promise<StepOutcome>;
   // init in a new worktree, or the line that a worktree of a harness source needs none.
   assembleWorktree(path: string): Promise<StepOutcome>;
   // Fast-forwards the default branch of the checkout where it is only behind origin.
   refreshCheckout(checkout: string): Promise<StepOutcome>;
+  // LIVE_TAGS as the checkout's own config.env sets it, read as the Bash harness reads it.
+  readLiveTags(checkout: string): Promise<StepOutcome>;
   // Runs scripts/install.sh of the worktree, its lines shown while it runs; the outcome holds the last of them.
   installTools(worktree: string, show: (text: string) => void): Promise<StepOutcome>;
 }

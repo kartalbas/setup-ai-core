@@ -19,6 +19,7 @@ export function createRecordingHarness(): RecordingHarness {
     checkTeamModes: step('checkTeamModes', ''),
     assembleWorktree: step('assembleWorktree', 'init: assembled'),
     refreshCheckout: step('refreshCheckout', 'refreshed: the checkout'),
+    readLiveTags: step('readLiveTags', ''),
     installTools: (path) => step('installTools', 'installed')(path),
   };
 }

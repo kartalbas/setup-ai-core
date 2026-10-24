@@ -385,8 +385,10 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
       const repository = findRepository(params.owner ?? '', params.repo ?? '');
       const issue = findIssue(repository, Number(params.index));
       const identifier = params.identifier ?? '';
-      const label = visibleLabels(repository).find((candidate) => String(candidate.id) === identifier || candidate.name === identifier);
-      if (label === undefined) throw new HttpFailure(404, `label does not exist [${identifier}]`);
+      // As DeleteIssueLabel of v17.0.0: a name of the repository, then of its organization, then an id of the repository only.
+      const named = visibleLabels(repository).filter((candidate) => candidate.name === identifier);
+      const label = named.find((candidate) => candidate.repo !== undefined) ?? named[0] ?? visibleLabels(repository).find((candidate) => candidate.repo !== undefined && String(candidate.id) === identifier);
+      if (label === undefined) throw new HttpFailure(422, `label does not exist [${identifier}]`);
       issue.labels = issue.labels.filter((id) => id !== label.id);
       return { status: 204, body: undefined };
     },

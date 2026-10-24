@@ -93,6 +93,25 @@ describe('a checkout and its remote', () => {
     assert.equal(said.includes('hunter2'), false);
   });
 
+  it('shows what a hook writes to stdout while the push runs, as the push gate writes its check (planted: a check on stdout)', async () => {
+    const work = fixture.clone(remote, 'stdout', 'example-repo');
+    const head = fixture.commit(work, 'stdout.txt', 'x\n');
+    fixture.installHook(work, 'pre-push', 'echo "check: FAIL - node required 26, observed 24"; echo "REFUSED" >&2; exit 1');
+    const shown: string[] = [];
+    await assert.rejects(client.push(work, head, 'master', (text) => shown.push(text)), GitError);
+    const said = shown.join('');
+    assert.match(said, /^check: FAIL - node required 26, observed 24$/m);
+    assert.match(said, /^REFUSED$/m);
+  });
+
+  it('returns the stdout a caller parses also when it shows it (innocent case)', async () => {
+    const head = git(checkout, 'rev-parse', 'HEAD');
+    const shown: string[] = [];
+    assert.equal((await client.run(checkout, ['rev-parse', 'HEAD'])).stdout.trim(), head);
+    assert.equal((await client.run(checkout, ['rev-parse', 'HEAD'], [0], (text) => shown.push(text))).stdout.trim(), head);
+    assert.equal(shown.join('').trim(), head);
+  });
+
   it('pushes a commit that no hook refuses (innocent case), and refuses a push to a remote that moved', async () => {
     const work = fixture.clone(remote, 'pushed', 'example-repo');
     const head = fixture.commit(work, 'pushed.txt', 'x\n');

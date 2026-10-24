@@ -61,7 +61,7 @@ export function parseRemoteAddress(address: string): RepositoryAddress {
 }
 
 export class GitClient {
-  // `showStderr` gets what git writes to stderr while it runs, the lines of a hook among them.
+  // `showStderr` gets what git writes to either stream while it runs: git passes a pre-push hook's stdout to its own.
   run(cwd: string, args: readonly string[], acceptedExitCodes: readonly number[] = [0], showStderr?: (text: string) => void): Promise<{ stdout: string; exitCode: number }> {
     return new Promise((resolve, reject) => {
       const child = execFile(
@@ -81,7 +81,10 @@ export class GitClient {
           reject(new GitError(args, exitCode, stderr === '' ? error.message : stderr));
         },
       );
-      if (showStderr !== undefined && child.stderr !== null) showLines(child.stderr, showStderr);
+      if (showStderr !== undefined) {
+        if (child.stdout !== null) showLines(child.stdout, showStderr);
+        if (child.stderr !== null) showLines(child.stderr, showStderr);
+      }
     });
   }
 

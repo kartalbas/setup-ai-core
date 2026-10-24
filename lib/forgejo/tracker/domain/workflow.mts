@@ -66,16 +66,17 @@ function fieldOf(body: string, label: string): string | undefined {
 // --- the timeline ------------------------------------------------------------
 
 export interface TimelineEntry {
-  readonly kind: 'comment' | 'reopen' | 'close' | 'milestone' | 'other';
+  readonly kind: 'comment' | 'reopen' | 'close' | 'milestone' | 'label' | 'other';
   // Milliseconds since 1970: a time is compared as an instant, never as text.
   readonly at: number;
   readonly author: string;
   readonly body: string;
   readonly milestoneTitle: string | undefined;
+  readonly labelName: string | undefined;
 }
 
 function kindOf(type: string): TimelineEntry['kind'] {
-  return type === 'comment' || type === 'reopen' || type === 'close' || type === 'milestone' ? type : 'other';
+  return type === 'comment' || type === 'reopen' || type === 'close' || type === 'milestone' || type === 'label' ? type : 'other';
 }
 
 function instantOf(text: string, name: string): number {
@@ -98,6 +99,7 @@ export async function readTimeline(api: ForgejoClient, ref: IssueRef): Promise<T
     author: wire.user?.login ?? '',
     body: wire.body,
     milestoneTitle: wire.milestone?.title,
+    labelName: wire.label?.name,
   }));
 }
 
@@ -148,24 +150,38 @@ export interface ProofFact {
   readonly environment: string;
 }
 
-// What the issue records since it was last reopened, from accounts that may write to its repository.
 export interface IssueHistory {
   readonly reopenedAt: number | undefined;
+  readonly deliveryReopenedAt: number | undefined;
   readonly landings: readonly LandingFact[];
   readonly releases: readonly ReleaseFact[];
   readonly proofs: readonly ProofFact[];
 }
 
+async function isTestingReopening(entries: readonly TimelineEntry[], isTrusted: (login: string) => Promise<boolean>): Promise<boolean> {
+  for (const entry of entries) {
+    if (entry.kind !== 'label' || entry.body !== '1' || !entry.labelName?.startsWith('status/')) continue;
+    if (await isTrusted(entry.author)) return entry.labelName === 'status/testing';
+  }
+  return false;
+}
+
 export async function readIssueHistory(api: ForgejoClient, issue: Issue, entries: readonly TimelineEntry[]): Promise<IssueHistory> {
-  const reopenings = entries.filter((entry) => entry.kind === 'reopen').map((entry) => entry.at);
-  const reopenedAt = reopenings.length === 0 ? undefined : Math.max(...reopenings);
-  const current = entries.filter((entry) => reopenedAt === undefined || entry.at > reopenedAt);
   const isTrusted = createTrustCheck(api, issue.ref);
+  const reopenings = entries.flatMap((entry, index) => entry.kind === 'reopen' ? [index] : []);
+  const lastReopening = reopenings[reopenings.length - 1];
+  const reopenedAt = lastReopening === undefined ? undefined : entries[lastReopening]?.at;
+  let deliveryStart = 0;
+  for (const [index, reopening] of reopenings.entries()) {
+    if (!(await isTestingReopening(entries.slice(reopening + 1, reopenings[index + 1]), isTrusted))) deliveryStart = reopening + 1;
+  }
+  const deliveryReopenedAt = entries[deliveryStart - 1]?.at;
+  const current = entries.slice(deliveryStart);
 
   const landings: LandingFact[] = [];
   const releases: ReleaseFact[] = [];
   const proofs: ProofFact[] = [];
-  for (const entry of current) {
+  for (const [index, entry] of current.entries()) {
     if (entry.kind !== 'comment') continue;
     const line = firstLine(entry.body);
     const landed = LANDED_LINE.exec(line);
@@ -175,7 +191,7 @@ export async function readIssueHistory(api: ForgejoClient, issue: Issue, entries
     if (!(await isTrusted(entry.author))) continue;
     if (landed?.[1] !== undefined) landings.push({ at: entry.at, branch: landed[1], repository: landed[2] === undefined ? { owner: issue.ref.owner, repo: issue.ref.repo } : parseRepository(landed[2]) });
     if (released?.[1] !== undefined && released[2] !== undefined) releases.push({ at: entry.at, repository: parseRepository(released[1]), tag: released[2] });
-    if (proven?.[1] !== undefined) proofs.push({ at: entry.at, environment: proven[1] });
+    if (proven?.[1] !== undefined && (lastReopening === undefined || index + deliveryStart > lastReopening)) proofs.push({ at: entry.at, environment: proven[1] });
   }
 
   // A milestone is a release of the issue's own repository. Its event is written by an account that may edit the issue.
@@ -184,7 +200,7 @@ export async function readIssueHistory(api: ForgejoClient, issue: Issue, entries
     const latest = set[set.length - 1];
     if (latest?.milestoneTitle === issue.milestone.title) releases.push({ at: latest.at, repository: { owner: issue.ref.owner, repo: issue.ref.repo }, tag: issue.milestone.title });
   }
-  return { reopenedAt, landings, releases, proofs };
+  return { reopenedAt, deliveryReopenedAt, landings, releases, proofs };
 }
 
 // --- the facts the commands decide by -------------------------------------------
@@ -203,7 +219,7 @@ export function isHarnessLayer(repository: RepositoryRef): boolean {
 // delivered by a release that came after its landing, or, where its landing is its delivery, by the landing.
 export function listMissingDelivery(history: IssueHistory, landingIsDelivery: readonly RepositoryRef[]): string[] {
   if (history.landings.length === 0) {
-    return [`no "Landed on" record of an account with write permission follows ${history.reopenedAt === undefined ? 'the start of the issue' : 'the last reopening'}`];
+    return [`no "Landed on" record of an account with write permission follows ${history.deliveryReopenedAt === undefined ? 'the start of the issue' : 'the last reopening for new work'}`];
   }
   const missing: string[] = [];
   const seen = new Set<string>();

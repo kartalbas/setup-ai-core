@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import { ContractError, PermissionError } from '../api/client.mts';
-import { clientFor, startFakeForgejo } from '../testing/fake-forgejo.mts';
+import { clientFor, seedLabels, startFakeForgejo } from '../testing/fake-forgejo.mts';
 import type { FakeForgejo } from '../testing/fake-forgejo.mts';
 import { editIssue, getIssue } from './issues.mts';
 import type { IssueRef } from './issues.mts';
+import { replaceFamilyLabel } from './labels.mts';
 import { ensureReleaseMilestone, setReleaseMilestone } from './milestones.mts';
 import {
   composeLandedRecord,
@@ -62,6 +63,7 @@ describe('what an issue records', () => {
   before(async () => {
     fake = await startFakeForgejo();
     fake.addRepository('o/r');
+    seedLabels(fake, 'o');
     fake.setPermission('o/r', 'writer', 'write');
     fake.setPermission('o/r', 'admin', 'admin');
     fake.setPermission('o/r', 'reader', 'read');
@@ -125,6 +127,91 @@ describe('what an issue records', () => {
     assert.notEqual(stale.reopenedAt, undefined);
     fake.addComment('o/r', ref.number, 'writer', landing('d'.repeat(40)));
     assert.equal((await history()).landings.length, 1);
+  });
+
+  it('keeps landings and releases across a reopening to testing, but drops the earlier proofs', async () => {
+    const api = clientFor(fake);
+    fake.addComment('o/r', ref.number, 'writer', landing());
+    fake.addComment('o/r', ref.number, 'writer', composeReleasedRecord(code, 'v1'));
+    const { milestone } = await ensureReleaseMilestone(api, code, 'v1');
+    await setReleaseMilestone(api, ref, milestone);
+    fake.addComment('o/r', ref.number, 'writer', composeProvenRecord('prod', 'ok'));
+    await replaceFamilyLabel(api, ref, await getIssue(api, ref), 'status/done');
+    await reopen();
+    fake.addLabelEvent('o/r', ref.number, 'reader', 'status/ready', true);
+    fake.addLabelEvent('o/r', ref.number, 'writer', 'priority/p1', true);
+    await replaceFamilyLabel(api, ref, await getIssue(api, ref), 'status/testing');
+    const found = await history();
+    assert.deepEqual([found.landings.length, found.releases.length, found.proofs.length], [1, 2, 0]);
+    assert.notEqual(found.reopenedAt, undefined);
+    assert.equal(found.deliveryReopenedAt, undefined);
+    assert.deepEqual(listMissingDelivery(found, []), []);
+    assert.equal(findCurrentProof(found), undefined);
+    fake.addComment('o/r', ref.number, 'writer', composeProvenRecord('prod', 'shown again'));
+    assert.notEqual(findCurrentProof(await history()), undefined);
+  });
+
+  it('starts new work at the first added status after a reopening, even when testing is added later', async () => {
+    const api = clientFor(fake);
+    fake.addComment('o/r', ref.number, 'writer', landing());
+    fake.addComment('o/r', ref.number, 'writer', composeReleasedRecord(code, 'v1'));
+    const { milestone } = await ensureReleaseMilestone(api, code, 'v1');
+    await setReleaseMilestone(api, ref, milestone);
+    fake.addComment('o/r', ref.number, 'writer', composeProvenRecord('prod', 'ok'));
+    await reopen();
+    fake.addLabelEvent('o/r', ref.number, 'writer', 'status/ready', true);
+    fake.addLabelEvent('o/r', ref.number, 'writer', 'status/testing', true);
+    const found = await history();
+    assert.deepEqual([found.landings.length, found.releases.length, found.proofs.length], [0, 0, 0]);
+    assert.equal(found.deliveryReopenedAt, found.reopenedAt);
+    assert.match(listMissingDelivery(found, []).join(), /follows the last reopening for new work/);
+  });
+
+  it('does not keep delivery for a testing label from an account without write permission (planted)', async () => {
+    fake.addComment('o/r', ref.number, 'writer', landing());
+    fake.addComment('o/r', ref.number, 'writer', composeReleasedRecord(code, 'v1'));
+    fake.addComment('o/r', ref.number, 'writer', composeProvenRecord('prod', 'ok'));
+    await reopen();
+    fake.addLabelEvent('o/r', ref.number, 'reader', 'status/testing', true);
+    const found = await history();
+    assert.deepEqual([found.landings.length, found.releases.length, found.proofs.length], [0, 0, 0]);
+    assert.equal(found.deliveryReopenedAt, found.reopenedAt);
+    assert.match(listMissingDelivery(found, []).join(), /follows the last reopening for new work/);
+  });
+
+  it('keeps only the delivery after the last reopening for new work across later testing reopenings', async () => {
+    fake.addComment('o/r', ref.number, 'writer', landing());
+    fake.addComment('o/r', ref.number, 'writer', composeReleasedRecord(code, 'v0'));
+    await reopen();
+    fake.addLabelEvent('o/r', ref.number, 'writer', 'status/ready', true);
+    const first = await history();
+    fake.addComment('o/r', ref.number, 'writer', landing('d'.repeat(40)));
+    fake.addComment('o/r', ref.number, 'writer', composeReleasedRecord(code, 'v1'));
+    for (let n = 0; n < 2; n++) {
+      fake.addComment('o/r', ref.number, 'writer', composeProvenRecord('prod', 'ok'));
+      await reopen();
+      fake.addLabelEvent('o/r', ref.number, 'writer', 'status/testing', true);
+      const found = await history();
+      assert.deepEqual([found.landings.length, found.releases.length, found.proofs.length], [1, 1, 0]);
+      assert.equal(found.releases[0]?.tag, 'v1');
+      assert.equal(found.deliveryReopenedAt, first.reopenedAt);
+      assert.notEqual(found.reopenedAt, first.reopenedAt);
+    }
+  });
+
+  it('reads the status after a reopening in timeline order when their timestamps are equal', async () => {
+    fake.addComment('o/r', ref.number, 'writer', landing());
+    fake.addComment('o/r', ref.number, 'writer', composeReleasedRecord(code, 'v1'));
+    await reopen();
+    fake.addLabelEvent('o/r', ref.number, 'writer', 'status/done', false);
+    fake.addLabelEvent('o/r', ref.number, 'writer', 'status/testing', true);
+    const api = clientFor(fake);
+    const entries = await readTimeline(api, ref);
+    const reopenedAt = entries.find((entry) => entry.kind === 'reopen')?.at;
+    assert.ok(reopenedAt !== undefined);
+    const sameTime = entries.map((entry) => entry.at >= reopenedAt ? { ...entry, at: reopenedAt } : entry);
+    const found = await readIssueHistory(api, await getIssue(api, ref), sameTime);
+    assert.deepEqual([found.landings.length, found.releases.length, found.proofs.length], [1, 1, 0]);
   });
 
   it('wants a release after the landing it carries, and a proof after the newest landing', async () => {

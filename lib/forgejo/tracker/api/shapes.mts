@@ -195,6 +195,7 @@ export interface TimelineEvent {
   readonly created_at: string;
   readonly user: User | null;
   readonly milestone: Milestone | null | undefined;
+  readonly label: Label | null | undefined;
 }
 export const timelineEventShape = defineShape<TimelineEvent>('TimelineComment', {
   id: required(integer),
@@ -203,6 +204,7 @@ export const timelineEventShape = defineShape<TimelineEvent>('TimelineComment', 
   created_at: required(string),
   user: required(nullable(userShape.type)),
   milestone: optional(nullable(milestoneShape.type)),
+  label: optional(nullable(labelShape.type)),
 });
 
 export interface CollaboratorPermission {

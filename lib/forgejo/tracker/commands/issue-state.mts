@@ -20,7 +20,9 @@ the delivery and writes the proof.`;
 
 export const reopenHelp = `${REOPEN_USAGE}
 
-Reopens each issue with an open status. A proof written before the reopening does not close the new work.`;
+Reopens each issue with an open status; if the first status label added after it by an account with write permission
+is status/testing, earlier landings and releases still count. Every reopening requires a new proof; any other status
+or no added status label also requires delivery again.`;
 
 // An issue completes with a proof that follows its landing and its last reopening, which issue-proof writes.
 async function refuseWithoutCurrentProof(api: ForgejoClient, issue: Issue): Promise<void> {

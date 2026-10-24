@@ -776,6 +776,31 @@ describe('issue-release', () => {
     assert.equal(writesOf(), writes, 'run again, it writes nothing');
   });
 
+  it('records a release after a late landing, proves it and writes nothing on a second release run', async () => {
+    const number = newIssue(main, 'Landing recorded late, so that the release needs a newer record', { labels: ['status/testing'] });
+    const tag = `v-late-${number}`;
+    fake.addTag(main.full, tag);
+    const args = ['--repo', main.full, '--tag', tag, String(number)];
+    fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'r' }, reviewedHead: 'a'.repeat(40), landedCommit: 'b'.repeat(40), reviewers: ['alice'] }, { owner: 'o', repo: 'r' }));
+    await issueRelease.run(args, ctx(main.checkout));
+    const initial = writesOf();
+    await issueRelease.run(args, ctx(main.checkout));
+    assert.equal(writesOf(), initial, 'the milestone already follows the newest landing');
+
+    fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'r' }, reviewedHead: 'c'.repeat(40), landedCommit: 'd'.repeat(40), reviewers: ['alice'] }, { owner: 'o', repo: 'r' }));
+    await issueRelease.run(args, ctx(main.checkout));
+    assert.equal(commentsOf(main, number).at(-1), `Released in ${main.full} ${tag}:\n`);
+    assert.equal(fake.readIssue(main.full, number).milestone, tag);
+    const released = writesOf();
+    await issueRelease.run(args, ctx(main.checkout));
+    assert.equal(writesOf(), released, 'the release comment already follows the newest landing');
+
+    const path = join(scratch, `late-landing-${number}.md`);
+    writeFileSync(path, 'Opened the page and saw the released change work.\n');
+    await issueProof.run([main.full, String(number), '--environment', 'prod', '--body-file', path], ctx(main.checkout));
+    assert.equal(fake.readIssue(main.full, number).state, 'closed');
+  });
+
   it('names what is done when a later issue fails', async () => {
     fake.addTag(main.full, 'v1.1.0');
     const first = newIssue(main, 'Released first, so that it is done', { labels: ['status/testing'] });

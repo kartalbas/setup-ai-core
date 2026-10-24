@@ -69,10 +69,12 @@ interface Reference {
 }
 interface FakeEvent {
   id: number;
-  type: 'close' | 'reopen' | 'milestone';
+  type: 'close' | 'reopen' | 'milestone' | 'label';
   login: string;
+  body: string;
   created_at: string;
   milestone: FakeMilestone | undefined;
+  label: FakeLabel | undefined;
 }
 interface FakeMilestone {
   id: number;
@@ -149,6 +151,7 @@ export interface FakeForgejo {
   addLabel(owner: string, label: { name: string; color?: string; description?: string; exclusive?: boolean }): number;
   addIssue(fullName: string, issue: { title: string; body?: string; state?: 'open' | 'closed'; labels?: string[]; assignees?: string[] }): number;
   addComment(fullName: string, number: number, login: string, body: string): void;
+  addLabelEvent(fullName: string, number: number, login: string, label: string, added: boolean): void;
   readIssue(fullName: string, number: number): { title: string; body: string; state: string; labels: string[]; assignees: string[]; comments: string[]; dependencies: string[]; milestone: string | undefined };
   listLabels(owner: string): { name: string; color: string; description: string; exclusive: boolean }[];
   fail(rule: FailureRule): void;
@@ -224,8 +227,8 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
     milestone: issue.milestone === undefined ? null : milestoneWire(issue.milestone),
   });
   const milestoneWire = (milestone: FakeMilestone): Json => ({ id: milestone.id, title: milestone.title, description: '', state: 'open', open_issues: 0, closed_issues: 0 });
-  const eventOf = (issue: FakeIssue, type: FakeEvent['type'], milestone?: FakeMilestone): void => {
-    issue.events.push({ id: newId(), type, login: 'fake-user', created_at: clock(), milestone });
+  const eventOf = (issue: FakeIssue, type: FakeEvent['type'], details: { login?: string; body?: string; milestone?: FakeMilestone; label?: FakeLabel } = {}): void => {
+    issue.events.push({ id: newId(), type, login: details.login ?? 'fake-user', body: details.body ?? '', created_at: clock(), milestone: details.milestone, label: details.label });
   };
 
   // X-Total-Count as Forgejo v17.0.0 sends it: the length of the list for most lists, the length of the page for
@@ -241,13 +244,19 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
     return { status: 200, body: count === 'page' && body.length === 0 ? null : body, headers: { 'X-Total-Count': String(count === 'list' ? items.length : body.length) } };
   };
 
+  const removeLabelFromIssue = (issue: FakeIssue, label: FakeLabel): void => {
+    if (!issue.labels.includes(label.id)) return;
+    issue.labels = issue.labels.filter((id) => id !== label.id);
+    eventOf(issue, 'label', { label });
+  };
   const addLabelToIssue = (issue: FakeIssue, label: FakeLabel): void => {
     if (issue.labels.includes(label.id)) return;
     const scope = scopeOf(label.name);
     if (label.exclusive && scope !== undefined) {
-      issue.labels = issue.labels.filter((id) => labels.find((other) => other.id === id && scopeOf(other.name) === scope) === undefined);
+      for (const other of labels.filter((candidate) => issue.labels.includes(candidate.id) && scopeOf(candidate.name) === scope)) removeLabelFromIssue(issue, other);
     }
     issue.labels.push(label.id);
+    eventOf(issue, 'label', { label, body: '1' });
   };
 
   type Handler = (context: { params: Record<string, string>; query: Record<string, string>; body: Record<string, unknown>; operation: OperationSchema }) => Answer;
@@ -309,7 +318,7 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
       if (typeof body.milestone === 'number') {
         const milestone = body.milestone === 0 ? undefined : repository.milestones.find((candidate) => candidate.id === body.milestone);
         if (body.milestone !== 0 && milestone === undefined) throw new HttpFailure(422, `milestone does not exist [id: ${body.milestone}]`);
-        if (milestone?.id !== issue.milestone?.id) eventOf(issue, 'milestone', milestone);
+        if (milestone?.id !== issue.milestone?.id) eventOf(issue, 'milestone', { milestone });
         issue.milestone = milestone;
       }
       if (Array.isArray(body.assignees)) {
@@ -389,7 +398,7 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
       const named = visibleLabels(repository).filter((candidate) => candidate.name === identifier);
       const label = named.find((candidate) => candidate.repo !== undefined) ?? named[0] ?? visibleLabels(repository).find((candidate) => candidate.repo !== undefined && String(candidate.id) === identifier);
       if (label === undefined) throw new HttpFailure(422, `label does not exist [${identifier}]`);
-      issue.labels = issue.labels.filter((id) => id !== label.id);
+      removeLabelFromIssue(issue, label);
       return { status: 204, body: undefined };
     },
     issueListLabels: ({ params, operation, query }) => {
@@ -458,11 +467,12 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
           wire: {
             id: event.id,
             type: event.type,
-            body: '',
+            body: event.body,
             created_at: event.created_at,
             updated_at: event.created_at,
             user: userWire(event.login),
             ...(event.milestone === undefined ? {} : { milestone: milestoneWire(event.milestone) }),
+            ...(event.label === undefined ? {} : { label: labelWire(event.label) }),
           },
         })),
       ];
@@ -751,7 +761,7 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
         title: issue.title,
         body: issue.body ?? '',
         state: issue.state ?? 'open',
-        labels: (issue.labels ?? []).map((labelName) => labelByName(owner, labelName).id),
+        labels: [],
         assignees: issue.assignees ?? [],
         comments: [],
         events: [],
@@ -759,6 +769,7 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
         dependencies: [],
         created_at: clock(),
       };
+      for (const labelName of issue.labels ?? []) addLabelToIssue(created, labelByName(owner, labelName));
       repository.issues.push(created);
       return created.number;
     },
@@ -766,6 +777,11 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
       const [owner = '', name = ''] = fullName.split('/');
       knownLogins.add(login);
       findIssue(findRepository(owner, name), number).comments.push({ id: newId(), login, body, created_at: clock() });
+    },
+    addLabelEvent(fullName, number, login, label, added) {
+      const [owner = '', name = ''] = fullName.split('/');
+      knownLogins.add(login);
+      eventOf(findIssue(findRepository(owner, name), number), 'label', { login, label: labelByName(owner, label), body: added ? '1' : '' });
     },
     readIssue(fullName, number) {
       const [owner = '', name = ''] = fullName.split('/');

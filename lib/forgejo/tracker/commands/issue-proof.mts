@@ -14,7 +14,9 @@ export const help = `${USAGE}
 
 Writes the record "Proven on ENV:" with the evidence of PATH, sets status/done and closes the issue as completed.
 It refuses unless the issue records a landing and, for every repository the landing names, a release that came
-after it, all of an account with write permission and after the last reopening of the issue. Where a repository's
+after it, all of an account with write permission and after the last reopening for new work. A reopening keeps earlier
+landings and releases if its first status label added by an account with write permission is status/testing; any other
+status or no added status label requires delivery again. Every reopening requires a new proof. Where a repository's
 own LIVE_TAGS names ENV with the pattern landed, its landing is its delivery and needs no release. Another
 repository's LIVE_TAGS is read from its checkout beside this clone's main checkout; a missing checkout is refused.
 A landing in a harness layer, a repository named <prefix>-ai-core, also needs no release: init deploys it from

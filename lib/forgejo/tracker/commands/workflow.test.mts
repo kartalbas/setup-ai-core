@@ -873,11 +873,25 @@ describe('issue-proof and the close as completed', () => {
     assert.equal(writesOf(), before);
   });
 
-  it('refuses a proof of work that was reopened after its delivery, until it is delivered again', async () => {
+  it('proves and closes delivered work again after a reopening to testing, without another delivery', async () => {
+    const { number } = await delivered('Reopened for missing proof, so that the delivery still counts');
+    await issueProof.run(proofArguments(number), ctx(main.checkout));
+    const before = fake.readIssue(main.full, number);
+    await issueState.runReopen([main.full, String(number), '--status', 'testing'], ctx(main.checkout));
+    await assert.rejects(issueState.runClose([main.full, String(number)], ctx(main.checkout)), /no proof that follows its landing and its last reopening/);
+    await issueProof.run(proofArguments(number), ctx(main.checkout));
+    const issue = fake.readIssue(main.full, number);
+    assert.equal(issue.state, 'closed');
+    assert.deepEqual(issue.labels, ['status/done']);
+    assert.equal(issue.milestone, before.milestone);
+    assert.deepEqual(issue.comments, [...before.comments, 'Proven on prod:\n\nOpened the page and saw the change work.\n']);
+  });
+
+  it('refuses a proof of work reopened to implementing after delivery, until it is delivered again', async () => {
     const { number } = await delivered('Reopened after delivery, so that the old records are stale');
     await issueProof.run(proofArguments(number), ctx(main.checkout));
-    await issueState.runReopen([main.full, String(number), '--status', 'testing'], ctx(main.checkout));
-    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout)), /no "Landed on" record .* follows the last reopening/);
+    await issueState.runReopen([main.full, String(number), '--status', 'implementing'], ctx(main.checkout));
+    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout)), /no "Landed on" record .* follows the last reopening for new work/);
     await assert.rejects(issueState.runClose([main.full, String(number)], ctx(main.checkout)), /no proof that follows its landing and its last reopening/);
     const landing = composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'r' }, reviewedHead: 'c'.repeat(40), landedCommit: 'd'.repeat(40), reviewers: ['x'] }, { owner: 'o', repo: 'r' });
     fake.addComment('o/r', number, 'fake-user', landing);

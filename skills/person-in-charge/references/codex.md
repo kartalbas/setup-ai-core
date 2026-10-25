@@ -52,7 +52,8 @@ nothing of it has to survive:
 
 ## Start a phase session
 
-Before starting, run `ai-core usage --tool codex` in the project context. Exit 0 permits the
+Before starting, run `ai-core usage --tool codex` in the project context. It shows each window as
+percent left, as Codex does, against `USAGE_STOP_AT` as percent used. Exit 0 permits the
 start; exit 4 holds it, because a window of a day or less reaches the limit before its reset at the
 measured burn; exit 3 waits for the selected account or model to reset. Exit 2 means usage is unknown:
 report it and do not start or fall back to another tool. These are last recorded windows, not
@@ -127,6 +128,6 @@ issues it holds. The owner answers there; your next round reads the answer.
 - A session that finished is done; nothing is kept. Its report is on the issue, its last message in
   its output file.
 - `ai-core usage --tool codex` reads Codex's own last recorded windows from any coordinator's shell,
-  from the newest usable `rate_limits` in Codex's session files. A session refused for quota ends its
+  from the newest usable `rate_limits` in Codex's session files, and shows them as percent left. A session refused for quota ends its
   phase; phases assigned to that limited account or model wait until the limit resets, without an
   automatic fallback.

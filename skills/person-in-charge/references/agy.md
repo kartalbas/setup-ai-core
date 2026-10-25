@@ -26,6 +26,16 @@ nothing of it has to survive (`mkdir -p ~/.ai-core/sessions` once):
 
 ## Start a phase session
 
+Before every agy start, run `ai-core usage --tool agy --model <model>` in the project context, with
+the model of the row the phase uses. agy reports what is left of its quota, per group of models and
+per window, and the command shows it as percent left, against `USAGE_STOP_AT` as percent used; it
+judges only the group that holds the model. Exit 0 permits the start; exit 4 holds it, because a
+window of a day or less reaches the limit before its reset at the measured burn; exit 3 waits for
+that group to reset. Exit 2 means the quota is unknown, because agy is missing, signed out or
+answers something the command cannot read, or because no group holds the model: report it and do
+not start or fall back to another tool. The windows are agy's answer of that moment; the burn is
+measured from the readings earlier calls saved.
+
 From the folder the phase works in, every other folder it needs added, in the background, its
 output in `~/.ai-core/sessions/<session name>.out`:
 
@@ -54,6 +64,5 @@ output into the session's file, and post its report on the issues yourself.
 - One call at a time per conversation; a second task waits for the first answer.
 - A finished session is done; nothing is kept. Its report is on the issue, its last message in its
   output file.
-- agy has no command the harness reads for its quota. A session refused for quota ends its phase;
-phases assigned to that limited agy account or model wait until a call is answered again, without an
-automatic fallback.
+- A session refused for quota ends its phase; phases assigned to that limited agy group of models
+  wait until `ai-core usage --tool agy --model <model>` exits 0 again, without an automatic fallback.

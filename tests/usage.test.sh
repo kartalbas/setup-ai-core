@@ -165,6 +165,8 @@ refused_claude() {  # refused_claude <name> <reason> <record>
 refused_claude 'a window without used_percentage' 'the window five_hour has no number for used_percentage or resets_at' "{\"recorded_at\":$now,\"rate_limits\":{\"five_hour\":{$window}}}"
 refused_claude 'a window without resets_at' 'the window five_hour has no number for used_percentage or resets_at' "{\"recorded_at\":$now,\"rate_limits\":{\"five_hour\":{\"used_percentage\":5}}}"
 refused_claude 'a percentage as text' 'the window seven_day has no number' "{\"recorded_at\":$now,\"rate_limits\":{\"seven_day\":{\"used_percentage\":\"5\",$window}}}"
+refused_claude 'a negative percentage' 'invalid percentage or reset' "{\"recorded_at\":$now,\"rate_limits\":{\"five_hour\":{\"used_percentage\":-5,$window}}}"
+refused_claude 'a fractional reset' 'invalid percentage or reset' "{\"recorded_at\":$now,\"rate_limits\":{\"five_hour\":{\"used_percentage\":5,\"resets_at\":123.5}}}"
 refused_claude 'rate_limits empty' 'rate_limits holds no window' "{\"recorded_at\":$now,\"rate_limits\":{}}"
 refused_claude 'rate_limits missing' 'rate_limits holds no window' "{\"recorded_at\":$now}"
 refused_claude 'a window that is null only' 'rate_limits holds no window' "{\"recorded_at\":$now,\"rate_limits\":{\"five_hour\":null}}"
@@ -173,7 +175,7 @@ refused_claude 'a file that is no JSON' 'usage.json' 'five_hour 5'
 claude_record "{\"recorded_at\":$now,\"rate_limits\":{\"seven_day\":null,\"five_hour\":{\"used_percentage\":5,$window}}}"
 check 'Claude, a null window beside a usable one (innocent): exit 0' 0 "$rc"
 check 'Claude, the usable window alone' 1 "$(grep -c '^five_hour    5 % used' <<< "$out")"
-sed 's/all(type == "number")/all(true)/g' "$root/bin/usage.sh" > "$work/mutant/bin/usage.sh"
+sed 's/if \[.used_percentage, .resets_at\]/(.used_percentage \/\/= 0) | if [.used_percentage, .resets_at]/' "$root/bin/usage.sh" > "$work/mutant/bin/usage.sh"
 script="$work/mutant/bin/usage.sh"
 claude_record "{\"recorded_at\":$now,\"rate_limits\":{\"five_hour\":{$window}}}"
 check 'a reader that lets a missing percentage through is caught' yes "$([ "$rc" != 2 ] && echo yes || echo no)"
@@ -193,16 +195,77 @@ refused_codex() {  # refused_codex <name> <reason> <record>
 refused_codex 'a window without used_percent' 'a window without a number for used_percent, window_minutes or resets_at' "$(codex_with "{\"window_minutes\":300,\"resets_at\":$soon}")"
 refused_codex 'a window without window_minutes' 'a window without a number' "$(codex_with "{\"used_percent\":5,\"resets_at\":$soon}")"
 refused_codex 'a window without resets_at' 'a window without a number' "$(codex_with '{"used_percent":5,"window_minutes":300}')"
+refused_codex 'a negative percentage' 'invalid percentage, duration or reset' "$(codex_with "{\"used_percent\":-5,\"window_minutes\":300,\"resets_at\":$soon}")"
+refused_codex 'a fractional duration' 'invalid percentage, duration or reset' "$(codex_with "{\"used_percent\":5,\"window_minutes\":0.5,\"resets_at\":$soon}")"
 refused_codex 'a record cut off while Codex writes it' 'jq|parse|Unfinished|error' '{"timestamp":"2026-10-13T07:09:45.777Z","payload":{"rate_limits":{"primary":{"used_percent":5'
 refused_codex 'a record without a timestamp' 'no usable timestamp' '{"payload":{"rate_limits":{"primary":{"used_percent":5,"window_minutes":300,"resets_at":1},"secondary":null}}}'
 codex_record "$(codex_with "{\"used_percent\":5,\"window_minutes\":300,\"resets_at\":$soon}")"
 check 'Codex, a complete window beside a null one (innocent): exit 0' 0 "$rc"
 check 'Codex, its window'        1 "$(grep -c '^five_hour   95 % left' <<< "$out")"
-sed 's/all(type == "number")/all(true)/g' "$root/bin/usage.sh" > "$work/mutant/bin/usage.sh"
+sed 's/if \[.used_percent, .window_minutes, .resets_at\]/(.used_percent \/\/= 0) | if [.used_percent, .window_minutes, .resets_at]/' "$root/bin/usage.sh" > "$work/mutant/bin/usage.sh"
 script="$work/mutant/bin/usage.sh"
 codex_record "$(codex_with "{\"window_minutes\":300,\"resets_at\":$soon}")"
 check 'a reader that lets a missing used_percent through is caught' yes "$([ "$rc" != 2 ] && echo yes || echo no)"
 script="$root/bin/usage.sh"
+rm -rf "$HOME/.codex"
+
+echo 'the newest quota timestamp wins within one second, even when an older session file was touched later'
+mkdir -p "$sessions"
+{ reading "$((now - 1800))" 50; reading "$now" 99; } | sed 's/\.000Z/\.900Z/' > "$sessions/rollout-current.jsonl"
+reading "$now" 5 | sed 's/\.000Z/\.100Z/' > "$sessions/rollout-touched.jsonl"
+touch -t 202601010000 "$sessions/rollout-current.jsonl"
+out="$(cd "$work/project" && bash "$script" --tool codex 2>&1)"; rc=$?
+check 'newest reading at 99 % used holds the start: exit 3' 3 "$rc"
+check 'the newest value is shown' yes "$(matches '^five_hour +1 % left' "$out")"
+printf '{"timestamp":"bad","payload":{"rate_limits":{"primary":{"used_percent":5,"window_minutes":300,"resets_at":%s}}}}\n' "$soon" > "$sessions/rollout-bad-history.jsonl"
+touch -t 202601010000 "$sessions/rollout-bad-history.jsonl"
+out="$(cd "$work/project" && bash "$script" --tool codex 2>&1)"; rc=$?
+check 'malformed Codex history is reported: exit 2' 2 "$rc"
+check 'its timestamp error is visible' yes "$(matches 'timestamp|UTC time' "$out")"
+rm -rf "$HOME/.codex"
+
+echo 'a malformed Claude history is reported, while an absent history means unmeasured'
+claude_record "{\"recorded_at\":$now,\"rate_limits\":{\"five_hour\":{\"used_percentage\":5,$window}}}"
+printf 'garbage\n' > "$HOME/.ai-core/usage.log"
+out="$(cd "$work/project" && bash "$script" --tool claude 2>&1)"; rc=$?
+check 'malformed Claude history: exit 2' 2 "$rc"
+check 'the history error names its line' yes "$(matches 'usage.log:1' "$out")"
+rm "$HOME/.ai-core/usage.log"
+out="$(cd "$work/project" && bash "$script" --tool claude 2>&1)"; rc=$?
+check 'missing history: exit 0, burn unmeasured' '0 yes' "$rc $(matches 'burn unmeasured' "$out")"
+
+echo 'a status-line replacement cannot mix quota values with another reading timestamp'
+mkdir -p "$work/replacing-bin"
+export REAL_CAT="$(command -v cat)" REAL_JQ="$(command -v jq)"
+export QUOTA_FILE="$HOME/.ai-core/usage.json" QUOTA_NEXT="$work/quota-next.json" QUOTA_REPLACED="$work/quota-replaced"
+cat > "$work/replacing-bin/cat" <<'TOOL'
+#!/usr/bin/env bash
+case "${0##*/}" in cat) reader="$REAL_CAT" ;; jq) reader="$REAL_JQ" ;; esac
+"$reader" "$@"; rc=$?
+for arg in "$@"; do
+  if [ "$arg" = "$QUOTA_FILE" ] && [ ! -e "$QUOTA_REPLACED" ]; then
+    cp "$QUOTA_NEXT" "$QUOTA_FILE"
+    : > "$QUOTA_REPLACED"
+  fi
+done
+exit "$rc"
+TOOL
+cp "$work/replacing-bin/cat" "$work/replacing-bin/jq"
+chmod +x "$work/replacing-bin/"*
+printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":5,%s}}}\n' "$((now - 1800))" "$window" > "$QUOTA_FILE"
+printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":95,%s}}}\n' "$now" "$window" > "$QUOTA_NEXT"
+out="$(cd "$work/project" && PATH="$work/replacing-bin:$PATH" bash "$script" --tool claude 2>&1)"; rc=$?
+check 'the replacement happened between reads' yes "$([ -e "$QUOTA_REPLACED" ] && echo yes || echo no)"
+check 'quota and timestamp come from the same snapshot' "recorded $(when "$((now - 1800))"), limit 92 %" "$(grep '^recorded ' <<< "$out")"
+
+echo 'the common percentage limit is decimal and within zero to one hundred'
+codex_record "$(codex_with "{\"used_percent\":95,\"window_minutes\":300,\"resets_at\":$soon}")"
+out="$(cd "$work/project" && bash "$script" --tool codex --stop-at 092 2>&1)"; rc=$?
+check 'leading zero: decimal 92, exit 3, no arithmetic error' '3 yes no' "$rc $(matches 'limit 92 % used' "$out") $(grep -q 'base\|arithmetic\|integer expected' <<< "$out" && echo yes || echo no)"
+for limit in 101 999999999999999999999999; do
+  out="$(cd "$work/project" && bash "$script" --tool codex --stop-at "$limit" 2>&1)"; rc=$?
+  check "out-of-range limit $limit: exit 2" 2 "$rc"
+done
 rm -rf "$HOME/.codex"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi

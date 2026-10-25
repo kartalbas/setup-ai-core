@@ -29,7 +29,7 @@ when() { LC_ALL=C date -d "@$1" '+%a %H:%M %Z' 2>/dev/null || LC_ALL=C date -r "
 iso_z() { date -u -d "@$1" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -r "$1" '+%Y-%m-%dT%H:%M:%SZ'; }
 
 # The commands usage.sh runs, and no agy: a PATH of these alone is a machine without agy.
-for command in bash jq awk date git grep tail head cut cat ls find mktemp rm mkdir dirname sed sort tr wc touch sleep env; do
+for command in bash jq awk date git grep tail head cut cat ls find mktemp rm mkdir rmdir dirname sed sort tr wc touch sleep env; do
   ln -sf "$(command -v "$command")" "$work/tools/$command"
 done
 cat > "$work/agy-bin/agy" <<'TOOL'
@@ -45,9 +45,7 @@ TOOL
 chmod +x "$work/agy-bin/agy"
 planted="$work/agy-bin:$work/tools"
 export AGY_CALLS="$work/agy-calls" AGY_ANSWER="$work/answer.json" AGY_MODELS="$work/agy-models.txt"
-# The models agy lists, as it answered, and one model of the Gemini group planted: none of agy's own
-# Gemini names starts with a family its description lists.
-{ cat "$root/tests/fixtures/agy-models.txt"; printf 'gemini-flash-planted\tGemini Flash (Planted)\n'; } > "$AGY_MODELS"
+cp "$root/tests/fixtures/agy-models.txt" "$AGY_MODELS"
 
 script="$root/bin/usage.sh"
 run() {  # run <PATH> <arguments>: usage.sh in a folder that is no repository
@@ -123,19 +121,19 @@ check 'agy models was asked'     'models' "$(sed -n 2p "$AGY_CALLS")"
 check 'only the group of the model' "2 0" "$(grep -c '^Claude and GPT models' <<< "$out") $(grep -c 'Gemini' <<< "$out")"
 out="$(agy_run --tool agy --model claude-sonnet-5-5-high)"; rc=$?
 check 'Sonnet is in the same group' 2 "$(grep -c '^Claude and GPT models' <<< "$out")"
-out="$(agy_run --tool agy --model gemini-flash-planted)"; rc=$?
-check 'a Gemini model: its group alone' 2 "$(grep -c '^Gemini Models' <<< "$out")"
+out="$(agy_run --tool agy --model gemini-3.8-flash-high)"; rc=$?
+check 'the real versioned Gemini Flash model: exit 0, its group alone' '0 2' "$rc $(grep -c '^Gemini Models' <<< "$out")"
 echo 'a full group holds its own models, and no other (innocent: the model of the other group)'
 answer 0.92 0.95 0.05 1
 out="$(agy_run --tool agy --model claude-opus-5-5-high)"; rc=$?
 check 'Claude group at 95 % used: exit 3' 3 "$rc"
 check 'what to do'               yes "$(matches '^a window stands at 92 % used or more: finish the step in hand' "$out")"
-out="$(agy_run --tool agy --model gemini-flash-planted)"; rc=$?
+out="$(agy_run --tool agy --model gemini-3.8-flash-high)"; rc=$?
 check 'the Gemini model is not held by the full Claude group: exit 0' 0 "$rc"
 out="$(agy_run --tool agy)"; rc=$?
 check 'no model: every group is judged, exit 3' 3 "$rc"
 mutate 's/(if $model == "" then/(if true then/' 'judging every group'
-out="$(agy_run --tool agy --model gemini-flash-planted)"; rc=$?
+out="$(agy_run --tool agy --model gemini-3.8-flash-high)"; rc=$?
 caught 'a reader that judges every group for a model is caught' 0 "$rc"
 restore
 echo 'a malformed bucket of the other group does not hold the model (it judges only its own group)'
@@ -145,6 +143,9 @@ out="$(AGY_ANSWER="$work/bad.json" agy_run --tool agy --model claude-opus-5-5-hi
 check 'exit 0'                   0 "$rc"
 out="$(AGY_ANSWER="$work/bad.json" agy_run --tool agy)"; rc=$?
 check 'without a model the same answer is refused' 2 "$rc"
+jq '.command.data.groups[0].buckets = []' "$AGY_ANSWER" > "$work/bad.json"
+out="$(AGY_ANSWER="$work/bad.json" agy_run --tool agy --model claude-opus-5-5-high)"; rc=$?
+check 'missing buckets of an unrelated group do not hold the selected model' 0 "$rc"
 echo 'a model that is unknown, unlisted or in two groups is refused'
 out="$(agy_run --tool agy --model nope)"; rc=$?
 check 'a model agy does not list: exit 2' 2 "$rc"
@@ -175,6 +176,10 @@ mutate 's/exit !(u >= s)/exit !(int(100 - u) <= 100 - s)/' 'a limit decided on t
 out="$(agy_run --tool agy)"; rc=$?
 caught 'a limit decided on the share left rounded down is caught' 0 "$rc"
 restore
+answer 0.92 0.95 0.080000001 1
+out="$(agy_run --tool agy)"; rc=$?
+check '8.0000001 % left is still below the limit: exit 0' 0 "$rc"
+answer 0.92 0.95 0.0801 1
 out="$(agy_run --tool agy --stop-at 96)"; rc=$?
 check 'the limit given: 91.99 % used under 96, exit 0' 0 "$rc"
 check 'and named as used'        yes "$(matches ', limit 96 % used$' "$out")"
@@ -220,6 +225,12 @@ mutate 's/\$1 == k && //' 'histories of all windows mixed'
 out="$(agy_run --tool agy)"; rc=$?
 check 'a reader that mixes the histories is caught' wrong "$(grep -Eq '^Gemini Models: five_hour .*  burn (1\.9|2\.0) %/h, ' <<< "$(sed -n 2p <<< "$out")" && echo right || echo wrong)"
 restore
+echo 'JSON escapes in a bucket identity survive the forecast lookup'
+forget; answer 0.92 0.95 0.92 0.2
+jq '.command.data.groups[1].buckets[1].id = "quota\\bucket"' "$AGY_ANSWER" > "$work/escaped.json"
+seed 'Claude and GPT models' 'quota\bucket' 1800 50 "$soon"
+out="$(AGY_ANSWER="$work/escaped.json" agy_run --tool agy)"; rc=$?
+check 'escaped bucket identity keeps its measured burn: exit 4' 4 "$rc"
 echo 'a week that fills before its reset warns and stops nothing; a window at the limit outranks a projection'
 forget; answer 0.92 0.95 0.2 1
 seed 'Claude and GPT models' 3p-weekly 1800 20 "$week_at"
@@ -255,6 +266,12 @@ refuse 'a fraction as text'           'remaining_fraction "0.5" is not a number'
 refuse 'a fraction above 1'           'remaining_fraction 1.5 is not a number from 0 to 1' ".command.data.groups[0].buckets[1].remaining_fraction = 1.5"
 refuse 'a fraction below 0'           'remaining_fraction -0.1 is not a number from 0 to 1' ".command.data.groups[0].buckets[1].remaining_fraction = -0.1"
 refuse 'a reset that is no date'      'Gemini Models/gemini-5h: .*does not match' ".command.data.groups[0].buckets[1].reset_time = \"2026-13-01T00:00:00Z\""
+refuse 'a nonexistent calendar date' 'Gemini Models/gemini-5h: .*calendar' '.command.data.groups[0].buckets[1].reset_time = "2027-02-31T00:00:00Z"'
+forget
+refuse 'a reset at epoch zero' 'Gemini Models/gemini-5h: .*positive epoch second' '.command.data.groups[0].buckets[1].reset_time = "1970-01-01T00:00:00Z"'
+answer 0.92 0.95 0.42 1
+out="$(agy_run --tool agy)"; rc=$?
+check 'a rejected timestamp does not poison the next valid reading' 0 "$rc"
 refuse 'a reset in words'             'Gemini Models/gemini-5h: reset_time "tomorrow" is not a UTC time' ".command.data.groups[0].buckets[1].reset_time = \"tomorrow\""
 refuse 'a reset missing'              'reset_time null is not a UTC time' "del(.command.data.groups[0].buckets[1].reset_time)"
 refuse 'a reset with an offset'       'reset_time "2026-11-01T02:21:43\+00:00" is not a UTC time' ".command.data.groups[0].buckets[1].reset_time = \"2026-11-01T02:21:43+00:00\""
@@ -273,6 +290,9 @@ for raw in '{bad' '' '[]' 'null'; do
   check "an answer of '$raw': exit 2" 2 "$rc"
   check "an answer of '$raw': the reason" yes "$(matches 'the answer of agy -p /usage is not a JSON object' "$out")"
 done
+cat "$sample" "$sample" > "$work/bad.json"
+out="$(AGY_ANSWER="$work/bad.json" agy_run --tool agy)"; rc=$?
+check 'two JSON answers are not one quota response' '2 yes' "$rc $(matches 'one JSON object' "$out")"
 out="$(AGY_FAILURE='not signed in' agy_run --tool agy)"; rc=$?
 check 'agy failing: exit 2'      2 "$rc"
 check 'agy failing: its own reason' yes "$(matches 'agy -p /usage exited 1: not signed in' "$out")"
@@ -312,6 +332,42 @@ check 'eight rows, none torn'    8 "$(awk -F'\t' 'NF == 4 && $3 + 0 == $3 { n++ 
 check 'each bucket twice, with its own share used' \
   '2 ["Claude and GPT models","3p-5h"]=0|2 ["Claude and GPT models","3p-weekly"]=58|2 ["Gemini Models","gemini-5h"]=5|2 ["Gemini Models","gemini-weekly"]=8|' \
   "$(awk -F'\t' '{ print $1 "=" $3 }' "$history_dir"/*.log | LC_ALL=C sort | uniq -c | sed 's/^ *//' | tr '\n' '|')"
+echo 'a reader waits for a concurrent append that has written only half a row'
+mkdir -p "$work/slow-bin"
+export REAL_AWK="$(command -v awk)" HISTORY_WRITE_STARTED="$work/history-write-started"
+cat > "$work/slow-bin/awk" <<'TOOL'
+#!/usr/bin/env bash
+case "$*" in
+  *'-v t='*)
+    if [ "${SLOW_HISTORY_WRITE:-}" = 1 ]; then
+      rows="$("$REAL_AWK" "$@")" || exit
+      printf '%s' "${rows:0:16}"
+      : > "$HISTORY_WRITE_STARTED"
+      sleep 1
+      printf '%s\n' "${rows:16}"
+      exit
+    fi ;;
+esac
+exec "$REAL_AWK" "$@"
+TOOL
+chmod +x "$work/slow-bin/awk"
+forget; answer 0.92 0.95 0.42 1
+( SLOW_HISTORY_WRITE=1 run "$work/slow-bin:$planted" --tool agy > "$work/one.out"; echo $? > "$work/one.rc" ) &
+writer=$!
+for attempt in $(seq 1 100); do [ ! -e "$HISTORY_WRITE_STARTED" ] || break; sleep 0.05; done
+check 'the writer reached its partial append' yes "$([ -e "$HISTORY_WRITE_STARTED" ] && echo yes || echo no)"
+out="$(agy_run --tool agy)"; rc=$?
+wait "$writer"
+check 'both reads finish with usable output' '0 0' "$(cat "$work/one.rc") $rc"
+check 'all rows remain intact after the overlap' 8 "$(awk -F'\t' 'NF == 4 && $3 + 0 == $3 { n++ } END { print n }' "$history_dir"/*.log)"
+check 'the overlap preserves each bucket identity twice' \
+  '2 ["Claude and GPT models","3p-5h"]|2 ["Claude and GPT models","3p-weekly"]|2 ["Gemini Models","gemini-5h"]|2 ["Gemini Models","gemini-weekly"]|' \
+  "$(cut -f1 "$history_dir"/*.log | LC_ALL=C sort | uniq -c | sed 's/^ *//' | tr '\n' '|')"
+echo 'a held history lock has a bounded refusal and does not hold the agy call'
+forget; mkdir -p "$history_dir/.lock"
+out="$(agy_run --tool agy)"; rc=$?
+check 'a held lock: exit 2, naming the lock' '2 yes' "$rc $(matches 'history lock .* still held' "$out")"
+check 'the quota call preceded the history lock' '-p /usage --output-format json' "$(head -n1 "$AGY_CALLS")"
 echo 'a history that cannot be written or read is refused with its reason, and no forecast is made up'
 forget; answer 0.92 0.95 0.92 0.2
 : > "$history_dir"
@@ -325,10 +381,23 @@ out="$(agy_run --tool agy)"; rc=$?
 check 'a malformed line: exit 2' 2 "$rc"
 check 'the reason names file and line' yes "$(matches 'the usage history has a malformed line at .*/[0-9]+\.log:1$' "$out")"
 check 'no window'                0 "$(grep -c '% left' <<< "$out")"
-mutate 's/NF != 4 || \$2 + 0 != \$2 || \$3 + 0 != \$3 || \$4 + 0 != \$4/0/' 'a history read without a check'
+forget; seed 'Claude and GPT models' 3p-5h 1800 -10 "$soon"
+mutate 's/NF != 4 ||[^{}]* {/0 {/' 'a history read without a check'
 out="$(agy_run --tool agy)"; rc=$?
 caught 'a history read without a check is caught' 2 "$rc"
 restore
+forget
+
+echo 'a malformed numeric history is not a measured forecast'
+answer 0.92 0.95 0.92 0.2
+seed 'Claude and GPT models' 3p-5h 1800 -10 "$soon"
+out="$(agy_run --tool agy)"; rc=$?
+check 'a negative share in history: exit 2' 2 "$rc"
+forget
+mkdir -p "$history_dir"
+printf 'broken-key\t%s\t10\t%s\n' "$((now - 1800))" "$soon" > "$history_dir/$((now / 86400)).log"
+out="$(agy_run --tool agy)"; rc=$?
+check 'a broken history identity: exit 2 with its reason' '2 yes' "$rc $(matches 'invalid group/bucket key' "$out")"
 forget
 
 echo 'which tool is read: an explicit one wins, agy is no longer read as Claude, an unsupported one is refused'

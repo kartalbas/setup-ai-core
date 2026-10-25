@@ -74,9 +74,9 @@ earlier. The round is the net under them: it finds what none of them reported.
 
 ## The usage limit
 
-`ai-core usage --tool claude` reads Claude's last recorded five-hour and weekly windows with their
-reset times, even when the calling shell carries another tool's variables; exit 3 means one stands
-at `USAGE_STOP_AT` or above, and exit 4 that the five-hour window reaches it before its reset at the
-burn measured from `~/.ai-core/usage.log`. One model's own weekly quota is not among the windows: a
+`ai-core usage --tool claude` reads Claude's last recorded five-hour and weekly windows, shown as
+percent used, with their reset times, even when the calling shell carries another tool's variables;
+exit 3 means one stands at `USAGE_STOP_AT` or above, and exit 4 that the five-hour window reaches it
+before its reset at the burn measured from `~/.ai-core/usage.log`. One model's own weekly quota is not among the windows: a
 session's limit error for a model, or the owner naming its percentage, counts as that limit for that
 model's phases.

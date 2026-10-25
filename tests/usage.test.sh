@@ -71,9 +71,9 @@ touch -t 202601020000 "$sessions/rollout-new.jsonl"   # the newest file below ha
 printf '{"timestamp":"2026-10-13T07:11:00.000Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":null,"secondary":null}}}\n' > "$sessions/rollout-newest.jsonl"
 out="$(cd "$work/project" && CODEX_THREAD_ID=t bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'exit 0, Claude at 99 % does not count'  0 "$rc"
-check 'the week'                 yes "$(matches "^seven_day    7 % used  resets $(when "$later"), in (23 h 59 min|24 h 0 min)  burn unmeasured$" "$(sed -n 1p <<< "$out")")"
-check 'the five hours'           yes "$(matches "^five_hour   12 % used  resets $(when "$soon"), in (59 min|1 h 0 min)  burn unmeasured$" "$(sed -n 2p <<< "$out")")"
-check 'when Codex recorded it'   "recorded $(when "$(jq -n '"2026-10-13T07:09:45Z" | fromdateiso8601')"), limit 92 %" "$(sed -n 3p <<< "$out")"
+check 'the week, as what is left' yes "$(matches "^seven_day   93 % left  resets $(when "$later"), in (23 h 59 min|24 h 0 min)  burn unmeasured$" "$(sed -n 1p <<< "$out")")"
+check 'the five hours'           yes "$(matches "^five_hour   87 % left  resets $(when "$soon"), in (59 min|1 h 0 min)  burn unmeasured$" "$(sed -n 2p <<< "$out")")"
+check 'when Codex recorded it, the limit as used' "recorded $(when "$(jq -n '"2026-10-13T07:09:45Z" | fromdateiso8601')"), limit 92 % used" "$(sed -n 3p <<< "$out")"
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'no Codex shell: Claude at 99 %, exit 3'  3 "$rc"
 echo 'an explicit selector reads the destination account despite inherited identity'
@@ -81,7 +81,7 @@ out="$(cd "$work/project" && CLAUDECODE=1 bash "$root/bin/usage.sh" --tool codex
 check 'explicit Codex below, Claude at 99' 0 "$rc"
 out="$(cd "$work/project" && CODEX_THREAD_ID=t CODEX_SANDBOX=fixture CODEX_SANDBOX_NETWORK_DISABLED=1 bash "$root/bin/usage.sh" --tool claude 2>&1)"; rc=$?
 check 'explicit Claude at limit' 3 "$rc"
-for flag in '--tool' '--tool agy' '--tool unknown' '--tool --stop-at 92'; do
+for flag in '--tool' '--tool gemini' '--tool unknown' '--tool --stop-at 92' '--model' '--model --stop-at 92'; do
   out="$(cd "$work/project" && bash "$root/bin/usage.sh" $flag 2>&1)"; rc=$?
   check "invalid selector $flag" 2 "$rc"
 done
@@ -107,7 +107,7 @@ reading() { printf '{"timestamp":"%s","type":"event_msg","payload":{"type":"toke
 { reading "$((now - 1800))" 50; reading "$now" 80; } > "$sessions/rollout-burn.jsonl"
 out="$(cd "$work/project" && CODEX_THREAD_ID=t bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'Codex projected to its limit: exit 4'  4 "$rc"
-check 'the burn and the hour'    yes "$(matches "^five_hour   80 % used  resets .*  burn 60.0 %/h, 92 % at $(when "$((now + 720))")$" "$(sed -n 1p <<< "$out")")"
+check 'the burn and the hour, as what is left' yes "$(matches "^five_hour   20 % left  resets .*  burn 60.0 %/h, 8 % left at $(when "$((now + 720))")$" "$(sed -n 1p <<< "$out")")"
 rm -rf "$HOME/.codex"
 out="$(cd "$work/project" && CODEX_THREAD_ID=t bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'no Codex session file: exit 2'  2 "$rc"
@@ -148,6 +148,62 @@ sed 's/projected=1/projected=0/' "$root/bin/usage.sh" > "$work/mutant/bin/usage.
 history 50 "$soon" 10 80 10
 out="$(cd "$work/project" && bash "$work/mutant/bin/usage.sh" 2>&1)"; rc=$?
 check 'a mutant that ignores the projection is caught' 0 "$rc"
+
+echo 'a record without a usable reading is exit 2 with the reason, never a window at 0 %'
+claude_record() {  # claude_record <what the status line recorded>: the answer of usage in $out and $rc
+  printf '%s\n' "$1" > "$HOME/.ai-core/usage.json"
+  out="$(cd "$work/project" && bash "$script" 2>&1)"; rc=$?
+}
+script="$root/bin/usage.sh"
+window="\"resets_at\":$later"
+refused_claude() {  # refused_claude <name> <reason> <record>
+  claude_record "$3"
+  check "Claude, $1: exit 2" 2 "$rc"
+  check "Claude, $1: the reason" yes "$(matches "$2" "$out")"
+  check "Claude, $1: no window" 0 "$(grep -c '% used' <<< "$out")"
+}
+refused_claude 'a window without used_percentage' 'the window five_hour has no number for used_percentage or resets_at' "{\"recorded_at\":$now,\"rate_limits\":{\"five_hour\":{$window}}}"
+refused_claude 'a window without resets_at' 'the window five_hour has no number for used_percentage or resets_at' "{\"recorded_at\":$now,\"rate_limits\":{\"five_hour\":{\"used_percentage\":5}}}"
+refused_claude 'a percentage as text' 'the window seven_day has no number' "{\"recorded_at\":$now,\"rate_limits\":{\"seven_day\":{\"used_percentage\":\"5\",$window}}}"
+refused_claude 'rate_limits empty' 'rate_limits holds no window' "{\"recorded_at\":$now,\"rate_limits\":{}}"
+refused_claude 'rate_limits missing' 'rate_limits holds no window' "{\"recorded_at\":$now}"
+refused_claude 'a window that is null only' 'rate_limits holds no window' "{\"recorded_at\":$now,\"rate_limits\":{\"five_hour\":null}}"
+refused_claude 'no recorded_at' 'recorded_at is not a number' "{\"rate_limits\":{\"five_hour\":{\"used_percentage\":5,$window}}}"
+refused_claude 'a file that is no JSON' 'usage.json' 'five_hour 5'
+claude_record "{\"recorded_at\":$now,\"rate_limits\":{\"seven_day\":null,\"five_hour\":{\"used_percentage\":5,$window}}}"
+check 'Claude, a null window beside a usable one (innocent): exit 0' 0 "$rc"
+check 'Claude, the usable window alone' 1 "$(grep -c '^five_hour    5 % used' <<< "$out")"
+sed 's/all(type == "number")/all(true)/g' "$root/bin/usage.sh" > "$work/mutant/bin/usage.sh"
+script="$work/mutant/bin/usage.sh"
+claude_record "{\"recorded_at\":$now,\"rate_limits\":{\"five_hour\":{$window}}}"
+check 'a reader that lets a missing percentage through is caught' yes "$([ "$rc" != 2 ] && echo yes || echo no)"
+script="$root/bin/usage.sh"
+codex_record() {  # codex_record <a line of Codex's session file>
+  rm -rf "$HOME/.codex"; mkdir -p "$sessions"
+  printf '%s\n' "$1" > "$sessions/rollout-record.jsonl"
+  out="$(cd "$work/project" && CODEX_THREAD_ID=t bash "$script" 2>&1)"; rc=$?
+}
+codex_with() { printf '{"timestamp":"2026-10-13T07:09:45.777Z","payload":{"rate_limits":{"primary":%s,"secondary":null}}}' "$1"; }
+refused_codex() {  # refused_codex <name> <reason> <record>
+  codex_record "$3"
+  check "Codex, $1: exit 2" 2 "$rc"
+  check "Codex, $1: the reason" yes "$(matches "$2" "$out")"
+  check "Codex, $1: no window" 0 "$(grep -c '% left' <<< "$out")"
+}
+refused_codex 'a window without used_percent' 'a window without a number for used_percent, window_minutes or resets_at' "$(codex_with "{\"window_minutes\":300,\"resets_at\":$soon}")"
+refused_codex 'a window without window_minutes' 'a window without a number' "$(codex_with "{\"used_percent\":5,\"resets_at\":$soon}")"
+refused_codex 'a window without resets_at' 'a window without a number' "$(codex_with '{"used_percent":5,"window_minutes":300}')"
+refused_codex 'a record cut off while Codex writes it' 'jq|parse|Unfinished|error' '{"timestamp":"2026-10-13T07:09:45.777Z","payload":{"rate_limits":{"primary":{"used_percent":5'
+refused_codex 'a record without a timestamp' 'no usable timestamp' '{"payload":{"rate_limits":{"primary":{"used_percent":5,"window_minutes":300,"resets_at":1},"secondary":null}}}'
+codex_record "$(codex_with "{\"used_percent\":5,\"window_minutes\":300,\"resets_at\":$soon}")"
+check 'Codex, a complete window beside a null one (innocent): exit 0' 0 "$rc"
+check 'Codex, its window'        1 "$(grep -c '^five_hour   95 % left' <<< "$out")"
+sed 's/all(type == "number")/all(true)/g' "$root/bin/usage.sh" > "$work/mutant/bin/usage.sh"
+script="$work/mutant/bin/usage.sh"
+codex_record "$(codex_with "{\"window_minutes\":300,\"resets_at\":$soon}")"
+check 'a reader that lets a missing used_percent through is caught' yes "$([ "$rc" != 2 ] && echo yes || echo no)"
+script="$root/bin/usage.sh"
+rm -rf "$HOME/.codex"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

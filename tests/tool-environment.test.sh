@@ -79,16 +79,23 @@ mkdir -p "$AI_CORE_HOME/.ai-core" "$CODEX_HOME/sessions/2026/10/18"
 reset_at=$(( $(date +%s) + 3600 ))
 printf '{"recorded_at":%s,"rate_limits":{"seven_day":{"used_percentage":99,"resets_at":%s}}}\n' "$(date +%s)" "$reset_at" > "$AI_CORE_HOME/.ai-core/usage.json"
 printf '{"timestamp":"%s","payload":{"rate_limits":{"primary":{"used_percent":7,"window_minutes":10080,"resets_at":%s},"secondary":null}}}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$reset_at" > "$CODEX_HOME/sessions/2026/10/18/rollout-fixture.jsonl"
+mkdir -p "$work/agy-bin"
+reset_stamp="$(date -u -d "@$reset_at" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -r "$reset_at" '+%Y-%m-%dT%H:%M:%SZ')"
+cat > "$work/agy-bin/agy" <<TOOL
+#!/usr/bin/env bash
+echo '{"status":"SUCCESS","command":{"data":{"groups":[{"name":"Fixture models","description":"Models within this group: Fixture","buckets":[{"id":"fixture-weekly","window":"weekly","remaining_fraction":0.9,"reset_time":"$reset_stamp"}]}]}}}'
+TOOL
+chmod +x "$work/agy-bin/agy"
 consumer_identity() {  # consumer_identity <command> <variable> <expected tool>
   local consumer="$1" variable="$2" expected="$3" result rc=0 want=3
   result="$(
     . "$copy/tests/tool-environment.sh"
     case "$expected" in codex|agy) export CLAUDECODE=parent ;; esac
-    export "$variable=fixture"
-    TEAM_MODES_FILE="$work/modes" bash "$copy/bin/$consumer.sh" ${consumer_args[@]+"${consumer_args[@]}"}
+    export "$variable=fixture" PATH="$work/agy-bin:$PATH"
+    TEAM_MODES_FILE="$work/modes" bash "$copy/bin/$consumer.sh" ${consumer_args[@]+"${consumer_args[@]}"} 2>&1
   )" || rc=$?
   if [ "$consumer" = usage ]; then
-    [ "$expected" != codex ] || want=0
+    case "$expected" in codex|agy) want=0 ;; gemini) want=2 ;; esac
     [ "$rc" = "$want" ]
   else
     [ "$rc" = 0 ] && grep -qF "team modes: all 1 present for: $expected" <<< "$result"

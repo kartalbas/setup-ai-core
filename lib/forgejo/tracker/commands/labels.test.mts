@@ -85,6 +85,11 @@ describe('issue-priority and issue-status', () => {
     assert.deepEqual([number, other].map((n) => fake.readIssue('o/r', n).labels.filter((label) => label.startsWith('priority/'))), [['priority/p3'], ['priority/p3']]);
   });
 
+  it('changes no priority when one of several issues does not exist (planted)', async () => {
+    await assert.rejects(issueLabel.runPriority(['o/r', String(number), '99999', 'P3'], context));
+    assert.deepEqual(fake.readIssue('o/r', number).labels.filter((label) => label.startsWith('priority/')), ['priority/p1']);
+  });
+
   it('changes only the status of an open issue', async () => {
     await issueStatus.run(['o/r', String(number), 'implementing'], context);
     assert.deepEqual(fake.readIssue('o/r', number).labels.sort(), ['area/gate', 'priority/p1', 'status/implementing']);

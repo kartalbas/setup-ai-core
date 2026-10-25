@@ -48,10 +48,8 @@ export async function runPriority(args: readonly string[], context: CommandConte
   refuseExtra(extra, PRIORITY_USAGE);
   const label = priorityLabel(parsePriority(priorityText));
   const api = context.api();
-  const lines: string[] = [];
-  for (const ref of refs) {
-    await replaceFamilyLabel(api, ref, await getIssue(api, ref), label);
-    lines.push(`${formatIssue(ref)} -> ${label}`);
-  }
-  return succeeded(lines);
+  const issues = [];
+  for (const ref of refs) issues.push(await getIssue(api, ref));
+  for (const issue of issues) await replaceFamilyLabel(api, issue.ref, issue, label);
+  return succeeded(issues.map((issue) => `${formatIssue(issue.ref)} -> ${label}`));
 }

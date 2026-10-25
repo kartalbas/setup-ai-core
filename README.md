@@ -432,7 +432,8 @@ on start; no developer installs a skill by hand.
     `done`; a question that is the owner's puts `needs:owner` on its issues.
   - At the usage limit every session using that limited account or model finishes its step, commits,
     reports and waits for the reset; the coordinator checks the selected tool with
-    `ai-core usage --tool claude` or `ai-core usage --tool codex` before starting its phase.
+    `ai-core usage --tool claude`, `ai-core usage --tool codex` or
+    `ai-core usage --tool agy --model MODEL` before starting its phase.
     Asked for the state, the coordinator builds one page from `ai-core status`.
 - `helper` hands a bounded task inside a phase, such as a pre-review of a diff, facts across
   repositories, a log or a screenshot, to the small model of the session's own tool, the `helper`

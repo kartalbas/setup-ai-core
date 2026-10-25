@@ -33,7 +33,7 @@ plane_call() {
     http_call PLANE_TOKEN_COMMAND X-API-Key "" "$1" "$(plane_setting PLANE_URL | sed 's|/*$||')$2" "${3:-}"
     plane_status="$http_status"; plane_body="$http_body"; plane_headers="$http_headers"
     [ "$plane_status" = 429 ] || return 0
-    reset="$(printf '%s\n' "$plane_headers" | tr -d '\r' | awk 'tolower($1) == "x-ratelimit-reset:" { print $2; exit }')"
+    reset="$(awk 'tolower($1) == "x-ratelimit-reset:" { print $2; exit }' <<< "${plane_headers//$'\r'/}")"
     case "$reset" in ''|*[!0-9]*) wait=60 ;; *) wait=$(( reset - $(date +%s) + 1 )) ;; esac
     [ "$wait" -ge 1 ] || wait=1
     if [ "$try" -ge "$PLANE_RATE_RETRIES" ]; then

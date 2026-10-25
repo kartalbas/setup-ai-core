@@ -72,7 +72,7 @@ echo "==> doctor: $OS, package manager: ${PM:-none}"
 # Git
 if ! command -v git >/dev/null 2>&1; then install_tool git git git || true; fi
 if command -v git >/dev/null 2>&1; then
-  report git present "$(git --version 2>/dev/null | head -1)"
+  report git present "$(git --version 2>/dev/null | sed -n 1p)"
 else
   report git MISSING "install Git from https://git-scm.com"; problem
 fi
@@ -89,7 +89,7 @@ elif [ "$tracker" = forgejo ]; then
   if ! command -v node >/dev/null 2>&1; then
     report tracker MISSING "the Forgejo tracker runs in Node; install a Node.js that runs .mts files without a flag, from https://nodejs.org"; problem
   elif ! tracker_version="$(node "$HARNESS_ROOT/lib/forgejo/tracker/cli.mts" --version 2>&1)"; then
-    report tracker "cannot run" "node $(node -v 2>/dev/null) does not run lib/forgejo/tracker/cli.mts without a flag: $(printf '%s' "$tracker_version" | grep -m1 . || echo 'no message')"; problem
+    report tracker "cannot run" "node $(node -v 2>/dev/null) does not run lib/forgejo/tracker/cli.mts without a flag: $(grep -m1 . <<< "$tracker_version" || echo 'no message')"; problem
   else
     report tracker present "$tracker_version"
     tracker_lines="$( (forgejo_tracker_exec doctor) 2>&1 || true )"
@@ -132,7 +132,7 @@ fi
 # jq: every board and issue command reads GitHub's answers through it
 if ! command -v jq >/dev/null 2>&1; then install_tool jq jq jq || true; fi
 if command -v jq >/dev/null 2>&1; then
-  report jq present "$(jq --version 2>/dev/null | head -1)"
+  report jq present "$(jq --version 2>/dev/null | sed -n 1p)"
 else
   report jq MISSING "install jq from https://jqlang.github.io/jq"; problem
 fi
@@ -211,7 +211,7 @@ done
 # An agent definition of this machine that names a model below Sonnet
 for f in "$HOME"/.claude/agents/*.md; do
   [ -f "$f" ] || continue
-  m="$(sed -n '2,/^---/{s/^model:[[:space:]]*//p;}' "$f" | head -n1 | tr -d "\r\"'")"
+  m="$(sed -n '2,/^---/{s/^model:[[:space:]]*//p;}' "$f" | sed -n 1p | tr -d "\r\"'")"
   case "$(tr '[:upper:]' '[:lower:]' <<< "$m")" in *haiku*) report agent "below Sonnet" "$f names the model $m" ;; esac
 done
 

@@ -35,7 +35,7 @@ rows="$(board_views "$project")" || exit 1
 
 # The filter uses the same syntax the board's own filter box takes. Several repos are
 # one comma-separated repo: term, which is an OR.
-view_id="$(printf '%s\n' "$rows" | awk -F'\t' -v v="$view" '$1==v {print $2; exit}')"
+view_id="$(awk -F'\t' -v v="$view" '$1==v {print $2; exit}' <<< "$rows")"
 [ -n "$view_id" ] || die "project $project has no view named '$view'. It has: $(printf '%s\n' "$rows" | cut -f1 | paste -sd' ' -)"
 
 if [ -n "$do_clear" ]; then

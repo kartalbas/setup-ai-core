@@ -31,7 +31,7 @@ DEFECTS="$W/defects.tsv"
   printf '%s\t' bin/status-sync.sh 's/\[ "\$word" = "\$environment" \] \&\&/[ "${word#"$environment"}" != "$word" ] \&\&/'
   printf '%s\t%s\n' status-sync.test.sh 'has no proof that qualifies'
   printf '%s\t' 'one repository is given the delivery another one was answered'
-  printf '%s\t' bin/status-sync.sh '/_DELIVERIES" | awk/s/tolower(\$1) == tolower(r)/1/'
+  printf '%s\t' bin/status-sync.sh '/_DELIVERIES")/s/tolower(\$1) == tolower(r)/1/'
   printf '%s\t%s\n' status-sync.test.sh 'a successful run of the commit'
   printf '%s\t' 'a fetch that failed is ignored, and the commits of the refs the clone had are compared'
   printf '%s\t' bin/status-sync.sh '/\[ -z "\$fetch_failed" \] || REL_ERROR=/d'

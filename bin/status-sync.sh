@@ -168,7 +168,7 @@ first_environment() {  # <config.env>
 _RELEASES=''
 release_of() {  # <owner/repo>
   local held said reason remote word pattern t want folder_config odd="" fetch_failed="" from_folder=""
-  held="$(printf '%s' "$_RELEASES" | awk -F'\t' -v r="$1" 'tolower($1) == tolower(r) { print; exit }')"
+  held="$(awk -F'\t' -v r="$1" 'tolower($1) == tolower(r) { print; exit }' <<< "$_RELEASES")"
   if [ -n "$held" ]; then
     IFS=$'\t' read -r _ REL_CLONE REL_REF REL_TAG REL_LANDED REL_NOTAG REL_ENV REL_PATTERN REL_COMMAND REL_ERROR <<< "$held"
     [ "$REL_CLONE" != - ] || REL_CLONE=""; [ "$REL_REF" != - ] || REL_REF=""; [ "$REL_TAG" != - ] || REL_TAG=""
@@ -182,7 +182,7 @@ release_of() {  # <owner/repo>
   else
     # Without -q, because a quiet fetch that refuses to move a tag gives no reason at all
     if ! said="$(GIT_TERMINAL_PROMPT=0 git -C "$REL_CLONE" fetch --tags origin 2>&1)"; then
-      reason="$(printf '%s\n' "$said" | grep -m1 -E '^(error|fatal):|^ ! ' | tr -s ' ' | sed 's/^ //' || true)"
+      reason="$(grep -E '^(error|fatal):|^ ! ' <<< "$said" | sed -n '1{s/  */ /g;s/^ //;p;}' || true)"
       fetch_failed="fetching origin of $1 in $REL_CLONE failed: ${reason:-git gave no reason}"
       echo "$fetch_failed; the refs it had are read"
     fi
@@ -234,7 +234,7 @@ delivery_of() {  # <owner/repo>
   local held
   REL_DELIVERED=""; REL_AT=""; REL_INSTANT=""; REL_SOURCE=""
   [ -z "$REL_ERROR" ] || return 0
-  held="$(printf '%s' "$_DELIVERIES" | awk -F'\t' -v r="$1" 'tolower($1) == tolower(r) { print; exit }')"
+  held="$(awk -F'\t' -v r="$1" 'tolower($1) == tolower(r) { print; exit }' <<< "$_DELIVERIES")"
   if [ -n "$held" ]; then
     IFS=$'\t' read -r _ REL_DELIVERED REL_AT REL_INSTANT REL_SOURCE REL_ERROR <<< "$held"
     [ "$REL_DELIVERED" != - ] || REL_DELIVERED=""; [ "$REL_AT" != - ] || REL_AT=""; [ "$REL_INSTANT" != - ] || REL_INSTANT=""

@@ -65,7 +65,7 @@ live_release_read() {
   fi
   run_split live_release_run "$clone" "$reader" "$repo" "$environment" || rc=$?
   if [ "$rc" -ne 0 ]; then
-    first="$(printf '%s\n' "$split_err" | grep -m1 -v '^[[:space:]]*$' || true)"
+    first="$(awk '/[^[:space:]]/ {print; exit}' <<< "$split_err")"
     LIVE_RELEASE_ERROR="the reader $reader exited $rc for $repo $environment: ${first:-it said nothing}"
     return 1
   fi

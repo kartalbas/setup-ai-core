@@ -407,7 +407,7 @@ remove_board_item() {  # remove_board_item <owner/repo> <number>
   # The board is read whole first: a refusal reaching the match below would come out as "the issue
   # was not on the board", which is an answer about the board and the board did not answer.
   rows="$(board_items)" || exit 1
-  item="$(printf '%s\n' "$rows" | awk -F'\t' -v r="$1" -v n="$2" '$2==r && $3==n {print $1; exit}')"
+  item="$(awk -F'\t' -v r="$1" -v n="$2" '$2==r && $3==n {print $1; exit}' <<< "$rows")"
   [ -n "$item" ] || return 1
   gh api graphql -f pid="$(project_id)" -f iid="$item" -f query='
     mutation($pid:ID!, $iid:ID!) {

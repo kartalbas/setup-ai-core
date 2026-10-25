@@ -95,7 +95,7 @@ if [ -n "$body" ] && ! is_origin_line "${given%$'\r'}"; then
   current="$(issue_body "$repo" "$num")" || exit 1
   # GitHub writes a body back with CRLF line endings, and the carriage return would travel into
   # the line being put back.
-  first="$(printf '%s' "$current" | head -n 1)"
+  first="${current%%$'\n'*}"
   first="${first%$'\r'}"
   if is_origin_line "$first"; then
     send="$(mktemp)" || die "issue-edit: cannot create temporary body file"

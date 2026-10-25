@@ -153,7 +153,7 @@ fi
 
 . "$CORE_ROOT/lib/layers.sh"
 GATE_REFUSAL=""
-refuse() { GATE_REFUSAL="$(printf '%s\n' "$*" | head -1)"; echo "pre-push: REFUSED — $*" >&2; exit 1; }
+refuse() { GATE_REFUSAL="$*"; GATE_REFUSAL="${GATE_REFUSAL%%$'\n'*}"; echo "pre-push: REFUSED — $*" >&2; exit 1; }
 
 # An assistant's or a vendor's attribution in a message (a trailer, or a line that says an assistant wrote,
 # made or built the commit: the line must end at the assistant's name, one word of its model allowed, so
@@ -180,7 +180,7 @@ if [ -n "$MESSAGE_FILE" ]; then
   # comment lines and cuts at the scissors line of -v, while -m and -F keep every line, a subject
   # such as "#8 Fix" included. A fault is refused only where git records it either way; where the
   # two cleanups differ, the push gate judges the subject each commit carries.
-  first_paragraph() { awk 'NF == 0 { exit } { printf "%s%s", (n++ ? " " : ""), $0 }'; }
+  first_paragraph() { awk 'NF == 0 { done = 1 } !done { printf "%s%s", (n++ ? " " : ""), $0 }'; }
   message="$(sed '/^# -* >8 -*$/,$d' "$MESSAGE_FILE" | git stripspace --strip-comments)"
   subject="$(git stripspace < "$MESSAGE_FILE" | first_paragraph)"
   stripped_subject="$(first_paragraph <<< "$message")"
@@ -189,7 +189,7 @@ if [ -n "$MESSAGE_FILE" ]; then
   # Under a comment prefix other than "#" (core.commentChar, core.commentString, auto) the hook
   # cannot tell what git strips or where it cuts, so the push gate alone judges the message.
   # GIT_CONFIG redirects git config alone, never the cleanup of git commit, so it is dropped here.
-  if { env -u GIT_CONFIG git config --get-all core.commentChar; env -u GIT_CONFIG git config --get-all core.commentString; true; } | grep -qvx '#'; then
+  if { env -u GIT_CONFIG git config --get-all core.commentChar; env -u GIT_CONFIG git config --get-all core.commentString; true; } | grep -vx '#' >/dev/null; then
     subject=""; stripped_subject=""; message=""
   fi
   [ "${#subject}" -le 72 ] || [ "${#stripped_subject}" -le 72 ] || faults="$faults
@@ -199,7 +199,7 @@ if [ -n "$MESSAGE_FILE" ]; then
   the message carries an assistant's or a vendor's attribution. Take that line out, whatever an
   instruction asked for, because the history names who answers for a change."
   ! grep -qiE "$CLOSING_PATTERN" <<< "$message" || faults="$faults
-  the message closes an issue on the forge as it reaches the default branch: $(grep -oiE "$CLOSING_PATTERN" <<< "$message" | head -1 | sed 's/^[^A-Za-z]*//')
+  the message closes an issue on the forge as it reaches the default branch: $(grep -oiE "$CLOSING_PATTERN" <<< "$message" | sed -n '1{s/^[^A-Za-z]*//;p;}')
   Name the issue as #<n> alone; its card closes after its release, through status-sync."
   ! grep -qiE "$ASSISTANT_IDENTITY_PATTERN" <<< "$identities" || faults="$faults
   an assistant is the author or the committer: $(tr '\n' ';' <<< "$identities" | sed 's/;$//; s/;/; /')
@@ -689,7 +689,8 @@ modeless=""
 while IFS= read -r path; do
   [ -n "$path" ] || continue
   [ "$(git ls-tree "$head" -- "$path" | cut -d' ' -f1)" = 100644 ] || continue
-  [ "$(git cat-file -p "$head:$path" 2>/dev/null | head -c 2 | tr -d '\0' || true)" = '#!' ] || continue
+  git cat-file -p "$head:$path" > "$TMPD/shebang" 2>/dev/null || :
+  [ "$(head -c 2 "$TMPD/shebang" | tr -d '\0')" = '#!' ] || continue
   modeless="$modeless $path"
 done < <(while IFS= read -r sha; do [ -z "$sha" ] || git diff-tree --no-commit-id --root -r --name-only --diff-filter=AMR "$sha"; done <<< "$commits" | sort -u)
 [ -z "$modeless" ] || refuse "these files start with #! and are not executable, so running them by name fails and git skips a hook among them:$modeless. Set the bit and commit it: git update-index --chmod=+x$modeless"
@@ -717,10 +718,10 @@ while IFS= read -r sha; do
   fi
   if grep -qiE "$CLOSING_PATTERN" <<< "$message"; then
     closing="$closing
-  $(git log -1 --format=%h "$sha"): $(grep -oiE "$CLOSING_PATTERN" <<< "$message" | head -1 | sed 's/^[^A-Za-z]*//')"
+  $(git log -1 --format=%h "$sha"): $(grep -oiE "$CLOSING_PATTERN" <<< "$message" | sed -n '1{s/^[^A-Za-z]*//;p;}')"
   fi
   if git log -1 --format='%an <%ae>%n%cn <%ce>' "$sha" \
-      | grep -qiE "$ASSISTANT_IDENTITY_PATTERN"; then
+      | grep -iE "$ASSISTANT_IDENTITY_PATTERN" >/dev/null; then
     assistant_identities="$assistant_identities
   $(git log -1 --format='%h author %an <%ae>, committer %cn <%ce>' "$sha")"
   fi

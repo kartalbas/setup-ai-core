@@ -219,7 +219,7 @@ if [ -n "$ISSUE_NAMED" ]; then
   ISSUE_REPO="$(jq -r '.repository' <<< "$WORKTREE_ISSUE")"
   WORKTREE_ERROR="$(jq -r '.error' <<< "$WORKTREE_ISSUE")"
   if [ -n "$WORKTREE_ERROR" ]; then
-    ISSUE="$ISSUE_NAMED"; ISSUE_UNREAD="$(printf '%s\n' "$WORKTREE_ERROR" | grep -m1 . || true)"
+    ISSUE="$ISSUE_NAMED"; ISSUE_UNREAD="$(grep -m1 . <<< "$WORKTREE_ERROR" || true)"
     THREAD="The work item of ${ISSUE_REPO}#$ISSUE could not be told: $WORKTREE_ERROR"
   elif [ -z "$ISSUE" ]; then
     ISSUE="$ISSUE_NAMED"; ISSUE_UNREAD="this worktree $(jq -r '.reason' <<< "$WORKTREE_ISSUE")"
@@ -234,7 +234,7 @@ if [ -n "$ISSUE_NAMED" ]; then
       .body,
       (.comments[] | "", "--- \(.author) \(.created_at)", .body)')"
   else
-    ISSUE_UNREAD="$(printf '%s\n' "$THREAD_JSON" | grep -m1 . || true)"
+    ISSUE_UNREAD="$(grep -m1 . <<< "$THREAD_JSON" || true)"
     THREAD="The thread of ${ISSUE_REPO}#$ISSUE could not be read: $THREAD_JSON"; THREAD_JSON="null"
   fi
   if [ -z "$WORKTREE_ERROR" ] && [ -n "$(jq -r '.workItem' <<< "$WORKTREE_ISSUE")" ]; then
@@ -336,7 +336,7 @@ echo "=================================================="
 if [ "$DIRTY_COUNT" -gt 0 ]; then
   echo "warning: Working directory has $DIRTY_COUNT uncommitted changes:"
   if [ "$TOOL_N" -eq 1 ] && [ "$as_json" -eq 0 ]; then
-    git status --short | head -n 20 || true
+    git status --short | sed -n 1,20p || true
     [ "$DIRTY_COUNT" -le 20 ] || echo "... and $((DIRTY_COUNT - 20)) more (git status)"
   else
     git status --short

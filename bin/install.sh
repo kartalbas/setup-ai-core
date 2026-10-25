@@ -52,7 +52,7 @@ else
   mkdir -p "$(dirname "$DIR")"
   git clone --quiet "$REPO_URL" "$DIR"
   # The newest release, when there is one: what is not tagged reaches nobody
-  TAG="$(git -C "$DIR" tag --list 'v[0-9]*' --sort=-v:refname | head -n1)"
+  TAG="$(git -C "$DIR" tag --list 'v[0-9]*' --sort=-v:refname | sed -n 1p)"
   if [ -n "$TAG" ]; then git -C "$DIR" checkout --quiet "$TAG"; echo "==> release $TAG"; else echo "==> no release yet; on $(git -C "$DIR" symbolic-ref --short -q HEAD)"; fi
 fi
 chmod +x "$DIR/bin/ai-core" "$DIR"/bin/*.sh

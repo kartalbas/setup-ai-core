@@ -496,7 +496,7 @@ if [ -n "$LAYERS" ]; then
       else
         src="$INNER/repos/$REPO_NAME/$rel"
         # A generated map gets the binding rules on top once the rules are assembled (1a below)
-        if [ "$rel" = AGENTS.md ] && head -n1 "$src" | grep -q '^<!-- ai-core map:'; then MAP_SRC="$src"; else put "$src" "$rel" managed; [ "$rel" = AGENTS.md ] && AGENTS_SRC="$src"; fi
+        if [ "$rel" = AGENTS.md ] && grep -q '^<!-- ai-core map:' <<< "$(head -n1 "$src")"; then MAP_SRC="$src"; else put "$src" "$rel" managed; [ "$rel" = AGENTS.md ] && AGENTS_SRC="$src"; fi
         DEPLOYED="$DEPLOYED $rel"
       fi
       LAYER_FILES="$LAYER_FILES $rel"
@@ -822,7 +822,7 @@ fi
 #     written over or removed; a part of init's own that is no longer written is removed.
 AGY_PART_BYTES=24000
 AGY_NOTE=""
-agy_part_ours() { head -n 3 "$1" 2>/dev/null | grep -q '^description: the binding rules setup-ai-core '; }
+agy_part_ours() { grep -q '^description: the binding rules setup-ai-core ' <<< "$(head -n 3 "$1" 2>/dev/null)"; }
 agy_part_tracked() { git -C "$TARGET" ls-files --error-unmatch "$1" >/dev/null 2>&1; }
 mkdir -p "$TMP/agy-rules"
 if serves antigravity && [ -n "$AGENTS_SRC" ]; then

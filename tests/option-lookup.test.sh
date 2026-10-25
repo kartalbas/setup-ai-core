@@ -20,7 +20,10 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$(mktemp -d)"
+export HOME="$WORK/home" AI_CORE_HOME="$WORK/ai-core-home"
+mkdir -p "$HOME" "$AI_CORE_HOME"
 export GH_CACHE_DIRECTORY="$WORK/cache"
+export GH_ORG=example-org
 PROJECT_NUMBER=999998
 failed=0
 
@@ -34,6 +37,7 @@ check() { # name expected actual
 
 . "$ROOT/lib/board.sh"
 PROJECT="$PROJECT_NUMBER"
+PROJECT_ORG="$GH_ORG"
 
 # The cache the lookups read, written directly. The option names are this organisation's own,
 # lower-case, which is the whole reason the first property matters.
@@ -52,7 +56,7 @@ EOF
 # other call as the mutation it would be.
 printf '%s\n' PVT_test > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/project-id"
 cp "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv" "$WORK/board.tsv"
-FAKE="$(mktemp -d)"
+FAKE="$WORK/fake"
 mkdir -p "$FAKE/bin"
 cat > "$FAKE/bin/gh" <<EOF
 #!/usr/bin/env bash
@@ -126,7 +130,28 @@ touch -d "@$(( $(date +%s) - 3660 ))" "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/field
 check 'is read again'                         yes "$(fields_tsv | grep -q OPT_ready && echo yes || echo no)"
 printf 'Status\tPVTSSF_status\ttodo\tOPT_todo\n' > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
 check 'one within the hour is not'            no "$(fields_tsv | grep -q OPT_ready && echo yes || echo no)"
-rm -rf "${FAKE:?}"
 
+echo
+echo 'a large cache with the wanted row first'
+printf 'Status\tPVTSSF_status\ttodo\tOPT_todo\n' > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
+for ((i = 1; i <= 5000; i++)); do
+  printf 'Extra%s\tFIELD_%s\toption%s\tOPTION_%s\n' "$i" "$i" "$i" "$i"
+done >> "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
+
+for signal in default ignored; do
+  for lookup in option_id field_id; do
+    if output="$(ROOT="$ROOT" GH_CACHE_DIRECTORY="$GH_CACHE_DIRECTORY" bash -c '
+      . "$ROOT/lib/board.sh"
+      PROJECT=999998
+      PROJECT_ORG=example-org
+      if [ "$1" = ignored ]; then trap "" PIPE; else trap - PIPE; fi
+      if [ "$2" = option_id ]; then option_id Status todo; else field_id Status; fi
+    ' _ "$signal" "$lookup" 2> "$WORK/lookup.err")"; then rc=0; else rc=$?; fi
+    check "$lookup with SIGPIPE $signal exits cleanly" 0 "$rc"
+    if [ "$lookup" = option_id ]; then want=OPT_todo; else want=PVTSSF_status; fi
+    check "$lookup with SIGPIPE $signal returns the first id" "$want" "$output"
+    check "$lookup with SIGPIPE $signal has no error" '' "$(cat "$WORK/lookup.err")"
+  done
+done
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo; echo 'all passed'

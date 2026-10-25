@@ -10,8 +10,9 @@
 # Exit 0: every window below N, and none projected to N by its reset. Exit 4: a window projected to
 # N or more by its reset, so nothing new starts on it. Exit 3: a window at N or more. Exit 2: nothing
 # recorded yet, or a wrong argument. A window whose reset time has passed counts as reset; a window
-# with one reading has no measured burn and is judged by what it stands at. One model's own weekly
-# quota is not among the windows Claude Code hands the status line, so it is not here either.
+# whose readings span less than 30 minutes has no measured burn and is judged by what it stands at.
+# One model's own weekly quota is not among the windows Claude Code hands the status line, so it is
+# not here either.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -61,6 +62,8 @@ else
     "${AI_CORE_HOME:-$HOME}/.ai-core/usage.log" 2>/dev/null)"
 fi
 now="$(date +%s)"; reached=0; projected=0; warnings=""
+# Readings are whole percents, so over a shorter span one rounding step reads as a steep burn.
+trusted_span=1800
 while IFS=$'\t' read -r name used resets; do
   [ -n "$name" ] || continue
   if [ "$resets" -gt 0 ] && [ "$resets" -le "$now" ]; then
@@ -68,10 +71,10 @@ while IFS=$'\t' read -r name used resets; do
   fi
   # The burn runs from the window's first reading, one with the same reset taken after the window
   # began, to the last record.
-  forecast="$(awk -F'\t' -v n="$name" -v r="$resets" -v u="$used" -v at="$recorded" -v s="$stop" -v len="$(minutes "$name")" '
+  forecast="$(awk -F'\t' -v n="$name" -v r="$resets" -v u="$used" -v at="$recorded" -v s="$stop" -v len="$(minutes "$name")" -v span="$trusted_span" '
     $1 == n && $4 == r && (len == 0 || $2 >= r - len * 60) && (t == "" || $2 < t) { t = $2; first = $3 }
     END {
-      if (t == "" || t >= at) { print "unmeasured\t"; exit }
+      if (t == "" || at - t < span) { print "unmeasured\t"; exit }
       burn = (u - first) / (at - t)
       if (burn <= 0) { print "0.0 %/h\t"; exit }
       p = u + burn * (r - at); cross = at + (s - u) / burn

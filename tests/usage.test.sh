@@ -128,6 +128,13 @@ history 50 "$((now + 300))" 10 80 10
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'exit 0'                   0 "$rc"
 check 'what it stands at then'   yes "$(matches "  burn 60.0 %/h, 85 % at reset$" "$(sed -n 1p <<< "$out")")"
+echo 'one whole percent minutes into a window: too short a span to measure a burn (planted)'
+fresh=$((now + 17400))
+printf '%s %s %s %s %s\n' "$((now - 180))" 0 "$fresh" 10 "$week" > "$HOME/.ai-core/usage.log"
+printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":1,"resets_at":%s},"seven_day":{"used_percentage":10,"resets_at":%s}}}\n' "$now" "$fresh" "$week" > "$HOME/.ai-core/usage.json"
+out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
+check 'exit 0'                   0 "$rc"
+check 'unmeasured'               yes "$(matches "^five_hour +1 % used  resets .*  burn unmeasured$" "$(sed -n 1p <<< "$out")")"
 echo 'a week that fills before its reset warns and stops nothing: its account is a person'"'"'s decision'
 history 80 "$soon" 10 80 40
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?

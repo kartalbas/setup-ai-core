@@ -34,8 +34,8 @@ the project folder and each partner folder added, so it can read every clone.
   and `notify_when_idle: true`. One notice arrives when it next goes idle or exits, so a phase that
   ends, or stops on a question, wakes you at once instead of at your next round. The subscription
   holds for one notice: subscribe again after you answered a question.
-- You run with a 400k window yourself: the owner starts you with
-  `--settings '{"autoCompactWindow":400000}'`. A coordinator started without it compacts only near
+- You run with a 300k window yourself: the owner starts you with
+  `--settings '{"autoCompactWindow":300000}'`. A coordinator started without it compacts only near
   its model's full window, and every round re-reads all of it; ask the owner for a restart with it.
 - A UI test session gets the isolated browser and nothing else, as one `-p` run from an empty
   throwaway directory, its output into `~/.ai-core/sessions/<session name>.out`, because its last

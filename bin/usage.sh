@@ -64,7 +64,7 @@ dates='def stamp:
 # readings: the key, the epoch of the reading, the share used, the epoch of the reset the reading
 # belonged to. shown: the share the tool itself shows, used or left.
 if [ "$tool" = codex ]; then
-  # A record counts only with a window in it; a line whose windows are all null says nothing.
+  # A record counts only with a window in it; a window that is null or 0 minutes long says nothing.
   shown=left
   records="$( {
     files=(); for f in "${CODEX_HOME:-$HOME/.codex}"/sessions/*/*/*/rollout-*.jsonl; do
@@ -78,13 +78,13 @@ if [ "$tool" = codex ]; then
   } 2>&1)" || reject "Codex session files cannot be read: $records"
   [ -n "$records" ] || { echo "no usage recorded yet: Codex records it in its session files once a session has had an answer" >&2; exit 2; }
   parsed="$(jq -sc "$dates"'
-    [.[] | [.payload.rate_limits | (.primary, .secondary) | select(. != null)] as $windows
+    [.[] | [.payload.rate_limits | (.primary, .secondary) | select(. != null and .window_minutes != 0)] as $windows
       | select($windows | length > 0)
       | (.timestamp | try stamp catch error("no usable timestamp: \(.)")) as $at
       | {recorded: $at, fraction: (.timestamp | split(".")[1] // "0Z" | rtrimstr("Z") | "0." + . | tonumber), windows: [$windows[]
         | if [.used_percent, .window_minutes, .resets_at] | all(type == "number") then .
           else error("a window without a number for used_percent, window_minutes or resets_at") end
-        | if .used_percent < 0 or .used_percent > 100 or .window_minutes <= 0 or (.window_minutes | floor) != .window_minutes
+        | if .used_percent < 0 or .window_minutes <= 0 or (.window_minutes | floor) != .window_minutes
             or .resets_at <= 0 or .resets_at > 253402300799 or (.resets_at | floor) != .resets_at
           then error("invalid percentage, duration or reset in a Codex window") else . end
         | {key: (if .window_minutes == 300 then "five_hour" elif .window_minutes == 10080 then "seven_day" else "\(.window_minutes)_minutes" end),
@@ -186,7 +186,7 @@ else
     | $limits[] | .key as $name | .value
     | if [.used_percentage, .resets_at] | all(type == "number") then .
       else error("the window \($name) has no number for used_percentage or resets_at") end
-    | if .used_percentage < 0 or .used_percentage > 100 or .resets_at <= 0 or .resets_at > 253402300799 or (.resets_at | floor) != .resets_at
+    | if .used_percentage < 0 or .resets_at <= 0 or .resets_at > 253402300799 or (.resets_at | floor) != .resets_at
       then error("the window \($name) has an invalid percentage or reset") else . end
     | "\($name)\t\($name)\t\({"five_hour": 300, "seven_day": 10080}[$name] // 0)\t\(.used_percentage)\t\(.resets_at)"' <<< "$record" 2>&1)" \
     || reject "$file: ${windows#jq: *: }"
@@ -196,10 +196,10 @@ else
   history="${AI_CORE_HOME:-$HOME}/.ai-core/usage.log"; readings=""
   if [ -e "$history" ]; then
     readings="$(awk '
-      function window(u, r) { return (u == "-" && r == "-") || (u + 0 == u && u >= 0 && u <= 100 && r ~ /^[0-9]+$/ && r > 0) }
+      function window(u, r) { return (u == "-" && r == "-") || (u + 0 == u && u >= 0 && r ~ /^[0-9]+$/ && r > 0) }
       NF != 5 || $1 !~ /^[0-9]+$/ || $1 <= 0 || !window($2, $3) || !window($4, $5) { print "malformed usage history at " FILENAME ":" FNR; exit 1 }
       { if ($2 != "-") print "five_hour\t" $1 "\t" $2 "\t" $3; if ($4 != "-") print "seven_day\t" $1 "\t" $4 "\t" $5 }
-      ' "$history" 2>&1)" || reject "$history: $readings"
+      ' "$history" 2>&1)" || reject "${readings##*$'\n'}"
   fi
 fi
 [ -n "$windows" ] || reject "$tool gave no usage window"

@@ -202,6 +202,9 @@ refused_codex 'a record without a timestamp' 'no usable timestamp' '{"payload":{
 codex_record "$(codex_with "{\"used_percent\":5,\"window_minutes\":300,\"resets_at\":$soon}")"
 check 'Codex, a complete window beside a null one (innocent): exit 0' 0 "$rc"
 check 'Codex, its window'        1 "$(grep -c '^five_hour   95 % left' <<< "$out")"
+codex_record "$(printf '{"timestamp":"2026-10-13T07:09:45.777Z","payload":{"rate_limits":{"primary":{"used_percent":5,"window_minutes":300,"resets_at":%s},"secondary":{"used_percent":0.0,"window_minutes":0,"resets_at":%s}}}}' "$soon" "$soon")"
+check 'Codex, a window of 0 minutes, as Codex writes one beside a real window, says nothing: exit 0' 0 "$rc"
+check 'Codex, only the real window shown' '1 0' "$(grep -c '^five_hour   95 % left' <<< "$out") $(grep -c '0_minutes' <<< "$out")"
 sed 's/if \[.used_percent, .window_minutes, .resets_at\]/(.used_percent \/\/= 0) | if [.used_percent, .window_minutes, .resets_at]/' "$root/bin/usage.sh" > "$work/mutant/bin/usage.sh"
 script="$work/mutant/bin/usage.sh"
 codex_record "$(codex_with "{\"window_minutes\":300,\"resets_at\":$soon}")"
@@ -226,13 +229,23 @@ rm -rf "$HOME/.codex"
 
 echo 'a malformed Claude history is reported, while an absent history means unmeasured'
 claude_record "{\"recorded_at\":$now,\"rate_limits\":{\"five_hour\":{\"used_percentage\":5,$window}}}"
-printf 'garbage\n' > "$HOME/.ai-core/usage.log"
+printf '%s 5 %s - -\ngarbage\n' "$((now - 60))" "$later" > "$HOME/.ai-core/usage.log"
 out="$(cd "$work/project" && bash "$script" --tool claude 2>&1)"; rc=$?
 check 'malformed Claude history: exit 2' 2 "$rc"
-check 'the history error names its line' yes "$(matches 'usage.log:1' "$out")"
+check 'the history error names its line' yes "$(matches 'usage.log:2' "$out")"
+check 'the history error is one line, without the lines read before it' 1 "$(wc -l <<< "$out" | tr -d ' ')"
 rm "$HOME/.ai-core/usage.log"
 out="$(cd "$work/project" && bash "$script" --tool claude 2>&1)"; rc=$?
 check 'missing history: exit 0, burn unmeasured' '0 yes' "$rc $(matches 'burn unmeasured' "$out")"
+
+echo 'a Claude reading above 100 %, as Claude reports a window over its limit, is read as it is'
+printf '%s 99 %s - -\n%s 105 %s - -\n' "$((now - 120))" "$later" "$((now - 60))" "$later" > "$HOME/.ai-core/usage.log"
+out="$(cd "$work/project" && bash "$script" --tool claude 2>&1)"; rc=$?
+check 'a history line above 100 %: read, exit 0 below the limit' 0 "$rc"
+claude_record "{\"recorded_at\":$now,\"rate_limits\":{\"five_hour\":{\"used_percentage\":106,$window}}}"
+check 'a live reading above 100 %: at the limit, exit 3' 3 "$rc"
+check 'shown as it is' yes "$(matches '^five_hour +106 % used' "$out")"
+rm "$HOME/.ai-core/usage.log"
 
 echo 'a status-line replacement cannot mix quota values with another reading timestamp'
 mkdir -p "$work/replacing-bin"

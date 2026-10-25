@@ -29,6 +29,8 @@ out="$(page '{"used_percentage":0,"resets_at":1790003600}')"
 check 'a real zero remains numeric' 1 "$(grep -c '^usage   5h 0 % (reset ' <<< "$out")"
 out="$(page '{"used_percentage":95,"resets_at":1789996400}')"
 check 'a valid expired window counts as reset' 1 "$(grep -c '^usage   5h 0 % (reset ' <<< "$out")"
+out="$(page '{"used_percentage":106,"resets_at":1790003600}')"
+check 'a window over its limit, as Claude reports it, is read as it is' 1 "$(grep -c '^usage   5h 106 % (reset ' <<< "$out")"
 out="$(page null)"
 check 'a null window remains not recorded' 1 "$(grep -c '^usage   5h not recorded' <<< "$out")"
 [ "$failed" -eq 0 ] || { echo "$failed failed"; exit 1; }

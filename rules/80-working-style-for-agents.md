@@ -111,6 +111,6 @@
   reset carries the work into the next window at full speed. A longer window that reaches the
   limit before its reset is the decision of whoever holds the account, another account or slower
   work, and is told to them at once with that hour. At the limit itself, every session using that
-  account or model finishes the step in hand, commits and reports it, starts nothing new on it and
-  waits for the reset, and what is left stays for the coordination and the reviews. [review ·
+  limited account or model finishes the step in hand, commits and reports it, starts nothing new on
+  it and waits for the reset, and what is left stays for the coordination and the reviews. [review ·
   tool]

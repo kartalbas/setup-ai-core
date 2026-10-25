@@ -373,7 +373,7 @@ else
 fi
 checkout="$(cd "$(dirname "$landing")/.." && pwd)"
 if ! fast_forward_default_branch "$checkout"; then
-  echo "integration succeeded: $merged is on origin/$default; checkout $checkout was not refreshed" >&2
+  echo "integration succeeded: $merged is on origin/$default; the refresh of checkout $checkout did not finish (see above)" >&2
 fi
 echo "integrated: $merged on origin/$default, $subject$(printf ', Reviewed-by: %s' "${reviewers[@]}")"
 # Every issue the merged commits name in parentheses, the integrated one first: a package lands

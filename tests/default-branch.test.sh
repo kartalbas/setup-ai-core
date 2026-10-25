@@ -7,10 +7,15 @@ mkdir -p "$HOME" "$AI_CORE_HOME"
 [ "$(type -t fast_forward_default_branch)" = function ] || fail 'default refresh helper missing'
 git_() { command git -c user.name=test -c user.email=test@example.invalid "$@"; }
 sequence=0
+# fixture [default] [the body of scripts/install.sh, which then is tracked with an ignored `installed`]
 fixture() {
  sequence=$((sequence+1)); default="${1:-main}"; dir="$WORK/case-$sequence"; mkdir -p "$dir"
  seed="$dir/seed"; repo="$dir/checkout"; remote="$dir/origin.git"
  git_ init -q -b "$default" "$seed"
+ if [ -n "${2:-}" ]; then
+  mkdir -p "$seed/scripts"; printf '%s\n' "$2" > "$seed/scripts/install.sh"; printf 'installed\n' > "$seed/.gitignore"
+  git_ -C "$seed" add scripts .gitignore
+ fi
  printf 'base\n' > "$seed/tracked"; git_ -C "$seed" add tracked; git_ -C "$seed" commit -qm base
  git clone -q --bare "$seed" "$remote"; git clone -q "$remote" "$repo"
  git_ -C "$seed" remote add origin "$remote"
@@ -96,6 +101,18 @@ for kind in unreachable missing; do
  [ "$tip" = "$(command git -C "$repo" rev-parse HEAD)" ] || fail "$kind changed HEAD"
  grep -qF "$repo" "$dir/out" || fail "$kind omitted path"
 done
+# A refresh that moves the checked-out default runs the repository's install there once; one that moves
+# nothing, or only an unheld default, runs none; a failing install is named and not a finished refresh.
+fixture main 'printf "run\n" >> installed'; refresh
+[ "$rc" = 0 ] || fail "install refresh: $(cat "$dir/out")"
+[ "$(cat "$repo/installed" 2>/dev/null)" = run ] || fail 'a moved checkout was not installed'
+grep -qF "installed: scripts/install.sh ran in $repo" "$dir/out" || fail 'the install was not named'
+refresh; [ "$rc" = 0 ] && [ "$(wc -l < "$repo/installed")" -eq 1 ] || fail 'a current checkout was installed again'
+fixture main 'printf "run\n" >> installed'; git_ -C "$repo" switch -qc feature; refresh
+[ "$rc" = 0 ] && [ ! -e "$repo/installed" ] || fail 'an unheld default refresh ran the install'
+fixture main 'echo boom >&2; exit 1'; refresh
+[ "$rc" -ne 0 ] || fail 'a failing install reported a finished refresh'
+grep -qF "not installed: $repo: scripts/install.sh failed after the refresh: boom" "$dir/out" || fail "the failing install was not named: $(cat "$dir/out")"
 # The same preservation assertion must detect both a removed guard and a fetch moved before it.
 mutant="$WORK/mutant"; mkdir -p "$mutant/lib"
 for kind in no-guard early-fetch; do

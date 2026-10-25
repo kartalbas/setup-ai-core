@@ -70,7 +70,9 @@ Nothing updates by itself.
 ---
 
 `session-start` safely refreshes the checkout's local default branch before reporting its state.
-A clean checkout on that branch uses a fast-forward merge; another branch or detached HEAD keeps
+A clean checkout on that branch uses a fast-forward merge, and runs the repository's
+`scripts/install.sh` there afterwards where it has one, as `integrate-issue` does after a landing;
+another branch or detached HEAD keeps
 its selected commit, index and files while an unheld default ref advances. Dirty checkouts and
 Git operations in progress are refused before fetching. Local-only commits, missing refs, fetch
 failures and a default held by another worktree are named and skipped. Nothing is stashed or

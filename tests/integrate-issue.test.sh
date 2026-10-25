@@ -1065,7 +1065,7 @@ for mode in normal from-origin; do
   check "$mode $state integration stays successful" 0 "$rc"
   check "$mode $state snapshot unchanged" yes "$(cmp -s "$FF_TRACE/before" "$FF_TRACE/after" && echo yes || echo no)"
   check "$mode $state helper does not fetch" 0 "$(grep -c ' fetch ' "$FF_TRACE/calls" || true)"
-  check "$mode $state names skipped checkout" yes "$(grep -qF "$FF_REPO was not refreshed" <<< "$out" && echo yes || echo no)"
+  check "$mode $state names skipped checkout" yes "$(grep -qF "the refresh of checkout $FF_REPO did not finish" <<< "$out" && echo yes || echo no)"
   check "$mode $state reports integrated" yes "$(grep -q '^integrated:' <<< "$out" && echo yes || echo no)"
  done
  ff_fixture main

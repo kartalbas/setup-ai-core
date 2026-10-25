@@ -994,6 +994,16 @@ describe('issue-proof and the close as completed', () => {
     assert.equal(fake.readIssue(main.full, number).state, 'open');
   });
 
+  it('refuses a neighbour whose landed commit its checkout does not hold, and names the fetch (planted)', async () => {
+    const { number } = await delivered('Pinned neighbour not fetched, so that the proof asks for a fetch');
+    const shipped = commitInSibling('work shipped');
+    landedInSibling(number, 'b'.repeat(40));
+    const prove = issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=v*' }, siblingReads(deliveryOf(shipped))));
+
+    await assert.rejects(prove, new RegExp(`${sibling.checkout} has no landed commit ${'b'.repeat(40)} of o/sibling: fetch it, then prove again`));
+    assert.equal(fake.readIssue(main.full, number).state, 'open');
+  });
+
   it('refuses a missing neighbour and names the checkout it looked for', async () => {
     const { number } = await delivered('Neighbour is missing, so that the refusal names its path');
     fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'missing-neighbour' }, reviewedHead: 'a'.repeat(40), landedCommit: 'b'.repeat(40), reviewers: ['alice'] }, { owner: 'o', repo: 'r' }));

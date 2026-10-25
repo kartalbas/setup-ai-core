@@ -28,6 +28,8 @@ A landing in a harness layer, a repository named <prefix>-ai-core, also needs no
 its default branch. Text with a literal email address is refused for a public repository. Run again after a
 failure, it writes only what is missing.`;
 
+// What `git merge-base --is-ancestor` exits with for a commit the checkout does not hold.
+const GIT_UNKNOWN_COMMIT = 128;
 const ENVIRONMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 // The landing is delivered where the commit of the newest completed delivery holds the newest landed commit.
@@ -47,7 +49,7 @@ async function findMissingCommandDelivery(context: CommandContext, checkout: str
   try {
     if (await context.git.isAncestor(checkout, landing.commit, delivered.commit)) return undefined;
   } catch (error) {
-    if (!(error instanceof GitError)) throw error;
+    if (!(error instanceof GitError) || error.exitCode !== GIT_UNKNOWN_COMMIT) throw error;
     return `${checkout} has no landed commit ${landing.commit} of ${name}: fetch it, then prove again`;
   }
   return `${name} was last delivered on ${environment} by ${delivered.source} at ${delivered.releasedAt}, which does not hold its landed commit ${landing.commit}`;

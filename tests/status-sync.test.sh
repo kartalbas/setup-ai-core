@@ -110,6 +110,8 @@ check 'CLOSE is done' 3 "$(status_rank CLOSE)"
 set +e
 
 FAKE="$(mktemp -d)"
+export HOME="$FAKE/home" AI_CORE_HOME="$FAKE/ai-core-home" GH_ORG=example-org
+mkdir -p "$HOME" "$AI_CORE_HOME"
 export GH_CACHE_DIRECTORY="$FAKE/cache"
 PROJECT_NUMBER=999995
 PROJECT_ID='PVT_kwstatussync'
@@ -651,6 +653,25 @@ sync_dry
 check 'a fetch that fails leaves the delivery unread, whatever the refs the clone has' \
   "unknown      example-repo#103  (fetching origin of example-org/component in $shown/component failed: fatal: '$FAKE/gone/example-org/component.git' does not appear to be a git repository, so the delivery of prod is not read; the card stays)" "$(said 103)"
 git -C "$component" remote set-url origin "$component_origin"
+
+echo 'a failed fetch keeps the first error and ignores bytes after it'
+real_git="$(command -v git)"
+mkdir -p "$FAKE/fetch-bin"
+{
+  printf 'fatal: first error\n'
+  for ((n = 0; n < 10000; n++)); do printf 'progress\n'; done
+  printf 'fatal: bad\377text\n'
+} > "$FAKE/fetch-error"
+cat > "$FAKE/fetch-bin/git" <<EOF
+#!/usr/bin/env bash
+if [ "\${3:-}" = fetch ] && [ "\${2:-}" = "$component" ]; then cat "$FAKE/fetch-error" >&2; exit 1; fi
+exec "$real_git" "\$@"
+EOF
+chmod +x "$FAKE/fetch-bin/git"
+PATH="$FAKE/fetch-bin:$PATH" LC_ALL=C.UTF-8 sync_dry
+check 'the fetch error keeps its first line' \
+  "unknown      example-repo#103  (fetching origin of example-org/component in $shown/component failed: fatal: first error, so the delivery of prod is not read; the card stays)" "$(said 103)"
+check 'later bytes do not print a second diagnostic' '' "$(grep 'binary file matches' <<< "$run")"
 
 echo 'a repository delivered by a redeploy: the last successful run decides, never an attempt, a failure or the tip of the default branch'
 run_at() {  # run_at <number> <status> <commit> <finish time or empty>

@@ -182,7 +182,7 @@ release_of() {  # <owner/repo>
   else
     # Without -q, because a quiet fetch that refuses to move a tag gives no reason at all
     if ! said="$(GIT_TERMINAL_PROMPT=0 git -C "$REL_CLONE" fetch --tags origin 2>&1)"; then
-      reason="$(grep -E '^(error|fatal):|^ ! ' <<< "$said" | sed -n '1{s/  */ /g;s/^ //;p;}' || true)"
+      reason="$(grep -m1 -E '^(error|fatal):|^ ! ' <<< "$said" | tr -s ' ' | sed 's/^ //' || true)"
       fetch_failed="fetching origin of $1 in $REL_CLONE failed: ${reason:-git gave no reason}"
       echo "$fetch_failed; the refs it had are read"
     fi

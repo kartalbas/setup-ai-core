@@ -24,7 +24,8 @@ unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fake="$(mktemp -d)"
 # Every run of the gate leaves a record under AI_CORE_HOME; a test writes none into the machine's own
-export AI_CORE_HOME="$fake/ai-core-home"
+export HOME="$fake/home" AI_CORE_HOME="$fake/ai-core-home"
+mkdir -p "$HOME" "$AI_CORE_HOME"
 trap 'git -C "$fake/checkouts/app" worktree remove --force "$fake/checkouts/.worktrees/app/issue-5-probe" >/dev/null 2>&1; rm -rf "$fake"' EXIT
 
 failed=0
@@ -90,6 +91,12 @@ case "\$*" in *pre-push-runs.tsv*) if [ -n "\${PROBE_MKTEMP_BARRIER:-}" ]; then
   : > "\$PROBE_MKTEMP_BARRIER/at.\$\$"
   for _ in \$(seq 400); do [ "\$(ls "\$PROBE_MKTEMP_BARRIER" | grep -c '^at\.')" -ge 2 ] && break; "$real_sleep" 0.05; done
 fi ;; esac
+if [ "\$*" = -d ] && [ "\${PROBE_MKTEMP_BLOCK_BLOB:-}" = 1 ]; then
+  folder="\$("$real_mktemp" -d)" || exit
+  mkdir "\$folder/shebang"
+  printf '%s\n' "\$folder"
+  exit 0
+fi
 exec "$real_mktemp" "\$@"
 EOF
 chmod +x "$stub/mktemp"
@@ -302,6 +309,9 @@ git -C "$repo" add --chmod=-x -- tools/run.sh; git -C "$repo" commit -q -m 'Add 
 out="$(only_new "$repo")"; rc=$?
 check 'exit 1'                         1 "$rc"
 check 'it names the file and the command' yes "$(grep -qF 'git update-index --chmod=+x tools/run.sh' <<< "$out" && echo yes || echo no)"
+out="$(PROBE_MKTEMP_BLOCK_BLOB=1 only_new "$repo")"; rc=$?
+check 'a scratch blob that cannot be written does not hide the script' 1 "$rc"
+check 'the shebang refusal still names the file' yes "$(grep -qF 'git update-index --chmod=+x tools/run.sh' <<< "$out" && echo yes || echo no)"
 echo 'the bit set by a later commit of the same push passes'
 git -C "$repo" update-index --chmod=+x -- tools/run.sh; chmod +x "$repo/tools/run.sh"; git -C "$repo" commit -q -m 'Make the runner executable #7'
 out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$(git -C "$repo" rev-parse HEAD~2)")"; rc=$?
@@ -326,6 +336,14 @@ out="$(only_new "$repo")"; rc=$?
 check 'exit 0'                         0 "$rc"
 check 'no null byte warning'           '' "$(grep -F 'null byte' <<< "$out")"
 git -C "$repo" rm -q -- src/late-null.dat; git -C "$repo" commit -q -m 'Remove the late null file #7'
+
+echo 'a long first line still has its first two bytes checked with bounded memory'
+{ printf '#!'; head -c 33554432 /dev/zero | tr '\0' x; } > "$repo/src/long-script"
+git -C "$repo" add --chmod=-x -- src/long-script; git -C "$repo" commit -q -m 'Add a long script without its executable bit #7'
+out="$(ulimit -v 24576 && only_new "$repo")"; rc=$?
+check 'the large script is refused' 1 "$rc"
+check 'the bounded read names the script' yes "$(grep -qF 'git update-index --chmod=+x src/long-script' <<< "$out" && echo yes || echo no)"
+git -C "$repo" rm -q -- src/long-script; git -C "$repo" commit -q -m 'Remove the long script #7'
 
 # --- the commit messages, the comments and the migrations ----------------------------
 yesno() { grep -qF -- "$1" <<< "$out" && echo yes || echo no; }

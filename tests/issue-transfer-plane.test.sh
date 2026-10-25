@@ -93,8 +93,11 @@ section "issue-transfer --to plane: the project, every case at once"
 reset_plane() { planeset 's.projects.forEach((q)=>{q.issues=[];q.comments=[]})'; }
 reset_plane
 world; reset_log
+gh_set 's.boards.find((b)=>b.id==="PVT_D").title="Empty and unlinked\nA second line"'
 carry --to plane || fail "the project carry: $(cat "$WORK/out.txt" "$WORK/err.txt")"
 out="$(cat "$WORK/out.txt")"
+grep -q '^board Empty and unlinked -> ' <<< "$out" || fail "the board report did not keep the first line of its title"
+! grep -q '^A second line -> ' <<< "$out" || fail "the board title split its report across lines"
 for want in '14 issues of 3 repositories' 'skipped archived repositories: example-org/old' '234 original and 14 provenance, 248 in all, in 16 pages' \
   '3 archived, on 3 issues of 14), 5 of 14 issues on no board' '(1 sub-issues, 1 recorded relationships across destinations, 1 outside the selection, 1 distinct)' \
   '5 on GitHub (2 empty, 1 closed, 3 in several destinations), 10 board records' 'priority P9 on 1 of 14 issues; an email address in 1 of 14 issues (0 titles, 0 bodies, 1 of 234 comments); differing active Status values on 1 of 14' \

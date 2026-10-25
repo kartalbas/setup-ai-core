@@ -142,7 +142,7 @@ plane_project_uuid() {
   if [ -s "$f" ]; then id="$(cat "$f")"
   else
     rows="$(plane_pages "the projects of $(plane_setting PLANE_WORKSPACE)" "$(plane_path projects/)")" || exit 1
-    id="$(jq -rn --arg i "$ident" 'first(inputs | select(.identifier == $i) | .id)' <<< "$rows")"
+    id="$(jq -r --arg i "$ident" 'select(.identifier == $i) | .id' <<< "$rows" | sed -n 1p)"
     [ -n "$id" ] || die "Plane has no project with the identifier $ident in the workspace $(plane_setting PLANE_WORKSPACE)"
   fi
   # the one shape an id has, wherever it came from: a file written by hand is not trusted
@@ -300,8 +300,8 @@ plane_state_id() {
   local rows id
   rows="$(plane_states)" || exit 1
   case "$1" in
-    group:*) id="$(jq -rn --arg g "${1#group:}" 'first(inputs | select(.group == $g) | .id)' <<< "$rows")" ;;
-    *)       id="$(jq -rn --arg n "$1" 'first(inputs | select((.name | ascii_downcase) == ($n | ascii_downcase)) | .id)' <<< "$rows")" ;;
+    group:*) id="$(jq -r --arg g "${1#group:}" 'select(.group == $g) | .id' <<< "$rows" | sed -n 1p)" ;;
+    *)       id="$(jq -r --arg n "$1" 'select((.name | ascii_downcase) == ($n | ascii_downcase)) | .id' <<< "$rows" | sed -n 1p)" ;;
   esac
   [ -n "$id" ] || die "the Plane project $(plane_setting PLANE_PROJECT) has no state '${1#group:}'. It has: $(printf '%s\n' "$rows" | jq -r '.name' | paste -sd' ' -)"
   printf '%s\n' "$id"
@@ -402,12 +402,12 @@ carry_state_id() {
   local dir id
   dir="$(carry_dir)"
   case "$1" in
-    status)    id="$(jq -rn --arg n "$2" 'first(inputs | select((.name | ascii_downcase) == ($n | ascii_downcase) and (.group | IN("backlog", "unstarted", "started"))) | .id)' "$dir/states.jsonl")" ;;
+    status)    id="$(jq -r --arg n "$2" 'select((.name | ascii_downcase) == ($n | ascii_downcase) and (.group | IN("backlog", "unstarted", "started"))) | .id' "$dir/states.jsonl" | sed -n 1p)" ;;
     done)      id="$(jq -r 'select(.group == "completed") | [(.name | ascii_downcase) == "done", .id] | @tsv' "$dir/states.jsonl" | sort -r | sed -n 1p | cut -f2)" ;;
-    cancelled) id="$(jq -rn 'first(inputs | select(.group == "cancelled") | .id)' "$dir/states.jsonl")" ;;
+    cancelled) id="$(jq -r 'select(.group == "cancelled") | .id' "$dir/states.jsonl" | sed -n 1p)" ;;
   esac
   if [ -z "${id:-}" ] && { [ "$1" = status ] || [ "$1" = default ]; }; then
-    id="$(jq -rn 'first(inputs | select(.default == true and (.group | IN("backlog", "unstarted", "started"))) | .id)' "$dir/states.jsonl")"
+    id="$(jq -r 'select(.default == true and (.group | IN("backlog", "unstarted", "started"))) | .id' "$dir/states.jsonl" | sed -n 1p)"
     [ -n "$id" ] || die "the Plane project $(plane_setting PLANE_PROJECT) has no default state in an open group, and the work item cannot be given an open state without a guess"
   fi
   [ -n "${id:-}" ] || die "the Plane project $(plane_setting PLANE_PROJECT) has no state for '$1' in the group the source close reason names"
@@ -419,7 +419,7 @@ carry_state_id() {
 carry_label_id() {
   local dir id rows colour desc
   dir="$(carry_dir)"
-  id="$(jq -rn --arg n "$1" 'first(inputs | select(.name == $n) | .id)' "$dir/labels.jsonl")"
+  id="$(jq -r --arg n "$1" 'select(.name == $n) | .id' "$dir/labels.jsonl" | sed -n 1p)"
   if [ -z "$id" ]; then
     rows="$(labels_tsv)" || exit 1
     colour="$(awk -F'\t' -v n="$1" '$2 == n { print $3; exit }' <<< "$rows")"
@@ -428,7 +428,7 @@ carry_label_id() {
     case "$plane_status" in
       2??) printf '%s\n' "$plane_body" | jq -c '.' >> "$dir/labels.jsonl"; id="$(printf '%s' "$plane_body" | jq -r '.id')" ;;
       409) plane_pages "the labels of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/labels/")" > "$dir/labels.jsonl" || exit 1
-           id="$(jq -rn --arg n "$1" 'first(inputs | select(.name == $n) | .id)' "$dir/labels.jsonl")" ;;
+           id="$(jq -r --arg n "$1" 'select(.name == $n) | .id' "$dir/labels.jsonl" | sed -n 1p)" ;;
       *)   die "cannot write the label $1 - the Plane API answered $plane_status${plane_body:+: $(printf '%s' "$plane_body" | tr -s '\r\n' '  ' | cut -c1-300)}" ;;
     esac
   fi
@@ -571,7 +571,7 @@ plane_label_ids() {
   local rows name ids="[]" id
   rows="$(plane_pages "the labels of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/labels/")")" || exit 1
   for name in "$@"; do
-    id="$(jq -rn --arg n "$name" 'first(inputs | select(.name == $n) | .id)' <<< "$rows")"
+    id="$(jq -r --arg n "$name" 'select(.name == $n) | .id' <<< "$rows" | sed -n 1p)"
     [ -n "$id" ] || die "the issue was NOT created - the Plane project has no label '$name'. Run: ai-core labels-sync"
     ids="$(jq -c --arg i "$id" '. + [$i]' <<< "$ids")"
   done
@@ -707,7 +707,7 @@ issue_labels_set() {
   rows="$(plane_pages "the labels of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$(plane_project_uuid)/labels/")")" || exit 1
   set="$(printf '%s' "$item" | jq -c '[.labels[].id]')"
   for l in "$@"; do
-    id="$(jq -rn --arg n "${l#?}" 'first(inputs | select(.name == $n) | .id)' <<< "$rows")"
+    id="$(jq -r --arg n "${l#?}" 'select(.name == $n) | .id' <<< "$rows" | sed -n 1p)"
     case "$l" in
       +*) [ -n "$id" ] || die "the Plane project has no label '${l#+}'. Run: ai-core labels-sync"
           set="$(jq -c --arg i "$id" '. + [$i] | unique' <<< "$set")" ;;
@@ -918,7 +918,7 @@ plane_set_priority() {
     rows="$(plane_pages "the labels of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$project/labels/")")" || exit 1
     plane_label_ensure "$rows" P9 6B7280 "Parked: the work waits, and Plane has no priority for that"
     rows="$(plane_pages "the labels of $(plane_setting PLANE_PROJECT)" "$(plane_path "projects/$project/labels/")")" || exit 1
-    p9="$(jq -rn 'first(inputs | select(.name == "P9") | .id)' <<< "$rows")"
+    p9="$(jq -r 'select(.name == "P9") | .id' <<< "$rows" | sed -n 1p)"
     [ -n "$p9" ] || die "the Plane project has no label P9 after it was made"
     labels="$(printf '%s' "$item" | jq -c --arg p "$p9" '[.labels[].id, $p] | unique')"
   else
@@ -1285,7 +1285,7 @@ project_create() {
   states="$(plane_pages "the states of $ident" "$(plane_path "projects/$pid/states/")")" || exit 1
   while IFS=$'\t' read -r name group colour was; do
     n=$((n + 1))
-    id="$(jq -rn --arg n "$name" --arg was "$was" 'first(inputs | select(.name == $n or .name == $was) | .id)' <<< "$states")"
+    id="$(jq -r --arg n "$name" --arg was "$was" 'select(.name == $n or .name == $was) | .id' <<< "$states" | sed -n 1p)"
     if [ -z "$id" ]; then
       made_state="$(plane_api "the state $name of $ident" POST "$(plane_path "projects/$pid/states/")" \
         "$(jq -nc --arg n "$name" --arg g "$group" --arg c "$colour" '{name: $n, group: $g, color: $c}')")" || exit 1

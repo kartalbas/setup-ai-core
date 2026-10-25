@@ -136,7 +136,7 @@ carry_run() {
               if [ "$label" = short ]; then echo "#${ref##*#} -> $ident"; else echo "$ref -> $ident"; fi ;;
             *)
               case "$outcome" in complete) boards_complete=$((boards_complete + 1)) ;; *) boards_new=$((boards_new + 1)) ;; esac
-              echo "board $(jq -r --arg r "$ref" 'first(.rows[] | select(.ref == $r) | .title)' <<< "$plan") -> $ident" ;;
+              echo "board $(jq -r --arg r "$ref" '.rows[] | select(.ref == $r) | .title' <<< "$plan" | sed -n 1p) -> $ident" ;;
           esac ;;
       INCOMPLETE)
         case "$ref" in */*"#"*) incomplete=$((incomplete + 1)) ;; *) boards_incomplete=$((boards_incomplete + 1)) ;; esac

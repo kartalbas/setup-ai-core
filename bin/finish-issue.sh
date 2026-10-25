@@ -281,12 +281,8 @@ elif repo="$(resolve_repo "$repo")" && on_no_board "$repo"; then
   echo "$repo is on no board - there is no card to move"
 else
   set_project "" "$repo" >/dev/null
-  all="$(fields_tsv)" || exit 1
-  next="$(awk -F'\t' 'tolower($1)=="status" && tolower($3)=="testing" { print $3; exit }' <<< "$all")"
-  if [ -z "$next" ]; then
-    all="$(fields_fresh)" || exit 1
-    next="$(awk -F'\t' 'tolower($1)=="status" && tolower($3)=="testing" { print $3; exit }' <<< "$all")"
-  fi
+  next="$(fields_tsv | awk -F'\t' '!seen && tolower($1)=="status" && tolower($3)=="testing" { print $3; seen=1 }')"
+  [ -n "$next" ] || next="$(fields_fresh | awk -F'\t' '!seen && tolower($1)=="status" && tolower($3)=="testing" { print $3; seen=1 }')"
   if [ -z "$next" ]; then
     echo "the board has no testing column - the card stays; move it by hand"
   elif moved="$("$BIN/issue-status.sh" ${repo:+"$repo"} "$number" "$next" 2>&1)"; then

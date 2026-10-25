@@ -689,8 +689,8 @@ modeless=""
 while IFS= read -r path; do
   [ -n "$path" ] || continue
   [ "$(git ls-tree "$head" -- "$path" | cut -d' ' -f1)" = 100644 ] || continue
-  git cat-file -p "$head:$path" > "$TMPD/shebang" 2>/dev/null || :
-  [ "$(head -c 2 "$TMPD/shebang" | tr -d '\0')" = '#!' ] || continue
+  # Keep the prefix and drain the rest without a file or a line-sized buffer.
+  [ "$(git cat-file -p "$head:$path" 2>/dev/null | { dd bs=1 count=2 2>/dev/null; cat >/dev/null; } | tr -d '\0' || true)" = '#!' ] || continue
   modeless="$modeless $path"
 done < <(while IFS= read -r sha; do [ -z "$sha" ] || git diff-tree --no-commit-id --root -r --name-only --diff-filter=AMR "$sha"; done <<< "$commits" | sort -u)
 [ -z "$modeless" ] || refuse "these files start with #! and are not executable, so running them by name fails and git skips a hook among them:$modeless. Set the bit and commit it: git update-index --chmod=+x$modeless"

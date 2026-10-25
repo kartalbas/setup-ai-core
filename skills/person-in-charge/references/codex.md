@@ -53,7 +53,8 @@ nothing of it has to survive:
 ## Start a phase session
 
 Before starting, run `ai-core usage --tool codex` in the project context. Exit 0 permits the
-start; exit 3 waits for the selected account or model to reset. Exit 2 means usage is unknown:
+start; exit 4 holds it, because a window of a day or less reaches the limit before its reset at the
+measured burn; exit 3 waits for the selected account or model to reset. Exit 2 means usage is unknown:
 report it and do not start or fall back to another tool. These are last recorded windows, not
 a live server query. Record the selected tool, model, effort and expiry in the phase report,
 without changing `models.tsv`.

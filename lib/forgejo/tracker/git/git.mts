@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { readdir } from 'node:fs/promises';
+import { readdir, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import type { Readable } from 'node:stream';
 
@@ -15,6 +15,15 @@ export interface Worktree {
   readonly path: string;
   readonly head: string | undefined;
   readonly branch: string | undefined;
+}
+
+async function isDirectory(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
 }
 
 export class GitError extends Error {
@@ -107,6 +116,23 @@ export class GitClient {
       if (!(await this.isCheckout(clone))) continue;
       const remote = await this.run(clone, ['remote', 'get-url', 'origin'], [0, 2]);
       if (remote.exitCode === 0) found.push(parseRemoteAddress(remote.stdout));
+    }
+    return found;
+  }
+
+  // The checkouts named NAME in the folders beside a project folder, each with its origin: the project folders of
+  // other organizations, whose clones a landing may name.
+  async listCheckoutsBeside(projectFolder: string, name: string): Promise<{ path: string; origin: RepositoryAddress }[]> {
+    const parent = dirname(projectFolder);
+    const found: { path: string; origin: RepositoryAddress }[] = [];
+    for (const entry of await readdir(parent, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+      const folder = join(parent, entry.name);
+      if (folder === projectFolder) continue;
+      const clone = join(folder, name);
+      if (!(await isDirectory(clone)) || !(await this.isCheckout(clone))) continue;
+      const remote = await this.run(clone, ['remote', 'get-url', 'origin'], [0, 2]);
+      if (remote.exitCode === 0) found.push({ path: clone, origin: parseRemoteAddress(remote.stdout) });
     }
     return found;
   }

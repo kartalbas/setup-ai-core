@@ -66,6 +66,22 @@ async function requireCheckoutOf(context: CommandContext, checkout: string, repo
   if (!isSameRepository(origin, repository)) throw new PreconditionError(`${refusal}, its origin is ${formatRepository(origin)}`);
 }
 
+// A landing's clone: the folder of the project folder named like its repository, else the one checkout of that
+// repository in a folder beside the project folder, because a card may land in the repositories of two organizations.
+async function findCheckoutOf(context: CommandContext, projectFolder: string, repository: RepositoryRef, name: string): Promise<string> {
+  const own = join(projectFolder, repository.repo);
+  try {
+    await requireCheckoutOf(context, own, repository, name);
+    return own;
+  } catch (error) {
+    if (!(error instanceof PreconditionError)) throw error;
+    const beside = (await context.git.listCheckoutsBeside(projectFolder, repository.repo)).filter(({ origin }) => isSameRepository(origin, repository)).map(({ path }) => path);
+    if (beside.length === 1 && beside[0] !== undefined) return beside[0];
+    if (beside.length === 0) throw new PreconditionError(`${error.message}, and no folder beside ${projectFolder} holds a checkout of ${formatRepository(repository)}`);
+    throw new PreconditionError(`${name} is not delivered, so nothing is proven: ${formatRepository(repository)} has a checkout in more than one folder beside ${projectFolder}, so none is taken: ${beside.join(', ')}`);
+  }
+}
+
 export async function run(args: readonly string[], context: CommandContext): Promise<CommandResult> {
   const parsed = parseArguments(args, { '--environment': 'value', '--body-file': 'value' });
   const { ref, rest } = await takeIssue(parsed.positionals, context.git, context.cwd, USAGE);
@@ -94,8 +110,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
     let liveTags = context.settings.liveTags;
     let checkout = mainCheckout;
     if (!isSameRepository(repository, clone)) {
-      checkout = join(projectFolder, repository.repo);
-      await requireCheckoutOf(context, checkout, repository, name);
+      checkout = await findCheckoutOf(context, projectFolder, repository, name);
       const read = await context.harness.readLiveTags(checkout);
       if (!read.succeeded) throw new PreconditionError(`${name} is not delivered, so nothing is proven: could not read LIVE_TAGS in ${checkout}: ${read.output}`);
       liveTags = read.output;

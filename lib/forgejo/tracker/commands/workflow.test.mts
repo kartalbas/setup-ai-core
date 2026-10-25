@@ -722,6 +722,35 @@ describe('finish-issue', () => {
     assert.ok(existsSync(join(landed.tree, 'somebody.txt')));
   });
 
+  it('deletes the landed branch on origin that its Started record names, and leaves a branch of that number nobody started (planted: it stayed on origin)', async () => {
+    const landed = await worked(main, 'Pushed and landed, so that origin keeps no branch of it');
+    git(landed.tree, 'push', '--quiet', 'origin', `HEAD:refs/heads/${landed.branch}`);
+    git(landed.tree, 'push', '--quiet', 'origin', `${tipOf(main)}:refs/heads/issue-${landed.number}-nobody-started-this`);
+    await integrateIssue.run(integrateArguments(main, landed.number, landed.head), ctx(landed.tree));
+    const result = await finishIssue.run([String(landed.number)], ctx(main.checkout));
+    assert.match(result.stdout, new RegExp(`the branch ${landed.branch} on origin deleted: origin/master holds its tip ${landed.head.slice(0, 7)}`));
+    assert.ok(!remoteBranches(main).includes(landed.branch));
+    assert.ok(remoteBranches(main).includes(`issue-${landed.number}-nobody-started-this`), 'a branch no Started record names stays');
+  });
+
+  it('deletes a landed branch on origin where no worktree stands, and keeps one with work origin lacks (planted: refused before; innocent case: unlanded)', async () => {
+    const landed = await worked(main, 'Finished by hand earlier, so that its branch on origin is left');
+    git(landed.tree, 'push', '--quiet', 'origin', `HEAD:refs/heads/${landed.branch}`);
+    await integrateIssue.run(integrateArguments(main, landed.number, landed.head), ctx(landed.tree));
+    git(main.checkout, 'worktree', 'remove', landed.tree);
+    git(main.checkout, 'branch', '-D', landed.branch);
+    const result = await finishIssue.run([String(landed.number)], ctx(main.checkout));
+    assert.match(result.stdout, new RegExp(`no worktree of o/r#${landed.number} stands in this clone\\n.*the branch ${landed.branch} on origin deleted`));
+    assert.ok(!remoteBranches(main).includes(landed.branch));
+
+    const unlanded = await worked(main, 'Pushed and not landed, so that its branch on origin stays');
+    git(unlanded.tree, 'push', '--quiet', 'origin', `HEAD:refs/heads/${unlanded.branch}`);
+    git(main.checkout, 'worktree', 'remove', unlanded.tree);
+    git(main.checkout, 'branch', '-D', unlanded.branch);
+    await assert.rejects(finishIssue.run([String(unlanded.number)], ctx(main.checkout)), new RegExp(`stands in this clone, so nothing is removed; the branch ${unlanded.branch} on origin stays: it holds commits that origin/master lacks`));
+    assert.ok(remoteBranches(main).includes(unlanded.branch));
+  });
+
   it('refuses an issue with no worktree here', async () => {
     await assert.rejects(finishIssue.run(['99999'], ctx(main.checkout)), /no worktree of o\/r#99999 stands in this clone/);
   });

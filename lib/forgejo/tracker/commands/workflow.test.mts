@@ -636,7 +636,7 @@ describe('integrate-issue', () => {
 
       // the state finish-issue left before it asked for the landing record: the work landed, the worktree and the branch are gone
       await client.removeWorktree(main.checkout, tree);
-      await client.deleteBranch(main.checkout, branch);
+      git(main.checkout, 'branch', '-D', branch);
       await client.addWorktree(main.checkout, tree, branch, head);
 
       await startIssue.run([String(number)], ctx(main.checkout));
@@ -659,7 +659,7 @@ describe('integrate-issue', () => {
       const tree = await treeOf(main, number);
       const branch = must(await client.currentBranch(tree));
       await client.removeWorktree(main.checkout, tree);
-      await client.deleteBranch(main.checkout, branch);
+      git(main.checkout, 'branch', '-D', branch);
       await startIssue.run([String(number)], ctx(main.checkout));
       assert.equal(await treeOf(main, number), tree);
       assert.match(commentsOf(main, number)[0] ?? '', new RegExp(`^Started on ${branch}:\\n\\nBase: master at ${tipOf(main)}\\n$`));
@@ -689,6 +689,16 @@ describe('finish-issue', () => {
     assert.ok(!(await client.listBranchNames(main.checkout)).includes(landed.branch));
     assert.ok(existsSync(other.tree), 'the worktree of another issue stays');
     assert.match(result.stdout, /removed the worktree/);
+  });
+
+  it('removes the branch of an issue that landed with a commit its upstream lacks (planted: refused as not fully merged)', async () => {
+    const landed = await worked(main, 'Pushed with an upstream before its last commit, so that it is removed');
+    git(landed.tree, 'push', '--quiet', '--set-upstream', 'origin', `HEAD:refs/heads/${landed.branch}`);
+    const head = fixture.commit(landed.tree, `last-${landed.number}.txt`, 'last\n');
+    await integrateIssue.run(integrateArguments(main, landed.number, head), ctx(landed.tree));
+    const result = await finishIssue.run([String(landed.number)], ctx(main.checkout));
+    assert.match(result.stdout, /removed the worktree/);
+    assert.ok(!(await client.listBranchNames(main.checkout)).includes(landed.branch));
   });
 
   it('keeps the worktree of work that landed without its record, names integrate-issue, and removes it once the record is written (planted: the record is missing)', async () => {

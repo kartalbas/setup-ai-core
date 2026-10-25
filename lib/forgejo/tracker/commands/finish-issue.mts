@@ -108,7 +108,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
 
   await git.removeWorktree(main, worktree.path);
   try {
-    await git.deleteBranch(main, worktree.branch);
+    await git.deleteBranch(main, worktree.branch, head);
   } catch (error) {
     if (error instanceof GitError) {
       throw new PartialCompletionError(`finish ${formatIssue(ref)}`, [`removed the worktree ${worktree.path}`], `the branch ${worktree.branch} stays: ${error.message}`);

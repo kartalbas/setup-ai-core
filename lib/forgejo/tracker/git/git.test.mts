@@ -184,17 +184,18 @@ describe('what the lifecycle commands ask of Git', () => {
     assert.equal(await client.getConfig(checkout, 'branch.nothing.issueRepository'), 'example-owner/other');
   });
 
-  it('lists the branches of the clone and of origin, and deletes only a branch that landed', async () => {
+  it('lists the branches of the clone and of origin, and deletes a branch only while it points at the tip it is given', async () => {
     git(checkout, 'branch', 'issue-6-landed');
     git(checkout, 'branch', 'issue-7-open');
+    const landedTip = git(checkout, 'rev-parse', 'master');
     git(checkout, 'checkout', '-q', 'issue-7-open');
     fixture.commit(checkout, 'seven.txt', 'seven\n');
     git(checkout, 'checkout', '-q', 'master');
     const names = await client.listBranchNames(checkout);
     assert.ok(names.includes('issue-6-landed') && names.includes('master'));
     assert.ok(!names.some((name) => name.startsWith('origin')), 'the local branches only');
-    await client.deleteBranch(checkout, 'issue-6-landed');
-    await assert.rejects(client.deleteBranch(checkout, 'issue-7-open'), GitError);
+    await client.deleteBranch(checkout, 'issue-6-landed', landedTip);
+    await assert.rejects(client.deleteBranch(checkout, 'issue-7-open', landedTip), /issue-7-open points at [0-9a-f]{40}, not at/);
     assert.ok((await client.listBranchNames(checkout)).includes('issue-7-open'));
   });
 

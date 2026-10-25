@@ -237,9 +237,12 @@ export class GitClient {
     await this.run(cwd, ['worktree', 'remove', '--force', path]);
   }
 
-  // Deletes only a branch whose commits the upstream or HEAD already holds, never forced.
-  async deleteBranch(cwd: string, branch: string): Promise<void> {
-    await this.run(cwd, ['branch', '-d', branch]);
+  // Deletes a branch only while it points at the tip the caller proved landed: `branch -d` would judge it by its
+  // upstream, which may lack that tip.
+  async deleteBranch(cwd: string, branch: string, landedTip: string): Promise<void> {
+    const tip = await this.resolveCommit(cwd, `refs/heads/${branch}`);
+    if (tip !== landedTip) throw new GitError(['branch', '-D', branch], undefined, `${branch} points at ${tip}, not at ${landedTip}, the tip that landed`);
+    await this.run(cwd, ['branch', '-D', branch]);
   }
 
   // A merge commit that names its parents; a merge that conflicts is aborted and leaves the checkout as it was.

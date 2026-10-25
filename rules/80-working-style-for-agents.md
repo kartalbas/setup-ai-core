@@ -26,12 +26,13 @@
   issue or a document, check it for placeholders, contradictions, scope and ambiguity. Issues and
   the board change through the harness's issue and board commands (`ai-core --help`), so they are
   used, proven, and extended or fixed where they fall short; `gh` serves everything they do not
-  cover. A small change goes the short way: one that alters no behavior (a text, a comment, the
-  wording of a rule or a message), or one that changes a few lines of content, an asset or a value
-  and no code path or interface (a label, an icon, a color, a default). The session makes it itself,
-  with no sub-agent and no issue of its own; its commit names the decision or the finding, and the
-  push gate checks it. One that alters no behavior lands with the next landing of its repository
-  and ships with its next release. One a person sees is first shown to the owner as a picture; the
+  cover. A small change goes the short way: the session makes it itself, with no sub-agent; its
+  commit names the decision or the finding, and the push gate checks it. One that alters no behavior
+  (a text, a comment, the wording of a rule or a message) needs no issue of its own: it lands with
+  the next landing of its repository and ships with its next release. One that changes a few lines
+  of content, an asset or a value and no code path or interface (a label, an icon, a color, a
+  default) is first shown to the owner as a picture; it is committed on the open issue it belongs
+  to, or on a new one, because the integration lands only an issue and the release names it; the
   owner's choice of that picture is its review, and it lands and is released at once, on its own.
   [tool · discipline]
 - **Never stage blindly.** Read the working-tree status and add the paths you changed. A commit

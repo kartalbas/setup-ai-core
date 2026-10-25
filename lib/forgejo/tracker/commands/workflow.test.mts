@@ -106,6 +106,8 @@ const tipOf = (world: World): string => git(world.remote, 'rev-parse', 'refs/hea
 const writesOf = (): number => fake.writes().length;
 const commentsOf = (world: World, number: number): string[] => fake.readIssue(world.full, number).comments;
 const remoteBranches = (world: World): string => git(world.remote, 'branch', '--list');
+// A commit that origin's default branch lacks, made without moving a branch of the clone.
+const unlandedCommit = (world: World): string => git(world.second, 'commit-tree', '-p', 'HEAD', '-m', 'work origin has', 'HEAD^{tree}');
 
 describe('start-issue', () => {
   it('cuts the worktree from the fetched default branch, sets status/implementing and writes Started on', async () => {
@@ -193,9 +195,28 @@ describe('start-issue', () => {
     git(main.checkout, 'branch', `issue-${local}-someone-else`);
     await assert.rejects(startIssue.run([String(local)], ctx(main.checkout)), /a branch for issue \d+ exists already: issue-\d+-someone-else/);
     const remote = newIssue(main, 'Remote branch, so that it clashes');
-    git(main.second, 'push', '-q', 'origin', `HEAD:refs/heads/issue-${remote}-pushed`);
+    git(main.second, 'push', '-q', 'origin', `${unlandedCommit(main)}:refs/heads/issue-${remote}-pushed`);
     await assert.rejects(startIssue.run([String(remote)], ctx(main.checkout)), /origin\/issue-\d+-pushed/);
     assert.equal(fake.readIssue('o/r', local).comments.length, 0);
+  });
+
+  it('cuts the worktree over an origin branch of the issue that has landed, which its push fast-forwards (planted)', async () => {
+    const number = newIssue(main, 'Landed part, so that the next part starts');
+    git(main.second, 'push', '-q', 'origin', `HEAD:refs/heads/issue-${number}-landed-part-so-that-the-next-part-starts`);
+    const result = await startIssue.run([String(number)], ctx(main.checkout));
+    assert.match(result.stdout, /cut from origin\/master/);
+    assert.equal(git(await treeOf(main, number), 'rev-parse', 'HEAD'), tipOf(main));
+  });
+
+  it('opens the worktree on an origin branch of the issue that holds work no worktree has (planted)', async () => {
+    const number = newIssue(main, 'Reviewed work, so that it goes on');
+    const branch = `issue-${number}-reviewed-work-so-that-it-goes-on`;
+    const work = unlandedCommit(main);
+    git(main.second, 'push', '-q', 'origin', `${work}:refs/heads/${branch}`);
+    const result = await startIssue.run([String(number)], ctx(main.checkout));
+    assert.match(result.stdout, new RegExp(`opened on origin/${branch} at ${work}`));
+    assert.equal(git(await treeOf(main, number), 'rev-parse', 'HEAD'), work);
+    assert.equal(git(main.checkout, 'config', '--get', `branch.${branch}.merge`), 'refs/heads/master');
   });
 
   it('records on the branch that the issue lives in another repository, and writes there (innocent case)', async () => {

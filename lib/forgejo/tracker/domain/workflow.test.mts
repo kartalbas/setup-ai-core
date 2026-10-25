@@ -17,6 +17,7 @@ import {
   hasProvenRecord,
   hasReleasedRecord,
   hasStartedRecord,
+  environmentsWith,
   landedEnvironments,
   listMissingDelivery,
   readIssueHistory,
@@ -55,6 +56,26 @@ describe('the environments where a landing is the delivery', () => {
     assert.throws(() => landedEnvironments('prod'), UsageError);
     assert.throws(() => landedEnvironments('prod='), UsageError);
   });
+
+  it('are read by the same reader that names the environments of the pattern command', () => {
+    assert.deepEqual(environmentsWith('prod=command test=landed', 'command'), ['prod']);
+    assert.deepEqual(environmentsWith('prod=command test=landed', 'landed'), ['test']);
+    assert.throws(() => environmentsWith('prod', 'command'), UsageError);
+  });
+});
+
+describe('a delivery that a project\'s reader answers', () => {
+  const pinned = { owner: 'o', repo: 'pinned' };
+  const landedIn = { deliveryReopenedAt: undefined, landings: [{ at: 1, branch: 'master', repository: pinned, commit: 'c'.repeat(40) }], releases: [], proofs: [] };
+
+  it('counts where the reader delivered the landing, and names the reason where it did not, in place of a missing release (planted)', () => {
+    assert.deepEqual(listMissingDelivery(landedIn, [], [{ repository: pinned, missing: undefined }]), []);
+    assert.deepEqual(listMissingDelivery(landedIn, [], [{ repository: pinned, missing: 'the reader of o/pinned found no completed delivery on prod' }]), ['the reader of o/pinned found no completed delivery on prod']);
+  });
+
+  it('leaves a repository no reader answered to its release (innocent case)', () => {
+    assert.match(listMissingDelivery(landedIn, []).join(), /no release of o\/pinned follows its landing/);
+  });
 });
 
 describe('what an issue records', () => {
@@ -92,6 +113,7 @@ describe('what an issue records', () => {
     fake.addComment('o/r', ref.number, 'writer', composeProvenRecord('prod', 'ok'));
     const found = await history();
     assert.equal(found.landings.length, 1);
+    assert.equal(found.landings[0]?.commit, MERGE);
     assert.equal(found.releases.length, 1);
     assert.equal(found.proofs[0]?.environment, 'prod');
     assert.deepEqual(listMissingDelivery(found, []), []);

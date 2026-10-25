@@ -33,6 +33,9 @@ export interface HarnessSteps {
   refreshCheckout(checkout: string): Promise<StepOutcome>;
   // LIVE_TAGS as the checkout's own config.env sets it, read as the Bash harness reads it.
   readLiveTags(checkout: string): Promise<StepOutcome>;
+  // The newest completed delivery of the environment as the checkout's own reader answers it, checked as the Bash
+  // harness checks it: {"delivered": null} or {"delivered": {commit, releasedAt, source, ...}}.
+  readLiveRelease(checkout: string, repository: string, environment: string): Promise<StepOutcome>;
   // Runs scripts/install.sh of the worktree, its lines shown while it runs; the outcome holds the last of them.
   installTools(worktree: string, show: (text: string) => void): Promise<StepOutcome>;
 }

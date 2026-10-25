@@ -20,6 +20,7 @@ export function createRecordingHarness(): RecordingHarness {
     assembleWorktree: step('assembleWorktree', 'init: assembled'),
     refreshCheckout: step('refreshCheckout', 'refreshed: the checkout'),
     readLiveTags: step('readLiveTags', ''),
+    readLiveRelease: (checkout, repository, environment) => step('readLiveRelease', '{"delivered":null}')(`${checkout} ${repository} ${environment}`),
     installTools: (path) => step('installTools', 'installed')(path),
   };
 }

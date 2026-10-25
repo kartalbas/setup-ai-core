@@ -237,7 +237,7 @@ while IFS=$'\t' read -r key name length used resets; do
   # A window of a day or less resets soon after, so waiting costs little; a longer one is a
   # person's decision, another account or slower work, and needs the hour ahead of time.
   if [ "$length" -gt 0 ] && [ "$length" -le 1440 ]; then projected=1
-  else warnings="$warnings$name reaches $limit at $(when "$cross"), before its reset: tell the person who decides the account now"$'\n'; fi
+  else warnings="$warnings$name reaches $limit at $(when "$cross"), before its reset; the person who holds the account watches it"$'\n'; fi
 done <<< "$windows"
 echo "recorded $(when "$recorded"), limit $limit"
 printf '%s' "$warnings"

@@ -101,6 +101,6 @@ rounds and a comment on an issue wakes nobody, and stop.
   ignore it. A defect you read in a span of the package joins the package as a criterion of the
   issue it touches. The same holds for the same shape of defect in a sibling call, and for another
   copy of a changed name or text that `git grep` finds in any clone. Only a defect outside the
-  package's files and contracts becomes its own issue, and the section names it under `Left out:`.
+  package's files and contracts is named under `Left out:`; it gets an issue only with the owner's yes.
 - Never make a package a parent issue: an issue has one parent, and that is its epic.
 - Names stay spelled as the code spells them.

@@ -40,13 +40,15 @@
   read again at that moment. Nothing is claimed about code that was not read: a file the owner names
   is opened, at least the span the answer rests on, before anything is said about it. [discipline]
 - **Warnings are near-errors.** A warning the change raises is cleared in the change, never
-  tolerated; a warning that was there before becomes an issue. [review]
+  tolerated; a warning that was there before is a defect found in the work. [review]
 - **Report the result, not the intention.** A failed check is shown with its output, a skipped step
   is named with its reason, finished work is stated plainly. [review]
 - **A pass from a gate is not a review.** Work that changes behaviour is read, before it is
   integrated, by a reviewer told to refute, who names the file, the line and the state in which a
-  defect appears. The reviewer never runs on the model that wrote the work, because two readers
-  with the same habits share a blind spot. After the reviewer's GO,
+  defect appears; a small change that a person sees and that changes no code path or interface is
+  reviewed instead by the owner's choice of its picture. The reviewer never runs on the model that
+  wrote the work, because two readers with the same habits share a blind spot. After the reviewer's
+  GO,
   `ai-core integrate-issue <number> --reviewed-by <reviewer>` integrates the work into the default
   branch as a merge commit that names the issue and carries a `Reviewed-by: <reviewer>` trailer,
   so the reviewed commits land as they were read; the verdict is written on the issue. A refused
@@ -61,7 +63,9 @@
   coordinator, in its next round, writes the proof on the issue, in a comment whose first line is
   `Proven on <environment>:`; on GitHub `ai-core status-sync` closes the card when that record follows its
   landing and the release of the first environment of `LIVE_TAGS` carries its work; on Forgejo
-  `ai-core issue-proof` writes the record and closes the issue under the same conditions. A test, on
+  `ai-core issue-proof` writes the record and closes the issue under the same conditions. A small
+  change that the owner chose by its picture is proven instead by the picture that the session
+  that made it takes there, written as that record. A test, on
   any environment, reaches no real person. Every mail or message that a test sends, or makes the
   product send, goes to the project's one test mailbox. Its address is one setting of the tests,
   never a literal in a test case. Each test case adds its own name to the local part of that

@@ -26,11 +26,16 @@
   issue or a document, check it for placeholders, contradictions, scope and ambiguity. Issues and
   the board change through the harness's issue and board commands (`ai-core --help`), so they are
   used, proven, and extended or fixed where they fall short; `gh` serves everything they do not
-  cover. A change that alters no behavior (a text, a comment, the wording of a rule or a message)
-  goes the short way: the session makes it itself, with no sub-agent and no issue of its own; its
-  commit names the decision or the finding, the push gate checks it, and it lands with the next
-  landing of its repository and ships with its next release, never in a round or a release of its
-  own. [tool · discipline]
+  cover. A small change goes the short way: the session makes it itself, with no sub-agent; its
+  commit names the decision or the finding, and the push gate checks it. One that alters no behavior
+  (a text, a comment, the wording of a rule or a message) needs no issue of its own: it lands with
+  the next landing of its repository and ships with its next release. One that a person sees and
+  that changes a few lines of content, an asset or a value and no code path or interface (a label,
+  an icon, a color) is first shown to the owner as a picture; it is committed on the open issue it
+  belongs to, or on a new one, because the integration lands only an issue and the release names
+  it; the owner's choice of that picture is its review, the session's own picture of it on the
+  environment after the release is its proof, and it lands and is released at once, on its own.
+  [tool · discipline]
 - **Never stage blindly.** Read the working-tree status and add the paths you changed. A commit
   subject is one sentence of at most 72 characters that describes the change, because the log, the
   tracker and every list view cut a longer subject and the rest is lost where it is read; the body
@@ -108,9 +113,10 @@
   since the window began and projects the window to its reset; no session holds back on a fixed
   percentage or a fixed hour. A window of a day or less that reaches the limit before its reset
   starts nothing new, and what runs commits before the hour it names; one that lasts until its
-  reset carries the work into the next window at full speed. A longer window that reaches the
-  limit before its reset is the decision of whoever holds the account, another account or slower
-  work, and is told to them at once with that hour. At the limit itself, every session using that
+  reset carries the work into the next window at full speed. A longer window is watched by whoever
+  holds the account: the work goes on at full speed up to the limit, nobody asks them about it, and
+  they change the account there or say when the work slows down. At the limit itself, every
+  session using that
   limited account or model finishes the step in hand, commits and reports it, starts nothing new on
   it and waits for the reset, and what is left stays for the coordination and the reviews. [review ·
   tool]

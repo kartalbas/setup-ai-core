@@ -236,7 +236,7 @@ forget; answer 0.92 0.95 0.2 1
 seed 'Claude and GPT models' 3p-weekly 1800 20 "$week_at"
 out="$(agy_run --tool agy)"; rc=$?
 check 'exit 0'                   0 "$rc"
-check 'the warning names the group and the share used' yes "$(matches '^Claude and GPT models: seven_day reaches 92 % used at [A-Z][a-z]{2} [0-9:]{5} [A-Z]+, before its reset: tell the person who decides the account now$' "$out")"
+check 'the warning names the group and the share used' yes "$(matches '^Claude and GPT models: seven_day reaches 92 % used at [A-Z][a-z]{2} [0-9:]{5} [A-Z]+, before its reset; the person who holds the account watches it$' "$out")"
 forget; answer 0.92 0.95 0.05 0.2
 seed 'Claude and GPT models' 3p-5h 1800 50 "$soon"
 out="$(agy_run --tool agy)"; rc=$?

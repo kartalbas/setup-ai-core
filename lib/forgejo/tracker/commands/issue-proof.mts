@@ -23,7 +23,9 @@ own LIVE_TAGS names ENV with the pattern landed, its landing is its delivery and
 names ENV with the pattern command, the reader of LIVE_RELEASE_COMMAND in its checkout answers the newest
 completed delivery, and the landing is delivered once that delivery's commit holds the newest landed commit; no
 delivery, a reader's error or a delivery without the landing refuses and says why. Another repository's
-LIVE_TAGS is read from its checkout beside this clone's main checkout; a missing checkout is refused.
+LIVE_TAGS is read from its checkout in the project folder, the parent of this clone's main checkout, else from
+the one checkout of it in a folder beside the project folder, where its origin decides; no checkout, or two
+beside, is refused.
 A landing in a harness layer, a repository named <prefix>-ai-core, also needs no release: init deploys it from
 its default branch. Text with a literal email address is refused for a public repository. Run again after a
 failure, it writes only what is missing.`;

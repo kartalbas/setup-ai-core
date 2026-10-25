@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { readdir, stat } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import type { Readable } from 'node:stream';
 
@@ -15,15 +15,6 @@ export interface Worktree {
   readonly path: string;
   readonly head: string | undefined;
   readonly branch: string | undefined;
-}
-
-async function isDirectory(path: string): Promise<boolean> {
-  try {
-    return (await stat(path)).isDirectory();
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
-    throw error;
-  }
 }
 
 export class GitError extends Error {
@@ -130,7 +121,7 @@ export class GitClient {
       const folder = join(parent, entry.name);
       if (folder === projectFolder) continue;
       const clone = join(folder, name);
-      if (!(await isDirectory(clone)) || !(await this.isCheckout(clone))) continue;
+      if (!(await this.isCheckout(clone))) continue;
       const remote = await this.run(clone, ['remote', 'get-url', 'origin'], [0, 2]);
       if (remote.exitCode === 0) found.push({ path: clone, origin: parseRemoteAddress(remote.stdout) });
     }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
@@ -1151,6 +1151,23 @@ describe('issue-proof and the close as completed', () => {
     assert.deepEqual(harness.calls, []);
     assert.equal(writesOf(), before);
     assert.equal(fake.readIssue(main.full, number).state, 'open');
+  });
+
+  it('proves a landing whose clone lies beside an unreadable folder (planted: the folder crashed the search)', async () => {
+    const { number } = await delivered('Unreadable neighbour, so that the clone beside it is still found');
+    const [partner, denied] = partnerClone('u', 'partner-denied', 'project-u', 'project-denied');
+    landedInPartner(number, 'u', 'partner-denied');
+    const harness = liveTagsHarness();
+    rmSync(must(denied), { recursive: true });
+    chmodSync(dirname(must(denied)), 0);
+    try {
+      await issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=v*' }, harness));
+    } finally {
+      chmodSync(dirname(must(denied)), 0o755);
+    }
+
+    assert.equal(fake.readIssue(main.full, number).state, 'closed');
+    assert.deepEqual(harness.calls, [`readLiveTags ${partner}`]);
   });
 
   it('refuses a neighbour directory that is another repository (planted: it declares landed)', async () => {

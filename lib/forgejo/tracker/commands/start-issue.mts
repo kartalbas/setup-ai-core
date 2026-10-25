@@ -17,8 +17,11 @@ Cuts the worktree of one issue from the fetched default branch of origin, sets s
 record "Started on <branch>:" with the branch and its base. Run it in the clone the work belongs to; the issue may
 be in another repository (OWNER/REPO), which is then recorded on the branch.
 
-The issue must be open, assigned to the signed-in account and in ready, planned, implementing or review. A branch
-or a folder of this issue that is not its own worktree refuses the run. Where the worktree stands already, nothing
+The issue must be open, assigned to the signed-in account and in ready, planned, implementing or review. A local
+branch of this issue that is not its own worktree, an origin branch of it that has not landed under another name,
+and a folder in the worktree's place refuse the run. An origin branch whose tip the default branch contains does
+not: the new branch descends from it. An origin branch that has not landed, under the exact name the worktree
+takes, is the issue's work: the worktree is opened on it, at its tip. Where the worktree stands already, nothing
 is cut again and only the records that are missing are written. Before anything it runs the team modes check and
 refuses with its lines when a mode is missing. It runs ai-core init in a new worktree, so the harness is there
 before the work starts; a worktree of a harness source needs none.`;
@@ -33,6 +36,19 @@ function slugOf(title: string): string {
     .replace(/^-+|-+$/g, '')
     .slice(0, SLUG_LENGTH)
     .replace(/-+$/, '');
+}
+
+// A branch whose tip origin's default branch contains has landed: a branch cut from the default branch descends
+// from it, so its push fast-forwards that branch, and it holds nothing the new worktree lacks.
+async function listUnlandedRemoteBranches(context: CommandContext, number: number, defaultBranch: string): Promise<string[]> {
+  const { git, cwd } = context;
+  const names = await git.listRemoteBranchNames(cwd, [`issue-${number}`, `issue-${number}-*`]);
+  const unlanded: string[] = [];
+  for (const name of names) {
+    await git.fetchBranch(cwd, name);
+    if (!(await git.isAncestor(cwd, `refs/remotes/origin/${name}`, `refs/remotes/origin/${defaultBranch}`))) unlanded.push(name);
+  }
+  return unlanded;
 }
 
 function statusOf(issue: Issue): string | undefined {
@@ -77,20 +93,35 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   const cut = worktrees.find((worktree) => worktree.branch === branch);
   if (cut !== undefined && cut.path !== path) throw new PreconditionError(`the branch ${branch} is checked out in ${cut.path}, not in ${path}`);
   const resuming = cut !== undefined;
+  let opened: string | undefined;
 
   if (!resuming) {
     const pattern = new RegExp(`^issue-${ref.number}(-.*)?$`);
     const local = (await git.listBranchNames(cwd)).filter((name) => pattern.test(name));
-    const remote = (await git.listRemoteBranchNames(cwd, [`issue-${ref.number}`, `issue-${ref.number}-*`])).map((name) => `origin/${name}`);
-    const taken = [...local, ...remote];
-    if (taken.length > 0) throw new PreconditionError(`a branch for issue ${ref.number} exists already: ${taken.join(', ')}. Use its worktree, or finish that issue first`);
+    const remote = await listUnlandedRemoteBranches(context, ref.number, defaultBranch);
+    const isWorkOfOrigin = local.length === 0 && remote.length === 1 && remote[0] === branch;
+    const taken = [...local, ...remote.map((name) => `origin/${name}`)];
+    if (taken.length > 0 && !isWorkOfOrigin) throw new PreconditionError(`a branch for issue ${ref.number} exists already: ${taken.join(', ')}. Use its worktree, or finish that issue first`);
     if (worktrees.some((worktree) => worktree.path === path)) throw new PreconditionError(`${path} is a worktree of another branch`);
     await mkdir(container, { recursive: true });
-    await git.addWorktree(cwd, path, branch, `refs/remotes/origin/${defaultBranch}`);
+    if (isWorkOfOrigin) {
+      opened = await git.resolveCommit(cwd, `refs/remotes/origin/${branch}`);
+      await git.addWorktree(cwd, path, branch, `refs/remotes/origin/${branch}`);
+      // Push and pre-push read the default branch as the upstream, as on a branch cut from it.
+      await git.setConfig(cwd, `branch.${branch}.merge`, `refs/heads/${defaultBranch}`);
+    } else {
+      await git.addWorktree(cwd, path, branch, `refs/remotes/origin/${defaultBranch}`);
+    }
     if (!isSameRepository(ref, origin)) await git.setConfig(cwd, `branch.${branch}.issueRepository`, formatRepository(ref));
   }
 
-  const lines = [resuming ? `Worktree ${path} stands on ${branch} already.` : `Worktree ${path} on ${branch}, cut from origin/${defaultBranch} at ${base}.`];
+  const lines = [
+    resuming
+      ? `Worktree ${path} stands on ${branch} already.`
+      : opened !== undefined
+        ? `Worktree ${path} on ${branch}, opened on origin/${branch} at ${opened}: the work origin holds and no worktree had.`
+        : `Worktree ${path} on ${branch}, cut from origin/${defaultBranch} at ${base}.`,
+  ];
   const warnings: string[] = [];
   if (!resuming) {
     const assembled = await context.harness.assembleWorktree(path);
@@ -99,7 +130,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   }
   await afterStep(
     `record the start of issue ${formatIssue(ref)}`,
-    `${resuming ? 'found' : 'cut'} the worktree ${path} on ${branch}`,
+    `${resuming ? 'found' : opened !== undefined ? 'opened' : 'cut'} the worktree ${path} on ${branch}`,
     async () => {
       await replaceFamilyLabel(api, ref, issue, statusLabel('implementing'));
       const entries = await readTimeline(api, ref);

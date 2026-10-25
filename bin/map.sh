@@ -154,7 +154,7 @@ fi
 #    tally) drops out: the file starts at the title line, and its last section ends at its first
 #    blank line. A fence around the file is dropped; blank edges are cut.
 tr -d '\r' < "$RAW" | sed '/^```/d' | awk -v title="# $repo — the map" 'f || $0 == title {f=1; print}' \
-  | awk '/^## Rules of this repository/{r=1; print; next} r && NF==0 && c {exit} r && NF {c=1} {print}' \
+  | awk '!done && /^## Rules of this repository/{r=1; print; next} !done && r && NF==0 && c {done=1} !done && r && NF {c=1} !done {print}' \
   | awk 'NF{f=1} f' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > "$TMP/map.md"
 shape_ok() {
   [ "$(head -n1 "$TMP/map.md")" = "# $repo — the map" ] || return 1

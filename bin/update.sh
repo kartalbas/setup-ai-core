@@ -47,7 +47,7 @@ done
 
 # A fetch that gives up on a dead line instead of hanging a session start
 fetch() { git -C "$1" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=5 fetch --quiet --tags origin 2>/dev/null; }
-newest_release() { git -C "$1" tag --list 'v[0-9]*' --sort=-v:refname 2>/dev/null | head -n1; }
+newest_release() { git -C "$1" tag --list 'v[0-9]*' --sort=-v:refname 2>/dev/null | sed -n 1p; }
 release_of() { git -C "$1" describe --tags --exact-match HEAD 2>/dev/null || true; }   # the tag HEAD stands on, or nothing
 branch_of() { git -C "$1" symbolic-ref --short -q HEAD 2>/dev/null || true; }          # the branch, or nothing when detached
 behind_by() { git -C "$1" rev-list --count "HEAD..origin/$2" 2>/dev/null || echo 0; }

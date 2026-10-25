@@ -27,16 +27,18 @@ echo "  $(wc -l < "$WORK/checkout.list") files"
 section "AGENTS.md without a map: the generic one under the binding rules; one of before replaced, one the repository tracks or somebody's own kept"
 A="$WORK/checkout/AGENTS.md"
 grep -q '^<!-- ai-core map: none yet' <<< "$(head -n1 "$A")" && grep -qxF '## Binding rules' "$A" && grep -q '^- Before any work, read the three rules files below, whole, unless your tool has loaded them: .*every other tool loads none of them\.$' "$A" && grep -q '^- The engineering rules, .*: @\.ai-core/rules/rules\.md$' "$A" && grep -q '^- `ai-core --help`: ' "$A" && grep -qxF '# This repository has no map yet' "$A" || fail "init.sh did not put the binding rules on the generic map: $(head -n 12 "$A" | tr '\n' '|')"
-for c in before mine tracked; do
+for c in before mine tracked binary; do
   C="$WORK/agentsmd-$c"; mkdir -p "$C/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$C/.ai-core/config.env"; git init -q "$C"
   case "$c" in
     before) printf '# AGENTS.md \342\200\224 Repository Navigation & Operations\n\nthe generic file of before 1.3.20\n' > "$C/AGENTS.md" ;;
     mine) printf '# mine\n' > "$C/AGENTS.md" ;;
+    binary) printf '<!-- ai-core ma\000p: mine -->\n' > "$C/AGENTS.md"; cp "$C/AGENTS.md" "$WORK/agentsmd-binary.want" ;;
     tracked) printf '# tracked\n' > "$C/AGENTS.md"; git -C "$C" add AGENTS.md; git -C "$C" commit -q -m tracked ;;
   esac
   bash "$ROOT/bin/init.sh" "$C" --no-doctor > "$C.log" 2>&1 || fail "init.sh with an AGENTS.md $c (see $C.log)"
   case "$c" in
     before) grep -q '^<!-- ai-core map: none yet' <<< "$(head -n1 "$C/AGENTS.md")" || fail "init.sh kept the generic AGENTS.md of before" ;;
+    binary) cmp -s "$C/AGENTS.md" "$WORK/agentsmd-binary.want" || fail "init.sh overwrote an AGENTS.md with a NUL in its header" ;;
     *) [ "$(cat "$C/AGENTS.md")" = "# $c" ] && grep -aq '^  kept .*AGENTS\.md' "$C.log" || fail "init.sh overwrote an AGENTS.md that is $c, or did not report it kept: $(head -n1 "$C/AGENTS.md")" ;;
   esac
 done
@@ -332,12 +334,15 @@ parts_hold() {  # parts_hold <how> <filter>: the bodies of the parts against the
 }
 A="$F/repo/.agents/rules"
 ours_head 9 > "$A/ai-core-09.md"; printf 'the project uses this name too\n' > "$A/ai-core-08.md"
+printf 'descrip\000tion: the binding rules setup-ai-core user wrote this\n' > "$A/ai-core-07.md"; cp "$A/ai-core-07.md" "$WORK/own-part"
 printf -- '---\ntrigger: manual\n---\nours\n' > "$A/mine.md"
 agy_init "$F/repo" --dry-run
 [ -e "$A/ai-core-09.md" ] || fail "init.sh --dry-run removed a part"
 agy_init "$F/repo"
 [ ! -e "$A/ai-core-09.md" ] || fail "init.sh kept a part of its own it no longer writes"
 [ "$(cat "$A/ai-core-08.md")" = 'the project uses this name too' ] || fail "init.sh removed a file of the project's own that has a part's name"
+cmp -s "$A/ai-core-07.md" "$WORK/own-part" || fail "init.sh changed a part containing a NUL"
+! grep -q 'ignored null byte' "$WORK/agy.log" || fail "init.sh put a binary header into a shell variable"
 [ "$(cat "$A/mine.md")" = "$(printf -- '---\ntrigger: manual\n---\nours')" ] || fail "init.sh touched a rule of the project's own in .agents/rules/"
 parts_fit; parts_hold "line for line" cat
 ! grep -aq 'antigravity: warning' "$WORK/agy.log" || fail "init.sh warned of agy's budget for $(cat "$A"/ai-core-[0-9][0-9].md | wc -c) bytes"

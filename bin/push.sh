@@ -64,7 +64,7 @@ for dir in "$FOLDER"/*-ai-core; do
     count="$(grep -c . <<< "$changed")"
     msg="$MESSAGE"
     if [ -z "$msg" ]; then
-      msg="$(printf '%s\n' "$changed" | sed 's/^...//' | head -3 | paste -sd, - | sed 's/,/, /g')"
+      msg="$(printf '%s\n' "$changed" | sed 's/^...//' | sed -n 1,3p | paste -sd, - | sed 's/,/, /g')"
       [ "$count" -le 3 ] || msg="$msg (+$((count - 3)))"
     fi
     git -C "$dir" add -A

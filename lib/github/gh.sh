@@ -135,7 +135,7 @@ gh_doctor() {
       if grep -q 'Token scopes:' <<< "$gh_status" && ! grep -q "'project'" <<< "$gh_status"; then
         report gh "no project scope" "the board commands read and write the project board; run: gh auth refresh -h github.com -s project"; problem
       else
-        report gh present "$(gh --version 2>/dev/null | head -1), logged in"
+        report gh present "$(gh --version 2>/dev/null | sed -n 1p), logged in"
       fi
     else
       report gh "not logged in" "run: gh auth login"; problem

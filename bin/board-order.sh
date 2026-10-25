@@ -43,7 +43,7 @@ set_project "$project_arg" >/dev/null
 # reported as "not on this board".
 items="$(board_items)" || exit 1
 item_for() {  # item_for <repo#number>; the item id, or nothing when the card is not on the board
-  printf '%s\n' "$items" | awk -F'\t' -v key="$1" '$2 "#" $3 == key { print $1; exit }'
+  awk -F'\t' -v key="$1" '$2 "#" $3 == key { print $1; exit }' <<< "$items"
 }
 
 wanted=()

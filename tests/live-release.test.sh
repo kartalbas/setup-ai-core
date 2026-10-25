@@ -9,6 +9,8 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 W="$(mktemp -d)"
+export HOME="$W/home" AI_CORE_HOME="$W/ai-core-home"
+mkdir -p "$HOME" "$AI_CORE_HOME"
 trap 'rm -rf "$W"' EXIT
 failed=0; bad=0; quiet=""
 expect() {  # expect <name> <expected> <actual>
@@ -35,6 +37,7 @@ case "\$(cat "$W/mode")" in
   ok)           answer ;;
   null)         echo null ;;
   fail)         echo "the carrier cannot be reached" >&2; echo '{"ignored":true}'; exit 3 ;;
+  failbinary)   printf 'bad\\377text\\n' >&2; exit 3 ;;
   failsilent)   exit 4 ;;
   empty)        : ;;
   text)         echo 'not json at all' ;;
@@ -86,6 +89,9 @@ matrix() {
   expect 'JSON null with exit 0 is a read that found no completed delivery' '0|{"delivered":null}|' "$rc|$out|$err"
   refused 'a reader that exits non-zero, and prints JSON too, is an error with the reader'"'"'s own words' "$lib" fail 'exited 3 for example-org/component prod: the carrier cannot be reached'
   refused 'a reader that exits non-zero and says nothing' "$lib" failsilent 'it said nothing'
+  LC_ALL=C.UTF-8 say "$lib" failbinary
+  expect 'a reader with invalid UTF-8 still fails without standard output' '1|' "$rc|$out"
+  expect 'the binary-input diagnostic stays visible' yes "$(has "$err" 'binary file matches')"
   refused 'no output' "$lib" empty 'printed nothing'
   refused 'text that is no JSON' "$lib" text 'no JSON'
   refused 'two JSON values' "$lib" two 'printed 2 JSON values'

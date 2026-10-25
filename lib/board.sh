@@ -315,10 +315,10 @@ fields_fresh() { rm -f "$(cache_dir)/fields.tsv" || return 1; fields_tsv; }
 field_id() {  # field_id <field name>
   local want="$1" all id
   all="$(fields_tsv)" || exit 1
-  id="$(printf '%s\n' "$all" | awk -F'\t' -v n="$want" '$1==n {print $2; exit}')"
+  id="$(awk -F'\t' -v n="$want" '$1==n {print $2; exit}' <<< "$all")"
   if [ -z "$id" ]; then
     all="$(fields_fresh)" || exit 1
-    id="$(printf '%s\n' "$all" | awk -F'\t' -v n="$want" '$1==n {print $2; exit}')"
+    id="$(awk -F'\t' -v n="$want" '$1==n {print $2; exit}' <<< "$all")"
   fi
   [ -n "$id" ] || die "no single-select field named '$want' on the board. There is: $(printf '%s\n' "$all" | cut -f1 | sort -u | paste -sd' ' -)"
   echo "$id"
@@ -336,10 +336,10 @@ field_id() {  # field_id <field name>
 option_id() {  # option_id <field name> <option name>
   local fld="$1" want="$2" all id
   all="$(fields_tsv)" || exit 1
-  id="$(printf '%s\n' "$all" | awk -F'\t' -v f="$fld" -v n="$want" 'tolower($1)==tolower(f) && tolower($3)==tolower(n) {print $4; exit}')"
+  id="$(awk -F'\t' -v f="$fld" -v n="$want" 'tolower($1)==tolower(f) && tolower($3)==tolower(n) {print $4; exit}' <<< "$all")"
   if [ -z "$id" ]; then
     all="$(fields_fresh)" || exit 1
-    id="$(printf '%s\n' "$all" | awk -F'\t' -v f="$fld" -v n="$want" 'tolower($1)==tolower(f) && tolower($3)==tolower(n) {print $4; exit}')"
+    id="$(awk -F'\t' -v f="$fld" -v n="$want" 'tolower($1)==tolower(f) && tolower($3)==tolower(n) {print $4; exit}' <<< "$all")"
   fi
   [ -n "$id" ] || die "field '$fld' has no option '$want'. It has: $(printf '%s\n' "$all" | awk -F'\t' -v f="$fld" 'tolower($1)==tolower(f) {print $3}' | paste -sd' ' -)"
   echo "$id"

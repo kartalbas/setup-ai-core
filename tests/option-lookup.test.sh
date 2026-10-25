@@ -20,7 +20,10 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$(mktemp -d)"
+export HOME="$WORK/home" AI_CORE_HOME="$WORK/ai-core-home"
+mkdir -p "$HOME" "$AI_CORE_HOME"
 export GH_CACHE_DIRECTORY="$WORK/cache"
+export GH_ORG=example-org
 PROJECT_NUMBER=999998
 failed=0
 
@@ -34,6 +37,7 @@ check() { # name expected actual
 
 . "$ROOT/lib/board.sh"
 PROJECT="$PROJECT_NUMBER"
+PROJECT_ORG="$GH_ORG"
 
 # The cache the lookups read, written directly. The option names are this organisation's own,
 # lower-case, which is the whole reason the first property matters.
@@ -52,7 +56,7 @@ EOF
 # other call as the mutation it would be.
 printf '%s\n' PVT_test > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/project-id"
 cp "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv" "$WORK/board.tsv"
-FAKE="$(mktemp -d)"
+FAKE="$WORK/fake"
 mkdir -p "$FAKE/bin"
 cat > "$FAKE/bin/gh" <<EOF
 #!/usr/bin/env bash
@@ -126,7 +130,63 @@ touch -d "@$(( $(date +%s) - 3660 ))" "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/field
 check 'is read again'                         yes "$(fields_tsv | grep -q OPT_ready && echo yes || echo no)"
 printf 'Status\tPVTSSF_status\ttodo\tOPT_todo\n' > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
 check 'one within the hour is not'            no "$(fields_tsv | grep -q OPT_ready && echo yes || echo no)"
-rm -rf "${FAKE:?}"
 
+echo
+echo 'a large cache with the wanted row first'
+printf 'Status\tPVTSSF_status\ttodo\tOPT_todo\n' > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
+for ((i = 1; i <= 5000; i++)); do
+  printf 'Extra%s\tFIELD_%s\toption%s\tOPTION_%s\n' "$i" "$i" "$i" "$i"
+done >> "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
+
+for signal in default ignored; do
+  for lookup in option_id field_id; do
+    # Bash cannot reset SIGPIPE if it was already ignored when Bash started.
+    if output="$(ROOT="$ROOT" GH_CACHE_DIRECTORY="$GH_CACHE_DIRECTORY" env --default-signal=PIPE bash -c '
+      . "$ROOT/lib/board.sh"
+      PROJECT=999998
+      PROJECT_ORG=example-org
+      if [ "$1" = ignored ]; then trap "" PIPE; else trap - PIPE; fi
+      if [ "$2" = option_id ]; then option_id Status todo; else field_id Status; fi
+    ' _ "$signal" "$lookup" 2> "$WORK/lookup.err")"; then rc=0; else rc=$?; fi
+    check "$lookup with SIGPIPE $signal exits cleanly" 0 "$rc"
+    if [ "$lookup" = option_id ]; then want=OPT_todo; else want=PVTSSF_status; fi
+    check "$lookup with SIGPIPE $signal returns the first id" "$want" "$output"
+    check "$lookup with SIGPIPE $signal has no error" '' "$(cat "$WORK/lookup.err")"
+  done
+done
+
+echo
+echo 'Plane lookups preserve a later parse error after the wanted row'
+plane_cache="$WORK/plane-cache"; mkdir -p "$plane_cache"
+plane_lookup() {
+  bash -euo pipefail -c '
+    . "$1/lib/plane/tracker.sh"
+    fixture="$2"; shift 2
+    carry_dir() { printf "%s\n" "$fixture"; }
+    plane_states() { cat "$fixture/states.jsonl"; }
+    plane_pages() { cat "$fixture/labels.jsonl"; }
+    plane_setting() { echo fixture; }
+    plane_project_uuid() { echo fixture; }
+    "$@"
+  ' _ "$ROOT" "$plane_cache" "$@"
+}
+for invocation in 'carry_state_id status ready' 'carry_state_id cancelled' 'carry_state_id default' \
+                  'carry_label_id ready' 'plane_state_id ready' 'plane_state_id group:unstarted' 'plane_label_ids ready'; do
+  read -r -a arguments <<< "$invocation"
+  group=unstarted; [ "$invocation" != 'carry_state_id cancelled' ] || group=cancelled
+  printf '{"name":"ready","group":"%s","default":true,"id":"first"}\n' "$group" > "$plane_cache/states.jsonl"
+  printf '{"name":"ready","group":"%s","default":true,"id":"second"}\n' "$group" >> "$plane_cache/states.jsonl"
+  cp "$plane_cache/states.jsonl" "$plane_cache/labels.jsonl"
+  if output="$(plane_lookup "${arguments[@]}" 2> "$WORK/plane.err")"; then rc=0; else rc=$?; fi
+  want=first; [ "$invocation" != 'plane_label_ids ready' ] || want='["first"]'
+  check "$invocation returns the first match" "$want" "$output"
+  check "$invocation exits cleanly" 0 "$rc"
+  check "$invocation has no error" '' "$(cat "$WORK/plane.err")"
+  printf '{broken\n' >> "$plane_cache/states.jsonl"
+  cp "$plane_cache/states.jsonl" "$plane_cache/labels.jsonl"
+  if output="$(plane_lookup "${arguments[@]}" 2> "$WORK/plane.err")"; then rc=0; else rc=$?; fi
+  check "$invocation refuses the truncated cache" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+  check "$invocation keeps the parse error visible" yes "$(grep -qi 'parse error' "$WORK/plane.err" && echo yes || echo no)"
+done
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo; echo 'all passed'

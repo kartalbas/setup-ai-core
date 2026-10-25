@@ -24,7 +24,8 @@ unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fake="$(mktemp -d)"
 # Every run of the gate leaves a record under AI_CORE_HOME; a test writes none into the machine's own
-export AI_CORE_HOME="$fake/ai-core-home"
+export HOME="$fake/home" AI_CORE_HOME="$fake/ai-core-home"
+mkdir -p "$HOME" "$AI_CORE_HOME"
 trap 'git -C "$fake/checkouts/app" worktree remove --force "$fake/checkouts/.worktrees/app/issue-5-probe" >/dev/null 2>&1; rm -rf "$fake"' EXIT
 
 failed=0
@@ -75,6 +76,28 @@ EOF
 chmod +x "$stub/claude" "$stub/gitleaks" "$stub/ai-core"
 . "$root/tests/load-stubs.sh"; make_load_stubs "$stub"
 real_sleep="$(command -v sleep)"; real_mktemp="$(command -v mktemp)"; real_ln="$(command -v ln)"
+real_sort="$(command -v sort)"; real_git="$(command -v git)"
+cat > "$stub/sort" <<EOF
+#!/usr/bin/env bash
+if [ "\${PROBE_SORT_FAIL:-}" = paths ] && [ "\$#" -eq 1 ] && [ "\$1" = -u ]; then
+  echo 'planted sort failure' >&2; exit 42
+fi
+exec "$real_sort" "\$@"
+EOF
+cat > "$stub/git" <<EOF
+#!/usr/bin/env bash
+if [ "\${PROBE_DIFF_TREE_FAIL:-}" = 1 ] && [ "\${1:-}" = diff-tree ] && [ "\${6:-}" = --diff-filter=AMR ]; then
+  echo 'planted diff-tree failure' >&2; exit 42
+fi
+if [ -n "\${PROBE_CAT_FILE_FAIL:-}" ] && [ "\${1:-}" = cat-file ] && [ "\${2:-}" = -p ] && [ "\${3#*:}" = "\$PROBE_CAT_FILE_FAIL" ]; then
+  echo 'planted cat-file failure' >&2; exit 42
+fi
+if [ -n "\${PROBE_LS_TREE_FAIL:-}" ] && [ "\${1:-}" = ls-tree ] && [ "\${4:-}" = "\$PROBE_LS_TREE_FAIL" ]; then
+  echo 'planted ls-tree failure' >&2; exit 42
+fi
+exec "$real_git" "\$@"
+EOF
+chmod +x "$stub/sort" "$stub/git"
 # While PROBE_LN is fail, no link can be made, as on a filesystem without hard links
 cat > "$stub/ln" <<EOF
 #!/usr/bin/env bash
@@ -90,6 +113,12 @@ case "\$*" in *pre-push-runs.tsv*) if [ -n "\${PROBE_MKTEMP_BARRIER:-}" ]; then
   : > "\$PROBE_MKTEMP_BARRIER/at.\$\$"
   for _ in \$(seq 400); do [ "\$(ls "\$PROBE_MKTEMP_BARRIER" | grep -c '^at\.')" -ge 2 ] && break; "$real_sleep" 0.05; done
 fi ;; esac
+if [ "\$*" = -d ] && [ "\${PROBE_MKTEMP_BLOCK_BLOB:-}" = 1 ]; then
+  folder="\$("$real_mktemp" -d)" || exit
+  mkdir "\$folder/shebang"
+  printf '%s\n' "\$folder"
+  exit 0
+fi
 exec "$real_mktemp" "\$@"
 EOF
 chmod +x "$stub/mktemp"
@@ -302,6 +331,23 @@ git -C "$repo" add --chmod=-x -- tools/run.sh; git -C "$repo" commit -q -m 'Add 
 out="$(only_new "$repo")"; rc=$?
 check 'exit 1'                         1 "$rc"
 check 'it names the file and the command' yes "$(grep -qF 'git update-index --chmod=+x tools/run.sh' <<< "$out" && echo yes || echo no)"
+echo 'a failed path sort or git diff-tree refuses the push instead of hiding the script'
+out="$(PROBE_SORT_FAIL=paths only_new "$repo")"; rc=$?
+check 'a failed sort refuses' 1 "$rc"
+check 'the refusal names sort -u and the path listing' yes "$(grep -qF 'sort -u failed to list added or changed paths' <<< "$out" && echo yes || echo no)"
+out="$(PROBE_DIFF_TREE_FAIL=1 only_new "$repo")"; rc=$?
+check 'a failed diff-tree refuses' 1 "$rc"
+check 'the refusal names git diff-tree and the path listing' yes "$(grep -qF 'git diff-tree failed to list added or changed paths' <<< "$out" && echo yes || echo no)"
+echo 'a failed mode or two-byte read refuses and names the unread path'
+out="$(PROBE_LS_TREE_FAIL=tools/run.sh only_new "$repo")"; rc=$?
+check 'a failed ls-tree refuses' 1 "$rc"
+check 'the refusal names git ls-tree and the path' yes "$(grep -qF 'git ls-tree failed to read the mode of tools/run.sh' <<< "$out" && echo yes || echo no)"
+out="$(PROBE_CAT_FILE_FAIL=tools/run.sh only_new "$repo")"; rc=$?
+check 'a failed cat-file refuses' 1 "$rc"
+check 'the refusal names the two-byte read and the path' yes "$(grep -qF 'reading the first two bytes of tools/run.sh failed (git cat-file' <<< "$out" && echo yes || echo no)"
+out="$(PROBE_MKTEMP_BLOCK_BLOB=1 only_new "$repo")"; rc=$?
+check 'a scratch blob that cannot be written does not hide the script' 1 "$rc"
+check 'the shebang refusal still names the file' yes "$(grep -qF 'git update-index --chmod=+x tools/run.sh' <<< "$out" && echo yes || echo no)"
 echo 'the bit set by a later commit of the same push passes'
 git -C "$repo" update-index --chmod=+x -- tools/run.sh; chmod +x "$repo/tools/run.sh"; git -C "$repo" commit -q -m 'Make the runner executable #7'
 out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$(git -C "$repo" rev-parse HEAD~2)")"; rc=$?
@@ -326,6 +372,14 @@ out="$(only_new "$repo")"; rc=$?
 check 'exit 0'                         0 "$rc"
 check 'no null byte warning'           '' "$(grep -F 'null byte' <<< "$out")"
 git -C "$repo" rm -q -- src/late-null.dat; git -C "$repo" commit -q -m 'Remove the late null file #7'
+
+echo 'a 32 MiB first line still has its first two bytes checked'
+{ printf '#!'; head -c 33554432 /dev/zero | tr '\0' x; } > "$repo/src/long-script"
+git -C "$repo" add --chmod=-x -- src/long-script; git -C "$repo" commit -q -m 'Add a long script without its executable bit #7'
+out="$(only_new "$repo")"; rc=$?
+check 'the large script is refused' 1 "$rc"
+check 'the two-byte read names the script' yes "$(grep -qF 'git update-index --chmod=+x src/long-script' <<< "$out" && echo yes || echo no)"
+git -C "$repo" rm -q -- src/long-script; git -C "$repo" commit -q -m 'Remove the long script #7'
 
 # --- the commit messages, the comments and the migrations ----------------------------
 yesno() { grep -qF -- "$1" <<< "$out" && echo yes || echo no; }

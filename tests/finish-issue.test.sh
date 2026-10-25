@@ -13,6 +13,8 @@ set -uo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fake="$(mktemp -d)"
+export HOME="$fake/home" AI_CORE_HOME="$fake/ai-core-home" GH_ORG=example-org
+mkdir -p "$HOME" "$AI_CORE_HOME"
 export GH_CACHE_DIRECTORY="$fake/cache"
 export GH_PROJECT_NUMBER=999982
 trap 'rm -rf "$fake"' EXIT
@@ -198,6 +200,29 @@ out="$(run 163)"; rc=$?
 check_runs "$rc"
 check 'it says so'          yes "$(grep -q 'the board has no testing column - the card stays' <<< "$out" && echo yes || echo no)"
 check 'the card did not move' 0 "$(grep -c 'oid=OPT_' "$log" || true)"
+
+echo 'a cached field outside the selected column preserves its bytes without adding a warning'
+printf 'Other\tF\000ID\tunused\tOPT_unused\n' >> "$GH_CACHE_DIRECTORY/$GH_PROJECT_NUMBER/fields.tsv"
+out="$(run 163)"; rc=$?
+check_runs "$rc"
+check 'the card still has no testing column' yes "$(grep -q 'the board has no testing column - the card stays' <<< "$out" && echo yes || echo no)"
+check 'no NUL-removal warning is added' 0 "$(grep -c 'ignored null byte' <<< "$out" || true)"
+
+echo 'a failure to read the field cache retains its status and diagnostic'
+real_cat="$(command -v cat)"
+mkdir -p "$fake/field-read-bin"
+cat > "$fake/field-read-bin/cat" <<EOF
+#!/usr/bin/env bash
+if [ "\$#" -eq 1 ] && [ "\$1" = "$GH_CACHE_DIRECTORY/$GH_PROJECT_NUMBER/fields.tsv" ]; then
+  echo 'planted field cache read failed' >&2
+  exit 7
+fi
+exec "$real_cat" "\$@"
+EOF
+chmod +x "$fake/field-read-bin/cat"
+out="$(PATH="$fake/field-read-bin:$PATH" run 163)"; rc=$?
+check 'the field reader status is preserved' 7 "$rc"
+check 'the field reader diagnostic is preserved' yes "$(grep -q 'planted field cache read failed' <<< "$out" && echo yes || echo no)"
 
 # The run above cached the board without testing; the board gains it, and the cache stays
 echo 'a cache written before the board gained testing: the board is read again and the card moves'

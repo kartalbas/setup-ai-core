@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # What the status line records of the account's usage windows, and what `usage` makes of it: the
-# limit reached, the limit not reached, a window whose reset has passed, and nothing recorded.
+# limit reached, the limit not reached, a window whose reset has passed, nothing recorded, and the
+# burn measured from the history with the hour a window reaches the limit before its reset.
 # HOME and AI_CORE_HOME point into a temporary folder, so the machine's own record is not touched.
 #
 #   bash tests/usage.test.sh
@@ -22,7 +23,9 @@ check() {
 }
 now="$(date +%s)"; soon=$((now + 3600)); later=$((now + 86400))
 state="$(printf '{"model":{"display_name":"Opus"},"rate_limits":{"five_hour":{"used_percentage":42.7,"resets_at":%s},"seven_day":{"used_percentage":95.1,"resets_at":%s}}}' "$soon" "$later")"
-when() { LC_ALL=C date -d "@$1" '+%a %H:%M' 2>/dev/null || LC_ALL=C date -r "$1" '+%a %H:%M'; }
+when() { LC_ALL=C date -d "@$1" '+%a %H:%M %Z' 2>/dev/null || LC_ALL=C date -r "$1" '+%a %H:%M %Z'; }
+# The time left is counted by usage.sh a moment after this test's clock, so a minute may be gone.
+matches() { grep -Eq "$1" <<< "$2" && echo yes || echo "no: $2"; }
 
 echo 'the status line records the windows and shows the model and the windows'
 out="$(cd "$work/project" && bash "$root/bin/statusline.sh" <<< "$state")"
@@ -34,8 +37,8 @@ check 'the history, one line a minute' "1 42.7 $soon 95.1 $later" "$(wc -l < "$H
 echo 'usage at the limit: every window named, and exit 3'
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'exit 3'                   3 "$rc"
-check 'the five hours'           "five_hour   42 % used  resets $(when "$soon")" "$(sed -n 1p <<< "$out")"
-check 'the week'                 "seven_day   95 % used  resets $(when "$later")" "$(sed -n 2p <<< "$out")"
+check 'the five hours, one reading: unmeasured' yes "$(matches "^five_hour   42 % used  resets $(when "$soon"), in (59 min|1 h 0 min)  burn unmeasured$" "$(sed -n 1p <<< "$out")")"
+check 'the week'                 yes "$(matches "^seven_day   95 % used  resets $(when "$later"), in (23 h 59 min|24 h 0 min)  burn unmeasured$" "$(sed -n 2p <<< "$out")")"
 check 'what to do'               yes "$(grep -q '^a window stands at 92 % or more: finish the step in hand' <<< "$out" && echo yes || echo no)"
 echo 'below a limit given: exit 0'
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" --stop-at 96 2>&1)"; rc=$?
@@ -68,8 +71,8 @@ touch -t 202601020000 "$sessions/rollout-new.jsonl"   # the newest file below ha
 printf '{"timestamp":"2026-10-13T07:11:00.000Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":null,"secondary":null}}}\n' > "$sessions/rollout-newest.jsonl"
 out="$(cd "$work/project" && CODEX_THREAD_ID=t bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'exit 0, Claude at 99 % does not count'  0 "$rc"
-check 'the week'                 "seven_day    7 % used  resets $(when "$later")" "$(sed -n 1p <<< "$out")"
-check 'the five hours'           "five_hour   12 % used  resets $(when "$soon")" "$(sed -n 2p <<< "$out")"
+check 'the week'                 yes "$(matches "^seven_day    7 % used  resets $(when "$later"), in (23 h 59 min|24 h 0 min)  burn unmeasured$" "$(sed -n 1p <<< "$out")")"
+check 'the five hours'           yes "$(matches "^five_hour   12 % used  resets $(when "$soon"), in (59 min|1 h 0 min)  burn unmeasured$" "$(sed -n 2p <<< "$out")")"
 check 'when Codex recorded it'   "recorded $(when "$(jq -n '"2026-10-13T07:09:45Z" | fromdateiso8601')"), limit 92 %" "$(sed -n 3p <<< "$out")"
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'no Codex shell: Claude at 99 %, exit 3'  3 "$rc"
@@ -98,10 +101,46 @@ check 'ignoring selector is caught' 0 "$rc"
 sed 's/exit 3/exit 0/g' "$root/bin/usage.sh" > "$work/mutant/bin/usage.sh"
 out="$(cd "$work/project" && bash "$work/mutant/bin/usage.sh" --tool codex 2>&1)"; rc=$?
 check 'non-stopping mutant is caught' 0 "$rc"
+echo 'Codex: the burn from the readings in its session files'
+iso() { date -u -d "@$1" '+%Y-%m-%dT%H:%M:%S.000Z' 2>/dev/null || date -u -r "$1" '+%Y-%m-%dT%H:%M:%S.000Z'; }
+reading() { printf '{"timestamp":"%s","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":{"used_percent":%s,"window_minutes":300,"resets_at":%s},"secondary":null}}}\n' "$(iso "$1")" "$2" "$soon"; }
+{ reading "$((now - 1800))" 50; reading "$now" 80; } > "$sessions/rollout-burn.jsonl"
+out="$(cd "$work/project" && CODEX_THREAD_ID=t bash "$root/bin/usage.sh" 2>&1)"; rc=$?
+check 'Codex projected to its limit: exit 4'  4 "$rc"
+check 'the burn and the hour'    yes "$(matches "^five_hour   80 % used  resets .*  burn 60.0 %/h, 92 % at $(when "$((now + 720))")$" "$(sed -n 1p <<< "$out")")"
 rm -rf "$HOME/.codex"
 out="$(cd "$work/project" && CODEX_THREAD_ID=t bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'no Codex session file: exit 2'  2 "$rc"
 check 'it says why'              yes "$(grep -q 'no usage recorded yet: Codex records it' <<< "$out" && echo yes || echo no)"
+
+echo 'the burn from the history: a window that reaches the limit before its reset stops new starts'
+week=$((now + 4 * 86400))
+history() { printf '%s %s %s %s %s\n' "$((now - 1800))" "$1" "$2" "$3" "$week" > "$HOME/.ai-core/usage.log"
+  printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":%s,"resets_at":%s},"seven_day":{"used_percentage":%s,"resets_at":%s}}}\n' "$now" "$4" "$2" "$5" "$week" > "$HOME/.ai-core/usage.json"; }
+history 50 "$soon" 10 80 10
+out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
+check 'exit 4 below the limit'   4 "$rc"
+check 'the hour it reaches 92 %' yes "$(matches "^five_hour   80 % used  resets $(when "$soon"), in (59 min|1 h 0 min)  burn 60.0 %/h, 92 % at $(when "$((now + 720))")$" "$(sed -n 1p <<< "$out")")"
+check 'a week without burn'      yes "$(matches "^seven_day   10 % used  resets $(when "$week"), in (3 d 23 h|4 d 0 h)  burn 0.0 %/h$" "$(sed -n 2p <<< "$out")")"
+check 'what to do'               yes "$(matches '^a window reaches 92 % before its reset at the measured burn: start nothing new on this account' "$out")"
+echo 'the same burn with the reset minutes away: the window carries on (innocent case)'
+history 50 "$((now + 300))" 10 80 10
+out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
+check 'exit 0'                   0 "$rc"
+check 'what it stands at then'   yes "$(matches "  burn 60.0 %/h, 85 % at reset$" "$(sed -n 1p <<< "$out")")"
+echo 'a week that fills before its reset warns and stops nothing: its account is a person'"'"'s decision'
+history 80 "$soon" 10 80 40
+out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
+check 'exit 0'                   0 "$rc"
+check 'the warning'              yes "$(matches "^seven_day reaches 92 % at $(when "$((now + 3120))"), before its reset: tell the person who decides the account now$" "$out")"
+echo 'a window at the limit outranks a projection'
+history 50 "$soon" 10 95 10
+out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
+check 'exit 3'                   3 "$rc"
+sed 's/projected=1/projected=0/' "$root/bin/usage.sh" > "$work/mutant/bin/usage.sh"
+history 50 "$soon" 10 80 10
+out="$(cd "$work/project" && bash "$work/mutant/bin/usage.sh" 2>&1)"; rc=$?
+check 'a mutant that ignores the projection is caught' 0 "$rc"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

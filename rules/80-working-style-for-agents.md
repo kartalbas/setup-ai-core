@@ -102,9 +102,15 @@
   its report. [review]
 - **Never announce that the context is running out and never stop work because of it.** Report the
   work when it reaches a point, not because a budget did. A usage limit of an account is another
-  matter, because every session using that account draws on it: at the limit the project sets,
-  USAGE_STOP_AT in its config.env (92 % unless set), of any of its windows, the five hours, the week
-  or one model's quota, every session using that limited account or model finishes the step in hand,
-  commits and reports it, starts nothing new on that account or model and waits for the reset, and
-  what is left stays for the coordination and the reviews. `ai-core usage` reads the
-  windows. [review · tool]
+  matter, because every session using that account draws on it. Its limit is the one the project
+  sets, USAGE_STOP_AT in its config.env (92 % unless set), in any of its windows: the five hours,
+  the week or one model's quota. Before every start, `ai-core usage` measures each window's burn
+  since the window began and projects the window to its reset; no session holds back on a fixed
+  percentage or a fixed hour. A window of a day or less that reaches the limit before its reset
+  starts nothing new, and what runs commits before the hour it names; one that lasts until its
+  reset carries the work into the next window at full speed. A longer window that reaches the
+  limit before its reset is the decision of whoever holds the account, another account or slower
+  work, and is told to them at once with that hour. At the limit itself, every session using that
+  account or model finishes the step in hand, commits and reports it, starts nothing new on it and
+  waits for the reset, and what is left stays for the coordination and the reviews. [review ·
+  tool]

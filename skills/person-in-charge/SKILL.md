@@ -204,7 +204,10 @@ another session is checked against this by that session and rewritten where it f
 passed on as it came. At the
 usage limit (`ai-core usage --tool claude` or `ai-core usage --tool codex` exits 3; for agy a
 refusal for quota), every session using that limited account or model finishes its step and reports,
-and no new phase starts on it until the reset; another tool is used only under an existing table
+and no new phase starts on it until the reset. Where it exits 4, a window reaches the limit before
+its reset at the measured burn: no new phase starts, and you tell running phases the hour it names
+so they commit before it. A week it names as reaching the limit goes to the owner at once with that
+hour; another tool is used only under an existing table
 route or the owner's instruction. You never stop because your context grew: the tool compacts you
 (in Claude Code at the window
 the owner started you with, `references/claude.md`), and

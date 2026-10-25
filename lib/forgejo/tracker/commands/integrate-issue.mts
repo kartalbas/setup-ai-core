@@ -277,7 +277,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
     if (refreshed.succeeded) {
       if (refreshed.output !== '') lines.push(refreshed.output);
     } else {
-      warnings.push(refreshed.output, `integration succeeded: ${landedCommit.slice(0, 7)} is on origin/${defaultBranch}; checkout ${checkout} was not refreshed`);
+      warnings.push(refreshed.output, `integration succeeded: ${landedCommit.slice(0, 7)} is on origin/${defaultBranch}; the refresh of checkout ${checkout} did not finish (see above)`);
     }
   }
 

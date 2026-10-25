@@ -235,7 +235,7 @@ describe('integrate-issue', () => {
     harness.failing.add('refreshCheckout');
     const result = await integrateIssue.run(integrateArguments(main, number, head), ctx(tree, {}, harness));
     assert.equal(result.exitCode, 0);
-    assert.match(result.stderr, new RegExp(`planted: refreshCheckout failed\nintegration succeeded: [0-9a-f]{7} is on origin/master; checkout ${main.checkout.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} was not refreshed`));
+    assert.match(result.stderr, new RegExp(`planted: refreshCheckout failed\nintegration succeeded: [0-9a-f]{7} is on origin/master; the refresh of checkout ${main.checkout.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} did not finish`));
     assert.deepEqual(fake.readIssue('o/r', number).labels, ['status/testing']);
   });
 

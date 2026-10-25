@@ -370,6 +370,11 @@ fast_forward_default_branch() {
       || { echo "not refreshed: $checkout: default ref update failed: $output" >&2; return 1; }
   fi
   echo "refreshed: $checkout: $default fast-forwarded to origin/$default" >&2
+  # The checked-out files moved, and what the repository installs from them, such as node_modules, did not.
+  [ "$selected" = "$default" ] && [ -f "$checkout/scripts/install.sh" ] || return 0
+  output="$(cd "$checkout" && bash scripts/install.sh < /dev/null 2>&1)" \
+    || { echo "not installed: $checkout: scripts/install.sh failed after the refresh: $(printf '%s\n' "$output" | tail -n 3 | tr '\n' ' ')" >&2; return 1; }
+  echo "installed: scripts/install.sh ran in $checkout" >&2
 }
 
 # LANDING_WORKTREE_RE: the path of the temporary worktree of a landing (integrate-issue --from-origin), as an

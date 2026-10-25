@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
@@ -1112,6 +1112,64 @@ describe('issue-proof and the close as completed', () => {
     assert.deepEqual(harness.calls, []);
   });
 
+  // A clone of OWNER/NAME in the project folder FOLDER beside the one of o/r, whose LIVE_TAGS names prod as landed.
+  function partnerClone(owner: string, name: string, ...folders: string[]): string[] {
+    const remote = fixture.createRemote(owner, name);
+    return folders.map((folder) => {
+      const checkout = fixture.clone(remote, folder, name);
+      mkdirSync(join(checkout, '.ai-core'), { recursive: true });
+      writeFileSync(join(checkout, '.ai-core', 'config.env'), 'LIVE_TAGS="prod=landed"\n');
+      return checkout;
+    });
+  }
+  const landedInPartner = (number: number, owner: string, repo: string): void => {
+    fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ branch: 'master', repository: { owner, repo }, reviewedHead: 'a'.repeat(40), landedCommit: 'b'.repeat(40), reviewers: ['alice'] }, { owner: 'o', repo: 'r' }));
+  };
+
+  it('proves a landing whose clone lies in a project folder beside this one (planted: not a checkout before)', async () => {
+    const { number } = await delivered('Partner folder landed, so that its clone is found beside the project folder');
+    const [partner] = partnerClone('p', 'partner', 'project-p');
+    landedInPartner(number, 'p', 'partner');
+    const harness = liveTagsHarness();
+
+    await issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=v*' }, harness));
+
+    assert.equal(fake.readIssue(main.full, number).state, 'closed');
+    assert.deepEqual(harness.calls, [`readLiveTags ${partner}`]);
+  });
+
+  it('refuses a landing whose repository has a checkout in two folders beside the project folder, and names both', async () => {
+    const { number } = await delivered('Partner cloned twice, so that no clone is guessed');
+    const clones = partnerClone('q', 'partner-twice', 'project-q', 'scratch-q');
+    landedInPartner(number, 'q', 'partner-twice');
+    const harness = liveTagsHarness();
+    const before = writesOf();
+
+    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=v*' }, harness)),
+      (error: unknown) => error instanceof PreconditionError && /q\/partner-twice has a checkout in more than one folder beside/.test(error.message) && clones.every((clone) => error.message.includes(clone)));
+
+    assert.deepEqual(harness.calls, []);
+    assert.equal(writesOf(), before);
+    assert.equal(fake.readIssue(main.full, number).state, 'open');
+  });
+
+  it('proves a landing whose clone lies beside an unreadable folder (planted: the folder crashed the search)', async () => {
+    const { number } = await delivered('Unreadable neighbour, so that the clone beside it is still found');
+    const [partner, denied] = partnerClone('u', 'partner-denied', 'project-u', 'project-denied');
+    landedInPartner(number, 'u', 'partner-denied');
+    const harness = liveTagsHarness();
+    rmSync(must(denied), { recursive: true });
+    chmodSync(dirname(must(denied)), 0);
+    try {
+      await issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=v*' }, harness));
+    } finally {
+      chmodSync(dirname(must(denied)), 0o755);
+    }
+
+    assert.equal(fake.readIssue(main.full, number).state, 'closed');
+    assert.deepEqual(harness.calls, [`readLiveTags ${partner}`]);
+  });
+
   it('refuses a neighbour directory that is another repository (planted: it declares landed)', async () => {
     const { number } = await delivered('Stranger beside the clone, so that its LIVE_TAGS is not believed');
     fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'lookalike' }, reviewedHead: 'a'.repeat(40), landedCommit: 'b'.repeat(40), reviewers: ['alice'] }, { owner: 'o', repo: 'r' }));
@@ -1122,7 +1180,7 @@ describe('issue-proof and the close as completed', () => {
     const harness = liveTagsHarness();
     const before = writesOf();
 
-    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=v*' }, harness)), (error: unknown) => error instanceof PreconditionError && error.message.includes(`${stranger} is not a checkout of o/lookalike`));
+    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=v*' }, harness)), (error: unknown) => error instanceof PreconditionError && error.message.includes(`${stranger} is not a checkout of o/lookalike`) && error.message.includes('and no folder beside'));
 
     assert.deepEqual(harness.calls, []);
     assert.equal(writesOf(), before);

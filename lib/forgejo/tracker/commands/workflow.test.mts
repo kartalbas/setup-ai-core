@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { PartialCompletionError } from '../api/client.mts';
 import { composeLandedRecord, composeProvenRecord } from '../domain/workflow.mts';
+import { parseRepository } from '../domain/issues.mts';
 import { PreconditionError, UsageError } from '../domain/refusals.mts';
 import { contextFor, FAKE_TOKEN, seedLabels, startFakeForgejo } from '../testing/fake-forgejo.mts';
 import type { FakeForgejo } from '../testing/fake-forgejo.mts';
@@ -811,6 +812,11 @@ describe('finish-issue', () => {
 });
 
 describe('issue-release', () => {
+  // A trusted "Landed on" record of landedIn, written on an issue of world.
+  function recordLanding(world: World, number: number, landedIn: World = main): void {
+    fake.addComment(world.full, number, 'fake-user', composeLandedRecord({ branch: 'master', repository: parseRepository(landedIn.full), reviewedHead: 'a'.repeat(40), landedCommit: 'b'.repeat(40), reviewers: ['alice'] }, parseRepository(world.full)));
+  }
+
   it('refuses a tag that does not exist, and writes nothing', async () => {
     const number = newIssue(main, 'Released too early, so that it is refused', { labels: ['status/testing'] });
     const before = writesOf();
@@ -823,17 +829,34 @@ describe('issue-release', () => {
     const first = newIssue(main, 'Released one, so that it has the milestone', { labels: ['status/testing'] });
     const second = newIssue(main, 'Released two, so that it shares the milestone', { labels: ['status/testing'] });
     const foreign = newIssue(sibling, 'Released elsewhere, so that it gets a comment', { labels: ['status/testing'] });
+    recordLanding(main, first);
+    recordLanding(main, second);
+    recordLanding(sibling, foreign);
     const result = await issueRelease.run(['--repo', main.full, '--tag', 'v1.0.0', String(first), String(second), `${sibling.full}#${foreign}`], ctx(main.checkout));
     assert.equal(fake.readIssue(main.full, first).milestone, 'v1.0.0');
     assert.equal(fake.readIssue(main.full, second).milestone, 'v1.0.0');
     assert.deepEqual(fake.listMilestones(main.full).filter((milestone) => milestone.title === 'v1.0.0').length, 1, 'one milestone for both');
     assert.equal(fake.readIssue(sibling.full, foreign).milestone, undefined, 'a milestone belongs to one repository');
-    assert.deepEqual(commentsOf(sibling, foreign), ['Released in o/r v1.0.0:\n']);
+    assert.deepEqual(commentsOf(sibling, foreign).slice(1), ['Released in o/r v1.0.0:\n'], 'after its landing');
     assert.match(result.stdout, /created the milestone v1.0.0/);
 
     const writes = writesOf();
     await issueRelease.run(['--repo', main.full, '--tag', 'v1.0.0', String(first), `${sibling.full}#${foreign}`], ctx(main.checkout));
     assert.equal(writesOf(), writes, 'run again, it writes nothing');
+  });
+
+  it('refuses every issue with no landing of the repository, and writes nothing (planted: a stray number)', async () => {
+    fake.addTag(main.full, 'v1.2.0');
+    const landed = newIssue(main, 'Landed, so that it alone could be released', { labels: ['status/testing'] });
+    const stray = newIssue(main, 'Never landed, so that a release on it is refused', { labels: ['status/testing'] });
+    const elsewhere = newIssue(sibling, 'Landed in its own repository, so that a release of another is refused', { labels: ['status/testing'] });
+    recordLanding(main, landed);
+    recordLanding(sibling, elsewhere, sibling);
+    const before = writesOf();
+    await assert.rejects(issueRelease.run(['--repo', main.full, '--tag', 'v1.2.0', String(landed), String(stray), `${sibling.full}#${elsewhere}`], ctx(main.checkout)),
+      (error: unknown) => error instanceof PreconditionError && error.message.startsWith(`o/r#${stray}, o/sibling#${elsewhere}: no "Landed on" record of o/r since the last reopening for new work`));
+    assert.equal(writesOf(), before);
+    assert.equal(fake.listMilestones(main.full).some((milestone) => milestone.title === 'v1.2.0'), false, 'no milestone is made');
   });
 
   it('records a release after a late landing, proves it and writes nothing on a second release run', async () => {
@@ -865,6 +888,8 @@ describe('issue-release', () => {
     fake.addTag(main.full, 'v1.1.0');
     const first = newIssue(main, 'Released first, so that it is done', { labels: ['status/testing'] });
     const second = newIssue(main, 'Released second, so that it fails', { labels: ['status/testing'] });
+    recordLanding(main, first);
+    recordLanding(main, second);
     fake.fail({ method: 'PATCH', path: `/repos/o/r/issues/${second}`, mode: { kind: 'status', status: 500, message: 'planted' } });
     await assert.rejects(issueRelease.run(['--repo', main.full, '--tag', 'v1.1.0', String(first), String(second)], ctx(main.checkout)), (error: unknown) => error instanceof PartialCompletionError && error.completed.includes(`o/r#${first}`));
   });

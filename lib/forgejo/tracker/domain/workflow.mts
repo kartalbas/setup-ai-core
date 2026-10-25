@@ -137,6 +137,7 @@ export interface LandingFact {
   readonly at: number;
   readonly repository: RepositoryRef;
   readonly branch: string;
+  readonly commit: string | undefined;
 }
 
 export interface ReleaseFact {
@@ -187,7 +188,7 @@ export async function readIssueHistory(api: ForgejoClient, issue: Issue, entries
     const proven = PROVEN_LINE.exec(line);
     if (landed === null && released === null && proven === null) continue;
     if (!(await isTrusted(entry.author))) continue;
-    if (landed?.[1] !== undefined) landings.push({ at: entry.at, branch: landed[1], repository: landed[2] === undefined ? { owner: issue.ref.owner, repo: issue.ref.repo } : parseRepository(landed[2]) });
+    if (landed?.[1] !== undefined) landings.push({ at: entry.at, branch: landed[1], repository: landed[2] === undefined ? { owner: issue.ref.owner, repo: issue.ref.repo } : parseRepository(landed[2]), commit: fieldOf(entry.body, 'Landed commit') });
     if (released?.[1] !== undefined && released[2] !== undefined) releases.push({ at: entry.at, repository: parseRepository(released[1]), tag: released[2] });
     if (proven?.[1] !== undefined && (lastReopening === undefined || index + deliveryStart > lastReopening)) proofs.push({ at: entry.at, environment: proven[1] });
   }
@@ -213,9 +214,21 @@ export function isHarnessLayer(repository: RepositoryRef): boolean {
   return name.endsWith('-ai-core') && name !== 'setup-ai-core';
 }
 
+export function findNewestLanding(history: IssueHistory, repository: RepositoryRef): LandingFact | undefined {
+  return newest(history.landings.filter((landing) => isSameRepository(landing.repository, repository)));
+}
+
+// What a project's reader told of a repository whose LIVE_TAGS names the environment with the pattern command:
+// nothing missing, or why its landing is not delivered.
+export interface CommandDeliveryCheck {
+  readonly repository: RepositoryRef;
+  readonly missing: string | undefined;
+}
+
 // The lines that say why the work is not delivered; none when it is. A repository the work landed in is
-// delivered by a release that came after its landing, or, where its landing is its delivery, by the landing.
-export function listMissingDelivery(history: IssueHistory, landingIsDelivery: readonly RepositoryRef[]): string[] {
+// delivered by a release that came after its landing, where its landing is its delivery by the landing, and
+// where a reader answers its delivery by what that reader told.
+export function listMissingDelivery(history: IssueHistory, landingIsDelivery: readonly RepositoryRef[], commandDeliveries: readonly CommandDeliveryCheck[] = []): string[] {
   if (history.landings.length === 0) {
     return [`no "Landed on" record of an account with write permission follows ${history.deliveryReopenedAt === undefined ? 'the start of the issue' : 'the last reopening for new work'}`];
   }
@@ -226,7 +239,12 @@ export function listMissingDelivery(history: IssueHistory, landingIsDelivery: re
     if (seen.has(key)) continue;
     seen.add(key);
     if (isHarnessLayer(landing.repository) || landingIsDelivery.some((repository) => isSameRepository(repository, landing.repository))) continue;
-    const latestLanding = newest(history.landings.filter((other) => isSameRepository(other.repository, landing.repository)));
+    const check = commandDeliveries.find((delivery) => isSameRepository(delivery.repository, landing.repository));
+    if (check !== undefined) {
+      if (check.missing !== undefined) missing.push(check.missing);
+      continue;
+    }
+    const latestLanding = findNewestLanding(history, landing.repository);
     const released = history.releases.some((release) => isSameRepository(release.repository, landing.repository) && latestLanding !== undefined && release.at > latestLanding.at);
     if (!released) missing.push(`no release of ${formatRepository(landing.repository)} follows its landing: issue-release --repo ${formatRepository(landing.repository)} --tag TAG`);
   }
@@ -240,15 +258,20 @@ export function findCurrentProof(history: IssueHistory): ProofFact | undefined {
   return newest(history.proofs.filter((proof) => proof.at > landing.at));
 }
 
-// The environments of LIVE_TAGS (`env=pattern` separated by spaces) whose pattern is `landed`: there the landing is the delivery.
-export function landedEnvironments(liveTags: string | undefined): string[] {
+// The environments of LIVE_TAGS (`env=pattern` separated by spaces) whose pattern is the one given.
+export function environmentsWith(liveTags: string | undefined, pattern: string): string[] {
   const environments: string[] = [];
   for (const entry of (liveTags ?? '').split(/\s+/).filter((text) => text !== '')) {
     const equals = entry.indexOf('=');
     if (equals <= 0 || equals === entry.length - 1) throw new UsageError(`LIVE_TAGS has '${entry}' where env=pattern belongs`);
-    if (entry.slice(equals + 1) === 'landed') environments.push(entry.slice(0, equals));
+    if (entry.slice(equals + 1) === pattern) environments.push(entry.slice(0, equals));
   }
   return environments;
+}
+
+// The environments whose pattern is `landed`: there the landing is the delivery.
+export function landedEnvironments(liveTags: string | undefined): string[] {
+  return environmentsWith(liveTags, 'landed');
 }
 
 // --- finding a record that is already written ---------------------------------------

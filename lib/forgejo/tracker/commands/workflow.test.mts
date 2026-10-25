@@ -941,6 +941,69 @@ describe('issue-proof and the close as completed', () => {
     assert.equal(fake.readIssue(main.full, number).state, 'open');
   });
 
+  // The sibling's own reader prints what the script prints; its LIVE_TAGS names prod with the pattern command.
+  function siblingReads(script: string): RecordingHarness {
+    mkdirSync(join(sibling.checkout, '.ai-core'), { recursive: true });
+    writeFileSync(join(sibling.checkout, '.ai-core', 'reader.sh'), `#!/usr/bin/env bash\n${script}\n`, { mode: 0o755 });
+    writeFileSync(join(sibling.checkout, '.ai-core', 'config.env'), 'LIVE_TAGS="prod=command"\nLIVE_RELEASE_COMMAND=".ai-core/reader.sh"\n');
+    const harness = liveTagsHarness();
+    harness.readLiveRelease = (checkout, repository, environment) => {
+      harness.calls.push(`readLiveRelease ${checkout} ${repository} ${environment}`);
+      return bashHarness.readLiveRelease(checkout, repository, environment);
+    };
+    return harness;
+  }
+  const commitInSibling = (message: string): string => {
+    git(sibling.checkout, 'commit', '--allow-empty', '-q', '-m', message);
+    return git(sibling.checkout, 'rev-parse', 'HEAD');
+  };
+  const deliveryOf = (commit: string): string =>
+    `printf '{"repository":"%s","environment":"%s","commit":"${commit}","releasedAt":"2020-01-01T00:00:00Z","source":"release 1.0.0 of o/r"}\\n' "$1" "$2"`;
+  const landedInSibling = (number: number, commit: string): void => {
+    fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'sibling' }, reviewedHead: 'a'.repeat(40), landedCommit: commit, reviewers: ['alice'] }, { owner: 'o', repo: 'r' }));
+  };
+
+  it('takes a neighbour landing as delivered where its own reader answers a delivery that holds it (planted: counted as no release before)', async () => {
+    const { number } = await delivered('Pinned neighbour shipped by another release, so that its reader decides');
+    const landed = commitInSibling('landed work');
+    const shipped = commitInSibling('work shipped after it');
+    landedInSibling(number, landed);
+    const harness = siblingReads(deliveryOf(shipped));
+
+    await issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=v*' }, harness));
+
+    assert.equal(fake.readIssue(main.full, number).state, 'closed');
+    assert.deepEqual(harness.calls, [`readLiveTags ${sibling.checkout}`, `readLiveRelease ${sibling.checkout} o/sibling prod`]);
+  });
+
+  it('refuses a neighbour whose reader answers a delivery without the landing, no delivery or an error, and one whose record names no commit, each with its reason (planted)', async () => {
+    const { number } = await delivered('Pinned neighbour not shipped yet, so that the proof waits');
+    const shippedEarlier = commitInSibling('shipped before the landing');
+    const landed = commitInSibling('landed after that delivery');
+    landedInSibling(number, landed);
+    const writes = writesOf();
+    const prove = (script: string): Promise<unknown> => issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=v*' }, siblingReads(script)));
+
+    await assert.rejects(prove(deliveryOf(shippedEarlier)), new RegExp(`o/sibling was last delivered on prod by release 1\\.0\\.0 of o/r at 2020-01-01T00:00:00Z, which does not hold its landed commit ${landed}`));
+    await assert.rejects(prove('echo null'), /the reader of o\/sibling found no completed delivery on prod/);
+    await assert.rejects(prove('echo broken >&2; exit 1'), /the delivery of o\/sibling on prod could not be read: .*exited 1 for o\/sibling prod: broken/);
+    fake.addComment(main.full, number, 'fake-user', 'Landed on master of o/sibling:\n\nReviewed by: alice\n');
+    await assert.rejects(prove(deliveryOf(landed)), /the "Landed on" record of o\/sibling names no landed commit/);
+
+    assert.equal(writesOf(), writes);
+    assert.equal(fake.readIssue(main.full, number).state, 'open');
+  });
+
+  it('refuses a neighbour whose landed commit its checkout does not hold, and names the fetch (planted)', async () => {
+    const { number } = await delivered('Pinned neighbour not fetched, so that the proof asks for a fetch');
+    const shipped = commitInSibling('work shipped');
+    landedInSibling(number, 'b'.repeat(40));
+    const prove = issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=v*' }, siblingReads(deliveryOf(shipped))));
+
+    await assert.rejects(prove, new RegExp(`${sibling.checkout} has no landed commit ${'b'.repeat(40)} of o/sibling: fetch it, then prove again`));
+    assert.equal(fake.readIssue(main.full, number).state, 'open');
+  });
+
   it('refuses a missing neighbour and names the checkout it looked for', async () => {
     const { number } = await delivered('Neighbour is missing, so that the refusal names its path');
     fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'missing-neighbour' }, reviewedHead: 'a'.repeat(40), landedCommit: 'b'.repeat(40), reviewers: ['alice'] }, { owner: 'o', repo: 'r' }));

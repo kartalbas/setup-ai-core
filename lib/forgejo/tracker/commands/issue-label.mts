@@ -2,12 +2,12 @@ import { formatIssue, getIssue } from '../domain/issues.mts';
 import { applyLabelChange, canonicalLabelName, familyOf, parsePriority, planLabelChange, priorityLabel, replaceFamilyLabel } from '../domain/labels.mts';
 import { checkPublicText } from '../domain/public-text.mts';
 import { UsageError } from '../domain/refusals.mts';
-import { listOf, parseArguments, refuseExtra, takeIssue } from './arguments.mts';
+import { listOf, parseArguments, refuseExtra, takeIssue, takeIssues } from './arguments.mts';
 import { succeeded } from './command.mts';
 import type { CommandContext, CommandResult } from './command.mts';
 
 const LABEL_USAGE = 'usage: issue-label [OWNER/REPO] NUMBER (--add NAME... | --remove NAME... | --replace NAME...)';
-const PRIORITY_USAGE = 'usage: issue-priority [OWNER/REPO] NUMBER P0|P1|P2|P3|P9';
+const PRIORITY_USAGE = 'usage: issue-priority [OWNER/REPO] NUMBER [NUMBER...] P0|P1|P2|P3|P9';
 
 export const labelHelp = `${LABEL_USAGE}
 
@@ -42,13 +42,14 @@ export async function runLabel(args: readonly string[], context: CommandContext)
 
 export async function runPriority(args: readonly string[], context: CommandContext): Promise<CommandResult> {
   const parsed = parseArguments(args, {});
-  const { ref, rest } = await takeIssue(parsed.positionals, context.git, context.cwd, PRIORITY_USAGE);
+  const { refs, rest } = await takeIssues(parsed.positionals, context.git, context.cwd, PRIORITY_USAGE);
   const [priorityText, ...extra] = rest;
   if (priorityText === undefined) throw new UsageError(PRIORITY_USAGE);
   refuseExtra(extra, PRIORITY_USAGE);
   const label = priorityLabel(parsePriority(priorityText));
   const api = context.api();
-  const issue = await getIssue(api, ref);
-  await replaceFamilyLabel(api, ref, issue, label);
-  return succeeded([`${formatIssue(ref)} -> ${label}`]);
+  const issues = [];
+  for (const ref of refs) issues.push(await getIssue(api, ref));
+  for (const issue of issues) await replaceFamilyLabel(api, issue.ref, issue, label);
+  return succeeded(issues.map((issue) => `${formatIssue(issue.ref)} -> ${label}`));
 }

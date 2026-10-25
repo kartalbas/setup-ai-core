@@ -79,6 +79,17 @@ describe('issue-priority and issue-status', () => {
     await assert.rejects(issueLabel.runPriority(['o/r', String(number), 'P5'], context), UsageError);
   });
 
+  it('sets the priority of several issues at once, as the Bash command does (planted: one number only before #340)', async () => {
+    const other = fake.addIssue('o/r', { title: 'Ranked along, so that both rank', labels: ['status/ready', 'priority/p1'] });
+    await issueLabel.runPriority(['o/r', String(number), String(other), 'P3'], context);
+    assert.deepEqual([number, other].map((n) => fake.readIssue('o/r', n).labels.filter((label) => label.startsWith('priority/'))), [['priority/p3'], ['priority/p3']]);
+  });
+
+  it('changes no priority when one of several issues does not exist (planted)', async () => {
+    await assert.rejects(issueLabel.runPriority(['o/r', String(number), '99999', 'P3'], context));
+    assert.deepEqual(fake.readIssue('o/r', number).labels.filter((label) => label.startsWith('priority/')), ['priority/p1']);
+  });
+
   it('changes only the status of an open issue', async () => {
     await issueStatus.run(['o/r', String(number), 'implementing'], context);
     assert.deepEqual(fake.readIssue('o/r', number).labels.sort(), ['area/gate', 'priority/p1', 'status/implementing']);
@@ -93,6 +104,19 @@ describe('issue-priority and issue-status', () => {
   it('refuses a status for a closed issue', async () => {
     const closed = fake.addIssue('o/r', { title: 'Closed, so that it is done', state: 'closed', labels: ['status/not-planned'] });
     await assert.rejects(issueStatus.run(['o/r', String(closed), 'ready'], context), /issue-reopen/);
+  });
+
+  it('moves several issues at once, as the Bash command does (planted: one number only before #340)', async () => {
+    const other = fake.addIssue('o/r', { title: 'Moved along, so that both travel', labels: ['status/ready'] });
+    const result = await issueStatus.run(['o/r', String(number), String(other), 'planned'], context);
+    assert.deepEqual([number, other].map((n) => fake.readIssue('o/r', n).labels.filter((label) => label.startsWith('status/'))), [['status/planned'], ['status/planned']]);
+    assert.equal(result.stdout.trim().split('\n').length, 2);
+  });
+
+  it('changes no issue when a closed one is among them (planted)', async () => {
+    const closed = fake.addIssue('o/r', { title: 'Closed, so that it stops the move', state: 'closed', labels: ['status/not-planned'] });
+    await assert.rejects(issueStatus.run(['o/r', String(number), String(closed), 'planned'], context), /issue-reopen/);
+    assert.deepEqual(fake.readIssue('o/r', number).labels.filter((label) => label.startsWith('status/')), ['status/ready']);
   });
 });
 

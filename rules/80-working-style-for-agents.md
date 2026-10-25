@@ -26,11 +26,16 @@
   issue or a document, check it for placeholders, contradictions, scope and ambiguity. Issues and
   the board change through the harness's issue and board commands (`ai-core --help`), so they are
   used, proven, and extended or fixed where they fall short; `gh` serves everything they do not
-  cover. A change that alters no behavior (a text, a comment, the wording of a rule or a message)
-  goes the short way: the session makes it itself, with no sub-agent and no issue of its own; its
-  commit names the decision or the finding, the push gate checks it, and it lands with the next
-  landing of its repository and ships with its next release, never in a round or a release of its
-  own. [tool · discipline]
+  cover. A small change goes the short way: the session makes it itself, with no sub-agent; its
+  commit names the decision or the finding, and the push gate checks it. One that alters no behavior
+  (a text, a comment, the wording of a rule or a message) needs no issue of its own: it lands with
+  the next landing of its repository and ships with its next release. One that a person sees and
+  that changes a few lines of content, an asset or a value and no code path or interface (a label,
+  an icon, a color) is first shown to the owner as a picture; it is committed on the open issue it
+  belongs to, or on a new one, because the integration lands only an issue and the release names
+  it; the owner's choice of that picture is its review, the session's own picture of it on the
+  environment after the release is its proof, and it lands and is released at once, on its own.
+  [tool · discipline]
 - **Never stage blindly.** Read the working-tree status and add the paths you changed. A commit
   subject is one sentence of at most 72 characters that describes the change, because the log, the
   tracker and every list view cut a longer subject and the rest is lost where it is read; the body

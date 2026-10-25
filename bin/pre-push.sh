@@ -685,14 +685,22 @@ bash "$CORE_ROOT/bin/team-modes-check.sh" \
 # ./release/release.sh fails and git skips a hook in .githooks. A tool that writes files (an agent's,
 # a copy made through an API) leaves the bit off, and git keeps what it was given. Judged on what the
 # push adds or changes, as the commit checked out has it; a file the push does not touch is left alone.
+changed_paths="$(while IFS= read -r sha; do
+  [ -n "$sha" ] || continue
+  git diff-tree --no-commit-id --root -r --name-only --diff-filter=AMR "$sha" || exit 1
+done <<< "$commits")" || refuse "git diff-tree failed to list added or changed paths for $head."
+changed_paths="$(printf '%s\n' "$changed_paths" | sort -u)" || refuse "sort -u failed to list added or changed paths for $head."
 modeless=""
 while IFS= read -r path; do
   [ -n "$path" ] || continue
-  [ "$(git ls-tree "$head" -- "$path" | cut -d' ' -f1)" = 100644 ] || continue
+  entry="$(git ls-tree "$head" -- "$path")" || refuse "git ls-tree failed to read the mode of $path."
+  [ "${entry%% *}" = 100644 ] || continue
   # Keep the prefix and drain the rest without a file or a line-sized buffer.
-  [ "$(git cat-file -p "$head:$path" 2>/dev/null | { dd bs=1 count=2 2>/dev/null; cat >/dev/null; } | tr -d '\0' || true)" = '#!' ] || continue
+  prefix="$(git cat-file -p "$head:$path" 2>/dev/null | { dd bs=1 count=2 2>/dev/null || exit 1; cat >/dev/null; } | tr -d '\0')" \
+    || refuse "reading the first two bytes of $path failed (git cat-file, dd, cat, or tr)."
+  [ "$prefix" = '#!' ] || continue
   modeless="$modeless $path"
-done < <(while IFS= read -r sha; do [ -z "$sha" ] || git diff-tree --no-commit-id --root -r --name-only --diff-filter=AMR "$sha"; done <<< "$commits" | sort -u)
+done <<< "$changed_paths"
 [ -z "$modeless" ] || refuse "these files start with #! and are not executable, so running them by name fails and git skips a hook among them:$modeless. Set the bit and commit it: git update-index --chmod=+x$modeless"
 
 # THE COMMIT MESSAGES (the commit rules). A subject is at most 72 characters, because the log, the

@@ -40,7 +40,7 @@
   read again at that moment. Nothing is claimed about code that was not read: a file the owner names
   is opened, at least the span the answer rests on, before anything is said about it. [discipline]
 - **Warnings are near-errors.** A warning the change raises is cleared in the change, never
-  tolerated; a warning that was there before becomes an issue. [review]
+  tolerated; a warning that was there before is a defect found in the work. [review]
 - **Report the result, not the intention.** A failed check is shown with its output, a skipped step
   is named with its reason, finished work is stated plainly. [review]
 - **A pass from a gate is not a review.** Work that changes behaviour is read, before it is

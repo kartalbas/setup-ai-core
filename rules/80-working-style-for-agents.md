@@ -113,9 +113,10 @@
   since the window began and projects the window to its reset; no session holds back on a fixed
   percentage or a fixed hour. A window of a day or less that reaches the limit before its reset
   starts nothing new, and what runs commits before the hour it names; one that lasts until its
-  reset carries the work into the next window at full speed. A longer window that reaches the
-  limit before its reset is the decision of whoever holds the account, another account or slower
-  work, and is told to them at once with that hour. At the limit itself, every session using that
+  reset carries the work into the next window at full speed. A longer window is watched by whoever
+  holds the account: the work goes on at full speed up to the limit, nobody asks them about it, and
+  they change the account there or say when the work slows down. At the limit itself, every
+  session using that
   limited account or model finishes the step in hand, commits and reports it, starts nothing new on
   it and waits for the reset, and what is left stays for the coordination and the reviews. [review ·
   tool]

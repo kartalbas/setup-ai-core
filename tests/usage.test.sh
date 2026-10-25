@@ -139,7 +139,7 @@ echo 'a week that fills before its reset warns and stops nothing: its account is
 history 80 "$soon" 10 80 40
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'exit 0'                   0 "$rc"
-check 'the warning'              yes "$(matches "^seven_day reaches 92 % at $(when "$((now + 3120))"), before its reset: tell the person who decides the account now$" "$out")"
+check 'the warning'              yes "$(matches "^seven_day reaches 92 % at $(when "$((now + 3120))"), before its reset; the person who holds the account watches it$" "$out")"
 echo 'a window at the limit outranks a projection'
 history 50 "$soon" 10 95 10
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?

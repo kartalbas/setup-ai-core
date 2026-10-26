@@ -112,7 +112,7 @@ phase or a tool you leave out runs on its table row.
   budget never exceeds the phase's ceiling: 300000 for a build (250000 on Codex), 150000 for a review,
   100000 for a UI test. A package that needs more is cut again.
 
-Post each with `ai-core issue-comment {{plan issue}} --body-file <file>`, one comment per section, so
+Post each with `ai-core issue-comment {{plan issue repository}} {{plan issue number}} --body-file <file>`, one comment per section, so
 a second planner's comment never overwrites yours. Where a section replaces an earlier one of the
 same area, say so in its first line: `Replaces the section of <date>`. Then send the coordinator
 ({{how to reach the coordinator}}) the first line of each section, because it sleeps between its

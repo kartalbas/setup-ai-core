@@ -138,6 +138,89 @@ out="$(PATH="$limited:$PATH" "$comment" 94 'Inline words' 2>&1)"; rc=$?
 check 'without a repo: exits zero' 0 "$rc"
 check 'without a repo: GraphQL never asked' 0 "$(grep -c 'graphql\|issue comment\|repo view' "$LIMITED_LOG" || true)"
 
+# The posting command of the shipped plan brief, filled as a coordinator fills it: the plan issue as
+# the repository and the number the brief asks for, or as the one OWNER/REPO#NUMBER reference.
+brief="$root/skills/person-in-charge/briefs/plan.md"
+mkdir -p "$fake/home" "$fake/ai-core-home" "$fake/core-bin"
+printf '#!/usr/bin/env bash\nexec bash "%s/bin/ai-core" "$@"\n' "$root" > "$fake/core-bin/ai-core"
+chmod +x "$fake/core-bin/ai-core"
+filled_command() {   # BRIEF FILE
+  sed -n 's/.*`\(ai-core issue-comment [^`]*\)`.*/\1/p' "$1" | head -n 1 \
+    | sed -e "s|{{plan issue repository}}|$repo|g" -e 's|{{plan issue number}}|94|g' \
+          -e "s|{{plan issue reference}}|$repo#94|g" -e "s|{{plan issue}}|$repo#94|g" -e "s|<file>|$2|g"
+}
+run_filled() {   # BRIEF FILE: the filled command, run the way the session runs it
+  local command; command="$(filled_command "$1" "$2")"
+  case "$command" in *'{{'*) echo "an unfilled placeholder: $command" >&2; return 2 ;; esac
+  # shellcheck disable=SC2086
+  PATH="$fake/core-bin:$PATH" HOME="$fake/home" AI_CORE_HOME="$fake/ai-core-home" bash -c "cd '$fake' && $command"
+}
+
+echo 'the plan brief as shipped posts without a usage error'
+printf 'A section of a plan.\n' > "$fake/section.md"
+: > "$log"
+out="$(run_filled "$brief" "$fake/section.md" 2>&1)"; rc=$?
+check 'exits zero'          0 "$rc"
+check 'the comment url'     'https://github.com/example-org/example-repo/issues/94#issuecomment-1' "$out"
+check 'one post to the plan issue' "api repos/$repo/issues/94/comments -F body=@$fake/section.md --jq .html_url" \
+  "$(grep -v '^api repos/{owner}' "$log" | sed "s|body=@[^ ]*|body=@$fake/section.md|")"
+check 'the exact body bytes' yes "$(cmp -s "$fake/section.md" "$fake/sent-body" && echo yes || echo no)"
+
+echo 'the joined placeholder of the old brief is refused, and the planted copy is red'
+sed 's|{{plan issue repository}} {{plan issue number}}|{{plan issue}}|' "$brief" > "$fake/old-brief.md"
+check 'the planted copy differs' yes "$(cmp -s "$brief" "$fake/old-brief.md" && echo no || echo yes)"
+: > "$log"
+out="$(run_filled "$fake/old-brief.md" "$fake/section.md" 2>&1)"; rc=$?
+check 'the old brief: exits nonzero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'the old brief: the usage line' yes "$(grep -q 'usage: issue-comment.sh' <<< "$out" && echo yes || echo no)"
+check 'the old brief: nothing sent'  0 "$(grep -c 'comments' "$log" || true)"
+
+echo 'a malformed plan issue is refused before GitHub is reached'
+for bad in "$repo#94" "$repo 9x" "$repo #94" "$repo 94 extra"; do
+  : > "$log"
+  "$comment" $bad --body-file "$fake/section.md" >/dev/null 2>&1; rc=$?
+  check "'$bad': exits nonzero" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+  check "'$bad': nothing sent"  0 "$(grep -c 'comments' "$log" || true)"
+done
+
+echo 'two filled commands with different bodies each deliver their own bytes once'
+concurrent="$fake/concurrent"
+mkdir -p "$concurrent"
+cat > "$concurrent/gh" <<'NO'
+#!/usr/bin/env bash
+if [ "$1 $2" = "repo view" ] && [ "${4-} ${5-}" = "--json isPrivate" ]; then echo '{"isPrivate":false}'; exit 0; fi
+for a in "$@"; do case "$a" in body=@*) sum="$(cksum < "${a#body=@}" | cut -d' ' -f1)"; cp "${a#body=@}" "$STORE/sent-$sum"; echo "https://github.com/example-org/example-repo/issues/94#issuecomment-$sum"; exit 0 ;; esac; done
+echo "the stand-in gh has no answer for: $*" >&2; exit 9
+NO
+chmod +x "$concurrent/gh"
+export STORE="$fake/store"; mkdir -p "$STORE"
+printf 'The first planner section.\n'  > "$fake/section-a.md"
+printf 'The second planner section.\n' > "$fake/section-b.md"
+PATH="$concurrent:$PATH" run_filled "$brief" "$fake/section-a.md" > "$fake/out-a" 2>&1 &
+pid_a=$!
+PATH="$concurrent:$PATH" run_filled "$brief" "$fake/section-b.md" > "$fake/out-b" 2>&1 &
+pid_b=$!
+wait "$pid_a"; rc_a=$?; wait "$pid_b"; rc_b=$?
+sum_a="$(cksum < "$fake/section-a.md" | cut -d' ' -f1)"; sum_b="$(cksum < "$fake/section-b.md" | cut -d' ' -f1)"
+check 'both exit zero'      '0 0' "$rc_a $rc_b"
+check 'two bodies stored'   2 "$(find "$STORE" -type f | grep -c .)"
+check 'first body bytes'    yes "$(cmp -s "$fake/section-a.md" "$STORE/sent-$sum_a" && echo yes || echo no)"
+check 'second body bytes'   yes "$(cmp -s "$fake/section-b.md" "$STORE/sent-$sum_b" && echo yes || echo no)"
+check 'first gets its own url'  "https://github.com/example-org/example-repo/issues/94#issuecomment-$sum_a" "$(cat "$fake/out-a")"
+check 'second gets its own url' "https://github.com/example-org/example-repo/issues/94#issuecomment-$sum_b" "$(cat "$fake/out-b")"
+
+echo 'the same command twice is two requested comments'
+rm -f "$STORE"/sent-*; : > "$fake/posts"
+cat > "$concurrent/gh" <<'NO'
+#!/usr/bin/env bash
+if [ "$1 $2" = "repo view" ] && [ "${4-} ${5-}" = "--json isPrivate" ]; then echo '{"isPrivate":false}'; exit 0; fi
+case "$*" in *"/comments "*) echo post >> "$STORE/posts"; echo 'https://github.com/example-org/example-repo/issues/94#issuecomment-7'; exit 0 ;; esac
+echo "the stand-in gh has no answer for: $*" >&2; exit 9
+NO
+for _ in 1 2; do PATH="$concurrent:$PATH" run_filled "$brief" "$fake/section-a.md" >/dev/null 2>&1; done
+check 'two posts' 2 "$(grep -c post "$STORE/posts")"
+
+
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo
 echo 'all passed'

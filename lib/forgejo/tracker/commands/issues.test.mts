@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, beforeEach, describe, it } from 'node:test';
@@ -149,6 +149,18 @@ describe('issue-comment', () => {
     const result = await issueComment.run(['o/r', String(number), '--body-file', file('c.md', 'A comment')], context);
     assert.match(result.stdout, /^https:\/\/forge\.example\.test\/comment\/\d+\n$/);
     assert.deepEqual(fake.readIssue('o/r', number).comments, ['A comment']);
+  });
+
+  it('posts the command the shipped plan brief gives, filled with the repository and the number (compatibility)', async () => {
+    const brief = readFileSync(new URL('../../../../skills/person-in-charge/briefs/plan.md', import.meta.url), 'utf8');
+    const filled = /`ai-core (issue-comment [^`]*)`/.exec(brief)?.[1]
+      ?.replace('{{plan issue repository}}', 'o/r').replace('{{plan issue number}}', String(number)).replace('<file>', file('brief.md', 'From the brief'));
+    assert.ok(filled && !filled.includes('{{'), `the brief's posting command is filled: ${filled}`);
+    const [command, ...args] = filled.split(' ');
+    assert.equal(command, 'issue-comment');
+    const result = await issueComment.run(args, context);
+    assert.match(result.stdout, /^https:\/\/forge\.example\.test\/comment\/\d+\n$/);
+    assert.deepEqual(fake.readIssue('o/r', number).comments, ['From the brief']);
   });
 
   it('refuses an unreadable file and an empty comment before any request', async () => {

@@ -233,7 +233,7 @@ remote_labels_file() {
     layers+=("$cur"); revisions+=("$remote_commit"); extends=""
     if remote_read "$repo" "$cur" "$remote_commit" ai-core.json "$dir"; then
       jq -e 'type == "object" and ((.extends // "") | type == "string" and (. == "" or test("^[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_.-]+-ai-core$")))
-        and ((."setup-ai-core" // "") | type == "string" and (. == "" or test("^>=[0-9]+\\.[0-9]+\\.[0-9]+$")))' "$remote_file" >/dev/null 2>&1 \
+        and ((."setup-ai-core" // "") | type == "string" and (. == "" or test("^>=[0-9]+(\\.[0-9]+){0,2}$")))' "$remote_file" >/dev/null 2>&1 \
         || die "the taxonomy of $repo was not read: the ai-core.json of $cur is malformed, so nothing was changed"
       req="$(layer_requires "$dir/$cur")"
       if [ -n "$req" ] && ! version_at_least "$version" "${req#>=}"; then

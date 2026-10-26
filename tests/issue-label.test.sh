@@ -432,6 +432,14 @@ stops 'a malformed ai-core.json'         'ai-core.json of example-org/blog-ai-co
 printf '{"setup-ai-core": ">=999.0.0"}\n' > "$FAKE/json-new"
 remote_file example-org/blog-ai-core "$SHA2" ai-core.json "$FAKE/json-new"
 stops 'a harness that needs a newer setup-ai-core' 'needs setup-ai-core >=999.0.0'  64
+# the next patch release is a newer one too, and a requirement of two numbers, as README.md writes one, is a requirement
+IFS=. read -r major minor patch < "$ROOT/VERSION"
+printf '{"setup-ai-core": ">=%s.%s.%s"}\n' "$major" "$minor" "$((patch + 1))" > "$FAKE/json-patch"
+remote_file example-org/blog-ai-core "$SHA2" ai-core.json "$FAKE/json-patch"
+stops 'a harness that needs the next patch release' "needs setup-ai-core >=$major.$minor.$((patch + 1))"  73
+printf '{"setup-ai-core": ">=1.0", "extends": "example-org/base-ai-core"}\n' > "$FAKE/json-short"
+remote_file example-org/blog-ai-core "$SHA2" ai-core.json "$FAKE/json-short"
+accepted 'a requirement of two numbers is read, not called malformed' 70 area:derived
 remote_file example-org/blog-ai-core "$SHA2" ai-core.json "$FAKE/json-derived"
 mv "$FAKE/remote/example-org/base-ai-core" "$FAKE/base-ai-core.away"
 stops 'a base the harness extends that is not there' 'example-org/base-ai-core, which example-org/blog-ai-core extends, is not there'  65

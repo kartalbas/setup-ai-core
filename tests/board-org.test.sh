@@ -142,5 +142,32 @@ check 'the cache is where it always was' 'PVT_kworgtest' "$(cat "$deployed/.ai-c
 check 'and the exclude file is unchanged' "$before" "$(cat "$deployed/.git/info/exclude")"
 
 echo
+echo 'a config.env that cannot be read stops a board command that names the board of another organisation, with the reader'"'"'s line and no call'
+. "$ROOT/tests/unreadable.sh"
+unreadable="$FAKE/unreadable-clone"; git init -q -b master "$unreadable"; mkdir -p "$unreadable/.ai-core"
+printf 'GH_ORG="example-org"\n' > "$unreadable/.ai-core/config.env"
+make_unreadable "$unreadable/.ai-core/config.env" || failed=$((failed + 1))
+swallowing="$FAKE/old-swallowing-read"; harness_copy "$ROOT" "$swallowing"
+sed -i.bak '/^  config_value GH_ORG "" > \/dev\/null || exit 1$/d' "$swallowing/lib/board.sh"; rm -f "$swallowing/lib/board.sh.bak"
+cmp -s "$ROOT/lib/board.sh" "$swallowing/lib/board.sh" && { echo "  FAIL the copy with the old read equals lib/board.sh"; failed=$((failed + 1)); }
+status_of_other_board() {  # the board of other-org named with its repository, the settings of the checkout beside it unreadable, forge and tracker named in the environment so that nothing reads the file before the cache does
+  ( cd "$unreadable" && env -u GH_ORG FORGE=github TRACKER=github bash "$1/bin/issue-status.sh" --project 999979 other-org/example-repo 3 testing 2>&1 )
+}
+: > "$LOG"; rm -rf "$GH_CACHE_DIRECTORY"
+out="$(status_of_other_board "$ROOT")"; rc=$?
+check 'exits non-zero' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'says that the file cannot be read, once' 1 "$(grep -c "$unreadable/.ai-core/config.env exists but cannot be read" <<< "$out")"
+check 'asked gh for nothing' '' "$(cat "$LOG")"
+check 'and made no cache' no "$([ -e "$GH_CACHE_DIRECTORY" ] && echo yes || echo no)"
+: > "$LOG"; rm -rf "$GH_CACHE_DIRECTORY"
+out="$(status_of_other_board "$swallowing")"; rc=$?
+check 'planted: the old read goes on to ask for the board of other-org' 'org=other-org' "$(org_asked)"
+check 'planted: and caches it under the number alone' yes "$([ -e "$GH_CACHE_DIRECTORY/999979" ] && echo yes || echo no)"
+chmod 600 "$unreadable/.ai-core/config.env"; : > "$LOG"; rm -rf "$GH_CACHE_DIRECTORY"
+out="$(status_of_other_board "$ROOT")"
+check 'innocent: the same file, readable, lets the command ask for the board of other-org' 'org=other-org' "$(org_asked)"
+check 'and caches it under the organisation, since the caller is example-org' "$GH_CACHE_DIRECTORY/other-org/999979" "$(cd "$unreadable" && env -u GH_ORG FORGE=github TRACKER=github bash -c '. "$1/lib/board.sh"; set_project 999979 other-org/example-repo >/dev/null; cache_dir' _ "$ROOT")"
+
+echo
 if [ "$failed" -eq 0 ]; then echo 'board-org: every check green'; exit 0
 else echo "board-org: $failed check(s) red"; exit 1; fi

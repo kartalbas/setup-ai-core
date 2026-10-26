@@ -401,7 +401,7 @@ commit_shim() {
   # The commit of this run, read before the push: the rewording above gives it a new id, and a
   # session that commits in this checkout while the gate runs moves HEAD past it
   local ours=""; [ -z "$committed" ] || ours="$(git -C "$dir" rev-parse HEAD)"
-  if with_landing_mark "$dir" "$(git -C "$dir" rev-parse HEAD)" "refs/heads/$branch" -- git -C "$dir" push --quiet origin "HEAD:$branch"; then echo "pre-push: $label: pushed to origin/$branch"; return 0; fi
+  if with_harness_commits_mark "$dir" "$branch" -- git -C "$dir" push --quiet origin "HEAD:$branch"; then echo "pre-push: $label: pushed to origin/$branch"; return 0; fi
   [ -n "$ours" ] || { echo "pre-push: $label: the push was refused or failed (see above); the commit stays" >&2; return 1; }
   push_again_or_undo "$dir" "$label" "$branch" "$ours"
 }
@@ -582,9 +582,12 @@ tag_exclusions=''
 [ -z "$tagged_lines" ] || tag_exclusions="$(cut -f1 <<< "$tagged_lines" | git cat-file --batch-check='%(objectname) %(objecttype)' \
   | awk '$2 == "commit" { printf " ^%s", $1 }')"
 
-# Every commit this push sends, across every ref on standard input, and the ranges they came from.
+# Every commit this push sends, across every ref on standard input, and the ranges they came from. The ranges of the
+# identity check leave out every ref of origin, also for a harness landing: what another person or a platform put there
+# carries their address, never the pusher's.
 commits=''
 scan_ranges=''
+identity_ranges=''
 # Whether the push adds any commit at all, a merge among them. The message rules judge the commits
 # that are not merges, but a merge of commits the remote has is a tree nobody has checked yet.
 adds=0
@@ -628,6 +631,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     # rebase and a force push.
     range="$local_commit ^$remote_sha$tag_exclusions --not --remotes=origin"
   fi
+  identity_ranges="$identity_ranges$range"$'\n'
   # A harness landing judges every commit it adds to the default branch, also the ones another ref of origin holds: a
   # branch pushed past this gate (a cloud session's, say) is judged here, once, before it reaches the default branch.
   if git rev-parse -q --verify "refs/remotes/origin/$default" >/dev/null 2>&1 \
@@ -794,14 +798,14 @@ done <<< "$commits"
 
 # Every commit this push sends, a merge among them, carries as author and committer the address
 # that git config user.email holds in this repository, compared without regard to case. Only the
-# ranges of this push are read, so a commit on a ref of origin this clone knows, another person's
-# or a platform's, never refuses a push; one origin has and this clone has not fetched is read as
-# new, which the refusal says.
+# commits this push adds to origin are read, a harness landing's too, so a commit on a ref of origin this
+# clone knows, another person's or a platform's, never refuses a push; one origin has and this clone has
+# not fetched is read as new, which the refusal says.
 pushed="$(while IFS= read -r scan_range; do
   [ -n "$scan_range" ] || continue
   read -ra range_words <<< "$scan_range"
   git rev-list "${range_words[@]}"
-done <<< "$scan_ranges" | awk '!seen[$0]++')"
+done <<< "$identity_ranges" | awk '!seen[$0]++')"
 if [ -n "$pushed" ]; then
   pusher_email="$(git config user.email || true)"
   [ -n "$pusher_email" ] \

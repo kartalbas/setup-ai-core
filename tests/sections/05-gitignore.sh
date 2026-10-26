@@ -115,6 +115,16 @@ plain="$(git -C "$A" push origin HEAD 2>&1)" && fail "a plain push to the defaul
 grep -aq 'takes no plain push' <<< "$plain" || fail "the plain push was refused for another reason: $plain"
 echo "  the armed gate lets init's own push of the block through and refuses a plain push of the default branch"
 
+section "init's commit of the block on top of commits somebody made on the default branch carries no mark, so the armed gate refuses it as a plain push"
+before_origin="$(git -C "$O" rev-parse master)"
+: > "$A/.gitignore"; git -C "$A" add .gitignore; git -C "$A" commit -q -m 'Take the ignore block out by hand #2'
+mine="$(git -C "$A" rev-parse HEAD)"
+bash "$ROOT/bin/init.sh" "$A" --no-doctor > "$A-beneath.log" 2>&1
+[ "$(git -C "$O" rev-parse master)" = "$before_origin" ] || fail "init's push took commits it did not write onto the default branch under its mark (see $A-beneath.log)"
+grep -aq 'takes no plain push' "$A-beneath.log" || fail "the gate did not judge init's push as a plain one: $(cat "$A-beneath.log")"
+[ "$(git -C "$A" rev-parse HEAD)" = "$mine" ] || fail "init did not take its own commit back after the refused push (see $A-beneath.log)"
+echo "  planted: two commits of a session lie beneath init's commit; the push carries no mark, the gate refuses it, origin stays and init takes its commit back"
+
 section "a block without its end line that the catch-up brings is left alone as well"
 O="$WORK/open-origin.git"; git init -q --bare -b master "$O"
 A="$WORK/open-first"; git init -q -b master "$A"; git -C "$A" config user.name check; git -C "$A" config user.email check@localhost

@@ -1382,12 +1382,12 @@ check "the project's own hook is named" yes "$(grep -q "^pre-push: pushed: .gith
 check 'and left as it is'             100644 "$(git -C "$origin_bare" ls-tree master -- .githooks/pre-commit | awk '{ print $1 }')"
 git -C "$pushed" push -q --no-verify --force origin "$before:master" 2>/dev/null; git -C "$pushed" reset -q --hard "$before"
 
-echo 'an unpushed commit that touches something else and names no issue is still refused, by the gate'
+echo 'an unpushed commit that touches something else and names no issue is still refused, by the gate: the install did not write it, so its push is a plain one'
 printf 'x\n' > "$pushed/x.txt"; git -C "$pushed" add x.txt; git -C "$pushed" commit -q -m 'Add x without a ticket'
 printf '#!/usr/bin/env bash\nexec bash ../tooling/hooks/pre-push "$@"\n' > "$pushed/.githooks/pre-push"
 out="$( cd "$pushed" && PATH="$root/bin:$PATH" bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
 check 'exit 1'                        1 "$rc"
-check 'the gate names the commit'     yes "$(grep -q 'Add x without a ticket names no issue' <<< "$out" && echo yes || echo no)"
+check 'the gate refuses it as a plain push' yes "$(grep -q 'master takes no plain push' <<< "$out" && echo yes || echo no)"
 check 'the push was refused, the commit stays' yes "$(grep -q 'the push was refused or failed (see above); the commit stays' <<< "$out" && echo yes || echo no)"
 git -C "$pushed" reset -q --hard origin/master   # the foreign commit goes; the origin is where the last push left it
 
@@ -1447,11 +1447,17 @@ git -C "$real_gate" remote add origin "$real_origin"; git -C "$real_gate" push -
 out="$( cd "$real_gate" && PATH="$root/bin:$PATH" bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
 check 'exit 0'                        0 "$rc"
 check 'the shims are on origin, pushed through the real gate' "$(git -C "$real_gate" rev-parse HEAD)" "$(git -C "$real_origin" rev-parse master)"
-check 'it ran the real gate'          yes "$(grep -q '^pre-push: ' <<< "$out" && echo yes || echo no)"
+check 'it ran the real gate'          yes "$(grep -q 'no scripts/check.sh in this repository' <<< "$out" && echo yes || echo no)"
 git -C "$real_gate" commit -q --allow-empty -m 'A plain push of the default branch #13'
 out="$( cd "$real_gate" && PATH="$root/bin:$PATH" git push origin HEAD:master 2>&1 )"; rc=$?
 check 'a plain push there: exit 1'    1 "$rc"
 check 'it names integrate-issue'      yes "$(grep -q 'master takes no plain push' <<< "$out" && echo yes || echo no)"
+echo 'a second --install, its shims unchanged, carries no commit of somebody else under its mark: the gate refuses that push as a plain one'
+plain_tip="$(git -C "$real_gate" rev-parse HEAD)"; origin_before="$(git -C "$real_origin" rev-parse master)"
+out="$( cd "$real_gate" && PATH="$root/bin:$PATH" bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'planted: origin did not move'  "$origin_before" "$(git -C "$real_origin" rev-parse master)"
+check 'planted: the gate refused it as a plain push' yes "$(grep -q 'master takes no plain push' <<< "$out" && echo yes || echo no)"
+check 'planted: the commit of somebody else stays as it was' "$plain_tip" "$(git -C "$real_gate" rev-parse HEAD)"
 
 echo '--install --all: every repository under a folder, a plain folder skipped; a repository whose .gitattributes already makes the shims LF gets no rule'
 folder="$fake/folder"; mkdir -p "$folder/not-a-repo"
@@ -1808,6 +1814,33 @@ check 'innocent: a push of another branch needs no mark: exit 0' 0 "$rc"
 bash "$root/lib/landing-check.sh" unmark "$mark_other_commit"; bash "$root/lib/landing-check.sh" unmark "$mark_other_clone"
 bash "$root/lib/landing-check.sh" unmark "$mark_other_ref"; bash "$root/lib/landing-check.sh" unmark "$mark_right"
 rm -rf "$foreign"
+
+echo 'a harness landing holds only what it adds to origin to the address of the person pushing: the commit of another person that a ref of origin carries lands, and the other checks still judge it'
+base_sha="$(git -C "$repo" rev-parse HEAD)"
+git -C "$repo" update-ref refs/remotes/origin/master "$base_sha"   # where origin's default branch stands when the landing starts
+land_branch_of_another() {  # land_branch_of_another <branch> <subject>: a commit of Ada on <branch>, which origin carries, merged into master by the pusher
+  git -C "$repo" checkout -q -b "$1" "$base_sha"
+  printf 'by ada\n' > "$repo/src/$1.txt"; git -C "$repo" add "src/$1.txt"
+  GIT_AUTHOR_NAME='Ada Lovelace' GIT_AUTHOR_EMAIL=ada@example.invalid GIT_COMMITTER_NAME='Ada Lovelace' GIT_COMMITTER_EMAIL=ada@example.invalid \
+    git -C "$repo" commit -q -m "$2"
+  git -C "$repo" update-ref "refs/remotes/origin/$1" HEAD
+  git -C "$repo" checkout -q master; git -C "$repo" reset -q --hard "$base_sha"
+  git -C "$repo" merge -q --no-ff "$1" -m "Land the work of Ada (#17)"
+  landed_sha="$(git -C "$repo" rev-parse HEAD)"
+  landed_mark="$(bash "$root/lib/landing-check.sh" mark "$repo" "$landed_sha" refs/heads/master)"
+  out="$(printf 'refs/heads/master %s refs/heads/master %s\n' "$landed_sha" "$base_sha" \
+    | ( cd "$repo" && AI_CORE_LANDING_MARK="$landed_mark" bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1 ))"; rc=$?
+  bash "$root/lib/landing-check.sh" unmark "$landed_mark"
+}
+land_branch_of_another issue-17-ada 'Work of another person, pushed through their own gate (#17)'
+check 'planted: the landing of a branch of another person: exit 0' 0 "$rc$([ "$rc" -eq 0 ] || echo " $out")"
+check 'planted: their address refuses nothing' no "$(grep -q 'carry another address than yours' <<< "$out" && echo yes || echo no)"
+land_branch_of_another issue-18-ada 'Work of another person whose subject no gate judged, as it is far beyond the limit (#18)'
+check 'and: the same landing with a subject over 72: exit 1' 1 "$rc"
+check 'and: the subject check judges that commit of origin' yes "$(grep -q 'subjects are longer than 72 characters' <<< "$out" && echo yes || echo no)"
+git -C "$repo" reset -q --hard "$base_sha"
+git -C "$repo" branch -q -D issue-17-ada issue-18-ada
+for ref in master issue-17-ada issue-18-ada; do git -C "$repo" update-ref -d "refs/remotes/origin/$ref"; done
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

@@ -140,6 +140,41 @@ with_landing_mark() {
   return "$status"
 }
 
+# harness_commits_only <checkout> <branch>: succeeds where every commit that HEAD holds and origin/<branch> lacks is one a
+# path of the harness writes on its own: init's commit of the .gitignore block, or the commit of the shims of
+# pre-push --install, each touching only its files and carrying its No-issue trailer. A commit of somebody else beneath
+# them would otherwise reach the default branch under the harness's mark, past the review a landing stands for.
+harness_commits_only() {
+  local dir="$1" branch="$2" unpushed_range=(HEAD) sha files file
+  if git -C "$dir" rev-parse -q --verify "refs/remotes/origin/$branch" >/dev/null; then unpushed_range=(HEAD "^refs/remotes/origin/$branch"); fi
+  for sha in $(git -C "$dir" rev-list "${unpushed_range[@]}"); do
+    files="$(git -C "$dir" diff-tree --no-commit-id --root -r --name-only "$sha" | sort -u | tr '\n' ' ')"
+    case "$(git -C "$dir" log -1 --format='%(trailers:key=No-issue,valueonly)' "$sha")" in
+      *'the .gitignore block written by ai-core init'*) [ "$files" = '.gitignore ' ] || return 1 ;;
+      *'written, committed and pushed by ai-core pre-push --install'*)
+        [ -n "$files" ] || return 1
+        for file in $files; do
+          case "$file" in .gitattributes|.githooks/pre-push|.githooks/post-checkout) ;; *) return 1 ;; esac
+        done ;;
+      *) return 1 ;;
+    esac
+  done
+}
+
+# with_harness_commits_mark <checkout> <branch> -- <command>...: runs the command, a push of HEAD to <branch>, with the mark
+# of a harness landing where harness_commits_only holds, and without one otherwise, so the gate judges a push that carries
+# somebody's commit as the plain push it is
+with_harness_commits_mark() {
+  local dir="$1" branch="$2"
+  shift 3
+  if harness_commits_only "$dir" "$branch"; then
+    with_landing_mark "$dir" "$(git -C "$dir" rev-parse HEAD)" "refs/heads/$branch" -- "$@"
+  else
+    echo "HEAD holds commits that origin/$branch lacks and the harness did not write, so this push carries no mark of a harness landing" >&2
+    "$@"
+  fi
+}
+
 # landing_mark_judge <mark> <root> <commit> <remote ref>: succeeds where the mark names this very commit, this clone and
 # this ref; otherwise fails, and LANDING_MARK_REASON says which part does not hold
 landing_mark_judge() {

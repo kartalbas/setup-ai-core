@@ -706,7 +706,10 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    push, hands to that push's Git children alone in `AI_CORE_LANDING_MARK`, and removes on every way
    out: `integrate-issue` (its pushes to `ci/integrate-<branch>` and to the default branch), `release`
    (the commits it sends), `init` (its commit of the `.gitignore` block), `pre-push --install` (its
-   commit of the shims) and `ai-core push` (the commit of a project harness). It is no override a
+   commit of the shims) and `ai-core push` (the commit of a project harness). `init` and
+   `pre-push --install` mark their push only where every commit it adds is one of theirs, with its
+   `No-issue:` trailer and its files alone: a commit of somebody else beneath theirs makes it a plain
+   push, which the gate refuses on the default branch. It is no override a
    person sets: it keeps a plain `git push` from reaching the default branch by habit, and proves no
    review. A push of another branch needs none.
 2. **Every pushed commit names its issue**, `#<n>` anywhere in the message, or is excused: the
@@ -721,7 +724,8 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    on those the default branch published, and a tag introduces nothing. The one exception is a
    harness landing of the default branch, which judges every commit it adds to the default branch,
    those another ref of origin carries already among them, because a branch pushed by a session
-   whose gate did not run reached origin unjudged.
+   whose gate did not run reached origin unjudged. Every check below judges them, except the address
+   of the person pushing (item 5).
 3. **The team modes are installed** (`ai-core team-modes-check`, section 4.6).
 4. **A pushed file that starts with `#!` carries the executable bit**, because it is run by its
    name and git skips a hook without it; the refusal names the `git update-index --chmod=+x` to run.
@@ -734,8 +738,8 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    holds in the repository**, compared without regard to case: the refusal lists each commit as
    `<hash> author <address>, committer <address>` with the `--reset-author` rewrite, and a
    repository with no `user.email` is refused with the command that sets one. Only the commits the
-   push adds are read, so a commit on a ref of origin this clone knows, another person's or a
-   platform bot's, never refuses a push; one origin has and this clone has not fetched is read as
+   push adds to origin are read, by a harness landing too, so a commit on a ref of origin this clone
+   knows, another person's or a platform bot's, never refuses a push; one origin has and this clone has not fetched is read as
    new, and the refusal tells to `git fetch origin` first and to rewrite only your own commits.
    None of the four has an excuse.
 6. **No added comment names an issue by its number**, `(#<n>)` or `<repo>#<n>`, judged on the

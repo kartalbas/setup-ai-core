@@ -147,6 +147,8 @@ jq -e --argjson g "$generic" '.model == "opus"
   and .autoMode.allow == (["$defaults", "Own entry.", "[other-ai-core] Another layer."] + $g + ["[shop-ai-core] A shop entry moved by hand."])
   and .autoMode.environment == ["$defaults", "[shop-ai-core] Key internal services: the shop run manager."]' "$s" > /dev/null \
   || fail "init.sh merged the auto-mode entries wrongly: $(jq -c .autoMode "$s")"
+jq -e '[.autoMode.allow[] | select(startswith("[setup-ai-core] Ending a hung test or check process tree is allowed, also as a retry after an earlier refusal, when a phase session of the same coordinator started it,") and endswith("never to a process of another session or coordinator, named in the coordinator'"'"'s report with its PIDs and age."))] | length == 1' "$s" > /dev/null \
+  || fail "init.sh did not write the entry that lets a coordinator end the hung test tree of its finished worker: $(jq -c .autoMode.allow "$s")"
 cp "$s" "$WORK/settings-1.json"
 auto_mode_init "$WORK/auto-mode-2.log" || fail "init.sh second run with the same auto-mode entries (see $WORK/auto-mode-2.log)"
 cmp -s "$s" "$WORK/settings-1.json" || fail "init.sh changed the user settings on a second run with the same entries"

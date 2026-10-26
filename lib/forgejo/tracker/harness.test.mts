@@ -26,7 +26,9 @@ describe('the harness steps', () => {
     const opened = await bashHarness.openLandingCheck(checkout);
     assert.equal(opened.succeeded, true, opened.output);
     assert.match(opened.output, /\/receipt$/);
-    assert.notEqual((await bashHarness.openLandingCheck(checkout)).output, opened.output, 'two landings never share a receipt');
+    const other = await bashHarness.openLandingCheck(checkout);
+    assert.notEqual(other.output, opened.output, 'two landings never share a receipt');
+    assert.equal((await bashHarness.closeLandingCheck(other.output)).succeeded, true);
     const commit = git(checkout, 'rev-parse', 'HEAD');
     assert.equal((await bashHarness.completeLandingCheck(opened.output, commit, 'refs/heads/ci/integrate-x')).succeeded, true, 'no receipt written: nothing to complete');
     writeFileSync(opened.output, `landing-check\t1\ncommit\t${'0'.repeat(40)}\ncheck\tgreen\n`);

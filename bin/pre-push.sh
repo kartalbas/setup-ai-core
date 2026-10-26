@@ -18,6 +18,7 @@
 #   5. the repository's own scripts/check.sh is green, run in a working tree equal to the commit,
 #      started once the 1-minute load is below PRE_PUSH_LOAD_LIMIT or PRE_PUSH_LOAD_WAIT_SECONDS is up,
 #      and after the published copies of the neighbours it reads stand at their origins' newest commit
+#      (not run again for the final push of a landing whose receipt shows that very commit green)
 #   6. gitleaks over the commits the push carries, in a repository that carries .gitleaks.toml
 #
 # Run from a terminal, with nothing on standard input, it judges what `git push` would send from
@@ -95,6 +96,12 @@ for arg in "$@"; do
     echo "at and keeps it there until the check ended. An origin that cannot be asked, or a copy that cannot"
     echo "be read, refuses the push. A copy is waited for at most NEIGHBOUR_LOCK_WAIT_SECONDS (600 when unset)."
     echo ""
+    echo "A landing of a public repository pushes its merge commit through this gate twice, to ci/integrate-<branch>"
+    echo "and to the default branch, and hands both pushes a receipt in AI_CORE_LANDING_RECEIPT. The gate of the"
+    echo "first push writes its green check into it; the gate of the second skips scripts/check.sh, and nothing"
+    echo "else, only where the receipt shows that very commit, tree, clone, origin and neighbour commits green with"
+    echo "the CI of the commit green too. The gate prints the full commit and why the check ran or did not."
+    echo ""
     echo "With FORGE=forgejo, scripts/check.sh gets credential.<FORGEJO_URL>.helper in git's environment"
     echo "configuration after the caller's entries: an empty value, then 'ai-core git-credential' with the"
     echo "checkout's FORGEJO_URL and FORGEJO_TOKEN_COMMAND set for that helper alone, so git started outside"
@@ -168,6 +175,7 @@ fi
 
 . "$CORE_ROOT/lib/layers.sh"
 . "$CORE_ROOT/lib/neighbours.sh"
+. "$CORE_ROOT/lib/landing-check.sh"
 GATE_REFUSAL=""
 refuse() { GATE_REFUSAL="$*"; GATE_REFUSAL="${GATE_REFUSAL%%$'\n'*}"; echo "pre-push: REFUSED — $*" >&2; exit 1; }
 
@@ -575,12 +583,14 @@ scan_ranges=''
 # that are not merges, but a merge of commits the remote has is a tree nobody has checked yet.
 adds=0
 pushing=0
+ref_lines=0; sole_remote_ref=""   # how many refs the push updates, and the last of them
 landing=''   # the commit a push to the default branch lands, judged below where that branch goes live
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ -n "${local_sha:-}" ] || continue
   all_zero "$local_sha" && continue                   # a deletion sends no commit
   GATE_COMMIT="$local_sha"
   pushing=1
+  ref_lines=$((ref_lines + 1)); sole_remote_ref="$remote_ref"
   # WHAT IS PUSHED IS RESOLVED TO A COMMIT FIRST. An annotated tag hands its own object's sha
   # here, never the commit it names, so comparing it to HEAD unresolved refuses every annotated
   # tag there is. Resolving it asks the question the refusal below means to ask: is the tree this
@@ -1045,17 +1055,41 @@ $(sed 's/^/  /' <<< "$dirty")
 
 # The run is announced after the refusals above, so a push that is refused is not first promised a run
 # it never gets. How long it takes is the repository's own business.
+# A landing of a public repository pushes its merge commit through this gate twice, to ci/integrate-<branch> and then
+# to the default branch (lib/landing-check.sh). The receipt that landing hands its two pushes holds the green check of
+# the first one; the second does not run scripts/check.sh again where the receipt shows that very commit, tree, clone,
+# origin and neighbour copies green, with the CI of that commit green too. Any other push, and any receipt that does
+# not hold, runs the check. The gate says in one line which it did, and why.
+check_reason=""      # why the check runs, said only for a landing
+check_skipped=0
 if [ -f "$root/scripts/check.sh" ]; then
   # The check reads the working tree, so it proves the pushed commit only where the two are equal.
   refuse_if_tree_differs
+  neighbours_held=0
+  if [ -n "${AI_CORE_LANDING_RECEIPT:-}" ]; then
+    hold_neighbours; neighbours_held=1
+    if landing_check_judge "$AI_CORE_LANDING_RECEIPT" "$root" "$head" "$ref_lines" "$sole_remote_ref" "$default" "$NEIGHBOUR_TIPS"; then
+      check_skipped=1
+      GATE_CHECK_LAST="scripts/check.sh of $head not run: the receipt of this landing shows it green on its ci/ push, with the CI of that commit green"
+      echo "pre-push: scripts/check.sh of $head does not run again: its receipt from the first push of this landing shows it green, and the CI of that commit is green too."
+    else
+      check_reason="$LANDING_CHECK_REASON"
+    fi
+  fi
+fi
+if [ -f "$root/scripts/check.sh" ] && [ "$check_skipped" -eq 0 ]; then
   wait_for_lower_load
   # The commit and the tree are judged again: both can change while the push waits.
   [ "$(git -C "$root" rev-parse HEAD)" = "$head" ] \
     || refuse "HEAD moved from ${head:0:12} to $(git -C "$root" rev-parse --short=12 HEAD) while the push waited for a lower load, so the check would prove a commit that is not the one judged. Push again."
   refuse_if_tree_differs
   GATE_LOAD="$LOAD_AT_START"
-  hold_neighbours
-  echo "pre-push: $root/scripts/check.sh runs here, before anything leaves this machine."
+  [ "$neighbours_held" -eq 1 ] || hold_neighbours
+  if [ -z "${AI_CORE_LANDING_RECEIPT:-}" ]; then
+    echo "pre-push: $root/scripts/check.sh runs here, before anything leaves this machine."
+  else
+    echo "pre-push: $root/scripts/check.sh runs for $head: ${check_reason:-no check of this landing has run yet}."
+  fi
   check_started="$(date +%s)"; check_rc=0
   # Both streams go to the log, so its last line is the check's last word on either of them
   with_caller_git_config with_sign_in_line bash "$root/scripts/check.sh" 2>&1 | tee "$TMPD/check.log" || check_rc=$?
@@ -1064,9 +1098,17 @@ if [ -f "$root/scripts/check.sh" ]; then
   GATE_CHECK=green; [ "$check_rc" -eq 0 ] || GATE_CHECK=red
   neighbours_release
   [ "$check_rc" -eq 0 ] || refuse 'a check failed - the lines above name which one.'
-else
+  case "$sole_remote_ref" in
+    refs/heads/ci/integrate-?*)
+      if [ -n "${AI_CORE_LANDING_RECEIPT:-}" ] && [ "$ref_lines" -eq 1 ]; then
+        landing_check_record "$AI_CORE_LANDING_RECEIPT" "$root" "$head" "$sole_remote_ref" "$NEIGHBOUR_TIPS" \
+          || refuse "the receipt of this landing could not be written to $AI_CORE_LANDING_RECEIPT"
+      fi ;;
+  esac
+elif [ ! -f "$root/scripts/check.sh" ]; then
   echo 'pre-push: no scripts/check.sh in this repository; nothing runs before the push.'
 fi
+neighbours_release
 
 # THE COMMITS ARE SCANNED TOO, not only the working copy. scripts/check.sh reads one state: the
 # files git would let you commit right now. A credential that was committed in one pushed commit

@@ -50,6 +50,11 @@
 # one line says so; so does a public one of a project whose config.env sets CI_GATE="none" (CI_GATE is public
 # when unset; any other value refuses before anything is made). A visibility the forge does not establish refuses.
 #
+# THE REPOSITORY CHECK RUNS ONCE PER LANDED COMMIT. A public landing opens a receipt (lib/landing-check.sh) and
+# hands it to the two pushes alone: the gate of the push to ci/ writes its green check into it, this script
+# completes it once the push went through and the CI of that commit was green, and the gate of the push to the
+# default branch skips scripts/check.sh only for that commit. The receipt is deleted on every way out.
+#
 # A MERGE COMMIT, NOT A REBASE: the reviewed commits land as they were read, with the shas the
 # reviewer saw, and the one new commit carries the issue and the reviewer.
 #
@@ -72,6 +77,7 @@
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 . "$ROOT/lib/forge.sh"
+. "$ROOT/lib/landing-check.sh"
 
 BIN="$ROOT/bin"
 usage='usage: integrate-issue.sh [OWNER/REPO] NUMBER --reviewed-by REVIEWER [--reviewed-by REVIEWER ...] [--from-origin]'
@@ -189,7 +195,7 @@ landing="$(git rev-parse --path-format=absolute --git-common-dir)/ai-core-landin
 # merge commit of this landing (a lease), so a branch somebody else wrote stays; a branch that is not there
 # is nothing to delete. A branch that stays or cannot be deleted is named in one line and changes nothing
 # about the outcome. A kill that cannot be trapped (SIGKILL) runs none of this and leaves the branch behind.
-tree=""; ci_branch=""; pushed=""
+tree=""; ci_branch=""; pushed=""; receipt=""
 # remote_ref_sha <full ref>: the sha origin holds for the ref, nothing where it has none. Only stdout is read,
 # so a warning git writes on stderr (a repository that was renamed, say) is no part of the sha; when git
 # fails, its words are printed and the status is 1.
@@ -214,6 +220,7 @@ delete_ci_branch() {
 trap 'delete_ci_branch
   [ -z "$tree" ] || git worktree remove --force "$tree" >/dev/null 2>&1 || rm -rf "$tree"
   [ -z "$pushed" ] || rm -f "$pushed"
+  [ -z "$receipt" ] || landing_check_close "$receipt"
   [ "$(cut -f1 "$landing" 2>/dev/null)" != "$$" ] || rm -f "$landing"' EXIT
 
 # make_merge <tip> <name of the tip>: the merge commit of the tip into origin/<default>, made in a temporary
@@ -289,6 +296,7 @@ gate_public_repository() {
   default="$(origin_default_branch)" || exit 1
   waited_tip="$tip"
   keep_waited_tip "origin/$branch"
+  receipt="$(landing_check_open)" || die "no folder for the receipt of the checks of this landing"
   make_merge "$tip" "$tip_name"
   ci_branch="ci/integrate-$branch"
   held="$(remote_ref_sha "refs/heads/$ci_branch")" || die "could not reach origin: $held"
@@ -296,7 +304,7 @@ gate_public_repository() {
   # shown as they come, and kept only to tell a race from a refusal.
   pushed="$(mktemp)" || die "no temporary file for the output of the push to $ci_branch"
   push_status=0
-  git -C "$tree" push origin "--force-with-lease=refs/heads/$ci_branch:$held" "$merged_sha:refs/heads/$ci_branch" 2>&1 | tee "$pushed" >&2 || push_status="${PIPESTATUS[0]}"
+  AI_CORE_LANDING_RECEIPT="$receipt" git -C "$tree" push origin "--force-with-lease=refs/heads/$ci_branch:$held" "$merged_sha:refs/heads/$ci_branch" 2>&1 | tee "$pushed" >&2 || push_status="${PIPESTATUS[0]}"
   said="$(cat "$pushed")"; rm -f "$pushed"
   [ "$push_status" -eq 0 ] || case "$said" in
     *"stale info"*|*"cannot lock ref"*) die "nothing landed: $ci_branch on origin changed after it was read, so another landing of this branch may be running; nothing was pushed to it or to $default (git's words are above)" ;;
@@ -306,7 +314,10 @@ gate_public_repository() {
   wait_for_checks "$tree" "$merged_sha" "$poll" "$limit" \
     "waiting: $checked_repo is public and lands only on green checks; the checks of ${merged_sha:0:7} on $ci_branch are asked every ${poll}s, $((limit / 60)) minute(s) at most" || checks=$?
   case "$checks" in
-    0) echo "checks: green for ${merged_sha:0:7} on $ci_branch at $(forge_name); $checked_repo is public and lands only on green checks" ;;
+    0) echo "checks: green for ${merged_sha:0:7} on $ci_branch at $(forge_name); $checked_repo is public and lands only on green checks"
+       # Both the push and the CI went through: from here the final push may rest on the check the gate ran for it
+       landing_check_complete "$receipt" "$merged_sha" "refs/heads/$ci_branch" \
+         || echo "note: the receipt of ${merged_sha:0:7} could not be completed, so the push to $default runs scripts/check.sh again" ;;
     1) die "nothing landed: the checks for $merged_sha on $ci_branch are red, so nothing was pushed to $default and origin/$default is as it was" ;;
     2) die "nothing landed: the checks for $merged_sha on $ci_branch did not finish in $((limit / 60)) minute(s), so nothing was pushed to $default. A new run makes a new merge commit and waits for a new CI run; set AI_CORE_INTEGRATE_WAIT (seconds, $limit now) higher if the CI takes longer" ;;
     *) die "nothing landed: $(checks_unreadable_message "$merged_sha" "$checks_said")" ;;
@@ -377,7 +388,7 @@ if [ -n "$waited_tip" ]; then
     || die "nothing landed: origin/$default moved from $base_tip to $now while the checks of $merged_sha ran; run this again"
   keep_waited_tip "origin/$branch"
   [ -n "$from_origin" ] || keep_waited_tip "$branch"
-  git -C "$tree" push origin "$merged_sha:refs/heads/$default" \
+  AI_CORE_LANDING_RECEIPT="$receipt" git -C "$tree" push origin "$merged_sha:refs/heads/$default" \
     || push_refused "the push was refused (see above) - nothing reached origin, and the worktree of $branch is as it was" \
     || die "$refusal"
 elif [ -n "$from_origin" ]; then

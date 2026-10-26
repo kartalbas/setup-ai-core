@@ -1195,6 +1195,15 @@ race_refused 'with --from-origin' "$before"
 before="$(tip)"
 out="$(cd "$work" && AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=0 bash "$root/bin/integrate-issue.sh" 971 --reviewed-by l4 --from-origin 2>&1)"; rc=$?
 check 'with --from-origin: the rerun lands' '0 1' "$rc $(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+echo 'the receipt of the checks of a public landing is removed after a landing that went through and after one that was refused'
+mkdir -p "$fake/receipts"
+TMPDIR="$fake/receipts" land_public 978 receipt-green "$success"
+check 'green: exit 0 and no receipt left'        '0 0' "$rc $(find "$fake/receipts" -mindepth 1 | wc -l | tr -d ' ')"
+TMPDIR="$fake/receipts" land_public 979 receipt-red '[{"status":"completed","conclusion":"failure","workflowName":"check"}]'
+check 'red: exit 1 and no receipt left'          '1 0' "$rc $(find "$fake/receipts" -mindepth 1 | wc -l | tr -d ' ')"
+receipt_a="$(TMPDIR="$fake/receipts" bash "$root/lib/landing-check.sh" open)"; receipt_b="$(TMPDIR="$fake/receipts" bash "$root/lib/landing-check.sh" open)"
+check 'the receipts of two landings are two folders' different "$([ "$receipt_a" != "$receipt_b" ] && echo different || echo same)"
+bash "$root/lib/landing-check.sh" close "$receipt_a"; bash "$root/lib/landing-check.sh" close "$receipt_b"
 echo 'two integrations at the same moment: in one clone they take turns and both land; in separate clones each lands or says the default branch moved'
 git -C "$work" config --unset core.hooksPath; echo private > "$fake/visibility"
 wt_a="$(new_tree 974 twin-a)"; git -C "$wt_a" push -q origin issue-974-twin-a 2>/dev/null
@@ -1253,9 +1262,11 @@ echo 'a public landing shows the wait for a lower load while its CI push waits, 
 public_landing 160 streamed
 check 'exit 0'                                   0 "$rc"
 check 'the announcement, and the start above the limit, were on screen while the check still ran' 'yes yes yes' "$seen"
-check 'the announcement stands once for each of the two local checks' 2 "$(grep -c "$announced" <<< "$out")"
-check 'and so does the start above the limit'    2 "$(grep -c "$ended" <<< "$out")"
-check 'each check ran once, after its wait'      '2 1010 1020' "$(lines_of "$gate_runs") $(sed -n 1p "$gate_runs") $(sed -n 2p "$gate_runs")"
+check 'the announcement stands once, for the one local check' 1 "$(grep -c "$announced" <<< "$out")"
+check 'and so does the start above the limit'    1 "$(grep -c "$ended" <<< "$out")"
+check 'the check ran once, after its wait: the push to the default branch did not run it again' '1 1010' "$(lines_of "$gate_runs") $(sed -n 1p "$gate_runs")"
+check 'the gate says for the commit that landed that it does not run again' yes "$(grep -qF "scripts/check.sh of $(tip) does not run again" <<< "$out" && echo yes || echo no)"
+check 'and for the commit of its ci/ push which check it ran' yes "$(grep -qF "scripts/check.sh runs for $(tip):" <<< "$out" && echo yes || echo no)"
 check 'the checks of the CI were asked on their own, and the commit that landed is the one that was checked' "$(cat "$fake/ci-during")" "$(tip)"
 check 'the CI answered green, said once'         1 "$(grep -c '^checks: green for' <<< "$out")"
 check 'one merge commit landed'                  1 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"

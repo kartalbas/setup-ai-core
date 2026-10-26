@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# THE RECEIPT OF A CHECKED LANDING, so that a public repository's landing runs scripts/check.sh once per commit.
+# Source it for the gate, or run it as
+#
+#   landing-check.sh open                          prints the path of a new, private receipt
+#   landing-check.sh complete <receipt> <commit> <ci ref>
+#   landing-check.sh close <receipt>
+#
+# A landing of a public repository pushes its merge commit twice through the push gate: to ci/integrate-<branch>,
+# whose CI it waits for, and then to the default branch. The landing opens one receipt in a folder of its own and
+# hands the path to the Git children of those two pushes alone, in AI_CORE_LANDING_RECEIPT; it is no setting of the
+# shell, so two landings at the same moment never meet. The gate of the first push writes into it what its green
+# check proved: the clone, the origin, the commit, its tree, and the commit each neighbour copy stood at. The landing
+# adds the ci/ ref once that push went through and the CI of the same commit was read green. Only then does the gate
+# of the final push skip scripts/check.sh, and only for the exact push the receipt names. The landing deletes the
+# receipt on every way out it can trap. A receipt is published whole by a rename.
+
+LANDING_CHECK_VERSION=1
+LANDING_CHECK_REASON=""
+
+# landing_check_open: prints the path of a receipt that does not exist yet, in a folder only this landing knows
+landing_check_open() {
+  local dir
+  dir="$(mktemp -d)" || return 1
+  printf '%s/receipt\n' "$dir"
+}
+
+# landing_check_close <receipt>: removes the receipt, whatever state it is in, and its folder
+landing_check_close() {
+  case "$1" in */receipt) ;; *) echo "error: $1 is no receipt of a landing" >&2; return 1 ;; esac
+  rm -f "$1" "$1".*; rmdir "$(dirname "$1")" 2>/dev/null || true
+}
+
+# landing_check_publish <receipt>: the receipt is what stands on the input, put in place whole
+landing_check_publish() {
+  local temporary="$1.$$.new"
+  cat > "$temporary" && mv -f "$temporary" "$1"
+}
+
+# landing_check_record <receipt> <root> <commit> <remote ref> [neighbour lines]: the gate of a push of <commit>
+# to <remote ref> has run scripts/check.sh in <root> and it was green. Each neighbour line is "name commit".
+landing_check_record() {
+  local receipt="$1" root="$2" commit="$3" ref="$4" name tip
+  {
+    printf 'landing-check\t%s\n' "$LANDING_CHECK_VERSION"
+    printf 'clone\t%s\n' "$(git -C "$root" rev-parse --path-format=absolute --git-common-dir)"
+    printf 'origin\t%s\n' "$(git -C "$root" remote get-url origin)"
+    printf 'commit\t%s\n' "$commit"
+    printf 'tree\t%s\n' "$(git -C "$root" rev-parse "$commit^{tree}")"
+    printf 'ref\t%s\n' "$ref"
+    while read -r name tip; do [ -z "$name" ] || printf 'neighbour\t%s\t%s\n' "$name" "$tip"; done <<< "${5:-}"
+    printf 'check\tgreen\n'
+  } | landing_check_publish "$receipt"
+}
+
+# landing_check_complete <receipt> <commit> <ci ref>: the push to <ci ref> went through and the CI of <commit> there
+# was read green. Where the gate wrote no receipt, as in a repository without scripts/check.sh, there is nothing to
+# complete. Fails, and changes nothing, where the receipt holds no green check of that very commit.
+landing_check_complete() {
+  local receipt="$1" commit="$2" ci_ref="$3"
+  [ -f "$receipt" ] || return 0
+  if [ "$(awk -F'\t' '$1 == "commit" { print $2 }' "$receipt")" != "$commit" ] \
+     || ! grep -qxF "$(printf 'check\tgreen')" "$receipt"; then
+    echo "error: the receipt $receipt holds no green check of $commit" >&2; return 1
+  fi
+  { cat "$receipt"; printf 'ci\t%s\t%s\tgreen\n' "$ci_ref" "$commit"; } | landing_check_publish "$receipt"
+}
+
+# landing_check_judge <receipt> <root> <commit> <pushed refs> <remote ref> <default branch> [neighbour lines]:
+# succeeds where the receipt shows scripts/check.sh green for this very push; otherwise fails, and
+# LANDING_CHECK_REASON says which part of the receipt does not hold
+landing_check_judge() {
+  local receipt="$1" root="$2" commit="$3" refs="$4" remote_ref="$5" default="$6" want have field
+  LANDING_CHECK_REASON=""
+  field() { awk -F'\t' -v k="$1" '$1 == k { print $2 }' "$receipt"; }
+  if [ ! -f "$receipt" ]; then LANDING_CHECK_REASON="no receipt of this landing stands at $receipt"; return 1; fi
+  if [ "$(head -n 1 "$receipt")" != "$(printf 'landing-check\t%s' "$LANDING_CHECK_VERSION")" ]; then LANDING_CHECK_REASON="the receipt is not one this gate reads"; return 1; fi
+  if [ "$refs" != 1 ] || [ "$remote_ref" != "refs/heads/$default" ]; then LANDING_CHECK_REASON="this push is not the one push of the checked commit to $default"; return 1; fi
+  if [ "$(field commit)" != "$commit" ]; then LANDING_CHECK_REASON="the receipt holds a check of $(field commit), not of this commit"; return 1; fi
+  if [ "$(field tree)" != "$(git -C "$root" rev-parse "$commit^{tree}" 2>/dev/null)" ]; then LANDING_CHECK_REASON="the tree of the commit is not the tree the check proved"; return 1; fi
+  if [ "$(field clone)" != "$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" ]; then LANDING_CHECK_REASON="the receipt belongs to another clone"; return 1; fi
+  if [ "$(field origin)" != "$(git -C "$root" remote get-url origin 2>/dev/null)" ]; then LANDING_CHECK_REASON="the receipt belongs to another origin"; return 1; fi
+  if ! grep -qxF "$(printf 'check\tgreen')" "$receipt"; then LANDING_CHECK_REASON="the receipt holds no green check"; return 1; fi
+  case "$(field ref)" in refs/heads/ci/integrate-?*) ;; *) LANDING_CHECK_REASON="the check of the receipt was not the gate of a push to ci/integrate-<branch>"; return 1 ;; esac
+  if ! grep -qxF "$(printf 'ci\t%s\t%s\tgreen' "$(field ref)" "$commit")" "$receipt"; then
+    LANDING_CHECK_REASON="the receipt holds no green CI result of this commit on $(field ref)"; return 1
+  fi
+  want="$(awk -F'\t' '$1 == "neighbour" { print $2 " " $3 }' "$receipt" | LC_ALL=C sort)"
+  have="$(printf '%s\n' "${7:-}" | sed '/^$/d' | LC_ALL=C sort)"
+  if [ "$want" != "$have" ]; then LANDING_CHECK_REASON="the neighbour copies stand at other commits than the check read"; return 1; fi
+}
+
+if [ "${BASH_SOURCE[0]}" = "${0:-}" ]; then
+  set -uo pipefail
+  case "${1:-}" in
+    open) landing_check_open ;;
+    complete) [ $# -eq 4 ] || { echo "usage: landing-check.sh complete <receipt> <commit> <ci ref>" >&2; exit 2; }; landing_check_complete "$2" "$3" "$4" ;;
+    close) [ $# -eq 2 ] || { echo "usage: landing-check.sh close <receipt>" >&2; exit 2; }; landing_check_close "$2" ;;
+    *) echo "usage: landing-check.sh open | complete <receipt> <commit> <ci ref> | close <receipt>" >&2; exit 2 ;;
+  esac
+fi

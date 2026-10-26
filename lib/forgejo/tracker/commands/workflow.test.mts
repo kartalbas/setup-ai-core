@@ -552,6 +552,34 @@ describe('integrate-issue', () => {
       assert.doesNotMatch(git(main.checkout, 'worktree', 'list', '--porcelain'), /integrate-/, 'no temporary worktree stays registered');
     });
 
+    it('opens the receipt of the checks before its pushes, hands it to those two pushes alone, completes it on green checks and closes it (planted: a hook writes down what it was given)', async () => {
+      const { number, tree, head } = await worked(main, 'Receipt, so that the check runs once');
+      fake.setChecks(main.full, ['success']);
+      const seen = join(scratch, `receipt-seen-${number}`);
+      fixture.installHook(main.checkout, 'pre-push', `echo "\${AI_CORE_LANDING_RECEIPT:-none}" >> '${seen}'`);
+      const harness = createRecordingHarness();
+      try {
+        await integrateIssue.run(integrateArguments(main, number, head), ctx(tree, publicSettings, harness));
+      } finally {
+        rmSync(join(main.checkout, '.git', 'hooks', 'pre-push'));
+      }
+      assert.deepEqual(readFileSync(seen, 'utf8').trim().split('\n'), ['/planted/receipt', 'none', '/planted/receipt'], 'the push to the ci/ branch and the push to the default branch got it, the delete of the ci/ branch between them did not');
+      const calls = harness.calls.filter((call) => /LandingCheck/.test(call));
+      assert.equal(calls.length, 3);
+      assert.match(calls[0] ?? '', /^openLandingCheck /);
+      assert.match(calls[1] ?? '', new RegExp(`^completeLandingCheck /planted/receipt ${tipOf(main)} refs/heads/ci/integrate-`));
+      assert.equal(calls[2], 'closeLandingCheck /planted/receipt');
+      assert.equal(process.env.AI_CORE_LANDING_RECEIPT, undefined, 'the receipt is no setting of the process');
+    });
+
+    it('leaves a receipt incomplete on red checks and still closes it (planted: red)', async () => {
+      const { number, tree, head } = await worked(main, 'Red receipt, so that nothing completes it');
+      fake.setChecks(main.full, ['failure']);
+      const harness = createRecordingHarness();
+      await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree, publicSettings, harness)), /are red/);
+      assert.deepEqual(harness.calls.filter((call) => /LandingCheck/.test(call)).map((call) => call.split(' ')[0]), ['openLandingCheck', 'closeLandingCheck']);
+    });
+
     it('lands nothing on red checks, and removes the branch it pushed for them (planted: red)', async () => {
       const { number, tree, head } = await worked(main, 'Red checks, so that it is refused');
       fake.setChecks(main.full, ['failure']);

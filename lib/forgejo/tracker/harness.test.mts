@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 import { bashHarness } from './harness.mts';
@@ -20,6 +20,23 @@ describe('the harness steps', () => {
     const outcome = await bashHarness.refreshCheckout(checkout);
     assert.equal(outcome.succeeded, true, outcome.output);
     assert.equal(git(checkout, 'rev-parse', 'master'), landed);
+  });
+
+  it('open a receipt of the checks of a landing in a folder of its own, complete nothing where the gate wrote none, and close it (planted: a path that is no receipt)', async () => {
+    const opened = await bashHarness.openLandingCheck(checkout);
+    assert.equal(opened.succeeded, true, opened.output);
+    assert.match(opened.output, /\/receipt$/);
+    assert.notEqual((await bashHarness.openLandingCheck(checkout)).output, opened.output, 'two landings never share a receipt');
+    const commit = git(checkout, 'rev-parse', 'HEAD');
+    assert.equal((await bashHarness.completeLandingCheck(opened.output, commit, 'refs/heads/ci/integrate-x')).succeeded, true, 'no receipt written: nothing to complete');
+    writeFileSync(opened.output, `landing-check\t1\ncommit\t${'0'.repeat(40)}\ncheck\tgreen\n`);
+    const refused = await bashHarness.completeLandingCheck(opened.output, commit, 'refs/heads/ci/integrate-x');
+    assert.equal(refused.succeeded, false);
+    assert.match(refused.output, /holds no green check of /);
+    assert.equal((await bashHarness.closeLandingCheck(opened.output)).succeeded, true);
+    assert.equal(existsSync(opened.output), false);
+    assert.equal(existsSync(join(opened.output, '..')), false, 'its folder goes too');
+    assert.equal((await bashHarness.closeLandingCheck(join(checkout, 'README.md'))).succeeded, false, 'a file that is no receipt is never removed');
   });
 
   it('leave a checkout with changes as it is and say why (planted: a dirty checkout)', async () => {

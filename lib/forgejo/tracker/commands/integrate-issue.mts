@@ -86,6 +86,11 @@ function refusal(error: unknown, what: string): unknown {
   return error instanceof GitError ? new PreconditionError(`nothing landed: ${what} (${error.message})`) : error;
 }
 
+// The receipt reaches the Git children of the two pushes of a landing, and no other process.
+function landingEnvironment(receipt: string | undefined): Record<string, string> | undefined {
+  return receipt === undefined ? undefined : { AI_CORE_LANDING_RECEIPT: receipt };
+}
+
 // The push to the default branch was refused. What origin holds for the branch now says why: another tip than the one
 // this landing fetched means another landing moved the branch first; this landing's own commit means the push reached
 // origin though git failed. Anything else keeps the cause git gave.
@@ -146,8 +151,12 @@ async function landReviewedHead(context: CommandContext, api: ForgejoClient, inp
   const notes: string[] = [];
   let landed: string | undefined;
   let failure: unknown;
+  let receipt: string | undefined;
   try {
     if (checked) {
+      const opened = await context.harness.openLandingCheck(cwd);
+      if (!opened.succeeded) throw new PreconditionError(`nothing landed: the receipt of the checks of this landing could not be opened (${opened.output})`);
+      receipt = opened.output;
       await git.addDetachedWorktree(cwd, tree, `refs/remotes/origin/${defaultBranch}`);
     } else {
       context.stderr(`landing: this worktree goes onto origin/${defaultBranch} for the merge and the push gate, and back to ${branch} when the push lands or is refused; if this run is stopped before that, git switch ${branch} puts it back\n`);
@@ -174,7 +183,7 @@ async function landReviewedHead(context: CommandContext, api: ForgejoClient, inp
       const ciBranch = `ci/integrate-${branch}`;
       const held = await git.remoteBranchTip(cwd, ciBranch);
       try {
-        await git.pushWithLease(tree, merged, ciBranch, held, context.stderr);
+        await git.pushWithLease(tree, merged, ciBranch, held, context.stderr, landingEnvironment(receipt));
       } catch (error) {
         throw refusal(error, `the merge commit ${merged.slice(0, 7)} could not be pushed to ${ciBranch} for its checks`);
       }
@@ -187,6 +196,10 @@ async function landReviewedHead(context: CommandContext, api: ForgejoClient, inp
         if (outcome === 'red') throw new PreconditionError(`nothing landed: the checks for ${merged} on ${ciBranch} are red, so nothing was pushed to ${defaultBranch}`);
         if (outcome === 'unfinished') throw new PreconditionError(`nothing landed: the checks for ${merged} on ${ciBranch} did not finish in ${waiting.limitMilliseconds / 1000} seconds; set AI_CORE_INTEGRATE_WAIT higher if the CI takes longer`);
         lines.push(`checks: green for ${merged.slice(0, 7)} on ${ciBranch}`);
+        if (receipt !== undefined) {
+          const completed = await context.harness.completeLandingCheck(receipt, merged, `refs/heads/${ciBranch}`);
+          if (!completed.succeeded) lines.push(`note: the receipt of ${merged.slice(0, 7)} could not be completed, so the push to ${defaultBranch} runs scripts/check.sh again (${completed.output})`);
+        }
       } finally {
         await git.deleteRemoteBranch(cwd, ciBranch, merged).catch((error: unknown) => {
           notes.push(`${ciBranch} could not be deleted on origin, delete it by hand: ${error instanceof Error ? error.message : String(error)}`);
@@ -198,7 +211,7 @@ async function landReviewedHead(context: CommandContext, api: ForgejoClient, inp
     const now = await git.resolveCommit(cwd, `refs/remotes/origin/${defaultBranch}`);
     if (now !== base) throw new PreconditionError(`nothing landed: origin/${defaultBranch} moved from ${base} to ${now} while the merge was made; run this again`);
     try {
-      await git.push(tree, merged, defaultBranch, context.stderr);
+      await git.push(tree, merged, defaultBranch, context.stderr, landingEnvironment(receipt));
     } catch (error) {
       const judged = await judgeRefusedPush(git, cwd, defaultBranch, now, merged, error);
       if (judged !== 'landed') throw judged;
@@ -208,6 +221,11 @@ async function landReviewedHead(context: CommandContext, api: ForgejoClient, inp
   } catch (error) {
     failure = error;
   } finally {
+    if (receipt !== undefined) {
+      await context.harness.closeLandingCheck(receipt).then((closed) => {
+        if (!closed.succeeded) notes.push(`the receipt ${receipt} could not be removed: ${closed.output}`);
+      });
+    }
     if (checked) {
       await git.discardWorktree(cwd, tree).catch((error: unknown) => {
         notes.push(`the temporary worktree ${tree} could not be removed: ${error instanceof Error ? error.message : String(error)}`);

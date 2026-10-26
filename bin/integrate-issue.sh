@@ -60,6 +60,9 @@
 # NOTHING IS LEFT HALF DONE. A conflict aborts the merge, a branch already in the default branch has
 # nothing to integrate, and a push the gate refuses reaches nothing; each time the branch is checked
 # out again and the cause is named.
+# A push that fails is explained by the tip origin holds afterwards: another tip than the one fetched means
+# another landing moved the default branch first, so this one says so and is to be run again, and the merge
+# commit itself means the push reached origin though git failed, which is reported as landed.
 #
 # THE LANDINGS OF ONE CLONE TAKE TURNS. Git fixes the old value of the remote branch when the push
 # starts, before the gate runs, so a landing that moves the default branch while another one's gate
@@ -344,6 +347,29 @@ back_to_branch() {
   die "$1"
 }
 
+# push_refused <what to say when nothing moved>: the push to the default branch failed. What origin holds for the
+# default branch now says why. Another tip than the one this landing fetched means another landing moved it first,
+# so this one is told to run again; the merge commit itself means the push reached origin though git failed, and
+# the landing goes on (status 0). Anything else keeps the cause it had. Sets refusal; status 1 refuses.
+refusal=""
+push_refused() {
+  local now
+  if ! now="$(remote_ref_sha "refs/heads/$default")"; then
+    refusal="$1 (origin could not be read afterwards to tell whether $default moved: $(printf '%s' "$now" | tr -s '\r\n' '  '))"
+    return 1
+  fi
+  if [ "$now" = "$merged_sha" ]; then
+    echo "origin holds ${merged_sha:0:7} on $default although git reported a failure: the landing went through" >&2
+    return 0
+  fi
+  if [ -n "$now" ] && [ "$now" != "$base_tip" ]; then
+    refusal="nothing landed: $default moved on origin from ${base_tip:0:7} to ${now:0:7} after this landing fetched it, so another landing got there first and it was not overwritten; run this again, which merges onto the new $default"
+    return 1
+  fi
+  refusal="$1"
+  return 1
+}
+
 if [ -n "$waited_tip" ]; then
   # The public repository: the merge commit made and checked before the lock lands as it is, if nothing moved
   now="$(git rev-parse "origin/$default^{commit}")" || die "origin/$default is not there after the fetch"
@@ -352,23 +378,27 @@ if [ -n "$waited_tip" ]; then
   keep_waited_tip "origin/$branch"
   [ -n "$from_origin" ] || keep_waited_tip "$branch"
   git -C "$tree" push origin "$merged_sha:refs/heads/$default" \
-    || die "the push was refused (see above) - nothing reached origin, and the worktree of $branch is as it was"
+    || push_refused "the push was refused (see above) - nothing reached origin, and the worktree of $branch is as it was" \
+    || die "$refusal"
 elif [ -n "$from_origin" ]; then
   tip="$(git rev-parse -q --verify "origin/$branch^{commit}")" || die "origin/$branch is not there after the fetch - push the reviewed branch, then run this again"
   make_merge "$tip" "origin/$branch"
   git -C "$tree" push origin "HEAD:$default" \
-    || die "the push was refused (see above) - nothing reached origin, and the worktree of $branch is as it was"
+    || push_refused "the push was refused (see above) - nothing reached origin, and the worktree of $branch is as it was" \
+    || die "$refusal"
 else
   [ -n "$(git rev-list -n1 "$branch" --not "origin/$default")" ] \
     || die "nothing to integrate: $branch is in origin/$default already"
+  base_tip="$(git rev-parse "origin/$default^{commit}")" || die "origin/$default is not there after the fetch"
   git switch -q --detach "origin/$default" || die "the worktree could not be put on origin/$default (see above)"
   if ! git merge -q --no-ff --no-edit "$branch" -m "$subject" -m "$trailers"; then
     git merge --abort 2>/dev/null
     back_to_branch "$branch does not merge cleanly into origin/$default - bring origin/$default into the branch, get the review of the result, then run this again"
   fi
-  merged="$(git rev-parse --short HEAD)"
+  merged_sha="$(git rev-parse HEAD)"; merged="$(git rev-parse --short HEAD)"
   git push origin "HEAD:$default" \
-    || back_to_branch "the push was refused (see above) - nothing reached origin, and $branch is checked out again"
+    || push_refused "the push was refused (see above) - nothing reached origin, and $branch is checked out again" \
+    || back_to_branch "$refusal"
   git switch -q "$branch" || die "$merged is on origin/$default, but $branch could not be checked out again - run git switch $branch before finish-issue"
 fi
 checkout="$(cd "$(dirname "$landing")/.." && pwd)"

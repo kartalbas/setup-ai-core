@@ -588,6 +588,36 @@ describe('integrate-issue', () => {
       }
     });
 
+    it('names a default branch that moved after the landing fetched it and does not overwrite the other landing (planted: another session lands during the gate)', async () => {
+      const { number, tree, head } = await worked(privateWorld, 'Moved during the gate, so that the move is named');
+      const marker = join(scratch, `late-${number}`);
+      const mover = `unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE; [ ! -e '${marker}' ] || exit 0; touch '${marker}'; cd '${privateWorld.second}' && git pull -q --rebase origin master && echo moved > moved-late.txt && git add moved-late.txt && git commit -qm moved-late && git push -q origin HEAD:master`;
+      fixture.installHook(privateWorld.checkout, 'pre-push', mover);
+      try {
+        await assert.rejects(integrateIssue.run(integrateArguments(privateWorld, number, head), ctx(tree, publicSettings)), /nothing landed: master moved on origin from [0-9a-f]{7} to [0-9a-f]{7} after this landing fetched it, so another landing got there first/);
+        assert.equal(git(privateWorld.remote, 'log', '-1', '--format=%s', 'refs/heads/master'), 'moved-late');
+        assert.match((await client.currentBranch(tree)) ?? '', new RegExp(`^issue-${number}-`), 'the worktree is on its branch again');
+        assert.deepEqual(fake.readIssue(privateWorld.full, number).labels, ['status/implementing']);
+      } finally {
+        rmSync(join(privateWorld.checkout, '.git', 'hooks', 'pre-push'));
+      }
+    });
+
+    it('says the landing went through when the push failed but origin holds the merge commit (planted: the hook pushes it and then refuses)', async () => {
+      const { number, tree, head } = await worked(privateWorld, 'Pushed anyway, so that the landing is not denied');
+      const marker = join(scratch, `anyway-${number}`);
+      const pusher = `unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE; [ ! -e '${marker}' ] || exit 0; touch '${marker}'; git push -q origin HEAD:refs/heads/master; exit 1`;
+      fixture.installHook(privateWorld.checkout, 'pre-push', pusher);
+      try {
+        const result = await integrateIssue.run(integrateArguments(privateWorld, number, head), ctx(tree, publicSettings));
+        assert.match(result.stdout, /origin holds [0-9a-f]{7} on master although git reported a failure: the landing went through/);
+        assert.match(fake.readIssue(privateWorld.full, number).comments.at(-1) ?? '', new RegExp(`Landed commit: ${tipOf(privateWorld)}`));
+        assert.deepEqual(fake.readIssue(privateWorld.full, number).labels, ['status/testing']);
+      } finally {
+        rmSync(join(privateWorld.checkout, '.git', 'hooks', 'pre-push'));
+      }
+    });
+
     it('rests on the push gate for a private repository and reads no checks (innocent case)', async () => {
       const { number, tree, head } = await worked(privateWorld, 'Private, so that the gate is the check');
       fake.setChecks(privateWorld.full, ['failure']);

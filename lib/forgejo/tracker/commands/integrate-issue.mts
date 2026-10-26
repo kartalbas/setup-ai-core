@@ -9,6 +9,7 @@ import { replaceFamilyLabel, statusLabel } from '../domain/labels.mts';
 import { PartialCompletionError, PreconditionError, UsageError } from '../domain/refusals.mts';
 import { composeLandedRecord, hasLandedRecord, readTimeline } from '../domain/workflow.mts';
 import { GitError } from '../git/git.mts';
+import type { GitClient } from '../git/git.mts';
 import { listOf, parseArguments, parseIssueReference, refuseExtra, requireValue, takeIssueOfWorktree } from './arguments.mts';
 import { succeeded } from './command.mts';
 import type { CommandContext, CommandResult } from './command.mts';
@@ -83,6 +84,23 @@ function mergeSubject(title: string, branch: string, ref: IssueRef, codeReposito
 // A refusal of Git (a conflict, a hook, a remote that moved) means nothing landed; other failures pass on as they are.
 function refusal(error: unknown, what: string): unknown {
   return error instanceof GitError ? new PreconditionError(`nothing landed: ${what} (${error.message})`) : error;
+}
+
+// The push to the default branch was refused. What origin holds for the branch now says why: another tip than the one
+// this landing fetched means another landing moved the branch first; this landing's own commit means the push reached
+// origin though git failed. Anything else keeps the cause git gave.
+async function judgeRefusedPush(git: GitClient, cwd: string, defaultBranch: string, fetched: string, merged: string, error: unknown): Promise<'landed' | unknown> {
+  let tip: string | undefined;
+  try {
+    tip = await git.remoteBranchTip(cwd, defaultBranch);
+  } catch (reading) {
+    return refusal(error, `the push to ${defaultBranch} was refused; origin could not be read afterwards to tell whether ${defaultBranch} moved: ${reading instanceof Error ? reading.message : String(reading)}`);
+  }
+  if (tip === merged) return 'landed';
+  if (tip !== undefined && tip !== fetched) {
+    return new PreconditionError(`nothing landed: ${defaultBranch} moved on origin from ${fetched.slice(0, 7)} to ${tip.slice(0, 7)} after this landing fetched it, so another landing got there first and it was not overwritten; run this again, which merges onto the new ${defaultBranch}`);
+  }
+  return refusal(error, `the push to ${defaultBranch} was refused; nothing reached origin`);
 }
 
 interface Landing {
@@ -182,7 +200,9 @@ async function landReviewedHead(context: CommandContext, api: ForgejoClient, inp
     try {
       await git.push(tree, merged, defaultBranch, context.stderr);
     } catch (error) {
-      throw refusal(error, `the push to ${defaultBranch} was refused; nothing reached origin`);
+      const judged = await judgeRefusedPush(git, cwd, defaultBranch, now, merged, error);
+      if (judged !== 'landed') throw judged;
+      lines.push(`origin holds ${merged.slice(0, 7)} on ${defaultBranch} although git reported a failure: the landing went through`);
     }
     landed = merged;
   } catch (error) {

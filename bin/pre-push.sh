@@ -21,7 +21,8 @@
 #   6. gitleaks over the commits the push carries, in a repository that carries .gitleaks.toml
 #
 # Run from a terminal, with nothing on standard input, it judges what `git push` would send from
-# the current branch: the commits its upstream does not have.
+# the current branch: the commits its upstream does not have. Started by git with no ref line, it
+# judges nothing and lets git's own refusal of the push stand.
 #
 #   pre-push.sh                              the gate, as git runs it
 #   pre-push.sh --install [--all <folder>]   write the two shims into .githooks/ and arm them
@@ -50,6 +51,12 @@ with_sign_in_line() (  # with_sign_in_line <command...>
   "$@"
 )
 
+# Git starts the hook with the remote's name and URL and a pipe for the ref lines, and a pipe stays a pipe when git
+# found no ref to send; a person at a terminal gives no remote, or a terminal stands on the input. This is read
+# before the arguments are, so what follows can tell the two apart.
+called_by_git=0
+case "${1:-}" in ''|-*) ;; *) [ -t 0 ] || called_by_git=1 ;; esac
+
 for arg in "$@"; do
   if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
     echo "Usage: pre-push.sh [--install [--all <folder>] | --message <file>]"
@@ -71,7 +78,8 @@ for arg in "$@"; do
     echo "scripts/check.sh would run, or scripts/check.sh is red; or gitleaks"
     echo "finds a credential in the pushed commits (where .gitleaks.toml exists). The message of a merge is not"
     echo "judged; its addresses are. A deletion runs"
-    echo "no checks. Run from a terminal it judges the current branch against its upstream."
+    echo "no checks. Run from a terminal it judges the current branch against its upstream; started by git with no"
+    echo "ref line, as when the remote branch moved since the push began, it judges nothing and exits 0."
     echo ""
     echo "Before scripts/check.sh starts, the gate waits while the 1-minute load average (uptime) is at or"
     echo "above PRE_PUSH_LOAD_LIMIT (24 when unset) in the .ai-core/config.env of the checkout, at most"
@@ -527,6 +535,12 @@ all_zero() {  # all_zero <sha>
 # nothing piped - the subject is the push git would make from here: the current branch against
 # its upstream, or against every remote ref when it has none yet.
 if [ -t 0 ]; then input=""; else input="$(cat)"; fi
+# Git starts the hook for a push where it has judged the refs itself and sends none, as when the remote branch
+# moved since the push began: no line is nothing to judge, and git's own refusal stands alone.
+if [ -z "$input" ] && [ "$called_by_git" -eq 1 ]; then
+  echo "pre-push: git sent no ref for this push: nothing to judge."
+  exit 0
+fi
 if [ -z "$input" ]; then
   branch="$(git symbolic-ref --short -q HEAD)" || { echo "error: not on a branch; nothing to judge" >&2; exit 2; }
   upstream="$(git rev-parse -q --verify '@{upstream}' 2>/dev/null)" || upstream="0000000000000000000000000000000000000000"

@@ -6,15 +6,17 @@ import type { RepositoryRef } from './issues.mts';
 import { PreconditionError } from './refusals.mts';
 
 // The public-text protection: text written to a public or unknown destination holds no literal
-// email address. Reserved example domains and noreply addresses are allowed. The scan reads the raw
-// text; an address dressed by Markdown, HTML, invisible or lookalike characters may pass.
+// email address. Reserved example domains, noreply addresses and a domain without a dot are allowed.
+// The scan reads the raw text; an address dressed by Markdown, HTML, invisible or lookalike
+// characters may pass.
 
 const BACKTICK = '\\u0060';
 const LOCAL_CHARACTER = String.raw`(?:[A-Za-z0-9.!#$%&'*+/=?^_${BACKTICK}{|}~\[\]-]|[^\x00-\x7f])`;
-const DOMAIN = String.raw`[\p{L}\p{N}][\p{L}\p{N}\p{M}._。．｡-]*`;
+// Beside letters, marks and numbers, a domain takes the ten code points IDNA2008 allows inside a label,
+// or the dot of a domain that holds one would go unseen.
+const DOMAIN = String.raw`[\p{L}\p{N}][\p{L}\p{N}\p{M}\u00b7\u0375\u05f3\u05f4\u06fd\u06fe\u0f0b\u200c\u200d\u30fb._。．｡-]*`;
 const SCHEME_USER = /(?<scheme>[A-Za-z][A-Za-z0-9+.-]*:\/\/)(?:\{\{[^}@\r\n]*\}\}|[^/?#\s@{<>()[\]"'`,;])*@/gu;
 const SCP_USER = /(?<![^\s`(\[<"'])[A-Za-z0-9._-]+@(?=[A-Za-z0-9<][A-Za-z0-9.<>_-]*:[^\s:]*(?:\/|\.git\b))/gu;
-const SCOPED_PACKAGE = new RegExp(String.raw`(?<![A-Za-z0-9.!#$%&'*+/=?^_${BACKTICK}{|}~\[\]"-]|[^\x00-\x7f])${BACKTICK}?@[a-z0-9_-]+/[a-z0-9][a-z0-9._-]*(?![A-Za-z0-9.@_-]|[^\x00-\x7f])`, 'gu');
 const RESERVED_DOMAIN = /(^|\.)(invalid|example|test|localhost|example\.(com|net|org))$/;
 
 function addressPattern(quoted: string, bracketed: string): RegExp {
@@ -23,7 +25,7 @@ function addressPattern(quoted: string, bracketed: string): RegExp {
 
 // The first literal email address in the text that the protection refuses, if any.
 export function findEmailAddress(text: string): string | undefined {
-  const cleaned = text.replace(SCHEME_USER, '$<scheme>').replace(SCP_USER, '').replace(SCOPED_PACKAGE, ' ');
+  const cleaned = text.replace(SCHEME_USER, '$<scheme>').replace(SCP_USER, '');
   const patterns = [addressPattern(String.raw`"[^"\r\n]+"`, String.raw`\[[^\]\r\n]+\]`), addressPattern(String.raw`"[^"@\r\n]+"`, String.raw`\[[^\]@\r\n]+\]`)];
   for (const pattern of patterns) {
     for (const match of cleaned.matchAll(pattern)) {
@@ -33,6 +35,7 @@ export function findEmailAddress(text: string): string | undefined {
         .toLowerCase()
         .replace(/\.+$/, '');
       if (!/[\p{L}]|^\[/u.test(domain)) continue;
+      if (!/\.|^\[/.test(domain)) continue;
       if (RESERVED_DOMAIN.test(domain) || domain === 'users.noreply.github.com') continue;
       return address;
     }

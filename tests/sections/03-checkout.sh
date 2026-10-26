@@ -462,4 +462,63 @@ ff_start "$FF_COPY" || fail 'startup mutant did not reach report'
 [ "$(git -C "$FF_REPO" rev-parse HEAD)" != "$(git --git-dir="$FF_ORIGIN" rev-parse main)" ] || fail 'removed startup call mutant escaped'
 echo "  clean main/master refresh; dirty states preserve all refs, FETCH_HEAD, index and files without fetch; removed caller stays behind"
 
+# UPDATE_CHECK is compared without letter case, as README 5.7 says, in the file and in AI_CORE_UPDATE_CHECK. The suite exports
+# AI_CORE_UPDATE_CHECK=never, which would hide the file, so every start here removes it first. update.sh is a recorder: each
+# call of it is one line, so "no check ran" is zero lines and "one check ran" is one.
+section "UPDATE_CHECK without letter case"
+UC_COPY="$WORK/update-check-copy"; mkdir -p "$UC_COPY"
+cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$ROOT/VERSION" "$UC_COPY/"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "$UPDATE_RECORD"\nexit 0\n' > "$UC_COPY/bin/update.sh"
+UC_BASE="$WORK/update-check-base"; mkdir -p "$UC_BASE/.ai-core"
+bash "$ROOT/bin/init.sh" "$UC_BASE" --no-doctor > "$WORK/update-check-init.log" 2>&1 || fail "init.sh for the UPDATE_CHECK checkout exited $? (see $WORK/update-check-init.log)"
+uc_start() {  # uc_start <checkout> <harness copy> <file value, or "-" for no line> <AI_CORE_UPDATE_CHECK, or "-" for none> [--json]; the calls of update.sh are in <checkout>.record
+  local dir="$1" copy="$2" file="$3" environment="$4" set_environment=(); shift 4
+  [ "$environment" = - ] || set_environment=(AI_CORE_UPDATE_CHECK="$environment")
+  if [ "$file" = - ]; then printf '' > "$dir/.ai-core/config.env"; else printf 'UPDATE_CHECK="%s"\n' "$file" > "$dir/.ai-core/config.env"; fi
+  : > "$dir.record"
+  ( cd "$dir" && env -u AI_CORE_UPDATE_CHECK ${set_environment[@]+"${set_environment[@]}"} UPDATE_RECORD="$dir.record" HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$copy/bin/session-start.sh" --tool claude "$@" 2>/dev/null ) || true
+}
+uc_case() {  # uc_case <name> <file value> <environment value> <calls of update.sh> <release_state>
+  local dir="$WORK/update-check-case" json text
+  rm -rf "$dir" "$dir.record"; cp -R "$UC_BASE" "$dir"
+  json="$(uc_start "$dir" "$UC_COPY" "$2" "$3" --json)"
+  [ "$(jq -r '.release_state' <<< "$json")" = "$5" ] || fail "UPDATE_CHECK $1: release_state is $(jq -r '.release_state' <<< "$json"), not $5"
+  [ "$(grep -c . "$dir.record")" = "$4" ] || fail "UPDATE_CHECK $1: update --check was called $(grep -c . "$dir.record") times, not $4"
+  text="$(uc_start "$dir" "$UC_COPY" "$2" "$3")"
+  case "$5" in
+    skipped) grep -aq 'Releases         : – Not checked (UPDATE_CHECK=never)' <<< "$text" || fail "UPDATE_CHECK $1: the text does not say Not checked: $(grep -a 'Releases' <<< "$text")" ;;
+    *) ! grep -aq 'Not checked' <<< "$text" || fail "UPDATE_CHECK $1: the text says Not checked" ;;
+  esac
+}
+uc_case 'never in the file' never - 0 skipped
+uc_case 'Never in the file' Never - 0 skipped
+uc_case 'NEVER in the file' NEVER - 0 skipped
+uc_case 'NeVeR in the environment over a file that asks' session-start NeVeR 0 skipped
+uc_case 'never in the environment over a file that asks' session-start never 0 skipped
+uc_case 'session-start in the file' session-start - 1 current
+uc_case 'Session-Start in the file' Session-Start - 1 current
+uc_case 'neither the file nor the environment says' - - 1 current
+uc_case 'Session-Start in the environment over a file that says never' never Session-Start 1 current
+echo "  UPDATE_CHECK: never in any letter case, in the file or the environment, asks nobody and says Not checked; session-start, in any case, and nothing asks once"
+# the comparison as it stood before, planted in a copy: both mixed-case spellings ask
+UC_OLD="$WORK/update-check-old"; rm -rf "$UC_OLD"; cp -R "$UC_COPY" "$UC_OLD"
+sed -i.bak '/^UPDATE_CHECK="$(printf .%s. "$UPDATE_CHECK" | tr .\[:upper:\]. .\[:lower:\].)"$/d' "$UC_OLD/bin/session-start.sh"
+cmp -s "$UC_COPY/bin/session-start.sh" "$UC_OLD/bin/session-start.sh" && fail "the planted UPDATE_CHECK comparison equals the real one"
+for planted in "Never -" "session-start NeVeR"; do
+  set -- $planted
+  dir="$WORK/update-check-planted"; rm -rf "$dir" "$dir.record"; cp -R "$UC_BASE" "$dir"
+  uc_start "$dir" "$UC_OLD" "$1" "$2" --json > /dev/null
+  [ "$(grep -c . "$dir.record")" = 1 ] || fail "planted: the old comparison did not ask for file $1 and environment $2"
+done
+echo "  planted: the comparison without the lower-casing asks for Never in the file and for NeVeR in the environment"
+# two starts at once, each with its own checkout, log and record, and no update run
+for n in a b; do rm -rf "$WORK/update-check-$n" "$WORK/update-check-$n.record"; cp -R "$UC_BASE" "$WORK/update-check-$n"; done
+uc_start "$WORK/update-check-a" "$UC_COPY" Never - --json > "$WORK/update-check-a.json" & UC_A=$!
+uc_start "$WORK/update-check-b" "$UC_COPY" session-start NeVeR --json > "$WORK/update-check-b.json" & UC_B=$!
+wait "$UC_A"; wait "$UC_B"
+for n in a b; do
+  [ "$(jq -r '.release_state' "$WORK/update-check-$n.json")" = skipped ] && [ "$(grep -c . "$WORK/update-check-$n.record")" = 0 ] || fail "two starts at once: $n did not skip its check"
+done
+echo "  two starts at once with separate checkouts, records and logs both skip the check, and no update ran"
+
 exit 0

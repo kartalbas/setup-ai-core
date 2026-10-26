@@ -965,8 +965,17 @@ It must end with `Ready for task execution.` and `git status` must show nothing 
 
 ### 5.7 `config.env`
 
-`.ai-core/config.env` carries these keys. Values are case-insensitive; quotes and `# comments` are
-allowed; any other value is an error.
+`.ai-core/config.env` carries these keys. Quotes and `# comments` are allowed. The keys whose values are
+a fixed set of words (`AGENTS`, `TRACKER`, `FORGE`, `UPDATE_CHECK` with its `AI_CORE_UPDATE_CHECK`, `CI_GATE`) are compared
+without letter case, and a word outside the set is an error where the reader of the key checks it; `UPDATE_CHECK` is the
+exception to that error, because every value but `never` asks. The other keys keep the bytes written: an address, a
+command or an executable path (`FORGEJO_URL`, `PLANE_URL`, the two `TOKEN_COMMAND` keys, `LIVE_RELEASE_COMMAND`,
+`START_CHECK`), a name of an organisation, a workspace, a project, a model or a repository folder (`GH_ORG`,
+`PLANE_WORKSPACE`, `PLANE_PROJECT`, `MAP_MODEL`, `DEFAULT_BRANCH_IS_LIVE`), and the tool names of `MAP_TOOL`,
+`AI_CORE_MAP_TOOL` and `ECOSYSTEM_ORDER`, which are the exact lowercase names of the command line tools and of `models.tsv`.
+The environments and patterns of `LIVE_TAGS` keep their bytes too, with `command` and `landed` as exact lowercase values.
+`DEFAULT_BRANCH_IS_LIVE` takes `yes` in lowercase or a folder name as written. The numbers (`USAGE_STOP_AT`,
+`PRE_PUSH_LOAD_LIMIT`, `PRE_PUSH_LOAD_WAIT_SECONDS`, `NEIGHBOUR_LOCK_WAIT_SECONDS`, `PROOF_HOURS`) have no letter case.
 
 | Key | Values | Meaning |
 | :--- | :--- | :--- |

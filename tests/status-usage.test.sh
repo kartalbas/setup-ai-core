@@ -59,6 +59,13 @@ check 'a record with no window is named' 1 "$(grep -c '^usage   Claude: .*rate_l
 rm -f "$HOME/.ai-core/usage.json"
 snapshot claude; out="$(page)"
 check 'nothing recorded is named' 'usage Claude: no usage recorded yet: the status line records it once a session has had an answer · limit 92 %' "$(line 'usage ')"
+printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":5,"resets_at":1790003600}}}\n' "$now" > "$HOME/.ai-core/usage.json"
+printf 'not a line of the history\n' > "$HOME/.ai-core/usage.log"
+snapshot claude; out="$(page)"
+check 'a history that cannot be read is named on the usage line' 1 "$(grep -c '^usage   Claude: malformed usage history at ' <<< "$out")"
+check 'and the cost says the windows were not read, not that the status line logged for less than two hours' \
+  'cost not measured: the windows of Claude were not read, as the usage line says' "$(line 'cost ')"
+rm -f "$HOME/.ai-core/usage.json" "$HOME/.ai-core/usage.log"
 
 echo 'Codex: its windows, named and marked used, with the time of the record; no figure of Claude among them'
 sessions="$CODEX_HOME/sessions/2026/09/21"; mkdir -p "$sessions"

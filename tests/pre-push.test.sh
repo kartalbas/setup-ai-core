@@ -1747,8 +1747,9 @@ timing_log="$AI_CORE_HOME/.ai-core/pre-push-runs.tsv"; mkdir -p "$fake/mutant-ru
 timing() {  # timing <library> - what that reader makes of the log: its state, the rows it counts, the longest, the rows with no seconds, the rows it cannot read, all rows, its status
   ( . "$1"; status=0; gate_runs_timing "$timing_log" || status=$?; echo "$GATE_RUNS_STATE $GATE_RUNS_TIMED $GATE_RUNS_LONGEST $GATE_RUNS_UNTIMED $GATE_RUNS_UNREADABLE $GATE_RUNS_ROWS $status" )
 }
+timing_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }   # a row of the last 14 days, which is all the reader counts
 timing_row() {  # timing_row <verdict> <seconds> [seven]
-  printf '2026-10-01T10:00:00Z\texample/old\t/old\taaaa\t%s\t%s\tlast line' "$1" "$2"; [ -n "${3:-}" ] || printf '\t0.5'; printf '\n'
+  printf '%s\texample/old\t/old\taaaa\t%s\t%s\tlast line' "$(timing_now)" "$1" "$2"; [ -n "${3:-}" ] || printf '\t0.5'; printf '\n'
 }
 timing_log_of() { { printf '%s\n' "$legacy_header"; cat; } > "$timing_log"; }
 rm -rf "$timing_log"
@@ -1759,7 +1760,7 @@ check 'a log with its header only holds no run' 'read 0 0 0 0 0 0' "$(timing "$r
 check 'rows of eight and seven fields count, and the longest is named' 'read 3 100 0 0 3 0' "$(timing "$root/lib/pre-push-runs.sh")"
 { timing_row 'no check' -; timing_row red -; timing_row green - seven; } | timing_log_of
 check 'rows that ran no check name no seconds and measure nothing' 'read 0 0 3 0 3 0' "$(timing "$root/lib/pre-push-runs.sh")"
-{ timing_row green 200; printf '2026-10-01T10:00:00Z\texample/old\t/old\taaaa\tgreen\t99999'; } | timing_log_of
+{ timing_row green 200; printf '%s\texample/old\t/old\taaaa\tgreen\t99999' "$(timing_now)"; } | timing_log_of
 check 'the row an append has not ended is no run yet' 'read 1 200 0 0 1 0' "$(timing "$root/lib/pre-push-runs.sh")"
 { timing_row green 300; printf 'not a row\n'; timing_row weird 5000; timing_row green many; timing_row green 1234567890; timing_row 'no check' 12; } | timing_log_of
 check 'rows that are none of these are counted as unreadable, never as a measured zero' 'read 1 300 0 5 6 0' "$(timing "$root/lib/pre-push-runs.sh")"
@@ -1767,7 +1768,7 @@ rm -f "$timing_log"; mkdir "$timing_log"
 check 'a log that is a folder cannot be read, and the reader fails' 'unreadable 0 0 0 0 0 1' "$(timing "$root/lib/pre-push-runs.sh")"
 check '--runs fails on it and says so'   '1 error: the runs in '"$timing_log"' cannot be read' "$(bash "$root/bin/pre-push.sh" --runs > /dev/null 2> "$fake/runs-err"; echo "$?" "$(cat "$fake/runs-err")")"
 rmdir "$timing_log"
-{ timing_row green 5; printf '2026-10-01T10:00:00Z\texample/old\t/old\tbbbb\tred\t6\tunfinished'; } | timing_log_of
+{ timing_row green 5; printf '%s\texample/old\t/old\tbbbb\tred\t6\tunfinished' "$(timing_now)"; } | timing_log_of
 check '--runs does not list the row an append has not ended' '1 0' "$(bash "$root/bin/pre-push.sh" --runs | grep -c aaaa) $(bash "$root/bin/pre-push.sh" --runs | grep -c bbbb)"
 # planted: each copy of the reader has one defect, and the case of that defect must turn red; the same log read by the reader itself is the innocent case
 planted_reader() {  # planted_reader <name> <sed expression>: the copy with that defect reads the log as it stands otherwise than the real reader
@@ -1779,12 +1780,12 @@ planted_reader() {  # planted_reader <name> <sed expression>: the copy with that
 planted_reader untimed-as-timed 's/else if (\$6 == "-") untimed++/else if ($6 == "-") timed++/'
 { timing_row 'no check' -; timing_row green 300; } | timing_log_of
 planted_reader untimed-no-check 's/\$5 == "no check" \&\& \$6 == "-" { untimed++; next }/$5 == "no check" { timed++; next }/'
-{ timing_row green 200; printf '2026-10-01T10:00:00Z\texample/old\t/old\taaaa\tgreen\t99999'; } | timing_log_of
+{ timing_row green 200; printf '%s\texample/old\t/old\taaaa\tgreen\t99999' "$(timing_now)"; } | timing_log_of
 planted_reader unfinished-row-kept "s/sed '\\\$d' \"\\\$1\"/cat \"\\\$1\"/"
 { timing_row green 1234567890; } | timing_log_of
 planted_reader no-digit-bound 's/ \&\& length(\$6) <= 9//'
 { timing_row green 300; printf 'not a row\n'; } | timing_log_of
-planted_reader unreadable-rows-forgotten 's/NF != 8 { unreadable++; next }/NF != 8 { next }/'
+planted_reader unreadable-rows-forgotten 's/{ unreadable++; next }/{ next }/'
 check 'the innocent log is read as before' 'read 1 300 0 1 2 0' "$(timing "$root/lib/pre-push-runs.sh")"
 rm -f "$timing_log"
 

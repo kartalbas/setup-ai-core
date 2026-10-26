@@ -7,6 +7,7 @@
 #   landing-check.sh close <receipt>
 #   landing-check.sh mark <root> <commit> <remote ref>...   prints the path of a new mark of a harness landing
 #   landing-check.sh unmark <mark>
+#   landing-check.sh rounds                        prints INTEGRATE_MAX_ROUNDS of the config.env of the checkout it runs in
 #
 # A landing of a public repository pushes its merge commit twice through the push gate: to ci/integrate-<branch>,
 # whose CI it waits for, and then to the default branch. The landing opens one receipt in a folder of its own and
@@ -33,6 +34,23 @@ LANDING_CHECK_VERSION=1
 LANDING_CHECK_REASON=""
 LANDING_MARK_VERSION=1
 LANDING_MARK_REASON=""
+
+# THE ROUNDS OF A LANDING: integrate-issue lands again by itself when the default branch moved during its gate, at most
+# INTEGRATE_MAX_ROUNDS times, the first attempt counted. The setting is read from the config.env of the checkout the
+# command runs in, as the file stands at each call and never from the environment, so a change reaches the next round of
+# a landing that runs. Both implementations of integrate-issue, the Bash one and the Forgejo one, read it through here.
+# landing_rounds_limit: prints the number, 3 where the file sets none; where the value is no whole number from 1 to
+# 999999999 it says so, naming the key, and fails.
+landing_rounds_limit() {
+  local value
+  value="$(config_file_value INTEGRATE_MAX_ROUNDS 3)"
+  case "$value" in
+    0*|*[!0-9]*|??????????*)
+      echo "INTEGRATE_MAX_ROUNDS is '$value' in $(config_file_of INTEGRATE_MAX_ROUNDS); it is the most rounds a landing makes, the first one counted, a whole number from 1 to 999999999" >&2
+      return 1 ;;
+  esac
+  printf '%s\n' "$value"
+}
 
 # landing_check_open: prints the path of a receipt that does not exist yet, in a folder only this landing knows
 landing_check_open() {
@@ -198,6 +216,7 @@ if [ "${BASH_SOURCE[0]}" = "${0:-}" ]; then
     close) [ $# -eq 2 ] || { echo "usage: landing-check.sh close <receipt>" >&2; exit 2; }; landing_check_close "$2" ;;
     mark) [ $# -ge 4 ] || { echo "usage: landing-check.sh mark <root> <commit> <remote ref>..." >&2; exit 2; }; shift; landing_mark_open "$@" ;;
     unmark) [ $# -eq 2 ] || { echo "usage: landing-check.sh unmark <mark>" >&2; exit 2; }; landing_mark_close "$2" ;;
-    *) echo "usage: landing-check.sh open | complete <receipt> <commit> <ci ref> | close <receipt> | mark <root> <commit> <remote ref>... | unmark <mark>" >&2; exit 2 ;;
+    rounds) . "$(dirname "${BASH_SOURCE[0]}")/common.sh"; landing_rounds_limit ;;
+    *) echo "usage: landing-check.sh open | complete <receipt> <commit> <ci ref> | close <receipt> | mark <root> <commit> <remote ref>... | unmark <mark> | rounds" >&2; exit 2 ;;
   esac
 fi

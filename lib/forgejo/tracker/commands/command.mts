@@ -47,6 +47,9 @@ export interface HarnessSteps {
   // refuses an update of the default branch that carries none. The outcome of opening holds the path.
   openLandingMark(cwd: string, commit: string, refs: readonly string[]): Promise<StepOutcome>;
   closeLandingMark(mark: string): Promise<StepOutcome>;
+  // INTEGRATE_MAX_ROUNDS (lib/landing-check.sh): the most rounds a landing makes, the first one counted, as the config.env of
+  // the checkout stands at this call, never cached; the outcome holds the number, or, failed, the words that name the key.
+  readLandingRounds(cwd: string): Promise<StepOutcome>;
   // Runs scripts/install.sh of the worktree, its lines shown while it runs; the outcome holds the last of them.
   installTools(worktree: string, show: (text: string) => void): Promise<StepOutcome>;
   // The page of `status --tokens` (lib/status-tokens.sh): the usage windows of the tool of the session, the pace, what an

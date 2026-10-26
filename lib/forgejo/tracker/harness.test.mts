@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 import { bashHarness } from './harness.mts';
@@ -20,6 +20,24 @@ describe('the harness steps', () => {
     const outcome = await bashHarness.refreshCheckout(checkout);
     assert.equal(outcome.succeeded, true, outcome.output);
     assert.equal(git(checkout, 'rev-parse', 'master'), landed);
+  });
+
+  it('read the most rounds of a landing from the config.env as it stands at each call, 3 where it sets none, and name the key where the value is none (planted: a broken value)', async () => {
+    const file = join(checkout, '.ai-core', 'config.env');
+    mkdirSync(join(checkout, '.ai-core'), { recursive: true });
+    const read = async (value?: string): Promise<{ succeeded: boolean; output: string }> => {
+      writeFileSync(file, value === undefined ? 'UPDATE_CHECK="never"\n' : `INTEGRATE_MAX_ROUNDS=${value}\n`);
+      return bashHarness.readLandingRounds(checkout);
+    };
+    assert.deepEqual(await read(), { succeeded: true, output: '3' });
+    assert.deepEqual(await read('"5"'), { succeeded: true, output: '5' });
+    assert.deepEqual(await read('1'), { succeeded: true, output: '1' });
+    for (const broken of ['"soon"', '0', '-1', '1.5', '03', '99999999999']) {
+      const outcome = await read(broken);
+      assert.equal(outcome.succeeded, false, broken);
+      assert.match(outcome.output, /^INTEGRATE_MAX_ROUNDS is '[^']*' in .*config\.env; it is the most rounds a landing makes, the first one counted, a whole number from 1 to 999999999$/, broken);
+    }
+    rmSync(file);
   });
 
   it('read the path of a receipt from standard output alone, so a warning on standard error refuses nothing (planted: a warning on standard error)', async () => {

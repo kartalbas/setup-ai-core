@@ -8,7 +8,7 @@ import type { Issue, IssueRef, RepositoryRef } from '../domain/issues.mts';
 import { replaceFamilyLabel, statusLabel } from '../domain/labels.mts';
 import { PartialCompletionError, PreconditionError, UsageError } from '../domain/refusals.mts';
 import { composeLandedRecord, hasLandedRecord, readTimeline } from '../domain/workflow.mts';
-import { GitError } from '../git/git.mts';
+import { GitError, isMovedTipRefusal } from '../git/git.mts';
 import type { GitClient } from '../git/git.mts';
 import { isBranchOfIssue, listOf, parseArguments, parseIssueReference, refuseExtra, takeIssuesOfWorktree } from './arguments.mts';
 import { succeeded } from './command.mts';
@@ -37,8 +37,14 @@ the reviewers. It discovers no other issue from the history of Git.
 It refuses, before anything is merged or pushed: an issue that is closed or not assigned to the signed-in
 account, a worktree with changes (at most twenty named, and their count where there are more), a branch head
 that is not --reviewed-head, a CI_GATE that is neither public nor none, an ignored file of the worktree that
-origin/<default> tracks, which the landing would overwrite, and, at the push, a default branch that moved, a
-red gate and, for a public repository under CI_GATE=public, checks that are red or unfinished. CI_GATE=public
+origin/<default> tracks, which the landing would overwrite, and, at the push, a red gate and, for a public repository
+under CI_GATE=public, checks that are red or unfinished. A default branch that moves while a round runs ends that round
+with nothing pushed to it, and the next round fetches it again, merges onto its new tip and runs the whole gate on that
+merge: at most INTEGRATE_MAX_ROUNDS rounds, the first one counted (3 when the config.env of the checkout sets none, 1 is a
+single attempt), read again before every round; a move is proven by the refusal of origin that git names together with a
+different tip, so a red gate beside a move stays a red gate and stops. A conflict, a changed branch and every other refusal
+stop at once. A round of a public repository pushes its merge commit to ci/integrate-<branch> and deletes it from there
+again. CI_GATE=public
 pushes the merge commit to ci/integrate-<branch>, waits for its combined commit status and lands exactly that
 commit; CI_GATE=none and a private repository land on the push gate alone. After the landing the default branch
 of the main checkout is fast-forwarded where it is only behind; a checkout that cannot be is named, and the
@@ -95,9 +101,16 @@ function landingEnvironment(receipt: string | undefined, mark: string): Record<s
   return receipt === undefined ? { AI_CORE_LANDING_MARK: mark } : { AI_CORE_LANDING_RECEIPT: receipt, AI_CORE_LANDING_MARK: mark };
 }
 
-// The push to the default branch was refused. What origin holds for the branch now says why: another tip than the one
-// this landing fetched means another landing moved the branch first; this landing's own commit means the push reached
-// origin though git failed. Anything else keeps the cause git gave.
+// The default branch moved while a round ran: nothing reached it, and the next round merges onto its new tip.
+class DefaultBranchMoved extends PreconditionError {
+  // What the round had to say about its own cleanup; it is shown, and does not become part of the cause.
+  notes: string[] = [];
+}
+
+// The push to the default branch was refused. This landing's own commit on origin, or a commit above it, means the push
+// reached origin though git failed. A move needs two proofs together: the tip origin holds now is not the one this round
+// fetched, and git's own porcelain lines name a ref that origin refused to update for it; the tip alone proves nothing,
+// because a red gate and a move of the default branch can happen in one push. Anything else keeps the cause git gave.
 async function judgeRefusedPush(git: GitClient, cwd: string, defaultBranch: string, fetched: string, merged: string, error: unknown): Promise<'landed' | unknown> {
   let tip: string | undefined;
   try {
@@ -106,10 +119,21 @@ async function judgeRefusedPush(git: GitClient, cwd: string, defaultBranch: stri
     return refusal(error, `the push to ${defaultBranch} was refused; origin could not be read afterwards to tell whether ${defaultBranch} moved: ${reading instanceof Error ? reading.message : String(reading)}`);
   }
   if (tip === merged) return 'landed';
-  if (tip !== undefined && tip !== fetched) {
-    return new PreconditionError(`nothing landed: ${defaultBranch} moved on origin from ${fetched.slice(0, 7)} to ${tip.slice(0, 7)} after this landing fetched it, so another landing got there first and it was not overwritten; run this again, which merges onto the new ${defaultBranch}`);
+  if (tip !== undefined && (await originHolds(git, cwd, defaultBranch, merged))) return 'landed';
+  if (tip !== undefined && tip !== fetched && isMovedTipRefusal(error)) {
+    return new DefaultBranchMoved(`${defaultBranch} moved on origin from ${fetched} to ${tip} after this landing fetched it, so another landing got there first and origin refused the push of ${merged}, and it was not overwritten`);
   }
   return refusal(error, `the push to ${defaultBranch} was refused; nothing reached origin`);
+}
+
+// Whether the default branch of origin holds the commit, read after a fresh fetch.
+async function originHolds(git: GitClient, cwd: string, defaultBranch: string, commit: string): Promise<boolean> {
+  try {
+    await git.fetchBranch(cwd, defaultBranch);
+    return await git.isAncestor(cwd, commit, `refs/remotes/origin/${defaultBranch}`);
+  } catch {
+    return false;
+  }
 }
 
 // One issue of a landing: the branch it comes from, its reviewed head and the subject of its merge commit.
@@ -125,13 +149,66 @@ interface Landing {
   readonly lines: string[];
 }
 
-async function landReviewedHeads(context: CommandContext, api: ForgejoClient, input: {
+interface LandingInput {
   readonly units: readonly LandingUnit[];
   readonly defaultBranch: string;
   readonly trailers: readonly string[];
   readonly codeRepository: RepositoryRef;
   readonly number: number;
-}): Promise<Landing> {
+}
+
+// The most rounds a landing makes, read from the config.env of the checkout at every call: a change of the file reaches the next
+// round of a landing that runs.
+async function readRoundsLimit(context: CommandContext): Promise<number> {
+  const read = await context.harness.readLandingRounds(context.cwd);
+  const limit = Number(read.output);
+  if (!read.succeeded || !Number.isSafeInteger(limit) || limit < 1) {
+    throw new PreconditionError(`nothing landed, and no round was started: ${read.succeeded ? `INTEGRATE_MAX_ROUNDS answered '${read.output}', and it is a whole number from 1 to 999999999` : read.output}`);
+  }
+  return limit;
+}
+
+// The heads of the branches a round merges are the reviewed ones of the first round, or nothing lands.
+async function keepReviewedHeads(context: CommandContext, units: readonly LandingUnit[]): Promise<void> {
+  const { git, cwd } = context;
+  for (const [index, unit] of units.entries()) {
+    if (index > 0) await git.fetchBranch(cwd, unit.branch);
+    const now = await git.resolveCommit(cwd, index === 0 ? `refs/heads/${unit.branch}` : `refs/remotes/origin/${unit.branch}`);
+    if (now !== unit.head) {
+      throw new PreconditionError(`nothing landed: ${index === 0 ? unit.branch : `origin/${unit.branch}`} is at ${now}, but round 1 of this landing read ${unit.head}; the branch changed after the review, and no round merges another commit than the first one`);
+    }
+  }
+}
+
+// THE ROUNDS: the default branch moving while a round ran ends that round with nothing pushed to the default branch, and the
+// next round fetches it again, merges onto its new tip and runs the whole gate on that merge, at most INTEGRATE_MAX_ROUNDS rounds.
+// A conflict, a red gate or CI, a branch that changed, an unreadable origin and every other refusal end the run at once.
+async function landReviewedHeads(context: CommandContext, api: ForgejoClient, input: LandingInput): Promise<Landing> {
+  let cause: DefaultBranchMoved | undefined;
+  for (let round = 1; ; round += 1) {
+    const limit = await readRoundsLimit(context);
+    if (round > limit) {
+      throw new PreconditionError(
+        `nothing landed: ${cause?.message ?? 'no round was made'}; round ${round - 1} was the last that INTEGRATE_MAX_ROUNDS (${limit}) allows, and nothing was pushed to ${input.defaultBranch}. ` +
+          `A public repository pushes the merge commit of each round to ci/integrate-<branch> for its checks and deletes it from there again; one that stays is named. Run this again, which merges onto the new ${input.defaultBranch}${cause?.notes.length ? `. ${cause.notes.join(' ')}` : ''}`,
+      );
+    }
+    if (cause !== undefined) {
+      context.stderr(`round ${round} of ${limit}: the round before ended because ${cause.message}; this round fetches origin again, merges onto the new ${input.defaultBranch} and runs the whole gate on that merge\n`);
+      await context.git.fetchBranch(context.cwd, input.defaultBranch);
+      await keepReviewedHeads(context, input.units);
+    }
+    try {
+      return await landOnce(context, api, input, round, limit);
+    } catch (error) {
+      if (!(error instanceof DefaultBranchMoved)) throw error;
+      cause = error;
+      if (error.notes.length > 0) context.stderr(`${error.notes.join(' ')}\n`);
+    }
+  }
+}
+
+async function landOnce(context: CommandContext, api: ForgejoClient, input: LandingInput, round: number, limit: number): Promise<Landing> {
   const { git, cwd } = context;
   const { defaultBranch } = input;
   const branch = input.units[0]?.branch ?? '';
@@ -191,6 +268,7 @@ async function landReviewedHeads(context: CommandContext, api: ForgejoClient, in
       }
     }
     const merged = commits[commits.length - 1] ?? base;
+    context.stderr(`round ${round} of ${limit}: the merge commit ${merged} is made on origin/${defaultBranch} at ${base}\n`);
     // The push gate lets only a harness landing update the default branch: this landing says so for exactly these pushes.
     const ciBranch = `ci/integrate-${branch}`;
     const marked = await context.harness.openLandingMark(tree, merged, [`refs/heads/${defaultBranch}`, ...(checked ? [`refs/heads/${ciBranch}`] : [])]);
@@ -231,7 +309,7 @@ async function landReviewedHeads(context: CommandContext, api: ForgejoClient, in
 
     await git.fetchBranch(cwd, defaultBranch);
     const now = await git.resolveCommit(cwd, `refs/remotes/origin/${defaultBranch}`);
-    if (now !== base) throw new PreconditionError(`nothing landed: origin/${defaultBranch} moved from ${base} to ${now} while the merge was made; run this again`);
+    if (now !== base) throw new DefaultBranchMoved(`origin/${defaultBranch} moved from ${base} to ${now} while the merge was made`);
     try {
       await git.push(tree, merged, defaultBranch, context.stderr, landingEnvironment(receipt, mark));
     } catch (error) {
@@ -269,10 +347,11 @@ async function landReviewedHeads(context: CommandContext, api: ForgejoClient, in
     }
   }
   if (landed === undefined) {
-    if (failure instanceof Error && notes.length > 0) failure.message = `${failure.message}. ${notes.join(' ')}`;
+    if (failure instanceof DefaultBranchMoved) failure.notes = notes;
+    else if (failure instanceof Error && notes.length > 0) failure.message = `${failure.message}. ${notes.join(' ')}`;
     throw failure;
   }
-  return { commits: landed, lines: [...lines, ...notes] };
+  return { commits: landed, lines: [...lines, ...(round > 1 ? [`landed in round ${round} of ${limit}`] : []), ...notes] };
 }
 
 // The reviewed heads, one per issue of the list in the order given.

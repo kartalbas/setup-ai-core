@@ -21,15 +21,26 @@ export interface Worktree {
 export class GitError extends Error {
   readonly arguments: readonly string[];
   readonly exitCode: number | undefined;
+  // What the failed command wrote to standard output: for a push, the porcelain lines that say what origin refused.
+  readonly stdout: string;
 
-  constructor(args: readonly string[], exitCode: number | undefined, stderr: string) {
+  constructor(args: readonly string[], exitCode: number | undefined, stderr: string, stdout = '') {
     const lines = stderr.trim().split('\n').filter((line) => line !== '').slice(-MESSAGE_STDERR_LINES);
     const said = lines.map(hideCredentials).join(' | ');
     super(`git ${args[0] ?? ''}${said === '' ? '' : `: ${said}`}`);
     this.name = 'GitError';
     this.arguments = args;
     this.exitCode = exitCode;
+    this.stdout = stdout;
   }
+}
+
+// Origin refused to update a ref because it holds another tip than the push started from: rejected as fetch first or
+// non-fast-forward, or refused where the lock of the ref found another old value. Only a line of git's own porcelain
+// shape counts, so a word of a hook that looks like one does not; with the tip origin holds now it proves a move.
+const MOVED_TIP_REFUSAL = /^!\t[^\t]+\t\[(?:rejected\] \((?:fetch first|non-fast-forward)\)|remote rejected\] \((?:incorrect old value provided|failed to update ref|cannot lock ref))/m;
+export function isMovedTipRefusal(error: unknown): boolean {
+  return error instanceof GitError && MOVED_TIP_REFUSAL.test(error.stdout);
 }
 
 // A remote address may carry a user and a password; neither belongs in a message.
@@ -80,7 +91,7 @@ export class GitClient {
             resolve({ stdout, exitCode });
             return;
           }
-          reject(new GitError(args, exitCode, stderr === '' ? error.message : stderr));
+          reject(new GitError(args, exitCode, stderr === '' ? error.message : stderr, stdout));
         },
       );
       if (showStderr !== undefined) {
@@ -304,7 +315,7 @@ export class GitClient {
 
   // Never forced: a remote that moved refuses it.
   async push(cwd: string, commit: string, branch: string, showStderr?: (text: string) => void, environment?: Readonly<Record<string, string>>): Promise<void> {
-    await this.run(cwd, ['push', 'origin', `${commit}:refs/heads/${branch}`], [0], showStderr, environment);
+    await this.run(cwd, ['push', '--porcelain', 'origin', `${commit}:refs/heads/${branch}`], [0], showStderr, environment);
   }
 
   // The commit origin holds for the branch, asked of origin itself.

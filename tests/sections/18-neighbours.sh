@@ -294,8 +294,9 @@ echo "  a copy that need not move waits for no reader, and the fixed wait of the
 
 section "the wait is the greater of the setting and one and a half times the longest check on record, which counts for no less than 1320 seconds"
 LOG="$AI_CORE_HOME/.ai-core/pre-push-runs.tsv"; ALLOW_ENV="$WORK/nb-allow.env"
-log_row() {  # log_row <verdict> <seconds> [seven]: one row of the run log, of seven fields where a third argument says so
-  printf '2026-10-26T10:00:00Z\texample/app\t/work\taaaa\t%s\t%s\tlast line' "$1" "$2"; [ -n "${3:-}" ] || printf '\t0.5'; printf '\n'
+stamp_ago() { date -u -d "@$(( $(date +%s) - $1 ))" +%Y-%m-%dT%H:%M:%SZ; }  # stamp_ago <seconds>: the time that long ago, as the log writes it
+log_row() {  # log_row <verdict> <seconds> [seven]: one row of the run log, of seven fields where a third argument says so, written ROW_AGE seconds ago (now when unset)
+  printf '%s\texample/app\t/work\taaaa\t%s\t%s\tlast line' "$(stamp_ago "${ROW_AGE:-0}")" "$1" "$2"; [ -n "${3:-}" ] || printf '\t0.5'; printf '\n'
 }
 log_make() { mkdir -p "$(dirname "$LOG")"; { printf '%s\n' "$GATE_HEADER"; cat; } > "$LOG"; }
 GATE_HEADER=$'time\trepository\tworktree\tcommit\tverdict\tseconds\tlast line\tload at check start'
@@ -311,25 +312,33 @@ expect_allowance() {  # expect_allowance <case> <configured> <allowance> <histor
 rm -f "$LOG"
 expect_allowance "no run log" 600 1980 "no run log stands at $LOG yet"
 log_make < /dev/null
-expect_allowance "a log with its header only" 600 1980 "no check that ran is recorded among the 0 rows of $LOG"
+expect_allowance "a log with its header only" 600 1980 "no check that ran is recorded among the 0 rows of the last 14 days of $LOG"
 { log_row green 100; log_row red 40 seven; } | log_make
-expect_allowance "the old setting of 600 and short checks" 600 1980 "the longest of the 2 checks among the 2 rows of $LOG took 100 seconds"
+expect_allowance "the old setting of 600 and short checks" 600 1980 "the longest of the 2 checks among the 2 rows of the last 14 days of $LOG took 100 seconds"
 { log_row green 1500 seven; log_row red 1400; } | log_make
-expect_allowance "rows of seven and eight fields, the longest 1500" 600 2250 "the longest of the 2 checks among the 2 rows of $LOG took 1500 seconds"
+expect_allowance "rows of seven and eight fields, the longest 1500" 600 2250 "the longest of the 2 checks among the 2 rows of the last 14 days of $LOG took 1500 seconds"
 { log_row green 3000; log_row green 10; } | log_make
-expect_allowance "a larger measured maximum" 600 4500 "the longest of the 2 checks among the 2 rows of $LOG took 3000 seconds"
-expect_allowance "a setting above the automatic wait is the least" 9000 9000 "the longest of the 2 checks among the 2 rows of $LOG took 3000 seconds"
-expect_allowance "a setting of 0 is one attempt, whatever the log says" 0 0 "the longest of the 2 checks among the 2 rows of $LOG took 3000 seconds"
+expect_allowance "a larger measured maximum" 600 4500 "the longest of the 2 checks among the 2 rows of the last 14 days of $LOG took 3000 seconds"
+expect_allowance "a setting above the automatic wait is the least" 9000 9000 "the longest of the 2 checks among the 2 rows of the last 14 days of $LOG took 3000 seconds"
+expect_allowance "a setting of 0 is one attempt, whatever the log says" 0 0 "the longest of the 2 checks among the 2 rows of the last 14 days of $LOG took 3000 seconds"
 { log_row green 1321; } | log_make
-expect_allowance "the half is rounded up" 600 1982 "the longest of the 1 checks among the 1 rows of $LOG took 1321 seconds"
+expect_allowance "the half is rounded up" 600 1982 "the longest of the 1 checks among the 1 rows of the last 14 days of $LOG took 1321 seconds"
 { printf 'time\trepository\tworktree\tcommit\tverdict\tseconds\tlast line\n'; log_row green 90 seven; } > "$LOG"
-expect_allowance "a log of the old header" 600 1980 "the longest of the 1 checks among the 1 rows of $LOG took 90 seconds"
+expect_allowance "a log of the old header" 600 1980 "the longest of the 1 checks among the 1 rows of the last 14 days of $LOG took 90 seconds"
 { log_row 'no check' - ; log_row red - ; log_row green - seven; } | log_make
-expect_allowance "rows that name no seconds, because no check ran, measure nothing" 600 1980 "no check that ran is recorded among the 3 rows of $LOG"
-{ log_row green 200; printf '2026-10-26T10:00:00Z\texample/app\t/work\taaaa\tgreen\t99999'; } | log_make
-expect_allowance "a row an append has not ended is no run yet" 600 1980 "the longest of the 1 checks among the 1 rows of $LOG took 200 seconds"
+expect_allowance "rows that name no seconds, because no check ran, measure nothing" 600 1980 "no check that ran is recorded among the 3 rows of the last 14 days of $LOG"
+{ log_row green 200; printf '%s\texample/app\t/work\taaaa\tgreen\t99999' "$(stamp_ago 0)"; } | log_make
+expect_allowance "a row an append has not ended is no run yet" 600 1980 "the longest of the 1 checks among the 1 rows of the last 14 days of $LOG took 200 seconds"
 { log_row green 1600; printf 'not a row\n'; log_row weird 5000; log_row green many; log_row green 12345678901; } | log_make
-expect_allowance "rows that are none of these count for nothing and are named" 600 2400 "the longest of the 1 checks among the 5 rows of $LOG took 1600 seconds, and 4 of those rows could not be read"
+expect_allowance "rows that are none of these count for nothing and are named" 600 2400 "the longest of the 1 checks among the 5 rows of the last 14 days of $LOG took 1600 seconds, and 4 of those rows could not be read"
+{ ROW_AGE=$((15 * 86400)) log_row green 9000; log_row green 100; } | log_make
+expect_allowance "a check older than 14 days is not counted, and the rows before the window are named" 600 1980 "the longest of the 1 checks among the 1 rows of the last 14 days of $LOG took 100 seconds, and the 1 rows before them are not counted"
+{ ROW_AGE=$((13 * 86400)) log_row green 9000; log_row green 100; } | log_make
+expect_allowance "a check of 13 days ago is counted" 600 13500 "the longest of the 2 checks among the 2 rows of the last 14 days of $LOG took 9000 seconds"
+{ ROW_AGE=$((20 * 86400)) log_row green 9000; ROW_AGE=$((14 * 86400 + 600)) log_row red 8000; } | log_make
+expect_allowance "a log whose rows are all older than the window measures nothing" 600 1980 "no check that ran is recorded among the 0 rows of the last 14 days of $LOG, and the 2 rows before them are not counted"
+{ log_row green 100; printf 'soon\texample/app\t/work\taaaa\tgreen\t9000\tlast line\t0.5\n'; } | log_make
+expect_allowance "a row whose time is none is named and counts for nothing" 600 1980 "the longest of the 1 checks among the 2 rows of the last 14 days of $LOG took 100 seconds, and 1 of those rows could not be read"
 rm -f "$LOG"; mkdir -p "$LOG"
 expect_allowance "a log that cannot be read is not a measured zero" 600 1980 "the run log $LOG cannot be read"
 rmdir "$LOG"
@@ -344,6 +353,11 @@ mutant history-ignored lib/neighbours.sh 's/^  NEIGHBOUR_BASE="\$NEIGHBOUR_WAIT_
 { log_row green 3000; } | log_make
 [ "$(allowance_for "$ROOT" 600 | cut -d'|' -f1)" = 4500 ] || fail "the case is not planted: the library does not give 4500 for a check of 3000 seconds"
 [ "$(allowance_for "$WORK/mutant-history-ignored" 600 | cut -d'|' -f1)" = 4500 ] && fail "planted: a wait that ignores the log gave the allowance of the log, so this case cannot tell"
+# planted: a window that counts every row, which the outlier older than 14 days must turn red
+mutant window-ignored lib/pre-push-runs.sh '/^    \$1 < start { older++; next }$/d'
+{ ROW_AGE=$((15 * 86400)) log_row green 9000; log_row green 100; } | log_make
+[ "$(allowance_for "$ROOT" 600 | cut -d'|' -f1)" = 1980 ] || fail "the case is not planted: the library does not give 1980 with an outlier of 15 days ago"
+[ "$(allowance_for "$WORK/mutant-window-ignored" 600 | cut -d'|' -f1)" = 13500 ] || fail "planted: a window that counts every row did not give the allowance of the old outlier, so this case cannot tell"
 rm -f "$LOG"
 echo "  the allowance follows the log: 1980 with no longer check, a larger maximum and the half rounded up, the setting as the least, 0 as one attempt, and rows that measure nothing, an unfinished row or an unreadable log are named and never taken for a measured zero"
 

@@ -435,13 +435,15 @@ on start; no developer installs a skill by hand.
     saved work and last report; no foreign conversation id is resumed.
   - A Claude phase session carries Claude Code's own system prompt and tools, the rules and maps that
     the folder's `AGENTS.md` names, the memory of the folder, the skills and the commands before its
-    first word, and every answer pays that again. The start of `references/claude.md` adds
-    `--strict-mcp-config` and no `--mcp-config`, so none of the account's connectors loads: no
-    brief sends a phase to a connector. The rules, the maps, the memory, the skills and the
-    commands stay, because a session without the rules breaks them; `tests/phase-setup.test.sh`
-    refuses a start that lacks the flag, that carries a flag which drops the rules or the skills (`--bare`,
-    `--system-prompt`, `--disable-slash-commands`), or that does not add the brief's folder. The UI
-    test is the one run that starts a browser server, through its own `--mcp-config`.
+    first word, and every answer pays that again. The start and the resume of
+    `references/claude.md` add `--strict-mcp-config` and no `--mcp-config`, so none of the
+    account's connectors loads: no brief sends a phase to a connector. The rules, the maps, the
+    memory, the skills and the commands stay, because a session without the rules breaks them;
+    `tests/phase-setup.test.sh` refuses a start or a resume that lacks the flag or carries any flag
+    beyond the ones the reference names, such as `--safe-mode`, `--bare`, `--system-prompt` or
+    `--disable-slash-commands`, which drop the rules or the skills, and a start that does not add
+    the brief's folder. The UI test is the one run that starts a browser server, through its own
+    `--mcp-config`.
   - The cards move through `backlog`, `ready`, `planned`, `implementing`, `review`, `testing` and
     `done`; a question that is the owner's puts `needs:owner` on its issues.
   - At the usage limit every session using that limited account or model finishes its step, commits,

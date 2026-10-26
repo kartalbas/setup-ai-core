@@ -295,14 +295,14 @@ run_resume() {  # run_resume <launch file>: the resume of the session the stand-
     || fail "the resume failed: $(cat "$WORK/launch.out")"
 }
 launch_faults() {  # launch_faults <start|resume>: what the last call of the stand-in gets wrong, one fault per line
-  local call args flag
+  local call allowed='--bg --model --effort --permission-mode --strict-mcp-config --add-dir'
   call="$(tail -n 1 "$WORK/captures/calls")"
   [ -n "$call" ] || { echo 'the launch made no call'; return; }
   jq -e '.args | index("--strict-mcp-config") != null' <<< "$call" > /dev/null || echo 'no --strict-mcp-config, so the connectors of the account load'
-  # Each of these drops the rules or the skills, or lets a connector in beside the strict flag
-  for flag in --mcp-config --bare --system-prompt --system-prompt-file --setting-sources --disable-slash-commands; do
-    jq -e --arg flag "$flag" '.args | index($flag) != null' <<< "$call" > /dev/null && echo "the flag $flag stands in the start"
-  done
+  # Only the flags a phase needs: Claude Code has many that drop the rules or the skills (--safe-mode, --bare) or let a connector in (--mcp-config)
+  if [ "$1" = resume ]; then allowed="$allowed --resume"; else allowed="$allowed --name --settings"; fi
+  jq -r --arg allowed "$allowed" --arg operation "$1" '($allowed | split(" ")) as $ok | .args[] | . as $flag
+    | select(startswith("-") and (any($ok[]; . == $flag) | not)) | "the flag \($flag) stands in the \($operation)"' <<< "$call"
   [ "$1" = resume ] || jq -e --arg dir "$(dirname "$brief")" '[.args as $a | range(0; $a | length - 1) | select($a[.] == "--add-dir") | $a[. + 1]] | index($dir) != null' <<< "$call" > /dev/null \
     || echo "--add-dir does not name the folder of the brief"
   return 0
@@ -313,10 +313,10 @@ plant() {  # plant <name> <sed script>: a copy of the launch with one defect
 }
 run_launch "$launch"
 [ -z "$(launch_faults start)" ] || fail "the start of references/claude.md has faults: $(launch_faults start)"
-echo "  ok   the start has --strict-mcp-config, no flag that drops the rules, and the brief's folder (innocent)"
+echo "  ok   the start has --strict-mcp-config, no flag beyond the ones a phase needs, and the brief's folder (innocent)"
 run_resume "$launch"
 [ -z "$(launch_faults resume)" ] || fail "the resume of references/claude.md has faults: $(launch_faults resume)"
-echo "  ok   the resume has --strict-mcp-config and no flag that drops the rules (innocent)"
+echo "  ok   the resume has --strict-mcp-config and no flag beyond the ones a phase needs (innocent)"
 plant bare 's/--strict-mcp-config --add-dir/--strict-mcp-config --bare --add-dir/'
 run_launch "$WORK/launch-bare.sh"
 [ "$(launch_faults start)" = 'the flag --bare stands in the start' ] || fail "a start with --bare was not refused: $(launch_faults start)"
@@ -329,6 +329,10 @@ plant slash 's/--strict-mcp-config --add-dir/--strict-mcp-config --disable-slash
 run_launch "$WORK/launch-slash.sh"
 [ "$(launch_faults start)" = 'the flag --disable-slash-commands stands in the start' ] || fail "a start with --disable-slash-commands was not refused: $(launch_faults start)"
 echo "  ok   a start with --disable-slash-commands is refused (planted)"
+plant safe-mode 's/--strict-mcp-config --add-dir/--strict-mcp-config --safe-mode --add-dir/'
+run_launch "$WORK/launch-safe-mode.sh"
+[ "$(launch_faults start)" = 'the flag --safe-mode stands in the start' ] || fail "a start with --safe-mode was not refused: $(launch_faults start)"
+echo "  ok   a start with --safe-mode, which turns off the instruction files and the skills, is refused (planted)"
 plant connectors 's/--strict-mcp-config --add-dir/--add-dir/'
 run_launch "$WORK/launch-connectors.sh"
 [ "$(launch_faults start)" = 'no --strict-mcp-config, so the connectors of the account load' ] || fail "a start without --strict-mcp-config was not refused: $(launch_faults start)"
@@ -345,15 +349,22 @@ plant resume-connectors 's/--permission-mode auto --strict-mcp-config/--permissi
 run_resume "$WORK/launch-resume-connectors.sh"
 [ "$(launch_faults resume)" = 'no --strict-mcp-config, so the connectors of the account load' ] || fail "a resume without --strict-mcp-config was not refused: $(launch_faults resume)"
 echo "  ok   a resume without --strict-mcp-config is refused (planted)"
+plant resume-bare 's/--permission-mode auto --strict-mcp-config/--permission-mode auto --strict-mcp-config --bare/'
+run_resume "$WORK/launch-resume-bare.sh"
+[ "$(launch_faults resume)" = 'the flag --bare stands in the resume' ] || fail "a resume with --bare was not refused: $(launch_faults resume)"
+echo "  ok   a resume with --bare is refused (planted)"
 ui_test_browser() {  # ui_test_browser <reference>: the UI-test run of a reference keeps its own browser server beside the strict flag
   local block
   block="$(awk '/^      claude -p / { on = 1 } on { print } on && !/\\$/ { exit }' "$1" | tr -s ' \n' ' ')"
   grep -qF -- '--strict-mcp-config' <<< "$block" && grep -qF -- '--mcp-config '"'"'{"mcpServers":{"chrome-devtools"' <<< "$block" && grep -qF -- '--allowedTools mcp__chrome-devtools' <<< "$block"
 }
 ui_test_browser "$ROOT/skills/person-in-charge/references/claude.md" || fail "the UI-test run of references/claude.md lost its browser server"
-sed 's/--mcp-config /--no-browser /' "$ROOT/skills/person-in-charge/references/claude.md" > "$WORK/claude-planted.md"
-! ui_test_browser "$WORK/claude-planted.md" || fail "a UI-test run without its --mcp-config passed, so the case cannot go red"
-echo "  ok   the UI-test run keeps its own browser server, and one without it is refused (planted)"
+for cut in 's/--mcp-config /--no-browser /' 's/ --strict-mcp-config --no-session-persistence/ --no-session-persistence/' 's/--allowedTools mcp__chrome-devtools/--allowedTools Read/'; do
+  sed "$cut" "$ROOT/skills/person-in-charge/references/claude.md" > "$WORK/claude-planted.md"
+  ! cmp -s "$ROOT/skills/person-in-charge/references/claude.md" "$WORK/claude-planted.md" || fail "the planted UI-test defect '$cut' changed nothing"
+  ! ui_test_browser "$WORK/claude-planted.md" || fail "a UI-test run planted with '$cut' passed, so the case cannot go red"
+done
+echo "  ok   the UI-test run keeps its own browser server; one without its --mcp-config, its strict flag or its browser tools is refused (planted)"
 
 section "the budget is read from the Setup file as SKILL.md says, for a UI test too"
 budget_of() {  # budget_of <SKILL.md> <phase> <tool>: what the read of the budget that SKILL.md names prints on the Setup file

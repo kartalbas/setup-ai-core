@@ -94,10 +94,10 @@ observe native "$id"
   growing toward the full window. A report that says it needed more is a GAP for the next plan.
 - A phase session starts with `--strict-mcp-config` and no `--mcp-config`, so none of the account's
   connectors loads and every answer stops paying for their tool names; no brief sends a phase to a
-  connector. The rules, the maps, the memory, the skills and the commands stay loaded, so no flag
-  that replaces the system prompt, skips the folder's instruction files or turns off skills and
-  commands stands in the start: a session that cannot read the rules breaks them. The UI test below
-  is the one run that starts a browser server.
+  connector. The rules, the maps, the memory, the skills and the commands stay loaded, so the start
+  and the resume carry no flag beyond the ones above: one such as `--safe-mode` or `--bare` skips
+  the folder's instruction files or turns off the skills and commands, and a session that cannot
+  read the rules breaks them. The UI test below is the one run that starts a browser server.
 - Right after the start, subscribe to the session's end: `SendMessage` to `<name>` with no message
   and `notify_when_idle: true`. One notice arrives when it next goes idle or exits, so a phase that
   ends, or stops on a question, wakes you at once instead of at your next round. The subscription

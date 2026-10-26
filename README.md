@@ -261,7 +261,8 @@ layer and over `repos/<repo>/`, and a tracked file changed or removed in the wor
 Because the harness is not in the repository, it does not travel with `git clone`. **Every clone
 runs `init` once.** It is idempotent and takes seconds. A worktree runs it by itself: git runs
 `.githooks/post-checkout` in the new tree after `git worktree add`, and that shim starts
-`ai-core init` where `.ai-core/` is missing; `init` in a worktree that has no `.ai-core/STAMP` yet first takes
+`ai-core init` where `.ai-core/STAMP` is missing, also where a file the branch tracks under `.ai-core/` is there;
+`init` in a worktree that has no `.ai-core/STAMP` yet first takes
 the checkout's own `.ai-core/` data (its configuration, local rules and documents) file by file, leaving a file
 that the worktree tracks as the branch has it, then assembles the harness over it as in the checkout.
 
@@ -694,7 +695,7 @@ One gate judges every push of every repository, and it lives in setup-ai-core, n
 repositories: each repository carries a three-line `.githooks/pre-push` that only starts
 `ai-core pre-push` with git's own standard input, and `core.hooksPath` of the clone points at
 `.githooks`. Beside it lies `.githooks/post-checkout`, the shim that gives a new worktree the
-harness: git runs it in the new tree after `git worktree add`, and where `.ai-core/` is missing it
+harness: git runs it in the new tree after `git worktree add`, and where `.ai-core/STAMP` is missing it
 starts `ai-core init`; it exits 0 whatever happened, because a failing hook would fail the
 checkout too, and what went wrong stands on stderr. `ai-core pre-push --install`
 writes both shims into the current repository, and into each worktree of it the shims that

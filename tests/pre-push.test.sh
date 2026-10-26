@@ -1232,7 +1232,7 @@ out="$( cd "$fresh" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
 check 'exit 0'                        0 "$rc"
 check 'created'                       yes "$(grep -q '^pre-push: fresh: .githooks/pre-push created$' <<< "$out" && echo yes || echo no)"
 check 'post-checkout created'         yes "$(grep -q '^pre-push: fresh: .githooks/post-checkout created$' <<< "$out" && echo yes || echo no)"
-check 'post-checkout starts init where .ai-core is missing' yes "$(grep -qx 'ai-core init --no-doctor || echo "post-checkout: the harness is NOT complete in this worktree (see above); run ai-core init here before you start" >&2' "$fresh/.githooks/post-checkout" && echo yes || echo no)"
+check 'post-checkout starts init where .ai-core/STAMP is missing' yes "$(grep -qx 'ai-core init --no-doctor || echo "post-checkout: the harness is NOT complete in this worktree (see above); run ai-core init here before you start" >&2' "$fresh/.githooks/post-checkout" && echo yes || echo no)"
 check 'the attributes rule, so the shims check out LF' yes "$(grep -q '^pre-push: fresh: .gitattributes: .githooks/\* text eol=lf added; the shims check out LF everywhere$' <<< "$out" && grep -qxF '.githooks/* text eol=lf' "$fresh/.gitattributes" && echo yes || echo no)"
 check 'git reads it'                  '.githooks/pre-push: eol: lf' "$(git -C "$fresh" check-attr eol -- .githooks/pre-push)"
 check 'core.hooksPath set'            .githooks "$(git -C "$fresh" config --get core.hooksPath)"
@@ -1270,9 +1270,9 @@ out="$( cd "$fresh" && PATH="$(path_without_ai_core)" bash .githooks/pre-push or
 check 'exit 1'                  1 "$rc"
 check 'it names the cause'      yes "$(grep -q 'ai-core is not on the PATH of this shell' <<< "$out" && echo yes || echo no)"
 
-echo 'post-checkout: a worktree cut from the checkout starts ai-core init; a branch checkout where .ai-core is present starts nothing'
+echo 'post-checkout: a worktree cut from the checkout starts ai-core init; a branch checkout where .ai-core/STAMP is present starts nothing'
 : > "$shim_args"
-mkdir -p "$fresh/.ai-core"
+mkdir -p "$fresh/.ai-core"; : > "$fresh/.ai-core/STAMP"
 git -C "$fresh" checkout -q -b probe-branch < /dev/null 2>/dev/null
 check 'nothing started in the checkout' '' "$(cat "$shim_args")"
 fresh_wt="$fake/fresh-wt"
@@ -1281,6 +1281,28 @@ check 'git worktree add: exit 0'      0 "$rc"
 check 'ai-core init started in the new worktree' '[init --no-doctor] ' "$(cat "$shim_args")"
 check 'nothing on stderr'             '' "$(cat "$fake/wt-err.txt")"
 git -C "$fresh" worktree remove --force "$fresh_wt" >/dev/null 2>&1
+: > "$shim_args"
+
+echo 'post-checkout: a worktree of a commit that tracks a file under .ai-core/ starts ai-core init too, the folder there before the harness; planted: the shim of before, which looked for the folder alone, starts nothing'
+tracking="$fake/tracking"; git init -q -b master "$tracking"
+git -C "$tracking" config user.email 'test@example.invalid'; git -C "$tracking" config user.name 'test'
+mkdir -p "$tracking/.githooks" "$tracking/.ai-core"; cp "$fresh/.githooks/post-checkout" "$tracking/.githooks/"
+printf 'area\tarea:own\t0E8A16\tIts own\n' > "$tracking/.ai-core/labels.tsv"
+git -C "$tracking" add .githooks; git -C "$tracking" add -f .ai-core/labels.tsv; git -C "$tracking" commit -q -m 'Its own catalog #358'
+git -C "$tracking" config core.hooksPath .githooks
+tracking_wt="$fake/tracking-wt"
+git -C "$tracking" worktree add -q --detach "$tracking_wt" HEAD < /dev/null 2>"$fake/wt-err.txt"; rc=$?
+check 'git worktree add: exit 0'      0 "$rc"
+check 'the tracked file is there, no STAMP' 'yes no' "$([ -f "$tracking_wt/.ai-core/labels.tsv" ] && echo yes || echo no) $([ -e "$tracking_wt/.ai-core/STAMP" ] && echo yes || echo no)"
+check 'ai-core init started in the new worktree' '[init --no-doctor] ' "$(cat "$shim_args")"
+git -C "$tracking" worktree remove --force "$tracking_wt" >/dev/null 2>&1
+: > "$shim_args"
+sed 's@\[ ! -f \.ai-core/STAMP \]@[ ! -d .ai-core ]@' "$tracking/.githooks/post-checkout" > "$fake/old-post-checkout"
+cmp -s "$tracking/.githooks/post-checkout" "$fake/old-post-checkout" && { echo "  FAIL the planted shim equals the one --install writes"; failed=$((failed + 1)); }
+cp "$fake/old-post-checkout" "$tracking/.githooks/post-checkout"; git -C "$tracking" commit -q -am 'The shim of before'
+git -C "$tracking" worktree add -q --detach "$tracking_wt" HEAD < /dev/null 2>/dev/null
+check 'planted: the shim of before starts nothing there, so the check above can go red' '' "$(cat "$shim_args")"
+git -C "$tracking" worktree remove --force "$tracking_wt" >/dev/null 2>&1
 : > "$shim_args"
 
 echo 'post-checkout without ai-core on the PATH: the worktree is made, exit 0, and stderr says what to run'

@@ -278,8 +278,9 @@ layer_requires() {
 
 # version_at_least <have> <want>: true when have >= want, dotted numbers
 version_at_least() {
-  local have="$1" want="$2" h w i h1 h2 h3 w1 w2 w3
-  IFS=. read -r h1 h2 h3 <<< "$have.0.0"; IFS=. read -r w1 w2 w3 <<< "$want.0.0"
+  local have="$1" want="$2" h w i h1 h2 h3 w1 w2 w3 h_rest w_rest
+  # read gives the last name the rest of the line, so the padding goes to a fourth one and the third holds one number
+  IFS=. read -r h1 h2 h3 h_rest <<< "$have.0.0"; IFS=. read -r w1 w2 w3 w_rest <<< "$want.0.0"
   for i in "$h1:$w1" "$h2:$w2" "$h3:$w3"; do
     h="${i%%:*}"; w="${i#*:}"
     [ "${h:-0}" -gt "${w:-0}" ] 2>/dev/null && return 0

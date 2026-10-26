@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { GitClient, GitError, parseRemoteAddress } from './git.mts';
@@ -7,6 +7,22 @@ import { createGitFixture, git } from '../testing/git-fixture.mts';
 import type { GitFixture } from '../testing/git-fixture.mts';
 
 const client = new GitClient();
+
+// A competing process: just before the command that deletes a branch, the branch moves to a commit nobody proved.
+class MovingBranchGit extends GitClient {
+  readonly moveBranch: () => void;
+
+  constructor(moveBranch: () => void) {
+    super();
+    this.moveBranch = moveBranch;
+  }
+
+  override run(...call: Parameters<GitClient['run']>): ReturnType<GitClient['run']> {
+    const args = call[1];
+    if ((args[0] === 'update-ref' && args[1] === '-d') || (args[0] === 'branch' && args.includes('-D'))) this.moveBranch();
+    return super.run(...call);
+  }
+}
 
 describe('the address of a remote', () => {
   it('is read from https, scp-like and ssh spellings', () => {
@@ -197,6 +213,73 @@ describe('what the lifecycle commands ask of Git', () => {
     await client.deleteBranch(checkout, 'issue-6-landed', landedTip);
     await assert.rejects(client.deleteBranch(checkout, 'issue-7-open', landedTip), /issue-7-open points at [0-9a-f]{40}, not at/);
     assert.ok((await client.listBranchNames(checkout)).includes('issue-7-open'));
+  });
+
+  it('deletes a branch only at the tip it proved, also when the branch moves between the check and the deletion (planted: a commit pushed meanwhile)', async () => {
+    git(checkout, 'branch', 'issue-10-moving');
+    const proved = git(checkout, 'rev-parse', 'issue-10-moving');
+    const moving = new MovingBranchGit(() => {
+      git(checkout, 'update-ref', 'refs/heads/issue-10-moving', git(checkout, 'commit-tree', '-p', 'issue-10-moving', '-m', 'pushed meanwhile', 'master^{tree}'));
+    });
+    await assert.rejects(moving.deleteBranch(checkout, 'issue-10-moving', proved), /issue-10-moving points at [0-9a-f]{40}, not at/);
+    assert.ok((await client.listBranchNames(checkout)).includes('issue-10-moving'), 'the branch with the commit nobody proved survives');
+  });
+
+  it('deletes the configuration of the branch with it, leaves the other branches, and needs no configuration to delete (innocent cases)', async () => {
+    git(checkout, 'branch', 'issue-11-configured');
+    git(checkout, 'branch', 'issue-12-bare');
+    git(checkout, 'branch', 'issue-13-neighbour');
+    const tip = git(checkout, 'rev-parse', 'master');
+    await client.setConfig(checkout, 'branch.issue-11-configured.remote', 'origin');
+    await client.setConfig(checkout, 'branch.issue-11-configured.issueRepository', 'example-owner/other');
+    await client.setConfig(checkout, 'branch.issue-13-neighbour.remote', 'origin');
+    await client.deleteBranch(checkout, 'issue-11-configured', tip);
+    await client.deleteBranch(checkout, 'issue-12-bare', tip);
+    assert.equal(await client.getConfig(checkout, 'branch.issue-11-configured.remote'), undefined);
+    assert.equal(await client.getConfig(checkout, 'branch.issue-11-configured.issueRepository'), undefined);
+    assert.equal(await client.getConfig(checkout, 'branch.issue-13-neighbour.remote'), 'origin');
+    assert.deepEqual((await client.listBranchNames(checkout)).filter((name) => /^issue-1[123]-/.test(name)), ['issue-13-neighbour']);
+  });
+
+  it('keeps a branch that a worktree has checked out, with its configuration', async () => {
+    const tree = join(fixture.root, 'project', '.worktrees', 'lifecycle', 'issue-14-held');
+    await client.addWorktree(checkout, tree, 'issue-14-held', 'HEAD');
+    await client.setConfig(checkout, 'branch.issue-14-held.remote', 'origin');
+    await assert.rejects(client.deleteBranch(checkout, 'issue-14-held', git(checkout, 'rev-parse', 'issue-14-held')), /issue-14-held is checked out in a worktree/);
+    assert.ok((await client.listBranchNames(checkout)).includes('issue-14-held'));
+    assert.equal(await client.getConfig(checkout, 'branch.issue-14-held.remote'), 'origin');
+    await client.removeWorktree(checkout, tree);
+  });
+
+  it('lists the lock of a worktree with its reason, and refuses to remove a locked one (planted: a lock with and one without a reason)', async () => {
+    const tree = join(fixture.root, 'project', '.worktrees', 'lifecycle', 'issue-15-locked');
+    await client.addWorktree(checkout, tree, 'issue-15-locked', 'HEAD');
+    const lockOf = async (): Promise<unknown> => (await client.listWorktrees(checkout)).find((entry) => entry.path === tree)?.lock;
+    assert.equal(await lockOf(), undefined);
+    git(checkout, 'worktree', 'lock', '--reason', 'ai-core init', tree);
+    assert.deepEqual(await lockOf(), { reason: 'ai-core init' });
+    await assert.rejects(client.removeWorktree(checkout, tree), GitError);
+    assert.ok(existsSync(tree));
+    git(checkout, 'worktree', 'unlock', tree);
+    git(checkout, 'worktree', 'lock', tree);
+    assert.deepEqual(await lockOf(), { reason: '' });
+    git(checkout, 'worktree', 'unlock', tree);
+    await client.removeWorktree(checkout, tree);
+    assert.ok(!existsSync(tree));
+  });
+
+  it('lets the post-checkout hook of a new worktree lock it: the lock git takes while it adds the worktree is lifted by then', async () => {
+    const tree = join(fixture.root, 'project', '.worktrees', 'lifecycle', 'issue-16-hooked');
+    const answer = join(fixture.root, 'hook-lock-answer');
+    fixture.installHook(checkout, 'post-checkout', `git worktree lock --reason 'ai-core init' . 2>"${answer}.err"; echo "lock rc=$?" > "${answer}"; git worktree unlock .`);
+    try {
+      await client.addWorktree(checkout, tree, 'issue-16-hooked', 'HEAD');
+      assert.equal(readFileSync(answer, 'utf8').trim(), 'lock rc=0', readFileSync(`${answer}.err`, 'utf8'));
+      assert.equal((await client.listWorktrees(checkout)).find((entry) => entry.path === tree)?.lock, undefined);
+    } finally {
+      rmSync(join(checkout, '.git', 'hooks', 'post-checkout'), { force: true });
+    }
+    await client.removeWorktree(checkout, tree);
   });
 
   it('asks origin for its branches by pattern, also the ones the clone never fetched', async () => {

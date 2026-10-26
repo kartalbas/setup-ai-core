@@ -64,6 +64,7 @@ if ! modes="$(bash "$CORE/bin/team-modes-check.sh" ${tool_args[@]+"${tool_args[@
 fi
 
 . "$CORE/lib/layers.sh"
+. "$CORE/lib/worktrees.sh"
 if git rev-parse --show-toplevel >/dev/null 2>&1; then
   fast_forward_default_branch "$PWD" || true
 fi
@@ -107,6 +108,8 @@ SOURCE_READY=null; SOURCE_ERROR=""; RULE_SOURCES='[]'; READY="$RULES_OK"; SOURCE
 # only when its text changes, and the clone's exclude file keeps it out of every commit.
 write_source_agents() {  # write_source_agents <checkout> <rule directories, one per line>
   local dir file text skills="" exclude
+  # A worktree removed under a running session, or the leftover of one, is no place to write
+  if [ ! -d "$1" ] || worktree_orphan "$1"; then SOURCE_AGENTS=gone; return 0; fi
   # A source that commits its own AGENTS.md keeps it: that file is somebody's work
   if git -C "$1" ls-files --error-unmatch AGENTS.md >/dev/null 2>&1; then SOURCE_AGENTS=tracked; return 0; fi
   # an import ends at a space, so a space in a path is escaped
@@ -311,6 +314,7 @@ if [ -n "$HARNESS_SOURCE" ]; then
     written) echo "Rule files       : AGENTS.md names the $SOURCE_RULE_FILES rule files of these sources where they are written" ;;
     tracked) echo "Rule files       : – AGENTS.md is committed here, so session start leaves it as it is" ;;
     unwritten) echo "Rule files       : ✗ AGENTS.md could not be written here, so no rule file of these sources is named to the tool" ;;
+    gone) echo "Rule files       : ✗ AGENTS.md was not written: $ROOT is removed or is no worktree, so nothing is written there" ;;
   esac
 else
   echo "Rules file       : $([ $RULES_OK -eq 1 ] && echo "✓ Present ($RULES_PATH)" || echo "✗ Missing")"

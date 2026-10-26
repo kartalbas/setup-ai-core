@@ -8,8 +8,9 @@
 # and code written without reading the issue is a change measured against a memory of it. Any
 # one of them done alone is often not done.
 #
-# WORK STAYS ON master. There is no feature branch and no pull request: the change is pushed
-# with `git push origin HEAD:master` and the hook decides whether it may go. What this creates
+# THE WORK LANDS ON THE DEFAULT BRANCH of origin, with no pull request: after the reviewer's GO,
+# `ai-core integrate-issue` merges the branch of the worktree and pushes the merge, and the hook
+# decides whether it may go. What this creates
 # is a WORKTREE - a second working directory of the same repository - so several issues can be
 # open at once without one of them holding the checkout, and so a run of the checks in one is
 # not disturbed by an edit in another. The worktree stands OUTSIDE the repository, under

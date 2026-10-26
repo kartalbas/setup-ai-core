@@ -19,7 +19,8 @@ moved to testing when integrate-issue landed the work. It removes only the workt
 when that worktree has no changes, its head is on the default branch of origin and the issue carries the record
 "Landed on <branch>:" of that head, written by an account with write permission, and never forces a removal.
 Where the work landed and the record is missing, it removes nothing and names the integrate-issue command that
-writes it. A worktree of the issue that stands detached, as a killed landing leaves it, it names with the
+writes it. A worktree that is locked, as ai-core init locks the one it equips, is not removed: the command names the lock and
+the retry. A worktree of the issue that stands detached, as a killed landing leaves it, it names with the
 git switch to run in it first, and removes nothing. It looks at no other worktree. Then it deletes the issue's
 branches on origin that a "Started on" record of the issue names, that no worktree has checked out and whose tip
 the default branch of origin holds, each at the tip it read; it names each one that stays. Where no worktree of
@@ -54,6 +55,22 @@ async function clearOriginBranches(git: GitClient, api: ForgejoClient, main: str
     }
   }
   return lines;
+}
+
+const INIT_LOCK_REASON = 'ai-core init';
+
+// The refusal to remove a locked worktree, in the words of finish-issue.sh.
+function refuseLocked(path: string, reason: string): PreconditionError {
+  const state = reason === INIT_LOCK_REASON ? 'locked by ai-core init, which is equipping it' : `locked${reason === '' ? '' : ` (${reason.replaceAll(': ', ' - ')})`}`;
+  const retry =
+    reason === INIT_LOCK_REASON
+      ? `run it again in a moment, and where no init runs any more it was killed and git worktree unlock ${path} lifts the lock`
+      : `git worktree unlock ${path} lifts the lock`;
+  return new PreconditionError(`the worktree ${path} is ${state}, so nothing is removed: ${retry}`);
+}
+
+async function lockOf(git: GitClient, main: string, path: string): Promise<{ readonly reason: string } | undefined> {
+  return (await git.listWorktrees(main)).find((entry) => entry.path === path)?.lock;
 }
 
 export async function run(args: readonly string[], context: CommandContext): Promise<CommandResult> {
@@ -91,6 +108,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
     throw new PreconditionError(`the worktree ${worktree.path} of ${formatIssue(ref)} stands detached, not on ${worktree.branch}, so nothing is removed: run git switch ${worktree.branch} in it first`);
   }
 
+  if (worktree.lock !== undefined) throw refuseLocked(worktree.path, worktree.lock.reason);
   if (!(await git.isClean(worktree.path))) throw new PreconditionError(`the worktree ${worktree.path} has changes, so it stays: the work in it is somebody's`);
   const head = await git.resolveCommit(worktree.path, 'HEAD');
   if (!(await git.isAncestor(main, head, `refs/remotes/origin/${defaultBranch}`))) {
@@ -106,7 +124,13 @@ export async function run(args: readonly string[], context: CommandContext): Pro
     );
   }
 
-  await git.removeWorktree(main, worktree.path);
+  try {
+    await git.removeWorktree(main, worktree.path);
+  } catch (error) {
+    const lock = error instanceof GitError ? await lockOf(git, main, worktree.path) : undefined;
+    if (lock !== undefined) throw refuseLocked(worktree.path, lock.reason);
+    throw error;
+  }
   try {
     await git.deleteBranch(main, worktree.branch, head);
   } catch (error) {

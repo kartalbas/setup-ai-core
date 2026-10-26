@@ -19,6 +19,10 @@ for arg in "$@"; do
     echo "project folder: it gets an AGENTS.md that lists them. The run ends with what it created,"
     echo "refreshed, kept and removed."
     echo ""
+    echo "A linked worktree is locked (git worktree lock --reason \"ai-core init\") while init equips it, so finish-issue"
+    echo "cannot remove it underneath; the lock is lifted when init ends. A path that is gone, or that stands under"
+    echo ".worktrees/ without a .git, gets nothing written and nothing created."
+    echo ""
     echo "A fresh clone, or one whose STAMP names setup-ai-core alone, reads its eight tracker"
     echo "settings from the main checkout's parent when that folder is outside Git, has"
     echo ".ai-core/config.env whose FORGEJO_URL names the host of the origin, and its STAMP names"
@@ -61,14 +65,30 @@ while [ $# -gt 0 ]; do
 done
 
 # The project's settings are read in the directory a command runs in, so init runs in the one it serves.
+[ -d "${ALL_DIR:-$TARGET}" ] || { echo "error: ${ALL_DIR:-$TARGET} does not exist, so there is nothing to initialize there and nothing is created" >&2; exit 1; }
 if [ -n "$ALL_DIR" ]; then ALL_DIR="$(cd "$ALL_DIR" && pwd)"; else TARGET="$(cd "$TARGET" && pwd)"; fi
 cd "${ALL_DIR:-$TARGET}"
 . "$CORE_ROOT/lib/layers.sh"
+. "$CORE_ROOT/lib/worktrees.sh"
 
 # Source worktrees must be refused before inherited product data or settings can be copied.
 if [ -z "$ALL_DIR" ] && harness_source_of "$TARGET" >/dev/null 2>&1; then
   echo "error: $TARGET is a harness repository; init is for the repositories it serves" >&2
   exit 1
+fi
+
+# A worktree is locked against `git worktree remove` for as long as this run equips it, and the lock is
+# lifted on every way out the shell can see: the end, an error, INT and TERM. A kill -9 leaves the lock,
+# which finish-issue names. TMP is the scratch folder made further down.
+TMP=""; WORKTREE_LOCKED=""; WORKTREE_LOCK_COMMON=""
+cleanup() { [ -z "$TMP" ] || rm -rf "$TMP"; worktree_unlock_for_init; }
+trap cleanup EXIT; trap 'exit 130' INT; trap 'exit 143' TERM
+if [ -z "$ALL_DIR" ]; then
+  if worktree_orphan "$TARGET"; then
+    echo "error: $TARGET stands under a .worktrees/ folder and holds no .git: it is no worktree, so nothing is written there" >&2
+    exit 1
+  fi
+  if [ "$DRY" -eq 0 ] && worktree_is_linked "$TARGET"; then worktree_lock_for_init "$TARGET" || exit 1; fi
 fi
 
 # The prerequisites first; nothing is deployed on a machine that cannot run the harness. A dry
@@ -111,7 +131,9 @@ if [ -n "$ALL_DIR" ]; then
     case "$name" in .worktrees/*) repo_folder="$(cd "$repo" && cd "$(git rev-parse --git-common-dir 2>/dev/null)" && cd .. && basename "$PWD")" || repo_folder="" ;; esac
     case "$repo_folder" in *-ai-core) continue ;; esac   # a harness clone serves the repositories; it is not one of them, and neither is a worktree of one
     echo ""; echo "### $name"
-    if bash "$CORE_ROOT/bin/init.sh" "$repo" "${PASS[@]}"; then OK=$((OK + 1)); else FAILED="$FAILED $name"; fi
+    if bash "$CORE_ROOT/bin/init.sh" "$repo" "${PASS[@]}"; then OK=$((OK + 1))
+    elif [ ! -e "$repo" ]; then echo "==> $name was removed while init --all ran: skipped, nothing was created there"
+    else FAILED="$FAILED $name"; fi
   done
   [ "$FOLDER_OK" -eq 1 ] || FAILED="$FAILED $(basename "$ALL_DIR")/"
   echo ""; echo "==> init --all: $OK repositories $([ "$DRY" -eq 1 ] && echo "would be" || echo "were") initialized${FAILED:+; failed:$FAILED}"
@@ -305,6 +327,8 @@ note() {
     removed) REMOVED="$REMOVED $2" ;; tracked) TRACKED="$TRACKED $2" ;; unchanged) UNCHANGED=$((UNCHANGED + 1)) ;;
   esac
 }
+# A write below the target would create the target again after finish-issue removed it
+require_target() { [ -d "$TARGET" ] || { echo "error: $TARGET was removed while init ran: nothing more is written there" >&2; exit 1; }; }
 # put_file <source> <destination> <label> managed|once: one file, written only when it differs
 put_file() {
   local src="$1" dst="$2" label="$3" mode="$4"
@@ -316,6 +340,7 @@ put_file() {
     note created "$label"
   fi
   [ "$DRY" -eq 1 ] && return 0
+  require_target
   mkdir -p "$(dirname "$dst")"; cp -f "$src" "$dst"
 }
 put() { put_file "$1" "$TARGET/$2" "$2" "$3"; }   # put <source> <relative path> managed|once
@@ -329,11 +354,12 @@ put_dir() {
     note created "$rel/"
   fi
   [ "$DRY" -eq 1 ] && return 0
+  require_target
   rm -rf "$dst"; mkdir -p "$dst"; cp -R "$src"/. "$dst/"
 }
 # drop <relative path>: what an earlier version left in the checkout
 drop() { [ -e "$TARGET/$1" ] || return 0; note removed "$1"; [ "$DRY" -eq 1 ] || rm -rf "$TARGET/${1:?}"; }
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+TMP="$(mktemp -d)"
 
 # The project harness: <org>/<prefix>-ai-core from the checkout's origin, its extends chain
 # base first, cloned or pulled beside the repositories in the project folder, created from the
@@ -425,7 +451,7 @@ if [ -n "$LAYERS" ]; then
 fi
 
 AI_CORE_DIR="$TARGET/.ai-core"
-[ "$DRY" -eq 1 ] || mkdir -p "$AI_CORE_DIR/rules" "$AI_CORE_DIR/docs"
+[ "$DRY" -eq 1 ] || { require_target; mkdir -p "$AI_CORE_DIR/rules" "$AI_CORE_DIR/docs"; }
 # Earlier versions copied the scripts into the checkout, and one wrote an MCP file Antigravity
 # never reads; both are removed
 drop .ai-core/bin

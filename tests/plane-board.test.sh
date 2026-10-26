@@ -8,7 +8,7 @@
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 make_plane_project
 printf 'A body at lib/x.sh:12\n' > "$WORK/body.md"
-new() { ai issue-new --repo example-org/example-repo --title "$1" --body-file "$WORK/body.md" --label type:feature --label area:tooling --priority "${2:-P2}" --asked-by someone --asked-in "the test" 2>/dev/null; }
+new() { ai_new --repo example-org/example-repo --title "$1" --body-file "$WORK/body.md" --label type:feature --label area:tooling --priority "${2:-P2}" --asked-by someone --asked-in "the test"; }
 state_of() { planeq "const it=p.issues.find((i)=>i.sequence_id===$1);console.log(p.states.find((s)=>s.id===it.state).name)"; }
 
 section "the board commands on Plane: the states of a project are its columns"
@@ -180,7 +180,9 @@ refuse "removal of a duplicate mark is not served on Plane" issue-duplicate --un
 # THE READS OVER A REPOSITORY: its repositories, its numbers, its summaries and the incident count
 [ "$(plane_fn project_repos | sort | paste -sd' ' -)" = "example-org/example-repo example-org/other-repo" ] || fail "project_repos: $(plane_fn project_repos | paste -sd' ' -)"
 # the workspace holds ENG, NEW (made above, open and empty), OPS, open, with a repository of its own and one incident,
-# and OLD, archived, with an incident of its own that must not be counted
+# and OLD, archived, with an incident of its own that must not be counted. They are made on a Sunday, and incident-count
+# is asked on that Sunday and after midnight, on the Monday: the week of an incident is the week it was made in
+planeset 's.day="2026-10-25"'
 planeset '
   const id=()=>require("crypto").randomUUID(), mk=(pr,labels)=>pr.issues.push({id:id(),project:pr.id,name:"An incident in "+pr.identifier,description_html:"<p></p>",priority:"none",parent:null,
     labels:labels.map((n)=>pr.labels.find((l)=>l.name===n).id),assignees:[],sort_order:65535,external_source:null,external_id:null,archived_at:null,created_at:s.day+"T08:00:00Z",
@@ -207,9 +209,16 @@ since="$(plane_fn issues_created_since example-org/example-repo "$day" 500)" || 
 [ "$(plane_fn issues_created_since example-org/ops-repo "$day" 500 | jq -c '[.[] | .labels[]]')" = '["incident:duplicate"]' ] \
   || fail "issues_created_since does not read the project OPS: $(plane_fn issues_created_since example-org/ops-repo "$day" 500)"
 [ "$(plane_fn issues_created_since example-org/old-repo "$day" 500)" = '[]' ] || fail "issues_created_since reads an archived project"
-table="$(ai incident-count --weeks 2 2>&1)" || fail "incident-count: $table"
-[ "$(awk '$1 == "incident:duplicate" { print $NF }' <<< "$table")" = 2 ] \
-  || fail "incident-count does not count the incident of ENG and the one of OPS, and not the one of the archived project: $table"
+week_of_incidents="$(date -u -d "$(planeq 'console.log(s.day)')" +%G-W%V)"
+count_in_week() { awk -v week="$1" 'NR == 1 { for (i = 2; i <= NF; i++) if ($i == week) column = i } $1 == "incident:duplicate" { print $column }' <<< "$2"; }
+for clock in 2026-10-25T23:59:59Z 2026-10-26T00:00:01Z; do
+  table="$(DATE_STUB_NOW="$(epoch_of "$clock")" ai incident-count --weeks 2 2>&1)" || fail "incident-count at $clock: $table"
+  [ "$(count_in_week "$week_of_incidents" "$table")" = 2 ] \
+    || fail "incident-count at $clock does not count the incident of ENG and the one of OPS in their week $week_of_incidents, and not the one of the archived project: $table"
+done
+[ "$(awk '$1 == "incident:duplicate" { print $NF }' <<< "$table")" = 0 ] \
+  || fail "after the turn of the week the current week holds no incident, and the columns of the table do not say so: $table"
+echo "  incident-count: the two incidents stand in the week they were made in on the Sunday and on the Monday after, where the last column of the table has turned to the new week"
 # a project the count cannot read stops it: a table without that project would read as a table of all of them
 ops_id="$(planeq 'console.log(s.projects.find((x)=>x.identifier==="OPS").id)')"
 printf '[{"match":"/projects/%s/issues/","status":403,"times":9,"body":{"detail":"You do not have permission to perform this action."}}]' "$ops_id" > "$CURL_FAKE_STATE/inject.json"

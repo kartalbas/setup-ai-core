@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Isolation at both suite entry points, with fixtures that can still select their own tool.
+# Isolation at both suite entry points, with fixtures that can still select their own tool; and no git config of
+# the machine, no tracker of the environment in a Plane fixture.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 work="$(mktemp -d)"
@@ -16,7 +17,7 @@ if ! bash -c '. "$1/tests/lib.sh"; eval "$2"' _ "$root" "$probe"; then fail 'sec
 [ -f "$root/tests/tool-environment.sh" ] || fail 'shared initializer missing'
 copy="$work/copy"; mkdir -p "$copy/tests" "$copy/lib" "$copy/rules"
 cp "$root/lib/common.sh" "$root/lib/tool-order.sh" "$copy/lib/"
-cp "$root/tests/"{run-all.sh,lib.sh,tool-environment.sh} "$copy/tests/"
+cp "$root/tests/"{run-all.sh,lib.sh,tool-environment.sh,date-stub.sh,curl-fake.mjs} "$copy/tests/"
 printf '# fixture\n' > "$copy/rules/00-fixture.md"
 printf '#!/usr/bin/env bash\nset -u\n%s\n' "$probe" > "$copy/tests/sentinel.test.sh"
 run() { bash "$copy/tests/run-all.sh" > "$work/out" 2>&1; }
@@ -51,6 +52,26 @@ cp "$root/tests/tool-environment.sh" "$copy/tests/tool-environment.sh"
 printf '\nsession_tool() { :; }\n' >> "$copy/lib/common.sh"
 if bash -c '. "$1/tests/tool-environment.sh"; CODEX_THREAD_ID=fixture; [ "$(session_tool)" = codex ]' _ "$copy"; then fail 'detector drift escaped'; fi
 cp "$root/lib/common.sh" "$copy/lib/common.sh"
+# A commit made without an identity fails here, where the person's global git config holds one, as it does on a runner
+mkdir -p "$work/identity-home"; printf '[user]\n\tname = machine\n\temail = machine@example.test\n' > "$work/identity-home/.gitconfig"
+commit_without_identity() {  # commit_without_identity <root of the tests>: succeeds where the commit went through
+  env -u GIT_CONFIG_GLOBAL -u GIT_CONFIG_NOSYSTEM HOME="$work/identity-home" bash -c '. "$1/tests/lib.sh"; unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
+    git init -q "$WORK/repo"; git -C "$WORK/repo" -c user.useConfigOnly=true commit -q --allow-empty -m planted' _ "$1" > "$work/identity.out" 2>&1
+}
+if commit_without_identity "$root"; then fail 'a commit without an identity went through on the global git config of the machine'; fi
+sed '/GIT_CONFIG_GLOBAL/d' "$root/tests/tool-environment.sh" > "$copy/tests/tool-environment.sh"
+cmp -s "$root/tests/tool-environment.sh" "$copy/tests/tool-environment.sh" && fail 'git config mutant unchanged'
+commit_without_identity "$copy" || fail "the planted commit does not go through on the machine's git config: $(cat "$work/identity.out")"
+cp "$root/tests/tool-environment.sh" "$copy/tests/tool-environment.sh"
+# A Plane fixture reads the tracker from its own config.env, whatever tracker the environment of the run names
+tracker_of_plane_fixture() {  # tracker_of_plane_fixture <root of the tests>
+  TRACKER=github bash -c '. "$1/tests/lib.sh"; make_plane_project; cd "$P"; bash -c ". \"\$1/lib/common.sh\"; config_value TRACKER github" _ "$1"' _ "$1" 2> "$work/tracker.err"
+}
+[ "$(tracker_of_plane_fixture "$root")" = plane ] || fail "an inherited TRACKER won over the Plane fixture: $(cat "$work/tracker.err")"
+sed '/^  unset TRACKER/d' "$root/tests/lib.sh" > "$copy/tests/lib.sh"
+cmp -s "$root/tests/lib.sh" "$copy/tests/lib.sh" && fail 'tracker mutant unchanged'
+[ "$(tracker_of_plane_fixture "$copy")" = github ] || fail 'a fixture that keeps the inherited TRACKER did not read it'
+cp "$root/tests/lib.sh" "$copy/tests/lib.sh"
 for identity in clean inherited; do
   if [ "$identity" = clean ]; then . "$root/tests/tool-environment.sh"
   else while IFS= read -r variable; do export "$variable=fixture"; done < <(tool_environment_variables); fi

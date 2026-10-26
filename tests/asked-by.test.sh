@@ -39,7 +39,10 @@ case "\$*" in
 esac
 EOF
 chmod +x "$fake/gh"
+. "$root/tests/date-stub.sh"; make_date_stub "$fake"
 export PATH="$fake:$PATH"
+# issue-new reads the day from the clock of the command: one second before midnight, and the checks below run after it
+command_clock="$(epoch_of 2026-10-25T23:59:59Z)"; today=2026-10-25
 
 # The board answers, seeded so no lookup has to be faked.
 mkdir -p "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER"
@@ -58,7 +61,7 @@ body="$fake/body.md"; printf 'the body\n' > "$body"
 repo='example-org/example-repo'
 new() {
   : > "$log"; rm -f "$sent"
-  bash "$root/bin/issue-new.sh" --repo "$repo" \
+  DATE_STUB_NOW="$command_clock" bash "$root/bin/issue-new.sh" --repo "$repo" \
     --title 'Put every new issue on its board, or nobody reading the board sees it' \
     --body-file "$body" --label type:feature --label area:tooling --priority P1 \
     --project "$PROJECT_NUMBER" "$@" 2>&1 >/dev/null
@@ -78,7 +81,6 @@ check 'nothing reached gh'      no  "$(grep -q 'issue create' "$log" 2>/dev/null
 
 echo 'with both, the body starts with who said yes and where, and the original body follows'
 new --asked-by kartalbas --asked-in 'issue #12, comment of 2026-09-03' >/dev/null
-today="$(date +%Y-%m-%d)"
 check 'the issue was created'   yes "$(grep -q 'issue create' "$log" && echo yes || echo no)"
 check 'first line names the person, the day and the place' \
   "Asked for by @kartalbas on $today in issue #12, comment of 2026-09-03." "$(head -1 "$sent" 2>/dev/null)"
@@ -93,7 +95,7 @@ check 'one @' yes "$(head -1 "$sent" 2>/dev/null | grep -q 'by @kartalbas on' &&
 issue_new="$root/bin/issue-new.sh"
 found() {
   : > "$log"; rm -f "$sent"
-  bash "$issue_new" --repo "$repo" \
+  DATE_STUB_NOW="$command_clock" bash "$issue_new" --repo "$repo" \
     --title 'Keep the asked-for line on an edit, or the board loses who wanted it' \
     --body-file "$body" --label "$1" --label area:tooling --priority P1 \
     --project "$PROJECT_NUMBER" "${@:2}" 2>&1 >/dev/null

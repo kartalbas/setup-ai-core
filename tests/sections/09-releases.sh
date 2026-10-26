@@ -10,7 +10,7 @@ RD="$WORK/rel-dev"; mkdir -p "$RD"
 git init -q -b main "$RD"; git -C "$RD" add -A; git -C "$RD" commit -q -m 'The tree #1'
 git -C "$RD" remote add origin "$RO"
 printf '9.9.0\n' > "$RD/VERSION"; git -C "$RD" commit -q -am 'release: 9.9.0'
-git -C "$RD" push -q -u origin main 2>/dev/null
+git -C "$RD" push -q -u origin main
 git -C "$RD" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/gone   # a branch the origin no longer has, as a clone keeps it after a rename: the origin names its default branch
 RH="$WORK/rel-home"; mkdir -p "$RH"
 rel() { AI_CORE_RELEASE_POLL=1 PATH="$PATH_SH" bash "$RD/bin/release.sh" "$@" 2>&1; }
@@ -28,8 +28,8 @@ grep -q 'VERSION 9.9.0' <<< "$out" && fail "release.sh wrote VERSION although it
 git -C "$RO" rev-parse -q --verify refs/tags/v9.9.0 > /dev/null || fail "release.sh did not push v9.9.0 to the origin"
 out="$(rel 9.9.0)" && fail "release.sh tagged v9.9.0 twice"
 grep -q 'v9.9.0 exists already' <<< "$out" || fail "release.sh does not name the tag that exists: $out"
-HOME="$RH" bash "$RD/bin/install.sh" --repo "$RO" --dir "$RH/.setup-ai-core" --no-path --no-doctor > "$WORK/rel-install.log" 2>&1 || fail "install.sh from the release origin (see $WORK/rel-install.log)"
-grep -aq '==> release v9.9.0' "$WORK/rel-install.log" || fail "install.sh did not report the release it checked out"
+HOME="$RH" bash "$RD/bin/install.sh" --repo "$RO" --dir "$RH/.setup-ai-core" --no-path --no-doctor > "$WORK/rel-install.log" 2>&1 || fail "install.sh from the release origin: $(cat "$WORK/rel-install.log")"
+grep -aq '==> release v9.9.0' "$WORK/rel-install.log" || fail "install.sh did not report the release it checked out: $(cat "$WORK/rel-install.log")"
 [ "$(git -C "$RH/.setup-ai-core" describe --tags --exact-match HEAD 2>/dev/null)" = v9.9.0 ] || fail "install.sh did not check out v9.9.0"
 rc=0; out="$(upd --check)" || rc=$?
 [ "$rc" -eq 0 ] && grep -q '^setup-ai-core: current (v9.9.0)$' <<< "$out" || fail "update.sh --check on the newest release: exit $rc, $out"
@@ -61,7 +61,7 @@ out="$(upd)" || fail "update.sh back from main: $out"
 printf 'local\n' > "$RH/.setup-ai-core/scratch.txt"
 out="$(upd)" || fail "update.sh with a dirty clone: $out"
 grep -q 'left alone (1 uncommitted change(s), 0 commit(s) not pushed)' <<< "$out" || fail "update.sh touched a dirty clone: $out"
-git clone -q "$RO" "$RH/x-ai-core" 2>/dev/null; git -C "$RH/x-ai-core" checkout -q --detach HEAD~1   # a harness clone, detached and one commit behind
+git clone -q "$RO" "$RH/x-ai-core"; git -C "$RH/x-ai-core" checkout -q --detach HEAD~1   # a harness clone, detached and one commit behind
 git -C "$RH/x-ai-core" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/gone
 rc=0; out="$(upd --check)" || rc=$?
 [ "$rc" -eq 2 ] && grep -q '^x-ai-core: behind by 1 commit(s)$' <<< "$out" || fail "update.sh --check did not measure a detached harness clone against the origin's default branch: $out"

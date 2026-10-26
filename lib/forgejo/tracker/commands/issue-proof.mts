@@ -21,8 +21,9 @@ landings and releases if its first status label added by an account with write p
 status or no added status label requires delivery again. Every reopening requires a new proof. Where a repository's
 own LIVE_TAGS names ENV with the pattern landed, its landing is its delivery and needs no release. Where it
 names ENV with the pattern command, the reader of LIVE_RELEASE_COMMAND in its checkout answers the newest
-completed delivery, and the landing is delivered once that delivery's commit holds the newest landed commit; no
-delivery, a reader's error or a delivery without the landing refuses and says why. Another repository's
+completed delivery, and the landing is delivered once that delivery's commit holds the newest landed commit and
+the delivery completed after the landing was recorded; no delivery, a reader's error, a delivery without the
+landing or one that is not later than the landing refuses and says why. Another repository's
 LIVE_TAGS is read from its checkout in the project folder, the parent of this clone's main checkout, else from
 the one checkout of it in a folder beside the project folder, where its origin decides; no checkout, or two
 beside, is refused.
@@ -49,7 +50,10 @@ async function findMissingCommandDelivery(context: CommandContext, checkout: str
   if (answer.delivered === null) return `the reader of ${name} found no completed delivery on ${environment}`;
   const delivered = answer.delivered;
   try {
-    if (await context.git.isAncestor(checkout, landing.commit, delivered.commit)) return undefined;
+    if (await context.git.isAncestor(checkout, landing.commit, delivered.commit)) {
+      if (Date.parse(delivered.releasedAt) > landing.at) return undefined;
+      return `${name} was last delivered on ${environment} by ${delivered.source} at ${delivered.releasedAt}, which is not after its landing recorded at ${new Date(landing.at).toISOString().replace(/\.\d{3}Z$/, 'Z')}`;
+    }
   } catch (error) {
     if (!(error instanceof GitError) || error.exitCode !== GIT_UNKNOWN_COMMIT) throw error;
     return `${checkout} has no landed commit ${landing.commit} of ${name}: fetch it, then prove again`;

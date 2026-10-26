@@ -16,11 +16,14 @@
 #   3. the team modes are installed
 #   4. the names of the new directories are derived from the families the trees carry
 #   5. the repository's own scripts/check.sh is green, run in a working tree equal to the commit,
-#      started once the 1-minute load is below PRE_PUSH_LOAD_LIMIT or PRE_PUSH_LOAD_WAIT_SECONDS is up
+#      started once the 1-minute load is below PRE_PUSH_LOAD_LIMIT or PRE_PUSH_LOAD_WAIT_SECONDS is up,
+#      and after the published copies of the neighbours it reads stand at their origins' newest commit
+#      (not run again for the final push of a landing whose receipt shows that very commit green)
 #   6. gitleaks over the commits the push carries, in a repository that carries .gitleaks.toml
 #
 # Run from a terminal, with nothing on standard input, it judges what `git push` would send from
-# the current branch: the commits its upstream does not have.
+# the current branch: the commits its upstream does not have. Started by git with no ref line, it
+# judges nothing and lets git's own refusal of the push stand.
 #
 #   pre-push.sh                              the gate, as git runs it
 #   pre-push.sh --install [--all <folder>]   write the two shims into .githooks/ and arm them
@@ -49,6 +52,12 @@ with_sign_in_line() (  # with_sign_in_line <command...>
   "$@"
 )
 
+# Git starts the hook with the remote's name and URL and a pipe for the ref lines, and a pipe stays a pipe when git
+# found no ref to send; a person at a terminal gives no remote, or a terminal stands on the input. This is read
+# before the arguments are, so what follows can tell the two apart.
+called_by_git=0
+case "${1:-}" in ''|-*) ;; *) [ -t 0 ] || called_by_git=1 ;; esac
+
 for arg in "$@"; do
   if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
     echo "Usage: pre-push.sh [--install [--all <folder>] | --message <file>]"
@@ -70,7 +79,8 @@ for arg in "$@"; do
     echo "scripts/check.sh would run, or scripts/check.sh is red; or gitleaks"
     echo "finds a credential in the pushed commits (where .gitleaks.toml exists). The message of a merge is not"
     echo "judged; its addresses are. A deletion runs"
-    echo "no checks. Run from a terminal it judges the current branch against its upstream."
+    echo "no checks. Run from a terminal it judges the current branch against its upstream; started by git with no"
+    echo "ref line, as when the remote branch moved since the push began, it judges nothing and exits 0."
     echo ""
     echo "Before scripts/check.sh starts, the gate waits while the 1-minute load average (uptime) is at or"
     echo "above PRE_PUSH_LOAD_LIMIT (24 when unset) in the .ai-core/config.env of the checkout, at most"
@@ -79,6 +89,18 @@ for arg in "$@"; do
     echo "read refuses the push. With PRE_PUSH_LOAD_LIMIT 0 the wait is off, and with"
     echo "PRE_PUSH_LOAD_WAIT_SECONDS 0 the check starts at once: the load is still measured once for the"
     echo "record, and a reading that fails is said and recorded as -, never as a number."
+    echo ""
+    echo "Right before scripts/check.sh starts, the published copy of every neighbour that a link beside the"
+    echo "worktree leads to is brought to the newest commit of its origin, unless it holds a change or a commit"
+    echo "its origin lacks: that copy stays, and the gate names it. The gate prints the commit each copy stands"
+    echo "at and keeps it there until the check ended. An origin that cannot be asked, or a copy that cannot"
+    echo "be read, refuses the push. A copy is waited for at most NEIGHBOUR_LOCK_WAIT_SECONDS (600 when unset)."
+    echo ""
+    echo "A landing of a public repository pushes its merge commit through this gate twice, to ci/integrate-<branch>"
+    echo "and to the default branch, and hands both pushes a receipt in AI_CORE_LANDING_RECEIPT. The gate of the"
+    echo "first push writes its green check into it; the gate of the second skips scripts/check.sh, and nothing"
+    echo "else, only where the receipt shows that very commit, tree, clone, origin and neighbour commits green with"
+    echo "the CI of the commit green too. The gate prints the full commit and why the check ran or did not."
     echo ""
     echo "With FORGE=forgejo, scripts/check.sh gets credential.<FORGEJO_URL>.helper in git's environment"
     echo "configuration after the caller's entries: an empty value, then 'ai-core git-credential' with the"
@@ -152,6 +174,8 @@ if [ "$RUNS" -eq 1 ]; then
 fi
 
 . "$CORE_ROOT/lib/layers.sh"
+. "$CORE_ROOT/lib/neighbours.sh"
+. "$CORE_ROOT/lib/landing-check.sh"
 GATE_REFUSAL=""
 refuse() { GATE_REFUSAL="$*"; GATE_REFUSAL="${GATE_REFUSAL%%$'\n'*}"; echo "pre-push: REFUSED — $*" >&2; exit 1; }
 
@@ -519,6 +543,12 @@ all_zero() {  # all_zero <sha>
 # nothing piped - the subject is the push git would make from here: the current branch against
 # its upstream, or against every remote ref when it has none yet.
 if [ -t 0 ]; then input=""; else input="$(cat)"; fi
+# Git starts the hook for a push where it has judged the refs itself and sends none, as when the remote branch
+# moved since the push began: no line is nothing to judge, and git's own refusal stands alone.
+if [ -z "$input" ] && [ "$called_by_git" -eq 1 ]; then
+  echo "pre-push: git sent no ref for this push: nothing to judge."
+  exit 0
+fi
 if [ -z "$input" ]; then
   branch="$(git symbolic-ref --short -q HEAD)" || { echo "error: not on a branch; nothing to judge" >&2; exit 2; }
   upstream="$(git rev-parse -q --verify '@{upstream}' 2>/dev/null)" || upstream="0000000000000000000000000000000000000000"
@@ -553,12 +583,14 @@ scan_ranges=''
 # that are not merges, but a merge of commits the remote has is a tree nobody has checked yet.
 adds=0
 pushing=0
+ref_lines=0; sole_remote_ref=""   # how many refs the push updates, and the last of them
 landing=''   # the commit a push to the default branch lands, judged below where that branch goes live
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ -n "${local_sha:-}" ] || continue
   all_zero "$local_sha" && continue                   # a deletion sends no commit
   GATE_COMMIT="$local_sha"
   pushing=1
+  ref_lines=$((ref_lines + 1)); sole_remote_ref="$remote_ref"
   # WHAT IS PUSHED IS RESOLVED TO A COMMIT FIRST. An annotated tag hands its own object's sha
   # here, never the commit it names, so comparing it to HEAD unresolved refuses every annotated
   # tag there is. Resolving it asks the question the refusal below means to ask: is the tree this
@@ -1002,6 +1034,17 @@ wait_for_lower_load() {  # sets LOAD_AT_START to the sample the check starts wit
   done
   LOAD_AT_START="$sample"
 }
+# The check reads the published copies of the neighbours through the links beside the worktree. They are
+# brought to their origins' newest commit now and held until the check ended, so the check proves the code
+# the neighbours publish at this moment and no init or other gate moves a copy under it. The gate says
+# where each copy stands, which is what a later reader of the run needs to bind the check to its inputs.
+hold_neighbours() {
+  local line status=0
+  NEIGHBOUR_FETCH_WRAP=with_sign_in_line
+  neighbours_hold "$root" || status=$?
+  while IFS= read -r line; do [ -z "$line" ] || echo "pre-push: neighbour $line"; done <<< "$NEIGHBOUR_REPORT"
+  [ "$status" -eq 0 ] || refuse "a neighbour the check reads is not at its origin's newest commit: $NEIGHBOUR_ERROR"
+}
 refuse_if_tree_differs() {
   local dirty
   dirty="$(git -C "$root" -c core.quotePath=false status --porcelain)"
@@ -1012,26 +1055,60 @@ $(sed 's/^/  /' <<< "$dirty")
 
 # The run is announced after the refusals above, so a push that is refused is not first promised a run
 # it never gets. How long it takes is the repository's own business.
+# A landing of a public repository pushes its merge commit through this gate twice, to ci/integrate-<branch> and then
+# to the default branch (lib/landing-check.sh). The receipt that landing hands its two pushes holds the green check of
+# the first one; the second does not run scripts/check.sh again where the receipt shows that very commit, tree, clone,
+# origin and neighbour copies green, with the CI of that commit green too. Any other push, and any receipt that does
+# not hold, runs the check. The gate says in one line which it did, and why.
+check_reason=""      # why the check runs, said only for a landing
+check_skipped=0
 if [ -f "$root/scripts/check.sh" ]; then
   # The check reads the working tree, so it proves the pushed commit only where the two are equal.
   refuse_if_tree_differs
+  neighbours_held=0
+  if [ -n "${AI_CORE_LANDING_RECEIPT:-}" ]; then
+    hold_neighbours; neighbours_held=1
+    if landing_check_judge "$AI_CORE_LANDING_RECEIPT" "$root" "$head" "$ref_lines" "$sole_remote_ref" "$default" "$NEIGHBOUR_TIPS"; then
+      check_skipped=1
+      GATE_CHECK_LAST="scripts/check.sh of $head not run: the receipt of this landing shows it green on its ci/ push, with the CI of that commit green"
+      echo "pre-push: scripts/check.sh of $head does not run again: its receipt from the first push of this landing shows it green, and the CI of that commit is green too."
+    else
+      check_reason="$LANDING_CHECK_REASON"
+    fi
+  fi
+fi
+if [ -f "$root/scripts/check.sh" ] && [ "$check_skipped" -eq 0 ]; then
   wait_for_lower_load
   # The commit and the tree are judged again: both can change while the push waits.
   [ "$(git -C "$root" rev-parse HEAD)" = "$head" ] \
     || refuse "HEAD moved from ${head:0:12} to $(git -C "$root" rev-parse --short=12 HEAD) while the push waited for a lower load, so the check would prove a commit that is not the one judged. Push again."
   refuse_if_tree_differs
   GATE_LOAD="$LOAD_AT_START"
-  echo "pre-push: $root/scripts/check.sh runs here, before anything leaves this machine."
+  [ "$neighbours_held" -eq 1 ] || hold_neighbours
+  if [ -z "${AI_CORE_LANDING_RECEIPT:-}" ]; then
+    echo "pre-push: $root/scripts/check.sh runs here, before anything leaves this machine."
+  else
+    echo "pre-push: $root/scripts/check.sh runs for $head: ${check_reason:-no check of this landing has run yet}."
+  fi
   check_started="$(date +%s)"; check_rc=0
   # Both streams go to the log, so its last line is the check's last word on either of them
   with_caller_git_config with_sign_in_line bash "$root/scripts/check.sh" 2>&1 | tee "$TMPD/check.log" || check_rc=$?
   GATE_CHECK_SECONDS=$(( $(date +%s) - check_started ))
   GATE_CHECK_LAST="$(grep -v '^[[:space:]]*$' "$TMPD/check.log" | tail -1)"
   GATE_CHECK=green; [ "$check_rc" -eq 0 ] || GATE_CHECK=red
+  neighbours_release
   [ "$check_rc" -eq 0 ] || refuse 'a check failed - the lines above name which one.'
-else
+  case "$sole_remote_ref" in
+    refs/heads/ci/integrate-?*)
+      if [ -n "${AI_CORE_LANDING_RECEIPT:-}" ] && [ "$ref_lines" -eq 1 ]; then
+        landing_check_record "$AI_CORE_LANDING_RECEIPT" "$root" "$head" "$sole_remote_ref" "$NEIGHBOUR_TIPS" \
+          || refuse "the receipt of this landing could not be written to $AI_CORE_LANDING_RECEIPT"
+      fi ;;
+  esac
+elif [ ! -f "$root/scripts/check.sh" ]; then
   echo 'pre-push: no scripts/check.sh in this repository; nothing runs before the push.'
 fi
+neighbours_release
 
 # THE COMMITS ARE SCANNED TOO, not only the working copy. scripts/check.sh reads one state: the
 # files git would let you commit right now. A credential that was committed in one pushed commit

@@ -7,7 +7,8 @@ import { showLines } from './git/git.mts';
 // The steps of the harness around a worktree run the harness's own Bash, so each has one spelling: the
 // team modes check, init in a new worktree as bin/start-issue.sh runs it, fast_forward_default_branch of
 // lib/common.sh as bin/integrate-issue.sh runs it, and live_tags_declaration and the read of
-// lib/live-release.sh as bin/status.sh runs them. The install of a merged tree runs the repository's own
+// lib/live-release.sh as bin/status.sh runs them, and the receipt of the checks of a landing, lib/landing-check.sh,
+// as bin/integrate-issue.sh runs it. The install of a merged tree runs the repository's own
 // scripts/install.sh, as bin/integrate-issue.sh runs it. The page of status --tokens is lib/status-tokens.sh.
 
 const CORE = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../..');
@@ -53,6 +54,9 @@ export const bashHarness: HarnessSteps = {
   refreshCheckout: (checkout) => runBash(checkout, ['-c', REFRESH, 'refresh-checkout', CORE, checkout]),
   readLiveTags: (checkout) => runBash(checkout, ['-c', LIVE_TAGS, 'read-live-tags', CORE, checkout]),
   readLiveRelease: (checkout, repository, environment) => runBash(checkout, [`${CORE}/lib/live-release.sh`, 'read', checkout, repository, environment]),
+  openLandingCheck: (cwd) => runBash(cwd, [`${CORE}/lib/landing-check.sh`, 'open']),
+  completeLandingCheck: (receipt, commit, ciRef) => runBash(CORE, [`${CORE}/lib/landing-check.sh`, 'complete', receipt, commit, ciRef]),
+  closeLandingCheck: (receipt) => runBash(CORE, [`${CORE}/lib/landing-check.sh`, 'close', receipt]),
   installTools: runInstall,
   readTokensPage: (cwd, itemsFile, columnsFile, board) => runBash(cwd, [`${CORE}/lib/status-tokens.sh`, itemsFile, columnsFile, board]),
 };

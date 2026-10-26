@@ -1160,14 +1160,113 @@ git -C "$work" config --unset core.hooksPath; rm -f "$fake/visibility"
 check 'exit 0, no reading of the load, no sleep, no check' '0 0 0 0' "$rc $(cat "$PROBE_STATE/uptime-calls" 2>/dev/null || echo 0) $(lines_of "$PROBE_STATE/sleeps") $(lines_of "$gate_runs")"
 check 'and it landed'                            1 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
 
+# --- the default branch moves while a landing pushes: the real gate beside it must name the race --------
+# Another session's landing is planted by a hook: pre-merge-commit runs after the landing fetched and before it
+# pushes, so git finds the remote default branch moved when the push starts, rejects the ref itself and starts the
+# gate with no ref line; the pre-push wrapper moves the branch while the gate of the final push runs.
+printf '%s\n' "$push_to_master" > "$fake/race.sh"
+mkdir -p "$fake/race-hooks"
+printf '#!/bin/sh\nunset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX\n[ -z "${PLANT_RACE:-}" ] || [ -e "$PLANT_RACE.done" ] || { : > "$PLANT_RACE.done"; sh "$PLANT_RACE" >/dev/null 2>&1; }\n' > "$fake/race-hooks/pre-merge-commit"
+printf '#!/bin/sh\nunset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX\nlines="$(cat)"\ncase "$lines" in *" refs/heads/master "*) [ -z "${PLANT_RACE_LATE:-}" ] || [ -e "$PLANT_RACE_LATE.late" ] || { : > "$PLANT_RACE_LATE.late"; sh "$PLANT_RACE_LATE" >/dev/null 2>&1; } ;; esac\nprintf "%%s\\n" "$lines" | exec bash "%s/bin/pre-push.sh" "$@"\n' "$root" > "$fake/race-hooks/pre-push"
+chmod +x "$fake/race-hooks/pre-merge-commit" "$fake/race-hooks/pre-push"
+race_refused() {  # race_refused <label> <before>: what the person reads, and what origin and the worktree keep
+  local moved
+  moved="$(tip)"
+  check "$1: exit 1" 1 "$rc"
+  check "$1: the output names the move and tells to run again" yes "$(grep -qF "nothing landed: master moved on origin from ${2:0:7} to ${moved:0:7} after this landing fetched it" <<< "$out" && grep -qF 'run this again' <<< "$out" && echo yes || echo no)"
+  check "$1: the gate does not talk of a branch" no "$(grep -qF 'not on a branch; nothing to judge' <<< "$out" && echo yes || echo no)"
+  check "$1: only the other landing reached the default branch" "0 yes" "$(git --git-dir="$origin" rev-list --merges --count "$2..master") $([ "$moved" != "$2" ] && echo yes || echo no)"
+  check "$1: the lock is released" no "$([ -e "$work/.git/ai-core-landing" ] && echo yes || echo no)"
+}
+echo 'a default branch that moves between the fetch and the push is named, in each of the paths, and the rerun lands'
+git -C "$work" config core.hooksPath "$fake/race-hooks"; echo private > "$fake/visibility"
+wt="$(new_tree 970 race)"; git -C "$wt" push -q origin issue-970-race 2>/dev/null
+before="$(tip)"; rm -f "$fake/race.sh.done" "$fake/race.sh.late"
+out="$(cd "$wt" && PLANT_RACE="$fake/race.sh" integrate_here 970)"; rc=$?
+race_refused 'in the worktree' "$before"
+check 'in the worktree: the branch is checked out again' issue-970-race "$(git -C "$wt" symbolic-ref --short HEAD)"
+before="$(tip)"
+out="$(cd "$wt" && integrate_here 970)"; rc=$?
+check 'in the worktree: the rerun lands' '0 1' "$rc $(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+wt="$(new_tree 971 race-origin)"; git -C "$wt" push -q origin issue-971-race-origin 2>/dev/null
+before="$(tip)"; rm -f "$fake/race.sh.done" "$fake/race.sh.late"
+out="$(cd "$work" && PLANT_RACE="$fake/race.sh" AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=0 bash "$root/bin/integrate-issue.sh" 971 --reviewed-by l4 --from-origin 2>&1)"; rc=$?
+race_refused 'with --from-origin' "$before"
+before="$(tip)"
+out="$(cd "$work" && AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=0 bash "$root/bin/integrate-issue.sh" 971 --reviewed-by l4 --from-origin 2>&1)"; rc=$?
+check 'with --from-origin: the rerun lands' '0 1' "$rc $(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+echo 'the receipt of the checks of a public landing is removed after a landing that went through and after one that was refused'
+mkdir -p "$fake/receipts"
+TMPDIR="$fake/receipts" land_public 978 receipt-green "$success"
+check 'green: exit 0 and no receipt left'        '0 0' "$rc $(find "$fake/receipts" -mindepth 1 | wc -l | tr -d ' ')"
+TMPDIR="$fake/receipts" land_public 979 receipt-red '[{"status":"completed","conclusion":"failure","workflowName":"check"}]'
+check 'red: exit 1 and no receipt left'          '1 0' "$rc $(find "$fake/receipts" -mindepth 1 | wc -l | tr -d ' ')"
+receipt_a="$(TMPDIR="$fake/receipts" bash "$root/lib/landing-check.sh" open)"; receipt_b="$(TMPDIR="$fake/receipts" bash "$root/lib/landing-check.sh" open)"
+check 'the receipts of two landings are two folders' different "$([ "$receipt_a" != "$receipt_b" ] && echo different || echo same)"
+bash "$root/lib/landing-check.sh" close "$receipt_a"; bash "$root/lib/landing-check.sh" close "$receipt_b"
+echo 'two integrations at the same moment: in one clone they take turns and both land; in separate clones each lands or says the default branch moved'
+git -C "$work" config --unset core.hooksPath; echo private > "$fake/visibility"
+wt_a="$(new_tree 974 twin-a)"; git -C "$wt_a" push -q origin issue-974-twin-a 2>/dev/null
+wt_b="$(new_tree 975 twin-b)"; git -C "$wt_b" push -q origin issue-975-twin-b 2>/dev/null
+before="$(tip)"
+( cd "$wt_a" && integrate_here 974 > "$fake/twin-a.out" ) & pid_a=$!
+( cd "$wt_b" && integrate_here 975 > "$fake/twin-b.out" ) & pid_b=$!
+wait "$pid_a"; rc_a=$?; wait "$pid_b"; rc_b=$?
+check 'one clone: both landed' '0 0 2' "$rc_a $rc_b $(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+second="$fake/checkouts-second/example-repo"; mkdir -p "$fake/checkouts-second/.worktrees/example-repo"
+git clone -q "$origin" "$second" 2>/dev/null; dress "$second"
+git -C "$second" worktree add -q -b issue-976-twin-c "$fake/checkouts-second/.worktrees/example-repo/issue-976-twin-c" origin/master
+wt_c="$fake/checkouts-second/.worktrees/example-repo/issue-976-twin-c"; dress "$wt_c"; echo c > "$wt_c/c.txt"; git -C "$wt_c" add -A; git -C "$wt_c" commit -q -m 'Write c #976'; git -C "$wt_c" push -q origin issue-976-twin-c 2>/dev/null
+wt_d="$(new_tree 977 twin-d)"; git -C "$wt_d" push -q origin issue-977-twin-d 2>/dev/null
+before="$(tip)"
+( cd "$wt_c" && integrate_here 976 > "$fake/twin-c.out"; echo $? > "$fake/twin-c.rc" ) &
+( cd "$wt_d" && integrate_here 977 > "$fake/twin-d.out"; echo $? > "$fake/twin-d.rc" ) &
+wait
+landed=0; explained=yes
+for t in c d; do
+  if [ "$(cat "$fake/twin-$t.rc")" = 0 ]; then landed=$((landed + 1))
+  else grep -qE 'moved on origin from [0-9a-f]{7} to [0-9a-f]{7}|origin/master moved' "$fake/twin-$t.out" || explained=no; fi
+  grep -qF 'not on a branch; nothing to judge' "$fake/twin-$t.out" && explained=no
+done
+check 'separate clones: every refusal explains the move, and the landings that succeeded are on origin' "yes $landed" "$explained $(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+echo 'a push that git reports as failed while origin holds the merge commit is not denied'
+mkdir -p "$fake/anyway-hooks"
+printf '#!/bin/sh\nunset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX\n[ ! -e "$ANYWAY_MARKER" ] || exit 0\n: > "$ANYWAY_MARKER"\ngit push -q origin HEAD:refs/heads/master\nexit 1\n' > "$fake/anyway-hooks/pre-push"; chmod +x "$fake/anyway-hooks/pre-push"
+git -C "$work" config core.hooksPath "$fake/anyway-hooks"
+wt="$(new_tree 973 pushed-anyway)"; git -C "$wt" push -q origin issue-973-pushed-anyway 2>/dev/null
+before="$(tip)"; rm -f "$fake/anyway.marker"
+out="$(cd "$wt" && ANYWAY_MARKER="$fake/anyway.marker" integrate_here 973)"; rc=$?
+check 'exit 0, one merge commit, the branch checked out again' '0 1 issue-973-pushed-anyway' "$rc $(git --git-dir="$origin" rev-list --merges --count "$before..master") $(git -C "$wt" symbolic-ref --short HEAD)"
+check 'it says that origin holds the commit although git failed, and that it integrated' yes "$(grep -qE 'origin holds [0-9a-f]{7} on master although git reported a failure: the landing went through' <<< "$out" && grep -q '^integrated: ' <<< "$out" && echo yes || echo no)"
+check 'it does not say that nothing landed' no "$(grep -qF 'nothing landed' <<< "$out" && echo yes || echo no)"
+git -C "$work" config core.hooksPath "$fake/race-hooks"
+rm -f "$fake/visibility"
+echo 'the same during the gate of the final push of a public repository, and a gate that git starts with no ref judges nothing'
+git -C "$work" config core.hooksPath "$fake/race-hooks"
+wt="$(new_tree 972 race-public)"; sha="$(git -C "$wt" rev-parse HEAD)"; git -C "$wt" push -q origin issue-972-race-public 2>/dev/null
+echo public > "$fake/visibility"; printf '%s\n' "$success" > "$fake/runs"; : > "$fake/runs-queue"; : > "$fake/calls.txt"; plant_hook issue-972-race-public ""
+before="$(tip)"; rm -f "$fake/race.sh.done" "$fake/race.sh.late"
+out="$(cd "$wt" && PLANT_RACE_LATE="$fake/race.sh" AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=5 integrate_here 972)"; rc=$?
+rm -f "$fake/visibility" "$fake/runs" "$fake/during-wait"
+race_refused 'in a public repository' "$before"
+check 'in a public repository: ci/integrate-<branch> is deleted' '' "$(ci_tip issue-972-race-public)"
+git -C "$work" config --unset core.hooksPath
+out="$(cd "$wt" && printf '' | bash "$root/bin/pre-push.sh" origin "$origin" 2>&1)"; rc=$?
+check 'a hook that git starts with no ref line exits 0 and judges nothing' '0 yes' "$rc $(grep -qF 'git sent no ref for this push: nothing to judge' <<< "$out" && echo yes || echo no)"
+out="$(cd "$work" && git checkout -q --detach && printf '' | bash "$root/bin/pre-push.sh" 2>&1)"; rc=$?
+check 'a gate run by hand on a detached HEAD, with no remote, keeps its refusal' '2 yes' "$rc $(grep -qF 'not on a branch; nothing to judge' <<< "$out" && echo yes || echo no)"
+git -C "$work" switch -q master
+
 before="$(tip)"
 echo 'a public landing shows the wait for a lower load while its CI push waits, then the check, and lands the commit its checks were green for'
 public_landing 160 streamed
 check 'exit 0'                                   0 "$rc"
 check 'the announcement, and the start above the limit, were on screen while the check still ran' 'yes yes yes' "$seen"
-check 'the announcement stands once for each of the two local checks' 2 "$(grep -c "$announced" <<< "$out")"
-check 'and so does the start above the limit'    2 "$(grep -c "$ended" <<< "$out")"
-check 'each check ran once, after its wait'      '2 1010 1020' "$(lines_of "$gate_runs") $(sed -n 1p "$gate_runs") $(sed -n 2p "$gate_runs")"
+check 'the announcement stands once, for the one local check' 1 "$(grep -c "$announced" <<< "$out")"
+check 'and so does the start above the limit'    1 "$(grep -c "$ended" <<< "$out")"
+check 'the check ran once, after its wait: the push to the default branch did not run it again' '1 1010' "$(lines_of "$gate_runs") $(sed -n 1p "$gate_runs")"
+check 'the gate says for the commit that landed that it does not run again' yes "$(grep -qF "scripts/check.sh of $(tip) does not run again" <<< "$out" && echo yes || echo no)"
+check 'and for the commit of its ci/ push which check it ran' yes "$(grep -qF "scripts/check.sh runs for $(tip):" <<< "$out" && echo yes || echo no)"
 check 'the checks of the CI were asked on their own, and the commit that landed is the one that was checked' "$(cat "$fake/ci-during")" "$(tip)"
 check 'the CI answered green, said once'         1 "$(grep -c '^checks: green for' <<< "$out")"
 check 'one merge commit landed'                  1 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"

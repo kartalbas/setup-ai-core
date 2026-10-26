@@ -82,13 +82,16 @@ set_wait() {  # set_wait <seconds>: the least wait of every worktree's gate and 
     printf 'UPDATE_CHECK="never"\nNEIGHBOUR_LOCK_WAIT_SECONDS="%s"\nPRE_PUSH_LOAD_LIMIT="0"\n' "$1" > "$t/.ai-core/config.env"
   done
 }
-reader() {  # reader <neighbour> <release file>: a process that reads the copy, holding its lock shared until the release file exists
+hold_lock() {  # hold_lock <neighbour> <release file> -s|-x: a process that holds the lock of the copy until the release file exists
+  local other=-s; [ "$3" = -x ] || other=-x
   rm -f "$2"
-  flock -s "$(lock_of "$1")" -c "while [ ! -e '$2' ]; do '$REAL_SLEEP' 0.1; done" &
+  flock "$3" "$(lock_of "$1")" -c "while [ ! -e '$2' ]; do '$REAL_SLEEP' 0.1; done" &
   READER=$!
-  for _ in $(seq 1 100); do flock -x -n "$(lock_of "$1")" true || return 0; "$REAL_SLEEP" 0.05; done
-  fail "the reader of $1 never took its lock"
+  for _ in $(seq 1 100); do flock "$other" -n "$(lock_of "$1")" true || return 0; "$REAL_SLEEP" 0.05; done
+  fail "the holder of the lock of $1 never took it"
 }
+reader() { hold_lock "$1" "$2" -s; }  # reader <neighbour> <release file>: a process that reads the copy, holding its lock shared
+mover() { hold_lock "$1" "$2" -x; }   # mover <neighbour> <release file>: a process that moves the copy, holding its lock exclusive
 hold_gate() {  # hold_gate <worktree> <branch> <hold file> <log>: a real gate whose check reads both copies and then waits for the hold file
   rm -f "$3" "$3.started"
   CHECK_HOLD="$3" git -C "$1" push origin "HEAD:refs/heads/$2" > "$4" 2>&1 &
@@ -401,6 +404,12 @@ grep -qx 'status=1' "$WORK/nb-zero-out" && grep -q 'was not free in 0 seconds (N
 release "$WORK/nb-release11" "$READER"
 hold_probe "$ROOT" "$T2" > "$WORK/nb-zero-out2" 2>&1
 grep -qx 'status=0' "$WORK/nb-zero-out2" || fail "a setting of 0 refused although no reader held the copy: $(cat "$WORK/nb-zero-out2")"
+grep -q 'A check that runs longer, or hangs, keeps the copy' "$WORK/nb-zero-out" || fail "the refusal beside a reading check does not name the check as what keeps the copy: $(cat "$WORK/nb-zero-out")"
+mover dog "$WORK/nb-release11b"; clock_reset
+hold_probe "$ROOT" "$T2" > "$WORK/nb-zero-out3" 2>&1
+release "$WORK/nb-release11b" "$READER"
+grep -qx 'status=1' "$WORK/nb-zero-out3" && grep -q "^error=the copy $DOG cannot be read: .*was not free in 0 seconds (NEIGHBOUR_LOCK_WAIT_SECONDS is 0, which is one attempt)\. A move of the copy that runs longer, or hangs, keeps it:" "$WORK/nb-zero-out3" \
+  || fail "the refusal beside a move of the copy does not name the move as what keeps it: $(cat "$WORK/nb-zero-out3")"
 land dog thirteen
 set_wait 600
 reader dog "$WORK/nb-release12"; clock_reset
@@ -425,7 +434,7 @@ hold_probe "$ROOT" "$T2" > "$WORK/nb-raise-out" 2>&1; wait "$READER" || true
 grep -qx 'status=0' "$WORK/nb-raise-out" || fail "a setting raised during the wait did not let it go on past 1980 seconds: $(cat "$WORK/nb-raise-out")"
 [ "$(slept)" -ge 2500 ] || fail "the wait ended after $(slept) seconds, not at the reader's end 2500 seconds after its start"
 set_wait 2
-echo "  0 refuses at once and passes where nothing reads, and a setting lowered, broken or raised during a wait is read again at the next poll, counting from the start of the wait"
+echo "  0 refuses at once and passes where nothing reads, a refusal names a reading check or a move as what keeps the copy, and a setting lowered, broken or raised during a wait is read again at the next poll, counting from the start of the wait"
 
 section "a wait that is interrupted leaves no lock, and a setting that is no number refuses before anything runs"
 land dog fourteen

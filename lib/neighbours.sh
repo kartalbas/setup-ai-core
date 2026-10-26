@@ -117,10 +117,10 @@ neighbour_allowance_reason() {
 # neighbour_wait_flock <fd> <lock file> shared|exclusive: takes the lock on the descriptor neighbour_open opened. It
 # tries at once, and then every tenth of the time waited so far, from 1 to 30 seconds, without blocking, until the
 # allowance since neighbour_wait_begin is used up. The caller holds no other copy lock. On failure NEIGHBOUR_ERROR
-# says why, and that a check longer than the allowance keeps the copy. What it says while it waits goes to
-# standard error.
+# says why, and what keeps the copy longer than the allowance: a check for an exclusive lock, a move for a shared
+# one. What it says while it waits goes to standard error.
 neighbour_wait_flock() {
-  local rc configured now elapsed remaining step announced=0
+  local rc configured now elapsed remaining step holder announced=0
   while :; do
     rc=0; neighbour_try_flock "$1" "$3" || rc=$?
     [ "$rc" -ne 0 ] || return 0
@@ -130,7 +130,9 @@ neighbour_wait_flock() {
     neighbour_allowance "$configured"
     now="$(date +%s)"; elapsed=$((now - NEIGHBOUR_WAIT_START)); remaining=$((NEIGHBOUR_ALLOWANCE - elapsed))
     if [ "$remaining" -le 0 ]; then
-      NEIGHBOUR_ERROR="the lock $2 is held by another gate or init and was not free in $elapsed seconds ($(neighbour_allowance_reason "$configured")). A check that runs longer, or hangs, keeps the copy: wait for it to end, or set NEIGHBOUR_LOCK_WAIT_SECONDS above $NEIGHBOUR_ALLOWANCE in $NEIGHBOUR_WAIT_CONFIG"
+      holder="A check that runs longer, or hangs, keeps the copy"
+      [ "$3" != shared ] || holder="A move of the copy that runs longer, or hangs, keeps it"
+      NEIGHBOUR_ERROR="the lock $2 is held by another gate or init and was not free in $elapsed seconds ($(neighbour_allowance_reason "$configured")). $holder: wait for it to end, or set NEIGHBOUR_LOCK_WAIT_SECONDS above $NEIGHBOUR_ALLOWANCE in $NEIGHBOUR_WAIT_CONFIG"
       return 1
     fi
     if [ "$announced" -eq 0 ]; then

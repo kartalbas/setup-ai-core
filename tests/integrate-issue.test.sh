@@ -1656,6 +1656,26 @@ git -C "$work" config --unset core.hooksPath; rm -f "$fake/visibility"
 check 'exit 0, one merge commit below the newer commit' '0 1 Other #1' "$rc $(git --git-dir="$origin" rev-list --merges --count "$before..master") $(git --git-dir="$origin" log -1 --format=%s master)"
 check 'it says that origin holds the commit although git failed' yes "$(grep -qE 'origin holds [0-9a-f]{7} on master although git reported a failure: the landing went through' <<< "$out" && echo yes || echo no)"
 
+echo 'a warning that the reader of INTEGRATE_MAX_ROUNDS writes on standard error is no part of the number, so the bound holds (planted: grep warns while it reads the setting)'
+mkdir -p "$fake/warning-grep"
+printf '#!/bin/sh\ncase "$*" in *INTEGRATE_MAX_ROUNDS*) echo "grep: a warning while the setting is read" >&2 ;; esac\nexec "%s" "$@"\n' "$(command -v grep)" > "$fake/warning-grep/grep"; chmod +x "$fake/warning-grep/grep"
+PATH="$fake/warning-grep:$PATH" land_racing 960 rounds-warned 2 5
+check 'exit 1 after two gates, no merge, round 2 named as the last' '1 2 0 yes' "$rc $(judged) $(git --git-dir="$origin" rev-list --merges --count "$before..master") $(grep -qF 'round 2 was the last that INTEGRATE_MAX_ROUNDS (2) allows' <<< "$out" && echo yes || echo no)"
+check 'the warning is shown, and the limit each round names is the number alone' 'yes yes' "$(grep -qF 'grep: a warning while the setting is read' <<< "$out" && echo yes || echo no) $(grep -q '^round 2 of 2: ' <<< "$out" && echo yes || echo no)"
+no_leftovers 'warned'
+
+echo 'an origin that cannot be read right before the push of a landing in the worktree puts the worktree back on its branch, with nothing pushed'
+printf 'mv "%s" "%s.away"\n' "$origin" "$origin" > "$fake/away.sh"
+git -C "$work" config core.hooksPath "$fake/race-hooks"; echo private > "$fake/visibility"
+wt="$(new_tree 961 origin-away)"; git -C "$wt" push -q origin issue-961-origin-away 2>/dev/null
+before="$(tip)"; rm -f "$fake/away.sh.done"
+out="$(cd "$wt" && PLANT_RACE="$fake/away.sh" integrate_here 961)"; rc=$?
+mv "$origin.away" "$origin"
+git -C "$work" config --unset core.hooksPath; rm -f "$fake/visibility"
+check 'exit 1, origin named as unreadable, the default branch as it was' "1 yes $before" "$rc $(grep -qF 'could not reach origin' <<< "$out" && echo yes || echo no) $(tip)"
+check 'the worktree is on its branch again' issue-961-origin-away "$(git -C "$wt" symbolic-ref --short -q HEAD || echo detached)"
+no_leftovers 'origin away'
+
 echo
 [ "$failed" -eq 0 ] && echo 'all passed' || echo "$failed failed"
 [ "$failed" -eq 0 ]

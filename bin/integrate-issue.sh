@@ -468,13 +468,15 @@ back_to_branch() {
   die "$1"
 }
 
-# base_has_moved <what happened meanwhile>: whether origin/<default> is no longer the tip the merge of this round was made
-# on, asked of origin right before the push, so that a gate is not started on a base that is gone. Names the move in
-# round_cause where it is. The gate refuses a push over a tip it does not hold, whatever the cause, and a refusal is no proof.
+# base_has_moved <what happened meanwhile> [<how to stop>]: whether origin/<default> is no longer the tip the merge of this
+# round was made on, asked of origin right before the push, so that a gate is not started on a base that is gone. Names the
+# move in round_cause where it is. The gate refuses a push over a tip it does not hold, whatever the cause, and a refusal is
+# no proof. An origin that cannot be read stops the run through <how to stop>: back_to_branch where the merge was made in
+# the worktree of the issue, die (the default) where it was made beside it.
 base_has_moved() {
-  local now said
-  said="$(git fetch origin 2>&1)" || die "could not reach origin: $said"
-  now="$(git rev-parse "origin/$default^{commit}")" || die "origin/$default is not there after the fetch"
+  local now said stop="${2:-die}"
+  said="$(git fetch origin 2>&1)" || "$stop" "could not reach origin: $said"
+  now="$(git rev-parse "origin/$default^{commit}")" || "$stop" "origin/$default is not there after the fetch"
   [ "$now" != "$base_tip" ] || return 1
   round_cause="origin/$default moved from $base_tip to $now $1"
 }
@@ -558,7 +560,7 @@ land_round() {
     fi
     merged_sha="$(git rev-parse HEAD)"; merged="$(git rev-parse --short HEAD)"; merge_shas=("$merged_sha")
     echo "round $round of $rounds_limit: the merge commit $merged_sha is made on origin/$default at $base_tip"
-    if base_has_moved "while the merge was made"; then back_to_branch_after_move; return 0; fi
+    if base_has_moved "while the merge was made" back_to_branch; then back_to_branch_after_move; return 0; fi
     push_default . "$merged_sha" "the push was refused (see above) - nothing reached origin, and $branch is checked out again" -- git push --porcelain origin "HEAD:$default"
     case "$push_outcome" in
       moved) back_to_branch_after_move; return 0 ;;
@@ -575,7 +577,8 @@ land_round() {
 round=0; rounds_limit=0
 while :; do
   round=$((round + 1))
-  rounds_limit="$(landing_rounds_limit 2>&1)" || die "nothing landed, and no round $round was started: $rounds_limit"
+  # The number is read from standard output alone: a warning on standard error is shown and is no part of it
+  rounds_limit="$(apart landing_rounds_limit)" || die "nothing landed, and no round $round was started: $rounds_limit"
   if [ "$round" -gt "$rounds_limit" ]; then
     die "nothing landed: $round_cause; round $((round - 1)) was the last that INTEGRATE_MAX_ROUNDS ($rounds_limit) allows, and nothing was pushed to $default. A public repository pushes the merge commit of each round to ci/integrate-$branch for its checks and deletes it from there again; one that stays is named above. Run this again, which merges onto the new $default"
   fi

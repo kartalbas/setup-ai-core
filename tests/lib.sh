@@ -4,6 +4,7 @@
 set -eEuo pipefail
 
 . "$(dirname "${BASH_SOURCE[0]}")/tool-environment.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/date-stub.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -117,6 +118,7 @@ node "$ROOT/tests/curl-fake.mjs" --init "$CURL_FAKE_STATE"
 mkdir -p "$WORK/curlbin"
 printf '#!/bin/sh\nexec node "%s/tests/curl-fake.mjs" "$@"\n' "$ROOT" > "$WORK/curlbin/curl"
 chmod +x "$WORK/curlbin/curl"
+make_date_stub "$WORK/curlbin"
 PATH_CURL="$WORK/curlbin:$PATH"
 }
 
@@ -125,6 +127,7 @@ PATH_CURL="$WORK/curlbin:$PATH"
 # of $ROOT (or of ROOT_UNDER_TEST) in the project; planeq <js> reads the stand-in's project ENG as `p`;
 # reset_log empties the logs of what curl was given.
 make_plane_project() {
+  unset TRACKER   # the project's config.env names the tracker; one in the environment of the run would win over it
   export HOME="$WORK/home" AI_CORE_HOME="$WORK/ai-core-home" GH_CACHE_DIRECTORY="$WORK/cache" AI_CORE_SLEEP="$WORK/sleep"
   mkdir -p "$HOME" "$AI_CORE_HOME"
   printf '#!/bin/sh\necho "$@" >> "%s/slept"\n' "$WORK" > "$WORK/sleep"; chmod +x "$WORK/sleep"
@@ -141,6 +144,14 @@ PLANE_TOKEN_COMMAND="cat $WORK/token"
 CONF
 }
 ai() { local c="$1"; shift; ( cd "$P" && PATH="$PATH_CURL" bash "${ROOT_UNDER_TEST:-$ROOT}/bin/$c.sh" "$@" ); }
+# ai_new <issue-new arguments>: the number issue-new prints and nothing else; where it fails, its exit status and
+# what it said go to stderr, so the run that dies on it says why
+ai_new() {
+  local number rc=0 said="$WORK/ai-new.said"
+  number="$(ai issue-new "$@" 2> "$said")" || rc=$?
+  [ "$rc" -eq 0 ] || { echo "issue-new exited $rc: $(cat "$said")" >&2; return "$rc"; }
+  printf '%s\n' "$number"
+}
 planeq() { node -e "const s=JSON.parse(require('fs').readFileSync('$CURL_FAKE_STATE/plane.json'));const p=s.projects[0];$1"; }
 reset_log() { : > "$CURL_FAKE_STATE/requests.log"; : > "$CURL_FAKE_STATE/argv.log"; : > "$CURL_FAKE_STATE/env.log"; }
 # plane_fn <function> [args]: a function of the tracker library, called in the project with its board selected
@@ -181,7 +192,7 @@ plane_add_comment() {
 # in $F; forgejo_set <js> changes the stand-in's state as another hand would (`s` is the state); forgejo_repo
 # <owner/name> [files] adds a repository to it.
 make_forgejo_project() {
-  export HOME="$WORK/home" AI_CORE_HOME="$WORK/ai-core-home" GH_CACHE_DIRECTORY="$WORK/cache"
+  export HOME="$WORK/home" AI_CORE_HOME="$WORK/ai-core-home" GH_CACHE_DIRECTORY="$WORK/cache" GIT_CONFIG_GLOBAL="$WORK/home/.gitconfig"
   mkdir -p "$HOME" "$AI_CORE_HOME"
   make_curl_fake
   git config --global init.defaultBranch main   # a repository the instance makes is on main too: the stand-in does not move the default branch to the first one pushed

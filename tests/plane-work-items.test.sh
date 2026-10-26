@@ -7,11 +7,12 @@
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 make_plane_project
 printf 'The body & its <tag> at lib/x.sh:12\n\nsecond paragraph\n' > "$WORK/body.md"
-new() { ai issue-new --repo example-org/example-repo --title "$1" --body-file "$WORK/body.md" --label type:feature --label area:tooling --priority P2 --asked-by someone --asked-in "the test" "${@:2}" 2>/dev/null; }
+new() { ai_new --repo example-org/example-repo --title "$1" --body-file "$WORK/body.md" --label type:feature --label area:tooling --priority P2 --asked-by someone --asked-in "the test" "${@:2}"; }
 
 section "the issue commands on Plane: one work item at a time"
 
-n="$(new "Put the thing on the board, or nobody sees it")" || fail "issue-new on Plane: $n"
+# made one second before midnight and read after it: the asked-for line carries the day of the clock that made it
+n="$(DATE_STUB_NOW="$(epoch_of 2026-10-25T23:59:59Z)" new "Put the thing on the board, or nobody sees it")" || fail "issue-new on Plane: $n"
 [ "$n" = 1 ] || fail "the first work item should be number 1, got '$n'"
 [ "$(planeq 'console.log(p.states.find(s=>s.id===p.issues[0].state).name+" "+p.issues[0].priority)')" = "ready medium" ] \
   || fail "the work item is not in state ready with priority medium"
@@ -19,7 +20,7 @@ echo "  issue-new: the work item stands in ready, priority medium (P2)"
 
 # the body and the comments round-trip exactly
 thread="$(ai issue-thread "$n" --json)" || fail "issue-thread: $thread"
-want="$(printf 'Asked for by @someone on %s in the test.\n\nThe body & its <tag> at lib/x.sh:12\n\nsecond paragraph\n' "$(date +%Y-%m-%d)")"
+want="$(printf 'Asked for by @someone on %s in the test.\n\nThe body & its <tag> at lib/x.sh:12\n\nsecond paragraph\n' 2026-10-25)"
 [ "$(jq -r .body <<< "$thread")" = "$want" ] || fail "the body did not come back as written: $(jq -r .body <<< "$thread")"
 [ "$(jq -r .state <<< "$thread")" = open ] || fail "a work item in ready is open"
 echo "  issue-thread: the Markdown comes back as written, & and < included"

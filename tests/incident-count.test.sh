@@ -2,9 +2,9 @@
 # What incident-count.sh counts and what its table looks like.
 #
 # Run with a FAKE gh on PATH: the issues are fixed text, so nothing leaves the machine and
-# nothing is written. The dates the fake reports are built from TODAY, so the test asserts the
-# same thing next year as it does now - a fixed date would drift out of the window and turn the
-# run red for no reason.
+# nothing is written. The clock of the command and the dates the fake reports are one pinned instant
+# (a Sunday, one second before the week turns): a clock that moves between the fixture and the command
+# would move the incidents into another column, and a date of the real clock would drift out of the window.
 #
 #   bash test/incident-count.test.sh
 
@@ -16,11 +16,12 @@ export GH_CACHE_DIRECTORY="$fake/cache"
 trap 'rm -rf "$fake"' EXIT
 log="$fake/calls.txt"
 
-if date -u -d '1970-01-01' +%Y >/dev/null 2>&1; then
-  days_ago() { date -u -d "$1 days ago" "$2"; }
-else
-  days_ago() { date -u -v-"$1"d "$2"; }
-fi
+. "$root/tests/date-stub.sh"; make_date_stub "$fake"
+export PATH="$fake:$PATH"
+seed_clock="$(epoch_of 2026-10-25T23:59:59Z)"
+export DATE_STUB_NOW="$seed_clock"
+
+days_ago() { date -u -d "@$((seed_clock - $1 * 86400))" "$2"; }
 
 this_week="$(date -u +%G-W%V)"
 last_week="$(days_ago 7 +%G-W%V)"
@@ -53,7 +54,6 @@ JSON
 esac
 EOF
 chmod +x "$fake/gh"
-export PATH="$fake:$PATH"
 
 failed=0
 check() {
@@ -94,6 +94,16 @@ check 'the ticket from last year is outside the window' 0 \
 
 echo 'a label that is not an incident is not counted'
 check 'no type row' no "$(grep -q '^type:' <<< "$out" && echo yes || echo no)"
+
+# The week turns between the fixture and the command: the incidents made on the Sunday stay in the week they
+# were made in, now the second column from the end, and the new week is empty
+echo 'after midnight, in the next week, the counts stay in the week of the incident'
+out="$(DATE_STUB_NOW="$(epoch_of 2026-10-26T00:00:01Z)" "$count" "$repo" 2>&1 | tr -d '\r')"
+next_week="$(date -u -d 2026-10-26 +%G-W%V)"
+check 'the header ends with the new week' yes "$(echo "$out" | head -1 | grep -q "$this_week.*$next_week\$" && echo yes || echo no)"
+in_week() { awk -v week="$1" 'NR == 1 { for (i = 2; i <= NF; i++) if ($i == week) column = i } $1 == "incident:title" { print $column }' <<< "$out"; }
+check 'two incident:title in the week they were made in' 2 "$(in_week "$this_week")"
+check 'none in the new week, where the last column of the table now reads' 0 "$(in_week "$next_week")"
 
 # How well the tickets themselves are written is a question about the organisation and not
 # about one board, and an answer covering half of it reads as an answer covering all of it.

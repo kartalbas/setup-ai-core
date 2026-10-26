@@ -2,7 +2,7 @@
 # Refusals reach every actual writer and leave no tracker mutations, including composed bodies.
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 make_gh_fake
-export HOME="$WORK/home" AI_CORE_HOME="$WORK/core" PATH="$PATH_SH" GH_BODY_FIXTURE=1 GH_VISIBILITY=public TMPDIR="$WORK/body-tmp"
+export HOME="$WORK/home" AI_CORE_HOME="$WORK/core" PATH="$PATH_SH" GH_BODY_FIXTURE=1 GH_VISIBILITY=public TMPDIR="$WORK/body-tmp" TRACKER=github
 mkdir -p "$HOME" "$AI_CORE_HOME" "$TMPDIR"
 printf 'The existing body.\n' > "$GH_FAKE/current-body"
 failed=0
@@ -196,6 +196,7 @@ title_invoke() {
         PLANE_PROJECT=NEW ai project-new "$title" ;;
     esac
   else
+    export TRACKER=github   # after make_plane_project this process has none, and the cases below name the provider they exercise
     case "$path" in
       title-edit) bash "$root_under_test/bin/issue-edit.sh" example-org/example-repo 9 --title "$title" ;;
       title-both) bash "$root_under_test/bin/issue-edit.sh" example-org/example-repo 9 --title "$title" --body-file "$WORK/body" ;;
@@ -209,6 +210,7 @@ case_title() {
   title="$2"; printf 'Safe body.\n' > "$WORK/body"
   : > "$GH_FAKE/body-calls.log"; rm -f "$GH_FAKE/sent-title"
   if [ "$title_provider" = plane ]; then reset_log; : > "$TITLE_VISIBILITY_LOG"; fi
+  local failed_before="$failed"
   rc=0; out="$(title_invoke 2>&1)" || rc=$?
   if [ "$title_provider" = plane ]; then
     writes="$(grep -cE '^(POST|PATCH|DELETE) ' "$CURL_FAKE_STATE/requests.log" || true)"
@@ -244,6 +246,7 @@ case_title() {
     fi
   fi
   check "$label snapshots removed" '' "$(ls -A "$TMPDIR")"
+  [ "$failed" -eq "$failed_before" ] || { echo "  $label: the command exited $rc and said:"; sed 's/^/    /' <<< "$out"; }
 }
 for path in title-edit title-both title-new title-project; do
   for GH_VISIBILITY in public error malformed null missing string; do
@@ -404,7 +407,9 @@ make_plane_project
 unset GH_BODY_FIXTURE
 PATH="$PATH_CURL"; export PATH
 printf 'Safe body.\n' > "$WORK/seed-body"
-seed="$(ai issue-new --repo example-org/example-repo --title 'Preserve the body, or text is lost' --body-file "$WORK/seed-body" --label type:feature --label area:tooling --priority P2 --asked-by someone --asked-in 'the test' 2>/dev/null)"
+# the seed is made one second before midnight, and the commands below run after it: the day each of them writes is the day of its own clock
+seed_clock="$(epoch_of 2026-10-25T23:59:59Z)"; command_clock="$(epoch_of 2026-10-26T00:00:01Z)"
+seed="$(DATE_STUB_NOW="$seed_clock" ai_new --repo example-org/example-repo --title 'Preserve the body, or text is lost' --body-file "$WORK/seed-body" --label type:feature --label area:tooling --priority P2 --asked-by someone --asked-in 'the test')"
 # Plane resolves an email locally and sends only its member UUID in either writer; Plane keeps an assignee only who is an active member of the project.
 planeset 's.users.push({id:"00000000-0000-0000-0000-000000000099",email:"someone@company.ch",display_name:"Someone"});p.members.push({user:"00000000-0000-0000-0000-000000000099",is_active:true})'
 for path in assign-replace assignee-new; do
@@ -429,13 +434,14 @@ plane_invoke() {
 }
 for path in inline file new edit; do
  for text in "$bot" '49699333+dependabot[bot]@USERS.NOREPLY.GITHUB.COM' "$bot $real" "$real $bot"; do
-  printf '%s' "$text" > "$WORK/body"; reset_log; rc=0; out="$(plane_invoke 2>&1)" || rc=$?
+  printf '%s' "$text" > "$WORK/body"; reset_log; rc=0; out="$(DATE_STUB_NOW="$command_clock" plane_invoke 2>&1)" || rc=$?
   writes="$(grep -cE '^(POST|PATCH|DELETE) ' "$CURL_FAKE_STATE/requests.log" || true)"
   case "$text" in
    *company.ch*) check "Plane $path mixed refuses" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"; check "Plane $path zero writes" 0 "$writes" ;;
    *) check "Plane $path bot allowed" 0 "$rc"; expected=1; [ "$path" != new ] || expected=3; check "Plane $path intended writes" "$expected" "$writes"
       expected_text="$text"
-      if [ "$path" = new ] || [ "$path" = edit ]; then expected_text="Asked for by @someone on $(date +%Y-%m-%d) in the test."$'\n\n'"$text"; fi
+      if [ "$path" = new ]; then expected_text="Asked for by @someone on 2026-10-26 in the test."$'\n\n'"$text"; fi
+      if [ "$path" = edit ]; then expected_text="Asked for by @someone on 2026-10-25 in the test."$'\n\n'"$text"; fi
       case "$path" in
         inline|file) html="$(planeq 'console.log(p.comments[p.comments.length-1].comment_html)')" ;;
         new) html="$(planeq 'console.log(p.issues[p.issues.length-1].description_html)')" ;;

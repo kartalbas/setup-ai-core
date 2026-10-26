@@ -44,7 +44,8 @@ done
 failed=0
 check() {
   if [ "$2" = "$3" ]; then echo "  ok   $1"
-  else echo "  FAIL $1"; echo "       expected: $2"; echo "       actual:   $3"; failed=$((failed + 1)); fi
+  else echo "  FAIL $1"; echo "       expected: $2"; echo "       actual:   $3"
+    echo "       the last command exited ${rc:-before any ran} and said: $(printf '%s' "${out:-}" | head -c 2000)"; failed=$((failed + 1)); fi
 }
 
 body="$fake/body.md"; printf 'the body\n' > "$body"
@@ -61,32 +62,32 @@ new_with_title() {
 }
 
 echo 'issue-new reports a long title and creates the issue anyway'
-out="$(new_with_title "$over70")"
+rc=0; out="$(new_with_title "$over70")" || rc=$?
 check 'says how long it is'    yes "$(grep -q 'title is 71 characters, over 70' <<< "$out" && echo yes || echo no)"
 check 'says what a title is'   yes "$(grep -q 'one sentence a stranger understands' <<< "$out" && echo yes || echo no)"
 check 'the issue was created'  yes "$(grep -q 'issue create' "$log" && echo yes || echo no)"
 
 echo 'seventy characters is not over seventy'
-out="$(new_with_title "$exactly70")"
+rc=0; out="$(new_with_title "$exactly70")" || rc=$?
 check 'nothing said about the length' no "$(grep -q 'over 70' <<< "$out" && echo yes || echo no)"
 
 # The count is CHARACTERS, not bytes. An em dash is three bytes, so a title of exactly seventy
 # carrying one was reported as seventy-two by the shell that counts bytes.
 echo 'a title of seventy with an em dash in it is not over seventy either'
-out="$(new_with_title "$(printf 'a%.0s' $(seq 1 68))—x")"
+rc=0; out="$(new_with_title "$(printf 'a%.0s' $(seq 1 68))—x")" || rc=$?
 check 'nothing said about the length' no "$(grep -q 'over 70' <<< "$out" && echo yes || echo no)"
 
 # A CHARACTER OUTSIDE THE BASIC MULTILINGUAL PLANE IS STILL ONE CHARACTER. An emoji is four
 # bytes and one code point, and the shell that stores text as UTF-16 counts it as two.
 echo 'a title of seventy ending in an emoji is not over seventy either'
 emoji="$(printf '\360\237\230\200')"
-out="$(new_with_title "$(printf 'a%.0s' $(seq 1 69))$emoji")"
+rc=0; out="$(new_with_title "$(printf 'a%.0s' $(seq 1 69))$emoji")" || rc=$?
 check 'nothing said about the length' no "$(grep -q 'over 70' <<< "$out" && echo yes || echo no)"
-out="$(new_with_title "$(printf 'a%.0s' $(seq 1 70))$emoji")"
+rc=0; out="$(new_with_title "$(printf 'a%.0s' $(seq 1 70))$emoji")" || rc=$?
 check 'and seventy-one is counted as seventy-one' yes "$(grep -q 'title is 71 characters, over 70' <<< "$out" && echo yes || echo no)"
 
 echo 'issue-new reports a backtick and creates the issue anyway'
-out="$(new_with_title 'Fix the `board_items` reader, or every card past the first hundred is missing')"
+rc=0; out="$(new_with_title 'Fix the `board_items` reader, or every card past the first hundred is missing')" || rc=$?
 check 'names the backtick'      yes "$(grep -q 'title contains a backtick' <<< "$out" && echo yes || echo no)"
 check 'says no code in a title' yes "$(grep -q 'no code name in a title' <<< "$out" && echo yes || echo no)"
 check 'the issue was created'   yes "$(grep -q 'issue create' "$log" && echo yes || echo no)"
@@ -94,39 +95,39 @@ check 'the issue was created'   yes "$(grep -q 'issue create' "$log" && echo yes
 # A title that names an artifact and no stake fits twenty other tickets. The shape reported is
 # narrow on purpose: one of six verbs AND none of the three joins.
 echo 'a title that names an action and no stake is reported'
-out="$(new_with_title 'Add the board-sync command')"
+rc=0; out="$(new_with_title 'Add the board-sync command')" || rc=$?
 check 'names the missing stake' yes "$(grep -q 'title names an action and no stake' <<< "$out" && echo yes || echo no)"
 check 'the issue was created'   yes "$(grep -q 'issue create' "$log" && echo yes || echo no)"
 
 echo 'the same verb WITH a stake draws no line'
-out="$(new_with_title 'Add the board-sync command, or an issue filed on github.com is on no board')"
+rc=0; out="$(new_with_title 'Add the board-sync command, or an issue filed on github.com is on no board')" || rc=$?
 check 'silent about the stake'  no "$(grep -q 'no stake' <<< "$out" && echo yes || echo no)"
-out="$(new_with_title 'Add the board-sync command: an issue filed on github.com is on no board')"
+rc=0; out="$(new_with_title 'Add the board-sync command: an issue filed on github.com is on no board')" || rc=$?
 check 'a colon joins the halves too' no "$(grep -q 'no stake' <<< "$out" && echo yes || echo no)"
 
 echo 'a verb outside the six is not judged at all'
-out="$(new_with_title 'Refuse a push whose commit names no issue')"
+rc=0; out="$(new_with_title 'Refuse a push whose commit names no issue')" || rc=$?
 check 'silent about the stake' no "$(grep -q 'no stake' <<< "$out" && echo yes || echo no)"
 
 # issue-new reports every board it touched on stderr too, so the check is for a TITLE line and
 # not for silence.
 echo 'a title that reads well draws no title line at all'
-out="$(new_with_title "$good")"
+rc=0; out="$(new_with_title "$good")" || rc=$?
 check 'nothing said about the title' no "$(grep -qE '^title (is|contains|names)' <<< "$out" && echo yes || echo no)"
 
 echo 'issue-edit reads a new title the same way'
 : > "$log"
-out="$(bash "$root/bin/issue-edit.sh" "$repo" 163 --title "$over70" 2>&1 >/dev/null)"
+rc=0; out="$(bash "$root/bin/issue-edit.sh" "$repo" 163 --title "$over70" 2>&1 >/dev/null)" || rc=$?
 check 'says how long it is' yes "$(grep -q 'title is 71 characters, over 70' <<< "$out" && echo yes || echo no)"
 check 'the edit was sent'   yes "$(grep -q 'method PATCH' "$log" && echo yes || echo no)"
 
 : > "$log"
-out="$(bash "$root/bin/issue-edit.sh" "$repo" 163 --title 'Add the board-sync command' 2>&1 >/dev/null)"
+rc=0; out="$(bash "$root/bin/issue-edit.sh" "$repo" 163 --title 'Add the board-sync command' 2>&1 >/dev/null)" || rc=$?
 check 'names the missing stake' yes "$(grep -q 'title names an action and no stake' <<< "$out" && echo yes || echo no)"
 
 echo 'an edit with no title has no title to read'
 : > "$log"
-out="$(bash "$root/bin/issue-edit.sh" "$repo" 163 --body-file "$body" 2>&1 >/dev/null)"
+rc=0; out="$(bash "$root/bin/issue-edit.sh" "$repo" 163 --body-file "$body" 2>&1 >/dev/null)" || rc=$?
 check 'nothing said about the title' no "$(grep -qE '^title (is|contains|names)' <<< "$out" && echo yes || echo no)"
 
 # A caller reads a non-zero exit as "nothing was made" and runs the command again. A title that is
@@ -154,7 +155,7 @@ run_new 'Add the `board_items` reader'
 check 'every report line says so'    0 "$(grep -E '^title (is|contains|names)' <<< "$out" | grep -vc '(reported only: the issue is created anyway)$')"
 check 'and there were two of them'   2 "$(grep -cE '^title (contains|names)' <<< "$out")"
 : > "$log"
-out="$(bash "$root/bin/issue-edit.sh" "$repo" 163 --title "$over70" 2>&1 >/dev/null)"
+rc=0; out="$(bash "$root/bin/issue-edit.sh" "$repo" 163 --title "$over70" 2>&1 >/dev/null)" || rc=$?
 check 'issue-edit says the title is set anyway' yes "$(grep -q '(reported only: the title is set anyway)$' <<< "$out" && echo yes || echo no)"
 
 echo 'a board failure after the create exits non-zero and names the issue'

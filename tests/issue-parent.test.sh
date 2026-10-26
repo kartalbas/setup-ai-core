@@ -41,7 +41,9 @@ trap cleanup EXIT
 
 check() { # name expected actual
   if [ "$2" = "$3" ]; then echo "  ok   $1"
-  else echo "  FAIL $1"; echo "       expected: $2"; echo "       actual:   $3"; failed=$((failed + 1)); fi
+  else echo "  FAIL $1"; echo "       expected: $2"; echo "       actual:   $3"
+    [ -z "${new_issue_status:-}" ] || echo "       the last issue-new exited $new_issue_status; stdout: $(head -c 1000 "$FAKE/out"); stderr: $(head -c 2000 "$FAKE/err")"
+    failed=$((failed + 1)); fi
 }
 
 # The issues that exist: one file per issue, holding "<node id>\t<title>". Number 33
@@ -109,7 +111,9 @@ new_issue() { # new_issue [parent reference]; stdout to $FAKE/out, stderr to $FA
               --label type:bug --label area:tooling --priority P2 --project "$PROJECT_NUMBER"
               --asked-by kartalbas --asked-in 'the test')
   [ $# -gt 0 ] && args+=(--parent "$1")
-  bash "$ROOT/bin/issue-new.sh" "${args[@]}" > "$FAKE/out" 2> "$FAKE/err"
+  new_issue_status=0
+  bash "$ROOT/bin/issue-new.sh" "${args[@]}" > "$FAKE/out" 2> "$FAKE/err" || new_issue_status=$?
+  return "$new_issue_status"
 }
 
 # Whether the mutation was sent this parent node id, with the new issue as the child.

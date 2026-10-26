@@ -17,7 +17,7 @@ refuse() { ! grep -qF -- "$2" <<< "$1" || { echo "the report holds, and must not
 make_mini() {
   mkdir -p "$1/tests/sections" "$1/lib" "$1/rules"
   cp "$root/lib/common.sh" "$root/lib/tool-order.sh" "$1/lib/"
-  cp "$root/tests/"{check.sh,lib.sh,tool-environment.sh,load-stubs.sh} "$1/tests/"
+  cp "$root/tests/"{check.sh,lib.sh,tool-environment.sh,date-stub.sh,load-stubs.sh} "$1/tests/"
   printf '# fixture\n' > "$1/rules/00-fixture.md"
 }
 # plant_section <folder> <name>: the section of that name, its body on the standard input

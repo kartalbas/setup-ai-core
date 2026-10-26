@@ -94,7 +94,10 @@ reset_plane() { planeset 's.projects.forEach((q)=>{q.issues=[];q.comments=[]})';
 reset_plane
 world; reset_log
 gh_set 's.boards.find((b)=>b.id==="PVT_D").title="Empty and unlinked\nA second line"'
+# the provenance comment is stamped with the clock of the carry: its instant lies between the two readings around the run
+carry_from="$(date -u +%s)"
 carry --to plane || fail "the project carry: $(cat "$WORK/out.txt" "$WORK/err.txt")"
+carry_to="$(date -u +%s)"
 out="$(cat "$WORK/out.txt")"
 grep -q '^board Empty and unlinked -> ' <<< "$out" || fail "the board report did not keep the first line of its title"
 ! grep -q '^A second line -> ' <<< "$out" || fail "the board title split its report across lines"
@@ -134,8 +137,13 @@ echo "  completed and archived, not planned and archived, a duplicate, a reopene
 
 # the thread: 230 comments and the provenance on one work item, the others with theirs; author, time, order and the body kept
 [ "$(pq 0 'console.log(C(N("example-org/example-repo#10")).length)')" = 231 ] || fail "#10 holds $(pq 0 'console.log(C(N("example-org/example-repo#10")).length)') comments, not its 230 and the provenance"
-[ "$(pq 0 'console.log(C(N("example-org/example-repo#1")).map((c)=>c.created_at+" "+c.external_id).join(","))')" = "2026-10-01T10:00:00Z IC_1a,2026-10-01T10:00:00Z IC_1b,2026-10-02T10:00:00Z IC_1c,$(date -u +%Y-%m-%d)T$(pq 0 'console.log(C(N("example-org/example-repo#1"))[3].created_at.slice(11))') I_example-repo1" ] \
-  || fail "#1 does not hold its three comments with their own times and ids, then the provenance: $(pq 0 'console.log(C(N("example-org/example-repo#1")).map((c)=>c.created_at+" "+c.external_id).join(","))')"
+thread_of_1="$(pq 0 'console.log(C(N("example-org/example-repo#1")).map((c)=>c.created_at+" "+c.external_id).join(","))')"
+provenance_stamp="${thread_of_1##*,}"; provenance_stamp="${provenance_stamp% *}"
+[ "${thread_of_1%,*}" = "2026-10-01T10:00:00Z IC_1a,2026-10-01T10:00:00Z IC_1b,2026-10-02T10:00:00Z IC_1c" ] && [ "${thread_of_1##* }" = I_example-repo1 ] \
+  || fail "#1 does not hold its three comments with their own times and ids, then the provenance: $thread_of_1"
+provenance_at="$(date -u -d "$provenance_stamp" +%s)"
+[ "$provenance_at" -ge "$carry_from" ] && [ "$provenance_at" -le "$carry_to" ] \
+  || fail "the provenance of #1 is stamped $provenance_stamp, not at a time between the start ($carry_from) and the end ($carry_to) of the carry"
 pq 0 'const c=C(N("example-org/example-repo#1"));console.log([c[0].comment_html,c[1].comment_html.split("\n")[0],c[1].comment_html.includes("&lt;b&gt;"),c[2].comment_html.includes("someone@company.ch")].join("|"))' | grep -q '^<pre>Comment 1 of 3 by @kadir (MEMBER) on 2026-10-01T10:00:00Z' || fail "the first comment lacks its author, time and order"
 pq 0 'console.log(C(N("example-org/example-repo#1"))[1].comment_html.split("\n")[0])' | grep -q 'Comment 2 of 3 by an unavailable author (NONE) on' || fail "a deleted author is not marked as unavailable, with the association NONE"
 pq 0 'console.log(C(N("example-org/example-repo#1"))[0].comment_html)' | grep -q 'first$' || fail "the body of the first comment lost its trailing newline"

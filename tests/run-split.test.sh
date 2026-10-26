@@ -343,6 +343,7 @@ for command in issue-comment.sh issue-edit.sh issue-new.sh; do
     interrupt_command "${mode_signal%%:*}" "${mode_signal##*:}" "$ROOT" "$command" $(commands "$command")
     check "$command, $mode_signal: it ended, nothing left in TMPDIR, the input unchanged" "ended/0/unchanged" \
       "$([ "$cmd_status" = never-ran ] || [ "$cmd_status" = never-ended ] && echo "$cmd_status" || echo ended)/$cmd_left/$cmd_input"
+    [ "$cmd_left" = 0 ] || echo "       left in TMPDIR: [$(ls -A "$T/cmd/tmp" | paste -sd' ' -)]"
   done
 done
 

@@ -163,7 +163,7 @@ source_case() {  # NAME NUMBER WANTED-LINE (empty: no line)
   check "$1: the worktree is cut from origin"    "$(git -C "$src" rev-parse refs/remotes/origin/master)" "$(git -C "$tree" rev-parse HEAD 2>/dev/null)"
   check "$1: the state is named"                 "$3" "$(grep '^The checkout ' <<< "$out")"
   check "$1: the checkout is as it was"          "$before" "$after"
-  check "$1: none of its changes is in the tree" '' "$(git -C "$tree" status --porcelain 2>&1)$(ls "$tree" | grep -E '^(untracked|local)\.txt$')"
+  check "$1: none of its changes is in the tree" '' "$(git -C "$tree" status --porcelain 2>&1)$(for f in local.txt untracked.txt; do [ ! -e "$tree/$f" ] || echo "$f"; done)"
 }
 
 make_source behind

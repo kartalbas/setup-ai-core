@@ -146,7 +146,7 @@ for neighbour in Zed cat dog; do
   flock -x -n "$F/.ai-core/neighbours/$neighbour/.copy.lock" true || held="$held $neighbour/.copy.lock"
 done
 spawned="$(wc -l < "$daemons" | tr -d ' ')"
-kill $(cat "$daemons") 2>/dev/null || true
+while read -r pid; do kill "$pid" 2>/dev/null || true; done < "$daemons"
 [ "$lock_push" -eq 0 ] || fail "the push beside the process left running was refused: $(tail -5 "$F-lock.log")"
 [ "$spawned" -eq 1 ] || fail "the case is not planted: $spawned process(es) were left running by the check, not one"
 [ -z "$held" ] || fail "a process the check left running still holds a lock of the gate:$held (see $F-lock.log)"
@@ -163,7 +163,7 @@ chmod +x "$gitwrap/git"
 ( . "$ROOT/lib/neighbours.sh"; PATH="$gitwrap:$PATH" neighbour_fetch "$F" cat 5 ) || fail "the fetch of cat failed"
 spawned="$(wc -l < "$daemons" | tr -d ' ')"
 fetch_held=""; flock -x -n "$F/.ai-core/neighbours/cat/.fetch.lock" true || fetch_held=1
-kill $(cat "$daemons") 2>/dev/null || true
+while read -r pid; do kill "$pid" 2>/dev/null || true; done < "$daemons"
 [ "$spawned" -eq 1 ] || fail "the case is not planted: the fetch left $spawned process(es) running, not one"
 [ -z "$fetch_held" ] || fail "the process the fetch left running, as the automatic maintenance of git does, still holds .fetch.lock"
 echo "  the fetch of a neighbour leaves a process running, and its lock is free once the fetch ends"

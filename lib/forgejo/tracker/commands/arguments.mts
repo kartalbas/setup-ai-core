@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { parseIssueNumber, parseRepository } from '../domain/issues.mts';
+import { formatRepository, isSameRepository, parseIssueNumber, parseRepository } from '../domain/issues.mts';
 import type { IssueRef, RepositoryRef } from '../domain/issues.mts';
 import { UsageError } from '../domain/refusals.mts';
 import type { GitClient } from '../git/git.mts';
@@ -108,6 +108,17 @@ export async function takeIssueOfWorktree(positionals: readonly string[], git: G
   const number = positionals[0];
   if (number === undefined) throw new UsageError(usage);
   return { ref: { ...parseRepository(recorded), number: parseIssueNumber(number) }, rest: positionals.slice(1) };
+}
+
+// Whether a branch named issue-<number>-... is the issue's, as lib/board.sh issue_branch_owners says it on GitHub: the
+// issue's branch name always is; a branch that records a repository (branch.<name>.issueRepository) is the issue's where
+// that is the issue's repository; one that records none is the issue's only where the issue lives in the clone's own
+// repository, because the number alone names an unrelated issue in each repository.
+export async function isBranchOfIssue(git: GitClient, cwd: string, name: string, ref: IssueRef, origin: RepositoryRef, issueBranch: string): Promise<boolean> {
+  if (name === issueBranch) return true;
+  const recorded = await git.getConfig(cwd, `branch.${name}.issueRepository`);
+  if (recorded === undefined) return isSameRepository(ref, origin);
+  return recorded.toLowerCase() === formatRepository(ref).toLowerCase();
 }
 
 // As takeIssueOfWorktree for a list: the repository named, or recorded on the current branch, holds for every number.

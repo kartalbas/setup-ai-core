@@ -1,12 +1,12 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { addComment, afterStep, currentLogin, explainMissingAssignment, formatIssue, formatRepository, getIssue, isSameRepository, parseRepository } from '../domain/issues.mts';
+import { addComment, afterStep, currentLogin, explainMissingAssignment, formatIssue, formatRepository, getIssue, isSameRepository, issueBranchName } from '../domain/issues.mts';
 import type { Issue } from '../domain/issues.mts';
 import { replaceFamilyLabel, statusLabel } from '../domain/labels.mts';
 import type { StatusValue } from '../domain/labels.mts';
 import { PreconditionError } from '../domain/refusals.mts';
 import { composeStartedRecord, hasStartedRecord, readTimeline } from '../domain/workflow.mts';
-import { parseArguments, refuseExtra, takeIssue } from './arguments.mts';
+import { isBranchOfIssue, parseArguments, refuseExtra, takeIssue } from './arguments.mts';
 import { succeeded } from './command.mts';
 import type { CommandContext, CommandResult } from './command.mts';
 
@@ -21,31 +21,23 @@ The issue must be open, assigned to the signed-in account and in ready, planned,
 branch of this issue that is not its own worktree, an origin branch of it that has not landed under another name,
 and a folder in the worktree's place refuse the run. An origin branch whose tip the default branch contains does
 not: the new branch descends from it. An origin branch that has not landed, under the exact name the worktree
-takes, is the issue's work: the worktree is opened on it, at its tip. Where the worktree stands already, nothing
+takes, is the issue's work: the worktree is opened on it, at its tip. A branch of the same number that records another
+repository, and, for an issue of another repository, one that records none and is not named as the issue's branch,
+belongs to another issue and refuses nothing. Where the worktree stands already, nothing
 is cut again and only the records that are missing are written. Before anything it runs the team modes check and
 refuses with its lines when a mode is missing. It runs ai-core init in a new worktree, so the harness is there
 before the work starts; a worktree of a harness source needs none.`;
 
 const STARTABLE: readonly StatusValue[] = ['ready', 'planned', 'implementing', 'review'];
-const SLUG_LENGTH = 40;
-
-function slugOf(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, SLUG_LENGTH)
-    .replace(/-+$/, '');
-}
 
 // A branch whose tip origin's default branch contains has landed: a branch cut from the default branch descends
-// from it, so its push fast-forwards that branch, and it holds nothing the new worktree lacks. `onlyNamed`, where
-// given, is the one name that counts.
-async function listUnlandedRemoteBranches(context: CommandContext, number: number, defaultBranch: string, onlyNamed: string | undefined): Promise<string[]> {
+// from it, so its push fast-forwards that branch, and it holds nothing the new worktree lacks. Only a branch that
+// `isIssues` takes for the issue's counts.
+async function listUnlandedRemoteBranches(context: CommandContext, number: number, defaultBranch: string, isIssues: (name: string) => Promise<boolean>): Promise<string[]> {
   const { git, cwd } = context;
-  const names = (await git.listRemoteBranchNames(cwd, [`issue-${number}`, `issue-${number}-*`])).filter((name) => onlyNamed === undefined || name === onlyNamed);
   const unlanded: string[] = [];
-  for (const name of names) {
+  for (const name of await git.listRemoteBranchNames(cwd, [`issue-${number}`, `issue-${number}-*`])) {
+    if (!(await isIssues(name))) continue;
     await git.fetchBranch(cwd, name);
     if (!(await git.isAncestor(cwd, `refs/remotes/origin/${name}`, `refs/remotes/origin/${defaultBranch}`))) unlanded.push(name);
   }
@@ -87,7 +79,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   await git.fetchBranch(cwd, defaultBranch);
   const base = await git.resolveCommit(cwd, `refs/remotes/origin/${defaultBranch}`);
 
-  const branch = `issue-${ref.number}-${slugOf(issue.title)}`.replace(/-$/, '');
+  const branch = issueBranchName(ref.number, issue.title);
   const container = await git.worktreeContainer(cwd);
   const path = join(container, branch);
   const worktrees = await git.listWorktrees(cwd);
@@ -97,17 +89,15 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   let opened: string | undefined;
 
   if (!resuming) {
-    // Where the issue lives in another repository, the number alone names an unrelated issue of this clone's own:
-    // a local branch is the issue's where its record names the issue's repository, and any branch where it is named
-    // as the issue's branch.
+    // The number alone names an unrelated issue in each repository: a branch of it is the issue's as isBranchOfIssue says.
     const isOtherRepository = !isSameRepository(ref, origin);
+    const isIssues = (name: string): Promise<boolean> => isBranchOfIssue(git, cwd, name, ref, origin, branch);
     const pattern = new RegExp(`^issue-${ref.number}(-.*)?$`);
     const local: string[] = [];
     for (const name of (await git.listBranchNames(cwd)).filter((candidate) => pattern.test(candidate))) {
-      const recorded = isOtherRepository ? await git.getConfig(cwd, `branch.${name}.issueRepository`) : undefined;
-      if (!isOtherRepository || name === branch || (recorded !== undefined && isSameRepository(parseRepository(recorded), ref))) local.push(name);
+      if (await isIssues(name)) local.push(name);
     }
-    const remote = await listUnlandedRemoteBranches(context, ref.number, defaultBranch, isOtherRepository ? branch : undefined);
+    const remote = await listUnlandedRemoteBranches(context, ref.number, defaultBranch, isIssues);
     const isWorkOfOrigin = local.length === 0 && remote.length === 1 && remote[0] === branch;
     const taken = [...local, ...remote.map((name) => `origin/${name}`)];
     if (taken.length > 0 && !isWorkOfOrigin) throw new PreconditionError(`a branch for issue ${ref.number} exists already: ${taken.join(', ')}. Use its worktree, or finish that issue first`);

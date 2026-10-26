@@ -71,6 +71,20 @@ export function formatIssue(ref: IssueRef): string {
   return `${formatRepository(ref)}#${ref.number}`;
 }
 
+const SLUG_LENGTH = 40;
+
+// The name start-issue gives the branch of an issue: issue-<number>-<slug>, the slug the title in lower case, every run of
+// other characters than letters and digits one hyphen, cut to forty characters.
+export function issueBranchName(number: number, title: string): string {
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, SLUG_LENGTH)
+    .replace(/-+$/, '');
+  return `issue-${number}-${slug}`.replace(/-$/, '');
+}
+
 export function isSameIssue(a: IssueRef, b: IssueRef): boolean {
   return a.number === b.number && a.owner.toLowerCase() === b.owner.toLowerCase() && a.repo.toLowerCase() === b.repo.toLowerCase();
 }

@@ -257,6 +257,17 @@ describe('start-issue for an issue of another repository whose number a branch o
     git(main.checkout, 'branch', `issue-${own}-someone-else`);
     await assert.rejects(startIssue.run([String(own)], ctx(main.checkout)), /a branch for issue \d+ exists already: issue-\d+-someone-else/);
   });
+
+  it('cuts the worktree of an issue of this clone beside a branch of its number, local and on origin, that start-issue recorded for another repository (planted: that branch refused it)', async () => {
+    const own = newIssue(main, 'Own issue beside a branch recorded elsewhere, so that it starts');
+    const elsewhere = `issue-${own}-recorded-for-the-sibling`;
+    git(main.checkout, 'branch', elsewhere, git(main.checkout, 'commit-tree', '-p', 'HEAD', '-m', 'work of the sibling', 'HEAD^{tree}'));
+    git(main.checkout, 'config', `branch.${elsewhere}.issueRepository`, sibling.full);
+    git(main.checkout, 'push', '-q', 'origin', elsewhere);
+    await startIssue.run([String(own)], ctx(main.checkout));
+    assert.notEqual(must(await client.currentBranch(await treeOf(main, own))), elsewhere);
+    assert.equal(git(main.checkout, 'config', '--get', `branch.${elsewhere}.issueRepository`), sibling.full, 'the other branch keeps its record');
+  });
 });
 
 describe('integrate-issue', () => {
@@ -405,6 +416,7 @@ describe('integrate-issue', () => {
         assert.deepEqual(fake.readIssue('o/r', issue.number).labels, ['status/testing']);
       }
     });
+
   });
 
   describe('the re-run of a landing', () => {

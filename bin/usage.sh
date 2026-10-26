@@ -18,6 +18,7 @@
 # passed counts as reset; a window whose readings span less than 30 minutes has no measured burn and
 # is judged by what it stands at. One model's own weekly quota is not among the windows Claude Code
 # hands the status line, so it is not here either.
+# The readers of the three tools are in lib/usage.sh, which bin/status.sh uses for its usage line.
 # Without --tool it then audits the phase starts of the machine against the choices of phase-model
 # (lib/tool-order.sh), after the windows; a quota exit stays, and an audit that cannot be read turns
 # exit 0 into exit 2.
@@ -25,12 +26,11 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/lib/common.sh"
+. "$ROOT/lib/usage.sh"
 
 tool=""; model=""; audit=1
 usage="usage: usage.sh [--tool claude|codex|agy] [--model MODEL] [--stop-at N]"
-config="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.ai-core/config.env"
-stop="$(grep -E '^[[:space:]]*USAGE_STOP_AT[[:space:]]*=' "$config" 2>/dev/null | tail -n1 || true)"
-stop="${stop#*=}"; stop="${stop%%#*}"; stop="${stop//[[:space:]\"\']/}"; stop="${stop:-92}"
+stop="$(usage_stop_at)"
 while [ $# -gt 0 ]; do
   case "$1" in
     -h|--help) echo "$usage"
@@ -59,8 +59,7 @@ case "$tool" in claude|codex|agy) ;; *) reject "usage does not read the quota of
 finish_usage() {
   local result="$?" audit_result=0
   trap - EXIT
-  if [ -n "${history_lock:-}" ]; then rm "$history_lock" || { echo "error: cannot release $history_lock" >&2; audit_result=2; }; fi
-  if [ -n "${agy_error:-}" ]; then rm -f "$agy_error" || { echo "error: cannot remove $agy_error" >&2; audit_result=2; }; fi
+  usage_release || audit_result=2
   if [ "$audit" -eq 1 ]; then
     if . "$ROOT/lib/tool-order.sh"; then tool_order_audit || audit_result=2; else audit_result=2; fi
   fi
@@ -68,157 +67,8 @@ finish_usage() {
   exit "$result"
 }
 trap finish_usage EXIT
-now="$(date +%s)"
-dates='def stamp:
-  if type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$") then
-    sub("\\.[0-9]+"; "") as $text | ($text | fromdateiso8601) as $epoch
-    | if $epoch <= 0 then error("\($text) is not a positive epoch second")
-      elif ($epoch | strftime("%Y-%m-%dT%H:%M:%SZ")) == $text then $epoch else error("invalid calendar time \($text)") end
-  else error("\(tojson) is not a UTC time like 2026-11-01T02:21:43Z") end;'
-# What the readers hand on, one tab-separated row each. windows: the window's key in the history, the
-# name shown, its length in minutes (0 when unknown), the share used, the epoch of its reset.
-# readings: the key, the epoch of the reading, the share used, the epoch of the reset the reading
-# belonged to. shown: the share the tool itself shows, used or left.
-if [ "$tool" = codex ]; then
-  # A record counts only with a window in it; a window that is null or 0 minutes long says nothing.
-  shown=left
-  records="$( {
-    files=(); for f in "${CODEX_HOME:-$HOME/.codex}"/sessions/*/*/*/rollout-*.jsonl; do
-      [ ! -e "$f" ] || files+=("$f")
-    done
-    [ "${#files[@]}" -gt 0 ] || exit 0
-    ls -tr "${files[@]}" | while IFS= read -r f; do
-      grep -E '"rate_limits"[[:space:]]*:[[:space:]]*\{' "$f"; rc=$?
-      [ "$rc" -le 1 ] || exit "$rc"
-    done
-  } 2>&1)" || reject "Codex session files cannot be read: $records"
-  [ -n "$records" ] || { echo "no usage recorded yet: Codex records it in its session files once a session has had an answer" >&2; exit 2; }
-  parsed="$(jq -sc "$dates"'
-    [.[] | [.payload.rate_limits | (.primary, .secondary) | select(. != null and .window_minutes != 0)] as $windows
-      | select($windows | length > 0)
-      | (.timestamp | try stamp catch error("no usable timestamp: \(.)")) as $at
-      | {recorded: $at, fraction: (.timestamp | split(".")[1] // "0Z" | rtrimstr("Z") | "0." + . | tonumber), windows: [$windows[]
-        | if [.used_percent, .window_minutes, .resets_at] | all(type == "number") then .
-          else error("a window without a number for used_percent, window_minutes or resets_at") end
-        | if .used_percent < 0 or .window_minutes <= 0 or (.window_minutes | floor) != .window_minutes
-            or .resets_at <= 0 or .resets_at > 253402300799 or (.resets_at | floor) != .resets_at
-          then error("invalid percentage, duration or reset in a Codex window") else . end
-        | {key: (if .window_minutes == 300 then "five_hour" elif .window_minutes == 10080 then "seven_day" else "\(.window_minutes)_minutes" end),
-           minutes: .window_minutes, used: .used_percent, resets: .resets_at}]}]
-    | sort_by([.recorded, .fraction])' <<< "$records" 2>&1)" || reject "Codex session file: ${parsed#jq: *: }"
-  windows="$(jq -r 'last.windows[]? | "\(.key)\t\(.key)\t\(.minutes)\t\(.used)\t\(.resets)"' <<< "$parsed")"
-  recorded="$(jq -r 'last.recorded' <<< "$parsed")"
-  readings="$(jq -r --argjson since "$((now - 7 * 86400))" '.[] | select(.recorded >= $since) | .recorded as $t
-    | .windows[] | "\(.key)\t\($t)\t\(.used)\t\(.resets)"' <<< "$parsed")"
-elif [ "$tool" = agy ]; then
-  shown=left
-  command -v agy >/dev/null 2>&1 || reject "agy is not on the PATH, so its quota cannot be read"
-  agy_error="$(mktemp)" || reject 'cannot create a temporary file for agy errors'
-  history_lock=""
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-  answer="$(agy -p /usage --output-format json < /dev/null 2>"$agy_error")"; rc=$?
-  [ "$rc" -eq 0 ] || reject "agy -p /usage exited $rc: $(head -n1 "$agy_error" | cut -c1-200)"
-  recorded="$(date +%s)"
-  display=""
-  if [ -n "$model" ]; then
-    names="$(agy models < /dev/null 2>"$agy_error")"; rc=$?
-    [ "$rc" -eq 0 ] || reject "agy models exited $rc: $(head -n1 "$agy_error" | cut -c1-200)"
-    display="$(awk -F'\t' -v m="$model" '$1 == m { print $2; exit }' <<< "$names")"
-    [ -n "$display" ] || reject "agy does not list the model $model in agy models"
-  fi
-  jq -se 'length == 1 and (.[0] | type == "object")' >/dev/null 2>&1 <<< "$answer" \
-    || reject "the answer of agy -p /usage is not a JSON object (expected one JSON object)"
-  # A bucket whose remaining_fraction is no number is no reading, and so is every other bucket the
-  # program below cannot read; nothing is made up for it. A model belongs to the group whose
-  # description lists a family that the model's display name starts with, allowing version words.
-  windows="$(jq -r --arg model "$model" --arg display "$display" "$dates"'
-    def unusable($why): error("the answer of agy -p /usage cannot be used - \($why)");
-    def families: (.description | if type == "string" then . else "" end) | split(":")[1:] | join(":") | split(",")
-      | map(sub("^\\s+"; "") | sub("\\s+$"; "")) | map(select(. != ""));
-    def unversioned: ascii_downcase | split(" ") | map(select(test("^[0-9]+(\\.[0-9]+)*$") | not)) | join(" ");
-    def leads($name; $family): ($family | ascii_downcase) as $f
-      | any([($name | ascii_downcase), ($name | unversioned)][];
-          startswith($f) and ((.[($f | length):]) | . == "" or test("^[^a-z0-9]")));
-    def lists($name): any(families[]; leads($name; .));
-    def duration: {"weekly": {"name": "seven_day", "minutes": 10080}, "5h": {"name": "five_hour", "minutes": 300}};
-    if .status != "SUCCESS" then unusable("the status \(.status | tojson) is not SUCCESS") else . end
-    | (.command.data.groups) as $groups
-    | if ($groups | type) != "array" or ($groups | length) == 0 then unusable("it holds no usage groups in .command.data.groups") else . end
-    | ($groups | map(if (.name | type) != "string" or .name == "" then unusable("a group has no name") else . end)) as $named
-    | if ($named | map(.name) | unique | length) != ($named | length) then unusable("two groups are named alike") else . end
-    | ($named | map(select(lists($display)))) as $holders
-    | (if $model == "" then $named
-       elif ($holders | length) == 0 then error("no group lists the family of \($model) (\($display)); the groups list: \($named | map("\(.name): \(families | join(", "))") | join("; "))")
-       elif ($holders | length) > 1 then error("\($model) (\($display)) is listed by the groups \($holders | map(.name) | join(" and ")), so its group is ambiguous")
-       else $holders end)
-    | [.[] | if (.buckets | type) != "array" or (.buckets | length) == 0 then unusable("the group \(.name) has no buckets") else . end
-        | .name as $group | .buckets[]
-        | (.id | if type == "string" and . != "" then . else unusable("a bucket of \($group) has no id") end) as $id
-        | (duration[.window | if type == "string" then . else "" end]) as $length
-        | if $length == null then unusable("\($group)/\($id): the window \(.window | tojson) is neither weekly nor 5h")
-          elif (.remaining_fraction | type) != "number" or .remaining_fraction < 0 or .remaining_fraction > 1
-          then unusable("\($group)/\($id): remaining_fraction \(.remaining_fraction | tojson) is not a number from 0 to 1")
-          else {"key": ([$group, $id] | tojson), "label": "\($group | gsub("[[:cntrl:]]"; " ")): \($length.name)", "minutes": $length.minutes,
-                "used": (100 - 100 * .remaining_fraction),
-                "resets": (.reset_time | try stamp catch unusable("\($group)/\($id): reset_time \(.)"))} end]
-    | if (map(.key) | unique | length) != length then unusable("two buckets of a group share an id") else . end
-    | .[] | "\(.key)\t\(.label)\t\(.minutes)\t\(.used)\t\(.resets)"' <<< "$answer" 2>&1)" \
-    || reject "${windows#jq: *: }"
-  # Appending can take several writes; the lock covers the append, pruning and the read, never agy.
-  history="${AI_CORE_HOME:-$HOME}/.ai-core/usage-agy"; day=$((recorded / 86400))
-  mkdir -p "$history" || reject "the usage history folder $history cannot be made"
-  attempts=0
-  # The shell creates the lock file exclusively itself: the mkdir of some coreutils builds succeeds for two callers racing.
-  until ( set -C; : > "$history/.lock" ) 2>"$agy_error"; do
-    [ -w "$history" ] || reject "the usage history lock cannot be made: $(head -n1 "$agy_error")"
-    attempts=$((attempts + 1))
-    [ "$attempts" -lt 100 ] || reject "the usage history lock $history/.lock is still held after 10 seconds"
-    sleep 0.1
-  done
-  history_lock="$history/.lock"
-  for f in "$history"/*.log; do
-    [ -e "$f" ] || continue
-    n="${f##*/}"; n="${n%.log}"
-    case "$n" in ''|*[!0-9]*) continue ;; esac
-    [ "$n" -ge $((day - 8)) ] || rm -f "$f" || reject "the old usage history $f cannot be removed"
-  done
-  awk -F'\t' -v t="$recorded" '{ print $1 "\t" t "\t" $4 "\t" $5 }' <<< "$windows" >> "$history/$day.log" \
-    || reject "the usage history $history/$day.log cannot be written"
-  readings="$(awk -F'\t' 'NF != 4 || $2 !~ /^[0-9]+$/ || $2 <= 0 || $3 + 0 != $3 || $3 < 0 || $3 > 100 || $4 !~ /^[0-9]+$/ || $4 <= 0 { print "the usage history has a malformed line at " FILENAME ":" FNR > "/dev/stderr"; exit 1 } { print }' "$history"/*.log 2>"$agy_error")" \
-    || reject "$(head -n1 "$agy_error")"
-  cut -f1 <<< "$readings" | jq -se 'all(.[]; type == "array" and length == 2 and all(.[]; type == "string" and length > 0))' >/dev/null 2>"$agy_error" \
-    || reject "the usage history $history has an invalid group/bucket key: $(head -n1 "$agy_error")"
-  rm "$history_lock" || reject "the usage history lock $history_lock cannot be released"
-  history_lock=""
-else
-  shown=used
-  file="${AI_CORE_HOME:-$HOME}/.ai-core/usage.json"
-  [ -f "$file" ] || { echo "no usage recorded yet: the status line records it once a session has had an answer" >&2; exit 2; }
-  record="$(cat "$file")" || reject "$file cannot be read"
-  windows="$(jq -sr 'if length != 1 or (.[0] | type) != "object" then error("expected one JSON object") else .[0] end
-    | (.rate_limits // {} | to_entries | map(select(.value != null))) as $limits
-    | if ($limits | length) == 0 then error("rate_limits holds no window") else . end
-    | $limits[] | .key as $name | .value
-    | if [.used_percentage, .resets_at] | all(type == "number") then .
-      else error("the window \($name) has no number for used_percentage or resets_at") end
-    | if .used_percentage < 0 or .resets_at <= 0 or .resets_at > 253402300799 or (.resets_at | floor) != .resets_at
-      then error("the window \($name) has an invalid percentage or reset") else . end
-    | "\($name)\t\($name)\t\({"five_hour": 300, "seven_day": 10080}[$name] // 0)\t\(.used_percentage)\t\(.resets_at)"' <<< "$record" 2>&1)" \
-    || reject "$file: ${windows#jq: *: }"
-  recorded="$(jq -r '.recorded_at | if type == "number" then . else error("recorded_at is not a number") end
-    | if . > 0 and . <= 253402300799 and floor == . then . else error("recorded_at is not a positive epoch second") end' <<< "$record" 2>&1)" \
-    || reject "$file: ${recorded#jq: *: }"
-  history="${AI_CORE_HOME:-$HOME}/.ai-core/usage.log"; readings=""
-  if [ -e "$history" ]; then
-    readings="$(awk '
-      function window(u, r) { return (u == "-" && r == "-") || (u + 0 == u && u >= 0 && r ~ /^[0-9]+$/ && r > 0) }
-      NF != 5 || $1 !~ /^[0-9]+$/ || $1 <= 0 || !window($2, $3) || !window($4, $5) { print "malformed usage history at " FILENAME ":" FNR; exit 1 }
-      { if ($2 != "-") print "five_hour\t" $1 "\t" $2 "\t" $3; if ($4 != "-") print "seven_day\t" $1 "\t" $4 "\t" $5 }
-      ' "$history" 2>&1)" || reject "${readings##*$'\n'}"
-  fi
-fi
-[ -n "$windows" ] || reject "$tool gave no usage window"
+usage_read "$tool" "$model" || { echo "$usage_failure" >&2; exit 2; }
+windows="$usage_windows"; recorded="$usage_recorded"; readings="$usage_readings"; shown="$usage_shown"
 now="$(date +%s)"
 # The limit is a share used for every tool; the tools that show what is left say so beside it.
 if [ "$shown" = left ]; then limit="$stop % used"; at_limit="$((100 - stop)) % left"; else limit="$stop %"; at_limit="$stop %"; fi

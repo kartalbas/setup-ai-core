@@ -53,7 +53,8 @@ nothing of it has to survive:
 
 Set `PROJECT`, `PHASE`, `CLASS`, `SESSION` and `BRIEF` to the intended project, model-table
 phase word, class, phase session name and filled brief file. Set `WRITER` to the actual writer
-for plan-check or review. `OPERATION` is `start` or `resume`; for a resume set `NATIVE_ID` and
+for plan-check or review. `SETUP_FILE` is the package's setup file (`SKILL.md`, "Starting a phase"), or empty.
+`OPERATION` is `start` or `resume`; for a resume set `NATIVE_ID` and
 `TEXT`, after status proves that conversation is no longer running. The name and original start
 stay the same within a phase. Select in the project before entering a UI-test throwaway directory.
 A changed tool uses the selected reference for a fresh session with the current brief, saved work
@@ -65,6 +66,7 @@ set -euo pipefail
 cd "$PROJECT"
 args=("$PHASE" "$CLASS")
 [ -z "${WRITER:-}" ] || args+=(--written-by "$WRITER")
+[ -z "${SETUP_FILE:-}" ] || args+=(--setup-file "$SETUP_FILE")
 selection="$(ai-core phase-model "${args[@]}")" || exit 2
 read -r tool model effort <<< "$selection"
 [ "$tool" = codex ] || { printf 'Continue fresh through references/%s.md with the current brief, saved work and last report; no foreign id.\n' "$tool" >&2; exit 2; }

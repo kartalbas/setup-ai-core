@@ -28,5 +28,6 @@ export function createRecordingHarness(): RecordingHarness {
     openLandingMark: () => Promise.resolve(failing.has('openLandingMark') ? { succeeded: false, output: 'planted: openLandingMark failed' } : { succeeded: true, output: '/planted/mark' }),
     closeLandingMark: () => Promise.resolve({ succeeded: true, output: '' }),
     installTools: (path) => step('installTools', 'installed')(path),
+    readTokensPage: (cwd, itemsFile, columnsFile, board) => step('readTokensPage', 'the page')(`${cwd} ${itemsFile} ${columnsFile} ${board}`),
   };
 }

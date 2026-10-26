@@ -39,6 +39,15 @@ names, the spans the facts and the contracts name.
    line? Was an issue of this area and its contracts left out only to keep the package small? Name
    it.
 
+7. Is the `Setup:` line either `none` or one JSON object keyed `build`, `review` and `ui-test`, each
+   tool holding exactly `model`, `effort`, `estimate_tokens`, `budget_tokens` and `reason`? For every
+   entry: is its `model` and `effort` a tuple that tool's rows of `.ai-core/models.tsv` name for the phase;
+   for a `high-risk` package exactly that tool's `high-risk` row, never below it; for `ui-test` the
+   tool's UI-test row; is `budget_tokens` `ceil(estimate_tokens * 1.5)` and within the ceiling (build 300000,
+   250000 on Codex; review 150000; ui-test 100000); and does the `reason` rest on a counted `reviews` line
+   or on a cost of this package, not on a result nobody measured? `ai-core phase-model --setup-file`
+   refuses what breaks these, but the reason and the estimate are yours to read.
+
 ## Probes
 
 - A probe or an experiment (a script, a sample folder, an install) runs in a new folder from

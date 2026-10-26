@@ -95,7 +95,8 @@ echo "  card_rows: the row of lib/tracker.sh, the parent as a repository referen
 items="$WORK/items"; plane_fn card_rows > "$items"
 fields="$WORK/columns"; plane_fn fields_tsv | awk -F'\t' '$1 == "Status" { print $3 }' > "$fields"
 [ "$(tail -n1 "$fields")" = done ] || fail "the last Status column is $(tail -n1 "$fields"), not done"
-out="$(cd "$P" && node "$ROOT/lib/status.mjs" --items-file "$items" --columns-file "$fields" --board example-org/ENG --folder "$WORK" --stop-at 92 --issues 2>&1)" || fail "status.mjs on a row with no repository: $out"
+printf '{"tool":"claude","shown":"used","recorded":null,"failure":"no usage recorded yet","windows":[],"readings":[]}\n' > "$WORK/usage-snapshot.json"
+out="$(cd "$P" && node "$ROOT/lib/status.mjs" --items-file "$items" --columns-file "$fields" --board example-org/ENG --folder "$WORK" --stop-at 92 --usage-file "$WORK/usage-snapshot.json" --issues 2>&1)" || fail "status.mjs on a row with no repository: $out"
 grep -q -- '-#51' <<< "$out" || fail "status.mjs does not list the work item with no repository: $out"
 echo "  status.mjs: a card with no repository is listed as -#51, and done is the last column"
 

@@ -4,7 +4,7 @@
 #
 #   labels-sync.sh                            the repo of the current directory
 #   labels-sync.sh OWNER/REPO ...             named repos
-#   labels-sync.sh --all [--project N]        every repo on one board
+#   labels-sync.sh --all [--project N]        every repo on one board, an archived one named and skipped
 #
 # It only adds and updates. A label that is in the repo but not in labels.tsv is
 # reported and left alone - deleting one would strip it off every issue that carries it.
@@ -35,7 +35,11 @@ case "${1:-}" in
   --all) set_project "$project_arg" >/dev/null
          linked="$(project_repos)" || exit 1
          set_repos=()
-         while IFS= read -r r || [ -n "$r" ]; do [ -n "$r" ] && set_repos+=("$r"); done <<< "$linked"
+         while IFS= read -r r || [ -n "$r" ]; do
+           [ -n "$r" ] || continue
+           # An archived repository is read-only: the label write is refused, and it needs no label.
+           if repo_archived "$r"; then echo "$r: archived, skipped"; else set_repos+=("$r"); fi
+         done <<< "$linked"
          set -- ${set_repos[@]+"${set_repos[@]}"} ;;
   '')    here="$(default_repo)" || exit 1; set -- "$here" ;;
 esac

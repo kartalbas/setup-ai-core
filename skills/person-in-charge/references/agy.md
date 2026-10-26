@@ -32,7 +32,8 @@ do not start or fall back to another tool. The windows are agy's answer of that 
 
 Set `PROJECT`, `PHASE`, `CLASS`, `SESSION` and `BRIEF` to the intended project, model-table
 phase word, class, phase session name and filled brief file. Set `WRITER` to the actual writer
-for plan-check or review. `EXTRA_ROOTS` is the JSON array of every other absolute folder the
+for plan-check or review. `SETUP_FILE` is the package's setup file (`SKILL.md`, "Starting a phase"), or empty.
+`EXTRA_ROOTS` is the JSON array of every other absolute folder the
 phase needs; a UI test gets no folder and runs in the empty `UI_TEST_DIR`. `OPERATION` is
 `start` or `resume`; for a resume set `NATIVE_ID` and `TEXT`, after status proves that
 conversation is no longer running. The name and original start
@@ -46,6 +47,7 @@ set -euo pipefail
 cd "$PROJECT"
 args=("$PHASE" "$CLASS")
 [ -z "${WRITER:-}" ] || args+=(--written-by "$WRITER")
+[ -z "${SETUP_FILE:-}" ] || args+=(--setup-file "$SETUP_FILE")
 selection="$(ai-core phase-model "${args[@]}")" || exit 2
 read -r tool model effort <<< "$selection"
 [ "$tool" = agy ] || { printf 'Continue fresh through references/%s.md with the current brief, saved work and last report; no foreign id.\n' "$tool" >&2; exit 2; }

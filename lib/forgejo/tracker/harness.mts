@@ -9,7 +9,7 @@ import { showLines } from './git/git.mts';
 // lib/common.sh as bin/integrate-issue.sh runs it, and live_tags_declaration and the read of
 // lib/live-release.sh as bin/status.sh runs them, and the receipt of the checks of a landing, lib/landing-check.sh,
 // as bin/integrate-issue.sh runs it, and its mark of a harness landing. The install of a merged tree runs the repository's own
-// scripts/install.sh, as bin/integrate-issue.sh runs it.
+// scripts/install.sh, as bin/integrate-issue.sh runs it. The page of status --tokens is lib/status-tokens.sh.
 
 const CORE = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../..');
 const MAXIMUM_OUTPUT_BYTES = 16 * 1024 * 1024;
@@ -62,4 +62,5 @@ export const bashHarness: HarnessSteps = {
   openLandingMark: (cwd, commit, refs) => runBash(cwd, [`${CORE}/lib/landing-check.sh`, 'mark', cwd, commit, ...refs], 'stdout'),
   closeLandingMark: (mark) => runBash(CORE, [`${CORE}/lib/landing-check.sh`, 'unmark', mark]),
   installTools: runInstall,
+  readTokensPage: (cwd, itemsFile, columnsFile, board) => runBash(cwd, [`${CORE}/lib/status-tokens.sh`, itemsFile, columnsFile, board]),
 };

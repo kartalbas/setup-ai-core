@@ -488,6 +488,30 @@ check 'the repository is recorded on it' other-org/tracker "$(git -C "$work" con
 check 'the issue was read there'         yes "$(grep -q 'other-org/tracker/issues/171' "$clog" && echo yes || echo no)"
 check 'and never here'                   0 "$(grep -c 'example-org/example-repo/issues' "$clog" || true)"
 
+# The number 174 is also the number of an issue of this clone's own repository, which has a branch of its own: local, and
+# on origin. Asked about it in the tracker of the other repository, that branch answers "this issue", and it is not.
+echo 'an issue of another repository whose number a branch of this clone'"'"'s own issue carries: that branch is no obstacle'
+git -C "$side" checkout -q -b issue-174-own-work master
+echo 'own' > "$side/own.txt"; git -C "$side" add own.txt; git -C "$side" commit -q -m 'work of this clone'"'"'s own issue'
+git -C "$side" push -q origin issue-174-own-work
+git -C "$work" fetch -q origin
+git -C "$work" branch -q issue-174-own-work origin/issue-174-own-work
+out="$(cd "$work" && PATH="$cross:$PATH" GH_PROJECT_NUMBER='' bash "$start" other-org/tracker 174 2>&1)"; rc=$?
+check 'planted: exits zero'                    0 "$rc"
+check 'planted: its own branch is cut'         issue-174-alert-on-a-stuck-run "$(git -C "$work" for-each-ref --format='%(refname:short)' refs/heads | grep '^issue-174-alert' || true)"
+check 'planted: the repository is recorded'    other-org/tracker "$(git -C "$work" config --get "branch.issue-174-alert-on-a-stuck-run.issueRepository" || true)"
+check 'planted: the other branch is untouched' "$(git -C "$side" rev-parse issue-174-own-work)" "$(git -C "$work" rev-parse issue-174-own-work)"
+out="$(run 174)"; rc=$?
+check 'innocent: its own issue still refuses'  yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'innocent: it names the branch'          yes "$(grep -q 'a branch for this issue exists already: .*issue-174-own-work.* - use its worktree instead' <<< "$out" && echo yes || echo no)"
+git -C "$side" checkout -q -b issue-176-alert-on-a-stuck-run master
+echo 'other' > "$side/other.txt"; git -C "$side" add other.txt; git -C "$side" commit -q -m 'work of the other issue'
+git -C "$side" push -q origin issue-176-alert-on-a-stuck-run
+git -C "$work" fetch -q origin
+out="$(cd "$work" && PATH="$cross:$PATH" GH_PROJECT_NUMBER='' bash "$start" other-org/tracker 176 2>&1)"; rc=$?
+check 'innocent: the issue'"'"'s own branch on origin refuses' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'innocent: it names the branch on origin' yes "$(grep -q 'a branch for this issue exists already: origin/issue-176-alert-on-a-stuck-run' <<< "$out" && echo yes || echo no)"
+
 echo 'its own repository, named in another case, is no other repository'
 out="$(cd "$work" && GH_PROJECT_NUMBER='' bash "$start" Example-Org/Example-Repo 172 2>&1)"; rc=$?
 check 'exits zero'                       0 "$rc"

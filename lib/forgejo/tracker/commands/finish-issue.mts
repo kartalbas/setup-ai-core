@@ -2,7 +2,7 @@ import type { ForgejoClient } from '../api/client.mts';
 import { formatIssue, formatRepository, isSameRepository, parseRepository } from '../domain/issues.mts';
 import type { IssueRef } from '../domain/issues.mts';
 import { PartialCompletionError, PreconditionError } from '../domain/refusals.mts';
-import { hasStartedRecord, hasTrustedLandedRecord, readTimeline } from '../domain/workflow.mts';
+import { hasStartedRecord, hasTrustedLandedRecord, listTrustedLandedHeads, readTimeline } from '../domain/workflow.mts';
 import type { TimelineEntry } from '../domain/workflow.mts';
 import { basename } from 'node:path';
 import { GitError } from '../git/git.mts';
@@ -17,7 +17,8 @@ export const help = `${USAGE}
 Removes the worktree of one issue and its branch once the work landed. It writes nothing to the tracker: the card
 moved to testing when integrate-issue landed the work. It removes only the worktree of the issue named, only
 when that worktree has no changes, its head is on the default branch of origin and the issue carries the record
-"Landed on <branch>:" of that head, written by an account with write permission, and never forces a removal.
+"Landed on <branch>:" of that head, or of a reviewed head the worktree holds when it took the default branch in
+after the landing, written by an account with write permission, and never forces a removal.
 Where the work landed and the record is missing, it removes nothing and names the integrate-issue command that
 writes it. A worktree that is locked, as ai-core init locks the one it equips, is not removed: the command names the lock and
 the retry. A worktree of the issue that stands detached, as a killed landing leaves it, it names with the
@@ -73,6 +74,20 @@ async function lockOf(git: GitClient, main: string, path: string): Promise<{ rea
   return (await git.listWorktrees(main)).find((entry) => entry.path === path)?.lock;
 }
 
+// A branch that took the default branch in after the landing stands on a later commit than the reviewed head the
+// record names. Its work has landed when it holds that head and, as checked by the caller, lies wholly on the
+// default branch.
+async function holdsLandedHead(git: GitClient, api: ForgejoClient, main: string, ref: IssueRef, entries: readonly TimelineEntry[], head: string): Promise<boolean> {
+  for (const recorded of await listTrustedLandedHeads(api, ref, entries)) {
+    try {
+      if (await git.isAncestor(main, recorded, head)) return true;
+    } catch (error) {
+      if (!(error instanceof GitError)) throw error;
+    }
+  }
+  return false;
+}
+
 export async function run(args: readonly string[], context: CommandContext): Promise<CommandResult> {
   const parsed = parseArguments(args, {});
   const { ref, rest } = await takeIssue(parsed.positionals, context.git, context.cwd, USAGE);
@@ -117,7 +132,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
 
   const landedCommit = await git.findLandingCommit(main, head, `refs/remotes/origin/${defaultBranch}`);
   const entries = await readTimeline(api, ref);
-  if (!(await hasTrustedLandedRecord(api, ref, entries, head, landedCommit))) {
+  if (!(await hasTrustedLandedRecord(api, ref, entries, head, landedCommit)) && !(await holdsLandedHead(git, api, main, ref, entries, head))) {
     throw new PreconditionError(
       `${formatIssue(ref)} carries no "Landed on" record of ${head}, so the worktree ${worktree.path} stays: the work is on origin/${defaultBranch}, and the record is written by integrate-issue, which merges and pushes nothing again: ` +
         `ai-core integrate-issue ${formatRepository(ref)} ${ref.number} --reviewed-by NAME --reviewed-head ${head}, run in that worktree`,

@@ -154,7 +154,7 @@ else
   issue_repo="$repo"
   carried_number="$(carried_branch_number "$issue_repo" "$thread")"
   default="$(origin_default_branch)" || exit 1
-  owners="$(issue_branch_owners "$issue_repo" "$default" "$number" ${carried_number:+"$carried_number"})" \
+  owners="$(issue_branch_owners "$issue_repo" "$default" "$(issue_branch_name "$number" "$(jq -r '.title // ""' <<< "$thread")")" "$number" ${carried_number:+"$carried_number"})" \
     || die "nothing landed: the work items of the branches of issue $number could not be told from $(tracker_name), so nothing was merged or pushed and origin is as it was"
   # Only stdout is read: a warning git writes on stderr is no ref
   run_split git ls-remote --heads origin "refs/heads/issue-$number" "refs/heads/issue-$number-*" ${carried_number:+"refs/heads/issue-$carried_number" "refs/heads/issue-$carried_number-*"} \

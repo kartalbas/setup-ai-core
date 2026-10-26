@@ -143,8 +143,12 @@ branch_issue_repo() { [ -n "${1:-}" ] && git config --get "branch.$1.issueReposi
 # '<repo>#<number>' from another one, where '#<number>' links to an unrelated issue. GitHub reads
 # a repository name in any case, so the comparison does too.
 issue_ref() {  # issue_ref <repo or empty> <number>
-  local lower='tr A-Z a-z'
-  if [ -n "$1" ] && [ "$(printf '%s' "$1" | $lower)" != "$(default_repo 2>/dev/null | $lower)" ]; then echo "$1#$2"; else echo "#$2"; fi
+  if is_own_repo "$1"; then echo "#$2"; else echo "$1#$2"; fi
+}
+
+# Whether the repository is the checkout's own: none named, or the name of origin's repository in any case.
+is_own_repo() {  # is_own_repo <repo or empty>
+  [ -z "${1:-}" ] || [ "$(printf '%s' "$1" | tr A-Z a-z)" = "$(default_repo 2>/dev/null | tr A-Z a-z)" ]
 }
 
 # Who a new issue in this repo belongs to.
@@ -538,14 +542,30 @@ carried_branch_number() {
   [ "$(printf '%s' "${from%#*}" | tr '[:upper:]' '[:lower:]')" != "$(printf '%s' "$repo" | tr '[:upper:]' '[:lower:]')" ] || printf '%s\n' "${from##*#}"
 }
 
-# issue_branch_owners <issue repo> <origin's default branch> <number>...: the branches, local and on origin, named
-# issue-<number> or issue-<number>-... for one of the numbers, one line each, tab-separated: the branch name, the
-# work item it belongs to by its name at the time it was started (a hyphen where it belongs to none) and what the
-# tracker said about that. A branch whose recorded issue repository is another one than the issue's belongs to no
-# work item of it. Run in the clone.
+# issue_branch_name <number> <title>: the name start-issue gives the branch of an issue. The readable half is the
+# title, where everything that is not a letter or a digit becomes a hyphen, runs of hyphens collapse, and the
+# result is cut to forty characters: the name is read in a directory listing beside a dozen others.
+issue_branch_name() {
+  local slug
+  slug="$(printf '%s' "$2" \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed -e 's/[^a-z0-9][^a-z0-9]*/-/g' -e 's/^-*//' -e 's/-*$//' \
+    | cut -c1-40 | sed -e 's/-*$//')"
+  printf 'issue-%s-%s\n' "$1" "$slug"
+}
+
+# issue_branch_owners <issue repo> <origin's default branch> <the issue's branch name> <number>...: the branches, local
+# and on origin, named issue-<number> or issue-<number>-... for one of the numbers, one line each, tab-separated: the
+# branch name, the work item it belongs to by its name at the time it was started (a hyphen where it belongs to none)
+# and what the tracker said about that. A branch whose recorded issue repository is another one than the issue's
+# belongs to no work item of it. Where the issue lives in another repository than the checkout's own, a branch
+# without a record, local or only on origin, is a branch of the checkout's own issue of that number, because a
+# number alone names an unrelated issue in each repository: only the branch named as the issue's branch is the
+# issue's. Run in the clone.
 issue_branch_owners() {
-  local issue_repo="$1" default="$2" n name recorded
-  shift 2
+  local issue_repo="$1" default="$2" branch_name="$3" n name recorded own_repo=""
+  shift 3
+  is_own_repo "$issue_repo" || own_repo="$(default_repo)" || exit 1
   { for n in "$@"; do
       git for-each-ref --format='%(refname:short)' "refs/heads/issue-$n" "refs/heads/issue-$n-*"
       git for-each-ref --format='%(refname:strip=3)' "refs/remotes/origin/issue-$n" "refs/remotes/origin/issue-$n-*"
@@ -554,6 +574,8 @@ issue_branch_owners() {
       recorded="$(branch_issue_repo "$name")"
       if [ -n "$recorded" ] && [ "$(printf '%s' "$recorded" | tr '[:upper:]' '[:lower:]')" != "$(printf '%s' "$issue_repo" | tr '[:upper:]' '[:lower:]')" ]; then
         WORK_ITEM=""; WORK_ITEM_REASON="belongs to an issue of $recorded"
+      elif [ -n "$own_repo" ] && [ -z "$recorded" ] && [ "$name" != "$branch_name" ]; then
+        WORK_ITEM=""; WORK_ITEM_REASON="belongs to an issue of $own_repo"
       else
         branch_work_item "$issue_repo" "$name" "$default" || exit 1
       fi

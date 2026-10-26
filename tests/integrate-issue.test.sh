@@ -830,6 +830,28 @@ git -C "$work" push -q origin --delete issue-77-board issue-77-board-again 2>/de
 check 'origin did not move'            "$after" "$(tip)"
 check 'no folder of a temporary worktree is left' 0 "$(leftovers)"
 
+# The number 195 is also the number of an issue of this clone's own repository, whose branch stands on origin. Asked about
+# it in the tracker of the other repository, that branch answers "this issue", and it is not.
+echo '--from-origin for an issue of another repository does not take the branch of this clone'"'"'s own issue of that number'
+wt_own="$(new_tree 195 clones-own-work)"
+git -C "$work" push -q origin issue-195-clones-own-work
+before_planted="$(tip)"
+out="$(integrate "$work" other-org/tracker 195 --reviewed-by l4 --from-origin)"; rc=$?
+check 'planted: exit 1'                1 "$rc"
+check 'planted: the branch is named and not taken' yes "$(grep -qF 'the branch issue-195-clones-own-work on origin is not taken: it belongs to an issue of example-org/example-repo' <<< "$out" && echo yes || echo no)"
+check 'planted: it says origin has none of the issue' yes "$(grep -qF 'origin has no branch issue-195-* of other-org/tracker#195' <<< "$out" && echo yes || echo no)"
+check 'planted: origin did not move'   "$before_planted" "$(tip)"
+wt_issue="$(new_tree 195 read-the-board-whole)"
+git -C "$work" push -q origin issue-195-read-the-board-whole
+out="$(integrate "$work" other-org/tracker 195 --reviewed-by l4 --from-origin)"; rc=$?
+check 'innocent: the issue'"'"'s own branch lands: exit 0' 0 "$rc"
+check 'innocent: the subject names the other repository' 'Read the board whole (other-org/tracker#195)' "$(git --git-dir="$origin" log -1 --format=%s master)"
+check 'innocent: the branch of the own issue is not merged' no "$(git --git-dir="$origin" merge-base --is-ancestor issue-195-clones-own-work master && echo yes || echo no)"
+git -C "$work" worktree remove --force "$wt_own"; git -C "$work" worktree remove --force "$wt_issue"
+git -C "$work" push -q origin --delete issue-195-clones-own-work issue-195-read-the-board-whole
+git -C "$work" branch -q -D issue-195-clones-own-work issue-195-read-the-board-whole
+after="$(tip)"
+
 echo '--from-origin on a conflict leaves origin as it was, the held worktree untouched and no temporary worktree'
 git -C "$wt3" push -q origin issue-79-clash 2>/dev/null
 echo 'in progress' > "$wt3/loose.txt"

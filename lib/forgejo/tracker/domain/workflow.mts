@@ -295,6 +295,18 @@ export async function hasTrustedLandedRecord(api: ForgejoClient, ref: IssueRef, 
   return false;
 }
 
+// The reviewed heads that the "Landed on" records of accounts with write permission name, in the order written.
+export async function listTrustedLandedHeads(api: ForgejoClient, ref: IssueRef, entries: readonly TimelineEntry[]): Promise<string[]> {
+  const isTrusted = createTrustCheck(api, ref);
+  const heads: string[] = [];
+  for (const entry of entries) {
+    if (entry.kind !== 'comment' || !LANDED_LINE.test(firstLine(entry.body))) continue;
+    const head = fieldOf(entry.body, 'Reviewed head');
+    if (head !== undefined && (await isTrusted(entry.author))) heads.push(head);
+  }
+  return heads;
+}
+
 export function hasReleasedRecord(entries: readonly TimelineEntry[], repository: RepositoryRef, tag: string): boolean {
   return entries.some((entry) => {
     if (entry.kind !== 'comment') return false;

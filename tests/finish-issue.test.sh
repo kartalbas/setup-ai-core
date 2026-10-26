@@ -181,6 +181,29 @@ check_runs "$rc"
 check 'the worktree is gone'  no "$(has_tree issue-170-run-from-inside)"
 check 'the card moved to testing' 1 "$(grep -c 'oid=OPT_test' "$log" || true)"
 
+# A session's start check pulls the default branch into its branch, so the worktree can stand on a later commit of the
+# default branch than the one it landed from. Nothing in it is missing from origin/master.
+echo 'a worktree that took the default branch in after its landing, and holds nothing else, is removed'
+open issue-171-took-the-default-branch-in
+land issue-171-took-the-default-branch-in 'Took the default branch in (#171)'
+echo 'later' > "$work/later.txt"; setup git -C "$work" add later.txt; setup git -C "$work" commit -q -m 'A later change (#999)'; setup git -C "$work" push -q origin master
+setup git -C "$trees/issue-171-took-the-default-branch-in" fetch -q origin
+setup git -C "$trees/issue-171-took-the-default-branch-in" merge -q --ff-only origin/master
+out="$(run 171)"; rc=$?
+check_runs "$rc"
+check 'the worktree is gone'  no "$(has_tree issue-171-took-the-default-branch-in)"
+check 'and its branch'        no "$(has_branch issue-171-took-the-default-branch-in)"
+echo 'a worktree that took the default branch in and then worked again is kept'
+open issue-174-took-it-in-and-worked
+land issue-174-took-it-in-and-worked 'Took it in and worked (#174)'
+echo 'more' > "$trees/issue-174-took-it-in-and-worked/more.txt"
+setup git -C "$trees/issue-174-took-it-in-and-worked" add more.txt
+setup git -C "$trees/issue-174-took-it-in-and-worked" commit -q -m 'More work (#174)'
+out="$(run 174)"; rc=$?
+check 'exits nonzero'         yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'it names the commit'   yes "$(grep -q '1 commit(s) whose change is not on origin/master' <<< "$out" && echo yes || echo no)"
+check 'the worktree stays'    yes "$(has_tree issue-174-took-it-in-and-worked)"
+
 echo "a package worktree, named for its first issue, stays when a later issue's branch in it is finished"
 open issue-177-package
 git -C "$trees/issue-177-package" checkout -q -b issue-182-a-later-part origin/master

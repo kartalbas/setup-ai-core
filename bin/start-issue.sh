@@ -97,15 +97,7 @@ title="$(printf '%s' "$thread" | jq -r '.title // ""')"
 # for somebody else's issue, and not for one nobody has been given yet.
 mine="$("$BIN/issue-mine.sh" ${repo:+"$repo"} "$number" 2>&1)" || die "$mine"
 
-# The readable half of the name. Everything that is not a letter or a digit becomes a hyphen,
-# runs of hyphens collapse, and the result is cut to forty characters - the name is read in a
-# directory listing beside a dozen others, and a whole title carried into it makes that listing
-# unreadable.
-slug="$(printf '%s' "$title" \
-  | tr '[:upper:]' '[:lower:]' \
-  | sed -e 's/[^a-z0-9][^a-z0-9]*/-/g' -e 's/^-*//' -e 's/-*$//' \
-  | cut -c1-40 | sed -e 's/-*$//')"
-name="issue-$number-$slug"
+name="$(issue_branch_name "$number" "$title")"
 
 # Where the worktrees stand: beside the CHECKOUT, never inside it, and grouped per repository so
 # two repositories working the same issue number do not collide.
@@ -121,7 +113,7 @@ checked_out="$(git worktree list --porcelain 2>/dev/null | sed -n 's|^branch ref
 # branch named by the number is this issue's only where the tracker, asked for the number of its name at the time
 # the branch was started, answers this issue; the number the issue was carried from names its branches cut before.
 carried_number="$(carried_branch_number "$repo" "$thread")"
-owners="$(issue_branch_owners "$repo" "$default" "$number" ${carried_number:+"$carried_number"})" || exit 1
+owners="$(issue_branch_owners "$repo" "$default" "$name" "$number" ${carried_number:+"$carried_number"})" || exit 1
 taken=""; clash=""
 while IFS= read -r ref; do
   [ -n "$ref" ] || continue

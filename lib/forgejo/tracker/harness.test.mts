@@ -22,6 +22,22 @@ describe('the harness steps', () => {
     assert.equal(git(checkout, 'rev-parse', 'master'), landed);
   });
 
+  it('read the path of a receipt from standard output alone, so a warning on standard error refuses nothing (planted: a warning on standard error)', async () => {
+    const warning = join(fixture.root, 'warn-on-stderr.sh');
+    writeFileSync(warning, 'echo "bash: a warning of the shell" >&2\n');
+    const saved = process.env.BASH_ENV;
+    process.env.BASH_ENV = warning;
+    try {
+      const opened = await bashHarness.openLandingCheck(checkout);
+      assert.equal(opened.succeeded, true, opened.output);
+      assert.match(opened.output, /^\/[^\n]*\/receipt$/, 'the path alone, without the warning');
+      assert.equal((await bashHarness.closeLandingCheck(opened.output)).succeeded, true);
+    } finally {
+      if (saved === undefined) delete process.env.BASH_ENV;
+      else process.env.BASH_ENV = saved;
+    }
+  });
+
   it('open a receipt of the checks of a landing in a folder of its own, complete nothing where the gate wrote none, and close it (planted: a path that is no receipt)', async () => {
     const opened = await bashHarness.openLandingCheck(checkout);
     assert.equal(opened.succeeded, true, opened.output);

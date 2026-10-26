@@ -1,6 +1,6 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { addComment, afterStep, currentLogin, explainMissingAssignment, formatIssue, formatRepository, getIssue, isSameRepository } from '../domain/issues.mts';
+import { addComment, afterStep, currentLogin, explainMissingAssignment, formatIssue, formatRepository, getIssue, isSameRepository, parseRepository } from '../domain/issues.mts';
 import type { Issue } from '../domain/issues.mts';
 import { replaceFamilyLabel, statusLabel } from '../domain/labels.mts';
 import type { StatusValue } from '../domain/labels.mts';
@@ -39,10 +39,11 @@ function slugOf(title: string): string {
 }
 
 // A branch whose tip origin's default branch contains has landed: a branch cut from the default branch descends
-// from it, so its push fast-forwards that branch, and it holds nothing the new worktree lacks.
-async function listUnlandedRemoteBranches(context: CommandContext, number: number, defaultBranch: string): Promise<string[]> {
+// from it, so its push fast-forwards that branch, and it holds nothing the new worktree lacks. `onlyNamed`, where
+// given, is the one name that counts.
+async function listUnlandedRemoteBranches(context: CommandContext, number: number, defaultBranch: string, onlyNamed: string | undefined): Promise<string[]> {
   const { git, cwd } = context;
-  const names = await git.listRemoteBranchNames(cwd, [`issue-${number}`, `issue-${number}-*`]);
+  const names = (await git.listRemoteBranchNames(cwd, [`issue-${number}`, `issue-${number}-*`])).filter((name) => onlyNamed === undefined || name === onlyNamed);
   const unlanded: string[] = [];
   for (const name of names) {
     await git.fetchBranch(cwd, name);
@@ -96,9 +97,17 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   let opened: string | undefined;
 
   if (!resuming) {
+    // Where the issue lives in another repository, the number alone names an unrelated issue of this clone's own:
+    // a local branch is the issue's where its record names the issue's repository, and any branch where it is named
+    // as the issue's branch.
+    const isOtherRepository = !isSameRepository(ref, origin);
     const pattern = new RegExp(`^issue-${ref.number}(-.*)?$`);
-    const local = (await git.listBranchNames(cwd)).filter((name) => pattern.test(name));
-    const remote = await listUnlandedRemoteBranches(context, ref.number, defaultBranch);
+    const local: string[] = [];
+    for (const name of (await git.listBranchNames(cwd)).filter((candidate) => pattern.test(candidate))) {
+      const recorded = isOtherRepository ? await git.getConfig(cwd, `branch.${name}.issueRepository`) : undefined;
+      if (!isOtherRepository || name === branch || (recorded !== undefined && isSameRepository(parseRepository(recorded), ref))) local.push(name);
+    }
+    const remote = await listUnlandedRemoteBranches(context, ref.number, defaultBranch, isOtherRepository ? branch : undefined);
     const isWorkOfOrigin = local.length === 0 && remote.length === 1 && remote[0] === branch;
     const taken = [...local, ...remote.map((name) => `origin/${name}`)];
     if (taken.length > 0 && !isWorkOfOrigin) throw new PreconditionError(`a branch for issue ${ref.number} exists already: ${taken.join(', ')}. Use its worktree, or finish that issue first`);
@@ -112,7 +121,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
     } else {
       await git.addWorktree(cwd, path, branch, `refs/remotes/origin/${defaultBranch}`);
     }
-    if (!isSameRepository(ref, origin)) await git.setConfig(cwd, `branch.${branch}.issueRepository`, formatRepository(ref));
+    if (isOtherRepository) await git.setConfig(cwd, `branch.${branch}.issueRepository`, formatRepository(ref));
   }
 
   const lines = [

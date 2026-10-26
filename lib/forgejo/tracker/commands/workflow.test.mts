@@ -230,6 +230,32 @@ describe('start-issue', () => {
   });
 });
 
+describe('start-issue for an issue of another repository whose number a branch of this clone\'s own issue carries', () => {
+  it('cuts the worktree beside a local and an origin branch of the own issue of that number, and records the repository (planted: the own branches refused it)', async () => {
+    const number = newIssue(sibling, 'Elsewhere with a clashing number, so that the branches differ');
+    git(main.checkout, 'branch', `issue-${number}-clones-own-work`);
+    git(main.second, 'push', '-q', 'origin', `${unlandedCommit(main)}:refs/heads/issue-${number}-pushed-by-the-clone`);
+    await startIssue.run([sibling.full, String(number)], ctx(main.checkout));
+    const branch = must(await client.currentBranch(await treeOf(main, number)));
+    assert.notEqual(branch, `issue-${number}-clones-own-work`);
+    assert.equal(git(main.checkout, 'config', '--get', `branch.${branch}.issueRepository`), sibling.full);
+    assert.ok((await client.listBranchNames(main.checkout)).includes(`issue-${number}-clones-own-work`), 'the own branch is untouched');
+  });
+
+  it('opens the worktree on an origin branch named as the issue\'s branch, and refuses where its own issue of that number is asked (innocent case)', async () => {
+    const number = newIssue(sibling, 'Own branch on origin, so that it opens');
+    const branch = `issue-${number}-own-branch-on-origin-so-that-it-opens`;
+    const work = unlandedCommit(main);
+    git(main.second, 'push', '-q', 'origin', `${work}:refs/heads/${branch}`);
+    await startIssue.run([sibling.full, String(number)], ctx(main.checkout));
+    assert.equal(git(await treeOf(main, number), 'rev-parse', 'HEAD'), work);
+    assert.equal(git(main.checkout, 'config', '--get', `branch.${branch}.issueRepository`), sibling.full);
+    const own = newIssue(main, 'Own issue with a branch, so that it refuses');
+    git(main.checkout, 'branch', `issue-${own}-someone-else`);
+    await assert.rejects(startIssue.run([String(own)], ctx(main.checkout)), /a branch for issue \d+ exists already: issue-\d+-someone-else/);
+  });
+});
+
 describe('integrate-issue', () => {
   it('lands the reviewed commits as they were read, in a merge commit that names the issue and the reviewers, and records the landing', async () => {
     const { number, tree, head } = await worked(main, 'Land the work, so that it ships');
@@ -893,6 +919,31 @@ describe('finish-issue', () => {
     await integrateIssue.run(integrateArguments(main, landed.number, landed.head), ctx(landed.tree));
     await finishIssue.run([String(landed.number)], ctx(landed.tree));
     assert.ok(!existsSync(landed.tree));
+  });
+
+  it('removes the worktree of work that landed when the branch took the default branch in after the landing (planted: the head is no reviewed head)', async () => {
+    const landed = await worked(main, 'Took the default branch in, so that it is removed');
+    await integrateIssue.run(integrateArguments(main, landed.number, landed.head), ctx(landed.tree));
+    git(main.second, 'pull', '-q', '--ff-only', 'origin', 'master');
+    fixture.commit(main.second, `later-${landed.number}.txt`, 'later\n');
+    git(main.second, 'push', '-q', 'origin', 'master');
+    git(landed.tree, 'fetch', '-q', 'origin');
+    git(landed.tree, 'merge', '-q', '--ff-only', 'origin/master');
+    assert.notEqual(git(landed.tree, 'rev-parse', 'HEAD'), landed.head, 'the case is planted: the head is not the reviewed head');
+    const result = await finishIssue.run([String(landed.number)], ctx(main.checkout));
+    assert.match(result.stdout, /removed the worktree/);
+    assert.ok(!existsSync(landed.tree));
+    assert.ok(!(await client.listBranchNames(main.checkout)).includes(landed.branch));
+  });
+
+  it('keeps the worktree of a branch that took the default branch in and then worked again (innocent case)', async () => {
+    const landed = await worked(main, 'Worked again after the landing, so that it stays');
+    await integrateIssue.run(integrateArguments(main, landed.number, landed.head), ctx(landed.tree));
+    git(landed.tree, 'fetch', '-q', 'origin');
+    git(landed.tree, 'merge', '-q', '--ff-only', 'origin/master');
+    fixture.commit(landed.tree, `again-${landed.number}.txt`, 'again\n');
+    await assert.rejects(finishIssue.run([String(landed.number)], ctx(main.checkout)), /is not on origin\/master: the work did not land/);
+    assert.ok(existsSync(landed.tree));
   });
 
   it('keeps a worktree whose work did not land, and one with changes (planted: unlanded and dirty)', async () => {

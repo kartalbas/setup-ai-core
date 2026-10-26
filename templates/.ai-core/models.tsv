@@ -47,10 +47,10 @@
 # A refusal waits; there is no prose fallback to the writer. A project harness replaces the whole
 # file with its own: the same name replaces.
 
-claude	plan	normal-hard	claude-fable-5-1	xhigh
-claude	plan	high-risk	claude-fable-5-1	xhigh
-claude	re-plan	normal-hard	claude-opus-5-5	max
-claude	re-plan	high-risk	claude-opus-5-5	max
+claude	plan	normal-hard	codex:gpt-6-astra	xhigh
+claude	plan	high-risk	codex:gpt-6-astra	max
+claude	re-plan	normal-hard	codex:gpt-6-astra	xhigh
+claude	re-plan	high-risk	codex:gpt-6-astra	max
 claude	plan-check	normal-hard	claude-opus-5-5	high
 claude	plan-check	high-risk	claude-opus-5-5	high
 claude	build	mechanical	claude-sonnet-5-5	high

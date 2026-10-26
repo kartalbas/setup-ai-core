@@ -36,6 +36,27 @@ const check=(name,fn)=>{fn();console.log(`ok ${++checks} ${name}`);};
 const select=(args,expected)=>{const r=run(args);assert.equal(r.status,0,r.stderr);assert.equal(r.stdout,expected+'\n');return r;};
 const deny=(args,pattern)=>{const r=run(args);assert.equal(r.status,2,r.stdout+r.stderr);assert.equal(r.stdout,'');assert.match(r.stderr,pattern);return r;};
 check('native selection without policy keeps declared rows and records no order',()=>{select(['build','high-risk'],'claude claude-sonnet-5-5 xhigh');assert.equal(records().at(-1).order,null);});
+check('a Claude plan and re-plan route to Codex Astra, the plan check stays on Opus, and a Codex at its limit refuses the plan instead of falling to Fable',()=>{
+  const tuples=[[['plan','normal-hard'],'codex gpt-6-astra xhigh'],[['plan','high-risk'],'codex gpt-6-astra max'],[['re-plan','normal-hard'],'codex gpt-6-astra xhigh'],[['re-plan','high-risk'],'codex gpt-6-astra max'],[['plan-check','normal-hard','--written-by','gpt-6-astra'],'claude claude-opus-5-5 high']];
+  for(const [args,expected] of tuples)select(args,expected);
+  assert.equal(records().at(-1).order,null);
+  for(const code of [3,4]){
+    fs.writeFileSync(path.join(quota,'codex'),String(code));
+    const refused=deny(['plan','normal-hard'],/codex/);
+    assert.doesNotMatch(refused.stderr,/fable/i);
+    assert.equal(records().at(-1).selected,null);
+  }
+  fs.writeFileSync(path.join(quota,'codex'),'0');
+  const tablePath=path.join(source,'templates/.ai-core/models.tsv'), good=fs.readFileSync(tablePath,'utf8');
+  fs.writeFileSync(tablePath,good.replace('claude\tplan\tnormal-hard\tcodex:gpt-6-astra\txhigh','claude\tplan\tnormal-hard\tclaude-fable-5-1\txhigh'));
+  assert.notEqual(fs.readFileSync(tablePath,'utf8'),good);
+  assert.throws(()=>select(['plan','normal-hard'],'codex gpt-6-astra xhigh'));
+  fs.writeFileSync(path.join(quota,'codex'),'3');
+  assert.throws(()=>deny(['plan','normal-hard'],/codex/));
+  fs.writeFileSync(path.join(quota,'codex'),'0');
+  fs.writeFileSync(tablePath,good);
+  select(['plan','normal-hard'],'codex gpt-6-astra xhigh');
+});
 order();
 check('exact class beats wildcard; stdout is only tuple',()=>{table([['codex','build','*','wild','low'],['codex','build','normal-hard','exact','xhigh']]);select(['build','normal-hard'],'codex exact xhigh');});
 check('missing row skips; agy quota receives its model',()=>{table([['agy','build','normal-hard','claude-opus-5-5-high','-']]);select(['build','normal-hard'],'agy claude-opus-5-5-high -');assert.match(fs.readFileSync(path.join(quota,'agy.args'),'utf8'),/--model claude-opus-5-5-high/);});

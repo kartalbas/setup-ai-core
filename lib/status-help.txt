@@ -11,6 +11,20 @@ knows. Where no agent runs, and with
 of the day, the open work, and what is ready to close or open on the last column. No model is
 involved: status.sh reads the board and the process list, and lib/status.mjs counts.
 
+The usage line is the windows of the tool whose shell runs status (Codex, agy or Claude, the order of
+`ai-core usage`), read by the reader `ai-core usage` uses (lib/usage.sh). Claude's are shown as its status
+line shows them. Codex's and agy's are named for the tool and shown as the share used, with the time the
+tool recorded them: 21 % used where `ai-core usage` prints 79 % left; agy shows every group of models. A tool
+with no reader, and a reading that fails, are named on that line, never replaced by Claude's windows. The
+pace is a board figure: the issues closed on the board in the last 24 hours, the same whatever the tool. What
+an issue costs of a window, the tokens and the context come from Claude Code's own records, so in the shell of
+another tool those three lines say "no source for <tool>", never Claude's figures and never a zero. The tokens
+count the sessions that started in the project folder or beneath it, its clones and their worktrees, and no
+other folder whose name only begins like it.
+
+With TRACKER=forgejo, `ai-core status [OWNER/REPO...] --tokens` prints this page over the issues the status/
+labels name, open and closed; Forgejo has no board, so the page names it OWNER/forgejo, and it has no epics.
+
 Without --tokens or --issues the page ends with two blocks git answers at that moment. TESTING
 lists every card in testing with where its work is live: the newest commit on the default branch
 that names the issue (a commit names a work item by its number from the item's creation on, and a carried one also by its GitHub reference, before its creation), and per environment of LIVE_TAGS in the .ai-core/config.env of the clone of its repository where that names one, else the project folder's list, whichever checkout this runs in

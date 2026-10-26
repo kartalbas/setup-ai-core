@@ -93,6 +93,7 @@ interface FakeIssue {
   milestone: FakeMilestone | undefined;
   dependencies: Reference[];
   created_at: string;
+  closed_at: string | undefined;
 }
 interface FakeRepository {
   owner: string;
@@ -149,7 +150,7 @@ export interface FakeForgejo {
   setChecks(fullName: string, states: string[]): void;
   listMilestones(fullName: string): { title: string; issues: number[] }[];
   addLabel(owner: string, label: { name: string; color?: string; description?: string; exclusive?: boolean }): number;
-  addIssue(fullName: string, issue: { title: string; body?: string; state?: 'open' | 'closed'; labels?: string[]; assignees?: string[] }): number;
+  addIssue(fullName: string, issue: { title: string; body?: string; state?: 'open' | 'closed'; closedAt?: string; labels?: string[]; assignees?: string[] }): number;
   addComment(fullName: string, number: number, login: string, body: string): void;
   addLabelEvent(fullName: string, number: number, login: string, label: string, added: boolean): void;
   readIssue(fullName: string, number: number): { title: string; body: string; state: string; labels: string[]; assignees: string[]; comments: string[]; dependencies: string[]; milestone: string | undefined };
@@ -219,6 +220,7 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
     assignees: issue.assignees.length === 0 ? null : issue.assignees.map(userWire),
     comments: issue.comments.length,
     created_at: issue.created_at,
+    ...(issue.closed_at === undefined ? {} : { closed_at: issue.closed_at }),
     updated_at: issue.created_at,
     html_url: `https://${FAKE_HOST}/${repository.owner}/${repository.name}/issues/${issue.number}`,
     url: `https://${FAKE_HOST}/api/v1/repos/${repository.owner}/${repository.name}/issues/${issue.number}`,
@@ -287,6 +289,7 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
         milestone: undefined,
         dependencies: [],
         created_at: clock(),
+        closed_at: body.closed === true ? clock() : undefined,
       };
       const available = visibleLabels(repository);
       for (const id of (body.labels as number[] | undefined) ?? []) {
@@ -314,6 +317,7 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
         if (body.state !== 'open' && body.state !== 'closed') throw new HttpFailure(422, 'state must be open or closed');
         if (body.state !== issue.state) eventOf(issue, body.state === 'closed' ? 'close' : 'reopen');
         issue.state = body.state;
+        issue.closed_at = body.state === 'closed' ? clock() : undefined;
       }
       if (typeof body.milestone === 'number') {
         const milestone = body.milestone === 0 ? undefined : repository.milestones.find((candidate) => candidate.id === body.milestone);
@@ -768,6 +772,7 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
         milestone: undefined,
         dependencies: [],
         created_at: clock(),
+        closed_at: issue.state === 'closed' ? (issue.closedAt ?? clock()) : undefined,
       };
       for (const labelName of issue.labels ?? []) addLabelToIssue(created, labelByName(owner, labelName));
       repository.issues.push(created);

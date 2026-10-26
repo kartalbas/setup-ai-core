@@ -26,6 +26,7 @@ export interface Issue {
   readonly assignees: readonly string[];
   readonly commentCount: number;
   readonly createdAt: string;
+  readonly closedAt: string | undefined;
   readonly url: string;
   readonly milestone: { readonly id: number; readonly title: string } | undefined;
 }
@@ -97,6 +98,7 @@ function toIssue(wire: WireIssue, ref: IssueRef, operation: string): Issue {
     assignees: (wire.assignees ?? []).map((user) => user.login),
     commentCount: wire.comments,
     createdAt: wire.created_at,
+    closedAt: wire.closed_at ?? undefined,
     url: wire.html_url,
     milestone: wire.milestone === null || wire.milestone === undefined ? undefined : { id: wire.milestone.id, title: wire.milestone.title },
   };

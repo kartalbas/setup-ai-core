@@ -8,7 +8,7 @@ import { showLines } from './git/git.mts';
 // team modes check, init in a new worktree as bin/start-issue.sh runs it, fast_forward_default_branch of
 // lib/common.sh as bin/integrate-issue.sh runs it, and live_tags_declaration and the read of
 // lib/live-release.sh as bin/status.sh runs them. The install of a merged tree runs the repository's own
-// scripts/install.sh, as bin/integrate-issue.sh runs it.
+// scripts/install.sh, as bin/integrate-issue.sh runs it. The page of status --tokens is lib/status-tokens.sh.
 
 const CORE = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../..');
 const MAXIMUM_OUTPUT_BYTES = 16 * 1024 * 1024;
@@ -54,4 +54,5 @@ export const bashHarness: HarnessSteps = {
   readLiveTags: (checkout) => runBash(checkout, ['-c', LIVE_TAGS, 'read-live-tags', CORE, checkout]),
   readLiveRelease: (checkout, repository, environment) => runBash(checkout, [`${CORE}/lib/live-release.sh`, 'read', checkout, repository, environment]),
   installTools: runInstall,
+  readTokensPage: (cwd, itemsFile, columnsFile, board) => runBash(cwd, [`${CORE}/lib/status-tokens.sh`, itemsFile, columnsFile, board]),
 };

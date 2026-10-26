@@ -6,6 +6,7 @@ set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$here/../lib/board.sh"
 . "$here/../lib/live-release.sh"
+. "$here/../lib/usage.sh"
 
 usage="usage: status.sh [--project N] [--tokens] [--issues]"
 project=""; issues=""; tokens=""
@@ -31,12 +32,9 @@ if common="$(git rev-parse --git-common-dir 2>/dev/null)"; then
 else
   folder="$(pwd)"
 fi
-# The limit as usage.sh reads it: USAGE_STOP_AT of the project's config.env, else 92
-config="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.ai-core/config.env"
-stop="$(grep -E '^[[:space:]]*USAGE_STOP_AT[[:space:]]*=' "$config" 2>/dev/null | tail -n1 || true)"
-stop="${stop#*=}"; stop="${stop%%#*}"; stop="${stop//[[:space:]\"\']/}"; stop="${stop:-92}"
+stop="$(usage_stop_at)"
 
-work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
+work="$(mktemp -d)"; trap 'usage_release; rm -rf "$work"' EXIT
 columns="$(fields_tsv)" || exit 1
 awk -F'\t' 'tolower($1) == "status" { print $3 }' <<< "$columns" > "$work/columns"
 card_rows > "$work/items" || exit 1
@@ -156,7 +154,20 @@ if [ -z "$tokens$issues" ]; then
   processes=(--processes-file "$work/processes" --agents-file "$work/agents" --rollouts-file "$work/rollouts" --trees-file "$work/trees" --worktree-issues-file "$work/worktree-issues")
 fi
 
+# The windows of the tool this session runs on, as lib/usage.sh reads them, for the page; a tool with no
+# reader, and a reading that failed, are in the snapshot, never Claude's figures in their place
+tool="$(session_tool)"; [ -n "$tool" ] || tool=claude
+usage_file=()
+write_usage() { usage_snapshot "$tool" > "$work/usage.json" || exit 1; usage_file=(--usage-file "$work/usage.json"); }
+[ -z "$tokens$issues" ] || write_usage
+
 # LIVE_TAGS and PROOF_HOURS are the project folder's, so a card reads the same from every checkout
-node "$here/../lib/status.mjs" --items-file "$work/items" --columns-file "$work/columns" \
-  --board "$(project_org)/$(project_number)" --folder "$folder" --stop-at "$stop" --config-file "$folder/.ai-core/config.env" \
-  ${processes[@]+"${processes[@]}"} ${testing_file[@]+"${testing_file[@]}"} $tokens $issues
+run_status() {
+  node "$here/../lib/status.mjs" --items-file "$work/items" --columns-file "$work/columns" \
+    --board "$(project_org)/$(project_number)" --folder "$folder" --stop-at "$stop" --config-file "$folder/.ai-core/config.env" \
+    ${processes[@]+"${processes[@]}"} ${testing_file[@]+"${testing_file[@]}"} ${usage_file[@]+"${usage_file[@]}"} $tokens $issues
+}
+rc=0; run_status || rc=$?
+# 64: no agent runs, the page needs the windows, and they are read now, not on every call that shows the agents
+if [ "$rc" -eq 64 ]; then write_usage; rc=0; run_status || rc=$?; fi
+exit "$rc"

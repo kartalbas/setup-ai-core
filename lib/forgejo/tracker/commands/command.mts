@@ -38,6 +38,10 @@ export interface HarnessSteps {
   readLiveRelease(checkout: string, repository: string, environment: string): Promise<StepOutcome>;
   // Runs scripts/install.sh of the worktree, its lines shown while it runs; the outcome holds the last of them.
   installTools(worktree: string, show: (text: string) => void): Promise<StepOutcome>;
+  // The page of `status --tokens` (lib/status-tokens.sh): the usage windows of the tool of the session, the pace, what an
+  // issue costs, the tokens; the outcome holds the page. The issues are handed over as the card rows lib/status.mjs reads,
+  // one JSON object a line, beside the status columns, one a line, under the board name the page shows.
+  readTokensPage(cwd: string, itemsFile: string, columnsFile: string, board: string): Promise<StepOutcome>;
 }
 
 export interface StepOutcome {

@@ -22,5 +22,6 @@ export function createRecordingHarness(): RecordingHarness {
     readLiveTags: step('readLiveTags', ''),
     readLiveRelease: (checkout, repository, environment) => step('readLiveRelease', '{"delivered":null}')(`${checkout} ${repository} ${environment}`),
     installTools: (path) => step('installTools', 'installed')(path),
+    readTokensPage: (cwd, itemsFile, columnsFile, board) => step('readTokensPage', 'the page')(`${cwd} ${itemsFile} ${columnsFile} ${board}`),
   };
 }

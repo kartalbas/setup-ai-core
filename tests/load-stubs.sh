@@ -7,8 +7,9 @@
 # PROBE_STATE names a folder with the loads the stand-in uptime answers (file loads: one per call, the
 # last one repeating; FAIL is a reader that fails, EMPTY one that prints nothing, JUNK one that prints no
 # number). While it holds a file clock, the stand-in date (+%s) and sleep keep a clock of their own that
-# sleep advances; sleeps lists what was slept, and a script on-sleep-<n> runs during the n-th sleep. A
-# test that plants nothing finds the real date and sleep.
+# sleep advances; sleeps lists what was slept, a script on-sleep-<n> runs during the n-th sleep, and a script
+# on-every-sleep runs during every sleep and gets the clock after it as its argument. A test that plants nothing
+# finds the real date and sleep.
 
 make_load_stubs() {  # make_load_stubs <folder>
   local dir="$1" real_date real_sleep
@@ -36,6 +37,7 @@ EOF
 echo "\$1" >> "\$PROBE_STATE/sleeps"; n=\$(wc -l < "\$PROBE_STATE/sleeps" | tr -d ' ')
 echo \$(( \$(cat "\$PROBE_STATE/clock") + \$1 )) > "\$PROBE_STATE/clock"
 [ ! -f "\$PROBE_STATE/on-sleep-\$n" ] || bash "\$PROBE_STATE/on-sleep-\$n"
+[ ! -f "\$PROBE_STATE/on-every-sleep" ] || bash "\$PROBE_STATE/on-every-sleep" "\$(cat "\$PROBE_STATE/clock")"
 if [ -f "\$PROBE_STATE/block" ]; then : > "\$PROBE_STATE/sleeping"; while [ ! -e "\$PROBE_STATE/wake" ]; do "$real_sleep" 0.05; done; fi
 exit 0
 EOF
@@ -44,6 +46,6 @@ EOF
 # plan_load <state folder> <load...>: a clock of its own at 1000 and the loads the readings answer
 plan_load() {
   local state="$1"; shift
-  mkdir -p "$state"; rm -f "$state"/uptime-calls "$state"/sleeps "$state"/checks "$state"/on-sleep-* "$state"/block "$state"/wake "$state"/sleeping
+  mkdir -p "$state"; rm -f "$state"/uptime-calls "$state"/sleeps "$state"/checks "$state"/on-sleep-* "$state"/on-every-sleep "$state"/block "$state"/wake "$state"/sleeping
   printf '%s\n' "$@" > "$state/loads"; echo 1000 > "$state/clock"
 }

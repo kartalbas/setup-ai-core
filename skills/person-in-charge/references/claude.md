@@ -138,6 +138,15 @@ with a throwaway profile, so it never sees anyone's logged-in sessions.
 `SendMessage` from a session or a partner, an idle notice and the end of a background run wake you
 earlier. The round is the net under them: it finds what none of them reported.
 
+A worker that compacts in a loop is busy the whole time, so no idle notice comes. Keep one
+`ai-core watch --session <worker name> --still 3600` running in the background (Bash with
+`run_in_background`) for every Claude worker of your own number block that runs, one command with
+a `--session` for each. It reads the transcripts and its end wakes you with one line when a worker
+shows three compactions within 600 seconds or Claude Code's "Autocompact is thrashing" message,
+and with exit 1 when a worker's transcript cannot be found or read. Start it again after each wake and
+after each start or end of a worker. It covers Claude sessions only; Codex output files go to
+`--file` (`references/codex.md`).
+
 ## The usage limit
 
 `ai-core usage --tool claude` reads Claude's last recorded five-hour and weekly windows, shown as

@@ -201,7 +201,9 @@ more` line is a GAP for the next plan of that area.
 
 ## The round, every 10 minutes
 
-Wake yourself for it (`references/<tool>.md` says how). Read `ai-core status`. Answer every session
+Wake yourself for it (`references/<tool>.md` says how); a Claude coordinator also keeps the
+background `ai-core watch --session` of its running workers there, because a worker stuck compacting
+is busy and wakes nobody else. Read `ai-core status`. Answer every session
 it marks blocked and every report unanswered; end every session whose phase is done; start every
 phase that is due, across all packages, a blocker's first and before any new plan (a part another
 part names in its `After:`, a side a partner waits for, a fault on a live environment); a package

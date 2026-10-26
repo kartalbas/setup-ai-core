@@ -8,7 +8,17 @@
 #   --session    a Claude Code session, by its name in `claude agents --json`; it wakes the caller
 #                once it has not been `busy` for --still seconds in a row, or has left the list for
 #                as long. `state` says only whether a background job is finished, and an
-#                interactive session has none; `status` says whether it works at this moment
+#                interactive session has none; `status` says whether it works at this moment.
+#                It also wakes the caller, however busy the session is, once the session compacts in
+#                a loop, read from its transcript (<root>/*/<sessionId>.jsonl, the root being
+#                AI_CORE_TRANSCRIPTS, else ~/.claude/projects): three `compact_boundary` lines of
+#                different uuids within the last 600 seconds, or Claude Code's own error message
+#                "Autocompact is thrashing" within them; the line names the session, and the id where
+#                one name stands on several entries, and says which sign it saw. A session whose
+#                transcript cannot be found, read, or understood (a line that is no JSON, a
+#                compaction without its time or uuid) wakes the caller with exit 1 and is named,
+#                never counted as healthy. Only Claude Code sessions are covered here: a Codex or agy
+#                session has no such transcript, and --file is the way to watch a Codex run
 #   --ref        a ref of a clone, such as /path/clone:origin/master; the clone is fetched every
 #                round, and the caller is woken when the ref moves
 #   --file       a readable output file; wake after --still seconds without growth unless the last
@@ -19,9 +29,10 @@
 #   --heartbeat  seconds after which it returns anyway, with every session's status and every ref's
 #                head, plus every file's path, bytes and minutes since growth, 1800 unless given
 #
-# Exit 0: one line, "<HH:MM> <what happened>". Exit 1: a fetch, `claude agents` or a file read failed,
-# named in the line. Exit 2: a wrong argument, nothing to watch, or a ref that names nothing, or an invalid file.
+# Exit 0: one line, "<HH:MM> <what happened>". Exit 1: a fetch, `claude agents`, a file read or a transcript read
+# failed, named in the line. Exit 2: a wrong argument, nothing to watch, or a ref that names nothing, or an invalid file.
 set -uo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage="usage: watch.sh [--session NAME]... [--ref CLONE:REF]... [--file PATH]... [--still S] [--every S] [--heartbeat S]"
 names=(); clones=(); refs=(); files=(); still=900; every=60; heartbeat=1800
@@ -52,8 +63,39 @@ for file in ${files[@]+"${files[@]}"}; do
   [ -f "$file" ] && [ -r "$file" ] || { echo "error: file is not readable: $file" >&2; exit 2; }
 done
 
-err="$(mktemp)"; trap 'rm -f "$err"' EXIT
+if [ "${#names[@]}" -gt 0 ] && ! command -v node >/dev/null 2>&1; then
+  echo "error: a session is watched by its transcript, which node reads, and node is not on the PATH" >&2; exit 2
+fi
+
+err="$(mktemp)"; states="$(mktemp -d)"; trap 'rm -rf "$err" "$states"' EXIT
+transcripts="${AI_CORE_TRANSCRIPTS:-$HOME/.claude/projects}"
 say() { echo "$(date +%H:%M) $1"; exit "${2:-0}"; }
+
+# Every entry of one name in `claude agents --json` ($json) has a transcript, and none may thrash: three compactions
+# or Claude Code's own message within 600 seconds wake the caller (exit 0), a transcript that is missing, ambiguous, in
+# another folder than its cwd names or not understood wakes it with exit 1. Each transcript is read on from where the
+# last round stopped (lib/watch-transcript.mjs keeps that in $states).
+check_transcripts() {  # check_transcripts <name>
+  local name="$1" entries count entry sid cwd files file label line rc folder
+  entries="$(jq -c --arg n "$name" '.[] | select(.name == $n) | {sessionId: (.sessionId // ""), cwd: (.cwd // "")}' <<< "$json" 2>&1)" \
+    || say "claude agents gave no list: ${entries##*$'\n'}" 1
+  count="$(grep -c . <<< "$entries")"
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    sid="$(jq -r '.sessionId' <<< "$entry")"; cwd="$(jq -r '.cwd' <<< "$entry")"
+    label="$name"; [ "$count" -le 1 ] || label="$name ($sid)"
+    case "$sid" in ''|*[!A-Za-z0-9-]*) say "$label: its entry in claude agents has no usable sessionId, so its transcript cannot be found" 1 ;; esac
+    files=(); for file in "$transcripts"/*/"$sid.jsonl"; do [ ! -e "$file" ] || files[${#files[@]}]="$file"; done
+    [ "${#files[@]}" -gt 0 ] || say "$label: no transcript $sid.jsonl under $transcripts" 1
+    [ "${#files[@]}" -eq 1 ] || say "$label: ${#files[@]} transcripts named $sid.jsonl under $transcripts" 1
+    folder="$(basename "$(dirname "${files[0]}")")"
+    if [ -n "$cwd" ] && [ "$folder" != "$(printf '%s' "$cwd" | sed 's/[^A-Za-z0-9]/-/g')" ]; then
+      say "$label: its transcript is in $folder, which is not the folder of its cwd $cwd" 1
+    fi
+    rc=0; line="$(node "$here/../lib/watch-transcript.mjs" --state "$states/$sid.json" --file "${files[0]}" --now "$now")" || rc=$?
+    case "$rc" in 0) ;; 10) say "$label: $line" ;; *) say "$label: ${line:-the transcript could not be read}" 1 ;; esac
+  done <<< "$entries"
+}
 fetch() { local out; out="$(git -C "${clones[$1]}" fetch -q 2>&1)" || say "${clones[$1]}: the fetch failed: ${out##*$'\n'}" 1; }
 # The full name: a short one grows as the clone does, and would read as a move
 head_of() { git -C "${clones[$1]}" rev-parse --verify -q "${refs[$1]}^{commit}"; }
@@ -100,6 +142,7 @@ while :; do
     minutes=$(( (now - ${seen[$i]}) / 60 ))
     [ $((now - ${seen[$i]})) -lt "$still" ] \
       || say "${names[$i]} is $status and has not been busy for $minutes minutes"
+    check_transcripts "${names[$i]}"
     report="$report; ${names[$i]} $status, $minutes minutes since it was busy"
     i=$((i + 1))
   done

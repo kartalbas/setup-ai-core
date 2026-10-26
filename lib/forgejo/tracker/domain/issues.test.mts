@@ -19,14 +19,17 @@ import {
 import { UsageError } from './refusals.mts';
 
 describe('the first line of a body', () => {
-  it('names who asked, or where a defect was found', () => {
+  it('names who asked, or where a defect or another finding was found', () => {
     assert.equal(composeOriginLine({ askedBy: '@person', askedIn: 'the chat' }, '2026-10-23'), 'Asked for by @person on 2026-10-23 in the chat.');
-    assert.equal(composeOriginLine({ foundIn: 'issue-1' }, '2026-10-23'), 'Found in issue-1 on 2026-10-23, a defect filed without a yes.');
+    assert.equal(composeOriginLine({ foundIn: 'issue-1', isDefect: true }, '2026-10-23'), 'Found in issue-1 on 2026-10-23, a defect filed without a yes.');
+    assert.equal(composeOriginLine({ foundIn: 'issue-1', isDefect: false }, '2026-10-23'), 'Found in issue-1 on 2026-10-23, a finding filed without a yes.');
   });
 
   it('is recognized, and so is the address an issue was moved from', () => {
     assert.ok(isOriginLine('Asked for by @person on 2026-10-23 in the chat.'));
     assert.ok(isOriginLine(`https://${FAKE_HOST}/o/r/issues/12`));
+    assert.ok(isOriginLine('Found in issue-1 on 2026-10-23, a defect filed without a yes.'));
+    assert.ok(isOriginLine('Found in issue-1 on 2026-10-23, a finding filed without a yes.'));
     assert.ok(!isOriginLine('Found in the notes'));
     assert.ok(!isOriginLine('Some prose'));
   });

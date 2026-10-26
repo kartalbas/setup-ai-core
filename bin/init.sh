@@ -212,7 +212,7 @@ fi
 #     renames it. A link of this shape whose checkout is gone since leads nowhere and goes; a link
 #     of anybody else stays. The copy stands outside .worktrees/, because a project's own tool may
 #     read that folder as the places of work and would count the copy as one more.
-NEIGHBOURS_LINKED=""; NEIGHBOURS_IN=""; NEIGHBOURS_UNLINKED=""; NEIGHBOURS_HELD=""; NEIGHBOURS_UNPUBLISHED=""; NEIGHBOURS_BLOCKED=""; NEIGHBOURS_LEFT=""; NEIGHBOURS_MOVED=""; NEIGHBOURS_UNMOVED=""; NEIGHBOURS_STALE=""; NEIGHBOUR_WAIT=""
+NEIGHBOURS_LINKED=""; NEIGHBOURS_IN=""; NEIGHBOURS_UNLINKED=""; NEIGHBOURS_HELD=""; NEIGHBOURS_UNPUBLISHED=""; NEIGHBOURS_BLOCKED=""; NEIGHBOURS_LEFT=""; NEIGHBOURS_MOVED=""; NEIGHBOURS_UNMOVED=""; NEIGHBOURS_STALE=""; NEIGHBOUR_WAIT=""; NEIGHBOUR_CONFIG=""
 # neighbour_published <checkout> <name>: sets NEIGHBOUR_TARGET, the link's target from the container,
 # or empties it where the copy stands but cannot be used
 neighbour_published() {
@@ -232,7 +232,7 @@ neighbour_published() {
     if [ -e "$copy/.git" ]; then
       # Moved only while nothing in it is somebody's: no change in the tree and no commit the
       # origin lacks, which a checkout of the origin's branch would leave behind unnamed
-      outcome="$(neighbour_refresh_copy "$folder" "$2" "$copy" "$ref" "$NEIGHBOUR_WAIT")"
+      outcome="$(neighbour_refresh_copy "$folder" "$2" "$copy" "$ref" "$NEIGHBOUR_CONFIG")"
       case "$outcome" in
         held*) NEIGHBOURS_HELD="$NEIGHBOURS_HELD $2" ;;
         failed*) NEIGHBOURS_STALE="$NEIGHBOURS_STALE $2 (${outcome#*$'\t'})" ;;
@@ -241,7 +241,7 @@ neighbour_published() {
       # A second init at the same moment may have added it: then it is used as it stands. Git
       # also refuses where it still registers a copy whose folder was removed by hand; that
       # registration may hold the only name of a commit, so it is named, never pruned here.
-      if ! neighbour_add_copy "$folder" "$2" "$copy" "$ref" "$NEIGHBOUR_WAIT"; then
+      if ! neighbour_add_copy "$folder" "$2" "$copy" "$ref" "$NEIGHBOUR_CONFIG"; then
         NEIGHBOURS_BLOCKED="$NEIGHBOURS_BLOCKED $2"; NEIGHBOUR_TARGET=""; return 0
       fi
     fi
@@ -259,7 +259,8 @@ if [ "$PROJECT_FOLDER" -eq 0 ]; then
       # each. The origin also names its default branch, which a clone records but a pushed
       # `git init` never does. No prompt: a neighbour whose origin wants a login the shell does not
       # hold would stop init for a repository the issue never touched.
-      NEIGHBOUR_WAIT="$(neighbour_lock_wait "$TARGET/.ai-core/config.env")" || exit 1
+      NEIGHBOUR_CONFIG="$TARGET/.ai-core/config.env"
+      NEIGHBOUR_WAIT="$(neighbour_lock_wait "$NEIGHBOUR_CONFIG")" || exit 1
       if [ "$DRY" -eq 0 ]; then
         fetch_dir="$(mktemp -d)"; fetch_pids=(); fetch_names=()
         for neighbour in "$folder"/*/; do

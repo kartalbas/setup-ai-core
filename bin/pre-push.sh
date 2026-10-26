@@ -97,7 +97,11 @@ for arg in "$@"; do
     echo "worktree leads to is brought to the newest commit of its origin, unless it holds a change or a commit"
     echo "its origin lacks: that copy stays, and the gate names it. The gate prints the commit each copy stands"
     echo "at and keeps it there until the check ended. An origin that cannot be asked, or a copy that cannot"
-    echo "be read, refuses the push. A copy is waited for at most NEIGHBOUR_LOCK_WAIT_SECONDS (600 when unset)."
+    echo "be read, refuses the push. A copy that must move is waited for while a check reads it: at least"
+    echo "NEIGHBOUR_LOCK_WAIT_SECONDS (600 when unset) and at least one and a half times the longest check in the"
+    echo "run log of this machine, counted as no less than 1320 seconds, which is 1980 seconds without a longer"
+    echo "check on record; with 0 the gate tries once. The gate holds no copy while it waits for another. A check"
+    echo "that runs longer than that, or hangs, keeps its copy, and the gate then refuses and says so."
     echo ""
     echo "A landing of a public repository pushes its merge commit through this gate twice, to ci/integrate-<branch>"
     echo "and to the default branch, and hands both pushes a receipt in AI_CORE_LANDING_RECEIPT. The gate of the"
@@ -165,14 +169,14 @@ done
 [ -z "$ALL_DIR" ] || [ "$INSTALL" -eq 1 ] || { echo "error: --all goes with --install" >&2; exit 2; }
 [ -z "$MESSAGE_FILE" ] || [ "$INSTALL" -eq 0 ] || { echo "error: --message does not go with --install" >&2; exit 2; }
 [ "$RUNS" -eq 1 ] || [ -z "$RUNS_REPO$RUNS_SINCE" ] || { echo "error: --repo and --since go with --runs" >&2; exit 2; }
-GATE_RUNS_FILE="${AI_CORE_HOME:-$HOME}/.ai-core/pre-push-runs.tsv"
-GATE_RUNS_HEADER=$'time\trepository\tworktree\tcommit\tverdict\tseconds\tlast line\tload at check start'
+. "$CORE_ROOT/lib/pre-push-runs.sh"
+GATE_RUNS_FILE="$(gate_runs_file)"
 if [ "$RUNS" -eq 1 ]; then
   [ -s "$GATE_RUNS_FILE" ] || { echo "no run of the gate is recorded on this machine yet ($GATE_RUNS_FILE)"; exit 0; }
   echo "$GATE_RUNS_HEADER"
-  # A row of seven fields was recorded before the load field existed: its load was not measured
-  tail -n +2 "$GATE_RUNS_FILE" \
-    | awk -F'\t' -v repo="$RUNS_REPO" -v since="$RUNS_SINCE" '(repo == "" || tolower($2) == tolower(repo)) && (since == "" || $1 >= since) { kept[++n] = (NF == 7 ? $0 "\t-" : $0) } END { while (n > 0) print kept[n--] }'
+  gate_runs_rows "$GATE_RUNS_FILE" \
+    | awk -F'\t' -v repo="$RUNS_REPO" -v since="$RUNS_SINCE" '(repo == "" || tolower($2) == tolower(repo)) && (since == "" || $1 >= since) { kept[++n] = $0 } END { while (n > 0) print kept[n--] }' \
+    || { echo "error: the runs in $GATE_RUNS_FILE cannot be read" >&2; exit 1; }
   exit 0
 fi
 
@@ -1087,15 +1091,15 @@ check_skipped=0
 if [ -f "$root/scripts/check.sh" ]; then
   # The check reads the working tree, so it proves the pushed commit only where the two are equal.
   refuse_if_tree_differs
-  neighbours_held=0
   if [ -n "${AI_CORE_LANDING_RECEIPT:-}" ]; then
-    hold_neighbours; neighbours_held=1
+    hold_neighbours
     if landing_check_judge "$AI_CORE_LANDING_RECEIPT" "$root" "$head" "$ref_lines" "$sole_remote_ref" "$default" "$NEIGHBOUR_TIPS"; then
       check_skipped=1
       GATE_CHECK_LAST="scripts/check.sh of $head not run: the receipt of this landing shows it green on its ci/ push, with the CI of that commit green"
       echo "pre-push: scripts/check.sh of $head does not run again: its receipt from the first push of this landing shows it green, and the CI of that commit is green too."
     else
       check_reason="$LANDING_CHECK_REASON"
+      neighbours_release   # no copy stays held through the wait for a lower load
     fi
   fi
 fi
@@ -1106,7 +1110,7 @@ if [ -f "$root/scripts/check.sh" ] && [ "$check_skipped" -eq 0 ]; then
     || refuse "HEAD moved from ${head:0:12} to $(git -C "$root" rev-parse --short=12 HEAD) while the push waited for a lower load, so the check would prove a commit that is not the one judged. Push again."
   refuse_if_tree_differs
   GATE_LOAD="$LOAD_AT_START"
-  [ "$neighbours_held" -eq 1 ] || hold_neighbours
+  hold_neighbours
   if [ -z "${AI_CORE_LANDING_RECEIPT:-}" ]; then
     echo "pre-push: $root/scripts/check.sh runs here, before anything leaves this machine."
   else

@@ -14,18 +14,23 @@
 #   <neighbour>/.copy.lock   shared by a gate whose check reads the copy for as long as the check runs,
 #                            exclusive while the copy moves, so a reader never sees half a checkout and
 #                            a copy never moves under a check
-# A gate that holds several neighbours takes their locks in the order of the names, so two gates cannot
-# wait for each other.
+# A copy lock is waited for as long as the checks take: NEIGHBOUR_LOCK_WAIT_SECONDS, when above 0, is the
+# least, and the wait is at least one and a half times the longest check the run log of the gate records
+# (neighbour_allowance). A gate that holds several neighbours takes their locks in the order of the names, and
+# holds none of them while it waits for another.
+
+. "$(dirname "${BASH_SOURCE[0]}")/pre-push-runs.sh"
 
 # neighbour_dir <project folder> <neighbour>: where the copies of a neighbour stand
 neighbour_dir() { printf '%s/.ai-core/neighbours/%s\n' "$1" "$2"; }
 
-# neighbour_lock_wait <config.env>: the seconds a lock is waited for, from NEIGHBOUR_LOCK_WAIT_SECONDS
+# neighbour_lock_wait <config.env>: NEIGHBOUR_LOCK_WAIT_SECONDS, a whole number up to nine digits: the seconds a
+# fetch is waited for, and the least a copy lock is waited for, which 0 turns into one attempt
 neighbour_lock_wait() {
   local wait
   wait="$(config_value_in_file "$1" NEIGHBOUR_LOCK_WAIT_SECONDS 600)"
-  case "$wait" in ''|*[!0-9]*) echo "error: NEIGHBOUR_LOCK_WAIT_SECONDS is '$wait' in $1; it is the seconds a copy of a neighbour is waited for, a whole number of 0 or more" >&2; return 1 ;; esac
-  printf '%s\n' "$wait"
+  case "$wait" in ''|*[!0-9]*|??????????*) echo "error: NEIGHBOUR_LOCK_WAIT_SECONDS is '$wait' in $1; it is the least seconds a copy of a neighbour is waited for, a whole number from 0 to 999999999" >&2; return 1 ;; esac
+  printf '%s\n' "$((10#$wait))"
 }
 
 # neighbour_open <fd> <lock file>: opens the lock file on that descriptor, which the caller keeps for as long as
@@ -35,16 +40,107 @@ neighbour_open() {
   eval "exec $1>>\"\$2\"" 2>/dev/null || { NEIGHBOUR_ERROR="the lock file $2 cannot be opened"; return 1; }
 }
 
-# neighbour_flock <fd> <lock file> shared|exclusive <seconds>: takes the lock on the descriptor neighbour_open
-# opened; a lock the descriptor holds already is converted. On failure NEIGHBOUR_ERROR says why.
+# neighbour_flock <fd> <lock file> <seconds>: takes the exclusive lock on the descriptor neighbour_open opened,
+# for the fetch. On failure NEIGHBOUR_ERROR says why.
 neighbour_flock() {
-  local flag=-x
-  [ "$3" != shared ] || flag=-s
   NEIGHBOUR_ERROR=""
   command -v flock >/dev/null 2>&1 \
     || { NEIGHBOUR_ERROR="flock (util-linux) is not on the path, and the copies of the neighbours are locked with it"; return 1; }
-  flock "$flag" -w "$4" "$1" \
-    || { NEIGHBOUR_ERROR="the lock $2 is held by another gate or init and was not free in $4 seconds (NEIGHBOUR_LOCK_WAIT_SECONDS)"; return 1; }
+  flock -x -w "$3" "$1" \
+    || { NEIGHBOUR_ERROR="the lock $2 is held by another gate or init and was not free in $3 seconds (NEIGHBOUR_LOCK_WAIT_SECONDS)"; return 1; }
+}
+
+# neighbour_try_flock <fd> shared|exclusive: takes the lock on the descriptor at once or not at all, and a lock
+# the descriptor holds already is given up on the way. Status 0 taken, 1 held by another process, 2 flock failed,
+# NEIGHBOUR_ERROR says why.
+neighbour_try_flock() {
+  local flag=-x rc=0
+  [ "$2" != shared ] || flag=-s
+  NEIGHBOUR_ERROR=""
+  command -v flock >/dev/null 2>&1 \
+    || { NEIGHBOUR_ERROR="flock (util-linux) is not on the path, and the copies of the neighbours are locked with it"; return 2; }
+  flock "$flag" -n "$1" || rc=$?
+  case "$rc" in 0) return 0 ;; 1) return 1 ;; *) NEIGHBOUR_ERROR="flock failed with status $rc"; return 2 ;; esac
+}
+
+# The wait for a copy lock, one acquisition at a time: neighbour_wait_begin names the checkout's config.env and
+# starts the clock, and every neighbour_wait_flock after it counts from that start.
+NEIGHBOUR_WAIT_CONFIG=""; NEIGHBOUR_WAIT_START=0; NEIGHBOUR_WAIT_LONGEST=0; NEIGHBOUR_WAIT_HISTORY=""
+NEIGHBOUR_ALLOWANCE=0; NEIGHBOUR_AUTOMATIC=0; NEIGHBOUR_BASE=0
+NEIGHBOUR_INITIAL_CHECK_SECONDS=1320   # the 22 minutes of the longest check reported: no wait counts for less
+
+# neighbour_wait_begin <config.env>: an acquisition starts now. The longest check the run log records is read
+# once; the configuration is read again at every poll.
+neighbour_wait_begin() {
+  local log
+  NEIGHBOUR_WAIT_CONFIG="$1"; NEIGHBOUR_WAIT_START="$(date +%s)"
+  log="$(gate_runs_file)"
+  gate_runs_timing "$log" || :
+  NEIGHBOUR_WAIT_LONGEST=0
+  case "$GATE_RUNS_STATE" in
+    missing) NEIGHBOUR_WAIT_HISTORY="no run log stands at $log yet" ;;
+    unreadable) NEIGHBOUR_WAIT_HISTORY="the run log $log cannot be read" ;;
+    *)
+      if [ "$GATE_RUNS_TIMED" -eq 0 ]; then
+        NEIGHBOUR_WAIT_HISTORY="no check that ran is recorded among the $GATE_RUNS_ROWS rows of $log"
+      else
+        NEIGHBOUR_WAIT_LONGEST="$GATE_RUNS_LONGEST"
+        NEIGHBOUR_WAIT_HISTORY="the longest of the $GATE_RUNS_TIMED checks among the $GATE_RUNS_ROWS rows of $log took $GATE_RUNS_LONGEST seconds"
+      fi
+      [ "$GATE_RUNS_UNREADABLE" -eq 0 ] || NEIGHBOUR_WAIT_HISTORY="$NEIGHBOUR_WAIT_HISTORY, and $GATE_RUNS_UNREADABLE of those rows could not be read" ;;
+  esac
+}
+
+# neighbour_allowance <configured seconds>: sets NEIGHBOUR_ALLOWANCE, the seconds a copy lock is waited for in all.
+# 0 is one attempt. Above 0 it is the greater of the configured seconds, their least, and the automatic ones,
+# NEIGHBOUR_AUTOMATIC: one and a half times the longest check on record, which counts for no less than the
+# initial 1320 seconds (NEIGHBOUR_BASE).
+neighbour_allowance() {
+  NEIGHBOUR_BASE="$NEIGHBOUR_WAIT_LONGEST"
+  [ "$NEIGHBOUR_BASE" -ge "$NEIGHBOUR_INITIAL_CHECK_SECONDS" ] || NEIGHBOUR_BASE="$NEIGHBOUR_INITIAL_CHECK_SECONDS"
+  NEIGHBOUR_AUTOMATIC=$(( (3 * NEIGHBOUR_BASE + 1) / 2 ))
+  if [ "$1" -eq 0 ]; then NEIGHBOUR_ALLOWANCE=0
+  elif [ "$1" -gt "$NEIGHBOUR_AUTOMATIC" ]; then NEIGHBOUR_ALLOWANCE="$1"
+  else NEIGHBOUR_ALLOWANCE="$NEIGHBOUR_AUTOMATIC"
+  fi
+}
+
+# neighbour_allowance_reason <configured seconds>: what the allowance came from, one phrase
+neighbour_allowance_reason() {
+  if [ "$1" -eq 0 ]; then echo "NEIGHBOUR_LOCK_WAIT_SECONDS is 0, which is one attempt"; return; fi
+  printf 'NEIGHBOUR_LOCK_WAIT_SECONDS is %s, the least; the automatic %s seconds are one and a half times %s seconds, %s (%s)\n' \
+    "$1" "$NEIGHBOUR_AUTOMATIC" "$NEIGHBOUR_BASE" \
+    "$([ "$NEIGHBOUR_WAIT_LONGEST" -ge "$NEIGHBOUR_INITIAL_CHECK_SECONDS" ] && echo "the longest check on record" || echo "the initial $NEIGHBOUR_INITIAL_CHECK_SECONDS, as no check on record was longer")" \
+    "$NEIGHBOUR_WAIT_HISTORY"
+}
+
+# neighbour_wait_flock <fd> <lock file> shared|exclusive: takes the lock on the descriptor neighbour_open opened. It
+# tries at once, and then every tenth of the time waited so far, from 1 to 30 seconds, without blocking, until the
+# allowance since neighbour_wait_begin is used up. The caller holds no other copy lock. On failure NEIGHBOUR_ERROR
+# says why, and that a check longer than the allowance keeps the copy. What it says while it waits goes to
+# standard error.
+neighbour_wait_flock() {
+  local rc configured now elapsed remaining step announced=0
+  while :; do
+    rc=0; neighbour_try_flock "$1" "$3" || rc=$?
+    [ "$rc" -ne 0 ] || return 0
+    [ "$rc" -eq 1 ] || return 1
+    configured="$(neighbour_lock_wait "$NEIGHBOUR_WAIT_CONFIG")" \
+      || { NEIGHBOUR_ERROR="NEIGHBOUR_LOCK_WAIT_SECONDS is not a whole number of seconds in $NEIGHBOUR_WAIT_CONFIG"; return 1; }
+    neighbour_allowance "$configured"
+    now="$(date +%s)"; elapsed=$((now - NEIGHBOUR_WAIT_START)); remaining=$((NEIGHBOUR_ALLOWANCE - elapsed))
+    if [ "$remaining" -le 0 ]; then
+      NEIGHBOUR_ERROR="the lock $2 is held by another gate or init and was not free in $elapsed seconds ($(neighbour_allowance_reason "$configured")). A check that runs longer, or hangs, keeps the copy: wait for it to end, or set NEIGHBOUR_LOCK_WAIT_SECONDS above $NEIGHBOUR_ALLOWANCE in $NEIGHBOUR_WAIT_CONFIG"
+      return 1
+    fi
+    if [ "$announced" -eq 0 ]; then
+      echo "neighbours: waiting for the lock $2, which another gate or init holds: for $NEIGHBOUR_ALLOWANCE seconds at most ($(neighbour_allowance_reason "$configured"))" >&2
+      announced=1
+    fi
+    step=$((elapsed / 10)); [ "$step" -ge 1 ] || step=1; [ "$step" -le 30 ] || step=30
+    [ "$remaining" -ge "$step" ] || step="$remaining"
+    neighbour_unlocked sleep "$step"
+  done
 }
 
 # neighbour_unlock <fd>: closes the descriptor, which gives up its lock
@@ -69,7 +165,7 @@ neighbour_unlocked() {
 neighbour_fetch() (
   local dir checkout="$1/$2" said
   dir="$(neighbour_dir "$1" "$2")"
-  mkdir -p "$dir" && neighbour_open 8 "$dir/.fetch.lock" && neighbour_flock 8 "$dir/.fetch.lock" exclusive "$3" || { printf '%s\n' "$NEIGHBOUR_ERROR"; exit 1; }
+  mkdir -p "$dir" && neighbour_open 8 "$dir/.fetch.lock" && neighbour_flock 8 "$dir/.fetch.lock" "$3" || { printf '%s\n' "$NEIGHBOUR_ERROR"; exit 1; }
   said="$(GIT_TERMINAL_PROMPT=0 neighbour_unlocked git -C "$checkout" fetch -q origin 2>&1 < /dev/null)" || { printf '%s\n' "$said"; exit 1; }
   said="$(GIT_TERMINAL_PROMPT=0 neighbour_unlocked git -C "$checkout" remote set-head origin --auto 2>&1 < /dev/null)" || { printf '%s\n' "$said"; exit 1; }
 )
@@ -104,17 +200,18 @@ neighbour_move_copy() {
     || { NEIGHBOUR_ERROR="$1 does not stand on $2 after the checkout"; return 1; }
 }
 
-# neighbour_refresh_copy <project folder> <neighbour> <copy> <ref> <seconds>: for init. The copy moves to <ref> where
+# neighbour_refresh_copy <project folder> <neighbour> <copy> <ref> <config.env>: for init. The copy moves to <ref> where
 # it holds nothing of anybody's. Its state is read under the shared lock, so a copy that stays waits for no check
 # that reads it; only a move takes the exclusive lock. Prints one line, the state - current, moved, held or failed -
 # and a tab and the reason where there is one.
 neighbour_refresh_copy() (
   local dir
   dir="$(neighbour_dir "$1" "$2")"
-  { neighbour_open 9 "$dir/.copy.lock" && neighbour_flock 9 "$dir/.copy.lock" shared "$5"; } || { printf 'failed\t%s\n' "$NEIGHBOUR_ERROR"; exit 0; }
+  neighbour_wait_begin "$5"
+  { neighbour_open 9 "$dir/.copy.lock" && neighbour_wait_flock 9 "$dir/.copy.lock" shared; } || { printf 'failed\t%s\n' "$NEIGHBOUR_ERROR"; exit 0; }
   neighbour_copy_state "$3" "$4" || { printf 'failed\t%s\n' "$NEIGHBOUR_ERROR"; exit 0; }
   if [ "$NEIGHBOUR_STATE" = movable ]; then
-    neighbour_flock 9 "$dir/.copy.lock" exclusive "$5" || { printf 'failed\t%s\n' "$NEIGHBOUR_ERROR"; exit 0; }
+    neighbour_wait_flock 9 "$dir/.copy.lock" exclusive || { printf 'failed\t%s\n' "$NEIGHBOUR_ERROR"; exit 0; }
     neighbour_copy_state "$3" "$4" || { printf 'failed\t%s\n' "$NEIGHBOUR_ERROR"; exit 0; }
   fi
   case "$NEIGHBOUR_STATE" in
@@ -124,28 +221,36 @@ neighbour_refresh_copy() (
   esac
 )
 
-# neighbour_add_copy <project folder> <neighbour> <copy> <ref> <seconds>: for init. Adds the copy as a detached
+# neighbour_add_copy <project folder> <neighbour> <copy> <ref> <config.env>: for init. Adds the copy as a detached
 # worktree at <ref> under the exclusive lock, so no reader finds it half made. Fails where the copy does not stand
 # afterwards: a second init may have added it, which is as good.
 neighbour_add_copy() (
   local dir
   dir="$(neighbour_dir "$1" "$2")"
-  mkdir -p "$dir" && neighbour_open 9 "$dir/.copy.lock" && neighbour_flock 9 "$dir/.copy.lock" exclusive "$5" || exit 1
+  neighbour_wait_begin "$5"
+  mkdir -p "$dir" || { echo "neighbours: the folder $dir cannot be made" >&2; exit 1; }
+  { neighbour_open 9 "$dir/.copy.lock" && neighbour_wait_flock 9 "$dir/.copy.lock" exclusive; } || { printf '%s\n' "$NEIGHBOUR_ERROR" >&2; exit 1; }
   neighbour_unlocked git -C "$1/$2" worktree add -q --detach "$3" "$4" >/dev/null 2>&1 || [ -e "$3/.git" ]
 )
+
 
 # neighbours_hold <worktree>: for the push gate. For every link beside the worktree that leads to a published
 # copy, in the order of the neighbours' names: asks the origin, brings the copy to its newest commit where the
 # copy holds nothing of anybody's, and keeps a shared lock on it, on a descriptor from 40 up, until
 # neighbours_release. The check then reads the measured snapshot, and no init and no other gate moves it.
+# A copy that has to move, or a lock a mover holds, is waited for with no lock of any copy held: the gate gives
+# them up, waits, moves, and takes every shared lock again in the order of the names, reading each copy's state
+# again under its lock, until all are held together. The wait counts from the first lock, and the allowance is
+# the one of neighbour_allowance.
 # Sets NEIGHBOUR_REPORT, one line per neighbour, and NEIGHBOUR_TIPS, one line per neighbour, the name and the
 # full commit the copy stands at; fails with NEIGHBOUR_ERROR naming the copy whose freshness could not be
 # established. A worktree with no such link holds nothing.
 NEIGHBOUR_REPORT=""; NEIGHBOUR_TIPS=""; NEIGHBOUR_ERROR=""; NEIGHBOUR_STATE=""; NEIGHBOUR_FDS=""
+NEIGHBOUR_BRANCH=""; NEIGHBOUR_DIR=""; NEIGHBOUR_COPY=""; NEIGHBOUR_REF=""; NEIGHBOUR_MOVES=""
 NEIGHBOUR_FETCH_WRAP=""   # a command that runs the fetch, such as the sign-in line of a forge
 neighbours_hold() {
-  local root="$1" common main folder container link name target copy branch ref fd=40 wait dir before after note names said
-  NEIGHBOUR_REPORT=""; NEIGHBOUR_TIPS=""; NEIGHBOUR_FDS=""; NEIGHBOUR_ERROR=""
+  local root="$1" common main folder container link names config wait
+  NEIGHBOUR_REPORT=""; NEIGHBOUR_TIPS=""; NEIGHBOUR_FDS=""; NEIGHBOUR_ERROR=""; NEIGHBOUR_MOVES=""
   common="$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
   [ "$common" != "$(git -C "$root" rev-parse --path-format=absolute --git-dir 2>/dev/null)" ] || return 0
   main="$(dirname "$common")"; folder="$(dirname "$main")"; container="$(dirname "$(git -C "$root" rev-parse --show-toplevel)")"
@@ -155,44 +260,90 @@ neighbours_hold() {
     case "$(readlink "$link")" in "../../.ai-core/neighbours/${link##*/}/origin-"?*) echo "${link##*/}" ;; esac
   done | LC_ALL=C sort)"
   [ -n "$names" ] || return 0
-  wait="$(neighbour_lock_wait "$root/.ai-core/config.env")" || { NEIGHBOUR_ERROR="NEIGHBOUR_LOCK_WAIT_SECONDS is not a whole number of seconds in $root/.ai-core/config.env"; return 1; }
+  config="$root/.ai-core/config.env"
+  wait="$(neighbour_lock_wait "$config")" || { NEIGHBOUR_ERROR="NEIGHBOUR_LOCK_WAIT_SECONDS is not a whole number of seconds in $config"; return 1; }
+  neighbours_ask "$container" "$folder" "$names" "$wait" || return 1
+  neighbour_wait_begin "$config"
+  neighbours_take "$container" "$folder" "$names" || { neighbours_release; return 1; }
+}
+
+# neighbour_locate <container> <folder> <neighbour>: sets NEIGHBOUR_BRANCH, NEIGHBOUR_DIR and NEIGHBOUR_COPY from the
+# link beside the worktree; fails where the copy or the checkout is gone
+neighbour_locate() {
+  NEIGHBOUR_BRANCH="$(readlink "$1/$3")"; NEIGHBOUR_BRANCH="${NEIGHBOUR_BRANCH#../../.ai-core/neighbours/$3/origin-}"
+  NEIGHBOUR_DIR="$(neighbour_dir "$2" "$3")"; NEIGHBOUR_COPY="$NEIGHBOUR_DIR/origin-$NEIGHBOUR_BRANCH"
+  if [ ! -e "$NEIGHBOUR_COPY/.git" ] || [ ! -d "$2/$3/.git" ]; then
+    NEIGHBOUR_ERROR="the link $1/$3 leads to $NEIGHBOUR_COPY, and that copy or the checkout $2/$3 is gone: run ai-core init in this worktree"
+    return 1
+  fi
+}
+
+# neighbour_follow_default <folder> <neighbour>: sets NEIGHBOUR_REF to the default branch its origin named at the last
+# fetch; fails where the link leads to the copy of another branch
+neighbour_follow_default() {
+  NEIGHBOUR_REF="$(neighbour_default_ref "$1/$2")" || NEIGHBOUR_REF=""
+  if [ "$NEIGHBOUR_REF" != "origin/$NEIGHBOUR_BRANCH" ]; then
+    NEIGHBOUR_ERROR="the origin of $2 names ${NEIGHBOUR_REF:-no default branch} and the link leads to the copy of $NEIGHBOUR_BRANCH: run ai-core init in this worktree, which follows it"
+    return 1
+  fi
+}
+
+# neighbours_ask <container> <folder> <names> <seconds>: asks the origin of every neighbour, in the order of the names,
+# with no copy lock held
+neighbours_ask() {
+  local name said
   while IFS= read -r name; do
-    target="$(readlink "$container/$name")"; branch="${target#../../.ai-core/neighbours/$name/origin-}"
-    dir="$(neighbour_dir "$folder" "$name")"; copy="$dir/origin-$branch"
-    if [ ! -e "$copy/.git" ] || [ ! -d "$folder/$name/.git" ]; then
-      NEIGHBOUR_ERROR="the link $container/$name leads to $copy, and that copy or the checkout $folder/$name is gone: run ai-core init in this worktree"
+    neighbour_locate "$1" "$2" "$name" || return 1
+    if ! said="$(${NEIGHBOUR_FETCH_WRAP:+$NEIGHBOUR_FETCH_WRAP} neighbour_fetch "$2" "$name" "$4")"; then
+      NEIGHBOUR_ERROR="the origin of $name could not be asked, so its copy $NEIGHBOUR_COPY may stand behind it: ${said//$'\n'/ | }"
       return 1
     fi
-    if ! said="$(${NEIGHBOUR_FETCH_WRAP:+$NEIGHBOUR_FETCH_WRAP} neighbour_fetch "$folder" "$name" "$wait")"; then
-      NEIGHBOUR_ERROR="the origin of $name could not be asked, so its copy $copy may stand behind it: ${said//$'\n'/ | }"
-      return 1
-    fi
-    ref="$(neighbour_default_ref "$folder/$name")" || ref=""
-    if [ "$ref" != "origin/$branch" ]; then
-      NEIGHBOUR_ERROR="the origin of $name names ${ref:-no default branch} and the link leads to the copy of $branch: run ai-core init in this worktree, which follows it"
-      return 1
-    fi
-    NEIGHBOUR_FDS="$NEIGHBOUR_FDS $fd"
-    neighbour_open "$fd" "$dir/.copy.lock" || return 1
-    neighbour_flock "$fd" "$dir/.copy.lock" shared "$wait" || { NEIGHBOUR_ERROR="the copy $copy cannot be read: $NEIGHBOUR_ERROR"; return 1; }
-    neighbour_copy_state "$copy" "$ref" || { NEIGHBOUR_ERROR="the freshness of $copy cannot be established: $NEIGHBOUR_ERROR"; return 1; }
-    before="$(git -C "$copy" rev-parse HEAD)"; note="already at $ref"
-    if [ "$NEIGHBOUR_STATE" = movable ]; then
-      neighbour_flock "$fd" "$dir/.copy.lock" exclusive "$wait" || { NEIGHBOUR_ERROR="the copy $copy cannot move to $ref, as a check still reads it: $NEIGHBOUR_ERROR"; return 1; }
-      neighbour_copy_state "$copy" "$ref" || { NEIGHBOUR_ERROR="the freshness of $copy cannot be established: $NEIGHBOUR_ERROR"; return 1; }
+    neighbour_follow_default "$2" "$name" || return 1
+  done <<< "$3"
+}
+
+# neighbours_take <container> <folder> <names>: takes the shared lock of every copy, in the order of the names, without
+# waiting for any: at the first copy that has to move, or whose lock a mover holds, it gives up every lock it took,
+# waits for that copy alone (neighbour_wait_flock), moves it where it is movable, and starts again. It returns once
+# every lock is held together, each copy's state read under its own lock.
+neighbours_take() {
+  local name fd rc blocked mode before moved_from note
+  while :; do
+    NEIGHBOUR_REPORT=""; NEIGHBOUR_TIPS=""; blocked=""; fd=40
+    while IFS= read -r name; do
+      neighbour_locate "$1" "$2" "$name" && neighbour_follow_default "$2" "$name" || return 1
+      NEIGHBOUR_FDS="$NEIGHBOUR_FDS $fd"
+      neighbour_open "$fd" "$NEIGHBOUR_DIR/.copy.lock" || return 1
+      rc=0; neighbour_try_flock "$fd" shared || rc=$?
+      if [ "$rc" -eq 1 ]; then blocked="$name"; mode=shared; break; fi
+      [ "$rc" -eq 0 ] || { NEIGHBOUR_ERROR="the copy $NEIGHBOUR_COPY cannot be read: $NEIGHBOUR_ERROR"; return 1; }
+      neighbour_copy_state "$NEIGHBOUR_COPY" "$NEIGHBOUR_REF" || { NEIGHBOUR_ERROR="the freshness of $NEIGHBOUR_COPY cannot be established: $NEIGHBOUR_ERROR"; return 1; }
+      if [ "$NEIGHBOUR_STATE" = movable ]; then blocked="$name"; mode=exclusive; break; fi
+      moved_from="$(awk -v n="$name" '$1 == n { print $2; exit }' <<< "$NEIGHBOUR_MOVES")"
+      if [ "$NEIGHBOUR_STATE" = held ]; then note="NOT moved to $NEIGHBOUR_REF ($(git -C "$NEIGHBOUR_COPY" rev-parse "$NEIGHBOUR_REF^{commit}")): $NEIGHBOUR_ERROR"
+      elif [ -n "$moved_from" ]; then note="moved from $moved_from to $NEIGHBOUR_REF"
+      else note="already at $NEIGHBOUR_REF"; fi
+      NEIGHBOUR_TIPS="$NEIGHBOUR_TIPS$name $(git -C "$NEIGHBOUR_COPY" rev-parse HEAD)"$'\n'
+      NEIGHBOUR_REPORT="$NEIGHBOUR_REPORT$name: the published copy $NEIGHBOUR_COPY stands at $(git -C "$NEIGHBOUR_COPY" rev-parse HEAD) ($note)"$'\n'
+      fd=$((fd + 1))
+    done <<< "$3"
+    [ -n "$blocked" ] || return 0
+    neighbours_release
+    NEIGHBOUR_FDS=" 40"
+    neighbour_open 40 "$NEIGHBOUR_DIR/.copy.lock" || return 1
+    if [ "$mode" = shared ]; then
+      neighbour_wait_flock 40 "$NEIGHBOUR_DIR/.copy.lock" shared || { NEIGHBOUR_ERROR="the copy $NEIGHBOUR_COPY cannot be read: $NEIGHBOUR_ERROR"; return 1; }
+    else
+      neighbour_wait_flock 40 "$NEIGHBOUR_DIR/.copy.lock" exclusive || { NEIGHBOUR_ERROR="the copy $NEIGHBOUR_COPY cannot move to $NEIGHBOUR_REF, as a check still reads it: $NEIGHBOUR_ERROR"; return 1; }
+      neighbour_copy_state "$NEIGHBOUR_COPY" "$NEIGHBOUR_REF" || { NEIGHBOUR_ERROR="the freshness of $NEIGHBOUR_COPY cannot be established: $NEIGHBOUR_ERROR"; return 1; }
       if [ "$NEIGHBOUR_STATE" = movable ]; then
-        neighbour_move_copy "$copy" "$ref" || { NEIGHBOUR_ERROR="the copy $copy could not move to $ref: $NEIGHBOUR_ERROR"; return 1; }
+        before="$(git -C "$NEIGHBOUR_COPY" rev-parse HEAD)"
+        neighbour_move_copy "$NEIGHBOUR_COPY" "$NEIGHBOUR_REF" || { NEIGHBOUR_ERROR="the copy $NEIGHBOUR_COPY could not move to $NEIGHBOUR_REF: $NEIGHBOUR_ERROR"; return 1; }
+        NEIGHBOUR_MOVES="$NEIGHBOUR_MOVES$blocked $before"$'\n'
       fi
-      neighbour_flock "$fd" "$dir/.copy.lock" shared "$wait" || { NEIGHBOUR_ERROR="the copy $copy cannot be read: $NEIGHBOUR_ERROR"; return 1; }
-      note="moved from $before to $ref"
     fi
-    after="$(git -C "$copy" rev-parse HEAD)"
-    neighbour_copy_state "$copy" "$ref" || { NEIGHBOUR_ERROR="the freshness of $copy cannot be established: $NEIGHBOUR_ERROR"; return 1; }
-    [ "$NEIGHBOUR_STATE" != held ] || note="NOT moved to $ref ($(git -C "$copy" rev-parse "$ref^{commit}")): $NEIGHBOUR_ERROR"
-    NEIGHBOUR_REPORT="$NEIGHBOUR_REPORT$name: the published copy $copy stands at $after ($note)"$'\n'
-    NEIGHBOUR_TIPS="$NEIGHBOUR_TIPS$name $after"$'\n'
-    fd=$((fd + 1))
-  done <<< "$names"
+    neighbours_release
+  done
 }
 
 # neighbours_release: gives up the locks neighbours_hold took

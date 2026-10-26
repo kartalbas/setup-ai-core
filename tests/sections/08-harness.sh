@@ -235,6 +235,13 @@ head -n1 "$WORK/org-sh/shop-web/AGENTS.md" | grep -q 'ai-core map: generated' ||
 grep -q '^## Binding rules' "$M" && fail "the map in the harness carries the contract; init adds it to the checkout's copy"
 grep -q -- '--allowedTools' "$MAPLOG" && grep -q 'Read the repository first, cheaply' "$MAPLOG" || fail "map.sh did not call the agent CLI with the prompt and the tools"
 grep -q -- "--settings $WORK/home-sh/.ai-core/claude-run-settings.json" "$MAPLOG" || fail "map.sh did not hand claude the denials of the run settings file: $(tail -c 300 "$MAPLOG")"
+# a map run may use only Read, Glob and Grep, so claude starts without the account's connectors; planted: the start without the flag, in a copy
+map_start_is_strict() { grep -- '--allowedTools' "$1" | grep -q -- '--strict-mcp-config'; }
+map_start_is_strict "$MAPLOG" || fail "map.sh started claude without --strict-mcp-config: $(tail -c 300 "$MAPLOG")"
+mkdir -p "$WORK/planted-map"; cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$WORK/planted-map/"; cp "$ROOT/VERSION" "$WORK/planted-map/"
+sed -i.bak 's/ --strict-mcp-config//' "$WORK/planted-map/bin/map.sh"
+HOME="$WORK/home-sh" AI_CORE_HOME="$WORK/home-sh" PATH="$PATH_SH" MAP_FAKE_LOG="$WORK/planted-map.args" bash "$WORK/planted-map/bin/map.sh" "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-planted.log" 2>&1 || fail "map.sh without the flag, in a copy, did not run (see $WORK/map-planted.log)"
+grep -q -- '--allowedTools' "$WORK/planted-map.args" && ! map_start_is_strict "$WORK/planted-map.args" || fail "the check for --strict-mcp-config did not go red on a map start without it: $(tail -c 300 "$WORK/planted-map.args")"
 mv "$WORK/home-sh/.ai-core/claude-run-settings.json" "$WORK/run-settings.bak"
 map_run "$WORK/org-sh/shop-web" --dry-run > "$WORK/map-nosettings.log" 2>&1 && fail "map.sh ran claude without the run settings file"
 grep -q 'claude-run-settings.json does not exist' "$WORK/map-nosettings.log" || fail "map.sh did not say the run settings file is missing: $(tail -c 300 "$WORK/map-nosettings.log")"

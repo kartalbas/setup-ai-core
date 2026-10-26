@@ -140,7 +140,7 @@ RAW="$TMP/map.raw"; ERR="$TMP/map.err"
 # Each CLI in its non-interactive mode, reading only; the answer alone lands in RAW
 run_tool() {
   case "$TOOL" in
-    claude) claude -p "$PROMPT" --output-format text --settings "$RUN_SETTINGS" ${MODEL:+--model "$MODEL"} --allowedTools "Read,Glob,Grep" ;;
+    claude) claude -p "$PROMPT" --output-format text --strict-mcp-config --settings "$RUN_SETTINGS" ${MODEL:+--model "$MODEL"} --allowedTools "Read,Glob,Grep" ;;
     codex)  codex exec --skip-git-repo-check -s read-only ${MODEL:+-m "$MODEL"} --output-last-message "$TMP/last.md" "$PROMPT" >/dev/null && cat "$TMP/last.md" ;;
     agy)    agy --print "$PROMPT" --output-format text ${MODEL:+--model "$MODEL"} ;;
   esac

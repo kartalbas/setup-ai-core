@@ -20,16 +20,17 @@
 
 # THE MARK OF A HARNESS LANDING is a second record of this unit, and it means something else. The receipt says "this
 # commit was checked, skip scripts/check.sh"; the mark says "a harness landing path makes this push". The push gate
-# refuses every update of the default branch that carries no mark for exactly the commit it lands, so reviewed work
-# reaches the default branch through `ai-core integrate-issue` and the few other paths of the harness that write one
+# refuses every update of the default branch that carries no mark for exactly the commit it lands, unless every commit it
+# adds touches only files of DIRECT_PUSH_FILES (below), so reviewed work reaches the default branch through
+# `ai-core integrate-issue` and the few other paths of the harness that write one
 # (a release, init's commit of the .gitignore block, the shims of `pre-push --install`, `ai-core push` of a project
-# harness), never through a plain push. The
+# harness), never through a plain push of other files. The
 # mark is bound to the clone (its git common directory), the exact commit and the refs it may update. A landing writes
 # it right before its push, hands the path to that push's Git children alone in AI_CORE_LANDING_MARK, and removes it on
 # every way out; it is no setting of the shell, so two landings at the same moment never meet. The mark is no secret
 # and no proof of a review: it keeps a plain `git push` from reaching the default branch by accident or by habit.
 
-# shellcheck disable=SC2034 # the two REASON variables are read by the gate that sources this file
+# shellcheck disable=SC2034 # the REASON variables are read by the gate that sources this file
 LANDING_CHECK_VERSION=1
 LANDING_CHECK_REASON=""
 LANDING_MARK_VERSION=1
@@ -161,13 +162,18 @@ with_landing_mark() {
 # harness_commits_only <checkout> <branch>: succeeds where every commit that HEAD holds and origin/<branch> lacks is one a
 # path of the harness writes on its own: init's commit of the .gitignore block, or the commit of the shims of
 # pre-push --install, each touching only its files and carrying its No-issue trailer. A commit of somebody else beneath
-# them would otherwise reach the default branch under the harness's mark, past the review a landing stands for.
+# them would otherwise reach the default branch under the harness's mark, past the review a landing stands for. A git
+# call that fails stops it with status 1: a commit that could not be read is never taken for one of the harness.
 harness_commits_only() {
-  local dir="$1" branch="$2" unpushed_range=(HEAD) sha files file
+  local dir="$1" branch="$2" unpushed_range=(HEAD) shas sha files file trailer
   if git -C "$dir" rev-parse -q --verify "refs/remotes/origin/$branch" >/dev/null; then unpushed_range=(HEAD "^refs/remotes/origin/$branch"); fi
-  for sha in $(git -C "$dir" rev-list "${unpushed_range[@]}"); do
-    files="$(git -C "$dir" diff-tree --no-commit-id --root -r --name-only "$sha" | sort -u | tr '\n' ' ')"
-    case "$(git -C "$dir" log -1 --format='%(trailers:key=No-issue,valueonly)' "$sha")" in
+  shas="$(git -C "$dir" rev-list "${unpushed_range[@]}")" || return 1
+  while IFS= read -r sha; do
+    [ -n "$sha" ] || continue
+    files="$(git -C "$dir" diff-tree --no-commit-id --root -r --name-only "$sha")" || return 1
+    files="$(printf '%s\n' "$files" | sort -u | tr '\n' ' ')"
+    trailer="$(git -C "$dir" log -1 --format='%(trailers:key=No-issue,valueonly)' "$sha")" || return 1
+    case "$trailer" in
       *'the .gitignore block written by ai-core init'*) [ "$files" = '.gitignore ' ] || return 1 ;;
       *'written, committed and pushed by ai-core pre-push --install'*)
         [ -n "$files" ] || return 1
@@ -176,7 +182,8 @@ harness_commits_only() {
         done ;;
       *) return 1 ;;
     esac
-  done
+  done <<< "$shas"
+  return 0
 }
 
 # with_harness_commits_mark <checkout> <branch> -- <command>...: runs the command, a push of HEAD to <branch>, with the mark
@@ -191,6 +198,73 @@ with_harness_commits_mark() {
     echo "HEAD holds commits that origin/$branch lacks and the harness did not write, so this push carries no mark of a harness landing" >&2
     "$@"
   fi
+}
+
+# A DIRECT PUSH is the other way onto the default branch, beside the mark: a repository names in DIRECT_PUSH_FILES of its
+# own .ai-core/config.env the files whose change needs no landing, a release manifest or a data table, and a plain push
+# whose every new commit touches only those files reaches the default branch. The commits are judged one by one; neither
+# the tip alone nor the net change of the push says what each of them touched.
+DIRECT_PUSH_REASON=""
+
+# direct_push_matches <path> <pattern>...: succeeds where one pattern matches the whole path, as a shell pattern does:
+# * stands for any characters, a slash included, ? for one character, [...] for one of a set; anything else stands for
+# itself, case counted, so a pattern without those names exactly one file.
+direct_push_matches() {
+  local path="$1" pattern
+  shift
+  for pattern in "$@"; do
+    # shellcheck disable=SC2254 # the pattern is a glob on purpose
+    case "$path" in $pattern) return 0 ;; esac
+  done
+  return 1
+}
+
+# direct_push_commits_only <checkout> <patterns> <ranges>: succeeds where every commit that one of the ranges names touches
+# only paths that one of the patterns matches. <patterns> is the value of DIRECT_PUSH_FILES, separated by white space, none
+# an absolute path or with an empty, . or .. component. <ranges> is one `git rev-list` range per line, which the caller
+# draws from the ref lines of the push. A merge is judged against each of its parents, so what it resolves is read too; a
+# rename counts as the removal of its old path and the addition of its new one. A git call that fails, a commit that
+# cannot be listed and a push that names no commit at all fail it, and DIRECT_PUSH_REASON says why.
+direct_push_commits_only() {
+  local dir="$1" patterns="$2" ranges="$3" scratch status=0
+  DIRECT_PUSH_REASON=""
+  scratch="$(mktemp -d)" || { DIRECT_PUSH_REASON="no folder to read the commits of this push in"; return 1; }
+  direct_push_inspect "$dir" "$patterns" "$ranges" "$scratch" || status=$?
+  rm -rf "$scratch"
+  return "$status"
+}
+
+# direct_push_inspect <checkout> <patterns> <ranges> <folder>: the work of direct_push_commits_only, in a folder it removes.
+# The changed paths are read from a file, NUL-delimited, because a path may hold a line break.
+direct_push_inspect() {
+  local dir="$1" patterns="$2" ranges="$3" scratch="$4" entries=() pattern range words sha path shown judged=0
+  IFS=$' \t\n' read -r -d '' -a entries <<< "$patterns" || true
+  [ "${#entries[@]}" -gt 0 ] || { DIRECT_PUSH_REASON="DIRECT_PUSH_FILES names no file"; return 1; }
+  for pattern in "${entries[@]}"; do
+    case "/$pattern/" in
+      //*|*//*|*/./*|*/../*)
+        DIRECT_PUSH_REASON="DIRECT_PUSH_FILES names '$pattern', which is no path inside the repository: no leading /, and no empty, . or .. component"
+        return 1 ;;
+    esac
+  done
+  while IFS= read -r range; do
+    [ -n "$range" ] || continue
+    read -ra words <<< "$range"
+    git -C "$dir" rev-list "${words[@]}" > "$scratch/commits" \
+      || { DIRECT_PUSH_REASON="git rev-list $range failed, so the commits this push adds cannot be listed"; return 1; }
+    while IFS= read -r sha; do
+      judged=$((judged + 1))
+      git -C "$dir" diff-tree --no-commit-id --root -r -m --no-renames --name-only -z "$sha" > "$scratch/paths" \
+        || { DIRECT_PUSH_REASON="git diff-tree failed, so the paths of ${sha:0:12} cannot be listed"; return 1; }
+      while IFS= read -r -d '' path; do
+        direct_push_matches "$path" "${entries[@]}" && continue
+        shown="$(printf '%s' "$path" | tr '[:cntrl:]' '?')"
+        DIRECT_PUSH_REASON="${sha:0:12} touches $shown, which DIRECT_PUSH_FILES does not list"
+        return 1
+      done < "$scratch/paths"
+    done < "$scratch/commits"
+  done <<< "$ranges"
+  [ "$judged" -gt 0 ] || { DIRECT_PUSH_REASON="the ranges of this push name no commit to judge"; return 1; }
 }
 
 # landing_mark_judge <mark> <root> <commit> <remote ref>: succeeds where the mark names this very commit, this clone and

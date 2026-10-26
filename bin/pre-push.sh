@@ -12,7 +12,8 @@
 #
 #   1. the pushed commit is the one that is checked out, or, beside the default branch, a commit
 #      origin already carries; and the default branch is updated only by a harness landing
-#      (the mark of lib/landing-check.sh), never by a plain push
+#      (the mark of lib/landing-check.sh), or by a plain push whose every new commit touches only
+#      the files DIRECT_PUSH_FILES of the repository's .ai-core/config.env lists
 #   2. every pushed commit names its issue, or says why it does not
 #   3. the team modes are installed
 #   4. the names of the new directories are derived from the families the trees carry
@@ -66,7 +67,10 @@ for arg in "$@"; do
     echo "The push gate. Git runs it through the repository's .githooks/pre-push shim before a push"
     echo "and it refuses the push, exit 1, when: the default branch is updated by anything but a harness landing"
     echo "(integrate-issue, release, init, pre-push --install, ai-core push: each hands its push a mark in"
-    echo "AI_CORE_LANDING_MARK for exactly the commit it lands); a pushed commit is not the one checked out (beside the"
+    echo "AI_CORE_LANDING_MARK for exactly the commit it lands) or a direct push (every commit the push adds to"
+    echo "the default branch, each one read on its own, touches only files that DIRECT_PUSH_FILES, a list of paths"
+    echo "or shell patterns in the .ai-core/config.env of the checkout, empty when unset, matches); a pushed commit"
+    echo "is not the one checked out (beside the"
     echo "default branch a commit origin already carries passes); a pushed commit names no issue (#<n>),"
     echo "does not open with 'release:', touches more than *.md and"
     echo "LICENSE files, and carries no 'No-issue: <who asked and why>' trailer; a team mode is"
@@ -593,6 +597,10 @@ tag_exclusions=''
 commits=''
 scan_ranges=''
 identity_ranges=''
+# What the push adds to origin, for the direct push below: on the default branch every commit newly reachable from it, also
+# one that another ref of origin carries, because a commit that a published ref holds was judged under the rules of that ref
+# only; on any other ref the commits it adds that no ref of origin carries.
+added_ranges=''
 # Whether the push adds any commit at all, a merge among them. The message rules judge the commits
 # that are not merges, but a merge of commits the remote has is a tree nobody has checked yet.
 adds=0
@@ -637,6 +645,9 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     range="$local_commit ^$remote_sha$tag_exclusions --not --remotes=origin"
   fi
   identity_ranges="$identity_ranges$range"$'\n'
+  if [ "$remote_ref" != "refs/heads/$default" ]; then added_ranges="$added_ranges$range"$'\n'
+  elif all_zero "${remote_sha:-}"; then added_ranges="$added_ranges$local_commit"$'\n'
+  else added_ranges="$added_ranges$local_commit ^$remote_sha"$'\n'; fi
   # A harness landing judges every commit it adds to the default branch, also the ones another ref of origin holds: a
   # branch pushed past this gate (a cloud session's, say) is judged here, once, before it reaches the default branch.
   if git rev-parse -q --verify "refs/remotes/origin/$default" >/dev/null 2>&1 \
@@ -658,10 +669,20 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   scan_ranges="$scan_ranges$range"$'\n'
 done <<< "$input"
 
-# THE DEFAULT BRANCH TAKES ONLY A HARNESS LANDING. An update of it that carries no mark (lib/landing-check.sh) for exactly
-# the commit it lands is a plain push, and reviewed work does not reach the default branch that way.
+# THE DEFAULT BRANCH TAKES A HARNESS LANDING, OR A DIRECT PUSH. An update of it that carries no mark (lib/landing-check.sh) for
+# exactly the commit it lands is a plain push, and reviewed work does not reach the default branch that way. A plain push is
+# a direct push, and goes on to the checks below like any other, where every commit it adds touches only files that
+# DIRECT_PUSH_FILES lists in the .ai-core/config.env of this checkout: read here, at every push, and from no other file and
+# no environment variable. A bad mark grants nothing and costs nothing: this judgement stands on the commits alone.
 if [ -n "$landing" ] && ! landing_mark_judge "${AI_CORE_LANDING_MARK:-}" "$root" "$landing" "refs/heads/$default"; then
-  refuse "$default takes no plain push ($LANDING_MARK_REASON). Reviewed work lands through ai-core integrate-issue <number> --reviewed-by <reviewer>, run in the worktree of the issue after the reviewer's GO."
+  mark_reason="$LANDING_MARK_REASON"
+  direct_files="$(config_value_in_file "$root/.ai-core/config.env" DIRECT_PUSH_FILES "")" \
+    || refuse "the settings of this repository cannot be read, so it is not known whether $default takes a push of some of its files directly"
+  if [ -n "$direct_files" ] && direct_push_commits_only "$root" "$direct_files" "$added_ranges"; then
+    echo "pre-push: $default takes this push without a mark of a landing: every commit it adds touches only files that DIRECT_PUSH_FILES lists."
+  else
+    refuse "$default takes no plain push ($mark_reason).${direct_files:+ It is no direct push either: $DIRECT_PUSH_REASON.} Reviewed work lands through ai-core integrate-issue <number> --reviewed-by <reviewer>, run in the worktree of the issue after the reviewer's GO. Files that go to $default directly are named in DIRECT_PUSH_FILES of .ai-core/config.env."
+  fi
 fi
 
 # Nothing to send, or nothing but deletions: there is nothing to judge and nothing to test.

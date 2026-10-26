@@ -89,6 +89,9 @@ cat > "$stub/git" <<EOF
 if [ "\${PROBE_DIFF_TREE_FAIL:-}" = 1 ] && [ "\${1:-}" = diff-tree ] && [ "\${6:-}" = --diff-filter=AMR ]; then
   echo 'planted diff-tree failure' >&2; exit 42
 fi
+if [ -n "\${PROBE_DIRECT_FAIL:-}" ] && [ "\${1:-}" = -C ] && [ "\${3:-}" = "\$PROBE_DIRECT_FAIL" ]; then
+  echo 'planted direct-push read failure' >&2; exit 42
+fi
 if [ -n "\${PROBE_CAT_FILE_FAIL:-}" ] && [ "\${1:-}" = cat-file ] && [ "\${2:-}" = -p ] && [ "\${3#*:}" = "\$PROBE_CAT_FILE_FAIL" ]; then
   echo 'planted cat-file failure' >&2; exit 42
 fi
@@ -162,9 +165,9 @@ commit() {  # commit <path> <message> - one file, one commit
 
 # One ref line, fed the way git feeds it. The gate runs with the working tree as its directory,
 # which is what git does before it starts a hook.
-# The push goes to the default branch, which only a harness landing updates: it carries the mark of one for the commit it lands,
-# as the landing paths of the harness write it, so that every case asserts its own rule. A case of the mark itself feeds
-# the gate by hand below.
+# The push goes to the default branch, which takes a harness landing or a direct push: it carries the mark of a landing for the
+# commit it lands, as the landing paths of the harness write it, so that every case asserts its own rule and none leans on a
+# direct push. A case of the mark itself feeds the gate by hand below.
 judge() {  # judge <working tree> <local sha> <remote sha>
   local mark rc
   mark="$(bash "$root/lib/landing-check.sh" mark "$1" "$(git -C "$1" rev-parse -q --verify "$2^{commit}" || echo "$2")" refs/heads/master)" || return 1
@@ -1944,6 +1947,523 @@ check 'and: the subject check judges that commit of origin' yes "$(grep -q 'subj
 git -C "$repo" reset -q --hard "$base_sha"
 git -C "$repo" branch -q -D issue-17-ada issue-18-ada
 for ref in master issue-17-ada issue-18-ada; do git -C "$repo" update-ref -d "refs/remotes/origin/$ref"; done
+
+# --- the direct push -----------------------------------------------------------------------------------------
+# A plain push to the default branch whose every new commit touches only files that DIRECT_PUSH_FILES of the checkout's
+# .ai-core/config.env matches. Most cases are a real `git push` from a scratch repository to a bare origin, through the
+# real shim and the real gate with no landing mark: the push result and the object id that origin holds say what went
+# through. The cases that plant a defect feed the ref line to a copy of the gate by hand.
+direct="$fake/direct"; mkdir -p "$direct"
+d_new() {  # d_new <name> <default branch> <lines of the config.env, or - for none>: a repository, its bare origin and its shim
+  d_dir="$direct/$1"; d_branch="$2"; d_origin="$d_dir/origin.git"; d_repo="$d_dir/app"; d_runs="$d_dir/check-runs"
+  rm -rf "$d_dir"; mkdir -p "$d_dir/hooks" "$d_repo/scripts" "$d_repo/src"; : > "$d_runs"
+  printf '#!/usr/bin/env bash\nexec ai-core pre-push "$@"\n' > "$d_dir/hooks/pre-push"; chmod +x "$d_dir/hooks/pre-push"
+  git init -q --bare -b "$d_branch" "$d_origin"
+  git init -q -b "$d_branch" "$d_repo"
+  git -C "$d_repo" remote add origin "$d_origin"
+  git -C "$d_repo" config user.email 'test@example.invalid'; git -C "$d_repo" config user.name 'test'
+  # the check writes down the commit it ran for and the tree it ran in; with PROBE_BARRIER_DIR it waits for a second gate
+  cat > "$d_repo/scripts/check.sh" <<EOF
+#!/usr/bin/env bash
+printf '%s %s\n' "\$(git rev-parse HEAD)" "\$PWD" >> "$d_runs"
+if [ -n "\${PROBE_BARRIER_DIR:-}" ]; then
+  : > "\$PROBE_BARRIER_DIR/at.\$\$"
+  for _ in \$(seq 100); do [ "\$(ls "\$PROBE_BARRIER_DIR" | wc -l)" -ge 2 ] && break; sleep 0.1; done
+fi
+[ "\${PROBE_CHECK:-green}" = green ] || { echo 'check: FAIL - the stand-in was told to be red'; exit 1; }
+echo 'check: OK - every check green'
+EOF
+  chmod +x "$d_repo/scripts/check.sh"
+  printf '1\n' > "$d_repo/VERSION"; printf 'a line\n' > "$d_repo/src/app.txt"; : > "$d_repo/.gitleaks.toml"
+  git -C "$d_repo" add -A; git -C "$d_repo" commit -q -m 'Set the repository up for the direct push probe #1'
+  git -C "$d_repo" push -q origin "$d_branch" 2>/dev/null   # no hook is armed yet
+  git -C "$d_repo" symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/$d_branch"
+  git -C "$d_repo" config core.hooksPath "$d_dir/hooks"
+  printf '/.ai-core/\n' >> "$d_repo/.git/info/exclude"
+  d_config "$d_repo" "$3"
+  d_base="$(d_tip)"
+}
+d_config() {  # d_config <checkout> <lines of its config.env, or - for no file>
+  rm -rf "$1/.ai-core"
+  [ "$2" = - ] && return 0
+  mkdir -p "$1/.ai-core"; printf 'PRE_PUSH_LOAD_LIMIT="0"\n%s\n' "$2" > "$1/.ai-core/config.env"
+}
+d_tip() { git -C "$d_origin" rev-parse -q --verify "refs/heads/$d_branch" || echo none; }
+d_head() { git -C "$d_repo" rev-parse HEAD; }
+d_commit() {  # d_commit <message> <path>...: one commit that changes those files of the repository
+  local message="$1" path
+  shift
+  for path in "$@"; do
+    mkdir -p "$d_repo/$(dirname "$path")"; printf 'a line\n' >> "$d_repo/$path"; git -C "$d_repo" add -- "$path"
+  done
+  git -C "$d_repo" commit -q -m "$message"
+}
+d_reset() {  # d_reset: the repository and its origin as the base commit left them, no branch, tag or merge of an earlier case
+  local ref
+  git -C "$d_repo" merge --abort >/dev/null 2>&1 || true
+  git -C "$d_repo" checkout -q "$d_branch"
+  git -C "$d_repo" reset -q --hard "$d_base"; git -C "$d_repo" clean -qfd
+  for ref in $(git -C "$d_repo" for-each-ref --format='%(refname)' refs/heads refs/tags refs/remotes/origin | grep -v "refs/heads/$d_branch\$\|refs/remotes/origin/$d_branch\$\|refs/remotes/origin/HEAD\$"); do
+    git -C "$d_repo" update-ref -d "$ref"
+  done
+  for ref in $(git -C "$d_origin" for-each-ref --format='%(refname)' refs/heads refs/tags | grep -v "refs/heads/$d_branch\$"); do
+    git -C "$d_origin" update-ref -d "$ref"
+  done
+  git -C "$d_repo" update-ref "refs/remotes/origin/$d_branch" "$d_base"; git -C "$d_origin" update-ref "refs/heads/$d_branch" "$d_base"
+}
+d_push() {  # d_push <git push arguments>: the push from the repository, through its shim and the real gate; out and rc
+  d_before="$(d_tip)"
+  out="$( cd "$d_repo" && PATH="$root/bin:$PATH" git push "$@" 2>&1 )"; rc=$?
+}
+d_gate() {  # d_gate <local sha> <remote sha> [mark]: the ref line to the default branch fed to the gate by hand, no mark unless given
+  out="$(printf 'refs/heads/%s %s refs/heads/%s %s\n' "$d_branch" "$1" "$d_branch" "$2" \
+    | ( cd "$d_repo" && AI_CORE_LANDING_MARK="${3:-}" bash "${GATE_SCRIPT:-$root/bin/pre-push.sh}" origin 'https://example.invalid/x.git' 2>&1 ))"; rc=$?
+}
+d_reaches() {  # d_reaches <label>: the push went through, and origin names the commit that was pushed
+  check "$1: exit 0" 0 "$rc$([ "$rc" -eq 0 ] || echo " $out")"
+  check "$1: origin names the pushed commit" "$(d_head)" "$(d_tip)"
+}
+d_refused() {  # d_refused <label> <what the refusal says>: exit 1, the reason, and origin where it was
+  check "$1: exit 1" 1 "$rc"
+  check "$1: it says why" yes "$(yesno "$2")"
+  check "$1: origin did not move" "$d_before" "$(d_tip)"
+}
+d_admitted() { [ "$rc" -eq 0 ] && grep -qF 'takes this push without a mark of a landing' <<< "$out" && echo yes || echo no; }
+
+# The histories the cases push. Each starts from the base commit, and leaves the repository at the commit to push.
+s_clean()      { d_reset; d_commit 'release: 1.0.1' VERSION; }
+s_unlisted()   { d_reset; d_commit 'release: 1.0.2' src/app.txt; }
+s_below()      { d_reset; d_commit 'Change the app #5' src/app.txt; d_commit 'release: 1.0.3' VERSION; }
+s_reverted()   { d_reset; d_commit 'release: 1.0.4' VERSION src/app.txt; git -C "$d_repo" checkout -q "$d_base" -- src/app.txt; git -C "$d_repo" commit -q -m 'release: 1.0.5'; }
+s_published()  { d_reset; d_commit 'Work on the app #6' src/app.txt; git -C "$d_repo" push -q origin HEAD:refs/heads/topic >/dev/null 2>&1; d_commit 'release: 1.0.6' VERSION; }
+s_data()       { d_reset; d_commit 'Add a row to the catalog #12' data/rows.tsv; }
+s_newline()    { d_reset; d_commit 'release: 1.0.7' $'VERSION\nVERSION'; }
+s_clean_merge() {
+  d_reset; git -C "$d_repo" checkout -q -b side; d_commit 'release: side' VERSION
+  git -C "$d_repo" checkout -q "$d_branch"; git -C "$d_repo" merge -q --no-ff side -m 'release: merge side'
+}
+s_evil_merge() {
+  d_reset; git -C "$d_repo" checkout -q -b side; d_commit 'release: side' VERSION
+  git -C "$d_repo" checkout -q "$d_branch"; git -C "$d_repo" merge -q --no-ff --no-commit side
+  printf 'sneaked in by the merge\n' >> "$d_repo/src/app.txt"; git -C "$d_repo" add src/app.txt; git -C "$d_repo" commit -q -m 'release: merge side'
+}
+
+echo 'a push of a commit that touches only the listed file reaches the default branch with no mark: a release, as its script pushes it'
+d_new release master 'DIRECT_PUSH_FILES="VERSION"'
+d_commit 'release: 1.0.1' VERSION
+d_push origin HEAD
+d_reaches 'a release commit'
+check 'the gate says why it took the push' yes "$(yesno 'takes this push without a mark of a landing')"
+check 'the repository check ran for that very commit' "$(d_head)" "$(tail -1 "$d_runs" | cut -d' ' -f1)"
+d_base="$(d_tip)"; d_commit 'release: 1.0.2' VERSION; d_commit 'release: 1.0.3' VERSION
+d_push origin HEAD
+d_reaches 'two successive release commits'
+check 'both of them reached origin' 2 "$(git -C "$d_origin" rev-list --count "$d_base..$d_branch")"
+check 'and the check ran once, for the tip' 1 "$(grep -c "^$(d_head) " "$d_runs")"
+
+echo 'a list of two paths, and a default branch that is not master'
+d_new two main 'DIRECT_PUSH_FILES="VERSION pubspec.yaml"'
+d_commit 'release: 2.0.0' VERSION pubspec.yaml
+d_push origin HEAD
+d_reaches 'two listed paths in one commit, on main'
+
+echo 'a linked worktree reads its own config.env: the value of the checkout beside it grants nothing, and its own does'
+d_new linked master 'DIRECT_PUSH_FILES="VERSION"'
+d_main="$d_repo"; d_wt="$d_dir/wt"
+git -C "$d_main" worktree add -q -b work "$d_wt" "$d_base" 2>/dev/null
+d_repo="$d_wt"; d_config "$d_wt" 'UNRELATED="x"'
+d_commit 'release: 3.0.0' VERSION
+d_push origin HEAD:master
+d_refused 'the worktree names no file' 'master takes no plain push'
+d_config "$d_wt" 'DIRECT_PUSH_FILES="VERSION"'
+d_push origin HEAD:master
+d_reaches 'the worktree names VERSION'
+check 'the check ran in the worktree' "$(cd "$d_wt" && pwd -P)" "$(tail -1 "$d_runs" | cut -d' ' -f2)"
+d_repo="$d_main"; git -C "$d_main" worktree remove --force "$d_wt" >/dev/null 2>&1
+
+echo 'a push of the branch and an annotated tag of that release, then a tag alone, a topic branch, a deletion and a push that moves nothing'
+d_new tagged master 'DIRECT_PUSH_FILES="VERSION"'
+d_commit 'release: 4.0.0' VERSION
+git -C "$d_repo" tag -a v4.0.0 -m 'the release'
+d_push origin HEAD refs/tags/v4.0.0
+d_reaches 'the branch and its tag'
+check 'the tag is on origin, on that commit' "$(d_head)" "$(git -C "$d_origin" rev-parse 'refs/tags/v4.0.0^{commit}')"
+git -C "$d_repo" tag -a v4.0.1 -m 'a second tag'
+d_push origin refs/tags/v4.0.1
+check 'a tag alone: exit 0' 0 "$rc"
+d_push origin HEAD
+check 'a push that moves nothing: exit 0' 0 "$rc"
+d_commit 'Work on the app #6' src/app.txt
+d_push origin HEAD:refs/heads/topic
+check 'a topic branch with an unlisted file: exit 0' 0 "$rc"
+d_push origin :refs/heads/topic
+check 'a deletion: exit 0' 0 "$rc"
+
+echo 'a commit that changes only a listed data file reaches the default branch with no release subject; one that names no issue meets the issue rule'
+d_new data master 'DIRECT_PUSH_FILES="data/*.tsv labels.tsv"'
+d_commit 'Add a label to the catalog #12' labels.tsv data/sub/rows.tsv
+d_push origin HEAD
+d_reaches 'a listed file and a listed pattern, an ordinary subject'
+d_commit 'Add another label to the catalog' labels.tsv
+d_push origin HEAD
+d_refused 'the same, naming no issue' 'names no issue'
+check 'the direct push was no reason' no "$(yesno 'takes no plain push')"
+git -C "$d_repo" commit -q --amend -m "$(printf 'Add another label to the catalog\n\nNo-issue: the owner asked on 2026-10-27 for rows without a ticket')"
+d_push origin HEAD
+d_reaches 'the same with its No-issue reason'
+
+echo 'a commit that touches another file is refused as a plain push, whatever its subject says'
+d_new refused master 'DIRECT_PUSH_FILES="VERSION"'
+s_unlisted; d_push origin HEAD
+d_refused 'a release subject on an unlisted file' 'touches src/app.txt, which DIRECT_PUSH_FILES does not list'
+check 'and it is a plain push' yes "$(yesno 'master takes no plain push')"
+echo 'an ordinary commit beneath an otherwise valid release is refused'
+s_below; d_push origin HEAD
+d_refused 'the commit below' 'touches src/app.txt, which DIRECT_PUSH_FILES does not list'
+echo 'an unlisted change that a later commit reverts is refused, though the net change is the listed file alone'
+s_reverted
+check 'the net change of the push' 'VERSION' "$(git -C "$d_repo" diff --name-only "$d_base" HEAD)"
+d_push origin HEAD
+d_refused 'the change in the first commit' 'touches src/app.txt, which DIRECT_PUSH_FILES does not list'
+
+echo 'a commit that another ref of origin carries counts: a branch, a tag, the tip itself, and a tracking ref that is not where origin stands'
+s_published; d_push origin HEAD:master
+d_refused 'a commit on another branch of origin, under a release' 'touches src/app.txt, which DIRECT_PUSH_FILES does not list'
+d_reset; d_commit 'Work on the app #6' src/app.txt; git -C "$d_repo" tag -a work-tag -m 'the work'
+d_push origin refs/tags/work-tag
+check 'a tag of an ordinary commit: exit 0' 0 "$rc"
+d_commit 'release: 1.0.8' VERSION
+d_push origin HEAD:master
+d_refused 'a commit under a tag of origin' 'touches src/app.txt, which DIRECT_PUSH_FILES does not list'
+d_reset; d_commit 'Work on the app #6' src/app.txt
+d_push origin HEAD:refs/heads/topic
+d_push origin HEAD:master
+d_refused 'the tip itself on another branch of origin' 'touches src/app.txt, which DIRECT_PUSH_FILES does not list'
+d_reset; d_commit 'Work on the app #7' src/app.txt; hidden="$(d_head)"; d_commit 'release: 1.0.9' VERSION
+git -C "$d_repo" update-ref "refs/remotes/origin/$d_branch" "$hidden"
+d_push origin HEAD:master
+d_refused 'a tracking ref that stands past where origin does' 'touches src/app.txt, which DIRECT_PUSH_FILES does not list'
+
+echo 'two ref lines: the commits of every one of them are judged'
+s_below; d_push origin HEAD:master HEAD:refs/heads/topic
+d_refused 'a push of two refs, an ordinary commit in them' 'touches src/app.txt, which DIRECT_PUSH_FILES does not list'
+s_clean; d_push origin HEAD:master HEAD:refs/heads/topic
+d_reaches 'a push of two refs, a release in them'
+
+echo 'a merge is read against each of its parents: the commit it merges, what it resolves, and a clean one'
+s_unlisted_side() { d_reset; git -C "$d_repo" checkout -q -b side; d_commit 'release: side' src/side.txt; git -C "$d_repo" checkout -q "$d_branch"; git -C "$d_repo" merge -q --no-ff side -m 'release: merge side'; }
+s_unlisted_side; d_push origin HEAD
+d_refused 'a merge of a commit that touches an unlisted file' 'touches src/side.txt, which DIRECT_PUSH_FILES does not list'
+s_evil_merge
+check 'git shows no file for that merge by default' '' "$(git -C "$d_repo" diff-tree --no-commit-id -r --name-only HEAD)"
+d_push origin HEAD
+d_refused 'a merge that resolves an unlisted file' 'touches src/app.txt, which DIRECT_PUSH_FILES does not list'
+s_clean_merge; d_push origin HEAD
+d_reaches 'a clean merge of listed work'
+
+echo 'an old ref of zeros examines the whole history of the branch, a root commit too'
+d_root() {  # d_root <message> <path> <config>: a repository with one root commit, and an origin that has no branch
+  d_dir="$direct/root"; d_branch=master; d_origin="$d_dir/origin.git"; d_repo="$d_dir/app"; d_runs="$d_dir/check-runs"
+  rm -rf "$d_dir"; mkdir -p "$d_dir/hooks"; : > "$d_runs"
+  printf '#!/usr/bin/env bash\nexec ai-core pre-push "$@"\n' > "$d_dir/hooks/pre-push"; chmod +x "$d_dir/hooks/pre-push"
+  git init -q --bare -b master "$d_origin"; git init -q -b master "$d_repo"; git -C "$d_repo" remote add origin "$d_origin"
+  git -C "$d_repo" config user.email 'test@example.invalid'; git -C "$d_repo" config user.name 'test'
+  git -C "$d_repo" config core.hooksPath "$d_dir/hooks"; printf '/.ai-core/\n' >> "$d_repo/.git/info/exclude"
+  d_config "$d_repo" "$3"; d_commit "$1" "$2"
+}
+d_root 'Start the repository #1' src/app.txt 'DIRECT_PUSH_FILES="VERSION"'
+d_push origin HEAD
+d_refused 'a root commit that touches an unlisted file' 'touches src/app.txt, which DIRECT_PUSH_FILES does not list'
+d_root 'release: 0.0.1' VERSION 'DIRECT_PUSH_FILES="VERSION"'
+d_push origin HEAD
+d_reaches 'a root commit that touches the listed file'
+d_root 'Start the repository #1' src/app.txt 'DIRECT_PUSH_FILES="VERSION"'
+d_commit 'release: 0.0.2' VERSION
+d_push origin HEAD
+d_refused 'a release over a root commit that touches an unlisted file' 'touches src/app.txt, which DIRECT_PUSH_FILES does not list'
+
+echo 'what cannot be read refuses: an old ref this checkout does not carry, a listing, a diff'
+d_new reads master 'DIRECT_PUSH_FILES="VERSION"'
+s_clean
+d_gate "$(d_head)" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+check 'an old commit that is not in the checkout: exit 1' 1 "$rc"
+check 'it says so' yes "$(yesno 'is not in this checkout')"
+PROBE_DIRECT_FAIL=rev-list d_gate "$(d_head)" "$d_base"
+check 'a listing that fails: exit 1' 1 "$rc"
+check 'it names the listing' yes "$(yesno 'so the commits this push adds cannot be listed')"
+PROBE_DIRECT_FAIL=diff-tree d_gate "$(d_head)" "$d_base"
+check 'a diff that fails: exit 1' 1 "$rc"
+check 'it names the diff' yes "$(yesno 'so the paths of')"
+d_gate "$(d_head)" "$d_base"
+check 'innocent: the same push with nothing failing is taken' yes "$(d_admitted)"
+
+echo 'the key grants nothing where it is missing, empty, in the environment alone, in the file of the project folder or in a comment'
+plain_refusal='master takes no plain push (no landing path of the harness made this push).'
+d_config "$d_repo" -; d_gate "$(d_head)" "$d_base"
+check 'no config.env: exit 1' 1 "$rc"
+check 'and the refusal of a plain push, as before' yes "$(yesno "$plain_refusal")"
+d_config "$d_repo" 'UNRELATED="x"'; d_gate "$(d_head)" "$d_base"
+check 'a config.env without the key: the refusal of a plain push' yes "$(yesno "$plain_refusal")"
+d_config "$d_repo" 'DIRECT_PUSH_FILES=""'; d_gate "$(d_head)" "$d_base"
+check 'an empty value: the refusal of a plain push' yes "$(yesno "$plain_refusal")"
+check 'and no word of a direct push' no "$(yesno 'It is no direct push either')"
+check 'the template declares the key, empty' 1 "$(grep -c '^DIRECT_PUSH_FILES=""$' "$root/templates/.ai-core/config.env")"
+mkdir -p "$d_repo/.ai-core"; cp "$root/templates/.ai-core/config.env" "$d_repo/.ai-core/config.env"; d_gate "$(d_head)" "$d_base"
+check 'a config.env copied from the template: the refusal of a plain push' yes "$(yesno "$plain_refusal")"
+d_config "$d_repo" 'UNRELATED="x"'; DIRECT_PUSH_FILES=VERSION d_gate "$(d_head)" "$d_base"
+check 'an environment variable alone: exit 1' 1 "$rc"
+mkdir -p "$d_dir/.ai-core"; printf 'DIRECT_PUSH_FILES="VERSION"\n' > "$d_dir/.ai-core/config.env"
+d_gate "$(d_head)" "$d_base"
+check 'the file of the project folder alone: exit 1' 1 "$rc"
+rm -rf "$d_dir/.ai-core"
+d_admits() {  # d_admits <label> <yes|no> <lines of the config.env>: whether the release commit at HEAD, VERSION alone, is taken
+  d_config "$d_repo" "$3"; d_gate "$(d_head)" "$d_base"
+  check "$1" "$2" "$(d_admitted)"
+}
+d_admits 'a comment line holds nothing' no '# DIRECT_PUSH_FILES="VERSION"'
+d_admits 'another key that begins with the name holds nothing' no 'DIRECT_PUSH_FILES_EXTRA="VERSION"'
+
+echo 'the syntax of config.env is the one of every key, and nothing in it is run'
+d_admits 'double quotes' yes 'DIRECT_PUSH_FILES="VERSION"'
+d_admits 'single quotes' yes "DIRECT_PUSH_FILES='VERSION'"
+d_admits 'no quotes, a comment after it' yes 'DIRECT_PUSH_FILES=VERSION # the manifest'
+d_admits 'spaces around the equal sign, two paths' yes '  DIRECT_PUSH_FILES = "labels.tsv VERSION"'
+d_admits 'the last assignment wins: the right one last' yes "$(printf 'DIRECT_PUSH_FILES="src/*"\nDIRECT_PUSH_FILES="labels.tsv"\nDIRECT_PUSH_FILES="VERSION"')"
+d_admits 'the last assignment wins: the wrong one last' no "$(printf 'DIRECT_PUSH_FILES="VERSION"\nDIRECT_PUSH_FILES="labels.tsv"')"
+d_admits 'a command substitution and a backtick are text' yes 'DIRECT_PUSH_FILES="VERSION $(touch evaluated) `touch evaluated-too`"'
+check 'nothing was run' no "$([ -e "$d_repo/evaluated" ] || [ -e "$d_repo/evaluated-too" ] || [ -e evaluated ] || [ -e evaluated-too ] && echo yes || echo no)"
+d_admits 'a pattern with a dot in it, and names that only look like dot paths' yes 'DIRECT_PUSH_FILES=".hidden a..b ... VERSION"'
+for entry in /etc/passwd ../outside a/./b dir/ . a//b; do
+  d_admits "an entry '$entry' refuses the push" no "DIRECT_PUSH_FILES=\"VERSION $entry\""
+  check "and it is named: '$entry'" yes "$(yesno "DIRECT_PUSH_FILES names '$entry', which is no path inside the repository")"
+done
+
+echo 'each push reads the file again'
+d_admits 'the file names VERSION' yes 'DIRECT_PUSH_FILES="VERSION"'
+d_admits 'it names nothing now' no 'DIRECT_PUSH_FILES=""'
+d_admits 'it names VERSION again' yes 'DIRECT_PUSH_FILES="VERSION"'
+
+echo 'a config.env that cannot be read refuses the push and names the file'
+d_config "$d_repo" 'DIRECT_PUSH_FILES="VERSION"'
+make_unreadable "$d_repo/.ai-core/config.env" || failed=$((failed + 1))
+FORGE=github TRACKER=github d_gate "$(d_head)" "$d_base"
+check 'exit 1' 1 "$rc"
+check 'it names the file' yes "$(yesno "$d_repo/.ai-core/config.env exists but cannot be read")"
+check 'it says what it could not tell' yes "$(yesno 'so it is not known whether master takes a push of some of its files directly')"
+FORGE=github TRACKER=github GATE_SCRIPT="$fake/old-reader/bin/pre-push.sh" d_gate "$(d_head)" "$d_base"
+check 'planted: the old reader takes the file for one that names nothing' no "$(yesno 'cannot be read')"
+chmod 600 "$d_repo/.ai-core/config.env"
+FORGE=github TRACKER=github d_gate "$(d_head)" "$d_base"
+check 'innocent: the same file, readable, is read' yes "$(d_admitted)"
+
+echo 'a path counts as it is written: the file itself and no other, a path with a space or a line break in it is one path'
+d_config "$d_repo" 'DIRECT_PUSH_FILES="VERSION"'
+d_touch() {  # d_touch <yes|no> <label> <path>: a commit that changes that path alone, judged against VERSION
+  d_reset; d_commit 'release: 5.0.0' "$3"; d_gate "$(d_head)" "$d_base"
+  check "$2" "$1" "$(d_admitted)"
+}
+d_touch yes 'VERSION itself' VERSION
+d_touch no  'VERSION in another folder' sub/VERSION
+d_touch no  'VERSION in another case' version
+d_touch no  'a longer name that begins with it' VERSION.txt
+d_touch no  'a longer name that begins with it, no dot' VERSION2
+d_touch no  'a name with a space after it' 'VERSION x'
+d_touch no  'a name that is VERSION, a line break and VERSION' $'VERSION\nVERSION'
+check 'the refusal shows the line break as a mark' yes "$(yesno 'touches VERSION?VERSION, which')"
+echo 'additions, deletions, renames and mode changes are judged by the paths they change'
+d_change() {  # d_change <yes|no> <label> <command...>: a commit made by that command in the repository, judged against VERSION
+  local expected="$1" label="$2"
+  shift 2
+  d_reset; ( cd "$d_repo" && "$@" ) >/dev/null 2>&1; git -C "$d_repo" add -A; git -C "$d_repo" commit -q -m 'release: 5.0.1'
+  d_gate "$(d_head)" "$d_base"
+  check "$label" "$expected" "$(d_admitted)"
+}
+d_change no  'a listed file renamed to an unlisted one' git mv VERSION moved.txt
+d_change no  'an unlisted file renamed to the listed one' sh -c 'git rm -q -f VERSION && git mv src/app.txt VERSION'
+d_change no  'an unlisted file deleted' git rm -q src/app.txt
+d_change yes 'the listed file deleted' git rm -q VERSION
+d_change no  'an unlisted file made executable' chmod +x src/app.txt
+d_change yes 'the listed file made executable' chmod +x VERSION
+
+echo 'a pattern matches the whole path: * stands for any characters, ? for one, [] for one of a set, and no pattern reaches past its start'
+d_pattern() {  # d_pattern <yes|no> <pattern> <path>
+  d_config "$d_repo" "DIRECT_PUSH_FILES=\"$2\""; d_reset; d_commit 'release: 5.0.2' "$3"; d_gate "$(d_head)" "$d_base"
+  check "'$2' and $3" "$1" "$(d_admitted)"
+}
+d_pattern yes 'data/*' data/a/b.tsv
+d_pattern no  'data/*' database/x.tsv
+d_pattern no  'data/*' src/data/x.tsv
+d_pattern yes '*.md' docs/guide.md
+d_pattern no  '*.md' docs/guide.txt
+d_pattern yes 'v?' v1
+d_pattern no  'v?' v12
+d_pattern yes '[ab].txt' a.txt
+d_pattern no  '[ab].txt' c.txt
+d_pattern no  'VERSION' versions/VERSION
+
+echo 'the gate that admits a direct push is still the gate: a red check, a push that is no fast-forward, a commit that is not the one checked out'
+d_new gate master 'DIRECT_PUSH_FILES="VERSION"'
+d_commit 'release: 6.0.0' VERSION
+PROBE_CHECK=red d_push origin HEAD
+d_refused 'a red check' 'check: FAIL'
+check 'the check ran for that commit' 1 "$(grep -c "^$(d_head) " "$d_runs")"
+d_push origin HEAD
+d_reaches 'the same push with a green check'
+d_reset
+git clone -q "$d_origin" "$d_dir/other" 2>/dev/null
+git -C "$d_dir/other" config user.email 'test@example.invalid'; git -C "$d_dir/other" config user.name 'test'; git -C "$d_dir/other" config core.hooksPath "$d_dir/hooks"
+printf '/.ai-core/\n' >> "$d_dir/other/.git/info/exclude"; d_config "$d_dir/other" 'DIRECT_PUSH_FILES="VERSION"'
+printf 'by the other\n' >> "$d_dir/other/VERSION"; git -C "$d_dir/other" commit -q -am 'release: 6.0.1'
+( cd "$d_dir/other" && PATH="$root/bin:$PATH" git push -q origin HEAD >/dev/null 2>&1 )
+git -C "$d_repo" fetch -q origin; d_commit 'release: 6.0.2' VERSION
+d_push --force origin HEAD:master
+d_refused 'a forced push over a commit of origin' 'is not a fast-forward'
+git -C "$d_repo" reset -q --hard "$(git -C "$d_origin" rev-parse master)"; d_base="$(d_tip)"
+d_commit 'release: 6.0.3' VERSION; d_commit 'release: 6.0.4' VERSION
+d_push origin HEAD~1:master
+d_refused 'a commit that is not the one checked out' 'is not what is checked out'
+git -C "$d_repo" reset -q --hard HEAD~1; d_commit 'release: 6.0.5' VERSION
+printf 'not committed\n' >> "$d_repo/src/app.txt"
+d_push origin HEAD
+d_refused 'a working tree that differs' 'the working tree differs from the commit being pushed'
+git -C "$d_repo" checkout -q -- src/app.txt
+GIT_AUTHOR_EMAIL=other@example.invalid GIT_COMMITTER_EMAIL=other@example.invalid d_commit 'release: 6.0.6' VERSION
+d_push origin HEAD
+d_refused 'another address than the one git config holds' 'carry another address than yours'
+git -C "$d_repo" reset -q --hard HEAD~1
+d_commit "release: $(printf 'x%.0s' {1..70})" VERSION
+d_push origin HEAD
+d_refused 'a subject over 72 characters' 'longer than 72 characters'
+git -C "$d_repo" reset -q --hard HEAD~1
+d_commit "$(printf 'release: 6.0.7\n\nCo-Authored-By: Claude <noreply@anthropic.com>')" VERSION
+d_push origin HEAD
+d_refused 'an assistant named in the message' "an assistant's or a vendor's attribution"
+git -C "$d_repo" reset -q --hard HEAD~1; d_commit 'release: 6.0.8' VERSION
+TEAM_MODES_FILE="$red" d_push origin HEAD
+d_refused 'a team mode that is missing' 'the team modes are missing'
+PROBE_LEAKS=red d_push origin HEAD
+d_refused 'a credential found by the scan' 'a credential stands in a commit this push carries'
+d_push origin HEAD
+d_reaches 'innocent: the same commit, with every check green'
+
+echo 'where the default branch goes live, a direct push needs scripts/check.sh and a Reviewed-by trailer, as every landing does'
+d_new live master 'DIRECT_PUSH_FILES="VERSION"
+DEFAULT_BRANCH_IS_LIVE="yes"'
+d_commit 'release: 7.0.0' VERSION
+d_push origin HEAD
+d_refused 'no Reviewed-by trailer' "so the last commit of the push names who reviewed the change"
+git -C "$d_repo" commit -q --amend -m "$(printf 'release: 7.0.0\n\nReviewed-by: a critic session')"
+mv "$d_repo/scripts/check.sh" "$d_dir/check.sh.aside"
+d_gate "$(d_head)" "$d_base"
+check 'no scripts/check.sh: exit 1' 1 "$rc"
+check 'it says nothing would test what goes live' yes "$(yesno 'has no scripts/check.sh, so nothing would test what goes live')"
+mv "$d_dir/check.sh.aside" "$d_repo/scripts/check.sh"
+d_push origin HEAD
+d_reaches 'innocent: both in place'
+
+echo 'a mark and a direct push do not lean on each other: a landing is a landing, a bad mark grants nothing and costs nothing'
+d_new marks master 'DIRECT_PUSH_FILES="VERSION"'
+d_commit 'Change the app #5' src/app.txt
+mark="$(bash "$root/lib/landing-check.sh" mark "$d_repo" "$(d_head)" "refs/heads/$d_branch")"
+d_gate "$(d_head)" "$d_base" "$mark"
+check 'innocent: the mark of this landing, a file the key does not list: exit 0' 0 "$rc"
+check 'it was the mark that took it' no "$(yesno 'takes this push without a mark of a landing')"
+bash "$root/lib/landing-check.sh" unmark "$mark"
+wrong_mark="$(bash "$root/lib/landing-check.sh" mark "$d_repo" "$d_base" "refs/heads/$d_branch")"
+d_gate "$(d_head)" "$d_base" "$wrong_mark"
+check 'the mark of another commit and an unlisted file: exit 1' 1 "$rc"
+check 'the mark says why it holds nothing' yes "$(yesno 'the mark names another commit than the one this push lands')"
+check 'and the direct push says why it holds nothing' yes "$(yesno 'touches src/app.txt, which DIRECT_PUSH_FILES does not list')"
+d_reset; d_commit 'release: 8.0.0' VERSION
+d_gate "$(d_head)" "$d_base" "$wrong_mark"
+check 'the mark of another commit and a listed file: the push is taken on its own evidence' yes "$(d_admitted)"
+bash "$root/lib/landing-check.sh" unmark "$wrong_mark"
+
+echo 'two pushes at the same moment share nothing: one lands, the other is refused by git, and both runs leave their record'
+d_new race master 'DIRECT_PUSH_FILES="VERSION"'
+for c in a b; do
+  git clone -q "$d_origin" "$d_dir/clone-$c" 2>/dev/null
+  git -C "$d_dir/clone-$c" config user.email 'test@example.invalid'; git -C "$d_dir/clone-$c" config user.name 'test'
+  git -C "$d_dir/clone-$c" config core.hooksPath "$d_dir/hooks"; printf '/.ai-core/\n' >> "$d_dir/clone-$c/.git/info/exclude"
+  d_config "$d_dir/clone-$c" 'DIRECT_PUSH_FILES="VERSION"'
+done
+race() {  # race <clone> <environment assignment>: a push from the clone, its exit status and output written beside it
+  ( cd "$d_dir/clone-$1" && env $2 PATH="$root/bin:$PATH" git push origin HEAD > "$d_dir/$1.out" 2>&1; echo $? > "$d_dir/$1.rc" )
+}
+printf 'from a\n' > "$d_dir/clone-a/VERSION"; git -C "$d_dir/clone-a" commit -q -am 'release: 9.0.0'
+printf 'from b\n' > "$d_dir/clone-b/VERSION"; git -C "$d_dir/clone-b" commit -q -am 'release: 9.0.1'
+mkdir -p "$d_dir/barrier"
+race a "PROBE_BARRIER_DIR=$d_dir/barrier" & race b "PROBE_BARRIER_DIR=$d_dir/barrier" & wait
+check 'exactly one of the two pushes went through' 1 "$(cat "$d_dir/a.rc" "$d_dir/b.rc" | grep -c '^0$')"
+winner=a; [ "$(cat "$d_dir/a.rc")" = 0 ] || winner=b
+check 'origin names the commit of that one' "$(git -C "$d_dir/clone-$winner" rev-parse HEAD)" "$(d_tip)"
+loser=b; [ "$winner" = a ] || loser=a
+check 'the other was refused by git, not forced' yes "$(grep -q 'rejected\|failed to push' "$d_dir/$loser.out" && echo yes || echo no)"
+check 'both runs of the gate left their record' 2 "$(cut -d' ' -f1 "$d_runs" | sort -u | wc -l | tr -d ' ')"
+git -C "$d_dir/clone-$loser" fetch -q origin; git -C "$d_dir/clone-$loser" reset -q --hard origin/master
+printf 'ordinary\n' >> "$d_dir/clone-$loser/src/app.txt"; git -C "$d_dir/clone-$loser" commit -q -am 'Change the app #9'
+git -C "$d_dir/clone-$winner" fetch -q origin; git -C "$d_dir/clone-$winner" reset -q --hard origin/master
+printf 'clean\n' > "$d_dir/clone-$winner/VERSION"; git -C "$d_dir/clone-$winner" commit -q -am 'release: 9.0.2'
+winning="$(git -C "$d_dir/clone-$winner" rev-parse HEAD)"; losing="$(git -C "$d_dir/clone-$loser" rev-parse HEAD)"
+race "$winner" x=1 & race "$loser" x=1 & wait
+check 'a release and a plain push at once: the release lands' "0 $winning" "$(cat "$d_dir/$winner.rc") $(d_tip)"
+check 'the plain push does not' yes "$([ "$(cat "$d_dir/$loser.rc")" != 0 ] && ! git -C "$d_origin" cat-file -e "$losing^{commit}" 2>/dev/null && echo yes || echo no)"
+
+echo 'planted defects: each copy of the gate has one protection less, and the case of that protection must turn red; the clean push stays green'
+d_new mutants master 'DIRECT_PUSH_FILES="VERSION data/*"'
+d_mutant() {  # d_mutant <name> <file of the harness> <sed script>: a copy of the harness whose file has that one defect, in GATE_SCRIPT
+  local copy="$fake/direct-mutants/$1"
+  harness_copy "$root" "$copy"
+  printf '%s\n' "$3" > "$copy.sed"
+  sed -i.bak -f "$copy.sed" "$copy/$2"; rm -f "$copy/$2.bak"
+  cmp -s "$root/$2" "$copy/$2" && { echo "  FAIL the planted defect changed nothing: $1"; failed=$((failed + 1)); }
+  GATE_SCRIPT="$copy/bin/pre-push.sh"
+}
+d_planted() {  # d_planted <expected exit> <label>: the gate of the last d_mutant, on the history the last s_ function left
+  d_gate "$(d_head)" "$d_base"
+  check "planted: $2" "$1" "$rc"
+}
+d_mutant no-direct-push bin/pre-push.sh 's/if \[ -n "\$direct_files" \] && direct_push_commits_only/if false \&\& direct_push_commits_only/'
+s_clean; d_planted 1 'without the direct push, the clean release is refused'
+d_mutant no-membership lib/landing-check.sh 's/direct_push_matches "\$path".* && continue/continue/'
+s_unlisted; d_planted 0 'without the check of the files, an unlisted file goes through'
+s_clean; d_planted 0 'innocent: the clean release goes through'
+d_mutant tip-only lib/landing-check.sh 's/rev-list "\${words/rev-list -n1 "${words/'
+s_below; d_planted 0 'with the tip alone judged, the commit below it goes through'
+s_clean; d_planted 0 'innocent: the clean release goes through'
+d_mutant published-excluded lib/landing-check.sh 's|> "\$scratch/commits"|--not --remotes=origin > "$scratch/commits"|'
+s_published; d_planted 0 'with what another ref of origin carries left out, the commit it carries goes through'
+s_clean; d_planted 0 'innocent: the clean release goes through'
+d_mutant swallowed-diff lib/landing-check.sh 's/|| { DIRECT_PUSH_REASON="git diff-tree failed.*$/|| true/'
+s_clean; PROBE_DIRECT_FAIL=diff-tree d_planted 0 'with a failed diff read as success, the push goes through'
+s_clean; d_planted 0 'innocent: the clean release goes through'
+d_mutant default-merge-display lib/landing-check.sh 's/-r -m --no-renames/-r --no-renames/'
+s_evil_merge; d_planted 0 'with git'"'"'s default display of a merge, what it resolves goes through'
+s_clean_merge; d_planted 0 'innocent: the clean merge goes through'
+d_mutant newline-split lib/landing-check.sh "$(cat <<'SED'
+s/read -r -d '' path/read -r path/
+s|done < "$scratch/paths"|done < <(tr '\\0' '\\n' < "$scratch/paths")|
+SED
+)"
+s_newline; d_planted 0 'with a path split at its line break, VERSION and VERSION go through'
+s_clean; d_planted 0 'innocent: the clean release goes through'
+d_mutant release-subject lib/landing-check.sh 's/^      judged=\$((judged + 1))$/&; case "$(git -C "$dir" log -1 --format=%s "$sha")" in release:*) ;; *) DIRECT_PUSH_REASON="not a release"; return 1 ;; esac/'
+s_data; d_planted 1 'a gate that wants a release subject refuses the commit of a listed data file'
+s_clean; d_planted 0 'innocent: it still takes a release'
+d_mutant environment bin/pre-push.sh 's|direct_files="\$(config_value_in_file "\$root/.ai-core/config.env" DIRECT_PUSH_FILES "")"|direct_files="${DIRECT_PUSH_FILES:-$(config_value_in_file "$root/.ai-core/config.env" DIRECT_PUSH_FILES "")}"|'
+d_config "$d_repo" 'UNRELATED="x"'; s_clean; DIRECT_PUSH_FILES=VERSION d_planted 0 'with the environment read, a variable alone lets the release through'
+d_config "$d_repo" 'DIRECT_PUSH_FILES="VERSION data/*"'
+d_mutant net-diff-only lib/landing-check.sh '$a\
+direct_push_commits_only() {\
+  local range tip base path\
+  read -r range <<< "$3"; tip="${range%% *}"; base="${range#*^}"; base="${base%% *}"\
+  git -C "$1" diff-tree -r --name-only -z "$base" "$tip" > "${TMPDIR:-/tmp}/net-diff-only-paths" || return 1\
+  while IFS= read -r -d "" path; do direct_push_matches "$path" VERSION "data/*" || return 1; done < "${TMPDIR:-/tmp}/net-diff-only-paths"\
+}'
+s_reverted; d_planted 0 'with the net change judged, the change that a later commit reverts goes through'
+s_clean; d_planted 0 'innocent: the clean release goes through'
+rm -f "${TMPDIR:-/tmp}/net-diff-only-paths"
+unset GATE_SCRIPT
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

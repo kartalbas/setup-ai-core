@@ -345,8 +345,12 @@ last layer that has one; every `skills/<name>/`, setup-ai-core's own first, into
 `.ai-core/docs/<harness>/`; `config.env`,
 `labels.tsv`, `assignees.tsv`, `team-modes.tsv` and `models.tsv` into `.ai-core/`; and every file under
 `repos/<repo>/` of the innermost harness over the checkout, in its own layout, so
-`repos/shop-web/AGENTS.md` is the map of shop-web and `repos/shop-web/.ai-core/config.env` its
-configuration. A file the repository tracks is never overwritten. `.ai-core/STAMP` records the
+`repos/shop-web/AGENTS.md` is the map of shop-web. `repos/shop-web/.ai-core/config.env` is the one
+file laid over key by key: it holds only the keys shop-web changes, and `init` writes the `config.env` of
+the layers with each of those keys taking the file's value (the last assignment of a key counts, and an
+empty value stays empty), so every other key of the layers stays and a key a layer adds later reaches
+shop-web at the next `init`. Every other file under `repos/<repo>/` replaces the whole file.
+A file the repository tracks is never overwritten. `.ai-core/STAMP` records the
 commit of setup-ai-core and of every layer the checkout was assembled from. `.ai-core/DEPLOYED`
 records what the layers put into the checkout (skills, agents, docs, the files of `repos/<repo>/`);
 what a layer no longer provides is taken out again at the next `init`, a file the repository

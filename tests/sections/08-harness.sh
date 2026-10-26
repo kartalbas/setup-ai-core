@@ -71,7 +71,8 @@ assembled_ok() {  # assembled_ok <checkout> <label>
   [ ! -e "$c/.claude/agents/README.md" ] || fail "$t: agents/README.md of the layer was deployed as an agent"
   [ -f "$c/.ai-core/docs/shop-ai-core/glossary.md" ] || fail "$t: the harness's docs are not under .ai-core/docs/shop-ai-core/"
   grep -q '^The map of shop-web' "$c/AGENTS.md" || fail "$t: AGENTS.md is not the map from repos/shop-web/"
-  grep -q '^AGENTS="claude"' "$c/.ai-core/config.env" || fail "$t: config.env is not the one from repos/shop-web/.ai-core/"
+  grep -q '^AGENTS="claude"' "$c/.ai-core/config.env" && grep -q '^UPDATE_CHECK="never"' "$c/.ai-core/config.env" || fail "$t: config.env does not carry the keys of repos/shop-web/.ai-core/"
+  [ "$(grep -cE '^(AGENTS|UPDATE_CHECK)=' "$c/.ai-core/config.env")" = 2 ] && grep -q '^MAP_TOOL=' "$c/.ai-core/config.env" || fail "$t: config.env is not the layer's with the keys of repos/shop-web/.ai-core/ laid over it"
   [ -f "$c/.ai-core/labels.tsv" ] && [ -f "$c/.ai-core/team-modes.tsv" ] || fail "$t: the data files did not come from the harness"
   cmp -s "$c/.ai-core/models.tsv" "$WORK/author/models.tsv" || fail "$t: models.tsv is not the harness's own"
   cmp -s "$c/.ai-core/team-modes.tsv" "$ROOT/templates/.ai-core/team-modes.tsv" || fail "$t: a harness without its own team-modes table did not give the checkout setup-ai-core's"
@@ -449,6 +450,270 @@ printf '[user]\n\tuseConfigOnly = true\n' > "$F/none"
   if [ -e "$F/folder/nobody-ai-core" ]; then exit 18; fi
 ) || fail "a new project harness: not committed under the configured identity, committed where git holds none, or not refused by name where git holds none (exit $?)"
 echo "  created, cloned, an empty one on GitHub filled from the skeleton (cloned by init or by hand), moved from the home directory, an interrupted move completed, lost files restored, assembled; extends base first; a harness that cannot be had stops init; a harness checkout refused; the folder shares the base and its map skips the clones; maps written by the agent CLI, pushed and in the checkouts, people's rules kept, a bad output refused, --all over the folder"
+
+section "a repository's config.env is laid over its layer's key by key; every other file of repos/<repo>/ still replaces the whole file"
+LAY="$WORK/lay"; LAY_RAN="$WORK/lay-ran"; mkdir -p "$LAY" "$LAY_RAN" "$WORK/home-lay"
+make_layer() {  # make_layer <name> [name of the layer it extends]: the project harness <name>-ai-core on the stand-in GitHub, and its author clone; the skeleton's .gitattributes makes every file LF, so LAYER_KEEPS_CRLF=1 leaves it out
+  git init -q --bare "$GH_FAKE/github.com/example-org/$1-ai-core.git"
+  git clone -q "$GH_FAKE/github.com/example-org/$1-ai-core.git" "$LAY/author-$1" 2>/dev/null
+  [ -n "${LAYER_KEEPS_CRLF:-}" ] || cp "$ROOT/skeleton/.gitattributes" "$LAY/author-$1/"
+  if [ -n "${2:-}" ]; then printf '{ "setup-ai-core": ">=1.1.0", "extends": "example-org/%s-ai-core" }\n' "$2" > "$LAY/author-$1/ai-core.json"
+  else printf '{ "setup-ai-core": ">=1.1.0" }\n' > "$LAY/author-$1/ai-core.json"; fi
+  publish_layer "$1" "the harness"
+}
+publish_layer() {  # publish_layer <name> <message>: what the author clone holds goes to the stand-in GitHub, where the next init pulls it
+  git -C "$LAY/author-$1" add -A
+  git -C "$LAY/author-$1" -c user.name=check -c user.email=check@localhost commit -q --allow-empty -m "$2"
+  git -C "$LAY/author-$1" push -q origin HEAD 2>/dev/null || fail "could not publish $1-ai-core"
+}
+lay_init() {  # lay_init <checkout> <log name> [init option...]: init as a person runs it, its log in $WORK/<log name>.log
+  local checkout="$1" log="$WORK/$2.log"; shift 2
+  HOME="$WORK/home-lay" PATH="$PATH_SH" bash "${INIT_ROOT:-$ROOT}/bin/init.sh" "$checkout" --no-doctor "$@" > "$log" 2>&1 || fail "init.sh on $checkout (see $log)"
+}
+read_node() {  # read_node <file> <key>: what lib/status-live.mjs reads for the key
+  node --input-type=module -e 'const { configValue } = await import(process.argv[1]); console.log(configValue(process.argv[2], process.argv[3]));' "$ROOT/lib/status-live.mjs" "$1" "$2"
+}
+reads_as() {  # reads_as <file> <other file> <key>: the readers of config.env, Bash and Node, give the key the same value in both files
+  [ "$(config_value_in_file "$1" "$3" unset)" = "$(config_value_in_file "$2" "$3" unset)" ] && [ "$(read_node "$1" "$3")" = "$(read_node "$2" "$3")" ]
+}
+mutant_root() {  # mutant_root <sed expression>: a copy of the tree with one planted defect in bin/init.sh, in $WORK/mutant; prints its path
+  rm -rf "$WORK/mutant"; mkdir -p "$WORK/mutant"
+  cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$ROOT/skeleton" "$ROOT/rules" "$ROOT/skills" "$ROOT/auto-mode.tsv" "$ROOT/VERSION" "$WORK/mutant/"
+  sed -i.bak "$1" "$WORK/mutant/bin/init.sh"
+  cmp -s "$ROOT/bin/init.sh" "$WORK/mutant/bin/init.sh" && fail "the planted defect changed nothing in bin/init.sh: $1"
+  printf '%s' "$WORK/mutant"
+}
+printf '#!/bin/sh\ntouch "%s/reader"\n' "$LAY_RAN" > "$WORK/lay-reader.sh"; chmod +x "$WORK/lay-reader.sh"
+
+# The layer: AGENTS names one agent, so a checkout that lost the key serves every pointer file
+make_layer lay
+LA="$LAY/author-lay"
+cat > "$LA/config.env" <<CONF
+AGENTS="cursor"
+UPDATE_CHECK="never"
+CI_GATE="none"
+LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"
+LIVE_RELEASE_COMMAND="$WORK/lay-reader.sh"
+USAGE_STOP_AT="90"
+CONF
+printf 'plan\tmechanical\tclaude-sonnet-5-5\tmedium\tno\n' > "$LA/models.tsv"
+mkdir -p "$LA/repos/lay-web/.ai-core"
+printf 'LIVE_TAGS="prod=landed"\n' > "$LA/repos/lay-web/.ai-core/config.env"
+printf 'plan\tmechanical\tclaude-sonnet-5-5\thigh\tno\n' > "$LA/repos/lay-web/.ai-core/models.tsv"
+printf 'the layer\n' > "$LA/repos/lay-web/notes.txt"; printf 'the layer\n' > "$LA/repos/lay-web/kept.txt"
+publish_layer lay "the layer"
+new_checkout "$LAY/lay-web" lay-web; new_checkout "$LAY/lay-plain" lay-plain
+lay_init "$LAY/lay-web" lay-web-1; lay_init "$LAY/lay-plain" lay-plain-1
+inherits_layer() {  # inherits_layer <checkout> <the LIVE_TAGS it declares>: every key of the layer's config.env as the layer has it but LIVE_TAGS, and the agent files the inherited AGENTS selects
+  local c="$1" key
+  for key in AGENTS UPDATE_CHECK CI_GATE LIVE_RELEASE_COMMAND USAGE_STOP_AT; do
+    [ "$(config_value_in_file "$c/.ai-core/config.env" "$key" unset)" = "$(config_value_in_file "$LA/config.env" "$key" unset)" ] || return 1
+  done
+  [ "$(config_value_in_file "$c/.ai-core/config.env" LIVE_TAGS unset)" = "$2" ] && [ "$(read_node "$c/.ai-core/config.env" LIVE_TAGS)" = "$2" ] && [ "$(cd "$c" && config_file_value LIVE_TAGS unset)" = "$2" ] || return 1
+  [ -e "$c/.cursorrules" ] && [ ! -e "$c/.windsurfrules" ]
+}
+is_layer_config() {  # is_layer_config <checkout>: its config.env is the layer's, byte for byte
+  cmp -s "$LA/config.env" "$1/.ai-core/config.env"
+}
+is_layer_config "$LAY/lay-plain" || fail "a repository without a config.env of its own did not get the layer's, byte for byte: $(cat "$LAY/lay-plain/.ai-core/config.env")"
+inherits_layer "$LAY/lay-web" "prod=landed" || fail "a repository whose config.env holds only LIVE_TAGS lost keys of its layer: $(cat "$LAY/lay-web/.ai-core/config.env")"
+[ "$(grep -c '^LIVE_TAGS' "$LAY/lay-web/.ai-core/config.env")" = 1 ] || fail "the layer's LIVE_TAGS stands beside the repository's: $(cat "$LAY/lay-web/.ai-core/config.env")"
+grep -qx '.ai-core/config.env' "$LAY/lay-web/.ai-core/DEPLOYED" && ! grep -qx '.ai-core/config.env' "$LAY/lay-plain/.ai-core/DEPLOYED" || fail "DEPLOYED does not record the repository's config.env, or records the layer's alone: $(tr '\n' ' ' < "$LAY/lay-web/.ai-core/DEPLOYED")|$(tr '\n' ' ' < "$LAY/lay-plain/.ai-core/DEPLOYED")"
+cmp -s "$LA/repos/lay-web/.ai-core/models.tsv" "$LAY/lay-web/.ai-core/models.tsv" && cmp -s "$LA/repos/lay-web/notes.txt" "$LAY/lay-web/notes.txt" || fail "another file of repos/lay-web/ was not applied whole"
+# innocent: a second run with nothing changed writes nothing, and the bytes stay
+before="$(cksum < "$LAY/lay-web/.ai-core/config.env")"
+lay_init "$LAY/lay-web" lay-web-2
+[ "$(cksum < "$LAY/lay-web/.ai-core/config.env")" = "$before" ] && ! grep -aE '^  (created|refreshed) .*\.ai-core/config\.env' "$WORK/lay-web-2.log" || fail "a second init changed the config.env it had laid (see $WORK/lay-web-2.log)"
+# the reader a config.env names and a shell expression in it are copied and read, never run
+printf 'LIVE_TAGS="prod=command test=command"\nSHELL_EXPRESSION="$(touch %s/expression) `touch %s/backticks`"\n' "$LAY_RAN" "$LAY_RAN" > "$LA/repos/lay-web/.ai-core/config.env"
+printf 'INHERITED_EXPRESSION="$(touch %s/inherited)"\n' "$LAY_RAN" >> "$LA/config.env"
+publish_layer lay "the project reads a command"
+lay_init "$LAY/lay-web" lay-web-3
+[ "$(config_value_in_file "$LAY/lay-web/.ai-core/config.env" LIVE_TAGS unset)" = "prod=command test=command" ] && [ "$(cd "$LAY/lay-web" && config_file_value LIVE_RELEASE_COMMAND unset)" = "$WORK/lay-reader.sh" ] || fail "LIVE_TAGS and the inherited LIVE_RELEASE_COMMAND did not both survive: $(cat "$LAY/lay-web/.ai-core/config.env")"
+grep -qxF "SHELL_EXPRESSION=\"\$(touch $LAY_RAN/expression) \`touch $LAY_RAN/backticks\`\"" "$LAY/lay-web/.ai-core/config.env" && grep -qxF "INHERITED_EXPRESSION=\"\$(touch $LAY_RAN/inherited)\"" "$LAY/lay-web/.ai-core/config.env" || fail "a shell expression of a config.env was not copied as it stands: $(cat "$LAY/lay-web/.ai-core/config.env")"
+[ -z "$(ls -A "$LAY_RAN")" ] || fail "init ran what a config.env names: $(ls "$LAY_RAN" | tr '\n' ' ')"
+printf 'LIVE_TAGS="prod=landed"\n' > "$LA/repos/lay-web/.ai-core/config.env"
+sed -i.bak '/^INHERITED_EXPRESSION/d' "$LA/config.env"; rm -f "$LA/config.env.bak"
+publish_layer lay "the project reads no command"
+
+# The planted defect, a whole-file replacement, goes red for the repository that has its own file and
+# stays green for the one that has none
+planted="$(mutant_root 's|lay_config "\$CONFIG_BASE" "\$CONFIG_OVERRIDE" "\$TMP/config.env"|cp -f "$CONFIG_OVERRIDE" "$TMP/config.env"|')"
+new_checkout "$LAY/mutant-web" lay-web; new_checkout "$LAY/mutant-plain" lay-plain
+INIT_ROOT="$planted" lay_init "$LAY/mutant-web" mutant-web; INIT_ROOT="$planted" lay_init "$LAY/mutant-plain" mutant-plain
+inherits_layer "$LAY/mutant-web" "prod=landed" && fail "planted: replacing the whole file still gave the repository every key of its layer"
+is_layer_config "$LAY/mutant-plain" || fail "planted: replacing the whole file changed the config.env of a repository that has no file of its own"
+
+# A file of comments, an empty one, and one that sets two keys
+printf '# every key of the layer, nothing of its own\n\n' > "$LA/repos/lay-web/.ai-core/config.env"
+publish_layer lay "a comment only"; lay_init "$LAY/lay-web" lay-web-5
+is_layer_config "$LAY/lay-web" || fail "an override of comments only changed the layer's config.env: $(cat "$LAY/lay-web/.ai-core/config.env")"
+: > "$LA/repos/lay-web/.ai-core/config.env"
+publish_layer lay "an empty file"; lay_init "$LAY/lay-web" lay-web-6
+is_layer_config "$LAY/lay-web" || fail "an empty override changed the layer's config.env: $(cat "$LAY/lay-web/.ai-core/config.env")"
+# An override in UTF-16 assigns no key that a reader sees, so it gives the layer's file
+printf '\377\376L\000I\000V\000E\000_\000T\000A\000G\000S\000=\000x\000\n\000C\000I\000_\000G\000A\000T\000E\000=\000g\000\n\000' > "$LA/repos/lay-web/.ai-core/config.env"
+publish_layer lay "a file in UTF-16"; lay_init "$LAY/lay-web" lay-web-utf16
+is_layer_config "$LAY/lay-web" || fail "an override in UTF-16, which no reader of config.env can read, did not give the layer's config.env: $(cat -v "$LAY/lay-web/.ai-core/config.env")"
+planted="$(mutant_root 's|done < <(grep -E "\$assignment" "\$override")|done < "$override"|')"
+new_checkout "$LAY/mutant-utf16-web" lay-web
+if HOME="$WORK/home-lay" PATH="$PATH_SH" bash "$planted/bin/init.sh" "$LAY/mutant-utf16-web" --no-doctor > "$WORK/mutant-utf16.log" 2>&1 && is_layer_config "$LAY/mutant-utf16-web"; then
+  fail "planted: keys taken with read, which drops the NUL bytes of a file in UTF-16, went unseen"
+fi
+printf 'LIVE_TAGS="prod=landed"\nCI_GATE="gate"\n' > "$LA/repos/lay-web/.ai-core/config.env"
+publish_layer lay "two keys"; lay_init "$LAY/lay-web" lay-web-7
+[ "$(config_value_in_file "$LAY/lay-web/.ai-core/config.env" CI_GATE unset)" = gate ] && [ "$(config_value_in_file "$LAY/lay-web/.ai-core/config.env" LIVE_TAGS unset)" = "prod=landed" ] && [ "$(config_value_in_file "$LAY/lay-web/.ai-core/config.env" UPDATE_CHECK unset)" = never ] || fail "the two keys of the override, or the layer's others, are wrong: $(cat "$LAY/lay-web/.ai-core/config.env")"
+is_layer_config "$LAY/lay-plain" || fail "one repository's override reached a repository that has none"
+
+# A key the layer adds later reaches every repository at the next init; one it changes or drops follows it
+printf 'ADDED_LATER="yes"\n' >> "$LA/config.env"
+sed -i.bak -e 's/^UPDATE_CHECK=.*/UPDATE_CHECK="session-start"/' -e '/^USAGE_STOP_AT/d' "$LA/config.env"; rm -f "$LA/config.env.bak"
+publish_layer lay "the layer moves"; lay_init "$LAY/lay-web" lay-web-8; lay_init "$LAY/lay-plain" lay-plain-8
+for c in lay-web lay-plain; do
+  [ "$(config_value_in_file "$LAY/$c/.ai-core/config.env" ADDED_LATER unset)" = yes ] || fail "$c: a key the layer added did not arrive: $(cat "$LAY/$c/.ai-core/config.env")"
+  [ "$(config_value_in_file "$LAY/$c/.ai-core/config.env" UPDATE_CHECK unset)" = session-start ] || fail "$c: a key the layer changed did not follow"
+  [ "$(config_value_in_file "$LAY/$c/.ai-core/config.env" USAGE_STOP_AT unset)" = unset ] || fail "$c: a key the layer dropped stayed from the file before"
+done
+[ "$(config_value_in_file "$LAY/lay-web/.ai-core/config.env" CI_GATE unset)" = gate ] && is_layer_config "$LAY/lay-plain" || fail "the layer's move reached the override's key, or missed the repository without an override"
+# an assignment taken out of the override gives the layer's value back
+printf 'LIVE_TAGS="prod=landed"\n' > "$LA/repos/lay-web/.ai-core/config.env"
+publish_layer lay "one key less"; lay_init "$LAY/lay-web" lay-web-9
+[ "$(config_value_in_file "$LAY/lay-web/.ai-core/config.env" CI_GATE unset)" = none ] && [ "$(config_value_in_file "$LAY/lay-web/.ai-core/config.env" LIVE_TAGS unset)" = "prod=landed" ] || fail "an assignment taken out of the override did not give the layer's back: $(cat "$LAY/lay-web/.ai-core/config.env")"
+
+# --dry-run moves nothing and reports the action: before a fresh write, and before an update
+new_checkout "$LAY/fresh-web" lay-web
+lay_init "$LAY/fresh-web" fresh-dry --dry-run
+[ ! -e "$LAY/fresh-web/.ai-core" ] && grep -aqE '^  created .*\.ai-core/config\.env' "$WORK/fresh-dry.log" || fail "a dry run before a fresh write wrote, or did not report the config.env (see $WORK/fresh-dry.log)"
+planted="$(mutant_root 's|put "\$TMP/config.env" .ai-core/config.env managed;|mkdir -p "$TARGET/.ai-core"; cp -f "$TMP/config.env" "$TARGET/.ai-core/config.env";|')"
+new_checkout "$LAY/mutant-dry-web" lay-web
+INIT_ROOT="$planted" lay_init "$LAY/mutant-dry-web" mutant-dry --dry-run
+[ -e "$LAY/mutant-dry-web/.ai-core/config.env" ] || fail "planted: a dry run that writes the config.env left no trace for the check to see"
+lay_init "$LAY/fresh-web" fresh-1
+printf 'DRY_PROBE="1"\n' >> "$LA/config.env"; publish_layer lay "a key to see in a dry run"
+cp "$LAY/fresh-web/.ai-core/config.env" "$WORK/fresh-config-before"; before="$(tree_digest "$LAY/fresh-web")"; state="$(git -C "$LAY/fresh-web" status --porcelain)"
+lay_init "$LAY/fresh-web" fresh-dry-2 --dry-run
+cmp -s "$WORK/fresh-config-before" "$LAY/fresh-web/.ai-core/config.env" && [ "$(tree_digest "$LAY/fresh-web")" = "$before" ] && [ "$(git -C "$LAY/fresh-web" status --porcelain)" = "$state" ] && grep -aqE '^  refreshed .*\.ai-core/config\.env' "$WORK/fresh-dry-2.log" || fail "a dry run before an update changed the checkout, or did not report the config.env (see $WORK/fresh-dry-2.log)"
+# a tracked config.env of a repository with an override is left alone and said so, base and merge unwritten; of one without, the layer's still goes over it
+make_tracked() {  # make_tracked <dir> <repository>: a checkout that commits its own config.env and kept.txt
+  new_checkout "$1" "$2"; mkdir -p "$1/.ai-core"
+  printf 'TRACKED_OWN="yes"\n' > "$1/.ai-core/config.env"; printf 'mine\n' > "$1/kept.txt"
+  git -C "$1" add -f .ai-core/config.env kept.txt; git -C "$1" commit -q -m "its own files"
+}
+make_tracked "$LAY/tracked-web" lay-web; make_tracked "$LAY/tracked-plain" lay-plain
+lay_init "$LAY/tracked-web" tracked-web; lay_init "$LAY/tracked-plain" tracked-plain
+[ "$(cat "$LAY/tracked-web/.ai-core/config.env")" = 'TRACKED_OWN="yes"' ] && git -C "$LAY/tracked-web" diff --quiet && grep -aqE '^  tracked .*\.ai-core/config\.env' "$WORK/tracked-web.log" || fail "a tracked config.env of a repository with an override was written over, or not reported tracked (see $WORK/tracked-web.log)"
+[ "$(cat "$LAY/tracked-web/kept.txt")" = mine ] && grep -aqE '^  tracked .*kept\.txt' "$WORK/tracked-web.log" && cmp -s "$LA/repos/lay-web/notes.txt" "$LAY/tracked-web/notes.txt" || fail "a tracked file of repos/lay-web/ was written over, or an untracked one was not applied whole (see $WORK/tracked-web.log)"
+is_layer_config "$LAY/tracked-plain" || fail "a tracked config.env of a repository without an override is no longer handled as before: $(cat "$LAY/tracked-plain/.ai-core/config.env")"
+planted="$(mutant_root 's|elif git -C "\$TARGET" ls-files --error-unmatch .ai-core/config.env >/dev/null 2>&1; then|elif false; then|')"
+make_tracked "$LAY/mutant-tracked-web" lay-web; make_tracked "$LAY/mutant-tracked-plain" lay-plain
+INIT_ROOT="$planted" lay_init "$LAY/mutant-tracked-web" mutant-tracked-web; INIT_ROOT="$planted" lay_init "$LAY/mutant-tracked-plain" mutant-tracked-plain
+[ "$(cat "$LAY/mutant-tracked-web/.ai-core/config.env")" = 'TRACKED_OWN="yes"' ] && fail "planted: writing the merge over a tracked file was not caught"
+[ "$(cat "$LAY/mutant-tracked-web/kept.txt")" = mine ] && is_layer_config "$LAY/mutant-tracked-plain" || fail "planted: the tracked file of repos/lay-web/ or the plain repository changed with the tracked check of config.env"
+# every other file of repos/<repo>/ still replaces the whole untracked target
+printf 'edited by hand\n' > "$LAY/lay-web/notes.txt"
+lay_init "$LAY/lay-web" lay-web-notes
+cmp -s "$LA/repos/lay-web/notes.txt" "$LAY/lay-web/notes.txt" || fail "another file of repos/lay-web/ no longer replaces the untracked target whole"
+# a linked worktree starts from the data of its checkout and lays the same file
+git -C "$LAY/lay-web" worktree add -q -b issue-353-lay "$LAY/lay-web-tree" 2>/dev/null || fail "no linked worktree of lay-web"
+lay_init "$LAY/lay-web-tree" lay-tree
+cmp -s "$LAY/lay-web/.ai-core/config.env" "$LAY/lay-web-tree/.ai-core/config.env" && ! grep -aE '^  (created|refreshed) .*\.ai-core/config\.env' "$WORK/lay-tree.log" || fail "a linked worktree did not lay the config.env its checkout has (see $WORK/lay-tree.log)"
+# a project folder takes the layers' config.env whole: the file of one of its repositories is laid over nothing
+mkdir -p "$LAY/folder"; new_checkout "$LAY/folder/lay-web" lay-web; new_checkout "$LAY/folder/lay-plain" lay-plain
+lay_init "$LAY/folder" lay-folder
+is_layer_config "$LAY/folder" || fail "a project folder did not get the config.env of its layers whole (see $WORK/lay-folder.log): $(cat "$LAY/folder/.ai-core/config.env")"
+
+# The override file taken out gives the layer's own back, and nothing of what the layer provides is removed
+git -C "$LA" rm -q repos/lay-web/.ai-core/config.env repos/lay-web/.ai-core/models.tsv
+publish_layer lay "the overrides go"
+planted="$(mutant_root 's|case " \$DEPLOYED \$LAYER_FILES " in|case " $DEPLOYED " in|')"
+cp -R "$LAY/lay-web" "$LAY/mutant-gone-web"
+INIT_ROOT="$planted" lay_init "$LAY/mutant-gone-web" mutant-gone
+[ -f "$LAY/mutant-gone-web/.ai-core/config.env" ] && fail "planted: a removal that ignores what the layers still provide kept the layer's config.env"
+lay_init "$LAY/lay-web" lay-web-10
+is_layer_config "$LAY/lay-web" || fail "without its override the repository did not get the layer's config.env: $(cat "$LAY/lay-web/.ai-core/config.env" 2>&1)"
+cmp -s "$LA/models.tsv" "$LAY/lay-web/.ai-core/models.tsv" || fail "without its override the repository did not get the layer's models.tsv"
+grep -aqE '^  removed .*\.ai-core/(config\.env|models\.tsv)' "$WORK/lay-web-10.log" && fail "init reported removing what the layer still provides (see $WORK/lay-web-10.log)"
+grep -qx '.ai-core/config.env' "$LAY/lay-web/.ai-core/DEPLOYED" && fail "DEPLOYED still records the override that is gone"
+
+# A layer without a config.env keeps the file of the repository as it stands; along an extends chain the last config.env
+# is the base whole, and only the innermost layer's file of the repository is laid over it
+make_layer nobase
+mkdir -p "$LAY/author-nobase/repos/nobase-web/.ai-core"
+printf 'UPDATE_CHECK="never"\nLIVE_TAGS="prod=landed"\n' > "$LAY/author-nobase/repos/nobase-web/.ai-core/config.env"
+publish_layer nobase "a file of the repository, none of the layer"
+new_checkout "$LAY/nobase-web" nobase-web; lay_init "$LAY/nobase-web" nobase
+cmp -s "$LAY/author-nobase/repos/nobase-web/.ai-core/config.env" "$LAY/nobase-web/.ai-core/config.env" || fail "a repository's config.env, with no config.env of the layer, was not applied as it stands: $(cat "$LAY/nobase-web/.ai-core/config.env")"
+make_layer chainbase
+mkdir -p "$LAY/author-chainbase/repos/chain-web/.ai-core"
+printf 'AGENTS="windsurf"\nOUTER_ONLY="outer"\nSHARED="outer"\n' > "$LAY/author-chainbase/config.env"
+printf 'OUTER_OVERRIDE="outer"\nSHARED="outer-override"\n' > "$LAY/author-chainbase/repos/chain-web/.ai-core/config.env"
+publish_layer chainbase "the base of the chain"
+make_layer chain chainbase
+mkdir -p "$LAY/author-chain/repos/chain-web/.ai-core"
+printf 'AGENTS="cursor"\nSHARED="inner"\nINNER_ONLY="inner"\n' > "$LAY/author-chain/config.env"
+printf 'SHARED="inner-override"\n' > "$LAY/author-chain/repos/chain-web/.ai-core/config.env"
+publish_layer chain "the inner layer"
+new_checkout "$LAY/chain-web" chain-web; lay_init "$LAY/chain-web" chain-1
+printf 'AGENTS="cursor"\nSHARED="inner-override"\nINNER_ONLY="inner"\n' > "$WORK/chain-wanted"
+cmp -s "$WORK/chain-wanted" "$LAY/chain-web/.ai-core/config.env" || fail "along an extends chain the inner config.env is not the base whole with the inner layer's file of the repository laid over it: $(cat "$LAY/chain-web/.ai-core/config.env")"
+git -C "$LAY/author-chain" rm -q config.env; publish_layer chain "no config.env of the inner layer"; lay_init "$LAY/chain-web" chain-2
+printf 'AGENTS="windsurf"\nOUTER_ONLY="outer"\nSHARED="inner-override"\n' > "$WORK/chain-wanted"
+cmp -s "$WORK/chain-wanted" "$LAY/chain-web/.ai-core/config.env" || fail "along an extends chain the last config.env is not the base, or the outer layer's file of the repository was laid: $(cat "$LAY/chain-web/.ai-core/config.env")"
+
+# A repository's file that repeats every key of its layer, as the copies of today do, reads in both readers as it did when it replaced the layer's
+LAYER_KEEPS_CRLF=1 make_layer copy
+mkdir -p "$LAY/author-copy/repos/copy-web/.ai-core"
+cat > "$LAY/author-copy/layer.tmp" <<CONF
+# the layer's own file
+AGENTS="claude cursor"
+UPDATE_CHECK=never
+CI_GATE = 'none'   # a gate
+LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"
+USAGE_STOP_AT=92
+ONLY_IN_LAYER="its own line ends in CRLF"
+EMPTY_IN_LAYER="from the layer"
+SHELL_EXPRESSION="\$(touch $LAY_RAN/s1) \`touch $LAY_RAN/s2\`"
+REPEATED=first
+REPEATED=second
+LAST_IN_LAYER=kept
+CONF
+awk 'NR == 2 || NR == 7 { printf "%s\r\n", $0; next } { print }' "$LAY/author-copy/layer.tmp" > "$LAY/author-copy/layer-crlf.tmp"
+printf '%s' "$(cat "$LAY/author-copy/layer-crlf.tmp")" > "$LAY/author-copy/config.env"; rm -f "$LAY/author-copy"/layer*.tmp
+COPY="$LAY/author-copy/repos/copy-web/.ai-core/config.env"
+printf '%s\r\n' '# the copy of today' 'AGENTS="claude"' '   UPDATE_CHECK = session-start # why' "CI_GATE='gate'" 'LIVE_TAGS="prod=landed"' 'USAGE_STOP_AT=' 'EMPTY_IN_LAYER=""' \
+  "SHELL_EXPRESSION='\$(touch $LAY_RAN/s3) \`touch $LAY_RAN/s4\`'" 'REPEATED=one' 'LIVE_TAGS="prod=landed test=command" # the last' 'ONLY_IN_COPY="mine"' > "$COPY"
+printf 'REPEATED=two # the last' >> "$COPY"
+publish_layer copy "a layer, and a copy of it"
+new_checkout "$LAY/copy-web" copy-web; lay_init "$LAY/copy-web" copy-1
+grep -q "$(printf '\r')" "$LAY/copy-ai-core/repos/copy-web/.ai-core/config.env" || fail "the copy lost its CRLF before init read it"
+copy_keys="AGENTS UPDATE_CHECK CI_GATE LIVE_TAGS USAGE_STOP_AT ONLY_IN_LAYER EMPTY_IN_LAYER SHELL_EXPRESSION REPEATED ONLY_IN_COPY LAST_IN_LAYER"
+reads_like_before() {  # reads_like_before <checkout>: every key reads as in the copy where the copy sets it, as in the layer's file where it does not
+  local key wanted
+  for key in $copy_keys; do
+    wanted="$LAY/author-copy/config.env"; grep -Eq "^[[:space:]]*$key[[:space:]]*=" "$COPY" && wanted="$COPY"
+    reads_as "$1/.ai-core/config.env" "$wanted" "$key" || { echo "$key"; return 1; }
+  done
+}
+unread="$(reads_like_before "$LAY/copy-web")" || fail "a repository's file repeating every key of the layer reads another value for $unread than it did when it replaced the layer's: $(cat "$LAY/copy-web/.ai-core/config.env")"
+CM="$LAY/copy-web/.ai-core/config.env"
+[ "$(config_value_in_file "$CM" EMPTY_IN_LAYER unset)" = unset ] && [ "$(config_value_in_file "$CM" USAGE_STOP_AT unset)" = unset ] && [ "$(config_value_in_file "$CM" REPEATED unset)" = two ] && [ "$(config_value_in_file "$CM" LAST_IN_LAYER unset)" = kept ] && [ "$(config_value_in_file "$CM" ONLY_IN_COPY unset)" = mine ] && [ "$(config_value_in_file "$CM" UPDATE_CHECK unset)" = session-start ] || fail "the copy's empty values, repeated assignments, spaces or the layer's last line without a newline read wrong: $(cat "$CM")"
+[ -z "$(ls -A "$LAY_RAN")" ] || fail "init ran an expression of a config.env: $(ls "$LAY_RAN" | tr '\n' ' ')"
+# planted: a pattern that needs no space around the key and its =, and an init that runs what it copies, are both seen
+planted="$(mutant_root "s/assignment='^\[\[:space:\]\]\*(/assignment='^(/")"
+new_checkout "$LAY/mutant-copy-web" copy-web; new_checkout "$LAY/mutant-chain-web" chain-web
+INIT_ROOT="$planted" lay_init "$LAY/mutant-copy-web" mutant-copy; INIT_ROOT="$planted" lay_init "$LAY/mutant-chain-web" mutant-chain
+reads_like_before "$LAY/mutant-copy-web" > /dev/null && fail "planted: a key written with spaces around it was not recognized, and the copy still read as before"
+cmp -s "$WORK/chain-wanted" "$LAY/mutant-chain-web/.ai-core/config.env" || fail "planted: the config.env changed for a repository whose file holds only keys with no space around them"
+planted="$(mutant_root 's|if \[ -z "\$keys" \]; then|{ . "$base"; } >/dev/null 2>\&1 \|\| true; if [ -z "$keys" ]; then|')"
+new_checkout "$LAY/mutant-runs-web" copy-web
+INIT_ROOT="$planted" lay_init "$LAY/mutant-runs-web" mutant-runs
+[ -n "$(ls -A "$LAY_RAN")" ] || fail "planted: an init that runs the layer's config.env left no trace for the check to see"
+rm -f "$LAY_RAN"/*
+# the documents say how a repository's config.env works
+for doc in README.md skeleton/README.md skeleton/repos/README.md; do
+  grep -q 'key by key' "$ROOT/$doc" || fail "$doc does not say that a repository's config.env is laid over the layer's key by key"
+done
+echo "  lay: a repository's config.env keeps every key of its layer and a plain one gets the layer's bytes; a later key, a change, a drop, an override of nothing, one in UTF-16 and one taken out follow; a full copy reads as before; no expression runs; a tracked file is left; dry runs write nothing; a linked worktree and a project folder keep their scope; a planted whole-file write, a stale removal, a tracked write, a write past the dry run, a pattern without spaces, keys taken past grep and an init that runs its input are each caught"
 
 section "Forgejo project settings: a fresh clone and a template-only checkout find their harness in one init"
 make_forgejo_project

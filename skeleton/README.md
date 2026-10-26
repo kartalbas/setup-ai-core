@@ -11,7 +11,7 @@ the scripts and the templates; this repository carries what is the project's own
 | the project's rules | `rules/NN-slug.md`, one file per section | merged with the generic sections into `.ai-core/rules/rules.md`; a file with the same name as a generic section replaces it, a new name adds one |
 | skills | `skills/<name>/SKILL.md` and its files | copied to `.claude/skills/<name>/` and `.agents/skills/<name>/` |
 | documents for agents | `docs/` | copied to `.ai-core/docs/<this harness>/` |
-| the map and other files of one repository | `repos/<repo>/`, in the layout of the checkout | copied over the checkout: `repos/<repo>/AGENTS.md` becomes its `AGENTS.md` |
+| the map and other files of one repository | `repos/<repo>/`, in the layout of the checkout | copied over the checkout, whole: `repos/<repo>/AGENTS.md` becomes its `AGENTS.md`; `repos/<repo>/.ai-core/config.env` holds only the keys that repository changes and is laid over `config.env` key by key |
 | agent definitions for Claude Code | `agents/<name>.md` | copied to `.claude/agents/<name>.md` |
 | the agents served, the organisation | `config.env` | `.ai-core/config.env` |
 | the label taxonomy, who owns which repository's issues, the team modes | `labels.tsv`, `assignees.tsv`, `team-modes.tsv` | `.ai-core/` |

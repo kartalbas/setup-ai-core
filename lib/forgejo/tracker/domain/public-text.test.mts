@@ -15,10 +15,18 @@ describe('the scan for email addresses', () => {
     ['first@good.test then second@bad.org', 'second@bad.org'],
     ['ünï@cödé.com', 'ünï@cödé.com'],
     [`mongo:8.0.4@${digest} someone@company.ch`, 'someone@company.ch'],
+    ['write to x@company。ch', 'x@company。ch'],
   ];
   for (const [text, address] of refused) {
     it(`finds ${address} (planted address)`, () => {
       assert.equal(findEmailAddress(text), address);
+    });
+  }
+  // The ten code points besides letters, marks and numbers that IDNA2008 allows inside a label.
+  for (const codePoint of [0x00b7, 0x0375, 0x05f3, 0x05f4, 0x06fd, 0x06fe, 0x0f0b, 0x200c, 0x200d, 0x30fb]) {
+    const address = `info@a${String.fromCodePoint(codePoint)}b.ch`;
+    it(`finds an address whose label holds U+${codePoint.toString(16).toUpperCase().padStart(4, '0')} (planted address)`, () => {
+      assert.equal(findEmailAddress(`write to ${address} today`), address);
     });
   }
 
@@ -37,6 +45,7 @@ describe('the scan for email addresses', () => {
     `docker.io/library/mongo@${digest}`,
     'bob`@scope/pkg',
     '"bob"@scope/pkg',
+    'tag v1@col\u00b7legi',
   ];
   for (const text of allowed) {
     it(`lets ${JSON.stringify(text)} pass (innocent text)`, () => {

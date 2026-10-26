@@ -40,7 +40,9 @@ check_public_body() {
   # URL; and the user of the scp-like SSH form, only where a path with a slash or a .git follows the
   # colon. mailto: has no "//", and an address before a port or a word stays scanned.
   # A match whose domain holds no dot and does not open with a bracket is no address, such as the digest
-  # of an image reference or a scoped package name, and the scan goes on behind it. The scan runs twice
+  # of an image reference or a scoped package name, and the scan goes on behind it. Beside letters,
+  # marks and numbers, a domain takes the ten code points IDNA2008 allows inside a label, such as U+00B7
+  # and U+200C, or the dot of a domain that holds one would go unseen. The scan runs twice
   # and refuses what either run finds. One run lets a quoted local part hold an at sign, so the outer
   # address of a quoted local part such as a quoted at sign before a domain is found. The other takes
   # no at sign inside the quotes, so an address inside them is found instead of being swallowed with
@@ -48,7 +50,7 @@ check_public_body() {
   # outer address of a bracket that holds one is found, and the second takes none, so an address inside
   # is not swallowed.
   addresses="$(printf '%s' "$text" | jq -Rrs '
-    def addresses($quoted; $bracketed): scan("(?:" + $quoted + "|(?:[A-Za-z0-9.!#$%&\u0027*+/=?^_`{|}~\\[\\]-]|[^\\x00-\\x7f])+)@(?:" + $bracketed + "|[[:alnum:]][[:alnum:]\\p{M}._\u3002\uff0e\uff61-]*)");
+    def addresses($quoted; $bracketed): scan("(?:" + $quoted + "|(?:[A-Za-z0-9.!#$%&\u0027*+/=?^_`{|}~\\[\\]-]|[^\\x00-\\x7f])+)@(?:" + $bracketed + "|[[:alnum:]][[:alnum:]\\p{M}\u00b7\u0375\u05f3\u05f4\u06fd\u06fe\u0f0b\u200c\u200d\u30fb._\u3002\uff0e\uff61-]*)");
     gsub("(?<s>[A-Za-z][A-Za-z0-9+.-]*://)(?:\\{\\{[^}@\\r\\n]*\\}\\}|[^/?#\\s@{<>()\\[\\]\"\u0027`,;])*@"; "\(.s)")
     | gsub("(?<![^\\s`(\\[<\"\u0027])[A-Za-z0-9._-]+@(?=[A-Za-z0-9<][A-Za-z0-9.<>_-]*:[^\\s:]*(?:/|\\.git\\b))"; "")
     | (addresses("\"[^\"\\r\\n]+\""; "\\[[^\\]\\r\\n]+\\]"), addresses("\"[^\"@\\r\\n]+\""; "\\[[^\\]@\\r\\n]+\\]"))

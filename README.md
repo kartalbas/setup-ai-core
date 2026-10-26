@@ -1106,7 +1106,8 @@ nobody may rely on the check for a dressed address. Dressings are, for example, 
 such as `\@`, a code span or emphasis in the address, HTML such as a comment or a tag in it, an
 invisible format character (U+200B, U+00AD, U+2060), a lookalike of `@` or `.` (U+FF20, U+FE6B,
 U+2024, U+FE52), or an address whose local part is the domain of an exempt, numeric or dotless match before it, such as a reserved-domain address or `a@b` directly followed by an at sign and a real domain, as in `a@b@company.ch`. Encoded addresses,
-images and an address written as “name at domain” are not covered either. It refuses rather than
+images, an address written as “name at domain”, and a domain that opens with a symbol or whose first
+label holds one that IDNA2008 does not allow in a label, such as an emoji, are not covered either. It refuses rather than
 redacting and leaves the caller's file unchanged.
 
 | Command | Does |

@@ -17,6 +17,8 @@ unicode_domain="$(printf '\303\251.company.ch')"
 unicode_mark="$(printf 'e\314\201')"
 unicode_symbol="$(printf '\360\237\223\247')"
 separators=("$(printf '\343\200\202')" "$(printf '\357\274\216')" "$(printf '\357\275\241')")
+# The ten code points besides letters, marks and numbers that IDNA2008 allows inside a label.
+label_symbols=("$(printf '\302\267')" "$(printf '\315\265')" "$(printf '\327\263')" "$(printf '\327\264')" "$(printf '\333\275')" "$(printf '\333\276')" "$(printf '\340\274\213')" "$(printf '\342\200\214')" "$(printf '\342\200\215')" "$(printf '\343\203\273')")
 digest=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 # Texts with an at sign whose domain holds no dot: no address, so nothing is refused.
 dotless_texts=("name:1.2.3@sha256:$digest" "mongo:8.0.4@sha256:$digest" "docker.io/library/mongo@sha256:$digest" 'bob`@scope/pkg' '"bob"@scope/pkg' "$(printf '\303\251')"'`@scope/pkg`' '`@scope/pkg'"$(printf '\303\251')")
@@ -163,6 +165,11 @@ for domain in invalid example test localhost example.com example.net example.org
 done
 case_body allow 'ci@EXAMPLE.TEST'
 case_body allow 'package@1.2.3'
+for symbol in "${label_symbols[@]}"; do
+  case_body refuse "Write to info@a${symbol}b.ch today"
+  check "inline names info@a${symbol}b.ch" yes "$(grep -qF "refused email address info@a${symbol}b.ch " <<< "$out" && echo yes || echo no)"
+done
+case_body allow "Tag v1@col${label_symbols[0]}legi"
 for address in "$real" 'name+tag@COMPANY.CH' '"quoted name"@company.ch' 'name@[192.0.2.1]' 'ci@example.com.company.ch' 'ci@notexample.com' 'noreply@company.ch' '123+noreply@company.ch' 'ci@sub.users.noreply.github.com' 'ci@users.noreply.github.com.company.ch'; do case_body refuse "mailto:$address, inside Markdown"; done
 case_body refuse "ci@build.example.test $real"
 remotes='Push to `ssh://git@forgejo.<fqdn>/<owner>/<repo>.git`, `git@github.com:owner/repo.git` or `https://x-access-token:{{ .pat }}@github.com`.'

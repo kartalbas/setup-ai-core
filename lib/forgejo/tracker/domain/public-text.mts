@@ -12,7 +12,9 @@ import { PreconditionError } from './refusals.mts';
 
 const BACKTICK = '\\u0060';
 const LOCAL_CHARACTER = String.raw`(?:[A-Za-z0-9.!#$%&'*+/=?^_${BACKTICK}{|}~\[\]-]|[^\x00-\x7f])`;
-const DOMAIN = String.raw`[\p{L}\p{N}][\p{L}\p{N}\p{M}._。．｡-]*`;
+// Beside letters, marks and numbers, a domain takes the ten code points IDNA2008 allows inside a label,
+// or the dot of a domain that holds one would go unseen.
+const DOMAIN = String.raw`[\p{L}\p{N}][\p{L}\p{N}\p{M}\u00b7\u0375\u05f3\u05f4\u06fd\u06fe\u0f0b\u200c\u200d\u30fb._。．｡-]*`;
 const SCHEME_USER = /(?<scheme>[A-Za-z][A-Za-z0-9+.-]*:\/\/)(?:\{\{[^}@\r\n]*\}\}|[^/?#\s@{<>()[\]"'`,;])*@/gu;
 const SCP_USER = /(?<![^\s`(\[<"'])[A-Za-z0-9._-]+@(?=[A-Za-z0-9<][A-Za-z0-9.<>_-]*:[^\s:]*(?:\/|\.git\b))/gu;
 const RESERVED_DOMAIN = /(^|\.)(invalid|example|test|localhost|example\.(com|net|org))$/;

@@ -17,7 +17,8 @@ Creates the issue with its labels, its priority/ label and its status/ label (re
 otherwise), assigns it to the login that assignees.tsv names for the repository, or to the signed-in account where
 it names none, and prints the new issue number. At least two labels are required, one for the type of work and
 one for the area. A label written type:bug is read as type/bug. The first line of the body names who asked for
-the work; --found-in, for a finding a session filed without a yes, names the session that found it and takes any type. Text with a literal email
+the work; --found-in, for a finding a session filed without a yes, names the session that found it and takes any type,
+and its line calls a type/bug issue a defect and every other a finding. Text with a literal email
 address is refused for a public repository. A login that Forgejo does not offer as an assignee of the repository
 stops the command before the issue is created.`;
 
@@ -56,7 +57,7 @@ export function parseIssueNewArguments(args: readonly string[]): IssueNewArgumen
   let provenance: Provenance;
   if (foundIn !== undefined) {
     if (askedBy !== undefined || askedIn !== undefined) throw new UsageError('--found-in and --asked-by/--asked-in contradict each other: one says a session found a defect, the other names who said yes');
-    provenance = { foundIn };
+    provenance = { foundIn, isDefect: labels.includes('type/bug') };
   } else {
     if (askedBy === undefined) throw new UsageError('--asked-by is required: the login of the person who said yes to this issue (a finding filed without a yes takes --found-in)');
     if (askedIn === undefined) throw new UsageError('--asked-in is required: where they said it');

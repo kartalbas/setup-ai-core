@@ -100,7 +100,7 @@ describe('issue-new', () => {
     const result = await issueNew.run(newArguments('--found-in', 'the review of o/r#1, filed by the issue keeper'), context);
     const created = fake.readIssue('o/r', Number(result.stdout.trim()));
     assert.ok(created.labels.includes('type/feature'));
-    assert.match(created.body, /^Found in the review of o\/r#1, filed by the issue keeper on 2026-10-23, a defect filed without a yes\./);
+    assert.match(created.body, /^Found in the review of o\/r#1, filed by the issue keeper on 2026-10-23, a finding filed without a yes\./);
   });
 
   const refusals: [string, string[]][] = [

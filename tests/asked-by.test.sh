@@ -108,7 +108,7 @@ echo 'a feature is filed with --found-in too, naming the session and the decisio
 found type:feature --found-in 'the review of #91, filed by the issue keeper under the owner'"'"'s decision' >/dev/null
 check 'the issue was created'   yes "$(grep -q 'issue create' "$log" && echo yes || echo no)"
 check 'first line names the session, the decision and the day' \
-  "Found in the review of #91, filed by the issue keeper under the owner's decision on $today, a defect filed without a yes." "$(head -1 "$sent" 2>/dev/null)"
+  "Found in the review of #91, filed by the issue keeper under the owner's decision on $today, a finding filed without a yes." "$(head -1 "$sent" 2>/dev/null)"
 
 # The planted defect: a copy of the command with the old refusal of every type but a bug put back
 # must refuse the feature, so the check above is shown to go red.

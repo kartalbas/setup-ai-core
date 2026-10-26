@@ -34,7 +34,8 @@
 # the name is true is the person's, and the name on the ticket is what makes a false one visible
 # to them. A DEFECT A SESSION FOUND, or a sub-issue the issue keeper files under the owner's standing
 # decision, takes --found-in instead, naming the session that found it: writing it down is tracking,
-# not new work, and any type may take it.
+# not new work, and any type may take it. Its first line calls a type:bug issue a defect and every
+# other a finding.
 #
 # Prints the new issue number on stdout, so it can be captured and reused. When a parent
 # is named, the issue the new one was attached to - repository, number and title - is
@@ -97,10 +98,12 @@ fi
 [ -n "$no_board" ] || [ -n "$priority" ] || die "--priority is required (P0 blocker, P1 high, P2 normal, P3 low, P9 parked)"
 [ "${#labels[@]}" -ge 2 ] || die "at least two labels are required: one for the type of work, one for the area"
 
-# No issue without a person's yes (rules.md, the issue rules), except a defect found in the work.
+# No issue without a person's yes (rules.md, the issue rules), except a finding filed without one.
 if [ -n "$found_in" ]; then
   [ -z "$asked_by$asked_in" ] || die "--found-in and --asked-by/--asked-in contradict each other: one says a session found a defect, the other names who said yes - give one"
-  asked="$FOUND_PREFIX$found_in on $(date +%Y-%m-%d)$FOUND_TAIL"
+  found_what='a finding'
+  grep -qx 'type:bug' <<< "$(printf '%s\n' "${labels[@]}")" && found_what='a defect'
+  asked="$FOUND_PREFIX$found_in on $(date +%Y-%m-%d), $found_what$FOUND_TAIL"
 else
   [ -n "$asked_by" ] || die "--asked-by is required: the login of the person who said yes to this issue (a finding filed without a yes takes --found-in)"
   [ -n "$asked_in" ] || die "--asked-in is required: where they said it - the issue thread, the review, or the chat, with its date"

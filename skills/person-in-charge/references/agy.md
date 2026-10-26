@@ -32,8 +32,10 @@ do not start or fall back to another tool. The windows are agy's answer of that 
 
 Set `PROJECT`, `PHASE`, `CLASS`, `SESSION` and `BRIEF` to the intended project, model-table
 phase word, class, phase session name and filled brief file. Set `WRITER` to the actual writer
-for plan-check or review. `OPERATION` is `start` or `resume`; for a resume set `NATIVE_ID` and
-`TEXT`, after status proves that conversation is no longer running. The name and original start
+for plan-check or review. `EXTRA_ROOTS` is the JSON array of every other absolute folder the
+phase needs; a UI test gets no folder and runs in the empty `UI_TEST_DIR`. `OPERATION` is
+`start` or `resume`; for a resume set `NATIVE_ID` and `TEXT`, after status proves that
+conversation is no longer running. The name and original start
 stay the same within a phase. Select in the project before entering a UI-test throwaway directory.
 A changed tool uses the selected reference for a fresh session with the current brief, saved work
 and last report, without the foreign id. A changed order before launch requires a new selection.
@@ -72,9 +74,17 @@ else
   [ ! -e "$out" ] || { echo "output already exists: $out" >&2; exit 2; }
   prompt="$(cat "$BRIEF")"
 fi
+launch_cwd="$PROJECT"
+added=()
+if [ "$PHASE" = ui-test ]; then
+  launch_cwd="${UI_TEST_DIR:?set the empty throwaway UI_TEST_DIR}"
+else
+  roots="$(jq -cn --arg project "$PROJECT" --arg state "$state" --argjson extra "${EXTRA_ROOTS:-[]}" '[$project,$state] + $extra')"
+  while IFS= read -r root; do added+=(--add-dir "$root"); done < <(jq -r '.[]' <<< "$roots")
+fi
 observe attempt
-(cd "${UI_TEST_DIR:-$PROJECT}" && agy -p "$prompt" --model "$model" ${conversation[@]+"${conversation[@]}"} \
-  --mode accept-edits --add-dir "$PROJECT" --add-dir "$state" --output-format json < /dev/null > "$out")
+(cd "$launch_cwd" && agy -p "$prompt" --model "$model" ${conversation[@]+"${conversation[@]}"} \
+  --mode accept-edits ${added[@]+"${added[@]}"} --output-format json < /dev/null > "$out")
 id="$(jq -er '.conversation_id | select(type == "string" and length > 0)' "$out")" \
   || { echo 'missing native conversation evidence' >&2; exit 2; }
 [ "$operation" != resume ] || [ "$id" = "$NATIVE_ID" ] || { echo 'resumed conversation identity changed' >&2; exit 2; }

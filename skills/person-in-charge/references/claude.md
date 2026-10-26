@@ -13,7 +13,9 @@ the project folder and each partner folder added, so it can read every clone.
 
 Set `PROJECT`, `PHASE`, `CLASS`, `SESSION` and `BRIEF` to the intended project, model-table
 phase word, class, phase session name and filled brief file. Set `WRITER` to the actual writer
-for plan-check or review. `OPERATION` is `start` or `resume`; for a resume set `NATIVE_ID` and
+for plan-check or review. `PROJECT` is the folder the phase starts in, as above; `EXTRA_ROOTS` is
+the JSON array of every other absolute folder it needs, added again on a resume; `WINDOW` is its
+`<window>` below. `OPERATION` is `start` or `resume`; for a resume set `NATIVE_ID` and
 `TEXT`, after status proves that conversation is no longer running. The name and original start
 stay the same within a phase. Select in the project before entering a UI-test throwaway directory.
 A changed tool uses the selected reference for a fresh session with the current brief, saved work
@@ -48,15 +50,20 @@ if [ "$operation" = resume ]; then
   jq -e --arg id "$NATIVE_ID" '[.[] | select(.sessionId == $id)] | length == 1 and
     all(((.status // "") != "busy") and ((.state // "") != "working"))' <<< "$before" > /dev/null \
     || { echo 'resume requires one native session that is no longer running' >&2; exit 2; }
+else
+  : "${WINDOW:?set WINDOW to the session budget plus 100000}"
 fi
+roots="$(jq -cn --arg project "$PROJECT" --arg state "$state" --argjson extra "${EXTRA_ROOTS:-[]}" '[$project,$state] + $extra')"
+added=()
+while IFS= read -r root; do added+=(--add-dir "$root"); done < <(jq -r '.[]' <<< "$roots")
 observe attempt
 if [ "$operation" = start ]; then
   claude "Read $BRIEF and do the phase it describes." --bg --name "$SESSION" --model "$model" \
-    --effort "$effort" --permission-mode auto --settings "{\"autoCompactWindow\":${WINDOW:-400000}}" \
-    --add-dir "$(dirname "$BRIEF")" --add-dir "$PROJECT" --add-dir "$state"
+    --effort "$effort" --permission-mode auto --settings "{\"autoCompactWindow\":$WINDOW}" \
+    --add-dir "$(dirname "$BRIEF")" "${added[@]}"
 else
   claude "$TEXT" --bg --resume "$NATIVE_ID" --model "$model" --effort "$effort" \
-    --permission-mode auto --add-dir "$PROJECT" --add-dir "$state"
+    --permission-mode auto "${added[@]}"
 fi
 id=''
 for ((n=0; n<600; n++)); do

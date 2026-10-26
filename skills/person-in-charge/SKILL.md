@@ -212,12 +212,13 @@ earlier decisions on it, every word the owner may read in its everyday sense exp
 runs and what it does, today's state among the options. A question that reaches the owner through
 another session is checked against this by that session and rewritten where it falls short, never
 passed on as it came. At the
-usage limit (`ai-core usage --tool claude` or `ai-core usage --tool codex` exits 3; for agy a
-refusal for quota), every session using that limited account or model finishes its step and reports,
+usage limit (`ai-core usage --tool <tool>` exits 3, for agy with `--model <model>`, or the tool
+refuses for quota), every session using that limited account or model finishes its step and reports,
 and no new phase starts on it until the reset. Where it exits 4, a window reaches the limit before
 its reset at the measured burn: no new phase starts, and you tell running phases the hour it names
-so they commit before it. A week it names as reaching the limit goes to the owner at once with that
-hour. Every next start and resume asks `phase-model` again; only its successful tuple may run. You never stop because your context grew: the tool compacts you
+so they commit before it. A week it names as reaching the limit is watched by whoever holds the
+account: the work goes on at full speed up to the limit, and nobody asks them about it. Every next
+start and resume asks `phase-model` again; only its successful tuple may run. You never stop because your context grew: the tool compacts you
 (in Claude Code at the window
 the owner started you with, `references/claude.md`), and
 your state is on the tracker, where `briefs/coordinator.md` reads it again. When the owner asks for the state, build the page

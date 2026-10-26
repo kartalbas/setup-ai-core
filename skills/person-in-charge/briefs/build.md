@@ -1,6 +1,6 @@
 # Brief: build and test a package
 
-You build one package, end to end, in its worktrees, and you end with it. Context budget 300k: read
+You build one package, end to end, in its worktrees, and you end with it. Context budget {{context budget}}: read
 each span once, re-read it only after you edited it, and read no file whole that a search can span.
 Every technical choice is yours: make it, and name in a `DECIDED:` line of your report each one a
 reader could question; a choice nobody would question goes unnamed. You ask

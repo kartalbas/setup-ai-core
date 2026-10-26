@@ -94,6 +94,61 @@ tool_order_record() (
 
 phase_model_base() { printf '%s\n' "$1" | sed -E 's/^(claude|codex|agy)://; s/-(low|medium|high|xhigh|max)$//'; }
 
+# phase_model_tuples <tool> <phase> <table>: every row of the tool for the phase, whatever its class, as
+# class<TAB>model<TAB>effort; a row that routes to another tool (a model with a colon) names no tuple of this one.
+phase_model_tuples() {
+  awk -F'\t' -v tool="$1" -v phase="$2" '
+    !/^#/ && NF && $1 == tool && $2 == phase && $4 !~ /:/ { print $3 "\t" $4 "\t" $5 }
+  ' "$3"
+}
+
+# phase_model_setup <setup file> <class> <table>: the entries of the planner's Setup that the table allows for this class,
+# one a line as phase<TAB>tool<TAB>model<TAB>effort, or the reason it is refused on stderr and status 1. The whole object is read before
+# any quota is. An entry is a tuple of its own tool: for build and review any the tool's rows name for the phase, for
+# a high-risk package exactly its high-risk row; for ui-test exactly its row of the class; and the tool has to run the
+# class at all, which its build row for the class says. Its budget is 1.5 times its estimate, rounded up, within the
+# ceiling of the phase.
+phase_model_setup() {
+  local file="$1" class="$2" table="$3" entries phase tool model effort row rows
+  [ -f "$file" ] && [ -r "$file" ] || { echo "the setup file $file cannot be read" >&2; return 1; }
+  entries="$(jq -r '
+    def ceiling($phase; $tool): if $phase == "build" then (if $tool == "codex" then 250000 else 300000 end) elif $phase == "review" then 150000 else 100000 end;
+    def whole: type == "number" and . == floor and . > 0;
+    def text: type == "string" and test("^[^[:space:]]+$");
+    if type != "object" then error("it is not a JSON object") else . end
+    | [ to_entries[] | .key as $phase
+    | if ($phase | IN("build", "review", "ui-test") | not) then error("it names the phase \($phase), which is none of build, review and ui-test") else . end
+    | (.value | if type != "object" then error("\($phase) is not an object of tools") else . end) | to_entries[] | .key as $tool
+    | if ($tool | IN("claude", "codex", "agy") | not) then error("\($phase) names the tool \($tool), which is none of claude, codex and agy") else . end
+    | .value as $e
+    | if ($e | type) != "object" or ($e | keys) != ["budget_tokens", "effort", "estimate_tokens", "model", "reason"]
+      then error("\($phase) \($tool) must hold exactly model, effort, estimate_tokens, budget_tokens and reason") else . end
+    | if ($e.model | text | not) or ($e.effort | text | not) then error("\($phase) \($tool): model and effort are words with no space") else . end
+    | if ($e.reason | type) != "string" or ($e.reason | test("^\\s*$")) then error("\($phase) \($tool) gives no reason") else . end
+    | if ($e.estimate_tokens | whole | not) or ($e.budget_tokens | whole | not) then error("\($phase) \($tool): estimate_tokens and budget_tokens are positive whole numbers") else . end
+    | if $e.budget_tokens != ($e.estimate_tokens * 1.5 | ceil) then error("\($phase) \($tool): budget_tokens \($e.budget_tokens) is not 1.5 times estimate_tokens \($e.estimate_tokens), rounded up") else . end
+    | if $e.budget_tokens > ceiling($phase; $tool) then error("\($phase) \($tool): budget_tokens \($e.budget_tokens) is above the \(ceiling($phase; $tool)) of the phase; a package that needs more is cut again") else . end
+    | "\($phase)\t\($tool)\t\($e.model)\t\($e.effort)" ] | .[]' "$file" 2>&1)" \
+    || { echo "the setup file $file is refused: $(sed -E 's/^jq: (error \(at .*:[0-9]+\): )?//' <<< "$entries")" >&2; return 1; }
+  while IFS=$'\t' read -r phase tool model effort; do
+    [ -n "$phase" ] || continue
+    row="$(phase_model_row "$tool" build "$class" "$table")" || return 1
+    [ -n "$row" ] || { echo "the setup entry $phase $tool is refused: $tool has no build row for $class, so it does not run that class" >&2; return 1; }
+    case "$phase:$class" in
+      ui-test:*|*:high-risk)
+        row="$(phase_model_row "$tool" "$phase" "$class" "$table")" || return 1
+        [ -n "$row" ] || { echo "the setup entry $phase $tool is refused: the table has no $phase row of $tool for $class" >&2; return 1; }
+        [ "$(cut -f4,5 <<< "$row")" = "$(printf '%s\t%s' "$model" "$effort")" ] \
+          || { echo "the setup entry $phase $tool is refused: for $class it is the row of the table, $(cut -f4 <<< "$row") $(cut -f5 <<< "$row"), not $model $effort" >&2; return 1; } ;;
+      *)
+        rows="$(phase_model_tuples "$tool" "$phase" "$table")"
+        awk -F'\t' -v model="$model" -v effort="$effort" '$2 == model && $3 == effort { found = 1 } END { exit !found }' <<< "$rows" \
+          || { echo "the setup entry $phase $tool is refused: $model $effort is no tuple of $tool for $phase in the table" >&2; return 1; } ;;
+    esac
+  done <<< "$entries"
+  printf '%s\n' "$entries"
+}
+
 phase_model_row() {
   awk -F'\t' -v tool="$1" -v phase="$2" -v class="$3" '
     !/^#/ && NF { if (NF != 5 || $4 !~ /^[^[:space:]]+$/ || $5 !~ /^[^[:space:]]+$/) { print "malformed models.tsv row " NR > "/dev/stderr"; exit 2 }

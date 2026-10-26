@@ -158,8 +158,9 @@ that passed in the same session goes on. Its package's next build round repairs 
 becomes a planted case of a check. A `type:bug` issue opens only for what the card's own criteria
 do not cover; a promise NOT CHECKABLE HERE gets `needs:owner` with the question where it is seen.
 Context budgets are the planner's cut sizes and part of the session name, 150k for plan, plan check and review, 300k
-for a build (250k in Codex, whose models hold 272k), 100k for a UI test and a re-check; in Claude
-Code the start sets each, above the base context a session starts with, as its compact window
+for a build (250k in Codex, whose models hold 272k), 100k for a UI test and a re-check, unless the
+`Setup:` line of the package's section names the `budget_tokens` of that phase and tool, which never
+exceeds these; in Claude Code the start sets each, above the base context a session starts with, as its compact window
 (`references/claude.md`), elsewhere nothing enforces them, and a build report's `CONTEXT: needed
 more` line is a GAP for the next plan of that area.
 
@@ -170,13 +171,23 @@ more` line is a GAP for the next plan of that area.
    `--written-by <actual writer model>`. Successful stdout is exactly `TOOL MODEL EFFORT`.
    Record that order and tuple in every PHASE line. A failed reading refuses the selection;
    do not invent a fallback, model or effort. Repeat this preflight immediately before a resume.
+   Where the package section's `Setup:` line holds a JSON object, write that object to
+   `~/.ai-core/sessions/<package>.setup.json` as the text it is (a quoted here-document or a file
+   write, never evaluated as shell) and add `--setup-file <that file>` to the selection of its
+   `build`, `review` and `ui-test` phases, plan checks and plans none. `phase-model` then checks the
+   whole object against `.ai-core/models.tsv` before it reads any quota, uses the entry of each tool
+   in the saved order where it has one for the phase and the tool's table row where it has none, and
+   refuses an entry the table does not allow; it still prints only `TOOL MODEL EFFORT`. The phase's
+   budget is the `budget_tokens` of the selected tool's entry (`jq '.<phase>.<tool>.budget_tokens'`
+   on that file), the phase default where it has none.
 2. Before a plan and before a plan check: `git -C <clone> fetch -q origin` for every clone of the
    folder and of each partner folder, because both read what origin ships. Before a build: `ai-core start-issue <first issue>` in the first
    repository's clone, and `ai-core start-issue <owner/repo> <first issue>` in the clone of every
    other repository of the package, because a repository that joined through a contract has no issue
    of its own there; where an issue's branch exists from before, give the build its worktree path.
 3. Fill the phase's brief: every `{{placeholder}}` from the package section, the issues' text, the
-   worktree paths and the verdicts. In a review and a re-check the reviewer and the builder are such
+   worktree paths and the verdicts. The `{{context budget}}` of a build, a review and a UI test is that
+   budget, written `<n>k` with `n` rounded up to whole thousands. In a review and a re-check the reviewer and the builder are such
    placeholders: the name, model and effort of the review session this start selected, and of the
    build session you launched (for a re-check, of the session that built the repair), each as you
    launched it and `unknown` where you do not have it, never guessed; the review writes them into its
@@ -184,7 +195,8 @@ more` line is a GAP for the next plan of that area.
    brief as `~/.ai-core/sessions/<session name>.brief.md`, the name step 4 gives; it is the session's
    whole world, and its name tells every later coordinator on the machine that the number ran.
 4. Start on exactly the selected tool, model and effort as `references/<tool>.md` says. Name it
-   `<phase><n>-<model><version>-<effort>-<budget>k-<5 hex>`, using the selected tool's phase budget,
+   `<phase><n>-<model><version>-<effort>-<budget>k-<5 hex>`, using the selected tool's phase budget
+   (step 1; Claude's window is that budget plus 100000),
    the model-table phase word (`plan`, `re-plan`, `plan-check`, `build`, `review` or `ui-test`)
    and the next number of your own block (`briefs/coordinator.md`). Plan re-checks use `plan-check`,
    review re-checks `review`, live checks `ui-test`. Retain the launch attempt and native identity

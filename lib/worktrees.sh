@@ -71,8 +71,10 @@ delete_branch_at_tip() {
 # WORKTREE_LOCK_COMMON. A lock that somebody else holds is kept as it is and not taken over; where that
 # somebody is another ai-core init, the run fails, because the two would write the same files.
 worktree_lock_for_init() {
-  local dir="$1" said held lockfile
+  local dir said held lockfile
   WORKTREE_LOCKED=""; WORKTREE_LOCK_COMMON=""
+  # git lists a worktree by its top folder with links resolved, and the unlock finds the lock by that path
+  dir="$(git -C "$1" rev-parse --show-toplevel 2>&1)" || { echo "error: could not lock the worktree $1: $dir" >&2; return 1; }
   if said="$(git -C "$dir" worktree lock --reason "$WORKTREE_INIT_LOCK" "$dir" 2>&1)"; then
     WORKTREE_LOCKED="$dir"
     WORKTREE_LOCK_COMMON="$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir)"

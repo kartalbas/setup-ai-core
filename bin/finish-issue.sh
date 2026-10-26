@@ -147,10 +147,11 @@ if [ "$sweep" -eq 1 ]; then
   now="$(date +%s)"
   while IFS=$'\t' read -r path branch; do
     [ -n "$path" ] || continue
-    tip="$(git -C "$main" rev-parse "refs/heads/$branch")"
     if ! own_worktree "$path" "$branch"; then echo "worktree $path: named for another issue, holds $branch, stays"
     elif reason="$(worktree_lock_reason "$main" "$path")"; then echo "worktree $path: $(worktree_lock_state "$reason"), stays"
     elif [ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]; then echo "worktree $path: has changes, stays"
+    elif ! tip="$(git -C "$main" rev-parse -q --verify "refs/heads/$branch")"; then
+      echo "worktree $path: could not be measured against origin/$default - the branch $branch points at no commit, stays"
     elif ! missing="$(unlanded "$tip")"; then
       # git's words on one line, their colons spelled as dashes: the line of a kept worktree is read back as "<path>: <reason>, stays"
       echo "worktree $path: could not be measured against origin/$default - $(tr -s '\n' ' ' <<< "$missing" | sed 's/: / - /g; s/ *$//'), stays"
@@ -214,7 +215,8 @@ while IFS=$'\t' read -r path branch; do
   fi
   [ -z "$(git -C "$path" status --porcelain)" ] \
     || die "the worktree $path has changes - commit and push them, or put them aside, then run this again"
-  tip="$(git -C "$main" rev-parse "refs/heads/$branch")"
+  tip="$(git -C "$main" rev-parse -q --verify "refs/heads/$branch")" \
+    || die "the history of $branch could not be read, so nothing is removed: the branch points at no commit"
   missing="$(unlanded "$tip")" || die "the history of $branch could not be read, so nothing is removed: $missing"
   if [ -n "$missing" ]; then
     # Work that landed in another shape, a resolved conflict or a changed context, is the owner's

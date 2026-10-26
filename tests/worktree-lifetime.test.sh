@@ -66,7 +66,7 @@ EOF
 chmod +x "$fake/shim/jq"
 gate="$fake/gate"
 gate_open() { rm -rf "$gate"; mkdir -p "$gate"; }
-gate_wait() { local i; for i in $(seq 200); do [ -e "$gate/reached" ] && return 0; sleep 0.05; done; return 1; }
+gate_wait() { local _; for _ in $(seq 200); do [ -e "$gate/reached" ] && return 0; sleep 0.05; done; return 1; }
 gate_release() { : > "$gate/go"; }
 
 dress() {
@@ -273,6 +273,32 @@ git -C "$src" worktree remove -f "$source_tree"
 gate_release; wait "$start_pid" 2>/dev/null
 check 'the path is not created again'               no "$(yes_no test -e "$source_tree")"
 check 'it says that it wrote nothing there'         yes "$(yes_no grep -qF "AGENTS.md was not written: $source_tree is removed or is no worktree, so nothing is written there" "$fake/start.log")"
+
+echo 'init lifts its lock also when it was given a link to the worktree, or a folder below its top (planted: git lists the resolved top)'
+ln -s "$proj" "$fake/proj-link"
+open issue-14-linked
+out="$(bash "$init" "$fake/proj-link/.worktrees/app/issue-14-linked" --no-doctor 2>&1)"; rc=$?
+check 'init through a link exits zero'              0 "$rc"
+check 'its lock is lifted'                          no "$(yes_no locked_reason "$trees/issue-14-linked")"
+open issue-15-below; mkdir -p "$trees/issue-15-below/src"
+init_held "$trees/issue-15-below/src" '*worktree lock*' 1
+check 'init in a folder below the top locks the worktree' 'ai-core init' "$(locked_reason "$trees/issue-15-below")"
+held_end
+check 'it exits zero'                               0 "$held_rc"
+check 'and lifts the lock'                          no "$(yes_no locked_reason "$trees/issue-15-below")"
+
+echo 'the sweep names a worktree whose branch went after it listed the worktrees, and goes on (planted: another finish removes it meanwhile)'
+open issue-16-raced
+landed issue-17-beside
+gate_open
+(cd "$app" && GATE="$gate" GATE_MATCH='*worktree list --porcelain*' GATE_AFTER=1 PATH="$fake/shim:$PATH" bash "$finish" --sweep > "$fake/sweep.log" 2>&1; echo $? > "$fake/sweep.rc") &
+sweep_pid=$!
+check 'the sweep holds after it listed the worktrees' yes "$(yes_no gate_wait)"
+git -C "$app" worktree remove -f "$trees/issue-16-raced"; git -C "$app" branch -q -D issue-16-raced
+gate_release; wait "$sweep_pid"
+check 'sweep exits zero'                            0 "$(cat "$fake/sweep.rc")"
+check 'it names the worktree whose branch is gone'  yes "$(yes_no grep -qxF "worktree $trees/issue-16-raced: could not be measured against origin/master - the branch issue-16-raced points at no commit, stays" "$fake/sweep.log")"
+check 'it removes the landed one beside it'         yes "$(yes_no grep -qxF "worktree $trees/issue-17-beside: landed, removed" "$fake/sweep.log")"
 
 [ "$failed" -eq 0 ] && echo "all passed"
 exit "$failed"

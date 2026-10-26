@@ -271,6 +271,14 @@ check "the run fails" 1 "$rc"
 matches "and says what it could not read" 'did not say whether' "$err"
 check "and claims nothing" "" "$out"
 
+echo "== a label made where GitHub's answer does not say whether it is archived: the failure names the label it made"
+seed_world
+patch_state '.omit = ["archived_at"]'
+package example-org/shop#5 "$SHOP5"
+check "the run fails" 1 "$rc"
+matches "and names the label it made" 'Done before it failed: created package/shop#5 in example-org/shop' "$err"
+check "and claims nothing" "" "$out"
+
 echo "== completion and revival"
 seed_world
 members="$SHOP5 $API7 $LIB4"

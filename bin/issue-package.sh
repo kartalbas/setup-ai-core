@@ -159,8 +159,8 @@ for repo in "${scopes[@]}"; do
         [ -n "$label" ] || stop "creating $label_name in $repo failed: $(cat "$create_error")"
         refuse_foreign_label "$repo" "$label"
       fi
-      package_label_is_archived "$label" >/dev/null || stop "GitHub did not say whether $label_name of $repo is archived"
       note_done "created $label_name in $repo"
+      package_label_is_archived "$label" >/dev/null || stop "GitHub did not say whether $label_name of $repo is archived"
     fi
     if [ "$lacking" = yes ] && [ "$(package_label_is_archived "$label")" = true ]; then
       label="$(package_label_archive "$repo" "$label_name" false)" || stop "reactivating $label_name in $repo failed, and the label may be active"

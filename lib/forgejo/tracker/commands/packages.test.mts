@@ -111,6 +111,12 @@ function direct(w: World, anchor: string, members: readonly string[], removals: 
   return run([repository ?? '', number ?? '', ...flags(members, removals)], w.context);
 }
 
+const modulesOf = async (copy: string): Promise<Modules> => {
+  const fakeModule = (await import(pathToFileURL(join(copy, 'testing/fake-forgejo.mts')).href)) as typeof import('../testing/fake-forgejo.mts');
+  const commandModule = (await import(pathToFileURL(join(copy, 'commands/issue-package.mts')).href)) as typeof issuePackage;
+  return { startFakeForgejo: fakeModule.startFakeForgejo, seedLabels: fakeModule.seedLabels, contextFor: fakeModule.contextFor, run: commandModule.run };
+};
+
 function split(ref: string): { full: string; number: number } {
   const [full = '', number = ''] = ref.split('#');
   return { full, number: Number(number) };
@@ -180,6 +186,15 @@ describe('the coordinator workflow of SKILL.md labels a package', () => {
     assert.deepEqual(packageLabelsOf(w, 'example-org/shop#6'), []);
     assert.equal((await coordinator(w, SHOP5, [SHOP5, API7])).status, 0);
     await assertPackage(w, NAME, [SHOP5, API7]);
+  });
+
+  it('goes red where the command itself skips the member of the second repository (planted in a copy of the tracker)', async () => {
+    const copy = plantedCopy([['commands/issue-package.mts', 'for (const ref of scope.members) {\n      const fresh', 'for (const ref of scope.members.slice(0, 1)) {\n      const fresh']]);
+    const modules = await modulesOf(copy);
+    const w = await world({}, modules);
+    await direct(w, SHOP5, [SHOP5, API7], [], modules.run).catch(() => undefined);
+    await assert.rejects(assertPackage(w, NAME, [SHOP5, API7]), /expected|deepEqual|Expected/);
+    assert.deepEqual(packageLabelsOf(w, 'example-org/shop#6'), []);
   });
 
   it('keeps issues of one number in different repositories apart', async () => {
@@ -463,12 +478,6 @@ describe('completion and revival', () => {
     await assertPackage(x, NAME, members, false);
   });
 
-  const modulesOf = async (copy: string): Promise<Modules> => {
-    const fakeModule = (await import(pathToFileURL(join(copy, 'testing/fake-forgejo.mts')).href)) as typeof import('../testing/fake-forgejo.mts');
-    const commandModule = (await import(pathToFileURL(join(copy, 'commands/issue-package.mts')).href)) as typeof issuePackage;
-    return { startFakeForgejo: fakeModule.startFakeForgejo, seedLabels: fakeModule.seedLabels, contextFor: fakeModule.contextFor, run: commandModule.run };
-  };
-
   // One member of each organization; only the one of the first is complete.
   const halfDone = async (modules: Modules): Promise<World> => {
     const w = await world({}, modules);
@@ -485,7 +494,7 @@ describe('completion and revival', () => {
   it('archives no label while a member of another organization is open (innocent); a planted per-organization completion archives it and is caught', async () => {
     assertBothActive(await halfDone(REAL));
 
-    const copy = plantedCopy([['commands/issue-package.mts', 'const complete = isPackageComplete(confirmed);\n    const label = await readPackageLabel', 'const complete = isPackageComplete(confirmed.filter((issue) => issue.ref.owner === scope.owner));\n    const label = await readPackageLabel']]);
+    const copy = plantedCopy([['commands/issue-package.mts', 'const complete = isPackageComplete(confirmed);\n    const label = await attempt', 'const complete = isPackageComplete(confirmed.filter((issue) => issue.ref.owner === scope.owner));\n    const label = await attempt']]);
     const planted = await halfDone(await modulesOf(copy));
     assert.throws(() => assertBothActive(planted), /archived while another organization has a member that is open/);
   });
@@ -560,6 +569,30 @@ describe('failure and concurrency', () => {
     assert.equal(outcome.stdout, '');
     assert.equal((await coordinator(w, SHOP5, [SHOP5, API7])).status, 0);
     await assertPackage(w, NAME, [API7, SHOP5], false);
+  });
+
+  it('names what was done where a read fails after the first writes, as it does where a write fails, and converges on the next run', async () => {
+    const w = await world();
+    // the first read of the member of other-org comes before any write; the second, right before its label goes on, fails
+    w.fake.fail({ method: 'GET', path: '/repos/other-org/lib/issues/4', skip: 1, mode: { kind: 'status', status: 500, message: 'planted' } });
+    const reread = await coordinator(w, SHOP5, [SHOP5, LIB4]);
+    assert.equal(reread.status, 4, reread.stderr);
+    assert.match(reread.stderr, /reading other-org\/lib#4 failed/);
+    assert.match(reread.stderr, /Done before it failed: .*labeled example-org\/shop#5/);
+    assert.equal(reread.stdout, '');
+    assert.equal((await coordinator(w, SHOP5, [SHOP5, LIB4])).status, 0);
+    await assertPackage(w, NAME, [LIB4, SHOP5], false);
+
+    const v = await world();
+    // the fourth list of the labels of other-org is the one after both members were labeled and read back
+    v.fake.fail({ method: 'GET', path: '/orgs/other-org/labels', skip: 3, mode: { kind: 'status', status: 500, message: 'planted' } });
+    const readBack = await coordinator(v, SHOP5, [SHOP5, LIB4]);
+    assert.equal(readBack.status, 4, readBack.stderr);
+    assert.match(readBack.stderr, /reading package\/shop#5 of other-org back failed/);
+    assert.match(readBack.stderr, /Done before it failed: .*labeled other-org\/lib#4/);
+    assert.equal(readBack.stdout, '');
+    assert.equal((await coordinator(v, SHOP5, [SHOP5, LIB4])).status, 0);
+    await assertPackage(v, NAME, [LIB4, SHOP5], false);
   });
 
   it('names what was archived when the archival of the second organization fails, and finishes it on the next run', async () => {

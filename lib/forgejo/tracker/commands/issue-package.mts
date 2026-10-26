@@ -84,28 +84,32 @@ async function reconcile(api: ForgejoClient, request: PackageRequest): Promise<C
   }
 
   const done: string[] = [];
-  async function step<T>(what: string, action: () => Promise<T>): Promise<T> {
+  // A read that fails once a step is done names the steps before it, as a step that fails does.
+  async function attempt<T>(what: string, action: () => Promise<T>): Promise<T> {
     try {
-      const result = await action();
-      done.push(what);
-      return result;
+      return await action();
     } catch (error) {
       if (done.length === 0) throw error;
       const completed = error instanceof PartialCompletionError ? [...done, ...error.completed] : done;
       throw new PartialCompletionError(operation, completed, `${what} failed: ${describeFailure(error)}. Run the same command again: it reads the tracker and finishes what is missing`);
     }
   }
+  async function step<T>(what: string, action: () => Promise<T>): Promise<T> {
+    const result = await attempt(what, action);
+    done.push(what);
+    return result;
+  }
 
   for (const scope of scopes) {
     const label = await prepareLabel(api, scope, anchor, labels.get(scope.owner), readMembers, step);
     if (label !== undefined) labels.set(scope.owner, label);
     for (const ref of scope.members) {
-      const fresh = await getIssue(api, ref);
+      const fresh = await attempt(`reading ${formatIssue(ref)}`, () => getIssue(api, ref));
       const plan = planLabelChange(fresh.labels, { replace: [name] });
       if (plan.add.length + plan.remove.length > 0) await step(`labeled ${formatIssue(ref)}`, () => applyLabelChange(api, ref, fresh, plan));
     }
     for (const ref of scope.removals) {
-      const fresh = await getIssue(api, ref);
+      const fresh = await attempt(`reading ${formatIssue(ref)}`, () => getIssue(api, ref));
       if (fresh.labels.includes(name)) await step(`took ${name} off ${formatIssue(ref)}`, () => applyLabelChange(api, ref, fresh, { add: [], remove: [name] }));
     }
   }
@@ -114,8 +118,11 @@ async function reconcile(api: ForgejoClient, request: PackageRequest): Promise<C
   const reportLines: string[] = [];
   for (const scope of scopes.filter((candidate) => candidate.members.length > 0)) {
     const complete = isPackageComplete(confirmed);
-    const label = await readPackageLabel(api, scope.owner, anchor);
-    if (label === undefined) throw new ContractError(operation, `${scope.owner} has no label ${name} after it was written`);
+    const label = await attempt(`reading ${name} of ${scope.owner} back`, async () => {
+      const found = await readPackageLabel(api, scope.owner, anchor);
+      if (found === undefined) throw new ContractError(`read back ${name}`, `${scope.owner} has no label of that name after it was written`);
+      return found;
+    });
     const settled = isArchived(label) === complete ? label : await step(`${complete ? 'archived' : 'reactivated'} ${name} in ${scope.owner}`, () => setLabelArchived(api, scope.owner, label, complete));
     labels.set(scope.owner, settled);
     reportLines.push(`${scope.owner}: ${name} is ${complete ? 'archived' : 'active'}`);

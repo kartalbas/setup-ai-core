@@ -638,12 +638,11 @@ describe('integrate-issue', () => {
       // the state finish-issue left before it asked for the landing record: the work landed, the worktree and the branch are gone
       await client.removeWorktree(main.checkout, tree);
       git(main.checkout, 'branch', '-D', branch);
-      await client.addWorktree(main.checkout, tree, branch, head);
 
       await startIssue.run([String(number)], ctx(main.checkout));
-      assert.deepEqual(commentsOf(main, number).map((text) => text.split(':')[0]), [`Started on ${branch}`], 'the worktree stands again: only the start record is written');
+      assert.deepEqual(commentsOf(main, number).map((text) => text.split(':')[0]), [`Started on ${branch}`], 'the worktree is cut again from the default branch: only the start record is written');
       assert.deepEqual(fake.readIssue('o/r', number).labels, ['status/implementing']);
-      await integrateIssue.run(integrateArguments(main, number, head), ctx(tree));
+      await integrateIssue.run(integrateArguments(main, number, head), ctx(main.checkout));
       assert.equal(tipOf(main), landed, 'nothing is merged or pushed again');
       assert.deepEqual(commentsOf(main, number).map((text) => text.split(':')[0]), [`Started on ${branch}`, 'Landed on master']);
       assert.match(commentsOf(main, number)[1] ?? '', new RegExp(`Reviewed head: ${head}\\nLanded commit: ${landed}`));
@@ -674,6 +673,101 @@ describe('integrate-issue', () => {
       await integrateIssue.run(integrateArguments(main, number, head), ctx(tree));
       assert.equal(commentsOf(main, number).filter((text) => text.startsWith('Landed on')).length, 1);
       assert.deepEqual(fake.readIssue('o/r', number).labels, ['status/testing']);
+    });
+  });
+
+  describe('the rerun once finish-issue removed the worktree', () => {
+    // The work landed, the tracker refused the records, and finish-issue then took the worktree and its branch away.
+    async function landedWithoutRecords(issueWorld: World, title: string): Promise<{ number: number; tree: string; branch: string; head: string; landed: string; args: string[] }> {
+      const number = newIssue(issueWorld, title);
+      await startIssue.run([issueWorld.full, String(number)], ctx(main.checkout));
+      const tree = await treeOf(main, number);
+      const branch = must(await client.currentBranch(tree));
+      const head = fixture.commit(tree, `work-${number}.txt`, 'work\n');
+      const args = [issueWorld.full, String(number), '--reviewed-by', 'alice', '--reviewed-head', head];
+      fake.fail({ method: 'POST', path: `/repos/${issueWorld.full}/issues/${number}/comments`, mode: { kind: 'status', status: 500, message: 'planted' } });
+      await assert.rejects(integrateIssue.run(args, ctx(tree)), PartialCompletionError);
+      return { number, tree, branch, head, landed: tipOf(main), args };
+    }
+    const removeTree = async (tree: string, branch: string): Promise<void> => {
+      await client.removeWorktree(main.checkout, tree);
+      git(main.checkout, 'branch', '-D', branch);
+    };
+
+    it('writes the missing records from the main checkout, merging and pushing nothing', async () => {
+      const issue = await landedWithoutRecords(main, 'Gone worktree of the origin, so that the rerun comes from the main checkout');
+      await removeTree(issue.tree, issue.branch);
+      const result = await integrateIssue.run(issue.args, ctx(main.checkout));
+      assert.equal(tipOf(main), issue.landed, 'nothing is merged or pushed');
+      assert.match(result.stdout, /already landed/);
+      assert.match(commentsOf(main, issue.number)[1] ?? '', new RegExp(`^Landed on master:\\n\\nReviewed head: ${issue.head}\\nLanded commit: ${issue.landed}\\n`));
+      assert.deepEqual(fake.readIssue('o/r', issue.number).labels, ['status/testing']);
+      const before = writesOf();
+      await integrateIssue.run(issue.args, ctx(main.checkout));
+      assert.equal(writesOf(), before, 'a second rerun writes nothing');
+    });
+
+    it('writes them for an issue of another repository that OWNER/REPO names, the branch with its recorded repository being gone', async () => {
+      const issue = await landedWithoutRecords(sibling, 'Gone worktree elsewhere, so that the repository is named');
+      await removeTree(issue.tree, issue.branch);
+      assert.equal(await client.getConfig(main.checkout, `branch.${issue.branch}.issueRepository`), undefined, 'the recorded repository went with the branch');
+      await integrateIssue.run(issue.args, ctx(main.checkout));
+      assert.equal(tipOf(main), issue.landed);
+      assert.match(commentsOf(sibling, issue.number).find((text) => text.startsWith('Landed on')) ?? '', /^Landed on master of o\/r:\n/);
+      assert.deepEqual(fake.readIssue(sibling.full, issue.number).labels, ['status/testing']);
+    });
+
+    it('writes them from a worktree that start-issue cut again on the branch of the issue, whose head is not the reviewed head', async () => {
+      const issue = await landedWithoutRecords(main, 'Worktree cut again, so that its head differs');
+      await removeTree(issue.tree, issue.branch);
+      await startIssue.run([String(issue.number)], ctx(main.checkout));
+      const again = await treeOf(main, issue.number);
+      assert.notEqual(git(again, 'rev-parse', 'HEAD'), issue.head);
+      await integrateIssue.run(issue.args, ctx(again));
+      assert.equal(tipOf(main), issue.landed);
+      assert.ok(commentsOf(main, issue.number).some((text) => text.startsWith('Landed on master:')));
+      assert.deepEqual(fake.readIssue('o/r', issue.number).labels, ['status/testing']);
+    });
+
+    it('refuses and writes nothing for a landed commit that names another issue (planted: the landing names #1)', async () => {
+      const number = newIssue(main, 'Landed under another name, so that it is not recorded');
+      await startIssue.run([String(number)], ctx(main.checkout));
+      const tree = await treeOf(main, number);
+      const branch = must(await client.currentBranch(tree));
+      const head = fixture.commit(tree, `work-${number}.txt`, 'work\n');
+      git(tree, 'push', '-q', 'origin', `HEAD:refs/heads/${branch}`);
+      git(main.second, 'fetch', '-q', 'origin');
+      git(main.second, 'merge', '--no-ff', '-q', '-m', 'Somebody else\'s landing (#1)', `origin/${branch}`);
+      git(main.second, 'push', '-q', 'origin', 'HEAD:refs/heads/master');
+      await removeTree(tree, branch);
+      const [tipBefore, writesBefore] = [tipOf(main), writesOf()];
+      await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(main.checkout)), (error: unknown) => error instanceof PreconditionError && new RegExp(`nothing is written: ${head} is on origin/master, but in the commit [0-9a-f]{7}, whose subject does not end with \\(#${number}\\)`).test(error.message));
+      assert.equal(tipOf(main), tipBefore);
+      assert.equal(writesOf(), writesBefore);
+      assert.deepEqual(fake.readIssue('o/r', number).labels, ['status/implementing']);
+    });
+
+    it('refuses and writes nothing for a head pushed directly, whose landing commit is the head itself, but takes it in the worktree on that head (innocent case)', async () => {
+      const number = newIssue(main, 'Pushed directly, so that no commit names it');
+      await startIssue.run([String(number)], ctx(main.checkout));
+      const tree = await treeOf(main, number);
+      const head = fixture.commit(tree, `work-${number}.txt`, 'work\n');
+      git(tree, 'push', '-q', 'origin', 'HEAD:refs/heads/master');
+      const writesBefore = writesOf();
+      await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(main.checkout)), /whose subject does not end with/);
+      assert.equal(writesOf(), writesBefore);
+      await integrateIssue.run(integrateArguments(main, number, head), ctx(tree));
+      assert.ok(commentsOf(main, number).some((text) => text.startsWith('Landed on master:')), 'the worktree on the head ties it to the issue');
+      assert.deepEqual(fake.readIssue('o/r', number).labels, ['status/testing']);
+    });
+
+    it('still refuses a head that is not on origin when the worktree is gone (planted: an unlanded head)', async () => {
+      const issue = await worked(main, 'Unlanded and gone, so that the rerun refuses');
+      await removeTree(issue.tree, issue.branch);
+      const [tipBefore, writesBefore] = [tipOf(main), writesOf()];
+      await assert.rejects(integrateIssue.run(integrateArguments(main, issue.number, issue.head), ctx(main.checkout)), (error: unknown) => error instanceof PreconditionError && /this runs in the worktree of issue \d+, on its branch issue-\d+-\*; here master is checked out/.test(error.message));
+      assert.equal(tipOf(main), tipBefore);
+      assert.equal(writesOf(), writesBefore);
     });
   });
 });

@@ -164,6 +164,10 @@ export class GitClient {
   }
 
   async isClean(cwd: string): Promise<boolean> {
+  async getSubject(cwd: string, commit: string): Promise<string> {
+    return this.output(cwd, ['log', '-1', '--format=%s', commit]);
+  }
+
     return (await this.listChanges(cwd)).length === 0;
   }
 

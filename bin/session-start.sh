@@ -34,11 +34,11 @@ for arg in "$@"; do
 done
 
 CORE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-as_json=0; tool_args=(); TOOL=""; TOOL_N=0
+as_json=0; tool_args=(); TOOL_N=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --json|-Json) as_json=1; shift ;;
-    --tool) [ $# -ge 2 ] || { echo "error: --tool needs a value" >&2; exit 2; }; tool_args+=(--tool "$2"); TOOL="$2"; TOOL_N=$((TOOL_N + 1)); shift 2 ;;
+    --tool) [ $# -ge 2 ] || { echo "error: --tool needs a value" >&2; exit 2; }; tool_args+=(--tool "$2"); TOOL_N=$((TOOL_N + 1)); shift 2 ;;
     *) echo "error: unknown argument '$1' (see --help)" >&2; exit 2 ;;
   esac
 done

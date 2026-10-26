@@ -370,7 +370,7 @@ gate_public_repository() {
   # shown as they come, and kept only to tell a race from a refusal.
   pushed="$(mktemp)" || die "no temporary file for the output of the push to $ci_branch"
   push_status=0
-  AI_CORE_LANDING_RECEIPT="$receipt" git -C "$tree" push origin "--force-with-lease=refs/heads/$ci_branch:$held" "$merged_sha:refs/heads/$ci_branch" 2>&1 | tee "$pushed" >&2 || push_status="${PIPESTATUS[0]}"
+  with_landing_mark "$tree" "$merged_sha" "refs/heads/$ci_branch" "refs/heads/$default" -- env AI_CORE_LANDING_RECEIPT="$receipt" git -C "$tree" push origin "--force-with-lease=refs/heads/$ci_branch:$held" "$merged_sha:refs/heads/$ci_branch" 2>&1 | tee "$pushed" >&2 || push_status="${PIPESTATUS[0]}"
   said="$(cat "$pushed")"; rm -f "$pushed"
   [ "$push_status" -eq 0 ] || case "$said" in
     *"stale info"*|*"cannot lock ref"*) die "nothing landed: $ci_branch on origin changed after it was read, so another landing of this branch may be running; nothing was pushed to it or to $default (git's words are above)" ;;
@@ -453,13 +453,13 @@ if [ "${#waited_tips[@]}" -gt 0 ]; then
   [ "$now" = "$base_tip" ] \
     || die "nothing landed: origin/$default moved from $base_tip to $now while the checks of $merged_sha ran; run this again"
   keep_waited_tips
-  AI_CORE_LANDING_RECEIPT="$receipt" git -C "$tree" push origin "$merged_sha:refs/heads/$default" \
+  with_landing_mark "$tree" "$merged_sha" "refs/heads/$default" -- env AI_CORE_LANDING_RECEIPT="$receipt" git -C "$tree" push origin "$merged_sha:refs/heads/$default" \
     || push_refused "the push was refused (see above) - nothing reached origin, and the worktree of $branch is as it was" \
     || die "$refusal"
 elif [ -n "$from_origin" ] || [ "${#numbers[@]}" -gt 1 ]; then
   set_merge_tips_from_refs
   make_merge
-  git -C "$tree" push origin "HEAD:$default" \
+  with_landing_mark "$tree" "$merged_sha" "refs/heads/$default" -- git -C "$tree" push origin "HEAD:$default" \
     || push_refused "the push was refused (see above) - nothing reached origin, and the worktree of $branch is as it was" \
     || die "$refusal"
 else
@@ -472,7 +472,7 @@ else
     back_to_branch "$branch does not merge cleanly into origin/$default - bring origin/$default into the branch, get the review of the result, then run this again"
   fi
   merged_sha="$(git rev-parse HEAD)"; merged="$(git rev-parse --short HEAD)"; merge_shas=("$merged_sha")
-  git push origin "HEAD:$default" \
+  with_landing_mark . "$merged_sha" "refs/heads/$default" -- git push origin "HEAD:$default" \
     || push_refused "the push was refused (see above) - nothing reached origin, and $branch is checked out again" \
     || back_to_branch "$refusal"
   git switch -q "$branch" || die "$merged is on origin/$default, but $branch could not be checked out again - run git switch $branch before finish-issue"

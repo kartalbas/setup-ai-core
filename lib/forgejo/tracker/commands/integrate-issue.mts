@@ -94,9 +94,9 @@ function refusal(error: unknown, what: string): unknown {
   return error instanceof GitError ? new PreconditionError(`nothing landed: ${what} (${error.message})`) : error;
 }
 
-// The receipt reaches the Git children of the two pushes of a landing, and no other process.
-function landingEnvironment(receipt: string | undefined): Record<string, string> | undefined {
-  return receipt === undefined ? undefined : { AI_CORE_LANDING_RECEIPT: receipt };
+// The receipt and the mark reach the Git children of the pushes of a landing, and no other process.
+function landingEnvironment(receipt: string | undefined, mark: string): Record<string, string> {
+  return receipt === undefined ? { AI_CORE_LANDING_MARK: mark } : { AI_CORE_LANDING_RECEIPT: receipt, AI_CORE_LANDING_MARK: mark };
 }
 
 // The push to the default branch was refused. What origin holds for the branch now says why: another tip than the one
@@ -167,6 +167,7 @@ async function landReviewedHeads(context: CommandContext, api: ForgejoClient, in
   let landed: string[] | undefined;
   let failure: unknown;
   let receipt: string | undefined;
+  let mark: string | undefined;
   try {
     if (checked) {
       const opened = await context.harness.openLandingCheck(cwd);
@@ -191,6 +192,11 @@ async function landReviewedHeads(context: CommandContext, api: ForgejoClient, in
       }
     }
     const merged = commits[commits.length - 1] ?? base;
+    // The push gate lets only a harness landing update the default branch: this landing says so for exactly these pushes.
+    const ciBranch = `ci/integrate-${branch}`;
+    const marked = await context.harness.openLandingMark(tree, merged, [`refs/heads/${defaultBranch}`, ...(checked ? [`refs/heads/${ciBranch}`] : [])]);
+    if (!marked.succeeded) throw new PreconditionError(`nothing landed: the mark of this landing could not be made (${marked.output})`);
+    mark = marked.output;
 
     if (checked) {
       if (existsSync(join(tree, 'scripts', 'install.sh'))) {
@@ -198,10 +204,9 @@ async function landReviewedHeads(context: CommandContext, api: ForgejoClient, in
         const installed = await context.harness.installTools(tree, context.stderr);
         if (!installed.succeeded) throw new PreconditionError(`nothing landed: scripts/install.sh failed in the temporary worktree, nothing was pushed and the worktree of ${branch} is as it was (${installed.output.split('\n').join(' | ')})`);
       }
-      const ciBranch = `ci/integrate-${branch}`;
       const held = await git.remoteBranchTip(cwd, ciBranch);
       try {
-        await git.pushWithLease(tree, merged, ciBranch, held, context.stderr, landingEnvironment(receipt));
+        await git.pushWithLease(tree, merged, ciBranch, held, context.stderr, landingEnvironment(receipt, mark));
       } catch (error) {
         throw refusal(error, `the merge commit ${merged.slice(0, 7)} could not be pushed to ${ciBranch} for its checks`);
       }
@@ -229,7 +234,7 @@ async function landReviewedHeads(context: CommandContext, api: ForgejoClient, in
     const now = await git.resolveCommit(cwd, `refs/remotes/origin/${defaultBranch}`);
     if (now !== base) throw new PreconditionError(`nothing landed: origin/${defaultBranch} moved from ${base} to ${now} while the merge was made; run this again`);
     try {
-      await git.push(tree, merged, defaultBranch, context.stderr, landingEnvironment(receipt));
+      await git.push(tree, merged, defaultBranch, context.stderr, landingEnvironment(receipt, mark));
     } catch (error) {
       const judged = await judgeRefusedPush(git, cwd, defaultBranch, now, merged, error);
       if (judged !== 'landed') throw judged;
@@ -239,6 +244,11 @@ async function landReviewedHeads(context: CommandContext, api: ForgejoClient, in
   } catch (error) {
     failure = error;
   } finally {
+    if (mark !== undefined) {
+      await context.harness.closeLandingMark(mark).then((closed) => {
+        if (!closed.succeeded) notes.push(`the mark ${mark} could not be removed: ${closed.output}`);
+      });
+    }
     if (receipt !== undefined) {
       await context.harness.closeLandingCheck(receipt).then((closed) => {
         if (!closed.succeeded) notes.push(`the receipt ${receipt} could not be removed: ${closed.output}`);

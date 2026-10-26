@@ -5,6 +5,8 @@
 #   landing-check.sh open                          prints the path of a new, private receipt
 #   landing-check.sh complete <receipt> <commit> <ci ref>
 #   landing-check.sh close <receipt>
+#   landing-check.sh mark <root> <commit> <remote ref>...   prints the path of a new mark of a harness landing
+#   landing-check.sh unmark <mark>
 #
 # A landing of a public repository pushes its merge commit twice through the push gate: to ci/integrate-<branch>,
 # whose CI it waits for, and then to the default branch. The landing opens one receipt in a folder of its own and
@@ -15,8 +17,22 @@
 # of the final push skip scripts/check.sh, and only for the exact push the receipt names. The landing deletes the
 # receipt on every way out it can trap. A receipt is published whole by a rename.
 
+# THE MARK OF A HARNESS LANDING is a second record of this unit, and it means something else. The receipt says "this
+# commit was checked, skip scripts/check.sh"; the mark says "a harness landing path makes this push". The push gate
+# refuses every update of the default branch that carries no mark for exactly the commit it lands, so reviewed work
+# reaches the default branch through `ai-core integrate-issue` and the few other paths of the harness that write one
+# (a release, init's commit of the .gitignore block, the shims of `pre-push --install`, `ai-core push` of a project
+# harness), never through a plain push. The
+# mark is bound to the clone (its git common directory), the exact commit and the refs it may update. A landing writes
+# it right before its push, hands the path to that push's Git children alone in AI_CORE_LANDING_MARK, and removes it on
+# every way out; it is no setting of the shell, so two landings at the same moment never meet. The mark is no secret
+# and no proof of a review: it keeps a plain `git push` from reaching the default branch by accident or by habit.
+
+# shellcheck disable=SC2034 # the two REASON variables are read by the gate that sources this file
 LANDING_CHECK_VERSION=1
 LANDING_CHECK_REASON=""
+LANDING_MARK_VERSION=1
+LANDING_MARK_REASON=""
 
 # landing_check_open: prints the path of a receipt that does not exist yet, in a folder only this landing knows
 landing_check_open() {
@@ -70,7 +86,7 @@ landing_check_complete() {
 # succeeds where the receipt shows scripts/check.sh green for this very push; otherwise fails, and
 # LANDING_CHECK_REASON says which part of the receipt does not hold
 landing_check_judge() {
-  local receipt="$1" root="$2" commit="$3" refs="$4" remote_ref="$5" default="$6" want have field
+  local receipt="$1" root="$2" commit="$3" refs="$4" remote_ref="$5" default="$6" want have
   LANDING_CHECK_REASON=""
   field() { awk -F'\t' -v k="$1" '$1 == k { print $2 }' "$receipt"; }
   if [ ! -f "$receipt" ]; then LANDING_CHECK_REASON="no receipt of this landing stands at $receipt"; return 1; fi
@@ -90,12 +106,63 @@ landing_check_judge() {
   if [ "$want" != "$have" ]; then LANDING_CHECK_REASON="the neighbour copies stand at other commits than the check read"; return 1; fi
 }
 
+# landing_mark_open <root> <commit> <remote ref>...: prints the path of a new mark, in a folder of its own, for a push of
+# <commit> from the clone of <root> to those refs
+landing_mark_open() {
+  local root="$1" commit="$2" dir ref
+  shift 2
+  dir="$(mktemp -d)" || return 1
+  {
+    printf 'landing-mark\t%s\n' "$LANDING_MARK_VERSION"
+    printf 'clone\t%s\n' "$(git -C "$root" rev-parse --path-format=absolute --git-common-dir)"
+    printf 'commit\t%s\n' "$commit"
+    for ref in "$@"; do printf 'ref\t%s\n' "$ref"; done
+  } > "$dir/mark" || { rm -rf "$dir"; return 1; }
+  printf '%s/mark\n' "$dir"
+}
+
+# landing_mark_close <mark>: removes the mark and its folder
+landing_mark_close() {
+  case "$1" in */mark) ;; *) echo "error: $1 is no mark of a landing" >&2; return 1 ;; esac
+  rm -f "$1"; rmdir "$(dirname "$1")" 2>/dev/null || true
+}
+
+# with_landing_mark <root> <commit> <remote ref>... -- <command>...: runs the command with a mark for those refs in
+# AI_CORE_LANDING_MARK and removes the mark afterwards, whatever the command did; its status is the command's
+with_landing_mark() {
+  local root="$1" commit="$2" refs=() mark status=0
+  shift 2
+  while [ "$1" != -- ]; do refs+=("$1"); shift; done
+  shift
+  mark="$(landing_mark_open "$root" "$commit" ${refs[@]+"${refs[@]}"})" || { echo "error: no folder for the mark of this landing" >&2; return 1; }
+  AI_CORE_LANDING_MARK="$mark" "$@" || status=$?
+  landing_mark_close "$mark"
+  return "$status"
+}
+
+# landing_mark_judge <mark> <root> <commit> <remote ref>: succeeds where the mark names this very commit, this clone and
+# this ref; otherwise fails, and LANDING_MARK_REASON says which part does not hold
+landing_mark_judge() {
+  local mark="$1" root="$2" commit="$3" remote_ref="$4"
+  LANDING_MARK_REASON=""
+  if [ -z "$mark" ]; then LANDING_MARK_REASON="no landing path of the harness made this push"; return 1; fi
+  if [ ! -f "$mark" ]; then LANDING_MARK_REASON="the mark of this landing is not there"; return 1; fi
+  if [ "$(head -n 1 "$mark")" != "$(printf 'landing-mark\t%s' "$LANDING_MARK_VERSION")" ]; then LANDING_MARK_REASON="the mark is not one this gate reads"; return 1; fi
+  if [ "$(awk -F'\t' '$1 == "clone" { print $2 }' "$mark")" != "$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" ]; then
+    LANDING_MARK_REASON="the mark belongs to another clone"; return 1
+  fi
+  if [ "$(awk -F'\t' '$1 == "commit" { print $2 }' "$mark")" != "$commit" ]; then LANDING_MARK_REASON="the mark names another commit than the one this push lands"; return 1; fi
+  if ! grep -qxF "$(printf 'ref\t%s' "$remote_ref")" "$mark"; then LANDING_MARK_REASON="the mark does not cover $remote_ref"; return 1; fi
+}
+
 if [ "${BASH_SOURCE[0]}" = "${0:-}" ]; then
   set -uo pipefail
   case "${1:-}" in
     open) landing_check_open ;;
     complete) [ $# -eq 4 ] || { echo "usage: landing-check.sh complete <receipt> <commit> <ci ref>" >&2; exit 2; }; landing_check_complete "$2" "$3" "$4" ;;
     close) [ $# -eq 2 ] || { echo "usage: landing-check.sh close <receipt>" >&2; exit 2; }; landing_check_close "$2" ;;
-    *) echo "usage: landing-check.sh open | complete <receipt> <commit> <ci ref> | close <receipt>" >&2; exit 2 ;;
+    mark) [ $# -ge 4 ] || { echo "usage: landing-check.sh mark <root> <commit> <remote ref>..." >&2; exit 2; }; shift; landing_mark_open "$@" ;;
+    unmark) [ $# -eq 2 ] || { echo "usage: landing-check.sh unmark <mark>" >&2; exit 2; }; landing_mark_close "$2" ;;
+    *) echo "usage: landing-check.sh open | complete <receipt> <commit> <ci ref> | close <receipt> | mark <root> <commit> <remote ref>... | unmark <mark>" >&2; exit 2 ;;
   esac
 fi

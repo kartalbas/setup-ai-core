@@ -116,11 +116,13 @@ export async function run(args: readonly string[], context: CommandContext): Pro
     if (isWorkOfOrigin) {
       opened = await git.resolveCommit(cwd, `refs/remotes/origin/${branch}`);
       await git.addWorktree(cwd, path, branch, `refs/remotes/origin/${branch}`);
-      // Push and pre-push read the default branch as the upstream, as on a branch cut from it.
-      await git.setConfig(cwd, `branch.${branch}.merge`, `refs/heads/${defaultBranch}`);
     } else {
       await git.addWorktree(cwd, path, branch, `refs/remotes/origin/${defaultBranch}`);
     }
+    // A plain git push goes to the branch of the issue and pre-push in a terminal reads it, never the default branch,
+    // which only a landing updates; git set the upstream to the branch it was cut from.
+    await git.setConfig(cwd, `branch.${branch}.remote`, 'origin');
+    await git.setConfig(cwd, `branch.${branch}.merge`, `refs/heads/${branch}`);
     if (isOtherRepository) await git.setConfig(cwd, `branch.${branch}.issueRepository`, formatRepository(ref));
   }
 

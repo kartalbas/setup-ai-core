@@ -67,7 +67,8 @@ neighbour_unlocked() {
 # and its default branch, one asker at a time. Prints git's words and fails where it could not. No prompt: an
 # origin that wants a login the shell does not hold fails here instead of waiting.
 neighbour_fetch() (
-  local dir="$(neighbour_dir "$1" "$2")" checkout="$1/$2" said
+  local dir checkout="$1/$2" said
+  dir="$(neighbour_dir "$1" "$2")"
   mkdir -p "$dir" && neighbour_open 8 "$dir/.fetch.lock" && neighbour_flock 8 "$dir/.fetch.lock" exclusive "$3" || { printf '%s\n' "$NEIGHBOUR_ERROR"; exit 1; }
   said="$(GIT_TERMINAL_PROMPT=0 neighbour_unlocked git -C "$checkout" fetch -q origin 2>&1 < /dev/null)" || { printf '%s\n' "$said"; exit 1; }
   said="$(GIT_TERMINAL_PROMPT=0 neighbour_unlocked git -C "$checkout" remote set-head origin --auto 2>&1 < /dev/null)" || { printf '%s\n' "$said"; exit 1; }
@@ -108,7 +109,8 @@ neighbour_move_copy() {
 # that reads it; only a move takes the exclusive lock. Prints one line, the state - current, moved, held or failed -
 # and a tab and the reason where there is one.
 neighbour_refresh_copy() (
-  local dir="$(neighbour_dir "$1" "$2")"
+  local dir
+  dir="$(neighbour_dir "$1" "$2")"
   { neighbour_open 9 "$dir/.copy.lock" && neighbour_flock 9 "$dir/.copy.lock" shared "$5"; } || { printf 'failed\t%s\n' "$NEIGHBOUR_ERROR"; exit 0; }
   neighbour_copy_state "$3" "$4" || { printf 'failed\t%s\n' "$NEIGHBOUR_ERROR"; exit 0; }
   if [ "$NEIGHBOUR_STATE" = movable ]; then
@@ -126,7 +128,8 @@ neighbour_refresh_copy() (
 # worktree at <ref> under the exclusive lock, so no reader finds it half made. Fails where the copy does not stand
 # afterwards: a second init may have added it, which is as good.
 neighbour_add_copy() (
-  local dir="$(neighbour_dir "$1" "$2")"
+  local dir
+  dir="$(neighbour_dir "$1" "$2")"
   mkdir -p "$dir" && neighbour_open 9 "$dir/.copy.lock" && neighbour_flock 9 "$dir/.copy.lock" exclusive "$5" || exit 1
   neighbour_unlocked git -C "$1/$2" worktree add -q --detach "$3" "$4" >/dev/null 2>&1 || [ -e "$3/.git" ]
 )

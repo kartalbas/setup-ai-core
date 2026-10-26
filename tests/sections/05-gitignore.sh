@@ -100,6 +100,21 @@ grep -aqxF "  .gitignore written but not committed: the push of init's commit wa
 grep -aq 'setup-ai-core start' "$R/.gitignore" || fail "init.sh deleted the .gitignore of the clone it took its commit back from"
 echo "  a clone with no earlier commit: the refused push takes init's commit back with no git error, nothing stays committed or staged, and the file is kept"
 
+section "init's commit of the block reaches the default branch through the armed push gate, which takes no plain push: init is a path of the harness and carries its mark"
+O="$WORK/armed-origin.git"; git init -q --bare -b master "$O"
+S="$WORK/armed-seed"; git init -q -b master "$S"; git -C "$S" config user.name check; git -C "$S" config user.email check@localhost
+mkdir -p "$S/.githooks"; printf '#!/bin/sh\nexec bash "%s/bin/pre-push.sh" "$@"\n' "$ROOT" > "$S/.githooks/pre-push"; chmod +x "$S/.githooks/pre-push"
+git -C "$S" add .githooks; git -C "$S" commit -q -m 'Start with the gate #1'; git -C "$S" remote add origin "$O"; git -C "$S" push -q origin master 2>/dev/null
+A="$WORK/armed-clone"; git clone -q "$O" "$A" 2>/dev/null; git -C "$A" config user.name check; git -C "$A" config user.email check@localhost
+mkdir -p "$A/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$A/.ai-core/config.env"
+bash "$ROOT/bin/init.sh" "$A" --no-doctor > "$A.log" 2>&1 || fail "init.sh in the clone with an armed gate (see $A.log)"
+[ "$(git -C "$A" config --get core.hooksPath)" = .githooks ] || fail "init.sh did not arm the gate in the clone (see $A.log)"
+[ "$(git -C "$A" rev-parse HEAD)" = "$(git -C "$O" rev-parse master)" ] && [ "$(git -C "$A" log -1 --format=%s)" = 'the agent files of this repository are ignored' ] || fail "the armed gate refused init's commit of the block: $(cat "$A.log")"
+git -C "$A" commit -q --allow-empty -m 'A plain push of the default branch #2'
+plain="$(git -C "$A" push origin HEAD 2>&1)" && fail "a plain push to the default branch went through the gate init armed"
+grep -aq 'takes no plain push' <<< "$plain" || fail "the plain push was refused for another reason: $plain"
+echo "  the armed gate lets init's own push of the block through and refuses a plain push of the default branch"
+
 section "a block without its end line that the catch-up brings is left alone as well"
 O="$WORK/open-origin.git"; git init -q --bare -b master "$O"
 A="$WORK/open-first"; git init -q -b master "$A"; git -C "$A" config user.name check; git -C "$A" config user.email check@localhost

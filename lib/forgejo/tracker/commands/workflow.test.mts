@@ -121,7 +121,9 @@ describe('start-issue', () => {
     const tree = await treeOf(main, number);
     assert.equal(tree, join(fixture.root, 'project-o', '.worktrees', 'r', `issue-${number}-start-the-work-so-that-it-begins`));
     assert.equal(git(tree, 'rev-parse', 'HEAD'), moved, 'cut from the fetched default, which the checkout never pulled');
-    assert.equal(git(tree, 'rev-parse', '--abbrev-ref', '@{upstream}'), 'origin/master');
+    const startedBranch = `issue-${number}-start-the-work-so-that-it-begins`;
+    assert.equal(git(tree, 'config', '--get', `branch.${startedBranch}.remote`), 'origin', 'a plain push goes to origin');
+    assert.equal(git(tree, 'config', '--get', `branch.${startedBranch}.merge`), `refs/heads/${startedBranch}`, 'and to the branch of the issue, never the default branch');
     const issue = fake.readIssue('o/r', number);
     assert.deepEqual(issue.labels, ['status/implementing']);
     assert.equal(issue.comments.length, 1);
@@ -218,7 +220,7 @@ describe('start-issue', () => {
     const result = await startIssue.run([String(number)], ctx(main.checkout));
     assert.match(result.stdout, new RegExp(`opened on origin/${branch} at ${work}`));
     assert.equal(git(await treeOf(main, number), 'rev-parse', 'HEAD'), work);
-    assert.equal(git(main.checkout, 'config', '--get', `branch.${branch}.merge`), 'refs/heads/master');
+    assert.equal(git(main.checkout, 'config', '--get', `branch.${branch}.merge`), `refs/heads/${branch}`);
   });
 
   it('records on the branch that the issue lives in another repository, and writes there (innocent case)', async () => {
@@ -695,20 +697,21 @@ describe('integrate-issue', () => {
       const { number, tree, head } = await worked(main, 'Receipt, so that the check runs once');
       fake.setChecks(main.full, ['success']);
       const seen = join(scratch, `receipt-seen-${number}`);
-      fixture.installHook(main.checkout, 'pre-push', `echo "\${AI_CORE_LANDING_RECEIPT:-none}" >> '${seen}'`);
+      fixture.installHook(main.checkout, 'pre-push', `echo "\${AI_CORE_LANDING_RECEIPT:-none} \${AI_CORE_LANDING_MARK:-none}" >> '${seen}'`);
       const harness = createRecordingHarness();
       try {
         await integrateIssue.run(integrateArguments(main, number, head), ctx(tree, publicSettings, harness));
       } finally {
         rmSync(join(main.checkout, '.git', 'hooks', 'pre-push'));
       }
-      assert.deepEqual(readFileSync(seen, 'utf8').trim().split('\n'), ['/planted/receipt', 'none', '/planted/receipt'], 'the push to the ci/ branch and the push to the default branch got it, the delete of the ci/ branch between them did not');
+      assert.deepEqual(readFileSync(seen, 'utf8').trim().split('\n'), ['/planted/receipt /planted/mark', 'none none', '/planted/receipt /planted/mark'], 'the push to the ci/ branch and the push to the default branch got the receipt and the mark, the delete of the ci/ branch between them did not');
       const calls = harness.calls.filter((call) => /LandingCheck/.test(call));
       assert.equal(calls.length, 3);
       assert.match(calls[0] ?? '', /^openLandingCheck /);
       assert.match(calls[1] ?? '', new RegExp(`^completeLandingCheck /planted/receipt ${tipOf(main)} refs/heads/ci/integrate-`));
       assert.equal(calls[2], 'closeLandingCheck /planted/receipt');
       assert.equal(process.env.AI_CORE_LANDING_RECEIPT, undefined, 'the receipt is no setting of the process');
+      assert.equal(process.env.AI_CORE_LANDING_MARK, undefined, 'the mark is no setting of the process');
     });
 
     it('leaves a receipt incomplete on red checks and still closes it (planted: red)', async () => {
@@ -717,6 +720,18 @@ describe('integrate-issue', () => {
       const harness = createRecordingHarness();
       await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree, publicSettings, harness)), /are red/);
       assert.deepEqual(harness.calls.filter((call) => /LandingCheck/.test(call)).map((call) => call.split(' ')[0]), ['openLandingCheck', 'closeLandingCheck']);
+    });
+
+    it('lands nothing when the mark of the landing cannot be made, and moves no ref (planted: the mark step fails)', async () => {
+      const { number, tree, head } = await worked(main, 'No mark, so that the gate would refuse the push');
+      fake.setChecks(main.full, ['success']);
+      const [before, writes] = [tipOf(main), writesOf()];
+      const harness = createRecordingHarness();
+      harness.failing.add('openLandingMark');
+      await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree, publicSettings, harness)), /nothing landed: the mark of this landing could not be made \(planted: openLandingMark failed\)/);
+      assert.equal(tipOf(main), before);
+      assert.equal(writesOf(), writes);
+      assert.doesNotMatch(remoteBranches(main), /ci\/integrate/);
     });
 
     it('lands nothing on red checks, and removes the branch it pushed for them (planted: red)', async () => {

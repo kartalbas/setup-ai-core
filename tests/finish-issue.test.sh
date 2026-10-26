@@ -666,7 +666,7 @@ check 'the message names --landed as the way out' yes "$(said 'issue-400-reshape
 check 'the rebased branch is gone'             no "$(on_origin issue-400-rebased)"
 check 'and the contained one, which no commit names' no "$(on_origin issue-400-contained)"
 echo '--landed deletes the rest at the tip it measured and prints the commits it did not find by their change'
-reshaped_tip="$(tip_of issue-400-reshaped)"; fresh
+fresh
 out="$(run 400 --landed)"; rc=$?
 check_runs "$rc"
 check 'the reshaped branch is gone'            no "$(on_origin issue-400-reshaped)"

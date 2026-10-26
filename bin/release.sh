@@ -35,6 +35,7 @@ done
 
 CORE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$CORE/lib/forge.sh"
+. "$CORE/lib/landing-check.sh"
 [ $# -eq 1 ] || { echo "error: release takes one argument, the version (see --help)" >&2; exit 2; }
 version="$1"
 case "$version" in [0-9]*.[0-9]*.[0-9]*) ;; *) echo "error: '$version' is not a version of the form X.Y.Z" >&2; exit 2 ;; esac
@@ -63,7 +64,7 @@ fi
 # 2. The commit is on origin, with whatever was not pushed before it
 sha="$(git -C "$CORE" rev-parse HEAD)"
 if [ "$(git -C "$CORE" rev-parse -q --verify "origin/$branch" 2>/dev/null)" != "$sha" ]; then
-  git -C "$CORE" push --quiet origin "HEAD:$branch" || refuse "could not push $branch (see above)"
+  with_landing_mark "$CORE" "$sha" "refs/heads/$branch" -- git -C "$CORE" push --quiet origin "HEAD:$branch" || refuse "could not push $branch (see above)"
   echo "release: ${sha:0:7} pushed to origin/$branch"
 fi
 

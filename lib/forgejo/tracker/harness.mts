@@ -8,7 +8,7 @@ import { showLines } from './git/git.mts';
 // team modes check, init in a new worktree as bin/start-issue.sh runs it, fast_forward_default_branch of
 // lib/common.sh as bin/integrate-issue.sh runs it, and live_tags_declaration and the read of
 // lib/live-release.sh as bin/status.sh runs them, and the receipt of the checks of a landing, lib/landing-check.sh,
-// as bin/integrate-issue.sh runs it. The install of a merged tree runs the repository's own
+// as bin/integrate-issue.sh runs it, and its mark of a harness landing. The install of a merged tree runs the repository's own
 // scripts/install.sh, as bin/integrate-issue.sh runs it.
 
 const CORE = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../..');
@@ -59,5 +59,7 @@ export const bashHarness: HarnessSteps = {
   openLandingCheck: (cwd) => runBash(cwd, [`${CORE}/lib/landing-check.sh`, 'open'], 'stdout'),
   completeLandingCheck: (receipt, commit, ciRef) => runBash(CORE, [`${CORE}/lib/landing-check.sh`, 'complete', receipt, commit, ciRef]),
   closeLandingCheck: (receipt) => runBash(CORE, [`${CORE}/lib/landing-check.sh`, 'close', receipt]),
+  openLandingMark: (cwd, commit, refs) => runBash(cwd, [`${CORE}/lib/landing-check.sh`, 'mark', cwd, commit, ...refs], 'stdout'),
+  closeLandingMark: (mark) => runBash(CORE, [`${CORE}/lib/landing-check.sh`, 'unmark', mark]),
   installTools: runInstall,
 };

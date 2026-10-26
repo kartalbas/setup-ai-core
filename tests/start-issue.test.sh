@@ -230,7 +230,14 @@ check 'race: exits zero'                              0 "$rc"
 check 'race: origin moved during the run'             yes "$([ "$(git -C "$states/racer" rev-parse refs/remotes/origin/master)" != "$read_tip" ] && echo yes || echo no)"
 check 'race: the worktree starts at the commit read'  "$read_tip" "$(git -C "$tree" rev-parse HEAD 2>/dev/null)"
 check 'race: the state line matches that commit'      "$(state_line racer 'branch master' 'has changes')" "$(grep '^The checkout ' <<< "$out")"
-check 'race: the branch tracks origin/master'         'origin/master' "$(git -C "$tree" rev-parse --abbrev-ref '@{upstream}' 2>&1)"
+check 'race: the branch pushes to its own branch on origin' 'origin issue-218-read-the-board-whole' "$(git -C "$tree" config branch.issue-218-read-the-board-whole.remote) $(git -C "$tree" config branch.issue-218-read-the-board-whole.merge | sed 's|^refs/heads/||')"
+master_before_push="$(git --git-dir="$origin" rev-parse refs/heads/master)"
+git -C "$tree" commit -q --allow-empty -m 'Work on the issue (#218)'
+git -C "$tree" push -q 2>"$fake/plain-push.err"; rc=$?
+check 'race: a plain git push goes through' 0 "$rc$([ "$rc" -eq 0 ] || echo " $(cat "$fake/plain-push.err")")"
+check 'race: it made the branch of the issue on origin' "$(git -C "$tree" rev-parse HEAD)" "$(git --git-dir="$origin" rev-parse refs/heads/issue-218-read-the-board-whole 2>&1)"
+check 'race: and did not touch the default branch' "$master_before_push" "$(git --git-dir="$origin" rev-parse refs/heads/master)"
+check 'race: the branch now tracks origin/<its own name>' origin/issue-218-read-the-board-whole "$(git -C "$tree" rev-parse --abbrev-ref '@{upstream}' 2>&1)"
 
 echo 'a checkout whose HEAD cannot be read as a commit is refused before anything is made'
 made_before="$(git -C "$states/treehead" worktree list; git -C "$states/treehead" for-each-ref --format='%(refname)' refs/heads)"
@@ -253,7 +260,7 @@ rm -f "$states/locked/.git/config.lock"
 out="$(cd "$states/locked" && bash "$start" 220 2>&1)"; rc=$?
 tree="$states/.worktrees/locked/issue-220-read-the-board-whole"
 check 'locked config, again without it: exits zero'   0 "$rc"
-check 'it tracks origin/master'          'origin master' "$(git -C "$states/locked" config branch.issue-220-read-the-board-whole.remote) $(git -C "$states/locked" config branch.issue-220-read-the-board-whole.merge | sed 's|^refs/heads/||')"
+check 'it pushes to its own branch on origin' 'origin issue-220-read-the-board-whole' "$(git -C "$states/locked" config branch.issue-220-read-the-board-whole.remote) $(git -C "$states/locked" config branch.issue-220-read-the-board-whole.merge | sed 's|^refs/heads/||')"
 check 'init ran in the worktree'         yes "$([ -f "$tree/.ai-core/config.env" ] && echo yes || echo no)"
 check 'the card moved'                   yes "$(grep -q 'oid=OPT_impl' "$log" && echo yes || echo no)"
 
@@ -270,7 +277,7 @@ out="$(cd "$states/ambiguous" && bash "$start" 221 2>&1)"; rc=$?
 tree="$states/.worktrees/ambiguous/issue-221-read-the-board-whole"
 check 'ambiguous name: exits zero'       0 "$rc"
 check 'it starts at the commit of origin/master' "$(git -C "$states/ambiguous" rev-parse refs/remotes/origin/master)" "$(git -C "$tree" rev-parse HEAD 2>/dev/null)"
-check 'it tracks origin/master'          'origin master' "$(git -C "$states/ambiguous" config branch.issue-221-read-the-board-whole.remote) $(git -C "$states/ambiguous" config branch.issue-221-read-the-board-whole.merge | sed 's|^refs/heads/||')"
+check 'it pushes to its own branch on origin' 'origin issue-221-read-the-board-whole' "$(git -C "$states/ambiguous" config branch.issue-221-read-the-board-whole.remote) $(git -C "$states/ambiguous" config branch.issue-221-read-the-board-whole.merge | sed 's|^refs/heads/||')"
 
 echo 'a checkout with changes and behind origin still refuses what else was refused'
 out="$(cd "$states/both" && ASSIGNEE=somebody bash "$start" 210 2>&1)"; rc=$?

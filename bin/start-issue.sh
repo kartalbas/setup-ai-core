@@ -146,15 +146,17 @@ done <<< "$(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes
 
 mkdir -p "$container"
 # The worktree starts at the commit measured above, not at whatever origin/$default is by now: a
-# fetch into this clone since then must not move it. The branch is made, set to track origin/$default
-# (which push and pre-push read) and, for an issue of another repository, marked with it BEFORE any
+# fetch into this clone since then must not move it. The branch is made, set to push to and read origin/<its
+# own name> (which a plain git push and pre-push in a terminal read: never the default branch, which only a
+# landing updates; the remote branch exists after the first push) and, for an issue of another repository, marked with it BEFORE any
 # worktree exists. A step that fails then leaves only a branch at a commit of origin that no worktree
 # has checked out, and the next run takes it over: a landed local branch is an ancestor of that
 # commit, so moving it loses nothing.
 other_repo=""
 [ "$(issue_ref "$repo" "$number")" = "#$number" ] || other_repo="$repo"
 made="$(git branch -f --no-track "$name" "$origin_tip" 2>&1 \
-  && git branch --set-upstream-to="refs/remotes/origin/$default" "$name" 2>&1 \
+  && git config "branch.$name.remote" origin 2>&1 \
+  && git config "branch.$name.merge" "refs/heads/$name" 2>&1 \
   && { [ -z "$other_repo" ] || git config "branch.$name.issueRepository" "$other_repo" 2>&1; } \
   && git worktree add "$path" "$name" 2>&1)" \
   || if [ -e "$path" ]; then

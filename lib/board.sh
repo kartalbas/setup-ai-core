@@ -270,6 +270,7 @@ project_org() {
 # A board whose title starts with this is a shape to copy, never a board work is
 # tracked on. It stays unlinked from every repo, and is skipped below in case
 # somebody links it.
+# shellcheck disable=SC2034 # read by the scripts that source this file
 TEMPLATE_MARK='[TEMPLATE]'
 
 # One cache directory per board. Sharing one would hand a board the other's field

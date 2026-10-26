@@ -222,8 +222,12 @@ remote_labels_file() {
     seen="$seen $cur"
     if [ "$cur" = "$repo" ]; then remote_commit="$revision"
     elif ! remote_revision "$repo" "$cur"; then
-      # the project harness init would create from the skeleton, which carries the base template; a base is required
-      [ "$n" -eq 1 ] && break
+      # the project harness init would create from the skeleton, which carries the base template; a base is required.
+      # The forge answers a private repository this account may not read as one that is not there, so the call says so.
+      if [ "$n" -eq 1 ]; then
+        echo "note: $cur is not there, holds no commit or cannot be read by this account, so $repo is read against the base template" >&2
+        break
+      fi
       die "the taxonomy of $repo was not read: $cur, which $base extends, is not there or holds no commit, so nothing was changed"
     fi
     layers+=("$cur"); revisions+=("$remote_commit"); extends=""

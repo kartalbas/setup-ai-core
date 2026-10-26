@@ -382,9 +382,13 @@ accepted 'a catalog the repository tracks itself is read first' 46 area:tracked
 refused 'and the layers are not merged into it' 47 area:override
 rm -rf "$FAKE/remote/example-org/blog-web/at-$SHA1" "$FAKE/remote/example-org/blog-ai-core/at-$SHA2/repos"
 
-# the project harness is not there at all: init would create it from the skeleton, which carries the base template
+# the project harness is not there at all: init would create it from the skeleton, which carries the base template. The
+# forge answers the same for a private harness this account may not read, so the call says which catalog it took.
 mv "$FAKE/remote/example-org/blog-ai-core" "$FAKE/blog-ai-core.away"
-accepted 'a project with no harness is read against the base template' 48 area:installation
+out="$(adds 48 area:installation)"
+check 'a project with no harness is read against the base template' '#48 -> +area:installation' "$(grep -v '^note: ' <<< "$out")"
+check 'and the call says so, naming the harness it could not read' yes \
+      "$(grep -qx 'note: example-org/blog-ai-core is not there, holds no commit or cannot be read by this account, so example-org/blog-web is read against the base template' <<< "$out" && echo yes || echo "no: $out")"
 refused 'and the base template declares nothing else' 49 area:ui
 mv "$FAKE/blog-ai-core.away" "$FAKE/remote/example-org/blog-ai-core"
 

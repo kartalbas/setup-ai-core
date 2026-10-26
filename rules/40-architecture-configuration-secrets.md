@@ -5,7 +5,10 @@
   without its internals, and its internals can change without breaking its consumers. A file that
   has grown large is a unit doing too much. [review]
 - **Standard library before a dependency, a dependency before bespoke code**, because every
-  dependency is code the project updates, audits and trusts without having read it. [review]
+  dependency is code the project updates, audits and trusts without having read it. A dependency,
+  a tool or a runtime is taken at its newest release, the newest LTS release where its makers name
+  one, looked up at the source when it is added or touched; a pin to an older one names its reason
+  beside it. [review]
 - **A change stays on its problem.** No reformatting of unrelated lines, no reordering, no incidental
   cleanup outside the change's reason. [review]
 - **Anything that differs between the environments that exist, or that an operator may want to

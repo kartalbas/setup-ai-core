@@ -75,8 +75,8 @@ export const REFUSED_ON_FORGEJO: Readonly<Record<string, string>> = {
   'status-sync': 'a card is moved when the work happens, and issue-proof closes the issue; nothing is reconstructed afterwards',
   'issue-transfer': 'an issue stays in its repository on Forgejo',
   'issue-duplicate': 'close the duplicate with issue-close --reason not-planned and say in a comment which issue it repeats',
-  'issue-map': 'it reads boards, which Forgejo does not have',
-  'incident-count': 'it finds repositories through boards, which Forgejo does not have',
+  'issue-map': "it reads board cards, and Forgejo's API cannot read the cards of its projects",
+  'incident-count': "it finds repositories through board cards, and Forgejo's API cannot read the cards of its projects",
 };
 
 export interface Io {

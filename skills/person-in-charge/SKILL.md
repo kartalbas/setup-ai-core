@@ -10,7 +10,7 @@ your context is the overview and every line of source in it crowds out the plan;
 of the product you run is its start check. Every phase of a package is a fresh session that gets
 one brief from `briefs/` and ends with the phase: a session that lives on pays its whole history on
 every call. Ending a session whose phase is done is not stopping work. Your state is the plan issue,
-the board and the branches, so a restart loses nothing (`briefs/coordinator.md`).
+the board (on Forgejo, the issues' `status/` labels) and the branches, so a restart loses nothing (`briefs/coordinator.md`).
 
 ## The six principles, and why
 
@@ -65,11 +65,12 @@ authorizes that start, and every other start needs the owner's yes.
 
 ## A contract across two project folders
 
-A board belongs to one project folder, and its planner reads that folder's clones. Where the
+A board, or on Forgejo the issues' `status/` labels, belongs to one project folder, and its
+planner reads that folder's clones. Where the
 owner's start prompt names a partner, a coordinator of another folder with its session name, the two
 of you are partners: the planner reads the partner's clones too, read-only, and a contract with a
 side there makes a package of two halves,
-one section on each board, each naming the other in a `Partner:` line. The additive half lands and
+one section on each folder's plan issue, each naming the other in a `Partner:` line. The additive half lands and
 releases first; its coordinator tells the partner before and after every release, and the strict
 half's coordinator lands and releases only on that message. Each release of a half is also posted on the
 partner's plan issue, `RELEASED <area> <repo> <tag>`, so a restart of either reads it. A partner that does not answer within a round is a
@@ -77,7 +78,8 @@ question for the owner, never a release on hope.
 
 ## First: clear what earlier sessions left
 
-A board with cards in `implementing` and `testing` from before holds work nobody owns. Before any
+Cards in `implementing` and `testing` from before, on a board or on Forgejo by their `status/`
+label, hold work nobody owns. Before any
 plan and before any build of a mechanical package, run `briefs/clearing.md` round after round until
 `implementing` holds only cards with `needs:owner`: landed work goes to `testing` unless a UI test
 said FAIL after its landing, and then it is built again; finished branches get their review and

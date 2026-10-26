@@ -1175,7 +1175,7 @@ redacting and leaves the caller's file unchanged.
 | `epics-top`, `item-top`, `item-move` | epics to the top of the board; named cards to the top; a repository's cards from one board to another, keeping status and priority |
 | `field-option-add` | adds one option to a single-select field, reading the field first so the others are not deleted; `--after NAME` puts it right after another option, the column order `finish-issue` moves a card by; `--replacing OLD` renames OLD in place, keeping its id, so every card that carried it keeps it |
 | `view-filter`, `project-new`, `repo-link`, `repo-boards` | narrows a view to named repositories; creates a board by copying one whose title starts with `[TEMPLATE]`; links a repository to a board and gives it the taxonomy; every repository of the organisation and its board, exit 1 when one is on none or on two |
-| `labels-sync` | applies `labels.tsv` to one repository, to named ones, or to every repository on a board |
+| `labels-sync` | applies `labels.tsv` to one repository, to named ones, or to every repository on a board; `--all` names an archived repository, which is read-only, and skips it |
 | `incident-count` | the issues carrying each `incident:` label per ISO week |
 | `team-modes-check`, `team-modes-install` | section 4.6 |
 | `schema-check` | holds every GraphQL mutation in `bin/` and `lib/` against the schema github.com publishes; the one check that reaches the network, run by CI; where `TRACKER` is not `github` it says that the schema is GitHub's and exits 0 |

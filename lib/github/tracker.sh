@@ -13,6 +13,18 @@ repo_visibility() {
   gh_repo_visibility "$1"
 }
 
+# repo_archived <owner/repo>: succeeds when GitHub holds the repository read-only, fails when it does not;
+# stops the command where isArchived is not a boolean, so an unreadable answer is never taken for "not archived".
+repo_archived() {
+  local archived
+  archived="$(gh_read "whether $1 is archived" repo view "$1" --json isArchived --jq .isArchived)" || return 1
+  case "$archived" in
+    true)  return 0 ;;
+    false) return 1 ;;
+    *)     die "cannot establish whether $1 is archived: isArchived was '$archived'" ;;
+  esac
+}
+
 # THE ORGANISATION, for a command that names no repository: GH_ORG in the environment, then
 # GH_ORG= in the checkout's .ai-core/config.env (the project's setting, put there by init), then
 # the owner of the repository the caller stands in. The harness itself names none: it serves many.

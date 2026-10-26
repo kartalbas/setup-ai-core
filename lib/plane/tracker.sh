@@ -26,6 +26,10 @@ repo_visibility() {
   return 1
 }
 
+# repo_archived <owner/repo>: never. Plane keeps the labels of a repository in its own project, which takes
+# them whatever state the repository is in.
+repo_archived() { return 1; }
+
 # The organisation a command acts for: GH_ORG, then the owner of the checkout's origin.
 gh_org() {
   local org repo

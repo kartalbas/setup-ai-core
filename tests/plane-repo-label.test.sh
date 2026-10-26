@@ -118,3 +118,7 @@ grep -q 'no Plane project is configured here for example-org/other-repo' <<< "$o
 ai subissue-remove "$parent" "$child" >/dev/null 2>&1 || fail "the detach under the true parent"
 [ "$(parent_of "$child")" = none ] || fail "the detach under the true parent did not detach"
 echo "  planted: a detach under a parent named with another repository is refused and the child keeps its parent; innocent: the true parent detaches"
+
+# labels-sync --all skips what the tracker calls archived; Plane holds the labels itself, so it never does
+if plane_fn repo_archived example-org/example-repo; then fail "Plane called a repository archived"; fi
+echo "  repo_archived: Plane takes the labels of every repository of its project"

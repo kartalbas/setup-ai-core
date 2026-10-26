@@ -218,7 +218,7 @@ const run = () => {
   return failure(404, `the stand-in has no ${key}`);
 };
 
-// the gh commands that the older scripts of the harness call: label create, label list, issue view and issue edit, repo view
+// the gh commands that the older scripts of the harness call: label create, issue view and issue edit, repo view
 const subcommand = () => {
   const flag = (name) => {
     const at = args.indexOf(name);
@@ -238,10 +238,6 @@ const subcommand = () => {
       found.description = flag('--description') ?? found.description;
     } else repo.labels.push({ name, color: flag('--color') ?? 'ededed', description: flag('--description') ?? '', archived_at: null, archived_by: null });
     fs.appendFileSync(path.join(dir, 'writes.log'), `label create ${name}\n`);
-    return;
-  }
-  if (args[0] === 'label' && args[1] === 'list') {
-    out(repo.labels.map((label) => label.name).join('\n') + '\n');
     return;
   }
   if (args[0] === 'issue' && args[1] === 'view') {

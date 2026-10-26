@@ -101,6 +101,39 @@ out="$(forge_fn repo_file_tree example-org/big-repo 2>&1)" && fail "repo_file_tr
 grep -q 'ended at 1000 of 2305 entries' <<< "$out" || fail "an early end is not named: $out"
 echo "  planted: a listing that ends before total_count is refused with both numbers"
 
+# --- the pinned reads of the label taxonomy: the head commit, and a file at that commit ----------------------
+COMMIT_A=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; COMMIT_B=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+forgejo_repo example-org/source-repo 1
+forgejo_set 's.repos["example-org/source-repo"].head_commit="'"$COMMIT_A"'";s.repos["example-org/source-repo"].commits={"'"$COMMIT_A"'":{"labels.tsv":"area\tarea:one\n","ai-core.json":"{}\n"},"'"$COMMIT_B"'":{"labels.tsv":"moved\n"}}'
+[ "$(forge_fn repo_head_revision example-org/source-repo)" = "$COMMIT_A" ] || fail "repo_head_revision is not the commit of the default branch"
+rc=0; forge_fn repo_head_revision example-org/missing >/dev/null 2>&1 || rc=$?
+[ "$rc" = 3 ] || fail "repo_head_revision of a repository that is not there is not exit 3 but $rc"
+rc=0; forge_fn repo_head_revision example-org/empty-repo >/dev/null 2>&1 || rc=$?
+[ "$rc" = 3 ] || fail "repo_head_revision of a repository without a commit is not exit 3 but $rc"
+inject "GET /api/v1/repos/example-org/source-repo" 502 "Bad Gateway"
+out="$(forge_fn repo_head_revision example-org/source-repo 2>&1)" && fail "repo_head_revision took a 502 for a commit"
+grep -q 'cannot read example-org/source-repo - Forgejo answered 502: Bad Gateway' <<< "$out" || fail "a failed head read does not say what Forgejo answered: $out"
+echo "  repo_head_revision: the commit of the default branch; exit 3 for a missing repository and an empty one; a 502 is refused with Forgejo's words"
+rm -f "$WORK/read-out"
+forge_fn repo_file_at example-org/source-repo "$COMMIT_A" labels.tsv "$WORK/read-out" || fail "repo_file_at did not read a file the commit holds"
+[ "$(cat "$WORK/read-out")" = "$(printf 'area\tarea:one')" ] || fail "repo_file_at wrote another content than the commit holds: $(cat "$WORK/read-out")"
+rc=0; forge_fn repo_file_at example-org/source-repo "$COMMIT_A" repos/none/labels.tsv "$WORK/read-none" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 3 ] && [ ! -e "$WORK/read-none" ] || fail "repo_file_at of a file the commit lacks is not exit 3 with no file: $rc"
+[ "$(forge_fn repo_file_at example-org/source-repo "$COMMIT_B" labels.tsv "$WORK/read-b" >/dev/null 2>&1; cat "$WORK/read-b")" = moved ] || fail "repo_file_at did not read the commit it was asked for"
+inject "contents/labels.tsv" 200 '{"type":"dir","encoding":"base64","size":3,"content":"YWJj"}'
+out="$(forge_fn repo_file_at example-org/source-repo "$COMMIT_A" labels.tsv "$WORK/read-dir" 2>&1)" && fail "repo_file_at took a directory for a file"
+grep -q 'the answer is no file in base64' <<< "$out" || fail "a wrong shape is not named: $out"
+inject "contents/labels.tsv" 200 '{"type":"file","encoding":"base64","size":99,"content":"YWJj"}'
+out="$(forge_fn repo_file_at example-org/source-repo "$COMMIT_A" labels.tsv "$WORK/read-short" 2>&1)" && fail "repo_file_at took a content of another size for a whole file"
+grep -q 'it holds 3 bytes, and the answer names 99' <<< "$out" && [ ! -e "$WORK/read-short" ] || fail "a size that disagrees is not named, or its file stays: $out"
+inject "contents/labels.tsv" 200 '{"type":"file","encoding":"base64","size":3,"content":"***"}'
+out="$(forge_fn repo_file_at example-org/source-repo "$COMMIT_A" labels.tsv "$WORK/read-bad" 2>&1)" && fail "repo_file_at took a content that does not decode for a file"
+grep -q 'its content does not decode' <<< "$out" || fail "a content that does not decode is not named: $out"
+inject "contents/labels.tsv" 502 "Bad Gateway"
+out="$(forge_fn repo_file_at example-org/source-repo "$COMMIT_A" labels.tsv "$WORK/read-502" 2>&1)" && fail "repo_file_at took a 502 for a file"
+grep -q 'Forgejo answered 502: Bad Gateway' <<< "$out" || fail "a failed file read does not say what Forgejo answered: $out"
+echo "  repo_file_at: a file as its commit holds it; exit 3 for a path the commit lacks; a directory, a wrong size, a content that does not decode and a 502 are refused and leave no file"
+
 # --- the check of a commit: every answer of Forgejo, and a failed query --------------------------
 sha=0123456789abcdef0123456789abcdef01234567
 checked() {  # checked <the combined status Forgejo holds for the sha, as JSON>

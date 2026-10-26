@@ -68,7 +68,7 @@ if [ "${GH_BODY_FIXTURE:-}" = 1 ]; then
     'issue view') echo type:feature; exit 0 ;;
     'issue edit') kind=labels ;;
     'label create') kind=label ;;
-    'label list') exit 0 ;;
+    'api --paginate') case "$*" in *'/labels?per_page=100'*) echo '[]'; exit 0 ;; esac; echo "unexpected fixture call: $*" >&2; exit 1 ;;
     'api --method') kind=edit ;;
     api*) case "$*" in *--jq\ .body*) cat "$GH_FAKE/current-body"; exit 0 ;; *--jq\ .node_id*) echo fixture-id; exit 0 ;; esac
       if [ "$#" -eq 2 ] && [ -f "$GH_FAKE/current-assignees" ]; then cat "$GH_FAKE/current-assignees"; exit 0; fi

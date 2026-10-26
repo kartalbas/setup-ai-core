@@ -650,7 +650,9 @@ labels_create() {  # labels_create <owner/repo> <name> <colour> <description>
 
 # labels_list <owner/repo>: the names of the labels the repository carries, one per line.
 labels_list() {
-  gh_read "the labels of $1" label list --repo "$1" --limit 200 --json name --jq '.[].name'
+  local pages
+  pages="$(gh_read "the labels of $1" api --paginate "repos/$1/labels?per_page=100")" || return 1
+  jq -r '.[].name' <<< "$pages"
 }
 
 # tracker_doctor: the lines `ai-core doctor` prints for the tracker. Where the forge is GitHub too, its doctor

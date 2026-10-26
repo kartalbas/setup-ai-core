@@ -21,7 +21,7 @@ trap 'rm -rf "$WORK"' EXIT
 export HOME="$WORK/home" AI_CORE_HOME="$WORK/core" GH_CACHE_DIRECTORY="$WORK/cache" AI_CORE_UPDATE_CHECK=never
 export GH_REST_STATE="$WORK/state"
 mkdir -p "$HOME" "$AI_CORE_HOME" "$GH_REST_STATE" "$WORK/bin" "$WORK/project"
-git init -q "$WORK/project"
+git init -q "$WORK/project"; git -C "$WORK/project" remote add origin https://github.com/example-org/shop.git
 SKILL="$ROOT/skills/person-in-charge/SKILL.md"
 failed=0
 

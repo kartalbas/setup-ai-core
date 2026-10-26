@@ -288,6 +288,13 @@ version_at_least() {
   return 0
 }
 
+# extends_chain_guard <chain start> <layer> <step, this layer included> <layers seen before>: refuses an
+# extends chain longer than eight layers and one that runs in a circle
+extends_chain_guard() {
+  [ "$3" -le 8 ] || { echo "error: the extends chain of $1 is longer than eight" >&2; return 1; }
+  case " $4 " in *" $2 "*) echo "error: the extends chain of $1 runs in a circle at $2" >&2; return 1 ;; esac
+}
+
 # layer_chain <org>/<name> <setup-ai-core root> <folder> [create|dry]: every layer from the base
 # down to the named one, one clone directory per line, cloned or pulled on the way. The named
 # one may be created; a base it extends must exist. "dry" moves, clones and creates nothing:
@@ -296,8 +303,7 @@ layer_chain() {
   local full="$1" root="$2" folder="$3" mode="${4:-}" dir req chain="" seen="" n=0 version
   version="$(tr -d '\r\n' < "$root/VERSION")"
   while [ -n "$full" ]; do
-    n=$((n + 1)); [ "$n" -le 8 ] || { echo "error: the extends chain of $1 is longer than eight" >&2; return 1; }
-    case " $seen " in *" $full "*) echo "error: the extends chain of $1 runs in a circle at $full" >&2; return 1 ;; esac
+    n=$((n + 1)); extends_chain_guard "$1" "$full" "$n" "$seen" || return 1
     seen="$seen $full"
     dir="$(ensure_layer "$full" "$root" "$folder" "$mode")" || return 1
     [ "$mode" = dry ] || mode=""

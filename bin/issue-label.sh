@@ -81,7 +81,7 @@ for a in ${add[@]+"${add[@]}"}; do
   done
 done
 
-taxonomy="$(labels_tsv)" || exit 1
+taxonomy="$(target_labels_tsv "$repo")" || exit 1
 known="$(printf '%s\n' "$taxonomy" | cut -f2)"
 for l in ${add[@]+"${add[@]}"}; do
   grep -qxF -- "$l" <<< "$known" ||

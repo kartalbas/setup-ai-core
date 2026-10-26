@@ -34,13 +34,13 @@ async function refuseWithoutCurrentProof(api: ForgejoClient, issue: Issue, conte
   if (issue.state !== 'open') throw new PreconditionError(`${name} is closed already`);
   const entries = await readTimeline(api, issue.ref);
   const history = await readIssueHistory(api, issue, entries);
-  const landedWithoutRecord = holdsNoLandedRecord(entries) ? await findLandedCommitOf(context.git, context.cwd, issue.ref) : undefined;
-  if (landedWithoutRecord !== undefined) {
-    throw new PreconditionError(`${name} has no proof that follows its landing: the commit ${landedWithoutRecord.slice(0, 7)} on the default branch of origin names it, and the issue holds no "Landed on" record of that landing; run integrate-issue again, which writes it`);
-  }
   const deliveredWithoutCode = holdsNoLandedRecord(entries);
   if (findCurrentProof(history, deliveredWithoutCode) === undefined) {
     throw new PreconditionError(`${name} has no proof that follows its landing and its last reopening: a delivered issue is closed as completed by issue-proof, which records the proof; use --reason not-planned for work that is not done`);
+  }
+  const landedWithoutRecord = deliveredWithoutCode ? await findLandedCommitOf(context.git, context.cwd, issue.ref) : undefined;
+  if (landedWithoutRecord !== undefined) {
+    throw new PreconditionError(`${name} has no proof that follows its landing: the commit ${landedWithoutRecord.slice(0, 7)} on the default branch of origin names it, and the issue holds no "Landed on" record of that landing; run integrate-issue again, which writes it`);
   }
   return deliveredWithoutCode;
 }

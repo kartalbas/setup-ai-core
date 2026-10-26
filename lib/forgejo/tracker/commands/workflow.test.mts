@@ -1255,8 +1255,9 @@ describe('issue-proof and the close as completed', () => {
     git(sibling.checkout, 'commit', '--allow-empty', '-q', '-m', message);
     return git(sibling.checkout, 'rev-parse', 'HEAD');
   };
-  const deliveryOf = (commit: string): string =>
-    `printf '{"repository":"%s","environment":"%s","commit":"${commit}","releasedAt":"2020-01-01T00:00:00Z","source":"release 1.0.0 of o/r"}\\n' "$1" "$2"`;
+  // The fake Forgejo's clock stands in January 2026, so a delivery of 2026-01-02 comes after every landing it records.
+  const deliveryOf = (commit: string, releasedAt = '2026-01-02T00:00:00Z'): string =>
+    `printf '{"repository":"%s","environment":"%s","commit":"${commit}","releasedAt":"${releasedAt}","source":"release 1.0.0 of o/r"}\\n' "$1" "$2"`;
   const landedInSibling = (number: number, commit: string): void => {
     fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'sibling' }, reviewedHead: 'a'.repeat(40), landedCommit: commit, reviewers: ['alice'] }, { owner: 'o', repo: 'r' }));
   };
@@ -1282,11 +1283,26 @@ describe('issue-proof and the close as completed', () => {
     const writes = writesOf();
     const prove = (script: string): Promise<unknown> => issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=v*' }, siblingReads(script)));
 
-    await assert.rejects(prove(deliveryOf(shippedEarlier)), new RegExp(`o/sibling was last delivered on prod by release 1\\.0\\.0 of o/r at 2020-01-01T00:00:00Z, which does not hold its landed commit ${landed}`));
+    await assert.rejects(prove(deliveryOf(shippedEarlier)), new RegExp(`o/sibling was last delivered on prod by release 1\\.0\\.0 of o/r at 2026-01-02T00:00:00Z, which does not hold its landed commit ${landed}`));
     await assert.rejects(prove('echo null'), /the reader of o\/sibling found no completed delivery on prod/);
     await assert.rejects(prove('echo broken >&2; exit 1'), /the delivery of o\/sibling on prod could not be read: .*exited 1 for o\/sibling prod: broken/);
     fake.addComment(main.full, number, 'fake-user', 'Landed on master of o/sibling:\n\nReviewed by: alice\n');
     await assert.rejects(prove(deliveryOf(landed)), /the "Landed on" record of o\/sibling names no landed commit/);
+
+    assert.equal(writesOf(), writes);
+    assert.equal(fake.readIssue(main.full, number).state, 'open');
+  });
+
+  it('refuses a delivery that holds the landed commit but is not later than the landing (planted: a delivery of 2020; innocent case: the delivery of 2026-01-02 above)', async () => {
+    const { number } = await delivered('Pinned neighbour delivered before its landing was recorded, so that the proof waits');
+    const landed = commitInSibling('landed work');
+    landedInSibling(number, landed);
+    const writes = writesOf();
+
+    await assert.rejects(
+      issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=v*' }, siblingReads(deliveryOf(landed, '2020-01-01T00:00:00Z')))),
+      /o\/sibling was last delivered on prod by release 1\.0\.0 of o\/r at 2020-01-01T00:00:00Z, which is not after its landing recorded at 2026-01-01T00:\d\d:\d\dZ/,
+    );
 
     assert.equal(writesOf(), writes);
     assert.equal(fake.readIssue(main.full, number).state, 'open');

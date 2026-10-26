@@ -72,7 +72,19 @@ contains('rules/80-working-style-for-agents.md',"which files it into what exists
 contains('rules/80-working-style-for-agents.md',"`review`, `ui-test` or `keeper`; a plan re-check is `plan-check`");
 contains(base+'SKILL.md',"do not cover, and only through the issue keeper");
 contains(base+'SKILL.md',"copy them, each with the session that wrote it, into your comment that answers that report or result there");
-contains(base+'briefs/coordinator.md',"every `KEEPER round` line and every `KEEPER:` line that none of them holds");
+contains(base+'briefs/coordinator.md',"every `KEEPER round` line, every `KEEPER:` line");
+contains(base+'briefs/coordinator.md',"every merge commit of a `LAND` line that no `KEEPER round` line names");
+contains(base+'briefs/keeper.md',"**A landing moved the facts of an issue.**");
+contains(base+'briefs/keeper.md',"(`LANDED: <repo> <merge sha> <file> <old span> -> <new span>`)");
+contains(base+'briefs/keeper.md',"`Facts rewritten by the issue keeper after <merge sha>: <what changed and why>`");
+contains(base+'briefs/keeper.md',"An issue's text changes only as a landing moved its facts");
+contains(base+'briefs/keeper.md',"`ai-core issue-new --parent <epic> --found-in \"<the session that found it>, filed by the issue keeper");
+contains(base+'SKILL.md',"the keeper also rewrites the facts of every open issue whose named `file:line` spans the");
+contains(base+'SKILL.md',"rewrites an issue only after a");
+contains('rules/70-working-with-the-product-owner.md',"one that the round cannot fix goes to the project's issue keeper, which");
+contains('rules/70-working-with-the-product-owner.md',"files it into what exists and asks the owner before a new issue;");
+contains('rules/90-the-harness-in-a-repository.md',"it hands it to the issue keeper of that layer's project, which files it in the");
+contains(base+'SKILL.md',"| landed <repo> <merge sha>, ... | <next step>");
 contains(base+'briefs/plan-check.md',"KEEPER: <repo> <file:line> <state of a defect outside the section's files and contracts>, one line each | none");
 contains(base+'briefs/clearing.md',"KEEPER: <repo> <file:line> <state of a defect outside the cards of the round>, one line each | none");
 contains(base+'briefs/review.md',"goes under NOTES as `KEEPER: <repo> <file:line> <state>`");
@@ -94,14 +106,16 @@ const files=['SKILL.md','briefs/plan.md','briefs/plan-check.md','briefs/review.m
 for (const file of files)
   for (const stale of ['--found-in','opens one `type:bug`','stays in `testing`'])
     if(read(base+file).includes(stale))throw Error(file+': a failed UI test still opens an issue: '+stale);
+for (const [file,stale] of [['../../rules/70-working-with-the-product-owner.md',"gets an issue only with the owner's yes"],['../../rules/90-the-harness-in-a-repository.md',"it opens an issue in the repository of that layer"],['briefs/keeper.md',"never rewrite an issue"],['SKILL.md',"rewrites no issue"],['briefs/keeper.md','--asked-by {{the owner\'s login}} --asked-in "the owner\'s']])
+  if(read(base+file).includes(stale))throw Error(file+': the keeper text of round 1 stands: '+stale);
 JS
 node "$WORK/check.mjs" "$ROOT" || fail 'phase routing contract'
 cp -R "$ROOT/skills" "$WORK/skills"
 mkdir -p "$WORK/rules" "$WORK/templates/.ai-core"
-cp "$ROOT/rules/80-working-style-for-agents.md" "$WORK/rules/"
+cp "$ROOT/rules/70-working-with-the-product-owner.md" "$ROOT/rules/80-working-style-for-agents.md" "$ROOT/rules/90-the-harness-in-a-repository.md" "$WORK/rules/"
 cp "$ROOT/templates/.ai-core/models.tsv" "$WORK/templates/.ai-core/"
 cp "$ROOT/README.md" "$WORK/"
-for pair in 'references/codex.md|including Claude Code' 'SKILL.md|order takes precedence and survives restarts and init' 'SKILL.md|With no saved order it keeps native-tool selection' 'references/codex.md|last `agent_message`' 'references/codex.md|--file ~/.ai-core/sessions/<session name>.out' 'references/codex.md|sandbox_workspace_write.writable_roots=' 'references/codex.md|as percent left against' 'references/claude.md|shown as percent used, with their reset times' 'references/agy.md|`phase-model` calls' 'references/agy.md|shows it as percent left, against' 'references/agy.md|do not start or fall back to another tool' 'briefs/plan.md|so the UI test proves it instead of finding it' 'briefs/plan.md|joins the package as a criterion of the issue it touches' 'briefs/plan-check.md|A gap never becomes an issue of its own' 'briefs/review.md|you file no issue: the project'"'"'s issue keeper files it into what exists' 'briefs/plan.md|and you file no issue: the project'"'"'s issue keeper files it into what exists' 'briefs/plan-check.md|the project'"'"'s issue keeper files it into what exists' 'briefs/build.md|You file no issue, because the project'"'"'s issue keeper files into what exists' 'briefs/ui-test.md|and the project'"'"'s issue keeper files it into what exists' 'briefs/keeper.md|Never file a new issue or a new epic without the owner'"'"'s yes' 'SKILL.md|ai-core phase-model keeper normal-hard' 'briefs/review.md|never into FINDINGS' 'SKILL.md|goes back to `implementing`' 'briefs/ui-test.md|not a new defect' 'briefs/coordinator.md|One defect is one issue' 'briefs/clearing.md|unless a UI test said FAIL after its `Landed on` record' 'briefs/clearing.md|a build session (briefs/build.md) from the issue' 'SKILL.md|unless a UI test said FAIL after its landing' 'SKILL.md|is watched by whoever holds the account' 'SKILL.md|do not cover, and only through the issue keeper' 'SKILL.md|into your comment that answers that report or result there' 'briefs/coordinator.md|every `KEEPER round` line and every `KEEPER:` line' 'briefs/plan-check.md|outside the section'"'"'s files and contracts>, one line each' 'briefs/clearing.md|outside the cards of the round>' 'briefs/review.md|`KEEPER: <repo> <file:line> <state>`' 'briefs/keeper.md|for a UI test `KEEPER: <URL> <the visible text>`'; do
+for pair in 'references/codex.md|including Claude Code' 'SKILL.md|order takes precedence and survives restarts and init' 'SKILL.md|With no saved order it keeps native-tool selection' 'references/codex.md|last `agent_message`' 'references/codex.md|--file ~/.ai-core/sessions/<session name>.out' 'references/codex.md|sandbox_workspace_write.writable_roots=' 'references/codex.md|as percent left against' 'references/claude.md|shown as percent used, with their reset times' 'references/agy.md|`phase-model` calls' 'references/agy.md|shows it as percent left, against' 'references/agy.md|do not start or fall back to another tool' 'briefs/plan.md|so the UI test proves it instead of finding it' 'briefs/plan.md|joins the package as a criterion of the issue it touches' 'briefs/plan-check.md|A gap never becomes an issue of its own' 'briefs/review.md|you file no issue: the project'"'"'s issue keeper files it into what exists' 'briefs/plan.md|and you file no issue: the project'"'"'s issue keeper files it into what exists' 'briefs/plan-check.md|the project'"'"'s issue keeper files it into what exists' 'briefs/build.md|You file no issue, because the project'"'"'s issue keeper files into what exists' 'briefs/ui-test.md|and the project'"'"'s issue keeper files it into what exists' 'briefs/keeper.md|Never file a new issue or a new epic without the owner'"'"'s yes' 'SKILL.md|ai-core phase-model keeper normal-hard' 'briefs/review.md|never into FINDINGS' 'SKILL.md|goes back to `implementing`' 'briefs/ui-test.md|not a new defect' 'briefs/coordinator.md|One defect is one issue' 'briefs/clearing.md|unless a UI test said FAIL after its `Landed on` record' 'briefs/clearing.md|a build session (briefs/build.md) from the issue' 'SKILL.md|unless a UI test said FAIL after its landing' 'SKILL.md|is watched by whoever holds the account' 'SKILL.md|do not cover, and only through the issue keeper' 'SKILL.md|into your comment that answers that report or result there' 'briefs/coordinator.md|every `KEEPER round` line, every `KEEPER:` line' 'briefs/coordinator.md|every merge commit of a `LAND` line that no `KEEPER round` line names' 'briefs/keeper.md|**A landing moved the facts of an issue.**' 'briefs/keeper.md|Facts rewritten by the issue keeper after' 'briefs/keeper.md|An issue'"'"'s text changes only as a landing moved its facts' 'briefs/keeper.md|filed by the issue keeper' 'SKILL.md|the keeper also rewrites the facts of every open issue' 'SKILL.md|| landed <repo> <merge sha>, ... | <next step>' 'briefs/plan-check.md|outside the section'"'"'s files and contracts>, one line each' 'briefs/clearing.md|outside the cards of the round>' 'briefs/review.md|`KEEPER: <repo> <file:line> <state>`' 'briefs/keeper.md|for a UI test `KEEPER: <URL> <the visible text>`'; do
   file="${pair%%|*}"; phrase="${pair#*|}"
   FILE="$WORK/skills/person-in-charge/$file" PHRASE="$phrase" node -e 'const fs=require("fs"),p=process.env.FILE,s=fs.readFileSync(p,"utf8");fs.writeFileSync(p,s.replace(new RegExp(process.env.PHRASE.split(/\s+/).map(x=>x.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")).join("\\s+")),"stale instruction"))'
   if node "$WORK/check.mjs" "$WORK" > "$WORK/mutant.log" 2>&1; then fail "stale instruction escaped: $phrase"; fi
@@ -114,6 +128,18 @@ for file in SKILL.md briefs/plan.md briefs/plan-check.md briefs/review.md briefs
     if node "$WORK/check.mjs" "$WORK" > "$WORK/mutant.log" 2>&1; then fail "stale sentence escaped in $file: $stale"; fi
     cp "$ROOT/skills/person-in-charge/$file" "$WORK/skills/person-in-charge/$file"
   done
+done
+# The keeper texts of round 1 planted go red: the forbidden rewrite and the claim that the owner asked for a sub-issue.
+for pair in 'briefs/keeper.md|never rewrite an issue' 'SKILL.md|rewrites no issue' 'briefs/keeper.md|--asked-by {{the owner'"'"'s login}} --asked-in "the owner'"'"'s'; do
+  printf '\n%s\n' "${pair#*|}" >> "$WORK/skills/person-in-charge/${pair%%|*}"
+  if node "$WORK/check.mjs" "$WORK" > "$WORK/mutant.log" 2>&1; then fail "a keeper text of round 1 escaped: ${pair#*|}"; fi
+  cp "$ROOT/skills/person-in-charge/${pair%%|*}" "$WORK/skills/person-in-charge/${pair%%|*}"
+done
+# The two rule sentences as they stood before the keeper planted go red.
+for pair in '70-working-with-the-product-owner.md|one that the round cannot fix gets an issue only with the owner'"'"'s yes;' '90-the-harness-in-a-repository.md|it opens an issue in the repository of that layer'; do
+  printf '\n%s\n' "${pair#*|}" >> "$WORK/rules/${pair%%|*}"
+  if node "$WORK/check.mjs" "$WORK" > "$WORK/mutant.log" 2>&1; then fail "a rule text before the keeper escaped: ${pair#*|}"; fi
+  cp "$ROOT/rules/${pair%%|*}" "$WORK/rules/${pair%%|*}"
 done
 # Either old hand-over word planted in a brief goes red; so does a table without a keeper row and a tree without the keeper brief.
 for file in SKILL.md briefs/plan.md briefs/plan-check.md briefs/review.md briefs/ui-test.md briefs/coordinator.md briefs/clearing.md briefs/build.md briefs/keeper.md; do

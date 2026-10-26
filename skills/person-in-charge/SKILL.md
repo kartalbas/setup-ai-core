@@ -251,23 +251,29 @@ One session per project files its issues: the issue keeper, the model-table phas
 a plan check, a build, a review or a UI test that finds a defect outside its work files no issue; it
 writes a `KEEPER: <repo> <file:line> <state>` line in its section, its verdict or its report, and
 the keeper puts it into what exists: a comment on the issue it fits, a sub-issue of the epic it fits,
-or, where it fits nothing, a question to the owner. A new issue or epic comes only after his yes.
+or, where it fits nothing, a question to the owner. A new issue or epic comes only after his yes. After a
+landing, the keeper also rewrites the facts of every open issue whose named `file:line` spans the
+landing moved, and writes on the issue what it changed and why.
 Your own `ai-core issue-new`, for the plan issue (`briefs/coordinator.md`), stays. A build report's
 and a UI test result's `KEEPER:` lines do not stand on the plan issue: copy them, each with the
 session that wrote it, into your comment that answers that report or result there, so that a
 restart reads every line that waits for a keeper on the plan issue (`briefs/coordinator.md`).
 
-When a round finds `KEEPER:` lines that no `KEEPER round` line holds, collect them all and start one
-keeper for them, because two keepers at once could file the same finding twice and a second round
+When a round finds `KEEPER:` lines that no `KEEPER round` line holds, or a merge commit of a `LAND`
+line that no `KEEPER round` line names as landed, collect them all and start one keeper for them, because two keepers at once could file the same
+finding twice and a second round
 would pay the start again. At most one keeper runs per project. Select with
 `ai-core phase-model keeper normal-hard` (the `keeper` row has class `*`, so it answers every
 class), start it as a plan check is started, from the first clone of the board with the project
 folder added, name it `keeper<n>-<model><version>-<effort>-150k-<5 hex>`, and fill `briefs/keeper.md`
-with the lines (each with the session that wrote it), the questions the owner has not answered and
+with the lines (each with the session that wrote it), for each such merge commit one `LANDED: <repo>
+<merge sha> <file> <old span> -> <new span>` line per hunk of `git -C <clone> diff -U0 <merge sha>^1
+<merge sha>`, the questions the owner has not answered and
 his answers to earlier ones. Its report is a comment on the plan issue. Post
 
-    KEEPER round <k>: <keeper session> | handed <n>: <source session> <file:line>, ... | <next step>
+    KEEPER round <k>: <keeper session> | handed <n>: <source session> <file:line>, ... | landed <repo> <merge sha>, ... | <next step>
 
 and end the session. Each `OWNER:` line of the report goes into the owner's next block as the
 question it is. On his yes, the next keeper gets the finding with his answer and files it; on his no
-it is dropped. The keeper moves no card other than as its brief says and rewrites no issue.
+it is dropped. The keeper moves no card other than as its brief says and rewrites an issue only after a
+landing moved the facts it names.

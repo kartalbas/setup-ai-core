@@ -96,9 +96,15 @@ describe('issue-new', () => {
     assert.match(created.body, /^Found in issue o\/r#1 on 2026-10-23, a defect filed without a yes\./);
   });
 
+  it('takes --found-in on a feature too, as the issue keeper files a sub-issue', async () => {
+    const result = await issueNew.run(newArguments('--found-in', 'the review of o/r#1, filed by the issue keeper'), context);
+    const created = fake.readIssue('o/r', Number(result.stdout.trim()));
+    assert.ok(created.labels.includes('type/feature'));
+    assert.match(created.body, /^Found in the review of o\/r#1, filed by the issue keeper on 2026-10-23, a defect filed without a yes\./);
+  });
+
   const refusals: [string, string[]][] = [
     ['conflicting provenance', [...newArguments(), ...ASKED, '--found-in', 'x']],
-    ['--found-in without a bug label', [...newArguments(), '--found-in', 'x']],
     ['no provenance', newArguments()],
     ['one label', ['--repo', 'o/r', '--title', 't', '--body-file', file('b.md', 'x'), '--label', 'type:bug', '--priority', 'P1', ...ASKED]],
     ['no priority', ['--repo', 'o/r', '--title', 't', '--body-file', file('b.md', 'x'), '--label', 'type:bug', '--label', 'area:gate', ...ASKED]],

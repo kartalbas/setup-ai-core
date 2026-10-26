@@ -15,8 +15,10 @@
   clean answer, has no clean answer, or chooses between two equally clean answers where the
   difference is the product's. Every other choice the agent makes itself, takes the clean one, and
   names it with its reason in one line of its report, where the owner can still overturn it; a
-  choice no reader would question goes unnamed. Filing a defect found in the work is tracking, not
-  new work, and needs no yes; which open issues a coordinator works on next, within the goal the
+  choice no reader would question goes unnamed. A defect found in the work is fixed in the round
+  that finds it, committed under the issue of that round's package and named in its report, and
+  gets no issue of its own; one that the round cannot fix gets an issue only with the owner's yes;
+  which open issues a coordinator works on next, within the goal the
   owner set, and in what order, is the coordinator's choice; issues are filed to be solved, not
   collected. [review]
 - **Never ask an open question that could have been a choice**, and never bury a question, a

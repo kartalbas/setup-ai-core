@@ -166,8 +166,7 @@ check 'only a stopped one: none running' 'AGENTS 0 running; 1 stopped' "$(grep -
 printf '%s\t%s\t%s\t%s\t%s\n' 117 1 '10:00' 'SNsl+' 'claude bg-spare --bg-spare /tmp/x/spare/a3.claim.sock' \
   118 1 '10:00' 'SNsl+' 'claude bg-spare --bg-spare /tmp/x/spare/a4.claim.sock' \
   119 1 '10:00' 'SNsl+' 'claude bg-spare --bg-spare /tmp/x/spare/a5.claim.sock' > "$work/unversioned"
-# A name leads with the letter of its phase: p, i, r or t. Any other letter, the l of the names
-# before the phases had one among them, is no worker's name and carries no model
+# Old phase letters remain readable while new sessions use phase words.
 printf '%s\n' '[{"pid":117,"kind":"background","status":7,"state":["idle"],"name":"t3-sonnet-high-200k-ef789","cwd":"/home/x/repos","sessionId":"44444444-4444-4444-4444-444444444444","id":"44444444"},' \
   '{"pid":118,"kind":"background","status":7,"state":["idle"],"name":"i4-opus5.5-xhigh-300k-ab001","cwd":"/home/x/repos","sessionId":"66666666-6666-6666-6666-666666666666","id":"66666666"},' \
   '{"pid":119,"kind":"background","status":7,"state":["idle"],"name":"l5-opus5.5-high-150k-ab002","cwd":"/home/x/repos","sessionId":"77777777-7777-7777-7777-777777777777","id":"77777777"}]' > "$work/unversioned-agents"
@@ -175,6 +174,14 @@ plain="$(cd "$folder" && AI_CORE_PROCESSES="$work/unversioned" AI_CORE_AGENTS="$
 check 'a name without a version: its model and effort' '│ C t3-sonnet-hi │ 117 │ sonnet · high │ 10 min │ │ │ session │' "$(grep -m1 -F '│ C t3-sonnet' <<< "$plain" | tr -s ' ')"
 check 'a build: its model and effort from its name' '│ C i4-opus5.5-x │ 118 │ opus5.5 · xhigh │ 10 min │ │ │ session │' "$(grep -m1 -F '│ C i4-opus' <<< "$plain" | tr -s ' ')"
 check 'a name led by no phase letter: no model' '│ C l5-opus5.5-h │ 119 │ │ 10 min │ │ │ session │' "$(grep -m1 -F '│ C l5-opus' <<< "$plain" | tr -s ' ')"
+for phase in plan re-plan plan-check build review ui-test; do
+  jq --arg name "${phase}10001-opus5.5-xhigh-150k-abcde" '.[1].name=$name' "$work/unversioned-agents" > "$work/phase-word-agents"
+  words="$(cd "$folder" && AI_CORE_PROCESSES="$work/unversioned" AI_CORE_AGENTS="$work/phase-word-agents" AI_CORE_ROLLOUTS="$work/rollouts" bash "$root/bin/status.sh" --project example-org/7 2>&1)"
+  check "$phase word: model and effort survive its hyphens" 'opus5.5 · xhigh' "$(awk -F'│' '$3 ~ /^ *118 *$/ {gsub(/^ +| +$/, "", $4); print $4}' <<< "$words")"
+done
+jq '.[1].name="deploy10001-opus5.5-xhigh-150k-abcde"' "$work/unversioned-agents" > "$work/phase-word-agents"
+words="$(cd "$folder" && AI_CORE_PROCESSES="$work/unversioned" AI_CORE_AGENTS="$work/phase-word-agents" AI_CORE_ROLLOUTS="$work/rollouts" bash "$root/bin/status.sh" --project example-org/7 2>&1)"
+check 'a deploy word is no phase and carries no model' '' "$(awk -F'│' '$3 ~ /^ *118 *$/ {gsub(/^ +| +$/, "", $4); print $4}' <<< "$words")"
 
 echo 'the command that reaches each agent, from what its CLI reports'
 reach() { awk '/^REACH$/ { on = 1; next } on' <<< "$1" | grep -m1 -E -- "^  $2 " | tr -s ' ' | sed 's/^ //'; }

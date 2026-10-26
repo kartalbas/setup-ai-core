@@ -15,7 +15,7 @@ if ! bash -c '. "$1/tests/lib.sh"; eval "$2"' _ "$root" "$probe"; then fail 'sec
 [ "$CODEX_THREAD_ID" = fixture ] || fail 'child reset changed its parent'
 [ -f "$root/tests/tool-environment.sh" ] || fail 'shared initializer missing'
 copy="$work/copy"; mkdir -p "$copy/tests" "$copy/lib" "$copy/rules"
-cp "$root/lib/common.sh" "$copy/lib/"
+cp "$root/lib/common.sh" "$root/lib/tool-order.sh" "$copy/lib/"
 cp "$root/tests/"{run-all.sh,lib.sh,tool-environment.sh} "$copy/tests/"
 printf '# fixture\n' > "$copy/rules/00-fixture.md"
 printf '#!/usr/bin/env bash\nset -u\n%s\n' "$probe" > "$copy/tests/sentinel.test.sh"

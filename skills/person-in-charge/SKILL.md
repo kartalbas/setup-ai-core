@@ -10,7 +10,7 @@ your context is the overview and every line of source in it crowds out the plan;
 of the product you run is its start check. Every phase of a package is a fresh session that gets
 one brief from `briefs/` and ends with the phase: a session that lives on pays its whole history on
 every call. Ending a session whose phase is done is not stopping work. Your state is the plan issue,
-the board and the branches, so a restart loses nothing (`briefs/coordinator.md`).
+the board (on Forgejo, the issues' `status/` labels) and the branches, so a restart loses nothing (`briefs/coordinator.md`).
 
 ## The six principles, and why
 
@@ -44,18 +44,17 @@ the board and the branches, so a restart loses nothing (`briefs/coordinator.md`)
    `planned` `PHASE` line stands. The next one is built on what it landed. A
    package stopped for the owner (`needs:owner`) keeps its place, and your question to the owner
    names the packages that wait for it.
-   No session moves a phase to another model, effort or tool on its own because a quota ran out,
-   because a fallback waters the result down from the bottom up: its package waits. The owner may
-   send a phase to another tool and model for a while; the session names that in its report.
+   Every start and resume follows `ai-core phase-model`. A saved `ai-core tool-order` survives
+   coordinator restarts; a refused selection waits and is reported with its reasons.
 
 ## Your tool is your ecosystem
 
-Claude Code, Codex and agy are three ecosystems, each with its own coordinator. You start your own
-tool's sessions from your tool's rows of `models.tsv`, except that a row whose model reads
-`<tool>:<model>` for Codex or agy, or the owner's instruction for a phase on either tool, starts
-that phase on the named tool as `references/<tool>.md` says, under your package and your number
-block. The owner's instruction takes precedence until the owner withdraws it or the coordinator
-restarts; after a restart, your own table rows apply again. A package stays in the ecosystem whose
+Claude Code, Codex and agy are three ecosystems, each with its own coordinator. The machine-wide
+`ai-core tool-order` chooses phase execution preference; `ECOSYSTEM_ORDER` assigns coordinator
+ownership and number blocks. Before every start and resume, `ai-core phase-model` reads the
+project's table and selects exactly the tool, model and effort to invoke. With no saved order it
+keeps native-tool selection, including declared table routes, and says no order was set. A saved
+order takes precedence and survives restarts and init. A package stays in the ecosystem whose
 coordinator planned it, named in its `Ecosystem:` line. The
 issues nobody planned yet belong to the first tool of `ECOSYSTEM_ORDER` in `.ai-core/config.env`; a
 coordinator of a later tool plans only the areas or issues the owner's start prompt hands it, and the
@@ -66,11 +65,12 @@ authorizes that start, and every other start needs the owner's yes.
 
 ## A contract across two project folders
 
-A board belongs to one project folder, and its planner reads that folder's clones. Where the
+A board, or on Forgejo the issues' `status/` labels, belongs to one project folder, and its
+planner reads that folder's clones. Where the
 owner's start prompt names a partner, a coordinator of another folder with its session name, the two
 of you are partners: the planner reads the partner's clones too, read-only, and a contract with a
 side there makes a package of two halves,
-one section on each board, each naming the other in a `Partner:` line. The additive half lands and
+one section on each folder's plan issue, each naming the other in a `Partner:` line. The additive half lands and
 releases first; its coordinator tells the partner before and after every release, and the strict
 half's coordinator lands and releases only on that message. Each release of a half is also posted on the
 partner's plan issue, `RELEASED <area> <repo> <tag>`, so a restart of either reads it. A partner that does not answer within a round is a
@@ -78,7 +78,8 @@ question for the owner, never a release on hope.
 
 ## First: clear what earlier sessions left
 
-A board with cards in `implementing` and `testing` from before holds work nobody owns. Before any
+Cards in `implementing` and `testing` from before, on a board or on Forgejo by their `status/`
+label, hold work nobody owns. Before any
 plan and before any build of a mechanical package, run `briefs/clearing.md` round after round until
 `implementing` holds only cards with `needs:owner`: landed work goes to `testing` unless a UI test
 said FAIL after its landing, and then it is built again; finished branches get their review and
@@ -118,9 +119,9 @@ a re-check. Every other package goes to a plan.
 | :--- | :--- | :--- | :--- |
 | plan | `briefs/plan.md` for a package that is not `mechanical`, on the `high-risk` plan row where an issue names a secret, a payment, a contract outward or the push gate (outward means an interface somebody outside the project uses (a public API, a published package, a customer's data format), never a contract between the project's own repositories), else on the `normal-hard` row; the plan judges between those two classes, and a plan check that raises it sends the re-plan to the higher class's `re-plan` row | one package section per package stands as a comment on the plan issue | `planned` (its issues) |
 | re-plan | `briefs/plan.md`, on the `re-plan` row of the class picked as for a plan: every plan session of a package after its first plan, so a plan after a plan-check NO, a plan repair, an amendment, and a plan after a review that sends the package back; the plan of a mechanical package sent to a plan is its first plan, not a re-plan | the section it replaces stands as a comment on the plan issue, its first line `Replaces the section of <date>` | `planned` (its issues) |
-| plan check | `briefs/plan-check.md`; after a re-plan it is a re-check (its section "A re-check after a re-plan"): it reads only what the re-plan changed, against the reason for the re-plan (the GAPS of a plan-check NO, the findings of the review that sent the package back, the owner's amendment, or the build's context lines), at `high` effort with a 100k budget, on the model of the reader who raised that reason, where one did and did not write the re-plan, else on the model of the class's `plan` row, which did not write the changes; where that is the re-plan's model too, on the model of the class's build row; where the build row names it too, the package goes to the owner (`needs:owner`) | GO | `planned` |
+| plan check | `briefs/plan-check.md`; `ai-core phase-model plan-check <class> --written-by <actual plan or re-plan model>`; after a re-plan the re-check reads only its changes against the reason for it, with a 100k budget and the selected effort | GO | `planned` |
 | build and test | `briefs/build.md` | every issue has its commit and tests, every issue branch is pushed through the push gate | `review` |
-| review | `briefs/review.md`, never the model that built the work: where the review row names that model, the review runs on the model of the class's build row, at the review row's effort, unless that model built it too, which goes to the owner (`needs:owner`) | GO | `review` |
+| review | `briefs/review.md`; `ai-core phase-model review <class> --written-by <actual builder model>`; an exhausted independent choice waits, with no local model fallback | GO | `review` |
 | start check | you: `START_CHECK` of `.ai-core/config.env` on the package's worktrees after `git -C <worktree> pull -q --no-rebase origin <default>` in each, which merges what landed since without touching the reviewed commits, so the bundle is the one that will be released; a merge conflict goes back to build; exit 0; empty: waived, and your `LAND` comment says so; a failure goes back to build with its output as the findings, counted as a review NO | your `LAND <area>` comment on the plan issue | `review` |
 | land | you: `ai-core integrate-issue <first> --reviewed-by <reviewer>` per repository, then `ai-core finish-issue <n>` per issue; the additive side lands first, and the strict side lands only once a release to the test stage carries the additive side, so no default branch ever holds a strict side whose additive side is unreleased; before the strict side lands, the start check runs again on the bundle as it then stands, with its own LAND line | every card in `testing` | `testing` |
 | release to the test stage | you: one release per repository, additive side first, as the project's map or `README` says a release is cut; the additive side's repository first, then, after the strict side landed, the strict side's. A release tags the whole default branch, and because a strict side lands only after its additive side is released, every release is safe to cut | every repository tagged | `testing` |
@@ -131,7 +132,7 @@ a re-check. Every other package goes to a plan.
 Every phase you run yourself and every verdict a session posts is answered by one comment of yours
 on the plan issue, the package's log, which a restart reads:
 
-    PHASE <area>: <phase> | <session name or you> | plans <n> | reviews <n> | context <fit, or needed more: what took the room> | <next step>
+    PHASE <area>: <phase> | <session name or you> | order <saved order or not set> | selected <TOOL MODEL EFFORT> | plans <n> | reviews <n> | context <fit, or needed more: what took the room> | <next step>
     LAND <area>: start check <command> exit 0 | waived, START_CHECK empty; landed <repo> <merge sha>, ...
 
 A review repairs every finding inside the package's own files and contracts itself and says GO with
@@ -142,9 +143,9 @@ A review that says NO starts a
 fresh build session with its findings; a plan check that says NO starts a fresh re-plan session
 with its GAPS. The repair a build makes after a review NO is not
 reviewed whole again: one re-check (`briefs/review.md`, its section on a re-check) reads only the
-repair's commits against the named findings, at `high` effort with a 100k budget, on the model of
-the reader who raised the findings, or of the other reader where that model built the repair, or
-else as a review picks its model. Its NO with findings counts as a review NO. A finding it cannot
+repair's commits against the named findings, with a 100k budget, using
+`ai-core phase-model review <class> --written-by <model that built the repair>` and exactly its
+effort. Its NO with findings counts as a review NO. A finding it cannot
 settle from the repair, or a repair that changed files no finding names, goes to a full review
 again; the re-check's NO that only asks for that full review is not counted, and the full review's
 NO is. Before every build, plan or review session, read the package's newest PHASE line: after the
@@ -164,9 +165,11 @@ more` line is a GAP for the next plan of that area.
 
 ## Starting a phase
 
-1. Read the row `<your tool> <phase> <class>` of `.ai-core/models.tsv`, then apply the owner's
-active instruction for that phase: the selected tool, model and effort; where the instruction leaves
-model or effort open, read the destination tool's row of the same phase and class.
+1. In the intended project context, read `ai-core tool-order` and run
+   `ai-core phase-model <phase> <class>`; for `plan-check` and `review` pass
+   `--written-by <actual writer model>`. Successful stdout is exactly `TOOL MODEL EFFORT`.
+   Record that order and tuple in every PHASE line. A failed reading refuses the selection;
+   do not invent a fallback, model or effort. Repeat this preflight immediately before a resume.
 2. Before a plan and before a plan check: `git -C <clone> fetch -q origin` for every clone of the
    folder and of each partner folder, because both read what origin ships. Before a build: `ai-core start-issue <first issue>` in the first
    repository's clone, and `ai-core start-issue <owner/repo> <first issue>` in the clone of every
@@ -176,12 +179,19 @@ model or effort open, read the destination tool's row of the same phase and clas
    worktree paths and the verdicts. A brief with a placeholder left is not sent. Save the filled
    brief as `~/.ai-core/sessions/<session name>.brief.md`, the name step 4 gives; it is the session's
    whole world, and its name tells every later coordinator on the machine that the number ran.
-4. Start the session as the selected tool's `references/<tool>.md` says, after checking that tool's
-usage limit; a selected Codex phase uses `ai-core usage --tool codex`, and a selected Claude phase
-uses `ai-core usage --tool claude`. Name it `<phase><n>-<model><version>-<effort>-<budget>k-<5
-hex>`, using the selected tool's phase budget, the phase letter from rule 80 (`p` for a re-plan
-too) and the next number of your own block (`briefs/coordinator.md`), and post the PHASE line with
-any active owner selection.
+4. Start on exactly the selected tool, model and effort as `references/<tool>.md` says. Name it
+   `<phase><n>-<model><version>-<effort>-<budget>k-<5 hex>`, using the selected tool's phase budget,
+   the model-table phase word (`plan`, `re-plan`, `plan-check`, `build`, `review` or `ui-test`)
+   and the next number of your own block (`briefs/coordinator.md`). Plan re-checks use `plan-check`,
+   review re-checks `review`, live checks `ui-test`. Retain the launch attempt and native identity
+   observations in `${AI_CORE_HOME:-$HOME}/.ai-core/sessions/<session name>.start.jsonl`.
+   Before a resume confirm the conversation is no longer running. If selection changes tools,
+   start a fresh session through the selected reference with the current brief, saved work and
+   last report; never send a foreign conversation id or keep running the old tool.
+   A changed order before launch requires another selection. This is preflight and detection,
+   not a reservation: another process can spend quota after the read. Report a native quota
+   refusal; a selection alone proves no start. For UI tests select in the project before
+   changing to the throwaway directory. `ai-core usage` reports proven starts and unknown evidence.
 5. Move the cards (`ai-core issue-status <n>... <column>`); `start-issue` and `finish-issue` move
    their own.
 
@@ -202,13 +212,13 @@ earlier decisions on it, every word the owner may read in its everyday sense exp
 runs and what it does, today's state among the options. A question that reaches the owner through
 another session is checked against this by that session and rewritten where it falls short, never
 passed on as it came. At the
-usage limit (`ai-core usage --tool claude` or `ai-core usage --tool codex` exits 3; for agy a
-refusal for quota), every session using that limited account or model finishes its step and reports,
+usage limit (`ai-core usage --tool <tool>` exits 3, for agy with `--model <model>`, or the tool
+refuses for quota), every session using that limited account or model finishes its step and reports,
 and no new phase starts on it until the reset. Where it exits 4, a window reaches the limit before
 its reset at the measured burn: no new phase starts, and you tell running phases the hour it names
-so they commit before it. A week it names as reaching the limit goes to the owner at once with that
-hour; another tool is used only under an existing table
-route or the owner's instruction. You never stop because your context grew: the tool compacts you
+so they commit before it. A week it names as reaching the limit is watched by whoever holds the
+account: the work goes on at full speed up to the limit, and nobody asks them about it. Every next
+start and resume asks `phase-model` again; only its successful tuple may run. You never stop because your context grew: the tool compacts you
 (in Claude Code at the window
 the owner started you with, `references/claude.md`), and
 your state is on the tracker, where `briefs/coordinator.md` reads it again. When the owner asks for the state, build the page

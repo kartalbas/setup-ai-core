@@ -1,16 +1,15 @@
 # agy: the coordinator's commands
 
-Read this when your tool is agy or when a row or the owner's instruction sends a phase to agy. The
-model comes from the active selection, with the destination row supplying anything the owner left
-open; agy's model names carry the effort, so no `--effort` is given. The brief is the filled file
-from `briefs/`.
+Read this when agy is the execution tool from `ai-core phase-model`, for any coordinator.
+Use exactly the selected model; agy's model names carry effort, so there is no `--effort`.
+The brief is the filled file from `briefs/`.
 
 ## Measured
 
 On 2026-10-16 `agy -p "<prompt>" --model claude-sonnet-5-5-high --mode accept-edits --output-format
 json` ran shell commands with nobody to answer a prompt, and its JSON output carried
 `conversation_id`. In a session name, the effort is the suffix of the model's name:
-`i10003-sonnet5.5-high-300k-afb89` for `claude-sonnet-5-5-high`.
+`build10003-sonnet5.5-high-300k-afb89` for `claude-sonnet-5-5-high`.
 
 ## The coordinator itself
 
@@ -26,21 +25,72 @@ nothing of it has to survive (`mkdir -p ~/.ai-core/sessions` once):
 
 ## Start a phase session
 
-Before every agy start, run `ai-core usage --tool agy --model <model>` in the project context, with
-the model of the row the phase uses. agy reports what is left of its quota, per group of models and
-per window, and the command shows it as percent left, against `USAGE_STOP_AT` as percent used; it
-judges only the group that holds the model. Exit 0 permits the start; exit 4 holds it, because a
-window of a day or less reaches the limit before its reset at the measured burn; exit 3 waits for
-that group to reset. Exit 2 means the quota is unknown, because agy is missing, signed out or
-answers something the command cannot read, or because no group holds the model: report it and do
-not start or fall back to another tool. The windows are agy's answer of that moment; the burn is
-measured from the readings earlier calls saved.
+`phase-model` calls `ai-core usage --tool agy --model MODEL`. The reading shows it as percent
+left, against `USAGE_STOP_AT` as percent used, and judges only the selected model's group.
+Exit 3 or 4 skips that tool; a failed reading refuses the whole selection. On refusal,
+do not start or fall back to another tool. The windows are agy's answer of that moment.
 
-From the folder the phase works in, every other folder it needs added, in the background, its
-output in `~/.ai-core/sessions/<session name>.out`:
+Set `PROJECT`, `PHASE`, `CLASS`, `SESSION` and `BRIEF` to the intended project, model-table
+phase word, class, phase session name and filled brief file. Set `WRITER` to the actual writer
+for plan-check or review. `EXTRA_ROOTS` is the JSON array of every other absolute folder the
+phase needs; a UI test gets no folder and runs in the empty `UI_TEST_DIR`. `OPERATION` is
+`start` or `resume`; for a resume set `NATIVE_ID` and `TEXT`, after status proves that
+conversation is no longer running. The name and original start
+stay the same within a phase. Select in the project before entering a UI-test throwaway directory.
+A changed tool uses the selected reference for a fresh session with the current brief, saved work
+and last report, without the foreign id. A changed order before launch requires a new selection.
+This is preflight and detection, not a quota reservation; report the real CLI's later quota refusal.
 
-    agy -p "$(cat <brief file>)" --model <model> --mode accept-edits --add-dir <folder> [--add-dir ...] \
-      --output-format json > ~/.ai-core/sessions/<session name>.out
+```bash
+set -euo pipefail
+cd "$PROJECT"
+args=("$PHASE" "$CLASS")
+[ -z "${WRITER:-}" ] || args+=(--written-by "$WRITER")
+selection="$(ai-core phase-model "${args[@]}")" || exit 2
+read -r tool model effort <<< "$selection"
+[ "$tool" = agy ] || { printf 'Continue fresh through references/%s.md with the current brief, saved work and last report; no foreign id.\n' "$tool" >&2; exit 2; }
+state="${AI_CORE_HOME:-$HOME}/.ai-core"
+mkdir -p "$state/sessions"
+record="$state/sessions/$SESSION.start.jsonl"
+operation="${OPERATION:-start}"
+case "$operation" in start|resume) ;; *) echo 'invalid OPERATION' >&2; exit 2 ;; esac
+invoked="$(jq -n now)"
+observe() {
+  line="$(jq -acn --arg kind "$1" --arg id "${2:-}" --arg operation "$operation" --arg tool "$tool" \
+    --arg model "$model" --arg effort "$effort" --arg phase "$PHASE" --arg class "$CLASS" --arg writer "${WRITER:-}" \
+    --argjson invoked "$invoked" '{version:1,kind:$kind,operation:$operation,tool:$tool,model:$model,effort:$effort,
+      phase:$phase,class:$class,writer:$writer,invoked:$invoked,observed:now,nativeIdentity:$id}')" || return 2
+  [ "${#line}" -lt 4095 ] && printf '%s\n' "$line" >> "$record" \
+    || { echo "cannot append bounded launch observation: $record" >&2; return 2; }
+}
+out="$state/sessions/$SESSION.out"
+conversation=()
+if [ "$operation" = resume ]; then
+  : "${NATIVE_ID:?set the explicit conversation id}" "${TEXT:?set the continuation}"
+  conversation=(--conversation "$NATIVE_ID")
+  out="$state/sessions/$SESSION.resume.$invoked.out"
+  prompt="$TEXT"
+else
+  [ ! -e "$out" ] || { echo "output already exists: $out" >&2; exit 2; }
+  prompt="$(cat "$BRIEF")"
+fi
+launch_cwd="$PROJECT"
+added=()
+if [ "$PHASE" = ui-test ]; then
+  launch_cwd="${UI_TEST_DIR:?set the empty throwaway UI_TEST_DIR}"
+else
+  roots="$(jq -cn --arg project "$PROJECT" --arg state "$state" --argjson extra "${EXTRA_ROOTS:-[]}" '[$project,$state] + $extra')"
+  while IFS= read -r root; do added+=(--add-dir "$root"); done < <(jq -r '.[]' <<< "$roots")
+fi
+observe attempt
+(cd "$launch_cwd" && agy -p "$prompt" --model "$model" ${conversation[@]+"${conversation[@]}"} \
+  --mode accept-edits ${added[@]+"${added[@]}"} --output-format json < /dev/null > "$out")
+id="$(jq -er '.conversation_id | select(type == "string" and length > 0)' "$out")" \
+  || { echo 'missing native conversation evidence' >&2; exit 2; }
+[ "$operation" != resume ] || [ "$id" = "$NATIVE_ID" ] || { echo 'resumed conversation identity changed' >&2; exit 2; }
+if [ "$operation" = start ]; then printf '%s\t%s\n' "$SESSION" "$id" >> "$state/agy-conversations.tsv" || { echo 'cannot save conversation registry' >&2; exit 2; }; fi
+observe native "$id"
+```
 
 The conversation id stands in that first answer. Record it in `~/.ai-core/agy-conversations.tsv` as
 `<session name>`, a tab, the id, because agy names nothing itself; a helper of that session writes
@@ -59,10 +109,11 @@ output into the session's file, and post its report on the issues yourself.
 
 ## Reach, answer, continue, stop
 
-- Continue a session within its phase: the same command with `--conversation <id>`. Never `-c` or
-  `--continue`: it takes the most recent conversation of anyone on this user account.
+- Continue a finished session within its phase with the example's `OPERATION=resume` and its
+  explicit `NATIVE_ID`. It selects again and passes `--conversation` and the new model. Never
+  `-c` or `--continue`: those use the account's most recent conversation.
 - One call at a time per conversation; a second task waits for the first answer.
 - A finished session is done; nothing is kept. Its report is on the issue, its last message in its
   output file.
-- A session refused for quota ends its phase; phases assigned to that limited agy group of models
-  wait until `ai-core usage --tool agy --model <model>` exits 0 again, without an automatic fallback.
+- A native quota refusal remains visible. Ask `phase-model` again before another start or resume;
+  use only its successful tuple, with no local fallback.

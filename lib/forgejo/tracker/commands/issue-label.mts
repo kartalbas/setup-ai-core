@@ -20,7 +20,7 @@ issue-priority. A label written type:bug is read as type/bug.`;
 
 export const priorityHelp = `${PRIORITY_USAGE}
 
-Sets the priority/ label of the issue and changes no other label.`;
+Sets the priority/ label of each issue named and changes no other label.`;
 
 export async function runLabel(args: readonly string[], context: CommandContext): Promise<CommandResult> {
   const parsed = parseArguments(args, { '--add': 'repeat', '--remove': 'repeat', '--replace': 'repeat' });

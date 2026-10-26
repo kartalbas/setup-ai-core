@@ -29,7 +29,7 @@ when() { LC_ALL=C date -d "@$1" '+%a %H:%M %Z' 2>/dev/null || LC_ALL=C date -r "
 iso_z() { date -u -d "@$1" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -r "$1" '+%Y-%m-%dT%H:%M:%SZ'; }
 
 # The commands usage.sh runs, and no agy: a PATH of these alone is a machine without agy.
-for command in bash jq awk date git grep tail head cut cat ls find mktemp rm mkdir rmdir dirname sed sort tr wc touch sleep env; do
+for command in bash jq awk date git grep tail head cut cat ls find mktemp rm mkdir rmdir dirname sed sort tr wc touch sleep env node; do
   ln -sf "$(command -v "$command")" "$work/tools/$command"
 done
 cat > "$work/agy-bin/agy" <<'TOOL'
@@ -236,7 +236,7 @@ forget; answer 0.92 0.95 0.2 1
 seed 'Claude and GPT models' 3p-weekly 1800 20 "$week_at"
 out="$(agy_run --tool agy)"; rc=$?
 check 'exit 0'                   0 "$rc"
-check 'the warning names the group and the share used' yes "$(matches '^Claude and GPT models: seven_day reaches 92 % used at [A-Z][a-z]{2} [0-9:]{5} [A-Z]+, before its reset: tell the person who decides the account now$' "$out")"
+check 'the warning names the group and the share used' yes "$(matches '^Claude and GPT models: seven_day reaches 92 % used at [A-Z][a-z]{2} [0-9:]{5} [A-Z]+, before its reset; the person who holds the account watches it$' "$out")"
 forget; answer 0.92 0.95 0.05 0.2
 seed 'Claude and GPT models' 3p-5h 1800 50 "$soon"
 out="$(agy_run --tool agy)"; rc=$?
@@ -364,10 +364,35 @@ check 'the overlap preserves each bucket identity twice' \
   '2 ["Claude and GPT models","3p-5h"]|2 ["Claude and GPT models","3p-weekly"]|2 ["Gemini Models","gemini-5h"]|2 ["Gemini Models","gemini-weekly"]|' \
   "$(cut -f1 "$history_dir"/*.log | LC_ALL=C sort | uniq -c | sed 's/^ *//' | tr '\n' '|')"
 echo 'a held history lock has a bounded refusal and does not hold the agy call'
-forget; mkdir -p "$history_dir/.lock"
+forget; mkdir -p "$history_dir"; : > "$history_dir/.lock"
 out="$(agy_run --tool agy)"; rc=$?
 check 'a held lock: exit 2, naming the lock' '2 yes' "$rc $(matches 'history lock .* still held' "$out")"
 check 'the quota call preceded the history lock' '-p /usage --output-format json' "$(head -n1 "$AGY_CALLS")"
+echo 'a mkdir that cannot tell a held lock, as the coreutils of some machines cannot between two callers racing, does not decide the lock'
+mkdir -p "$work/race-bin"
+export REAL_MKDIR="$(command -v mkdir)"
+cat > "$work/race-bin/mkdir" <<'TOOL'
+#!/usr/bin/env bash
+for last; do :; done
+case "$last" in */.lock) exit 0 ;; esac
+exec "$REAL_MKDIR" "$@"
+TOOL
+chmod +x "$work/race-bin/mkdir"
+forget; answer 0.92 0.95 0.42 1; mkdir -p "$history_dir"; : > "$history_dir/.lock"
+out="$(run "$work/race-bin:$planted" --tool agy)"; rc=$?
+check 'a held lock stays held for a mkdir that succeeds on it: exit 2, naming the lock' '2 yes' "$rc $(matches 'history lock .* still held' "$out")"
+check 'the lock of the other holder is still there' yes "$([ -e "$history_dir/.lock" ] && echo yes || echo no)"
+mutate 's/( set -C; : > "\$history\/.lock" )/mkdir "$history\/.lock"/; s/rm "\$history_lock" ||/rmdir "$history_lock" ||/' 'a lock taken with mkdir'
+forget; answer 0.92 0.95 0.42 1; mkdir -p "$history_dir"; : > "$history_dir/.lock"
+out="$(run "$work/race-bin:$planted" --tool agy)"; rc=$?
+check 'a lock taken with mkdir is caught' yes "$(grep -q 'still held' <<< "$out" && echo "no: the mutant held back as well" || echo yes)"
+restore
+if [ "$(id -u)" != 0 ]; then
+  forget; answer 0.92 0.95 0.42 1; mkdir -p "$history_dir"; chmod 500 "$history_dir"
+  out="$(agy_run --tool agy)"; rc=$?
+  chmod 700 "$history_dir"
+  check 'a history folder that cannot be written: exit 2 at once, naming the lock' '2 yes' "$rc $(matches 'history lock cannot be made' "$out")"
+fi
 echo 'a history that cannot be written or read is refused with its reason, and no forecast is made up'
 forget; answer 0.92 0.95 0.92 0.2
 : > "$history_dir"

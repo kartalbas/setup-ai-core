@@ -31,20 +31,20 @@ iso() { LC_ALL=C date -u -d "@$1" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || LC_ALL=C 
 # The board: its id and columns cached, its cards on two pages behind a fake gh
 echo PVT_example7 > "$work/cache/7/project-id"
 printf 'Status\tF1\t%s\tO%s\n' Backlog 1 Todo 2 'In progress' 3 Done 4 > "$work/cache/7/fields.tsv"
-card() {  # card <number> <status> <priority> <state> <closed at> <parent> <sub-issues> <title> [body]
-  printf '{"status":{"name":"%s"},"priority":%s,"content":{"number":%s,"title":"%s","state":"%s","closedAt":%s,"createdAt":"2026-01-01T00:00:00Z","body":"%s","repository":{"nameWithOwner":"example-org/example-repo"},"parent":%s,"subIssuesSummary":{"total":%s}}}\n' \
+card() {  # card <number> <status> <priority> <state> <closed at> <parent> <sub-issues> <title> [body] [closed sub-issues]
+  printf '{"status":{"name":"%s"},"priority":%s,"content":{"number":%s,"title":"%s","state":"%s","closedAt":%s,"createdAt":"2026-01-01T00:00:00Z","body":"%s","repository":{"nameWithOwner":"example-org/example-repo"},"parent":%s,"subIssuesSummary":{"total":%s%s}}}\n' \
     "$2" "$([ "$3" = - ] && echo null || echo "{\"name\":\"$3\"}")" "$1" "$8" "$4" \
     "$([ "$5" = - ] && echo null || echo "\"$(iso "$5")\"")" "${9:-}" \
-    "$([ "$6" = - ] && echo null || echo "{\"number\":$6,\"repository\":{\"nameWithOwner\":\"example-org/example-repo\"}}")" "$7"
+    "$([ "$6" = - ] && echo null || echo "{\"number\":$6,\"repository\":{\"nameWithOwner\":\"example-org/example-repo\"}}")" "$7" "${10:+,\"completed\":${10}}"
 }
 {
-  card 1 'In progress' P1 OPEN - - 3 'alpha' 'The alpha work.\n'
+  card 1 'In progress' P1 OPEN - - 3 'alpha' 'The alpha work.\n' 1
   card 2 'In progress' P2 OPEN - 1 0 'Second'
   card 3 Todo P1 OPEN - 1 0 'Third'
   card 4 Done P2 CLOSED $((now - 7200)) 1 0 'Fourth'
-  card 5 Todo P2 OPEN - - 1 'beta'
+  card 5 Todo P2 OPEN - - 1 'beta' '' 1
   card 6 Done P2 CLOSED $((now - 3600)) 5 0 'Sixth'
-  card 21 Todo P2 OPEN - - 1 'gamma'
+  card 21 Todo P2 OPEN - - 1 'gamma' '' 0
   card 22 Todo P2 OPEN - 21 0 'Twenty-second'
   for n in 9 10 11 12; do card "$n" Done - CLOSED $((now - (n - 5) * 3600)) - 0 "Closed $n"; done
   for n in 13 14 15 16 17 18 19 20; do card "$n" Done - CLOSED $((now - (n - 7) * 86400)) - 0 "Closed $n"; done
@@ -57,9 +57,12 @@ card() {  # card <number> <status> <priority> <state> <closed at> <parent> <sub-
 } > "$work/page2"
 cat > "$work/bin/gh" <<EOF
 #!/usr/bin/env bash
+printf '%s\\n' "\$*" >> "$work/gh-calls"
+# A field the query does not ask for is not in the answer, as on GitHub
+answer_page() { case "\$2" in *'subIssuesSummary { total completed }'*) cat "\$1" ;; *) sed 's/,"completed":[^,}]*//' "\$1" ;; esac; }
 case "\$*" in
-  *after=c2*)     cat "$work/page2" ;;
-  *'items(first'*) cat "$work/page1" ;;
+  *after=c2*)     answer_page "$work/page2\${PAGESET:-}" "\$*" ;;
+  *'items(first'*) answer_page "$work/page1\${PAGESET:-}" "\$*" ;;
   *) echo "unexpected gh call: \$*" >&2; exit 1 ;;
 esac
 EOF
@@ -107,6 +110,51 @@ echo 'no plan by worker and no forecast: the coordinator says who works on what'
 check 'no plan'       0 "$(grep -cE '^(PLAN BY WORKER|PAUSES|DONE) ' <<< "$out" || true)"
 check 'ready'         'CLOSE every sub-issue closed: example-repo#5' "$(line 'CLOSE')"
 check 'open on Done'  'CHECK open on Done: example-repo#8' "$(line 'CHECK')"
+
+# THE SUMMARY OF AN EPIC counts every sub-issue, wherever it lives: an epic whose only open sub-issue stands in another
+# repository, with no card on this board, is not ready to close, and one whose sub-issues are all closed still is. A summary
+# that is missing or cannot be a count is named, never read as all closed. The board has two pages.
+echo 'an epic with an open sub-issue that has no card here is not ready to close'
+{
+  card 101 Todo P1 OPEN - - 17 'sixteen of seventeen' '' 16
+  card 103 Todo P1 OPEN - - 3 'no closed count' ''
+  card 104 Todo P1 OPEN - - '"3"' 'a total that is text' '' '"3"'
+  card 105 Todo P1 OPEN - - 3 'more closed than counted' '' 5
+  card 106 Todo P1 OPEN - - 3 'a negative count' '' -1
+  card 107 Todo P1 OPEN - - 3 'a fractional count' '' 2.5
+  card 108 Todo P1 OPEN - - 3 'a null count' '' null
+  card 109 Todo P1 OPEN - - 0 'a leaf'
+  echo 'after c2'
+} > "$work/page1-epics"
+card 102 Todo P1 OPEN - - 17 'seventeen of seventeen' '' 17 > "$work/page2-epics"
+epic_status() {  # epic_status <harness root> [output file]
+  ( cd "$folder" && PAGESET=-epics bash "$1/bin/status.sh" --project example-org/7 --tokens --issues 2>&1 )
+}
+: > "$work/gh-calls"
+epics_out="$(epic_status "$root")"
+check 'the epic that is all closed is listed after CLOSE, and the one with an open sub-issue elsewhere is not' \
+  'CLOSE every sub-issue closed: example-repo#102' "$(grep -m1 '^CLOSE' <<< "$epics_out" | tr -s ' ')"
+check 'a summary that is missing or no count is named, in order' \
+  'UNKNOWN sub-issue summary missing or invalid, so not told whether every sub-issue is closed: example-repo#103 example-repo#104 example-repo#105 example-repo#106 example-repo#107 example-repo#108' \
+  "$(grep -m1 '^UNKNOWN' <<< "$epics_out" | tr -s ' ')"
+check 'and the epic with 16 of 17 closed is in neither line' 0 "$(grep '^CLOSE\|^UNKNOWN' <<< "$epics_out" | grep -c 'example-repo#101' || true)"
+check 'the query asks for the closed count on both pages' 2 "$(grep -c 'subIssuesSummary { total completed }' "$work/gh-calls")"
+rm -rf "$work/plant-ready" "$work/plant-field"; mkdir -p "$work/plant-ready" "$work/plant-field"
+cp -R "$root/bin" "$root/lib" "$root/templates" "$root/VERSION" "$work/plant-ready/"; cp -R "$root/bin" "$root/lib" "$root/templates" "$root/VERSION" "$work/plant-field/"
+sed -i.bak 's|^const ready = epics.filter(.*$|const ready = epics.filter((e) => !open.some((i) => i.parent === e.key));|' "$work/plant-ready/lib/status.mjs"
+sed -i.bak 's|subIssuesSummary { total completed }|subIssuesSummary { total }|' "$work/plant-field/lib/github/tracker.sh"
+check 'the plants differ from the sources' 'yes yes' "$(cmp -s "$root/lib/status.mjs" "$work/plant-ready/lib/status.mjs" && echo no || echo yes) $(cmp -s "$root/lib/github/tracker.sh" "$work/plant-field/lib/github/tracker.sh" && echo no || echo yes)"
+check 'planted: the board-local predicate lists the epic with an open sub-issue elsewhere' 'yes' \
+  "$(epic_status "$work/plant-ready" | grep '^CLOSE' | grep -q 'example-repo#101' && echo yes || echo no)"
+check 'planted: a query that leaves the closed count out lists no epic as ready, and the all-closed one is lost' 'no' \
+  "$(epic_status "$work/plant-field" | grep '^CLOSE' | grep -q 'example-repo#102' && echo yes || echo no)"
+: > "$work/gh-calls"
+epic_status "$root" > "$work/epic-one" & epic_one=$!
+epic_status "$root" > "$work/epic-two" & epic_two=$!
+wait "$epic_one"; first_rc=$?; wait "$epic_two"; second_rc=$?
+check 'two reads at once both finish' '0 0' "$first_rc $second_rc"
+check 'and give the same complete page, each its own' 'yes' "$(cmp -s "$work/epic-one" "$work/epic-two" && grep -q '^CLOSE.*example-repo#102' "$work/epic-one" && echo yes || echo no)"
+check 'four reads of the board and no write' '4 0' "$(grep -c 'items(first' "$work/gh-calls") $(grep -ci 'mutation\|issue edit\|issue close\|--method' "$work/gh-calls" || true)"
 echo 'every open issue, by epic, in work order, the second page among them'
 check 'an epic'      'example-repo#1 alpha (2)' "$(line 'example-repo#1 alpha (' | sed 's/^ //')"
 check 'nearest done first' 'example-repo#2 example-repo#3' "$(awk '/example-repo#1 alpha \(/ { on = 1; next } on && /^    / { printf "%s%s", sep, $2; sep = " "; next } on { exit }' <<< "$out")"

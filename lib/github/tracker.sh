@@ -1045,7 +1045,8 @@ github_carry_boards() {
 #   {repo, number, title, open, closedAt, createdAt, carriedFrom, status, priority, parent, subs}
 # repo and parent are "owner/repo" and "owner/repo#number"; closedAt is an ISO 8601 time or null;
 # createdAt is when the issue was made; carriedFrom is null here, an issue of GitHub was carried from nowhere;
-# status and priority are the names of the card's Status and Priority, or null; subs counts sub-issues.
+# status and priority are the names of the card's Status and Priority, or null; subs counts sub-issues and
+# completed how many of them are closed, wherever they live, as GitHub counts them.
 card_rows() {
   local after="" out cards
   cards='(.data.node.items.nodes[] | tojson), (.data.node.items.pageInfo | select(.hasNextPage) | "after \(.endCursor)")'
@@ -1056,12 +1057,12 @@ card_rows() {
           status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
           priority: fieldValueByName(name:"Priority") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
           content { ... on Issue { number title state closedAt createdAt repository { nameWithOwner }
-            parent { number repository { nameWithOwner } } subIssuesSummary { total } } } } } } } }' --jq "$cards")" || exit 1
+            parent { number repository { nameWithOwner } } subIssuesSummary { total completed } } } } } } } }' --jq "$cards")" || exit 1
     grep '^{' <<< "$out" | jq -c 'select(.content.number != null) | .content as $c
       | { repo: $c.repository.nameWithOwner, number: $c.number, title: $c.title, open: ($c.state == "OPEN"),
           closedAt: $c.closedAt, createdAt: $c.createdAt, carriedFrom: null, status: .status.name, priority: .priority.name,
           parent: (if $c.parent then "\($c.parent.repository.nameWithOwner)#\($c.parent.number)" else null end),
-          subs: ($c.subIssuesSummary.total // 0) }'
+          subs: ($c.subIssuesSummary.total // 0), completed: $c.subIssuesSummary.completed }'
     after="$(sed -n 's/^after //p' <<< "$out")"
     [ -n "$after" ] || break
   done

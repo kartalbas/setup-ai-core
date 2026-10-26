@@ -1036,6 +1036,8 @@ PLANE_ROW='def closed: .state.group | IN("completed", "cancelled");
 
 # card_rows: every work item of the project, one JSON object per line, the card row of lib/tracker.sh. A work
 # item without a repository is a row with repo null: it is on the board, and under no repository.
+# completed is null: the listing holds no archived work item, so the children it returns cannot say that every child of
+# a parent is closed, and the readers name the summary unknown.
 card_rows() {
   plane_all_items | jq -cs --arg o "$(plane_owner)" "$PLANE_REPO""$PLANE_ROW"'
     (map({key: .id, value: .}) | from_entries) as $byid
@@ -1045,7 +1047,7 @@ card_rows() {
              createdAt: .created_at, carriedFrom: carried_from,
              status: .state.name, priority: prio,
              parent: (if .parent.id then (.parent | ref($byid; $o)) else null end),
-             subs: ($subs[.id] // 0)}'
+             subs: ($subs[.id] // 0), completed: null}'
 }
 
 # board_card_lines <organisation, lower case>: "<status>\t<priority>\t<repo>\t<number>\t<title>\t<closed or empty>"

@@ -128,7 +128,7 @@ the repository itself                  the code
 | A coordinator that delegates to worker sessions | yes: the skill `person-in-charge` bundles the issues into packages and gives each to a worker session it starts, with the model, effort and context size the work needs (section 4.6) | same |
 | The account's usage limit | yes: the status line records the usage windows, `ai-core usage` projects each to its reset at the measured burn against `USAGE_STOP_AT`, nothing new starts where a window of a day or less reaches it first, and every session stops at that limit | same |
 | Prerequisite check and install | yes: `ai-core doctor` checks Git, gh and its login, Bash, Node.js 20+, jq, the team modes of the agent tools on the machine, and reports the agent CLIs; installs missing required tools with brew or apt-get; `init` runs it first and deploys nothing while a problem remains | tools a project harness declares |
-| Agents that run in a sandbox (OpenHands, cloud agents) | a pointer file only; nothing of the harness reaches a sandbox | rules and skills published to the organisation's `.agents` repository; an optional bootstrap in the repository (section 4.11) |
+| Agents that run in a sandbox (OpenHands, cloud agents) | cloud sessions of Claude Code: the setup script of the cloud environment installs the harness and runs `init` in the clone (section 4.11); OpenHands: a pointer file only | rules and skills published to the organisation's `.agents` repository; an optional bootstrap in the repository (section 4.11) |
 
 Section 11 lists the implementation order.
 
@@ -667,7 +667,7 @@ tools work; the harness gives them the text at the place they look.
 
 OpenHands, and every agent that runs in the cloud, works on a **fresh clone in a sandbox**. Only
 what is committed is there. The harness deploys its files into a checkout and hides them from git,
-so none of them reach a sandbox. Two ways close that gap; they can be combined:
+so none of them reach a sandbox. Three ways close that gap; they can be combined:
 
 1. **Organisation-level, no file in the repository.** OpenHands loads the skills of the
    repository `github.com/<org>/.agents` for every repository of the organisation. The planned
@@ -682,9 +682,54 @@ so none of them reach a sandbox. Two ways close that gap; they can be combined:
    harness, map included, into the sandbox. These two files are committed; they are the only
    exception to "nothing is committed", they carry no content of the harness, and whether to use
    them is decided per project.
+3. **A setup script of the cloud environment, no file in the repository.** A cloud session of
+   Claude Code (`claude --cloud`, a routine) runs the script of its environment as root, before
+   Claude Code starts, and a script that exits non-zero keeps the session from starting
+   (code.claude.com/docs/en/cloud-environments, "Setup scripts"). Paste this script into the
+   environment, in the dialog of its **Setup script** row:
+
+```bash
+#!/bin/bash
+set -euo pipefail
+STEP="find the clone"
+trap 'echo "setup-ai-core cloud setup failed at: $STEP" >&2' ERR
+CLONE="$(git rev-parse --show-toplevel)"
+cd "$CLONE"
+STEP="install setup-ai-core"
+curl -fsSL https://raw.githubusercontent.com/kartalbas/setup-ai-core/master/bin/install.sh | bash -s -- --no-doctor
+export PATH="$HOME/setup-ai-core/bin:$PATH"
+STEP="install the team modes"
+ai-core team-modes-install --tool claude
+STEP="deploy the harness in the clone"
+ai-core init
+STEP="session start"
+ai-core session-start --tool claude
+```
+
+   The script runs the same commands as a local checkout and deploys the same untracked files
+   (`AGENTS.md`, `.ai-core/rules/`, `.claude/settings.json`) and arms the push gate where the
+   repository carries it; `.git/info/exclude` hides the files from `git status`. It takes the clone from the directory it runs in and names the step
+   where it stops. Three of its lines carry a reason:
+   - `install.sh` runs with `--no-doctor`, because doctor reports a team mode that is missing
+     while the next line installs it; `init` runs doctor itself, after the team modes.
+   - `team-modes-install` names `--tool claude`, because without it only a tool already on the
+     PATH is served, and the script runs before Claude Code starts.
+   - `ai-core session-start --tool claude` ends the script, as the hook of Claude Code runs it, so
+     a session whose harness or team mode is incomplete does not start.
+
+   The script relies on the GitHub access the environment already has: `doctor` and `init` call
+   `gh`, which reads `GH_TOKEN` by itself. The script and this section never print, write or ask
+   for a token. The Claude Code documentation says the variables of the environment are not set
+   yet while a setup script runs ("Script requirements"), so where `gh` is not signed in at that
+   point, `init` deploys nothing and the script stops at the step `deploy the harness in the
+   clone`. A clone whose `.gitignore` lacks the block that `init` writes gets it committed and
+   pushed to the branch the clone has checked out, as in any main checkout; a repository
+   initialised and pushed locally carries the block already. A commit made in the cloud session
+   reaches origin on its branch; the landing of the default branch judges every commit it adds,
+   that one among them (section 4.12, items 2 and 5).
 
 Today the harness deploys `.openhands/microagents/repo-rules.md`, the older OpenHands
-convention. It is kept until the two paths above exist.
+convention. It is kept until the first two paths exist.
 
 ### 4.12 The push gate: `ai-core pre-push`
 

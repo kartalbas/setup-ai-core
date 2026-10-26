@@ -40,7 +40,7 @@ joins to one of yours, by a group or a shared file, is read too, because a packa
 with it runs before or after it.
 
 1. Map each issue to the files it changes, from its `file:line` facts; an issue without them or
-   without acceptance criteria stays out, and your output names it with what it lacks.
+   without acceptance criteria stays out, and your `KEEPER:` line names it with what it lacks.
 2. Find every contract an issue touches: every name one repository reads and another ships (a file
    name, a manifest field, a configuration key, an environment variable, a route, a message type),
    taken from the facts' spans, not from memory. Search every clone for it in what ships: first
@@ -91,7 +91,7 @@ with it runs before or after it.
     Environment: test <URL>; production <URL>; demo account: <login or none>
     Checks: <repo>#<n>: <URL path>, <click>, <what to read>; ...
     Waits for the owner: <repo>#<n> <the decision> | none
-    Left out: <repo>#<n>: <what it lacks> | none
+    KEEPER: <repo>#<n> <what it lacks>; <repo> <file:line> <a defect outside the package's files and contracts> | none
 
 The `Setup:` line is how the plan chooses the model, effort and context budget of the sessions that
 build, review and UI-test the package; `none` leaves every phase on the row of `.ai-core/models.tsv`.
@@ -125,6 +125,7 @@ rounds and a comment on an issue wakes nobody, and stop.
   ignore it. A defect you read in a span of the package joins the package as a criterion of the
   issue it touches. The same holds for the same shape of defect in a sibling call, and for another
   copy of a changed name or text that `git grep` finds in any clone. Only a defect outside the
-  package's files and contracts is named under `Left out:`; it gets an issue only with the owner's yes.
+  package's files and contracts is named under `KEEPER:`, and you file no issue: the project's issue
+  keeper files it into what exists.
 - Never make a package a parent issue: an issue has one parent, and that is its epic.
 - Names stay spelled as the code spells them.

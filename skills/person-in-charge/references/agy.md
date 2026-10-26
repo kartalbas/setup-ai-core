@@ -94,11 +94,11 @@ if [ "$operation" = start ]; then printf '%s\t%s\n' "$SESSION" "$id" >> "$state/
 observe native "$id"
 ```
 
-The conversation id stands in that first answer. Record it in `~/.ai-core/agy-conversations.tsv` as
-`<session name>`, a tab, the id, because agy names nothing itself; a helper of that session writes
-its own line as `agy-<session name>`, so the two never share one. A session's questions come in its
-final message, the last line of its output file; the brief's `{{how to reach the coordinator}}` is
-"your final message".
+The output file holds the conversation id only once the run has ended: read it from there then, and
+record it in `~/.ai-core/agy-conversations.tsv` as `<session name>`, a tab, the id, because agy
+names nothing itself; a helper of that session writes its own line as `agy-<session name>`, so the
+two never share one. A session's questions come in its final message, the last line of its output
+file; the brief's `{{how to reach the coordinator}}` is "your final message".
 
 A UI test session needs the isolated browser, once per machine; check `agy mcp list`, and where
 `chrome-devtools` is missing:

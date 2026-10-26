@@ -36,6 +36,7 @@ const check=(name,fn)=>{fn();console.log(`ok ${++checks} ${name}`);};
 const select=(args,expected)=>{const r=run(args);assert.equal(r.status,0,r.stderr);assert.equal(r.stdout,expected+'\n');return r;};
 const deny=(args,pattern)=>{const r=run(args);assert.equal(r.status,2,r.stdout+r.stderr);assert.equal(r.stdout,'');assert.match(r.stderr,pattern);return r;};
 check('native selection without policy keeps declared rows and records no order',()=>{select(['build','high-risk'],'claude claude-sonnet-5-5 xhigh');assert.equal(records().at(-1).order,null);});
+check('the keeper phase has its row on the table and phase-model accepts its word, while a misspelled word is still refused',()=>{select(['keeper','normal-hard'],'claude claude-opus-5-5 high');select(['keeper','high-risk'],'claude claude-opus-5-5 high');deny(['keepers','normal-hard'],/unknown phase: keepers/);});
 check('a Claude plan and re-plan route to Codex Astra, the plan check stays on Opus, and a Codex at its limit refuses the plan instead of falling to Fable',()=>{
   const tuples=[[['plan','normal-hard'],'codex gpt-6-astra xhigh'],[['plan','high-risk'],'codex gpt-6-astra max'],[['re-plan','normal-hard'],'codex gpt-6-astra xhigh'],[['re-plan','high-risk'],'codex gpt-6-astra max'],[['plan-check','normal-hard','--written-by','gpt-6-astra'],'claude claude-opus-5-5 high']];
   for(const [args,expected] of tuples)select(args,expected);
@@ -133,6 +134,7 @@ for(const [label,change,reason] of [
   ['order interval boundary',()=>{fixture();const s=JSON.parse(fs.readFileSync(orderFile));s.orders.push({generation:2,time:time+20.5,tools:['claude']});fs.writeFileSync(orderFile,JSON.stringify(s));},/order changed/],
   ['old ambiguous phase letter',()=>fixture({n:'p10001-same-high-250k-abcde'}),/old phase letter/]
 ])check(label,()=>{change();if(label==='newer unrelated project')assert.match(audit().stdout,reason);else unknown(reason);});
+check('a keeper session is audited by its phase word, like every numbered phase',()=>{fixture({n:'keeper10001-same-high-150k-abcde'});for(const f of [current.file,log])fs.writeFileSync(f,fs.readFileSync(f,'utf8').replaceAll('"phase":"build"','"phase":"keeper"'));assert.match(audit().stdout,/^RED keeper10001-same-high-150k-abcde start/m);});
 check('an old letter with independent phase evidence can correlate',()=>{fixture({n:'i10001-same-high-250k-abcde'});assert.match(audit().stdout,/^RED /m);});
 check('prepared artifacts and attempts are no start, never compliance',()=>{fixture();fs.writeFileSync(agents,'[]');fs.writeFileSync(current.file,JSON.stringify(current.observation)+'\n');for(const suffix of ['brief.md','report.md','out'])fs.writeFileSync(path.join(sessions,`${name}.${suffix}`),'');assert.match(audit().stdout,/NO START .*launch attempt only/);assert.match(audit().stdout,/claude 0/);});
 check('Codex and agy in both projects bind registry output and block claim',()=>{for(const p of [project,other])for(const t of ['codex','agy']){fixture({tool:t,projectFolder:p});const r=audit();assert.equal(r.status,0,r.stderr);assert.match(r.stdout,t==='codex'?/^OK /m:/^RED /m);assert.match(r.stdout,new RegExp(`${t} 1`));}});

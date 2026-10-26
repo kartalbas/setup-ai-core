@@ -28,6 +28,10 @@ contains(base+'references/claude.md','shown as percent used, with their reset ti
 contains(base+'references/agy.md','`phase-model` calls `ai-core usage --tool agy --model MODEL`');
 contains(base+'references/agy.md','shows it as percent left, against `USAGE_STOP_AT` as percent used');
 contains(base+'references/agy.md','do not start or fall back to another tool');
+contains(base+'references/agy.md','holds the conversation id only once the run has ended');
+contains('skills/helper/SKILL.md','once that run has ended; the output holds it only then');
+if(read('skills/helper/SKILL.md').includes('Take the id from'))throw Error('helper conversation id claim is stale');
+if(read(base+'references/agy.md').includes('stands in that first answer'))throw Error('agy conversation id claim is stale');
 if(read(base+'references/agy.md').includes('no command the harness reads'))throw Error('agy quota claim is stale');
 if(read(base+'references/codex.md').includes('keeps the folders of its start'))throw Error('false resume folder claim');
 const reference=fs.readFileSync(root+'/'+base+'references/codex.md','utf8');
@@ -53,8 +57,28 @@ contains(base+'briefs/plan.md',"A defect you read in a span of the package joins
 contains(base+'briefs/plan-check.md',"Each gap names the issue of the package it belongs to");
 contains(base+'briefs/plan-check.md',"A gap never becomes an issue of its own");
 contains(base+'briefs/review.md',"A defect you meet outside the diff but in the package's files or contracts you repair too");
-contains(base+'briefs/review.md',"only an `OUTSIDE:` line may become a new issue");
-contains(base+'briefs/review.md',"goes under NOTES as `OUTSIDE:`, never into FINDINGS");
+contains(base+'briefs/review.md',"you file no issue: the project's issue keeper files it into what exists");
+contains(base+'briefs/review.md',"goes under NOTES as `KEEPER:`, never into FINDINGS");
+contains(base+'briefs/plan.md',"and you file no issue: the project's issue keeper files it into what exists");
+contains(base+'briefs/plan-check.md',"the project's issue keeper files it into what exists");
+contains(base+'briefs/build.md',"You file no issue, because the project's issue keeper files into what exists");
+contains(base+'briefs/ui-test.md',"and the project's issue keeper files it into what exists");
+contains(base+'briefs/clearing.md',"for the project's issue keeper, which files it into what exists");
+contains(base+'briefs/keeper.md',"Never file a new issue or a new epic without the owner's yes");
+contains(base+'SKILL.md',"One session per project files its issues: the issue keeper, the model-table phase `keeper`");
+contains(base+'SKILL.md',"ai-core phase-model keeper normal-hard");
+contains('rules/80-working-style-for-agents.md',"a session that finds an issue hands it to the project's issue keeper, which files it into what exists");
+contains('rules/80-working-style-for-agents.md',"which files it into what exists. An issue carries the full case");
+contains('rules/80-working-style-for-agents.md',"`review`, `ui-test` or `keeper`; a plan re-check is `plan-check`");
+contains(base+'SKILL.md',"do not cover, and only through the issue keeper");
+contains(base+'SKILL.md',"copy them, each with the session that wrote it, into your comment that answers that report or result there");
+contains(base+'briefs/coordinator.md',"every `KEEPER round` line and every `KEEPER:` line that none of them holds");
+contains(base+'briefs/plan-check.md',"KEEPER: <repo> <file:line> <state of a defect outside the section's files and contracts>, one line each | none");
+contains(base+'briefs/clearing.md',"KEEPER: <repo> <file:line> <state of a defect outside the cards of the round>, one line each | none");
+contains(base+'briefs/review.md',"goes under NOTES as `KEEPER: <repo> <file:line> <state>`");
+contains(base+'briefs/keeper.md',"for a UI test `KEEPER: <URL> <the visible text>`");
+contains('README.md',"One session per project files its issues, the issue keeper, the `keeper` row of `models.tsv`");
+for(const tool of ['claude','codex','agy'])if(!read('templates/.ai-core/models.tsv').includes(' '+tool+' keeper * '))throw Error('models.tsv: no keeper row of '+tool);
 contains(base+'SKILL.md',"goes back to `implementing`, with the SEEN text as a new acceptance criterion on that same issue");
 contains(base+'SKILL.md',"A `type:bug` issue opens only for what the card's own criteria do not cover");
 contains(base+'briefs/ui-test.md',"A FAIL of a card's own promise is that card's FAIL, not a new defect.");
@@ -62,6 +86,10 @@ contains(base+'briefs/coordinator.md',"One defect is one issue, in the repositor
 contains(base+'briefs/clearing.md',"→ testing, unless a UI test said FAIL after its `Landed on` record");
 contains(base+'briefs/clearing.md',"landed, a UI test said FAIL → a build session (briefs/build.md)");
 contains(base+'SKILL.md',"landed work goes to `testing` unless a UI test said FAIL after its landing");
+const handOver=['SKILL.md','briefs/plan.md','briefs/plan-check.md','briefs/review.md','briefs/ui-test.md','briefs/coordinator.md','briefs/clearing.md','briefs/build.md','briefs/keeper.md'];
+for (const file of handOver)
+  for (const stale of ['Left out:','`OUTSIDE:`'])
+    if(read(base+file).includes(stale))throw Error(file+': the hand-over has two words: '+stale);
 const files=['SKILL.md','briefs/plan.md','briefs/plan-check.md','briefs/review.md','briefs/ui-test.md','briefs/coordinator.md','briefs/clearing.md','briefs/build.md'];
 for (const file of files)
   for (const stale of ['--found-in','opens one `type:bug`','stays in `testing`'])
@@ -73,7 +101,7 @@ mkdir -p "$WORK/rules" "$WORK/templates/.ai-core"
 cp "$ROOT/rules/80-working-style-for-agents.md" "$WORK/rules/"
 cp "$ROOT/templates/.ai-core/models.tsv" "$WORK/templates/.ai-core/"
 cp "$ROOT/README.md" "$WORK/"
-for pair in 'references/codex.md|including Claude Code' 'SKILL.md|order takes precedence and survives restarts and init' 'SKILL.md|With no saved order it keeps native-tool selection' 'references/codex.md|last `agent_message`' 'references/codex.md|--file ~/.ai-core/sessions/<session name>.out' 'references/codex.md|sandbox_workspace_write.writable_roots=' 'references/codex.md|as percent left against' 'references/claude.md|shown as percent used, with their reset times' 'references/agy.md|`phase-model` calls' 'references/agy.md|shows it as percent left, against' 'references/agy.md|do not start or fall back to another tool' 'briefs/plan.md|so the UI test proves it instead of finding it' 'briefs/plan.md|joins the package as a criterion of the issue it touches' 'briefs/plan-check.md|A gap never becomes an issue of its own' 'briefs/review.md|only an `OUTSIDE:` line may become a new issue' 'briefs/review.md|never into FINDINGS' 'SKILL.md|goes back to `implementing`' 'briefs/ui-test.md|not a new defect' 'briefs/coordinator.md|One defect is one issue' 'briefs/clearing.md|unless a UI test said FAIL after its `Landed on` record' 'briefs/clearing.md|a build session (briefs/build.md) from the issue' 'SKILL.md|unless a UI test said FAIL after its landing' 'SKILL.md|is watched by whoever holds the account'; do
+for pair in 'references/codex.md|including Claude Code' 'SKILL.md|order takes precedence and survives restarts and init' 'SKILL.md|With no saved order it keeps native-tool selection' 'references/codex.md|last `agent_message`' 'references/codex.md|--file ~/.ai-core/sessions/<session name>.out' 'references/codex.md|sandbox_workspace_write.writable_roots=' 'references/codex.md|as percent left against' 'references/claude.md|shown as percent used, with their reset times' 'references/agy.md|`phase-model` calls' 'references/agy.md|shows it as percent left, against' 'references/agy.md|do not start or fall back to another tool' 'briefs/plan.md|so the UI test proves it instead of finding it' 'briefs/plan.md|joins the package as a criterion of the issue it touches' 'briefs/plan-check.md|A gap never becomes an issue of its own' 'briefs/review.md|you file no issue: the project'"'"'s issue keeper files it into what exists' 'briefs/plan.md|and you file no issue: the project'"'"'s issue keeper files it into what exists' 'briefs/plan-check.md|the project'"'"'s issue keeper files it into what exists' 'briefs/build.md|You file no issue, because the project'"'"'s issue keeper files into what exists' 'briefs/ui-test.md|and the project'"'"'s issue keeper files it into what exists' 'briefs/keeper.md|Never file a new issue or a new epic without the owner'"'"'s yes' 'SKILL.md|ai-core phase-model keeper normal-hard' 'briefs/review.md|never into FINDINGS' 'SKILL.md|goes back to `implementing`' 'briefs/ui-test.md|not a new defect' 'briefs/coordinator.md|One defect is one issue' 'briefs/clearing.md|unless a UI test said FAIL after its `Landed on` record' 'briefs/clearing.md|a build session (briefs/build.md) from the issue' 'SKILL.md|unless a UI test said FAIL after its landing' 'SKILL.md|is watched by whoever holds the account' 'SKILL.md|do not cover, and only through the issue keeper' 'SKILL.md|into your comment that answers that report or result there' 'briefs/coordinator.md|every `KEEPER round` line and every `KEEPER:` line' 'briefs/plan-check.md|outside the section'"'"'s files and contracts>, one line each' 'briefs/clearing.md|outside the cards of the round>' 'briefs/review.md|`KEEPER: <repo> <file:line> <state>`' 'briefs/keeper.md|for a UI test `KEEPER: <URL> <the visible text>`'; do
   file="${pair%%|*}"; phrase="${pair#*|}"
   FILE="$WORK/skills/person-in-charge/$file" PHRASE="$phrase" node -e 'const fs=require("fs"),p=process.env.FILE,s=fs.readFileSync(p,"utf8");fs.writeFileSync(p,s.replace(new RegExp(process.env.PHRASE.split(/\s+/).map(x=>x.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")).join("\\s+")),"stale instruction"))'
   if node "$WORK/check.mjs" "$WORK" > "$WORK/mutant.log" 2>&1; then fail "stale instruction escaped: $phrase"; fi
@@ -87,6 +115,34 @@ for file in SKILL.md briefs/plan.md briefs/plan-check.md briefs/review.md briefs
     cp "$ROOT/skills/person-in-charge/$file" "$WORK/skills/person-in-charge/$file"
   done
 done
+# Either old hand-over word planted in a brief goes red; so does a table without a keeper row and a tree without the keeper brief.
+for file in SKILL.md briefs/plan.md briefs/plan-check.md briefs/review.md briefs/ui-test.md briefs/coordinator.md briefs/clearing.md briefs/build.md briefs/keeper.md; do
+  for stale in 'Left out:' '`OUTSIDE:`'; do
+    printf '\n%s\n' "$stale" >> "$WORK/skills/person-in-charge/$file"
+    if node "$WORK/check.mjs" "$WORK" > "$WORK/mutant.log" 2>&1; then fail "old hand-over word escaped in $file: $stale"; fi
+    cp "$ROOT/skills/person-in-charge/$file" "$WORK/skills/person-in-charge/$file"
+  done
+done
+for tool in claude codex agy; do
+  grep -v -P "^$tool\tkeeper\t" "$ROOT/templates/.ai-core/models.tsv" > "$WORK/templates/.ai-core/models.tsv"
+  if node "$WORK/check.mjs" "$WORK" > "$WORK/mutant.log" 2>&1; then fail "a table without the keeper row of $tool passed"; fi
+  cp "$ROOT/templates/.ai-core/models.tsv" "$WORK/templates/.ai-core/models.tsv"
+done
+rm "$WORK/skills/person-in-charge/briefs/keeper.md"
+if node "$WORK/check.mjs" "$WORK" > "$WORK/mutant.log" 2>&1; then fail 'a tree without the keeper brief passed'; fi
+cp "$ROOT/skills/person-in-charge/briefs/keeper.md" "$WORK/skills/person-in-charge/briefs/keeper.md"
+# The rule's text as it stood before its two repairs goes red: "It" that reads as the keeper, and a phase list without `keeper`.
+for pair in 'An issue carries the full case|It carries the full case' '`review`, `ui-test` or `keeper`;|`review` or `ui-test`;'; do
+  FILE="$WORK/rules/80-working-style-for-agents.md" PHRASE="${pair%%|*}" WITH="${pair#*|}" node -e 'const fs=require("fs"),p=process.env.FILE,s=fs.readFileSync(p,"utf8"),r=new RegExp(process.env.PHRASE.split(/\s+/).map(x=>x.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")).join("\\s+"));if(!r.test(s))process.exit(3);fs.writeFileSync(p,s.replace(r,process.env.WITH))' || fail "rule phrase not found to plant: ${pair%%|*}"
+  if node "$WORK/check.mjs" "$WORK" > "$WORK/mutant.log" 2>&1; then fail "the rule's text before its repair passed: ${pair#*|}"; fi
+  cp "$ROOT/rules/80-working-style-for-agents.md" "$WORK/rules/"
+done
+printf '\nThe conversation id stands in that first answer.\n' >> "$WORK/skills/person-in-charge/references/agy.md"
+if node "$WORK/check.mjs" "$WORK" > "$WORK/mutant.log" 2>&1; then fail 'stale agy conversation id claim escaped'; fi
+cp "$ROOT/skills/person-in-charge/references/agy.md" "$WORK/skills/person-in-charge/references/agy.md"
+printf '\nTake the id from the first call.\n' >> "$WORK/skills/helper/SKILL.md"
+if node "$WORK/check.mjs" "$WORK" > "$WORK/mutant.log" 2>&1; then fail 'stale helper conversation id claim escaped'; fi
+cp "$ROOT/skills/helper/SKILL.md" "$WORK/skills/helper/SKILL.md"
 printf '\nagy has no command the harness reads for its quota\n' >> "$WORK/skills/person-in-charge/references/agy.md"
 if node "$WORK/check.mjs" "$WORK" > "$WORK/mutant.log" 2>&1; then fail 'stale agy quota claim escaped'; fi
 cp "$ROOT/skills/person-in-charge/references/agy.md" "$WORK/skills/person-in-charge/references/agy.md"

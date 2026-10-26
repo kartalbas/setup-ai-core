@@ -9,10 +9,11 @@
   step needs in one answer, as parallel tool calls or one command, because every answer reads the
   whole context again. [discipline]
 - **Work is tracked in the project's tracker, through the harness's commands, and the plan is the
-  issues.** An issue exists before the work starts and is kept current; a plan lives nowhere else.
-  It carries the full case, which is the context, the code facts as `file:line` and the acceptance
-  criteria, under a title that names the action and its stake so it survives being read alone in a
-  list. Independent pieces are split into their own issues before any detail is refined. Epics and
+  issues.** An issue exists before the work starts and is kept current; a plan lives nowhere else;
+  a session that finds an issue hands it to the project's issue keeper, which files it into what
+  exists. An issue carries the full case, which is the context, the code facts as `file:line` and
+  the acceptance criteria, under a title that names the action and its stake so it survives being
+  read alone in a list. Independent pieces are split into their own issues before any detail is refined. Epics and
   the board belong to the trackers whose API carries them. Forgejo has no epics, and its API cannot
   create or move the cards of its projects, so there an issue's `status/` label holds its state. An epic,
   an issue with sub-issues, carries no work of its own, which goes into a sub-issue, and is never
@@ -69,8 +70,8 @@
   slows the machine every session shares; so a finding in the files of a package that is not
   integrated yet joins that package, and a package cut by file splits a contract and releases its
   two sides apart. Every agent's name follows `<phase><n>-<model><version>-<effort>-<budget>k-<5 hex>`,
-  `<phase>` the word of its model-table phase: `plan`, `re-plan`, `plan-check`, `build`, `review`
-  or `ui-test`; a plan re-check is `plan-check`, a review re-check `review`, a live check `ui-test`;
+  `<phase>` the word of its model-table phase: `plan`, `re-plan`, `plan-check`, `build`, `review`,
+  `ui-test` or `keeper`; a plan re-check is `plan-check`, a review re-check `review`, a live check `ui-test`;
   `<n>` from a block of ten thousand that belongs to the coordinator starting it and stays its
   own across restarts (`10001` and on, `20001` and on), the next block above every number that
   runs or ran on the machine, so two coordinators never hand out the same number;

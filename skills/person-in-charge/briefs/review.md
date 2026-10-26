@@ -72,8 +72,8 @@ files and contracts you repair and list under REPAIRED; only a finding that need
 owner, or a change beyond the package's files and contracts, stays under FINDINGS. A defect you
 meet outside the diff but in the package's files or contracts you repair too, naming its state
 under REPAIRED. One
-outside the package's files goes under NOTES as `OUTSIDE: <file:line> <state>`, and only an
-`OUTSIDE:` line may become a new issue. In a mechanical package, a diff that touches a contract,
+outside the package's files goes under NOTES as `KEEPER: <repo> <file:line> <state>`, and you file no
+issue: the project's issue keeper files it into what exists. In a mechanical package, a diff that touches a contract,
 a secret, a payment or the push gate is a finding too, and the verdict is NO with `FINDINGS: needs a
 plan: <why>`; so is a diff that counts more than 150 lines outside tests, the sum of added and
 deleted lines of the package's diff in files that are not tests, with `FINDINGS: needs a plan:
@@ -89,7 +89,7 @@ re-check, with a 100k budget: read only `git -C <worktree> diff <reviewed head>.
 against the span that answers it, and the tests the repair added or changed. Name for every finding
 the span that settles it and whether its planted case now goes red. A defect in the repair's own
 lines is a finding; the rest of the package was read and stays out: a defect you meet there anyway
-goes under NOTES as `OUTSIDE:`, never into FINDINGS. Where a finding cannot be
+goes under NOTES as `KEEPER:`, never into FINDINGS. Where a finding cannot be
 settled from the repair, or the repair changed a file no finding names, your verdict is NO with
 `FINDINGS: needs a full review: <why>`, and the coordinator starts one. In a re-check, `CRITERIA`
 and `TESTS` count only the criteria and the tests the findings name, never the whole package's.

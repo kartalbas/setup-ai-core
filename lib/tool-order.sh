@@ -232,7 +232,7 @@ function audit() {
   console.log(`tool order: ${order.tools.join(',')}`);
   console.log(`set at: ${order.time} (${new Date(order.time * 1000).toISOString()}); generation ${order.generation}`);
   const dir = path.join(home, 'sessions'), names = new Map(), claims = new Map();
-  const parseName = name => /^(plan-check|re-plan|ui-test|plan|build|review|[pirt])(\d+)-(.+)-([a-z]+)-\d+k-[0-9a-f]{5}$/.exec(name);
+  const parseName = name => /^(plan-check|re-plan|ui-test|keeper|plan|build|review|[pirt])(\d+)-(.+)-([a-z]+)-\d+k-[0-9a-f]{5}$/.exec(name);
   const entry = name => {
     if (!parseName(name)) return null;
     if (!names.has(name)) names.set(name, {name, observations:[], native:new Map(), problems:[], artifacts:[]});
@@ -244,7 +244,7 @@ function audit() {
       const key = Number(claim[1]), group = claims.get(key) || [];
       group.push(path.join(dir, file)); claims.set(key, group); continue;
     }
-    const found = /^((?:plan-check|re-plan|ui-test|plan|build|review|[pirt])\d+-.+-[a-z]+-\d+k-[0-9a-f]{5})(?:\.|$)/.exec(file);
+    const found = /^((?:plan-check|re-plan|ui-test|keeper|plan|build|review|[pirt])\d+-.+-[a-z]+-\d+k-[0-9a-f]{5})(?:\.|$)/.exec(file);
     if (!found) continue;
     const e = entry(found[1]); e.artifacts.push(file);
     if (file === `${e.name}.start.jsonl`) {

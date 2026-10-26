@@ -429,7 +429,7 @@ on start; no developer installs a skill by hand.
     context budget of the phase within its ceiling. Every PHASE line includes the order and selected tuple. No saved order
     keeps native-tool selection and existing table routes, without inventing a set time.
     `ECOSYSTEM_ORDER` assigns coordinator ownership and number blocks, not phase preference.
-    Phase names lead with `plan`, `re-plan`, `plan-check`, `build`, `review` or `ui-test`;
+    Phase names lead with `plan`, `re-plan`, `plan-check`, `build`, `review`, `ui-test` or `keeper`;
     status still reads old single-letter names. Re-checks keep their 100k budget and reading scope
     and take the selector's effort. A tool change starts a fresh session with the current brief,
     saved work and last report; no foreign conversation id is resumed.
@@ -444,6 +444,12 @@ on start; no developer installs a skill by hand.
     `--disable-slash-commands`, which drop the rules or the skills, and a start that does not add
     the brief's folder. The UI test is the one run that starts a browser server, through its own
     `--mcp-config`.
+  - One session per project files its issues, the issue keeper, the `keeper` row of `models.tsv`. A
+    plan, a plan check, a build, a review or a UI test that finds a defect outside its work writes a
+    `KEEPER:` line and files no issue. The coordinator hands the lines of a round to one keeper
+    (`briefs/keeper.md`), which reads the open issues and folds each finding into the issue it fits,
+    or files it as a sub-issue of the epic it fits, and writes where and why. A finding that fits
+    nothing goes to the owner as a question, and a new issue or epic follows only his yes.
   - The cards move through `backlog`, `ready`, `planned`, `implementing`, `review`, `testing` and
     `done`; a question that is the owner's puts `needs:owner` on its issues.
   - At the usage limit every session using that limited account or model finishes its step, commits,

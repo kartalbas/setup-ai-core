@@ -18,7 +18,8 @@
 #         sends the package back to plan, but not the plan of a mechanical package sent to a
 #         plan, which is its first), plan-check, build (build and test),
 #         review, ui-test (the UI test and the live check), helper (a bounded task inside any phase: a pre-review of a diff, a log, a
-#         screenshot, a long span; its answer is checked by the session that asked). The start
+#         screenshot, a long span; its answer is checked by the session that asked), keeper (the project's
+#         issue keeper: it files the findings of every other phase into the issues that exist). The start
 #         check is START_CHECK of config.env and has no row. The plan runs on the high-risk row
 #         where an issue names a secret, a payment, a contract outward or the push gate (the
 #         class line below says what outward means), else on
@@ -64,6 +65,7 @@ claude	ui-test	normal-hard	claude-haiku-5-5	high
 claude	ui-test	high-risk	claude-haiku-5-5	max
 claude	helper	*	claude-haiku-5-5	medium
 claude	coordinator	*	claude-opus-5-5	high
+claude	keeper	*	claude-opus-5-5	high
 codex	plan	normal-hard	gpt-6-astra	xhigh
 codex	plan	high-risk	gpt-6-astra	max
 codex	re-plan	normal-hard	gpt-6-astra	xhigh
@@ -81,6 +83,7 @@ codex	ui-test	normal-hard	gpt-6-luna	high
 codex	ui-test	high-risk	gpt-6-luna	max
 codex	helper	*	gpt-6-luna	medium
 codex	coordinator	*	gpt-6.1-sol	high
+codex	keeper	*	gpt-6.1-sol	high
 agy	plan	normal-hard	claude-opus-5-5-high	-
 agy	re-plan	normal-hard	claude-opus-5-5-high	-
 agy	plan-check	normal-hard	claude-opus-5-5-high	-
@@ -91,3 +94,4 @@ agy	review	normal-hard	claude-opus-5-5-high	-
 agy	ui-test	*	claude-sonnet-5-5-high	-
 agy	helper	*	claude-sonnet-5-5-high	-
 agy	coordinator	*	claude-opus-5-5-high	-
+agy	keeper	*	claude-opus-5-5-high	-

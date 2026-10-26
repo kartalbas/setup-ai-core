@@ -47,13 +47,14 @@ nobody sits at your terminal.
     TESTS: <test names>; planted defect: <name>, red before the fix; innocent: <name>, green
     VERIFIED: <command> -> <result, verbatim last line>
     WRONG IN THE ISSUE: <what the issue said that the code did not bear out, or "nothing">
+    KEEPER: <repo> <file:line> <state of a defect outside this package that you did not fix>, one line each, or "nothing"
     DECIDED: <each choice a reader could question, with its reason in a few words, or "nothing">
     COMMIT: <hash> <subject>
     BRANCH: <repo> <branch>
     CONTEXT: fit | needed more: <what took the room>
 
-Once the comments are posted, send the coordinator ({{how to reach the coordinator}}) the `REPORT`
-and `VERIFIED` lines of each issue, because a comment on an issue wakes nobody.
+Once the comments are posted, send the coordinator ({{how to reach the coordinator}}) the `REPORT`,
+`VERIFIED` and `KEEPER` lines of each issue, because a comment on an issue wakes nobody.
 
 ## Rules you keep
 
@@ -64,6 +65,8 @@ and `VERIFIED` lines of each issue, because a comment on an issue wakes nobody.
   report it to the coordinator ({{how to reach the coordinator}}), which sends the package to a plan.
 - You touch files of this package's worktrees only. A file outside them is a question to the
   coordinator, not an edit.
+- You file no issue, because the project's issue keeper files into what exists: a defect outside
+  this package's files, or one the round cannot fix, goes into your report as a `KEEPER:` line.
 - You build it yourself, in your own tool. You start no other tool's command (agy, codex, claude)
   and hand no part of the work to one, because each tool spends its own quota and only the owner
   decides when one tool may use another.

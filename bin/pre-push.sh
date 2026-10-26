@@ -16,7 +16,8 @@
 #   3. the team modes are installed
 #   4. the names of the new directories are derived from the families the trees carry
 #   5. the repository's own scripts/check.sh is green, run in a working tree equal to the commit,
-#      started once the 1-minute load is below PRE_PUSH_LOAD_LIMIT or PRE_PUSH_LOAD_WAIT_SECONDS is up
+#      started once the 1-minute load is below PRE_PUSH_LOAD_LIMIT or PRE_PUSH_LOAD_WAIT_SECONDS is up,
+#      and after the published copies of the neighbours it reads stand at their origins' newest commit
 #   6. gitleaks over the commits the push carries, in a repository that carries .gitleaks.toml
 #
 # Run from a terminal, with nothing on standard input, it judges what `git push` would send from
@@ -79,6 +80,12 @@ for arg in "$@"; do
     echo "read refuses the push. With PRE_PUSH_LOAD_LIMIT 0 the wait is off, and with"
     echo "PRE_PUSH_LOAD_WAIT_SECONDS 0 the check starts at once: the load is still measured once for the"
     echo "record, and a reading that fails is said and recorded as -, never as a number."
+    echo ""
+    echo "Right before scripts/check.sh starts, the published copy of every neighbour that a link beside the"
+    echo "worktree leads to is brought to the newest commit of its origin, unless it holds a change or a commit"
+    echo "its origin lacks: that copy stays, and the gate names it. The gate prints the commit each copy stands"
+    echo "at and keeps it there until the check ended. An origin that cannot be asked, or a copy that cannot"
+    echo "be read, refuses the push. A copy is waited for at most NEIGHBOUR_LOCK_WAIT_SECONDS (600 when unset)."
     echo ""
     echo "With FORGE=forgejo, scripts/check.sh gets credential.<FORGEJO_URL>.helper in git's environment"
     echo "configuration after the caller's entries: an empty value, then 'ai-core git-credential' with the"
@@ -152,6 +159,7 @@ if [ "$RUNS" -eq 1 ]; then
 fi
 
 . "$CORE_ROOT/lib/layers.sh"
+. "$CORE_ROOT/lib/neighbours.sh"
 GATE_REFUSAL=""
 refuse() { GATE_REFUSAL="$*"; GATE_REFUSAL="${GATE_REFUSAL%%$'\n'*}"; echo "pre-push: REFUSED — $*" >&2; exit 1; }
 
@@ -1002,6 +1010,17 @@ wait_for_lower_load() {  # sets LOAD_AT_START to the sample the check starts wit
   done
   LOAD_AT_START="$sample"
 }
+# The check reads the published copies of the neighbours through the links beside the worktree. They are
+# brought to their origins' newest commit now and held until the check ended, so the check proves the code
+# the neighbours publish at this moment and no init or other gate moves a copy under it. The gate says
+# where each copy stands, which is what a later reader of the run needs to bind the check to its inputs.
+hold_neighbours() {
+  local line status=0
+  NEIGHBOUR_FETCH_WRAP=with_sign_in_line
+  neighbours_hold "$root" || status=$?
+  while IFS= read -r line; do [ -z "$line" ] || echo "pre-push: neighbour $line"; done <<< "$NEIGHBOUR_REPORT"
+  [ "$status" -eq 0 ] || refuse "a neighbour the check reads is not at its origin's newest commit: $NEIGHBOUR_ERROR"
+}
 refuse_if_tree_differs() {
   local dirty
   dirty="$(git -C "$root" -c core.quotePath=false status --porcelain)"
@@ -1021,6 +1040,7 @@ if [ -f "$root/scripts/check.sh" ]; then
     || refuse "HEAD moved from ${head:0:12} to $(git -C "$root" rev-parse --short=12 HEAD) while the push waited for a lower load, so the check would prove a commit that is not the one judged. Push again."
   refuse_if_tree_differs
   GATE_LOAD="$LOAD_AT_START"
+  hold_neighbours
   echo "pre-push: $root/scripts/check.sh runs here, before anything leaves this machine."
   check_started="$(date +%s)"; check_rc=0
   # Both streams go to the log, so its last line is the check's last word on either of them
@@ -1028,6 +1048,7 @@ if [ -f "$root/scripts/check.sh" ]; then
   GATE_CHECK_SECONDS=$(( $(date +%s) - check_started ))
   GATE_CHECK_LAST="$(grep -v '^[[:space:]]*$' "$TMPD/check.log" | tail -1)"
   GATE_CHECK=green; [ "$check_rc" -eq 0 ] || GATE_CHECK=red
+  neighbours_release
   [ "$check_rc" -eq 0 ] || refuse 'a check failed - the lines above name which one.'
 else
   echo 'pre-push: no scripts/check.sh in this repository; nothing runs before the push.'

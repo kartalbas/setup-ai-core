@@ -70,6 +70,7 @@ if [ -n "$ALL_DIR" ]; then ALL_DIR="$(cd "$ALL_DIR" && pwd)"; else TARGET="$(cd 
 cd "${ALL_DIR:-$TARGET}"
 . "$CORE_ROOT/lib/layers.sh"
 . "$CORE_ROOT/lib/worktrees.sh"
+. "$CORE_ROOT/lib/neighbours.sh"
 
 # Source worktrees must be refused before inherited product data or settings can be copied.
 if [ -z "$ALL_DIR" ] && harness_source_of "$TARGET" >/dev/null 2>&1; then
@@ -209,15 +210,15 @@ fi
 #     renames it. A link of this shape whose checkout is gone since leads nowhere and goes; a link
 #     of anybody else stays. The copy stands outside .worktrees/, because a project's own tool may
 #     read that folder as the places of work and would count the copy as one more.
-NEIGHBOURS_LINKED=""; NEIGHBOURS_IN=""; NEIGHBOURS_UNLINKED=""; NEIGHBOURS_HELD=""; NEIGHBOURS_UNPUBLISHED=""; NEIGHBOURS_BLOCKED=""; NEIGHBOURS_LEFT=""; NEIGHBOURS_MOVED=""; NEIGHBOURS_UNMOVED=""
+NEIGHBOURS_LINKED=""; NEIGHBOURS_IN=""; NEIGHBOURS_UNLINKED=""; NEIGHBOURS_HELD=""; NEIGHBOURS_UNPUBLISHED=""; NEIGHBOURS_BLOCKED=""; NEIGHBOURS_LEFT=""; NEIGHBOURS_MOVED=""; NEIGHBOURS_UNMOVED=""; NEIGHBOURS_STALE=""; NEIGHBOUR_WAIT=""
 # neighbour_published <checkout> <name>: sets NEIGHBOUR_TARGET, the link's target from the container,
 # or empties it where the copy stands but cannot be used
 neighbour_published() {
-  local ref branch copy
+  local ref branch copy outcome
   NEIGHBOUR_TARGET="../../$2"
   git -C "$1" remote get-url origin >/dev/null 2>&1 || return 0
   # refs/remotes/origin/HEAD, which the fetch below asked the origin for
-  ref="$(git -C "$1" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)" || ref=""
+  ref="$(neighbour_default_ref "$1")" || ref=""
   # a dry run fetched nothing, so a missing origin/HEAD says nothing about the origin there
   [ -n "$ref" ] || { [ "$DRY" -eq 1 ] || NEIGHBOURS_UNPUBLISHED="$NEIGHBOURS_UNPUBLISHED $2"; return 0; }
   branch="${ref#origin/}"; copy="$folder/.ai-core/neighbours/$2/origin-$branch"
@@ -229,14 +230,16 @@ neighbour_published() {
     if [ -e "$copy/.git" ]; then
       # Moved only while nothing in it is somebody's: no change in the tree and no commit the
       # origin lacks, which a checkout of the origin's branch would leave behind unnamed
-      if [ -z "$(git -C "$copy" status --porcelain 2>/dev/null)" ] && git -C "$copy" merge-base --is-ancestor HEAD "$ref" 2>/dev/null; then
-        git -C "$copy" checkout -q --detach "$ref" 2>/dev/null || true
-      else NEIGHBOURS_HELD="$NEIGHBOURS_HELD $2"; fi
+      outcome="$(neighbour_refresh_copy "$folder" "$2" "$copy" "$ref" "$NEIGHBOUR_WAIT")"
+      case "$outcome" in
+        held*) NEIGHBOURS_HELD="$NEIGHBOURS_HELD $2" ;;
+        failed*) NEIGHBOURS_STALE="$NEIGHBOURS_STALE $2 (${outcome#*$'\t'})" ;;
+      esac
     else
       # A second init at the same moment may have added it: then it is used as it stands. Git
       # also refuses where it still registers a copy whose folder was removed by hand; that
       # registration may hold the only name of a commit, so it is named, never pruned here.
-      if ! git -C "$1" worktree add -q --detach "$copy" "$ref" >/dev/null 2>&1 && [ ! -e "$copy/.git" ]; then
+      if ! neighbour_add_copy "$folder" "$2" "$copy" "$ref" "$NEIGHBOUR_WAIT"; then
         NEIGHBOURS_BLOCKED="$NEIGHBOURS_BLOCKED $2"; NEIGHBOUR_TARGET=""; return 0
       fi
     fi
@@ -254,15 +257,20 @@ if [ "$PROJECT_FOLDER" -eq 0 ]; then
       # each. The origin also names its default branch, which a clone records but a pushed
       # `git init` never does. No prompt: a neighbour whose origin wants a login the shell does not
       # hold would stop init for a repository the issue never touched.
+      NEIGHBOUR_WAIT="$(neighbour_lock_wait "$TARGET/.ai-core/config.env")" || exit 1
       if [ "$DRY" -eq 0 ]; then
+        fetch_dir="$(mktemp -d)"; fetch_pids=(); fetch_names=()
         for neighbour in "$folder"/*/; do
           neighbour="${neighbour%/}"
           [ -d "$neighbour/.git" ] && [ "$neighbour" != "$main" ] || continue
           git -C "$neighbour" remote get-url origin >/dev/null 2>&1 || continue
-          { GIT_TERMINAL_PROMPT=0 git -C "$neighbour" fetch -q origin \
-              && GIT_TERMINAL_PROMPT=0 git -C "$neighbour" remote set-head origin --auto; } >/dev/null 2>&1 < /dev/null &
+          neighbour_fetch "$folder" "${neighbour##*/}" "$NEIGHBOUR_WAIT" > "$fetch_dir/${neighbour##*/}.log" 2>&1 &
+          fetch_pids+=($!); fetch_names+=("${neighbour##*/}")
         done
-        wait
+        for ((i = 0; i < ${#fetch_pids[@]}; i++)); do
+          wait "${fetch_pids[i]}" || NEIGHBOURS_STALE="$NEIGHBOURS_STALE ${fetch_names[i]} (its origin could not be asked: $(tr -s '\n' ' ' < "$fetch_dir/${fetch_names[i]}.log" | sed 's/ *$//'))"
+        done
+        rm -rf "$fetch_dir"
       fi
       # A copy that still stands in .worktrees/ moves out with all it holds, and every link of the
       # folder's worktrees that leads to it follows it. Only what git registers as a worktree of
@@ -1086,6 +1094,7 @@ fi
 if [ -n "$WORKTREE_DATA_FROM" ]; then echo "  .ai-core $([ "$DRY" -eq 1 ] && echo "would be taken" || echo "taken") from the checkout $WORKTREE_DATA_FROM: a worktree starts with the checkout's configuration, local rules and documents"; fi
 if [ -n "$NEIGHBOURS_LINKED" ]; then echo "  links to the neighbour checkouts $([ "$DRY" -eq 1 ] && echo "would be made" || echo "made") in $NEIGHBOURS_IN:$NEIGHBOURS_LINKED; .. finds them from the worktree as from the checkout"; fi
 if [ -n "$NEIGHBOURS_HELD" ]; then echo "  the published copies of these neighbours carry a change or a commit their origin lacks, so they were not moved to their origin's newest commit:$NEIGHBOURS_HELD (in .ai-core/neighbours/<neighbour>/origin-<branch>)"; fi
+if [ -n "$NEIGHBOURS_STALE" ]; then echo "  the published copies of these neighbours may stand behind their origin's newest commit, because it could not be established:$NEIGHBOURS_STALE"; fi
 if [ -n "$NEIGHBOURS_UNPUBLISHED" ]; then echo "  the origins of these neighbours named no default branch, so they are linked as their checkouts, with whatever stands in them:$NEIGHBOURS_UNPUBLISHED"; fi
 if [ -n "$NEIGHBOURS_BLOCKED" ]; then echo "  these neighbours got no link to their published copy, because .ai-core/neighbours/<neighbour>/origin-<branch> cannot become one: a folder that is no worktree stands there, or git still registers a copy whose folder was removed ('git -C <neighbour> worktree list' shows it as prunable); a link that stood there before stays as it was:$NEIGHBOURS_BLOCKED"; fi
 if [ -n "$NEIGHBOURS_LEFT" ]; then echo "  the links now follow a renamed default branch; the copies of the old one stay, as nothing removes a worktree here:$NEIGHBOURS_LEFT"; fi

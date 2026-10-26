@@ -745,6 +745,16 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    the generated hook, and the lock of a private landing stays held for it, at most the bound. A
    sample reserves no CPU and the load can rise again at once; the wait lowers the chance of a red run
    that has no defect, it guarantees nothing about the load during the check.
+   A check in a worktree reads its neighbours through `..`, where `ai-core init` linked the published
+   copy of each, `.ai-core/neighbours/<neighbour>/origin-<branch>`. Right before the check starts the gate
+   asks the origin of each such neighbour, in the order of the names, and brings the copy to the newest
+   commit of the default branch, unless the copy holds a change in its tree or a commit its origin lacks:
+   then it stays and the gate names it. The gate prints the commit each copy stands at, and holds a shared
+   `flock` on the copy until the check ended, so no init and no other gate moves it under the check, while
+   gates that read the same commit run together. A gate or init that must move a copy waits for the readers
+   at most `NEIGHBOUR_LOCK_WAIT_SECONDS`. An origin that cannot be asked, a copy that cannot be read, a
+   default branch that origin renamed since the link was made, or a lock not free in time refuses the push
+   and names the copy; nothing is certified against a copy that may be stale.
    With `FORGE=forgejo`, the check gets the two `credential.<FORGEJO_URL>.helper` entries in git's
    environment configuration after the caller's entries, which stay. The second one runs
    `ai-core git-credential` with the checkout's `FORGEJO_URL` and `FORGEJO_TOKEN_COMMAND` set for
@@ -914,6 +924,7 @@ allowed; any other value is an error.
 | `CI_GATE` | `public` (default), `none` | whether a public repository of the project lands only on green checks of its CI (`public`), or lands like a private one on its push gate, with nothing pushed to `ci/` and no CI read (`none`), for a project whose CI runs on its own machines; any other value refuses a landing. On Forgejo `integrate-issue` reads it the same way (section 8.1) |
 | `PRE_PUSH_LOAD_LIMIT` | a number of 0 or more, `24` when unset | the 1-minute load average below which the push gate starts `scripts/check.sh`; at or above it the gate waits. An absolute load, not a share of the cores. `0` turns the wait off. Read from this file only, at every poll, so an edit takes effect during a wait |
 | `PRE_PUSH_LOAD_WAIT_SECONDS` | a whole number of 0 or more, `300` when unset | the seconds the gate waits for the load to fall below the limit; then the check starts and the gate says it started above the limit. `0` starts it at once. With either setting at `0` the load is still measured once for the record of the run; a reading that fails is said and recorded as `-` and refuses nothing, while with both above `0` a load that cannot be read refuses the push. An invalid value refuses, naming the key |
+| `NEIGHBOUR_LOCK_WAIT_SECONDS` | a whole number of 0 or more, `600` when unset | the seconds the push gate and `ai-core init` wait for the lock of the published copy of a neighbour: a copy that a check reads is not moved until the check ended. After the wait the gate refuses the push and init names the copy it could not move. An invalid value refuses, naming the key |
 | `START_CHECK` | a command, empty when unset | run by the person in charge on the bundle of a package's branches before it lands; empty means the project names none |
 | `PROOF_HOURS` | hours, `24` when unset | how long a later environment of `LIVE_TAGS` may carry a card the first one does not before `ai-core status` marks its proof there overdue with 🔴; `status` reads it from the project folder's `.ai-core/config.env`, whichever checkout it runs in |
 | `DEFAULT_BRANCH_IS_LIVE` | `yes`, or the folder names of the repositories whose default branch goes live; unset by default | a push to such a default branch needs `scripts/check.sh` and a `Reviewed-by:` trailer on its last commit (section 4.12) |

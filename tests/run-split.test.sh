@@ -171,17 +171,18 @@ scenario_no_tempfile() {
 }
 
 # In $( ) the shell reports the calling shell's trap although the signal stands at its default
-# there: the control proves the default, the other the trap run_split leaves in force.
+# there: the control proves the default, the other the trap run_split leaves in force. Bash 3.2 has
+# no BASHPID; the parent of an sh that a substitution execs is the shell that runs the substitution.
 scenario_substitution() {
   local signal ended result rc
   for signal in INT TERM; do
     if [ "$signal" = INT ]; then ended=130; else ended=143; fi
-    trap 'echo "handler:$BASHPID" >> "$LOGFILE"' "$signal"
+    trap 'echo "handler:$(exec sh -c "echo \$PPID")" >> "$LOGFILE"' "$signal"
     : > "$LOGFILE"
-    result="$(kill -"$signal" $BASHPID; sleep 0.2; echo alive)"; rc=$?
+    result="$(kill -"$signal" "$(exec sh -c 'echo "$PPID"')"; sleep 0.2; echo alive)"; rc=$?
     same "$signal in a substitution without run_split: default, the substitution ends" "$ended " "$rc $result"
     : > "$LOGFILE"
-    result="$(run_split true; kill -"$signal" $BASHPID; sleep 0.2; echo alive)"
+    result="$(run_split true; kill -"$signal" "$(exec sh -c 'echo "$PPID"')"; sleep 0.2; echo alive)"
     same "$signal in a substitution after run_split: the substitution lives" alive "$result"
     same "$signal in a substitution after run_split: the calling shell's handler ran there, once" 1 "$(grep -c '^handler:' "$LOGFILE")"
     same "$signal in a substitution after run_split: it ran in the substitution" yes "$([ "$(cut -d: -f2 "$LOGFILE")" != "$$" ] && echo yes || echo no)"

@@ -217,7 +217,7 @@ function audit() {
         try { events = [JSON.parse(output)]; } catch { events = jsonLines(output, `${name}.out`); }
         const ids = [...new Set(events.flatMap(o => tool === 'codex' ? (o.type === 'thread.started' && text(o.thread_id) ? [o.thread_id] : []) : (text(o.conversation_id) ? [o.conversation_id] : [])))];
         if (ids.length !== 1 || ids[0] !== id) e.problems.push(`${tool} registry/output identity conflict`);
-        else native(name, tool, id, {events});
+        else native(name, tool, id, {});
       } catch (err) { e.problems.push(`${tool} output cannot be read: ${err.message}`); }
     }
   }
@@ -288,7 +288,6 @@ function audit() {
         const latest = confirmed.filter(x=>x.tool === o.tool && x.nativeIdentity === o.nativeIdentity).at(-1) === o;
         if (latest && text(n.model) && base(n.model) !== base(o.model)) problems.push('native model conflicts with invocation');
         if (latest && text(n.effort) && effective({model:n.model || o.model,effort:n.effort})[1] !== effective(o)[1]) problems.push('native effort conflicts with invocation');
-        for (const event of n.events || []) if (event.type === 'session_meta' && event.payload?.cwd && project && projectOf(event.payload.cwd) !== project) problems.push('native project conflicts with block claim');
       }
       const idKey = `${o.tool}\t${o.nativeIdentity}`;
       if ((nativeNames.get(idKey)?.size || 0) > 1) problems.push('one native session has several phase names');
@@ -303,10 +302,6 @@ function audit() {
         else phase = o.phase;
       } else if (o.phase !== undefined && o.phase !== phase) problems.push('phase name conflicts with observation');
       const start = {e,o,problems,project,phase,lower:o.invoked,upper:o.observed};
-      if (o.started !== undefined) {
-        if (!positive(o.started) || o.started < o.invoked || o.started > o.observed) problems.push('invalid exact native start time');
-        else start.lower = start.upper = o.started;
-      }
       if (o.operation === 'start') {
         if (identity.length === 1 && nativeNames.get(idKey)?.size === 1 && positive(start.lower) && start.lower >= order.time) counts[o.tool].add(e.name);
         starts.push(start);

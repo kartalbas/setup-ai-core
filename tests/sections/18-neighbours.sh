@@ -478,6 +478,34 @@ PATH="$WORK/mutant-invalid-accepted/bin-path:$PATH" push_gate "$T2" issue-3-z "$
 printf 'UPDATE_CHECK="never"\nNEIGHBOUR_LOCK_WAIT_SECONDS="soon"\n' > "$F/app/.ai-core/config.env"
 bash "$ROOT/bin/init.sh" "$T2" --no-doctor > "$F-bad-init.log" 2>&1 && fail "init went on with NEIGHBOUR_LOCK_WAIT_SECONDS set to 'soon'"
 grep -aq 'NEIGHBOUR_LOCK_WAIT_SECONDS is .soon.' "$F-bad-init.log" || fail "init does not name the setting (see $F-bad-init.log)"
+# a config.env that exists and cannot be read: the wait is not taken from its default, by the explicit read and by init
+. "$ROOT/tests/unreadable.sh"
+old_reader_copy "$ROOT" "$WORK/nb-old-reader" || fail "no copy of the harness with the old reader"
+wait_of() {  # wait_of <harness root> <config.env>: what neighbour_lock_wait prints, its status and its words on standard error, one line
+  local out rc=0
+  out="$(bash -c '. "$1/lib/common.sh"; . "$1/lib/neighbours.sh"; neighbour_lock_wait "$2"' _ "$1" "$2" 2> "$WORK/nb-wait.err")" || rc=$?
+  printf 'status %s, printed [%s], said [%s]' "$rc" "$out" "$(tr '\n' ' ' < "$WORK/nb-wait.err" | sed 's/ *$//')"
+}
+printf 'NEIGHBOUR_LOCK_WAIT_SECONDS="7"\n' > "$WORK/nb-wait.env"
+[ "$(wait_of "$ROOT" "$WORK/nb-wait.env")" = 'status 0, printed [7], said []' ] || fail "a readable setting is not read: $(wait_of "$ROOT" "$WORK/nb-wait.env")"
+[ "$(wait_of "$ROOT" "$WORK/nb-wait.none")" = 'status 0, printed [600], said []' ] || fail "a config.env that is not there no longer gives the default wait: $(wait_of "$ROOT" "$WORK/nb-wait.none")"
+make_unreadable "$WORK/nb-wait.env" || fail "the file of the wait cannot be made unreadable"
+case "$(wait_of "$ROOT" "$WORK/nb-wait.env")" in
+  "status 1, printed [], said ["*"error: $WORK/nb-wait.env exists but cannot be read; fix its permissions, or remove it to take the defaults]") ;;
+  *) fail "the wait of an unreadable config.env was chosen, or the file not named: $(wait_of "$ROOT" "$WORK/nb-wait.env")" ;;
+esac
+case "$(wait_of "$WORK/nb-old-reader" "$WORK/nb-wait.env")" in
+  *"exists but cannot be read"*) fail "planted: the old reader still names the unreadable file" ;;
+  "status 0, printed [600], said ["*) ;;
+  *) fail "planted: the old reader did not give the default wait of 600 seconds for the unreadable file: $(wait_of "$WORK/nb-old-reader" "$WORK/nb-wait.env")" ;;
+esac
+chmod 600 "$WORK/nb-wait.env"
+printf 'UPDATE_CHECK="never"\nNEIGHBOUR_LOCK_WAIT_SECONDS="2"\nPRE_PUSH_LOAD_LIMIT="0"\n' > "$T2/.ai-core/config.env"
+make_unreadable "$T2/.ai-core/config.env" || fail "the config.env of the worktree cannot be made unreadable"
+bash "$ROOT/bin/init.sh" "$T2" --no-doctor --dry-run > "$F-unreadable-init.log" 2>&1 && fail "init went on with a config.env of the worktree that cannot be read"
+grep -aq "$T2/.ai-core/config.env exists but cannot be read" "$F-unreadable-init.log" || fail "init does not name the file it cannot read (see $F-unreadable-init.log)"
+bash "$WORK/nb-old-reader/bin/init.sh" "$T2" --no-doctor --dry-run > "$F-unreadable-init-old.log" 2>&1 || fail "planted: init with the old reader did not go on with the default wait, so this case cannot tell (see $F-unreadable-init-old.log)"
+chmod 600 "$T2/.ai-core/config.env"
 set_wait 2
 echo "  the gate killed while it waited holds no lock, the copies are free once the reader ends, and a setting that is no number refuses the gate and init, naming the key"
 

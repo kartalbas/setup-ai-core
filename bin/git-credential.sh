@@ -35,7 +35,8 @@ while IFS= read -r line; do
   case "$line" in protocol=*) protocol="${line#protocol=}" ;; host=*) host="${line#host=}" ;; esac
 done
 
-[ "$protocol://$host" = "$(forgejo_url)" ] || exit 0
+url="$(forgejo_url)" || exit 1
+[ "$protocol://$host" = "$url" ] || exit 0
 # a trace of this script (bash -x) prints every assignment and argument it expands, the token among them
 set +x
 token="$(token_from_command FORGEJO_TOKEN_COMMAND)" || exit 1

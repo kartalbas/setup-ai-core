@@ -255,6 +255,27 @@ sed -i.bak 's/^(none yet: written by people, kept on every regeneration)$/- **Sh
 MAP_FAKE_NOTE=v2 map_run "$WORK/org-sh/shop-web" > "$WORK/map-2.log" 2>&1 || fail "map.sh second run (see $WORK/map-2.log)"
 grep -q '^A shop\. v2$' "$M" && grep -q '^- \*\*Ship on Fridays never\.\*\* \[review\]$' "$M" && ! grep -q '^(none yet' "$M" || fail "map.sh did not regenerate and keep the rules people wrote: $(grep -n 'shop\.\|Fridays\|none yet' "$M" | tr '\n' '|')"
 [ -z "$(git -C "$WORK/org-sh/shop-ai-core" status --porcelain)" ] || fail "map.sh second run left the harness uncommitted"
+# a config.env of the checkout that is there and cannot be read stops map before it asks an agent CLI; planted: the old reader asks the default one
+. "$ROOT/tests/unreadable.sh"
+old_reader_copy "$ROOT" "$WORK/map-old-reader" || fail "no copy of the harness with the old reader"
+map_dry() {  # map_dry <harness root>: map.sh of that harness over shop-web as a dry run, then a last line rc=<n>; the calls of the agent CLI are in $MAPLOG
+  local out rc=0; : > "$MAPLOG"
+  out="$(HOME="$WORK/home-sh" AI_CORE_HOME="$WORK/home-sh" PATH="$PATH_SH" MAP_FAKE_LOG="$MAPLOG" bash "$1/bin/map.sh" "$WORK/org-sh/shop-web" --dry-run 2>&1)" || rc=$?
+  printf '%s\nrc=%s\n' "$out" "$rc"
+}
+map_stopped() {  # map_stopped <what map_dry printed>: yes where map failed, named config.env of shop-web once, and asked no agent CLI
+  if [ "$(tail -n1 <<< "$1")" != rc=0 ] && [ "$(grep -acF -- "$WORK/org-sh/shop-web/.ai-core/config.env exists but cannot be read" <<< "$1")" = 1 ] && [ ! -s "$MAPLOG" ]; then echo yes; else echo no; fi
+}
+MAP_CONFIG="$WORK/org-sh/shop-web/.ai-core/config.env"
+[ "$(map_stopped "$(map_dry "$ROOT")")" = no ] && [ -s "$MAPLOG" ] || fail "map.sh over a readable config.env did not ask the agent CLI"
+make_unreadable "$MAP_CONFIG" || fail "the config.env of shop-web cannot be made unreadable"
+[ "$(map_stopped "$(map_dry "$ROOT")")" = yes ] || fail "map.sh went on with a config.env it cannot read, or did not name it: $(map_dry "$ROOT" | tail -3 | tr '\n' '|')"
+[ "$(map_stopped "$(map_dry "$WORK/map-old-reader")")" = no ] && [ -s "$MAPLOG" ] || fail "planted: map.sh with the old reader did not ask the default agent CLI, so the check cannot go red"
+chmod 644 "$MAP_CONFIG"
+mv "$MAP_CONFIG" "$WORK/map-config.real"; ln -s "$WORK/map-config.gone" "$MAP_CONFIG"
+[ "$(map_stopped "$(map_dry "$ROOT")")" = yes ] || fail "map.sh took the template for a config.env that is a link to nothing: $(map_dry "$ROOT" | tail -3 | tr '\n' '|')"
+rm "$MAP_CONFIG"; mv "$WORK/map-config.real" "$MAP_CONFIG"
+[ "$(map_stopped "$(map_dry "$ROOT")")" = no ] && [ -s "$MAPLOG" ] || fail "map.sh does not ask the agent CLI again once config.env can be read"
 cp "$M" "$WORK/map.before"
 MAP_FAKE_BAD=1 map_run "$WORK/org-sh/shop-web" > "$WORK/map-bad.log" 2>&1 && fail "map.sh accepted an output that is not a map"
 grep -aq "not the map's shape" "$WORK/map-bad.log" && cmp -s "$M" "$WORK/map.before" && [ -f "$WORK/org-sh/shop-web/.ai-core/map.rejected.md" ] || fail "map.sh: the refusal (see $WORK/map-bad.log)"
@@ -593,7 +614,7 @@ printf 'DRY_PROBE="1"\n' >> "$LA/config.env"; publish_layer lay "a key to see in
 cp "$LAY/fresh-web/.ai-core/config.env" "$WORK/fresh-config-before"; before="$(tree_digest "$LAY/fresh-web")"; state="$(git -C "$LAY/fresh-web" status --porcelain)"
 lay_init "$LAY/fresh-web" fresh-dry-2 --dry-run
 cmp -s "$WORK/fresh-config-before" "$LAY/fresh-web/.ai-core/config.env" && [ "$(tree_digest "$LAY/fresh-web")" = "$before" ] && [ "$(git -C "$LAY/fresh-web" status --porcelain)" = "$state" ] && grep -aqE '^  refreshed .*\.ai-core/config\.env' "$WORK/fresh-dry-2.log" || fail "a dry run before an update changed the checkout, or did not report the config.env (see $WORK/fresh-dry-2.log)"
-# a tracked config.env of a repository with an override is left alone and said so, base and merge unwritten; of one without, the layer's still goes over it
+# a tracked config.env is left alone and said so, with an override of the repository and without one: the layer's file and the merge stay unwritten
 make_tracked() {  # make_tracked <dir> <repository>: a checkout that commits its own config.env and kept.txt
   new_checkout "$1" "$2"; mkdir -p "$1/.ai-core"
   printf 'TRACKED_OWN="yes"\n' > "$1/.ai-core/config.env"; printf 'mine\n' > "$1/kept.txt"
@@ -603,12 +624,13 @@ make_tracked "$LAY/tracked-web" lay-web; make_tracked "$LAY/tracked-plain" lay-p
 lay_init "$LAY/tracked-web" tracked-web; lay_init "$LAY/tracked-plain" tracked-plain
 [ "$(cat "$LAY/tracked-web/.ai-core/config.env")" = 'TRACKED_OWN="yes"' ] && git -C "$LAY/tracked-web" diff --quiet && grep -aqE '^  tracked .*\.ai-core/config\.env' "$WORK/tracked-web.log" || fail "a tracked config.env of a repository with an override was written over, or not reported tracked (see $WORK/tracked-web.log)"
 [ "$(cat "$LAY/tracked-web/kept.txt")" = mine ] && grep -aqE '^  tracked .*kept\.txt' "$WORK/tracked-web.log" && cmp -s "$LA/repos/lay-web/notes.txt" "$LAY/tracked-web/notes.txt" || fail "a tracked file of repos/lay-web/ was written over, or an untracked one was not applied whole (see $WORK/tracked-web.log)"
-is_layer_config "$LAY/tracked-plain" || fail "a tracked config.env of a repository without an override is no longer handled as before: $(cat "$LAY/tracked-plain/.ai-core/config.env")"
-planted="$(mutant_root 's|elif git -C "\$TARGET" ls-files --error-unmatch .ai-core/config.env >/dev/null 2>&1; then|elif false; then|')"
+[ "$(cat "$LAY/tracked-plain/.ai-core/config.env")" = 'TRACKED_OWN="yes"' ] && git -C "$LAY/tracked-plain" diff --quiet && grep -aqE '^  tracked .*\.ai-core/config\.env' "$WORK/tracked-plain.log" || fail "a tracked config.env of a repository without an override was written over by the layer's, or not reported tracked (see $WORK/tracked-plain.log)"
+planted="$(mutant_root 's|if \[ -n "\$CONFIG_BASE" \] \&\& ! keep_tracked .ai-core/config.env; then|if [ -n "$CONFIG_BASE" ]; then|')"
 make_tracked "$LAY/mutant-tracked-web" lay-web; make_tracked "$LAY/mutant-tracked-plain" lay-plain
 INIT_ROOT="$planted" lay_init "$LAY/mutant-tracked-web" mutant-tracked-web; INIT_ROOT="$planted" lay_init "$LAY/mutant-tracked-plain" mutant-tracked-plain
 [ "$(cat "$LAY/mutant-tracked-web/.ai-core/config.env")" = 'TRACKED_OWN="yes"' ] && fail "planted: writing the merge over a tracked file was not caught"
-[ "$(cat "$LAY/mutant-tracked-web/kept.txt")" = mine ] && is_layer_config "$LAY/mutant-tracked-plain" || fail "planted: the tracked file of repos/lay-web/ or the plain repository changed with the tracked check of config.env"
+[ "$(cat "$LAY/mutant-tracked-plain/.ai-core/config.env")" = 'TRACKED_OWN="yes"' ] && fail "planted: writing the layer's config.env over a tracked file was not caught"
+[ "$(cat "$LAY/mutant-tracked-web/kept.txt")" = mine ] || fail "planted: the tracked file of repos/lay-web/ changed with the tracked check of config.env"
 # every other file of repos/<repo>/ still replaces the whole untracked target
 printf 'edited by hand\n' > "$LAY/lay-web/notes.txt"
 lay_init "$LAY/lay-web" lay-web-notes
@@ -714,6 +736,195 @@ for doc in README.md skeleton/README.md skeleton/repos/README.md; do
   grep -q 'key by key' "$ROOT/$doc" || fail "$doc does not say that a repository's config.env is laid over the layer's key by key"
 done
 echo "  lay: a repository's config.env keeps every key of its layer and a plain one gets the layer's bytes; a later key, a change, a drop, an override of nothing, one in UTF-16 and one taken out follow; a full copy reads as before; no expression runs; a tracked file is left; dry runs write nothing; a linked worktree and a project folder keep their scope; a planted whole-file write, a stale removal, a tracked write, a write past the dry run, a pattern without spaces, keys taken past grep and an init that runs its input are each caught"
+
+section "a file the repository tracks is never written over by init: each data file, one layer and an extends chain, an override, a dry run, a worktree; the local and the remote catalog agree"
+TRK="$WORK/trk"; mkdir -p "$TRK/committed"
+DATA_NAMES="config.env labels.tsv assignees.tsv team-modes.tsv models.tsv"
+data_row() {  # data_row <file> <who>: valid lines of that data file, marked with who wrote them
+  case "$1" in
+    config.env) printf 'DATA_MARK="%s"\n' "$2" ;;
+    labels.tsv) printf 'area\tarea:%s\t0E8A16\tDeclared by %s\n' "$2" "$2" ;;
+    assignees.tsv) printf 'example-repo\t%s\n' "$2" ;;
+    team-modes.tsv) printf 'claude\tmode-%s\talways\t-\t-\n' "$2" ;;
+    models.tsv) printf 'plan\tmechanical\tclaude-sonnet-5-5\tmedium\tno\nbuild\tmechanical\tclaude-sonnet-5-5\t%s\tno\n' "$2" ;;
+  esac
+}
+for f in $DATA_NAMES; do data_row "$f" tracked > "$TRK/committed/$f"; done
+# the chain: trkbase carries all five files, trk (which extends it) its own config.env, labels.tsv and models.tsv, and two overrides
+make_layer trkbase; make_layer trk trkbase
+for f in $DATA_NAMES; do data_row "$f" base > "$LAY/author-trkbase/$f"; done
+for f in config.env labels.tsv models.tsv; do data_row "$f" layer > "$LAY/author-trk/$f"; done
+mkdir -p "$LAY/author-trk/repos/trk-web/.ai-core" "$LAY/author-trk/repos/trk-ov/.ai-core"
+for f in config.env labels.tsv; do data_row "$f" override > "$LAY/author-trk/repos/trk-web/.ai-core/$f"; done
+data_row labels.tsv override > "$LAY/author-trk/repos/trk-ov/.ai-core/labels.tsv"
+publish_layer trkbase "the base layer"; publish_layer trk "the inner layer"
+# a layer with none of the five files: the harness's own tables and templates are what a repository gets
+make_layer bare
+make_tracked_data() {  # make_tracked_data <dir> <repo name> [file to leave out...]: a checkout that commits its data files, each with its own row
+  local dir="$1" name="$2" f
+  new_checkout "$dir" "$name"; mkdir -p "$dir/.ai-core"; shift 2
+  for f in $DATA_NAMES; do case " $* " in *" $f "*) ;; *) data_row "$f" tracked > "$dir/.ai-core/$f" ;; esac; done
+  git -C "$dir" add -f .ai-core; git -C "$dir" -c user.name=check -c user.email=check@localhost commit -q -m "its own data files"
+}
+tracked_kept() {  # tracked_kept <checkout> <log> [file to leave out...]: nothing printed, status 0 where every committed data file stands as committed, git status is empty, and the report names each as tracked and winning; else why, status 1
+  local c="$1" log="$2" f; shift 2
+  [ -z "$(git -C "$c" status --porcelain)" ] || { echo "git status shows: $(git -C "$c" status --porcelain | tr '\n' '|')"; return 1; }
+  for f in $DATA_NAMES; do
+    case " $* " in *" $f "*) continue ;; esac
+    cmp -s "$TRK/committed/$f" "$c/.ai-core/$f" || { echo ".ai-core/$f is not what is committed"; return 1; }
+    grep -aE '^  tracked ' "$log" | grep -q "\.ai-core/$f" || { echo "the report does not name .ai-core/$f as tracked"; return 1; }
+  done
+  grep -aE '^  tracked ' "$log" | grep -q 'wins over the layers' || { echo "the report does not say that the tracked file wins over the layers' copy"; return 1; }
+}
+# one layer with an override and an extends chain, every data file tracked, the old layer's files each different
+make_tracked_data "$LAY/trk-web" trk-web; make_tracked_data "$LAY/trk-bare" trk-bare
+lay_init "$LAY/trk-web" trk-web; lay_init "$LAY/trk-bare" trk-bare
+tracked_kept "$LAY/trk-web" "$WORK/trk-web.log" > "$WORK/tracked-kept.out" || fail "init wrote over a tracked data file of a repository with an override over a chain of two layers: $(cat "$WORK/tracked-kept.out")"
+tracked_kept "$LAY/trk-bare" "$WORK/trk-bare.log" > "$WORK/tracked-kept.out" || fail "init wrote over a tracked data file of a repository with no override: $(cat "$WORK/tracked-kept.out")"
+# a second run adds nothing and a dry run writes nothing
+before="$(tree_digest "$LAY/trk-web")"
+lay_init "$LAY/trk-web" trk-web-2
+[ "$(tree_digest "$LAY/trk-web")" = "$before" ] && ! grep -aE '^  (created|refreshed) .*\.ai-core/(config\.env|labels\.tsv|assignees\.tsv|team-modes\.tsv|models\.tsv)' "$WORK/trk-web-2.log" || fail "a second init added or changed a data file (see $WORK/trk-web-2.log)"
+tracked_kept "$LAY/trk-web" "$WORK/trk-web-2.log" > "$WORK/tracked-kept.out" || fail "a second init did not report the tracked data files: $(cat "$WORK/tracked-kept.out")"
+lay_init "$LAY/trk-web" trk-web-dry --dry-run
+[ "$(tree_digest "$LAY/trk-web")" = "$before" ] && tracked_kept "$LAY/trk-web" "$WORK/trk-web-dry.log" > "$WORK/tracked-kept.out" || fail "a dry run wrote, or did not report the tracked data files: $(cat "$WORK/tracked-kept.out")"
+# innocent: a repository that tracks none gets the layers' files, the inner layer's where both have one, and the override over the layer
+new_checkout "$LAY/trk-plain" trk-plain; lay_init "$LAY/trk-plain" trk-plain
+cmp -s "$LAY/author-trk/labels.tsv" "$LAY/trk-plain/.ai-core/labels.tsv" && cmp -s "$LAY/author-trk/models.tsv" "$LAY/trk-plain/.ai-core/models.tsv" && cmp -s "$LAY/author-trkbase/assignees.tsv" "$LAY/trk-plain/.ai-core/assignees.tsv" && cmp -s "$LAY/author-trkbase/team-modes.tsv" "$LAY/trk-plain/.ai-core/team-modes.tsv" && cmp -s "$LAY/author-trk/config.env" "$LAY/trk-plain/.ai-core/config.env" \
+  || fail "an untracked data file is no longer the layer's: $(cat "$LAY/trk-plain/.ai-core/labels.tsv")"
+new_checkout "$LAY/trk-ov" trk-ov; lay_init "$LAY/trk-ov" trk-ov
+cmp -s "$LAY/author-trk/repos/trk-ov/.ai-core/labels.tsv" "$LAY/trk-ov/.ai-core/labels.tsv" || fail "the override of a repository no longer replaces the layer's labels.tsv: $(cat "$LAY/trk-ov/.ai-core/labels.tsv")"
+echo 'edited by hand' >> "$LAY/trk-plain/.ai-core/labels.tsv"; lay_init "$LAY/trk-plain" trk-plain-2
+cmp -s "$LAY/author-trk/labels.tsv" "$LAY/trk-plain/.ai-core/labels.tsv" && grep -aqE '^  refreshed .*\.ai-core/labels\.tsv' "$WORK/trk-plain-2.log" || fail "an untracked data file edited by hand was not refreshed from the layer (see $WORK/trk-plain-2.log)"
+# the local catalog and the remote one agree: the same label is admitted and the same unknown one refused, in each source of precedence
+mkdir -p "$WORK/remote-gh" "$WORK/elsewhere/other"
+cat > "$WORK/remote-gh/gh" <<'EOF'
+#!/usr/bin/env bash
+# gh api over the bare repositories of the stand-in GitHub: the head commit, and a file at a commit as the contents API gives it
+[ "$1" = api ] || exit 1
+path="${2%%\?*}"; ref=""; case "$2" in *\?ref=*) ref="${2#*\?ref=}" ;; esac
+repo="$(printf '%s' "$path" | cut -d/ -f2,3)"; bare="$GH_FAKE/github.com/$repo.git"
+[ -d "$bare" ] || { echo 'gh: Not Found (HTTP 404)' >&2; exit 1; }
+case "$path" in
+  repos/*/*/commits/HEAD) git -C "$bare" rev-parse HEAD ;;
+  repos/*/*/contents/*)
+    file="${path#repos/$repo/contents/}"
+    git -C "$bare" cat-file -e "$ref:$file" 2>/dev/null || { echo 'gh: Not Found (HTTP 404)' >&2; exit 1; }
+    jq -n --arg content "$(git -C "$bare" show "$ref:$file" | base64)" --argjson size "$(git -C "$bare" cat-file -s "$ref:$file")" '{type: "file", encoding: "base64", size: $size, content: $content}' ;;
+esac
+EOF
+chmod +x "$WORK/remote-gh/gh"; git init -q "$WORK/elsewhere/other"
+publish_repository() {  # publish_repository <checkout> <name>: the checkout's branch on the stand-in GitHub, where the remote reader finds it
+  local branch; branch="$(git -C "$1" symbolic-ref --short HEAD)"
+  git init -q --bare "$GH_FAKE/github.com/example-org/$2.git"; git -C "$GH_FAKE/github.com/example-org/$2.git" symbolic-ref HEAD "refs/heads/$branch"
+  git -C "$1" push -q "$GH_FAKE/github.com/example-org/$2.git" "HEAD:refs/heads/$branch"
+}
+publish_repository "$LAY/trk-web" trk-web; publish_repository "$LAY/trk-ov" trk-ov; publish_repository "$LAY/trk-plain" trk-plain
+taxonomy() {  # taxonomy <local|remote> <repo name> [checkout]: the labels of the project of that repository, read where init left them (in the checkout, $LAY/<repo name> unless one is named) or from the forge
+  local where="$1" name="$2" dir="${3:-$LAY/$2}" path="$PATH_SH"
+  [ "$where" = local ] || { dir="$WORK/elsewhere/other"; path="$WORK/remote-gh:$PATH_SH"; }
+  ( cd "$dir" && PATH="$path" bash -c '. "$1/lib/board.sh"; target_labels_tsv "example-org/$2"' _ "$ROOT" "$name" 2>&1 )
+}
+catalogs_agree() {  # catalogs_agree <repo name> <the label only its catalog declares> <label no catalog of it declares>: yes where both readers give one catalog, with the first label and without the second
+  local here there
+  here="$(taxonomy local "$1")"; there="$(taxonomy remote "$1")"
+  [ "$here" = "$there" ] && grep -q "area:$2" <<< "$here" && ! grep -q "area:$3" <<< "$here" && echo yes || echo "no: local [$(grep area: <<< "$here" | tr '\t\n' ' ')] remote [$(grep area: <<< "$there" | tr '\t\n' ' ')]"
+}
+[ "$(catalogs_agree trk-web tracked override)" = yes ] || fail "a repository that tracks its catalog: the local and the remote reader differ, or the tracked rows are not the ones read: $(catalogs_agree trk-web tracked override)"
+[ "$(catalogs_agree trk-web tracked layer)" = yes ] && [ "$(catalogs_agree trk-web tracked base)" = yes ] || fail "the tracked catalog is merged with a layer's: $(catalogs_agree trk-web tracked layer)"
+[ "$(catalogs_agree trk-ov override layer)" = yes ] || fail "a repository with an override of its own: the local and the remote reader differ: $(catalogs_agree trk-ov override layer)"
+[ "$(catalogs_agree trk-plain layer base)" = yes ] || fail "a repository served by its layer alone: the local and the remote reader differ: $(catalogs_agree trk-plain layer base)"
+# planted: the old init writes the layer's catalog over the tracked one, and the local reader then answers what the remote one does not
+planted="$(mutant_root 's|else put_data "\$l/\$f" ".ai-core/\$f"; fi|else put "$l/$f" ".ai-core/$f" managed; fi|')"
+make_tracked_data "$LAY/mutant-trk-web" trk-web; INIT_ROOT="$planted" lay_init "$LAY/mutant-trk-web" mutant-trk-web
+tracked_kept "$LAY/mutant-trk-web" "$WORK/mutant-trk-web.log" > /dev/null && fail "planted: an init that writes the layer's data file over a tracked one was not caught"
+[ "$(taxonomy local trk-web "$LAY/mutant-trk-web")" != "$(taxonomy remote trk-web)" ] || fail "planted: the catalog the old init left reads like the tracked one, so the readers' agreement cannot go red"
+# planted: the old config branch, with the override and without
+planted="$(mutant_root 's|if \[ -n "\$CONFIG_BASE" \] \&\& ! keep_tracked .ai-core/config.env; then|if [ -n "$CONFIG_BASE" ]; then|')"
+make_tracked_data "$LAY/mutant-config-web" trk-web; make_tracked_data "$LAY/mutant-config-bare" trk-bare
+INIT_ROOT="$planted" lay_init "$LAY/mutant-config-web" mutant-config-web; INIT_ROOT="$planted" lay_init "$LAY/mutant-config-bare" mutant-config-bare
+tracked_kept "$LAY/mutant-config-web" "$WORK/mutant-config-web.log" > /dev/null && fail "planted: the layer's config.env laid over a tracked one, with an override, was not caught"
+tracked_kept "$LAY/mutant-config-bare" "$WORK/mutant-config-bare.log" > /dev/null && fail "planted: the layer's config.env written over a tracked one, with no override, was not caught"
+# no layer provides the tables: the harness's own are managed, and a tracked table is never replaced by them; a removed one stays removed
+make_tracked_data "$LAY/bare-web" bare-web; lay_init "$LAY/bare-web" bare-web
+tracked_kept "$LAY/bare-web" "$WORK/bare-web.log" > "$WORK/tracked-kept.out" || fail "init wrote the harness's own data files over tracked ones, no layer providing them: $(cat "$WORK/tracked-kept.out")"
+planted="$(mutant_root 's|put_data "\$CORE_ROOT/templates/\$rel" "\$rel"; continue|put "$CORE_ROOT/templates/$rel" "$rel" managed; continue|')"
+make_tracked_data "$LAY/mutant-bare-web" bare-web; INIT_ROOT="$planted" lay_init "$LAY/mutant-bare-web" mutant-bare-web
+tracked_kept "$LAY/mutant-bare-web" "$WORK/mutant-bare-web.log" > /dev/null && fail "planted: the harness's own tables written over tracked ones were not caught"
+# a tracked file changed or removed in the working tree stays as it is: init restores nothing of HEAD, and puts nothing of a layer or a template in its place
+make_tracked_data "$LAY/edit-web" trk-web; lay_init "$LAY/edit-web" edit-web
+printf 'edited by hand\n' >> "$LAY/edit-web/.ai-core/labels.tsv"; cp "$LAY/edit-web/.ai-core/labels.tsv" "$WORK/edited-labels"
+rm "$LAY/edit-web/.ai-core/assignees.tsv" "$LAY/edit-web/.ai-core/models.tsv"
+lay_init "$LAY/edit-web" edit-web-2
+cmp -s "$WORK/edited-labels" "$LAY/edit-web/.ai-core/labels.tsv" && [ ! -e "$LAY/edit-web/.ai-core/assignees.tsv" ] && [ ! -e "$LAY/edit-web/.ai-core/models.tsv" ] \
+  && [ "$(git -C "$LAY/edit-web" status --porcelain | tr '\n' '|')" = " D .ai-core/assignees.tsv| M .ai-core/labels.tsv| D .ai-core/models.tsv|" ] || fail "a tracked file changed or removed by hand was restored or written over: $(git -C "$LAY/edit-web" status --porcelain | tr '\n' '|')"
+make_tracked_data "$LAY/gone-web" bare-web; lay_init "$LAY/gone-web" gone-web
+rm "$LAY/gone-web/.ai-core/labels.tsv" "$LAY/gone-web/.ai-core/config.env" "$LAY/gone-web/.ai-core/team-modes.tsv"
+lay_init "$LAY/gone-web" gone-web-2
+[ ! -e "$LAY/gone-web/.ai-core/labels.tsv" ] && [ ! -e "$LAY/gone-web/.ai-core/config.env" ] && [ ! -e "$LAY/gone-web/.ai-core/team-modes.tsv" ] || fail "a removed tracked file was made again from a template of the harness: $(ls "$LAY/gone-web/.ai-core" | tr '\n' ' ')"
+planted="$(mutant_root '/\.ai-core\/config\.env|\.ai-core\/labels\.tsv|\.ai-core\/assignees\.tsv) keep_tracked "\$rel" \&\& continue ;;/d')"
+make_tracked_data "$LAY/mutant-gone-bare" bare-web; INIT_ROOT="$planted" lay_init "$LAY/mutant-gone-bare" mutant-gone-bare
+rm "$LAY/mutant-gone-bare/.ai-core/labels.tsv"; INIT_ROOT="$planted" lay_init "$LAY/mutant-gone-bare" mutant-gone-bare-2
+[ -e "$LAY/mutant-gone-bare/.ai-core/labels.tsv" ] || fail "planted: a removed tracked file made again from the template was not seen"
+# a worktree of a repository that tracks a file under .ai-core/ still takes the checkout's own untracked .ai-core data: its configuration, local rules and documents
+make_tracked_data "$LAY/wt-web" bare-web config.env assignees.tsv team-modes.tsv models.tsv; lay_init "$LAY/wt-web" wt-web
+printf 'WT_MARK="from the checkout"\n' >> "$LAY/wt-web/.ai-core/config.env"
+printf 'a rule of the checkout\n' >> "$LAY/wt-web/.ai-core/rules/rules.local.md"; mkdir -p "$LAY/wt-web/.ai-core/docs"; printf 'a document of the checkout\n' > "$LAY/wt-web/.ai-core/docs/note.md"
+git -C "$LAY/wt-web" worktree add -q -b issue-358-wt "$LAY/wt-tree" 2>/dev/null || fail "no worktree of wt-web"
+[ -f "$LAY/wt-tree/.ai-core/labels.tsv" ] && [ ! -e "$LAY/wt-tree/.ai-core/config.env" ] || fail "the worktree of the repository does not start as the test needs it: a tracked labels.tsv and nothing else under .ai-core/"
+worktree_took() {  # worktree_took <worktree> <log>: nothing printed where it holds the checkout's config.env, local rules and document, and the tracked catalog as committed; else why
+  local t="$1" log="$2"
+  grep -q '^WT_MARK="from the checkout"$' "$t/.ai-core/config.env" 2>/dev/null || { echo "the worktree did not take the checkout's config.env"; return 1; }
+  cmp -s "$LAY/wt-web/.ai-core/rules/rules.local.md" "$t/.ai-core/rules/rules.local.md" || { echo "the worktree did not take the checkout's local rules"; return 1; }
+  cmp -s "$LAY/wt-web/.ai-core/docs/note.md" "$t/.ai-core/docs/note.md" || { echo "the worktree did not take the checkout's documents"; return 1; }
+  cmp -s "$TRK/committed/labels.tsv" "$t/.ai-core/labels.tsv" && [ -z "$(git -C "$t" status --porcelain)" ] || { echo "the tracked labels.tsv of the worktree is not as committed: $(git -C "$t" status --porcelain | tr '\n' '|')"; return 1; }
+  grep -aq "^  \.ai-core taken from the checkout $LAY/wt-web" "$log" || { echo "the report does not say that .ai-core was taken from the checkout"; return 1; }
+}
+planted="$(mutant_root 's|if \[ "\$PROJECT_FOLDER" -eq 0 \] \&\& \[ ! -f "\$TARGET/.ai-core/STAMP" \]; then|if [ "$PROJECT_FOLDER" -eq 0 ] \&\& [ ! -d "$TARGET/.ai-core" ]; then|')"
+git -C "$LAY/wt-web" worktree add -q -b issue-358-old "$LAY/wt-old" 2>/dev/null || fail "no second worktree of wt-web"
+before="$(tree_digest "$LAY/wt-tree")"
+lay_init "$LAY/wt-tree" wt-dry --dry-run
+[ "$(tree_digest "$LAY/wt-tree")" = "$before" ] && grep -aq '^  \.ai-core would be taken from the checkout' "$WORK/wt-dry.log" || fail "a dry run in the worktree wrote, or did not say what it would take (see $WORK/wt-dry.log)"
+lay_init "$LAY/wt-tree" wt-tree
+worktree_took "$LAY/wt-tree" "$WORK/wt-tree.log" > "$WORK/tracked-kept.out" || fail "a worktree of a repository that tracks a file under .ai-core/ did not get the checkout's data: $(cat "$WORK/tracked-kept.out")"
+INIT_ROOT="$planted" lay_init "$LAY/wt-old" wt-old
+worktree_took "$LAY/wt-old" "$WORK/wt-old.log" > /dev/null && fail "planted: the worktree that copies .ai-core only where the folder is missing, which a tracked file made, was not caught"
+lay_init "$LAY/wt-tree" wt-tree-2
+! grep -aq '^  \.ai-core taken' "$WORK/wt-tree-2.log" && grep -q '^WT_MARK="from the checkout"$' "$LAY/wt-tree/.ai-core/config.env" || fail "a second init in the worktree took the checkout's data again (see $WORK/wt-tree-2.log)"
+echo "  tracked data: five files, a layer, a chain with an override, no layer, a dry run, a second run, a changed and a removed file, a worktree, and the local and remote catalog agree; each planted copy of the old init is caught, the untracked case still follows the layer"
+
+# a tracked config.env that cannot be read stops init where it reads the agents the project serves; planted: with AGENTS read as empty, init serves every agent
+old_reader_copy "$ROOT" "$WORK/init-old-reader" || fail "no copy of the harness with the old reader"
+unreadable_checkout() {  # unreadable_checkout <dir>: a checkout whose tracked config.env serves cursor alone and cannot be read
+  new_checkout "$1" bare-unreadable; mkdir -p "$1/.ai-core"; printf 'AGENTS="cursor"\n' > "$1/.ai-core/config.env"
+  git -C "$1" add -f .ai-core/config.env; git -C "$1" -c user.name=check -c user.email=check@localhost commit -q -m "its own settings"
+  make_unreadable "$1/.ai-core/config.env" || fail "the config.env of $1 cannot be made unreadable"
+}
+init_unreadable() {  # init_unreadable <harness root> <checkout>: init with tracker and forge in the environment, so that only the read of AGENTS meets the file; its output, then rc=<n>
+  local out rc=0
+  out="$(HOME="$WORK/home-lay" PATH="$PATH_SH" TRACKER=github FORGE=github bash "$1/bin/init.sh" "$2" --no-doctor 2>&1)" || rc=$?
+  printf '%s\nrc=%s\n' "$out" "$rc"
+}
+init_stopped() {  # init_stopped <what init_unreadable printed> <checkout>: yes where init failed, named the file once, and served an agent AGENTS does not name
+  if [ "$(tail -n1 <<< "$1")" != rc=0 ] && [ "$(grep -acF -- "$2/.ai-core/config.env exists but cannot be read" <<< "$1")" = 1 ] && [ ! -e "$2/.windsurfrules" ]; then echo yes; else echo no; fi
+}
+unreadable_checkout "$LAY/unreadable-new"
+got="$(init_unreadable "$ROOT" "$LAY/unreadable-new")"
+[ "$(init_stopped "$got" "$LAY/unreadable-new")" = yes ] || fail "init went on with a tracked config.env it cannot read, or did not name it: $(tail -4 <<< "$got" | tr '\n' '|')"
+unreadable_checkout "$LAY/unreadable-old"
+got="$(init_unreadable "$WORK/init-old-reader" "$LAY/unreadable-old")"
+[ "$(init_stopped "$got" "$LAY/unreadable-old")" = no ] && [ -e "$LAY/unreadable-old/.windsurfrules" ] || fail "planted: init with the old reader did not serve every agent for the file it cannot read, so the check cannot go red: $(tail -4 <<< "$got" | tr '\n' '|')"
+cat > "$WORK/old-agents.sed" <<'SED'
+s@^AGENTS="\$(config_value_in_file "\$CONFIG" AGENTS "")" || exit 1$@AGENTS="$(grep -E '^[[:space:]]*AGENTS[[:space:]]*=' "$CONFIG" | tail -n1 | sed 's/^[^=]*=//; s/\#.*//' | tr -d '"\\r' | tr -d "'" || true)"@
+SED
+planted="$(mutant_root "$(cat "$WORK/old-agents.sed")")"
+unreadable_checkout "$LAY/unreadable-mutant"
+got="$(init_unreadable "$planted" "$LAY/unreadable-mutant")"
+[ "$(init_stopped "$got" "$LAY/unreadable-mutant")" = no ] && [ -e "$LAY/unreadable-mutant/.windsurfrules" ] || fail "planted: the raw read of AGENTS that turns an unreadable file into every agent was not caught: $(tail -4 <<< "$got" | tr '\n' '|')"
+chmod 600 "$LAY/unreadable-new/.ai-core/config.env"
+got="$(init_unreadable "$ROOT" "$LAY/unreadable-new")"
+[ "$(tail -n1 <<< "$got")" = rc=0 ] && [ -e "$LAY/unreadable-new/.cursorrules" ] && [ ! -e "$LAY/unreadable-new/.windsurfrules" ] || fail "innocent: init over the same file, readable, does not serve cursor alone: $(tail -4 <<< "$got" | tr '\n' '|')"
+echo "  an unreadable config.env: map asks no agent CLI, and init serves no agent by default; planted: the old reader and the raw read of AGENTS each go on"
 
 section "Forgejo project settings: a fresh clone and a template-only checkout find their harness in one init"
 make_forgejo_project

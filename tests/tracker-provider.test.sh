@@ -106,6 +106,67 @@ check "planted: the copy without its refusal is not refused as the real one is" 
   "$([ "$(dispatch "$WORK/planted" nonesuch)" = "$refusal" ] && echo yes || echo no)"
 check "innocent: the same copy still loads github" "tracker=github function" "$(dispatch "$WORK/planted" github)"
 
+# a config.env that exists and cannot be read stops whoever reads it, naming the file, and no default stands in its
+# place; one that is not there still gives the defaults. The old reader, which gave the default of every key, is the plant.
+. "$ROOT/tests/unreadable.sh"
+old="$WORK/old-reader"; old_reader_copy "$ROOT" "$old" || failed=$((failed + 1))
+fails_naming() {  # fails_naming <lib root> <directory> <file the error names> <function> [argument...]: yes where the call fails, names the file and prints no value
+  local out err rc=0
+  out="$( cd "$2" && env -u TRACKER -u PLANE_PROJECT -u TKEY bash -c '. "$1/lib/common.sh"; shift; "$@"' _ "$1" "${@:4}" 2>"$WORK/read-err" )" || rc=$?
+  err="$(cat "$WORK/read-err")"
+  if [ "$rc" -ne 0 ] && [ -z "$out" ] && grep -qF "$3" <<< "$err"; then echo yes; else echo "no (status $rc, stdout [$out], stderr [$err])"; fi
+}
+unreadable_file="$WORK/project/.ai-core/config.env"
+config 'TKEY=plain\nTRACKER=forgejo\n'
+make_unreadable "$unreadable_file" || failed=$((failed + 1))
+check "an unreadable config.env stops config_value, names the file and prints no default" yes "$(fails_naming "$ROOT" "$WORK/project" "$unreadable_file" config_value TKEY dflt)"
+check "an unreadable config.env stops config_file_value" yes "$(fails_naming "$ROOT" "$WORK/project" "$unreadable_file" config_file_value TKEY dflt)"
+check "an unreadable config.env stops config_value_lower" yes "$(fails_naming "$ROOT" "$WORK/project" "$unreadable_file" config_value_lower TRACKER github)"
+check "an unreadable config.env ends the shell that asks whether the tracker is Forgejo, and says so by status 2" "2" "$( cd "$WORK/project" && env -u TRACKER bash -c '. "$1/lib/common.sh"; tracker_is_forgejo' _ "$ROOT" >/dev/null 2>&1; echo $? )"
+check "innocent: the environment wins where no file is read, an unreadable one beside it" "env" "$( cd "$WORK/project" && TKEY=env bash -c '. "$1/lib/common.sh"; config_value TKEY dflt' _ "$ROOT" )"
+check "planted: the old reader gives the default of every key" "dflt" "$(read_in "$old" "$WORK/project" TKEY dflt)"
+check "planted: the old reader takes the unreadable file for no tracker named" "github" "$(read_in "$old" "$WORK/project" TRACKER github)"
+dispatch_out="$(dispatch "$ROOT" unset)"
+check "a command that loads its provider stops, names the file and loads nothing" yes "$(case "$dispatch_out" in *"$unreadable_file"*) case "$dispatch_out" in *tracker=*) echo no ;; *) echo yes ;; esac ;; *) echo no ;; esac)"
+check "planted: with the old reader the same command loads github" "tracker=github function" "$(dispatch "$old" unset)"
+chmod 600 "$unreadable_file"
+check "innocent: the same file, readable again, is read" "plain" "$(ask TKEY dflt)"
+rm -f "$unreadable_file"
+check "innocent: a config.env that is not there gives the default" "dflt" "$(ask TKEY dflt)"
+config 'TKEY=plain\n'
+check "innocent: a key the file does not set gives the default" "dflt" "$(ask OTHER dflt)"
+mkdir -p "$WORK/shapes/dir.env"; ln -s "$WORK/shapes/nothing" "$WORK/shapes/link.env"
+for shape in dir.env link.env; do
+  check "a $shape in the place of the file cannot be read, whoever reads it" yes "$(fails_naming "$ROOT" "$WORK/shapes" "$WORK/shapes/$shape" config_value_in_file "$WORK/shapes/$shape" TKEY dflt)"
+  check "planted: the old reader gives the default for a $shape" "dflt" "$(bash -c '. "$1/lib/common.sh"; config_value_in_file "$2" TKEY dflt' _ "$old" "$WORK/shapes/$shape" 2>/dev/null)"
+done
+check "innocent: a path that is not there gives the default" "dflt" "$(bash -c '. "$1/lib/common.sh"; config_value_in_file "$2" TKEY dflt' _ "$ROOT" "$WORK/shapes/nothing")"
+# a worktree reads the eight tracker settings from the main checkout's file, and every other setting from its own
+git -C "$WORK/project" -c user.name=t -c user.email=t@example.test commit -q --allow-empty -m start
+git -C "$WORK/project" worktree add -q -b unreadable-tree "$WORK/project-tree"
+mkdir -p "$WORK/project-tree/.ai-core"; printf 'TKEY=own\n' > "$WORK/project-tree/.ai-core/config.env"
+config 'TKEY=plain\nTRACKER=forgejo\n'
+make_unreadable "$unreadable_file" || failed=$((failed + 1))
+check "a worktree stops on the main checkout's unreadable file for a tracker setting" yes "$(fails_naming "$ROOT" "$WORK/project-tree" "$unreadable_file" config_value TRACKER github)"
+check "planted: the old reader gives the worktree the default tracker" "github" "$(read_in "$old" "$WORK/project-tree" TRACKER github)"
+check "innocent: another setting of the worktree is its own file's, the main checkout's unreadable one beside it" "own" "$(read_in "$ROOT" "$WORK/project-tree" TKEY dflt)"
+chmod 600 "$unreadable_file"
+# a harness clone reads its layer's config.env, and a clone with none of its own the project folder's
+make_unreadable "$harness/config.env" || failed=$((failed + 1))
+check "a harness clone stops on the layer's unreadable config.env" yes "$(fails_naming "$ROOT" "$harness" "$harness/config.env" config_value TRACKER github)"
+check "planted: the old reader gives the harness clone the default tracker" "github" "$(read_in "$old" "$harness" TRACKER github)"
+chmod 600 "$harness/config.env"
+folder_project="$WORK/fold"; mkdir -p "$folder_project/.ai-core"; git init -q "$folder_project/shop-web"
+git -C "$folder_project/shop-web" remote add origin https://forge.example.test/example-org/shop-web.git
+printf 'TRACKER=forgejo\nFORGEJO_URL=https://forge.example.test\n' > "$folder_project/.ai-core/config.env"
+printf 'setup-ai-core abc123\nshop-ai-core def456\n' > "$folder_project/.ai-core/STAMP"
+check "innocent: a checkout with no config of its own reads its project folder's" "forgejo" "$(read_in "$ROOT" "$folder_project/shop-web" TRACKER github)"
+make_unreadable "$folder_project/.ai-core/config.env" || failed=$((failed + 1))
+check "a checkout stops on its project folder's unreadable config.env" yes "$(fails_naming "$ROOT" "$folder_project/shop-web" "$folder_project/.ai-core/config.env" config_value TRACKER github)"
+check "planted: the old reader gives the checkout the default tracker" "github" "$(read_in "$old" "$folder_project/shop-web" TRACKER github)"
+chmod 600 "$folder_project/.ai-core/config.env"
+config ''
+
 # the interface: a provider that lacks a function is refused at once, and names it
 mkdir -p "$WORK/planted/lib/lacking"
 printf 'gh_org() { :; }\n' > "$WORK/planted/lib/lacking/tracker.sh"

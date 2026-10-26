@@ -368,7 +368,8 @@ keep_waited_tips() {
 base_tip=""; merged_sha=""; merged=""
 gate_public_repository() {
   local checked_repo visibility ci_gate tip poll limit checks=0 on_origin said held push_status position
-  ci_gate="$(config_file_value CI_GATE public | tr '[:upper:]' '[:lower:]')"
+  ci_gate="$(config_file_value CI_GATE public)" || die "nothing landed: the settings of the project cannot be read, so CI_GATE is not known"
+  ci_gate="$(printf '%s' "$ci_gate" | tr '[:upper:]' '[:lower:]')"
   case "$ci_gate" in
     public|none) ;;
     *) die "nothing landed: CI_GATE is '$ci_gate' in the config.env of the project; it is public or none" ;;

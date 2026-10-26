@@ -248,11 +248,12 @@ exec ai-core pre-push "$@"
 '
 # The second shim: the harness is in no commit, so a worktree starts without it. Git runs
 # .githooks/post-checkout in the new tree after `git worktree add` (third argument 1, as after
-# any branch checkout), and where .ai-core/ is missing the shim starts `ai-core init`. It exits 0
+# any branch checkout), and where .ai-core/STAMP is missing the shim starts `ai-core init`, because a
+# file the branch tracks under .ai-core/ stands there before the harness does. It exits 0
 # whatever happened, because a failing hook fails the checkout too; what went wrong is on stderr.
 SHIM_CHECKOUT='#!/usr/bin/env bash
-# A new worktree starts with the harness: git runs this file after `git worktree add` and after every checkout; where .ai-core/ is missing, `ai-core init` (setup-ai-core) writes it.
-[ "${3:-0}" = 1 ] && [ ! -d .ai-core ] || exit 0
+# A new worktree starts with the harness: git runs this file after `git worktree add` and after every checkout; where .ai-core/STAMP is missing, `ai-core init` (setup-ai-core) writes the harness.
+[ "${3:-0}" = 1 ] && [ ! -f .ai-core/STAMP ] || exit 0
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
 command -v ai-core >/dev/null 2>&1 || { echo "post-checkout: ai-core is not on the PATH of this shell, so this worktree has no harness yet; run ai-core init here before you start" >&2; exit 0; }
 . "$(dirname "$(command -v ai-core)")/../lib/layers.sh" || { echo "post-checkout: could not read the harness source library" >&2; exit 0; }
@@ -301,7 +302,7 @@ write_shims() {  # write_shims <checkout> <label>: both shims, one report line e
 # give it. A file written there is a change its branch never commits, because the default branch
 # carries the shims already, and finish-issue then refuses to remove the worktree. So pre-push is
 # written only where the commit lacks this gate's shim, executable, and post-checkout only where the
-# commit has none git runs: it starts init only in a worktree without .ai-core, which an existing
+# commit has none git runs: it starts init only in a worktree without .ai-core/STAMP, which an existing
 # worktree has. A shim the commit gives that an earlier install rewrote goes back to the commit.
 write_worktree_shims() {
   local tree="$1" label="$2" dir="$3" hook text path mode wrote written=0
@@ -679,8 +680,9 @@ fi
 # repositories, or "yes"), a controller or a job deploys that branch, so landing on it is
 # deploying. Such a landing needs the repository's own checks, because the gate's would be all that
 # tests what goes live, and its last commit names who reviewed the change in a 'Reviewed-by:' trailer.
-live="$(grep -E '^[[:space:]]*DEFAULT_BRANCH_IS_LIVE[[:space:]]*=' "$root/.ai-core/config.env" 2>/dev/null | tail -n1 || true)"
-live="${live#*=}"; live="${live%%#*}"; live="${live//[\"\',]/ }"
+live="$(config_value_in_file "$root/.ai-core/config.env" DEFAULT_BRANCH_IS_LIVE "")" \
+  || refuse "the settings of this repository cannot be read, so it is not known whether $default of this repository goes live"
+live="${live//[\"\',]/ }"
 repo_name="$(basename "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null | sed 's|/\.git$||')")"
 case " $(tr -s '[:space:]' ' ' <<< "$live") " in *" yes "*|*" $repo_name "*) live=yes ;; *) live=no ;; esac
 if [ -n "$landing" ] && [ "$live" = yes ]; then
@@ -1008,8 +1010,8 @@ fi
 LOAD_POLL_SECONDS=5
 read_load_settings() {  # sets LOAD_LIMIT and LOAD_WAIT_SECONDS, or refuses
   local decimal='^[0-9]+(\.[0-9]+)?$' whole='^[0-9]+$'
-  LOAD_LIMIT="$(config_file_value PRE_PUSH_LOAD_LIMIT 24)"
-  LOAD_WAIT_SECONDS="$(config_file_value PRE_PUSH_LOAD_WAIT_SECONDS 300)"
+  LOAD_LIMIT="$(config_file_value PRE_PUSH_LOAD_LIMIT 24)" || refuse "the settings of this repository cannot be read, so the load limit is not known"
+  LOAD_WAIT_SECONDS="$(config_file_value PRE_PUSH_LOAD_WAIT_SECONDS 300)" || refuse "the settings of this repository cannot be read, so the load wait is not known"
   [[ "$LOAD_LIMIT" =~ $decimal ]] \
     || refuse "PRE_PUSH_LOAD_LIMIT is '$LOAD_LIMIT' in $root/.ai-core/config.env; it is the 1-minute load below which a check starts, a number of 0 or more such as 24 or 23.5, and 0 turns the wait off"
   [[ "$LOAD_WAIT_SECONDS" =~ $whole ]] \

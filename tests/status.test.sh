@@ -383,6 +383,52 @@ check 'a fetch that fails says what git said' yes "$(grep -q '^  fetching origin
 check 'and the cards are still read from the clone' "  🔴 $(printf '%-26s' example-repo#33) live on test since 26 h (deploy/test/3)  Card 33" "$(grep 'example-repo#33 ' <<< "$gone")"
 check 'a sweep that cannot run is named' yes "$(grep -q '^  example-repo: the sweep could not run: could not reach origin' <<< "$gone" && echo yes || echo no)"
 
+echo 'a config.env that is there and cannot be read stops the command and names the file; one that is not there, or is read again, changes nothing'
+. "$root/tests/unreadable.sh"
+# the old readers, Bash and Node: each gives the defaults for a file it cannot read
+old_reader_copy "$root" "$work/old-reader" || { echo "  FAIL no copy of the harness with the old reader"; failed=$((failed + 1)); }
+sed -i.bak "s|^    throw new ConfigUnreadable(.*\$|    return '';|" "$work/old-reader/lib/status-live.mjs"
+cmp -s "$root/lib/status-live.mjs" "$work/old-reader/lib/status-live.mjs" && { echo "  FAIL the copy with the old Node reader equals lib/status-live.mjs"; failed=$((failed + 1)); }
+status_of() {  # status_of <harness root>: the status of board 8 as that harness prints it, then its exit status as a last line rc=<n>
+  local out rc=0
+  out="$(cd "$live" && AI_CORE_PROCESSES="$work/no-processes" AI_CORE_AGENTS="$work/no-agents" AI_CORE_ROLLOUTS="$work/no-agents" bash "$1/bin/status.sh" --project example-org/8 2>&1)" || rc=$?
+  printf '%s\nrc=%s\n' "$out" "$rc"
+}
+stopped_naming() {  # stopped_naming <what status_of printed> <file>: yes where the exit status is not 0, one line names the file, and there is no stack trace and no page; else no
+  local got="$1" file="$2"
+  if [ "$(tail -n1 <<< "$got")" != rc=0 ] && [ "$(grep -acF -- "$file exists but cannot be read" <<< "$got")" = 1 ] \
+    && ! grep -aqE '^[[:space:]]+at |node:internal|ConfigUnreadable|^TESTING' <<< "$got"; then echo yes; else echo no; fi
+}
+printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\nPROOF_HOURS=24\n' > "$live/.ai-core/config.env"
+check 'the page is read where every config.env can be read' rc=0 "$(status_of "$root" | tail -n1)"
+make_unreadable "$live/.ai-core/config.env" || { echo "  FAIL the config.env of the project folder cannot be made unreadable"; failed=$((failed + 1)); }
+check 'the config.env of the project folder: status stops, names it once, shows no stack and no page' yes "$(stopped_naming "$(status_of "$root")" "$live/.ai-core/config.env")"
+check 'planted: with the old reader the same file reads as the defaults and the page is shown' no "$(stopped_naming "$(status_of "$work/old-reader")" "$live/.ai-core/config.env")"
+chmod 600 "$live/.ai-core/config.env"
+mkdir -p "$repo/.ai-core"; printf 'LIVE_TAGS="prod=deploy/prod/*"\n' > "$repo/.ai-core/config.env"
+make_unreadable "$repo/.ai-core/config.env" || { echo "  FAIL the config.env of the repository cannot be made unreadable"; failed=$((failed + 1)); }
+check 'the config.env of a repository: status stops, names it once, shows no stack and no page' yes "$(stopped_naming "$(status_of "$root")" "$repo/.ai-core/config.env")"
+check 'planted: with the old reader the repository is read with the defaults' no "$(stopped_naming "$(status_of "$work/old-reader")" "$repo/.ai-core/config.env")"
+chmod 600 "$repo/.ai-core/config.env"
+check 'innocent: the same files, readable, give the page again' rc=0 "$(status_of "$root" | tail -n1)"
+rm -f "$repo/.ai-core/config.env"
+check 'innocent: a repository with no config.env keeps the page and the exit status it had' rc=0 "$(status_of "$root" | tail -n1)"
+
+echo 'LIVE_TAGS is read as the Bash reader reads it by the Node reader of the testing block too: a # in quotes belongs to the pattern'
+printf 'LIVE_TAGS="prod=deploy/#/*"\nPROOF_HOURS=24\n' > "$live/.ai-core/config.env"
+git -C "$repo" tag 'deploy/#/1' "$(git -C "$repo" log -1 --format=%H --grep='(#31)')"
+hash_page="$(status_of "$root")"
+check 'a tag with a # in it makes the card live on prod, the pattern read whole' "  🟢 $(printf '%-26s' example-repo#31) live on prod since 30 h (deploy/#/1)  Card 31" "$(grep 'example-repo#31 ' <<< "$hash_page")"
+harness_copy "$root" "$work/old-node"
+cat > "$work/old-node.sed" <<'SED'
+s@if (m) value = settingValue(m\[1\]);@if (m) value = m[1].split('#')[0].trim().replace(/^["']|["']$/g, '').trim();@
+SED
+sed -i.bak -f "$work/old-node.sed" "$work/old-node/lib/status-live.mjs"
+cmp -s "$root/lib/status-live.mjs" "$work/old-node/lib/status-live.mjs" && { echo "  FAIL the copy with the old Node reader equals lib/status-live.mjs"; failed=$((failed + 1)); }
+check 'planted: the old Node reader cuts the pattern at the # and the card is not live' '' "$(status_of "$work/old-node" | grep 'example-repo#31 .*live on prod' || true)"
+git -C "$repo" tag -d 'deploy/#/1' > /dev/null
+printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\nPROOF_HOURS=24\n' > "$live/.ai-core/config.env"
+
 # --- environments delivered by a project's own reader, in the testing block -------------------------------
 #
 # A project folder of its own, its board 9, and these repositories, each a clone of an origin named like one on
@@ -481,7 +527,7 @@ STUB
 chmod +x "$work/bin/gh"
 run_status() {  # run_status [argument...]: the status of board 9, its page in $page and its exit status in $rc
   : > "$work/calls.log"; : > "$work/reader-calls.log"
-  page="$(cd "$cmd" && AI_CORE_PROCESSES="$work/no-processes9" AI_CORE_AGENTS="$work/no-agents9" AI_CORE_ROLLOUTS="$work/no-agents9" bash "$root/bin/status.sh" --project example-org/9 "$@" 2>&1)"; rc=$?
+  page="$(cd "$cmd" && AI_CORE_PROCESSES="$work/no-processes9" AI_CORE_AGENTS="$work/no-agents9" AI_CORE_ROLLOUTS="$work/no-agents9" bash "${status_root:-$root}/bin/status.sh" --project example-org/9 "$@" 2>&1)"; rc=$?
 }
 reads() { grep -c "issues/.*/comments\|timelineItems" "$work/calls.log" || true; }
 line_of() { grep -F "$1" <<< "$page" || true; }
@@ -516,6 +562,22 @@ check 'one read of the tracker per card, two requests for a card of one page: th
 check 'each reader was started once in its clone with two arguments, the same one for both environments of a card that waits' \
   "$cmd/engine|2|example-org/engine|prod" "$(grep -m1 '^'"$cmd"'/engine|' "$work/reader-calls.log")"
 rm -f "$work/ctx/engine-5.refuse-comments"
+
+echo 'a config.env of a clone that only the testing block reads, there and unreadable: the read stops with one line, no stack and no page'
+make_unreadable "$cmd/tagged/.ai-core/config.env" || { echo "  FAIL the config.env of tagged cannot be made unreadable"; failed=$((failed + 1)); }
+{ cmd_card 1 tagged 'L1 is read by the project folder'; } > "$work/page9"
+run_status
+check 'exit 1' 1 "$rc"
+check 'one line names the file' "error: $cmd/tagged/.ai-core/config.env exists but cannot be read; fix its permissions, or remove it to take the defaults" "$(grep -a 'cannot be read' <<< "$page")"
+check 'no stack trace and no page' '' "$(grep -aE '^[[:space:]]+at |node:internal|ConfigUnreadable|^TESTING' <<< "$page")"
+harness_copy "$root" "$work/old-node-catch"
+sed -i.bak "s|^    throw new ConfigUnreadable(.*\$|    return '';|" "$work/old-node-catch/lib/status-live.mjs"
+cmp -s "$root/lib/status-live.mjs" "$work/old-node-catch/lib/status-live.mjs" && { echo "  FAIL the copy with the old Node catch-all equals lib/status-live.mjs"; failed=$((failed + 1)); }
+status_root="$work/old-node-catch" run_status
+check 'planted: the old Node catch-all reads it as empty and prints the page' 'no yes' "$(grep -aq 'cannot be read' <<< "$page" && echo yes || echo no) $(grep -aq '^TESTING' <<< "$page" && echo yes || echo no)"
+chmod 600 "$cmd/tagged/.ai-core/config.env"
+run_status
+check 'innocent: the same file, readable, gives the page' yes "$(grep -aq '^TESTING' <<< "$page" && echo yes || echo no)"
 
 echo 'with the project folder'"'"'s list empty, a card of it is landed and the header says so'
 printf 'PROOF_HOURS=24\n' > "$cmd/.ai-core/config.env"

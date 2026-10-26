@@ -82,13 +82,14 @@ INNER="$(printf '%s\n' "$LAYERS" | tail -n1)"
 MAP="$INNER/repos/$repo/AGENTS.md"
 
 # 2. The agent CLI, from the checkout's configuration
-CONFIG="$TARGET/.ai-core/config.env"; [ -f "$CONFIG" ] || CONFIG="$CORE/templates/.ai-core/config.env"
-setting() { { grep -E "^[[:space:]]*$1[[:space:]]*=" "$CONFIG" || true; } | tail -n1 | sed 's/^[^=]*=//; s/#.*//' | tr -d '"\r' | tr -d "'" | sed 's/^ *//; s/ *$//'; }
+CONFIG="$TARGET/.ai-core/config.env"; [ -e "$CONFIG" ] || [ -L "$CONFIG" ] || CONFIG="$CORE/templates/.ai-core/config.env"
+setting() { config_value_in_file "$CONFIG" "$1" ""; }
 # This machine may name another CLI (AI_CORE_MAP_TOOL) and a model (AI_CORE_MAP_MODEL). A model
 # id belongs to its CLI, so the project's MAP_MODEL goes only with the project's own MAP_TOOL: a
 # machine that names another CLI gets its own model, or that CLI's default.
-TOOL="$(setting MAP_TOOL)"; [ -n "$TOOL" ] || TOOL=claude
-MODEL="$(setting MAP_MODEL)"
+TOOL="$(setting MAP_TOOL)" || exit 1
+[ -n "$TOOL" ] || TOOL=claude
+MODEL="$(setting MAP_MODEL)" || exit 1
 if [ -n "${AI_CORE_MAP_TOOL:-}" ] && [ "$AI_CORE_MAP_TOOL" != "$TOOL" ]; then TOOL="$AI_CORE_MAP_TOOL"; MODEL=""; fi
 [ -z "${AI_CORE_MAP_MODEL:-}" ] || MODEL="$AI_CORE_MAP_MODEL"
 case "$TOOL" in

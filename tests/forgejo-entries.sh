@@ -158,3 +158,42 @@ doctor_log broken "$WORK/shim-broken:$PATH" "$WORK/forgejo-session"
 grep -aEq '^  tracker +cannot run +node .* does not run lib/forgejo/tracker/cli.mts without a flag: SyntaxError' "$WORK/doctor-broken.log" || fail "doctor did not report a Node that cannot run the tracker: $(grep -a tracker "$WORK/doctor-broken.log")"
 grep -aq '^doctor: [0-9]* problem' "$WORK/doctor-broken.log" || fail "doctor did not count the problem of the Node that cannot run the tracker"
 echo "  not configured, unreachable and a Node that cannot run it are problems; a healthy tracker is one ok line; the capability is asked of the tracker, never read from a version number"
+
+section "a config.env that cannot be read stops every entry that reads it: no tracker is chosen by default, node and gh are asked nothing, the update check does not run"
+. "$ROOT/tests/unreadable.sh"
+SHIM_GH="$WORK/shim-gh-log"; GH_LOG="$WORK/gh-calls.log"; mkdir -p "$SHIM_GH"
+printf '#!/bin/sh\necho "$*" >> "%s"\nexit 1\n' "$GH_LOG" > "$SHIM_GH/gh"; chmod +x "$SHIM_GH/gh"
+OLD="$WORK/old-harness"; old_reader_copy "$ROOT" "$OLD" || fail "no copy of the harness with the old reader"
+for harness in "$COPY" "$OLD"; do printf '#!/usr/bin/env bash\ntouch "%s/update-ran"\nexit 0\n' "$MARKS" > "$harness/bin/update.sh"; done
+make_checkout "$WORK/unreadable-forgejo" forgejo
+UNREADABLE="$WORK/unreadable-forgejo/.ai-core/config.env"
+make_unreadable "$UNREADABLE" || fail "the config.env of the checkout cannot be made unreadable"
+ENTRY_ENV=()
+run_entry() {  # run_entry <harness> <script of its bin/> [argument...]: the entry in the checkout whose config.env cannot be read, the shims for node and gh first
+  ( cd "$WORK/unreadable-forgejo" && env -u AI_CORE_UPDATE_CHECK -u TRACKER -u FORGE ${ENTRY_ENV[@]+"${ENTRY_ENV[@]}"} PATH="$SHIM_GH:$SHIM:$PATH" bash "$1/bin/$2" "${@:3}" 2>&1 )
+}
+stopped() {  # stopped <file as the entry names it> <harness> <script> [argument...]: yes where the entry fails, names the file, and asked node, gh and the update check nothing
+  local named="$1" out rc=0
+  shift
+  : > "$WORK/node-calls.log"; : > "$GH_LOG"; rm -f "$MARKS/update-ran"
+  out="$(run_entry "$@")" || rc=$?
+  if [ "$rc" -ne 0 ] && grep -qF "$named exists but cannot be read" <<< "$out" && [ ! -s "$WORK/node-calls.log" ] && [ ! -s "$GH_LOG" ] && [ ! -e "$MARKS/update-ran" ]; then echo yes
+  else echo "no (status $rc; node asked [$(tr '\n' '|' < "$WORK/node-calls.log")] gh asked [$(tr '\n' '|' < "$GH_LOG")] update check $([ -e "$MARKS/update-ran" ] && echo ran || echo not run); said: $(tr '\n' '|' <<< "$out" | cut -c1-300))"; fi
+}
+[ "$(stopped "$UNREADABLE" "$COPY" ai-core issue-mine 5)" = yes ] || fail "ai-core issue-mine went on, or did not name the file, where config.env cannot be read: $(stopped "$UNREADABLE" "$COPY" ai-core issue-mine 5)"
+[ "$(stopped "$UNREADABLE" "$OLD" ai-core issue-mine 5)" != yes ] && [ -s "$GH_LOG" ] || fail "planted: with the old reader ai-core did not run the GitHub command for the default tracker, so the check cannot go red"
+echo "  dispatch: ai-core stops before it picks a tracker; planted: with the old reader it takes the default GitHub tracker and runs the Bash command"
+forgejo_exec() {  # forgejo_exec <harness>: forgejo_tracker_exec as doctor runs it, in a subshell
+  ( cd "$WORK/unreadable-forgejo" && PATH="$SHIM_GH:$SHIM:$PATH" bash -c '. "$1/lib/common.sh"; ( forgejo_tracker_exec issue-new ) 2>&1' _ "$1" )
+}
+: > "$WORK/node-calls.log"; out="$(forgejo_exec "$COPY")" && fail "the Forgejo dispatch went on where config.env cannot be read"
+grep -qF "$UNREADABLE exists but cannot be read" <<< "$out" && [ ! -s "$WORK/node-calls.log" ] || fail "the Forgejo dispatch did not name the file, or started node: $out"
+: > "$WORK/node-calls.log"; forgejo_exec "$OLD" > /dev/null 2>&1 || true
+[ -s "$WORK/node-calls.log" ] || fail "planted: with the old reader the Forgejo dispatch did not start node on empty settings, so the check cannot go red"
+echo "  Forgejo dispatch: no URL, token command or tracker is taken as empty and handed to node; planted: with the old reader node starts on empty settings"
+ENTRY_ENV=(TRACKER=forgejo FORGE=forgejo FORGEJO_URL=http://127.0.0.1:1 "FORGEJO_TOKEN_COMMAND=printf token")
+[ "$(stopped .ai-core/config.env "$COPY" session-start.sh)" = yes ] || fail "session-start went on, or did not name the file, where config.env cannot be read: $(stopped .ai-core/config.env "$COPY" session-start.sh)"
+[ "$(stopped .ai-core/config.env "$OLD" session-start.sh)" != yes ] && [ -e "$MARKS/update-ran" ] || fail "planted: with the old reader session-start did not run the update check on the default, so the check cannot go red"
+ENTRY_ENV=()
+echo "  session-start: it stops before the update check, which the default of an unread UPDATE_CHECK would run; planted: with the old reader the check runs"
+chmod 600 "$UNREADABLE"

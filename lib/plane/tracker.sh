@@ -33,7 +33,7 @@ repo_archived() { return 1; }
 # The organisation a command acts for: GH_ORG, then the owner of the checkout's origin.
 gh_org() {
   local org repo
-  org="$(config_value GH_ORG "")"
+  org="$(config_value GH_ORG "")" || return 1
   if [ -n "$org" ]; then export GH_ORG="$org"; echo "$org"; return 0; fi
   repo="$(origin_repo)" \
     || die "no organisation: set GH_ORG in .ai-core/config.env or the environment, or run this inside a repository of it"
@@ -202,10 +202,14 @@ tracker_login() {
 
 # The doctor line: the tracker, where it answers, and whether the key does. Never the key.
 tracker_doctor() {
-  local url
-  url="$(config_value PLANE_URL "")"
-  if [ -z "$url" ] || [ -z "$(config_value PLANE_WORKSPACE "")" ] || [ -z "$(config_value PLANE_PROJECT "")" ] \
-     || [ -z "$(config_value PLANE_TOKEN_COMMAND "")" ]; then
+  local url workspace project token_command
+  if ! url="$(config_value PLANE_URL "")" || ! workspace="$(config_value PLANE_WORKSPACE "")" || ! project="$(config_value PLANE_PROJECT "")" \
+     || ! token_command="$(config_value PLANE_TOKEN_COMMAND "")"; then
+    echo "  tracker: plane"
+    report tracker unreadable "the settings that hold PLANE_URL, PLANE_WORKSPACE, PLANE_PROJECT and PLANE_TOKEN_COMMAND cannot be read (see above)"; problem
+    return 0
+  fi
+  if [ -z "$url" ] || [ -z "$workspace" ] || [ -z "$project" ] || [ -z "$token_command" ]; then
     echo "  tracker: plane"
     report tracker "not configured" "set PLANE_URL, PLANE_WORKSPACE, PLANE_PROJECT and PLANE_TOKEN_COMMAND in .ai-core/config.env"; problem
     return 0

@@ -171,7 +171,7 @@ else
   HARNESS_CURRENT=false
 fi
 UPDATE_CHECK="${AI_CORE_UPDATE_CHECK:-}"
-[ -n "$UPDATE_CHECK" ] || UPDATE_CHECK="$( { grep -E '^[[:space:]]*UPDATE_CHECK[[:space:]]*=' .ai-core/config.env 2>/dev/null || true; } | tail -n1 | sed 's/^[^=]*=//; s/#.*//' | tr -d '"\r ' | tr -d "'")" || true
+[ -n "$UPDATE_CHECK" ] || UPDATE_CHECK="$(config_value_in_file .ai-core/config.env UPDATE_CHECK "")" || exit 1
 UPDATE_CHECK="$(printf '%s' "$UPDATE_CHECK" | tr '[:upper:]' '[:lower:]')"
 RELEASE_LINES=""; RELEASE_STATE="skipped"   # current | available | unreachable | skipped
 if [ "$UPDATE_CHECK" != never ]; then

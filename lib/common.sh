@@ -106,7 +106,8 @@ config_file_of() {
             if [ -f "$folder/.ai-core/config.env" ] && [ -f "$folder/.ai-core/STAMP" ] \
                && ! git -C "$folder" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
               stamp="$(awk 'NF { print $1 }' "$folder/.ai-core/STAMP")"
-              host="$(config_value_in_file "$folder/.ai-core/config.env" FORGEJO_URL "")"; host="${host#*://}"; host="${host%/}"
+              host="$(config_value_in_file "$folder/.ai-core/config.env" FORGEJO_URL "")" || return 1
+              host="${host#*://}"; host="${host%/}"
               case "$stamp" in setup-ai-core$'\n'?*) ;; *) host="" ;; esac
               if [ -n "$host" ]; then
                 case "$(git -C "$main" remote get-url origin 2>/dev/null || true)" in
@@ -124,13 +125,21 @@ config_file_of() {
 
 # config_file_value <key> <default>: as config_value, without the environment, for a setting that only
 # the project's config.env may make.
-config_file_value() { config_value_in_file "$(config_file_of "$1")" "$1" "$2"; }
+config_file_value() {
+  local file
+  file="$(config_file_of "$1")" || return 1
+  config_value_in_file "$file" "$1" "$2"
+}
 
-# config_value_in_file <file> <key> <default>: KEY= in that one file, read as config_value reads it
+# config_value_in_file <file> <key> <default>: KEY= in that one file, read as config_value reads it. A file that is not
+# there, and a key it does not set, give the default; a file that is there and cannot be read stops the caller with
+# status 1 and says so, never the default of every key.
 config_value_in_file() {
-  local file="$1" key="$2" line
-  if [ -f "$file" ]; then
-    line="$(grep -E "^[[:space:]]*${key}[[:space:]]*=" "$file" | tail -n1 || true)"
+  local file="$1" key="$2" lines line rc=0
+  if [ -e "$file" ] || [ -L "$file" ]; then
+    lines="$(grep -E "^[[:space:]]*${key}[[:space:]]*=" "$file")" || rc=$?
+    if [ "$rc" -gt 1 ]; then echo "error: $file exists but cannot be read; fix its permissions, or remove it to take the defaults" >&2; return 1; fi
+    line="$(printf '%s\n' "$lines" | tail -n1)"
     if [ -n "$line" ]; then
       line="${line#*=}"; line="${line%$'\r'}"
       line="${line#"${line%%[![:space:]]*}"}"
@@ -146,9 +155,22 @@ config_value_in_file() {
   echo "$3"
 }
 
+# config_value_lower <key> <default>: config_value in lower case, and its failure kept: in a pipeline the status of
+# config_value is lost, and the default would stand in for a file that could not be read
+config_value_lower() {
+  local value
+  value="$(config_value "$1" "$2")" || return 1
+  printf '%s\n' "$value" | tr '[:upper:]' '[:lower:]'
+}
+
 # tracker_is_forgejo: whether the project's tracker is the Forgejo tracker, which runs in Node from
-# lib/forgejo/tracker, carries no board or epics, and has no Bash provider to load.
-tracker_is_forgejo() { [ "$(config_value TRACKER github | tr '[:upper:]' '[:lower:]')" = forgejo ]; }
+# lib/forgejo/tracker, carries no board or epics, and has no Bash provider to load. Status 1 is no; where the
+# settings cannot be read it ends the shell it runs in with status 2, so that no caller takes the answer for no.
+tracker_is_forgejo() {
+  local tracker
+  tracker="$(config_value_lower TRACKER github)" || exit 2
+  [ "$tracker" = forgejo ]
+}
 
 # forgejo_tracker_exec <command> [argument...]: replaces the shell with the Forgejo tracker running the command.
 # The settings that are not secret travel in the environment; the token does not, node reads it by running
@@ -156,12 +178,12 @@ tracker_is_forgejo() { [ "$(config_value TRACKER github | tr '[:upper:]' '[:lowe
 forgejo_tracker_exec() {
   command -v node >/dev/null 2>&1 || die "the Forgejo tracker runs in Node, and node is not installed"
   export TRACKER=forgejo
-  FORGEJO_URL="$(config_value FORGEJO_URL "")"
-  FORGEJO_TOKEN_COMMAND="$(config_value FORGEJO_TOKEN_COMMAND "")"
+  FORGEJO_URL="$(config_value FORGEJO_URL "")" || exit 1
+  FORGEJO_TOKEN_COMMAND="$(config_value FORGEJO_TOKEN_COMMAND "")" || exit 1
   AI_CORE_LABELS_FILE="$(data_file labels.tsv)"
   AI_CORE_ASSIGNEES_FILE="$(data_file assignees.tsv)"
-  CI_GATE="$(config_value CI_GATE public)"
-  LIVE_TAGS="$(config_value LIVE_TAGS "")"
+  CI_GATE="$(config_value CI_GATE public)" || exit 1
+  LIVE_TAGS="$(config_value LIVE_TAGS "")" || exit 1
   export FORGEJO_URL FORGEJO_TOKEN_COMMAND AI_CORE_LABELS_FILE AI_CORE_ASSIGNEES_FILE CI_GATE LIVE_TAGS
   exec node "$HARNESS_ROOT/lib/forgejo/tracker/cli.mts" "$@"
 }
@@ -174,7 +196,7 @@ forgejo_tracker_exec() {
 load_provider() {  # load_provider <subject> <the functions of the interface, separated by spaces>
   local subject="$1" key value file f missing="" folders=""
   key="$(printf '%s' "$subject" | tr '[:lower:]' '[:upper:]')"
-  value="$(config_value "$key" github | tr '[:upper:]' '[:lower:]')"
+  value="$(config_value_lower "$key" github)" || exit 1
   printf -v "$key" '%s' "$value"
   # a name of letters and digits only cannot lead out of lib/
   case "$value" in *[!a-z0-9]*) file="" ;; *) file="$HARNESS_ROOT/lib/$value/$subject.sh" ;; esac
@@ -295,8 +317,9 @@ clone_settings() {  # clone_settings <clone>
   bash -c '
     cd "$1" || exit 1
     . "$2/lib/common.sh"
-    printf "%s\t%s\t%s\t%s\n" "$(config_value TRACKER github | tr "[:upper:]" "[:lower:]")" \
-      "$(config_value PLANE_URL "")" "$(config_value PLANE_WORKSPACE "")" "$(config_value PLANE_PROJECT "")"
+    tracker="$(config_value_lower TRACKER github)" && url="$(config_value PLANE_URL "")" \
+      && workspace="$(config_value PLANE_WORKSPACE "")" && project="$(config_value PLANE_PROJECT "")" || exit 1
+    printf "%s\t%s\t%s\t%s\n" "$tracker" "$url" "$workspace" "$project"
   ' _ "$1" "$HARNESS_ROOT"
 }
 
@@ -408,8 +431,9 @@ LANDING_WORKTREE_RE='/\.worktrees/[^/]*/integrate-[0-9]+\.[A-Za-z0-9]{6}$'
 token_from_command() {  # token_from_command <setting>
   local key="$1" command token="" error="" rc=0 traced=""
   case $- in *x*) traced=1; set +x ;; esac
-  command="$(config_value "$key" "")"
-  if [ -z "$command" ]; then
+  if ! command="$(config_value "$key" "")"; then
+    error="the settings that hold $key cannot be read, so there is no token"
+  elif [ -z "$command" ]; then
     error="$key is not set: set it in .ai-core/config.env or the environment to the command that prints the token"
   else
     # read detects NUL before command substitution drops it; another control byte reaches the shared refusal.

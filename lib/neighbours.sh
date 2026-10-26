@@ -28,7 +28,7 @@ neighbour_dir() { printf '%s/.ai-core/neighbours/%s\n' "$1" "$2"; }
 # fetch is waited for, and the least a copy lock is waited for, which 0 turns into one attempt
 neighbour_lock_wait() {
   local wait
-  wait="$(config_value_in_file "$1" NEIGHBOUR_LOCK_WAIT_SECONDS 600)"
+  wait="$(config_value_in_file "$1" NEIGHBOUR_LOCK_WAIT_SECONDS 600)" || return 1
   case "$wait" in ''|*[!0-9]*|??????????*) echo "error: NEIGHBOUR_LOCK_WAIT_SECONDS is '$wait' in $1; it is the least seconds a copy of a neighbour is waited for, a whole number from 0 to 999999999" >&2; return 1 ;; esac
   printf '%s\n' "$((10#$wait))"
 }
@@ -127,7 +127,7 @@ neighbour_wait_flock() {
     [ "$rc" -ne 0 ] || return 0
     [ "$rc" -eq 1 ] || return 1
     configured="$(neighbour_lock_wait "$NEIGHBOUR_WAIT_CONFIG")" \
-      || { NEIGHBOUR_ERROR="NEIGHBOUR_LOCK_WAIT_SECONDS is not a whole number of seconds in $NEIGHBOUR_WAIT_CONFIG"; return 1; }
+      || { NEIGHBOUR_ERROR="NEIGHBOUR_LOCK_WAIT_SECONDS is not a whole number of seconds in $NEIGHBOUR_WAIT_CONFIG, or $NEIGHBOUR_WAIT_CONFIG cannot be read"; return 1; }
     neighbour_allowance "$configured"
     now="$(date +%s)"; elapsed=$((now - NEIGHBOUR_WAIT_START)); remaining=$((NEIGHBOUR_ALLOWANCE - elapsed))
     if [ "$remaining" -le 0 ]; then
@@ -264,7 +264,7 @@ neighbours_hold() {
   done | LC_ALL=C sort)"
   [ -n "$names" ] || return 0
   config="$root/.ai-core/config.env"
-  wait="$(neighbour_lock_wait "$config")" || { NEIGHBOUR_ERROR="NEIGHBOUR_LOCK_WAIT_SECONDS is not a whole number of seconds in $config"; return 1; }
+  wait="$(neighbour_lock_wait "$config")" || { NEIGHBOUR_ERROR="NEIGHBOUR_LOCK_WAIT_SECONDS is not a whole number of seconds in $config, or $config cannot be read"; return 1; }
   neighbours_ask "$container" "$folder" "$names" "$wait" || return 1
   neighbour_wait_begin "$config"
   neighbours_take "$container" "$folder" "$names" || { neighbours_release; return 1; }

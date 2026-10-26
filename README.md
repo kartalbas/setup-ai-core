@@ -254,14 +254,17 @@ In a worktree, git resolves that file to the main checkout, so all worktrees sha
 keeps the deployed files out of `git status` in a worktree whose `.gitignore` has no block yet;
 this step never touches the project's `.gitignore`. A file
 the repository already tracks stays tracked: an exclude entry never affects a tracked file, and
-`init` never overwrites a tracked file.
+`init` never overwrites a tracked file. That holds for the data files too (`config.env`, `labels.tsv`,
+`assignees.tsv`, `team-modes.tsv`, `models.tsv`): the copy the repository commits wins over the copy of every
+layer and over `repos/<repo>/`, and a tracked file changed or removed in the working tree stays so.
 
 Because the harness is not in the repository, it does not travel with `git clone`. **Every clone
 runs `init` once.** It is idempotent and takes seconds. A worktree runs it by itself: git runs
 `.githooks/post-checkout` in the new tree after `git worktree add`, and that shim starts
-`ai-core init` where `.ai-core/` is missing; `init` in a worktree first takes the checkout's own
-`.ai-core/` data (its configuration, local rules and documents), then assembles the harness over
-it as in the checkout.
+`ai-core init` where `.ai-core/STAMP` is missing, also where a file the branch tracks under `.ai-core/` is there;
+`init` in a worktree that has no `.ai-core/STAMP` yet first takes
+the checkout's own `.ai-core/` data (its configuration, local rules and documents) file by file, leaving a file
+that the worktree tracks as the branch has it, then assembles the harness over it as in the checkout.
 
 A worktree that `start-issue` opens lives in `<project folder>/.worktrees/<repo>/`, where `..`
 holds no other checkout. So `init` in such a worktree links every other checkout of the project
@@ -692,7 +695,7 @@ One gate judges every push of every repository, and it lives in setup-ai-core, n
 repositories: each repository carries a three-line `.githooks/pre-push` that only starts
 `ai-core pre-push` with git's own standard input, and `core.hooksPath` of the clone points at
 `.githooks`. Beside it lies `.githooks/post-checkout`, the shim that gives a new worktree the
-harness: git runs it in the new tree after `git worktree add`, and where `.ai-core/` is missing it
+harness: git runs it in the new tree after `git worktree add`, and where `.ai-core/STAMP` is missing it
 starts `ai-core init`; it exits 0 whatever happened, because a failing hook would fail the
 checkout too, and what went wrong stands on stderr. `ai-core pre-push --install`
 writes both shims into the current repository, and into each worktree of it the shims that
@@ -946,7 +949,7 @@ under one of these words:
 | `refreshed` | a managed file (the assembled rules, `STAMP`, a skill, a data file, a map from `repos/<repo>/`, the exclude block) that differed from what the layers say; rewritten |
 | `kept` | a file created once (`AGENTS.md`, `.claude/settings.json`, `config.env`, ...) that differs from its template, because it is yours; never overwritten |
 | `removed` | what an earlier version left in the checkout (`.ai-core/bin/`, `.agents/mcp_config.json`), and what a layer no longer provides (recorded in `.ai-core/DEPLOYED`) |
-| `tracked` | a file of `repos/<repo>/` the repository commits itself; not applied |
+| `tracked` | a data file or a file of `repos/<repo>/` the repository commits itself; not applied, and its copy wins over the layers' copies |
 | `unchanged` | the count of files that were already what they should be |
 
 The report closes with `.gitignore changed` when the block was written, committed and pushed
@@ -983,6 +986,10 @@ command or an executable path (`FORGEJO_URL`, `PLANE_URL`, the two `TOKEN_COMMAN
 The environments and patterns of `LIVE_TAGS` keep their bytes too, with `command` and `landed` as exact lowercase values.
 `DEFAULT_BRANCH_IS_LIVE` takes `yes` in lowercase or a folder name as written. The numbers (`USAGE_STOP_AT`,
 `PRE_PUSH_LOAD_LIMIT`, `PRE_PUSH_LOAD_WAIT_SECONDS`, `NEIGHBOUR_LOCK_WAIT_SECONDS`, `PROOF_HOURS`) have no letter case.
+A `config.env` that is not there, or a key it does not set, gives the default of the key. A `config.env` that is
+there and cannot be read stops the command that reads it, with a nonzero status and the line `error: <file> exists
+but cannot be read; fix its permissions, or remove it to take the defaults` on standard error; no command goes on
+with a default in its place.
 
 | Key | Values | Meaning |
 | :--- | :--- | :--- |

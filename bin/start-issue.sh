@@ -97,15 +97,7 @@ title="$(printf '%s' "$thread" | jq -r '.title // ""')"
 # for somebody else's issue, and not for one nobody has been given yet.
 mine="$("$BIN/issue-mine.sh" ${repo:+"$repo"} "$number" 2>&1)" || die "$mine"
 
-# The readable half of the name. Everything that is not a letter or a digit becomes a hyphen,
-# runs of hyphens collapse, and the result is cut to forty characters - the name is read in a
-# directory listing beside a dozen others, and a whole title carried into it makes that listing
-# unreadable.
-slug="$(printf '%s' "$title" \
-  | tr '[:upper:]' '[:lower:]' \
-  | sed -e 's/[^a-z0-9][^a-z0-9]*/-/g' -e 's/^-*//' -e 's/-*$//' \
-  | cut -c1-40 | sed -e 's/-*$//')"
-name="issue-$number-$slug"
+name="$(issue_branch_name "$number" "$title")"
 
 # Where the worktrees stand: beside the CHECKOUT, never inside it, and grouped per repository so
 # two repositories working the same issue number do not collide.
@@ -121,7 +113,7 @@ checked_out="$(git worktree list --porcelain 2>/dev/null | sed -n 's|^branch ref
 # branch named by the number is this issue's only where the tracker, asked for the number of its name at the time
 # the branch was started, answers this issue; the number the issue was carried from names its branches cut before.
 carried_number="$(carried_branch_number "$repo" "$thread")"
-owners="$(issue_branch_owners "$repo" "$default" "$number" ${carried_number:+"$carried_number"})" || exit 1
+owners="$(issue_branch_owners "$repo" "$default" "$name" "$number" ${carried_number:+"$carried_number"})" || exit 1
 taken=""; clash=""
 while IFS= read -r ref; do
   [ -n "$ref" ] || continue
@@ -154,15 +146,17 @@ done <<< "$(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes
 
 mkdir -p "$container"
 # The worktree starts at the commit measured above, not at whatever origin/$default is by now: a
-# fetch into this clone since then must not move it. The branch is made, set to track origin/$default
-# (which push and pre-push read) and, for an issue of another repository, marked with it BEFORE any
+# fetch into this clone since then must not move it. The branch is made, set to push to and read origin/<its
+# own name> (which a plain git push and pre-push in a terminal read: never the default branch, which only a
+# landing updates; the remote branch exists after the first push) and, for an issue of another repository, marked with it BEFORE any
 # worktree exists. A step that fails then leaves only a branch at a commit of origin that no worktree
 # has checked out, and the next run takes it over: a landed local branch is an ancestor of that
 # commit, so moving it loses nothing.
 other_repo=""
 [ "$(issue_ref "$repo" "$number")" = "#$number" ] || other_repo="$repo"
 made="$(git branch -f --no-track "$name" "$origin_tip" 2>&1 \
-  && git branch --set-upstream-to="refs/remotes/origin/$default" "$name" 2>&1 \
+  && git config "branch.$name.remote" origin 2>&1 \
+  && git config "branch.$name.merge" "refs/heads/$name" 2>&1 \
   && { [ -z "$other_repo" ] || git config "branch.$name.issueRepository" "$other_repo" 2>&1; } \
   && git worktree add "$path" "$name" 2>&1)" \
   || if [ -e "$path" ]; then

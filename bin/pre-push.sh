@@ -11,7 +11,8 @@
 # What it judges, in this order, stopping at the first refusal:
 #
 #   1. the pushed commit is the one that is checked out, or, beside the default branch, a commit
-#      origin already carries
+#      origin already carries; and the default branch is updated only by a harness landing
+#      (the mark of lib/landing-check.sh), never by a plain push
 #   2. every pushed commit names its issue, or says why it does not
 #   3. the team modes are installed
 #   4. the names of the new directories are derived from the families the trees carry
@@ -63,7 +64,9 @@ for arg in "$@"; do
     echo "Usage: pre-push.sh [--install [--all <folder>] | --message <file>]"
     echo ""
     echo "The push gate. Git runs it through the repository's .githooks/pre-push shim before a push"
-    echo "and it refuses the push, exit 1, when: a pushed commit is not the one checked out (beside the"
+    echo "and it refuses the push, exit 1, when: the default branch is updated by anything but a harness landing"
+    echo "(integrate-issue, release, init, pre-push --install, ai-core push: each hands its push a mark in"
+    echo "AI_CORE_LANDING_MARK for exactly the commit it lands); a pushed commit is not the one checked out (beside the"
     echo "default branch a commit origin already carries passes); a pushed commit names no issue (#<n>),"
     echo "does not open with 'release:', touches more than *.md and"
     echo "LICENSE files, and carries no 'No-issue: <who asked and why>' trailer; a team mode is"
@@ -268,16 +271,18 @@ write_attributes() {  # write_attributes <tree>: the rule into <tree>/.gitattrib
   echo added
 }
 write_shim() {  # write_shim <tree> <hook> <text>: the text into <tree>/.githooks/<hook>; prints unchanged, refreshed or created
-  local dir="$1" hook="$2" text="$3" path
+  local dir="$1" hook="$2" text="$3" path status
   path="$dir/.githooks/$hook"
   if [ -f "$path" ] && [ "$(tr -d '\r' < "$path")" = "$(printf '%s' "$text")" ]; then
     if [ -x "$path" ]; then echo unchanged; else chmod +x "$path"; echo "made executable"; fi
     return 0
   fi
-  if [ -f "$path" ]; then echo refreshed; else echo created; fi
-  mkdir -p "$dir/.githooks"
+  if [ -f "$path" ]; then status=refreshed; else status=created; fi
+  # Without -p: the folder of a worktree that finish-issue removed since it was listed must stay gone
+  [ -d "$dir/.githooks" ] || mkdir "$dir/.githooks" 2>/dev/null || { echo "not written, $dir is gone"; return 1; }
   printf '%s' "$text" > "$path"
   chmod +x "$path"
+  echo "$status"
 }
 write_shims() {  # write_shims <checkout> <label>: both shims, one report line each, and the attributes rule where it is missing
   local dir="$1" label="$2"
@@ -295,12 +300,13 @@ write_shims() {  # write_shims <checkout> <label>: both shims, one report line e
 # commit has none git runs: it starts init only in a worktree without .ai-core, which an existing
 # worktree has. A shim the commit gives that an earlier install rewrote goes back to the commit.
 write_worktree_shims() {
-  local tree="$1" label="$2" dir="$3" hook text path mode written=0
+  local tree="$1" label="$2" dir="$3" hook text path mode wrote written=0
   for hook in pre-push post-checkout; do
     path=".githooks/$hook"; text="$SHIM"; [ "$hook" = pre-push ] || text="$SHIM_CHECKOUT"
     mode="$(git -C "$tree" ls-tree HEAD -- "$path" | awk '{ print $1 }')"
     if [ "$mode" != 100755 ] || { [ "$hook" = pre-push ] && [ "$(git -C "$tree" show "HEAD:$path" | tr -d '\r')" != "$(printf '%s' "$text")" ]; }; then
-      echo "pre-push: $label: $path $(write_shim "$tree" "$hook" "$text"); it goes out with that worktree's own commit"
+      if ! wrote="$(write_shim "$tree" "$hook" "$text")"; then echo "pre-push: $label: $path $wrote"; return 0; fi
+      echo "pre-push: $label: $path $wrote; it goes out with that worktree's own commit"
       written=1
     else
       put_back_own_write "$tree" "$label" "$dir" "$path" "$text"
@@ -395,7 +401,7 @@ commit_shim() {
   # The commit of this run, read before the push: the rewording above gives it a new id, and a
   # session that commits in this checkout while the gate runs moves HEAD past it
   local ours=""; [ -z "$committed" ] || ours="$(git -C "$dir" rev-parse HEAD)"
-  if git -C "$dir" push --quiet origin "HEAD:$branch"; then echo "pre-push: $label: pushed to origin/$branch"; return 0; fi
+  if with_harness_commits_mark "$dir" "$branch" -- git -C "$dir" push --quiet origin "HEAD:$branch"; then echo "pre-push: $label: pushed to origin/$branch"; return 0; fi
   [ -n "$ours" ] || { echo "pre-push: $label: the push was refused or failed (see above); the commit stays" >&2; return 1; }
   push_again_or_undo "$dir" "$label" "$branch" "$ours"
 }
@@ -418,7 +424,7 @@ push_again_or_undo() {
         return 0
       fi
       ours="$(git -C "$dir" rev-parse HEAD)"
-      if git -C "$dir" push --quiet origin "HEAD:$branch"; then
+      if with_landing_mark "$dir" "$ours" "refs/heads/$branch" -- git -C "$dir" push --quiet origin "HEAD:$branch"; then
         echo "pre-push: $label: the origin moved on during the push; the commit went on top of it and was pushed to origin/$branch"
         return 0
       fi
@@ -576,9 +582,12 @@ tag_exclusions=''
 [ -z "$tagged_lines" ] || tag_exclusions="$(cut -f1 <<< "$tagged_lines" | git cat-file --batch-check='%(objectname) %(objecttype)' \
   | awk '$2 == "commit" { printf " ^%s", $1 }')"
 
-# Every commit this push sends, across every ref on standard input, and the ranges they came from.
+# Every commit this push sends, across every ref on standard input, and the ranges they came from. The ranges of the
+# identity check leave out every ref of origin, also for a harness landing: what another person or a platform put there
+# carries their address, never the pusher's.
 commits=''
 scan_ranges=''
+identity_ranges=''
 # Whether the push adds any commit at all, a merge among them. The message rules judge the commits
 # that are not merges, but a merge of commits the remote has is a tree nobody has checked yet.
 adds=0
@@ -622,6 +631,13 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     # rebase and a force push.
     range="$local_commit ^$remote_sha$tag_exclusions --not --remotes=origin"
   fi
+  identity_ranges="$identity_ranges$range"$'\n'
+  # A harness landing judges every commit it adds to the default branch, also the ones another ref of origin holds: a
+  # branch pushed past this gate (a cloud session's, say) is judged here, once, before it reaches the default branch.
+  if git rev-parse -q --verify "refs/remotes/origin/$default" >/dev/null 2>&1 \
+    && landing_mark_judge "${AI_CORE_LANDING_MARK:-}" "$root" "$local_commit" "$remote_ref"; then
+    range="$local_commit ^refs/remotes/origin/$default$tag_exclusions"
+  fi
   # Work is pushed by ref (`git push origin HEAD:<branch>`). A local sha that is not HEAD means
   # the tree the checks are about to run in is not the tree being sent. Only a ref beside the
   # default branch may name another commit, and only one that origin already carries: such a push
@@ -636,6 +652,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   [ -z "$(git rev-list -n1 $range)" ] || adds=1
   scan_ranges="$scan_ranges$range"$'\n'
 done <<< "$input"
+
+# THE DEFAULT BRANCH TAKES ONLY A HARNESS LANDING. An update of it that carries no mark (lib/landing-check.sh) for exactly
+# the commit it lands is a plain push, and reviewed work does not reach the default branch that way.
+if [ -n "$landing" ] && ! landing_mark_judge "${AI_CORE_LANDING_MARK:-}" "$root" "$landing" "refs/heads/$default"; then
+  refuse "$default takes no plain push ($LANDING_MARK_REASON). Reviewed work lands through ai-core integrate-issue <number> --reviewed-by <reviewer>, run in the worktree of the issue after the reviewer's GO."
+fi
 
 # Nothing to send, or nothing but deletions: there is nothing to judge and nothing to test.
 # A push that moves the default branch is never nothing: a branch pushed for review before it
@@ -776,14 +798,14 @@ done <<< "$commits"
 
 # Every commit this push sends, a merge among them, carries as author and committer the address
 # that git config user.email holds in this repository, compared without regard to case. Only the
-# ranges of this push are read, so a commit on a ref of origin this clone knows, another person's
-# or a platform's, never refuses a push; one origin has and this clone has not fetched is read as
-# new, which the refusal says.
+# commits this push adds to origin are read, a harness landing's too, so a commit on a ref of origin this
+# clone knows, another person's or a platform's, never refuses a push; one origin has and this clone has
+# not fetched is read as new, which the refusal says.
 pushed="$(while IFS= read -r scan_range; do
   [ -n "$scan_range" ] || continue
   read -ra range_words <<< "$scan_range"
   git rev-list "${range_words[@]}"
-done <<< "$scan_ranges" | awk '!seen[$0]++')"
+done <<< "$identity_ranges" | awk '!seen[$0]++')"
 if [ -n "$pushed" ]; then
   pusher_email="$(git config user.email || true)"
   [ -n "$pusher_email" ] \
@@ -1092,7 +1114,7 @@ if [ -f "$root/scripts/check.sh" ] && [ "$check_skipped" -eq 0 ]; then
   fi
   check_started="$(date +%s)"; check_rc=0
   # Both streams go to the log, so its last line is the check's last word on either of them
-  with_caller_git_config with_sign_in_line bash "$root/scripts/check.sh" 2>&1 | tee "$TMPD/check.log" || check_rc=$?
+  with_caller_git_config with_sign_in_line neighbour_unlocked bash "$root/scripts/check.sh" 2>&1 | tee "$TMPD/check.log" || check_rc=$?
   GATE_CHECK_SECONDS=$(( $(date +%s) - check_started ))
   GATE_CHECK_LAST="$(grep -v '^[[:space:]]*$' "$TMPD/check.log" | tail -1)"
   GATE_CHECK=green; [ "$check_rc" -eq 0 ] || GATE_CHECK=red

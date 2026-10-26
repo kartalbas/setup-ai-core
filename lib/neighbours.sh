@@ -54,14 +54,24 @@ neighbour_unlock() { eval "exec $1>&-"; }
 # last fetch, or nothing and status 1
 neighbour_default_ref() { git -C "$1" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null; }
 
+# neighbour_unlocked <command>...: runs the command with the lock descriptors closed, 8, 9 and the ones neighbours_hold
+# keeps, while the shell keeps them. A process that outlives the command, such as the detached maintenance git starts
+# after a fetch or a daemon of a check, would otherwise hold a lock until it exits.
+neighbour_unlocked() {
+  local fd closing="8>&- 9>&-"
+  for fd in $NEIGHBOUR_FDS; do closing="$closing $fd>&-"; done
+  ( eval "exec $closing"; exec "$@" )
+}
+
 # neighbour_fetch <project folder> <neighbour> <seconds>: asks the origin of the neighbour's checkout for its branches
 # and its default branch, one asker at a time. Prints git's words and fails where it could not. No prompt: an
 # origin that wants a login the shell does not hold fails here instead of waiting.
 neighbour_fetch() (
-  local dir="$(neighbour_dir "$1" "$2")" checkout="$1/$2" said
+  local dir checkout="$1/$2" said
+  dir="$(neighbour_dir "$1" "$2")"
   mkdir -p "$dir" && neighbour_open 8 "$dir/.fetch.lock" && neighbour_flock 8 "$dir/.fetch.lock" exclusive "$3" || { printf '%s\n' "$NEIGHBOUR_ERROR"; exit 1; }
-  said="$(GIT_TERMINAL_PROMPT=0 git -C "$checkout" fetch -q origin 2>&1 < /dev/null)" || { printf '%s\n' "$said"; exit 1; }
-  said="$(GIT_TERMINAL_PROMPT=0 git -C "$checkout" remote set-head origin --auto 2>&1 < /dev/null)" || { printf '%s\n' "$said"; exit 1; }
+  said="$(GIT_TERMINAL_PROMPT=0 neighbour_unlocked git -C "$checkout" fetch -q origin 2>&1 < /dev/null)" || { printf '%s\n' "$said"; exit 1; }
+  said="$(GIT_TERMINAL_PROMPT=0 neighbour_unlocked git -C "$checkout" remote set-head origin --auto 2>&1 < /dev/null)" || { printf '%s\n' "$said"; exit 1; }
 )
 
 # neighbour_copy_state <copy> <ref>: sets NEIGHBOUR_STATE to
@@ -89,7 +99,7 @@ neighbour_copy_state() {
 # and proves it stands there; on failure NEIGHBOUR_ERROR says why
 neighbour_move_copy() {
   local said
-  said="$(git -C "$1" checkout -q --detach "$2" 2>&1)" || { NEIGHBOUR_ERROR="git checkout of $2 in $1 failed: $said"; return 1; }
+  said="$(neighbour_unlocked git -C "$1" checkout -q --detach "$2" 2>&1)" || { NEIGHBOUR_ERROR="git checkout of $2 in $1 failed: $said"; return 1; }
   [ "$(git -C "$1" rev-parse HEAD)" = "$(git -C "$1" rev-parse "$2^{commit}")" ] \
     || { NEIGHBOUR_ERROR="$1 does not stand on $2 after the checkout"; return 1; }
 }
@@ -99,7 +109,8 @@ neighbour_move_copy() {
 # that reads it; only a move takes the exclusive lock. Prints one line, the state - current, moved, held or failed -
 # and a tab and the reason where there is one.
 neighbour_refresh_copy() (
-  local dir="$(neighbour_dir "$1" "$2")"
+  local dir
+  dir="$(neighbour_dir "$1" "$2")"
   { neighbour_open 9 "$dir/.copy.lock" && neighbour_flock 9 "$dir/.copy.lock" shared "$5"; } || { printf 'failed\t%s\n' "$NEIGHBOUR_ERROR"; exit 0; }
   neighbour_copy_state "$3" "$4" || { printf 'failed\t%s\n' "$NEIGHBOUR_ERROR"; exit 0; }
   if [ "$NEIGHBOUR_STATE" = movable ]; then
@@ -117,9 +128,10 @@ neighbour_refresh_copy() (
 # worktree at <ref> under the exclusive lock, so no reader finds it half made. Fails where the copy does not stand
 # afterwards: a second init may have added it, which is as good.
 neighbour_add_copy() (
-  local dir="$(neighbour_dir "$1" "$2")"
+  local dir
+  dir="$(neighbour_dir "$1" "$2")"
   mkdir -p "$dir" && neighbour_open 9 "$dir/.copy.lock" && neighbour_flock 9 "$dir/.copy.lock" exclusive "$5" || exit 1
-  git -C "$1/$2" worktree add -q --detach "$3" "$4" >/dev/null 2>&1 || [ -e "$3/.git" ]
+  neighbour_unlocked git -C "$1/$2" worktree add -q --detach "$3" "$4" >/dev/null 2>&1 || [ -e "$3/.git" ]
 )
 
 # neighbours_hold <worktree>: for the push gate. For every link beside the worktree that leads to a published

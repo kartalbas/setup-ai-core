@@ -42,6 +42,7 @@ while [ $# -gt 0 ]; do
 done
 
 . "$CORE/lib/layers.sh"
+. "$CORE/lib/landing-check.sh"
 FOLDER="$(project_folder_of "$(pwd)")"
 pushed=0; failed=""; seen=0
 for dir in "$FOLDER"/*-ai-core; do
@@ -79,7 +80,7 @@ for dir in "$FOLDER"/*-ai-core; do
   ahead="$(git -C "$dir" rev-list --count '@{upstream}..HEAD' 2>/dev/null || echo 1)"
   if [ "$ahead" -gt 0 ]; then
     git -C "$dir" pull --rebase --quiet 2>/dev/null || true
-    if git -C "$dir" push --quiet -u origin HEAD; then
+    if with_landing_mark "$dir" "$(git -C "$dir" rev-parse HEAD)" "refs/heads/$(git -C "$dir" symbolic-ref --short HEAD)" -- git -C "$dir" push --quiet -u origin HEAD; then
       echo "$name: pushed to $origin"; pushed=$((pushed + 1))
     else
       failed="$failed $name"; echo "$name: push failed; see above"

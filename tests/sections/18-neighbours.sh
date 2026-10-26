@@ -9,8 +9,9 @@ F="$WORK/nb"; CHECK_LOG="$WORK/nb-check.log"; export CHECK_LOG; : > "$CHECK_LOG"
 mkdir -p "$F/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$F/.ai-core/config.env"
 git_as() { git -c user.email=check@localhost -c user.name=check "$@"; }
 
-# neighbours: cat and dog publish a marker, eel has no origin
-for r in cat dog; do
+# neighbours: cat, dog and Zed publish a marker, eel has no origin. Zed sorts before cat in the C order and after dog in
+# the order of a locale such as en_US, which is what the glob of the links follows.
+for r in cat dog Zed; do
   git init -q --bare -b master "$WORK/nb-$r.git"
   git clone -q "$WORK/nb-$r.git" "$F/$r" 2>/dev/null
   echo one > "$F/$r/marker"; git -C "$F/$r" add marker; git_as -C "$F/$r" commit -q -m one; git -C "$F/$r" push -q origin master
@@ -29,6 +30,7 @@ cat > "$F/app/scripts/check.sh" <<'EOF'
 #!/usr/bin/env bash
 set -eu
 echo "$(cat ../cat/marker) $(cat ../dog/marker)" >> "$CHECK_LOG"
+if [ -n "${CHECK_DAEMON:-}" ]; then ( nohup sleep 120 >/dev/null 2>&1 & echo $! >> "$CHECK_DAEMON" ); fi
 if [ -n "${CHECK_HOLD:-}" ]; then
   : > "$CHECK_HOLD.started"
   while [ ! -e "$CHECK_HOLD" ]; do sleep 0.1; done
@@ -134,4 +136,43 @@ grep -aq 'may stand behind.*cat (the lock .* is held by another gate or init' "$
 push_gate "$T2" issue-3-z "$F-hold4.log" || fail "the next gate was refused once the check ended: $(tail -5 "$F-hold4.log")"
 [ "$(cut -d' ' -f1 <<< "$(last_check)")" = four ] || fail "the next gate did not observe the later commit: $(last_check)"
 echo "  a second gate reads the same tip beside the first, none moves a copy under a running check, init names the copy it could not move, and the next gate observes the later commit"
+
+section "a process that a step of the gate starts and leaves running holds none of the locks of the gate"
+daemons="$WORK/nb-daemons"; : > "$daemons"
+work_on "$T1" h
+CHECK_DAEMON="$daemons" push_gate "$T1" issue-2-y "$F-lock.log"; lock_push=$?
+held=""
+for neighbour in Zed cat dog; do
+  flock -x -n "$F/.ai-core/neighbours/$neighbour/.copy.lock" true || held="$held $neighbour/.copy.lock"
+done
+spawned="$(wc -l < "$daemons" | tr -d ' ')"
+while read -r pid; do kill "$pid" 2>/dev/null || true; done < "$daemons"
+[ "$lock_push" -eq 0 ] || fail "the push beside the process left running was refused: $(tail -5 "$F-lock.log")"
+[ "$spawned" -eq 1 ] || fail "the case is not planted: $spawned process(es) were left running by the check, not one"
+[ -z "$held" ] || fail "a process the check left running still holds a lock of the gate:$held (see $F-lock.log)"
+echo "  the check leaves a process running, and the locks of the gate are free once the gate ends"
+
+# git runs a hook with its own folder first on the PATH, so a stand-in for git reaches the fetch only outside a hook
+gitwrap="$WORK/nb-gitwrap"; mkdir -p "$gitwrap"; : > "$daemons"
+cat > "$gitwrap/git" <<WRAP
+#!/usr/bin/env bash
+case " \$* " in *" fetch "*) ( nohup sleep 120 >/dev/null 2>&1 & echo \$! >> "$daemons" ) ;; esac
+exec "$(command -v git)" "\$@"
+WRAP
+chmod +x "$gitwrap/git"
+( . "$ROOT/lib/neighbours.sh"; PATH="$gitwrap:$PATH" neighbour_fetch "$F" cat 5 ) || fail "the fetch of cat failed"
+spawned="$(wc -l < "$daemons" | tr -d ' ')"
+fetch_held=""; flock -x -n "$F/.ai-core/neighbours/cat/.fetch.lock" true || fetch_held=1
+while read -r pid; do kill "$pid" 2>/dev/null || true; done < "$daemons"
+[ "$spawned" -eq 1 ] || fail "the case is not planted: the fetch left $spawned process(es) running, not one"
+[ -z "$fetch_held" ] || fail "the process the fetch left running, as the automatic maintenance of git does, still holds .fetch.lock"
+echo "  the fetch of a neighbour leaves a process running, and its lock is free once the fetch ends"
+
+section "the neighbours are held in the C order of their names, whatever order the locale gives the links"
+glob_order="$(cd "$F/.worktrees/app" && LC_ALL=en_US.utf8 bash -c 'for link in *; do [ -L "$link" ] && echo "$link"; done' | tr '\n' ' ')"
+[ "$glob_order" = "cat dog eel Zed " ] || fail "the case is not planted: the glob of this machine lists the links as '$glob_order' under en_US.utf8, not apart from the C order (Zed first)"
+work_on "$T1" i
+LC_ALL=en_US.utf8 push_gate "$T1" issue-2-y "$F-order.log" || fail "the push under en_US.utf8 was refused: $(tail -5 "$F-order.log")"
+[ "$(grep -an 'neighbour Zed:' "$F-order.log" | head -1 | cut -d: -f1)" -lt "$(grep -an 'neighbour cat:' "$F-order.log" | head -1 | cut -d: -f1)" ] || fail "the neighbours are not held in the C order of their names (see $F-order.log)"
+echo "  Zed is held before cat although the glob of the locale lists it last"
 exit 0

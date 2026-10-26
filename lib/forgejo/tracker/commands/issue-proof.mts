@@ -4,10 +4,10 @@ import type { RepositoryRef } from '../domain/issues.mts';
 import { replaceFamilyLabel, statusLabel } from '../domain/labels.mts';
 import { checkPublicText } from '../domain/public-text.mts';
 import { PreconditionError, UsageError } from '../domain/refusals.mts';
-import { composeProvenRecord, environmentsWith, findNewestLanding, hasProvenRecord, isHarnessLayer, landedEnvironments, listMissingDelivery, readIssueHistory, readTimeline } from '../domain/workflow.mts';
+import { composeProvenRecord, environmentsWith, findNewestLanding, hasProvenRecord, holdsNoLandedRecord, isHarnessLayer, landedEnvironments, listMissingDelivery, readIssueHistory, readTimeline } from '../domain/workflow.mts';
 import type { CommandDeliveryCheck, LandingFact } from '../domain/workflow.mts';
 import { GitError } from '../git/git.mts';
-import { parseArguments, readTextFile, refuseExtra, requireValue, takeIssue } from './arguments.mts';
+import { findLandedCommitOf, parseArguments, readTextFile, refuseExtra, requireValue, takeIssue } from './arguments.mts';
 import { succeeded } from './command.mts';
 import type { CommandContext, CommandResult } from './command.mts';
 
@@ -16,7 +16,10 @@ export const help = `${USAGE}
 
 Writes the record "Proven on ENV:" with the evidence of PATH, sets status/done and closes the issue as completed.
 It refuses unless the issue records a landing and, for every repository the landing names, a release that came
-after it, all of an account with write permission and after the last reopening for new work. A reopening keeps earlier
+after it, all of an account with write permission and after the last reopening for new work. An issue that holds no "Landed on" record at all, and whose number
+no commit on the default branch of origin of this clone names at the end of its subject, was delivered without a code
+change: it needs no landing and no release, and the output says that no landing exists. Such a commit without a record
+is work that landed, and is refused until integrate-issue writes its record. A reopening keeps earlier
 landings and releases if its first status label added by an account with write permission is status/testing; any other
 status or no added status label requires delivery again. Every reopening requires a new proof. Where a repository's
 own LIVE_TAGS names ENV with the pattern landed, its landing is its delivery and needs no release. Where it
@@ -126,7 +129,12 @@ export async function run(args: readonly string[], context: CommandContext): Pro
       commandDeliveries.push({ repository, missing: await findMissingCommandDelivery(context, checkout, repository, environment, findNewestLanding(history, repository)) });
     }
   }
-  const missing = listMissingDelivery(history, landingIsDelivery, commandDeliveries);
+  const landedWithoutRecord = holdsNoLandedRecord(entries) ? await findLandedCommitOf(context.git, mainCheckout, ref) : undefined;
+  if (landedWithoutRecord !== undefined) {
+    throw new PreconditionError(`${name} is not delivered, so nothing is proven: the commit ${landedWithoutRecord.slice(0, 7)} on the default branch of origin names it, and the issue holds no "Landed on" record of that landing; run integrate-issue again, which writes it`);
+  }
+  const deliveredWithoutCode = holdsNoLandedRecord(entries);
+  const missing = deliveredWithoutCode ? [] : listMissingDelivery(history, landingIsDelivery, commandDeliveries);
   if (missing.length > 0) throw new PreconditionError(`${name} is not delivered, so nothing is proven: ${missing.join('; ')}`);
   await checkPublicText(api, 'issue-proof', ref, evidence);
 
@@ -135,5 +143,5 @@ export async function run(args: readonly string[], context: CommandContext): Pro
     await replaceFamilyLabel(api, ref, issue, statusLabel('done'));
     await editIssue(api, ref, { state: 'closed' });
   });
-  return succeeded([`${name} proven on ${environment}; ${statusLabel('done')}, closed as completed`]);
+  return succeeded([`${name} proven on ${environment}; ${statusLabel('done')}, closed as completed${deliveredWithoutCode ? '; no landing exists, it was delivered without a code change' : ''}`]);
 }

@@ -192,7 +192,8 @@ issue_repo="${repo:-$own}"
 # was started, answers this issue. Any other branch of those names is left alone and named with the work item it
 # belongs to.
 carried_number="$(carried_branch_number "$issue_repo" "$thread")"
-owners="$(issue_branch_owners "$issue_repo" "$default" "$number" ${carried_number:+"$carried_number"})" || exit 1
+branch_name="$(issue_branch_name "$number" "$(jq -r '.title // ""' <<< "$thread")")"
+owners="$(issue_branch_owners "$issue_repo" "$default" "$branch_name" "$number" ${carried_number:+"$carried_number"})" || exit 1
 mine=" "
 while IFS=$'\t' read -r name item why; do
   [ -n "$name" ] || continue

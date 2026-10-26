@@ -42,6 +42,11 @@ export interface HarnessSteps {
   openLandingCheck(cwd: string): Promise<StepOutcome>;
   completeLandingCheck(receipt: string, commit: string, ciRef: string): Promise<StepOutcome>;
   closeLandingCheck(receipt: string): Promise<StepOutcome>;
+  // The mark of a harness landing (lib/landing-check.sh): opened before the pushes of a landing for the commit and the
+  // refs they update, its path told to the Git children of those pushes alone, closed on every way out. The push gate
+  // refuses an update of the default branch that carries none. The outcome of opening holds the path.
+  openLandingMark(cwd: string, commit: string, refs: readonly string[]): Promise<StepOutcome>;
+  closeLandingMark(mark: string): Promise<StepOutcome>;
   // Runs scripts/install.sh of the worktree, its lines shown while it runs; the outcome holds the last of them.
   installTools(worktree: string, show: (text: string) => void): Promise<StepOutcome>;
   // The page of `status --tokens` (lib/status-tokens.sh): the usage windows of the tool of the session, the pace, what an

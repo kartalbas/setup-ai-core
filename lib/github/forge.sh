@@ -42,6 +42,31 @@ repo_file_tree() {  # repo_file_tree <owner/repo>
   gh_read "the files of $1" api "repos/$1/git/trees/HEAD?recursive=1"
 }
 
+# repo_head_revision <owner/repo>: the commit the default branch stands at. GitHub answers 404 for a repository
+# that is not there and 409 for one without a commit; both are exit 3.
+repo_head_revision() (
+  local rc=0
+  run_split gh api "repos/$1/commits/HEAD" --jq .sha || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    case "$split_err" in *"HTTP 404"*|*"HTTP 409"*) exit 3 ;; esac
+    echo "cannot read the head commit of $1 - gh exited $rc${split_err:+: $split_err}${split_out:+, and answered: $split_out}" >&2; exit 1
+  fi
+  local commit_id='^[0-9a-f]{40,64}$'
+  [[ "$split_out" =~ $commit_id ]] || { echo "cannot read the head commit of $1: GitHub answered no commit id" >&2; exit 1; }
+  printf '%s\n' "$split_out"
+)
+
+# repo_file_at <owner/repo> <revision> <path> <file>: the contents of the path at that commit; a 404 names no file
+repo_file_at() (
+  local rc=0
+  run_split gh api "repos/$1/contents/$3?ref=$2" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    case "$split_err" in *"HTTP 404"*) exit 3 ;; esac
+    echo "cannot read $3 of $1 at $2 - gh exited $rc${split_err:+: $split_err}${split_out:+, and answered: $split_out}" >&2; exit 1
+  fi
+  forge_content_file "$3 of $1 at $2" "$split_out" "$4" || exit 1
+)
+
 # forge_repo_visibility <owner/repo>: public or private; fails, saying why, where the forge does not
 # establish it.
 forge_repo_visibility() {

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # The GitHub command line, as every GitHub provider of this harness calls it: gh with the rate
-# limits met once (gh) and gh with its refusals made visible (gh_read). lib/github/tracker.sh sources
-# it, and lib/github/forge.sh will, because only this folder may call `command gh`. Source it, do
-# not run it.
+# limits met once (gh), gh with its refusals made visible (gh_read) and gh for a write (gh_write).
+# lib/github/tracker.sh sources it, and lib/github/forge.sh will, because only this folder may call
+# `command gh`. Source it, do not run it.
 
 . "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
 
@@ -106,6 +106,34 @@ gh_read() {  # gh_read <what was asked for> <gh argument>...
   [ "$rc" -eq 0 ] || die "cannot read $what - gh exited $rc${out:+, and answered: $out}"
   [ -n "$out" ] || return 0
   printf '%s\n' "$out"
+}
+
+# EVERYTHING THIS REPOSITORY WRITES THROUGH gh GOES THROUGH HERE, the counterpart of gh_read.
+#
+# A failed write leaves one of two facts, and gh_read's "cannot read" is wrong for both. A refusal by GitHub
+# carries its status, 4xx, on stderr: nothing was changed. Any other failure, a lost connection, an answer that
+# does not decode, a server error, a GraphQL answer that holds errors, may have come after GitHub stored the
+# write, so the outcome is unknown and the message says that and never that nothing happened. 408 is a
+# timeout and no refusal. The write is not repeated here; the rate limit wait of gh() repeats only a call that
+# GitHub refused for its rate. The status, the stderr and the body gh answered are kept in the message.
+#
+# On success the answer is printed as gh_read prints it, the wait notices of gh() to stderr. Where the
+# caller must stop, it writes `x="$(gh_write ...)" || exit 1`, or `gh_write ... || exit 1` where it needs no answer.
+gh_write() {  # gh_write <what is written> <what became of it, a past participle> <gh argument>...
+  local what="$1" participle="$2" rc=0 status
+  shift 2
+  run_split gh "$@" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    [ -z "$split_err" ] || printf '%s\n' "$split_err" >&2
+    [ -z "$split_out" ] || printf '%s\n' "$split_out"
+    return 0
+  fi
+  status="$(grep -oE 'HTTP [0-9]{3}' <<< "$split_err" | tail -n1 || true)"
+  case "$status" in
+    'HTTP 408') ;;
+    'HTTP 4'??) die "$what was NOT $participle - GitHub refused it ($status); gh exited $rc${split_err:+ and said: $split_err}${split_out:+; GitHub answered: $split_out}" ;;
+  esac
+  die "it is not known whether $what was $participle - gh exited $rc${split_err:+ and said: $split_err}${split_out:+; GitHub answered: $split_out}; look at it before writing it again"
 }
 
 # gh_repo_visibility <owner/repo>: public or private. Only a successful boolean isPrivate establishes it;

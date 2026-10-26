@@ -84,8 +84,9 @@ describe('status --tokens', () => {
   it('hands over every issue of the repositories, open and closed, as cards whose column is the status/ label', async () => {
     handed.length = 0;
     await status.run(['o/one', '--tokens'], contextAt());
-    const cards = (handed[0]?.items ?? '').trim().split('\n').map((line) => JSON.parse(line) as { open: boolean; status: string; priority: string | null; closedAt: string | null });
+    const cards = (handed[0]?.items ?? '').trim().split('\n').map((line) => JSON.parse(line) as { open: boolean; status: string; priority: string | null; closedAt: string | null; subs: number; parent: string | null });
     assert.deepEqual(cards.map((card) => `${card.open ? 'open' : 'closed'} ${card.status} ${card.priority ?? '-'}`), ['open implementing P1', 'closed done -', 'closed done -']);
+    assert.ok(cards.every((card) => card.subs === 0 && card.parent === null), 'every card is a leaf, so the page can name no epic as ready to close');
     assert.equal(handed[0]?.columns.trim().split('\n').at(-1), 'not-planned');
     assert.equal(handed[0]?.board, 'o/forgejo');
   });

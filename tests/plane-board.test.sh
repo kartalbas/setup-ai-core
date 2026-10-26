@@ -133,6 +133,7 @@ printf '[{"match":"cursor=","status":429,"times":1,"headers":{"X-RateLimit-Reset
 [ "$(plane_fn card_rows 2>/dev/null | wc -l | tr -d ' ')" = "$total" ] || fail "a 429 on the second page lost work items"
 grep -qE '^[1-9][0-9]*$' "$WORK/slept" || fail "the 429 on the second page was not waited out"
 printf '[{"match":"cursor=","status":429,"times":9,"headers":{"X-RateLimit-Reset":"%s"}}]' "$reset" > "$CURL_FAKE_STATE/inject.json"
+[ -z "$(plane_fn card_rows 2>/dev/null)" ] || fail "a listing that failed on its second page gave rows of the first"
 out="$(plane_fn card_rows 2>&1 >/dev/null)" && fail "a 429 that never lifts was accepted"
 grep -q 'rate limit still refuses after 3 waits' <<< "$out" || fail "a 429 that never lifts is not named: $out"
 printf '[]' > "$CURL_FAKE_STATE/inject.json"
@@ -874,3 +875,29 @@ planted="$(mutant_root lib/plane/tracker.sh 's/sort_by(\.created_at | instant_ke
 planted="$(mutant_root lib/plane/tracker.sh 's/sort_by((\.completed_at \/\/ \.updated_at) | instant_key)/sort_by(.completed_at \/\/ .updated_at)/')"
 [ "$(closed_order "$planted")" = "634 635" ] || fail "planted: the closed work items sorted by the text of the time should put T1 first: $(closed_order "$planted")"
 echo "  planted defects, each caught: the day compared as text, the summaries and the closed numbers sorted by the text of their times"
+
+# THE SUMMARY OF AN EPIC: the listing holds no archived work item, so the children it returns cannot say that every child
+# of a parent is closed. The row of a parent says its completion is unknown, and status.mjs names the epic for it instead of
+# listing it after CLOSE. The parent here has closed children, one of another repository and one with no repository
+# label, and an archived child that is still open.
+plane_add_item 7001 "A closed child" repo:example-repo
+plane_add_item 7002 "An archived open child" repo:example-repo
+plane_add_item 7003 "A child of another repository" repo:other-repo
+plane_add_item 7004 "A child with no repository label"
+plane_add_item 7005 "The parent of them" repo:example-repo
+planeset 'const by=(n)=>p.issues.find((i)=>i.sequence_id===n); for (const n of [7001,7002,7003,7004]) by(n).parent=by(7005).id; for (const n of [7001,7003,7004]) { by(n).state=p.states.find((x)=>x.name==="done").id; by(n).completed_at="2026-10-17T10:00:00Z"; } by(7002).archived_at="2026-10-17T10:00:00Z"'
+rows="$(plane_fn card_rows)" || fail "card_rows with an epic"
+[ "$(jq -c 'select(.number == 7005) | [.subs, .completed, .open]' <<< "$rows")" = '[3,null,true]' ] || fail "the row of the parent counts its visible children and gives no completion: $(jq -c 'select(.number == 7005)' <<< "$rows")"
+[ "$(jq -c 'select(.number == 7001) | [.parent, .subs, .completed, .open]' <<< "$rows")" = '["example-org/example-repo#7005",0,null,false]' ] || fail "the row of the closed child lost its parent: $(jq -c 'select(.number == 7001)' <<< "$rows")"
+items="$WORK/epic-items"; printf '%s\n' "$rows" > "$items"
+epic_page() { ( cd "$P" && node "${1:-$ROOT}/lib/status.mjs" --items-file "$items" --columns-file "$fields" --board example-org/ENG --folder "$WORK" --stop-at 92 --usage-file "$WORK/usage-snapshot.json" --issues 2>&1 ); }
+out="$(epic_page)" || fail "status.mjs on the rows of an epic: $out"
+grep -q '^UNKNOWN sub-issue summary missing or invalid.*example-repo#7005' <<< "$out" || fail "status.mjs does not name the epic whose summary Plane cannot give: $out"
+! grep -q '^CLOSE' <<< "$out" || fail "status.mjs lists an epic with an archived open child after CLOSE: $out"
+# planted: a reader that takes the visible children as all of them lists the epic ready, since none of its visible children is open
+planted_status="$WORK/planted-status"; rm -rf "$planted_status"; mkdir -p "$planted_status/lib"; cp "$ROOT/lib/status.mjs" "$ROOT/lib/status-live.mjs" "$ROOT"/lib/*.mjs "$planted_status/lib/" 2>/dev/null
+sed -i.bak 's|^const ready = epics.filter(.*$|const ready = epics.filter((e) => !open.some((i) => i.parent === e.key));|' "$planted_status/lib/status.mjs"
+cmp -s "$ROOT/lib/status.mjs" "$planted_status/lib/status.mjs" && fail "the planted copy equals lib/status.mjs"
+out="$(epic_page "$planted_status")" || fail "the planted status.mjs: $out"
+grep -q '^CLOSE.*example-repo#7005' <<< "$out" || fail "planted: the board-local predicate should list the epic after CLOSE: $out"
+echo "  card_rows and status.mjs: a parent whose children Plane lists in part has no completion, and is named UNKNOWN, never listed after CLOSE; planted: the board-local predicate lists it"

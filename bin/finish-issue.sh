@@ -333,7 +333,7 @@ else
     1) body="$(printf 'Landed on %s:\n\n%s\n' "$landed_on" "$commits")"
        "$BIN/issue-comment.sh" ${repo:+"$repo"} "$number" "$body" >/dev/null \
          && echo "the issue says what landed" \
-         || echo "the issue was NOT told what landed - add the commits by hand" >&2 ;;
+         || echo "it cannot be confirmed that the issue was told what landed - look at its comments before adding the commits by hand" >&2 ;;
     *) echo "the issue was NOT told what landed: its comments could not be compared with the commits - add the commits by hand" >&2 ;;
   esac
 fi

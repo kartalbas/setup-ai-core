@@ -18,6 +18,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # The tracker the project names (TRACKER in its config.env) brings in the functions that ask the
 # issue tracker, gh_org and project_id among them, and common.sh: die, data_dir, data_file, apart.
 . "$ROOT/lib/tracker.sh"
+# The layer rules of init and the forge's reads: the taxonomy of a repository of another project is resolved with them.
+. "$ROOT/lib/layers.sh"
 
 # A FLAG WITHOUT ITS VALUE, WHICH BASH DOES NOT NOTICE ON ITS OWN.
 #
@@ -124,6 +126,130 @@ label_names_in_group() {  # label_names_in_group <group> [file]
   local all
   all="$(labels_tsv "${2:-}")" || exit 1
   printf '%s\n' "$all" | awk -F'\t' -v g="$1" '$1==g {print $2}'
+}
+
+# --- the taxonomy of the project a repository belongs to ----------------------
+
+# THE TAXONOMY OF AN ISSUE IS THE ONE OF THE PROJECT ITS REPOSITORY BELONGS TO, never the one of the
+# project the caller stands in. Read against the caller's file, an area the target's project declares
+# reads as missing and a label it declares is refused.
+#
+# Where a clone of the repository is on this machine (clone_of), the catalog that clone carries is the one:
+# the installed .ai-core/labels.tsv, or for a clone of a harness source its own file (a harness has its root
+# labels.tsv, setup-ai-core has templates/.ai-core/labels.tsv), or the base template where init never ran
+# there. Where there is none, the catalog is rebuilt from the forge the way init installs it, with reads only:
+# a tracked .ai-core/labels.tsv of the repository, else the repos/<name>/.ai-core/labels.tsv of its project
+# harness, else the labels.tsv of the most derived layer of the harness's extends chain that has one, else
+# the base template. Every source repository is read at the one commit its default branch stood at when the
+# read began, so a branch that moves between two reads never mixes two catalogs. A source that cannot be read,
+# an answer of the wrong shape, a missing base and a malformed file stop the call, naming the source; a file
+# that is not there in a source that was read is only absent. Nothing is cloned, pulled, installed or run:
+# the files are data, and their content is never evaluated.
+target_labels_tsv() {  # target_labels_tsv <owner/repo>: labels_tsv of that repository's taxonomy
+  local repo="$1" clone tmp file rc=0 plain='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+  # the repository names a folder below the temporary one, and a path of the forge: nothing that climbs out of it
+  [[ "$repo" =~ $plain ]] && [ "${repo%%/*}" != . ] && [ "${repo%%/*}" != .. ] && [ "${repo#*/}" != . ] && [ "${repo#*/}" != .. ] \
+    || die "'$repo' is no OWNER/REPO, so its taxonomy was not read and nothing was changed"
+  clone="$(clone_of "$repo")"
+  if [ -n "$clone" ]; then labels_tsv "$(clone_labels_file "$clone")"; return; fi
+  tmp="$(mktemp -d)" || die "cannot create a folder for the taxonomy of $repo"
+  file="$(remote_labels_file "$repo" "$tmp")" || rc=$?
+  [ "$rc" -ne 0 ] || ( labels_tsv "$file" ) || rc=$?
+  rm -rf "$tmp"
+  return "$rc"
+}
+
+clone_labels_file() {  # clone_labels_file <clone>: the catalog file that clone carries
+  local clone="$1" parts file
+  parts="$(origin_parts "$clone" || true)"
+  case "${parts#*$'\t'}" in
+    setup-ai-core) file="$clone/templates/.ai-core/labels.tsv" ;;
+    *-ai-core)     file="$clone/labels.tsv" ;;
+    *)             file="$clone/.ai-core/labels.tsv" ;;
+  esac
+  [ -f "$file" ] || file="$HARNESS_ROOT/templates/.ai-core/labels.tsv"
+  printf '%s\n' "$file"
+}
+
+# remote_read <target> <source repo> <revision> <path> <dir>: sets remote_file to the file at that commit, written
+# below <dir> as <dir>/<source repo>/<path>. Returns 3 where the source holds no such file; any other failure
+# stops the call and names the target and the source.
+remote_read() {
+  local rc=0
+  remote_file="$5/$2/$4"
+  repo_file_at "$2" "$3" "$4" "$remote_file" || rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    3) return 3 ;;
+    *) die "the taxonomy of $1 was not read from $2 ($4 at $3), so nothing was changed" ;;
+  esac
+}
+
+# remote_revision <target> <source repo>: sets remote_commit to the commit the default branch of the source stands
+# at. Returns 3 where the source is not there or holds no commit; any other failure stops the call.
+remote_revision() {
+  local rc=0
+  remote_commit="$(repo_head_revision "$2")" || rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    3) return 3 ;;
+    *) die "the taxonomy of $1 was not read: $2 could not be read, so nothing was changed" ;;
+  esac
+}
+
+# remote_labels_file <owner/repo> <dir>: prints the catalog file of that repository's project, read from the forge.
+# Runs in a command substitution, so a die stops this call and its caller reads the status.
+remote_labels_file() {
+  local repo="$1" dir="$2" name owner revision top cur base="" extends req seen="" n=0 version inner="" i
+  local layers=() revisions=()
+  name="${repo#*/}"; owner="${repo%%/*}"
+  remote_revision "$repo" "$repo" || die "the taxonomy of $repo was not read: $repo is not there or holds no commit, so nothing was changed"
+  revision="$remote_commit"
+  case "$name" in
+    setup-ai-core)
+      remote_read "$repo" "$repo" "$revision" templates/.ai-core/labels.tsv "$dir" \
+        || die "the taxonomy of $repo was not read: $repo holds no templates/.ai-core/labels.tsv, so nothing was changed"
+      printf '%s\n' "$remote_file"; return 0 ;;
+    *-ai-core) top="$repo" ;;
+    *)
+      if remote_read "$repo" "$repo" "$revision" .ai-core/labels.tsv "$dir"; then printf '%s\n' "$remote_file"; return 0; fi
+      top="$owner/$(harness_of "$name")-ai-core"; inner="$name" ;;
+  esac
+  version="$(tr -d '\r\n' < "$HARNESS_ROOT/VERSION")"
+  cur="$top"
+  while [ -n "$cur" ]; do
+    n=$((n + 1)); extends_chain_guard "$top" "$cur" "$n" "$seen" || exit 1
+    seen="$seen $cur"
+    if [ "$cur" = "$repo" ]; then remote_commit="$revision"
+    elif ! remote_revision "$repo" "$cur"; then
+      # the project harness init would create from the skeleton, which carries the base template; a base is required.
+      # The forge answers a private repository this account may not read as one that is not there, so the call says so.
+      if [ "$n" -eq 1 ]; then
+        echo "note: $cur is not there, holds no commit or cannot be read by this account, so $repo is read against the base template" >&2
+        break
+      fi
+      die "the taxonomy of $repo was not read: $cur, which $base extends, is not there or holds no commit, so nothing was changed"
+    fi
+    layers+=("$cur"); revisions+=("$remote_commit"); extends=""
+    if remote_read "$repo" "$cur" "$remote_commit" ai-core.json "$dir"; then
+      jq -e 'type == "object" and ((.extends // "") | type == "string" and (. == "" or test("^[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_.-]+-ai-core$")))
+        and ((."setup-ai-core" // "") | type == "string" and (. == "" or test("^>=[0-9]+(\\.[0-9]+){0,2}$")))' "$remote_file" >/dev/null 2>&1 \
+        || die "the taxonomy of $repo was not read: the ai-core.json of $cur is malformed, so nothing was changed"
+      req="$(layer_requires "$dir/$cur")"
+      if [ -n "$req" ] && ! version_at_least "$version" "${req#>=}"; then
+        die "$cur needs setup-ai-core $req and this clone is $version; run ai-core update, so nothing was changed"
+      fi
+      extends="$(layer_extends "$dir/$cur")"
+    fi
+    base="$cur"; cur="$extends"
+  done
+  for ((i = 0; i < ${#layers[@]}; i++)); do
+    if [ "$i" -eq 0 ] && [ -n "$inner" ] && remote_read "$repo" "${layers[$i]}" "${revisions[$i]}" "repos/$inner/.ai-core/labels.tsv" "$dir"; then
+      printf '%s\n' "$remote_file"; return 0
+    fi
+    if remote_read "$repo" "${layers[$i]}" "${revisions[$i]}" labels.tsv "$dir"; then printf '%s\n' "$remote_file"; return 0; fi
+  done
+  printf '%s\n' "$HARNESS_ROOT/templates/.ai-core/labels.tsv"
 }
 
 # --- repositories -------------------------------------------------------------

@@ -57,7 +57,7 @@ run_all() {
     echo "board-unarchive: $(bash "$root/bin/board-unarchive.sh" --project 7 example-org/shop 4 2>&1 | tr '\n' '|')"
     echo "board-order: $(echo 'example-org/shop#3' | bash "$root/bin/board-order.sh" --project 7 2>&1 | tr '\n' '|')"
     echo "epics-top: $(bash "$root/bin/epics-top.sh" --project 7 2>&1 | tr '\n' '|')"
-  ); grep -E '^(api|issue view|label list)' "$LOG" | sed 's/ *$//' 
+  ); grep -E '^(api|issue view)' "$LOG" | sed 's/ *$//'
 }
 failed=0
 check() {  # check <name> <expected> <actual>
@@ -78,7 +78,7 @@ api graphql -f o=example-org -F n=5 -f query= query($o:String!,$n:Int!){ organiz
 api graphql -f pid=PVT_src -f oid=O_1 -f t=A board -f query= mutation($pid:ID!,$oid:ID!,$t:String!){ copyProjectV2(input:{projectId:$pid, ownerId:$oid, title:$t, includeDraftIssues:false}){ projectV2 { number url } } } --jq .data.copyProjectV2.projectV2 | "\(.number)\t\(.url)"
 api repos/example-org/shop --jq .node_id
 api graphql -f pid=PVT_board7 -f rid=R_shop -f query= mutation($pid:ID!, $rid:ID!) { linkProjectV2ToRepository(input:{projectId:$pid, repositoryId:$rid}) { repository { nameWithOwner } } } --jq .data.linkProjectV2ToRepository.repository.nameWithOwner
-label list --repo example-org/shop --limit 200 --json name --jq .[].name
+api --paginate repos/example-org/shop/labels?per_page=100
 api graphql -f pid=PVT_board7 -f query= query($pid:ID!){ node(id:$pid){ ... on ProjectV2 { views(first:20){ nodes { id name filter } } } } } --jq .data.node.views.nodes[] | "\(.name)\t\(.id)"
 api graphql -f vid=V_1 -f f=repo:example-org/shop -f query= mutation($vid:ID!,$f:String!){ updateProjectV2View(input:{viewId:$vid, filter:$f}){ projectV2View { name filter } } } --jq .data.updateProjectV2View.projectV2View | "\(.name): \(if .filter == "" then "shows everything" else .filter end)"
 api graphql -f o=example-org -f n=shop -F num=4 -f query= query($o:String!, $n:String!, $num:Int!) { repository(owner:$o, name:$n) { issue(number:$num) { projectItems(first:20, includeArchived:true) { nodes { id isArchived project { id } } } } } } --jq .data.repository.issue.projectItems.nodes[] | select(.isArchived) | "\(.project.id)\t\(.id)"

@@ -214,6 +214,29 @@ more` line is a GAP for the next plan of that area.
    repository's clone, and `ai-core start-issue <owner/repo> <first issue>` in the clone of every
    other repository of the package, because a repository that joined through a contract has no issue
    of its own there; where an issue's branch exists from before, give the build its worktree path.
+   On GitHub only, before every round that will post `PHASE` or `LAND` records to the plan issue, run
+   this guard on it, because GitHub takes no comment on an issue that holds 2500 (observed as HTTP 403,
+   "Commenting is disabled on issues with more than 2500 comments"). It counts every comment without
+   printing the thread, and a read that fails or has no comments list is no count, so it refuses too.
+   A refusal is this guard's own, never an answer of GitHub: no phase that posts to that issue starts,
+   the issue is neither tried again nor replaced by an issue you open yourself, and you tell the owner
+   through your channel that the plan needs a continuation issue. Plane and Forgejo name no such cap.
+   ```bash
+   plan_issue_has_room() {  # plan_issue_has_room OWNER/REPO NUMBER
+     local thread count
+     thread="$(mktemp)" || return 1
+     if ai-core issue-thread "$1" "$2" --json > "$thread" 2>/dev/null \
+       && count="$(jq -e '.comments | if type == "array" then length else error("no comments list") end' "$thread" 2>/dev/null)"; then
+       rm -f "$thread"
+       [ "$count" -lt 2500 ] && return 0
+       echo "preflight refusal: $1#$2 holds $count comments, and GitHub takes no comment on an issue with 2500 (observed as HTTP 403); no phase that posts to it starts" >&2
+       return 1
+     fi
+     rm -f "$thread"
+     echo "preflight refusal: the thread of $1#$2 was not read as JSON with a comments list, so its comment count is not known; no phase that posts to it starts" >&2
+     return 1
+   }
+   ```
 3. Fill the phase's brief: every `{{placeholder}}` from the package section, the issues' text, the
    worktree paths and the verdicts. The `{{context budget}}` of a build, a review and a UI test is that
    budget, written `<n>k` with `n` rounded up to whole thousands. In a review and a re-check the reviewer and the builder are such

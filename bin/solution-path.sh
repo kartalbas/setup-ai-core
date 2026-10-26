@@ -124,5 +124,5 @@ fi
 # The file travels as a file: its backticks, quotes and newlines reach GitHub as they were
 # written, because no shell reads them on the way.
 posted="$("${issue_comment[@]}" "$number" --body-file "$file" 2>&1)" \
-  || die "the solution path was NOT posted: $posted"
+  || die "it cannot be confirmed that the solution path was posted; look at the issue before posting it again: $posted"
 printf '%s\n' "$posted"

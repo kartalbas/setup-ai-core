@@ -25,6 +25,8 @@ case "$*" in
   *"repos/example-org/child/issues/4 "*"--jq .id"*) echo 9004; exit 0 ;;
   *'projectsV2(first:50)'*) exit 0 ;;
   *'subIssues(first'*) printf 'todo\n'; exit 0 ;;
+  "api --paginate repos/example-org/y/labels?per_page=100") cat "$LABEL_PAGES"; exit "${LABEL_PAGES_EXIT:-0}" ;;
+  "label list --repo example-org/y --limit "*) jq -r '.[].name' "$LABEL_PAGES" | head -n "$5"; exit 0 ;;
   *"label "*) exit 0 ;;
 esac
 echo '{}'
@@ -74,7 +76,23 @@ check "the four commands say and send what they always did" "$expected" "$actual
 rows="$(grep -c '^[a-z]' "$ROOT/templates/.ai-core/labels.tsv" || true)"
 check "labels-sync creates every label of the taxonomy" "$rows" "$(grep -c '^label create ' "$LOG")"
 check "labels-sync forces, with colour and description" "yes" "$(grep -q '^label create .* --repo example-org/x --color [0-9a-fA-F]* --description .* --force$' "$LOG" && echo yes || echo no)"
-check "labels-sync reads the labels once afterwards" "1" "$(grep -c '^label list --repo example-org/x --limit 200 --json name --jq' "$LOG")"
+check "labels-sync reads the labels once afterwards" "1" "$(grep -c '^api --paginate repos/example-org/x/labels?per_page=100$' "$LOG")"
+
+# labels-sync reads every page of the labels the repository carries: a label after entry 200 is returned, and a
+# page that fails is an error, never label data
+export LABEL_PAGES="$WORK/label-pages"
+{ jq -c '[range(0; 100) | {name: "first\(.)"}]' <<< null; jq -c '[range(0; 100) | {name: "second\(.)"}]' <<< null
+  jq -c '[range(0; 29) | {name: "third\(.)"}] + [{name: "late-label"}]' <<< null; } > "$LABEL_PAGES"
+late() { ( cd "$WORK/project" && bash "$1/bin/labels-sync.sh" example-org/y 2>&1 ) | grep -c '^    late-label$' || true; }
+check "labels-sync names a label that stands behind entry 200" "1" "$(late "$ROOT")"
+head -n 2 "$LABEL_PAGES" > "$WORK/label-pages-failed";
+( cd "$WORK/project" && LABEL_PAGES="$WORK/label-pages-failed" LABEL_PAGES_EXIT=1 bash "$ROOT/bin/labels-sync.sh" example-org/y > "$WORK/failed.out" 2>&1 ); rc=$?
+check "a labels page that fails stops labels-sync" "1" "$rc"
+check "and no label of the pages read is reported as data" "0" "$(grep -c '^    first0$\|left alone:' "$WORK/failed.out" || true)"
+mkdir -p "$WORK/planted-limit"; cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$WORK/planted-limit/"
+sed -i.bak "s|api --paginate \"repos/\$1/labels?per_page=100\")\" \|\| return 1|label list --repo \"\$1\" --limit 200 --json name --jq '.[].name')\" \|\| return 1|; s|^  jq -r '.\[\].name' <<< \"\$pages\"|  printf '%s\\n' \"\$pages\"|" "$WORK/planted-limit/lib/github/tracker.sh"
+check "the plant of the limit differs from the provider" "no" "$(cmp -s "$ROOT/lib/github/tracker.sh" "$WORK/planted-limit/lib/github/tracker.sh" && echo yes || echo no)"
+check "planted: a limit of 200 does not name the label behind it" "0" "$(late "$WORK/planted-limit")"
 
 # the planted defect: a provider that sends another field must make the same check go red
 mkdir -p "$WORK/planted"; cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$WORK/planted/"

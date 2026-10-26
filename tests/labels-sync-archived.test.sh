@@ -24,7 +24,6 @@ case "$*" in
   *'organization(login'*) echo PVT_example; exit 0 ;;
   *'repositories(first'*) printf '%s\n' $BOARD_REPOS; exit 0 ;;
   "label create"*) if archived "$5"; then echo "HTTP 403: Repository was archived so is read-only" >&2; exit 1; fi; exit 0 ;;
-  "label list"*) exit 0 ;;
 esac
 echo '{}'
 GH

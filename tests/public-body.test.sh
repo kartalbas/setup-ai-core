@@ -299,7 +299,7 @@ for assignee in @me @copilot someone,@me; do case_assignee allow "$assignee"; do
 case_assignee refuse "someone,$real"
 export GH_VISIBILITY=public
 # The writer audit also covers metadata, including a late unsafe label before any create.
-audit_project="$WORK/metadata-project"; mkdir -p "$audit_project/.ai-core"; git init -q "$audit_project"
+audit_project="$WORK/metadata-project"; mkdir -p "$audit_project/.ai-core"; git init -q "$audit_project"; git -C "$audit_project" remote add origin https://github.com/example-org/example-repo.git
 export GH_ORG=example-org GH_CACHE_DIRECTORY="$WORK/metadata-cache"
 mkdir -p "$GH_CACHE_DIRECTORY/1"; echo fixture-id > "$GH_CACHE_DIRECTORY/1/project-id"
 metadata_invoke() {

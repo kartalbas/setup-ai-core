@@ -175,6 +175,39 @@ repo_file_tree() {
   rm -f "$entries"
 }
 
+# repo_head_revision <owner/repo>: the commit the default branch stands at; exit 3 for a repository that is not
+# there or has no commit
+repo_head_revision() (
+  local branch
+  forgejo_call GET "/repos/$1"
+  case "$forgejo_status" in
+    2??) ;;
+    404) exit 3 ;;
+    *) echo "cannot read $1 - Forgejo answered $(forgejo_said)" >&2; exit 1 ;;
+  esac
+  [ "$(jq -r '.empty // false' <<< "$forgejo_body")" = false ] || exit 3
+  branch="$(jq -r '.default_branch // empty' <<< "$forgejo_body")"
+  [ -n "$branch" ] || { echo "cannot read $1: Forgejo named no default branch" >&2; exit 1; }
+  forgejo_call GET "/repos/$1/branches/$branch"
+  case "$forgejo_status" in
+    2??) ;;
+    *) echo "cannot read the branch $branch of $1 - Forgejo answered $(forgejo_said)" >&2; exit 1 ;;
+  esac
+  jq -er '.commit.id | select(type == "string" and test("^[0-9a-f]{40,64}$"))' <<< "$forgejo_body" 2>/dev/null \
+    || { echo "cannot read the branch $branch of $1: Forgejo named no commit id" >&2; exit 1; }
+)
+
+# repo_file_at <owner/repo> <revision> <path> <file>: the contents of the path at that commit; a 404 names no file
+repo_file_at() (
+  forgejo_call GET "/repos/$1/contents/$3?ref=$2"
+  case "$forgejo_status" in
+    2??) ;;
+    404) exit 3 ;;
+    *) echo "cannot read $3 of $1 at $2 - Forgejo answered $(forgejo_said)" >&2; exit 1 ;;
+  esac
+  forge_content_file "$3 of $1 at $2" "$forgejo_body" "$4" || exit 1
+)
+
 # forge_repo_visibility <owner/repo>: public or private, from the private field of the repository; fails,
 # saying why, where Forgejo does not answer or the field is no boolean.
 forge_repo_visibility() (

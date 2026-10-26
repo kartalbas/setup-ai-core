@@ -81,7 +81,8 @@ NO
 chmod +x "$refusing/gh"
 out="$(PATH="$refusing:$PATH" "$transfer" "$repo" 94 "$target" 2>&1)"; rc=$?
 check 'exits nonzero'   yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'names the act'   yes "$(grep -q "cannot read the transfer of $repo#94 to $target" <<< "$out" && echo yes || echo no)"
+check 'names the act, and that GitHub refused it' yes "$(grep -q "$repo#94 was NOT transferred to $target - GitHub refused it (HTTP 403)" <<< "$out" && echo yes || echo no)"
+check 'with its words, and no read-back error' "yes no" "$(grep -q 'Must have admin rights' <<< "$out" && echo yes || echo no) $(grep -q 'cannot read' <<< "$out" && echo yes || echo no)"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

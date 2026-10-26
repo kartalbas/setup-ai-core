@@ -309,6 +309,17 @@ function forgejo() {
     if (s === 'broken') reply(502, 'Bad Gateway');
     reply(200, s || {});
   }
+  // A branch resolves to the commit the repository stands at; a commit holds the files a test names in `commits`.
+  if (p[3] === 'branches' && p.length === 5) {
+    if (repo.empty || !repo.head_commit) reply(404, { message: 'branch does not exist' });
+    reply(200, { name: p[4], commit: { id: repo.head_commit } });
+  }
+  if (p[3] === 'contents') {
+    const files = (repo.commits || {})[q.get('ref')];
+    const content = files && files[p.slice(4).join('/')];
+    if (content === undefined) reply(404, { message: 'object does not exist' });
+    reply(200, { type: 'file', encoding: 'base64', size: Buffer.byteLength(content), content: Buffer.from(content).toString('base64').replace(/(.{76})/g, '$1\n') });
+  }
   if (p[3] === 'git' && p[4] === 'trees') {
     const per = +(q.get('per_page') || 1000), at = +(q.get('page') || 1);
     if (repo.empty) reply(404, { message: 'sha not found' });

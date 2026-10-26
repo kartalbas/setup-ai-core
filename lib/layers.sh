@@ -278,14 +278,22 @@ layer_requires() {
 
 # version_at_least <have> <want>: true when have >= want, dotted numbers
 version_at_least() {
-  local have="$1" want="$2" h w i h1 h2 h3 w1 w2 w3
-  IFS=. read -r h1 h2 h3 <<< "$have.0.0"; IFS=. read -r w1 w2 w3 <<< "$want.0.0"
+  local have="$1" want="$2" h w i h1 h2 h3 w1 w2 w3 h_rest w_rest
+  # read gives the last name the rest of the line, so the padding goes to a fourth one and the third holds one number
+  IFS=. read -r h1 h2 h3 h_rest <<< "$have.0.0"; IFS=. read -r w1 w2 w3 w_rest <<< "$want.0.0"
   for i in "$h1:$w1" "$h2:$w2" "$h3:$w3"; do
     h="${i%%:*}"; w="${i#*:}"
     [ "${h:-0}" -gt "${w:-0}" ] 2>/dev/null && return 0
     [ "${h:-0}" -lt "${w:-0}" ] 2>/dev/null && return 1
   done
   return 0
+}
+
+# extends_chain_guard <chain start> <layer> <step, this layer included> <layers seen before>: refuses an
+# extends chain longer than eight layers and one that runs in a circle
+extends_chain_guard() {
+  [ "$3" -le 8 ] || { echo "error: the extends chain of $1 is longer than eight" >&2; return 1; }
+  case " $4 " in *" $2 "*) echo "error: the extends chain of $1 runs in a circle at $2" >&2; return 1 ;; esac
 }
 
 # layer_chain <org>/<name> <setup-ai-core root> <folder> [create|dry]: every layer from the base
@@ -296,8 +304,7 @@ layer_chain() {
   local full="$1" root="$2" folder="$3" mode="${4:-}" dir req chain="" seen="" n=0 version
   version="$(tr -d '\r\n' < "$root/VERSION")"
   while [ -n "$full" ]; do
-    n=$((n + 1)); [ "$n" -le 8 ] || { echo "error: the extends chain of $1 is longer than eight" >&2; return 1; }
-    case " $seen " in *" $full "*) echo "error: the extends chain of $1 runs in a circle at $full" >&2; return 1 ;; esac
+    n=$((n + 1)); extends_chain_guard "$1" "$full" "$n" "$seen" || return 1
     seen="$seen $full"
     dir="$(ensure_layer "$full" "$root" "$folder" "$mode")" || return 1
     [ "$mode" = dry ] || mode=""

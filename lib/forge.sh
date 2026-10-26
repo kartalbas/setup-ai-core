@@ -17,6 +17,11 @@
 #   repo_create <owner/repo> <dir>   private, from the checkout in <dir>, which it pushes
 #   repo_default_branch <owner/repo> its default branch, nothing for a repository with no commit
 #   repo_file_tree <owner/repo>      its files, as the JSON tree issue-map reads
+#   repo_head_revision <owner/repo>  the commit its default branch stands at; exit 3 where the repository is not there or
+#                                    holds no commit, exit 1 with the reason on stderr where the forge could not say
+#   repo_file_at <owner/repo> <revision> <path> <file>
+#                                    writes the file as that commit holds it; exit 3 where the commit holds no such file,
+#                                    exit 1 with the reason on stderr where the forge could not say or the answer is no file
 #   forge_repo_visibility <owner/repo>  public or private; fails, saying why, where the forge does not establish it
 #   commit_checked <checkout> <sha>  green, red, pending or unreadable (what the forge said, on stderr)
 #   signed_in_user               the login, exit 1 where nobody is signed in
@@ -25,7 +30,22 @@
 #   forge_doctor                 the lines doctor prints for the forge, "  forge: <name>" first, through its report and problem
 load_provider forge "
   forge_host forge_name not_signed_in_words checks_unreadable_message repo_exists repo_clone repo_create repo_default_branch repo_file_tree
-  forge_repo_visibility commit_checked signed_in_user clone_sign_in forge_doctor"
+  repo_head_revision repo_file_at forge_repo_visibility commit_checked signed_in_user clone_sign_in forge_doctor"
+
+# forge_content_file <what was read> <contents answer> <file>: the file of a contents answer, which both forges give
+# as {type: "file", encoding: "base64", content, size}, written to <file>. An answer of any other shape, a content
+# that does not decode and a file of another size than the answer names are no file.
+forge_content_file() {
+  local what="$1" answer="$2" file="$3" size
+  jq -e '.type == "file" and .encoding == "base64" and (.content | type) == "string" and (.size | type) == "number"' <<< "$answer" >/dev/null 2>&1 \
+    || { echo "cannot read $what: the answer is no file in base64" >&2; return 1; }
+  mkdir -p "$(dirname "$file")" || { echo "cannot read $what: no folder for $file" >&2; return 1; }
+  jq -j '.content | gsub("\\s"; "") | @base64d' <<< "$answer" > "$file" 2>/dev/null \
+    || { rm -f "$file"; echo "cannot read $what: its content does not decode" >&2; return 1; }
+  size="$(wc -c < "$file" | tr -d ' ')"
+  [ "$size" = "$(jq -r '.size' <<< "$answer")" ] \
+    || { rm -f "$file"; echo "cannot read $what: it holds $size bytes, and the answer names $(jq -r '.size' <<< "$answer")" >&2; return 1; }
+}
 
 # wait_for_checks <checkout> <sha> <poll seconds> <limit seconds> <line to say once, when it waits>
 # The one wait for the checks of a commit, for release and integrate-issue; each caller words its own

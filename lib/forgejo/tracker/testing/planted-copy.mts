@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -10,6 +10,8 @@ export type Planted = readonly [file: string, from: string, to: string];
 
 export function plantedCopy(replacements: readonly Planted[]): string {
   const copy = mkdtempSync(join(tmpdir(), 'forgejo-planted-'));
+  // A test loads modules from the copy until its process ends, so the copy goes when the process does.
+  process.on('exit', () => rmSync(copy, { recursive: true, force: true }));
   cpSync(resolve(import.meta.dirname, '..'), copy, { recursive: true });
   for (const [file, from, to] of replacements) {
     const path = join(copy, file);

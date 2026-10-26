@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { after, before, describe, it } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
@@ -182,6 +184,13 @@ describe('the fake Forgejo keeps the archival of a label', () => {
     const ignores = plantedCopy([['testing/fake-forgejo.mts', "      if (typeof body.is_archived === 'boolean') label.archived = body.is_archived;\n", '']]);
     const ignoresStart = ((await import(pathToFileURL(join(ignores, 'testing/fake-forgejo.mts')).href)) as { startFakeForgejo: typeof startFakeForgejo }).startFakeForgejo;
     assert.ok((await archivalProblems(ignoresStart)).includes('the archival is not kept'));
+  });
+
+  it('leaves no copy of the tracker behind once the process that planted it has ended', () => {
+    const script = `import { plantedCopy } from ${JSON.stringify(pathToFileURL(join(import.meta.dirname, 'planted-copy.mts')).href)}; console.log(plantedCopy([]));`;
+    const copy = execFileSync(process.execPath, ['--input-type=module', '--eval', script], { encoding: 'utf8' }).trim();
+    assert.match(copy, /forgejo-planted-/);
+    assert.equal(existsSync(copy), false, `${copy} was left behind`);
   });
 
   it('lets a request through before a rule fails the next one, and runs an effect after the request was served', async () => {

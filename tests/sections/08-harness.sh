@@ -551,6 +551,15 @@ is_layer_config "$LAY/lay-web" || fail "an override of comments only changed the
 : > "$LA/repos/lay-web/.ai-core/config.env"
 publish_layer lay "an empty file"; lay_init "$LAY/lay-web" lay-web-6
 is_layer_config "$LAY/lay-web" || fail "an empty override changed the layer's config.env: $(cat "$LAY/lay-web/.ai-core/config.env")"
+# An override in UTF-16 assigns no key that a reader sees, so it gives the layer's file
+printf '\377\376L\000I\000V\000E\000_\000T\000A\000G\000S\000=\000x\000\n\000C\000I\000_\000G\000A\000T\000E\000=\000g\000\n\000' > "$LA/repos/lay-web/.ai-core/config.env"
+publish_layer lay "a file in UTF-16"; lay_init "$LAY/lay-web" lay-web-utf16
+is_layer_config "$LAY/lay-web" || fail "an override in UTF-16, which no reader of config.env can read, did not give the layer's config.env: $(cat -v "$LAY/lay-web/.ai-core/config.env")"
+planted="$(mutant_root 's|done < <(grep -E "\$assignment" "\$override")|done < "$override"|')"
+new_checkout "$LAY/mutant-utf16-web" lay-web
+if HOME="$WORK/home-lay" PATH="$PATH_SH" bash "$planted/bin/init.sh" "$LAY/mutant-utf16-web" --no-doctor > "$WORK/mutant-utf16.log" 2>&1 && is_layer_config "$LAY/mutant-utf16-web"; then
+  fail "planted: keys taken with read, which drops the NUL bytes of a file in UTF-16, went unseen"
+fi
 printf 'LIVE_TAGS="prod=landed"\nCI_GATE="gate"\n' > "$LA/repos/lay-web/.ai-core/config.env"
 publish_layer lay "two keys"; lay_init "$LAY/lay-web" lay-web-7
 [ "$(config_value_in_file "$LAY/lay-web/.ai-core/config.env" CI_GATE unset)" = gate ] && [ "$(config_value_in_file "$LAY/lay-web/.ai-core/config.env" LIVE_TAGS unset)" = "prod=landed" ] && [ "$(config_value_in_file "$LAY/lay-web/.ai-core/config.env" UPDATE_CHECK unset)" = never ] || fail "the two keys of the override, or the layer's others, are wrong: $(cat "$LAY/lay-web/.ai-core/config.env")"
@@ -704,7 +713,7 @@ rm -f "$LAY_RAN"/*
 for doc in README.md skeleton/README.md skeleton/repos/README.md; do
   grep -q 'key by key' "$ROOT/$doc" || fail "$doc does not say that a repository's config.env is laid over the layer's key by key"
 done
-echo "  lay: a repository's config.env keeps every key of its layer and a plain one gets the layer's bytes; a later key, a change, a drop, an override of nothing and one taken out follow; a full copy reads as before; no expression runs; a tracked file is left; dry runs write nothing; a linked worktree and a project folder keep their scope; a planted whole-file write, a stale removal, a tracked write, a write past the dry run, a pattern without spaces and an init that runs its input are each caught"
+echo "  lay: a repository's config.env keeps every key of its layer and a plain one gets the layer's bytes; a later key, a change, a drop, an override of nothing, one in UTF-16 and one taken out follow; a full copy reads as before; no expression runs; a tracked file is left; dry runs write nothing; a linked worktree and a project folder keep their scope; a planted whole-file write, a stale removal, a tracked write, a write past the dry run, a pattern without spaces, keys taken past grep and an init that runs its input are each caught"
 
 section "Forgejo project settings: a fresh clone and a template-only checkout find their harness in one init"
 make_forgejo_project

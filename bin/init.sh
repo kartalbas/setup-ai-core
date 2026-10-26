@@ -377,11 +377,12 @@ last_assignment() { grep -E "^[[:space:]]*$2[[:space:]]*=" "$1" | tail -n1; }
 # copied, never evaluated.
 lay_config() {
   local base="$1" override="$2" out="$3" line key keys="" placed=" " assignment='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*='
-  while IFS= read -r line || [ -n "$line" ]; do
+  # grep picks the lines, as every reader does: read alone drops a NUL byte, and grep then finds no line of the key
+  while IFS= read -r line; do
     [[ $line =~ $assignment ]] || continue
     key="${BASH_REMATCH[1]}"
     case " $keys " in *" $key "*) ;; *) keys="$keys $key" ;; esac
-  done < "$override"
+  done < <(grep -E "$assignment" "$override")
   if [ -z "$keys" ]; then cp -f "$base" "$out"; return 0; fi
   {
     while IFS= read -r line || [ -n "$line" ]; do

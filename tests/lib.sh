@@ -10,7 +10,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 # A command that ends the file under errexit names itself: where, what and its status. A subshell, such as
 # a command substitution, only hands its status to the line that errexit then judges, so it stays silent.
-report_fatal() { [ "$BASH_SUBSHELL" -gt 0 ] || echo "FATAL: ${BASH_SOURCE[1]#"$ROOT"/}:$2: $3 (exit $1)" >&2; }
+report_fatal() { local file="${BASH_SOURCE[1]:-bash -c}"; [ "$BASH_SUBSHELL" -gt 0 ] || echo "FATAL: ${file#"$ROOT"/}:$2: $3 (exit $1)" >&2; }
 trap 'report_fatal "$?" "$LINENO" "$BASH_COMMAND"' ERR
 section() { echo "==> $1"; }
 WORK="$(mktemp -d)"

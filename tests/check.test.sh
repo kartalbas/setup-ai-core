@@ -86,6 +86,10 @@ plants_hold() {
 }
 
 plants_hold "$mini" || fail "the planted failures of the miniature suite are not named: $out"
+# a bash -c string that sources lib.sh has no file of its own: its failing command is named, and keeps its status
+rc=0; out="$(bash -c '. "$1/tests/lib.sh"; sh -c "echo marker-dash-c >&2; exit 7"' _ "$mini" 2>&1)" || rc=$?
+[ "$rc" -eq 7 ] && need "$out" 'FATAL: bash -c:1: sh -c "echo marker-dash-c >&2; exit 7" (exit 7)' \
+  || fail "a bash -c that sources lib.sh does not name its failing command with its status: exit $rc, $out"
 
 mutant="$work/mutant"; cp -R "$mini" "$mutant"
 grep -v "report_fatal \"\$?\"" "$mini/tests/lib.sh" > "$mutant/tests/lib.sh"

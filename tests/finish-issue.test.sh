@@ -49,6 +49,8 @@ case "\$a" in
     mkdir -p "$fake/comments"; [ -s "\$store" ] || echo '[]' > "\$store"
     jq --arg b "\$text" '. + [{user: {login: "tester"}, author_association: "OWNER", body: \$b,
       created_at: ("2026-10-21T10:" + (length | tostring | if length < 2 then "0" + . else . end) + ":00Z")}]' "\$store" > "\$store.new" && mv "\$store.new" "\$store"
+    # the comment is stored and the answer is lost: no status, no address
+    [ -e "$fake/response-lost" ] && { echo 'error connecting to api.github.com' >&2; exit 1; }
     echo 'https://example.invalid/example-org/example-repo/issues/163#issuecomment-1' ;;
   # status-sync's query of the repository's issues names comments and projectItems too
   *"issues(states:OPEN"*)   [ -e "$fake/issues-down" ] && { echo 'the issues are down' >&2; exit 1; }
@@ -1015,6 +1017,21 @@ check 'nothing was posted'               0 "$(posted)"
 check 'it says so'                       yes "$(grep -q '^the issue was NOT told what landed: its comments could not be read' <<< "$out" && echo yes || echo no)"
 out="$(run 312)"; rc=$?
 check 'a run that can read tells it'     1 "$(landings_of 312)"
+
+echo 'a record whose answer is lost is reported as unconfirmed, sent once, and found by the next run'
+open issue-313-lost-answer
+land issue-313-lost-answer 'Lost answer (#313)'
+touch "$fake/response-lost"
+: > "$log"; rm -rf "$fake/cache"
+out="$(run 313)"; rc=$?
+rm -f "$fake/response-lost"
+check_runs "$rc"
+check 'it cannot be confirmed that the issue was told' yes "$(grep -q '^it cannot be confirmed that the issue was told what landed - look at its comments before adding the commits by hand' <<< "$out" && echo yes || echo no)"
+check 'and it never says the issue was not told'        no "$(grep -q 'the issue was NOT told what landed - ' <<< "$out" && echo yes || echo no)"
+check 'the provider'"'"'s words are shown'                 yes "$(grep -q 'it is not known whether the comment on' <<< "$out" && echo yes || echo no)"
+check 'one comment was sent, and it is stored'          '1 1' "$(posted) $(landings_of 313)"
+out="$(run 313)"; rc=$?
+check 'the next run finds the record and adds none'     '1 yes' "$(landings_of 313) $(grep -q 'the issue holds this record already' <<< "$out" && echo yes || echo no)"
 
 # status-sync runs for the repository after every finish. An epic ahead of the landed card, one sub-issue
 # closed and the other open with its card in done, is not closed: it moves to testing, and the run goes on

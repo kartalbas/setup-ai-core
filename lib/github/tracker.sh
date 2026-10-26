@@ -317,7 +317,7 @@ item_id() {  # item_id <owner/repo> <number>
     return 0
   fi
   cid="$(issue_node_id "$1" "$2")" || exit 1
-  gh_read "the board item added for $1#$2" api graphql -f pid="$(project_id)" -f cid="$cid" -f query='
+  gh_write "the board item for $1#$2" added api graphql -f pid="$(project_id)" -f cid="$cid" -f query='
     mutation($pid:ID!, $cid:ID!) {
       addProjectV2ItemById(input:{projectId:$pid, contentId:$cid}) { item { id } } }' \
     --jq '.data.addProjectV2ItemById.item.id'
@@ -573,7 +573,7 @@ subissue_attach() {
 subissue_detach() {
   local child_id
   child_id="$(issue_db_id "$3" "$4")" || exit 1
-  gh_read "the detach of $3#$4 from $1#$2" api --method DELETE \
+  gh_write "the sub-issue link of $3#$4 to $1#$2" removed api --method DELETE \
     "repos/$1/issues/$2/sub_issue" -F sub_issue_id="$child_id" >/dev/null || exit 1
 }
 
@@ -685,12 +685,12 @@ tracker_login() {
 issue_close() {
   local state_reason="completed"
   [ "$3" != not-planned ] || state_reason="not_planned"
-  gh_read "the close of $1#$2" api --method PATCH "repos/$1/issues/$2" \
+  gh_write "$1#$2" closed api --method PATCH "repos/$1/issues/$2" \
     -f state=closed -f state_reason="$state_reason" >/dev/null || exit 1
 }
 
 issue_reopen() {  # issue_reopen <owner/repo> <number>
-  gh_read "the reopen of $1#$2" api --method PATCH "repos/$1/issues/$2" -f state=open >/dev/null || exit 1
+  gh_write "$1#$2" reopened api --method PATCH "repos/$1/issues/$2" -f state=open >/dev/null || exit 1
 }
 
 # issue_comment_post <owner/repo> <number> <text> <text file>: prints the comment's URL. One of the
@@ -700,13 +700,13 @@ issue_reopen() {  # issue_reopen <owner/repo> <number>
 issue_comment_post() {
   local field
   if [ -n "$4" ]; then field=(-F "body=@$4"); else field=(-f "body=$3"); fi
-  gh_read "the comment posted on $1#$2" api "repos/$1/issues/$2/comments" "${field[@]}" --jq .html_url
+  gh_write "the comment on $1#$2" posted api "repos/$1/issues/$2/comments" "${field[@]}" --jq .html_url
 }
 
 # duplicate_mark <canonical owner/repo> <number> <duplicate owner/repo> <number> <comment>: the duplicate gets a
 # comment that names the canonical issue.
 duplicate_mark() {
-  gh_read "the duplicate mark on $3#$4" api --method POST \
+  gh_write "the comment that marks $3#$4 as a duplicate" posted api --method POST \
     "repos/$3/issues/$4/comments" -f "body=$5" >/dev/null || exit 1
 }
 
@@ -717,7 +717,7 @@ duplicate_unmark() {  # duplicate_unmark <canonical owner/repo> <number> <duplic
   canonical_id="$(issue_node_id "$1" "$2")" || exit 1
   duplicate_id="$(issue_node_id "$3" "$4")" || exit 1
   mutation='mutation($canonical:ID!,$duplicate:ID!){unmarkIssueAsDuplicate(input:{canonicalId:$canonical,duplicateId:$duplicate}){duplicate{... on Issue{number}}}}'
-  gh_read "the duplicate mark taken off $3#$4" api graphql \
+  gh_write "the duplicate mark of $3#$4" removed api graphql \
     -f canonical="$canonical_id" -f duplicate="$duplicate_id" -f query="$mutation" >/dev/null || exit 1
 }
 
@@ -731,11 +731,11 @@ issue_edit() {
   local call=(api --method PATCH "repos/$1/issues/$2")
   [ -n "$3" ] && call+=(-f "title=$3")
   [ -n "$4" ] && call+=(-F "body=@$4")
-  gh_read "the edit of $1#$2" "${call[@]}" >/dev/null || exit 1
+  gh_write "the edit of $1#$2" made "${call[@]}" >/dev/null || exit 1
 }
 
 issue_transfer() {  # issue_transfer <owner/repo> <number> <target owner/repo>: prints the new issue's URL
-  gh_read "the transfer of $1#$2 to $3" issue transfer "$2" "$3" --repo "$1"
+  gh_write "$1#$2" "transferred to $3" issue transfer "$2" "$3" --repo "$1"
 }
 
 # issue_rows <owner/repo>: the open issues of the repository, one JSON object per line, the issue row
@@ -1094,7 +1094,7 @@ board_fields_json() {
 # field_options_replace <field> <request body file>: sends the request body that carries the field's
 # whole new option list, and prints the option names that stand afterwards, one per line.
 field_options_replace() {
-  gh_read "the options of '$1' on board $(project_number)" api graphql --input "$2" \
+  gh_write "the options of '$1' on board $(project_number)" replaced api graphql --input "$2" \
     --jq '.data.updateProjectV2Field.projectV2Field.options[].name'
 }
 
@@ -1110,7 +1110,7 @@ project_create() {
     query($o:String!,$n:Int!){ organization(login:$o){ projectV2(number:$n){ id } } }' \
     --jq '.data.organization.projectV2.id')" || exit 1
   [ -n "$src" ] || die "no project $2 in $1 to copy from"
-  gh_read "the board copied from project $2" api graphql -f pid="$src" -f oid="$org" -f t="$3" -f query='
+  gh_write "the board copied from project $2" made api graphql -f pid="$src" -f oid="$org" -f t="$3" -f query='
     mutation($pid:ID!,$oid:ID!,$t:String!){
       copyProjectV2(input:{projectId:$pid, ownerId:$oid, title:$t, includeDraftIssues:false}){
         projectV2 { number url } } }' \
@@ -1155,7 +1155,7 @@ repo_boards_rows() {
 repo_link() {
   local rid
   rid="$(gh_read "the node id of $1" api "repos/$1" --jq '.node_id')" || exit 1
-  gh_read "the link between $1 and board $(project_number)" api graphql \
+  gh_write "the link between $1 and board $(project_number)" made api graphql \
     -f pid="$(project_id)" -f rid="$rid" -f query='
     mutation($pid:ID!, $rid:ID!) {
       linkProjectV2ToRepository(input:{projectId:$pid, repositoryId:$rid}) {
@@ -1175,7 +1175,7 @@ board_views() {
 # established as an answer first rather than written to the screen as the result of a filter that
 # was never set.
 view_filter_set() {
-  gh_read "the filter set on view '$1'" api graphql -f vid="$1" -f f="$2" -f query='
+  gh_write "the filter of view '$1'" set api graphql -f vid="$1" -f f="$2" -f query='
     mutation($vid:ID!,$f:String!){ updateProjectV2View(input:{viewId:$vid, filter:$f}){ projectV2View { name filter } } }' \
     --jq '.data.updateProjectV2View.projectV2View | "\(.name): \(if .filter == "" then "shows everything" else .filter end)"'
 }

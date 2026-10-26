@@ -193,6 +193,52 @@ for command in tool-order phase-model usage; do
   cp "$ROOT/README.md" "$WORK/README.md"
 done
 node "$WORK/check.mjs" "$WORK" || fail 'restored tree must stay green'
+# THE GUARD OF THE PLAN ISSUE is extracted from SKILL.md and run against a stand-in ai-core that answers issue-thread with a
+# thread of N comments, with a failed read, or with an answer that is no thread. 2499 comments continue, 2500 refuse; a read
+# that fails or has no comments list refuses too, because it is no zero. The thread is never printed and no file stays.
+extract_guard() {  # extract_guard <SKILL.md>: the bash block that defines plan_issue_has_room
+  awk '/^ *```bash$/ { inside = 1; block = ""; next }
+       /^ *```$/ { if (inside && index(block, "plan_issue_has_room()")) { printf "%s", block; found = 1; exit } inside = 0; next }
+       inside { sub(/^   /, ""); block = block $0 "\n" }
+       END { exit found ? 0 : 1 }' "$1"
+}
+GUARD="$(extract_guard "$ROOT/skills/person-in-charge/SKILL.md")" || fail 'SKILL.md holds no plan_issue_has_room guard'
+mkdir -p "$WORK/guard-bin" "$WORK/guard-tmp"
+cat > "$WORK/guard-bin/ai-core" <<'EOF'
+#!/usr/bin/env bash
+[ "$1 $2 $3 $4" = "issue-thread example-org/plans 7 --json" ] || { echo "unexpected call: $*" >&2; exit 9; }
+[ "${GUARD_THREAD:-}" != FAIL ] || { echo 'error: cannot read the thread' >&2; exit 1; }
+cat "$GUARD_THREAD"
+EOF
+chmod +x "$WORK/guard-bin/ai-core"
+guard_run() {  # guard_run <guard code> <thread file or FAIL>: the status in $guard_rc, stdout and stderr in $guard_out and $guard_err
+  guard_rc=0
+  GUARD_THREAD="$2" PATH="$WORK/guard-bin:$PATH" TMPDIR="$WORK/guard-tmp" bash -c "$1"$'\n''plan_issue_has_room example-org/plans 7' > "$WORK/guard-out" 2> "$WORK/guard-err" || guard_rc=$?
+  guard_out="$(cat "$WORK/guard-out")"; guard_err="$(cat "$WORK/guard-err")"
+}
+thread_of() { jq -n --argjson n "$1" '{issue: {number: 7}, comments: [range(0; $n) | {body: "a comment"}]}' > "$WORK/guard-thread-$1"; echo "$WORK/guard-thread-$1"; }
+for n in 0 2499; do
+  guard_run "$GUARD" "$(thread_of $n)"
+  [ "$guard_rc" = 0 ] && [ -z "$guard_out$guard_err" ] || fail "the guard refused a plan issue of $n comments: $guard_rc $guard_err"
+done
+for n in 2500 2501; do
+  guard_run "$GUARD" "$(thread_of $n)"
+  [ "$guard_rc" = 1 ] && grep -q "preflight refusal: example-org/plans#7 holds $n comments" <<< "$guard_err" && grep -q 'HTTP 403' <<< "$guard_err" || fail "the guard did not refuse $n comments: $guard_rc $guard_err"
+  [ -z "$guard_out" ] || fail "the guard printed the thread: $guard_out"
+done
+printf 'not json at all\n' > "$WORK/guard-bad"; printf '{"issue":{}}\n' > "$WORK/guard-nokey"; printf '{"comments":"many"}\n' > "$WORK/guard-string"; printf '' > "$WORK/guard-empty"
+for unreadable in FAIL "$WORK/guard-bad" "$WORK/guard-nokey" "$WORK/guard-string" "$WORK/guard-empty"; do
+  guard_run "$GUARD" "$unreadable"
+  [ "$guard_rc" = 1 ] && grep -q 'comment count is not known' <<< "$guard_err" || fail "the guard took a read that is no thread ($unreadable) for room: $guard_rc $guard_err"
+done
+[ -z "$(ls -A "$WORK/guard-tmp")" ] || fail "the guard left a file behind: $(ls "$WORK/guard-tmp")"
+# planted: the limit moved up, a failed read taken for zero comments, and no guard at all; each goes red where the real one is green
+planted="${GUARD/-lt 2500/-lt 9999}"; [ "$planted" != "$GUARD" ] || fail 'the planted limit equals the guard'
+guard_run "$planted" "$(thread_of 2500)"; [ "$guard_rc" = 0 ] || fail 'planted: a moved limit should accept 2500 comments'
+planted="${GUARD/echo \"preflight refusal: the thread/return 0; echo \"preflight refusal: the thread}"; [ "$planted" != "$GUARD" ] || fail 'the planted zero equals the guard'
+guard_run "$planted" FAIL; [ "$guard_rc" = 0 ] || fail 'planted: a failed read taken for zero should continue'
+guard_run 'plan_issue_has_room() { return 0; }' "$(thread_of 2500)"; [ "$guard_rc" = 0 ] || fail 'planted: no guard should continue'
+echo "  the plan issue guard of SKILL.md, run as extracted: 2499 continue, 2500 refuse, no read is no zero; planted: a moved limit, a failed read as zero and no guard each continue"
 node --input-type=module - "$ROOT" "$WORK" <<'JS'
 import fs from 'node:fs';
 import path from 'node:path';

@@ -1206,7 +1206,7 @@ redacting and leaves the caller's file unchanged.
 | `issue-thread N [--json]` | the issue and every comment on it, for a person or as one JSON object |
 | `issue-map [OWNER/REPO ...]` | one line per open issue (status, type, area, title, parent, `blocked by`, `blocks`, the files its body names as `path:line`), then the groups a parent or a `blocked by` joins and the files two issues share; read from the tracker each time |
 | `issue-mine N` | whether the issue is assigned to the account `gh` is logged in as; `start-issue` and `session-start` ask it |
-| `issue-comment N` | adds a comment, inline or `--body-file`, over REST so a GraphQL limit cannot lose it |
+| `issue-comment N` | adds a comment, inline or `--body-file`, over REST so a GraphQL limit cannot lose it; a refusal by GitHub (HTTP 403 on an issue with 2500 comments among them) says the comment was not posted and carries GitHub's words, a lost answer says it is not known whether it was posted, and the post is sent once either way |
 | `issue-edit N` | edits title and/or body; a body without the asked-for line keeps the one the issue has |
 | `issue-close N...` | closes issues and moves their cards to `done`, as `completed` or `--reason not-planned`; refuses an issue that has an open sub-issue, with either reason, naming the open sub-issues as `OWNER/REPO#N` (on Plane, one that names no repository as `<project>-<number>`) and changing nothing for it, no close and no card (every page of its sub-issues is read, closed means the issue's own state and never the column of a card, and a read of them that fails refuses too); the epic of a closed issue follows, as under `issue-status` |
 | `issue-reopen N...` | reopens issues and returns their cards to `ready` |

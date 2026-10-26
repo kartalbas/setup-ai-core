@@ -106,7 +106,9 @@ NO
 chmod +x "$refusing/gh"
 out="$(PATH="$refusing:$PATH" "$comment" "$repo" 94 --body-file "$body_file" 2>&1)"; rc=$?
 check 'exits nonzero'    yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'and says on what' yes "$(grep -q 'cannot read the comment posted on example-org/example-repo#94' <<< "$out" && echo yes || echo no)"
+check 'and says the comment was not posted' yes "$(grep -q 'the comment on example-org/example-repo#94 was NOT posted - GitHub refused it (HTTP 403)' <<< "$out" && echo yes || echo no)"
+check 'with GitHub'"'"'s own words' yes "$(grep -q 'Issue is locked' <<< "$out" && echo yes || echo no)"
+check 'and never that it could not read it' no "$(grep -q 'cannot read' <<< "$out" && echo yes || echo no)"
 
 echo 'a GraphQL refusal by a rate limit does not lose the comment'
 limited="$fake/limited"
@@ -219,6 +221,97 @@ echo "the stand-in gh has no answer for: $*" >&2; exit 9
 NO
 for _ in 1 2; do PATH="$concurrent:$PATH" run_filled "$brief" "$fake/section-a.md" >/dev/null 2>&1; done
 check 'two posts' 2 "$(grep -c post "$STORE/posts")"
+
+
+# THE CAP OF 2500 COMMENTS: GitHub refuses a comment on an issue that holds that many with HTTP 403, in words no rate limit
+# uses, so the post is sent once and nothing waits. A lost answer is no refusal: the comment may be stored, so the outcome is
+# unknown, and nothing is sent again. The stand-in keeps CAP_FREE slots; each post takes one atomically and a full issue
+# refuses with the words GitHub gave on the recorded incident.
+echo 'a comment on an issue at the cap is refused once, and a lost answer is not called a refusal'
+capped="$fake/capped"; mkdir -p "$capped"
+cat > "$capped/gh" <<'NO'
+#!/usr/bin/env bash
+if [ "$1 $2" = "repo view" ] && [ "${4-} ${5-}" = "--json isPrivate" ]; then echo '{"isPrivate":false}'; exit 0; fi
+case "$*" in
+  "api repos/{owner}/{repo} --jq .full_name") echo 'example-org/example-repo'; exit 0 ;;
+  *'/comments '*body*)
+    echo post >> "$CAP_STATE/posts"
+    for a in "$@"; do case "$a" in body=@*) text="$(cat "${a#body=@}")" ;; body=*) text="${a#body=}" ;; esac; done
+    for n in $(seq 1 "${CAP_FREE:-0}"); do
+      if mkdir "$CAP_STATE/slot-$n" 2>/dev/null; then
+        printf '%s' "$text" > "$CAP_STATE/stored-$n"
+        [ ! -e "$CAP_STATE/lose-answer" ] || { echo 'error connecting to api.github.com' >&2; exit 1; }
+        echo "https://github.com/example-org/example-repo/issues/94#issuecomment-$n"; exit 0
+      fi
+    done
+    echo '{"message":"Commenting is disabled on issues with more than 2500 comments","documentation_url":"https://docs.github.com/rest/issues/comments"}'
+    echo 'gh: Commenting is disabled on issues with more than 2500 comments (HTTP 403)' >&2; exit 1 ;;
+esac
+echo "the stand-in gh has no answer for: $*" >&2; exit 9
+NO
+chmod +x "$capped/gh"
+printf '#!/usr/bin/env bash\necho waited >> "$CAP_STATE/waits"\n' > "$capped/record-sleep"; chmod +x "$capped/record-sleep"
+cap_reset() { rm -rf "$fake/cap-state"; mkdir -p "$fake/cap-state"; export CAP_STATE="$fake/cap-state" CAP_FREE="$1"; }
+cap_comment() { PATH="$capped:$PATH" AI_CORE_SLEEP="$capped/record-sleep" "$@"; }
+cap_count() { if [ -f "$CAP_STATE/$1" ]; then grep -c . "$CAP_STATE/$1"; else echo 0; fi; }
+
+cap_reset 0
+out="$(cap_comment "$comment" "$repo" 94 --body-file "$body_file" 2>&1)"; rc=$?
+check 'the cap: exits 1'                   1 "$rc"
+check 'it says the comment was not posted' yes "$(grep -q 'the comment on example-org/example-repo#94 was NOT posted' <<< "$out" && echo yes || echo no)"
+check 'with GitHub'"'"'s status and words'  yes "$(grep -q '(HTTP 403)' <<< "$out" && grep -q 'Commenting is disabled on issues with more than 2500 comments' <<< "$out" && echo yes || echo no)"
+check 'and never a read-back error'        no "$(grep -q 'cannot read' <<< "$out" && echo yes || echo no)"
+check 'no success address on stdout'       '' "$(cap_comment "$comment" "$repo" 94 --body-file "$body_file" 2>/dev/null)"
+check 'one post each of the two runs, and no wait' '2 0' "$(cap_count posts) $(cap_count waits)"
+
+cap_reset 3; touch "$CAP_STATE/lose-answer"
+out="$(cap_comment "$comment" "$repo" 94 'Inline words' 2>&1)"; rc=$?
+check 'a lost answer: exits 1'             1 "$rc"
+check 'it is not known whether it was posted' yes "$(grep -q 'it is not known whether the comment on example-org/example-repo#94 was posted' <<< "$out" && echo yes || echo no)"
+check 'it never says nothing was posted'   no "$(grep -qi 'was NOT posted' <<< "$out" && echo yes || echo no)"
+check 'one post, stored once, no wait'     '1 1 0' "$(cap_count posts) $(ls "$CAP_STATE" | grep -c '^stored-') $(cap_count waits)"
+
+echo 'two posts that both saw room for one: one is stored, the other is refused, neither is sent again'
+cap_reset 1
+cap_comment "$comment" "$repo" 94 'First of two' > "$fake/race-a.out" 2> "$fake/race-a.err" & race_a=$!
+cap_comment "$comment" "$repo" 94 'Second of two' > "$fake/race-b.out" 2> "$fake/race-b.err" & race_b=$!
+wait "$race_a"; rc_a=$?; wait "$race_b"; rc_b=$?
+check 'exactly one of the two succeeded'   '0 1' "$(printf '%s\n' "$rc_a" "$rc_b" | sort | paste -sd' ' -)"
+check 'one comment stored, two posts, no wait' '1 2 0' "$(ls "$CAP_STATE" | grep -c '^stored-') $(cap_count posts) $(cap_count waits)"
+winner="$fake/race-a"; [ "$rc_a" -eq 0 ] || winner="$fake/race-b"; loser="$fake/race-b"; [ "$rc_a" -eq 0 ] || loser="$fake/race-a"
+check 'the winner returns its own address' 'https://github.com/example-org/example-repo/issues/94#issuecomment-1' "$(cat "$winner.out")"
+check 'the loser reports the 403 and returns no address' '1 0' "$(grep -c 'HTTP 403' "$loser.err") $(grep -c . "$loser.out")"
+echo 'two posts that each find a slot: both comments survive'
+cap_reset 2
+cap_comment "$comment" "$repo" 94 'First of two' > "$fake/race-a.out" 2>&1 & race_a=$!
+cap_comment "$comment" "$repo" 94 'Second of two' > "$fake/race-b.out" 2>&1 & race_b=$!
+wait "$race_a"; rc_a=$?; wait "$race_b"; rc_b=$?
+check 'both succeed'                       '0 0' "$rc_a $rc_b"
+check 'each stored its own body'           'First of two|Second of two' "$(for stored in "$CAP_STATE"/stored-*; do cat "$stored"; echo; done | sort | paste -sd'|' -)"
+echo 'solution-path: a lost answer is reported as unconfirmed, not as not posted'
+cap_reset 3; touch "$CAP_STATE/lose-answer"
+cat > "$fake/path-sections.md" <<'NO'
+## Where a person meets this
+Somebody.
+## What they see today
+Something.
+## What the system does behind it
+A thing.
+## The decision
+None.
+## Options
+A.
+## Recommendation
+A.
+## Code facts
+None.
+## Reuse manifest
+None.
+NO
+out="$(cap_comment "$root/bin/solution-path.sh" 94 "$fake/path-sections.md" 2>&1)"; rc=$?
+check 'it fails, and says it cannot be confirmed' '1 yes' "$rc $(grep -q 'it cannot be confirmed that the solution path was posted' <<< "$out" && echo yes || echo no)"
+check 'with the provider'"'"'s words, and no false claim' 'yes no' "$(grep -q 'it is not known whether the comment on' <<< "$out" && echo yes || echo no) $(grep -q 'solution path was NOT posted' <<< "$out" && echo yes || echo no)"
+check 'one post, one stored comment'       '1 1' "$(cap_count posts) $(ls "$CAP_STATE" | grep -c '^stored-')"
 
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi

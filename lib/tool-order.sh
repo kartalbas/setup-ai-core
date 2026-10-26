@@ -158,7 +158,8 @@ function snapshot() {
     for (const d of decisions) {
       if (d.version !== 1 || !positive(d.time) || !text(d.project) || !text(d.phase) || !text(d.class) || typeof d.writer !== 'string' ||
         !Array.isArray(d.reasons) || (!tuple(d.selected) && d.selected !== null) || typeof d.refusal !== 'string') throw Error(`malformed selection in ${log}`);
-      if (canonical(d.project) !== d.project) throw Error(`noncanonical project in ${log}`);
+      // A project folder can be gone since its selection: that selection then matches no start.
+      if (!path.isAbsolute(d.project)) throw Error(`malformed selection in ${log}`);
       if (d.order !== null && !state?.orders.some(o => equal(o, d.order))) throw Error(`selection has no order snapshot in ${file}`);
     }
     return {orders:state?.orders || [], decisions};
@@ -244,6 +245,7 @@ function audit() {
   }
 
   const starts = [], resumes = [], noStarts = [], unknown = [], counts = Object.fromEntries(tools.map(t => [t, new Set()]));
+  let oldNamesArtifactsOnly = 0;
   for (const e of names.values()) {
     const match = parseName(e.name), number = Number(match[2]);
     let project, claimProblem = '';
@@ -264,6 +266,7 @@ function audit() {
     const confirmed = observations.filter(o => o.kind === 'native' && tuple(o) && positive(o.invoked) && positive(o.observed) && text(o.nativeIdentity));
     if (!confirmed.length) {
       if (e.native.size || e.problems.length || (observations.length && ['ui-test','t'].includes(match[1]))) unknown.push(`${e.name}: ${e.problems.join('; ') || (e.native.size ? 'missing launch timing; native start time unknown' : 'UI-test has no usable native identity')}`);
+      else if (!observations.length && /^[pirt]$/.test(match[1])) oldNamesArtifactsOnly++;
       else noStarts.push(`${e.name}: ${observations.length ? 'launch attempt only; no native start' : 'artifacts only; no native start'}`);
       continue;
     }
@@ -349,7 +352,8 @@ function audit() {
   }
   for (const message of unknown) console.log(`UNKNOWN ${message}`);
   for (const message of noStarts) console.log(`NO START ${message}`);
-  console.log(`phase starts since set time: ${tools.map(t=>`${t} ${counts[t].size}`).join(', ')}; matched ${matched}/${examined.length + unknown.filter(x=>!examined.some(s=>x.startsWith(s.e.name))).length} examined observations; matched starts ${matchedStarts}/${examined.filter(s=>s.o.operation === 'start').length}; red ${red}; unknown ${unknown.length}; no start ${noStarts.length}; resumes ${examined.filter(s=>s.o.operation === 'resume').length} (not counted again)`);
+  if (oldNamesArtifactsOnly) console.log(`NO START ${oldNamesArtifactsOnly} old single-letter names with artifacts only, no launch observation and no native identity; not listed one by one`);
+  console.log(`phase starts since set time: ${tools.map(t=>`${t} ${counts[t].size}`).join(', ')}; matched ${matched}/${examined.length + unknown.filter(x=>!examined.some(s=>x.startsWith(s.e.name))).length} examined observations; matched starts ${matchedStarts}/${examined.filter(s=>s.o.operation === 'start').length}; red ${red}; unknown ${unknown.length}; no start ${noStarts.length + oldNamesArtifactsOnly}; resumes ${examined.filter(s=>s.o.operation === 'resume').length} (not counted again)`);
   if (nativeFailure) { console.error(`error: tool-order audit read failure: ${nativeFailure}`); process.exitCode = 2; }
 }
 try { audit(); }

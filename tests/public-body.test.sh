@@ -17,20 +17,22 @@ unicode_domain="$(printf '\303\251.company.ch')"
 unicode_mark="$(printf 'e\314\201')"
 unicode_symbol="$(printf '\360\237\223\247')"
 separators=("$(printf '\343\200\202')" "$(printf '\357\274\216')" "$(printf '\357\275\241')")
-# Each text beside the address the guard must name for it. A scoped package name is dropped before the
-# scan, so these are the shapes in which that drop must not hide, or must not lose, an address.
+digest=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+# Texts with an at sign whose domain holds no dot: no address, so nothing is refused.
+dotless_texts=("name:1.2.3@sha256:$digest" "mongo:8.0.4@sha256:$digest" "docker.io/library/mongo@sha256:$digest" 'bob`@scope/pkg' '"bob"@scope/pkg' "$(printf '\303\251')"'`@scope/pkg`' '`@scope/pkg'"$(printf '\303\251')")
+# Each text beside the address the guard must name for it. A match whose domain holds no dot is no
+# address and the scan goes on behind it, so these are the shapes in which it must not hide an address.
 overlaps=(); overlap_names=()
 overlap() { overlaps+=("$1"); overlap_names+=("$2"); }
 overlap '`@company.ch/' '`@company.ch'
 overlap '`@company.ch/pkg`' '`@company.ch'
 overlap 'x `@gmail.com/inbox` y' '`@gmail.com'
-overlap '`@scope/@company.ch' '`@scope'
-overlap '`@scope/pkg@company.ch' '`@scope'
-overlap '`@scope/pkg`@company.ch' '`@company.ch'
-overlap '`@scope/pkg/@company.ch' '/@company.ch'
-overlap 'bob`@scope/pkg' 'bob`@scope'
-overlap '"bob"@scope/pkg' '"bob"@scope'
-overlap "$(printf '\303\251')"'`@scope/pkg`' "$(printf '\303\251')"'`@scope'
+overlap '`@scope/@company.ch' '/@company.ch'
+overlap '`@scope/pkg@company.ch' '/pkg@company.ch'
+overlap '`@scope/pkg`@company.ch' '/pkg`@company.ch'
+overlap '`@scope/pkg/@company.ch' '/pkg/@company.ch'
+overlap "name:1.2.3@sha256:$digest $real" "$real"
+overlap "mongo:8.0.4@sha256:$digest $real" "$real"
 overlap 'Owners x@[bob@company.ch @1 @scope/pkg]' '[bob@company.ch'
 overlap 'x@[`bob@company.ch` @2 `@scope/pkg`]' '[`bob@company.ch'
 overlap 'x@[bob@company.ch @1]' '[bob@company.ch'
@@ -44,10 +46,9 @@ for quoted in '"@ops"@company.ch' '"A@"@company.ch' '"bob@"@company.ch' '"bob@ h
   name="$quoted"; case "$quoted" in 'Write to '*) name='"@ops"@company.ch' ;; esac
   overlap "$quoted" "$name"
 done
-overlap '`@scope/pkg'"$(printf '\303\251')" '`@scope'
 for separator in "${separators[@]}"; do
-  overlap '`@scope/@company'"${separator}ch" '`@scope'
-  overlap '`@scope/pkg@company'"${separator}ch" '`@scope'
+  overlap '`@scope/@company'"${separator}ch" '/@company'"${separator}ch"
+  overlap '`@scope/pkg@company'"${separator}ch" '/pkg@company'"${separator}ch"
 done
 root_under_test="$ROOT"
 invoke() {
@@ -90,6 +91,7 @@ for path in inline file new edit; do
   case_body allow $'A `backtick`, "quotes" and CRLF.\r\nNext line.\n'
   case_body allow "$scoped"
   case_body allow "$unquoted_scoped"
+  for text in "${dotless_texts[@]}"; do case_body allow "$text"; done
   for index in "${!overlaps[@]}"; do
     case_body refuse "${overlaps[index]}"
     check "$path names ${overlap_names[index]}" yes "$(grep -qF "refused email address ${overlap_names[index]} " <<< "$out" && echo yes || echo no)"
@@ -336,6 +338,7 @@ for path in labels-description repo-link-description field-description field-exi
   for GH_VISIBILITY in public error; do
     export GH_VISIBILITY
     case_metadata allow "$unquoted_scoped"
+    for text in "${dotless_texts[@]}"; do case_metadata allow "$text"; done
     for index in "${!overlaps[@]}"; do case_metadata refuse "${overlaps[index]}" "${overlap_names[index]}"; done
   done
 done
@@ -370,7 +373,7 @@ for path in inline file new edit; do
   check "$path exemption removal zero writes" 0 "$(grep -c '^write ' "$GH_FAKE/body-calls.log" || true)"
 done
 path=edit
-for rule in 'url:s/^    gsub(.*/    ./:Push to `ssh://git@forgejo.<fqdn>/<owner>/<repo>.git`.' 'scp:s/^    | gsub(.*/    | ./:Push to `git@github.com:owner/repo.git`.'; do
+for rule in 'url:s/^    gsub(.*/    ./:Push to `ssh://git@forgejo.<fqdn>/<owner>/<repo>.git` or `https://x-access-token:{{ .pat }}@github.com`.' 'scp:s/^    | gsub(.*/    | ./:Push to `git@github.com:owner/repo.git`.' 'dot:s/^    | select(($domain | test("\[[.]]|.*/    | ./:Pin name:1.2.3@sha256:'"$digest"'.'; do
   name="${rule%%:*}"; rest="${rule#*:}"; sed "${rest%%:*}" "$ROOT/lib/tracker.sh" > "$mutant/lib/tracker.sh"
   text="${rest#*:}"; printf '%s' "$text" > "$WORK/body"; : > "$GH_FAKE/body-calls.log"; rc=0; out="$(invoke 2>&1)" || rc=$?
   check "$name remote rule removal refuses innocent" yes "$([ "$rc" -ne 0 ] && grep -qF 'refused email address' <<< "$out" && echo yes || echo no)"
@@ -488,7 +491,7 @@ unset ROOT_UNDER_TEST GH_BODY_FIXTURE
 PATH="$PATH_CURL"
 for path in labels-name labels-description repo-link-label-name repo-link-label-description project-label-name project-label-description project-identifier; do
   payloads=("$real" ci@build.example.test "$scoped" "$unquoted_scoped")
-  case "$path" in *description) payloads+=("${overlaps[@]}") ;; esac
+  case "$path" in *description) payloads+=("${overlaps[@]}" "${dotless_texts[@]}") ;; esac
   for payload in "${payloads[@]}"; do
     name=area:tooling; description='Safe description.'; ident=NEW
     case "$path" in *label*name) name="area:$payload" ;; *label*description) description="$payload" ;; project-identifier) [ "$payload" != "$real" ] || ident="$payload" ;; esac

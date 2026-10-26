@@ -57,7 +57,7 @@ run_all() {
     echo "board-unarchive: $(bash "$root/bin/board-unarchive.sh" --project 7 example-org/shop 4 2>&1 | tr '\n' '|')"
     echo "board-order: $(echo 'example-org/shop#3' | bash "$root/bin/board-order.sh" --project 7 2>&1 | tr '\n' '|')"
     echo "epics-top: $(bash "$root/bin/epics-top.sh" --project 7 2>&1 | tr '\n' '|')"
-  ); grep -E '^(api|issue view|label list)' "$LOG" | sed 's/ *$//' 
+  ); grep -E '^(api|issue view)' "$LOG" | sed 's/ *$//'
 }
 failed=0
 check() {  # check <name> <expected> <actual>

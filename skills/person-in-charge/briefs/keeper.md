@@ -8,8 +8,8 @@ capability. You write no code and change no file of a clone. Context budget {{co
 ## Input
 
 - The findings, one per line, each as the session wrote it
-  (`KEEPER: <repo> <file:line> <state>`, or for a plan `KEEPER: <repo>#<n> <what the issue lacks>`),
-  with the session that handed it over: {{findings}}
+  (`KEEPER: <repo> <file:line> <state>`, for a plan also `KEEPER: <repo>#<n> <what the issue lacks>`,
+  for a UI test `KEEPER: <URL> <the visible text>`), with the session that handed it over: {{findings}}
 - The questions to the owner that earlier keepers put and he has not answered: {{open questions or "none"}}
 - The owner's answers to earlier questions of yours, each with the finding it answers and where he
   said it: {{answers or "none"}}

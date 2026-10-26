@@ -73,9 +73,10 @@ same steps, and every session pays its browser and its context once.
     CLEARING round <k>: <n> cards left in implementing, <m> in testing
     - <repo>#<n>: <what was done: proven | released | landed | reviewed | built> (<session>)
     OPEN: <cards that need the owner, with the question>
+    KEEPER: <repo> <file:line> <state of a defect outside the cards of the round>, one line each | none
 
 When `implementing` holds only cards with `needs:owner`, say so in the last round's comment; from then on the plan phase
 (`briefs/plan.md`) takes the cards in `ready`, and `testing` is read every round as the skill says.
 
 A defect a round meets outside the card it clears is no issue of the round's: it is a `KEEPER:` line
-for the project's issue keeper, which files it into what exists.
+of the round's comment, for the project's issue keeper, which files it into what exists.

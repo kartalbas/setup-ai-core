@@ -157,7 +157,8 @@ the plan was wrong, not the code. An issue whose line in a UI test says FAIL goe
 `implementing`, with the SEEN text as a new acceptance criterion on that same issue, while an issue
 that passed in the same session goes on. Its package's next build round repairs it, so the defect
 becomes a planted case of a check. A `type:bug` issue opens only for what the card's own criteria
-do not cover; a promise NOT CHECKABLE HERE gets `needs:owner` with the question where it is seen.
+do not cover, and only through the issue keeper ("The issue keeper" below); a promise NOT
+CHECKABLE HERE gets `needs:owner` with the question where it is seen.
 Context budgets are the planner's cut sizes and part of the session name, 150k for plan, plan check, review and the issue keeper, 300k
 for a build (250k in Codex, whose models hold 272k), 100k for a UI test and a re-check; a build, a
 review and a UI test take the `budget_tokens` that the `Setup:` line of the package's section names
@@ -223,8 +224,8 @@ phase that is due, across all packages, a blocker's first and before any new pla
 part names in its `After:`, a side a partner waits for, a fault on a live environment); a package
 whose `After:` part has not landed, that shares a file or a contract with a package between build
 and landing, or whose `Waits for the owner:` is not answered, is not built. Read TESTING: prove the live cards, 🔴 first; TREES: land or
-put to the owner. A `KEEPER:` line of a section, a verdict, a report or a UI test result that no `KEEPER round`
-line has handed over makes the issue keeper due. A session's question that the plan, the issues or the code answers, you answer yourself;
+put to the owner. A `KEEPER:` line of a section, a verdict, a report, a UI test result or a `CLEARING round`
+that no `KEEPER round` line has handed over makes the issue keeper due. A session's question that the plan, the issues or the code answers, you answer yourself;
 only a decision the rules give the owner goes to the owner, the open ones of a round together in
 one block, and the issues of those questions get `needs:owner` (`ai-core issue-label`) and keep
 their column. Each question is written to be decided alone: the owner's goal and the owner's
@@ -251,7 +252,10 @@ a plan check, a build, a review or a UI test that finds a defect outside its wor
 writes a `KEEPER: <repo> <file:line> <state>` line in its section, its verdict or its report, and
 the keeper puts it into what exists: a comment on the issue it fits, a sub-issue of the epic it fits,
 or, where it fits nothing, a question to the owner. A new issue or epic comes only after his yes.
-Your own `ai-core issue-new`, for the plan issue (`briefs/coordinator.md`), stays.
+Your own `ai-core issue-new`, for the plan issue (`briefs/coordinator.md`), stays. A build report's
+and a UI test result's `KEEPER:` lines do not stand on the plan issue: copy them, each with the
+session that wrote it, into your comment that answers that report or result there, so that a
+restart reads every line that waits for a keeper on the plan issue (`briefs/coordinator.md`).
 
 When a round finds `KEEPER:` lines that no `KEEPER round` line holds, collect them all and start one
 keeper for them, because two keepers at once could file the same finding twice and a second round

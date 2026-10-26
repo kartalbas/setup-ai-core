@@ -72,7 +72,7 @@ files and contracts you repair and list under REPAIRED; only a finding that need
 owner, or a change beyond the package's files and contracts, stays under FINDINGS. A defect you
 meet outside the diff but in the package's files or contracts you repair too, naming its state
 under REPAIRED. One
-outside the package's files goes under NOTES as `KEEPER: <file:line> <state>`, and you file no
+outside the package's files goes under NOTES as `KEEPER: <repo> <file:line> <state>`, and you file no
 issue: the project's issue keeper files it into what exists. In a mechanical package, a diff that touches a contract,
 a secret, a payment or the push gate is a finding too, and the verdict is NO with `FINDINGS: needs a
 plan: <why>`; so is a diff that counts more than 150 lines outside tests, the sum of added and

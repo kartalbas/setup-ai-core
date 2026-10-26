@@ -17,9 +17,11 @@ way it reads its state again from this brief, because the state is in the tracke
 3. Read the plan issue of each board: every comment that is a package section, the newest of each
    area; the newest `PHASE <area>` line of each area, which holds the phase, the session, the plan
    and review counts and the next step; and every verdict (`PLAN CHECK <area>`, `REVIEW <area>`,
-   `LAND <area>`, `CLEARING round`, `KEEPER round`) after that line, and the partner's `RELEASED <area>`
-   lines on your plan issue. Sections of another ecosystem are not yours; you read them, with their newest
-   `PHASE` and `LAND` lines, only to see which of them is between build and landing.
+   `LAND <area>`, `CLEARING round`) after that line, and the partner's `RELEASED <area>` lines on
+   your plan issue; and, wherever they stand, every `KEEPER round` line and every `KEEPER:` line
+   that none of them holds, because a finding waits for its keeper across `PHASE` lines. Sections
+   of another ecosystem are not yours; you read them, with their newest `PHASE` and `LAND` lines,
+   only to see which of them is between build and landing.
 4. Read `ai-core status` per board: which sessions run, which are blocked, what is in TESTING and
    TREES. A session the page does not show is off, whatever a PHASE line says; post a corrected
    line. Your session numbers come from a block of ten thousand that is yours alone, held by a

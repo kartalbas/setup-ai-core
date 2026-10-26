@@ -29,4 +29,7 @@
   or weeks; a duration named to the owner is the measured duration of the last run of its kind (a
   build, a gate, a CI run, a rollout), with the run it was read from, and one never measured is
   said to be unmeasured; where the expensive answer is genuinely not needed say so and why. A recommendation is
-  not a decision: the owner's choice is carried out in full and without argument. [review]
+  not a decision: the owner's choice is carried out in full and without argument, as he means it, not
+  word for word: the agent reads it for its goal, answers for the result as a person meets it, and
+  resolves in the same change what a literal reading would break (a duplicate, a contradiction, a
+  leftover), naming it in one line of its report. [review]

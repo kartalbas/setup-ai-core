@@ -1,9 +1,8 @@
 # Claude Code: the coordinator's commands
 
-Read this only when your tool is Claude Code. The model and effort come from the `claude` rows of
-`.ai-core/models.tsv`; the brief is the filled file from `briefs/`. A phase assigned to another tool
-by a `<tool>:<model>` row or the owner's instruction is started through `references/<tool>.md`; a
-Claude coordinator therefore reads `references/codex.md` for a phase it sends to Codex.
+Read this for a Claude tuple from `ai-core phase-model`, from any coordinator. The selected tool,
+model and effort govern every start and resume; a Claude coordinator reads `references/codex.md`
+or `references/agy.md` when the selection names that tool. The brief is the filled file from `briefs/`.
 
 ## Start a phase session
 
@@ -12,9 +11,64 @@ edit only inside the folders it was given: a build from the package's first work
 worktrees added; a plan, a plan check or a review from the first clone the area's issues name, with
 the project folder and each partner folder added, so it can read every clone.
 
-    claude "Read <brief file> and do the phase it describes." --bg --name <name> --model <model> \
-      --effort <effort> --permission-mode auto --settings '{"autoCompactWindow":<window>}' \
-      --add-dir <folder of the brief file> --add-dir <folder> ...
+Set `PROJECT`, `PHASE`, `CLASS`, `SESSION` and `BRIEF` to the intended project, model-table
+phase word, class, phase session name and filled brief file. Set `WRITER` to the actual writer
+for plan-check or review. `OPERATION` is `start` or `resume`; for a resume set `NATIVE_ID` and
+`TEXT`, after status proves that conversation is no longer running. The name and original start
+stay the same within a phase. Select in the project before entering a UI-test throwaway directory.
+A changed tool uses the selected reference for a fresh session with the current brief, saved work
+and last report, without the foreign id. A changed order before launch requires a new selection.
+This is preflight and detection, not a quota reservation; report the real CLI's later quota refusal.
+
+```bash
+set -euo pipefail
+cd "$PROJECT"
+args=("$PHASE" "$CLASS")
+[ -z "${WRITER:-}" ] || args+=(--written-by "$WRITER")
+selection="$(ai-core phase-model "${args[@]}")" || exit 2
+read -r tool model effort <<< "$selection"
+[ "$tool" = claude ] || { printf 'Continue fresh through references/%s.md with the current brief, saved work and last report; no foreign id.\n' "$tool" >&2; exit 2; }
+state="${AI_CORE_HOME:-$HOME}/.ai-core"
+mkdir -p "$state/sessions"
+record="$state/sessions/$SESSION.start.jsonl"
+operation="${OPERATION:-start}"
+case "$operation" in start|resume) ;; *) echo 'invalid OPERATION' >&2; exit 2 ;; esac
+invoked="$(jq -n now)"
+observe() {
+  line="$(jq -acn --arg kind "$1" --arg id "${2:-}" --arg operation "$operation" --arg tool "$tool" \
+    --arg model "$model" --arg effort "$effort" --arg phase "$PHASE" --arg class "$CLASS" --arg writer "${WRITER:-}" \
+    --argjson invoked "$invoked" '{version:1,kind:$kind,operation:$operation,tool:$tool,model:$model,effort:$effort,
+      phase:$phase,class:$class,writer:$writer,invoked:$invoked,observed:now,nativeIdentity:$id}')" || return 2
+  [ "${#line}" -lt 4095 ] && printf '%s\n' "$line" >> "$record" \
+    || { echo "cannot append bounded launch observation: $record" >&2; return 2; }
+}
+if [ "$operation" = resume ]; then
+  : "${NATIVE_ID:?set the original sessionId}" "${TEXT:?set the continuation}"
+  before="$(claude agents --json)"
+  jq -e --arg id "$NATIVE_ID" '[.[] | select(.sessionId == $id)] | length == 1 and
+    all(((.status // "") != "busy") and ((.state // "") != "working"))' <<< "$before" > /dev/null \
+    || { echo 'resume requires one native session that is no longer running' >&2; exit 2; }
+fi
+observe attempt
+if [ "$operation" = start ]; then
+  claude "Read $BRIEF and do the phase it describes." --bg --name "$SESSION" --model "$model" \
+    --effort "$effort" --permission-mode auto --settings "{\"autoCompactWindow\":${WINDOW:-400000}}" \
+    --add-dir "$(dirname "$BRIEF")" --add-dir "$PROJECT" --add-dir "$state"
+else
+  claude "$TEXT" --bg --resume "$NATIVE_ID" --model "$model" --effort "$effort" \
+    --permission-mode auto --add-dir "$PROJECT" --add-dir "$state"
+fi
+id=''
+for ((n=0; n<600; n++)); do
+  agents="$(claude agents --json)" || { echo 'cannot read native Claude evidence' >&2; exit 2; }
+  id="$(jq -er --arg name "$SESSION" '[.[] | select(.name == $name)] |
+    if length == 1 then .[0].sessionId // empty else empty end' <<< "$agents")" && break
+  sleep 0.1
+done
+[ -n "$id" ] || { echo 'missing or ambiguous native Claude identity' >&2; exit 2; }
+[ "$operation" != resume ] || [ "$id" = "$NATIVE_ID" ] || { echo 'resume created a copy; stop that copy and report it' >&2; exit 2; }
+observe native "$id"
+```
 
 - The prompt comes first, because `--add-dir` takes a list and would read a prompt after it as one
   more folder: the session would start with no input and stand idle. The prompt is one sentence that
@@ -49,6 +103,9 @@ the project folder and each partner folder added, so it can read every clone.
         --mcp-config '{"mcpServers":{"chrome-devtools":{"command":"npx","args":["-y","chrome-devtools-mcp@1.10.1","--executablePath","<path of Edge or Chrome>","--headless","--isolated","--viewport","1366x900"]}}}' \
         --allowedTools mcp__chrome-devtools > ~/.ai-core/sessions/<session name>.out
 
+  Run the same project-context selection and `observe attempt` before this UI-test call, and
+  record native evidence only if `claude agents --json` supplies its usable name, sessionId and
+  cwd. A nonpersistent run without that identity remains unknown; do not fabricate it.
   Start it with the Bash tool's `run_in_background`, so its end wakes you.
 
 `chrome-devtools-mcp@1.10.1` is a fixed version, never `@latest`; it drives Edge or Chrome headless
@@ -60,9 +117,11 @@ with a throwaway profile, so it never sees anyone's logged-in sessions.
 - Answer a session: `SendMessage` to its name. A session's questions reach you the same way; the
   brief's `{{how to reach the coordinator}}` is `SendMessage` to your own name, the `-n` name the
   owner started you with.
-- A session that stopped before its phase was done continues with `claude --bg --resume <sessionId>`
-  and no other option: Claude Code wakes it under the same id with its saved options. Where the id
-  it prints is not the start of `<sessionId>`, Claude Code started a copy: stop the copy.
+- A session that stopped before its phase was done uses the example with `OPERATION=resume`.
+  It asks `phase-model` again, explicitly passes the newly selected `--model` and `--effort`, and
+  verifies the original `sessionId` in `claude agents --json`. A changed tool starts fresh through
+  that tool's reference with the current brief, saved work and last report. Never resume a running
+  conversation, silently reuse saved model/effort, or send a Claude id to another tool.
 - Stop a session whose phase is done: `claude stop <id>`. Its conversation is kept but never
   resumed; its report is on the issue.
 

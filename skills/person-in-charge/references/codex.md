@@ -1,9 +1,8 @@
 # Codex: the coordinator's commands
 
-Read this when your tool is Codex or when a coordinator, including Claude Code, sends a phase to
-Codex through a `codex:<model>` row or the owner's instruction. Use that selection's model and
-effort, with the destination table row supplying anything the owner left open; the brief is the
-filled file from `briefs/`.
+Read this when your tool is Codex or when any coordinator, including Claude Code, receives a
+Codex tuple from `ai-core phase-model`. Use exactly that tool, model and effort for every start
+and resume. The brief is the filled file from `briefs/`.
 
 ## Every session starts in the project folder
 
@@ -52,22 +51,87 @@ nothing of it has to survive:
 
 ## Start a phase session
 
-Before starting, run `ai-core usage --tool codex` in the project context. It shows each window as
-percent left, as Codex does, against `USAGE_STOP_AT` as percent used. Exit 0 permits the
-start; exit 4 holds it, because a window of a day or less reaches the limit before its reset at the
-measured burn; exit 3 waits for the selected account or model to reset. Exit 2 means usage is unknown:
-report it and do not start or fall back to another tool. These are last recorded windows, not
-a live server query. Record the selected tool, model, effort and expiry in the phase report,
-without changing `models.tsv`.
+Set `PROJECT`, `PHASE`, `CLASS`, `SESSION` and `BRIEF` to the intended project, model-table
+phase word, class, phase session name and filled brief file. Set `WRITER` to the actual writer
+for plan-check or review. `OPERATION` is `start` or `resume`; for a resume set `NATIVE_ID` and
+`TEXT`, after status proves that conversation is no longer running. The name and original start
+stay the same within a phase. Select in the project before entering a UI-test throwaway directory.
+A changed tool uses the selected reference for a fresh session with the current brief, saved work
+and last report, without the foreign id. A changed order before launch requires a new selection.
+This is preflight and detection, not a quota reservation; report the real CLI's later quota refusal.
 
-In the background, its output in `~/.ai-core/sessions/<session name>.out`, the brief naming the
-package's worktrees or clones:
-
-    : > ~/.ai-core/sessions/<session name>.out
-
-    codex exec -p ai-core -m <model> -c model_reasoning_effort=<effort> \
-      -C <project folder> --skip-git-repo-check --add-dir ~/.ai-core \
-      --json "$(cat <brief file>)" < /dev/null > ~/.ai-core/sessions/<session name>.out
+```bash
+set -euo pipefail
+cd "$PROJECT"
+args=("$PHASE" "$CLASS")
+[ -z "${WRITER:-}" ] || args+=(--written-by "$WRITER")
+selection="$(ai-core phase-model "${args[@]}")" || exit 2
+read -r tool model effort <<< "$selection"
+[ "$tool" = codex ] || { printf 'Continue fresh through references/%s.md with the current brief, saved work and last report; no foreign id.\n' "$tool" >&2; exit 2; }
+state="${AI_CORE_HOME:-$HOME}/.ai-core"
+mkdir -p "$state/sessions"
+record="$state/sessions/$SESSION.start.jsonl"
+operation="${OPERATION:-start}"
+case "$operation" in start|resume) ;; *) echo 'invalid OPERATION' >&2; exit 2 ;; esac
+invoked="$(jq -n now)"
+observe() {
+  line="$(jq -acn --arg kind "$1" --arg id "${2:-}" --arg operation "$operation" --arg tool "$tool" \
+    --arg model "$model" --arg effort "$effort" --arg phase "$PHASE" --arg class "$CLASS" --arg writer "${WRITER:-}" \
+    --argjson invoked "$invoked" '{version:1,kind:$kind,operation:$operation,tool:$tool,model:$model,effort:$effort,
+      phase:$phase,class:$class,writer:$writer,invoked:$invoked,observed:now,nativeIdentity:$id}')" || return 2
+  [ "${#line}" -lt 4095 ] && printf '%s\n' "$line" >> "$record" \
+    || { echo "cannot append bounded launch observation: $record" >&2; return 2; }
+}
+roots="$(jq -cn --arg project "$PROJECT" --arg state "$state" --argjson extra "${EXTRA_ROOTS:-[]}" '[$project,$state] + $extra')"
+launch_cwd="$PROJECT"
+policy=(-p ai-core)
+resume_policy=(-c 'sandbox_mode="workspace-write"' -c 'approval_policy="on-request"' \
+  -c 'approvals_reviewer="auto_review"' -c 'sandbox_workspace_write.network_access=false')
+if [ "$PHASE" = ui-test ]; then
+  launch_cwd="${UI_TEST_DIR:?set the empty throwaway UI_TEST_DIR}"
+  policy=(-s read-only -c 'approval_policy="never"')
+  resume_policy=(-c 'sandbox_mode="read-only"' -c 'approval_policy="never"')
+elif [ "$operation" = resume ]; then
+  profile="${CODEX_HOME:-$HOME/.codex}/ai-core.config.toml"
+  review_policy="$(awk -v quote="$(printf "\047\047\047")" '$0 == "policy = " quote { on=1; next } on && $0 == quote { exit } on { print }' "$profile")"
+  [ -n "$review_policy" ] || { echo "missing review policy: $profile" >&2; exit 2; }
+  resume_policy+=(-c "auto_review.policy=$(jq -cn --arg policy "$review_policy" '$policy')")
+fi
+out="$state/sessions/$SESSION.out"
+if [ "$operation" = start ]; then
+  [ ! -e "$out" ] || { echo "output already exists: $out" >&2; exit 2; }
+else
+  : "${NATIVE_ID:?set the original thread id}" "${TEXT:?set the continuation}"
+  out="$state/sessions/$SESSION.resume.$invoked.out"
+fi
+: > "$out"
+observe attempt
+if [ "$operation" = start ]; then
+  added=(--add-dir "$state")
+  while IFS= read -r root; do added+=(--add-dir "$root"); done < <(jq -r '.[]' <<< "${EXTRA_ROOTS:-[]}")
+  codex exec "${policy[@]}" -m "$model" -c "model_reasoning_effort=$effort" \
+    -C "$launch_cwd" --skip-git-repo-check "${added[@]}" \
+    --json "$(cat "$BRIEF")" < /dev/null > "$out" &
+else
+  (cd "$launch_cwd" && codex exec resume "$NATIVE_ID" -m "$model" -c "model_reasoning_effort=$effort" \
+    --skip-git-repo-check "${resume_policy[@]}" -c "sandbox_workspace_write.writable_roots=$roots" \
+    --json "$TEXT" < /dev/null > "$out") &
+fi
+pid=$!
+id=''
+for ((n=0; n<600; n++)); do
+  alive=1; kill -0 "$pid" 2>/dev/null || alive=0
+  id="$(head -n 1 "$out" | jq -r 'select(.type == "thread.started") | .thread_id // empty')" || { echo 'unreadable native thread evidence' >&2; exit 2; }
+  [ -z "$id" ] || break
+  if [ "$alive" = 0 ]; then status=0; wait "$pid" || status=$?; echo "no native thread evidence; Codex exited $status" >&2; exit 2; fi
+  sleep 0.1
+done
+[ -n "$id" ] || { echo 'native thread evidence timed out; attempt remains unknown' >&2; exit 2; }
+[ "$operation" != resume ] || [ "$id" = "$NATIVE_ID" ] || { echo 'resumed thread identity changed' >&2; exit 2; }
+if [ "$operation" = start ]; then printf '%s\t%s\n' "$SESSION" "$id" >> "$state/codex-sessions.tsv" || { echo 'cannot save thread registry' >&2; exit 2; }; fi
+observe native "$id"
+wait "$pid"
+```
 
 Create the output file before starting the background run. Add its exact path to the coordinator's
 existing background watcher, alongside the other active runs:
@@ -116,18 +180,15 @@ issues it holds. The owner answers there; your next round reads the answer.
 ## Reach, answer, continue, stop
 
 - Answer a running session: `codex queue --thread <thread id> --message "<text>"`.
-- Continue a finished one within its phase from its original working folder. Extra writable
-  folders supplied with `--add-dir` are not restored by `exec resume`; pass every required added
-  directory again as an absolute path in `sandbox_workspace_write.writable_roots`. Outside a
-  trusted Git folder, resume also needs `--skip-git-repo-check`:
-
-    codex exec resume <thread id> --skip-git-repo-check \
-      -c 'sandbox_workspace_write.writable_roots=["/absolute/path/to/added-directory"]' \
-      "<text>" < /dev/null
+- Continue a finished one within its phase using the example with `OPERATION=resume`.
+  `EXTRA_ROOTS` is the JSON array of every additional absolute writable directory required by the
+  brief; resume restores them with `sandbox_workspace_write.writable_roots`, including the project
+  and state directories, and passes `-m` and `model_reasoning_effort` again. It retains the sandbox,
+  network and approval settings and the profile's review policy without a resume-local profile flag.
 
 - A session that finished is done; nothing is kept. Its report is on the issue, its last message in
   its output file.
-- `ai-core usage --tool codex` reads Codex's own last recorded windows from any coordinator's shell,
-  from the newest usable `rate_limits` in Codex's session files, and shows them as percent left. A session refused for quota ends its
-  phase; phases assigned to that limited account or model wait until the limit resets, without an
-  automatic fallback.
+- `ai-core usage --tool codex` reads Codex's own last recorded windows, as percent left against
+  `USAGE_STOP_AT` as percent used. Exit 3 means at limit; exit 4 means projected to it before reset;
+  Exit 2 is an unreadable quota, never a successful preflight. Every subsequent phase start or
+  resume runs `phase-model` again; no local fallback overrides a refused selection.

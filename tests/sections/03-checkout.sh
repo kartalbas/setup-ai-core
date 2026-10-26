@@ -170,7 +170,17 @@ echo "  a repository with its own CLAUDE.md gets an untracked CLAUDE.local.md th
 section "the model table follows the harness: an older copy in a checkout is brought up to date and reported"
 M="$WORK/models"; mkdir -p "$M/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$M/.ai-core/config.env"
 printf 'claude\tplan\thigh-risk\tclaude-fable-5-1\tmax\n' > "$M/.ai-core/models.tsv"
+mkdir -p "$AI_CORE_HOME/.ai-core"
+printf '%s\n' '{"version":1,"orders":[{"generation":1,"time":1793000000,"tools":["codex","agy","claude"]}]}' > "$AI_CORE_HOME/.ai-core/tool-order.json"
+cp "$AI_CORE_HOME/.ai-core/tool-order.json" "$WORK/order-before-init"
 bash "$ROOT/bin/init.sh" "$M" --no-doctor > "$M.log" 2>&1 || fail "init.sh on a checkout with an older model table (see $M.log)"
+cmp -s "$AI_CORE_HOME/.ai-core/tool-order.json" "$WORK/order-before-init" || fail 'init erased the machine-wide tool order or its set time'
+for dir in .claude .agents; do
+  cmp -s "$ROOT/skills/person-in-charge/SKILL.md" "$M/$dir/skills/person-in-charge/SKILL.md" || fail "init shipped stale selector instructions in $dir"
+  for tool in codex agy claude; do
+    cmp -s "$ROOT/skills/person-in-charge/references/$tool.md" "$M/$dir/skills/person-in-charge/references/$tool.md" || fail "init shipped a stale $tool launch example in $dir"
+  done
+done
 cmp -s "$M/.ai-core/models.tsv" "$ROOT/templates/.ai-core/models.tsv" || fail "init.sh kept an older model table instead of the harness's"
 grep -aq '^  refreshed .*\.ai-core/models\.tsv' "$M.log" || fail "init.sh did not report the model table as refreshed: $(grep -a 'models' "$M.log")"
 echo "  an older .ai-core/models.tsv is replaced by the harness's and reported"

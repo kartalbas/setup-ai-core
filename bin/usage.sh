@@ -18,12 +18,15 @@
 # passed counts as reset; a window whose readings span less than 30 minutes has no measured burn and
 # is judged by what it stands at. One model's own weekly quota is not among the windows Claude Code
 # hands the status line, so it is not here either.
+# Without --tool it then audits the phase starts of the machine against the choices of phase-model
+# (lib/tool-order.sh), after the windows; a quota exit stays, and an audit that cannot be read turns
+# exit 0 into exit 2.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/lib/common.sh"
 
-tool=""; model=""
+tool=""; model=""; audit=1
 usage="usage: usage.sh [--tool claude|codex|agy] [--model MODEL] [--stop-at N]"
 config="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.ai-core/config.env"
 stop="$(grep -E '^[[:space:]]*USAGE_STOP_AT[[:space:]]*=' "$config" 2>/dev/null | tail -n1 || true)"
@@ -33,8 +36,9 @@ while [ $# -gt 0 ]; do
     -h|--help) echo "$usage"
       echo 'Reads the windows of one tool, selected explicitly or by the session tool (Claude otherwise).'
       echo 'Exit 2 means usage is unknown or an argument is invalid; it is not a successful preflight.'
+      echo 'Without --tool it also reports the saved tool order and audits the phase starts against the choices of phase-model.'
       exit 0 ;;
-    --tool) case "${2-}" in claude|codex|agy) tool="$2"; shift 2 ;; *) echo "error: --tool takes claude, codex or agy - $usage" >&2; exit 2 ;; esac ;;
+    --tool) case "${2-}" in claude|codex|agy) tool="$2"; audit=0; shift 2 ;; *) echo "error: --tool takes claude, codex or agy - $usage" >&2; exit 2 ;; esac ;;
     --model) case "${2-}" in ''|-*) echo "error: --model takes a model of agy - $usage" >&2; exit 2 ;; *) model="$2"; shift 2 ;; esac ;;
     --stop-at) stop="${2:-}"; shift 2 || { echo "error: --stop-at takes a percentage - $usage" >&2; exit 2; } ;;
     *) echo "error: unknown argument '$1' - $usage" >&2; exit 2 ;;
@@ -52,6 +56,18 @@ left() { local m=$((($1 - now) / 60)); if [ "$m" -lt 60 ]; then echo "in $m min"
 [ -n "$tool" ] || tool=claude
 case "$tool" in claude|codex|agy) ;; *) reject "usage does not read the quota of $tool: --tool takes claude, codex or agy" ;; esac
 [ -z "$model" ] || [ "$tool" = agy ] || reject "--model is for agy, which has a quota per group of models; $tool has none - $usage"
+finish_usage() {
+  local result="$?" audit_result=0
+  trap - EXIT
+  if [ -n "${history_lock:-}" ]; then rm "$history_lock" || { echo "error: cannot release $history_lock" >&2; audit_result=2; }; fi
+  if [ -n "${agy_error:-}" ]; then rm -f "$agy_error" || { echo "error: cannot remove $agy_error" >&2; audit_result=2; }; fi
+  if [ "$audit" -eq 1 ]; then
+    if . "$ROOT/lib/tool-order.sh"; then tool_order_audit || audit_result=2; else audit_result=2; fi
+  fi
+  [ "$result" -ne 0 ] || result="$audit_result"
+  exit "$result"
+}
+trap finish_usage EXIT
 now="$(date +%s)"
 dates='def stamp:
   if type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$") then
@@ -99,7 +115,6 @@ elif [ "$tool" = agy ]; then
   command -v agy >/dev/null 2>&1 || reject "agy is not on the PATH, so its quota cannot be read"
   agy_error="$(mktemp)" || reject 'cannot create a temporary file for agy errors'
   history_lock=""
-  trap '[ -z "$history_lock" ] || rmdir "$history_lock"; rm -f "$agy_error"' EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
   answer="$(agy -p /usage --output-format json < /dev/null 2>"$agy_error")"; rc=$?
@@ -154,8 +169,9 @@ elif [ "$tool" = agy ]; then
   history="${AI_CORE_HOME:-$HOME}/.ai-core/usage-agy"; day=$((recorded / 86400))
   mkdir -p "$history" || reject "the usage history folder $history cannot be made"
   attempts=0
-  until mkdir "$history/.lock" 2>"$agy_error"; do
-    [ -d "$history/.lock" ] || reject "the usage history lock cannot be made: $(head -n1 "$agy_error")"
+  # The shell creates the lock file exclusively itself: the mkdir of some coreutils builds succeeds for two callers racing.
+  until ( set -C; : > "$history/.lock" ) 2>"$agy_error"; do
+    [ -w "$history" ] || reject "the usage history lock cannot be made: $(head -n1 "$agy_error")"
     attempts=$((attempts + 1))
     [ "$attempts" -lt 100 ] || reject "the usage history lock $history/.lock is still held after 10 seconds"
     sleep 0.1
@@ -173,7 +189,7 @@ elif [ "$tool" = agy ]; then
     || reject "$(head -n1 "$agy_error")"
   cut -f1 <<< "$readings" | jq -se 'all(.[]; type == "array" and length == 2 and all(.[]; type == "string" and length > 0))' >/dev/null 2>"$agy_error" \
     || reject "the usage history $history has an invalid group/bucket key: $(head -n1 "$agy_error")"
-  rmdir "$history_lock" || reject "the usage history lock $history_lock cannot be released"
+  rm "$history_lock" || reject "the usage history lock $history_lock cannot be released"
   history_lock=""
 else
   shown=used

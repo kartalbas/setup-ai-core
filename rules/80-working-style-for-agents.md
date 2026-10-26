@@ -69,8 +69,9 @@
   slows the machine every session shares; so a finding in the files of a package that is not
   integrated yet joins that package, and a package cut by file splits a contract and releases its
   two sides apart. Every agent's name follows `<phase><n>-<model><version>-<effort>-<budget>k-<5 hex>`,
-  `<phase>` the letter of its phase, so a reader sees its role in the name: `p` plan and plan
-  check, `i` build, `r` review and re-check, `t` UI test and live check; `<n>` from a block of ten thousand that belongs to the coordinator starting it and stays its
+  `<phase>` the word of its model-table phase: `plan`, `re-plan`, `plan-check`, `build`, `review`
+  or `ui-test`; a plan re-check is `plan-check`, a review re-check `review`, a live check `ui-test`;
+  `<n>` from a block of ten thousand that belongs to the coordinator starting it and stays its
   own across restarts (`10001` and on, `20001` and on), the next block above every number that
   runs or ran on the machine, so two coordinators never hand out the same number;
   the package it works on carries it in its `PHASE` line on the plan issue. Once approved, run independent agents in parallel, never for work that fits
@@ -91,8 +92,8 @@
   to testing, because a NO pays a whole round; the gate's run on the repaired head and the test
   phase check that repair. Only a finding that needs a decision of the owner, or a change beyond
   the package's files and contracts, it writes down instead, and the package does not land. The
-  reviewer's model and effort follow the class of the change, as the project's model table
-  (`.ai-core/models.tsv`) names them for the tool the session runs in, and never the model that
+  reviewer's tool, model and effort come from `ai-core phase-model review <class> --written-by
+  <builder model>`, using the project's model table, and never the model that
   wrote the work. A sweep, a collection of facts, a draft of test cases or a
   pre-review whose answer the session can check cheaply goes to the helper of the same tool, the
   table's helper row; a UI test or a live check is a phase of its own, on the table's model for it.
@@ -103,8 +104,8 @@
   A helper never builds, never gives the deciding review and never decides; its answer is a lead the
   session checks before it uses it. No session moves a task to another model, effort or tool on its
   own because a quota ran out, because a fallback waters the result down from the bottom up: it
-  waits. The owner may send a phase to another tool and model for a while; the session names that in
-  its report. [review]
+  waits. [review]
+- The owner may put other tools first, with `ai-core tool-order codex,claude`; every phase then starts on the tool `ai-core phase-model` names: the first in that order with a row for the phase and quota left, back to the next one once a tool reaches USAGE_STOP_AT. A start on a later tool while an earlier one had both is reported red. [tool · review]
 - **Never announce that the context is running out and never stop work because of it.** Report the
   work when it reaches a point, not because a budget did. A usage limit of an account is another
   matter, because every session using that account draws on it. Its limit is the one the project

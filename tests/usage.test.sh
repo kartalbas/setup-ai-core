@@ -94,7 +94,7 @@ check 'explicit Codex at limit despite Claude below' 3 "$rc"
 out="$(cd "$work/project" && CODEX_THREAD_ID=t bash "$root/bin/usage.sh" --tool claude 2>&1)"; rc=$?
 check 'explicit Claude below despite Codex at limit' 0 "$rc"
 mkdir -p "$work/mutant/bin" "$work/mutant/lib"
-cp "$root/lib/common.sh" "$work/mutant/lib/"
+cp "$root/lib/common.sh" "$root/lib/tool-order.sh" "$work/mutant/lib/"
 sed 's/tool="$2"/tool="claude"/' "$root/bin/usage.sh" > "$work/mutant/bin/usage.sh"
 out="$(cd "$work/project" && bash "$work/mutant/bin/usage.sh" --tool codex 2>&1)"; rc=$?
 check 'ignoring selector is caught' 0 "$rc"
@@ -233,7 +233,8 @@ printf '%s 5 %s - -\ngarbage\n' "$((now - 60))" "$later" > "$HOME/.ai-core/usage
 out="$(cd "$work/project" && bash "$script" --tool claude 2>&1)"; rc=$?
 check 'malformed Claude history: exit 2' 2 "$rc"
 check 'the history error names its line' yes "$(matches 'usage.log:2' "$out")"
-check 'the history error is one line, without the lines read before it' 1 "$(wc -l <<< "$out" | tr -d ' ')"
+check 'the history error is one line, without the lines read before it' 1 "$(grep -c '^error:' <<< "$out")"
+check 'an unreadable quota shows no partial windows beside the audit' 0 "$(grep -cE '^(five_hour|seven_day) ' <<< "$out" || true)"
 rm "$HOME/.ai-core/usage.log"
 out="$(cd "$work/project" && bash "$script" --tool claude 2>&1)"; rc=$?
 check 'missing history: exit 0, burn unmeasured' '0 yes' "$rc $(matches 'burn unmeasured' "$out")"
@@ -280,6 +281,53 @@ for limit in 101 999999999999999999999999; do
   check "out-of-range limit $limit: exit 2" 2 "$rc"
 done
 rm -rf "$HOME/.codex"
+
+echo 'the usage report joins native starts to historical choices and preserves quota exits'
+mkdir -p "$HOME/.ai-core/sessions" "$work/audit-tools"
+cat > "$work/audit-tools/claude" <<'TOOL'
+#!/usr/bin/env bash
+cat "$NATIVE_AGENTS"
+TOOL
+chmod +x "$work/audit-tools/claude"
+export NATIVE_AGENTS="$work/native-agents.json"
+name='build10001-shared-high-250k-abcde'
+now="$(date +%s)"
+jq -cn --argjson at "$((now - 100))" '{version:1,orders:[{generation:1,time:$at,tools:["codex","claude"]}]}' > "$HOME/.ai-core/tool-order.json"
+jq -cn --arg project "$work/project" --argjson at "$((now - 80))" --slurpfile state "$HOME/.ai-core/tool-order.json" \
+  '{version:1,time:$at,project:$project,phase:"build",class:"normal-hard",writer:"",order:$state[0].orders[0],
+    selected:{tool:"codex",model:"shared",effort:"high"},refusal:"",reasons:[{tool:"codex",exit:0,reason:"quota left at selection"}]}' > "$HOME/.ai-core/phase-model.jsonl"
+printf '%s\tclaude\n' "$work/project" > "$HOME/.ai-core/sessions/l10000.block"
+jq -cn --arg name "$name" --arg cwd "$work/project" '[{name:$name,sessionId:"fixture-native",id:"short-id",cwd:$cwd}]' > "$NATIVE_AGENTS"
+for kind in attempt native; do
+  jq -cn --arg kind "$kind" --argjson at "$((now - 60))" '{version:1,kind:$kind,operation:"start",tool:"claude",model:"shared",effort:"high",invoked:$at,observed:($at+1),nativeIdentity:"fixture-native"}' >> "$HOME/.ai-core/sessions/$name.start.jsonl"
+done
+rm -f "$HOME/.ai-core/usage.log"
+usage_report() { out="$(cd "$work/project" && PATH="$work/audit-tools:$PATH" bash "$root/bin/usage.sh" 2>&1)"; rc=$?; }
+printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":5,"resets_at":%s}}}\n' "$now" "$soon" > "$HOME/.ai-core/usage.json"
+usage_report
+check 'RED audit does not redefine a successful quota exit' 0 "$rc"
+check 'a later Claude start is visibly red' yes "$(matches "^RED $name start:" "$out")"
+check 'the saved order is shown' yes "$(matches '^tool order: codex,claude' "$out")"
+check 'the actual set time is shown' yes "$(matches "^set at: $((now - 100)) " "$out")"
+check 'per-tool counts and the matched denominator are visible' yes "$(matches 'codex 0, agy 0, claude 1; matched 1/1' "$out")"
+printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":99,"resets_at":%s}}}\n' "$now" "$soon" > "$HOME/.ai-core/usage.json"
+usage_report
+check 'audit does not erase quota exit 3' 3 "$rc"
+printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":80,"resets_at":%s}}}\n' "$now" "$soon" > "$HOME/.ai-core/usage.json"
+printf '%s 20 %s - -\n' "$((now - 3600))" "$soon" > "$HOME/.ai-core/usage.log"
+usage_report
+check 'audit does not erase projected quota exit 4' 4 "$rc"
+printf 'malformed\n' > "$HOME/.ai-core/tool-order.json"
+usage_report
+check 'an audit read failure cannot redefine exit 4' 4 "$rc"
+check 'audit read failure is named' yes "$(matches 'audit read failure' "$out")"
+rm -f "$HOME/.ai-core/usage.log"
+printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":5,"resets_at":%s}}}\n' "$now" "$soon" > "$HOME/.ai-core/usage.json"
+usage_report
+check 'audit failure after a good quota is exit 2' 2 "$rc"
+rm "$HOME/.ai-core/usage.json"
+usage_report
+check 'failed quota remains exit 2 beside a failed audit' 2 "$rc"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

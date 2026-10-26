@@ -13,7 +13,9 @@ a landing moved the code they name. Context budget {{context budget}}.
   for a UI test `KEEPER: <URL> <the visible text>`), with the session that handed it over: {{findings}}
 - The landings since the last keeper, one line per hunk of the landing's merge commit, as the coordinator
   read it with `git -C <clone> diff -U0 <merge sha>^1 <merge sha>`
-  (`LANDED: <repo> <merge sha> <file> <old span> -> <new span>`), or "none": {{landings}}
+  (`LANDED: <repo> <merge sha> <file> <old span> -> <new span>`, `<file>` the path before the landing),
+  and one line per file that diff renames (`LANDED: <repo> <merge sha> <old file> -> <new file>`),
+  or "none": {{landings}}
 - The questions to the owner that earlier keepers put and he has not answered: {{open questions or "none"}}
 - The owner's answers to earlier questions of yours, each with the finding it answers and where he
   said it: {{answers or "none"}}
@@ -26,16 +28,22 @@ Read the tracker as it stands at this moment, never a list from an earlier round
 of every clone, `ai-core issue-map <OWNER/REPO> ...` (one line per open issue with its parent and the
 files it names, so the epics are the parents it shows; on Forgejo, which has no `issue-map`,
 `ai-core status --json` for the open issues and their labels), and `ai-core issue-thread <n>` for
-the comments of every issue a finding may belong to. Do the landings first, so that a finding is read
-against issues whose facts are true, then decide each finding.
+the comments of every issue a finding may belong to. Every `ai-core issue-*` command you run names the
+issue's repository (`<OWNER/REPO> <n>`, `--repo <OWNER/REPO>` for `issue-new`), because you run in the
+first clone of the board, and a bare number there names an issue of that clone's repository. Do the
+landings first, so that a finding is read against issues whose facts are true, then decide each finding.
 
 **A landing moved the facts of an issue.** For every `LANDED:` line, find the open issues, other than
-the ones the merge commit names, whose body or comments name a span of that file (`ai-core issue-map`
-shows the files each issue names; read the issue to see the lines) that lies inside the old span or
-after it, because the lines below a changed hunk moved. Read the file at the head of the clone, and
-where the fact the issue states about that span, the `file:line` and what the code does there, is no
-longer true, rewrite it: `ai-core issue-edit <n> --body-file <PATH>`, changing only the `file:line`
-spans and the sentences that state what the code does there. The title, the context and the
+the ones the landing carries (every issue that `git -C <clone> log --format=%B <merge sha>^1..<merge sha>`
+names, the merge commit's own among them, because their text records the work that landed), whose body
+or comments name a span of that file (`ai-core issue-map` shows the files each issue names; read the
+issue to see the lines) that lies inside the old span or after it, because the lines below a changed
+hunk moved. A line `<old file> -> <new file>` moved the whole file: every span of the old path now
+stands in the new one. Read the file as the clone's `origin/<default>` holds it (`git -C <clone> show
+origin/<default>:<file>`), because the clone was fetched and its checkout may stand on another branch
+or behind, and where the fact the issue states about that span, the `file:line` and what the code
+does there, is no longer true, rewrite it: `ai-core issue-edit <OWNER/REPO> <n> --body-file <PATH>`,
+changing only the `file:line` spans and the sentences that state what the code does there. The title, the context and the
 acceptance criteria stay as they are. Then comment on the issue (`ai-core issue-comment`), its first
 line `Facts rewritten by the issue keeper after <merge sha>: <what changed and why>`, then each old
 fact beside its new one. A span the landing did not move, or a fact that is still true at its new
@@ -79,7 +87,7 @@ first line.
     <merge sha> <repo> -> REWRITTEN <repo>#<n>, ... | UNCHANGED
     <session> <repo> <file:line> -> FOLDED <repo>#<n> | SUB-ISSUE <repo>#<n> of <repo>#<n> | ALREADY <repo>#<n> | FILED <repo>#<n> | DROPPED | OWNER
       WHY: <one sentence: what in that issue or epic matched, or why nothing fits>
-    OWNER: <the complete question for the owner, one per finding that fits nothing, or "none">
+    OWNER: <the complete question for the owner, one per finding that fits nothing or fact a landing removed, or "none">
 
 Post the report as a comment on the plan issue ({{plan issue reference}}, `ai-core issue-comment`) and send
 its first line to the coordinator ({{how to reach the coordinator}}), because a comment on an issue

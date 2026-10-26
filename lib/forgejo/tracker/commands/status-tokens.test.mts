@@ -78,6 +78,7 @@ describe('status --tokens', () => {
     assert.match(page[3] ?? '', /^cost    /);
     assert.equal(page[4], 'tokens  in 24 hours the sessions of this folder used 1k fresh and read 0 from the cache: 1k fresh and 0 from the cache per closed issue');
     assert.equal(page[6], 'open    1 issues · 0 epics, 0 ready to close · 1 outside epics');
+    assert.equal(page.filter((line) => line.startsWith('reviews')).length, 0, 'Forgejo status holds no tally of reviews');
   });
 
   it('hands over every issue of the repositories, open and closed, as cards whose column is the status/ label', async () => {

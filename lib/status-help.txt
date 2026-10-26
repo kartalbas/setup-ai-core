@@ -22,8 +22,18 @@ another tool those three lines say "no source for <tool>", never Claude's figure
 count the sessions that started in the project folder or beneath it, its clones and their worktrees, and no
 other folder whose name only begins like it.
 
+The reviews line counts the review verdicts of the last 14 days (the days of the pace) per builder setup, model
+and effort: how many GO, how many NO, and how many GO carried REPAIRED lines. It reads every comment page of each
+board card whose title starts with "Plan: packages", open or closed, and counts a comment whose first line is
+`REVIEW <area>: GO` or `REVIEW <area>: NO` and whose second line is `Reviewer: <name> (<model>, <effort>). Builder:
+<name> (<model>, <effort>).` A verdict with no such line is counted as unattributed. A NO that only asks for a full
+review, an exact repost and two verdicts that contradict each other for the same reviewer and builder sessions are
+named and not counted. Comments in the RE-CHECK, PLAN CHECK or VERDICT: shapes, and plan issues whose comments could
+not be read, are shown as unmeasured with their count; a tally with an unreadable plan issue says it is incomplete.
+
 With TRACKER=forgejo, `ai-core status [OWNER/REPO...] --tokens` prints this page over the issues the status/
-labels name, open and closed; Forgejo has no board, so the page names it OWNER/forgejo, and it has no epics.
+labels name, open and closed; Forgejo has no board, so the page names it OWNER/forgejo, it has no epics, and it
+has no tally of reviews.
 
 Without --tokens or --issues the page ends with two blocks git answers at that moment. TESTING
 lists every card in testing with where its work is live: the newest commit on the default branch

@@ -24,6 +24,11 @@ that you change nothing outside a throwaway folder for a probe.
 - For a re-check only: the findings of the earlier NO and the head that review left, its own
   REPAIRED commits included, so they are not read as the repair: {{findings and reviewed head, or
   "full review"}}
+- Who reviews and who built, for the second line of your verdict: Reviewer {{reviewer: name (model,
+  effort)}}, Builder {{builder: name (model, effort)}}, the builder of a re-check being the session
+  that built the repair. They are the tuples the coordinator launched. A value it did not have
+  stands as `unknown`. You write them as given and change none, because `ai-core status --tokens`
+  counts the verdicts per builder setup from this line.
 
 ## What to do
 
@@ -49,6 +54,7 @@ that you change nothing outside a throwaway folder for a probe.
 ## Output, as a comment on the plan issue and in your last message
 
     REVIEW <area>: GO | NO
+    Reviewer: <name> (<model>, <effort>). Builder: <name> (<model>, <effort>).
     REPAIRED:
     - <repo> <file:line>: <what was wrong>; commit <sha>
     FINDINGS:

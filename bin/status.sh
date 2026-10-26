@@ -154,20 +154,45 @@ if [ -z "$tokens$issues" ]; then
   processes=(--processes-file "$work/processes" --agents-file "$work/agents" --rollouts-file "$work/rollouts" --trees-file "$work/trees" --worktree-issues-file "$work/worktree-issues")
 fi
 
-# The windows of the tool this session runs on, as lib/usage.sh reads them, for the page; a tool with no
-# reader, and a reading that failed, are in the snapshot, never Claude's figures in their place
+# The comments of every plan issue of the board (a card whose title starts with "Plan: packages", open or closed),
+# for the tally of review verdicts, one JSON object a line in $work/threads for lib/status.mjs:
+#   {repository, number, comments: [{created_at, body}]}   or   {repository, number, failed: the last line the tracker said}
+# A thread that cannot be read is that plan issue's line, never the end of the others.
+write_review_threads() {
+  local repo number thread line reason
+  : > "$work/threads"
+  while IFS=$'\t' read -r repo number; do
+    [ -n "$number" ] || continue
+    : > "$work/thread-error"
+    if thread="$( (issue_thread "$repo" "$number") 2>> "$work/thread-error")" \
+      && line="$(jq -c --arg repository "$repo" --argjson number "$number" '{repository: $repository, number: $number, comments: [.comments[] | {created_at, body}]}' <<< "$thread" 2>> "$work/thread-error")"; then
+      printf '%s\n' "$line" >> "$work/threads"
+    else
+      reason="$(grep -v '^[[:space:]]*$' "$work/thread-error" | tail -n1 | tr -s ' \t' ' ' || true)"
+      jq -nc --arg repository "$repo" --argjson number "$number" --arg failed "${reason:-the tracker gave no reason}" '{repository: $repository, number: $number, failed: $failed}' >> "$work/threads"
+    fi
+  done <<< "$(jq -r 'select((.title // "") | startswith("Plan: packages")) | select((.repo // "") != "") | "\(.repo)\t\(.number)"' "$work/items" | sort -u)"
+}
+
+# What the page reads beside the board: the windows of the tool this session runs on, as lib/usage.sh reads them (a
+# tool with no reader, and a reading that failed, are in the snapshot, never Claude's figures in their place), and
+# the review threads
 tool="$(session_tool)"; [ -n "$tool" ] || tool=claude
-usage_file=()
-write_usage() { usage_snapshot "$tool" > "$work/usage.json" || exit 1; usage_file=(--usage-file "$work/usage.json"); }
-[ -z "$tokens$issues" ] || write_usage
+page_files=()
+write_page_files() {
+  usage_snapshot "$tool" > "$work/usage.json" || exit 1
+  write_review_threads
+  page_files=(--usage-file "$work/usage.json" --threads-file "$work/threads")
+}
+[ -z "$tokens$issues" ] || write_page_files
 
 # LIVE_TAGS and PROOF_HOURS are the project folder's, so a card reads the same from every checkout
 run_status() {
   node "$here/../lib/status.mjs" --items-file "$work/items" --columns-file "$work/columns" \
     --board "$(project_org)/$(project_number)" --folder "$folder" --stop-at "$stop" --config-file "$folder/.ai-core/config.env" \
-    ${processes[@]+"${processes[@]}"} ${testing_file[@]+"${testing_file[@]}"} ${usage_file[@]+"${usage_file[@]}"} $tokens $issues
+    ${processes[@]+"${processes[@]}"} ${testing_file[@]+"${testing_file[@]}"} ${page_files[@]+"${page_files[@]}"} $tokens $issues
 }
 rc=0; run_status || rc=$?
 # 64: no agent runs, the page needs the windows, and they are read now, not on every call that shows the agents
-if [ "$rc" -eq 64 ]; then write_usage; rc=0; run_status || rc=$?; fi
+if [ "$rc" -eq 64 ]; then write_page_files; rc=0; run_status || rc=$?; fi
 exit "$rc"

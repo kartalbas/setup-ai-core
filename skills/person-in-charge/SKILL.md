@@ -176,7 +176,11 @@ more` line is a GAP for the next plan of that area.
    other repository of the package, because a repository that joined through a contract has no issue
    of its own there; where an issue's branch exists from before, give the build its worktree path.
 3. Fill the phase's brief: every `{{placeholder}}` from the package section, the issues' text, the
-   worktree paths and the verdicts. A brief with a placeholder left is not sent. Save the filled
+   worktree paths and the verdicts. In a review and a re-check the reviewer and the builder are such
+   placeholders: the name, model and effort of the review session this start selected, and of the
+   build session you launched (for a re-check, of the session that built the repair), each as you
+   launched it and `unknown` where you do not have it, never guessed; the review writes them into its
+   verdict, and `ai-core status --tokens` counts the verdicts per builder setup. A brief with a placeholder left is not sent. Save the filled
    brief as `~/.ai-core/sessions/<session name>.brief.md`, the name step 4 gives; it is the session's
    whole world, and its name tells every later coordinator on the machine that the number ran.
 4. Start on exactly the selected tool, model and effort as `references/<tool>.md` says. Name it

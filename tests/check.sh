@@ -30,7 +30,8 @@ for s in "${SECTIONS[@]}"; do
   n="$(basename "$s" .sh)"
   echo "### $n ($(cat "$RUN/$n.took")s)"
   cat "$RUN/$n.log"
-  [ "$(cat "$RUN/$n.rc")" = 0 ] || { red="$red $n"; echo "FAIL: $n"; }
+  rc="$(cat "$RUN/$n.rc")"
+  [ "$rc" = 0 ] || { red="$red $n"; echo "FAIL: $n (exit $rc)"; }
   echo
 done
 echo "==> the whole suite took $(( $(date +%s) - START ))s, ${#SECTIONS[@]} sections at once"

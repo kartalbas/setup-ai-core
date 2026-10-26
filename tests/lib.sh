@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # What every section of the suite starts with: the root, fail, a throwaway directory of
 # its own, and the stand-ins a section puts on the PATH. Sourced by tests/sections/*.sh; not run.
-set -euo pipefail
+set -eEuo pipefail
 
 . "$(dirname "${BASH_SOURCE[0]}")/tool-environment.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fail() { echo "FAIL: $*" >&2; exit 1; }
+# A command that ends the file under errexit names itself: where, what and its status. A subshell, such as
+# a command substitution, only hands its status to the line that errexit then judges, so it stays silent.
+report_fatal() { [ "$BASH_SUBSHELL" -gt 0 ] || echo "FATAL: ${BASH_SOURCE[1]#"$ROOT"/}:$2: $3 (exit $1)" >&2; }
+trap 'report_fatal "$?" "$LINENO" "$BASH_COMMAND"' ERR
 section() { echo "==> $1"; }
 WORK="$(mktemp -d)"
 [ -n "${KEEP_WORK:-}" ] || trap 'rm -rf "$WORK"' EXIT   # KEEP_WORK=1 leaves the directory for a look

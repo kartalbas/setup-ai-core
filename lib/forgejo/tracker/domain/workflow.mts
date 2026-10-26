@@ -251,11 +251,18 @@ export function listMissingDelivery(history: IssueHistory, landingIsDelivery: re
   return missing;
 }
 
-// A proof counts once the newest landing is behind it: a proof of earlier work does not cover later work.
-export function findCurrentProof(history: IssueHistory): ProofFact | undefined {
+// A proof counts once the newest landing is behind it: a proof of earlier work does not cover later work. Where the
+// issue holds no "Landed on" record at all (`delivered without code`), its work was no change of code, and the newest
+// proof after its last reopening counts.
+export function findCurrentProof(history: IssueHistory, deliveredWithoutCode = false): ProofFact | undefined {
   const landing = newest(history.landings);
-  if (landing === undefined) return undefined;
+  if (landing === undefined) return deliveredWithoutCode ? newest(history.proofs) : undefined;
   return newest(history.proofs.filter((proof) => proof.at > landing.at));
+}
+
+// Whether the issue holds no "Landed on" record, from any account: its delivery was no change of code.
+export function holdsNoLandedRecord(entries: readonly TimelineEntry[]): boolean {
+  return !entries.some((entry) => entry.kind === 'comment' && LANDED_LINE.test(firstLine(entry.body)));
 }
 
 // The environments of LIVE_TAGS (`env=pattern` separated by spaces) whose pattern is the one given.
@@ -319,5 +326,5 @@ export function hasReleasedRecord(entries: readonly TimelineEntry[], repository:
 // Only a trusted proof counts: on a public repository anybody can write "Proven on" before the writer does.
 export function hasProvenRecord(history: IssueHistory, environment: string): boolean {
   const landing = newest(history.landings);
-  return landing !== undefined && history.proofs.some((proof) => proof.environment === environment && proof.at > landing.at);
+  return history.proofs.some((proof) => proof.environment === environment && (landing === undefined || proof.at > landing.at));
 }

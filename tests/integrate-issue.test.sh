@@ -852,6 +852,60 @@ git -C "$work" push -q origin --delete issue-195-clones-own-work issue-195-read-
 git -C "$work" branch -q -D issue-195-clones-own-work issue-195-read-the-board-whole
 after="$(tip)"
 
+# A package lands several issues in one push. The first comes from the worktree, every other one from origin, all merged in one
+# temporary worktree: one gate run, one push, one merge commit per issue.
+echo 'a list of issues lands each one in a merge commit of its own, in the order given, in one push'
+wt_first="$(new_tree 301 first-part)"
+wt_second="$(new_tree 302 second-part)"
+git -C "$work" push -q origin issue-302-second-part
+before_list="$(tip)"
+out="$(integrate "$wt_first" 301 302 --reviewed-by l4 --reviewed-by l5)"; rc=$?
+check 'exit 0'                         0 "$rc"
+check 'one integrated line'            1 "$(grep -c '^integrated: ' <<< "$out")"
+check 'two merge commits on top, in the order given' "Read the board whole (#302)
+Read the board whole (#301)" "$(git --git-dir="$origin" log --merges -2 --format=%s master)"
+check 'each carries both reviewers'    2 "$(git --git-dir="$origin" log --merges -2 --format=%b master | grep -c '^Reviewed-by: l5$')"
+check 'origin moved by both merges and their commits, once' 4 "$(git --git-dir="$origin" rev-list --count "$before_list..master")"
+check 'it names the next step of each' "next: ai-core finish-issue 301
+next: ai-core finish-issue 302" "$(grep '^next: ' <<< "$out")"
+check 'the first worktree is on its branch' issue-301-first-part "$(git -C "$wt_first" symbolic-ref --short HEAD)"
+check 'no temporary worktree is left'  0 "$(leftovers)"
+echo 'a conflict of the second issue lands neither, names the issue and leaves origin as it was'
+wt_c1="$(new_tree 305 clash-one)"; echo a > "$wt_c1/same.txt"; git -C "$wt_c1" add same.txt; git -C "$wt_c1" commit -q -m 'same file (#305)'
+wt_c2="$(new_tree 306 clash-two)"; echo b > "$wt_c2/same.txt"; git -C "$wt_c2" add same.txt; git -C "$wt_c2" commit -q -m 'same file (#306)'
+git -C "$work" push -q origin issue-306-clash-two
+before_list="$(tip)"
+out="$(integrate "$wt_c1" 305 306 --reviewed-by l4)"; rc=$?
+check 'planted: exit 1'                1 "$rc"
+check 'planted: it names the issue that clashes' yes "$(grep -qF 'origin/issue-306-clash-two does not merge cleanly into origin/master' <<< "$out" && echo yes || echo no)"
+check 'planted: origin did not move'   "$before_list" "$(tip)"
+check 'planted: no temporary worktree is left' 0 "$(leftovers)"
+check 'planted: the first worktree is on its branch' issue-305-clash-one "$(git -C "$wt_c1" symbolic-ref --short HEAD)"
+echo 'a list in a public repository pushes the merged head to ci/ once, waits for its checks once and lands both merges'
+pub_one="$(held_tree 310 pub-one)"; pub_two="$(held_tree 311 pub-two)"
+before="$(tip)"
+echo public > "$fake/visibility"; : > "$fake/calls.txt"; rm -f "$fake/ci-during"; plant_hook issue-310-pub-one
+out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=5 integrate "$work" 310 311 --reviewed-by l4 --from-origin)"; rc=$?
+rm -f "$fake/visibility" "$fake/during-wait"
+check 'exit 0'                         0 "$rc"
+check 'exactly the commit of ci/integrate-<first branch> landed' "$(cat "$fake/ci-during")" "$(tip)"
+check 'its checks are read green once' 1 "$(grep -c '^checks: green for ' <<< "$out")"
+check 'the checks of the final merge were asked' yes "$(grep -qF "run list -R $origin_repo --commit $(tip) " "$fake/calls.txt" && echo yes || echo no)"
+check 'two merge commits landed'       2 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+check 'ci/integrate-<branch> is gone'  '' "$(ci_tip issue-310-pub-one)"
+check 'no temporary worktree is left'  0 "$(leftovers)"
+git -C "$work" worktree remove --force "$pub_one"; git -C "$work" worktree remove --force "$pub_two"
+before_list="$(tip)"
+echo 'an issue named twice, and an issue without a branch on origin, are refused before anything moves'
+out="$(integrate "$wt_c1" 305 305 --reviewed-by l4)"; rc=$?
+check 'twice: exit 1'                  1 "$rc"
+check 'twice: it says so'              yes "$(grep -qF 'an issue is named twice' <<< "$out" && echo yes || echo no)"
+out="$(integrate "$wt_c1" 305 399 --reviewed-by l4)"; rc=$?
+check 'no branch on origin: exit 1'    1 "$rc"
+check 'no branch on origin: it says so' yes "$(grep -qF 'origin has no branch issue-399-*' <<< "$out" && echo yes || echo no)"
+check 'no branch on origin: origin did not move' "$before_list" "$(tip)"
+after="$(tip)"
+
 echo '--from-origin on a conflict leaves origin as it was, the held worktree untouched and no temporary worktree'
 git -C "$wt3" push -q origin issue-79-clash 2>/dev/null
 echo 'in progress' > "$wt3/loose.txt"

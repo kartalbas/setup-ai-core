@@ -10,22 +10,27 @@ import { PartialCompletionError, PreconditionError, UsageError } from '../domain
 import { composeLandedRecord, hasLandedRecord, readTimeline } from '../domain/workflow.mts';
 import { GitError } from '../git/git.mts';
 import type { GitClient } from '../git/git.mts';
-import { listOf, parseArguments, parseIssueReference, refuseExtra, requireValue, takeIssueOfWorktree } from './arguments.mts';
+import { listOf, parseArguments, parseIssueReference, refuseExtra, takeIssuesOfWorktree } from './arguments.mts';
 import { succeeded } from './command.mts';
 import type { CommandContext, CommandResult } from './command.mts';
 
-const USAGE = 'usage: integrate-issue [OWNER/REPO] NUMBER --reviewed-by NAME [--reviewed-by NAME ...] --reviewed-head SHA [--also OWNER/REPO#NUMBER ...]';
+const USAGE = 'usage: integrate-issue [OWNER/REPO] NUMBER [NUMBER ...] --reviewed-by NAME [--reviewed-by NAME ...] --reviewed-head SHA [--reviewed-head SHA ...] [--also OWNER/REPO#NUMBER ...]';
 export const help = `${USAGE}
 
 Lands the reviewed branch of one issue on the default branch of origin: a merge commit that names the issue and
 carries a "Reviewed-by: NAME" line for each reviewer, pushed through the push gate of the repository. Run it in
-the worktree of the issue, on its branch, after the reviewer's GO. Where the push gate is the check, the merge
+the worktree of the issue, on its branch, after the reviewer's GO. Given several numbers (the repository named, or
+recorded on the branch, holds for all), it lands the issues of a package in one push, each in a merge commit of its
+own, in the order given, with one --reviewed-head per number in the same order: the first issue's branch is the one
+of the worktree, every other one is read as origin holds it (issue-NUMBER-*), and its tip must be its reviewed
+head. Everything is merged in the same temporary or detached tree, the push gate and the checks run once, and a
+conflict, in any issue, lands none of them. --also records the landing of the first issue on further issues. Where the push gate is the check, the merge
 is made and pushed in that worktree, detached on origin/<default>, so the gate finds the tools installed there,
 and the worktree is on its branch again afterwards, whether the push landed or was refused; a run stopped
 before that leaves it detached, and its first line names the git switch that puts it back. The lines of git and
 of the push gate show while the push runs. Where the checks of Forgejo are read, the merge is made in a
 temporary worktree, where scripts/install.sh of the merged tree runs first if it has one, its lines shown, and
-a failing install refuses the landing with nothing pushed. Then every issue it lands (the one given and each
+a failing install refuses the landing with nothing pushed. Then every issue it lands (each one given and each
 --also) gets status/testing and the record "Landed on <branch>:" with the reviewed head, the landed commit and
 the reviewers. It discovers no other issue from the history of Git.
 
@@ -41,7 +46,10 @@ landing stands.
 
 When the work landed and a record could not be written, the exit status is 4 and the message says what is done.
 Run the same command again: it sees that the reviewed head is on the default branch, merges and pushes nothing,
-and writes only the records that are missing. That rerun goes in the worktree of the issue, on its branch, and,
+and writes only the records that are missing. It sets status/testing only on an issue whose record it writes in
+that run; an issue that holds its record keeps its status, and the output says so. Of a list, either every reviewed
+head is on the default branch already or none is: a run in which some are and others are not is refused, naming
+each issue, and nothing is merged. That rerun goes in the worktree of the issue, on its branch, and,
 once finish-issue removed the worktree, in the main checkout (give OWNER/REPO where the issue lives in another
 repository): there it writes the records only for a landed commit whose subject ends with the name of the issue
 in parentheses, as this command writes it, and otherwise it refuses and writes nothing.`;
@@ -108,22 +116,29 @@ async function judgeRefusedPush(git: GitClient, cwd: string, defaultBranch: stri
   return refusal(error, `the push to ${defaultBranch} was refused; nothing reached origin`);
 }
 
+// One issue of a landing: the branch it comes from, its reviewed head and the subject of its merge commit.
+interface LandingUnit {
+  readonly branch: string;
+  readonly head: string;
+  readonly subject: string;
+}
+
 interface Landing {
-  readonly commit: string;
+  // The merge commit of each unit, in the order given; the last one is what the push sends.
+  readonly commits: string[];
   readonly lines: string[];
 }
 
-async function landReviewedHead(context: CommandContext, api: ForgejoClient, input: {
-  readonly branch: string;
+async function landReviewedHeads(context: CommandContext, api: ForgejoClient, input: {
+  readonly units: readonly LandingUnit[];
   readonly defaultBranch: string;
-  readonly head: string;
-  readonly subject: string;
   readonly trailers: readonly string[];
   readonly codeRepository: RepositoryRef;
   readonly number: number;
 }): Promise<Landing> {
   const { git, cwd } = context;
-  const { branch, defaultBranch, head } = input;
+  const { defaultBranch } = input;
+  const branch = input.units[0]?.branch ?? '';
   const ciGate = (context.settings.ciGate ?? 'public').toLowerCase();
   if (ciGate !== 'public' && ciGate !== 'none') throw new PreconditionError(`nothing landed: CI_GATE is '${ciGate}' in the config.env of the project; it is public or none`);
   const lines: string[] = [];
@@ -149,7 +164,7 @@ async function landReviewedHead(context: CommandContext, api: ForgejoClient, inp
     tree = await mkdtemp(join(container, `integrate-${input.number}.`));
   }
   const notes: string[] = [];
-  let landed: string | undefined;
+  let landed: string[] | undefined;
   let failure: unknown;
   let receipt: string | undefined;
   try {
@@ -167,12 +182,15 @@ async function landReviewedHead(context: CommandContext, api: ForgejoClient, inp
       }
     }
     const base = await git.resolveCommit(tree, 'HEAD');
-    let merged: string;
-    try {
-      merged = await git.merge(tree, head, `${input.subject}\n\n${input.trailers.join('\n')}`);
-    } catch (error) {
-      throw refusal(error, `${branch} does not merge cleanly into origin/${defaultBranch}: bring origin/${defaultBranch} into the branch, get the review of the result, then run this again`);
+    const commits: string[] = [];
+    for (const unit of input.units) {
+      try {
+        commits.push(await git.merge(tree, unit.head, `${unit.subject}\n\n${input.trailers.join('\n')}`));
+      } catch (error) {
+        throw refusal(error, `${unit.branch} does not merge cleanly into origin/${defaultBranch}: bring origin/${defaultBranch} into the branch, get the review of the result, then run this again`);
+      }
     }
+    const merged = commits[commits.length - 1] ?? base;
 
     if (checked) {
       if (existsSync(join(tree, 'scripts', 'install.sh'))) {
@@ -217,7 +235,7 @@ async function landReviewedHead(context: CommandContext, api: ForgejoClient, inp
       if (judged !== 'landed') throw judged;
       lines.push(`origin holds ${merged.slice(0, 7)} on ${defaultBranch} although git reported a failure: the landing went through`);
     }
-    landed = merged;
+    landed = commits;
   } catch (error) {
     failure = error;
   } finally {
@@ -245,20 +263,69 @@ async function landReviewedHead(context: CommandContext, api: ForgejoClient, inp
     if (failure instanceof Error && notes.length > 0) failure.message = `${failure.message}. ${notes.join(' ')}`;
     throw failure;
   }
-  return { commit: landed, lines: [...lines, ...notes] };
+  return { commits: landed, lines: [...lines, ...notes] };
+}
+
+// The reviewed heads, one per issue of the list in the order given.
+function parseReviewedHeads(heads: readonly string[], issueCount: number): string[] {
+  if (heads.length === 0) throw new UsageError(`--reviewed-head is required. ${USAGE}`);
+  if (heads.length !== issueCount) throw new UsageError(`--reviewed-head is given once for each issue, in the order of the issues: ${issueCount} issue(s) and ${heads.length} reviewed head(s). ${USAGE}`);
+  for (const head of heads) {
+    if (!/^[0-9a-fA-F]{7,64}$/.test(head)) throw new UsageError(`--reviewed-head must be a commit id of at least 7 hexadecimal digits, not '${head}'`);
+  }
+  return [...heads];
+}
+
+// An issue of the run: what is landed for it, where its work comes from, and the issue as the tracker holds it.
+interface Unit {
+  readonly ref: IssueRef;
+  readonly headArgument: string;
+  readonly reviewedHead: string | undefined;
+  readonly isLanded: boolean;
+  // Without --reviewed-head on the default branch: the branch the work is merged from.
+  branch: string | undefined;
+  landedAt: string | undefined;
+}
+
+async function describeUnits(context: CommandContext, refs: readonly IssueRef[], headArguments: readonly string[], defaultTip: string): Promise<Unit[]> {
+  const { git, cwd } = context;
+  const units: Unit[] = [];
+  for (const [index, ref] of refs.entries()) {
+    const headArgument = headArguments[index] ?? '';
+    const reviewedHead = await git.resolveCommit(cwd, headArgument).catch((error: unknown) => {
+      if (error instanceof GitError) return undefined;
+      throw error;
+    });
+    const isLanded = reviewedHead !== undefined && (await git.isAncestor(cwd, reviewedHead, defaultTip));
+    units.push({ ref, headArgument, reviewedHead, isLanded, branch: undefined, landedAt: undefined });
+  }
+  return units;
+}
+
+// The branch of an issue after the first, as origin holds it: the one branch issue-<number>-*, fetched, whose tip is
+// the reviewed head.
+async function findOriginBranch(context: CommandContext, unit: Unit): Promise<string> {
+  const { git, cwd } = context;
+  const names = await git.listRemoteBranchNames(cwd, [`issue-${unit.ref.number}`, `issue-${unit.ref.number}-*`]);
+  const [name, ...others] = names;
+  if (name === undefined) throw new PreconditionError(`origin has no branch issue-${unit.ref.number}-* of ${formatIssue(unit.ref)} to land: push the reviewed branch, then run this again`);
+  if (others.length > 0) throw new PreconditionError(`origin has more than one branch for issue ${unit.ref.number}, and which one the reviewer read is not for this command to guess: ${names.join(' ')}`);
+  await git.fetchBranch(cwd, name);
+  return name;
 }
 
 export async function run(args: readonly string[], context: CommandContext): Promise<CommandResult> {
-  const parsed = parseArguments(args, { '--reviewed-by': 'repeat', '--reviewed-head': 'value', '--also': 'repeat' });
-  const { ref, rest } = await takeIssueOfWorktree(parsed.positionals, context.git, context.cwd, USAGE);
+  const parsed = parseArguments(args, { '--reviewed-by': 'repeat', '--reviewed-head': 'repeat', '--also': 'repeat' });
+  const { refs: listed, rest } = await takeIssuesOfWorktree(parsed.positionals, context.git, context.cwd, USAGE);
   refuseExtra(rest, USAGE);
   const reviewers = parseReviewers(listOf(parsed, '--reviewed-by'));
-  const reviewedHeadArgument = requireValue(parsed, '--reviewed-head');
-  if (!/^[0-9a-fA-F]{7,64}$/.test(reviewedHeadArgument)) throw new UsageError(`--reviewed-head must be a commit id of at least 7 hexadecimal digits, not '${reviewedHeadArgument}'`);
-  const issues: IssueRef[] = [ref];
+  const headArguments = parseReviewedHeads(listOf(parsed, '--reviewed-head'), listed.length);
+  const ref = listed[0];
+  if (ref === undefined) throw new UsageError(USAGE);
+  const alsoRefs: IssueRef[] = [];
   for (const text of listOf(parsed, '--also')) {
     const other = parseIssueReference(text);
-    if (!issues.some((known) => isSameIssue(known, other))) issues.push(other);
+    if (![...listed, ...alsoRefs].some((known) => isSameIssue(known, other))) alsoRefs.push(other);
   }
 
   const { git, cwd } = context;
@@ -269,16 +336,23 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   const defaultTip = await git.resolveCommit(cwd, defaultRef);
   const branch = await git.currentBranch(cwd);
   const issueBranch = branch !== undefined && new RegExp(`^issue-${ref.number}(-.*)?$`).test(branch) ? branch : undefined;
-  const reviewedHead = await git.resolveCommit(cwd, reviewedHeadArgument).catch((error: unknown) => {
-    if (error instanceof GitError) return undefined;
-    throw error;
-  });
-  const isLanded = reviewedHead !== undefined && (await git.isAncestor(cwd, reviewedHead, defaultTip));
-  // A reviewed head on origin/<default> is landed already, and only its records are missing; any other has to be merged from the branch.
-  let target: { readonly landedAt: string } | { readonly branch: string };
-  if (isLanded) target = { landedAt: await git.findLandingCommit(cwd, reviewedHead, defaultRef) };
-  else if (issueBranch === undefined) throw new PreconditionError(`this runs in the worktree of issue ${ref.number}, on its branch issue-${ref.number}-*; here ${branch ?? 'no branch'} is checked out`);
-  else target = { branch: issueBranch };
+  const units = await describeUnits(context, listed, headArguments, defaultTip);
+  // A reviewed head on origin/<default> is landed already, and only its records are missing; any other has to be merged from its branch.
+  // Of a list either every head has landed or none has: the records of some and the merge of others are two runs.
+  const landedUnits = units.filter((unit) => unit.isLanded);
+  if (landedUnits.length > 0 && landedUnits.length < units.length) {
+    const names = (selected: readonly Unit[]): string => selected.map((unit) => formatIssue(unit.ref)).join(', ');
+    throw new PreconditionError(`nothing is merged or written: the reviewed heads of ${names(landedUnits)} are on origin/${defaultBranch} already and those of ${names(units.filter((unit) => !unit.isLanded))} are not; land the issues that have not landed in a run of their own, then run this again for the records`);
+  }
+  const first = units[0];
+  if (first === undefined) throw new UsageError(USAGE);
+  for (const [index, unit] of units.entries()) {
+    if (unit.isLanded && unit.reviewedHead !== undefined) unit.landedAt = await git.findLandingCommit(cwd, unit.reviewedHead, defaultRef);
+    else if (index === 0) {
+      if (issueBranch === undefined) throw new PreconditionError(`this runs in the worktree of issue ${ref.number}, on its branch issue-${ref.number}-*; here ${branch ?? 'no branch'} is checked out`);
+      unit.branch = issueBranch;
+    } else unit.branch = await findOriginBranch(context, unit);
+  }
   if (issueBranch !== undefined) {
     const changes = await git.listChanges(cwd);
     if (changes.length > 0) {
@@ -288,13 +362,14 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   }
   // Without the branch of the issue to tie the landed head to the issue (the worktree is gone, or was cut again), the
   // commit that landed it must name the issue, as this command writes it.
-  if (isLanded && 'landedAt' in target) {
-    const headIsReviewed = issueBranch !== undefined && (await git.resolveCommit(cwd, 'HEAD')) === reviewedHead;
-    const name = issueName(ref, codeRepository);
-    if (!headIsReviewed && !(await git.getSubject(cwd, target.landedAt)).endsWith(`(${name})`)) {
+  for (const [index, unit] of units.entries()) {
+    if (unit.landedAt === undefined || unit.reviewedHead === undefined) continue;
+    const headIsReviewed = index === 0 && issueBranch !== undefined && (await git.resolveCommit(cwd, 'HEAD')) === unit.reviewedHead;
+    const name = issueName(unit.ref, codeRepository);
+    if (!headIsReviewed && !(await git.getSubject(cwd, unit.landedAt)).endsWith(`(${name})`)) {
       throw new PreconditionError(
-        `nothing is written: ${reviewedHead} is on origin/${defaultBranch}, but in the commit ${target.landedAt.slice(0, 7)}, whose subject does not end with (${name}), so it is not shown to be the work of ${formatIssue(ref)}; ` +
-          `run the same command in the worktree of the issue, on ${reviewedHead.slice(0, 7)}`,
+        `nothing is written: ${unit.reviewedHead} is on origin/${defaultBranch}, but in the commit ${unit.landedAt.slice(0, 7)}, whose subject does not end with (${name}), so it is not shown to be the work of ${formatIssue(unit.ref)}; ` +
+          `run the same command in the worktree of the issue, on ${unit.reviewedHead.slice(0, 7)}`,
       );
     }
   }
@@ -302,7 +377,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   const api = context.api();
   const login = await currentLogin(api);
   const read: Issue[] = [];
-  for (const issueRef of issues) {
+  for (const issueRef of [...listed, ...alsoRefs]) {
     const issue = await getIssue(api, issueRef);
     if (issue.state !== 'open') throw new PreconditionError(`${formatIssue(issueRef)} is closed: work lands on an open issue`);
     const unassigned = explainMissingAssignment(issue, login);
@@ -310,52 +385,72 @@ export async function run(args: readonly string[], context: CommandContext): Pro
     read.push(issue);
   }
 
-  if (reviewedHead === undefined) throw new PreconditionError(`--reviewed-head ${reviewedHeadArgument} is no commit of this clone`);
-  let head = reviewedHead;
-  if ('branch' in target) {
-    head = await git.resolveCommit(cwd, 'HEAD');
-    if (head !== reviewedHead) {
-      throw new PreconditionError(`nothing landed: the head of ${target.branch} is ${head}, not the reviewed head ${reviewedHead}; the branch changed after the review`);
+  for (const unit of units) {
+    if (unit.reviewedHead === undefined) throw new PreconditionError(`--reviewed-head ${unit.headArgument} is no commit of this clone`);
+  }
+  const heads: string[] = [];
+  for (const [index, unit] of units.entries()) {
+    let head = unit.reviewedHead ?? '';
+    if (unit.branch !== undefined && !unit.isLanded) {
+      head = await git.resolveCommit(cwd, index === 0 ? 'HEAD' : `refs/remotes/origin/${unit.branch}`);
+      if (head !== unit.reviewedHead) {
+        throw new PreconditionError(`nothing landed: the head of ${index === 0 ? unit.branch : `origin/${unit.branch}`} is ${head}, not the reviewed head ${unit.reviewedHead ?? ''}; the branch changed after the review`);
+      }
     }
+    heads.push(head);
   }
 
   const lines: string[] = [];
   const warnings: string[] = [];
-  let landedCommit: string;
+  let landedCommits: string[];
   let landedNow = false;
-  if ('landedAt' in target) {
-    landedCommit = target.landedAt;
-    lines.push(`already landed: ${head.slice(0, 7)} is on origin/${defaultBranch} (${landedCommit.slice(0, 7)}); nothing is merged or pushed`);
+  if (first.landedAt !== undefined) {
+    landedCommits = units.map((unit) => unit.landedAt ?? '');
+    for (const [index, unit] of units.entries()) {
+      lines.push(`already landed: ${(heads[index] ?? '').slice(0, 7)} is on origin/${defaultBranch} (${(unit.landedAt ?? '').slice(0, 7)}); nothing is merged or pushed`);
+    }
   } else {
-    const first = read[0];
-    const subject = mergeSubject(first?.title ?? '', target.branch, ref, codeRepository);
-    const landing = await landReviewedHead(context, api, { branch: target.branch, defaultBranch, head, subject, trailers: reviewers.map((reviewer) => `Reviewed-by: ${reviewer}`), codeRepository, number: ref.number });
-    landedCommit = landing.commit;
+    const landingUnits: LandingUnit[] = units.map((unit, index) => ({
+      branch: unit.branch ?? '',
+      head: heads[index] ?? '',
+      subject: mergeSubject(read[index]?.title ?? '', unit.branch ?? '', unit.ref, codeRepository),
+    }));
+    const landing = await landReviewedHeads(context, api, { units: landingUnits, defaultBranch, trailers: reviewers.map((reviewer) => `Reviewed-by: ${reviewer}`), codeRepository, number: ref.number });
+    landedCommits = landing.commits;
     landedNow = true;
-    lines.push(...landing.lines, `integrated: ${landedCommit.slice(0, 7)} on origin/${defaultBranch}, ${subject}, Reviewed-by: ${reviewers.join(', ')}`);
+    const finalCommit = landedCommits[landedCommits.length - 1] ?? '';
+    lines.push(...landing.lines, `integrated: ${finalCommit.slice(0, 7)} on origin/${defaultBranch}, ${landingUnits.map((unit) => unit.subject).join('; ')}, Reviewed-by: ${reviewers.join(', ')}`);
     const checkout = await git.mainCheckout(cwd);
     const refreshed = await context.harness.refreshCheckout(checkout);
     if (refreshed.succeeded) {
       if (refreshed.output !== '') lines.push(refreshed.output);
     } else {
-      warnings.push(refreshed.output, `integration succeeded: ${landedCommit.slice(0, 7)} is on origin/${defaultBranch}; the refresh of checkout ${checkout} did not finish (see above)`);
+      warnings.push(refreshed.output, `integration succeeded: ${finalCommit.slice(0, 7)} is on origin/${defaultBranch}; the refresh of checkout ${checkout} did not finish (see above)`);
     }
   }
 
-  const done: string[] = [`${landedNow ? 'landed' : 'found'} ${landedCommit} on origin/${defaultBranch}`];
+  const done: string[] = [`${landedNow ? 'landed' : 'found'} ${landedCommits[landedCommits.length - 1] ?? ''} on origin/${defaultBranch}`];
   try {
-    for (const issue of read) {
+    for (const [index, issue] of read.entries()) {
+      // An issue after the list belongs to --also: it shares the landing of the first issue.
+      const position = index < units.length ? index : 0;
+      const head = heads[position] ?? '';
+      const landedCommit = landedCommits[position] ?? '';
       const entries = await readTimeline(api, issue.ref);
-      if (!hasLandedRecord(entries, head, landedCommit)) {
-        await addComment(api, issue.ref, composeLandedRecord({ branch: defaultBranch, repository: codeRepository, reviewedHead: head, landedCommit, reviewers }, issue.ref));
+      if (hasLandedRecord(entries, head, landedCommit)) {
+        done.push(`${formatIssue(issue.ref)} keeps its status: the record "Landed on ${defaultBranch}" is there already`);
+        lines.push(`${formatIssue(issue.ref)} keeps its status: the record "Landed on ${defaultBranch}" is there already`);
+        continue;
       }
+      // The label first: a run interrupted between the two writes finds no record and does both again.
       await replaceFamilyLabel(api, issue.ref, issue, statusLabel('testing'));
+      await addComment(api, issue.ref, composeLandedRecord({ branch: defaultBranch, repository: codeRepository, reviewedHead: head, landedCommit, reviewers }, issue.ref));
       done.push(`${formatIssue(issue.ref)} -> ${statusLabel('testing')} with the record "Landed on ${defaultBranch}"`);
       lines.push(`${formatIssue(issue.ref)} -> ${statusLabel('testing')}; recorded "Landed on ${defaultBranch}"`);
     }
   } catch (error) {
     throw new PartialCompletionError('record the landing', done, `${error instanceof Error ? error.message : String(error)}. The work is on origin/${defaultBranch}; run the same command again, it writes only what is missing`);
   }
-  lines.push(`next: ai-core finish-issue ${formatRepository(ref)} ${ref.number}`);
+  for (const unit of units) lines.push(`next: ai-core finish-issue ${formatRepository(unit.ref)} ${unit.ref.number}`);
   return succeeded(lines, warnings);
 }

@@ -110,6 +110,15 @@ export async function takeIssueOfWorktree(positionals: readonly string[], git: G
   return { ref: { ...parseRepository(recorded), number: parseIssueNumber(number) }, rest: positionals.slice(1) };
 }
 
+// As takeIssueOfWorktree for a list: the repository named, or recorded on the current branch, holds for every number.
+export async function takeIssuesOfWorktree(positionals: readonly string[], git: GitClient, cwd: string, usage: string): Promise<{ refs: IssueRef[]; rest: readonly string[] }> {
+  const { ref, rest } = await takeIssueOfWorktree(positionals, git, cwd, usage);
+  const numbers: string[] = [];
+  let index = 0;
+  while (index < rest.length && /^[0-9]/.test(rest[index] ?? '')) numbers.push(rest[index++] ?? '');
+  return { refs: [ref, ...numbers.map((number) => ({ ...ref, number: parseIssueNumber(number) }))], rest: rest.slice(index) };
+}
+
 export function refuseExtra(rest: readonly string[], usage: string): void {
   if (rest.length > 0) throw new UsageError(`unexpected '${rest[0] ?? ''}'. ${usage}`);
 }

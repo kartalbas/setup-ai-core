@@ -106,6 +106,13 @@ refused 'a missing file' 'cannot be read'
 setup '[1]'
 selection build normal-hard --setup-file "$WORK/setup.json"
 refused 'not an object' 'it is not a JSON object'
+: > "$WORK/setup.json"
+selection build normal-hard --setup-file "$WORK/setup.json"
+refused 'an empty file, which holds no Setup' 'it holds 0 JSON values, not one object'
+two_setups() { setup "$(jq -cn --argjson b "$(entry claude-sonnet-5-5 xhigh 100000)" '{build:{claude:$b}}') $(jq -cn --argjson b "$(entry claude-sonnet-5-5 high 100000)" '{build:{claude:$b}}')"; }
+two_setups
+selection build normal-hard --setup-file "$WORK/setup.json"
+refused 'two objects, each one a Setup the table allows' 'it holds 2 JSON values, not one object'
 setup "$(jq -cn --argjson b "$(entry claude-sonnet-5-5 xhigh 100000)" '{plan:{claude:$b}}')"
 selection build normal-hard --setup-file "$WORK/setup.json"
 refused 'a phase that has no Setup' 'it names the phase plan'
@@ -223,8 +230,11 @@ plant 'a tool without a build row of the class is allowed' '/has no build row/ s
 order agy
 setup "$(jq -cn --argjson b "$(entry claude-sonnet-5-5-high - 60000)" '{"ui-test":{agy:$b}}')"; selection ui-test high-risk --setup-file "$WORK/setup.json"
 [ "$rc" = 0 ] || fail "a Setup that lets a tool run any class refused agy for a high-risk UI test: $err"
-selector=''
 order claude
+plant 'a second value is allowed' 's/if length != 1 then error/if false then error/'
+two_setups; selection build normal-hard --setup-file "$WORK/setup.json"
+[ "$rc" = 0 ] || fail "a Setup check that allows a second value refused two objects: $err"
+selector=''
 echo "  ok   each planted defect lets its case through, so the real check is what refuses it"
 
 section "a filled launch starts on the Setup's tuple, with the name, the window and the budget that agree"
@@ -274,5 +284,24 @@ for tool in codex agy; do
   grep -qF -- '--setup-file "$SETUP_FILE"' "$ROOT/skills/person-in-charge/references/$tool.md" || fail "the launch of references/$tool.md does not pass the Setup file"
 done
 echo "  ok   the launches of codex and agy pass the Setup file as well"
+
+section "the budget is read from the Setup file as SKILL.md says, for a UI test too"
+budget_of() {  # budget_of <SKILL.md> <phase> <tool>: what the read of the budget that SKILL.md names prints on the Setup file
+  local read
+  read="$(tr '\n' ' ' < "$1" | tr -s ' ' | grep -o '`jq [^`]*budget_tokens[^`]*`' | head -n 1 | tr -d '`')"
+  [ -n "$read" ] || { echo 'SKILL.md names no read of the budget'; return 1; }
+  read="${read//<phase>/$2}"; read="${read//<tool>/$3}"
+  case "$read" in *'<that file>'*) read="${read//<that file>/$WORK/setup.json}" ;; *) read="$read $WORK/setup.json" ;; esac
+  bash -c "$read" 2>&1
+}
+skill="$ROOT/skills/person-in-charge/SKILL.md"
+setup "$(jq -cn --argjson u "$(entry claude-haiku-5-5 high 60000)" '{"ui-test":{claude:$u}}')"
+[ "$(budget_of "$skill" ui-test claude)" = 90000 ] || fail "the read SKILL.md names does not give the 90000 of the ui-test entry: $(budget_of "$skill" ui-test claude)"
+[ "$(budget_of "$skill" build codex)" = null ] || fail "the read SKILL.md names does not give null for a tool without an entry: $(budget_of "$skill" build codex)"
+echo "  ok   the read SKILL.md names gives 90000 for the ui-test entry and null where a tool has none"
+sed 's/\.\[\$phase\]\[\$tool\]\.budget_tokens/.<phase>.<tool>.budget_tokens/' "$skill" > "$WORK/SKILL-planted.md"
+! cmp -s "$skill" "$WORK/SKILL-planted.md" || fail "the planted read of .<phase>.<tool> changed nothing in SKILL.md"
+[ "$(budget_of "$WORK/SKILL-planted.md" ui-test claude)" != 90000 ] || fail "a read of .<phase>.<tool> gave the budget of the ui-test entry, so the case cannot go red"
+echo "  ok   a read of .<phase>.<tool>, which jq takes as .ui - test for a UI test, gives no budget (planted)"
 
 echo "all phase setup cases passed"

@@ -158,9 +158,9 @@ that passed in the same session goes on. Its package's next build round repairs 
 becomes a planted case of a check. A `type:bug` issue opens only for what the card's own criteria
 do not cover; a promise NOT CHECKABLE HERE gets `needs:owner` with the question where it is seen.
 Context budgets are the planner's cut sizes and part of the session name, 150k for plan, plan check and review, 300k
-for a build (250k in Codex, whose models hold 272k), 100k for a UI test and a re-check, unless the
-`Setup:` line of the package's section names the `budget_tokens` of that phase and tool, which never
-exceeds these; in Claude Code the start sets each, above the base context a session starts with, as its compact window
+for a build (250k in Codex, whose models hold 272k), 100k for a UI test and a re-check; a build, a
+review and a UI test take the `budget_tokens` that the `Setup:` line of the package's section names
+for that phase and tool, which never exceeds these, and a re-check keeps its 100k; in Claude Code the start sets each, above the base context a session starts with, as its compact window
 (`references/claude.md`), elsewhere nothing enforces them, and a build report's `CONTEXT: needed
 more` line is a GAP for the next plan of that area.
 
@@ -178,8 +178,9 @@ more` line is a GAP for the next plan of that area.
    whole object against `.ai-core/models.tsv` before it reads any quota, uses the entry of each tool
    in the saved order where it has one for the phase and the tool's table row where it has none, and
    refuses an entry the table does not allow; it still prints only `TOOL MODEL EFFORT`. The phase's
-   budget is the `budget_tokens` of the selected tool's entry (`jq '.<phase>.<tool>.budget_tokens'`
-   on that file), the phase default where it has none.
+   budget is the `budget_tokens` of the selected tool's entry (`jq --arg phase <phase> --arg tool
+   <tool> '.[$phase][$tool].budget_tokens' <that file>`, which prints `null` where it has none), the
+   phase default where it has none; a re-check keeps its 100k.
 2. Before a plan and before a plan check: `git -C <clone> fetch -q origin` for every clone of the
    folder and of each partner folder, because both read what origin ships. Before a build: `ai-core start-issue <first issue>` in the first
    repository's clone, and `ai-core start-issue <owner/repo> <first issue>` in the clone of every

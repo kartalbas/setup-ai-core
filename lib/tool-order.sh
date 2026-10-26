@@ -111,11 +111,13 @@ phase_model_tuples() {
 phase_model_setup() {
   local file="$1" class="$2" table="$3" entries phase tool model effort row rows
   [ -f "$file" ] && [ -r "$file" ] || { echo "the setup file $file cannot be read" >&2; return 1; }
-  entries="$(jq -r '
+  # Read as one array, because an empty file or a second value would otherwise pass as no entry or as a second Setup
+  entries="$(jq -s -r '
     def ceiling($phase; $tool): if $phase == "build" then (if $tool == "codex" then 250000 else 300000 end) elif $phase == "review" then 150000 else 100000 end;
     def whole: type == "number" and . == floor and . > 0;
     def text: type == "string" and test("^[^[:space:]]+$");
-    if type != "object" then error("it is not a JSON object") else . end
+    if length != 1 then error("it holds \(length) JSON values, not one object") else .[0] end
+    | if type != "object" then error("it is not a JSON object") else . end
     | [ to_entries[] | .key as $phase
     | if ($phase | IN("build", "review", "ui-test") | not) then error("it names the phase \($phase), which is none of build, review and ui-test") else . end
     | (.value | if type != "object" then error("\($phase) is not an object of tools") else . end) | to_entries[] | .key as $tool

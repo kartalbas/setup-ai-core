@@ -159,6 +159,17 @@ scenario_fire() {  # fire <signal>: after a returned call, the caller's own hand
 scenario_fire_int() { scenario_fire INT; }
 scenario_fire_term() { scenario_fire TERM; }
 
+scenario_no_tempfile() {
+  local before rc
+  trap 'echo int-handler' INT; trap 'echo term-handler' TERM
+  before="$(traps)"; rm -f "$SCRATCH/ran"
+  TMPDIR="$SCRATCH/missing" run_split sh -c ': > "$1"' _ "$SCRATCH/ran"; rc=$?
+  same 'no temporary file: the status is 1' 1 "$rc"
+  same 'no temporary file: the command did not run' no "$([ -e "$SCRATCH/ran" ] && echo yes || echo no)"
+  same 'no temporary file: split_err says why' 'cannot create a temporary file for the stderr of the command' "$split_err"
+  same 'no temporary file: the traps stand' "$before" "$(traps)"
+}
+
 # In $( ) the shell reports the calling shell's trap although the signal stands at its default
 # there: the control proves the default, the other the trap run_split leaves in force.
 scenario_substitution() {
@@ -202,9 +213,14 @@ cmp -s "$ROOT/lib/common.sh" "$T/old/lib/common.sh" && { echo 'the planted defec
 rm -rf "$T/noclean"; mkdir -p "$T/noclean"; cp -R "$ROOT/lib" "$T/noclean/"
 sed -i.bak "s/trap 'rm -f \"\$err\"; exit 130' INT TERM/trap 'exit 130' INT TERM/" "$T/noclean/lib/common.sh"
 cmp -s "$ROOT/lib/common.sh" "$T/noclean/lib/common.sh" && { echo 'the planted defect changed nothing' >&2; exit 1; }
+# and one that goes on when no temporary file can be made
+rm -rf "$T/unguarded"; mkdir -p "$T/unguarded"; cp -R "$ROOT/lib" "$T/unguarded/"
+sed -i.bak '/^  if ! err="\$(mktemp)"; then$/,/^  fi$/c\
+  err="$(mktemp)"' "$T/unguarded/lib/common.sh"
+cmp -s "$ROOT/lib/common.sh" "$T/unguarded/lib/common.sh" && { echo 'the planted defect changed nothing' >&2; exit 1; }
 
 echo 'the caller shell: its INT and TERM traps as they stood, after a success and after a failure'
-for name_expected in absent:2 handlers:3 ignored:2 quoted:2 repeated:6 hup_exit:1 streams:3 apart:6 gh:8; do
+for name_expected in absent:2 handlers:3 ignored:2 quoted:2 repeated:6 hup_exit:1 streams:3 apart:6 gh:8 no_tempfile:4; do
   name="${name_expected%%:*}"; expected="${name_expected##*:}"
   out="$(scenario "$ROOT/lib" "$name")"
   check "$name: the child reset INT, $expected claims pass, none fail" "reset ok/$expected/0" "$(verdict "$out")"
@@ -231,6 +247,8 @@ out="$(scenario "$T/old/lib" absent)"
 check 'innocent: with no trap set the old run_split cannot be told from the new' 'reset ok/2/0' "$(verdict "$out")"
 out="$(scenario "$T/old/lib" hup_exit)"
 check 'innocent: HUP and EXIT were never touched, the old one passes too' 'reset ok/1/0' "$(verdict "$out")"
+out="$(scenario "$T/unguarded/lib" no_tempfile)"
+check 'planted: without a temporary file the unguarded one loses the traps and says nothing' 'reset ok/2/2' "$(verdict "$out")"
 
 echo 'planted: a child whose INT is ignored says so, and no case counts it as run'
 out="$( ( trap '' INT; LIBDIR="$ROOT/lib" SCRATCH="$SCRATCH" LOGFILE="$SCRATCH/log" bash "$T/scenarios.sh" absent ) 2>&1 )"

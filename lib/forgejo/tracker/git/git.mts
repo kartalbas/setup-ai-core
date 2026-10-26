@@ -63,12 +63,13 @@ export function parseRemoteAddress(address: string): RepositoryAddress {
 
 export class GitClient {
   // `showStderr` gets what git writes to either stream while it runs: git passes a pre-push hook's stdout to its own.
-  run(cwd: string, args: readonly string[], acceptedExitCodes: readonly number[] = [0], showStderr?: (text: string) => void): Promise<{ stdout: string; exitCode: number }> {
+  // `environment` is added to the environment of this one git process, and of the hooks it starts, alone.
+  run(cwd: string, args: readonly string[], acceptedExitCodes: readonly number[] = [0], showStderr?: (text: string) => void, environment?: Readonly<Record<string, string>>): Promise<{ stdout: string; exitCode: number }> {
     return new Promise((resolve, reject) => {
       const child = execFile(
         'git',
         ['-C', cwd, ...args],
-        { maxBuffer: MAXIMUM_OUTPUT_BYTES, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C' } },
+        { maxBuffer: MAXIMUM_OUTPUT_BYTES, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C', ...environment } },
         (error, stdout, stderr) => {
           if (error === null) {
             resolve({ stdout, exitCode: 0 });
@@ -296,8 +297,8 @@ export class GitClient {
   }
 
   // Never forced: a remote that moved refuses it.
-  async push(cwd: string, commit: string, branch: string, showStderr?: (text: string) => void): Promise<void> {
-    await this.run(cwd, ['push', 'origin', `${commit}:refs/heads/${branch}`], [0], showStderr);
+  async push(cwd: string, commit: string, branch: string, showStderr?: (text: string) => void, environment?: Readonly<Record<string, string>>): Promise<void> {
+    await this.run(cwd, ['push', 'origin', `${commit}:refs/heads/${branch}`], [0], showStderr, environment);
   }
 
   // The commit origin holds for the branch, asked of origin itself.
@@ -307,8 +308,8 @@ export class GitClient {
   }
 
   // Replaces the branch only while origin still holds `expected` (nothing when it is to be new).
-  async pushWithLease(cwd: string, commit: string, branch: string, expected: string | undefined, showStderr?: (text: string) => void): Promise<void> {
-    await this.run(cwd, ['push', `--force-with-lease=refs/heads/${branch}:${expected ?? ''}`, 'origin', `${commit}:refs/heads/${branch}`], [0], showStderr);
+  async pushWithLease(cwd: string, commit: string, branch: string, expected: string | undefined, showStderr?: (text: string) => void, environment?: Readonly<Record<string, string>>): Promise<void> {
+    await this.run(cwd, ['push', `--force-with-lease=refs/heads/${branch}:${expected ?? ''}`, 'origin', `${commit}:refs/heads/${branch}`], [0], showStderr, environment);
   }
 
   async deleteRemoteBranch(cwd: string, branch: string, expected: string): Promise<void> {

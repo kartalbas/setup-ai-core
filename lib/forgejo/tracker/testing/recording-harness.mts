@@ -21,6 +21,9 @@ export function createRecordingHarness(): RecordingHarness {
     refreshCheckout: step('refreshCheckout', 'refreshed: the checkout'),
     readLiveTags: step('readLiveTags', ''),
     readLiveRelease: (checkout, repository, environment) => step('readLiveRelease', '{"delivered":null}')(`${checkout} ${repository} ${environment}`),
+    openLandingCheck: (cwd) => step('openLandingCheck', '/planted/receipt')(cwd),
+    completeLandingCheck: (receipt, commit, ciRef) => step('completeLandingCheck', '')(`${receipt} ${commit} ${ciRef}`),
+    closeLandingCheck: (receipt) => step('closeLandingCheck', '')(receipt),
     installTools: (path) => step('installTools', 'installed')(path),
   };
 }

@@ -36,6 +36,12 @@ export interface HarnessSteps {
   // The newest completed delivery of the environment as the checkout's own reader answers it, checked as the Bash
   // harness checks it: {"delivered": null} or {"delivered": {commit, releasedAt, source, ...}}.
   readLiveRelease(checkout: string, repository: string, environment: string): Promise<StepOutcome>;
+  // The receipt of the checks of a landing (lib/landing-check.sh): opened before the pushes, whose Git children alone
+  // are told its path; completed once the push to the ci/ branch went through and the CI of that commit was read
+  // green; closed on every way out. The outcome of opening holds the path.
+  openLandingCheck(cwd: string): Promise<StepOutcome>;
+  completeLandingCheck(receipt: string, commit: string, ciRef: string): Promise<StepOutcome>;
+  closeLandingCheck(receipt: string): Promise<StepOutcome>;
   // Runs scripts/install.sh of the worktree, its lines shown while it runs; the outcome holds the last of them.
   installTools(worktree: string, show: (text: string) => void): Promise<StepOutcome>;
 }

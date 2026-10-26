@@ -552,6 +552,34 @@ describe('integrate-issue', () => {
       assert.doesNotMatch(git(main.checkout, 'worktree', 'list', '--porcelain'), /integrate-/, 'no temporary worktree stays registered');
     });
 
+    it('opens the receipt of the checks before its pushes, hands it to those two pushes alone, completes it on green checks and closes it (planted: a hook writes down what it was given)', async () => {
+      const { number, tree, head } = await worked(main, 'Receipt, so that the check runs once');
+      fake.setChecks(main.full, ['success']);
+      const seen = join(scratch, `receipt-seen-${number}`);
+      fixture.installHook(main.checkout, 'pre-push', `echo "\${AI_CORE_LANDING_RECEIPT:-none}" >> '${seen}'`);
+      const harness = createRecordingHarness();
+      try {
+        await integrateIssue.run(integrateArguments(main, number, head), ctx(tree, publicSettings, harness));
+      } finally {
+        rmSync(join(main.checkout, '.git', 'hooks', 'pre-push'));
+      }
+      assert.deepEqual(readFileSync(seen, 'utf8').trim().split('\n'), ['/planted/receipt', 'none', '/planted/receipt'], 'the push to the ci/ branch and the push to the default branch got it, the delete of the ci/ branch between them did not');
+      const calls = harness.calls.filter((call) => /LandingCheck/.test(call));
+      assert.equal(calls.length, 3);
+      assert.match(calls[0] ?? '', /^openLandingCheck /);
+      assert.match(calls[1] ?? '', new RegExp(`^completeLandingCheck /planted/receipt ${tipOf(main)} refs/heads/ci/integrate-`));
+      assert.equal(calls[2], 'closeLandingCheck /planted/receipt');
+      assert.equal(process.env.AI_CORE_LANDING_RECEIPT, undefined, 'the receipt is no setting of the process');
+    });
+
+    it('leaves a receipt incomplete on red checks and still closes it (planted: red)', async () => {
+      const { number, tree, head } = await worked(main, 'Red receipt, so that nothing completes it');
+      fake.setChecks(main.full, ['failure']);
+      const harness = createRecordingHarness();
+      await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree, publicSettings, harness)), /are red/);
+      assert.deepEqual(harness.calls.filter((call) => /LandingCheck/.test(call)).map((call) => call.split(' ')[0]), ['openLandingCheck', 'closeLandingCheck']);
+    });
+
     it('lands nothing on red checks, and removes the branch it pushed for them (planted: red)', async () => {
       const { number, tree, head } = await worked(main, 'Red checks, so that it is refused');
       fake.setChecks(main.full, ['failure']);
@@ -585,6 +613,36 @@ describe('integrate-issue', () => {
         assert.doesNotMatch(remoteBranches(main), /ci\/integrate/);
       } finally {
         rmSync(join(main.checkout, '.git', 'hooks', 'pre-push'));
+      }
+    });
+
+    it('names a default branch that moved after the landing fetched it and does not overwrite the other landing (planted: another session lands during the gate)', async () => {
+      const { number, tree, head } = await worked(privateWorld, 'Moved during the gate, so that the move is named');
+      const marker = join(scratch, `late-${number}`);
+      const mover = `unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE; [ ! -e '${marker}' ] || exit 0; touch '${marker}'; cd '${privateWorld.second}' && git pull -q --rebase origin master && echo moved > moved-late.txt && git add moved-late.txt && git commit -qm moved-late && git push -q origin HEAD:master`;
+      fixture.installHook(privateWorld.checkout, 'pre-push', mover);
+      try {
+        await assert.rejects(integrateIssue.run(integrateArguments(privateWorld, number, head), ctx(tree, publicSettings)), /nothing landed: master moved on origin from [0-9a-f]{7} to [0-9a-f]{7} after this landing fetched it, so another landing got there first/);
+        assert.equal(git(privateWorld.remote, 'log', '-1', '--format=%s', 'refs/heads/master'), 'moved-late');
+        assert.match((await client.currentBranch(tree)) ?? '', new RegExp(`^issue-${number}-`), 'the worktree is on its branch again');
+        assert.deepEqual(fake.readIssue(privateWorld.full, number).labels, ['status/implementing']);
+      } finally {
+        rmSync(join(privateWorld.checkout, '.git', 'hooks', 'pre-push'));
+      }
+    });
+
+    it('says the landing went through when the push failed but origin holds the merge commit (planted: the hook pushes it and then refuses)', async () => {
+      const { number, tree, head } = await worked(privateWorld, 'Pushed anyway, so that the landing is not denied');
+      const marker = join(scratch, `anyway-${number}`);
+      const pusher = `unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE; [ ! -e '${marker}' ] || exit 0; touch '${marker}'; git push -q origin HEAD:refs/heads/master; exit 1`;
+      fixture.installHook(privateWorld.checkout, 'pre-push', pusher);
+      try {
+        const result = await integrateIssue.run(integrateArguments(privateWorld, number, head), ctx(tree, publicSettings));
+        assert.match(result.stdout, /origin holds [0-9a-f]{7} on master although git reported a failure: the landing went through/);
+        assert.match(fake.readIssue(privateWorld.full, number).comments.at(-1) ?? '', new RegExp(`Landed commit: ${tipOf(privateWorld)}`));
+        assert.deepEqual(fake.readIssue(privateWorld.full, number).labels, ['status/testing']);
+      } finally {
+        rmSync(join(privateWorld.checkout, '.git', 'hooks', 'pre-push'));
       }
     });
 
@@ -1197,8 +1255,9 @@ describe('issue-proof and the close as completed', () => {
     git(sibling.checkout, 'commit', '--allow-empty', '-q', '-m', message);
     return git(sibling.checkout, 'rev-parse', 'HEAD');
   };
-  const deliveryOf = (commit: string): string =>
-    `printf '{"repository":"%s","environment":"%s","commit":"${commit}","releasedAt":"2020-01-01T00:00:00Z","source":"release 1.0.0 of o/r"}\\n' "$1" "$2"`;
+  // The fake Forgejo's clock stands in January 2026, so a delivery of 2026-01-02 comes after every landing it records.
+  const deliveryOf = (commit: string, releasedAt = '2026-01-02T00:00:00Z'): string =>
+    `printf '{"repository":"%s","environment":"%s","commit":"${commit}","releasedAt":"${releasedAt}","source":"release 1.0.0 of o/r"}\\n' "$1" "$2"`;
   const landedInSibling = (number: number, commit: string): void => {
     fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'sibling' }, reviewedHead: 'a'.repeat(40), landedCommit: commit, reviewers: ['alice'] }, { owner: 'o', repo: 'r' }));
   };
@@ -1224,11 +1283,26 @@ describe('issue-proof and the close as completed', () => {
     const writes = writesOf();
     const prove = (script: string): Promise<unknown> => issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=v*' }, siblingReads(script)));
 
-    await assert.rejects(prove(deliveryOf(shippedEarlier)), new RegExp(`o/sibling was last delivered on prod by release 1\\.0\\.0 of o/r at 2020-01-01T00:00:00Z, which does not hold its landed commit ${landed}`));
+    await assert.rejects(prove(deliveryOf(shippedEarlier)), new RegExp(`o/sibling was last delivered on prod by release 1\\.0\\.0 of o/r at 2026-01-02T00:00:00Z, which does not hold its landed commit ${landed}`));
     await assert.rejects(prove('echo null'), /the reader of o\/sibling found no completed delivery on prod/);
     await assert.rejects(prove('echo broken >&2; exit 1'), /the delivery of o\/sibling on prod could not be read: .*exited 1 for o\/sibling prod: broken/);
     fake.addComment(main.full, number, 'fake-user', 'Landed on master of o/sibling:\n\nReviewed by: alice\n');
     await assert.rejects(prove(deliveryOf(landed)), /the "Landed on" record of o\/sibling names no landed commit/);
+
+    assert.equal(writesOf(), writes);
+    assert.equal(fake.readIssue(main.full, number).state, 'open');
+  });
+
+  it('refuses a delivery that holds the landed commit but is not later than the landing (planted: a delivery of 2020; innocent case: the delivery of 2026-01-02 above)', async () => {
+    const { number } = await delivered('Pinned neighbour delivered before its landing was recorded, so that the proof waits');
+    const landed = commitInSibling('landed work');
+    landedInSibling(number, landed);
+    const writes = writesOf();
+
+    await assert.rejects(
+      issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=v*' }, siblingReads(deliveryOf(landed, '2020-01-01T00:00:00Z')))),
+      /o\/sibling was last delivered on prod by release 1\.0\.0 of o\/r at 2020-01-01T00:00:00Z, which is not after its landing recorded at 2026-01-01T00:\d\d:\d\dZ/,
+    );
 
     assert.equal(writesOf(), writes);
     assert.equal(fake.readIssue(main.full, number).state, 'open');

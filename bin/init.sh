@@ -370,6 +370,36 @@ put_dir() {
 # drop <relative path>: what an earlier version left in the checkout
 drop() { [ -e "$TARGET/$1" ] || return 0; note removed "$1"; [ "$DRY" -eq 1 ] || rm -rf "$TARGET/${1:?}"; }
 TMP="$(mktemp -d)"
+# last_assignment <file> <key>: the last line that assigns the key, found as the readers of config.env find it
+last_assignment() { grep -E "^[[:space:]]*$2[[:space:]]*=" "$1" | tail -n1; }
+# lay_config <base> <override> <out>: the base, where the first assignment of each key the override assigns
+# is the override's last assignment of it, and the keys only the override assigns come last. The lines are
+# copied, never evaluated.
+lay_config() {
+  local base="$1" override="$2" out="$3" line key keys="" placed=" " assignment='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*='
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ $line =~ $assignment ]] || continue
+    key="${BASH_REMATCH[1]}"
+    case " $keys " in *" $key "*) ;; *) keys="$keys $key" ;; esac
+  done < "$override"
+  if [ -z "$keys" ]; then cp -f "$base" "$out"; return 0; fi
+  {
+    while IFS= read -r line || [ -n "$line" ]; do
+      if [[ $line =~ $assignment ]]; then
+        key="${BASH_REMATCH[1]}"
+        case " $keys " in
+          *" $key "*)
+            case "$placed" in *" $key "*) ;; *) last_assignment "$override" "$key"; placed="$placed$key " ;; esac
+            continue ;;
+        esac
+      fi
+      printf '%s\n' "$line"
+    done < "$base"
+    for key in $keys; do
+      case "$placed" in *" $key "*) ;; *) last_assignment "$override" "$key" ;; esac
+    done
+  } > "$out"
+}
 
 # The project harness: <org>/<prefix>-ai-core from the checkout's origin, its extends chain
 # base first, cloned or pulled beside the repositories in the project folder, created from the
@@ -471,7 +501,8 @@ drop .agents/mcp_config.json
 #    setup-ai-core and in every layer (the same name replaces, a new name adds), assembled into one
 #    file, each section headed by a comment naming its source; skills.md; VERSION; the skills of
 #    every layer into both skill directories; the agents; the docs of every layer; the data files;
-#    every file under repos/<repo>/ of the layers; STAMP with the commit of every layer.
+#    every file under repos/<repo>/ of the layers, its config.env laid over the layers' key by key;
+#    STAMP with the commit of every layer.
 CORE_VERSION="$(tr -d '\r\n' < "$CORE_ROOT/VERSION")"
 SECTIONS="$TMP/sections"; mkdir -p "$SECTIONS"
 for f in "$CORE_ROOT"/rules/[0-9][0-9]-*.md; do
@@ -483,6 +514,7 @@ LAYER_FILES=""   # what the layers wrote, so the templates leave it alone
 MAP_SRC=""       # a generated map, deployed with the binding rules on top once the rules are assembled
 AGENTS_SRC=""    # the AGENTS.md this run deploys, read for the Codex override (2c)
 DEPLOYED=""      # what the layers put into the checkout, recorded in .ai-core/DEPLOYED
+CONFIG_BASE=""; CONFIG_OVERRIDE=""   # the config.env of the layers, and the repository's file laid over it
 DATA_FILES="config.env labels.tsv assignees.tsv team-modes.tsv models.tsv"
 # The skills of setup-ai-core itself, before the layers': a layer's skill of the same name replaces
 # the directory whole, so the more specific layer wins, as it does for the rules.
@@ -518,7 +550,8 @@ if [ -n "$LAYERS" ]; then
     fi
     for f in $DATA_FILES; do
       [ -f "$l/$f" ] || continue
-      put "$l/$f" ".ai-core/$f" managed; LAYER_FILES="$LAYER_FILES .ai-core/$f"
+      LAYER_FILES="$LAYER_FILES .ai-core/$f"
+      if [ "$f" = config.env ]; then CONFIG_BASE="$l/$f"; else put "$l/$f" ".ai-core/$f" managed; fi
     done
   done <<< "$LAYERS"
   # repos/<repo>/ of the innermost layer, in the layout of the checkout; a tracked file is never
@@ -527,6 +560,7 @@ if [ -n "$LAYERS" ]; then
   if [ -n "$REPO_NAME" ] && [ -d "$INNER/repos/$REPO_NAME" ]; then
     while IFS= read -r rel; do
       [ -n "$rel" ] || continue
+      if [ "$rel" = .ai-core/config.env ] && [ -n "$CONFIG_BASE" ]; then CONFIG_OVERRIDE="$INNER/repos/$REPO_NAME/$rel"; continue; fi
       if git -C "$TARGET" ls-files --error-unmatch "$rel" >/dev/null 2>&1; then
         note tracked "$rel"
       else
@@ -538,12 +572,24 @@ if [ -n "$LAYERS" ]; then
       LAYER_FILES="$LAYER_FILES $rel"
     done <<< "$( (cd "$INNER/repos/$REPO_NAME" && find . -type f | LC_ALL=C sort) | sed 's|^\./||')"
   fi
+  # The config.env of the last layer that has one, with the repository's file of the innermost layer laid
+  # over it key by key and written once; a tracked .ai-core/config.env is left alone where that file exists
+  if [ -n "$CONFIG_BASE" ]; then
+    if [ -z "$CONFIG_OVERRIDE" ]; then
+      put "$CONFIG_BASE" .ai-core/config.env managed
+    elif git -C "$TARGET" ls-files --error-unmatch .ai-core/config.env >/dev/null 2>&1; then
+      note tracked .ai-core/config.env
+    else
+      lay_config "$CONFIG_BASE" "$CONFIG_OVERRIDE" "$TMP/config.env"
+      put "$TMP/config.env" .ai-core/config.env managed; DEPLOYED="$DEPLOYED .ai-core/config.env"
+    fi
+  fi
 fi
-# What the layers put into the checkout is recorded in .ai-core/DEPLOYED, so what a layer no
-# longer provides is taken out again at the next run; a file the repository tracks is left alone
+# What the layers put into the checkout is recorded in .ai-core/DEPLOYED, so what no layer provides
+# any longer is taken out again at the next run; a file the repository tracks is left alone
 PREV_DEPLOYED="$( { tr -d '\r' < "$TARGET/.ai-core/DEPLOYED"; } 2>/dev/null || true)"
 for p in $PREV_DEPLOYED; do
-  case " $DEPLOYED " in *" $p "*) continue ;; esac
+  case " $DEPLOYED $LAYER_FILES " in *" $p "*) continue ;; esac
   [ -e "$TARGET/$p" ] || continue
   git -C "$TARGET" ls-files --error-unmatch "$p" >/dev/null 2>&1 && continue
   note removed "$p"; [ "$DRY" -eq 1 ] || rm -rf "$TARGET/${p:?}"

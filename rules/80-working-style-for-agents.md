@@ -9,8 +9,9 @@
   step needs in one answer, as parallel tool calls or one command, because every answer reads the
   whole context again. [discipline]
 - **Work is tracked in the project's tracker, through the harness's commands, and the plan is the
-  issues.** An issue exists before the work starts and is kept current; a plan lives nowhere else.
-  It carries the full case, which is the context, the code facts as `file:line` and the acceptance
+  issues.** An issue exists before the work starts and is kept current; a plan lives nowhere else;
+  a session that finds an issue hands it to the project's issue keeper, which files it into what
+  exists. It carries the full case, which is the context, the code facts as `file:line` and the acceptance
   criteria, under a title that names the action and its stake so it survives being read alone in a
   list. Independent pieces are split into their own issues before any detail is refined. Epics and
   the board belong to the trackers whose API carries them. Forgejo has no epics, and its API cannot

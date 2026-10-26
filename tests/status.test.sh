@@ -199,7 +199,7 @@ plain="$(cd "$folder" && AI_CORE_PROCESSES="$work/unversioned" AI_CORE_AGENTS="$
 check 'a name without a version: its model and effort' '│ C t3-sonnet-hi │ 117 │ sonnet · high │ 10 min │ │ │ session │' "$(grep -m1 -F '│ C t3-sonnet' <<< "$plain" | tr -s ' ')"
 check 'a build: its model and effort from its name' '│ C i4-opus5.5-x │ 118 │ opus5.5 · xhigh │ 10 min │ │ │ session │' "$(grep -m1 -F '│ C i4-opus' <<< "$plain" | tr -s ' ')"
 check 'a name led by no phase letter: no model' '│ C l5-opus5.5-h │ 119 │ │ 10 min │ │ │ session │' "$(grep -m1 -F '│ C l5-opus' <<< "$plain" | tr -s ' ')"
-for phase in plan re-plan plan-check build review ui-test; do
+for phase in plan re-plan plan-check build review ui-test keeper; do
   jq --arg name "${phase}10001-opus5.5-xhigh-150k-abcde" '.[1].name=$name' "$work/unversioned-agents" > "$work/phase-word-agents"
   words="$(cd "$folder" && AI_CORE_PROCESSES="$work/unversioned" AI_CORE_AGENTS="$work/phase-word-agents" AI_CORE_ROLLOUTS="$work/rollouts" bash "$root/bin/status.sh" --project example-org/7 2>&1)"
   check "$phase word: model and effort survive its hyphens" 'opus5.5 · xhigh' "$(awk -F'│' '$3 ~ /^ *118 *$/ {gsub(/^ +| +$/, "", $4); print $4}' <<< "$words")"

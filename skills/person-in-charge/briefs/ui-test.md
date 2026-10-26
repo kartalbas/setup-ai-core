@@ -42,4 +42,6 @@ NOTES.
 
 Each issue's line is its own verdict, because the cards of one session can belong to different
 areas: one issue's FAIL holds back no other issue. SEEN carries what the page showed, never what it
-should have shown. A FAIL of a card's own promise is that card's FAIL, not a new defect.
+should have shown. A FAIL of a card's own promise is that card's FAIL, not a new defect. A defect
+you see that no promise names is no FAIL and no issue of yours: add `KEEPER: <URL> <the visible
+text>` below the results, and the project's issue keeper files it into what exists.

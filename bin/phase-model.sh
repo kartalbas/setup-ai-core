@@ -30,7 +30,7 @@ project="$(project_folder_of "$PWD")" && project="$(cd "$project" && pwd -P)" ||
 reasons='[]'; selected=null; failure=''; order=null
 reason() { reasons="$(jq -c --arg tool "$1" --arg reason "$2" --argjson exit "${3:-null}" '. + [{tool:$tool,reason:$reason,exit:$exit}]' <<< "$reasons")"; }
 order="$(tool_order_snapshot)" || { order=null; failure='cannot read tool order'; }
-case "$phase" in plan|re-plan|plan-check|build|review|ui-test|coordinator|helper) ;; *) failure="unknown phase: $phase" ;; esac
+case "$phase" in plan|re-plan|plan-check|build|review|ui-test|coordinator|helper|keeper) ;; *) failure="unknown phase: $phase" ;; esac
 case "$class" in normal-hard|high-risk|mechanical) ;; *) failure="unknown class: $class" ;; esac
 case "$phase" in plan-check|review) [ -n "$writer" ] || failure="$phase requires --written-by MODEL" ;; esac
 setup_entries=''

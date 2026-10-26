@@ -17,8 +17,8 @@ way it reads its state again from this brief, because the state is in the tracke
 3. Read the plan issue of each board: every comment that is a package section, the newest of each
    area; the newest `PHASE <area>` line of each area, which holds the phase, the session, the plan
    and review counts and the next step; and every verdict (`PLAN CHECK <area>`, `REVIEW <area>`,
-   `LAND <area>`, `CLEARING round`) after that line, and the partner's `RELEASED <area>` lines on
-   your plan issue. Sections of another ecosystem are not yours; you read them, with their newest
+   `LAND <area>`, `CLEARING round`, `KEEPER round`) after that line, and the partner's `RELEASED <area>`
+   lines on your plan issue. Sections of another ecosystem are not yours; you read them, with their newest
    `PHASE` and `LAND` lines, only to see which of them is between build and landing.
 4. Read `ai-core status` per board: which sessions run, which are blocked, what is in TESTING and
    TREES. A session the page does not show is off, whatever a PHASE line says; post a corrected
@@ -37,7 +37,8 @@ way it reads its state again from this brief, because the state is in the tracke
 6. Do one round (the skill). Nothing is started before the round has read everything.
 
 One defect is one issue, in the repository that owns it, with every other repository's copy as a
-`file:line` fact. A package already lands one issue in several repositories.
+`file:line` fact; the issue keeper files it (`briefs/keeper.md`). A package already lands one issue in
+several repositories.
 
 ## When the owner restarts you
 

@@ -68,7 +68,9 @@ names, the spans the facts and the contracts name.
 A gap is only what stops a build session from starting or makes it build the wrong thing: a
 missing criterion or `file:line`, a contradiction, a side of a contract outside the package, a
 wrong order or class. Each gap names the issue of the package it belongs to, so that the re-plan
-widens that issue. A gap never becomes an issue of its own. Wording and a better way that is not needed are no gaps. A gap you can close
+widens that issue. A gap never becomes an issue of its own. A defect you meet outside the section's files and contracts you
+file no issue for: it goes into your last message as `KEEPER: <repo> <file:line> <state>`, and the
+project's issue keeper files it into what exists. Wording and a better way that is not needed are no gaps. A gap you can close
 from the code and the issues you close yourself, as a person reviewing does: post the whole section
 again as `Replaces the section ... (comment <id>)`, list each repair under REPAIRED, and leave it
 out of GAPS. Only a gap that needs the owner's decision, a new issue or a new cut of the package

@@ -88,11 +88,12 @@ echo 'a leading @ on the login is not doubled'
 new --asked-by @kartalbas --asked-in 'the chat' >/dev/null
 check 'one @' yes "$(head -1 "$sent" 2>/dev/null | grep -q 'by @kartalbas on' && echo yes || echo no)"
 
-# A defect found in the work is written down without a yes: --found-in stands in for the person,
-# and only on a bug, because other work is what the yes is for.
+# A finding filed without a yes is written down with --found-in, which stands in for the person,
+# on a bug and on every other type: the issue keeper files a feature sub-issue this way.
+issue_new="$root/bin/issue-new.sh"
 found() {
   : > "$log"; rm -f "$sent"
-  bash "$root/bin/issue-new.sh" --repo "$repo" \
+  bash "$issue_new" --repo "$repo" \
     --title 'Keep the asked-for line on an edit, or the board loses who wanted it' \
     --body-file "$body" --label "$1" --label area:tooling --priority P1 \
     --project "$PROJECT_NUMBER" "${@:2}" 2>&1 >/dev/null
@@ -103,11 +104,28 @@ check 'the issue was created'   yes "$(grep -q 'issue create' "$log" && echo yes
 check 'first line names where it was found and the day' \
   "Found in the review of #91 on $today, a defect filed without a yes." "$(head -1 "$sent" 2>/dev/null)"
 
-echo 'work that is no defect is refused with --found-in'
+echo 'a feature is filed with --found-in too, naming the session and the decision'
+found type:feature --found-in 'the review of #91, filed by the issue keeper under the owner'"'"'s decision' >/dev/null
+check 'the issue was created'   yes "$(grep -q 'issue create' "$log" && echo yes || echo no)"
+check 'first line names the session, the decision and the day' \
+  "Found in the review of #91, filed by the issue keeper under the owner's decision on $today, a finding filed without a yes." "$(head -1 "$sent" 2>/dev/null)"
+
+# The planted defect: a copy of the command with the old refusal of every type but a bug put back
+# must refuse the feature, so the check above is shown to go red.
+planted="$(mktemp -d)"; mkdir "$planted/bin"; ln -s "$root/lib" "$planted/lib"; ln -s "$root/templates" "$planted/templates"
+awk '{ print } /contradict each other: one says a session found a defect/ {
+  print "  grep -qx type:bug <<< \"$(printf \"%s\\n\" \"${labels[@]}\")\" || die \"--found-in is only for a defect found in the work (label type:bug)\""
+}' "$root/bin/issue-new.sh" > "$planted/bin/issue-new.sh"
+check 'the planted refusal is in the copy' yes "$(grep -q 'is only for a defect found in the work' "$planted/bin/issue-new.sh" && echo yes || echo no)"
+issue_new="$planted/bin/issue-new.sh"
 out="$(found type:feature --found-in 'the review of #91')"; rc=$?
-check 'refused'                 yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'says why'                yes "$(grep -q -- '--found-in is only for a defect' <<< "$out" && echo yes || echo no)"
-check 'nothing reached gh'      no  "$(grep -q 'issue create' "$log" 2>/dev/null && echo yes || echo no)"
+check 'planted: the feature is refused' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'planted: and says why'           yes "$(grep -q -- '--found-in is only for a defect' <<< "$out" && echo yes || echo no)"
+check 'planted: nothing reached gh'     no  "$(grep -q 'issue create' "$log" 2>/dev/null && echo yes || echo no)"
+out="$(found type:bug --found-in 'the review of #91')"; rc=$?
+check 'planted: a bug is still filed'   yes "$([ "$rc" -eq 0 ] && grep -q 'issue create' "$log" && echo yes || echo no)"
+issue_new="$root/bin/issue-new.sh"
+rm -rf "$planted"
 
 echo '--found-in together with --asked-by is refused'
 out="$(found type:bug --found-in 'the review of #91' --asked-by kartalbas --asked-in 'the chat')"; rc=$?

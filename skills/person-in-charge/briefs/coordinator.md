@@ -18,8 +18,9 @@ way it reads its state again from this brief, because the state is in the tracke
    area; the newest `PHASE <area>` line of each area, which holds the phase, the session, the plan
    and review counts and the next step; and every verdict (`PLAN CHECK <area>`, `REVIEW <area>`,
    `LAND <area>`, `CLEARING round`) after that line, and the partner's `RELEASED <area>` lines on
-   your plan issue; and, wherever they stand, every `KEEPER round` line and every `KEEPER:` line
-   that none of them holds, because a finding waits for its keeper across `PHASE` lines. Sections
+   your plan issue; and, wherever they stand, every `KEEPER round` line, every `KEEPER:` line
+   that none of them holds, and every merge commit of a `LAND` line that no `KEEPER round` line names
+   as landed, because a finding or a landing waits for its keeper across `PHASE` lines. Sections
    of another ecosystem are not yours; you read them, with their newest `PHASE` and `LAND` lines,
    only to see which of them is between build and landing.
 4. Read `ai-core status` per board: which sessions run, which are blocked, what is in TESTING and

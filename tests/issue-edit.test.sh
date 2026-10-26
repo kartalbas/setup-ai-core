@@ -107,6 +107,14 @@ out="$("$edit" "$repo" 163 --body-file "$plain" 2>/dev/null)"
 check 'what it says'            '#163 -> edited (body, asked-for line kept)' "$out"
 check 'the line is back on top' "$foundline" "$(head -1 "$sent")"
 
+echo 'a found-in line of a finding that is no defect is kept too'
+: > "$log"; rm -f "$sent"
+findingline='Found in the review of #91, filed by the issue keeper on 2026-10-10, a finding filed without a yes.'
+printf '%s\r\n\r\nthe old body\r\n' "$findingline" > "$reply"
+out="$("$edit" "$repo" 163 --body-file "$plain" 2>/dev/null)"
+check 'what it says'            '#163 -> edited (body, asked-for line kept)' "$out"
+check 'the line is back on top' "$findingline" "$(head -1 "$sent")"
+
 echo 'prose that only opens like a found-in line is no such line'
 : > "$log"; rm -f "$sent"
 prose="$fake/prose.md"; printf 'Found in production, the gate refuses every push.\n' > "$prose"

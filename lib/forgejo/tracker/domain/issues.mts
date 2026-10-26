@@ -245,16 +245,16 @@ function parseRepositoryFromAnswer(fullName: string, name: string): RepositoryRe
   }
 }
 
-// The line that opens every issue body: who asked for the work, or where a defect was found.
+// The line that opens every issue body: who asked for the work, or where a defect or another finding was found.
 const ASKED_PREFIX = 'Asked for by @';
 const FOUND_PREFIX = 'Found in ';
-const FOUND_TAIL = ', a defect filed without a yes.';
+const FOUND_TAIL = ' filed without a yes.';
 const MOVED_ADDRESS = /^https:\/\/[^\s/]+\/[^\s/]+\/[^\s/]+\/issues\/[0-9]+$/;
 
-export type Provenance = { readonly askedBy: string; readonly askedIn: string } | { readonly foundIn: string };
+export type Provenance = { readonly askedBy: string; readonly askedIn: string } | { readonly foundIn: string; readonly isDefect: boolean };
 
 export function composeOriginLine(provenance: Provenance, today: string): string {
-  if ('foundIn' in provenance) return `${FOUND_PREFIX}${provenance.foundIn} on ${today}${FOUND_TAIL}`;
+  if ('foundIn' in provenance) return `${FOUND_PREFIX}${provenance.foundIn} on ${today}, ${provenance.isDefect ? 'a defect' : 'a finding'}${FOUND_TAIL}`;
   return `${ASKED_PREFIX}${provenance.askedBy.replace(/^@/, '')} on ${today} in ${provenance.askedIn}.`;
 }
 

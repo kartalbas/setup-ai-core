@@ -128,7 +128,7 @@ a re-check. Every other package goes to a plan.
 | UI test on the test stage | `briefs/ui-test.md` with the section's test URL, one session for every card due on that stage, at least two where two are due (`briefs/clearing.md`) | PASS, posted by you on each issue | `testing` |
 | release to production | you: the test-stage tags themselves, promoted in the order they were cut, with the project's command for production, because that order already kept every additive side ahead of its strict side | every repository tagged | `testing` |
 | live check on production | `briefs/ui-test.md` with the production URL, bundled the same way | PASS; you write `Proven on <environment>:` on each issue, and the completion path of the project's tracker closes the cards (`status-sync` on GitHub; on Forgejo `ai-core issue-proof <n> --environment <environment> --body-file <evidence>` writes the record and closes the issue) | `done`, by that path |
-| issue keeper | `briefs/keeper.md` on the `keeper` row, for the `KEEPER:` lines no `KEEPER round` line has handed over ("The issue keeper" below) | its report stands as a comment on the plan issue | none |
+| issue keeper | `briefs/keeper.md` on the `keeper` row, for the `KEEPER:` lines and the landings no `KEEPER round` line has handed over ("The issue keeper" below) | its report stands as a comment on the plan issue | none |
 
 Every phase you run yourself and every verdict a session posts is answered by one comment of yours
 on the plan issue, the package's log, which a restart reads:
@@ -225,7 +225,8 @@ part names in its `After:`, a side a partner waits for, a fault on a live enviro
 whose `After:` part has not landed, that shares a file or a contract with a package between build
 and landing, or whose `Waits for the owner:` is not answered, is not built. Read TESTING: prove the live cards, 🔴 first; TREES: land or
 put to the owner. A `KEEPER:` line of a section, a verdict, a report, a UI test result or a `CLEARING round`
-that no `KEEPER round` line has handed over makes the issue keeper due. A session's question that the plan, the issues or the code answers, you answer yourself;
+that no `KEEPER round` line has handed over, or a merge commit of a `LAND` line that no `KEEPER round`
+line names as landed, makes the issue keeper due. A session's question that the plan, the issues or the code answers, you answer yourself;
 only a decision the rules give the owner goes to the owner, the open ones of a round together in
 one block, and the issues of those questions get `needs:owner` (`ai-core issue-label`) and keep
 their column. Each question is written to be decided alone: the owner's goal and the owner's
@@ -251,23 +252,30 @@ One session per project files its issues: the issue keeper, the model-table phas
 a plan check, a build, a review or a UI test that finds a defect outside its work files no issue; it
 writes a `KEEPER: <repo> <file:line> <state>` line in its section, its verdict or its report, and
 the keeper puts it into what exists: a comment on the issue it fits, a sub-issue of the epic it fits,
-or, where it fits nothing, a question to the owner. A new issue or epic comes only after his yes.
+or, where it fits nothing, a question to the owner. A new issue or epic comes only after his yes. After a
+landing, the keeper also rewrites the facts of every open issue whose named `file:line` spans the
+landing moved, and writes on the issue what it changed and why.
 Your own `ai-core issue-new`, for the plan issue (`briefs/coordinator.md`), stays. A build report's
 and a UI test result's `KEEPER:` lines do not stand on the plan issue: copy them, each with the
 session that wrote it, into your comment that answers that report or result there, so that a
 restart reads every line that waits for a keeper on the plan issue (`briefs/coordinator.md`).
 
-When a round finds `KEEPER:` lines that no `KEEPER round` line holds, collect them all and start one
-keeper for them, because two keepers at once could file the same finding twice and a second round
+When a round finds `KEEPER:` lines that no `KEEPER round` line holds, or a merge commit of a `LAND`
+line that no `KEEPER round` line names as landed, collect them all and start one keeper for them, because two keepers at once could file the same
+finding twice and a second round
 would pay the start again. At most one keeper runs per project. Select with
 `ai-core phase-model keeper normal-hard` (the `keeper` row has class `*`, so it answers every
 class), start it as a plan check is started, from the first clone of the board with the project
 folder added, name it `keeper<n>-<model><version>-<effort>-150k-<5 hex>`, and fill `briefs/keeper.md`
-with the lines (each with the session that wrote it), the questions the owner has not answered and
+with the lines (each with the session that wrote it), for each such merge commit one `LANDED: <repo>
+<merge sha> <file> <old span> -> <new span>` line per hunk of `git -C <clone> diff -U0 <merge sha>^1
+<merge sha>`, `<file>` the path before the merge, and one `LANDED: <repo> <merge sha> <old file> ->
+<new file>` line per file that diff renames, because a file renamed alone shows no hunk, the questions the owner has not answered and
 his answers to earlier ones. Its report is a comment on the plan issue. Post
 
-    KEEPER round <k>: <keeper session> | handed <n>: <source session> <file:line>, ... | <next step>
+    KEEPER round <k>: <keeper session> | handed <n>: <source session> <file:line>, ... | landed <repo> <merge sha>, ... | <next step>
 
 and end the session. Each `OWNER:` line of the report goes into the owner's next block as the
 question it is. On his yes, the next keeper gets the finding with his answer and files it; on his no
-it is dropped. The keeper moves no card other than as its brief says and rewrites no issue.
+it is dropped. The keeper moves no card other than as its brief says and rewrites an issue only after a
+landing moved the facts it names.

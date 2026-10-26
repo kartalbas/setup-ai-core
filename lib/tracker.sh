@@ -8,7 +8,7 @@
 # THE INTERFACE: every function the commands and lib/board.sh call to ask the tracker.
 load_provider tracker "
   gh_org default_repo check_project_number resolve_project_for_repo template_project_number
-  project_id board_cache_name fields_tsv project_repos board_repos repo_open_projects
+  project_id board_cache_name fields_tsv project_repos board_repos repo_open_projects repo_archived
   issue_thread issue_landing_context referenced_issue issue_node_id issue_db_id parent_issue issue_parent
   item_id archived_item_id issue_board_items item_top board_items remove_board_item set_select
   epic_target_on_board open_subissues

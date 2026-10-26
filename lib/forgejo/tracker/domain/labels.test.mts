@@ -12,6 +12,7 @@ describe('the families', () => {
   it('are the labels with exactly one slash and a known group', () => {
     assert.equal(familyOf('status/ready')?.exclusive, true);
     assert.equal(familyOf('area/gate')?.exclusive, false);
+    assert.equal(familyOf('package/shop#5')?.exclusive, true);
     assert.equal(familyOf('area/foo/bar'), undefined);
     assert.equal(familyOf('needs:owner'), undefined);
     assert.equal(familyOf('engine:approved'), undefined);
@@ -90,6 +91,16 @@ describe('planning a label change', () => {
 
   it('refuses an add that would make a second label of an exclusive family, and says how', () => {
     assert.throws(() => planLabelChange(current, { add: ['status/testing'] }), /use --replace/);
+  });
+
+  it('replaces the package label of an issue with another one and keeps every other label', () => {
+    assert.deepEqual(planLabelChange([...current, 'package/api#2'], { replace: ['package/shop#5'] }), { add: ['package/shop#5'], remove: ['package/api#2'] });
+    assert.deepEqual(planLabelChange([...current, 'package/shop#5'], { replace: ['package/shop#5'] }), { add: [], remove: [] });
+  });
+
+  it('refuses a second package label (planted) and a package label beside the one of another package', () => {
+    assert.throws(() => planLabelChange([], { add: ['package/shop#5', 'package/api#2'] }), /exclusive family package\//);
+    assert.throws(() => planLabelChange(['package/api#2'], { add: ['package/shop#5'] }), /use --replace/);
   });
 
   it('allows two labels of the non-exclusive family', () => {

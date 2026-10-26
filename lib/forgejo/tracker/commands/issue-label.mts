@@ -14,9 +14,9 @@ export const labelHelp = `${LABEL_USAGE}
 --add puts labels on, --remove takes them off, and --add with --remove does both. --replace names the labels an
 issue is to carry in their families: for each family named, the issue's labels of that family become exactly
 those given, and every other label stays. An issue carries one label of an exclusive family (status/, priority/,
-type/, goal/, test/), so --add of a second one is refused; use --replace. A label is added only if it exists;
+type/, goal/, test/, package/), so --add of a second one is refused; use --replace. A label is added only if it exists;
 one is removed whether or not it exists. status/ and priority/ labels are set by issue-status and
-issue-priority. A label written type:bug is read as type/bug.`;
+issue-priority, and package/ labels by issue-package. A label written type:bug is read as type/bug.`;
 
 export const priorityHelp = `${PRIORITY_USAGE}
 

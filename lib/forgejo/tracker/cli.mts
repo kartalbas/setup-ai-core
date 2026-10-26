@@ -12,6 +12,7 @@ import * as issueEdit from './commands/issue-edit.mts';
 import * as issueLabel from './commands/issue-label.mts';
 import * as issueMine from './commands/issue-mine.mts';
 import * as issueNew from './commands/issue-new.mts';
+import * as issuePackage from './commands/issue-package.mts';
 import * as issueProof from './commands/issue-proof.mts';
 import * as issueRelease from './commands/issue-release.mts';
 import * as issueState from './commands/issue-state.mts';
@@ -39,6 +40,7 @@ const COMMANDS: readonly Command[] = [
   { name: 'issue-reopen', help: issueState.reopenHelp, run: issueState.runReopen },
   { name: 'issue-edit', help: issueEdit.help, run: issueEdit.run },
   { name: 'issue-label', help: issueLabel.labelHelp, run: issueLabel.runLabel },
+  { name: 'issue-package', help: issuePackage.help, run: issuePackage.run },
   { name: 'issue-priority', help: issueLabel.priorityHelp, run: issueLabel.runPriority },
   { name: 'issue-status', help: issueStatus.help, run: issueStatus.run },
   { name: 'issue-assign', help: issueAssign.help, run: issueAssign.run },

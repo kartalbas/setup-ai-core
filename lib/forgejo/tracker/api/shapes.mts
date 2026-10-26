@@ -108,6 +108,7 @@ export interface Label {
   readonly color: string;
   readonly description: string | undefined;
   readonly exclusive: boolean | undefined;
+  readonly is_archived?: boolean;
 }
 export const labelShape = defineShape<Label>('Label', {
   id: required(integer),
@@ -115,6 +116,7 @@ export const labelShape = defineShape<Label>('Label', {
   color: required(string),
   description: optional(string),
   exclusive: optional(boolean),
+  is_archived: optional(boolean),
 });
 
 export interface RepositoryMeta {
@@ -255,12 +257,14 @@ export interface CreateLabelBody {
   readonly color: string;
   readonly description?: string;
   readonly exclusive?: boolean;
+  readonly is_archived?: boolean;
 }
 export interface EditLabelBody {
   readonly name?: string;
   readonly color?: string;
   readonly description?: string;
   readonly exclusive?: boolean;
+  readonly is_archived?: boolean;
 }
 
 export interface ShapeDescription {

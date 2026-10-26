@@ -53,6 +53,7 @@ interface FakeLabel {
   color: string;
   description: string;
   exclusive: boolean;
+  archived: boolean;
   owner: string;
   repo: string | undefined;
 }
@@ -117,13 +118,17 @@ export type FailureMode =
   | { kind: 'success-status'; status: number }
   | { kind: 'omit-field'; field: string }
   | { kind: 'truncate-list' }
-  | { kind: 'insert-null'; at: number };
+  | { kind: 'insert-null'; at: number }
+  // Another hand changes the tracker right after the request was served: the state that a read-back then finds is not the one written.
+  | { kind: 'after'; effect: () => void };
 
 export interface FailureRule {
   method?: string;
   path: string | RegExp;
   mode: FailureMode;
   times?: number;
+  // The matching requests that pass before the rule starts to fail one, such as the first page of a list.
+  skip?: number;
 }
 
 export interface RecordedRequest {
@@ -149,12 +154,16 @@ export interface FakeForgejo {
   // The states the combined status of any commit of the repository answers one after the other, the last one for good. No state: an empty answer.
   setChecks(fullName: string, states: string[]): void;
   listMilestones(fullName: string): { title: string; issues: number[] }[];
-  addLabel(owner: string, label: { name: string; color?: string; description?: string; exclusive?: boolean }): number;
+  addLabel(owner: string, label: { name: string; color?: string; description?: string; exclusive?: boolean; archived?: boolean }): number;
+  // A label of the repository itself, which is no label of its organization even where it has the name of one.
+  addRepositoryLabel(fullName: string, label: { name: string; color?: string; description?: string; exclusive?: boolean }): number;
   addIssue(fullName: string, issue: { title: string; body?: string; state?: 'open' | 'closed'; closedAt?: string; labels?: string[]; assignees?: string[] }): number;
   addComment(fullName: string, number: number, login: string, body: string): void;
   addLabelEvent(fullName: string, number: number, login: string, label: string, added: boolean): void;
+  // Takes a label off an issue as another hand would, by the name of an organization label.
+  removeLabel(fullName: string, number: number, label: string): void;
   readIssue(fullName: string, number: number): { title: string; body: string; state: string; labels: string[]; assignees: string[]; comments: string[]; dependencies: string[]; milestone: string | undefined };
-  listLabels(owner: string): { name: string; color: string; description: string; exclusive: boolean }[];
+  listLabels(owner: string): { name: string; color: string; description: string; exclusive: boolean; archived: boolean }[];
   fail(rule: FailureRule): void;
   writes(): RecordedRequest[];
   close(): Promise<void>;
@@ -179,7 +188,7 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
   const organizations = new Set<string>();
   const labels: FakeLabel[] = [];
   const knownLogins = new Set<string>(['fake-user']);
-  const rules: (FailureRule & { left: number })[] = [];
+  const rules: (FailureRule & { left: number; skipped: number })[] = [];
   const requests: RecordedRequest[] = [];
   const pageMaximum = options.pageMaximum ?? DEFAULT_PAGE_MAXIMUM;
   let nextId = 1000;
@@ -207,7 +216,7 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
     color: label.color,
     description: label.description,
     exclusive: label.exclusive,
-    is_archived: false,
+    is_archived: label.archived,
     url: `https://${FAKE_HOST}/api/v1/labels/${label.id}`,
   });
   const issueWire = (repository: FakeRepository, issue: FakeIssue): Json => ({
@@ -295,6 +304,7 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
       for (const id of (body.labels as number[] | undefined) ?? []) {
         const label = available.find((candidate) => candidate.id === id);
         if (label === undefined) throw new HttpFailure(422, `label does not exist [id: ${id}]`);
+        if (label.archived) throw new HttpFailure(422, `label is archived [id: ${id}]`);
         addLabelToIssue(issue, label);
       }
       for (const login of (body.assignees as string[] | undefined) ?? []) {
@@ -391,6 +401,9 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
         if (label === undefined) throw new HttpFailure(422, `label does not exist [${String(entry)}]`);
         return label;
       });
+      for (const label of requested) {
+        if (label.archived && !issue.labels.includes(label.id)) throw new HttpFailure(422, `label is archived [${label.name}]`);
+      }
       for (const label of requested) addLabelToIssue(issue, label);
       return { status: 200, body: labels.filter((label) => issue.labels.includes(label.id)).map(labelWire) };
     },
@@ -426,6 +439,7 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
         color: color.replace(/^#/, '').toLowerCase(),
         description: typeof body.description === 'string' ? body.description : '',
         exclusive: body.exclusive === true,
+        archived: body.is_archived === true,
         owner: org,
         repo: undefined,
       };
@@ -440,6 +454,7 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
       if (typeof body.color === 'string') label.color = body.color.replace(/^#/, '').toLowerCase();
       if (typeof body.description === 'string') label.description = body.description;
       if (typeof body.exclusive === 'boolean') label.exclusive = body.exclusive;
+      if (typeof body.is_archived === 'boolean') label.archived = body.is_archived;
       return { status: 200, body: labelWire(label) };
     },
     repoGetTag: ({ params }) => {
@@ -653,8 +668,11 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
         response.end(text);
       };
       const rule = rules.find((candidate) => candidate.left > 0 && (candidate.method === undefined || candidate.method === method) && (typeof candidate.path === 'string' ? candidate.path === path : candidate.path.test(path)));
-      if (rule !== undefined) rule.left--;
-      const mode = rule?.mode;
+      let mode = rule?.mode;
+      if (rule !== undefined && rule.skipped > 0) {
+        rule.skipped--;
+        mode = undefined;
+      } else if (rule !== undefined) rule.left--;
 
       if (request.headers.authorization !== `token ${FAKE_TOKEN}`) {
         send(401, { message: 'token is required' });
@@ -677,6 +695,7 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
         else send(500, { message: `FAKE BUG: ${String(error)}` });
         return;
       }
+      if (mode?.kind === 'after') mode.effect();
       if (mode?.kind === 'drop-after') {
         request.socket.destroy();
         return;
@@ -750,8 +769,25 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
         color: (label.color ?? 'aaaaaa').toLowerCase(),
         description: label.description ?? '',
         exclusive: label.exclusive ?? false,
+        archived: label.archived ?? false,
         owner,
         repo: undefined,
+      };
+      labels.push(created);
+      return created.id;
+    },
+    addRepositoryLabel(fullName, label) {
+      const [owner = '', name = ''] = fullName.split('/');
+      findRepository(owner, name);
+      const created: FakeLabel = {
+        id: newId(),
+        name: label.name,
+        color: (label.color ?? 'aaaaaa').toLowerCase(),
+        description: label.description ?? '',
+        exclusive: label.exclusive ?? false,
+        archived: false,
+        owner,
+        repo: name,
       };
       labels.push(created);
       return created.id;
@@ -788,6 +824,10 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
       knownLogins.add(login);
       eventOf(findIssue(findRepository(owner, name), number), 'label', { login, label: labelByName(owner, label), body: added ? '1' : '' });
     },
+    removeLabel(fullName, number, label) {
+      const [owner = '', name = ''] = fullName.split('/');
+      removeLabelFromIssue(findIssue(findRepository(owner, name), number), labelByName(owner, label));
+    },
     readIssue(fullName, number) {
       const [owner = '', name = ''] = fullName.split('/');
       const issue = findIssue(findRepository(owner, name), number);
@@ -803,10 +843,10 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
       };
     },
     listLabels(owner) {
-      return labels.filter((label) => label.owner === owner && label.repo === undefined).map((label) => ({ name: label.name, color: label.color, description: label.description, exclusive: label.exclusive }));
+      return labels.filter((label) => label.owner === owner && label.repo === undefined).map((label) => ({ name: label.name, color: label.color, description: label.description, exclusive: label.exclusive, archived: label.archived }));
     },
     fail(rule) {
-      rules.push({ ...rule, left: rule.times ?? 1 });
+      rules.push({ ...rule, left: rule.times ?? 1, skipped: rule.skip ?? 0 });
     },
     writes() {
       return requests.filter((request) => request.method !== 'GET');

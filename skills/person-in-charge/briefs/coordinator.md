@@ -16,13 +16,18 @@ way it reads its state again from this brief, because the state is in the tracke
    board; read newest first." It is no work to plan.
 3. Read the plan issue of each board: every comment that is a package section, the newest of each
    area; the newest `PHASE <area>` line of each area, which holds the phase, the session, the plan
-   and review counts and the next step; and every verdict (`PLAN CHECK <area>`, `REVIEW <area>`,
+   and review counts, the next step and the package's first issue with its members and its previous
+   members; and every verdict (`PLAN CHECK <area>`, `REVIEW <area>`,
    `LAND <area>`, `CLEARING round`) after that line, and the partner's `RELEASED <area>` lines on
    your plan issue; and, wherever they stand, every `KEEPER round` line, every `KEEPER:` line
    that none of them holds, and every merge commit of a `LAND` line that no `KEEPER round` line names
    as landed, because a finding or a landing waits for its keeper across `PHASE` lines. Sections
    of another ecosystem are not yours; you read them, with their newest `PHASE` and `LAND` lines,
-   only to see which of them is between build and landing.
+   only to see which of them is between build and landing. Where the newest `PHASE` line of an area
+   has `members` that differ from `previous`, the last run of `ai-core issue-package` did not confirm
+   them: run it for that package with `--member` every one of `members` and `--remove` every one of
+   `previous` that is not in `members`, and post the next `PHASE` line with `previous` equal to `members`
+   once it exits 0.
 4. Read `ai-core status` per board: which sessions run, which are blocked, what is in TESTING and
    TREES. A session the page does not show is off, whatever a PHASE line says; post a corrected
    line. Your session numbers come from a block of ten thousand that is yours alone, held by a
@@ -48,7 +53,8 @@ several repositories.
 The machine-wide `ai-core tool-order` survives this restart. Read it again; every start and
 resume asks `ai-core phase-model`, and every PHASE line carries the order and selected tuple.
 
-Before the restart, post one comment on each plan issue: every area with its PHASE line, and the open questions of the
+Before the restart, post one comment on each plan issue: every area with its PHASE line, whole, because its
+`package`, `members` and `previous` fields are what the next coordinator labels the package from, and the open questions of the
 owner, each with its issues and the label `needs:owner` on them. The next coordinator reads it
 there.
 

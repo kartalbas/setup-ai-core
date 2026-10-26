@@ -141,9 +141,12 @@ thread_of_1="$(pq 0 'console.log(C(N("example-org/example-repo#1")).map((c)=>c.c
 provenance_stamp="${thread_of_1##*,}"; provenance_stamp="${provenance_stamp% *}"
 [ "${thread_of_1%,*}" = "2026-10-01T10:00:00Z IC_1a,2026-10-01T10:00:00Z IC_1b,2026-10-02T10:00:00Z IC_1c" ] && [ "${thread_of_1##* }" = I_example-repo1 ] \
   || fail "#1 does not hold its three comments with their own times and ids, then the provenance: $thread_of_1"
-provenance_at="$(date -u -d "$provenance_stamp" +%s)"
-[ "$provenance_at" -ge "$carry_from" ] && [ "$provenance_at" -le "$carry_to" ] \
+stamped_within() { local at; at="$(date -u -d "$1" +%s)" && [ "$at" -ge "$2" ] && [ "$at" -le "$3" ]; }  # stamped_within <UTC stamp> <from> <to>, in epoch seconds
+stamped_within "$provenance_stamp" "$carry_from" "$carry_to" \
   || fail "the provenance of #1 is stamped $provenance_stamp, not at a time between the start ($carry_from) and the end ($carry_to) of the carry"
+# planted: a carry one second before midnight, read after it, keeps its stamp within the carry; a stamp after the carry does not
+stamped_within 2026-10-25T23:59:59Z "$(epoch_of 2026-10-25T23:59:58Z)" "$(epoch_of 2026-10-26T00:00:01Z)" || fail "a provenance stamped before midnight and read after it is not within its carry"
+! stamped_within 2026-10-26T00:00:02Z "$(epoch_of 2026-10-25T23:59:58Z)" "$(epoch_of 2026-10-26T00:00:01Z)" || fail "a provenance stamped after its carry ended passed"
 pq 0 'const c=C(N("example-org/example-repo#1"));console.log([c[0].comment_html,c[1].comment_html.split("\n")[0],c[1].comment_html.includes("&lt;b&gt;"),c[2].comment_html.includes("someone@company.ch")].join("|"))' | grep -q '^<pre>Comment 1 of 3 by @kadir (MEMBER) on 2026-10-01T10:00:00Z' || fail "the first comment lacks its author, time and order"
 pq 0 'console.log(C(N("example-org/example-repo#1"))[1].comment_html.split("\n")[0])' | grep -q 'Comment 2 of 3 by an unavailable author (NONE) on' || fail "a deleted author is not marked as unavailable, with the association NONE"
 pq 0 'console.log(C(N("example-org/example-repo#1"))[0].comment_html)' | grep -q 'first$' || fail "the body of the first comment lost its trailing newline"

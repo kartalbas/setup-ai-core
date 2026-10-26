@@ -14,10 +14,10 @@ repo_visibility() {
 }
 
 # repo_archived <owner/repo>: succeeds when GitHub holds the repository read-only, fails when it does not;
-# stops the command where isArchived is not a boolean, so an unreadable answer is never taken for "not archived".
+# stops the command where the read fails or isArchived is not a boolean, so neither is taken for "not archived".
 repo_archived() {
   local archived
-  archived="$(gh_read "whether $1 is archived" repo view "$1" --json isArchived --jq .isArchived)" || return 1
+  archived="$(gh_read "whether $1 is archived" repo view "$1" --json isArchived --jq .isArchived)" || exit 1
   case "$archived" in
     true)  return 0 ;;
     false) return 1 ;;

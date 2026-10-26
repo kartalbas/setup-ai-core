@@ -18,6 +18,7 @@ printf '%s\n' "$*" >> "$LOG"
 archived() { case " $ARCHIVED " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 case "$*" in
   *isArchived*) [ "${ARCHIVED_ANSWER:-}" = garbage ] && { echo maybe; exit 0; }
+                [ "${ARCHIVED_ANSWER:-}" = refused ] && { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
                 if archived "$3"; then echo true; else echo false; fi; exit 0 ;;
   *isPrivate*) echo '{"isPrivate":false}'; exit 0 ;;
   *'organization(login'*) echo PVT_example; exit 0 ;;
@@ -68,6 +69,12 @@ export BOARD_REPOS="example-org/live" ARCHIVED_ANSWER=garbage
 out="$(sync "$ROOT" --all --project example-org/1)"
 check "an unreadable isArchived stops the run, naming the repository" "yes" "$(grep -q 'cannot establish whether example-org/live is archived' <<< "$out" && echo yes || echo no)"
 check "and it does not exit 0" "no" "$([ "$(tail -n 1 <<< "$out")" = "exit 0" ] && echo yes || echo no)"
+
+# a read that gh refuses stops the run too, before any repository is labelled
+export ARCHIVED_ANSWER=refused
+out="$(sync "$ROOT" --all --project example-org/1)"
+check "a refused isArchived read stops the run" "no" "$([ "$(tail -n 1 <<< "$out")" = "exit 0" ] && echo yes || echo no)"
+check "and no repository is labelled" "0" "$(labelled example-org/live)"
 unset ARCHIVED_ANSWER
 
 # a repository named on the command line is not asked: the person named it, GitHub's refusal stands

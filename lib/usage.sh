@@ -23,8 +23,8 @@ usage_agy_error=""
 usage_stop_at() {
   local config stop
   config="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.ai-core/config.env"
-  stop="$(grep -E '^[[:space:]]*USAGE_STOP_AT[[:space:]]*=' "$config" 2>/dev/null | tail -n1 || true)"
-  stop="${stop#*=}"; stop="${stop%%#*}"; stop="${stop//[[:space:]\"\']/}"
+  stop="$(config_value_in_file "$config" USAGE_STOP_AT "")" || return 1
+  stop="${stop//[[:space:]]/}"
   echo "${stop:-92}"
 }
 

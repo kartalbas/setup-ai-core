@@ -78,7 +78,7 @@ else
 fi
 
 # the tracker and the forge of the project, and the forge's tool (gh for GitHub)
-tracker="$(config_value TRACKER github | tr '[:upper:]' '[:lower:]')"
+tracker="$(config_value_lower TRACKER github)" || exit 1
 if [ -f "$HARNESS_ROOT/lib/$tracker/tracker.sh" ]; then
   . "$HARNESS_ROOT/lib/tracker.sh"
   tracker_doctor

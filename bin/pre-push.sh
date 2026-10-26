@@ -679,8 +679,9 @@ fi
 # repositories, or "yes"), a controller or a job deploys that branch, so landing on it is
 # deploying. Such a landing needs the repository's own checks, because the gate's would be all that
 # tests what goes live, and its last commit names who reviewed the change in a 'Reviewed-by:' trailer.
-live="$(grep -E '^[[:space:]]*DEFAULT_BRANCH_IS_LIVE[[:space:]]*=' "$root/.ai-core/config.env" 2>/dev/null | tail -n1 || true)"
-live="${live#*=}"; live="${live%%#*}"; live="${live//[\"\',]/ }"
+live="$(config_value_in_file "$root/.ai-core/config.env" DEFAULT_BRANCH_IS_LIVE "")" \
+  || refuse "the settings of this repository cannot be read, so it is not known whether $default of this repository goes live"
+live="${live//[\"\',]/ }"
 repo_name="$(basename "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null | sed 's|/\.git$||')")"
 case " $(tr -s '[:space:]' ' ' <<< "$live") " in *" yes "*|*" $repo_name "*) live=yes ;; *) live=no ;; esac
 if [ -n "$landing" ] && [ "$live" = yes ]; then
@@ -1008,8 +1009,8 @@ fi
 LOAD_POLL_SECONDS=5
 read_load_settings() {  # sets LOAD_LIMIT and LOAD_WAIT_SECONDS, or refuses
   local decimal='^[0-9]+(\.[0-9]+)?$' whole='^[0-9]+$'
-  LOAD_LIMIT="$(config_file_value PRE_PUSH_LOAD_LIMIT 24)"
-  LOAD_WAIT_SECONDS="$(config_file_value PRE_PUSH_LOAD_WAIT_SECONDS 300)"
+  LOAD_LIMIT="$(config_file_value PRE_PUSH_LOAD_LIMIT 24)" || refuse "the settings of this repository cannot be read, so the load limit is not known"
+  LOAD_WAIT_SECONDS="$(config_file_value PRE_PUSH_LOAD_WAIT_SECONDS 300)" || refuse "the settings of this repository cannot be read, so the load wait is not known"
   [[ "$LOAD_LIMIT" =~ $decimal ]] \
     || refuse "PRE_PUSH_LOAD_LIMIT is '$LOAD_LIMIT' in $root/.ai-core/config.env; it is the 1-minute load below which a check starts, a number of 0 or more such as 24 or 23.5, and 0 turns the wait off"
   [[ "$LOAD_WAIT_SECONDS" =~ $whole ]] \

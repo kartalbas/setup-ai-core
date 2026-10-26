@@ -46,7 +46,7 @@ root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 # another has no GitHub schema to hold anything against.
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$here/../lib/common.sh"
-tracker="$(config_value TRACKER github | tr '[:upper:]' '[:lower:]')"
+tracker="$(config_value_lower TRACKER github)" || exit 1
 if [ "$tracker" != github ]; then
   echo "schema-check: TRACKER is $tracker, and the schema it checks against is GitHub's - nothing to check"
   exit 0

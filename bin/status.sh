@@ -32,7 +32,7 @@ if common="$(git rev-parse --git-common-dir 2>/dev/null)"; then
 else
   folder="$(pwd)"
 fi
-stop="$(usage_stop_at)"
+stop="$(usage_stop_at)" || exit 1
 
 work="$(mktemp -d)"; trap 'usage_release; rm -rf "$work"' EXIT
 columns="$(fields_tsv)" || exit 1
@@ -52,14 +52,15 @@ card_rows > "$work/items" || exit 1
 # the last line the tracker said, which names what it could not read. One read of the tracker per card, as the tracker answers it, at most; a read that
 # fails is that card's line, never the end of the others.
 write_testing_records() {
-  local column clone declared="" repo number created carried pattern carried_pattern context thread landing reason landing_clone
+  local column clone declared="" declaration repo number created carried pattern carried_pattern context thread landing reason landing_clone
   column="$(awk 'tolower($0) == "testing" { print; exit }' "$work/columns")"
   : > "$work/testing"
   [ -n "$column" ] || return 0
   for clone in "$folder"/*/; do
     clone="${clone%/}"
     [ -e "$clone/.git" ] || continue
-    if live_tags_names_command "$(live_tags_declaration "$clone")"; then declared=1; break; fi
+    declaration="$(live_tags_declaration "$clone")" || exit 1
+    if live_tags_names_command "$declaration"; then declared=1; break; fi
   done
   while IFS=$'\t' read -r repo number created carried; do
     [ -n "$number" ] || continue

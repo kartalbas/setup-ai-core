@@ -286,6 +286,28 @@ ROOT_UNDER_TEST="$planted" helper "$F" "$mine" > /dev/null
 rm -f "$HOME/leak"
 [ -z "$(leaked)" ] || fail "the token stands in a file after the planted helper was removed: $(leaked)"
 echo "  planted: a helper that keeps the token in a file is seen; the real one leaves none"
+# a config.env that exists and cannot be read: git gets no answer and the file is named, and no token command is taken as unset
+. "$ROOT/tests/unreadable.sh"
+old_reader_copy "$ROOT" "$WORK/old-reader" || fail "no copy of the harness with the old reader"
+cp "$F/.ai-core/config.env" "$WORK/config.env.readable"
+make_unreadable "$F/.ai-core/config.env" || fail "the config.env of the checkout cannot be made unreadable"
+unreadable_said="$F/.ai-core/config.env exists but cannot be read"
+rc=0; out="$(helper "$F" "$mine")" || rc=$?
+[ "$rc" -ne 0 ] && grep -qF "$unreadable_said" <<< "$out" && ! grep -qE 'password=|username=' <<< "$out" || fail "the helper gave an answer, or did not name the file, where config.env cannot be read: status $rc: $out"
+rc=0; out="$(ROOT_UNDER_TEST="$WORK/old-reader" helper "$F" "$mine")" || rc=$?
+grep -qF "$unreadable_said" <<< "$out" && fail "planted: the helper with the old reader still names the unreadable file: $out"
+rc=0; out="$(FORGE=forgejo forge_fn token_from_command FORGEJO_TOKEN_COMMAND 2>&1)" || rc=$?
+[ "$rc" -ne 0 ] && grep -qF "$unreadable_said" <<< "$out" && ! grep -qF "$TOKEN" <<< "$out" || fail "the token was asked of a command read from nowhere, or the file was not named: status $rc: $out"
+grep -q 'the settings that hold FORGEJO_TOKEN_COMMAND cannot be read, so there is no token' <<< "$out" && ! grep -q 'FORGEJO_TOKEN_COMMAND is not set' <<< "$out" || fail "an unreadable file is said to be a missing setting: $out"
+rc=0; out="$(FORGE=forgejo ROOT_UNDER_TEST="$WORK/old-reader" forge_fn token_from_command FORGEJO_TOKEN_COMMAND 2>&1)" || rc=$?
+grep -qF "$unreadable_said" <<< "$out" && fail "planted: token_from_command with the old reader still names the unreadable file: $out"
+grep -q 'FORGEJO_TOKEN_COMMAND is not set' <<< "$out" || fail "planted: the old reader did not turn the unreadable file into a missing setting, so the check cannot go red: $out"
+reset_log
+rc=0; out="$(forge_fn signed_in_user 2>&1)" || rc=$?
+[ "$rc" -ne 0 ] && grep -qF "$unreadable_said" <<< "$out" && [ ! -s "$CURL_FAKE_STATE/requests.log" ] || fail "a call of the forge was made, or the file not named, where config.env cannot be read: status $rc: $out"
+chmod 600 "$F/.ai-core/config.env"
+[ "$(helper "$F" "$mine")" = "$(printf 'username=ai-core\npassword=%s' "$TOKEN")" ] || fail "innocent: the helper does not answer once the file can be read again"
+echo "  an unreadable config.env: the helper answers nothing and names the file, the token is not asked of a command read from nowhere, and no call reaches the forge; planted: with the old reader the file reads as a missing setting"
 
 # --- the line that signs a clone in --------------------------------------------------------------
 [ -z "$(forge_fn clone_sign_in "$WORK/clones/cloned" dry)" ] || fail "a clone that signs in already was announced again (dry)"

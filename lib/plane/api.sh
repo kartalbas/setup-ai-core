@@ -10,7 +10,7 @@
 # A SETTING THAT ONLY THE DEPLOYMENT CAN KNOW HAS NO DEFAULT: a missing one stops the call and names it.
 plane_setting() {  # plane_setting <PLANE_URL | PLANE_WORKSPACE | PLANE_PROJECT>
   local value
-  value="$(config_value "$1" "")"
+  value="$(config_value "$1" "")" || exit 1
   [ -n "$value" ] || die "$1 is not set: set it in .ai-core/config.env or the environment"
   printf '%s\n' "$value"
 }

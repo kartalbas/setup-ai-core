@@ -30,7 +30,7 @@ repo_archived() {
 # the owner of the repository the caller stands in. The harness itself names none: it serves many.
 gh_org() {
   local org repo
-  org="$(config_value GH_ORG "")"
+  org="$(config_value GH_ORG "")" || return 1
   # Resolved once per process: the answer is exported so no later call asks gh again
   if [ -n "$org" ]; then export GH_ORG="$org"; echo "$org"; return 0; fi
   repo="$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)" \
@@ -659,8 +659,10 @@ labels_list() {
 # checks gh with the same lines; where the forge is elsewhere, nothing else would, and the board commands
 # still need gh, its login and the project scope.
 tracker_doctor() {
+  local forge
   echo "  tracker: github"
-  [ "$(config_value FORGE github | tr '[:upper:]' '[:lower:]')" = github ] || gh_doctor
+  forge="$(config_value_lower FORGE github)" || return 1
+  [ "$forge" = github ] || gh_doctor
 }
 
 # closing_column <completed | not-planned>: the Status a closed issue's card is put in; the board has one

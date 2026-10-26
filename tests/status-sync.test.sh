@@ -434,6 +434,55 @@ check 'a card named "not finished" is named here too' 3 "$(grep -c '^not finishe
 check 'and no card is moved or closed for being named: no mover runs beyond the three closes' 4 "$(grep -c 'projectsV2(first:50)' "$FAKE/calls.txt")"
 rm -f "$FAKE/lenient"
 
+echo 'a config.env of the repository or of the project folder that is there and cannot be read: the sweep stops, names it, and closes, labels and moves nothing from a default'
+. "$ROOT/tests/unreadable.sh"
+old_reader_copy "$ROOT" "$FAKE/old-reader" || { echo "  FAIL no copy of the harness with the old reader"; failed=$((failed + 1)); }
+applied_sweep() {  # applied_sweep <harness root>: the real sweep of the repository in $clone, its output then a last line rc=<n>; the calls it made are in $FAKE/calls.txt
+  local out rc=0
+  : > "$FAKE/calls.txt"; touch "$FAKE/lenient"
+  out="$(cd "$clone" && bash "$1/bin/status-sync.sh" --project "$PROJECT_NUMBER" example-org/example-repo 2>&1)" || rc=$?
+  rm -f "$FAKE/lenient"
+  printf '%s\nrc=%s\n' "$out" "$rc"
+}
+stopped_without_a_write() {  # stopped_without_a_write <what applied_sweep printed> <file>: yes where the exit status is not 0, the file is named once, and not one call wrote
+  if [ "$(tail -n1 <<< "$1")" != rc=0 ] && [ "$(grep -acF -- "$2 exists but cannot be read" <<< "$1")" = 1 ] \
+    && [ "$(grep -cE -- '--method|mutation' "$FAKE/calls.txt")" = 0 ]; then echo yes; else echo no; fi
+}
+printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\n' > "$clone/.ai-core/config.env"
+got="$(applied_sweep "$ROOT")"
+check 'innocent: where every config.env can be read the three cards are closed' "rc=0 3" "$(tail -n1 <<< "$got") $(grep -c 'api --method PATCH repos/.*/issues/' "$FAKE/calls.txt")"
+make_unreadable "$clone/.ai-core/config.env" || { echo "  FAIL the config.env of the repository cannot be made unreadable"; failed=$((failed + 1)); }
+got="$(applied_sweep "$ROOT")"
+check 'the config.env of the repository: the sweep stops, names it once, and writes nothing' yes "$(stopped_without_a_write "$got" "$clone/.ai-core/config.env")"
+got="$(applied_sweep "$FAKE/old-reader")"
+check 'planted: with the old reader the repository is released by the newest tag and a card is closed from the default' no "$(stopped_without_a_write "$got" "$clone/.ai-core/config.env")"
+chmod 600 "$clone/.ai-core/config.env"
+: > "$clone/.ai-core/config.env"
+make_unreadable "$FAKE/folder/.ai-core/config.env" || { echo "  FAIL the config.env of the project folder cannot be made unreadable"; failed=$((failed + 1)); }
+got="$(applied_sweep "$ROOT")"
+check 'the config.env of the project folder, which a repository that sets no list is read by: the sweep stops, names it once, and writes nothing' yes "$(stopped_without_a_write "$got" "$FAKE/folder/.ai-core/config.env")"
+got="$(applied_sweep "$FAKE/old-reader")"
+check 'planted: with the old reader the project folder is read as naming no environment and a card is closed' no "$(stopped_without_a_write "$got" "$FAKE/folder/.ai-core/config.env")"
+chmod 600 "$FAKE/folder/.ai-core/config.env"
+printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\n' > "$FAKE/folder/.ai-core/config.env"
+printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\n' > "$clone/.ai-core/config.env"
+
+echo 'a # inside the quotes of LIVE_TAGS belongs to the pattern, in the readers the sweep and status share'
+printf 'LIVE_TAGS="prod=deploy/#/* test=deploy/test/*"  # the first environment is prod\n' > "$FAKE/hash.env"
+check 'the Bash reader gives the value whole' 'prod=deploy/#/* test=deploy/test/*' "$(config_value_in_file "$FAKE/hash.env" LIVE_TAGS unset)"
+git -C "$seed" tag 'deploy/#/1' "$c20"; git -C "$seed" push -q "$origin" 'deploy/#/1'
+cp "$FAKE/hash.env" "$clone/.ai-core/config.env"
+run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo 2>&1)"
+check 'the sweep releases #13 by the tag deploy/#/1, the pattern of the first environment whole' \
+  'would close  example-repo#13  (testing -> done, released in deploy/#/1 and proven)' "$(grep '^would close  example-repo#13' <<< "$run")"
+cat > "$FAKE/old-first.sed" <<'SED'
+s@^  line="\$(config_value_in_file "\$1" LIVE_TAGS "")" || return 1$@  line="$(grep -E '^[[:space:]]*LIVE_TAGS[[:space:]]*=' "$1" 2>/dev/null | tail -n1 || true)"; line="${line#*=}"; line="${line%%#*}"; line="${line//[\\"\\']/}"@
+SED
+sweep_mutant bin/status-sync.sh "$(cat "$FAKE/old-first.sed")"
+check 'planted: the old first_environment stops at the # and keeps half the pattern, so #13 is released by no tag' no "$(grep -q '^would close  example-repo#13' <<< "$mutant_run" && echo yes || echo no)"
+git -C "$seed" push -q "$origin" :refs/tags/'deploy/#/1'; git -C "$seed" tag -d 'deploy/#/1' > /dev/null; git -C "$clone" tag -d 'deploy/#/1' > /dev/null 2>&1 || true
+printf 'LIVE_TAGS="prod=deploy/prod/* test=deploy/test/*"\n' > "$clone/.ai-core/config.env"
+
 # The only card read is an epic whose one sub-issue is done: no card in testing has named a release
 # when its close is reported
 echo 'an epic that closes before any card in testing is read: it closes, and the run goes on'
@@ -770,7 +819,7 @@ check 'a commit after that tag is not carried, and the tag named is the one of t
   "not released example-repo#202  (landed in $(printf '%s' "$p2" | cut -c1-7); the newest prod release 0.5.022-stable-20261021150415 of example-org/plug does not carry it)" "$(grep '^not released example-repo#202' <<< "$run")"
 check 'a repository that says prod=landed releases its card from its landing' \
   'would close  example-repo#203  (testing -> done, released in example-org/lnd its landing on origin/master and proven)' "$(grep '^would close  example-repo#203' <<< "$run")"
-sweep_mutant bin/status-sync.sh 's/^    word="\$(first_environment "\$REL_CLONE\/.ai-core\/config.env")"$/    word=""/'
+sweep_mutant bin/status-sync.sh 's/^    word="\$(first_environment "\$REL_CLONE\/.ai-core\/config.env")" || exit 1$/    word=""/'
 check 'planted: the list of the checkout for every clone leaves the repository that sets its own list unreleased, #201 and #203 do not close' 'no no' \
   "$(grep -q '^would close  example-repo#201' <<< "$mutant_run" && echo yes || echo no) $(grep -q '^would close  example-repo#203' <<< "$mutant_run" && echo yes || echo no)"
 cp "$FAKE/issues-1.saved" "$FAKE/issues-1.json"
@@ -806,7 +855,7 @@ sweep_dir="$clone" sweep_mutant bin/status-sync.sh 's/^    folder_config="\$(pro
 check 'planted: the list of the checkout the sweep runs in, where that is a clone with a list of its own, reads relay by it and closes #211' yes "$(grep -q '^would close  example-repo#211' <<< "$mutant_run" && echo yes || echo no)"
 sweep_dir="$FAKE/folder" sweep_mutant bin/status-sync.sh 's/^    folder_config="\$(project_folder)\/\.ai-core\/config\.env"$/    folder_config="$(data_dir)\/config.env"/'
 check 'planted: the same copy run from the project folder stays as it is, the folder is the checkout there, so #211 stays' no "$(grep -q '^would close  example-repo#211' <<< "$mutant_run" && echo yes || echo no)"
-sweep_mutant bin/status-sync.sh '/^    \[ -n "\$word" \] || { word="\$(first_environment "\$folder_config")"; from_folder=1; }$/d'
+sweep_mutant bin/status-sync.sh '/^    \[ -n "\$word" \] || { word="\$(first_environment "\$folder_config")" || exit 1; from_folder=1; }$/d'
 check 'planted: the newest tag of all for a clone that names none closes #211 on the tag of the later environment' yes "$(grep -q '^would close  example-repo#211' <<< "$mutant_run" && echo yes || echo no)"
 printf 'LIVE_TAGS="prod=command test=deploy/test/*"\n' > "$FAKE/folder/.ai-core/config.env"
 run="$(cd "$clone" && bash "$ROOT/bin/status-sync.sh" --project "$PROJECT_NUMBER" --dry-run example-org/example-repo 2>&1)"

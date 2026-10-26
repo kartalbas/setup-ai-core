@@ -116,8 +116,10 @@ if [ -n "$ALL_DIR" ]; then
     [ -e "$repo/.git" ] || continue
     case "${repo##*/}" in *-ai-core) continue ;; esac
     [ "$(git -C "$repo" worktree list --porcelain 2>/dev/null | grep '^worktree ' | grep -v -c -E "/\.ai-core/neighbours/|/\.worktrees/[^/]*/origin-|$LANDING_WORKTREE_RE")" -gt 1 ] || continue
-    # on Forgejo finish-issue removes the one worktree it is given and sweeps no other
-    ! (cd "$repo" && tracker_is_forgejo) || continue
+    # on Forgejo finish-issue removes the one worktree it is given and sweeps no other; where the settings of the
+    # repository cannot be read nothing is swept, and the init of that repository below fails on the same file
+    rc=0; (cd "$repo" && tracker_is_forgejo) || rc=$?
+    [ "$rc" -eq 1 ] || continue
     echo ""; echo "### ${repo##*/}: worktrees whose work landed"
     sweep_options=(--sweep); [ "$DRY" -ne 1 ] || sweep_options+=(--dry-run)
     (cd "$repo" && bash "$CORE_ROOT/bin/finish-issue.sh" "${sweep_options[@]}") 2>&1 | sed 's/^/  /' || true
@@ -163,7 +165,7 @@ if [ "$PROJECT_FOLDER" -eq 1 ]; then
     case "$(basename "$d")" in *-ai-core) continue ;; esac
     checkouts+=("$d")
   done
-elif [ ! -d "$TARGET/.ai-core" ]; then
+elif [ ! -f "$TARGET/.ai-core/STAMP" ]; then
   common="$(git -C "$TARGET" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || common=""
   [ -z "$common" ] || stamp="$(dirname "$common")/.ai-core/STAMP"
 fi
@@ -187,15 +189,23 @@ echo "Initializing the harness in: $TARGET$([ "$DRY" -eq 1 ] && echo ' (dry run:
 echo "=================================================="
 echo "--> From $CORE_ROOT"
 
-# 0. A linked worktree starts empty, because the harness is in no commit. Before anything else it
-#    gets the checkout's own .ai-core data (its configuration, local rules and documents), and the
-#    rest of this run assembles the harness over that, as it does in the checkout.
+# 0. A linked worktree starts without the harness, because the harness is in no commit; the files its
+#    branch tracks under .ai-core/ are there, and without a STAMP it is not equipped. Before anything
+#    else it gets the checkout's own .ai-core data (its configuration, local rules and documents), every
+#    file but the ones the worktree tracks, which stay as its branch has them, and the rest of this run
+#    assembles the harness over that, as it does in the checkout.
 WORKTREE_DATA_FROM=""
-if [ "$PROJECT_FOLDER" -eq 0 ] && [ ! -d "$TARGET/.ai-core" ]; then
+if [ "$PROJECT_FOLDER" -eq 0 ] && [ ! -f "$TARGET/.ai-core/STAMP" ]; then
   common="$(git -C "$TARGET" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || common=""
   if [ -n "$common" ] && [ "$common" != "$(git -C "$TARGET" rev-parse --path-format=absolute --git-dir 2>/dev/null)" ] && [ -d "$(dirname "$common")/.ai-core" ]; then
     WORKTREE_DATA_FROM="$(dirname "$common")"
-    [ "$DRY" -eq 1 ] || cp -R "$WORKTREE_DATA_FROM/.ai-core" "$TARGET/.ai-core"
+    if [ "$DRY" -eq 0 ]; then
+      while IFS= read -r -d '' file; do
+        rel=".ai-core/${file#"$WORKTREE_DATA_FROM/.ai-core/"}"
+        if git -C "$TARGET" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1 || [ -e "$TARGET/$rel" ]; then continue; fi
+        mkdir -p "$(dirname "$TARGET/$rel")"; cp "$file" "$TARGET/$rel"
+      done < <(find "$WORKTREE_DATA_FROM/.ai-core" -type f -print0)
+    fi
   fi
 fi
 
@@ -355,6 +365,14 @@ put_file() {
   mkdir -p "$(dirname "$dst")"; cp -f "$src" "$dst"
 }
 put() { put_file "$1" "$TARGET/$2" "$2" "$3"; }   # put <source> <relative path> managed|once
+# keep_tracked <relative path>: whether the repository tracks that file, a missing or changed one too. It then stays
+# as it is, whatever a layer holds for it, and the report names it as tracked.
+keep_tracked() {
+  git -C "$TARGET" ls-files --error-unmatch -- "$1" >/dev/null 2>&1 || return 1
+  case " $TRACKED " in *" $1 "*) ;; *) note tracked "$1" ;; esac
+}
+# put_data <source> <relative path>: a data file of the harness, managed unless the repository tracks it
+put_data() { keep_tracked "$2" || put "$1" "$2" managed; }
 # put_dir <source dir> <relative dir>: a managed directory, replaced whole
 put_dir() {
   local src="$1" rel="$2" dst="$TARGET/$2"
@@ -553,7 +571,7 @@ if [ -n "$LAYERS" ]; then
     for f in $DATA_FILES; do
       [ -f "$l/$f" ] || continue
       LAYER_FILES="$LAYER_FILES .ai-core/$f"
-      if [ "$f" = config.env ]; then CONFIG_BASE="$l/$f"; else put "$l/$f" ".ai-core/$f" managed; fi
+      if [ "$f" = config.env ]; then CONFIG_BASE="$l/$f"; else put_data "$l/$f" ".ai-core/$f"; fi
     done
   done <<< "$LAYERS"
   # repos/<repo>/ of the innermost layer, in the layout of the checkout; a tracked file is never
@@ -563,9 +581,7 @@ if [ -n "$LAYERS" ]; then
     while IFS= read -r rel; do
       [ -n "$rel" ] || continue
       if [ "$rel" = .ai-core/config.env ] && [ -n "$CONFIG_BASE" ]; then CONFIG_OVERRIDE="$INNER/repos/$REPO_NAME/$rel"; continue; fi
-      if git -C "$TARGET" ls-files --error-unmatch "$rel" >/dev/null 2>&1; then
-        note tracked "$rel"
-      else
+      if ! keep_tracked "$rel"; then
         src="$INNER/repos/$REPO_NAME/$rel"
         # A generated map gets the binding rules on top once the rules are assembled (1a below)
         if [ "$rel" = AGENTS.md ] && head -n1 "$src" | grep '^<!-- ai-core map:' >/dev/null; then MAP_SRC="$src"; else put "$src" "$rel" managed; [ "$rel" = AGENTS.md ] && AGENTS_SRC="$src"; fi
@@ -575,12 +591,10 @@ if [ -n "$LAYERS" ]; then
     done <<< "$( (cd "$INNER/repos/$REPO_NAME" && find . -type f | LC_ALL=C sort) | sed 's|^\./||')"
   fi
   # The config.env of the last layer that has one, with the repository's file of the innermost layer laid
-  # over it key by key and written once; a tracked .ai-core/config.env is left alone where that file exists
-  if [ -n "$CONFIG_BASE" ]; then
+  # over it key by key and written once; a tracked .ai-core/config.env is left alone
+  if [ -n "$CONFIG_BASE" ] && ! keep_tracked .ai-core/config.env; then
     if [ -z "$CONFIG_OVERRIDE" ]; then
       put "$CONFIG_BASE" .ai-core/config.env managed
-    elif git -C "$TARGET" ls-files --error-unmatch .ai-core/config.env >/dev/null 2>&1; then
-      note tracked .ai-core/config.env
     else
       lay_config "$CONFIG_BASE" "$CONFIG_OVERRIDE" "$TMP/config.env"
       put "$TMP/config.env" .ai-core/config.env managed; DEPLOYED="$DEPLOYED .ai-core/config.env"
@@ -662,8 +676,9 @@ fi
 #    repositories, rewritten on every run because the folder changes. The file of an agent the project does not serve
 #    (AGENTS in .ai-core/config.env, or the template's default before the file exists) is not
 #    deployed.
-CONFIG="$AI_CORE_DIR/config.env"; [ -f "$CONFIG" ] || CONFIG="$CORE_ROOT/templates/.ai-core/config.env"
-AGENTS="$(grep -E '^[[:space:]]*AGENTS[[:space:]]*=' "$CONFIG" | tail -n1 | sed 's/^[^=]*=//; s/#.*//' | tr -d '"\r' | tr -d "'" | tr '[:upper:]' '[:lower:]' || true)"
+CONFIG="$AI_CORE_DIR/config.env"; [ -e "$CONFIG" ] || [ -L "$CONFIG" ] || CONFIG="$CORE_ROOT/templates/.ai-core/config.env"
+AGENTS="$(config_value_in_file "$CONFIG" AGENTS "")" || exit 1
+AGENTS="$(printf '%s' "$AGENTS" | tr '[:upper:]' '[:lower:]')"
 AGENTS_UNKNOWN=""   # the first name no agent has; the run still deploys the rest and fails at its end
 for a in $AGENTS; do
   case "$a" in
@@ -685,7 +700,8 @@ while IFS= read -r rel; do
     .openhands/microagents/repo-rules.md) serves openhands || continue ;;
     .claude/settings.json) if command -v jq >/dev/null 2>&1; then continue; fi ;;   # written below, the hook with the full path
     .githooks/commit-msg) continue ;;   # written in 3a, where the push gate is armed
-    .ai-core/models.tsv|.ai-core/team-modes.tsv) put "$CORE_ROOT/templates/$rel" "$rel" managed; continue ;;   # the harness's tables, kept current; a project's own comes from its harness layer
+    .ai-core/models.tsv|.ai-core/team-modes.tsv) put_data "$CORE_ROOT/templates/$rel" "$rel"; continue ;;   # the harness's tables, kept current; a project's own comes from its harness layer
+    .ai-core/config.env|.ai-core/labels.tsv|.ai-core/assignees.tsv) keep_tracked "$rel" && continue ;;     # created once from the template, and not again where the repository tracks it
     opencode.json)   # one without the template's instructions gets them added
       if command -v jq >/dev/null 2>&1 && [ -f "$TARGET/$rel" ] && ! jq -e --slurpfile t "$CORE_ROOT/templates/$rel" '($t[0].instructions - (.instructions // [])) | length == 0' "$TARGET/$rel" >/dev/null 2>&1; then
         jq --slurpfile t "$CORE_ROOT/templates/$rel" '.instructions = ((.instructions // []) + ($t[0].instructions - (.instructions // [])))' "$TARGET/$rel" 2>/dev/null | tr -d '\r' > "$TMP/opencode.json" \
@@ -1130,7 +1146,7 @@ if [ "$DRY" -eq 1 ]; then echo "init would change in $(basename "$TARGET"):"; el
 [ -z "$REFRESHED" ] || echo "  refreshed  $(list "$REFRESHED")"
 [ -z "$KEPT" ]      || echo "  kept       $(list "$KEPT") (yours: differs from the template, never overwritten)"
 [ -z "$REMOVED" ]   || echo "  removed    $(list "$REMOVED")"
-[ -z "$TRACKED" ]   || echo "  tracked    $(list "$TRACKED") (the repository commits these; repos/$REPO_NAME/ is not applied to them)"
+[ -z "$TRACKED" ]   || echo "  tracked    $(list "$TRACKED") (the repository commits these: its copy wins over the layers' copies and over repos/<repo>/, which are not applied to it)"
 echo "  unchanged  $UNCHANGED file(s)"
 if [ "$GITIGNORE_CHANGED" -eq 1 ]; then
   if [ "$DRY" -eq 1 ]; then echo "  .gitignore would change and be committed: the agent files of this repository are ignored"

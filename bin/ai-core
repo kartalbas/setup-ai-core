@@ -32,7 +32,7 @@ FORGEJO_NODE_COMMANDS=" issue-new issue-comment issue-close issue-reopen issue-e
 FORGEJO_REFUSED_COMMANDS=" board-list board-order board-sync board-unarchive field-option-add item-move item-top project-new repo-boards repo-link view-filter epics-top subissue-add subissue-remove status-sync issue-transfer issue-duplicate issue-map incident-count "
 
 # tracker_of_project: the tracker the project names, as every command reads it
-tracker_of_project() { ( . "$CORE/lib/common.sh"; config_value TRACKER github | tr '[:upper:]' '[:lower:]' ); }
+tracker_of_project() { ( . "$CORE/lib/common.sh"; config_value_lower TRACKER github ); }
 
 command="${1:-help}"
 [ $# -gt 0 ] && shift
@@ -43,7 +43,8 @@ case "$command" in
   *)
     case "$FORGEJO_NODE_COMMANDS$FORGEJO_REFUSED_COMMANDS" in
       *" $command "*)
-        if [ "$(tracker_of_project)" = forgejo ]; then
+        tracker="$(tracker_of_project)" || exit 1
+        if [ "$tracker" = forgejo ]; then
           rc=0; ( . "$CORE/lib/common.sh"; forgejo_tracker_exec "$command" "$@" ) || rc=$?
           exit "$rc"
         fi ;;

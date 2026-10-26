@@ -766,6 +766,40 @@ check 'exit 1 where it is named'       1 "$rc"
 printf 'DEFAULT_BRANCH_IS_LIVE="other-repo"\n' > "$repo/.ai-core/config.env"
 out="$(only_new "$repo")"; rc=$?
 check 'exit 0 where it is not'         0 "$rc"
+echo 'a config.env the gate cannot read: the push is refused, and the default branch is never taken for one that is not live'
+. "$root/tests/unreadable.sh"
+old_reader_copy "$root" "$fake/old-reader" || failed=$((failed + 1))
+harness_copy "$root" "$fake/old-raw-read"
+cat > "$fake/old-raw-read.sed" <<'SED'
+/^live="\$(config_value_in_file "\$root\/.ai-core\/config.env" DEFAULT_BRANCH_IS_LIVE "")" \\$/{
+N
+s@.*@live="$(grep -E '^[[:space:]]*DEFAULT_BRANCH_IS_LIVE[[:space:]]*=' "$root/.ai-core/config.env" 2>/dev/null | tail -n1 || true)"; live="${live#*=}"; live="${live%%#*}"@
+}
+SED
+sed -i.bak -f "$fake/old-raw-read.sed" "$fake/old-raw-read/bin/pre-push.sh"
+cmp -s "$root/bin/pre-push.sh" "$fake/old-raw-read/bin/pre-push.sh" && { echo "  FAIL the copy with the old raw read equals bin/pre-push.sh"; failed=$((failed + 1)); }
+printf 'DEFAULT_BRANCH_IS_LIVE="yes"\n' > "$repo/.ai-core/config.env"
+commit 'src/thing.txt' 'Land a change where the settings cannot be read #16'
+make_unreadable "$repo/.ai-core/config.env" || failed=$((failed + 1))
+: > "$check_runs"
+out="$(only_new "$repo")"; rc=$?
+check 'exit 1'                         1 "$rc"
+check 'it names the file'              yes "$(yesno "$repo/.ai-core/config.env exists but cannot be read")"
+check 'the check did not run'          '' "$(cat "$check_runs")"
+# with forge and tracker named in the environment the first read of the file is the gate's own, of DEFAULT_BRANCH_IS_LIVE
+out="$(FORGE=github TRACKER=github only_new "$repo")"; rc=$?
+check 'its own read: exit 1'           1 "$rc"
+check 'it names the file again'        yes "$(yesno "$repo/.ai-core/config.env exists but cannot be read")"
+check 'it says what it could not tell' yes "$(yesno "the settings of this repository cannot be read, so it is not known whether")"
+check 'the check did not run again'    '' "$(cat "$check_runs")"
+out="$(FORGE=github TRACKER=github GATE_SCRIPT="$fake/old-reader/bin/pre-push.sh" only_new "$repo")"; rc=$?
+check 'planted: the old reader lets the same landing through, the repository taken for one that is not live' 0 "$rc"
+out="$(FORGE=github TRACKER=github GATE_SCRIPT="$fake/old-raw-read/bin/pre-push.sh" only_new "$repo")"; rc=$?
+check 'planted: the old raw read of the gate does not say that whether the branch goes live is unknown' no "$(yesno "so it is not known whether")"
+chmod 600 "$repo/.ai-core/config.env"
+out="$(only_new "$repo")"; rc=$?
+check 'innocent: the same file, readable, holds the landing to the Reviewed-by rule again' 1 "$rc"
+check 'it names the trailer'           yes "$(yesno "git commit --amend --trailer 'Reviewed-by: <reviewer>'")"
 echo 'without the setting nothing changes'
 rm -f "$repo/.ai-core/config.env"
 commit 'src/thing.txt' 'Land a change on an ordinary branch #16'

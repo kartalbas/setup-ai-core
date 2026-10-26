@@ -53,7 +53,8 @@ live_release_run() { (cd "$1" && shift && "$@" < /dev/null); }
 live_release_read() {
   local clone="$1" repo="$2" environment="$3" path reader rc=0 count first fault now resolved
   LIVE_RELEASE_ANSWER=""; LIVE_RELEASE_ERROR=""
-  path="$(cd "$clone" && config_file_value LIVE_RELEASE_COMMAND "")"
+  path="$(cd "$clone" && config_file_value LIVE_RELEASE_COMMAND "")" \
+    || { LIVE_RELEASE_ERROR="the settings of $clone cannot be read, so LIVE_RELEASE_COMMAND is not known"; return 1; }
   if [ -z "$path" ]; then
     LIVE_RELEASE_ERROR="LIVE_RELEASE_COMMAND is not set in $clone/.ai-core/config.env, and its LIVE_TAGS says $environment=command"
     return 1

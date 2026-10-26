@@ -14,5 +14,6 @@ command -v node >/dev/null 2>&1 || die "status counts with node, and node is not
 work="$(mktemp -d)"; trap 'usage_release; rm -rf "$work"' EXIT
 tool="$(session_tool)"; [ -n "$tool" ] || tool=claude
 usage_snapshot "$tool" > "$work/usage.json" || exit 1
+stop="$(usage_stop_at)" || exit 1
 node "$here/status.mjs" --items-file "$1" --columns-file "$2" --board "$3" --folder "$(project_folder_of "$PWD")" \
-  --stop-at "$(usage_stop_at)" --usage-file "$work/usage.json" --tokens
+  --stop-at "$stop" --usage-file "$work/usage.json" --tokens

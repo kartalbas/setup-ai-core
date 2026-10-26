@@ -132,10 +132,9 @@ cards_of_repo() {  # <owner/repo>
 }
 
 # THE FIRST ENVIRONMENT of the LIVE_TAGS of a config.env, as <environment>=<pattern>; nothing where it names none
-first_environment() {  # <config.env>
+first_environment() {  # <config.env>; status 1, the file named on stderr, where it exists and cannot be read
   local line word
-  line="$(grep -E '^[[:space:]]*LIVE_TAGS[[:space:]]*=' "$1" 2>/dev/null | tail -n1 || true)"
-  line="${line#*=}"; line="${line%%#*}"; line="${line//[\"\']/}"
+  line="$(config_value_in_file "$1" LIVE_TAGS "")" || return 1
   for word in $line; do
     case "$word" in ?*=?*) echo "$word"; return 0 ;; esac
   done
@@ -188,8 +187,8 @@ release_of() {  # <owner/repo>
     fi
     REL_REF="origin/$(cd "$REL_CLONE" && origin_default_branch)" || REL_REF=""
     folder_config="$(project_folder)/.ai-core/config.env"
-    word="$(first_environment "$REL_CLONE/.ai-core/config.env")"
-    [ -n "$word" ] || { word="$(first_environment "$folder_config")"; from_folder=1; }
+    word="$(first_environment "$REL_CLONE/.ai-core/config.env")" || exit 1
+    [ -n "$word" ] || { word="$(first_environment "$folder_config")" || exit 1; from_folder=1; }
     case "$word" in *=*) REL_ENV="${word%%=*}"; pattern="${word#*=}" ;; *) pattern='*' ;; esac
     REL_PATTERN="$pattern"
     if [ "$pattern" = landed ]; then
@@ -416,7 +415,8 @@ for full in ${repos[@]+"${repos[@]}"}; do
         continue
       fi
       # A fresh shell reads the clone as the mover will, without this shell's loaded provider variables.
-      different="$(clone_setting_difference "$mover_dir" "$TRACKER" "$(config_value PLANE_URL "")" "$(config_value PLANE_WORKSPACE "")" "$resolved")" || exit 1
+      plane_url="$(config_value PLANE_URL "")" && plane_workspace="$(config_value PLANE_WORKSPACE "")" || exit 1
+      different="$(clone_setting_difference "$mover_dir" "$TRACKER" "$plane_url" "$plane_workspace" "$resolved")" || exit 1
       if [ -n "$different" ]; then
         echo "other board  $label#$num  ($mover_dir has a different $different, so the card stays)"
         continue

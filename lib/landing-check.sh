@@ -43,7 +43,7 @@ LANDING_MARK_REASON=""
 # 999999999 it says so, naming the key, and fails.
 landing_rounds_limit() {
   local value
-  value="$(config_file_value INTEGRATE_MAX_ROUNDS 3)"
+  value="$(config_file_value INTEGRATE_MAX_ROUNDS 3)" || return 1
   case "$value" in
     0*|*[!0-9]*|??????????*)
       echo "INTEGRATE_MAX_ROUNDS is '$value' in $(config_file_of INTEGRATE_MAX_ROUNDS); it is the most rounds a landing makes, the first one counted, a whole number from 1 to 999999999" >&2

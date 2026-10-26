@@ -30,7 +30,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 tool=""; model=""; audit=1
 usage="usage: usage.sh [--tool claude|codex|agy] [--model MODEL] [--stop-at N]"
-stop="$(usage_stop_at)"
+stop="$(usage_stop_at)" || exit 2
 while [ $# -gt 0 ]; do
   case "$1" in
     -h|--help) echo "$usage"

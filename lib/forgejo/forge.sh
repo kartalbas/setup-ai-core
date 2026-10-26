@@ -35,7 +35,7 @@ sign_in_line_stands() {
 sign_in_line_export() {
   local url command n tick="'" quoted_tick="'\\''"
   url="$(forgejo_url)" || return 1
-  command="$(config_value FORGEJO_TOKEN_COMMAND "")"
+  command="$(config_value FORGEJO_TOKEN_COMMAND "")" || return 1
   n=${GIT_CONFIG_COUNT:-0}
   export "GIT_CONFIG_KEY_$n=credential.$url.helper" "GIT_CONFIG_VALUE_$n="
   n=$((n + 1))
@@ -46,7 +46,7 @@ sign_in_line_export() {
 
 forgejo_url() {  # the scheme and host of the instance, without a closing slash
   local url
-  url="$(config_value FORGEJO_URL "")"
+  url="$(config_value FORGEJO_URL "")" || exit 1
   [ -n "$url" ] || die "FORGEJO_URL is not set: set it in .ai-core/config.env or the environment to the address of the Forgejo instance, such as https://forge.example.test"
   url="${url%/}"
   case "$url" in http://*|https://*) ;; *) die "FORGEJO_URL '$url' is no http or https address" ;; esac
@@ -111,7 +111,10 @@ repo_exists() (  # repo_exists <owner/repo>
 # pull inside the clone of a project harness runs the helper where this checkout's .ai-core is not. Both are
 # settings, not the token.
 forgejo_git() {
-  FORGEJO_URL="$(forgejo_url)" FORGEJO_TOKEN_COMMAND="$(config_value FORGEJO_TOKEN_COMMAND "")" git "$@"
+  local url command
+  url="$(forgejo_url)" || return 1
+  command="$(config_value FORGEJO_TOKEN_COMMAND "")" || return 1
+  FORGEJO_URL="$url" FORGEJO_TOKEN_COMMAND="$command" git "$@"
 }
 
 repo_clone() (  # repo_clone <owner/repo> <dir>: the clone keeps the line that lets git sign in
@@ -254,7 +257,8 @@ signed_in_user() (
 # report line when it set the line (with dry: would set it), nothing when it stood there or the origin is elsewhere.
 clone_sign_in() (
   local url origin
-  url="$(config_value FORGEJO_URL "")"; url="${url%/}"
+  url="$(config_value FORGEJO_URL "")" || exit 1
+  url="${url%/}"
   [ -n "$url" ] || exit 0
   origin="$(git -C "$1" remote get-url origin 2>/dev/null)" || exit 0
   case "$origin" in "$url"/*) ;; *) exit 0 ;; esac
@@ -266,9 +270,13 @@ clone_sign_in() (
 # forge_doctor: the lines `ai-core doctor` prints for the forge, through doctor's own report and problem, which
 # doctor.sh defines. The token is asked of the instance and never printed.
 forge_doctor() {
-  local url out origin said line_args=()
-  url="$(config_value FORGEJO_URL "")"
-  if [ -z "$url" ] || [ -z "$(config_value FORGEJO_TOKEN_COMMAND "")" ]; then
+  local url command out origin said line_args=()
+  if ! url="$(config_value FORGEJO_URL "")" || ! command="$(config_value FORGEJO_TOKEN_COMMAND "")"; then
+    echo "  forge: forgejo"
+    report forge unreadable "the settings that hold FORGEJO_URL and FORGEJO_TOKEN_COMMAND cannot be read (see above)"; problem
+    return 0
+  fi
+  if [ -z "$url" ] || [ -z "$command" ]; then
     echo "  forge: forgejo"
     report forge "not configured" "set FORGEJO_URL and FORGEJO_TOKEN_COMMAND in .ai-core/config.env"; problem
     return 0

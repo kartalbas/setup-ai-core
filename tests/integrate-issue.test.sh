@@ -952,6 +952,27 @@ check 'planted: origin did not move'   "$before_list" "$(tip)"
 check 'planted: no temporary worktree is left' 0 "$(leftovers)"
 git -C "$work" worktree remove --force "$wt_holds"; git -C "$work" push -q origin --delete issue-316-holds-nothing
 git -C "$work" branch -q -D issue-315-holds-the-work issue-316-holds-nothing
+echo 'a list in the worktree of an issue of another repository reads every later number there, also one whose branch this clone holds no record of'
+wt_elsewhere="$(new_tree 340 first-elsewhere)"
+git -C "$work" config branch.issue-340-first-elsewhere.issueRepository other-org/tracker
+# the branch of the second was started in another clone: origin holds it, and this clone has no branch or record of it
+elsewhere="$fake/clone-elsewhere"
+git clone -q "$origin" "$elsewhere"; dress "$elsewhere"
+git -C "$elsewhere" switch -q -c issue-341-read-the-board-whole
+echo 'started in another clone' > "$elsewhere/started-elsewhere.txt"
+git -C "$elsewhere" add -A && git -C "$elsewhere" commit -q -m 'Write the second part in another clone #341'
+git -C "$elsewhere" push -q origin issue-341-read-the-board-whole; rm -rf "$elsewhere"
+: > "$fake/calls.txt"
+out="$(integrate "$wt_elsewhere" 340 341 --reviewed-by l4)"; rc=$?
+check 'planted: exit 0'                0 "$rc"
+check 'planted: both subjects name the other repository' "Read the board whole (other-org/tracker#341)
+Read the board whole (other-org/tracker#340)" "$(git --git-dir="$origin" log --merges -2 --format=%s master)"
+check 'planted: the second issue was read there' yes "$(grep -q 'other-org/tracker/issues/341' "$fake/calls.txt" && echo yes || echo no)"
+check 'planted: and never in this clone'"'"'s repository' no "$(grep -q 'example-org/example-repo/issues/341' "$fake/calls.txt" && echo yes || echo no)"
+check 'planted: the next steps name the other repository' "next: ai-core finish-issue other-org/tracker 340
+next: ai-core finish-issue other-org/tracker 341" "$(grep '^next: ' <<< "$out")"
+git -C "$work" worktree remove --force "$wt_elsewhere"; git -C "$work" push -q origin --delete issue-341-read-the-board-whole
+git -C "$work" branch -q -D issue-340-first-elsewhere
 after="$(tip)"
 
 echo '--from-origin on a conflict leaves origin as it was, the held worktree untouched and no temporary worktree'

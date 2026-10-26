@@ -9,7 +9,8 @@
 # the branch with --no-ff under the issue's title and a 'Reviewed-by: REVIEWER' trailer per
 # reviewer, pushes HEAD:<default> through the gate, and checks the branch out again for
 # finish-issue. The issue is read in OWNER/REPO where it is given, else in the repository
-# start-issue recorded on the branch, else in the checkout's own.
+# start-issue recorded on the branch, else in the checkout's own; every number of a list is read
+# in the repository of the first.
 #
 # --from-origin LANDS THE BRANCH AS ORIGIN HOLDS IT, FROM ANY DIRECTORY OF THE CLONE, for a branch
 # whose worktree another session holds and nobody may touch: its changes may be somebody's work in
@@ -135,13 +136,17 @@ belongs_note() {  # belongs_note <branch>: after branch_work_item, the words tha
   else printf 'it %s' "${WORK_ITEM_REASON:-belongs to no work item}"; fi
 }
 
-# origin_issue_branch <number>: the branch of one issue as origin holds it, read from origin itself, for --from-origin and
-# for every issue after the first of a list. Sets issue_repo (the repository of the issue, nothing for the checkout's own),
-# thread, origin_branch and origin_tip; stops the run where origin holds no branch of the issue, or more than one.
+# origin_issue_branch <number> [<repository>]: the branch of one issue as origin holds it, read from origin itself, for
+# --from-origin and for every issue after the first of a list, which passes the repository of the first. Sets issue_repo
+# (the repository passed, else the one named, else the one a local branch of the number records; nothing for the
+# checkout's own), thread, origin_branch and origin_tip; stops the run where origin holds no branch of the issue, or more
+# than one.
 origin_issue_branch() {
   local n="$1" carried owners listed item why heads="" tip ref_name
   issue_repo="$repo"
-  if [ -z "$issue_repo" ]; then
+  if [ "$#" -gt 1 ]; then
+    issue_repo="$2"
+  elif [ -z "$issue_repo" ]; then
     for listed in $(git for-each-ref --format='%(refname:short)' "refs/heads/issue-$n" "refs/heads/issue-$n-*"); do
       issue_repo="$(branch_issue_repo "$listed")"; [ -z "$issue_repo" ] || break
     done
@@ -204,7 +209,7 @@ else
 fi
 issue_numbers+=("$number"); issue_branches+=("$branch"); issue_threads+=("$thread"); issue_repos+=("$first_repo_of_issue"); issue_origin_tips+=("${listed_tip:-}")
 for number_after in ${numbers[@]+"${numbers[@]:1}"}; do
-  origin_issue_branch "$number_after"
+  origin_issue_branch "$number_after" "$first_repo_of_issue"
   issue_numbers+=("$number_after"); issue_branches+=("$origin_branch"); issue_threads+=("$thread"); issue_repos+=("$issue_repo"); issue_origin_tips+=("$origin_tip")
 done
 # The subject the gate takes is 72 characters at most, so a longer one falls back, shortest last

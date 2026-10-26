@@ -72,6 +72,24 @@ DEFECTS="$W/defects.tsv"
   printf '%s\t' 'the project folder'"'"'s own command is run as the reader of a clone that declared none'
   printf '%s\t' lib/status-live.mjs 's/if (!command) {/if (false) {/'
   printf '%s\t%s\n' status.test.sh 'the card is unknown, and the missing declaration is named'
+  printf '%s\t' 'a folder whose name begins with the project folder'"'"'s is counted as the project folder'
+  printf '%s\t' lib/status.mjs 's/cwd === folder || cwd.startsWith(folder + path.sep)/cwd.startsWith(folder)/'
+  printf '%s\t%s\n' status-usage.test.sh 'a sibling folder is not counted'
+  printf '%s\t' 'a transcript that shrank keeps the counts of its old content'
+  printf '%s\t' lib/status.mjs 's/ \&\& st.size >= cache\[f\].off//'
+  printf '%s\t%s\n' status-usage.test.sh 'a truncated transcript is counted anew'
+  printf '%s\t' 'a transcript that was replaced by a longer one keeps the counts of the old file'
+  printf '%s\t' lib/status.mjs 's/cache\[f\].ino === st.ino \&\& //'
+  printf '%s\t%s\n' status-usage.test.sh 'a replaced transcript is counted anew'
+  printf '%s\t' 'the token cache is rewritten in place, where a run reading it at the same time sees half of it'
+  printf '%s\t' lib/status.mjs 's/fs.writeFileSync(temporary, JSON.stringify(kept));/fs.writeFileSync(cacheFile, JSON.stringify(kept));/'
+  printf '%s\t%s\n' status-usage.test.sh 'the cache is replaced whole'
+  printf '%s\t' 'the tokens of Claude Code are shown in the shell of another tool'
+  printf '%s\t' lib/status.mjs "s/const fromClaude = usage.tool === 'claude';/const fromClaude = true;/"
+  printf '%s\t%s\n' status-usage.test.sh 'the tokens have no source for Codex'
+  printf '%s\t' 'the tool of the shell is not asked, so every page reads the windows of Claude'
+  printf '%s\t' bin/status.sh 's/^tool="\$(session_tool)"; \[ -n "\$tool" \] || tool=claude$/tool=claude/'
+  printf '%s\t%s\n' status.test.sh 'the usage line is Codex'"'"'s, with the time of its record'
 } > "$DEFECTS"
 
 # red_at <output of a test> <words of an assertion>: whether a FAIL line of the output names the assertion. The FAIL

@@ -15,7 +15,7 @@ Set `PROJECT`, `PHASE`, `CLASS`, `SESSION` and `BRIEF` to the intended project, 
 phase word, class, phase session name and filled brief file. Set `WRITER` to the actual writer
 for plan-check or review. `PROJECT` is the folder the phase starts in, as above; `EXTRA_ROOTS` is
 the JSON array of every other absolute folder it needs, added again on a resume; `WINDOW` is its
-`<window>` below. `OPERATION` is `start` or `resume`; for a resume set `NATIVE_ID` and
+`<window>` below. `SETUP_FILE` is the setup file of the package (`SKILL.md`, "Starting a phase"), or empty. `OPERATION` is `start` or `resume`; for a resume set `NATIVE_ID` and
 `TEXT`, after status proves that conversation is no longer running. The name and original start
 stay the same within a phase. Select in the project before entering a UI-test throwaway directory.
 A changed tool uses the selected reference for a fresh session with the current brief, saved work
@@ -27,6 +27,7 @@ set -euo pipefail
 cd "$PROJECT"
 args=("$PHASE" "$CLASS")
 [ -z "${WRITER:-}" ] || args+=(--written-by "$WRITER")
+[ -z "${SETUP_FILE:-}" ] || args+=(--setup-file "$SETUP_FILE")
 selection="$(ai-core phase-model "${args[@]}")" || exit 2
 read -r tool model effort <<< "$selection"
 [ "$tool" = claude ] || { printf 'Continue fresh through references/%s.md with the current brief, saved work and last report; no foreign id.\n' "$tool" >&2; exit 2; }
@@ -84,7 +85,7 @@ observe native "$id"
   cover the clones inside it. On "Workspace not trusted", collect every clone your packages need and
   ask the owner once to run `claude` in each; never start the session in another folder instead.
 - `<window>` is the session's budget plus 100000, in tokens: `400000` for a `300k` name, `200000`
-  for a `100k` name. A session carries its base context before its first word (the system prompt,
+  for a `100k` name, and `budget_tokens + 100000` where the package's Setup names the budget. A session carries its base context before its first word (the system prompt,
   the rules, the skills and the maps, about 70k in a project folder whose rules load at start), and
   the budget is the room for the phase's own work above it. A window of the budget alone leaves a
   100k session about 30k: every compaction frees almost nothing, and Claude Code stops it with
@@ -105,7 +106,7 @@ observe native "$id"
   the template, which a `-p` run from a throwaway folder would not otherwise carry:
 
       claude -p "$(cat <brief file>)" --model <model> --effort <effort> --permission-prompts none \
-        --settings "$(jq -c '. + {autoCompactWindow:200000}' ~/.ai-core/claude-run-settings.json)" --strict-mcp-config --no-session-persistence \
+        --settings "$(jq -c --argjson window <window> '. + {autoCompactWindow:$window}' ~/.ai-core/claude-run-settings.json)" --strict-mcp-config --no-session-persistence \
         --output-format text \
         --mcp-config '{"mcpServers":{"chrome-devtools":{"command":"npx","args":["-y","chrome-devtools-mcp@1.10.1","--executablePath","<path of Edge or Chrome>","--headless","--isolated","--viewport","1366x900"]}}}' \
         --allowedTools mcp__chrome-devtools > ~/.ai-core/sessions/<session name>.out
@@ -137,6 +138,15 @@ with a throwaway profile, so it never sees anyone's logged-in sessions.
 `ScheduleWakeup` with 600 seconds and the prompt "the round", once at the end of every round; a
 `SendMessage` from a session or a partner, an idle notice and the end of a background run wake you
 earlier. The round is the net under them: it finds what none of them reported.
+
+A worker that compacts in a loop is busy the whole time, so no idle notice comes. Keep one
+`ai-core watch --session <worker name> --still 3600` running in the background (Bash with
+`run_in_background`) for every Claude worker of your own number block that runs, one command with
+a `--session` for each. It reads the transcripts and its end wakes you with one line when a worker
+shows three compactions within 600 seconds or Claude Code's "Autocompact is thrashing" message,
+and with exit 1 when a worker's transcript cannot be found or read. Start it again after each wake and
+after each start or end of a worker. It covers Claude sessions only; Codex output files go to
+`--file` (`references/codex.md`).
 
 ## The usage limit
 

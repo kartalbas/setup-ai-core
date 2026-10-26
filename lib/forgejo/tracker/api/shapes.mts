@@ -137,6 +137,7 @@ export interface Issue {
   readonly assignees: User[] | null;
   readonly comments: number;
   readonly created_at: string;
+  readonly closed_at: string | null | undefined;
   readonly html_url: string;
   readonly repository: RepositoryMeta | undefined;
   readonly milestone: Milestone | null | undefined;
@@ -150,6 +151,7 @@ export const issueShape = defineShape<Issue>('Issue', {
   assignees: required(nullable(arrayOf(userShape.type))),
   comments: required(integer),
   created_at: required(string),
+  closed_at: optional(nullable(string)),
   html_url: required(string),
   repository: optional(repositoryMetaShape.type),
   milestone: optional(nullable(milestoneShape.type)),

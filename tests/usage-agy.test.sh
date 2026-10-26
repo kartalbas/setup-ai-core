@@ -17,7 +17,7 @@ export HOME="$work/home" AI_CORE_HOME="$work/home"
 . "$root/tests/tool-environment.sh"
 unset CODEX_HOME
 mkdir -p "$HOME" "$work/project" "$work/tools" "$work/agy-bin" "$work/mutant/bin" "$work/mutant/lib"
-cp "$root/lib/common.sh" "$work/mutant/lib/"
+cp "$root/lib/common.sh" "$root/lib/tool-order.sh" "$root/lib/usage.sh" "$work/mutant/lib/"
 
 failed=0
 check() {
@@ -74,9 +74,10 @@ forget() { rm -rf "$history_dir"; : > "$AGY_CALLS"; }
 caught() {  # caught <what> <the status the script gives> <the status the mutant gave>
   check "$1" yes "$([ "$2" != "$3" ] && echo yes || echo "no: the mutant gave $3 as well")"
 }
-mutate() {  # mutate <sed script> <name>: a copy of usage.sh with one defect planted
+mutate() {  # mutate <sed script> <name>: a copy of usage.sh and its reader with one defect planted in either
   sed "$1" "$root/bin/usage.sh" > "$work/mutant/bin/usage.sh"
-  if cmp -s "$root/bin/usage.sh" "$work/mutant/bin/usage.sh"; then echo "  FAIL mutant $2 left the script as it was"; failed=$((failed + 1)); fi
+  sed "$1" "$root/lib/usage.sh" > "$work/mutant/lib/usage.sh"
+  if cmp -s "$root/bin/usage.sh" "$work/mutant/bin/usage.sh" && cmp -s "$root/lib/usage.sh" "$work/mutant/lib/usage.sh"; then echo "  FAIL mutant $2 left the script as it was"; failed=$((failed + 1)); fi
   script="$work/mutant/bin/usage.sh"
 }
 restore() { script="$root/bin/usage.sh"; }
@@ -302,7 +303,7 @@ check 'no agy: the reason'       yes "$(matches 'agy is not on the PATH' "$out")
 echo '   a planted defect: a refusal that exits 0, and a fraction made up as 0 (nothing left)'
 answer 0.92 0.95 0.92 1
 jq '.command.data.groups[0].buckets[1].remaining_fraction = null' "$AGY_ANSWER" > "$work/bad.json"
-mutate '/^reject() {/s/exit 2/exit 0/' 'a refusal that exits 0'
+mutate '/^usage_read "\$tool"/s/exit 2/exit 0/' 'a refusal that exits 0'
 out="$(AGY_ANSWER="$work/bad.json" agy_run --tool agy)"; rc=$?
 caught 'a refusal that exits 0 is caught' 2 "$rc"
 mutate 's/(.remaining_fraction | type) != "number" or .remaining_fraction < 0 or .remaining_fraction > 1/false/; s/100 \* .remaining_fraction/100 * (.remaining_fraction \/\/ 0)/' 'a missing fraction read as 0'
@@ -382,7 +383,7 @@ forget; answer 0.92 0.95 0.42 1; mkdir -p "$history_dir"; : > "$history_dir/.loc
 out="$(run "$work/race-bin:$planted" --tool agy)"; rc=$?
 check 'a held lock stays held for a mkdir that succeeds on it: exit 2, naming the lock' '2 yes' "$rc $(matches 'history lock .* still held' "$out")"
 check 'the lock of the other holder is still there' yes "$([ -e "$history_dir/.lock" ] && echo yes || echo no)"
-mutate 's/( set -C; : > "\$history\/.lock" )/mkdir "$history\/.lock"/; s/rm "\$history_lock" ||/rmdir "$history_lock" ||/' 'a lock taken with mkdir'
+mutate 's/( set -C; : > "\$history\/.lock" )/mkdir "$history\/.lock"/; s/rm "\$usage_history_lock" ||/rmdir "$usage_history_lock" ||/' 'a lock taken with mkdir'
 forget; answer 0.92 0.95 0.42 1; mkdir -p "$history_dir"; : > "$history_dir/.lock"
 out="$(run "$work/race-bin:$planted" --tool agy)"; rc=$?
 check 'a lock taken with mkdir is caught' yes "$(grep -q 'still held' <<< "$out" && echo "no: the mutant held back as well" || echo yes)"

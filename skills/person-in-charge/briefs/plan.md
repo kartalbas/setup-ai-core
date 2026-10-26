@@ -18,6 +18,10 @@ cut by file splits a contract and its two sides then release apart.
 - What came back, where this plan is not the first: {{the plan check's GAPS, or the review's
   FINDINGS, or "first plan"}}; and the last builds of this area that reported `CONTEXT: needed
   more`, from their PHASE lines: {{context lines or none}}. A plan that comes back changes what the findings name; the rest stands.
+- What each builder setup has earned: the `reviews` lines of `ai-core status --tokens`, the verdicts of
+  the last 14 days counted per builder model and effort, read by the coordinator right before this
+  plan: {{the reviews lines}}. A setup with no counted verdict has no record; it is chosen from the
+  model table, never from a result nobody measured.
 - The classes: `mechanical` (the change stays in one repository; it touches no contract between the
   project's repositories and no contract outward; it touches no secret, no payment and not the
   push gate; the change of all its issues together is at most 150 lines outside tests, and each issue has its acceptance criteria), `high-risk` (security, payments,
@@ -75,6 +79,7 @@ with it runs before or after it.
     ### Package: {{area}}
     Ecosystem: {{tool}}
     Class: normal-hard | high-risk
+    Setup: <the JSON object below on one line> | none
     Repositories: <clone folder>, <clone folder>
     Files: <clone> <path>, ...                          (every file the issues change)
     Contracts: <name> (<producer clone> <file:line> -> <reader clone> <file:line>), ... | none
@@ -87,6 +92,25 @@ with it runs before or after it.
     Checks: <repo>#<n>: <URL path>, <click>, <what to read>; ...
     Waits for the owner: <repo>#<n> <the decision> | none
     Left out: <repo>#<n>: <what it lacks> | none
+
+The `Setup:` line is how the plan chooses the model, effort and context budget of the sessions that
+build, review and UI-test the package; `none` leaves every phase on the row of `.ai-core/models.tsv`.
+It is one JSON object keyed `build`, `review` and `ui-test`; each holds, per tool (`claude`, `codex`,
+`agy`), an object with exactly `model`, `effort`, `estimate_tokens`, `budget_tokens` and `reason`
+(one sentence: the record of the `reviews` lines or the cost that makes this setup the choice). A
+phase or a tool you leave out runs on its table row.
+
+    {"build":{"claude":{"model":"claude-sonnet-5-5","effort":"xhigh","estimate_tokens":150000,"budget_tokens":225000,"reason":"..."}}}
+
+- `model` and `effort` are a tuple the same tool's rows of the table name for that phase, of any class
+  for a build and a review. A `high-risk` package takes exactly the tool's `high-risk` row for the phase:
+  it has to exist, and a setup never goes below it. A tool without a build row for the class (agy for
+  `high-risk`) runs none of it. A UI test keeps the tool's UI-test row (Haiku on Claude), so its entry
+  sets only the budget.
+- `estimate_tokens` is what the phase will use, from what the last builds of this area reported;
+  `budget_tokens` is `ceil(estimate_tokens * 1.5)`, so the session has 50 % over its estimate. A
+  budget never exceeds the phase's ceiling: 300000 for a build (250000 on Codex), 150000 for a review,
+  100000 for a UI test. A package that needs more is cut again.
 
 Post each with `ai-core issue-comment {{plan issue}} --body-file <file>`, one comment per section, so
 a second planner's comment never overwrites yours. Where a section replaces an earlier one of the

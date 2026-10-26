@@ -221,6 +221,20 @@ model_table_faults() {
       if (effort[i] == "-" || !(effort[i] in efforts)) print "unsupported Codex effort: " rows[i]
     } }
   ' "$1"
+  # bin/phase-model.sh starts a route on the effort of its destination row, so the effort of the route row itself never runs
+  awk -F'\t' '
+    /^#/ || NF < 5 { next }
+    { declared[$1, $2, $3] = $0 }
+    $4 ~ /^(claude|codex|agy):/ { routes[++n] = $0 }
+    END { for (i = 1; i <= n; i++) {
+      split(routes[i], route, "\t"); to = route[4]; sub(/:.*/, "", to)
+      if ((to, route[2], route[3]) in declared) destination = declared[to, route[2], route[3]]
+      else if ((to, route[2], "*") in declared) destination = declared[to, route[2], "*"]
+      else continue
+      split(destination, row, "\t")
+      if (row[5] != route[5]) print "a route at another effort than its destination row: " routes[i] " -> " destination
+    } }
+  ' "$1"
 }
 [ -z "$(model_table_faults "$ROOT/templates/.ai-core/models.tsv")" ] || fail "the harness's model table breaks its own rules: $(model_table_faults "$ROOT/templates/.ai-core/models.tsv")"
 T="$WORK/model-faults.tsv"
@@ -251,7 +265,10 @@ for planted in 'claude\tplan\thigh-risk\tcodex:not-a-model\tmax\nclaude\tre-plan
 done
 { native_codex; printf 'claude\tplan\thigh-risk\tcodex:gpt-6-astra\tmax\nclaude\tre-plan\thigh-risk\tclaude-opus-5-5\tmax\n'; } > "$T"
 [ -z "$(model_table_faults "$T")" ] || fail "a native Codex model at max was refused: $(model_table_faults "$T")"
-echo "  agy rows run at high only, high-risk stays off agy, no agy row names Gemini, no review runs on its build model, every plan row has its re-plan row, and no mechanical package has a plan check"
+{ native_codex; printf 'claude\tplan\thigh-risk\tcodex:gpt-6-astra\txhigh\nclaude\tre-plan\thigh-risk\tclaude-opus-5-5\tmax\n'; } > "$T"
+[ "$(model_table_faults "$T")" = "$(printf 'a route at another effort than its destination row: claude\tplan\thigh-risk\tcodex:gpt-6-astra\txhigh -> codex\tplan\thigh-risk\tgpt-6-astra\tmax')" ] \
+  || fail "a planted route at xhigh against its destination at max was not reported with both rows: $(model_table_faults "$T")"
+echo "  agy rows run at high only, high-risk stays off agy, no agy row names Gemini, no review runs on its build model, every plan row has its re-plan row, no mechanical package has a plan check, and no route names another effort than its destination row"
 
 section "the four points of a mechanical package read the same in the table header and in every skill text that states them"
 mechanical_points='the change stays in one repository; it touches no contract between the project'"'"'s repositories and no contract outward; it touches no secret, no payment and not the push gate; the change of all its issues together is at most 150 lines outside tests, and each issue has its acceptance criteria'

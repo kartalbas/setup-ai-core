@@ -95,10 +95,15 @@ out="$(cd "$work/project" && CODEX_THREAD_ID=t bash "$root/bin/usage.sh" --tool 
 check 'explicit Claude below despite Codex at limit' 0 "$rc"
 mkdir -p "$work/mutant/bin" "$work/mutant/lib"
 cp "$root/lib/common.sh" "$root/lib/tool-order.sh" "$work/mutant/lib/"
-sed 's/tool="$2"/tool="claude"/' "$root/bin/usage.sh" > "$work/mutant/bin/usage.sh"
+plant() {  # plant <file under the root> <sed script>: the mutant is the whole tree of usage, with that one file changed
+  cp "$root/bin/usage.sh" "$work/mutant/bin/usage.sh"; cp "$root/lib/usage.sh" "$work/mutant/lib/usage.sh"
+  sed "$2" "$root/$1" > "$work/mutant/$1"
+  if cmp -s "$root/$1" "$work/mutant/$1"; then echo "  FAIL the planted defect left $1 as it was: $2"; failed=$((failed + 1)); fi
+}
+plant bin/usage.sh 's/tool="$2"/tool="claude"/'
 out="$(cd "$work/project" && bash "$work/mutant/bin/usage.sh" --tool codex 2>&1)"; rc=$?
 check 'ignoring selector is caught' 0 "$rc"
-sed 's/exit 3/exit 0/g' "$root/bin/usage.sh" > "$work/mutant/bin/usage.sh"
+plant bin/usage.sh 's/exit 3/exit 0/g'
 out="$(cd "$work/project" && bash "$work/mutant/bin/usage.sh" --tool codex 2>&1)"; rc=$?
 check 'non-stopping mutant is caught' 0 "$rc"
 echo 'Codex: the burn from the readings in its session files'
@@ -144,7 +149,7 @@ echo 'a window at the limit outranks a projection'
 history 50 "$soon" 10 95 10
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'exit 3'                   3 "$rc"
-sed 's/projected=1/projected=0/' "$root/bin/usage.sh" > "$work/mutant/bin/usage.sh"
+plant bin/usage.sh 's/projected=1/projected=0/'
 history 50 "$soon" 10 80 10
 out="$(cd "$work/project" && bash "$work/mutant/bin/usage.sh" 2>&1)"; rc=$?
 check 'a mutant that ignores the projection is caught' 0 "$rc"
@@ -175,7 +180,7 @@ refused_claude 'a file that is no JSON' 'usage.json' 'five_hour 5'
 claude_record "{\"recorded_at\":$now,\"rate_limits\":{\"seven_day\":null,\"five_hour\":{\"used_percentage\":5,$window}}}"
 check 'Claude, a null window beside a usable one (innocent): exit 0' 0 "$rc"
 check 'Claude, the usable window alone' 1 "$(grep -c '^five_hour    5 % used' <<< "$out")"
-sed 's/if \[.used_percentage, .resets_at\]/(.used_percentage \/\/= 0) | if [.used_percentage, .resets_at]/' "$root/bin/usage.sh" > "$work/mutant/bin/usage.sh"
+plant lib/usage.sh 's/if \[.used_percentage, .resets_at\]/(.used_percentage \/\/= 0) | if [.used_percentage, .resets_at]/'
 script="$work/mutant/bin/usage.sh"
 claude_record "{\"recorded_at\":$now,\"rate_limits\":{\"five_hour\":{$window}}}"
 check 'a reader that lets a missing percentage through is caught' yes "$([ "$rc" != 2 ] && echo yes || echo no)"
@@ -205,7 +210,7 @@ check 'Codex, its window'        1 "$(grep -c '^five_hour   95 % left' <<< "$out
 codex_record "$(printf '{"timestamp":"2026-10-13T07:09:45.777Z","payload":{"rate_limits":{"primary":{"used_percent":5,"window_minutes":300,"resets_at":%s},"secondary":{"used_percent":0.0,"window_minutes":0,"resets_at":%s}}}}' "$soon" "$soon")"
 check 'Codex, a window of 0 minutes, as Codex writes one beside a real window, says nothing: exit 0' 0 "$rc"
 check 'Codex, only the real window shown' '1 0' "$(grep -c '^five_hour   95 % left' <<< "$out") $(grep -c '0_minutes' <<< "$out")"
-sed 's/if \[.used_percent, .window_minutes, .resets_at\]/(.used_percent \/\/= 0) | if [.used_percent, .window_minutes, .resets_at]/' "$root/bin/usage.sh" > "$work/mutant/bin/usage.sh"
+plant lib/usage.sh 's/if \[.used_percent, .window_minutes, .resets_at\]/(.used_percent \/\/= 0) | if [.used_percent, .window_minutes, .resets_at]/'
 script="$work/mutant/bin/usage.sh"
 codex_record "$(codex_with "{\"window_minutes\":300,\"resets_at\":$soon}")"
 check 'a reader that lets a missing used_percent through is caught' yes "$([ "$rc" != 2 ] && echo yes || echo no)"

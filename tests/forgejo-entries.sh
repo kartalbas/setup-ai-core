@@ -94,6 +94,16 @@ for tracker in forgejo github; do
 done
 echo "  solution-path posts through ai-core on Forgejo and loads the board code on GitHub; the team modes scripts load none for either"
 
+section "status --tokens with TRACKER=forgejo goes to the Forgejo tracker, which holds the option, and loads no board code; on GitHub the board code is loaded"
+clear_marks; : > "$WORK/node-calls.log"
+(cd "$WORK/forgejo-session" && PATH="$SHIM:$PATH" bash "$COPY/bin/ai-core" status --tokens > "$WORK/forgejo-status.log" 2>&1) || fail "ai-core status --tokens with TRACKER=forgejo (see $WORK/forgejo-status.log)"
+grep -q 'cli.mts status --tokens$' "$WORK/node-calls.log" || fail "ai-core status --tokens did not reach the Forgejo tracker with its option: $(cat "$WORK/node-calls.log")"
+loaded_code && fail "ai-core status --tokens on Forgejo loaded board code"
+clear_marks
+(cd "$WORK/github-session" && PATH="$SHIM:$PATH" bash "$COPY/bin/ai-core" status --tokens > /dev/null 2>&1) || true
+loaded_code || fail "planted: ai-core status --tokens on GitHub did not load board code, so the probe cannot see it"
+echo "  status --tokens reaches the Forgejo tracker with its option and no board code; with TRACKER=github it loads the board code"
+
 section "init --all runs no sweep on Forgejo, where nothing sweeps other worktrees, and still runs it on GitHub"
 # in the copy, finish-issue only says that it ran
 printf '#!/usr/bin/env bash\necho "$*" >> "%s/finish-issue"\n' "$MARKS" > "$COPY/bin/finish-issue.sh"

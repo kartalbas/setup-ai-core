@@ -25,5 +25,6 @@ export function createRecordingHarness(): RecordingHarness {
     completeLandingCheck: (receipt, commit, ciRef) => step('completeLandingCheck', '')(`${receipt} ${commit} ${ciRef}`),
     closeLandingCheck: (receipt) => step('closeLandingCheck', '')(receipt),
     installTools: (path) => step('installTools', 'installed')(path),
+    readTokensPage: (cwd, itemsFile, columnsFile, board) => step('readTokensPage', 'the page')(`${cwd} ${itemsFile} ${columnsFile} ${board}`),
   };
 }

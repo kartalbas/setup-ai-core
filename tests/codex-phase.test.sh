@@ -28,6 +28,10 @@ contains(base+'references/claude.md','shown as percent used, with their reset ti
 contains(base+'references/agy.md','`phase-model` calls `ai-core usage --tool agy --model MODEL`');
 contains(base+'references/agy.md','shows it as percent left, against `USAGE_STOP_AT` as percent used');
 contains(base+'references/agy.md','do not start or fall back to another tool');
+contains(base+'references/agy.md','holds the conversation id only once the run has ended');
+contains('skills/helper/SKILL.md','once that run has ended; the output holds it only then');
+if(read('skills/helper/SKILL.md').includes('Take the id from'))throw Error('helper conversation id claim is stale');
+if(read(base+'references/agy.md').includes('stands in that first answer'))throw Error('agy conversation id claim is stale');
 if(read(base+'references/agy.md').includes('no command the harness reads'))throw Error('agy quota claim is stale');
 if(read(base+'references/codex.md').includes('keeps the folders of its start'))throw Error('false resume folder claim');
 const reference=fs.readFileSync(root+'/'+base+'references/codex.md','utf8');
@@ -118,6 +122,12 @@ done
 rm "$WORK/skills/person-in-charge/briefs/keeper.md"
 if node "$WORK/check.mjs" "$WORK" > "$WORK/mutant.log" 2>&1; then fail 'a tree without the keeper brief passed'; fi
 cp "$ROOT/skills/person-in-charge/briefs/keeper.md" "$WORK/skills/person-in-charge/briefs/keeper.md"
+printf '\nThe conversation id stands in that first answer.\n' >> "$WORK/skills/person-in-charge/references/agy.md"
+if node "$WORK/check.mjs" "$WORK" > "$WORK/mutant.log" 2>&1; then fail 'stale agy conversation id claim escaped'; fi
+cp "$ROOT/skills/person-in-charge/references/agy.md" "$WORK/skills/person-in-charge/references/agy.md"
+printf '\nTake the id from the first call.\n' >> "$WORK/skills/helper/SKILL.md"
+if node "$WORK/check.mjs" "$WORK" > "$WORK/mutant.log" 2>&1; then fail 'stale helper conversation id claim escaped'; fi
+cp "$ROOT/skills/helper/SKILL.md" "$WORK/skills/helper/SKILL.md"
 printf '\nagy has no command the harness reads for its quota\n' >> "$WORK/skills/person-in-charge/references/agy.md"
 if node "$WORK/check.mjs" "$WORK" > "$WORK/mutant.log" 2>&1; then fail 'stale agy quota claim escaped'; fi
 cp "$ROOT/skills/person-in-charge/references/agy.md" "$WORK/skills/person-in-charge/references/agy.md"

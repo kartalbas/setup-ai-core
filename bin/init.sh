@@ -20,7 +20,8 @@ for arg in "$@"; do
     echo "refreshed, kept and removed."
     echo ""
     echo "A linked worktree is locked (git worktree lock --reason \"ai-core init\") while init equips it, so finish-issue"
-    echo "cannot remove it underneath; the lock is lifted when init ends. A path that is gone gets nothing created."
+    echo "cannot remove it underneath; the lock is lifted when init ends. A path that is gone, or that stands under"
+    echo ".worktrees/ without a .git, gets nothing written and nothing created."
     echo ""
     echo "A fresh clone, or one whose STAMP names setup-ai-core alone, reads its eight tracker"
     echo "settings from the main checkout's parent when that folder is outside Git, has"
@@ -83,6 +84,10 @@ TMP=""; WORKTREE_LOCKED=""; WORKTREE_LOCK_COMMON=""
 cleanup() { [ -z "$TMP" ] || rm -rf "$TMP"; worktree_unlock_for_init; }
 trap cleanup EXIT; trap 'exit 130' INT; trap 'exit 143' TERM
 if [ -z "$ALL_DIR" ]; then
+  if worktree_orphan "$TARGET"; then
+    echo "error: $TARGET stands under a .worktrees/ folder and holds no .git: it is no worktree, so nothing is written there" >&2
+    exit 1
+  fi
   if [ "$DRY" -eq 0 ] && worktree_is_linked "$TARGET"; then worktree_lock_for_init "$TARGET" || exit 1; fi
 fi
 
@@ -322,6 +327,8 @@ note() {
     removed) REMOVED="$REMOVED $2" ;; tracked) TRACKED="$TRACKED $2" ;; unchanged) UNCHANGED=$((UNCHANGED + 1)) ;;
   esac
 }
+# A write below the target would create the target again after finish-issue removed it
+require_target() { [ -d "$TARGET" ] || { echo "error: $TARGET was removed while init ran: nothing more is written there" >&2; exit 1; }; }
 # put_file <source> <destination> <label> managed|once: one file, written only when it differs
 put_file() {
   local src="$1" dst="$2" label="$3" mode="$4"
@@ -333,6 +340,7 @@ put_file() {
     note created "$label"
   fi
   [ "$DRY" -eq 1 ] && return 0
+  require_target
   mkdir -p "$(dirname "$dst")"; cp -f "$src" "$dst"
 }
 put() { put_file "$1" "$TARGET/$2" "$2" "$3"; }   # put <source> <relative path> managed|once
@@ -346,6 +354,7 @@ put_dir() {
     note created "$rel/"
   fi
   [ "$DRY" -eq 1 ] && return 0
+  require_target
   rm -rf "$dst"; mkdir -p "$dst"; cp -R "$src"/. "$dst/"
 }
 # drop <relative path>: what an earlier version left in the checkout
@@ -442,7 +451,7 @@ if [ -n "$LAYERS" ]; then
 fi
 
 AI_CORE_DIR="$TARGET/.ai-core"
-[ "$DRY" -eq 1 ] || mkdir -p "$AI_CORE_DIR/rules" "$AI_CORE_DIR/docs"
+[ "$DRY" -eq 1 ] || { require_target; mkdir -p "$AI_CORE_DIR/rules" "$AI_CORE_DIR/docs"; }
 # Earlier versions copied the scripts into the checkout, and one wrote an MCP file Antigravity
 # never reads; both are removed
 drop .ai-core/bin

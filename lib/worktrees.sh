@@ -17,6 +17,16 @@ worktree_is_linked() {
   [ "$gitdir" != "$common" ]
 }
 
+# worktree_orphan <dir>: a path under .worktrees/ that is no checkout, the leftover of a removed worktree
+worktree_orphan() {
+  local top
+  case "$1" in */.worktrees/*) ;; *) return 1 ;; esac
+  [ ! -e "$1/.git" ] || return 1
+  top="$(git -C "$1" rev-parse --show-toplevel 2>/dev/null)" || return 0
+  case "$top" in */.worktrees/*) return 1 ;; esac
+  return 0
+}
+
 # worktree_lock_reason <checkout> <worktree path>: prints the reason the worktree is locked with, and
 # succeeds, where git lists that path as locked
 worktree_lock_reason() {

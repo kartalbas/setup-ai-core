@@ -167,6 +167,7 @@ section "missing generic source inputs refuse instead of producing partial JSON 
 command_source="$WORK/command-source"; git clone -q "$ROOT" "$command_source"
 cp "$ROOT/bin/session-start.sh" "$command_source/bin/"
 cp "$ROOT/lib/layers.sh" "$command_source/lib/"
+cp "$ROOT/lib/worktrees.sh" "$command_source/lib/"
 for defect in missing-version empty-version missing-skill-rules missing-section; do
   case "$defect" in
     missing-version) rm "$command_source/VERSION" ;;

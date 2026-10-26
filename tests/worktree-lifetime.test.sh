@@ -5,8 +5,9 @@
 # It runs inside TEMPORARY repositories with a temporary origin, and with a stand-in git on the PATH
 # that holds one call of a run until the test lets it go, so a test can remove a worktree, lock it or
 # kill the run at an exact point. What is pinned: init locks the worktree it equips and lifts the lock on
-# every way out it can see; finish-issue --sweep names the lock and goes on; a worktree that is gone gets
-# nothing created; a kill -9 leaves a lock that is named and can be lifted. Nothing leaves the machine.
+# every way out it can see; finish-issue --sweep names the lock and goes on; a worktree that is gone or
+# is the leftover of one under .worktrees/ gets nothing written and nothing created; a kill -9 leaves a
+# lock that is named and can be lifted. Nothing leaves the machine.
 #
 #   bash tests/worktree-lifetime.test.sh
 
@@ -153,7 +154,20 @@ held_end
 check 'the first init still exits zero'             0 "$held_rc"
 check 'its lock is lifted at the end'               no "$(yes_no locked_reason "$trees/issue-4-twice")"
 
-echo 'the lock is lifted when init is terminated'
+echo 'the lock is lifted when init fails after taking it, and when it is terminated'
+open issue-5-fails
+init_held "$trees/issue-5-fails" '*ls-files --error-unmatch AGENTS.md'
+check 'init holds late, after its lock'             'ai-core init' "$(locked_reason "$trees/issue-5-fails")"
+out="$(git -C "$app" worktree remove "$trees/issue-5-fails" 2>&1)"; rc=$?
+check 'git refuses to remove the locked worktree'   yes "$(yes_no test "$rc" -ne 0 -a -d "$trees/issue-5-fails")"
+git -C "$app" worktree remove -f -f "$trees/issue-5-fails"
+held_end
+check 'init fails when the worktree was removed by force' 1 "$held_rc"
+check 'it names the path and says what happened'    yes "$(yes_no grep -qF "error: $trees/issue-5-fails was removed while init ran: nothing more is written there" "$fake/held.log")"
+check 'the path is not created again'               no "$(yes_no test -e "$trees/issue-5-fails")"
+check 'the removed worktree is not listed any more' no "$(yes_no lists issue-5-fails)"
+git -C "$app" branch -D issue-5-fails >/dev/null 2>&1
+
 open issue-6-term
 init_held "$trees/issue-6-term" '*ls-files --error-unmatch AGENTS.md'
 check 'init holds the lock before the signal'       'ai-core init' "$(locked_reason "$trees/issue-6-term")"
@@ -214,6 +228,25 @@ check 'init exits nonzero'                          1 "$rc"
 check 'it names the path'                           yes "$(yes_no grep -qF "error: $gone does not exist, so there is nothing to initialize there and nothing is created" <<< "$out")"
 check 'the path does not exist afterwards'          no "$(yes_no test -e "$gone")"
 
+echo 'a leftover under .worktrees/ without .git gets no write; a real project folder and a worktree are initialized as before'
+orphan="$trees/issue-10-orphan"
+mkdir -p "$orphan"; echo keep > "$orphan/notes.txt"
+before="$(tree_files "$orphan")"
+out="$(bash "$init" "$orphan" --no-doctor 2>&1)"; rc=$?
+check 'init exits nonzero'                          1 "$rc"
+check 'it says the path is no worktree'             yes "$(yes_no grep -qF "error: $orphan stands under a .worktrees/ folder and holds no .git: it is no worktree, so nothing is written there" <<< "$out")"
+check 'nothing is written into the leftover'        "$before" "$(tree_files "$orphan")"
+mkdir -p "$fake/plain/one"; git init -q "$fake/plain/one"
+out="$(bash "$init" "$fake/plain" --no-doctor 2>&1)"; rc=$?
+check 'a project folder is initialized'             0 "$rc"
+check 'it got its AGENTS.md'                        yes "$(yes_no test -f "$fake/plain/AGENTS.md")"
+open issue-11-real
+out="$(bash "$init" "$trees/issue-11-real" --no-doctor 2>&1)"; rc=$?
+check 'a registered worktree is initialized'        0 "$rc"
+check 'it got its rules'                            yes "$(yes_no test -f "$trees/issue-11-real/.ai-core/rules/rules.md")"
+check 'and its lock is lifted'                      no "$(yes_no locked_reason "$trees/issue-11-real")"
+git -C "$app" worktree remove -f "$trees/issue-11-real"; git -C "$app" branch -D issue-11-real >/dev/null 2>&1
+
 echo 'init --all skips a worktree that vanishes before its turn, instead of failing the rollout'
 open issue-12-vanishes
 out="$(PATH="$fake/shim:$PATH" VANISH="$trees/issue-12-vanishes" bash "$init" --all "$proj" --no-doctor 2>&1)"; rc=$?
@@ -222,6 +255,24 @@ check 'it says that the worktree was skipped'       yes "$(yes_no grep -qF "==> 
 check 'it reports no failure'                       no "$(yes_no grep -q 'failed:' <<< "$out")"
 check 'the path is not created again'               no "$(yes_no test -e "$trees/issue-12-vanishes")"
 git -C "$app" worktree prune; git -C "$app" branch -D issue-12-vanishes >/dev/null 2>&1
+
+echo 'session-start writes nothing into a source worktree that was removed under it, and says why'
+src="$fake/src/shop-ai-core"
+mkdir -p "$fake/src"
+git -c init.defaultBranch=master init -q "$src"; dress "$src"
+git -C "$src" remote add origin https://github.com/example-org/shop-ai-core.git
+cp -R "$root/skeleton/." "$src/"
+git -C "$src" add . && git -C "$src" commit -q -m 'the source'
+git -C "$src" worktree add -q -b issue-13-source "$fake/src/.worktrees/shop-ai-core/issue-13-source"
+source_tree="$fake/src/.worktrees/shop-ai-core/issue-13-source"
+gate_open
+(cd "$source_tree" && SHIM_NO_NETWORK=1 GATE="$gate" PATH="$fake/shim:$PATH" bash "$root/bin/session-start.sh" > "$fake/start.log" 2>&1; echo $? > "$fake/start.rc") &
+start_pid=$!
+check 'session-start holds before its first write'  yes "$(yes_no gate_wait)"
+git -C "$src" worktree remove -f "$source_tree"
+gate_release; wait "$start_pid" 2>/dev/null
+check 'the path is not created again'               no "$(yes_no test -e "$source_tree")"
+check 'it says that it wrote nothing there'         yes "$(yes_no grep -qF "AGENTS.md was not written: $source_tree is removed or is no worktree, so nothing is written there" "$fake/start.log")"
 
 [ "$failed" -eq 0 ] && echo "all passed"
 exit "$failed"

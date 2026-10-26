@@ -118,6 +118,9 @@ for _ in $(seq 1 100); do [ -e "$HOLD.started" ] && break; sleep 0.1; done
 [ -e "$HOLD.started" ] || fail "the first gate never started its check (see $F-hold1.log)"
 # the same tip is read by a second gate at the same moment: shared, so it does not wait for the first
 push_gate "$T2" issue-3-z "$F-hold2.log" || fail "a second gate could not read the copy the first one reads: $(tail -5 "$F-hold2.log")"
+# init reads the copies beside the check too: a copy that is current already waits for no check (planted: init waited)
+bash "$ROOT/bin/init.sh" "$T2" --no-doctor > "$F-init6.log" 2>&1 || fail "init beside a reading gate failed: $(tail -3 "$F-init6.log")"
+grep -aq 'may stand behind' "$F-init6.log" && fail "init waited for a check that reads copies it had no need to move, and named them (see $F-init6.log)"
 # the origin moves while the first check reads: a second gate cannot move the copy under it, and says so
 land cat four
 work_on "$T2" g

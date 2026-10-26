@@ -94,13 +94,18 @@ neighbour_move_copy() {
     || { NEIGHBOUR_ERROR="$1 does not stand on $2 after the checkout"; return 1; }
 }
 
-# neighbour_refresh_copy <project folder> <neighbour> <copy> <ref> <seconds>: for init. Under the exclusive lock the
-# copy moves to <ref> where it holds nothing of anybody's. Prints one line, the state - current, moved, held or
-# failed - and a tab and the reason where there is one.
+# neighbour_refresh_copy <project folder> <neighbour> <copy> <ref> <seconds>: for init. The copy moves to <ref> where
+# it holds nothing of anybody's. Its state is read under the shared lock, so a copy that stays waits for no check
+# that reads it; only a move takes the exclusive lock. Prints one line, the state - current, moved, held or failed -
+# and a tab and the reason where there is one.
 neighbour_refresh_copy() (
   local dir="$(neighbour_dir "$1" "$2")"
-  { neighbour_open 9 "$dir/.copy.lock" && neighbour_flock 9 "$dir/.copy.lock" exclusive "$5"; } || { printf 'failed\t%s\n' "$NEIGHBOUR_ERROR"; exit 0; }
+  { neighbour_open 9 "$dir/.copy.lock" && neighbour_flock 9 "$dir/.copy.lock" shared "$5"; } || { printf 'failed\t%s\n' "$NEIGHBOUR_ERROR"; exit 0; }
   neighbour_copy_state "$3" "$4" || { printf 'failed\t%s\n' "$NEIGHBOUR_ERROR"; exit 0; }
+  if [ "$NEIGHBOUR_STATE" = movable ]; then
+    neighbour_flock 9 "$dir/.copy.lock" exclusive "$5" || { printf 'failed\t%s\n' "$NEIGHBOUR_ERROR"; exit 0; }
+    neighbour_copy_state "$3" "$4" || { printf 'failed\t%s\n' "$NEIGHBOUR_ERROR"; exit 0; }
+  fi
   case "$NEIGHBOUR_STATE" in
     held) printf 'held\t%s\n' "$NEIGHBOUR_ERROR" ;;
     current) printf 'current\n' ;;

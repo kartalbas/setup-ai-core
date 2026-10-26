@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { after, before, describe, it } from 'node:test';
+import { pathToFileURL } from 'node:url';
+import { join } from 'node:path';
 import { FAKE_TOKEN, startFakeForgejo } from './fake-forgejo.mts';
 import type { FakeForgejo } from './fake-forgejo.mts';
+import { plantedCopy } from './planted-copy.mts';
 
 async function call(fake: FakeForgejo, method: string, path: string, body?: unknown, token: string | null = FAKE_TOKEN): Promise<{ status: number; json: unknown; headers: Headers }> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -140,5 +145,69 @@ describe('the fake Forgejo answers the lifecycle paths as the swagger documents 
     assert.equal(((await call(fake, 'GET', '/repos/o/r/commits/abc/status')).json as { state: string }).state, 'pending');
     assert.equal(((await call(fake, 'GET', '/repos/o/r/commits/abc/status')).json as { state: string }).state, 'success');
     assert.equal(((await call(fake, 'GET', '/repos/o/r/commits/abc/status')).json as { state: string }).state, 'success');
+  });
+});
+
+// What a fake Forgejo does with the archival of a label: the answer is the state it keeps, and an archived label is no label an issue gets.
+async function archivalProblems(start: typeof startFakeForgejo): Promise<string[]> {
+  const fake = await start();
+  const problems: string[] = [];
+  try {
+    fake.addRepository('o/r');
+    const id = fake.addLabel('o', { name: 'package/r#1', exclusive: true });
+    fake.addIssue('o/r', { title: 'First, so that there is one' });
+    const stored = (): boolean | undefined => fake.listLabels('o').find((label) => label.name === 'package/r#1')?.archived;
+    const archived = await call(fake, 'PATCH', `/orgs/o/labels/${id}`, { is_archived: true });
+    if ((archived.json as { is_archived?: boolean }).is_archived !== true) problems.push('the answer to an archival does not say archived');
+    if (stored() !== true) problems.push('the archival is not kept');
+    const read = ((await call(fake, 'GET', '/orgs/o/labels')).json as { name: string; is_archived: boolean }[]).find((label) => label.name === 'package/r#1');
+    if (read?.is_archived !== true) problems.push('the list does not say archived');
+    if ((await call(fake, 'POST', '/repos/o/r/issues/1/labels', { labels: [id] })).status !== 422) problems.push('an archived label was put on an issue');
+    const active = await call(fake, 'PATCH', `/orgs/o/labels/${id}`, { is_archived: false });
+    if ((active.json as { is_archived?: boolean }).is_archived !== false || stored() !== false) problems.push('the label does not become active again');
+    if ((await call(fake, 'POST', '/repos/o/r/issues/1/labels', { labels: [id] })).status !== 200) problems.push('an active label was refused');
+  } finally {
+    await fake.close();
+  }
+  return problems;
+}
+
+describe('the fake Forgejo keeps the archival of a label', () => {
+  it('answers the state it was given, and refuses an archived label on an issue (innocent: the real fake)', async () => {
+    assert.deepEqual(await archivalProblems(startFakeForgejo), []);
+  });
+
+  it('is caught where it answers a fixed state (planted: archival answered as true whatever was kept; archival ignored)', async () => {
+    const claims = plantedCopy([['testing/fake-forgejo.mts', '    is_archived: label.archived,', '    is_archived: true,']]);
+    const claimsStart = ((await import(pathToFileURL(join(claims, 'testing/fake-forgejo.mts')).href)) as { startFakeForgejo: typeof startFakeForgejo }).startFakeForgejo;
+    assert.ok((await archivalProblems(claimsStart)).includes('the label does not become active again'));
+    const ignores = plantedCopy([['testing/fake-forgejo.mts', "      if (typeof body.is_archived === 'boolean') label.archived = body.is_archived;\n", '']]);
+    const ignoresStart = ((await import(pathToFileURL(join(ignores, 'testing/fake-forgejo.mts')).href)) as { startFakeForgejo: typeof startFakeForgejo }).startFakeForgejo;
+    assert.ok((await archivalProblems(ignoresStart)).includes('the archival is not kept'));
+  });
+
+  it('leaves no copy of the tracker behind once the process that planted it has ended', () => {
+    const script = `import { plantedCopy } from ${JSON.stringify(pathToFileURL(join(import.meta.dirname, 'planted-copy.mts')).href)}; console.log(plantedCopy([]));`;
+    const copy = execFileSync(process.execPath, ['--input-type=module', '--eval', script], { encoding: 'utf8' }).trim();
+    assert.match(copy, /forgejo-planted-/);
+    assert.equal(existsSync(copy), false, `${copy} was left behind`);
+  });
+
+  it('lets a request through before a rule fails the next one, and runs an effect after the request was served', async () => {
+    const fake = await startFakeForgejo();
+    try {
+      fake.addRepository('o/r');
+      fake.addIssue('o/r', { title: 'First, so that there is one' });
+      fake.fail({ path: '/repos/o/r/issues/1', skip: 1, mode: { kind: 'status', status: 500, message: 'planted' } });
+      assert.equal((await call(fake, 'GET', '/repos/o/r/issues/1')).status, 200);
+      assert.equal((await call(fake, 'GET', '/repos/o/r/issues/1')).status, 500);
+      assert.equal((await call(fake, 'GET', '/repos/o/r/issues/1')).status, 200);
+      let served = 0;
+      fake.fail({ path: '/repos/o/r/issues/1', mode: { kind: 'after', effect: () => (served += 1) } });
+      assert.equal((await call(fake, 'GET', '/repos/o/r/issues/1')).status, 200);
+      assert.equal(served, 1);
+    } finally {
+      await fake.close();
+    }
   });
 });

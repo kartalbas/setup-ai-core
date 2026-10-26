@@ -11,7 +11,8 @@ export const help = `${USAGE}
 
 Creates and updates the labels of an organization from labels.tsv and from the status/ and priority/ constants of
 the tracker, and deletes none. A label of a family is written group/name where labels.tsv has group:name; the
-families status/, priority/, type/, goal/ and test/ are exclusive, area/ is not. The whole file is read before
+families status/, priority/, type/, goal/, test/ and package/ are exclusive, area/ is not. The package/ labels that
+issue-package makes are no rows of labels.tsv, and this command leaves them as they are, archived or not. The whole file is read before
 anything is written, so a bad row writes nothing, and a catalog that already matches writes nothing. --check
 writes nothing and exits 1 when the organization differs.`;
 

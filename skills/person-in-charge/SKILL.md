@@ -115,6 +115,27 @@ a new build, not the repair after a review NO: its review reads the whole packag
 mechanical build's earlier commits included, on the review row of the class the plan set, never as
 a re-check. Every other package goes to a plan.
 
+A classified package also gets a label, so that a person reading the tracker's issue list sees which issues went
+together, in whatever repository they are. The package's identity is its first issue, the one its branch and
+worktrees are named after (`ai-core start-issue <first issue>`), written `OWNER/REPO#NUMBER`; it stays the identity
+when issues join, leave or come before it. The label is `package/<repo>#<number>` of that issue: an exclusive label
+of each organization on Forgejo, a label of each repository on GitHub. Right after you classify a package, mechanical
+or not, put it on every issue of the package with the one command of both trackers:
+
+    ai-core issue-package <first issue OWNER/REPO> <first issue number> \
+      --member <OWNER/REPO#NUMBER> ... [--remove <OWNER/REPO#NUMBER> ...]
+
+`--member` names every issue of the package as it stands now, each once, the plan issue only where it is itself a
+member; `--remove` names the issues that the last confirmed run had as members and this run does not. The command reads
+every issue and label before it writes anything, reads the result back, archives the label once every member is closed
+as completed, and makes it active again when a member is reopened; it never closes or proves an issue. Run it again,
+with the same first issue, when an issue joins or leaves the package, after the completion path closed a card of the
+package, and after a card of the package was reopened. A run that exits 0 confirmed every member. A run that fails
+names what it confirmed and what is uncertain: write `labels failed: <what it named>` into the `<next step>` of your
+PHASE line, leave `previous` as it was, read the tracker, and run it again from the same members; it finishes what is
+missing and never repeats a close or a proof. Until a run has confirmed every member, the package is not classified and no phase that depends on
+it starts. You serialize the runs of one package yourself: the tracker does not.
+
 | Phase | Brief | Done when | Card after it |
 | :--- | :--- | :--- | :--- |
 | plan | `briefs/plan.md` for a package that is not `mechanical`, on the `high-risk` plan row where an issue names a secret, a payment, a contract outward or the push gate (outward means an interface somebody outside the project uses (a public API, a published package, a customer's data format), never a contract between the project's own repositories), else on the `normal-hard` row; the plan judges between those two classes, and a plan check that raises it sends the re-plan to the higher class's `re-plan` row | one package section per package stands as a comment on the plan issue | `planned` (its issues) |
@@ -133,8 +154,13 @@ a re-check. Every other package goes to a plan.
 Every phase you run yourself and every verdict a session posts is answered by one comment of yours
 on the plan issue, the package's log, which a restart reads:
 
-    PHASE <area>: <phase> | <session name or you> | order <saved order or not set> | selected <TOOL MODEL EFFORT> | plans <n> | reviews <n> | context <fit, or needed more: what took the room> | <next step>
+    PHASE <area>: <phase> | <session name or you> | order <saved order or not set> | selected <TOOL MODEL EFFORT> | plans <n> | reviews <n> | context <fit, or needed more: what took the room> | <next step> | package <OWNER/REPO#NUMBER> | members <OWNER/REPO#NUMBER>, ... | previous <OWNER/REPO#NUMBER>, ... or none
     LAND <area>: start check <command> exit 0 | waived, START_CHECK empty; landed <repo> <merge sha>, ...
+
+`package` is the first issue of the package, `members` every issue it has now, and `previous` the members of the last
+run of `ai-core issue-package` that exited 0, `none` before the first. A departure is a member of `previous` that is not
+in `members`; a restart runs the command with `--member` every one of `members` and `--remove` every departure, so a
+departure in another repository is not lost.
 
 A review repairs every finding inside the package's own files and contracts itself and says GO with
 REPAIRED lines, so its NO is left for a finding that needs a decision of the owner or a change
@@ -223,7 +249,7 @@ it marks blocked and every report unanswered; end every session whose phase is d
 phase that is due, across all packages, a blocker's first and before any new plan (a part another
 part names in its `After:`, a side a partner waits for, a fault on a live environment); a package
 whose `After:` part has not landed, that shares a file or a contract with a package between build
-and landing, or whose `Waits for the owner:` is not answered, is not built. Read TESTING: prove the live cards, 🔴 first; TREES: land or
+and landing, or whose `Waits for the owner:` is not answered, is not built. Read TESTING: prove the live cards, 🔴 first, and run `ai-core issue-package` again for the package of each card the proof closed; TREES: land or
 put to the owner. A `KEEPER:` line of a section, a verdict, a report, a UI test result or a `CLEARING round`
 that no `KEEPER round` line has handed over, or a merge commit of a `LAND` line that no `KEEPER round`
 line names as landed, makes the issue keeper due. A session's question that the plan, the issues or the code answers, you answer yourself;

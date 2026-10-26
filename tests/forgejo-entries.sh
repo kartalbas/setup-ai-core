@@ -26,6 +26,7 @@ case "\$2" in
   issue-thread) printf '%s\n' '{"number":5,"title":"Example work","carriedFrom":null,"createdAt":"2026-01-01T00:00:00Z","state":"open","labels":["status/implementing"],"body":"Asked for by @someone on 2026-01-01 in the chat.","comments":[]}' ;;
   issue-mine) echo "example-org/shop#5 is assigned to @tester." ;;
   issue-comment) echo "https://forge.example.test/example-org/shop/issues/5#issuecomment-1" ;;
+  issue-package) echo "example-org/shop#5 carries package/shop#5" ;;
   doctor) echo "ok: Forgejo at http://127.0.0.1:1 knows the token as tester" ;;
 esac
 EOS
@@ -103,6 +104,16 @@ clear_marks
 (cd "$WORK/github-session" && PATH="$SHIM:$PATH" bash "$COPY/bin/ai-core" status --tokens > /dev/null 2>&1) || true
 loaded_code || fail "planted: ai-core status --tokens on GitHub did not load board code, so the probe cannot see it"
 echo "  status --tokens reaches the Forgejo tracker with its option and no board code; with TRACKER=github it loads the board code"
+
+section "issue-package with TRACKER=forgejo runs in Node and loads no board code; on GitHub the board code is loaded"
+clear_marks; : > "$WORK/node-calls.log"
+(cd "$WORK/forgejo-session" && PATH="$SHIM:$PATH" bash "$COPY/bin/ai-core" issue-package example-org/shop 5 --member example-org/shop#5 > "$WORK/forgejo-package.log" 2>&1) || fail "ai-core issue-package with TRACKER=forgejo (see $WORK/forgejo-package.log)"
+grep -q 'cli.mts issue-package example-org/shop 5 --member example-org/shop#5$' "$WORK/node-calls.log" || fail "ai-core issue-package did not reach the Forgejo tracker with its arguments: $(cat "$WORK/node-calls.log")"
+loaded_code && fail "ai-core issue-package on Forgejo loaded board code"
+clear_marks
+(cd "$WORK/github-session" && PATH="$SHIM:$PATH" bash "$COPY/bin/ai-core" issue-package example-org/shop 5 --member example-org/shop#5 > /dev/null 2>&1) || true
+loaded_code || fail "planted: ai-core issue-package on GitHub did not load board code, so the probe cannot see it"
+echo "  issue-package reaches the Forgejo tracker with its arguments and no board code; with TRACKER=github it runs the Bash script, which loads the board code"
 
 section "init --all runs no sweep on Forgejo, where nothing sweeps other worktrees, and still runs it on GitHub"
 # in the copy, finish-issue only says that it ran

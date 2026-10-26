@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, beforeEach, describe, it } from 'node:test';
+import { exclusiveFamilyNames } from '../domain/labels.mts';
 import { PreconditionError, UsageError } from '../domain/refusals.mts';
 import { contextFor, seedLabels, startFakeForgejo } from '../testing/fake-forgejo.mts';
 import type { FakeForgejo } from '../testing/fake-forgejo.mts';
@@ -214,5 +215,24 @@ describe('labels-sync', () => {
     writeFileSync(join(directory, 'labels.tsv'), `${catalog}area\tarea:docs\t1D76DB\tWrite to jane@corp.com\n`);
     await assert.rejects(labelsSync.run(['--org', 'q'], syncContext), PreconditionError);
     await assert.rejects(labelsSync.run(['--org', 'q'], context), UsageError);
+  });
+});
+
+describe('the lists of exclusive families that people read', () => {
+  const readme = readFileSync(join(import.meta.dirname, '../../../../README.md'), 'utf8');
+  const sentence = readme.split('\n').filter((line) => line.includes('are exclusive: an issue carries one label of each')).join(' ');
+  const missingFrom = (text: string): string[] => exclusiveFamilyNames().filter((name) => !text.includes(`${name}/`));
+
+  it('name every exclusive family of the tracker: the two help texts and the README', () => {
+    assert.ok(sentence !== '', 'the README sentence about the exclusive families was not found');
+    assert.ok(exclusiveFamilyNames().includes('package'));
+    assert.deepEqual(missingFrom(issueLabel.labelHelp), []);
+    assert.deepEqual(missingFrom(labelsSync.help), []);
+    assert.deepEqual(missingFrom(sentence), []);
+  });
+
+  it('go red where a family is left out (planted: a list without package/)', () => {
+    assert.deepEqual(missingFrom(issueLabel.labelHelp.replaceAll('package/', '')), ['package']);
+    assert.deepEqual(missingFrom(sentence.replaceAll('package/', '')), ['package']);
   });
 });

@@ -64,6 +64,13 @@ describe('the validators', () => {
     assert.throws(() => commentShape.type.read({ id: 1, html_url: 'u', body: 'b', created_at: 'now', user: 5 }, 'comment'), ContractError);
   });
 
+  it('read the archival of a label where Forgejo gives it, and take a label that says nothing for one that does not say', () => {
+    assert.equal(labelShape.type.read({ id: 1, name: 'package/shop#5', color: 'aaaaaa', is_archived: true }, 'label').is_archived, true);
+    assert.equal(labelShape.type.read({ id: 1, name: 'package/shop#5', color: 'aaaaaa', is_archived: false }, 'label').is_archived, false);
+    assert.equal(labelShape.type.read({ id: 1, name: 'package/shop#5', color: 'aaaaaa' }, 'label').is_archived, undefined);
+    assert.throws(() => labelShape.type.read({ id: 1, name: 'x', color: 'aaaaaa', is_archived: 'yes' }, 'label'), /label\.is_archived: true or false was expected, not a string/);
+  });
+
   it('refuse something that is no object', () => {
     assert.throws(() => labelShape.type.read([], 'label'), ContractError);
     assert.throws(() => labelShape.type.read(null, 'label'), ContractError);

@@ -61,10 +61,10 @@ observe attempt
 if [ "$operation" = start ]; then
   claude "Read $BRIEF and do the phase it describes." --bg --name "$SESSION" --model "$model" \
     --effort "$effort" --permission-mode auto --settings "{\"autoCompactWindow\":$WINDOW}" \
-    --add-dir "$(dirname "$BRIEF")" "${added[@]}"
+    --strict-mcp-config --add-dir "$(dirname "$BRIEF")" "${added[@]}"
 else
   claude "$TEXT" --bg --resume "$NATIVE_ID" --model "$model" --effort "$effort" \
-    --permission-mode auto "${added[@]}"
+    --permission-mode auto --strict-mcp-config "${added[@]}"
 fi
 id=''
 for ((n=0; n<600; n++)); do
@@ -86,12 +86,18 @@ observe native "$id"
   ask the owner once to run `claude` in each; never start the session in another folder instead.
 - `<window>` is the session's budget plus 100000, in tokens: `400000` for a `300k` name, `200000`
   for a `100k` name, and `budget_tokens + 100000` where the package's Setup names the budget. A session carries its base context before its first word (the system prompt,
-  the rules, the skills and the maps, about 70k in a project folder whose rules load at start), and
-  the budget is the room for the phase's own work above it. A window of the budget alone leaves a
+  the rules, the skills and the maps, about 66k in a project folder whose rules load at start,
+  measured on 2026-10-26), and the budget is the room for the phase's own work above it. A window of the budget alone leaves a
   100k session about 30k: every compaction frees almost nothing, and Claude Code stops it with
   "Autocompact is thrashing". Claude Code compacts the conversation as it nears the window instead
   of near the model's full window, so the phase's answers stay near its base and budget instead of
   growing toward the full window. A report that says it needed more is a GAP for the next plan.
+- A phase session starts with `--strict-mcp-config` and no `--mcp-config`, so none of the account's
+  connectors loads and every answer stops paying for their tool names; no brief sends a phase to a
+  connector. The rules, the maps, the memory, the skills and the commands stay loaded, so the start
+  and the resume carry no flag beyond the ones above: one such as `--safe-mode` or `--bare` skips
+  the folder's instruction files or turns off the skills and commands, and a session that cannot
+  read the rules breaks them. The UI test below is the one run that starts a browser server.
 - Right after the start, subscribe to the session's end: `SendMessage` to `<name>` with no message
   and `notify_when_idle: true`. One notice arrives when it next goes idle or exits, so a phase that
   ends, or stops on a question, wakes you at once instead of at your next round. The subscription

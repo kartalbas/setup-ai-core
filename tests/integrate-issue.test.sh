@@ -863,8 +863,14 @@ wt_first="$(new_tree 301 first-part)"
 new_tree 302 second-part >/dev/null
 git -C "$work" push -q origin issue-302-second-part
 before_list="$(tip)"
+# every push of the clone passes its pre-push hook, so a hook that counts them counts the pushes of the landing
+mkdir -p "$fake/count-hooks"; printf '#!/bin/sh\ncat > /dev/null\necho push >> "%s"\n' "$fake/pushes.txt" > "$fake/count-hooks/pre-push"
+chmod +x "$fake/count-hooks/pre-push"; : > "$fake/pushes.txt"
+git -C "$work" config core.hooksPath "$fake/count-hooks"
 out="$(integrate "$wt_first" 301 302 --reviewed-by l4 --reviewed-by l5)"; rc=$?
+git -C "$work" config --unset core.hooksPath
 check 'exit 0'                         0 "$rc"
+check 'one push'                       1 "$(wc -l < "$fake/pushes.txt" | tr -d ' ')"
 check 'one integrated line'            1 "$(grep -c '^integrated: ' <<< "$out")"
 check 'two merge commits on top, in the order given' "Read the board whole (#302)
 Read the board whole (#301)" "$(git --git-dir="$origin" log --merges -2 --format=%s master)"
@@ -933,6 +939,18 @@ out="$(integrate "$wt_c1" 305 399 --reviewed-by l4)"; rc=$?
 check 'no branch on origin: exit 1'    1 "$rc"
 check 'no branch on origin: it says so' yes "$(grep -qF 'origin has no branch issue-399-*' <<< "$out" && echo yes || echo no)"
 check 'no branch on origin: origin did not move' "$before_list" "$(tip)"
+echo 'a list whose later issue holds nothing that the earlier ones do not lands none, since git would merge it into no commit, and names it'
+wt_holds="$(new_tree 315 holds-the-work)"
+git -C "$work" branch -q issue-316-holds-nothing "$(git -C "$wt_holds" rev-parse HEAD)"
+git -C "$work" push -q origin issue-316-holds-nothing
+before_list="$(tip)"
+out="$(integrate "$wt_holds" 315 316 --reviewed-by l4)"; rc=$?
+check 'planted: exit 1'                1 "$rc"
+check 'planted: it names the branch that adds nothing' yes "$(grep -qF 'nothing to integrate: origin/issue-316-holds-nothing holds nothing that the issues before it in the list do not' <<< "$out" && echo yes || echo no)"
+check 'planted: origin did not move'   "$before_list" "$(tip)"
+check 'planted: no temporary worktree is left' 0 "$(leftovers)"
+git -C "$work" worktree remove --force "$wt_holds"; git -C "$work" push -q origin --delete issue-316-holds-nothing
+git -C "$work" branch -q -D issue-315-holds-the-work issue-316-holds-nothing
 after="$(tip)"
 
 echo '--from-origin on a conflict leaves origin as it was, the held worktree untouched and no temporary worktree'

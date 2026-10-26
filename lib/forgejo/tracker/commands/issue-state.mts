@@ -4,7 +4,7 @@ import type { Issue, IssueRef } from '../domain/issues.mts';
 import { OPEN_STATUS_VALUES, parseStatus, replaceFamilyLabel, statusLabel } from '../domain/labels.mts';
 import { PreconditionError, UsageError } from '../domain/refusals.mts';
 import { findCurrentProof, holdsNoLandedRecord, readIssueHistory, readTimeline } from '../domain/workflow.mts';
-import { parseArguments, refuseExtra, takeIssues } from './arguments.mts';
+import { findLandedCommitOf, parseArguments, refuseExtra, takeIssues } from './arguments.mts';
 import { succeeded } from './command.mts';
 import type { CommandContext, CommandResult } from './command.mts';
 
@@ -16,8 +16,9 @@ export const closeHelp = `${CLOSE_USAGE}
 --reason not-planned sets status/not-planned and closes the issue. --reason completed sets status/done and closes
 an issue that records a current proof: a "Proven on" record of an account with write permission, written after the
 issue's newest landing and after its last reopening. Without one it refuses and names issue-proof, which checks
-the delivery and writes the proof. An issue that holds no "Landed on" record at all was delivered without a code
-change: a proof written after its last reopening closes it, and the output says that no landing exists.`;
+the delivery and writes the proof. An issue that holds no "Landed on" record at all, and whose number no commit on the
+default branch of origin of this clone names at the end of its subject, was delivered without a code change: a proof
+written after its last reopening closes it, and the output says that no landing exists.`;
 
 export const reopenHelp = `${REOPEN_USAGE}
 
@@ -26,12 +27,17 @@ is status/testing, earlier landings and releases still count. Every reopening re
 or no added status label also requires delivery again.`;
 
 // An issue completes with a proof that follows its landing and its last reopening, which issue-proof writes.
-// It says whether the issue holds no landing at all, so its close can say so.
-async function refuseWithoutCurrentProof(api: ForgejoClient, issue: Issue): Promise<boolean> {
+// It says whether the issue holds no landing at all, so its close can say so: no "Landed on" record, and no commit of
+// the default branch of origin that names it, which is work that landed without its record.
+async function refuseWithoutCurrentProof(api: ForgejoClient, issue: Issue, context: CommandContext): Promise<boolean> {
   const name = formatIssue(issue.ref);
   if (issue.state !== 'open') throw new PreconditionError(`${name} is closed already`);
   const entries = await readTimeline(api, issue.ref);
   const history = await readIssueHistory(api, issue, entries);
+  const landedWithoutRecord = holdsNoLandedRecord(entries) ? await findLandedCommitOf(context.git, context.cwd, issue.ref) : undefined;
+  if (landedWithoutRecord !== undefined) {
+    throw new PreconditionError(`${name} has no proof that follows its landing: the commit ${landedWithoutRecord.slice(0, 7)} on the default branch of origin names it, and the issue holds no "Landed on" record of that landing; run integrate-issue again, which writes it`);
+  }
   const deliveredWithoutCode = holdsNoLandedRecord(entries);
   if (findCurrentProof(history, deliveredWithoutCode) === undefined) {
     throw new PreconditionError(`${name} has no proof that follows its landing and its last reopening: a delivered issue is closed as completed by issue-proof, which records the proof; use --reason not-planned for work that is not done`);
@@ -57,7 +63,7 @@ export async function runClose(args: readonly string[], context: CommandContext)
     const withoutLanding = new Set<string>();
     for (const ref of refs) {
       const issue = await getIssue(api, ref);
-      if (await refuseWithoutCurrentProof(api, issue)) withoutLanding.add(formatIssue(issue.ref));
+      if (await refuseWithoutCurrentProof(api, issue, context)) withoutLanding.add(formatIssue(issue.ref));
       issues.push(issue);
     }
     await applyInOrder('close issues as completed', issues, (issue) => formatIssue(issue.ref), async (issue) => {

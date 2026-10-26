@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { formatRepository, isSameRepository, parseIssueNumber, parseRepository } from '../domain/issues.mts';
+import { commitNameOf, formatRepository, isSameRepository, parseIssueNumber, parseRepository } from '../domain/issues.mts';
 import type { IssueRef, RepositoryRef } from '../domain/issues.mts';
 import { UsageError } from '../domain/refusals.mts';
 import type { GitClient } from '../git/git.mts';
@@ -119,6 +119,16 @@ export async function isBranchOfIssue(git: GitClient, cwd: string, name: string,
   const recorded = await git.getConfig(cwd, `branch.${name}.issueRepository`);
   if (recorded === undefined) return isSameRepository(ref, origin);
   return recorded.toLowerCase() === formatRepository(ref).toLowerCase();
+}
+
+// The newest commit on the default branch of origin of the clone at `cwd` whose subject names the issue at its end, as
+// integrate-issue lands its work, or nothing. Work that landed without its "Landed on" record, as a landing stopped between
+// its push and its record leaves it, is found here.
+export async function findLandedCommitOf(git: GitClient, cwd: string, ref: IssueRef): Promise<string | undefined> {
+  const origin = await git.originRepository(cwd);
+  const defaultBranch = await git.defaultBranch(cwd);
+  await git.fetchBranch(cwd, defaultBranch);
+  return git.findCommitBySubjectEnding(cwd, `refs/remotes/origin/${defaultBranch}`, `(${commitNameOf(ref, origin)})`);
 }
 
 // As takeIssueOfWorktree for a list: the repository named, or recorded on the current branch, holds for every number.

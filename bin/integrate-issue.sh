@@ -273,6 +273,9 @@ make_merge() {
   base_tip="$(git -C "$tree" rev-parse HEAD)"
   merge_shas=()
   for position in "${!merge_tips[@]}"; do
+    # git merges a tip that the merges before it hold already into nothing, and says so with status 0
+    [ "$position" -eq 0 ] || ! git -C "$tree" merge-base --is-ancestor "${merge_tips[position]}" HEAD \
+      || die "nothing to integrate: ${merge_names[position]} holds nothing that the issues before it in the list do not, so it would land in no merge commit of its own; leave it out of the list"
     git -C "$tree" merge -q --no-ff --no-edit "${merge_tips[position]}" -m "${issue_subjects[position]}" -m "$trailers" \
       || die "${merge_names[position]} does not merge cleanly into origin/$default - bring origin/$default into the branch, get the review of the result, then run this again; nothing was pushed"
     merge_shas+=("$(git -C "$tree" rev-parse HEAD)")

@@ -417,6 +417,43 @@ describe('integrate-issue', () => {
       }
     });
 
+    it('lands issues of another repository beside the branch of this clone\'s own issue of the second number on origin (planted: that branch made two branches of the issue)', async () => {
+      const issues: { number: number; tree: string; branch: string; head: string }[] = [];
+      for (const title of ['First elsewhere, so that it lands first', 'Second elsewhere, so that it lands next']) {
+        const number = newIssue(sibling, title);
+        await startIssue.run([sibling.full, String(number)], ctx(main.checkout));
+        const tree = await treeOf(main, number);
+        issues.push({ number, tree, branch: must(await client.currentBranch(tree)), head: fixture.commit(tree, `elsewhere-${number}.txt`, 'work\n') });
+      }
+      const [first, second] = [must(issues[0]), must(issues[1])];
+      pushBranch(second);
+      git(main.second, 'push', '-q', 'origin', `${unlandedCommit(main)}:refs/heads/issue-${second.number}-clones-own-work`);
+      const before = tipOf(main);
+      await integrateIssue.run(listArguments(sibling, [first, second]), ctx(first.tree));
+      assert.equal(git(main.remote, 'rev-list', '--merges', '--count', `${before}..master`), '2');
+      assert.match(git(main.remote, 'log', '-1', '--format=%s', 'master'), new RegExp(`\\(o/sibling#${second.number}\\)$`));
+    });
+
+    it('lands none when the branch of a later issue holds nothing the earlier ones do not, and names it (planted: the second branch stands at the head of the first)', async () => {
+      const first = await worked(main, 'Holds the work, so that it lands');
+      const second = await started(main, 'Holds nothing of its own, so that it is refused');
+      git(second.tree, 'reset', '-q', '--hard', first.head);
+      pushBranch(second);
+      const [before, writes] = [tipOf(main), writesOf()];
+      await assert.rejects(
+        integrateIssue.run(listArguments(main, [first, { number: second.number, head: first.head }]), ctx(first.tree)),
+        new RegExp(`nothing landed: ${second.branch} holds nothing that the issues before it in the list do not`),
+      );
+      assert.equal(tipOf(main), before);
+      assert.equal(writesOf(), writes);
+    });
+
+    it('is refused when an issue is named twice, with nothing merged', async () => {
+      const issue = await worked(main, 'Named twice, so that nothing lands');
+      const before = tipOf(main);
+      await assert.rejects(integrateIssue.run(listArguments(main, [issue, issue]), ctx(issue.tree)), /an issue is named twice/);
+      assert.equal(tipOf(main), before);
+    });
   });
 
   describe('the re-run of a landing', () => {
@@ -1373,6 +1410,20 @@ describe('issue-proof and the close as completed', () => {
     const result = await issueState.runClose([main.full, String(number), '--reason', 'completed'], ctx(main.checkout));
     assert.match(result.stdout, /closed as completed; no landing exists/);
     assert.equal(fake.readIssue('o/r', number).state, 'closed');
+  });
+
+  it('refuses the proof and the close of an issue whose work landed without its "Landed on" record (planted: a commit on the default branch names it)', async () => {
+    const number = newIssue(main, 'Landed without its record, so that no proof stands in for its delivery', { labels: ['status/testing'] });
+    git(main.second, 'pull', '-q', '--ff-only', 'origin', 'master');
+    writeFileSync(join(main.second, `landed-${number}.txt`), 'landed\n');
+    git(main.second, 'add', `landed-${number}.txt`);
+    git(main.second, 'commit', '-q', '-m', `Work that landed without its record (#${number})`);
+    const landed = git(main.second, 'rev-parse', 'HEAD');
+    git(main.second, 'push', '-q', 'origin', 'master');
+    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout)), new RegExp(`not delivered, so nothing is proven: the commit ${landed.slice(0, 7)} on the default branch of origin names it`));
+    fake.addComment(main.full, number, 'fake-user', composeProvenRecord('prod', 'seen on PROD'));
+    await assert.rejects(issueState.runClose([main.full, String(number), '--reason', 'completed'], ctx(main.checkout)), new RegExp(`the commit ${landed.slice(0, 7)} on the default branch of origin names it`));
+    assert.equal(fake.readIssue('o/r', number).state, 'open');
   });
 
   it('counts no record of an account without write permission (planted: a stranger lands, releases and would prove)', async () => {

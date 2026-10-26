@@ -71,6 +71,12 @@ export function formatIssue(ref: IssueRef): string {
   return `${formatRepository(ref)}#${ref.number}`;
 }
 
+// How a commit of the code repository names the issue at the end of its subject, as integrate-issue writes it: #<n> for
+// an issue of that repository, OWNER/REPO#<n> for one of another.
+export function commitNameOf(ref: IssueRef, codeRepository: RepositoryRef): string {
+  return isSameRepository(ref, codeRepository) ? `#${ref.number}` : formatIssue(ref);
+}
+
 const SLUG_LENGTH = 40;
 
 // The name start-issue gives the branch of an issue: issue-<number>-<slug>, the slug the title in lower case, every run of

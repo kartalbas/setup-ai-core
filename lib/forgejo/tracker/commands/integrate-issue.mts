@@ -3,14 +3,14 @@ import { mkdir, mkdtemp } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ForgejoClient } from '../api/client.mts';
 import { readVisibility, waitForChecks } from '../domain/checks.mts';
-import { addComment, currentLogin, explainMissingAssignment, formatIssue, formatRepository, getIssue, isSameIssue, isSameRepository } from '../domain/issues.mts';
+import { addComment, commitNameOf, currentLogin, explainMissingAssignment, formatIssue, formatRepository, getIssue, isSameIssue, isSameRepository, issueBranchName } from '../domain/issues.mts';
 import type { Issue, IssueRef, RepositoryRef } from '../domain/issues.mts';
 import { replaceFamilyLabel, statusLabel } from '../domain/labels.mts';
 import { PartialCompletionError, PreconditionError, UsageError } from '../domain/refusals.mts';
 import { composeLandedRecord, hasLandedRecord, readTimeline } from '../domain/workflow.mts';
 import { GitError } from '../git/git.mts';
 import type { GitClient } from '../git/git.mts';
-import { listOf, parseArguments, parseIssueReference, refuseExtra, takeIssuesOfWorktree } from './arguments.mts';
+import { isBranchOfIssue, listOf, parseArguments, parseIssueReference, refuseExtra, takeIssuesOfWorktree } from './arguments.mts';
 import { succeeded } from './command.mts';
 import type { CommandContext, CommandResult } from './command.mts';
 
@@ -77,13 +77,9 @@ function parseReviewers(reviewers: readonly string[]): string[] {
 }
 
 // How a commit names the issue: `#N` in the repository the work lands in, `owner/repo#N` from another.
-function issueName(ref: IssueRef, codeRepository: RepositoryRef): string {
-  return isSameRepository(ref, codeRepository) ? `#${ref.number}` : `${formatRepository(ref)}#${ref.number}`;
-}
-
 // The subject the gate takes is 72 characters at most, so a long title gives way to the branch name, then to the number.
 function mergeSubject(title: string, branch: string, ref: IssueRef, codeRepository: RepositoryRef): string {
-  const name = issueName(ref, codeRepository);
+  const name = commitNameOf(ref, codeRepository);
   const fallback = `Merge issue-${ref.number} (${name})`;
   const candidates = [title.trim() === '' ? fallback : `${title.trim()} (${name})`, `Merge ${branch} (${name})`, fallback];
   return candidates.find((candidate) => candidate.length <= 72) ?? fallback;
@@ -185,6 +181,9 @@ async function landReviewedHeads(context: CommandContext, api: ForgejoClient, in
     const base = await git.resolveCommit(tree, 'HEAD');
     const commits: string[] = [];
     for (const unit of input.units) {
+      if (commits.length > 0 && (await git.isAncestor(tree, unit.head, 'HEAD'))) {
+        throw new PreconditionError(`nothing landed: ${unit.branch} holds nothing that the issues before it in the list do not, so it would land in no merge commit of its own; leave it out of the list, and --also records the landing of the first issue on it`);
+      }
       try {
         commits.push(await git.merge(tree, unit.head, `${unit.subject}\n\n${input.trailers.join('\n')}`));
       } catch (error) {
@@ -312,11 +311,14 @@ async function describeUnits(context: CommandContext, refs: readonly IssueRef[],
   return units;
 }
 
-// The branch of an issue after the first, as origin holds it: the one branch issue-<number>-*, fetched, whose tip is
-// the reviewed head.
-async function findOriginBranch(context: CommandContext, unit: Unit): Promise<string> {
+// The branch of an issue after the first, as origin holds it: the one branch issue-<number>-* that is the issue's, as
+// isBranchOfIssue says, fetched, whose tip is the reviewed head.
+async function findOriginBranch(context: CommandContext, unit: Unit, origin: RepositoryRef, issueBranch: string): Promise<string> {
   const { git, cwd } = context;
-  const names = await git.listRemoteBranchNames(cwd, [`issue-${unit.ref.number}`, `issue-${unit.ref.number}-*`]);
+  const names: string[] = [];
+  for (const name of await git.listRemoteBranchNames(cwd, [`issue-${unit.ref.number}`, `issue-${unit.ref.number}-*`])) {
+    if (await isBranchOfIssue(git, cwd, name, unit.ref, origin, issueBranch)) names.push(name);
+  }
   const [name, ...others] = names;
   if (name === undefined) throw new PreconditionError(`origin has no branch issue-${unit.ref.number}-* of ${formatIssue(unit.ref)} to land: push the reviewed branch, then run this again`);
   if (others.length > 0) throw new PreconditionError(`origin has more than one branch for issue ${unit.ref.number}, and which one the reviewer read is not for this command to guess: ${names.join(' ')}`);
@@ -332,6 +334,9 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   const headArguments = parseReviewedHeads(listOf(parsed, '--reviewed-head'), listed.length);
   const ref = listed[0];
   if (ref === undefined) throw new UsageError(USAGE);
+  if (listed.some((issueRef, index) => listed.findIndex((known) => isSameIssue(known, issueRef)) !== index)) {
+    throw new UsageError(`an issue is named twice: ${listed.map((issueRef) => String(issueRef.number)).join(' ')}. ${USAGE}`);
+  }
   const alsoRefs: IssueRef[] = [];
   for (const text of listOf(parsed, '--also')) {
     const other = parseIssueReference(text);
@@ -361,7 +366,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
     else if (index === 0) {
       if (issueBranch === undefined) throw new PreconditionError(`this runs in the worktree of issue ${ref.number}, on its branch issue-${ref.number}-*; here ${branch ?? 'no branch'} is checked out`);
       unit.branch = issueBranch;
-    } else unit.branch = await findOriginBranch(context, unit);
+    }
   }
   if (issueBranch !== undefined) {
     const changes = await git.listChanges(cwd);
@@ -375,7 +380,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   for (const [index, unit] of units.entries()) {
     if (unit.landedAt === undefined || unit.reviewedHead === undefined) continue;
     const headIsReviewed = index === 0 && issueBranch !== undefined && (await git.resolveCommit(cwd, 'HEAD')) === unit.reviewedHead;
-    const name = issueName(unit.ref, codeRepository);
+    const name = commitNameOf(unit.ref, codeRepository);
     if (!headIsReviewed && !(await git.getSubject(cwd, unit.landedAt)).endsWith(`(${name})`)) {
       throw new PreconditionError(
         `nothing is written: ${unit.reviewedHead} is on origin/${defaultBranch}, but in the commit ${unit.landedAt.slice(0, 7)}, whose subject does not end with (${name}), so it is not shown to be the work of ${formatIssue(unit.ref)}; ` +
@@ -393,6 +398,10 @@ export async function run(args: readonly string[], context: CommandContext): Pro
     const unassigned = explainMissingAssignment(issue, login);
     if (unassigned !== undefined) throw new PreconditionError(unassigned);
     read.push(issue);
+  }
+  // The branch of every issue after the first comes from origin, found by the name its title gives it.
+  for (const [index, unit] of units.entries()) {
+    if (index > 0 && !unit.isLanded) unit.branch = await findOriginBranch(context, unit, codeRepository, issueBranchName(unit.ref.number, read[index]?.title ?? ''));
   }
 
   for (const unit of units) {

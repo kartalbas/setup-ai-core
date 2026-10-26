@@ -251,11 +251,18 @@ export function listMissingDelivery(history: IssueHistory, landingIsDelivery: re
   return missing;
 }
 
-// A proof counts once the newest landing is behind it: a proof of earlier work does not cover later work.
-export function findCurrentProof(history: IssueHistory): ProofFact | undefined {
+// A proof counts once the newest landing is behind it: a proof of earlier work does not cover later work. Where the
+// issue holds no "Landed on" record at all (`delivered without code`), its work was no change of code, and the newest
+// proof after its last reopening counts.
+export function findCurrentProof(history: IssueHistory, deliveredWithoutCode = false): ProofFact | undefined {
   const landing = newest(history.landings);
-  if (landing === undefined) return undefined;
+  if (landing === undefined) return deliveredWithoutCode ? newest(history.proofs) : undefined;
   return newest(history.proofs.filter((proof) => proof.at > landing.at));
+}
+
+// Whether the issue holds no "Landed on" record, from any account: its delivery was no change of code.
+export function holdsNoLandedRecord(entries: readonly TimelineEntry[]): boolean {
+  return !entries.some((entry) => entry.kind === 'comment' && LANDED_LINE.test(firstLine(entry.body)));
 }
 
 // The environments of LIVE_TAGS (`env=pattern` separated by spaces) whose pattern is the one given.
@@ -295,6 +302,18 @@ export async function hasTrustedLandedRecord(api: ForgejoClient, ref: IssueRef, 
   return false;
 }
 
+// The reviewed heads that the "Landed on" records of accounts with write permission name, in the order written.
+export async function listTrustedLandedHeads(api: ForgejoClient, ref: IssueRef, entries: readonly TimelineEntry[]): Promise<string[]> {
+  const isTrusted = createTrustCheck(api, ref);
+  const heads: string[] = [];
+  for (const entry of entries) {
+    if (entry.kind !== 'comment' || !LANDED_LINE.test(firstLine(entry.body))) continue;
+    const head = fieldOf(entry.body, 'Reviewed head');
+    if (head !== undefined && (await isTrusted(entry.author))) heads.push(head);
+  }
+  return heads;
+}
+
 export function hasReleasedRecord(entries: readonly TimelineEntry[], repository: RepositoryRef, tag: string): boolean {
   return entries.some((entry) => {
     if (entry.kind !== 'comment') return false;
@@ -307,5 +326,5 @@ export function hasReleasedRecord(entries: readonly TimelineEntry[], repository:
 // Only a trusted proof counts: on a public repository anybody can write "Proven on" before the writer does.
 export function hasProvenRecord(history: IssueHistory, environment: string): boolean {
   const landing = newest(history.landings);
-  return landing !== undefined && history.proofs.some((proof) => proof.environment === environment && proof.at > landing.at);
+  return history.proofs.some((proof) => proof.environment === environment && (landing === undefined || proof.at > landing.at));
 }

@@ -40,8 +40,14 @@ ci_ref=refs/heads/ci/integrate-issue-9-x
 # one process; the output is in out, the status in rc, and how often the check ran in ran
 gate() {
   local receipt="$1"; shift
-  local before; before="$(wc -l < "$runs")"
-  out="$(printf '%s\n' "$@" | ( cd "$repo" && if [ "$receipt" = - ]; then bash "$root/bin/pre-push.sh" origin x; else AI_CORE_LANDING_RECEIPT="$receipt" bash "$root/bin/pre-push.sh" origin x; fi 2>&1 ))"; rc=$?
+  local before mark refs=() line carried=()
+  [ "$receipt" = - ] || carried=(AI_CORE_LANDING_RECEIPT="$receipt")
+  before="$(wc -l < "$runs")"
+  # Every push here is made by a path of the harness, which marks it: the default branch takes no other.
+  while read -r _ _ line _; do refs+=("$line"); done <<< "$(printf '%s\n' "$@")"
+  mark="$(bash "$root/lib/landing-check.sh" mark "$repo" "${1%% *}" "${refs[@]}")"
+  out="$(printf '%s\n' "$@" | ( cd "$repo" && env AI_CORE_LANDING_MARK="$mark" ${carried[@]+"${carried[@]}"} bash "$root/bin/pre-push.sh" origin x 2>&1 ))"; rc=$?
+  bash "$root/lib/landing-check.sh" unmark "$mark"
   ran=$(( $(wc -l < "$runs") - before ))
 }
 first_push() { gate "$1" "$merged $merged $ci_ref $zeros"; }

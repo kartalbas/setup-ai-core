@@ -22,6 +22,7 @@ import * as integrateIssue from './integrate-issue.mts';
 import * as issueProof from './issue-proof.mts';
 import * as issueRelease from './issue-release.mts';
 import * as issueState from './issue-state.mts';
+import * as issueStatus from './issue-status.mts';
 import * as startIssue from './start-issue.mts';
 
 // The commits these tests make through GitClient need an identity, and a runner has none.
@@ -120,7 +121,9 @@ describe('start-issue', () => {
     const tree = await treeOf(main, number);
     assert.equal(tree, join(fixture.root, 'project-o', '.worktrees', 'r', `issue-${number}-start-the-work-so-that-it-begins`));
     assert.equal(git(tree, 'rev-parse', 'HEAD'), moved, 'cut from the fetched default, which the checkout never pulled');
-    assert.equal(git(tree, 'rev-parse', '--abbrev-ref', '@{upstream}'), 'origin/master');
+    const startedBranch = `issue-${number}-start-the-work-so-that-it-begins`;
+    assert.equal(git(tree, 'config', '--get', `branch.${startedBranch}.remote`), 'origin', 'a plain push goes to origin');
+    assert.equal(git(tree, 'config', '--get', `branch.${startedBranch}.merge`), `refs/heads/${startedBranch}`, 'and to the branch of the issue, never the default branch');
     const issue = fake.readIssue('o/r', number);
     assert.deepEqual(issue.labels, ['status/implementing']);
     assert.equal(issue.comments.length, 1);
@@ -217,7 +220,7 @@ describe('start-issue', () => {
     const result = await startIssue.run([String(number)], ctx(main.checkout));
     assert.match(result.stdout, new RegExp(`opened on origin/${branch} at ${work}`));
     assert.equal(git(await treeOf(main, number), 'rev-parse', 'HEAD'), work);
-    assert.equal(git(main.checkout, 'config', '--get', `branch.${branch}.merge`), 'refs/heads/master');
+    assert.equal(git(main.checkout, 'config', '--get', `branch.${branch}.merge`), `refs/heads/${branch}`);
   });
 
   it('records on the branch that the issue lives in another repository, and writes there (innocent case)', async () => {
@@ -227,6 +230,43 @@ describe('start-issue', () => {
     const branch = must(await client.currentBranch(tree));
     assert.equal(git(main.checkout, 'config', '--get', `branch.${branch}.issueRepository`), sibling.full);
     assert.deepEqual(fake.readIssue(sibling.full, number).labels, ['status/implementing']);
+  });
+});
+
+describe('start-issue for an issue of another repository whose number a branch of this clone\'s own issue carries', () => {
+  it('cuts the worktree beside a local and an origin branch of the own issue of that number, and records the repository (planted: the own branches refused it)', async () => {
+    const number = newIssue(sibling, 'Elsewhere with a clashing number, so that the branches differ');
+    git(main.checkout, 'branch', `issue-${number}-clones-own-work`);
+    git(main.second, 'push', '-q', 'origin', `${unlandedCommit(main)}:refs/heads/issue-${number}-pushed-by-the-clone`);
+    await startIssue.run([sibling.full, String(number)], ctx(main.checkout));
+    const branch = must(await client.currentBranch(await treeOf(main, number)));
+    assert.notEqual(branch, `issue-${number}-clones-own-work`);
+    assert.equal(git(main.checkout, 'config', '--get', `branch.${branch}.issueRepository`), sibling.full);
+    assert.ok((await client.listBranchNames(main.checkout)).includes(`issue-${number}-clones-own-work`), 'the own branch is untouched');
+  });
+
+  it('opens the worktree on an origin branch named as the issue\'s branch, and refuses where its own issue of that number is asked (innocent case)', async () => {
+    const number = newIssue(sibling, 'Own branch on origin, so that it opens');
+    const branch = `issue-${number}-own-branch-on-origin-so-that-it-opens`;
+    const work = unlandedCommit(main);
+    git(main.second, 'push', '-q', 'origin', `${work}:refs/heads/${branch}`);
+    await startIssue.run([sibling.full, String(number)], ctx(main.checkout));
+    assert.equal(git(await treeOf(main, number), 'rev-parse', 'HEAD'), work);
+    assert.equal(git(main.checkout, 'config', '--get', `branch.${branch}.issueRepository`), sibling.full);
+    const own = newIssue(main, 'Own issue with a branch, so that it refuses');
+    git(main.checkout, 'branch', `issue-${own}-someone-else`);
+    await assert.rejects(startIssue.run([String(own)], ctx(main.checkout)), /a branch for issue \d+ exists already: issue-\d+-someone-else/);
+  });
+
+  it('cuts the worktree of an issue of this clone beside a branch of its number, local and on origin, that start-issue recorded for another repository (planted: that branch refused it)', async () => {
+    const own = newIssue(main, 'Own issue beside a branch recorded elsewhere, so that it starts');
+    const elsewhere = `issue-${own}-recorded-for-the-sibling`;
+    git(main.checkout, 'branch', elsewhere, git(main.checkout, 'commit-tree', '-p', 'HEAD', '-m', 'work of the sibling', 'HEAD^{tree}'));
+    git(main.checkout, 'config', `branch.${elsewhere}.issueRepository`, sibling.full);
+    git(main.checkout, 'push', '-q', 'origin', elsewhere);
+    await startIssue.run([String(own)], ctx(main.checkout));
+    assert.notEqual(must(await client.currentBranch(await treeOf(main, own))), elsewhere);
+    assert.equal(git(main.checkout, 'config', '--get', `branch.${elsewhere}.issueRepository`), sibling.full, 'the other branch keeps its record');
   });
 });
 
@@ -282,6 +322,156 @@ describe('integrate-issue', () => {
     assert.deepEqual(fake.readIssue('o/r', bystander).labels, ['status/implementing']);
     assert.equal(fake.readIssue('o/r', bystander).comments.length, 0);
     assert.notEqual(head, reviewed);
+  });
+
+  describe('a list of issues', () => {
+    const listArguments = (world: World, issues: readonly { number: number; head: string }[]): string[] => [
+      world.full,
+      ...issues.map((issue) => String(issue.number)),
+      '--reviewed-by',
+      'alice',
+      ...issues.flatMap((issue) => ['--reviewed-head', issue.head]),
+    ];
+    const pushBranch = (issue: { tree: string; branch: string }): void => {
+      git(issue.tree, 'push', '-q', 'origin', `HEAD:refs/heads/${issue.branch}`);
+    };
+
+    it('lands each issue in a merge commit of its own, in one push through one run of the gate, and records each landing', async () => {
+      const first = await worked(main, 'First of a package, so that it lands first');
+      const second = await worked(main, 'Second of a package, so that it lands next');
+      pushBranch(second);
+      const counter = join(scratch, `gate-runs-${first.number}`);
+      fixture.installHook(main.checkout, 'pre-push', `echo run >> ${counter}`);
+      const before = tipOf(main);
+      let result;
+      try {
+        result = await integrateIssue.run(listArguments(main, [first, second]), ctx(first.tree));
+      } finally {
+        rmSync(join(main.checkout, '.git', 'hooks', 'pre-push'));
+      }
+      assert.equal(readFileSync(counter, 'utf8').trim().split('\n').length, 1, 'one push, one run of the gate');
+      assert.equal(git(main.remote, 'rev-list', '--merges', '--count', `${before}..master`), '2');
+      assert.deepEqual(git(main.remote, 'log', '--merges', '-2', '--format=%s', 'master').split('\n'), [`Second of a package, so that it lands next (#${second.number})`, `First of a package, so that it lands first (#${first.number})`]);
+      const secondMerge = tipOf(main);
+      const firstMerge = git(main.remote, 'rev-parse', `${secondMerge}^`);
+      for (const [issue, merge] of [[first, firstMerge], [second, secondMerge]] as const) {
+        assert.deepEqual(fake.readIssue('o/r', issue.number).labels, ['status/testing']);
+        assert.match(commentsOf(main, issue.number).find((text) => text.startsWith('Landed on')) ?? '', new RegExp(`Reviewed head: ${issue.head}\\nLanded commit: ${merge}\\n`));
+        assert.match(result.stdout, new RegExp(`next: ai-core finish-issue o/r ${issue.number}`));
+      }
+      assert.equal(result.stdout.match(/^integrated: /gm)?.length, 1);
+      assert.equal(await client.currentBranch(first.tree), first.branch, 'the worktree is on its branch');
+    });
+
+    it('lands none of them when the second does not merge, and names it (planted: both change one file)', async () => {
+      const first = await started(main, 'First that clashes, so that none lands');
+      const second = await started(main, 'Second that clashes, so that none lands');
+      const firstHead = fixture.commit(first.tree, 'clash.txt', 'first\n');
+      const secondHead = fixture.commit(second.tree, 'clash.txt', 'second\n');
+      pushBranch(second);
+      const [remoteBefore, writesBefore] = [tipOf(main), writesOf()];
+      await assert.rejects(
+        integrateIssue.run(listArguments(main, [{ number: first.number, head: firstHead }, { number: second.number, head: secondHead }]), ctx(first.tree)),
+        (error: unknown) => error instanceof PreconditionError && new RegExp(`${second.branch} does not merge cleanly into origin/master`).test(error.message),
+      );
+      assert.equal(tipOf(main), remoteBefore);
+      assert.equal(writesOf(), writesBefore);
+      assert.equal(await client.currentBranch(first.tree), first.branch);
+      assert.equal(await client.isClean(first.tree), true);
+    });
+
+    it('is refused with a reviewed head missing for an issue, or without the branch of the second on origin', async () => {
+      const first = await worked(main, 'First that is short of a head, so that it is refused');
+      const second = await worked(main, 'Second without a branch on origin, so that it is refused');
+      await assert.rejects(integrateIssue.run([main.full, String(first.number), String(second.number), '--reviewed-by', 'alice', '--reviewed-head', first.head], ctx(first.tree)), (error: unknown) => error instanceof UsageError && /once for each issue/.test(error.message));
+      await assert.rejects(integrateIssue.run(listArguments(main, [first, second]), ctx(first.tree)), (error: unknown) => error instanceof PreconditionError && new RegExp(`origin has no branch issue-${second.number}-\\*`).test(error.message));
+    });
+
+    it('is refused when some reviewed heads are on the default branch and others are not, with nothing merged (planted: one landed alone)', async () => {
+      const first = await worked(main, 'Landed alone before the list, so that the list is refused');
+      const second = await worked(main, 'Not landed with the first, so that the list is refused');
+      pushBranch(second);
+      await integrateIssue.run(integrateArguments(main, first.number, first.head), ctx(first.tree));
+      const [remoteBefore, writesBefore] = [tipOf(main), writesOf()];
+      await assert.rejects(
+        integrateIssue.run(listArguments(main, [first, second]), ctx(first.tree)),
+        (error: unknown) => error instanceof PreconditionError && new RegExp(`heads of o/r#${first.number} are on origin/master already and those of o/r#${second.number} are not`).test(error.message),
+      );
+      assert.equal(tipOf(main), remoteBefore);
+      assert.equal(writesOf(), writesBefore);
+    });
+
+    it('writes only the missing records of a list that landed, merging and pushing nothing again', async () => {
+      const first = await worked(main, 'First whose record fails, so that it is written later');
+      const second = await worked(main, 'Second whose record fails, so that it is written later');
+      pushBranch(second);
+      fake.fail({ method: 'POST', path: `/repos/o/r/issues/${first.number}/comments`, mode: { kind: 'status', status: 500, message: 'planted' } });
+      await assert.rejects(integrateIssue.run(listArguments(main, [first, second]), ctx(first.tree)), PartialCompletionError);
+      const landed = tipOf(main);
+      const again = await integrateIssue.run(listArguments(main, [first, second]), ctx(first.tree));
+      assert.equal(tipOf(main), landed, 'no second merge and no second push');
+      assert.match(again.stdout, /already landed/);
+      for (const issue of [first, second]) {
+        assert.equal(commentsOf(main, issue.number).filter((text) => text.startsWith('Landed on')).length, 1);
+        assert.deepEqual(fake.readIssue('o/r', issue.number).labels, ['status/testing']);
+      }
+    });
+
+    it('lands issues of another repository beside the branch of this clone\'s own issue of the second number on origin (planted: that branch made two branches of the issue)', async () => {
+      const issues: { number: number; tree: string; branch: string; head: string }[] = [];
+      for (const title of ['First elsewhere, so that it lands first', 'Second elsewhere, so that it lands next']) {
+        const number = newIssue(sibling, title);
+        await startIssue.run([sibling.full, String(number)], ctx(main.checkout));
+        const tree = await treeOf(main, number);
+        issues.push({ number, tree, branch: must(await client.currentBranch(tree)), head: fixture.commit(tree, `elsewhere-${number}.txt`, 'work\n') });
+      }
+      const [first, second] = [must(issues[0]), must(issues[1])];
+      pushBranch(second);
+      git(main.second, 'push', '-q', 'origin', `${unlandedCommit(main)}:refs/heads/issue-${second.number}-clones-own-work`);
+      const before = tipOf(main);
+      await integrateIssue.run(listArguments(sibling, [first, second]), ctx(first.tree));
+      assert.equal(git(main.remote, 'rev-list', '--merges', '--count', `${before}..master`), '2');
+      assert.match(git(main.remote, 'log', '-1', '--format=%s', 'master'), new RegExp(`\\(o/sibling#${second.number}\\)$`));
+    });
+
+    it('lands none when the branch of a later issue holds nothing the earlier ones do not, and names it (planted: the second branch stands at the head of the first)', async () => {
+      const first = await worked(main, 'Holds the work, so that it lands');
+      const second = await started(main, 'Holds nothing of its own, so that it is refused');
+      git(second.tree, 'reset', '-q', '--hard', first.head);
+      pushBranch(second);
+      const [before, writes] = [tipOf(main), writesOf()];
+      await assert.rejects(
+        integrateIssue.run(listArguments(main, [first, { number: second.number, head: first.head }]), ctx(first.tree)),
+        new RegExp(`nothing landed: ${second.branch} holds nothing that the issues before it in the list do not`),
+      );
+      assert.equal(tipOf(main), before);
+      assert.equal(writesOf(), writes);
+    });
+
+    it('is refused when an issue is named twice, with nothing merged', async () => {
+      const issue = await worked(main, 'Named twice, so that nothing lands');
+      const before = tipOf(main);
+      await assert.rejects(integrateIssue.run(listArguments(main, [issue, issue]), ctx(issue.tree)), /an issue is named twice/);
+      assert.equal(tipOf(main), before);
+    });
+  });
+
+  describe('the re-run of a landing', () => {
+    it('sets status/testing only on an issue whose record it writes, and says that the others keep their status (planted: a card that moved on)', async () => {
+      const landed = await worked(main, 'Landed once, so that the re-run writes records');
+      await integrateIssue.run(integrateArguments(main, landed.number, landed.head), ctx(landed.tree));
+      const merge = tipOf(main);
+      const record = composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'r' }, reviewedHead: landed.head, landedCommit: merge, reviewers: ['alice'] }, { owner: 'o', repo: 'r' });
+      const moved = newIssue(main, 'Record present, card moved on, so that its status stays', { labels: ['status/implementing'] });
+      fake.addComment(main.full, moved, 'fake-user', record);
+      const missing = newIssue(main, 'No record yet, so that it gets testing and its record', { labels: ['status/implementing'] });
+      const result = await integrateIssue.run([...integrateArguments(main, landed.number, landed.head), '--also', `o/r#${moved}`, '--also', `o/r#${missing}`], ctx(landed.tree));
+      assert.deepEqual(fake.readIssue('o/r', moved).labels, ['status/implementing'], 'the card that moved on keeps its status');
+      assert.equal(commentsOf(main, moved).length, 1, 'and no second record is written');
+      assert.match(result.stdout, new RegExp(`o/r#${moved} keeps its status: the record "Landed on master" is there already`));
+      assert.deepEqual(fake.readIssue('o/r', missing).labels, ['status/testing']);
+      assert.match(commentsOf(main, missing)[0] ?? '', new RegExp(`^Landed on master:\\n\\nReviewed head: ${landed.head}\\nLanded commit: ${merge}\\n`));
+    });
   });
 
   describe('refuses, with nothing merged, pushed or written', () => {
@@ -556,20 +746,21 @@ describe('integrate-issue', () => {
       const { number, tree, head } = await worked(main, 'Receipt, so that the check runs once');
       fake.setChecks(main.full, ['success']);
       const seen = join(scratch, `receipt-seen-${number}`);
-      fixture.installHook(main.checkout, 'pre-push', `echo "\${AI_CORE_LANDING_RECEIPT:-none}" >> '${seen}'`);
+      fixture.installHook(main.checkout, 'pre-push', `echo "\${AI_CORE_LANDING_RECEIPT:-none} \${AI_CORE_LANDING_MARK:-none}" >> '${seen}'`);
       const harness = createRecordingHarness();
       try {
         await integrateIssue.run(integrateArguments(main, number, head), ctx(tree, publicSettings, harness));
       } finally {
         rmSync(join(main.checkout, '.git', 'hooks', 'pre-push'));
       }
-      assert.deepEqual(readFileSync(seen, 'utf8').trim().split('\n'), ['/planted/receipt', 'none', '/planted/receipt'], 'the push to the ci/ branch and the push to the default branch got it, the delete of the ci/ branch between them did not');
+      assert.deepEqual(readFileSync(seen, 'utf8').trim().split('\n'), ['/planted/receipt /planted/mark', 'none none', '/planted/receipt /planted/mark'], 'the push to the ci/ branch and the push to the default branch got the receipt and the mark, the delete of the ci/ branch between them did not');
       const calls = harness.calls.filter((call) => /LandingCheck/.test(call));
       assert.equal(calls.length, 3);
       assert.match(calls[0] ?? '', /^openLandingCheck /);
       assert.match(calls[1] ?? '', new RegExp(`^completeLandingCheck /planted/receipt ${tipOf(main)} refs/heads/ci/integrate-`));
       assert.equal(calls[2], 'closeLandingCheck /planted/receipt');
       assert.equal(process.env.AI_CORE_LANDING_RECEIPT, undefined, 'the receipt is no setting of the process');
+      assert.equal(process.env.AI_CORE_LANDING_MARK, undefined, 'the mark is no setting of the process');
     });
 
     it('leaves a receipt incomplete on red checks and still closes it (planted: red)', async () => {
@@ -578,6 +769,18 @@ describe('integrate-issue', () => {
       const harness = createRecordingHarness();
       await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree, publicSettings, harness)), /are red/);
       assert.deepEqual(harness.calls.filter((call) => /LandingCheck/.test(call)).map((call) => call.split(' ')[0]), ['openLandingCheck', 'closeLandingCheck']);
+    });
+
+    it('lands nothing when the mark of the landing cannot be made, and moves no ref (planted: the mark step fails)', async () => {
+      const { number, tree, head } = await worked(main, 'No mark, so that the gate would refuse the push');
+      fake.setChecks(main.full, ['success']);
+      const [before, writes] = [tipOf(main), writesOf()];
+      const harness = createRecordingHarness();
+      harness.failing.add('openLandingMark');
+      await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree, publicSettings, harness)), /nothing landed: the mark of this landing could not be made \(planted: openLandingMark failed\)/);
+      assert.equal(tipOf(main), before);
+      assert.equal(writesOf(), writes);
+      assert.doesNotMatch(remoteBranches(main), /ci\/integrate/);
     });
 
     it('lands nothing on red checks, and removes the branch it pushed for them (planted: red)', async () => {
@@ -778,6 +981,8 @@ describe('integrate-issue', () => {
     it('writes them from a worktree that start-issue cut again on the branch of the issue, whose head is not the reviewed head', async () => {
       const issue = await landedWithoutRecords(main, 'Worktree cut again, so that its head differs');
       await removeTree(issue.tree, issue.branch);
+      // the landing sets the card to testing before it writes the record, so a card that is cut again has moved back
+      await issueStatus.run([main.full, String(issue.number), 'implementing'], ctx(main.checkout));
       await startIssue.run([String(issue.number)], ctx(main.checkout));
       const again = await treeOf(main, issue.number);
       assert.notEqual(git(again, 'rev-parse', 'HEAD'), issue.head);
@@ -893,6 +1098,31 @@ describe('finish-issue', () => {
     await integrateIssue.run(integrateArguments(main, landed.number, landed.head), ctx(landed.tree));
     await finishIssue.run([String(landed.number)], ctx(landed.tree));
     assert.ok(!existsSync(landed.tree));
+  });
+
+  it('removes the worktree of work that landed when the branch took the default branch in after the landing (planted: the head is no reviewed head)', async () => {
+    const landed = await worked(main, 'Took the default branch in, so that it is removed');
+    await integrateIssue.run(integrateArguments(main, landed.number, landed.head), ctx(landed.tree));
+    git(main.second, 'pull', '-q', '--ff-only', 'origin', 'master');
+    fixture.commit(main.second, `later-${landed.number}.txt`, 'later\n');
+    git(main.second, 'push', '-q', 'origin', 'master');
+    git(landed.tree, 'fetch', '-q', 'origin');
+    git(landed.tree, 'merge', '-q', '--ff-only', 'origin/master');
+    assert.notEqual(git(landed.tree, 'rev-parse', 'HEAD'), landed.head, 'the case is planted: the head is not the reviewed head');
+    const result = await finishIssue.run([String(landed.number)], ctx(main.checkout));
+    assert.match(result.stdout, /removed the worktree/);
+    assert.ok(!existsSync(landed.tree));
+    assert.ok(!(await client.listBranchNames(main.checkout)).includes(landed.branch));
+  });
+
+  it('keeps the worktree of a branch that took the default branch in and then worked again (innocent case)', async () => {
+    const landed = await worked(main, 'Worked again after the landing, so that it stays');
+    await integrateIssue.run(integrateArguments(main, landed.number, landed.head), ctx(landed.tree));
+    git(landed.tree, 'fetch', '-q', 'origin');
+    git(landed.tree, 'merge', '-q', '--ff-only', 'origin/master');
+    fixture.commit(landed.tree, `again-${landed.number}.txt`, 'again\n');
+    await assert.rejects(finishIssue.run([String(landed.number)], ctx(main.checkout)), /is not on origin\/master: the work did not land/);
+    assert.ok(existsSync(landed.tree));
   });
 
   it('keeps a worktree whose work did not land, and one with changes (planted: unlanded and dirty)', async () => {
@@ -1148,16 +1378,51 @@ describe('issue-proof and the close as completed', () => {
     assert.match(result.stdout, /proven on prod/);
   });
 
-  it('refuses a proof before delivery: no landing, a landing with no release after it (planted: neither)', async () => {
-    const none = newIssue(main, 'Never landed, so that no proof is written', { labels: ['status/implementing'] });
+  it('refuses a proof before delivery: a landing with no release after it, and a landing record only a stranger wrote (planted: neither)', async () => {
+    const forged = newIssue(main, 'Landed by a stranger, so that no proof is written', { labels: ['status/implementing'] });
+    fake.setPermission(main.full, 'stranger', 'read');
+    fake.addComment(main.full, forged, 'stranger', composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'r' }, reviewedHead: 'a'.repeat(40), landedCommit: 'b'.repeat(40), reviewers: ['alice'] }, { owner: 'o', repo: 'r' }));
     const before = writesOf();
-    await assert.rejects(issueProof.run(proofArguments(none), ctx(main.checkout)), /not delivered, so nothing is proven: no "Landed on" record/);
+    await assert.rejects(issueProof.run(proofArguments(forged), ctx(main.checkout)), /not delivered, so nothing is proven: no "Landed on" record of an account with write permission/);
     const { number, tree, head } = await worked(main, 'Landed only, so that no proof is written');
     await integrateIssue.run(integrateArguments(main, number, head), ctx(tree));
     const writes = writesOf();
     await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout)), /no release of o\/r follows its landing/);
     assert.equal(writesOf(), writes);
     assert.equal(before <= writes, true);
+    assert.equal(fake.readIssue('o/r', number).state, 'open');
+  });
+
+  it('proves and closes an issue that holds no "Landed on" record, and says that no landing exists (planted: refused for want of a landing)', async () => {
+    const number = newIssue(main, 'Delivered without a code change, so that its proof closes it', { labels: ['status/testing'] });
+    const result = await issueProof.run(proofArguments(number), ctx(main.checkout));
+    assert.match(result.stdout, new RegExp(`o/r#${number} proven on prod; status/done, closed as completed; no landing exists`));
+    const issue = fake.readIssue('o/r', number);
+    assert.equal(issue.state, 'closed');
+    assert.deepEqual(issue.labels, ['status/done']);
+    assert.equal(issue.comments.filter((text) => text.startsWith('Proven on prod:')).length, 1);
+  });
+
+  it('closes as completed an issue with no landing once a proof follows it, and not before (planted: no proof; innocent case: the issue with a landing and a proof before it, below)', async () => {
+    const number = newIssue(main, 'Approved as it stands, so that the proof closes it', { labels: ['status/testing'] });
+    await assert.rejects(issueState.runClose([main.full, String(number), '--reason', 'completed'], ctx(main.checkout)), /has no proof that follows its landing and its last reopening/);
+    fake.addComment(main.full, number, 'fake-user', composeProvenRecord('prod', 'seen on PROD'));
+    const result = await issueState.runClose([main.full, String(number), '--reason', 'completed'], ctx(main.checkout));
+    assert.match(result.stdout, /closed as completed; no landing exists/);
+    assert.equal(fake.readIssue('o/r', number).state, 'closed');
+  });
+
+  it('refuses the proof and the close of an issue whose work landed without its "Landed on" record (planted: a commit on the default branch names it)', async () => {
+    const number = newIssue(main, 'Landed without its record, so that no proof stands in for its delivery', { labels: ['status/testing'] });
+    git(main.second, 'pull', '-q', '--ff-only', 'origin', 'master');
+    writeFileSync(join(main.second, `landed-${number}.txt`), 'landed\n');
+    git(main.second, 'add', `landed-${number}.txt`);
+    git(main.second, 'commit', '-q', '-m', `Work that landed without its record (#${number})`);
+    const landed = git(main.second, 'rev-parse', 'HEAD');
+    git(main.second, 'push', '-q', 'origin', 'master');
+    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout)), new RegExp(`not delivered, so nothing is proven: the commit ${landed.slice(0, 7)} on the default branch of origin names it`));
+    fake.addComment(main.full, number, 'fake-user', composeProvenRecord('prod', 'seen on PROD'));
+    await assert.rejects(issueState.runClose([main.full, String(number), '--reason', 'completed'], ctx(main.checkout)), new RegExp(`the commit ${landed.slice(0, 7)} on the default branch of origin names it`));
     assert.equal(fake.readIssue('o/r', number).state, 'open');
   });
 

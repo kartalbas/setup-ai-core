@@ -162,12 +162,30 @@ commit() {  # commit <path> <message> - one file, one commit
 
 # One ref line, fed the way git feeds it. The gate runs with the working tree as its directory,
 # which is what git does before it starts a hook.
+# The push goes to the default branch, which only a harness landing updates: it carries the mark of one for the commit it lands,
+# as the landing paths of the harness write it, so that every case asserts its own rule. A case of the mark itself feeds
+# the gate by hand below.
 judge() {  # judge <working tree> <local sha> <remote sha>
+  local mark rc
+  mark="$(bash "$root/lib/landing-check.sh" mark "$1" "$(git -C "$1" rev-parse -q --verify "$2^{commit}" || echo "$2")" refs/heads/master)" || return 1
   printf 'refs/heads/master %s refs/heads/master %s\n' "$2" "$3" \
-    | ( cd "$1" && ${GATE_TIMEOUT:+timeout "$GATE_TIMEOUT"} bash "${GATE_SCRIPT:-$root/bin/pre-push.sh}" origin 'https://example.invalid/x.git' 2>&1 )
+    | ( cd "$1" && AI_CORE_LANDING_MARK="$mark" ${GATE_TIMEOUT:+timeout "$GATE_TIMEOUT"} bash "${GATE_SCRIPT:-$root/bin/pre-push.sh}" origin 'https://example.invalid/x.git' 2>&1 )
+  rc=$?
+  bash "$root/lib/landing-check.sh" unmark "$mark"
+  return "$rc"
 }
 only_new() {  # only_new <working tree> - judge the newest commit alone
   judge "$1" "$(git -C "$1" rev-parse HEAD)" "$(git -C "$1" rev-parse HEAD~1)"
+}
+
+# The gate in terminal mode on the checked-out branch of a working tree, as the landing of its HEAD would meet it.
+marked_terminal_gate() {  # marked_terminal_gate <working tree>
+  local mark rc
+  mark="$(bash "$root/lib/landing-check.sh" mark "$1" "$(git -C "$1" rev-parse HEAD)" "refs/heads/$(git -C "$1" symbolic-ref --short HEAD)")" || return 1
+  ( cd "$1" && AI_CORE_LANDING_MARK="$mark" bash "$root/bin/pre-push.sh" < /dev/null 2>&1 )
+  rc=$?
+  bash "$root/lib/landing-check.sh" unmark "$mark"
+  return "$rc"
 }
 
 zeros40='0000000000000000000000000000000000000000'
@@ -1163,11 +1181,11 @@ check 'it says nothing runs'                yes "$(grep -q 'no scripts/check.sh 
 
 # --- from a prompt: the current branch against its upstream ----------------------------------
 echo 'with nothing on standard input, the branch is judged against its upstream'
-out="$( cd "$plain" && bash "$root/bin/pre-push.sh" < /dev/null 2>&1 )"; rc=$?
+out="$(marked_terminal_gate "$plain")"; rc=$?
 check 'exit 0'                     0 "$rc"
 check 'it names the upstream'      yes "$(grep -q 'pre-push: judging master against origin/master' <<< "$out" && echo yes || echo no)"
 git -C "$plain" commit -q --allow-empty -m 'An empty commit that names nothing'
-out="$( cd "$plain" && bash "$root/bin/pre-push.sh" < /dev/null 2>&1 )"; rc=$?
+out="$(marked_terminal_gate "$plain")"; rc=$?
 check 'a new unnamed commit is refused'  1 "$rc"
 git -C "$plain" reset -q --hard HEAD~1
 
@@ -1364,12 +1382,12 @@ check "the project's own hook is named" yes "$(grep -q "^pre-push: pushed: .gith
 check 'and left as it is'             100644 "$(git -C "$origin_bare" ls-tree master -- .githooks/pre-commit | awk '{ print $1 }')"
 git -C "$pushed" push -q --no-verify --force origin "$before:master" 2>/dev/null; git -C "$pushed" reset -q --hard "$before"
 
-echo 'an unpushed commit that touches something else and names no issue is still refused, by the gate'
+echo 'an unpushed commit that touches something else and names no issue is still refused, by the gate: the install did not write it, so its push is a plain one'
 printf 'x\n' > "$pushed/x.txt"; git -C "$pushed" add x.txt; git -C "$pushed" commit -q -m 'Add x without a ticket'
 printf '#!/usr/bin/env bash\nexec bash ../tooling/hooks/pre-push "$@"\n' > "$pushed/.githooks/pre-push"
 out="$( cd "$pushed" && PATH="$root/bin:$PATH" bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
 check 'exit 1'                        1 "$rc"
-check 'the gate names the commit'     yes "$(grep -q 'Add x without a ticket names no issue' <<< "$out" && echo yes || echo no)"
+check 'the gate refuses it as a plain push' yes "$(grep -q 'master takes no plain push' <<< "$out" && echo yes || echo no)"
 check 'the push was refused, the commit stays' yes "$(grep -q 'the push was refused or failed (see above); the commit stays' <<< "$out" && echo yes || echo no)"
 git -C "$pushed" reset -q --hard origin/master   # the foreign commit goes; the origin is where the last push left it
 
@@ -1406,6 +1424,40 @@ check 'mine: named and kept'                yes "$(grep -q "^pre-push: pushed (w
 check 'mine: still changed'                 ' M .githooks/post-checkout' "$(git -C "$fake/wt-mine" status --porcelain)"
 check 'cut before the shims: both written'  yes "$(grep -q "^pre-push: pushed (worktree wt-before): .githooks/pre-push created; it goes out with that worktree's own commit$" <<< "$out" && grep -q "^pre-push: pushed (worktree wt-before): .githooks/post-checkout created; it goes out with that worktree's own commit$" <<< "$out" && [ -x "$fake/wt-before/.githooks/pre-push" ] && echo yes || echo no)"
 for w in same rewritten mine before; do git -C "$pushed" worktree remove --force "$fake/wt-$w" >/dev/null 2>&1; done
+
+echo 'a worktree that finish-issue removes while --install runs stays gone, and a live one beside it gets its shims'
+git -C "$pushed" worktree add -q -b issue-12-gone "$fake/wt-gone" "$(git -C "$pushed" rev-list --max-parents=0 HEAD)" < /dev/null >/dev/null 2>&1
+git -C "$pushed" worktree add -q -b issue-12-live "$fake/wt-live" "$(git -C "$pushed" rev-list --max-parents=0 HEAD)" < /dev/null >/dev/null 2>&1
+mkdir -p "$fake/remover"
+real_git="$(command -v git)"
+printf '#!/bin/sh\n"%s" "$@"; rc=$?\ncase "$*" in *"-C %s ls-tree"*) rm -rf "%s" ;; esac\nexit $rc\n' "$real_git" "$fake/wt-gone" "$fake/wt-gone" > "$fake/remover/git"
+chmod +x "$fake/remover/git"
+out="$( cd "$pushed" && PATH="$fake/remover:$PATH" bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'planted: the removed worktree stays gone' no "$([ -e "$fake/wt-gone" ] && echo yes || echo no)"
+check 'planted: and it is said that nothing was written there' yes "$(grep -q "(worktree wt-gone): .githooks/pre-push not written, $fake/wt-gone is gone$" <<< "$out" && echo yes || echo no)"
+check 'innocent: the live worktree got both shims' yes "$([ -x "$fake/wt-live/.githooks/pre-push" ] && [ -f "$fake/wt-live/.githooks/post-checkout" ] && echo yes || echo no)"
+git -C "$pushed" worktree remove --force "$fake/wt-live" >/dev/null 2>&1; git -C "$pushed" worktree prune
+
+echo 'the shims of --install reach the default branch through the real gate, which takes no plain push: the install is a path of the harness'
+real_origin="$fake/real-gate-origin.git"; git init -q --bare -b master "$real_origin"
+real_gate="$fake/real-gate"; git init -q -b master "$real_gate"
+git -C "$real_gate" config user.email 'test@example.invalid'; git -C "$real_gate" config user.name 'test'
+printf 'a\n' > "$real_gate/a.txt"; git -C "$real_gate" add -A; git -C "$real_gate" commit -q -m 'Start #13'
+git -C "$real_gate" remote add origin "$real_origin"; git -C "$real_gate" push -q -u origin master 2>/dev/null
+out="$( cd "$real_gate" && PATH="$root/bin:$PATH" bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'exit 0'                        0 "$rc"
+check 'the shims are on origin, pushed through the real gate' "$(git -C "$real_gate" rev-parse HEAD)" "$(git -C "$real_origin" rev-parse master)"
+check 'it ran the real gate'          yes "$(grep -q 'no scripts/check.sh in this repository' <<< "$out" && echo yes || echo no)"
+git -C "$real_gate" commit -q --allow-empty -m 'A plain push of the default branch #13'
+out="$( cd "$real_gate" && PATH="$root/bin:$PATH" git push origin HEAD:master 2>&1 )"; rc=$?
+check 'a plain push there: exit 1'    1 "$rc"
+check 'it names integrate-issue'      yes "$(grep -q 'master takes no plain push' <<< "$out" && echo yes || echo no)"
+echo 'a second --install, its shims unchanged, carries no commit of somebody else under its mark: the gate refuses that push as a plain one'
+plain_tip="$(git -C "$real_gate" rev-parse HEAD)"; origin_before="$(git -C "$real_origin" rev-parse master)"
+out="$( cd "$real_gate" && PATH="$root/bin:$PATH" bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'planted: origin did not move'  "$origin_before" "$(git -C "$real_origin" rev-parse master)"
+check 'planted: the gate refused it as a plain push' yes "$(grep -q 'master takes no plain push' <<< "$out" && echo yes || echo no)"
+check 'planted: the commit of somebody else stays as it was' "$plain_tip" "$(git -C "$real_gate" rev-parse HEAD)"
 
 echo '--install --all: every repository under a folder, a plain folder skipped; a repository whose .gitattributes already makes the shims LF gets no rule'
 folder="$fake/folder"; mkdir -p "$folder/not-a-repo"
@@ -1620,7 +1672,8 @@ rm -f "$lw/late.txt"
 echo 'a gate stopped during the wait starts no check and records no green run'
 plan 30; settings 24 300; : > "$PROBE_STATE/block"; lw_commit "$lw"
 printf 'refs/heads/master %s refs/heads/master %s\n' "$(git -C "$lw" rev-parse HEAD)" "$(git -C "$lw" rev-parse HEAD~1)" > "$fake/stop-input"
-( cd "$lw" && exec bash "$root/bin/pre-push.sh" < "$fake/stop-input" > "$fake/stop-out" 2>&1 ) & stopped=$!
+stop_mark="$(bash "$root/lib/landing-check.sh" mark "$lw" "$(git -C "$lw" rev-parse HEAD)" refs/heads/master)"
+( cd "$lw" && AI_CORE_LANDING_MARK="$stop_mark" exec bash "$root/bin/pre-push.sh" < "$fake/stop-input" > "$fake/stop-out" 2>&1 ) & stopped=$!
 for _ in $(seq 200); do [ -e "$PROBE_STATE/sleeping" ] && break; "$real_sleep" 0.05; done
 kill -TERM "$stopped"; : > "$PROBE_STATE/wake"; wait "$stopped" 2>/dev/null; rc=$?
 check 'the gate ended on the signal'             143 "$rc"
@@ -1656,19 +1709,22 @@ both() {  # both - two gates at once, each with a clock, loads and settings of i
   plan 25 10; state_a="$PROBE_STATE"; plan 0.5; state_b="$PROBE_STATE"
   settings 24 300; mkdir -p "$lw2/.ai-core"; cp "$lw/.ai-core/config.env" "$lw2/.ai-core/config.env"
   lw_commit "$lw"; lw_commit "$lw2"
+  local marks=() mark
   for each in "$lw:$state_a:green" "$lw2:$state_b:red"; do
     IFS=: read -r tree state verdict <<< "$each"
     printf 'refs/heads/master %s refs/heads/master %s\n' "$(git -C "$tree" rev-parse HEAD)" "$(git -C "$tree" rev-parse HEAD~1)" > "$state/input"
-    ( cd "$tree" && PROBE_STATE="$state" PROBE_BARRIER="$barrier" PROBE_MKTEMP_BARRIER="$barrier" PROBE_CHECK="$verdict" \
+    mark="$(bash "$root/lib/landing-check.sh" mark "$tree" "$(git -C "$tree" rev-parse HEAD)" refs/heads/master)"; marks+=("$mark")
+    ( cd "$tree" && AI_CORE_LANDING_MARK="$mark" PROBE_STATE="$state" PROBE_BARRIER="$barrier" PROBE_MKTEMP_BARRIER="$barrier" PROBE_CHECK="$verdict" \
         exec timeout 60 bash "${GATE_SCRIPT:-$root/bin/pre-push.sh}" < "$state/input" > "$state/out" 2>&1 ) &
   done
   wait
+  for mark in "${marks[@]}"; do bash "$root/lib/landing-check.sh" unmark "$mark"; done
 }
 rm -f "$runs"; both
 check 'a log made by two gates at once has one header' 1 "$(grep -c $'^time\trepository' "$runs")"
 check 'and one row of eight fields for each run' '2 0' "$(grep -vc $'^time\trepository' "$runs") $(awk -F'\t' 'NR > 1 && NF != 8 { n++ } END { print n + 0 }' "$runs")"
 check 'each row holds the verdict and the sample of its own run' "green 10 red 0.5" "$(awk -F'\t' -v a="$lw" -v b="$lw2" 'NR > 1 && ($3 == a || $3 == b) { print $5, $8 }' "$runs" | sort | tr '\n' ' ' | sed 's/ $//')"
-check 'no stray temporary file is left beside the log' 1 "$(ls "$(dirname "$runs")" | grep -c '^pre-push-runs')"
+check 'no stray temporary file is left beside the log' 1 "$(find "$(dirname "$runs")" -maxdepth 1 -name 'pre-push-runs*' | wc -l | tr -d ' ')"
 printf '%s\n2026-10-01T10:00:00Z\texample/old\t/old\taaaa\tgreen\t4\told line\n' "$legacy_header" > "$runs"
 both
 check 'two gates appending to a log of seven fields leave its header and row as they were' "$(printf '%s\n2026-10-01T10:00:00Z\texample/old\t/old\taaaa\tgreen\t4\told line' "$legacy_header")" "$(head -2 "$runs")"
@@ -1724,6 +1780,67 @@ mutate 's/^    \[ -e "\$GATE_RUNS_FILE" \] || return 1$/    [ -s "$GATE_RUNS_FIL
 rm -f "$runs"; plan 0.5; settings 24 300; PROBE_LN=fail gate_lw
 check 'a log stands though no link could be made, with no word that the run was not recorded' 'yes 0' "$([ -s "$runs" ] && echo yes || echo no) $(says 'could not be recorded')"
 unset GATE_SCRIPT GATE_TIMEOUT
+
+# --- the default branch takes only a harness landing -------------------------------------------
+echo 'a push to the default branch needs the mark of a harness landing for exactly the commit it lands, this clone and this ref'
+commit 'src/landing.txt' 'Land by a plain push #16'
+land_sha="$(git -C "$repo" rev-parse HEAD)"; land_parent="$(git -C "$repo" rev-parse HEAD~1)"
+mark_gate() {  # mark_gate <mark, or nothing>: the push of the new commit to master, with that mark
+  printf 'refs/heads/master %s refs/heads/master %s\n' "$land_sha" "$land_parent" \
+    | ( cd "$repo" && AI_CORE_LANDING_MARK="${1:-}" bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1 )
+}
+out="$(mark_gate)"; rc=$?
+check 'planted: no mark: exit 1'                      1 "$rc"
+check 'planted: it refuses a plain push and names integrate-issue' yes "$(grep -q 'pre-push: REFUSED — master takes no plain push (no landing path of the harness made this push)' <<< "$out" && grep -q 'ai-core integrate-issue <number> --reviewed-by' <<< "$out" && echo yes || echo no)"
+mark_other_commit="$(bash "$root/lib/landing-check.sh" mark "$repo" "$land_parent" refs/heads/master)"
+out="$(mark_gate "$mark_other_commit")"; rc=$?
+check 'planted: the mark of another commit: exit 1'   1 "$rc"
+check 'planted: it says the mark names another commit' yes "$(grep -q 'the mark names another commit than the one this push lands' <<< "$out" && echo yes || echo no)"
+foreign="$fake/foreign-clone"; git init -q -b master "$foreign"
+mark_other_clone="$(bash "$root/lib/landing-check.sh" mark "$foreign" "$land_sha" refs/heads/master)"
+out="$(mark_gate "$mark_other_clone")"; rc=$?
+check 'planted: the mark of another clone: exit 1'    1 "$rc"
+check 'planted: it says the mark belongs to another clone' yes "$(grep -q 'the mark belongs to another clone' <<< "$out" && echo yes || echo no)"
+mark_other_ref="$(bash "$root/lib/landing-check.sh" mark "$repo" "$land_sha" refs/heads/elsewhere)"
+out="$(mark_gate "$mark_other_ref")"; rc=$?
+check 'planted: the mark of another ref: exit 1'      1 "$rc"
+check 'planted: it says the mark does not cover master' yes "$(grep -q 'the mark does not cover refs/heads/master' <<< "$out" && echo yes || echo no)"
+mark_right="$(bash "$root/lib/landing-check.sh" mark "$repo" "$land_sha" refs/heads/master)"
+out="$(mark_gate "$mark_right")"; rc=$?
+check 'innocent: the mark of this very landing: exit 0' 0 "$rc"
+printf 'refs/heads/topic %s refs/heads/topic %s\n' "$land_sha" "$land_parent" > "$fake/topic-input"
+out="$( cd "$repo" && bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' < "$fake/topic-input" 2>&1 )"; rc=$?
+check 'innocent: a push of another branch needs no mark: exit 0' 0 "$rc"
+bash "$root/lib/landing-check.sh" unmark "$mark_other_commit"; bash "$root/lib/landing-check.sh" unmark "$mark_other_clone"
+bash "$root/lib/landing-check.sh" unmark "$mark_other_ref"; bash "$root/lib/landing-check.sh" unmark "$mark_right"
+rm -rf "$foreign"
+
+echo 'a harness landing holds only what it adds to origin to the address of the person pushing: the commit of another person that a ref of origin carries lands, and the other checks still judge it'
+base_sha="$(git -C "$repo" rev-parse HEAD)"
+git -C "$repo" update-ref refs/remotes/origin/master "$base_sha"   # where origin's default branch stands when the landing starts
+land_branch_of_another() {  # land_branch_of_another <branch> <subject>: a commit of Ada on <branch>, which origin carries, merged into master by the pusher
+  git -C "$repo" checkout -q -b "$1" "$base_sha"
+  printf 'by ada\n' > "$repo/src/$1.txt"; git -C "$repo" add "src/$1.txt"
+  GIT_AUTHOR_NAME='Ada Lovelace' GIT_AUTHOR_EMAIL=ada@example.invalid GIT_COMMITTER_NAME='Ada Lovelace' GIT_COMMITTER_EMAIL=ada@example.invalid \
+    git -C "$repo" commit -q -m "$2"
+  git -C "$repo" update-ref "refs/remotes/origin/$1" HEAD
+  git -C "$repo" checkout -q master; git -C "$repo" reset -q --hard "$base_sha"
+  git -C "$repo" merge -q --no-ff "$1" -m "Land the work of Ada (#17)"
+  landed_sha="$(git -C "$repo" rev-parse HEAD)"
+  landed_mark="$(bash "$root/lib/landing-check.sh" mark "$repo" "$landed_sha" refs/heads/master)"
+  out="$(printf 'refs/heads/master %s refs/heads/master %s\n' "$landed_sha" "$base_sha" \
+    | ( cd "$repo" && AI_CORE_LANDING_MARK="$landed_mark" bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1 ))"; rc=$?
+  bash "$root/lib/landing-check.sh" unmark "$landed_mark"
+}
+land_branch_of_another issue-17-ada 'Work of another person, pushed through their own gate (#17)'
+check 'planted: the landing of a branch of another person: exit 0' 0 "$rc$([ "$rc" -eq 0 ] || echo " $out")"
+check 'planted: their address refuses nothing' no "$(grep -q 'carry another address than yours' <<< "$out" && echo yes || echo no)"
+land_branch_of_another issue-18-ada 'Work of another person whose subject no gate judged, as it is far beyond the limit (#18)'
+check 'and: the same landing with a subject over 72: exit 1' 1 "$rc"
+check 'and: the subject check judges that commit of origin' yes "$(grep -q 'subjects are longer than 72 characters' <<< "$out" && echo yes || echo no)"
+git -C "$repo" reset -q --hard "$base_sha"
+git -C "$repo" branch -q -D issue-17-ada issue-18-ada
+for ref in master issue-17-ada issue-18-ada; do git -C "$repo" update-ref -d "refs/remotes/origin/$ref"; done
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

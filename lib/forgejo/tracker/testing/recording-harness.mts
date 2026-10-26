@@ -24,6 +24,9 @@ export function createRecordingHarness(): RecordingHarness {
     openLandingCheck: (cwd) => step('openLandingCheck', '/planted/receipt')(cwd),
     completeLandingCheck: (receipt, commit, ciRef) => step('completeLandingCheck', '')(`${receipt} ${commit} ${ciRef}`),
     closeLandingCheck: (receipt) => step('closeLandingCheck', '')(receipt),
+    // The mark of a landing is not recorded: it opens and closes around every push, and no test asks which pushes had one.
+    openLandingMark: () => Promise.resolve(failing.has('openLandingMark') ? { succeeded: false, output: 'planted: openLandingMark failed' } : { succeeded: true, output: '/planted/mark' }),
+    closeLandingMark: () => Promise.resolve({ succeeded: true, output: '' }),
     installTools: (path) => step('installTools', 'installed')(path),
     readTokensPage: (cwd, itemsFile, columnsFile, board) => step('readTokensPage', 'the page')(`${cwd} ${itemsFile} ${columnsFile} ${board}`),
   };

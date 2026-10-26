@@ -2,14 +2,15 @@
 # Integrate the reviewed branch of one issue into the default branch: a merge commit that names the
 # issue and its reviewer, pushed through the gate.
 #
-#   integrate-issue.sh [OWNER/REPO] NUMBER --reviewed-by REVIEWER [--reviewed-by REVIEWER ...] [--from-origin]
+#   integrate-issue.sh [OWNER/REPO] NUMBER [NUMBER ...] --reviewed-by REVIEWER [--reviewed-by REVIEWER ...] [--from-origin]
 #
 # Between start-issue and finish-issue. Run it in the worktree of the issue, on its branch, once the
 # reviewer gave the GO. It fetches origin, puts the worktree on the newest origin/<default>, merges
 # the branch with --no-ff under the issue's title and a 'Reviewed-by: REVIEWER' trailer per
 # reviewer, pushes HEAD:<default> through the gate, and checks the branch out again for
 # finish-issue. The issue is read in OWNER/REPO where it is given, else in the repository
-# start-issue recorded on the branch, else in the checkout's own.
+# start-issue recorded on the branch, else in the checkout's own; every number of a list is read
+# in the repository of the first.
 #
 # --from-origin LANDS THE BRANCH AS ORIGIN HOLDS IT, FROM ANY DIRECTORY OF THE CLONE, for a branch
 # whose worktree another session holds and nobody may touch: its changes may be somebody's work in
@@ -80,11 +81,11 @@
 . "$ROOT/lib/landing-check.sh"
 
 BIN="$ROOT/bin"
-usage='usage: integrate-issue.sh [OWNER/REPO] NUMBER --reviewed-by REVIEWER [--reviewed-by REVIEWER ...] [--from-origin]'
+usage='usage: integrate-issue.sh [OWNER/REPO] NUMBER [NUMBER ...] --reviewed-by REVIEWER [--reviewed-by REVIEWER ...] [--from-origin]'
 
 # Every --reviewed-by adds its reviewer, once, in the order given: a second one that overwrote the
 # first would drop a review from the history without a word
-repo=""; number=""; reviewers=(); from_origin=""
+repo=""; numbers=(); reviewers=(); from_origin=""
 add_reviewer() {  # add_reviewer <name>
   local known
   for known in ${reviewers[@]+"${reviewers[@]}"}; do [ "$known" != "$1" ] || return 0; done
@@ -97,11 +98,18 @@ while [ $# -gt 0 ]; do
     --from-origin)   from_origin=1 ;;
     -*)              die "unknown argument '$1' - $usage" ;;
     */*)             [ -z "$repo" ] || die "$usage"; repo="$1" ;;
-    *)               [ -z "$number" ] || die "$usage"; number="$1" ;;
+    *)               numbers+=("$1") ;;
   esac
   shift
 done
-case "$number" in ''|*[!0-9]*) die "the issue number must be numeric, not '$number' - $usage" ;; esac
+[ "${#numbers[@]}" -gt 0 ] || die "the issue number must be numeric, not '' - $usage"
+for number in "${numbers[@]}"; do
+  case "$number" in ''|*[!0-9]*) die "the issue number must be numeric, not '$number' - $usage" ;; esac
+done
+if [ "${#numbers[@]}" -gt 1 ] && [ -n "$(printf '%s\n' "${numbers[@]}" | sort | uniq -d)" ]; then
+  die "an issue is named twice: $(printf '%s ' "${numbers[@]}") - $usage"
+fi
+number="${numbers[0]}"
 [ "${#reviewers[@]}" -gt 0 ] || die "who reviewed the work? --reviewed-by names the reviewer whose GO this integrates - $usage"
 for reviewer in "${reviewers[@]}"; do
   [ -n "${reviewer//[[:space:]]/}" ] || die "who reviewed the work? --reviewed-by names the reviewer whose GO this integrates - $usage"
@@ -115,9 +123,9 @@ git rev-parse --show-toplevel >/dev/null 2>&1 \
 # The tracker call before anything moves. A refusal of it, a rate limit among them, says in plain words that
 # nothing landed: a coordinator that read a bare error as "landed" released without the work.
 thread=""
-read_thread() {
-  thread="$(apart "$BIN/issue-thread.sh" ${repo:+"$repo"} "$number" --json)" \
-    || die "nothing landed: the issue $number could not be read from $(tracker_name), so nothing was merged or pushed and origin is as it was: $thread"
+read_thread() {  # read_thread <number> <repository or empty>: sets thread
+  thread="$(apart "$BIN/issue-thread.sh" ${2:+"$2"} "$1" --json)" \
+    || die "nothing landed: the issue $1 could not be read from $(tracker_name), so nothing was merged or pushed and origin is as it was: $thread"
 }
 
 # WHOSE A BRANCH IS: a branch is named issue-<number>-..., and after a carry from GitHub a number is both a work item
@@ -127,6 +135,58 @@ belongs_note() {  # belongs_note <branch>: after branch_work_item, the words tha
   if [ -n "$WORK_ITEM" ]; then printf 'it belongs to %s' "$(issue_ref "$issue_repo" "$WORK_ITEM")"
   else printf 'it %s' "${WORK_ITEM_REASON:-belongs to no work item}"; fi
 }
+
+# origin_issue_branch <number> [<repository>]: the branch of one issue as origin holds it, read from origin itself, for
+# --from-origin and for every issue after the first of a list, which passes the repository of the first. Sets issue_repo
+# (the repository passed, else the one named, else the one a local branch of the number records; nothing for the
+# checkout's own), thread, origin_branch and origin_tip; stops the run where origin holds no branch of the issue, or more
+# than one.
+origin_issue_branch() {
+  local n="$1" carried owners listed item why heads="" tip ref_name
+  issue_repo="$repo"
+  if [ "$#" -gt 1 ]; then
+    issue_repo="$2"
+  elif [ -z "$issue_repo" ]; then
+    for listed in $(git for-each-ref --format='%(refname:short)' "refs/heads/issue-$n" "refs/heads/issue-$n-*"); do
+      issue_repo="$(branch_issue_repo "$listed")"; [ -z "$issue_repo" ] || break
+    done
+  fi
+  read_thread "$n" "$issue_repo"
+  carried="$(carried_branch_number "$issue_repo" "$thread")"
+  default="$(origin_default_branch)" || exit 1
+  owners="$(issue_branch_owners "$issue_repo" "$default" "$(issue_branch_name "$n" "$(jq -r '.title // ""' <<< "$thread")")" "$n" ${carried:+"$carried"})" \
+    || die "nothing landed: the work items of the branches of issue $n could not be told from $(tracker_name), so nothing was merged or pushed and origin is as it was"
+  # Only stdout is read: a warning git writes on stderr is no ref
+  run_split git ls-remote --heads origin "refs/heads/issue-$n" "refs/heads/issue-$n-*" ${carried:+"refs/heads/issue-$carried" "refs/heads/issue-$carried-*"} \
+    || die "could not reach origin: $split_out$split_err"
+  while IFS=$'\t' read -r tip ref_name; do
+    case "$ref_name" in refs/heads/*) ;; *) continue ;; esac
+    listed="${ref_name#refs/heads/}"
+    item="$(awk -F'\t' -v b="$listed" '$1 == b { print $2; exit }' <<< "$owners")"
+    why="$(awk -F'\t' -v b="$listed" '$1 == b { print $3; exit }' <<< "$owners")"
+    if [ "$item" = "$n" ]; then heads="$heads$tip"$'\t'"$ref_name"$'\n'; continue; fi
+    case "$listed" in
+      "issue-$n"|"issue-$n-"*)
+        WORK_ITEM="${item#-}"; WORK_ITEM_REASON="$why"
+        echo "the branch $listed on origin is not taken: $(belongs_note "$listed")" ;;
+    esac
+  done <<< "$split_out"
+  origin_branch="$(printf '%s' "$heads" | awk -F'\t' '{ sub("^refs/heads/", "", $2); print $2 }')"
+  origin_tip="$(printf '%s' "$heads" | awk -F'\t' '{ print $1 }')"
+  case "$origin_branch" in
+    '')       die "origin has no branch issue-$n-* of $(issue_ref "$issue_repo" "$n") to integrate - push the reviewed branch, then run this again" ;;
+    *$'\n'*)  die "origin has more than one branch for issue $n, and which one the reviewer read is not for this command to guess: $(printf '%s' "$origin_branch" | tr '\n' ' ')" ;;
+  esac
+}
+
+# Every issue of the run, in the order given: its number, branch, thread, how its commits name it (ref) and the subject
+# of its merge commit. The first comes from the worktree, or from origin with --from-origin; every other one from origin.
+issue_numbers=(); issue_branches=(); issue_threads=(); issue_repos=(); issue_refs=(); issue_subjects=(); issue_origin_tips=()
+if [ "${#numbers[@]}" -gt 1 ] || [ -n "$from_origin" ]; then
+  # The branches are read from origin itself: a clone that never fetched one has no ref to list. They are fetched
+  # first, because when a branch was started is read from its commits.
+  said="$(git fetch origin 2>&1)" || die "could not reach origin: $said"
+fi
 if [ -z "$from_origin" ]; then
   branch="$(git symbolic-ref --short -q HEAD)" || branch=""
   issue_repo="${repo:-$(branch_issue_repo "$branch")}"
@@ -141,53 +201,30 @@ if [ -z "$from_origin" ]; then
     || die "this runs in the worktree of issue $number, on its branch issue-$number-*; here ${branch:-no branch} is checked out${whose} (--from-origin lands the branch as origin holds it, from any directory)"
   [ -z "$(git status --porcelain)" ] \
     || die "the worktree has changes - commit them for the review, or put them aside, then run this again"
+  read_thread "$number" "${repo:-$(branch_issue_repo "$branch")}"
+  first_repo_of_issue="${repo:-$(branch_issue_repo "$branch")}"
 else
-  # The branches are read from origin itself: a clone that never fetched one has no ref to list. They are fetched
-  # first, because when a branch was started is read from its commits.
-  said="$(git fetch origin 2>&1)" || die "could not reach origin: $said"
-  if [ -z "$repo" ]; then
-    for branch in $(git for-each-ref --format='%(refname:short)' "refs/heads/issue-$number" "refs/heads/issue-$number-*"); do
-      repo="$(branch_issue_repo "$branch")"; [ -z "$repo" ] || break
-    done
-  fi
-  read_thread
-  issue_repo="$repo"
-  carried_number="$(carried_branch_number "$issue_repo" "$thread")"
-  default="$(origin_default_branch)" || exit 1
-  owners="$(issue_branch_owners "$issue_repo" "$default" "$number" ${carried_number:+"$carried_number"})" \
-    || die "nothing landed: the work items of the branches of issue $number could not be told from $(tracker_name), so nothing was merged or pushed and origin is as it was"
-  # Only stdout is read: a warning git writes on stderr is no ref
-  run_split git ls-remote --heads origin "refs/heads/issue-$number" "refs/heads/issue-$number-*" ${carried_number:+"refs/heads/issue-$carried_number" "refs/heads/issue-$carried_number-*"} \
-    || die "could not reach origin: $split_out$split_err"
-  heads=""
-  while IFS=$'\t' read -r tip ref_name; do
-    case "$ref_name" in refs/heads/*) ;; *) continue ;; esac
-    listed="${ref_name#refs/heads/}"
-    item="$(awk -F'\t' -v b="$listed" '$1 == b { print $2; exit }' <<< "$owners")"
-    why="$(awk -F'\t' -v b="$listed" '$1 == b { print $3; exit }' <<< "$owners")"
-    if [ "$item" = "$number" ]; then heads="$heads$tip"$'\t'"$ref_name"$'\n'; continue; fi
-    case "$listed" in
-      "issue-$number"|"issue-$number-"*)
-        WORK_ITEM="${item#-}"; WORK_ITEM_REASON="$why"
-        echo "the branch $listed on origin is not taken: $(belongs_note "$listed")" ;;
-    esac
-  done <<< "$split_out"
-  branch="$(printf '%s' "$heads" | awk -F'\t' '{ sub("^refs/heads/", "", $2); print $2 }')"
-  listed_tip="$(printf '%s' "$heads" | awk -F'\t' '{ print $1 }')"
-  case "$branch" in
-    '')       die "origin has no branch issue-$number-* of $(issue_ref "$issue_repo" "$number") to integrate - push the reviewed branch, then run this again" ;;
-    *$'\n'*)  die "origin has more than one branch for issue $number, and which one the reviewer read is not for this command to guess: $(printf '%s' "$branch" | tr '\n' ' ')" ;;
-  esac
+  origin_issue_branch "$number"
+  branch="$origin_branch"; listed_tip="$origin_tip"; first_repo_of_issue="$issue_repo"
 fi
-
-[ -n "$repo" ] || repo="$(branch_issue_repo "$branch")"
-[ -n "$thread" ] || read_thread
-title="$(printf '%s' "$thread" | jq -r '.title // ""')"
-ref="$(issue_ref "$repo" "$number")"
+issue_numbers+=("$number"); issue_branches+=("$branch"); issue_threads+=("$thread"); issue_repos+=("$first_repo_of_issue"); issue_origin_tips+=("${listed_tip:-}")
+for number_after in ${numbers[@]+"${numbers[@]:1}"}; do
+  origin_issue_branch "$number_after" "$first_repo_of_issue"
+  issue_numbers+=("$number_after"); issue_branches+=("$origin_branch"); issue_threads+=("$thread"); issue_repos+=("$issue_repo"); issue_origin_tips+=("$origin_tip")
+done
 # The subject the gate takes is 72 characters at most, so a longer one falls back, shortest last
-subject="$title ($ref)"
-[ -n "$title" ] && [ "${#subject}" -le 72 ] || subject="Merge $branch ($ref)"
-[ "${#subject}" -le 72 ] || subject="Merge issue-$number ($ref)"
+for position in "${!issue_numbers[@]}"; do
+  n="${issue_numbers[position]}"
+  title="$(printf '%s' "${issue_threads[position]}" | jq -r '.title // ""')"
+  issue_refs[position]="$(issue_ref "${issue_repos[position]}" "$n")"
+  subject="$title (${issue_refs[position]})"
+  [ -n "$title" ] && [ "${#subject}" -le 72 ] || subject="Merge ${issue_branches[position]} (${issue_refs[position]})"
+  [ "${#subject}" -le 72 ] || subject="Merge issue-$n (${issue_refs[position]})"
+  issue_subjects[position]="$subject"
+done
+subject="${issue_subjects[0]}"
+ref="${issue_refs[0]}"
+thread="${issue_threads[0]}"
 
 landing="$(git rev-parse --path-format=absolute --git-common-dir)/ai-core-landing"
 # The branch ci/integrate-<issue branch> on origin, the temporary worktree and the file with the output of
@@ -223,21 +260,32 @@ trap 'delete_ci_branch
   [ -z "$receipt" ] || landing_check_close "$receipt"
   [ "$(cut -f1 "$landing" 2>/dev/null)" != "$$" ] || rm -f "$landing"' EXIT
 
-# make_merge <tip> <name of the tip>: the merge commit of the tip into origin/<default>, made in a temporary
-# worktree beside the clone (tree), where scripts/install.sh of the merged tree runs if it has one, so the
-# gate's check finds what it needs. Sets base_tip (the origin/<default> it was made on), merged_sha, merged.
+# make_merge: the merge commit of every issue of the run into origin/<default>, one after the other in the order given,
+# made in a temporary worktree beside the clone (tree), where scripts/install.sh of the merged tree runs if it has one, so
+# the gate's check finds what it needs. It reads merge_tips and merge_names. Sets base_tip (the origin/<default> it was
+# made on), merge_shas (each merge commit), merged_sha (the last one) and merged.
+merge_tips=(); merge_names=(); merge_shas=()
 make_merge() {
-  local container
-  [ -n "$(git rev-list -n1 "$1" --not "origin/$default")" ] \
-    || die "nothing to integrate: $2 is in origin/$default already"
-  [ -z "$from_origin" ] || echo "merging: $2 at $(git rev-parse --short "$1")"
+  local container position
+  for position in "${!merge_tips[@]}"; do
+    [ -n "$(git rev-list -n1 "${merge_tips[position]}" --not "origin/$default")" ] \
+      || die "nothing to integrate: ${merge_names[position]} is in origin/$default already"
+    { [ -z "$from_origin" ] && [ "${#merge_tips[@]}" -eq 1 ]; } || echo "merging: ${merge_names[position]} at $(git rev-parse --short "${merge_tips[position]}")"
+  done
   container="$(worktree_container)" && mkdir -p "$container" \
     && tree="$(mktemp -d "$container/integrate-$number.XXXXXX")" || die "no folder for the temporary worktree beside the clone"
   git worktree add -q --detach "$tree" "origin/$default" || die "the temporary worktree could not be made on origin/$default (see above)"
   base_tip="$(git -C "$tree" rev-parse HEAD)"
-  git -C "$tree" merge -q --no-ff --no-edit "$1" -m "$subject" -m "$trailers" \
-    || die "$2 does not merge cleanly into origin/$default - bring origin/$default into the branch, get the review of the result, then run this again; nothing was pushed"
-  merged_sha="$(git -C "$tree" rev-parse HEAD)"
+  merge_shas=()
+  for position in "${!merge_tips[@]}"; do
+    # git merges a tip that the merges before it hold already into nothing, and says so with status 0
+    [ "$position" -eq 0 ] || ! git -C "$tree" merge-base --is-ancestor "${merge_tips[position]}" HEAD \
+      || die "nothing to integrate: ${merge_names[position]} holds nothing that the issues before it in the list do not, so it would land in no merge commit of its own; leave it out of the list"
+    git -C "$tree" merge -q --no-ff --no-edit "${merge_tips[position]}" -m "${issue_subjects[position]}" -m "$trailers" \
+      || die "${merge_names[position]} does not merge cleanly into origin/$default - bring origin/$default into the branch, get the review of the result, then run this again; nothing was pushed"
+    merge_shas+=("$(git -C "$tree" rev-parse HEAD)")
+  done
+  merged_sha="${merge_shas[${#merge_shas[@]}-1]}"
   merged="$(git -C "$tree" rev-parse --short HEAD)"
   if [ -f "$tree/scripts/install.sh" ]; then
     echo "installing: scripts/install.sh of the merged tree runs in $tree, so the gate's check finds what it needs"
@@ -246,15 +294,34 @@ make_merge() {
   fi
 }
 
-# keep_waited_tip <ref>: once the lock is held and origin fetched, the reviewed tip is still the tip of <ref>,
-# else nothing lands. Nothing is waited for in a private repository or under CI_GATE none, so there it holds nothing.
-waited_tip=""
-keep_waited_tip() {
+# set_merge_tips_from_refs: merge_tips and merge_names from the refs as the fetch left them. The first issue is merged
+# from its branch in the worktree unless --from-origin names origin's; every other one from origin's.
+set_merge_tips_from_refs() {
+  local position ref_name sha
+  merge_tips=(); merge_names=()
+  for position in "${!issue_numbers[@]}"; do
+    if [ "$position" -eq 0 ] && [ -z "$from_origin" ]; then ref_name="${issue_branches[0]}"; else ref_name="origin/${issue_branches[position]}"; fi
+    sha="$(git rev-parse -q --verify "$ref_name^{commit}")" || die "$ref_name is not there after the fetch - push the reviewed branch, then run this again"
+    merge_tips+=("$sha"); merge_names+=("$ref_name")
+  done
+}
+
+# keep_waited_tips: once the lock is held and origin fetched, every reviewed tip is still the tip of its branch, else
+# nothing lands. Nothing is waited for in a private repository or under CI_GATE none, so there it holds nothing.
+waited_tips=()
+keep_waited_tip() {  # keep_waited_tip <ref> <the tip waited for>
   local now
-  [ -n "$waited_tip" ] || return 0
   now="$(git rev-parse -q --verify "$1^{commit}")" || now="nothing"
-  [ "$now" = "$waited_tip" ] \
-    || die "nothing landed: $1 moved from $waited_tip to $now while its checks were waited for; run this again"
+  [ "$now" = "$2" ] \
+    || die "nothing landed: $1 moved from $2 to $now while its checks were waited for; run this again"
+}
+keep_waited_tips() {
+  local position
+  [ "${#waited_tips[@]}" -gt 0 ] || return 0
+  for position in "${!issue_numbers[@]}"; do
+    keep_waited_tip "origin/${issue_branches[position]}" "${waited_tips[position]}"
+    { [ -n "$from_origin" ] || [ "$position" -gt 0 ]; } || keep_waited_tip "${issue_branches[0]}" "${waited_tips[0]}"
+  done
 }
 
 # gate_public_repository: a public repository lands only on the green checks of the commit that lands. It
@@ -267,7 +334,7 @@ keep_waited_tip() {
 # origin lists for --from-origin, else the local branch, which must be the tip origin holds too.
 base_tip=""; merged_sha=""; merged=""
 gate_public_repository() {
-  local checked_repo visibility ci_gate tip tip_name poll limit checks=0 on_origin said held push_status
+  local checked_repo visibility ci_gate tip poll limit checks=0 on_origin said held push_status position
   ci_gate="$(config_file_value CI_GATE public | tr '[:upper:]' '[:lower:]')"
   case "$ci_gate" in
     public|none) ;;
@@ -284,27 +351,34 @@ gate_public_repository() {
     echo "checks: $checked_repo is public and the CI_GATE of the project is none, its push gate is its check; the CI of $(forge_name) is not read"
     return 0
   fi
-  if [ -n "$from_origin" ]; then
-    tip="$listed_tip"; tip_name="origin/$branch"
-  else
-    tip="$(git rev-parse "$branch^{commit}")"; tip_name="$branch"
-    on_origin="$(remote_ref_sha "refs/heads/$branch")" || die "could not reach origin: $on_origin"
-    [ "$on_origin" = "$tip" ] \
-      || die "nothing landed: $tip is not on origin, so it has no checks; push the branch, then run this again"
-  fi
+  waited_tips=()
+  for position in "${!issue_numbers[@]}"; do
+    if [ "$position" -eq 0 ] && [ -z "$from_origin" ]; then
+      tip="$(git rev-parse "$branch^{commit}")"
+      on_origin="$(remote_ref_sha "refs/heads/$branch")" || die "could not reach origin: $on_origin"
+      [ "$on_origin" = "$tip" ] \
+        || die "nothing landed: $tip is not on origin, so it has no checks; push the branch, then run this again"
+    else
+      tip="${issue_origin_tips[position]}"
+    fi
+    waited_tips+=("$tip")
+  done
   said="$(git fetch origin 2>&1)" || die "could not reach origin: $said"
   default="$(origin_default_branch)" || exit 1
-  waited_tip="$tip"
-  keep_waited_tip "origin/$branch"
+  keep_waited_tips
   receipt="$(landing_check_open)" || die "no folder for the receipt of the checks of this landing"
-  make_merge "$tip" "$tip_name"
+  merge_tips=("${waited_tips[@]}"); merge_names=()
+  for position in "${!issue_numbers[@]}"; do
+    if [ "$position" -eq 0 ] && [ -z "$from_origin" ]; then merge_names+=("$branch"); else merge_names+=("origin/${issue_branches[position]}"); fi
+  done
+  make_merge
   ci_branch="ci/integrate-$branch"
   held="$(remote_ref_sha "refs/heads/$ci_branch")" || die "could not reach origin: $held"
   # The push gate runs inside this push and may wait for a lower load before its check: its words are
   # shown as they come, and kept only to tell a race from a refusal.
   pushed="$(mktemp)" || die "no temporary file for the output of the push to $ci_branch"
   push_status=0
-  AI_CORE_LANDING_RECEIPT="$receipt" git -C "$tree" push origin "--force-with-lease=refs/heads/$ci_branch:$held" "$merged_sha:refs/heads/$ci_branch" 2>&1 | tee "$pushed" >&2 || push_status="${PIPESTATUS[0]}"
+  with_landing_mark "$tree" "$merged_sha" "refs/heads/$ci_branch" "refs/heads/$default" -- env AI_CORE_LANDING_RECEIPT="$receipt" git -C "$tree" push origin "--force-with-lease=refs/heads/$ci_branch:$held" "$merged_sha:refs/heads/$ci_branch" 2>&1 | tee "$pushed" >&2 || push_status="${PIPESTATUS[0]}"
   said="$(cat "$pushed")"; rm -f "$pushed"
   [ "$push_status" -eq 0 ] || case "$said" in
     *"stale info"*|*"cannot lock ref"*) die "nothing landed: $ci_branch on origin changed after it was read, so another landing of this branch may be running; nothing was pushed to it or to $default (git's words are above)" ;;
@@ -381,20 +455,19 @@ push_refused() {
   return 1
 }
 
-if [ -n "$waited_tip" ]; then
+if [ "${#waited_tips[@]}" -gt 0 ]; then
   # The public repository: the merge commit made and checked before the lock lands as it is, if nothing moved
   now="$(git rev-parse "origin/$default^{commit}")" || die "origin/$default is not there after the fetch"
   [ "$now" = "$base_tip" ] \
     || die "nothing landed: origin/$default moved from $base_tip to $now while the checks of $merged_sha ran; run this again"
-  keep_waited_tip "origin/$branch"
-  [ -n "$from_origin" ] || keep_waited_tip "$branch"
-  AI_CORE_LANDING_RECEIPT="$receipt" git -C "$tree" push origin "$merged_sha:refs/heads/$default" \
+  keep_waited_tips
+  with_landing_mark "$tree" "$merged_sha" "refs/heads/$default" -- env AI_CORE_LANDING_RECEIPT="$receipt" git -C "$tree" push origin "$merged_sha:refs/heads/$default" \
     || push_refused "the push was refused (see above) - nothing reached origin, and the worktree of $branch is as it was" \
     || die "$refusal"
-elif [ -n "$from_origin" ]; then
-  tip="$(git rev-parse -q --verify "origin/$branch^{commit}")" || die "origin/$branch is not there after the fetch - push the reviewed branch, then run this again"
-  make_merge "$tip" "origin/$branch"
-  git -C "$tree" push origin "HEAD:$default" \
+elif [ -n "$from_origin" ] || [ "${#numbers[@]}" -gt 1 ]; then
+  set_merge_tips_from_refs
+  make_merge
+  with_landing_mark "$tree" "$merged_sha" "refs/heads/$default" -- git -C "$tree" push origin "HEAD:$default" \
     || push_refused "the push was refused (see above) - nothing reached origin, and the worktree of $branch is as it was" \
     || die "$refusal"
 else
@@ -406,8 +479,8 @@ else
     git merge --abort 2>/dev/null
     back_to_branch "$branch does not merge cleanly into origin/$default - bring origin/$default into the branch, get the review of the result, then run this again"
   fi
-  merged_sha="$(git rev-parse HEAD)"; merged="$(git rev-parse --short HEAD)"
-  git push origin "HEAD:$default" \
+  merged_sha="$(git rev-parse HEAD)"; merged="$(git rev-parse --short HEAD)"; merge_shas=("$merged_sha")
+  with_landing_mark . "$merged_sha" "refs/heads/$default" -- git push origin "HEAD:$default" \
     || push_refused "the push was refused (see above) - nothing reached origin, and $branch is checked out again" \
     || back_to_branch "$refusal"
   git switch -q "$branch" || die "$merged is on origin/$default, but $branch could not be checked out again - run git switch $branch before finish-issue"
@@ -416,7 +489,9 @@ checkout="$(cd "$(dirname "$landing")/.." && pwd)"
 if ! fast_forward_default_branch "$checkout"; then
   echo "integration succeeded: $merged is on origin/$default; the refresh of checkout $checkout did not finish (see above)" >&2
 fi
-echo "integrated: $merged on origin/$default, $subject$(printf ', Reviewed-by: %s' "${reviewers[@]}")"
+integrated_subject="$subject"
+for position in "${!issue_subjects[@]}"; do [ "$position" -eq 0 ] || integrated_subject="$integrated_subject; ${issue_subjects[position]}"; done
+echo "integrated: $merged on origin/$default, $integrated_subject$(printf ', Reviewed-by: %s' "${reviewers[@]}")"
 # Every issue the merged commits name in parentheses, the integrated one first: a package lands
 # several issues in one merge, and the card of each moves on only through its own finish-issue. Only
 # the forms '(#N)' and '(owner/repo#N)' count: a number named in passing is no landing. The number a commit
@@ -424,9 +499,11 @@ echo "integrated: $merged on origin/$default, $subject$(printf ', Reviewed-by: %
 # work item existed names the GitHub issue the work item was carried from, and its line gives the work item.
 own_repo="$(default_repo 2>/dev/null)" || own_repo=""
 own="$(printf '%s' "$own_repo" | tr 'A-Z' 'a-z')"
-first_repo="${ref%#*}"
-{ echo "next: ai-core finish-issue ${first_repo:+$first_repo }$number"
-  git log --reverse --format='%ct %s' "$merged^1..$merged^2" | while IFS= read -r line; do
+{ for position in "${!issue_numbers[@]}"; do
+    first_repo="${issue_refs[position]%#*}"
+    echo "next: ai-core finish-issue ${first_repo:+$first_repo }${issue_numbers[position]}"
+  done
+  for merge_sha in "${merge_shas[@]}"; do git log --reverse --format='%ct %s' "$merge_sha^1..$merge_sha^2"; done | while IFS= read -r line; do
     { grep -oE '\(([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)?#[0-9]+\)' <<< "${line#* }" || true; } | tr -d '()' | while IFS= read -r named; do
       landed_repo="${named%#*}"
       [ "$(printf '%s' "$landed_repo" | tr 'A-Z' 'a-z')" != "$own" ] || landed_repo=""

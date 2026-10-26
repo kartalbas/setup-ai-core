@@ -71,6 +71,7 @@ cd "${ALL_DIR:-$TARGET}"
 . "$CORE_ROOT/lib/layers.sh"
 . "$CORE_ROOT/lib/worktrees.sh"
 . "$CORE_ROOT/lib/neighbours.sh"
+. "$CORE_ROOT/lib/landing-check.sh"
 
 # Source worktrees must be refused before inherited product data or settings can be copied.
 if [ -z "$ALL_DIR" ] && harness_source_of "$TARGET" >/dev/null 2>&1; then
@@ -118,7 +119,8 @@ if [ -n "$ALL_DIR" ]; then
     # on Forgejo finish-issue removes the one worktree it is given and sweeps no other
     ! (cd "$repo" && tracker_is_forgejo) || continue
     echo ""; echo "### ${repo##*/}: worktrees whose work landed"
-    (cd "$repo" && bash "$CORE_ROOT/bin/finish-issue.sh" --sweep $([ "$DRY" -eq 1 ] && echo --dry-run)) 2>&1 | sed 's/^/  /' || true
+    sweep_options=(--sweep); [ "$DRY" -ne 1 ] || sweep_options+=(--dry-run)
+    (cd "$repo" && bash "$CORE_ROOT/bin/finish-issue.sh" "${sweep_options[@]}") 2>&1 | sed 's/^/  /' || true
   done
   for repo in "$ALL_DIR"/*/ "$ALL_DIR"/.worktrees/*/*/; do
     repo="${repo%/}"
@@ -910,7 +912,7 @@ elif serves claude; then
     # while it still holds what was read, and goes round again otherwise. It is written in place,
     # not renamed over, so a settings file that is a link stays one and keeps its mode.
     AUTO_MODE_NOTE="$AUTO_MODE_FILE changed while init merged into it, three times over; no entry written, run init again"
-    for try in 1 2 3; do
+    for _ in 1 2 3; do
       if [ -f "$AUTO_MODE_FILE" ]; then cp -f "$AUTO_MODE_FILE" "$TMP/user-settings-read.json"; else echo '{}' > "$TMP/user-settings-read.json"; fi
       if ! jq --rawfile e "$TMP/auto-mode.tsv" --rawfile l "$TMP/auto-mode-layers.txt" -f "$CORE_ROOT/lib/auto-mode.jq" "$TMP/user-settings-read.json" 2>/dev/null | tr -d '\r' > "$TMP/user-settings.json" || [ ! -s "$TMP/user-settings.json" ]; then
         AUTO_MODE_NOTE="$AUTO_MODE_FILE is no JSON object with lists in autoMode, so no entry was written; repair it and run init again"; break
@@ -992,7 +994,7 @@ commit_gitignore() {
   git -C "$dir" commit -q -m 'the agent files of this repository are ignored' -m 'No-issue: the .gitignore block written by ai-core init' -- .gitignore >&2 || { echo "the commit failed (see above)"; return 0; }
   git -C "$dir" remote get-url origin >/dev/null 2>&1 || { echo "committed; no origin, not pushed"; return 0; }
   branch="$(git -C "$dir" symbolic-ref --short -q HEAD)"
-  if git -C "$dir" push --quiet origin "HEAD:$branch" >&2; then echo "committed and pushed to origin/$branch"; return 0; fi
+  if with_harness_commits_mark "$dir" "$branch" -- git -C "$dir" push --quiet origin "HEAD:$branch" >&2; then echo "committed and pushed to origin/$branch"; return 0; fi
   if git -C "$dir" rev-parse -q --verify HEAD~1 >/dev/null; then
     git -C "$dir" reset -q --keep HEAD~1 >&2 || { echo "committed; the push was refused or failed (see above), and init could not take its commit back"; return 0; }
     echo "the push was refused or failed (see above), so init took its commit back"; return 1

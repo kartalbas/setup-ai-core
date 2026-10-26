@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 import { bashHarness } from './harness.mts';
@@ -22,6 +22,22 @@ describe('the harness steps', () => {
     assert.equal(git(checkout, 'rev-parse', 'master'), landed);
   });
 
+  it('read the path of a receipt from standard output alone, so a warning on standard error refuses nothing (planted: a warning on standard error)', async () => {
+    const warning = join(fixture.root, 'warn-on-stderr.sh');
+    writeFileSync(warning, 'echo "bash: a warning of the shell" >&2\n');
+    const saved = process.env.BASH_ENV;
+    process.env.BASH_ENV = warning;
+    try {
+      const opened = await bashHarness.openLandingCheck(checkout);
+      assert.equal(opened.succeeded, true, opened.output);
+      assert.match(opened.output, /^\/[^\n]*\/receipt$/, 'the path alone, without the warning');
+      assert.equal((await bashHarness.closeLandingCheck(opened.output)).succeeded, true);
+    } finally {
+      if (saved === undefined) delete process.env.BASH_ENV;
+      else process.env.BASH_ENV = saved;
+    }
+  });
+
   it('open a receipt of the checks of a landing in a folder of its own, complete nothing where the gate wrote none, and close it (planted: a path that is no receipt)', async () => {
     const opened = await bashHarness.openLandingCheck(checkout);
     assert.equal(opened.succeeded, true, opened.output);
@@ -39,6 +55,18 @@ describe('the harness steps', () => {
     assert.equal(existsSync(opened.output), false);
     assert.equal(existsSync(join(opened.output, '..')), false, 'its folder goes too');
     assert.equal((await bashHarness.closeLandingCheck(join(checkout, 'README.md'))).succeeded, false, 'a file that is no receipt is never removed');
+  });
+
+  it('open the mark of a landing for a commit and its refs, read from standard output alone, and close it (planted: a path that is no mark)', async () => {
+    const commit = git(checkout, 'rev-parse', 'HEAD');
+    const opened = await bashHarness.openLandingMark(checkout, commit, ['refs/heads/master', 'refs/heads/ci/integrate-x']);
+    assert.equal(opened.succeeded, true, opened.output);
+    assert.match(opened.output, /^\/[^\n]*\/mark$/);
+    const lines = readFileSync(opened.output, 'utf8').split('\n');
+    assert.deepEqual(lines.filter((line) => line.startsWith('commit\t') || line.startsWith('ref\t')), [`commit\t${commit}`, 'ref\trefs/heads/master', 'ref\trefs/heads/ci/integrate-x']);
+    assert.equal((await bashHarness.closeLandingMark(opened.output)).succeeded, true);
+    assert.equal(existsSync(join(opened.output, '..')), false, 'its folder goes too');
+    assert.equal((await bashHarness.closeLandingMark(join(checkout, 'README.md'))).succeeded, false, 'a file that is no mark is never removed');
   });
 
   it('leave a checkout with changes as it is and say why (planted: a dirty checkout)', async () => {

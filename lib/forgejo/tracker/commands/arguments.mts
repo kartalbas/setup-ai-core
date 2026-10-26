@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { parseIssueNumber, parseRepository } from '../domain/issues.mts';
+import { commitNameOf, formatRepository, isSameRepository, parseIssueNumber, parseRepository } from '../domain/issues.mts';
 import type { IssueRef, RepositoryRef } from '../domain/issues.mts';
 import { UsageError } from '../domain/refusals.mts';
 import type { GitClient } from '../git/git.mts';
@@ -108,6 +108,36 @@ export async function takeIssueOfWorktree(positionals: readonly string[], git: G
   const number = positionals[0];
   if (number === undefined) throw new UsageError(usage);
   return { ref: { ...parseRepository(recorded), number: parseIssueNumber(number) }, rest: positionals.slice(1) };
+}
+
+// Whether a branch named issue-<number>-... is the issue's, as lib/board.sh issue_branch_owners says it on GitHub: the
+// issue's branch name always is; a branch that records a repository (branch.<name>.issueRepository) is the issue's where
+// that is the issue's repository; one that records none is the issue's only where the issue lives in the clone's own
+// repository, because the number alone names an unrelated issue in each repository.
+export async function isBranchOfIssue(git: GitClient, cwd: string, name: string, ref: IssueRef, origin: RepositoryRef, issueBranch: string): Promise<boolean> {
+  if (name === issueBranch) return true;
+  const recorded = await git.getConfig(cwd, `branch.${name}.issueRepository`);
+  if (recorded === undefined) return isSameRepository(ref, origin);
+  return recorded.toLowerCase() === formatRepository(ref).toLowerCase();
+}
+
+// The newest commit on the default branch of origin of the clone at `cwd` whose subject names the issue at its end, as
+// integrate-issue lands its work, or nothing. Work that landed without its "Landed on" record, as a landing stopped between
+// its push and its record leaves it, is found here.
+export async function findLandedCommitOf(git: GitClient, cwd: string, ref: IssueRef): Promise<string | undefined> {
+  const origin = await git.originRepository(cwd);
+  const defaultBranch = await git.defaultBranch(cwd);
+  await git.fetchBranch(cwd, defaultBranch);
+  return git.findCommitBySubjectEnding(cwd, `refs/remotes/origin/${defaultBranch}`, `(${commitNameOf(ref, origin)})`);
+}
+
+// As takeIssueOfWorktree for a list: the repository named, or recorded on the current branch, holds for every number.
+export async function takeIssuesOfWorktree(positionals: readonly string[], git: GitClient, cwd: string, usage: string): Promise<{ refs: IssueRef[]; rest: readonly string[] }> {
+  const { ref, rest } = await takeIssueOfWorktree(positionals, git, cwd, usage);
+  const numbers: string[] = [];
+  let index = 0;
+  while (index < rest.length && /^[0-9]/.test(rest[index] ?? '')) numbers.push(rest[index++] ?? '');
+  return { refs: [ref, ...numbers.map((number) => ({ ...ref, number: parseIssueNumber(number) }))], rest: rest.slice(index) };
 }
 
 export function refuseExtra(rest: readonly string[], usage: string): void {

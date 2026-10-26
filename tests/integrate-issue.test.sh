@@ -27,6 +27,10 @@
 
 set -uo pipefail
 
+# The commits of the scratch repositories carry their configured identity, which the real gate holds them
+# against: an identity in the caller's environment would make every one of them a stranger's.
+unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
+
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fake="$(mktemp -d)"
 # Every run of the gate leaves a record under AI_CORE_HOME; a test writes none into the machine's own
@@ -101,6 +105,7 @@ work="$fake/checkouts/example-repo"
 trees="$fake/checkouts/.worktrees/example-repo"
 mkdir -p "$trees"
 git -c init.defaultBranch=master init -q --bare "$origin"
+dress "$origin"
 git -c init.defaultBranch=master init -q "$work"
 dress "$work"
 echo 'one' > "$work/README.md"
@@ -396,7 +401,7 @@ check 'ci/integrate-<branch> is deleted'         '' "$(ci_tip issue-130-local-mo
 echo 'a ci/integrate-<branch> left by an earlier attempt is replaced, and a ci/integrate-<branch> that cannot be deleted is named'
 before="$(tip)"
 wt="$(new_tree 131 stale)"; git -C "$wt" push -q origin issue-131-stale 2>/dev/null
-stale="$(git --git-dir="$origin" commit-tree -m stale "$(git --git-dir="$origin" rev-parse master^{tree})")"   # no ancestor of the merge: replacing it takes a force
+stale="$(git --git-dir="$origin" commit-tree -m stale "$(git --git-dir="$origin" rev-parse "master^{tree}")")"   # no ancestor of the merge: replacing it takes a force
 git --git-dir="$origin" update-ref refs/heads/ci/integrate-issue-131-stale "$stale"
 git --git-dir="$origin" config receive.denyDeletes true
 echo public > "$fake/visibility"; : > "$fake/calls.txt"
@@ -432,7 +437,7 @@ chmod +x "$fake/shim/git"
 
 echo 'a ci/integrate-<branch> somebody else wrote between the read and the push is never overwritten, and is named when it stays'
 before="$(tip)"
-other_tip="$(git --git-dir="$origin" commit-tree -m other "$(git --git-dir="$origin" rev-parse master^{tree})")"
+other_tip="$(git --git-dir="$origin" commit-tree -m other "$(git --git-dir="$origin" rev-parse "master^{tree}")")"
 printf 'git --git-dir="%s" update-ref refs/heads/ci/integrate-issue-132-a-lease %s\n' "$origin" "$other_tip" > "$fake/after-ls-remote.sh"
 arm_ls=1; PATH="$fake/shim:$saved_path"
 land_public 132 a-lease "$success"
@@ -618,9 +623,9 @@ lock="$work/.git/ai-core-landing"
 # land_while_held <dir> <number>: the landing runs in the background; once it says it waits, and
 # not before, the lock it waits for is released, so a slow start cannot pass for a wait
 land_while_held() {
-  local said="$fake/held-$2.out" i
+  local said="$fake/held-$2.out"
   ( integrate "$1" "$2" --reviewed-by l4 > "$said"; echo $? > "$said.rc" ) & local landing=$!
-  for i in $(seq 1 240); do grep -qF 'waiting: ' "$said" 2>/dev/null && break; sleep 0.5; done
+  for _ in $(seq 1 240); do grep -qF 'waiting: ' "$said" 2>/dev/null && break; sleep 0.5; done
   tip_while_held="$(tip)"
   rm -f "$lock"; wait "$landing"
   out="$(cat "$said")"; rc="$(cat "$said.rc")"
@@ -674,7 +679,7 @@ held_tree() {
 held_state() { printf '%s\n%s\n%s\n' "$(git -C "$1" rev-parse HEAD)" "$(git -C "$1" symbolic-ref --short HEAD)" "$(git -C "$1" status --porcelain; cat "$1"/*.txt)"; }
 trees_listed() { git -C "$work" worktree list | wc -l | tr -d ' '; }
 # what stands in the worktree folder of the clone besides the worktrees of issues: the temporary worktree of --from-origin
-leftovers() { ls -A "$trees" | grep -vc '^issue-'; }
+leftovers() { find "$trees" -mindepth 1 -maxdepth 1 ! -name 'issue-*' | wc -l | tr -d ' '; }
 
 echo '--from-origin lands a pushed branch whose worktree holds an uncommitted change, and leaves that worktree alone'
 heldwt="$(held_tree 100 held)"
@@ -830,6 +835,146 @@ git -C "$work" push -q origin --delete issue-77-board issue-77-board-again 2>/de
 check 'origin did not move'            "$after" "$(tip)"
 check 'no folder of a temporary worktree is left' 0 "$(leftovers)"
 
+# The number 195 is also the number of an issue of this clone's own repository, whose branch stands on origin. Asked about
+# it in the tracker of the other repository, that branch answers "this issue", and it is not.
+echo '--from-origin for an issue of another repository does not take the branch of this clone'"'"'s own issue of that number'
+wt_own="$(new_tree 195 clones-own-work)"
+git -C "$work" push -q origin issue-195-clones-own-work
+before_planted="$(tip)"
+out="$(integrate "$work" other-org/tracker 195 --reviewed-by l4 --from-origin)"; rc=$?
+check 'planted: exit 1'                1 "$rc"
+check 'planted: the branch is named and not taken' yes "$(grep -qF 'the branch issue-195-clones-own-work on origin is not taken: it belongs to an issue of example-org/example-repo' <<< "$out" && echo yes || echo no)"
+check 'planted: it says origin has none of the issue' yes "$(grep -qF 'origin has no branch issue-195-* of other-org/tracker#195' <<< "$out" && echo yes || echo no)"
+check 'planted: origin did not move'   "$before_planted" "$(tip)"
+wt_issue="$(new_tree 195 read-the-board-whole)"
+git -C "$work" push -q origin issue-195-read-the-board-whole
+out="$(integrate "$work" other-org/tracker 195 --reviewed-by l4 --from-origin)"; rc=$?
+check 'innocent: the issue'"'"'s own branch lands: exit 0' 0 "$rc"
+check 'innocent: the subject names the other repository' 'Read the board whole (other-org/tracker#195)' "$(git --git-dir="$origin" log -1 --format=%s master)"
+check 'innocent: the branch of the own issue is not merged' no "$(git --git-dir="$origin" merge-base --is-ancestor issue-195-clones-own-work master && echo yes || echo no)"
+git -C "$work" worktree remove --force "$wt_own"; git -C "$work" worktree remove --force "$wt_issue"
+git -C "$work" push -q origin --delete issue-195-clones-own-work issue-195-read-the-board-whole
+git -C "$work" branch -q -D issue-195-clones-own-work issue-195-read-the-board-whole
+after="$(tip)"
+
+# A package lands several issues in one push. The first comes from the worktree, every other one from origin, all merged in one
+# temporary worktree: one gate run, one push, one merge commit per issue.
+echo 'a list of issues lands each one in a merge commit of its own, in the order given, in one push'
+wt_first="$(new_tree 301 first-part)"
+new_tree 302 second-part >/dev/null
+git -C "$work" push -q origin issue-302-second-part
+before_list="$(tip)"
+# every push of the clone passes its pre-push hook, so a hook that counts them counts the pushes of the landing
+mkdir -p "$fake/count-hooks"; printf '#!/bin/sh\ncat > /dev/null\necho push >> "%s"\n' "$fake/pushes.txt" > "$fake/count-hooks/pre-push"
+chmod +x "$fake/count-hooks/pre-push"; : > "$fake/pushes.txt"
+git -C "$work" config core.hooksPath "$fake/count-hooks"
+out="$(integrate "$wt_first" 301 302 --reviewed-by l4 --reviewed-by l5)"; rc=$?
+git -C "$work" config --unset core.hooksPath
+check 'exit 0'                         0 "$rc"
+check 'one push'                       1 "$(wc -l < "$fake/pushes.txt" | tr -d ' ')"
+check 'one integrated line'            1 "$(grep -c '^integrated: ' <<< "$out")"
+check 'two merge commits on top, in the order given' "Read the board whole (#302)
+Read the board whole (#301)" "$(git --git-dir="$origin" log --merges -2 --format=%s master)"
+check 'each carries both reviewers'    2 "$(git --git-dir="$origin" log --merges -2 --format=%b master | grep -c '^Reviewed-by: l5$')"
+check 'origin moved by both merges and their commits, once' 4 "$(git --git-dir="$origin" rev-list --count "$before_list..master")"
+check 'it names the next step of each' "next: ai-core finish-issue 301
+next: ai-core finish-issue 302" "$(grep '^next: ' <<< "$out")"
+check 'the first worktree is on its branch' issue-301-first-part "$(git -C "$wt_first" symbolic-ref --short HEAD)"
+check 'no temporary worktree is left'  0 "$(leftovers)"
+echo 'a conflict of the second issue lands neither, names the issue and leaves origin as it was'
+wt_c1="$(new_tree 305 clash-one)"; echo a > "$wt_c1/same.txt"; git -C "$wt_c1" add same.txt; git -C "$wt_c1" commit -q -m 'same file (#305)'
+wt_c2="$(new_tree 306 clash-two)"; echo b > "$wt_c2/same.txt"; git -C "$wt_c2" add same.txt; git -C "$wt_c2" commit -q -m 'same file (#306)'
+git -C "$work" push -q origin issue-306-clash-two
+before_list="$(tip)"
+out="$(integrate "$wt_c1" 305 306 --reviewed-by l4)"; rc=$?
+check 'planted: exit 1'                1 "$rc"
+check 'planted: it names the issue that clashes' yes "$(grep -qF 'origin/issue-306-clash-two does not merge cleanly into origin/master' <<< "$out" && echo yes || echo no)"
+check 'planted: origin did not move'   "$before_list" "$(tip)"
+check 'planted: no temporary worktree is left' 0 "$(leftovers)"
+check 'planted: the first worktree is on its branch' issue-305-clash-one "$(git -C "$wt_c1" symbolic-ref --short HEAD)"
+echo 'a list in a public repository pushes the merged head to ci/ once, waits for its checks once and lands both merges'
+pub_one="$(held_tree 310 pub-one)"; pub_two="$(held_tree 311 pub-two)"
+before="$(tip)"
+echo public > "$fake/visibility"; : > "$fake/calls.txt"; rm -f "$fake/ci-during"; plant_hook issue-310-pub-one
+out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=5 integrate "$work" 310 311 --reviewed-by l4 --from-origin)"; rc=$?
+rm -f "$fake/visibility" "$fake/during-wait"
+check 'exit 0'                         0 "$rc"
+check 'exactly the commit of ci/integrate-<first branch> landed' "$(cat "$fake/ci-during")" "$(tip)"
+check 'its checks are read green once' 1 "$(grep -c '^checks: green for ' <<< "$out")"
+check 'the checks of the final merge were asked' yes "$(grep -qF "run list -R $origin_repo --commit $(tip) " "$fake/calls.txt" && echo yes || echo no)"
+check 'two merge commits landed'       2 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+check 'ci/integrate-<branch> is gone'  '' "$(ci_tip issue-310-pub-one)"
+check 'no temporary worktree is left'  0 "$(leftovers)"
+git -C "$work" worktree remove --force "$pub_one"; git -C "$work" worktree remove --force "$pub_two"
+before_list="$(tip)"
+# A branch pushed past the gate (a cloud session's) reached origin unjudged. The landing runs the commit checks on every commit it
+# adds to the default branch, those another ref of origin holds already among them.
+echo 'a commit that no gate judged is judged when its branch lands: a subject over 72 characters refuses the landing and names the commit'
+mkdir -p "$fake/gate-hooks"; printf '#!/bin/sh\nexec bash "%s/bin/pre-push.sh" "$@"\n' "$root" > "$fake/gate-hooks/pre-push"; chmod +x "$fake/gate-hooks/pre-push"
+printf 'claude\tmode\talways\t-\t-\ncodex\tmode\talways\t-\t-\n' > "$fake/team-modes.tsv"
+wt_long="$(new_tree 321 long-subject)"
+long_subject='Write the long subject that no gate judged and that is far beyond the limit (#321)'
+echo 'a second commit' > "$wt_long/second-commit.txt"; git -C "$wt_long" add second-commit.txt; git -C "$wt_long" commit -q -m "$long_subject"
+git -C "$wt_long" push -q --no-verify origin issue-321-long-subject
+long_sha="$(git -C "$wt_long" rev-parse --short HEAD)"
+before_gate="$(tip)"
+git -C "$work" config core.hooksPath "$fake/gate-hooks"
+out="$(TEAM_MODES_FILE="$fake/team-modes.tsv" PRE_PUSH_LOAD_LIMIT=0 integrate "$wt_long" 321 --reviewed-by l4)"; rc=$?
+check 'planted: exit 1'                1 "$rc"
+check 'planted: it names the commit that is too long' yes "$(grep -qF "$long_sha" <<< "$out" && grep -q 'subjects are longer than 72 characters' <<< "$out" && echo yes || echo no)"
+check 'planted: origin did not move'   "$before_gate" "$(tip)"
+check 'planted: the worktree is on its branch' issue-321-long-subject "$(git -C "$wt_long" symbolic-ref --short HEAD)"
+wt_passed="$(new_tree 322 passed-the-gate)"
+TEAM_MODES_FILE="$fake/team-modes.tsv" PRE_PUSH_LOAD_LIMIT=0 git -C "$wt_passed" push -q origin issue-322-passed-the-gate 2>/dev/null
+out="$(TEAM_MODES_FILE="$fake/team-modes.tsv" PRE_PUSH_LOAD_LIMIT=0 integrate "$wt_passed" 322 --reviewed-by l4)"; rc=$?
+check 'innocent: a branch whose commits passed the gate lands: exit 0' 0 "$rc$([ "$rc" -eq 0 ] || echo " $out")"
+check 'innocent: its merge commit is on origin' "Read the board whole (#322)" "$(git --git-dir="$origin" log -1 --format=%s master)"
+git -C "$work" config --unset core.hooksPath
+before_list="$(tip)"
+
+echo 'an issue named twice, and an issue without a branch on origin, are refused before anything moves'
+out="$(integrate "$wt_c1" 305 305 --reviewed-by l4)"; rc=$?
+check 'twice: exit 1'                  1 "$rc"
+check 'twice: it says so'              yes "$(grep -qF 'an issue is named twice' <<< "$out" && echo yes || echo no)"
+out="$(integrate "$wt_c1" 305 399 --reviewed-by l4)"; rc=$?
+check 'no branch on origin: exit 1'    1 "$rc"
+check 'no branch on origin: it says so' yes "$(grep -qF 'origin has no branch issue-399-*' <<< "$out" && echo yes || echo no)"
+check 'no branch on origin: origin did not move' "$before_list" "$(tip)"
+echo 'a list whose later issue holds nothing that the earlier ones do not lands none, since git would merge it into no commit, and names it'
+wt_holds="$(new_tree 315 holds-the-work)"
+git -C "$work" branch -q issue-316-holds-nothing "$(git -C "$wt_holds" rev-parse HEAD)"
+git -C "$work" push -q origin issue-316-holds-nothing
+before_list="$(tip)"
+out="$(integrate "$wt_holds" 315 316 --reviewed-by l4)"; rc=$?
+check 'planted: exit 1'                1 "$rc"
+check 'planted: it names the branch that adds nothing' yes "$(grep -qF 'nothing to integrate: origin/issue-316-holds-nothing holds nothing that the issues before it in the list do not' <<< "$out" && echo yes || echo no)"
+check 'planted: origin did not move'   "$before_list" "$(tip)"
+check 'planted: no temporary worktree is left' 0 "$(leftovers)"
+git -C "$work" worktree remove --force "$wt_holds"; git -C "$work" push -q origin --delete issue-316-holds-nothing
+git -C "$work" branch -q -D issue-315-holds-the-work issue-316-holds-nothing
+echo 'a list in the worktree of an issue of another repository reads every later number there, also one whose branch this clone holds no record of'
+wt_elsewhere="$(new_tree 340 first-elsewhere)"
+git -C "$work" config branch.issue-340-first-elsewhere.issueRepository other-org/tracker
+# the branch of the second was started in another clone: origin holds it, and this clone has no branch or record of it
+elsewhere="$fake/clone-elsewhere"
+git clone -q "$origin" "$elsewhere"; dress "$elsewhere"
+git -C "$elsewhere" switch -q -c issue-341-read-the-board-whole
+echo 'started in another clone' > "$elsewhere/started-elsewhere.txt"
+git -C "$elsewhere" add -A && git -C "$elsewhere" commit -q -m 'Write the second part in another clone #341'
+git -C "$elsewhere" push -q origin issue-341-read-the-board-whole; rm -rf "$elsewhere"
+: > "$fake/calls.txt"
+out="$(integrate "$wt_elsewhere" 340 341 --reviewed-by l4)"; rc=$?
+check 'planted: exit 0'                0 "$rc"
+check 'planted: both subjects name the other repository' "Read the board whole (other-org/tracker#341)
+Read the board whole (other-org/tracker#340)" "$(git --git-dir="$origin" log --merges -2 --format=%s master)"
+check 'planted: the second issue was read there' yes "$(grep -q 'other-org/tracker/issues/341' "$fake/calls.txt" && echo yes || echo no)"
+check 'planted: and never in this clone'"'"'s repository' no "$(grep -q 'example-org/example-repo/issues/341' "$fake/calls.txt" && echo yes || echo no)"
+check 'planted: the next steps name the other repository' "next: ai-core finish-issue other-org/tracker 340
+next: ai-core finish-issue other-org/tracker 341" "$(grep '^next: ' <<< "$out")"
+git -C "$work" worktree remove --force "$wt_elsewhere"; git -C "$work" push -q origin --delete issue-341-read-the-board-whole
+git -C "$work" branch -q -D issue-340-first-elsewhere
+after="$(tip)"
+
 echo '--from-origin on a conflict leaves origin as it was, the held worktree untouched and no temporary worktree'
 git -C "$wt3" push -q origin issue-79-clash 2>/dev/null
 echo 'in progress' > "$wt3/loose.txt"
@@ -966,7 +1111,7 @@ chmod +x "$fake/walk/innocent-pre-push"
 
 echo '--from-origin: a gate that walks up to a sibling checkout finds it from the temporary worktree'
 git -C "$work" config core.hooksPath "$fake/walk"
-heldwt7="$(held_tree 106 walk)"
+held_tree 106 walk >/dev/null
 trees_before="$(trees_listed)"
 before="$(tip)"
 rm -f "$fake/checked.txt"
@@ -980,7 +1125,7 @@ check 'and no folder of it is left'    0 "$(leftovers)"
 echo '--from-origin: a gate with no such check stays green'
 git -C "$work" config core.hooksPath "$fake/walk"
 mv "$fake/walk/pre-push" "$fake/walk/walks-up"; mv "$fake/walk/innocent-pre-push" "$fake/walk/pre-push"
-heldwt8="$(held_tree 107 plain)"
+held_tree 107 plain >/dev/null
 before="$(tip)"
 out="$(integrate "$work" 107 --reviewed-by l4 --from-origin)"; rc=$?
 check 'exit 0'                         0 "$rc"
@@ -988,7 +1133,7 @@ check 'one merge commit landed'        1 "$(git --git-dir="$origin" rev-list --m
 check 'and no folder of it is left'    0 "$(leftovers)"
 
 echo '--from-origin: an interruption removes the temporary worktree too'
-heldwt9="$(held_tree 108 stopped)"
+held_tree 108 stopped >/dev/null
 printf '#!/bin/sh\npwd > "%s"\nkill -TERM "$(cut -f1 "%s")"\nsleep 1\nexit 1\n' "$fake/checked.txt" "$lock" > "$fake/walk/pre-push"
 trees_before="$(trees_listed)"
 after="$(tip)"

@@ -163,7 +163,7 @@ source_case() {  # NAME NUMBER WANTED-LINE (empty: no line)
   check "$1: the worktree is cut from origin"    "$(git -C "$src" rev-parse refs/remotes/origin/master)" "$(git -C "$tree" rev-parse HEAD 2>/dev/null)"
   check "$1: the state is named"                 "$3" "$(grep '^The checkout ' <<< "$out")"
   check "$1: the checkout is as it was"          "$before" "$after"
-  check "$1: none of its changes is in the tree" '' "$(git -C "$tree" status --porcelain 2>&1)$(ls "$tree" | grep -E '^(untracked|local)\.txt$')"
+  check "$1: none of its changes is in the tree" '' "$(git -C "$tree" status --porcelain 2>&1)$(for f in local.txt untracked.txt; do [ ! -e "$tree/$f" ] || echo "$f"; done)"
 }
 
 make_source behind
@@ -230,7 +230,14 @@ check 'race: exits zero'                              0 "$rc"
 check 'race: origin moved during the run'             yes "$([ "$(git -C "$states/racer" rev-parse refs/remotes/origin/master)" != "$read_tip" ] && echo yes || echo no)"
 check 'race: the worktree starts at the commit read'  "$read_tip" "$(git -C "$tree" rev-parse HEAD 2>/dev/null)"
 check 'race: the state line matches that commit'      "$(state_line racer 'branch master' 'has changes')" "$(grep '^The checkout ' <<< "$out")"
-check 'race: the branch tracks origin/master'         'origin/master' "$(git -C "$tree" rev-parse --abbrev-ref '@{upstream}' 2>&1)"
+check 'race: the branch pushes to its own branch on origin' 'origin issue-218-read-the-board-whole' "$(git -C "$tree" config branch.issue-218-read-the-board-whole.remote) $(git -C "$tree" config branch.issue-218-read-the-board-whole.merge | sed 's|^refs/heads/||')"
+master_before_push="$(git --git-dir="$origin" rev-parse refs/heads/master)"
+git -C "$tree" commit -q --allow-empty -m 'Work on the issue (#218)'
+git -C "$tree" push -q 2>"$fake/plain-push.err"; rc=$?
+check 'race: a plain git push goes through' 0 "$rc$([ "$rc" -eq 0 ] || echo " $(cat "$fake/plain-push.err")")"
+check 'race: it made the branch of the issue on origin' "$(git -C "$tree" rev-parse HEAD)" "$(git --git-dir="$origin" rev-parse refs/heads/issue-218-read-the-board-whole 2>&1)"
+check 'race: and did not touch the default branch' "$master_before_push" "$(git --git-dir="$origin" rev-parse refs/heads/master)"
+check 'race: the branch now tracks origin/<its own name>' origin/issue-218-read-the-board-whole "$(git -C "$tree" rev-parse --abbrev-ref '@{upstream}' 2>&1)"
 
 echo 'a checkout whose HEAD cannot be read as a commit is refused before anything is made'
 made_before="$(git -C "$states/treehead" worktree list; git -C "$states/treehead" for-each-ref --format='%(refname)' refs/heads)"
@@ -253,7 +260,7 @@ rm -f "$states/locked/.git/config.lock"
 out="$(cd "$states/locked" && bash "$start" 220 2>&1)"; rc=$?
 tree="$states/.worktrees/locked/issue-220-read-the-board-whole"
 check 'locked config, again without it: exits zero'   0 "$rc"
-check 'it tracks origin/master'          'origin master' "$(git -C "$states/locked" config branch.issue-220-read-the-board-whole.remote) $(git -C "$states/locked" config branch.issue-220-read-the-board-whole.merge | sed 's|^refs/heads/||')"
+check 'it pushes to its own branch on origin' 'origin issue-220-read-the-board-whole' "$(git -C "$states/locked" config branch.issue-220-read-the-board-whole.remote) $(git -C "$states/locked" config branch.issue-220-read-the-board-whole.merge | sed 's|^refs/heads/||')"
 check 'init ran in the worktree'         yes "$([ -f "$tree/.ai-core/config.env" ] && echo yes || echo no)"
 check 'the card moved'                   yes "$(grep -q 'oid=OPT_impl' "$log" && echo yes || echo no)"
 
@@ -270,7 +277,7 @@ out="$(cd "$states/ambiguous" && bash "$start" 221 2>&1)"; rc=$?
 tree="$states/.worktrees/ambiguous/issue-221-read-the-board-whole"
 check 'ambiguous name: exits zero'       0 "$rc"
 check 'it starts at the commit of origin/master' "$(git -C "$states/ambiguous" rev-parse refs/remotes/origin/master)" "$(git -C "$tree" rev-parse HEAD 2>/dev/null)"
-check 'it tracks origin/master'          'origin master' "$(git -C "$states/ambiguous" config branch.issue-221-read-the-board-whole.remote) $(git -C "$states/ambiguous" config branch.issue-221-read-the-board-whole.merge | sed 's|^refs/heads/||')"
+check 'it pushes to its own branch on origin' 'origin issue-221-read-the-board-whole' "$(git -C "$states/ambiguous" config branch.issue-221-read-the-board-whole.remote) $(git -C "$states/ambiguous" config branch.issue-221-read-the-board-whole.merge | sed 's|^refs/heads/||')"
 
 echo 'a checkout with changes and behind origin still refuses what else was refused'
 out="$(cd "$states/both" && ASSIGNEE=somebody bash "$start" 210 2>&1)"; rc=$?
@@ -487,6 +494,30 @@ check 'the branch carries the number'    "$cut" "$(git -C "$work" for-each-ref -
 check 'the repository is recorded on it' other-org/tracker "$(git -C "$work" config --get "branch.$cut.issueRepository" || true)"
 check 'the issue was read there'         yes "$(grep -q 'other-org/tracker/issues/171' "$clog" && echo yes || echo no)"
 check 'and never here'                   0 "$(grep -c 'example-org/example-repo/issues' "$clog" || true)"
+
+# The number 174 is also the number of an issue of this clone's own repository, which has a branch of its own: local, and
+# on origin. Asked about it in the tracker of the other repository, that branch answers "this issue", and it is not.
+echo 'an issue of another repository whose number a branch of this clone'"'"'s own issue carries: that branch is no obstacle'
+git -C "$side" checkout -q -b issue-174-own-work master
+echo 'own' > "$side/own.txt"; git -C "$side" add own.txt; git -C "$side" commit -q -m 'work of this clone'"'"'s own issue'
+git -C "$side" push -q origin issue-174-own-work
+git -C "$work" fetch -q origin
+git -C "$work" branch -q issue-174-own-work origin/issue-174-own-work
+out="$(cd "$work" && PATH="$cross:$PATH" GH_PROJECT_NUMBER='' bash "$start" other-org/tracker 174 2>&1)"; rc=$?
+check 'planted: exits zero'                    0 "$rc"
+check 'planted: its own branch is cut'         issue-174-alert-on-a-stuck-run "$(git -C "$work" for-each-ref --format='%(refname:short)' refs/heads | grep '^issue-174-alert' || true)"
+check 'planted: the repository is recorded'    other-org/tracker "$(git -C "$work" config --get "branch.issue-174-alert-on-a-stuck-run.issueRepository" || true)"
+check 'planted: the other branch is untouched' "$(git -C "$side" rev-parse issue-174-own-work)" "$(git -C "$work" rev-parse issue-174-own-work)"
+out="$(run 174)"; rc=$?
+check 'innocent: its own issue still refuses'  yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'innocent: it names the branch'          yes "$(grep -q 'a branch for this issue exists already: .*issue-174-own-work.* - use its worktree instead' <<< "$out" && echo yes || echo no)"
+git -C "$side" checkout -q -b issue-176-alert-on-a-stuck-run master
+echo 'other' > "$side/other.txt"; git -C "$side" add other.txt; git -C "$side" commit -q -m 'work of the other issue'
+git -C "$side" push -q origin issue-176-alert-on-a-stuck-run
+git -C "$work" fetch -q origin
+out="$(cd "$work" && PATH="$cross:$PATH" GH_PROJECT_NUMBER='' bash "$start" other-org/tracker 176 2>&1)"; rc=$?
+check 'innocent: the issue'"'"'s own branch on origin refuses' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'innocent: it names the branch on origin' yes "$(grep -q 'a branch for this issue exists already: origin/issue-176-alert-on-a-stuck-run' <<< "$out" && echo yes || echo no)"
 
 echo 'its own repository, named in another case, is no other repository'
 out="$(cd "$work" && GH_PROJECT_NUMBER='' bash "$start" Example-Org/Example-Repo 172 2>&1)"; rc=$?

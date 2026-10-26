@@ -198,15 +198,21 @@ load_provider() {  # load_provider <subject> <the functions of the interface, se
 # text for the caller's error message, and the exit status is passed on.
 #
 # run_split is the shared half: it runs a command with the two streams in separate places, sets
-# split_out and split_err and returns the command's status. Its temporary file goes with an
-# interrupt (INT, TERM); no script of this repository traps those two.
+# split_out and split_err and returns the command's status. While the command runs, an interrupt
+# (INT, TERM) removes the temporary file and ends the shell with status 130. When run_split returns,
+# the INT and TERM traps of the caller stand as they stood before, handlers and ignores alike. In a
+# command substitution the shell reports the calling shell's traps although both signals still have
+# their default there, so run_split leaves the calling shell's INT and TERM traps in force in it.
 run_split() {  # run_split <command>...
-  local err rc=0
+  local err rc=0 caller_traps
   err="$(mktemp)"
+  trap -p INT TERM > "$err"
+  caller_traps="$(cat "$err")"
   trap 'rm -f "$err"; exit 130' INT TERM
   split_out="$("$@" 2>"$err")" || rc=$?
   split_err="$(cat "$err")"
   rm -f "$err"; trap - INT TERM
+  eval "$caller_traps"
   return "$rc"
 }
 

@@ -15,6 +15,7 @@ export interface Worktree {
   readonly path: string;
   readonly head: string | undefined;
   readonly branch: string | undefined;
+  readonly lock: { readonly reason: string } | undefined;
 }
 
 export class GitError extends Error {
@@ -163,11 +164,11 @@ export class GitClient {
     return path.split('\n')[0] || commit;
   }
 
-  async isClean(cwd: string): Promise<boolean> {
   async getSubject(cwd: string, commit: string): Promise<string> {
     return this.output(cwd, ['log', '-1', '--format=%s', commit]);
   }
 
+  async isClean(cwd: string): Promise<boolean> {
     return (await this.listChanges(cwd)).length === 0;
   }
 
@@ -227,7 +228,13 @@ export class GitClient {
       .map((block) => {
         const lines = block.split('\n');
         const value = (key: string): string | undefined => lines.find((line) => line.startsWith(`${key} `))?.slice(key.length + 1);
-        return { path: value('worktree') ?? '', head: value('HEAD'), branch: value('branch')?.replace(/^refs\/heads\//, '') };
+        const locked = lines.find((line) => line === 'locked' || line.startsWith('locked '));
+        return {
+          path: value('worktree') ?? '',
+          head: value('HEAD'),
+          branch: value('branch')?.replace(/^refs\/heads\//, ''),
+          lock: locked === undefined ? undefined : { reason: locked.slice('locked '.length) },
+        };
       });
   }
 
@@ -258,12 +265,23 @@ export class GitClient {
     await this.run(cwd, ['worktree', 'remove', '--force', path]);
   }
 
-  // Deletes a branch only while it points at the tip the caller proved landed: `branch -d` would judge it by its
-  // upstream, which may lack that tip.
+  // Deletes a branch in one step that holds only while it points at the tip the caller proved landed (`branch -d`
+  // would judge it by its upstream, which may lack that tip), then the configuration of the branch. A branch that
+  // a worktree has checked out stays, as `branch -D` would have it.
   async deleteBranch(cwd: string, branch: string, landedTip: string): Promise<void> {
-    const tip = await this.resolveCommit(cwd, `refs/heads/${branch}`);
-    if (tip !== landedTip) throw new GitError(['branch', '-D', branch], undefined, `${branch} points at ${tip}, not at ${landedTip}, the tip that landed`);
-    await this.run(cwd, ['branch', '-D', branch]);
+    if ((await this.listWorktrees(cwd)).some((worktree) => worktree.branch === branch)) {
+      throw new GitError(['branch', '-D', branch], undefined, `${branch} is checked out in a worktree`);
+    }
+    try {
+      await this.run(cwd, ['update-ref', '-d', `refs/heads/${branch}`, landedTip]);
+    } catch (error) {
+      if (!(error instanceof GitError)) throw error;
+      const tip = await this.resolveCommit(cwd, `refs/heads/${branch}`).catch(() => undefined);
+      if (tip !== undefined && tip !== landedTip) throw new GitError(['branch', '-D', branch], undefined, `${branch} points at ${tip}, not at ${landedTip}, the tip that landed`);
+      throw error;
+    }
+    // Exit 128 is git saying that the branch had no configuration section.
+    await this.run(cwd, ['config', '--remove-section', `branch.${branch}`], [0, 128]);
   }
 
   // A merge commit that names its parents; a merge that conflicts is aborted and leaves the checkout as it was.

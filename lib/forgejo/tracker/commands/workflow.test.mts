@@ -894,6 +894,67 @@ describe('finish-issue', () => {
     await assert.rejects(finishIssue.run([String(landed.number)], ctx(main.checkout)), /stands in this clone, so nothing is removed/);
   });
 
+  describe('against a worktree that ai-core init is equipping', () => {
+    it('names the lock and the retry, removes nothing, and removes the worktree once the lock is lifted (planted: the lock of ai-core init)', async () => {
+      const landed = await worked(main, 'Finish while init equips it, so that it stays');
+      await integrateIssue.run(integrateArguments(main, landed.number, landed.head), ctx(landed.tree));
+      git(main.checkout, 'worktree', 'lock', '--reason', 'ai-core init', landed.tree);
+      const writes = writesOf();
+      await assert.rejects(finishIssue.run([String(landed.number)], ctx(main.checkout)), (error: unknown) => error instanceof PreconditionError && error.message === `the worktree ${landed.tree} is locked by ai-core init, which is equipping it, so nothing is removed: run it again in a moment, and where no init runs any more it was killed and git worktree unlock ${landed.tree} lifts the lock`);
+      assert.ok(existsSync(landed.tree));
+      assert.ok((await client.listBranchNames(main.checkout)).includes(landed.branch));
+      assert.equal(writesOf(), writes);
+      git(main.checkout, 'worktree', 'unlock', landed.tree);
+      await finishIssue.run([String(landed.number)], ctx(main.checkout));
+      assert.ok(!existsSync(landed.tree));
+    });
+
+    it('names the reason of a lock somebody else holds, and removes a landed worktree beside a worktree locked for another issue (innocent case)', async () => {
+      const landed = await worked(main, 'Finish beside a locked one, so that only it goes');
+      const other = await worked(main, 'Locked by its owner, so that it stays');
+      git(main.checkout, 'worktree', 'lock', '--reason', 'portable disk: do not prune', other.tree);
+      await integrateIssue.run(integrateArguments(main, landed.number, landed.head), ctx(landed.tree));
+      git(main.checkout, 'worktree', 'lock', '--reason', 'portable disk: do not prune', landed.tree);
+      await assert.rejects(finishIssue.run([String(landed.number)], ctx(main.checkout)), new RegExp(`is locked \\(portable disk - do not prune\\), so nothing is removed: git worktree unlock ${landed.tree.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} lifts the lock$`));
+      git(main.checkout, 'worktree', 'unlock', landed.tree);
+      await finishIssue.run([String(landed.number)], ctx(main.checkout));
+      assert.ok(!existsSync(landed.tree));
+      assert.ok(existsSync(other.tree));
+      assert.equal(must((await client.listWorktrees(main.checkout)).find((entry) => entry.path === other.tree)).lock?.reason, 'portable disk: do not prune', 'the lock of the other stays');
+    });
+
+    it('names the lock that init takes between the check and the removal, and removes nothing (planted: the lock comes late)', async () => {
+      const landed = await worked(main, 'Locked late, so that the removal is refused');
+      await integrateIssue.run(integrateArguments(main, landed.number, landed.head), ctx(landed.tree));
+      class LockingLate extends GitClient {
+        override removeWorktree(cwd: string, path: string): Promise<void> {
+          git(cwd, 'worktree', 'lock', '--reason', 'ai-core init', path);
+          return super.removeWorktree(cwd, path);
+        }
+      }
+      await assert.rejects(finishIssue.run([String(landed.number)], { ...ctx(main.checkout), git: new LockingLate() }), /is locked by ai-core init, which is equipping it, so nothing is removed/);
+      assert.ok(existsSync(landed.tree));
+      assert.ok((await client.listBranchNames(main.checkout)).includes(landed.branch));
+    });
+  });
+
+  it('keeps a branch that moved after it was proved, and says so (planted: a commit pushed meanwhile)', async () => {
+    const landed = await worked(main, 'Moved meanwhile, so that the branch stays');
+    await integrateIssue.run(integrateArguments(main, landed.number, landed.head), ctx(landed.tree));
+    class MovingBranch extends GitClient {
+      override run(...call: Parameters<GitClient['run']>): ReturnType<GitClient['run']> {
+        const args = call[1];
+        if ((args[0] === 'update-ref' && args[1] === '-d') || (args[0] === 'branch' && args.includes('-D'))) {
+          git(call[0], 'update-ref', `refs/heads/${landed.branch}`, git(call[0], 'commit-tree', '-p', landed.head, '-m', 'pushed meanwhile', `${landed.head}^{tree}`));
+        }
+        return super.run(...call);
+      }
+    }
+    await assert.rejects(finishIssue.run([String(landed.number)], { ...ctx(main.checkout), git: new MovingBranch() }), (error: unknown) => error instanceof PartialCompletionError && /the branch issue-\d+-[a-z-]+ stays: .* points at [0-9a-f]{40}, not at/.test(error.message));
+    assert.ok((await client.listBranchNames(main.checkout)).includes(landed.branch));
+    assert.ok(!existsSync(landed.tree), 'the worktree went; the branch with the new commit stays');
+  });
+
   it('finds the worktree of an issue of another repository by the repository start-issue recorded', async () => {
     const number = newIssue(sibling, 'Elsewhere and finished, so that it is found', { labels: ['status/ready'] });
     await startIssue.run([sibling.full, String(number)], ctx(main.checkout));

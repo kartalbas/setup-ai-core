@@ -1069,6 +1069,71 @@ check 'and where it can be read, the branch with work origin lacks says so, as b
 setup git -C "$work" worktree remove --force "$trees/issue-421-unmeasured"; setup git -C "$work" branch -q -D issue-421-unmeasured
 setup git -C "$work" worktree remove --force "$trees/issue-422-ahead"; setup git -C "$work" branch -q -D issue-422-ahead
 
+echo 'a worktree that ai-core init has locked, or anybody else has, stays with its branch and is named; once unlocked it goes'
+open issue-190-locked
+land issue-190-locked 'Locked while init equips it (#190)'
+git -C "$work" worktree lock --reason 'ai-core init' "$trees/issue-190-locked"
+: > "$log"; rm -rf "$fake/cache"
+out="$(run 190)"; rc=$?
+check 'init lock: exits nonzero'          yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'init lock: it names the lock and the retry' "error: the worktree $trees/issue-190-locked is locked by ai-core init, which is equipping it, so nothing is removed: run it again in a moment, and where no init runs any more it was killed and git worktree unlock $trees/issue-190-locked lifts the lock" "$out"
+check 'init lock: the worktree stays'     yes "$(has_tree issue-190-locked)"
+check 'init lock: the branch stays'       yes "$(has_branch issue-190-locked)"
+check 'init lock: the card did not move'  0 "$(grep -c 'oid=OPT_' "$log" || true)"
+git -C "$work" worktree unlock "$trees/issue-190-locked"
+git -C "$work" worktree lock --reason 'portable disk: do not prune' "$trees/issue-190-locked"
+out="$(run 190)"; rc=$?
+check 'other lock: it names the reason, its colon spelled as a dash' "error: the worktree $trees/issue-190-locked is locked (portable disk - do not prune), so nothing is removed: git worktree unlock $trees/issue-190-locked lifts the lock" "$out"
+check 'other lock: the worktree stays'    yes "$(has_tree issue-190-locked)"
+git -C "$work" worktree unlock "$trees/issue-190-locked"
+out="$(run 190)"; rc=$?
+check_runs "$rc"
+check 'unlocked: the worktree is gone'    no "$(has_tree issue-190-locked)"
+check 'unlocked: the branch is gone'      no "$(has_branch issue-190-locked)"
+
+echo 'a branch that moved after its tip was measured stays, and finish-issue says so (planted: a commit arrives before the deletion)'
+open issue-191-moved
+land issue-191-moved 'Moves during the removal (#191)'
+mkdir -p "$fake/racebin"
+cat > "$fake/racebin/git" <<EOF
+#!/usr/bin/env bash
+# just before the deletion of the branch named in RACE_BRANCH, a commit arrives on it
+case "\$*" in
+  *"update-ref -d refs/heads/\$RACE_BRANCH"*|*"branch -D \$RACE_BRANCH"*)
+    "$(command -v git)" update-ref "refs/heads/\$RACE_BRANCH" "\$("$(command -v git)" commit-tree -p "refs/heads/\$RACE_BRANCH" -m 'arrived meanwhile' "refs/heads/\$RACE_BRANCH^{tree}")" ;;
+esac
+exec "$(command -v git)" "\$@"
+EOF
+chmod +x "$fake/racebin/git"
+tip_measured="$(git -C "$work" rev-parse refs/heads/issue-191-moved)"
+: > "$log"; rm -rf "$fake/cache"
+out="$(RACE_BRANCH=issue-191-moved PATH="$fake/racebin:$PATH" run 191)"; rc=$?
+check 'race: exits nonzero'               yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'race: it says that the branch stays' yes "$(grep -q "the worktree $trees/issue-191-moved is removed, but the branch issue-191-moved stays: it is not at ${tip_measured:0:7} any more" <<< "$out" && echo yes || echo no)"
+check 'race: the branch survives with the arrived commit' 'arrived meanwhile' "$(git -C "$work" log -1 --format=%s refs/heads/issue-191-moved 2>&1)"
+echo 'and where nothing arrives, the same finish deletes the branch (innocent case)'
+open issue-192-quiet
+land issue-192-quiet 'Nothing arrives (#192)'
+out="$(RACE_BRANCH=issue-191-moved PATH="$fake/racebin:$PATH" run 192)"; rc=$?
+check_runs "$rc"
+check 'quiet: the branch is gone'         no "$(has_branch issue-192-quiet)"
+setup git -C "$work" branch -q -D issue-191-moved
+
+echo 'the sweep names a locked worktree and removes the next one'
+open issue-193-held
+land issue-193-held 'Landed long ago (#193)' '2026-01-01T00:00:00Z'
+open issue-194-free
+land issue-194-free 'Landed long ago too (#194)' '2026-01-01T00:00:00Z'
+git -C "$work" worktree lock --reason 'ai-core init' "$trees/issue-193-held"
+out="$(run --sweep)"; rc=$?
+check_runs "$rc"
+check 'it names the lock'                 "worktree $trees/issue-193-held: locked by ai-core init, which is equipping it, stays" "$(grep 'issue-193-held' <<< "$out")"
+check 'it removes the other worktree'     "worktree $trees/issue-194-free: landed, removed" "$(grep 'issue-194-free' <<< "$out")"
+check 'the locked worktree stays'         yes "$(has_tree issue-193-held)"
+git -C "$work" worktree unlock "$trees/issue-193-held"
+out="$(run --sweep)"
+check 'unlocked, the sweep removes it'    "worktree $trees/issue-193-held: landed, removed" "$(grep 'issue-193-held' <<< "$out")"
+
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo
 echo 'all passed'

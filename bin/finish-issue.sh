@@ -40,11 +40,17 @@
 # from, kept where the tracker, asked for the number of the name at the time the branch was started, answers this
 # issue; all are measured before one is removed, and a branch of another work item stays and is named with it.
 #
+# A WORKTREE THAT init IS EQUIPPING IS LOCKED (git worktree lock --reason "ai-core init") and is never removed: the
+# run names the lock and the retry, and the sweep reports the worktree as staying and goes on. A lock that a killed
+# init left stays until git worktree unlock lifts it. The branch is deleted in one step, only while it still points at
+# the tip that was measured, so a commit that arrives meanwhile keeps it.
+#
 # --sweep removes every worktree of this repository whose work has landed and has rested for a
 # day, and names the others it leaves; start-issue and init --all run it, so a worktree nobody
 # finished does not stay for good. A worktree that was never committed in is left alone.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
+. "$ROOT/lib/worktrees.sh"
 
 BIN="$ROOT/bin"
 usage='usage: finish-issue.sh [OWNER/REPO] NUMBER [--landed] | finish-issue.sh --sweep [--dry-run]'
@@ -110,9 +116,16 @@ cut_only() {
   [ -n "$log" ] && ! grep -qv '^branch: Created' <<< "$log"
 }
 
-remove_worktree() {  # remove_worktree <path> <branch>
-  git -C "$main" worktree remove "$1" || die "the worktree $1 could not be removed (see above)"
-  git -C "$main" branch -D "$2" >/dev/null || die "the branch $2 could not be deleted (see above)"
+# remove_worktree <path> <branch> <tip>: removes the worktree and then the branch, only while it is still at
+# <tip>, the tip that was measured. Status 2 where the worktree is locked, with the reason in lock_reason.
+lock_reason=""
+remove_worktree() {
+  local said
+  if ! said="$(git -C "$main" worktree remove "$1" 2>&1)"; then
+    if lock_reason="$(worktree_lock_reason "$main" "$1")"; then return 2; fi
+    die "the worktree $1 could not be removed: $said"
+  fi
+  said="$(delete_branch_at_tip "$main" "$2" "$3")" || die "the worktree $1 is removed, but $said"
 }
 
 # own_worktree <path> <branch>: the worktree carries the name of the issue its branch belongs to, as
@@ -134,17 +147,23 @@ if [ "$sweep" -eq 1 ]; then
   now="$(date +%s)"
   while IFS=$'\t' read -r path branch; do
     [ -n "$path" ] || continue
+    tip="$(git -C "$main" rev-parse "refs/heads/$branch")"
     if ! own_worktree "$path" "$branch"; then echo "worktree $path: named for another issue, holds $branch, stays"
+    elif reason="$(worktree_lock_reason "$main" "$path")"; then echo "worktree $path: $(worktree_lock_state "$reason"), stays"
     elif [ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]; then echo "worktree $path: has changes, stays"
-    elif ! missing="$(unlanded "refs/heads/$branch")"; then
+    elif ! missing="$(unlanded "$tip")"; then
       # git's words on one line, their colons spelled as dashes: the line of a kept worktree is read back as "<path>: <reason>, stays"
       echo "worktree $path: could not be measured against origin/$default - $(tr -s '\n' ' ' <<< "$missing" | sed 's/: / - /g; s/ *$//'), stays"
     elif [ -n "$missing" ]; then echo "worktree $path: has work origin/$default does not have yet, stays"
     elif ! worked_in "$branch"; then echo "worktree $path: never committed in, stays"
-    elif [ $((now - $(git -C "$main" log -1 --format=%ct "refs/heads/$branch"))) -lt "$REST_SECONDS" ]; then
+    elif [ $((now - $(git -C "$main" log -1 --format=%ct "$tip"))) -lt "$REST_SECONDS" ]; then
       echo "worktree $path: landed less than a day ago, stays; finish-issue removes it at once"
     elif [ "$dry" -eq 1 ]; then echo "worktree $path: landed, would be removed"
-    else remove_worktree "$path" "$branch"; echo "worktree $path: landed, removed"; fi
+    else
+      removed=0; remove_worktree "$path" "$branch" "$tip" || removed=$?
+      if [ "$removed" -eq 0 ]; then echo "worktree $path: landed, removed"
+      else echo "worktree $path: $(worktree_lock_state "$lock_reason"), stays"; fi
+    fi
   done <<< "$(issue_worktrees)"
   exit 0
 fi
@@ -190,9 +209,13 @@ while IFS=$'\t' read -r path branch; do
     continue
   fi
   found=1; met=$((met + 1))
+  if reason="$(worktree_lock_reason "$main" "$path")"; then
+    die "the worktree $path is $(worktree_lock_state "$reason"), so nothing is removed: $(worktree_lock_retry "$path" "$reason")"
+  fi
   [ -z "$(git -C "$path" status --porcelain)" ] \
     || die "the worktree $path has changes - commit and push them, or put them aside, then run this again"
-  missing="$(unlanded "refs/heads/$branch")" || die "the history of $branch could not be read, so nothing is removed: $missing"
+  tip="$(git -C "$main" rev-parse "refs/heads/$branch")"
+  missing="$(unlanded "$tip")" || die "the history of $branch could not be read, so nothing is removed: $missing"
   if [ -n "$missing" ]; then
     # Work that landed in another shape, a resolved conflict or a changed context, is the owner's
     # word against git's: --landed takes it, and only for an issue somebody closed.
@@ -206,7 +229,8 @@ while IFS=$'\t' read -r path branch; do
   else
     worked_in_removed=$((worked_in_removed + 1)); because="its work is on origin/$default"
   fi
-  remove_worktree "$path" "$branch"
+  removed=0; remove_worktree "$path" "$branch" "$tip" || removed=$?
+  [ "$removed" -eq 0 ] || die "the worktree $path is $(worktree_lock_state "$lock_reason"), so nothing is removed: $(worktree_lock_retry "$path" "$lock_reason")"
   echo "Worktree $path and its branch $branch removed: $because. Open $main to go on."
 done <<< "$(issue_worktrees)"
 [ "$found" -eq 1 ] || echo "no worktree of issue $number stands here"

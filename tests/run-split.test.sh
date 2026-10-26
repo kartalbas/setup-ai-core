@@ -45,9 +45,9 @@ calls() { run_split true; run_split sh -c 'exit 3'; run_split true; }
 
 scenario_absent() {
   local before after
+  same 'no INT or TERM trap before the calls' '' "$(trap -p INT TERM)"
   before="$(traps)"; calls; after="$(traps)"
-  same 'no trap before the calls' '' "$before"
-  same 'no trap after the calls' '' "$after"
+  same 'every trap is as it was after the calls' "$before" "$after"
 }
 
 scenario_handlers() {

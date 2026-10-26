@@ -39,9 +39,9 @@
 # itself may never get one. The wait is the one release uses (wait_for_checks in lib/forge.sh) and happens
 # before the landing lock is taken, so a slow CI holds up no other landing. Green says which commit was
 # green and on which branch; then, with the lock held and origin fetched, the push to the default branch
-# sends exactly that commit. Red checks, checks that do not finish or cannot be read, an origin/<default>
-# that moved while they ran and an issue branch whose tip moved refuse with nothing pushed to the default
-# branch. The push to ci/integrate-<issue branch> replaces what stands there (a left-over of an earlier
+# sends exactly that commit. Red checks, checks that do not finish or cannot be read and an issue branch whose
+# tip moved refuse with nothing pushed to the default branch; an origin/<default> that moved while they ran
+# ends the round, and the next one is made on the new tip (THE ROUNDS below). The push to ci/integrate-<issue branch> replaces what stands there (a left-over of an earlier
 # landing of the issue, or the branch of one that still runs), but only if it is still what was read just
 # before the push (a lease): a branch written in between is refused. The delete removes the branch only while it holds this
 # landing's merge commit (a lease again), and names it in one line when it stays. It runs on every way out
@@ -66,15 +66,26 @@
 # NOTHING IS LEFT HALF DONE. A conflict aborts the merge, a branch already in the default branch has
 # nothing to integrate, and a push the gate refuses reaches nothing; each time the branch is checked
 # out again and the cause is named.
-# A push that fails is explained by the tip origin holds afterwards: another tip than the one fetched means
-# another landing moved the default branch first, so this one says so and is to be run again, and the merge
-# commit itself means the push reached origin though git failed, which is reported as landed.
+#
+# THE ROUNDS. When the default branch moved while a round's gate ran, that round ends with nothing pushed to the
+# default branch, and the next round fetches origin again, merges every branch onto the new tip and runs the whole gate
+# on that merge: a landing never pushes a merge the gate did not judge, however harmless the commits in between look.
+# INTEGRATE_MAX_ROUNDS in the config.env of the checkout it runs in is the most rounds, the first one counted (3 when
+# unset, 1 is a single attempt); it is read again before every round, never from the environment, and a value that is no
+# whole number from 1 to 999999999 stops the run before the next merge and names the key. Every round says its number and
+# the limit, the base and the merge commit. A move is proven by the refusal of origin that git's own porcelain lines name
+# together with a tip that differs from the base; the tip alone proves nothing, so a red gate beside a move stays a red
+# gate and stops. Stopping at once, with nothing pushed to the default branch: a conflict, an install that fails, red or
+# unfinished or unreadable checks, an issue branch that holds another commit than round 1 read, a ci/ branch someone else
+# wrote, an origin that cannot be read and any other refusal. A public round may have pushed its merge commit to
+# ci/integrate-<issue branch>; the lease delete removes it at the end of the round, and one that stays is named.
+# A push that git reports as failed while origin holds the merge commit afterwards is reported as landed.
 #
 # THE LANDINGS OF ONE CLONE TAKE TURNS. Git fixes the old value of the remote branch when the push
 # starts, before the gate runs, so a landing that moves the default branch while another one's gate
-# runs refuses the other's push. From the fetch to the end of the push this holds the file
+# runs refuses the other's push. From the fetch to the end of the push of a round this holds the file
 # ai-core-landing in the clone's git directory, which every worktree of the clone shares: its process id and its issue. A landing that finds it held waits; one whose holder
-# no longer runs takes it over.
+# no longer runs takes it over. A round that ended because the default branch moved gives it up before the next one.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 . "$ROOT/lib/forge.sh"
@@ -227,11 +238,12 @@ ref="${issue_refs[0]}"
 thread="${issue_threads[0]}"
 
 landing="$(git rev-parse --path-format=absolute --git-common-dir)/ai-core-landing"
-# The branch ci/integrate-<issue branch> on origin, the temporary worktree and the file with the output of
-# the push go first, on every way out, then the lock. The branch is deleted only while it still holds the
-# merge commit of this landing (a lease), so a branch somebody else wrote stays; a branch that is not there
-# is nothing to delete. A branch that stays or cannot be deleted is named in one line and changes nothing
-# about the outcome. A kill that cannot be trapped (SIGKILL) runs none of this and leaves the branch behind.
+# What a round owns goes first, on every way out and between two rounds: the branch ci/integrate-<issue branch>
+# on origin, the temporary worktree and the file with the output of a push, the receipt, then the lock. The
+# branch is deleted only while it still holds the merge commit of this round (a lease), so a branch somebody
+# else wrote stays; a branch that is not there is nothing to delete. A branch that stays or cannot be deleted
+# is named in one line and changes nothing about the outcome. A kill that cannot be trapped (SIGKILL) runs none
+# of this and leaves the branch behind. The lock is removed only where this process wrote it.
 tree=""; ci_branch=""; pushed=""; receipt=""
 # remote_ref_sha <full ref>: the sha origin holds for the ref, nothing where it has none. Only stdout is read,
 # so a warning git writes on stderr (a repository that was renamed, say) is no part of the sha; when git
@@ -254,11 +266,17 @@ delete_ci_branch() {
     *) echo "$ci_branch could not be deleted on origin, delete it by hand: $(printf '%s' "$said" | tr -s '\r\n' '  ')" >&2 ;;
   esac
 }
-trap 'delete_ci_branch
+end_round() {
+  delete_ci_branch; ci_branch=""
   [ -z "$tree" ] || git worktree remove --force "$tree" >/dev/null 2>&1 || rm -rf "$tree"
+  tree=""
   [ -z "$pushed" ] || rm -f "$pushed"
+  pushed=""
   [ -z "$receipt" ] || landing_check_close "$receipt"
-  [ "$(cut -f1 "$landing" 2>/dev/null)" != "$$" ] || rm -f "$landing"' EXIT
+  receipt=""
+  [ "$(cut -f1 "$landing" 2>/dev/null)" != "$$" ] || rm -f "$landing"
+}
+trap end_round EXIT
 
 # make_merge: the merge commit of every issue of the run into origin/<default>, one after the other in the order given,
 # made in a temporary worktree beside the clone (tree), where scripts/install.sh of the merged tree runs if it has one, so
@@ -287,6 +305,7 @@ make_merge() {
   done
   merged_sha="${merge_shas[${#merge_shas[@]}-1]}"
   merged="$(git -C "$tree" rev-parse --short HEAD)"
+  echo "round $round of $rounds_limit: the merge commit $merged_sha is made on origin/$default at $base_tip"
   if [ -f "$tree/scripts/install.sh" ]; then
     echo "installing: scripts/install.sh of the merged tree runs in $tree, so the gate's check finds what it needs"
     (cd "$tree" && bash scripts/install.sh) \
@@ -306,14 +325,28 @@ set_merge_tips_from_refs() {
   done
 }
 
+# THE REVIEWED TIPS: the commits the first round merges, one per issue in the order given. A later round finds the same
+# commit on every branch or stops, so a landing that runs again never lands what the reviewer did not read.
+reviewed_tips=()
+keep_reviewed_tips() {  # keep_reviewed_tips <tip>...: what this round is about to merge
+  local position
+  if [ "${#reviewed_tips[@]}" -eq 0 ]; then reviewed_tips=("$@"); return 0; fi
+  for position in "${!reviewed_tips[@]}"; do
+    [ "$1" = "${reviewed_tips[position]}" ] \
+      || die "nothing landed: ${issue_branches[position]} is at $1, but round 1 of this landing read ${reviewed_tips[position]}; the branch changed after the review, and no round merges another commit than the first one"
+    shift
+  done
+}
+
 # keep_waited_tips: once the lock is held and origin fetched, every reviewed tip is still the tip of its branch, else
 # nothing lands. Nothing is waited for in a private repository or under CI_GATE none, so there it holds nothing.
 waited_tips=()
 keep_waited_tip() {  # keep_waited_tip <ref> <the tip waited for>
-  local now
+  local now when="while its checks were waited for"
   now="$(git rev-parse -q --verify "$1^{commit}")" || now="nothing"
+  [ "$round" -le 1 ] || when="since round 1 of this landing read it"
   [ "$now" = "$2" ] \
-    || die "nothing landed: $1 moved from $2 to $now while its checks were waited for; run this again"
+    || die "nothing landed: $1 moved from $2 to $now $when; run this again"
 }
 keep_waited_tips() {
   local position
@@ -352,17 +385,22 @@ gate_public_repository() {
     return 0
   fi
   waited_tips=()
-  for position in "${!issue_numbers[@]}"; do
-    if [ "$position" -eq 0 ] && [ -z "$from_origin" ]; then
-      tip="$(git rev-parse "$branch^{commit}")"
-      on_origin="$(remote_ref_sha "refs/heads/$branch")" || die "could not reach origin: $on_origin"
-      [ "$on_origin" = "$tip" ] \
-        || die "nothing landed: $tip is not on origin, so it has no checks; push the branch, then run this again"
-    else
-      tip="${issue_origin_tips[position]}"
-    fi
-    waited_tips+=("$tip")
-  done
+  if [ "${#reviewed_tips[@]}" -gt 0 ]; then
+    waited_tips=("${reviewed_tips[@]}")
+  else
+    for position in "${!issue_numbers[@]}"; do
+      if [ "$position" -eq 0 ] && [ -z "$from_origin" ]; then
+        tip="$(git rev-parse "$branch^{commit}")"
+        on_origin="$(remote_ref_sha "refs/heads/$branch")" || die "could not reach origin: $on_origin"
+        [ "$on_origin" = "$tip" ] \
+          || die "nothing landed: $tip is not on origin, so it has no checks; push the branch, then run this again"
+      else
+        tip="${issue_origin_tips[position]}"
+      fi
+      waited_tips+=("$tip")
+    done
+    reviewed_tips=("${waited_tips[@]}")
+  fi
   said="$(git fetch origin 2>&1)" || die "could not reach origin: $said"
   default="$(origin_default_branch)" || exit 1
   keep_waited_tips
@@ -379,7 +417,7 @@ gate_public_repository() {
   pushed="$(mktemp)" || die "no temporary file for the output of the push to $ci_branch"
   push_status=0
   with_landing_mark "$tree" "$merged_sha" "refs/heads/$ci_branch" "refs/heads/$default" -- env AI_CORE_LANDING_RECEIPT="$receipt" git -C "$tree" push origin "--force-with-lease=refs/heads/$ci_branch:$held" "$merged_sha:refs/heads/$ci_branch" 2>&1 | tee "$pushed" >&2 || push_status="${PIPESTATUS[0]}"
-  said="$(cat "$pushed")"; rm -f "$pushed"
+  said="$(cat "$pushed")"; rm -f "$pushed"; pushed=""
   [ "$push_status" -eq 0 ] || case "$said" in
     *"stale info"*|*"cannot lock ref"*) die "nothing landed: $ci_branch on origin changed after it was read, so another landing of this branch may be running; nothing was pushed to it or to $default (git's words are above)" ;;
     *) die "nothing landed: the merge commit ${merged_sha:0:7} could not be pushed to $ci_branch for its checks, and nothing reached $default (the words of git and of the push gate are above)" ;;
@@ -398,33 +436,31 @@ gate_public_repository() {
   esac
 }
 
-gate_public_repository
-
-# A known limit: two waiters that find the same dead holder can both take over, and the push then still
-# refuses the second, as it does without the lock; a holder's process id that an unrelated process
-# took over keeps the lock held, and the waiting line names that process
-waited=""; missing=0; nameless=0
-until said="$( (set -C; printf '%s\t%s\n' "$$" "$ref" > "$landing") 2>&1 )"; do
-  # Gone between the two steps is a lock just released; gone twice in a row, one never written
-  if ! holder="$(cat "$landing" 2>/dev/null)"; then
-    missing=$((missing + 1)); [ "$missing" -lt 2 ] || die "the landing lock $landing could not be written: $said"; continue
-  fi
-  missing=0; pid="${holder%%$'\t'*}"
-  # A lock still without its process id after the poll was never finished: nobody holds it
-  dead=""
-  case "$pid" in
-    ''|*[!0-9]*) nameless=$((nameless + 1)); [ "$nameless" -lt 2 ] || dead="a landing lock that names no process: '$holder'" ;;
-    *) nameless=0; ps -p "$pid" >/dev/null 2>&1 || dead="the landing lock of ${holder#*$'\t'}, whose process $pid no longer runs" ;;
-  esac
-  if [ -n "$dead" ]; then
-    rm -f "$landing" || die "the landing lock $landing could not be removed: $dead"
-    echo "taken over: $dead" >&2; nameless=0; continue
-  fi
-  [ -n "$waited" ] || [ "$nameless" -gt 0 ] || { waited=1; echo "waiting: ${holder#*$'\t'} is landing from this clone (process $pid); this one lands after it" >&2; }
-  sleep 2
-done
-said="$(git fetch origin 2>&1)" || die "could not reach origin: $said"
-default="$(origin_default_branch)" || exit 1
+# take_landing_lock: the file ai-core-landing is this process's. A known limit: two waiters that find the same dead holder
+# can both take over, and the push then still refuses the second, as it does without the lock; a holder's process id that
+# an unrelated process took over keeps the lock held, and the waiting line names that process
+take_landing_lock() {
+  local waited="" missing=0 nameless=0 holder pid dead said
+  until said="$( (set -C; printf '%s\t%s\n' "$$" "$ref" > "$landing") 2>&1 )"; do
+    # Gone between the two steps is a lock just released; gone twice in a row, one never written
+    if ! holder="$(cat "$landing" 2>/dev/null)"; then
+      missing=$((missing + 1)); [ "$missing" -lt 2 ] || die "the landing lock $landing could not be written: $said"; continue
+    fi
+    missing=0; pid="${holder%%$'\t'*}"
+    # A lock still without its process id after the poll was never finished: nobody holds it
+    dead=""
+    case "$pid" in
+      ''|*[!0-9]*) nameless=$((nameless + 1)); [ "$nameless" -lt 2 ] || dead="a landing lock that names no process: '$holder'" ;;
+      *) nameless=0; ps -p "$pid" >/dev/null 2>&1 || dead="the landing lock of ${holder#*$'\t'}, whose process $pid no longer runs" ;;
+    esac
+    if [ -n "$dead" ]; then
+      rm -f "$landing" || die "the landing lock $landing could not be removed: $dead"
+      echo "taken over: $dead" >&2; nameless=0; continue
+    fi
+    [ -n "$waited" ] || [ "$nameless" -gt 0 ] || { waited=1; echo "waiting: ${holder#*$'\t'} is landing from this clone (process $pid); this one lands after it" >&2; }
+    sleep 2
+  done
+}
 
 # back_to_branch <reason>: the worktree goes back to the branch it was on, and the run stops
 back_to_branch() {
@@ -432,59 +468,125 @@ back_to_branch() {
   die "$1"
 }
 
-# push_refused <what to say when nothing moved>: the push to the default branch failed. What origin holds for the
-# default branch now says why. Another tip than the one this landing fetched means another landing moved it first,
-# so this one is told to run again; the merge commit itself means the push reached origin though git failed, and
-# the landing goes on (status 0). Anything else keeps the cause it had. Sets refusal; status 1 refuses.
-refusal=""
-push_refused() {
-  local now
-  if ! now="$(remote_ref_sha "refs/heads/$default")"; then
-    refusal="$1 (origin could not be read afterwards to tell whether $default moved: $(printf '%s' "$now" | tr -s '\r\n' '  '))"
-    return 1
-  fi
-  if [ "$now" = "$merged_sha" ]; then
-    echo "origin holds ${merged_sha:0:7} on $default although git reported a failure: the landing went through" >&2
-    return 0
-  fi
-  if [ -n "$now" ] && [ "$now" != "$base_tip" ]; then
-    refusal="nothing landed: $default moved on origin from ${base_tip:0:7} to ${now:0:7} after this landing fetched it, so another landing got there first and it was not overwritten; run this again, which merges onto the new $default"
-    return 1
-  fi
-  refusal="$1"
-  return 1
+# base_has_moved <what happened meanwhile> [<how to stop>]: whether origin/<default> is no longer the tip the merge of this
+# round was made on, asked of origin right before the push, so that a gate is not started on a base that is gone. Names the
+# move in round_cause where it is. The gate refuses a push over a tip it does not hold, whatever the cause, and a refusal is
+# no proof. An origin that cannot be read stops the run through <how to stop>: back_to_branch where the merge was made in
+# the worktree of the issue, die (the default) where it was made beside it.
+base_has_moved() {
+  local now said stop="${2:-die}"
+  said="$(git fetch origin 2>&1)" || "$stop" "could not reach origin: $said"
+  now="$(git rev-parse "origin/$default^{commit}")" || "$stop" "origin/$default is not there after the fetch"
+  [ "$now" != "$base_tip" ] || return 1
+  round_cause="origin/$default moved from $base_tip to $now $1"
 }
 
-if [ "${#waited_tips[@]}" -gt 0 ]; then
-  # The public repository: the merge commit made and checked before the lock lands as it is, if nothing moved
-  now="$(git rev-parse "origin/$default^{commit}")" || die "origin/$default is not there after the fetch"
-  [ "$now" = "$base_tip" ] \
-    || die "nothing landed: origin/$default moved from $base_tip to $now while the checks of $merged_sha ran; run this again"
-  keep_waited_tips
-  with_landing_mark "$tree" "$merged_sha" "refs/heads/$default" -- env AI_CORE_LANDING_RECEIPT="$receipt" git -C "$tree" push origin "$merged_sha:refs/heads/$default" \
-    || push_refused "the push was refused (see above) - nothing reached origin, and the worktree of $branch is as it was" \
-    || die "$refusal"
-elif [ -n "$from_origin" ] || [ "${#numbers[@]}" -gt 1 ]; then
-  set_merge_tips_from_refs
-  make_merge
-  with_landing_mark "$tree" "$merged_sha" "refs/heads/$default" -- git -C "$tree" push origin "HEAD:$default" \
-    || push_refused "the push was refused (see above) - nothing reached origin, and the worktree of $branch is as it was" \
-    || die "$refusal"
-else
-  [ -n "$(git rev-list -n1 "$branch" --not "origin/$default")" ] \
-    || die "nothing to integrate: $branch is in origin/$default already"
-  base_tip="$(git rev-parse "origin/$default^{commit}")" || die "origin/$default is not there after the fetch"
-  git switch -q --detach "origin/$default" || die "the worktree could not be put on origin/$default (see above)"
-  if ! git merge -q --no-ff --no-edit "$branch" -m "$subject" -m "$trailers"; then
-    git merge --abort 2>/dev/null
-    back_to_branch "$branch does not merge cleanly into origin/$default - bring origin/$default into the branch, get the review of the result, then run this again"
+# back_to_branch_after_move: the worktree goes back to the branch it was on, so that the next round starts from it
+back_to_branch_after_move() {
+  git switch -q "$branch" || die "the branch $branch could not be checked out again after $default moved - run git switch $branch, then run this again"
+}
+
+# push_default <mark root> <commit> <what to say when nothing moved> -- <the git push>: the push of a round to the default
+# branch, its lines kept as it ran. The outcome, in push_outcome and, where the push was refused, in refusal or round_cause:
+#   landed   the commit is on origin, also where git reported a failure after origin took it
+#   moved    origin refused the update because the default branch moved: round_cause names the tips
+#   refused  anything else, which keeps the cause it had
+# A move is proven by two things together: git's own porcelain line, which names a ref that origin refused to update
+# because it holds another tip, and the tip origin holds now. Either alone proves nothing: the tip of origin differs
+# after a red gate whenever the default branch moved while the gate ran, and the words of a gate may look like git's.
+# A move before the push starts is found by base_has_moved, so that no gate runs on a base that is gone.
+push_outcome=""; refusal=""; round_cause=""
+push_default() {
+  local root="$1" commit="$2" nothing_moved="$3" status=0 said now
+  shift 4
+  pushed="$(mktemp)" || die "no temporary file for the output of the push to $default"
+  with_landing_mark "$root" "$commit" "refs/heads/$default" -- "$@" | tee "$pushed" >&2 || status="${PIPESTATUS[0]}"
+  said="$(cat "$pushed")"; rm -f "$pushed"; pushed=""
+  if [ "$status" -eq 0 ]; then push_outcome=landed; return 0; fi
+  if ! now="$(remote_ref_sha "refs/heads/$default")"; then
+    refusal="$nothing_moved (origin could not be read afterwards to tell whether $default moved: $(printf '%s' "$now" | tr -s '\r\n' '  '))"
+    push_outcome=refused; return 0
   fi
-  merged_sha="$(git rev-parse HEAD)"; merged="$(git rev-parse --short HEAD)"; merge_shas=("$merged_sha")
-  with_landing_mark . "$merged_sha" "refs/heads/$default" -- git push origin "HEAD:$default" \
-    || push_refused "the push was refused (see above) - nothing reached origin, and $branch is checked out again" \
-    || back_to_branch "$refusal"
-  git switch -q "$branch" || die "$merged is on origin/$default, but $branch could not be checked out again - run git switch $branch before finish-issue"
-fi
+  # Also a tip above the commit: a push that reached origin may have been followed by another landing before it was read
+  if [ "$now" = "$commit" ] || { git fetch -q origin 2>/dev/null && git merge-base --is-ancestor "$commit" "$now" 2>/dev/null; }; then
+    echo "origin holds ${commit:0:7} on $default although git reported a failure: the landing went through" >&2
+    push_outcome=landed; return 0
+  fi
+  if [ -n "$now" ] && [ "$now" != "$base_tip" ] && grep -Eq $'^!\t[^\t]+\t\\[(rejected\\] \\((fetch first|non-fast-forward)\\)|remote rejected\\] \\((incorrect old value provided|failed to update ref|cannot lock ref))' <<< "$said"; then
+    round_cause="$default moved on origin from $base_tip to $now after this landing fetched it, so another landing got there first and origin refused the push of $commit, and it was not overwritten"
+    push_outcome=moved; return 0
+  fi
+  refusal="$nothing_moved"
+  push_outcome=refused
+}
+
+# land_round: one round, from the checks of a public repository to the push to the default branch. It makes the merge
+# commit on the newest origin/<default>, which the gate judges, and pushes exactly that. It leaves round_cause empty
+# where the commit is on origin, and names the move of the default branch in it where that made the round stop. Any
+# other refusal ends the run here. It never ends in a status other than 0, so that errexit holds inside it.
+land_round() {
+  local now said
+  round_cause=""
+  gate_public_repository
+  take_landing_lock
+  said="$(git fetch origin 2>&1)" || die "could not reach origin: $said"
+  default="$(origin_default_branch)" || exit 1
+  if [ "${#waited_tips[@]}" -gt 0 ]; then
+    # The public repository: the merge commit made and checked before the lock lands as it is, if nothing moved
+    now="$(git rev-parse "origin/$default^{commit}")" || die "origin/$default is not there after the fetch"
+    if [ "$now" != "$base_tip" ]; then
+      round_cause="origin/$default moved from $base_tip to $now while the checks of $merged_sha ran"
+      return 0
+    fi
+    keep_waited_tips
+    push_default "$tree" "$merged_sha" "the push was refused (see above) - nothing reached origin, and the worktree of $branch is as it was" -- env AI_CORE_LANDING_RECEIPT="$receipt" git -C "$tree" push --porcelain origin "$merged_sha:refs/heads/$default"
+    case "$push_outcome" in moved) return 0 ;; refused) die "$refusal" ;; esac
+  elif [ -n "$from_origin" ] || [ "${#numbers[@]}" -gt 1 ]; then
+    set_merge_tips_from_refs
+    keep_reviewed_tips "${merge_tips[@]}"
+    make_merge
+    if base_has_moved "while the merge was made"; then return 0; fi
+    push_default "$tree" "$merged_sha" "the push was refused (see above) - nothing reached origin, and the worktree of $branch is as it was" -- git -C "$tree" push --porcelain origin "HEAD:$default"
+    case "$push_outcome" in moved) return 0 ;; refused) die "$refusal" ;; esac
+  else
+    [ -n "$(git rev-list -n1 "$branch" --not "origin/$default")" ] \
+      || die "nothing to integrate: $branch is in origin/$default already"
+    keep_reviewed_tips "$(git rev-parse "$branch^{commit}")"
+    base_tip="$(git rev-parse "origin/$default^{commit}")" || die "origin/$default is not there after the fetch"
+    git switch -q --detach "origin/$default" || die "the worktree could not be put on origin/$default (see above)"
+    if ! git merge -q --no-ff --no-edit "$branch" -m "$subject" -m "$trailers"; then
+      git merge --abort 2>/dev/null
+      back_to_branch "$branch does not merge cleanly into origin/$default - bring origin/$default into the branch, get the review of the result, then run this again"
+    fi
+    merged_sha="$(git rev-parse HEAD)"; merged="$(git rev-parse --short HEAD)"; merge_shas=("$merged_sha")
+    echo "round $round of $rounds_limit: the merge commit $merged_sha is made on origin/$default at $base_tip"
+    if base_has_moved "while the merge was made" back_to_branch; then back_to_branch_after_move; return 0; fi
+    push_default . "$merged_sha" "the push was refused (see above) - nothing reached origin, and $branch is checked out again" -- git push --porcelain origin "HEAD:$default"
+    case "$push_outcome" in
+      moved) back_to_branch_after_move; return 0 ;;
+      refused) back_to_branch "$refusal" ;;
+    esac
+    git switch -q "$branch" || die "$merged is on origin/$default, but $branch could not be checked out again - run git switch $branch before finish-issue"
+  fi
+}
+
+# THE ROUNDS: the default branch moving while a round's gate ran ends that round with nothing pushed to the default
+# branch, and the next round fetches it again, merges onto its new tip and runs the whole gate on that merge, at most
+# INTEGRATE_MAX_ROUNDS rounds, which is read again before every round. A conflict, a red gate or CI, a branch that changed,
+# an unreadable origin and every other refusal end the run at once.
+round=0; rounds_limit=0
+while :; do
+  round=$((round + 1))
+  # The number is read from standard output alone: a warning on standard error is shown and is no part of it
+  rounds_limit="$(apart landing_rounds_limit)" || die "nothing landed, and no round $round was started: $rounds_limit"
+  if [ "$round" -gt "$rounds_limit" ]; then
+    die "nothing landed: $round_cause; round $((round - 1)) was the last that INTEGRATE_MAX_ROUNDS ($rounds_limit) allows, and nothing was pushed to $default. A public repository pushes the merge commit of each round to ci/integrate-$branch for its checks and deletes it from there again; one that stays is named above. Run this again, which merges onto the new $default"
+  fi
+  [ "$round" -eq 1 ] || echo "round $round of $rounds_limit: the round before ended because $round_cause; this round fetches origin again, merges onto the new $default and runs the whole gate on that merge"
+  land_round
+  [ -n "$round_cause" ] || break
+  end_round
+done
 checkout="$(cd "$(dirname "$landing")/.." && pwd)"
 if ! fast_forward_default_branch "$checkout"; then
   echo "integration succeeded: $merged is on origin/$default; the refresh of checkout $checkout did not finish (see above)" >&2

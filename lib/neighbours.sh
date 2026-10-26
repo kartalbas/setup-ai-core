@@ -15,7 +15,7 @@
 #                            exclusive while the copy moves, so a reader never sees half a checkout and
 #                            a copy never moves under a check
 # A copy lock is waited for as long as the checks take: NEIGHBOUR_LOCK_WAIT_SECONDS, when above 0, is the
-# least, and the wait is at least one and a half times the longest check the run log of the gate records
+# least, and the wait is at least one and a half times the longest check the run log of the gate records for the last 14 days
 # (neighbour_allowance). A gate that holds several neighbours takes their locks in the order of the names, and
 # holds none of them while it waits for another.
 
@@ -82,11 +82,12 @@ neighbour_wait_begin() {
     unreadable) NEIGHBOUR_WAIT_HISTORY="the run log $log cannot be read" ;;
     *)
       if [ "$GATE_RUNS_TIMED" -eq 0 ]; then
-        NEIGHBOUR_WAIT_HISTORY="no check that ran is recorded among the $GATE_RUNS_ROWS rows of $log"
+        NEIGHBOUR_WAIT_HISTORY="no check that ran is recorded among the $GATE_RUNS_ROWS rows of the last $GATE_RUNS_WINDOW_DAYS days of $log"
       else
         NEIGHBOUR_WAIT_LONGEST="$GATE_RUNS_LONGEST"
-        NEIGHBOUR_WAIT_HISTORY="the longest of the $GATE_RUNS_TIMED checks among the $GATE_RUNS_ROWS rows of $log took $GATE_RUNS_LONGEST seconds"
+        NEIGHBOUR_WAIT_HISTORY="the longest of the $GATE_RUNS_TIMED checks among the $GATE_RUNS_ROWS rows of the last $GATE_RUNS_WINDOW_DAYS days of $log took $GATE_RUNS_LONGEST seconds"
       fi
+      [ "$GATE_RUNS_OLDER" -eq 0 ] || NEIGHBOUR_WAIT_HISTORY="$NEIGHBOUR_WAIT_HISTORY, and the $GATE_RUNS_OLDER rows before them are not counted"
       [ "$GATE_RUNS_UNREADABLE" -eq 0 ] || NEIGHBOUR_WAIT_HISTORY="$NEIGHBOUR_WAIT_HISTORY, and $GATE_RUNS_UNREADABLE of those rows could not be read" ;;
   esac
 }

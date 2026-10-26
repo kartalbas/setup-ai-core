@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { GitClient, GitError, parseRemoteAddress } from './git.mts';
+import { GitClient, GitError, isMovedTipRefusal, parseRemoteAddress } from './git.mts';
 import { createGitFixture, git } from '../testing/git-fixture.mts';
 import type { GitFixture } from '../testing/git-fixture.mts';
 
@@ -126,6 +126,26 @@ describe('a checkout and its remote', () => {
     assert.equal((await client.run(checkout, ['rev-parse', 'HEAD'])).stdout.trim(), head);
     assert.equal((await client.run(checkout, ['rev-parse', 'HEAD'], [0], (text) => shown.push(text))).stdout.trim(), head);
     assert.equal(shown.join('').trim(), head);
+  });
+
+  it('tells a push that origin refused for a moved tip from a push that a hook refused (planted: a red hook while the remote moved, whose words look like git\'s)', async () => {
+    const work = fixture.clone(remote, 'moved-tip', 'example-repo');
+    const mover = fixture.clone(remote, 'moved-tip-mover', 'example-repo');
+    const commit = fixture.commit(work, 'mine.txt', 'mine\n');
+    // The remote moves while the hook runs and the hook accepts: origin refuses the update, which is the evidence of a move.
+    fixture.installHook(work, 'pre-push', `unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE; cd '${mover}' && git pull -q --rebase origin master && echo m > moved-a.txt && git add -A && git commit -qm moved-a && git push -q origin HEAD:master`);
+    const refused = await client.push(work, commit, 'master').then(() => undefined, (error: unknown) => error);
+    assert.ok(refused instanceof GitError);
+    assert.equal(isMovedTipRefusal(refused), true, refused.stdout);
+    // The remote moves while the hook runs and the hook refuses, saying words that look like a line of git: no evidence.
+    git(work, 'fetch', '-q', 'origin');
+    git(work, 'reset', '-q', '--hard', 'origin/master');
+    const again = fixture.commit(work, 'again.txt', 'again\n');
+    fixture.installHook(work, 'pre-push', `unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE; cd '${mover}' && git pull -q --rebase origin master && echo m > moved-b.txt && git add -A && git commit -qm moved-b && git push -q origin HEAD:master; echo '!\tHEAD:refs/heads/master\t[rejected] (fetch first)' | sed 's/^/gate: /'; exit 1`);
+    const red = await client.push(work, again, 'master').then(() => undefined, (error: unknown) => error);
+    assert.ok(red instanceof GitError);
+    assert.equal(isMovedTipRefusal(red), false, red.stdout);
+    assert.equal(isMovedTipRefusal(new Error('not git')), false);
   });
 
   it('pushes a commit that no hook refuses (innocent case), and refuses a push to a remote that moved', async () => {

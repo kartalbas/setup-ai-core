@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { PartialCompletionError } from '../api/client.mts';
 import { composeLandedRecord, composeProvenRecord } from '../domain/workflow.mts';
@@ -99,6 +99,29 @@ async function worked(world: World, title?: string): Promise<{ number: number; t
   const head = fixture.commit(issue.tree, `work-${issue.number}.txt`, 'work\n');
   return { ...issue, head };
 }
+
+// A harness whose reads of INTEGRATE_MAX_ROUNDS answer these values, one per round, the last one standing for the rest.
+function harnessWithRounds(...answers: string[]): RecordingHarness {
+  const harness = createRecordingHarness();
+  harness.roundsAnswers.splice(0, harness.roundsAnswers.length, ...answers);
+  return harness;
+}
+
+// The pre-push hook of a checkout that stands for the gate of a landing: it counts its runs, and while it runs for the first
+// `moves` times another session lands a commit on the default branch (of the file given, where a move is to conflict), and
+// it is red where `red` says so. Whatever it does happens while the push of the landing waits for it.
+function gateHook(world: World, counter: string, options: { moves: number; red?: boolean; file?: string; after?: string }): void {
+  const file = options.file ?? `moved-${basename(counter)}-$runs.txt`;
+  fixture.installHook(
+    world.checkout,
+    'pre-push',
+    `unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE; echo run >> '${counter}'; runs=$(wc -l < '${counter}'); ` +
+      `if [ "$runs" -le ${options.moves} ]; then (cd '${world.second}' && git pull -q --rebase origin master && echo moved > ${file} && git add -A && git commit -qm moved-$runs && git push -q origin HEAD:master); ${options.after ?? ':'}; fi; ` +
+      (options.red === true ? 'exit 1' : 'exit 0'),
+  );
+}
+const runsOf = (counter: string): number => (existsSync(counter) ? readFileSync(counter, 'utf8').split('\n').filter((line) => line !== '').length : 0);
+const dropHook = (world: World): void => rmSync(join(world.checkout, '.git', 'hooks', 'pre-push'), { force: true });
 
 function integrateArguments(world: World, number: number, head: string, ...extra: string[]): string[] {
   return [world.full, String(number), '--reviewed-by', 'alice', '--reviewed-head', head, ...extra];
@@ -287,7 +310,7 @@ describe('integrate-issue', () => {
     assert.match(result.stdout, new RegExp(`next: ai-core finish-issue o/r ${number}`));
     assert.deepEqual(readdirSync(join(fixture.root, 'project-o', '.worktrees', 'r')).filter((name) => name.startsWith('integrate-')), [], 'the temporary worktree is gone');
     assert.equal(await client.isClean(tree), true, 'the worktree of the issue was never touched');
-    assert.deepEqual(harness.calls, [`refreshCheckout ${main.checkout}`], 'the main checkout is brought up to the landing');
+    assert.deepEqual(harness.calls, [`readLandingRounds ${tree}`, `refreshCheckout ${main.checkout}`], 'the rounds of the landing are read once, then the main checkout is brought up to the landing');
     assert.match(result.stdout, /refreshed: the checkout/);
   });
 
@@ -802,7 +825,7 @@ describe('integrate-issue', () => {
       assert.doesNotMatch(remoteBranches(main), /ci\/integrate/);
     });
 
-    it('lands nothing when the default branch moved while the checks ran', async () => {
+    it('lands nothing when the default branch moved while the checks ran and one round only is allowed', async () => {
       const { number, tree, head } = await worked(main, 'Moved meanwhile, so that it is refused');
       fake.setChecks(main.full, ['success']);
       const marker = join(scratch, `moved-${number}`);
@@ -810,7 +833,7 @@ describe('integrate-issue', () => {
       fixture.installHook(main.checkout, 'pre-push', mover);
       try {
         const writes = writesOf();
-        await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree, publicSettings)), /origin\/master moved from [0-9a-f]{40} to [0-9a-f]{40}/);
+        await assert.rejects(integrateIssue.run(integrateArguments(main, number, head), ctx(tree, publicSettings, harnessWithRounds('1'))), /origin\/master moved from [0-9a-f]{40} to [0-9a-f]{40} while the merge was made; round 1 was the last that INTEGRATE_MAX_ROUNDS \(1\) allows/);
         assert.equal(git(main.remote, 'log', '-1', '--format=%s', 'refs/heads/master'), 'moved');
         assert.equal(writesOf(), writes);
         assert.doesNotMatch(remoteBranches(main), /ci\/integrate/);
@@ -819,19 +842,170 @@ describe('integrate-issue', () => {
       }
     });
 
-    it('names a default branch that moved after the landing fetched it and does not overwrite the other landing (planted: another session lands during the gate)', async () => {
+    it('lands in the second round, with its own ci/ push and its own checks, when the default branch moved while the checks of the first ran', async () => {
+      const { number, tree, head } = await worked(main, 'Moved during the checks, so that the second round lands');
+      fake.setChecks(main.full, ['success']);
+      const counter = join(scratch, `gate-runs-${number}`);
+      gateHook(main, counter, { moves: 1 });
+      const harness = createRecordingHarness();
+      try {
+        const result = await integrateIssue.run(integrateArguments(main, number, head), ctx(tree, publicSettings, harness));
+        const merged = tipOf(main);
+        assert.equal(git(main.remote, 'log', '-1', '--format=%s', `${merged}^1`), 'moved-1', 'the merge was made on the tip the other session landed');
+        assert.equal(runsOf(counter), 5, 'two rounds pass the hook with a push to ci/ and the delete of it each, and the second the push to the default branch');
+        assert.equal(harness.calls.filter((call) => call.startsWith('openLandingCheck')).length, 2, 'each round has its own receipt');
+        assert.equal(harness.calls.filter((call) => call.startsWith('closeLandingCheck')).length, 2, 'and closes it');
+        assert.match(result.stdout, /landed in round 2 of 3/);
+        assert.doesNotMatch(remoteBranches(main), /ci\/integrate/);
+      } finally {
+        dropHook(main);
+      }
+    });
+
+    it('names a default branch that moved after the landing fetched it and does not overwrite the other landing, where one round only is allowed (planted: another session lands during the gate)', async () => {
       const { number, tree, head } = await worked(privateWorld, 'Moved during the gate, so that the move is named');
       const marker = join(scratch, `late-${number}`);
       const mover = `unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE; [ ! -e '${marker}' ] || exit 0; touch '${marker}'; cd '${privateWorld.second}' && git pull -q --rebase origin master && echo moved > moved-late.txt && git add moved-late.txt && git commit -qm moved-late && git push -q origin HEAD:master`;
       fixture.installHook(privateWorld.checkout, 'pre-push', mover);
       try {
-        await assert.rejects(integrateIssue.run(integrateArguments(privateWorld, number, head), ctx(tree, publicSettings)), /nothing landed: master moved on origin from [0-9a-f]{7} to [0-9a-f]{7} after this landing fetched it, so another landing got there first/);
+        await assert.rejects(integrateIssue.run(integrateArguments(privateWorld, number, head), ctx(tree, publicSettings, harnessWithRounds('1'))), /nothing landed: master moved on origin from [0-9a-f]{40} to [0-9a-f]{40} after this landing fetched it, so another landing got there first and origin refused the push of [0-9a-f]{40}, and it was not overwritten; round 1 was the last that INTEGRATE_MAX_ROUNDS \(1\) allows/);
         assert.equal(git(privateWorld.remote, 'log', '-1', '--format=%s', 'refs/heads/master'), 'moved-late');
         assert.match((await client.currentBranch(tree)) ?? '', new RegExp(`^issue-${number}-`), 'the worktree is on its branch again');
         assert.deepEqual(fake.readIssue(privateWorld.full, number).labels, ['status/implementing']);
       } finally {
         rmSync(join(privateWorld.checkout, '.git', 'hooks', 'pre-push'));
       }
+    });
+
+    describe('in rounds', () => {
+      // A landing in a private repository: the push gate is the check, so the default branch moves while the gate of a round runs.
+      async function landWith(title: string, hook: { moves: number; red?: boolean; file?: string; after?: string }, harness: RecordingHarness): Promise<{ result: Promise<{ stdout: string }>; world: World; number: number; tree: string; head: string; counter: string }> {
+        const { number, tree, head } = await worked(privateWorld, title);
+        const counter = join(scratch, `gate-runs-${number}`);
+        gateHook(privateWorld, counter, { ...hook, file: hook.file?.replace('$NUMBER', String(number)) });
+        return { result: integrateIssue.run(integrateArguments(privateWorld, number, head), ctx(tree, publicSettings, harness)), world: privateWorld, number, tree, head, counter };
+      }
+
+      it('lands in the second round, on the new tip and with a gate of its own, when the default branch moved once during the first (planted: stops after the first round)', async () => {
+        const before = tipOf(privateWorld);
+        const landing = await landWith('Moved once, so that the second round lands', { moves: 1 }, createRecordingHarness());
+        try {
+          const result = await landing.result;
+          const merged = tipOf(privateWorld);
+          assert.equal(runsOf(landing.counter), 2, 'the gate ran for each round');
+          assert.deepEqual(git(privateWorld.remote, 'rev-list', '--parents', '-n', '1', merged).split(' ').slice(1), [git(privateWorld.remote, 'rev-parse', `${merged}^1`), landing.head], 'one merge of the reviewed head');
+          assert.notEqual(git(privateWorld.remote, 'rev-parse', `${merged}^1`), before, 'it was made on the tip the other session landed');
+          assert.equal(git(privateWorld.remote, 'log', '-1', '--format=%s', `${merged}^1`), 'moved-1');
+          assert.match(result.stdout, /landed in round 2 of 3/);
+          assert.match(fake.readIssue(privateWorld.full, landing.number).comments.at(-1) ?? '', new RegExp(`Landed commit: ${merged}`));
+          assert.match((await client.currentBranch(landing.tree)) ?? '', new RegExp(`^issue-${landing.number}-`));
+        } finally {
+          dropHook(privateWorld);
+        }
+      });
+
+      it('lands in the first round, with one gate, when the default branch does not move (innocent case)', async () => {
+        const landing = await landWith('Not moved, so that the first round lands', { moves: 0 }, createRecordingHarness());
+        try {
+          const result = await landing.result;
+          assert.equal(runsOf(landing.counter), 1);
+          assert.doesNotMatch(result.stdout, /landed in round/);
+        } finally {
+          dropHook(privateWorld);
+        }
+      });
+
+      it('stops with nothing pushed to the default branch where every round finds it moved, and says which round was the last', async () => {
+        const landing = await landWith('Moved always, so that the bound stops it', { moves: 9 }, harnessWithRounds('2'));
+        try {
+          await assert.rejects(landing.result, /nothing landed: master moved on origin from [0-9a-f]{40} to [0-9a-f]{40} after this landing fetched it.*; round 2 was the last that INTEGRATE_MAX_ROUNDS \(2\) allows, and nothing was pushed to master/);
+          assert.equal(runsOf(landing.counter), 2);
+          assert.equal(git(privateWorld.remote, 'rev-list', '--merges', '--count', `HEAD..master`.replace('HEAD', landing.head)), '0', 'no merge of the landing is on the default branch');
+          assert.equal(git(privateWorld.remote, 'log', '-1', '--format=%s', 'refs/heads/master'), 'moved-2', 'the commits of the other session remain');
+          assert.deepEqual(fake.readIssue(privateWorld.full, landing.number).labels, ['status/implementing']);
+        } finally {
+          dropHook(privateWorld);
+        }
+      });
+
+      it('reads the bound again before every round: a file lowered to 1 during the first round ends the landing, a broken one stops it naming the key', async () => {
+        for (const [answers, message] of [
+          [['3', '1'], /round 1 was the last that INTEGRATE_MAX_ROUNDS \(1\) allows/],
+          [['3', "INTEGRATE_MAX_ROUNDS is 'soon' in the config.env of this checkout; it is the most rounds a landing makes"], /nothing landed, and no round 2 was started: INTEGRATE_MAX_ROUNDS is 'soon'/],
+        ] as const) {
+          const landing = await landWith(`Bound changed to ${answers[1].slice(0, 4)}, so that the next round obeys it`, { moves: 1 }, harnessWithRounds(...answers));
+          try {
+            await assert.rejects(landing.result, message);
+            assert.equal(runsOf(landing.counter), 1);
+            assert.equal(git(privateWorld.remote, 'log', '-1', '--format=%s', 'refs/heads/master'), 'moved-1');
+          } finally {
+            dropHook(privateWorld);
+          }
+        }
+      });
+
+      it('stops at once where the move conflicts with the branch, with nothing pushed', async () => {
+        const landing = await landWith('Moved against it, so that the merge conflicts', { moves: 1, file: 'work-$NUMBER.txt' }, createRecordingHarness());
+        try {
+          await assert.rejects(landing.result, /nothing landed: .* does not merge cleanly into origin\/master/);
+          assert.equal(runsOf(landing.counter), 1, 'the second round never reached its gate');
+          assert.equal(git(privateWorld.remote, 'log', '-1', '--format=%s', 'refs/heads/master'), 'moved-1');
+        } finally {
+          dropHook(privateWorld);
+        }
+      });
+
+      it('keeps a red gate a red gate when the default branch moved beside it, and makes no second round (planted: a gate that is red while another session lands)', async () => {
+        const landing = await landWith('Red and moved, so that it stays red', { moves: 1, red: true }, createRecordingHarness());
+        try {
+          await assert.rejects(landing.result, /nothing landed: the push to master was refused; nothing reached origin/);
+          assert.equal(runsOf(landing.counter), 1, 'no second round');
+          assert.equal(git(privateWorld.remote, 'log', '-1', '--format=%s', 'refs/heads/master'), 'moved-1');
+        } finally {
+          dropHook(privateWorld);
+        }
+      });
+
+      it('stops where a reviewed branch holds another commit in the second round than the reviewer read', async () => {
+        const { number, tree, head, branch } = await worked(privateWorld, 'Changed meanwhile, so that no round merges it');
+        const counter = join(scratch, `gate-runs-${number}`);
+        gateHook(privateWorld, counter, { moves: 1, after: `git -C '${tree}' update-ref refs/heads/${branch} $(git -C '${tree}' commit-tree -p ${head} -m extra ${head}^{tree})` });
+        try {
+          await assert.rejects(integrateIssue.run(integrateArguments(privateWorld, number, head), ctx(tree, publicSettings)), /is at [0-9a-f]{40}, but round 1 of this landing read [0-9a-f]{40}; the branch changed after the review/);
+          assert.equal(runsOf(counter), 1);
+          assert.equal(git(privateWorld.remote, 'log', '-1', '--format=%s', 'refs/heads/master'), 'moved-1');
+        } finally {
+          dropHook(privateWorld);
+        }
+      });
+
+      it('says the landing went through where a newer commit of origin holds the merge the push reported as failed', async () => {
+        const { number, tree, head } = await worked(privateWorld, 'Pushed and moved on, so that it is not denied');
+        const marker = join(scratch, `above-${number}`);
+        fixture.installHook(privateWorld.checkout, 'pre-push', `unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE; [ ! -e '${marker}' ] || exit 0; touch '${marker}'; git push -q origin HEAD:refs/heads/master; (cd '${privateWorld.second}' && git pull -q --rebase origin master && echo above > above.txt && git add -A && git commit -qm above && git push -q origin HEAD:master); exit 1`);
+        try {
+          const result = await integrateIssue.run(integrateArguments(privateWorld, number, head), ctx(tree, publicSettings));
+          assert.match(result.stdout, /origin holds [0-9a-f]{7} on master although git reported a failure: the landing went through/);
+          assert.equal(git(privateWorld.remote, 'log', '-1', '--format=%s', 'refs/heads/master'), 'above');
+        } finally {
+          dropHook(privateWorld);
+        }
+      });
+
+      it('stops where the reviewed head reached the default branch while the round before ran, and claims no landing of its own (planted: another landing of the same head during the gate)', async () => {
+        const { number, tree, head } = await worked(privateWorld, 'Landed elsewhere meanwhile, so that no round claims it');
+        const marker = join(scratch, `elsewhere-${number}`);
+        fixture.installHook(privateWorld.checkout, 'pre-push', `unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE; [ ! -e '${marker}' ] || exit 0; touch '${marker}'; other=$(git commit-tree -p HEAD^1 -p HEAD^2 -m 'Landed elsewhere' 'HEAD^{tree}') && git push -q origin "$other:refs/heads/master"`);
+        try {
+          const writes = writesOf();
+          await assert.rejects(integrateIssue.run(integrateArguments(privateWorld, number, head), ctx(tree, publicSettings)), new RegExp(`nothing landed in round 2: the reviewed head ${head} of issue-${number}-\\S+ reached origin/master while the round before ran`));
+          assert.equal(git(privateWorld.remote, 'log', '-1', '--format=%s', 'refs/heads/master'), 'Landed elsewhere', 'the other landing stands, and nothing was pushed over it');
+          assert.equal(writesOf(), writes, 'no record and no status is written');
+          assert.match((await client.currentBranch(tree)) ?? '', new RegExp(`^issue-${number}-`), 'the worktree is on its branch again');
+        } finally {
+          dropHook(privateWorld);
+        }
+      });
     });
 
     it('says the landing went through when the push failed but origin holds the merge commit (planted: the hook pushes it and then refuses)', async () => {

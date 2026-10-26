@@ -128,6 +128,9 @@ integrate() {  # integrate <dir> <args...>
   ( cd "$dir" && bash "$root/bin/integrate-issue.sh" "$@" 2>&1 )
 }
 tip() { git --git-dir="$origin" rev-parse master; }
+# rounds_in <dir> <limit>: INTEGRATE_MAX_ROUNDS in the config.env of the checkout a landing runs in; a run that has none lands
+# again by itself up to the default of 3 rounds
+rounds_in() { mkdir -p "$1/.ai-core"; printf 'INTEGRATE_MAX_ROUNDS="%s"\n' "$2" >> "$1/.ai-core/config.env"; }
 
 wt="$(new_tree 77 board)"
 before="$(tip)"
@@ -207,6 +210,7 @@ push_to_master="d=\$(mktemp -d) && git clone -q '$origin' \"\$d/c\" && cd \"\$d/
 land_public() {
   wt="$(new_tree "$1" "$2")"; sha="$(git -C "$wt" rev-parse HEAD)"
   git -C "$wt" push -q origin "issue-$1-$2" 2>/dev/null
+  [ -z "${rounds:-}" ] || rounds_in "$wt" "$rounds"
   echo public > "$fake/visibility"; printf '%s\n' "$3" > "$fake/runs"; : > "$fake/runs-queue"; : > "$fake/calls.txt"; rm -f "$fake/ci-during"
   plant_hook "issue-$1-$2" "${5:-}"
   [ -z "${arm_shim:-}" ] || : > "$fake/after-worktree"   # the shim acts at the first worktree the landing makes, not at the test's own
@@ -366,13 +370,13 @@ out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=5 integrate "$wt" 127 --r
 rm -f "$fake/visibility" "$fake/runs"
 check 'pushed, the same branch lands'  0 "$rc"
 
-echo 'the default branch moving while the checks run refuses, with ci/integrate-<branch> deleted and nothing landed'
+echo 'the default branch moving while the checks run, in a landing that may make one round only, refuses with ci/integrate-<branch> deleted and nothing landed'
 before="$(tip)"
-land_public 128 base-moves "$success" 5 "$push_to_master"
+rounds=1 land_public 128 base-moves "$success" 5 "$push_to_master"
 moved="$(tip)"
 check 'the default branch did move'    no "$([ "$before" = "$moved" ] && echo yes || echo no)"
 check 'exit 1'                         1 "$rc"
-check 'it names the old and the new tip and the commit that was checked' yes "$(grep -qF "nothing landed: origin/master moved from $before to $moved while the checks of $(cat "$fake/ci-during") ran; run this again" <<< "$out" && echo yes || echo no)"
+check 'it names the old and the new tip and the commit that was checked, and that round 1 was the last' yes "$(grep -qF "nothing landed: origin/master moved from $before to $moved while the checks of $(cat "$fake/ci-during") ran; round 1 was the last that INTEGRATE_MAX_ROUNDS (1) allows" <<< "$out" && grep -qF 'Run this again' <<< "$out" && echo yes || echo no)"
 check 'only the other session landed'  0 "$(git --git-dir="$origin" rev-list --merges --count "$before..master")"
 check 'ci/integrate-<branch> is deleted'         '' "$(ci_tip issue-128-base-moves)"
 check 'the lock is released'           no "$([ -e "$work/.git/ai-core-landing" ] && echo yes || echo no)"
@@ -490,7 +494,7 @@ echo 'the base the default branch is compared with is the one the merge was made
 before="$(tip)"
 printf '%s\ngit -C "%s" fetch -q origin\n' "$push_to_master" "$work" > "$fake/after-worktree.sh"
 arm_shim=1; PATH="$fake/shim:$saved_path"
-land_public 136 base-read "$success"
+rounds=1 land_public 136 base-read "$success"
 arm_shim=""; PATH="$saved_path"; rm -f "$fake/after-worktree"
 moved="$(tip)"
 check 'exit 1'                         1 "$rc"
@@ -772,11 +776,12 @@ check 'no temporary worktree is left'  0 "$(leftovers)"
 echo '--from-origin: the default branch or the reviewed tip moving while the checks run refuses, ci/integrate-<branch> deleted, the held worktree untouched'
 heldwt12="$(held_tree 152 ci-base-moves)"
 held_before="$(held_state "$heldwt12")"; before="$(tip)"; trees_before="$(trees_listed)"
-echo public > "$fake/visibility"; plant_hook issue-152-ci-base-moves "$push_to_master"
+echo public > "$fake/visibility"; plant_hook issue-152-ci-base-moves "$push_to_master"; rounds_in "$work" 1
 out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=5 integrate "$work" 152 --reviewed-by l4 --from-origin)"; rc=$?
 moved="$(tip)"
 check 'exit 1'                         1 "$rc"
-check 'it names the old and the new default branch tip' yes "$(grep -qF "nothing landed: origin/master moved from $before to $moved while the checks of $(cat "$fake/ci-during") ran; run this again" <<< "$out" && echo yes || echo no)"
+check 'it names the old and the new default branch tip' yes "$(grep -qF "nothing landed: origin/master moved from $before to $moved while the checks of $(cat "$fake/ci-during") ran; round 1 was the last that INTEGRATE_MAX_ROUNDS (1) allows" <<< "$out" && echo yes || echo no)"
+rm -rf "$work/.ai-core"
 check 'ci/integrate-<branch> is deleted'         '' "$(ci_tip issue-152-ci-base-moves)"
 check 'the held worktree is as it was' "$held_before" "$(held_state "$heldwt12")"
 check 'the temporary worktree is gone' "$trees_before" "$(trees_listed)"
@@ -1307,36 +1312,39 @@ check 'and it landed'                            1 "$(git --git-dir="$origin" re
 
 # --- the default branch moves while a landing pushes: the real gate beside it must name the race --------
 # Another session's landing is planted by a hook: pre-merge-commit runs after the landing fetched and before it
-# pushes, so git finds the remote default branch moved when the push starts, rejects the ref itself and starts the
-# gate with no ref line; the pre-push wrapper moves the branch while the gate of the final push runs.
+# pushes, so the check of the base right before the push finds the default branch moved and no gate runs; the pre-push
+# wrapper moves the branch while the gate of the final push runs, so that origin refuses the push itself. Each of these
+# landings may make one round only (INTEGRATE_MAX_ROUNDS 1), which is the single attempt: the rounds are pinned below.
 printf '%s\n' "$push_to_master" > "$fake/race.sh"
 mkdir -p "$fake/race-hooks"
 printf '#!/bin/sh\nunset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX\n[ -z "${PLANT_RACE:-}" ] || [ -e "$PLANT_RACE.done" ] || { : > "$PLANT_RACE.done"; sh "$PLANT_RACE" >/dev/null 2>&1; }\n' > "$fake/race-hooks/pre-merge-commit"
 printf '#!/bin/sh\nunset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX\nlines="$(cat)"\ncase "$lines" in *" refs/heads/master "*) [ -z "${PLANT_RACE_LATE:-}" ] || [ -e "$PLANT_RACE_LATE.late" ] || { : > "$PLANT_RACE_LATE.late"; sh "$PLANT_RACE_LATE" >/dev/null 2>&1; } ;; esac\nprintf "%%s\\n" "$lines" | exec bash "%s/bin/pre-push.sh" "$@"\n' "$root" > "$fake/race-hooks/pre-push"
 chmod +x "$fake/race-hooks/pre-merge-commit" "$fake/race-hooks/pre-push"
-race_refused() {  # race_refused <label> <before>: what the person reads, and what origin and the worktree keep
-  local moved
+race_refused() {  # race_refused <label> <before> merge|push: what the person reads, and what origin and the worktree keep; merge where the base check before the push found the move, push where origin refused the push for it
+  local moved cause
   moved="$(tip)"
+  case "$3" in merge) cause="origin/master moved from $2 to $moved while the merge was made" ;; *) cause="master moved on origin from $2 to $moved after this landing fetched it" ;; esac
   check "$1: exit 1" 1 "$rc"
-  check "$1: the output names the move and tells to run again" yes "$(grep -qF "nothing landed: master moved on origin from ${2:0:7} to ${moved:0:7} after this landing fetched it" <<< "$out" && grep -qF 'run this again' <<< "$out" && echo yes || echo no)"
+  check "$1: the output names the move and tells to run again" yes "$(grep -qF "nothing landed: $cause" <<< "$out" && grep -qF 'Run this again' <<< "$out" && echo yes || echo no)"
   check "$1: the gate does not talk of a branch" no "$(grep -qF 'not on a branch; nothing to judge' <<< "$out" && echo yes || echo no)"
   check "$1: only the other landing reached the default branch" "0 yes" "$(git --git-dir="$origin" rev-list --merges --count "$2..master") $([ "$moved" != "$2" ] && echo yes || echo no)"
   check "$1: the lock is released" no "$([ -e "$work/.git/ai-core-landing" ] && echo yes || echo no)"
 }
-echo 'a default branch that moves between the fetch and the push is named, in each of the paths, and the rerun lands'
+echo 'a default branch that moves between the fetch and the push is named, in each of the paths, when one round only is allowed, and the rerun lands'
 git -C "$work" config core.hooksPath "$fake/race-hooks"; echo private > "$fake/visibility"
-wt="$(new_tree 970 race)"; git -C "$wt" push -q origin issue-970-race 2>/dev/null
+wt="$(new_tree 970 race)"; git -C "$wt" push -q origin issue-970-race 2>/dev/null; rounds_in "$wt" 1
 before="$(tip)"; rm -f "$fake/race.sh.done" "$fake/race.sh.late"
 out="$(cd "$wt" && PLANT_RACE="$fake/race.sh" integrate_here 970)"; rc=$?
-race_refused 'in the worktree' "$before"
+race_refused 'in the worktree' "$before" merge
 check 'in the worktree: the branch is checked out again' issue-970-race "$(git -C "$wt" symbolic-ref --short HEAD)"
 before="$(tip)"
 out="$(cd "$wt" && integrate_here 970)"; rc=$?
 check 'in the worktree: the rerun lands' '0 1' "$rc $(git --git-dir="$origin" rev-list --merges --count "$before..master")"
-wt="$(new_tree 971 race-origin)"; git -C "$wt" push -q origin issue-971-race-origin 2>/dev/null
+wt="$(new_tree 971 race-origin)"; git -C "$wt" push -q origin issue-971-race-origin 2>/dev/null; rounds_in "$work" 1
 before="$(tip)"; rm -f "$fake/race.sh.done" "$fake/race.sh.late"
 out="$(cd "$work" && PLANT_RACE="$fake/race.sh" AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=0 bash "$root/bin/integrate-issue.sh" 971 --reviewed-by l4 --from-origin 2>&1)"; rc=$?
-race_refused 'with --from-origin' "$before"
+race_refused 'with --from-origin' "$before" merge
+rm -rf "$work/.ai-core"
 before="$(tip)"
 out="$(cd "$work" && AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=0 bash "$root/bin/integrate-issue.sh" 971 --reviewed-by l4 --from-origin 2>&1)"; rc=$?
 check 'with --from-origin: the rerun lands' '0 1' "$rc $(git --git-dir="$origin" rev-list --merges --count "$before..master")"
@@ -1370,7 +1378,7 @@ wait
 landed=0; explained=yes
 for t in c d; do
   if [ "$(cat "$fake/twin-$t.rc")" = 0 ]; then landed=$((landed + 1))
-  else grep -qE 'moved on origin from [0-9a-f]{7} to [0-9a-f]{7}|origin/master moved' "$fake/twin-$t.out" || explained=no; fi
+  else grep -qE 'moved on origin from [0-9a-f]{7,40} to [0-9a-f]{7,40}|origin/master moved' "$fake/twin-$t.out" || explained=no; fi
   grep -qF 'not on a branch; nothing to judge' "$fake/twin-$t.out" && explained=no
 done
 check 'separate clones: every refusal explains the move, and the landings that succeeded are on origin' "yes $landed" "$explained $(git --git-dir="$origin" rev-list --merges --count "$before..master")"
@@ -1388,12 +1396,12 @@ git -C "$work" config core.hooksPath "$fake/race-hooks"
 rm -f "$fake/visibility"
 echo 'the same during the gate of the final push of a public repository, and a gate that git starts with no ref judges nothing'
 git -C "$work" config core.hooksPath "$fake/race-hooks"
-wt="$(new_tree 972 race-public)"; sha="$(git -C "$wt" rev-parse HEAD)"; git -C "$wt" push -q origin issue-972-race-public 2>/dev/null
+wt="$(new_tree 972 race-public)"; sha="$(git -C "$wt" rev-parse HEAD)"; git -C "$wt" push -q origin issue-972-race-public 2>/dev/null; rounds_in "$wt" 1
 echo public > "$fake/visibility"; printf '%s\n' "$success" > "$fake/runs"; : > "$fake/runs-queue"; : > "$fake/calls.txt"; plant_hook issue-972-race-public ""
 before="$(tip)"; rm -f "$fake/race.sh.done" "$fake/race.sh.late"
 out="$(cd "$wt" && PLANT_RACE_LATE="$fake/race.sh" AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=5 integrate_here 972)"; rc=$?
 rm -f "$fake/visibility" "$fake/runs" "$fake/during-wait"
-race_refused 'in a public repository' "$before"
+race_refused 'in a public repository' "$before" push
 check 'in a public repository: ci/integrate-<branch> is deleted' '' "$(ci_tip issue-972-race-public)"
 git -C "$work" config --unset core.hooksPath
 out="$(cd "$wt" && printf '' | bash "$root/bin/pre-push.sh" origin "$origin" 2>&1)"; rc=$?
@@ -1492,6 +1500,181 @@ check 'the output of the push stood in a file while the gate waited, and none ou
 INTEGRATE_SCRIPT="$fake/mutant-leftover/bin/integrate-issue.sh" stopped_landing 168 stopped-planted
 check 'the planted copy leaves that file behind'   '1 1' "$files_during $files_after"
 unset INTEGRATE_SCRIPT
+
+# --- the rounds: the default branch moves while the gate of a round runs, and the landing makes the next round by itself ---
+# racing_tree <number> <slug> [limit]: an issue worktree whose scripts/check.sh is the planted gate of the rounds. It writes the commit
+# and the tree it judges to $rs/judged, moves origin's default branch (another session's landing) while it runs for the first
+# $rs/moves runs, runs $rs/during.sh where there is one, and is red where $rs/red exists. The limit goes to the config.env of the
+# worktree, where integrate-issue reads INTEGRATE_MAX_ROUNDS.
+racing_tree() {
+  local wt="$trees/issue-$1-$2" rs="$fake/rs-$1"
+  rm -rf "$rs"; mkdir -p "$rs"; : > "$rs/judged"; echo 0 > "$rs/moves"; printf '%s\n' "$push_to_master" > "$rs/move.sh"
+  git -C "$work" worktree add -q -b "issue-$1-$2" "$wt" origin/master; dress "$wt"
+  mkdir -p "$wt/scripts" "$wt/.ai-core"
+  { printf '#!/usr/bin/env bash\nrs="%s"\n' "$rs"
+    cat <<'CHECK'
+echo "$(git rev-parse HEAD) $(git rev-parse 'HEAD^{tree}')" >> "$rs/judged"
+n=$(wc -l < "$rs/judged" | tr -d ' ')
+if [ "$n" -le "$(cat "$rs/moves")" ]; then sh "$rs/move.sh" >/dev/null 2>&1; fi
+[ ! -f "$rs/during.sh" ] || sh "$rs/during.sh" "$n" >/dev/null 2>&1
+[ ! -e "$rs/red" ] || { echo "check: FAIL"; exit 1; }
+echo "check: OK"
+CHECK
+  } > "$wt/scripts/check.sh"
+  chmod +x "$wt/scripts/check.sh"
+  printf 'PRE_PUSH_LOAD_LIMIT="0"\n%s' "${3:+INTEGRATE_MAX_ROUNDS=\"$3\"}" > "$wt/.ai-core/config.env"
+  git -C "$wt" add -f -A && git -C "$wt" commit -q -m "Plant the check #$1"
+  git -C "$wt" push -q origin "issue-$1-$2" 2>/dev/null
+  printf '%s' "$wt"
+}
+judged() { wc -l < "$rs/judged" | tr -d ' '; }
+judged_commit() { awk -v n="$1" 'NR == n { print $1 }' "$rs/judged"; }
+last_green_row() { awk -F'\t' '$5 == "green" { c = $4 } END { print c }' "$AI_CORE_HOME/.ai-core/pre-push-runs.tsv"; }
+other_commits() { git --git-dir="$origin" log --format=%s "$1..master" | grep -c '^Other #1$' || true; }
+# land_racing <number> <slug> <limit or empty> <moves> [the script to run]: a private landing in the issue's worktree through the real gate; sets wt, rs, before, out, rc, sha
+land_racing() {
+  wt="$(racing_tree "$1" "$2" "$3")"; rs="$fake/rs-$1"; echo "$4" > "$rs/moves"; sha="$(git -C "$wt" rev-parse HEAD)"
+  [ -z "${RED:-}" ] || : > "$rs/red"; [ -z "${DURING:-}" ] || printf '[ "$1" = 1 ] || exit 0\n%s\n' "${DURING//@WT@/$wt}" > "$rs/during.sh"
+  echo private > "$fake/visibility"; git -C "$work" config core.hooksPath "$fake/gate-hooks"
+  before="$(tip)"
+  out="$(cd "$wt" && bash "${5:-$root/bin/integrate-issue.sh}" "$1" --reviewed-by l4 2>&1)"; rc=$?
+  git -C "$work" config --unset core.hooksPath; rm -f "$fake/visibility"
+}
+no_leftovers() { check "$1: no temporary worktree and no lock is left" '0 no' "$(git -C "$work" worktree list | grep -c 'integrate-' || true) $([ -e "$work/.git/ai-core-landing" ] && echo yes || echo no)"; }
+
+echo 'the default branch moving once during the gate of the first round: the landing lands in the second round, on the new tip, with a gate of its own'
+land_racing 980 rounds-once "" 1
+merged="$(tip)"
+check 'exit 0, one merge commit, one commit of the other session'  '0 1 1' "$rc $(git --git-dir="$origin" rev-list --merges --count "$before..master") $(other_commits "$before")"
+check 'the gate judged two merge commits, the second one is on the default branch and the first one is not' "2 $merged no" "$(judged) $(judged_commit 2) $(git --git-dir="$origin" merge-base --is-ancestor "$(judged_commit 1)" master 2>/dev/null && echo yes || echo no)"
+check 'the second merge is made on the tip the other session landed, and holds the reviewed head' "$(git --git-dir="$origin" rev-parse "$merged^1") $sha" "$(git --git-dir="$origin" log -1 --format=%H --grep='^Other #1$' "$before..master") $(git --git-dir="$origin" rev-parse "$merged^2")"
+check 'the record of the gate names the commit that landed, green' "$merged" "$(last_green_row)"
+check 'the output names both rounds and the limit' yes "$(grep -q '^round 1 of 3: the merge commit ' <<< "$out" && grep -q '^round 2 of 3: the round before ended because master moved on origin from [0-9a-f]\{40\} to [0-9a-f]\{40\} after this landing fetched it' <<< "$out" && echo yes || echo no)"
+check 'the branch is checked out again'                         issue-980-rounds-once "$(git -C "$wt" symbolic-ref --short HEAD)"
+no_leftovers 'once'
+
+echo 'a default branch that does not move lands in the first round (innocent case); the planted copy that stops after the first round does not land the moved one'
+land_racing 981 rounds-still "" 0
+check 'exit 0, one gate, one round'                              '0 1 yes' "$rc $(judged) $(grep -q '^round 2 of' <<< "$out" && echo no || echo yes)"
+mutant_integrate "$fake/mutant-one-round" 's/if \[ "\$round" -gt "\$rounds_limit" \]; then/if [ "$round" -gt 1 ]; then/'
+land_racing 982 rounds-planted "" 1 "$fake/mutant-one-round/bin/integrate-issue.sh"
+check 'planted: a loop that stops after the first round leaves the landing unlanded (exit 1, no merge, one gate)' '1 0 1' "$rc $(git --git-dir="$origin" rev-list --merges --count "$before..master") $(judged)"
+land_racing 983 rounds-planted-ok "" 1
+check 'the same landing with the real loop lands'                '0 1' "$rc $(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+
+echo 'every round finds the default branch moved: the bound stops it with nothing pushed, the commits of the other session remain'
+land_racing 984 rounds-bound 2 5
+check 'exit 1, two gates, no merge of the landing, two commits of the other session' '1 2 0 2' "$rc $(judged) $(git --git-dir="$origin" rev-list --merges --count "$before..master") $(other_commits "$before")"
+check 'it names the cause, the round that was the last and the setting' yes "$(grep -q 'nothing landed: master moved on origin from [0-9a-f]\{40\} to [0-9a-f]\{40\} after this landing fetched it.*round 2 was the last that INTEGRATE_MAX_ROUNDS (2) allows, and nothing was pushed to master' <<< "$out" && echo yes || echo no)"
+check 'it does not claim that nothing was pushed anywhere' no "$(grep -qi 'nothing was pushed anywhere' <<< "$out" && echo yes || echo no)"
+check 'the branch is checked out again'                         issue-984-rounds-bound "$(git -C "$wt" symbolic-ref --short HEAD)"
+no_leftovers 'bound'
+land_racing 985 rounds-third 3 2
+check 'two moves and three rounds: it lands in the third'        '0 3 1' "$rc $(judged) $(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+land_racing 986 rounds-one 1 1
+check 'a limit of 1 is a single attempt'                         '1 1 0' "$rc $(judged) $(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+
+echo 'a move that conflicts with the branch stops the landing in the second round, before its gate'
+wt="$(racing_tree 987 rounds-conflict "")"; rs="$fake/rs-987"; echo 1 > "$rs/moves"
+printf 'cd "$(mktemp -d)" && git clone -q "%s" c && cd c && git config user.email t@example.invalid && git config user.name t && echo other > rounds-conflict.txt && git add -A && git commit -q -m "Other #1" && git push -q origin master\n' "$origin" > "$rs/move.sh"
+echo "x" > "$wt/rounds-conflict.txt"; git -C "$wt" add -A && git -C "$wt" commit -q -m 'Write the same file #987' && git -C "$wt" push -q origin issue-987-rounds-conflict 2>/dev/null
+echo private > "$fake/visibility"; git -C "$work" config core.hooksPath "$fake/gate-hooks"; before="$(tip)"
+out="$(cd "$wt" && bash "$root/bin/integrate-issue.sh" 987 --reviewed-by l4 2>&1)"; rc=$?
+git -C "$work" config --unset core.hooksPath; rm -f "$fake/visibility"
+check 'exit 1, one gate, no merge, the commit of the other session is there' '1 1 0 1' "$rc $(judged) $(git --git-dir="$origin" rev-list --merges --count "$before..master") $(other_commits "$before")"
+check 'it says which branch does not merge' yes "$(grep -q 'issue-987-rounds-conflict does not merge cleanly into origin/master' <<< "$out" && echo yes || echo no)"
+no_leftovers 'conflict'
+
+echo 'a red gate beside a move stays a red gate: no second round; the planted copy that takes the tip alone for a race makes one'
+RED=1 land_racing 988 rounds-red "" 1
+check 'exit 1, one gate and no second round, no merge, the commit of the other session is there' '1 1 0 1' "$rc $(judged) $(git --git-dir="$origin" rev-list --merges --count "$before..master") $(other_commits "$before")"
+check 'it shows the red check and says that origin refused nothing for a move' yes "$(grep -q 'check: FAIL' <<< "$out" && grep -q 'the push was refused (see above) - nothing reached origin' <<< "$out" && ! grep -q '^round 2 of' <<< "$out" && echo yes || echo no)"
+mutant_integrate "$fake/mutant-tip-only" 's/ && grep -Eq .* <<< "\$said"; then$/; then/'
+RED=1 land_racing 989 rounds-red-planted "" 1 "$fake/mutant-tip-only/bin/integrate-issue.sh"
+check 'planted: a landing that takes the tip alone for a race makes a second round after a red gate' yes "$(grep -q '^round 2 of' <<< "$out" && echo yes || echo no)"
+no_leftovers 'red'
+
+echo 'a value that is no number of rounds stops the landing before anything is merged or pushed, naming the key; the default of 3 holds where the file sets none'
+for bad in abc 0 -1 1.5 03 99999999999; do
+  wt="$(racing_tree 990 rounds-bad "$bad")"; rs="$fake/rs-990"; before="$(tip)"
+  out="$(cd "$wt" && bash "$root/bin/integrate-issue.sh" 990 --reviewed-by l4 2>&1)"; rc=$?
+  check "the value '$bad': exit 1, the key and the value named, nothing judged, nothing merged" '1 yes 0 0' "$rc $(grep -qF "INTEGRATE_MAX_ROUNDS is '$bad' in " <<< "$out" && echo yes || echo no) $(judged) $(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+  git -C "$work" worktree remove --force "$wt"; git -C "$work" branch -q -D issue-990-rounds-bad; git --git-dir="$origin" branch -q -D issue-990-rounds-bad
+done
+
+echo 'the bound is read again before every round: a file lowered during the first round ends the landing, a file broken during it stops the landing naming the key'
+DURING='printf "PRE_PUSH_LOAD_LIMIT=\"0\"\nINTEGRATE_MAX_ROUNDS=\"1\"\n" > "@WT@/.ai-core/config.env"' land_racing 991 rounds-lowered 3 1
+check 'lowered to 1: exit 1, one gate, no merge, round 1 named as the last' '1 1 0 yes' "$rc $(judged) $(git --git-dir="$origin" rev-list --merges --count "$before..master") $(grep -q 'round 1 was the last that INTEGRATE_MAX_ROUNDS (1) allows' <<< "$out" && echo yes || echo no)"
+git -C "$wt" checkout -q -- .ai-core/config.env
+DURING='printf "INTEGRATE_MAX_ROUNDS=\"soon\"\n" > "@WT@/.ai-core/config.env"' land_racing 992 rounds-broken 3 1
+check 'broken: exit 1, one gate, no merge, the key named' '1 1 0 yes' "$rc $(judged) $(git --git-dir="$origin" rev-list --merges --count "$before..master") $(grep -qF "nothing landed, and no round 2 was started: INTEGRATE_MAX_ROUNDS is 'soon'" <<< "$out" && echo yes || echo no)"
+git -C "$wt" checkout -q -- .ai-core/config.env
+
+echo 'a reviewed branch that holds another commit in the second round than in the first stops the landing; nothing lands that the reviewer did not read'
+DURING='b=$(git -C "@WT@" symbolic-ref --short -q HEAD || git -C "@WT@" for-each-ref --format="%(refname:short)" refs/heads/issue-993-rounds-head); git -C "@WT@" update-ref "refs/heads/$b" "$(git -C "@WT@" commit-tree -p "refs/heads/$b" -m extra "refs/heads/$b^{tree}")"' land_racing 993 rounds-head "" 1
+check 'exit 1, one gate, no merge, the branch and the two commits named' '1 1 0 yes' "$rc $(judged) $(git --git-dir="$origin" rev-list --merges --count "$before..master") $(grep -q 'issue-993-rounds-head is at [0-9a-f]\{40\}, but round 1 of this landing read [0-9a-f]\{40\}' <<< "$out" && echo yes || echo no)"
+no_leftovers 'head'
+
+echo 'the same in the other paths: --from-origin from the main checkout, and a list of two issues'
+wt="$(racing_tree 994 rounds-origin "")"; rs="$fake/rs-994"; echo 1 > "$rs/moves"; sha="$(git -C "$wt" rev-parse HEAD)"
+echo private > "$fake/visibility"; git -C "$work" config core.hooksPath "$fake/gate-hooks"; before="$(tip)"
+out="$(cd "$work" && bash "$root/bin/integrate-issue.sh" 994 --reviewed-by l4 --from-origin 2>&1)"; rc=$?
+git -C "$work" config --unset core.hooksPath; rm -f "$fake/visibility"
+check '--from-origin: lands in the second round, the second merge is the one the gate judged and last recorded green' "0 2 $(tip) $(tip) 1" "$rc $(judged) $(judged_commit 2) $(last_green_row) $(git --git-dir="$origin" rev-list --merges --count "$before..master")"
+no_leftovers '--from-origin'
+wt="$(racing_tree 995 rounds-list-a "")"; rs="$fake/rs-995"; echo 1 > "$rs/moves"; sha="$(git -C "$wt" rev-parse HEAD)"
+wt_b="$(new_tree 996 rounds-list-b)"; git -C "$wt_b" push -q origin issue-996-rounds-list-b 2>/dev/null
+echo private > "$fake/visibility"; git -C "$work" config core.hooksPath "$fake/gate-hooks"; before="$(tip)"
+out="$(cd "$wt" && bash "$root/bin/integrate-issue.sh" 995 996 --reviewed-by l4 2>&1)"; rc=$?
+git -C "$work" config --unset core.hooksPath; rm -f "$fake/visibility"
+check 'a list: lands in the second round, one merge commit per issue, the gate judged the last' "0 2 2 $(tip) $(tip)" "$rc $(judged) $(git --git-dir="$origin" rev-list --merges --count "$before..master") $(judged_commit 2) $(last_green_row)"
+no_leftovers 'a list'
+
+echo 'a public repository: the default branch moving while the checks of the first round are waited for makes a second round, with its own push to ci/ and its own checks'
+before="$(tip)"
+land_public 997 rounds-public "$success" 5 "$push_to_master"
+merged="$(tip)"
+check 'exit 0, one merge commit, the second round named, ci/integrate-<branch> deleted' '0 1 yes' "$rc $(git --git-dir="$origin" rev-list --merges --count "$before..master") $(grep -q '^round 2 of 3: ' <<< "$out" && echo yes || echo no)"
+check 'the checks were green twice, the last for the commit that landed' "2 yes" "$(grep -c '^checks: green for' <<< "$out") $(grep -q "^checks: green for ${merged:0:7} on ci/integrate-issue-997-rounds-public" <<< "$out" && echo yes || echo no)"
+check 'ci/integrate-<branch> is deleted and the lock is released' ' no' "$(ci_tip issue-997-rounds-public) $([ -e "$work/.git/ai-core-landing" ] && echo yes || echo no)"
+
+echo 'a push that git reports as failed while a newer commit of origin holds the merge commit is not denied'
+mkdir -p "$fake/above-hooks"
+printf '#!/bin/sh
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX
+[ ! -e "$ABOVE_MARKER" ] || exit 0
+: > "$ABOVE_MARKER"
+git push -q origin HEAD:refs/heads/master
+%s
+exit 1
+' "$push_to_master" > "$fake/above-hooks/pre-push"; chmod +x "$fake/above-hooks/pre-push"
+git -C "$work" config core.hooksPath "$fake/above-hooks"; echo private > "$fake/visibility"
+wt="$(new_tree 998 pushed-above)"; git -C "$wt" push -q origin issue-998-pushed-above 2>/dev/null
+before="$(tip)"; rm -f "$fake/above.marker"
+out="$(cd "$wt" && ABOVE_MARKER="$fake/above.marker" integrate_here 998)"; rc=$?
+git -C "$work" config --unset core.hooksPath; rm -f "$fake/visibility"
+check 'exit 0, one merge commit below the newer commit' '0 1 Other #1' "$rc $(git --git-dir="$origin" rev-list --merges --count "$before..master") $(git --git-dir="$origin" log -1 --format=%s master)"
+check 'it says that origin holds the commit although git failed' yes "$(grep -qE 'origin holds [0-9a-f]{7} on master although git reported a failure: the landing went through' <<< "$out" && echo yes || echo no)"
+
+echo 'a warning that the reader of INTEGRATE_MAX_ROUNDS writes on standard error is no part of the number, so the bound holds (planted: grep warns while it reads the setting)'
+mkdir -p "$fake/warning-grep"
+printf '#!/bin/sh\ncase "$*" in *INTEGRATE_MAX_ROUNDS*) echo "grep: a warning while the setting is read" >&2 ;; esac\nexec "%s" "$@"\n' "$(command -v grep)" > "$fake/warning-grep/grep"; chmod +x "$fake/warning-grep/grep"
+PATH="$fake/warning-grep:$PATH" land_racing 960 rounds-warned 2 5
+check 'exit 1 after two gates, no merge, round 2 named as the last' '1 2 0 yes' "$rc $(judged) $(git --git-dir="$origin" rev-list --merges --count "$before..master") $(grep -qF 'round 2 was the last that INTEGRATE_MAX_ROUNDS (2) allows' <<< "$out" && echo yes || echo no)"
+check 'the warning is shown, and the limit each round names is the number alone' 'yes yes' "$(grep -qF 'grep: a warning while the setting is read' <<< "$out" && echo yes || echo no) $(grep -q '^round 2 of 2: ' <<< "$out" && echo yes || echo no)"
+no_leftovers 'warned'
+
+echo 'an origin that cannot be read right before the push of a landing in the worktree puts the worktree back on its branch, with nothing pushed'
+printf 'mv "%s" "%s.away"\n' "$origin" "$origin" > "$fake/away.sh"
+git -C "$work" config core.hooksPath "$fake/race-hooks"; echo private > "$fake/visibility"
+wt="$(new_tree 961 origin-away)"; git -C "$wt" push -q origin issue-961-origin-away 2>/dev/null
+before="$(tip)"; rm -f "$fake/away.sh.done"
+out="$(cd "$wt" && PLANT_RACE="$fake/away.sh" integrate_here 961)"; rc=$?
+mv "$origin.away" "$origin"
+git -C "$work" config --unset core.hooksPath; rm -f "$fake/visibility"
+check 'exit 1, origin named as unreadable, the default branch as it was' "1 yes $before" "$rc $(grep -qF 'could not reach origin' <<< "$out" && echo yes || echo no) $(tip)"
+check 'the worktree is on its branch again' issue-961-origin-away "$(git -C "$wt" symbolic-ref --short -q HEAD || echo detached)"
+no_leftovers 'origin away'
 
 echo
 [ "$failed" -eq 0 ] && echo 'all passed' || echo "$failed failed"

@@ -159,11 +159,11 @@ interface LandingInput {
 
 // The most rounds a landing makes, read from the config.env of the checkout at every call: a change of the file reaches the next
 // round of a landing that runs.
-async function readRoundsLimit(context: CommandContext): Promise<number> {
+async function readRoundsLimit(context: CommandContext, round: number): Promise<number> {
   const read = await context.harness.readLandingRounds(context.cwd);
   const limit = Number(read.output);
   if (!read.succeeded || !Number.isSafeInteger(limit) || limit < 1) {
-    throw new PreconditionError(`nothing landed, and no round was started: ${read.succeeded ? `INTEGRATE_MAX_ROUNDS answered '${read.output}', and it is a whole number from 1 to 999999999` : read.output}`);
+    throw new PreconditionError(`nothing landed, and no round ${round} was started: ${read.succeeded ? `INTEGRATE_MAX_ROUNDS answered '${read.output}', and it is a whole number from 1 to 999999999` : read.output}`);
   }
   return limit;
 }
@@ -180,13 +180,25 @@ async function keepReviewedHeads(context: CommandContext, units: readonly Landin
   }
 }
 
+// A reviewed head that another landing brought onto the default branch while the round before ran leaves nothing to merge: git
+// would make no merge commit, and the round would push the tip of origin and record it as this landing.
+async function refuseLandedHeads(context: CommandContext, input: LandingInput, round: number): Promise<void> {
+  for (const unit of input.units) {
+    if (await context.git.isAncestor(context.cwd, unit.head, `refs/remotes/origin/${input.defaultBranch}`)) {
+      throw new PreconditionError(
+        `nothing landed in round ${round}: the reviewed head ${unit.head} of ${unit.branch} reached origin/${input.defaultBranch} while the round before ran, so this landing has nothing left to merge; the same command run again finds it there and writes the records that are missing`,
+      );
+    }
+  }
+}
+
 // THE ROUNDS: the default branch moving while a round ran ends that round with nothing pushed to the default branch, and the
 // next round fetches it again, merges onto its new tip and runs the whole gate on that merge, at most INTEGRATE_MAX_ROUNDS rounds.
 // A conflict, a red gate or CI, a branch that changed, an unreadable origin and every other refusal end the run at once.
 async function landReviewedHeads(context: CommandContext, api: ForgejoClient, input: LandingInput): Promise<Landing> {
   let cause: DefaultBranchMoved | undefined;
   for (let round = 1; ; round += 1) {
-    const limit = await readRoundsLimit(context);
+    const limit = await readRoundsLimit(context, round);
     if (round > limit) {
       throw new PreconditionError(
         `nothing landed: ${cause?.message ?? 'no round was made'}; round ${round - 1} was the last that INTEGRATE_MAX_ROUNDS (${limit}) allows, and nothing was pushed to ${input.defaultBranch}. ` +
@@ -197,6 +209,7 @@ async function landReviewedHeads(context: CommandContext, api: ForgejoClient, in
       context.stderr(`round ${round} of ${limit}: the round before ended because ${cause.message}; this round fetches origin again, merges onto the new ${input.defaultBranch} and runs the whole gate on that merge\n`);
       await context.git.fetchBranch(context.cwd, input.defaultBranch);
       await keepReviewedHeads(context, input.units);
+      await refuseLandedHeads(context, input, round);
     }
     try {
       return await landOnce(context, api, input, round, limit);

@@ -931,7 +931,7 @@ describe('integrate-issue', () => {
       it('reads the bound again before every round: a file lowered to 1 during the first round ends the landing, a broken one stops it naming the key', async () => {
         for (const [answers, message] of [
           [['3', '1'], /round 1 was the last that INTEGRATE_MAX_ROUNDS \(1\) allows/],
-          [['3', "INTEGRATE_MAX_ROUNDS is 'soon' in the config.env of this checkout; it is the most rounds a landing makes"], /nothing landed, and no round was started: INTEGRATE_MAX_ROUNDS is 'soon'/],
+          [['3', "INTEGRATE_MAX_ROUNDS is 'soon' in the config.env of this checkout; it is the most rounds a landing makes"], /nothing landed, and no round 2 was started: INTEGRATE_MAX_ROUNDS is 'soon'/],
         ] as const) {
           const landing = await landWith(`Bound changed to ${answers[1].slice(0, 4)}, so that the next round obeys it`, { moves: 1 }, harnessWithRounds(...answers));
           try {
@@ -987,6 +987,21 @@ describe('integrate-issue', () => {
           const result = await integrateIssue.run(integrateArguments(privateWorld, number, head), ctx(tree, publicSettings));
           assert.match(result.stdout, /origin holds [0-9a-f]{7} on master although git reported a failure: the landing went through/);
           assert.equal(git(privateWorld.remote, 'log', '-1', '--format=%s', 'refs/heads/master'), 'above');
+        } finally {
+          dropHook(privateWorld);
+        }
+      });
+
+      it('stops where the reviewed head reached the default branch while the round before ran, and claims no landing of its own (planted: another landing of the same head during the gate)', async () => {
+        const { number, tree, head } = await worked(privateWorld, 'Landed elsewhere meanwhile, so that no round claims it');
+        const marker = join(scratch, `elsewhere-${number}`);
+        fixture.installHook(privateWorld.checkout, 'pre-push', `unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE; [ ! -e '${marker}' ] || exit 0; touch '${marker}'; other=$(git commit-tree -p HEAD^1 -p HEAD^2 -m 'Landed elsewhere' 'HEAD^{tree}') && git push -q origin "$other:refs/heads/master"`);
+        try {
+          const writes = writesOf();
+          await assert.rejects(integrateIssue.run(integrateArguments(privateWorld, number, head), ctx(tree, publicSettings)), new RegExp(`nothing landed in round 2: the reviewed head ${head} of issue-${number}-\\S+ reached origin/master while the round before ran`));
+          assert.equal(git(privateWorld.remote, 'log', '-1', '--format=%s', 'refs/heads/master'), 'Landed elsewhere', 'the other landing stands, and nothing was pushed over it');
+          assert.equal(writesOf(), writes, 'no record and no status is written');
+          assert.match((await client.currentBranch(tree)) ?? '', new RegExp(`^issue-${number}-`), 'the worktree is on its branch again');
         } finally {
           dropHook(privateWorld);
         }

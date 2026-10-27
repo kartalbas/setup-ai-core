@@ -230,15 +230,19 @@ helper() {  # helper <directory> <the lines git sends>: the helper itself, as gi
   ( cd "$1" && printf "$2" | PATH="$PATH_CURL" bash "${ROOT_UNDER_TEST:-$ROOT}/bin/git-credential.sh" get 2>&1 )
 }
 mine="protocol=http\nhost=$FORGE_HOST\n"
+pair_in() { git -C "$1" config --add "$LINE_KEY" ""; git -C "$1" config --add "$LINE_KEY" '!ai-core git-credential'; }   # the pair init and the clone set
+pair_in "$F"
 [ "$(helper "$F" "$mine")" = "$(printf 'username=ai-core\npassword=%s' "$TOKEN")" ] || fail "the helper does not answer username ai-core and the token: $(helper "$F" "$mine")"
 echo "  git-credential get: username ai-core and the token that FORGEJO_TOKEN_COMMAND prints"
 # a clone with no .ai-core of its own, as the clone of a project harness: the settings of the project folder
 mkdir -p "$WORK/folder/.ai-core"; cp "$F/.ai-core/config.env" "$WORK/folder/.ai-core/"
-git init -q "$WORK/folder/x-ai-core"
+git init -q "$WORK/folder/x-ai-core"; pair_in "$WORK/folder/x-ai-core"
 [ "$(helper "$WORK/folder/x-ai-core" "$mine")" = "$(printf 'username=ai-core\npassword=%s' "$TOKEN")" ] || fail "a harness clone does not get the token with the settings of its project folder"
+git init -q "$WORK/folder/y-ai-core"
+! helper "$WORK/folder/y-ai-core" "$mine" | grep -q password || fail "a clone that does not sign in through the helper got a token from the settings of its project folder"
 mkdir -p "$WORK/elsewhere"
 ! helper "$WORK/elsewhere" "$mine" | grep -q password || fail "a folder with no settings at all got a token"
-echo "  a clone without an .ai-core of its own reads the settings of its project folder; a place with none gets no token"
+echo "  a clone without an .ai-core of its own that signs in through the helper reads the settings of its project folder; one that does not, and a place with none, get no token"
 for other in "protocol=http\nhost=other.example.test\n" "protocol=https\nhost=$FORGE_HOST\n"; do
   out="$(helper "$F" "$other")"
   [ -z "$out" ] || fail "the helper answered for '$other': $out"
@@ -517,10 +521,33 @@ printf 'second-token\n' > "$WORK/ftoken-2"; cp "$WORK/ftoken-2" "$WORK/server-to
 shop_config "$proj/shop-a" "sh '$WORK/token spy.sh' '$WORK/ftoken-2'"
 fetched shop-a "$wt" || fail "a cache fetch did not follow a changed token command, or took the stale copy of the worktree: $FETCH_SAID"
 fetched shop-a || fail "a cache fetch outside the project did not follow a changed token command: $FETCH_SAID"
+# the helper looks for the checkout git runs in without the GIT_DIR of the cache: a worktree of a checkout that signs in
+# through the helper takes its checkout's settings even where no file is registered
 plant stale bin/git-credential.sh 'unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR' ':'
-ROOT_UNDER_TEST="$PLANTED" fetched shop-a "$wt" && fail "planted: the helper that keeps GIT_DIR read the stale copy of the worktree and still signed in, so the check cannot go red"
+cp "$GIT_CONFIG_GLOBAL" "$WORK/gitconfig.kept"; git config --global --unset-all "$SOURCE_KEY"
+fetched shop-a "$wt" || fail "a cache fetch in a worktree of a checkout that signs in did not take the settings of its checkout: $FETCH_SAID"
+ROOT_UNDER_TEST="$PLANTED" fetched shop-a "$wt" && fail "planted: a helper that keeps the GIT_DIR of the cache still found the checkout git runs in, so the check cannot go red"
+cp "$WORK/gitconfig.kept" "$GIT_CONFIG_GLOBAL"
 shop_config "$proj/shop-a" "$spy_command"; printf '%s\n' "$TOKEN" | tee "$WORK/ftoken" > "$WORK/server-token"
-echo "  a rotated token and a changed token command are followed at once; planted: a helper that keeps the GIT_DIR of the cache reads the stale copy in the worktree and gets nowhere"
+echo "  a rotated token and a changed token command are followed at once, and the copy in the worktree decides nothing; planted: a helper that keeps the GIT_DIR of the cache does not find the checkout git runs in"
+
+# a settings file that no init registered, in a plain folder or in a clone nobody initialized that tracks one, does not
+# answer for git run there: its token command does not run, and the registered file answers instead
+mkdir -p "$WORK/foreign/plain/.ai-core" "$WORK/foreign/clone/.ai-core"
+printf 'FORGEJO_URL=%s\nFORGEJO_TOKEN_COMMAND="touch %s; echo foreign-token"\n' "$FORGE_URL" "$WORK/foreign-ran" > "$WORK/foreign/plain/.ai-core/config.env"
+git init -q "$WORK/foreign/clone"; cp "$WORK/foreign/plain/.ai-core/config.env" "$WORK/foreign/clone/.ai-core/"
+git -C "$WORK/foreign/clone" add -A; git -C "$WORK/foreign/clone" commit -q -m 'tracks settings of its own'
+for where in "$WORK/foreign/plain" "$WORK/foreign/clone"; do
+  rm -f "$WORK/foreign-ran"
+  fetched shop-a "$where" || fail "a cache fetch run in $where did not sign in with the registered file: $FETCH_SAID"
+  [ ! -e "$WORK/foreign-ran" ] || fail "the token command of a settings file nobody registered ran for git in $where"
+done
+plant anyfolder bin/git-credential.sh '{ [ -n "$top" ] && sign_in_line_stands "$top" "$requested"; }' 'true'
+rm -f "$WORK/foreign-ran"
+ROOT_UNDER_TEST="$PLANTED" fetched shop-a "$WORK/foreign/clone" && fail "planted: a helper that takes the settings of any folder still signed in with the registered file"
+[ -e "$WORK/foreign-ran" ] || fail "planted: a helper that takes the settings of any folder did not run the token command of that folder, so the check cannot go red"
+rm -f "$WORK/foreign-ran"
+echo "  a settings file nobody registered, in a plain folder or in a clone nobody initialized, runs no token command, and the registered file answers; planted: a helper that takes the settings of any folder runs that file's command and sends what it prints"
 
 # another host, port and scheme get no token and the token command does not run; store and erase do nothing
 helper_out() {  # helper_out <the lines git sends> [get|store|erase]: the helper as git runs it for a repository outside every checkout

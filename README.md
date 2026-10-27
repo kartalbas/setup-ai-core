@@ -757,8 +757,11 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    of origin carries as well, and every commit that another ref of the same push adds. A merge is
    read against each of its parents, a rename as its old path and its new one. One commit that
    touches another file, one such commit beneath a valid one, and an unlisted change that a later
-   commit reverts each leave the push a plain one, refused as before. A direct push meets every
-   other check of the gate: the fast-forward and the checked-out commit above, the issue of
+   commit reverts each leave the push a plain one, refused as before. So does a commit that changes
+   `.ai-core/config.env` itself, whatever the list says, because the gate reads the list from that
+   file as the push brings it: a repository that tracks the file changes it through a landing. A
+   direct push meets every other check of the gate, on every commit that the default branch gains,
+   as a landing does: the fast-forward and the checked-out commit above, the issue of
    each commit or its `No-issue:` reason (check 2), the team modes, `scripts/check.sh` run on the
    pushed tree, the secret scan, and, where the default branch goes live, `scripts/check.sh` and the
    `Reviewed-by:` trailer (check 8). The gate runs in the clone it is installed in: a temporary

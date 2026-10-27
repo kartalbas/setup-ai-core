@@ -224,8 +224,9 @@ direct_push_matches() {
 # only paths that one of the patterns matches. <patterns> is the value of DIRECT_PUSH_FILES, separated by white space, none
 # an absolute path or with an empty, . or .. component. <ranges> is one `git rev-list` range per line, which the caller
 # draws from the ref lines of the push. A merge is judged against each of its parents, so what it resolves is read too; a
-# rename counts as the removal of its old path and the addition of its new one. A git call that fails, a commit that
-# cannot be listed and a push that names no commit at all fail it, and DIRECT_PUSH_REASON says why.
+# rename counts as the removal of its old path and the addition of its new one. A commit that changes .ai-core/config.env
+# fails it whatever the patterns say, because the gate reads them from that file in the tree the push brings. A git call
+# that fails, a commit that cannot be listed and a push that names no commit at all fail it, and DIRECT_PUSH_REASON says why.
 direct_push_commits_only() {
   local dir="$1" patterns="$2" ranges="$3" scratch status=0
   DIRECT_PUSH_REASON=""
@@ -258,6 +259,7 @@ direct_push_inspect() {
       git -C "$dir" diff-tree --no-commit-id --root -r -m --no-renames --name-only -z "$sha" > "$scratch/paths" \
         || { DIRECT_PUSH_REASON="git diff-tree failed, so the paths of ${sha:0:12} cannot be listed"; return 1; }
       while IFS= read -r -d '' path; do
+        [ "$path" != .ai-core/config.env ] || { DIRECT_PUSH_REASON="${sha:0:12} changes .ai-core/config.env, which holds DIRECT_PUSH_FILES, and a push is never judged by a list it writes"; return 1; }
         direct_push_matches "$path" "${entries[@]}" && continue
         shown="$(printf '%s' "$path" | tr '[:cntrl:]' '?')"
         DIRECT_PUSH_REASON="${sha:0:12} touches $shown, which DIRECT_PUSH_FILES does not list"

@@ -2047,6 +2047,14 @@ s_evil_merge() {
   git -C "$d_repo" checkout -q "$d_branch"; git -C "$d_repo" merge -q --no-ff --no-commit side
   printf 'sneaked in by the merge\n' >> "$d_repo/src/app.txt"; git -C "$d_repo" add src/app.txt; git -C "$d_repo" commit -q -m 'release: merge side'
 }
+# s_past <message>: a commit of the listed file alone, pushed past the gate to another branch of origin, as a clone without the hook does
+s_past()       { d_reset; d_commit "$1" VERSION; git -C "$d_repo" push -q origin HEAD:refs/heads/topic >/dev/null 2>&1; }
+d_track() {  # d_track: the repository tracks its .ai-core/config.env, and origin carries that commit as the base of every case
+  sed -i.bak '/^\/\.ai-core\/$/d' "$d_repo/.git/info/exclude"; rm -f "$d_repo/.git/info/exclude.bak"
+  git -C "$d_repo" add .ai-core/config.env; git -C "$d_repo" commit -q -m 'Track the settings of the repository #15'
+  git -C "$d_repo" push -q origin HEAD >/dev/null 2>&1; d_base="$(d_tip)"
+}
+s_widening()   { d_reset; printf 'PRE_PUSH_LOAD_LIMIT="0"\nDIRECT_PUSH_FILES="*"\n' > "$d_repo/.ai-core/config.env"; printf 'unreviewed\n' >> "$d_repo/src/app.txt"; git -C "$d_repo" commit -q -am 'Change the app #5'; }
 
 echo 'a push of a commit that touches only the listed file reaches the default branch with no mark: a release, as its script pushes it'
 d_new release master 'DIRECT_PUSH_FILES="VERSION"'
@@ -2149,6 +2157,12 @@ s_below; d_push origin HEAD:master HEAD:refs/heads/topic
 d_refused 'a push of two refs, an ordinary commit in them' 'touches src/app.txt, which DIRECT_PUSH_FILES does not list'
 s_clean; d_push origin HEAD:master HEAD:refs/heads/topic
 d_reaches 'a push of two refs, a release in them'
+
+echo 'a commit that another ref of origin carries meets the rules of every commit, as in a landing: a branch pushed past the gate is judged here, once'
+s_past 'Bump the version'; d_push origin HEAD:master
+d_refused 'a commit of another branch of origin that names no issue' 'names no issue'
+s_past 'Bump the version #14'; d_push origin HEAD:master
+d_reaches 'innocent: the same commit naming its issue'
 
 echo 'a merge is read against each of its parents: the commit it merges, what it resolves, and a clean one'
 s_unlisted_side() { d_reset; git -C "$d_repo" checkout -q -b side; d_commit 'release: side' src/side.txt; git -C "$d_repo" checkout -q "$d_branch"; git -C "$d_repo" merge -q --no-ff side -m 'release: merge side'; }
@@ -2409,6 +2423,13 @@ race "$winner" x=1 & race "$loser" x=1 & wait
 check 'a release and a plain push at once: the release lands' "0 $winning" "$(cat "$d_dir/$winner.rc") $(d_tip)"
 check 'the plain push does not' yes "$([ "$(cat "$d_dir/$loser.rc")" != 0 ] && ! git -C "$d_origin" cat-file -e "$losing^{commit}" 2>/dev/null && echo yes || echo no)"
 
+echo 'a repository that tracks its config.env: a commit that changes that file is no direct push, whatever the list it writes says'
+d_new tracked master 'DIRECT_PUSH_FILES="VERSION"'; d_track
+s_widening; d_push origin HEAD
+d_refused 'a commit that writes * into the tracked list and changes the app' 'changes .ai-core/config.env, which holds DIRECT_PUSH_FILES'
+s_clean; d_push origin HEAD
+d_reaches 'innocent: a release of the listed file, the list tracked'
+
 echo 'planted defects: each copy of the gate has one protection less, and the case of that protection must turn red; the clean push stays green'
 d_new mutants master 'DIRECT_PUSH_FILES="VERSION data/*"'
 d_mutant() {  # d_mutant <name> <file of the harness> <sed script>: a copy of the harness whose file has that one defect, in GATE_SCRIPT
@@ -2463,6 +2484,13 @@ direct_push_commits_only() {\
 s_reverted; d_planted 0 'with the net change judged, the change that a later commit reverts goes through'
 s_clean; d_planted 0 'innocent: the clean release goes through'
 rm -f "${TMPDIR:-/tmp}/net-diff-only-paths"
+d_mutant narrow-direct-range bin/pre-push.sh 's/^  elif \[ "\$remote_ref" = "refs\/heads\/\$default" \]; then$/  elif false; then/'
+s_past 'Bump the version'; d_planted 0 'with the range of a plain push, a commit that another branch of origin carries goes through without its issue'
+s_past 'Bump the version #14'; d_planted 0 'innocent: the same commit naming its issue goes through'
+d_new mutants-tracked master 'DIRECT_PUSH_FILES="VERSION"'; d_track
+d_mutant config-self-judged lib/landing-check.sh 's/^        \[ "\$path" != .ai-core\/config.env \] || .*$/        true/'
+s_widening; d_planted 0 'with the list taken from the tree it judges, a commit that widens it for itself goes through'
+s_clean; d_planted 0 'innocent: the release of the listed file goes through'
 unset GATE_SCRIPT
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi

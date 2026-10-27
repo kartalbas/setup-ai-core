@@ -650,9 +650,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   else added_ranges="$added_ranges$local_commit ^$remote_sha"$'\n'; fi
   # A harness landing judges every commit it adds to the default branch, also the ones another ref of origin holds: a
   # branch pushed past this gate (a cloud session's, say) is judged here, once, before it reaches the default branch.
-  if git rev-parse -q --verify "refs/remotes/origin/$default" >/dev/null 2>&1 \
-    && landing_mark_judge "${AI_CORE_LANDING_MARK:-}" "$root" "$local_commit" "$remote_ref"; then
-    range="$local_commit ^refs/remotes/origin/$default$tag_exclusions"
+  # So does a direct push, the one way on below for an update of the default branch without that mark, from the old ref
+  # git sent.
+  if landing_mark_judge "${AI_CORE_LANDING_MARK:-}" "$root" "$local_commit" "$remote_ref"; then
+    if git rev-parse -q --verify "refs/remotes/origin/$default" >/dev/null 2>&1; then range="$local_commit ^refs/remotes/origin/$default$tag_exclusions"; fi
+  elif [ "$remote_ref" = "refs/heads/$default" ]; then
+    if all_zero "${remote_sha:-}"; then range="$local_commit$tag_exclusions"; else range="$local_commit ^$remote_sha$tag_exclusions"; fi
   fi
   # Work is pushed by ref (`git push origin HEAD:<branch>`). A local sha that is not HEAD means
   # the tree the checks are about to run in is not the tree being sent. Only a ref beside the

@@ -857,6 +857,10 @@ circle_run() {
       || CIRCLE="cat or Zed does not stand at the commit that landed"
   fi
   stop_group "$a"; stop_group "$b"
+  unlock_after_kill "$T2" "$T3"
+}
+unlock_after_kill() {  # unlock_after_kill <worktree>...: the lock an init that was stopped left on its worktree goes
+  local w; for w in "$@"; do git -C "$F/app" worktree unlock "$w" 2>/dev/null || true; done
 }
 circle_run "$ROOT" g1
 [ "$CIRCLE" = ok ] || fail "two inits that each claim a copy the other must move: $CIRCLE"
@@ -865,4 +869,50 @@ mutant claimed-later bin/init.sh 's|^      for neighbour in "\${link_order\[@]}"
 circle_run "$WORK/mutant-claimed-later" g2
 [ "$CIRCLE" = "$CIRCLED" ] || fail "planted: an init that refreshes its copies in the order of the folder did not wait for the admission of Zed while it kept its claim of cat: $CIRCLE"
 echo "  init B refreshes the copy it claimed first and gives the claim up, so init A, which holds Zed and waits for cat, goes on, and both end with the copies at the landed commits; an init that refreshes Zed first, its claim of cat kept, waits for A, which waits for it, the planted defect"
+
+section "a copy init claimed, whose origin renamed its default branch since, is made under that claim, and the claim ends with it"
+RD="$WORK/nb-rd-r"; mkdir -p "$RD"; set_wait 600
+SELF_WAITED="init B waits for the admission of cat, which its own claim holds"
+CLAIM_KEPT="init B reads Zed, which it did not claim, and keeps its claim of cat"
+stopped_after_cat() { waiting_on "$1" "$(lock_of Zed)" || waiting_on "$1" "$(admission_of cat)"; }
+# rename_run <harness root> <tag>: init B claims cat and stops at the read of dog; cat's origin then publishes trunk-<tag>
+# as its default branch, which a fetch tells the checkout of cat; once dog is free, B makes the copy of that branch and
+# stops at the read of Zed, a copy it did not claim. Sets RENAME to ok, or to the first thing that went wrong.
+RENAME=""
+rename_run() {
+  local root="$1" tag="$2" b dog_mover zed_mover status=0
+  RENAME=ok
+  bash "$root/bin/init.sh" "$T2" --no-doctor > "$RD/sync-$tag.out" 2>&1 || RENAME="the init that brings every copy up failed: $(tail -3 "$RD/sync-$tag.out")"
+  land cat "r-$tag"
+  mover dog "$RD/free-dog-$tag"; dog_mover=$READER
+  LC_ALL=C setsid bash "$root/bin/init.sh" "$T3" --no-doctor > "$RD/b-$tag.out" 2>&1 & b=$!
+  await 120 waiting_on "$RD/b-$tag.out" "$(lock_of dog)" || RENAME="init B never stopped at the read of dog: $(tail -3 "$RD/b-$tag.out")"
+  git -C "$WORK/nb-cat.git" branch "trunk-$tag" master && git -C "$WORK/nb-cat.git" symbolic-ref HEAD "refs/heads/trunk-$tag"
+  git -C "$F/cat" fetch -q origin && git -C "$F/cat" remote set-head origin --auto > /dev/null
+  mover Zed "$RD/free-zed-$tag"; zed_mover=$READER
+  : > "$RD/free-dog-$tag"; wait "$dog_mover" 2>/dev/null || true
+  await 120 stopped_after_cat "$RD/b-$tag.out" || RENAME="init B reached neither the read of Zed nor a wait for cat: $(tail -3 "$RD/b-$tag.out")"
+  if waiting_on "$RD/b-$tag.out" "$(admission_of cat)"; then RENAME="$SELF_WAITED"
+  elif keeps_open "$b" "$(admission_of cat)"; then RENAME="$CLAIM_KEPT"; fi
+  : > "$RD/free-zed-$tag"; wait "$zed_mover" 2>/dev/null || true
+  if [ "$RENAME" = ok ]; then
+    await 120 gone "$b" || RENAME="init B did not finish once Zed was free"
+    wait "$b" || status=$?
+    [ "$status" -eq 0 ] || RENAME="init B ended with status $status: $(tail -3 "$RD/b-$tag.out")"
+    [ "$(readlink "$F/.worktrees/app/cat")" = "../../.ai-core/neighbours/cat/origin-trunk-$tag" ] || RENAME="the link of cat leads to $(readlink "$F/.worktrees/app/cat"), not to the copy of trunk-$tag"
+    grep -aq 'may stand behind\|cannot become' "$RD/b-$tag.out" && RENAME="init B names cat stale or blocked (see $RD/b-$tag.out)"
+  fi
+  stop_group "$b"; unlock_after_kill "$T3"
+  git -C "$WORK/nb-cat.git" symbolic-ref HEAD refs/heads/master; git -C "$F/cat" remote set-head origin --auto > /dev/null
+}
+rename_run "$ROOT" h1
+[ "$RENAME" = ok ] || fail "a claimed copy whose origin renamed its default branch: $RENAME"
+all_free cat dog Zed || fail "a lock is still held after the init that followed the renamed branch ended"
+mutant claim-ignored lib/neighbours.sh 's/{ neighbour_claimed "\$2" || {/{ false || {/'
+rename_run "$WORK/mutant-claim-ignored" h2
+[ "$RENAME" = "$SELF_WAITED" ] || fail "planted: a copy made without regard to the claim of init did not wait for that claim: $RENAME"
+mutant claim-kept bin/init.sh 's/; neighbour_pending_end "\$name"$//; s/^\(      outcome="\$(neighbour_refresh_copy .*\)$/\1; neighbour_pending_end "$2"/'
+rename_run "$WORK/mutant-claim-kept" h3
+[ "$RENAME" = "$CLAIM_KEPT" ] || fail "planted: a claim that ends only after a refresh was not found kept while init read Zed: $RENAME"
+echo "  init makes the copy of the renamed branch under its own claim and gives the claim up before it reads Zed; a copy made beside the claim waits for it, and a claim that ends only after a refresh is kept, the planted defects"
 exit 0

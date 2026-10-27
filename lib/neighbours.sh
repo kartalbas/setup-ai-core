@@ -337,14 +337,15 @@ neighbour_refresh_copy() (
 
 # neighbour_add_copy <project folder> <neighbour> <copy> <ref> <config.env>: for init. Adds the copy as a detached
 # worktree at <ref> under the admission and the exclusive copy lock, so no reader finds it half made and no second
-# creator repeats it. Fails where the copy does not stand afterwards.
+# creator repeats it. Where init claimed the neighbour for another copy, as when the origin renamed its default branch
+# since, the claim is that admission. Fails where the copy does not stand afterwards.
 neighbour_add_copy() (
   local dir
   dir="$(neighbour_dir "$1" "$2")"
   [ "$NEIGHBOUR_WAIT_START" -ne 0 ] || neighbour_wait_begin "$5"
   mkdir -p "$dir" || { echo "neighbours: the folder $dir cannot be made" >&2; exit 1; }
-  { neighbour_open 7 "$dir/.admission.lock" && neighbour_wait_flock 7 "$dir/.admission.lock" exclusive "A move of the copy that waits for a check that runs longer, or hangs, keeps it" \
-    && neighbour_open 9 "$dir/.copy.lock" && neighbour_wait_flock 9 "$dir/.copy.lock" exclusive; } || { printf '%s\n' "$NEIGHBOUR_ERROR" >&2; exit 1; }
+  { neighbour_claimed "$2" || { neighbour_open 7 "$dir/.admission.lock" && neighbour_wait_flock 7 "$dir/.admission.lock" exclusive "A move of the copy that waits for a check that runs longer, or hangs, keeps it"; }; } \
+    && { neighbour_open 9 "$dir/.copy.lock" && neighbour_wait_flock 9 "$dir/.copy.lock" exclusive; } || { printf '%s\n' "$NEIGHBOUR_ERROR" >&2; exit 1; }
   [ -e "$3/.git" ] || neighbour_unlocked git -C "$1/$2" worktree add -q --detach "$3" "$4" >/dev/null 2>&1 || [ -e "$3/.git" ]
 )
 

@@ -830,18 +830,26 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    asks the origin of each such neighbour, in the order of the names, and brings the copy to the newest
    commit of the default branch, unless the copy holds a change in its tree or a commit its origin lacks:
    then it stays and the gate names it. The gate prints the commit each copy stands at, and holds a shared
-   `flock` on the copy until the check ended, so no init and no other gate moves it under the check, while
-   gates that read the same commit run together. The gate's git and its check run without these lock
+   `flock` on the copy (`.copy.lock`) until the check ended, so no init and no other gate moves it under the
+   check, while gates that read the same commit run together, and a copy that stands at the newest commit
+   waits for no check, for the gate and for `ai-core init` alike. The gate's git and its check run without these lock
    descriptors, so a process they leave running, such as the detached maintenance of git after a fetch or
-   a daemon of the check, holds no lock after the gate ends. A gate or init that must move a copy waits for the
-   checks that read it: at least `NEIGHBOUR_LOCK_WAIT_SECONDS`, and at least one and a half times the longest check
+   a daemon of the check, holds no lock after the gate ends. A gate or init that must move a copy first takes
+   the admission lock of the copy (`.admission.lock`, exclusive), which a gate holds shared only for the moment it
+   takes the copy lock: a move that is pending keeps every gate that arrives later out, so it waits for the checks
+   that were reading the copy when it asked, never for a succession of later ones. An init claims every copy it must
+   move this way before it waits for any, so the gates that arrive meanwhile wait for it once. It then waits for
+   those checks: at least `NEIGHBOUR_LOCK_WAIT_SECONDS`, and at least one and a half times the longest check
    in the run log of this machine (`ai-core pre-push --runs`) in the last 14 days, which counts for no less than 1320
-   seconds, so 1980 seconds where no longer check is on record; with `0` it tries once. The gate holds no copy while it waits for
+   seconds, so 1980 seconds where no longer check is on record; with `0` it tries once. Admission and copy locks share that one
+   wait, and neither another attempt nor another copy starts it again. The gate holds no copy while it waits for
    another: it gives up every copy it holds, waits for that one, moves it, and takes every copy again in the order of
    the names, reading each one's state again under its lock; the check starts once all are held together. A landing
    whose receipt does not show the check green holds no copy while the gate waits for a lower load, and takes them
    again after it. A check that runs longer than the wait, or hangs, keeps its copy: the refusal says so, and names
-   the setting, the automatic wait and the history it came from. An origin that cannot be asked, a copy that cannot
+   the setting, the automatic wait and the history it came from; a fetch that hangs is waited for in the same finite
+   way, and nothing here promises that a move or a new worktree is instant, only that it is not kept waiting by
+   checks that start after it. An origin that cannot be asked, a copy that cannot
    be read, a default branch that origin renamed since the link was made, or a lock not free in time refuses the push
    and names the copy; nothing is certified against a copy that may be stale.
    A landing of a public repository pushes its merge commit through this gate twice, to
@@ -1043,7 +1051,7 @@ with a default in its place.
 | `INTEGRATE_MAX_ROUNDS` | a whole number from 1 to 999999999, `3` when unset | the most rounds `ai-core integrate-issue` makes, the first attempt counted: when the default branch moved while a round's gate ran, the next round fetches it again, merges onto its new tip and runs the whole gate on that merge; `1` is a single attempt that stops with nothing pushed and asks to run again. Read from the `config.env` of the checkout the command runs in before every round, so a change reaches a landing that runs and a value lowered below the rounds made ends it; never from the environment. An invalid value stops before the next merge or push and names the key. The Bash and the Forgejo command read it the same way |
 | `PRE_PUSH_LOAD_LIMIT` | a number of 0 or more, `24` when unset | the 1-minute load average below which the push gate starts `scripts/check.sh`; at or above it the gate waits. An absolute load, not a share of the cores. `0` turns the wait off. Read from this file only, at every poll, so an edit takes effect during a wait |
 | `PRE_PUSH_LOAD_WAIT_SECONDS` | a whole number of 0 or more, `300` when unset | the seconds the gate waits for the load to fall below the limit; then the check starts and the gate says it started above the limit. `0` starts it at once. With either setting at `0` the load is still measured once for the record of the run; a reading that fails is said and recorded as `-` and refuses nothing, while with both above `0` a load that cannot be read refuses the push. An invalid value refuses, naming the key |
-| `NEIGHBOUR_LOCK_WAIT_SECONDS` | a whole number from 0 to 999999999, `600` when unset | the least seconds the push gate and `ai-core init` wait for the lock of the published copy of a neighbour: a copy that a check reads is not moved until the check ended. The wait is the greater of this and one and a half times the longest check in the run log of this machine, read from the rows of the last 14 days only, so one outlier ages out by itself; it counts for no less than 1320 seconds, so `600` waits up to 1980 seconds while no check of the last 14 days took longer than 1320 seconds; `0` tries once and does not wait. The setting is read again at every poll, and the wait counts from its start. After the wait the gate refuses the push and init names the copy it could not move; a check that runs longer than the wait keeps its copy, and the refusal says so. An invalid value refuses, naming the key |
+| `NEIGHBOUR_LOCK_WAIT_SECONDS` | a whole number from 0 to 999999999, `600` when unset | the least seconds the push gate and `ai-core init` wait for the lock of the published copy of a neighbour: a copy that a check reads is not moved until the check ended, and a move that waits keeps later gates out, so it waits for the checks that were running, not for later ones; a copy that needs no move waits for nobody. The wait is the greater of this and one and a half times the longest check in the run log of this machine, read from the rows of the last 14 days only, so one outlier ages out by itself; it counts for no less than 1320 seconds, so `600` waits up to 1980 seconds while no check of the last 14 days took longer than 1320 seconds; `0` tries once and does not wait. The setting is read again at every poll, and the wait counts from its start. After the wait the gate refuses the push and init names the copy it could not move; a check that runs longer than the wait keeps its copy, and the refusal says so. An invalid value refuses, naming the key |
 | `START_CHECK` | a command, empty when unset | run by the person in charge on the bundle of a package's branches before it lands; empty means the project names none |
 | `PROOF_HOURS` | hours, `24` when unset | how long a later environment of `LIVE_TAGS` may carry a card the first one does not before `ai-core status` marks its proof there overdue with 🔴; `status` reads it from the project folder's `.ai-core/config.env`, whichever checkout it runs in |
 | `DEFAULT_BRANCH_IS_LIVE` | `yes`, or the folder names of the repositories whose default branch goes live; unset by default | a push to such a default branch needs `scripts/check.sh` and a `Reviewed-by:` trailer on its last commit (section 4.12) |

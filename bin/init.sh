@@ -237,7 +237,7 @@ neighbour_published() {
   ref="$(neighbour_default_ref "$1")" || ref=""
   # a dry run fetched nothing, so a missing origin/HEAD says nothing about the origin there
   [ -n "$ref" ] || { [ "$DRY" -eq 1 ] || NEIGHBOURS_UNPUBLISHED="$NEIGHBOURS_UNPUBLISHED $2"; return 0; }
-  branch="${ref#origin/}"; copy="$folder/.ai-core/neighbours/$2/origin-$branch"
+  branch="${ref#origin/}"; copy="$(neighbour_copy_of "$folder" "$2" "$ref")"
   if [ -e "$copy" ] && [ ! -e "$copy/.git" ]; then
     # Not a worktree (pruned, or somebody's folder): it is never moved, so a link to it would age
     NEIGHBOURS_BLOCKED="$NEIGHBOURS_BLOCKED $2"; NEIGHBOUR_TARGET=""; return 0
@@ -247,6 +247,7 @@ neighbour_published() {
       # Moved only while nothing in it is somebody's: no change in the tree and no commit the
       # origin lacks, which a checkout of the origin's branch would leave behind unnamed
       outcome="$(neighbour_refresh_copy "$folder" "$2" "$copy" "$ref" "$NEIGHBOUR_CONFIG")"
+      neighbour_pending_end "$2"
       case "$outcome" in
         held*) NEIGHBOURS_HELD="$NEIGHBOURS_HELD $2" ;;
         failed*) NEIGHBOURS_STALE="$NEIGHBOURS_STALE $2 (${outcome#*$'\t'})" ;;
@@ -261,6 +262,12 @@ neighbour_published() {
     fi
   fi
   NEIGHBOUR_TARGET="../../.ai-core/neighbours/$2/origin-$branch"
+}
+# neighbour_followed <name>: a link this step made stands beside the worktrees, and it follows the published branch
+neighbour_followed() {
+  [ -L "$container/$1" ] || return 1
+  case "$(readlink "$container/$1")" in "../../$1"|"../../.ai-core/neighbours/$1/origin-"*|"../$1/origin-"*) return 0 ;; esac
+  return 1
 }
 if [ "$PROJECT_FOLDER" -eq 0 ]; then
   common="$(git -C "$TARGET" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || common=""
@@ -310,20 +317,32 @@ if [ "$PROJECT_FOLDER" -eq 0 ]; then
           NEIGHBOURS_MOVED="$NEIGHBOURS_MOVED $name"
         done < <(git -C "$neighbour" worktree list --porcelain 2>/dev/null | awk -v p="worktree $folder/.worktrees/$name/origin-" 'index($0, p) == 1 { print substr($0, 10) }')
       done
+      # The copies this pass may have to move are claimed together before the first wait, so the gates that
+      # arrive meanwhile wait for init once, not once at each neighbour
+      if [ "$DRY" -eq 0 ]; then
+        pending_copies=""
+        for neighbour in "$folder"/*/; do
+          neighbour="${neighbour%/}"; name="${neighbour##*/}"
+          [ -d "$neighbour/.git" ] && [ "$neighbour" != "$main" ] || continue
+          neighbour_followed "$name" || { [ ! -e "$container/$name" ] && [ ! -L "$container/$name" ]; } || continue
+          ref="$(neighbour_default_ref "$neighbour")" || continue
+          copy="$(neighbour_copy_of "$folder" "$name" "$ref")"
+          [ -e "$copy/.git" ] || continue
+          pending_copies="$pending_copies$name"$'\t'"$copy"$'\t'"$ref"$'\n'
+        done
+        neighbour_pending_begin "$folder" "$NEIGHBOUR_CONFIG" "$pending_copies"
+      fi
       for neighbour in "$folder"/*/; do
         neighbour="${neighbour%/}"; name="${neighbour##*/}"
         [ -d "$neighbour/.git" ] && [ "$neighbour" != "$main" ] || continue
-        if [ -L "$container/$name" ]; then
-          case "$(readlink "$container/$name")" in
-            "../../$name"|"../../.ai-core/neighbours/$name/origin-"*|"../$name/origin-"*)
-              # A link this step made follows what the neighbour publishes now: the copy moves
-              # with the origin, and the link with a renamed default branch
-              neighbour_published "$neighbour" "$name"
-              [ -n "$NEIGHBOUR_TARGET" ] && [ "$NEIGHBOUR_TARGET" != "$(readlink "$container/$name")" ] || continue
-              case "$(readlink "$container/$name")" in "../../.ai-core/neighbours/$name/origin-"*) NEIGHBOURS_LEFT="$NEIGHBOURS_LEFT $(readlink "$container/$name" | sed "s|^\.\./\.\./||")" ;; esac
-              [ "$DRY" -ne 0 ] || { rm -f "$container/$name"; ln -s "$NEIGHBOUR_TARGET" "$container/$name"; }
-              NEIGHBOURS_LINKED="$NEIGHBOURS_LINKED $name"; continue ;;
-          esac
+        if neighbour_followed "$name"; then
+          # A link this step made follows what the neighbour publishes now: the copy moves
+          # with the origin, and the link with a renamed default branch
+          neighbour_published "$neighbour" "$name"
+          [ -n "$NEIGHBOUR_TARGET" ] && [ "$NEIGHBOUR_TARGET" != "$(readlink "$container/$name")" ] || continue
+          case "$(readlink "$container/$name")" in "../../.ai-core/neighbours/$name/origin-"*) NEIGHBOURS_LEFT="$NEIGHBOURS_LEFT $(readlink "$container/$name" | sed "s|^\.\./\.\./||")" ;; esac
+          [ "$DRY" -ne 0 ] || { rm -f "$container/$name"; ln -s "$NEIGHBOUR_TARGET" "$container/$name"; }
+          NEIGHBOURS_LINKED="$NEIGHBOURS_LINKED $name"; continue
         fi
         [ ! -e "$container/$name" ] && [ ! -L "$container/$name" ] || continue
         neighbour_published "$neighbour" "$name"
@@ -331,6 +350,7 @@ if [ "$PROJECT_FOLDER" -eq 0 ]; then
         [ "$DRY" -ne 0 ] || ln -s "$NEIGHBOUR_TARGET" "$container/$name"
         NEIGHBOURS_LINKED="$NEIGHBOURS_LINKED $name"
       done
+      neighbours_release
       for link in "$container"/*; do
         name="${link##*/}"
         [ -L "$link" ] && [ ! -e "$link" ] || continue

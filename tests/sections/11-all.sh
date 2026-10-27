@@ -330,6 +330,20 @@ link_init "$WORK/skip-copy-real" real
 [ ! -e "$L/.worktrees/mine/clone" ] && [ ! -L "$L/.worktrees/mine/clone" ] || fail "init kept the link to a checkout without the harness (see $L-real.log)"
 grep -aq '^  links to checkouts that carry no harness removed in \.worktrees/mine/, .*: clone[[:space:]]*$' "$L-real.log" || fail "init does not name the link it removed to the clone (see $L-real.log)"
 [ "$(skip_snapshot "$L/clone")" = "$before" ] || fail "init of the worktree, or the copy that keeps the link, changed the clone (see $L-real.log)"
+# a harness clone has no STAMP and is a layer of the harness itself: the link beside a worktree to it stays, and init puts
+# back one that is gone. Planted: a copy that asks for a STAMP alone, as 1.5.128 did, removes the link
+skip_copy "$WORK/skip-copy-stamp-only"; sed 's/^carries_harness() .*$/carries_harness() { [ -f "$1\/.ai-core\/STAMP" ]; }/' "$WORK/skip-copy-stamp-only/lib/common.sh" > "$WORK/skip-copy-stamp-only/planted"; mv "$WORK/skip-copy-stamp-only/planted" "$WORK/skip-copy-stamp-only/lib/common.sh"
+[ "$(grep -c '^carries_harness() { \[ -f "\$1/.ai-core/STAMP" \]; }$' "$WORK/skip-copy-stamp-only/lib/common.sh")" = 1 ] || fail "the planted copy that asks for a STAMP alone was not made"
+H="$WORK/skip-harness-clone"; skip_folder "$H" mine; git init -q -b master "$H/shop-ai-core"; git -C "$H/shop-ai-core" commit -q --allow-empty -m start
+harness_link_init() { HOME="$WORK/skip-home" PATH="$SHIM:$PATH_SH" bash "$1/bin/init.sh" "$H/.worktrees/mine/issue-9-mine" --no-doctor > "$H-$2.log" 2>&1 || fail "init of the worktree beside a harness clone with the $2 copy failed (see $H-$2.log)"; }
+harness_link_init "$WORK/skip-copy-real" first
+[ "$(readlink "$H/.worktrees/mine/shop-ai-core")" = ../../shop-ai-core ] || fail "init did not link the harness clone beside the worktree: $(readlink "$H/.worktrees/mine/shop-ai-core" 2>&1) (see $H-first.log)"
+harness_link_init "$WORK/skip-copy-real" second
+[ -L "$H/.worktrees/mine/shop-ai-core" ] || fail "init removed the link to a harness clone (see $H-second.log)"
+harness_link_init "$WORK/skip-copy-stamp-only" planted
+[ ! -L "$H/.worktrees/mine/shop-ai-core" ] || fail "planted: the copy that asks for a STAMP alone kept the link to the harness clone (see $H-planted.log)"
+harness_link_init "$WORK/skip-copy-real" restored
+[ "$(readlink "$H/.worktrees/mine/shop-ai-core")" = ../../shop-ai-core ] || fail "init did not put back the link to the harness clone (see $H-restored.log)"
 # a dry run names the clone and leaves it as it was
 skip_folder "$WORK/skip-dry" mine clone; before="$(skip_snapshot "$WORK/skip-dry/clone")"
 skip_run "$WORK/skip-copy-real" "$WORK/skip-dry" --dry-run || fail "init --all --dry-run beside a fresh clone failed (see $WORK/skip-dry.log)"

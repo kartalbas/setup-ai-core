@@ -935,10 +935,6 @@ cat > "$author/config.env" <<CONF
 AGENTS="claude"
 UPDATE_CHECK="never"
 TRACKER="forgejo"
-PLANE_URL="https://plane.example.test"
-PLANE_WORKSPACE="example-workspace"
-PLANE_PROJECT="SHOP"
-PLANE_TOKEN_COMMAND="printf plane-test"
 FORGE="forgejo"
 FORGEJO_URL="$FORGE_URL"
 FORGEJO_TOKEN_COMMAND="cat $WORK/ftoken"
@@ -957,7 +953,7 @@ printf 'setup-ai-core %s\nshop-ai-core %s\n' "$(git -C "$ROOT" rev-parse --short
 tracker_files() {  # tracker_files <checkout>
   ( cd "$1" && bash -c '
     . "$1/lib/common.sh"
-    for key in TRACKER PLANE_URL PLANE_WORKSPACE PLANE_PROJECT PLANE_TOKEN_COMMAND FORGE FORGEJO_URL FORGEJO_TOKEN_COMMAND; do
+    for key in TRACKER FORGE FORGEJO_URL FORGEJO_TOKEN_COMMAND; do
       config_file_of "$key"
     done
   ' _ "$ROOT" )
@@ -965,7 +961,7 @@ tracker_files() {  # tracker_files <checkout>
 assert_tracker_file() {  # assert_tracker_file <checkout> <expected file> <case>
   local files
   files="$(tracker_files "$1" | sort -u)"
-  [ "$files" = "$2" ] || fail "$3: the eight tracker settings read $files instead of $2"
+  [ "$files" = "$2" ] || fail "$3: the four tracker settings read $files instead of $2"
 }
 project_setting() {  # project_setting <checkout> <key> <default>
   ( cd "$1" && bash -c '. "$1/lib/common.sh"; config_value "$2" "$3"' _ "$ROOT" "$2" "$3" )
@@ -973,11 +969,11 @@ project_setting() {  # project_setting <checkout> <key> <default>
 
 own="$project/shop-own"; git init -q "$own"; mkdir -p "$own/.ai-core"
 git -C "$own" remote add origin "$FORGE_URL/example-org/shop-own.git"
-printf 'FORGE="github"\nTRACKER="plane"\nPLANE_PROJECT="OWN"\n' > "$own/.ai-core/config.env"
+printf 'FORGE="github"\nTRACKER="github"\nFORGEJO_URL="https://own.example.test"\n' > "$own/.ai-core/config.env"
 assert_tracker_file "$own" "$own/.ai-core/config.env" "a checkout with no STAMP keeps its own config"
 cp "$project/.ai-core/STAMP" "$own/.ai-core/STAMP"
 assert_tracker_file "$own" "$own/.ai-core/config.env" "a checkout assembled from a layer keeps its own config"
-[ "$(project_setting "$own" FORGE none)" = github ] && [ "$(project_setting "$own" PLANE_PROJECT none)" = OWN ] || fail "the project's settings replaced a layer's own settings"
+[ "$(project_setting "$own" FORGE none)" = github ] && [ "$(project_setting "$own" FORGEJO_URL none)" = https://own.example.test ] || fail "the project's settings replaced a layer's own settings"
 
 outside="$WORK/outside/shop-web"; git init -q "$outside"
 git -C "$outside" remote add origin "$FORGE_URL/example-org/shop-web.git"
@@ -1003,7 +999,7 @@ rm -rf "$elsewhere"
 
 github="$WORK/github-project"; mkdir -p "$github/.ai-core"
 cp "$ROOT/templates/.ai-core/config.env" "$github/.ai-core/config.env"
-printf 'TRACKER="plane"\nPLANE_PROJECT="SHOP"\n' >> "$github/.ai-core/config.env"
+printf 'TRACKER="forgejo"\nFORGEJO_URL="https://shop.example.test"\n' >> "$github/.ai-core/config.env"
 cp "$project/.ai-core/STAMP" "$github/.ai-core/STAMP"
 git init -q "$github/shop-web"; git -C "$github/shop-web" remote add origin https://github.com/example-org/shop-web.git
 assert_tracker_file "$github/shop-web" "$github/shop-web/.ai-core/config.env" "a fresh clone in a GitHub project"
@@ -1035,7 +1031,7 @@ check_project_init() {  # check_project_init <fresh|template>
   grep -q '^shop-ai-core ' "$checkout/.ai-core/STAMP" || fail "$state: one init did not find the project harness"
   cmp -s "$author/config.env" "$checkout/.ai-core/config.env" || fail "$state: one init did not copy the harness config"
   [ "$(git -C "$checkout" config --local --get-all "credential.$FORGE_URL.helper")" = "$(printf '\n!ai-core git-credential')" ] || fail "$state: one init did not set the sign-in line"
-  [ "$files" = "$project/.ai-core/config.env" ] && [ "$tree_files" = "$files" ] || fail "$state: the clone and its worktree did not read all eight tracker settings from the main checkout's project folder"
+  [ "$files" = "$project/.ai-core/config.env" ] && [ "$tree_files" = "$files" ] || fail "$state: the clone and its worktree did not read all four tracker settings from the main checkout's project folder"
   assert_tracker_file "$checkout" "$checkout/.ai-core/config.env" "$state: the assembled checkout reads its own config"
   [ "$(project_setting "$checkout" FORGE none)" = forgejo ] || fail "$state: the assembled checkout did not keep Forgejo"
   echo "  $state: one init found the harness, copied its config, and set the sign-in line"

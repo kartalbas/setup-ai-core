@@ -62,9 +62,7 @@
 # point is that no person has to run it.
 #
 # It does not WRITE the board itself: it calls issue-status and issue-close, the movers that
-# already handle every board a card is on. One writer, one set of rules. Where a tracker lets a checkout
-# act for its own repository only (writes_run_in_repo_clone), the movers run in the clone of the card's
-# repository, and a card whose repository has no clone here is named and stays.
+# already handle every board a card is on. One writer, one set of rules.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 . "$ROOT/lib/live-release.sh"
@@ -101,14 +99,14 @@ derive_target() {
 # only when it came after that landing, written by an author who counts as there. An instant is
 # the seconds since 1970 and nine digits of fraction, so that two compare as the times they are
 # whatever fraction a tracker writes; a proof is listed with the environment its first line names,
-# for a release read by a command (lib/live-release.sh), which compares it with the delivery. The last two
-# columns are the issue's creation time and the reference it was carried from, for the commit search of
-# a card before testing (issue_commits), "-" where there is none.
+# for a release read by a command (lib/live-release.sh), which compares it with the delivery. The last
+# column is the issue's creation time, for the commit search of a card before testing (issue_commits), "-" where
+# there is none.
 cards_of_repo() {  # <owner/repo>
   local repo="$1" after="" page next
   while :; do
     page="$(open_issue_page "$repo" "$after")" || exit 1
-    printf '%s' "$page" | jq -r --argjson board "$(project_number_json)" --arg org "$(project_org)" --arg repo "$repo" "$LANDING_RECORD_JQ"'
+    printf '%s' "$page" | jq -r --argjson board "$(project_number)" --arg org "$(project_org)" --arg repo "$repo" "$LANDING_RECORD_JQ"'
       .data.repository.issues.nodes[]
       | . as $i
       | ([$i.projectItems.nodes[] | select(.project.number == $board and (.project.owner.login | ascii_downcase) == ($org | ascii_downcase))
@@ -124,7 +122,7 @@ cards_of_repo() {  # <owner/repo>
       | (first($landing.createdAt // empty | instant) // "-") as $landedAt
       | ([$said[] | (.createdAt | instant) as $at | (.body | split("\n")[0] | proof_environment) as $token | "\($at)=\($token)"]
           | if length > 0 then join(" ") else "-" end) as $proofs
-      | "\($status)\t\($i.number)\t\($i.subIssuesSummary.total // 0)\t\($sha)\t\($proven)\t\($elsewhere)\t\($landedAt)\t\($proofs)\t\($i.createdAt // "-")\t\($i.carriedFrom // "-")"' || exit 1
+      | "\($status)\t\($i.number)\t\($i.subIssuesSummary.total // 0)\t\($sha)\t\($proven)\t\($elsewhere)\t\($landedAt)\t\($proofs)\t\($i.createdAt // "-")"' || exit 1
     next="$(printf '%s' "$page" | jq -r '.data.repository.issues.pageInfo | if .hasNextPage then .endCursor else empty end')"
     [ -n "$next" ] || break
     after="$next"
@@ -315,7 +313,7 @@ moved=0; scanned=0; unreleased=""
 for full in ${repos[@]+"${repos[@]}"}; do
   cards="$(cards_of_repo "$full")" || exit 1
   label="${full#"$org"/}"
-  while IFS=$'\t' read -r st num subs sha proven elsewhere landedat proofs createdat carriedfrom; do
+  while IFS=$'\t' read -r st num subs sha proven elsewhere landedat proofs createdat; do
     [ -n "$num" ] || continue
     [ "$(printf '%s' "$st" | tr '[:upper:]' '[:lower:]')" != 'done' ] || continue
     scanned=$((scanned + 1))
@@ -332,8 +330,8 @@ for full in ${repos[@]+"${repos[@]}"}; do
       if [ "$(status_rank "$(printf '%s' "$st" | tr '[:upper:]' '[:lower:]')")" -lt 2 ]; then
         release_of "$full"
         named=""
-        [ "$createdat" != - ] || createdat=""; [ "$carriedfrom" != - ] || carriedfrom=""
-        [ -z "$REL_REF" ] || named="$(issue_commits "$REL_CLONE" "$REL_REF" "$full" "$num" "$full" "$createdat" "$carriedfrom" %h 1)" || named=""
+        [ "$createdat" != - ] || createdat=""
+        [ -z "$REL_REF" ] || named="$(issue_commits "$REL_CLONE" "$REL_REF" "$full" "$num" "$full" "$createdat" %h 1)" || named=""
         [ -z "$named" ] || echo "not finished $label#$num  (in $st, but $REL_REF has $named naming it: run ai-core finish-issue $full $num)"
         continue
       fi
@@ -406,33 +404,16 @@ for full in ${repos[@]+"${repos[@]}"}; do
     fi
     [ -n "$target" ] || continue
 
-    # Where the tracker has the clone of a card's repository write it, the movers run there
-    mover_dir="."
-    if writes_run_in_repo_clone "$full"; then
-      mover_dir="$(clone_of "$full")"
-      if [ -z "$mover_dir" ]; then
-        echo "no clone     $label#$num  (no clone of $full in $(project_folder), and only its clone writes its cards, so the card stays)"
-        continue
-      fi
-      # A fresh shell reads the clone as the mover will, without this shell's loaded provider variables.
-      plane_url="$(config_value PLANE_URL "")" && plane_workspace="$(config_value PLANE_WORKSPACE "")" || exit 1
-      different="$(clone_setting_difference "$mover_dir" "$TRACKER" "$plane_url" "$plane_workspace" "$resolved")" || exit 1
-      if [ -n "$different" ]; then
-        echo "other board  $label#$num  ($mover_dir has a different $different, so the card stays)"
-        continue
-      fi
-    fi
-
     if [ "$target" = "CLOSE" ]; then
       # An epic names no release, and no card in testing may have been read before it
       if [ "$subs" -gt 0 ]; then why="every sub-issue done"; else why="released in $tag and proven"; fi
       if [ "$dry" = 1 ]; then echo "would close  $label#$num  ($st -> done, $why)"
       else echo "close        $label#$num  ($st -> done, $why)"
-        (cd "$mover_dir" && "$ROOT/bin/issue-close.sh" "$full" "$num") >/dev/null < /dev/null; fi
+        "$ROOT/bin/issue-close.sh" "$full" "$num" >/dev/null < /dev/null; fi
     else
       if [ "$dry" = 1 ]; then echo "would move   $label#$num  ($st -> $target)"
       else echo "move         $label#$num  ($st -> $target)"
-        (cd "$mover_dir" && "$ROOT/bin/issue-status.sh" "$full" "$num" "$target") >/dev/null < /dev/null; fi
+        "$ROOT/bin/issue-status.sh" "$full" "$num" "$target" >/dev/null < /dev/null; fi
     fi
     moved=$((moved + 1))
   done <<< "$cards"

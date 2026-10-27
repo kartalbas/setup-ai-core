@@ -22,10 +22,7 @@
 # temporary folder of the machine. It is a flag, not a detection: without it a run outside the
 # issue's worktree stays refused, so a wrong directory never lands a branch by accident. It merges
 # origin/<branch> and says at which commit: what the branch holds only locally does not land.
-# AFTER A CARRY FROM GITHUB the branch of a work item may still be named by the GitHub number, issue-<GitHub number>-...:
-# it is the issue's where the tracker, asked for the number of the name at the time the branch was started, answers the
-# issue given. A branch of another work item is named and not taken, and the next: lines name the work item that each
-# (#N) of a merged commit meant at the time of that commit.
+# A branch named issue-<number>-... that belongs to an issue of another repository is named and not taken.
 # Where the merged tree carries scripts/install.sh, it runs there before the push, so the gate's
 # check finds what it needs installed; a failing install refuses the landing, and nothing is pushed.
 #
@@ -139,13 +136,9 @@ read_thread() {  # read_thread <number> <repository or empty>: sets thread
     || die "nothing landed: the issue $1 could not be read from $(tracker_name), so nothing was merged or pushed and origin is as it was: $thread"
 }
 
-# WHOSE A BRANCH IS: a branch is named issue-<number>-..., and after a carry from GitHub a number is both a work item
-# of the project and the GitHub number of another. The branch is the issue's where the tracker, asked for the number of
-# its name at the time the branch was started, answers the issue given. A branch of another work item is named, not taken.
-belongs_note() {  # belongs_note <branch>: after branch_work_item, the words that say whose the branch is
-  if [ -n "$WORK_ITEM" ]; then printf 'it belongs to %s' "$(issue_ref "$issue_repo" "$WORK_ITEM")"
-  else printf 'it %s' "${WORK_ITEM_REASON:-belongs to no work item}"; fi
-}
+# WHOSE A BRANCH IS: a branch is named issue-<number>-..., and it is the issue's unless the repository recorded on it,
+# or the checkout's own where it records none, is another one than the issue's. A branch of another issue is named,
+# not taken.
 
 # origin_issue_branch <number> [<repository>]: the branch of one issue as origin holds it, read from origin itself, for
 # --from-origin and for every issue after the first of a list, which passes the repository of the first. Sets issue_repo
@@ -153,7 +146,7 @@ belongs_note() {  # belongs_note <branch>: after branch_work_item, the words tha
 # checkout's own), thread, origin_branch and origin_tip; stops the run where origin holds no branch of the issue, or more
 # than one.
 origin_issue_branch() {
-  local n="$1" carried owners listed item why heads="" tip ref_name
+  local n="$1" owners listed row heads="" tip ref_name
   issue_repo="$repo"
   if [ "$#" -gt 1 ]; then
     issue_repo="$2"
@@ -163,23 +156,18 @@ origin_issue_branch() {
     done
   fi
   read_thread "$n" "$issue_repo"
-  carried="$(carried_branch_number "$issue_repo" "$thread")"
-  default="$(origin_default_branch)" || exit 1
-  owners="$(issue_branch_owners "$issue_repo" "$default" "$(issue_branch_name "$n" "$(jq -r '.title // ""' <<< "$thread")")" "$n" ${carried:+"$carried"})" \
-    || die "nothing landed: the work items of the branches of issue $n could not be told from $(tracker_name), so nothing was merged or pushed and origin is as it was"
+  owners="$(issue_branch_owners "$issue_repo" "$(issue_branch_name "$n" "$(jq -r '.title // ""' <<< "$thread")")" "$n")" || exit 1
   # Only stdout is read: a warning git writes on stderr is no ref
-  run_split git ls-remote --heads origin "refs/heads/issue-$n" "refs/heads/issue-$n-*" ${carried:+"refs/heads/issue-$carried" "refs/heads/issue-$carried-*"} \
+  run_split git ls-remote --heads origin "refs/heads/issue-$n" "refs/heads/issue-$n-*" \
     || die "could not reach origin: $split_out$split_err"
   while IFS=$'\t' read -r tip ref_name; do
     case "$ref_name" in refs/heads/*) ;; *) continue ;; esac
     listed="${ref_name#refs/heads/}"
-    item="$(awk -F'\t' -v b="$listed" '$1 == b { print $2; exit }' <<< "$owners")"
-    why="$(awk -F'\t' -v b="$listed" '$1 == b { print $3; exit }' <<< "$owners")"
-    if [ "$item" = "$n" ]; then heads="$heads$tip"$'\t'"$ref_name"$'\n'; continue; fi
-    case "$listed" in
-      "issue-$n"|"issue-$n-"*)
-        WORK_ITEM="${item#-}"; WORK_ITEM_REASON="$why"
-        echo "the branch $listed on origin is not taken: $(belongs_note "$listed")" ;;
+    row="$(awk -F'\t' -v b="$listed" '$1 == b { print "listed:" $2; exit }' <<< "$owners")"
+    case "$row" in
+      listed:)  heads="$heads$tip"$'\t'"$ref_name"$'\n' ;;
+      listed:*) echo "the branch $listed on origin is not taken: it ${row#listed:}" ;;
+      *)        echo "the branch $listed on origin is not taken: it was pushed after this clone fetched origin" ;;
     esac
   done <<< "$split_out"
   origin_branch="$(printf '%s' "$heads" | awk -F'\t' '{ sub("^refs/heads/", "", $2); print $2 }')"
@@ -202,11 +190,10 @@ if [ -z "$from_origin" ]; then
   branch="$(git symbolic-ref --short -q HEAD)" || branch=""
   issue_repo="${repo:-$(branch_issue_repo "$branch")}"
   whose=""; is_issue_branch=""
-  if [ -n "$(name_issue_number "$branch")" ]; then
-    branch_work_item "$issue_repo" "$branch" \
-      || die "nothing landed: the work item of $branch could not be told from $(tracker_name), so nothing was merged or pushed and origin is as it was"
+  named="$(name_issue_number "$branch")"
+  if [ -n "$named" ]; then
     is_issue_branch=1
-    [ "$WORK_ITEM" = "$number" ] || whose=", and $(belongs_note "$branch")"
+    [ "$named" = "$number" ] || whose=", and it belongs to $(issue_ref "$issue_repo" "$named")"
   fi
   [ -n "$is_issue_branch" ] && [ -z "$whose" ] \
     || die "this runs in the worktree of issue $number, on its branch issue-$number-*; here ${branch:-no branch} is checked out${whose} (--from-origin lands the branch as origin holds it, from any directory)"
@@ -597,24 +584,17 @@ for position in "${!issue_subjects[@]}"; do [ "$position" -eq 0 ] || integrated_
 echo "integrated: $merged on origin/$default, $integrated_subject$(printf ', Reviewed-by: %s' "${reviewers[@]}")"
 # Every issue the merged commits name in parentheses, the integrated one first: a package lands
 # several issues in one merge, and the card of each moves on only through its own finish-issue. Only
-# the forms '(#N)' and '(owner/repo#N)' count: a number named in passing is no landing. The number a commit
-# names is read by the tracker at the time of that commit: after a carry from GitHub, a commit made before the
-# work item existed names the GitHub issue the work item was carried from, and its line gives the work item.
+# the forms '(#N)' and '(owner/repo#N)' count: a number named in passing is no landing.
 own_repo="$(default_repo 2>/dev/null)" || own_repo=""
 own="$(printf '%s' "$own_repo" | tr 'A-Z' 'a-z')"
 { for position in "${!issue_numbers[@]}"; do
     first_repo="${issue_refs[position]%#*}"
     echo "next: ai-core finish-issue ${first_repo:+$first_repo }${issue_numbers[position]}"
   done
-  for merge_sha in "${merge_shas[@]}"; do git log --reverse --format='%ct %s' "$merge_sha^1..$merge_sha^2"; done | while IFS= read -r line; do
-    { grep -oE '\(([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)?#[0-9]+\)' <<< "${line#* }" || true; } | tr -d '()' | while IFS= read -r named; do
+  for merge_sha in "${merge_shas[@]}"; do git log --reverse --format='%s' "$merge_sha^1..$merge_sha^2"; done | while IFS= read -r line; do
+    { grep -oE '\(([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)?#[0-9]+\)' <<< "$line" || true; } | tr -d '()' | while IFS= read -r named; do
       landed_repo="${named%#*}"
       [ "$(printf '%s' "$landed_repo" | tr 'A-Z' 'a-z')" != "$own" ] || landed_repo=""
-      if reference_answer "${landed_repo:-$own_repo}" "${named##*#}" "${line%% *}"; then
-        if [ -n "$WORK_ITEM" ]; then echo "next: ai-core finish-issue ${landed_repo:+$landed_repo }$WORK_ITEM"
-        else echo "note: the commit ($named) ${WORK_ITEM_REASON:-names no work item}, so no finish-issue follows for it"; fi
-      else
-        echo "next: ai-core finish-issue ${landed_repo:+$landed_repo }${named##*#}   (the work item it names could not be read, see above)"
-      fi
+      echo "next: ai-core finish-issue ${landed_repo:+$landed_repo }${named##*#}"
     done
   done; } | awk '!seen[tolower($0)]++'

@@ -220,7 +220,7 @@ more` line is a GAP for the next plan of that area.
    printing the thread, and a read that fails or has no comments list is no count, so it refuses too.
    A refusal is this guard's own, never an answer of GitHub: no phase that posts to that issue starts,
    the issue is neither tried again nor replaced by an issue you open yourself, and you tell the owner
-   through your channel that the plan needs a continuation issue. Plane and Forgejo name no such cap.
+   through your channel that the plan needs a continuation issue. Forgejo names no such cap.
    ```bash
    plan_issue_has_room() {  # plan_issue_has_room OWNER/REPO NUMBER
      local thread count

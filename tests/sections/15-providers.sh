@@ -57,7 +57,7 @@ plant="$WORK/plant"; planted=0
 plant_case() {
   local target="$1" want="$2" line="$3" got
   planted=$((planted + 1))
-  rm -rf "$plant"; mkdir -p "$plant/bin" "$plant/lib/plane"
+  rm -rf "$plant"; mkdir -p "$plant/bin" "$plant/lib/forgejo"
   printf '%s\n' "$line" > "$plant/$target"
   got="$(scan "$plant")"
   if [ "$want" = red ]; then
@@ -66,7 +66,7 @@ plant_case() {
     [ -z "$got" ] || fail "the scan went red on an innocent line in $target: $line; it found: $got"
   fi
 }
-while IFS= read -r line; do plant_case lib/plane/tracker.sh red "$line"; done <<'PLANTED'
+while IFS= read -r line; do plant_case lib/forgejo/forge.sh red "$line"; done <<'PLANTED'
 gh issue view 4
   gh issue view 4
 x="$(gh_read "x" api repos/a/b)"
@@ -85,27 +85,27 @@ env gh api user
 'gh' api user
 echo "a # b"; gh api user
 PLANTED
-plant_case lib/plane/tracker.sh red 'x | xargs gh api'
-plant_case lib/plane/tracker.sh red 'x | xargs -n1 gh issue view'
-plant_case lib/plane/tracker.sh red 'x | xargs -I{} gh issue view {}'
-plant_case lib/plane/tracker.sh red '    --me) gh api user ;;'
-plant_case lib/plane/tracker.sh red '  *) gh issue view 4 ;;'
-plant_case lib/plane/tracker.sh red '  github) gh api user ;;'
-plant_case lib/plane/tracker.sh red 'case "$x" in *) gh api user ;; esac'
+plant_case lib/forgejo/forge.sh red 'x | xargs gh api'
+plant_case lib/forgejo/forge.sh red 'x | xargs -n1 gh issue view'
+plant_case lib/forgejo/forge.sh red 'x | xargs -I{} gh issue view {}'
+plant_case lib/forgejo/forge.sh red '    --me) gh api user ;;'
+plant_case lib/forgejo/forge.sh red '  *) gh issue view 4 ;;'
+plant_case lib/forgejo/forge.sh red '  github) gh api user ;;'
+plant_case lib/forgejo/forge.sh red 'case "$x" in *) gh api user ;; esac'
 plant_case lib/notes.txt red 'gh api user'
 plant_case bin/issue-new red 'if gh auth status; then :; fi'
 plant_case lib/call.mjs red "spawnSync('gh', ['api', 'user']);"
 plant_case lib/call.mjs red 'execFileSync("gh", ["api", "user"]);'
 plant_case lib/call.mjs red 'execSync(`gh api user`);'
-while IFS= read -r line; do plant_case lib/plane/tracker.sh green "$line"; done <<'INNOCENT'
+while IFS= read -r line; do plant_case lib/forgejo/forge.sh green "$line"; done <<'INNOCENT'
 # gh issue view 4 is the call this line once was
 echo "gh is not on the PATH"
 printf '%s\n' "run gh issue view 4 yourself"
 command -v gh >/dev/null 2>&1 || exit 2
 x=1 # then gh api user
 INNOCENT
-plant_case lib/plane/tracker.sh green '  *) die "gh is missing" ;;'
-plant_case lib/plane/tracker.sh green '  --me) echo "run gh api user" ;;'
+plant_case lib/forgejo/forge.sh green '  *) die "gh is missing" ;;'
+plant_case lib/forgejo/forge.sh green '  --me) echo "run gh api user" ;;'
 plant_case lib/call.mjs green "// spawnSync('gh', ['api', 'user']);"
 plant_case lib/call.mjs green 'console.log("gh is missing");'
 echo "  $(files_read "$ROOT") files of bin/ and lib/ read, none calls gh; $planted planted cases, red on each spelling of a call and green on the word in a comment, a message and command -v gh; $inside calls found in lib/github/"

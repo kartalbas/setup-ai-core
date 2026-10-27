@@ -105,7 +105,7 @@ chmod +x "$bare/gh"
 check 'labels read as a dash' 'labels: -' \
   "$(PATH="$bare:$PATH" "$thread" "$repo" 7 | sed -n '3p')"
 check 'the json carries an empty list' \
-  '{"number":7,"title":"Bare","carriedFrom":null,"createdAt":"2026-08-01T08:00:00Z","state":"closed","labels":[],"body":"","comments":[]}' \
+  '{"number":7,"title":"Bare","createdAt":"2026-08-01T08:00:00Z","state":"closed","labels":[],"body":"","comments":[]}' \
   "$(PATH="$bare:$PATH" "$thread" "$repo" 7 --json)"
 
 # gh prints one JSON array per page of a paginated read. A thread on an epic runs past one page, and a

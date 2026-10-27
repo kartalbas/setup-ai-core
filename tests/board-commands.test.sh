@@ -95,9 +95,9 @@ actual="$(run_all "$ROOT")"
 check "the seven commands say and send what they always did" "$expected" "$actual"
 
 # schema-check on another tracker says so and checks nothing
-out="$(cd "$WORK/project" && TRACKER=plane bash "$ROOT/bin/schema-check.sh" 2>&1)"; rc=$?
+out="$(cd "$WORK/project" && TRACKER=forgejo bash "$ROOT/bin/schema-check.sh" 2>&1)"; rc=$?
 check "schema-check on another tracker exits 0" "0" "$rc"
-check "and prints one line that says so" "schema-check: TRACKER is plane, and the schema it checks against is GitHub's - nothing to check" "$out"
+check "and prints one line that says so" "schema-check: TRACKER is forgejo, and the schema it checks against is GitHub's - nothing to check" "$out"
 
 # a part of a call past its 80th character is read: the field item_top adds to its mutation
 check "board-order and epics-top send afterId, which stands past the 80th character of the call" "2" "$(grep -c 'afterId:\$after}' <<< "$actual")"

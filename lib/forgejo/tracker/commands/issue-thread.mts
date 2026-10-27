@@ -7,7 +7,7 @@ const USAGE = 'usage: issue-thread [OWNER/REPO] NUMBER [--json]';
 export const help = `${USAGE}
 
 Reads an issue and its whole comment thread and changes nothing. Without --json it is laid out for a person;
-with --json it is one object on one line (number, title, carriedFrom, createdAt, state, labels, assignees, body,
+with --json it is one object on one line (number, title, createdAt, state, labels, assignees, body,
 comments with author, created_at and body). assignees is the list of logins, empty when nobody is assigned. A thread shorter than the issue's own comment count is refused.`;
 
 export async function run(args: readonly string[], context: CommandContext): Promise<CommandResult> {

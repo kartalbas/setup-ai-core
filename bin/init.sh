@@ -27,7 +27,7 @@ for arg in "$@"; do
     echo "cannot remove it underneath; the lock is lifted when init ends. A path that is gone, or that stands under"
     echo ".worktrees/ without a .git, gets nothing written and nothing created."
     echo ""
-    echo "A fresh clone, or one whose STAMP names setup-ai-core alone, reads its eight tracker"
+    echo "A fresh clone, or one whose STAMP names setup-ai-core alone, reads its four tracker"
     echo "settings from the main checkout's parent when that folder is outside Git, has"
     echo ".ai-core/config.env whose FORGEJO_URL names the host of the origin, and its STAMP names"
     echo "setup-ai-core followed by a project layer."

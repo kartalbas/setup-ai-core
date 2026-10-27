@@ -225,6 +225,96 @@ leaked() { grep -rl "$TOKEN" "$WORK" 2>/dev/null | grep -v -e "^$WORK/ftoken$" -
 reset_log; forge_fn signed_in_user > /dev/null
 [ -z "$(leaked)" ] || fail "the token stands in a file: $(leaked)"
 
+# --- the token transport of every call: refused before curl, never in a trace, the caller's trace kept ---------
+# a token Forgejo refuses is named with Forgejo's answer, and the same call with the right one is the innocent case
+printf 'wrong-token\n' > "$WORK/ftoken"
+out="$(forge_fn forgejo_api "the user" GET /user 2>&1)" && fail "a wrong token was accepted"
+grep -q 'cannot read the user - Forgejo answered 401' <<< "$out" || fail "a refused token is not named: $out"
+printf '%s\n' "$TOKEN" > "$WORK/ftoken"
+forge_fn forgejo_api "the user" GET /user > /dev/null || fail "innocent: the right token is refused"
+echo "  a token Forgejo refuses is named with its answer; the right one is taken"
+# THE TRACE: under set -x the shell prints every assignment and argument it expands, the token among them, unless the code
+# that holds the token switches the trace off, and the caller's setting is back afterwards
+traced() { ( cd "$F" && PATH="$PATH_CURL" bash -x -c '. "$1/lib/forge.sh"; forgejo_api "the user" GET /user' _ "${ROOT_UNDER_TEST:-$ROOT}" 2>"$WORK/trace" ); }
+traced > /dev/null || fail "forgejo_api under bash -x gets no answer"
+grep -q 'forgejo_call' "$WORK/trace" || fail "the trace of bash -x is empty, so the check cannot go red"
+! grep -q "$TOKEN" "$WORK/trace" || fail "the token stands in the trace of bash -x: $(grep -m1 "$TOKEN" "$WORK/trace")"
+cp "$ROOT/lib/common.sh" "$planted/lib/common.sh"
+sed -i.bak 's|traced=1; set +x|traced=1|' "$planted/lib/common.sh"
+cmp -s "$ROOT/lib/common.sh" "$planted/lib/common.sh" && fail "the planted copy equals the real lib/common.sh"
+ROOT_UNDER_TEST="$planted" traced > /dev/null || fail "the copy that leaves the trace on should still get its answer"
+grep -q "$TOKEN" "$WORK/trace" || fail "planted: a token in the trace is not seen, so the check cannot go red"
+rm -f "$WORK/trace"
+cp "$ROOT/lib/common.sh" "$planted/lib/common.sh"
+trace_after() {  # trace_after <on|off> <code>: whether xtrace is on after <code> ran with it <on|off>
+  FORGEJO_TOKEN_COMMAND="cat $WORK/ftoken" PATH="$PATH_CURL" bash -c 'cd "$3"; . "$1/lib/common.sh"; [ "$2" != on ] || set -x; eval "$4" 2>/dev/null; case $- in *x*) echo on ;; *) echo off ;; esac' _ "$ROOT" "$1" "$F" "$2" 2>/dev/null
+}
+for mode in on off; do
+  [ "$(trace_after $mode "http_call FORGEJO_TOKEN_COMMAND Authorization 'token ' GET $FORGE_URL/api/v1/user")" = "$mode" ] || fail "http_call changed the trace setting $mode of its caller"
+  [ "$(trace_after $mode 'token_from_command FORGEJO_TOKEN_COMMAND >/dev/null')" = "$mode" ] || fail "token_from_command changed the trace setting $mode of its caller"
+done
+echo "  under bash -x the token is in no trace line, and the caller's trace setting, on or off, is back after a call; planted: a copy that leaves the trace on shows the token in it"
+# Fatal token reads must restore tracing before the caller's EXIT trap runs.
+trace_on_exit() {  # trace_on_exit <call> <token command>
+  ( cd "$F" && PATH="$PATH_CURL" FORGEJO_TOKEN_COMMAND="$2" bash -c '
+    . "$1/lib/forge.sh"
+    trap '\''case $- in *x*) echo on >&3 ;; *) echo off >&3 ;; esac'\'' EXIT
+    set -ex
+    eval "$2" >/dev/null
+  ' _ "$ROOT" "$1" 3>"$WORK/exit-setting" 2>"$WORK/exit-trace" )
+}
+http_user="http_call FORGEJO_TOKEN_COMMAND Authorization 'token ' GET $FORGE_URL/api/v1/user"
+for command in "exit 7" "printf 'probe\nbad\n'" "printf ''"; do
+  for call in 'token_from_command FORGEJO_TOKEN_COMMAND' "$http_user"; do
+    trace_on_exit "$call" "$command" && fail "a failing or invalid token was accepted: $call"
+    [ "$(cat "$WORK/exit-setting")" = on ] || fail "$call left xtrace off in the EXIT trap"
+    ! grep -q probe "$WORK/exit-trace" || fail "a refused token reached the fatal trace"
+  done
+done
+for call in 'token_from_command UNSET_TOKEN_COMMAND' "http_call UNSET_TOKEN_COMMAND Authorization 'token ' GET $FORGE_URL/api/v1/user"; do
+  trace_on_exit "$call" "exit 7" && fail "a missing token setting was accepted: $call"
+  [ "$(cat "$WORK/exit-setting")" = on ] || fail "$call left xtrace off in the EXIT trap"
+done
+trace_on_exit 'forgejo_api "the user" GET /user' "printf 'wrong-token\n'" && fail "a refused request was accepted"
+[ "$(cat "$WORK/exit-setting")" = on ] || fail "a refused request left xtrace off in the EXIT trap"
+grep -q 'Forgejo answered 401' "$WORK/exit-trace" || fail "the refused request was not named"
+trace_on_exit 'forgejo_api "the user" GET /user' "cat $WORK/ftoken" || fail "innocent: the right token ended the run"
+[ "$(cat "$WORK/exit-setting")" = on ] || fail "innocent: a call that got its answer left xtrace off in the EXIT trap"
+echo "  fatal trace restoration: failed, invalid and empty token reads and a refused request leave xtrace on in the EXIT trap; the call that gets its answer leaves it on too"
+for call in 'token_from_command FORGEJO_TOKEN_COMMAND >&-' 'token_from_command FORGEJO_TOKEN_COMMAND >/dev/full'; do
+  trace_on_exit "$call" "cat $WORK/ftoken" && fail "a failed token write was accepted: $call"
+  [ "$(cat "$WORK/exit-setting")" = on ] || fail "$call left xtrace off in the EXIT trap"
+  grep -q 'cannot write the token from FORGEJO_TOKEN_COMMAND to standard output' "$WORK/exit-trace" || fail "a failed token write did not name its setting: $call"
+  ! grep -q "$TOKEN" "$WORK/exit-trace" || fail "a failed token write exposed the token: $call"
+done
+echo "  fatal trace restoration: closed standard output and /dev/full fail by setting, restore xtrace in the EXIT trap and expose no token"
+# A NUL must be rejected before command substitution can silently remove it.
+out="$(cd "$F" && FORGEJO_TOKEN_COMMAND="printf 'probe\000-token\n'" bash -c '. "$1/lib/common.sh"; token_from_command FORGEJO_TOKEN_COMMAND' _ "$ROOT" 2>&1)" && fail "a NUL token was accepted by token_from_command"
+grep -q 'FORGEJO_TOKEN_COMMAND printed a token with a control character' <<< "$out" || fail "a NUL token was not refused by its setting: $out"
+! grep -qE 'probe|ignored null byte' <<< "$out" || fail "the NUL refusal exposed or discarded token bytes: $out"
+echo "  NUL token refusal: token_from_command rejects probe, NUL, -token and newline without exposing the token"
+# A TOKEN OF MORE THAN ONE LINE would add a line to curl's configuration: it is refused by the name of the setting, and curl is not called
+printf 'first\nrequest = DELETE\n#\n' > "$WORK/ftoken"
+reset_log; out="$(forge_fn forgejo_api "the user" GET /user 2>&1)" && fail "a token of three lines was accepted"
+grep -q 'the command of FORGEJO_TOKEN_COMMAND printed a token with a control character in it' <<< "$out" || fail "a multiline token is not refused by the name of the setting: $out"
+! grep -q 'first' <<< "$out" || fail "the refusal prints the token: $out"
+[ ! -s "$CURL_FAKE_STATE/requests.log" ] || fail "curl was called with a refused token"
+for token_bytes in 'forgejo-token-4567\r\n' 'forgejo-token\t4567\n'; do
+  printf "$token_bytes" > "$WORK/ftoken"
+  reset_log; out="$(forge_fn forgejo_api "the user" GET /user 2>&1)" && fail "a token with a carriage return or a tab was accepted: $token_bytes"
+  grep -q 'FORGEJO_TOKEN_COMMAND printed a token with a control character' <<< "$out" || fail "a token with a carriage return or a tab is not refused by name: $out"
+  [ ! -s "$CURL_FAKE_STATE/requests.log" ] || fail "curl was called with a refused token: $token_bytes"
+done
+printf 'first\nrequest = DELETE\n#\n' > "$WORK/ftoken"
+sed -i.bak '/\*\[\[:cntrl:\]\]\*)/d' "$planted/lib/common.sh"
+cmp -s "$ROOT/lib/common.sh" "$planted/lib/common.sh" && fail "the planted copy equals the real lib/common.sh"
+reset_log; ROOT_UNDER_TEST="$planted" forge_fn forgejo_api "the user" GET /user >/dev/null 2>&1 || true
+grep -q '^DELETE ' "$CURL_FAKE_STATE/requests.log" || fail "planted: a line added to curl's configuration by the token is not seen, so the check cannot go red"
+cp "$ROOT/lib/common.sh" "$planted/lib/common.sh"
+printf '%s\n' "$TOKEN" > "$WORK/ftoken"
+reset_log; forge_fn forgejo_api "the user" GET /user >/dev/null || fail "the innocent one-line token is refused"
+echo "  a token with a line break, a carriage return or a tab is refused by the name of the setting before curl is called; planted: without the check the extra line reaches curl"
+
 # --- the helper ---------------------------------------------------------------------------------
 helper() {  # helper <directory> <the lines git sends>: the helper itself, as git runs it
   ( cd "$1" && printf "$2" | PATH="$PATH_CURL" bash "${ROOT_UNDER_TEST:-$ROOT}/bin/git-credential.sh" get 2>&1 )

@@ -21,7 +21,6 @@
 . "$ROOT/lib/github/packages.sh"
 
 usage='usage: issue-package.sh OWNER/REPO NUMBER --member OWNER/REPO#NUMBER... [--remove OWNER/REPO#NUMBER...]'
-[ "$TRACKER" = github ] || die "issue-package supports GitHub and Forgejo, and TRACKER is '$TRACKER'"
 [ $# -ge 1 ] || die "$usage"
 
 repository_pattern='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'

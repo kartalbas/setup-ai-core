@@ -183,42 +183,22 @@ path=edit; printf 'Asked for by @someone on 2026-10-18 in %s.\n' "$real" > "$GH_
 case_body refuse 'Safe input.'
 printf 'The existing body.\n' > "$GH_FAKE/current-body"
 # Titles share the body's visibility decision, including an edit with no body.
-title_provider=github
 title_invoke() {
-  if [ "$title_provider" = plane ]; then
-    case "$path" in
-      title-edit) ai issue-edit "$seed" --title "$title" ;;
-      title-both) ai issue-edit "$seed" --title "$title" --body-file "$WORK/body" ;;
-      title-new) ai issue-new --repo example-org/example-repo --title "$title" --body-file "$WORK/body" --label type:feature --label area:tooling --priority P2 --asked-by someone --asked-in 'the test' ;;
-      title-project)
-        planeset 's.projects=s.projects.filter(x=>x.identifier!=="NEW")'
-        rm -rf "$GH_CACHE_DIRECTORY/plane"
-        PLANE_PROJECT=NEW ai project-new "$title" ;;
-    esac
-  else
-    export TRACKER=github   # after make_plane_project this process has none, and the cases below name the provider they exercise
-    case "$path" in
-      title-edit) bash "$root_under_test/bin/issue-edit.sh" example-org/example-repo 9 --title "$title" ;;
-      title-both) bash "$root_under_test/bin/issue-edit.sh" example-org/example-repo 9 --title "$title" --body-file "$WORK/body" ;;
-      title-new) bash "$root_under_test/bin/issue-new.sh" --repo example-org/example-repo --title "$title" --body-file "$WORK/body" --label type:feature --label area:tooling --no-board --assignee someone --asked-by someone --asked-in 'the test' ;;
-      title-project) GH_ORG=example-org bash "$root_under_test/bin/project-new.sh" "$title" 1 ;;
-    esac
-  fi
+  case "$path" in
+    title-edit) bash "$root_under_test/bin/issue-edit.sh" example-org/example-repo 9 --title "$title" ;;
+    title-both) bash "$root_under_test/bin/issue-edit.sh" example-org/example-repo 9 --title "$title" --body-file "$WORK/body" ;;
+    title-new) bash "$root_under_test/bin/issue-new.sh" --repo example-org/example-repo --title "$title" --body-file "$WORK/body" --label type:feature --label area:tooling --no-board --assignee someone --asked-by someone --asked-in 'the test' ;;
+    title-project) GH_ORG=example-org bash "$root_under_test/bin/project-new.sh" "$title" 1 ;;
+  esac
 }
 case_title() {
-  local want="$1" label="$title_provider $path ${GH_VISIBILITY:-} ${TITLE_VISIBILITY:-}" reads=1 command
+  local want="$1" label="$path ${GH_VISIBILITY:-}" reads=1 command
   title="$2"; printf 'Safe body.\n' > "$WORK/body"
   : > "$GH_FAKE/body-calls.log"; rm -f "$GH_FAKE/sent-title"
-  if [ "$title_provider" = plane ]; then reset_log; : > "$TITLE_VISIBILITY_LOG"; fi
   local failed_before="$failed"
   rc=0; out="$(title_invoke 2>&1)" || rc=$?
-  if [ "$title_provider" = plane ]; then
-    writes="$(grep -cE '^(POST|PATCH|DELETE) ' "$CURL_FAKE_STATE/requests.log" || true)"
-    visibility_reads="$(wc -l < "$TITLE_VISIBILITY_LOG" | tr -d ' ')"
-  else
-    writes="$(grep -c '^write ' "$GH_FAKE/body-calls.log" || true)"
-    visibility_reads="$(grep -c '^visibility$' "$GH_FAKE/body-calls.log" || true)"
-  fi
+  writes="$(grep -c '^write ' "$GH_FAKE/body-calls.log" || true)"
+  visibility_reads="$(grep -c '^visibility$' "$GH_FAKE/body-calls.log" || true)"
   # A repository's private answer cannot establish a project's visibility.
   [ "$path" != title-project ] || reads=0
   check "$label one visibility decision" "$reads" "$visibility_reads"
@@ -229,21 +209,8 @@ case_title() {
     check "$label names command and address" yes "$(grep -qF "$command: refused email address $title" <<< "$out" && echo yes || echo no)"
   else
     check "$label safe title succeeds" 0 "$rc"
-    if [ "$title_provider" = github ]; then
-      check "$label one write" 1 "$writes"
-      check "$label exact title" "$title" "$(cat "$GH_FAKE/sent-title")"
-    else
-      case "$path" in
-        title-new) primary="$(grep -cE '^POST .*/issues/$' "$CURL_FAKE_STATE/requests.log" || true)"; check "$label intended writes" 3 "$writes"
-          posted_title="$(planeq 'console.log(p.issues[p.issues.length-1].name)')" ;;
-        title-project) primary="$(grep -cE '^POST /api/v1/workspaces/ws/projects/$' "$CURL_FAKE_STATE/requests.log" || true)"
-          posted_title="$(planeq 'console.log(s.projects.find(x=>x.identifier==="NEW").name)')"
-          planeset 's.projects=s.projects.filter(x=>x.identifier!=="NEW")' ;;
-        *) primary="$writes"; posted_title="$(ITEM_SEQ="$seed" planeq 'console.log(p.issues.find(i=>i.sequence_id===+process.env.ITEM_SEQ).name)')" ;;
-      esac
-      check "$label one primary write" 1 "$primary"
-      check "$label exact title" "$title" "$posted_title"
-    fi
+    check "$label one write" 1 "$writes"
+    check "$label exact title" "$title" "$(cat "$GH_FAKE/sent-title")"
   fi
   check "$label snapshots removed" '' "$(ls -A "$TMPDIR")"
   [ "$failed" -eq "$failed_before" ] || { echo "  $label: the command exited $rc and said:"; sed 's/^/    /' <<< "$out"; }
@@ -395,143 +362,26 @@ check 'fabricated private visibility mutant permits unsafe body' 1 "$(grep -c '^
 root_under_test="$ROOT"
 for command in issue-new issue-comment issue-edit issue-duplicate; do
   help="$(bash "$ROOT/bin/ai-core" "$command" --help)"
-  check "$command actual help policy" yes "$(grep -q 'public' <<< "$help" && grep -q 'Plane' <<< "$help" && echo yes || echo no)"
+  check "$command actual help policy" yes "$(grep -q 'public' <<< "$help" && grep -q 'Private GitHub repositories bypass the check' <<< "$help" && echo yes || echo no)"
   check "$command actual help usage" yes "$(grep -q "$command.*OWNER/REPO\|$command --repo\|$command.*CANONICAL_REPO" <<< "$help" && echo yes || echo no)"
 done
 for command in issue-new issue-edit project-new; do
   help="$(bash "$ROOT/bin/ai-core" "$command" --help)"
   check "$command actual help covers title or name" yes "$(grep -qiE 'titles|names' <<< "$help" && echo yes || echo no)"
 done
-# Unknown Plane visibility must apply the same policy, without consulting gh.
-make_plane_project
-unset GH_BODY_FIXTURE
-PATH="$PATH_CURL"; export PATH
-printf 'Safe body.\n' > "$WORK/seed-body"
-# the seed is made one second before midnight, and the commands below run after it: the day each of them writes is the day of its own clock
-seed_clock="$(epoch_of 2026-10-25T23:59:59Z)"; command_clock="$(epoch_of 2026-10-26T00:00:01Z)"
-seed="$(DATE_STUB_NOW="$seed_clock" ai_new --repo example-org/example-repo --title 'Preserve the body, or text is lost' --body-file "$WORK/seed-body" --label type:feature --label area:tooling --priority P2 --asked-by someone --asked-in 'the test')"
-# Plane resolves an email locally and sends only its member UUID in either writer; Plane keeps an assignee only who is an active member of the project.
-planeset 's.users.push({id:"00000000-0000-0000-0000-000000000099",email:"someone@company.ch",display_name:"Someone"});p.members.push({user:"00000000-0000-0000-0000-000000000099",is_active:true})'
-for path in assign-replace assignee-new; do
-  reset_log; rc=0
-  if [ "$path" = assign-replace ]; then out="$(ai issue-assign "$seed" --replace "$real" 2>&1)" || rc=$?
-  else out="$(ai issue-new --repo example-org/example-repo --title 'Keep the title, or it is lost' --body-file "$WORK/seed-body" --label type:feature --label area:tooling --priority P2 --assignee "$real" --asked-by someone --asked-in 'the test' 2>&1)" || rc=$?; fi
-  check "Plane $path email resolves" 0 "$rc"
-  expected=1; [ "$path" != assignee-new ] || expected=3
-  check "Plane $path intended writes" "$expected" "$(grep -cE '^(POST|PATCH|DELETE) ' "$CURL_FAKE_STATE/requests.log" || true)"
-  if [ "$path" = assign-replace ]; then actual="$(ITEM_SEQ="$seed" planeq 'console.log(p.issues.find(i=>i.sequence_id===+process.env.ITEM_SEQ).assignees.join("\n"))')"
-  else actual="$(planeq 'console.log(p.issues[p.issues.length-1].assignees.join("\n"))')"; fi
-  check "Plane $path sends member UUID" 00000000-0000-0000-0000-000000000099 "$actual"
-  check "Plane $path no email in requests" no "$(grep -qF "$real" "$CURL_FAKE_STATE/requests.log" && echo yes || echo no)"
-done
-plane_invoke() {
- case "$path" in
-  inline) ai issue-comment "$seed" "$text" ;;
-  file) ai issue-comment "$seed" --body-file "$WORK/body" ;;
-  new) ai issue-new --repo example-org/example-repo --title 'Preserve the body, or text is lost' --body-file "$WORK/body" --label type:feature --label area:tooling --priority P2 --asked-by someone --asked-in 'the test' ;;
-  edit) ai issue-edit "$seed" --body-file "$WORK/body" ;;
- esac
-}
-for path in inline file new edit; do
- for text in "$bot" '49699333+dependabot[bot]@USERS.NOREPLY.GITHUB.COM' "$bot $real" "$real $bot"; do
-  printf '%s' "$text" > "$WORK/body"; reset_log; rc=0; out="$(DATE_STUB_NOW="$command_clock" plane_invoke 2>&1)" || rc=$?
-  writes="$(grep -cE '^(POST|PATCH|DELETE) ' "$CURL_FAKE_STATE/requests.log" || true)"
-  case "$text" in
-   *company.ch*) check "Plane $path mixed refuses" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"; check "Plane $path zero writes" 0 "$writes" ;;
-   *) check "Plane $path bot allowed" 0 "$rc"; expected=1; [ "$path" != new ] || expected=3; check "Plane $path intended writes" "$expected" "$writes"
-      expected_text="$text"
-      if [ "$path" = new ]; then expected_text="Asked for by @someone on 2026-10-26 in the test."$'\n\n'"$text"; fi
-      if [ "$path" = edit ]; then expected_text="Asked for by @someone on 2026-10-25 in the test."$'\n\n'"$text"; fi
-      case "$path" in
-        inline|file) html="$(planeq 'console.log(p.comments[p.comments.length-1].comment_html)')" ;;
-        new) html="$(planeq 'console.log(p.issues[p.issues.length-1].description_html)')" ;;
-        edit) html="$(ITEM_SEQ="$seed" planeq 'console.log(p.issues.find(i=>i.sequence_id===+process.env.ITEM_SEQ).description_html)')" ;;
-      esac
-      check "Plane $path exact composed body" "<pre>$expected_text</pre>" "$html"
-  esac
- done
-done
-# Plane must refuse before its relation, comment, or state write, even for an unresolved canonical repo.
-reset_log; rc=0; out="$(ai issue-duplicate "$real/repo" 1 example-org/example-repo "$seed" 2>&1)" || rc=$?
-check 'Plane duplicate refuses unsafe body' yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-check 'Plane duplicate refusal names guard' yes "$(grep -qF 'issue-duplicate: refused email address' <<< "$out" && echo yes || echo no)"
-check 'Plane duplicate refusal zero writes' 0 "$(grep -cE '^(POST|PATCH|DELETE) ' "$CURL_FAKE_STATE/requests.log" || true)"
-plane_add_item 99 'The canonical issue'
-reset_log; rc=0; out="$(ai issue-duplicate example-org/example-repo 99 example-org/example-repo "$seed" 2>&1)" || rc=$?
-check 'Plane duplicate safe succeeds' 0 "$rc"
-check 'Plane duplicate intended writes' 3 "$(grep -cE '^(POST|PATCH|DELETE) ' "$CURL_FAKE_STATE/requests.log" || true)"
-check 'Plane duplicate exact comment' '<pre>Duplicate of #99</pre>' "$(planeq 'console.log(p.comments[p.comments.length-1].comment_html)')"
-# Exercise both explicit public and unknown decisions through the real Plane writers.
-title_provider=plane
+# Each missing title guard exposes the planted title.
 title_root="$WORK/title-root"; mkdir -p "$title_root"; cp -R "$ROOT/lib" "$ROOT/bin" "$ROOT/templates" "$title_root/"
-export TITLE_VISIBILITY_LOG="$WORK/title-visibility.log"
-cat >> "$title_root/lib/plane/tracker.sh" <<'EOF'
-
-repo_visibility() {
-  printf 'visibility\n' >> "$TITLE_VISIBILITY_LOG"
-  [ "$TITLE_VISIBILITY" = public ] || return 1
-  echo public
-}
-EOF
-export ROOT_UNDER_TEST="$title_root"
-for path in title-edit title-both title-new title-project; do
-  for TITLE_VISIBILITY in public unknown; do
-    export TITLE_VISIBILITY
-    case_title refuse "$real"
-    case_title allow 'Keep the title, or it is lost'
-  done
-done
-# Each missing title guard exposes the planted title on both providers.
-for title_provider in github plane; do
-  for path in title-edit title-new title-project; do
-    case "$path" in title-edit) command=issue-edit ;; title-new) command=issue-new ;; *) command=project-new ;; esac
-    sed '/check_public_body /s/"\$title"/""/g' "$ROOT/bin/$command.sh" > "$title_root/bin/$command.sh"
-    title="$real"; printf 'Safe body.\n' > "$WORK/body"
-    : > "$GH_FAKE/body-calls.log"; reset_log
-    if [ "$title_provider" = github ]; then
-      export GH_BODY_FIXTURE=1; PATH="$PATH_SH"; root_under_test="$title_root"
-    else unset GH_BODY_FIXTURE; PATH="$PATH_CURL"; fi
-    rc=0; out="$(title_invoke 2>&1)" || rc=$?
-    check "$title_provider $path missing title guard succeeds" 0 "$rc"
-    if [ "$title_provider" = github ]; then writes="$(grep -c '^write ' "$GH_FAKE/body-calls.log" || true)"
-    else writes="$(grep -cE '^(POST|PATCH|DELETE) ' "$CURL_FAKE_STATE/requests.log" || true)"; fi
-    check "$title_provider $path missing title guard writes" yes "$([ "$writes" -gt 0 ] && echo yes || echo no)"
-    cp "$ROOT/bin/$command.sh" "$title_root/bin/$command.sh"
-  done
-done
-# Plane project metadata must be checked before the project, states, or labels are created.
-unset ROOT_UNDER_TEST GH_BODY_FIXTURE
-PATH="$PATH_CURL"
-for path in labels-name labels-description repo-link-label-name repo-link-label-description project-label-name project-label-description project-identifier; do
-  payloads=("$real" ci@build.example.test "$scoped" "$unquoted_scoped")
-  case "$path" in *description) payloads+=("${overlaps[@]}" "${dotless_texts[@]}") ;; esac
-  for payload in "${payloads[@]}"; do
-    name=area:tooling; description='Safe description.'; ident=NEW
-    case "$path" in *label*name) name="area:$payload" ;; *label*description) description="$payload" ;; project-identifier) [ "$payload" != "$real" ] || ident="$payload" ;; esac
-    printf 'type\ttype:feature\t0E8A16\tSafe description.\narea\t%s\t0E8A16\t%s\n' "$name" "$description" > "$P/.ai-core/labels.tsv"
-    planeset 'p.labels=[];s.projects=s.projects.filter(x=>x.identifier==="ENG"||x.identifier==="OPS")'
-    rm -rf "$GH_CACHE_DIRECTORY/plane"
-    reset_log; rc=0
-    case "$path" in
-      labels-*) out="$(ai labels-sync 2>&1)" || rc=$? ;;
-      repo-link-*) out="$(ai repo-link --project ENG 2>&1)" || rc=$? ;;
-      *) out="$(PLANE_PROJECT="$ident" ai project-new 'Keep the title, or it is lost' 2>&1)" || rc=$? ;;
-    esac
-    writes="$(grep -cE '^(POST|PATCH|DELETE) ' "$CURL_FAKE_STATE/requests.log" || true)"
-    unsafe=no; [ "$payload" != "$real" ] || unsafe=yes
-    for index in "${!overlaps[@]}"; do [ "$payload" != "${overlaps[index]}" ] || { unsafe=yes; named="${overlap_names[index]}"; }; done
-    case "$unsafe" in
-    yes)
-      address="$real"; [ "$payload" = "$real" ] || address="$named"
-      check "Plane $path $payload refuses metadata" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
-      check "Plane $path $payload metadata zero writes" 0 "$writes"
-      check "Plane $path $payload names metadata address" yes "$(grep -qF 'refused email address' <<< "$out" && grep -qF "$address" <<< "$out" && echo yes || echo no)" ;;
-    *)
-      check "Plane $path safe metadata succeeds" 0 "$rc"
-      expected=3; case "$path" in project-*) expected=15 ;; esac
-      check "Plane $path safe metadata writes" "$expected" "$writes" ;;
-    esac
-  done
+for path in title-edit title-new title-project; do
+  case "$path" in title-edit) command=issue-edit ;; title-new) command=issue-new ;; *) command=project-new ;; esac
+  sed '/check_public_body /s/"\$title"/""/g' "$ROOT/bin/$command.sh" > "$title_root/bin/$command.sh"
+  title="$real"; printf 'Safe body.\n' > "$WORK/body"
+  : > "$GH_FAKE/body-calls.log"
+  export GH_BODY_FIXTURE=1; PATH="$PATH_SH"; root_under_test="$title_root"
+  rc=0; out="$(title_invoke 2>&1)" || rc=$?
+  check "$path missing title guard succeeds" 0 "$rc"
+  writes="$(grep -c '^write ' "$GH_FAKE/body-calls.log" || true)"
+  check "$path missing title guard writes" yes "$([ "$writes" -gt 0 ] && echo yes || echo no)"
+  cp "$ROOT/bin/$command.sh" "$title_root/bin/$command.sh"
 done
 [ "$failed" -eq 0 ] || fail "$failed public body assertions failed"
 echo 'all public body writers, visibility answers, mutants, and innocent cases passed'

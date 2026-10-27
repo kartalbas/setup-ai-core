@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Isolation at both suite entry points, with fixtures that can still select their own tool; and no git config of
-# the machine, no tracker of the environment in a Plane fixture.
+# the machine, no forge of the environment in a Forgejo fixture.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 work="$(mktemp -d)"
@@ -17,7 +17,7 @@ if ! bash -c '. "$1/tests/lib.sh"; eval "$2"' _ "$root" "$probe"; then fail 'sec
 [ -f "$root/tests/tool-environment.sh" ] || fail 'shared initializer missing'
 copy="$work/copy"; mkdir -p "$copy/tests" "$copy/lib" "$copy/rules"
 cp "$root/lib/common.sh" "$root/lib/tool-order.sh" "$copy/lib/"
-cp "$root/tests/"{run-all.sh,lib.sh,tool-environment.sh,date-stub.sh,curl-fake.mjs} "$copy/tests/"
+cp "$root/tests/"{run-all.sh,lib.sh,tool-environment.sh,date-stub.sh,curl-fake.mjs,git-http-server.mjs} "$copy/tests/"
 printf '# fixture\n' > "$copy/rules/00-fixture.md"
 printf '#!/usr/bin/env bash\nset -u\n%s\n' "$probe" > "$copy/tests/sentinel.test.sh"
 run() { bash "$copy/tests/run-all.sh" > "$work/out" 2>&1; }
@@ -63,14 +63,14 @@ sed '/GIT_CONFIG_GLOBAL/d' "$root/tests/tool-environment.sh" > "$copy/tests/tool
 cmp -s "$root/tests/tool-environment.sh" "$copy/tests/tool-environment.sh" && fail 'git config mutant unchanged'
 commit_without_identity "$copy" || fail "the planted commit does not go through on the machine's git config: $(cat "$work/identity.out")"
 cp "$root/tests/tool-environment.sh" "$copy/tests/tool-environment.sh"
-# A Plane fixture reads the tracker from its own config.env, whatever tracker the environment of the run names
-tracker_of_plane_fixture() {  # tracker_of_plane_fixture <root of the tests>
-  TRACKER=github bash -c '. "$1/tests/lib.sh"; make_plane_project; cd "$P"; bash -c ". \"\$1/lib/common.sh\"; config_value TRACKER github" _ "$1"' _ "$1" 2> "$work/tracker.err"
+# A Forgejo fixture reads the forge from its own config.env, whatever forge the environment of the run names
+forge_of_forgejo_fixture() {  # forge_of_forgejo_fixture <root of the tests>
+  FORGE=github bash -c '. "$1/tests/lib.sh"; make_forgejo_project; cd "$F"; bash -c ". \"\$1/lib/common.sh\"; config_value FORGE github" _ "$1"' _ "$1" 2> "$work/forge.err"
 }
-[ "$(tracker_of_plane_fixture "$root")" = plane ] || fail "an inherited TRACKER won over the Plane fixture: $(cat "$work/tracker.err")"
-sed '/^  unset TRACKER/d' "$root/tests/lib.sh" > "$copy/tests/lib.sh"
-cmp -s "$root/tests/lib.sh" "$copy/tests/lib.sh" && fail 'tracker mutant unchanged'
-[ "$(tracker_of_plane_fixture "$copy")" = github ] || fail 'a fixture that keeps the inherited TRACKER did not read it'
+[ "$(forge_of_forgejo_fixture "$root")" = forgejo ] || fail "an inherited FORGE won over the Forgejo fixture: $(cat "$work/forge.err")"
+sed '/^  unset FORGE/d' "$root/tests/lib.sh" > "$copy/tests/lib.sh"
+cmp -s "$root/tests/lib.sh" "$copy/tests/lib.sh" && fail 'forge mutant unchanged'
+[ "$(forge_of_forgejo_fixture "$copy")" = github ] || fail 'a fixture that keeps the inherited FORGE did not read it'
 cp "$root/tests/lib.sh" "$copy/tests/lib.sh"
 for identity in clean inherited; do
   if [ "$identity" = clean ]; then . "$root/tests/tool-environment.sh"

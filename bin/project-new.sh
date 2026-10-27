@@ -4,7 +4,7 @@
 #
 #   project-new.sh TITLE [LIKE]
 #
-# Project visibility is unknown on GitHub and Plane. Names receive the public email-address check;
+# Project visibility is unknown on GitHub. Names receive the public email-address check;
 # reserved example domains and GitHub noreply addresses are allowed.
 # The check reads the raw text, and an address dressed by Markdown, HTML, invisible or lookalike characters may pass; the README names the cases.
 #
@@ -19,9 +19,6 @@
 # colour, a description, the order of the columns - and those are exactly what makes
 # two boards read differently to the same person. The items of the source board are
 # not copied.
-#
-# On Plane (TRACKER=plane) nothing is copied: the project PLANE_PROJECT names is made with the eight
-# states of the harness and the labels of labels.tsv, and a LIKE is refused.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 

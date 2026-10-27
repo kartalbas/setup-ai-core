@@ -194,8 +194,7 @@ read_issue_mine() {  # read_issue_mine <repository or empty> <number>
   else bash "$CORE/bin/issue-mine.sh" ${1:+"$1"} "$2" 2>&1; fi
 }
 # What the worktree stands for on Forgejo, as worktree_issue of lib/board.sh answers it: a branch or a directory
-# named issue-N-... carries issue N, of the repository start-issue recorded on the branch; there is no carry, so the
-# number is the work item.
+# named issue-N-... carries issue N, of the repository start-issue recorded on the branch.
 forgejo_worktree_issue() {
   local branch named="" repository="" tail
   branch="$(git symbolic-ref --short -q HEAD || true)"
@@ -203,7 +202,7 @@ forgejo_worktree_issue() {
   case "$tail" in issue-[0-9]*) named="${tail#issue-}"; named="${named%%-*}"; repository="$(git config --get "branch.$branch.issueRepository" 2>/dev/null || true)" ;; esac
   if [ -z "$named" ]; then tail="$(git rev-parse --show-toplevel)"; tail="${tail##*/}"; case "$tail" in issue-[0-9]*) named="${tail#issue-}"; named="${named%%-*}" ;; esac; fi
   case "$named" in *[!0-9]*) named="" ;; esac
-  jq -nc --arg named "$named" --arg repository "$repository" '{named: $named, repository: $repository, workItem: $named, reason: "", error: ""}'
+  jq -nc --arg named "$named" --arg repository "$repository" '{named: $named, repository: $repository}'
 }
 
 # 3. The issue of this worktree: a branch or a directory named issue-N-<slug> carries issue N, of
@@ -215,25 +214,16 @@ case "${BRANCH##*/}:${ROOT##*/}" in
   issue-[0-9]*|*:issue-[0-9]*)
     if tracker_is_forgejo; then WORKTREE_ISSUE="$(forgejo_worktree_issue)"
     else WORKTREE_ISSUE="$(. "$CORE/lib/board.sh"; worktree_issue)"; fi ;;
-  *) WORKTREE_ISSUE='{"named":"","repository":"","workItem":"","reason":"","error":""}' ;;
+  *) WORKTREE_ISSUE='{"named":"","repository":""}' ;;
 esac
-ISSUE_NAMED="$(jq -r '.named' <<< "$WORKTREE_ISSUE")"
-ISSUE="$(jq -r '.workItem' <<< "$WORKTREE_ISSUE")"
-if [ -n "$ISSUE_NAMED" ]; then
+ISSUE="$(jq -r '.named' <<< "$WORKTREE_ISSUE")"
+if [ -n "$ISSUE" ]; then
   ISSUE_REPO="$(jq -r '.repository' <<< "$WORKTREE_ISSUE")"
-  WORKTREE_ERROR="$(jq -r '.error' <<< "$WORKTREE_ISSUE")"
-  if [ -n "$WORKTREE_ERROR" ]; then
-    ISSUE="$ISSUE_NAMED"; ISSUE_UNREAD="$(grep -m1 . <<< "$WORKTREE_ERROR" || true)"
-    THREAD="The work item of ${ISSUE_REPO}#$ISSUE could not be told: $WORKTREE_ERROR"
-  elif [ -z "$ISSUE" ]; then
-    ISSUE="$ISSUE_NAMED"; ISSUE_UNREAD="this worktree $(jq -r '.reason' <<< "$WORKTREE_ISSUE")"
-    THREAD="The worktree is named by the number $ISSUE, and it names no work item: $(jq -r '.reason' <<< "$WORKTREE_ISSUE")"
-  elif THREAD_JSON="$(read_issue_thread "$ISSUE_REPO" "$ISSUE")"; then
-    THREAD="$(printf '%s' "$THREAD_JSON" | jq -r --arg named "$ISSUE_NAMED" '
+  if THREAD_JSON="$(read_issue_thread "$ISSUE_REPO" "$ISSUE")"; then
+    THREAD="$(printf '%s' "$THREAD_JSON" | jq -r '
       "#\(.number) \(.title)",
       "state: \(.state)",
       "labels: \(if (.labels | length) == 0 then "-" else (.labels | join(", ")) end)",
-      (if .carriedFrom != null and (.number | tostring) != $named then "carried from \(.carriedFrom): this worktree is named by that GitHub number \($named), and its commits name #\(.number) from now on" else empty end),
       "",
       .body,
       (.comments[] | "", "--- \(.author) \(.created_at)", .body)')"
@@ -241,9 +231,7 @@ if [ -n "$ISSUE_NAMED" ]; then
     ISSUE_UNREAD="$(grep -m1 . <<< "$THREAD_JSON" || true)"
     THREAD="The thread of ${ISSUE_REPO}#$ISSUE could not be read: $THREAD_JSON"; THREAD_JSON="null"
   fi
-  if [ -z "$WORKTREE_ERROR" ] && [ -n "$(jq -r '.workItem' <<< "$WORKTREE_ISSUE")" ]; then
-    if MINE="$(read_issue_mine "$ISSUE_REPO" "$ISSUE")"; then ASSIGNED=true; fi
-  fi
+  if MINE="$(read_issue_mine "$ISSUE_REPO" "$ISSUE")"; then ASSIGNED=true; fi
 fi
 
 # 4. The hook's output is the agent's context, but Claude Code passes a hook's output whole only

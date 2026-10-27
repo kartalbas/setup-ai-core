@@ -67,6 +67,49 @@ out="$("$transfer" --project 6 94 "$target" 2>&1)"; rc=$?
 check 'exits nonzero'  yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
 check 'names the word' yes "$(grep -q -- '--project' <<< "$out" && echo yes || echo no)"
 
+echo 'the carry into Plane is gone: --to and --column are refused before any call or token command'
+token_marker="$fake/token-ran"
+export FORGEJO_TOKEN_COMMAND="touch $token_marker"
+for retired in '--to plane' "$repo --to plane" "94 --to plane" "$repo 94 --to plane" '--column testing --to plane' "$repo --column testing --to plane" '--column testing' '--to'; do
+  : > "$log"
+  out="$("$transfer" $retired 2>&1)"; rc=$?
+  check "$retired: exits nonzero"   yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+  check "$retired: names the word"  yes "$(grep -q "unknown argument '--\(to\|column\)'" <<< "$out" && echo yes || echo no)"
+  check "$retired: nothing sent"    0 "$(grep -c . "$log" || true)"
+  check "$retired: no token command" no "$([ -e "$token_marker" ] && echo yes || echo no)"
+done
+planted="$fake/planted"; mkdir -p "$planted"; cp -R "$root/bin" "$root/lib" "$root/templates" "$planted/"; cp "$root/VERSION" "$planted/"
+sed -i.bak "s|^    -\*)       die \"unknown argument .*|    -*)       shift ;;|" "$planted/bin/issue-transfer.sh"
+cmp -s "$root/bin/issue-transfer.sh" "$planted/bin/issue-transfer.sh" && { echo "  FAIL the planted copy equals the real script"; failed=$((failed + 1)); }
+: > "$log"
+"$planted/bin/issue-transfer.sh" --to "$repo" 94 "$target" >/dev/null 2>&1
+check 'planted: a flag that is silently ignored still transfers, so the call count can go red' "issue transfer 94 $target --repo $repo" "$(cat "$log")"
+cp "$root/bin/issue-transfer.sh" "$planted/bin/issue-transfer.sh"
+sed -i.bak "s|^    -\*)       die \"unknown argument|    -*)       token_from_command FORGEJO_TOKEN_COMMAND >/dev/null 2>\&1; die \"unknown argument|" "$planted/bin/issue-transfer.sh"
+cmp -s "$root/bin/issue-transfer.sh" "$planted/bin/issue-transfer.sh" && { echo "  FAIL the planted copy equals the real script"; failed=$((failed + 1)); }
+"$planted/bin/issue-transfer.sh" --to plane >/dev/null 2>&1
+check 'planted: a refusal that reads the token first leaves the marker, so the token check can go red' yes "$([ -e "$token_marker" ] && echo yes || echo no)"
+rm -f "$token_marker"
+: > "$log"
+"$transfer" "$repo" 94 "$target" >/dev/null 2>&1
+check 'innocent: the valid transfer makes its one call' "issue transfer 94 $target --repo $repo" "$(cat "$log")"
+unset FORGEJO_TOKEN_COMMAND
+
+echo 'two identical refused invocations at once refuse independently and leave no temporary artifact'
+tmp="$fake/tmp"; mkdir -p "$tmp"; : > "$log"
+for n in 1 2; do ( TMPDIR="$tmp" "$transfer" --to plane > "$fake/refused-$n.out" 2>&1; echo "$?" > "$fake/refused-$n.rc" ) & done
+wait
+check 'both exit nonzero'       "yes yes" "$([ "$(cat "$fake/refused-1.rc")" -ne 0 ] && echo yes || echo no) $([ "$(cat "$fake/refused-2.rc")" -ne 0 ] && echo yes || echo no)"
+check 'both say the same'       yes "$(cmp -s "$fake/refused-1.out" "$fake/refused-2.out" && grep -q "unknown argument '--to'" "$fake/refused-1.out" && echo yes || echo no)"
+check 'nothing sent'            0 "$(grep -c . "$log" || true)"
+check 'no temporary artifact'   0 "$(ls -A "$tmp" | wc -l | tr -d ' ')"
+cp "$root/bin/issue-transfer.sh" "$planted/bin/issue-transfer.sh"
+sed -i.bak "s|^    -\*)       die \"unknown argument|    -*)       mktemp >/dev/null; die \"unknown argument|" "$planted/bin/issue-transfer.sh"
+cmp -s "$root/bin/issue-transfer.sh" "$planted/bin/issue-transfer.sh" && { echo "  FAIL the planted copy equals the real script"; failed=$((failed + 1)); }
+for n in 1 2; do ( TMPDIR="$tmp" "$planted/bin/issue-transfer.sh" --to plane >/dev/null 2>&1 ) & done
+wait
+check 'planted: a refusal that leaves a temporary file behind is seen, so the artifact check can go red' 2 "$(ls -A "$tmp" | wc -l | tr -d ' ')"
+
 echo 'a refused transfer stops the run rather than printing a url that is not one'
 refusing="$fake/refusing"
 mkdir -p "$refusing"

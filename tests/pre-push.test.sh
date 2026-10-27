@@ -1534,7 +1534,7 @@ check 'planted: the commit of somebody else stays as it was' "$plain_tip" "$(git
 
 echo '--install --all: every repository under a folder, a plain folder skipped; a repository whose .gitattributes already makes the shims LF gets no rule'
 folder="$fake/folder"; mkdir -p "$folder/not-a-repo"
-for r in one two; do git init -q -b master "$folder/$r"; git -C "$folder/$r" config user.email 'test@example.invalid'; git -C "$folder/$r" config user.name 'test'; done
+for r in one two; do git init -q -b master "$folder/$r"; git -C "$folder/$r" config user.email 'test@example.invalid'; git -C "$folder/$r" config user.name 'test'; mkdir -p "$folder/$r/.ai-core"; printf 'setup-ai-core 0000000\n' > "$folder/$r/.ai-core/STAMP"; done
 printf '* text=auto eol=lf\n' > "$folder/one/.gitattributes"; git -C "$folder/one" add .gitattributes; git -C "$folder/one" commit -q -m 'LF everywhere #2'
 out="$( bash "$root/bin/pre-push.sh" --install --all "$folder" 2>&1 )"; rc=$?
 check 'exit 0'                      0 "$rc"
@@ -1545,8 +1545,39 @@ check 'two: the rule added'         yes "$(grep -q '^pre-push: two: .gitattribut
 check 'two repositories'            yes "$(grep -q 'the hooks are in 2 repositories' <<< "$out" && echo yes || echo no)"
 check 'both carry the shim, committed' yes "$([ "$(git -C "$folder/one" log -1 --format=%s)" = 'the hooks of ai-core: the push gate, init in a new worktree' ] && [ "$(git -C "$folder/two" log -1 --format=%s)" = 'the hooks of ai-core: the push gate, init in a new worktree' ] && echo yes || echo no)"
 check 'the plain folder does not'   no "$([ -e "$folder/not-a-repo/.githooks" ] && echo yes || echo no)"
+check 'no clone: nothing skipped'   yes "$(grep -q ', 0 skipped without a harness' <<< "$out" && echo yes || echo no)"
 out="$( cd "$folder/not-a-repo" && bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
 check '--install outside a repository: exit 1' 1 "$rc"
+
+echo '--install --all names a fresh clone and leaves it as it was: no shim, no commit, no core.hooksPath; a copy that walks every clone is caught'
+mkdir -p "$fake/planted-copy"; tar -C "$root" --exclude=node_modules --exclude=.git -cf - bin lib templates rules skills VERSION | tar -C "$fake/planted-copy" -xf -
+sed 's/^carries_harness() .*$/carries_harness() { true; }/' "$fake/planted-copy/lib/common.sh" > "$fake/planted-copy/common.sh.planted"; mv "$fake/planted-copy/common.sh.planted" "$fake/planted-copy/lib/common.sh"
+check 'the planted copy was made'   1 "$(grep -c '^carries_harness() { true; }$' "$fake/planted-copy/lib/common.sh")"
+fresh_folder() {  # fresh_folder <folder>: a harnessed repository, a fresh clone with a worktree of its own
+  mkdir -p "$1"
+  for r in mine fresh; do
+    git init -q -b master "$1/$r"; git -C "$1/$r" config user.email 'test@example.invalid'; git -C "$1/$r" config user.name 'test'
+    echo "$r" > "$1/$r/README.md"; git -C "$1/$r" add README.md; git -C "$1/$r" commit -q -m 'Start #3'
+  done
+  mkdir -p "$1/mine/.ai-core"; printf 'setup-ai-core 0000000\n' > "$1/mine/.ai-core/STAMP"
+  git -C "$1/fresh" worktree add -q -b issue-3-read "$1/.worktrees/fresh/issue-3-read"
+}
+clone_state() {  # clone_state <clone>: head, hooks path, files, exclude file, status and the worktree's shims
+  git -C "$1" rev-parse HEAD; git -C "$1" config --get core.hooksPath; git -C "$1" ls-files; cat "$1/.git/info/exclude"; git -C "$1" status --short
+  ls -A "$1/.githooks" "$(dirname "$1")/.worktrees/$(basename "$1")/issue-3-read/.githooks" 2>&1
+}
+fresh_folder "$fake/skip"; state0="$(clone_state "$fake/skip/fresh")"
+out="$( bash "$root/bin/pre-push.sh" --install --all "$fake/skip" 2>&1 )"; rc=$?
+check 'a fresh clone: exit 0'        0 "$rc"
+check 'it names the clone'           yes "$(grep -qxF "skipped: fresh carries no harness; ai-core init $fake/skip/fresh installs it" <<< "$out" && echo yes || echo no)"
+check 'it counts the clone'          yes "$(grep -q 'the hooks are in 1 repositories, 1 skipped without a harness$' <<< "$out" && echo yes || echo no)"
+check 'the clone is as it was: no commit, no hooks path, no shim, in it or its worktree' "$state0" "$(clone_state "$fake/skip/fresh")"
+check 'innocent: the harnessed repository gets its shims, committed' yes "$([ -f "$fake/skip/mine/.githooks/pre-push" ] && [ "$(git -C "$fake/skip/mine" config --get core.hooksPath)" = .githooks ] && [ "$(git -C "$fake/skip/mine" log -1 --format=%s)" = 'the hooks of ai-core: the push gate, init in a new worktree' ] && echo yes || echo no)"
+fresh_folder "$fake/skip-planted"; state0="$(clone_state "$fake/skip-planted/fresh")"
+out="$( bash "$fake/planted-copy/bin/pre-push.sh" --install --all "$fake/skip-planted" 2>&1 )"; rc=$?
+check 'planted: a copy that walks every clone changes it' no "$([ "$state0" = "$(clone_state "$fake/skip-planted/fresh")" ] && echo yes || echo no)"
+check 'planted: it committed shims into the clone' 'the hooks of ai-core: the push gate, init in a new worktree' "$(git -C "$fake/skip-planted/fresh" log -1 --format=%s)"
+check 'planted: it set core.hooksPath in the clone' .githooks "$(git -C "$fake/skip-planted/fresh" config --get core.hooksPath)"
 
 echo '--install where .gitleaks.toml arms the scan and no gitleaks can run it: nothing written, nothing committed, doctor named'
 leaky="$fake/leaky"; git init -q -b master "$leaky"

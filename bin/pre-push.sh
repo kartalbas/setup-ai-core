@@ -133,7 +133,9 @@ for arg in "$@"; do
     echo "                    issue and touches nothing but .gitignore gets the trailer that says init"
     echo "                    wrote it, so the push goes through. The checkout catches up with its"
     echo "                    origin first; one behind it with work of its own gets nothing"
-    echo "  --all <folder>    With --install: every git repository directly under the folder"
+    echo "  --all <folder>    With --install: every git repository directly under the folder that carries the"
+    echo "                    harness (its .ai-core/STAMP exists), and every harness clone; any other repository is"
+    echo "                    named and left untouched: no shim, no commit, no core.hooksPath"
     echo "  --message <file>  Judge one commit message by the message rules above (the subject's length,"
     echo "                    an attribution, an assistant as author or committer) while the commit is"
     echo "                    made, where a fault costs no rewrite: init deploys .githooks/commit-msg,"
@@ -494,12 +496,18 @@ install_shim() {  # install_shim <repository>: 0 written or unchanged, 1 not a r
 }
 if [ "$INSTALL" -eq 1 ]; then
   if [ -n "$ALL_DIR" ]; then
-    ALL_DIR="$(cd "$ALL_DIR" && pwd)"; OK=0; FAILED=""
+    ALL_DIR="$(cd "$ALL_DIR" && pwd)"; OK=0; SKIPPED=0; FAILED=""
     for repo in "$ALL_DIR"/*/; do
       repo="${repo%/}"; [ -e "$repo/.git" ] || continue
+      # a harness clone carries the gate too, though init is never run in it
+      case "${repo##*/}" in *-ai-core) ;; *)
+        if ! carries_harness "$repo"; then
+          echo "skipped: ${repo##*/} carries no harness; ai-core init $repo installs it"; SKIPPED=$((SKIPPED + 1)); continue
+        fi ;;
+      esac
       if install_shim "$repo"; then OK=$((OK + 1)); else FAILED="$FAILED $(basename "$repo")"; fi
     done
-    echo "==> pre-push --install --all: the hooks are in $OK repositories${FAILED:+; failed:$FAILED}"
+    echo "==> pre-push --install --all: the hooks are in $OK repositories, $SKIPPED skipped without a harness${FAILED:+; failed:$FAILED}"
     [ -z "$FAILED" ]; exit $?
   fi
   install_shim "$(pwd)"; exit $?

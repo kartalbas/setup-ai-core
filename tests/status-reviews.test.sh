@@ -123,6 +123,8 @@ plant() {  # plant <sed script> <file>: the board restored, the copy carrying on
 }
 plant 's/if (verdict.fullReview) { left.fullReview++; continue; }//' lib/status-reviews.mjs
 check 'a request for a full review counted as a NO' no "$(grep -q '2 GO (1 with REPAIRED), 1 NO' <<< "$planted" && echo yes || echo no)"
+plant 's#  const builder = identity#  if (identity \&\& !SECTION.test(lines[2] || "")) return { unsupported: true }; const builder = identity#' lib/status-reviews.mjs
+check 'a verdict with a HEAD line before its sections not counted' no "$(grep -q 'claude-opus-5.5 medium: 1 GO, 0 NO' <<< "$planted" && echo yes || echo no)"
 plant 's/else if (earlier.result === verdict.result) left.reposts++;/else if (false) left.reposts++;/' lib/status-reviews.mjs
 check 'a repost counted twice' no "$(grep -q 'claude-sonnet-5.5 high: 2 GO (1 with REPAIRED), 1 NO' <<< "$planted" && echo yes || echo no)"
 plant 's/if (Number.isFinite(at) \&\& (at < since || at > now)) continue;//' lib/status-reviews.mjs

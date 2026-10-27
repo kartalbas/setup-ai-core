@@ -15,10 +15,12 @@ for arg in "$@"; do
     echo "Commits everything that changed in every project harness clone of this project folder"
     echo "(<folder>/<name>-ai-core, beside the repositories; the folder of the checkout you stand in),"
     echo "pulls with rebase and pushes to its origin; then runs init in the current directory when"
-    echo "it carries the harness, so this checkout is current at once."
+    echo "it carries the harness and is no harness repository itself, so this checkout is current at once."
     echo ""
     echo "Options:"
-    echo "  MESSAGE           The commit message; default: the files that changed. It is the reason the"
+    echo "  MESSAGE           The commit message; default: the files that changed, as many as fit in 72"
+    echo "                    characters. Its first paragraph is the subject of the commit and has at most 72"
+    echo "                    characters, or nothing is committed. It is the reason the"
     echo "                    push gate wants: unless it names an issue (#<n>) or carries a No-issue:"
     echo "                    trailer, the commit gets 'No-issue: <message>, committed and pushed by ai-core push'"
     echo "  --harness <name>  Only this harness, e.g. shop-ai-core"
@@ -41,8 +43,28 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# git takes the first paragraph of the message, its lines joined by a space, for the subject
+subject="$(printf '%s\n' "$MESSAGE" | git stripspace | sed '/^$/,$d' | tr '\n' ' ')" || { echo "error: git stripspace could not read the message" >&2; exit 1; }
+subject="${subject% }"
+[ "${#subject}" -le 72 ] || { echo "error: the subject of the message, its first paragraph, has ${#subject} characters, at most 72 are allowed: the push gate refuses a longer one. Write it again as one sentence that says what changed." >&2; exit 2; }
+
 . "$CORE/lib/layers.sh"
 . "$CORE/lib/landing-check.sh"
+
+# generated_message <count> <changed lines>: the names of the first changed files that fit a subject of 72 characters, and how many more there are
+generated_message() {
+  local count="$1" names="$2" shown=0 name candidate suffix message=""
+  while IFS= read -r name && [ "$shown" -lt 3 ]; do
+    candidate="${message:+$message, }$name"
+    suffix=""; [ $((count - shown - 1)) -eq 0 ] || suffix=" (+$((count - shown - 1)))"
+    [ $(( ${#candidate} + ${#suffix} )) -le 72 ] || break
+    message="$candidate"; shown=$((shown + 1))
+  done <<< "$names"
+  [ "$shown" -gt 0 ] || { printf '%s file(s) changed\n' "$count"; return 0; }
+  [ "$shown" -eq "$count" ] || message="$message (+$((count - shown)))"
+  printf '%s\n' "$message"
+}
+
 FOLDER="$(project_folder_of "$(pwd)")"
 pushed=0; failed=""; seen=0
 for dir in "$FOLDER"/*-ai-core; do
@@ -64,10 +86,7 @@ for dir in "$FOLDER"/*-ai-core; do
     fi
     count="$(grep -c . <<< "$changed")"
     msg="$MESSAGE"
-    if [ -z "$msg" ]; then
-      msg="$(printf '%s\n' "$changed" | sed 's/^...//' | sed -n 1,3p | paste -sd, - | sed 's/,/, /g')"
-      [ "$count" -le 3 ] || msg="$msg (+$((count - 3)))"
-    fi
+    [ -n "$msg" ] || msg="$(generated_message "$count" "$(printf '%s\n' "$changed" | sed 's/^...//')")"
     git -C "$dir" add -A
     # The push gate wants an issue or a reason: the message is the reason, and the trailer says
     # who committed it, unless the message names an issue or carries a trailer of its own
@@ -93,7 +112,7 @@ done
 [ -z "$failed" ] || { echo "push: failed:$failed" >&2; exit 1; }
 
 # 3. this checkout is current at once
-if [ -d ".ai-core" ] && [ "$pushed" -gt 0 ]; then
+if [ -d ".ai-core" ] && [ "$pushed" -gt 0 ] && ! harness_source_of "$(pwd)" >/dev/null 2>&1; then
   echo "--> Refreshing this checkout"
   if bash "$CORE/bin/init.sh" . --no-doctor > /dev/null 2>&1; then echo "--> This checkout is current"; else echo "note: init here reported a problem; run ai-core init to see it"; fi
 fi

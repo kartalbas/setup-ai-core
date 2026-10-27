@@ -114,5 +114,94 @@ red="$(git -C "$repo" rev-parse HEAD)"
 rm -f "$fake/receipt.red"; gate "$fake/receipt.red" "$red $red $ci_ref $zeros"
 check 'exit 1, the check ran, no receipt'          '1 1 no' "$rc $ran $([ -e "$fake/receipt.red" ] && echo yes || echo no)"
 
+# --- the commits a path of the harness writes on its own ---------------------------------------------------------------
+# harness_commits_only holds where every unpushed commit is one of init's or of pre-push --install; a commit that it could
+# not read is not one of them. A git that fails on cue stands in front of the real one.
+. "$root/lib/landing-check.sh"
+real_git="$(command -v git)"; stub="$fake/stub"; mkdir -p "$stub"
+cat > "$stub/git" <<EOF
+#!/usr/bin/env bash
+if [ -n "\${PROBE_GIT_FAIL:-}" ] && [ "\${1:-}" = -C ] && [ "\${3:-}" = "\$PROBE_GIT_FAIL" ]; then echo 'planted git failure' >&2; exit 42; fi
+exec "$real_git" "\$@"
+EOF
+chmod +x "$stub/git"; export PATH="$stub:$PATH"
+hc="$fake/harness-commits"; hc_origin="$fake/harness-commits-origin.git"
+git init -q --bare -b master "$hc_origin"; git init -q -b master "$hc"; git -C "$hc" remote add origin "$hc_origin"
+git -C "$hc" config user.email test@example.invalid; git -C "$hc" config user.name test
+echo one > "$hc/README"; git -C "$hc" add README; git -C "$hc" commit -q -m 'Start #1'; git -C "$hc" push -q origin master
+# The old loop, as it stood: a failed git rev-list in its substitution leaves it nothing to read, and nothing read is success.
+old_harness_commits_only() {
+  local dir="$1" branch="$2" unpushed_range=(HEAD) sha files file
+  if git -C "$dir" rev-parse -q --verify "refs/remotes/origin/$branch" >/dev/null; then unpushed_range=(HEAD "^refs/remotes/origin/$branch"); fi
+  for sha in $(git -C "$dir" rev-list "${unpushed_range[@]}"); do
+    files="$(git -C "$dir" diff-tree --no-commit-id --root -r --name-only "$sha" | sort -u | tr '\n' ' ')"
+    case "$(git -C "$dir" log -1 --format='%(trailers:key=No-issue,valueonly)' "$sha")" in
+      *'the .gitignore block written by ai-core init'*) [ "$files" = '.gitignore ' ] || return 1 ;;
+      *'written, committed and pushed by ai-core pre-push --install'*)
+        [ -n "$files" ] || return 1
+        for file in $files; do
+          case "$file" in .gitattributes|.githooks/pre-push|.githooks/post-checkout) ;; *) return 1 ;; esac
+        done ;;
+      *) return 1 ;;
+    esac
+  done
+}
+marked() {  # marked <old|new>: whether a push of HEAD of the scratch repository carries a mark of a landing
+  local out
+  out="$( { [ "$1" = new ] || harness_commits_only() { old_harness_commits_only "$@"; }; with_harness_commits_mark "$hc" master -- bash -c 'echo "${AI_CORE_LANDING_MARK:-none}"'; } 2>/dev/null)"
+  [ "$out" != none ] && echo yes || echo no
+}
+echo 'nothing unpushed: the mark is there'
+check 'the push of nothing is the harness'"'"'s' yes "$(marked new)"
+echo 'the commit of the .gitignore block and the commit of the shims, each with its trailer and its files alone'
+echo '/.ai-core/' > "$hc/.gitignore"; git -C "$hc" add .gitignore
+git -C "$hc" commit -q -m 'ai-core init: the .gitignore block' -m 'No-issue: the .gitignore block written by ai-core init'
+mkdir -p "$hc/.githooks"; echo shim > "$hc/.githooks/pre-push"; git -C "$hc" add .githooks
+git -C "$hc" commit -q -m 'the hooks of ai-core' -m 'No-issue: the shims, written, committed and pushed by ai-core pre-push --install'
+check 'innocent: both are the harness'"'"'s, and get the mark' yes "$(marked new)"
+echo 'a git call that fails while the commits are read: no mark, and the old loop gave one after the failed listing'
+for failing in rev-list diff-tree log; do
+  check "$failing fails: the commits of the harness get no mark" no "$(PROBE_GIT_FAIL=$failing marked new)"
+done
+check 'planted: the old loop, its listing failed, grants the mark' yes "$(PROBE_GIT_FAIL=rev-list marked old)"
+echo 'a commit of somebody else beneath them'
+echo two >> "$hc/README"; git -C "$hc" commit -q -am 'Change the readme #2'
+check 'no mark' no "$(marked new)"
+
+echo 'a push judged as a direct push needs a commit to judge, and a range git can list'
+head="$(git -C "$hc" rev-parse HEAD)"
+direct_push_commits_only "$hc" 'README' "$head ^$head"; rc=$?
+check 'a range that names no commit fails' '1 yes' "$rc $(grep -q 'name no commit to judge' <<< "$DIRECT_PUSH_REASON" && echo yes || echo no)"
+direct_push_commits_only "$hc" 'README' "$head ^0123456789012345678901234567890123456789" 2>/dev/null; rc=$?
+check 'a range git cannot list fails' '1 yes' "$rc $(grep -q 'cannot be listed' <<< "$DIRECT_PUSH_REASON" && echo yes || echo no)"
+direct_push_commits_only "$hc" 'README' "$head ^$(git -C "$hc" rev-parse HEAD~1)"; rc=$?
+check 'innocent: the commit that changes the listed file alone passes' "0 " "$rc $DIRECT_PUSH_REASON"
+
+echo 'a commit for which git lists no file is no commit of the harness: an empty one, and a merge of commits origin has that brings a file of its own'
+git -C "$hc" reset -q --hard origin/master
+echo second > "$hc/second"; git -C "$hc" add second; git -C "$hc" commit -q -m 'Second #3'; git -C "$hc" push -q origin master
+shims_trailer='No-issue: the shims, written, committed and pushed by ai-core pre-push --install'
+# The planted copy turns an empty list of files into one blank name, which passes the check of the shims.
+blank_name="$fake/landing-check-blank-name.sh"
+sed 's/^    \[ -z "\$files" \] || files=/    files=/' "$root/lib/landing-check.sh" > "$blank_name"
+cmp -s "$root/lib/landing-check.sh" "$blank_name" && { echo "  FAIL the planted copy equals lib/landing-check.sh"; failed=$((failed + 1)); }
+marked_by() {  # marked_by <library>: whether a push of HEAD of the scratch repository carries a mark, with the functions of that library
+  local out
+  # shellcheck disable=SC1090 # the library is the argument: the real one or its planted copy
+  out="$( { . "$1"; with_harness_commits_mark "$hc" master -- bash -c 'echo "${AI_CORE_LANDING_MARK:-none}"'; } 2>/dev/null)"
+  [ "$out" != none ] && echo yes || echo no
+}
+git -C "$hc" commit -q --allow-empty -m 'the hooks of ai-core' -m "$shims_trailer"
+check 'an empty commit with the trailer of the shims: no mark' no "$(marked_by "$root/lib/landing-check.sh")"
+check 'planted: the blank name grants it the mark' yes "$(marked_by "$blank_name")"
+git -C "$hc" reset -q --hard origin/master
+echo code > "$hc/brought.sh"; git -C "$hc" add brought.sh; tree="$(git -C "$hc" write-tree)"; git -C "$hc" reset -q --hard origin/master
+git -C "$hc" reset -q --hard "$(git -C "$hc" commit-tree "$tree" -p origin/master -p origin/master~1 -m 'the hooks of ai-core' -m "$shims_trailer")"
+check 'a merge of two commits of origin that brings brought.sh, with the trailer of the shims: no mark' no "$(marked_by "$root/lib/landing-check.sh")"
+check 'planted: the blank name grants that merge the mark' yes "$(marked_by "$blank_name")"
+git -C "$hc" reset -q --hard origin/master
+mkdir -p "$hc/.githooks"; echo shim > "$hc/.githooks/pre-push"; git -C "$hc" add .githooks; git -C "$hc" commit -q -m 'the hooks of ai-core' -m "$shims_trailer"
+check 'innocent: the commit of the shims gets the mark' yes "$(marked_by "$root/lib/landing-check.sh")"
+
 echo
 if [ "$failed" -eq 0 ]; then echo "all passed"; else echo "$failed failed"; exit 1; fi

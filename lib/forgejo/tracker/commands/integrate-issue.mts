@@ -282,7 +282,7 @@ async function landOnce(context: CommandContext, api: ForgejoClient, input: Land
     }
     const merged = commits[commits.length - 1] ?? base;
     context.stderr(`round ${round} of ${limit}: the merge commit ${merged} is made on origin/${defaultBranch} at ${base}\n`);
-    // The push gate lets only a harness landing update the default branch: this landing says so for exactly these pushes.
+    // Without the mark of a harness landing the push gate takes only a direct push of DIRECT_PUSH_FILES onto the default branch: this landing marks exactly these pushes.
     const ciBranch = `ci/integrate-${branch}`;
     const marked = await context.harness.openLandingMark(tree, merged, [`refs/heads/${defaultBranch}`, ...(checked ? [`refs/heads/${ciBranch}`] : [])]);
     if (!marked.succeeded) throw new PreconditionError(`nothing landed: the mark of this landing could not be made (${marked.output})`);

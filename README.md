@@ -725,8 +725,9 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    release put on a stage by its deploy ref from a checkout that has moved on. A push to the default
    branch (`origin/HEAD`, else `master`) must be a fast-forward: one that would drop commits the
    remote has, a force push, is refused, whatever tool or person made it. **The default branch takes
-   only a harness landing**: an update of it that carries no mark of a landing for exactly the commit
-   it lands, this clone and this ref is refused as `master takes no plain push (<reason>)`, with
+   a harness landing or a direct push**: an update of it that carries no mark of a landing for
+   exactly the commit it lands, this clone and this ref, and is no direct push (below), is refused as
+   `master takes no plain push (<reason>)`, with
    `ai-core integrate-issue <number> --reviewed-by <reviewer>` named. The mark is a record
    (`lib/landing-check.sh`, `mark` and `unmark`) that a path of the harness writes right before its
    push, hands to that push's Git children alone in `AI_CORE_LANDING_MARK`, and removes on every way
@@ -738,6 +739,33 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    push, which the gate refuses on the default branch. It is no override a
    person sets: it keeps a plain `git push` from reaching the default branch by habit, and proves no
    review. A push of another branch needs none.
+
+   **A direct push** is a plain push to the default branch whose every new commit touches only files
+   that the repository lists in `DIRECT_PUSH_FILES` of its own `.ai-core/config.env`: a release
+   manifest that a release script commits and pushes, a data table, a change too small for a
+   landing. Nothing is listed by default, so without the key every plain push is refused as before.
+   The value is a list separated by white space of paths or shell patterns, matched against the
+   whole path from the repository root, case counted: `*` stands for any characters, a slash
+   included, `?` for one character, `[...]` for one of a set, and a pattern without them names
+   exactly one file, so `VERSION` is no `sub/VERSION`, `version` or `VERSION.txt`, and `docs/*` is
+   everything under `docs/`. A path that is absolute, or has an empty, `.` or `..` component, is
+   refused by name. The gate reads the key again at every push, from the file of the checkout it
+   runs in and from nothing else: an exported variable, the file of the project folder and the file
+   of another worktree grant nothing, and a file it cannot read refuses the push and names the
+   file. It reads each commit on its own, never the tip alone or the net change of the push: every
+   commit that the default branch gains, a merge among them, a commit that another branch or tag
+   of origin carries as well, and every commit that another ref of the same push adds. A merge is
+   read against each of its parents, a rename as its old path and its new one. One commit that
+   touches another file, one such commit beneath a valid one, and an unlisted change that a later
+   commit reverts each leave the push a plain one, refused as before. So does a commit that changes
+   `.ai-core/config.env` itself, whatever the list says, because the gate reads the list from that
+   file as the push brings it: a repository that tracks the file changes it through a landing. A
+   direct push meets every other check of the gate, on every commit that the default branch gains,
+   as a landing does: the fast-forward and the checked-out commit above, the issue of
+   each commit or its `No-issue:` reason (check 2), the team modes, `scripts/check.sh` run on the
+   pushed tree, the secret scan, and, where the default branch goes live, `scripts/check.sh` and the
+   `Reviewed-by:` trailer (check 8). The gate runs in the clone it is installed in: a temporary
+   clone without the hook is judged by no gate, and this changes nothing there.
 2. **Every pushed commit names its issue**, `#<n>` anywhere in the message, or is excused: the
    subject opens with `release:`; every file it touches is a `*.md` or a `LICENSE*` (an
    explanation needs no ticket); or it carries a trailer `No-issue: <who asked and why>`, read the
@@ -983,7 +1011,8 @@ command or an executable path (`FORGEJO_URL`, `PLANE_URL`, the two `TOKEN_COMMAN
 `START_CHECK`), a name of an organisation, a workspace, a project, a model or a repository folder (`GH_ORG`,
 `PLANE_WORKSPACE`, `PLANE_PROJECT`, `MAP_MODEL`, `DEFAULT_BRANCH_IS_LIVE`), and the tool names of `MAP_TOOL`,
 `AI_CORE_MAP_TOOL` and `ECOSYSTEM_ORDER`, which are the exact lowercase names of the command line tools and of `models.tsv`.
-The environments and patterns of `LIVE_TAGS` keep their bytes too, with `command` and `landed` as exact lowercase values.
+The environments and patterns of `LIVE_TAGS` keep their bytes too, with `command` and `landed` as exact lowercase values,
+and so do the paths and patterns of `DIRECT_PUSH_FILES`.
 `DEFAULT_BRANCH_IS_LIVE` takes `yes` in lowercase or a folder name as written. The numbers (`USAGE_STOP_AT`,
 `PRE_PUSH_LOAD_LIMIT`, `PRE_PUSH_LOAD_WAIT_SECONDS`, `NEIGHBOUR_LOCK_WAIT_SECONDS`, `PROOF_HOURS`) have no letter case.
 A `config.env` that is not there, or a key it does not set, gives the default of the key. A `config.env` that is
@@ -1016,6 +1045,7 @@ with a default in its place.
 | `START_CHECK` | a command, empty when unset | run by the person in charge on the bundle of a package's branches before it lands; empty means the project names none |
 | `PROOF_HOURS` | hours, `24` when unset | how long a later environment of `LIVE_TAGS` may carry a card the first one does not before `ai-core status` marks its proof there overdue with 🔴; `status` reads it from the project folder's `.ai-core/config.env`, whichever checkout it runs in |
 | `DEFAULT_BRANCH_IS_LIVE` | `yes`, or the folder names of the repositories whose default branch goes live; unset by default | a push to such a default branch needs `scripts/check.sh` and a `Reviewed-by:` trailer on its last commit (section 4.12) |
+| `DIRECT_PUSH_FILES` | paths or shell patterns separated by white space, relative to the repository root; empty by default | the files whose change may reach the default branch by a plain push: the push gate admits it, without a landing mark, where every new commit touches only files that match (section 4.12, the direct push). Read from the `.ai-core/config.env` of the checkout the push runs in, at every push, and from no exported variable. Empty or unset: every plain push to the default branch is refused. A path that is absolute or holds an empty, `.` or `..` component is refused by name |
 
 ### 5.8 Many repositories
 
@@ -1091,7 +1121,7 @@ board commands are refused there. Every other command, with any tracker, is Bash
 | `rules-check` | `ai-core rules-check [file-or-directory]`; default `.ai-core/rules/rules.md`, or the `rules/` directory of setup-ai-core; a directory means its `NN-*.md` section files; a project harness (a directory with `rules/`, `skills/` or `agents/`) is checked whole: every skill has a front matter with its folder's name and a description, every agent a name and a description and no model below Sonnet, then its rule sections | 0 every rule tagged and nothing wrong in the harness; 1 otherwise |
 | `init` | `ai-core init [dir] [--all <folder>] [--no-doctor] [--dry-run]`; the commit it makes of the `.gitignore` block is pushed to the checked-out branch with the mark of a harness landing, so the armed push gate lets it through | 0 in place, or dry; 1 doctor failed, or a repository under `--all` failed |
 | `map` | `ai-core map [dir] [--all <folder>] [--no-push] [--dry-run]` | 0 written (or unchanged, or dry); 1 no harness, `~/.ai-core/claude-run-settings.json` missing for a `claude` run, the agent CLI failed or wrote something that is not a map, or a repository under `--all` failed |
-| `push` | `ai-core push [MESSAGE] [--harness <name>]`; runs `rules-check` on a clone with changes first and does not commit one it refuses; pushes with the mark of a harness landing, so a push gate armed in the clone lets it through | 0 every harness clone pushed or had nothing; 1 no clone, a clone `rules-check` refused, a commit or a push failed |
+| `push` | `ai-core push [MESSAGE] [--harness <name>]`; runs `rules-check` on a clone with changes first and does not commit one it refuses; the first paragraph of MESSAGE, its lines joined by a space, is the subject of the commit and has at most 72 characters, or nothing is committed, and the message it writes itself names as many changed files as fit in 72; pushes with the mark of a harness landing, so a push gate armed in the clone lets it through; then refreshes the checkout it runs in with `init`, unless that is a harness repository, where `init` refuses | 0 every harness clone pushed or had nothing; 1 no clone, a clone `rules-check` refused, a commit or a push failed; 2 a wrong argument or a subject over 72 characters |
 | `update` | `ai-core update [--check] [--main]` (section 5.10) | 0 done, or `--check`: everything current; 2 `--check`: a release or commits available; 1 an origin could not be reached |
 | `release` | `ai-core release <version>` (in a clone of setup-ai-core, section 10); the commits it sends to the default branch carry the mark of a harness landing, so the armed push gate lets them through | 0 tagged and pushed; 1 refused, naming what is missing; 2 a wrong argument |
 | `pre-push` | `ai-core pre-push [--install [--all <folder>]]` (section 4.12; it writes into a worktree only where its folder stands, so a worktree that `finish-issue` removed meanwhile stays gone, and pushes the commit of the shims with the mark of a harness landing); `ai-core pre-push --runs [--repo OWNER/REPO] [--since TIME]` lists the runs of the gate on this machine, newest first, each with its verdict (green, red, or no check), the seconds `scripts/check.sh` took (the wait for a lower load not counted), its last line and the 1-minute load when the check started (`-` for a run with no check, and for a run recorded before that column existed; a run that did not execute `scripts/check.sh` because the receipt of its landing showed it green is `no check` and its last line says so; a log may hold rows of both widths under its first header, and the listing shows the current header; the row an append has not ended is not listed; the longest of these checks of the last 14 days sets the wait for the copy of a neighbour, see `NEIGHBOUR_LOCK_WAIT_SECONDS`) | 0 nothing refused the push, the shim written, or the runs listed; 1 refused, a repository under `--all` is none, or the log cannot be read; 2 a wrong argument |

@@ -368,6 +368,9 @@ set_project() {
   if [ -z "$org" ]; then
     if [ -n "$repo" ]; then org="${repo%%/*}"; else org="$(gh_org)" || exit 1; fi
   fi
+  # cache_dir asks gh_org for the caller's organisation in command substitutions that cannot stop the command, and takes
+  # any failure of it for an organisation that is not known; a config.env that cannot be read stops the command here.
+  config_value GH_ORG "" > /dev/null || exit 1
   PROJECT="$n"
   PROJECT_ORG="$org"
   echo "$PROJECT"

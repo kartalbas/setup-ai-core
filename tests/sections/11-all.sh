@@ -8,6 +8,7 @@ for r in one two; do git init -q "$WORK/all/$r"; mkdir -p "$WORK/all/$r/.ai-core
 git init -q "$WORK/all/broken"; git -C "$WORK/all/broken" remote add origin https://github.com/example-org/broken-ai-core.git   # its origin is a harness repository: init refuses it
 mkdir -p "$WORK/all/not-a-repo" "$WORK/all/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$WORK/all/.ai-core/config.env"
 git init -q "$WORK/all/x-ai-core"   # a harness clone beside the repositories is none of them
+carry_harness "$WORK/all/one" "$WORK/all/two" "$WORK/all/broken"
 # the worktrees ai-core start-issue puts under .worktrees/<repository>/: one of a repository, whose
 # own name ends like a harness clone's, and one of the harness clone
 for r in one x-ai-core; do git -C "$WORK/all/$r" commit -q --allow-empty -m start; done
@@ -18,13 +19,13 @@ git -C "$WORK/all/x-ai-core" worktree add -q -b issue-2-rules "$WORK/all/.worktr
 git -C "$WORK/all/two" commit -q --allow-empty -m start
 git -C "$WORK/all/x-ai-core" worktree add -q -b issue-3-pkg "$WORK/all/.worktrees/issue-3-pkg/x-ai-core"
 git -C "$WORK/all/two" worktree add -q -b issue-4-to-ai-core "$WORK/all/.worktrees/issue-4-to-ai-core/two"
-mkdir -p "$WORK/all/.worktrees/issue-5-gone/three"; printf 'gitdir: /nonexistent/gone\n' > "$WORK/all/.worktrees/issue-5-gone/three/.git"   # a worktree whose checkout is gone is walked as before, and the run goes on
+mkdir -p "$WORK/all/.worktrees/issue-5-gone/three"; printf 'gitdir: /nonexistent/gone\n' > "$WORK/all/.worktrees/issue-5-gone/three/.git"   # a worktree whose checkout is gone belongs to no harness: it is passed over, and the run goes on
 bash "$ROOT/bin/init.sh" --all "$WORK/all" --no-doctor --dry-run > "$WORK/all-dry.log" 2>&1 && fail "init.sh --all --dry-run exited 0 with a failing repository"
 bash "$ROOT/bin/init.sh" --all "$WORK/all" --no-doctor > "$WORK/all.log" 2>&1 && fail "init.sh --all exited 0 with a failing repository"
-grep -aq '5 repositories would be initialized; failed: broken' "$WORK/all-dry.log" || fail "init --all --dry-run summary wrong for sh: $(grep -a 'repositories' "$WORK/all-dry.log")"
-[ "$(grep -ac '^init would change in ' "$WORK/all-dry.log")" = 6 ] || fail "init --all --dry-run did not report every repository, the worktree and the folder"
+grep -aq '4 repositories would be initialized, 0 skipped without a harness; failed: broken' "$WORK/all-dry.log" || fail "init --all --dry-run summary wrong for sh: $(grep -a 'repositories' "$WORK/all-dry.log")"
+[ "$(grep -ac '^init would change in ' "$WORK/all-dry.log")" = 5 ] || fail "init --all --dry-run did not report every repository, the worktree and the folder"
 grep -aq '^  created .*AGENTS.md' "$WORK/all.log" || fail "init --all did not report what it created"
-grep -aq '5 repositories were initialized; failed: broken' "$WORK/all.log" || fail "init --all summary wrong for sh: $(grep -a 'repositories' "$WORK/all.log")"
+grep -aq '4 repositories were initialized, 0 skipped without a harness; failed: broken' "$WORK/all.log" || fail "init --all summary wrong for sh: $(grep -a 'repositories' "$WORK/all.log")"
 [ -f "$WORK/all/one/AGENTS.md" ] && [ -f "$WORK/all/two/AGENTS.md" ] || fail "init --all did not initialize the good repositories"
 grep -aq '^### \.worktrees/one/issue-1-to-ai-core' "$WORK/all.log" && [ -f "$WORK/all/.worktrees/one/issue-1-to-ai-core/.ai-core/rules/rules.md" ] || fail "init --all did not initialize the worktree under .worktrees/"
 [ -e "$WORK/all/.worktrees/x-ai-core/issue-2-rules/.ai-core" ] && fail "init --all initialized a worktree of a harness clone"
@@ -41,7 +42,7 @@ echo "  2 repositories and two worktrees under .worktrees/ initialized, 1 failed
 
 section "init --all gives the folder its rules before its repositories: a repository with the folder's rules names them without the @ in one run, the folder's rules older or missing"
 F="$WORK/order"; mkdir -p "$F/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$F/.ai-core/config.env"
-git init -q "$F/app"; mkdir -p "$F/app/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$F/app/.ai-core/config.env"
+git init -q "$F/app"; mkdir -p "$F/app/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$F/app/.ai-core/config.env"; carry_harness "$F/app"
 for run in 1 2 3; do
   [ "$run" = 2 ] && printf 'a rule of an older version\n' >> "$F/.ai-core/rules/rules.md"
   bash "$ROOT/bin/init.sh" --all "$F" --no-doctor $([ "$run" = 3 ] && echo --dry-run) > "$F-$run.log" 2>&1 || fail "init --all run $run failed (see $F-$run.log)"
@@ -55,7 +56,7 @@ section "init --all removes a worktree whose work landed a day ago or more befor
 F="$WORK/sweep"; O="$WORK/sweep-origin.git"; A="$F/app"
 mkdir -p "$F/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$F/.ai-core/config.env"
 git init -q --bare -b master "$O"; git init -q -b master "$A"
-mkdir -p "$A/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$A/.ai-core/config.env"; printf '/.ai-core/\n' >> "$A/.git/info/exclude"
+mkdir -p "$A/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$A/.ai-core/config.env"; printf '/.ai-core/\n' >> "$A/.git/info/exclude"; carry_harness "$A"
 echo one > "$A/README.md"; git -C "$A" add README.md; git -C "$A" commit -q -m 'Start #1'
 git -C "$A" remote add origin "$O"; git -C "$A" push -q -u origin master 2>/dev/null; git -C "$A" remote set-head origin -a >/dev/null
 long_ago="$(date -d '3 days ago' '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || date -v-3d '+%Y-%m-%dT%H:%M:%S')"
@@ -78,7 +79,7 @@ F="$WORK/near"; T="$F/.worktrees/app/issue-1-x"
 mkdir -p "$F/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$F/.ai-core/config.env"
 for r in app lib tools docs; do
   git init -q "$F/$r"; mkdir -p "$F/$r/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$F/$r/.ai-core/config.env"
-  git -C "$F/$r" commit -q --allow-empty -m start; echo "$r" > "$F/$r/marker"
+  git -C "$F/$r" commit -q --allow-empty -m start; echo "$r" > "$F/$r/marker"; carry_harness "$F/$r"
 done
 mkdir -p "$F/notes"                                  # a folder that is no checkout gets no link
 git -C "$F/app" worktree add -q -b issue-1-x "$T"
@@ -108,6 +109,7 @@ init_one real || fail "init on a worktree beside a dangling link failed: $(tail 
 grep -aq '^  links to checkouts that are gone removed in \.worktrees/app/: lib[[:space:]]*$' "$F-real.log" || fail "init does not name the link it removed (see $F-real.log)"
 [ "$(cat "$F/.worktrees/app/tools/marker" 2>/dev/null)" = tools ] || fail "init removed the link to a checkout that stays"
 { [ -L "$F/.worktrees/app/foreign" ] && [ -L "$F/.worktrees/app/loop-a" ] && [ -L "$F/.worktrees/app/other" ]; } || fail "init removed a dangling link it did not make"
+carry_harness "$F/app"
 bash "$ROOT/bin/init.sh" --all "$F" --no-doctor > "$F-all.log" 2>&1 || fail "init --all over the folder failed: $(grep -a -E '^###|error|failed' "$F-all.log" | tail -8)"
 grep -aq '^### \.worktrees/app/issue-1-x' "$F-all.log" || fail "init --all did not init the worktree (see $F-all.log)"
 grep -aq '^### \.worktrees/app/tools' "$F-all.log" && fail "init --all took the link to a neighbour for a worktree (see $F-all.log)"
@@ -117,7 +119,7 @@ section "a neighbour with an origin is linked as what it published, never as its
 F="$WORK/published"; T="$F/.worktrees/app/issue-2-y"
 mkdir -p "$F/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$F/.ai-core/config.env"
 git init -q --bare -b master "$WORK/published-origin.git"
-git clone -q "$WORK/published-origin.git" "$F/cat" 2>/dev/null
+git clone -q "$WORK/published-origin.git" "$F/cat" 2>/dev/null; carry_harness "$F/cat"
 git -C "$F/cat" config user.email t@example.invalid; git -C "$F/cat" config user.name t
 echo published > "$F/cat/marker"; git -C "$F/cat" add marker; git -C "$F/cat" commit -q -m one; git -C "$F/cat" push -q origin master
 # no `remote set-head`: the clone was made empty, so only init can learn the origin's default branch
@@ -144,6 +146,7 @@ grep -aq 'were not moved to their origin.s newest commit: cat' "$F-3.log" || fai
 rm -f "$F/.ai-core/neighbours/cat/origin-master/marker"; git -C "$F/.ai-core/neighbours/cat/origin-master" checkout -q -- marker
 (cd "$F/cat" && bash "$ROOT/bin/pre-push.sh" --install > "$F-shim.log" 2>&1) || true
 [ -z "$(git -C "$F/.ai-core/neighbours/cat/origin-master" status --porcelain)" ] || fail "pre-push --install wrote into the published copy: $(git -C "$F/.ai-core/neighbours/cat/origin-master" status --porcelain | head -3)"
+carry_harness "$F/app"
 bash "$ROOT/bin/init.sh" --all "$F" --no-doctor > "$F-all.log" 2>&1 || fail "init --all over the folder failed: $(grep -a -E '^###|error|failed' "$F-all.log" | tail -8)"
 grep -aq '^### \.ai-core' "$F-all.log" && fail "init --all took the published copy for a place of work (see $F-all.log)"
 grep -aq '^### cat: worktrees whose work landed' "$F-all.log" && fail "init --all counts the published copy as a worktree of cat (see $F-all.log)"
@@ -176,7 +179,7 @@ bash "$ROOT/bin/init.sh" "$T" --no-doctor > "$F-5c.log" 2>&1 || fail "init after
 # default branch: neither is linked to something that never moves, both are named
 for r in dog eel; do
   git init -q --bare -b master "$WORK/published-$r.git"
-  git clone -q "$WORK/published-$r.git" "$F/$r" 2>/dev/null
+  git clone -q "$WORK/published-$r.git" "$F/$r" 2>/dev/null; carry_harness "$F/$r"
   git -C "$F/$r" -c user.email=t@example.invalid -c user.name=t commit -q --allow-empty -m one; git -C "$F/$r" push -q origin master
 done
 mkdir -p "$F/.ai-core/neighbours/dog/origin-master"; echo somebodys > "$F/.ai-core/neighbours/dog/origin-master/note"
@@ -190,7 +193,7 @@ grep -aq 'named no default branch.*: eel' "$F-6.log" || fail "init does not name
 # A dry run asks no origin, so it names no origin as lacking a default branch; a default branch
 # with a slash makes a copy one folder deeper, which is still no worktree of anybody's work
 git init -q --bare -b release/1 "$WORK/published-fox.git"
-git clone -q "$WORK/published-fox.git" "$F/fox" 2>/dev/null
+git clone -q "$WORK/published-fox.git" "$F/fox" 2>/dev/null; carry_harness "$F/fox"
 git -C "$F/fox" -c user.email=t@example.invalid -c user.name=t commit -q --allow-empty -m one; git -C "$F/fox" push -q origin HEAD:release/1
 git -C "$F/fox" remote set-head origin -d 2>/dev/null || true
 bash "$ROOT/bin/init.sh" "$T" --no-doctor --dry-run > "$F-7.log" 2>&1 || fail "the dry run beside fox failed: $(tail -5 "$F-7.log")"
@@ -206,7 +209,7 @@ section "a published copy left in .worktrees/ moves out with what it holds, and 
 F="$WORK/moved"; T="$F/.worktrees/app/issue-3-z"
 mkdir -p "$F/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$F/.ai-core/config.env"
 git init -q --bare -b release/1 "$WORK/moved-origin.git"
-git clone -q "$WORK/moved-origin.git" "$F/cat" 2>/dev/null
+git clone -q "$WORK/moved-origin.git" "$F/cat" 2>/dev/null; carry_harness "$F/cat"
 git -C "$F/cat" -c user.email=t@example.invalid -c user.name=t commit -q --allow-empty -m one; git -C "$F/cat" push -q origin HEAD:release/1
 for r in app dog; do git init -q "$F/$r"; mkdir -p "$F/$r/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$F/$r/.ai-core/config.env"; git -C "$F/$r" commit -q --allow-empty -m start; done
 git -C "$F/app" worktree add -q -b issue-3-z "$T"
@@ -230,4 +233,123 @@ git -C "$F/cat" worktree list | grep -q '/\.ai-core/neighbours/cat/origin-releas
 grep -aq 'moved out of \.worktrees/.*: cat' "$F-2.log" || fail "init does not name the copy it moved (see $F-2.log)"
 grep -aq 'were not moved to their origin.s newest commit: cat' "$F-2.log" || fail "the moved copy with a change of its own is not held (see $F-2.log)"
 echo "  a copy in .worktrees/ moves to .ai-core/neighbours/ with what it holds, a slash branch's folders go with it, the links of every worktree follow, the dry run only names it"
+
+section "init --all refreshes only what carries the harness: a fresh clone is named and left as it was, ai-core init <path> equips it"
+make_gh_fake
+SHIM="$WORK/skip-shim"; mkdir -p "$SHIM" "$WORK/skip-home"
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/gh-calls.log"\nexec "%s/ghbin/gh" "$@"\n' "$WORK" "$WORK" > "$SHIM/gh"; chmod +x "$SHIM/gh"
+# skip_copy <dir> [planted-all|planted-map|planted-neighbours|planted-kept|planted-own-stamp]: a copy of the harness whose
+# finish-issue only records where the sweep ran; a planted copy walks every repository, lists every repository in the
+# folder's map, links every checkout beside a worktree, keeps a link to a clone without the harness, or asks a worktree
+# for a STAMP of its own
+skip_copy() {
+  mkdir -p "$1"; tar -C "$ROOT" --exclude=node_modules --exclude=.git -cf - bin lib templates rules skills VERSION | tar -C "$1" -xf -
+  printf '#!/usr/bin/env bash\npwd >> "%s/sweeps.log"\n' "$WORK" > "$1/bin/finish-issue.sh"
+  case "${2:-}" in
+    planted-all) sed 's/^carries_harness() .*$/carries_harness() { true; }/' "$1/lib/common.sh" > "$1/planted"; mv "$1/planted" "$1/lib/common.sh" ;;
+    planted-map) sed '/^      carries_harness "\$d" || continue$/d' "$1/bin/init.sh" > "$1/planted"; mv "$1/planted" "$1/bin/init.sh" ;;
+    planted-neighbours) sed 's/ && carries_harness "\$neighbour"//; s/if ! carries_harness "\$neighbour"; then/if false; then/' "$1/bin/init.sh" > "$1/planted"; mv "$1/planted" "$1/bin/init.sh" ;;
+    planted-kept) sed '/NEIGHBOURS_UNHARNESSED="\$NEIGHBOURS_UNHARNESSED \$name"; fi$/d' "$1/bin/init.sh" > "$1/planted"; mv "$1/planted" "$1/bin/init.sh" ;;
+    planted-own-stamp) sed 's/! carries_harness "\$checkout"/! carries_harness "$repo"/' "$1/bin/init.sh" > "$1/planted"; mv "$1/planted" "$1/bin/init.sh" ;;
+  esac
+}
+skip_copy "$WORK/skip-copy-real"
+skip_copy "$WORK/skip-copy-all" planted-all; grep -q '^carries_harness() { true; }$' "$WORK/skip-copy-all/lib/common.sh" || fail "the planted copy that walks every repository was not made"
+skip_copy "$WORK/skip-copy-map" planted-map; [ "$(grep -c 'carries_harness' "$WORK/skip-copy-map/bin/init.sh")" = "$(( $(grep -c 'carries_harness' "$WORK/skip-copy-real/bin/init.sh") - 1 ))" ] || fail "the planted copy that lists every repository was not made"
+skip_copy "$WORK/skip-copy-neighbours" planted-neighbours; [ "$(grep -c 'carries_harness "\$neighbour"' "$WORK/skip-copy-real/bin/init.sh")" = 4 ] && ! grep -q 'carries_harness "\$neighbour"' "$WORK/skip-copy-neighbours/bin/init.sh" || fail "the planted copy that links every checkout was not made"
+skip_copy "$WORK/skip-copy-kept" planted-kept; [ "$(grep -c 'NEIGHBOURS_UNHARNESSED=' "$WORK/skip-copy-kept/bin/init.sh")" = "$(( $(grep -c 'NEIGHBOURS_UNHARNESSED=' "$WORK/skip-copy-real/bin/init.sh") - 1 ))" ] || fail "the planted copy that keeps a link to a clone was not made"
+skip_copy "$WORK/skip-copy-own-stamp" planted-own-stamp; grep -q '! carries_harness "\$repo"; then$' "$WORK/skip-copy-own-stamp/bin/init.sh" || fail "the planted copy that asks a worktree for its own STAMP was not made"
+# every file of a clone that init could write, with the tree: its checkout, hooks, exclude file and configuration
+skip_snapshot() { (cd "$1" && find . -path ./.git/objects -prune -o -path ./.git/index -prune -o -print | LC_ALL=C sort; find . -path ./.git/objects -prune -o -path ./.git/index -prune -o -type f -print0 | LC_ALL=C sort -z | xargs -0 cksum); }
+# skip_folder <folder> <name>...: a project folder with the named checkouts: mine carries the harness (and a worktree
+# of its own, whose own STAMP is missing), clone is fresh, with a worktree of its own and an origin on this disk under
+# a path that names the forge, so a walk over it fetches without the network
+skip_folder() {
+  local f="$1" name; shift
+  mkdir -p "$f/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$f/.ai-core/config.env"
+  for name in "$@"; do
+    git init -q -b master "$f/$name"; git -C "$f/$name" commit -q --allow-empty -m start
+    if [ "$name" = clone ]; then
+      git init -q --bare -b master "$f-origin/github.com/example-org/clone.git"; git -C "$f/clone" remote add origin "$f-origin/github.com/example-org/clone.git"
+      git -C "$f/clone" push -q -u origin master 2>/dev/null; git -C "$f/clone" remote set-head origin -a >/dev/null
+    fi
+    [ "$name" != mine ] || carry_harness "$f/mine"
+    git -C "$f/$name" worktree add -q -b "issue-9-$name" "$f/.worktrees/$name/issue-9-$name"
+  done
+}
+skip_run() { # skip_run <copy> <folder> [--dry-run]: the log is <folder>.log; the exit status is init's
+  : > "$WORK/gh-calls.log"; : > "$WORK/sweeps.log"
+  HOME="$WORK/skip-home" PATH="$SHIM:$PATH_SH" bash "$1/bin/init.sh" --all "$2" --no-doctor ${3:+"$3"} > "$2.log" 2>&1
+}
+# skip_problems <copy> <folder>: what init --all got wrong with a harnessed checkout beside a fresh clone, one line each
+skip_problems() {
+  local copy="$1" f="$2" before rc=0
+  skip_folder "$f" mine clone
+  before="$(skip_snapshot "$f/clone")"
+  skip_run "$copy" "$f" || rc=$?
+  [ "$rc" = 0 ] || echo "exit $rc"
+  grep -aqxF "skipped: clone carries no harness; ai-core init $f/clone installs it" "$f.log" || echo "no skip line"
+  grep -aq ', 1 skipped without a harness' "$f.log" || echo "the summary does not count the skipped clone"
+  [ "$(skip_snapshot "$f/clone")" = "$before" ] || echo "the clone changed"
+  [ ! -e "$f/.worktrees/clone/issue-9-clone/.ai-core" ] || echo "the worktree of the clone was equipped"
+  [ ! -e "$f/.worktrees/mine/clone" ] && [ ! -L "$f/.worktrees/mine/clone" ] || echo "the worktree of the harnessed checkout links the clone"
+  ! grep -aq 'clone-ai-core' "$WORK/gh-calls.log" || echo "a forge call named the clone"
+  ! grep -aqxF "$f/clone" "$WORK/sweeps.log" || echo "the worktrees of the clone were swept"
+  grep -aqxF "$f/mine" "$WORK/sweeps.log" || echo "the worktrees of the harnessed checkout were not swept"
+  [ -f "$f/mine/.ai-core/rules/rules.md" ] || echo "the harnessed checkout was not refreshed"
+  [ -f "$f/.worktrees/mine/issue-9-mine/.ai-core/STAMP" ] || echo "the worktree of a harnessed checkout, without a STAMP of its own, was not initialized"
+  grep -q '^| `mine` |' "$f/AGENTS.md" || echo "the map does not list the harnessed checkout"
+  ! grep -q '^| `clone` |' "$f/AGENTS.md" || echo "the map lists the clone"
+}
+problems="$(skip_problems "$WORK/skip-copy-real" "$WORK/skip-real")"
+[ -z "$problems" ] || fail "init --all beside a fresh clone: $(tr '\n' ';' <<< "$problems") (see $WORK/skip-real.log)"
+# planted: a copy that walks every repository goes red on the clone, its forge call, its sweep and the map
+problems="$(skip_problems "$WORK/skip-copy-all" "$WORK/skip-planted-all")"
+for expected in "the clone changed" "a forge call named the clone" "the worktrees of the clone were swept" "the map lists the clone" "the worktree of the clone was equipped"; do
+  grep -qxF "$expected" <<< "$problems" || fail "planted: the copy that walks every repository was not caught by: $expected (it was caught by: $(tr '\n' ';' <<< "$problems"))"
+done
+# planted: a copy that lists every repository in the folder's map goes red on the map alone
+problems="$(skip_problems "$WORK/skip-copy-map" "$WORK/skip-planted-map")"
+[ "$problems" = "the map lists the clone" ] || fail "planted: the copy that lists every repository was not caught by the map alone: $(tr '\n' ';' <<< "$problems")"
+# planted: a copy whose neighbour step links every checkout fetches into the clone and links it, and nothing else
+problems="$(skip_problems "$WORK/skip-copy-neighbours" "$WORK/skip-planted-neighbours")"
+[ "$problems" = "the clone changed"$'\n'"the worktree of the harnessed checkout links the clone" ] || fail "planted: the copy that links every checkout was not caught by the clone and the link alone: $(tr '\n' ';' <<< "$problems")"
+# planted: a copy that asks a worktree for a STAMP of its own leaves the worktree of the harnessed checkout bare
+problems="$(skip_problems "$WORK/skip-copy-own-stamp" "$WORK/skip-planted-own-stamp")"
+[ "$problems" = "the worktree of a harnessed checkout, without a STAMP of its own, was not initialized" ] || fail "planted: the copy that asks a worktree for its own STAMP was not caught: $(tr '\n' ';' <<< "$problems")"
+# a link an earlier version made beside a worktree of the harnessed checkout to the clone goes at the next init, which
+# names it, and the clone stays as it was: the push gate would fetch into the clone through that link. Planted: a copy
+# that links every checkout makes the link and fetches into the clone; a copy that keeps the link leaves it standing
+L="$WORK/skip-link"; skip_folder "$L" mine clone
+link_init() { HOME="$WORK/skip-home" PATH="$SHIM:$PATH_SH" bash "$1/bin/init.sh" "$L/.worktrees/mine/issue-9-mine" --no-doctor > "$L-$2.log" 2>&1 || fail "init of the worktree with the $2 copy failed (see $L-$2.log)"; }
+before="$(skip_snapshot "$L/clone")"; link_init "$WORK/skip-copy-neighbours" planted
+[ "$(readlink "$L/.worktrees/mine/clone")" = ../../.ai-core/neighbours/clone/origin-master ] && [ "$(skip_snapshot "$L/clone")" != "$before" ] || fail "planted: the copy that links every checkout did not link the clone or fetch into it (see $L-planted.log)"
+before="$(skip_snapshot "$L/clone")"; link_init "$WORK/skip-copy-kept" kept
+[ -L "$L/.worktrees/mine/clone" ] || fail "planted: the copy that keeps the link to the clone removed it (see $L-kept.log)"
+link_init "$WORK/skip-copy-real" real
+[ ! -e "$L/.worktrees/mine/clone" ] && [ ! -L "$L/.worktrees/mine/clone" ] || fail "init kept the link to a checkout without the harness (see $L-real.log)"
+grep -aq '^  links to checkouts that carry no harness removed in \.worktrees/mine/, .*: clone[[:space:]]*$' "$L-real.log" || fail "init does not name the link it removed to the clone (see $L-real.log)"
+[ "$(skip_snapshot "$L/clone")" = "$before" ] || fail "init of the worktree, or the copy that keeps the link, changed the clone (see $L-real.log)"
+# a dry run names the clone and leaves it as it was
+skip_folder "$WORK/skip-dry" mine clone; before="$(skip_snapshot "$WORK/skip-dry/clone")"
+skip_run "$WORK/skip-copy-real" "$WORK/skip-dry" --dry-run || fail "init --all --dry-run beside a fresh clone failed (see $WORK/skip-dry.log)"
+grep -aqxF "skipped: clone carries no harness; ai-core init $WORK/skip-dry/clone installs it" "$WORK/skip-dry.log" && [ "$(skip_snapshot "$WORK/skip-dry/clone")" = "$before" ] || fail "the dry run did not name the clone, or changed it (see $WORK/skip-dry.log)"
+# a folder whose only repository is a fresh clone ends with exit 0
+skip_folder "$WORK/skip-alone" clone
+skip_run "$WORK/skip-copy-real" "$WORK/skip-alone" || fail "init --all over a folder of one fresh clone did not end with exit 0 (see $WORK/skip-alone.log)"
+grep -aq '0 repositories were initialized, 1 skipped without a harness$' "$WORK/skip-alone.log" || fail "init --all over a folder of one fresh clone does not count it: $(tail -1 "$WORK/skip-alone.log")"
+# innocent: a folder of harnessed checkouts only skips nothing, on the real copy and on the one that walks every repository
+for copy in real all; do
+  skip_folder "$WORK/skip-innocent-$copy" mine other; carry_harness "$WORK/skip-innocent-$copy/other"
+  skip_run "$WORK/skip-copy-$copy" "$WORK/skip-innocent-$copy" || fail "innocent: init --all over harnessed checkouts only failed with the $copy copy (see $WORK/skip-innocent-$copy.log)"
+  ! grep -aq '^skipped: ' "$WORK/skip-innocent-$copy.log" && grep -aq '4 repositories were initialized, 0 skipped without a harness$' "$WORK/skip-innocent-$copy.log" || fail "innocent: init --all over harnessed checkouts only skipped one with the $copy copy: $(tail -1 "$WORK/skip-innocent-$copy.log")"
+  grep -q '^| `mine` |' "$WORK/skip-innocent-$copy/AGENTS.md" && grep -q '^| `other` |' "$WORK/skip-innocent-$copy/AGENTS.md" || fail "innocent: the map of harnessed checkouts only lacks one with the $copy copy"
+  [ -L "$WORK/skip-innocent-$copy/.worktrees/mine/other" ] || fail "innocent: the worktree of mine got no link to the harnessed checkout beside it with the $copy copy"
+done
+# ai-core init <path> equips the clone, and the next init --all refreshes it
+HOME="$WORK/skip-home" PATH="$SHIM:$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/skip-real/clone" --no-doctor > "$WORK/skip-clone.log" 2>&1 || fail "init on the fresh clone failed (see $WORK/skip-clone.log)"
+[ -f "$WORK/skip-real/clone/.ai-core/STAMP" ] || fail "init on the fresh clone did not install the harness"
+skip_run "$WORK/skip-copy-real" "$WORK/skip-real" || fail "init --all after the clone was equipped failed (see $WORK/skip-real.log)"
+! grep -aq '^skipped: ' "$WORK/skip-real.log" && grep -aq '^### clone$' "$WORK/skip-real.log" && grep -q '^| `clone` |' "$WORK/skip-real/AGENTS.md" || fail "init --all did not refresh the clone once it carried the harness (see $WORK/skip-real.log)"
+echo "  the clone is named, counted and left byte for byte as it was, with its worktrees, its forge and its map entry, the harnessed checkout and its worktree are refreshed, a dry run and a folder of one clone end with exit 0, a folder of harnessed checkouts skips nothing and links its neighbours, a link an earlier version made to the clone goes and the clone stays, init <path> equips the clone and the next run refreshes it, and each planted copy goes red"
 exit 0

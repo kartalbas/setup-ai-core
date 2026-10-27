@@ -378,6 +378,7 @@ HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/harness-che
 grep -aq 'harness repository' "$WORK/layers-refused.log" || fail "init.sh did not say why the harness repository is refused"
 mkdir -p "$WORK/folder/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$WORK/folder/.ai-core/config.env"
 new_checkout "$WORK/folder/shop-web" shop-web; new_checkout "$WORK/folder/store-api" store-api
+carry_harness "$WORK/folder/shop-web" "$WORK/folder/store-api"
 git clone -q "$GH_FAKE/github.com/example-org/shop-ai-core.git" "$WORK/home-sh/.shop-ai-core" 2>/dev/null   # where an earlier version kept it
 HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/folder" --no-doctor > "$WORK/layers-folder.log" 2>&1 || fail "init.sh on a project folder with layers (see $WORK/layers-folder.log)"
 [ "$(tr '\n' '|' < "$WORK/folder/.ai-core/STAMP" | sed 's/ [0-9a-f-]*|/|/g')" = "setup-ai-core|store-ai-core|" ] || fail "the project folder did not get the layer its repositories share: $(tr '\n' '|' < "$WORK/folder/.ai-core/STAMP")"
@@ -391,12 +392,31 @@ grep -aq 'restored: the files of example-org/shop-ai-core at ' "$WORK/layers-fol
 [ -z "$(git -C "$WORK/folder/shop-ai-core" status --porcelain)" ] || fail "the harness clone is not whole after the restore: $(git -C "$WORK/folder/shop-ai-core" status --porcelain | tr '\n' '|')"
 # map --all: every repository under the folder, the harness clones excepted, one push, then init --all
 map_run --all "$WORK/folder" > "$WORK/map-all.log" 2>&1 || fail "map.sh --all (see $WORK/map-all.log)"
-grep -aq '^==> map --all: 2 map(s) were written$' "$WORK/map-all.log" || fail "map.sh --all did not write the two maps: $(grep -a 'map --all' "$WORK/map-all.log")"
+grep -aq '^==> map --all: 2 map(s) were written, 0 skipped without a harness$' "$WORK/map-all.log" || fail "map.sh --all did not write the two maps: $(grep -a 'map --all' "$WORK/map-all.log")"
 for r in shop-web store-api; do
   h="$WORK/folder/${r%%-*}-ai-core/repos/$r/AGENTS.md"
   head -n1 "$h" | grep -q 'ai-core map: generated' && head -n1 "$WORK/folder/$r/AGENTS.md" | grep -q 'ai-core map: generated' || fail "map.sh --all: $r has no map in the harness or the checkout"
   [ -z "$(git -C "$WORK/folder/${r%%-*}-ai-core" status --porcelain)" ] || fail "map.sh --all did not push ${r%%-*}-ai-core"
 done
+# map --all names a fresh clone that carries no harness and touches it in no way: no agent reads it, nothing is written
+# into it, and it does not count as failed. The harness of its organisation exists, and the fake agent writes something
+# that is not a map, which is what a walk over the clone would leave behind in it (.ai-core/map.rejected.md).
+MS="$WORK/mapskip"; mkdir -p "$MS"; new_checkout "$MS/fresh-web" fresh-web
+git init -q --bare "$GH_FAKE/github.com/example-org/fresh-ai-core.git"
+map_snapshot() { (cd "$1" && find . -path ./.git/objects -prune -o -path ./.git/index -prune -o -print | LC_ALL=C sort; find . -path ./.git/objects -prune -o -path ./.git/index -prune -o -type f -print0 | LC_ALL=C sort -z | xargs -0 cksum); }
+mkdir -p "$WORK/map-planted"; tar -C "$ROOT" --exclude=node_modules --exclude=.git -cf - bin lib templates rules skills VERSION | tar -C "$WORK/map-planted" -xf -
+sed 's/^carries_harness() .*$/carries_harness() { true; }/' "$WORK/map-planted/lib/common.sh" > "$WORK/map-planted/common.sh.planted"; mv "$WORK/map-planted/common.sh.planted" "$WORK/map-planted/lib/common.sh"
+grep -q '^carries_harness() { true; }$' "$WORK/map-planted/lib/common.sh" || fail "the planted copy that maps every clone was not made"
+before="$(map_snapshot "$MS/fresh-web")"; : > "$MAPLOG"
+HOME="$WORK/home-sh" AI_CORE_HOME="$WORK/home-sh" PATH="$PATH_SH" MAP_FAKE_LOG="$MAPLOG" MAP_FAKE_BAD=1 bash "$ROOT/bin/map.sh" --all "$MS" > "$WORK/map-skip.log" 2>&1 || fail "map.sh --all over a folder of one fresh clone did not end with exit 0 (see $WORK/map-skip.log)"
+grep -aqxF "skipped: fresh-web carries no harness; ai-core init $MS/fresh-web installs it" "$WORK/map-skip.log" || fail "map.sh --all does not name the fresh clone (see $WORK/map-skip.log)"
+grep -aq '^==> map --all: 0 map(s) were written, 1 skipped without a harness$' "$WORK/map-skip.log" || fail "map.sh --all does not count the skipped clone: $(tail -1 "$WORK/map-skip.log")"
+[ ! -s "$MAPLOG" ] || fail "map.sh --all ran the agent over a clone without a harness (see $WORK/map-skip.log)"
+[ "$(map_snapshot "$MS/fresh-web")" = "$before" ] || fail "map.sh --all changed the fresh clone (see $WORK/map-skip.log)"
+# planted: a copy that maps every clone runs the agent in it and leaves the rejected output there, and the run fails
+rc=0; HOME="$WORK/home-sh" AI_CORE_HOME="$WORK/home-sh" PATH="$PATH_SH" MAP_FAKE_LOG="$MAPLOG" MAP_FAKE_BAD=1 bash "$WORK/map-planted/bin/map.sh" --all "$MS" > "$WORK/map-skip-planted.log" 2>&1 || rc=$?
+[ "$rc" != 0 ] && [ -s "$MAPLOG" ] && [ "$(map_snapshot "$MS/fresh-web")" != "$before" ] && grep -aq 'failed: fresh-web' "$WORK/map-skip-planted.log" || fail "planted: the copy that maps every clone was not caught (exit $rc, see $WORK/map-skip-planted.log)"
+rm -rf "$MS"
 # The binding rules in a project folder: its AGENTS.md imports them; a checkout whose rules are the folder's names them without the @, one whose harness adds rules imports its own
 binding_ok() {  # binding_ok
   grep -q '^- The engineering rules, .*: @\.ai-core/rules/rules\.md$' "$WORK/folder/AGENTS.md" && grep -q '^- When a skill or a tool is used: @\.ai-core/rules/skills\.md$' "$WORK/folder/AGENTS.md" && grep -q '^| `shop-web` |' "$WORK/folder/AGENTS.md" || fail "the folder's AGENTS.md does not import the rules: $(sed -n 4,11p "$WORK/folder/AGENTS.md" | tr '\n' '|')"
@@ -641,6 +661,7 @@ lay_init "$LAY/lay-web-tree" lay-tree
 cmp -s "$LAY/lay-web/.ai-core/config.env" "$LAY/lay-web-tree/.ai-core/config.env" && ! grep -aE '^  (created|refreshed) .*\.ai-core/config\.env' "$WORK/lay-tree.log" || fail "a linked worktree did not lay the config.env its checkout has (see $WORK/lay-tree.log)"
 # a project folder takes the layers' config.env whole: the file of one of its repositories is laid over nothing
 mkdir -p "$LAY/folder"; new_checkout "$LAY/folder/lay-web" lay-web; new_checkout "$LAY/folder/lay-plain" lay-plain
+carry_harness "$LAY/folder/lay-web" "$LAY/folder/lay-plain"
 lay_init "$LAY/folder" lay-folder
 is_layer_config "$LAY/folder" || fail "a project folder did not get the config.env of its layers whole (see $WORK/lay-folder.log): $(cat "$LAY/folder/.ai-core/config.env")"
 

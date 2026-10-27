@@ -122,7 +122,7 @@ for tracker in forgejo github; do
   F="$WORK/sweep-$tracker"; O="$WORK/sweep-$tracker-origin.git"; A="$F/app"
   mkdir -p "$F/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$F/.ai-core/config.env"
   git init -q --bare -b master "$O"; git init -q -b master "$A"
-  mkdir -p "$A/.ai-core"; printf 'TRACKER=%s\nUPDATE_CHECK="never"\n' "$tracker" > "$A/.ai-core/config.env"; printf '/.ai-core/\n' >> "$A/.git/info/exclude"
+  mkdir -p "$A/.ai-core"; printf 'TRACKER=%s\nUPDATE_CHECK="never"\n' "$tracker" > "$A/.ai-core/config.env"; printf '/.ai-core/\n' >> "$A/.git/info/exclude"; carry_harness "$A"
   echo one > "$A/README.md"; git -C "$A" add README.md; git -C "$A" commit -q -m 'Start #1'
   git -C "$A" remote add origin "$O"; git -C "$A" push -q -u origin master 2>/dev/null; git -C "$A" remote set-head origin -a >/dev/null
   git -C "$A" worktree add -q -b issue-5-old "$F/.worktrees/app/issue-5-old" origin/master 2>/dev/null

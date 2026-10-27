@@ -137,13 +137,20 @@ else
   report jq MISSING "install jq from https://jqlang.github.io/jq"; problem
 fi
 
-# gitleaks, where a repository of this project folder carries .gitleaks.toml: the push gate reads
+# gitleaks, where a repository of this project folder that carries the harness has .gitleaks.toml: the push gate reads
 # every push there with `gitleaks git`, which came with gitleaks 8.19, and refuses the push without
 # it. brew has a recent one; apt's is 8.16 on every Ubuntu to date, so elsewhere the
 # release comes from GitHub, into ~/.local/bin.
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/layers.sh"
 LEAKS_REPOS=""
-for f in "$(project_folder_of "$PWD")"/*/.gitleaks.toml; do [ -f "$f" ] || continue; LEAKS_REPOS="$LEAKS_REPOS $(basename "$(dirname "$f")")"; done
+# the checkout doctor runs in counts too: `ai-core init <path>` runs doctor there before it writes the STAMP
+LEAKS_HERE="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" && LEAKS_HERE="$(dirname "$LEAKS_HERE")" || LEAKS_HERE=""
+for f in "$(project_folder_of "$PWD")"/*/.gitleaks.toml; do
+  [ -f "$f" ] || continue
+  # a clone without the harness runs no gate; a harness clone does, though init is never run in it
+  case "$(basename "$(dirname "$f")")" in *-ai-core) ;; *) carries_harness "$(dirname "$f")" || [ "$(dirname "$f")" -ef "$LEAKS_HERE" ] || continue ;; esac
+  LEAKS_REPOS="$LEAKS_REPOS $(basename "$(dirname "$f")")"
+done
 if [ -n "$LEAKS_REPOS" ]; then
   leaks_ok() { command -v gitleaks >/dev/null 2>&1 && gitleaks git --help >/dev/null 2>&1; }
   leaks_release() {

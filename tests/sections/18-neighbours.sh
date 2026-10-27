@@ -19,6 +19,7 @@ for r in cat dog Zed; do
   git clone -q "$WORK/nb-$r.git" "$WORK/nb-$r-pusher" 2>/dev/null
 done
 git init -q -b master "$F/eel"; git_as -C "$F/eel" commit -q --allow-empty -m one
+carry_harness "$F/cat" "$F/dog" "$F/Zed" "$F/eel"
 land() {  # land <neighbour> <marker>: another session lands a commit in the neighbour's origin
   echo "$2" > "$WORK/nb-$1-pusher/marker"; git_as -C "$WORK/nb-$1-pusher" commit -q -am "$2"; git -C "$WORK/nb-$1-pusher" push -q origin master
 }

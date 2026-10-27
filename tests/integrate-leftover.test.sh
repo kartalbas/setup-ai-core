@@ -23,6 +23,7 @@ git init -q "$WORK/other-tool"; git -C "$WORK/other-tool" commit -q --allow-empt
 git -C "$WORK/other-tool" worktree add -q --detach "$FOLDER/.worktrees/issue-5-pkg/integrate-tool"
 # a name that starts like a temporary worktree's, a digit first, and goes on with text: work as well, not a leftover
 git -C "$WORK/other-tool" worktree add -q --detach "$FOLDER/.worktrees/issue-6-pkg/integrate-7-release.abc123"
+carry_harness "$APP" "$FOLDER/solo" "$WORK/other-tool"
 APP_REAL="$(cd "$APP" && pwd -P)"; TREE7="$(cd "$FOLDER/.worktrees/app/integrate-7.abc123" && pwd -P)"
 
 section "init --all passes over the temporary worktree of a landing"

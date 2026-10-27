@@ -37,7 +37,7 @@ grep -aqE '^  (created|refreshed|removed) ' "$WORK/report-2.log" && fail "init.s
 grep -aq '^  .gitignore changed' "$WORK/report-2.log" && fail "init.sh run 2 changed .gitignore again"
 cmp -s "$D/.git/info/exclude" "$WORK/report.exclude" || fail "init.sh run 2 rewrote the exclude file"
 # 4. a project folder: its AGENTS.md is generated on every run
-F="$WORK/folder"; mkdir -p "$F"; git init -q "$F/app"
+F="$WORK/folder"; mkdir -p "$F"; git init -q "$F/app"; carry_harness "$F/app"
 init_quiet "$F" "$WORK/folder-1.log" || fail "init.sh on a project folder failed (see $WORK/folder-1.log)"
 grep -aq 'No such file or directory' "$WORK/folder-1.log" && fail "init.sh printed a shell error on a project folder without .ai-core/DEPLOYED: $(grep -a 'No such file' "$WORK/folder-1.log")"
 init_quiet "$F" "$WORK/folder-2.log" || fail "init.sh run 2 on a project folder failed (see $WORK/folder-2.log)"

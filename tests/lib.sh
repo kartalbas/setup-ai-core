@@ -13,6 +13,8 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 report_fatal() { local file="${BASH_SOURCE[1]:-bash -c}"; [ "$BASH_SUBSHELL" -gt 0 ] || echo "FATAL: ${file#"$ROOT"/}:$2: $3 (exit $1)" >&2; }
 trap 'report_fatal "$?" "$LINENO" "$BASH_COMMAND"' ERR
 section() { echo "==> $1"; }
+# A repository that carries the harness, as init --all counts it: init ran there once and left its STAMP
+carry_harness() { local repo; for repo in "$@"; do mkdir -p "$repo/.ai-core"; printf 'setup-ai-core 0000000\n' > "$repo/.ai-core/STAMP"; done; }
 WORK="$(mktemp -d)"
 [ -n "${KEEP_WORK:-}" ] || trap 'rm -rf "$WORK"' EXIT   # KEEP_WORK=1 leaves the directory for a look
 # the number of generic rule sections, what an assembled rules.md is measured against

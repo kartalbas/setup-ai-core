@@ -143,10 +143,12 @@ fi
 # release comes from GitHub, into ~/.local/bin.
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/layers.sh"
 LEAKS_REPOS=""
+# the checkout doctor runs in counts too: `ai-core init <path>` runs doctor there before it writes the STAMP
+LEAKS_HERE="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" && LEAKS_HERE="$(dirname "$LEAKS_HERE")" || LEAKS_HERE=""
 for f in "$(project_folder_of "$PWD")"/*/.gitleaks.toml; do
   [ -f "$f" ] || continue
   # a clone without the harness runs no gate; a harness clone does, though init is never run in it
-  case "$(basename "$(dirname "$f")")" in *-ai-core) ;; *) carries_harness "$(dirname "$f")" || continue ;; esac
+  case "$(basename "$(dirname "$f")")" in *-ai-core) ;; *) carries_harness "$(dirname "$f")" || [ "$(dirname "$f")" -ef "$LEAKS_HERE" ] || continue ;; esac
   LEAKS_REPOS="$LEAKS_REPOS $(basename "$(dirname "$f")")"
 done
 if [ -n "$LEAKS_REPOS" ]; then

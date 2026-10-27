@@ -65,6 +65,15 @@ leaks_doctor clone "$LC" "$NOLEAKS" || true
 grep -aq '^  gitleaks' "$WORK/leaks-clone.log" && fail "doctor.sh asks for gitleaks because of a clone without the harness (see $WORK/leaks-clone.log)"
 (cd "$LC" && HOME="$WORK/doctor-home" TEAM_MODES_FILE="$WORK/always.tsv" PATH="$NOLEAKS" bash "$WORK/leaks-planted/bin/doctor.sh" --no-install > "$WORK/leaks-clone-planted.log" 2>&1) || true
 grep -aq '^  gitleaks .*MISSING .*is: fresh' "$WORK/leaks-clone-planted.log" || fail "planted: the copy that counts every .gitleaks.toml was not caught (see $WORK/leaks-clone-planted.log)"
+# ai-core init <path> runs doctor in the fresh clone before it writes the STAMP and arms the gate there: that clone counts.
+# Planted: a copy that counts only a STAMP leaves the gate without gitleaks after the first init
+leaks_doctor fresh "$LC/fresh" "$NOLEAKS" && fail "doctor.sh exited 0 without gitleaks in the clone that init is about to equip"
+grep -aq '^  gitleaks .*MISSING .*is: fresh' "$WORK/leaks-fresh.log" || fail "doctor.sh does not ask for gitleaks in the clone that init is about to equip (see $WORK/leaks-fresh.log)"
+mkdir -p "$WORK/leaks-stamp-only"; tar -C "$ROOT" --exclude=node_modules --exclude=.git -cf - bin lib templates rules skills VERSION | tar -C "$WORK/leaks-stamp-only" -xf -
+sed 's/ || \[ "\$(dirname "\$f")" -ef "\$LEAKS_HERE" \]//' "$WORK/leaks-stamp-only/bin/doctor.sh" > "$WORK/leaks-stamp-only/planted"; mv "$WORK/leaks-stamp-only/planted" "$WORK/leaks-stamp-only/bin/doctor.sh"
+! grep -q 'LEAKS_HERE" \]' "$WORK/leaks-stamp-only/bin/doctor.sh" || fail "the planted copy that counts only a STAMP was not made"
+(cd "$LC/fresh" && HOME="$WORK/doctor-home" TEAM_MODES_FILE="$WORK/always.tsv" PATH="$NOLEAKS" bash "$WORK/leaks-stamp-only/bin/doctor.sh" --no-install > "$WORK/leaks-fresh-planted.log" 2>&1) || true
+! grep -aq '^  gitleaks' "$WORK/leaks-fresh-planted.log" || fail "planted: the copy that counts only a STAMP still asks for gitleaks in the fresh clone (see $WORK/leaks-fresh-planted.log)"
 grep -aq '^  gitleaks' "$WORK/leaks-none.log" && fail "doctor.sh names gitleaks where no repository carries .gitleaks.toml"
 echo "  missing and too old are problems that name how to install it, present names the repositories, a git without remerge diffs is a problem too, and no repository with .gitleaks.toml means no line"
 

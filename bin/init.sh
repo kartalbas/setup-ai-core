@@ -231,10 +231,11 @@ fi
 #     that instead. A neighbour without an origin is linked as its checkout; one whose origin
 #     names no default branch is too, and is named. An entry that stands there already is left as
 #     it is, except a link this step made, which follows the published branch, also when the origin
-#     renames it. A link of this shape whose checkout is gone since leads nowhere and goes; a link
-#     of anybody else stays. The copy stands outside .worktrees/, because a project's own tool may
+#     renames it. A link of this shape whose checkout is gone since leads nowhere and goes, and so does
+#     one to a checkout without the harness, which this step no longer follows: the push gate would
+#     fetch into that clone through it. A link of anybody else stays. The copy stands outside .worktrees/, because a project's own tool may
 #     read that folder as the places of work and would count the copy as one more.
-NEIGHBOURS_LINKED=""; NEIGHBOURS_IN=""; NEIGHBOURS_UNLINKED=""; NEIGHBOURS_HELD=""; NEIGHBOURS_UNPUBLISHED=""; NEIGHBOURS_BLOCKED=""; NEIGHBOURS_LEFT=""; NEIGHBOURS_MOVED=""; NEIGHBOURS_UNMOVED=""; NEIGHBOURS_STALE=""; NEIGHBOUR_WAIT=""; NEIGHBOUR_CONFIG=""
+NEIGHBOURS_LINKED=""; NEIGHBOURS_IN=""; NEIGHBOURS_UNLINKED=""; NEIGHBOURS_UNHARNESSED=""; NEIGHBOURS_HELD=""; NEIGHBOURS_UNPUBLISHED=""; NEIGHBOURS_BLOCKED=""; NEIGHBOURS_LEFT=""; NEIGHBOURS_MOVED=""; NEIGHBOURS_UNMOVED=""; NEIGHBOURS_STALE=""; NEIGHBOUR_WAIT=""; NEIGHBOUR_CONFIG=""
 # neighbour_published <checkout> <name>: sets NEIGHBOUR_TARGET, the link's target from the container,
 # or empties it where the copy stands but cannot be used
 neighbour_published() {
@@ -345,7 +346,11 @@ if [ "$PROJECT_FOLDER" -eq 0 ]; then
       for neighbour in "$folder"/*/; do name="${neighbour%/}"; neighbour_claimed "${name##*/}" || link_order+=("$neighbour"); done
       for neighbour in "${link_order[@]}"; do
         neighbour="${neighbour%/}"; name="${neighbour##*/}"
-        [ -d "$neighbour/.git" ] && [ "$neighbour" != "$main" ] && carries_harness "$neighbour" || continue
+        [ -d "$neighbour/.git" ] && [ "$neighbour" != "$main" ] || continue
+        if ! carries_harness "$neighbour"; then
+          if neighbour_followed "$name"; then [ "$DRY" -ne 0 ] || rm -f "$container/$name"; NEIGHBOURS_UNHARNESSED="$NEIGHBOURS_UNHARNESSED $name"; fi
+          continue
+        fi
         if neighbour_followed "$name"; then
           # A link this step made follows what the neighbour publishes now: the copy moves
           # with the origin, and the link with a renamed default branch
@@ -1205,6 +1210,7 @@ if [ -n "$NEIGHBOURS_LEFT" ]; then echo "  the links now follow a renamed defaul
 if [ -n "$NEIGHBOURS_MOVED" ]; then echo "  the published copies of these neighbours $([ "$DRY" -eq 1 ] && echo "would move" || echo moved) out of .worktrees/ to .ai-core/neighbours/, with all they hold, and the links of every worktree $([ "$DRY" -eq 1 ] && echo "would follow" || echo followed):$NEIGHBOURS_MOVED"; fi
 if [ -n "$NEIGHBOURS_UNMOVED" ]; then echo "  these published copies could not move out of .worktrees/ (their place in .ai-core/neighbours/ is taken, or git refused the move), so a tool that reads .worktrees/ as the places of work still counts them:$NEIGHBOURS_UNMOVED"; fi
 if [ -n "$NEIGHBOURS_UNLINKED" ]; then echo "  links to checkouts that are gone $([ "$DRY" -eq 1 ] && echo "would be removed" || echo "removed") in $NEIGHBOURS_IN:$NEIGHBOURS_UNLINKED"; fi
+if [ -n "$NEIGHBOURS_UNHARNESSED" ]; then echo "  links to checkouts that carry no harness $([ "$DRY" -eq 1 ] && echo "would be removed" || echo "removed") in $NEIGHBOURS_IN, as nothing fetches into them; ai-core init <path> installs it there:$NEIGHBOURS_UNHARNESSED"; fi
 if [ -n "$SIGN_IN_NOTE" ]; then printf '%s\n' "$SIGN_IN_NOTE" | sed 's/^/  /'; fi
 if [ "$HOOKS_ARMED" -eq 1 ]; then echo "  core.hooksPath $([ "$DRY" -eq 1 ] && echo "would be set" || echo "set") to .githooks: the push gate runs here"; fi
 if [ "$SHIMS_MODE" -eq 1 ] && [ "$DRY" -eq 1 ]; then echo "  the shims in .githooks are not executable, so git skips the push gate: ai-core pre-push --install would make them so"

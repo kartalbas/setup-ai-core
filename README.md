@@ -270,8 +270,9 @@ A worktree that `start-issue` opens lives in `<project folder>/.worktrees/<repo>
 holds no other checkout. So `init` in such a worktree links every other checkout of the project
 folder that carries the harness (a clone without it is never touched) into `.worktrees/<repo>/`, as `../../<name>`, and a path such as
 `../other-repo` finds from the worktree what it finds from the checkout. An entry that already
-stands there is kept, a folder that is no repository gets no link, and `init --all` passes the links
-by.
+stands there is kept, a folder that is no repository gets no link, a link `init` made to a checkout
+that carries no harness goes, as `init` no longer follows it and the push gate would fetch into that clone
+through it, and `init --all` passes the links by.
 
 Five files are the repository's own and are committed, because they say what the repository
 wants judged and how a worktree starts: `.githooks/pre-push`, the three-line shim that starts the
@@ -953,7 +954,7 @@ on the machine that runs the agent.
 | `ai-core init [TARGET_DIR]` | the repository to equip; default is the current directory |
 | `--all <folder>` | run `init` in every git repository directly under the folder that carries the harness (its `.ai-core/STAMP` exists) and in every worktree under its `.worktrees/` whose checkout does, then in the folder itself (section 5.8); any other repository is named in a line `skipped: <name> carries no harness; ai-core init <path> installs it`, counted in the summary and touched in no way: no file, hook, exclude entry, git configuration, forge call, fetch or sweep of its worktrees; `doctor` runs once; a failing repository is named in the summary and the exit code is 1, a skipped one does not change it |
 | `--no-doctor` | do not run `doctor` first (CI, or a machine you have checked yourself) |
-| `--dry-run` | write nothing; print the report of what the run would create, refresh, keep and remove; `doctor` runs without installing; with `--all` every repository gets its dry run |
+| `--dry-run` | write nothing; print the report of what the run would create, refresh, keep and remove; `doctor` runs without installing; with `--all` every repository that carries the harness gets its dry run |
 | `-h`, `--help` | usage |
 
 An unknown option is an error.

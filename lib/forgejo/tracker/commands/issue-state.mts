@@ -29,7 +29,7 @@ or no added status label also requires delivery again.`;
 
 // An issue completes with a proof that follows its landing and its last reopening, which issue-proof writes.
 // It says whether the issue holds no landing at all, so its close can say so: no "Landed on" record, and no commit of
-// the default branch of origin that names it, which is work that landed without its record.
+// the default branch of origin that is its work (findLandedCommitOf), which is work that landed without its record.
 async function refuseWithoutCurrentProof(api: ForgejoClient, issue: Issue, context: CommandContext): Promise<boolean> {
   const name = formatIssue(issue.ref);
   if (issue.state !== 'open') throw new PreconditionError(`${name} is closed already`);

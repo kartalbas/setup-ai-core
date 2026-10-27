@@ -55,6 +55,8 @@ that you change nothing outside a throwaway folder for a probe.
 
     REVIEW <area>: GO | NO
     Reviewer: <name> (<model>, <effort>). Builder: <name> (<model>, <effort>).
+    HEAD: <repo>#<number> <the commit the review leaves on that issue's branch, its REPAIRED commits included>
+    HEAD: <one such line for every other issue of the package>
     REPAIRED:
     - <repo> <file:line>: <what was wrong>; commit <sha>
     FINDINGS:

@@ -183,7 +183,7 @@ check_runs "$rc"
 check 'the worktree is gone'  no "$(has_tree issue-170-run-from-inside)"
 check 'the card moved to testing' 1 "$(grep -c 'oid=OPT_test' "$log" || true)"
 
-# A session's start check pulls the default branch into its branch, so the worktree can stand on a later commit of the
+# A session can merge the default branch into its branch, so the worktree can stand on a later commit of the
 # default branch than the one it landed from. Nothing in it is missing from origin/master.
 echo 'a worktree that took the default branch in after its landing, and holds nothing else, is removed'
 open issue-171-took-the-default-branch-in

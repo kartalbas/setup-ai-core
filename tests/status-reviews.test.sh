@@ -47,7 +47,7 @@ S=(claude-sonnet-5.5 high) O=(claude-opus-5.5 medium)
 {
   verdict 3 'REVIEW area-a: GO' "$(identity r1 claude-opus-5.5 xhigh b1 "${S[@]}")" 'REPAIRED:' '- example-repo lib/x.mjs:3: wrong; commit abc1234' 'FINDINGS:' 'CRITERIA: 2 of 2 met'
   verdict 3 'REVIEW area-b: NO' "$(identity r1 claude-opus-5.5 xhigh b2 "${S[@]}")" 'FINDINGS:' '- example-repo lib/y.mjs:9: a defect; state: x'
-  verdict 2 'REVIEW area-c: GO' "$(identity r2 claude-opus-5.5 xhigh b3 "${O[@]}")" 'REPAIRED:' 'FINDINGS:'
+  verdict 2 'REVIEW area-c: GO' "$(identity r2 claude-opus-5.5 xhigh b3 "${O[@]}")" 'HEAD: example-repo#3 abc1234' 'REPAIRED:' 'FINDINGS:'
 } > "$work/thread-1-page-1"
 {
   verdict 20 'REVIEW area-old: NO' "$(identity r9 claude-opus-5.5 xhigh b9 "${S[@]}")" 'FINDINGS:' '- a defect from before the interval'
@@ -123,6 +123,8 @@ plant() {  # plant <sed script> <file>: the board restored, the copy carrying on
 }
 plant 's/if (verdict.fullReview) { left.fullReview++; continue; }//' lib/status-reviews.mjs
 check 'a request for a full review counted as a NO' no "$(grep -q '2 GO (1 with REPAIRED), 1 NO' <<< "$planted" && echo yes || echo no)"
+plant 's#  const builder = identity#  if (identity \&\& !SECTION.test(lines[2] || "")) return { unsupported: true }; const builder = identity#' lib/status-reviews.mjs
+check 'a verdict with a HEAD line before its sections not counted' no "$(grep -q 'claude-opus-5.5 medium: 1 GO, 0 NO' <<< "$planted" && echo yes || echo no)"
 plant 's/else if (earlier.result === verdict.result) left.reposts++;/else if (false) left.reposts++;/' lib/status-reviews.mjs
 check 'a repost counted twice' no "$(grep -q 'claude-sonnet-5.5 high: 2 GO (1 with REPAIRED), 1 NO' <<< "$planted" && echo yes || echo no)"
 plant 's/if (Number.isFinite(at) \&\& (at < since || at > now)) continue;//' lib/status-reviews.mjs

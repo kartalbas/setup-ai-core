@@ -314,6 +314,25 @@ issue_mention_pattern() {  # issue_mention_pattern <issue repo> <number> <commit
   fi
 }
 
+# The newest commit of <ref> that is the work of issue <number> of <issue repo>: its subject names the issue, or its
+# subject names no issue at all and its body does. A commit whose subject names another issue is that issue's work and
+# mentions this one in passing. Prints the full id, or nothing where there is none. The candidates are read whole
+# before any is judged, so no reader leaves a pipe early.
+find_commit_naming_issue() {  # find_commit_naming_issue <ref> <issue repo> <number> <commit repo>
+  local pattern candidates sha subject
+  pattern="$(issue_mention_pattern "$2" "$3" "$4")"
+  candidates="$(git log -E -i --format=%H --grep="$pattern" "$1")" || return 1
+  for sha in $candidates; do
+    subject="$(git log -1 --format=%s "$sha")" || return 1
+    if grep -Eiq -- "$pattern" <<<"$subject"; then
+      printf '%s\n' "$sha"
+      return 0
+    fi
+    case "$subject" in *'#'[0-9]*) ;; *) printf '%s\n' "$sha"; return 0 ;; esac
+  done
+  return 0
+}
+
 # THE DEFAULT BRANCH OF ORIGIN: asked of the remote, else origin/HEAD where it resolves. A clone's
 # origin/HEAD is a copy that goes stale: it keeps the old branch after the default is renamed, or a
 # branch somebody pointed it at, and trusting it sends every comparison to the wrong branch. Asking

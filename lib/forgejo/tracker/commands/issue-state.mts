@@ -17,7 +17,8 @@ export const closeHelp = `${CLOSE_USAGE}
 an issue that records a current proof: a "Proven on" record of an account with write permission, written after the
 issue's newest landing and after its last reopening. Without one it refuses and names issue-proof, which checks
 the delivery and writes the proof. An issue that holds no "Landed on" record at all, and whose number no commit on the
-default branch of origin of this clone names at the end of its subject, was delivered without a code change: a proof
+default branch of origin of this clone is the work of (a commit whose subject names it, or whose subject names no
+issue and whose body names it), was delivered without a code change: a proof
 written after its last reopening closes it, and the output says that no landing exists.`;
 
 export const reopenHelp = `${REOPEN_USAGE}
@@ -28,7 +29,7 @@ or no added status label also requires delivery again.`;
 
 // An issue completes with a proof that follows its landing and its last reopening, which issue-proof writes.
 // It says whether the issue holds no landing at all, so its close can say so: no "Landed on" record, and no commit of
-// the default branch of origin that names it, which is work that landed without its record.
+// the default branch of origin that is its work (findLandedCommitOf), which is work that landed without its record.
 async function refuseWithoutCurrentProof(api: ForgejoClient, issue: Issue, context: CommandContext): Promise<boolean> {
   const name = formatIssue(issue.ref);
   if (issue.state !== 'open') throw new PreconditionError(`${name} is closed already`);

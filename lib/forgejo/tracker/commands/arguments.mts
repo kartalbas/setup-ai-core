@@ -122,9 +122,10 @@ export async function isBranchOfIssue(git: GitClient, cwd: string, name: string,
   return recorded.toLowerCase() === formatRepository(ref).toLowerCase();
 }
 
-// The newest commit on the default branch of origin of the clone at `cwd` that names the issue, in its subject or its body,
-// as the board reads the commits of an issue (findCommitNamingIssue of the harness), or nothing. Work that landed without
-// its "Landed on" record, as a landing stopped between its push and its record leaves it, is found here.
+// The newest commit on the default branch of origin of the clone at `cwd` that is the work of the issue: its subject names it,
+// or its subject names no issue and its body does (findCommitNamingIssue of the harness), or nothing. A commit whose subject
+// names another issue is that issue's work. Work that landed without its "Landed on" record, as a landing stopped between
+// its push and its record leaves it, is found here.
 export async function findLandedCommitOf(git: GitClient, harness: HarnessSteps, cwd: string, ref: IssueRef): Promise<string | undefined> {
   const origin = await git.originRepository(cwd);
   const defaultBranch = await git.defaultBranch(cwd);

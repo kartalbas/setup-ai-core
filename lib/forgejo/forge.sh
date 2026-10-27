@@ -20,13 +20,95 @@ FORGEJO_CREDENTIAL_HELPER='!ai-core git-credential'
 # sign_in_line_set <checkout> <url>: the helpers of this instance in the checkout's own .git/config are the
 # harness's alone
 sign_in_line_set() {
-  git -C "$1" config --replace-all "credential.$2.helper" ""
-  git -C "$1" config --add "credential.$2.helper" "$FORGEJO_CREDENTIAL_HELPER"
+  git -C "$1" config --replace-all "credential.$2.helper" "" \
+    && git -C "$1" config --add "credential.$2.helper" "$FORGEJO_CREDENTIAL_HELPER"
 }
 
 # sign_in_line_stands <checkout> <url>: whether that is all the checkout has
 sign_in_line_stands() {
   [ "$(git -C "$1" config --local --get-all "credential.$2.helper" 2>/dev/null || true)" = "$(printf '\n%s' "$FORGEJO_CREDENTIAL_HELPER")" ]
+}
+
+# THE SIGN-IN OF GIT OUTSIDE EVERY CHECKOUT: a tool with git repositories of its own, such as the cache of a package
+# manager's git dependencies, runs git where no .git/config names the helper. So the user's git configuration carries
+# the same two helper values for exactly this instance, and one credential.<url>.aiCoreConfig value for each settings
+# file, the file that holds FORGEJO_URL and FORGEJO_TOKEN_COMMAND of a checkout, found from its main checkout. The
+# helper reads those files when git asks, so no token and no token command stands in the git configuration.
+FORGEJO_SOURCE_KEY=aiCoreConfig
+FORGEJO_SIGN_IN_LOCK_SECONDS=30
+
+# user_sign_in_pair_stands <url>: whether that is all the user's git configuration has for the instance's helper
+user_sign_in_pair_stands() {
+  [ "$(git config --global --get-all "credential.$1.helper" 2>/dev/null || true)" = "$(printf '\n%s' "$FORGEJO_CREDENTIAL_HELPER")" ]
+}
+
+# user_sign_in_source_stands <url> <settings file>: whether the user's git configuration names the file for the instance
+user_sign_in_source_stands() {
+  local files
+  files="$(git config --global --get-all "credential.$1.$FORGEJO_SOURCE_KEY" 2>/dev/null || true)"
+  case $'\n'"$files"$'\n' in *$'\n'"$2"$'\n'*) return 0 ;; *) return 1 ;; esac
+}
+
+# user_sign_in_missing <url> <settings file>: what the user's git configuration lacks of that, as the report names it
+user_sign_in_missing() {
+  local missing=""
+  user_sign_in_pair_stands "$1" || missing="credential.$1.helper"
+  user_sign_in_source_stands "$1" "$2" || missing="${missing:+$missing and }credential.$1.$FORGEJO_SOURCE_KEY"
+  printf '%s' "$missing"
+}
+
+# user_sign_in_set <url> <settings file>: sets what the user's git configuration lacks and prints the report line.
+# One lock covers reading and writing, so two inits lose no file and double no value. The file is written before the
+# pair, so a write that fails in between leaves a configuration that signs nothing in, and the next run completes it.
+user_sign_in_set() (
+  local url="$1" file="$2" lock="${AI_CORE_HOME:-$HOME}/.ai-core/git-sign-in.lock" missing said
+  [ -n "$(user_sign_in_missing "$url" "$file")" ] || exit 0
+  command -v flock >/dev/null 2>&1 || die "flock (util-linux) is not on the path, and the user's git configuration is locked with it while init changes it"
+  mkdir -p "$(dirname "$lock")" || die "cannot make the folder of the lock $lock"
+  exec 7>>"$lock"
+  flock -x -w "$FORGEJO_SIGN_IN_LOCK_SECONDS" 7 \
+    || die "the lock $lock is held by another ai-core init and was not free in $FORGEJO_SIGN_IN_LOCK_SECONDS seconds: nothing was changed, run init again in a moment"
+  missing="$(user_sign_in_missing "$url" "$file")"
+  [ -n "$missing" ] || exit 0
+  if ! user_sign_in_source_stands "$url" "$file"; then
+    said="$(git config --global --add "credential.$url.$FORGEJO_SOURCE_KEY" "$file" 2>&1)" || die "cannot change the user's git configuration: ${said#error: }"
+  fi
+  if ! user_sign_in_pair_stands "$url"; then
+    said="$(git config --global --replace-all "credential.$url.helper" "" 2>&1)" || die "cannot change the user's git configuration: ${said#error: }"
+    said="$(git config --global --add "credential.$url.helper" "$FORGEJO_CREDENTIAL_HELPER" 2>&1)" || die "cannot change the user's git configuration: ${said#error: }"
+  fi
+  echo "$missing set in the user's git configuration: git in a tool's own cache asks ai-core git-credential too, with the settings of $file"
+)
+
+# registered_token <url>: the token of the settings files the user's git configuration names for the instance. It prints
+# the token when every file that names the instance as its FORGEJO_URL yields the same one. A file that is missing, or
+# names another instance now, supplies none. Status 3: nothing is registered for it; 4: files are, and none names it;
+# 1, with the reason on standard error and no token printed: a file that cannot be read, a token command that fails,
+# or files that yield different tokens. The tokens meet only in this function's memory, with the trace off.
+registered_token() {
+  local url="$1" files file file_url command candidate token="" first="" rc=3 traced=""
+  case $- in *x*) traced=1; set +x ;; esac
+  files="$(git config --global --get-all "credential.$url.$FORGEJO_SOURCE_KEY" 2>/dev/null || true)"
+  [ -z "$files" ] || rc=4
+  while IFS= read -r file; do
+    [ -n "$file" ] || continue
+    [ -e "$file" ] || [ -L "$file" ] || continue
+    file_url="$(config_value_in_file "$file" FORGEJO_URL "")" || { rc=1; break; }
+    [ "${file_url%/}" = "$url" ] || continue
+    command="$(config_value_in_file "$file" FORGEJO_TOKEN_COMMAND "")" || { rc=1; break; }
+    if [ -z "$command" ]; then echo "error: $file names $url but sets no FORGEJO_TOKEN_COMMAND: set it to the command that prints the token" >&2; rc=1; break; fi
+    candidate="$(token_from_command FORGEJO_TOKEN_COMMAND "$command")" || { echo "error: $file is the settings file of the failed token command" >&2; rc=1; break; }
+    if [ -z "$first" ]; then
+      token="$candidate"; first="$file"; rc=0
+    elif [ "$candidate" != "$token" ]; then
+      echo "error: the settings files registered for $url yield different tokens ($first and $file), so none is answered: make them the same account, or remove the entry of the file that is not meant with git config --global --fixed-value --unset credential.$url.$FORGEJO_SOURCE_KEY <file>" >&2
+      rc=1; break
+    fi
+  done <<< "$files"
+  [ "$rc" -ne 0 ] || printf '%s\n' "$token" || rc=1
+  token=""; candidate=""
+  [ -z "$traced" ] || set -x
+  return "$rc"
 }
 
 # sign_in_line_export: the same line in git's environment configuration, after the entries already there, for git
@@ -44,14 +126,26 @@ sign_in_line_export() {
     "GIT_CONFIG_COUNT=$((n + 1))"
 }
 
+# forgejo_url_of <address>: the address as the scheme and host of an instance, without a closing slash. Credentials, a
+# path, a query and a fragment stop the caller, as lib/forgejo/tracker/config.mts refuses them, and no message repeats
+# the address, which may carry a password.
+forgejo_url_of() {
+  local url="${1%/}" authority
+  case "$url" in http://*|https://*) ;; *) die "FORGEJO_URL is no http or https address" ;; esac
+  authority="${url#*://}"
+  case "${authority%%[/?#]*}" in *@*) die "FORGEJO_URL must not carry credentials" ;; esac
+  case "$authority" in
+    [/?#]*) die "FORGEJO_URL names no host: give the scheme and host, such as https://forge.example.test" ;;
+    *[/?#]*) die "FORGEJO_URL names a path, a query or a fragment: give the scheme and host only, such as https://forge.example.test" ;;
+  esac
+  printf '%s\n' "$url"
+}
+
 forgejo_url() {  # the scheme and host of the instance, without a closing slash
   local url
   url="$(config_value FORGEJO_URL "")" || exit 1
   [ -n "$url" ] || die "FORGEJO_URL is not set: set it in .ai-core/config.env or the environment to the address of the Forgejo instance, such as https://forge.example.test"
-  url="${url%/}"
-  case "$url" in http://*|https://*) ;; *) die "FORGEJO_URL '$url' is no http or https address" ;; esac
-  case "${url#*://}" in */*) die "FORGEJO_URL '$url' names a path: give the scheme and host only, such as https://forge.example.test" ;; esac
-  printf '%s\n' "$url"
+  forgejo_url_of "$url"
 }
 
 # forge_host: the host of the instance (with its port), as the origin of a checkout spells it
@@ -253,18 +347,27 @@ signed_in_user() (
 )
 
 # clone_sign_in <checkout> [dry]: a checkout whose origin is on this instance gets, in its own .git/config, the
-# line that makes git ask ai-core git-credential for the token; an origin over ssh signs in as it is. Prints the
-# report line when it set the line (with dry: would set it), nothing when it stood there or the origin is elsewhere.
+# line that makes git ask ai-core git-credential for the token, and the user's git configuration gets the pair and the
+# settings file of the checkout for git outside every checkout (user_sign_in_set); an origin over ssh signs in as it
+# is. Prints a report line for each it set (with dry: would set), nothing for what stood there or where the origin is elsewhere.
 clone_sign_in() (
-  local url origin
+  local url origin settings missing
   url="$(config_value FORGEJO_URL "")" || exit 1
-  url="${url%/}"
   [ -n "$url" ] || exit 0
+  url="$(forgejo_url_of "$url")" || exit 1
   origin="$(git -C "$1" remote get-url origin 2>/dev/null)" || exit 0
   case "$origin" in "$url"/*) ;; *) exit 0 ;; esac
-  ! sign_in_line_stands "$1" "$url" || exit 0
-  [ "${2:-}" = dry ] || sign_in_line_set "$1" "$url"
-  echo "credential.$url.helper $([ "${2:-}" = dry ] && echo "would be set" || echo set) in .git/config: git asks ai-core git-credential for the token"
+  if ! sign_in_line_stands "$1" "$url"; then
+    [ "${2:-}" = dry ] || sign_in_line_set "$1" "$url" || exit 1
+    echo "credential.$url.helper $([ "${2:-}" = dry ] && echo "would be set" || echo set) in .git/config: git asks ai-core git-credential for the token"
+  fi
+  settings="$(config_file_of FORGEJO_URL)" || exit 1
+  if [ "${2:-}" != dry ]; then
+    user_sign_in_set "$url" "$settings"
+  else
+    missing="$(user_sign_in_missing "$url" "$settings")"
+    [ -z "$missing" ] || echo "$missing would be set in the user's git configuration: git in a tool's own cache asks ai-core git-credential too, with the settings of $settings"
+  fi
 )
 
 # forge_doctor: the lines `ai-core doctor` prints for the forge, through doctor's own report and problem, which

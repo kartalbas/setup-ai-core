@@ -312,6 +312,20 @@ check 'the caller entries stay before the two helper entries' \
   "$(printf 'GIT_CONFIG_COUNT=4\nGIT_CONFIG_KEY_0=core.quotePath\nGIT_CONFIG_KEY_1=%s\nGIT_CONFIG_KEY_2=%s\nGIT_CONFIG_KEY_3=%s\nGIT_CONFIG_VALUE_0=false\nGIT_CONFIG_VALUE_1=!%s/unwanted-helper\nGIT_CONFIG_VALUE_2=\nGIT_CONFIG_VALUE_3=%s' "$credential_key" "$credential_key" "$credential_key" "$fake" "$credential_helper")" "$(cat "$check_runs.git-config")"
 check 'the reset also drops a caller helper for this host' no "$([ -f "$fake/unwanted-helper-runs" ] && echo yes || echo no)"
 
+echo 'a settings file registered in the user configuration decides nothing where the gate passes its own'
+mkdir -p "$fake/registered/.ai-core"
+printf 'FORGEJO_URL="%s"\nFORGEJO_TOKEN_COMMAND="printf x >> %s/registered-runs; printf registered-token"\n' "$credential_url" "$fake" > "$fake/registered/.ai-core/config.env"
+git config --file "$fake/credential.gitconfig" --add "$credential_key" ''
+git config --file "$fake/credential.gitconfig" --add "$credential_key" '!ai-core git-credential'
+git config --file "$fake/credential.gitconfig" --add "credential.$credential_url.aiCoreConfig" "$fake/registered/.ai-core/config.env"
+out="$(credential_gate "$wt" forge.example.test answer)"; rc=$?
+check 'the outside git still gets the gate token' 0 "$rc"
+check 'the gate token was answered, not the registered one' yes "$(grep -q '^credential: answered$' <<< "$out" && echo yes || echo no)"
+check 'the registered token command did not run' no "$([ -f "$fake/registered-runs" ] && echo yes || echo no)"
+check 'the check itself gets neither setting' 'exported settings: 0' "$(grep '^exported settings:' <<< "$out")"
+git config --file "$fake/credential.gitconfig" --unset-all "$credential_key"
+git config --file "$fake/credential.gitconfig" --unset-all "credential.$credential_url.aiCoreConfig"
+
 echo 'a Forgejo check gets no credentials for another host'
 : > "$fake/token-command-runs"; rm -f "$fake/askpass-runs"
 out="$(credential_gate "$repo" other.example.test refuse)"; rc=$?

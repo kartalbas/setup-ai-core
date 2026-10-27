@@ -19,6 +19,10 @@ for arg in "$@"; do
     echo "project folder: it gets an AGENTS.md that lists them. The run ends with what it created,"
     echo "refreshed, kept and removed."
     echo ""
+    echo "A checkout whose origin is on the Forgejo instance of FORGEJO_URL also signs in git outside every checkout, such as"
+    echo "the cache of a package manager: the user's git configuration (git config --global) gets the helper of that instance"
+    echo "and the path of the checkout's .ai-core/config.env as credential.<FORGEJO_URL>.aiCoreConfig, never a token."
+    echo ""
     echo "A linked worktree is locked (git worktree lock --reason \"ai-core init\") while init equips it, so finish-issue"
     echo "cannot remove it underneath; the lock is lifted when init ends. A path that is gone, or that stands under"
     echo ".worktrees/ without a .git, gets nothing written and nothing created."
@@ -1034,7 +1038,8 @@ if [ -f "$TARGET/.githooks/pre-push" ] && ! git -C "$TARGET" ls-files --error-un
 fi
 
 # 3a2. A checkout whose origin is on the forge signs in the way the forge asks, by a setting in its own
-#      .git/config (the forge's clone_sign_in); a forge that signs in once for the machine sets nothing.
+#      .git/config and in the user's git configuration (the forge's clone_sign_in); a forge that signs in once for
+#      the machine sets nothing.
 SIGN_IN_MODE=""; [ "$DRY" -eq 0 ] || SIGN_IN_MODE=dry
 SIGN_IN_NOTE="$(clone_sign_in "$TARGET" $SIGN_IN_MODE)"
 
@@ -1167,7 +1172,7 @@ if [ -n "$NEIGHBOURS_LEFT" ]; then echo "  the links now follow a renamed defaul
 if [ -n "$NEIGHBOURS_MOVED" ]; then echo "  the published copies of these neighbours $([ "$DRY" -eq 1 ] && echo "would move" || echo moved) out of .worktrees/ to .ai-core/neighbours/, with all they hold, and the links of every worktree $([ "$DRY" -eq 1 ] && echo "would follow" || echo followed):$NEIGHBOURS_MOVED"; fi
 if [ -n "$NEIGHBOURS_UNMOVED" ]; then echo "  these published copies could not move out of .worktrees/ (their place in .ai-core/neighbours/ is taken, or git refused the move), so a tool that reads .worktrees/ as the places of work still counts them:$NEIGHBOURS_UNMOVED"; fi
 if [ -n "$NEIGHBOURS_UNLINKED" ]; then echo "  links to checkouts that are gone $([ "$DRY" -eq 1 ] && echo "would be removed" || echo "removed") in $NEIGHBOURS_IN:$NEIGHBOURS_UNLINKED"; fi
-if [ -n "$SIGN_IN_NOTE" ]; then echo "  $SIGN_IN_NOTE"; fi
+if [ -n "$SIGN_IN_NOTE" ]; then printf '%s\n' "$SIGN_IN_NOTE" | sed 's/^/  /'; fi
 if [ "$HOOKS_ARMED" -eq 1 ]; then echo "  core.hooksPath $([ "$DRY" -eq 1 ] && echo "would be set" || echo "set") to .githooks: the push gate runs here"; fi
 if [ "$SHIMS_MODE" -eq 1 ] && [ "$DRY" -eq 1 ]; then echo "  the shims in .githooks are not executable, so git skips the push gate: ai-core pre-push --install would make them so"
 elif [ "$SHIMS_MODE" -eq 1 ]; then echo "  the shims in .githooks were not executable, so git skipped the push gate: ai-core pre-push --install made them so"

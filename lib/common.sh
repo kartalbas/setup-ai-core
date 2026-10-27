@@ -428,10 +428,10 @@ LANDING_WORKTREE_RE='/\.worktrees/[^/]*/integrate-[0-9]+\.[A-Za-z0-9]{6}$'
 # assignment and argument it expands, the token among them, so the code that holds the token
 # switches xtrace off first and back on, if it was on, when the token is let go. Each function does
 # this for itself, with its own `traced`, because a helper cannot restore the setting of its caller.
-token_from_command() {  # token_from_command <setting>
-  local key="$1" command token="" error="" rc=0 traced=""
+token_from_command() {  # token_from_command <setting> [<command>]: the command of a settings file the caller read, instead of the setting's own
+  local key="$1" command="${2:-}" token="" error="" rc=0 traced=""
   case $- in *x*) traced=1; set +x ;; esac
-  if ! command="$(config_value "$key" "")"; then
+  if [ $# -lt 2 ] && ! command="$(config_value "$key" "")"; then
     error="the settings that hold $key cannot be read, so there is no token"
   elif [ -z "$command" ]; then
     error="$key is not set: set it in .ai-core/config.env or the environment to the command that prints the token"

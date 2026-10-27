@@ -499,12 +499,9 @@ if [ "$INSTALL" -eq 1 ]; then
     ALL_DIR="$(cd "$ALL_DIR" && pwd)"; OK=0; SKIPPED=0; FAILED=""
     for repo in "$ALL_DIR"/*/; do
       repo="${repo%/}"; [ -e "$repo/.git" ] || continue
-      # a harness clone carries the gate too, though init is never run in it
-      case "${repo##*/}" in *-ai-core) ;; *)
-        if ! carries_harness "$repo"; then
-          echo "skipped: ${repo##*/} carries no harness; ai-core init $repo installs it"; SKIPPED=$((SKIPPED + 1)); continue
-        fi ;;
-      esac
+      if ! carries_harness "$repo"; then
+        echo "skipped: ${repo##*/} carries no harness; ai-core init $repo installs it"; SKIPPED=$((SKIPPED + 1)); continue
+      fi
       if install_shim "$repo"; then OK=$((OK + 1)); else FAILED="$FAILED $(basename "$repo")"; fi
     done
     echo "==> pre-push --install --all: the hooks are in $OK repositories, $SKIPPED skipped without a harness${FAILED:+; failed:$FAILED}"

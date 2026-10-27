@@ -88,9 +88,10 @@ is_harness_clone() {
   ! harness_of "${repo#*/}" >/dev/null
 }
 
-# carries_harness <checkout>: whether init ran there, which leaves its .ai-core/STAMP. A command that walks the
-# repositories of a folder touches only those; any other clone is the owner's own reading.
-carries_harness() { [ -f "$1/.ai-core/STAMP" ]; }
+# carries_harness <checkout>: whether init ran there, which leaves its .ai-core/STAMP, or it is a harness clone
+# (<name>-ai-core), a layer of the harness itself, where init never runs. A command that walks the repositories of a
+# folder touches only those; any other clone is the owner's own reading.
+carries_harness() { case "${1%/}" in *-ai-core) return 0 ;; esac; [ -f "$1/.ai-core/STAMP" ]; }
 
 # config_file_of <key>: the config.env a setting is read from
 config_file_of() {

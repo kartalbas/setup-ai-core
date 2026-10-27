@@ -90,6 +90,21 @@ DEFECTS="$W/defects.tsv"
   printf '%s\t' 'the tool of the shell is not asked, so every page reads the windows of Claude'
   printf '%s\t' bin/status.sh 's/^tool="\$(session_tool)"; \[ -n "\$tool" \] || tool=claude$/tool=claude/'
   printf '%s\t%s\n' status.test.sh 'the usage line is Codex'"'"'s, with the time of its record'
+  printf '%s\t' 'the memo of releases is read through a pipe that its reader leaves at the first row'
+  printf '%s\t' bin/status-sync.sh 's/held="\$(awk \(.*\) <<< "\$_RELEASES")"/held="$(printf %s "$_RELEASES" | awk \1)"/'
+  printf '%s\t%s\n' status-sync.test.sh 'the release of a repository the memo holds first is its row'
+  printf '%s\t' 'the memo of deliveries is read through a pipe that its reader leaves at the first row'
+  printf '%s\t' bin/status-sync.sh 's/held="\$(awk \(.*\) <<< "\$_DELIVERIES")"/held="$(printf %s "$_DELIVERIES" | awk \1)"/'
+  printf '%s\t%s\n' status-sync.test.sh 'the delivery of a repository the memo holds first is its row'
+  printf '%s\t' 'the option of a board is read through a pipe that its reader leaves at the first row'
+  printf '%s\t' lib/board.sh '/print \$4; exit/s/id="\$(awk \(.*\) <<< "\$all")"/id="$(printf %s "$all" | awk \1)"/'
+  printf '%s\t%s\n' option-lookup.test.sh 'option_id with SIGPIPE default exits cleanly'
+  printf '%s\t' 'the field of a board is read through a pipe that its reader leaves at the first row'
+  printf '%s\t' lib/board.sh '/print \$2; exit/s/id="\$(awk \(.*\) <<< "\$all")"/id="$(printf %s "$all" | awk \1)"/'
+  printf '%s\t%s\n' option-lookup.test.sh 'field_id with SIGPIPE default exits cleanly'
+  printf '%s\t' 'the option of a board is read through a pipe, and a reopened epic stops the mover that follows it'
+  printf '%s\t' lib/board.sh '/print \$4; exit/s/id="\$(awk \(.*\) <<< "\$all")"/id="$(printf %s "$all" | awk \1)"/'
+  printf '%s\t%s\n' epic-follow.test.sh 'with the options wanted first: exit 0'
 } > "$DEFECTS"
 
 # red_at <output of a test> <words of an assertion>: whether a FAIL line of the output names the assertion. The FAIL

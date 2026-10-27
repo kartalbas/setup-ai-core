@@ -35,8 +35,8 @@ ai-core init
 ai-core session-start
 ```
 
-Or a whole project folder, every repository in it and the folder itself (section 5.8), and then the
-agent started in the folder:
+Or a whole project folder, every repository in it that carries the harness already and the folder itself
+(section 5.8), and then the agent started in the folder:
 
 ```
 ai-core init --all <project folder>
@@ -116,7 +116,7 @@ the repository itself                  the code
 
 | Part | Today | Planned |
 | :--- | :--- | :--- |
-| Install the harness into a checkout with one command | yes: `ai-core init`, after a one-time `install` per machine; `ai-core init --all <folder>` for every repository under a folder | same |
+| Install the harness into a checkout with one command | yes: `ai-core init`, after a one-time `install` per machine; `ai-core init --all <folder>` for every repository under a folder that carries the harness | same |
 | Nothing is committed to the repository | yes: a block in the project's `.gitignore` names every agent file, and `.git/info/exclude` carries the rest per clone | same |
 | Rules for every project | yes: one file per section under `rules/`, assembled into one `rules.md` per checkout | same |
 | Rules of one project (private harness) | yes: `github.com/<org>/<prefix>-ai-core`, found from the repository's origin, cloned beside the repositories (`<project folder>/<prefix>-ai-core`), created from a skeleton when missing; its `rules/` add or replace sections, its `skills/`, `docs/`, data files and `repos/<repo>/` are assembled into every checkout; a harness may extend another (section 4.5) | same |
@@ -221,7 +221,7 @@ checkout never carries a copy.
 ```
 
 A project folder gets the same, except that its `AGENTS.md` is generated: the binding rules, each
-file imported, then the list of the repositories in it, each with the path of its map, rewritten on
+file imported, then the list of the repositories in it that carry the harness, each with the path of its map, rewritten on
 every `init` because the folder changes. An agent started in the folder has the rules from its
 first prompt, and Claude Code loads a repository's map when it works there.
 
@@ -268,7 +268,7 @@ that the worktree tracks as the branch has it, then assembles the harness over i
 
 A worktree that `start-issue` opens lives in `<project folder>/.worktrees/<repo>/`, where `..`
 holds no other checkout. So `init` in such a worktree links every other checkout of the project
-folder into `.worktrees/<repo>/`, as `../../<name>`, and a path such as
+folder that carries the harness (a clone without it is never touched) into `.worktrees/<repo>/`, as `../../<name>`, and a path such as
 `../other-repo` finds from the worktree what it finds from the checkout. An entry that already
 stands there is kept, a folder that is no repository gets no link, and `init --all` passes the links
 by.
@@ -362,7 +362,7 @@ configured forge's, finds no harness, and so does a project folder whose `STAMP`
 settings to put in the environment for that one run (`FORGE`, `TRACKER` and, for Forgejo, `FORGEJO_URL`
 and `FORGEJO_TOKEN_COMMAND`).
 
-A project folder (section 5.8) gets the layers every repository under it shares: the company
+A project folder (section 5.8) gets the layers every repository under it that carries the harness shares: the company
 harness when the repositories belong to different projects that extend it, the project harness when
 they all belong to one. `init` on a checkout of a harness itself is refused; the harness is edited
 like any repository and reaches every checkout at the next `init`, and `ai-core update` pulls every
@@ -951,7 +951,7 @@ on the machine that runs the agent.
 | Option | Effect |
 | :--- | :--- |
 | `ai-core init [TARGET_DIR]` | the repository to equip; default is the current directory |
-| `--all <folder>` | run `init` in every git repository directly under the folder and in every worktree under its `.worktrees/`, then in the folder itself (section 5.8); `doctor` runs once; a failing repository is named in the summary and the exit code is 1 |
+| `--all <folder>` | run `init` in every git repository directly under the folder that carries the harness (its `.ai-core/STAMP` exists) and in every worktree under its `.worktrees/` whose checkout does, then in the folder itself (section 5.8); any other repository is named in a line `skipped: <name> carries no harness; ai-core init <path> installs it`, counted in the summary and touched in no way: no file, hook, exclude entry, git configuration, forge call, fetch or sweep of its worktrees; `doctor` runs once; a failing repository is named in the summary and the exit code is 1, a skipped one does not change it |
 | `--no-doctor` | do not run `doctor` first (CI, or a machine you have checked yourself) |
 | `--dry-run` | write nothing; print the report of what the run would create, refresh, keep and remove; `doctor` runs without installing; with `--all` every repository gets its dry run |
 | `-h`, `--help` | usage |
@@ -1059,8 +1059,10 @@ with a default in its place.
 ### 5.8 Many repositories
 
 The unit of installation is one repository checkout. For a project with many repositories in one
-folder, one command runs `init` in each git repository directly under it and in each worktree
-`start-issue` put under its `.worktrees/`, skips the folders that are not repositories and the temporary
+folder, one command runs `init` in each git repository directly under it that carries the harness (its `.ai-core/STAMP`
+exists) and in each worktree `start-issue` put under the `.worktrees/` of such a checkout. It names each other
+repository in a line that says `ai-core init <path>` installs the harness there, and touches it in no way: what you
+clone for your own reading stays as it is until you say what to do with it. It also skips the folders that are not repositories and the temporary
 worktree of a landing (`integrate-<issue>.XXXXXX`, which `integrate-issue --from-origin` removes when it ends), names the
 ones that failed, and then equips the folder itself:
 
@@ -1069,7 +1071,7 @@ ai-core init --all ~/repos/myorg
 ```
 
 The folder is where many developers start their agent. It gets the same data as a repository,
-an `AGENTS.md` that lists the repositories with the path of each map. Nothing there is under git, so nothing is excluded and nothing can be
+an `AGENTS.md` that lists the repositories that carry the harness with the path of each map. Nothing there is under git, so nothing is excluded and nothing can be
 committed. An agent started in the folder has the rules from its first prompt, because that
 `AGENTS.md` imports them (section 4.7), and Claude Code loads a repository's own `AGENTS.md` as soon
 as it works on files inside it, the way it loads nested `CLAUDE.md` files. Each repository still carries its own files, because a repository is also opened
@@ -1401,7 +1403,7 @@ warning or error in the output of `init`, prove the assembled `rules.md` has one
 file and passes `rules-check`, prove a second run creates
 nothing, prove `git status` stays
 empty in a fresh repository and in a worktree, run `init --all` over a folder
-and prove the folder's generated `AGENTS.md` lists exactly its repositories, stand a fake `gh`
+and prove the folder's generated `AGENTS.md` lists exactly its repositories that carry the harness, stand a fake `gh`
 on the PATH and prove a project harness is created from the skeleton on the first `init`, cloned
 on another machine, and that its rules, skills, docs, data files and `repos/<repo>/` are
 assembled, base first along an `extends` chain, prove `push` commits

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install or refresh the harness in a checkout, in a project folder, or in every repository
-# under a folder. The scripts stay in the setup-ai-core clone and run as `ai-core <command>`;
+# under a folder that carries it already. The scripts stay in the setup-ai-core clone and run as `ai-core <command>`;
 # a checkout receives only data: the assembled rules, the configuration and the agent files.
 # Every file it touches is recorded and reported at the end; --dry-run reports without writing.
 #
@@ -36,8 +36,10 @@ for arg in "$@"; do
     echo ""
     echo "Options:"
     echo "  -h, --help       Show this help message"
-    echo "  --all <folder>   Init the folder itself, then every git repository directly under it and every"
-    echo "                   worktree under its .worktrees/"
+    echo "  --all <folder>   Init the folder itself, then every git repository directly under it that carries the"
+    echo "                   harness (its .ai-core/STAMP exists) and every worktree under its .worktrees/ whose"
+    echo "                   checkout does. Any other repository is named and left untouched; ai-core init <path>"
+    echo "                   installs the harness there. The run ends with the count of the skipped ones"
     echo "  --no-doctor      Do not run doctor first"
     echo "  --dry-run        Report what the run would create, refresh, keep and remove; write nothing"
     echo ""
@@ -77,6 +79,8 @@ cd "${ALL_DIR:-$TARGET}"
 . "$CORE_ROOT/lib/neighbours.sh"
 . "$CORE_ROOT/lib/landing-check.sh"
 
+carries_harness() { [ -f "$1/.ai-core/STAMP" ]; }   # carries_harness <checkout>: init ran there
+
 # Source worktrees must be refused before inherited product data or settings can be copied.
 if [ -z "$ALL_DIR" ] && harness_source_of "$TARGET" >/dev/null 2>&1; then
   echo "error: $TARGET is a harness repository; init is for the repositories it serves" >&2
@@ -109,7 +113,7 @@ fi
 # every git repository directly under it and every worktree `ai-core start-issue` put under its
 # .worktrees/<repository>/
 if [ -n "$ALL_DIR" ]; then
-  OK=0; FAILED=""; FOLDER_OK=1
+  OK=0; SKIPPED=0; FAILED=""; FOLDER_OK=1
   PASS=(--no-doctor); [ "$DRY" -eq 1 ] && PASS+=(--dry-run)
   echo ""; echo "### $(basename "$ALL_DIR") (the folder itself)"
   bash "$CORE_ROOT/bin/init.sh" "$ALL_DIR" "${PASS[@]}" || FOLDER_OK=0
@@ -119,6 +123,7 @@ if [ -n "$ALL_DIR" ]; then
     repo="${repo%/}"
     [ -e "$repo/.git" ] || continue
     case "${repo##*/}" in *-ai-core) continue ;; esac
+    carries_harness "$repo" || continue
     [ "$(git -C "$repo" worktree list --porcelain 2>/dev/null | grep '^worktree ' | grep -v -c -E "/\.ai-core/neighbours/|/\.worktrees/[^/]*/origin-|$LANDING_WORKTREE_RE")" -gt 1 ] || continue
     # on Forgejo finish-issue removes the one worktree it is given and sweeps no other; where the settings of the
     # repository cannot be read nothing is swept, and the init of that repository below fails on the same file
@@ -134,18 +139,22 @@ if [ -n "$ALL_DIR" ]; then
     case "$repo" in "$ALL_DIR"/.worktrees/*) [ ! -L "$repo" ] || continue ;; esac   # a link beside the worktrees is a neighbour checkout, initialized as itself
     case "$repo" in "$ALL_DIR"/.worktrees/*/origin-*) continue ;; esac                # a neighbour's published copy is read by checks, never worked in: the harness has no reader there
     [[ "$repo" =~ $LANDING_WORKTREE_RE ]] && continue   # the temporary worktree of a landing (integrate-issue --from-origin) is gone when the landing ends, and nobody works in it
-    name="${repo#"$ALL_DIR"/}"; repo_folder="${name##*/}"
+    name="${repo#"$ALL_DIR"/}"; checkout="$repo"
     # a worktree is named by the checkout it belongs to, whichever way .worktrees/ is laid out
-    # (a broken worktree has no checkout to name: it is walked as before)
-    case "$name" in .worktrees/*) repo_folder="$(cd "$repo" && cd "$(git rev-parse --git-common-dir 2>/dev/null)" && cd .. && basename "$PWD")" || repo_folder="" ;; esac
-    case "$repo_folder" in *-ai-core) continue ;; esac   # a harness clone serves the repositories; it is not one of them, and neither is a worktree of one
+    # (a broken worktree has no checkout to name and carries no harness)
+    case "$name" in .worktrees/*) checkout="$(cd "$repo" && cd "$(git rev-parse --git-common-dir 2>/dev/null)" && cd .. && pwd)" || checkout="" ;; esac
+    case "${checkout##*/}" in *-ai-core) continue ;; esac   # a harness clone serves the repositories; it is not one of them, and neither is a worktree of one
+    if [ -z "$checkout" ] || ! carries_harness "$checkout"; then
+      case "$name" in .worktrees/*) ;; *) echo ""; echo "skipped: $name carries no harness; ai-core init $repo installs it"; SKIPPED=$((SKIPPED + 1)) ;; esac
+      continue
+    fi
     echo ""; echo "### $name"
     if bash "$CORE_ROOT/bin/init.sh" "$repo" "${PASS[@]}"; then OK=$((OK + 1))
     elif [ ! -e "$repo" ]; then echo "==> $name was removed while init --all ran: skipped, nothing was created there"
     else FAILED="$FAILED $name"; fi
   done
   [ "$FOLDER_OK" -eq 1 ] || FAILED="$FAILED $(basename "$ALL_DIR")/"
-  echo ""; echo "==> init --all: $OK repositories $([ "$DRY" -eq 1 ] && echo "would be" || echo "were") initialized${FAILED:+; failed:$FAILED}"
+  echo ""; echo "==> init --all: $OK repositories $([ "$DRY" -eq 1 ] && echo "would be" || echo "were") initialized, $SKIPPED skipped without a harness${FAILED:+; failed:$FAILED}"
   [ -z "$FAILED" ]
   exit $?
 fi
@@ -167,6 +176,7 @@ if [ "$PROJECT_FOLDER" -eq 1 ]; then
   for d in "$TARGET"/*/; do
     d="${d%/}"; [ -e "$d/.git" ] || continue
     case "$(basename "$d")" in *-ai-core) continue ;; esac
+    carries_harness "$d" || continue
     checkouts+=("$d")
   done
 elif [ ! -f "$TARGET/.ai-core/STAMP" ]; then
@@ -216,7 +226,7 @@ fi
 # 0b. A check of the repository may read a neighbour checkout of the project folder through `..`,
 #     and in a worktree `..` is .worktrees/<repository>/, where no neighbour stands: the check then
 #     finds nothing and proves less than in the checkout. So every other checkout of the folder
-#     gets a link there, and `..` finds the same neighbours from the worktree. The link leads to
+#     that carries the harness (a clone without it is never touched) gets a link there, and `..` finds the same neighbours from the worktree. The link leads to
 #     what the neighbour published, its origin's default branch, kept as a detached worktree
 #     .ai-core/neighbours/<neighbour>/origin-<branch>: the neighbour's checkout is somebody's working copy,
 #     on another branch or with a change nobody published, and a check that read it would judge
@@ -285,7 +295,7 @@ if [ "$PROJECT_FOLDER" -eq 0 ]; then
         fetch_dir="$(mktemp -d)"; fetch_pids=(); fetch_names=()
         for neighbour in "$folder"/*/; do
           neighbour="${neighbour%/}"
-          [ -d "$neighbour/.git" ] && [ "$neighbour" != "$main" ] || continue
+          [ -d "$neighbour/.git" ] && [ "$neighbour" != "$main" ] && carries_harness "$neighbour" || continue
           git -C "$neighbour" remote get-url origin >/dev/null 2>&1 || continue
           neighbour_fetch "$folder" "${neighbour##*/}" "$NEIGHBOUR_WAIT" > "$fetch_dir/${neighbour##*/}.log" 2>&1 &
           fetch_pids+=($!); fetch_names+=("${neighbour##*/}")
@@ -300,7 +310,7 @@ if [ "$PROJECT_FOLDER" -eq 0 ]; then
       # that neighbour is moved: a folder of the same name that is somebody else's stays.
       for neighbour in "$folder"/*/; do
         neighbour="${neighbour%/}"; name="${neighbour##*/}"
-        [ -d "$neighbour/.git" ] || continue
+        [ -d "$neighbour/.git" ] && carries_harness "$neighbour" || continue
         while IFS= read -r old; do
           [ -f "$old/.git" ] || continue
           rel="${old#"$folder/.worktrees/$name/"}"; new="$folder/.ai-core/neighbours/$name/$rel"
@@ -322,7 +332,7 @@ if [ "$PROJECT_FOLDER" -eq 0 ]; then
         pending_copies=""
         for neighbour in "$folder"/*/; do
           neighbour="${neighbour%/}"; name="${neighbour##*/}"
-          [ -d "$neighbour/.git" ] && [ "$neighbour" != "$main" ] || continue
+          [ -d "$neighbour/.git" ] && [ "$neighbour" != "$main" ] && carries_harness "$neighbour" || continue
           neighbour_followed "$name" || { [ ! -e "$container/$name" ] && [ ! -L "$container/$name" ]; } || continue
           ref="$(neighbour_default_ref "$neighbour")" || continue
           copy="$(neighbour_copy_of "$folder" "$name" "$ref")"
@@ -337,7 +347,7 @@ if [ "$PROJECT_FOLDER" -eq 0 ]; then
       for neighbour in "$folder"/*/; do name="${neighbour%/}"; neighbour_claimed "${name##*/}" || link_order+=("$neighbour"); done
       for neighbour in "${link_order[@]}"; do
         neighbour="${neighbour%/}"; name="${neighbour##*/}"
-        [ -d "$neighbour/.git" ] && [ "$neighbour" != "$main" ] || continue
+        [ -d "$neighbour/.git" ] && [ "$neighbour" != "$main" ] && carries_harness "$neighbour" || continue
         if neighbour_followed "$name"; then
           # A link this step made follows what the neighbour publishes now: the copy moves
           # with the origin, and the link with a renamed default branch
@@ -476,6 +486,7 @@ if [ "$PROJECT_FOLDER" -eq 1 ]; then
   for d in "$TARGET"/*/; do
     d="${d%/}"; [ -e "$d/.git" ] || continue
     case "$(basename "$d")" in *-ai-core) continue ;; esac
+    carries_harness "$d" || continue
     chain="$(chain_of "$d")" || chain=""
     if [ "$FIRST" -eq 1 ]; then LAYERS="$chain"; FIRST=0; continue; fi
     # keep the leading lines the two chains share
@@ -809,6 +820,7 @@ if [ "$PROJECT_FOLDER" -eq 1 ]; then
     for d in "$TARGET"/*/; do
       d="${d%/}"; [ -e "$d/.git" ] || continue
       case "$(basename "$d")" in *-ai-core) continue ;; esac
+      carries_harness "$d" || continue
       printf '| `%s` | `%s/AGENTS.md` |\n' "$(basename "$d")" "$(basename "$d")"
     done
   } > "$TMP/AGENTS.md"

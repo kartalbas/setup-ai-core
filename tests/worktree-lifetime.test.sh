@@ -248,6 +248,7 @@ check 'and its lock is lifted'                      no "$(yes_no locked_reason "
 git -C "$app" worktree remove -f "$trees/issue-11-real"; git -C "$app" branch -D issue-11-real >/dev/null 2>&1
 
 echo 'init --all skips a worktree that vanishes before its turn, instead of failing the rollout'
+printf 'setup-ai-core 0000000\n' > "$app/.ai-core/STAMP"   # init --all walks only what carries the harness
 open issue-12-vanishes
 out="$(PATH="$fake/shim:$PATH" VANISH="$trees/issue-12-vanishes" bash "$init" --all "$proj" --no-doctor 2>&1)"; rc=$?
 check 'the rollout exits zero'                      0 "$rc"

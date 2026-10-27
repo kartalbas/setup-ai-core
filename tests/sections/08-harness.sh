@@ -378,6 +378,7 @@ HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/harness-che
 grep -aq 'harness repository' "$WORK/layers-refused.log" || fail "init.sh did not say why the harness repository is refused"
 mkdir -p "$WORK/folder/.ai-core"; printf 'UPDATE_CHECK="never"\n' > "$WORK/folder/.ai-core/config.env"
 new_checkout "$WORK/folder/shop-web" shop-web; new_checkout "$WORK/folder/store-api" store-api
+carry_harness "$WORK/folder/shop-web" "$WORK/folder/store-api"
 git clone -q "$GH_FAKE/github.com/example-org/shop-ai-core.git" "$WORK/home-sh/.shop-ai-core" 2>/dev/null   # where an earlier version kept it
 HOME="$WORK/home-sh" PATH="$PATH_SH" bash "$ROOT/bin/init.sh" "$WORK/folder" --no-doctor > "$WORK/layers-folder.log" 2>&1 || fail "init.sh on a project folder with layers (see $WORK/layers-folder.log)"
 [ "$(tr '\n' '|' < "$WORK/folder/.ai-core/STAMP" | sed 's/ [0-9a-f-]*|/|/g')" = "setup-ai-core|store-ai-core|" ] || fail "the project folder did not get the layer its repositories share: $(tr '\n' '|' < "$WORK/folder/.ai-core/STAMP")"
@@ -641,6 +642,7 @@ lay_init "$LAY/lay-web-tree" lay-tree
 cmp -s "$LAY/lay-web/.ai-core/config.env" "$LAY/lay-web-tree/.ai-core/config.env" && ! grep -aE '^  (created|refreshed) .*\.ai-core/config\.env' "$WORK/lay-tree.log" || fail "a linked worktree did not lay the config.env its checkout has (see $WORK/lay-tree.log)"
 # a project folder takes the layers' config.env whole: the file of one of its repositories is laid over nothing
 mkdir -p "$LAY/folder"; new_checkout "$LAY/folder/lay-web" lay-web; new_checkout "$LAY/folder/lay-plain" lay-plain
+carry_harness "$LAY/folder/lay-web" "$LAY/folder/lay-plain"
 lay_init "$LAY/folder" lay-folder
 is_layer_config "$LAY/folder" || fail "a project folder did not get the config.env of its layers whole (see $WORK/lay-folder.log): $(cat "$LAY/folder/.ai-core/config.env")"
 

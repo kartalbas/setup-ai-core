@@ -286,7 +286,9 @@ neighbour_settle_steps() {
 # neighbour_pending_end or neighbours_release, so no gate that arrives later reads a copy init waits to move, and init
 # does not meet a fresh cohort of gates at each neighbour. The state is read again under each admission, and a copy that
 # no longer needs a move gives its admission back. One wait starts here: it is the deadline of every copy. A copy whose
-# state cannot be read, or whose admission is not free in time, is left for neighbour_refresh_copy to name.
+# state cannot be read, or whose admission is not free in time, is left for neighbour_refresh_copy to name. Init refreshes
+# the copies it claimed (neighbour_claimed) before any other, so it never waits for the admission of another copy while it
+# keeps a claim: a second init that holds that admission and waits for the claim would make both wait out the allowance.
 NEIGHBOUR_PENDING=""
 neighbour_pending_begin() {
   local name copy ref dir fd=60 lines
@@ -315,13 +317,16 @@ neighbour_pending_end() {
   NEIGHBOUR_PENDING="$kept"
 }
 
+# neighbour_claimed <neighbour>: init holds the admission of that neighbour's copies, which neighbour_pending_begin took
+neighbour_claimed() { case "$NEIGHBOUR_PENDING " in *" $1:"*) return 0 ;; esac; return 1; }
+
 # neighbour_refresh_copy <project folder> <neighbour> <copy> <ref> <config.env>: for init. neighbour_settle for the copy,
 # which neighbour_pending_begin may hold the admission of already. Prints one line, the state - current, moved, held or
 # failed - and a tab and the reason where there is one.
 neighbour_refresh_copy() (
   local admitted=0
   [ "$NEIGHBOUR_WAIT_START" -ne 0 ] || neighbour_wait_begin "$5"
-  case "$NEIGHBOUR_PENDING " in *" $2:"*) admitted=1 ;; esac
+  ! neighbour_claimed "$2" || admitted=1
   neighbour_settle "$(neighbour_dir "$1" "$2")" "$3" "$4" "$admitted" || { printf 'failed\t%s\n' "$NEIGHBOUR_ERROR"; exit 0; }
   case "$NEIGHBOUR_STATE" in
     held) printf 'held\t%s\n' "$NEIGHBOUR_ERROR" ;;

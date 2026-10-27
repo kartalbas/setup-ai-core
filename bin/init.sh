@@ -332,7 +332,11 @@ if [ "$PROJECT_FOLDER" -eq 0 ]; then
         done
         neighbour_pending_begin "$folder" "$NEIGHBOUR_CONFIG" "$pending_copies"
       fi
-      for neighbour in "$folder"/*/; do
+      # The copies claimed come first, so no claim is kept while init waits for another copy (neighbour_pending_begin)
+      link_order=()
+      for neighbour in "$folder"/*/; do name="${neighbour%/}"; ! neighbour_claimed "${name##*/}" || link_order+=("$neighbour"); done
+      for neighbour in "$folder"/*/; do name="${neighbour%/}"; neighbour_claimed "${name##*/}" || link_order+=("$neighbour"); done
+      for neighbour in "${link_order[@]}"; do
         neighbour="${neighbour%/}"; name="${neighbour##*/}"
         [ -d "$neighbour/.git" ] && [ "$neighbour" != "$main" ] || continue
         if neighbour_followed "$name"; then

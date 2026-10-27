@@ -821,4 +821,48 @@ wait "$again" || fail "the second init failed: $(tail -3 "$RD/again.out")"
 waiting_on "$RD/again.out" "" && fail "the second init waited, though the copy was current"
 reader_stop w2
 echo "  the shim of the product ran the init of the harness in the worktree git made, which waited for the reader before it, not for the later one, and ended with the harness, the link and the copy at the landed commit; a second init finished beside a reader"
+
+section "an init keeps no claim while it waits for the admission of a copy it did not claim, so two inits never wait for each other"
+RD="$WORK/nb-rd-c"; mkdir -p "$RD"; set_wait 600
+keeps_open() {  # keeps_open <pid> <file>: the process has the file open on one of its descriptors
+  local fd; for fd in /proc/"$1"/fd/*; do [ "$(readlink "$fd" 2>/dev/null)" != "$2" ] || return 0; done; return 1
+}
+CIRCLED="init B waits for the admission of Zed and keeps its claim of cat, which init A waits for while it holds Zed"
+# circle_run <harness root> <tag>: init B claims cat and stops at the read of dog, which a mover holds; then Zed lands, and
+# init A claims Zed and waits for the claim of cat; then dog is free. Under C, B's links list Zed before cat. Sets CIRCLE to
+# ok, or to the first thing that went wrong; both inits are stopped at the end.
+CIRCLE=""
+circle_run() {
+  local root="$1" tag="$2" a b tc tz n=1200 status=0
+  CIRCLE=ok
+  bash "$root/bin/init.sh" "$T2" --no-doctor > "$RD/sync-$tag.out" 2>&1 || CIRCLE="the init that brings every copy up failed: $(tail -3 "$RD/sync-$tag.out")"
+  land cat "c-$tag"; tc="$(git -C "$WORK/nb-cat.git" rev-parse master)"
+  mover dog "$RD/free-dog-$tag"
+  LC_ALL=C setsid bash "$root/bin/init.sh" "$T3" --no-doctor > "$RD/b-$tag.out" 2>&1 & b=$!
+  await 120 waiting_on "$RD/b-$tag.out" "$(lock_of dog)" || CIRCLE="init B never stopped at the read of dog: $(tail -3 "$RD/b-$tag.out")"
+  land Zed "c-$tag"; tz="$(git -C "$WORK/nb-Zed.git" rev-parse master)"
+  LC_ALL=C setsid bash "$root/bin/init.sh" "$T2" --no-doctor > "$RD/a-$tag.out" 2>&1 & a=$!
+  await 120 waiting_on "$RD/a-$tag.out" "$(admission_of cat)" || CIRCLE="init A never waited for the claim of cat: $(tail -3 "$RD/a-$tag.out")"
+  : > "$RD/free-dog-$tag"; wait "$READER" 2>/dev/null || true
+  until gone "$a" && gone "$b"; do
+    if waiting_on "$RD/b-$tag.out" "$(admission_of Zed)" && keeps_open "$b" "$(admission_of cat)"; then CIRCLE="$CIRCLED"; break; fi
+    n=$((n - 1)); [ "$n" -gt 0 ] || { CIRCLE="the two inits did not finish once dog was free"; break; }
+    "$REAL_SLEEP" 0.1
+  done
+  if [ "$CIRCLE" = ok ]; then
+    wait "$a" || status=$?; wait "$b" || status=$?
+    [ "$status" -eq 0 ] || CIRCLE="an init ended with status $status: $(tail -2 "$RD/a-$tag.out" "$RD/b-$tag.out" | tr '\n' ' ')"
+    cat "$RD/a-$tag.out" "$RD/b-$tag.out" | grep -aq 'may stand behind' && CIRCLE="an init reports a copy that may stand behind (see $RD/a-$tag.out, $RD/b-$tag.out)"
+    [ "$(git -C "$CAT" rev-parse HEAD)" = "$tc" ] && [ "$(git -C "$F/.ai-core/neighbours/Zed/origin-master" rev-parse HEAD)" = "$tz" ] \
+      || CIRCLE="cat or Zed does not stand at the commit that landed"
+  fi
+  stop_group "$a"; stop_group "$b"
+}
+circle_run "$ROOT" g1
+[ "$CIRCLE" = ok ] || fail "two inits that each claim a copy the other must move: $CIRCLE"
+all_free cat dog Zed || fail "a lock is still held after the two inits ended"
+mutant claimed-later bin/init.sh 's|^      for neighbour in "\${link_order\[@]}"; do$|      for neighbour in "$folder"/*/; do|'
+circle_run "$WORK/mutant-claimed-later" g2
+[ "$CIRCLE" = "$CIRCLED" ] || fail "planted: an init that refreshes its copies in the order of the folder did not wait for the admission of Zed while it kept its claim of cat: $CIRCLE"
+echo "  init B refreshes the copy it claimed first and gives the claim up, so init A, which holds Zed and waits for cat, goes on, and both end with the copies at the landed commits; an init that refreshes Zed first, its claim of cat kept, waits for A, which waits for it, the planted defect"
 exit 0

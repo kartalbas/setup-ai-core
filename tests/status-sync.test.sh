@@ -61,11 +61,10 @@ check 'testing'      2 "$(status_rank testing)"
 check 'done'         3 "$(status_rank done)"
 check 'CLOSE is done' 3 "$(status_rank CLOSE)"
 
-# THE MEMOS OF A RUN ANSWER FOR A REPOSITORY THEY HOLD, however many others they hold. Under load the sweep once
-# read a repository's default branch twice and a test stopped in silence: a reader that takes the first matching
-# row from a pipe and leaves, while the writer has rows left, ends the writer with SIGPIPE, and pipefail turns
-# that into a failed read. The memo here is larger than a pipe holds, so the writer has rows left on every
-# machine and at every speed, and the sweep's `set -e` is on as in the script.
+# THE MEMOS OF A RUN ANSWER FOR A REPOSITORY THEY HOLD, however many others they hold. A reader that takes the
+# first matching row from a pipe and leaves, while the writer has rows left, ends the writer with SIGPIPE, and
+# pipefail turns that into a failed read. The memo here is larger than a pipe holds, so the writer has rows left
+# on every machine and at every speed, and the sweep's `set -e` is on as in the script.
 echo 'the memo of a run answers for a repository it holds, however many others it holds'
 release_filler="$(awk 'BEGIN { for (i = 1; i <= 20000; i++) printf "example-org/filler%d\t-\t-\t-\t0\t0\t-\t-\t0\t-\n", i }')"
 delivery_filler="$(awk 'BEGIN { for (i = 1; i <= 20000; i++) printf "example-org/filler%d\t-\t-\t-\t-\t-\n", i }')"

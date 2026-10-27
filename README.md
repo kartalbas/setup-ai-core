@@ -847,8 +847,9 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    the names, reading each one's state again under its lock; the check starts once all are held together. A landing
    whose receipt does not show the check green holds no copy while the gate waits for a lower load, and takes them
    again after it. A check that runs longer than the wait, or hangs, keeps its copy: the refusal says so, and names
-   the setting, the automatic wait and the history it came from; a fetch that hangs is waited for in the same finite
-   way, and nothing here promises that a move or a new worktree is instant, only that it is not kept waiting by
+   the setting, the automatic wait and the history it came from. A fetch of the same neighbour that another gate or
+   init runs is waited for `NEIGHBOUR_LOCK_WAIT_SECONDS` at most, while a fetch of its own takes as long as git takes;
+   nothing here promises that a move or a new worktree is instant, only that it is not kept waiting by
    checks that start after it. An origin that cannot be asked, a copy that cannot
    be read, a default branch that origin renamed since the link was made, or a lock not free in time refuses the push
    and names the copy; nothing is certified against a copy that may be stale.

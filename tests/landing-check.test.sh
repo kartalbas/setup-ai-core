@@ -177,5 +177,31 @@ check 'a range git cannot list fails' '1 yes' "$rc $(grep -q 'cannot be listed' 
 direct_push_commits_only "$hc" 'README' "$head ^$(git -C "$hc" rev-parse HEAD~1)"; rc=$?
 check 'innocent: the commit that changes the listed file alone passes' "0 " "$rc $DIRECT_PUSH_REASON"
 
+echo 'a commit for which git lists no file is no commit of the harness: an empty one, and a merge of commits origin has that brings a file of its own'
+git -C "$hc" reset -q --hard origin/master
+echo second > "$hc/second"; git -C "$hc" add second; git -C "$hc" commit -q -m 'Second #3'; git -C "$hc" push -q origin master
+shims_trailer='No-issue: the shims, written, committed and pushed by ai-core pre-push --install'
+# The planted copy turns an empty list of files into one blank name, which passes the check of the shims.
+blank_name="$fake/landing-check-blank-name.sh"
+sed 's/^    \[ -z "\$files" \] || files=/    files=/' "$root/lib/landing-check.sh" > "$blank_name"
+cmp -s "$root/lib/landing-check.sh" "$blank_name" && { echo "  FAIL the planted copy equals lib/landing-check.sh"; failed=$((failed + 1)); }
+marked_by() {  # marked_by <library>: whether a push of HEAD of the scratch repository carries a mark, with the functions of that library
+  local out
+  # shellcheck disable=SC1090 # the library is the argument: the real one or its planted copy
+  out="$( { . "$1"; with_harness_commits_mark "$hc" master -- bash -c 'echo "${AI_CORE_LANDING_MARK:-none}"'; } 2>/dev/null)"
+  [ "$out" != none ] && echo yes || echo no
+}
+git -C "$hc" commit -q --allow-empty -m 'the hooks of ai-core' -m "$shims_trailer"
+check 'an empty commit with the trailer of the shims: no mark' no "$(marked_by "$root/lib/landing-check.sh")"
+check 'planted: the blank name grants it the mark' yes "$(marked_by "$blank_name")"
+git -C "$hc" reset -q --hard origin/master
+echo code > "$hc/brought.sh"; git -C "$hc" add brought.sh; tree="$(git -C "$hc" write-tree)"; git -C "$hc" reset -q --hard origin/master
+git -C "$hc" reset -q --hard "$(git -C "$hc" commit-tree "$tree" -p origin/master -p origin/master~1 -m 'the hooks of ai-core' -m "$shims_trailer")"
+check 'a merge of two commits of origin that brings brought.sh, with the trailer of the shims: no mark' no "$(marked_by "$root/lib/landing-check.sh")"
+check 'planted: the blank name grants that merge the mark' yes "$(marked_by "$blank_name")"
+git -C "$hc" reset -q --hard origin/master
+mkdir -p "$hc/.githooks"; echo shim > "$hc/.githooks/pre-push"; git -C "$hc" add .githooks; git -C "$hc" commit -q -m 'the hooks of ai-core' -m "$shims_trailer"
+check 'innocent: the commit of the shims gets the mark' yes "$(marked_by "$root/lib/landing-check.sh")"
+
 echo
 if [ "$failed" -eq 0 ]; then echo "all passed"; else echo "$failed failed"; exit 1; fi

@@ -171,7 +171,8 @@ harness_commits_only() {
   while IFS= read -r sha; do
     [ -n "$sha" ] || continue
     files="$(git -C "$dir" diff-tree --no-commit-id --root -r --name-only "$sha")" || return 1
-    files="$(printf '%s\n' "$files" | sort -u | tr '\n' ' ')"
+    # no file stays no file, as git lists none for a merge: one blank name would pass the check of the shims below
+    [ -z "$files" ] || files="$(printf '%s\n' "$files" | sort -u | tr '\n' ' ')"
     trailer="$(git -C "$dir" log -1 --format='%(trailers:key=No-issue,valueonly)' "$sha")" || return 1
     case "$trailer" in
       *'the .gitignore block written by ai-core init'*) [ "$files" = '.gitignore ' ] || return 1 ;;

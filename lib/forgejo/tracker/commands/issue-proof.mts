@@ -17,9 +17,10 @@ export const help = `${USAGE}
 Writes the record "Proven on ENV:" with the evidence of PATH, sets status/done and closes the issue as completed.
 It refuses unless the issue records a landing and, for every repository the landing names, a release that came
 after it, all of an account with write permission and after the last reopening for new work. An issue that holds no "Landed on" record at all, and whose number
-no commit on the default branch of origin of this clone names at the end of its subject, was delivered without a code
+no commit on the default branch of origin of this clone names, in its subject or its body, was delivered without a code
 change: it needs no landing and no release, and the output says that no landing exists. Such a commit without a record
-is work that landed, and is refused until integrate-issue writes its record. A reopening keeps earlier
+is work that landed, and is refused until integrate-issue writes its record, with --also for each further issue a package
+landed. A reopening keeps earlier
 landings and releases if its first status label added by an account with write permission is status/testing; any other
 status or no added status label requires delivery again. Every reopening requires a new proof. Where a repository's
 own LIVE_TAGS names ENV with the pattern landed, its landing is its delivery and needs no release. Where it
@@ -129,9 +130,9 @@ export async function run(args: readonly string[], context: CommandContext): Pro
       commandDeliveries.push({ repository, missing: await findMissingCommandDelivery(context, checkout, repository, environment, findNewestLanding(history, repository)) });
     }
   }
-  const landedWithoutRecord = holdsNoLandedRecord(entries) ? await findLandedCommitOf(context.git, mainCheckout, ref) : undefined;
+  const landedWithoutRecord = holdsNoLandedRecord(entries) ? await findLandedCommitOf(context.git, context.harness, mainCheckout, ref) : undefined;
   if (landedWithoutRecord !== undefined) {
-    throw new PreconditionError(`${name} is not delivered, so nothing is proven: the commit ${landedWithoutRecord.slice(0, 7)} on the default branch of origin names it, and the issue holds no "Landed on" record of that landing; run integrate-issue again, which writes it`);
+    throw new PreconditionError(`${name} is not delivered, so nothing is proven: the commit ${landedWithoutRecord.slice(0, 7)} on the default branch of origin names it, and the issue holds no "Landed on" record of that landing; run integrate-issue again, with --also for each further issue the package landed, which writes it`);
   }
   const deliveredWithoutCode = holdsNoLandedRecord(entries);
   const missing = deliveredWithoutCode ? [] : listMissingDelivery(history, landingIsDelivery, commandDeliveries);

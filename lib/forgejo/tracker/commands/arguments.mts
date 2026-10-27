@@ -1,8 +1,9 @@
 import { readFile } from 'node:fs/promises';
-import { commitNameOf, formatRepository, isSameRepository, parseIssueNumber, parseRepository } from '../domain/issues.mts';
+import { formatIssue, formatRepository, isSameRepository, parseIssueNumber, parseRepository } from '../domain/issues.mts';
 import type { IssueRef, RepositoryRef } from '../domain/issues.mts';
-import { UsageError } from '../domain/refusals.mts';
+import { PreconditionError, UsageError } from '../domain/refusals.mts';
 import type { GitClient } from '../git/git.mts';
+import type { HarnessSteps } from './command.mts';
 
 export type OptionKind = 'value' | 'repeat' | 'switch';
 
@@ -121,14 +122,16 @@ export async function isBranchOfIssue(git: GitClient, cwd: string, name: string,
   return recorded.toLowerCase() === formatRepository(ref).toLowerCase();
 }
 
-// The newest commit on the default branch of origin of the clone at `cwd` whose subject names the issue at its end, as
-// integrate-issue lands its work, or nothing. Work that landed without its "Landed on" record, as a landing stopped between
-// its push and its record leaves it, is found here.
-export async function findLandedCommitOf(git: GitClient, cwd: string, ref: IssueRef): Promise<string | undefined> {
+// The newest commit on the default branch of origin of the clone at `cwd` that names the issue, in its subject or its body,
+// as the board reads the commits of an issue (findCommitNamingIssue of the harness), or nothing. Work that landed without
+// its "Landed on" record, as a landing stopped between its push and its record leaves it, is found here.
+export async function findLandedCommitOf(git: GitClient, harness: HarnessSteps, cwd: string, ref: IssueRef): Promise<string | undefined> {
   const origin = await git.originRepository(cwd);
   const defaultBranch = await git.defaultBranch(cwd);
   await git.fetchBranch(cwd, defaultBranch);
-  return git.findCommitBySubjectEnding(cwd, `refs/remotes/origin/${defaultBranch}`, `(${commitNameOf(ref, origin)})`);
+  const found = await harness.findCommitNamingIssue(cwd, `refs/remotes/origin/${defaultBranch}`, formatRepository(ref), ref.number, formatRepository(origin));
+  if (!found.succeeded) throw new PreconditionError(`the commits of origin/${defaultBranch} in ${cwd} that name ${formatIssue(ref)} could not be read: ${found.output}`);
+  return found.output === '' ? undefined : found.output;
 }
 
 // As takeIssueOfWorktree for a list: the repository named, or recorded on the current branch, holds for every number.

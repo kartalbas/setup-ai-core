@@ -105,12 +105,6 @@ export class GitClient {
     return (await this.run(cwd, args)).stdout.replace(/\n$/, '');
   }
 
-  // The newest commit in the history of `ref` whose subject ends with `suffix`, or nothing.
-  async findCommitBySubjectEnding(cwd: string, ref: string, suffix: string): Promise<string | undefined> {
-    const lines = await this.output(cwd, ['log', '--format=%H %s', '--fixed-strings', `--grep=${suffix}`, ref]);
-    return lines.split('\n').find((line) => line.endsWith(suffix))?.split(' ')[0];
-  }
-
   async originRepository(cwd: string): Promise<RepositoryAddress> {
     return parseRemoteAddress(await this.output(cwd, ['remote', 'get-url', 'origin']));
   }

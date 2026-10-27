@@ -26,6 +26,8 @@ export function createRecordingHarness(): RecordingHarness {
     refreshCheckout: step('refreshCheckout', 'refreshed: the checkout'),
     readLiveTags: step('readLiveTags', ''),
     readLiveRelease: (checkout, repository, environment) => step('readLiveRelease', '{"delivered":null}')(`${checkout} ${repository} ${environment}`),
+    // No commit names the issue here: a test that reads the history of its fixture hands in the step of the Bash harness.
+    findCommitNamingIssue: (cwd, ref, issueRepository, number, commitRepository) => step('findCommitNamingIssue', '')(`${cwd} ${ref} ${issueRepository}#${number} ${commitRepository}`),
     openLandingCheck: (cwd) => step('openLandingCheck', '/planted/receipt')(cwd),
     completeLandingCheck: (receipt, commit, ciRef) => step('completeLandingCheck', '')(`${receipt} ${commit} ${ciRef}`),
     closeLandingCheck: (receipt) => step('closeLandingCheck', '')(receipt),

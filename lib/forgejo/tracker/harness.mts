@@ -7,7 +7,8 @@ import { showLines } from './git/git.mts';
 // The steps of the harness around a worktree run the harness's own Bash, so each has one spelling: the
 // team modes check, init in a new worktree as bin/start-issue.sh runs it, fast_forward_default_branch of
 // lib/common.sh as bin/integrate-issue.sh runs it, and live_tags_declaration and the read of
-// lib/live-release.sh as bin/status.sh runs them, and the receipt of the checks of a landing, lib/landing-check.sh,
+// lib/live-release.sh as bin/status.sh runs them, issue_mention_pattern of lib/common.sh as lib/board.sh reads the commits
+// of an issue with it, and the receipt of the checks of a landing, lib/landing-check.sh,
 // as bin/integrate-issue.sh runs it, its mark of a harness landing, and the most rounds of a landing, INTEGRATE_MAX_ROUNDS. The install of a merged tree runs the repository's own
 // scripts/install.sh, as bin/integrate-issue.sh runs it. The page of status --tokens is lib/status-tokens.sh.
 
@@ -22,6 +23,7 @@ const ASSEMBLE = [
 ].join('\n');
 const REFRESH = '. "$1/lib/common.sh" && fast_forward_default_branch "$2"';
 const LIVE_TAGS = '. "$1/lib/common.sh" && . "$1/lib/live-release.sh" && live_tags_declaration "$2"';
+const COMMIT_NAMING_ISSUE = '. "$1/lib/common.sh" && git log -E -i -1 --format=%H --grep="$(issue_mention_pattern "$3" "$4" "$5")" "$2"';
 
 // `answer` stdout reads a successful step's output from standard output alone, for a step whose output is a value:
 // a warning on standard error is no part of it.
@@ -56,6 +58,8 @@ export const bashHarness: HarnessSteps = {
   refreshCheckout: (checkout) => runBash(checkout, ['-c', REFRESH, 'refresh-checkout', CORE, checkout]),
   readLiveTags: (checkout) => runBash(checkout, ['-c', LIVE_TAGS, 'read-live-tags', CORE, checkout]),
   readLiveRelease: (checkout, repository, environment) => runBash(checkout, [`${CORE}/lib/live-release.sh`, 'read', checkout, repository, environment]),
+  findCommitNamingIssue: (cwd, ref, issueRepository, number, commitRepository) =>
+    runBash(cwd, ['-c', COMMIT_NAMING_ISSUE, 'find-commit-naming-issue', CORE, ref, issueRepository, String(number), commitRepository], 'stdout'),
   openLandingCheck: (cwd) => runBash(cwd, [`${CORE}/lib/landing-check.sh`, 'open'], 'stdout'),
   completeLandingCheck: (receipt, commit, ciRef) => runBash(CORE, [`${CORE}/lib/landing-check.sh`, 'complete', receipt, commit, ciRef]),
   closeLandingCheck: (receipt) => runBash(CORE, [`${CORE}/lib/landing-check.sh`, 'close', receipt]),

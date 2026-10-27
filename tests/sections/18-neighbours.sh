@@ -383,13 +383,13 @@ grep -q "^report=dog: the published copy $DOG stands at $dog_tip (moved from .* 
 [ "$(grep -c '^held=' "$WORK/nb-probe-out")" = 3 ] || fail "the gate did not hold the copy of cat, dog and Zed together at the end: $(cat "$WORK/nb-probe-out")"
 echo "  a mover of cat took its lock while the gate waited for dog, and the gate then held all three copies together at their newest commits"
 land dog ten
-mutant keeps-lock lib/neighbours.sh '/^    \[ -n "\$blocked" \] || return 0$/{n;s/neighbours_release/:/;}; s/NEIGHBOUR_FDS=" 40"/NEIGHBOUR_FDS="$NEIGHBOUR_FDS 99"/; s/neighbour_open 40 /neighbour_open 99 /; s/neighbour_wait_flock 40 /neighbour_wait_flock 99 /g'
+mutant keeps-lock lib/neighbours.sh '/^    \[ -n "\$blocked" \] || return 0$/{n;s/neighbours_release/:/;}'
 probe_wait "$WORK/mutant-keeps-lock"
 [ "$(cat "$WORK/nb-probe")" = held ] || fail "planted: a gate that keeps cat's lock through the wait was not found holding it, so this case cannot tell"
-echo "  the gate of today, which keeps the lock of cat through the wait for dog, is the planted defect: its mover of cat finds the lock held"
+echo "  a gate that keeps the lock of cat through the wait for dog is the planted defect: its mover of cat finds the lock held"
 land dog ten-b
 dog_before="$(git -C "$DOG" rev-parse HEAD)"
-mutant moves-under-reader lib/neighbours.sh 's/neighbour_wait_flock 40 "\$NEIGHBOUR_DIR\/.copy.lock" exclusive/neighbour_wait_flock 40 "$NEIGHBOUR_DIR\/.copy.lock" shared/'
+mutant moves-under-reader lib/neighbours.sh 's/\(neighbour_wait_flock 9 "\$dir\/.copy.lock"\) exclusive; } || return 1/\1 shared; } || return 1/'
 probe_wait "$WORK/mutant-moves-under-reader"
 [ "$(cat "$WORK/nb-dogsnap" 2>/dev/null || true)" = "$dog_before" ] && fail "planted: a gate that takes the lock of a move shared did not move the copy under its reader, so this case cannot tell"
 echo "  a gate that moves a copy under a shared lock, the other planted defect, moves dog while its reader holds it, and the case sees the copy moved"
@@ -514,7 +514,7 @@ work_on "$T2" u
 printf 'UPDATE_CHECK="never"\nNEIGHBOUR_LOCK_WAIT_SECONDS="2"\nPRE_PUSH_LOAD_LIMIT="24"\nPRE_PUSH_LOAD_WAIT_SECONDS="300"\n' > "$T2/.ai-core/config.env"
 landing_wait() {  # landing_wait <harness root>: a gate with a receipt that holds nothing, one wait for a lower load, and a mover at the first sleep
   rm -f "$WORK/nb-probe"; clock_reset; printf '%s\n' 30 30 0.5 > "$STATE/loads"
-  on_clock 1000 "flock -x -n '$(lock_of dog)' true && echo free > '$WORK/nb-probe' || echo held > '$WORK/nb-probe'; echo '$2' > '$WORK/nb-dog-pusher/marker'; git -C '$WORK/nb-dog-pusher' -c user.email=check@localhost -c user.name=check commit -q -am '$2'; git -C '$WORK/nb-dog-pusher' push -q origin master"
+  on_clock 1000 "flock -x -n '$(lock_of dog)' true && flock -x -n '$(lock_of dog | sed 's/copy/admission/')' true && echo free > '$WORK/nb-probe' || echo held > '$WORK/nb-probe'; echo '$2' > '$WORK/nb-dog-pusher/marker'; git -C '$WORK/nb-dog-pusher' -c user.email=check@localhost -c user.name=check commit -q -am '$2'; git -C '$WORK/nb-dog-pusher' push -q origin master"
   PATH="$1/bin-path:$PATH" AI_CORE_LANDING_RECEIPT="$WORK/nb-no-receipt/receipt" clocked push_gate "$T2" issue-3-z "$F-recv-$2.log"
 }
 landing_wait "$ROOT" during || fail "the gate with a receipt that does not hold was refused: $(tail -5 "$F-recv-during.log")"
@@ -527,7 +527,7 @@ mutant holds-through-wait bin/pre-push.sh '/^      neighbours_release   # no cop
 landing_wait "$WORK/mutant-holds-through-wait" while || true
 [ "$(cat "$WORK/nb-probe")" = held ] || fail "planted: a gate that holds the copies through the wait for a lower load was not found holding them, so this case cannot tell"
 set_wait 2
-echo "  the gate of today, which holds the copies for a receipt through the wait, is the planted defect: its mover of dog finds the lock held"
+echo "  a gate that holds the copies for a receipt through the wait is the planted defect: its mover of dog finds the lock held"
 
 section "a process that a step of the gate starts and leaves running holds none of the locks of the gate"
 daemons="$WORK/nb-daemons"; : > "$daemons"
@@ -567,4 +567,352 @@ work_on "$T1" i
 LC_ALL=en_US.utf8 push_gate "$T1" issue-2-y "$F-order.log" || fail "the push under en_US.utf8 was refused: $(tail -5 "$F-order.log")"
 [ "$(grep -an 'neighbour Zed:' "$F-order.log" | head -1 | cut -d: -f1)" -lt "$(grep -an 'neighbour cat:' "$F-order.log" | head -1 | cut -d: -f1)" ] || fail "the neighbours are not held in the C order of their names (see $F-order.log)"
 echo "  Zed is held before cat although the glob of the locale lists it last"
+
+# A gate's reader that enters a copy through the admission of the library under test, as the gate does, and holds it until its
+# release file exists. It logs when it was admitted and the commit the copy stood at then.
+EV="$WORK/nb-events.log"; RD="$WORK/nb-rd"; mkdir -p "$RD"
+cat > "$WORK/nb-reader.sh" <<'EOF'
+#!/usr/bin/env bash
+# nb-reader.sh <harness root> <config.env> <neighbour directory> <label> <events> <state directory>
+set -u
+. "$1/lib/common.sh"; . "$1/lib/neighbours.sh"
+dir="$3"; label="$4"
+neighbour_wait_begin "$2"
+neighbour_open 40 "$dir/.copy.lock" || exit 2
+neighbour_wait_for "$dir/.admission.lock or $dir/.copy.lock" "A move keeps it" neighbour_enter 40 "$dir/.copy.lock" "$dir/.admission.lock" 2> "$6/$label.err" \
+  || { echo "$label refused: $NEIGHBOUR_ERROR" >> "$5"; exit 3; }
+echo "$label admitted at $(git -C "$dir/origin-master" rev-parse HEAD)" >> "$5"; : > "$6/admitted-$label"
+while [ ! -e "$6/release-$label" ]; do sleep 0.1; done
+echo "$label released" >> "$5"
+EOF
+await() {  # await <seconds> <command>...: until the command succeeds, at most that long
+  local n=$(( $1 * 10 )); shift
+  until "$@"; do n=$((n - 1)); [ "$n" -gt 0 ] || return 1; "$REAL_SLEEP" 0.1; done
+}
+gone() { ! kill -0 "$1" 2>/dev/null; }
+reader_start() { bash "$WORK/nb-reader.sh" "$1" "$F/app/.ai-core/config.env" "$F/.ai-core/neighbours/$2" "$3" "$EV" "$RD" > "$RD/$3.out" 2>&1 & echo $! > "$RD/pid-$3"; }
+reader_stop() {  # reader_stop <label>...: ends the readers, one that was never admitted by TERM
+  local l pid
+  for l in "$@"; do
+    pid="$(cat "$RD/pid-$l")"; : > "$RD/release-$l"
+    [ -e "$RD/admitted-$l" ] || kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  done
+}
+stop_group() { kill -TERM -- "-$1" 2>/dev/null || true; wait "$1" 2>/dev/null || true; }  # stop_group <pid of a process that setsid started>
+reader_decided() { [ -e "$RD/admitted-$1" ] || grep -aq 'neighbours: waiting for the lock' "$RD/$1.err" 2>/dev/null; }
+waiting_on() { grep -aq "neighbours: waiting for the lock $2" "$1" 2>/dev/null; }
+locks_on() {  # locks_on <lock file> READ|WRITE: how many flock locks of that kind the kernel lists on the file (/proc/locks)
+  grep -c "FLOCK .* $2 [0-9]* [0-9a-f]*:[0-9a-f]*:$(stat -c %i "$1") " /proc/locks || true
+}
+# starve_run <init|gate> <harness root> <tag> <early readers> <late readers>: a copy that must move while early readers hold it
+# and late readers keep arriving. Sets STARVE to ok, or to the first thing that went wrong; every process is reaped.
+STARVE=""
+starve_run() {
+  local kind="$1" root="$2" tag="$3" i mover tip old status=0
+  STARVE=ok; : > "$EV"; RD="$WORK/nb-rd-$tag"; mkdir -p "$RD"; set_wait 600
+  for ((i = 1; i <= $4; i++)); do reader_start "$root" cat "e$i-$tag"; done
+  for ((i = 1; i <= $4; i++)); do await 120 test -e "$RD/admitted-e$i-$tag" || STARVE="early reader $i was not admitted"; done
+  land cat "$tag"; tip="$(git -C "$WORK/nb-cat.git" rev-parse master)"; old="$(git -C "$CAT" rev-parse HEAD)"
+  if [ "$kind" = init ]; then setsid bash "$root/bin/init.sh" "$T3" --no-doctor > "$RD/mover.out" 2>&1 & mover=$!
+  else work_on "$T2" "st-$tag"; PATH="$root/bin-path:$PATH" setsid git -C "$T2" push origin "HEAD:refs/heads/st-$tag" > "$RD/mover.out" 2>&1 & mover=$!; fi
+  if [ "$4" -gt 0 ]; then
+    await 120 waiting_on "$RD/mover.out" "" || STARVE="the move never waited for the early readers: $(tail -3 "$RD/mover.out")"
+    [ "$(git -C "$CAT" rev-parse HEAD)" = "$old" ] || STARVE="the copy moved under the early readers"
+  fi
+  for ((i = 1; i <= $5; i++)); do reader_start "$root" cat "l$i-$tag"; done
+  for ((i = 1; i <= $5; i++)); do
+    await 120 reader_decided "l$i-$tag" || STARVE="late reader $i was neither admitted nor refused"
+    [ ! -e "$RD/admitted-l$i-$tag" ] || [ "$STARVE" != ok ] || STARVE="a later reader was admitted while the move waited"
+  done
+  for ((i = 1; i <= $4; i++)); do reader_stop "e$i-$tag"; done
+  [ "$STARVE" != ok ] || await 120 gone "$mover" || STARVE="the move did not finish after the early readers ended"
+  if [ "$STARVE" = ok ]; then
+    wait "$mover" || status=$?
+    [ "$status" -eq 0 ] || STARVE="the mover ended with status $status: $(tail -3 "$RD/mover.out")"
+    [ "$(git -C "$CAT" rev-parse HEAD)" = "$tip" ] || STARVE="the copy does not stand at the landed commit"
+    for ((i = 1; i <= $5; i++)); do
+      await 120 test -e "$RD/admitted-l$i-$tag" || STARVE="late reader $i was never admitted after the move"
+      grep -q "^l$i-$tag admitted at $tip$" "$EV" || STARVE="late reader $i was admitted at another commit than the moved $tip"
+    done
+  fi
+  for ((i = 1; i <= $5; i++)); do reader_stop "l$i-$tag"; done
+  [ "$STARVE" != ok ] || await 120 gone "$mover" || true
+  stop_group "$mover"
+}
+
+section "a copy that must move gets its turn while later readers keep arriving; the old acquisition starves it, and a single holder only delays it"
+starve_run init "$ROOT" a1 2 2
+[ "$STARVE" = ok ] || fail "init did not get its turn: $STARVE"
+starve_run gate "$ROOT" a2 2 2
+[ "$STARVE" = ok ] || fail "a gate that must move the copy did not get its turn: $STARVE"
+echo "  an init and a gate that must move a copy wait for the two readers admitted before them, finish before two later readers enter, and those read the moved commit"
+starve_run init "$ROOT" b1 1 0
+[ "$STARVE" = ok ] || fail "init beside a single holder: $STARVE"
+starve_run init "$ROOT" b2 0 0
+[ "$STARVE" = ok ] || fail "init with no reader: $STARVE"
+echo "  innocent: a single holder is waited for and the move follows its release, and a move with no reader needs no wait"
+STARVED="a later reader was admitted while the move waited"
+mutant old-acquisition lib/neighbours.sh 's/^  neighbour_try_flock 7 shared || rc=\$?$/  :/; s/^  if \[ "\$4" -ne 1 \]; then$/  if false; then/; s/\(neighbour_wait_flock "\$fd" "\$dir\/.admission.lock" exclusive\) "A move[^"]*"/true/'
+starve_run init "$WORK/mutant-old-acquisition" c1 2 2
+[ "$STARVE" = "$STARVED" ] || fail "planted: the old acquisition, the library with its admission bypassed, did not starve the move of init: $STARVE"
+starve_run gate "$WORK/mutant-old-acquisition" c2 2 2
+[ "$STARVE" = "$STARVED" ] || fail "planted: the old acquisition did not starve the move of a gate: $STARVE"
+echo "  planted: the library with its admission bypassed lets later readers in beside the move of init and of a gate, and the progress assertion goes red"
+mutant no-intent-init lib/neighbours.sh 's/\(neighbour_wait_flock "\$fd" "\$dir\/.admission.lock" exclusive\) "A move[^"]*"/true/'
+starve_run init "$WORK/mutant-no-intent-init" d1 2 2
+[ "$STARVE" = "$STARVED" ] || fail "planted: init without its writer intent did not starve: $STARVE"
+mutant no-intent-gate lib/neighbours.sh 's/^  if \[ "\$4" -ne 1 \]; then$/  if false; then/'
+starve_run gate "$WORK/mutant-no-intent-gate" d2 2 2
+[ "$STARVE" = "$STARVED" ] || fail "planted: a gate mover without its writer intent did not starve: $STARVE"
+starve_run init "$WORK/mutant-no-intent-gate" d3 2 2
+[ "$STARVE" = ok ] || fail "innocent: init, whose intent is its own, failed beside the gate's planted defect: $STARVE"
+echo "  planted: no writer intent in init, and none in the movement of a gate, each starve their own move, and the other one still passes"
+
+admission_of() { printf '%s/.ai-core/neighbours/%s/.admission.lock\n' "$F" "$1"; }
+# multi_run <harness root> <tag>: two inits and two gates, cat and dog behind, three early readers that overlap differently, and a late one
+MULTI=""
+multi_run() {
+  local root="$1" tag="$2" l i1 i2 g1 g2 tc td status=0
+  MULTI=ok; : > "$EV"; RD="$WORK/nb-rd-$tag"; mkdir -p "$RD"; set_wait 600
+  reader_start "$root" cat "rc1-$tag"; reader_start "$root" cat "rc2-$tag"; reader_start "$root" dog "rd1-$tag"
+  for l in rc1 rc2 rd1; do await 120 test -e "$RD/admitted-$l-$tag" || MULTI="reader $l was not admitted"; done
+  land cat "$tag"; land dog "$tag"; tc="$(git -C "$WORK/nb-cat.git" rev-parse master)"; td="$(git -C "$WORK/nb-dog.git" rev-parse master)"
+  setsid bash "$root/bin/init.sh" "$T2" --no-doctor > "$RD/i1.out" 2>&1 & i1=$!
+  await 120 waiting_on "$RD/i1.out" "" || MULTI="the first init never waited for the readers"
+  setsid bash "$root/bin/init.sh" "$T3" --no-doctor > "$RD/i2.out" 2>&1 & i2=$!
+  await 120 waiting_on "$RD/i2.out" "$(admission_of cat)" || MULTI="the second init never waited for the admission of cat"
+  work_on "$T1" "m1-$tag"; work_on "$T2" "m2-$tag"
+  PATH="$root/bin-path:$PATH" setsid git -C "$T1" push origin "HEAD:refs/heads/m1-$tag" > "$RD/g1.out" 2>&1 & g1=$!
+  PATH="$root/bin-path:$PATH" setsid git -C "$T2" push origin "HEAD:refs/heads/m2-$tag" > "$RD/g2.out" 2>&1 & g2=$!
+  await 120 waiting_on "$RD/g1.out" "$(admission_of cat) or" || MULTI="the first gate never waited for the admission of cat"
+  await 120 waiting_on "$RD/g2.out" "$(admission_of cat) or" || MULTI="the second gate never waited for the admission of cat"
+  [ "$(locks_on "$(lock_of Zed)" READ)" = 0 ] || MULTI="a gate that waits for the admission of cat keeps the shared lock of Zed"
+  [ "$(locks_on "$(lock_of cat)" READ)" = 2 ] || MULTI="a gate or an init that waits for the admission of cat keeps a shared lock of cat: $(locks_on "$(lock_of cat)" READ) are held, the two readers hold two"
+  reader_start "$root" dog "ld-$tag"; await 120 reader_decided "ld-$tag" || MULTI="the late reader of dog was neither admitted nor refused"
+  [ ! -e "$RD/admitted-ld-$tag" ] || [ "$MULTI" != ok ] || MULTI="a later reader of dog was admitted while init waited for the readers of cat, so init would wait for it too"
+  reader_stop "rd1-$tag" "rc1-$tag" "rc2-$tag"
+  if [ "$MULTI" = ok ]; then
+    for l in $i1 $i2 $g1 $g2; do await 120 gone "$l" || MULTI="a process did not finish after the readers ended: $l"; done
+    for l in $i1 $i2 $g1 $g2; do wait "$l" || MULTI="a process ended with an error: $l ($(tail -2 "$RD/i1.out" "$RD/i2.out" "$RD/g1.out" "$RD/g2.out" | tr '\n' ' '))"; done
+    [ "$(git -C "$CAT" rev-parse HEAD)" = "$tc" ] && [ "$(git -C "$DOG" rev-parse HEAD)" = "$td" ] || MULTI="a copy does not stand at the commit that landed"
+    await 120 test -e "$RD/admitted-ld-$tag" || MULTI="the late reader of dog was never admitted"
+  fi
+  reader_stop "ld-$tag"
+  for l in $i1 $i2 $g1 $g2; do stop_group "$l"; done
+}
+section "two inits and two gates that must move two copies finish without a deadlock and without waiting for a later cohort, and the locks are told by the kernel"
+multi_run "$ROOT" e1
+[ "$MULTI" = ok ] || fail "two inits and two gates over two copies: $MULTI"
+all_free cat dog Zed || fail "a lock is still held after two inits and two gates ended"
+mutant keeps-while-waiting lib/neighbours.sh '/^neighbour_read_state() {$/,/^}$/s/^  neighbour_unlock 9$/  :/'
+multi_run "$WORK/mutant-keeps-while-waiting" e2
+case "$MULTI" in *"keeps a shared lock of cat"*) ;; *) fail "planted: a mover that keeps the shared lock it read the state under while it waits for admission was not found holding it: $MULTI" ;; esac
+mutant no-pending-set bin/init.sh 's/^        neighbour_pending_begin .*$/        :/'
+multi_run "$WORK/mutant-no-pending-set" e3
+case "$MULTI" in *"so init would wait for it too"*) ;; *) fail "planted: an init that claims one copy after the other did not meet a later cohort at the next copy: $MULTI" ;; esac
+echo "  two inits and two gates over two copies pass with readers released in another order, a waiting gate or init keeps no shared lock, and a later reader waits; the planted keeper and the planted one-at-a-time init are red"
+
+section "a waiting init and a waiting gate that end by TERM or by KILL leave no admission or copy lock, and a fresh move and reader go through"
+for how in TERM KILL; do
+  RD="$WORK/nb-rd-x$how"; mkdir -p "$RD"; set_wait 600; : > "$EV"
+  reader_start "$ROOT" cat "x1-$how"; await 120 test -e "$RD/admitted-x1-$how" || fail "the reader was not admitted"
+  land cat "x$how"; tip="$(git -C "$WORK/nb-cat.git" rev-parse master)"
+  setsid bash "$ROOT/bin/init.sh" "$T3" --no-doctor > "$RD/init.out" 2>&1 & first=$!
+  await 120 waiting_on "$RD/init.out" "" || fail "the init never waited"
+  work_on "$T2" "x$how"
+  setsid git -C "$T2" push origin "HEAD:refs/heads/x-$how" > "$RD/gate.out" 2>&1 & gate=$!
+  await 120 waiting_on "$RD/gate.out" "$(admission_of cat) or" || fail "the gate never waited for the admission of cat"
+  kill "-$how" -- "-$gate"; wait "$gate" 2>/dev/null || true
+  [ "$(locks_on "$(admission_of cat)" WRITE)" = 1 ] || fail "$how: the interrupted gate left an admission lock: $(locks_on "$(admission_of cat)" WRITE) are held, init holds one"
+  [ "$(locks_on "$(lock_of cat)" READ)" = 1 ] || fail "$how: the interrupted gate left a shared lock of cat"
+  setsid bash "$ROOT/bin/init.sh" "$T1" --no-doctor > "$RD/init2.out" 2>&1 & second=$!
+  await 120 waiting_on "$RD/init2.out" "$(admission_of cat)" || fail "the second init never waited for the admission"
+  kill "-$how" -- "-$second"; wait "$second" 2>/dev/null || true
+  [ "$(locks_on "$(admission_of cat)" WRITE)" = 1 ] || fail "$how: the interrupted init left an admission lock"
+  reader_stop "x1-$how"
+  await 120 gone "$first" || fail "$how: the first init did not finish once the reader ended"
+  wait "$first" || fail "$how: the first init failed: $(tail -3 "$RD/init.out")"
+  [ "$(git -C "$CAT" rev-parse HEAD)" = "$tip" ] || fail "$how: the copy was not moved"
+  land cat "y$how"; bash "$ROOT/bin/init.sh" "$T3" --no-doctor > "$RD/init3.out" 2>&1 || fail "$how: a fresh move after the interrupted ones failed: $(tail -3 "$RD/init3.out")"
+  reader_start "$ROOT" cat "x2-$how"; await 120 test -e "$RD/admitted-x2-$how" || fail "$how: a fresh reader was not admitted"; reader_stop "x2-$how"
+  all_free cat dog Zed || fail "$how: a lock is held after all ended"
+done
+echo "  after TERM and after KILL of a gate and of an init that waited, one admission lock and one copy lock stay, the reader's, and a fresh move and a fresh reader proceed with no lock file removed"
+
+section "a lock that cannot be opened, a checkout that fails, and a landing whose receipt does not hold refuse the gate and name the copy in init"
+RD="$WORK/nb-rd-f"; mkdir -p "$RD"; set_wait 2
+land dog fail; runs="$(wc -l < "$CHECK_LOG")"
+mv "$(admission_of dog)" "$RD/admission-away"; mkdir "$(admission_of dog)"; work_on "$T2" f1
+push_gate "$T2" f-1 "$RD/gate1.out" && fail "the gate went on although the admission lock of dog could not be opened"
+grep -aq "REFUSED.*the copy $DOG cannot be read: the lock file $(admission_of dog) cannot be opened" "$RD/gate1.out" || fail "the refusal does not name the lock file (see $RD/gate1.out)"
+bash "$ROOT/bin/init.sh" "$T3" --no-doctor > "$RD/init1.out" 2>&1 || fail "init failed as a whole"
+grep -aq "may stand behind.*dog (the lock file $(admission_of dog) cannot be opened" "$RD/init1.out" || fail "init does not name dog and its lock file (see $RD/init1.out)"
+rmdir "$(admission_of dog)"; mv "$RD/admission-away" "$(admission_of dog)"
+gd="$(git -C "$DOG" rev-parse --absolute-git-dir)"; : > "$gd/index.lock"; work_on "$T2" f2
+push_gate "$T2" f-2 "$RD/gate2.out" && fail "the gate went on although the checkout of dog failed"
+grep -aq "REFUSED.*the copy $DOG could not move to origin/master: git checkout of origin/master in $DOG failed" "$RD/gate2.out" || fail "the refusal does not name the failed checkout (see $RD/gate2.out)"
+bash "$ROOT/bin/init.sh" "$T3" --no-doctor > "$RD/init2.out" 2>&1 || fail "init failed as a whole"
+grep -aq "may stand behind.*dog (git checkout of origin/master in $DOG failed" "$RD/init2.out" || fail "init does not name dog and its failed checkout (see $RD/init2.out)"
+rm -f "$gd/index.lock"
+[ "$(wc -l < "$CHECK_LOG")" = "$runs" ] || fail "a check ran although the admission lock or the checkout failed"
+push_gate "$T2" f-3 "$RD/gate3.out" || fail "the gate after the failures was refused: $(tail -3 "$RD/gate3.out")"
+echo "  an admission lock that cannot be opened and a checkout that git refuses stop the gate before its check and are named by it and by init, and the next gate passes"
+
+section "a process that a move of init leaves running holds neither the admission nor the copy lock of the copy"
+: > "$daemons"; land cat daemon
+cat > "$gitwrap/git" <<WRAP
+#!/usr/bin/env bash
+case " \$* " in *" checkout "*) ( nohup sleep 120 >/dev/null 2>&1 & echo \$! >> "$daemons" ) ;; esac
+exec "$(command -v git)" "\$@"
+WRAP
+daemon_move() {  # daemon_move <harness root>: init moves cat with a stand-in git that leaves a process running
+  : > "$daemons"; set_wait 2
+  PATH="$gitwrap:$PATH" bash "$1/bin/init.sh" "$T3" --no-doctor > "$WORK/nb-daemon-init.log" 2>&1 || fail "init failed: $(tail -3 "$WORK/nb-daemon-init.log")"
+  spawned="$(wc -l < "$daemons" | tr -d ' ')"; kept=""
+  flock -x -n "$(admission_of cat)" true || kept="$kept admission"; flock -x -n "$(lock_of cat)" true || kept="$kept copy"
+  while read -r pid; do kill "$pid" 2>/dev/null || true; done < "$daemons"
+}
+daemon_move "$ROOT"
+[ "$spawned" -ge 1 ] || fail "the case is not planted: the move left no process running"
+[ -z "$kept" ] || fail "a process the move left running still holds a lock of cat:$kept"
+land cat daemon2
+mutant keeps-descriptors lib/neighbours.sh 's/^  for fd in \$NEIGHBOUR_FDS; do closing=.*$/  :/'
+daemon_move "$WORK/mutant-keeps-descriptors"
+[ -n "$kept" ] || fail "planted: a move whose children keep the descriptors of init was not found holding the admission lock, so this case cannot tell"
+echo "  the process a checkout of init leaves running holds no lock once init ends, and a child that keeps the descriptors of init holds the admission lock, which is the planted defect"
+
+section "two inits that make the same copy at the same moment both leave a complete copy, made once"
+set_wait 600; RD="$WORK/nb-rd-k"; mkdir -p "$RD"
+git -C "$F/dog" worktree remove --force "$DOG"; land dog made; dog_tip="$(git -C "$WORK/nb-dog.git" rev-parse master)"
+bash "$ROOT/bin/init.sh" "$T2" --no-doctor > "$RD/k1.out" 2>&1 & first=$!
+bash "$ROOT/bin/init.sh" "$T3" --no-doctor > "$RD/k2.out" 2>&1 & second=$!
+wait "$first" || fail "the first creator failed: $(tail -3 "$RD/k1.out")"
+wait "$second" || fail "the second creator failed: $(tail -3 "$RD/k2.out")"
+[ "$(git -C "$DOG" rev-parse HEAD)" = "$dog_tip" ] && [ -z "$(git -C "$DOG" status --porcelain)" ] || fail "the copy that two inits made is not complete at the landed commit"
+[ "$(git -C "$F/dog" worktree list --porcelain | grep -c "^worktree $DOG$")" = 1 ] || fail "the copy is registered other than once"
+cat "$RD/k1.out" "$RD/k2.out" | grep -aq 'may stand behind\|cannot become' && fail "a creator reports a copy it could not make (see $RD/k1.out, $RD/k2.out)"
+all_free cat dog Zed || fail "a lock is held after both creators ended"
+echo "  two inits that make dog's copy together both succeed and the copy stands once, complete, at the commit that landed"
+
+section "git worktree add runs the real shim and the real init: the new worktree is equipped and current once the readers admitted before it ended, and a second init waits for nothing"
+RD="$WORK/nb-rd-w"; mkdir -p "$RD"; : > "$EV"
+( cd "$F/app" && bash "$ROOT/bin/pre-push.sh" --install ) > "$RD/install.out" 2>&1 || fail "the shims could not be installed: $(tail -3 "$RD/install.out")"
+[ -x "$F/app/.githooks/post-checkout" ] || fail "no executable post-checkout shim stands in the product"
+reader_start "$ROOT" cat w1; await 120 test -e "$RD/admitted-w1" || fail "the reader was not admitted"
+land cat shim; tip="$(git -C "$WORK/nb-cat.git" rev-parse master)"
+W="$F/.worktrees/app/issue-9-new"
+git -C "$F/app" worktree add -q -b issue-9-new "$W" > "$RD/wt.out" 2>&1 & adding=$!
+await 120 waiting_on "$RD/wt.out" "" || fail "the init of the shim never waited for the reader: $(cat "$RD/wt.out")"
+reader_start "$ROOT" cat w2; await 120 reader_decided w2 || fail "the later reader was neither admitted nor refused"
+[ ! -e "$RD/admitted-w2" ] || fail "a later reader was admitted before the worktree got its copy"
+reader_stop w1
+await 120 gone "$adding" || fail "git worktree add did not end after the reader that came before it ended: $(cat "$RD/wt.out")"
+wait "$adding" || fail "git worktree add failed: $(cat "$RD/wt.out")"
+grep -aq 'may stand behind\|NOT complete' "$RD/wt.out" && fail "the new worktree is not complete: $(cat "$RD/wt.out")"
+[ -f "$W/.ai-core/STAMP" ] || fail "the new worktree has no harness: $(cat "$RD/wt.out")"
+[ "$(readlink "$F/.worktrees/app/cat")" = ../../.ai-core/neighbours/cat/origin-master ] && [ "$(cat "$W/../cat/marker")" = shim ] || fail "the new worktree reads cat through .. as $(cat "$W/../cat/marker" 2>&1), not at the landed commit"
+[ "$(git -C "$CAT" rev-parse HEAD)" = "$tip" ] && [ -z "$(git -C "$CAT" status --porcelain)" ] || fail "the copy of cat does not stand clean at $tip"
+await 120 test -e "$RD/admitted-w2" || fail "the later reader was never admitted"
+grep -q "^w2 admitted at $tip$" "$EV" || fail "the later reader was admitted at another commit than $tip"
+bash "$ROOT/bin/init.sh" "$W" --no-doctor > "$RD/again.out" 2>&1 & again=$!
+await 120 gone "$again" || fail "the second init waited for the check that reads the copy: $(cat "$RD/again.out")"
+wait "$again" || fail "the second init failed: $(tail -3 "$RD/again.out")"
+waiting_on "$RD/again.out" "" && fail "the second init waited, though the copy was current"
+reader_stop w2
+echo "  the shim of the product ran the init of the harness in the worktree git made, which waited for the reader before it, not for the later one, and ended with the harness, the link and the copy at the landed commit; a second init finished beside a reader"
+
+section "an init keeps no claim while it waits for the admission of a copy it did not claim, so two inits never wait for each other"
+RD="$WORK/nb-rd-c"; mkdir -p "$RD"; set_wait 600
+keeps_open() {  # keeps_open <pid> <file>: the process has the file open on one of its descriptors
+  local fd; for fd in /proc/"$1"/fd/*; do [ "$(readlink "$fd" 2>/dev/null)" != "$2" ] || return 0; done; return 1
+}
+CIRCLED="init B waits for the admission of Zed and keeps its claim of cat, which init A waits for while it holds Zed"
+# circle_run <harness root> <tag>: init B claims cat and stops at the read of dog, which a mover holds; then Zed lands, and
+# init A claims Zed and waits for the claim of cat; then dog is free. Under C, B's links list Zed before cat. Sets CIRCLE to
+# ok, or to the first thing that went wrong; both inits are stopped at the end.
+CIRCLE=""
+circle_run() {
+  local root="$1" tag="$2" a b tc tz n=1200 status=0
+  CIRCLE=ok
+  bash "$root/bin/init.sh" "$T2" --no-doctor > "$RD/sync-$tag.out" 2>&1 || CIRCLE="the init that brings every copy up failed: $(tail -3 "$RD/sync-$tag.out")"
+  land cat "c-$tag"; tc="$(git -C "$WORK/nb-cat.git" rev-parse master)"
+  mover dog "$RD/free-dog-$tag"
+  LC_ALL=C setsid bash "$root/bin/init.sh" "$T3" --no-doctor > "$RD/b-$tag.out" 2>&1 & b=$!
+  await 120 waiting_on "$RD/b-$tag.out" "$(lock_of dog)" || CIRCLE="init B never stopped at the read of dog: $(tail -3 "$RD/b-$tag.out")"
+  land Zed "c-$tag"; tz="$(git -C "$WORK/nb-Zed.git" rev-parse master)"
+  LC_ALL=C setsid bash "$root/bin/init.sh" "$T2" --no-doctor > "$RD/a-$tag.out" 2>&1 & a=$!
+  await 120 waiting_on "$RD/a-$tag.out" "$(admission_of cat)" || CIRCLE="init A never waited for the claim of cat: $(tail -3 "$RD/a-$tag.out")"
+  : > "$RD/free-dog-$tag"; wait "$READER" 2>/dev/null || true
+  until gone "$a" && gone "$b"; do
+    if waiting_on "$RD/b-$tag.out" "$(admission_of Zed)" && keeps_open "$b" "$(admission_of cat)"; then CIRCLE="$CIRCLED"; break; fi
+    n=$((n - 1)); [ "$n" -gt 0 ] || { CIRCLE="the two inits did not finish once dog was free"; break; }
+    "$REAL_SLEEP" 0.1
+  done
+  if [ "$CIRCLE" = ok ]; then
+    wait "$a" || status=$?; wait "$b" || status=$?
+    [ "$status" -eq 0 ] || CIRCLE="an init ended with status $status: $(tail -2 "$RD/a-$tag.out" "$RD/b-$tag.out" | tr '\n' ' ')"
+    cat "$RD/a-$tag.out" "$RD/b-$tag.out" | grep -aq 'may stand behind' && CIRCLE="an init reports a copy that may stand behind (see $RD/a-$tag.out, $RD/b-$tag.out)"
+    [ "$(git -C "$CAT" rev-parse HEAD)" = "$tc" ] && [ "$(git -C "$F/.ai-core/neighbours/Zed/origin-master" rev-parse HEAD)" = "$tz" ] \
+      || CIRCLE="cat or Zed does not stand at the commit that landed"
+  fi
+  stop_group "$a"; stop_group "$b"
+  unlock_after_kill "$T2" "$T3"
+}
+unlock_after_kill() {  # unlock_after_kill <worktree>...: the lock an init that was stopped left on its worktree goes
+  local w; for w in "$@"; do git -C "$F/app" worktree unlock "$w" 2>/dev/null || true; done
+}
+circle_run "$ROOT" g1
+[ "$CIRCLE" = ok ] || fail "two inits that each claim a copy the other must move: $CIRCLE"
+all_free cat dog Zed || fail "a lock is still held after the two inits ended"
+mutant claimed-later bin/init.sh 's|^      for neighbour in "\${link_order\[@]}"; do$|      for neighbour in "$folder"/*/; do|'
+circle_run "$WORK/mutant-claimed-later" g2
+[ "$CIRCLE" = "$CIRCLED" ] || fail "planted: an init that refreshes its copies in the order of the folder did not wait for the admission of Zed while it kept its claim of cat: $CIRCLE"
+echo "  init B refreshes the copy it claimed first and gives the claim up, so init A, which holds Zed and waits for cat, goes on, and both end with the copies at the landed commits; an init that refreshes Zed first, its claim of cat kept, waits for A, which waits for it, the planted defect"
+
+section "a copy init claimed, whose origin renamed its default branch since, is made under that claim, and the claim ends with it"
+RD="$WORK/nb-rd-r"; mkdir -p "$RD"; set_wait 600
+SELF_WAITED="init B waits for the admission of cat, which its own claim holds"
+CLAIM_KEPT="init B reads Zed, which it did not claim, and keeps its claim of cat"
+stopped_after_cat() { waiting_on "$1" "$(lock_of Zed)" || waiting_on "$1" "$(admission_of cat)"; }
+# rename_run <harness root> <tag>: init B claims cat and stops at the read of dog; cat's origin then publishes trunk-<tag>
+# as its default branch, which a fetch tells the checkout of cat; once dog is free, B makes the copy of that branch and
+# stops at the read of Zed, a copy it did not claim. Sets RENAME to ok, or to the first thing that went wrong.
+RENAME=""
+rename_run() {
+  local root="$1" tag="$2" b dog_mover zed_mover status=0
+  RENAME=ok
+  bash "$root/bin/init.sh" "$T2" --no-doctor > "$RD/sync-$tag.out" 2>&1 || RENAME="the init that brings every copy up failed: $(tail -3 "$RD/sync-$tag.out")"
+  land cat "r-$tag"
+  mover dog "$RD/free-dog-$tag"; dog_mover=$READER
+  LC_ALL=C setsid bash "$root/bin/init.sh" "$T3" --no-doctor > "$RD/b-$tag.out" 2>&1 & b=$!
+  await 120 waiting_on "$RD/b-$tag.out" "$(lock_of dog)" || RENAME="init B never stopped at the read of dog: $(tail -3 "$RD/b-$tag.out")"
+  git -C "$WORK/nb-cat.git" branch "trunk-$tag" master && git -C "$WORK/nb-cat.git" symbolic-ref HEAD "refs/heads/trunk-$tag"
+  git -C "$F/cat" fetch -q origin && git -C "$F/cat" remote set-head origin --auto > /dev/null
+  mover Zed "$RD/free-zed-$tag"; zed_mover=$READER
+  : > "$RD/free-dog-$tag"; wait "$dog_mover" 2>/dev/null || true
+  await 120 stopped_after_cat "$RD/b-$tag.out" || RENAME="init B reached neither the read of Zed nor a wait for cat: $(tail -3 "$RD/b-$tag.out")"
+  if waiting_on "$RD/b-$tag.out" "$(admission_of cat)"; then RENAME="$SELF_WAITED"
+  elif keeps_open "$b" "$(admission_of cat)"; then RENAME="$CLAIM_KEPT"; fi
+  : > "$RD/free-zed-$tag"; wait "$zed_mover" 2>/dev/null || true
+  if [ "$RENAME" = ok ]; then
+    await 120 gone "$b" || RENAME="init B did not finish once Zed was free"
+    wait "$b" || status=$?
+    [ "$status" -eq 0 ] || RENAME="init B ended with status $status: $(tail -3 "$RD/b-$tag.out")"
+    [ "$(readlink "$F/.worktrees/app/cat")" = "../../.ai-core/neighbours/cat/origin-trunk-$tag" ] || RENAME="the link of cat leads to $(readlink "$F/.worktrees/app/cat"), not to the copy of trunk-$tag"
+    grep -aq 'may stand behind\|cannot become' "$RD/b-$tag.out" && RENAME="init B names cat stale or blocked (see $RD/b-$tag.out)"
+  fi
+  stop_group "$b"; unlock_after_kill "$T3"
+  git -C "$WORK/nb-cat.git" symbolic-ref HEAD refs/heads/master; git -C "$F/cat" remote set-head origin --auto > /dev/null
+}
+rename_run "$ROOT" h1
+[ "$RENAME" = ok ] || fail "a claimed copy whose origin renamed its default branch: $RENAME"
+all_free cat dog Zed || fail "a lock is still held after the init that followed the renamed branch ended"
+mutant claim-ignored lib/neighbours.sh 's/{ neighbour_claimed "\$2" || {/{ false || {/'
+rename_run "$WORK/mutant-claim-ignored" h2
+[ "$RENAME" = "$SELF_WAITED" ] || fail "planted: a copy made without regard to the claim of init did not wait for that claim: $RENAME"
+mutant claim-kept bin/init.sh 's/; neighbour_pending_end "\$name"$//; s/^\(      outcome="\$(neighbour_refresh_copy .*\)$/\1; neighbour_pending_end "$2"/'
+rename_run "$WORK/mutant-claim-kept" h3
+[ "$RENAME" = "$CLAIM_KEPT" ] || fail "planted: a claim that ends only after a refresh was not found kept while init read Zed: $RENAME"
+echo "  init makes the copy of the renamed branch under its own claim and gives the claim up before it reads Zed; a copy made beside the claim waits for it, and a claim that ends only after a refresh is kept, the planted defects"
 exit 0

@@ -36,6 +36,10 @@ export interface HarnessSteps {
   // The newest completed delivery of the environment as the checkout's own reader answers it, checked as the Bash
   // harness checks it: {"delivered": null} or {"delivered": {commit, releasedAt, source, ...}}.
   readLiveRelease(checkout: string, repository: string, environment: string): Promise<StepOutcome>;
+  // The newest commit of `ref` in the clone at `cwd` whose message names issue `number` of `issueRepository`, in its subject
+  // or its body, as a commit of `commitRepository` names it: issue_mention_pattern of lib/common.sh, by which the board
+  // reads the commits of an issue. The outcome holds its full id, or nothing where no commit names it.
+  findCommitNamingIssue(cwd: string, ref: string, issueRepository: string, number: number, commitRepository: string): Promise<StepOutcome>;
   // The receipt of the checks of a landing (lib/landing-check.sh): opened before the pushes, whose Git children alone
   // are told its path; completed once the push to the ci/ branch went through and the CI of that commit was read
   // green; closed on every way out. The outcome of opening holds the path.

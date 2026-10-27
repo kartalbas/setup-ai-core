@@ -169,6 +169,27 @@ check 'it says so'    'epic example-org/example-repo#44 -> reopened in implement
 check 'the epic was reopened' 'issues/44' "$(patched)"
 check 'the sub-issue moved, then the epic twice' 'iid=PVTI_card3 iid=PVTI_card44 iid=PVTI_card44' "$(moves)"
 
+# issue-reopen asks every board for its `ready` option in the shell of the script. A lookup there that takes its
+# first matching row from a pipe and leaves while the writer has rows left ends the writer with SIGPIPE; pipefail
+# reads that as a failed lookup and `set -e` ends the reopen. Here the field list is longer than a pipe holds, so
+# the writer has rows left on every machine and at every speed.
+echo 'issue-status: the epic is reopened the same on a board with a field list of 20000 options'
+cp "$GH_CACHE_DIRECTORY/7/fields.tsv" "$FAKE/fields.saved"
+many_fields() { awk 'BEGIN { for (i = 1; i <= 20000; i++) printf "Extra%d\tFX%d\toption%d\tOX%d\n", i, i, i, i }'; }
+reopen_with_fields() {  # the case above, run on the field list the cache holds
+  : > "$FAKE/calls"; printf 'closed\ntodo\ndone\n' > "$FAKE/epic-44"
+  capture bash "$ROOT/bin/issue-status.sh" --project 7 example-org/example-repo 3 todo
+}
+{ cat "$FAKE/fields.saved"; many_fields; } > "$GH_CACHE_DIRECTORY/7/fields.tsv"
+reopen_with_fields
+check 'with the options wanted first: exit 0' 0 "$rc"
+check 'with the options wanted first: the epic was reopened' 'issues/44' "$(patched)"
+{ many_fields; cat "$FAKE/fields.saved"; } > "$GH_CACHE_DIRECTORY/7/fields.tsv"
+reopen_with_fields
+check 'innocent: with the options wanted last: exit 0' 0 "$rc"
+check 'innocent: with the options wanted last: the epic was reopened' 'issues/44' "$(patched)"
+cp "$FAKE/fields.saved" "$GH_CACHE_DIRECTORY/7/fields.tsv"
+
 echo 'issue-status: a closed epic whose only open sub-issue stands in ready is reopened into ready, and moved no further'
 : > "$FAKE/calls"; printf 'closed\nready\n' > "$FAKE/epic-44"
 capture bash "$ROOT/bin/issue-status.sh" --project 7 example-org/example-repo 3 ready

@@ -131,29 +131,49 @@ check 'is read again'                         yes "$(fields_tsv | grep -q OPT_re
 printf 'Status\tPVTSSF_status\ttodo\tOPT_todo\n' > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
 check 'one within the hour is not'            no "$(fields_tsv | grep -q OPT_ready && echo yes || echo no)"
 
+# A lookup that takes its first matching row from a pipe and leaves, while the writer has rows left, ends the
+# writer with SIGPIPE, and pipefail turns the correct lookup into a failure. A cache larger than a pipe holds
+# leaves the writer rows on every machine and at every speed, so no clock is in this case; with the wanted row
+# last the reader takes every row before it leaves, and the same lookup is no failure.
+fill_cache() {  # fill_cache <first|last>: the cache with 5000 other fields, the wanted row where it says
+  local fields="$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
+  : > "$fields"
+  [ "$1" = last ] || printf 'Status\tPVTSSF_status\ttodo\tOPT_todo\n' >> "$fields"
+  for ((i = 1; i <= 5000; i++)); do
+    printf 'Extra%s\tFIELD_%s\toption%s\tOPTION_%s\n' "$i" "$i" "$i" "$i"
+  done >> "$fields"
+  [ "$1" = first ] || printf 'Status\tPVTSSF_status\ttodo\tOPT_todo\n' >> "$fields"
+}
+
+large_cache_lookups() {  # large_cache_lookups <prefix of the names of its checks>
+  local signal lookup want
+  for signal in default ignored; do
+    for lookup in option_id field_id; do
+      # Bash cannot reset SIGPIPE if it was already ignored when Bash started.
+      if output="$(ROOT="$ROOT" GH_CACHE_DIRECTORY="$GH_CACHE_DIRECTORY" env --default-signal=PIPE bash -c '
+        . "$ROOT/lib/board.sh"
+        PROJECT=999998
+        PROJECT_ORG=example-org
+        if [ "$1" = ignored ]; then trap "" PIPE; else trap - PIPE; fi
+        if [ "$2" = option_id ]; then option_id Status todo; else field_id Status; fi
+      ' _ "$signal" "$lookup" 2> "$WORK/lookup.err")"; then rc=0; else rc=$?; fi
+      check "$1$lookup with SIGPIPE $signal exits cleanly" 0 "$rc"
+      if [ "$lookup" = option_id ]; then want=OPT_todo; else want=PVTSSF_status; fi
+      check "$1$lookup with SIGPIPE $signal returns the first id" "$want" "$output"
+      check "$1$lookup with SIGPIPE $signal has no error" '' "$(cat "$WORK/lookup.err")"
+    done
+  done
+}
+
 echo
 echo 'a large cache with the wanted row first'
-printf 'Status\tPVTSSF_status\ttodo\tOPT_todo\n' > "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
-for ((i = 1; i <= 5000; i++)); do
-  printf 'Extra%s\tFIELD_%s\toption%s\tOPTION_%s\n' "$i" "$i" "$i" "$i"
-done >> "$GH_CACHE_DIRECTORY/$PROJECT_NUMBER/fields.tsv"
+fill_cache first
+large_cache_lookups ''
 
-for signal in default ignored; do
-  for lookup in option_id field_id; do
-    # Bash cannot reset SIGPIPE if it was already ignored when Bash started.
-    if output="$(ROOT="$ROOT" GH_CACHE_DIRECTORY="$GH_CACHE_DIRECTORY" env --default-signal=PIPE bash -c '
-      . "$ROOT/lib/board.sh"
-      PROJECT=999998
-      PROJECT_ORG=example-org
-      if [ "$1" = ignored ]; then trap "" PIPE; else trap - PIPE; fi
-      if [ "$2" = option_id ]; then option_id Status todo; else field_id Status; fi
-    ' _ "$signal" "$lookup" 2> "$WORK/lookup.err")"; then rc=0; else rc=$?; fi
-    check "$lookup with SIGPIPE $signal exits cleanly" 0 "$rc"
-    if [ "$lookup" = option_id ]; then want=OPT_todo; else want=PVTSSF_status; fi
-    check "$lookup with SIGPIPE $signal returns the first id" "$want" "$output"
-    check "$lookup with SIGPIPE $signal has no error" '' "$(cat "$WORK/lookup.err")"
-  done
-done
+echo
+echo 'a large cache with the wanted row last'
+fill_cache last
+large_cache_lookups 'innocent: '
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo; echo 'all passed'

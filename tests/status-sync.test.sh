@@ -61,6 +61,26 @@ check 'testing'      2 "$(status_rank testing)"
 check 'done'         3 "$(status_rank done)"
 check 'CLOSE is done' 3 "$(status_rank CLOSE)"
 
+# THE MEMOS OF A RUN ANSWER FOR A REPOSITORY THEY HOLD, however many others they hold. A reader that takes the
+# first matching row from a pipe and leaves, while the writer has rows left, ends the writer with SIGPIPE, and
+# pipefail turns that into a failed read. The memo here is larger than a pipe holds, so the writer has rows left
+# on every machine and at every speed, and the sweep's `set -e` is on as in the script.
+echo 'the memo of a run answers for a repository it holds, however many others it holds'
+release_filler="$(awk 'BEGIN { for (i = 1; i <= 20000; i++) printf "example-org/filler%d\t-\t-\t-\t0\t0\t-\t-\t0\t-\n", i }')"
+delivery_filler="$(awk 'BEGIN { for (i = 1; i <= 20000; i++) printf "example-org/filler%d\t-\t-\t-\t-\t-\n", i }')"
+release_row=$'example-org/example-repo\t-\t-\ttag-from-the-memo\t0\t0\tprod\t-\t0\t-'
+delivery_row=$'example-org/example-repo\tcommit-from-the-memo\t2026-01-01T00:00:00Z\t1767225600.000000000\tsource-from-the-memo\t-'
+release_answer() {  # release_answer <memo>: what release_of answers from that memo, with `set -e` on
+  ( set -e; _RELEASES="$1"; release_of example-org/example-repo; printf 'tag=%s' "$REL_TAG" ) 2>&1
+}
+delivery_answer() {  # delivery_answer <memo>: what delivery_of answers from that memo, with `set -e` on
+  ( set -e; REL_ERROR=''; _DELIVERIES="$1"; delivery_of example-org/example-repo; printf 'delivered=%s source=%s' "$REL_DELIVERED" "$REL_SOURCE" ) 2>&1
+}
+check 'the release of a repository the memo holds first is its row, among 20000' 'tag=tag-from-the-memo' "$(release_answer "$release_row"$'\n'"$release_filler")"
+check 'the delivery of a repository the memo holds first is its row, among 20000' 'delivered=commit-from-the-memo source=source-from-the-memo' "$(delivery_answer "$delivery_row"$'\n'"$delivery_filler")"
+check 'innocent: the release of a repository the memo holds last is its row' 'tag=tag-from-the-memo' "$(release_answer "$release_filler"$'\n'"$release_row")"
+check 'innocent: the delivery of a repository the memo holds last is its row' 'delivered=commit-from-the-memo source=source-from-the-memo' "$(delivery_answer "$delivery_filler"$'\n'"$delivery_row")"
+
 # --- the signal path, driven end to end against a stand-in gh and a real clone ----
 #
 # The decision above is pure, and everything that FEEDS it is not: the one query per repository

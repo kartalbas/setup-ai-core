@@ -81,9 +81,6 @@ derive_target() {
   return 0
 }
 
-# When sourced by a test, stop here: the functions are defined, the sweep does not run.
-[ "${BASH_SOURCE[0]}" != "${0:-}" ] && return 0
-
 # --- what is read, once per repository ----------------------------------------
 
 # THE OPEN ISSUES OF ONE REPOSITORY THAT HAVE A CARD ON THIS BOARD, one line each:
@@ -269,6 +266,9 @@ proof_after_delivery() {
 }
 
 # --- the sweep ----------------------------------------------------------------
+
+# When sourced by a test, stop here: the functions are defined, the sweep does not run.
+[ "${BASH_SOURCE[0]}" != "${0:-}" ] && return 0
 
 project=""; dry=0; args=()
 while [ $# -gt 0 ]; do

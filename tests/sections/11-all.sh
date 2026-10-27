@@ -244,14 +244,12 @@ skip_copy() {
   mkdir -p "$1"; tar -C "$ROOT" --exclude=node_modules --exclude=.git -cf - bin lib templates rules skills VERSION | tar -C "$1" -xf -
   printf '#!/usr/bin/env bash\npwd >> "%s/sweeps.log"\n' "$WORK" > "$1/bin/finish-issue.sh"
   case "${2:-}" in
-    planted-all) sed 's/^carries_harness() .*$/carries_harness() { true; }/' "$1/bin/init.sh" > "$1/init.planted" ;;
-    planted-map) sed '/^      carries_harness "\$d" || continue$/d' "$1/bin/init.sh" > "$1/init.planted" ;;
-    *) return 0 ;;
+    planted-all) sed 's/^carries_harness() .*$/carries_harness() { true; }/' "$1/lib/common.sh" > "$1/planted"; mv "$1/planted" "$1/lib/common.sh" ;;
+    planted-map) sed '/^      carries_harness "\$d" || continue$/d' "$1/bin/init.sh" > "$1/planted"; mv "$1/planted" "$1/bin/init.sh" ;;
   esac
-  mv "$1/init.planted" "$1/bin/init.sh"
 }
 skip_copy "$WORK/skip-copy-real"
-skip_copy "$WORK/skip-copy-all" planted-all; grep -q '^carries_harness() { true; }$' "$WORK/skip-copy-all/bin/init.sh" || fail "the planted copy that walks every repository was not made"
+skip_copy "$WORK/skip-copy-all" planted-all; grep -q '^carries_harness() { true; }$' "$WORK/skip-copy-all/lib/common.sh" || fail "the planted copy that walks every repository was not made"
 skip_copy "$WORK/skip-copy-map" planted-map; [ "$(grep -c 'carries_harness' "$WORK/skip-copy-map/bin/init.sh")" = "$(( $(grep -c 'carries_harness' "$WORK/skip-copy-real/bin/init.sh") - 1 ))" ] || fail "the planted copy that lists every repository was not made"
 # every file of a clone that init could write, with the tree: its checkout, hooks, exclude file and configuration
 skip_snapshot() { (cd "$1" && find . -path ./.git/objects -prune -o -path ./.git/index -prune -o -print | LC_ALL=C sort; find . -path ./.git/objects -prune -o -path ./.git/index -prune -o -type f -print0 | LC_ALL=C sort -z | xargs -0 cksum); }

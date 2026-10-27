@@ -79,8 +79,6 @@ cd "${ALL_DIR:-$TARGET}"
 . "$CORE_ROOT/lib/neighbours.sh"
 . "$CORE_ROOT/lib/landing-check.sh"
 
-carries_harness() { [ -f "$1/.ai-core/STAMP" ]; }   # carries_harness <checkout>: init ran there
-
 # Source worktrees must be refused before inherited product data or settings can be copied.
 if [ -z "$ALL_DIR" ] && harness_source_of "$TARGET" >/dev/null 2>&1; then
   echo "error: $TARGET is a harness repository; init is for the repositories it serves" >&2

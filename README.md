@@ -522,7 +522,7 @@ they are more than the template. The map in the harness stays what the tool wrot
 with a `CLAUDE.md` of its own makes Claude Code read that file instead of `AGENTS.md`, so `init`
 writes a `CLAUDE.local.md` beside it that imports `AGENTS.md`; it is never committed, created once,
 and a `CLAUDE.local.md` that is somebody's own is left alone with a note. `ai-core map --all <folder>` does it for every repository
-under a folder with one push and `init --all`; `--no-push` writes into the clone and stops;
+under a folder that carries the harness, names every other one and touches it in no way, with one push and `init --all`; `--no-push` writes into the clone and stops;
 `--dry-run` prints the map. `session-start` prints `Map`: generated from which commit and how
 many commits behind, or `Generic (run ai-core map)`. Until `map` has run, `AGENTS.md` is the
 generic map of `templates/`, which says there is none yet, under the same block; an `AGENTS.md`

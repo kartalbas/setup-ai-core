@@ -9,6 +9,11 @@
 make_forgejo_project
 TOKEN=forgejo-token-4567
 LINE_KEY="credential.$FORGE_URL.helper"
+SOURCE_KEY="credential.$FORGE_URL.aiCoreConfig"
+user_sign_in_reset() {  # what init registered in the user's git configuration, taken out again
+  git config --global --unset-all "$LINE_KEY" 2>/dev/null || true
+  git config --global --unset-all "$SOURCE_KEY" 2>/dev/null || true
+}
 requests() { cat "$CURL_FAKE_STATE/requests.log"; }
 inject() {  # inject <path fragment> <status> <body>: the next call whose "<METHOD> <path>" holds the fragment gets this answer
   INJ_MATCH="$1" INJ_STATUS="$2" INJ_BODY="$3" node -e "const fs=require('fs'),f=process.env.CURL_FAKE_STATE+'/inject.json',e=process.env;let l=[];try{l=JSON.parse(fs.readFileSync(f))}catch{};l.push({match:e.INJ_MATCH,status:+e.INJ_STATUS,body:e.INJ_BODY,times:1});fs.writeFileSync(f,JSON.stringify(l))"
@@ -310,15 +315,20 @@ chmod 600 "$F/.ai-core/config.env"
 echo "  an unreadable config.env: the helper answers nothing and names the file, the token is not asked of a command read from nowhere, and no call reaches the forge; planted: with the old reader the file reads as a missing setting"
 
 # --- the line that signs a clone in --------------------------------------------------------------
-[ -z "$(forge_fn clone_sign_in "$WORK/clones/cloned" dry)" ] || fail "a clone that signs in already was announced again (dry)"
+# a clone that signs in already is announced only for what the user's git configuration lacks: git in a tool's own cache
+user_line="credential.$FORGE_URL.helper and $SOURCE_KEY set in the user's git configuration: git in a tool's own cache asks ai-core git-credential too, with the settings of $F/.ai-core/config.env"
+[ "$(forge_fn clone_sign_in "$WORK/clones/cloned" dry)" = "${user_line/ set / would be set }" ] || fail "the dry run does not announce only what the user's git configuration lacks: $(forge_fn clone_sign_in "$WORK/clones/cloned" dry)"
+[ -z "$(git config --global --get-all "$LINE_KEY" || true)" ] || fail "the dry run wrote the user's git configuration"
+[ "$(forge_fn clone_sign_in "$WORK/clones/cloned")" = "$user_line" ] || fail "clone_sign_in did not report what it set in the user's git configuration: $(forge_fn clone_sign_in "$WORK/clones/cloned")"
+[ -z "$(forge_fn clone_sign_in "$WORK/clones/cloned" dry)" ] || fail "a clone that signs in everywhere was announced again (dry)"
 git init -q "$WORK/fresh"; git -C "$WORK/fresh" remote add origin "$FORGE_URL/example-org/fresh.git"
 set_line="$LINE_KEY set in .git/config: git asks ai-core git-credential for the token"
 [ "$(forge_fn clone_sign_in "$WORK/fresh" dry)" = "${set_line/ set / would be set }" ] || fail "the dry run does not say what it would set: $(forge_fn clone_sign_in "$WORK/fresh" dry)"
-[ -z "$(git -C "$WORK/fresh" config --get "$LINE_KEY" || true)" ] || fail "the dry run set the line"
+[ -z "$(git -C "$WORK/fresh" config --local --get "$LINE_KEY" || true)" ] || fail "the dry run set the line"
 [ "$(forge_fn clone_sign_in "$WORK/fresh")" = "$set_line" ] || fail "clone_sign_in did not set the line"
-[ "$(git -C "$WORK/fresh" config --get "$LINE_KEY")" = '!ai-core git-credential' ] || fail "the line is not '!ai-core git-credential'"
+[ "$(git -C "$WORK/fresh" config --local --get "$LINE_KEY")" = '!ai-core git-credential' ] || fail "the line is not '!ai-core git-credential'"
 [ -z "$(forge_fn clone_sign_in "$WORK/fresh")" ] || fail "a second run set the line again or said so"
-[ "$(git -C "$WORK/fresh" config --get-all "$LINE_KEY")" = "$(printf '\n!ai-core git-credential')" ] || fail "the checkout holds more than the empty entry and the line after two runs: $(git -C "$WORK/fresh" config --get-all "$LINE_KEY" | paste -sd'|' -)"
+[ "$(git -C "$WORK/fresh" config --local --get-all "$LINE_KEY")" = "$(printf '\n!ai-core git-credential')" ] || fail "the checkout holds more than the empty entry and the line after two runs: $(git -C "$WORK/fresh" config --local --get-all "$LINE_KEY" | paste -sd'|' -)"
 for origin in git@127.0.0.1:example-org/ssh.git https://github.com/example-org/elsewhere.git; do
   git init -q "$WORK/other"; git -C "$WORK/other" remote add origin "$origin"
   [ -z "$(forge_fn clone_sign_in "$WORK/other")" ] || fail "a line was set for the origin $origin"
@@ -374,6 +384,335 @@ git config --global --unset-all credential.helper
 git config --global --unset-all "$LINE_KEY"
 rm -f "$HOME/.git-credentials"
 echo "  clone_sign_in, repo_create and repo_clone: an empty entry drops the helpers git already has, so a store is neither asked nor fed and a rotated token is followed; planted: the line without it feeds the store"
+
+# --- git outside every checkout: the cache of a package manager -------------------------------------
+# A tool with git repositories of its own, such as `dart pub get` with a git dependency, runs `git --git-dir <cache>` where
+# no .git/config names the helper. init registers the pair and the settings file of the checkout in the user's git
+# configuration, here the scratch file of GIT_CONFIG_GLOBAL, and the helper reads that file when git asks. The checkouts
+# below carry their own config.env in a commit, so init keeps it and a test edits it as a person would.
+. "$ROOT/tests/unreadable.sh"
+user_sign_in_reset
+proj="$WORK/cache-proj"; mkdir -p "$proj" "$WORK/outside"
+: > "$WORK/spy.log"
+cat > "$WORK/token spy.sh" <<SPY
+#!/bin/sh
+{ echo "args: \$*"; env; echo "--"; } >> "$WORK/spy.log"
+exec cat "\$1"
+SPY
+chmod +x "$WORK/token spy.sh"
+spy_command="sh '$WORK/token spy.sh' '$WORK/ftoken'"
+spy_runs() { grep -c '^args:' "$WORK/spy.log" || true; }
+make_shop() {  # make_shop <repository> <folder> <token command>: a checkout of example-org/<repository> in the project folder
+  local seed="$WORK/seed-$1"
+  git init -q "$seed"; mkdir -p "$seed/.ai-core"
+  printf 'FORGE=forgejo\nFORGEJO_URL=%s\nFORGEJO_TOKEN_COMMAND="%s"\nUPDATE_CHECK="never"\n' "$FORGE_URL" "$3" > "$seed/.ai-core/config.env"
+  git -C "$seed" add -A; git -C "$seed" commit -q -m "first"
+  git init -q --bare -b main "$REMOTE/example-org/$1.git"; git -C "$seed" push -q "$REMOTE/example-org/$1.git" HEAD:refs/heads/main
+  git clone -q "$REMOTE/example-org/$1.git" "$proj/$2"
+  git -C "$proj/$2" remote set-url origin "$FORGE_URL/example-org/$1.git"
+}
+init_in() {  # init_in <checkout or worktree>: ai-core init as start-issue runs it in a new worktree, and what it reports
+  ( cd "$1" && PATH="${EXTRA_PATH:+$EXTRA_PATH:}$PATH_CURL" bash "${ROOT_UNDER_TEST:-$ROOT}/bin/init.sh" "$1" --no-doctor 2>&1 )
+}
+registered() { git config --global --get-all "$SOURCE_KEY" || true; }
+cache_fetch() {  # cache_fetch <git dir> <repository> [folder to run in]: git as a package manager runs it, with no FORGEJO setting and no git environment configuration
+  ( cd "${3:-$WORK/outside}" && env -u FORGEJO_URL -u FORGEJO_TOKEN_COMMAND -u GIT_CONFIG_COUNT PATH="$PATH_CURL" \
+      git --git-dir="$1" fetch --quiet "$FORGE_URL/example-org/$2.git" '+refs/heads/*:refs/heads/*' 2>&1 )
+}
+fetched() {  # fetched <repository> [folder to run in]: a fresh cache fetched from it holds the tip the server has
+  local cache
+  cache="$(mktemp -d "$WORK/cache.XXXXXX")"; git init -q --bare "$cache"
+  FETCH_SAID="$(cache_fetch "$cache" "$1" "${2:-}")" || return 1
+  [ "$(git --git-dir="$cache" rev-parse refs/heads/main)" = "$(git --git-dir="$REMOTE/example-org/$1.git" rev-parse refs/heads/main)" ]
+}
+served_since() { tail -n +$(($1 + 1)) "$GIT_SERVER_LOG"; }   # served_since <lines the log had>: what the server saw after
+log_lines() { wc -l < "$GIT_SERVER_LOG" | tr -d ' '; }
+
+make_shop shop-a shop-a "$spy_command"
+# planted: the init of before, which sets the line in the checkout alone: the cache gets no sign-in
+old="$WORK/old-init"; harness_copy "$ROOT" "$old"
+sed -i.bak 's|^    user_sign_in_set "\$url" "\$settings"$|    :|' "$old/lib/forgejo/forge.sh"
+cmp -s "$ROOT/lib/forgejo/forge.sh" "$old/lib/forgejo/forge.sh" && fail "the planted old init equals the real one"
+ROOT_UNDER_TEST="$old" init_in "$proj/shop-a" > "$WORK/init-old.log" || fail "the planted old init failed: $(tail -5 "$WORK/init-old.log")"
+[ "$(git -C "$proj/shop-a" config --local --get-all "$LINE_KEY")" = "$(printf '\n!ai-core git-credential')" ] || fail "the old init did not even set the line in the checkout, so the plant proves nothing"
+[ -z "$(git config --global --get-all "$LINE_KEY" || true)" ] || fail "the old init wrote the user's git configuration"
+mark="$(log_lines)"
+fetched shop-a && fail "planted: a cache fetch signed in under the old init, so criterion 1 cannot go red"
+served_since "$mark" | grep -q '^401 GET /example-org/shop-a.git/info/refs' && ! served_since "$mark" | grep -q '^200 ' || fail "planted: the old init's cache fetch was not refused with a 401 alone: $(served_since "$mark" | head -4)"
+echo "  planted: the init that sets the line in the checkout alone leaves a cache fetch with the server's 401 and nothing more"
+
+# dry run, report, idempotence, the references and nothing else, and what is not ours
+git config --global user.name "Some One"
+git config --global --add credential.https://other.example.test.helper store
+git config --global core.editor "true"
+cp "$GIT_CONFIG_GLOBAL" "$WORK/gitconfig.before"
+dry="$(cd "$proj/shop-a" && PATH="$PATH_CURL" bash "$ROOT/bin/init.sh" . --no-doctor --dry-run 2>&1)" || fail "init --dry-run: $dry"
+grep -qF "  credential.$FORGE_URL.helper and $SOURCE_KEY would be set in the user's git configuration" <<< "$dry" || fail "the dry run of init does not announce the user's git configuration: $dry"
+cmp -s "$GIT_CONFIG_GLOBAL" "$WORK/gitconfig.before" || fail "the dry run of init wrote the user's git configuration"
+out="$(init_in "$proj/shop-a")" || fail "init: $out"
+grep -qF "  credential.$FORGE_URL.helper and $SOURCE_KEY set in the user's git configuration: git in a tool's own cache asks ai-core git-credential too, with the settings of $proj/shop-a/.ai-core/config.env" <<< "$out" || fail "init does not report what it set in the user's git configuration: $out"
+[ "$(git config --global --get-all "$LINE_KEY")" = "$(printf '\n!ai-core git-credential')" ] || fail "the user's git configuration holds more than the empty value and the helper"
+[ "$(registered)" = "$proj/shop-a/.ai-core/config.env" ] || fail "the user's git configuration does not name the settings file once: $(registered)"
+[ "$(git config --global --get-all user.name)" = "Some One" ] && [ "$(git config --global --get-all credential.https://other.example.test.helper)" = store ] \
+  && [ "$(git config --global --get-all core.editor)" = true ] || fail "init changed a setting that is not its own"
+! grep -qE "$(cat "$WORK/ftoken")|token spy|ftoken" "$GIT_CONFIG_GLOBAL" || fail "the user's git configuration holds a token or a token command: $(cat "$GIT_CONFIG_GLOBAL")"
+cp "$GIT_CONFIG_GLOBAL" "$WORK/gitconfig.after"
+out="$(init_in "$proj/shop-a")" || fail "second init: $out"
+! grep -q "user's git configuration" <<< "$out" && cmp -s "$GIT_CONFIG_GLOBAL" "$WORK/gitconfig.after" || fail "a second init reports or changes the user's git configuration: $out"
+echo "  init: the dry run announces and writes nothing; the run sets the pair and the path of the settings file, no token and no command, leaves every other setting as it was, and a second run says nothing"
+
+# criterion 1 and 2: a cache fetch outside every checkout, from the folder of a worktree as a package manager runs, with the line of the checkout absent
+git -C "$proj/shop-a" worktree add -q -b issue-1-a "$proj/wt-a1"
+git -C "$proj/shop-a" worktree add -q -b issue-2-a "$proj/wt-a2"
+out="$(init_in "$proj/wt-a1")" || fail "init in a worktree: $out"
+! grep -q "user's git configuration" <<< "$out" || fail "init in a worktree set what the checkout had set already: $out"
+init_in "$proj/wt-a2" > /dev/null || fail "init in a second worktree"
+[ "$(registered)" = "$proj/shop-a/.ai-core/config.env" ] || fail "a worktree registered its own copy of the settings: $(registered)"
+git -C "$proj/shop-a" config --local --unset-all "$LINE_KEY"
+for where in "$WORK/outside" "$proj/shop-a" "$proj/wt-a1"; do
+  mark="$(log_lines)"
+  fetched shop-a "$where" || fail "a cache fetch run in $where did not sign in: $FETCH_SAID"
+  served_since "$mark" | grep -q '^401 GET /example-org/shop-a.git/info/refs' && served_since "$mark" | grep -q '^200 GET /example-org/shop-a.git/info/refs user=ai-core' \
+    || fail "the server did not see git ask without a login first and then sign in with the helper's: $(served_since "$mark" | head -4)"
+done
+echo "  criteria 1 and 2: git --git-dir in an empty cache signs in with no variable set and no line in the checkout, run outside the project, in the checkout and in a worktree; the server refused first and then answered the helper's login"
+
+# a release script clones other repositories of the instance into a temporary folder, outside every checkout, with no FORGEJO_URL
+fresh_clone() {  # fresh_clone <repository> <folder>: git clone as that script runs it, from the temporary folder it made
+  local temporary
+  temporary="$(mktemp -d "$WORK/temporary.XXXXXX")"
+  ( cd "$temporary" && env -u FORGEJO_URL -u FORGEJO_TOKEN_COMMAND -u GIT_CONFIG_COUNT PATH="$PATH_CURL" git clone --quiet "${3:-$FORGE_URL}/example-org/$1.git" "$2" 2>&1 )
+}
+user_sign_in_reset
+ROOT_UNDER_TEST="$old" init_in "$proj/shop-a" > /dev/null || fail "the planted old init failed again"
+rm -rf "$WORK/clone-old"
+fresh_clone shop-a "$WORK/clone-old" && fail "planted: a fresh clone signed in with the helper only in a checkout's .git/config, so the check cannot go red"
+init_in "$proj/shop-a" > /dev/null || fail "init after the planted old one failed"
+mark="$(log_lines)"; runs="$(spy_runs)"
+rm -rf "$WORK/clone-new"
+fresh_clone shop-a "$WORK/clone-new" || fail "a fresh clone outside every checkout did not sign in through the user's git configuration"
+[ "$(git -C "$WORK/clone-new" rev-parse HEAD)" = "$(git --git-dir="$REMOTE/example-org/shop-a.git" rev-parse refs/heads/main)" ] || fail "the fresh clone does not hold the commit of the server"
+served_since "$mark" | grep -q '^401 GET /example-org/shop-a.git/info/refs' && served_since "$mark" | grep -q '^200 GET /example-org/shop-a.git/info/refs user=ai-core' || fail "the server did not see the fresh clone ask without a login first and then sign in with the helper's"
+[ "$(spy_runs)" -gt "$runs" ] || fail "the token command did not run for the fresh clone"
+runs="$(spy_runs)"
+rm -rf "$WORK/clone-other"
+fresh_clone shop-a "$WORK/clone-other" "http://127.0.0.1:1" > /dev/null && fail "a clone of another host went through"
+[ "$(spy_runs)" = "$runs" ] || fail "the token command ran for a clone of another host"
+echo "  a fresh git clone in a temporary folder outside every checkout, with no FORGEJO_URL, signs in through the user's git configuration; planted: with the helper only in the checkout's .git/config it gets the 401 and nothing more; innocent: a clone of another host is not answered and runs no token command"
+
+# nothing is copied, so a rotated token and a changed token command are followed at once, and the copy of the settings that a
+# worktree holds decides nothing: its folder is where a package manager runs git, with GIT_DIR naming the cache
+shop_config() { printf 'FORGE=forgejo\nFORGEJO_URL=%s\nFORGEJO_TOKEN_COMMAND="%s"\nUPDATE_CHECK="never"\n' "${3:-$FORGE_URL}" "$2" > "$1/.ai-core/config.env"; }
+plant_replace() {  # plant_replace <copy of the harness> <file in it> <text> <what takes its place>: the defect, as a copy of the code without that text
+  OLD="$3" NEW="$4" FILE="$1/$2" node -e "const fs=require('fs');const t=fs.readFileSync(process.env.FILE,'utf8');if(!t.includes(process.env.OLD))process.exit(3);fs.writeFileSync(process.env.FILE,t.split(process.env.OLD).join(process.env.NEW))" \
+    || fail "the planted copy of $2 does not hold the text it replaces: $3"
+}
+plant() {  # plant <name> <file in the copy> <text> <what takes its place>: a new copy of the harness with that one defect; PLANTED is its folder
+  PLANTED="$WORK/planted-$1"; harness_copy "$ROOT" "$PLANTED"; plant_replace "$PLANTED" "$2" "$3" "$4"
+}
+wt="$proj/wt-a1"
+printf 'rotated-3\n' | tee "$WORK/ftoken" > "$WORK/server-token"
+fetched shop-a "$wt" || fail "a cache fetch did not follow a rotated token: $FETCH_SAID"
+printf 'second-token\n' > "$WORK/ftoken-2"; cp "$WORK/ftoken-2" "$WORK/server-token"
+shop_config "$proj/shop-a" "sh '$WORK/token spy.sh' '$WORK/ftoken-2'"
+fetched shop-a "$wt" || fail "a cache fetch did not follow a changed token command, or took the stale copy of the worktree: $FETCH_SAID"
+fetched shop-a || fail "a cache fetch outside the project did not follow a changed token command: $FETCH_SAID"
+plant stale bin/git-credential.sh 'unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR' ':'
+ROOT_UNDER_TEST="$PLANTED" fetched shop-a "$wt" && fail "planted: the helper that keeps GIT_DIR read the stale copy of the worktree and still signed in, so the check cannot go red"
+shop_config "$proj/shop-a" "$spy_command"; printf '%s\n' "$TOKEN" | tee "$WORK/ftoken" > "$WORK/server-token"
+echo "  a rotated token and a changed token command are followed at once; planted: a helper that keeps the GIT_DIR of the cache reads the stale copy in the worktree and gets nowhere"
+
+# another host, port and scheme get no token and the token command does not run; store and erase do nothing
+helper_out() {  # helper_out <the lines git sends> [get|store|erase]: the helper as git runs it for a repository outside every checkout
+  ( cd "$WORK/outside" && printf "$1" | env -u FORGEJO_URL -u FORGEJO_TOKEN_COMMAND PATH="$PATH_CURL" bash "${ROOT_UNDER_TEST:-$ROOT}/bin/git-credential.sh" "${2:-get}" 2>&1 )
+}
+mine="protocol=http\nhost=$FORGE_HOST\n"
+asks="$(printf 'username=ai-core\npassword=%s' "$TOKEN")"
+[ "$(helper_out "$mine")" = "$asks" ] || fail "the helper does not answer from the registered settings file: $(helper_out "$mine")"
+runs="$(spy_runs)"
+for other in "protocol=http\nhost=other.example.test\n" "protocol=http\nhost=127.0.0.1:1\n" "protocol=https\nhost=$FORGE_HOST\n"; do
+  ! grep -qE 'username=|password=' <<< "$(helper_out "$other" || true)" || fail "the helper answered outside every checkout for '$other'"
+done
+for verb in store erase; do
+  [ -z "$(helper_out "${mine}username=ai-core\npassword=$TOKEN\n" "$verb")" ] || fail "$verb answered something"
+done
+[ "$(spy_runs)" = "$runs" ] || fail "the token command ran for another host, another port, another scheme, store or erase"
+[ "$(git config --global --get-all "$SOURCE_KEY")" = "$proj/shop-a/.ai-core/config.env" ] && cmp -s "$GIT_CONFIG_GLOBAL" "$WORK/gitconfig.after" || fail "store or erase changed the user's git configuration"
+plant everyhost bin/git-credential.sh 'if [ "$url" = "$requested" ]; then' 'if true; then'
+[ -n "$(cd "$F" && printf 'protocol=http\nhost=other.example.test\n' | PATH="$PATH_CURL" ROOT_UNDER_TEST="$PLANTED" bash "$PLANTED/bin/git-credential.sh" get 2>&1)" ] || fail "planted: a helper with no host check answered nobody, so the check cannot go red"
+echo "  another host, another port and http against https get no answer and no run of the token command, outside every checkout; store and erase do nothing; planted: a helper without the host check answers any host"
+
+# a helper that git already has for the instance is neither asked nor given the token: the empty value comes first
+cat > "$WORK/spy-store" <<SPY
+#!/bin/sh
+echo "\$1" >> "$WORK/store-runs"
+SPY
+chmod +x "$WORK/spy-store"; : > "$WORK/store-runs"
+user_sign_in_reset
+git config --global --add credential.helper "!$WORK/spy-store"
+init_in "$proj/shop-a" > /dev/null || fail "init under an inherited helper failed"
+fetched shop-a || fail "a cache fetch under an inherited helper did not sign in: $FETCH_SAID"
+[ ! -s "$WORK/store-runs" ] || fail "an inherited helper was asked or given the token: $(tr '\n' ' ' < "$WORK/store-runs")"
+plant noreset lib/forgejo/forge.sh 'git config --global --replace-all "credential.$url.helper" ""' 'true'
+user_sign_in_reset
+ROOT_UNDER_TEST="$PLANTED" init_in "$proj/shop-a" > /dev/null || fail "the planted init without the empty value failed"
+ROOT_UNDER_TEST="$PLANTED" fetched shop-a || true
+[ -s "$WORK/store-runs" ] || fail "planted: the pair without its empty value did not ask the inherited helper, so the check cannot go red"
+: > "$WORK/store-runs"; user_sign_in_reset
+init_in "$proj/shop-a" > /dev/null || fail "init after the planted one failed"
+fetched shop-a || fail "innocent: the cache fetch after the real init did not sign in: $FETCH_SAID"
+[ ! -s "$WORK/store-runs" ] || fail "the real init left the inherited helper in the chain: $(tr '\n' ' ' < "$WORK/store-runs")"
+git config --global --fixed-value --unset credential.helper "!$WORK/spy-store"
+echo "  an inherited store or cache is neither asked nor given the token; planted: a pair without its empty value asks it and feeds it"
+
+# a FORGEJO_URL with credentials, a path, a query or a fragment is refused, and the credentials are not repeated
+for bad in 'https://user:secret@forge.example.test|must not carry credentials' 'https://forge.example.test/api/v1|names a path, a query or a fragment' \
+           'https://forge.example.test?x=1|names a path, a query or a fragment' 'https://forge.example.test#top|names a path, a query or a fragment'; do
+  url="${bad%%|*}"; said="${bad#*|}"
+  out="$(FORGEJO_URL="$url" forge_fn clone_sign_in "$WORK/fresh" 2>&1)" && fail "clone_sign_in took $url"
+  grep -q "$said" <<< "$out" && ! grep -q secret <<< "$out" || fail "$url is not refused by name, or its password is repeated: $out"
+  out="$(cd "$F" && printf "$mine" | PATH="$PATH_CURL" FORGEJO_URL="$url" bash "$ROOT/bin/git-credential.sh" get 2>&1)" && fail "the helper took the settings of $url"
+  ! grep -qE 'password=|secret' <<< "$out" || fail "the helper answered or repeated the password for $url: $out"
+done
+! grep -qs secret "$GIT_CONFIG_GLOBAL" "$WORK/fresh/.git/config" || fail "a credential of the address reached a git configuration"
+echo "  FORGEJO_URL with credentials, a path, a query or a fragment is refused by clone_sign_in and by the helper, and no message or configuration repeats the password"
+
+# two settings files for one instance: equivalent credentials work, differing credentials refuse
+make_shop shop-b "shop b's folder" "$spy_command"
+shop_b="$proj/shop b's folder"
+out="$(init_in "$shop_b")" || fail "init of a second checkout: $out"
+[ "$(registered | sort)" = "$(printf '%s\n%s\n' "$proj/shop-a/.ai-core/config.env" "$shop_b/.ai-core/config.env" | sort)" ] || fail "the user's git configuration does not name both files once: $(registered)"
+: > "$WORK/spy.log"
+fetched shop-a || fail "two files with the same token did not sign in: $FETCH_SAID"
+[ "$(spy_runs)" -ge 2 ] || fail "the helper did not ask both files for their token: $(spy_runs)"
+! grep -qF "$TOKEN" "$WORK/spy.log" || fail "the token stands in the arguments or the environment of a token command"
+plant leak lib/forgejo/forge.sh 'token="$candidate"; first="$file"; rc=0' 'token="$candidate"; first="$file"; rc=0; export FORGEJO_LEAK="$token"'
+ROOT_UNDER_TEST="$PLANTED" fetched shop-a || fail "the planted copy that leaks the token should still sign in: $FETCH_SAID"
+grep -qF "$TOKEN" "$WORK/spy.log" || fail "planted: a token exported to the next token command is not seen in its environment, so the check cannot go red"
+: > "$WORK/spy.log"
+printf 'other-token\n' > "$WORK/ftoken-b"
+shop_config "$shop_b" "sh '$WORK/token spy.sh' '$WORK/ftoken-b'"
+refuses() {  # refuses <what it must name>: the helper gives no answer, says why and prints no token
+  local rc=0 out
+  out="$(helper_out "$mine")" || rc=$?
+  [ "$rc" -ne 0 ] && grep -qF -- "$1" <<< "$out" && ! grep -qE 'username=|password=' <<< "$out" && ! grep -qE "$TOKEN|other-token" <<< "$out"
+}
+refuses "yield different tokens" || fail "the helper did not refuse two files with different tokens, or printed a token: $(helper_out "$mine" || true)"
+grep -qF "$proj/shop-a/.ai-core/config.env" <<< "$(helper_out "$mine" || true)" && grep -qF "$shop_b/.ai-core/config.env" <<< "$(helper_out "$mine" || true)" || fail "the refusal does not name both files"
+mark="$(log_lines)"
+fetched shop-a && fail "a cache fetch signed in with two different tokens registered"
+! served_since "$mark" | grep -q '^200 ' || fail "the server answered a fetch whose helper had to refuse"
+# the settings of the checkout git runs in stay authoritative: they answer, and the registered files are not consulted
+in_checkout() {  # in_checkout <checkout>: the helper as git runs it inside that checkout
+  ( cd "$1" && printf "$mine" | env -u FORGEJO_URL -u FORGEJO_TOKEN_COMMAND PATH="$PATH_CURL" bash "${ROOT_UNDER_TEST:-$ROOT}/bin/git-credential.sh" get 2>&1 )
+}
+[ "$(in_checkout "$proj/shop-a")" = "$asks" ] || fail "the helper in a checkout did not answer with the settings of that checkout while the registered files differ: $(in_checkout "$proj/shop-a")"
+plant registryfirst bin/git-credential.sh 'if [ "$url" = "$requested" ]; then' 'if false; then'
+! grep -q '^password=' <<< "$(ROOT_UNDER_TEST="$PLANTED" in_checkout "$proj/shop-a")" || fail "planted: a helper that asks the registered files before the checkout still answered where they differ, so the check cannot go red"
+init_in "$proj/shop-a" > /dev/null || fail "init of the first checkout, after the second"; init_in "$shop_b" > /dev/null || fail "init of the second checkout, again"
+refuses "yield different tokens" || fail "the order of the inits decided between two different tokens"
+plant nocompare lib/forgejo/forge.sh 'elif [ "$candidate" != "$token" ]; then' 'elif false; then'
+grep -q '^password=' <<< "$(ROOT_UNDER_TEST="$PLANTED" helper_out "$mine")" || fail "planted: a helper that never compares the tokens still refused, so the check cannot go red"
+# an unreadable file refuses by the rule of the config reader, and a file that is not there supplies nothing
+make_unreadable "$shop_b/.ai-core/config.env" || fail "the settings file cannot be made unreadable"
+refuses "exists but cannot be read" || fail "an unreadable registered file did not refuse: $(helper_out "$mine" || true)"
+old_reader_copy "$ROOT" "$WORK/old-reader" || fail "no copy of the harness with the old reader"
+grep -q '^password=' <<< "$(ROOT_UNDER_TEST="$WORK/old-reader" helper_out "$mine")" || fail "planted: with the old reader the unreadable file did not read as a missing setting, so the check cannot go red"
+chmod 600 "$shop_b/.ai-core/config.env"
+shop_config "$shop_b" "$spy_command"
+[ "$(helper_out "$mine")" = "$asks" ] || fail "innocent: two files with the same token do not answer once the file reads again"
+mv "$shop_b/.ai-core/config.env" "$WORK/b-config.kept"
+[ "$(helper_out "$mine")" = "$asks" ] || fail "a registered file that is not there blocked the other"
+mv "$WORK/b-config.kept" "$shop_b/.ai-core/config.env"
+echo "  two registered files with the same token sign in; different tokens, an unreadable file and the order of the inits: refused, both files named, no token printed; a file that is gone supplies none; planted: no comparison and the old reader each answer"
+
+# a file whose instance changed supplies nothing, and the token command it names does not run
+git config --global --fixed-value --unset "$SOURCE_KEY" "$proj/shop-a/.ai-core/config.env"
+shop_config "$shop_b" "$spy_command" "http://other.example.test"
+runs="$(spy_runs)"
+out="$(helper_out "$mine")" && ! grep -qE 'username=|password=' <<< "$out" || fail "a file that names another instance supplied a token: $out"
+[ "$(spy_runs)" = "$runs" ] || fail "the token command of a file that names another instance ran"
+plant everyfile lib/forgejo/forge.sh '[ "${file_url%/}" = "$url" ] || continue' ':'
+grep -q '^password=' <<< "$(ROOT_UNDER_TEST="$PLANTED" helper_out "$mine")" || fail "planted: a helper that takes every registered file for the instance answered nobody, so the check cannot go red"
+shop_config "$shop_b" "$spy_command"
+echo "  a registered file that names another instance supplies no token and its token command does not run; planted: a helper without that check hands the token to the wrong server"
+
+# two inits at once on one user configuration: two worktrees of one checkout and two checkouts. A git that is slow on the user's
+# configuration widens the gap between reading and writing, so an init without the lock loses or doubles what the other wrote
+user_sign_in_reset; : > "$WORK/spy.log"
+make_shop shop-c1 shop-c1 "$spy_command"; make_shop shop-c2 shop-c2 "$spy_command"
+git -C "$proj/shop-c1" worktree add -q -b issue-3-c "$proj/wt-c1a"; git -C "$proj/shop-c1" worktree add -q -b issue-4-c "$proj/wt-c1b"
+ROOT_UNDER_TEST="$old" init_in "$proj/shop-c1" > /dev/null || fail "the first init of the first checkout"
+ROOT_UNDER_TEST="$old" init_in "$proj/shop-c2" > /dev/null || fail "the first init of the second checkout"
+mkdir -p "$WORK/slowgit"; real_git="$(command -v git)"
+printf '#!/bin/sh\ncase " $* " in *" --global "*) sleep 0.3 ;; esac\nexec "%s" "$@"\n' "$real_git" > "$WORK/slowgit/git"; chmod +x "$WORK/slowgit/git"
+inits_at_once() {  # inits_at_once: init of both checkouts and both worktrees at once, each exit and report kept
+  local n=0 dir pids=""
+  for dir in "$proj/shop-c1" "$proj/shop-c2" "$proj/wt-c1a" "$proj/wt-c1b"; do
+    n=$((n + 1))
+    ( rc=0; EXTRA_PATH="$WORK/slowgit" init_in "$dir" > "$WORK/par-$n.log" || rc=$?; echo "$rc" > "$WORK/par-$n.rc" ) &
+    pids="$pids $!"
+  done
+  wait $pids
+}
+concurrent_state() {  # concurrent_state: yes where both settings files and one pair stand, each once, and every init exited 0
+  local rc ok=yes
+  for rc in "$WORK"/par-?.rc; do [ "$(cat "$rc")" = 0 ] || ok=no; done
+  [ "$(git config --global --get-all "$LINE_KEY")" = "$(printf '\n!ai-core git-credential')" ] || ok=no
+  [ "$(registered | sort)" = "$(printf '%s\n%s\n' "$proj/shop-c1/.ai-core/config.env" "$proj/shop-c2/.ai-core/config.env" | sort)" ] || ok=no
+  echo "$ok"
+}
+plant nolock lib/forgejo/forge.sh 'flock -x -w "$FORGEJO_SIGN_IN_LOCK_SECONDS" 7' 'true'
+rm -f "$WORK"/par-*; ROOT_UNDER_TEST="$PLANTED" inits_at_once
+[ "$(concurrent_state)" = no ] || fail "planted: four inits at once without the lock lost nothing and doubled nothing, so the check cannot go red"
+user_sign_in_reset; rm -f "$WORK"/par-*
+inits_at_once
+[ "$(concurrent_state)" = yes ] || fail "four inits at once lost a settings file, doubled a value or failed: $(tail -n 3 "$WORK"/par-?.log | tr '\n' '|'); $(git config --global --get-all "$LINE_KEY" | paste -sd'|' -); $(registered | paste -sd'|' -)"
+[ "$(cat "$WORK"/par-?.log | grep -c "set in the user's git configuration")" = 2 ] || fail "the reports of four inits do not name one change for each settings file: $(grep -h "user's git configuration" "$WORK"/par-?.log)"
+echo "  four inits at once, two worktrees of one checkout and two checkouts: every exit 0, both files once, the pair once, one report line for each file; planted: without the lock the same run loses or doubles what the others wrote"
+
+# two cache fetches at once, each with its own cache
+c1="$WORK/cache-par-1"; c2="$WORK/cache-par-2"; git init -q --bare "$c1"; git init -q --bare "$c2"
+mark="$(log_lines)"
+( rc=0; cache_fetch "$c1" shop-c1 > "$WORK/fetch-1.log" || rc=$?; echo "$rc" > "$WORK/fetch-1.rc" ) &
+first=$!
+( rc=0; cache_fetch "$c2" shop-c2 > "$WORK/fetch-2.log" || rc=$?; echo "$rc" > "$WORK/fetch-2.rc" ) &
+wait "$first" $!
+for n in 1 2; do
+  [ "$(cat "$WORK/fetch-$n.rc")" = 0 ] || fail "cache fetch $n at once failed: $(cat "$WORK/fetch-$n.log")"
+  [ "$(git --git-dir="$WORK/cache-par-$n" rev-parse refs/heads/main)" = "$(git --git-dir="$REMOTE/example-org/shop-c$n.git" rev-parse refs/heads/main)" ] || fail "cache $n does not hold the commit of the server"
+  served_since "$mark" | grep -q "^200 GET /example-org/shop-c$n.git/info/refs user=ai-core" || fail "the server did not see cache $n sign in"
+done
+! grep -qF "$TOKEN" "$WORK/spy.log" || fail "the token stands in the arguments or the environment of a token command"
+echo "  two cache fetches at once both fetch their commit; the token stands in no argument and no environment of the token commands"
+
+# a refused lock leaves the configuration as it was, and the next run completes it
+user_sign_in_reset
+lock="$AI_CORE_HOME/.ai-core/git-sign-in.lock"; mkdir -p "$(dirname "$lock")"
+forge_fn_fast() { ( cd "$F" && PATH="$PATH_CURL" bash -c '. "$1/lib/forge.sh"; FORGEJO_SIGN_IN_LOCK_SECONDS=1; shift; "$@"' _ "$ROOT" "$@" 2>&1 ); }
+cp "$GIT_CONFIG_GLOBAL" "$WORK/gitconfig.untouched"
+( flock -x 9; sleep 5 ) 9>"$lock" & holder=$!
+sleep 0.5
+out="$(forge_fn_fast clone_sign_in "$WORK/fresh")" && fail "a registration went on while another init held the lock"
+grep -q 'held by another ai-core init' <<< "$out" && grep -q 'nothing was changed' <<< "$out" || fail "the refusal does not say who holds the lock and that nothing changed: $out"
+cmp -s "$GIT_CONFIG_GLOBAL" "$WORK/gitconfig.untouched" || fail "a refused registration changed the user's git configuration"
+wait "$holder"
+forge_fn_fast clone_sign_in "$WORK/fresh" > /dev/null || fail "the retry after the lock was free did not complete"
+[ "$(git config --global --get-all "$LINE_KEY")" = "$(printf '\n!ai-core git-credential')" ] && [ "$(registered)" = "$F/.ai-core/config.env" ] || fail "the retry did not converge on the pair and the file"
+# git's own lock on the file, held by somebody else's git config
+user_sign_in_reset
+cp "$GIT_CONFIG_GLOBAL" "$WORK/gitconfig.untouched"
+: > "$GIT_CONFIG_GLOBAL.lock"
+out="$(forge_fn clone_sign_in "$WORK/fresh" 2>&1)" && fail "a registration went on while git's lock on the configuration was held"
+grep -q "cannot change the user's git configuration" <<< "$out" || fail "the refusal does not say that the configuration could not be changed: $out"
+cmp -s "$GIT_CONFIG_GLOBAL" "$WORK/gitconfig.untouched" || fail "a registration refused by git's lock changed the user's git configuration"
+rm -f "$GIT_CONFIG_GLOBAL.lock"
+forge_fn clone_sign_in "$WORK/fresh" > /dev/null || fail "the retry after git's lock was gone did not complete"
+[ "$(git config --global --get-all "$LINE_KEY")" = "$(printf '\n!ai-core git-credential')" ] && [ "$(registered)" = "$F/.ai-core/config.env" ] || fail "the retry after git's lock did not converge on the pair and the file"
+echo "  a lock held by another init, and git's own lock on the file, each refuse with their reason and leave the configuration as it was; the retry completes it"
+
+user_sign_in_reset
+[ -z "$(leaked)" ] || fail "the token stands in a file after the cache fetches: $(leaked)"
 
 # --- doctor --------------------------------------------------------------------------------------
 doctor_lines() {  # the lines forge_doctor prints, report and problem in the shape doctor.sh gives them
@@ -470,7 +809,7 @@ reset_log
 out="$(init --dry-run)" || fail "init --dry-run on Forgejo: $out"
 grep -q "$LINE_KEY would be set in .git/config" <<< "$out" || fail "the dry run of init does not announce the sign-in line: $out"
 grep -q 'example-org/example-ai-core would be created from the skeleton' <<< "$out" || fail "the dry run of init does not announce the harness: $out"
-[ -z "$(git -C "$WORK/proj/example-repo2" config --get "$LINE_KEY" || true)" ] || fail "the dry run set the sign-in line"
+[ -z "$(git -C "$WORK/proj/example-repo2" config --local --get "$LINE_KEY" || true)" ] || fail "the dry run set the sign-in line"
 ! requests | grep -q '^POST' || fail "the dry run created something on the instance"
 git config --global --add "$LINE_KEY" ""
 git config --global --add "$LINE_KEY" '!ai-core git-credential'
@@ -480,7 +819,7 @@ grep -q 'created: example-org/example-ai-core, private, from the skeleton' <<< "
 grep -q "  $LINE_KEY set in .git/config" <<< "$out" || fail "init does not report the sign-in line: $out"
 requests | grep -q '^POST /api/v1/orgs/example-org/repos$' || fail "init did not create the harness repository on the instance"
 [ "$(git -C "$REMOTE/example-org/example-ai-core.git" rev-list --count --all)" = 1 ] || fail "the harness repository got no skeleton commit"
-[ "$(git -C "$WORK/proj/example-repo2" config --get "$LINE_KEY")" = '!ai-core git-credential' ] || fail "init did not set the sign-in line"
+[ "$(git -C "$WORK/proj/example-repo2" config --local --get "$LINE_KEY")" = '!ai-core git-credential' ] || fail "init did not set the sign-in line"
 [ "$(git -C "$WORK/proj/example-repo2" config --local --get-all "$LINE_KEY")" = "$(printf '\n!ai-core git-credential')" ] || fail "init installed no local reset/helper pair under the inherited pair"
 signs_in_alone "$WORK/proj/example-repo2" || fail "init: the inherited URL pair hid a store that kept the token"
 out="$(init)" || fail "second init on Forgejo: $out"
@@ -490,7 +829,7 @@ reset_log
 out="$(init)" || fail "init with the harness on the instance and not on this disk: $out"
 [ -f "$WORK/proj/example-ai-core/ai-core.json" ] || fail "the harness repository was not cloned"
 ! requests | grep -q '^POST' || fail "init created a harness repository that exists"
-[ "$(git -C "$WORK/proj/example-ai-core" config --get "$LINE_KEY")" = '!ai-core git-credential' ] || fail "the cloned harness does not sign in through the helper"
+[ "$(git -C "$WORK/proj/example-ai-core" config --local --get "$LINE_KEY")" = '!ai-core git-credential' ] || fail "the cloned harness does not sign in through the helper"
 git config --global --unset-all credential.helper
 git config --global --unset-all "$LINE_KEY"
 echo "  init: the dry run announces; the run sets the sign-in line once and creates the harness private on the instance; a second machine clones it"
@@ -501,20 +840,20 @@ printf "Token scopes: 'project', 'repo'\n" > "$WORK/gh-auth"
 git -C "$WORK/proj/example-repo2" config --unset-all "$LINE_KEY"
 out="$(init_with_doctor)" || fail "init with its doctor refused a checkout that has no sign-in line yet: $out"
 grep -q "  $LINE_KEY set in .git/config" <<< "$out" || fail "init does not report the sign-in line it set: $out"
-[ "$(git -C "$WORK/proj/example-repo2" config --get "$LINE_KEY")" = '!ai-core git-credential' ] || fail "init with its doctor did not set the sign-in line"
+[ "$(git -C "$WORK/proj/example-repo2" config --local --get "$LINE_KEY")" = '!ai-core git-credential' ] || fail "init with its doctor did not set the sign-in line"
 git -C "$WORK/proj/example-repo2" config --unset-all "$LINE_KEY"
 out="$(init_with_doctor --dry-run)" || fail "init --dry-run with its doctor refused a checkout that has no sign-in line yet: $out"
 grep -q "$LINE_KEY would be set in .git/config" <<< "$out" || fail "the dry run with its doctor does not announce the sign-in line: $out"
-[ -z "$(git -C "$WORK/proj/example-repo2" config --get "$LINE_KEY" || true)" ] || fail "the dry run with its doctor set the sign-in line"
+[ -z "$(git -C "$WORK/proj/example-repo2" config --local --get "$LINE_KEY" || true)" ] || fail "the dry run with its doctor set the sign-in line"
 printf 'wrong-token\n' > "$WORK/ftoken"
 out="$(init_with_doctor)" && fail "init went on with a token the instance refuses: $out"
-[ -z "$(git -C "$WORK/proj/example-repo2" config --get "$LINE_KEY" || true)" ] || fail "a refused init left the sign-in line set"
+[ -z "$(git -C "$WORK/proj/example-repo2" config --local --get "$LINE_KEY" || true)" ] || fail "a refused init left the sign-in line set"
 grep -q "refuses the token (status 401)" <<< "$out" && grep -q 'fix the problems doctor reported' <<< "$out" || fail "init does not stop at doctor for a wrong token: $out"
 printf '%s\n' "$TOKEN" > "$WORK/ftoken"
 git -C "$WORK/proj/example-repo2" remote set-url origin "$FORGE_URL/example-org/missing.git"
 out="$(init_with_doctor)" && fail "init went on with an origin that cannot be read: $out"
 grep -q 'origin       refused' <<< "$out" && grep -q 'fix the problems doctor reported' <<< "$out" || fail "init does not stop at doctor for an origin that cannot be read: $out"
-[ -z "$(git -C "$WORK/proj/example-repo2" config --get "$LINE_KEY" || true)" ] || fail "init set the sign-in line although doctor refused the origin"
+[ -z "$(git -C "$WORK/proj/example-repo2" config --local --get "$LINE_KEY" || true)" ] || fail "init set the sign-in line although doctor refused the origin"
 git -C "$WORK/proj/example-repo2" remote set-url origin "$FORGE_URL/example-org/example-repo2.git"
 rm -f "$WORK/gh-auth"
 echo "  init with its doctor: a checkout with no sign-in line gets it and passes; a dry run passes and sets nothing; a wrong token or an origin that cannot be read stops at doctor and leaves no line"
@@ -527,6 +866,7 @@ git init -q -b main "$RD"; git -C "$RD" add -A; git -C "$RD" commit -q -m 'The t
 git init -q --bare -b main "$REMOTE/example-org/rel.git"; forgejo_repo example-org/rel 1
 git -C "$RD" remote add origin "$FORGE_URL/example-org/rel.git"
 printf '9.9.0\n' > "$RD/VERSION"; git -C "$RD" commit -q -am 'release: 9.9.0'
+user_sign_in_reset
 pgit -C "$RD" push -q -u origin main 2>/dev/null && fail "a push without the sign-in line got in"
 forge_fn clone_sign_in "$RD" > /dev/null
 pgit -C "$RD" push -q -u origin main || fail "the push does not sign in through the line clone_sign_in set"

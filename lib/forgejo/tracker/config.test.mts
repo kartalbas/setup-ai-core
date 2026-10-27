@@ -182,3 +182,47 @@ describe('a harness clone reads FORGE without loading a provider', () => {
     assert.ok(calls > 1, `the planted copy asked ${calls} time(s) and did not recurse`);
   });
 });
+
+describe('FORGEJO_URL in the Bash provider, which the credential helper and init read, agrees with the tracker', () => {
+  const accepted = ['https://forge.example.test', 'https://forge.example.test/', 'http://127.0.0.1:3000'];
+  const refused = [
+    'https://user:secret@forge.example.test',
+    'https://forge.example.test/api/v1',
+    'https://forge.example.test/?x=1',
+    'https://forge.example.test?x=1',
+    'https://forge.example.test#top',
+    'ftp://forge.example.test',
+  ];
+  const ask = (root: string, url: string) => bashIn(root, root, '. "$1/lib/forgejo/forge.sh"; forgejo_url_of "$URL_UNDER_TEST"', { URL_UNDER_TEST: url });
+
+  for (const url of accepted) {
+    it(`takes ${JSON.stringify(url)} as the tracker does (innocent case)`, () => {
+      const result = ask(HARNESS_ROOT, url);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout, parseForgejoUrl(url));
+    });
+  }
+  for (const url of refused) {
+    it(`refuses ${JSON.stringify(url)} as the tracker does, without repeating a password`, () => {
+      assert.throws(() => parseForgejoUrl(url), ConfigError);
+      const result = ask(HARNESS_ROOT, url);
+      assert.notEqual(result.status, 0, `the Bash provider took ${url}`);
+      assert.ok(!`${result.stdout}${result.stderr}`.includes('secret'), result.stderr);
+    });
+  }
+
+  it('would take credentials if the check were taken out (planted)', () => {
+    const work = mkdtempSync(join(tmpdir(), 'forgejo-url-'));
+    try {
+      mkdirSync(join(work, 'lib', 'forgejo'), { recursive: true });
+      cpSync(join(HARNESS_ROOT, 'lib', 'common.sh'), join(work, 'lib', 'common.sh'));
+      const text = readFileSync(join(HARNESS_ROOT, 'lib', 'forgejo', 'forge.sh'), 'utf8');
+      const planted = text.replace('*@*) die "FORGEJO_URL must not carry credentials" ;;', '*@*) ;;');
+      assert.notEqual(planted, text, 'the check to take out was not found');
+      writeFileSync(join(work, 'lib', 'forgejo', 'forge.sh'), planted);
+      assert.equal(ask(work, 'https://user:secret@forge.example.test').status, 0);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  });
+});

@@ -25,8 +25,9 @@
 #   forge_repo_visibility <owner/repo>  public or private; fails, saying why, where the forge does not establish it
 #   commit_checked <checkout> <sha>  green, red, pending or unreadable (what the forge said, on stderr)
 #   signed_in_user               the login, exit 1 where nobody is signed in
-#   clone_sign_in <checkout> [dry]   what git needs to sign in to the forge from that checkout, set in the checkout
-#                                    itself; prints its report line when it set something (dry: would set), else nothing
+#   clone_sign_in <checkout> [dry]   what git needs to sign in to the forge from that checkout and from a tool's own
+#                                    repositories, set in the checkout itself and in the user's git configuration; prints
+#                                    a report line for each it set (dry: would set), else nothing
 #   forge_doctor                 the lines doctor prints for the forge, "  forge: <name>" first, through its report and problem
 load_provider forge "
   forge_host forge_name not_signed_in_words checks_unreadable_message repo_exists repo_clone repo_create repo_default_branch repo_file_tree

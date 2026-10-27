@@ -107,6 +107,11 @@ function harnessWithRounds(...answers: string[]): RecordingHarness {
   return harness;
 }
 
+// A harness that looks for the commits naming an issue as the Bash harness does, in the history of the fixture.
+function harnessReadingCommits(): RecordingHarness {
+  return Object.assign(createRecordingHarness(), { findCommitNamingIssue: bashHarness.findCommitNamingIssue });
+}
+
 // The pre-push hook of a checkout that stands for the gate of a landing: it counts its runs, and while it runs for the first
 // `moves` times another session lands a commit on the default branch (of the file given, where a move is to conflict), and
 // it is red where `red` says so. Whatever it does happens while the push of the landing waits for it.
@@ -1594,10 +1599,29 @@ describe('issue-proof and the close as completed', () => {
     git(main.second, 'commit', '-q', '-m', `Work that landed without its record (#${number})`);
     const landed = git(main.second, 'rev-parse', 'HEAD');
     git(main.second, 'push', '-q', 'origin', 'master');
-    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout)), new RegExp(`not delivered, so nothing is proven: the commit ${landed.slice(0, 7)} on the default branch of origin names it`));
+    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout, {}, harnessReadingCommits())), new RegExp(`not delivered, so nothing is proven: the commit ${landed.slice(0, 7)} on the default branch of origin names it`));
     fake.addComment(main.full, number, 'fake-user', composeProvenRecord('prod', 'seen on PROD'));
-    await assert.rejects(issueState.runClose([main.full, String(number), '--reason', 'completed'], ctx(main.checkout)), new RegExp(`the commit ${landed.slice(0, 7)} on the default branch of origin names it`));
+    await assert.rejects(issueState.runClose([main.full, String(number), '--reason', 'completed'], ctx(main.checkout, {}, harnessReadingCommits())), new RegExp(`the commit ${landed.slice(0, 7)} on the default branch of origin names it`));
     assert.equal(fake.readIssue('o/r', number).state, 'open');
+  });
+
+  it('refuses the proof of an issue that a commit names at the start of its subject or in its body, and not one whose number only begins it (planted: the old lookup of a subject that ends with the number; innocent case: the longer number)', async () => {
+    const land = (message: string): string => {
+      git(main.second, 'pull', '-q', '--ff-only', 'origin', 'master');
+      git(main.second, 'commit', '-q', '--allow-empty', '-m', message);
+      git(main.second, 'push', '-q', 'origin', 'master');
+      return git(main.second, 'rev-parse', 'HEAD').slice(0, 7);
+    };
+    const forms: Array<(number: number) => string> = [(number) => `#${number} Show who approved a run`, (number) => `Show who approved a run\n\nCloses #${number}.`];
+    for (const form of forms) {
+      const number = newIssue(main, 'Landed by a commit that names it another way, so that no proof stands in for its delivery', { labels: ['status/testing'] });
+      const landed = land(form(number));
+      await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout, {}, harnessReadingCommits())), new RegExp(`the commit ${landed} on the default branch of origin names it.*run integrate-issue again, with --also`));
+    }
+    const other = newIssue(main, 'Delivered without a code change, so that a longer number names nothing of it', { labels: ['status/testing'] });
+    land(`Another issue's work (#${other}0)`);
+    fake.addComment(main.full, other, 'fake-user', composeProvenRecord('prod', 'seen on PROD'));
+    assert.match((await issueState.runClose([main.full, String(other), '--reason', 'completed'], ctx(main.checkout, {}, harnessReadingCommits()))).stdout, /no landing exists/);
   });
 
   it('counts no record of an account without write permission (planted: a stranger lands, releases and would prove)', async () => {

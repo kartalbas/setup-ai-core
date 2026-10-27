@@ -47,7 +47,7 @@ S=(claude-sonnet-5.5 high) O=(claude-opus-5.5 medium)
 {
   verdict 3 'REVIEW area-a: GO' "$(identity r1 claude-opus-5.5 xhigh b1 "${S[@]}")" 'REPAIRED:' '- example-repo lib/x.mjs:3: wrong; commit abc1234' 'FINDINGS:' 'CRITERIA: 2 of 2 met'
   verdict 3 'REVIEW area-b: NO' "$(identity r1 claude-opus-5.5 xhigh b2 "${S[@]}")" 'FINDINGS:' '- example-repo lib/y.mjs:9: a defect; state: x'
-  verdict 2 'REVIEW area-c: GO' "$(identity r2 claude-opus-5.5 xhigh b3 "${O[@]}")" 'REPAIRED:' 'FINDINGS:'
+  verdict 2 'REVIEW area-c: GO' "$(identity r2 claude-opus-5.5 xhigh b3 "${O[@]}")" 'HEAD: example-repo#3 abc1234' 'REPAIRED:' 'FINDINGS:'
 } > "$work/thread-1-page-1"
 {
   verdict 20 'REVIEW area-old: NO' "$(identity r9 claude-opus-5.5 xhigh b9 "${S[@]}")" 'FINDINGS:' '- a defect from before the interval'

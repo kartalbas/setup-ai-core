@@ -664,20 +664,38 @@ grep -q '^password=' <<< "$(ROOT_UNDER_TEST="$PLANTED" helper_out "$mine")" || f
 shop_config "$shop_b" "$spy_command"
 echo "  a registered file that names another instance supplies no token and its token command does not run; planted: a helper without that check hands the token to the wrong server"
 
-# two inits at once on one user configuration: two worktrees of one checkout and two checkouts. A git that is slow on the user's
-# configuration widens the gap between reading and writing, so an init without the lock loses or doubles what the other wrote
+# two inits at once on one user configuration: two worktrees of one checkout and two checkouts. A git that holds the first
+# write of each init until all four have read the configuration, or the seconds are over, makes the gap between reading and
+# writing as wide as the inits need on any machine, so an init without the lock loses or doubles what another wrote
 user_sign_in_reset; : > "$WORK/spy.log"
 make_shop shop-c1 shop-c1 "$spy_command"; make_shop shop-c2 shop-c2 "$spy_command"
 git -C "$proj/shop-c1" worktree add -q -b issue-3-c "$proj/wt-c1a"; git -C "$proj/shop-c1" worktree add -q -b issue-4-c "$proj/wt-c1b"
 ROOT_UNDER_TEST="$old" init_in "$proj/shop-c1" > /dev/null || fail "the first init of the first checkout"
 ROOT_UNDER_TEST="$old" init_in "$proj/shop-c2" > /dev/null || fail "the first init of the second checkout"
-mkdir -p "$WORK/slowgit"; real_git="$(command -v git)"
-printf '#!/bin/sh\ncase " $* " in *" --global "*) sleep 0.3 ;; esac\nexec "%s" "$@"\n' "$real_git" > "$WORK/slowgit/git"; chmod +x "$WORK/slowgit/git"
-inits_at_once() {  # inits_at_once: init of both checkouts and both worktrees at once, each exit and report kept
-  local n=0 dir pids=""
+real_git="$(command -v git)"
+four_inits_at_once() {  # four_inits_at_once <seconds>: init of both checkouts and both worktrees at once, each exit and report kept
+  local n=0 dir pids="" hold
+  hold="$(mktemp -d "$WORK/hold.XXXXXX")"
+  cat > "$hold/git" <<HOLD
+#!/bin/sh
+case " \$* " in
+  *" --global "*)
+    case " \$* " in
+      *" --add "*|*" --replace-all "*)
+        if [ -n "\${HOLD_ID:-}" ] && [ ! -e "$hold/passed.\$HOLD_ID" ]; then
+          : > "$hold/arrived.\$HOLD_ID"
+          waited=0
+          while [ "\$(ls "$hold" | grep -c '^arrived\.')" -lt 4 ] && [ "\$waited" -lt $(($1 * 10)) ]; do sleep 0.1; waited=\$((waited + 1)); done
+          : > "$hold/passed.\$HOLD_ID"
+        fi ;;
+    esac ;;
+esac
+exec "$real_git" "\$@"
+HOLD
+  chmod +x "$hold/git"
   for dir in "$proj/shop-c1" "$proj/shop-c2" "$proj/wt-c1a" "$proj/wt-c1b"; do
     n=$((n + 1))
-    ( rc=0; EXTRA_PATH="$WORK/slowgit" init_in "$dir" > "$WORK/par-$n.log" || rc=$?; echo "$rc" > "$WORK/par-$n.rc" ) &
+    ( rc=0; HOLD_ID="$n" EXTRA_PATH="$hold" init_in "$dir" > "$WORK/par-$n.log" || rc=$?; echo "$rc" > "$WORK/par-$n.rc" ) &
     pids="$pids $!"
   done
   wait $pids
@@ -690,10 +708,10 @@ concurrent_state() {  # concurrent_state: yes where both settings files and one 
   echo "$ok"
 }
 plant nolock lib/forgejo/forge.sh 'flock -x -w "$FORGEJO_SIGN_IN_LOCK_SECONDS" 7' 'true'
-rm -f "$WORK"/par-*; ROOT_UNDER_TEST="$PLANTED" inits_at_once
+rm -f "$WORK"/par-*; ROOT_UNDER_TEST="$PLANTED" four_inits_at_once 60
 [ "$(concurrent_state)" = no ] || fail "planted: four inits at once without the lock lost nothing and doubled nothing, so the check cannot go red"
 user_sign_in_reset; rm -f "$WORK"/par-*
-inits_at_once
+four_inits_at_once 2
 [ "$(concurrent_state)" = yes ] || fail "four inits at once lost a settings file, doubled a value or failed: $(tail -n 3 "$WORK"/par-?.log | tr '\n' '|'); $(git config --global --get-all "$LINE_KEY" | paste -sd'|' -); $(registered | paste -sd'|' -)"
 [ "$(cat "$WORK"/par-?.log | grep -c "set in the user's git configuration")" = 2 ] || fail "the reports of four inits do not name one change for each settings file: $(grep -h "user's git configuration" "$WORK"/par-?.log)"
 echo "  four inits at once, two worktrees of one checkout and two checkouts: every exit 0, both files once, the pair once, one report line for each file; planted: without the lock the same run loses or doubles what the others wrote"

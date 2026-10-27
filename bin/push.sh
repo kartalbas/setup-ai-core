@@ -19,7 +19,7 @@ for arg in "$@"; do
     echo ""
     echo "Options:"
     echo "  MESSAGE           The commit message; default: the files that changed, as many as fit in 72"
-    echo "                    characters. Its first line is the subject of the commit and has at most 72"
+    echo "                    characters. Its first paragraph is the subject of the commit and has at most 72"
     echo "                    characters, or nothing is committed. It is the reason the"
     echo "                    push gate wants: unless it names an issue (#<n>) or carries a No-issue:"
     echo "                    trailer, the commit gets 'No-issue: <message>, committed and pushed by ai-core push'"
@@ -43,8 +43,10 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-first_line="${MESSAGE%%$'\n'*}"
-[ "${#first_line}" -le 72 ] || { echo "error: the first line of the message has ${#first_line} characters, at most 72 are allowed: it is the subject of the commit, and the push gate refuses a longer one. Write it again as one sentence that says what changed." >&2; exit 2; }
+# git takes the first paragraph of the message, its lines joined by a space, for the subject
+subject="$(printf '%s\n' "$MESSAGE" | git stripspace | sed '/^$/,$d' | tr '\n' ' ')" || { echo "error: git stripspace could not read the message" >&2; exit 1; }
+subject="${subject% }"
+[ "${#subject}" -le 72 ] || { echo "error: the subject of the message, its first paragraph, has ${#subject} characters, at most 72 are allowed: the push gate refuses a longer one. Write it again as one sentence that says what changed." >&2; exit 2; }
 
 . "$CORE/lib/layers.sh"
 . "$CORE/lib/landing-check.sh"

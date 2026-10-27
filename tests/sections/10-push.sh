@@ -38,13 +38,17 @@ printf 'y\n' > "$H/shop-ai-core/more.tsv"
 [ "$(git -C "$WORK/push-origin.git" log --format=%s -1)" = "more of #7" ] || fail "push.sh: the armed gate did not let ai-core push through: $(cat "$WORK/push-4.log")"
 echo "  committed with the message and the No-issue trailer, pushed to origin, no trailer when the message names an issue, nothing on the second run, an agent below Sonnet refused before the commit, an armed gate refusing a plain push and letting ai-core push through"
 
-section "push: a first line over 72 characters is refused before anything is committed, the list of changed files is cut to 72, a harness repository is not initialised and a checkout it serves is"
+section "push: a subject over 72 characters is refused before anything is committed, the list of changed files is cut to 72, a harness repository is not initialised and a checkout it serves is"
 . "$ROOT/tests/unreadable.sh"
 plant() {  # plant <name> <sed expression>: a copy of the harness whose push.sh has one check less
   harness_copy "$ROOT" "$WORK/push-$1"; sed -i.bak "$2" "$WORK/push-$1/bin/push.sh"; rm -f "$WORK/push-$1/bin/push.sh.bak"
   ! cmp -s "$ROOT/bin/push.sh" "$WORK/push-$1/bin/push.sh" || fail "the planted defect $1 changed nothing"
 }
-plant no-subject-limit 's/^\[ "\${#first_line}" -le 72 \] || .*$/true/'
+plant no-subject-limit 's/^\[ "\${#subject}" -le 72 \] || .*$/true/'
+plant first-line-only "$(cat <<'SED'
+s/^subject="\$(printf .*$/subject="${MESSAGE%%$'\\n'*}"/
+SED
+)"
 plant no-fit 's/^    .* -le 72 ] || break$/    true/'
 plant init-everywhere 's| \&\& ! harness_source_of "\$(pwd)" >/dev/null 2>\&1||'
 shop="$H/shop-ai-core"; shop_head="$(git -C "$shop" rev-parse HEAD)"; shop_origin="$(git -C "$WORK/push-origin.git" rev-parse HEAD)"
@@ -58,12 +62,21 @@ long="$(printf 'A%.0s' {1..73})"
 printf 'x\n' > "$shop/long.tsv"
 push_from "$H" "$ROOT/bin/push.sh" "$long"
 [ "$rc" -eq 2 ] || fail "a message whose first line has 73 characters was not refused with status 2 (status $rc)"
-grep -aq 'the first line of the message has 73 characters, at most 72 are allowed' "$WORK/push-run.log" || fail "the refusal does not name the length: $(cat "$WORK/push-run.log")"
+grep -aq 'the subject of the message, its first paragraph, has 73 characters, at most 72 are allowed' "$WORK/push-run.log" || fail "the refusal does not name the length: $(cat "$WORK/push-run.log")"
 [ "$(git -C "$shop" rev-parse HEAD)" = "$shop_head" ] || fail "a message of 73 characters left a commit behind"
 [ "$(git -C "$WORK/push-origin.git" rev-parse HEAD)" = "$shop_origin" ] || fail "a message of 73 characters moved origin"
 push_from "$H" "$WORK/push-no-subject-limit/bin/push.sh" "$long"
 [ "$(git -C "$shop" rev-parse HEAD)" != "$shop_head" ] || fail "planted: without the check, the commit of 73 characters is not made, so the check above cannot go red"
 [ "$rc" -eq 1 ] || fail "planted: the armed gate did not refuse the subject of 73 characters (status $rc)"
+git -C "$shop" reset -q --hard "$shop_head"
+# two lines of 40 with no blank line between them: git joins them into one subject of 81
+two_lines="$(printf '%s\n%s' "$(printf 'B%.0s' {1..40})" "$(printf 'C%.0s' {1..40})")"
+printf 'x\n' > "$shop/long.tsv"
+push_from "$H" "$ROOT/bin/push.sh" "$two_lines"
+[ "$rc" -eq 2 ] && grep -aq 'its first paragraph, has 81 characters' "$WORK/push-run.log" || fail "a first paragraph of two lines of 40 was not refused with status 2 and its length (status $rc): $(cat "$WORK/push-run.log")"
+[ "$(git -C "$shop" rev-parse HEAD)" = "$shop_head" ] || fail "a first paragraph of 81 characters left a commit behind"
+push_from "$H" "$WORK/push-first-line-only/bin/push.sh" "$two_lines"
+[ "$(git -C "$shop" rev-parse HEAD)" != "$shop_head" ] && [ "$rc" -eq 1 ] || fail "planted: measuring the first line alone, the subject of 81 is not committed and refused, so the check above cannot go red (status $rc)"
 git -C "$shop" reset -q --hard "$shop_head"
 printf 'x\n' > "$shop/long.tsv"
 push_from "$H" "$ROOT/bin/push.sh" "$(printf 'A%.0s' {1..72})"
@@ -99,5 +112,5 @@ grep -aq 'note: init here reported a problem' "$WORK/push-run.log" || fail "plan
 printf 'y\n' >> "$shop/more.tsv"
 push_from "$app" "$ROOT/bin/push.sh" "more of #10" --harness shop-ai-core
 [ "$rc" -eq 0 ] && grep -aq -- '--> This checkout is current' "$WORK/push-run.log" || fail "a checkout the harness serves was not refreshed: $(cat "$WORK/push-run.log")"
-echo "  a first line of 73 refused before the commit and one of 72 taken, three long names cut to the first and the count, a name too long for a subject replaced, no init in a harness repository, a checkout refreshed; each planted copy goes red"
+echo "  a subject of 73 refused before the commit, a first paragraph of two lines of 40 too, and one of 72 taken, three long names cut to the first and the count, a name too long for a subject replaced, no init in a harness repository, a checkout refreshed; each planted copy goes red"
 exit 0

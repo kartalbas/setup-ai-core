@@ -622,19 +622,23 @@ issue_branch_name() {
 # issue's, why. A branch whose recorded issue repository is another one than the issue's belongs to an issue of
 # that repository. Where the issue lives in another repository than the checkout's own, a branch without a record,
 # local or only on origin, is a branch of the checkout's own issue of that number, because a number alone names an
-# unrelated issue in each repository: only the branch named as the issue's branch is the issue's. Run in the clone.
+# unrelated issue in each repository: only the branch named as the issue's branch is the issue's. git lists
+# issue-<number>/<anything> for the pattern issue-<number> too: such a branch belongs to the issue the last part of its
+# name carries (name_issue_number), or to none. Run in the clone.
 issue_branch_owners() {
-  local issue_repo="$1" branch_name="$2" n="$3" name recorded why own_repo=""
+  local issue_repo="$1" branch_name="$2" n="$3" name recorded named why own_repo=""
   is_own_repo "$issue_repo" || own_repo="$(default_repo)" || exit 1
   { git for-each-ref --format='%(refname:short)' "refs/heads/issue-$n" "refs/heads/issue-$n-*"
     git for-each-ref --format='%(refname:strip=3)' "refs/remotes/origin/issue-$n" "refs/remotes/origin/issue-$n-*"
   } | sort -u | while IFS= read -r name; do
       [ -n "$name" ] || continue
-      recorded="$(branch_issue_repo "$name")"; why=""
+      recorded="$(branch_issue_repo "$name")"; named="$(name_issue_number "$name")"; why=""
       if [ -n "$recorded" ] && [ "$(printf '%s' "$recorded" | tr '[:upper:]' '[:lower:]')" != "$(printf '%s' "$issue_repo" | tr '[:upper:]' '[:lower:]')" ]; then
         why="belongs to an issue of $recorded"
       elif [ -n "$own_repo" ] && [ -z "$recorded" ] && [ "$name" != "$branch_name" ]; then
         why="belongs to an issue of $own_repo"
+      elif [ "$named" != "$n" ]; then
+        why="belongs to no issue"; [ -z "$named" ] || why="belongs to $(issue_ref "$issue_repo" "$named")"
       fi
       printf '%s\t%s\n' "$name" "$why"
     done

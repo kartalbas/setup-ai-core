@@ -749,6 +749,27 @@ check 'the closing line sends the reader to the lines above' yes "$(said 'the li
 check 'and does not say that it removed nothing' no "$(said 'so it removed nothing')"
 setup git -C "$work" worktree remove --force "$trees/issue-433-package"; setup git -C "$work" branch -q -D issue-432-later issue-433-package
 
+echo 'git lists issue-<n>/<anything> under issue-<n>: such a branch is not the issue'"'"'s, so --landed leaves it on origin and says whose it is'
+slashed() {  # slashed <branch>: a branch on origin with a commit master lacks, whose name begins with issue-<n>/
+  setup git -C "$work" pull -q --ff-only origin master
+  setup git -C "$work" checkout -q -b "$1" origin/master
+  echo "other work" > "$work/slashed.txt"; setup git -C "$work" add slashed.txt; setup git -C "$work" commit -q -m "Other work on $1"
+  setup git -C "$work" push -q origin "$1"
+  setup git -C "$work" checkout -q master; setup git -C "$work" branch -q -D "$1"
+}
+reshaped 440 own unnamed; slashed issue-440/side-work; slashed issue-440/issue-441-other
+fresh; out="$(run 440 --landed)"; rc=$?
+check_runs "$rc"
+check 'innocent: the branch of the issue is deleted from origin' no "$(on_origin issue-440-own)"
+check 'a branch whose name carries no number stays on origin, and says so' 'yes yes' "$(on_origin issue-440/side-work) $(said 'the branch issue-440/side-work stays: it belongs to no issue')"
+check 'a branch whose name carries another number stays on origin, and says whose' 'yes yes' "$(on_origin issue-440/issue-441-other) $(said 'the branch issue-440/issue-441-other stays: it belongs to #441')"
+rm -rf "$fake/bm"; mkdir -p "$fake/bm"; cp -R "$root/bin" "$root/lib" "$root/templates" "$fake/bm/"; cp "$root/VERSION" "$fake/bm/"
+sed -i.bak 's/^      elif \[ "\$named" != "\$n" \]; then$/      elif false; then/' "$fake/bm/lib/board.sh"
+cmp -s "$root/lib/board.sh" "$fake/bm/lib/board.sh" && { echo "  FAIL the planted defect changed nothing in lib/board.sh"; failed=$((failed + 1)); }
+fresh; out="$(cd "$work" && bash "$fake/bm/bin/finish-issue.sh" 440 --landed 2>&1)"
+check 'planted: without the check of the name --landed deletes both from origin' 'no no' "$(on_origin issue-440/side-work) $(on_origin issue-440/issue-441-other)"
+rm -rf "$fake/bm"
+
 echo 'a failed git cherry or merge-history read removes nothing, in the worktree path and on origin, whatever --landed says'
 reshaped 406 origin; open issue-406-tree
 echo mine >> "$trees/issue-406-tree/README.md"; setup git -C "$trees/issue-406-tree" commit -q -am 'Own work (#406)'

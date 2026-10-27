@@ -17,8 +17,8 @@ export const help = `${USAGE}
 Writes the record "Proven on ENV:" with the evidence of PATH, sets status/done and closes the issue as completed.
 It refuses unless the issue records a landing and, for every repository the landing names, a release that came
 after it, all of an account with write permission and after the last reopening for new work. An issue that holds no "Landed on" record at all, and whose number
-no commit on the default branch of origin of this clone names, in its subject or its body, was delivered without a code
-change: it needs no landing and no release, and the output says that no landing exists. Such a commit without a record
+no commit on the default branch of origin of this clone is the work of (a commit whose subject names it, or whose subject
+names no issue and whose body names it), was delivered without a code change: it needs no landing and no release, and the output says that no landing exists. Such a commit without a record
 is work that landed, and is refused until integrate-issue writes its record, with --also for each further issue a package
 landed. A reopening keeps earlier
 landings and releases if its first status label added by an account with write permission is status/testing; any other

@@ -17,7 +17,8 @@ export const closeHelp = `${CLOSE_USAGE}
 an issue that records a current proof: a "Proven on" record of an account with write permission, written after the
 issue's newest landing and after its last reopening. Without one it refuses and names issue-proof, which checks
 the delivery and writes the proof. An issue that holds no "Landed on" record at all, and whose number no commit on the
-default branch of origin of this clone names at the end of its subject, was delivered without a code change: a proof
+default branch of origin of this clone is the work of (a commit whose subject names it, or whose subject names no
+issue and whose body names it), was delivered without a code change: a proof
 written after its last reopening closes it, and the output says that no landing exists.`;
 
 export const reopenHelp = `${REOPEN_USAGE}

@@ -8,7 +8,7 @@ import { showLines } from './git/git.mts';
 // team modes check, init in a new worktree as bin/start-issue.sh runs it, fast_forward_default_branch of
 // lib/common.sh as bin/integrate-issue.sh runs it, and live_tags_declaration and the read of
 // lib/live-release.sh as bin/status.sh runs them, issue_mention_pattern of lib/common.sh as lib/board.sh reads the commits
-// of an issue with it, and the receipt of the checks of a landing, lib/landing-check.sh,
+// of an issue with it, find_commit_naming_issue of lib/common.sh, and the receipt of the checks of a landing, lib/landing-check.sh,
 // as bin/integrate-issue.sh runs it, its mark of a harness landing, and the most rounds of a landing, INTEGRATE_MAX_ROUNDS. The install of a merged tree runs the repository's own
 // scripts/install.sh, as bin/integrate-issue.sh runs it. The page of status --tokens is lib/status-tokens.sh.
 
@@ -23,7 +23,7 @@ const ASSEMBLE = [
 ].join('\n');
 const REFRESH = '. "$1/lib/common.sh" && fast_forward_default_branch "$2"';
 const LIVE_TAGS = '. "$1/lib/common.sh" && . "$1/lib/live-release.sh" && live_tags_declaration "$2"';
-const COMMIT_NAMING_ISSUE = '. "$1/lib/common.sh" && git log -E -i -1 --format=%H --grep="$(issue_mention_pattern "$3" "$4" "$5")" "$2"';
+const COMMIT_NAMING_ISSUE = '. "$1/lib/common.sh" && find_commit_naming_issue "$2" "$3" "$4" "$5"';
 
 // `answer` stdout reads a successful step's output from standard output alone, for a step whose output is a value:
 // a warning on standard error is no part of it.

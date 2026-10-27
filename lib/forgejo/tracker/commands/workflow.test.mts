@@ -1605,13 +1605,14 @@ describe('issue-proof and the close as completed', () => {
     assert.equal(fake.readIssue('o/r', number).state, 'open');
   });
 
+  const land = (message: string): string => {
+    git(main.second, 'pull', '-q', '--ff-only', 'origin', 'master');
+    git(main.second, 'commit', '-q', '--allow-empty', '-m', message);
+    git(main.second, 'push', '-q', 'origin', 'master');
+    return git(main.second, 'rev-parse', 'HEAD').slice(0, 7);
+  };
+
   it('refuses the proof of an issue that a commit names at the start of its subject or in its body, and not one whose number only begins it (planted: the old lookup of a subject that ends with the number; innocent case: the longer number)', async () => {
-    const land = (message: string): string => {
-      git(main.second, 'pull', '-q', '--ff-only', 'origin', 'master');
-      git(main.second, 'commit', '-q', '--allow-empty', '-m', message);
-      git(main.second, 'push', '-q', 'origin', 'master');
-      return git(main.second, 'rev-parse', 'HEAD').slice(0, 7);
-    };
     const forms: Array<(number: number) => string> = [(number) => `#${number} Show who approved a run`, (number) => `Show who approved a run\n\nCloses #${number}.`];
     for (const form of forms) {
       const number = newIssue(main, 'Landed by a commit that names it another way, so that no proof stands in for its delivery', { labels: ['status/testing'] });
@@ -1622,6 +1623,14 @@ describe('issue-proof and the close as completed', () => {
     land(`Another issue's work (#${other}0)`);
     fake.addComment(main.full, other, 'fake-user', composeProvenRecord('prod', 'seen on PROD'));
     assert.match((await issueState.runClose([main.full, String(other), '--reason', 'completed'], ctx(main.checkout, {}, harnessReadingCommits()))).stdout, /no landing exists/);
+  });
+
+  it('proves an epic that a commit mentions only in its body, under a subject that names another issue (planted: the lookup of any mention; innocent case: the body of a commit whose subject names no issue, above)', async () => {
+    const epic = newIssue(main, 'An epic with no work of its own, so that the work of its sub-issue is not its landing', { labels: ['status/testing'] });
+    land(`#${epic + 100} Make the job limits settings\n\nPart of epic #${epic}.`);
+    const result = await issueProof.run(proofArguments(epic), ctx(main.checkout, {}, harnessReadingCommits()));
+    assert.match(result.stdout, new RegExp(`o/r#${epic} proven on prod; status/done, closed as completed; no landing exists`));
+    assert.equal(fake.readIssue('o/r', epic).state, 'closed');
   });
 
   it('counts no record of an account without write permission (planted: a stranger lands, releases and would prove)', async () => {

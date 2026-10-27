@@ -905,7 +905,7 @@ gitleaks, because only git's own output shows what a merge carries.
 | Git | `session-start`, worktrees, the exclude file | 2.36+ where `.gitleaks.toml` arms the push gate's scan |
 | `curl` and `tar` | remote install with `init.sh` | |
 | jq | every board and issue command reads GitHub's answers through it | `doctor` installs it |
-| gitleaks 8.19+ | the credential scan of the push gate, in a repository that carries `.gitleaks.toml` | `doctor` wants it where a repository of the project folder carries that file, and installs it: brew, on Linux the GitHub release into `~/.local/bin` (apt's package is 8.16); `init` runs doctor in the folder it serves |
+| gitleaks 8.19+ | the credential scan of the push gate, in a repository that carries `.gitleaks.toml` | `doctor` wants it where a repository of the project folder that carries the harness has that file, and installs it: brew, on Linux the GitHub release into `~/.local/bin` (apt's package is 8.16); `init` runs doctor in the folder it serves |
 | Node.js 20+ with `npm` and `npx` | `ai-core status`, which counts with Node.js; the team modes installed through `npx` | `doctor` installs it |
 | Node.js that runs `.mts` files without a flag (CI runs 24; measured on v24.21.0) | with `TRACKER=forgejo`, every issue command, which runs from `lib/forgejo/tracker` (section 8.1) | no npm package is loaded at runtime; `doctor` runs the tracker and asks, it compares no version number |
 | `npm ci --prefix tests/typescript` | developing the Forgejo tracker: the strict type check of section 16 of the suite | development only: it installs the pinned `typescript` and `@types/node` of the Node line CI runs; the runtime never loads them, and a missing compiler turns the check red |

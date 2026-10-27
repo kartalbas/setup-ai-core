@@ -30,7 +30,7 @@ grep -aq '^  gh .*present .*gh version 0.0.0, logged in$' "$WORK/ghscope-scope.s
 echo "  read:project alone is refused and project is kept"
 
 section "doctor wants gitleaks with 'gitleaks git' where a repository of the project folder carries .gitleaks.toml: missing, too old, present, not needed"
-LF="$WORK/leaks-folder"; mkdir -p "$LF/plain" "$WORK/plain-folder/web"; git init -q "$LF/shop"; : > "$LF/shop/.gitleaks.toml"
+LF="$WORK/leaks-folder"; mkdir -p "$LF/plain" "$WORK/plain-folder/web"; git init -q "$LF/shop"; : > "$LF/shop/.gitleaks.toml"; carry_harness "$LF/shop"
 NOLEAKS="$(while IFS= read -r d; do [ -z "$d" ] || [ -e "$d/gitleaks" ] || printf '%s:' "$d"; done <<< "$(tr ':' '\n' <<< "$PATH")")"
 mkdir -p "$WORK/leaksbin-new" "$WORK/leaksbin-old"
 printf '#!/bin/sh\ncase "$1" in version) echo 8.30.1 ;; esac\nexit 0\n' > "$WORK/leaksbin-new/gitleaks"
@@ -56,11 +56,20 @@ chmod +x "$WORK/gitbin-old/git"
 leaks_doctor oldgit "$LF/shop" "$WORK/gitbin-old:$WORK/leaksbin-new:$NOLEAKS" && fail "doctor.sh exited 0 with a git that cannot show remerge diffs where .gitleaks.toml is"
 grep -aq '^  git .*too old .*--diff-merges=remerge, git 2.36 or newer.*where .gitleaks.toml is: shop' "$WORK/leaks-oldgit.log" || fail "doctor.sh did not report the git without remerge diffs (see $WORK/leaks-oldgit.log)"
 leaks_doctor none "$WORK/plain-folder" "$NOLEAKS" || true
+# a fresh clone with .gitleaks.toml runs no gate: beside a checkout with the harness and no such file it asks for no gitleaks
+LC="$WORK/leaks-clone"; git init -q "$LC/mine"; git init -q "$LC/fresh"; : > "$LC/fresh/.gitleaks.toml"; carry_harness "$LC/mine"
+mkdir -p "$WORK/leaks-planted"; tar -C "$ROOT" --exclude=node_modules --exclude=.git -cf - bin lib templates rules skills VERSION | tar -C "$WORK/leaks-planted" -xf -
+sed 's/^carries_harness() .*$/carries_harness() { true; }/' "$WORK/leaks-planted/lib/common.sh" > "$WORK/leaks-planted/planted"; mv "$WORK/leaks-planted/planted" "$WORK/leaks-planted/lib/common.sh"
+grep -q '^carries_harness() { true; }$' "$WORK/leaks-planted/lib/common.sh" || fail "the planted copy that counts every .gitleaks.toml was not made"
+leaks_doctor clone "$LC" "$NOLEAKS" || true
+grep -aq '^  gitleaks' "$WORK/leaks-clone.log" && fail "doctor.sh asks for gitleaks because of a clone without the harness (see $WORK/leaks-clone.log)"
+(cd "$LC" && HOME="$WORK/doctor-home" TEAM_MODES_FILE="$WORK/always.tsv" PATH="$NOLEAKS" bash "$WORK/leaks-planted/bin/doctor.sh" --no-install > "$WORK/leaks-clone-planted.log" 2>&1) || true
+grep -aq '^  gitleaks .*MISSING .*is: fresh' "$WORK/leaks-clone-planted.log" || fail "planted: the copy that counts every .gitleaks.toml was not caught (see $WORK/leaks-clone-planted.log)"
 grep -aq '^  gitleaks' "$WORK/leaks-none.log" && fail "doctor.sh names gitleaks where no repository carries .gitleaks.toml"
 echo "  missing and too old are problems that name how to install it, present names the repositories, a git without remerge diffs is a problem too, and no repository with .gitleaks.toml means no line"
 
 section "init runs doctor in the folder it serves: a repository there with .gitleaks.toml stops it without gitleaks"
-F="$WORK/leaks-init"; git init -q "$F/shop"; : > "$F/shop/.gitleaks.toml"
+F="$WORK/leaks-init"; git init -q "$F/shop"; : > "$F/shop/.gitleaks.toml"; carry_harness "$F/shop"
 HOME="$WORK/doctor-home" TEAM_MODES_FILE="$WORK/always.tsv" PATH="$NOLEAKS" bash "$ROOT/bin/init.sh" --all "$F" --dry-run > "$F.log" 2>&1 && fail "init.sh --all went on without gitleaks (see $F.log)"
 grep -aq '^  gitleaks .*MISSING .*is: shop' "$F.log" && grep -aq 'doctor reported' "$F.log" || fail "init.sh did not stop on doctor's gitleaks line for the folder it serves (see $F.log)"
 echo "  it stops with doctor's gitleaks line"

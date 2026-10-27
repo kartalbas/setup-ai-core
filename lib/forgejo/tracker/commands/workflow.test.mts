@@ -1633,6 +1633,19 @@ describe('issue-proof and the close as completed', () => {
     assert.equal(fake.readIssue('o/r', epic).state, 'closed');
   });
 
+  it('refuses the proof of an issue that a subject names beside another issue, or whose landing a newer commit of another issue mentions (planted: a lookup that reads only the first issue of a subject, or only the newest commit that mentions it)', async () => {
+    const forms: Array<(number: number) => string[]> = [
+      (number) => [`#${number + 1000} and #${number} Show who approved a run`],
+      (number) => [`Show who approved a run (#${number + 1000}, #${number})`],
+      (number) => [`Show who approved a run (#${number})`, `#${number + 1000} Show who approved a job\n\nFollows #${number}.`],
+    ];
+    for (const form of forms) {
+      const number = newIssue(main, 'Landed by a commit that names it beside another issue, so that no proof stands in for its delivery', { labels: ['status/testing'] });
+      const [landed] = form(number).map(land);
+      await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout, {}, harnessReadingCommits())), new RegExp(`the commit ${landed} on the default branch of origin names it`));
+    }
+  });
+
   it('counts no record of an account without write permission (planted: a stranger lands, releases and would prove)', async () => {
     const number = newIssue(main, 'Faked records, so that no proof is written', { labels: ['status/testing'] });
     const landing = composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'r' }, reviewedHead: 'a'.repeat(40), landedCommit: 'b'.repeat(40), reviewers: ['x'] }, { owner: 'o', repo: 'r' });

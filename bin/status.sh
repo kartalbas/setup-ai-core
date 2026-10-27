@@ -40,11 +40,10 @@ awk -F'\t' 'tolower($1) == "status" { print $3 }' <<< "$columns" > "$work/column
 card_rows > "$work/items" || exit 1
 
 # WHAT THE TESTING BLOCK READS OF EACH CARD IN TESTING, one JSON object a line in $work/testing, for lib/status.mjs:
-#   {repository, number, pattern, carriedPattern, createdAt, context, reason, landing, landingClone}
+#   {repository, number, pattern, createdAt, context, reason, landing, landingClone}
 # pattern is how a commit message names the issue (issue_mention_pattern), and createdAt is when the issue was
-# made: a commit names the issue by its number only from then on. carriedPattern is how a commit names the
-# GitHub reference a carried issue came from, which counts only before createdAt, and empty where the issue
-# was not carried (the time rule of issue_commits, which lib/status-live.mjs applies again). context says whether the landing
+# made: a commit names the issue by its number only from then on (the time rule of issue_commits, which
+# lib/status-live.mjs applies again). context says whether the landing
 # of the issue was asked of the tracker: "none" where no clone of the project folder declares an environment
 # of LIVE_TAGS as `command`, so that no card pays for a read it does not need; "read", with landing the
 # newest landing record the trusted comments of the issue still hold ({repository, commit, createdAt}, or null
@@ -52,7 +51,7 @@ card_rows > "$work/items" || exit 1
 # the last line the tracker said, which names what it could not read. One read of the tracker per card, as the tracker answers it, at most; a read that
 # fails is that card's line, never the end of the others.
 write_testing_records() {
-  local column clone declared="" declaration repo number created carried pattern carried_pattern context thread landing reason landing_clone
+  local column clone declared="" declaration repo number created pattern context thread landing reason landing_clone
   column="$(awk 'tolower($0) == "testing" { print; exit }' "$work/columns")"
   : > "$work/testing"
   [ -n "$column" ] || return 0
@@ -62,12 +61,10 @@ write_testing_records() {
     declaration="$(live_tags_declaration "$clone")" || exit 1
     if live_tags_names_command "$declaration"; then declared=1; break; fi
   done
-  while IFS=$'\t' read -r repo number created carried; do
+  while IFS=$'\t' read -r repo number created; do
     [ -n "$number" ] || continue
     pattern="$(issue_mention_pattern "$repo" "$number" "$repo")"
-    carried_pattern=""
     [ "$created" != - ] || created=""
-    [ "$carried" = - ] || carried_pattern="$(issue_mention_pattern "${carried%#*}" "${carried##*#}" "$repo")"
     context=none; landing=null; reason=""; landing_clone=""
     if [ -n "$declared" ]; then
       if thread="$( (issue_landing_context "$repo" "$number") 2> "$work/context-error")" \
@@ -82,10 +79,10 @@ write_testing_records() {
         reason="${reason:-the tracker gave no reason}"
       fi
     fi
-    jq -nc --arg repository "$repo" --argjson number "$number" --arg pattern "$pattern" --arg carriedPattern "$carried_pattern" --arg createdAt "$created" \
+    jq -nc --arg repository "$repo" --argjson number "$number" --arg pattern "$pattern" --arg createdAt "$created" \
       --arg context "$context" --arg reason "$reason" --argjson landing "$landing" --arg landingClone "$landing_clone" \
-      '{repository: $repository, number: $number, pattern: $pattern, carriedPattern: $carriedPattern, createdAt: $createdAt, context: $context, reason: $reason, landing: $landing, landingClone: $landingClone}' >> "$work/testing"
-  done <<< "$(jq -r --arg column "$column" 'select(.open and (.repo // "") != "" and ((.status // "") | ascii_downcase) == ($column | ascii_downcase)) | "\(.repo)\t\(.number)\t\(.createdAt // "-")\t\(.carriedFrom // "-")"' "$work/items" | sort -u)"
+      '{repository: $repository, number: $number, pattern: $pattern, createdAt: $createdAt, context: $context, reason: $reason, landing: $landing, landingClone: $landingClone}' >> "$work/testing"
+  done <<< "$(jq -r --arg column "$column" 'select(.open and (.repo // "") != "" and ((.status // "") | ascii_downcase) == ($column | ascii_downcase)) | "\(.repo)\t\(.number)\t\(.createdAt // "-")"' "$work/items" | sort -u)"
 }
 testing_file=()
 if [ -z "$tokens$issues" ]; then
@@ -135,21 +132,20 @@ if [ -z "$tokens$issues" ]; then
       printf '%s\terror: %s\n' "${repo##*/}" "$said" >> "$work/trees"
     fi
   done
-  # The work item each of those worktrees, and each worktree an agent session stands in, belongs to. After a carry from
-  # GitHub a worktree named issue-<GitHub number>-... belongs to the work item that number named when it was cut, so
-  # each is asked in a fresh process inside the worktree, which reads the tracker of its own clone. A line is
-  # "<worktree path><TAB><number of its work item>", the number empty where its name names no issue or no work item.
+  # The issue each of those worktrees, and each worktree an agent session stands in, belongs to, by its name, each
+  # asked in a fresh process inside the worktree, which reads the branch it has checked out. A line is
+  # "<worktree path><TAB><number of its issue>", the number empty where its name names no issue.
   : > "$work/worktree-issues"
   { awk -F'\t' '{ print $2 }' "$work/trees" | sed -n 's/^worktree \(.*\): .*, stays$/\1/p'
     jq -r '.[]? | .cwd // empty' "$work/agents" 2> /dev/null | sed 's|/$||' | grep -E '/issue-[0-9]+(-[^/]*)?$' || true
   } | sort -u | while IFS= read -r tree; do
     [ -d "$tree" ] || continue
     info="$(cd "$tree" && bash -c '. "$1/lib/board.sh"; worktree_issue' _ "$here/.." 2> "$work/worktree-issue-error")" || info=""
-    if [ -z "$info" ] || [ -n "$(jq -r '.error' <<< "$info")" ]; then
-      echo "status: could not tell the work item of $tree: ${info:+$(jq -r '.error' <<< "$info")}$(tr -s '\n' ' ' < "$work/worktree-issue-error")" >&2
+    if [ -z "$info" ]; then
+      echo "status: could not tell the issue of $tree: $(tr -s '\n' ' ' < "$work/worktree-issue-error")" >&2
       printf '%s\t\n' "$tree" >> "$work/worktree-issues"
     else
-      printf '%s\t%s\n' "$tree" "$(jq -r '.workItem' <<< "$info")" >> "$work/worktree-issues"
+      printf '%s\t%s\n' "$tree" "$(jq -r '.named' <<< "$info")" >> "$work/worktree-issues"
     fi
   done
   processes=(--processes-file "$work/processes" --agents-file "$work/agents" --rollouts-file "$work/rollouts" --trees-file "$work/trees" --worktree-issues-file "$work/worktree-issues")

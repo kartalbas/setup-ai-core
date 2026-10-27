@@ -1050,12 +1050,12 @@ check 'no epic was closed'             0 "$(grep -cE 'method PATCH.*issues/400|i
 check 'both cards moved to testing: the landed one and the epic' 2 "$(grep -c 'oid=OPT_test' "$log" || true)"
 
 
-# A carried issue has a number of its own and the GitHub reference it came from. A commit names it by that number only
-# from the issue's creation on, and by the reference only before it (issue_commits in lib/board.sh). The thread is the
-# tracker's answer, so a stand-in of bin/issue-thread.sh in a copy of the commands gives it the two fields.
-echo 'a carried issue lists the commits that name its GitHub reference from before it was made and those that name its own number from then on'
-carried_copy() {  # carried_copy <directory> [sed expression for lib/board.sh]: the commands with a stand-in thread, and the planted defect where one is named
-  rm -rf "$1"; mkdir -p "$1"; cp -R "$root/bin" "$1/bin"; cp -R "$root/lib" "$1/lib"
+# A commit names an issue by its number only from the issue's creation on (issue_commits in lib/board.sh): one made
+# before the issue existed was about another one. The thread is the tracker's answer, so a stand-in of bin/issue-thread.sh
+# in a copy of the commands gives it its createdAt.
+echo 'an issue lists the commits that name its number from its creation on, and no other'
+board_copy() {  # board_copy <directory> [sed expression for lib/board.sh]: the commands with a stand-in thread, and the planted defect where one is named
+  rm -rf "$1"; mkdir -p "$1"; cp -R "$root/bin" "$1/bin"; cp -R "$root/lib" "$1/lib"; cp -R "$root/templates" "$1/templates"; cp "$root/VERSION" "$1/"
   printf '#!/usr/bin/env bash\ncat "$THREAD_FILE"\n' > "$1/bin/issue-thread.sh"
   [ -z "${2:-}" ] || sed -i.bak "$2" "$1/lib/board.sh"
   [ -z "${2:-}" ] || ! cmp -s "$root/lib/board.sh" "$1/lib/board.sh" || { echo "  FAIL the planted copy equals lib/board.sh: $2"; failed=$((failed + 1)); }
@@ -1065,36 +1065,85 @@ commit_at() {  # commit_at <date> <subject>: an empty commit on origin's master
   setup git -C "$work" push -q origin HEAD:master
 }
 setup git -C "$work" pull -q --ff-only origin master
-commit_at 2026-05-01T00:00:00Z 'Old work (#287)'
+commit_at 2026-05-01T00:00:00Z 'Another issue (#287)'
 commit_at 2026-07-01T00:00:00Z 'New work (#412)'
-commit_at 2026-07-02T00:00:00Z 'After the carry (#287)'
-commit_at 2026-04-01T00:00:00Z 'Before the carry (#412)'
-printf '{"number":412,"title":"Carried card","state":"open","labels":[],"body":"","carriedFrom":"example-org/example-repo#287","createdAt":"2026-06-01T00:00:00Z","comments":[]}\n' > "$fake/thread.json"
-carried_list() {  # carried_list <directory of the commands>: the subjects the record of #412 lists, after a run of finish-issue 412
+commit_at 2026-06-01T00:00:00Z 'The first second (#412)'
+commit_at 2026-04-01T00:00:00Z 'Before the issue (#412)'
+thread_of() {  # thread_of <createdAt>: the thread of #412 as the tracker answers it
+  printf '{"number":412,"title":"Late card","state":"open","labels":[],"body":"","createdAt":"%s","comments":[]}\n' "$1" > "$fake/thread.json"
+}
+listed_after_finish() {  # listed_after_finish <directory of the commands>: the subjects the record of #412 lists, after a run of finish-issue 412
   rm -f "$fake"/comments/*issues_412_comments.json; fresh
-  (cd "$work" && THREAD_FILE="$fake/thread.json" bash "$1/bin/finish-issue.sh" 412 > "$fake/carried.out" 2>&1)
+  (cd "$work" && THREAD_FILE="$fake/thread.json" bash "$1/bin/finish-issue.sh" 412 > "$fake/finished.out" 2>&1)
   jq -r '.[].body' "$fake"/comments/*issues_412_comments.json 2>/dev/null | sed -n 's/^- [0-9a-f]* //p' | sort | tr '\n' '|'
 }
-carried_copy "$fake/fc"
-check 'the record lists the commit of the GitHub reference from before the carry and the one of its own number from after it, and no other' \
-  'New work (#412)|Old work (#287)|' "$(carried_list "$fake/fc")"
-carried_copy "$fake/fc" 's/if \[ -n "\$carried" \]; then/if false; then/'
-check 'planted: the carried reference not searched lists the work of its own number alone' 'New work (#412)|' "$(carried_list "$fake/fc")"
-carried_copy "$fake/fc" "s/awk -v at=\"\$at\" '\\\$1 >= at'/awk '1'/"
-check 'planted: the lower bound dropped lists the commit made before the carry that names its own number' 'Before the carry (#412)|New work (#412)|Old work (#287)|' "$(carried_list "$fake/fc")"
-carried_copy "$fake/fc" "s/awk -v at=\"\$at\" '\\\$1 < at'/awk '1'/"
-check 'planted: the upper bound dropped lists the commit made after the carry that names the GitHub reference' 'After the carry (#287)|New work (#412)|Old work (#287)|' "$(carried_list "$fake/fc")"
-printf '{"number":412,"title":"Carried card","state":"open","labels":[],"body":"","carriedFrom":"example-org/example-repo#287","createdAt":"2026-06-01 02:00:00","comments":[]}\n' > "$fake/thread.json"
-carried_copy "$fake/fc"
+thread_of 2026-06-01T00:00:00Z
+board_copy "$fake/fc"
+check 'the record lists the commits that name #412 from its creation on, the one of the creation second included, and no other' \
+  'New work (#412)|The first second (#412)|' "$(listed_after_finish "$fake/fc")"
+board_copy "$fake/fc" "s/awk -v at=\"\$at\" '\\\$1 >= at'/awk '1'/"
+check 'planted: the lower bound dropped lists the commit made before the issue that names its number' \
+  'Before the issue (#412)|New work (#412)|The first second (#412)|' "$(listed_after_finish "$fake/fc")"
+board_copy "$fake/fc" "s/awk -v at=\"\$at\" '\\\$1 >= at'/awk -v at=\"\$at\" '\\\$1 > at'/"
+check 'planted: a bound that leaves out the creation second drops the commit made in it' 'New work (#412)|' "$(listed_after_finish "$fake/fc")"
+thread_of '2026-06-01 02:00:00'
+board_copy "$fake/fc"
 check 'a creation time that is no time of a tracker stops finish-issue, naming the time, and nothing is listed' \
-  '|1' "$(carried_list "$fake/fc")|$(grep -c "cannot read the time '2026-06-01 02:00:00' of an issue" "$fake/carried.out")"
-carried_copy "$fake/fc" 's/ && \[ -n "\$seconds" \]//'
-check 'planted: the unread time taken as a bound lists the commit before the carry that names its own number, and drops the GitHub reference' \
-  'Before the carry (#412)|New work (#412)||0' "$(carried_list "$fake/fc")|$(grep -c 'cannot read the time' "$fake/carried.out")"
-printf '{"number":412,"title":"Carried card","state":"open","labels":[],"body":"","carriedFrom":"example-org/example-repo#287","createdAt":"2026-06-01T02:00:00.295431+02:00","comments":[]}\n' > "$fake/thread.json"
-carried_copy "$fake/fc"
+  '|1' "$(listed_after_finish "$fake/fc")|$(grep -c "cannot read the time '2026-06-01 02:00:00' of an issue" "$fake/finished.out")"
+board_copy "$fake/fc" 's/ && \[ -n "\$seconds" \]//'
+check 'planted: the unread time taken as a bound lists the commit before the issue that names its number' \
+  'Before the issue (#412)|New work (#412)|The first second (#412)||0' "$(listed_after_finish "$fake/fc")|$(grep -c 'cannot read the time' "$fake/finished.out")"
+thread_of 2026-06-01T02:00:00.295431+02:00
+board_copy "$fake/fc"
 check 'a creation time with an offset and microseconds is the instant it names: the record lists what the same instant written with Z lists' \
-  'New work (#412)|Old work (#287)||0' "$(carried_list "$fake/fc")|$(grep -c 'cannot read the time' "$fake/carried.out")"
+  'New work (#412)|The first second (#412)||0' "$(listed_after_finish "$fake/fc")|$(grep -c 'cannot read the time' "$fake/finished.out")"
+board_copy "$fake/fc" 's#(?<z>Z|(?<d>\[+-\])(?<h>\[01\]\[0-9\]|2\[0-3\]):(?<m>\[0-5\]\[0-9\]))\$")#(?<z>Z)\$")#'
+check 'planted: a reader of times written with Z only stops on the offset and lists nothing' \
+  '|1' "$(listed_after_finish "$fake/fc")|$(grep -c "cannot read the time '2026-06-01T02:00:00.295431+02:00' of an issue" "$fake/finished.out")"
+
+# The instant a time names, and the order of the landing records, as lib/board.sh reads them, with no tracker behind them.
+epoch() { jq -nr --arg t "$1" '$t | fromdateiso8601'; }
+cat > "$fake/probe.sh" <<'PROBE'
+. "$1/lib/board.sh"
+case "$2" in
+  seconds)  instant_seconds "$3" ;;
+  newest)   jq -r --arg reopenedAt "$4" "$LANDING_RECORD_JQ"'selected_landing($reopenedAt; "example-org/example-repo") | .commit' <<< "$3" ;;
+  standing) landing_recorded open "$(jq -nc --arg at "$3" --arg re "$4" '{reopenedAt: $re, comments: [{createdAt: $at, authorAssociation: "MEMBER", body: "Landed on master:
+- aaaaaaa One"}]}')" \
+              example-org/example-repo example-org/example-repo '- aaaaaaa One' ;;
+esac
+PROBE
+probe() { ( cd "$work" && bash "$fake/probe.sh" "${PROBE_ROOT:-$root}" "$@" 2>&1 ); }
+mutant_root() {  # mutant_root <sed expression for lib/board.sh>: a copy of the tree with one planted defect; prints its path
+  board_copy "$fake/mutant" "$1"
+  printf '%s' "$fake/mutant"
+}
+echo 'instant_seconds: a time as a tracker writes it'
+live=2026-10-22T08:31:17.295431+02:00   # a time written with the offset of a clock that follows the summer time
+check "$live is 2026-10-22T06:31:17Z" "$(epoch 2026-10-22T06:31:17Z)" "$(probe seconds "$live")"
+for same in 2026-10-22T06:31:17Z 2026-10-22T06:31:17.295431Z 2026-10-22T06:31:17+00:00 2026-10-22T08:31:17+02:00 2026-10-21T22:31:17.000001-08:00 2026-10-22T12:01:17+05:30; do
+  check "$same is the same instant" "$(epoch 2026-10-22T06:31:17Z)" "$(probe seconds "$same")"
+done
+check 'a winter time, +01:00, is read' "$(epoch 2026-12-01T09:00:00Z)" "$(probe seconds 2026-12-01T10:00:00.5+01:00)"
+for bad in '2026-10-22 08:31:17+02:00' 2026-10-22T08:31:17 2026-10-22T08:31:17+2:00 2026-10-22T08:31:17+24:00 2026-10-22T08:31:17+02:60 2026-13-40T08:31:17Z yesterday ''; do
+  check "'$bad' is refused by its name" "error: cannot read the time '$bad' of an issue" "$(probe seconds "$bad")"
+done
+planted="$(mutant_root 's#(?<z>Z|(?<d>\[+-\])(?<h>\[01\]\[0-9\]|2\[0-3\]):(?<m>\[0-5\]\[0-9\]))\$")#(?<z>Z)\$")#')"
+check 'planted: an instant that reads only Z refuses a time with an offset by its name' "error: cannot read the time '$live' of an issue" "$(PROBE_ROOT="$planted" probe seconds "$live")"
+check 'planted innocent: a time written with Z is read in the same tree' "$(epoch 2026-10-22T06:31:17Z)" "$(PROBE_ROOT="$planted" probe seconds 2026-10-22T06:31:17Z)"
+
+echo 'the landing records of a thread are ordered and compared as instants'
+records='[{"createdAt":"2026-10-22T07:00:00+02:00","authorAssociation":"MEMBER","body":"Landed on master:\n- aaaaaaa One"},
+          {"createdAt":"2026-10-22T06:00:00Z","authorAssociation":"MEMBER","body":"Landed on master:\n- bbbbbbb Two"}]'
+standing() { probe standing "$1" "$2" > /dev/null && echo yes || echo no; }   # standing <comment time> <reopening time>: whether the record made at the first time stands after the reopening
+check 'of two records, 07:00+02:00 (05:00Z) and 06:00Z, the second is the newest' bbbbbbb "$(probe newest "$records" "")"
+check 'a record made at 05:00Z does not stand after a reopening at 06:00Z' no "$(standing 2026-10-22T07:00:00+02:00 2026-10-22T06:00:00Z)"
+check 'a record made at 07:00Z stands after a reopening at 06:00Z' yes "$(standing 2026-10-22T09:00:00+02:00 2026-10-22T06:00:00Z)"
+planted="$(mutant_root 's/sort_by(\.createdAt | instant_key);/sort_by(.createdAt);/')"
+check 'planted: the records sorted by the text of their time make the first the newest' aaaaaaa "$(PROBE_ROOT="$planted" probe newest "$records" "")"
+planted="$(mutant_root 's/later(\.createdAt; \$reopenedAt)/.createdAt > $reopenedAt/')"
+check 'planted: the text of the time compared with the reopening lets the early record stand' yes "$(PROBE_ROOT="$planted" standing 2026-10-22T07:00:00+02:00 2026-10-22T06:00:00Z)"
+check 'planted innocent: the late record stands in the same tree' yes "$(PROBE_ROOT="$planted" standing 2026-10-22T09:00:00+02:00 2026-10-22T06:00:00Z)"
 
 echo 'the sweep says that a branch could not be measured, with git'"'"'s words, where its history cannot be read'
 open issue-421-unmeasured

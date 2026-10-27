@@ -764,12 +764,12 @@ echo 'the handoff of the cards is read as it is: a record that is missing or mal
 printf 'Todo\ntesting\nDone\n' > "$work/cmd-columns"
 { cmd_card 1 engine 'A1'; cmd_card 1 tagged 'L1'; } > "$work/cmd-items"
 # the card rows of the tracker, as bin/status.sh hands them to Node: one JSON object a line
-jq -c '{repo: .content.repository.nameWithOwner, number: .content.number, title: .content.title, open: true, status: .status.name, priority: null, parent: null, subs: 0, closedAt: null, createdAt: "2026-01-01T00:00:00Z", carriedFrom: null}' "$work/cmd-items" > "$work/cmd-rows"
+jq -c '{repo: .content.repository.nameWithOwner, number: .content.number, title: .content.title, open: true, status: .status.name, priority: null, parent: null, subs: 0, closedAt: null, createdAt: "2026-01-01T00:00:00Z"}' "$work/cmd-items" > "$work/cmd-rows"
 printf '{"tool":"claude","shown":"used","recorded":%s,"failure":"","windows":[],"readings":[]}\n' "$now" > "$work/usage-snapshot.json"
 node_status() {  # node_status <testing file or empty for none>
   local files=(--usage-file "$work/usage-snapshot.json"); [ -z "$1" ] || files+=(--testing-file "$1")
   : > "$work/no-agents9"
-  page="$(cd "$cmd" && AI_CORE_PROCESSES="$work/no-processes9" AI_CORE_AGENTS="$work/no-agents9" AI_CORE_ROLLOUTS="$work/no-agents9" node "$root/lib/status.mjs" --items-file "$work/cmd-rows" --columns-file "$work/cmd-columns" \
+  page="$(cd "$cmd" && AI_CORE_PROCESSES="$work/no-processes9" AI_CORE_AGENTS="$work/no-agents9" AI_CORE_ROLLOUTS="$work/no-agents9" node "${status_lib:-$root/lib}/status.mjs" --items-file "$work/cmd-rows" --columns-file "$work/cmd-columns" \
     --board example-org/9 --folder "$cmd" --stop-at 92 --config-file "$cmd/.ai-core/config.env" "${files[@]}" 2>&1)"; rc=$?
 }
 node_status ''
@@ -779,10 +779,17 @@ node_status "$work/bad-records"
 check 'a record that is no JSON, and one of the wrong shape, give no card a verdict: both are unknown, and the exit is 1' \
   "1|  ❓ unknown example-org/engine#1: the record bin/status.sh hands over for example-org/engine#1 is missing or malformed
   ❓ unknown example-org/tagged#1: the record bin/status.sh hands over for example-org/tagged#1 is missing or malformed" "$rc|$(grep '^  ❓' <<< "$page")"
-printf '{"repository":"example-org/engine","number":1,"pattern":"x","carriedPattern":"","createdAt":"2026-01-01T00:00:00Z","context":"none","reason":"","landing":null,"landingClone":""}\n' > "$work/stale-records"
+printf '{"repository":"example-org/engine","number":1,"pattern":"x","createdAt":"2026-01-01T00:00:00Z","context":"none","reason":"","landing":null,"landingClone":""}\n' > "$work/stale-records"
 node_status "$work/stale-records"
 check 'a card of a clone that declares command, whose landing was never asked of the tracker, is not read from its commits' \
   "1|  ❓ unknown example-org/engine#1: the landing of example-org/engine#1 was not read from the tracker, and $cmd/engine declares an environment as command" "$rc|$(grep '^  ❓ unknown example-org/engine#1' <<< "$page")"
+status_lib="$work/mutant-lib"; rm -rf "$status_lib"; cp -R "$root/lib" "$status_lib"
+sed -i.bak "s/typeof r.pattern === 'string'/typeof r.pattern === 'string' \&\& typeof r.carriedPattern === 'string'/" "$status_lib/status-live.mjs"
+cmp -s "$root/lib/status-live.mjs" "$status_lib/status-live.mjs" && { echo "  FAIL the planted copy equals lib/status-live.mjs"; failed=$((failed + 1)); }
+node_status "$work/stale-records"
+check 'planted: a reader that still asks the record for a field of the retired carry reads the same record as malformed' \
+  "1|  ❓ unknown example-org/engine#1: the record bin/status.sh hands over for example-org/engine#1 is missing or malformed" "$rc|$(grep '^  ❓ unknown example-org/engine#1' <<< "$page")"
+unset status_lib
 
 echo 'two runs at once, each with a temporary directory of its own, answer the same and leave nothing behind'
 { cmd_card 1 engine 'A1'; cmd_card 1 tagged 'L1'; } > "$work/page9"; context engine 1 "$(member_landing 2026-09-01T10:00:00Z "$e1")"; context tagged 1 ''

@@ -3,8 +3,7 @@
 # and, where it belongs to an epic, the parent link.
 #
 # Refuses literal email addresses in titles, labels and bodies for public or unknown visibility; reserved example domains
-# and GitHub noreply addresses are allowed. Private GitHub repositories bypass the check. Plane
-# cannot establish private visibility, so its text receives the public check.
+# and GitHub noreply addresses are allowed. Private GitHub repositories bypass the check.
 # The check reads the raw text, and an address dressed by Markdown, HTML, invisible or lookalike characters may pass; the README names the cases.
 #
 #   issue-new --repo OWNER/REPO --title "Do the thing, or what it costs" --body-file PATH \

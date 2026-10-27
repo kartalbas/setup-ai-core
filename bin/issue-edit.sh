@@ -17,8 +17,7 @@
 # THE ASKED-FOR LINE SURVIVES THE EDIT. It is kept, not asked for and not composed - see below.
 
 # Refuses literal email addresses in titles and bodies for public or unknown visibility; reserved example domains
-# and GitHub noreply addresses are allowed. Private GitHub repositories bypass the check. Plane
-# cannot establish private visibility, so its text receives the public check.
+# and GitHub noreply addresses are allowed. Private GitHub repositories bypass the check.
 # The check reads the raw text, and an address dressed by Markdown, HTML, invisible or lookalike characters may pass; the README names the cases.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
@@ -33,8 +32,7 @@ while [ $# -gt 0 ]; do
     --body-file) need_value "$1" "${2-}"; body="$2";  shift 2 ;;
     --title=*|--body-file=*) die "$1 is not supported - separate the flag and its value" ;;
     -h|--help)   echo "$usage"; printf '%s\n' ' Refuses literal email addresses in titles and bodies for public or unknown visibility; reserved example domains
-and GitHub noreply addresses are allowed. Private GitHub repositories bypass the check. Plane
-cannot establish private visibility, so its text receives the public check.
+and GitHub noreply addresses are allowed. Private GitHub repositories bypass the check.
 The check reads the raw text, and an address dressed by Markdown, HTML, invisible or lookalike characters may pass; the README names the cases.'; exit 0 ;;
     -*)          die "unknown argument '$1'" ;;
     *)           numbers+=("$1"); shift ;;

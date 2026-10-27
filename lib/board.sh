@@ -381,15 +381,6 @@ project_number() {
   echo "$PROJECT"
 }
 
-# project_number_json: the number of the selected board as a JSON value, for a comparison against what the
-# tracker's pages say. Digits are a number, so a board spelled 01 and the board 1 are equal; anything else,
-# a Plane project identifier, is a string.
-project_number_json() {
-  local n
-  n="$(project_number)" || exit 1
-  case "$n" in ''|*[!0-9]*) jq -Rn --arg n "$n" '$n' ;; *) printf '%s\n' "$n" ;; esac
-}
-
 # The organisation the selected board lives under - see set_project for how it is chosen.
 project_org() {
   [ -n "$PROJECT_ORG" ] || die "no project selected - call set_project first"
@@ -411,9 +402,8 @@ TEMPLATE_MARK='[TEMPLATE]'
 # not its own. Every test points this at its own temporary directory, which is why no
 # test writes inside the tree it is testing.
 cache_root() { echo "${GH_CACHE_DIRECTORY:-$(data_dir)/.cache}"; }
-# A board of the organisation (gh_org) caches under its name (board_cache_name: its number on GitHub, the
-# instance, workspace and identifier on Plane); a board of another organisation under that organisation's
-# name and its own, so board 1 of one never answers for board 1 of the other.
+# A board of the organisation (gh_org) caches under its name (board_cache_name: its number); a board of another
+# organisation under that organisation's name and its own, so board 1 of one never answers for board 1 of the other.
 # Where the caller's organisation is not known, outside a checkout and without GH_ORG, the board's
 # own organisation stands in for it: the command named it with its repository, and asking gh_org
 # only printed an error and cached the board somewhere a checkout of that organisation does not.
@@ -530,13 +520,12 @@ sync_released_cards() {  # sync_released_cards <owner/repo>...
 # that closed it the first time. The tracker gives status-sync the last LANDING_COMMENT_WINDOW comments
 # of an open issue, and a record further back does not exist for it.
 #
-# A time of a tracker is read as an instant, never ordered or compared as text: GitHub writes
-# "2026-10-22T06:31:17Z", Plane the clock of its server with microseconds and an offset that follows the
-# summer time, "2026-10-22T08:31:17.295431+02:00", and the two meet in one thread when a carry copies
-# GitHub's comments into Plane. `instant_key` is the instant as [whole seconds since 1970, nine digits of
-# fraction], which jq orders as the time is; `instant` is the same as the text "<seconds>.<nine digits>";
-# neither reads a text that is no RFC 3339 time with a zone: it answers nothing, and jq stops at a field out
-# of its range, a month 13 or an hour 25, while it carries 2026-02-30 into March.
+# A time of a tracker is read as an instant, never ordered or compared as text: one RFC 3339 time ends in Z,
+# "2026-10-22T06:31:17Z", and another in the offset of its writer's clock, with or without a fraction,
+# "2026-10-22T08:31:17.295431+02:00", and the two name the same second. `instant_key` is the instant as
+# [whole seconds since 1970, nine digits of fraction], which jq orders as the time is; `instant` is the same as
+# the text "<seconds>.<nine digits>"; neither reads a text that is no RFC 3339 time with a zone: it answers
+# nothing, and jq stops at a field out of its range, a month 13 or an hour 25, while it carries 2026-02-30 into March.
 INSTANT_JQ='
 def instant_key: capture("^(?<s>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?<f>\\.[0-9]+)?(?<z>Z|(?<d>[+-])(?<h>[01][0-9]|2[0-3]):(?<m>[0-5][0-9]))$")
   | (if .z == "Z" then 0 else ("1970-01-01T\(.h):\(.m):00Z" | fromdateiso8601) * (if .d == "-" then -1 else 1 end) end) as $offset
@@ -588,88 +577,32 @@ instant_seconds() {
   printf '%s\n' "$seconds"
 }
 
-# issue_commits <clone> <ref> <issue repo> <number> <commit repo> <createdAt> <carriedFrom> <git log format> <count>:
+# issue_commits <clone> <ref> <issue repo> <number> <commit repo> <createdAt> <git log format> <count>:
 # the commits of the ref in the clone that name the issue, newest first, each printed as the git log format
 # says, the <count> taken from the commits that pass the time rule below and never handed to git before it.
-# After a carry from GitHub every number up to the count of carried issues is both a GitHub number of a
-# repository and the number of a work item of the project, so a commit names an issue by its number only
-# from the issue's creation on, and by the reference it was carried from only before it. The comparison is
-# by committer time in whole seconds, read as %ct and as `instant` reads the tracker's time. <carriedFrom>
-# is "<owner/repo>#<number>", or empty where the issue was not carried. On GitHub the rule drops nothing:
-# no commit names an issue before the issue exists.
+# A commit names an issue by its number only from the issue's creation on: a commit made before the issue
+# existed cannot be about it. The comparison is by committer time in whole seconds, read as %ct and as
+# `instant` reads the tracker's time.
 issue_commits() {
-  local clone="$1" ref="$2" issue_repo="$3" number="$4" commit_repo="$5" created="$6" carried="$7" format="$8" count="$9"
-  local at younger older="" shas sha
+  local clone="$1" ref="$2" issue_repo="$3" number="$4" commit_repo="$5" created="$6" format="$7" count="$8"
+  local at named shas sha
   [ -n "$created" ] || die "the tracker gave no creation time for ${issue_repo:+$issue_repo}#$number, and a commit names an issue only from its creation on"
   at="$(instant_seconds "$created")" || exit 1
-  younger="$(git -C "$clone" log "$ref" -E -i --grep="$(issue_mention_pattern "$issue_repo" "$number" "$commit_repo")" --format='%ct %H' | awk -v at="$at" '$1 >= at')" || return 1
-  if [ -n "$carried" ]; then
-    older="$(git -C "$clone" log "$ref" -E -i --grep="$(issue_mention_pattern "${carried%#*}" "${carried##*#}" "$commit_repo")" --format='%ct %H' | awk -v at="$at" '$1 < at')" || return 1
-  fi
-  shas="$(printf '%s\n%s\n' "$younger" "$older" | sed '/^$/d' | sort -s -k1,1nr | awk -v n="$count" '!seen[$2]++ && ++kept <= n { print $2 }')" || return 1
+  named="$(git -C "$clone" log "$ref" -E -i --grep="$(issue_mention_pattern "$issue_repo" "$number" "$commit_repo")" --format='%ct %H' | awk -v at="$at" '$1 >= at')" || return 1
+  shas="$(printf '%s\n' "$named" | sed '/^$/d' | sort -s -k1,1nr | awk -v n="$count" '!seen[$2]++ && ++kept <= n { print $2 }')" || return 1
   for sha in $shas; do git -C "$clone" show -s --format="$format" "$sha" || return 1; done
 }
 
-# --- which work item a branch or a worktree belongs to ------------------------------------
+# --- which issue a branch or a worktree belongs to ----------------------------------------
 
 # name_issue_number <name>: the number in the last part of a branch or directory name of the form
-# issue-<number>-<words>, nothing for any other name. The number is the one the name was cut with,
-# which after a carry from GitHub can be a GitHub number.
+# issue-<number>-<words>, nothing for any other name.
 name_issue_number() {
   local tail="${1##*/}" number
   case "$tail" in
     issue-[0-9]*) number="${tail#issue-}"; number="${number%%-*}"
                   case "$number" in ''|*[!0-9]*) return 0 ;; esac; echo "$number" ;;
   esac
-}
-
-# branch_started_at <branch> [<origin's default branch>]: when the branch was started, in whole seconds
-# since 1970, nothing where that cannot be told. It is the earliest of the committer time of the oldest
-# commit the default branch of origin lacks, on the local branch and on origin's, and the time of the
-# oldest entry of the local branch's reflog, which start-issue's `git branch -f` writes and which stays
-# until the branch is deleted, a rebase included. Nothing is told for a branch only on origin whose every
-# commit landed. Without the default branch, origin/HEAD of the clone names it; where that is not there
-# either, only the reflog speaks. Run in the clone.
-branch_started_at() {
-  local branch="$1" default="${2:-}" ref times=""
-  if [ -z "$default" ]; then
-    default="$(git symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null || true)"; default="${default#refs/remotes/origin/}"
-  fi
-  if [ -n "$default" ] && git rev-parse -q --verify "refs/remotes/origin/$default" >/dev/null 2>&1; then
-    for ref in "refs/heads/$branch" "refs/remotes/origin/$branch"; do
-      git rev-parse -q --verify "$ref" >/dev/null 2>&1 || continue
-      times="$times$(git log --format=%ct "refs/remotes/origin/$default..$ref" 2>/dev/null || true)"$'\n'
-    done
-  fi
-  times="$times$(git reflog show --date=unix --format=%gd "refs/heads/$branch" 2>/dev/null | sed -n 's/^.*@{\([0-9][0-9]*\)}$/\1/p' || true)"
-  printf '%s\n' "$times" | sed '/^$/d' | sort -n | sed -n 1p
-}
-
-# reference_answer <issue repo> <number> <time or empty>: the work item that a reference to <number> made
-# at <time> (whole seconds since 1970) names, by the tracker's `referenced_issue`. Sets WORK_ITEM to its
-# number, or to nothing where the reference names none, and WORK_ITEM_REASON to what the tracker said
-# about that. The reference is a branch or a directory named issue-<number>-..., or a commit's (#<number>).
-reference_answer() {
-  local answer
-  answer="$(referenced_issue "$@")" || return 1
-  WORK_ITEM="${answer%%$'\t'*}"; WORK_ITEM_REASON=""
-  case "$answer" in *$'\t'*) WORK_ITEM_REASON="${answer#*$'\t'}" ;; esac
-}
-
-# branch_work_item <issue repo> <branch> [<origin's default branch>]: sets WORK_ITEM and WORK_ITEM_REASON
-# for a branch named issue-<number>-..., by the time it was started
-branch_work_item() {
-  reference_answer "$1" "$(name_issue_number "$2")" "$(branch_started_at "$2" "${3:-}")"
-}
-
-# carried_branch_number <issue repo, or empty for the checkout's own> <thread json>: the number the issue was carried
-# from, where that is a number of the issue's own repository, else nothing. A branch cut before the carry is named by it.
-carried_branch_number() {
-  local from repo
-  from="$(jq -r '.carriedFrom // ""' <<< "$2")"
-  [ -n "$from" ] || return 0
-  repo="${1:-$(default_repo)}"
-  [ "$(printf '%s' "${from%#*}" | tr '[:upper:]' '[:lower:]')" != "$(printf '%s' "$repo" | tr '[:upper:]' '[:lower:]')" ] || printf '%s\n' "${from##*#}"
 }
 
 # issue_branch_name <number> <title>: the name start-issue gives the branch of an issue. The readable half is the
@@ -684,61 +617,43 @@ issue_branch_name() {
   printf 'issue-%s-%s\n' "$1" "$slug"
 }
 
-# issue_branch_owners <issue repo> <origin's default branch> <the issue's branch name> <number>...: the branches, local
-# and on origin, named issue-<number> or issue-<number>-... for one of the numbers, one line each, tab-separated: the
-# branch name, the work item it belongs to by its name at the time it was started (a hyphen where it belongs to none)
-# and what the tracker said about that. A branch whose recorded issue repository is another one than the issue's
-# belongs to no work item of it. Where the issue lives in another repository than the checkout's own, a branch
-# without a record, local or only on origin, is a branch of the checkout's own issue of that number, because a
-# number alone names an unrelated issue in each repository: only the branch named as the issue's branch is the
-# issue's. Run in the clone.
+# issue_branch_owners <issue repo> <the issue's branch name> <number>: the branches, local and on origin, named
+# issue-<number> or issue-<number>-..., one line each, tab-separated: the branch name, and where it is not the
+# issue's, why. A branch whose recorded issue repository is another one than the issue's belongs to an issue of
+# that repository. Where the issue lives in another repository than the checkout's own, a branch without a record,
+# local or only on origin, is a branch of the checkout's own issue of that number, because a number alone names an
+# unrelated issue in each repository: only the branch named as the issue's branch is the issue's. Run in the clone.
 issue_branch_owners() {
-  local issue_repo="$1" default="$2" branch_name="$3" n name recorded own_repo=""
-  shift 3
+  local issue_repo="$1" branch_name="$2" n="$3" name recorded why own_repo=""
   is_own_repo "$issue_repo" || own_repo="$(default_repo)" || exit 1
-  { for n in "$@"; do
-      git for-each-ref --format='%(refname:short)' "refs/heads/issue-$n" "refs/heads/issue-$n-*"
-      git for-each-ref --format='%(refname:strip=3)' "refs/remotes/origin/issue-$n" "refs/remotes/origin/issue-$n-*"
-    done; } | sort -u | while IFS= read -r name; do
+  { git for-each-ref --format='%(refname:short)' "refs/heads/issue-$n" "refs/heads/issue-$n-*"
+    git for-each-ref --format='%(refname:strip=3)' "refs/remotes/origin/issue-$n" "refs/remotes/origin/issue-$n-*"
+  } | sort -u | while IFS= read -r name; do
       [ -n "$name" ] || continue
-      recorded="$(branch_issue_repo "$name")"
+      recorded="$(branch_issue_repo "$name")"; why=""
       if [ -n "$recorded" ] && [ "$(printf '%s' "$recorded" | tr '[:upper:]' '[:lower:]')" != "$(printf '%s' "$issue_repo" | tr '[:upper:]' '[:lower:]')" ]; then
-        WORK_ITEM=""; WORK_ITEM_REASON="belongs to an issue of $recorded"
+        why="belongs to an issue of $recorded"
       elif [ -n "$own_repo" ] && [ -z "$recorded" ] && [ "$name" != "$branch_name" ]; then
-        WORK_ITEM=""; WORK_ITEM_REASON="belongs to an issue of $own_repo"
-      else
-        branch_work_item "$issue_repo" "$name" "$default" || exit 1
+        why="belongs to an issue of $own_repo"
       fi
-      printf '%s\t%s\t%s\n' "$name" "${WORK_ITEM:--}" "$WORK_ITEM_REASON"
+      printf '%s\t%s\n' "$name" "$why"
     done
 }
 
 # worktree_issue: what the worktree the current directory is in stands for, as one JSON object: named, the number
-# its name carries (empty for a worktree that names no issue); repository, the issue's where start-issue recorded
-# another one on the branch; workItem, the work item that number names at the time the worktree was cut (empty
-# where it names none); reason, what the tracker said about that; error, the tracker's words where it could not
-# say. The name is the checked-out branch's where that is an issue branch, else the directory's, and only a branch
-# gives the time.
+# its name carries (empty for a worktree that names no issue), and repository, the issue's where start-issue
+# recorded another one on the branch. The name is the checked-out branch's where that is an issue branch, else
+# the directory's.
 worktree_issue() {
-  local branch named issue_repo="" at="" answer="" error="" item="" reason=""
+  local branch named issue_repo=""
   branch="$(git symbolic-ref --short -q HEAD || true)"
   named="$(name_issue_number "$branch")"
   if [ -n "$named" ]; then
     issue_repo="$(branch_issue_repo "$branch")"
-    at="$(branch_started_at "$branch")"
   else
     named="$(name_issue_number "$(git rev-parse --show-toplevel)")"
   fi
-  if [ -n "$named" ]; then
-    if answer="$(apart referenced_issue "$issue_repo" "$named" "$at")"; then
-      item="${answer%%$'\t'*}"
-      case "$answer" in *$'\t'*) reason="${answer#*$'\t'}" ;; esac
-    else
-      error="$answer"
-    fi
-  fi
-  jq -nc --arg named "$named" --arg repository "$issue_repo" --arg workItem "$item" --arg reason "$reason" --arg error "$error" \
-    '{named: $named, repository: $repository, workItem: $workItem, reason: $reason, error: $error}'
+  jq -nc --arg named "$named" --arg repository "$issue_repo" '{named: $named, repository: $repository}'
 }
 
 # --- issues -------------------------------------------------------------------

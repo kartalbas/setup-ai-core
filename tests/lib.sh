@@ -109,8 +109,8 @@ chmod +x "$WORK/ghbin/gh"
 PATH_SH="$WORK/ghbin:$PATH"
 }
 
-# A stand-in curl keeps Plane and Forgejo on this disk: tests/curl-fake.mjs answers from the JSON files
-# of $CURL_FAKE_STATE (first state: plane.json and forgejo.json), logs every call, and plants an answer
+# A stand-in curl keeps Forgejo on this disk: tests/curl-fake.mjs answers from the JSON file
+# of $CURL_FAKE_STATE (first state: forgejo.json), logs every call, and plants an answer
 # on demand (inject.json). PATH_CURL is the PATH to run a command under.
 make_curl_fake() {
 CURL_FAKE_STATE="$WORK/fake"; export CURL_FAKE_STATE
@@ -122,67 +122,8 @@ make_date_stub "$WORK/curlbin"
 PATH_CURL="$WORK/curlbin:$PATH"
 }
 
-# make_plane_project: $P, a project whose tracker is Plane at plane.example.test, answered by the stand-in curl,
-# its HOME and cache in $WORK, and the helpers the Plane tests share: ai <command> [args] runs bin/<command>.sh
-# of $ROOT (or of ROOT_UNDER_TEST) in the project; planeq <js> reads the stand-in's project ENG as `p`;
 # reset_log empties the logs of what curl was given.
-make_plane_project() {
-  unset TRACKER   # the project's config.env names the tracker; one in the environment of the run would win over it
-  export HOME="$WORK/home" AI_CORE_HOME="$WORK/ai-core-home" GH_CACHE_DIRECTORY="$WORK/cache" AI_CORE_SLEEP="$WORK/sleep"
-  mkdir -p "$HOME" "$AI_CORE_HOME"
-  printf '#!/bin/sh\necho "$@" >> "%s/slept"\n' "$WORK" > "$WORK/sleep"; chmod +x "$WORK/sleep"
-  make_curl_fake
-  printf 'plane-token-0123\n' > "$WORK/token"
-  P="$WORK/project"; mkdir -p "$P/.ai-core"; git init -q "$P"
-  git -C "$P" remote add origin https://forge.example.test/example-org/example-repo.git
-  cat > "$P/.ai-core/config.env" <<CONF
-TRACKER=plane
-PLANE_URL=https://plane.example.test
-PLANE_WORKSPACE=ws
-PLANE_PROJECT=ENG
-PLANE_TOKEN_COMMAND="cat $WORK/token"
-CONF
-}
-ai() { local c="$1"; shift; ( cd "$P" && PATH="$PATH_CURL" bash "${ROOT_UNDER_TEST:-$ROOT}/bin/$c.sh" "$@" ); }
-# ai_new <issue-new arguments>: the number issue-new prints and nothing else; where it fails, its exit status and
-# what it said go to stderr, so the run that dies on it says why
-ai_new() {
-  local number rc=0 said="$WORK/ai-new.said"
-  number="$(ai issue-new "$@" 2> "$said")" || rc=$?
-  [ "$rc" -eq 0 ] || { echo "issue-new exited $rc: $(cat "$said")" >&2; return "$rc"; }
-  printf '%s\n' "$number"
-}
-planeq() { node -e "const s=JSON.parse(require('fs').readFileSync('$CURL_FAKE_STATE/plane.json'));const p=s.projects[0];$1"; }
 reset_log() { : > "$CURL_FAKE_STATE/requests.log"; : > "$CURL_FAKE_STATE/argv.log"; : > "$CURL_FAKE_STATE/env.log"; }
-# plane_fn <function> [args]: a function of the tracker library, called in the project with its board selected
-plane_fn() { ( cd "$P" && PATH="$PATH_CURL" bash -c '. "$1/lib/board.sh"; shift; set_project >/dev/null; "$@"' _ "${ROOT_UNDER_TEST:-$ROOT}" "$@" ); }
-# planeset <js>: changes the stand-in's state as another hand would; `s` is the state, `p` its project ENG
-planeset() {
-  CURL_FAKE_STATE="$CURL_FAKE_STATE" node -e "const fs=require('fs'),f=process.env.CURL_FAKE_STATE+'/plane.json',s=JSON.parse(fs.readFileSync(f)),p=s.projects[0];$1;fs.writeFileSync(f,JSON.stringify(s))"
-}
-# plane_add_item <sequence id> <title> [label name...]: a work item another hand put into ENG, in state ready,
-# the labels made where the project lacks them; ITEM_EXTERNAL_SOURCE and ITEM_EXTERNAL_ID in the environment
-# set the fields a carried item has, and ITEM_CREATED_AT the time it was made (the stand-in's day at 08:00 unless set)
-plane_add_item() {
-  local seq="$1" title="$2"; shift 2
-  ITEM_SEQ="$seq" ITEM_TITLE="$title" ITEM_LABELS="$(printf '%s\n' "$@")" planeset '
-    const id=()=>require("crypto").randomUUID(), e=process.env;
-    const ids=e.ITEM_LABELS.split("\n").filter(Boolean).map((n)=>{let l=p.labels.find((x)=>x.name===n);if(!l){l={id:id(),name:n,color:"#000",description:""};p.labels.push(l);}return l.id;});
-    p.issues.push({id:id(),project:p.id,name:e.ITEM_TITLE,description_html:"<p></p>",priority:"none",parent:null,labels:ids,assignees:[],sort_order:65535,
-      external_source:e.ITEM_EXTERNAL_SOURCE||null,external_id:e.ITEM_EXTERNAL_ID||null,archived_at:null,created_at:e.ITEM_CREATED_AT||s.day+"T08:00:00Z",updated_at:s.day+"T08:00:00Z",
-      completed_at:null,sequence_id:+e.ITEM_SEQ,state:p.states.find((x)=>x.name==="ready").id});'
-}
-# plane_add_comment <sequence id> <text> [author email]: a comment on a work item of ENG, by a member of the project
-# unless an author is named (gone@example.test left the project, stranger@example.test never was in it), the text as
-# a person writes it, stored the way the harness stores one. is_member is true, as Plane computes it for the key's
-# own user, whoever the author is. COMMENT_EXTERNAL_ID in the environment marks it as one the carry posted
-# (external_source github, that external id), and COMMENT_CREATED_AT sets the time Plane holds for it.
-plane_add_comment() {
-  COMMENT_SEQ="$1" COMMENT_TEXT="$2" COMMENT_AUTHOR="${3:-me@example.test}" planeset '
-    const it=p.issues.find((i)=>i.sequence_id===+process.env.COMMENT_SEQ), e=process.env.COMMENT_TEXT.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-    p.comments.push({id:require("crypto").randomUUID(),issue:it.id,comment_html:"<pre>"+e+"</pre>",created_at:process.env.COMMENT_CREATED_AT||new Date(Date.parse(s.day+"T09:00:00Z")+ ++s.clock*1000).toISOString(),actor:s.users.find((u)=>u.email===process.env.COMMENT_AUTHOR).id,is_member:true,
-      external_source:process.env.COMMENT_EXTERNAL_ID?"github":null,external_id:process.env.COMMENT_EXTERNAL_ID||null})'
-}
 
 # make_forgejo_project: $F, a checkout whose forge is Forgejo, and the instance on this disk: the API answered by
 # the stand-in curl, the git of its repositories served over HTTP by tests/git-http-server.mjs (bare repositories
@@ -192,6 +133,7 @@ plane_add_comment() {
 # in $F; forgejo_set <js> changes the stand-in's state as another hand would (`s` is the state); forgejo_repo
 # <owner/name> [files] adds a repository to it.
 make_forgejo_project() {
+  unset FORGE   # the project's config.env names the forge; one in the environment of the run would win over it
   export HOME="$WORK/home" AI_CORE_HOME="$WORK/ai-core-home" GH_CACHE_DIRECTORY="$WORK/cache" GIT_CONFIG_GLOBAL="$WORK/home/.gitconfig"
   mkdir -p "$HOME" "$AI_CORE_HOME"
   make_curl_fake

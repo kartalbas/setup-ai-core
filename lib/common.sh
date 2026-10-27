@@ -56,18 +56,18 @@ config_value() {  # config_value <key> <default>
   config_file_value "$1" "$2"
 }
 
-# THE EIGHT SETTINGS OF THE TRACKER ARE THE CHECKOUT'S, NOT THE WORKTREE'S: one repository has one tracker and one
+# THE FOUR SETTINGS OF THE TRACKER ARE THE CHECKOUT'S, NOT THE WORKTREE'S: one repository has one tracker and one
 # forge. A worktree gets its own copy of .ai-core/config.env once, when init makes it, and no later run refreshes it, so a
 # tracker switched afterwards would still read as the old one there; and the server the key goes to and the
-# command that yields it must come from one file. These eight are read from the main checkout's file, the one in
+# command that yields it must come from one file. These four are read from the main checkout's file, the one in
 # the parent of the git common directory; every other setting stays the worktree's own.
-# Before a layer supplies that file, an assembled project folder provides these eight: the main
+# Before a layer supplies that file, an assembled project folder provides these four: the main
 # checkout's parent, outside Git, whose STAMP names a project layer as well as setup-ai-core, and
 # whose FORGEJO_URL names the host of the main checkout's origin.
 # A harness clone, the clone of a project harness layer, has no .ai-core/config.env: init deploys into the
-# repositories a layer serves and never into the layer. Its eight settings are the layer's own config.env at the
+# repositories a layer serves and never into the layer. Its four settings are the layer's own config.env at the
 # root of the clone, the file init copies into the repositories it serves.
-TRACKER_SETTINGS=" TRACKER PLANE_URL PLANE_WORKSPACE PLANE_PROJECT PLANE_TOKEN_COMMAND FORGE FORGEJO_URL FORGEJO_TOKEN_COMMAND "
+TRACKER_SETTINGS=" TRACKER FORGE FORGEJO_URL FORGEJO_TOKEN_COMMAND "
 
 # harness_of <repo name>: the prefix, or nothing for setup-ai-core and for a harness itself
 harness_of() {
@@ -309,33 +309,6 @@ issue_mention_pattern() {  # issue_mention_pattern <issue repo> <number> <commit
   fi
 }
 
-# THE SETTINGS A CLONE'S COMMANDS WILL READ: tracker (lower case, github unless set), PLANE_URL,
-# PLANE_WORKSPACE and PLANE_PROJECT, tab-separated on one line, read by a fresh process that stands in the
-# clone, without this shell's loaded provider variables. The environment still takes precedence, as for every
-# command.
-clone_settings() {  # clone_settings <clone>
-  bash -c '
-    cd "$1" || exit 1
-    . "$2/lib/common.sh"
-    tracker="$(config_value_lower TRACKER github)" && url="$(config_value PLANE_URL "")" \
-      && workspace="$(config_value PLANE_WORKSPACE "")" && project="$(config_value PLANE_PROJECT "")" || exit 1
-    printf "%s\t%s\t%s\t%s\n" "$tracker" "$url" "$workspace" "$project"
-  ' _ "$1" "$HARNESS_ROOT"
-}
-
-# clone_setting_difference <clone> <tracker> <PLANE_URL> <PLANE_WORKSPACE> <PLANE_PROJECT>: the name of the
-# first of the four settings the clone reads differently from the values given, nothing where all four agree
-clone_setting_difference() {
-  local settings key actual
-  settings="$(clone_settings "$1")" || return 1
-  shift
-  for key in TRACKER PLANE_URL PLANE_WORKSPACE PLANE_PROJECT; do
-    actual="${settings%%$'\t'*}"; settings="${settings#*$'\t'}"
-    if [ "$actual" != "$1" ]; then printf '%s\n' "$key"; return 0; fi
-    shift
-  done
-}
-
 # THE DEFAULT BRANCH OF ORIGIN: asked of the remote, else origin/HEAD where it resolves. A clone's
 # origin/HEAD is a copy that goes stale: it keeps the old branch after the default is renamed, or a
 # branch somebody pointed it at, and trusting it sends every comparison to the wrong branch. Asking
@@ -419,7 +392,7 @@ LANDING_WORKTREE_RE='/\.worktrees/[^/]*/integrate-[0-9]+\.[A-Za-z0-9]{6}$'
 
 # A TOKEN IS READ WHEN A CALL NEEDS IT, from the command a setting names, and goes nowhere but into the
 # one call: not into an argument list, a file, the environment or the terminal. KEY is the setting
-# (PLANE_TOKEN_COMMAND, FORGEJO_TOKEN_COMMAND); its value is a command run by bash whose standard
+# (FORGEJO_TOKEN_COMMAND); its value is a command run by bash whose standard
 # output is the token. The command's standard error is dropped: it may carry what the token is read
 # from. A missing setting, a failing command, an empty answer and an answer with a control character
 # in it (a line break among them, which would add a line to the curl configuration or a field to git's

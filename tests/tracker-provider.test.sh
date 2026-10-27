@@ -51,35 +51,35 @@ check "the environment wins over the file" "env" "$( cd "$WORK/project" && TKEY=
 # the file init copies into the repositories the layer serves. Every other setting, and a product clone, read as before.
 harness="$WORK/shop-ai-core"; mkdir -p "$harness"; git init -q "$harness"
 git -C "$harness" remote add origin https://github.com/example-org/shop-ai-core.git
-printf 'TRACKER="plane"\nPLANE_URL=https://plane.example.test\nPLANE_WORKSPACE=ws\nPLANE_PROJECT=SHOP\nTKEY=layer-only\n' > "$harness/config.env"
+printf 'TRACKER="forgejo"\nFORGEJO_URL=https://shop.example.test\nTKEY=layer-only\n' > "$harness/config.env"
 product="$WORK/shop-web"; mkdir -p "$product/.ai-core"; git init -q "$product"
 git -C "$product" remote add origin https://github.com/example-org/shop-web.git
-printf 'TRACKER=github\nPLANE_PROJECT=OWN\n' > "$product/.ai-core/config.env"
-printf 'TRACKER=plane\nPLANE_PROJECT=ROOT\n' > "$product/config.env"
+printf 'TRACKER=github\nFORGEJO_URL=https://own.example.test\n' > "$product/.ai-core/config.env"
+printf 'TRACKER=forgejo\nFORGEJO_URL=https://root.example.test\n' > "$product/config.env"
 unbound="$WORK/shop-api"; mkdir -p "$unbound"; git init -q "$unbound"
 git -C "$unbound" remote add origin https://github.com/example-org/shop-api.git
-printf 'TRACKER=plane\nPLANE_PROJECT=ROOT\n' > "$unbound/config.env"
+printf 'TRACKER=forgejo\nFORGEJO_URL=https://root.example.test\n' > "$unbound/config.env"
 git -C "$harness" -c user.name=t -c user.email=t@example.test commit -q --allow-empty -m start
 git -C "$harness" worktree add -q "$WORK/shop-ai-core-tree" -b layer-tree
 read_in() {  # read_in <lib root> <directory> <key> <default>
-  ( cd "$2" && env -u TRACKER -u PLANE_PROJECT -u TKEY bash -c '. "$1/lib/common.sh"; config_value "$2" "$3"' _ "$1" "$3" "$4" )
+  ( cd "$2" && env -u TRACKER -u FORGEJO_URL -u TKEY bash -c '. "$1/lib/common.sh"; config_value "$2" "$3"' _ "$1" "$3" "$4" )
 }
-check "a harness clone reads TRACKER from the layer's config.env" "plane" "$(read_in "$ROOT" "$harness" TRACKER github)"
-check "a harness clone reads PLANE_PROJECT from the layer's config.env" "SHOP" "$(read_in "$ROOT" "$harness" PLANE_PROJECT none)"
-check "a worktree of a harness clone reads the layer's config.env too" "SHOP" "$(read_in "$ROOT" "$WORK/shop-ai-core-tree" PLANE_PROJECT none)"
-check "a harness clone reads a setting beyond the five as before: not from the layer's file" "none" "$(read_in "$ROOT" "$harness" TKEY none)"
-check "the environment wins over the layer's config.env" "env" "$( cd "$harness" && PLANE_PROJECT=env bash -c '. "$1/lib/common.sh"; config_value PLANE_PROJECT none' _ "$ROOT" )"
-check "a product clone with a config.env at its root still reads its own .ai-core/config.env" "OWN" "$(read_in "$ROOT" "$product" PLANE_PROJECT none)"
-check "a product clone with no .ai-core/config.env does not read a config.env at its root" "none" "$(read_in "$ROOT" "$unbound" PLANE_PROJECT none)"
+check "a harness clone reads TRACKER from the layer's config.env" "forgejo" "$(read_in "$ROOT" "$harness" TRACKER github)"
+check "a harness clone reads FORGEJO_URL from the layer's config.env" "https://shop.example.test" "$(read_in "$ROOT" "$harness" FORGEJO_URL none)"
+check "a worktree of a harness clone reads the layer's config.env too" "https://shop.example.test" "$(read_in "$ROOT" "$WORK/shop-ai-core-tree" FORGEJO_URL none)"
+check "a harness clone reads a setting beyond the four as before: not from the layer's file" "none" "$(read_in "$ROOT" "$harness" TKEY none)"
+check "the environment wins over the layer's config.env" "env" "$( cd "$harness" && FORGEJO_URL=env bash -c '. "$1/lib/common.sh"; config_value FORGEJO_URL none' _ "$ROOT" )"
+check "a product clone with a config.env at its root still reads its own .ai-core/config.env" "https://own.example.test" "$(read_in "$ROOT" "$product" FORGEJO_URL none)"
+check "a product clone with no .ai-core/config.env does not read a config.env at its root" "none" "$(read_in "$ROOT" "$unbound" FORGEJO_URL none)"
 owned="$WORK/tool-ai-core"; mkdir -p "$owned/.ai-core"; git init -q "$owned"
 git -C "$owned" remote add origin https://github.com/example-org/tool-ai-core.git
-printf 'PLANE_PROJECT=LAYER\n' > "$owned/config.env"; printf 'PLANE_PROJECT=OWN\n' > "$owned/.ai-core/config.env"
-check "a harness clone with its own .ai-core/config.env reads that file, not the layer's" "OWN" "$(read_in "$ROOT" "$owned" PLANE_PROJECT none)"
+printf 'FORGEJO_URL=https://layer.example.test\n' > "$owned/config.env"; printf 'FORGEJO_URL=https://own.example.test\n' > "$owned/.ai-core/config.env"
+check "a harness clone with its own .ai-core/config.env reads that file, not the layer's" "https://own.example.test" "$(read_in "$ROOT" "$owned" FORGEJO_URL none)"
 mkdir -p "$WORK/planted-layer"; rm -rf "$WORK/planted-layer/lib"; cp -R "$ROOT/lib" "$WORK/planted-layer/lib"
 sed -i.bak 's|&& is_harness_clone "\$main"; then|\&\& false; then|' "$WORK/planted-layer/lib/common.sh"
 cmp -s "$ROOT/lib/common.sh" "$WORK/planted-layer/lib/common.sh" && { echo "  FAIL the planted copy equals the real common.sh"; failed=$((failed + 1)); }
-check "planted: without the read from the layer's config.env a harness clone reads nothing" "none" "$(read_in "$WORK/planted-layer" "$harness" PLANE_PROJECT none)"
-check "innocent: the same copy still reads a product clone's own .ai-core/config.env" "OWN" "$(read_in "$WORK/planted-layer" "$product" PLANE_PROJECT none)"
+check "planted: without the read from the layer's config.env a harness clone reads nothing" "none" "$(read_in "$WORK/planted-layer" "$harness" FORGEJO_URL none)"
+check "innocent: the same copy still reads a product clone's own .ai-core/config.env" "https://own.example.test" "$(read_in "$WORK/planted-layer" "$product" FORGEJO_URL none)"
 
 # the dispatch: sourcing board.sh in the project with TRACKER set as asked; prints what happened
 dispatch() {  # dispatch <lib root> <TRACKER or 'unset'>
@@ -93,10 +93,12 @@ check "TRACKER is read without regard to case" "tracker=github function" "$(disp
 config 'TRACKER="github"\n'
 check "TRACKER in config.env" "tracker=github function" "$(dispatch "$ROOT" unset)"
 config 'TRACKER="nonesuch"\n'
-refusal="error: TRACKER is 'nonesuch', and this harness has no tracker of that name. It has: github plane"
+refusal="error: TRACKER is 'nonesuch', and this harness has no tracker of that name. It has: github"
 check "a name with no folder is refused and the folders are named" "$refusal" "$(dispatch "$ROOT" unset)"
+config 'TRACKER="plane"\n'
+check "the retired tracker plane is refused as any name with no folder" "error: TRACKER is 'plane', and this harness has no tracker of that name. It has: github" "$(dispatch "$ROOT" unset)"
 config ''
-check "a name that leads out of lib/ is refused" "error: TRACKER is '../skeleton', and this harness has no tracker of that name. It has: github plane" "$(dispatch "$ROOT" ../skeleton)"
+check "a name that leads out of lib/ is refused" "error: TRACKER is '../skeleton', and this harness has no tracker of that name. It has: github" "$(dispatch "$ROOT" ../skeleton)"
 
 # the planted defect: a copy of lib/ whose refusal is taken out must make the same check go red
 mkdir -p "$WORK/planted"; cp -R "$ROOT/lib" "$WORK/planted/lib"
@@ -112,7 +114,7 @@ check "innocent: the same copy still loads github" "tracker=github function" "$(
 old="$WORK/old-reader"; old_reader_copy "$ROOT" "$old" || failed=$((failed + 1))
 fails_naming() {  # fails_naming <lib root> <directory> <file the error names> <function> [argument...]: yes where the call fails, names the file and prints no value
   local out err rc=0
-  out="$( cd "$2" && env -u TRACKER -u PLANE_PROJECT -u TKEY bash -c '. "$1/lib/common.sh"; shift; "$@"' _ "$1" "${@:4}" 2>"$WORK/read-err" )" || rc=$?
+  out="$( cd "$2" && env -u TRACKER -u FORGEJO_URL -u TKEY bash -c '. "$1/lib/common.sh"; shift; "$@"' _ "$1" "${@:4}" 2>"$WORK/read-err" )" || rc=$?
   err="$(cat "$WORK/read-err")"
   if [ "$rc" -ne 0 ] && [ -z "$out" ] && grep -qF "$3" <<< "$err"; then echo yes; else echo "no (status $rc, stdout [$out], stderr [$err])"; fi
 }
@@ -141,7 +143,7 @@ for shape in dir.env link.env; do
   check "planted: the old reader gives the default for a $shape" "dflt" "$(bash -c '. "$1/lib/common.sh"; config_value_in_file "$2" TKEY dflt' _ "$old" "$WORK/shapes/$shape" 2>/dev/null)"
 done
 check "innocent: a path that is not there gives the default" "dflt" "$(bash -c '. "$1/lib/common.sh"; config_value_in_file "$2" TKEY dflt' _ "$ROOT" "$WORK/shapes/nothing")"
-# a worktree reads the eight tracker settings from the main checkout's file, and every other setting from its own
+# a worktree reads the four tracker settings from the main checkout's file, and every other setting from its own
 git -C "$WORK/project" -c user.name=t -c user.email=t@example.test commit -q --allow-empty -m start
 git -C "$WORK/project" worktree add -q -b unreadable-tree "$WORK/project-tree"
 mkdir -p "$WORK/project-tree/.ai-core"; printf 'TKEY=own\n' > "$WORK/project-tree/.ai-core/config.env"
@@ -180,20 +182,13 @@ sed '/^repo_visibility() {/,/^}/d' "$ROOT/lib/github/tracker.sh" > "$WORK/visibi
 lacks="$(dispatch "$WORK/visibility-copy" github)"
 check "missing visibility interface is named" yes "$(grep -q 'lacks these functions: repo_visibility' <<< "$lacks" && echo yes || echo no)"
 
-# a provider that answers no landing context cannot tell finish-issue whether an issue holds a record, and one that
-# cannot name the work item a reference means cannot tell finish-issue, integrate-issue, start-issue or session-start
-# which branch is an issue's
-for provider in github plane; do
-  for function in issue_landing_context referenced_issue; do
-    cp -R "$ROOT/lib" "$WORK/context-lib"
-    mkdir -p "$WORK/context-copy"; rm -rf "$WORK/context-copy/lib"; mv "$WORK/context-lib" "$WORK/context-copy/lib"
-    sed "/^$function() {/,/^}/d" "$ROOT/lib/$provider/tracker.sh" > "$WORK/context-copy/lib/$provider/tracker.sh"
-    cmp -s "$ROOT/lib/$provider/tracker.sh" "$WORK/context-copy/lib/$provider/tracker.sh" && { echo "  FAIL the planted copy equals $provider's $function"; failed=$((failed + 1)); }
-    lacks="$(dispatch "$WORK/context-copy" "$provider")"
-    check "$provider without $function is named" yes "$(grep -q "lacks these functions: $function" <<< "$lacks" && echo yes || echo no)"
-  done
-done
-check "github names the number a reference gives, whatever the time" "287" "$( cd "$WORK/project" && bash -c '. "$1/lib/board.sh"; referenced_issue example-org/example-repo 287 1700000000' _ "$ROOT" )"
+# a provider that answers no landing context cannot tell finish-issue whether an issue holds a record
+cp -R "$ROOT/lib" "$WORK/context-lib"
+mkdir -p "$WORK/context-copy"; rm -rf "$WORK/context-copy/lib"; mv "$WORK/context-lib" "$WORK/context-copy/lib"
+sed "/^issue_landing_context() {/,/^}/d" "$ROOT/lib/github/tracker.sh" > "$WORK/context-copy/lib/github/tracker.sh"
+cmp -s "$ROOT/lib/github/tracker.sh" "$WORK/context-copy/lib/github/tracker.sh" && { echo "  FAIL the planted copy equals github's issue_landing_context"; failed=$((failed + 1)); }
+lacks="$(dispatch "$WORK/context-copy" github)"
+check "github without issue_landing_context is named" yes "$(grep -q "lacks these functions: issue_landing_context" <<< "$lacks" && echo yes || echo no)"
 
 # the forge: FORGE names the folder of lib/ the same way, and the check of a commit answers four ways
 fdispatch() {  # fdispatch <lib root> <FORGE or 'unset'>

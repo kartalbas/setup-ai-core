@@ -35,11 +35,6 @@
 # the run says that the card and the issue were not updated; where it met no worktree and no
 # branch of the issue, it says that it removed nothing.
 #
-# AFTER A CARRY FROM GITHUB a branch named issue-<GitHub number>-... of a work item that has a Plane number is still
-# the work item's. The branches of the issue are those named by the number given and by the number it was carried
-# from, kept where the tracker, asked for the number of the name at the time the branch was started, answers this
-# issue; all are measured before one is removed, and a branch of another work item stays and is named with it.
-#
 # A WORKTREE THAT init IS EQUIPPING IS LOCKED (git worktree lock --reason "ai-core init") and is never removed: the
 # run names the lock and the retry, and the sweep reports the worktree as staying and goes on. A lock that a killed
 # init left stays until git worktree unlock lifts it. The branch is deleted in one step, only while it still points at
@@ -186,20 +181,16 @@ issue_repo="${repo:-$own}"
 
 # THE BRANCHES OF THE ISSUE, all measured before anything is removed: removing a worktree deletes its local branch
 # and the reflog that says when the branch was started, and origin's branches are read after that. A branch is
-# named issue-<number>-..., and after a carry from GitHub a number is both a work item of the project and the
-# GitHub number of another. The candidates are the branches named by the number given and by the number the issue
-# was carried from; one is the issue's where the tracker, asked for the number of its name at the time the branch
-# was started, answers this issue. Any other branch of those names is left alone and named with the work item it
-# belongs to.
-carried_number="$(carried_branch_number "$issue_repo" "$thread")"
+# named issue-<number>-...; one is the issue's unless the repository recorded on it, or the checkout's own where it
+# records none, is another one than the issue's. Any other branch of that name is left alone and named with the
+# issue it belongs to.
 branch_name="$(issue_branch_name "$number" "$(jq -r '.title // ""' <<< "$thread")")"
-owners="$(issue_branch_owners "$issue_repo" "$default" "$branch_name" "$number" ${carried_number:+"$carried_number"})" || exit 1
+owners="$(issue_branch_owners "$issue_repo" "$branch_name" "$number")" || exit 1
 mine=" "
-while IFS=$'\t' read -r name item why; do
+while IFS=$'\t' read -r name why; do
   [ -n "$name" ] || continue
-  if [ "$item" = "$number" ]; then mine="$mine$name "
-  elif [ "$item" != - ]; then echo "the branch $name belongs to $(issue_ref "$issue_repo" "$item"), not to $ref: it stays, and its worktree with it"
-  else echo "the branch $name stays: it ${why:-belongs to no work item}"; fi
+  if [ -z "$why" ]; then mine="$mine$name "
+  else echo "the branch $name stays: it $why"; fi
 done <<< "$owners"
 found=0; met=0; cut_only_removed=0; worked_in_removed=0
 while IFS=$'\t' read -r path branch; do
@@ -247,7 +238,7 @@ done <<< "$(issue_worktrees)"
 # measurement, not a lock: a worktree made after it is not seen.
 clear_origin_branches() {
   local branch tip held missing now
-  for branch in $(git -C "$main" for-each-ref --format='%(refname:strip=3)' "refs/remotes/origin/issue-$number" "refs/remotes/origin/issue-$number-*" ${carried_number:+"refs/remotes/origin/issue-$carried_number" "refs/remotes/origin/issue-$carried_number-*"}); do
+  for branch in $(git -C "$main" for-each-ref --format='%(refname:strip=3)' "refs/remotes/origin/issue-$number" "refs/remotes/origin/issue-$number-*"); do
     case "$mine" in *" $branch "*) ;; *) continue ;; esac
     met=$((met + 1))
     tip="$(git -C "$main" rev-parse "refs/remotes/origin/$branch")" || { echo "the branch $branch on origin stays: its tip could not be read"; continue; }
@@ -282,7 +273,7 @@ clear_origin_branches() {
 
 # What landed. An issue no commit on origin names has not landed, whatever its worktree held: the
 # card does not move and the issue is not told.
-commits="$(issue_commits "$main" "origin/$default" "${repo:-$own}" "$number" "$own" "$(jq -r '.createdAt // ""' <<< "$thread")" "$(jq -r '.carriedFrom // ""' <<< "$thread")" '- %h %s' 20)"
+commits="$(issue_commits "$main" "origin/$default" "${repo:-$own}" "$number" "$own" "$(jq -r '.createdAt // ""' <<< "$thread")" '- %h %s' 20)"
 if [ -z "$commits" ]; then
   if [ "$landed_flag" -eq 1 ]; then
     clear_origin_branches

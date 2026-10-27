@@ -109,39 +109,36 @@ path="$container/$name"
 # A branch with work the default branch lacks, or a local one a worktree has checked out, where
 # somebody may be about to commit, is somebody's work.
 checked_out="$(git worktree list --porcelain 2>/dev/null | sed -n 's|^branch refs/heads/||p')"
-# After a carry from GitHub a number is both a work item of the project and the GitHub number of another, so a
-# branch named by the number is this issue's only where the tracker, asked for the number of its name at the time
-# the branch was started, answers this issue; the number the issue was carried from names its branches cut before.
-carried_number="$(carried_branch_number "$repo" "$thread")"
-owners="$(issue_branch_owners "$repo" "$default" "$name" "$number" ${carried_number:+"$carried_number"})" || exit 1
+# A branch named by the number is this issue's unless the repository recorded on it, or the checkout's own where
+# it records none, is another one than the issue's.
+owners="$(issue_branch_owners "$repo" "$name" "$number")" || exit 1
 taken=""; clash=""
 while IFS= read -r ref; do
   [ -n "$ref" ] || continue
   # a ref the table does not list, such as a branch of another folder that merely contains the name, is this issue's as before
-  owner="$(awk -F'\t' -v b="${ref#origin/}" -v d="$number" '$1 == b { r = $2; f = 1; exit } END { print f ? r : d }' <<< "$owners")"
-  # A landed local branch of another work item under the new name stops the run too: git branch -f would move it
-  # and keep its reflog, which still dates the branch to that work item.
+  foreign="$(awk -F'\t' -v b="${ref#origin/}" '$1 == b { print $2; exit }' <<< "$owners")"
+  # A landed local branch of another issue under the new name stops the run too: git branch -f would move it
+  # and keep its reflog, which still dates the branch to that issue.
   idle=""
   if git merge-base --is-ancestor "$ref" "$origin_tip"; then
     case "$ref" in origin/*) continue ;; esac
     if ! grep -qxF "$ref" <<< "$checked_out"; then
-      [ "$owner" != "$number" ] && [ "$ref" = "$name" ] || continue
+      [ -n "$foreign" ] && [ "$ref" = "$name" ] || continue
       idle=1
     fi
   fi
-  if [ "$owner" = "$number" ]; then taken="$taken$ref"$'\n'
+  if [ -z "$foreign" ]; then taken="$taken$ref"$'\n'
   elif [ "${ref#origin/}" = "$name" ]; then
-    whose="belongs to #$owner"
-    [ "$owner" != - ] || whose="$(awk -F'\t' -v b="$name" '$1 == b { print $3; exit }' <<< "$owners")"
+    whose="$foreign"
     [ -z "$idle" ] || whose="$whose; it has landed and no worktree has it checked out: git branch -d $ref deletes it"
     clash="$clash$ref ($whose)"$'\n'
   fi
 done <<< "$(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/origin 2>/dev/null \
-  | grep -E "(^|/)issue-($number${carried_number:+|$carried_number})(-|$)" || true)"
+  | grep -E "(^|/)issue-$number(-|$)" || true)"
 [ -z "$taken" ] \
   || die "a branch for this issue exists already: $(printf '%s' "$taken" | paste -sd, - | sed 's/,/, /g') - use its worktree instead"
 [ -z "$clash" ] \
-  || die "the name $name is the name of a branch of another work item already: $(printf '%s' "$clash" | paste -sd, - | sed 's/,/, /g') - cutting the worktree would move that branch; finish its issue first"
+  || die "the name $name is the name of a branch of another issue already: $(printf '%s' "$clash" | paste -sd, - | sed 's/,/, /g') - cutting the worktree would move that branch; finish its issue first"
 [ ! -e "$path" ] || die "$path is already there - use it, or remove it with 'git worktree remove'"
 
 mkdir -p "$container"

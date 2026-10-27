@@ -423,9 +423,9 @@ check "the next run finishes it" fine "$(package_state "$NAME" true $members)"
 
 echo "== the tracker the command serves"
 seed_world
-( cd "$WORK/project" && TRACKER=plane ai-core issue-package example-org/shop 5 --member "$SHOP5" ) > "$WORK/plane.out" 2>&1
-check "a project on another tracker is refused" 1 "$?"
-matches "and told why" 'supports GitHub and Forgejo' "$(cat "$WORK/plane.out")"
+( cd "$WORK/project" && TRACKER=nonesuch ai-core issue-package example-org/shop 5 --member "$SHOP5" ) > "$WORK/unsupported.out" 2>&1
+check "a project on a tracker this harness lacks is refused" 1 "$?"
+matches "and told why" "TRACKER is 'nonesuch', and this harness has no tracker of that name" "$(cat "$WORK/unsupported.out")"
 check "before anything was written" 0 "$(writes)"
 matches "the command answers --help with its usage" 'issue-package.sh OWNER/REPO NUMBER --member' "$(ai-core issue-package --help)"
 

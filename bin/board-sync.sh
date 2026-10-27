@@ -39,14 +39,6 @@
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 
-# On Plane a work item is on the board of its project as it is made, so there is nothing to add; the
-# report of missing type and area labels is not made there, and the line says so
-tracker="$(config_value_lower TRACKER github)" || exit 1
-if [ "$tracker" != github ]; then
-  echo "board-sync: on $tracker every work item of a project is on its board already - there is nothing to add, and no report of missing type or area labels is made"
-  exit 0
-fi
-
 project=""
 args=()
 while [ $# -gt 0 ]; do

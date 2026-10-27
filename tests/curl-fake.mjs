@@ -1,15 +1,15 @@
-// The stand-in for curl that tests/lib.sh puts on the PATH: Plane and Forgejo on this disk, so nothing in
+// The stand-in for curl that tests/lib.sh puts on the PATH: Forgejo on this disk, so nothing in
 // the suite reaches a network. It reads curl's arguments and the configuration on standard input as
 // the harness sends them (url, request, header, data-binary), answers from $CURL_FAKE_STATE/*.json,
 // writes what the service would write back, and logs every call:
 //   requests.log  "<METHOD> <path+query>" and the body, one call per line pair
 //   argv.log      the arguments of every call, env.log the environment of every call (so a test can
 //                 look for a token in either)
-// Plane answers where PLANE_URL is https://plane.example.test, Forgejo where FORGEJO_URL is
-// https://forge.example.test or on the loopback address (tests/git-http-server.mjs serves its git over HTTP). Shapes follow Plane CE 1.4.2 (apps/api/plane at tag v1.4.2) and Forgejo 15.0
-// (routers/api/v1, modules/structs), read for this suite; they are not a copy of either server.
+// Forgejo answers where FORGEJO_URL is https://forge.example.test or on the loopback address (tests/git-http-server.mjs
+// serves its git over HTTP). Shapes follow Forgejo 15.0 (routers/api/v1, modules/structs), read for this suite; they are
+// not a copy of the server.
 //
-//   node tests/curl-fake.mjs --init <state dir> [plane|forgejo]    write the first state
+//   node tests/curl-fake.mjs --init <state dir>    write the first state
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -21,27 +21,8 @@ const out = (f) => args[args.indexOf(f) + 1];
 const read = (f, d) => { try { return JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { return d; } };
 const write = (f, v) => fs.writeFileSync(path.join(dir, f), JSON.stringify(v, null, 1));
 
-function uuid(st) { st.counter = (st.counter || 100) + 1; return `00000000-0000-4000-8000-${String(st.counter).padStart(12, '0')}`; }
-
 function init(d) {
   fs.mkdirSync(d, { recursive: true });
-  const st = { counter: 100, clock: 1000, day: new Date().toISOString().slice(0, 10), workspace: 'ws', token: 'plane-token-0123', users: [], projects: [] };
-  const me = { id: uuid(st), email: 'me@example.test', display_name: 'me', first_name: 'Me', last_name: 'Tester' };
-  st.users.push(me, { id: uuid(st), email: 'other@example.test', display_name: 'other', first_name: 'O', last_name: 'T' },
-    { id: uuid(st), email: 'gone@example.test', display_name: 'gone', first_name: 'G', last_name: 'O' },        // left the project: an inactive member
-    { id: uuid(st), email: 'stranger@example.test', display_name: 'stranger', first_name: 'S', last_name: 'T' });   // never a member of it
-  const proj = { id: uuid(st), identifier: 'ENG', name: 'Engineering', states: [], labels: [], issues: [], comments: [], relations: [], activities: [],
-                 members: [{ user: me.id, is_active: true }, { user: st.users[1].id, is_active: true }, { user: st.users[2].id, is_active: false }] };
-  for (const [name, group] of [['backlog', 'backlog'], ['ready', 'unstarted'], ['planned', 'unstarted'], ['implementing', 'started'],
-                                ['review', 'started'], ['testing', 'started'], ['done', 'completed'], ['Cancelled', 'cancelled']]) {
-    proj.states.push({ id: uuid(st), name, color: '#60646C', group, sequence: 15000 * (proj.states.length + 1), default: name === 'backlog' });
-  }
-  for (const name of ['type:feature', 'type:bug', 'area:tooling', 'repo:example-repo']) proj.labels.push({ id: uuid(st), name, color: '#aaaaaa', description: '' });
-  st.projects.push(proj);
-  const other = { id: uuid(st), identifier: 'OPS', name: 'Operations', states: [{ id: uuid(st), name: 'done', color: '#000', group: 'completed' }], labels: [{ id: uuid(st), name: 'repo:example-repo', color: '#000', description: '' }], issues: [], comments: [], relations: [], activities: [],
-                  members: [{ user: me.id, is_active: true }] };
-  st.projects.push(other);
-  fs.writeFileSync(path.join(d, 'plane.json'), JSON.stringify(st, null, 1));
   fs.writeFileSync(path.join(d, 'forgejo.json'), JSON.stringify({ token: 'forgejo-token-4567', user: { login: 'tester' }, repos: {}, statuses: {} }, null, 1));
 }
 
@@ -68,33 +49,9 @@ fs.appendFileSync(path.join(dir, 'requests.log'), `${method} ${url.pathname}${ur
 // write is logged, so a test can tell what had been printed before the first write
 if (method !== 'GET' && process.env.CURL_FAKE_STDOUT) fs.appendFileSync(path.join(dir, 'stdout-at-write.log'), `${method} ${url.pathname} ${fs.statSync(process.env.CURL_FAKE_STDOUT).size}\n`);
 
-// THE TIMES PLANE WRITES. Plane holds a time as an instant and prints it in the zone of its server, with
-// microseconds and that zone's offset, "2026-10-22T08:31:17.295431+02:00", the offset changing with the summer
-// time: not as GitHub does, "2026-10-22T06:31:17Z". Every `created_at`, `updated_at` and `completed_at` of an
-// answer of the Plane stand-in is printed so, whatever form the state holds it in, so the suite runs on the live
-// shape. The microseconds are the milliseconds of the instant and three more digits, never all zero and in the
-// order of the instants.
-const PLANE_ZONE = 'Europe/Zurich';
-const planeClock = new Intl.DateTimeFormat('en-GB', { timeZone: PLANE_ZONE, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
-                                                       hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'longOffset' });
-function planeTime(text) {
-  const at = Date.parse(text);
-  if (Number.isNaN(at)) return text;
-  const part = Object.fromEntries(planeClock.formatToParts(at).map((p) => [p.type, p.value]));
-  const offset = part.timeZoneName === 'GMT' ? '+00:00' : part.timeZoneName.slice(3);
-  const micros = String(at % 1000).padStart(3, '0') + String(1 + (Math.floor(at / 1000) % 999)).padStart(3, '0');
-  return `${part.year}-${part.month}-${part.day}T${part.hour}:${part.minute}:${part.second}.${micros}${offset}`;
-}
-const planeTimes = (value) => Array.isArray(value) ? value.map(planeTimes)
-  : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([k, v]) =>
-      [k, ['created_at', 'updated_at', 'completed_at'].includes(k) && typeof v === 'string' ? planeTime(v) : planeTimes(v)]))
-  : value;
-const isPlane = /^plane[0-9]*\.example\.test$/.test(url.hostname);
-
 let lost = false;   // an injected {"status":0,"commit":true}: the call is carried out, and its answer never arrives
 function reply(status, value, headers = {}) {
   if (lost) { process.stderr.write('curl: (28) Operation timed out\n'); process.exit(28); }
-  if (isPlane) value = planeTimes(value);
   const head = `HTTP/2 ${status}\r\n` + Object.entries(headers).map(([k, v]) => `${k}: ${v}\r\n`).join('') + '\r\n';
   if (args.includes('--dump-header')) fs.writeFileSync(out('--dump-header'), head);
   if (args.includes('--output')) fs.writeFileSync(out('--output'), typeof value === 'string' ? value : JSON.stringify(value));
@@ -135,155 +92,7 @@ if (hit >= 0) {
 
 const json = (() => { try { return body ? JSON.parse(body) : {}; } catch { return null; } })();
 const header = (n) => (cfg.header.find((h) => h.toLowerCase().startsWith(n.toLowerCase() + ':')) || '').replace(/^[^:]*:\s*/, '');
-if (isPlane) plane(); else if (url.hostname === 'forge.example.test' || url.hostname === '127.0.0.1') forgejo(); else reply(404, 'no such host');
-
-// --- Plane ---------------------------------------------------------------------------------
-function plane() {
-  const st = read('plane.json');
-  if (header('X-API-Key') !== st.token) reply(401, { detail: 'Authentication credentials were not provided.' });
-  const p = url.pathname.replace(/^\/api\/v1\//, '').replace(/\/$/, '').split('/');
-  const save = () => write('plane.json', st);
-  const tick = () => new Date(Date.parse(`${st.day}T08:00:00Z`) + ++st.clock * 1000).toISOString();
-  const page = (rows) => {
-    const per = +(q.get('per_page') || 1000), at = +((q.get('cursor') || '').split(':')[1] || 0);
-    const slice = rows.slice(at * per, (at + 1) * per);
-    return { next_cursor: `${per}:${at + 1}:0`, next_page_results: rows.length > (at + 1) * per, count: slice.length, total_results: rows.length, results: slice };
-  };
-  if (p[0] === 'users' && p[1] === 'me') reply(200, st.users[0]);
-  if (p[0] !== 'workspaces' || p[1] !== st.workspace) reply(404, { detail: 'Not found.' });
-  if (p[2] === 'members') reply(200, st.users);
-  if (p[2] === 'issues' && p.length === 4) {                  // by identifier: <IDENT>-<n>
-    const [ident, n] = p[3].split('-');
-    const pr = st.projects.find((x) => x.identifier === ident);
-    const it = pr && pr.issues.find((i) => i.sequence_id === +n);
-    if (!it || it.archived_at) reply(404, { detail: 'Not found.' });   // views/issue.py:240-249 reads Issue.issue_objects, which leaves archived items out
-    reply(200, ser(st, pr, it));
-  }
-  if (p[2] !== 'projects') reply(404, { detail: 'Not found.' });
-  if (p.length === 3) {
-    if (method === 'GET') reply(200, page(st.projects.map(({ id, identifier, name, archived_at }) => ({ id, identifier, name, archived_at: archived_at || null }))));
-    if (st.projects.some((x) => x.identifier === json.identifier)) reply(409, { identifier: 'The project identifier is already taken' });
-    const pr = { id: uuid(st), identifier: json.identifier, name: json.name, states: [], labels: [], issues: [], comments: [], relations: [], activities: [], members: [{ user: st.users[0].id, is_active: true }] };
-    for (const [name, group] of [['Backlog', 'backlog'], ['Todo', 'unstarted'], ['In Progress', 'started'], ['Done', 'completed'], ['Cancelled', 'cancelled'], ['Triage', 'triage']]) {
-      pr.states.push({ id: uuid(st), name, color: '#60646C', group, sequence: 15000 + 10000 * pr.states.length, default: name === 'Backlog' });   // DEFAULT_STATES of plane/db/models/state.py
-    }
-    st.projects.push(pr); save();
-    reply(201, { id: pr.id, identifier: pr.identifier, name: pr.name });
-  }
-  const pr = st.projects.find((x) => x.id === p[3]);
-  if (!pr) reply(404, { detail: 'Not found.' });
-  const what = p[4];
-  if (what === 'project-members-lite') {    // ProjectMemberLiteAPIEndpoint: every ProjectMember row, active or not, with is_active (apps/api/plane/api/serializers/member.py)
-    reply(200, page(pr.members.map((m) => ({ id: m.user, email: st.users.find((u) => u.id === m.user).email, role: m.role ?? 15, is_active: m.is_active }))));
-  }
-  if (what === 'states') {
-    if (p.length === 5) {
-      if (method === 'GET') reply(200, page(pr.states.filter((s) => s.group !== 'triage').sort((a, b) => a.sequence - b.sequence)));
-      if (pr.states.some((s) => s.name === json.name)) reply(409, { error: 'State with the same name already exists in the project' });
-      const s = { id: uuid(st), name: json.name, color: json.color, group: json.group, sequence: pr.states.filter((x) => x.group !== 'triage').reduce((m, x) => Math.max(m, x.sequence), 0) + 15000, default: false };   // State.save: after the last, whatever is asked
-      pr.states.push(s); save(); reply(200, s);
-    }
-    const s = pr.states.find((x) => x.id === p[5]);
-    if (!s) reply(404, { detail: 'Not found.' });
-    if (method === 'PATCH') { Object.assign(s, json); save(); }
-    reply(200, s);
-  }
-  if (what === 'labels') {
-    if (method === 'GET') reply(200, page(pr.labels));
-    if (pr.labels.some((l) => l.name === json.name)) reply(409, { error: 'Label with the same name already exists in the project' });
-    const l = { id: uuid(st), name: json.name, color: json.color, description: json.description || '' };
-    pr.labels.push(l); save(); reply(201, l);
-  }
-  if (what !== 'issues' && what !== 'work-items') reply(404, { detail: 'Not found.' });
-  if (p.length === 5) {
-    if (method === 'GET') {
-      if (q.get('external_id')) {   // GET .../issues/?external_id=&external_source= answers the one object, archived or not (v1.4.2)
-        const hit = pr.issues.find((i) => i.external_id === q.get('external_id') && i.external_source === q.get('external_source'));
-        if (!hit) reply(404, { error: 'The requested resource does not exist.' });
-        reply(200, ser(st, pr, hit, null));
-      }
-      const fields = q.get('fields') ? q.get('fields').split(',') : null;
-      const rows = pr.issues.filter((i) => !i.archived_at).map((i) => ser(st, pr, i, fields));
-      reply(200, page(rows));
-    }
-    if (!json.name) reply(400, { name: ['This field is required.'] });
-    const twin = json.external_id && pr.issues.find((i) => i.external_id === json.external_id && i.external_source === json.external_source);
-    if (twin) reply(409, { error: 'Issue with the same external id and external source already exists', id: twin.id });   // views/issue.py:467-496
-    const it = { id: uuid(st), project: pr.id, name: json.name, description_html: json.description_html || '<p></p>', priority: 'none', parent: null, labels: [], assignees: [],
-                 sort_order: 65535, external_source: json.external_source || null, external_id: json.external_id || null, archived_at: null, created_at: tick(), updated_at: tick(), completed_at: null };
-    it.sequence_id = pr.issues.reduce((m, i) => Math.max(m, i.sequence_id), 0) + 1;
-    const bad = write_issue(st, pr, it, json); if (bad) reply(400, bad);
-    if (json.archived_at) it.archived_at = json.archived_at;   // writable at the create, a date (serializers/issue.py:70-73, models/issue.py:160)
-    if (!it.state) it.state = (pr.states.find((s) => s.default) || pr.states[0]).id;
-    pr.issues.push(it); save(); reply(201, ser(st, pr, it));
-  }
-  const it = pr.issues.find((i) => i.id === p[5]);
-  if (!it) reply(404, { detail: 'Not found.' });
-  const sub = p[6];
-  if (!sub && it.archived_at) reply(404, { detail: 'Not found.' });   // views/issue.py:582-587: the same manager on the uuid read and write
-  if (!sub) {
-    if (method === 'PATCH') {
-      const was = it.state, bad = write_issue(st, pr, it, json); if (bad) reply(400, bad);
-      if (it.state !== was) pr.activities.push({ id: uuid(st), issue: it.id, field: 'state', old_identifier: was, new_identifier: it.state, created_at: tick() });
-      it.updated_at = tick(); save();
-    }
-    reply(200, ser(st, pr, it, null));
-  }
-  if (sub === 'comments') {
-    if (method === 'GET') reply(200, page(pr.comments.filter((c) => c.issue === it.id).map((c) => ({ ...c, actor: q.get('expand') === 'actor' ? st.users.find((u) => u.id === c.actor) : c.actor }))));
-    if (json.external_id && pr.comments.some((c) => c.external_id === json.external_id && c.external_source === json.external_source)) {
-      reply(409, { error: 'Issue comment with the same external id and external source already exists', id: pr.comments.find((c) => c.external_id === json.external_id && c.external_source === json.external_source).id });   // views/issue.py:1456-1478: per project, not per item
-    }
-    const c = { id: uuid(st), issue: it.id, comment_html: json.comment_html, created_at: json.created_at || tick(), actor: st.users[0].id, is_member: true,
-                external_source: json.external_source || null, external_id: json.external_id || null };   // created_at is read-only in the serializer and still taken (views/issue.py:1485)
-    pr.comments.push(c); save(); reply(201, c);
-  }
-  if (sub === 'activities') reply(200, page(pr.activities.filter((a) => a.issue === it.id)));
-  if (sub === 'relations' && what === 'work-items') {   // Plane 1.4 serves relations only under work-items/
-    if (method === 'GET') {
-      const mine = pr.relations.filter((r) => r.issue_id === it.id || r.related_issue_id === it.id);
-      const ref = (id) => ({ project_id: pr.id, issue_id: id });
-      reply(200, {
-        blocking: mine.filter((r) => r.relation_type === 'blocked_by' && r.related_issue_id === it.id).map((r) => ref(r.issue_id)),
-        blocked_by: mine.filter((r) => r.relation_type === 'blocked_by' && r.issue_id === it.id).map((r) => ref(r.related_issue_id)),
-        duplicate: mine.filter((r) => r.relation_type === 'duplicate').map((r) => ref(r.issue_id === it.id ? r.related_issue_id : r.issue_id)),
-        relates_to: [], start_after: [], start_before: [], finish_after: [], finish_before: [] });
-    }
-    for (const other of json.issues) pr.relations.push({ issue_id: it.id, related_issue_id: other, relation_type: json.relation_type });
-    save(); reply(201, json.issues.map((o) => ({ id: o, relation_type: json.relation_type })));
-  }
-  reply(404, { detail: 'Not found.' });
-}
-
-// the serializer of IssueSerializer.create/update: ids, with a label of another project dropped without a word, and an assignee who is not
-// an active member of the project with a role of 15 or more too (validate() of serializers/issue.py at v1.4.2; a member without a role has 15)
-function write_issue(st, pr, it, j) {
-  if (j.name !== undefined) it.name = j.name;
-  if (j.description_html !== undefined) it.description_html = j.description_html;
-  if (j.sort_order !== undefined) it.sort_order = j.sort_order;
-  if (j.priority !== undefined) { if (!['urgent', 'high', 'medium', 'low', 'none'].includes(j.priority)) return { priority: ['not a valid choice'] }; it.priority = j.priority; }
-  if (j.state !== undefined) {
-    const s = pr.states.find((x) => x.id === j.state);
-    if (!s) return ['State is not valid please pass a valid state_id'];
-    it.state = s.id; it.completed_at = s.group === 'completed' ? new Date().toISOString() : null;
-  }
-  if (j.parent !== undefined) { if (j.parent !== null && !pr.issues.some((i) => i.id === j.parent)) return ['Parent is not valid issue_id please pass a valid issue_id']; it.parent = j.parent; }
-  if (j.labels !== undefined) it.labels = j.labels.filter((l) => pr.labels.some((x) => x.id === l && x.name !== process.env.CURL_FAKE_DROP_LABEL));   // CURL_FAKE_DROP_LABEL: a write that answers well and keeps that label out
-  if (j.assignees !== undefined) it.assignees = j.assignees.filter((a) => pr.members.some((m) => m.user === a && m.is_active && (m.role ?? 15) >= 15) && !process.env.CURL_FAKE_DROP_ASSIGNEE);   // CURL_FAKE_DROP_ASSIGNEE: a write that answers well and keeps no assignee
-  return null;
-}
-
-function ser(st, pr, it, fields = null) {
-  const expand = (q.get('expand') || '').split(',');
-  const o = { ...it };
-  if (expand.includes('state')) o.state = pr.states.find((s) => s.id === it.state) && (({ id, name, color, group }) => ({ id, name, color, group }))(pr.states.find((s) => s.id === it.state));
-  if (expand.includes('labels')) o.labels = it.labels.map((l) => pr.labels.find((x) => x.id === l)).filter(Boolean);
-  if (expand.includes('assignees')) o.assignees = it.assignees.map((a) => st.users.find((u) => u.id === a));
-  if (expand.includes('parent') && !it.parent) o.parent = {}; // Plane answers an empty object, not null, for a work item without a parent
-  if (expand.includes('parent') && it.parent) { const par = pr.issues.find((i) => i.id === it.parent); o.parent = { id: par.id, sequence_id: par.sequence_id, project_id: pr.id }; }
-  if (fields) for (const k of Object.keys(o)) if (!fields.includes(k)) delete o[k];
-  return o;
-}
+if (url.hostname === 'forge.example.test' || url.hostname === '127.0.0.1') forgejo(); else reply(404, 'no such host');
 
 // --- Forgejo -------------------------------------------------------------------------------
 function forgejo() {

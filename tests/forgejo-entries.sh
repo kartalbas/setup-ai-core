@@ -23,7 +23,7 @@ cat > "$SHIM/node" <<EOS
 echo "\$*" >> "$WORK/node-calls.log"
 case "\$2" in
   --version) echo "ai-core forgejo tracker 9.9.9" ;;
-  issue-thread) printf '%s\n' '{"number":5,"title":"Example work","carriedFrom":null,"createdAt":"2026-01-01T00:00:00Z","state":"open","labels":["status/implementing"],"body":"Asked for by @someone on 2026-01-01 in the chat.","comments":[]}' ;;
+  issue-thread) printf '%s\n' '{"number":5,"title":"Example work","createdAt":"2026-01-01T00:00:00Z","state":"open","labels":["status/implementing"],"body":"Asked for by @someone on 2026-01-01 in the chat.","comments":[]}' ;;
   issue-mine) echo "example-org/shop#5 is assigned to @tester." ;;
   issue-comment) echo "https://forge.example.test/example-org/shop/issues/5#issuecomment-1" ;;
   issue-package) echo "example-org/shop#5 carries package/shop#5" ;;

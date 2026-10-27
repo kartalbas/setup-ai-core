@@ -43,7 +43,6 @@ export interface IssueComment {
 export interface Thread {
   readonly number: number;
   readonly title: string;
-  readonly carriedFrom: null;
   readonly createdAt: string;
   readonly state: IssueState;
   readonly labels: readonly string[];
@@ -186,7 +185,6 @@ export async function readThread(api: ForgejoClient, ref: IssueRef): Promise<Thr
   return {
     number: issue.ref.number,
     title: issue.title,
-    carriedFrom: null,
     createdAt: issue.createdAt,
     state: issue.state,
     labels: issue.labels,

@@ -300,14 +300,25 @@ your state is on the tracker, where `briefs/coordinator.md` reads it again. When
 One session per project files its issues: the issue keeper, the model-table phase `keeper`. A plan,
 a plan check, a build, a review or a UI test that finds a defect outside its work files no issue; it
 writes a `KEEPER: <repo> <file:line> <state>` line in its section, its verdict or its report, and
-the keeper puts it into what exists: a comment on the issue it fits, a sub-issue of the epic it fits,
-or, where it fits nothing, a question to the owner. A new issue or epic comes only after his yes. After a
+the keeper puts it into what exists: a comment on the issue it fits, a proposed sub-issue of the epic it fits,
+or, where it fits nothing, a question to the owner. A new issue or epic comes only after his yes,
+except the share of a plan's `KEEPER: re-cut` line that the keeper verifies an issue already holds,
+which it splits off or merges itself without adding work. After a
 landing, the keeper also rewrites the facts of every open issue whose named `file:line` spans the
 landing moved, and writes on the issue what it changed and why.
 Your own `ai-core issue-new`, for the plan issue (`briefs/coordinator.md`), stays. A build report's
 and a UI test result's `KEEPER:` lines do not stand on the plan issue: copy them, each with the
 session that wrote it, into your comment that answers that report or result there, so that a
 restart reads every line that waits for a keeper on the plan issue (`briefs/coordinator.md`).
+
+Before a build starts, every re-cut affecting its section must be complete. Hand the section's
+`KEEPER: re-cut` lines to the keeper with the other `KEEPER:` lines; copies in a plan-check verdict
+name the same request, so hand each request over once. After its report, replace the affected
+sections with the resulting issue numbers and criteria, remove completed re-cut requests, update
+`Issues:` and `Checks:` there, and update the package members through `ai-core issue-package`. The plan check
+reads those sections against the updated issues before the build. A `BLOCKED` re-cut goes back to
+the planner; an `OWNER:` line waits for the owner's answer. A `LANDING NEEDED` line goes through
+the tracker's normal completion of the recorded landing, without `--part`, before proof is due.
 
 When a round finds `KEEPER:` lines that no `KEEPER round` line holds, or a merge commit of a `LAND`
 line that no `KEEPER round` line names as landed, collect them all and start one keeper for them, because two keepers at once could file the same
@@ -327,4 +338,4 @@ his answers to earlier ones. Its report is a comment on the plan issue. Post
 and end the session. Each `OWNER:` line of the report goes into the owner's next block as the
 question it is. On his yes, the next keeper gets the finding with his answer and files it; on his no
 it is dropped. The keeper moves no card other than as its brief says and rewrites an issue only after a
-landing moved the facts it names.
+landing moved the facts it names or a validated re-cut moves its existing criteria.

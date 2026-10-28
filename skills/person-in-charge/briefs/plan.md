@@ -60,7 +60,11 @@ with it runs before or after it.
    code and contracts again and pays its whole context. Split only where the build would not fit its
    context budget (300k, 250k in Codex): one section per part, named `<area>: <part>`, in landing
    order, each later part naming the earlier one in its `After:` line, so it is built on what that
-   part landed. Write in `Cut:` why you cut the way you did and where the risk lies.
+   part landed. Write in `Cut:` why you cut the way you did and where the risk lies. Then check each
+   issue against the cut, because an issue lands whole in one package. Where a later package or part must finish some of an issue's criteria, write
+   `KEEPER: re-cut split <repo>#<n>: <the share the later one carries, its criteria> -> <that package>`;
+   where issues always land together (one commit, or one capability that closes together), write
+   `KEEPER: re-cut merge <repo>#<n> into <repo>#<m>`. The issue keeper carries both out.
 5. Collect what the later phases need from the acceptance criteria: the verification command of each
    clone (its map, its `README` or its `scripts/`), the test and production environments the criteria
    name with their URLs, the demo account where a check needs one, and the clicks each promise takes.
@@ -91,7 +95,12 @@ with it runs before or after it.
     Environment: test <URL>; production <URL>; demo account: <login or none>
     Checks: <repo>#<n>: <URL path>, <click>, <what to read>; ...
     Waits for the owner: <repo>#<n> <the decision> | none
-    KEEPER: <repo>#<n> <what it lacks>; <repo> <file:line> <a defect outside the package's files and contracts> | none
+    KEEPER: <repo>#<n> <what it lacks>
+    KEEPER: <repo> <file:line> <a defect outside the package's files and contracts>
+    KEEPER: re-cut split <repo>#<n>: <share and existing criteria> -> <package>
+    KEEPER: re-cut merge <repo>#<n> into <repo>#<m>
+
+Write each keeper item on its own line, using the matching form; write `KEEPER: none` when none applies.
 
 The `Setup:` line is how the plan chooses the model, effort and context budget of the sessions that
 build, review and UI-test the package; `none` leaves every phase on the row of `.ai-core/models.tsv`.

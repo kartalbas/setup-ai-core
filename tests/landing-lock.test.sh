@@ -239,17 +239,33 @@ pids=""; for n in 11 12 13; do ( landing "$n"; echo $? > "$rcs.$n" ) & pids="$pi
 wait $pids
 check 'the three landings all took the lock and gave it up' '0 0 0' "$(cat "$rcs.11") $(cat "$rcs.12") $(cat "$rcs.13")"
 check 'and each recorded its hold of at least 4 seconds, in whole seconds from its take to its release' 3 "$(awk -F'\t' '$5 == "landing lock" && $6 >= 4' "$log" | wc -l | tr -d ' ')"
-echo 'planted: a deadline counted from the start of the wait stops the third landing'
+echo 'planted: a deadline counted from the start of the wait stops a landing that waits for several holders in turn'
 sed -e 's/^      holder_since="\$(landing_lock_field "\$holder" 4)"$/      holder_since=""/' -e 's/if \[ "\$holder_pid:\$holder_since" != "\$seen" \]; then$/if [ -z "$seen" ]; then/' "$lib" > "$fake/planted-deadline.sh"
 mkdir -p "$fake/planted-start"; cp "$root/lib/"*.sh "$fake/planted-start/"; cp "$fake/planted-deadline.sh" "$fake/planted-start/landing-lock.sh"
 cmp -s "$lib" "$fake/planted-start/landing-lock.sh" && { echo "  FAIL the planted copy equals lib/landing-lock.sh"; failed=$((failed + 1)); }
 log_of "$(row "$now" $repository 'landing lock' 3)" "$(row "$now" $repository green 3)"
-planted_lib="$fake/planted-start/landing-lock.sh"
-landing_planted() { bash -c 'bash "$0" take "$1" "$$" "$2" "$3" >/dev/null 2>&1 || exit 1; sleep 4; bash "$0" release "$1" "$$"' "$planted_lib" "$clone" "$repository#$1" "issue-$1-landing"; }
-rm -f "$rcs".*
-pids=""; for n in 11 12 13; do ( landing_planted "$n"; echo $? > "$rcs.$n" ) & pids="$pids $!"; done
-wait $pids
-check 'planted: one of the three stops at the deadline of its first wait' yes "$(cat "$rcs".11 "$rcs".12 "$rcs".13 | grep -q '^1$' && echo yes || echo no)"
+# behind_holders <library>: prints the exit of one landing of that library behind a lock that names no time, handed, once
+# that landing has seen it, to three holders in turn for 3 seconds each against the allowance of 5. The holds start at the
+# landing's first sight, so a landing that starts late on a loaded machine waits as long as one that starts at once.
+behind_holders() {
+  local first second third fourth waiter n next
+  sleep 60 & first=$!; sleep 60 & second=$!; sleep 60 & third=$!; sleep 60 & fourth=$!
+  rm -f "$fake/behind.out" "$fake/behind.rc"
+  printf '%s\t%s\t%s\n' "$first" "$repository#20" issue-20-older > "$lock"
+  ( timeout 60 bash "$1" take "$clone" "$$" "$repository#24" issue-24-behind > "$fake/behind.out" 2>&1; echo $? > "$fake/behind.rc" ) & waiter=$!
+  for n in $(seq 300); do grep -q '^waiting: ' "$fake/behind.out" 2>/dev/null && break; sleep 0.1; done
+  for next in "$second" "$third" "$fourth"; do
+    printf '%s\t%s\t%s\t%s\t%s\n' "$next" "$repository#$next" "issue-$next-holder" "$(date +%s)" "$repository" > "$lock.next" && mv "$lock.next" "$lock"
+    sleep 3
+  done
+  rm -f "$lock"
+  wait "$waiter"
+  rm -f "$lock"
+  kill "$first" "$second" "$third" "$fourth" 2>/dev/null; wait "$first" "$second" "$third" "$fourth" 2>/dev/null
+  cat "$fake/behind.rc"
+}
+check 'innocent: lib/landing-lock.sh waits for each of the holders in turn and takes the lock: exit 0' 0 "$(behind_holders "$lib")"
+check 'planted: the copy that counts from the start of the wait stops at the deadline of its first wait: exit 1' 1 "$(behind_holders "$fake/planted-start/landing-lock.sh")"
 rm -f "$lock"
 
 echo 'a lock whose process is gone is taken over'

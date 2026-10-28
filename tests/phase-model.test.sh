@@ -37,25 +37,83 @@ const select=(args,expected)=>{const r=run(args);assert.equal(r.status,0,r.stder
 const deny=(args,pattern)=>{const r=run(args);assert.equal(r.status,2,r.stdout+r.stderr);assert.equal(r.stdout,'');assert.match(r.stderr,pattern);return r;};
 check('native selection without policy keeps declared rows and records no order',()=>{select(['build','high-risk'],'claude claude-sonnet-5-5 xhigh');assert.equal(records().at(-1).order,null);});
 check('the keeper phase has its row on the table and phase-model accepts its word, while a misspelled word is still refused',()=>{select(['keeper','normal-hard'],'claude claude-opus-5-5 high');select(['keeper','high-risk'],'claude claude-opus-5-5 high');deny(['keepers','normal-hard'],/unknown phase: keepers/);});
-check('a Claude plan and re-plan route to Codex Astra, the plan check stays on Opus, and a Codex at its limit refuses the plan instead of falling to Fable',()=>{
+const setQuota=(tool,code)=>fs.writeFileSync(path.join(quota,tool),String(code));
+check('a Claude plan and re-plan route to Codex Astra and the plan check stays on Opus',()=>{
   const tuples=[[['plan','normal-hard'],'codex gpt-6-astra xhigh'],[['plan','high-risk'],'codex gpt-6-astra max'],[['re-plan','normal-hard'],'codex gpt-6-astra xhigh'],[['re-plan','high-risk'],'codex gpt-6-astra max'],[['plan-check','normal-hard','--written-by','gpt-6-astra'],'claude claude-opus-5-5 high']];
   for(const [args,expected] of tuples)select(args,expected);
   assert.equal(records().at(-1).order,null);
+});
+check('a Codex at its limit passes Astra and the plan and re-plan fall to Fable at the effort of the Astra row, and Astra answers again once Codex is back',()=>{
+  const fable=[[['plan','normal-hard'],'claude claude-fable-5-1 xhigh'],[['plan','high-risk'],'claude claude-fable-5-1 max'],[['re-plan','normal-hard'],'claude claude-fable-5-1 xhigh'],[['re-plan','high-risk'],'claude claude-fable-5-1 max']];
   for(const code of [3,4]){
-    fs.writeFileSync(path.join(quota,'codex'),String(code));
-    const refused=deny(['plan','normal-hard'],/codex/);
-    assert.doesNotMatch(refused.stderr,/fable/i);
-    assert.equal(records().at(-1).selected,null);
+    setQuota('codex',code);
+    for(const [args,expected] of fable)select(args,expected);
+    const d=records().at(-1);
+    assert.deepEqual(d.reasons.map(r=>[r.tool,r.exit]),[['codex',code],['claude',0]]);
+    assert.match(d.reasons[0].reason,/row codex:gpt-6-astra: .*exit/);
+    assert.match(d.reasons[1].reason,/row claude-fable-5-1: /);
+    assert.deepEqual(d.selected,{tool:'claude',model:'claude-fable-5-1',effort:'max'});
   }
-  fs.writeFileSync(path.join(quota,'codex'),'0');
-  const tablePath=path.join(source,'templates/.ai-core/models.tsv'), good=fs.readFileSync(tablePath,'utf8');
-  fs.writeFileSync(tablePath,good.replace('claude\tplan\tnormal-hard\tcodex:gpt-6-astra\txhigh','claude\tplan\tnormal-hard\tclaude-fable-5-1\txhigh'));
-  assert.notEqual(fs.readFileSync(tablePath,'utf8'),good);
+  setQuota('codex',0);
+  select(['plan','normal-hard'],'codex gpt-6-astra xhigh');
+  assert.equal(records().at(-1).reasons.length,1);
+});
+check('a writer that is the first row model selects the second row, and a Fable at its limit too leaves nothing eligible',()=>{
+  select(['plan','normal-hard','--written-by','gpt-6-astra'],'claude claude-fable-5-1 xhigh');
+  const d=records().at(-1);
+  assert.match(d.reasons[0].reason,/row codex:gpt-6-astra: writer model gpt-6-astra is not independent/);
+  assert.equal(d.reasons.length,2);
+  select(['plan','normal-hard','--written-by','claude-fable-5-1'],'codex gpt-6-astra xhigh');
+  setQuota('codex',3);setQuota('claude',3);
+  deny(['plan','normal-hard'],/no eligible tool for plan normal-hard[\s\S]*row codex:gpt-6-astra[\s\S]*row claude-fable-5-1/);
+  setQuota('codex',0);setQuota('claude',0);
+});
+check('with a saved order the Astra row of the claude tool is not an execution tool, and its Fable row runs',()=>{
+  order(['claude']);
+  select(['plan','normal-hard'],'claude claude-fable-5-1 xhigh');
+  assert.match(records().at(-1).reasons[0].reason,/row codex:gpt-6-astra routes to codex/);
+  order(['codex','claude']);setQuota('codex',3);
+  select(['re-plan','high-risk'],'claude claude-fable-5-1 max');
+  assert.deepEqual(records().at(-1).reasons.map(r=>r.tool),['codex','claude','claude']);
+  setQuota('codex',0);
+  select(['re-plan','high-risk'],'codex gpt-6-astra max');
+  fs.unlinkSync(orderFile);
+});
+check('several rows of a tool are tried in table order, the first eligible answers, and a tool with one row is unchanged',()=>{
+  table([['claude','build','normal-hard','first','high'],['claude','build','normal-hard','second','low'],['claude','build','*','wild','max']]);
+  select(['build','normal-hard'],'claude first high');
+  assert.equal(records().at(-1).reasons.length,1);
+  select(['build','normal-hard','--written-by','first'],'claude second low');
+  select(['build','high-risk'],'claude wild max');
+  table([['claude','build','*','wildfirst','max'],['claude','build','*','wildsecond','low']]);
+  select(['build','normal-hard'],'claude wildfirst max');
+  table([['claude','build','normal-hard','first','high'],['claude','build','*','wild','max']]);
+  deny(['build','normal-hard','--written-by','first'],/no eligible tool for build normal-hard/);
+});
+check('a route goes to the row of its destination tool that names its model, with that row\'s effort, not to the first row',()=>{
+  table([['claude','build','normal-hard','codex:second','high'],['codex','build','normal-hard','first','low'],['codex','build','normal-hard','second','max']]);
+  select(['build','normal-hard'],'codex second max');
+});
+check('two rows equal in all five fields are refused as ambiguous, and rows that differ in the effort only are not',()=>{
+  table([['claude','build','normal-hard','same','high'],['claude','build','normal-hard','same','high']]);
+  deny(['build','normal-hard'],/ambiguous models.tsv rows/);
+  table([['claude','build','*','same','high'],['claude','build','*','same','high']]);
+  deny(['build','normal-hard'],/ambiguous models.tsv rows/);
+  table([['claude','build','normal-hard','same','high'],['claude','build','normal-hard','same','low']]);
+  select(['build','normal-hard'],'claude same high');
+});
+check('planted lookup that takes the last row instead of the first turns the order checks red',()=>{
+  const script=path.join(source,'lib/tool-order.sh'), good=fs.readFileSync(script,'utf8');
+  const planted=good.replace('for (i = 1; i <= exactCount; i++) print exact[i]','for (i = exactCount; i >= 1; i--) print exact[i]');
+  assert.notEqual(planted,good);
+  fs.writeFileSync(script,planted);
+  fs.unlinkSync(path.join(project,'.ai-core/models.tsv'));
   assert.throws(()=>select(['plan','normal-hard'],'codex gpt-6-astra xhigh'));
-  fs.writeFileSync(path.join(quota,'codex'),'3');
-  assert.throws(()=>deny(['plan','normal-hard'],/codex/));
-  fs.writeFileSync(path.join(quota,'codex'),'0');
-  fs.writeFileSync(tablePath,good);
+  table([['claude','build','normal-hard','first','high'],['claude','build','normal-hard','second','low']]);
+  assert.throws(()=>select(['build','normal-hard'],'claude first high'));
+  fs.writeFileSync(script,good);
+  select(['build','normal-hard'],'claude first high');
+  fs.unlinkSync(path.join(project,'.ai-core/models.tsv'));
   select(['plan','normal-hard'],'codex gpt-6-astra xhigh');
 });
 order();

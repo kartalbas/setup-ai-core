@@ -155,6 +155,17 @@ setup "$(jq -cn --argjson b "$(entry claude-haiku-5-5 max 60000)" '{"ui-test":{c
 selection ui-test high-risk --setup-file "$WORK/setup.json"
 expect 'a ui-test entry on the row of its class (innocent)' 0 'claude claude-haiku-5-5 max'
 
+section "a tool with several rows for the class holds its Setup to the first row"
+two_row_table() { printf 'claude\tbuild\t*\tclaude-sonnet-5-5\thigh\nclaude\tui-test\tnormal-hard\tclaude-haiku-5-5\thigh\nclaude\tui-test\tnormal-hard\tclaude-haiku-5-5\tmax\n' > "$PROJECT/.ai-core/models.tsv"; }
+two_row_table
+setup "$(jq -cn --argjson b "$(entry claude-haiku-5-5 high 60000)" '{"ui-test":{claude:$b}}')"
+selection ui-test normal-hard --setup-file "$WORK/setup.json"
+expect 'a ui-test entry on the first row (innocent)' 0 'claude claude-haiku-5-5 high'
+setup "$(jq -cn --argjson b "$(entry claude-haiku-5-5 max 60000)" '{"ui-test":{claude:$b}}')"
+selection ui-test normal-hard --setup-file "$WORK/setup.json"
+refused 'a ui-test entry on the second row' 'for normal-hard it is the row of the table, claude-haiku-5-5 high, not claude-haiku-5-5 max'
+rm -f "$PROJECT/.ai-core/models.tsv"
+
 section "the shape of an entry"
 bad() {  # bad <name> <jq filter on a valid entry> <reason>
   setup "$(jq -cn --argjson b "$(entry claude-sonnet-5-5 xhigh 100000 | jq -c "$2")" '{build:{claude:$b}}')"
@@ -231,6 +242,11 @@ order agy
 setup "$(jq -cn --argjson b "$(entry claude-sonnet-5-5-high - 60000)" '{"ui-test":{agy:$b}}')"; selection ui-test high-risk --setup-file "$WORK/setup.json"
 [ "$rc" = 0 ] || fail "a Setup that lets a tool run any class refused agy for a high-risk UI test: $err"
 order claude
+two_row_table
+plant 'the lookup of a row takes the last of its rows' 's|rows%%[$]'"'"'\\n'"'"'[*]|rows##*$'"'"'\\n'"'"'|'
+setup "$(jq -cn --argjson b "$(entry claude-haiku-5-5 max 60000)" '{"ui-test":{claude:$b}}')"; selection ui-test normal-hard --setup-file "$WORK/setup.json"
+[ "$rc" = 0 ] || fail "a lookup that takes the last row refused an entry on the second row: $err"
+rm -f "$PROJECT/.ai-core/models.tsv"
 plant 'a second value is allowed' 's/if length != 1 then error/if false then error/'
 two_setups; selection build normal-hard --setup-file "$WORK/setup.json"
 [ "$rc" = 0 ] || fail "a Setup check that allows a second value refused two objects: $err"

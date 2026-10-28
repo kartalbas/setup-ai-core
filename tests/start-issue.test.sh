@@ -563,6 +563,15 @@ check 'source caller names the workflow' yes "$(grep -qF 'Harness source worktre
 source_tree="$(git -C "$source_work" worktree list --porcelain | sed -n 's/^worktree //p' | tail -1)"
 check 'source tree has no assembly' no "$([ -e "$source_tree/.ai-core" ] && echo yes || echo no)"
 check 'source tree has no product map' no "$([ -e "$source_tree/AGENTS.md" ] && echo yes || echo no)"
+check 'source tree has the commit-msg hook' yes "$([ -x "$source_tree/.githooks/commit-msg" ] && echo yes || echo no)"
+check 'the hook stays out of every commit' yes "$(git -C "$source_tree" check-ignore -q .githooks/commit-msg && echo yes || echo no)"
+check 'the tree stays clean'             '' "$(git -C "$source_tree" status --porcelain)"
+long_subject="$(printf 'x%.0s' $(seq 1 73))"
+out="$(cd "$source_tree" && PATH="$root/bin:$PATH" git commit -q --allow-empty -m "$long_subject" 2>&1)"; rc=$?
+check 'a subject of 73 characters is refused at the commit' 1 "$rc"
+check 'the hook names the refusal'       yes "$(grep -q '^commit-msg: REFUSED' <<< "$out" && echo yes || echo no)"
+out="$(cd "$source_tree" && PATH="$root/bin:$PATH" git commit -q --allow-empty -m 'Keep a short subject #173' 2>&1)"; rc=$?
+check 'a short subject is taken'         0 "$rc"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

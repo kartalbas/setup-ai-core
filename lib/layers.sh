@@ -63,6 +63,20 @@ harness_source_of() {
   printf '%s/%s\n' "${parts%%	*}" "$repo"
 }
 
+# arm_message_hook <tree> <setup-ai-core root>: a harness source is never assembled by init, so the
+# commit-msg hook init deploys beside the push gate is written here, untracked and in the clone's own
+# exclude file, unless the repository commits its own; prints written, unchanged or tracked.
+arm_message_hook() {
+  local tree="$1" template="$2/templates/.githooks/commit-msg" exclude
+  if git -C "$tree" ls-files --error-unmatch .githooks/commit-msg >/dev/null 2>&1; then echo tracked; return 0; fi
+  exclude="$(cd "$tree" && git rev-parse --git-path info/exclude)" || return 1
+  case "$exclude" in /*|[A-Za-z]:*) ;; *) exclude="$tree/$exclude" ;; esac
+  grep -qxF '/.githooks/commit-msg' "$exclude" 2>/dev/null || printf '%s\n' '/.githooks/commit-msg' >> "$exclude" || return 1
+  if cmp -s "$template" "$tree/.githooks/commit-msg" && [ -x "$tree/.githooks/commit-msg" ]; then echo unchanged; return 0; fi
+  mkdir -p "$tree/.githooks" && cp "$template" "$tree/.githooks/commit-msg" && chmod 755 "$tree/.githooks/commit-msg" || return 1
+  echo written
+}
+
 # source_rule_dirs <checkout> <setup-ai-core root>: validate local source inputs, base first.
 # Resolving a source must never clone, pull, assemble, or repair it while checking readiness.
 source_rule_dirs() {

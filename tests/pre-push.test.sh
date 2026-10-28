@@ -1525,6 +1525,27 @@ git -C "$real_gate" commit -q --allow-empty -m 'A plain push of the default bran
 out="$( cd "$real_gate" && PATH="$root/bin:$PATH" git push origin HEAD:master 2>&1 )"; rc=$?
 check 'a plain push there: exit 1'    1 "$rc"
 check 'it names integrate-issue'      yes "$(grep -q 'master takes no plain push' <<< "$out" && echo yes || echo no)"
+echo '--install in a harness source writes the commit-msg hook that init never gives it, untracked, in its checkout and its worktrees'
+hs_origin="$fake/github.com/example-org/shop-ai-core.git"; mkdir -p "$(dirname "$hs_origin")"; git init -q --bare -b master "$hs_origin"
+hs="$fake/hs/shop-ai-core"; mkdir -p "$(dirname "$hs")"; git init -q -b master "$hs"
+git -C "$hs" config user.email 'test@example.invalid'; git -C "$hs" config user.name 'test'
+printf 'a\n' > "$hs/a.txt"; git -C "$hs" add -A; git -C "$hs" commit -q -m 'Start #14'
+git -C "$hs" remote add origin "$hs_origin"; git -C "$hs" push -q -u origin master 2>/dev/null
+git -C "$hs" worktree add -q -b issue-15-open "$fake/hs/issue-15-open" 2>/dev/null
+out="$( cd "$hs" && PATH="$root/bin:$PATH" FORGE=github bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?
+check 'exit 0'                        0 "$rc"
+check 'it names the hook'             yes "$(grep -q '^pre-push: shop-ai-core: .githooks/commit-msg written$' <<< "$out" && echo yes || echo no)"
+check 'the checkout has it, executable' yes "$([ -x "$hs/.githooks/commit-msg" ] && echo yes || echo no)"
+check 'the worktree has it too'       yes "$([ -x "$fake/hs/issue-15-open/.githooks/commit-msg" ] && echo yes || echo no)"
+check 'it is the template'            yes "$(cmp -s "$root/templates/.githooks/commit-msg" "$hs/.githooks/commit-msg" && echo yes || echo no)"
+check 'no commit carries it'          '' "$(git -C "$hs" log --all --format= --name-only -- .githooks/commit-msg)"
+check 'git ignores it in the worktree' yes "$(git -C "$fake/hs/issue-15-open" check-ignore -q .githooks/commit-msg && echo yes || echo no)"
+out="$( cd "$fake/hs/issue-15-open" && PATH="$root/bin:$PATH" git commit -q --allow-empty -m "$(printf 'y%.0s' $(seq 1 73))" 2>&1 )"; rc=$?
+check 'a subject of 73 characters is refused at the commit' 1 "$rc"
+out="$( cd "$hs" && PATH="$root/bin:$PATH" FORGE=github bash "$root/bin/pre-push.sh" --install 2>&1 )"
+check 'a second run: unchanged'       yes "$(grep -q '^pre-push: shop-ai-core: .githooks/commit-msg unchanged$' <<< "$out" && echo yes || echo no)"
+check 'one exclude line, not two'     1 "$(grep -cxF '/.githooks/commit-msg' "$(git -C "$hs" rev-parse --path-format=absolute --git-common-dir)/info/exclude")"
+check 'a product checkout gets no such line' no "$(grep -q 'commit-msg' <<< "$( cd "$real_gate" && PATH="$root/bin:$PATH" bash "$root/bin/pre-push.sh" --install 2>&1 )" && echo yes || echo no)"
 echo 'a second --install, its shims unchanged, carries no commit of somebody else under its mark: the gate refuses that push as a plain one'
 plain_tip="$(git -C "$real_gate" rev-parse HEAD)"; origin_before="$(git -C "$real_origin" rev-parse master)"
 out="$( cd "$real_gate" && PATH="$root/bin:$PATH" bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?

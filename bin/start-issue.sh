@@ -182,6 +182,8 @@ released_repo="$(resolve_repo "")" && sync_released_cards "$released_repo" ${rep
 
 # Products need the checkout's assembled rules; sources read their own rule inputs instead.
 if harness_source_of "$path" >/dev/null; then
+  arm_message_hook "$path" "$ROOT" >/dev/null \
+    || echo "the commit-msg hook is NOT written in the worktree, so a message is judged only at the push" >&2
   echo "Harness source worktree: run ai-core session-start and read its source rules."
 else
   bash "$ROOT/bin/init.sh" "$path" --no-doctor \

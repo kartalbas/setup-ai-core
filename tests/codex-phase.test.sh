@@ -109,6 +109,8 @@ for(const tool of ['claude','codex','agy'])if(!read('templates/.ai-core/models.t
 contains(base+'SKILL.md',"goes back to `implementing`, with the SEEN text as a new acceptance criterion on that same issue");
 contains(base+'SKILL.md',"A `type:bug` issue opens only for what the card's own criteria do not cover");
 contains(base+'briefs/ui-test.md',"A FAIL of a card's own promise is that card's FAIL, not a new defect.");
+contains(base+'briefs/ui-test.md',"Every page you open also gets one screenshot of what is visible");
+contains(base+'briefs/ui-test.md',"more than one item of a menu or a tree drawn as the current one");
 contains(base+'briefs/coordinator.md',"One defect is one issue, in the repository that owns it");
 contains(base+'briefs/clearing.md',"→ testing, unless a UI test said FAIL after its `Landed on` record");
 contains(base+'briefs/clearing.md',"landed, a UI test said FAIL → a build session (briefs/build.md)");

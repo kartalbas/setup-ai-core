@@ -991,6 +991,55 @@ describe('integrate-issue', () => {
         }
       });
 
+      // A harness whose first take of the lock comes after a holder pushed to the default branch, as a landing that waited does.
+      const holderLandedFirst = (world: World, number: number): RecordingHarness => {
+        let held = false;
+        return Object.assign(createRecordingHarness(), {
+          takeLandingLock: () => {
+            if (!held) {
+              held = true;
+              git(world.second, 'pull', '-q', '--rebase', 'origin', 'master');
+              fixture.commit(world.second, `held-${number}.txt`, 'landed by the holder\n');
+              git(world.second, 'push', '-q', 'origin', 'HEAD:master');
+            }
+            return Promise.resolve({ succeeded: true, output: '' });
+          },
+        });
+      };
+      const landAfterHolder = async (run: typeof integrateIssue.run, title: string): Promise<{ outcome: Promise<{ stdout: string }>; number: number; counter: string }> => {
+        const { number, tree, head } = await worked(privateWorld, title);
+        const counter = join(scratch, `gate-runs-${number}`);
+        gateHook(privateWorld, counter, { moves: 0 });
+        return { number, counter, outcome: run(integrateArguments(privateWorld, number, head), ctx(tree, publicSettings, holderLandedFirst(privateWorld, number))) };
+      };
+
+      it('fetches the default branch only once it holds the landing lock, so it merges onto what the holder landed meanwhile and lands in the first round', async () => {
+        const landing = await landAfterHolder(integrateIssue.run, 'Waited for a holder that landed, so that one gate lands it');
+        try {
+          const result = await landing.outcome;
+          assert.equal(runsOf(landing.counter), 1, 'one gate ran');
+          assert.doesNotMatch(result.stdout, /landed in round/, 'the first round landed');
+          assert.equal(git(privateWorld.remote, 'log', '-1', '--format=%s', 'refs/heads/master^1'), `change held-${landing.number}.txt`, 'the merge was made on the landing of the holder');
+        } finally {
+          dropHook(privateWorld);
+        }
+      });
+
+      it('goes red where a round fetches before it takes the landing lock (planted in a copy of the tracker)', async () => {
+        const take = "    const taken = await context.harness.takeLandingLock(context.cwd, input.issue, input.units[0]?.branch ?? '', context.stderr);\n    if (!taken.succeeded) throw new PreconditionError(taken.output);\n";
+        const fetch = '      await context.git.fetchBranch(context.cwd, input.defaultBranch);\n';
+        const copy = plantedCopy([['commands/integrate-issue.mts', `${take}    try {\n${fetch}`, `${fetch}${take}    try {\n`]]);
+        const planted = (await import(pathToFileURL(join(copy, 'commands', 'integrate-issue.mts')).href)) as typeof integrateIssue;
+        const landing = await landAfterHolder(planted.run, 'Fetched before the lock, so that the first gate is thrown away');
+        try {
+          // A round that merged onto the tip it fetched before the wait finds the default branch moved and needs another round.
+          const inFirstRound = await landing.outcome.then((result) => !/landed in round/.test(result.stdout), () => false);
+          assert.equal(inFirstRound, false, 'the test above needs the fetch after the take');
+        } finally {
+          dropHook(privateWorld);
+        }
+      });
+
       it('gives the landing lock up where the push is refused by a red gate', async () => {
         const landing = await rounds(integrateIssue.run, 'Red, so that the push is refused', { moves: 0, red: true });
         try {

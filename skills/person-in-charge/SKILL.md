@@ -301,7 +301,9 @@ One session per project files its issues: the issue keeper, the model-table phas
 a plan check, a build, a review or a UI test that finds a defect outside its work files no issue; it
 writes a `KEEPER: <repo> <file:line> <state>` line in its section, its verdict or its report, and
 the keeper puts it into what exists: a comment on the issue it fits, a sub-issue of the epic it fits,
-or, where it fits nothing, a question to the owner. A new issue or epic comes only after his yes. After a
+or, where it fits nothing, a question to the owner. A new issue or epic comes only after his yes,
+except the share of a plan's `KEEPER: re-cut` line, which the keeper splits off or merges itself,
+because it moves work an issue already holds. After a
 landing, the keeper also rewrites the facts of every open issue whose named `file:line` spans the
 landing moved, and writes on the issue what it changed and why.
 Your own `ai-core issue-new`, for the plan issue (`briefs/coordinator.md`), stays. A build report's

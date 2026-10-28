@@ -27,7 +27,9 @@ names, the spans the facts and the contracts name.
    section does not name is a gap, naming the clone and its `file:line`.
 2. For every issue: can a build session start from its acceptance criteria and `file:line` facts,
    and finish the package, without asking? Does `Files:` hold every file the facts name? Name every
-   placeholder, contradiction, open question and scope beyond the issues.
+   placeholder, contradiction, open question and scope beyond the issues. Does each issue land whole
+   in this package? An issue whose criteria a later package or part must finish, or issues that
+   always land together, without a `KEEPER: re-cut` line for it, is a gap.
 3. For every contract: is the additive side ordered before the strict side? Does a test need a
    second repository checked out beside the first, and does the section say so?
 4. Is the class right? A touched contract outward (outward means an interface somebody outside the project uses (a public API, a published package, a customer's data format), never a contract between the project's own repositories), a secret, a payment or the push gate is

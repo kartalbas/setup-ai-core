@@ -13,8 +13,10 @@
   a session that finds an issue hands it to the project's issue keeper, which files it into what
   exists. An issue carries the full case, which is the context, the code facts as `file:line` and
   the acceptance criteria, under a title that names the action and its stake so it survives being
-  read alone in a list. Independent pieces are split into their own issues before any detail is refined. Epics and
-  the board belong to the trackers whose API carries them. Forgejo has no epics, and its API cannot
+  read alone in a list. Independent pieces are split into their own issues before any detail is
+  refined, and the plan of a package checks its issues again: each issue lands whole in one package,
+  issues that always land together become one, and a piece that a later package carries becomes its
+  own issue. Epics and the board belong to the trackers whose API carries them. Forgejo has no epics, and its API cannot
   create or move the cards of its projects, so there an issue's `status/` label holds its state. An epic,
   an issue with sub-issues, carries no work of its own, which goes into a sub-issue, and is never
   moved by hand: it stands in `implementing` once one sub-issue has started, in `testing` once all

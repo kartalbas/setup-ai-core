@@ -269,15 +269,23 @@ export function holdsNoLandedRecord(entries: readonly TimelineEntry[]): boolean 
   return !entries.some((entry) => entry.kind === 'comment' && LANDED_LINE.test(firstLine(entry.body)));
 }
 
-// The environments of LIVE_TAGS (`env=pattern` separated by spaces) whose pattern is the one given.
-export function environmentsWith(liveTags: string | undefined, pattern: string): string[] {
-  const environments: string[] = [];
-  for (const entry of (liveTags ?? '').split(/\s+/).filter((text) => text !== '')) {
+// The entries of LIVE_TAGS (`env=pattern` separated by spaces), each environment with its pattern.
+function readLiveTagsEntries(liveTags: string | undefined): { environment: string; pattern: string }[] {
+  return (liveTags ?? '').split(/\s+/).filter((text) => text !== '').map((entry) => {
     const equals = entry.indexOf('=');
     if (equals <= 0 || equals === entry.length - 1) throw new UsageError(`LIVE_TAGS has '${entry}' where env=pattern belongs`);
-    if (entry.slice(equals + 1) === pattern) environments.push(entry.slice(0, equals));
-  }
-  return environments;
+    return { environment: entry.slice(0, equals), pattern: entry.slice(equals + 1) };
+  });
+}
+
+// Every environment LIVE_TAGS names, as it spells them.
+export function environmentNames(liveTags: string | undefined): string[] {
+  return readLiveTagsEntries(liveTags).map(({ environment }) => environment);
+}
+
+// The environments of LIVE_TAGS whose pattern is the one given.
+export function environmentsWith(liveTags: string | undefined, pattern: string): string[] {
+  return readLiveTagsEntries(liveTags).filter((entry) => entry.pattern === pattern).map(({ environment }) => environment);
 }
 
 // The environments whose pattern is `landed`: there the landing is the delivery.

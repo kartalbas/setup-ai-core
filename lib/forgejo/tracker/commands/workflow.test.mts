@@ -1848,6 +1848,40 @@ describe('issue-proof and the close as completed', () => {
     assert.equal(fake.readIssue('o/r', number).state, 'closed');
   });
 
+  it('refuses an environment that no LIVE_TAGS names before it writes, keeps the letter case, and proves the spelled one (planted: PROD against prod=landed)', async () => {
+    const { number, tree, head } = await worked(main, 'Environment spelled in capitals, so that the refusal names the setting');
+    await integrateIssue.run(integrateArguments(main, number, head), ctx(tree));
+    const before = writesOf();
+
+    await assert.rejects(issueProof.run(proofArguments(number, 'PROD'), ctx(main.checkout, { liveTags: 'prod=landed test=deploy/test/*' })), (error: unknown) => error instanceof PreconditionError && /no landed repository of o\/r#\d+ names the environment PROD in its LIVE_TAGS: o\/r names prod, test/.test(error.message) && !error.message.includes('release'));
+
+    assert.equal(writesOf(), before);
+    assert.equal(fake.readIssue('o/r', number).state, 'open');
+    await issueProof.run(proofArguments(number, 'prod'), ctx(main.checkout, { liveTags: 'prod=landed test=deploy/test/*' }));
+    assert.equal(fake.readIssue('o/r', number).state, 'closed');
+  });
+
+  it('proves with an environment that LIVE_TAGS spells in capitals, and refuses its lower case', async () => {
+    const { number, tree, head } = await worked(main, 'Environment spelled in capitals by the repository, so that its own spelling proves');
+    await integrateIssue.run(integrateArguments(main, number, head), ctx(tree));
+    await assert.rejects(issueProof.run(proofArguments(number, 'prod'), ctx(main.checkout, { liveTags: 'PROD=landed' })), /names the environment prod in its LIVE_TAGS: o\/r names PROD/);
+    await issueProof.run(proofArguments(number, 'PROD'), ctx(main.checkout, { liveTags: 'PROD=landed' }));
+    assert.equal(fake.readIssue('o/r', number).comments.at(-1), 'Proven on PROD:\n\nOpened the page and saw the change work.\n');
+  });
+
+  it('names the environments of every landed repository, each with its repository, and checks none of a repository without LIVE_TAGS', async () => {
+    const { number } = await delivered('Landed in two repositories, so that the refusal lists both');
+    fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'sibling' }, reviewedHead: 'a'.repeat(40), landedCommit: 'b'.repeat(40), reviewers: ['alice'] }, { owner: 'o', repo: 'r' }));
+    mkdirSync(join(sibling.checkout, '.ai-core'), { recursive: true });
+    writeFileSync(join(sibling.checkout, '.ai-core', 'config.env'), 'LIVE_TAGS="prod=landed"\n');
+    const harness = liveTagsHarness();
+
+    await assert.rejects(issueProof.run(proofArguments(number, 'PROD'), ctx(main.checkout, { liveTags: 'prod=deploy/prod/*' }, harness)), /names the environment PROD in its LIVE_TAGS: o\/r names prod; o\/sibling names prod;/);
+    await assert.rejects(issueProof.run(proofArguments(number, 'PROD'), ctx(main.checkout, {}, liveTagsHarness())), /names the environment PROD in its LIVE_TAGS: o\/sibling names prod;/);
+    await issueProof.run(proofArguments(number, 'prod'), ctx(main.checkout, {}, liveTagsHarness()));
+    assert.equal(fake.readIssue(main.full, number).state, 'closed');
+  });
+
   it('takes a neighbour landing as delivery by its own LIVE_TAGS from a worktree', async () => {
     const { number, tree, head } = await worked(main, 'Neighbour delivered by landing, so that the issue can be proven');
     await integrateIssue.run(integrateArguments(main, number, head), ctx(tree));

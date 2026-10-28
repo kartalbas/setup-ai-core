@@ -4,7 +4,7 @@ import type { RepositoryRef } from '../domain/issues.mts';
 import { replaceFamilyLabel, statusLabel } from '../domain/labels.mts';
 import { checkPublicText } from '../domain/public-text.mts';
 import { PreconditionError, UsageError } from '../domain/refusals.mts';
-import { composeProvenRecord, environmentsWith, findNewestLanding, hasProvenRecord, holdsNoLandedRecord, isHarnessLayer, landedEnvironments, listMissingDelivery, readIssueHistory, readTimeline } from '../domain/workflow.mts';
+import { composeProvenRecord, environmentNames, environmentsWith, findNewestLanding, hasProvenRecord, holdsNoLandedRecord, isHarnessLayer, landedEnvironments, listMissingDelivery, readIssueHistory, readTimeline } from '../domain/workflow.mts';
 import type { CommandDeliveryCheck, LandingFact } from '../domain/workflow.mts';
 import { GitError } from '../git/git.mts';
 import { findLandedCommitOf, parseArguments, readTextFile, refuseExtra, requireValue, takeIssue } from './arguments.mts';
@@ -15,6 +15,7 @@ const USAGE = 'usage: issue-proof [OWNER/REPO] NUMBER --environment ENV --body-f
 export const help = `${USAGE}
 
 Writes the record "Proven on ENV:" with the evidence of PATH, sets status/done and closes the issue as completed.
+It refuses at once, before any write, an ENV that no LIVE_TAGS of a landed repository names, and lists the names there, each with its repository.
 It refuses unless the issue records a landing and, for every repository the landing names, a release that came
 after it, all of an account with write permission and after the last reopening for new work. An issue that holds no "Landed on" record at all, and whose number
 no commit on the default branch of origin of this clone is the work of (a commit whose subject names it, or whose subject
@@ -112,6 +113,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   const projectFolder = dirname(mainCheckout);
   const landingIsDelivery: RepositoryRef[] = [];
   const commandDeliveries: CommandDeliveryCheck[] = [];
+  const namedEnvironments: { repository: RepositoryRef; environments: string[] }[] = [];
   const seen = new Set<string>();
   for (const { repository } of history.landings) {
     const key = formatRepository(repository).toLowerCase();
@@ -125,10 +127,15 @@ export async function run(args: readonly string[], context: CommandContext): Pro
       if (!read.succeeded) throw new PreconditionError(`${name} is not delivered, so nothing is proven: could not read LIVE_TAGS in ${checkout}: ${read.output}`);
       liveTags = read.output;
     }
+    namedEnvironments.push({ repository, environments: environmentNames(liveTags) });
     if (landedEnvironments(liveTags).includes(environment)) landingIsDelivery.push(repository);
     else if (environmentsWith(liveTags, 'command').includes(environment)) {
       commandDeliveries.push({ repository, missing: await findMissingCommandDelivery(context, checkout, repository, environment, findNewestLanding(history, repository)) });
     }
+  }
+  const named = namedEnvironments.filter(({ environments }) => environments.length > 0);
+  if (named.length > 0 && !named.some(({ environments }) => environments.includes(environment))) {
+    throw new PreconditionError(`no landed repository of ${name} names the environment ${environment} in its LIVE_TAGS: ${named.map(({ repository, environments }) => `${formatRepository(repository)} names ${environments.join(', ')}`).join('; ')}; names keep their letter case`);
   }
   const landedWithoutRecord = holdsNoLandedRecord(entries) ? await findLandedCommitOf(context.git, context.harness, mainCheckout, ref) : undefined;
   if (landedWithoutRecord !== undefined) {

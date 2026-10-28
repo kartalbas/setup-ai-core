@@ -99,7 +99,7 @@ line() { grep -m1 -F -- "$1" <<< "$out" | tr -s ' '; }
 echo 'the head of the page'
 check 'exit 0'        0 "$rc"
 check 'the board'     "example · board example-org/7 · $(when "$now")" "$(sed -n 1p <<< "$out")"
-check 'the usage'     "usage 5h 25 % (reset $(when $((now + 3600)))) · week 89 % (reset $(when $((now + 432000)))) · limit 92 %" "$(line 'usage ')"
+check 'the usage'     "usage 5h 25 % used (reset $(when $((now + 3600)))) · week 89 % used (reset $(when $((now + 432000)))) · limit 92 % used" "$(line 'usage ')"
 check 'the pace'      'pace 6 issues closed on the board in the last 24 hours, 1.0 a day over 14 days' "$(line 'pace ')"
 check 'the cost'      "cost this folder raises the 5h window 4.0 % and the week 1.00 % an hour, 50 % of the machine's fresh tokens; at the pace of 24 hours, 4.00 % of the week per issue closed here" "$(line 'cost ')"
 echo 'the tokens of the day: an answer written twice counts once, every session counts, an older answer does not'
@@ -167,20 +167,20 @@ printf '{"timestamp":"%s","type":"event_msg","payload":{"type":"token_count","ra
 codex_out="$(cd "$folder" && CODEX_THREAD_ID=t CLAUDECODE=1 bash "$root/bin/status.sh" --project example-org/7 --tokens 2>&1)"; rc=$?
 codex_line() { grep -m1 -F -- "$1" <<< "$codex_out" | tr -s ' '; }
 check 'exit 0' 0 "$rc"
-check 'the usage line is Codex'"'"'s, with the time of its record' "usage Codex week 3 % used (reset $(when $((now + 400000)))) · 5h 21 % used (reset $(when $((now + 1800)))) · recorded $(when $((now - 300))) · limit 92 %" "$(codex_line 'usage ')"
+check 'the usage line is Codex'"'"'s, with the time of its record' "usage Codex week 3 % used (reset $(when $((now + 400000)))) · 5h 21 % used (reset $(when $((now + 1800)))) · recorded $(when $((now - 300))) · limit 92 % used" "$(codex_line 'usage ')"
 check 'the cost, the tokens and the context have no source for Codex' 'cost no source for Codex|tokens no source for Codex|context no source for Codex' \
   "$(codex_line 'cost ')|$(codex_line 'tokens ')|$(codex_line 'context ')"
 check 'the pace is labeled a board figure' 'pace 6 issues closed on the board in the last 24 hours, 1.0 a day over 14 days' "$(codex_line 'pace ')"
 check 'no number of Claude is on the page: its 25 %, 89 %, 5k fresh tokens' 0 "$(grep -c '25 %\|89 %\|5k\|fresh' <<< "$codex_out")"
 claude_out="$(cd "$folder" && CLAUDECODE=1 bash "$root/bin/status.sh" --project example-org/7 --tokens 2>&1)"
-check 'the same machine in a Claude shell: its figures as before' "usage 5h 25 % (reset $(when $((now + 3600)))) · week 89 % (reset $(when $((now + 432000)))) · limit 92 %" "$(grep -m1 '^usage ' <<< "$claude_out" | tr -s ' ')"
+check 'the same machine in a Claude shell: its figures as before' "usage 5h 25 % used (reset $(when $((now + 3600)))) · week 89 % used (reset $(when $((now + 432000)))) · limit 92 % used" "$(grep -m1 '^usage ' <<< "$claude_out" | tr -s ' ')"
 mkdir -p "$work/agy-bin"
 printf '#!/usr/bin/env bash\necho '"'"'{"status":"SUCCESS","command":{"data":{"groups":[{"name":"Gemini Models","description":"Models: Gemini","buckets":[{"id":"g5","window":"5h","remaining_fraction":0.75,"reset_time":"%s"}]}]}}}'"'"'\n' "$(iso $((now + 1800)))" > "$work/agy-bin/agy"
 chmod +x "$work/agy-bin/agy"
 agy_out="$(cd "$folder" && ANTIGRAVITY_AGENT=1 PATH="$work/agy-bin:$PATH" bash "$root/bin/status.sh" --project example-org/7 --tokens 2>&1)"
-check 'an agy shell shows the groups of agy, none of Claude, none of one model' "usage agy Gemini Models: five_hour 25 % used (reset $(when $((now + 1800)))) · recorded T · limit 92 %" "$(grep -m1 '^usage ' <<< "$agy_out" | tr -s ' ' | sed 's/ · recorded .* · limit/ · recorded T · limit/')"
+check 'an agy shell shows the groups of agy, none of Claude, none of one model' "usage agy Gemini Models: five_hour 25 % used (reset $(when $((now + 1800)))) · recorded T · limit 92 % used" "$(grep -m1 '^usage ' <<< "$agy_out" | tr -s ' ' | sed 's/ · recorded .* · limit/ · recorded T · limit/')"
 gemini_out="$(cd "$folder" && GEMINI_CLI=1 bash "$root/bin/status.sh" --project example-org/7 --tokens 2>&1)"
-check 'a Gemini shell is named and not read as Claude' 'usage Gemini: usage does not read the quota of gemini · limit 92 %' "$(grep -m1 '^usage ' <<< "$gemini_out" | tr -s ' ')"
+check 'a Gemini shell is named and not read as Claude' 'usage Gemini: usage does not read the quota of gemini · limit 92 % used' "$(grep -m1 '^usage ' <<< "$gemini_out" | tr -s ' ')"
 rm -rf "$CODEX_HOME"
 
 echo 'without --tokens: the agents that run now, from the process list alone'
@@ -765,7 +765,7 @@ printf 'Todo\ntesting\nDone\n' > "$work/cmd-columns"
 { cmd_card 1 engine 'A1'; cmd_card 1 tagged 'L1'; } > "$work/cmd-items"
 # the card rows of the tracker, as bin/status.sh hands them to Node: one JSON object a line
 jq -c '{repo: .content.repository.nameWithOwner, number: .content.number, title: .content.title, open: true, status: .status.name, priority: null, parent: null, subs: 0, closedAt: null, createdAt: "2026-01-01T00:00:00Z"}' "$work/cmd-items" > "$work/cmd-rows"
-printf '{"tool":"claude","shown":"used","recorded":%s,"failure":"","windows":[],"readings":[]}\n' "$now" > "$work/usage-snapshot.json"
+printf '{"tool":"claude","recorded":%s,"failure":"","windows":[],"readings":[]}\n' "$now" > "$work/usage-snapshot.json"
 node_status() {  # node_status <testing file or empty for none>
   local files=(--usage-file "$work/usage-snapshot.json"); [ -z "$1" ] || files+=(--testing-file "$1")
   : > "$work/no-agents9"

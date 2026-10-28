@@ -56,7 +56,7 @@ out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'exit 3'                   3 "$rc"
 check 'the five hours, one reading: unmeasured' yes "$(matches "^five_hour   42 % used  resets $(when "$soon"), in (59 min|1 h 0 min)  burn unmeasured$" "$(sed -n 1p <<< "$out")")"
 check 'the week'                 yes "$(matches "^seven_day   95 % used  resets $(when "$later"), in (23 h 59 min|24 h 0 min)  burn unmeasured$" "$(sed -n 2p <<< "$out")")"
-check 'what to do'               yes "$(grep -q '^a window stands at 92 % or more: finish the step in hand' <<< "$out" && echo yes || echo no)"
+check 'what to do'               yes "$(grep -q '^a window stands at 92 % used or more: finish the step in hand' <<< "$out" && echo yes || echo no)"
 echo 'below a limit given: exit 0'
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" --stop-at 96 2>&1)"; rc=$?
 check 'exit 0'                   0 "$rc"
@@ -64,7 +64,7 @@ echo "the project's own limit: USAGE_STOP_AT in its config.env"
 mkdir -p "$work/project/.ai-core"; printf 'USAGE_STOP_AT="96"\n' > "$work/project/.ai-core/config.env"
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'exit 0 at 95 % under 96'  0 "$rc"
-check 'it names the limit'       yes "$(grep -q ', limit 96 %$' <<< "$out" && echo yes || echo no)"
+check 'it names the limit'       yes "$(grep -q ', limit 96 % used$' <<< "$out" && echo yes || echo no)"
 rm -f "$work/project/.ai-core/config.env"
 echo 'a window whose reset has passed counts as reset'
 printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":99,"resets_at":%s}}}\n' "$now" "$((now - 60))" > "$HOME/.ai-core/usage.json"
@@ -88,8 +88,8 @@ touch -t 202601020000 "$sessions/rollout-new.jsonl"   # the newest file below ha
 printf '{"timestamp":"2026-10-13T07:11:00.000Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":null,"secondary":null}}}\n' > "$sessions/rollout-newest.jsonl"
 out="$(cd "$work/project" && CODEX_THREAD_ID=t bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'exit 0, Claude at 99 % does not count'  0 "$rc"
-check 'the week, as what is left' yes "$(matches "^seven_day   93 % left  resets $(when "$later"), in (23 h 59 min|24 h 0 min)  burn unmeasured$" "$(sed -n 1p <<< "$out")")"
-check 'the five hours'           yes "$(matches "^five_hour   87 % left  resets $(when "$soon"), in (59 min|1 h 0 min)  burn unmeasured$" "$(sed -n 2p <<< "$out")")"
+check 'the week, as the share used' yes "$(matches "^seven_day    7 % used  resets $(when "$later"), in (23 h 59 min|24 h 0 min)  burn unmeasured$" "$(sed -n 1p <<< "$out")")"
+check 'the five hours'           yes "$(matches "^five_hour   12 % used  resets $(when "$soon"), in (59 min|1 h 0 min)  burn unmeasured$" "$(sed -n 2p <<< "$out")")"
 check 'when Codex recorded it, the limit as used' "recorded $(when "$(jq -n '"2026-10-13T07:09:45Z" | fromdateiso8601')"), limit 92 % used" "$(sed -n 3p <<< "$out")"
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'no Codex shell: Claude at 99 %, exit 3'  3 "$rc"
@@ -129,7 +129,7 @@ reading() { printf '{"timestamp":"%s","type":"event_msg","payload":{"type":"toke
 { reading "$((now - 1800))" 50; reading "$now" 80; } > "$sessions/rollout-burn.jsonl"
 out="$(cd "$work/project" && CODEX_THREAD_ID=t bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'Codex projected to its limit: exit 4'  4 "$rc"
-check 'the burn and the hour, as what is left' yes "$(matches "^five_hour   20 % left  resets .*  burn 60.0 %/h, 8 % left at $(when "$((now + 720))")$" "$(sed -n 1p <<< "$out")")"
+check 'the burn and the hour, as the share used' yes "$(matches "^five_hour   80 % used  resets .*  burn 60.0 %/h, 92 % used at $(when "$((now + 720))")$" "$(sed -n 1p <<< "$out")")"
 rm -rf "$HOME/.codex"
 out="$(cd "$work/project" && CODEX_THREAD_ID=t bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'no Codex session file: exit 2'  2 "$rc"
@@ -142,14 +142,14 @@ history() { printf '%s %s %s %s %s\n' "$((now - 1800))" "$1" "$2" "$3" "$week" >
 history 50 "$soon" 10 80 10
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'exit 4 below the limit'   4 "$rc"
-check 'the hour it reaches 92 %' yes "$(matches "^five_hour   80 % used  resets $(when "$soon"), in (59 min|1 h 0 min)  burn 60.0 %/h, 92 % at $(when "$((now + 720))")$" "$(sed -n 1p <<< "$out")")"
+check 'the hour it reaches 92 %' yes "$(matches "^five_hour   80 % used  resets $(when "$soon"), in (59 min|1 h 0 min)  burn 60.0 %/h, 92 % used at $(when "$((now + 720))")$" "$(sed -n 1p <<< "$out")")"
 check 'a week without burn'      yes "$(matches "^seven_day   10 % used  resets $(when "$week"), in (3 d 23 h|4 d 0 h)  burn 0.0 %/h$" "$(sed -n 2p <<< "$out")")"
-check 'what to do'               yes "$(matches '^a window reaches 92 % before its reset at the measured burn: start nothing new on this account' "$out")"
+check 'what to do'               yes "$(matches '^a window reaches 92 % used before its reset at the measured burn: start nothing new on this account' "$out")"
 echo 'the same burn with the reset minutes away: the window carries on (innocent case)'
 history 50 "$((now + 300))" 10 80 10
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'exit 0'                   0 "$rc"
-check 'what it stands at then'   yes "$(matches "  burn 60.0 %/h, 85 % at reset$" "$(sed -n 1p <<< "$out")")"
+check 'what it stands at then'   yes "$(matches "  burn 60.0 %/h, 85 % used at reset$" "$(sed -n 1p <<< "$out")")"
 echo 'one whole percent minutes into a window: too short a span to measure a burn (planted)'
 fresh=$((now + 17400))
 printf '%s %s %s %s %s\n' "$((now - 180))" 0 "$fresh" 10 "$week" > "$HOME/.ai-core/usage.log"
@@ -161,7 +161,7 @@ echo 'a week that fills before its reset warns and stops nothing: its account is
 history 80 "$soon" 10 80 40
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'exit 0'                   0 "$rc"
-check 'the warning'              yes "$(matches "^seven_day reaches 92 % at $(when "$((now + 3120))"), before its reset; the person who holds the account watches it$" "$out")"
+check 'the warning'              yes "$(matches "^seven_day reaches 92 % used at $(when "$((now + 3120))"), before its reset; the person who holds the account watches it$" "$out")"
 echo 'a window at the limit outranks a projection'
 history 50 "$soon" 10 95 10
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
@@ -212,7 +212,7 @@ refused_codex() {  # refused_codex <name> <reason> <record>
   codex_record "$3"
   check "Codex, $1: exit 2" 2 "$rc"
   check "Codex, $1: the reason" yes "$(matches "$2" "$out")"
-  check "Codex, $1: no window" 0 "$(grep -c '% left' <<< "$out")"
+  check "Codex, $1: no window" 0 "$(grep -c '% used  reset' <<< "$out")"
 }
 refused_codex 'a window without used_percent' 'a window without a number for used_percent, window_minutes or resets_at' "$(codex_with "{\"window_minutes\":300,\"resets_at\":$soon}")"
 refused_codex 'a window without window_minutes' 'a window without a number' "$(codex_with "{\"used_percent\":5,\"resets_at\":$soon}")"
@@ -223,10 +223,10 @@ refused_codex 'a record cut off while Codex writes it' 'jq|parse|Unfinished|erro
 refused_codex 'a record without a timestamp' 'no usable timestamp' '{"payload":{"rate_limits":{"primary":{"used_percent":5,"window_minutes":300,"resets_at":1},"secondary":null}}}'
 codex_record "$(codex_with "{\"used_percent\":5,\"window_minutes\":300,\"resets_at\":$soon}")"
 check 'Codex, a complete window beside a null one (innocent): exit 0' 0 "$rc"
-check 'Codex, its window'        1 "$(grep -c '^five_hour   95 % left' <<< "$out")"
+check 'Codex, its window'        1 "$(grep -c '^five_hour    5 % used' <<< "$out")"
 codex_record "$(printf '{"timestamp":"2026-10-13T07:09:45.777Z","payload":{"rate_limits":{"primary":{"used_percent":5,"window_minutes":300,"resets_at":%s},"secondary":{"used_percent":0.0,"window_minutes":0,"resets_at":%s}}}}' "$soon" "$soon")"
 check 'Codex, a window of 0 minutes, as Codex writes one beside a real window, says nothing: exit 0' 0 "$rc"
-check 'Codex, only the real window shown' '1 0' "$(grep -c '^five_hour   95 % left' <<< "$out") $(grep -c '0_minutes' <<< "$out")"
+check 'Codex, only the real window shown' '1 0' "$(grep -c '^five_hour    5 % used' <<< "$out") $(grep -c '0_minutes' <<< "$out")"
 plant lib/usage.sh 's/if \[.used_percent, .window_minutes, .resets_at\]/(.used_percent \/\/= 0) | if [.used_percent, .window_minutes, .resets_at]/'
 script="$work/mutant/bin/usage.sh"
 codex_record "$(codex_with "{\"window_minutes\":300,\"resets_at\":$soon}")"
@@ -241,7 +241,7 @@ reading "$now" 5 | sed 's/\.000Z/\.100Z/' > "$sessions/rollout-touched.jsonl"
 touch -t 202601010000 "$sessions/rollout-current.jsonl"
 out="$(cd "$work/project" && bash "$script" --tool codex 2>&1)"; rc=$?
 check 'newest reading at 99 % used holds the start: exit 3' 3 "$rc"
-check 'the newest value is shown' yes "$(matches '^five_hour +1 % left' "$out")"
+check 'the newest value is shown' yes "$(matches '^five_hour +99 % used' "$out")"
 printf '{"timestamp":"bad","payload":{"rate_limits":{"primary":{"used_percent":5,"window_minutes":300,"resets_at":%s}}}}\n' "$soon" > "$sessions/rollout-bad-history.jsonl"
 touch -t 202601010000 "$sessions/rollout-bad-history.jsonl"
 out="$(cd "$work/project" && bash "$script" --tool codex 2>&1)"; rc=$?
@@ -292,7 +292,7 @@ printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":5,%s}}}\
 printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":95,%s}}}\n' "$now" "$window" > "$QUOTA_NEXT"
 out="$(cd "$work/project" && PATH="$work/replacing-bin:$PATH" bash "$script" --tool claude 2>&1)"; rc=$?
 check 'the replacement happened between reads' yes "$([ -e "$QUOTA_REPLACED" ] && echo yes || echo no)"
-check 'quota and timestamp come from the same snapshot' "recorded $(when "$((now - 1800))"), limit 92 %" "$(grep '^recorded ' <<< "$out")"
+check 'quota and timestamp come from the same snapshot' "recorded $(when "$((now - 1800))"), limit 92 % used" "$(grep '^recorded ' <<< "$out")"
 
 echo 'the common percentage limit is decimal and within zero to one hundred'
 codex_record "$(codex_with "{\"used_percent\":95,\"window_minutes\":300,\"resets_at\":$soon}")"
@@ -311,7 +311,7 @@ codex_usage() { out="$(cd "$work/project" && bash "${1:-$root/bin/usage.sh}" --t
 helper_model="$(awk -F'\t' '$1 == "codex" && $2 == "helper" { print $4 }' "$root/templates/.ai-core/models.tsv")"
 old_codex_record
 STUB_MODE=refill codex_usage
-check 'a refill behind an old record: the new reading, exit 0' '0 yes' "$rc $(matches '^five_hour +100 % left' "$out")"
+check 'a refill behind an old record: the new reading, exit 0' '0 yes' "$rc $(matches '^five_hour +0 % used' "$out")"
 check 'one call'                 1 "$(calls)"
 check 'on the cheapest model of the table, read-only, in a scratch folder' yes "$(grep -q -- "^/.* exec --skip-git-repo-check -s read-only -m $helper_model " "$STUB_CALLS" && echo yes || echo no)"
 check 'the scratch folder is gone, and no repository' no "$(d="$(cut -d' ' -f1 "$STUB_CALLS")"; [ -e "$d" ] || [ "$d" = "$work/project" ] && echo yes || echo no)"
@@ -323,13 +323,13 @@ check 'no second call'           1 "$(calls)"
 echo 'the call fails: the old record, and one line that says why'
 old_codex_record
 codex_usage
-check 'the old week is shown, exit 3' '3 yes' "$rc $(matches '^seven_day +1 % left' "$out")"
+check 'the old week is shown, exit 3' '3 yes' "$rc $(matches '^seven_day +99 % used' "$out")"
 check 'one call'                 1 "$(calls)"
 check 'one line names the failure' 1 "$(grep -c '^the Codex record is older than 60 minutes and its refresh failed: codex exec exited 1: Not logged in$' <<< "$out")"
 echo 'asked again within the hour after the failure: no second call, and the line says when it failed'
 codex_usage
 check 'no second call'           1 "$(calls)"
-check 'the old week, exit 3'     '3 yes' "$rc $(matches '^seven_day +1 % left' "$out")"
+check 'the old week, exit 3'     '3 yes' "$rc $(matches '^seven_day +99 % used' "$out")"
 check 'the line names the failure and its age' 1 "$(grep -c '^the Codex record is older than 60 minutes and its refresh failed: codex exec exited 1: Not logged in, 0 minutes ago; no new call until 60 minutes after it$' <<< "$out")"
 echo 'more than an hour after the failure: a new call'
 AI_CORE_NOW=$(( $(date +%s) + 3660 )) codex_usage
@@ -342,7 +342,7 @@ echo 'a record of one hour or younger makes no call (innocent)'
 rm -rf "$HOME/.codex"; mkdir -p "$sessions"; : > "$STUB_CALLS"
 reading "$((now - 3500))" 5 > "$sessions/rollout-young.jsonl"
 STUB_MODE=refill codex_usage
-check 'used as it is, exit 0'    '0 yes' "$rc $(matches '^five_hour +95 % left' "$out")"
+check 'used as it is, exit 0'    '0 yes' "$rc $(matches '^five_hour +5 % used' "$out")"
 check 'no call'                  0 "$(calls)"
 check 'nothing to report'        0 "$(grep -c 'refresh failed' <<< "$out")"
 echo 'two readers that find the same old record at once start one call between them'
@@ -350,7 +350,7 @@ old_codex_record
 for reader in 1 2; do (cd "$work/project" && STUB_MODE=refill STUB_DELAY=1 bash "$root/bin/usage.sh" --tool codex > "$work/reader-$reader.out" 2>&1; echo $? > "$work/reader-$reader.rc") & done
 wait
 check 'one call between them'    1 "$(calls)"
-check 'both read the new record' '0 0 yes yes' "$(cat "$work/reader-1.rc") $(cat "$work/reader-2.rc") $(matches '^five_hour +100 % left' "$(cat "$work/reader-1.out")") $(matches '^five_hour +100 % left' "$(cat "$work/reader-2.out")")"
+check 'both read the new record' '0 0 yes yes' "$(cat "$work/reader-1.rc") $(cat "$work/reader-2.rc") $(matches '^five_hour +0 % used' "$(cat "$work/reader-1.out")") $(matches '^five_hour +0 % used' "$(cat "$work/reader-2.out")")"
 echo 'two readers that find the same old record at once, and the call fails: still one call between them'
 old_codex_record
 for reader in 1 2; do (cd "$work/project" && STUB_DELAY=1 bash "$root/bin/usage.sh" --tool codex > "$work/reader-$reader.out" 2>&1; echo $? > "$work/reader-$reader.rc") & done
@@ -361,7 +361,7 @@ echo 'a reader without the age check keeps the old reading (planted)'
 plant lib/usage.sh 's/^USAGE_CODEX_MAX_AGE_SECONDS=3600$/USAGE_CODEX_MAX_AGE_SECONDS=99999999999/'
 old_codex_record
 STUB_MODE=refill codex_usage "$work/mutant/bin/usage.sh"
-check 'it shows the old week and makes no call, so the refill case goes red' '3 yes 0' "$rc $(matches '^seven_day +1 % left' "$out") $(calls)"
+check 'it shows the old week and makes no call, so the refill case goes red' '3 yes 0' "$rc $(matches '^seven_day +99 % used' "$out") $(calls)"
 echo 'a reader that keeps no failure calls again at once (planted)'
 mkdir -p "$work/mutant/templates/.ai-core"; cp "$root/templates/.ai-core/models.tsv" "$work/mutant/templates/.ai-core/"
 plant lib/usage.sh 's|failed="$lock_dir/codex-usage-refresh.failed"|failed=/dev/null|'
@@ -372,7 +372,7 @@ echo 'a call that does not end in its time is stopped: the old record, and one l
 plant lib/usage.sh 's/^USAGE_CODEX_REFRESH_SECONDS=120$/USAGE_CODEX_REFRESH_SECONDS=1/'
 old_codex_record
 started=$SECONDS; STUB_MODE=refill STUB_DELAY=10 codex_usage "$work/mutant/bin/usage.sh"
-check 'the old week, exit 3, within seconds' '3 yes yes' "$rc $(matches '^seven_day +1 % left' "$out") $([ $((SECONDS - started)) -lt 8 ] && echo yes || echo "no: $((SECONDS - started)) s")"
+check 'the old week, exit 3, within seconds' '3 yes yes' "$rc $(matches '^seven_day +99 % used' "$out") $([ $((SECONDS - started)) -lt 8 ] && echo yes || echo "no: $((SECONDS - started)) s")"
 check 'one line names the timeout' 1 "$(grep -c '^the Codex record is older than 60 minutes and its refresh failed: codex exec did not end in 1 seconds$' <<< "$out")"
 echo 'a tool the refresh needs is not on the PATH: the old record, and one line that names it, without a call'
 for missing in codex flock timeout; do
@@ -383,7 +383,7 @@ for missing in codex flock timeout; do
   [ "$missing" = codex ] || ln -sf "$work/stub/codex" "$farm/codex"
   old_codex_record
   out="$(cd "$work/project" && PATH="$farm" STUB_MODE=refill bash "$root/bin/usage.sh" --tool codex 2>&1)"; rc=$?
-  check "without $missing: the old week, exit 3, no call" '3 yes 0' "$rc $(matches '^seven_day +1 % left' "$out") $(calls)"
+  check "without $missing: the old week, exit 3, no call" '3 yes 0' "$rc $(matches '^seven_day +99 % used' "$out") $(calls)"
   check "without $missing: one line names it" 1 "$(grep -c "^the Codex record is older than 60 minutes and its refresh failed: $missing is not on the PATH$" <<< "$out")"
 done
 rm -rf "$HOME/.codex" "$HOME/.ai-core/codex-usage-refresh.failed"

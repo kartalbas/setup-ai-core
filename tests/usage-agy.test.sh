@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # What `usage --tool agy` makes of agy's answer to /usage: every bucket of every group a window
-# named by its group and shown as what is left, the group of a model found from agy's own answers,
+# named by its group and shown as the share used, the group of a model found from agy's own answers,
 # the limit decided on the share used, the burn measured from the readings the command saved, and
 # a refusal with its reason, never a made-up reading, for everything agy cannot give.
 # The agy of these tests is a planted script on a PATH that holds nothing else of this machine, so
@@ -82,16 +82,16 @@ mutate() {  # mutate <sed script> <name>: a copy of usage.sh and its reader with
 }
 restore() { script="$root/bin/usage.sh"; }
 
-echo 'agy -p /usage: every bucket of every group is a window, named by its group, shown as what is left'
+echo 'agy -p /usage: every bucket of every group is a window, named by its group, shown as the share used'
 forget; answer 0.92 0.95 0.42 1
 out="$(agy_run --tool agy)"; rc=$?
 check 'exit 0'                   0 "$rc"
 check 'the call'                 '-p /usage --output-format json' "$(sed -n 1p "$AGY_CALLS")"
 check 'no model asked for: agy models is not called' 1 "$(wc -l < "$AGY_CALLS" | tr -d ' ')"
-check 'Gemini week'              yes "$(matches "^Gemini Models: seven_day +92 % left  resets $(when "$week_at"), in (3 d 23 h|4 d 0 h)  burn unmeasured$" "$(sed -n 1p <<< "$out")")"
-check 'Gemini five hours'        yes "$(matches "^Gemini Models: five_hour +95 % left  resets $(when "$soon"), in (59 min|1 h 0 min)  burn unmeasured$" "$(sed -n 2p <<< "$out")")"
-check 'Claude week'              yes "$(matches "^Claude and GPT models: seven_day +42 % left  resets $(when "$week_at"), in (3 d 23 h|4 d 0 h)  burn unmeasured$" "$(sed -n 3p <<< "$out")")"
-check 'Claude five hours, a bucket without a description' yes "$(matches "^Claude and GPT models: five_hour +100 % left  resets $(when "$soon"), in (59 min|1 h 0 min)  burn unmeasured$" "$(sed -n 4p <<< "$out")")"
+check 'Gemini week'              yes "$(matches "^Gemini Models: seven_day +8 % used  resets $(when "$week_at"), in (3 d 23 h|4 d 0 h)  burn unmeasured$" "$(sed -n 1p <<< "$out")")"
+check 'Gemini five hours'        yes "$(matches "^Gemini Models: five_hour +5 % used  resets $(when "$soon"), in (59 min|1 h 0 min)  burn unmeasured$" "$(sed -n 2p <<< "$out")")"
+check 'Claude week'              yes "$(matches "^Claude and GPT models: seven_day +58 % used  resets $(when "$week_at"), in (3 d 23 h|4 d 0 h)  burn unmeasured$" "$(sed -n 3p <<< "$out")")"
+check 'Claude five hours, a bucket without a description' yes "$(matches "^Claude and GPT models: five_hour +0 % used  resets $(when "$soon"), in (59 min|1 h 0 min)  burn unmeasured$" "$(sed -n 4p <<< "$out")")"
 check 'the limit is a share used' yes "$(matches '^recorded [A-Z][a-z]{2} [0-9:]{5} [A-Z]+, limit 92 % used$' "$(sed -n 5p <<< "$out")")"
 echo 'the first read saves one reading a window, a second adds them again'
 rows() { cat "$history_dir"/*.log 2>/dev/null | wc -l | tr -d ' '; }
@@ -112,7 +112,7 @@ for log in "$history_dir"/*.log; do awk -F'\t' -v OFS='\t' '{ $2 = $2 - 1810; pr
 answer 0.92 0.95 0.92 0.2
 out="$(agy_run --tool agy)"; rc=$?
 check 'a burn measured from the saved rows: exit 4' 4 "$rc"
-check 'its burn and the hour'    yes "$(matches '^Claude and GPT models: five_hour +20 % left  resets .*  burn 15[0-9]\.[0-9] %/h, 8 % left at [A-Z][a-z]{2} [0-9:]{5} [A-Z]+$' "$(sed -n 4p <<< "$out")")"
+check 'its burn and the hour'    yes "$(matches '^Claude and GPT models: five_hour +80 % used  resets .*  burn 15[0-9]\.[0-9] %/h, 92 % used at [A-Z][a-z]{2} [0-9:]{5} [A-Z]+$' "$(sed -n 4p <<< "$out")")"
 
 echo 'a model finds its group in what agy answers: the group whose description lists the family its name starts with'
 forget; answer 0.92 0.95 0.42 1
@@ -164,12 +164,12 @@ check 'agy models failing: exit 2 with its reason' "2 yes" "$rc $(matches 'agy m
 echo 'the limit is a share used: fractions, whatever the display rounds to'
 forget; answer 0.92 0.95 0.08 1
 out="$(agy_run --tool agy)"; rc=$?
-check '8 % left is 92 % used: at the limit, exit 3' 3 "$rc"
-check 'shown as 8 % left'        yes "$(matches '^Claude and GPT models: seven_day +8 % left' "$(sed -n 3p <<< "$out")")"
+check '92 % used: at the limit, exit 3' 3 "$rc"
+check 'shown as 92 % used'       yes "$(matches '^Claude and GPT models: seven_day +92 % used' "$(sed -n 3p <<< "$out")")"
 answer 0.92 0.95 0.0801 1
 out="$(agy_run --tool agy)"; rc=$?
-check '8.01 % left is 91.99 % used: below the limit, exit 0' 0 "$rc"
-check 'shown as 8 % left too'    yes "$(matches '^Claude and GPT models: seven_day +8 % left' "$(sed -n 3p <<< "$out")")"
+check '91.99 % used: below the limit, exit 0' 0 "$rc"
+check 'shown as 91 % used'       yes "$(matches '^Claude and GPT models: seven_day +91 % used' "$(sed -n 3p <<< "$out")")"
 mutate 's/exit !(u >= s)/exit !(int(u + 0.5) >= s)/' 'a limit decided on the rounded share used'
 out="$(agy_run --tool agy)"; rc=$?
 caught 'a limit decided on the rounded share used is caught' 0 "$rc"
@@ -179,7 +179,7 @@ caught 'a limit decided on the share left rounded down is caught' 0 "$rc"
 restore
 answer 0.92 0.95 0.080000001 1
 out="$(agy_run --tool agy)"; rc=$?
-check '8.0000001 % left is still below the limit: exit 0' 0 "$rc"
+check '91.9999999 % used is still below the limit: exit 0' 0 "$rc"
 answer 0.92 0.95 0.0801 1
 out="$(agy_run --tool agy --stop-at 96)"; rc=$?
 check 'the limit given: 91.99 % used under 96, exit 0' 0 "$rc"
@@ -190,14 +190,14 @@ forget; answer 0.92 0.95 0.92 0.2
 seed 'Claude and GPT models' 3p-5h 1800 50 "$soon"
 out="$(agy_run --tool agy)"; rc=$?
 check 'five hours at 80 % used and 60 %/h: exit 4' 4 "$rc"
-check 'the burn and the hour, as what is left' yes "$(matches '^Claude and GPT models: five_hour +20 % left  resets .*  burn (59\.9|60\.0) %/h, 8 % left at [A-Z][a-z]{2} [0-9:]{5} [A-Z]+$' "$(sed -n 4p <<< "$out")")"
+check 'the burn and the hour, as the share used' yes "$(matches '^Claude and GPT models: five_hour +80 % used  resets .*  burn (59\.9|60\.0) %/h, 92 % used at [A-Z][a-z]{2} [0-9:]{5} [A-Z]+$' "$(sed -n 4p <<< "$out")")"
 check 'what to do'               yes "$(matches '^a window reaches 92 % used before its reset at the measured burn: start nothing new' "$out")"
 echo 'the same burn with the reset minutes away: the window carries on (innocent)'
 forget; answer 0.92 0.95 0.92 0.2 "$((now + 300))"
 seed 'Claude and GPT models' 3p-5h 1800 50 "$((now + 300))"
 out="$(agy_run --tool agy)"; rc=$?
 check 'exit 0'                   0 "$rc"
-check 'what is left at the reset' yes "$(matches '  burn (59\.9|60\.0) %/h, 1[45] % left at reset$' "$(sed -n 4p <<< "$out")")"
+check 'what it stands at by the reset' yes "$(matches '  burn (59\.9|60\.0) %/h, 8[456] % used at reset$' "$(sed -n 4p <<< "$out")")"
 echo 'two readings less than 30 minutes apart: unmeasured, no burn made up'
 forget; answer 0.92 0.95 0.92 0.2
 seed 'Claude and GPT models' 3p-5h 600 50 "$soon"
@@ -242,14 +242,19 @@ forget; answer 0.92 0.95 0.05 0.2
 seed 'Claude and GPT models' 3p-5h 1800 50 "$soon"
 out="$(agy_run --tool agy)"; rc=$?
 check 'the week at the limit and the five hours projected: exit 3' 3 "$rc"
-echo 'a window whose reset has passed counts as reset, with what is left'
+echo 'a window whose reset has passed counts as reset, with nothing used'
 forget; answer 0.92 0.95 0.92 0.01 "$((now - 60))"
 out="$(agy_run --tool agy)"; rc=$?
 check 'exit 0'                   0 "$rc"
-check 'reported as reset, all left' "Claude and GPT models: five_hour 100 % left  reset since $(when "$((now - 60))")" "$(sed -n 4p <<< "$out")"
-mutate 's/echo 100 ||/echo 0 ||/' 'a reset window shown as nothing left'
+check 'reported as reset, nothing used' "Claude and GPT models: five_hour   0 % used  reset since $(when "$((now - 60))")" "$(sed -n 4p <<< "$out")"
+check 'the week beside it, as the share used' yes "$(matches '^Gemini Models: seven_day +8 % used  resets' "$(sed -n 1p <<< "$out")")"
+mutate 's/   0 %% used  reset since/ 100 %% used  reset since/' 'a reset window shown as all used'
 out="$(agy_run --tool agy)"
-caught 'a reset window shown as nothing left is caught' 1 "$(sed -n 4p <<< "$out" | grep -c ' 100 % left')"
+caught 'a reset window shown as all used is caught' 1 "$(sed -n 4p <<< "$out" | grep -c '   0 % used  reset since')"
+restore
+mutate 's/BEGIN { printf "%d", u }/BEGIN { printf "%d", 100 - u }/' 'a window shown as the share left'
+out="$(agy_run --tool agy)"
+caught 'a window shown as the share left is caught' yes "$(matches '^Gemini Models: seven_day +8 % used  resets' "$(sed -n 1p <<< "$out")")"
 restore
 
 echo 'what agy cannot give is exit 2 with the reason, and no window'
@@ -258,7 +263,7 @@ refuse() {  # refuse <name> <reason pattern> <jq filter over the real answer>
   out="$(AGY_ANSWER="$work/bad.json" agy_run --tool agy)"; rc=$?
   check "$1: exit 2" 2 "$rc"
   check "$1: the reason" yes "$(matches "$2" "$out")"
-  check "$1: no window" 0 "$(grep -c '% left' <<< "$out")"
+  check "$1: no window" 0 "$(grep -c '% used  reset' <<< "$out")"
 }
 refuse 'a fraction that is null'      'Gemini Models/gemini-5h: remaining_fraction null is not a number from 0 to 1' ".command.data.groups[0].buckets[1].remaining_fraction = null"
 refuse 'a fraction missing'           'Gemini Models/gemini-5h: remaining_fraction null' "del(.command.data.groups[0].buckets[1].remaining_fraction)"
@@ -328,7 +333,7 @@ forget; answer 0.92 0.95 0.42 1
 ( AGY_DELAY=0.4 agy_run --tool agy > "$work/two.out"; echo $? > "$work/two.rc" ) &
 wait
 check 'both exit 0'              '0 0' "$(cat "$work/one.rc") $(cat "$work/two.rc")"
-check 'both print four windows'  '4 4' "$(grep -c ' left  resets' "$work/one.out") $(grep -c ' left  resets' "$work/two.out")"
+check 'both print four windows'  '4 4' "$(grep -c ' used  resets' "$work/one.out") $(grep -c ' used  resets' "$work/two.out")"
 check 'eight rows, none torn'    8 "$(awk -F'\t' 'NF == 4 && $3 + 0 == $3 { n++ } END { print n }' "$history_dir"/*.log)"
 check 'each bucket twice, with its own share used' \
   '2 ["Claude and GPT models","3p-5h"]=0|2 ["Claude and GPT models","3p-weekly"]=58|2 ["Gemini Models","gemini-5h"]=5|2 ["Gemini Models","gemini-weekly"]=8|' \
@@ -400,13 +405,13 @@ forget; answer 0.92 0.95 0.92 0.2
 out="$(agy_run --tool agy)"; rc=$?
 check 'a history folder that is a file: exit 2' 2 "$rc"
 check 'the reason'               yes "$(matches 'the usage history folder .* cannot be made' "$out")"
-check 'no window'                0 "$(grep -c '% left' <<< "$out")"
+check 'no window'                0 "$(grep -c '% used  reset' <<< "$out")"
 forget; mkdir -p "$history_dir"
 printf 'garbage\n' > "$history_dir/$(($(date +%s) / 86400)).log"
 out="$(agy_run --tool agy)"; rc=$?
 check 'a malformed line: exit 2' 2 "$rc"
 check 'the reason names file and line' yes "$(matches 'the usage history has a malformed line at .*/[0-9]+\.log:1$' "$out")"
-check 'no window'                0 "$(grep -c '% left' <<< "$out")"
+check 'no window'                0 "$(grep -c '% used  reset' <<< "$out")"
 forget; seed 'Claude and GPT models' 3p-5h 1800 -10 "$soon"
 mutate 's/NF != 4 ||[^{}]* {/0 {/' 'a history read without a check'
 out="$(agy_run --tool agy)"; rc=$?
@@ -431,7 +436,7 @@ mkdir -p "$HOME/.ai-core"
 printf '{"recorded_at":%s,"rate_limits":{"seven_day":{"used_percentage":99,"resets_at":%s}}}\n' "$now" "$week_at" > "$HOME/.ai-core/usage.json"
 answer 0.92 0.95 0.42 1
 out="$(CLAUDECODE=1 CODEX_THREAD_ID=t agy_run --tool agy)"; rc=$?
-check 'explicit agy despite inherited Codex and Claude identity' '0 4' "$rc $(grep -c ' left  resets' <<< "$out")"
+check 'explicit agy despite inherited Codex and Claude identity' '0 4' "$rc $(grep -c ' used  resets' <<< "$out")"
 out="$(ANTIGRAVITY_AGENT=1 CLAUDECODE=1 agy_run)"; rc=$?
 check 'an agy session reads agy, not Claude at 99 %' "0 Gemini Models: seven_day" "$rc $(sed -n 1p <<< "$out" | cut -c1-24)"
 out="$(ANTIGRAVITY_AGENT=1 CODEX_THREAD_ID=t agy_run)"; rc=$?

@@ -10,9 +10,9 @@
 #   usage.sh [--tool claude|codex|agy] [--model MODEL] [--stop-at N]
 #                                                     N percent used; else USAGE_STOP_AT of the project's config.env; else 92
 #
-# Claude's windows are shown as the share used, Codex's and agy's as the share left, as each tool
-# shows its own; the limit N is always a share used. --model, for agy only, judges just the group
-# whose description lists the family of the model's display name from `agy models`.
+# Every tool's windows, their forecast and the limit N are shown as the share used. --model, for agy
+# only, judges just the group whose description lists the family of the model's display name from
+# `agy models`.
 # Exit 0: every window below N, and none projected to N by its reset. Exit 4: a window projected to
 # N or more by its reset, so nothing new starts on it. Exit 3: a window at N or more. Exit 2: nothing
 # recorded yet, a reading that cannot be used, or a wrong argument. A window whose reset time has
@@ -69,10 +69,9 @@ finish_usage() {
 }
 trap finish_usage EXIT
 usage_read "$tool" "$model" || { echo "$usage_failure" >&2; exit 2; }
-windows="$usage_windows"; recorded="$usage_recorded"; readings="$usage_readings"; shown="$usage_shown"
+windows="$usage_windows"; recorded="$usage_recorded"; readings="$usage_readings"
 now="$(date +%s)"
-# The limit is a share used for every tool; the tools that show what is left say so beside it.
-if [ "$shown" = left ]; then limit="$stop % used"; at_limit="$((100 - stop)) % left"; else limit="$stop %"; at_limit="$stop %"; fi
+limit="$stop % used"
 reached=0; projected=0; warnings=""
 # Readings are whole percents, so over a shorter span one rounding step reads as a steep burn.
 trusted_span=1800
@@ -80,25 +79,24 @@ width="$(awk -F'\t' '{ if (length($2) > w) w = length($2) } END { print (w > 10 
 while IFS=$'\t' read -r key name length used resets; do
   [ -n "$key" ] || continue
   if [ "$resets" -gt 0 ] && [ "$resets" -le "$now" ]; then
-    printf '%-*s %3d %% %s  reset since %s\n' "$width" "$name" "$([ "$shown" = left ] && echo 100 || echo 0)" "$shown" "$(when "$resets")"; continue
+    printf '%-*s   0 %% used  reset since %s\n' "$width" "$name" "$(when "$resets")"; continue
   fi
   # The burn runs from the window's first reading, one with the same reset taken after the window
   # began, to the last record.
-  forecast="$(AI_CORE_USAGE_KEY="$key" awk -F'\t' -v r="$resets" -v u="$used" -v at="$recorded" -v s="$stop" -v len="$length" -v span="$trusted_span" -v show="$shown" '
+  forecast="$(AI_CORE_USAGE_KEY="$key" awk -F'\t' -v r="$resets" -v u="$used" -v at="$recorded" -v s="$stop" -v len="$length" -v span="$trusted_span" '
     BEGIN { k = ENVIRON["AI_CORE_USAGE_KEY"] }
-    function face(x) { return show == "left" ? sprintf("%d %% left", 100 - x) : sprintf("%d %%", x) }
     $1 == k && $4 == r && (len == 0 || $2 >= r - len * 60) && (t == "" || $2 < t) { t = $2; first = $3 }
     END {
       if (t == "" || at - t < span) { print "unmeasured\t"; exit }
       burn = (u - first) / (at - t)
       if (burn <= 0) { print "0.0 %/h\t"; exit }
       p = u + burn * (r - at); cross = at + (s - u) / burn
-      if (p < s) printf "%.1f %%/h, %s at reset\t\n", burn * 3600, face(p)
+      if (p < s) printf "%.1f %%/h, %d %% used at reset\t\n", burn * 3600, p
       else printf "%.1f %%/h\t%d\n", burn * 3600, (cross > at ? cross : at)
     }' <<< "$readings")"
   cross="${forecast##*$'\t'}"; burn="${forecast%%$'\t'*}"
-  [ -z "$cross" ] || burn="$burn, $at_limit at $(when "$cross")"
-  printf '%-*s %3d %% %s  resets %s, %s  burn %s\n' "$width" "$name" "$(awk -v u="$used" -v show="$shown" 'BEGIN { printf "%d", show == "left" ? 100 - u : u }')" "$shown" "$(when "$resets")" "$(left "$resets")" "$burn"
+  [ -z "$cross" ] || burn="$burn, $limit at $(when "$cross")"
+  printf '%-*s %3d %% used  resets %s, %s  burn %s\n' "$width" "$name" "$(awk -v u="$used" 'BEGIN { printf "%d", u }')" "$(when "$resets")" "$(left "$resets")" "$burn"
   awk -v u="$used" -v s="$stop" 'BEGIN { exit !(u >= s) }' && reached=1
   [ -n "$cross" ] || continue
   # A window of a day or less resets soon after, so waiting costs little; a longer one is a

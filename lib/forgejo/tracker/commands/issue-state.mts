@@ -15,8 +15,9 @@ export const closeHelp = `${CLOSE_USAGE}
 
 --reason not-planned sets status/not-planned and closes the issue. --reason completed sets status/done and closes
 an issue that records a current proof: a "Proven on" record of an account with write permission, written after the
-issue's newest landing and after its last reopening. Without one it refuses and names issue-proof, which checks
-the delivery and writes the proof. An issue that holds no "Landed on" record at all, and whose number no commit on the
+issue's newest landing and after its last reopening. The newest landing record must be "Landed on", after any
+"Landed part on" records. Without a current proof it refuses and names issue-proof, which checks
+the delivery and writes the proof. An issue that holds no "Landed on" or "Landed part on" record at all, and whose number no commit on the
 default branch of origin of this clone is the work of (a commit whose subject names it, or whose subject names no
 issue and whose body names it), was delivered without a code change: a proof
 written after its last reopening closes it, and the output says that no landing exists.`;
@@ -28,7 +29,7 @@ is status/testing, earlier landings and releases still count. Every reopening re
 or no added status label also requires delivery again.`;
 
 // An issue completes with a proof that follows its landing and its last reopening, which issue-proof writes.
-// It says whether the issue holds no landing at all, so its close can say so: no "Landed on" record, and no commit of
+// It says whether the issue holds no landing at all, so its close can say so: no landing or part record, and no commit of
 // the default branch of origin that is its work (findLandedCommitOf), which is work that landed without its record.
 async function refuseWithoutCurrentProof(api: ForgejoClient, issue: Issue, context: CommandContext): Promise<boolean> {
   const name = formatIssue(issue.ref);

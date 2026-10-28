@@ -332,6 +332,8 @@ describe('integrate-issue', () => {
     assert.match(commentsOf(main, number).at(-1) ?? '', new RegExp(`^Landed part on master:\\n\\nReviewed head: ${head}\\nLanded commit: ${tipOf(main)}\\nReviewed by: alice\\n$`));
     assert.doesNotMatch(part.stdout, /next: ai-core finish-issue/);
     assert.match(part.stdout, /part: o\/r#\d+ stays in its status with its worktree; the last part lands without --part/);
+    await assert.rejects(finishIssue.run([String(number)], ctx(main.checkout)), /carries no "Landed on" record/);
+    assert.ok(existsSync(tree), 'a part record does not let finish-issue remove the worktree');
     const rerun = await integrateIssue.run([...integrateArguments(main, number, head), '--part'], ctx(tree));
     assert.match(rerun.stdout, /keeps its status: the record "Landed part on master" is there already/);
     assert.equal(commentsOf(main, number).filter((comment) => comment.startsWith('Landed part on')).length, 1, 'a rerun of the part writes no second record');
@@ -1633,9 +1635,38 @@ describe('issue-release', () => {
     recordLanding(sibling, elsewhere, sibling);
     const before = writesOf();
     await assert.rejects(issueRelease.run(['--repo', main.full, '--tag', 'v1.2.0', String(landed), String(stray), `${sibling.full}#${elsewhere}`], ctx(main.checkout)),
-      (error: unknown) => error instanceof PreconditionError && error.message.startsWith(`o/r#${stray}, o/sibling#${elsewhere}: no "Landed on" record of o/r since the last reopening for new work`));
+      (error: unknown) => error instanceof PreconditionError && error.message.startsWith(`o/r#${stray}, o/sibling#${elsewhere}: no "Landed on" or "Landed part on" record of o/r since the last reopening for new work`));
     assert.equal(writesOf(), before);
     assert.equal(fake.listMilestones(main.full).some((milestone) => milestone.title === 'v1.2.0'), false, 'no milestone is made');
+  });
+
+  it('records the release of a repository the package landed as a part, and moves no card (planted: a part read as no landing)', async () => {
+    const tag = 'v-part-of-a-package';
+    fake.addTag(sibling.full, tag);
+    const number = newIssue(main, 'Landed in two repositories, so that each release is recorded', { labels: ['status/implementing'] });
+    fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ branch: 'master', repository: parseRepository(sibling.full), reviewedHead: 'a'.repeat(40), landedCommit: 'b'.repeat(40), reviewers: ['alice'], isPart: true }, parseRepository(main.full)));
+    await issueRelease.run(['--repo', sibling.full, '--tag', tag, `${main.full}#${number}`], ctx(main.checkout));
+    assert.equal(commentsOf(main, number).at(-1), `Released in ${sibling.full} ${tag}:\n`);
+    assert.deepEqual(fake.readIssue(main.full, number).labels, ['status/implementing'], 'the release moves no card');
+    const writes = writesOf();
+    await issueRelease.run(['--repo', sibling.full, '--tag', tag, `${main.full}#${number}`], ctx(main.checkout));
+    assert.equal(writesOf(), writes, 'a rerun writes no second release record');
+  });
+
+  it('records a release after a late part in another repository, once (planted: an earlier release hides the new part)', async () => {
+    const number = newIssue(main, 'Part recorded late, so that its release needs a newer record');
+    const tag = `v-late-part-${number}`;
+    fake.addTag(sibling.full, tag);
+    const args = ['--repo', sibling.full, '--tag', tag, `${main.full}#${number}`];
+    const part = { branch: 'master', repository: parseRepository(sibling.full), reviewedHead: 'a'.repeat(40), landedCommit: 'b'.repeat(40), reviewers: ['alice'], isPart: true };
+    fake.addComment(main.full, number, 'fake-user', composeLandedRecord(part, parseRepository(main.full)));
+    await issueRelease.run(args, ctx(main.checkout));
+    fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ ...part, landedCommit: 'c'.repeat(40) }, parseRepository(main.full)));
+    await issueRelease.run(args, ctx(main.checkout));
+    assert.equal(commentsOf(main, number).at(-1), `Released in ${sibling.full} ${tag}:\n`, 'the new release record follows the newest part');
+    const writes = writesOf();
+    await issueRelease.run(args, ctx(main.checkout));
+    assert.equal(writesOf(), writes, 'the current release record is reused');
   });
 
   it('records a release after a late landing, proves it and writes nothing on a second release run', async () => {
@@ -1728,6 +1759,63 @@ describe('issue-proof and the close as completed', () => {
     assert.equal(before <= writes, true);
     assert.equal(fake.readIssue('o/r', number).state, 'open');
   });
+
+  it('proves an issue landed in two repositories only once the part repository is released too (planted: the part repository passed over)', async () => {
+    mkdirSync(join(sibling.checkout, '.ai-core'), { recursive: true });
+    writeFileSync(join(sibling.checkout, '.ai-core', 'config.env'), 'LIVE_TAGS="prod=deploy/prod/*"\n');
+    const harness = liveTagsHarness();
+    const number = newIssue(main, 'Landed in a part and a last landing, so that both releases are proven', { labels: ['status/implementing'] });
+    fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'sibling' }, reviewedHead: 'a'.repeat(40), landedCommit: 'b'.repeat(40), reviewers: ['alice'], isPart: true }, { owner: 'o', repo: 'r' }));
+    fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'r' }, reviewedHead: 'c'.repeat(40), landedCommit: 'd'.repeat(40), reviewers: ['alice'] }, { owner: 'o', repo: 'r' }));
+    fake.addTag(main.full, `v-last-${number}`);
+    await issueRelease.run(['--repo', main.full, '--tag', `v-last-${number}`, String(number)], ctx(main.checkout));
+    const before = writesOf();
+    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout, {}, harness)), /no release of o\/sibling follows its landing/);
+    assert.equal(writesOf(), before);
+    assert.equal(fake.readIssue(main.full, number).state, 'open');
+
+    fake.addTag(sibling.full, `v-part-${number}`);
+    await issueRelease.run(['--repo', sibling.full, '--tag', `v-part-${number}`, `${main.full}#${number}`], ctx(main.checkout));
+    fake.fail({ method: 'PATCH', path: `/repos/o/r/issues/${number}`, mode: { kind: 'status', status: 500, message: 'planted' } });
+    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout, {}, harness)), PartialCompletionError);
+    assert.equal(fake.readIssue(main.full, number).state, 'open');
+    await issueProof.run(proofArguments(number), ctx(main.checkout, {}, harness));
+    assert.equal(fake.readIssue(main.full, number).state, 'closed');
+    assert.equal(commentsOf(main, number).filter((body) => body.startsWith('Proven on')).length, 1, 'a retry keeps the proof of all repositories');
+  });
+
+  for (const earlierLanding of [false, true]) {
+    it(`refuses proof and close with ${earlierLanding ? 'a part after the last landing' : 'parts alone'}, until the final landing`, async () => {
+      const number = newIssue(main, 'More work follows, so that a proof cannot complete the issue', { labels: ['status/implementing'] });
+      const record = { branch: 'master', repository: parseRepository(main.full), reviewedHead: 'a'.repeat(40), landedCommit: 'b'.repeat(40), reviewers: ['alice'] };
+      if (earlierLanding) fake.addComment(main.full, number, 'fake-user', composeLandedRecord(record, record.repository));
+      fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ ...record, isPart: true }, record.repository));
+      const tag = `v-unfinished-${number}`;
+      fake.addTag(main.full, tag);
+      const releaseArgs = ['--repo', main.full, '--tag', tag, String(number)];
+      await issueRelease.run(releaseArgs, ctx(main.checkout));
+      const released = writesOf();
+      await issueRelease.run(releaseArgs, ctx(main.checkout));
+      assert.equal(writesOf(), released, 'a part can be released once without completing the issue');
+      await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout)), /the last part lands without --part/);
+      assert.equal(writesOf(), released, 'a refused proof writes nothing');
+
+      fake.addComment(main.full, number, 'fake-user', composeProvenRecord('prod', 'Premature proof.'));
+      const proven = writesOf();
+      await assert.rejects(issueState.runClose([main.full, String(number)], ctx(main.checkout)), /has no proof that follows its landing/);
+      assert.equal(writesOf(), proven, 'a refused close writes nothing');
+      assert.equal(fake.readIssue(main.full, number).state, 'open');
+      assert.deepEqual(fake.readIssue(main.full, number).labels, ['status/implementing']);
+
+      fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ ...record, landedCommit: 'c'.repeat(40) }, record.repository));
+      await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout)), /no release of o\/r follows its landing/);
+      await issueRelease.run(releaseArgs, ctx(main.checkout));
+      await issueProof.run(proofArguments(number), ctx(main.checkout));
+      assert.equal(fake.readIssue(main.full, number).state, 'closed');
+      assert.deepEqual(fake.readIssue(main.full, number).labels, ['status/done']);
+      assert.equal(commentsOf(main, number).filter((body) => body.startsWith('Proven on')).length, 2, 'the premature proof is replaced by a proof after the final landing');
+    });
+  }
 
   it('proves and closes an issue that holds no "Landed on" record, and says that no landing exists (planted: refused for want of a landing)', async () => {
     const number = newIssue(main, 'Delivered without a code change, so that its proof closes it', { labels: ['status/testing'] });
@@ -1949,6 +2037,20 @@ describe('issue-proof and the close as completed', () => {
 
     assert.equal(fake.readIssue(main.full, number).state, 'closed');
     assert.deepEqual(harness.calls, [`readLiveTags ${sibling.checkout}`, `readLiveRelease ${sibling.checkout} o/sibling prod`]);
+  });
+
+  it('checks the newest part commit with its repository delivery reader after the final landing', async () => {
+    const number = newIssue(main, 'A part must be shipped, so that the final landing alone cannot prove it');
+    const earlier = commitInSibling('earlier part shipped');
+    const landed = commitInSibling('newest part not shipped yet');
+    const part = { branch: 'master', repository: parseRepository(sibling.full), reviewedHead: 'a'.repeat(40), landedCommit: earlier, reviewers: ['alice'], isPart: true };
+    fake.addComment(main.full, number, 'fake-user', composeLandedRecord(part, parseRepository(main.full)));
+    fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ ...part, landedCommit: landed }, parseRepository(main.full)));
+    fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ ...part, repository: parseRepository(main.full), isPart: false }, parseRepository(main.full)));
+    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=landed' }, siblingReads(deliveryOf(earlier)))), new RegExp(`does not hold its landed commit ${landed}`));
+    assert.equal(fake.readIssue(main.full, number).state, 'open');
+    await issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=landed' }, siblingReads(deliveryOf(landed))));
+    assert.equal(fake.readIssue(main.full, number).state, 'closed');
   });
 
   it('refuses a neighbour whose reader answers a delivery without the landing, no delivery or an error, and one whose record names no commit, each with its reason (planted)', async () => {

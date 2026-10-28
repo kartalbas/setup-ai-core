@@ -468,6 +468,13 @@ push_again_or_undo() {
 }
 # gitleaks_git: a gitleaks that can run the scan of this gate; `gitleaks git` came with gitleaks 8.19
 gitleaks_git() { command -v gitleaks >/dev/null 2>&1 && gitleaks git --help >/dev/null 2>&1; }
+# arm_source_message_hook <tree> <label>: in a harness source, the commit-msg hook init writes everywhere else
+arm_source_message_hook() {
+  local wrote
+  is_harness_clone "$1" || return 0
+  if wrote="$(arm_message_hook "$1" "$CORE_ROOT")"; then echo "pre-push: $2: .githooks/commit-msg $wrote"
+  else echo "pre-push: $2: .githooks/commit-msg could not be written, so a message is judged only at the push" >&2; fi
+}
 install_shim() {  # install_shim <repository>: 0 written or unchanged, 1 not a repository
   local dir="$1" name tree
   name="$(basename "$dir")"
@@ -500,7 +507,9 @@ install_shim() {  # install_shim <repository>: 0 written or unchanged, 1 not a r
     # written there would be a change in it, and init then holds it on an old commit
     case "$tree" in */.ai-core/neighbours/*|*/.worktrees/*/origin-*) continue ;; esac
     write_worktree_shims "$tree" "$name (worktree $(basename "$tree"))" "$dir"
+    arm_source_message_hook "$tree" "$name (worktree $(basename "$tree"))"
   done <<< "$(git -C "$dir" worktree list --porcelain 2>/dev/null | grep '^worktree ' | tail -n +2)"
+  arm_source_message_hook "$dir" "$name"
   commit_shim "$dir" "$name" || return 1
   # a hook of the project's own that git skips for want of the executable bit is named, not changed
   git -C "$dir" ls-tree HEAD -- .githooks/ | awk '$1 == "100644" { print $4 }' | while IFS= read -r hook; do

@@ -98,12 +98,16 @@ describe('the harness steps', () => {
     assert.equal(git(checkout, 'rev-parse', 'master'), before);
   });
 
-  it('assemble nothing in a worktree of a harness source, which reads its own rules', async () => {
+  it('assemble nothing but the commit-msg hook in a worktree of a harness source, which reads its own rules (planted: no hook)', async () => {
     const source = fixture.clone(fixture.createRemote('o', 'shop-ai-core'), 'project', 'shop-ai-core');
     git(source, 'remote', 'set-url', 'origin', 'https://github.com/o/shop-ai-core.git');
     const outcome = await bashHarness.assembleWorktree(source);
     assert.equal(outcome.succeeded, true, outcome.output);
     assert.match(outcome.output, /^Harness source worktree: run ai-core session-start/);
+    const template = readFileSync(join(import.meta.dirname, '../../../templates/.githooks/commit-msg'), 'utf8');
+    assert.equal(readFileSync(join(source, '.githooks', 'commit-msg'), 'utf8'), template, 'the hook init deploys in a product');
+    assert.equal(git(source, 'config', '--get', 'core.hooksPath'), '.githooks');
+    assert.equal(git(source, 'status', '--porcelain'), '', 'untracked and excluded, so no commit carries it');
   });
 
   it('read LIVE_TAGS through the Bash configuration reader, ignoring the environment', async () => {

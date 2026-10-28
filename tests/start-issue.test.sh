@@ -555,7 +555,6 @@ git -C "$source_work" commit -qm 'the source #1'
 git -C "$source_work" remote add origin "$source_origin"
 git -C "$source_work" push -qu origin master
 git -C "$source_work" remote set-head origin -a >/dev/null
-git -C "$source_work" config core.hooksPath .githooks
 touch "$fake/no-board"
 out="$(cd "$source_work" && PATH="$root/bin:$PATH" GH_PROJECT_NUMBER='' bash "$start" example-org/shop-ai-core 173 2>&1)"; rc=$?
 check 'source start exits zero' 0 "$rc"
@@ -563,6 +562,20 @@ check 'source caller names the workflow' yes "$(grep -qF 'Harness source worktre
 source_tree="$(git -C "$source_work" worktree list --porcelain | sed -n 's/^worktree //p' | tail -1)"
 check 'source tree has no assembly' no "$([ -e "$source_tree/.ai-core" ] && echo yes || echo no)"
 check 'source tree has no product map' no "$([ -e "$source_tree/AGENTS.md" ] && echo yes || echo no)"
+check 'source tree has the commit-msg hook' yes "$([ -x "$source_tree/.githooks/commit-msg" ] && echo yes || echo no)"
+check 'a fresh source clone has its hooks armed' .githooks "$(git -C "$source_tree" config --get core.hooksPath)"
+check 'the hook stays out of every commit' yes "$(git -C "$source_tree" check-ignore -q .githooks/commit-msg && echo yes || echo no)"
+check 'the tree stays clean'             '' "$(git -C "$source_tree" status --porcelain)"
+long_subject="$(printf 'x%.0s' $(seq 1 73))"
+out="$(cd "$source_tree" && PATH="$root/bin:$PATH" git commit -q --allow-empty -m "$long_subject" 2>&1)"; rc=$?
+check 'a subject of 73 characters is refused at the commit' 1 "$rc"
+check 'the hook names the refusal'       yes "$(grep -q '^commit-msg: REFUSED' <<< "$out" && echo yes || echo no)"
+before="$(git -C "$source_tree" rev-parse HEAD)"
+out="$(cd "$source_tree" && PATH="$root/bin:$PATH" git commit -q --allow-empty -m 'Fix #173' 2>&1)"; rc=$?
+check 'a closing keyword is refused at the commit' 1 "$rc"
+check 'the refused message made no commit' "$before" "$(git -C "$source_tree" rev-parse HEAD)"
+out="$(cd "$source_tree" && PATH="$root/bin:$PATH" git commit -q --allow-empty -m 'Keep a short subject #173' 2>&1)"; rc=$?
+check 'a short subject is taken'         0 "$rc"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

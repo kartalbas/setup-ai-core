@@ -1317,7 +1317,8 @@ a repository. Where the shim stands, `init` writes `.githooks/commit-msg` beside
 it runs `ai-core pre-push --message`, so a subject over 72 characters, an assistant's attribution,
 a closing keyword before an issue reference (`Fixes #12`, which closes the issue on the forge before
 any release) or an assistant as author is refused while the commit is made, where the fault costs no
-rewrite.
+rewrite. A harness source, which `init` never assembles, gets the same hook from
+`ai-core pre-push --install` in its checkout and its worktrees, and from `start-issue` in a new worktree.
 
 ### 8.1 The Forgejo tracker
 

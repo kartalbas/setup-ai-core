@@ -63,6 +63,39 @@ harness_source_of() {
   printf '%s/%s\n' "${parts%%	*}" "$repo"
 }
 
+# arm_message_hook <tree> <setup-ai-core root>: a harness source is never assembled by init, so the
+# commit-msg hook init deploys beside the push gate is written here, untracked and in the clone's own
+# exclude file, unless the repository commits its own; prints written, unchanged or tracked.
+arm_message_hook() {
+  local tree="$1" template="$2/templates/.githooks/commit-msg" exclude
+  if git -C "$tree" ls-files --error-unmatch .githooks/commit-msg >/dev/null 2>&1; then echo tracked; return 0; fi
+  exclude="$(cd "$tree" && git rev-parse --git-path info/exclude)" || return 1
+  case "$exclude" in /*|[A-Za-z]:*) ;; *) exclude="$tree/$exclude" ;; esac
+  mkdir -p "$(dirname "$exclude")" || return 1
+  if ! grep -qxF '/.githooks/commit-msg' "$exclude" 2>/dev/null; then
+    if [ -s "$exclude" ]; then [ -z "$(tail -c 1 "$exclude")" ] || printf '\n' >> "$exclude" || return 1; fi
+    printf '%s\n' '/.githooks/commit-msg' >> "$exclude" || return 1
+  fi
+  if [ "$(git -C "$tree" config --get core.hooksPath)" != .githooks ]; then
+    git -C "$tree" config core.hooksPath .githooks || return 1
+  fi
+  if cmp -s "$template" "$tree/.githooks/commit-msg" && [ -x "$tree/.githooks/commit-msg" ]; then echo unchanged; return 0; fi
+  mkdir -p "$tree/.githooks" && cp "$template" "$tree/.githooks/commit-msg" && chmod 755 "$tree/.githooks/commit-msg" || return 1
+  echo written
+}
+
+# assemble_worktree <worktree> <setup-ai-core root>: products need the checkout's assembled rules;
+# sources read their own rule inputs instead and get only the commit-msg hook.
+assemble_worktree() {
+  if harness_source_of "$1" >/dev/null; then
+    arm_message_hook "$1" "$2" >/dev/null \
+      || echo "the commit-msg hook is NOT written in the worktree, so a message is judged only at the push" >&2
+    echo "Harness source worktree: run ai-core session-start and read its source rules."
+  else
+    bash "$2/bin/init.sh" "$1" --no-doctor
+  fi
+}
+
 # source_rule_dirs <checkout> <setup-ai-core root>: validate local source inputs, base first.
 # Resolving a source must never clone, pull, assemble, or repair it while checking readiness.
 source_rule_dirs() {

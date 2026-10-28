@@ -71,7 +71,14 @@ arm_message_hook() {
   if git -C "$tree" ls-files --error-unmatch .githooks/commit-msg >/dev/null 2>&1; then echo tracked; return 0; fi
   exclude="$(cd "$tree" && git rev-parse --git-path info/exclude)" || return 1
   case "$exclude" in /*|[A-Za-z]:*) ;; *) exclude="$tree/$exclude" ;; esac
-  grep -qxF '/.githooks/commit-msg' "$exclude" 2>/dev/null || printf '%s\n' '/.githooks/commit-msg' >> "$exclude" || return 1
+  mkdir -p "$(dirname "$exclude")" || return 1
+  if ! grep -qxF '/.githooks/commit-msg' "$exclude" 2>/dev/null; then
+    if [ -s "$exclude" ]; then [ -z "$(tail -c 1 "$exclude")" ] || printf '\n' >> "$exclude" || return 1; fi
+    printf '%s\n' '/.githooks/commit-msg' >> "$exclude" || return 1
+  fi
+  if [ "$(git -C "$tree" config --get core.hooksPath)" != .githooks ]; then
+    git -C "$tree" config core.hooksPath .githooks || return 1
+  fi
   if cmp -s "$template" "$tree/.githooks/commit-msg" && [ -x "$tree/.githooks/commit-msg" ]; then echo unchanged; return 0; fi
   mkdir -p "$tree/.githooks" && cp "$template" "$tree/.githooks/commit-msg" && chmod 755 "$tree/.githooks/commit-msg" || return 1
   echo written

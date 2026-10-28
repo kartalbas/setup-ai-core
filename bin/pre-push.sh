@@ -471,7 +471,7 @@ gitleaks_git() { command -v gitleaks >/dev/null 2>&1 && gitleaks git --help >/de
 # arm_source_message_hook <tree> <label>: in a harness source, the commit-msg hook init writes everywhere else
 arm_source_message_hook() {
   local wrote
-  harness_source_of "$1" >/dev/null || return 0
+  is_harness_clone "$1" || return 0
   if wrote="$(arm_message_hook "$1" "$CORE_ROOT")"; then echo "pre-push: $2: .githooks/commit-msg $wrote"
   else echo "pre-push: $2: .githooks/commit-msg could not be written, so a message is judged only at the push" >&2; fi
 }

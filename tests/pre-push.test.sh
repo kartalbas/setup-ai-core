@@ -1545,7 +1545,80 @@ check 'a subject of 73 characters is refused at the commit' 1 "$rc"
 out="$( cd "$hs" && PATH="$root/bin:$PATH" FORGE=github bash "$root/bin/pre-push.sh" --install 2>&1 )"
 check 'a second run: unchanged'       yes "$(grep -q '^pre-push: shop-ai-core: .githooks/commit-msg unchanged$' <<< "$out" && echo yes || echo no)"
 check 'one exclude line, not two'     1 "$(grep -cxF '/.githooks/commit-msg' "$(git -C "$hs" rev-parse --path-format=absolute --git-common-dir)/info/exclude")"
+for tree in "$hs" "$fake/hs/issue-15-open"; do
+  before="$(git -C "$tree" rev-parse HEAD)"
+  for subject in "$(printf 'y%.0s' $(seq 1 73))" 'Fix #15'; do
+    out="$(cd "$tree" && PATH="$root/bin:$PATH" git commit -q --allow-empty -m "$subject" 2>&1)"; rc=$?
+    check 'checkout and worktree: a bad message is refused at commit' 1 "$rc"
+    check 'checkout and worktree: the refusal names the message hook' yes "$(grep -q '^commit-msg: REFUSED' <<< "$out" && echo yes || echo no)"
+    check 'checkout and worktree: no commit was made' "$before" "$(git -C "$tree" rev-parse HEAD)"
+  done
+done
+product_exclude="$(cat "$real_gate/.git/info/exclude")"
 check 'a product checkout gets no such line' no "$(grep -q 'commit-msg' <<< "$( cd "$real_gate" && PATH="$root/bin:$PATH" bash "$root/bin/pre-push.sh" --install 2>&1 )" && echo yes || echo no)"
+check 'a product checkout gets no message hook' no "$([ -e "$real_gate/.githooks/commit-msg" ] && echo yes || echo no)"
+check 'a product checkout keeps its exclude file' "$product_exclude" "$(cat "$real_gate/.git/info/exclude")"
+
+echo 'the message hook stays untracked with missing info directories and unterminated exclude files, in checkouts and worktrees'
+message_checkout="$fake/message-checkout"; git init -q -b master "$message_checkout"
+git -C "$message_checkout" config user.email 'test@example.invalid'; git -C "$message_checkout" config user.name 'test'
+git -C "$message_checkout" commit -q --allow-empty -m 'Start #15'
+message_absolute="$fake/message-absolute"; message_relative="$fake/message-relative"
+git -C "$message_checkout" worktree add -q -b issue-15-absolute "$message_absolute"
+git -C "$message_checkout" worktree add -q -b issue-15-relative "$message_relative"
+printf 'gitdir: ../message-checkout/.git/worktrees/message-relative\n' > "$message_relative/.git"
+message_hook() ( . "$root/lib/layers.sh"; arm_message_hook "$1" "$root"; )
+for tree in "$message_checkout" "$message_absolute" "$message_relative"; do
+  rm -rf "$message_checkout/.git/info"
+  out="$(message_hook "$tree" 2>&1)"; rc=$?
+  check 'a missing info directory is created' 0 "$rc"
+  check 'the hook is executable' yes "$([ -x "$tree/.githooks/commit-msg" ] && echo yes || echo no)"
+  check 'the hook is ignored in this tree' yes "$(git -C "$tree" check-ignore -q .githooks/commit-msg && echo yes || echo no)"
+  mkdir -p "$message_checkout/.git/info"
+  printf '# local exclusions' > "$message_checkout/.git/info/exclude"
+  out="$(message_hook "$tree" 2>&1)"; rc=$?
+  check 'an unterminated exclude file gets a separate line' $'# local exclusions\n/.githooks/commit-msg' "$(cat "$message_checkout/.git/info/exclude")"
+  check 'the tree stays clean' '' "$(git -C "$tree" status --porcelain)"
+  git -C "$tree" add -A
+  check 'git add -A stages no hook' '' "$(git -C "$tree" ls-files .githooks/commit-msg)"
+  git -C "$tree" reset -q -- .githooks/commit-msg
+  before="$(cksum "$tree/.githooks/commit-msg" "$message_checkout/.git/info/exclude")"
+  out="$(message_hook "$tree" 2>&1)"; rc=$?
+  check 'another run reports unchanged' unchanged "$out"
+  check 'another run changes neither file' "$before" "$(cksum "$tree/.githooks/commit-msg" "$message_checkout/.git/info/exclude")"
+done
+echo 'a tracked commit-msg belongs to the repository, including its local edits and mode'
+printf '#!/usr/bin/env bash\nexit 0\n' > "$message_checkout/.githooks/commit-msg"
+chmod 755 "$message_checkout/.githooks/commit-msg"
+git -C "$message_checkout" add -f .githooks/commit-msg
+git -C "$message_checkout" commit -q -m 'Keep the project hook #15'
+chmod 644 "$message_checkout/.githooks/commit-msg"
+printf '# a local edit\n' >> "$message_checkout/.githooks/commit-msg"
+before="$(cksum "$message_checkout/.githooks/commit-msg" "$message_checkout/.git/info/exclude")"
+check 'the helper reports tracked' tracked "$(message_hook "$message_checkout")"
+check 'the tracked hook and exclude file are untouched' "$before" "$(cksum "$message_checkout/.githooks/commit-msg" "$message_checkout/.git/info/exclude")"
+check 'the tracked hook keeps its mode' no "$([ -x "$message_checkout/.githooks/commit-msg" ] && echo yes || echo no)"
+
+echo '--install --all recognizes harness clones on another forge and leaves their published copies alone'
+other_origin="$fake/forge.example/example-org/other-ai-core.git"; mkdir -p "$(dirname "$other_origin")"
+git clone -q --bare "$hs_origin" "$other_origin"
+other="$fake/other-folder/other-ai-core"; git clone -q "$other_origin" "$other"
+git -C "$other" config user.email 'test@example.invalid'; git -C "$other" config user.name 'test'
+printf 'FORGE=forgejo\nFORGEJO_URL=https://forge.example\n' > "$other/config.env"
+git -C "$other" worktree add -q -b issue-16-open "$fake/other-folder/.worktrees/other-ai-core/issue-16-open" 2>/dev/null
+neighbour="$fake/other-folder/.ai-core/neighbours/other-ai-core"
+published="$fake/other-folder/.worktrees/other-ai-core/origin-master"
+for tree in "$neighbour" "$published"; do git -C "$other" worktree add -q --detach "$tree" 2>/dev/null; done
+before="$(git -C "$other" rev-parse HEAD)"
+out="$(FORGE=github bash "$root/bin/pre-push.sh" --install --all "$fake/other-folder" 2>&1)"; rc=$?
+check 'the rollout succeeds from a caller on another forge' 0 "$rc"
+check 'the rollout reaches the harness checkout' yes "$([ -x "$other/.githooks/commit-msg" ] && echo yes || echo no)"
+check 'the rollout reaches its issue worktree' yes "$([ -x "$fake/other-folder/.worktrees/other-ai-core/issue-16-open/.githooks/commit-msg" ] && echo yes || echo no)"
+check 'the hook alone needs no harness commit' "$before" "$(git -C "$other" rev-parse HEAD)"
+for tree in "$neighbour" "$published"; do
+  check 'a published copy gets no message hook' no "$([ -e "$tree/.githooks/commit-msg" ] && echo yes || echo no)"
+  check 'a published copy stays clean' '' "$(git -C "$tree" status --porcelain)"
+done
 echo 'a second --install, its shims unchanged, carries no commit of somebody else under its mark: the gate refuses that push as a plain one'
 plain_tip="$(git -C "$real_gate" rev-parse HEAD)"; origin_before="$(git -C "$real_origin" rev-parse master)"
 out="$( cd "$real_gate" && PATH="$root/bin:$PATH" bash "$root/bin/pre-push.sh" --install 2>&1 )"; rc=$?

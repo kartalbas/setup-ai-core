@@ -43,7 +43,8 @@
 #
 # A tool may hold several rows for one phase and class: they are tried in table order, and the first
 # whose destination has quota left and whose model is not the writer's is selected; two equal rows are
-# refused as ambiguous.
+# refused as ambiguous. Under a saved tool order the first tool with a row and quota runs, so claude
+# before codex plans on Fable even while Codex has quota.
 # Every phase starts and resumes on exactly the selector's tuple. For plan-check and review,
 # pass --written-by with the actual writer model; aliases and effort changes are not independence.
 # A plan re-check uses plan-check and the re-plan writer; a review re-check uses review and the

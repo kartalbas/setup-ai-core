@@ -61,9 +61,11 @@ function refuseUnreadyIssue(issue: Issue): void {
 }
 
 // Pushes the start commit as the default branch of an empty origin under the mark of a landing, from a temporary worktree at
-// the commit, because the push gate reads the HEAD it runs in and the clone has none yet; then fetches it.
+// the commit, because the push gate reads the HEAD it runs in and the clone has none yet, with the hooks of the clone by their
+// absolute path, which that tree does not hold; then fetches it.
 async function startDefaultBranch(context: CommandContext, number: number, defaultBranch: string, commit: string): Promise<void> {
   const { git, cwd } = context;
+  const hooks = await git.getHooksDirectory(cwd);
   const container = await git.worktreeContainer(cwd);
   const tree = await mkdtemp(join(container, `start-${number}.`));
   let mark: string | undefined;
@@ -73,7 +75,7 @@ async function startDefaultBranch(context: CommandContext, number: number, defau
     if (!marked.succeeded) throw new PreconditionError(`the mark of this push could not be made (${marked.output})`);
     mark = marked.output;
     try {
-      await git.push(tree, commit, defaultBranch, context.stderr, { AI_CORE_LANDING_MARK: mark });
+      await git.push(tree, commit, defaultBranch, context.stderr, { AI_CORE_LANDING_MARK: mark, GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: hooks });
     } catch (error) {
       throw new PreconditionError(`origin did not take the start commit as ${defaultBranch} (${error instanceof Error ? error.message : String(error)}): nothing was cut, and origin is as it was`);
     }

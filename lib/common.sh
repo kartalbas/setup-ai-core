@@ -361,7 +361,7 @@ unborn_default_branch() {
   branch="$(git --git-dir="$(git rev-parse --path-format=absolute --git-common-dir)" symbolic-ref -q --short HEAD)" \
     || die "origin holds no branch, and the HEAD of this clone names none, so the name of the default branch that the first push creates is not known"
   ! git rev-parse -q --verify "refs/heads/$branch" >/dev/null 2>&1 \
-    || die "origin holds no branch, but the branch $branch of this clone has commits, which the first push would not carry - push them first"
+    || die "origin holds no branch, but the branch $branch of this clone has commits, which the start of the default branch would not carry - run start-issue in a fresh clone of the empty repository, and land those commits later through an issue"
   echo "$branch"
 }
 
@@ -410,13 +410,14 @@ fast_forward_default_branch() {
   selected="$(git -C "$checkout" symbolic-ref --short -q HEAD)" || selected=""
   default="$(cd "$checkout" && origin_default_branch)" \
     || { echo "not refreshed: $checkout: cannot read origin's default branch" >&2; return 1; }
-  local_tip="$(git -C "$checkout" rev-parse --verify -q "refs/heads/$default^{commit}")" \
+  # A checkout whose HEAD names the default branch before it has a commit, as the clone of a new repository does, takes it
+  local_tip="$(git -C "$checkout" rev-parse --verify -q "refs/heads/$default^{commit}")" || [ "$selected" = "$default" ] \
     || { echo "not refreshed: $checkout: local default $default is missing" >&2; return 1; }
   output="$(GIT_TERMINAL_PROMPT=0 git -C "$checkout" fetch -q origin 2>&1)" \
     || { echo "not refreshed: $checkout: origin fetch failed: $output" >&2; return 1; }
   remote_tip="$(git -C "$checkout" rev-parse --verify -q "refs/remotes/origin/$default^{commit}")" \
     || { echo "not refreshed: $checkout: origin/$default is missing" >&2; return 1; }
-  git -C "$checkout" merge-base --is-ancestor "$local_tip" "$remote_tip" \
+  [ -z "$local_tip" ] || git -C "$checkout" merge-base --is-ancestor "$local_tip" "$remote_tip" \
     || { echo "not refreshed: $checkout: $default has local commits absent from origin/$default" >&2; return 1; }
   [ "$local_tip" != "$remote_tip" ] || return 0
   output="$(git -C "$checkout" worktree list --porcelain)" \

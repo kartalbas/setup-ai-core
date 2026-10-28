@@ -591,8 +591,13 @@ default="$(git symbolic-ref --short -q refs/remotes/origin/HEAD 2>/dev/null || t
 git rev-parse -q --verify "refs/remotes/$default" >/dev/null 2>&1 \
   || default="$(git ls-remote --symref origin HEAD 2>/dev/null | awk '$1 == "ref:" && $3 == "HEAD" { sub("^refs/heads/", "", $2); print $2 }')"
 default="${default#origin/}"
-# An origin with no branch at all creates its default branch with the first push, under the name the HEAD of this clone gives it while it has no commit
-if [ -z "$default" ] && origin_is_empty; then default="$(unborn_default_branch 2>/dev/null || true)"; fi
+# An origin with no branch at all makes the first branch pushed into it its default branch, whatever its name
+if [ -z "$default" ] && origin_is_empty; then
+  first_branches="$(awk '$3 ~ "^refs/heads/" { sub("^refs/heads/", "", $3); print $3 }' <<< "$input")"
+  [ "$(grep -c . <<< "$first_branches")" -le 1 ] \
+    || refuse "origin holds no branch yet, and this push creates several, one of which the forge makes its default branch. The default branch comes first and alone: ai-core start-issue <number> starts it."
+  default="$first_branches"
+fi
 [ -n "$default" ] || default=master
 
 # A checkout keeps no record of origin's tags, and its own tags need not be origin's, so the
@@ -692,10 +697,11 @@ done <<< "$input"
 # THE START OF A NEW REPOSITORY. An origin with no branch at all gets its default branch from start-issue, which pushes one
 # commit with the empty tree and no parent, "Start <owner>/<repo> (#<number>)", under the mark of a landing. That push is
 # the only one that creates the default branch without a review, and it has nothing to review: it is taken when it is alone
-# in its push, the default branch is new on origin, it adds that one commit to every ref of origin, and the mark is its own.
-# The checks of a branch that goes live, which need a review and a scripts/check.sh, do not apply to it.
+# in its push, it adds that one commit to every ref of origin, which a commit without a parent can do only to a branch that
+# origin lacks, and the mark is its own. The checks of a branch that goes live, which need a review and a scripts/check.sh,
+# do not apply to it.
 start_push=''
-if [ -n "$landing" ] && [ "$ref_lines" -eq 1 ] && all_zero "${remote_sha:-}" && is_start_commit "$landing" \
+if [ -n "$landing" ] && [ "$ref_lines" -eq 1 ] && is_start_commit "$landing" \
   && [ "$(git rev-list --count "$landing" --not --remotes=origin)" = 1 ] \
   && landing_mark_judge "${AI_CORE_LANDING_MARK:-}" "$root" "$landing" "refs/heads/$default"; then
   start_push=1

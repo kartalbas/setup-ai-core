@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
@@ -291,6 +291,7 @@ describe('start-issue in an empty origin', () => {
     assert.equal(git(world.remote, 'rev-list', '--max-parents=0', 'trunk'), start, 'it has no parent');
     assert.equal(git(world.remote, 'rev-parse', `${start}^{tree}`), emptyTree(world), 'it holds the empty tree');
     assert.equal(git(world.remote, 'log', '-1', '--format=%s', start), `Start o/fresh${counter} (#${number})`);
+    assert.doesNotThrow(() => execFileSync('bash', ['-c', '. "$1/lib/common.sh" && is_start_commit "$2"', 'is-start-commit', join(import.meta.dirname, '..', '..', '..', '..'), start], { cwd: world.checkout, stdio: 'ignore' }), 'the push gate reads it as a start commit');
     const tree = await treeOf(world, number);
     assert.equal(git(tree, 'rev-parse', 'HEAD'), start);
     assert.match(result.stdout, new RegExp(`^Started trunk of the empty o/fresh${counter} with the start commit ${start}\\.\\nWorktree .* cut from origin/trunk at ${start}\\.`));
@@ -326,6 +327,16 @@ describe('start-issue in an empty origin', () => {
     assert.equal((await client.listWorktrees(world.checkout)).length, 1);
     assert.deepEqual(fake.readIssue(world.full, number).labels, ['status/ready']);
     assert.equal(fake.readIssue(world.full, number).comments.length, 0);
+  });
+
+  it('runs the hooks of the clone on that push where core.hooksPath names them relative to the checkout, as init arms them (planted: the gate refuses)', async () => {
+    const world = makeEmptyWorld();
+    mkdirSync(join(world.checkout, '.githooks'));
+    writeFileSync(join(world.checkout, '.githooks', 'pre-push'), '#!/bin/sh\necho "pre-push: REFUSED - planted"; exit 1\n', { mode: 0o755 });
+    git(world.checkout, 'config', 'core.hooksPath', '.githooks');
+    const number = newIssue(world, 'Relative hooks, so that the gate judges the start');
+    await assert.rejects(startIssue.run([String(number)], ctx(world.checkout)), /origin did not take the start commit as trunk/);
+    assert.equal(git(world.remote, 'branch', '--list'), '', 'origin is still empty');
   });
 
   it('refuses where the mark of the push cannot be made, and pushes nothing (planted: no mark)', async () => {

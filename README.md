@@ -1325,11 +1325,16 @@ a worktree from, and the first branch pushed into an empty repository becomes it
 GitHub and on Forgejo. So `start-issue`, in a clone of such an origin, first starts the default branch:
 it makes one commit with the empty tree and no parent, `Start <owner>/<repo> (#<number>)`, so there is
 nothing to review, and pushes it as the default branch under the mark of a landing. The branch is named
-by the clone's own `HEAD`, which has no commit yet (`git symbolic-ref HEAD`). The push gate takes
-exactly that push, without the review and the live checks that a landing of a branch that goes live
-needs, and refuses a plain push of the default branch and the same commit without the mark. The
-worktree is then cut from `origin/<default>` as always, and `integrate-issue` lands the reviewed branch
-on it like any other. A clone whose `HEAD` branch has commits is refused: push them first.
+by the clone's own `HEAD`, which has no commit yet (`git symbolic-ref HEAD`), and the push runs the
+clone's hooks by their absolute path, because the temporary worktree it is made from holds no file. In
+an empty origin the push gate takes the branch a push creates for the default branch, whatever its
+name: it takes exactly the push of the start commit, without the review and the live checks that a
+landing of a branch that goes live needs, and refuses a plain push, the same commit without the mark,
+and a first push that creates more than one branch. The worktree is then cut from `origin/<default>`
+as always, and `integrate-issue` lands the reviewed branch on it like any other; its refresh then
+takes the default branch into the clone, whose `HEAD` named it before it had a commit. A clone whose
+`HEAD` branch has commits is refused: `start-issue` runs in a fresh clone of the empty repository,
+and those commits land later through an issue.
 
 ### 8.1 The Forgejo tracker
 

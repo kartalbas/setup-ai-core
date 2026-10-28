@@ -586,15 +586,17 @@ check 'a short subject is taken'         0 "$rc"
 # default branch is started first, with one empty commit that goes through the real push gate, and named by the clone's own
 # HEAD, which has no commit. The worktree is cut from it as from any default branch.
 echo 'an empty origin: the default branch is started with a start commit that holds nothing, the push gate takes it, and the worktree is cut from it'
-printf '#!/bin/sh\nexec bash "%s/bin/pre-push.sh" "$@"\n' "$root" > "$fake/gate-shim"; chmod +x "$fake/gate-shim"
-mkdir -p "$fake/gate-hooks"; cp "$fake/gate-shim" "$fake/gate-hooks/pre-push"
+arm_hook() {  # arm_hook <checkout> <script>: a pre-push hook in .githooks of the checkout, untracked, armed as init arms it
+  mkdir -p "$1/.githooks"; printf '#!/bin/sh\n%s\n' "$2" > "$1/.githooks/pre-push"; chmod +x "$1/.githooks/pre-push"
+  printf '/.githooks/\n' >> "$1/.git/info/exclude"; git -C "$1" config core.hooksPath .githooks
+}
 fresh_origin="$fake/github.com/example-org/fresh.git"
 fresh="$fake/fresh-checkouts/fresh"
 mkdir -p "$(dirname "$fresh_origin")" "$(dirname "$fresh")"
 git init -q --bare -b trunk "$fresh_origin"
 git init -q -b trunk "$fresh"; dress "$fresh"; harness_data "$fresh"
 git -C "$fresh" remote add origin "$fresh_origin"
-git -C "$fresh" config core.hooksPath "$fake/gate-hooks"
+arm_hook "$fresh" "exec bash '$root/bin/pre-push.sh' \"\$@\""
 fresh_tree="$fake/fresh-checkouts/.worktrees/fresh/issue-163-read-the-board-whole"
 fresh_before="$(snapshot "$fresh")"
 out="$(cd "$fresh" && PRE_PUSH_LOAD_LIMIT=0 bash "$start" 163 2>&1)"; rc=$?
@@ -613,6 +615,7 @@ check 'the checkout is as it was (its HEAD still has no commit)' "$fresh_before"
 check 'no temporary worktree is left'    "$fresh_tree" "$(git -C "$fresh" worktree list --porcelain | sed -n 's/^worktree //p' | grep -v "^$fresh$")"
 check 'the state is named'               "The checkout $fresh (branch trunk) has no commit yet. The new worktree starts from origin/trunk and does not see that; the checkout's branch, index, files and commits stay as they were." "$(grep '^The checkout ' <<< "$out")"
 echo 'the whole flow: the branch of the issue is committed and pushed, integrate-issue lands it, and the default branch stays the one the HEAD named'
+[ -e "$fresh_tree/.githooks/pre-push" ] || { mkdir -p "$fresh_tree/.githooks"; cp "$fresh/.githooks/pre-push" "$fresh_tree/.githooks/"; }
 echo 'work' > "$fresh_tree/work.txt"; git -C "$fresh_tree" add work.txt; git -C "$fresh_tree" commit -q -m 'Work on the issue (#163)'
 git -C "$fresh_tree" push -q 2>"$fake/plain-push.err"; rc=$?
 check 'the branch of the issue is pushed as any branch' 0 "$rc$([ "$rc" -eq 0 ] || echo " $(cat "$fake/plain-push.err")")"
@@ -625,13 +628,14 @@ check 'the second parent is the branch'  "$(git -C "$fresh_tree" rev-parse HEAD)
 check 'its subject names the issue'      'Read the board whole (#163)' "$(git --git-dir="$fresh_origin" log -1 --format=%s refs/heads/trunk)"
 check 'it carries the reviewer'          l4 "$(git --git-dir="$fresh_origin" log -1 --format='%(trailers:key=Reviewed-by,valueonly)' refs/heads/trunk | tr -d '\n')"
 check 'the history of the default branch has one root, the start commit' "$fresh_start" "$(git --git-dir="$fresh_origin" rev-list --max-parents=0 refs/heads/trunk)"
+check 'the clone takes the default branch that it started' "$(git --git-dir="$fresh_origin" rev-parse refs/heads/trunk) trunk" "$(git -C "$fresh" rev-parse -q --verify HEAD) $(git -C "$fresh" symbolic-ref --short HEAD)"
+check 'and its refresh finished'         '' "$(grep -E 'not refreshed|did not finish' <<< "$out")"
 
 echo 'a push of the start commit that the gate refuses leaves origin empty and cuts nothing'
 git init -q --bare -b trunk "$fake/github.com/example-org/refused.git"
 git init -q -b trunk "$fake/fresh-checkouts/refused"; dress "$fake/fresh-checkouts/refused"; harness_data "$fake/fresh-checkouts/refused"
 git -C "$fake/fresh-checkouts/refused" remote add origin "$fake/github.com/example-org/refused.git"
-mkdir -p "$fake/refuse-hooks"; printf '#!/bin/sh\necho "pre-push: REFUSED - planted"\nexit 1\n' > "$fake/refuse-hooks/pre-push"; chmod +x "$fake/refuse-hooks/pre-push"
-git -C "$fake/fresh-checkouts/refused" config core.hooksPath "$fake/refuse-hooks"
+arm_hook "$fake/fresh-checkouts/refused" 'echo "pre-push: REFUSED - planted"; exit 1'
 : > "$log"
 out="$(cd "$fake/fresh-checkouts/refused" && bash "$start" 163 2>&1)"; rc=$?
 check 'exits nonzero'                    yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"

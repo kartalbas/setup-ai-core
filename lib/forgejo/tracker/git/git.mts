@@ -173,7 +173,7 @@ export class GitClient {
       throw new GitError(['symbolic-ref'], undefined, 'origin holds no branch, and the HEAD of this clone names none, so the name of the default branch that the first push creates is not known');
     }
     if ((await this.run(cwd, ['rev-parse', '-q', '--verify', `refs/heads/${branch}`], [0, 1])).exitCode === 0) {
-      throw new GitError(['symbolic-ref'], undefined, `origin holds no branch, but the branch ${branch} of this clone has commits, which the first push would not carry - push them first`);
+      throw new GitError(['symbolic-ref'], undefined, `origin holds no branch, but the branch ${branch} of this clone has commits, which the start of the default branch would not carry - run start-issue in a fresh clone of the empty repository, and land those commits later through an issue`);
     }
     return branch;
   }
@@ -182,6 +182,11 @@ export class GitClient {
   async createStartCommit(cwd: string, subject: string): Promise<string> {
     const emptyTree = await this.output(cwd, ['hash-object', '-t', 'tree', '-w', '/dev/null']);
     return this.output(cwd, ['commit-tree', emptyTree, '-m', subject]);
+  }
+
+  // The hooks the clone runs, by their absolute path: git looks for a relative core.hooksPath in the tree it works in.
+  async getHooksDirectory(cwd: string): Promise<string> {
+    return this.output(cwd, ['rev-parse', '--path-format=absolute', '--git-path', 'hooks']);
   }
 
   async fetchBranch(cwd: string, branch: string): Promise<void> {

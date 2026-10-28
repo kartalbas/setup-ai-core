@@ -158,13 +158,15 @@ done <<< "$(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes
 [ ! -e "$path" ] || die "$path is already there - use it, or remove it with 'git worktree remove'"
 
 # push_start_commit <commit> <branch>: from a temporary worktree at the commit, because the push gate reads the HEAD it
-# runs in and this clone has none yet
+# runs in and this clone has none yet; with the hooks of this clone by their absolute path, because git looks for a relative
+# core.hooksPath in the tree it pushes from, which holds no file
 push_start_commit() {
-  local tree said status=0
+  local tree said hooks status=0
+  hooks="$(git rev-parse --path-format=absolute --git-path hooks)" || die "the hooks of this clone cannot be found, so no push gate would judge the start commit"
   mkdir -p "$container" && tree="$(mktemp -d "$container/start-$number.XXXXXX")" \
     || die "no folder for the temporary worktree beside the clone"
   git worktree add -q --detach "$tree" "$1" || { rm -rf "$tree"; die "the temporary worktree for the start commit could not be made (see above)"; }
-  with_landing_mark "$tree" "$1" "refs/heads/$2" -- git -C "$tree" push origin "$1:refs/heads/$2" >&2 || status=$?
+  with_landing_mark "$tree" "$1" "refs/heads/$2" -- git -C "$tree" -c core.hooksPath="$hooks" push origin "$1:refs/heads/$2" >&2 || status=$?
   git worktree remove --force "$tree" >/dev/null 2>&1 || rm -rf "$tree"
   [ "$status" -eq 0 ] || die "origin did not take the start commit as $2 (see above): nothing was cut, and origin is as it was"
   said="$(git fetch origin 2>&1)" || die "the start commit is on origin as $2, but origin could not be fetched: $said"

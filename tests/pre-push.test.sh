@@ -2704,6 +2704,20 @@ tree_second="$(first_tree two "$second")"
 out="$(first_gate "$tree_second" "$second" with)"; rc=$?
 check 'planted: the start commit with another commit above it: exit 1' 1 "$rc"
 git -C "$first" worktree remove --force "$tree_second"
+# A clone whose branch has commits: whatever branch it pushes first becomes the default branch of the empty origin
+populated="$fake/first-checkouts/populated-$first_branch"
+git init -q -b "$first_branch" "$populated"
+git -C "$populated" config user.email 'test@example.invalid'; git -C "$populated" config user.name 'test'
+git -C "$populated" remote add origin "$first_origin"
+mkdir -p "$populated/.ai-core"; printf 'PRE_PUSH_LOAD_LIMIT="0"\n' > "$populated/.ai-core/config.env"; printf '/.ai-core/\n' >> "$populated/.git/info/exclude"
+echo app > "$populated/app.txt"; git -C "$populated" add app.txt; git -C "$populated" commit -q -m 'Add the app (#9)'
+populated_head="$(git -C "$populated" rev-parse HEAD)"
+out="$(printf "refs/heads/$first_branch %s refs/heads/$first_branch %s\n" "$populated_head" "$zeros40" | ( cd "$populated" && bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1 ))"; rc=$?
+check "planted: a plain first push of $first_branch with files from a clone with commits: exit 1" 1 "$rc"
+check "planted: it says that $first_branch takes no plain push" yes "$(grep -qF "$first_branch takes no plain push" <<< "$out" && echo yes || echo no)"
+out="$(printf "refs/heads/$first_branch %s refs/heads/$first_branch %s\nrefs/heads/$first_branch %s refs/heads/other %s\n" "$populated_head" "$zeros40" "$populated_head" "$zeros40" | ( cd "$populated" && bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1 ))"; rc=$?
+check 'planted: a first push that creates two branches: exit 1' 1 "$rc"
+check 'planted: it says that the default branch comes first and alone' yes "$(grep -qF 'The default branch comes first and alone' <<< "$out" && echo yes || echo no)"
 done
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi

@@ -136,14 +136,18 @@ plant_lock "$holder" "$repository#1" issue-1-holder 7
 bash "$lib" release "$clone" "$holder"
 check 'the holder releases it'       no "$([ -e "$lock" ] && echo yes || echo no)"
 check 'the log was made with its header' "$header" "$(head -n1 "$log")"
-check 'one row records the hold: repository, worktree, verdict, seconds, who' "$repository"$'\t'"$clone"$'\t''-'$'\t''landing lock'$'\t'"7"$'\t'"$repository#1 on issue-1-holder"$'\t''-' "$(sed -n 2p "$log" | cut -f2-8)"
-check 'and the longest hold of the repository is that: 7 seconds' 7 "$(longest_hold "$root/lib")"
+hold_row="$(sed -n 2p "$log" | cut -f2-8)"
+check 'one row records the hold: repository, worktree, verdict, who' "$repository"$'\t'"$clone"$'\t''-'$'\t''landing lock'$'\t'"$repository#1 on issue-1-holder"$'\t''-' "$(cut -f1-4,6-7 <<< "$hold_row")"
+hold_seconds="$(cut -f5 <<< "$hold_row")"
+# The release comes a moment after the take planted 7 seconds back, so a second boundary may pass between them.
+check 'and its seconds from the planted take: 7 or 8' yes "$(case "$hold_seconds" in 7|8) echo yes ;; *) echo "no, $hold_seconds" ;; esac)"
+check 'and the longest hold of the repository is that hold' "$hold_seconds" "$(longest_hold "$root/lib")"
 printf '%s\t%s\t%s\n' "$holder" "$repository#2" issue-2-older > "$lock"
 bash "$lib" release "$clone" "$holder"
 check 'innocent: a lock of an older version names no time and no repository, is released and records nothing' '2 no' "$(wc -l < "$log" | tr -d ' ') $([ -e "$lock" ] && echo yes || echo no)"
 rm -f "$log"; mkdir "$log"; plant_lock "$holder" "$repository#3" issue-3-holder 1
 out="$(bash "$lib" release "$clone" "$holder" 2>&1)"; rc=$?
-check 'a hold that cannot be recorded: exit 1, the lock is gone, and it says so' "1 no yes" "$rc $([ -e "$lock" ] && echo yes || echo no) $(grep -qF "the landing lock was released, but its hold of 1 seconds could not be recorded in $log" <<< "$out" && echo yes || echo no)"
+check 'a hold that cannot be recorded: exit 1, the lock is gone, and it says so' "1 no yes" "$rc $([ -e "$lock" ] && echo yes || echo no) $(case "$out" in *"the landing lock was released, but its hold of "[12]" seconds could not be recorded in $log"*) echo yes ;; *) echo no ;; esac)"
 rmdir "$log"
 kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
 

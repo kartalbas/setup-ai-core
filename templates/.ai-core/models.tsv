@@ -46,7 +46,8 @@
 # refused as ambiguous. Under a saved tool order the first tool with a row and quota runs, so claude
 # before codex plans on Fable even while Codex has quota.
 # Work that claude-opus-5-5 wrote is reviewed on codex:gpt-6-astra while Codex has quota and on
-# claude-fable-5-1 while it has none, because the Opus review rows pass for that writer.
+# claude-fable-5-1 while it has none, because the Opus review rows pass for that writer; claude
+# before codex in a saved order reviews it on Fable even while Codex has quota.
 # Every phase starts and resumes on exactly the selector's tuple. For plan-check and review,
 # pass --written-by with the actual writer model; aliases and effort changes are not independence.
 # A plan re-check uses plan-check and the re-plan writer; a review re-check uses review and the

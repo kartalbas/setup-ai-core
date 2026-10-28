@@ -45,10 +45,16 @@ if [ -z "$failure" ]; then
     printf 'tool order: not set; native-tool selection (%s)\n' "$tools" >&2
   else tools="$(jq -r '.tools[]' <<< "$order")"; fi
   table="$(data_file models.tsv)"
+  # A tool's Setup entries replace its table rows, also where another tool's row routes to it.
+  tool_rows() {
+    local rows
+    rows="$(awk -F'\t' -v phase="$phase" -v class="$class" -v tool="$1" '$1 == phase && $2 == tool { print tool "\t" phase "\t" class "\t" $3 "\t" $4 }' <<< "$setup_entries")"
+    [ -n "$rows" ] || rows="$(phase_model_rows "$1" "$phase" "$class" "$table")" || return 1
+    printf '%s' "$rows"
+  }
   while IFS= read -r tool; do
     case "$tool" in codex|agy|claude) ;; *) failure="usage does not support native tool $tool"; reason "$tool" "$failure"; break ;; esac
-    rows="$(awk -F'\t' -v phase="$phase" -v class="$class" -v tool="$tool" '$1 == phase && $2 == tool { print tool "\t" phase "\t" class "\t" $3 "\t" $4 }' <<< "$setup_entries")"
-    [ -n "$rows" ] || rows="$(phase_model_rows "$tool" "$phase" "$class" "$table")" || { failure="cannot read $table for $tool"; reason "$tool" "$failure"; break; }
+    rows="$(tool_rows "$tool")" || { failure="cannot read $table for $tool"; reason "$tool" "$failure"; break; }
     if [ -z "$rows" ]; then reason "$tool" "no row for $phase $class"; continue; fi
     while IFS= read -r row; do
       IFS=$'\t' read -r source row_phase row_class model effort <<< "$row"
@@ -58,7 +64,7 @@ if [ -z "$failure" ]; then
         actual="${model%%:*}"; model="${model#*:}"
         case "$actual" in codex|agy|claude) ;; *) failure="unsupported destination $actual"; reason "$tool" "$failure"; break ;; esac
         if [ "$order" != null ] && [ "$actual" != "$tool" ]; then reason "$tool" "row $declared routes to $actual; saved order governs execution tools"; continue; fi
-        destinations="$(phase_model_rows "$actual" "$phase" "$class" "$table")" || { failure="cannot resolve $actual:$model"; reason "$tool" "$failure"; break; }
+        destinations="$(tool_rows "$actual")" || { failure="cannot resolve $actual:$model"; reason "$tool" "$failure"; break; }
         destination="$(awk -F'\t' -v model="$model" '$4 == model { print; exit }' <<< "$destinations")"
         if [ -z "$destination" ]; then reason "$tool" "no declared destination row for $actual:$model"; continue; fi
         IFS=$'\t' read -r dest_tool dest_phase dest_class dest_model dest_effort <<< "$destination"

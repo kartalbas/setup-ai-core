@@ -97,6 +97,15 @@ check('planted review table without the Astra and Fable rows refuses Opus-writte
   select(['review','normal-hard','--written-by','claude-sonnet-5-5'],'claude claude-opus-5-5 xhigh');
   fs.unlinkSync(path.join(project,'.ai-core/models.tsv'));
 });
+check('a Claude review row that routes to Codex takes the Setup entry of codex, which replaces its table row',()=>{
+  setQuota('codex',0);setQuota('claude',0);
+  const setup=path.join(work,'review-setup.json');
+  fs.writeFileSync(setup,JSON.stringify({review:{codex:{model:'gpt-6-astra',effort:'max',estimate_tokens:1000,budget_tokens:1500,reason:'planted'}}}));
+  select(['review','normal-hard','--written-by','claude-opus-5-5','--setup-file',setup],'codex gpt-6-astra max');
+  select(['review','normal-hard','--written-by','claude-opus-5-5'],'codex gpt-6-astra xhigh');
+  select(['review','normal-hard','--written-by','claude-sonnet-5-5','--setup-file',setup],'claude claude-opus-5-5 xhigh');
+  assert.equal(records().at(-1).order,null);
+});
 check('with a saved order the Astra row of the claude tool is not an execution tool, and its Fable row runs',()=>{
   order(['claude']);
   select(['plan','normal-hard'],'claude claude-fable-5-1 xhigh');

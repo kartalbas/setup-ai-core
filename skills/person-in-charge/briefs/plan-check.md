@@ -30,6 +30,10 @@ names, the spans the facts and the contracts name.
    placeholder, contradiction, open question and scope beyond the issues. Does each issue land whole
    in this package? An issue whose criteria a later package or part must finish, or issues that
    always land together, without a `KEEPER: re-cut` line for it, is a gap.
+   A re-cut line is not evidence that the work already belongs to an issue: match its criteria to
+   that issue's current body or accepted amendments, and check the named destination package.
+   Added work or a missing match is a gap. Copy the section's pending `KEEPER: re-cut` lines into
+   the output, one line each, so the keeper can carry them out before the build.
 3. For every contract: is the additive side ordered before the strict side? Does a test need a
    second repository checked out beside the first, and does the section say so?
 4. Is the class right? A touched contract outward (outward means an interface somebody outside the project uses (a public API, a published package, a customer's data format), never a contract between the project's own repositories), a secret, a payment or the push gate is
@@ -67,6 +71,8 @@ names, the spans the facts and the contracts name.
     ORDER: ok | <issue> before <issue> because <contract>
     CLASS: ok | <class> because <reason>
     KEEPER: <repo> <file:line> <state of a defect outside the section's files and contracts>, one line each | none
+    KEEPER: re-cut split <repo>#<n>: <share and existing criteria> -> <package>
+    KEEPER: re-cut merge <repo>#<n> into <repo>#<m>
 
 A gap is only what stops a build session from starting or makes it build the wrong thing: a
 missing criterion or `file:line`, a contradiction, a side of a contract outside the package, a

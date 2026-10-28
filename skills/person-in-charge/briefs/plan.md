@@ -95,7 +95,12 @@ with it runs before or after it.
     Environment: test <URL>; production <URL>; demo account: <login or none>
     Checks: <repo>#<n>: <URL path>, <click>, <what to read>; ...
     Waits for the owner: <repo>#<n> <the decision> | none
-    KEEPER: <repo>#<n> <what it lacks>; <repo> <file:line> <a defect outside the package's files and contracts>; re-cut split|merge ... | none
+    KEEPER: <repo>#<n> <what it lacks>
+    KEEPER: <repo> <file:line> <a defect outside the package's files and contracts>
+    KEEPER: re-cut split <repo>#<n>: <share and existing criteria> -> <package>
+    KEEPER: re-cut merge <repo>#<n> into <repo>#<m>
+
+Write each keeper item on its own line, using the matching form; write `KEEPER: none` when none applies.
 
 The `Setup:` line is how the plan chooses the model, effort and context budget of the sessions that
 build, review and UI-test the package; `none` leaves every phase on the row of `.ai-core/models.tsv`.

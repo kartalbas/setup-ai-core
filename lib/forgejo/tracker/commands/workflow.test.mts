@@ -708,7 +708,8 @@ describe('integrate-issue', () => {
   it('writes the lines of the push gate to the stderr of cli.mts, the token redacted (planted: the gate prints the token)', async () => {
     const { number, tree, head } = await worked(main, 'Through the command line, so that the person reads the gate');
     fixture.installHook(main.checkout, 'pre-push', `echo "gate line with ${FAKE_TOKEN}" >&2; exit 1`);
-    const environment = { ...process.env, FORGEJO_URL: fake.url, TRACKER: 'forgejo', FORGEJO_TOKEN_COMMAND: `printf '%s' ${FAKE_TOKEN}`, CI_GATE: 'none' };
+    const home = join(fixture.root, 'ai-core-home');
+    const environment = { ...process.env, AI_CORE_HOME: home, FORGEJO_URL: fake.url, TRACKER: 'forgejo', FORGEJO_TOKEN_COMMAND: `printf '%s' ${FAKE_TOKEN}`, CI_GATE: 'none' };
     const outcome = await new Promise<{ status: number | null; stderr: string }>((done) => {
       const child = spawn('node', [join(import.meta.dirname, '..', 'cli.mts'), 'integrate-issue', ...integrateArguments(main, number, head)], { cwd: tree, env: environment });
       let stderr = '';
@@ -719,6 +720,7 @@ describe('integrate-issue', () => {
     assert.match(outcome.stderr, /^landing: this worktree goes onto origin\/master/m);
     assert.match(outcome.stderr, /^gate line with \[token\]$/m);
     assert.equal(outcome.stderr.includes(FAKE_TOKEN), false);
+    assert.ok(existsSync(join(home, '.ai-core', 'pre-push-runs.tsv')),'the hold of the landing lock is recorded in the home the test names, never in the real one');
   });
 
   it('lands through a push gate that needs a file only the worktree of the issue has (planted: the gate runs elsewhere)', async () => {

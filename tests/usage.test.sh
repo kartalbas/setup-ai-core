@@ -305,7 +305,7 @@ done
 rm -rf "$HOME/.codex"
 
 echo 'a Codex record older than one hour is renewed by one minimal call; a record of one hour or less is used as it is'
-old_codex_record() { rm -rf "$HOME/.codex"; mkdir -p "$sessions"; codex_line 99 null > "$sessions/rollout-old.jsonl"; : > "$STUB_CALLS"; }
+old_codex_record() { rm -rf "$HOME/.codex" "$HOME/.ai-core/codex-usage-refresh.failed"; mkdir -p "$sessions"; codex_line 99 null > "$sessions/rollout-old.jsonl"; : > "$STUB_CALLS"; }
 calls() { wc -l < "$STUB_CALLS" | tr -d ' '; }
 codex_usage() { out="$(cd "$work/project" && bash "${1:-$root/bin/usage.sh}" --tool codex 2>&1)"; rc=$?; }
 helper_model="$(awk -F'\t' '$1 == "codex" && $2 == "helper" { print $4 }' "$root/templates/.ai-core/models.tsv")"
@@ -326,6 +326,14 @@ codex_usage
 check 'the old week is shown, exit 3' '3 yes' "$rc $(matches '^seven_day +1 % left' "$out")"
 check 'one call'                 1 "$(calls)"
 check 'one line names the failure' 1 "$(grep -c '^the Codex record is older than 60 minutes and its refresh failed: codex exec exited 1: Not logged in$' <<< "$out")"
+echo 'asked again within the hour after the failure: no second call, and the line says when it failed'
+codex_usage
+check 'no second call'           1 "$(calls)"
+check 'the old week, exit 3'     '3 yes' "$rc $(matches '^seven_day +1 % left' "$out")"
+check 'the line names the failure and its age' 1 "$(grep -c '^the Codex record is older than 60 minutes and its refresh failed: codex exec exited 1: Not logged in, 0 minutes ago; no new call until 60 minutes after it$' <<< "$out")"
+echo 'more than an hour after the failure: a new call'
+AI_CORE_NOW=$(( $(date +%s) + 3660 )) codex_usage
+check 'the second call'          2 "$(calls)"
 old_codex_record
 STUB_MODE=silent codex_usage
 check 'a call that wrote no record is named' 1 "$(grep -c 'its refresh failed: codex exec answered, but wrote no usage record$' <<< "$out")"
@@ -343,12 +351,42 @@ for reader in 1 2; do (cd "$work/project" && STUB_MODE=refill STUB_DELAY=1 bash 
 wait
 check 'one call between them'    1 "$(calls)"
 check 'both read the new record' '0 0 yes yes' "$(cat "$work/reader-1.rc") $(cat "$work/reader-2.rc") $(matches '^five_hour +100 % left' "$(cat "$work/reader-1.out")") $(matches '^five_hour +100 % left' "$(cat "$work/reader-2.out")")"
+echo 'two readers that find the same old record at once, and the call fails: still one call between them'
+old_codex_record
+for reader in 1 2; do (cd "$work/project" && STUB_DELAY=1 bash "$root/bin/usage.sh" --tool codex > "$work/reader-$reader.out" 2>&1; echo $? > "$work/reader-$reader.rc") & done
+wait
+check 'one call between them'    1 "$(calls)"
+check 'both show the old week and name the failure' '3 3 1 1' "$(cat "$work/reader-1.rc") $(cat "$work/reader-2.rc") $(grep -c 'its refresh failed: codex exec exited 1: Not logged in' "$work/reader-1.out") $(grep -c 'its refresh failed: codex exec exited 1: Not logged in' "$work/reader-2.out")"
 echo 'a reader without the age check keeps the old reading (planted)'
 plant lib/usage.sh 's/^USAGE_CODEX_MAX_AGE_SECONDS=3600$/USAGE_CODEX_MAX_AGE_SECONDS=99999999999/'
 old_codex_record
 STUB_MODE=refill codex_usage "$work/mutant/bin/usage.sh"
 check 'it shows the old week and makes no call, so the refill case goes red' '3 yes 0' "$rc $(matches '^seven_day +1 % left' "$out") $(calls)"
-rm -rf "$HOME/.codex"
+echo 'a reader that keeps no failure calls again at once (planted)'
+mkdir -p "$work/mutant/templates/.ai-core"; cp "$root/templates/.ai-core/models.tsv" "$work/mutant/templates/.ai-core/"
+plant lib/usage.sh 's|failed="$lock_dir/codex-usage-refresh.failed"|failed=/dev/null|'
+old_codex_record
+codex_usage "$work/mutant/bin/usage.sh"; codex_usage "$work/mutant/bin/usage.sh"
+check 'two calls, so the case asked again within the hour goes red' 2 "$(calls)"
+echo 'a call that does not end in its time is stopped: the old record, and one line that says why'
+plant lib/usage.sh 's/^USAGE_CODEX_REFRESH_SECONDS=120$/USAGE_CODEX_REFRESH_SECONDS=1/'
+old_codex_record
+started=$SECONDS; STUB_MODE=refill STUB_DELAY=10 codex_usage "$work/mutant/bin/usage.sh"
+check 'the old week, exit 3, within seconds' '3 yes yes' "$rc $(matches '^seven_day +1 % left' "$out") $([ $((SECONDS - started)) -lt 8 ] && echo yes || echo "no: $((SECONDS - started)) s")"
+check 'one line names the timeout' 1 "$(grep -c '^the Codex record is older than 60 minutes and its refresh failed: codex exec did not end in 1 seconds$' <<< "$out")"
+echo 'a tool the refresh needs is not on the PATH: the old record, and one line that names it, without a call'
+for missing in codex flock timeout; do
+  farm="$work/path-without-$missing"; mkdir -p "$farm"
+  for tool in bash env jq date grep ls cut awk sed mktemp dirname cat tr wc head tail rm mkdir sort git flock timeout; do
+    [ "$tool" = "$missing" ] || ln -sf "$(command -v "$tool")" "$farm/$tool"
+  done
+  [ "$missing" = codex ] || ln -sf "$work/stub/codex" "$farm/codex"
+  old_codex_record
+  out="$(cd "$work/project" && PATH="$farm" STUB_MODE=refill bash "$root/bin/usage.sh" --tool codex 2>&1)"; rc=$?
+  check "without $missing: the old week, exit 3, no call" '3 yes 0' "$rc $(matches '^seven_day +1 % left' "$out") $(calls)"
+  check "without $missing: one line names it" 1 "$(grep -c "^the Codex record is older than 60 minutes and its refresh failed: $missing is not on the PATH$" <<< "$out")"
+done
+rm -rf "$HOME/.codex" "$HOME/.ai-core/codex-usage-refresh.failed"
 
 echo 'the usage report joins native starts to historical choices and preserves quota exits'
 mkdir -p "$HOME/.ai-core/sessions" "$work/audit-tools"

@@ -4,10 +4,12 @@
 # longest gaps between two lines with check_longest_gaps, so that a slow step shows by name. Source it, do not run it.
 
 # timed_tee <log>: copies standard input to standard output unchanged and appends each line to <log>, led by the whole seconds
-# since this started and a tab. It reads to the end of its input, so the writer is never cut short and no line is lost; it
+# since this started and a tab; <log> is made where it is missing, as tee makes it, so a writer that writes nothing leaves an
+# empty log. It reads to the end of its input, so the writer is never cut short and no line is lost; it
 # ends with status 0, so that the status of the pipeline it stands in is the writer's.
 timed_tee() {
   local line began=$SECONDS
+  : >> "$1"
   while IFS= read -r line || [ -n "$line" ]; do
     printf '%s\n' "$line"
     printf '%s\t%s\n' "$((SECONDS - began))" "$line" >> "$1"

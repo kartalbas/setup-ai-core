@@ -4,7 +4,7 @@
 # the gate prints the five longest gaps between two lines, each with the line before the gap, and a check with a planted slow step
 # shows that step first, while a check of fast steps shows no gap of two seconds or more; the check's exit status, its last line
 # in the run record, which is the check's own without the seconds, and its total seconds stay as they were; a check that ends its
-# last line without a newline loses nothing. The cases run in a scratch repository with HOME and AI_CORE_HOME in a scratch folder.
+# last line without a newline loses nothing, and one that writes nothing leaves an empty log that no reader fails on. The cases run in a scratch repository with HOME and AI_CORE_HOME in a scratch folder.
 #
 #   bash tests/gate-timing.test.sh
 
@@ -35,6 +35,9 @@ check 'a log of blank lines only has no last line' '' "$(printf '0\t\n1\t   \n' 
 { echo out; exit 3; } | timed_tee "$fake/status.log" > /dev/null; writer_failed=$?
 echo out | timed_tee "$fake/status.log" > /dev/null; writer_succeeded=$?
 check 'the status of the pipeline it stands in is the writer s, a failure and a success' '3 0' "$writer_failed $writer_succeeded"
+: | timed_tee "$fake/nothing.log"
+check 'a writer that writes nothing leaves an empty log' yes "$([ -f "$fake/nothing.log" ] && [ ! -s "$fake/nothing.log" ] && echo yes || echo no)"
+check 'its last line and its gaps are nothing, with no word of an error' '' "$(check_last_line "$fake/nothing.log" 2>&1; check_longest_gaps "$fake/nothing.log" 5 2>&1)"
 : > "$log"
 { printf '0\tfast step\n'; printf '1\tfast step two\n'; printf '9\tslow step done\n'; printf '9\tcolored \033[31mred\033[0m\n'; printf '12\tend\n'; } > "$log"
 check 'the gaps, longest first, each with the line before it, its control characters spelled as ?' "8${tab}fast step two
@@ -91,6 +94,12 @@ write_check 'printf "no newline at the end"'
 gate "$root/bin/pre-push.sh"
 check 'a last line without a newline: exit 0' 0 "$rc"
 check 'it is the last line on record, unchanged' $'green\tno newline at the end' "$record"
+
+write_check 'exit 0'
+gate "$root/bin/pre-push.sh"
+check 'a check that writes nothing: exit 0' 0 "$rc"
+check 'the gate says it shows no gap' 1 "$(grep -c '^pre-push: the check shows no gap of a second or more between two lines\.$' <<< "$out")"
+check 'and no reader of the log fails on it' 0 "$(grep -c 'cannot open' <<< "$out")"
 
 echo 'planted: a gap printer that lists the shortest gap first does not show the slow step first'
 planted="$fake/planted"; mkdir -p "$planted"; cp -R "$root/bin" "$root/lib" "$root/VERSION" "$planted/" 2>/dev/null

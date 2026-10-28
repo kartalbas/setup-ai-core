@@ -55,20 +55,25 @@ CORE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [ -d "$CORE_ROOT/templates" ] && [ -f "$CORE_ROOT/VERSION" ] || { echo "error: $CORE_ROOT is not a clone of setup-ai-core; run init from the clone (ai-core init)" >&2; exit 1; }
 
 TARGET="."
+TARGET_GIVEN=0
 RUN_DOCTOR=1
 ALL_DIR=""
 DRY=0
+
+refuse_second_folder() { echo "error: init serves one folder, and '$1' is a second one; run init once per folder" >&2; exit 1; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-doctor) RUN_DOCTOR=0 ;;
     --dry-run) DRY=1 ;;
-    --all) shift; [ $# -gt 0 ] || { echo "error: --all needs a folder" >&2; exit 1; }; ALL_DIR="$1" ;;
+    --all) shift; [ $# -gt 0 ] || { echo "error: --all needs a folder" >&2; exit 1; }
+           [ -z "$ALL_DIR" ] || refuse_second_folder "$1"; ALL_DIR="$1" ;;
     -*)       echo "error: unknown option '$1' (see --help)" >&2; exit 1 ;;
-    *)        TARGET="$1" ;;
+    *)        [ "$TARGET_GIVEN" -eq 0 ] || refuse_second_folder "$1"; TARGET="$1"; TARGET_GIVEN=1 ;;
   esac
   shift
 done
+[ -z "$ALL_DIR" ] || [ "$TARGET_GIVEN" -eq 0 ] || refuse_second_folder "$TARGET"
 
 # The project's settings are read in the directory a command runs in, so init runs in the one it serves.
 [ -d "${ALL_DIR:-$TARGET}" ] || { echo "error: ${ALL_DIR:-$TARGET} does not exist, so there is nothing to initialize there and nothing is created" >&2; exit 1; }

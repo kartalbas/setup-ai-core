@@ -228,6 +228,19 @@ check 'init exits nonzero'                          1 "$rc"
 check 'it names the path'                           yes "$(yes_no grep -qF "error: $gone does not exist, so there is nothing to initialize there and nothing is created" <<< "$out")"
 check 'the path does not exist afterwards'          no "$(yes_no test -e "$gone")"
 
+echo 'init serves one folder: a second one is refused before anything is written, and one --all folder runs as before'
+first="$fake/one-folder-a"; second="$fake/one-folder-b"; mkdir -p "$first" "$second"
+before="$(tree_files "$first")$(tree_files "$second")"
+for shape in "--all $first $second" "$first --all $second" "$second --all $first" "$first $second" "--all $first --all $second"; do
+  out="$(bash "$init" $shape --no-doctor 2>&1)"; rc=$?
+  check "init $shape exits 1"                        1 "$rc"
+  check "init $shape names the second folder"        yes "$(yes_no grep -qE "error: init serves one folder, and '($first|$second)' is a second one; run init once per folder" <<< "$out")"
+  check "init $shape writes nothing"                 "$before" "$(tree_files "$first")$(tree_files "$second")"
+done
+out="$(bash "$init" --all "$first" --no-doctor --dry-run 2>&1)"; rc=$?
+check 'init --all with one folder runs'             0 "$rc"
+check 'it refuses nothing'                          no "$(yes_no grep -q 'is a second one' <<< "$out")"
+
 echo 'a leftover under .worktrees/ without .git gets no write; a real project folder and a worktree are initialized as before'
 orphan="$trees/issue-10-orphan"
 mkdir -p "$orphan"; echo keep > "$orphan/notes.txt"

@@ -13,7 +13,7 @@ const USAGE = 'usage: issue-release --repo OWNER/REPO --tag TAG ISSUE...  (ISSUE
 export const help = `${USAGE}
 
 Records that the release TAG of --repo carries the work of each issue. TAG must exist in --repo, and every issue
-must carry a "Landed on" record of --repo since its last reopening for new work; otherwise it writes nothing. For an
+must carry a "Landed on" or "Landed part on" record of --repo since its last reopening for new work; otherwise it writes nothing. For an
 issue of --repo, the milestone named TAG of that repository (made if it is not there) is set on it. If a newer
 landing follows that milestone, it also writes the comment "Released in OWNER/REPO TAG:". For an issue of another
 repository it writes that comment instead, because a milestone belongs to one repository. It publishes nothing
@@ -49,7 +49,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   for (const ref of refs) released.push(await readReleasedIssue(api, ref));
   const unlanded = released.filter(({ history }) => findNewestLanding(history, repository) === undefined);
   if (unlanded.length > 0) {
-    throw new PreconditionError(`${unlanded.map(({ ref }) => formatIssue(ref)).join(', ')}: no "Landed on" record of ${formatRepository(repository)} since the last reopening for new work, so ${tag} carries none of that work and nothing is released`);
+    throw new PreconditionError(`${unlanded.map(({ ref }) => formatIssue(ref)).join(', ')}: no "Landed on" or "Landed part on" record of ${formatRepository(repository)} since the last reopening for new work, so ${tag} carries none of that work and nothing is released`);
   }
 
   const lines: string[] = [];

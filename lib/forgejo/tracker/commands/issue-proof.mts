@@ -16,8 +16,9 @@ export const help = `${USAGE}
 
 Writes the record "Proven on ENV:" with the evidence of PATH, sets status/done and closes the issue as completed.
 It refuses at once, before any write, an ENV that no LIVE_TAGS of a landed repository names, and lists the names there, each with its repository.
-It refuses unless the issue records a landing and, for every repository the landing names, a release that came
-after it, all of an account with write permission and after the last reopening for new work. An issue that holds no "Landed on" record at all, and whose number
+It refuses unless the issue records a landing ("Landed on", which may follow "Landed part on" records) and, for every
+repository a landing or a part names, a release that came after its newest record, all of an account with write
+permission and after the last reopening for new work. An issue that holds no "Landed on" or "Landed part on" record at all, and whose number
 no commit on the default branch of origin of this clone is the work of (a commit whose subject names it, or whose subject
 names no issue and whose body names it), was delivered without a code change: it needs no landing and no release, and the output says that no landing exists. Such a commit without a record
 is work that landed, and is refused until integrate-issue writes its record, with --also for each further issue a package

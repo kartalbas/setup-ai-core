@@ -11,7 +11,8 @@ import { UsageError } from './refusals.mts';
 //
 //   Started on <branch>:                      the work began
 //   Landed on <branch>[ of <owner/repo>]:     the reviewed work reached the default branch
-//   Landed part on <branch>[ of <owner/repo>]: a part of the work did, and more is to follow; no reader counts it as a landing
+//   Landed part on <branch>[ of <owner/repo>]: a part of the work did, and more is to follow: the landing of that
+//                                             repository for its release and its delivery, never the issue's landing
 //   Released in <owner/repo> <tag>:           a release of that repository carries the work
 //   Proven on <environment>:                  the delivered work was seen to work there
 
@@ -29,7 +30,7 @@ export interface LandedRecord {
   readonly reviewedHead: string;
   readonly landedCommit: string;
   readonly reviewers: readonly string[];
-  // A part with more to follow: the record says so, and the readers of landings pass it over.
+  // A part with more to follow: the record says so, and the card keeps its status.
   readonly isPart?: boolean;
 }
 
@@ -142,6 +143,8 @@ export interface LandingFact {
   readonly repository: RepositoryRef;
   readonly branch: string;
   readonly commit: string | undefined;
+  // A "Landed part on" record: it lands its repository, and the issue's work is not all landed with it.
+  readonly isPart: boolean;
 }
 
 export interface ReleaseFact {
@@ -187,12 +190,13 @@ export async function readIssueHistory(api: ForgejoClient, issue: Issue, entries
   for (const [index, entry] of current.entries()) {
     if (entry.kind !== 'comment') continue;
     const line = firstLine(entry.body);
-    const landed = LANDED_LINE.exec(line);
+    const landedPart = LANDED_PART_LINE.exec(line);
+    const landed = LANDED_LINE.exec(line) ?? landedPart;
     const released = RELEASED_LINE.exec(line);
     const proven = PROVEN_LINE.exec(line);
     if (landed === null && released === null && proven === null) continue;
     if (!(await isTrusted(entry.author))) continue;
-    if (landed?.[1] !== undefined) landings.push({ at: entry.at, branch: landed[1], repository: landed[2] === undefined ? { owner: issue.ref.owner, repo: issue.ref.repo } : parseRepository(landed[2]), commit: fieldOf(entry.body, 'Landed commit') });
+    if (landed?.[1] !== undefined) landings.push({ at: entry.at, branch: landed[1], repository: landed[2] === undefined ? { owner: issue.ref.owner, repo: issue.ref.repo } : parseRepository(landed[2]), commit: fieldOf(entry.body, 'Landed commit'), isPart: landedPart !== null });
     if (released?.[1] !== undefined && released[2] !== undefined) releases.push({ at: entry.at, repository: parseRepository(released[1]), tag: released[2] });
     if (proven?.[1] !== undefined && (lastReopening === undefined || index + deliveryStart > lastReopening)) proofs.push({ at: entry.at, environment: proven[1] });
   }
@@ -233,8 +237,11 @@ export interface CommandDeliveryCheck {
 // delivered by a release that came after its landing, where its landing is its delivery by the landing, and
 // where a reader answers its delivery by what that reader told.
 export function listMissingDelivery(history: IssueHistory, landingIsDelivery: readonly RepositoryRef[], commandDeliveries: readonly CommandDeliveryCheck[] = []): string[] {
-  if (history.landings.length === 0) {
-    return [`no "Landed on" record of an account with write permission follows ${history.deliveryReopenedAt === undefined ? 'the start of the issue' : 'the last reopening for new work'}`];
+  if (!history.landings.some((landing) => !landing.isPart)) {
+    const since = history.deliveryReopenedAt === undefined ? 'the start of the issue' : 'the last reopening for new work';
+    return [history.landings.length === 0
+      ? `no "Landed on" record of an account with write permission follows ${since}`
+      : `only "Landed part on" records follow ${since}: the last part lands without --part`];
   }
   const missing: string[] = [];
   const seen = new Set<string>();
@@ -255,18 +262,19 @@ export function listMissingDelivery(history: IssueHistory, landingIsDelivery: re
   return missing;
 }
 
-// A proof counts once the newest landing is behind it: a proof of earlier work does not cover later work. Where the
-// issue holds no "Landed on" record at all (`delivered without code`), its work was no change of code, and the newest
-// proof after its last reopening counts.
+// A proof counts once the newest landing is behind it: a proof of earlier work does not cover later work, and parts
+// alone are not all of the work. Where the issue holds no landing record at all (`delivered without code`), its work
+// was no change of code, and the newest proof after its last reopening counts.
 export function findCurrentProof(history: IssueHistory, deliveredWithoutCode = false): ProofFact | undefined {
   const landing = newest(history.landings);
   if (landing === undefined) return deliveredWithoutCode ? newest(history.proofs) : undefined;
+  if (!history.landings.some((fact) => !fact.isPart)) return undefined;
   return newest(history.proofs.filter((proof) => proof.at > landing.at));
 }
 
-// Whether the issue holds no "Landed on" record, from any account: its delivery was no change of code.
+// Whether the issue holds no "Landed on" or "Landed part on" record, from any account: its delivery was no change of code.
 export function holdsNoLandedRecord(entries: readonly TimelineEntry[]): boolean {
-  return !entries.some((entry) => entry.kind === 'comment' && LANDED_LINE.test(firstLine(entry.body)));
+  return !entries.some((entry) => entry.kind === 'comment' && (LANDED_LINE.test(firstLine(entry.body)) || LANDED_PART_LINE.test(firstLine(entry.body))));
 }
 
 // The entries of LIVE_TAGS (`env=pattern` separated by spaces), each environment with its pattern.

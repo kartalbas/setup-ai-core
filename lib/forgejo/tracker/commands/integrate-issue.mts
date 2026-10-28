@@ -33,9 +33,10 @@ temporary worktree, where scripts/install.sh of the merged tree runs first if it
 a failing install refuses the landing with nothing pushed. Then every issue it lands (each one given and each
 --also) gets status/testing and the record "Landed on <branch>:" with the reviewed head, the landed commit and
 the reviewers. --part names a landing with more to follow, which a package makes of an issue it lands in parts: the
-issue stays in the status it has, and its record says "Landed part on <branch>:" with the same lines, which no reader
-counts as a landing; it prints no finish-issue step, and the worktree stays for the next part. The last part runs
-without --part, as every landing does. It discovers no other issue from the history of Git.
+issue stays in the status it has, and its record says "Landed part on <branch>:" with the same lines. That record
+is the landing of its repository for that repository's release and delivery, never the landing of the whole issue;
+it prints no finish-issue step, and the worktree stays for the next part. A package that lands one issue in several
+repositories lands each one but the last with --part. The last part runs without --part, as every landing does. It discovers no other issue from the history of Git.
 
 It refuses, before anything is merged or pushed: an issue that is closed or not assigned to the signed-in
 account, a worktree with changes (at most twenty named, and their count where there are more), a branch head

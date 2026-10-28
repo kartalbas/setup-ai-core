@@ -66,7 +66,7 @@ describe('the environments where a landing is the delivery', () => {
 
 describe('a delivery that a project\'s reader answers', () => {
   const pinned = { owner: 'o', repo: 'pinned' };
-  const landedIn = { deliveryReopenedAt: undefined, landings: [{ at: 1, branch: 'master', repository: pinned, commit: 'c'.repeat(40) }], releases: [], proofs: [] };
+  const landedIn = { deliveryReopenedAt: undefined, landings: [{ at: 1, branch: 'master', repository: pinned, commit: 'c'.repeat(40), isPart: false }], releases: [], proofs: [] };
 
   it('counts where the reader delivered the landing, and names the reason where it did not, in place of a missing release (planted)', () => {
     assert.deepEqual(listMissingDelivery(landedIn, [], [{ repository: pinned, missing: undefined }]), []);

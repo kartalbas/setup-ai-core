@@ -1633,9 +1633,19 @@ describe('issue-release', () => {
     recordLanding(sibling, elsewhere, sibling);
     const before = writesOf();
     await assert.rejects(issueRelease.run(['--repo', main.full, '--tag', 'v1.2.0', String(landed), String(stray), `${sibling.full}#${elsewhere}`], ctx(main.checkout)),
-      (error: unknown) => error instanceof PreconditionError && error.message.startsWith(`o/r#${stray}, o/sibling#${elsewhere}: no "Landed on" record of o/r since the last reopening for new work`));
+      (error: unknown) => error instanceof PreconditionError && error.message.startsWith(`o/r#${stray}, o/sibling#${elsewhere}: no "Landed on" or "Landed part on" record of o/r since the last reopening for new work`));
     assert.equal(writesOf(), before);
     assert.equal(fake.listMilestones(main.full).some((milestone) => milestone.title === 'v1.2.0'), false, 'no milestone is made');
+  });
+
+  it('records the release of a repository the package landed as a part, and moves no card (planted: a part read as no landing)', async () => {
+    const tag = 'v-part-of-a-package';
+    fake.addTag(sibling.full, tag);
+    const number = newIssue(main, 'Landed in two repositories, so that each release is recorded', { labels: ['status/implementing'] });
+    fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ branch: 'master', repository: parseRepository(sibling.full), reviewedHead: 'a'.repeat(40), landedCommit: 'b'.repeat(40), reviewers: ['alice'], isPart: true }, parseRepository(main.full)));
+    await issueRelease.run(['--repo', sibling.full, '--tag', tag, `${main.full}#${number}`], ctx(main.checkout));
+    assert.equal(commentsOf(main, number).at(-1), `Released in ${sibling.full} ${tag}:\n`);
+    assert.deepEqual(fake.readIssue(main.full, number).labels, ['status/implementing'], 'the release moves no card');
   });
 
   it('records a release after a late landing, proves it and writes nothing on a second release run', async () => {
@@ -1727,6 +1737,28 @@ describe('issue-proof and the close as completed', () => {
     assert.equal(writesOf(), writes);
     assert.equal(before <= writes, true);
     assert.equal(fake.readIssue('o/r', number).state, 'open');
+  });
+
+  it('proves an issue landed in two repositories only once the part repository is released too, and refuses parts alone (planted: the part repository passed over)', async () => {
+    mkdirSync(join(sibling.checkout, '.ai-core'), { recursive: true });
+    writeFileSync(join(sibling.checkout, '.ai-core', 'config.env'), 'LIVE_TAGS="prod=deploy/prod/*"\n');
+    const harness = liveTagsHarness();
+    const number = newIssue(main, 'Landed in a part and a last landing, so that both releases are proven', { labels: ['status/implementing'] });
+    fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'sibling' }, reviewedHead: 'a'.repeat(40), landedCommit: 'b'.repeat(40), reviewers: ['alice'], isPart: true }, { owner: 'o', repo: 'r' }));
+    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout, {}, harness)), /not delivered, so nothing is proven: only "Landed part on" records follow the start of the issue: the last part lands without --part/);
+
+    fake.addComment(main.full, number, 'fake-user', composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 'r' }, reviewedHead: 'c'.repeat(40), landedCommit: 'd'.repeat(40), reviewers: ['alice'] }, { owner: 'o', repo: 'r' }));
+    fake.addTag(main.full, `v-last-${number}`);
+    await issueRelease.run(['--repo', main.full, '--tag', `v-last-${number}`, String(number)], ctx(main.checkout));
+    const before = writesOf();
+    await assert.rejects(issueProof.run(proofArguments(number), ctx(main.checkout, {}, harness)), /no release of o\/sibling follows its landing/);
+    assert.equal(writesOf(), before);
+    assert.equal(fake.readIssue(main.full, number).state, 'open');
+
+    fake.addTag(sibling.full, `v-part-${number}`);
+    await issueRelease.run(['--repo', sibling.full, '--tag', `v-part-${number}`, `${main.full}#${number}`], ctx(main.checkout));
+    await issueProof.run(proofArguments(number), ctx(main.checkout, {}, harness));
+    assert.equal(fake.readIssue(main.full, number).state, 'closed');
   });
 
   it('proves and closes an issue that holds no "Landed on" record, and says that no landing exists (planted: refused for want of a landing)', async () => {

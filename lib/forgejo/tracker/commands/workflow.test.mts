@@ -720,7 +720,7 @@ describe('integrate-issue', () => {
     assert.match(outcome.stderr, /^landing: this worktree goes onto origin\/master/m);
     assert.match(outcome.stderr, /^gate line with \[token\]$/m);
     assert.equal(outcome.stderr.includes(FAKE_TOKEN), false);
-    assert.ok(existsSync(join(home, '.ai-core', 'pre-push-runs.tsv')),'the hold of the landing lock is recorded in the home the test names, never in the real one');
+    assert.ok(existsSync(join(home, '.ai-core', 'pre-push-runs.tsv')), 'the hold of the landing lock is recorded in the home the test names, never in the real one');
   });
 
   it('lands through a push gate that needs a file only the worktree of the issue has (planted: the gate runs elsewhere)', async () => {

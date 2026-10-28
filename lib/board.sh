@@ -537,9 +537,10 @@ LANDING_COMMENT_WINDOW=50
 LANDING_RECORD_JQ="$INSTANT_JQ"'
 def trusted: select(.authorAssociation == "OWNER" or .authorAssociation == "MEMBER" or .authorAssociation == "COLLABORATOR");
 def commit_lines: split("\n") | map(select(test("^- [0-9a-f]{7,40} ")));
-def landing_records($reopenedAt): [.[] | trusted | select(.body | startswith("Landed on "))
+def landing_records($reopenedAt; $prefix): [.[] | trusted | select(.body | startswith($prefix))
   | select(.body | commit_lines | length > 0) | select($reopenedAt == "" or later(.createdAt; $reopenedAt))] | sort_by(.createdAt | instant_key);
-def landing_repo($issueRepo): (.body | split("\n")[0] | capture("^Landed on \\S+ of (?<r>[^\\s:]+/[^\\s:]+):") | .r) // $issueRepo;
+def landing_records($reopenedAt): landing_records($reopenedAt; "Landed on ");
+def landing_repo($issueRepo): (.body | split("\n")[0] | capture("^Landed (part )?on \\S+ of (?<r>[^\\s:]+/[^\\s:]+):") | .r) // $issueRepo;
 def selected_landing($reopenedAt; $issueRepo): landing_records($reopenedAt) as $all
   | ([$all[] | select((landing_repo($issueRepo) | ascii_downcase) == ($issueRepo | ascii_downcase))] | last) // ($all | last)
   | if . then {repository: landing_repo($issueRepo), commit: (.body | commit_lines | first | split(" ")[1]), createdAt: .createdAt} else null end;
@@ -548,21 +549,22 @@ def lists($shas): (.body | commit_lines | map(split(" ")[1])) as $listed
   | $shas | all(. as $sha | $listed | any(. as $one | ($one | startswith($sha)) or ($sha | startswith($one))));
 '
 
-# landing_recorded <state> <landing context> <landing repository> <issue repository> <commit lines>: true
+# landing_recorded <state> <landing context> <landing repository> <issue repository> <commit lines> [<record start>]: true
 # when the issue holds one record of the landing in <landing repository> that lists every commit of the
 # lines, "- <sha> <subject>" as finish-issue writes them, so that writing them again adds a copy and
-# nothing else. The context is what issue_landing_context answers. Of an open issue the record must
+# nothing else. The record starts "Landed on " unless <record start> says "Landed part on ", which a part with more to
+# follow writes and status-sync never reads. The context is what issue_landing_context answers. Of an open issue the record must
 # also stand after its last reopening and within the comments status-sync reads, or it would not
 # serve the card; a closed issue has no proof pending, so any trusted record of it serves. Exit 1 is
 # no; any other status is a context it could not read, which is no answer either way.
 landing_recorded() {
-  local state="$1" context="$2" landing="$3" issue="$4" commits="$5" shas
+  local state="$1" context="$2" landing="$3" issue="$4" commits="$5" start="${6:-Landed on }" shas
   shas="$(sed -n 's/^- \([0-9a-f]*\) .*/\1/p' <<< "$commits" | jq -R . | jq -sc .)" || return 2
-  printf '%s' "$context" | jq -e --arg state "$state" --arg landing "$landing" --arg issue "$issue" \
+  printf '%s' "$context" | jq -e --arg state "$state" --arg landing "$landing" --arg issue "$issue" --arg start "$start" \
     --argjson shas "$shas" --argjson window "$LANDING_COMMENT_WINDOW" "$LANDING_RECORD_JQ"'
     (.reopenedAt // "") as $reopenedAt
     | (if $state == "open" then (.comments | .[(0 - $window):]) else .comments end) as $read
-    | $read | landing_records(if $state == "open" then $reopenedAt else "" end)
+    | $read | landing_records((if $state == "open" then $reopenedAt else "" end); $start)
     | any(((landing_repo($issue) | ascii_downcase) == ($landing | ascii_downcase)) and lists($shas))' >/dev/null
 }
 

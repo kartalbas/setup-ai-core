@@ -2,7 +2,7 @@
 # Integrate the reviewed branch of one issue into the default branch: a merge commit that names the
 # issue and its reviewer, pushed through the gate.
 #
-#   integrate-issue.sh [OWNER/REPO] NUMBER [NUMBER ...] --reviewed-by REVIEWER [--reviewed-by REVIEWER ...] [--from-origin]
+#   integrate-issue.sh [OWNER/REPO] NUMBER [NUMBER ...] --reviewed-by REVIEWER [--reviewed-by REVIEWER ...] [--from-origin] [--part]
 #
 # Between start-issue and finish-issue. Run it in the worktree of the issue, on its branch, once the
 # reviewer gave the GO. It fetches origin, puts the worktree on the newest origin/<default>, merges
@@ -25,6 +25,10 @@
 # A branch named issue-<number>-... that belongs to an issue of another repository is named and not taken.
 # Where the merged tree carries scripts/install.sh, it runs there before the push, so the gate's
 # check finds what it needs installed; a failing install refuses the landing, and nothing is pushed.
+#
+# --part NAMES A LANDING WITH MORE TO FOLLOW: a package lands an issue in parts, and the issue is not ready to test until the
+# last one. It changes only the `next:` lines, which then say `finish-issue <number> --part`: that keeps the worktree, the
+# branch and the card where they are and records "Landed part on <default>:". The last part runs without --part.
 #
 # A PUBLIC REPOSITORY LANDS ONLY ON THE GREEN CHECKS OF THE COMMIT THAT LANDS. Before anything is made, the
 # forge says whether the repository of origin is public. If it is, in both paths the merge commit is made in
@@ -93,11 +97,11 @@
 . "$ROOT/lib/landing-lock.sh"
 
 BIN="$ROOT/bin"
-usage='usage: integrate-issue.sh [OWNER/REPO] NUMBER [NUMBER ...] --reviewed-by REVIEWER [--reviewed-by REVIEWER ...] [--from-origin]'
+usage='usage: integrate-issue.sh [OWNER/REPO] NUMBER [NUMBER ...] --reviewed-by REVIEWER [--reviewed-by REVIEWER ...] [--from-origin] [--part]'
 
 # Every --reviewed-by adds its reviewer, once, in the order given: a second one that overwrote the
 # first would drop a review from the history without a word
-repo=""; numbers=(); reviewers=(); from_origin=""
+repo=""; numbers=(); reviewers=(); from_origin=""; part=""
 add_reviewer() {  # add_reviewer <name>
   local known
   for known in ${reviewers[@]+"${reviewers[@]}"}; do [ "$known" != "$1" ] || return 0; done
@@ -108,6 +112,7 @@ while [ $# -gt 0 ]; do
     --reviewed-by)   [ $# -ge 2 ] || die "--reviewed-by takes the reviewer's name - $usage"; add_reviewer "$2"; shift ;;
     --reviewed-by=*) add_reviewer "${1#--reviewed-by=}" ;;
     --from-origin)   from_origin=1 ;;
+    --part)          part=" --part" ;;
     -*)              die "unknown argument '$1' - $usage" ;;
     */*)             [ -z "$repo" ] || die "$usage"; repo="$1" ;;
     *)               numbers+=("$1") ;;
@@ -567,12 +572,12 @@ own_repo="$(default_repo 2>/dev/null)" || own_repo=""
 own="$(printf '%s' "$own_repo" | tr 'A-Z' 'a-z')"
 { for position in "${!issue_numbers[@]}"; do
     first_repo="${issue_refs[position]%#*}"
-    echo "next: ai-core finish-issue ${first_repo:+$first_repo }${issue_numbers[position]}"
+    echo "next: ai-core finish-issue ${first_repo:+$first_repo }${issue_numbers[position]}$part"
   done
   for merge_sha in "${merge_shas[@]}"; do git log --reverse --format='%s' "$merge_sha^1..$merge_sha^2"; done | while IFS= read -r line; do
     { grep -oE '\(([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)?#[0-9]+\)' <<< "$line" || true; } | tr -d '()' | while IFS= read -r named; do
       landed_repo="${named%#*}"
       [ "$(printf '%s' "$landed_repo" | tr 'A-Z' 'a-z')" != "$own" ] || landed_repo=""
-      echo "next: ai-core finish-issue ${landed_repo:+$landed_repo }${named##*#}"
+      echo "next: ai-core finish-issue ${landed_repo:+$landed_repo }${named##*#}$part"
     done
   done; } | awk '!seen[tolower($0)]++'

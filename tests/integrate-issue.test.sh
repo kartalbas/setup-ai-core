@@ -740,6 +740,15 @@ wt19="$(new_tree 95 third)"; wt20="$(new_tree 96 fourth)"
 gates="$(two_landings "$no_lock" 95 "$wt19" 96 "$wt20")"
 check 'planted: without the lock both gates start before either ends' yes "$(case "$gates" in 'start start '*) echo yes ;; *) echo no ;; esac)"
 
+echo '--part names a landing with more to follow: the next steps say so, and a landing without it names none (innocent case)'
+wt21="$(new_tree 97 part)"; wt22="$(new_tree 98 whole)"
+out="$(integrate "$wt21" 97 --reviewed-by l4 --part)"; rc=$?
+check 'a part: exit 0'                 0 "$rc"
+check 'its next step carries --part'   'next: ai-core finish-issue 97 --part' "$(grep '^next: ' <<< "$out")"
+out="$(integrate "$wt22" 98 --reviewed-by l4)"; rc=$?
+check 'a whole landing: exit 0'        0 "$rc"
+check 'its next step carries none'     'next: ai-core finish-issue 98' "$(grep '^next: ' <<< "$out")"
+
 # held_tree <number> <slug>: the worktree of an issue whose branch is pushed and whose session left
 # a change in the tree that no commit holds, as a stopped session does
 held_tree() {

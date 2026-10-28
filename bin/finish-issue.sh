@@ -2,7 +2,7 @@
 # Close the worktree of one issue once its work has landed, move its card one column on, and say
 # in the issue what landed.
 #
-#   finish-issue.sh [OWNER/REPO] NUMBER [--landed]
+#   finish-issue.sh [OWNER/REPO] NUMBER [--landed | --part]
 #   finish-issue.sh --sweep [--dry-run]
 #
 # The counterpart of start-issue. A worktree left behind after its work landed holds a copy of
@@ -14,6 +14,10 @@
 #
 # NOTHING THAT HAS NOT LANDED IS REMOVED. A worktree with changes, or with a commit origin's
 # default branch does not have, stops the run and is named; the work in it is somebody's.
+#
+# --part NAMES A LANDING WITH MORE TO FOLLOW: a package lands an issue in parts, and the issue is not ready to test until the
+# last one. The worktree and the branch stay, the card stays where it stands, and the issue is told "Landed part on <branch>:"
+# with the commits, a record that status-sync does not read as a landing. The last part runs without --part, as every landing does.
 #
 # THE CARD MOVES TO testing, whatever column it stands in: the work has landed and waits for its
 # release and its proof. status-sync, which this runs for the repository, closes it once a release
@@ -48,23 +52,25 @@
 . "$ROOT/lib/worktrees.sh"
 
 BIN="$ROOT/bin"
-usage='usage: finish-issue.sh [OWNER/REPO] NUMBER [--landed] | finish-issue.sh --sweep [--dry-run]'
+usage='usage: finish-issue.sh [OWNER/REPO] NUMBER [--landed | --part] | finish-issue.sh --sweep [--dry-run]'
 # A landed worktree younger than this is left to the session that may still be working in it
 REST_SECONDS=$((24 * 3600))
 
-sweep=0; dry=0; landed_flag=0; repo=""; number=""
+sweep=0; dry=0; landed_flag=0; part=0; repo=""; number=""
 for arg in "$@"; do
   case "$arg" in
     --sweep)   sweep=1 ;;
     --dry-run) dry=1 ;;
     --landed)  landed_flag=1 ;;
+    --part)    part=1 ;;
     -*)        die "unknown argument '$arg' - $usage" ;;
     */*)       [ -z "$repo" ] || die "$usage"; repo="$arg" ;;
     *)         [ -z "$number" ] || die "$usage"; number="$arg" ;;
   esac
 done
-if [ "$sweep" -eq 1 ]; then [ -z "$number" ] && [ -z "$repo" ] && [ "$landed_flag" -eq 0 ] || die "$usage"
+if [ "$sweep" -eq 1 ]; then [ -z "$number" ] && [ -z "$repo" ] && [ "$landed_flag" -eq 0 ] && [ "$part" -eq 0 ] || die "$usage"
 else
+  [ "$part" -eq 0 ] || [ "$landed_flag" -eq 0 ] || die "--part and --landed do not go together: a part has more to follow, and --landed clears the work of a closed issue - $usage"
   case "$number" in ''|*[!0-9]*) die "the issue number must be numeric, not '$number' - $usage" ;; esac
   [ "$dry" -eq 0 ] || die "--dry-run goes with --sweep - $usage"
 fi
@@ -193,6 +199,7 @@ while IFS=$'\t' read -r name why; do
   else echo "the branch $name stays: it $why"; fi
 done <<< "$owners"
 found=0; met=0; cut_only_removed=0; worked_in_removed=0
+[ "$part" -eq 0 ] || echo "$(issue_ref "$repo" "$number") has more parts to follow: its worktree and its branch stay"
 while IFS=$'\t' read -r path branch; do
   [ -n "$path" ] || continue
   case "$mine" in *" $branch "*) ;; *) continue ;; esac
@@ -226,8 +233,8 @@ while IFS=$'\t' read -r path branch; do
   removed=0; remove_worktree "$path" "$branch" "$tip" || removed=$?
   [ "$removed" -eq 0 ] || die "the worktree $path is $(worktree_lock_state "$lock_reason"), so nothing is removed: $(worktree_lock_retry "$path" "$lock_reason")"
   echo "Worktree $path and its branch $branch removed: $because. Open $main to go on."
-done <<< "$(issue_worktrees)"
-[ "$found" -eq 1 ] || echo "no worktree of issue $number stands here"
+done <<< "$([ "$part" -eq 1 ] || issue_worktrees)"
+[ "$found" -eq 1 ] || [ "$part" -eq 1 ] || echo "no worktree of issue $number stands here"
 
 # clear_origin_branches: the issue's branches on origin. One whose every commit's change is on origin's
 # default branch holds nothing the default branch lacks, so it is deleted; a repository that lands by
@@ -290,10 +297,12 @@ if [ -z "$commits" ]; then
   exit 0
 fi
 
-clear_origin_branches
+[ "$part" -eq 1 ] || clear_origin_branches
 
 # The card: to testing
-if [ "$state" = closed ]; then
+if [ "$part" -eq 1 ]; then
+  echo "a part with more to follow - the card stays where it stands"
+elif [ "$state" = closed ]; then
   echo "the issue is closed already - its card stays where closing put it"
 elif repo="$(resolve_repo "$repo")" && on_no_board "$repo"; then
   echo "$repo is on no board - there is no card to move"
@@ -314,14 +323,15 @@ fi
 # commits is not told again. An issue of another repository is told which repository the commits are in.
 # A comment that cannot be read leaves open whether the record is there, so then nothing is written.
 landed_on="$default"; [ "$ref" = "#$number" ] || landed_on="$default of $(default_repo)"
+record_start="Landed on "; [ "$part" -eq 0 ] || record_start="Landed part on "
 issue_repo="${repo:-$own}"
 if ! context="$(issue_landing_context "$issue_repo" "$number")"; then
   echo "the issue was NOT told what landed: its comments could not be read, so a record it holds is not known - add the commits by hand" >&2
 else
-  recorded=0; landing_recorded "$state" "$context" "$own" "$issue_repo" "$commits" || recorded=$?
+  recorded=0; landing_recorded "$state" "$context" "$own" "$issue_repo" "$commits" "$record_start" || recorded=$?
   case "$recorded" in
     0) echo "the issue holds this record already - nothing added" ;;
-    1) body="$(printf 'Landed on %s:\n\n%s\n' "$landed_on" "$commits")"
+    1) body="$(printf '%s%s:\n\n%s\n' "$record_start" "$landed_on" "$commits")"
        "$BIN/issue-comment.sh" ${repo:+"$repo"} "$number" "$body" >/dev/null \
          && echo "the issue says what landed" \
          || echo "it cannot be confirmed that the issue was told what landed - look at its comments before adding the commits by hand" >&2 ;;

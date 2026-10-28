@@ -14,7 +14,7 @@ import { isBranchOfIssue, listOf, parseArguments, parseIssueReference, refuseExt
 import { succeeded } from './command.mts';
 import type { CommandContext, CommandResult } from './command.mts';
 
-const USAGE = 'usage: integrate-issue [OWNER/REPO] NUMBER [NUMBER ...] --reviewed-by NAME [--reviewed-by NAME ...] --reviewed-head SHA [--reviewed-head SHA ...] [--also OWNER/REPO#NUMBER ...]';
+const USAGE = 'usage: integrate-issue [OWNER/REPO] NUMBER [NUMBER ...] --reviewed-by NAME [--reviewed-by NAME ...] --reviewed-head SHA [--reviewed-head SHA ...] [--also OWNER/REPO#NUMBER ...] [--part]';
 export const help = `${USAGE}
 
 Lands the reviewed branch of one issue on the default branch of origin: a merge commit that names the issue and
@@ -32,7 +32,10 @@ of the push gate show while the push runs. Where the checks of Forgejo are read,
 temporary worktree, where scripts/install.sh of the merged tree runs first if it has one, its lines shown, and
 a failing install refuses the landing with nothing pushed. Then every issue it lands (each one given and each
 --also) gets status/testing and the record "Landed on <branch>:" with the reviewed head, the landed commit and
-the reviewers. It discovers no other issue from the history of Git.
+the reviewers. --part names a landing with more to follow, which a package makes of an issue it lands in parts: the
+issue stays in the status it has, and its record says "Landed part on <branch>:" with the same lines, which no reader
+counts as a landing; it prints no finish-issue step, and the worktree stays for the next part. The last part runs
+without --part, as every landing does. It discovers no other issue from the history of Git.
 
 It refuses, before anything is merged or pushed: an issue that is closed or not assigned to the signed-in
 account, a worktree with changes (at most twenty named, and their count where there are more), a branch head
@@ -432,7 +435,7 @@ async function findOriginBranch(context: CommandContext, unit: Unit, origin: Rep
 }
 
 export async function run(args: readonly string[], context: CommandContext): Promise<CommandResult> {
-  const parsed = parseArguments(args, { '--reviewed-by': 'repeat', '--reviewed-head': 'repeat', '--also': 'repeat' });
+  const parsed = parseArguments(args, { '--reviewed-by': 'repeat', '--reviewed-head': 'repeat', '--also': 'repeat', '--part': 'switch' });
   const { refs: listed, rest } = await takeIssuesOfWorktree(parsed.positionals, context.git, context.cwd, USAGE);
   refuseExtra(rest, USAGE);
   const reviewers = parseReviewers(listOf(parsed, '--reviewed-by'));
@@ -442,6 +445,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   if (listed.some((issueRef, index) => listed.findIndex((known) => isSameIssue(known, issueRef)) !== index)) {
     throw new UsageError(`an issue is named twice: ${listed.map((issueRef) => String(issueRef.number)).join(' ')}. ${USAGE}`);
   }
+  const isPart = parsed.switches.has('--part');
   const alsoRefs: IssueRef[] = [];
   for (const text of listOf(parsed, '--also')) {
     const other = parseIssueReference(text);
@@ -561,20 +565,23 @@ export async function run(args: readonly string[], context: CommandContext): Pro
       const head = heads[position] ?? '';
       const landedCommit = landedCommits[position] ?? '';
       const entries = await readTimeline(api, issue.ref);
-      if (hasLandedRecord(entries, head, landedCommit)) {
-        done.push(`${formatIssue(issue.ref)} keeps its status: the record "Landed on ${defaultBranch}" is there already`);
-        lines.push(`${formatIssue(issue.ref)} keeps its status: the record "Landed on ${defaultBranch}" is there already`);
+      const recordName = isPart ? 'Landed part on' : 'Landed on';
+      if (hasLandedRecord(entries, head, landedCommit, isPart)) {
+        done.push(`${formatIssue(issue.ref)} keeps its status: the record "${recordName} ${defaultBranch}" is there already`);
+        lines.push(`${formatIssue(issue.ref)} keeps its status: the record "${recordName} ${defaultBranch}" is there already`);
         continue;
       }
       // The label first: a run interrupted between the two writes finds no record and does both again.
-      await replaceFamilyLabel(api, issue.ref, issue, statusLabel('testing'));
-      await addComment(api, issue.ref, composeLandedRecord({ branch: defaultBranch, repository: codeRepository, reviewedHead: head, landedCommit, reviewers }, issue.ref));
-      done.push(`${formatIssue(issue.ref)} -> ${statusLabel('testing')} with the record "Landed on ${defaultBranch}"`);
-      lines.push(`${formatIssue(issue.ref)} -> ${statusLabel('testing')}; recorded "Landed on ${defaultBranch}"`);
+      if (!isPart) await replaceFamilyLabel(api, issue.ref, issue, statusLabel('testing'));
+      await addComment(api, issue.ref, composeLandedRecord({ branch: defaultBranch, repository: codeRepository, reviewedHead: head, landedCommit, reviewers, isPart }, issue.ref));
+      const outcome = isPart ? 'keeps its status' : `-> ${statusLabel('testing')}`;
+      done.push(`${formatIssue(issue.ref)} ${outcome} with the record "${recordName} ${defaultBranch}"`);
+      lines.push(`${formatIssue(issue.ref)} ${outcome}; recorded "${recordName} ${defaultBranch}"`);
     }
   } catch (error) {
     throw new PartialCompletionError('record the landing', done, `${error instanceof Error ? error.message : String(error)}. The work is on origin/${defaultBranch}; run the same command again, it writes only what is missing`);
   }
-  for (const unit of units) lines.push(`next: ai-core finish-issue ${formatRepository(unit.ref)} ${unit.ref.number}`);
+  if (isPart) lines.push(`part: ${units.map((unit) => formatIssue(unit.ref)).join(', ')} stays in its status with its worktree; the last part lands without --part`);
+  else for (const unit of units) lines.push(`next: ai-core finish-issue ${formatRepository(unit.ref)} ${unit.ref.number}`);
   return succeeded(lines, warnings);
 }

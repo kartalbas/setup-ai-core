@@ -325,6 +325,31 @@ describe('integrate-issue', () => {
     assert.match(result.stdout, /refreshed: the checkout/);
   });
 
+  it('keeps an issue in implementing where a part lands and records "Landed part on master:", then moves it to testing with the last part', async () => {
+    const { number, tree, head } = await worked(main, 'Landed in two parts, so that the board stays right');
+    const part = await integrateIssue.run([...integrateArguments(main, number, head), '--part'], ctx(tree));
+    assert.deepEqual(fake.readIssue(main.full, number).labels, ['status/implementing'], 'the issue stays in implementing');
+    assert.match(commentsOf(main, number).at(-1) ?? '', new RegExp(`^Landed part on master:\\n\\nReviewed head: ${head}\\nLanded commit: ${tipOf(main)}\\nReviewed by: alice\\n$`));
+    assert.doesNotMatch(part.stdout, /next: ai-core finish-issue/);
+    assert.match(part.stdout, /part: o\/r#\d+ stays in its status with its worktree; the last part lands without --part/);
+    const rerun = await integrateIssue.run([...integrateArguments(main, number, head), '--part'], ctx(tree));
+    assert.match(rerun.stdout, /keeps its status: the record "Landed part on master" is there already/);
+    assert.equal(commentsOf(main, number).filter((comment) => comment.startsWith('Landed part on')).length, 1, 'a rerun of the part writes no second record');
+    const last = fixture.commit(tree, `last-part-${number}.txt`, 'last\n');
+    const result = await integrateIssue.run(integrateArguments(main, number, last), ctx(tree));
+    assert.deepEqual(fake.readIssue(main.full, number).labels, ['status/testing'], 'the last part moves the issue to testing');
+    assert.match(commentsOf(main, number).at(-1) ?? '', new RegExp(`^Landed on master:\\n\\nReviewed head: ${last}\\nLanded commit: ${tipOf(main)}\\n`));
+    assert.match(result.stdout, new RegExp(`next: ai-core finish-issue o/r ${number}`));
+  });
+
+  it('goes red where a part moves the issue to testing (planted in a copy of the tracker)', async () => {
+    const copy = plantedCopy([['commands/integrate-issue.mts', 'if (!isPart) await replaceFamilyLabel(', 'await replaceFamilyLabel(']]);
+    const planted = (await import(pathToFileURL(join(copy, 'commands', 'integrate-issue.mts')).href)) as typeof integrateIssue;
+    const { number, tree, head } = await worked(main, 'Landed in a part, with the issue moved to testing');
+    await planted.run([...integrateArguments(main, number, head), '--part'], ctx(tree));
+    assert.notDeepEqual(fake.readIssue(main.full, number).labels, ['status/implementing'], 'the test above needs the issue to stay in implementing');
+  });
+
   it('names a main checkout it could not refresh, and the landing stands (planted: the refresh fails)', async () => {
     const { number, tree, head } = await worked(main, 'Refresh fails, so that it is named');
     const harness = createRecordingHarness();

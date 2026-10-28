@@ -11,6 +11,7 @@ import { UsageError } from './refusals.mts';
 //
 //   Started on <branch>:                      the work began
 //   Landed on <branch>[ of <owner/repo>]:     the reviewed work reached the default branch
+//   Landed part on <branch>[ of <owner/repo>]: a part of the work did, and more is to follow; no reader counts it as a landing
 //   Released in <owner/repo> <tag>:           a release of that repository carries the work
 //   Proven on <environment>:                  the delivered work was seen to work there
 
@@ -28,6 +29,8 @@ export interface LandedRecord {
   readonly reviewedHead: string;
   readonly landedCommit: string;
   readonly reviewers: readonly string[];
+  // A part with more to follow: the record says so, and the readers of landings pass it over.
+  readonly isPart?: boolean;
 }
 
 export function composeStartedRecord(record: StartedRecord): string {
@@ -37,7 +40,7 @@ export function composeStartedRecord(record: StartedRecord): string {
 // "Landed on master:" when the work landed in the repository of the issue, else "Landed on master of owner/repo:".
 export function composeLandedRecord(record: LandedRecord, issueRepository: RepositoryRef): string {
   const where = isSameRepository(record.repository, issueRepository) ? '' : ` of ${formatRepository(record.repository)}`;
-  return `Landed on ${record.branch}${where}:\n\nReviewed head: ${record.reviewedHead}\nLanded commit: ${record.landedCommit}\nReviewed by: ${record.reviewers.join(', ')}\n`;
+  return `Landed ${record.isPart === true ? 'part on' : 'on'} ${record.branch}${where}:\n\nReviewed head: ${record.reviewedHead}\nLanded commit: ${record.landedCommit}\nReviewed by: ${record.reviewers.join(', ')}\n`;
 }
 
 export function composeReleasedRecord(repository: RepositoryRef, tag: string): string {
@@ -50,6 +53,7 @@ export function composeProvenRecord(environment: string, evidence: string): stri
 
 const NAME = '[A-Za-z0-9_.-]+';
 const LANDED_LINE = new RegExp(`^Landed on ([^\\s:]+)(?: of (${NAME}/${NAME}))?:$`);
+const LANDED_PART_LINE = new RegExp(`^Landed part on ([^\\s:]+)(?: of (${NAME}/${NAME}))?:$`);
 const RELEASED_LINE = new RegExp(`^Released in (${NAME}/${NAME}) (\\S+):$`);
 const PROVEN_LINE = /^Proven on ([^\s:]+)[^:]*:$/;
 const STARTED_LINE = /^Started on ([^\s:]+):$/;
@@ -287,8 +291,10 @@ export function hasStartedRecord(entries: readonly TimelineEntry[], branch: stri
   return entries.some((entry) => entry.kind === 'comment' && STARTED_LINE.exec(firstLine(entry.body))?.[1] === branch);
 }
 
-export function hasLandedRecord(entries: readonly TimelineEntry[], reviewedHead: string, landedCommit: string): boolean {
-  return entries.some((entry) => entry.kind === 'comment' && LANDED_LINE.test(firstLine(entry.body)) && fieldOf(entry.body, 'Reviewed head') === reviewedHead && fieldOf(entry.body, 'Landed commit') === landedCommit);
+// Whether the issue carries the record of this landing: of a part with more to follow where `isPart`, else of the landing.
+export function hasLandedRecord(entries: readonly TimelineEntry[], reviewedHead: string, landedCommit: string, isPart = false): boolean {
+  const line = isPart ? LANDED_PART_LINE : LANDED_LINE;
+  return entries.some((entry) => entry.kind === 'comment' && line.test(firstLine(entry.body)) && fieldOf(entry.body, 'Reviewed head') === reviewedHead && fieldOf(entry.body, 'Landed commit') === landedCommit);
 }
 
 // Whether the issue carries the landing of this head: a "Landed on" record of an account with write permission

@@ -35,8 +35,8 @@ which in its NOTES.
 Every page you open also gets one screenshot of what is visible, the first time you reach it, and you
 look it over against this list: more than one item of a menu or a tree drawn as the current one; text
 cut off or overlapping; an empty or white area where content belongs; an element outside its frame;
-an error message on the page. A defect you see there is no FAIL of a card: it goes into a `KEEPER:`
-line, as the end of this brief says.
+an error message on the page. A defect you see there that no promise names is no FAIL of a card:
+it goes into a `KEEPER:` line, as the end of this brief says.
 
 ## Output, as your last message
 
@@ -50,4 +50,5 @@ Each issue's line is its own verdict, because the cards of one session can belon
 areas: one issue's FAIL holds back no other issue. SEEN carries what the page showed, never what it
 should have shown. A FAIL of a card's own promise is that card's FAIL, not a new defect. A defect
 you see that no promise names is no FAIL and no issue of yours: add `KEEPER: <URL> <the visible
-text, or what the screenshot shows>` below the results, and the project's issue keeper files it into what exists.
+text, or what the screenshot shows>` below the results, and the project's issue keeper files it
+into what exists.

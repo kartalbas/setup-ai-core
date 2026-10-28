@@ -10,7 +10,8 @@ a landing moved the code they name. Context budget {{context budget}}.
 
 - The findings, one per line, each as the session wrote it
   (`KEEPER: <repo> <file:line> <state>`, for a plan also `KEEPER: <repo>#<n> <what the issue lacks>`
-  and `KEEPER: re-cut split|merge ...`, for a UI test `KEEPER: <URL> <the visible text>`), with the session that handed it over: {{findings}}
+  and `KEEPER: re-cut split|merge ...`, for a UI test `KEEPER: <URL> <the visible text, or what the
+  screenshot shows>`), with the session that handed it over: {{findings}}
 - The landings since the last keeper, one line per hunk of the landing's merge commit, as the coordinator
   read it with `git -C <clone> diff -U0 <merge sha>^1 <merge sha>`
   (`LANDED: <repo> <merge sha> <file> <old span> -> <new span>`, `<file>` the path before the landing),

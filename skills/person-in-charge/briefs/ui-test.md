@@ -28,9 +28,15 @@ it. Where a promise cannot be met by looking (a job that runs at night, a mail t
 Read the page through `take_snapshot`, the text of its accessibility tree, and act on an element by
 the `uid` it carries there: `click`, `fill`, `fill_form`, `wait_for` a text, and `evaluate_script`
 for a value the snapshot does not show. An element is exact; a picture has to be interpreted, which
-is slower and less certain. Take a screenshot (`take_screenshot`, of the one element where you can)
-only where a promise is about how something looks, or to show what a FAIL saw, and say which in its
-NOTES.
+is slower and less certain. For a promise, take a screenshot (`take_screenshot`, of the one element
+where you can) where the promise is about how something looks, or to show what a FAIL saw, and say
+which in its NOTES.
+
+Every page you open also gets one screenshot of what is visible, the first time you reach it, and you
+look it over against this list: more than one item of a menu or a tree drawn as the current one; text
+cut off or overlapping; an empty or white area where content belongs; an element outside its frame;
+an error message on the page. A defect you see there that no promise names is no FAIL of a card:
+it goes into a `KEEPER:` line, as the end of this brief says.
 
 ## Output, as your last message
 
@@ -44,4 +50,5 @@ Each issue's line is its own verdict, because the cards of one session can belon
 areas: one issue's FAIL holds back no other issue. SEEN carries what the page showed, never what it
 should have shown. A FAIL of a card's own promise is that card's FAIL, not a new defect. A defect
 you see that no promise names is no FAIL and no issue of yours: add `KEEPER: <URL> <the visible
-text>` below the results, and the project's issue keeper files it into what exists.
+text, or what the screenshot shows>` below the results, and the project's issue keeper files it
+into what exists.

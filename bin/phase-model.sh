@@ -10,6 +10,8 @@ case "${1-}" in
   -h|--help)
     echo 'Usage: ai-core phase-model PHASE CLASS [--written-by MODEL] [--setup-file PATH]'
     echo 'Print exactly TOOL MODEL EFFORT; plan-check and review require the actual writer.'
+    echo 'A tool may hold several rows for one phase and class: they are tried in table order, a row whose quota is at its limit'
+    echo 'or whose model is the writer'"'"'s is passed, and the first eligible row is selected; two equal rows are refused as ambiguous.'
     echo 'A Setup file (the planner'"'"'s JSON of build, review and ui-test, each per tool) replaces the table row of a tool that has an entry'
     echo 'for the phase, where the table allows that entry for the class; a refused Setup refuses the selection before any quota is read.'
     exit 0 ;;
@@ -45,29 +47,34 @@ if [ -z "$failure" ]; then
   table="$(data_file models.tsv)"
   while IFS= read -r tool; do
     case "$tool" in codex|agy|claude) ;; *) failure="usage does not support native tool $tool"; reason "$tool" "$failure"; break ;; esac
-    row="$(awk -F'\t' -v phase="$phase" -v class="$class" -v tool="$tool" '$1 == phase && $2 == tool { print tool "\t" phase "\t" class "\t" $3 "\t" $4 }' <<< "$setup_entries")"
-    [ -n "$row" ] || row="$(phase_model_row "$tool" "$phase" "$class" "$table")" || { failure="cannot read $table for $tool"; reason "$tool" "$failure"; break; }
-    if [ -z "$row" ]; then reason "$tool" "no row for $phase $class"; continue; fi
-    IFS=$'\t' read -r source row_phase row_class model effort <<< "$row"
-    actual="$tool"
-    if [[ "$model" == *:* ]]; then
-      actual="${model%%:*}"; model="${model#*:}"
-      case "$actual" in codex|agy|claude) ;; *) failure="unsupported destination $actual"; reason "$tool" "$failure"; break ;; esac
-      if [ "$order" != null ] && [ "$actual" != "$tool" ]; then reason "$tool" "row routes to $actual; saved order governs execution tools"; continue; fi
-      destination="$(phase_model_row "$actual" "$phase" "$class" "$table")" || { failure="cannot resolve $actual:$model"; reason "$tool" "$failure"; break; }
-      IFS=$'\t' read -r dest_tool dest_phase dest_class dest_model dest_effort <<< "$destination"
-      if [ "${dest_model-}" != "$model" ]; then reason "$tool" "no declared destination row for $actual:$model"; continue; fi
-      effort="$dest_effort"
-    fi
-    if [ -n "$writer" ] && [ "$(phase_model_base "$model")" = "$(phase_model_base "$writer")" ]; then reason "$tool" "writer model $writer is not independent"; continue; fi
-    args=(--tool "$actual"); [ "$actual" != agy ] || args+=(--model "$model")
-    rc=0; reading="$(bash "$ROOT/bin/usage.sh" "${args[@]}" 2>&1)" || rc=$?
-    reason "$actual" "$reading" "$rc"
-    case "$rc" in
-      0) selected="$(jq -cn --arg tool "$actual" --arg model "$model" --arg effort "$effort" '{tool:$tool,model:$model,effort:$effort}')"; break ;;
-      3|4) ;;
-      *) failure="$actual usage failed (exit $rc): $reading"; break ;;
-    esac
+    rows="$(awk -F'\t' -v phase="$phase" -v class="$class" -v tool="$tool" '$1 == phase && $2 == tool { print tool "\t" phase "\t" class "\t" $3 "\t" $4 }' <<< "$setup_entries")"
+    [ -n "$rows" ] || rows="$(phase_model_rows "$tool" "$phase" "$class" "$table")" || { failure="cannot read $table for $tool"; reason "$tool" "$failure"; break; }
+    if [ -z "$rows" ]; then reason "$tool" "no row for $phase $class"; continue; fi
+    while IFS= read -r row; do
+      IFS=$'\t' read -r source row_phase row_class model effort <<< "$row"
+      declared="$model"
+      actual="$tool"
+      if [[ "$model" == *:* ]]; then
+        actual="${model%%:*}"; model="${model#*:}"
+        case "$actual" in codex|agy|claude) ;; *) failure="unsupported destination $actual"; reason "$tool" "$failure"; break ;; esac
+        if [ "$order" != null ] && [ "$actual" != "$tool" ]; then reason "$tool" "row $declared routes to $actual; saved order governs execution tools"; continue; fi
+        destinations="$(phase_model_rows "$actual" "$phase" "$class" "$table")" || { failure="cannot resolve $actual:$model"; reason "$tool" "$failure"; break; }
+        destination="$(awk -F'\t' -v model="$model" '$4 == model { print; exit }' <<< "$destinations")"
+        if [ -z "$destination" ]; then reason "$tool" "no declared destination row for $actual:$model"; continue; fi
+        IFS=$'\t' read -r dest_tool dest_phase dest_class dest_model dest_effort <<< "$destination"
+        effort="$dest_effort"
+      fi
+      if [ -n "$writer" ] && [ "$(phase_model_base "$model")" = "$(phase_model_base "$writer")" ]; then reason "$tool" "row $declared: writer model $writer is not independent"; continue; fi
+      args=(--tool "$actual"); [ "$actual" != agy ] || args+=(--model "$model")
+      rc=0; reading="$(bash "$ROOT/bin/usage.sh" "${args[@]}" 2>&1)" || rc=$?
+      reason "$actual" "row $declared: $reading" "$rc"
+      case "$rc" in
+        0) selected="$(jq -cn --arg tool "$actual" --arg model "$model" --arg effort "$effort" '{tool:$tool,model:$model,effort:$effort}')"; break ;;
+        3|4) ;;
+        *) failure="$actual usage failed (exit $rc): $reading"; break ;;
+      esac
+    done <<< "$rows"
+    if [ "$selected" != null ] || [ -n "$failure" ]; then break; fi
   done <<< "$tools"
   [ "$selected" != null ] || failure="${failure:-no eligible tool for $phase $class}"
 fi

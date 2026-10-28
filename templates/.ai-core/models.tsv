@@ -41,6 +41,9 @@
 # effort  what the tool takes for it (`claude --effort`, `codex -c model_reasoning_effort=`); - where
 #         the model name carries it, as agy's names do.
 #
+# A tool may hold several rows for one phase and class: they are tried in table order, and the first
+# whose destination has quota left and whose model is not the writer's is selected; two equal rows are
+# refused as ambiguous.
 # Every phase starts and resumes on exactly the selector's tuple. For plan-check and review,
 # pass --written-by with the actual writer model; aliases and effort changes are not independence.
 # A plan re-check uses plan-check and the re-plan writer; a review re-check uses review and the
@@ -49,9 +52,13 @@
 # file with its own: the same name replaces.
 
 claude	plan	normal-hard	codex:gpt-6-astra	xhigh
+claude	plan	normal-hard	claude-fable-5-1	xhigh
 claude	plan	high-risk	codex:gpt-6-astra	max
+claude	plan	high-risk	claude-fable-5-1	max
 claude	re-plan	normal-hard	codex:gpt-6-astra	xhigh
+claude	re-plan	normal-hard	claude-fable-5-1	xhigh
 claude	re-plan	high-risk	codex:gpt-6-astra	max
+claude	re-plan	high-risk	claude-fable-5-1	max
 claude	plan-check	normal-hard	claude-opus-5-5	high
 claude	plan-check	high-risk	claude-opus-5-5	high
 claude	build	mechanical	claude-sonnet-5-5	high

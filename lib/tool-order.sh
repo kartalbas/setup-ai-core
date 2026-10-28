@@ -151,16 +151,28 @@ phase_model_setup() {
   printf '%s\n' "$entries"
 }
 
-phase_model_row() {
+# phase_model_rows <tool> <phase> <class> <table>: the rows of the tool for the phase in table order, the rows of the exact
+# class, else the rows of `*`; two equal rows are refused as ambiguous.
+phase_model_rows() {
   awk -F'\t' -v tool="$1" -v phase="$2" -v class="$3" '
     !/^#/ && NF { if (NF != 5 || $4 !~ /^[^[:space:]]+$/ || $5 !~ /^[^[:space:]]+$/) { print "malformed models.tsv row " NR > "/dev/stderr"; exit 2 }
       if ($1 == tool && $2 == phase && ($3 == class || $3 == "*")) {
-        if ($3 == class) { exact++; row=$0 } else { wild++; fallback=$0 }
+        if ($3 == class) { if (exactSeen[$0]++) twice = 1; exact[++exactCount] = $0 }
+        else { if (wildSeen[$0]++) wildTwice = 1; wild[++wildCount] = $0 }
       }
     }
-    END { if (exact > 1 || (!exact && wild > 1)) { print "ambiguous models.tsv rows" > "/dev/stderr"; exit 2 }
-      if (exact) print row; else if (wild) print fallback }
+    END { if ((exactCount && twice) || (!exactCount && wildTwice)) { print "ambiguous models.tsv rows" > "/dev/stderr"; exit 2 }
+      if (exactCount) for (i = 1; i <= exactCount; i++) print exact[i]
+      else for (i = 1; i <= wildCount; i++) print wild[i]
+    }
   ' "$4"
+}
+
+# phase_model_row <tool> <phase> <class> <table>: the first of those rows.
+phase_model_row() {
+  local rows
+  rows="$(phase_model_rows "$@")" || return $?
+  [ -z "$rows" ] || printf '%s\n' "${rows%%$'\n'*}"
 }
 
 tool_order_audit() {

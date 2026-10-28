@@ -106,6 +106,23 @@ check('a Claude review row that routes to Codex takes the Setup entry of codex, 
   select(['review','normal-hard','--written-by','claude-sonnet-5-5','--setup-file',setup],'claude claude-opus-5-5 xhigh');
   assert.equal(records().at(-1).order,null);
 });
+check('while Claude has no quota and Codex has, the Astra route rows review the work of every Claude writer, and with neither the review waits',()=>{
+  const astra={mechanical:'xhigh','normal-hard':'xhigh','high-risk':'max'};
+  setQuota('claude',3);
+  for(const [cls,effort] of Object.entries(astra))for(const writer of ['claude-sonnet-5-5','claude-fable-5-1']){
+    setQuota('codex',0);
+    select(['review',cls,'--written-by',writer],`codex gpt-6-astra ${effort}`);
+    setQuota('codex',3);
+    deny(['review',cls,'--written-by',writer],new RegExp(`no eligible tool for review ${cls}`));
+  }
+  const template=fs.readFileSync(path.join(source,'templates/.ai-core/models.tsv'),'utf8').split('\n').filter(l=>l&&!l.startsWith('#')).map(l=>l.split('\t'));
+  table(template.filter(r=>!(r[0]==='claude'&&r[1]==='review'&&r[3]==='codex:gpt-6-astra')));
+  setQuota('codex',0);
+  deny(['review','normal-hard','--written-by','claude-sonnet-5-5'],/no eligible tool for review normal-hard/);
+  fs.unlinkSync(path.join(project,'.ai-core/models.tsv'));
+  setQuota('claude',0);
+  assert.equal(records().at(-1).order,null);
+});
 check('with a saved order the Astra row of the claude tool is not an execution tool, and its Fable row runs',()=>{
   order(['claude']);
   select(['plan','normal-hard'],'claude claude-fable-5-1 xhigh');

@@ -442,6 +442,8 @@ on start; no developer installs a skill by hand.
     rows name `claude-opus-5-5`, then `codex:gpt-6-astra`, then `claude-fable-5-1`, so work that
     `claude-opus-5-5` wrote is reviewed on Astra while Codex has quota and on Fable while it has none;
     an order that puts `claude` before `codex` reviews that work on Fable even while Codex has quota.
+    While Claude has no quota and Codex has, the Astra route rows review the work of every Claude
+    writer, `claude-sonnet-5-5` and `claude-fable-5-1` included, instead of waiting.
     Two rows equal in tool, phase, class, model and effort are refused as ambiguous. The plan's `Setup:` line, passed as `--setup-file PATH`, replaces the table
     row of a tool that has an entry for the phase, also where a row of another tool routes to it, only with a tuple the table allows, and sets the
     context budget of the phase within its ceiling. Every PHASE line includes the order and selected tuple. No saved order

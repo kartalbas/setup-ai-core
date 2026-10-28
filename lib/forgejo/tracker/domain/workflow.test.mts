@@ -13,6 +13,7 @@ import {
   composeReleasedRecord,
   composeStartedRecord,
   findCurrentProof,
+  findNewestLanding,
   hasLandedRecord,
   hasProvenRecord,
   hasReleasedRecord,
@@ -66,7 +67,7 @@ describe('the environments where a landing is the delivery', () => {
 
 describe('a delivery that a project\'s reader answers', () => {
   const pinned = { owner: 'o', repo: 'pinned' };
-  const landedIn = { deliveryReopenedAt: undefined, landings: [{ at: 1, branch: 'master', repository: pinned, commit: 'c'.repeat(40), isPart: false }], releases: [], proofs: [] };
+  const landedIn = { deliveryReopenedAt: undefined, landings: [{ index: 0, at: 1, branch: 'master', repository: pinned, commit: 'c'.repeat(40), isPart: false }], releases: [], proofs: [] };
 
   it('counts where the reader delivered the landing, and names the reason where it did not, in place of a missing release (planted)', () => {
     assert.deepEqual(listMissingDelivery(landedIn, [], [{ repository: pinned, missing: undefined }]), []);
@@ -304,6 +305,53 @@ describe('what an issue records', () => {
     assert.deepEqual(listMissingDelivery(await history(), []), []);
   });
 
+  for (const sameTime of [false, true]) {
+    it(`rejects a proof after an unfinished part${sameTime ? ' at the same timestamp as the earlier landing' : ''}`, async () => {
+      fake.addComment('o/r', ref.number, 'writer', landing());
+      fake.addComment('o/r', ref.number, 'writer', composeLandedRecord({ branch: 'master', repository: other, reviewedHead: HEAD, landedCommit: MERGE, reviewers: ['r'], isPart: true }, code));
+      fake.addComment('o/r', ref.number, 'writer', composeProvenRecord('prod', 'Too early.'));
+      const api = clientFor(fake);
+      const entries = await readTimeline(api, ref);
+      const found = await readIssueHistory(api, await getIssue(api, ref), sameTime ? entries.map((entry, index) => ({ ...entry, at: index < 2 ? 0 : 1 })) : entries);
+      assert.equal(findCurrentProof(found), undefined, 'an earlier full landing does not complete a later part');
+      assert.match(listMissingDelivery(found, [code, other]).join(), /the last part lands without --part/, 'even delivery by landing must wait for the final part');
+    });
+  }
+
+  it('takes the last part in timeline order when two landing records share a timestamp', async () => {
+    fake.addComment('o/r', ref.number, 'writer', composeLandedRecord({ branch: 'master', repository: other, reviewedHead: HEAD, landedCommit: HEAD, reviewers: ['r'], isPart: true }, code));
+    fake.addComment('o/r', ref.number, 'writer', composeLandedRecord({ branch: 'master', repository: other, reviewedHead: HEAD, landedCommit: MERGE, reviewers: ['r'], isPart: true }, code));
+    fake.addComment('o/r', ref.number, 'writer', landing());
+    const api = clientFor(fake);
+    const entries = (await readTimeline(api, ref)).map((entry) => ({ ...entry, at: 0 }));
+    const found = await readIssueHistory(api, await getIssue(api, ref), entries);
+    assert.equal(findNewestLanding(found, other)?.commit, MERGE, 'the delivery reader must check the latest part commit');
+    assert.deepEqual(listMissingDelivery(found, [code, other]), [], 'the full landing follows both parts even at the same timestamp');
+  });
+
+  it('orders releases and proofs around a part and its final landing when timestamps tie', async () => {
+    const api = clientFor(fake);
+    const sameTimeHistory = async (): ReturnType<typeof readIssueHistory> => readIssueHistory(api, await getIssue(api, ref), (await readTimeline(api, ref)).map((entry) => ({ ...entry, at: 0 })));
+    const part = composeLandedRecord({ branch: 'master', repository: other, reviewedHead: HEAD, landedCommit: MERGE, reviewers: ['r'], isPart: true }, code);
+    fake.addComment('o/r', ref.number, 'writer', part);
+    fake.addComment('o/r', ref.number, 'writer', composeReleasedRecord(other, 'v1'));
+    assert.equal(hasReleasedRecord(await sameTimeHistory(), other, 'v1'), true, 'a retry reuses the release after the part');
+    fake.addComment('o/r', ref.number, 'writer', part);
+    assert.equal(hasReleasedRecord(await sameTimeHistory(), other, 'v1'), false, 'an earlier release does not cover a newer part');
+    fake.addComment('o/r', ref.number, 'writer', composeProvenRecord('prod', 'Before the final landing.'));
+    fake.addComment('o/r', ref.number, 'writer', landing());
+    let found = await sameTimeHistory();
+    assert.equal(findCurrentProof(found), undefined);
+    assert.equal(hasProvenRecord(found, 'prod'), false);
+    assert.match(listMissingDelivery(found, [code]).join(), /no release of p\/s follows its landing/);
+    fake.addComment('o/r', ref.number, 'writer', composeReleasedRecord(other, 'v1'));
+    fake.addComment('o/r', ref.number, 'writer', composeProvenRecord('prod', 'After the final landing.'));
+    found = await sameTimeHistory();
+    assert.deepEqual(listMissingDelivery(found, [code]), []);
+    assert.notEqual(findCurrentProof(found), undefined);
+    assert.equal(hasProvenRecord(found, 'prod'), true, 'a retry reuses the proof after the final landing');
+  });
+
   it('takes the landing of a harness layer as its delivery, and not the landing of setup-ai-core', async () => {
     const landedIn = (repository: { owner: string; repo: string }): string =>
       composeLandedRecord({ branch: 'master', repository, reviewedHead: HEAD, landedCommit: MERGE, reviewers: ['r'] }, code);
@@ -341,6 +389,7 @@ describe('what an issue records', () => {
   it('finds a record that is written already, and none that is not (what makes a second run write only what is missing)', async () => {
     fake.addComment('o/r', ref.number, 'writer', composeStartedRecord({ branch: 'issue-1-x', baseBranch: 'master', baseCommit: HEAD }));
     fake.addComment('o/r', ref.number, 'writer', landing());
+    fake.addComment('o/r', ref.number, 'writer', composeLandedRecord({ branch: 'master', repository: other, reviewedHead: HEAD, landedCommit: MERGE, reviewers: ['r'], isPart: true }, code));
     fake.addComment('o/r', ref.number, 'writer', composeReleasedRecord(other, 'v1'));
     fake.addComment('o/r', ref.number, 'writer', composeProvenRecord('prod', 'ok'));
     const entries = await readTimeline(clientFor(fake), ref);
@@ -348,10 +397,10 @@ describe('what an issue records', () => {
     assert.equal(hasStartedRecord(entries, 'issue-2-y'), false);
     assert.equal(hasLandedRecord(entries, HEAD, MERGE), true);
     assert.equal(hasLandedRecord(entries, HEAD, 'f'.repeat(40)), false);
-    assert.equal(hasReleasedRecord(entries, other, 'v1'), true);
-    assert.equal(hasReleasedRecord(entries, other, 'v2'), false);
-    assert.equal(hasReleasedRecord(entries, code, 'v1'), false);
     const found = await history();
+    assert.equal(hasReleasedRecord(found, other, 'v1'), true);
+    assert.equal(hasReleasedRecord(found, other, 'v2'), false);
+    assert.equal(hasReleasedRecord(found, code, 'v1'), false);
     assert.equal(hasProvenRecord(found, 'prod'), true);
     assert.equal(hasProvenRecord(found, 'test'), false);
     fake.addComment('o/r', ref.number, 'writer', landing('d'.repeat(40)));

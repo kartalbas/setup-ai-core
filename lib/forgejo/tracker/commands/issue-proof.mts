@@ -16,7 +16,7 @@ export const help = `${USAGE}
 
 Writes the record "Proven on ENV:" with the evidence of PATH, sets status/done and closes the issue as completed.
 It refuses at once, before any write, an ENV that no LIVE_TAGS of a landed repository names, and lists the names there, each with its repository.
-It refuses unless the issue records a landing ("Landed on", which may follow "Landed part on" records) and, for every
+It refuses unless the issue's newest landing record is "Landed on", after any "Landed part on" records, and, for every
 repository a landing or a part names, a release that came after its newest record, all of an account with write
 permission and after the last reopening for new work. An issue that holds no "Landed on" or "Landed part on" record at all, and whose number
 no commit on the default branch of origin of this clone is the work of (a commit whose subject names it, or whose subject
@@ -44,7 +44,7 @@ const ENVIRONMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 // The landing is delivered where the commit of the newest completed delivery holds the newest landed commit.
 async function findMissingCommandDelivery(context: CommandContext, checkout: string, repository: RepositoryRef, environment: string, landing: LandingFact | undefined): Promise<string | undefined> {
   const name = formatRepository(repository);
-  if (landing?.commit === undefined) return `the "Landed on" record of ${name} names no landed commit, so its delivery on ${environment} cannot be compared with it`;
+  if (landing?.commit === undefined) return `the "${landing?.isPart === true ? 'Landed part on' : 'Landed on'}" record of ${name} names no landed commit, so its delivery on ${environment} cannot be compared with it`;
   const read = await context.harness.readLiveRelease(checkout, name, environment);
   let answer: { delivered?: { commit: string; releasedAt: string; source: string } | null } | undefined;
   try {

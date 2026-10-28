@@ -139,6 +139,7 @@ export function createTrustCheck(api: ForgejoClient, repository: RepositoryRef):
 // --- the history of an issue ---------------------------------------------------
 
 export interface LandingFact {
+  readonly index: number;
   readonly at: number;
   readonly repository: RepositoryRef;
   readonly branch: string;
@@ -148,13 +149,13 @@ export interface LandingFact {
 }
 
 export interface ReleaseFact {
-  readonly at: number;
+  readonly index: number;
   readonly repository: RepositoryRef;
   readonly tag: string;
 }
 
 export interface ProofFact {
-  readonly at: number;
+  readonly index: number;
   readonly environment: string;
 }
 
@@ -196,24 +197,24 @@ export async function readIssueHistory(api: ForgejoClient, issue: Issue, entries
     const proven = PROVEN_LINE.exec(line);
     if (landed === null && released === null && proven === null) continue;
     if (!(await isTrusted(entry.author))) continue;
-    if (landed?.[1] !== undefined) landings.push({ at: entry.at, branch: landed[1], repository: landed[2] === undefined ? { owner: issue.ref.owner, repo: issue.ref.repo } : parseRepository(landed[2]), commit: fieldOf(entry.body, 'Landed commit'), isPart: landedPart !== null });
-    if (released?.[1] !== undefined && released[2] !== undefined) releases.push({ at: entry.at, repository: parseRepository(released[1]), tag: released[2] });
-    if (proven?.[1] !== undefined && (lastReopening === undefined || index + deliveryStart > lastReopening)) proofs.push({ at: entry.at, environment: proven[1] });
+    if (landed?.[1] !== undefined) landings.push({ index, at: entry.at, branch: landed[1], repository: landed[2] === undefined ? { owner: issue.ref.owner, repo: issue.ref.repo } : parseRepository(landed[2]), commit: fieldOf(entry.body, 'Landed commit'), isPart: landedPart !== null });
+    if (released?.[1] !== undefined && released[2] !== undefined) releases.push({ index, repository: parseRepository(released[1]), tag: released[2] });
+    if (proven?.[1] !== undefined && (lastReopening === undefined || index + deliveryStart > lastReopening)) proofs.push({ index, environment: proven[1] });
   }
 
   // A milestone is a release of the issue's own repository. Its event is written by an account that may edit the issue.
   if (issue.milestone !== undefined) {
-    const set = current.filter((entry) => entry.kind === 'milestone');
-    const latest = set[set.length - 1];
-    if (latest?.milestoneTitle === issue.milestone.title) releases.push({ at: latest.at, repository: { owner: issue.ref.owner, repo: issue.ref.repo }, tag: issue.milestone.title });
+    const index = current.findLastIndex((entry) => entry.kind === 'milestone');
+    const latest = current[index];
+    if (latest?.milestoneTitle === issue.milestone.title) releases.push({ index, repository: { owner: issue.ref.owner, repo: issue.ref.repo }, tag: issue.milestone.title });
   }
   return { deliveryReopenedAt, landings, releases, proofs };
 }
 
 // --- the facts the commands decide by -------------------------------------------
 
-function newest<T extends { readonly at: number }>(facts: readonly T[]): T | undefined {
-  return facts.reduce<T | undefined>((latest, fact) => (latest === undefined || fact.at > latest.at ? fact : latest), undefined);
+function newest<T extends { readonly index: number }>(facts: readonly T[]): T | undefined {
+  return facts.reduce<T | undefined>((latest, fact) => (latest === undefined || fact.index > latest.index ? fact : latest), undefined);
 }
 
 // A harness layer is never released: init assembles every checkout it serves from its default branch.
@@ -237,11 +238,12 @@ export interface CommandDeliveryCheck {
 // delivered by a release that came after its landing, where its landing is its delivery by the landing, and
 // where a reader answers its delivery by what that reader told.
 export function listMissingDelivery(history: IssueHistory, landingIsDelivery: readonly RepositoryRef[], commandDeliveries: readonly CommandDeliveryCheck[] = []): string[] {
-  if (!history.landings.some((landing) => !landing.isPart)) {
+  const landing = newest(history.landings);
+  if (landing === undefined || landing.isPart) {
     const since = history.deliveryReopenedAt === undefined ? 'the start of the issue' : 'the last reopening for new work';
-    return [history.landings.length === 0
+    return [landing === undefined
       ? `no "Landed on" record of an account with write permission follows ${since}`
-      : `only "Landed part on" records follow ${since}: the last part lands without --part`];
+      : 'the newest landing record is "Landed part on": the last part lands without --part'];
   }
   const missing: string[] = [];
   const seen = new Set<string>();
@@ -256,20 +258,20 @@ export function listMissingDelivery(history: IssueHistory, landingIsDelivery: re
       continue;
     }
     const latestLanding = findNewestLanding(history, landing.repository);
-    const released = history.releases.some((release) => isSameRepository(release.repository, landing.repository) && latestLanding !== undefined && release.at > latestLanding.at);
+    const released = history.releases.some((release) => isSameRepository(release.repository, landing.repository) && latestLanding !== undefined && release.index > latestLanding.index);
     if (!released) missing.push(`no release of ${formatRepository(landing.repository)} follows its landing: issue-release --repo ${formatRepository(landing.repository)} --tag TAG`);
   }
   return missing;
 }
 
-// A proof counts once the newest landing is behind it: a proof of earlier work does not cover later work, and parts
-// alone are not all of the work. Where the issue holds no landing record at all (`delivered without code`), its work
+// A proof counts once the newest landing is behind it and is not a part with more to follow.
+// Where the issue holds no landing record at all (`delivered without code`), its work
 // was no change of code, and the newest proof after its last reopening counts.
 export function findCurrentProof(history: IssueHistory, deliveredWithoutCode = false): ProofFact | undefined {
   const landing = newest(history.landings);
   if (landing === undefined) return deliveredWithoutCode ? newest(history.proofs) : undefined;
-  if (!history.landings.some((fact) => !fact.isPart)) return undefined;
-  return newest(history.proofs.filter((proof) => proof.at > landing.at));
+  if (landing.isPart) return undefined;
+  return newest(history.proofs.filter((proof) => proof.index > landing.index));
 }
 
 // Whether the issue holds no "Landed on" or "Landed part on" record, from any account: its delivery was no change of code.
@@ -336,17 +338,14 @@ export async function listTrustedLandedHeads(api: ForgejoClient, ref: IssueRef, 
   return heads;
 }
 
-export function hasReleasedRecord(entries: readonly TimelineEntry[], repository: RepositoryRef, tag: string): boolean {
-  return entries.some((entry) => {
-    if (entry.kind !== 'comment') return false;
-    const found = RELEASED_LINE.exec(firstLine(entry.body));
-    return found?.[1] !== undefined && found[2] === tag && isSameRepository(parseRepository(found[1]), repository);
-  });
+export function hasReleasedRecord(history: IssueHistory, repository: RepositoryRef, tag: string): boolean {
+  const landing = findNewestLanding(history, repository);
+  return landing !== undefined && history.releases.some((release) => isSameRepository(release.repository, repository) && release.tag === tag && release.index > landing.index);
 }
 
 // Whether the history holds a proof of this environment after the newest landing, so the writer writes none twice.
 // Only a trusted proof counts: on a public repository anybody can write "Proven on" before the writer does.
 export function hasProvenRecord(history: IssueHistory, environment: string): boolean {
   const landing = newest(history.landings);
-  return history.proofs.some((proof) => proof.environment === environment && (landing === undefined || proof.at > landing.at));
+  return history.proofs.some((proof) => proof.environment === environment && (landing === undefined || proof.index > landing.index));
 }

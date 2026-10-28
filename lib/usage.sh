@@ -9,6 +9,7 @@
 #     usage_recorded  the epoch the tool recorded the windows at
 #     usage_readings  the history, one row each: the key, the epoch of the reading, the share used, the
 #                     epoch of the reset the reading belonged to
+#     usage_notice    one line to show beside the reading, empty when there is nothing to say
 #   Returns 2 with usage_failure set to the line to print: "error: ..." for a reading that cannot be used,
 #   a plain line for nothing recorded yet.
 #   usage_release     releases what usage_read holds (agy's history lock and temporary file); call it on exit.
@@ -19,6 +20,15 @@
 
 usage_history_lock=""
 usage_agy_error=""
+usage_notice=""
+
+usage_now() { echo "${AI_CORE_NOW:-$(date +%s)}"; }
+
+# A Codex record older than this is refreshed by one minimal Codex call before it counts; the call is given
+# the seconds in REFRESH_SECONDS, and a reader that finds another one's call running waits for it that long, and a margin.
+USAGE_CODEX_MAX_AGE_SECONDS=3600
+USAGE_CODEX_REFRESH_SECONDS=120
+USAGE_CODEX_REFRESH_WAIT_SECONDS=150
 
 usage_stop_at() {
   local config stop
@@ -52,7 +62,7 @@ USAGE_DATES='def stamp:
 
 usage_read() {  # usage_read <tool> [model]
   local tool="$1" model="${2-}" status=0
-  usage_failure=""; usage_shown=""; usage_windows=""; usage_recorded=""; usage_readings=""
+  usage_failure=""; usage_notice=""; usage_shown=""; usage_windows=""; usage_recorded=""; usage_readings=""
   case "$tool" in
     codex) usage_read_codex || status=2 ;;
     agy) usage_read_agy "$model" || status=2 ;;
@@ -65,7 +75,66 @@ usage_read() {  # usage_read <tool> [model]
   return "$status"
 }
 
+# The record of Codex's own session files is the only reading of its quota, and a Codex that nobody has run
+# since a refill still shows the old one: past the age limit, one Codex call is made for a new record.
 usage_read_codex() {
+  local reason
+  usage_read_codex_records || return 2
+  [ "$(( $(usage_now) - usage_recorded ))" -gt "$USAGE_CODEX_MAX_AGE_SECONDS" ] || return 0
+  if reason="$(usage_refresh_codex)"; then
+    usage_read_codex_records || return 2
+  else
+    usage_notice="the Codex record is older than $((USAGE_CODEX_MAX_AGE_SECONDS / 60)) minutes and its refresh failed: $reason"
+  fi
+}
+
+# usage_refresh_codex: makes the one call under a lock, so readers that find the same old record start one call
+# between them, and the others read what it wrote. A call that failed is kept with its time and its reason, and
+# within the age limit after it no reader starts another, because a Codex at its limit or signed out fails each
+# call. Prints why it failed, and fails, or prints nothing.
+usage_refresh_codex() {
+  local lock_dir="${AI_CORE_HOME:-$HOME}/.ai-core"
+  command -v flock >/dev/null 2>&1 || { echo "flock is not on the PATH"; return 1; }
+  command -v timeout >/dev/null 2>&1 || { echo "timeout is not on the PATH"; return 1; }
+  command -v codex >/dev/null 2>&1 || { echo "codex is not on the PATH"; return 1; }
+  mkdir -p "$lock_dir" || { echo "cannot create $lock_dir"; return 1; }
+  (
+    flock -w "$USAGE_CODEX_REFRESH_WAIT_SECONDS" 9 || { echo "the refresh of another reader did not end in $USAGE_CODEX_REFRESH_WAIT_SECONDS seconds"; exit 1; }
+    usage_read_codex_records >/dev/null 2>&1 || :
+    [ -z "$usage_recorded" ] || [ "$(( $(usage_now) - usage_recorded ))" -gt "$USAGE_CODEX_MAX_AGE_SECONDS" ] || exit 0
+    failed="$lock_dir/codex-usage-refresh.failed"; failed_at=""; failed_reason=""
+    [ ! -f "$failed" ] || IFS=$'\t' read -r failed_at failed_reason < "$failed" || :
+    [[ "$failed_at" =~ ^[0-9]+$ ]] && failed_age=$(( $(usage_now) - failed_at )) || failed_age=-1
+    if [ "$failed_age" -ge 0 ] && [ "$failed_age" -le "$USAGE_CODEX_MAX_AGE_SECONDS" ]; then
+      echo "$failed_reason, $((failed_age / 60)) minutes ago; no new call until $((USAGE_CODEX_MAX_AGE_SECONDS / 60)) minutes after it"
+      exit 1
+    fi
+    keep_failure() {
+      { printf '%s\t%s\n' "$(usage_now)" "$1" > "$failed"; } 2>/dev/null || { echo "$1; $failed cannot be written, so the next reader calls again"; exit 1; }
+      echo "$1"; exit 1
+    }
+    . "$(dirname "${BASH_SOURCE[0]}")/tool-order.sh"
+    row="$(phase_model_row codex helper '*' "$(data_file models.tsv)" 2>&1)" && [ -n "$row" ] \
+      || { echo "the models table has no codex helper row${row:+: $row}"; exit 1; }
+    scratch="$(mktemp -d)" || { echo "cannot create a scratch folder"; exit 1; }
+    trap 'rm -rf "$scratch"' EXIT
+    rc=0
+    # The call does not inherit the lock, so nothing it leaves running holds the other readers.
+    (cd "$scratch" && timeout "$USAGE_CODEX_REFRESH_SECONDS" codex exec --skip-git-repo-check -s read-only \
+      -m "$(cut -f4 <<< "$row")" -c "model_reasoning_effort=\"$(cut -f5 <<< "$row")\"" \
+      "Answer with the one word: ok" < /dev/null > /dev/null 2> "$scratch/error" 9>&-) || rc=$?
+    case "$rc" in
+      0) ;;
+      124) keep_failure "codex exec did not end in $USAGE_CODEX_REFRESH_SECONDS seconds" ;;
+      *) keep_failure "codex exec exited $rc: $(grep -m1 . "$scratch/error" | cut -c1-200)" ;;
+    esac
+    usage_read_codex_records >/dev/null 2>&1 || keep_failure "codex exec answered, but its session files cannot be read"
+    [ "$(( $(usage_now) - usage_recorded ))" -le "$USAGE_CODEX_MAX_AGE_SECONDS" ] || keep_failure "codex exec answered, but wrote no usage record"
+    rm -f "$failed"
+  ) 9>>"$lock_dir/codex-usage-refresh.lock"
+}
+
+usage_read_codex_records() {
   local records parsed now
   now="$(date +%s)"
   # A record counts only with a window in it; a window that is null or 0 minutes long says nothing.
@@ -217,10 +286,10 @@ usage_snapshot() {  # usage_snapshot <tool>
   local tool="$1" status=0
   usage_read "$tool" "" || :
   usage_release || status=2
-  jq -n --arg tool "$tool" --arg shown "$usage_shown" --arg recorded "$usage_recorded" --arg failure "${usage_failure#error: }" \
+  jq -n --arg tool "$tool" --arg shown "$usage_shown" --arg recorded "$usage_recorded" --arg failure "${usage_failure#error: }" --arg notice "$usage_notice" \
     --rawfile windows <(printf '%s\n' "$usage_windows") --rawfile readings <(printf '%s\n' "$usage_readings") '
     def rows($text): $text | split("\n") | map(select(. != "") | split("\t"));
-    {tool: $tool, shown: $shown, recorded: ($recorded | if . == "" then null else tonumber end), failure: $failure,
+    {tool: $tool, shown: $shown, recorded: ($recorded | if . == "" then null else tonumber end), failure: $failure, notice: $notice,
      windows: [rows($windows)[] | {key: .[0], name: .[1], minutes: (.[2] | tonumber), used: (.[3] | tonumber), resets: (.[4] | tonumber)}],
      readings: [rows($readings)[] | {key: .[0], at: (.[1] | tonumber), used: (.[2] | tonumber), resets: (.[3] | tonumber)}]}'
   return "$status"

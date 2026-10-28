@@ -3,8 +3,9 @@
 # will stand at its reset at the burn measured since the window's first reading, and whether one
 # has reached the limit or will reach it before its reset. Claude Code's windows are what its status
 # line records, its history the status line's log; Codex's are what Codex writes into its session
-# files after every answer; agy's are what `agy -p /usage` answers now, each group of models with
-# its own windows, its history the readings this command saved under ~/.ai-core/usage-agy/.
+# files after every answer, a record older than an hour renewed first by one minimal Codex call;
+# agy's are what `agy -p /usage` answers now, each group of models with its own windows, its history
+# the readings this command saved under ~/.ai-core/usage-agy/.
 #
 #   usage.sh [--tool claude|codex|agy] [--model MODEL] [--stop-at N]
 #                                                     N percent used; else USAGE_STOP_AT of the project's config.env; else 92
@@ -106,6 +107,7 @@ while IFS=$'\t' read -r key name length used resets; do
   else warnings="$warnings$name reaches $limit at $(when "$cross"), before its reset; the person who holds the account watches it"$'\n'; fi
 done <<< "$windows"
 echo "recorded $(when "$recorded"), limit $limit"
+[ -z "$usage_notice" ] || echo "$usage_notice"
 printf '%s' "$warnings"
 [ "$reached" -eq 0 ] || { echo "a window stands at $limit or more: finish the step in hand, commit and report it, then wait for its reset"; exit 3; }
 [ "$projected" -eq 0 ] || { echo "a window reaches $limit before its reset at the measured burn: start nothing new on this account, and have what runs commit before that hour"; exit 4; }

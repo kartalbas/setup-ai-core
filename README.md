@@ -438,8 +438,9 @@ on start; no developer installs a skill by hand.
     names `codex:gpt-6-astra` first and `claude-fable-5-1` second for the plan and re-plan of
     `claude`, so plans run on Astra while Codex has quota and on Fable while it has none. Under a
     saved tool order, the first tool of the order with a row and quota runs, so an order that
-    puts `claude` before `codex` runs plans on Fable even while Codex has quota. Two
-    rows equal in tool, phase, class, model and effort are refused as ambiguous. The plan's `Setup:` line, passed as `--setup-file PATH`, replaces the table
+    puts `claude` before `codex` runs plans on Fable even while Codex has quota. The `claude` review
+    rows name Opus and then Fable, so work that `claude-opus-5-5` wrote is reviewed on
+    `claude-fable-5-1`. Two rows equal in tool, phase, class, model and effort are refused as ambiguous. The plan's `Setup:` line, passed as `--setup-file PATH`, replaces the table
     row of a tool that has an entry for the phase, only with a tuple the table allows, and sets the
     context budget of the phase within its ceiling. Every PHASE line includes the order and selected tuple. No saved order
     keeps native-tool selection and existing table routes, without inventing a set time.

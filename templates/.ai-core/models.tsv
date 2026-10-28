@@ -45,6 +45,8 @@
 # whose destination has quota left and whose model is not the writer's is selected; two equal rows are
 # refused as ambiguous. Under a saved tool order the first tool with a row and quota runs, so claude
 # before codex plans on Fable even while Codex has quota.
+# Work that claude-opus-5-5 wrote is reviewed on claude-fable-5-1: the Opus review rows pass for it and
+# the Fable rows after them select.
 # Every phase starts and resumes on exactly the selector's tuple. For plan-check and review,
 # pass --written-by with the actual writer model; aliases and effort changes are not independence.
 # A plan re-check uses plan-check and the re-plan writer; a review re-check uses review and the
@@ -66,8 +68,11 @@ claude	build	mechanical	claude-sonnet-5-5	high
 claude	build	normal-hard	claude-sonnet-5-5	high
 claude	build	high-risk	claude-sonnet-5-5	xhigh
 claude	review	mechanical	claude-opus-5-5	high
+claude	review	mechanical	claude-fable-5-1	high
 claude	review	normal-hard	claude-opus-5-5	xhigh
+claude	review	normal-hard	claude-fable-5-1	xhigh
 claude	review	high-risk	claude-opus-5-5	max
+claude	review	high-risk	claude-fable-5-1	max
 claude	ui-test	mechanical	claude-haiku-5-5	medium
 claude	ui-test	normal-hard	claude-haiku-5-5	high
 claude	ui-test	high-risk	claude-haiku-5-5	max

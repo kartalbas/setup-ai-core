@@ -68,6 +68,30 @@ check('a writer that is the first row model selects the second row, and a Fable 
   deny(['plan','normal-hard'],/no eligible tool for plan normal-hard[\s\S]*row codex:gpt-6-astra[\s\S]*row claude-fable-5-1/);
   setQuota('codex',0);setQuota('claude',0);
 });
+check('work that Opus wrote is reviewed on Fable in every class, and every other writer keeps its reviewer',()=>{
+  const reviewer={mechanical:['high','high'],'normal-hard':['xhigh','xhigh'],'high-risk':['max','max']};
+  for(const [cls,[opus,fable]] of Object.entries(reviewer)){
+    select(['review',cls,'--written-by','claude-opus-5-5'],`claude claude-fable-5-1 ${fable}`);
+    const d=records().at(-1);
+    assert.match(d.reasons[0].reason,/row claude-opus-5-5: writer model claude-opus-5-5 is not independent/);
+    assert.deepEqual(d.selected,{tool:'claude',model:'claude-fable-5-1',effort:fable});
+    for(const writer of ['claude-sonnet-5-5','claude-fable-5-1','gpt-6-astra'])select(['review',cls,'--written-by',writer],`claude claude-opus-5-5 ${opus}`);
+  }
+  assert.equal(records().at(-1).order,null);
+});
+check('planted review table without the Fable rows refuses Opus-written work and goes red, while a Sonnet writer still selects Opus',()=>{
+  const template=fs.readFileSync(path.join(source,'templates/.ai-core/models.tsv'),'utf8').split('\n').filter(l=>l&&!l.startsWith('#')).map(l=>l.split('\t'));
+  const withoutFable=template.filter(r=>!(r[1]==='review'&&r[3]==='claude-fable-5-1'));
+  assert.equal(template.length-withoutFable.length,3);
+  table(withoutFable);
+  assert.throws(()=>select(['review','normal-hard','--written-by','claude-opus-5-5'],'claude claude-fable-5-1 xhigh'));
+  deny(['review','normal-hard','--written-by','claude-opus-5-5'],/no eligible tool for review normal-hard[\s\S]*claude: row claude-opus-5-5: writer model claude-opus-5-5 is not independent/);
+  select(['review','normal-hard','--written-by','claude-sonnet-5-5'],'claude claude-opus-5-5 xhigh');
+  table(template);
+  select(['review','normal-hard','--written-by','claude-opus-5-5'],'claude claude-fable-5-1 xhigh');
+  select(['review','normal-hard','--written-by','claude-sonnet-5-5'],'claude claude-opus-5-5 xhigh');
+  fs.unlinkSync(path.join(project,'.ai-core/models.tsv'));
+});
 check('with a saved order the Astra row of the claude tool is not an execution tool, and its Fable row runs',()=>{
   order(['claude']);
   select(['plan','normal-hard'],'claude claude-fable-5-1 xhigh');

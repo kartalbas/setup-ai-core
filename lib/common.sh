@@ -389,7 +389,7 @@ is_start_commit() {  # is_start_commit <commit>: a root with the empty tree whos
   subject="$(git log -1 --format=%s "$1")"
   case "$subject" in "Start $repository ("*")") ;; *) return 1 ;; esac
   named="${subject#"Start $repository ("}"; named="${named%)}"
-  printf '%s\n' "$named" | grep -Eq '^([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)?#[0-9]+$'
+  grep -Eq '^([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)?#[0-9]+$' <<< "$named"
 }
 
 # Refresh only the named checkout; a linked worktree never moves a held branch behind its index.

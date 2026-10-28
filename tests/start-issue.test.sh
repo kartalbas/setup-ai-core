@@ -11,6 +11,10 @@
 
 set -uo pipefail
 
+# The start commit carries its configured identity, which the real gate holds it against: an identity in the caller's
+# environment would make it a stranger's.
+unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
+
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fake="$(mktemp -d)"
 # Every run of the gate leaves a record under AI_CORE_HOME; a test writes none into the machine's own

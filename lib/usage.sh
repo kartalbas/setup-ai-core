@@ -3,7 +3,6 @@
 # bin/usage.sh (its display and its exit statuses) and of bin/status.sh (its page). Source it, do not run it.
 #
 #   usage_read TOOL [MODEL]   TOOL is claude, codex or agy; MODEL is for agy. Returns 0 and sets
-#     usage_shown     used or left: the share the tool itself shows
 #     usage_windows   one row each, tab separated: the window's key in the history, the name shown, its
 #                     length in minutes (0 when unknown), the share used, the epoch of its reset
 #     usage_recorded  the epoch the tool recorded the windows at
@@ -62,7 +61,7 @@ USAGE_DATES='def stamp:
 
 usage_read() {  # usage_read <tool> [model]
   local tool="$1" model="${2-}" status=0
-  usage_failure=""; usage_notice=""; usage_shown=""; usage_windows=""; usage_recorded=""; usage_readings=""
+  usage_failure=""; usage_notice=""; usage_windows=""; usage_recorded=""; usage_readings=""
   case "$tool" in
     codex) usage_read_codex || status=2 ;;
     agy) usage_read_agy "$model" || status=2 ;;
@@ -138,7 +137,6 @@ usage_read_codex_records() {
   local records parsed now
   now="$(date +%s)"
   # A record counts only with a window in it; a window that is null or 0 minutes long says nothing.
-  usage_shown=left
   records="$( {
     files=(); for f in "${CODEX_HOME:-$HOME/.codex}"/sessions/*/*/*/rollout-*.jsonl; do
       [ ! -e "$f" ] || files+=("$f")
@@ -171,7 +169,6 @@ usage_read_codex_records() {
 
 usage_read_agy() {  # usage_read_agy <model>
   local model="$1" rc names display answer history day attempts n f
-  usage_shown=left
   command -v agy >/dev/null 2>&1 || { usage_reject "agy is not on the PATH, so its quota cannot be read"; return 2; }
   usage_agy_error="$(mktemp)" || { usage_agy_error=""; usage_reject 'cannot create a temporary file for agy errors'; return 2; }
   usage_history_lock=""
@@ -255,7 +252,6 @@ usage_read_agy() {  # usage_read_agy <model>
 
 usage_read_claude() {
   local file record history
-  usage_shown=used
   file="${AI_CORE_HOME:-$HOME}/.ai-core/usage.json"
   [ -f "$file" ] || { usage_failure="no usage recorded yet: the status line records it once a session has had an answer"; return 2; }
   record="$(cat "$file")" || { usage_reject "$file cannot be read"; return 2; }
@@ -286,10 +282,10 @@ usage_snapshot() {  # usage_snapshot <tool>
   local tool="$1" status=0
   usage_read "$tool" "" || :
   usage_release || status=2
-  jq -n --arg tool "$tool" --arg shown "$usage_shown" --arg recorded "$usage_recorded" --arg failure "${usage_failure#error: }" --arg notice "$usage_notice" \
+  jq -n --arg tool "$tool" --arg recorded "$usage_recorded" --arg failure "${usage_failure#error: }" --arg notice "$usage_notice" \
     --rawfile windows <(printf '%s\n' "$usage_windows") --rawfile readings <(printf '%s\n' "$usage_readings") '
     def rows($text): $text | split("\n") | map(select(. != "") | split("\t"));
-    {tool: $tool, shown: $shown, recorded: ($recorded | if . == "" then null else tonumber end), failure: $failure, notice: $notice,
+    {tool: $tool, recorded: ($recorded | if . == "" then null else tonumber end), failure: $failure, notice: $notice,
      windows: [rows($windows)[] | {key: .[0], name: .[1], minutes: (.[2] | tonumber), used: (.[3] | tonumber), resets: (.[4] | tonumber)}],
      readings: [rows($readings)[] | {key: .[0], at: (.[1] | tonumber), used: (.[2] | tonumber), resets: (.[3] | tonumber)}]}'
   return "$status"

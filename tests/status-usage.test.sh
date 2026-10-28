@@ -45,20 +45,20 @@ for window in '{"resets_at":1790003600}' '{"used_percentage":null,"resets_at":17
   check "invalid quota $window" '0 1' "$rc $(grep -c "^usage   Claude: .*usage.json: .*window five_hour" <<< "$out")"
 done
 claude_page '{"used_percentage":0,"resets_at":1790003600}'
-check 'a real zero remains numeric' "usage 5h 0 % (reset $(when 1790003600)) · limit 92 %" "$(line 'usage ')"
+check 'a real zero remains numeric' "usage 5h 0 % used (reset $(when 1790003600)) · limit 92 % used" "$(line 'usage ')"
 claude_page '{"used_percentage":95,"resets_at":1789996400}'
-check 'a valid expired window counts as reset' "usage 5h 0 % (reset $(when 1789996400)) · limit 92 %" "$(line 'usage ')"
+check 'a valid expired window counts as reset' "usage 5h 0 % used (reset $(when 1789996400)) · limit 92 % used" "$(line 'usage ')"
 claude_page '{"used_percentage":106,"resets_at":1790003600}'
-check 'a window over its limit, as Claude reports it, is read as it is' "usage 5h 106 % (reset $(when 1790003600)) · limit 92 %" "$(line 'usage ')"
+check 'a window over its limit, as Claude reports it, is read as it is' "usage 5h 106 % used (reset $(when 1790003600)) · limit 92 % used" "$(line 'usage ')"
 printf '{"recorded_at":%s,"rate_limits":{"seven_day":null,"five_hour":{"used_percentage":5,"resets_at":1790003600}}}\n' "$now" > "$HOME/.ai-core/usage.json"
 snapshot claude; out="$(page)"
-check 'a null window beside a usable one (innocent)' "usage 5h 5 % (reset $(when 1790003600)) · limit 92 %" "$(line 'usage ')"
+check 'a null window beside a usable one (innocent)' "usage 5h 5 % used (reset $(when 1790003600)) · limit 92 % used" "$(line 'usage ')"
 printf '{"recorded_at":%s,"rate_limits":{"five_hour":null}}\n' "$now" > "$HOME/.ai-core/usage.json"
 snapshot claude; out="$(page)"
 check 'a record with no window is named' 1 "$(grep -c '^usage   Claude: .*rate_limits holds no window' <<< "$out")"
 rm -f "$HOME/.ai-core/usage.json"
 snapshot claude; out="$(page)"
-check 'nothing recorded is named' 'usage Claude: no usage recorded yet: the status line records it once a session has had an answer · limit 92 %' "$(line 'usage ')"
+check 'nothing recorded is named' 'usage Claude: no usage recorded yet: the status line records it once a session has had an answer · limit 92 % used' "$(line 'usage ')"
 printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":5,"resets_at":1790003600}}}\n' "$now" > "$HOME/.ai-core/usage.json"
 printf 'not a line of the history\n' > "$HOME/.ai-core/usage.log"
 snapshot claude; out="$(page)"
@@ -80,29 +80,29 @@ answer() {  # answer <epoch> <cwd> <message id> <input> <output> <cache creation
 }
 answer $((now - 1800)) "$folder" c1 7000 0 0 500 > "$transcripts/claude-session.jsonl"
 snapshot codex; out="$(page)"
-check 'Codex at 21 % used, where usage prints 79 % left' "usage Codex week 5 % used (reset $(when $((now + 400000)))) · 5h 21 % used (reset $(when $((now + 3600)))) · recorded $(when $((now - 600))) · limit 92 %" "$(line 'usage ')"
+check 'Codex at 21 % used, as usage prints it' "usage Codex week 5 % used (reset $(when $((now + 400000)))) · 5h 21 % used (reset $(when $((now + 3600)))) · recorded $(when $((now - 600))) · limit 92 % used" "$(line 'usage ')"
 check 'the cost has no source for Codex, not Claude'"'"'s rise of 98 %' 'cost no source for Codex' "$(line 'cost ')"
 check 'the tokens have no source for Codex, not the 7k of the Claude session' 'tokens no source for Codex' "$(line 'tokens ')"
 check 'the context has no source for Codex' 'context no source for Codex' "$(line 'context ')"
 check 'the pace is a board figure and says so' 'pace 0 issues closed on the board in the last 24 hours, 0.0 a day over 14 days' "$(line 'pace ')"
 check 'no number of Claude is on the page' 0 "$(grep -c '98 %\|97 %\|7k\|7000' <<< "$out")"
-echo 'at the clock of the machine, the same record: 21 % used where usage prints 79 % left'
+echo 'at the clock of the machine, the same record: 21 % used on the page and in usage'
 real=$(date +%s)
 printf '{"timestamp":"%s","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":null,"secondary":{"used_percent":21,"window_minutes":300,"resets_at":%s}}}}\n' \
   "$(iso $((real - 5)))" $((real + 3600)) > "$sessions/rollout-z.jsonl"
 touch "$sessions/rollout-z.jsonl"
 snapshot codex; out="$(AI_CORE_NOW=$real page)"
 check 'the page says 21 % used' 1 "$(grep -c '^usage   Codex 5h 21 % used' <<< "$out")"
-check 'usage says 79 % left' 1 "$(bash "$root/bin/usage.sh" --tool codex 2>/dev/null | grep -c '^five_hour   79 % left')"
+check 'usage says 21 % used' 1 "$(bash "$root/bin/usage.sh" --tool codex 2>/dev/null | grep -c '^five_hour   21 % used')"
 rm "$sessions/rollout-z.jsonl"
 echo 'a Codex window with no length says nothing, and an expired one counts as reset'
 printf '{"timestamp":"%s","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":{"used_percent":40,"window_minutes":300,"resets_at":%s},"secondary":{"used_percent":0.0,"window_minutes":0,"resets_at":%s}}}}\n' \
   "$(iso $((now - 60)))" $((now - 10)) $((now + 3600)) > "$sessions/rollout-b.jsonl"
 snapshot codex; out="$(page)"
-check 'only the real window, as reset' "usage Codex 5h 0 % used (reset $(when $((now - 10)))) · recorded $(when $((now - 60))) · limit 92 %" "$(line 'usage ')"
+check 'only the real window, as reset' "usage Codex 5h 0 % used (reset $(when $((now - 10)))) · recorded $(when $((now - 60))) · limit 92 % used" "$(line 'usage ')"
 rm -rf "$CODEX_HOME"
 snapshot codex; out="$(page)"
-check 'no Codex session file: named, with no Claude window in its place' 'usage Codex: no usage recorded yet: Codex records it in its session files once a session has had an answer · limit 92 %' "$(line 'usage ')"
+check 'no Codex session file: named, with no Claude window in its place' 'usage Codex: no usage recorded yet: Codex records it in its session files once a session has had an answer · limit 92 % used' "$(line 'usage ')"
 
 echo 'agy: its groups, never one model'"'"'s figure'
 reset_stamp="$(LC_ALL=C date -u -d "@$((now + 3600))" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || LC_ALL=C date -u -r "$((now + 3600))" '+%Y-%m-%dT%H:%M:%SZ')"
@@ -112,18 +112,18 @@ echo '{"status":"SUCCESS","command":{"data":{"groups":[{"name":"Gemini Models","
 TOOL
 chmod +x "$work/agy-bin/agy"
 PATH="$work/agy-bin:$PATH" snapshot agy; out="$(page)"
-check 'every group a window, as used' "usage agy Gemini Models: five_hour 25 % used (reset $(when $((now + 3600)))) · Other Models: five_hour 50 % used (reset $(when $((now + 3600)))) · recorded $(when "$(jq -r .recorded "$work/snapshot.json")") · limit 92 %" "$(line 'usage ')"
+check 'every group a window, as used' "usage agy Gemini Models: five_hour 25 % used (reset $(when $((now + 3600)))) · Other Models: five_hour 50 % used (reset $(when $((now + 3600)))) · recorded $(when "$(jq -r .recorded "$work/snapshot.json")") · limit 92 % used" "$(line 'usage ')"
 check 'and its tokens have no source for agy' 'tokens no source for agy' "$(line 'tokens ')"
 
 echo 'a tool with no quota reader is named, never read as Claude'
 snapshot gemini; out="$(page)"
-check 'gemini' 'usage Gemini: usage does not read the quota of gemini · limit 92 %' "$(line 'usage ')"
+check 'gemini' 'usage Gemini: usage does not read the quota of gemini · limit 92 % used' "$(line 'usage ')"
 check 'and its cost' 'cost no source for Gemini' "$(line 'cost ')"
 
 echo 'Claude: the figures as they were, from its records'
 printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":25,"resets_at":%s},"seven_day":{"used_percentage":89,"resets_at":%s}}}\n' "$now" $((now + 3600)) $((now + 400000)) > "$HOME/.ai-core/usage.json"
 snapshot claude; out="$(page)"
-check 'the usage' "usage 5h 25 % (reset $(when $((now + 3600)))) · week 89 % (reset $(when $((now + 400000)))) · limit 92 %" "$(line 'usage ')"
+check 'the usage' "usage 5h 25 % used (reset $(when $((now + 3600)))) · week 89 % used (reset $(when $((now + 400000)))) · limit 92 % used" "$(line 'usage ')"
 check 'the tokens' 'tokens in 24 hours the sessions of this folder used 7k fresh and read 500 from the cache, and closed no issue' "$(line 'tokens ')"
 
 echo 'the token cache'

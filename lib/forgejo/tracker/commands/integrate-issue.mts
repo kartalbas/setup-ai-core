@@ -14,7 +14,7 @@ import { isBranchOfIssue, listOf, parseArguments, parseIssueReference, refuseExt
 import { succeeded } from './command.mts';
 import type { CommandContext, CommandResult } from './command.mts';
 
-const USAGE = 'usage: integrate-issue [OWNER/REPO] NUMBER [NUMBER ...] --reviewed-by NAME [--reviewed-by NAME ...] --reviewed-head SHA [--reviewed-head SHA ...] [--also OWNER/REPO#NUMBER ...]';
+const USAGE = 'usage: integrate-issue [OWNER/REPO] NUMBER [NUMBER ...] --reviewed-by NAME [--reviewed-by NAME ...] --reviewed-head SHA [--reviewed-head SHA ...] [--also OWNER/REPO#NUMBER ...] [--part]';
 export const help = `${USAGE}
 
 Lands the reviewed branch of one issue on the default branch of origin: a merge commit that names the issue and
@@ -32,13 +32,24 @@ of the push gate show while the push runs. Where the checks of Forgejo are read,
 temporary worktree, where scripts/install.sh of the merged tree runs first if it has one, its lines shown, and
 a failing install refuses the landing with nothing pushed. Then every issue it lands (each one given and each
 --also) gets status/testing and the record "Landed on <branch>:" with the reviewed head, the landed commit and
-the reviewers. It discovers no other issue from the history of Git.
+the reviewers. --part names a landing with more to follow, which a package makes of an issue it lands in parts: the
+issue stays in the status it has, and its record says "Landed part on <branch>:" with the same lines, which no reader
+counts as a landing; it prints no finish-issue step, and the worktree stays for the next part. The last part runs
+without --part, as every landing does. It discovers no other issue from the history of Git.
 
 It refuses, before anything is merged or pushed: an issue that is closed or not assigned to the signed-in
 account, a worktree with changes (at most twenty named, and their count where there are more), a branch head
 that is not --reviewed-head, a CI_GATE that is neither public nor none, an ignored file of the worktree that
 origin/<default> tracks, which the landing would overwrite, and, at the push, a red gate and, for a public repository
-under CI_GATE=public, checks that are red or unfinished. A default branch that moves while a round runs ends that round
+under CI_GATE=public, checks that are red or unfinished. The landings of one clone take turns: a round holds the landing lock of the clone (lib/landing-lock.sh, the one the
+Bash command takes) from before its fetch until its push ended or was refused; a landing that finds it held names the issue and
+the branch that hold it, since when, and when the deadline for that holder is, and waits. The deadline counts per holder from the
+moment it took the lock: one and a half times the longest time a landing of the repository held it in the last 14 days of the run log
+of the gate (a row every landing writes when it gives the lock up), and never less than the sum of the bounds a holder may spend under
+the lock, configured and not measured, which is the deadline where no hold is recorded: one and a half times the longest check on
+record (1320 seconds where none is),
+PRE_PUSH_LOAD_WAIT_SECONDS and, under CI_GATE=public, AI_CORE_INTEGRATE_WAIT. A landing stops with nothing pushed when one holder has
+held the lock longer. A default branch that moves while a round runs ends that round
 with nothing pushed to it, and the next round fetches it again, merges onto its new tip and runs the whole gate on that
 merge: at most INTEGRATE_MAX_ROUNDS rounds, the first one counted (3 when the config.env of the checkout sets none, 1 is a
 single attempt), read again before every round; a move is proven by the refusal of origin that git names together with a
@@ -150,6 +161,8 @@ interface Landing {
 }
 
 interface LandingInput {
+  // The issue the landing is named for, as the lock of the clone names it.
+  readonly issue: string;
   readonly units: readonly LandingUnit[];
   readonly defaultBranch: string;
   readonly trailers: readonly string[];
@@ -180,21 +193,24 @@ async function keepReviewedHeads(context: CommandContext, units: readonly Landin
   }
 }
 
-// A reviewed head that another landing brought onto the default branch while the round before ran leaves nothing to merge: git
+// A reviewed head that another landing brought onto the default branch before this round fetched it leaves nothing to merge: git
 // would make no merge commit, and the round would push the tip of origin and record it as this landing.
 async function refuseLandedHeads(context: CommandContext, input: LandingInput, round: number): Promise<void> {
   for (const unit of input.units) {
     if (await context.git.isAncestor(context.cwd, unit.head, `refs/remotes/origin/${input.defaultBranch}`)) {
       throw new PreconditionError(
-        `nothing landed in round ${round}: the reviewed head ${unit.head} of ${unit.branch} reached origin/${input.defaultBranch} while the round before ran, so this landing has nothing left to merge; the same command run again finds it there and writes the records that are missing`,
+        `nothing landed in round ${round}: the reviewed head ${unit.head} of ${unit.branch} reached origin/${input.defaultBranch} before this round fetched it, so this landing has nothing left to merge; the same command run again finds it there and writes the records that are missing`,
       );
     }
   }
 }
 
-// THE ROUNDS: the default branch moving while a round ran ends that round with nothing pushed to the default branch, and the
-// next round fetches it again, merges onto its new tip and runs the whole gate on that merge, at most INTEGRATE_MAX_ROUNDS rounds.
-// A conflict, a red gate or CI, a branch that changed, an unreadable origin and every other refusal end the run at once.
+// THE ROUNDS: a round holds the landing lock of the clone (lib/landing-lock.sh, the lock bin/integrate-issue.sh takes) from before
+// its fetch until its push ended or was refused, so that no other landing of the clone moves the default branch meanwhile. The default
+// branch moving while a round ran ends that round with nothing pushed to the default branch, and the next round takes the lock again,
+// fetches the default branch, merges onto its new tip and runs the whole gate on that merge, at most INTEGRATE_MAX_ROUNDS rounds.
+// A conflict, a red gate or CI, a branch that changed, an unreadable origin, a lock that is not given up by its deadline and every
+// other refusal end the run at once.
 async function landReviewedHeads(context: CommandContext, api: ForgejoClient, input: LandingInput): Promise<Landing> {
   let cause: DefaultBranchMoved | undefined;
   for (let round = 1; ; round += 1) {
@@ -207,16 +223,21 @@ async function landReviewedHeads(context: CommandContext, api: ForgejoClient, in
     }
     if (cause !== undefined) {
       context.stderr(`round ${round} of ${limit}: the round before ended because ${cause.message}; this round fetches origin again, merges onto the new ${input.defaultBranch} and runs the whole gate on that merge\n`);
+    }
+    const taken = await context.harness.takeLandingLock(context.cwd, input.issue, input.units[0]?.branch ?? '', context.stderr);
+    if (!taken.succeeded) throw new PreconditionError(taken.output);
+    try {
       await context.git.fetchBranch(context.cwd, input.defaultBranch);
       await keepReviewedHeads(context, input.units);
       await refuseLandedHeads(context, input, round);
-    }
-    try {
       return await landOnce(context, api, input, round, limit);
     } catch (error) {
       if (!(error instanceof DefaultBranchMoved)) throw error;
       cause = error;
       if (error.notes.length > 0) context.stderr(`${error.notes.join(' ')}\n`);
+    } finally {
+      const released = await context.harness.releaseLandingLock(context.cwd);
+      if (!released.succeeded) context.stderr(`the landing lock could not be released or its hold not recorded: ${released.output}\n`);
     }
   }
 }
@@ -419,7 +440,7 @@ async function findOriginBranch(context: CommandContext, unit: Unit, origin: Rep
 }
 
 export async function run(args: readonly string[], context: CommandContext): Promise<CommandResult> {
-  const parsed = parseArguments(args, { '--reviewed-by': 'repeat', '--reviewed-head': 'repeat', '--also': 'repeat' });
+  const parsed = parseArguments(args, { '--reviewed-by': 'repeat', '--reviewed-head': 'repeat', '--also': 'repeat', '--part': 'switch' });
   const { refs: listed, rest } = await takeIssuesOfWorktree(parsed.positionals, context.git, context.cwd, USAGE);
   refuseExtra(rest, USAGE);
   const reviewers = parseReviewers(listOf(parsed, '--reviewed-by'));
@@ -429,6 +450,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   if (listed.some((issueRef, index) => listed.findIndex((known) => isSameIssue(known, issueRef)) !== index)) {
     throw new UsageError(`an issue is named twice: ${listed.map((issueRef) => String(issueRef.number)).join(' ')}. ${USAGE}`);
   }
+  const isPart = parsed.switches.has('--part');
   const alsoRefs: IssueRef[] = [];
   for (const text of listOf(parsed, '--also')) {
     const other = parseIssueReference(text);
@@ -526,7 +548,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
       head: heads[index] ?? '',
       subject: mergeSubject(read[index]?.title ?? '', unit.branch ?? '', unit.ref, codeRepository),
     }));
-    const landing = await landReviewedHeads(context, api, { units: landingUnits, defaultBranch, trailers: reviewers.map((reviewer) => `Reviewed-by: ${reviewer}`), codeRepository, number: ref.number });
+    const landing = await landReviewedHeads(context, api, { issue: formatIssue(ref), units: landingUnits, defaultBranch, trailers: reviewers.map((reviewer) => `Reviewed-by: ${reviewer}`), codeRepository, number: ref.number });
     landedCommits = landing.commits;
     landedNow = true;
     const finalCommit = landedCommits[landedCommits.length - 1] ?? '';
@@ -548,20 +570,23 @@ export async function run(args: readonly string[], context: CommandContext): Pro
       const head = heads[position] ?? '';
       const landedCommit = landedCommits[position] ?? '';
       const entries = await readTimeline(api, issue.ref);
-      if (hasLandedRecord(entries, head, landedCommit)) {
-        done.push(`${formatIssue(issue.ref)} keeps its status: the record "Landed on ${defaultBranch}" is there already`);
-        lines.push(`${formatIssue(issue.ref)} keeps its status: the record "Landed on ${defaultBranch}" is there already`);
+      const recordName = isPart ? 'Landed part on' : 'Landed on';
+      if (hasLandedRecord(entries, head, landedCommit, isPart)) {
+        done.push(`${formatIssue(issue.ref)} keeps its status: the record "${recordName} ${defaultBranch}" is there already`);
+        lines.push(`${formatIssue(issue.ref)} keeps its status: the record "${recordName} ${defaultBranch}" is there already`);
         continue;
       }
       // The label first: a run interrupted between the two writes finds no record and does both again.
-      await replaceFamilyLabel(api, issue.ref, issue, statusLabel('testing'));
-      await addComment(api, issue.ref, composeLandedRecord({ branch: defaultBranch, repository: codeRepository, reviewedHead: head, landedCommit, reviewers }, issue.ref));
-      done.push(`${formatIssue(issue.ref)} -> ${statusLabel('testing')} with the record "Landed on ${defaultBranch}"`);
-      lines.push(`${formatIssue(issue.ref)} -> ${statusLabel('testing')}; recorded "Landed on ${defaultBranch}"`);
+      if (!isPart) await replaceFamilyLabel(api, issue.ref, issue, statusLabel('testing'));
+      await addComment(api, issue.ref, composeLandedRecord({ branch: defaultBranch, repository: codeRepository, reviewedHead: head, landedCommit, reviewers, isPart }, issue.ref));
+      const outcome = isPart ? 'keeps its status' : `-> ${statusLabel('testing')}`;
+      done.push(`${formatIssue(issue.ref)} ${outcome} with the record "${recordName} ${defaultBranch}"`);
+      lines.push(`${formatIssue(issue.ref)} ${outcome}; recorded "${recordName} ${defaultBranch}"`);
     }
   } catch (error) {
     throw new PartialCompletionError('record the landing', done, `${error instanceof Error ? error.message : String(error)}. The work is on origin/${defaultBranch}; run the same command again, it writes only what is missing`);
   }
-  for (const unit of units) lines.push(`next: ai-core finish-issue ${formatRepository(unit.ref)} ${unit.ref.number}`);
+  if (isPart) lines.push(`part: ${units.map((unit) => formatIssue(unit.ref)).join(', ')} stays in its status with its worktree; the last part lands without --part`);
+  else for (const unit of units) lines.push(`next: ai-core finish-issue ${formatRepository(unit.ref)} ${unit.ref.number}`);
   return succeeded(lines, warnings);
 }

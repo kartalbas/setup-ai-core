@@ -1900,6 +1900,13 @@ mutate() {  # mutate <sed expression> - a copy of the gate with one defect, in G
   cmp -s "$root/bin/pre-push.sh" "$fake/mutant/bin/pre-push.sh" && { echo "  FAIL the planted defect changed nothing: $1"; failed=$((failed + 1)); }
   export GATE_SCRIPT="$fake/mutant/bin/pre-push.sh"
 }
+runs_mutate() {  # runs_mutate <sed expression> - a copy of the harness whose writer of the run log has one defect, in GATE_SCRIPT
+  local copy="$fake/mutant-runs-writer"
+  rm -rf "$copy"; harness_copy "$root" "$copy"
+  sed -i.bak "$1" "$copy/lib/pre-push-runs.sh"; rm -f "$copy/lib/pre-push-runs.sh.bak"
+  cmp -s "$root/lib/pre-push-runs.sh" "$copy/lib/pre-push-runs.sh" && { echo "  FAIL the planted defect changed nothing: $1"; failed=$((failed + 1)); }
+  export GATE_SCRIPT="$copy/bin/pre-push.sh"
+}
 echo 'planted: no wait at all'
 mutate 's/exit !(sample + 0 >= limit + 0)/exit 1/'
 plan 25 24 23.5; settings 24 300; gate_lw
@@ -1923,11 +1930,11 @@ check 'the limit-zero case with a failing reader no longer starts the check' no 
 plan FAIL; settings 24 0; gate_lw
 check 'nor the bound-zero case'                  no "$([ "$rc" = 0 ] && [ "$(n_checks)" = 1 ] && echo yes || echo no)"
 echo 'planted: a header written by whoever finds no log, as the gate wrote it before'
-mutate "s|^  if \[ ! -e \"\$GATE_RUNS_FILE\" \]; then\$|  [ -s \"\$GATE_RUNS_FILE\" ] \|\| missing=1\n  mktemp -u \"\$GATE_RUNS_FILE.XXXXXX\" >/dev/null\n  [ -z \"\${missing:-}\" ] \|\| printf '%s\\\\n' \"\$GATE_RUNS_HEADER\" >> \"\$GATE_RUNS_FILE\"\n  if false; then|"
+runs_mutate "s|^  if \[ ! -e \"\$log\" \]; then\$|  [ -s \"\$log\" ] \|\| missing=1\n  mktemp -u \"\$log.XXXXXX\" >/dev/null\n  [ -z \"\${missing:-}\" ] \|\| printf '%s\\\\n' \"\$GATE_RUNS_HEADER\" >> \"\$log\"\n  if false; then|"
 rm -f "$runs"; both
 check 'two gates at once write two headers'      2 "$(grep -c $'^time\trepository' "$runs")"
 echo 'planted: a link that failed is followed by the append that writes the log, as the gate wrote it before'
-mutate 's/^    \[ -e "\$GATE_RUNS_FILE" \] || return 1$/    [ -s "$GATE_RUNS_FILE" ] || echo "$GATE_RUNS_HEADER" >> "$GATE_RUNS_FILE"/'
+runs_mutate 's/^    \[ -e "\$log" \] || return 1$/    [ -s "$log" ] || echo "$GATE_RUNS_HEADER" >> "$log"/'
 rm -f "$runs"; plan 0.5; settings 24 300; PROBE_LN=fail gate_lw
 check 'a log stands though no link could be made, with no word that the run was not recorded' 'yes 0' "$([ -s "$runs" ] && echo yes || echo no) $(says 'could not be recorded')"
 unset GATE_SCRIPT GATE_TIMEOUT

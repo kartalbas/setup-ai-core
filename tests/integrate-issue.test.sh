@@ -544,7 +544,7 @@ check 'exit 0'                         0 "$rc"
 check 'the merge commit that was on ci/integrate-<branch> landed' "$(cat "$fake/ci-during")" "$(tip)"
 check 'ci/integrate-<branch> is gone'  '' "$(ci_tip issue-141-warns)"
 
-echo 'the checks are waited for before the landing lock is taken'
+echo 'the checks are waited for under the landing lock, so no other landing moves the default branch meanwhile'
 wt="$(new_tree 132 no-lock)"; git -C "$wt" push -q origin issue-132-no-lock 2>/dev/null
 echo public > "$fake/visibility"
 printf '%s\n' '[{"status":"in_progress","conclusion":null,"workflowName":"check"}]' > "$fake/runs-queue"
@@ -552,7 +552,7 @@ printf '#!/bin/sh\necho "$([ -e "%s" ] && echo held || echo free)" > "%s"\n' "$w
 out="$(AI_CORE_INTEGRATE_POLL=0 AI_CORE_INTEGRATE_WAIT=30 integrate "$wt" 132 --reviewed-by l4)"; rc=$?
 rm -f "$fake/visibility"
 check 'exit 0'                         0 "$rc"
-check 'no landing lock was held during the wait' free "$(cat "$fake/lock-during-wait")"
+check 'the landing lock was held during the wait' held "$(cat "$fake/lock-during-wait")"
 
 echo 'an origin that names no repository refuses before any check is read'
 flat="$fake/flat-checkouts"; mkdir -p "$flat"
@@ -624,24 +624,28 @@ next: ai-core finish-issue other-org/tracker 7' "$(grep '^next: ' <<< "$out")"
 
 echo 'the landings of one clone take turns: a lock a live process holds is waited for, a dead one taken over'
 lock="$work/.git/ai-core-landing"
-# land_while_held <dir> <number>: the landing runs in the background; once it says it waits, and
-# not before, the lock it waits for is released, so a slow start cannot pass for a wait
+# plant_lock <pid> <issue> [<branch> [<seconds ago>]]: the lock of a landing of this repository that took it that long ago
+plant_lock() { printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "${3:-}" "$(( $(date +%s) - ${4:-0} ))" "$origin_repo" > "$lock"; }
+# land_while_held <dir> <number> [<seconds>]: the landing runs in the background; once it says it waits, and not
+# before, the lock it waits for is released after that many seconds (none by default), so a slow start cannot pass for a wait
 land_while_held() {
   local said="$fake/held-$2.out"
+  rm -f "$said.rc"
   ( integrate "$1" "$2" --reviewed-by l4 > "$said"; echo $? > "$said.rc" ) & local landing=$!
   for _ in $(seq 1 240); do grep -qF 'waiting: ' "$said" 2>/dev/null && break; sleep 0.5; done
   tip_while_held="$(tip)"
+  [ -z "${3:-}" ] || sleep "$3"
   rm -f "$lock"; wait "$landing"
   out="$(cat "$said")"; rc="$(cat "$said.rc")"
 }
 sleep 300 & holder=$!
-printf '%s\t%s\n' "$holder" 'example-org/example-repo#5' > "$lock"
+plant_lock "$holder" 'example-org/example-repo#5'
 wt8="$(new_tree 84 waits)"
 before_held="$(tip)"
 land_while_held "$wt8" 84
 kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
 check 'exit 0'                         0 "$rc"
-check 'it names who holds the lock'    "waiting: example-org/example-repo#5 is landing from this clone (process $holder); this one lands after it" "$(grep -m1 -E '^(waiting|taken over): ' <<< "$out")"
+check 'it names who holds the lock and since when' yes "$(grep -m1 -E '^(waiting|taken over): ' <<< "$out" | grep -qE "^waiting: example-org/example-repo#5 holds the lock since [0-9T:Z-]+ \(process $holder\); this one lands after it\$" && echo yes || echo no)"
 check 'it pushed nothing while it waited' "$before_held" "$tip_while_held"
 check 'it landed once the lock was released' 'Read the board whole (#84)' "$(git --git-dir="$origin" log -1 --format=%s master)"
 check 'and released its own'           no "$([ -e "$lock" ] && echo yes || echo no)"
@@ -655,19 +659,126 @@ check 'and released it'                no "$([ -e "$lock" ] && echo yes || echo 
 # A holder of another user's: kill -0 cannot signal it, and it still runs. Process 1 is one where
 # this test runs unprivileged on a system that has it.
 if ps -p 1 >/dev/null 2>&1 && ! kill -0 1 2>/dev/null; then
-  printf '%s\t%s\n' 1 'example-org/example-repo#7' > "$lock"
+  plant_lock 1 'example-org/example-repo#7'
   wt11="$(new_tree 87 foreign)"
   land_while_held "$wt11" 87
   check "another user's process: exit 0" 0 "$rc"
-  check 'it is waited for, not taken over' 'waiting: example-org/example-repo#7 is landing from this clone (process 1); this one lands after it' "$(grep -m1 -E '^(waiting|taken over): ' <<< "$out")"
+  check 'it is waited for, not taken over' yes "$(grep -m1 -E '^(waiting|taken over): ' <<< "$out" | grep -qE '^waiting: example-org/example-repo#7 holds the lock since [0-9T:Z-]+ \(process 1\); this one lands after it$' && echo yes || echo no)"
 else
   echo "  skip another user's process: process 1 is missing here or this test may signal it"
 fi
+echo 'a lock names the branch of its holder, and a waiting landing says which branch, since when, and when the deadline for that holder is'
+rm -f "$AI_CORE_HOME/.ai-core/pre-push-runs.tsv"
+sleep 300 & holder=$!
+plant_lock "$holder" 'example-org/example-repo#8' 'issue-8-holds'
+wt14="$(new_tree 90 names)"
+land_while_held "$wt14" 90
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+check 'exit 0'                         0 "$rc"
+check 'it names the issue and the branch that hold the lock' yes "$(grep -m1 -E '^(waiting|taken over): ' <<< "$out" | grep -qE "^waiting: example-org/example-repo#8 on issue-8-holds holds the lock since [0-9T:Z-]+ \(process $holder\); this one lands after it\$" && echo yes || echo no)"
+check 'no run log stands: it says the deadline is configured, not measured' yes "$(grep -qE '^deadline: [0-9T:Z-]+ for this holder, [0-9]+ seconds after it took the lock; configured, not measured \(no run log stands at ' <<< "$out" && echo yes || echo no)"
+run_log="$AI_CORE_HOME/.ai-core/pre-push-runs.tsv"; mkdir -p "$(dirname "$run_log")"
+log_header=$'time\trepository\tworktree\tcommit\tverdict\tseconds\tlast line\tload at check start'
+# gate_row <seconds>: a run of the gate in this repository that took that long; hold_row <seconds>: a landing that held the lock that long
+gate_row() { printf '%s\t%s\t%s\t%s\tgreen\t%s\tlast line\t0.5\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$origin_repo" /somewhere aaaa "$1"; }
+hold_row() { printf '%s\t%s\t%s\t-\tlanding lock\t%s\tholder\t-\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$origin_repo" /somewhere "$1"; }
+# a check of 1 second, no load wait and no CI configure 2 seconds, so the recorded hold sets the deadline
+{ printf '%s\n' "$log_header"; gate_row 1; hold_row 600; } > "$run_log"
+sleep 300 & holder=$!
+plant_lock "$holder" 'example-org/example-repo#8' 'issue-8-holds'
+wt15="$(new_tree 91 measured)"
+mkdir -p "$wt15/.ai-core"; printf 'CI_GATE="none"\nPRE_PUSH_LOAD_WAIT_SECONDS="0"\n' > "$wt15/.ai-core/config.env"
+land_while_held "$wt15" 91
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+check 'a hold of 600 seconds is recorded: the landing waits, and lands when the lock is released' 0 "$rc"
+check 'the deadline is one and a half times the longest hold, and it says measured' yes "$(grep -qE "^deadline: [0-9T:Z-]+ for this holder, 900 seconds after it took the lock; measured: one and a half times the 600 seconds of the longest hold of the landing lock of $origin_repo" <<< "$out" && echo yes || echo no)"
+check 'the landing recorded its own hold' 1 "$(awk -F'\t' '$5 == "landing lock" && $6 != 600' "$run_log" | wc -l | tr -d ' ')"
+{ printf '%s\n' "$log_header"; gate_row 1; hold_row 1; } > "$run_log"
+sleep 300 & holder=$!
+plant_lock "$holder" 'example-org/example-repo#8' 'issue-8-holds'
+wt16="$(new_tree 92 deadline)"
+mkdir -p "$wt16/.ai-core"; printf 'CI_GATE="none"\nPRE_PUSH_LOAD_WAIT_SECONDS="0"\n' > "$wt16/.ai-core/config.env"
+before_deadline="$(tip)"
+out="$(integrate "$wt16" 92 --reviewed-by l4)"; rc=$?
+check 'a hold of one second is recorded: at the deadline for the holder the landing stops, exit 1' 1 "$rc"
+check 'it names the holder, its branch, when it took the lock and the deadline' yes "$(grep -qE "^error: nothing landed: the landing lock is still held by example-org/example-repo#8 on issue-8-holds \(process $holder\), which took it at [0-9T:Z-]+ and held it [0-9]+ seconds, longer than the 2 seconds of its deadline \(measured: one and a half times the 1 seconds of the longest hold" <<< "$out" && echo yes || echo no)"
+check 'nothing was pushed'             "$before_deadline" "$(tip)"
+check 'the lock of the holder stands'  "$holder" "$(cut -f1 "$lock")"
+check 'the worktree is on its branch'  'issue-92-deadline' "$(git -C "$wt16" symbolic-ref --short HEAD)"
+# planted: the deadline never comes, so the landing waits for the holder as long as it lives
+mkdir -p "$fake/no-deadline"; cp -R "$root/bin" "$root/lib" "$root/VERSION" "$fake/no-deadline/" 2>/dev/null
+sed -i 's/-gt "\$LANDING_LOCK_SECONDS" \]/-gt 999999999 ]/' "$fake/no-deadline/lib/landing-lock.sh"
+cmp -s "$root/lib/landing-lock.sh" "$fake/no-deadline/lib/landing-lock.sh" && { echo "  FAIL the planted copy without a deadline equals lib/landing-lock.sh"; failed=$((failed + 1)); }
+out="$( cd "$wt16" && timeout 12 bash "$fake/no-deadline/bin/integrate-issue.sh" 92 --reviewed-by l4 2>&1 )"; rc=$?
+check 'planted: without a deadline the landing is still waiting when it is stopped (124)' 124 "$rc"
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null; rm -f "$lock"
+
+echo 'a holder whose gate waits for the load holds the lock for longer than its check: the landing behind it waits on, up to the sum of the bounds the holder may spend'
+{ printf '%s\n' "$log_header"; gate_row 1; } > "$run_log"
+sleep 300 & holder=$!
+plant_lock "$holder" 'example-org/example-repo#8' 'issue-8-loads'
+wt23="$(new_tree 99 loads)"
+land_while_held "$wt23" 99 6
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+check 'a check of one second is on record and the holder holds the lock 6 seconds: the landing lands, exit 0' 0 "$rc"
+check 'the deadline is configured: 2 seconds of the check, 300 of the load wait and 1800 of the CI wait' yes "$(grep -qE "^deadline: [0-9T:Z-]+ for this holder, 2102 seconds after it took the lock; configured, not measured \(no hold of the landing lock of $origin_repo is recorded in the last 14 days of $run_log\): one and a half times the 1 seconds of the longest check of $origin_repo, PRE_PUSH_LOAD_WAIT_SECONDS 300, AI_CORE_INTEGRATE_WAIT 1800 because CI_GATE is public" <<< "$out" && echo yes || echo no)"
+# planted: the allowance is only one and a half times the longest check, as it was before the holds were recorded
+mkdir -p "$fake/check-only"; cp -R "$root/bin" "$root/lib" "$root/VERSION" "$fake/check-only/" 2>/dev/null
+sed -i 's/^  configured=\$(( (3 \* base + 1) \/ 2 + load + wait ))$/  configured=$(( (3 * base + 1) \/ 2 ))/' "$fake/check-only/lib/landing-lock.sh"
+cmp -s "$root/lib/landing-lock.sh" "$fake/check-only/lib/landing-lock.sh" && { echo "  FAIL the planted copy with the check alone equals lib/landing-lock.sh"; failed=$((failed + 1)); }
+sleep 300 & holder=$!
+plant_lock "$holder" 'example-org/example-repo#8' 'issue-8-loads'
+wt24="$(new_tree 100 loads-planted)"
+out="$( cd "$wt24" && timeout 20 bash "$fake/check-only/bin/integrate-issue.sh" 100 --reviewed-by l4 2>&1 )"; rc=$?
+check 'planted: with the check alone the landing stops at 2 seconds while the holder works (exit 1)' 1 "$rc"
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null; rm -f "$lock" "$run_log"
+
 printf 'half written' > "$lock"
 wt10="$(new_tree 86 blank)"
 out="$(integrate "$wt10" 86 --reviewed-by l4)"; rc=$?
 check 'a lock that names no process: exit 0' 0 "$rc"
 check 'it is taken over after one poll' yes "$(grep -qxF "taken over: a landing lock that names no process: 'half written'" <<< "$out" && echo yes || echo no)"
+
+echo 'two landings of one clone started at once: the second gate starts only after the push of the first one ended'
+# the gate of a landing is a hook that writes when it starts and when it ends, and the push follows the end
+mkdir -p "$fake/two-hooks"
+printf '#!/bin/sh\ncat > /dev/null\necho start >> "%s"\nsleep 2\necho end >> "%s"\n' "$fake/gates.txt" "$fake/gates.txt" > "$fake/two-hooks/pre-push"
+chmod +x "$fake/two-hooks/pre-push"
+# two_landings <root> <number> <worktree> <number> <worktree>: both landings start at once, each with the integrate-issue.sh
+# of <root>; what the gates wrote comes back as one line
+two_landings() {
+  local first second
+  : > "$fake/gates.txt"
+  git -C "$work" config core.hooksPath "$fake/two-hooks"
+  ( cd "$3" && bash "$1/bin/integrate-issue.sh" "$2" --reviewed-by l4 > "$fake/two-first.out" 2>&1; echo $? > "$fake/two-first.rc" ) & first=$!
+  ( cd "$5" && bash "$1/bin/integrate-issue.sh" "$4" --reviewed-by l4 > "$fake/two-second.out" 2>&1; echo $? > "$fake/two-second.rc" ) & second=$!
+  wait "$first" "$second"
+  git -C "$work" config --unset core.hooksPath
+  tr '\n' ' ' < "$fake/gates.txt" | sed 's/ $//'
+}
+wt17="$(new_tree 93 first)"; wt18="$(new_tree 94 second)"
+before_two="$(tip)"
+gates="$(two_landings "$root" 93 "$wt17" 94 "$wt18")"
+check 'both landings: exit 0'          '0 0' "$(cat "$fake/two-first.rc") $(cat "$fake/two-second.rc")"
+check 'the gates ran one after the other, one each' 'start end start end' "$gates"
+check 'both merges are on origin'      2 "$(git --git-dir="$origin" rev-list --merges --count "$before_two..master")"
+check 'the lock is released'           no "$([ -e "$lock" ] && echo yes || echo no)"
+# planted: no lock, so both gates start at once and the push of the one that was too late is refused
+no_lock="$fake/no-lock"; mkdir -p "$no_lock"; cp -R "$root/bin" "$root/lib" "$root/VERSION" "$no_lock/" 2>/dev/null
+sed -i 's/^  landing_lock_take \. .*$/  :/' "$no_lock/bin/integrate-issue.sh"
+cmp -s "$root/bin/integrate-issue.sh" "$no_lock/bin/integrate-issue.sh" && { echo "  FAIL the planted copy without the lock equals bin/integrate-issue.sh"; failed=$((failed + 1)); }
+wt19="$(new_tree 95 third)"; wt20="$(new_tree 96 fourth)"
+gates="$(two_landings "$no_lock" 95 "$wt19" 96 "$wt20")"
+check 'planted: without the lock both gates start before either ends' yes "$(case "$gates" in 'start start '*) echo yes ;; *) echo no ;; esac)"
+
+echo '--part names a landing with more to follow: the next steps say so, and a landing without it names none (innocent case)'
+wt21="$(new_tree 97 part)"; wt22="$(new_tree 98 whole)"
+out="$(integrate "$wt21" 97 --reviewed-by l4 --part)"; rc=$?
+check 'a part: exit 0'                 0 "$rc"
+check 'its next step carries --part'   'next: ai-core finish-issue 97 --part' "$(grep '^next: ' <<< "$out")"
+out="$(integrate "$wt22" 98 --reviewed-by l4)"; rc=$?
+check 'a whole landing: exit 0'        0 "$rc"
+check 'its next step carries none'     'next: ai-core finish-issue 98' "$(grep '^next: ' <<< "$out")"
 
 # held_tree <number> <slug>: the worktree of an issue whose branch is pushed and whose session left
 # a change in the tree that no commit holds, as a stopped session does

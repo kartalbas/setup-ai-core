@@ -34,6 +34,8 @@ export function createRecordingHarness(): RecordingHarness {
     // The mark of a landing is not recorded: it opens and closes around every push, and no test asks which pushes had one.
     openLandingMark: () => Promise.resolve(failing.has('openLandingMark') ? { succeeded: false, output: 'planted: openLandingMark failed' } : { succeeded: true, output: '/planted/mark' }),
     closeLandingMark: () => Promise.resolve({ succeeded: true, output: '' }),
+    takeLandingLock: (cwd, issue, branch) => step('takeLandingLock', '')(`${cwd} ${issue} ${branch}`),
+    releaseLandingLock: (cwd) => step('releaseLandingLock', '')(cwd),
     readLandingRounds: (cwd) => {
       calls.push(`readLandingRounds ${cwd}`);
       const answer = (roundsAnswers.length > 1 ? roundsAnswers.shift() : roundsAnswers[0]) ?? '3';

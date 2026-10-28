@@ -174,6 +174,39 @@ check_runs "$rc"
 check 'it says so'            yes "$(grep -q '^status-sync did NOT run for example-org/example-repo: ' <<< "$out" && echo yes || echo no)"
 rm -f "$fake/issues-down"
 
+echo 'a part with more to follow: the worktree, the branch and the card stay, the issue is told "Landed part on", and the last part lands as every landing does'
+open issue-190-lands-in-two-parts
+land issue-190-lands-in-two-parts 'First part (#190)'
+: > "$log"; rm -rf "$fake/cache"
+out="$(run 190 --part)"; rc=$?
+check_runs "$rc"
+check 'the worktree stays'    yes "$(has_tree issue-190-lands-in-two-parts)"
+check 'the branch stays'      yes "$(has_branch issue-190-lands-in-two-parts)"
+check 'the card did not move' 0 "$(grep -c 'oid=OPT_' "$log" || true)"
+check 'the issue was told it is a part' yes "$(grep -q 'issues/190/comments -f body=Landed part on master:.*First part (#190)' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
+check 'no record of a landing was written' 0 "$(grep -c 'comments -f body=Landed on ' "$log" || true)"
+check 'it says the card stays' yes "$(grep -q '^a part with more to follow - the card stays where it stands$' <<< "$out" && echo yes || echo no)"
+# planted: a copy that treats a part as a landing removes the worktree and moves the card
+planted_part="$fake/planted-part"; mkdir -p "$planted_part"; cp -R "$root/bin" "$root/lib" "$root/VERSION" "$planted_part/" 2>/dev/null
+sed -i 's/^if \[ "\$part" -eq 1 \]; then$/if false; then/; s/^\[ "\$part" -eq 1 \] || clear_origin_branches$/clear_origin_branches/; s/\$(\[ "\$part" -eq 1 \] || issue_worktrees)/$(issue_worktrees)/' "$planted_part/bin/finish-issue.sh"
+cmp -s "$root/bin/finish-issue.sh" "$planted_part/bin/finish-issue.sh" && { echo "  FAIL the planted copy equals bin/finish-issue.sh"; failed=$((failed + 1)); }
+open issue-193-planted-part
+land issue-193-planted-part 'Planted part (#193)'
+: > "$log"; rm -rf "$fake/cache"
+out="$(cd "$work" && bash "$planted_part/bin/finish-issue.sh" 193 --part 2>&1)"
+check 'planted: a part treated as a landing removes the worktree and moves the card (this is the defect)' '0 1' "$(has_tree issue-193-planted-part | sed 's/yes/1/; s/no/0/') $(grep -c 'oid=OPT_test' "$log" || true)"
+out="$(run 190 --part)"; rc=$?
+check_runs "$rc"
+check 'the same part told twice is not recorded twice' yes "$(grep -q '^the issue holds this record already - nothing added$' <<< "$out" && echo yes || echo no)"
+: > "$log"; rm -rf "$fake/cache"
+out="$(run 190)"; rc=$?
+check_runs "$rc"
+check 'the last part: the worktree is gone' no "$(has_tree issue-190-lands-in-two-parts)"
+check 'the card moved to testing' 1 "$(grep -c 'oid=OPT_test' "$log" || true)"
+check 'the issue was told it landed' yes "$(grep -q 'issues/190/comments -f body=Landed on master:.*First part (#190)' <<< "$(tr '\n' ' ' < "$log")" && echo yes || echo no)"
+out="$(run 190 --part --landed)"
+check '--part and --landed do not go together' yes "$(grep -q 'do not go together' <<< "$out" && echo yes || echo no)"
+
 echo 'run inside the worktree it removes, it goes on from the main checkout and still moves the card'
 open issue-170-run-from-inside
 land issue-170-run-from-inside 'Run from inside (#170)'

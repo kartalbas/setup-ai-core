@@ -51,6 +51,13 @@ export interface HarnessSteps {
   // refuses an update of the default branch that carries none. The outcome of opening holds the path.
   openLandingMark(cwd: string, commit: string, refs: readonly string[]): Promise<StepOutcome>;
   closeLandingMark(mark: string): Promise<StepOutcome>;
+  // The landing lock of the clone at `cwd` (lib/landing-lock.sh), the one bin/integrate-issue.sh takes: taken for this process
+  // under the issue and the branch it names before a round fetches the default branch, waited for with its lines shown while it is
+  // held by another landing, given up when the round's push ended or was refused. Taking fails, with the words of the refusal,
+  // at the deadline of the wait for one holder; the lines shown do not hold those words, so they stand once, in the error. Giving
+  // up fails where the hold could not be recorded in the run log, after the lock is removed.
+  takeLandingLock(cwd: string, issue: string, branch: string, show: (text: string) => void): Promise<StepOutcome>;
+  releaseLandingLock(cwd: string): Promise<StepOutcome>;
   // INTEGRATE_MAX_ROUNDS (lib/landing-check.sh): the most rounds a landing makes, the first one counted, as the config.env of
   // the checkout stands at this call, never cached; the outcome holds the number, or, failed, the words that name the key.
   readLandingRounds(cwd: string): Promise<StepOutcome>;

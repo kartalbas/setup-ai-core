@@ -2,7 +2,7 @@
 # Integrate the reviewed branch of one issue into the default branch: a merge commit that names the
 # issue and its reviewer, pushed through the gate.
 #
-#   integrate-issue.sh [OWNER/REPO] NUMBER [NUMBER ...] --reviewed-by REVIEWER [--reviewed-by REVIEWER ...] [--from-origin]
+#   integrate-issue.sh [OWNER/REPO] NUMBER [NUMBER ...] --reviewed-by REVIEWER [--reviewed-by REVIEWER ...] [--from-origin] [--part]
 #
 # Between start-issue and finish-issue. Run it in the worktree of the issue, on its branch, once the
 # reviewer gave the GO. It fetches origin, puts the worktree on the newest origin/<default>, merges
@@ -26,6 +26,10 @@
 # Where the merged tree carries scripts/install.sh, it runs there before the push, so the gate's
 # check finds what it needs installed; a failing install refuses the landing, and nothing is pushed.
 #
+# --part NAMES A LANDING WITH MORE TO FOLLOW: a package lands an issue in parts, and the issue is not ready to test until the
+# last one. It changes only the `next:` lines, which then say `finish-issue <number> --part`: that keeps the worktree, the
+# branch and the card where they are and records "Landed part on <default>:". The last part runs without --part.
+#
 # A PUBLIC REPOSITORY LANDS ONLY ON THE GREEN CHECKS OF THE COMMIT THAT LANDS. Before anything is made, the
 # forge says whether the repository of origin is public. If it is, in both paths the merge commit is made in
 # a temporary worktree of origin/<default> (so the issue's worktree is not touched) and pushed to
@@ -34,8 +38,9 @@
 # (every 20 seconds, 30 minutes at most; AI_CORE_INTEGRATE_POLL and AI_CORE_INTEGRATE_WAIT, in seconds, for a
 # suite): the CI of a repository may run on ci/ branches and the default branch only, so the issue branch
 # itself may never get one. The wait is the one release uses (wait_for_checks in lib/forge.sh) and happens
-# before the landing lock is taken, so a slow CI holds up no other landing. Green says which commit was
-# green and on which branch; then, with the lock held and origin fetched, the push to the default branch
+# under the landing lock, which the round took before its first fetch, so no other landing moves the default branch while these checks run
+# and a slow CI holds up the landings of the clone behind it. Green says which commit was
+# green and on which branch; then, with origin fetched, the push to the default branch
 # sends exactly that commit. Red checks, checks that do not finish or cannot be read and an issue branch whose
 # tip moved refuse with nothing pushed to the default branch; an origin/<default> that moved while they ran
 # ends the round, and the next one is made on the new tip (THE ROUNDS below). The push to ci/integrate-<issue branch> replaces what stands there (a left-over of an earlier
@@ -78,22 +83,29 @@
 # ci/integrate-<issue branch>; the lease delete removes it at the end of the round, and one that stays is named.
 # A push that git reports as failed while origin holds the merge commit afterwards is reported as landed.
 #
-# THE LANDINGS OF ONE CLONE TAKE TURNS. Git fixes the old value of the remote branch when the push
-# starts, before the gate runs, so a landing that moves the default branch while another one's gate
-# runs refuses the other's push. From the fetch to the end of the push of a round this holds the file
-# ai-core-landing in the clone's git directory, which every worktree of the clone shares: its process id and its issue. A landing that finds it held waits; one whose holder
-# no longer runs takes it over. A round that ended because the default branch moved gives it up before the next one.
+# THE LANDINGS OF ONE CLONE TAKE TURNS (lib/landing-lock.sh), whichever tracker they land for. Git fixes the old value of the remote
+# branch when the push starts, before the gate runs, so a landing that moves the default branch while another one's gate runs makes
+# the other's push refused, and its green gate is thrown away. A round holds the file ai-core-landing in the clone's git directory,
+# which every worktree of the clone shares, from before its first fetch until its push ended or was refused: the process id, the
+# issue, the branch, the time taken and the repository of the landing. A landing that finds it held names the issue and branch that
+# hold it, since when, and when the deadline for that holder is, and waits. The deadline counts per holder from the moment it took
+# the lock: one and a half times the longest time a landing of the repository held it in the last 14 days of the run log (a row
+# every landing writes when it gives the lock up), and never less than the sum of the bounds a holder may spend under the lock,
+# configured and not measured, which is the deadline where no hold is recorded: one and a half times the longest check on record (1320 seconds where none is),
+# PRE_PUSH_LOAD_WAIT_SECONDS, and, under CI_GATE=public, AI_CORE_INTEGRATE_WAIT. A landing stops with nothing pushed when one
+# holder has held the lock longer; one whose holder no longer runs takes it over. A round gives it up before the next one takes it again.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 . "$ROOT/lib/forge.sh"
 . "$ROOT/lib/landing-check.sh"
+. "$ROOT/lib/landing-lock.sh"
 
 BIN="$ROOT/bin"
-usage='usage: integrate-issue.sh [OWNER/REPO] NUMBER [NUMBER ...] --reviewed-by REVIEWER [--reviewed-by REVIEWER ...] [--from-origin]'
+usage='usage: integrate-issue.sh [OWNER/REPO] NUMBER [NUMBER ...] --reviewed-by REVIEWER [--reviewed-by REVIEWER ...] [--from-origin] [--part]'
 
 # Every --reviewed-by adds its reviewer, once, in the order given: a second one that overwrote the
 # first would drop a review from the history without a word
-repo=""; numbers=(); reviewers=(); from_origin=""
+repo=""; numbers=(); reviewers=(); from_origin=""; part=""
 add_reviewer() {  # add_reviewer <name>
   local known
   for known in ${reviewers[@]+"${reviewers[@]}"}; do [ "$known" != "$1" ] || return 0; done
@@ -104,6 +116,7 @@ while [ $# -gt 0 ]; do
     --reviewed-by)   [ $# -ge 2 ] || die "--reviewed-by takes the reviewer's name - $usage"; add_reviewer "$2"; shift ;;
     --reviewed-by=*) add_reviewer "${1#--reviewed-by=}" ;;
     --from-origin)   from_origin=1 ;;
+    --part)          part=" --part" ;;
     -*)              die "unknown argument '$1' - $usage" ;;
     */*)             [ -z "$repo" ] || die "$usage"; repo="$1" ;;
     *)               numbers+=("$1") ;;
@@ -224,7 +237,7 @@ subject="${issue_subjects[0]}"
 ref="${issue_refs[0]}"
 thread="${issue_threads[0]}"
 
-landing="$(git rev-parse --path-format=absolute --git-common-dir)/ai-core-landing"
+landing="$(landing_lock_path .)" || die "the git directory of this clone cannot be read"
 # What a round owns goes first, on every way out and between two rounds: the branch ci/integrate-<issue branch>
 # on origin, the temporary worktree and the file with the output of a push, the receipt, then the lock. The
 # branch is deleted only while it still holds the merge commit of this round (a lease), so a branch somebody
@@ -261,7 +274,7 @@ end_round() {
   pushed=""
   [ -z "$receipt" ] || landing_check_close "$receipt"
   receipt=""
-  [ "$(cut -f1 "$landing" 2>/dev/null)" != "$$" ] || rm -f "$landing"
+  landing_lock_release . "$$" || true
 }
 trap end_round EXIT
 
@@ -345,10 +358,10 @@ keep_waited_tips() {
 }
 
 # gate_public_repository: a public repository lands only on the green checks of the commit that lands. It
-# runs before the landing lock, so a slow CI holds up no other landing, and before anything reaches the
+# runs under the landing lock, so that no other landing moves the default branch while these checks run, and before anything reaches the
 # default branch. The merge commit is made in a temporary worktree and pushed to ci/integrate-<issue
 # branch>, which only a landing uses: a left-over of an earlier landing of the issue, or the branch of one that still runs, is replaced, but only if it is
-# still what was read just before the push (a lease), so a branch written meanwhile is refused. Its checks are waited for; the push to the default branch after the lock sends exactly the
+# still what was read just before the push (a lease), so a branch written meanwhile is refused. Its checks are waited for; the push to the default branch sends exactly the
 # merge commit. A private repository, and a public one of a project whose config.env sets CI_GATE to none,
 # rests on its push gate: nothing is made or pushed here, and no CI is read. The reviewed tip is the one
 # origin lists for --from-origin, else the local branch, which must be the tip origin holds too.
@@ -424,32 +437,6 @@ gate_public_repository() {
   esac
 }
 
-# take_landing_lock: the file ai-core-landing is this process's. A known limit: two waiters that find the same dead holder
-# can both take over, and the push then still refuses the second, as it does without the lock; a holder's process id that
-# an unrelated process took over keeps the lock held, and the waiting line names that process
-take_landing_lock() {
-  local waited="" missing=0 nameless=0 holder pid dead said
-  until said="$( (set -C; printf '%s\t%s\n' "$$" "$ref" > "$landing") 2>&1 )"; do
-    # Gone between the two steps is a lock just released; gone twice in a row, one never written
-    if ! holder="$(cat "$landing" 2>/dev/null)"; then
-      missing=$((missing + 1)); [ "$missing" -lt 2 ] || die "the landing lock $landing could not be written: $said"; continue
-    fi
-    missing=0; pid="${holder%%$'\t'*}"
-    # A lock still without its process id after the poll was never finished: nobody holds it
-    dead=""
-    case "$pid" in
-      ''|*[!0-9]*) nameless=$((nameless + 1)); [ "$nameless" -lt 2 ] || dead="a landing lock that names no process: '$holder'" ;;
-      *) nameless=0; ps -p "$pid" >/dev/null 2>&1 || dead="the landing lock of ${holder#*$'\t'}, whose process $pid no longer runs" ;;
-    esac
-    if [ -n "$dead" ]; then
-      rm -f "$landing" || die "the landing lock $landing could not be removed: $dead"
-      echo "taken over: $dead" >&2; nameless=0; continue
-    fi
-    [ -n "$waited" ] || [ "$nameless" -gt 0 ] || { waited=1; echo "waiting: ${holder#*$'\t'} is landing from this clone (process $pid); this one lands after it" >&2; }
-    sleep 2
-  done
-}
-
 # back_to_branch <reason>: the worktree goes back to the branch it was on, and the run stops
 back_to_branch() {
   git switch -q "$branch" 2>/dev/null || echo "error: the branch $branch could not be checked out again - run git switch $branch" >&2
@@ -515,12 +502,12 @@ push_default() {
 land_round() {
   local now said
   round_cause=""
+  landing_lock_take . "$$" "$ref" "$branch" "$(origin_repo 2>/dev/null || true)" || die "$LANDING_LOCK_REFUSAL"
   gate_public_repository
-  take_landing_lock
   said="$(git fetch origin 2>&1)" || die "could not reach origin: $said"
   default="$(origin_default_branch)" || exit 1
   if [ "${#waited_tips[@]}" -gt 0 ]; then
-    # The public repository: the merge commit made and checked before the lock lands as it is, if nothing moved
+    # The public repository: the merge commit made and checked under the lock lands as it is, if nothing moved
     now="$(git rev-parse "origin/$default^{commit}")" || die "origin/$default is not there after the fetch"
     if [ "$now" != "$base_tip" ]; then
       round_cause="origin/$default moved from $base_tip to $now while the checks of $merged_sha ran"
@@ -589,12 +576,12 @@ own_repo="$(default_repo 2>/dev/null)" || own_repo=""
 own="$(printf '%s' "$own_repo" | tr 'A-Z' 'a-z')"
 { for position in "${!issue_numbers[@]}"; do
     first_repo="${issue_refs[position]%#*}"
-    echo "next: ai-core finish-issue ${first_repo:+$first_repo }${issue_numbers[position]}"
+    echo "next: ai-core finish-issue ${first_repo:+$first_repo }${issue_numbers[position]}$part"
   done
   for merge_sha in "${merge_shas[@]}"; do git log --reverse --format='%s' "$merge_sha^1..$merge_sha^2"; done | while IFS= read -r line; do
     { grep -oE '\(([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)?#[0-9]+\)' <<< "$line" || true; } | tr -d '()' | while IFS= read -r named; do
       landed_repo="${named%#*}"
       [ "$(printf '%s' "$landed_repo" | tr 'A-Z' 'a-z')" != "$own" ] || landed_repo=""
-      echo "next: ai-core finish-issue ${landed_repo:+$landed_repo }${named##*#}"
+      echo "next: ai-core finish-issue ${landed_repo:+$landed_repo }${named##*#}$part"
     done
   done; } | awk '!seen[tolower($0)]++'

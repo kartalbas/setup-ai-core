@@ -195,7 +195,7 @@ fi
 # <project folder>/.worktrees/<repository>/integrate-<issue number>.XXXXXX until the landing's EXIT trap
 # removes it. A landing killed before that leaves it, and nothing else names it. It is named here and never
 # removed: a landing that still runs holds ai-core-landing in the git directory of the clone, with its process
-# id and its issue, so a folder whose issue is not the one a running process holds is a leftover. The command
+# id, its issue and its branch, so a folder whose issue is not the one a running process holds is a leftover. The command
 # that removes it is for the person to run.
 for tree in "$(project_folder_of "$PWD")"/.worktrees/*/integrate-[0-9]*.??????/; do
   [ -d "$tree" ] || continue
@@ -206,8 +206,8 @@ for tree in "$(project_folder_of "$PWD")"/.worktrees/*/integrate-[0-9]*.??????/;
   held=""
   if [ -e "$checkout/.git" ] && common="$(git -C "$checkout" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" \
      && holder="$(cat "$common/ai-core-landing" 2>/dev/null)"; then
-    pid="${holder%%$'\t'*}"
-    case "$pid" in ''|*[!0-9]*) ;; *) if ps -p "$pid" >/dev/null 2>&1 && [ "${holder##*#}" = "$number" ]; then held=1; fi ;; esac
+    pid="${holder%%$'\t'*}"; holder_issue="$(cut -f2 <<< "$holder")"
+    case "$pid" in ''|*[!0-9]*) ;; *) if ps -p "$pid" >/dev/null 2>&1 && [ "${holder_issue##*#}" = "$number" ]; then held=1; fi ;; esac
   fi
   [ -z "$held" ] || continue
   listed=""; [ ! -e "$checkout/.git" ] || listed="$(git -C "$checkout" worktree list --porcelain 2>/dev/null || true)"

@@ -97,6 +97,12 @@ for arg in "$@"; do
     echo "PRE_PUSH_LOAD_WAIT_SECONDS 0 the check starts at once: the load is still measured once for the"
     echo "record, and a reading that fails is said and recorded as -, never as a number."
     echo ""
+    echo "The gate keeps the output of scripts/check.sh in a log with the seconds since the check started on"
+    echo "every line, and shows it as the check wrote it. When the check ends, red or green, the gate prints"
+    echo "the five longest gaps of a second or more between two lines of the output, longest first, each with"
+    echo "the line that came before the gap, so that a slow step shows by name; the run record keeps the total"
+    echo "seconds and the check's own last line, without the seconds."
+    echo ""
     echo "Right before scripts/check.sh starts, the published copy of every neighbour that a link beside the"
     echo "worktree leads to is brought to the newest commit of its origin, unless it holds a change or a commit"
     echo "its origin lacks: that copy stays, and the gate names it. The gate prints the commit each copy stands"
@@ -145,7 +151,13 @@ for arg in "$@"; do
     echo "                    check), the seconds scripts/check.sh took (the wait for a lower load not"
     echo "                    counted), its last line and the load at check start (- where none was"
     echo "                    measured, as in a run recorded before the field existed). Every run of"
-    echo "                    the gate appends one, to \${AI_CORE_HOME:-\$HOME}/.ai-core/pre-push-runs.tsv"
+    echo "                    the gate appends one, to \${AI_CORE_HOME:-\$HOME}/.ai-core/pre-push-runs.tsv."
+    echo "                    A row with the verdict landing lock is no run of the gate: a landing"
+    echo "                    appends it when it gives up the landing lock of its clone, with the"
+    echo "                    seconds it held it, and a landing that waits for the lock stops when one"
+    echo "                    holder has held it for longer than one and a half times the longest hold"
+    echo "                    of the repository in the last 14 days, and never before the sum of the"
+    echo "                    configured bounds a holder may spend under the lock"
     echo "  --repo OWNER/REPO With --runs: the runs of that repository only"
     echo "  --since TIME      With --runs: the runs at or after TIME, in UTC as recorded (2026-10-20T06:00)"
     echo "  -h, --help        Show this help message"
@@ -192,6 +204,7 @@ fi
 . "$CORE_ROOT/lib/layers.sh"
 . "$CORE_ROOT/lib/neighbours.sh"
 . "$CORE_ROOT/lib/landing-check.sh"
+. "$CORE_ROOT/lib/gate-timing.sh"
 GATE_REFUSAL=""
 refuse() { GATE_REFUSAL="$*"; GATE_REFUSAL="${GATE_REFUSAL%%$'\n'*}"; echo "pre-push: REFUSED — $*" >&2; exit 1; }
 
@@ -522,22 +535,6 @@ head="$(git rev-parse HEAD 2>/dev/null)" || { echo "error: this repository has n
 # EVERY RUN OF THE GATE LEAVES ONE RECORD on this machine, because what a push checked is printed
 # only in the terminal of whoever pushed: pre-push --runs reads them back.
 GATE_CHECK=absent; GATE_CHECK_SECONDS=-; GATE_CHECK_LAST=""; GATE_COMMIT=""; GATE_LOAD=-
-# write_gate_run <row>: a new log is made whole, header and first row, and linked into place, so two
-# gates that both find none cannot both write a header; a log that exists, whatever header it carries,
-# only gets the row, appended in one write. Where the new log cannot be linked into place and none stands
-# there afterwards, the run is not recorded: the status is 1, and no second way writes a header.
-write_gate_run() {
-  local row="$1" made linked
-  if [ ! -e "$GATE_RUNS_FILE" ]; then
-    made="$(mktemp "$GATE_RUNS_FILE.XXXXXX")" || return 1
-    printf '%s\n%s\n' "$GATE_RUNS_HEADER" "$row" > "$made" && ln "$made" "$GATE_RUNS_FILE" 2>/dev/null
-    linked=$?
-    rm -f "$made"
-    [ "$linked" -ne 0 ] || return 0
-    [ -e "$GATE_RUNS_FILE" ] || return 1
-  fi
-  printf '%s\n' "$row" >> "$GATE_RUNS_FILE"
-}
 record_gate_run() {
   local rc=$? verdict repository last
   if [ "$rc" -ne 0 ]; then verdict=red; elif [ "$GATE_CHECK" = green ]; then verdict=green; else verdict="no check"; fi
@@ -545,7 +542,7 @@ record_gate_run() {
   last="$GATE_CHECK_LAST"; [ "$GATE_CHECK" = red ] || [ -z "$GATE_REFUSAL" ] || last="$GATE_REFUSAL"
   repository="$(git -C "$root" remote get-url origin 2>/dev/null | sed 's#\.git$##; s#.*[:/]\([^/:]*/[^/:]*\)$#\1#')"
   if mkdir -p "$(dirname "$GATE_RUNS_FILE")" 2>/dev/null; then
-    write_gate_run "$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${repository:--}" "$root" "${GATE_COMMIT:-$head}" \
+    gate_runs_append "$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${repository:--}" "$root" "${GATE_COMMIT:-$head}" \
       "$verdict" "$GATE_CHECK_SECONDS" "$(printf '%s' "$last" | tr '\t\n' '  ')" "$GATE_LOAD")" \
       || echo "pre-push: this run could not be recorded in $GATE_RUNS_FILE" >&2
   else
@@ -1151,10 +1148,17 @@ if [ -f "$root/scripts/check.sh" ] && [ "$check_skipped" -eq 0 ]; then
     echo "pre-push: $root/scripts/check.sh runs for $head: ${check_reason:-no check of this landing has run yet}."
   fi
   check_started="$(date +%s)"; check_rc=0
-  # Both streams go to the log, so its last line is the check's last word on either of them
-  with_caller_git_config with_sign_in_line neighbour_unlocked bash "$root/scripts/check.sh" 2>&1 | tee "$TMPD/check.log" || check_rc=$?
+  # Both streams go to the log, each line with the seconds since the check started, so its last line is the check's last word on either of them
+  with_caller_git_config with_sign_in_line neighbour_unlocked bash "$root/scripts/check.sh" 2>&1 | timed_tee "$TMPD/check.log" || check_rc=$?
   GATE_CHECK_SECONDS=$(( $(date +%s) - check_started ))
-  GATE_CHECK_LAST="$(grep -v '^[[:space:]]*$' "$TMPD/check.log" | tail -1)"
+  GATE_CHECK_LAST="$(check_last_line "$TMPD/check.log")"
+  gaps="$(check_longest_gaps "$TMPD/check.log" 5)"
+  if [ -n "$gaps" ]; then
+    echo "pre-push: the longest gaps between two lines of the check, in seconds, each with the line before the gap:"
+    while IFS=$'\t' read -r gap_seconds gap_line; do echo "pre-push:   ${gap_seconds}s after: $gap_line"; done <<< "$gaps"
+  else
+    echo "pre-push: the check shows no gap of a second or more between two lines."
+  fi
   GATE_CHECK=green; [ "$check_rc" -eq 0 ] || GATE_CHECK=red
   neighbours_release
   [ "$check_rc" -eq 0 ] || refuse 'a check failed - the lines above name which one.'

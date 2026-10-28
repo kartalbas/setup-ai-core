@@ -60,3 +60,16 @@ gate_runs_timing() {
   read -r GATE_RUNS_TIMED GATE_RUNS_LONGEST GATE_RUNS_UNTIMED GATE_RUNS_UNREADABLE GATE_RUNS_ROWS GATE_RUNS_OLDER <<< "$counted"
   GATE_RUNS_STATE=read
 }
+
+# gate_runs_repository_longest <log> <repository>: the most seconds a check of that repository took in the rows of the last
+# GATE_RUNS_WINDOW_DAYS days, as owner/name; nothing is printed where no check of it ran in them. Fails where the log cannot be read.
+gate_runs_repository_longest() {
+  local start
+  start="$(gate_runs_window_start)" && [ -n "$start" ] || return 1
+  gate_runs_rows "$1" | awk -F'\t' -v start="$start" -v repository="$2" '
+    NF == 8 && $1 >= start && tolower($2) == tolower(repository) && ($5 == "green" || $5 == "red") && $6 ~ /^[0-9]+$/ && length($6) <= 9 {
+      if ($6 + 0 > longest) longest = $6 + 0
+      timed = 1
+    }
+    END { if (timed) print longest }'
+}

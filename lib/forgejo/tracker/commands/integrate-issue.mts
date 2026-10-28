@@ -38,7 +38,10 @@ It refuses, before anything is merged or pushed: an issue that is closed or not 
 account, a worktree with changes (at most twenty named, and their count where there are more), a branch head
 that is not --reviewed-head, a CI_GATE that is neither public nor none, an ignored file of the worktree that
 origin/<default> tracks, which the landing would overwrite, and, at the push, a red gate and, for a public repository
-under CI_GATE=public, checks that are red or unfinished. A default branch that moves while a round runs ends that round
+under CI_GATE=public, checks that are red or unfinished. The landings of one clone take turns: a round holds the landing lock of the clone (lib/landing-lock.sh, the one the
+Bash command takes) from before its fetch until its push ended or was refused; a landing that finds it held names the issue and
+the branch that hold it and waits, at most one and a half times the longest check of the repository in the run log of the gate,
+and then stops with nothing pushed. A default branch that moves while a round runs ends that round
 with nothing pushed to it, and the next round fetches it again, merges onto its new tip and runs the whole gate on that
 merge: at most INTEGRATE_MAX_ROUNDS rounds, the first one counted (3 when the config.env of the checkout sets none, 1 is a
 single attempt), read again before every round; a move is proven by the refusal of origin that git names together with a
@@ -150,6 +153,8 @@ interface Landing {
 }
 
 interface LandingInput {
+  // The issue the landing is named for, as the lock of the clone names it.
+  readonly issue: string;
   readonly units: readonly LandingUnit[];
   readonly defaultBranch: string;
   readonly trailers: readonly string[];
@@ -180,21 +185,24 @@ async function keepReviewedHeads(context: CommandContext, units: readonly Landin
   }
 }
 
-// A reviewed head that another landing brought onto the default branch while the round before ran leaves nothing to merge: git
+// A reviewed head that another landing brought onto the default branch before this round fetched it leaves nothing to merge: git
 // would make no merge commit, and the round would push the tip of origin and record it as this landing.
 async function refuseLandedHeads(context: CommandContext, input: LandingInput, round: number): Promise<void> {
   for (const unit of input.units) {
     if (await context.git.isAncestor(context.cwd, unit.head, `refs/remotes/origin/${input.defaultBranch}`)) {
       throw new PreconditionError(
-        `nothing landed in round ${round}: the reviewed head ${unit.head} of ${unit.branch} reached origin/${input.defaultBranch} while the round before ran, so this landing has nothing left to merge; the same command run again finds it there and writes the records that are missing`,
+        `nothing landed in round ${round}: the reviewed head ${unit.head} of ${unit.branch} reached origin/${input.defaultBranch} before this round fetched it, so this landing has nothing left to merge; the same command run again finds it there and writes the records that are missing`,
       );
     }
   }
 }
 
-// THE ROUNDS: the default branch moving while a round ran ends that round with nothing pushed to the default branch, and the
-// next round fetches it again, merges onto its new tip and runs the whole gate on that merge, at most INTEGRATE_MAX_ROUNDS rounds.
-// A conflict, a red gate or CI, a branch that changed, an unreadable origin and every other refusal end the run at once.
+// THE ROUNDS: a round holds the landing lock of the clone (lib/landing-lock.sh, the lock bin/integrate-issue.sh takes) from before
+// its fetch until its push ended or was refused, so that no other landing of the clone moves the default branch meanwhile. The default
+// branch moving while a round ran ends that round with nothing pushed to the default branch, and the next round takes the lock again,
+// fetches the default branch, merges onto its new tip and runs the whole gate on that merge, at most INTEGRATE_MAX_ROUNDS rounds.
+// A conflict, a red gate or CI, a branch that changed, an unreadable origin, a lock that is not given up by its deadline and every
+// other refusal end the run at once.
 async function landReviewedHeads(context: CommandContext, api: ForgejoClient, input: LandingInput): Promise<Landing> {
   let cause: DefaultBranchMoved | undefined;
   for (let round = 1; ; round += 1) {
@@ -207,16 +215,21 @@ async function landReviewedHeads(context: CommandContext, api: ForgejoClient, in
     }
     if (cause !== undefined) {
       context.stderr(`round ${round} of ${limit}: the round before ended because ${cause.message}; this round fetches origin again, merges onto the new ${input.defaultBranch} and runs the whole gate on that merge\n`);
+    }
+    const taken = await context.harness.takeLandingLock(context.cwd, input.issue, input.units[0]?.branch ?? '', context.stderr);
+    if (!taken.succeeded) throw new PreconditionError(taken.output);
+    try {
       await context.git.fetchBranch(context.cwd, input.defaultBranch);
       await keepReviewedHeads(context, input.units);
       await refuseLandedHeads(context, input, round);
-    }
-    try {
       return await landOnce(context, api, input, round, limit);
     } catch (error) {
       if (!(error instanceof DefaultBranchMoved)) throw error;
       cause = error;
       if (error.notes.length > 0) context.stderr(`${error.notes.join(' ')}\n`);
+    } finally {
+      const released = await context.harness.releaseLandingLock(context.cwd);
+      if (!released.succeeded) context.stderr(`the landing lock could not be released: ${released.output}\n`);
     }
   }
 }
@@ -526,7 +539,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
       head: heads[index] ?? '',
       subject: mergeSubject(read[index]?.title ?? '', unit.branch ?? '', unit.ref, codeRepository),
     }));
-    const landing = await landReviewedHeads(context, api, { units: landingUnits, defaultBranch, trailers: reviewers.map((reviewer) => `Reviewed-by: ${reviewer}`), codeRepository, number: ref.number });
+    const landing = await landReviewedHeads(context, api, { issue: formatIssue(ref), units: landingUnits, defaultBranch, trailers: reviewers.map((reviewer) => `Reviewed-by: ${reviewer}`), codeRepository, number: ref.number });
     landedCommits = landing.commits;
     landedNow = true;
     const finalCommit = landedCommits[landedCommits.length - 1] ?? '';

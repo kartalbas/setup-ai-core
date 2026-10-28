@@ -68,27 +68,32 @@ check('a writer that is the first row model selects the second row, and a Fable 
   deny(['plan','normal-hard'],/no eligible tool for plan normal-hard[\s\S]*row codex:gpt-6-astra[\s\S]*row claude-fable-5-1/);
   setQuota('codex',0);setQuota('claude',0);
 });
-check('work that Opus wrote is reviewed on Fable in every class, and every other writer keeps its reviewer',()=>{
-  const reviewer={mechanical:['high','high'],'normal-hard':['xhigh','xhigh'],'high-risk':['max','max']};
-  for(const [cls,[opus,fable]] of Object.entries(reviewer)){
-    select(['review',cls,'--written-by','claude-opus-5-5'],`claude claude-fable-5-1 ${fable}`);
+check('work that Opus wrote is reviewed on Astra while Codex has quota and on Fable while it has none, and every other writer keeps its reviewer',()=>{
+  const reviewer={mechanical:['high','xhigh','high'],'normal-hard':['xhigh','xhigh','xhigh'],'high-risk':['max','max','max']};
+  for(const [cls,[opus,astra,fable]] of Object.entries(reviewer)){
+    select(['review',cls,'--written-by','claude-opus-5-5'],`codex gpt-6-astra ${astra}`);
     const d=records().at(-1);
     assert.match(d.reasons[0].reason,/row claude-opus-5-5: writer model claude-opus-5-5 is not independent/);
-    assert.deepEqual(d.selected,{tool:'claude',model:'claude-fable-5-1',effort:fable});
+    assert.deepEqual(d.selected,{tool:'codex',model:'gpt-6-astra',effort:astra});
+    setQuota('codex',3);
+    select(['review',cls,'--written-by','claude-opus-5-5'],`claude claude-fable-5-1 ${fable}`);
+    assert.match(records().at(-1).reasons.map(r=>r.reason).join('\n'),/row codex:gpt-6-astra: codex quota fixture exit 3/);
+    setQuota('codex',0);
     for(const writer of ['claude-sonnet-5-5','claude-fable-5-1','gpt-6-astra'])select(['review',cls,'--written-by',writer],`claude claude-opus-5-5 ${opus}`);
   }
   assert.equal(records().at(-1).order,null);
 });
-check('planted review table without the Fable rows refuses Opus-written work and goes red, while a Sonnet writer still selects Opus',()=>{
+check('planted review table without the Astra and Fable rows refuses Opus-written work and goes red, while a Sonnet writer still selects Opus',()=>{
   const template=fs.readFileSync(path.join(source,'templates/.ai-core/models.tsv'),'utf8').split('\n').filter(l=>l&&!l.startsWith('#')).map(l=>l.split('\t'));
-  const withoutFable=template.filter(r=>!(r[1]==='review'&&r[3]==='claude-fable-5-1'));
-  assert.equal(template.length-withoutFable.length,3);
-  table(withoutFable);
-  assert.throws(()=>select(['review','normal-hard','--written-by','claude-opus-5-5'],'claude claude-fable-5-1 xhigh'));
+  const newRow=r=>r[0]==='claude'&&r[1]==='review'&&(r[3]==='claude-fable-5-1'||r[3]==='codex:gpt-6-astra');
+  const withoutNew=template.filter(r=>!newRow(r));
+  assert.equal(template.length-withoutNew.length,6);
+  table(withoutNew);
+  assert.throws(()=>select(['review','normal-hard','--written-by','claude-opus-5-5'],'codex gpt-6-astra xhigh'));
   deny(['review','normal-hard','--written-by','claude-opus-5-5'],/no eligible tool for review normal-hard[\s\S]*claude: row claude-opus-5-5: writer model claude-opus-5-5 is not independent/);
   select(['review','normal-hard','--written-by','claude-sonnet-5-5'],'claude claude-opus-5-5 xhigh');
   table(template);
-  select(['review','normal-hard','--written-by','claude-opus-5-5'],'claude claude-fable-5-1 xhigh');
+  select(['review','normal-hard','--written-by','claude-opus-5-5'],'codex gpt-6-astra xhigh');
   select(['review','normal-hard','--written-by','claude-sonnet-5-5'],'claude claude-opus-5-5 xhigh');
   fs.unlinkSync(path.join(project,'.ai-core/models.tsv'));
 });

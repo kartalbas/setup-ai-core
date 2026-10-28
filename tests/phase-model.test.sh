@@ -87,6 +87,12 @@ check('several rows of a tool are tried in table order, the first eligible answe
   select(['build','high-risk'],'claude wild max');
   table([['claude','build','*','wildfirst','max'],['claude','build','*','wildsecond','low']]);
   select(['build','normal-hard'],'claude wildfirst max');
+  table([['claude','build','normal-hard','first','high'],['claude','build','*','wild','max']]);
+  deny(['build','normal-hard','--written-by','first'],/no eligible tool for build normal-hard/);
+});
+check('a route goes to the row of its destination tool that names its model, with that row\'s effort, not to the first row',()=>{
+  table([['claude','build','normal-hard','codex:second','high'],['codex','build','normal-hard','first','low'],['codex','build','normal-hard','second','max']]);
+  select(['build','normal-hard'],'codex second max');
 });
 check('two rows equal in all five fields are refused as ambiguous, and rows that differ in the effort only are not',()=>{
   table([['claude','build','normal-hard','same','high'],['claude','build','normal-hard','same','high']]);

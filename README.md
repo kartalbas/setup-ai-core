@@ -748,7 +748,7 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    push, hands to that push's Git children alone in `AI_CORE_LANDING_MARK`, and removes on every way
    out: `integrate-issue` (its pushes to `ci/integrate-<branch>` and to the default branch), `release`
    (the commits it sends), `init` (its commit of the `.gitignore` block), `pre-push --install` (its
-   commit of the shims) and `ai-core push` (the commit of a project harness). `init` and
+   commit of the shims), `start-issue` (the start commit of an empty origin, section 8, which the gate takes without a review) and `ai-core push` (the commit of a project harness). `init` and
    `pre-push --install` mark their push only where every commit it adds is one of theirs, with its
    `No-issue:` trailer and its files alone: a commit of somebody else beneath theirs makes it a plain
    push, which the gate refuses on the default branch. It is no override a
@@ -1319,6 +1319,17 @@ a closing keyword before an issue reference (`Fixes #12`, which closes the issue
 any release) or an assistant as author is refused while the commit is made, where the fault costs no
 rewrite. A harness source, which `init` never assembles, gets the same hook from
 `ai-core pre-push --install` in its checkout and its worktrees, and from `start-issue` in a new worktree.
+
+**The first commit of a new repository.** An origin with no branch at all has no default branch to cut
+a worktree from, and the first branch pushed into an empty repository becomes its default branch on
+GitHub and on Forgejo. So `start-issue`, in a clone of such an origin, first starts the default branch:
+it makes one commit with the empty tree and no parent, `Start <owner>/<repo> (#<number>)`, so there is
+nothing to review, and pushes it as the default branch under the mark of a landing. The branch is named
+by the clone's own `HEAD`, which has no commit yet (`git symbolic-ref HEAD`). The push gate takes
+exactly that push, without the review and the live checks that a landing of a branch that goes live
+needs, and refuses a plain push of the default branch and the same commit without the mark. The
+worktree is then cut from `origin/<default>` as always, and `integrate-issue` lands the reviewed branch
+on it like any other. A clone whose `HEAD` branch has commits is refused: push them first.
 
 ### 8.1 The Forgejo tracker
 

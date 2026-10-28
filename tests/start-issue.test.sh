@@ -33,6 +33,7 @@ if [ -e "$fake/refuse-once" ] && [[ "\$a" == *"issues/163"* ]] && [[ "\$a" != *"
   exit 1
 fi
 case "\$a" in
+  *"repo view"*"--json isPrivate"*)                                      echo '{"isPrivate":true}' ;;
   *"repo view"*|"api repos/{owner}/{repo} --jq .full_name"*)            echo 'example-org/example-repo' ;;
   # status-sync's query of the repository's issues names comments and projectItems too
   *"issues(states:OPEN"*)   [ -e "$fake/issues-down" ] && { echo 'the issues are down' >&2; exit 1; }; echo '{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}' ;;
@@ -576,6 +577,80 @@ check 'a closing keyword is refused at the commit' 1 "$rc"
 check 'the refused message made no commit' "$before" "$(git -C "$source_tree" rev-parse HEAD)"
 out="$(cd "$source_tree" && PATH="$root/bin:$PATH" git commit -q --allow-empty -m 'Keep a short subject #173' 2>&1)"; rc=$?
 check 'a short subject is taken'         0 "$rc"
+
+# A new repository has no branch at all, and the first branch pushed into an empty repository becomes its default branch: so the
+# default branch is started first, with one empty commit that goes through the real push gate, and named by the clone's own
+# HEAD, which has no commit. The worktree is cut from it as from any default branch.
+echo 'an empty origin: the default branch is started with a start commit that holds nothing, the push gate takes it, and the worktree is cut from it'
+printf '#!/bin/sh\nexec bash "%s/bin/pre-push.sh" "$@"\n' "$root" > "$fake/gate-shim"; chmod +x "$fake/gate-shim"
+mkdir -p "$fake/gate-hooks"; cp "$fake/gate-shim" "$fake/gate-hooks/pre-push"
+fresh_origin="$fake/github.com/example-org/fresh.git"
+fresh="$fake/fresh-checkouts/fresh"
+mkdir -p "$(dirname "$fresh_origin")" "$(dirname "$fresh")"
+git init -q --bare -b trunk "$fresh_origin"
+git init -q -b trunk "$fresh"; dress "$fresh"; harness_data "$fresh"
+git -C "$fresh" remote add origin "$fresh_origin"
+git -C "$fresh" config core.hooksPath "$fake/gate-hooks"
+fresh_tree="$fake/fresh-checkouts/.worktrees/fresh/issue-163-read-the-board-whole"
+fresh_before="$(snapshot "$fresh")"
+out="$(cd "$fresh" && PRE_PUSH_LOAD_LIMIT=0 bash "$start" 163 2>&1)"; rc=$?
+fresh_start="$(git --git-dir="$fresh_origin" rev-parse refs/heads/trunk 2>/dev/null)"
+check 'exits zero'                       0 "$rc$([ "$rc" -eq 0 ] || echo " $out")"
+check 'it says that it started the default branch, with the commit' "Started trunk of the empty example-org/fresh with the start commit $fresh_start." "$(grep '^Started ' <<< "$out")"
+check 'the gate took the push'           yes "$(grep -q "^pre-push: trunk of this empty repository starts with ${fresh_start:0:7}" <<< "$out" && echo yes || echo no)"
+check 'the worktree is cut from origin/trunk' "Worktree $fresh_tree on issue-163-read-the-board-whole, cut from origin/trunk." "$(grep '^Worktree ' <<< "$out")"
+check 'origin holds the default branch and nothing else' refs/heads/trunk "$(git --git-dir="$fresh_origin" for-each-ref --format='%(refname)')"
+check 'the worktree stands on the start commit' "$fresh_start" "$(git -C "$fresh_tree" rev-parse HEAD 2>/dev/null)"
+check 'the commit has no parent'         "$fresh_start" "$(git -C "$fresh_tree" rev-list --max-parents=0 HEAD)"
+check 'it holds the empty tree'          "$(git hash-object -t tree /dev/null)" "$(git -C "$fresh_tree" rev-parse 'HEAD^{tree}')"
+check 'its subject names repository and issue' 'Start example-org/fresh (#163)' "$(git -C "$fresh_tree" log -1 --format=%s)"
+check 'the branch of the issue pushes to its own branch' 'origin issue-163-read-the-board-whole' "$(git -C "$fresh" config branch.issue-163-read-the-board-whole.remote) $(git -C "$fresh" config branch.issue-163-read-the-board-whole.merge | sed 's|^refs/heads/||')"
+check 'the checkout is as it was (its HEAD still has no commit)' "$fresh_before" "$(snapshot "$fresh")"
+check 'no temporary worktree is left'    "$fresh_tree" "$(git -C "$fresh" worktree list --porcelain | sed -n 's/^worktree //p' | grep -v "^$fresh$")"
+check 'the state is named'               "The checkout $fresh (branch trunk) has no commit yet. The new worktree starts from origin/trunk and does not see that; the checkout's branch, index, files and commits stay as they were." "$(grep '^The checkout ' <<< "$out")"
+echo 'the whole flow: the branch of the issue is committed and pushed, integrate-issue lands it, and the default branch stays the one the HEAD named'
+echo 'work' > "$fresh_tree/work.txt"; git -C "$fresh_tree" add work.txt; git -C "$fresh_tree" commit -q -m 'Work on the issue (#163)'
+git -C "$fresh_tree" push -q 2>"$fake/plain-push.err"; rc=$?
+check 'the branch of the issue is pushed as any branch' 0 "$rc$([ "$rc" -eq 0 ] || echo " $(cat "$fake/plain-push.err")")"
+check 'the default branch is still the start commit' "$fresh_start" "$(git --git-dir="$fresh_origin" rev-parse refs/heads/trunk)"
+check 'and origin names trunk, not the branch of the issue, as its default' refs/heads/trunk "$(git --git-dir="$fresh_origin" symbolic-ref HEAD)"
+out="$(cd "$fresh_tree" && PRE_PUSH_LOAD_LIMIT=0 bash "$root/bin/integrate-issue.sh" 163 --reviewed-by l4 2>&1)"; rc=$?
+check 'integrate-issue lands the branch: exit 0' 0 "$rc$([ "$rc" -eq 0 ] || echo " $out")"
+check 'the first parent of the merge is the start commit' "$fresh_start" "$(git --git-dir="$fresh_origin" rev-parse refs/heads/trunk^1 2>&1)"
+check 'the second parent is the branch'  "$(git -C "$fresh_tree" rev-parse HEAD)" "$(git --git-dir="$fresh_origin" rev-parse refs/heads/trunk^2 2>&1)"
+check 'its subject names the issue'      'Read the board whole (#163)' "$(git --git-dir="$fresh_origin" log -1 --format=%s refs/heads/trunk)"
+check 'it carries the reviewer'          l4 "$(git --git-dir="$fresh_origin" log -1 --format='%(trailers:key=Reviewed-by,valueonly)' refs/heads/trunk | tr -d '\n')"
+check 'the history of the default branch has one root, the start commit' "$fresh_start" "$(git --git-dir="$fresh_origin" rev-list --max-parents=0 refs/heads/trunk)"
+
+echo 'a push of the start commit that the gate refuses leaves origin empty and cuts nothing'
+git init -q --bare -b trunk "$fake/github.com/example-org/refused.git"
+git init -q -b trunk "$fake/fresh-checkouts/refused"; dress "$fake/fresh-checkouts/refused"; harness_data "$fake/fresh-checkouts/refused"
+git -C "$fake/fresh-checkouts/refused" remote add origin "$fake/github.com/example-org/refused.git"
+mkdir -p "$fake/refuse-hooks"; printf '#!/bin/sh\necho "pre-push: REFUSED - planted"\nexit 1\n' > "$fake/refuse-hooks/pre-push"; chmod +x "$fake/refuse-hooks/pre-push"
+git -C "$fake/fresh-checkouts/refused" config core.hooksPath "$fake/refuse-hooks"
+: > "$log"
+out="$(cd "$fake/fresh-checkouts/refused" && bash "$start" 163 2>&1)"; rc=$?
+check 'exits nonzero'                    yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'it names the refusal'             yes "$(grep -q 'origin did not take the start commit as trunk' <<< "$out" && echo yes || echo no)"
+check 'origin is still empty'            '' "$(git --git-dir="$fake/github.com/example-org/refused.git" for-each-ref)"
+check 'no branch of the issue, no worktree' '' "$(git -C "$fake/fresh-checkouts/refused" for-each-ref --format='%(refname)' 'refs/heads/issue-*')$(git -C "$fake/fresh-checkouts/refused" worktree list --porcelain | grep -c '^worktree ' | grep -v '^1$' || true)"
+check 'the card did not move'            0 "$(grep -c 'oid=OPT_impl' "$log" || true)"
+
+echo 'an empty origin and a clone whose HEAD branch has commits: refused before anything is made'
+git init -q -b trunk "$fake/fresh-checkouts/populated"; dress "$fake/fresh-checkouts/populated"; harness_data "$fake/fresh-checkouts/populated"
+git -C "$fake/fresh-checkouts/populated" remote add origin "$fake/github.com/example-org/refused.git"
+git -C "$fake/fresh-checkouts/populated" commit -q --allow-empty -m 'a commit that origin lacks'
+out="$(cd "$fake/fresh-checkouts/populated" && bash "$start" 163 2>&1)"; rc=$?
+check 'exits nonzero'                    yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'it names the branch with commits' yes "$(grep -q 'origin holds no branch, but the branch trunk of this clone has commits' <<< "$out" && echo yes || echo no)"
+check 'origin is still empty'            '' "$(git --git-dir="$fake/github.com/example-org/refused.git" for-each-ref)"
+
+echo 'an origin that cannot be asked is no empty origin: nothing is made'
+git -C "$fake/fresh-checkouts/refused" remote set-url origin "$fake/nowhere.git"
+out="$(cd "$fake/fresh-checkouts/refused" && bash "$start" 163 2>&1)"; rc=$?
+check 'exits nonzero'                    yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check 'it says so'                       yes "$(grep -q 'could not reach origin' <<< "$out" && echo yes || echo no)"
+check 'no branch of the issue made'      '' "$(git -C "$fake/fresh-checkouts/refused" for-each-ref --format='%(refname)' 'refs/heads/issue-*')"
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

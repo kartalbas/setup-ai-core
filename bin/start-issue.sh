@@ -23,9 +23,16 @@
 # named as OWNER/REPO NUMBER: the worktree is cut here, and the issue's repository is recorded on
 # its branch (git config branch.<branch>.issueRepository), where session-start, integrate-issue and
 # finish-issue read it.
+#
+# AN ORIGIN WITH NO BRANCH AT ALL has no default branch to cut from, and the first branch pushed into an empty
+# repository becomes its default branch, so the default branch is started before anything else reaches origin: one empty
+# commit, "Start <owner>/<repo> (#<number>)", with the empty tree and no parent, so there is nothing to review, is pushed
+# as the default branch, named by the HEAD of the checkout (no commit yet), under the mark of a landing, which the push
+# gate takes for exactly this commit. The worktree is then cut from origin/<default> as always.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/layers.sh"
+. "$ROOT/lib/landing-check.sh"
 
 BIN="$ROOT/bin"
 usage='usage: start-issue.sh [OWNER/REPO] NUMBER'
@@ -52,9 +59,18 @@ fi
 said="$(git fetch origin 2>&1)" \
   || die "could not reach origin: $said - fix the connection first, this worktree is cut from what origin has"
 
-default="$(origin_default_branch)" || exit 1
-origin_tip="$(git rev-parse -q --verify "refs/remotes/origin/$default^{commit}")" \
-  || die "origin has no branch $default to cut the worktree from"
+# An origin with no branch at all has nothing to cut from: its default branch is started below, with a start commit made
+# here, which no ref holds until then. Its name is the one the HEAD of this clone names.
+empty=""
+if origin_is_empty; then
+  empty=1
+  default="$(unborn_default_branch)" || exit 1
+  origin_tip="$(make_start_commit "$(issue_ref "$repo" "$number")")" || exit 1
+else
+  default="$(origin_default_branch)" || exit 1
+  origin_tip="$(git rev-parse -q --verify "refs/remotes/origin/$default^{commit}")" \
+    || die "origin has no branch $default to cut the worktree from"
+fi
 
 # The worktree is cut from origin, so the state of the checkout this runs in reaches it in no way.
 # That checkout is somebody's working copy: it is measured here, read-only, and named after the
@@ -140,6 +156,25 @@ done <<< "$(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes
 [ -z "$clash" ] \
   || die "the name $name is the name of a branch of another issue already: $(printf '%s' "$clash" | paste -sd, - | sed 's/,/, /g') - cutting the worktree would move that branch; finish its issue first"
 [ ! -e "$path" ] || die "$path is already there - use it, or remove it with 'git worktree remove'"
+
+# push_start_commit <commit> <branch>: from a temporary worktree at the commit, because the push gate reads the HEAD it
+# runs in and this clone has none yet
+push_start_commit() {
+  local tree said status=0
+  mkdir -p "$container" && tree="$(mktemp -d "$container/start-$number.XXXXXX")" \
+    || die "no folder for the temporary worktree beside the clone"
+  git worktree add -q --detach "$tree" "$1" || { rm -rf "$tree"; die "the temporary worktree for the start commit could not be made (see above)"; }
+  with_landing_mark "$tree" "$1" "refs/heads/$2" -- git -C "$tree" push origin "$1:refs/heads/$2" >&2 || status=$?
+  git worktree remove --force "$tree" >/dev/null 2>&1 || rm -rf "$tree"
+  [ "$status" -eq 0 ] || die "origin did not take the start commit as $2 (see above): nothing was cut, and origin is as it was"
+  said="$(git fetch origin 2>&1)" || die "the start commit is on origin as $2, but origin could not be fetched: $said"
+  [ "$(git rev-parse -q --verify "refs/remotes/origin/$2^{commit}")" = "$1" ] \
+    || die "origin/$2 is not the start commit $1 after the push: another session started it; run start-issue again"
+}
+if [ -n "$empty" ]; then
+  push_start_commit "$origin_tip" "$default"
+  echo "Started $default of the empty $(origin_repo) with the start commit $origin_tip."
+fi
 
 mkdir -p "$container"
 # The worktree starts at the commit measured above, not at whatever origin/$default is by now: a

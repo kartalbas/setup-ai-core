@@ -682,19 +682,22 @@ log_header=$'time\trepository\tworktree\tcommit\tverdict\tseconds\tlast line\tlo
 # gate_row <seconds>: a run of the gate in this repository that took that long; hold_row <seconds>: a landing that held the lock that long
 gate_row() { printf '%s\t%s\t%s\t%s\tgreen\t%s\tlast line\t0.5\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$origin_repo" /somewhere aaaa "$1"; }
 hold_row() { printf '%s\t%s\t%s\t-\tlanding lock\t%s\tholder\t-\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$origin_repo" /somewhere "$1"; }
-{ printf '%s\n' "$log_header"; hold_row 600; } > "$run_log"
+# a check of 1 second, no load wait and no CI configure 2 seconds, so the recorded hold sets the deadline
+{ printf '%s\n' "$log_header"; gate_row 1; hold_row 600; } > "$run_log"
 sleep 300 & holder=$!
 plant_lock "$holder" 'example-org/example-repo#8' 'issue-8-holds'
 wt15="$(new_tree 91 measured)"
+mkdir -p "$wt15/.ai-core"; printf 'CI_GATE="none"\nPRE_PUSH_LOAD_WAIT_SECONDS="0"\n' > "$wt15/.ai-core/config.env"
 land_while_held "$wt15" 91
 kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
 check 'a hold of 600 seconds is recorded: the landing waits, and lands when the lock is released' 0 "$rc"
 check 'the deadline is one and a half times the longest hold, and it says measured' yes "$(grep -qE "^deadline: [0-9T:Z-]+ for this holder, 900 seconds after it took the lock; measured: one and a half times the 600 seconds of the longest hold of the landing lock of $origin_repo" <<< "$out" && echo yes || echo no)"
 check 'the landing recorded its own hold' 1 "$(awk -F'\t' '$5 == "landing lock" && $6 != 600' "$run_log" | wc -l | tr -d ' ')"
-{ printf '%s\n' "$log_header"; hold_row 1; } > "$run_log"
+{ printf '%s\n' "$log_header"; gate_row 1; hold_row 1; } > "$run_log"
 sleep 300 & holder=$!
 plant_lock "$holder" 'example-org/example-repo#8' 'issue-8-holds'
 wt16="$(new_tree 92 deadline)"
+mkdir -p "$wt16/.ai-core"; printf 'CI_GATE="none"\nPRE_PUSH_LOAD_WAIT_SECONDS="0"\n' > "$wt16/.ai-core/config.env"
 before_deadline="$(tip)"
 out="$(integrate "$wt16" 92 --reviewed-by l4)"; rc=$?
 check 'a hold of one second is recorded: at the deadline for the holder the landing stops, exit 1' 1 "$rc"
@@ -721,7 +724,7 @@ check 'a check of one second is on record and the holder holds the lock 6 second
 check 'the deadline is configured: 2 seconds of the check, 300 of the load wait and 1800 of the CI wait' yes "$(grep -qE "^deadline: [0-9T:Z-]+ for this holder, 2102 seconds after it took the lock; configured, not measured \(no hold of the landing lock of $origin_repo is recorded in the last 14 days of $run_log\): one and a half times the 1 seconds of the longest check of $origin_repo, PRE_PUSH_LOAD_WAIT_SECONDS 300, AI_CORE_INTEGRATE_WAIT 1800 because CI_GATE is public" <<< "$out" && echo yes || echo no)"
 # planted: the allowance is only one and a half times the longest check, as it was before the holds were recorded
 mkdir -p "$fake/check-only"; cp -R "$root/bin" "$root/lib" "$root/VERSION" "$fake/check-only/" 2>/dev/null
-sed -i 's/^  LANDING_LOCK_SECONDS=\$(( (3 \* base + 1) \/ 2 + load + wait ))$/  LANDING_LOCK_SECONDS=$(( (3 * base + 1) \/ 2 ))/' "$fake/check-only/lib/landing-lock.sh"
+sed -i 's/^  configured=\$(( (3 \* base + 1) \/ 2 + load + wait ))$/  configured=$(( (3 * base + 1) \/ 2 ))/' "$fake/check-only/lib/landing-lock.sh"
 cmp -s "$root/lib/landing-lock.sh" "$fake/check-only/lib/landing-lock.sh" && { echo "  FAIL the planted copy with the check alone equals lib/landing-lock.sh"; failed=$((failed + 1)); }
 sleep 300 & holder=$!
 plant_lock "$holder" 'example-org/example-repo#8' 'issue-8-loads'

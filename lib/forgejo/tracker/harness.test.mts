@@ -145,6 +145,12 @@ describe('the landing lock of a clone', () => {
   const pending = (promise: Promise<unknown>): Promise<boolean> => Promise.race([promise.then(() => false), new Promise<boolean>((done) => setTimeout(() => done(true), 3000))]);
   const clock = (secondsAgo: number): string => new Date(Date.now() - secondsAgo * 1000).toISOString().replace(/\.\d+Z$/, 'Z');
   const holdRow = (seconds: number): string => `${clock(0)}\to/lock-shop\t/somewhere\t-\tlanding lock\t${seconds}\tholder\t-\n`;
+  // A check of 1 second, with no load wait and no CI in the settings, configures 2 seconds, so a recorded hold sets the deadline
+  const checkRow = `${clock(0)}\to/lock-shop\t/somewhere\taaaa\tgreen\t1\tlast line\t0.5\n`;
+  const configureTwoSeconds = (): void => {
+    mkdirSync(join(checkout, '.ai-core'), { recursive: true });
+    writeFileSync(join(checkout, '.ai-core', 'config.env'), 'CI_GATE="none"\nPRE_PUSH_LOAD_WAIT_SECONDS="0"\n');
+  };
   // The lock of a landing that took it that many seconds ago
   const plantLock = (issue: string, branch: string, secondsAgo: number): void =>
     writeFileSync(lockFile, `${process.pid}\t${issue}\t${branch}\t${Math.floor(Date.now() / 1000) - secondsAgo}\to/lock-shop\n`);
@@ -173,13 +179,14 @@ describe('the landing lock of a clone', () => {
   });
 
   it('stops a waiting landing when one holder has held the lock for longer than one and a half times the longest recorded hold, and names the holder (innocent case: a hold of 600 seconds waits on)', async () => {
-    writeFileSync(runLog, header + holdRow(1));
+    configureTwoSeconds();
+    writeFileSync(runLog, header + checkRow + holdRow(1));
     plantLock('o/lock-shop#3', 'issue-3-first', 5);
     const refused = await bashHarness.takeLandingLock(checkout, 'o/lock-shop#4', 'issue-4-second', () => undefined);
     assert.equal(refused.succeeded, false);
     assert.match(refused.output, new RegExp(`^nothing landed: the landing lock is still held by o/lock-shop#3 on issue-3-first \\(process ${process.pid}\\), which took it at \\d{4}-[\\d:T-]+Z and held it \\d+ seconds, longer than the 2 seconds of its deadline \\(measured: one and a half times the 1 seconds of the longest hold of the landing lock of o/lock-shop`));
     assert.equal(fields()[1], 'o/lock-shop#3', 'the lock of the holder stands');
-    writeFileSync(runLog, header + holdRow(600));
+    writeFileSync(runLog, header + checkRow + holdRow(600));
     const shown: string[] = [];
     const waiting = bashHarness.takeLandingLock(checkout, 'o/lock-shop#5', 'issue-5-third', (text) => shown.push(text));
     assert.equal(await pending(waiting), true, 'with a hold of 600 seconds on record the landing waits on');
@@ -191,7 +198,8 @@ describe('the landing lock of a clone', () => {
   });
 
   it('says the words of a refusal once: the lines shown while it waits do not hold them', async () => {
-    writeFileSync(runLog, header + holdRow(1));
+    configureTwoSeconds();
+    writeFileSync(runLog, header + checkRow + holdRow(1));
     plantLock('o/lock-shop#6', 'issue-6-first', 5);
     const shown: string[] = [];
     const refused = await bashHarness.takeLandingLock(checkout, 'o/lock-shop#7', 'issue-7-second', (text) => shown.push(text));

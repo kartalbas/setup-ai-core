@@ -14,7 +14,8 @@
 # longer runs takes it over. The deadline counts per holder, from the moment that holder took the lock, so a waiter stops only
 # when one holder has held the lock longer than the allowance, and the landing then stops with nothing pushed. The allowance is
 # one and a half times the longest hold of the repository that the run log records, a row written when a landing gives the lock
-# up; where none is recorded it is the sum of the bounds a holder may spend under the lock, which are configured and not measured.
+# up, and never less than the sum of the bounds a holder may spend under the lock, which are configured and not measured: a
+# landing refused after a second records a short hold, and a holder whose gate waits for the load holds longer than one that did not.
 
 . "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 . "$(dirname "${BASH_SOURCE[0]}")/pre-push-runs.sh"
@@ -44,14 +45,14 @@ landing_lock_setting() {
 
 # landing_lock_allowance <dir> <repository>: sets LANDING_LOCK_SECONDS, the seconds one holder may hold the lock before a wait for
 # it ends, and LANDING_LOCK_BASIS, the words that say where that comes from. Measured, it is one and a half times the longest hold
-# of the repository in the run log. Where none is recorded (no repository, no log, a log that cannot be read, no hold of it) it is
-# configured: one and a half times the longest check of the repository on record, or NEIGHBOUR_INITIAL_CHECK_SECONDS where none is,
-# plus the seconds the gate waits for the load (PRE_PUSH_LOAD_WAIT_SECONDS), plus, where the repository lands on CI
-# (CI_GATE is public), the seconds the checks are waited for (AI_CORE_INTEGRATE_WAIT). Fails with LANDING_LOCK_REFUSAL where a setting
-# is unreadable.
+# of the repository in the run log. Configured, it is one and a half times the longest check of the repository on record, or
+# NEIGHBOUR_INITIAL_CHECK_SECONDS where none is, plus the seconds the gate waits for the load (PRE_PUSH_LOAD_WAIT_SECONDS), plus,
+# where the repository lands on CI (CI_GATE is public), the seconds the checks are waited for (AI_CORE_INTEGRATE_WAIT). It is the
+# measured one where that is no less than the configured one, and the configured one otherwise, also where no hold is recorded (no
+# repository, no log, a log that cannot be read, no hold of it). Fails with LANDING_LOCK_REFUSAL where a setting is unreadable.
 LANDING_LOCK_SECONDS=""; LANDING_LOCK_BASIS=""
 landing_lock_allowance() {
-  local log hold="" check="" reason ci_gate load wait base basis_check basis_ci=""
+  local log hold="" check="" reason ci_gate load wait base basis_check basis_ci="" measured configured
   log="$(gate_runs_file)"
   LANDING_LOCK_SECONDS=""; LANDING_LOCK_BASIS=""
   if [ -z "$2" ]; then reason="origin names no repository, so no hold of it is recorded"
@@ -59,26 +60,31 @@ landing_lock_allowance() {
   elif ! hold="$(gate_runs_repository_longest "$log" "$2" hold)" || ! check="$(gate_runs_repository_longest "$log" "$2" check)"; then
     hold=""; check=""; reason="the run log $log cannot be read"
   else reason="no hold of the landing lock of $2 is recorded in the last $GATE_RUNS_WINDOW_DAYS days of $log"; fi
-  if [ -n "$hold" ]; then
-    LANDING_LOCK_SECONDS=$(( (3 * hold + 1) / 2 ))
-    LANDING_LOCK_BASIS="measured: one and a half times the $hold seconds of the longest hold of the landing lock of $2 in the last $GATE_RUNS_WINDOW_DAYS days of $log"
-    return 0
-  fi
   landing_lock_setting "$1" config_file_value PRE_PUSH_LOAD_WAIT_SECONDS 300 || return 1
   load="$LANDING_LOCK_VALUE"
-  ci_gate="$(cd "$1" && config_file_value CI_GATE public)" || { LANDING_LOCK_REFUSAL="the settings of $1 cannot be read, so CI_GATE is not known"; return 1; }
+  ci_gate="$(cd "$1" && config_file_value CI_GATE public)" || { LANDING_LOCK_REFUSAL="nothing landed: the settings of the project cannot be read, so CI_GATE is not known"; return 1; }
   wait=0
   case "$(printf '%s' "$ci_gate" | tr '[:upper:]' '[:lower:]')" in
     public) landing_lock_setting "$1" config_value AI_CORE_INTEGRATE_WAIT 1800 || return 1
             wait="$LANDING_LOCK_VALUE"
             basis_ci=", AI_CORE_INTEGRATE_WAIT $wait because CI_GATE is public" ;;
     none) ;;
-    *) LANDING_LOCK_REFUSAL="CI_GATE is '$ci_gate' in the settings of $1; it is public or none"; return 1 ;;
+    *) LANDING_LOCK_REFUSAL="nothing landed: CI_GATE is '$ci_gate' in the config.env of the project; it is public or none"; return 1 ;;
   esac
   base="${check:-$NEIGHBOUR_INITIAL_CHECK_SECONDS}"
   if [ -n "$check" ]; then basis_check="the $check seconds of the longest check of $2"
   else basis_check="the $NEIGHBOUR_INITIAL_CHECK_SECONDS seconds of NEIGHBOUR_INITIAL_CHECK_SECONDS, as no check of the repository is on record"; fi
-  LANDING_LOCK_SECONDS=$(( (3 * base + 1) / 2 + load + wait ))
+  configured=$(( (3 * base + 1) / 2 + load + wait ))
+  if [ -n "$hold" ]; then
+    measured=$(( (3 * hold + 1) / 2 ))
+    if [ "$measured" -ge "$configured" ]; then
+      LANDING_LOCK_SECONDS="$measured"
+      LANDING_LOCK_BASIS="measured: one and a half times the $hold seconds of the longest hold of the landing lock of $2 in the last $GATE_RUNS_WINDOW_DAYS days of $log, no less than the $configured seconds configured"
+      return 0
+    fi
+    reason="one and a half times the $hold seconds of the longest hold of the landing lock of $2 in the last $GATE_RUNS_WINDOW_DAYS days of $log make $measured seconds, less than the bounds a holder may spend under the lock"
+  fi
+  LANDING_LOCK_SECONDS="$configured"
   LANDING_LOCK_BASIS="configured, not measured ($reason): one and a half times $basis_check, PRE_PUSH_LOAD_WAIT_SECONDS $load$basis_ci"
 }
 

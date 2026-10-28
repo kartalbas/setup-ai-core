@@ -45,8 +45,9 @@ under CI_GATE=public, checks that are red or unfinished. The landings of one clo
 Bash command takes) from before its fetch until its push ended or was refused; a landing that finds it held names the issue and
 the branch that hold it, since when, and when the deadline for that holder is, and waits. The deadline counts per holder from the
 moment it took the lock: one and a half times the longest time a landing of the repository held it in the last 14 days of the run log
-of the gate (a row every landing writes when it gives the lock up), and where none is recorded the sum of the bounds a holder may spend
-under the lock, configured and not measured: one and a half times the longest check on record (1320 seconds where none is),
+of the gate (a row every landing writes when it gives the lock up), and never less than the sum of the bounds a holder may spend under
+the lock, configured and not measured, which is the deadline where no hold is recorded: one and a half times the longest check on
+record (1320 seconds where none is),
 PRE_PUSH_LOAD_WAIT_SECONDS and, under CI_GATE=public, AI_CORE_INTEGRATE_WAIT. A landing stops with nothing pushed when one holder has
 held the lock longer. A default branch that moves while a round runs ends that round
 with nothing pushed to it, and the next round fetches it again, merges onto its new tip and runs the whole gate on that

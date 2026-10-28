@@ -2,9 +2,9 @@
 # The landing lock of a clone (lib/landing-lock.sh) and the run log it measures a deadline from. What is pinned: a landing records
 # how long it held the lock, in a row of the run log, when it gives the lock up; the allowance of a wait is one and a half times the
 # longest hold of the repository in the last 14 days, a hold of another repository, a row older than that, a check, a row without
-# seconds and an unreadable log never set it; where no hold is recorded the allowance is configured, the sum of one and a half
-# times the longest check on record (or the initial value), the wait for the load and, under CI_GATE=public, the wait for the CI,
-# and it says so; every wait has a deadline in every state; the deadline counts per holder from the moment that holder took the
+# seconds and an unreadable log never set it; it is never less than the configured allowance, the sum of one and a half times the
+# longest check on record (or the initial value), the wait for the load and, under CI_GATE=public, the wait for the CI, which is the
+# allowance where no hold is recorded or the recorded ones make less, and it says so; every wait has a deadline in every state; the deadline counts per holder from the moment that holder took the
 # lock, so three landings at once each wait for one holder at a time; the lock names its holder, the time, and the repository; it
 # is released only by the process that wrote it. Every case runs in a scratch clone with HOME and AI_CORE_HOME in a scratch folder.
 #
@@ -46,17 +46,35 @@ basis() { ( . "$1"; landing_lock_allowance "$clone" "${2-$repository}"; echo "$L
 # plant_lock <pid> <issue> <branch> <seconds ago>: the lock of a landing that took it that long ago
 plant_lock() { printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$(( $(date +%s) - $4 ))" "$repository" > "$lock"; }
 lib="$root/lib/landing-lock.sh"
+# longest_hold <library folder>: the longest hold of the repository that the run log reader of that folder finds
+longest_hold() { ( . "$1/pre-push-runs.sh"; gate_runs_repository_longest "$log" "$repository" hold ); }
 
-echo 'the allowance is one and a half times the longest hold of the repository in the last 14 days'
-settings 'CI_GATE="none"' 'PRE_PUSH_LOAD_WAIT_SECONDS="0"'
+echo 'the longest hold of the repository in the last 14 days is read from the run log; one and a half times it is the allowance where that is no less than the configured one'
 log_of "$(row "$now" Example-Org/Example-Repo 'landing lock' 100)" "$(row "$now" $repository 'landing lock' 40)" "$(row "$now" $repository 'landing lock' 7)"
-check 'the longest of 100, 40 and 7 seconds, in either case of the name, makes 150' 150 "$(allowance "$lib")"
-check 'an odd number rounds up'      2 "$(log_of "$(row "$now" $repository 'landing lock' 1)"; allowance "$lib")"
+check 'the longest of 100, 40 and 7 seconds, in either case of the name, is 100' 100 "$(longest_hold "$root/lib")"
 log_of "$(row "$now" $repository 'landing lock' 10)" "$(row "$now" example-org/other 'landing lock' 5000)" "$(row "$old" $repository 'landing lock' 4000)" \
   "$(row "$now" $repository green 5000)" "$(row "$now" $repository 'landing lock' -)" "$(row "$now" $repository 'landing lock' abc)"
-check 'another repository, a row older than 14 days, a check, and holds without seconds set nothing: 10 seconds make 15' 15 "$(allowance "$lib")"
-check 'the basis says measured, and names the seconds and the repository' "measured: one and a half times the 10 seconds of the longest hold of the landing lock of $repository in the last 14 days of $log" "$(basis "$lib")"
+check 'another repository, a row older than 14 days, a check, and holds without seconds set nothing: 10' 10 "$(longest_hold "$root/lib")"
 check 'the timing of the gate counts no hold among its rows' 'read 1 5000 0 2 3 1' "$( . "$root/lib/pre-push-runs.sh"; gate_runs_timing "$log"; echo "$GATE_RUNS_STATE $GATE_RUNS_TIMED $GATE_RUNS_LONGEST $GATE_RUNS_UNTIMED $GATE_RUNS_UNREADABLE $GATE_RUNS_ROWS $GATE_RUNS_OLDER" )"
+settings 'CI_GATE="none"' 'PRE_PUSH_LOAD_WAIT_SECONDS="0"'
+log_of "$(row "$now" $repository green 1)" "$(row "$now" $repository 'landing lock' 100)"
+check 'a check of 1 second and no load wait configure 2 seconds: the hold of 100 makes 150' 150 "$(allowance "$lib")"
+check 'the basis says measured, and names the seconds, the repository and the configured seconds' "measured: one and a half times the 100 seconds of the longest hold of the landing lock of $repository in the last 14 days of $log, no less than the 2 seconds configured" "$(basis "$lib")"
+log_of "$(row "$now" $repository green 1)" "$(row "$now" $repository 'landing lock' 1)"
+check 'an odd number rounds up, and a measured allowance equal to the configured one is the measured one' '2 measured' "$(allowance "$lib") $(basis "$lib" | cut -d: -f1)"
+
+echo 'a recorded hold never makes the allowance less than the configured one: a refused landing records a short hold, and a holder that waits for the load holds longer'
+settings 'CI_GATE="none"' 'PRE_PUSH_LOAD_WAIT_SECONDS="300"'
+log_of "$(row "$now" $repository green 60)" "$(row "$now" $repository 'landing lock' 1)"
+check 'a hold of 1 second, a check of 60 and a load wait of 300: 90 and 300 make 390, not 2' 390 "$(allowance "$lib")"
+check 'it says configured, names the measured seconds and why they do not count' "configured, not measured (one and a half times the 1 seconds of the longest hold of the landing lock of $repository in the last 14 days of $log make 2 seconds, less than the bounds a holder may spend under the lock): one and a half times the 60 seconds of the longest check of $repository, PRE_PUSH_LOAD_WAIT_SECONDS 300" "$(basis "$lib")"
+log_of "$(row "$now" $repository green 60)" "$(row "$now" $repository 'landing lock' 1000)"
+check 'innocent: a hold of 1000 seconds, longer than the bounds, makes 1500' 1500 "$(allowance "$lib")"
+sed 's/^    if \[ "\$measured" -ge "\$configured" \]; then$/    if true; then/' "$lib" > "$fake/planted-no-floor.sh"
+mkdir -p "$fake/planted-no-floor"; cp "$root/lib/"*.sh "$fake/planted-no-floor/"; cp "$fake/planted-no-floor.sh" "$fake/planted-no-floor/landing-lock.sh"
+cmp -s "$lib" "$fake/planted-no-floor/landing-lock.sh" && { echo "  FAIL the planted copy without the floor equals lib/landing-lock.sh"; failed=$((failed + 1)); }
+log_of "$(row "$now" $repository green 60)" "$(row "$now" $repository 'landing lock' 1)"
+check 'planted: a copy that takes the measured hold alone makes 2 of the hold of 1 second' 2 "$(allowance "$fake/planted-no-floor/landing-lock.sh")"
 
 echo 'planted: a reader that takes the longest hold of any repository, one that counts rows of any age, and one that counts checks as holds'
 planted() {  # planted <name> <sed expression>
@@ -68,10 +86,10 @@ log_of "$(row "$now" $repository 'landing lock' 10)" "$(row "$now" example-org/o
 planted any-repository 's/ && tolower(\$2) == tolower(repository)//'
 planted any-age 's/NF == 8 && \$1 >= start/NF == 8/'
 planted check-as-hold 's/(kind == "hold" ? \$5 == "landing lock" : (\$5 == "green" || \$5 == "red"))/(\$5 == "landing lock" || \$5 == "green")/'
-check 'planted: a reader of every repository takes 5000 seconds' 7500 "$(allowance "$fake/planted-any-repository/landing-lock.sh")"
-check 'planted: a reader of every age takes 4000 seconds' 6000 "$(allowance "$fake/planted-any-age/landing-lock.sh")"
-check 'planted: a reader that counts a check of 3000 seconds as a hold takes 4500' 4500 "$(allowance "$fake/planted-check-as-hold/landing-lock.sh")"
-check 'the real reader of the same log: 10 seconds make 15' 15 "$(allowance "$lib")"
+check 'planted: a reader of every repository takes 5000 seconds' 5000 "$(longest_hold "$fake/planted-any-repository")"
+check 'planted: a reader of every age takes 4000 seconds' 4000 "$(longest_hold "$fake/planted-any-age")"
+check 'planted: a reader that counts a check as a hold takes its 3000 seconds' 3000 "$(longest_hold "$fake/planted-check-as-hold")"
+check 'the real reader of the same log: 10 seconds' 10 "$(longest_hold "$root/lib")"
 
 echo 'where no hold is recorded the allowance is configured: the check, the wait for the load, and under CI_GATE=public the wait for the CI'
 rm -f "$log"; settings 'CI_GATE="none"' 'PRE_PUSH_LOAD_WAIT_SECONDS="300"'
@@ -101,7 +119,7 @@ check 'the settings of the checkout are read: 90, 10 and 50 make 150' 150 "$(all
 settings 'CI_GATE="public"' 'PRE_PUSH_LOAD_WAIT_SECONDS="soon"'
 check 'a load wait that is no number refuses and names the key' "refused: PRE_PUSH_LOAD_WAIT_SECONDS is 'soon' in the settings of $clone; it is a whole number of seconds" "$(allowance "$lib")"
 settings 'CI_GATE="sometimes"'
-check 'a CI_GATE that is neither public nor none refuses and names the key' "refused: CI_GATE is 'sometimes' in the settings of $clone; it is public or none" "$(allowance "$lib")"
+check 'a CI_GATE that is neither public nor none refuses and names the key, in the words of the landings' "refused: nothing landed: CI_GATE is 'sometimes' in the config.env of the project; it is public or none" "$(allowance "$lib")"
 settings 'CI_GATE="none"' 'PRE_PUSH_LOAD_WAIT_SECONDS="0"'
 
 echo 'the lock names its holder, the time it took it and the repository; only the process that wrote it releases it, and the release records the hold'
@@ -119,7 +137,7 @@ bash "$lib" release "$clone" "$holder"
 check 'the holder releases it'       no "$([ -e "$lock" ] && echo yes || echo no)"
 check 'the log was made with its header' "$header" "$(head -n1 "$log")"
 check 'one row records the hold: repository, worktree, verdict, seconds, who' "$repository"$'\t'"$clone"$'\t''-'$'\t''landing lock'$'\t'"7"$'\t'"$repository#1 on issue-1-holder"$'\t''-' "$(sed -n 2p "$log" | cut -f2-8)"
-check 'and the longest hold of the repository is that: 7 seconds make 11' 11 "$(allowance "$lib")"
+check 'and the longest hold of the repository is that: 7 seconds' 7 "$(longest_hold "$root/lib")"
 printf '%s\t%s\t%s\n' "$holder" "$repository#2" issue-2-older > "$lock"
 bash "$lib" release "$clone" "$holder"
 check 'innocent: a lock of an older version names no time and no repository, is released and records nothing' '2 no' "$(wc -l < "$log" | tr -d ' ') $([ -e "$lock" ] && echo yes || echo no)"
@@ -131,7 +149,7 @@ kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
 
 echo 'a second landing waits for each holder up to the allowance counted from the moment that holder took the lock'
 settings 'CI_GATE="none"' 'PRE_PUSH_LOAD_WAIT_SECONDS="0"'
-log_of "$(row "$now" $repository 'landing lock' 1)"
+log_of "$(row "$now" $repository green 1)" "$(row "$now" $repository 'landing lock' 1)"
 sleep 300 & holder=$!
 plant_lock "$holder" "$repository#1" issue-1-holder 5
 out="$(bash "$lib" take "$clone" "$$" "$repository#2" issue-2-second 2>&1)"; rc=$?
@@ -139,7 +157,7 @@ check 'a holder that held it 5 seconds against an allowance of 2: exit 1' 1 "$rc
 check 'the waiting line names the holder, since when it holds the lock and when its deadline is' yes "$(grep -qE "^waiting: $repository#1 on issue-1-holder holds the lock since [0-9T:Z-]+ \(process $holder\); this one lands after it\$" <<< "$out" && grep -qE '^deadline: [0-9T:Z-]+ for this holder, 2 seconds after it took the lock; measured: one and a half times the 1 seconds of the longest hold' <<< "$out" && echo yes || echo no)"
 check 'the refusal names the holder, when it took the lock and how long it held it' yes "$(grep -qE "^nothing landed: the landing lock is still held by $repository#1 on issue-1-holder \(process $holder\), which took it at [0-9T:Z-]+ and held it [0-9]+ seconds, longer than the 2 seconds of its deadline \(measured: " <<< "$out" && echo yes || echo no)"
 check 'the lock of the holder stands' "$holder" "$(cut -f1 "$lock")"
-log_of "$(row "$now" $repository 'landing lock' 100)"
+log_of "$(row "$now" $repository green 1)" "$(row "$now" $repository 'landing lock' 100)"
 plant_lock "$holder" "$repository#1" issue-1-holder 5
 ( bash "$lib" take "$clone" "$$" "$repository#2" issue-2-second > "$fake/waits.out" 2>&1; echo $? > "$fake/waits.rc" ) & waiter=$!
 for _ in $(seq 1 60); do grep -q '^deadline: ' "$fake/waits.out" 2>/dev/null && break; sleep 0.25; done
@@ -172,8 +190,21 @@ behind_holder 5 AI_CORE_INTEGRATE_WAIT=60
 check 'innocent: CI_GATE none, the CI is no part of the landing: the same holder is stopped at 2 seconds, exit 1' 1 "$(cat "$fake/waits.rc")"
 rm -f "$lock"
 
+echo 'a refused landing recorded a hold of 1 second, and the next holder waits for the load: the landing behind it waits on'
+log_of "$(row "$now" $repository green 1)" "$(row "$now" $repository 'landing lock' 1)"
+settings 'CI_GATE="none"' 'PRE_PUSH_LOAD_WAIT_SECONDS="30"'
+behind_holder 5
+check 'the holder keeps the lock 6 seconds against the 2 of the load wait of 30 and the check of 1: the landing took the lock' "0 $$" "$(cat "$fake/waits.rc") $(cut -f1 "$lock")"
+check 'its deadline is configured, and names the hold that made fewer' yes "$(grep -qE '^deadline: [0-9T:Z-]+ for this holder, 32 seconds after it took the lock; configured, not measured \(one and a half times the 1 seconds of the longest hold .* make 2 seconds, less than the bounds a holder may spend under the lock\)' "$fake/waits.out" && echo yes || echo no)"
+rm -f "$lock"
+lib_real="$lib"; lib="$fake/planted-no-floor/landing-lock.sh"
+behind_holder 5
+lib="$lib_real"
+check 'planted: a copy that takes the measured hold alone stops the landing at 2 seconds while the holder works, exit 1' 1 "$(cat "$fake/waits.rc")"
+rm -f "$lock"; settings 'CI_GATE="none"' 'PRE_PUSH_LOAD_WAIT_SECONDS="0"'
+
 echo 'a lock of an older version names no time: the count starts where this wait first saw it'
-log_of "$(row "$now" $repository 'landing lock' 1)"
+log_of "$(row "$now" $repository green 1)" "$(row "$now" $repository 'landing lock' 1)"
 printf '%s\t%s\t%s\n' "$holder" "$repository#1" issue-1-holder > "$lock"
 out="$(timeout 30 bash "$lib" take "$clone" "$$" "$repository#2" issue-2-second 2>&1)"; rc=$?
 check 'it stops at the deadline, not never: exit 1' 1 "$rc"
@@ -203,7 +234,7 @@ rcs="$fake/three"; rm -f "$rcs".*
 pids=""; for n in 11 12 13; do ( landing "$n"; echo $? > "$rcs.$n" ) & pids="$pids $!"; done
 wait $pids
 check 'the three landings all took the lock and gave it up' '0 0 0' "$(cat "$rcs.11") $(cat "$rcs.12") $(cat "$rcs.13")"
-check 'and each recorded its hold of 4 seconds' 3 "$(awk -F'\t' '$5 == "landing lock" && $6 == 4' "$log" | wc -l | tr -d ' ')"
+check 'and each recorded its hold of at least 4 seconds, in whole seconds from its take to its release' 3 "$(awk -F'\t' '$5 == "landing lock" && $6 >= 4' "$log" | wc -l | tr -d ' ')"
 echo 'planted: a deadline counted from the start of the wait stops the third landing'
 sed -e 's/^      holder_since="\$(landing_lock_field "\$holder" 4)"$/      holder_since=""/' -e 's/if \[ "\$holder_pid:\$holder_since" != "\$seen" \]; then$/if [ -z "$seen" ]; then/' "$lib" > "$fake/planted-deadline.sh"
 mkdir -p "$fake/planted-start"; cp "$root/lib/"*.sh "$fake/planted-start/"; cp "$fake/planted-deadline.sh" "$fake/planted-start/landing-lock.sh"

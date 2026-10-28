@@ -90,8 +90,8 @@
 # issue, the branch, the time taken and the repository of the landing. A landing that finds it held names the issue and branch that
 # hold it, since when, and when the deadline for that holder is, and waits. The deadline counts per holder from the moment it took
 # the lock: one and a half times the longest time a landing of the repository held it in the last 14 days of the run log (a row
-# every landing writes when it gives the lock up), and where none is recorded the sum of the bounds a holder may spend under the
-# lock, configured and not measured: one and a half times the longest check on record (1320 seconds where none is),
+# every landing writes when it gives the lock up), and never less than the sum of the bounds a holder may spend under the lock,
+# configured and not measured, which is the deadline where no hold is recorded: one and a half times the longest check on record (1320 seconds where none is),
 # PRE_PUSH_LOAD_WAIT_SECONDS, and, under CI_GATE=public, AI_CORE_INTEGRATE_WAIT. A landing stops with nothing pushed when one
 # holder has held the lock longer; one whose holder no longer runs takes it over. A round gives it up before the next one takes it again.
 

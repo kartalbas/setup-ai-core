@@ -971,11 +971,14 @@ on the machine that runs the agent.
 | Option | Effect |
 | :--- | :--- |
 | `ai-core init [TARGET_DIR]` | the repository to equip; default is the current directory |
-| `--all <folder>` | run `init` in every git repository directly under the folder that carries the harness (its `.ai-core/STAMP` exists; a harness clone `<name>-ai-core` counts as carrying it, and `init` is never run in it) and in every worktree under its `.worktrees/` whose checkout does, then in the folder itself (section 5.8); any other repository is named in a line `skipped: <name> carries no harness; ai-core init <path> installs it`, counted in the summary and touched in no way: no file, hook, exclude entry, git configuration, forge call, fetch or sweep of its worktrees; `doctor` runs once; a failing repository is named in the summary and the exit code is 1, a skipped one does not change it |
+| `--all <folder>` | run `init` in the folder itself (section 5.8), then in every git repository directly under it that carries the harness (its `.ai-core/STAMP` exists; a harness clone `<name>-ai-core` counts as carrying it, and `init` is never run in it) and in every worktree under its `.worktrees/` whose checkout does; any other repository is named in a line `skipped: <name> carries no harness; ai-core init <path> installs it`, counted in the summary and touched in no way: no file, hook, exclude entry, git configuration, forge call, fetch or sweep of its worktrees; `doctor` runs once; a failing repository is named in the summary and the exit code is 1, a skipped one does not change it |
 | `--no-doctor` | do not run `doctor` first (CI, or a machine you have checked yourself) |
 | `--dry-run` | write nothing; print the report of what the run would create, refresh, keep and remove; `doctor` runs without installing; with `--all` every repository that carries the harness gets its dry run |
 | `-h`, `--help` | usage |
 
+Choose one `TARGET_DIR` or one `--all <folder>`. `--all` takes one folder and cannot be combined
+with `TARGET_DIR`. An extra folder is named and refused with exit 1 before anything is written,
+before `doctor` runs or a worktree is locked. Run `init` once per folder.
 An unknown option is an error.
 
 ### 5.5 What `init` does, in order
@@ -1079,12 +1082,12 @@ with a default in its place.
 ### 5.8 Many repositories
 
 The unit of installation is one repository checkout. For a project with many repositories in one
-folder, one command runs `init` in each git repository directly under it that carries the harness (its `.ai-core/STAMP`
+folder, one command runs `init` in the folder itself, then in each git repository directly under it that carries the harness (its `.ai-core/STAMP`
 exists) and in each worktree `start-issue` put under the `.worktrees/` of such a checkout. It names each other
 repository in a line that says `ai-core init <path>` installs the harness there, and touches it in no way: what you
 clone for your own reading stays as it is until you say what to do with it. It also skips the folders that are not repositories and the temporary
 worktree of a landing (`integrate-<issue>.XXXXXX`, which `integrate-issue --from-origin` removes when it ends), names the
-ones that failed, and then equips the folder itself:
+ones that failed:
 
 ```bash
 ai-core init --all ~/repos/myorg
@@ -1150,7 +1153,7 @@ board commands are refused there. Every other command, with any tracker, is Bash
 | `session-start` | `ai-core session-start [--json]`; the JSON says `refused`, and a refusal carries the lines of the team modes; source checkouts validate source inputs without assembly; in a worktree named `issue-<n>-…` it prints the thread of issue `<n>`, of the repository `start-issue` recorded on the branch; where that thread cannot be read, the run is ready WITHOUT the issue and says why | 0 ready; 1 a team mode, product rules, or valid source inputs missing |
 | `solution-path` | `ai-core solution-path <issue> <file> [--check]` | section 7 |
 | `rules-check` | `ai-core rules-check [file-or-directory]`; default `.ai-core/rules/rules.md`, or the `rules/` directory of setup-ai-core; a directory means its `NN-*.md` section files; a project harness (a directory with `rules/`, `skills/` or `agents/`) is checked whole: every skill has a front matter with its folder's name and a description, every agent a name and a description and no model below Sonnet, then its rule sections | 0 every rule tagged and nothing wrong in the harness; 1 otherwise |
-| `init` | `ai-core init [dir] [--all <folder>] [--no-doctor] [--dry-run]`; the commit it makes of the `.gitignore` block is pushed to the checked-out branch with the mark of a harness landing, so the armed push gate lets it through | 0 in place, or dry; 1 doctor failed, or a repository under `--all` failed |
+| `init` | `ai-core init [TARGET_DIR \| --all <folder>] [--no-doctor] [--dry-run]`; the commit it makes of the `.gitignore` block is pushed to the checked-out branch with the mark of a harness landing, so the armed push gate lets it through | 0 in place, or dry; 1 invalid arguments, doctor failed, or a repository under `--all` failed |
 | `map` | `ai-core map [dir] [--all <folder>] [--no-push] [--dry-run]` | 0 written (or unchanged, or dry); 1 no harness, `~/.ai-core/claude-run-settings.json` missing for a `claude` run, the agent CLI failed or wrote something that is not a map, or a repository under `--all` failed |
 | `push` | `ai-core push [MESSAGE] [--harness <name>]`; runs `rules-check` on a clone with changes first and does not commit one it refuses; the first paragraph of MESSAGE, its lines joined by a space, is the subject of the commit and has at most 72 characters, or nothing is committed, and the message it writes itself names as many changed files as fit in 72; pushes with the mark of a harness landing, so a push gate armed in the clone lets it through; then refreshes the checkout it runs in with `init`, unless that is a harness repository, where `init` refuses | 0 every harness clone pushed or had nothing; 1 no clone, a clone `rules-check` refused, a commit or a push failed; 2 a wrong argument or a subject over 72 characters |
 | `update` | `ai-core update [--check] [--main]` (section 5.10) | 0 done, or `--check`: everything current; 2 `--check`: a release or commits available; 1 an origin could not be reached |

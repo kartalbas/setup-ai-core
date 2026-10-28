@@ -84,6 +84,18 @@ arm_message_hook() {
   echo written
 }
 
+# assemble_worktree <worktree> <setup-ai-core root>: products need the checkout's assembled rules;
+# sources read their own rule inputs instead and get only the commit-msg hook.
+assemble_worktree() {
+  if harness_source_of "$1" >/dev/null; then
+    arm_message_hook "$1" "$2" >/dev/null \
+      || echo "the commit-msg hook is NOT written in the worktree, so a message is judged only at the push" >&2
+    echo "Harness source worktree: run ai-core session-start and read its source rules."
+  else
+    bash "$2/bin/init.sh" "$1" --no-doctor
+  fi
+}
+
 # source_rule_dirs <checkout> <setup-ai-core root>: validate local source inputs, base first.
 # Resolving a source must never clone, pull, assemble, or repair it while checking readiness.
 source_rule_dirs() {

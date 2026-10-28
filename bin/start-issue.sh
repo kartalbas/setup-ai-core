@@ -180,14 +180,7 @@ bash "$BIN/finish-issue.sh" --sweep 2>&1 | grep ': landed, removed$' || true
 # covers close (status-sync)
 released_repo="$(resolve_repo "")" && sync_released_cards "$released_repo" ${repo:+"$repo"}
 
-# Products need the checkout's assembled rules; sources read their own rule inputs instead.
-if harness_source_of "$path" >/dev/null; then
-  arm_message_hook "$path" "$ROOT" >/dev/null \
-    || echo "the commit-msg hook is NOT written in the worktree, so a message is judged only at the push" >&2
-  echo "Harness source worktree: run ai-core session-start and read its source rules."
-else
-  bash "$ROOT/bin/init.sh" "$path" --no-doctor \
-    || echo "the harness is NOT complete in the worktree: run 'ai-core init' there before you start" >&2
-fi
+assemble_worktree "$path" "$ROOT" \
+  || echo "the harness is NOT complete in the worktree: run 'ai-core init' there before you start" >&2
 
 "$BIN/issue-thread.sh" ${repo:+"$repo"} "$number" || true

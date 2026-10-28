@@ -97,6 +97,12 @@ for arg in "$@"; do
     echo "PRE_PUSH_LOAD_WAIT_SECONDS 0 the check starts at once: the load is still measured once for the"
     echo "record, and a reading that fails is said and recorded as -, never as a number."
     echo ""
+    echo "The gate keeps the output of scripts/check.sh in a log with the seconds since the check started on"
+    echo "every line, and shows it as the check wrote it. When the check ends, red or green, the gate prints"
+    echo "the five longest gaps of a second or more between two lines of the output, longest first, each with"
+    echo "the line that came before the gap, so that a slow step shows by name; the run record keeps the total"
+    echo "seconds and the check's own last line, without the seconds."
+    echo ""
     echo "Right before scripts/check.sh starts, the published copy of every neighbour that a link beside the"
     echo "worktree leads to is brought to the newest commit of its origin, unless it holds a change or a commit"
     echo "its origin lacks: that copy stays, and the gate names it. The gate prints the commit each copy stands"
@@ -192,6 +198,7 @@ fi
 . "$CORE_ROOT/lib/layers.sh"
 . "$CORE_ROOT/lib/neighbours.sh"
 . "$CORE_ROOT/lib/landing-check.sh"
+. "$CORE_ROOT/lib/gate-timing.sh"
 GATE_REFUSAL=""
 refuse() { GATE_REFUSAL="$*"; GATE_REFUSAL="${GATE_REFUSAL%%$'\n'*}"; echo "pre-push: REFUSED — $*" >&2; exit 1; }
 
@@ -1151,10 +1158,17 @@ if [ -f "$root/scripts/check.sh" ] && [ "$check_skipped" -eq 0 ]; then
     echo "pre-push: $root/scripts/check.sh runs for $head: ${check_reason:-no check of this landing has run yet}."
   fi
   check_started="$(date +%s)"; check_rc=0
-  # Both streams go to the log, so its last line is the check's last word on either of them
-  with_caller_git_config with_sign_in_line neighbour_unlocked bash "$root/scripts/check.sh" 2>&1 | tee "$TMPD/check.log" || check_rc=$?
+  # Both streams go to the log, each line with the seconds since the check started, so its last line is the check's last word on either of them
+  with_caller_git_config with_sign_in_line neighbour_unlocked bash "$root/scripts/check.sh" 2>&1 | timed_tee "$TMPD/check.log" || check_rc=$?
   GATE_CHECK_SECONDS=$(( $(date +%s) - check_started ))
-  GATE_CHECK_LAST="$(grep -v '^[[:space:]]*$' "$TMPD/check.log" | tail -1)"
+  GATE_CHECK_LAST="$(check_last_line "$TMPD/check.log")"
+  gaps="$(check_longest_gaps "$TMPD/check.log" 5)"
+  if [ -n "$gaps" ]; then
+    echo "pre-push: the longest gaps between two lines of the check, in seconds, each with the line before the gap:"
+    while IFS=$'\t' read -r gap_seconds gap_line; do echo "pre-push:   ${gap_seconds}s after: $gap_line"; done <<< "$gaps"
+  else
+    echo "pre-push: the check shows no gap of a second or more between two lines."
+  fi
   GATE_CHECK=green; [ "$check_rc" -eq 0 ] || GATE_CHECK=red
   neighbours_release
   [ "$check_rc" -eq 0 ] || refuse 'a check failed - the lines above name which one.'

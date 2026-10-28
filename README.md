@@ -826,6 +826,11 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    the generated hook, and the lock of a private landing stays held for it, at most the bound. A
    sample reserves no CPU and the load can rise again at once; the wait lowers the chance of a red run
    that has no defect, it guarantees nothing about the load during the check.
+   The output of the check goes into the gate's log with the seconds since the check started on every line,
+   and to the pusher as the check wrote it. When the check ends, red or green, the gate prints the five longest
+   gaps of a second or more between two lines, longest first, each with the line that came before the gap, so
+   that a slow step shows by name (`lib/gate-timing.sh`). The run record keeps the total seconds and the check's
+   own last line, without the seconds.
    A check in a worktree reads its neighbours through `..`, where `ai-core init` linked the published
    copy of each, `.ai-core/neighbours/<neighbour>/origin-<branch>`. Right before the check starts the gate
    asks the origin of each such neighbour, in the order of the names, and brings the copy to the newest

@@ -26,7 +26,7 @@ nothing of it has to survive (`mkdir -p ~/.ai-core/sessions` once):
 ## Start a phase session
 
 `phase-model` calls `ai-core usage --tool agy --model MODEL`. The reading shows it as percent
-left, against `USAGE_STOP_AT` as percent used, and judges only the selected model's group.
+used, against `USAGE_STOP_AT` as percent used, and judges only the selected model's group.
 Exit 3 or 4 skips that tool; a failed reading refuses the whole selection. On refusal,
 do not start or fall back to another tool. The windows are agy's answer of that moment.
 

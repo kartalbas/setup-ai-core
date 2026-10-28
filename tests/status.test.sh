@@ -765,7 +765,7 @@ printf 'Todo\ntesting\nDone\n' > "$work/cmd-columns"
 { cmd_card 1 engine 'A1'; cmd_card 1 tagged 'L1'; } > "$work/cmd-items"
 # the card rows of the tracker, as bin/status.sh hands them to Node: one JSON object a line
 jq -c '{repo: .content.repository.nameWithOwner, number: .content.number, title: .content.title, open: true, status: .status.name, priority: null, parent: null, subs: 0, closedAt: null, createdAt: "2026-01-01T00:00:00Z"}' "$work/cmd-items" > "$work/cmd-rows"
-printf '{"tool":"claude","shown":"used","recorded":%s,"failure":"","windows":[],"readings":[]}\n' "$now" > "$work/usage-snapshot.json"
+printf '{"tool":"claude","recorded":%s,"failure":"","windows":[],"readings":[]}\n' "$now" > "$work/usage-snapshot.json"
 node_status() {  # node_status <testing file or empty for none>
   local files=(--usage-file "$work/usage-snapshot.json"); [ -z "$1" ] || files+=(--testing-file "$1")
   : > "$work/no-agents9"

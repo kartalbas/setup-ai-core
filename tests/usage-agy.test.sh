@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # What `usage --tool agy` makes of agy's answer to /usage: every bucket of every group a window
-# named by its group and shown as what is left, the group of a model found from agy's own answers,
+# named by its group and shown as the share used, the group of a model found from agy's own answers,
 # the limit decided on the share used, the burn measured from the readings the command saved, and
 # a refusal with its reason, never a made-up reading, for everything agy cannot give.
 # The agy of these tests is a planted script on a PATH that holds nothing else of this machine, so

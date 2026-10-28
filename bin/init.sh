@@ -4,13 +4,13 @@
 # a checkout receives only data: the assembled rules, the configuration and the agent files.
 # Every file it touches is recorded and reported at the end; --dry-run reports without writing.
 #
-#   init.sh [TARGET_DIR] [--all <folder>] [--no-doctor] [--dry-run]
+#   init.sh [TARGET_DIR | --all <folder>] [--no-doctor] [--dry-run]
 #
 set -euo pipefail
 
 for arg in "$@"; do
   if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
-    echo "Usage: init.sh [TARGET_DIR] [--all <folder>] [--no-doctor] [--dry-run]"
+    echo "Usage: init.sh [TARGET_DIR | --all <folder>] [--no-doctor] [--dry-run]"
     echo ""
     echo "Installs or refreshes the harness in TARGET_DIR (default: the current directory):"
     echo "the assembled rules and the configuration in .ai-core/, the agent files (AGENTS.md,"
@@ -18,6 +18,9 @@ for arg in "$@"; do
     echo "and in a block of .gitignore. A folder that is no repository but holds repositories is a"
     echo "project folder: it gets an AGENTS.md that lists them. The run ends with what it created,"
     echo "refreshed, kept and removed."
+    echo ""
+    echo "Choose one TARGET_DIR or one --all <folder>. --all takes one folder and cannot be combined"
+    echo "with TARGET_DIR. An extra folder is refused before anything is written; run init once per folder."
     echo ""
     echo "A checkout whose origin is on the Forgejo instance of FORGEJO_URL also signs in git outside every checkout, such as"
     echo "the cache of a package manager: the user's git configuration (git config --global) gets the helper of that instance"
@@ -55,25 +58,24 @@ CORE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [ -d "$CORE_ROOT/templates" ] && [ -f "$CORE_ROOT/VERSION" ] || { echo "error: $CORE_ROOT is not a clone of setup-ai-core; run init from the clone (ai-core init)" >&2; exit 1; }
 
 TARGET="."
-TARGET_GIVEN=0
+FOLDER_GIVEN=0
 RUN_DOCTOR=1
 ALL_DIR=""
 DRY=0
 
-refuse_second_folder() { echo "error: init serves one folder, and '$1' is a second one; run init once per folder" >&2; exit 1; }
+refuse_second_folder() { echo "error: init serves one folder, and '$1' is a second one; --all takes one folder and cannot be combined with TARGET_DIR; run init once per folder" >&2; exit 1; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-doctor) RUN_DOCTOR=0 ;;
     --dry-run) DRY=1 ;;
     --all) shift; [ $# -gt 0 ] || { echo "error: --all needs a folder" >&2; exit 1; }
-           [ -z "$ALL_DIR" ] || refuse_second_folder "$1"; ALL_DIR="$1" ;;
+           [ "$FOLDER_GIVEN" -eq 0 ] || refuse_second_folder "$1"; ALL_DIR="$1"; FOLDER_GIVEN=1 ;;
     -*)       echo "error: unknown option '$1' (see --help)" >&2; exit 1 ;;
-    *)        [ "$TARGET_GIVEN" -eq 0 ] || refuse_second_folder "$1"; TARGET="$1"; TARGET_GIVEN=1 ;;
+    *)        [ "$FOLDER_GIVEN" -eq 0 ] || refuse_second_folder "$1"; TARGET="$1"; FOLDER_GIVEN=1 ;;
   esac
   shift
 done
-[ -z "$ALL_DIR" ] || [ "$TARGET_GIVEN" -eq 0 ] || refuse_second_folder "$TARGET"
 
 # The project's settings are read in the directory a command runs in, so init runs in the one it serves.
 [ -d "${ALL_DIR:-$TARGET}" ] || { echo "error: ${ALL_DIR:-$TARGET} does not exist, so there is nothing to initialize there and nothing is created" >&2; exit 1; }

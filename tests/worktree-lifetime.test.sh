@@ -229,17 +229,26 @@ check 'it names the path'                           yes "$(yes_no grep -qF "erro
 check 'the path does not exist afterwards'          no "$(yes_no test -e "$gone")"
 
 echo 'init serves one folder: a second one is refused before anything is written, and one --all folder runs as before'
-first="$fake/one-folder-a"; second="$fake/one-folder-b"; mkdir -p "$first" "$second"
+first="$fake/one folder [a]"; second="$fake/one folder b"; mkdir -p "$first" "$second"
 before="$(tree_files "$first")$(tree_files "$second")"
-for shape in "--all $first $second" "$first --all $second" "$second --all $first" "$first $second" "--all $first --all $second"; do
-  out="$(bash "$init" $shape --no-doctor 2>&1)"; rc=$?
-  check "init $shape exits 1"                        1 "$rc"
-  check "init $shape names the second folder"        yes "$(yes_no grep -qE "error: init serves one folder, and '($first|$second)' is a second one; run init once per folder" <<< "$out")"
-  check "init $shape writes nothing"                 "$before" "$(tree_files "$first")$(tree_files "$second")"
-done
-out="$(bash "$init" --all "$first" --no-doctor --dry-run 2>&1)"; rc=$?
+refuses_second_folder() {
+  local extra="$1"; shift
+  out="$(bash "$init" "$@" --no-doctor 2>&1)"; rc=$?
+  check "init $* exits 1"                            1 "$rc"
+  check "init $* names the second folder and explains --all" yes "$(yes_no grep -qxF "error: init serves one folder, and '$extra' is a second one; --all takes one folder and cannot be combined with TARGET_DIR; run init once per folder" <<< "$out")"
+  check "init $* writes nothing"                     "$before" "$(tree_files "$first")$(tree_files "$second")"
+}
+refuses_second_folder "$second" --all "$first" "$second"
+refuses_second_folder "$second" "$first" --all "$second"
+refuses_second_folder "$first" "$second" --all "$first"
+refuses_second_folder "$second" "$first" "$second"
+refuses_second_folder "$second" --all "$first" --all "$second"
+refuses_second_folder "$second" --all "$first" "$second" "$fake/third-folder"
+refuses_second_folder "$second" --all "$first" --dry-run "$second"
+refuses_second_folder "$second" --all "" "$second"
+out="$(bash "$init" --all "$first" --no-doctor 2>&1)"; rc=$?
 check 'init --all with one folder runs'             0 "$rc"
-check 'it refuses nothing'                          no "$(yes_no grep -q 'is a second one' <<< "$out")"
+check 'it equipped that folder'                    yes "$(yes_no test -f "$first/.ai-core/STAMP")"
 
 echo 'a leftover under .worktrees/ without .git gets no write; a real project folder and a worktree are initialized as before'
 orphan="$trees/issue-10-orphan"

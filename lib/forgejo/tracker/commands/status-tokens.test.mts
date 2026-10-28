@@ -73,7 +73,7 @@ describe('status --tokens', () => {
     const page = result.stdout.split('\n');
     assert.equal(result.exitCode, 0);
     assert.equal(page[0], 'project · board o/forgejo · Thu 01.01. 12:00');
-    assert.equal(page[1], 'usage   5h 25 % (reset Thu 01.01. 13:00) · limit 92 %');
+    assert.equal(page[1], 'usage   5h 25 % used (reset Thu 01.01. 13:00) · limit 92 % used');
     assert.equal(page[2], 'pace    1 issues closed on the board in the last 24 hours, 0.1 a day over 14 days');
     assert.match(page[3] ?? '', /^cost    /);
     assert.equal(page[4], 'tokens  in 24 hours the sessions of this folder used 1k fresh and read 0 from the cache: 1k fresh and 0 from the cache per closed issue');

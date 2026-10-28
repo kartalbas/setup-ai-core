@@ -157,6 +157,33 @@ export class GitClient {
     throw new GitError(['ls-remote'], undefined, 'cannot read the default branch from origin or from origin/HEAD');
   }
 
+  // Whether origin answers and holds no branch at all; an origin that cannot be asked is not empty.
+  async isOriginEmpty(cwd: string): Promise<boolean> {
+    const asked = await this.run(cwd, ['ls-remote', '--heads', 'origin'], [0, 128]);
+    return asked.exitCode === 0 && asked.stdout.trim() === '';
+  }
+
+  // The branch the first push into an empty origin creates, which the forges make its default branch: the one the HEAD of
+  // the main checkout names, a branch with no commit yet.
+  async getUnbornDefaultBranch(cwd: string): Promise<string> {
+    const common = await this.output(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+    const named = await this.run(cwd, [`--git-dir=${common}`, 'symbolic-ref', '-q', '--short', 'HEAD'], [0, 1]);
+    const branch = named.stdout.trim();
+    if (named.exitCode !== 0 || branch === '') {
+      throw new GitError(['symbolic-ref'], undefined, 'origin holds no branch, and the HEAD of this clone names none, so the name of the default branch that the first push creates is not known');
+    }
+    if ((await this.run(cwd, ['rev-parse', '-q', '--verify', `refs/heads/${branch}`], [0, 1])).exitCode === 0) {
+      throw new GitError(['symbolic-ref'], undefined, `origin holds no branch, but the branch ${branch} of this clone has commits, which the first push would not carry - push them first`);
+    }
+    return branch;
+  }
+
+  // A commit with the empty tree and no parent that no ref holds.
+  async createStartCommit(cwd: string, subject: string): Promise<string> {
+    const emptyTree = await this.output(cwd, ['hash-object', '-t', 'tree', '-w', '/dev/null']);
+    return this.output(cwd, ['commit-tree', emptyTree, '-m', subject]);
+  }
+
   async fetchBranch(cwd: string, branch: string): Promise<void> {
     await this.run(cwd, ['fetch', '--quiet', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`]);
   }

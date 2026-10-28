@@ -263,6 +263,92 @@ describe('start-issue', () => {
   });
 });
 
+// A new repository has no branch at all, and the first branch pushed into an empty repository becomes its default branch: start-issue
+// starts the default branch first, with one empty commit named by the HEAD of the clone, which has no commit.
+describe('start-issue in an empty origin', () => {
+  let counter = 0;
+  function makeEmptyWorld(): World {
+    counter += 1;
+    const full = `o/fresh${counter}`;
+    fake.addRepository(full, { isPrivate: true });
+    const remote = fixture.createEmptyRemote('o', `fresh${counter}`, 'trunk');
+    return { full, remote, checkout: fixture.cloneEmpty(remote, `project-fresh${counter}`, `fresh${counter}`, 'trunk'), second: '' };
+  }
+  const markedPushes = (world: World): string => join(scratch, `marked-pushes-${basename(world.checkout)}.txt`);
+  // The pre-push hook that records the commit checked out where it runs and the mark of the landing it was handed
+  function recordPushes(world: World): void {
+    fixture.installHook(world.checkout, 'pre-push', `unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE; cat > /dev/null; echo "$(git rev-parse HEAD) \${AI_CORE_LANDING_MARK:-none}" >> '${markedPushes(world)}'`);
+  }
+  const emptyTree = (world: World): string => git(world.remote, 'hash-object', '-t', 'tree', '/dev/null');
+
+  it('starts the default branch with an empty root commit under the mark of a landing, then cuts the worktree from it and says so', async () => {
+    const world = makeEmptyWorld();
+    recordPushes(world);
+    const number = newIssue(world, 'Start the new repository, so that it exists');
+    const result = await startIssue.run([String(number)], ctx(world.checkout));
+    const start = git(world.remote, 'rev-parse', 'refs/heads/trunk');
+    assert.equal(git(world.remote, 'branch', '--list').replace(/[* ]/g, ''), 'trunk', 'origin holds the default branch and nothing else');
+    assert.equal(git(world.remote, 'rev-list', '--max-parents=0', 'trunk'), start, 'it has no parent');
+    assert.equal(git(world.remote, 'rev-parse', `${start}^{tree}`), emptyTree(world), 'it holds the empty tree');
+    assert.equal(git(world.remote, 'log', '-1', '--format=%s', start), `Start o/fresh${counter} (#${number})`);
+    const tree = await treeOf(world, number);
+    assert.equal(git(tree, 'rev-parse', 'HEAD'), start);
+    assert.match(result.stdout, new RegExp(`^Started trunk of the empty o/fresh${counter} with the start commit ${start}\\.\\nWorktree .* cut from origin/trunk at ${start}\\.`));
+    assert.equal(readFileSync(markedPushes(world), 'utf8'), `${start} /planted/mark\n`, 'one push, from a tree at the start commit, under a mark');
+    assert.match(fake.readIssue(world.full, number).comments[0] ?? '', new RegExp(`Base: trunk at ${start}\n$`));
+    assert.equal(git(world.checkout, 'symbolic-ref', 'HEAD'), 'refs/heads/trunk', 'the clone still names the branch');
+    assert.throws(() => git(world.checkout, 'rev-parse', '--verify', '-q', 'HEAD'), 'and still has no commit');
+    assert.deepEqual(readdirSync(join(fixture.root, `project-fresh${counter}`, '.worktrees', `fresh${counter}`)).filter((name) => name.startsWith('start-')), [], 'the temporary worktree is gone');
+  });
+
+  it('lands the first work of the new repository on the start commit, and the default branch stays the one the HEAD named (whole flow)', async () => {
+    const world = makeEmptyWorld();
+    const number = newIssue(world, 'Land the first work, so that it is the first');
+    await startIssue.run([String(number)], ctx(world.checkout));
+    const start = git(world.remote, 'rev-parse', 'refs/heads/trunk');
+    const tree = await treeOf(world, number);
+    const branch = must(await client.currentBranch(tree));
+    const head = fixture.commit(tree, 'first.txt', 'first\n');
+    git(tree, 'push', '-q', 'origin', branch);
+    await integrateIssue.run(integrateArguments(world, number, head), ctx(tree));
+    assert.deepEqual(git(world.remote, 'rev-list', '--parents', '-n', '1', 'trunk').split(' ').slice(1), [start, head], 'a merge of the start commit and the reviewed head');
+    assert.equal(git(world.remote, 'symbolic-ref', 'HEAD'), 'refs/heads/trunk', 'the default branch is the one the HEAD of the clone named, not the branch of the issue');
+    assert.equal(git(world.remote, 'rev-list', '--max-parents=0', 'trunk'), start);
+    assert.deepEqual(fake.readIssue(world.full, number).labels, ['status/testing']);
+  });
+
+  it('refuses where the push of the start commit is refused, and cuts and writes nothing (planted: the gate refuses)', async () => {
+    const world = makeEmptyWorld();
+    fixture.installHook(world.checkout, 'pre-push', 'echo "pre-push: REFUSED - planted"; exit 1');
+    const number = newIssue(world, 'Refused start, so that nothing is cut');
+    await assert.rejects(startIssue.run([String(number)], ctx(world.checkout)), (error: unknown) => error instanceof PreconditionError && /origin did not take the start commit as trunk/.test(error.message));
+    assert.equal(git(world.remote, 'branch', '--list'), '', 'origin is still empty');
+    assert.equal((await client.listWorktrees(world.checkout)).length, 1);
+    assert.deepEqual(fake.readIssue(world.full, number).labels, ['status/ready']);
+    assert.equal(fake.readIssue(world.full, number).comments.length, 0);
+  });
+
+  it('refuses where the mark of the push cannot be made, and pushes nothing (planted: no mark)', async () => {
+    const world = makeEmptyWorld();
+    recordPushes(world);
+    const number = newIssue(world, 'No mark, so that nothing is pushed');
+    const harness = createRecordingHarness();
+    harness.failing.add('openLandingMark');
+    await assert.rejects(startIssue.run([String(number)], ctx(world.checkout, {}, harness)), /the mark of this push could not be made/);
+    assert.equal(git(world.remote, 'branch', '--list'), '');
+    assert.equal(existsSync(markedPushes(world)), false, 'the gate never ran');
+  });
+
+  it('refuses where the HEAD branch of the clone has commits that origin lacks, and pushes nothing (planted)', async () => {
+    const world = makeEmptyWorld();
+    fixture.commit(world.checkout, 'local.txt', 'local\n');
+    const number = newIssue(world, 'Populated clone, so that it is refused');
+    await assert.rejects(startIssue.run([String(number)], ctx(world.checkout)), /origin holds no branch, but the branch trunk of this clone has commits/);
+    assert.equal(git(world.remote, 'branch', '--list'), '');
+    assert.deepEqual(fake.readIssue(world.full, number).labels, ['status/ready']);
+  });
+});
+
 describe('start-issue for an issue of another repository whose number a branch of this clone\'s own issue carries', () => {
   it('cuts the worktree beside a local and an origin branch of the own issue of that number, and records the repository (planted: the own branches refused it)', async () => {
     const number = newIssue(sibling, 'Elsewhere with a clashing number, so that the branches differ');

@@ -43,8 +43,12 @@ that is not --reviewed-head, a CI_GATE that is neither public nor none, an ignor
 origin/<default> tracks, which the landing would overwrite, and, at the push, a red gate and, for a public repository
 under CI_GATE=public, checks that are red or unfinished. The landings of one clone take turns: a round holds the landing lock of the clone (lib/landing-lock.sh, the one the
 Bash command takes) from before its fetch until its push ended or was refused; a landing that finds it held names the issue and
-the branch that hold it and waits, at most one and a half times the longest check of the repository in the run log of the gate,
-and then stops with nothing pushed. A default branch that moves while a round runs ends that round
+the branch that hold it, since when, and when the deadline for that holder is, and waits. The deadline counts per holder from the
+moment it took the lock: one and a half times the longest time a landing of the repository held it in the last 14 days of the run log
+of the gate (a row every landing writes when it gives the lock up), and where none is recorded the sum of the bounds a holder may spend
+under the lock, configured and not measured: one and a half times the longest check on record (1320 seconds where none is),
+PRE_PUSH_LOAD_WAIT_SECONDS and, under CI_GATE=public, AI_CORE_INTEGRATE_WAIT. A landing stops with nothing pushed when one holder has
+held the lock longer. A default branch that moves while a round runs ends that round
 with nothing pushed to it, and the next round fetches it again, merges onto its new tip and runs the whole gate on that
 merge: at most INTEGRATE_MAX_ROUNDS rounds, the first one counted (3 when the config.env of the checkout sets none, 1 is a
 single attempt), read again before every round; a move is proven by the refusal of origin that git names together with a
@@ -232,7 +236,7 @@ async function landReviewedHeads(context: CommandContext, api: ForgejoClient, in
       if (error.notes.length > 0) context.stderr(`${error.notes.join(' ')}\n`);
     } finally {
       const released = await context.harness.releaseLandingLock(context.cwd);
-      if (!released.succeeded) context.stderr(`the landing lock could not be released: ${released.output}\n`);
+      if (!released.succeeded) context.stderr(`the landing lock could not be released or its hold not recorded: ${released.output}\n`);
     }
   }
 }

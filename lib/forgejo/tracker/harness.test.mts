@@ -128,12 +128,14 @@ describe('the harness steps', () => {
 });
 
 // The landing lock is the one bin/integrate-issue.sh takes: a file in the git directory of the clone that names the process, the
-// issue and the branch. Both holders here are this process, which stays alive, so each wait is a wait for a live landing.
+// issue, the branch, the time it was taken and the repository. Both holders here are this process, which stays alive, so each wait
+// is a wait for a live landing.
 describe('the landing lock of a clone', () => {
   const remote = fixture.createRemote('o', 'lock-shop');
   const checkout = fixture.clone(remote, 'project', 'lock-shop');
   const lockFile = join(checkout, '.git', 'ai-core-landing');
   const runLog = join(fixture.root, 'ai-core-home', '.ai-core', 'pre-push-runs.tsv');
+  const header = 'time\trepository\tworktree\tcommit\tverdict\tseconds\tlast line\tload at check start\n';
   const saved = process.env.AI_CORE_HOME;
   process.env.AI_CORE_HOME = join(fixture.root, 'ai-core-home');
   after(() => {
@@ -141,43 +143,63 @@ describe('the landing lock of a clone', () => {
     else process.env.AI_CORE_HOME = saved;
   });
   const pending = (promise: Promise<unknown>): Promise<boolean> => Promise.race([promise.then(() => false), new Promise<boolean>((done) => setTimeout(() => done(true), 3000))]);
+  const clock = (secondsAgo: number): string => new Date(Date.now() - secondsAgo * 1000).toISOString().replace(/\.\d+Z$/, 'Z');
+  const holdRow = (seconds: number): string => `${clock(0)}\to/lock-shop\t/somewhere\t-\tlanding lock\t${seconds}\tholder\t-\n`;
+  // The lock of a landing that took it that many seconds ago
+  const plantLock = (issue: string, branch: string, secondsAgo: number): void =>
+    writeFileSync(lockFile, `${process.pid}\t${issue}\t${branch}\t${Math.floor(Date.now() / 1000) - secondsAgo}\to/lock-shop\n`);
+  const fields = (): string[] => readFileSync(lockFile, 'utf8').trimEnd().split('\t');
 
-  it('is waited for by a second landing, which names the issue and the branch that hold it and takes it once it is released', async () => {
+  it('is waited for by a second landing, which names the issue, the branch and the time that hold it and takes it once it is released, and its release records the hold', async () => {
     const shown: string[] = [];
+    mkdirSync(join(fixture.root, 'ai-core-home', '.ai-core'), { recursive: true });
+    rmSync(runLog, { force: true });
     const first = await bashHarness.takeLandingLock(checkout, 'o/lock-shop#1', 'issue-1-first', () => undefined);
     assert.equal(first.succeeded, true, first.output);
-    assert.equal(readFileSync(lockFile, 'utf8'), `${process.pid}\to/lock-shop#1\tissue-1-first\n`);
+    assert.deepEqual([fields()[0], fields()[1], fields()[2], fields()[4]], [String(process.pid), 'o/lock-shop#1', 'issue-1-first', 'o/lock-shop']);
+    assert.match(fields()[3] ?? '', /^\d+$/);
     const second = bashHarness.takeLandingLock(checkout, 'o/lock-shop#2', 'issue-2-second', (text) => shown.push(text));
     assert.equal(await pending(second), true, 'the second landing is still waiting while the first holds the lock');
-    assert.match(shown.join(''), new RegExp(`waiting: o/lock-shop#1 on issue-1-first is landing from this clone \\(process ${process.pid}\\); this one lands after it`));
-    assert.match(shown.join(''), /deadline: none, because no run log stands at /);
+    assert.match(shown.join(''), new RegExp(`waiting: o/lock-shop#1 on issue-1-first holds the lock since \\d{4}-\\d\\d-\\d\\dT[\\d:]+Z \\(process ${process.pid}\\); this one lands after it`));
+    assert.match(shown.join(''), /deadline: \d{4}-\d\d-\d\dT[\d:]+Z for this holder, \d+ seconds after it took the lock; configured, not measured \(no run log stands at /);
     assert.equal((await bashHarness.releaseLandingLock(checkout)).succeeded, true);
     const taken = await second;
     assert.equal(taken.succeeded, true, taken.output);
-    assert.equal(readFileSync(lockFile, 'utf8'), `${process.pid}\to/lock-shop#2\tissue-2-second\n`);
+    assert.deepEqual([fields()[1], fields()[2]], ['o/lock-shop#2', 'issue-2-second']);
     assert.equal((await bashHarness.releaseLandingLock(checkout)).succeeded, true);
     assert.equal(existsSync(lockFile), false, 'the release removes the lock');
+    const rows = readFileSync(runLog, 'utf8').trimEnd().split('\n').slice(1).map((line) => line.split('\t'));
+    assert.deepEqual(rows.map((row) => [row[1], row[4], row[6]]), [['o/lock-shop', 'landing lock', 'o/lock-shop#1 on issue-1-first'], ['o/lock-shop', 'landing lock', 'o/lock-shop#2 on issue-2-second']]);
   });
 
-  it('stops a waiting landing at the deadline, one and a half times the longest recorded check of the repository, and names the holder (innocent case: a check of 600 seconds waits on)', async () => {
-    mkdirSync(join(fixture.root, 'ai-core-home', '.ai-core'), { recursive: true });
-    const row = (seconds: number): string => `${new Date().toISOString().replace(/\.\d+Z$/, 'Z')}\to/lock-shop\t/somewhere\taaaa\tgreen\t${seconds}\tlast line\t0.5\n`;
-    const header = 'time\trepository\tworktree\tcommit\tverdict\tseconds\tlast line\tload at check start\n';
-    writeFileSync(runLog, header + row(1));
-    const first = await bashHarness.takeLandingLock(checkout, 'o/lock-shop#3', 'issue-3-first', () => undefined);
-    assert.equal(first.succeeded, true, first.output);
+  it('stops a waiting landing when one holder has held the lock for longer than one and a half times the longest recorded hold, and names the holder (innocent case: a hold of 600 seconds waits on)', async () => {
+    writeFileSync(runLog, header + holdRow(1));
+    plantLock('o/lock-shop#3', 'issue-3-first', 5);
     const refused = await bashHarness.takeLandingLock(checkout, 'o/lock-shop#4', 'issue-4-second', () => undefined);
     assert.equal(refused.succeeded, false);
-    assert.match(refused.output, new RegExp(`^nothing landed: the landing lock is still held by o/lock-shop#3 on issue-3-first \\(process ${process.pid}\\) after \\d+ seconds, the deadline of one and a half times the 1 seconds of the longest check of o/lock-shop`));
-    assert.equal(readFileSync(lockFile, 'utf8'), `${process.pid}\to/lock-shop#3\tissue-3-first\n`, 'the lock of the holder stands');
-    writeFileSync(runLog, header + row(600));
+    assert.match(refused.output, new RegExp(`^nothing landed: the landing lock is still held by o/lock-shop#3 on issue-3-first \\(process ${process.pid}\\), which took it at \\d{4}-[\\d:T-]+Z and held it \\d+ seconds, longer than the 2 seconds of its deadline \\(measured: one and a half times the 1 seconds of the longest hold of the landing lock of o/lock-shop`));
+    assert.equal(fields()[1], 'o/lock-shop#3', 'the lock of the holder stands');
+    writeFileSync(runLog, header + holdRow(600));
     const shown: string[] = [];
     const waiting = bashHarness.takeLandingLock(checkout, 'o/lock-shop#5', 'issue-5-third', (text) => shown.push(text));
-    assert.equal(await pending(waiting), true, 'with a check of 600 seconds on record the landing waits on');
-    assert.match(shown.join(''), /deadline: 900 seconds, one and a half times the 600 seconds of the longest check of o\/lock-shop/);
-    await bashHarness.releaseLandingLock(checkout);
+    assert.equal(await pending(waiting), true, 'with a hold of 600 seconds on record the landing waits on');
+    assert.match(shown.join(''), /deadline: \S+ for this holder, 900 seconds after it took the lock; measured: one and a half times the 600 seconds of the longest hold of the landing lock of o\/lock-shop/);
+    rmSync(lockFile);
     assert.equal((await waiting).succeeded, true);
     await bashHarness.releaseLandingLock(checkout);
+    rmSync(runLog);
+  });
+
+  it('says the words of a refusal once: the lines shown while it waits do not hold them', async () => {
+    writeFileSync(runLog, header + holdRow(1));
+    plantLock('o/lock-shop#6', 'issue-6-first', 5);
+    const shown: string[] = [];
+    const refused = await bashHarness.takeLandingLock(checkout, 'o/lock-shop#7', 'issue-7-second', (text) => shown.push(text));
+    assert.equal(refused.succeeded, false);
+    assert.match(refused.output, /^nothing landed: the landing lock is still held by o\/lock-shop#6/);
+    assert.match(shown.join(''), /waiting: o\/lock-shop#6 on issue-6-first holds the lock since /);
+    assert.equal(shown.join('').includes('nothing landed'), false, 'the refusal is in the outcome alone, so the command prints it once');
+    rmSync(lockFile);
     rmSync(runLog);
   });
 });

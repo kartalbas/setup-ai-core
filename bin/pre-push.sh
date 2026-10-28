@@ -151,7 +151,12 @@ for arg in "$@"; do
     echo "                    check), the seconds scripts/check.sh took (the wait for a lower load not"
     echo "                    counted), its last line and the load at check start (- where none was"
     echo "                    measured, as in a run recorded before the field existed). Every run of"
-    echo "                    the gate appends one, to \${AI_CORE_HOME:-\$HOME}/.ai-core/pre-push-runs.tsv"
+    echo "                    the gate appends one, to \${AI_CORE_HOME:-\$HOME}/.ai-core/pre-push-runs.tsv."
+    echo "                    A row with the verdict landing lock is no run of the gate: a landing"
+    echo "                    appends it when it gives up the landing lock of its clone, with the"
+    echo "                    seconds it held it, and a landing that waits for the lock stops when one"
+    echo "                    holder has held it for longer than one and a half times the longest hold"
+    echo "                    of the repository in the last 14 days"
     echo "  --repo OWNER/REPO With --runs: the runs of that repository only"
     echo "  --since TIME      With --runs: the runs at or after TIME, in UTC as recorded (2026-10-20T06:00)"
     echo "  -h, --help        Show this help message"
@@ -529,22 +534,6 @@ head="$(git rev-parse HEAD 2>/dev/null)" || { echo "error: this repository has n
 # EVERY RUN OF THE GATE LEAVES ONE RECORD on this machine, because what a push checked is printed
 # only in the terminal of whoever pushed: pre-push --runs reads them back.
 GATE_CHECK=absent; GATE_CHECK_SECONDS=-; GATE_CHECK_LAST=""; GATE_COMMIT=""; GATE_LOAD=-
-# write_gate_run <row>: a new log is made whole, header and first row, and linked into place, so two
-# gates that both find none cannot both write a header; a log that exists, whatever header it carries,
-# only gets the row, appended in one write. Where the new log cannot be linked into place and none stands
-# there afterwards, the run is not recorded: the status is 1, and no second way writes a header.
-write_gate_run() {
-  local row="$1" made linked
-  if [ ! -e "$GATE_RUNS_FILE" ]; then
-    made="$(mktemp "$GATE_RUNS_FILE.XXXXXX")" || return 1
-    printf '%s\n%s\n' "$GATE_RUNS_HEADER" "$row" > "$made" && ln "$made" "$GATE_RUNS_FILE" 2>/dev/null
-    linked=$?
-    rm -f "$made"
-    [ "$linked" -ne 0 ] || return 0
-    [ -e "$GATE_RUNS_FILE" ] || return 1
-  fi
-  printf '%s\n' "$row" >> "$GATE_RUNS_FILE"
-}
 record_gate_run() {
   local rc=$? verdict repository last
   if [ "$rc" -ne 0 ]; then verdict=red; elif [ "$GATE_CHECK" = green ]; then verdict=green; else verdict="no check"; fi
@@ -552,7 +541,7 @@ record_gate_run() {
   last="$GATE_CHECK_LAST"; [ "$GATE_CHECK" = red ] || [ -z "$GATE_REFUSAL" ] || last="$GATE_REFUSAL"
   repository="$(git -C "$root" remote get-url origin 2>/dev/null | sed 's#\.git$##; s#.*[:/]\([^/:]*/[^/:]*\)$#\1#')"
   if mkdir -p "$(dirname "$GATE_RUNS_FILE")" 2>/dev/null; then
-    write_gate_run "$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${repository:--}" "$root" "${GATE_COMMIT:-$head}" \
+    gate_runs_append "$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${repository:--}" "$root" "${GATE_COMMIT:-$head}" \
       "$verdict" "$GATE_CHECK_SECONDS" "$(printf '%s' "$last" | tr '\t\n' '  ')" "$GATE_LOAD")" \
       || echo "pre-push: this run could not be recorded in $GATE_RUNS_FILE" >&2
   else

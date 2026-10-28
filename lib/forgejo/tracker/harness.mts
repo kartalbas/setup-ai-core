@@ -36,20 +36,22 @@ function runBash(cwd: string, args: readonly string[], answer: 'both' | 'stdout'
   });
 }
 
-// A step whose lines are shown while it runs; its outcome holds the last `tailLines` of them.
-function runShown(cwd: string, args: readonly string[], show: (text: string) => void, tailLines: number): Promise<StepOutcome> {
+// A step whose lines are shown while it runs. Its outcome holds the last `tailLines` of them, or, with `answer` stdout, its
+// standard output alone, which is then not shown: a step that says its refusal there leaves the shown lines the words of the wait.
+function runShown(cwd: string, args: readonly string[], show: (text: string) => void, tailLines: number, answer: 'tail' | 'stdout' = 'tail'): Promise<StepOutcome> {
   return new Promise((done) => {
     const child = spawn('bash', args, { cwd });
     const tail: string[] = [];
+    let answered = '';
     const keep = (text: string): void => {
       show(text);
       tail.push(...text.split('\n').filter((line) => line !== ''));
       tail.splice(0, Math.max(0, tail.length - tailLines));
     };
-    showLines(child.stdout, keep);
+    showLines(child.stdout, answer === 'stdout' ? (text) => { answered += text; } : keep);
     showLines(child.stderr, keep);
     child.on('error', (error) => done({ succeeded: false, output: error.message }));
-    child.on('close', (status) => done({ succeeded: status === 0, output: tail.join('\n') }));
+    child.on('close', (status) => done({ succeeded: status === 0, output: answered.trim() || tail.join('\n') }));
   });
 }
 
@@ -67,7 +69,7 @@ export const bashHarness: HarnessSteps = {
   openLandingMark: (cwd, commit, refs) => runBash(cwd, [`${CORE}/lib/landing-check.sh`, 'mark', cwd, commit, ...refs], 'stdout'),
   closeLandingMark: (mark) => runBash(CORE, [`${CORE}/lib/landing-check.sh`, 'unmark', mark]),
   readLandingRounds: (cwd) => runBash(cwd, [`${CORE}/lib/landing-check.sh`, 'rounds'], 'stdout'),
-  takeLandingLock: (cwd, issue, branch, show) => runShown(cwd, [`${CORE}/lib/landing-lock.sh`, 'take', cwd, String(process.pid), issue, branch], show, 1),
+  takeLandingLock: (cwd, issue, branch, show) => runShown(cwd, [`${CORE}/lib/landing-lock.sh`, 'take', cwd, String(process.pid), issue, branch], show, 1, 'stdout'),
   releaseLandingLock: (cwd) => runBash(cwd, [`${CORE}/lib/landing-lock.sh`, 'release', cwd, String(process.pid)]),
   installTools: (worktree, show) => runShown(worktree, ['scripts/install.sh'], show, INSTALL_TAIL_LINES),
   readTokensPage: (cwd, itemsFile, columnsFile, board) => runBash(cwd, [`${CORE}/lib/status-tokens.sh`, itemsFile, columnsFile, board]),

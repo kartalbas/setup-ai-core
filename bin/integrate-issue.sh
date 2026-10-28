@@ -87,9 +87,13 @@
 # branch when the push starts, before the gate runs, so a landing that moves the default branch while another one's gate runs makes
 # the other's push refused, and its green gate is thrown away. A round holds the file ai-core-landing in the clone's git directory,
 # which every worktree of the clone shares, from before its first fetch until its push ended or was refused: the process id, the
-# issue and the branch of the landing. A landing that finds it held names that issue and branch and waits, at most one and a half
-# times the longest check of the repository in the run log, and then stops with nothing pushed; one whose holder no longer runs
-# takes it over. A round gives it up before the next one takes it again.
+# issue, the branch, the time taken and the repository of the landing. A landing that finds it held names the issue and branch that
+# hold it, since when, and when the deadline for that holder is, and waits. The deadline counts per holder from the moment it took
+# the lock: one and a half times the longest time a landing of the repository held it in the last 14 days of the run log (a row
+# every landing writes when it gives the lock up), and where none is recorded the sum of the bounds a holder may spend under the
+# lock, configured and not measured: one and a half times the longest check on record (1320 seconds where none is),
+# PRE_PUSH_LOAD_WAIT_SECONDS, and, under CI_GATE=public, AI_CORE_INTEGRATE_WAIT. A landing stops with nothing pushed when one
+# holder has held the lock longer; one whose holder no longer runs takes it over. A round gives it up before the next one takes it again.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
 . "$ROOT/lib/forge.sh"
@@ -270,7 +274,7 @@ end_round() {
   pushed=""
   [ -z "$receipt" ] || landing_check_close "$receipt"
   receipt=""
-  landing_lock_release . "$$"
+  landing_lock_release . "$$" || true
 }
 trap end_round EXIT
 

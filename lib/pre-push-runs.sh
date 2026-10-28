@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # THE RUN LOG OF THE PUSH GATE: where it stands and how its rows are read, for `pre-push --runs`, which lists
-# them, and for lib/neighbours.sh, which measures the longest check from them, in the rows of the last 14 days only, so
-# one outlier ages out by itself. The gate writes the rows itself (bin/pre-push.sh). Source it, do not run it.
+# them, for lib/neighbours.sh, which measures the longest check from them, and for lib/landing-lock.sh, which measures the
+# longest hold of the landing lock from them, in the rows of the last 14 days only, so one outlier ages out by itself. The
+# gate writes a row for each run of its check (bin/pre-push.sh), and a landing writes one for each time it held the landing
+# lock, with the verdict landing lock and the seconds it held it (lib/landing-lock.sh). Source it, do not run it.
 
 GATE_RUNS_HEADER=$'time\trepository\tworktree\tcommit\tverdict\tseconds\tlast line\tload at check start'
 
@@ -20,10 +22,30 @@ gate_runs_rows() {
     | tail -n +2 | awk -F'\t' '{ print (NF == 7 ? $0 "\t-" : $0) }'
 }
 
+# gate_runs_clock <epoch seconds>: that time as the log writes it (UTC)
+gate_runs_clock() {
+  date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ
+}
+
 # gate_runs_window_start: the time, as the log writes it (UTC), from which a row counts: GATE_RUNS_WINDOW_DAYS before now
-gate_runs_window_start() {
-  local epoch=$(( $(date +%s) - GATE_RUNS_WINDOW_DAYS * 86400 ))
-  date -u -d "@$epoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -r "$epoch" +%Y-%m-%dT%H:%M:%SZ
+gate_runs_window_start() { gate_runs_clock $(( $(date +%s) - GATE_RUNS_WINDOW_DAYS * 86400 )); }
+
+# gate_runs_append <row>: a new log is made whole, header and first row, and linked into place, so two writers
+# that both find none cannot both write a header; a log that exists, whatever header it carries, only gets the row,
+# appended in one write. Where the new log cannot be linked into place and none stands there afterwards, the row is
+# not recorded: the status is 1, and no second way writes a header.
+gate_runs_append() {
+  local row="$1" log made linked
+  log="$(gate_runs_file)"
+  if [ ! -e "$log" ]; then
+    made="$(mktemp "$log.XXXXXX")" || return 1
+    printf '%s\n%s\n' "$GATE_RUNS_HEADER" "$row" > "$made" && ln "$made" "$log" 2>/dev/null
+    linked=$?
+    rm -f "$made"
+    [ "$linked" -ne 0 ] || return 0
+    [ -e "$log" ] || return 1
+  fi
+  printf '%s\n' "$row" >> "$log"
 }
 
 # gate_runs_timing <log>: reads the seconds the checks took in the rows of the last GATE_RUNS_WINDOW_DAYS days and sets
@@ -33,7 +55,8 @@ gate_runs_window_start() {
 #   GATE_RUNS_UNTIMED    the rows that name no seconds because no check ran: a run with no check, a refusal
 #                        before the check
 #   GATE_RUNS_UNREADABLE the rows that are none of these, a time that is none among them, which count for nothing
-#   GATE_RUNS_ROWS       the rows of the window, the denominator of the counts above
+#   GATE_RUNS_ROWS       the rows of the window, the denominator of the counts above; the rows of a landing lock hold are
+#                        in none of the counts and not in this one, and one that names no seconds counts as unreadable
 #   GATE_RUNS_OLDER      the rows before the window, which count for nothing and are in none of the counts above
 # and fails where the log exists and cannot be read.
 GATE_RUNS_STATE=""; GATE_RUNS_TIMED=0; GATE_RUNS_LONGEST=0; GATE_RUNS_UNTIMED=0; GATE_RUNS_UNREADABLE=0; GATE_RUNS_ROWS=0; GATE_RUNS_OLDER=0
@@ -55,19 +78,21 @@ gate_runs_timing() {
       next
     }
     $5 == "no check" && $6 == "-" { untimed++; next }
+    $5 == "landing lock" && $6 ~ /^[0-9]+$/ && length($6) <= 9 { held++; next }
     { unreadable++ }
-    END { printf "%d %d %d %d %d %d\n", timed, longest, untimed, unreadable, NR - older, older }')" || return 1
+    END { printf "%d %d %d %d %d %d\n", timed, longest, untimed, unreadable, NR - older - held, older }')" || return 1
   read -r GATE_RUNS_TIMED GATE_RUNS_LONGEST GATE_RUNS_UNTIMED GATE_RUNS_UNREADABLE GATE_RUNS_ROWS GATE_RUNS_OLDER <<< "$counted"
   GATE_RUNS_STATE=read
 }
 
-# gate_runs_repository_longest <log> <repository>: the most seconds a check of that repository took in the rows of the last
-# GATE_RUNS_WINDOW_DAYS days, as owner/name; nothing is printed where no check of it ran in them. Fails where the log cannot be read.
+# gate_runs_repository_longest <log> <repository> check|hold: the most seconds a check of that repository took (check), or
+# a landing held the landing lock of it (hold), in the rows of the last GATE_RUNS_WINDOW_DAYS days, the repository as
+# owner/name; nothing is printed where none ran in them. Fails where the log cannot be read.
 gate_runs_repository_longest() {
   local start
   start="$(gate_runs_window_start)" && [ -n "$start" ] || return 1
-  gate_runs_rows "$1" | awk -F'\t' -v start="$start" -v repository="$2" '
-    NF == 8 && $1 >= start && tolower($2) == tolower(repository) && ($5 == "green" || $5 == "red") && $6 ~ /^[0-9]+$/ && length($6) <= 9 {
+  gate_runs_rows "$1" | awk -F'\t' -v start="$start" -v repository="$2" -v kind="$3" '
+    NF == 8 && $1 >= start && tolower($2) == tolower(repository) && (kind == "hold" ? $5 == "landing lock" : ($5 == "green" || $5 == "red")) && $6 ~ /^[0-9]+$/ && length($6) <= 9 {
       if ($6 + 0 > longest) longest = $6 + 0
       timed = 1
     }

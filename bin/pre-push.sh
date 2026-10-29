@@ -992,11 +992,12 @@ moved_from() {  # <sha> <dir>
 # later commit and no commit is rewritten.
 naming_findings() {  # one finding per line
   local folder main d name owner parts sha dir seg parent found from before kept line other
-  local kind a b
-  while IFS= read -r sha; do
-    [ -n "$sha" ] || continue
-    [ -z "$(git log -1 --format='%(trailers:key=Naming,valueonly)' "$sha" | tr -d '[:space:]')" ] || return 0
-  done <<< "$commits"
+  local kind a b range
+  # The message checks omit merges; a naming reason may be on any commit in the pushed ranges.
+  while IFS= read -r range; do
+    [ -n "$range" ] || continue
+    [ -z "$(git log --format='%(trailers:key=Naming,valueonly)' $range | tr -d '[:space:]')" ] || return 0
+  done <<< "$scan_ranges"
   folder="$(project_folder_of "$root")"
   main="$(cd "$(git -C "$root" rev-parse --path-format=absolute --git-common-dir)/.." && pwd)"
   git -C "$root" ls-tree -z -d --name-only HEAD 2>/dev/null | tr '\0' '\n' > "$TMPD/naming-words"

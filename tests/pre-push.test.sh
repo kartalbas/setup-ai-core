@@ -1135,6 +1135,52 @@ git -C "$repo" commit -q --allow-empty -F - <<< $'Keep the order names #24\n\nNa
 out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$(git -C "$repo" rev-parse HEAD~3)")"; rc=$?
 check 'exit 0'                      0 "$rc"
 
+echo 'PLANTED DEFECT: a published Naming: trailer cannot waive names on a new branch or several refs'
+naming_base="$(git -C "$repo" rev-parse HEAD)"
+git -C "$repo" update-ref refs/remotes/origin/master "$naming_base"
+add_dirs 'Add the invoice texts #24' catalog/invoices catalog/invoices-archive
+naming_tip="$(git -C "$repo" rev-parse HEAD)"
+naming_refs() {  # naming_refs <remote sha> [another remote sha]: the same tree on one or two issue refs
+  printf 'refs/heads/issue-24-names %s refs/heads/issue-24-names %s\n' "$(git -C "$repo" rev-parse HEAD)" "$1"
+  [ "$#" -eq 1 ] || printf 'refs/heads/issue-24-copy %s refs/heads/issue-24-copy %s\n' "$(git -C "$repo" rev-parse HEAD)" "$2"
+}
+for bounds in "$zeros40" "$naming_base" "$zeros40 $naming_base"; do
+  out="$(naming_refs $bounds | (cd "$repo" && bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1))"; rc=$?
+  check 'the published trailer does not pass: exit 1' 1 "$rc"
+  check 'the invoice family is refused' yes "$(grep -q 'catalog/invoices beside catalog/invoices-archive: one member of the family' <<< "$out" && echo yes || echo no)"
+done
+
+echo 'PLANTED DEFECT: a merge with an empty Naming: trailer does not waive the names'
+git -C "$repo" checkout -q -b issue-24-reason "$naming_base"
+git -C "$repo" commit -q --allow-empty -m 'Record the invoice review #24'
+git -C "$repo" checkout -q master
+git -C "$repo" merge -q --no-ff issue-24-reason -m $'Merge the invoice review #24\n\nNaming: '
+out="$(naming_refs "$naming_base" | (cd "$repo" && bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1))"; rc=$?
+check 'exit 1' 1 "$rc"
+check 'the invoice family is refused' yes "$(grep -q 'catalog/invoices beside catalog/invoices-archive: one member of the family' <<< "$out" && echo yes || echo no)"
+
+echo 'PLANTED INNOCENT: a later merge trailer keeps every name added by the push'
+git -C "$repo" checkout -q issue-24-reason
+git -C "$repo" commit -q --allow-empty -m 'Finish the invoice review #24'
+git -C "$repo" checkout -q master
+add_dirs 'Add the receipt texts #24' catalog/receipts catalog/receipts-archive
+git -C "$repo" merge -q --no-ff issue-24-reason -m $'Merge the naming decisions #24\n\nNaming: the archive directories hold completed records'
+for bounds in "$zeros40" "$naming_base" "$zeros40 $naming_tip"; do
+  out="$(naming_refs $bounds | (cd "$repo" && bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1))"; rc=$?
+  check 'a pushed merge trailer passes: exit 0' 0 "$rc"
+done
+out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$naming_base")"; rc=$?
+check 'the merge trailer also passes a landing: exit 0' 0 "$rc"
+
+echo 'PLANTED DEFECT: a merge trailer at the remote tip is outside the next push'
+naming_base="$(git -C "$repo" rev-parse HEAD)"
+git -C "$repo" update-ref refs/remotes/origin/master "$naming_base"
+add_dirs 'Add the payment texts #24' catalog/payments catalog/payments-archive
+out="$(naming_refs "$naming_base" | (cd "$repo" && bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1))"; rc=$?
+check 'exit 1' 1 "$rc"
+check 'the payment family is refused' yes "$(grep -q 'catalog/payments beside catalog/payments-archive: one member of the family' <<< "$out" && echo yes || echo no)"
+git -C "$repo" update-ref -d refs/remotes/origin/master
+
 # A move is read by its content, so every file below differs from every other: git pairs files of
 # equal content across folders at will.
 mark="$(git -C "$repo" rev-parse HEAD)"

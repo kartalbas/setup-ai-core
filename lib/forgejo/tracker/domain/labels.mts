@@ -226,24 +226,23 @@ function refuseSecondOfExclusiveFamily(names: readonly string[]): void {
   }
 }
 
-// What the label list of a repository answers: its own labels and, for an organization, the organization's.
+// The repository's own labels only: Forgejo lists its organization's under /orgs, never here.
 export async function listRepositoryLabels(api: ForgejoClient, repository: RepositoryRef): Promise<Label[]> {
   const name = `list the labels of ${formatRepository(repository)}`;
   return api.callAll({ name, path: `${repositoryPath(repository)}/labels`, readItem: labelShape.type.read });
 }
 
 // The repository's labels as the issue form offers them: its own and, for an organization, the
-// organization's. A list of the repository that already holds the organization's labels gives the
-// same answer once, because the labels are told apart by their id.
+// organization's.
 export async function listVisibleLabels(api: ForgejoClient, repository: RepositoryRef): Promise<Label[]> {
   const own = await listRepositoryLabels(api, repository);
-  const byId = new Map(own.map((label) => [label.id, label]));
+  let organization: Label[] = [];
   try {
-    for (const label of await listOrganizationLabels(api, repository.owner)) byId.set(label.id, label);
+    organization = await listOrganizationLabels(api, repository.owner);
   } catch (error) {
     if (!(error instanceof NotFoundError)) throw error;
   }
-  return [...byId.values()];
+  return [...own, ...organization];
 }
 
 export function resolveLabels(visible: readonly Label[], names: readonly string[], repository: RepositoryRef): Label[] {

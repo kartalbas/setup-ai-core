@@ -42,7 +42,7 @@ contains('rules/80-working-style-for-agents.md','on its own because a quota ran 
 contains('rules/80-working-style-for-agents.md','every session using that limited account or model');
 contains('README.md',"`ai-core tool-order claude` returns to Claude alone");
 contains('templates/.ai-core/models.tsv',"Saving an order leaves the model rows unchanged");
-contains('README.md','| `tool-order` | `ai-core tool-order [TOOL[,TOOL...]]`');
+contains('README.md','| `tool-order` | `ai-core tool-order [TOOL[,TOOL...] \\| --clear]`');
 contains('README.md','| `phase-model` | `ai-core phase-model PHASE CLASS [--written-by MODEL]`');
 contains('README.md','Without `--tool`, also reports the saved order, set time, per-tool start counts');
 contains(base+'SKILL.md','order <saved order or not set> | selected <TOOL MODEL EFFORT>');

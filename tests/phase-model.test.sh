@@ -43,6 +43,7 @@ check('a Claude plan and re-plan route to Codex Astra and the plan check stays o
   for(const [args,expected] of tuples)select(args,expected);
   assert.equal(records().at(-1).order,null);
 });
+check('a cleared order routes a Claude plan to Codex Astra as no order does, and records no order',()=>{const had=fs.existsSync(orderFile)?fs.readFileSync(orderFile):null;const now=Date.now()/1000;fs.writeFileSync(orderFile,JSON.stringify({version:1,orders:[{generation:1,time:now-1000,tools:['codex','claude']},{generation:2,time:now-500,tools:[]}]}));select(['plan','normal-hard'],'codex gpt-6-astra xhigh');assert.equal(records().at(-1).order,null);if(had)fs.writeFileSync(orderFile,had);else fs.unlinkSync(orderFile);});
 check('a Codex at its limit passes Astra and the plan and re-plan fall to Fable at the effort of the Astra row, and Astra answers again once Codex is back',()=>{
   const fable=[[['plan','normal-hard'],'claude claude-fable-5-1 xhigh'],[['plan','high-risk'],'claude claude-fable-5-1 max'],[['re-plan','normal-hard'],'claude claude-fable-5-1 xhigh'],[['re-plan','high-risk'],'claude claude-fable-5-1 max']];
   for(const code of [3]){
@@ -196,6 +197,16 @@ const replacement=spawn('bash',['-c','. "$1/lib/tool-order.sh"; tool_order_paths
 const replaced=new Promise(resolve=>replacement.on('close',resolve));assert.equal(await replaced,0);
 fs.unlinkSync(path.join(quota,'hold'));const raced=await running;
 check('quota reads hold no global lock and an order race records refusal with its snapshot',()=>{assert.equal(raced.status,2,raced.stderr);assert.equal(raced.stdout,'');assert.match(raced.stderr,/order changed/);assert.equal(records().at(-1).order.generation,1);assert.equal(records().at(-1).selected,null);assert.equal(JSON.parse(fs.readFileSync(orderFile)).orders.at(-1).generation,2);});
+order();fs.unlinkSync(path.join(quota,'ready'));fs.writeFileSync(path.join(quota,'hold'),'');
+const clearing=asyncRun(['build','normal-hard']);
+for(let n=0;!fs.existsSync(path.join(quota,'ready'));n++){assert.ok(n<200,'quota reader did not reach clear barrier');await pause(25);}
+const cleared=spawnSync('bash',[path.join(source,'bin/tool-order.sh'),'--clear'],{env,encoding:'utf8',timeout:5000});
+fs.unlinkSync(path.join(quota,'hold'));const clearRace=await clearing;
+check('clear during a quota read refuses the old selection and retains its original snapshot',()=>{
+  assert.equal(cleared.status,0,cleared.stderr);assert.equal(clearRace.status,2,clearRace.stderr);assert.equal(clearRace.stdout,'');assert.match(clearRace.stderr,/order changed/);
+  const d=records().at(-1);assert.equal(d.order.generation,1);assert.deepEqual(d.order.tools,['codex','agy','claude']);assert.equal(d.selected,null);assert.match(d.refusal,/order changed/);
+  const last=JSON.parse(fs.readFileSync(orderFile)).orders.at(-1);assert.equal(last.generation,2);assert.deepEqual(last.tools,[]);
+});
 
 const sessions=path.join(state,'sessions'), bin=path.join(work,'bin'), agents=path.join(work,'agents.json');
 fs.mkdirSync(bin);fs.writeFileSync(path.join(bin,'claude'),'#!/usr/bin/env bash\ncat "$NATIVE_AGENTS"\n');fs.chmodSync(path.join(bin,'claude'),0o755);
@@ -221,6 +232,22 @@ function fixture({tool='claude',model='same',effort='high',n=name,projectFolder=
   current={n,id,tool,observation,file:path.join(sessions,`${n}.start.jsonl`)};return current;
 }
 const unknown=(pattern)=>{const r=audit();assert.equal(r.status,0,r.stderr);assert.match(r.stdout,/UNKNOWN/);assert.match(r.stdout,pattern);assert.doesNotMatch(r.stdout,/^OK |^RED /m);return r.stdout;};
+check('a cleared order reports its clear time in the audit and usage, preserving quota exits',()=>{
+  fixture();const s=JSON.parse(fs.readFileSync(orderFile));s.orders.push({generation:2,time:time+25,tools:[]});fs.writeFileSync(orderFile,JSON.stringify(s));
+  fs.appendFileSync(log,JSON.stringify(decision({began:time+29,time:time+30,order:null,selected:{tool:'claude',model:'same',effort:'high'}}))+'\n');
+  const r=audit();assert.equal(r.status,0,r.stderr);assert.match(r.stdout,/^tool order: not set; native-tool selection\ncleared at: /);assert.match(r.stdout,/generation 2/);assert.match(r.stdout,/no violations assessed/);assert.doesNotMatch(r.stdout,/^OK |^RED |^UNKNOWN /m);
+  for(const [used,status] of [[5,0],[99,3]]){
+    const now=Math.floor(Date.now()/1000);
+    fs.writeFileSync(path.join(state,'usage.json'),JSON.stringify({recorded_at:now,rate_limits:{five_hour:{used_percentage:used,resets_at:now+3600}}}));
+    const u=spawnSync('bash',[path.join(root,'bin/usage.sh')],{env:auditEnv,cwd:other,encoding:'utf8'});
+    assert.equal(u.status,status,u.stdout+u.stderr);assert.match(u.stdout,/^tool order: not set; native-tool selection\ncleared at: /m);assert.doesNotMatch(u.stderr,/audit read failure/);
+  }
+});
+check('an empty order in the middle keeps old decisions readable and audits the new generation',()=>{
+  fixture();const s=JSON.parse(fs.readFileSync(orderFile));s.orders.push({generation:2,time:time+12,tools:[]},{generation:3,time:time+14,tools:['codex','agy','claude']});fs.writeFileSync(orderFile,JSON.stringify(s));
+  fs.appendFileSync(log,JSON.stringify(decision({began:time+12.5,time:time+13,order:null}))+'\n'+JSON.stringify(decision({began:time+15,time:time+16,order:s.orders[2]}))+'\n');
+  const r=audit();assert.equal(r.status,0,r.stderr);assert.match(r.stdout,/^tool order: codex,agy,claude\nset at: /);assert.match(r.stdout,/generation 3/);assert.match(r.stdout,/^RED .*actual claude same high; selected codex same high/m);assert.match(r.stdout,/matched 1\/1/);assert.doesNotMatch(r.stdout,/cleared at:/);
+});
 check('planted Claude start after a Codex choice is RED on the shared tuple',()=>{fixture();const r=audit();assert.equal(r.status,0,r.stderr);assert.match(r.stdout,/^RED .*actual claude same high; selected codex same high/m,JSON.stringify(r));assert.match(r.stdout,/claude 1; matched 1\/1/);assert.match(r.stdout,/quota left at decision/);});
 check('agy effort suffix and Claude effective effort bind across tools',()=>{fixture({model:'claude-opus-5-5'});fs.writeFileSync(log,JSON.stringify(decision({selected:{tool:'agy',model:'claude-opus-5-5-high',effort:'-'}}))+'\n');assert.match(audit().stdout,/^RED /m);});
 check('innocent Claude-only order is green',()=>{fixture();order(['claude'],time);fs.writeFileSync(log,JSON.stringify(decision({order:{generation:1,time,tools:['claude']},selected:{tool:'claude',model:'same',effort:'high'}}))+'\n');assert.match(audit().stdout,/^OK /m);assert.doesNotMatch(audit().stdout,/^RED /m);});

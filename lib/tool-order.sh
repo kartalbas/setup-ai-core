@@ -32,7 +32,7 @@ tool_order_read() {
   state="$(jq -ce -s '
     def order: type == "object" and (.generation | type == "number" and . > 0 and floor == .)
       and (.time | type == "number" and . > 0)
-      and (.tools | type == "array" and length > 0 and length == (unique | length)
+      and (.tools | type == "array" and length == (unique | length)
         and all(. == "codex" or . == "agy" or . == "claude"));
     if length == 1 and (.[0] | .version == 1 and (.orders | type == "array" and length > 0 and all(order))
       and ([range(0; .orders | length) as $i | .orders[$i].generation == ($i + 1)
@@ -45,14 +45,16 @@ tool_order_read() {
 tool_order_snapshot() {
   local state
   state="$(tool_order_read)" || return 2
-  jq -c 'if . == null then null else .orders[-1] end' <<< "$state"
+  jq -c 'if . == null or (.orders[-1].tools | length) == 0 then null else .orders[-1] end' <<< "$state"
 }
 
 tool_order_show() {
-  local order
-  order="$(tool_order_snapshot)" || return 2
-  jq -r 'if . == null then "tool order: not set; native-tool selection"
-    else "tool order: \(.tools | join(","))\nset at: \(.time) (\(.time | floor | todateiso8601)); generation \(.generation)" end' <<< "$order"
+  local state
+  state="$(tool_order_read)" || return 2
+  jq -r 'def when: "\(.time) (\(.time | floor | todateiso8601)); generation \(.generation)";
+    if . == null then "tool order: not set; native-tool selection"
+    elif (.orders[-1].tools | length) == 0 then "tool order: not set; native-tool selection\ncleared at: \(.orders[-1] | when)"
+    else .orders[-1] | "tool order: \(.tools | join(","))\nset at: \(when)" end' <<< "$state"
 }
 
 tool_order_save() (
@@ -221,7 +223,7 @@ function snapshot() {
     const state = exists(file) ? JSON.parse(read(file)) : null;
     if (state !== null && (state.version !== 1 || !Array.isArray(state.orders) || !state.orders.length || state.orders.some((o, i) =>
       o.generation !== i + 1 || !positive(o.time) || (i && o.time < state.orders[i - 1].time) ||
-      !Array.isArray(o.tools) || !o.tools.length || new Set(o.tools).size !== o.tools.length || o.tools.some(t => !tools.includes(t))))) throw Error(`malformed ${file}`);
+      !Array.isArray(o.tools) || new Set(o.tools).size !== o.tools.length || o.tools.some(t => !tools.includes(t))))) throw Error(`malformed ${file}`);
     const log = path.join(home, 'phase-model.jsonl');
     const decisions = exists(log) ? jsonLines(read(log), log) : [];
     for (const d of decisions) {
@@ -236,8 +238,9 @@ function snapshot() {
 }
 function audit() {
   const {orders, decisions} = snapshot(), order = orders.at(-1);
-  if (!order) {
+  if (!order || !order.tools.length) {
     console.log('tool order: not set; native-tool selection');
+    if (order) console.log(`cleared at: ${order.time} (${new Date(order.time * 1000).toISOString()}); generation ${order.generation}`);
     console.log('phase starts: no policy set time; no violations assessed');
     return;
   }

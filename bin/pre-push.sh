@@ -586,11 +586,19 @@ if [ -z "$input" ]; then
 fi
 
 # The default branch: origin/HEAD where it names a branch this clone has, else what the origin
-# names (a clone keeps origin/HEAD pointing at a branch the origin renamed since), else master
+# names (a clone keeps origin/HEAD pointing at a branch the origin renamed since), else the branch an empty origin gets, else master
 default="$(git symbolic-ref --short -q refs/remotes/origin/HEAD 2>/dev/null || true)"
 git rev-parse -q --verify "refs/remotes/$default" >/dev/null 2>&1 \
   || default="$(git ls-remote --symref origin HEAD 2>/dev/null | awk '$1 == "ref:" && $3 == "HEAD" { sub("^refs/heads/", "", $2); print $2 }')"
-default="${default#origin/}"; [ -n "$default" ] || default=master
+default="${default#origin/}"
+# An origin with no branch at all makes the first branch pushed into it its default branch, whatever its name
+if [ -z "$default" ] && origin_is_empty; then
+  first_branches="$(awk '$3 ~ "^refs/heads/" { sub("^refs/heads/", "", $3); print $3 }' <<< "$input")"
+  [ "$(grep -c . <<< "$first_branches")" -le 1 ] \
+    || refuse "origin holds no branch yet, and this push creates several, one of which the forge makes its default branch. The default branch comes first and alone: ai-core start-issue <number> starts it."
+  default="$first_branches"
+fi
+[ -n "$default" ] || default=master
 
 # A checkout keeps no record of origin's tags, and its own tags need not be origin's, so the
 # commits origin carries under a tag are read from origin: once per push, as the commit each
@@ -686,6 +694,20 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   scan_ranges="$scan_ranges$range"$'\n'
 done <<< "$input"
 
+# THE START OF A NEW REPOSITORY. An origin with no branch at all gets its default branch from start-issue, which pushes one
+# commit with the empty tree and no parent, "Start <owner>/<repo> (#<number>)", under the mark of a landing. That push is
+# the only one that creates the default branch without a review, and it has nothing to review: it is taken when it is alone
+# in its push, it adds that one commit to every ref of origin, which a commit without a parent can do only to a branch that
+# origin lacks, and the mark is its own. The checks of a branch that goes live, which need a review and a scripts/check.sh,
+# do not apply to it.
+start_push=''
+if [ -n "$landing" ] && [ "$ref_lines" -eq 1 ] && is_start_commit "$landing" \
+  && [ "$(git rev-list --count "$landing" --not --remotes=origin)" = 1 ] \
+  && landing_mark_judge "${AI_CORE_LANDING_MARK:-}" "$root" "$landing" "refs/heads/$default"; then
+  start_push=1
+  echo "pre-push: $default of this empty repository starts with ${landing:0:7}, which has the empty tree and no parent."
+fi
+
 # THE DEFAULT BRANCH TAKES A HARNESS LANDING, OR A DIRECT PUSH. An update of it that carries no mark (lib/landing-check.sh) for
 # exactly the commit it lands is a plain push, and reviewed work does not reach the default branch that way. A plain push is
 # a direct push, and goes on to the checks below like any other, where every commit it adds touches only files that
@@ -723,7 +745,7 @@ live="$(config_value_in_file "$root/.ai-core/config.env" DEFAULT_BRANCH_IS_LIVE 
 live="${live//[\"\',]/ }"
 repo_name="$(basename "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null | sed 's|/\.git$||')")"
 case " $(tr -s '[:space:]' ' ' <<< "$live") " in *" yes "*|*" $repo_name "*) live=yes ;; *) live=no ;; esac
-if [ -n "$landing" ] && [ "$live" = yes ]; then
+if [ -n "$landing" ] && [ "$live" = yes ] && [ -z "$start_push" ]; then
   [ -f "$root/scripts/check.sh" ] \
     || refuse "$default of this repository goes live, and it has no scripts/check.sh, so nothing would test what goes live. Add the checks first; until then the owner lands here."
   [ -n "$(git log -1 --format='%(trailers:key=Reviewed-by,valueonly)' "$landing" | tr -d '[:space:]')" ] \

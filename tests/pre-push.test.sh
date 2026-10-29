@@ -711,6 +711,7 @@ tag_origin="$fake/origin-tags.git"
 git init -q --bare "$tag_origin"
 git -C "$repo" remote add origin "$tag_origin"
 base="$(git -C "$repo" rev-parse HEAD)"
+git -C "$repo" push -q --no-verify origin "$base:refs/heads/master"             # its default branch, which an empty origin takes from the first push
 git -C "$repo" checkout -q -b release-snapshot
 commit 'src/snapshot.txt' 'Snapshot of the old tracker'                         # names no issue
 snapshot="$(git -C "$repo" rev-parse HEAD)"
@@ -2638,6 +2639,87 @@ d_mutant config-self-judged lib/landing-check.sh 's/^        \[ "\$path" != .ai-
 s_widening; d_planted 0 'with the list taken from the tree it judges, a commit that widens it for itself goes through'
 s_clean; d_planted 0 'innocent: the release of the listed file goes through'
 unset GATE_SCRIPT
+
+# --- the start of a new repository ------------------------------------------------------------
+#
+# An origin with no branch at all gets its default branch from start-issue: one commit with the empty tree and no parent,
+# "Start <owner>/<repo> (#<number>)", pushed under the mark of a landing. The repository below goes live from its default
+# branch, so an ordinary landing needs a scripts/check.sh and a Reviewed-by trailer, neither of which the start has.
+for first_branch in trunk master; do
+echo "the start of a new repository, whose default branch is $first_branch: the gate takes the one empty start commit under a mark, and refuses everything near it"
+first_origin="$fake/github.com/example-org/fresh-$first_branch.git"
+first="$fake/first-checkouts/fresh-$first_branch"
+mkdir -p "$(dirname "$first_origin")" "$(dirname "$first")"
+git init -q --bare -b $first_branch "$first_origin"
+git init -q -b $first_branch "$first"
+git -C "$first" config user.email 'test@example.invalid'; git -C "$first" config user.name 'test'
+git -C "$first" remote add origin "$first_origin"
+first_empty="$(git -C "$first" hash-object -t tree -w /dev/null)"
+first_start="$(git -C "$first" commit-tree "$first_empty" -m "Start example-org/fresh-$first_branch (#9)")"
+first_tree() {  # first_tree <name> <commit>: a worktree at the commit that goes live from the default branch
+  local tree="$fake/first-checkouts/$1"
+  git -C "$first" worktree add -q --detach "$tree" "$2"
+  mkdir -p "$tree/.ai-core"; printf 'DEFAULT_BRANCH_IS_LIVE="yes"\nPRE_PUSH_LOAD_LIMIT="0"\n' > "$tree/.ai-core/config.env"
+  printf '%s' "$tree"
+}
+first_gate() {  # first_gate <worktree> <commit> <mark: with|without>: the gate on one ref line that creates $first_branch
+  local mark="" rc
+  [ "$3" = without ] || mark="$(bash "$root/lib/landing-check.sh" mark "$1" "$2" refs/heads/$first_branch)"
+  printf "refs/heads/$first_branch %s refs/heads/$first_branch %s\n" "$2" "$zeros40" \
+    | ( cd "$1" && AI_CORE_LANDING_MARK="$mark" bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1 )
+  rc=$?
+  [ -z "$mark" ] || bash "$root/lib/landing-check.sh" unmark "$mark"
+  return "$rc"
+}
+tree_start="$(first_tree start "$first_start")"
+out="$(first_gate "$tree_start" "$first_start" with)"; rc=$?
+check 'the start commit under its mark: exit 0'  0 "$rc$([ "$rc" -eq 0 ] || echo " $out")"
+check "$first_branch: the gate says what it took"               yes "$(grep -q "^pre-push: $first_branch of this empty repository starts with ${first_start:0:7}" <<< "$out" && echo yes || echo no)"
+out="$(first_gate "$tree_start" "$first_start" without)"; rc=$?
+check 'planted: the same commit without the mark: exit 1' 1 "$rc"
+check "planted: it says that $first_branch takes no plain push" yes "$(grep -qF "$first_branch takes no plain push" <<< "$out" && echo yes || echo no)"
+git -C "$first" worktree remove --force "$tree_start"
+plain="$(git -C "$first" commit-tree "$(printf '100644 blob %s\tREADME.md\n' "$(echo hi | git -C "$first" hash-object -w --stdin)" | git -C "$first" mktree)" -m 'Write the readme (#9)')"
+tree_plain="$(first_tree plain "$plain")"
+out="$(first_gate "$tree_plain" "$plain" without)"; rc=$?
+check "planted: a plain push of $first_branch with files: exit 1" 1 "$rc"
+check "planted: it says that $first_branch takes no plain push" yes "$(grep -qF "$first_branch takes no plain push" <<< "$out" && echo yes || echo no)"
+out="$(first_gate "$tree_plain" "$plain" with)"; rc=$?
+check 'planted: the same commit under a mark is no start: exit 1, a live branch needs its checks' 1 "$rc"
+check "planted: it says that $first_branch goes live" yes "$(grep -qF "$first_branch of this repository goes live" <<< "$out" && echo yes || echo no)"
+git -C "$first" worktree remove --force "$tree_plain"
+first_with_parent="$(git -C "$first" commit-tree "$first_empty" -p "$plain" -m "Start example-org/fresh-$first_branch (#9)")"
+tree_parent="$(first_tree parent "$first_with_parent")"
+out="$(first_gate "$tree_parent" "$first_with_parent" with)"; rc=$?
+check 'planted: an empty commit with a parent and the subject of a start: exit 1' 1 "$rc"
+git -C "$first" worktree remove --force "$tree_parent"
+for wrong in 'Start example-org/other (#9)' "Start example-org/fresh-$first_branch" "Begin example-org/fresh-$first_branch (#9)" "Start example-org/fresh-$first_branch (#9) and more"; do
+  wrong_commit="$(git -C "$first" commit-tree "$first_empty" -m "$wrong")"
+  tree_wrong="$(first_tree wrong "$wrong_commit")"
+  out="$(first_gate "$tree_wrong" "$wrong_commit" with)"; rc=$?
+  check "planted: an empty root commit with the subject '$wrong': exit 1" 1 "$rc"
+  git -C "$first" worktree remove --force "$tree_wrong"
+done
+second="$(git -C "$first" commit-tree "$first_empty" -p "$first_start" -m 'Add an empty commit (#9)')"
+tree_second="$(first_tree two "$second")"
+out="$(first_gate "$tree_second" "$second" with)"; rc=$?
+check 'planted: the start commit with another commit above it: exit 1' 1 "$rc"
+git -C "$first" worktree remove --force "$tree_second"
+# A clone whose branch has commits: whatever branch it pushes first becomes the default branch of the empty origin
+populated="$fake/first-checkouts/populated-$first_branch"
+git init -q -b "$first_branch" "$populated"
+git -C "$populated" config user.email 'test@example.invalid'; git -C "$populated" config user.name 'test'
+git -C "$populated" remote add origin "$first_origin"
+mkdir -p "$populated/.ai-core"; printf 'PRE_PUSH_LOAD_LIMIT="0"\n' > "$populated/.ai-core/config.env"; printf '/.ai-core/\n' >> "$populated/.git/info/exclude"
+echo app > "$populated/app.txt"; git -C "$populated" add app.txt; git -C "$populated" commit -q -m 'Add the app (#9)'
+populated_head="$(git -C "$populated" rev-parse HEAD)"
+out="$(printf "refs/heads/$first_branch %s refs/heads/$first_branch %s\n" "$populated_head" "$zeros40" | ( cd "$populated" && bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1 ))"; rc=$?
+check "planted: a plain first push of $first_branch with files from a clone with commits: exit 1" 1 "$rc"
+check "planted: it says that $first_branch takes no plain push" yes "$(grep -qF "$first_branch takes no plain push" <<< "$out" && echo yes || echo no)"
+out="$(printf "refs/heads/$first_branch %s refs/heads/$first_branch %s\nrefs/heads/$first_branch %s refs/heads/other %s\n" "$populated_head" "$zeros40" "$populated_head" "$zeros40" | ( cd "$populated" && bash "$root/bin/pre-push.sh" origin 'https://example.invalid/x.git' 2>&1 ))"; rc=$?
+check 'planted: a first push that creates two branches: exit 1' 1 "$rc"
+check 'planted: it says that the default branch comes first and alone' yes "$(grep -qF 'The default branch comes first and alone' <<< "$out" && echo yes || echo no)"
+done
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

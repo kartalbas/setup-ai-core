@@ -1,6 +1,6 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, mkdtemp } from 'node:fs/promises';
 import { join } from 'node:path';
-import { addComment, afterStep, currentLogin, explainMissingAssignment, formatIssue, formatRepository, getIssue, isSameRepository, issueBranchName } from '../domain/issues.mts';
+import { addComment, afterStep, commitNameOf, currentLogin, explainMissingAssignment, formatIssue, formatRepository, getIssue, isSameRepository, issueBranchName } from '../domain/issues.mts';
 import type { Issue } from '../domain/issues.mts';
 import { replaceFamilyLabel, statusLabel } from '../domain/labels.mts';
 import type { StatusValue } from '../domain/labels.mts';
@@ -13,7 +13,9 @@ import type { CommandContext, CommandResult } from './command.mts';
 const USAGE = 'usage: start-issue [OWNER/REPO] NUMBER';
 export const help = `${USAGE}
 
-Cuts the worktree of one issue from the fetched default branch of origin, sets status/implementing and writes the
+Cuts the worktree of one issue from the fetched default branch of origin (where origin holds no branch at all, it first
+starts the default branch with one empty commit "Start OWNER/REPO (#NUMBER)", pushed as a harness landing under the name the
+HEAD of the clone gives it, and cuts from that), sets status/implementing and writes the
 record "Started on <branch>:" with the branch and its base. Run it in the clone the work belongs to; the issue may
 be in another repository (OWNER/REPO), which is then recorded on the branch.
 
@@ -58,6 +60,35 @@ function refuseUnreadyIssue(issue: Issue): void {
   }
 }
 
+// Pushes the start commit as the default branch of an empty origin under the mark of a landing, from a temporary worktree at
+// the commit, because the push gate reads the HEAD it runs in and the clone has none yet, with the hooks of the clone by their
+// absolute path, which that tree does not hold; then fetches it.
+async function startDefaultBranch(context: CommandContext, number: number, defaultBranch: string, commit: string): Promise<void> {
+  const { git, cwd } = context;
+  const hooks = await git.getHooksDirectory(cwd);
+  const container = await git.worktreeContainer(cwd);
+  const tree = await mkdtemp(join(container, `start-${number}.`));
+  let mark: string | undefined;
+  try {
+    await git.addDetachedWorktree(cwd, tree, commit);
+    const marked = await context.harness.openLandingMark(tree, commit, [`refs/heads/${defaultBranch}`]);
+    if (!marked.succeeded) throw new PreconditionError(`the mark of this push could not be made (${marked.output})`);
+    mark = marked.output;
+    try {
+      await git.push(tree, commit, defaultBranch, context.stderr, { AI_CORE_LANDING_MARK: mark, GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: hooks });
+    } catch (error) {
+      throw new PreconditionError(`origin did not take the start commit as ${defaultBranch} (${error instanceof Error ? error.message : String(error)}): nothing was cut, and origin is as it was`);
+    }
+  } finally {
+    if (mark !== undefined) await context.harness.closeLandingMark(mark);
+    await git.discardWorktree(cwd, tree);
+  }
+  await git.fetchBranch(cwd, defaultBranch);
+  if ((await git.resolveCommit(cwd, `refs/remotes/origin/${defaultBranch}`)) !== commit) {
+    throw new PreconditionError(`origin/${defaultBranch} is not the start commit ${commit} after the push: another session started it; run start-issue again`);
+  }
+}
+
 export async function run(args: readonly string[], context: CommandContext): Promise<CommandResult> {
   const parsed = parseArguments(args, {});
   const { ref, rest } = await takeIssue(parsed.positionals, context.git, context.cwd, USAGE);
@@ -75,9 +106,19 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   if (issue.title.trim() === '') throw new PreconditionError(`${formatIssue(ref)} has no title, so no worktree name can be built from it`);
 
   const origin = await git.originRepository(cwd);
-  const defaultBranch = await git.defaultBranch(cwd);
-  await git.fetchBranch(cwd, defaultBranch);
-  const base = await git.resolveCommit(cwd, `refs/remotes/origin/${defaultBranch}`);
+  // An origin with no branch at all has nothing to cut from: its default branch is started below with a start commit made
+  // here, which no ref holds until then, and which is the base of the worktree.
+  const isOriginEmpty = await git.isOriginEmpty(cwd);
+  let defaultBranch: string;
+  let base: string;
+  if (isOriginEmpty) {
+    defaultBranch = await git.getUnbornDefaultBranch(cwd);
+    base = await git.createStartCommit(cwd, `Start ${formatRepository(origin)} (${commitNameOf(ref, origin)})`);
+  } else {
+    defaultBranch = await git.defaultBranch(cwd);
+    await git.fetchBranch(cwd, defaultBranch);
+    base = await git.resolveCommit(cwd, `refs/remotes/origin/${defaultBranch}`);
+  }
 
   const branch = issueBranchName(ref.number, issue.title);
   const container = await git.worktreeContainer(cwd);
@@ -87,6 +128,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   if (cut !== undefined && cut.path !== path) throw new PreconditionError(`the branch ${branch} is checked out in ${cut.path}, not in ${path}`);
   const resuming = cut !== undefined;
   let opened: string | undefined;
+  const lines: string[] = [];
 
   if (!resuming) {
     // The number alone names an unrelated issue in each repository: a branch of it is the issue's as isBranchOfIssue says.
@@ -103,6 +145,10 @@ export async function run(args: readonly string[], context: CommandContext): Pro
     if (taken.length > 0 && !isWorkOfOrigin) throw new PreconditionError(`a branch for issue ${ref.number} exists already: ${taken.join(', ')}. Use its worktree, or finish that issue first`);
     if (worktrees.some((worktree) => worktree.path === path)) throw new PreconditionError(`${path} is a worktree of another branch`);
     await mkdir(container, { recursive: true });
+    if (isOriginEmpty) {
+      await startDefaultBranch(context, ref.number, defaultBranch, base);
+      lines.push(`Started ${defaultBranch} of the empty ${formatRepository(origin)} with the start commit ${base}.`);
+    }
     if (isWorkOfOrigin) {
       opened = await git.resolveCommit(cwd, `refs/remotes/origin/${branch}`);
       await git.addWorktree(cwd, path, branch, `refs/remotes/origin/${branch}`);
@@ -116,13 +162,13 @@ export async function run(args: readonly string[], context: CommandContext): Pro
     if (isOtherRepository) await git.setConfig(cwd, `branch.${branch}.issueRepository`, formatRepository(ref));
   }
 
-  const lines = [
+  lines.push(
     resuming
       ? `Worktree ${path} stands on ${branch} already.`
       : opened !== undefined
         ? `Worktree ${path} on ${branch}, opened on origin/${branch} at ${opened}: the work origin holds and no worktree had.`
         : `Worktree ${path} on ${branch}, cut from origin/${defaultBranch} at ${base}.`,
-  ];
+  );
   const warnings: string[] = [];
   if (!resuming) {
     const assembled = await context.harness.assembleWorktree(path);

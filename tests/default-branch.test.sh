@@ -50,6 +50,16 @@ for default in main master; do
  [ "$(command git -C "$repo" rev-parse HEAD)" = "$(command git --git-dir="$remote" rev-parse "$default")" ] || fail 'clean checkout stayed behind'
  refresh; [ "$rc" = 0 ] || fail 'already current checkout refused'
 done
+# The clone of a new repository: its HEAD names the default branch and has no commit until origin's default reaches it
+fixture trunk; repo="$dir/unborn"; git_ init -q -b trunk "$repo"; git_ -C "$repo" remote add origin "$remote"
+refresh; [ "$rc" = 0 ] || fail "unborn checkout refused: $(cat "$dir/out")"
+[ "$(command git -C "$repo" rev-parse HEAD)" = "$(command git --git-dir="$remote" rev-parse trunk)" ] || fail 'unborn checkout did not take origin/trunk'
+[ "$(command git -C "$repo" symbolic-ref HEAD)" = refs/heads/trunk ] || fail 'unborn checkout left its branch'
+grep -q '^refreshed: ' "$dir/out" && ! grep -q 'not refreshed' "$dir/out" || fail "unborn refresh said: $(cat "$dir/out")"
+fixture trunk; repo="$dir/unborn"; git_ init -q -b other "$repo"; git_ -C "$repo" remote add origin "$remote"
+refresh; [ "$rc" -ne 0 ] || fail 'an unborn checkout on another branch than the default was refreshed'
+grep -q 'local default trunk is missing' "$dir/out" || fail "unborn checkout on another branch said: $(cat "$dir/out")"
+! command git -C "$repo" rev-parse -q --verify HEAD >/dev/null || fail 'an unborn checkout on another branch got a commit'
 for kind in staged unstaged untracked unmerged rebase; do
  fixture
  case "$kind" in

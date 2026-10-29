@@ -348,3 +348,42 @@ describe('what the lifecycle commands ask of Git', () => {
     assert.equal(await client.remoteBranchTip(work, 'ci/integrate-x'), undefined);
   });
 });
+
+describe('what an empty origin asks of Git', () => {
+  let fixture: GitFixture;
+  before(() => {
+    fixture = createGitFixture();
+  });
+  after(() => fixture.dispose());
+
+  it('is empty where origin answers and holds no branch, and is not where it holds one or cannot be asked', async () => {
+    const empty = fixture.createEmptyRemote('example-owner', 'empty', 'trunk');
+    const clone = fixture.cloneEmpty(empty, 'project', 'empty', 'trunk');
+    assert.equal(await client.isOriginEmpty(clone), true);
+    const filled = fixture.clone(fixture.createRemote('example-owner', 'filled'), 'project', 'filled');
+    assert.equal(await client.isOriginEmpty(filled), false);
+    git(clone, 'remote', 'set-url', 'origin', join(fixture.root, 'nowhere.git'));
+    assert.equal(await client.isOriginEmpty(clone), false, 'an origin that cannot be asked is not empty');
+  });
+
+  it('names the branch the HEAD of the main checkout gives the first push, also from a worktree, and refuses one that has commits', async () => {
+    const empty = fixture.createEmptyRemote('example-owner', 'named', 'trunk');
+    const clone = fixture.cloneEmpty(empty, 'project', 'named', 'trunk');
+    const start = await client.createStartCommit(clone, 'Start example-owner/named (#1)');
+    const tree = join(fixture.root, 'project', '.worktrees', 'named', 'issue-1-tree');
+    await client.addWorktree(clone, tree, 'issue-1-tree', start);
+    assert.equal(await client.getUnbornDefaultBranch(tree), 'trunk', 'not the branch the worktree is on');
+    fixture.commit(clone, 'local.txt', 'local\n');
+    await assert.rejects(client.getUnbornDefaultBranch(tree), /the branch trunk of this clone has commits/);
+  });
+
+  it('makes a commit with the empty tree and no parent that no ref holds', async () => {
+    const empty = fixture.createEmptyRemote('example-owner', 'made', 'trunk');
+    const clone = fixture.cloneEmpty(empty, 'project', 'made', 'trunk');
+    const start = await client.createStartCommit(clone, 'Start example-owner/made (#2)');
+    assert.equal(git(clone, 'rev-list', '--max-parents=0', start), start);
+    assert.equal(git(clone, 'rev-parse', `${start}^{tree}`), git(clone, 'hash-object', '-t', 'tree', '/dev/null'));
+    assert.equal(git(clone, 'log', '-1', '--format=%s', start), 'Start example-owner/made (#2)');
+    assert.equal(git(clone, 'for-each-ref'), '');
+  });
+});

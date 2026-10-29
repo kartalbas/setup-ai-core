@@ -13,6 +13,10 @@ export interface GitFixture {
   readonly root: string;
   // A bare remote at <root>/<owner>/<name>.git whose default branch is master, with one commit.
   createRemote(owner: string, name: string): string;
+  // A bare remote at <root>/<owner>/<name>.git with no branch at all, whose default branch will be `branch`.
+  createEmptyRemote(owner: string, name: string, branch: string): string;
+  // A clone of an empty remote in <root>/<project folder>/<name>: its HEAD names `branch` and has no commit.
+  cloneEmpty(remote: string, projectFolder: string, name: string, branch: string): string;
   // A clone of the remote in <root>/<project folder>/<name>.
   clone(remote: string, projectFolder: string, name: string): string;
   commit(checkout: string, file: string, content: string): string;
@@ -36,6 +40,19 @@ export function createGitFixture(): GitFixture {
       git(seed, 'commit', '-q', '-m', 'seed');
       git(seed, 'push', '-q', 'origin', 'master');
       return remote;
+    },
+    createEmptyRemote(owner, name, branch) {
+      const remote = join(root, owner, `${name}.git`);
+      mkdirSync(join(root, owner), { recursive: true });
+      execFileSync('git', ['init', '--bare', `--initial-branch=${branch}`, remote], { stdio: 'ignore' });
+      return remote;
+    },
+    cloneEmpty(remote, projectFolder, name, branch) {
+      const checkout = join(root, projectFolder, name);
+      mkdirSync(checkout, { recursive: true });
+      execFileSync('git', ['init', `--initial-branch=${branch}`, checkout], { stdio: 'ignore' });
+      git(checkout, 'remote', 'add', 'origin', remote);
+      return checkout;
     },
     clone(remote, projectFolder, name) {
       const checkout = join(root, projectFolder, name);

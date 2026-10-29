@@ -347,6 +347,51 @@ origin_default_branch() {
   echo "$ref"
 }
 
+# THE FIRST COMMIT OF A NEW REPOSITORY has no default branch to start from. An origin that answers and holds no branch at
+# all is empty; one that cannot be asked is not. The first push into an empty origin creates its default branch on the
+# forges, so the name it gets is the one the HEAD of the clone's main checkout names, a branch with no commit yet.
+origin_is_empty() {
+  local heads
+  heads="$(GIT_TERMINAL_PROMPT=0 git ls-remote --heads origin 2>/dev/null)" || return 1
+  [ -z "$heads" ]
+}
+
+unborn_default_branch() {
+  local branch
+  branch="$(git --git-dir="$(git rev-parse --path-format=absolute --git-common-dir)" symbolic-ref -q --short HEAD)" \
+    || die "origin holds no branch, and the HEAD of this clone names none, so the name of the default branch that the first push creates is not known"
+  ! git rev-parse -q --verify "refs/heads/$branch" >/dev/null 2>&1 \
+    || die "origin holds no branch, but the branch $branch of this clone has commits, which the start of the default branch would not carry - run start-issue in a fresh clone of the empty repository, and land those commits later through an issue"
+  echo "$branch"
+}
+
+# The start commit of an empty origin: no parent and the empty tree, so there is nothing to review, under a subject that
+# names the repository and the issue (<issue ref> as issue_ref spells it). start-issue pushes it as the default branch,
+# and the push gate takes exactly such a commit for that push.
+start_commit_subject() {  # start_commit_subject <issue ref>
+  local repository
+  repository="$(origin_repo)" || die "origin names no repository, so the start commit of an empty repository cannot be named"
+  printf 'Start %s (%s)\n' "$repository" "$1"
+}
+
+make_start_commit() {  # make_start_commit <issue ref>: prints the commit and moves no ref
+  local subject empty_tree
+  subject="$(start_commit_subject "$1")" || exit 1
+  empty_tree="$(git hash-object -t tree -w /dev/null)" || die "the empty tree could not be written"
+  git commit-tree "$empty_tree" -m "$subject" || die "the start commit could not be made"
+}
+
+is_start_commit() {  # is_start_commit <commit>: a root with the empty tree whose subject is "Start <repository> (<issue ref>)"
+  local repository subject named
+  repository="$(origin_repo)" || return 1
+  [ -z "$(git log -1 --format=%P "$1")" ] || return 1
+  [ "$(git rev-parse "$1^{tree}")" = "$(git hash-object -t tree /dev/null)" ] || return 1
+  subject="$(git log -1 --format=%s "$1")"
+  case "$subject" in "Start $repository ("*")") ;; *) return 1 ;; esac
+  named="${subject#"Start $repository ("}"; named="${named%)}"
+  grep -Eq '^([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)?#[0-9]+$' <<< "$named"
+}
+
 # Refresh only the named checkout; a linked worktree never moves a held branch behind its index.
 fast_forward_default_branch() {
   local checkout dirty state path selected default local_tip remote_tip held="" holding="" line output
@@ -365,13 +410,14 @@ fast_forward_default_branch() {
   selected="$(git -C "$checkout" symbolic-ref --short -q HEAD)" || selected=""
   default="$(cd "$checkout" && origin_default_branch)" \
     || { echo "not refreshed: $checkout: cannot read origin's default branch" >&2; return 1; }
-  local_tip="$(git -C "$checkout" rev-parse --verify -q "refs/heads/$default^{commit}")" \
+  # A checkout whose HEAD names the default branch before it has a commit, as the clone of a new repository does, takes it
+  local_tip="$(git -C "$checkout" rev-parse --verify -q "refs/heads/$default^{commit}")" || [ "$selected" = "$default" ] \
     || { echo "not refreshed: $checkout: local default $default is missing" >&2; return 1; }
   output="$(GIT_TERMINAL_PROMPT=0 git -C "$checkout" fetch -q origin 2>&1)" \
     || { echo "not refreshed: $checkout: origin fetch failed: $output" >&2; return 1; }
   remote_tip="$(git -C "$checkout" rev-parse --verify -q "refs/remotes/origin/$default^{commit}")" \
     || { echo "not refreshed: $checkout: origin/$default is missing" >&2; return 1; }
-  git -C "$checkout" merge-base --is-ancestor "$local_tip" "$remote_tip" \
+  [ -z "$local_tip" ] || git -C "$checkout" merge-base --is-ancestor "$local_tip" "$remote_tip" \
     || { echo "not refreshed: $checkout: $default has local commits absent from origin/$default" >&2; return 1; }
   [ "$local_tip" != "$remote_tip" ] || return 0
   output="$(git -C "$checkout" worktree list --porcelain)" \

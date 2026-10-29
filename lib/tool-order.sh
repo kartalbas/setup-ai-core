@@ -290,7 +290,7 @@ function audit() {
       } catch (err) { e.problems.push(`${tool} output cannot be read: ${err.message}`); }
     }
   }
-  // claude agents --json can end well with an empty or cut-off answer, so an answer that is no JSON is asked for again
+  // claude agents --json can exit 0 with an empty or cut-off answer, so an answer that is no JSON is read again
   const readAgents = () => {
     for (let read = 1; ; read++) {
       const answer = execFileSync('claude', ['agents', '--json'], {encoding:'utf8', stdio:['ignore', 'pipe', 'pipe'], timeout:10000, maxBuffer:16 * 1024 * 1024});

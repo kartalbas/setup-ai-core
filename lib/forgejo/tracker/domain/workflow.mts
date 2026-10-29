@@ -326,6 +326,23 @@ export async function hasTrustedLandedRecord(api: ForgejoClient, ref: IssueRef, 
   return false;
 }
 
+export type PartLanding = 'none' | 'more to follow' | 'last part landed';
+
+// Where this head landed as a part: whether the issue's last part landed after it, which a "Landed on" record that
+// follows its "Landed part on" record says, both of accounts with write permission.
+export async function findTrustedPartLanding(api: ForgejoClient, ref: IssueRef, entries: readonly TimelineEntry[], reviewedHead: string, landedCommit: string): Promise<PartLanding> {
+  const isTrusted = createTrustCheck(api, ref);
+  let hasPart = false;
+  for (const entry of entries) {
+    if (!hasPart) {
+      hasPart = hasLandedRecord([entry], reviewedHead, landedCommit, true) && (await isTrusted(entry.author));
+      continue;
+    }
+    if (entry.kind === 'comment' && LANDED_LINE.test(firstLine(entry.body)) && (await isTrusted(entry.author))) return 'last part landed';
+  }
+  return hasPart ? 'more to follow' : 'none';
+}
+
 // The reviewed heads that the "Landed on" records of accounts with write permission name, in the order written.
 export async function listTrustedLandedHeads(api: ForgejoClient, ref: IssueRef, entries: readonly TimelineEntry[]): Promise<string[]> {
   const isTrusted = createTrustCheck(api, ref);

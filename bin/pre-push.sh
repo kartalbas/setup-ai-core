@@ -82,7 +82,7 @@ for arg in "$@"; do
     echo "issue as (#<n>) or <repo>#<n>; an existing"
     echo "migrations/*.sql is changed or removed (a 'Migration: <why>' trailer allows it);"
     echo "a new directory's name is invented where the families"
-    echo "of the trees give it (a 'Naming: <why>' trailer keeps one); the working tree differs from the commit where"
+    echo "of the trees give it (a 'Naming: <why>' trailer on any pushed commit keeps them); the working tree differs from the commit where"
     echo "scripts/check.sh would run, or scripts/check.sh is red; or gitleaks"
     echo "finds a credential in the pushed commits (where .gitleaks.toml exists). The message of a merge is not"
     echo "judged; its addresses are. A deletion runs"
@@ -600,18 +600,18 @@ if [ -z "$default" ] && origin_is_empty; then
 fi
 [ -n "$default" ] || default=master
 
-# A checkout keeps no record of origin's tags, and its own tags need not be origin's, so the
-# commits origin carries under a tag are read from origin: once per push, as the commit each
-# tag line names (a peeled line names the commit of an annotated tag). One cat-file keeps the
-# objects this checkout has that are commits, so a tag object, whose peeled line follows it, and a
-# commit this checkout lacks are skipped. Each one becomes ^<sha> in every range, before the --not
-# that flips the meaning of what follows it. The ask neither prompts for a password nor waits on a
-# stalled transfer; when origin cannot be asked, nothing more is left out than the branches of
-# origin leave out.
-tagged_lines="$(GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=10 ls-remote --tags origin 2>/dev/null)" || tagged_lines=''
-tag_exclusions=''
-[ -z "$tagged_lines" ] || tag_exclusions="$(cut -f1 <<< "$tagged_lines" | git cat-file --batch-check='%(objectname) %(objecttype)' \
-  | awk '$2 == "commit" { printf " ^%s", $1 }')"
+# Remote-tracking branches can be stale and local tags need not be origin's. Read both from origin
+# once, retaining only tips whose commit objects this checkout has. A peeled tag names its commit;
+# the tag object itself and unknown objects are skipped. Exclusions precede --not in every range.
+# The ask never prompts or waits on a stalled transfer; a failed read leaves the known remote refs.
+remote_lines="$(GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=10 ls-remote --heads --tags origin 2>/dev/null)" || remote_lines=''
+tag_exclusions=''; branch_exclusions=''
+if [ -n "$remote_lines" ]; then
+  tag_exclusions="$(awk '$2 ~ /^refs\/tags\// { print $1 }' <<< "$remote_lines" | git cat-file --batch-check='%(objectname) %(objecttype)' \
+    | awk '$2 == "commit" { printf " ^%s", $1 }')"
+  branch_exclusions="$(awk '$2 ~ /^refs\/heads\// { print $1 }' <<< "$remote_lines" | git cat-file --batch-check='%(objectname) %(objecttype)' \
+    | awk '$2 == "commit" { printf " ^%s", $1 }')"
+fi
 
 # Every commit this push sends, across every ref on standard input, and the ranges they came from. The ranges of the
 # identity check leave out every ref of origin, also for a harness landing: what another person or a platform put there
@@ -649,7 +649,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     # Excluding every remote branch this checkout knows and every tag origin carries asks the
     # question this loop means to ask - which commits does this push add - and answers it with
     # none where none are added.
-    range="$local_commit$tag_exclusions --not --remotes=origin"
+    range="$local_commit$tag_exclusions$branch_exclusions --not --remotes=origin"
   else
     # A remote sha this checkout does not carry cannot be measured from. Letting `git rev-list`
     # fail quietly would leave the range empty, and an empty range is read below as a push with
@@ -664,7 +664,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     # branch brings every commit the default branch gained since the fork; judging those again
     # holds commits other flows wrote to today's rules, and the branch could only catch up by a
     # rebase and a force push.
-    range="$local_commit ^$remote_sha$tag_exclusions --not --remotes=origin"
+    range="$local_commit ^$remote_sha$tag_exclusions$branch_exclusions --not --remotes=origin"
   fi
   identity_ranges="$identity_ranges$range"$'\n'
   if [ "$remote_ref" != "refs/heads/$default" ]; then added_ranges="$added_ranges$range"$'\n'
@@ -675,7 +675,11 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   # So does a direct push, the one way on below for an update of the default branch without that mark, from the old ref
   # git sent.
   if landing_mark_judge "${AI_CORE_LANDING_MARK:-}" "$root" "$local_commit" "$remote_ref"; then
-    if git rev-parse -q --verify "refs/remotes/origin/$default" >/dev/null 2>&1; then range="$local_commit ^refs/remotes/origin/$default$tag_exclusions"; fi
+    if git rev-parse -q --verify "refs/remotes/origin/$default" >/dev/null 2>&1; then
+      # Git's remote tip bounds this push even when the tracking ref is stale.
+      if all_zero "${remote_sha:-}"; then range="$local_commit ^refs/remotes/origin/$default$tag_exclusions"
+      else range="$local_commit ^$remote_sha$tag_exclusions"; fi
+    fi
   elif [ "$remote_ref" = "refs/heads/$default" ]; then
     if all_zero "${remote_sha:-}"; then range="$local_commit$tag_exclusions"; else range="$local_commit ^$remote_sha$tag_exclusions"; fi
   fi
@@ -987,11 +991,17 @@ moved_from() {  # <sha> <dir>
 #     name that happens to open with one (post-processing) refers to no repository.
 # A repository's owner word is its name after the project prefix (acme-shop: shop), or its whole
 # name where it has none. A word that is a top-level directory in two or more repositories is a
-# word of structure (docs, deploy, scripts), no repository's name, and is not held. A commit with a
-# 'Naming: <why>' trailer keeps the names it adds, and says why to whoever reads it.
+# word of structure (docs, deploy, scripts), no repository's name, and is not held. A 'Naming: <why>'
+# trailer on any commit of the push keeps every name the push adds, so a forgotten one is added by a
+# later commit and no commit is rewritten.
 naming_findings() {  # one finding per line
   local folder main d name owner parts sha dir seg parent found from before kept line other
-  local kind a b
+  local kind a b range
+  # The message checks omit merges; a naming reason may be on any commit in the pushed ranges.
+  while IFS= read -r range; do
+    [ -n "$range" ] || continue
+    [ -z "$(git log --format='%(trailers:key=Naming,valueonly)' $range | tr -d '[:space:]')" ] || return 0
+  done <<< "$scan_ranges"
   folder="$(project_folder_of "$root")"
   main="$(cd "$(git -C "$root" rev-parse --path-format=absolute --git-common-dir)/.." && pwd)"
   git -C "$root" ls-tree -z -d --name-only HEAD 2>/dev/null | tr '\0' '\n' > "$TMPD/naming-words"
@@ -1008,7 +1018,6 @@ naming_findings() {  # one finding per line
   sort "$TMPD/naming-words" | uniq -d > "$TMPD/naming-structure"
   while IFS= read -r sha; do
     [ -n "$sha" ] || continue
-    [ -z "$(git log -1 --format='%(trailers:key=Naming,valueonly)' "$sha" | tr -d '[:space:]')" ] || continue
     # -z hands every name over as git stores it, never quoted. A known limit: a name that holds a line
     # break still splits in two and goes unchecked, and one that holds a tab pairs no rename; read
     # NUL-separated to the end if one appears
@@ -1060,7 +1069,7 @@ naming_findings() {  # one finding per line
 findings="$(naming_findings | sort -u)"
 if [ -n "$findings" ]; then
   while IFS= read -r line; do echo "pre-push: $line" >&2; done <<< "$findings"
-  refuse "the names above are invented where they should be derived from what they belong to. Rename them, or give the commit that adds them a 'Naming: <why>' trailer. A folder moved whole keeps the names inside it where git still pairs its files as renames: move it in a commit of its own."
+  refuse "each name above stands beside a sibling where only one of the two says its side, or claims a part that another repository lacks. Rename it, or give any commit of this push a 'Naming: <why>' trailer that says why the name is right; a later commit may carry it. A folder moved whole keeps the names inside it where git still pairs its files as renames: move it in a commit of its own."
 fi
 
 # THE WAIT FOR A LOWER LOAD. A check that starts on a busy machine goes red on timing, not on the code,

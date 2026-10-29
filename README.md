@@ -831,8 +831,9 @@ The gate judges, in this order, stopping at the first refusal (`pre-push: REFUSE
    mirrors the repositories of the project folder (two or more entries carry a repository's name),
    names a part of that repository, so `<x>` is one of its top-level directories; a repository's
    owner word is its name after the project prefix, and a word that is a top-level directory in
-   two or more repositories is a word of structure and names no repository. A commit with a
-   `Naming: <why>` trailer keeps the names it adds.
+   two or more repositories is a word of structure and names no repository. A `Naming: <why>`
+   trailer on any commit of the push keeps the names the push adds, so a forgotten trailer is added
+   by a later commit and no commit is rewritten.
 10. **`scripts/check.sh` is green**, run in the tree being pushed; a repository without one is told
    so and passes on. The check reads the working tree, so a tree that differs from the pushed commit,
    by an uncommitted change or a file neither tracked nor ignored, is refused with the files named.

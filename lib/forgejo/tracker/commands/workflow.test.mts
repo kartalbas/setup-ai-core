@@ -502,7 +502,7 @@ describe('integrate-issue', () => {
     assert.match(commentsOf(main, number).at(-1) ?? '', new RegExp(`^Landed part on master:\\n\\nReviewed head: ${head}\\nLanded commit: ${tipOf(main)}\\nReviewed by: alice\\n$`));
     assert.doesNotMatch(part.stdout, /next: ai-core finish-issue/);
     assert.match(part.stdout, /part: o\/r#\d+ stays in its status with its worktree; the last part lands without --part/);
-    await assert.rejects(finishIssue.run([String(number)], ctx(main.checkout)), /carries no "Landed on" record/);
+    await assert.rejects(finishIssue.run([String(number)], ctx(main.checkout)), /landed [0-9a-f]{7} as a part, and its last part has not landed yet/);
     assert.ok(existsSync(tree), 'a part record does not let finish-issue remove the worktree');
     const rerun = await integrateIssue.run([...integrateArguments(main, number, head), '--part'], ctx(tree));
     assert.match(rerun.stdout, /keeps its status: the record "Landed part on master" is there already/);
@@ -1599,6 +1599,32 @@ describe('finish-issue', () => {
     await finishIssue.run([String(number)], ctx(main.checkout));
     assert.ok(!existsSync(tree));
     assert.ok(!(await client.listBranchNames(main.checkout)).includes(branch));
+  });
+
+  // The last part of an issue may land in another repository, so its "Landed on" record names that one.
+  const lastPartElsewhere = (): string => composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 's' }, reviewedHead: 'e'.repeat(40), landedCommit: 'f'.repeat(40), reviewers: ['alice'] }, { owner: 'o', repo: 'r' });
+
+  it('removes the worktree of a part once a "Landed on" record of the issue follows its part record, from another repository', async () => {
+    const { number, tree, branch, head } = await worked(main, 'Landed as a part here and last elsewhere, so that it is removed');
+    await integrateIssue.run([...integrateArguments(main, number, head), '--part'], ctx(tree));
+    fake.addComment(main.full, number, 'fake-user', lastPartElsewhere());
+    const result = await finishIssue.run([String(number)], ctx(main.checkout));
+    assert.match(result.stdout, /removed the worktree/);
+    assert.ok(!existsSync(tree));
+    assert.ok(!(await client.listBranchNames(main.checkout)).includes(branch));
+  });
+
+  it('keeps the worktree of a part while no trusted "Landed on" record follows its part record, and names no integrate-issue (planted: one before the part, one of an account without write permission after it)', async () => {
+    const { number, tree, head } = await worked(main, 'Landed as a part with more to follow, so that it stays');
+    fake.addComment(main.full, number, 'fake-user', lastPartElsewhere());
+    await integrateIssue.run([...integrateArguments(main, number, head), '--part'], ctx(tree));
+    fake.setPermission(main.full, 'stranger', 'read');
+    fake.addComment(main.full, number, 'stranger', lastPartElsewhere());
+    await assert.rejects(
+      finishIssue.run([String(number)], ctx(main.checkout)),
+      (error: unknown) => error instanceof PreconditionError && new RegExp(`landed ${head.slice(0, 7)} as a part, and its last part has not landed yet, so the worktree ${tree} stays for it`).test(error.message) && !error.message.includes('integrate-issue'),
+    );
+    assert.ok(existsSync(tree), 'the worktree stays for the next part');
   });
 
   it('removes the worktree it is run from, as a session in it would', async () => {

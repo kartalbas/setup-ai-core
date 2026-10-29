@@ -42,6 +42,8 @@ if [ -n "${CHECK_HOLD:-}" ]; then
 fi
 EOF
 chmod +x "$F/app/scripts/check.sh"
+# the repository names Zed the other way a gate counts, as the next argument after "..", so the gate holds it too
+printf 'export const zed = resolve(here, "..", '"'"'Zed'"'"');\n' > "$F/app/scripts/neighbours.mjs"
 printf 'UPDATE_CHECK="never"\nNEIGHBOUR_LOCK_WAIT_SECONDS="2"\nPRE_PUSH_LOAD_LIMIT="0"\n' > "$F/app/.ai-core/config.env"
 git -C "$F/app" config user.email check@localhost; git -C "$F/app" config user.name check
 git -C "$F/app" add scripts .githooks; git -C "$F/app" commit -q -m "start (#1)"; git -C "$F/app" push -q origin master
@@ -916,4 +918,33 @@ mutant claim-kept bin/init.sh 's/; neighbour_pending_end "\$name"$//; s/^\(     
 rename_run "$WORK/mutant-claim-kept" h3
 [ "$RENAME" = "$CLAIM_KEPT" ] || fail "planted: a claim that ends only after a refresh was not found kept while init read Zed: $RENAME"
 echo "  init makes the copy of the renamed branch under its own claim and gives the claim up before it reads Zed; a copy made beside the claim waits for it, and a claim that ends only after a refresh is kept, the planted defects"
+
+section "a gate holds only the neighbours its repository names: a linked copy no tracked file names is not asked, moved or locked"
+git init -q --bare -b master "$WORK/nb-fox.git"
+git clone -q "$WORK/nb-fox.git" "$F/fox" 2>/dev/null
+echo one > "$F/fox/marker"; git -C "$F/fox" add marker; git_as -C "$F/fox" commit -q -m one; git -C "$F/fox" push -q origin master
+git clone -q "$WORK/nb-fox.git" "$WORK/nb-fox-pusher" 2>/dev/null
+carry_harness "$F/fox"
+T4="$F/.worktrees/app/issue-4-fox"; git -C "$F/app" worktree add -q -b issue-4-fox "$T4" origin/master
+printf 'the kit stands at ../fox-kit, which is no neighbour\n' > "$T4/fox-kit.txt"; git -C "$T4" add fox-kit.txt; git -C "$T4" commit -q -m "name ../fox-kit (#4)"
+bash "$ROOT/bin/init.sh" "$T4" --no-doctor > "$F-init-fox.log" 2>&1 || fail "init that links fox failed: $(tail -5 "$F-init-fox.log")"
+FOX="$F/.ai-core/neighbours/fox/origin-master"
+[ "$(readlink "$F/.worktrees/app/fox")" = ../../.ai-core/neighbours/fox/origin-master ] || fail "init did not link fox to its published copy: $(readlink "$F/.worktrees/app/fox" 2>&1)"
+fox_before="$(git -C "$FOX" rev-parse HEAD)"
+land fox two
+mover fox "$WORK/nb-fox-free"
+rc=0; timeout 120 git -C "$T4" push origin "HEAD:refs/heads/issue-4-fox" > "$F-fox.log" 2>&1 || rc=$?
+: > "$WORK/nb-fox-free"; wait "$READER" 2>/dev/null || true
+[ "$rc" -eq 0 ] || fail "a gate waited for, or failed on, a copy its repository does not name (status $rc): $(tail -5 "$F-fox.log")"
+grep -q "^pre-push: neighbour fox: not held: no tracked file of this repository writes \.\./fox or " "$F-fox.log" || fail "the gate does not name fox as not held: $(grep 'neighbour' "$F-fox.log")"
+grep -q "^pre-push: neighbour cat: the published copy " "$F-fox.log" || fail "cat, which the check reads as ../cat, is not held: $(grep 'neighbour' "$F-fox.log")"
+grep -q "^pre-push: neighbour Zed: the published copy " "$F-fox.log" || fail "Zed, which the repository names after \"..\", is not held: $(grep 'neighbour' "$F-fox.log")"
+[ "$(git -C "$FOX" rev-parse HEAD)" = "$fox_before" ] || fail "the gate moved the copy of fox, which its repository does not name"
+echo "  a copy that a mover holds and that the repository names only as ../fox-kit keeps nobody waiting and is not moved; cat and Zed are held"
+mutant holds-every-link lib/neighbours.sh 's/^  named="\$(neighbours_named "\$root" "\$names")" || return 1$/  named="$names"/'
+echo fox-2 > "$T4/work-fox-2"; git -C "$T4" add work-fox-2; git -C "$T4" commit -q -m "work fox-2 (#4)"
+PATH="$WORK/mutant-holds-every-link/bin-path:$PATH" timeout 120 git -C "$T4" push origin "HEAD:refs/heads/issue-4-fox" > "$F-fox-mutant.log" 2>&1 || true
+[ "$(git -C "$FOX" rev-parse HEAD)" != "$fox_before" ] || fail "planted: a gate that holds every linked neighbour did not move fox, so this case cannot tell: $(grep 'neighbour' "$F-fox-mutant.log")"
+echo "  a gate that holds every linked neighbour, the planted defect, moves the copy of fox"
+all_free cat dog Zed fox || fail "a lock is still held after the gates that skip fox ended"
 exit 0

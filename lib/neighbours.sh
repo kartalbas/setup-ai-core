@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # THE PUBLISHED COPIES OF THE NEIGHBOURS, for init, which makes and links them, and for the push gate,
-# which brings them to the newest commit of their origins before a check reads them. Source it, do not
-# run it; lib/common.sh is sourced already.
+# which brings the copies of the neighbours its repository names to the newest commit of their origins before a
+# check reads them. Source it, do not run it; lib/common.sh is sourced already.
 #
 # A copy is the detached worktree <project folder>/.ai-core/neighbours/<neighbour>/origin-<branch>, and
 # the link ../<neighbour> beside the worktrees of a repository leads to it. A copy stays where it stands
@@ -350,8 +350,20 @@ neighbour_add_copy() (
 )
 
 
+# neighbours_named <worktree> <names>: of the names, one per line, those that a tracked file of the worktree writes as
+# a path beside it, `../<name>`, or `".."` with `"<name>"` as the next argument, in either quote; a longer name such
+# as `../<name>-kit` does not count, and a path built from a variable is not seen. On failure NEIGHBOUR_ERROR says why.
+neighbours_named() {
+  local alternation found rc=0
+  alternation="$(sed 's/[.]/[.]/g' <<< "$2" | paste -sd '|' -)"
+  found="$(git -C "$1" grep -h -o -I -E "(\.\./|[\"']\.\.[\"'][[:space:]]*,[[:space:]]*[\"'])($alternation)([^A-Za-z0-9_.-]|\$)" -- . 2>&1)" || rc=$?
+  [ "$rc" -le 1 ] || { NEIGHBOUR_ERROR="the tracked files of $1 cannot be searched for the neighbours they name: ${found//$'\n'/ | }"; return 1; }
+  [ -z "$found" ] || sed -E "s#^(\.\./|[\"']\.\.[\"'][[:space:]]*,[[:space:]]*[\"'])##; s#[^A-Za-z0-9_.-]\$##" <<< "$found" | LC_ALL=C sort -u
+}
+
 # neighbours_hold <worktree>: for the push gate. For every link beside the worktree that leads to a published
-# copy, in the order of the neighbours' names: asks the origin, brings the copy to its newest commit where the
+# copy of a neighbour that the worktree names (neighbours_named), in the order of the neighbours' names: asks the
+# origin, brings the copy to its newest commit where the
 # copy holds nothing of anybody's, and keeps a shared lock on it, on a descriptor from 40 up, until
 # neighbours_release. The check then reads the measured snapshot, and no init and no other gate moves it.
 # A copy that has to move, or a lock a mover holds, is waited for with no lock of any copy held: the gate gives
@@ -360,12 +372,13 @@ neighbour_add_copy() (
 # the one of neighbour_allowance.
 # Sets NEIGHBOUR_REPORT, one line per neighbour, and NEIGHBOUR_TIPS, one line per neighbour, the name and the
 # full commit the copy stands at; fails with NEIGHBOUR_ERROR naming the copy whose freshness could not be
-# established. A worktree with no such link holds nothing.
+# established. A worktree with no such link holds nothing. A linked neighbour the worktree does not name is not
+# asked, moved or locked, so no gate waits for it; NEIGHBOUR_REPORT names it as not held, and NEIGHBOUR_TIPS leaves it out.
 NEIGHBOUR_REPORT=""; NEIGHBOUR_TIPS=""; NEIGHBOUR_ERROR=""; NEIGHBOUR_STATE=""; NEIGHBOUR_FDS=""
 NEIGHBOUR_BRANCH=""; NEIGHBOUR_DIR=""; NEIGHBOUR_COPY=""; NEIGHBOUR_REF=""; NEIGHBOUR_MOVES=""; NEIGHBOUR_BEFORE=""; NEIGHBOUR_FAILED_STEP=""
 NEIGHBOUR_FETCH_WRAP=""   # a command that runs the fetch, such as the sign-in line of a forge
 neighbours_hold() {
-  local root="$1" common main folder container link names config wait
+  local root="$1" common main folder container link names named unnamed config wait
   NEIGHBOUR_REPORT=""; NEIGHBOUR_TIPS=""; NEIGHBOUR_FDS=""; NEIGHBOUR_ERROR=""; NEIGHBOUR_MOVES=""
   common="$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
   [ "$common" != "$(git -C "$root" rev-parse --path-format=absolute --git-dir 2>/dev/null)" ] || return 0
@@ -376,11 +389,18 @@ neighbours_hold() {
     case "$(readlink "$link")" in "../../.ai-core/neighbours/${link##*/}/origin-"?*) echo "${link##*/}" ;; esac
   done | LC_ALL=C sort)"
   [ -n "$names" ] || return 0
-  config="$root/.ai-core/config.env"
-  wait="$(neighbour_lock_wait "$config")" || { NEIGHBOUR_ERROR="NEIGHBOUR_LOCK_WAIT_SECONDS is not a whole number of seconds in $config, or $config cannot be read"; return 1; }
-  neighbours_ask "$container" "$folder" "$names" "$wait" || return 1
-  neighbour_wait_begin "$config"
-  neighbours_take "$container" "$folder" "$names" || { neighbours_release; return 1; }
+  named="$(neighbours_named "$root" "$names")" || return 1
+  unnamed="$(grep -vxF -f <(printf '%s\n' "$named") <<< "$names" || :)"
+  if [ -n "$named" ]; then
+    config="$root/.ai-core/config.env"
+    wait="$(neighbour_lock_wait "$config")" || { NEIGHBOUR_ERROR="NEIGHBOUR_LOCK_WAIT_SECONDS is not a whole number of seconds in $config, or $config cannot be read"; return 1; }
+    neighbours_ask "$container" "$folder" "$named" "$wait" || return 1
+    neighbour_wait_begin "$config"
+    neighbours_take "$container" "$folder" "$named" || { neighbours_release; return 1; }
+  fi
+  while IFS= read -r link; do
+    [ -z "$link" ] || NEIGHBOUR_REPORT="$NEIGHBOUR_REPORT$link: not held: no tracked file of this repository writes ../$link or \"..\", \"$link\", so its check does not read the copy, and the gate neither asks its origin nor moves or locks it"$'\n'
+  done <<< "$unnamed"
 }
 
 # neighbour_locate <container> <folder> <neighbour>: sets NEIGHBOUR_BRANCH, NEIGHBOUR_DIR and NEIGHBOUR_COPY from the

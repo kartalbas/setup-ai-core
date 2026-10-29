@@ -32,12 +32,45 @@ out="$(CLAUDE_JOB_DIR=/tmp/job bash "$root/bin/permission-request.sh" <<< "$ask_
 check 'exit code'                0 "$rc"
 check 'no output, so the dialog is shown (planted: it was denied)' '' "$out"
 
+echo 'only the exact question tool name passes through'
+while IFS= read -r call; do
+  out="$(CLAUDE_JOB_DIR=/tmp/job bash "$root/bin/permission-request.sh" <<< "$call" 2>&1)"; rc=$?
+  check "exit code for $call" 0 "$rc"
+  check "denied: $call" deny "$(jq -r '.hookSpecificOutput.decision.behavior' <<< "$out" 2>/dev/null)"
+done <<'CALLS'
+{"tool_name":"PrefixAskUserQuestion"}
+{"tool_name":"AskUserQuestionSuffix"}
+{"tool_name":"askuserquestion"}
+{"tool_name":"AskUserQuestion\n"}
+{"tool_name":"AskUserQuestion\u0000"}
+{"tool_name":""}
+{"tool_name":null}
+{"tool_name":["AskUserQuestion"]}
+{}
+CALLS
+
+echo 'invalid input returns a denial, not a silent or failed hook'
+for call in '' 'not JSON' '{' '[]' 'null' '"AskUserQuestion"' \
+            '{"tool_name":"AskUserQuestion"} garbage' \
+            '{"tool_name":"AskUserQuestion"} {"tool_name":"Bash"}'; do
+  out="$(CLAUDE_JOB_DIR=/tmp/job bash "$root/bin/permission-request.sh" <<< "$call" 2>&1)"; rc=$?
+  check "exit code for invalid input: $call" 0 "$rc"
+  check "invalid input denied: $call" true "$(jq '.hookSpecificOutput | .hookEventName == "PermissionRequest" and .decision.behavior == "deny" and .decision.interrupt == false and (.decision.message | contains("invalid PermissionRequest input"))' <<< "$out" 2>/dev/null)"
+done
+
+out="$(printf '{"tool_name":"AskUserQuestion\0"}\n' | CLAUDE_JOB_DIR=/tmp/job bash "$root/bin/permission-request.sh" 2>&1)"; rc=$?
+check 'exit code for a literal NUL in JSON' 0 "$rc"
+check 'a literal NUL in JSON is denied' deny "$(jq -r '.hookSpecificOutput.decision.behavior' <<< "$out" 2>/dev/null)"
+
 echo 'a session somebody sits at: nothing printed, the prompt is shown'
-out="$(env -u CLAUDE_JOB_DIR bash "$root/bin/permission-request.sh" <<< "$bash_call")"; rc=$?
-check 'exit code'                0 "$rc"
-check 'no output'                '' "$out"
-out="$(CLAUDE_JOB_DIR='' bash "$root/bin/permission-request.sh" <<< "$bash_call")"
-check 'an empty CLAUDE_JOB_DIR is no background session' '' "$out"
+for call in "$bash_call" "$edit_call" "$ask_call" 'not JSON' ''; do
+  out="$(env -u CLAUDE_JOB_DIR bash "$root/bin/permission-request.sh" <<< "$call" 2>&1)"; rc=$?
+  check 'exit code without CLAUDE_JOB_DIR' 0 "$rc"
+  check 'no output without CLAUDE_JOB_DIR' '' "$out"
+  out="$(CLAUDE_JOB_DIR='' bash "$root/bin/permission-request.sh" <<< "$call" 2>&1)"; rc=$?
+  check 'exit code with empty CLAUDE_JOB_DIR' 0 "$rc"
+  check 'no output with empty CLAUDE_JOB_DIR' '' "$out"
+done
 
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo

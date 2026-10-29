@@ -13,9 +13,12 @@
 set -uo pipefail
 
 case "${1:-}" in -h|--help) echo "usage: permission-request.sh  (Claude Code's PermissionRequest JSON on standard input; denies the prompt in a background session)"; exit 0 ;; esac
-input="$(cat)"
-[ -n "${CLAUDE_JOB_DIR:-}" ] || exit 0
-[ "$(jq -r '.tool_name // ""' <<< "$input")" != AskUserQuestion ] || exit 0
-jq -c '(.tool_input.command // .tool_input.file_path // .tool_input.path // (.tool_input | tostring)) as $what
-  | {hookSpecificOutput: {hookEventName: "PermissionRequest", decision: {behavior: "deny", interrupt: false,
-     message: "Denied without asking: this is a background session and nobody answers its permission prompts, so the prompt for \(.tool_name // "this tool") `\($what)` would wait for good. Take a way that needs no prompt: an absolute path instead of cd, git -C <dir>, the Read tool for a file. If the step truly needs a yes, report it to your coordinator with the exact command and go on with the rest."}}}' <<< "$input"
+[ -n "${CLAUDE_JOB_DIR:-}" ] || { cat > /dev/null; exit 0; }
+jq -Rsc 'def deny($message):
+    {hookSpecificOutput: {hookEventName: "PermissionRequest", decision: {behavior: "deny", interrupt: false, message: $message}}};
+  try (fromjson
+    | if type == "object" then . else error("expected one PermissionRequest object") end
+    | select(.tool_name != "AskUserQuestion")
+    | (.tool_input.command // .tool_input.file_path // .tool_input.path // (.tool_input | tostring)) as $what
+    | deny("Denied without asking: this is a background session and nobody answers its permission prompts, so the prompt for \(.tool_name // "this tool") `\($what)` would wait for good. Take a way that needs no prompt: an absolute path instead of cd, git -C <dir>, the Read tool for a file. If the step truly needs a yes, report it to your coordinator with the exact command and go on with the rest."))
+  catch deny("Denied without asking: invalid PermissionRequest input in a background session: \(.)")'

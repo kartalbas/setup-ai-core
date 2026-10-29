@@ -140,7 +140,7 @@ phase_model_setup() {
     [ -n "$row" ] || { echo "the setup entry $phase $tool is refused: $tool has no build row for $class, so it does not run that class" >&2; return 1; }
     case "$phase:$class" in
       ui-test:*|*:high-risk)
-        row="$(phase_model_row "$tool" "$phase" "$class" "$table")" || return 1
+        row="$(phase_model_native_row "$tool" "$phase" "$class" "$table")" || return 1
         [ -n "$row" ] || { echo "the setup entry $phase $tool is refused: the table has no $phase row of $tool for $class" >&2; return 1; }
         [ "$(cut -f4,5 <<< "$row")" = "$(printf '%s\t%s' "$model" "$effort")" ] \
           || { echo "the setup entry $phase $tool is refused: for $class it is the row of the table, $(cut -f4 <<< "$row") $(cut -f5 <<< "$row"), not $model $effort" >&2; return 1; } ;;
@@ -174,6 +174,15 @@ phase_model_rows() {
 phase_model_row() {
   local rows
   rows="$(phase_model_rows "$@")" || return $?
+  [ -z "$rows" ] || printf '%s\n' "${rows%%$'\n'*}"
+}
+
+# phase_model_native_row <tool> <phase> <class> <table>: the first of those rows that runs on the tool itself; a row
+# that routes to another tool (a model with a colon) is that tool's row.
+phase_model_native_row() {
+  local rows
+  rows="$(phase_model_rows "$@")" || return $?
+  rows="$(awk -F'\t' '$4 !~ /:/' <<< "$rows")"
   [ -z "$rows" ] || printf '%s\n' "${rows%%$'\n'*}"
 }
 

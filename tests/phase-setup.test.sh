@@ -134,6 +134,9 @@ expect 'a high-risk entry on the row (innocent)' 0 'claude claude-sonnet-5-5 xhi
 setup "$(jq -cn --argjson b "$(entry claude-opus-5-5 high 100000)" '{review:{claude:$b}}')"
 selection review high-risk --written-by claude-sonnet-5-5 --setup-file "$WORK/setup.json"
 refused 'a high-risk review below the row' 'for high-risk it is the row of the table, claude-opus-5-5 max'
+setup "$(jq -cn --argjson b "$(entry claude-opus-5-5 max 100000)" '{review:{claude:$b}}')"
+selection review high-risk --written-by gpt-6-astra --setup-file "$WORK/setup.json"
+expect 'a high-risk review on the native row behind a route (innocent)' 0 'claude claude-opus-5-5 max'
 setup "$(jq -cn --argjson b "$(entry claude-sonnet-5-5-high - 100000)" '{build:{agy:$b}}')"
 order agy
 selection build high-risk --setup-file "$WORK/setup.json"

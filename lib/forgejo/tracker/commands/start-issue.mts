@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { addComment, afterStep, commitNameOf, currentLogin, explainMissingAssignment, formatIssue, formatRepository, getIssue, isSameRepository, issueBranchName } from '../domain/issues.mts';
 import type { Issue } from '../domain/issues.mts';
@@ -175,9 +175,9 @@ export async function run(args: readonly string[], context: CommandContext): Pro
     if (assembled.output !== '') lines.push(assembled.output);
     if (!assembled.succeeded) warnings.push(`the harness is NOT complete in the worktree: run 'ai-core init ${path} --no-doctor' before you start`);
   }
-  // git runs no gate where the tree holds no shim, a new repository's above all, and nothing else says so
-  if (!(await access(join(path, '.githooks', 'pre-push')).then(() => true, () => false))) {
-    warnings.push(`this repository carries no push gate (.githooks/pre-push), so a push from the worktree runs no check: run 'ai-core pre-push --install' in ${cwd} first`);
+  if (!(await stat(join(path, '.githooks', 'pre-push')).then((entry) => entry.isFile(), () => false))) {
+    const checkout = (await git.run(cwd, ['rev-parse', '--show-toplevel'])).stdout.trim();
+    warnings.push(`this worktree carries no push gate (.githooks/pre-push), so the ai-core check before a push is not guaranteed: run 'ai-core pre-push --install' in ${checkout} first`);
   }
   await afterStep(
     `record the start of issue ${formatIssue(ref)}`,

@@ -27,8 +27,9 @@ nothing of it has to survive (`mkdir -p ~/.ai-core/sessions` once):
 
 `phase-model` calls `ai-core usage --tool agy --model MODEL`. The reading shows it as percent
 used, against `USAGE_STOP_AT` as percent used, and judges only the selected model's group.
-Exit 3 or 4 skips that tool; a failed reading refuses the whole selection. On refusal,
-do not start or fall back to another tool. The windows are agy's answer of that moment.
+Exit 3 skips that tool; a failed reading refuses the whole selection. A projection to the limit
+is shown and stops no start. On refusal, do not start or fall back to another tool. The windows
+are agy's answer of that moment.
 
 Set `PROJECT`, `PHASE`, `CLASS`, `SESSION` and `BRIEF` to the intended project, model-table
 phase word, class, phase session name and filled brief file. Set `WRITER` to the actual writer

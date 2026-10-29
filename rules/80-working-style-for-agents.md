@@ -113,12 +113,11 @@
   work when it reaches a point, not because a budget did. A usage limit of an account is another
   matter, because every session using that account draws on it. Its limit is the one the project
   sets, USAGE_STOP_AT in its config.env (92 % unless set), in any of its windows: the five hours,
-  the week or one model's quota. Before every start, `ai-core usage` measures each window's burn
-  since the window began and names the hour it reaches the limit; the work goes on at full speed up
-  to the limit in every window, and no session holds back on a projection, a fixed percentage or a
-  fixed hour. A longer window is watched by whoever holds the account: nobody asks them about it,
-  and they change the account there or say when the work slows down. At the limit itself, every
-  session using that
-  limited account or model finishes the step in hand, commits and reports it, starts nothing new on
-  it and waits for the reset, and what is left stays for the coordination and the reviews. [review ·
-  tool]
+  the week or one model's quota. Before every start, `ai-core usage` reports each window's usage
+  and its burn when measured. A projection to the limit also names the hour. The work goes on at
+  full speed up to the limit in every window. No session holds back before that limit because of
+  a projection, a lower percentage or a fixed hour. A longer window is watched by whoever holds the account:
+  nobody asks them about it, and they change the account there or say when the work slows down.
+  At the limit itself, every session using that limited account or model finishes the step in
+  hand, commits and reports it, starts nothing new on it and waits for the reset. What is left stays
+  for the coordination and the reviews. [review · tool]

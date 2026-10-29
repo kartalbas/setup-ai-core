@@ -212,7 +212,8 @@ check 'exit 0'                   0 "$rc"
 check 'unmeasured'               yes "$(matches '  burn unmeasured$' "$(sed -n 4p <<< "$out")")"
 mutate 's/\$4 == r && //' 'a burn across resets'
 out="$(agy_run --tool agy)"; rc=$?
-check 'a burn measured across resets is caught' yes "$(grep -q '  burn unmeasured$' <<< "$(sed -n 4p <<< "$out")" && echo no || echo yes)"
+check 'a burn across resets still exits 0' 0 "$rc"
+check 'a burn measured across resets is caught' yes "$(matches '^Claude and GPT models: five_hour +80 % used  resets .*  burn [0-9]+\.[0-9] %/h, 92 % used at ' "$(sed -n 4p <<< "$out")")"
 restore
 echo 'two groups with the same five-hour reset keep their own histories'
 forget; answer 0.92 0.2 0.92 0.2
@@ -231,7 +232,13 @@ forget; answer 0.92 0.95 0.92 0.2
 jq '.command.data.groups[1].buckets[1].id = "quota\\bucket"' "$AGY_ANSWER" > "$work/escaped.json"
 seed 'Claude and GPT models' 'quota\bucket' 1800 50 "$soon"
 out="$(AGY_ANSWER="$work/escaped.json" agy_run --tool agy)"; rc=$?
-check 'escaped bucket identity keeps its measured burn: exit 0' 0 "$rc"
+check 'escaped bucket identity: exit 0' 0 "$rc"
+check 'escaped bucket identity keeps its measured burn and hour' yes "$(matches '^Claude and GPT models: five_hour +80 % used  resets .*  burn (59\.9|60\.0) %/h, 92 % used at ' "$(sed -n 4p <<< "$out")")"
+mutate 's/AI_CORE_USAGE_KEY="\$key" awk/awk -v k="\$key"/; /BEGIN { k = ENVIRON\["AI_CORE_USAGE_KEY"\] }/d' 'escaped bucket key decoded by awk'
+out="$(AGY_ANSWER="$work/escaped.json" agy_run --tool agy)"; rc=$?
+check 'a decoded bucket key still exits 0' 0 "$rc"
+check 'a decoded bucket key loses the measured burn and is caught' yes "$(matches '^Claude and GPT models: five_hour +80 % used  resets .*  burn unmeasured$' "$(sed -n 4p <<< "$out")")"
+restore
 echo 'a week that fills before its reset warns and stops nothing; a window at the limit outranks a projection'
 forget; answer 0.92 0.95 0.2 1
 seed 'Claude and GPT models' 3p-weekly 1800 20 "$week_at"

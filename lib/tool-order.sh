@@ -223,7 +223,7 @@ function snapshot() {
     const state = exists(file) ? JSON.parse(read(file)) : null;
     if (state !== null && (state.version !== 1 || !Array.isArray(state.orders) || !state.orders.length || state.orders.some((o, i) =>
       o.generation !== i + 1 || !positive(o.time) || (i && o.time < state.orders[i - 1].time) ||
-      !Array.isArray(o.tools) || !o.tools.length || new Set(o.tools).size !== o.tools.length || o.tools.some(t => !tools.includes(t))))) throw Error(`malformed ${file}`);
+      !Array.isArray(o.tools) || new Set(o.tools).size !== o.tools.length || o.tools.some(t => !tools.includes(t))))) throw Error(`malformed ${file}`);
     const log = path.join(home, 'phase-model.jsonl');
     const decisions = exists(log) ? jsonLines(read(log), log) : [];
     for (const d of decisions) {
@@ -238,8 +238,9 @@ function snapshot() {
 }
 function audit() {
   const {orders, decisions} = snapshot(), order = orders.at(-1);
-  if (!order) {
+  if (!order || !order.tools.length) {
     console.log('tool order: not set; native-tool selection');
+    if (order) console.log(`cleared at: ${order.time} (${new Date(order.time * 1000).toISOString()}); generation ${order.generation}`);
     console.log('phase starts: no policy set time; no violations assessed');
     return;
   }

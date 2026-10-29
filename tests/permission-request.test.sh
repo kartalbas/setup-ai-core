@@ -26,7 +26,7 @@ check 'the way without a prompt' true "$(jq '.hookSpecificOutput.decision.messag
 out="$(CLAUDE_JOB_DIR=/tmp/job bash "$root/bin/permission-request.sh" <<< "$edit_call")"
 check 'a file call names the file' true "$(jq '.hookSpecificOutput.decision.message | contains("Edit `/x/.git/config`")' <<< "$out")"
 
-echo 'a background session: the question dialog is shown, because a person attached to the session answers it'
+echo 'a background session: the question dialog and the plan approval are shown, because a person attached to the session answers them'
 ask_call='{"hook_event_name":"PermissionRequest","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Which one?","header":"Pick","multiSelect":false,"options":[{"label":"a","description":"a"},{"label":"b","description":"b"}]}]}}'
 out="$(CLAUDE_JOB_DIR=/tmp/job bash "$root/bin/permission-request.sh" <<< "$ask_call")"; rc=$?
 check 'exit code'                0 "$rc"

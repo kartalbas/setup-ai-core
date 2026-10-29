@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # What the PermissionRequest hook answers: a deny that names the call in a background session, for a
-# command and for a file, and nothing in a session somebody sits at, so the prompt is shown there.
+# command and for a file, nothing there for the question dialog and the plan approval, and nothing in
+# a session somebody sits at, so the prompt is shown there.
 #
 #   bash tests/permission-request.test.sh
 

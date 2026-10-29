@@ -1121,6 +1121,20 @@ add_dirs $'Add the server texts #22\n\nNaming: the product owner calls this part
 out="$(only_new "$repo")"; rc=$?
 check 'exit 0'                      0 "$rc"
 
+echo 'PLANTED DEFECT: a family with no Naming: trailer on any commit of the push is refused, by what the gate saw'
+add_dirs 'Add the order texts #24' catalog/orders catalog/orders-archive
+git -C "$repo" commit -q --allow-empty -m 'Note the order texts #24'
+out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$(git -C "$repo" rev-parse HEAD~2)")"; rc=$?
+check 'exit 1'                      1 "$rc"
+check 'the half-named family'       yes "$(grep -q 'catalog/orders beside catalog/orders-archive: one member of the family says its side, the other does not' <<< "$out" && echo yes || echo no)"
+check 'it names a trailer on any commit of the push' yes "$(grep -qF "give any commit of this push a 'Naming: <why>' trailer" <<< "$out" && echo yes || echo no)"
+check 'it calls no family invented' no "$(grep -q 'invented' <<< "$out" && echo yes || echo no)"
+
+echo 'PLANTED INNOCENT: the same push with a later commit that carries the Naming: trailer goes out'
+git -C "$repo" commit -q --allow-empty -F - <<< $'Keep the order names #24\n\nNaming: orders-archive holds the orders that were archived'
+out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$(git -C "$repo" rev-parse HEAD~3)")"; rc=$?
+check 'exit 0'                      0 "$rc"
+
 # A move is read by its content, so every file below differs from every other: git pairs files of
 # equal content across folders at will.
 mark="$(git -C "$repo" rev-parse HEAD)"

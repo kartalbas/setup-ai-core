@@ -82,7 +82,7 @@ for arg in "$@"; do
     echo "issue as (#<n>) or <repo>#<n>; an existing"
     echo "migrations/*.sql is changed or removed (a 'Migration: <why>' trailer allows it);"
     echo "a new directory's name is invented where the families"
-    echo "of the trees give it (a 'Naming: <why>' trailer keeps one); the working tree differs from the commit where"
+    echo "of the trees give it (a 'Naming: <why>' trailer on any pushed commit keeps them); the working tree differs from the commit where"
     echo "scripts/check.sh would run, or scripts/check.sh is red; or gitleaks"
     echo "finds a credential in the pushed commits (where .gitleaks.toml exists). The message of a merge is not"
     echo "judged; its addresses are. A deletion runs"
@@ -987,11 +987,16 @@ moved_from() {  # <sha> <dir>
 #     name that happens to open with one (post-processing) refers to no repository.
 # A repository's owner word is its name after the project prefix (acme-shop: shop), or its whole
 # name where it has none. A word that is a top-level directory in two or more repositories is a
-# word of structure (docs, deploy, scripts), no repository's name, and is not held. A commit with a
-# 'Naming: <why>' trailer keeps the names it adds, and says why to whoever reads it.
+# word of structure (docs, deploy, scripts), no repository's name, and is not held. A 'Naming: <why>'
+# trailer on any commit of the push keeps every name the push adds, so a forgotten one is added by a
+# later commit and no commit is rewritten.
 naming_findings() {  # one finding per line
   local folder main d name owner parts sha dir seg parent found from before kept line other
   local kind a b
+  while IFS= read -r sha; do
+    [ -n "$sha" ] || continue
+    [ -z "$(git log -1 --format='%(trailers:key=Naming,valueonly)' "$sha" | tr -d '[:space:]')" ] || return 0
+  done <<< "$commits"
   folder="$(project_folder_of "$root")"
   main="$(cd "$(git -C "$root" rev-parse --path-format=absolute --git-common-dir)/.." && pwd)"
   git -C "$root" ls-tree -z -d --name-only HEAD 2>/dev/null | tr '\0' '\n' > "$TMPD/naming-words"
@@ -1008,7 +1013,6 @@ naming_findings() {  # one finding per line
   sort "$TMPD/naming-words" | uniq -d > "$TMPD/naming-structure"
   while IFS= read -r sha; do
     [ -n "$sha" ] || continue
-    [ -z "$(git log -1 --format='%(trailers:key=Naming,valueonly)' "$sha" | tr -d '[:space:]')" ] || continue
     # -z hands every name over as git stores it, never quoted. A known limit: a name that holds a line
     # break still splits in two and goes unchecked, and one that holds a tab pairs no rename; read
     # NUL-separated to the end if one appears
@@ -1060,7 +1064,7 @@ naming_findings() {  # one finding per line
 findings="$(naming_findings | sort -u)"
 if [ -n "$findings" ]; then
   while IFS= read -r line; do echo "pre-push: $line" >&2; done <<< "$findings"
-  refuse "the names above are invented where they should be derived from what they belong to. Rename them, or give the commit that adds them a 'Naming: <why>' trailer. A folder moved whole keeps the names inside it where git still pairs its files as renames: move it in a commit of its own."
+  refuse "each name above stands beside a sibling where only one of the two says its side, or claims a part that another repository lacks. Rename it, or give any commit of this push a 'Naming: <why>' trailer that says why the name is right; a later commit may carry it. A folder moved whole keeps the names inside it where git still pairs its files as renames: move it in a commit of its own."
 fi
 
 # THE WAIT FOR A LOWER LOAD. A check that starts on a busy machine goes red on timing, not on the code,

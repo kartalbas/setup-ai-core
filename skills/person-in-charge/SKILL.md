@@ -163,8 +163,10 @@ in `members`; a restart runs the command with `--member` every one of `members` 
 departure in another repository is not lost.
 
 A review repairs every finding inside the package's own files and contracts itself and says GO with
-REPAIRED lines, so its NO is left for a finding that needs a decision of the owner or a change
-beyond the package's files and contracts; a plan check repairs what is small itself and says GO
+REPAIRED lines, which a second reader on another model reads alone before the landing, so its NO
+is left for a finding that needs a decision of the owner, a change beyond the package's files and
+contracts, or a wrong approach; a landing that the gate refuses for the package's own change on
+the merged tree goes back to a review that repairs it in the same way, never to a fresh build; a plan check repairs what is small itself and says GO
 with REPAIRED lines, so its NO is left for what is too large for a few lines or needs a decision.
 A review that says NO starts a
 fresh build session with its findings; a plan check that says NO starts a fresh re-plan session

@@ -95,10 +95,15 @@
   does.** The reviewer gets the diff of the whole package and the stated intent of each of its
   issues, not the conversation; one handed a single issue of a running package asks for the
   package. Every finding it can repair inside the package's own files and contracts it repairs
-  itself, in the package's branch or section, names as REPAIRED and lets land, so the card goes on
-  to testing, because a NO pays a whole round; the gate's run on the repaired head and the test
-  phase check that repair. Only a finding that needs a decision of the owner, or a change beyond
-  the package's files and contracts, it writes down instead, and the package does not land. The
+  itself, in the package's branch or section, and names as REPAIRED with its own full name, so the
+  card goes on to testing, because a NO pays a whole round; a second reader on another model than
+  the reviewer's reads only the repaired lines against the named findings before the package
+  lands, because a repair nobody reads is unreviewed code. A defect of the package's own change
+  that the gate finds at the landing, on the merged tree, is repaired the same way and gets no new
+  build round. Only a finding that needs a decision of the owner, a change beyond the package's
+  files and contracts, or a package whose approach is wrong it writes down instead, and the package
+  does not land; that is the rare exception, because the plan was made and checked on the
+  strongest models. The
   reviewer's tool, model and effort come from `ai-core phase-model review <class> --written-by
   <builder model>`, using the project's model table, and never the model that
   wrote the work. A sweep, a collection of facts, a draft of test cases or a

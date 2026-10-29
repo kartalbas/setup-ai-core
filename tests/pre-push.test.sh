@@ -711,6 +711,7 @@ tag_origin="$fake/origin-tags.git"
 git init -q --bare "$tag_origin"
 git -C "$repo" remote add origin "$tag_origin"
 base="$(git -C "$repo" rev-parse HEAD)"
+git -C "$repo" push -q --no-verify origin "$base:refs/heads/master"             # its default branch, which an empty origin takes from the first push
 git -C "$repo" checkout -q -b release-snapshot
 commit 'src/snapshot.txt' 'Snapshot of the old tracker'                         # names no issue
 snapshot="$(git -C "$repo" rev-parse HEAD)"

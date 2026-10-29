@@ -125,7 +125,8 @@ usage_refresh_codex() {
     case "$rc" in
       0) ;;
       124) keep_failure "codex exec did not end in $USAGE_CODEX_REFRESH_SECONDS seconds" ;;
-      *) keep_failure "codex exec exited $rc: $(grep -m1 . "$scratch/error" | cut -c1-200)" ;;
+      # Codex writes "Reading additional input from stdin..." first, so the cause is the line that says error, else the last one
+      *) keep_failure "codex exec exited $rc: $( { grep -i -m1 'error' "$scratch/error" || grep . "$scratch/error" | tail -n1; } | cut -c1-200)" ;;
     esac
     usage_read_codex_records >/dev/null 2>&1 || keep_failure "codex exec answered, but its session files cannot be read"
     [ "$(( $(usage_now) - usage_recorded ))" -le "$USAGE_CODEX_MAX_AGE_SECONDS" ] || keep_failure "codex exec answered, but wrote no usage record"

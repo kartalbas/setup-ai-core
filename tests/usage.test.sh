@@ -26,6 +26,7 @@ case "${STUB_MODE:-fail}" in
     printf '{"timestamp":"%s","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":{"used_percent":0,"window_minutes":300,"resets_at":%s},"secondary":null}}}\n' \
       "$(date -u '+%Y-%m-%dT%H:%M:%S.000Z')" "$(( $(date +%s) + 18000 ))" > "$dir/rollout-stub-$$.jsonl" ;;
   silent) ;;
+  stdin-first) printf 'Reading additional input from stdin...\n\nERROR: You have hit your usage limit.\n' >&2; exit 1 ;;
   *) echo "Not logged in" >&2; exit 1 ;;
 esac
 STUB
@@ -320,6 +321,10 @@ check 'no failure to report'     0 "$(grep -c 'refresh failed' <<< "$out")"
 echo 'the same reader asked again at once: the record is fresh, no second call'
 STUB_MODE=refill codex_usage
 check 'no second call'           1 "$(calls)"
+echo 'the call fails with its cause after a first line about stdin: the line names the cause'
+old_codex_record
+STUB_MODE=stdin-first codex_usage
+check 'the line names the cause, not the stdin line' 1 "$(grep -c '^the Codex record is older than 60 minutes and its refresh failed: codex exec exited 1: ERROR: You have hit your usage limit\.$' <<< "$out")"
 echo 'the call fails: the old record, and one line that says why'
 old_codex_record
 codex_usage

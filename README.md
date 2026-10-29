@@ -1319,6 +1319,9 @@ a closing keyword before an issue reference (`Fixes #12`, which closes the issue
 any release) or an assistant as author is refused while the commit is made, where the fault costs no
 rewrite. A harness source, which `init` never assembles, gets the same hook from
 `ai-core pre-push --install` in its checkout and its worktrees, and from `start-issue` in a new worktree.
+When the worktree it opens holds no `.githooks/pre-push` file, `start-issue` warns that the ai-core
+check before a push is not guaranteed and names the checkout to run `ai-core pre-push --install` in.
+This includes a new repository's first worktree and, on Forgejo, a resumed worktree.
 
 **The first commit of a new repository.** An origin with no branch at all has no default branch to cut
 a worktree from, and the first branch pushed into an empty repository becomes its default branch on

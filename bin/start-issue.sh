@@ -219,5 +219,7 @@ released_repo="$(resolve_repo "")" && sync_released_cards "$released_repo" ${rep
 
 assemble_worktree "$path" "$ROOT" \
   || echo "the harness is NOT complete in the worktree: run 'ai-core init' there before you start" >&2
+[ -f "$path/.githooks/pre-push" ] \
+  || echo "this worktree carries no push gate (.githooks/pre-push), so the ai-core check before a push is not guaranteed: run 'ai-core pre-push --install' in $(git rev-parse --show-toplevel) first" >&2
 
 "$BIN/issue-thread.sh" ${repo:+"$repo"} "$number" || true

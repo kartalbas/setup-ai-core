@@ -18,7 +18,7 @@ import type { RecordingHarness } from '../testing/recording-harness.mts';
 import type { GitFixture } from '../testing/git-fixture.mts';
 import { GitClient } from '../git/git.mts';
 import { bashHarness } from '../harness.mts';
-import type { CommandContext } from './command.mts';
+import type { CommandContext, CommandResult } from './command.mts';
 import * as finishIssue from './finish-issue.mts';
 import * as integrateIssue from './integrate-issue.mts';
 import * as issueProof from './issue-proof.mts';
@@ -144,6 +144,8 @@ const unlandedCommit = (world: World): string => git(world.second, 'commit-tree'
 describe('start-issue', () => {
   it('cuts the worktree from the fetched default branch, sets status/implementing and writes Started on', async () => {
     const number = newIssue(main, 'Start the work, so that it begins');
+    mkdirSync(join(main.second, '.githooks'), { recursive: true });
+    fixture.commit(main.second, '.githooks/pre-push', '#!/bin/sh\nexit 0\n');
     const moved = fixture.commit(main.second, `moved-${number}.txt`, 'moved\n');
     git(main.second, 'push', '-q', 'origin', 'master');
     const harness = createRecordingHarness();
@@ -161,7 +163,7 @@ describe('start-issue', () => {
     assert.match(result.stdout, /status\/implementing/);
     assert.deepEqual(harness.calls, [`checkTeamModes ${main.checkout}`, `assembleWorktree ${tree}`], 'the team modes first, then the harness in the new worktree');
     assert.match(result.stdout, /init: assembled/);
-    assert.equal(result.stderr, '');
+    assert.equal(result.stderr, '', 'innocent: the tree carries the push gate, so nothing is said about it');
   });
 
   it('refuses while a team mode is missing, and cuts and writes nothing (planted: no team mode)', async () => {
@@ -263,6 +265,76 @@ describe('start-issue', () => {
   });
 });
 
+describe('start-issue push gate warning', () => {
+  const warning = (checkout: string): string => `this worktree carries no push gate (.githooks/pre-push), so the ai-core check before a push is not guaranteed: run 'ai-core pre-push --install' in ${checkout} first\n`;
+
+  it('names the checkout root when started from a subdirectory without a shim (planted)', async () => {
+    const world = makeWorld('o/ungated-subdirectory', false);
+    const cwd = join(world.checkout, 'src');
+    mkdirSync(cwd);
+    const number = newIssue(world);
+    const result = await startIssue.run([String(number)], ctx(cwd));
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stderr, warning(world.checkout));
+    assert.doesNotMatch(result.stdout, /push gate|not guaranteed/);
+  });
+
+  it('names a directory at the shim path in a new worktree (planted)', async () => {
+    const world = makeWorld('o/ungated-directory', false);
+    mkdirSync(join(world.second, '.githooks', 'pre-push'), { recursive: true });
+    fixture.commit(world.second, '.githooks/pre-push/keep', 'not a hook\n');
+    git(world.second, 'push', '-q', 'origin', 'master');
+    const result = await startIssue.run([String(newIssue(world))], ctx(world.checkout));
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stderr, warning(world.checkout));
+  });
+
+  it('checks a resumed worktree for a missing shim, a directory, and a file without rewriting records', async () => {
+    const world = makeWorld('o/ungated-resume', false);
+    const { number, tree } = await started(world);
+    const before = writesOf();
+    const harness = createRecordingHarness();
+    const resume = (): Promise<CommandResult> => startIssue.run([String(number)], ctx(world.checkout, {}, harness));
+    const missing = await resume();
+    assert.equal(missing.stderr, warning(world.checkout), 'planted: the existing worktree still has no shim');
+    mkdirSync(join(tree, '.githooks', 'pre-push'), { recursive: true });
+    const directory = await resume();
+    assert.equal(directory.stderr, warning(world.checkout), 'planted: a directory is no shim');
+    rmSync(join(tree, '.githooks', 'pre-push'), { recursive: true });
+    writeFileSync(join(tree, '.githooks', 'pre-push'), '#!/bin/sh\nexit 0\n');
+    const file = await resume();
+    assert.equal(file.stderr, '', 'innocent: the resumed worktree holds the shim');
+    assert.equal(directory.stdout, missing.stdout);
+    assert.equal(file.stdout, missing.stdout);
+    assert.deepEqual([missing.exitCode, directory.exitCode, file.exitCode], [0, 0, 0]);
+    assert.deepEqual(harness.calls, Array(3).fill(`checkTeamModes ${world.checkout}`));
+    assert.equal(writesOf(), before);
+  });
+
+  it('keeps the incomplete-harness warning before the missing-gate warning', async () => {
+    const world = makeWorld('o/ungated-assembly', false);
+    const number = newIssue(world);
+    const harness = createRecordingHarness();
+    harness.failing.add('assembleWorktree');
+    const result = await startIssue.run([String(number)], ctx(world.checkout, {}, harness));
+    const tree = await treeOf(world, number);
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stderr, `the harness is NOT complete in the worktree: run 'ai-core init ${tree} --no-doctor' before you start\n${warning(world.checkout)}`);
+  });
+
+  it('does not claim that no check runs when the clone has a shared Git hook (innocent)', async () => {
+    const world = makeWorld('o/ungated-shared-hook', false);
+    const marker = join(scratch, 'shared-pre-push-ran');
+    fixture.installHook(world.checkout, 'pre-push', `cat > /dev/null; echo checked > '${marker}'`);
+    const number = newIssue(world);
+    const result = await startIssue.run([String(number)], ctx(world.checkout));
+    const tree = await treeOf(world, number);
+    git(tree, 'push', '-q', 'origin', 'HEAD');
+    assert.equal(readFileSync(marker, 'utf8'), 'checked\n', 'the worktree runs the shared hook without a shim');
+    assert.equal(result.stderr, warning(world.checkout));
+  });
+});
+
 // A new repository has no branch at all, and the first branch pushed into an empty repository becomes its default branch: start-issue
 // starts the default branch first, with one empty commit named by the HEAD of the clone, which has no commit.
 describe('start-issue in an empty origin', () => {
@@ -295,6 +367,7 @@ describe('start-issue in an empty origin', () => {
     const tree = await treeOf(world, number);
     assert.equal(git(tree, 'rev-parse', 'HEAD'), start);
     assert.match(result.stdout, new RegExp(`^Started trunk of the empty o/fresh${counter} with the start commit ${start}\\.\\nWorktree .* cut from origin/trunk at ${start}\\.`));
+    assert.equal(result.stderr, `this worktree carries no push gate (.githooks/pre-push), so the ai-core check before a push is not guaranteed: run 'ai-core pre-push --install' in ${world.checkout} first\n`, 'planted: the start commit holds no shim');
     assert.equal(readFileSync(markedPushes(world), 'utf8'), `${start} /planted/mark\n`, 'one push, from a tree at the start commit, under a mark');
     assert.match(fake.readIssue(world.full, number).comments[0] ?? '', new RegExp(`Base: trunk at ${start}\n$`));
     assert.equal(git(world.checkout, 'symbolic-ref', 'HEAD'), 'refs/heads/trunk', 'the clone still names the branch');

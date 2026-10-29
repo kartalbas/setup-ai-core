@@ -262,12 +262,41 @@ check 'locked config: it says so'        yes "$(grep -q 'the worktree could not 
 check 'locked config: no worktree made'  "$made_before" "$(locked_made)"
 rm -f "$states/locked/.git/config.lock"
 : > "$log"
-out="$(cd "$states/locked" && bash "$start" 220 2>&1)"; rc=$?
+mkdir -p "$states/locked/src"
+out="$(cd "$states/locked/src" && bash "$start" 220 2>"$fake/ungated.stderr")"; rc=$?
 tree="$states/.worktrees/locked/issue-220-read-the-board-whole"
 check 'locked config, again without it: exits zero'   0 "$rc"
 check 'it pushes to its own branch on origin' 'origin issue-220-read-the-board-whole' "$(git -C "$states/locked" config branch.issue-220-read-the-board-whole.remote) $(git -C "$states/locked" config branch.issue-220-read-the-board-whole.merge | sed 's|^refs/heads/||')"
 check 'init ran in the worktree'         yes "$([ -f "$tree/.ai-core/config.env" ] && echo yes || echo no)"
 check 'the card moved'                   yes "$(grep -q 'oid=OPT_impl' "$log" && echo yes || echo no)"
+check 'it names the missing push gate on stderr, with the checkout root (planted: origin carries no shim)' "this worktree carries no push gate (.githooks/pre-push), so the ai-core check before a push is not guaranteed: run 'ai-core pre-push --install' in $states/locked first" "$(grep 'carries no push gate' "$fake/ungated.stderr")"
+check 'the missing push gate stays off stdout' no "$(grep -q 'carries no push gate' <<< "$out" && echo yes || echo no)"
+out="$(cd "$states/locked" && bash "$start" 220 2>&1)"; rc=$?
+check 'Bash refuses an existing issue worktree instead of resuming it' 1 "$rc"
+check 'the refusal names the existing branch' yes "$(grep -q 'a branch for this issue exists already' <<< "$out" && echo yes || echo no)"
+check 'the refusal does not reach the missing push gate warning' no "$(grep -q 'carries no push gate' <<< "$out" && echo yes || echo no)"
+
+echo 'a repository whose tree carries the push gate is not named as one without it'
+gated_origin="$fake/gated.git"; gated_seed="$fake/gated-seed"
+git -c init.defaultBranch=master init -q --bare "$gated_origin"
+git -c init.defaultBranch=master init -q "$gated_seed"; dress "$gated_seed"
+mkdir -p "$gated_seed/.githooks"; printf '#!/bin/sh\nexit 0\n' > "$gated_seed/.githooks/pre-push"; chmod +x "$gated_seed/.githooks/pre-push"
+git -C "$gated_seed" add -A; git -C "$gated_seed" commit -q -m 'the gate'
+git -C "$gated_seed" remote add origin "$gated_origin"; git -C "$gated_seed" push -q -u origin master
+git clone -q "$gated_origin" "$states/gated"; dress "$states/gated"; harness_data "$states/gated"
+out="$(cd "$states/gated" && bash "$start" 224 2>&1)"; rc=$?
+check 'gated: exits zero'                0 "$rc$([ "$rc" -eq 0 ] || echo " $out")"
+check 'gated: nothing is said about a missing push gate (innocent)' no "$(grep -q 'carries no push gate' <<< "$out" && echo yes || echo no)"
+
+echo 'a directory at the shim path is not a push gate'
+git -C "$gated_seed" rm -q .githooks/pre-push
+mkdir -p "$gated_seed/.githooks/pre-push"; echo 'not a hook' > "$gated_seed/.githooks/pre-push/keep"
+git -C "$gated_seed" add .githooks/pre-push/keep; git -C "$gated_seed" commit -qm 'a directory instead of the gate'
+git -C "$gated_seed" push -q origin master
+out="$(cd "$states/gated" && bash "$start" 225 2>"$fake/directory.stderr")"; rc=$?
+check 'directory: exits zero' 0 "$rc"
+check 'directory: it names the missing shim on stderr (planted)' "this worktree carries no push gate (.githooks/pre-push), so the ai-core check before a push is not guaranteed: run 'ai-core pre-push --install' in $states/gated first" "$(grep 'carries no push gate' "$fake/directory.stderr")"
+check 'directory: the warning stays off stdout' no "$(grep -q 'carries no push gate' <<< "$out" && echo yes || echo no)"
 
 echo 'a post-checkout hook that fails leaves a worktree, and the message names it'
 tree="$states/.worktrees/hooked/issue-222-read-the-board-whole"
@@ -614,6 +643,7 @@ check 'the branch of the issue pushes to its own branch' 'origin issue-163-read-
 check 'the checkout is as it was (its HEAD still has no commit)' "$fresh_before" "$(snapshot "$fresh")"
 check 'no temporary worktree is left'    "$fresh_tree" "$(git -C "$fresh" worktree list --porcelain | sed -n 's/^worktree //p' | grep -v "^$fresh$")"
 check 'the state is named'               "The checkout $fresh (branch trunk) has no commit yet. The new worktree starts from origin/trunk and does not see that; the checkout's branch, index, files and commits stay as they were." "$(grep '^The checkout ' <<< "$out")"
+check 'it names the missing push gate (planted: the start commit holds no shim)' yes "$(grep -qF "this worktree carries no push gate (.githooks/pre-push), so the ai-core check before a push is not guaranteed: run 'ai-core pre-push --install' in $fresh first" <<< "$out" && echo yes || echo no)"
 echo 'the whole flow: the branch of the issue is committed and pushed, integrate-issue lands it, and the default branch stays the one the HEAD named'
 [ -e "$fresh_tree/.githooks/pre-push" ] || { mkdir -p "$fresh_tree/.githooks"; cp "$fresh/.githooks/pre-push" "$fresh_tree/.githooks/"; }
 echo 'work' > "$fresh_tree/work.txt"; git -C "$fresh_tree" add work.txt; git -C "$fresh_tree" commit -q -m 'Work on the issue (#163)'

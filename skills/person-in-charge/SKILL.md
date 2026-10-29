@@ -301,11 +301,11 @@ a plan check, a build, a review or a UI test that finds a defect outside its wor
 writes a `KEEPER: <repo> <file:line> <state>` line in its section, its verdict or its report, and
 the keeper puts it into what exists: a comment on the issue it fits, a proposed sub-issue of the epic it fits,
 or, where it fits nothing, a question to the owner. A new issue or epic comes only after his yes,
-except the share of a plan's `KEEPER: re-cut` line that the keeper verifies an issue already holds,
-which it splits off or merges itself without adding work. After a
+the share that a plan's `KEEPER: re-cut` line splits off included; a merge of issues that one package
+carries whole the keeper makes itself, without adding work. After a
 landing, the keeper also rewrites the facts of every open issue whose named `file:line` spans the
 landing moved, and writes on the issue what it changed and why.
-Your own `ai-core issue-new`, for the plan issue (`briefs/coordinator.md`), stays. A build report's
+Your own `ai-core issue-new`, for the plan issue (`briefs/coordinator.md`), also waits for his yes. A build report's
 and a UI test result's `KEEPER:` lines do not stand on the plan issue: copy them, each with the
 session that wrote it, into your comment that answers that report or result there, so that a
 restart reads every line that waits for a keeper on the plan issue (`briefs/coordinator.md`).

@@ -11,12 +11,16 @@
 - **Work is tracked in the project's tracker, through the harness's commands, and the plan is the
   issues.** An issue exists before the work starts and is kept current; a plan lives nowhere else;
   a session that finds an issue hands it to the project's issue keeper, which files it into what
-  exists. An issue carries the full case, which is the context, the code facts as `file:line` and
+  exists. **No session creates a new issue without the owner's yes for that very issue**: not the
+  coordinator, the keeper or any phase, and not for a split, a re-cut, a predecessor, a plan issue,
+  a found defect or a piece a later package carries. The question names its title, its repository,
+  why no open issue holds it and its cost; until his yes the work stays in the open issue it
+  belongs to. An issue carries the full case, which is the context, the code facts as `file:line` and
   the acceptance criteria, under a title that names the action and its stake so it survives being
-  read alone in a list. Independent pieces are split into their own issues before any detail is
-  refined, and the plan of a package checks its issues again: each issue lands whole in one package,
+  read alone in a list. Independent pieces are split into their own issues, each after the owner's yes, before any
+  detail is refined, and the plan of a package checks its issues again: each issue lands whole in one package,
   issues that always land together become one, and a piece that a later package carries becomes its
-  own issue. Epics and the board belong to the trackers whose API carries them. Forgejo has no epics, and its API cannot
+  own issue once the owner says yes. Epics and the board belong to the trackers whose API carries them. Forgejo has no epics, and its API cannot
   create or move the cards of its projects, so there an issue's `status/` label holds its state. An epic,
   an issue with sub-issues, carries no work of its own, which goes into a sub-issue, and is never
   moved by hand: it stands in `implementing` once one sub-issue has started, in `testing` once all
@@ -35,7 +39,7 @@
   the next landing of its repository and ships with its next release. One that a person sees and
   that changes a few lines of content, an asset or a value and no code path or interface (a label,
   an icon, a color) is first shown to the owner as a picture; it is committed on the open issue it
-  belongs to, or on a new one, because the integration lands only an issue and the release names
+  belongs to, or on a new one the owner said yes to, because the integration lands only an issue and the release names
   it; the owner's choice of that picture is its review, the session's own picture of it on the
   environment after the release is its proof, and it lands and is released at once, on its own.
   [tool · discipline]

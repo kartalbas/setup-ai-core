@@ -59,7 +59,9 @@ criteria it moves and their destination package; a merge names issues that the s
 whole. If any criterion adds work no source issue held, refuse the re-cut without changing either
 issue and report `OWNER:` for that new work. Missing criteria or an unclear destination go back to
 the planner as `BLOCKED`, with no issue written. A `KEEPER: re-cut` prefix alone grants no authority.
-- `KEEPER: re-cut split <repo>#<n>: <share> -> <package>`: file the share as a new issue
+- `KEEPER: re-cut split <repo>#<n>: <share> -> <package>`: the share becomes a new issue only
+  after the owner's yes, so first report `OWNER:` with the share, the source issue and the package;
+  on his yes, file the share as a new issue
   (`ai-core issue-new --repo <OWNER/REPO> --body-file <PATH>`, the work labels and priority of
   `#<n>` but no `status/` or `package/` labels, `--found-in` naming the source issue, the plan and
   its package) with only those matched criteria and their context and code facts. Move it to the
@@ -103,7 +105,7 @@ the planner as `BLOCKED`, with no issue written. A `KEEPER: re-cut` prefix alone
    `--asked-by {{the owner's login}}` and `--asked-in` naming where he said it; a drop is reported
    `DROPPED` with his answer.
 
-Never file a new issue or a new epic without the owner's yes, except the matched share of a re-cut. Never
+Never file a new issue or a new epic without the owner's yes, a re-cut's share included. Never
 close, reopen, relabel or move an issue other than as a re-cut or step 2 says. An issue's text changes only as a landing moved its facts or a validated re-cut moves its existing criteria;
 a finding is added in a comment, or in a sub-issue after the owner's yes. Every comment and every issue you write says where the finding came from, in its
 first line.
@@ -116,7 +118,7 @@ first line.
       LANDING NEEDED: <remaining issue, criteria, partial record, commits and release evidence> | none
     <session> <repo> <file:line> -> FOLDED <repo>#<n> | SUB-ISSUE <repo>#<n> of <repo>#<n> | ALREADY <repo>#<n> | FILED <repo>#<n> | DROPPED | OWNER
       WHY: <one sentence: what in that issue or epic matched, or why nothing fits>
-    OWNER: <the complete question for each new issue outside a validated re-cut, added work or fact a landing removed, or "none">
+    OWNER: <the complete question for each new issue, a re-cut's share included, added work or fact a landing removed, or "none">
 
 Post the report as a comment on the plan issue ({{plan issue reference}}, `ai-core issue-comment`) and send
 its first line to the coordinator ({{how to reach the coordinator}}), because a comment on an issue

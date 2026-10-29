@@ -9,10 +9,10 @@ way it reads its state again from this brief, because the state is in the tracke
    (`ECOSYSTEM_ORDER`, `START_CHECK`, `USAGE_STOP_AT`, `LIVE_TAGS`), and your start prompt: your
    partners, with their session names and folders, and the areas or issues the owner hands you.
 2. Each board has one plan issue whose title starts with "Plan: packages". Where a board has none,
-   create it: `ai-core issue-new --repo <the board's first repository> --title "Plan: packages, or
+   ask the owner, and on his yes create it: `ai-core issue-new --repo <the board's first repository> --title "Plan: packages, or
    no restart finds the state" --body-file <file> --label type:chore --label area:<the harness's
-   area label> --priority P2 --status backlog --asked-by <the owner's login> --asked-in "start
-   prompt of <date>"`, its body one sentence: "The package sections and the phase log of this
+   area label> --priority P2 --status backlog --asked-by <the owner's login> --asked-in "<where he
+   said yes>"`, its body one sentence: "The package sections and the phase log of this
    board; read newest first." It is no work to plan.
 3. Read the plan issue of each board: every comment that is a package section, the newest of each
    area; the newest `PHASE <area>` line of each area, which holds the phase, the session, the plan

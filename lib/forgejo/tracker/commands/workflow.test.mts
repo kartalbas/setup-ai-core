@@ -1602,7 +1602,9 @@ describe('finish-issue', () => {
   });
 
   // The last part of an issue may land in another repository, so its "Landed on" record names that one.
-  const lastPartElsewhere = (): string => composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 's' }, reviewedHead: 'e'.repeat(40), landedCommit: 'f'.repeat(40), reviewers: ['alice'] }, { owner: 'o', repo: 'r' });
+  const landedElsewhere = (isPart: boolean): string => composeLandedRecord({ branch: 'master', repository: { owner: 'o', repo: 's' }, reviewedHead: 'e'.repeat(40), landedCommit: 'f'.repeat(40), reviewers: ['alice'], isPart }, { owner: 'o', repo: 'r' });
+  const lastPartElsewhere = (): string => landedElsewhere(false);
+  const partElsewhere = (): string => landedElsewhere(true);
 
   it('removes the worktree of a part once a "Landed on" record of the issue follows its part record, from another repository', async () => {
     const { number, tree, branch, head } = await worked(main, 'Landed as a part here and last elsewhere, so that it is removed');
@@ -1614,10 +1616,11 @@ describe('finish-issue', () => {
     assert.ok(!(await client.listBranchNames(main.checkout)).includes(branch));
   });
 
-  it('keeps the worktree of a part while no trusted "Landed on" record follows its part record, and names no integrate-issue (planted: one before the part, one of an account without write permission after it)', async () => {
+  it('keeps the worktree of a part while no trusted "Landed on" record follows its part record, and names no integrate-issue (planted: one before the part, a part of another repository after it, one of an account without write permission after it)', async () => {
     const { number, tree, head } = await worked(main, 'Landed as a part with more to follow, so that it stays');
     fake.addComment(main.full, number, 'fake-user', lastPartElsewhere());
     await integrateIssue.run([...integrateArguments(main, number, head), '--part'], ctx(tree));
+    fake.addComment(main.full, number, 'fake-user', partElsewhere());
     fake.setPermission(main.full, 'stranger', 'read');
     fake.addComment(main.full, number, 'stranger', lastPartElsewhere());
     await assert.rejects(

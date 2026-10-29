@@ -75,6 +75,14 @@ describe('the fake Forgejo refuses what the contract refuses', () => {
     assert.deepEqual(fake.readIssue('o/r', 1).labels.sort(), ['area/gate', 'status/testing']);
   });
 
+  it('lists the labels of a repository without those of its organization, as Forgejo does', async () => {
+    const own = fake.addRepositoryLabel('o/r', { name: 'kind/own' });
+    const names = ((await call(fake, 'GET', '/repos/o/r/labels')).json as { id: number; name: string }[]).map((label) => label.name);
+    assert.deepEqual(names, ['kind/own']);
+    const organization = ((await call(fake, 'GET', '/orgs/o/labels')).json as { id: number }[]).map((label) => label.id);
+    assert.equal(organization.includes(own), false);
+  });
+
   it('pages a list and announces its total', async () => {
     for (let n = 0; n < 60; n++) fake.addIssue('o/r', { title: `Many ${n}, so that there are pages` });
     const page = await call(fake, 'GET', '/repos/issues/search?type=issues&owner=o&state=all&limit=50&page=2');

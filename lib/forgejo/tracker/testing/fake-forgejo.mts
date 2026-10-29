@@ -420,7 +420,9 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
     },
     issueListLabels: ({ params, operation, query }) => {
       const repository = findRepository(params.owner ?? '', params.repo ?? '');
-      return paginate(visibleLabels(repository).map(labelWire), operation, query);
+      // As GetLabelsByRepoID of v17.0.0: the repository's own labels only; its organization's are listed under /orgs.
+      const own = labels.filter((label) => label.repo === repository.name && label.owner === repository.owner);
+      return paginate(own.map(labelWire), operation, query);
     },
     orgListLabels: ({ params, operation, query }) => {
       const org = params.org ?? '';

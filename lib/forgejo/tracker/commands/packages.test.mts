@@ -7,6 +7,7 @@ import { after, before, describe, it } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { PartialCompletionError } from '../api/client.mts';
 import { issueShape } from '../api/shapes.mts';
+import { packageLabelDescription } from '../domain/packages.mts';
 import { listOrganizationLabels } from '../domain/labels.mts';
 import { PreconditionError, UsageError } from '../domain/refusals.mts';
 import { composeProvenRecord } from '../domain/workflow.mts';
@@ -534,6 +535,15 @@ describe('failure and concurrency', () => {
     for (const outcome of finished) assert.ok(outcome.status === 0 || outcome.status === 3 || outcome.status === 4, outcome.stderr);
     assert.equal((await coordinator(w, SHOP5, [SHOP5, API7, LIB4])).status, 0);
     await assertPackage(w, NAME, [API7, LIB4, SHOP5], true);
+  });
+
+  it('takes an organization label that another run made between the read and the check for its own (planted: the CI interleaving)', async () => {
+    const w = await world();
+    assert.equal((await coordinator(w, SHOP5, [SHOP5, API7])).status, 0);
+    w.fake.fail({ method: 'GET', path: /^\/orgs\/other-org\/labels/, mode: { kind: 'after', effect: () => w.fake.addLabel('other-org', { name: NAME, description: packageLabelDescription({ owner: 'example-org', repo: 'shop', number: 5 }), exclusive: true }) } });
+    const outcome = await coordinator(w, SHOP5, [SHOP5, API7, LIB4]);
+    assert.equal(outcome.status, 0, outcome.stderr);
+    await assertPackage(w, NAME, [API7, LIB4, SHOP5], false);
   });
 
   it('names the partial progress of a refusal on the second repository and converges on the next run', async () => {

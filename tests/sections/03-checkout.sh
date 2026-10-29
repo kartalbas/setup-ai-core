@@ -101,6 +101,8 @@ grep -aqE 'THE RULES OF THIS CHECKOUT|^## The code never lies' "$WORK/modes.log"
 (cd "$WORK/checkout" && printf '{"hook_event_name":"SessionStart","source":"compact"}' | HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude > "$WORK/compact.log" 2>&1) || fail "session-start.sh --tool claude after a compaction (see $WORK/compact.log)"
 grep -aq '^After compaction: read every rules file whole again now' "$WORK/compact.log" || fail "session-start after a compaction does not ask for the rules again (see $WORK/compact.log)"
 grep -aqx "  $WORK/checkout/.ai-core/rules/rules.md" "$WORK/compact.log" || fail "session-start after a compaction does not name the assembled rules file (see $WORK/compact.log)"
+grep -aqx "  $WORK/checkout/.ai-core/rules/rules.local.md" "$WORK/compact.log" && fail "session-start after a compaction names a rules.local.md that is still the template (see $WORK/compact.log)"
+grep -aqxF 'Local rules      : – None (.ai-core/rules/rules.local.md is still the template)' "$WORK/compact.log" || fail "session-start reports a rules.local.md that is still the template as local rules: $(grep -a '^Local rules' "$WORK/compact.log")"
 (cd "$WORK/checkout" && printf '{"hook_event_name":"SessionStart","source":"startup"}' | HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude > "$WORK/startup.log" 2>&1) || fail "session-start.sh --tool claude at a start (see $WORK/startup.log)"
 grep -aq '^After compaction' "$WORK/startup.log" && fail "session-start at a start asks for the rules again, as after a compaction (see $WORK/startup.log)"
 # ai-core not on the PATH of the session, whatever the PATH of this shell: session-start says how to
@@ -302,6 +304,29 @@ grep -q '^## The code never lies to the person using it$' "$O" || fail "init.sh:
 grep -q 'The folder rule\.' "$O" || fail "init.sh: the checkout's override lacks the project folder's local rules"
 grep -qxF '/AGENTS.override.md' "$F/repo/.git/info/exclude" || fail "init.sh did not keep AGENTS.override.md out of git"
 [ -z "$(git -C "$F/repo" status --porcelain)" ] || fail "init.sh left the checkout dirty: $(git -C "$F/repo" status --porcelain | tr '\n' '|')"
+# After a compaction session-start names the folder's local rules in the checkout and in its worktree, the
+# folder's first; a checkout's own only where it says more than the template
+git -C "$F/repo" rev-parse -q --verify HEAD > /dev/null || git -C "$F/repo" -c user.name=check -c user.email=check@localhost commit -q --allow-empty -m first
+W="$F/.worktrees/repo/wt"; git -C "$F/repo" worktree add -q "$W" 2> /dev/null || fail "git worktree add in the project folder"
+codex_init "$W"
+compact_start() {  # compact_start <checkout>: session-start as the hook runs it after a compaction, into <checkout>.compact.log
+  (cd "$1" && printf '{"hook_event_name":"SessionStart","source":"compact"}' | HOME="$MH" TEAM_MODES_FILE="$WORK/modes.tsv" bash "$ROOT/bin/session-start.sh" --tool claude > "$1.compact.log" 2>&1) || fail "session-start.sh after a compaction in $1 (see $1.compact.log)"
+}
+for c in "$F/repo" "$W"; do
+  compact_start "$c"
+  grep -aqx "  $F/.ai-core/rules/rules.local.md" "$c.compact.log" || fail "session-start after a compaction in $c does not name the project folder's local rules (see $c.compact.log)"
+  grep -aqx "  $c/.ai-core/rules/rules.local.md" "$c.compact.log" && fail "session-start after a compaction in $c names its rules.local.md that is still the template (see $c.compact.log)"
+  grep -aqxF "Local rules      : ✓ Present ($F/.ai-core/rules/rules.local.md)" "$c.compact.log" || fail "session-start in $c does not name the project folder's local rules: $(grep -a '^Local rules' "$c.compact.log")"
+done
+printf '\n- **The worktree rule.** Planted by the check. [discipline]\n' >> "$W/.ai-core/rules/rules.local.md"
+compact_start "$W"
+[ "$(grep -a 'rules\.local\.md$' "$W.compact.log" | grep -av '^Local rules')" = "$(printf '  %s\n  %s' "$F/.ai-core/rules/rules.local.md" "$W/.ai-core/rules/rules.local.md")" ] || fail "session-start after a compaction does not name the folder's local rules and then the worktree's own: $(grep -a 'rules\.local\.md$' "$W.compact.log" | tr '\n' '|')"
+grep -aqxF "Local rules      : ✓ Present ($F/.ai-core/rules/rules.local.md; .ai-core/rules/rules.local.md)" "$W.compact.log" || fail "session-start does not name both local rules files: $(grep -a '^Local rules' "$W.compact.log")"
+git -C "$F/repo" worktree remove --force "$W"
+# In the project folder itself the folder's file is the checkout's own, so it is named once
+compact_start "$F"
+[ "$(grep -a 'rules\.local\.md$' "$F.compact.log")" = "  $F/.ai-core/rules/rules.local.md" ] || fail "session-start after a compaction in the project folder does not name its local rules exactly once: $(grep -a 'rules\.local\.md$' "$F.compact.log" | tr '\n' '|')"
+grep -aqxF 'Local rules      : ✓ Present (.ai-core/rules/rules.local.md)' "$F.compact.log" || fail "session-start in the project folder does not name its local rules as its own: $(grep -a '^Local rules' "$F.compact.log")"
 [ "$(cat "$CODEX_HOME-folder/config.toml")" = "$(printf 'model = "m"\nproject_doc_max_bytes = 262144\n\n[profiles.p]\nproject_doc_max_bytes = 5')" ] || fail "init.sh wrote Codex's config wrong: $(tr '\n' '|' < "$CODEX_HOME-folder/config.toml")"
 grep -aqF "  codex: project_doc_max_bytes set to 262144 in $CODEX_HOME-folder/config.toml" "$F.log" || fail "init.sh did not say it raised project_doc_max_bytes"
 P="$CODEX_HOME-folder/ai-core.config.toml"

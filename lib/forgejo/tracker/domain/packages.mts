@@ -109,12 +109,8 @@ export async function readPackageLabel(api: ForgejoClient, owner: string, anchor
 // and takes the repository's first.
 export async function refuseRepositoryLabelOfPackageName(api: ForgejoClient, repository: RepositoryRef, anchor: IssueRef, organizationLabel: Label | undefined): Promise<void> {
   const name = packageLabelName(anchor);
-  const own = (await listRepositoryLabels(api, repository)).filter((label) => label.name === name && label.id !== organizationLabel?.id);
-  if (own.length === 0) return;
-  // If the list includes an organization label created after the first read, only its ID may pass.
-  const current = organizationLabel ?? (await readPackageLabel(api, repository.owner, anchor));
-  if (own.every((label) => label.id === current?.id)) return;
-  throw new UsageError(`${formatRepository(repository)} has its own label ${name}, which is no label of its organization: nothing was changed. Delete it or rename it first`);
+  const own = (await listRepositoryLabels(api, repository)).find((label) => label.name === name && label.id !== organizationLabel?.id);
+  if (own !== undefined) throw new UsageError(`${formatRepository(repository)} has its own label ${name}, which is no label of its organization: nothing was changed. Delete it or rename it first`);
 }
 
 export async function createPackageLabel(api: ForgejoClient, owner: string, anchor: IssueRef): Promise<Label> {

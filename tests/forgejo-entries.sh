@@ -132,6 +132,8 @@ sweep_entry() { ( cd "$SWEEP" && PATH="$SHIM:$PATH" bash "$COPY/bin/ai-core" fin
 clear_marks; : > "$WORK/node-calls.log"
 out="$(sweep_entry --sweep --dry-run)" || fail "ai-core finish-issue --sweep --dry-run on Forgejo failed: $out"
 grep -q 'issue-7-old: landed, would be removed' <<< "$out" || fail "the dry run on Forgejo did not name the landed worktree: $out"
+out="$(sweep_entry --dry-run --sweep)" || fail "ai-core finish-issue --dry-run --sweep on Forgejo failed: $out"
+grep -q 'issue-7-old: landed, would be removed' <<< "$out" || fail "with --dry-run ahead of --sweep, ai-core on Forgejo did not run the sweep: $out"
 out="$(sweep_entry --sweep)" || fail "ai-core finish-issue --sweep on Forgejo failed: $out"
 [ -d "$OLD_TREE" ] && fail "the sweep on Forgejo left the worktree whose work landed three days ago: $out"
 loaded_code && fail "the sweep on Forgejo loaded board code: $(ls "$MARKS" | tr '\n' ' ')"

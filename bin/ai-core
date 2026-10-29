@@ -44,8 +44,11 @@ case "$command" in
     case "$FORGEJO_NODE_COMMANDS$FORGEJO_REFUSED_COMMANDS" in
       *" $command "*)
         tracker="$(tracker_of_project)" || exit 1
-        # the sweep of finish-issue reads git alone, so bin/finish-issue.sh runs it on every tracker
-        if [ "$tracker" = forgejo ] && [ "$command ${1:-}" != "finish-issue --sweep" ]; then
+        # the sweep of finish-issue reads git alone, so bin/finish-issue.sh runs it on every tracker, wherever
+        # --sweep stands among the arguments, as that script reads them
+        sweep=0
+        if [ "$command" = finish-issue ]; then case " ${*:-} " in *" --sweep "*) sweep=1 ;; esac; fi
+        if [ "$tracker" = forgejo ] && [ "$sweep" -eq 0 ]; then
           rc=0; ( . "$CORE/lib/common.sh"; forgejo_tracker_exec "$command" "$@" ) || rc=$?
           exit "$rc"
         fi ;;

@@ -158,7 +158,7 @@ after each start or end of a worker. It covers Claude sessions only; Codex outpu
 
 `ai-core usage --tool claude` reads Claude's last recorded five-hour and weekly windows, shown as
 percent used, with their reset times, even when the calling shell carries another tool's variables;
-exit 3 means one stands at `USAGE_STOP_AT` or above, and exit 4 that the five-hour window reaches it
-before its reset at the burn measured from `~/.ai-core/usage.log`. One model's own weekly quota is not among the windows: a
+exit 3 means one stands at `USAGE_STOP_AT` or above; the hour a window reaches it, at the burn
+measured from `~/.ai-core/usage.log`, is shown and stops no start. One model's own weekly quota is not among the windows: a
 session's limit error for a model, or the owner naming its percentage, counts as that limit for that
 model's phases.

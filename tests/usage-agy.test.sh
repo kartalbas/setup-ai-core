@@ -111,7 +111,7 @@ out="$(agy_run --tool agy)"
 for log in "$history_dir"/*.log; do awk -F'\t' -v OFS='\t' '{ $2 = $2 - 1810; print }' "$log" > "$log.new" && mv "$log.new" "$log"; done
 answer 0.92 0.95 0.92 0.2
 out="$(agy_run --tool agy)"; rc=$?
-check 'a burn measured from the saved rows: exit 4' 4 "$rc"
+check 'a burn measured from the saved rows: exit 0' 0 "$rc"
 check 'its burn and the hour'    yes "$(matches '^Claude and GPT models: five_hour +80 % used  resets .*  burn 15[0-9]\.[0-9] %/h, 92 % used at [A-Z][a-z]{2} [0-9:]{5} [A-Z]+$' "$(sed -n 4p <<< "$out")")"
 
 echo 'a model finds its group in what agy answers: the group whose description lists the family its name starts with'
@@ -185,13 +185,13 @@ out="$(agy_run --tool agy --stop-at 96)"; rc=$?
 check 'the limit given: 91.99 % used under 96, exit 0' 0 "$rc"
 check 'and named as used'        yes "$(matches ', limit 96 % used$' "$out")"
 
-echo 'a window projected to the limit before its reset: the burn is of its own bucket and its own reset'
+echo 'a window projected to the limit before its reset: the burn is of its own bucket and its own reset, and starts go on'
 forget; answer 0.92 0.95 0.92 0.2
 seed 'Claude and GPT models' 3p-5h 1800 50 "$soon"
 out="$(agy_run --tool agy)"; rc=$?
-check 'five hours at 80 % used and 60 %/h: exit 4' 4 "$rc"
+check 'five hours at 80 % used and 60 %/h: exit 0' 0 "$rc"
 check 'the burn and the hour, as the share used' yes "$(matches '^Claude and GPT models: five_hour +80 % used  resets .*  burn (59\.9|60\.0) %/h, 92 % used at [A-Z][a-z]{2} [0-9:]{5} [A-Z]+$' "$(sed -n 4p <<< "$out")")"
-check 'what to do'               yes "$(matches '^a window reaches 92 % used before its reset at the measured burn: start nothing new' "$out")"
+check 'no refusal'               no "$(grep -q 'start nothing new' <<< "$out" && echo yes || echo no)"
 echo 'the same burn with the reset minutes away: the window carries on (innocent)'
 forget; answer 0.92 0.95 0.92 0.2 "$((now + 300))"
 seed 'Claude and GPT models' 3p-5h 1800 50 "$((now + 300))"
@@ -212,14 +212,15 @@ check 'exit 0'                   0 "$rc"
 check 'unmeasured'               yes "$(matches '  burn unmeasured$' "$(sed -n 4p <<< "$out")")"
 mutate 's/\$4 == r && //' 'a burn across resets'
 out="$(agy_run --tool agy)"; rc=$?
-caught 'a burn measured across resets is caught' 0 "$rc"
+check 'a burn across resets still exits 0' 0 "$rc"
+check 'a burn measured across resets is caught' yes "$(matches '^Claude and GPT models: five_hour +80 % used  resets .*  burn [0-9]+\.[0-9] %/h, 92 % used at ' "$(sed -n 4p <<< "$out")")"
 restore
 echo 'two groups with the same five-hour reset keep their own histories'
 forget; answer 0.92 0.2 0.92 0.2
 seed 'Claude and GPT models' 3p-5h 1810 50 "$soon"
 seed 'Gemini Models' gemini-5h 1800 79 "$soon"
 out="$(agy_run --tool agy)"; rc=$?
-check 'Claude projected: exit 4' 4 "$rc"
+check 'Claude projected: exit 0' 0 "$rc"
 check 'Claude: 60 %/h'           yes "$(matches '^Claude and GPT models: five_hour .*  burn (59\.[0-9]|60\.0) %/h' "$(sed -n 4p <<< "$out")")"
 check 'Gemini: 2 %/h'            yes "$(matches '^Gemini Models: five_hour .*  burn (1\.9|2\.0) %/h, ' "$(sed -n 2p <<< "$out")")"
 mutate 's/\$1 == k && //' 'histories of all windows mixed'
@@ -231,7 +232,13 @@ forget; answer 0.92 0.95 0.92 0.2
 jq '.command.data.groups[1].buckets[1].id = "quota\\bucket"' "$AGY_ANSWER" > "$work/escaped.json"
 seed 'Claude and GPT models' 'quota\bucket' 1800 50 "$soon"
 out="$(AGY_ANSWER="$work/escaped.json" agy_run --tool agy)"; rc=$?
-check 'escaped bucket identity keeps its measured burn: exit 4' 4 "$rc"
+check 'escaped bucket identity: exit 0' 0 "$rc"
+check 'escaped bucket identity keeps its measured burn and hour' yes "$(matches '^Claude and GPT models: five_hour +80 % used  resets .*  burn (59\.9|60\.0) %/h, 92 % used at ' "$(sed -n 4p <<< "$out")")"
+mutate 's/AI_CORE_USAGE_KEY="\$key" awk/awk -v k="\$key"/; /BEGIN { k = ENVIRON\["AI_CORE_USAGE_KEY"\] }/d' 'escaped bucket key decoded by awk'
+out="$(AGY_ANSWER="$work/escaped.json" agy_run --tool agy)"; rc=$?
+check 'a decoded bucket key still exits 0' 0 "$rc"
+check 'a decoded bucket key loses the measured burn and is caught' yes "$(matches '^Claude and GPT models: five_hour +80 % used  resets .*  burn unmeasured$' "$(sed -n 4p <<< "$out")")"
+restore
 echo 'a week that fills before its reset warns and stops nothing; a window at the limit outranks a projection'
 forget; answer 0.92 0.95 0.2 1
 seed 'Claude and GPT models' 3p-weekly 1800 20 "$week_at"

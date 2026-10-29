@@ -76,7 +76,7 @@ if [ -z "$failure" ]; then
       reason "$actual" "row $declared: $reading" "$rc"
       case "$rc" in
         0) selected="$(jq -cn --arg tool "$actual" --arg model "$model" --arg effort "$effort" '{tool:$tool,model:$model,effort:$effort}')"; break ;;
-        3|4) ;;
+        3) ;;
         *) failure="$actual usage failed (exit $rc): $reading"; break ;;
       esac
     done <<< "$rows"

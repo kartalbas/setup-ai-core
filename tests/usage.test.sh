@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # What the status line records of the account's usage windows, and what `usage` makes of it: the
 # limit reached, the limit not reached, a window whose reset has passed, nothing recorded, and the
-# burn measured from the history with the hour a window reaches the limit before its reset.
+# burn measured from the history with the hour a window reaches the limit, which stops no start.
 # HOME and AI_CORE_HOME point into a temporary folder, so the machine's own record is not touched.
 #
 #   bash tests/usage.test.sh
@@ -128,23 +128,23 @@ iso() { date -u -d "@$1" '+%Y-%m-%dT%H:%M:%S.000Z' 2>/dev/null || date -u -r "$1
 reading() { printf '{"timestamp":"%s","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":{"used_percent":%s,"window_minutes":300,"resets_at":%s},"secondary":null}}}\n' "$(iso "$1")" "$2" "$soon"; }
 { reading "$((now - 1800))" 50; reading "$now" 80; } > "$sessions/rollout-burn.jsonl"
 out="$(cd "$work/project" && CODEX_THREAD_ID=t bash "$root/bin/usage.sh" 2>&1)"; rc=$?
-check 'Codex projected to its limit: exit 4'  4 "$rc"
+check 'Codex projected to its limit still starts: exit 0'  0 "$rc"
 check 'the burn and the hour, as the share used' yes "$(matches "^five_hour   80 % used  resets .*  burn 60.0 %/h, 92 % used at $(when "$((now + 720))")$" "$(sed -n 1p <<< "$out")")"
 rm -rf "$HOME/.codex"
 out="$(cd "$work/project" && CODEX_THREAD_ID=t bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'no Codex session file: exit 2'  2 "$rc"
 check 'it says why'              yes "$(grep -q 'no usage recorded yet: Codex records it' <<< "$out" && echo yes || echo no)"
 
-echo 'the burn from the history: a window that reaches the limit before its reset stops new starts'
+echo 'the burn from the history: a window that reaches the limit before its reset names the hour, and starts go on up to the limit'
 week=$((now + 4 * 86400))
 history() { printf '%s %s %s %s %s\n' "$((now - 1800))" "$1" "$2" "$3" "$week" > "$HOME/.ai-core/usage.log"
   printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":%s,"resets_at":%s},"seven_day":{"used_percentage":%s,"resets_at":%s}}}\n' "$now" "$4" "$2" "$5" "$week" > "$HOME/.ai-core/usage.json"; }
 history 50 "$soon" 10 80 10
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
-check 'exit 4 below the limit'   4 "$rc"
+check 'exit 0 below the limit (planted: the old refusal exited 4)' 0 "$rc"
 check 'the hour it reaches 92 %' yes "$(matches "^five_hour   80 % used  resets $(when "$soon"), in (59 min|1 h 0 min)  burn 60.0 %/h, 92 % used at $(when "$((now + 720))")$" "$(sed -n 1p <<< "$out")")"
 check 'a week without burn'      yes "$(matches "^seven_day   10 % used  resets $(when "$week"), in (3 d 23 h|4 d 0 h)  burn 0.0 %/h$" "$(sed -n 2p <<< "$out")")"
-check 'what to do'               yes "$(matches '^a window reaches 92 % used before its reset at the measured burn: start nothing new on this account' "$out")"
+check 'no refusal'               no "$(grep -q 'start nothing new' <<< "$out" && echo yes || echo no)"
 echo 'the same burn with the reset minutes away: the window carries on (innocent case)'
 history 50 "$((now + 300))" 10 80 10
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
@@ -166,10 +166,10 @@ echo 'a window at the limit outranks a projection'
 history 50 "$soon" 10 95 10
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" 2>&1)"; rc=$?
 check 'exit 3'                   3 "$rc"
-plant bin/usage.sh 's/projected=1/projected=0/'
+plant bin/usage.sh 's/\[ -n "\$cross" \] || continue/[ -n "$cross" ] \&\& exit 4/'
 history 50 "$soon" 10 80 10
 out="$(cd "$work/project" && bash "$work/mutant/bin/usage.sh" 2>&1)"; rc=$?
-check 'a mutant that ignores the projection is caught' 0 "$rc"
+check 'a mutant that refuses on the projection is caught' 4 "$rc"
 
 echo 'a record without a usable reading is exit 2 with the reason, never a window at 0 %'
 claude_record() {  # claude_record <what the status line recorded>: the answer of usage in $out and $rc
@@ -422,10 +422,10 @@ check 'audit does not erase quota exit 3' 3 "$rc"
 printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":80,"resets_at":%s}}}\n' "$now" "$soon" > "$HOME/.ai-core/usage.json"
 printf '%s 20 %s - -\n' "$((now - 3600))" "$soon" > "$HOME/.ai-core/usage.log"
 usage_report
-check 'audit does not erase projected quota exit 4' 4 "$rc"
+check 'a projected window keeps exit 0 under the audit' 0 "$rc"
 printf 'malformed\n' > "$HOME/.ai-core/tool-order.json"
 usage_report
-check 'an audit read failure cannot redefine exit 4' 4 "$rc"
+check 'an audit read failure turns that exit 0 into 2' 2 "$rc"
 check 'audit read failure is named' yes "$(matches 'audit read failure' "$out")"
 rm -f "$HOME/.ai-core/usage.log"
 printf '{"recorded_at":%s,"rate_limits":{"five_hour":{"used_percentage":5,"resets_at":%s}}}\n' "$now" "$soon" > "$HOME/.ai-core/usage.json"

@@ -285,10 +285,9 @@ another session is checked against this by that session and rewritten where it f
 passed on as it came. At the
 usage limit (`ai-core usage --tool <tool>` exits 3, for agy with `--model <model>`, or the tool
 refuses for quota), every session using that limited account or model finishes its step and reports,
-and no new phase starts on it until the reset. Where it exits 4, a window reaches the limit before
-its reset at the measured burn: no new phase starts, and you tell running phases the hour it names
-so they commit before it. A week it names as reaching the limit is watched by whoever holds the
-account: the work goes on at full speed up to the limit, and nobody asks them about it. Every next
+and no new phase starts on it until the reset. The hour it names for a window to reach the limit
+stops no start: the work goes on at full speed up to the limit. A week it names as reaching the
+limit is watched by whoever holds the account, and nobody asks them about it. Every next
 start and resume asks `phase-model` again; only its successful tuple may run. You never stop because your context grew: the tool compacts you
 (in Claude Code at the window
 the owner started you with, `references/claude.md`), and

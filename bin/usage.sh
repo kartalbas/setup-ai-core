@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # What the selected account's usage windows stand at, as its tool last recorded them, where each
-# will stand at its reset at the burn measured since the window's first reading, and whether one
-# has reached the limit or will reach it before its reset. Claude Code's windows are what its status
+# will stand at its reset at the burn measured since the window's first reading, the hour it
+# reaches the limit at that burn, and whether one has reached the limit. Claude Code's windows are what its status
 # line records, its history the status line's log; Codex's are what Codex writes into its session
 # files after every answer, a record older than an hour renewed first by one minimal Codex call;
 # agy's are what `agy -p /usage` answers now, each group of models with its own windows, its history
@@ -13,8 +13,8 @@
 # Every tool's windows, their forecast and the limit N are shown as the share used. --model, for agy
 # only, judges just the group whose description lists the family of the model's display name from
 # `agy models`.
-# Exit 0: every window below N, and none projected to N by its reset. Exit 4: a window projected to
-# N or more by its reset, so nothing new starts on it. Exit 3: a window at N or more. Exit 2: nothing
+# Exit 0: every window below N, whatever its projection; work goes on up to N. Exit 3: a window at N
+# or more. Exit 2: nothing
 # recorded yet, a reading that cannot be used, or a wrong argument. A window whose reset time has
 # passed counts as reset; a window whose readings span less than 30 minutes has no measured burn and
 # is judged by what it stands at. One model's own weekly quota is not among the windows Claude Code
@@ -72,7 +72,7 @@ usage_read "$tool" "$model" || { echo "$usage_failure" >&2; exit 2; }
 windows="$usage_windows"; recorded="$usage_recorded"; readings="$usage_readings"
 now="$(date +%s)"
 limit="$stop % used"
-reached=0; projected=0; warnings=""
+reached=0; warnings=""
 # Readings are whole percents, so over a shorter span one rounding step reads as a steep burn.
 trusted_span=1800
 width="$(awk -F'\t' '{ if (length($2) > w) w = length($2) } END { print (w > 10 ? w : 10) }' <<< "$windows")"
@@ -99,13 +99,11 @@ while IFS=$'\t' read -r key name length used resets; do
   printf '%-*s %3d %% used  resets %s, %s  burn %s\n' "$width" "$name" "$(awk -v u="$used" 'BEGIN { printf "%d", u }')" "$(when "$resets")" "$(left "$resets")" "$burn"
   awk -v u="$used" -v s="$stop" 'BEGIN { exit !(u >= s) }' && reached=1
   [ -n "$cross" ] || continue
-  # A window of a day or less resets soon after, so waiting costs little; a longer one is a
-  # person's decision, another account or slower work, and needs the hour ahead of time.
-  if [ "$length" -gt 0 ] && [ "$length" -le 1440 ]; then projected=1
-  else warnings="$warnings$name reaches $limit at $(when "$cross"), before its reset; the person who holds the account watches it"$'\n'; fi
+  # A longer window is a person's decision, another account or slower work, and needs the hour ahead of time.
+  [ "$length" -gt 0 ] && [ "$length" -le 1440 ] \
+    || warnings="$warnings$name reaches $limit at $(when "$cross"), before its reset; the person who holds the account watches it"$'\n'
 done <<< "$windows"
 echo "recorded $(when "$recorded"), limit $limit"
 [ -z "$usage_notice" ] || echo "$usage_notice"
 printf '%s' "$warnings"
 [ "$reached" -eq 0 ] || { echo "a window stands at $limit or more: finish the step in hand, commit and report it, then wait for its reset"; exit 3; }
-[ "$projected" -eq 0 ] || { echo "a window reaches $limit before its reset at the measured burn: start nothing new on this account, and have what runs commit before that hour"; exit 4; }

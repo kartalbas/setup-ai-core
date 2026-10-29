@@ -23,7 +23,7 @@ for tool in "${tools[@]}"; do
   [ -n "$model" ] || { tool_order_error "$tool has no model rows in $table"; exit 2; }
   args=(--tool "$tool"); [ "$tool" != agy ] || args+=(--model "${model#agy:}")
   rc=0; reading="$(bash "$ROOT/bin/usage.sh" "${args[@]}" 2>&1)" || rc=$?
-  case "$rc" in 0|3|4) ;; *) tool_order_error "$tool usage failed (exit $rc): $reading"; exit 2 ;; esac
+  case "$rc" in 0|3) ;; *) tool_order_error "$tool usage failed (exit $rc): $reading"; exit 2 ;; esac
 done
 tool_order_save "$order" || exit 2
 tool_order_show

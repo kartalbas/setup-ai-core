@@ -191,6 +191,6 @@ issues it holds. The owner answers there; your next round reads the answer.
 - A session that finished is done; nothing is kept. Its report is on the issue, its last message in
   its output file.
 - `ai-core usage --tool codex` reads Codex's own last recorded windows, as percent used against
-  `USAGE_STOP_AT` as percent used. Exit 3 means at limit; exit 4 means projected to it before reset;
+  `USAGE_STOP_AT` as percent used. Exit 3 means at limit; a projection to it before reset is shown and stops no start;
   Exit 2 is an unreadable quota, never a successful preflight. Every subsequent phase start or
   resume runs `phase-model` again; no local fallback overrides a refused selection.

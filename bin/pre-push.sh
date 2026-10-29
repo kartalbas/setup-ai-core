@@ -600,18 +600,18 @@ if [ -z "$default" ] && origin_is_empty; then
 fi
 [ -n "$default" ] || default=master
 
-# A checkout keeps no record of origin's tags, and its own tags need not be origin's, so the
-# commits origin carries under a tag are read from origin: once per push, as the commit each
-# tag line names (a peeled line names the commit of an annotated tag). One cat-file keeps the
-# objects this checkout has that are commits, so a tag object, whose peeled line follows it, and a
-# commit this checkout lacks are skipped. Each one becomes ^<sha> in every range, before the --not
-# that flips the meaning of what follows it. The ask neither prompts for a password nor waits on a
-# stalled transfer; when origin cannot be asked, nothing more is left out than the branches of
-# origin leave out.
-tagged_lines="$(GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=10 ls-remote --tags origin 2>/dev/null)" || tagged_lines=''
-tag_exclusions=''
-[ -z "$tagged_lines" ] || tag_exclusions="$(cut -f1 <<< "$tagged_lines" | git cat-file --batch-check='%(objectname) %(objecttype)' \
-  | awk '$2 == "commit" { printf " ^%s", $1 }')"
+# Remote-tracking branches can be stale and local tags need not be origin's. Read both from origin
+# once, retaining only tips whose commit objects this checkout has. A peeled tag names its commit;
+# the tag object itself and unknown objects are skipped. Exclusions precede --not in every range.
+# The ask never prompts or waits on a stalled transfer; a failed read leaves the known remote refs.
+remote_lines="$(GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=10 ls-remote --heads --tags origin 2>/dev/null)" || remote_lines=''
+tag_exclusions=''; branch_exclusions=''
+if [ -n "$remote_lines" ]; then
+  tag_exclusions="$(awk '$2 ~ /^refs\/tags\// { print $1 }' <<< "$remote_lines" | git cat-file --batch-check='%(objectname) %(objecttype)' \
+    | awk '$2 == "commit" { printf " ^%s", $1 }')"
+  branch_exclusions="$(awk '$2 ~ /^refs\/heads\// { print $1 }' <<< "$remote_lines" | git cat-file --batch-check='%(objectname) %(objecttype)' \
+    | awk '$2 == "commit" { printf " ^%s", $1 }')"
+fi
 
 # Every commit this push sends, across every ref on standard input, and the ranges they came from. The ranges of the
 # identity check leave out every ref of origin, also for a harness landing: what another person or a platform put there
@@ -649,7 +649,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     # Excluding every remote branch this checkout knows and every tag origin carries asks the
     # question this loop means to ask - which commits does this push add - and answers it with
     # none where none are added.
-    range="$local_commit$tag_exclusions --not --remotes=origin"
+    range="$local_commit$tag_exclusions$branch_exclusions --not --remotes=origin"
   else
     # A remote sha this checkout does not carry cannot be measured from. Letting `git rev-list`
     # fail quietly would leave the range empty, and an empty range is read below as a push with
@@ -664,7 +664,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     # branch brings every commit the default branch gained since the fork; judging those again
     # holds commits other flows wrote to today's rules, and the branch could only catch up by a
     # rebase and a force push.
-    range="$local_commit ^$remote_sha$tag_exclusions --not --remotes=origin"
+    range="$local_commit ^$remote_sha$tag_exclusions$branch_exclusions --not --remotes=origin"
   fi
   identity_ranges="$identity_ranges$range"$'\n'
   if [ "$remote_ref" != "refs/heads/$default" ]; then added_ranges="$added_ranges$range"$'\n'
@@ -675,7 +675,11 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   # So does a direct push, the one way on below for an update of the default branch without that mark, from the old ref
   # git sent.
   if landing_mark_judge "${AI_CORE_LANDING_MARK:-}" "$root" "$local_commit" "$remote_ref"; then
-    if git rev-parse -q --verify "refs/remotes/origin/$default" >/dev/null 2>&1; then range="$local_commit ^refs/remotes/origin/$default$tag_exclusions"; fi
+    if git rev-parse -q --verify "refs/remotes/origin/$default" >/dev/null 2>&1; then
+      # Git's remote tip bounds this push even when the tracking ref is stale.
+      if all_zero "${remote_sha:-}"; then range="$local_commit ^refs/remotes/origin/$default$tag_exclusions"
+      else range="$local_commit ^$remote_sha$tag_exclusions"; fi
+    fi
   elif [ "$remote_ref" = "refs/heads/$default" ]; then
     if all_zero "${remote_sha:-}"; then range="$local_commit$tag_exclusions"; else range="$local_commit ^$remote_sha$tag_exclusions"; fi
   fi

@@ -45,10 +45,14 @@
 # the tip that was measured, so a commit that arrives meanwhile keeps it.
 #
 # --sweep removes every worktree of this repository whose work has landed and has rested for a
-# day, and names the others it leaves; start-issue and init --all run it, so a worktree nobody
-# finished does not stay for good. A worktree that was never committed in is left alone.
+# day, and names the others it leaves; init --all runs it on every tracker and start-issue on GitHub,
+# so a worktree nobody finished does not stay for good. A worktree that was never committed in is left
+# alone. The sweep reads git alone and asks no tracker: on Forgejo, ai-core finish-issue --sweep runs it
+# here too.
 
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/board.sh"
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$ROOT/lib/common.sh"
 . "$ROOT/lib/worktrees.sh"
 
 BIN="$ROOT/bin"
@@ -171,6 +175,7 @@ if [ "$sweep" -eq 1 ]; then
 fi
 
 # --- one issue ---------------------------------------------------------------------------------
+. "$ROOT/lib/board.sh"
 # The record is read from the issue's branch, which can outlive its worktree
 if [ -z "$repo" ]; then
   for branch in $(git for-each-ref --format='%(refname:short)' "refs/heads/issue-$number" "refs/heads/issue-$number-*"); do

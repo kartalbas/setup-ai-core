@@ -25,7 +25,11 @@ the retry. A worktree of the issue that stands detached, as a killed landing lea
 git switch to run in it first, and removes nothing. It looks at no other worktree. Then it deletes the issue's
 branches on origin that a "Started on" record of the issue names, that no worktree has checked out and whose tip
 the default branch of origin holds, each at the tip it read; it names each one that stays. Where no worktree of
-the issue stands, it does only that, and refuses when it deletes nothing.`;
+the issue stands, it does only that, and refuses when it deletes nothing.
+
+ai-core finish-issue --sweep [--dry-run] runs the sweep of bin/finish-issue.sh instead, on this tracker as on GitHub,
+because the sweep reads git alone: it removes every issue worktree whose work landed, that has no changes and that
+rested for a day, and names every other one. init --all runs it.`;
 
 // The issue's branches on origin that a "Started on" record of it names: one that no worktree has checked out and
 // whose tip origin's default branch holds is deleted at that tip, and every other one stays with its reason.

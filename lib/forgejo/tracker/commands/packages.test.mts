@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { pathToFileURL } from 'node:url';
-import { PartialCompletionError } from '../api/client.mts';
+import { PartialCompletionError, PermissionError } from '../api/client.mts';
 import { issueShape } from '../api/shapes.mts';
-import { packageLabelDescription } from '../domain/packages.mts';
+import { packageLabelDescription, readPackageLabel, refuseRepositoryLabelOfPackageName } from '../domain/packages.mts';
 import { listOrganizationLabels } from '../domain/labels.mts';
 import { PreconditionError, UsageError } from '../domain/refusals.mts';
 import { composeProvenRecord } from '../domain/workflow.mts';
@@ -376,6 +376,56 @@ describe('creation, API scope and the label catalog', () => {
     const outcome = await coordinator(w, SHOP5, [SHOP5, API7]);
     assert.equal(outcome.status, 2);
     assert.match(outcome.stderr, /example-org\/api has its own label package\/shop#5/);
+    assert.equal(writesOf(w), writes);
+  });
+
+  for (const state of ['absent', 'present', 'created before the repository label', 'created after the repository label'] as const) {
+    it(`refuses a repository label when the organization label is ${state}, without writing`, async () => {
+      const w = await world();
+      const anchor = { owner: 'example-org', repo: 'shop', number: 5 };
+      const repository = { owner: 'other-org', repo: 'lib' };
+      const label = { name: NAME, description: packageLabelDescription(anchor), exclusive: true };
+      if (state === 'present') w.fake.addLabel(repository.owner, label);
+      const api = clientFor(w.fake);
+      const organizationLabel = await readPackageLabel(api, repository.owner, anchor);
+      if (state === 'created before the repository label') w.fake.addLabel(repository.owner, label);
+      w.fake.addRepositoryLabel('other-org/lib', label);
+      if (state === 'created after the repository label') w.fake.addLabel(repository.owner, label);
+      const before = w.fake.requests.length;
+      const writes = writesOf(w);
+      await assert.rejects(refuseRepositoryLabelOfPackageName(api, repository, anchor, organizationLabel), (error: unknown) => error instanceof UsageError && /other-org\/lib has its own label/.test(error.message));
+      assert.equal(writesOf(w), writes);
+      const reads = w.fake.requests.slice(before).filter((request) => request.path === '/orgs/other-org/labels');
+      assert.equal(reads.length, state === 'present' ? 0 : 1);
+    });
+  }
+
+  for (const present of [false, true]) {
+    it(`does not reread the organization when no repository label needs checking and its label is ${present ? 'present' : 'absent'}`, async () => {
+      const w = await world();
+      const anchor = { owner: 'example-org', repo: 'shop', number: 5 };
+      const repository = { owner: 'other-org', repo: 'lib' };
+      if (present) w.fake.addLabel(repository.owner, { name: NAME, description: packageLabelDescription(anchor), exclusive: true });
+      const api = clientFor(w.fake);
+      const organizationLabel = await readPackageLabel(api, repository.owner, anchor);
+      const before = w.fake.requests.length;
+      w.fake.fail({ method: 'GET', path: '/orgs/other-org/labels', mode: { kind: 'status', status: 403, message: 'no reread was needed' } });
+      await refuseRepositoryLabelOfPackageName(api, repository, anchor, organizationLabel);
+      assert.deepEqual(w.fake.requests.slice(before).map(({ method, path }) => ({ method, path })), [{ method: 'GET', path: '/repos/other-org/lib/labels' }]);
+    });
+  }
+
+  it('propagates a failed organization reread before writing', async () => {
+    const w = await world();
+    const anchor = { owner: 'example-org', repo: 'shop', number: 5 };
+    const repository = { owner: 'other-org', repo: 'lib' };
+    const api = clientFor(w.fake);
+    const organizationLabel = await readPackageLabel(api, repository.owner, anchor);
+    assert.equal(organizationLabel, undefined);
+    w.fake.addLabel(repository.owner, { name: NAME, description: packageLabelDescription(anchor), exclusive: true });
+    w.fake.fail({ method: 'GET', path: '/orgs/other-org/labels', mode: { kind: 'status', status: 403, message: 'planted reread failure' } });
+    const writes = writesOf(w);
+    await assert.rejects(refuseRepositoryLabelOfPackageName(api, repository, anchor, organizationLabel), (error: unknown) => error instanceof PermissionError && /planted reread failure/.test(error.message));
     assert.equal(writesOf(w), writes);
   });
 

@@ -51,9 +51,10 @@
   GO,
   `ai-core integrate-issue <number> --reviewed-by <reviewer>` integrates the work into the default
   branch as a merge commit that names the issue and carries a `Reviewed-by: <reviewer>` trailer,
-  so the reviewed commits land as they were read; the verdict is written on the issue. A refused
-  integration goes to the owner: no other session pushes it, and nothing is reworded or forced
-  past the refusal. [tool · review]
+  so the reviewed commits land as they were read; the verdict is written on the issue. An
+  integration refused for a defect of the package's change goes back to review for a repair and
+  an independent re-check before another integration attempt. Every other refusal goes to the
+  owner: no other session pushes it, and nothing is reworded or forced past the refusal. [tool · review]
 - **Nothing is called done until the product owner has reviewed the finished work.** The checks
   decide what may leave the machine; the owner decides what counts as delivered. A card in testing
   is due for its proof once a release carries its work to the environment its acceptance criteria

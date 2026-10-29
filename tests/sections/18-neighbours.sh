@@ -4,6 +4,34 @@
 # as long as the checks take. One section of the suite, run by tests/check.sh with the others
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 
+section "neighbour names come from whole paths and quoted join arguments in tracked files, independent of git's display settings"
+(
+  . "$ROOT/lib/neighbours.sh"
+  N="$WORK/names"; git init -q "$N"
+  names_are() {
+    printf '%s\n' "$2" > "$N/source"; git -C "$N" add source
+    neighbours_named "$N" "$3" || fail "$1: $NEIGHBOUR_ERROR"
+    [ "$NEIGHBOUR_NAMED" = "$4" ] || fail "$1: expected <$4>, got <$NEIGHBOUR_NAMED>"
+  }
+  names_are literal '../cat/marker' cat cat
+  names_are multiline $'resolve(here, "..",\n  "cat");' cat cat
+  names_are quotes $'join(\'..\', "cat")\njoin("..", \'dog\')' $'cat\ndog' $'cat\ndog'
+  names_are suffixes $'../cat-kit\n../cat.test\n../cat+kit\njoin("..", "cat+kit")\njoin("..", "cat-kit")' cat ''
+  names_are punctuation '../a+b/marker ../a.b/marker' $'a+b\na.b' $'a+b\na.b'
+  names_are all '../cat ../dog ../Zed' $'cat\ndog\nZed' $'Zed\ncat\ndog'
+  names_are variable 'join("..", neighbour)' cat ''
+  printf '../cat\n' > "$N/untracked"
+  names_are untracked 'no neighbour' cat ''
+  printf '"cat")\n' > "$N/z-source"; git -C "$N" add z-source
+  names_are separate_files 'join("..",' cat ''
+  rm "$N/z-source"; git -C "$N" rm -q --cached z-source
+  git -C "$N" config grep.lineNumber true
+  git -C "$N" config grep.column true
+  git -C "$N" config color.grep always
+  names_are display '../cat/marker' cat cat
+  names_are 'no match' 'no neighbour' cat ''
+)
+
 command -v flock >/dev/null 2>&1 || fail "flock (util-linux) is not installed, and the copies of the neighbours are locked with it"
 export PATH="$ROOT/bin:$PATH" PRE_PUSH_LOAD_LIMIT=0
 F="$WORK/nb"; CHECK_LOG="$WORK/nb-check.log"; CHECK_IDS="$WORK/nb-check-ids.log"; export CHECK_LOG CHECK_IDS; : > "$CHECK_LOG"; : > "$CHECK_IDS"
@@ -42,6 +70,8 @@ if [ -n "${CHECK_HOLD:-}" ]; then
 fi
 EOF
 chmod +x "$F/app/scripts/check.sh"
+# the repository names Zed the other way a gate counts, as the next argument after "..", so the gate holds it too
+printf 'export const zed = resolve(here, "..", '"'"'Zed'"'"');\n' > "$F/app/scripts/neighbours.mjs"
 printf 'UPDATE_CHECK="never"\nNEIGHBOUR_LOCK_WAIT_SECONDS="2"\nPRE_PUSH_LOAD_LIMIT="0"\n' > "$F/app/.ai-core/config.env"
 git -C "$F/app" config user.email check@localhost; git -C "$F/app" config user.name check
 git -C "$F/app" add scripts .githooks; git -C "$F/app" commit -q -m "start (#1)"; git -C "$F/app" push -q origin master
@@ -916,4 +946,63 @@ mutant claim-kept bin/init.sh 's/; neighbour_pending_end "\$name"$//; s/^\(     
 rename_run "$WORK/mutant-claim-kept" h3
 [ "$RENAME" = "$CLAIM_KEPT" ] || fail "planted: a claim that ends only after a refresh was not found kept while init read Zed: $RENAME"
 echo "  init makes the copy of the renamed branch under its own claim and gives the claim up before it reads Zed; a copy made beside the claim waits for it, and a claim that ends only after a refresh is kept, the planted defects"
+
+section "a gate holds only the neighbours its repository names: a linked copy no tracked file names is not asked, moved or locked"
+git init -q --bare -b master "$WORK/nb-fox.git"
+git clone -q "$WORK/nb-fox.git" "$F/fox" 2>/dev/null
+echo one > "$F/fox/marker"; git -C "$F/fox" add marker; git_as -C "$F/fox" commit -q -m one; git -C "$F/fox" push -q origin master
+git clone -q "$WORK/nb-fox.git" "$WORK/nb-fox-pusher" 2>/dev/null
+carry_harness "$F/fox"
+T4="$F/.worktrees/app/issue-4-fox"; git -C "$F/app" worktree add -q -b issue-4-fox "$T4" origin/master
+printf 'the kit stands at ../fox-kit, which is no neighbour\n' > "$T4/fox-kit.txt"; git -C "$T4" add fox-kit.txt; git -C "$T4" commit -q -m "name ../fox-kit (#4)"
+bash "$ROOT/bin/init.sh" "$T4" --no-doctor > "$F-init-fox.log" 2>&1 || fail "init that links fox failed: $(tail -5 "$F-init-fox.log")"
+FOX="$F/.ai-core/neighbours/fox/origin-master"
+[ "$(readlink "$F/.worktrees/app/fox")" = ../../.ai-core/neighbours/fox/origin-master ] || fail "init did not link fox to its published copy: $(readlink "$F/.worktrees/app/fox" 2>&1)"
+fox_before="$(git -C "$FOX" rev-parse HEAD)"
+land fox two
+reader fox "$WORK/nb-fox-free"
+rc=0; timeout 120 git -C "$T4" push origin "HEAD:refs/heads/issue-4-fox" > "$F-fox.log" 2>&1 || rc=$?
+: > "$WORK/nb-fox-free"; wait "$READER" 2>/dev/null || true
+[ "$rc" -eq 0 ] || fail "a gate waited for, or failed on, a copy its repository does not name (status $rc): $(tail -5 "$F-fox.log")"
+grep -q "^pre-push: neighbour fox: not held: no tracked file of this repository writes \.\./fox or " "$F-fox.log" || fail "the gate does not name fox as not held: $(grep 'neighbour' "$F-fox.log")"
+grep -q "^pre-push: neighbour cat: the published copy " "$F-fox.log" || fail "cat, which the check reads as ../cat, is not held: $(grep 'neighbour' "$F-fox.log")"
+grep -q "^pre-push: neighbour Zed: the published copy " "$F-fox.log" || fail "Zed, which the repository names after \"..\", is not held: $(grep 'neighbour' "$F-fox.log")"
+[ "$(git -C "$FOX" rev-parse HEAD)" = "$fox_before" ] || fail "the gate moved the copy of fox, which its repository does not name"
+[ "$(git -C "$F/fox" rev-parse origin/master)" = "$fox_before" ] || fail "the gate asked the origin of fox, which its repository does not name"
+echo "  a stale copy held shared by another check and named only as ../fox-kit keeps nobody waiting and is not asked or moved; cat and Zed are held"
+
+section "a receipt records only the held neighbours, and the final push accepts it with an unused copy locked and its origin unavailable"
+. "$ROOT/lib/landing-check.sh"
+echo checked > "$T4/landing"; git -C "$T4" add landing; git -C "$T4" commit -q -m "check the landing (#4)"
+receipt="$(landing_check_open)"; ci_ref=refs/heads/ci/integrate-issue-4-fox
+AI_CORE_LANDING_RECEIPT="$receipt" push_gate "$T4" "${ci_ref#refs/heads/}" "$F-fox-ci.log" || fail "the ci/ push failed: $(tail -5 "$F-fox-ci.log")"
+[ "$(awk -F '\t' '$1 == "neighbour" { print $2 }' "$receipt")" = $'Zed\ncat\ndog' ] || fail "the receipt does not name exactly the held neighbours: $(cat "$receipt")"
+head="$(git -C "$T4" rev-parse HEAD)"
+landing_check_complete "$receipt" "$head" "$ci_ref" || fail "the receipt could not be completed"
+mark="$(landing_mark_open "$T4" "$head" refs/heads/master)"
+git -C "$F/fox" remote set-url origin "$WORK/nowhere.git"
+mover fox "$WORK/nb-fox-final-free"
+runs="$(wc -l < "$CHECK_LOG")"
+rc=0; AI_CORE_LANDING_RECEIPT="$receipt" AI_CORE_LANDING_MARK="$mark" timeout 30 git -C "$T4" push origin HEAD:refs/heads/master > "$F-fox-final.log" 2>&1 || rc=$?
+: > "$WORK/nb-fox-final-free"; wait "$READER" 2>/dev/null || true
+git -C "$F/fox" remote set-url origin "$WORK/nb-fox.git"
+landing_mark_close "$mark"; landing_check_close "$receipt"
+[ "$rc" -eq 0 ] || fail "the final push did not accept its receipt (status $rc): $(tail -5 "$F-fox-final.log")"
+[ "$(wc -l < "$CHECK_LOG")" = "$runs" ] || fail "the final push ran the check again on an unchanged tree"
+grep -q 'does not run again: its receipt' "$F-fox-final.log" || fail "the final push did not report accepting its receipt"
+echo "  the receipt names Zed, cat and dog alone, and the final push accepts it without reading fox"
+
+section "a failed search refuses with its reason, and holding every link is detected"
+(
+  . "$ROOT/lib/neighbours.sh"
+  git() { case " $* " in *' grep '*) echo 'planted search failure' >&2; return 128 ;; esac; command git "$@"; }
+  neighbours_hold "$T4" && fail "a failed search did not refuse the gate"
+  case "$NEIGHBOUR_ERROR" in *'planted search failure'*) ;; *) fail "the caller lost the search failure: $NEIGHBOUR_ERROR" ;; esac
+)
+mutant holds-every-link lib/neighbours.sh 's/^  named="$NEIGHBOUR_NAMED"$/  named="$names"/'
+echo fox-2 > "$T4/work-fox-2"; git -C "$T4" add work-fox-2; git -C "$T4" commit -q -m "work fox-2 (#4)"
+PATH="$WORK/mutant-holds-every-link/bin-path:$PATH" timeout 120 git -C "$T4" push origin "HEAD:refs/heads/issue-4-fox" > "$F-fox-mutant.log" 2>&1 || true
+[ "$(git -C "$FOX" rev-parse HEAD)" != "$fox_before" ] || fail "planted: a gate that holds every linked neighbour did not move fox, so this case cannot tell: $(grep 'neighbour' "$F-fox-mutant.log")"
+echo "  a gate that holds every linked neighbour, the planted defect, moves the copy of fox"
+all_free cat dog Zed fox || fail "a lock is still held after the gates that skip fox ended"
 exit 0

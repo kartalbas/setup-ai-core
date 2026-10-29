@@ -11,12 +11,16 @@
 - **Work is tracked in the project's tracker, through the harness's commands, and the plan is the
   issues.** An issue exists before the work starts and is kept current; a plan lives nowhere else;
   a session that finds an issue hands it to the project's issue keeper, which files it into what
-  exists. An issue carries the full case, which is the context, the code facts as `file:line` and
+  exists. **No session creates a new issue without the owner's yes for that very issue**: not the
+  coordinator, the keeper or any phase, and not for a split, a re-cut, a predecessor, a plan issue,
+  a found defect or a piece a later package carries. The question names its title, its repository,
+  why no open issue holds it and its cost; until his yes the work stays in the open issue it
+  belongs to. An issue carries the full case, which is the context, the code facts as `file:line` and
   the acceptance criteria, under a title that names the action and its stake so it survives being
-  read alone in a list. Independent pieces are split into their own issues before any detail is
-  refined, and the plan of a package checks its issues again: each issue lands whole in one package,
+  read alone in a list. Independent pieces are split into their own issues, each after the owner's yes, before any
+  detail is refined, and the plan of a package checks its issues again: each issue lands whole in one package,
   issues that always land together become one, and a piece that a later package carries becomes its
-  own issue. Epics and the board belong to the trackers whose API carries them. Forgejo has no epics, and its API cannot
+  own issue once the owner says yes. Epics and the board belong to the trackers whose API carries them. Forgejo has no epics, and its API cannot
   create or move the cards of its projects, so there an issue's `status/` label holds its state. An epic,
   an issue with sub-issues, carries no work of its own, which goes into a sub-issue, and is never
   moved by hand: it stands in `implementing` once one sub-issue has started, in `testing` once all
@@ -35,7 +39,7 @@
   the next landing of its repository and ships with its next release. One that a person sees and
   that changes a few lines of content, an asset or a value and no code path or interface (a label,
   an icon, a color) is first shown to the owner as a picture; it is committed on the open issue it
-  belongs to, or on a new one, because the integration lands only an issue and the release names
+  belongs to, or on a new one the owner said yes to, because the integration lands only an issue and the release names
   it; the owner's choice of that picture is its review, the session's own picture of it on the
   environment after the release is its proof, and it lands and is released at once, on its own.
   [tool · discipline]
@@ -91,10 +95,17 @@
   does.** The reviewer gets the diff of the whole package and the stated intent of each of its
   issues, not the conversation; one handed a single issue of a running package asks for the
   package. Every finding it can repair inside the package's own files and contracts it repairs
-  itself, in the package's branch or section, names as REPAIRED and lets land, so the card goes on
-  to testing, because a NO pays a whole round; the gate's run on the repaired head and the test
-  phase check that repair. Only a finding that needs a decision of the owner, or a change beyond
-  the package's files and contracts, it writes down instead, and the package does not land. The
+  itself, in the package's branch or section, and names as REPAIRED with its own full name, so the
+  card goes on to testing, because a NO pays a whole round; a second reader on another model than
+  the reviewer's reads only the repaired lines against the named findings before the package
+  lands, because a repair nobody reads is unreviewed code. A defect of the package's own change
+  that the gate finds at the landing, on the merged tree, is repaired the same way and gets no new
+  build round. Only a finding that needs a decision of the owner, a change beyond the package's
+  files and contracts, or a package whose approach is wrong it writes down instead, and the package
+  does not land; that is the rare exception, because the plan was made and checked on the
+  strongest models. A review's finding outside the package stays in its report as a KEEPER line
+  with the reviewer's full name; it goes to the owner before any keeper files it, even into an
+  existing issue, so the owner decides whether it becomes work. The
   reviewer's tool, model and effort come from `ai-core phase-model review <class> --written-by
   <builder model>`, using the project's model table, and never the model that
   wrote the work. A sweep, a collection of facts, a draft of test cases or a

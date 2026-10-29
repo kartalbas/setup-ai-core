@@ -18,7 +18,8 @@
   choice no reader would question goes unnamed. A defect found in the work is fixed in the round
   that finds it, committed under the issue of that round's package and named in its report, and
   gets no issue of its own; one that the round cannot fix goes to the project's issue keeper, which
-  files it into what exists and asks the owner before a new issue;
+  files it into what exists and asks the owner before a new issue. A review's finding outside its
+  package goes to the owner first, before any keeper files it into an existing issue;
   which open issues a coordinator works on next, within the goal the
   owner set, and in what order, is the coordinator's choice; issues are filed to be solved, not
   collected. [review]

@@ -23,9 +23,10 @@ that you change nothing outside a throwaway folder for a probe.
 - The build report: {{build report, or for a card from before the packages the issue's last
   comments}}
 - The verification output: {{verification output, or "not run"}}
-- For a re-check only: the findings of the earlier NO and the head that review left, its own
-  REPAIRED commits included, so they are not read as the repair: {{findings and reviewed head, or
-  "full review"}}
+- For a re-check only: the named findings and the base before the repair being checked. For a
+  build after NO, this is the head the earlier review left, its REPAIRED commits included. For a
+  review's own repair after GO, this is the head before that review's REPAIRED commits:
+  {{findings and repair base, or "full review"}}
 - Who reviews and who built, for the second line of your verdict: Reviewer {{reviewer: name (model,
   effort)}}, Builder {{builder: name (model, effort)}}, the builder of a re-check being the session
   that built the repair. They are the tuples the coordinator launched. A value it did not have
@@ -60,7 +61,7 @@ that you change nothing outside a throwaway folder for a probe.
     HEAD: <repo>#<number> <the commit the review leaves on that issue's branch, its REPAIRED commits included>
     HEAD: <one such line for every other issue of the package>
     REPAIRED:
-    - <repo> <file:line>: <what was wrong>; commit <sha>
+    - <reviewer's full name>: <repo> <file:line>: <what was wrong>; commit <sha>
     FINDINGS:
     - <repo> <file:line>: <the defect>; state: <when it appears>; planted case: <the input that shows it>
     CRITERIA: <n> of <m> met; unmet: <issue, criterion>
@@ -73,7 +74,7 @@ because a comment on an issue wakes nobody.
 A finding blocks, and only these are FINDINGS: behaviour that is wrong in a state you name, a test
 that is red or cannot go red on its defect, an unmet criterion, a broken contract, a leftover. Of these, what you can repair inside the package's own
 files and contracts you repair and list under REPAIRED; only a finding that needs a decision of the
-owner, or a change beyond the package's files and contracts, stays under FINDINGS. A defect you
+owner, a change beyond the package's files and contracts, or a wrong approach stays under FINDINGS. A defect you
 meet outside the diff but in the package's files or contracts you repair too, naming its state
 under REPAIRED. One
 outside the package's files goes under NOTES as `KEEPER: <repo> <file:line> <state>` with your full
@@ -89,8 +90,9 @@ is still a GO: say what was proven, what was declared, what was waived.
 
 ## A re-check of a repair
 
-Where the coordinator hands you the findings of an earlier NO and the commits that repair them, you
-re-check, with a 100k budget: read only `git -C <worktree> diff <reviewed head>..HEAD`, each finding
+Where the coordinator hands you a review's REPAIRED findings after GO, or the findings of an earlier
+NO and the commits that repair them, you re-check, with a 100k budget: read only
+`git -C <worktree> diff <repair base>..HEAD`, each finding
 against the span that answers it, and the tests the repair added or changed. Name for every finding
 the span that settles it and whether its planted case now goes red. A defect in the repair's own
 lines is a finding; the rest of the package was read and stays out: a defect you meet there anyway

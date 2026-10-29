@@ -352,13 +352,31 @@ neighbour_add_copy() (
 
 # neighbours_named <worktree> <names>: of the names, one per line, those that a tracked file of the worktree writes as
 # a path beside it, `../<name>`, or `".."` with `"<name>"` as the next argument, in either quote; a longer name such
-# as `../<name>-kit` does not count, and a path built from a variable is not seen. On failure NEIGHBOUR_ERROR says why.
+# as `../<name>-kit` does not count, and a path built from a variable is not seen. Sets NEIGHBOUR_NAMED;
+# on failure NEIGHBOUR_ERROR says why. Read each file separately so a join never crosses file boundaries.
 neighbours_named() {
-  local alternation found rc=0
-  alternation="$(sed 's/[.]/[.]/g' <<< "$2" | paste -sd '|' -)"
-  found="$(git -C "$1" grep -h -o -I -E "(\.\./|[\"']\.\.[\"'][[:space:]]*,[[:space:]]*[\"'])($alternation)([^A-Za-z0-9_.-]|\$)" -- . 2>&1)" || rc=$?
-  [ "$rc" -le 1 ] || { NEIGHBOUR_ERROR="the tracked files of $1 cannot be searched for the neighbours they name: ${found//$'\n'/ | }"; return 1; }
-  [ -z "$found" ] || sed -E "s#^(\.\./|[\"']\.\.[\"'][[:space:]]*,[[:space:]]*[\"'])##; s#[^A-Za-z0-9_.-]\$##" <<< "$found" | LC_ALL=C sort -u
+  local alternation pattern scratch file contents rc=0
+  NEIGHBOUR_NAMED=""; NEIGHBOUR_ERROR=""
+  alternation="$(sed 's/[][(){}.^$*+?|\\]/\\&/g' <<< "$2" | paste -sd '|' -)"
+  pattern="(\.\./($alternation)([/\"'\`[:space:];,)}]|\$)|[\"']\.\.[\"'][[:space:]]*,[[:space:]]*(\"($alternation)\"|'($alternation)'))"
+  scratch="$(mktemp -d)" || { NEIGHBOUR_ERROR="no folder to search the tracked files of $1"; return 1; }
+  git -C "$1" grep --no-color -I -l -z -F -e '..' -- . > "$scratch/files" 2> "$scratch/error" || rc=$?
+  if [ "$rc" -le 1 ]; then
+    while IFS= read -r -d '' file; do
+      contents="$(cat -- "$1/$file" 2> "$scratch/error")" || { rc=2; break; }
+      while [[ "$contents" =~ $pattern ]]; do
+        NEIGHBOUR_NAMED="$NEIGHBOUR_NAMED${BASH_REMATCH[2]}${BASH_REMATCH[5]}${BASH_REMATCH[6]}"$'\n'
+        contents="${contents#*"${BASH_REMATCH[0]}"}"
+      done
+    done < "$scratch/files"
+  fi
+  if [ "$rc" -gt 1 ]; then
+    contents="$(cat "$scratch/error")"
+    NEIGHBOUR_ERROR="the tracked files of $1 cannot be searched for the neighbours they name: ${contents//$'\n'/ | }"
+    rm -rf "$scratch"; return 1
+  fi
+  NEIGHBOUR_NAMED="$(printf '%s' "$NEIGHBOUR_NAMED" | LC_ALL=C sort -u)"
+  rm -rf "$scratch"
 }
 
 # neighbours_hold <worktree>: for the push gate. For every link beside the worktree that leads to a published
@@ -389,7 +407,8 @@ neighbours_hold() {
     case "$(readlink "$link")" in "../../.ai-core/neighbours/${link##*/}/origin-"?*) echo "${link##*/}" ;; esac
   done | LC_ALL=C sort)"
   [ -n "$names" ] || return 0
-  named="$(neighbours_named "$root" "$names")" || return 1
+  neighbours_named "$root" "$names" || return 1
+  named="$NEIGHBOUR_NAMED"
   unnamed="$(grep -vxF -f <(printf '%s\n' "$named") <<< "$names" || :)"
   if [ -n "$named" ]; then
     config="$root/.ai-core/config.env"

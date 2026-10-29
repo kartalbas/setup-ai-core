@@ -103,7 +103,9 @@
   build round. Only a finding that needs a decision of the owner, a change beyond the package's
   files and contracts, or a package whose approach is wrong it writes down instead, and the package
   does not land; that is the rare exception, because the plan was made and checked on the
-  strongest models. The
+  strongest models. A review's finding outside the package stays in its report as a KEEPER line
+  with the reviewer's full name; it goes to the owner before any keeper files it, even into an
+  existing issue, so the owner decides whether it becomes work. The
   reviewer's tool, model and effort come from `ai-core phase-model review <class> --written-by
   <builder model>`, using the project's model table, and never the model that
   wrote the work. A sweep, a collection of facts, a draft of test cases or a

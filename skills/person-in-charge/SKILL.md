@@ -142,7 +142,7 @@ it starts. You serialize the runs of one package yourself: the tracker does not.
 | re-plan | `briefs/plan.md`, on the `re-plan` row of the class picked as for a plan: every plan session of a package after its first plan, so a plan after a plan-check NO, a plan repair, an amendment, and a plan after a review that sends the package back; the plan of a mechanical package sent to a plan is its first plan, not a re-plan | the section it replaces stands as a comment on the plan issue, its first line `Replaces the section of <date>` | `planned` (its issues) |
 | plan check | `briefs/plan-check.md`; `ai-core phase-model plan-check <class> --written-by <actual plan or re-plan model>`; after a re-plan the re-check reads only its changes against the reason for it, with a 100k budget and the selected effort | GO | `planned` |
 | build and test | `briefs/build.md` | every issue has its commit and tests, every issue branch is pushed through the push gate | `review` |
-| review | `briefs/review.md`; `ai-core phase-model review <class> --written-by <actual builder model>`; an exhausted independent choice waits, with no local model fallback | GO | `review` |
+| review | `briefs/review.md`; `ai-core phase-model review <class> --written-by <actual builder model>`; an exhausted independent choice waits, with no local model fallback | GO, and a second reader's GO on any REPAIRED commits | `review` |
 | start check | you: in each of the package's worktrees `git -C <worktree> fetch -q origin <default>` and `git -C <worktree> merge -q --no-commit --no-ff origin/<default>`, which put what landed since into the working tree without a commit, so the bundle is the one that will be released; then, unless a merge conflicted, `START_CHECK` of `.ai-core/config.env` on those worktrees; then, whatever the merge or the check said, `git -C <worktree> reset -q --merge` in each worktree where git left a `MERGE_HEAD` (`git -C <worktree> rev-parse -q --verify MERGE_HEAD`), which undoes the merge, so every branch stands at its reviewed head with nothing staged and `ai-core integrate-issue` lands that head; where git left none, there is nothing to undo, and a reset there would drop changes staged before the merge; a worktree whose `git -C <worktree> status --porcelain` is not empty afterwards holds what the check wrote, or a change from before that the merge refused to overwrite, and `integrate-issue` refuses it, so that status is a failure; a merge conflict goes back to build; exit 0; empty: waived, and your `LAND` comment says so; a failure goes back to build with its output as the findings, counted as a review NO | your `LAND <area>` comment on the plan issue | `review` |
 | land | you: `ai-core integrate-issue <first> --reviewed-by <reviewer>` per repository, on a Forgejo tracker with `--reviewed-head <sha>` once per issue in the order of the issues, each sha taken from the `HEAD:` line of the review verdict for that issue, the head the review left with its REPAIRED commits included, then `ai-core finish-issue <n>` per issue after a landing without `--part`; on Forgejo, where one issue lands in several repositories, each repository but the last lands with `--part`, whose record counts as that repository's landing for its release and its proof and moves no card, and the last lands without it; a worktree with only a part record stays, because `finish-issue` requires a `Landed on` record of its head; the additive side lands first, and the strict side lands only once a release to the test stage carries the additive side, so no default branch ever holds a strict side whose additive side is unreleased; before the strict side lands, the start check runs again on the bundle as it then stands, by the same merge without a commit and the same undo, with its own LAND line | every card in `testing` | `testing` |
 | release to the test stage | you: one release per repository, additive side first, as the project's map or `README` says a release is cut; the additive side's repository first, then, after the strict side landed, the strict side's. A release tags the whole default branch, and because a strict side lands only after its additive side is released, every release is safe to cut | every repository tagged | `testing` |
@@ -163,13 +163,16 @@ in `members`; a restart runs the command with `--member` every one of `members` 
 departure in another repository is not lost.
 
 A review repairs every finding inside the package's own files and contracts itself and says GO with
-REPAIRED lines, which a second reader on another model reads alone before the landing, so its NO
+REPAIRED lines, which a second reader on another model reads alone before the landing. Start that
+re-check with `briefs/review.md`, the head before those repairs and their named findings, using
+`ai-core phase-model review <class> --written-by <reviewer's model>`. Its GO is required before
+landing. The first review's NO
 is left for a finding that needs a decision of the owner, a change beyond the package's files and
 contracts, or a wrong approach; a landing that the gate refuses for the package's own change on
 the merged tree goes back to a review that repairs it in the same way, never to a fresh build; a plan check repairs what is small itself and says GO
 with REPAIRED lines, so its NO is left for what is too large for a few lines or needs a decision.
-A review that says NO starts a
-fresh build session with its findings; a plan check that says NO starts a fresh re-plan session
+A review NO that needs the owner waits for that decision; a wrong approach goes back to re-plan.
+Any remaining review NO starts a fresh build session with its findings; a plan check that says NO starts a fresh re-plan session
 with its GAPS. The repair a build makes after a review NO is not
 reviewed whole again: one re-check (`briefs/review.md`, its section on a re-check) reads only the
 repair's commits against the named findings, with a 100k budget, using
@@ -299,7 +302,7 @@ your state is on the tracker, where `briefs/coordinator.md` reads it again. When
 ## The issue keeper
 
 One session per project files its issues: the issue keeper, the model-table phase `keeper`. A plan,
-a plan check, a build, a review or a UI test that finds a defect outside its work files no issue; it
+a plan check, a build or a UI test that finds a defect outside its work files no issue; it
 writes a `KEEPER: <repo> <file:line> <state>` line in its section, its verdict or its report, and
 the keeper puts it into what exists: a comment on the issue it fits, a proposed sub-issue of the epic it fits,
 or, where it fits nothing, a question to the owner. A new issue or epic comes only after his yes,
@@ -307,6 +310,9 @@ the share that a plan's `KEEPER: re-cut` line splits off included; a merge of is
 carries whole the keeper makes itself, without adding work. After a
 landing, the keeper also rewrites the facts of every open issue whose named `file:line` spans the
 landing moved, and writes on the issue what it changed and why.
+A review's `KEEPER:` line outside its package goes to the owner first, with the reviewer's full
+name. Hand it to no keeper and file it into no existing issue until the owner decides it becomes
+work. This exception also applies when collecting lines after a restart.
 Your own `ai-core issue-new`, for the plan issue (`briefs/coordinator.md`), also waits for his yes. A build report's
 and a UI test result's `KEEPER:` lines do not stand on the plan issue: copy them, each with the
 session that wrote it, into your comment that answers that report or result there, so that a

@@ -31,8 +31,12 @@ ask_call='{"hook_event_name":"PermissionRequest","tool_name":"AskUserQuestion","
 out="$(CLAUDE_JOB_DIR=/tmp/job bash "$root/bin/permission-request.sh" <<< "$ask_call")"; rc=$?
 check 'exit code'                0 "$rc"
 check 'no output, so the dialog is shown (planted: it was denied)' '' "$out"
+plan_call='{"hook_event_name":"PermissionRequest","tool_name":"ExitPlanMode","tool_input":{"plan":"Do the thing."}}'
+out="$(CLAUDE_JOB_DIR=/tmp/job bash "$root/bin/permission-request.sh" <<< "$plan_call")"; rc=$?
+check 'plan approval: exit code' 0 "$rc"
+check 'plan approval: no output, so the person approves the plan (planted: it was denied)' '' "$out"
 
-echo 'only the exact question tool name passes through'
+echo 'only the exact question tool names pass through'
 while IFS= read -r call; do
   out="$(CLAUDE_JOB_DIR=/tmp/job bash "$root/bin/permission-request.sh" <<< "$call" 2>&1)"; rc=$?
   check "exit code for $call" 0 "$rc"
@@ -46,6 +50,9 @@ done <<'CALLS'
 {"tool_name":""}
 {"tool_name":null}
 {"tool_name":["AskUserQuestion"]}
+{"tool_name":"exitplanmode"}
+{"tool_name":"ExitPlanMode "}
+{"tool_name":"EnterPlanMode"}
 {}
 CALLS
 

@@ -26,6 +26,8 @@ case "${STUB_MODE:-fail}" in
     printf '{"timestamp":"%s","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":{"used_percent":0,"window_minutes":300,"resets_at":%s},"secondary":null}}}\n' \
       "$(date -u '+%Y-%m-%dT%H:%M:%S.000Z')" "$(( $(date +%s) + 18000 ))" > "$dir/rollout-stub-$$.jsonl" ;;
   silent) ;;
+  stdin-first) printf 'Reading additional input from stdin...\n\nERROR: You have hit your usage limit.\n' >&2; exit 1 ;;
+  stderr) printf '%s' "${STUB_STDERR-}" >&2; exit 1 ;;
   *) echo "Not logged in" >&2; exit 1 ;;
 esac
 STUB
@@ -320,6 +322,29 @@ check 'no failure to report'     0 "$(grep -c 'refresh failed' <<< "$out")"
 echo 'the same reader asked again at once: the record is fresh, no second call'
 STUB_MODE=refill codex_usage
 check 'no second call'           1 "$(calls)"
+echo 'the call fails with its cause after a first line about stdin: the line names the cause'
+old_codex_record
+STUB_MODE=stdin-first codex_usage
+check 'the line names the cause, not the stdin line' 1 "$(grep -c '^the Codex record is older than 60 minutes and its refresh failed: codex exec exited 1: ERROR: You have hit your usage limit\.$' <<< "$out")"
+echo 'failure diagnostics prefer an error substring, else the last non-empty line, and keep at most 200 characters'
+padding="$(printf '%4096s' '' | tr ' ' x)"
+for diagnostic in mixed-case no-error empty blank terrorist errorless long-error long-fallback late-error; do
+  case "$diagnostic" in
+    mixed-case) stderr=$'Reading additional input from stdin...\nErRoR: first failure\nERROR: second failure\n'; expected='ErRoR: first failure' ;;
+    no-error) stderr=$'Reading additional input from stdin...\n\nNot logged in\n\n'; expected='Not logged in' ;;
+    empty) stderr=''; expected='' ;;
+    blank) stderr=$'\n\n\n'; expected='' ;;
+    terrorist|errorless) stderr="$diagnostic"$' notice\nERROR: actual failure\n'; expected="$diagnostic notice" ;;
+    long-error) stderr="Error: $padding"; expected="Error: ${padding:0:193}" ;;
+    long-fallback) stderr=$'Reading additional input from stdin...\n'"$padding"$'\n\n'; expected="${padding:0:200}" ;;
+    late-error) stderr="$padding"$' ERROR: beyond the cutoff\nlast line\n'; expected="${padding:0:200}" ;;
+  esac
+  old_codex_record
+  STUB_MODE=stderr STUB_STDERR="$stderr" codex_usage
+  check "$diagnostic: old quota and one call" '3 1' "$rc $(calls)"
+  check "$diagnostic: one bounded diagnostic line" "the Codex record is older than 60 minutes and its refresh failed: codex exec exited 1: $expected" "$(sed -n '/^the Codex record is older /p' <<< "$out")"
+  check "$diagnostic: the same reason is cached" "codex exec exited 1: $expected" "$(cut -f2- "$HOME/.ai-core/codex-usage-refresh.failed")"
+done
 echo 'the call fails: the old record, and one line that says why'
 old_codex_record
 codex_usage

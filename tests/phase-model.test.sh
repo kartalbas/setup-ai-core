@@ -43,6 +43,7 @@ check('a Claude plan and re-plan route to Codex Astra and the plan check stays o
   for(const [args,expected] of tuples)select(args,expected);
   assert.equal(records().at(-1).order,null);
 });
+check('a cleared order routes a Claude plan to Codex Astra as no order does, and records no order',()=>{const had=fs.existsSync(orderFile)?fs.readFileSync(orderFile):null;const now=Date.now()/1000;fs.writeFileSync(orderFile,JSON.stringify({version:1,orders:[{generation:1,time:now-1000,tools:['codex','claude']},{generation:2,time:now-500,tools:[]}]}));select(['plan','normal-hard'],'codex gpt-6-astra xhigh');assert.equal(records().at(-1).order,null);if(had)fs.writeFileSync(orderFile,had);else fs.unlinkSync(orderFile);});
 check('a Codex at its limit passes Astra and the plan and re-plan fall to Fable at the effort of the Astra row, and Astra answers again once Codex is back',()=>{
   const fable=[[['plan','normal-hard'],'claude claude-fable-5-1 xhigh'],[['plan','high-risk'],'claude claude-fable-5-1 max'],[['re-plan','normal-hard'],'claude claude-fable-5-1 xhigh'],[['re-plan','high-risk'],'claude claude-fable-5-1 max']];
   for(const code of [3]){

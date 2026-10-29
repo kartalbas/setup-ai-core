@@ -32,7 +32,7 @@ tool_order_read() {
   state="$(jq -ce -s '
     def order: type == "object" and (.generation | type == "number" and . > 0 and floor == .)
       and (.time | type == "number" and . > 0)
-      and (.tools | type == "array" and length > 0 and length == (unique | length)
+      and (.tools | type == "array" and length == (unique | length)
         and all(. == "codex" or . == "agy" or . == "claude"));
     if length == 1 and (.[0] | .version == 1 and (.orders | type == "array" and length > 0 and all(order))
       and ([range(0; .orders | length) as $i | .orders[$i].generation == ($i + 1)
@@ -45,14 +45,16 @@ tool_order_read() {
 tool_order_snapshot() {
   local state
   state="$(tool_order_read)" || return 2
-  jq -c 'if . == null then null else .orders[-1] end' <<< "$state"
+  jq -c 'if . == null or (.orders[-1].tools | length) == 0 then null else .orders[-1] end' <<< "$state"
 }
 
 tool_order_show() {
-  local order
-  order="$(tool_order_snapshot)" || return 2
-  jq -r 'if . == null then "tool order: not set; native-tool selection"
-    else "tool order: \(.tools | join(","))\nset at: \(.time) (\(.time | floor | todateiso8601)); generation \(.generation)" end' <<< "$order"
+  local state
+  state="$(tool_order_read)" || return 2
+  jq -r 'def when: "\(.time) (\(.time | floor | todateiso8601)); generation \(.generation)";
+    if . == null then "tool order: not set; native-tool selection"
+    elif (.orders[-1].tools | length) == 0 then "tool order: not set; native-tool selection\ncleared at: \(.orders[-1] | when)"
+    else .orders[-1] | "tool order: \(.tools | join(","))\nset at: \(when)" end' <<< "$state"
 }
 
 tool_order_save() (

@@ -6,7 +6,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/lib/tool-order.sh"
 tool_order_paths
 case "${1-}" in
-  -h|--help) echo 'Usage: ai-core tool-order [TOOL[,TOOL...]]'; echo 'Read or atomically replace the machine-wide order and its set time.'; exit 0 ;;
+  -h|--help) echo 'Usage: ai-core tool-order [TOOL[,TOOL...] | --clear]'; echo 'Read or atomically replace the machine-wide order and its set time.'
+    echo '--clear removes the saved order, so each session selects by its native tool and the routing rows of the model table.'; exit 0 ;;
+  --clear) [ $# -eq 1 ] || { tool_order_error '--clear takes no order'; exit 2; }
+    tool_order_save '' || exit 2; tool_order_show; exit $? ;;
 esac
 [ $# -le 1 ] || { tool_order_error 'tool-order takes one comma-separated order'; exit 2; }
 [ $# -gt 0 ] || { tool_order_show; exit $?; }

@@ -83,8 +83,6 @@ elif [ -f "rules/rules.md" ]; then
 fi
 RULES_OK=0
 [ -n "$RULES_PATH" ] && RULES_OK=1
-LOCAL_RULES_OK=0
-[ -f ".ai-core/rules/rules.local.md" ] && LOCAL_RULES_OK=1
 HARNESS_VERSION=""
 [ -f ".ai-core/VERSION" ] && HARNESS_VERSION="$(tr -d '\r\n' < .ai-core/VERSION)"
 # The map: an AGENTS.md written by ai-core map names in its first line the commit it came
@@ -100,6 +98,13 @@ fi
 # update --check, unless UPDATE_CHECK is "never" (config.env, or AI_CORE_UPDATE_CHECK in the
 # environment). Nothing is updated here; the lines say what to run.
 FOLDER="$(project_folder_of "$ROOT")"
+# The local rules bind from the project folder and from the checkout, the folder's first; a file
+# that is still the template holds none
+LOCAL_RULES_PATHS=""
+[ "$FOLDER" = "$ROOT" ] || ! holds_local_rules "$FOLDER/.ai-core/rules/rules.local.md" || LOCAL_RULES_PATHS="$FOLDER/.ai-core/rules/rules.local.md"$'\n'
+! holds_local_rules .ai-core/rules/rules.local.md || LOCAL_RULES_PATHS="$LOCAL_RULES_PATHS.ai-core/rules/rules.local.md"$'\n'
+LOCAL_RULES_OK=0
+[ -z "$LOCAL_RULES_PATHS" ] || LOCAL_RULES_OK=1
 HARNESS_SOURCE="$(harness_source_of "$ROOT" || true)"
 SOURCE_READY=null; SOURCE_ERROR=""; RULE_SOURCES='[]'; READY="$RULES_OK"; SOURCE_RULE_FILES=0; SOURCE_AGENTS=""; SOURCE_RULE_PATHS=""
 # A harness source is never assembled, and the tool loads AGENTS.md: so in a source that file names
@@ -308,7 +313,9 @@ if [ -n "$HARNESS_SOURCE" ]; then
 else
   echo "Rules file       : $([ $RULES_OK -eq 1 ] && echo "✓ Present ($RULES_PATH)" || echo "✗ Missing")"
 fi
-echo "Local rules      : $([ $LOCAL_RULES_OK -eq 1 ] && echo "✓ Present (.ai-core/rules/rules.local.md)" || echo "– None")"
+if [ "$LOCAL_RULES_OK" -eq 1 ]; then echo "Local rules      : ✓ Present ($(printf '%s' "$LOCAL_RULES_PATHS" | paste -sd ';' - | sed 's/;/; /g'))"
+elif [ -f .ai-core/rules/rules.local.md ]; then echo "Local rules      : – None (.ai-core/rules/rules.local.md is still the template)"
+else echo "Local rules      : – None"; fi
 if [ -n "$HARNESS_SOURCE" ]; then echo "Map              : – Harness source: read README.md"
 elif [ "$BRANCH" = not-a-git-repo ]; then echo "Map              : – A project folder: AGENTS.md lists its repositories"
 elif [ -z "$MAP_COMMIT" ]; then echo "Map              : – Generic (run ai-core map)"
@@ -353,7 +360,7 @@ if [ "$AFTER_COMPACTION" -eq 1 ]; then
   echo "After compaction: read every rules file whole again now, before the next step:"
   { if [ -n "$HARNESS_SOURCE" ]; then printf '%s' "$SOURCE_RULE_PATHS"
     else [ -z "$RULES_PATH" ] || echo "$RULES_PATH"; [ ! -f .ai-core/rules/skills.md ] || echo .ai-core/rules/skills.md; fi
-    [ "$LOCAL_RULES_OK" -eq 0 ] || echo .ai-core/rules/rules.local.md; } | sed "/^\$/d; s#^\([^/]\)#  $ROOT/\1#; s#^/#  /#"
+    printf '%s' "$LOCAL_RULES_PATHS"; } | sed "/^\$/d; s#^\([^/]\)#  $ROOT/\1#; s#^/#  /#"
 fi
 # A start without the issue it was opened for is not the start it looks like, so the last line says so
 if [ -n "$ISSUE_UNREAD" ]; then

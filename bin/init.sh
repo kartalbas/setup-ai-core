@@ -684,15 +684,12 @@ enclosing_folder() {  # enclosing_folder <dir>: the nearest directory above it t
   done
   return 1
 }
-same_text() {  # same_text <file> <file>: the same lines, the comment lines aside
-  [ -f "$1" ] && [ -f "$2" ] && cmp -s <(tr -d '\r' < "$1" | grep -v '^<!-- ' || true) <(tr -d '\r' < "$2" | grep -v '^<!-- ' || true)
-}
 IMPORT_RULES=1; IMPORT_SKILLS=1; IMPORT_LOCAL=0
 if [ "$PROJECT_FOLDER" -eq 0 ] && FOLDER="$(enclosing_folder "$TARGET")"; then
   same_text "$FOLDER/.ai-core/rules/rules.md" "$TMP/rules.md" && IMPORT_RULES=0
   same_text "$FOLDER/.ai-core/rules/skills.md" "$SKILLS_MD" && IMPORT_SKILLS=0
 fi
-[ -f "$AI_CORE_DIR/rules/rules.local.md" ] && ! same_text "$AI_CORE_DIR/rules/rules.local.md" "$CORE_ROOT/templates/.ai-core/rules/rules.local.md" && IMPORT_LOCAL=1
+holds_local_rules "$AI_CORE_DIR/rules/rules.local.md" && IMPORT_LOCAL=1
 binding_block() {  # binding_block: lib/binding-rules.md, each file named after @ where this AGENTS.md is what loads it
   local r s l the="the same as the project folder's, which its AGENTS.md loads"
   if [ "$IMPORT_RULES" -eq 1 ]; then r='@.ai-core/rules/rules.md'; else r="\`.ai-core/rules/rules.md\`, $the"; fi

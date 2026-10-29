@@ -566,6 +566,10 @@ GitHub status    : ✓ Authenticated as @you
 Ready for task execution.
 ```
 
+`Local rules` names each `rules.local.md` that says more than the template: the project folder's
+first, then the checkout's own. After a compaction, which the `SessionStart` hook's event reports,
+the report lists every rules file to read again, these among them.
+
 On Forgejo the sign-in line is `Forgejo status   : ✓ Authenticated on <host> as @you`, the host of `FORGEJO_URL`.
 
 In a project folder the branch line says `not-a-git-repo`.

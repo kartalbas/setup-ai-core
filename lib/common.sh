@@ -283,6 +283,15 @@ project_folder_of() {
   fi
 }
 
+same_text() {  # same_text <file> <file>: the same lines, the comment lines aside
+  [ -f "$1" ] && [ -f "$2" ] && cmp -s <(tr -d '\r' < "$1" | grep -v '^<!-- ' || true) <(tr -d '\r' < "$2" | grep -v '^<!-- ' || true)
+}
+
+# holds_local_rules <rules.local.md>: the file says more than the template init lays
+holds_local_rules() {
+  [ -f "$1" ] && ! same_text "$1" "$HARNESS_ROOT/templates/.ai-core/rules/rules.local.md"
+}
+
 # THE CLONE OF <owner/repo> ON THIS MACHINE: the checkout this runs in when its origin is that
 # repository, else a folder of the project folder whose origin is. Prints nothing where none is.
 clone_of() {  # <owner/repo>

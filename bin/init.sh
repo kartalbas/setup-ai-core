@@ -130,10 +130,6 @@ if [ -n "$ALL_DIR" ]; then
     case "${repo##*/}" in *-ai-core) continue ;; esac
     carries_harness "$repo" || continue
     [ "$(git -C "$repo" worktree list --porcelain 2>/dev/null | grep '^worktree ' | grep -v -c -E "/\.ai-core/neighbours/|/\.worktrees/[^/]*/origin-|$LANDING_WORKTREE_RE")" -gt 1 ] || continue
-    # on Forgejo finish-issue removes the one worktree it is given and sweeps no other; where the settings of the
-    # repository cannot be read nothing is swept, and the init of that repository below fails on the same file
-    rc=0; (cd "$repo" && tracker_is_forgejo) || rc=$?
-    [ "$rc" -eq 1 ] || continue
     echo ""; echo "### ${repo##*/}: worktrees whose work landed"
     sweep_options=(--sweep); [ "$DRY" -ne 1 ] || sweep_options+=(--dry-run)
     (cd "$repo" && bash "$CORE_ROOT/bin/finish-issue.sh" "${sweep_options[@]}") 2>&1 | sed 's/^/  /' || true

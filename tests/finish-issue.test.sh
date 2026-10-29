@@ -331,6 +331,27 @@ check 'the one with changes stays'     yes "$(has_tree issue-204-open-work)"
 check 'the sweep moves no card'        0 "$(grep -c 'oid=OPT_' "$log" || true)"
 check 'a package worktree holding a later issue stays' yes "$(grep -q 'issue-177-package: named for another issue, holds issue-182-a-later-part, stays' <<< "$out" && echo yes || echo no)"
 
+echo 'on Forgejo the same sweep runs, with no tracker loaded (planted: today it refused the tracker)'
+open issue-205-rested-on-forgejo
+land issue-205-rested-on-forgejo 'An old change on Forgejo (#205)' "$(date -d '2 days ago' '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || date -v-2d '+%Y-%m-%dT%H:%M:%S')"
+open issue-206-unlanded-on-forgejo
+echo 'not pushed' >> "$trees/issue-206-unlanded-on-forgejo/README.md"
+setup git -C "$trees/issue-206-unlanded-on-forgejo" commit -q -am 'Work origin does not have (#206)'
+: > "$log"
+out="$(cd "$work" && TRACKER=forgejo bash "$finish" --sweep --dry-run 2>&1)"; rc=$?
+check 'Forgejo dry run: exits zero'    0 "$rc"
+check 'Forgejo dry run: it would remove the rested one' yes "$(grep -q 'issue-205-rested-on-forgejo: landed, would be removed' <<< "$out" && echo yes || echo no)"
+grep -q 'issue-205-rested-on-forgejo: landed, would be removed' <<< "$out" || printf '       the sweep said:\n%s\n' "$(sed 's/^/         /' <<< "$out")"
+out="$(cd "$work" && TRACKER=forgejo bash "$finish" --sweep 2>&1)"; rc=$?
+check_runs "$rc"
+check 'Forgejo: the rested one is gone' no "$(has_tree issue-205-rested-on-forgejo)"
+check 'Forgejo: with its branch'       no "$(has_branch issue-205-rested-on-forgejo)"
+check 'Forgejo: the fresh one stays'   yes "$(grep -q 'issue-202-fresh: landed less than a day ago' <<< "$out" && has_tree issue-202-fresh)"
+check 'Forgejo: the uncommitted one stays' yes "$(grep -q 'issue-203-never-committed: never committed in, stays' <<< "$out" && has_tree issue-203-never-committed)"
+check 'Forgejo: the one with changes stays' yes "$(grep -q 'issue-204-open-work: has changes, stays' <<< "$out" && has_tree issue-204-open-work)"
+check 'Forgejo: the one with unlanded work stays' yes "$(grep -q 'issue-206-unlanded-on-forgejo: has work origin/master does not have yet, stays' <<< "$out" && has_tree issue-206-unlanded-on-forgejo)"
+check 'Forgejo: no tracker was asked'  0 "$(grep -c '' "$log" || true)"
+
 echo 'a repository on no board: the landed worktree goes, no card is looked for, and the issue is told'
 open issue-167-keep-the-harness-off-the-board
 land issue-167-keep-the-harness-off-the-board 'Keep the harness off the board (#167)'

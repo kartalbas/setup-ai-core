@@ -115,7 +115,36 @@ clear_marks
 loaded_code || fail "planted: ai-core issue-package on GitHub did not load board code, so the probe cannot see it"
 echo "  issue-package reaches the Forgejo tracker with its arguments and no board code; with TRACKER=github it runs the Bash script, which loads the board code"
 
-section "init --all runs no sweep on Forgejo, where nothing sweeps other worktrees, and still runs it on GitHub"
+section "finish-issue --sweep on Forgejo: ai-core runs the sweep of bin/finish-issue.sh, which loads no board code; finish-issue with a number still goes to Node"
+SWEEP="$WORK/forgejo-sweep"
+OLD_TREE="$WORK/.worktrees/forgejo-sweep/issue-7-old"
+git init -q --bare -b master "$SWEEP-origin.git"
+make_checkout "$SWEEP" forgejo
+git -C "$SWEEP" checkout -q master
+git -C "$SWEEP" remote set-url origin "$SWEEP-origin.git"
+git -C "$SWEEP" push -q -u origin master 2>/dev/null; git -C "$SWEEP" remote set-head origin -a > /dev/null
+long_ago="$(date -d '3 days ago' '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || date -v-3d '+%Y-%m-%dT%H:%M:%S')"
+git -C "$SWEEP" worktree add -q -b issue-7-old "$OLD_TREE" origin/master 2>/dev/null
+echo old > "$OLD_TREE/README.md"; git -C "$OLD_TREE" add README.md
+GIT_AUTHOR_DATE="$long_ago" GIT_COMMITTER_DATE="$long_ago" git -C "$OLD_TREE" commit -q -m 'Land the old work #7'
+git -C "$OLD_TREE" push -q origin HEAD:master 2>/dev/null; git -C "$SWEEP" pull -q --ff-only origin master 2>/dev/null
+sweep_entry() { ( cd "$SWEEP" && PATH="$SHIM:$PATH" bash "$COPY/bin/ai-core" finish-issue "$@" 2>&1 ); }
+clear_marks; : > "$WORK/node-calls.log"
+out="$(sweep_entry --sweep --dry-run)" || fail "ai-core finish-issue --sweep --dry-run on Forgejo failed: $out"
+grep -q 'issue-7-old: landed, would be removed' <<< "$out" || fail "the dry run on Forgejo did not name the landed worktree: $out"
+out="$(sweep_entry --dry-run --sweep)" || fail "ai-core finish-issue --dry-run --sweep on Forgejo failed: $out"
+grep -q 'issue-7-old: landed, would be removed' <<< "$out" || fail "with --dry-run ahead of --sweep, ai-core on Forgejo did not run the sweep: $out"
+out="$(sweep_entry --sweep)" || fail "ai-core finish-issue --sweep on Forgejo failed: $out"
+[ -d "$OLD_TREE" ] && fail "the sweep on Forgejo left the worktree whose work landed three days ago: $out"
+loaded_code && fail "the sweep on Forgejo loaded board code: $(ls "$MARKS" | tr '\n' ' ')"
+[ -s "$WORK/node-calls.log" ] && fail "the sweep on Forgejo asked the tracker in Node: $(cat "$WORK/node-calls.log")"
+echo "  ai-core finish-issue --sweep on Forgejo removes the worktree that landed three days ago through bin/finish-issue.sh, and loads no board.sh, no tracker.sh and no Node"
+: > "$WORK/node-calls.log"
+sweep_entry 5 > /dev/null || true
+grep -q 'finish-issue 5' "$WORK/node-calls.log" || fail "ai-core finish-issue 5 on Forgejo did not go to the tracker in Node: $(cat "$WORK/node-calls.log")"
+echo "  ai-core finish-issue 5 on Forgejo still runs in Node"
+
+section "init --all runs the sweep on Forgejo as on GitHub"
 # in the copy, finish-issue only says that it ran
 printf '#!/usr/bin/env bash\necho "$*" >> "%s/finish-issue"\n' "$MARKS" > "$COPY/bin/finish-issue.sh"
 for tracker in forgejo github; do
@@ -128,13 +157,9 @@ for tracker in forgejo github; do
   git -C "$A" worktree add -q -b issue-5-old "$F/.worktrees/app/issue-5-old" origin/master 2>/dev/null
   rm -f "$MARKS/finish-issue"
   bash "$COPY/bin/init.sh" --all "$F" --no-doctor > "$F.log" 2>&1 || fail "init --all with TRACKER=$tracker failed (see $F.log)"
-  if [ "$tracker" = forgejo ]; then
-    [ ! -e "$MARKS/finish-issue" ] || fail "init --all ran finish-issue --sweep on Forgejo (see $F.log)"
-  else
-    [ -e "$MARKS/finish-issue" ] || fail "planted: init --all did not run the sweep on GitHub, so the probe cannot see one (see $F.log)"
-  fi
+  [ -e "$MARKS/finish-issue" ] || fail "init --all did not run finish-issue --sweep with TRACKER=$tracker (see $F.log)"
 done
-echo "  the sweep runs for the repository on GitHub and does not run on Forgejo"
+echo "  the sweep runs for the repository on Forgejo and on GitHub"
 
 section "doctor asks the Forgejo tracker whether it can run and what it finds: not configured, unreachable, healthy, and a Node that cannot run it"
 mkdir -p "$WORK/doctor-home" "$WORK/shim-gh" "$WORK/shim-broken"

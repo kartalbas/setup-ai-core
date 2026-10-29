@@ -144,6 +144,8 @@ const unlandedCommit = (world: World): string => git(world.second, 'commit-tree'
 describe('start-issue', () => {
   it('cuts the worktree from the fetched default branch, sets status/implementing and writes Started on', async () => {
     const number = newIssue(main, 'Start the work, so that it begins');
+    mkdirSync(join(main.second, '.githooks'), { recursive: true });
+    fixture.commit(main.second, '.githooks/pre-push', '#!/bin/sh\nexit 0\n');
     const moved = fixture.commit(main.second, `moved-${number}.txt`, 'moved\n');
     git(main.second, 'push', '-q', 'origin', 'master');
     const harness = createRecordingHarness();
@@ -161,7 +163,7 @@ describe('start-issue', () => {
     assert.match(result.stdout, /status\/implementing/);
     assert.deepEqual(harness.calls, [`checkTeamModes ${main.checkout}`, `assembleWorktree ${tree}`], 'the team modes first, then the harness in the new worktree');
     assert.match(result.stdout, /init: assembled/);
-    assert.equal(result.stderr, '');
+    assert.equal(result.stderr, '', 'innocent: the tree carries the push gate, so nothing is said about it');
   });
 
   it('refuses while a team mode is missing, and cuts and writes nothing (planted: no team mode)', async () => {
@@ -295,6 +297,7 @@ describe('start-issue in an empty origin', () => {
     const tree = await treeOf(world, number);
     assert.equal(git(tree, 'rev-parse', 'HEAD'), start);
     assert.match(result.stdout, new RegExp(`^Started trunk of the empty o/fresh${counter} with the start commit ${start}\\.\\nWorktree .* cut from origin/trunk at ${start}\\.`));
+    assert.equal(result.stderr, `this repository carries no push gate (.githooks/pre-push), so a push from the worktree runs no check: run 'ai-core pre-push --install' in ${world.checkout} first\n`, 'planted: the start commit holds no shim, so a push from the worktree would run no check');
     assert.equal(readFileSync(markedPushes(world), 'utf8'), `${start} /planted/mark\n`, 'one push, from a tree at the start commit, under a mark');
     assert.match(fake.readIssue(world.full, number).comments[0] ?? '', new RegExp(`Base: trunk at ${start}\n$`));
     assert.equal(git(world.checkout, 'symbolic-ref', 'HEAD'), 'refs/heads/trunk', 'the clone still names the branch');

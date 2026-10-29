@@ -219,5 +219,8 @@ released_repo="$(resolve_repo "")" && sync_released_cards "$released_repo" ${rep
 
 assemble_worktree "$path" "$ROOT" \
   || echo "the harness is NOT complete in the worktree: run 'ai-core init' there before you start" >&2
+# git runs no gate where the tree holds no shim, a new repository's above all, and nothing else says so
+[ -f "$path/.githooks/pre-push" ] \
+  || echo "this repository carries no push gate (.githooks/pre-push), so a push from the worktree runs no check: run 'ai-core pre-push --install' in $(git rev-parse --show-toplevel) first" >&2
 
 "$BIN/issue-thread.sh" ${repo:+"$repo"} "$number" || true

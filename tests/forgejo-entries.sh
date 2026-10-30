@@ -115,6 +115,16 @@ clear_marks
 loaded_code || fail "planted: ai-core issue-package on GitHub did not load board code, so the probe cannot see it"
 echo "  issue-package reaches the Forgejo tracker with its arguments and no board code; with TRACKER=github it runs the Bash script, which loads the board code"
 
+section "issue-list with TRACKER=forgejo runs in Node and loads no board code; on GitHub the board code is loaded"
+clear_marks; : > "$WORK/node-calls.log"
+(cd "$WORK/forgejo-session" && PATH="$SHIM:$PATH" bash "$COPY/bin/ai-core" issue-list --state all --search gate > "$WORK/forgejo-list.log" 2>&1) || fail "ai-core issue-list with TRACKER=forgejo (see $WORK/forgejo-list.log)"
+grep -q 'cli.mts issue-list --state all --search gate$' "$WORK/node-calls.log" || fail "ai-core issue-list did not reach the Forgejo tracker with its arguments: $(cat "$WORK/node-calls.log")"
+loaded_code && fail "ai-core issue-list on Forgejo loaded board code"
+clear_marks
+(cd "$WORK/github-session" && PATH="$SHIM:$PATH" bash "$COPY/bin/ai-core" issue-list --state all --search gate > /dev/null 2>&1) || true
+loaded_code || fail "planted: ai-core issue-list on GitHub did not load board code, so the probe cannot see it"
+echo "  issue-list reaches the Forgejo tracker with its arguments and no board code; with TRACKER=github it runs the Bash script, which loads the board code"
+
 section "finish-issue --sweep on Forgejo: ai-core runs the sweep of bin/finish-issue.sh, which loads no board code; finish-issue with a number still goes to Node"
 SWEEP="$WORK/forgejo-sweep"
 OLD_TREE="$WORK/.worktrees/forgejo-sweep/issue-7-old"

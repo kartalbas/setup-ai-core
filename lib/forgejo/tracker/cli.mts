@@ -10,6 +10,7 @@ import * as issueComment from './commands/issue-comment.mts';
 import * as issueDependency from './commands/issue-dependency.mts';
 import * as issueEdit from './commands/issue-edit.mts';
 import * as issueLabel from './commands/issue-label.mts';
+import * as issueList from './commands/issue-list.mts';
 import * as issueMine from './commands/issue-mine.mts';
 import * as issueNew from './commands/issue-new.mts';
 import * as issuePackage from './commands/issue-package.mts';
@@ -48,6 +49,7 @@ const COMMANDS: readonly Command[] = [
   { name: 'issue-unblock', help: issueDependency.unblockHelp, run: issueDependency.runUnblock },
   { name: 'issue-thread', help: issueThread.help, run: issueThread.run },
   { name: 'issue-mine', help: issueMine.help, run: issueMine.run },
+  { name: 'issue-list', help: issueList.help, run: issueList.run },
   { name: 'start-issue', help: startIssue.help, run: startIssue.run },
   { name: 'integrate-issue', help: integrateIssue.help, run: integrateIssue.run },
   { name: 'finish-issue', help: finishIssue.help, run: finishIssue.run },

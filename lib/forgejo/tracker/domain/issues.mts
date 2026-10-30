@@ -17,6 +17,15 @@ export interface IssueRef extends RepositoryRef {
 
 export type IssueState = 'open' | 'closed';
 
+const STATE_FILTERS = ['open', 'closed', 'all'] as const;
+export type StateFilter = (typeof STATE_FILTERS)[number];
+
+export function parseStateFilter(text: string): StateFilter {
+  const found = STATE_FILTERS.find((filter) => filter === text);
+  if (found === undefined) throw new UsageError(`--state must be open, closed or all, not '${text}'`);
+  return found;
+}
+
 export interface Issue {
   readonly ref: IssueRef;
   readonly title: string;
@@ -55,6 +64,11 @@ export function parseRepository(text: string): RepositoryRef {
   const match = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/.exec(text);
   if (match?.[1] === undefined || match[2] === undefined) throw new UsageError(`${text} is not OWNER/REPO`);
   return { owner: match[1], repo: match[2] };
+}
+
+export function parseOwner(text: string): string {
+  if (!/^[A-Za-z0-9_.-]+$/.test(text)) throw new UsageError(`${text} is not the name of an organisation or a user`);
+  return text;
 }
 
 export function parseIssueNumber(text: string): number {
@@ -224,9 +238,20 @@ export async function currentLogin(api: ForgejoClient): Promise<string> {
   return user.login;
 }
 
-export async function searchIssues(api: ForgejoClient, owner: string, state: 'open' | 'closed' | 'all'): Promise<(Issue & { repository: RepositoryRef })[]> {
+// Every word of the text as a quoted term, which Forgejo's search reads as that word and never as one of its operators
+// (`is:closed`, `author:`, `-word`): an issue is found when it holds all of them.
+export function searchTermsOf(text: string): string {
+  return text
+    .split(/\s+/)
+    .filter((word) => word !== '')
+    .map((word) => `"${word.replace(/[\\"]/g, '\\$&')}"`)
+    .join(' ');
+}
+
+export async function searchIssues(api: ForgejoClient, owner: string, state: StateFilter, text?: string): Promise<(Issue & { repository: RepositoryRef })[]> {
   const name = `search the issues of ${owner}`;
-  const wires = await api.callAll({ name, path: '/repos/issues/search', query: { type: 'issues', state, owner }, readItem: issueShape.type.read });
+  const query = { type: 'issues', state, owner, q: text === undefined ? undefined : searchTermsOf(text) };
+  const wires = await api.callAll({ name, path: '/repos/issues/search', query, readItem: issueShape.type.read });
   return wires.map((wire) => {
     const fullName = wire.repository?.full_name;
     if (fullName === undefined) throw new ContractError(name, `issue ${wire.number} names no repository`);

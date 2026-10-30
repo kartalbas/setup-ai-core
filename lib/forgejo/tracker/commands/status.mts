@@ -1,9 +1,9 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { formatRepository, parseRepository, searchIssues } from '../domain/issues.mts';
+import { formatRepository, parseRepository, parseStateFilter, searchIssues } from '../domain/issues.mts';
 import type { RepositoryRef } from '../domain/issues.mts';
-import { canonicalLabelName, PRIORITY_VALUES, STATUS_VALUES } from '../domain/labels.mts';
+import { canonicalLabelName, PRIORITY_VALUES, STATUS_VALUES, valueOfFamily } from '../domain/labels.mts';
 import { PreconditionError, UsageError } from '../domain/refusals.mts';
 import { listOf, parseArguments } from './arguments.mts';
 import { lines } from './command.mts';
@@ -22,8 +22,6 @@ no source for another tool), the issues closed in the last 24 hours, what an iss
 It takes no --state, --label or --json. Forgejo has no board and no epics, so the page counts the issues the
 status/ labels name, and it holds no tally of reviews.`;
 
-type State = 'open' | 'closed' | 'all';
-
 interface Row {
   readonly repository: string;
   readonly number: number;
@@ -37,11 +35,6 @@ interface Row {
   readonly url: string;
 }
 
-function valueOfFamily(labels: readonly string[], family: string): string | null {
-  const found = labels.find((label) => label.startsWith(`${family}/`));
-  return found === undefined ? null : found.slice(family.length + 1);
-}
-
 function rank(values: readonly string[], value: string | null): number {
   const index = value === null ? -1 : values.map((entry) => entry.toLowerCase()).indexOf(value);
   return index < 0 ? values.length : index;
@@ -53,8 +46,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   if (tokens && (parsed.values.has('--state') || listOf(parsed, '--label').length > 0 || parsed.switches.has('--json'))) {
     throw new UsageError('--tokens counts every issue of the repositories and prints a page: it takes no --state, --label or --json');
   }
-  const state = tokens ? 'all' : (parsed.values.get('--state') ?? 'open');
-  if (state !== 'open' && state !== 'closed' && state !== 'all') throw new UsageError(`--state must be open, closed or all, not '${state}'`);
+  const state = tokens ? 'all' : parseStateFilter(parsed.values.get('--state') ?? 'open');
   const wantedLabels = listOf(parsed, '--label').map(canonicalLabelName);
   const named: RepositoryRef[] = parsed.positionals.map(parseRepository);
   const repositories = named.length > 0 ? named : await context.git.listCloneOrigins(context.cwd);
@@ -65,7 +57,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   const api = context.api();
   const rows: Row[] = [];
   for (const owner of owners) {
-    for (const issue of await searchIssues(api, owner, state as State)) {
+    for (const issue of await searchIssues(api, owner, state)) {
       const name = formatRepository(issue.repository);
       if (!keep.has(name.toLowerCase())) continue;
       if (!wantedLabels.every((label) => issue.labels.includes(label))) continue;

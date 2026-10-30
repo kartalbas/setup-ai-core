@@ -270,6 +270,11 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
     eventOf(issue, 'label', { label, body: '1' });
   };
 
+  // Forgejo's search finds an issue whose title, body or comments hold every term; a quoted term is one word, taken as typed
+  // (modules/indexer/issues/internal/qstring.go of Forgejo v17.0.1). The operators of an unquoted term are not modeled.
+  const termsOf = (keyword: string): string[] =>
+    [...keyword.matchAll(/"((?:\\.|[^"\\])*)"|(\S+)/g)].map((match) => (match[1] ?? match[2] ?? '').replace(/\\(["\\+-])/g, '$1').toLowerCase());
+
   type Handler = (context: { params: Record<string, string>; query: Record<string, string>; body: Record<string, unknown>; operation: OperationSchema }) => Answer;
   const handlers: Record<string, Handler> = {
     userGetCurrent: () => {
@@ -514,6 +519,7 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
     },
     issueSearchIssues: ({ query, operation }) => {
       const state = query.state ?? 'open';
+      const terms = termsOf(query.q ?? '');
       const wanted = (query.labels ?? '').split(',').filter((name) => name !== '');
       const known = wanted.filter((name) => labels.some((label) => label.name === name));
       const found: { repository: FakeRepository; issue: FakeIssue }[] = [];
@@ -522,6 +528,8 @@ export async function startFakeForgejo(options: FakeOptions = {}): Promise<FakeF
           if (query.owner !== undefined && repository.owner !== query.owner) continue;
           for (const issue of repository.issues) {
             if (state !== 'all' && issue.state !== state) continue;
+            const text = [issue.title, issue.body, ...issue.comments.map((comment) => comment.body)].join('\n').toLowerCase();
+            if (!terms.every((term) => text.includes(term))) continue;
             if (known.length > 0 && !issue.labels.some((id) => known.includes(labels.find((label) => label.id === id)?.name ?? ''))) continue;
             found.push({ repository, issue });
           }

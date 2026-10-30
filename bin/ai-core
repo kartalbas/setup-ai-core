@@ -28,7 +28,7 @@ usage() {
 # With TRACKER=forgejo the issue commands run in Node, from lib/forgejo/tracker/cli.mts, and the board commands do
 # not exist. These two lists are the commands of that treatment; tests/sections/16-forgejo.sh holds them equal to
 # the ones cli.mts knows.
-FORGEJO_NODE_COMMANDS=" issue-new issue-comment issue-close issue-reopen issue-edit issue-label issue-package issue-priority issue-status issue-assign issue-block issue-unblock issue-thread issue-mine start-issue integrate-issue finish-issue issue-release issue-proof status labels-sync "
+FORGEJO_NODE_COMMANDS=" issue-new issue-comment issue-close issue-reopen issue-edit issue-label issue-package issue-priority issue-status issue-assign issue-block issue-unblock issue-thread issue-mine issue-list start-issue integrate-issue finish-issue issue-release issue-proof status labels-sync "
 FORGEJO_REFUSED_COMMANDS=" board-list board-order board-sync board-unarchive field-option-add item-move item-top project-new repo-boards repo-link view-filter epics-top subissue-add subissue-remove status-sync issue-transfer issue-duplicate issue-map incident-count "
 
 # tracker_of_project: the tracker the project names, as every command reads it

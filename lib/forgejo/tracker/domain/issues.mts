@@ -251,7 +251,8 @@ export function searchTermsOf(text: string): string {
 }
 
 // Forgejo's search reads the comments too, and its database indexer searches only the last term (db.go and bleve.go of
-// modules/indexer/issues at v17.0.1), so its answer is read again: the title or the body holds every word, in any case.
+// modules/indexer/issues at v17.0.1), so its answer is read again: the title and the body, read together, hold every word,
+// in any case.
 function holdsEveryWord(issue: Issue, words: readonly string[]): boolean {
   const text = `${issue.title}\n${issue.body}`.toLowerCase();
   return words.every((word) => text.includes(word.toLowerCase()));

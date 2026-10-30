@@ -10,11 +10,11 @@ import type { CommandContext, CommandResult } from './command.mts';
 const USAGE = 'usage: issue-list [OWNER/REPO | --owner ORG] [--state open|closed|all] [--search TEXT]';
 export const help = `${USAGE}
 
-Lists issues and changes nothing: one line each, OWNER/REPO#NUMBER, the status/ label, the priority and the title,
-separated by tabs, with a dash where an issue has no status or no priority, in the order of repository and number.
-Without OWNER/REPO it reads the repository the origin of this clone names; with --owner ORG it reads every repository
-of that organisation or user. --state is open (the default), closed or all. --search TEXT keeps the issues in whose
-title, body or comments Forgejo's search finds every word of TEXT, in any order.`;
+Lists issues and changes nothing: one line each, OWNER/REPO#NUMBER, open or closed, the status/ label, the priority and
+the title, separated by tabs, with a dash where an issue has no status or no priority, in the order of repository and
+number. Without OWNER/REPO it reads the repository the origin of this clone names; with --owner ORG it reads every
+repository of that organisation or user. --state is open (the default), closed or all. --search TEXT keeps the issues
+whose title and body, read together, hold every word of TEXT, in any order.`;
 
 function compare(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
@@ -49,7 +49,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
     .map((issue) => ({
       repository: formatRepository(issue.repository),
       number: issue.ref.number,
-      line: [formatIssue(issue.ref), valueOfFamily(issue.labels, 'status') ?? '-', valueOfFamily(issue.labels, 'priority')?.toUpperCase() ?? '-', issue.title].join('\t'),
+      line: [formatIssue(issue.ref), issue.state, valueOfFamily(issue.labels, 'status') ?? '-', valueOfFamily(issue.labels, 'priority')?.toUpperCase() ?? '-', issue.title].join('\t'),
     }))
     .sort((a, b) => compare(a.repository, b.repository) || a.number - b.number);
   return { stdout: lines(...rows.map((row) => row.line)), stderr: '', exitCode: 0 };

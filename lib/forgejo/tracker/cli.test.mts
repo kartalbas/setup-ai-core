@@ -77,7 +77,7 @@ describe('the exit codes', () => {
   it('is 0 for issue-list, which prints one line an issue and nothing else', async () => {
     const outcome = await cli(['issue-list', 'o/r', '--search', 'second'], environment);
     assert.equal(outcome.status, 0, outcome.stderr);
-    assert.equal(outcome.stdout, 'o/r#2\tready\t-\tSecond, so that there are two\n');
+    assert.equal(outcome.stdout, 'o/r#2\topen\tready\t-\tSecond, so that there are two\n');
     assert.equal(outcome.stderr, '');
   });
 

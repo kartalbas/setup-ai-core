@@ -122,6 +122,22 @@ describe('reads and edits against the fake', () => {
     const asked = await sent('first');
     assert.ok(asked.length > 0 && asked.every((q) => q === '"first"'));
   });
+
+  it('keeps only the issues whose title or body holds every word, whatever Forgejo answered (planted: the last word alone, and a word in a comment only)', async () => {
+    fake.addRepository('o/words');
+    fake.addIssue('o/words', { title: 'Alpha and beta' });
+    fake.addIssue('o/words', { title: 'Alpha, and the other word in the body', body: 'BETA is here.' });
+    const commented = fake.addIssue('o/words', { title: 'Beta alone' });
+    fake.addComment('o/words', commented, 'someone', 'alpha, in a comment only');
+    const found = await searchIssues(clientFor(fake), 'o', 'open', 'alpha beta');
+    assert.deepEqual(
+      found
+        .filter((issue) => issue.repository.repo === 'words')
+        .map((issue) => issue.title)
+        .sort(),
+      ['Alpha and beta', 'Alpha, and the other word in the body'],
+    );
+  });
 });
 
 describe('the terms of a search', () => {

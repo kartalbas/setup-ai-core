@@ -91,17 +91,18 @@ describe('the fake Forgejo refuses what the contract refuses', () => {
     assert.equal((page.json as unknown[]).length, Number(page.headers.get('x-total-count')) - 50);
   });
 
-  it('searches the title, the body and the comments for every term of q, a quoted term as one word (planted: a term missing from each text)', async () => {
+  it('searches the title, the body and the comments for the last term of q, as the database indexer of Forgejo does, a quoted term as one word (planted: a term missing from each text, and a term before the last that nothing holds)', async () => {
     fake.addIssue('o/r', { title: 'Gate waits, so that the title holds a term', body: 'Nothing else' });
     fake.addIssue('o/r', { title: 'Other title', body: 'The body holds the SPINNER term' });
     const commented = fake.addIssue('o/r', { title: 'Third title', body: 'Nothing here' });
     fake.addComment('o/r', commented, 'someone', 'The comment holds the grommet term');
     const found = async (q: string): Promise<string[]> =>
       ((await call(fake, 'GET', `/repos/issues/search?type=issues&owner=o&state=all&limit=50&q=${encodeURIComponent(q)}`)).json as { title: string }[]).map((issue) => issue.title);
-    assert.deepEqual(await found('"gate" "title"'), ['Gate waits, so that the title holds a term']);
+    assert.deepEqual(await found('"title" "gate"'), ['Gate waits, so that the title holds a term']);
     assert.deepEqual(await found('"spinner"'), ['Other title']);
-    assert.deepEqual(await found('"grommet" "comment"'), ['Third title']);
-    assert.deepEqual(await found('"gate" "spinner"'), []);
+    assert.deepEqual(await found('"nothing" "grommet"'), ['Third title']);
+    assert.deepEqual(await found('"nonexistent" "spinner"'), ['Other title']);
+    assert.deepEqual(await found('"gate" "title"'), ['Third title', 'Other title', 'Gate waits, so that the title holds a term']);
     assert.deepEqual(await found('"say \\"hi\\""'), []);
   });
 

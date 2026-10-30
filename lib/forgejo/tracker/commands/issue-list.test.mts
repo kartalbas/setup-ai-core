@@ -9,11 +9,12 @@ import type { FakeForgejo } from '../testing/fake-forgejo.mts';
 import { git } from '../testing/git-fixture.mts';
 import * as issueList from './issue-list.mts';
 
-const FIRST = 'o/r#1\timplementing\tP1\tGate waits for a stale neighbour';
-const SECOND = 'o/r#2\tdone\tP2\tGate waits for a copy of the checkout';
-const THIRD = 'o/r#3\tready\t-\tRename the colour palette';
-const FOURTH = 'o/r#4\t-\t-\tNothing about it in the title';
-const OTHER = 'o/other#1\tplanned\tP3\tGate flakes in the other repository';
+const FIRST = 'o/r#1\topen\timplementing\tP1\tGate waits for a stale neighbour';
+const SECOND = 'o/r#2\tclosed\tdone\tP2\tGate waits for a copy of the checkout';
+const THIRD = 'o/r#3\topen\tready\t-\tRename the colour palette';
+const FOURTH = 'o/r#4\topen\t-\t-\tNothing about it in the title';
+const FIFTH = 'o/r#5\topen\t-\t-\tStale neighbour, said in a comment';
+const OTHER = 'o/other#1\topen\tplanned\tP3\tGate flakes in the other repository';
 
 describe('issue-list', () => {
   let fake: FakeForgejo;
@@ -28,6 +29,8 @@ describe('issue-list', () => {
     fake.addIssue('o/r', { title: 'Gate waits for a copy of the checkout', state: 'closed', labels: ['status/done', 'priority/p2'] });
     fake.addIssue('o/r', { title: 'Rename the colour palette', body: 'Nothing that concerns the checks.', labels: ['status/ready'] });
     fake.addIssue('o/r', { title: 'Nothing about it in the title', body: 'The GATE also waits here.' });
+    const commented = fake.addIssue('o/r', { title: 'Stale neighbour, said in a comment' });
+    fake.addComment('o/r', commented, 'someone', 'The gate waits here too, but only in this comment.');
     fake.addIssue('o/other', { title: 'Gate flakes in the other repository', labels: ['status/planned', 'priority/p3'] });
     fake.addIssue('p/foreign', { title: 'Gate of another owner', labels: ['status/ready'] });
     checkout = join(directory, 'checkout');
@@ -47,10 +50,10 @@ describe('issue-list', () => {
   };
 
   it('lists the open issues of the repository the checkout names, one line each, when nothing narrows it (innocent case)', async () => {
-    assert.deepEqual(await list(), [FIRST, THIRD, FOURTH]);
+    assert.deepEqual(await list(), [FIRST, THIRD, FOURTH, FIFTH]);
   });
 
-  it('keeps the matching open issues and leaves out the matching closed one, the innocent one and the other repository (planted)', async () => {
+  it('keeps the matching open issues and leaves out the matching closed one, the innocent one, the one that holds the word in a comment only and the other repository (planted)', async () => {
     assert.deepEqual(await list('--search', 'gate'), [FIRST, FOURTH]);
   });
 
@@ -60,10 +63,10 @@ describe('issue-list', () => {
 
   it('lists the matching open and closed issues for --state all, and the innocent one only without a search (planted)', async () => {
     assert.deepEqual(await list('--state', 'all', '--search', 'gate'), [FIRST, SECOND, FOURTH]);
-    assert.deepEqual(await list('--state', 'all'), [FIRST, SECOND, THIRD, FOURTH]);
+    assert.deepEqual(await list('--state', 'all'), [FIRST, SECOND, THIRD, FOURTH, FIFTH]);
   });
 
-  it('wants every word of the text, in any order', async () => {
+  it('wants every word of the text in the title or the body, in any order, whichever word the search of Forgejo read (planted: the last word alone, and a word in a comment only)', async () => {
     assert.deepEqual(await list('--state', 'all', '--search', 'gate stale'), [FIRST]);
     assert.deepEqual(await list('--state', 'all', '--search', 'stale   gate'), [FIRST]);
     assert.deepEqual(await list('--state', 'all', '--search', 'gate nonexistent'), []);
@@ -76,7 +79,7 @@ describe('issue-list', () => {
 
   it('lists every repository of the owner for --owner, in the order of repository and number, and no other owner (planted)', async () => {
     assert.deepEqual(await list('--owner', 'o', '--search', 'gate'), [OTHER, FIRST, FOURTH]);
-    assert.deepEqual(await list('--owner', 'p', '--search', 'gate'), ['p/foreign#1\tready\t-\tGate of another owner']);
+    assert.deepEqual(await list('--owner', 'p', '--search', 'gate'), ['p/foreign#1\topen\tready\t-\tGate of another owner']);
   });
 
   it('sends every word as a quoted term, so that no operator of the search is read in it (planted: operators, quotes and a backslash)', async () => {
@@ -87,7 +90,7 @@ describe('issue-list', () => {
   });
 
   it('reads every page of a long answer', async () => {
-    assert.equal((await list('--state', 'all', '--owner', 'o')).length, 5);
+    assert.equal((await list('--state', 'all', '--owner', 'o')).length, 6);
   });
 
   it('refuses what it cannot read as asked, before it asks Forgejo anything', async () => {

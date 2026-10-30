@@ -1425,13 +1425,15 @@ the clones beside the current checkout. It reports what the tracker records, not
 
 `ai-core issue-list [OWNER/REPO | --owner ORG] [--state open|closed|all] [--search TEXT]` lists issues and changes
 nothing. It has the same name and prints the same lines with `TRACKER=github` and with `TRACKER=forgejo`, so a session
-that must file a finding into what exists reads one output on either. Each issue is one line of four tab-separated
-fields: `OWNER/REPO#NUMBER`, the status, the priority and the title, with a dash where the issue has no status or no
-priority, in the order of repository and number. Nothing printed, with exit status 0, means that no issue matched.
+that must file a finding into what exists reads one output on either. Each issue is one line of five tab-separated
+fields: `OWNER/REPO#NUMBER`, `open` or `closed`, the status, the priority and the title, with a dash where the issue
+has no status or no priority, in the order of repository and number; the second field tells a closed issue from an
+open one where `--state all` lists them together. Nothing printed, with exit status 0, means that no issue matched.
 
 ```text
-example-org/shop#12    implementing    P1    Carry the value through every renderer
-example-org/shop#14    ready           -     Rename the colour palette
+example-org/shop#9     closed    done            P2    Gate waits for a copy of the checkout
+example-org/shop#12    open      implementing    P1    Carry the value through every renderer
+example-org/shop#14    open      ready           -     Rename the colour palette
 ```
 
 | Option | What it does |
@@ -1439,14 +1441,15 @@ example-org/shop#14    ready           -     Rename the colour palette
 | `OWNER/REPO` | the repository to read; without it, the repository of this checkout: the one `gh` names for the directory, or the one the `origin` remote names |
 | `--owner ORG` | every repository of that organisation or user; given with `OWNER/REPO` it is refused |
 | `--state` | `open` (the default), `closed` or `all` |
-| `--search TEXT` | the issues in whose title and body every word of `TEXT` is found, in any order; each word is sent to the tracker's search in quotes, so a word such as `is:closed` or `-stale` is searched as text and never read as one of its operators |
+| `--search TEXT` | the issues whose title and body, read together, hold every word of `TEXT`, in any order; each word is sent to the tracker's search in quotes, so a word such as `is:closed` is searched as text and never read as one of its operators |
 
 The status and the priority are what the tracker keeps. On GitHub they are the Status and the Priority of the issue's
 first board card, spelled as the board spells them. On Forgejo they are the `status/` and `priority/` labels, and
 `priority/p1` is printed as `P1`. GitHub's search serves at most 1000 issues, so an answer that names more than it
-serves is refused with both counts and never printed as the whole; narrow it with `--state` or `--search`. On
-Forgejo the search also reads the comments of an issue, because the Forgejo search does (`qstring.go` and `bleve.go` of
-`modules/indexer/issues`, read at v17.0.1), and every page of the answer is read or the command fails.
+serves is refused with both counts and never printed as the whole; narrow it with `--state` or `--search`. Forgejo's
+search reads the comments of an issue too, and its database indexer searches only the last word (`db.go` and
+`bleve.go` of `modules/indexer/issues`, read at v17.0.1), so every page of its answer is read, or the command fails,
+and then read again for every word in the title and the body, so that both trackers list the same kind of match.
 
 ---
 

@@ -3,9 +3,9 @@
 #
 #   issue-list.sh [OWNER/REPO | --owner ORG] [--state open|closed|all] [--search TEXT]
 #
-# Reads and prints; it changes nothing. One line each, separated by tabs: OWNER/REPO#NUMBER, the Status of the
-# issue's first board card, its Priority and the title, with a dash where the issue has no card or the card has no
-# value, in the order of repository and number. Without OWNER/REPO it reads the repository this checkout is of; with
+# Reads and prints; it changes nothing. One line each, separated by tabs: OWNER/REPO#NUMBER, open or closed, the Status
+# of the issue's first board card, its Priority and the title, with a dash where the issue has no card or the card has
+# no value, in the order of repository and number. Without OWNER/REPO it reads the repository this checkout is of; with
 # --owner ORG it reads every repository of that organisation or user. --state is open (the default), closed or all.
 # --search TEXT keeps the issues whose title and body hold every word of TEXT, in any order, each word as typed.
 # GitHub's search serves at most 1000 issues; a longer answer is refused and never listed as the whole.
@@ -47,4 +47,4 @@ fi
 
 rows="$(issue_list "$scope" "$state" "$text")" || exit 1
 [ -z "$rows" ] || printf '%s\n' "$rows" | jq -rs 'sort_by([.repo, .number])[]
-  | "\(.repo)#\(.number)\t\(.status // "-")\t\(.priority // "-")\t\(.title)"'
+  | "\(.repo)#\(.number)\t\(.state)\t\(.status // "-")\t\(.priority // "-")\t\(.title)"'

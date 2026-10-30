@@ -10,7 +10,8 @@
 // 2026-10-30 for this suite; they are not a copy of the server.
 //
 // issues.json: {"repository": "owner/repo", "issues": [{repo, number, state, title, body, cards: [{status, priority}]}]}
-//   a card holds the names of its Status and Priority, or null. "refuse": true makes a search answer 502 as a refused read does.
+//   state is open or closed, served as GitHub spells it, OPEN or CLOSED; a card holds the names of its Status and Priority,
+//   or null. "refuse": true makes a search answer 502 as a refused read does.
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -70,6 +71,7 @@ for (let from = 0; from === 0 || from < served.length; from += size) {
   const nodes = served.slice(from, from + size).map((issue) => ({
     number: issue.number,
     title: issue.title,
+    state: issue.state.toUpperCase(),
     repository: { nameWithOwner: issue.repo },
     projectItems: { nodes: issue.cards.map((card) => ({ status: named(card.status), priority: named(card.priority) })) },
   }));

@@ -238,26 +238,38 @@ export async function currentLogin(api: ForgejoClient): Promise<string> {
   return user.login;
 }
 
+function searchWordsOf(text: string): string[] {
+  return text.split(/\s+/).filter((word) => word !== '');
+}
+
 // Every word of the text as a quoted term, which Forgejo's search reads as that word and never as one of its operators
-// (`is:closed`, `author:`, `-word`): an issue is found when it holds all of them.
+// (`is:closed`, `author:`, `-word`).
 export function searchTermsOf(text: string): string {
-  return text
-    .split(/\s+/)
-    .filter((word) => word !== '')
+  return searchWordsOf(text)
     .map((word) => `"${word.replace(/[\\"]/g, '\\$&')}"`)
     .join(' ');
 }
 
+// Forgejo's search reads the comments too, and its database indexer searches only the last term (db.go and bleve.go of
+// modules/indexer/issues at v17.0.1), so its answer is read again: the title or the body holds every word, in any case.
+function holdsEveryWord(issue: Issue, words: readonly string[]): boolean {
+  const text = `${issue.title}\n${issue.body}`.toLowerCase();
+  return words.every((word) => text.includes(word.toLowerCase()));
+}
+
 export async function searchIssues(api: ForgejoClient, owner: string, state: StateFilter, text?: string): Promise<(Issue & { repository: RepositoryRef })[]> {
   const name = `search the issues of ${owner}`;
+  const words = text === undefined ? [] : searchWordsOf(text);
   const query = { type: 'issues', state, owner, q: text === undefined ? undefined : searchTermsOf(text) };
   const wires = await api.callAll({ name, path: '/repos/issues/search', query, readItem: issueShape.type.read });
-  return wires.map((wire) => {
-    const fullName = wire.repository?.full_name;
-    if (fullName === undefined) throw new ContractError(name, `issue ${wire.number} names no repository`);
-    const repository = parseRepositoryFromAnswer(fullName, name);
-    return { ...toIssue(wire, { ...repository, number: wire.number }, name), repository };
-  });
+  return wires
+    .map((wire) => {
+      const fullName = wire.repository?.full_name;
+      if (fullName === undefined) throw new ContractError(name, `issue ${wire.number} names no repository`);
+      const repository = parseRepositoryFromAnswer(fullName, name);
+      return { ...toIssue(wire, { ...repository, number: wire.number }, name), repository };
+    })
+    .filter((issue) => holdsEveryWord(issue, words));
 }
 
 function parseRepositoryFromAnswer(fullName: string, name: string): RepositoryRef {

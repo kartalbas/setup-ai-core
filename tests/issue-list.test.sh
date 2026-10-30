@@ -9,7 +9,8 @@
 #
 # THE PLANTED DEFECTS, each replayed so it is shown RED: a search that forgets the state, one that forgets the words, one that
 # sends the words unquoted so a qualifier among them is read as one. THE INNOCENT CASES stay green beside them: the issue that
-# matches in its body only, the issue with no card and the one whose card has no Priority.
+# matches in its body only, the issue with no card and the one whose card has no Priority. Every line says open or closed,
+# so the closed issue is told from the open ones where --state all lists them together.
 
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -48,12 +49,12 @@ cat > "$GH_SEARCH_STATE/issues.json" <<'JSON'
       "cards": [ { "status": "ready", "priority": null } ] }
   ] }
 JSON
-FIRST="example-org/example-repo#1${T}implementing${T}P1${T}Gate waits for a stale neighbour"
-SECOND="example-org/example-repo#2${T}done${T}P2${T}Gate waits for a copy of the checkout"
-THIRD="example-org/example-repo#3${T}ready${T}-${T}Rename the colour palette"
-FOURTH="example-org/example-repo#4${T}-${T}-${T}Nothing about it in the title"
-OTHER="example-org/other-repo#1${T}planned${T}P3${T}Gate flakes in the other repository"
-FOREIGN="other-org/foreign#1${T}ready${T}-${T}Gate of another owner"
+FIRST="example-org/example-repo#1${T}open${T}implementing${T}P1${T}Gate waits for a stale neighbour"
+SECOND="example-org/example-repo#2${T}closed${T}done${T}P2${T}Gate waits for a copy of the checkout"
+THIRD="example-org/example-repo#3${T}open${T}ready${T}-${T}Rename the colour palette"
+FOURTH="example-org/example-repo#4${T}open${T}-${T}-${T}Nothing about it in the title"
+OTHER="example-org/other-repo#1${T}open${T}planned${T}P3${T}Gate flakes in the other repository"
+FOREIGN="other-org/foreign#1${T}open${T}ready${T}-${T}Gate of another owner"
 
 list() {  # list <argument>...: what the command prints in $out, its status in $rc, what it said in $err
   out="$(cd "$WORK/project" && bash "${ROOT_UNDER_TEST:-$ROOT}/bin/issue-list.sh" "$@" 2> "$WORK/err")"; rc=$?

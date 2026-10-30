@@ -38,6 +38,11 @@ export function familyOf(label: string): Family | undefined {
   return FAMILIES.find((family) => family.name === parts[0]);
 }
 
+export function valueOfFamily(labels: readonly string[], family: string): string | null {
+  const found = labels.find((label) => label.startsWith(`${family}/`));
+  return found === undefined ? null : found.slice(family.length + 1);
+}
+
 // labels.tsv names a label of a family `group:name`; Forgejo has it as `group/name`.
 export function canonicalLabelName(name: string): string {
   const match = /^([a-z]+):(.+)$/.exec(name);

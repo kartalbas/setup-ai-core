@@ -17,6 +17,15 @@ export interface IssueRef extends RepositoryRef {
 
 export type IssueState = 'open' | 'closed';
 
+const STATE_FILTERS = ['open', 'closed', 'all'] as const;
+export type StateFilter = (typeof STATE_FILTERS)[number];
+
+export function parseStateFilter(text: string): StateFilter {
+  const found = STATE_FILTERS.find((filter) => filter === text);
+  if (found === undefined) throw new UsageError(`--state must be open, closed or all, not '${text}'`);
+  return found;
+}
+
 export interface Issue {
   readonly ref: IssueRef;
   readonly title: string;
@@ -55,6 +64,11 @@ export function parseRepository(text: string): RepositoryRef {
   const match = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/.exec(text);
   if (match?.[1] === undefined || match[2] === undefined) throw new UsageError(`${text} is not OWNER/REPO`);
   return { owner: match[1], repo: match[2] };
+}
+
+export function parseOwner(text: string): string {
+  if (!/^[A-Za-z0-9_.-]+$/.test(text)) throw new UsageError(`${text} is not the name of an organisation or a user`);
+  return text;
 }
 
 export function parseIssueNumber(text: string): number {
@@ -224,15 +238,39 @@ export async function currentLogin(api: ForgejoClient): Promise<string> {
   return user.login;
 }
 
-export async function searchIssues(api: ForgejoClient, owner: string, state: 'open' | 'closed' | 'all'): Promise<(Issue & { repository: RepositoryRef })[]> {
+function searchWordsOf(text: string): string[] {
+  return text.split(/\s+/).filter((word) => word !== '');
+}
+
+// Every word of the text as a quoted term, which Forgejo's search reads as that word and never as one of its operators
+// (`is:closed`, `author:`, `-word`).
+export function searchTermsOf(text: string): string {
+  return searchWordsOf(text)
+    .map((word) => `"${word.replace(/[\\"]/g, '\\$&')}"`)
+    .join(' ');
+}
+
+// Forgejo's search reads the comments too, and its database indexer searches only the last term (db.go and bleve.go of
+// modules/indexer/issues at v17.0.1), so its answer is read again: the title and the body, read together, hold every word,
+// in any case.
+function holdsEveryWord(issue: Issue, words: readonly string[]): boolean {
+  const text = `${issue.title}\n${issue.body}`.toLowerCase();
+  return words.every((word) => text.includes(word.toLowerCase()));
+}
+
+export async function searchIssues(api: ForgejoClient, owner: string, state: StateFilter, text?: string): Promise<(Issue & { repository: RepositoryRef })[]> {
   const name = `search the issues of ${owner}`;
-  const wires = await api.callAll({ name, path: '/repos/issues/search', query: { type: 'issues', state, owner }, readItem: issueShape.type.read });
-  return wires.map((wire) => {
-    const fullName = wire.repository?.full_name;
-    if (fullName === undefined) throw new ContractError(name, `issue ${wire.number} names no repository`);
-    const repository = parseRepositoryFromAnswer(fullName, name);
-    return { ...toIssue(wire, { ...repository, number: wire.number }, name), repository };
-  });
+  const words = text === undefined ? [] : searchWordsOf(text);
+  const query = { type: 'issues', state, owner, q: text === undefined ? undefined : searchTermsOf(text) };
+  const wires = await api.callAll({ name, path: '/repos/issues/search', query, readItem: issueShape.type.read });
+  return wires
+    .map((wire) => {
+      const fullName = wire.repository?.full_name;
+      if (fullName === undefined) throw new ContractError(name, `issue ${wire.number} names no repository`);
+      const repository = parseRepositoryFromAnswer(fullName, name);
+      return { ...toIssue(wire, { ...repository, number: wire.number }, name), repository };
+    })
+    .filter((issue) => holdsEveryWord(issue, words));
 }
 
 function parseRepositoryFromAnswer(fullName: string, name: string): RepositoryRef {

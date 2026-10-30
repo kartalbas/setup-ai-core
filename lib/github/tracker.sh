@@ -759,6 +759,42 @@ issue_rows() {
         cut: (cut("labels"; .labels) + cut("blocked by"; .blockedBy) + cut("blocks"; .blocking)) }' <<< "$page"
 }
 
+# search_terms_of <text>: every word of the text as a quoted term, which the search reads as that word and never as one
+# of its qualifiers (is:closed, repo:), one line.
+search_terms_of() {
+  jq -rn --arg text "$1" '[$text | splits("\\s+") | select(. != "") | "\"" + gsub("(?<c>[\\\\\"])"; "\\" + .c) + "\""] | join(" ")'
+}
+
+# issue_list <owner/repo | owner> <open | closed | all> [text]: the issues of the repository, or of every repository of
+# the owner, one JSON object per line: {repo, number, title, state, status, priority}. state is open or closed; status and
+# priority are the names of the issue's first card's Status and Priority, or null. With a text, the tracker's search
+# keeps the issues whose title and body hold every word of it. A search serves at most 1000 issues: an answer shorter
+# than the count it names is refused, never listed as the whole.
+issue_list() {
+  local scope="$1" state="$2" text="${3:-}" query pages count rows found
+  case "$scope" in */*) query="repo:$scope" ;; *) query="org:$scope" ;; esac
+  query="$query is:issue"
+  [ "$state" = all ] || query="$query is:$state"
+  [ -z "$text" ] || query="$query in:title,body $(search_terms_of "$text")" || exit 1
+  pages="$(gh_read "the issues found by '$query'" api graphql --paginate -f q="$query" -f query='
+    query($q:String!, $endCursor:String) { search(query:$q, type:ISSUE, first:50, after:$endCursor) {
+      issueCount pageInfo { hasNextPage endCursor } nodes { ... on Issue {
+        number title state repository { nameWithOwner }
+        projectItems(first:5) { nodes {
+          status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+          priority: fieldValueByName(name:"Priority") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } } } } } }')" || exit 1
+  count="$(jq -s '.[0].data.search.issueCount // empty' <<< "$pages")"
+  case "$count" in ''|*[!0-9]*) die "GitHub's search for '$query' did not say how many issues it found" ;; esac
+  rows="$(jq -c '.data.search.nodes[]
+    | { repo: .repository.nameWithOwner, number, title, state: (.state | ascii_downcase),
+        status: ([.projectItems.nodes[].status.name // empty][0]),
+        priority: ([.projectItems.nodes[].priority.name // empty][0]) }' <<< "$pages")"
+  found=0
+  [ -z "$rows" ] || found="$(grep -c '' <<< "$rows")"
+  [ "$found" -eq "$count" ] || die "GitHub's search found $count issues for '$query' and served $found of them: it serves at most 1000, so narrow it with --state or --search"
+  [ -z "$rows" ] || printf '%s\n' "$rows"
+}
+
 # issues_created_since <owner/repo> <YYYY-MM-DD> <limit>: the newest <limit> issues of the repository
 # created on that day or later, open or closed, as a JSON array of {createdAt, labels: [name]}.
 issues_created_since() {

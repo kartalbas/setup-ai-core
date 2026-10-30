@@ -63,7 +63,7 @@ there.
 Run `ai-core status` once per board (in the project folder with `--project <board>`). Build the page
 fresh from it and from the plan issue, as Markdown the terminal renders, never in a code block:
 
-- the first line: what the owner must do now, or that nothing waits for them; then the usage line;
+- the first line, only where something waits for the owner: what they must do now; then the usage line;
 - the board line, as the command prints it, one per board;
 - WHO WORKS ON WHAT: one row per package: class, phase, session and model, the sign of its state,
   the next step; below it the REACH commands in one code block, one per line, so the owner can copy

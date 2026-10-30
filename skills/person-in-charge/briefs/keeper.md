@@ -87,7 +87,10 @@ the planner as `BLOCKED`, with no issue written. A `KEEPER: re-cut` prefix alone
 **Each finding**, in this order, stopping at the first step that holds:
 
 1. **Already there.** An open issue, or a comment on one, names the same `file:line` and the same
-   state, or the finding stands among the open questions. Write nothing; report `ALREADY` with the
+   state, or the finding stands among the open questions. `ai-core issue-list <OWNER/REPO> --search
+   <the words of the finding>` lists the open issues whose title and body hold every word, one line
+   each, on GitHub and on Forgejo alike (`--state all` lists the closed ones too, each line saying
+   which); read the candidates with `ai-core issue-thread`. Write nothing; report `ALREADY` with the
    place. A finding handed to you twice never makes a second comment or a second issue.
 2. **It fits an existing issue**: the issue names the same files or the same state, or the finding is
    what the issue lacks. Post the finding on that issue (`ai-core issue-comment`), its first line

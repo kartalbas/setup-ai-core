@@ -74,6 +74,13 @@ describe('the exit codes', () => {
     assert.equal((JSON.parse(outcome.stdout) as { number: number }).number, 1);
   });
 
+  it('is 0 for issue-list, which prints one line an issue and nothing else', async () => {
+    const outcome = await cli(['issue-list', 'o/r', '--search', 'second'], environment);
+    assert.equal(outcome.status, 0, outcome.stderr);
+    assert.equal(outcome.stdout, 'o/r#2\topen\tready\t-\tSecond, so that there are two\n');
+    assert.equal(outcome.stderr, '');
+  });
+
   it('is 1 for a precondition that refuses', async () => {
     const outcome = await cli(['issue-close', 'o/r', '1'], environment);
     assert.equal(outcome.status, 1);
@@ -115,6 +122,10 @@ describe('the exit codes', () => {
     const echoed = await cli(['issue-thread', 'o/r', '1'], environment);
     assert.equal(echoed.status, 3);
     assert.ok(!echoed.stderr.includes(FAKE_TOKEN) && !echoed.stdout.includes(FAKE_TOKEN));
+    fake.fail({ path: '/repos/issues/search', mode: { kind: 'status', status: 422, message: `bad token ${FAKE_TOKEN}` } });
+    const listed = await cli(['issue-list', 'o/r'], environment);
+    assert.equal(listed.status, 3);
+    assert.ok(!listed.stderr.includes(FAKE_TOKEN) && !listed.stdout.includes(FAKE_TOKEN));
     const failing = await cli(['issue-thread', 'o/r', '1'], { ...environment, FORGEJO_TOKEN_COMMAND: 'echo secret-from-command; echo secret-from-command >&2; exit 5' });
     assert.equal(failing.status, 2);
     assert.ok(!failing.stderr.includes('secret-from-command'));

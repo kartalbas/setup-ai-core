@@ -78,8 +78,8 @@
   as <repository>#<number> with its title as the tracker spells it, followed by a sentence in the
   language of the conversation that says what it is about, from what a person sees to what the
   change does, before any code. A report of state, what landed, what runs and what comes next, is
-  built to be scanned instead: its first line says what the owner must do now, or that nothing waits
-  for them; then one heading per group, a table where the items share their fields, the state of each
+  built to be scanned instead: where something waits for the owner, its first line says what they
+  must do now, and where nothing waits, the report says nothing about it; then one heading per group, a table where the items share their fields, the state of each
   item marked by one sign (🟢 done or live, 🟡 running, ⏸ waiting, 🔴 blocked, ⏳ waits for the
   owner), and at most five items per group, each issue as <repository>#<number> with a few words of
   its topic. [review]

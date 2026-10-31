@@ -382,6 +382,10 @@ out="$(start ui-test mechanical --issue o/r#7 --brief "$WORK/brief.md" --number 
 for _ in $(seq 1 50); do [ -f "$SESSIONS/$ux.exit" ] && break; sleep 0.1; done
 check 'agy UI test: it ran in its throwaway folder' "$SESSIONS/$ux.cwd" "$(cat "$FAKE/agy.cwd")"
 check 'agy UI test: no folder of the project is added' no "$(tail -n 1 "$FAKE/agy.args" | grep -qF -- '--add-dir' && echo yes || echo no)"
+out="$(start ui-test mechanical --issue o/r#7 --brief "$WORK/brief.md" --number 10077 --budget 100 --add-dir "$EXTRA")"; rc=$?
+check 'a UI test with --add-dir: refused with 2' 2 "$rc"
+check 'a UI test with --add-dir: the refusal says why' yes "$(grep -qF 'a UI test is given no folder' "$WORK/err" && echo yes || echo no)"
+check 'a UI test with --add-dir: nothing started' 0 "$(find "$SESSIONS" -name 'ui-test10077-*' | wc -l | tr -d ' ')"
 table
 
 order claude

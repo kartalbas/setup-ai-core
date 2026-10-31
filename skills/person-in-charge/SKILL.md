@@ -277,7 +277,7 @@ it marks blocked and every report unanswered; end every session whose phase is d
 phase that is due, across all packages, a blocker's first and before any new plan (a part another
 part names in its `After:`, a side a partner waits for, a fault on a live environment); a package
 whose `After:` part has not landed, that shares a file or a contract with a package between build
-and landing, or whose `Waits for the owner:` is not answered, is not built. Read TESTING: prove the live cards, 🔴 first, and run `ai-core issue-package` again for the package of each card the proof closed; TREES: land or
+and landing, or whose `Waits for the owner:` is not answered, is not built. Read TESTING: prove the cards whose release is out, the 🔴 "proof due" lines first, then follow the ⏸ "waits for the release" lines by the release they wait for, and run `ai-core issue-package` again for the package of each card the proof closed; TREES: land or
 put to the owner. A `KEEPER:` line of a section, a verdict, a report, a UI test result or a `CLEARING round`
 that no `KEEPER round` line has handed over, or a merge commit of a `LAND` line that no `KEEPER round`
 line names as landed, makes the issue keeper due. A session's question that the plan, the issues or the code answers, you answer yourself;

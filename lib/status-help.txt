@@ -32,7 +32,9 @@ not be read, are shown as unmeasured with their count; a tally with an unreadabl
 
 With TRACKER=forgejo, `ai-core status [OWNER/REPO...] --tokens` prints this page over the issues the status/
 labels name, open and closed; Forgejo has no board, so the page names it OWNER/forgejo, it has no epics, and it
-has no tally of reviews.
+has no tally of reviews. Without --tokens the page of a Forgejo tracker ends with the TESTING block of the
+open issues in testing it lists, the landing and the proof read from each issue's timeline as issue-close
+reads them; an issue whose timeline could not be read is that issue's ❓ line.
 
 Without --tokens or --issues the page ends with two blocks git answers at that moment. TESTING
 lists every card in testing with where its work is live: the newest commit on the default branch
@@ -40,14 +42,21 @@ that names the issue (a commit names an issue by its number from the issue's cre
 (status-sync reads the first environment of the same list), the first release tag by date that contains it, or the commit's landing where the environment is `landed`. A tag's date is an annotated tag's own, and a lightweight tag's
 commit's. The newest commit is the one whose message names the issue anywhere in its text, the
 issue's own full reference and a bare #N alike, never another repository's or a longer number. The
-first environment is the last stage: a card live there is 🟢; one live on a later environment only
-is due for its proof there, 🟡, and 🔴 once that environment has carried it longer than PROOF_HOURS of the project folder's .ai-core/config.env.
+first environment is the last stage, the one whose release makes a card's proof due. A card its release
+carries is 🔴 "proof due on <environment> since <age>" with that release until the tracker holds a proof
+that status-sync (GitHub) or issue-proof (Forgejo) would count, a trusted "Proven on <environment>:" comment
+after the landing record; with that proof it is 🟢 "proven on <environment>", and it closes with the next
+status-sync or issue-proof. A card no release of that environment carries yet is ⏸ "waits for the release of
+<environment>" with its tag pattern. A card live on a later environment only is due for its proof there, 🟡,
+and 🔴 once that environment has carried it longer than PROOF_HOURS of the project folder's .ai-core/config.env.
+Where LIVE_TAGS is empty, every release tag of the card's repository is its release, as status-sync reads
+it: the card is 🔴 from the first tag that contains the landing, and ⏸ "waits for a release of <repository>
+(every tag)" while none does.
 An environment whose value is `command` is delivered by what LIVE_RELEASE_COMMAND of the clone the
 work landed in answers (lib/live-release.sh): its newest completed delivery, shown with its source
 and time. Such a card is read by the landing record its issue holds, the newest one of a trusted
 author after the last reopening within the last 50 comments, and by the whole list of that clone,
-not the project folder's. Where any clone of the project folder
-declares a `command`, status asks the tracker for the landing of every card in testing, once each: on
+not the project folder's. Status asks the tracker for the landing and the proof of every card in testing, once each: on
 GitHub the comment pages and one request for the last reopening, which is the time it adds. A card whose landing, delivery or fetch could not be read is
 `unknown`, with its full repository and the reason: it is counted as unknown, never read from the
 commits instead, and the command exits 1 after the page. The live counts are per environment, by

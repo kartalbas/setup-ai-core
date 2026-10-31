@@ -22,16 +22,14 @@ question "where is this seen", and stays.
 ## What to do, card by card
 
     testing
-      🟢 live on production         → a UI test session (briefs/ui-test.md) on its promise; on PASS the
+      🔴 proof due on production   → a UI test session (briefs/ui-test.md) on its promise; on PASS the
                                       `Proven on <environment>:` record; status-sync closes it
+      🟢 proven on production      → its record is written: status-sync closes it
       🟡 🔴 live on the test stage  → a UI test session on the test stage; on PASS the release to
-                                      production (the project's own release step), then as 🟢
-      ⏸ not live                    → the release to the test stage, then as 🟡
-      ⏸ landed                      → LIVE_TAGS is empty, so no stage is read: you cut the release
-                                      the project's map names, once per card, then a UI test session on the
-                                      environment the criteria name; on PASS the `Proven on
-                                      <environment>:` record; the owner is asked once to set
-                                      LIVE_TAGS (needs:owner on the plan issue)
+                                      production (the project's own release step), then as 🔴
+      ⏸ waits for the release of <environment> → the release of that environment, then as 🔴
+      ⏸ waits for a release of <repository> (every tag) → LIVE_TAGS is empty, so every tag counts: you cut
+                                      the release the project's map names, once per card, then as 🔴
       ⏸ no commit names it          → it never landed: treat it as implementing
       ⏸ no checkout                 → the repository has no clone in the folder: needs:owner
       ⏸ no landing record           → the issue holds no `Landed on` record of a trusted author after its last

@@ -67,6 +67,10 @@ export interface HarnessSteps {
   // issue costs, the tokens; the outcome holds the page. The issues are handed over as the card rows lib/status.mjs reads,
   // one JSON object a line, beside the status columns, one a line, under the board name the page shows.
   readTokensPage(cwd: string, itemsFile: string, columnsFile: string, board: string): Promise<StepOutcome>;
+  // The TESTING block of `status` (lib/status-testing.sh): where the work of each card in testing is released and whether its
+  // proof is due, proven or waits for a release, read from git; the outcome holds the lines. The cards are the card rows
+  // lib/status.mjs reads and the testing records are what the tracker holds of each open card in testing, one JSON object a line.
+  readTestingPage(cwd: string, itemsFile: string, columnsFile: string, testingFile: string, board: string): Promise<StepOutcome>;
 }
 
 export interface StepOutcome {

@@ -365,6 +365,8 @@ case "\$*" in
 esac
 EOF
 chmod +x "$work/bin2/claude" "$work/bin2/gh"
+# watch reads the records under ${AI_CORE_HOME:-$HOME}/.ai-core, and a runner of the whole suite exports AI_CORE_HOME
+export AI_CORE_HOME="$HOME"
 sessions="$HOME/.ai-core/sessions"; mkdir -p "$sessions"
 chmod 644 "$dig_transcript"; healthy dig "$dig_id"
 echo '[]' > "$work/comments.json"

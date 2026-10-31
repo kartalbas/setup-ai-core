@@ -32,16 +32,6 @@
 # live_tags_declaration <clone>: LIVE_TAGS as the clone's own config.env sets it; the environment does not
 live_tags_declaration() { (cd "$1" && config_file_value LIVE_TAGS ""); }
 
-# live_tags_names_command <the value of LIVE_TAGS>: whether one of its <environment>=<value> entries has the value `command`
-live_tags_names_command() {
-  local words word
-  read -r -a words <<< "$1"
-  for word in ${words[@]+"${words[@]}"}; do
-    case "$word" in ?*=command) return 0 ;; esac
-  done
-  return 1
-}
-
 # live_release_run <directory> <command>...: the command in the directory, with no standard input, because the
 # caller may be reading its cards from it
 live_release_run() { (cd "$1" && shift && "$@" < /dev/null); }

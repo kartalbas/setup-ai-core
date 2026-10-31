@@ -156,6 +156,8 @@ export interface ReleaseFact {
 
 export interface ProofFact {
   readonly index: number;
+  // Milliseconds since 1970, when the proof was written.
+  readonly at: number;
   readonly environment: string;
 }
 
@@ -199,7 +201,7 @@ export async function readIssueHistory(api: ForgejoClient, issue: Issue, entries
     if (!(await isTrusted(entry.author))) continue;
     if (landed?.[1] !== undefined) landings.push({ index, at: entry.at, branch: landed[1], repository: landed[2] === undefined ? { owner: issue.ref.owner, repo: issue.ref.repo } : parseRepository(landed[2]), commit: fieldOf(entry.body, 'Landed commit'), isPart: landedPart !== null });
     if (released?.[1] !== undefined && released[2] !== undefined) releases.push({ index, repository: parseRepository(released[1]), tag: released[2] });
-    if (proven?.[1] !== undefined && (lastReopening === undefined || index + deliveryStart > lastReopening)) proofs.push({ index, environment: proven[1] });
+    if (proven?.[1] !== undefined && (lastReopening === undefined || index + deliveryStart > lastReopening)) proofs.push({ index, at: entry.at, environment: proven[1] });
   }
 
   // A milestone is a release of the issue's own repository. Its event is written by an account that may edit the issue.

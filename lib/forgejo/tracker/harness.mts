@@ -69,4 +69,5 @@ export const bashHarness: HarnessSteps = {
   releaseLandingLock: (cwd) => runBash(cwd, [`${CORE}/lib/landing-lock.sh`, 'release', cwd, String(process.pid)]),
   installTools: (worktree, show) => runShown(worktree, ['scripts/install.sh'], show, INSTALL_TAIL_LINES),
   readTokensPage: (cwd, itemsFile, columnsFile, board) => runBash(cwd, [`${CORE}/lib/status-tokens.sh`, itemsFile, columnsFile, board]),
+  readTestingPage: (cwd, itemsFile, columnsFile, testingFile, board) => runBash(cwd, [`${CORE}/lib/status-testing.sh`, itemsFile, columnsFile, testingFile, board], 'stdout'),
 };

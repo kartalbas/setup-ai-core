@@ -40,48 +40,47 @@ awk -F'\t' 'tolower($1) == "status" { print $3 }' <<< "$columns" > "$work/column
 card_rows > "$work/items" || exit 1
 
 # WHAT THE TESTING BLOCK READS OF EACH CARD IN TESTING, one JSON object a line in $work/testing, for lib/status.mjs:
-#   {repository, number, pattern, createdAt, context, reason, landing, landingClone}
+#   {repository, number, pattern, createdAt, context, reason, landing, landingClone, proofs}
 # pattern is how a commit message names the issue (issue_mention_pattern), and createdAt is when the issue was
 # made: a commit names the issue by its number only from then on (the time rule of issue_commits, which
-# lib/status-live.mjs applies again). context says whether the landing
-# of the issue was asked of the tracker: "none" where no clone of the project folder declares an environment
-# of LIVE_TAGS as `command`, so that no card pays for a read it does not need; "read", with landing the
+# lib/status-live.mjs applies again). context says whether the issue was read of the tracker: "read", with landing the
 # newest landing record the trusted comments of the issue still hold ({repository, commit, createdAt}, or null
-# where there is none) and landingClone the clone of its repository, empty where there is none; "failed", with
-# the last line the tracker said, which names what it could not read. One read of the tracker per card, as the tracker answers it, at most; a read that
-# fails is that card's line, never the end of the others.
+# where there is none), landingClone the clone of its repository, empty where there is none, and proofs the
+# trusted "Proven on" comments after that record, [{environment, createdAt}], the environment as
+# proof_environment reads it, empty where the first line names none, and an empty list where there is no landing
+# record; "failed", with the last line the tracker said, which names what it could not read. One read of the tracker
+# per card, as the tracker answers it, at most; a read that fails is that card's line, never the end of the others.
 write_testing_records() {
-  local column clone declared="" declaration repo number created pattern context thread landing reason landing_clone
+  local column clone repo number created pattern context thread landing reason landing_clone proofs
   column="$(awk 'tolower($0) == "testing" { print; exit }' "$work/columns")"
   : > "$work/testing"
   [ -n "$column" ] || return 0
+  # A config.env of a clone that cannot be read stops the page here, before anything else reads it and says so again
   for clone in "$folder"/*/; do
-    clone="${clone%/}"
-    [ -e "$clone/.git" ] || continue
-    declaration="$(live_tags_declaration "$clone")" || exit 1
-    if live_tags_names_command "$declaration"; then declared=1; break; fi
+    [ -e "${clone%/}/.git" ] || continue
+    live_tags_declaration "${clone%/}" > /dev/null || exit 1
   done
   while IFS=$'\t' read -r repo number created; do
     [ -n "$number" ] || continue
     pattern="$(issue_mention_pattern "$repo" "$number" "$repo")"
     [ "$created" != - ] || created=""
-    context=none; landing=null; reason=""; landing_clone=""
-    if [ -n "$declared" ]; then
-      if thread="$( (issue_landing_context "$repo" "$number") 2> "$work/context-error")" \
-        && landing="$(jq -c --argjson window "$LANDING_COMMENT_WINDOW" --arg issue "$repo" "$LANDING_RECORD_JQ"'
-            (.reopenedAt // "") as $reopenedAt
-            | [.comments | .[(0 - $window):] | .[] | trusted] | selected_landing($reopenedAt; $issue)' <<< "$thread" 2> "$work/context-error")"; then
-        context="read"
-        [ "$landing" = null ] || landing_clone="$(clone_of "$(jq -r '.repository' <<< "$landing")")"
-      else
-        reason="$(grep -v '^[[:space:]]*$' "$work/context-error" | tail -n1 | tr -s ' \t' ' ' || true)"
-        context="failed"; landing=null
-        reason="${reason:-the tracker gave no reason}"
-      fi
+    context="read"; landing=null; reason=""; landing_clone=""; proofs='[]'
+    if thread="$( (issue_landing_context "$repo" "$number") 2> "$work/context-error")" \
+      && landing="$(jq -c --argjson window "$LANDING_COMMENT_WINDOW" --arg issue "$repo" "$LANDING_RECORD_JQ"'
+          (.reopenedAt // "") as $reopenedAt
+          | [.comments | .[(0 - $window):] | .[] | trusted] | selected_landing($reopenedAt; $issue)' <<< "$thread" 2> "$work/context-error")" \
+      && proofs="$(jq -c --argjson window "$LANDING_COMMENT_WINDOW" --argjson landing "$landing" "$LANDING_RECORD_JQ"'
+          [.comments | .[(0 - $window):] | .[] | trusted | select($landing != null and (.body | startswith("Proven on ")) and later(.createdAt; $landing.createdAt))
+            | {environment: ((.body | split("\n")[0] | proof_environment) // ""), createdAt: .createdAt}]' <<< "$thread" 2> "$work/context-error")"; then
+      [ "$landing" = null ] || landing_clone="$(clone_of "$(jq -r '.repository' <<< "$landing")")"
+    else
+      reason="$(grep -v '^[[:space:]]*$' "$work/context-error" | tail -n1 | tr -s ' \t' ' ' || true)"
+      context="failed"; landing=null; proofs='[]'
+      reason="${reason:-the tracker gave no reason}"
     fi
     jq -nc --arg repository "$repo" --argjson number "$number" --arg pattern "$pattern" --arg createdAt "$created" \
-      --arg context "$context" --arg reason "$reason" --argjson landing "$landing" --arg landingClone "$landing_clone" \
-      '{repository: $repository, number: $number, pattern: $pattern, createdAt: $createdAt, context: $context, reason: $reason, landing: $landing, landingClone: $landingClone}' >> "$work/testing"
+      --arg context "$context" --arg reason "$reason" --argjson landing "$landing" --arg landingClone "$landing_clone" --argjson proofs "$proofs" \
+      '{repository: $repository, number: $number, pattern: $pattern, createdAt: $createdAt, context: $context, reason: $reason, landing: $landing, landingClone: $landingClone, proofs: $proofs}' >> "$work/testing"
   done <<< "$(jq -r --arg column "$column" 'select(.open and (.repo // "") != "" and ((.status // "") | ascii_downcase) == ($column | ascii_downcase)) | "\(.repo)\t\(.number)\t\(.createdAt // "-")"' "$work/items" | sort -u)"
 }
 testing_file=()

@@ -98,7 +98,9 @@
   itself, in the package's branch or section, and names as REPAIRED with its own full name, so the
   card goes on to testing, because a NO pays a whole round; a second reader on another model than
   the reviewer's reads only the repaired lines against the named findings before the package
-  lands, because a repair nobody reads is unreviewed code. A defect of the package's own change
+  lands, because a repair nobody reads is unreviewed code; a repair that is a low-risk change (a
+  value, a text, a comment, a line of a test list, a few lines that change no code path or
+  interface) needs none. A defect of the package's own change
   that the gate finds at the landing, on the merged tree, is repaired the same way and gets no new
   build round. Only a finding that needs a decision of the owner, a change beyond the package's
   files and contracts, or a package whose approach is wrong it writes down instead, and the package

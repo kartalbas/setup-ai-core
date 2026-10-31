@@ -48,7 +48,11 @@
 - **A pass from a gate is not a review.** Work that changes behaviour is read, before it is
   integrated, by a reviewer told to refute, who names the file, the line and the state in which a
   defect appears; a small change that a person sees and that changes no code path or interface is
-  reviewed instead by the owner's choice of its picture. The reviewer never runs on the model that
+  reviewed instead by the owner's choice of its picture. A low-risk change gets no reviewer and no
+  second reader, as a change of text gets no issue: a value, a configuration line, a text, a
+  comment, a line of a test list, or a few lines that change no code path or interface and touch no
+  secret, payment, migration or contract. It lands on the go of whoever decided it, and
+  `--reviewed-by` names that go. The reviewer never runs on the model that
   wrote the work, because two readers with the same habits share a blind spot. After the reviewer's
   GO,
   `ai-core integrate-issue <number> --reviewed-by <reviewer>` integrates the work into the default

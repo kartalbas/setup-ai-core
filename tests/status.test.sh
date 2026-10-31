@@ -647,7 +647,7 @@ check 'a clone declares it: three cards, six requests, none beyond' 6 "$(reads)"
 for name in engine engine2 engine3; do sed -i.bak 's/=command/=deploy\/x\/*/g' "$cmd/$name/.ai-core/config.env"; rm -f "$cmd/$name/.ai-core/config.env.bak"; done
 run_status
 check 'no clone declares it: the same three cards, the same six requests, none beyond' 6 "$(reads)"
-check 'and it counts by the list of each clone that sets one and the project folder'"'"'s list for the rest' 'TESTING 3 cards in testing: 0 live on prod, 1 live on test only, 0 live on qa only, 0 not live, 2 without a landing commit' "$(grep '^TESTING' <<< "$page")"
+check 'and it counts by the list of each clone that sets one and the project folder'"'"'s list for the rest' 'TESTING 3 cards in testing: 0 live on prod, 1 live on test only, 0 live on qa only, 1 not live, 1 without a landing commit' "$(grep '^TESTING' <<< "$page")"
 for name in engine engine2 engine3; do sed -i.bak 's/=deploy\/x\/\*/=command/g' "$cmd/$name/.ai-core/config.env"; rm -f "$cmd/$name/.ai-core/config.env.bak"; done
 run_status --tokens
 check '--tokens reads no landing, though a clone declares command' 0 "$(reads)"
@@ -712,6 +712,40 @@ check 'planted: the project folder'"'"'s list for every card leaves the cards of
   'landing#1 plugin#1 plugin#2 plugin#3 |1' "$planted_not_live|$(grep -c '^  🔴 tagged' <<< "$planted")"
 status_mutant 's/^      for (const word of declared.bad) out.push.*$//'
 check 'planted: the words of a clone'"'"'s own list dropped with no line, as they were' '' "$(grep -E "^  LIVE_TAGS (of .* )?has " <<< "$planted")"
+
+echo 'a card read by tags is decided by the commit of its landing record, in the repository it landed in, as the closer decides, and a pattern no tag matches is named'
+# relay: "prod=deploy/prod/*", its landing alpha is in the tag, a later commit names #51 in its body and is in none; beta is in no tag
+# untagged: "prod=release/*", no tag at all; carrier sets no list, and its card landed in relay, though its own newest commit naming it is in no tag
+cp "$work/page9" "$work/page9.before-landing"
+cmd_repo relay
+commit_at "$work/seed-relay" 90000 'Land alpha (#51)'; r1="$(head_of relay)"; git -C "$work/seed-relay" tag deploy/prod/1
+commit_at "$work/seed-relay" 3600 'Follow up
+
+Touches the work of #51 once more.'
+commit_at "$work/seed-relay" 2400 'Land beta (#52)'; r2="$(head_of relay)"
+cmd_clone relay 'prod=deploy/prod/*'
+cmd_repo untagged; commit_at "$work/seed-untagged" 90000 'Land gamma (#61)'; cmd_clone untagged 'prod=release/*'
+cmd_repo carrier; commit_at "$work/seed-carrier" 1200 'Mention the carried work (#53)'; cmd_clone carrier ''
+{ cmd_card 51 relay 'R1 a later commit names it, its landing is released'; cmd_card 52 relay 'R2 its landing is not released'; cmd_card 61 untagged 'U1 no tag matches its pattern'
+  cmd_card 53 carrier 'R3 landed in relay, a newer commit of its own repository names it'; } > "$work/page9"
+context relay 51 "$(member_landing 2026-09-01T10:00:00Z "$r1")"
+context relay 52 "$(member_landing 2026-09-01T10:00:00Z "$r2")"
+context untagged 61 ''
+context carrier 53 "$(member_landing 2026-09-01T10:00:00Z "$r1" example-org/relay)"
+run_status
+check 'exit 0' 0 "$rc"
+check 'a later unreleased commit naming the issue beside a released landing commit reads proof due, not waiting' "yes" "$(grep -qE "^  🔴 relay#51 +proof due on prod since 25 h \(deploy/prod/1\)" <<< "$page" && echo yes || echo no)"
+check 'innocent: a card whose landing commit is itself in no tag still waits, and its line holds no word about tags' \
+  "  ⏸ $(printf '%-26s' relay#52) waits for the release of prod (deploy/prod/*)  R2 its landing is not released" "$(line_of 'relay#52 ')"
+check 'a card whose work landed in another repository is read there: by its list and its tags' "yes" "$(grep -qE "^  🔴 carrier#53 +proof due on prod since 25 h \(deploy/prod/1\)" <<< "$page" && echo yes || echo no)"
+check 'a pattern that no tag of the repository matches is named on the line of its card' \
+  "  ⏸ $(printf '%-26s' untagged#61) waits for the release of prod (release/*), no tag of example-org/untagged matches it  U1 no tag matches its pattern" "$(line_of 'untagged#61 ')"
+status_mutant 's/if (record.landing) sha = record.landing.commit;/if (false) sha = "";/'
+check 'planted: the newest commit that names the issue decides, and the card waits with its landing released' \
+  "  ⏸ $(printf '%-26s' relay#51) waits for the release of prod (deploy/prod/*)  R1 a later commit names it, its landing is released" "$(grep -F 'relay#51 ' <<< "$planted")"
+status_mutant 's/const none = noTag ? .*$/const none = "";/'
+check 'planted: a pattern no tag matches goes unsaid' "  ⏸ $(printf '%-26s' untagged#61) waits for the release of prod (release/*)  U1 no tag matches its pattern" "$(grep -F 'untagged#61 ' <<< "$planted")"
+mv "$work/page9.before-landing" "$work/page9"
 
 echo 'the proof decides the first environment: red until the closer of the tracker would count one, green after, waiting while no release carries the work'
 member_proof() {  # member_proof <ISO time> <author association> <environment>: a "Proven on" comment

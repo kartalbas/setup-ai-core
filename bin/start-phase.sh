@@ -95,7 +95,7 @@ fi
 case "$SP_CLASS" in normal-hard|high-risk|mechanical) ;; *) refuse "unknown class $SP_CLASS: the classes are normal-hard, high-risk and mechanical" ;; esac
 [ -z "$setup_file" ] || [ -r "$setup_file" ] || refuse "the setup file is not readable: $setup_file"
 for root in ${extra_roots[@]+"${extra_roots[@]}"}; do [ -d "$root" ] || refuse "--add-dir names no folder: $root"; done
-[ "$SP_PHASE" != ui-test ] || [ -z "${extra_roots[*]+x}" ] \
+[ "$SP_OPERATION" != start ] || [ "$SP_PHASE" != ui-test ] || [ -z "${extra_roots[*]+x}" ] \
   || refuse "a UI test is given no folder: it runs from an empty folder and proves only what the browser shows, so --add-dir is refused; a proof from local records is read by the coordinator"
 
 # --- the re-plan gate --------------------------------------------------------------------------------------------------------

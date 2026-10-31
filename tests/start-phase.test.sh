@@ -386,6 +386,14 @@ out="$(start ui-test mechanical --issue o/r#7 --brief "$WORK/brief.md" --number 
 check 'a UI test with --add-dir: refused with 2' 2 "$rc"
 check 'a UI test with --add-dir: the refusal says why' yes "$(grep -qF 'a UI test is given no folder' "$WORK/err" && echo yes || echo no)"
 check 'a UI test with --add-dir: nothing started' 0 "$(find "$SESSIONS" -name 'ui-test10077-*' | wc -l | tr -d ' ')"
+# PLANTED: the record of a UI test started before the refusal, with folders the run never received
+jq -c --arg extra "$EXTRA" 'if .kind == "attempt" then .addDirs = [$extra] else . end' "$SESSIONS/$ux.start.jsonl" > "$WORK/record" && mv "$WORK/record" "$SESSIONS/$ux.start.jsonl"
+jq -cn '{version:1,kind:"native",operation:"start",tool:"agy",model:"claude-sonnet-5-5-high",effort:"-",phase:"ui-test",class:"mechanical",writer:"",invoked:1,observed:2,nativeIdentity:"conv-2"}' >> "$SESSIONS/$ux.start.jsonl"
+rm -f "$SESSIONS/$ux.exit"
+out="$(cd "$PROJECT" && bash "$SRC/bin/start-phase.sh" --resume "$ux" "continue" 2> "$WORK/err")"; rc=$?
+for _ in $(seq 1 50); do [ -f "$SESSIONS/$ux.exit" ] && break; sleep 0.1; done
+check 'an older UI test whose record holds folders: it resumes' 0 "$rc"
+check 'an older UI test whose record holds folders: still no folder is added' no "$(tail -n 1 "$FAKE/agy.args" | grep -qF -- '--add-dir' && echo yes || echo no)"
 table
 
 order claude

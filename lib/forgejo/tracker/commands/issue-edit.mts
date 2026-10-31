@@ -29,7 +29,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
     const current = await getIssue(api, ref);
     ({ body, kept } = keepOriginLine(current.body, newBody));
   }
-  await checkPublicText(api, 'issue-edit', ref, [title ?? '', body ?? ''].join('\n'));
+  await checkPublicText(context, api, 'issue-edit', ref, [title ?? '', body ?? ''].join('\n'));
   await editIssue(api, ref, { ...(title === undefined ? {} : { title }), ...(body === undefined ? {} : { body }) });
   return succeeded([`${formatIssue(ref)} edited`], kept ? ['the first line of the issue was kept: the new body did not open with one'] : []);
 }

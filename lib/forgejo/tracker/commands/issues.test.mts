@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import { PartialCompletionError, TransportError } from '../api/client.mts';
 import { PreconditionError, UsageError } from '../domain/refusals.mts';
+import { bashHarness } from '../harness.mts';
 import { contextFor, seedLabels, startFakeForgejo } from '../testing/fake-forgejo.mts';
 import type { FakeForgejo } from '../testing/fake-forgejo.mts';
 import { createGitFixture } from '../testing/git-fixture.mts';
@@ -173,6 +174,21 @@ describe('issue-comment', () => {
   it('refuses a literal email address for a public repository', async () => {
     await assert.rejects(issueComment.run(['o/r', String(number), '--body-file', file('mail.md', 'jane@corp.com')], context), PreconditionError);
     assert.deepEqual(fake.readIssue('o/r', number).comments, []);
+  });
+
+  it('refuses a time the clock does not show and posts the time it does (planted: wrong time, innocent: the clock\'s time)', async () => {
+    const saved = { AI_CORE_NOW: process.env.AI_CORE_NOW, STATED_TIME_ZONE: process.env.STATED_TIME_ZONE };
+    process.env.AI_CORE_NOW = String(Date.UTC(2026, 9, 31, 12, 0, 0) / 1000);
+    process.env.STATED_TIME_ZONE = 'UTC';
+    try {
+      const judging = { ...context, harness: { ...context.harness, checkStatedTime: bashHarness.checkStatedTime } };
+      await assert.rejects(issueComment.run(['o/r', String(number), '--body-file', file('wrong-time.md', 'Done at 13:10 UTC')], judging), (error: unknown) => error instanceof PreconditionError && /the text says 13:10 UTC, the clock there shows 12:00/.test(error.message));
+      assert.deepEqual(fake.readIssue('o/r', number).comments, []);
+      await issueComment.run(['o/r', String(number), '--body-file', file('right-time.md', 'Done at 12:02 UTC')], judging);
+      assert.deepEqual(fake.readIssue('o/r', number).comments, ['Done at 12:02 UTC']);
+    } finally {
+      for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    }
   });
 
   it('reports a comment whose answer was lost as uncertain and sends it once (planted: lost answer)', async () => {

@@ -9,7 +9,7 @@ import { showLines } from './git/git.mts';
 // lib/common.sh as bin/integrate-issue.sh runs it, and live_tags_declaration and the read of
 // lib/live-release.sh as bin/status.sh runs them, issue_mention_pattern of lib/common.sh as lib/board.sh reads the commits
 // of an issue with it, find_commit_naming_issue of lib/common.sh, and the receipt of the checks of a landing, lib/landing-check.sh,
-// as bin/integrate-issue.sh runs it, its mark of a harness landing, the most rounds of a landing, INTEGRATE_MAX_ROUNDS, and the landing lock of the clone, lib/landing-lock.sh, as bin/integrate-issue.sh takes it. The install of a merged tree runs the repository's own
+// as bin/integrate-issue.sh runs it, the stated-time check of every text written to a tracker, lib/stated-time.sh, its mark of a harness landing, the most rounds of a landing, INTEGRATE_MAX_ROUNDS, and the landing lock of the clone, lib/landing-lock.sh, as bin/integrate-issue.sh takes it. The install of a merged tree runs the repository's own
 // scripts/install.sh, as bin/integrate-issue.sh runs it. The page of status --tokens is lib/status-tokens.sh.
 
 const CORE = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../..');
@@ -23,12 +23,14 @@ const COMMIT_NAMING_ISSUE = '. "$1/lib/common.sh" && find_commit_naming_issue "$
 
 // `answer` stdout reads a successful step's output from standard output alone, for a step whose output is a value:
 // a warning on standard error is no part of it.
-function runBash(cwd: string, args: readonly string[], answer: 'both' | 'stdout' = 'both'): Promise<StepOutcome> {
+function runBash(cwd: string, args: readonly string[], answer: 'both' | 'stdout' = 'both', input?: string): Promise<StepOutcome> {
   return new Promise((done) => {
-    execFile('bash', args, { cwd, maxBuffer: MAXIMUM_OUTPUT_BYTES }, (error, stdout, stderr) => {
+    const child = execFile('bash', args, { cwd, maxBuffer: MAXIMUM_OUTPUT_BYTES }, (error, stdout, stderr) => {
       const said = (answer === 'stdout' && error === null ? stdout : `${stdout}${stderr}`).trim();
       done({ succeeded: error === null, output: said === '' && error !== null ? error.message : said });
     });
+    // a text is handed on standard input, because an argument is cut at the system's limit
+    if (input !== undefined) child.stdin?.end(input);
   });
 }
 
@@ -70,4 +72,5 @@ export const bashHarness: HarnessSteps = {
   installTools: (worktree, show) => runShown(worktree, ['scripts/install.sh'], show, INSTALL_TAIL_LINES),
   readTokensPage: (cwd, itemsFile, columnsFile, board) => runBash(cwd, [`${CORE}/lib/status-tokens.sh`, itemsFile, columnsFile, board]),
   readTestingPage: (cwd, itemsFile, columnsFile, testingFile, board) => runBash(cwd, [`${CORE}/lib/status-testing.sh`, itemsFile, columnsFile, testingFile, board], 'stdout'),
+  checkStatedTime: (cwd, command, destination, text) => runBash(cwd, [`${CORE}/lib/stated-time.sh`, 'check', command, destination], 'both', text),
 };

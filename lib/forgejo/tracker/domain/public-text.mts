@@ -60,7 +60,16 @@ export function refuseEmailAddress(command: string, destination: string, text: s
   if (address !== undefined) throw new PreconditionError(`${command}: refused email address ${address} in a public or unknown tracker destination (${destination})`);
 }
 
-export async function checkPublicText(api: ForgejoClient, command: string, repository: RepositoryRef, text: string): Promise<void> {
+// What the stated-time check needs of a command's context: its folder, whose settings it reads, and the harness step that runs it.
+export interface StatedTimeContext {
+  readonly cwd: string;
+  readonly harness: { checkStatedTime(cwd: string, command: string, destination: string, text: string): Promise<{ readonly succeeded: boolean; readonly output: string }> };
+}
+
+// A time stated in the text is checked first, in a private repository as in a public one; the email scan is for the others.
+export async function checkPublicText(context: StatedTimeContext, api: ForgejoClient, command: string, repository: RepositoryRef, text: string): Promise<void> {
+  const stated = await context.harness.checkStatedTime(context.cwd, command, formatRepository(repository), text);
+  if (!stated.succeeded) throw new PreconditionError(stated.output);
   if (await isPrivateRepository(api, repository)) return;
   refuseEmailAddress(command, formatRepository(repository), text);
 }

@@ -145,7 +145,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   const deliveredWithoutCode = holdsNoLandedRecord(entries);
   const missing = deliveredWithoutCode ? [] : listMissingDelivery(history, landingIsDelivery, commandDeliveries);
   if (missing.length > 0) throw new PreconditionError(`${name} is not delivered, so nothing is proven: ${missing.join('; ')}`);
-  await checkPublicText(api, 'issue-proof', ref, evidence);
+  await checkPublicText(context, api, 'issue-proof', ref, evidence);
 
   if (!hasProvenRecord(history, environment)) await addComment(api, ref, composeProvenRecord(environment, evidence));
   await afterStep(`close issue ${name} as completed`, `wrote the record "Proven on ${environment}:"`, async () => {

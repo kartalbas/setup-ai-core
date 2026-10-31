@@ -44,5 +44,7 @@ export function createRecordingHarness(): RecordingHarness {
     installTools: (path) => step('installTools', 'installed')(path),
     readTokensPage: (cwd, itemsFile, columnsFile, board) => step('readTokensPage', 'the page')(`${cwd} ${itemsFile} ${columnsFile} ${board}`),
     readTestingPage: (cwd, itemsFile, columnsFile, testingFile, board) => step('readTestingPage', '')(`${cwd} ${itemsFile} ${columnsFile} ${testingFile} ${board}`),
+    // The text is not recorded: a test that plants a wrong time hands in a step that refuses it.
+    checkStatedTime: (cwd, command, destination) => step('checkStatedTime', '')(`${cwd} ${command} ${destination}`),
   };
 }

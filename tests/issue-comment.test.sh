@@ -314,6 +314,17 @@ check 'with the provider'"'"'s words, and no false claim' 'yes no' "$(grep -q 'i
 check 'one post, one stored comment'       '1 1' "$(cap_count posts) $(ls "$CAP_STATE" | grep -c '^stored-')"
 
 
+echo 'a time that the clock does not show is refused before GitHub is reached, the clock'"'"'s own time is sent'
+export AI_CORE_NOW="$(date -u -d '2026-10-31 12:00:00' +%s)" STATED_TIME_ZONE=UTC
+: > "$log"
+out="$("$comment" "$repo" 94 'Landed at 13:10 UTC' 2>&1)"; rc=$?
+check 'the wrong time is refused, naming both times' "1 yes" "$rc $(grep -qF 'the text says 13:10 UTC, the clock there shows 12:00 (UTC)' <<< "$out" && echo yes || echo no)"
+check 'and nothing was sent' '' "$(cat "$log")"
+: > "$log"
+"$comment" "$repo" 94 'Landed at 12:03 UTC' >/dev/null 2>&1
+check 'the time the clock shows is sent' "api repos/$repo/issues/94/comments -f body=Landed at 12:03 UTC --jq .html_url" "$(cat "$log")"
+unset AI_CORE_NOW STATED_TIME_ZONE
+
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo
 echo 'all passed'

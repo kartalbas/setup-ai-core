@@ -18,7 +18,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   const body = await readTextFile(requireValue(parsed, '--body-file'));
   if (body.trim() === '') throw new UsageError('the comment is empty');
   const api = context.api();
-  await checkPublicText(api, 'issue-comment', ref, body);
+  await checkPublicText(context, api, 'issue-comment', ref, body);
   const comment = await addComment(api, ref, body);
   return succeeded([comment.url]);
 }

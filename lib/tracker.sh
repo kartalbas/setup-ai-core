@@ -4,6 +4,7 @@
 # every command in bin/ calls; github when unset. Source it, do not run it.
 
 . "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/stated-time.sh"
 
 # THE INTERFACE: every function the commands and lib/board.sh call to ask the tracker.
 load_provider tracker "
@@ -22,14 +23,16 @@ load_provider tracker "
   card_rows open_issue_page board_fields_json field_options_replace project_create repo_boards_rows
   repo_link board_views view_filter_set tracker_doctor tracker_name closing_column"
 
-# check_public_body <command> <destination> <text> <file or empty> [repo|project]: one visibility
-# decision for all supplied text. No provider currently establishes project visibility.
+# check_public_body <command> <destination> <text> <file or empty> [repo|project]: the stated time of the text, in a private
+# repository as in a public one, then one visibility decision for all supplied text. No provider currently establishes
+# project visibility.
 check_public_body() {
-  local command="$1" repo="$2" text="$3" file="$4" visibility addresses address
+  local command="$1" repo="$2" text="$3" file="$4" visibility addresses address stated
   if [ -n "$file" ]; then
     [ -f "$file" ] && [ -r "$file" ] || die "$command: cannot read body file: $file"
     text="$text"$'\n'"$(cat "$file")" || die "$command: cannot read body file: $file"
   fi
+  stated="$(check_stated_time "$command" "$repo" "$text" 2>&1)" || die "$stated"
   visibility=unknown
   if [ "${5:-repo}" = repo ]; then
     visibility="$(repo_visibility "$repo")" || visibility=unknown

@@ -71,6 +71,9 @@ export interface HarnessSteps {
   // proof is due, proven or waits for a release, read from git; the outcome holds the lines. The cards are the card rows
   // lib/status.mjs reads and the testing records are what the tracker holds of each open card in testing, one JSON object a line.
   readTestingPage(cwd: string, itemsFile: string, columnsFile: string, testingFile: string, board: string): Promise<StepOutcome>;
+  // The stated-time check of lib/stated-time.sh, run in `cwd` so that the settings are the checkout's: a failed outcome holds the refusal,
+  // which names the time the text says and the time the clock shows.
+  checkStatedTime(cwd: string, command: string, destination: string, text: string): Promise<StepOutcome>;
 }
 
 export interface StepOutcome {

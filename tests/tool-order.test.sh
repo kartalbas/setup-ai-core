@@ -54,5 +54,22 @@ check('clear removes the saved order, keeps its history, and a new order follows
 check('malformed state is never replaced or invented',()=>{const good=fs.readFileSync(file);for(const bad of ['{','null','{"version":1,"orders":[]}']){fs.writeFileSync(file,bad);assert.equal(run().status,2);assert.equal(run(['codex']).status,2);assert.equal(fs.readFileSync(file,'utf8'),bad);}fs.writeFileSync(file,good);});
 check('unreadable and unwritable state failures are named',()=>{const good=fs.readFileSync(file);fs.chmodSync(file,0);assert.equal(run().status,2);fs.chmodSync(file,0o600);assert.deepEqual(fs.readFileSync(file),good);const dir=path.dirname(file);fs.chmodSync(dir,0o500);const r=run(['codex']);assert.equal(r.status,2);assert.match(r.stderr,/cannot/);fs.chmodSync(dir,0o700);assert.deepEqual(fs.readFileSync(file),good);});
 check('planted non-atomic invalid replacement turns the preservation check red',()=>{const script=path.join(copy,'bin/tool-order.sh'), source=fs.readFileSync(script,'utf8');fs.writeFileSync(script,source.replace('order="$1"','order="$1"\nprintf bad > "$TOOL_ORDER_FILE"'));const r=run(['unknown']);assert.equal(r.status,2);assert.equal(fs.readFileSync(file,'utf8'),'bad');fs.writeFileSync(script,source);fs.unlinkSync(file);assert.equal(run(['claude']).status,0);});
+check('a key is a tool: a secret file is saved in the order, and a name that is no file is refused',()=>{
+  const secrets=path.join(process.env.AI_CORE_HOME,'.ai-core/secrets');fs.mkdirSync(secrets,{mode:0o700,recursive:true});fs.writeFileSync(path.join(secrets,'acme-key'),'made-up',{mode:0o600});fs.writeFileSync(path.join(q,'acme-key'),'0');
+  fs.writeFileSync(path.join(a,'.ai-core/models.tsv'),'acme-key\tbuild\t*\tclaude-fable-5-1\thigh\nclaude\tbuild\t*\tclaude-sonnet-5-5\thigh\n');
+  const r=run(['acme-key,claude']);assert.equal(r.status,0,r.stderr);assert.deepEqual(JSON.parse(fs.readFileSync(file)).orders.at(-1).tools,['acme-key','claude']);
+  refusal(['nosuchkey,claude'],/unknown tool: nosuchkey \(the tools are codex, agy, claude, acme-key\)/);
+});
+check('the audit accepts an end record of a session and reads one without its ended field as malformed',()=>{
+  const sessions=path.join(process.env.AI_CORE_HOME,'.ai-core/sessions');fs.mkdirSync(sessions,{recursive:true});
+  const end={version:1,kind:'end',operation:'start',tool:'acme-key',model:'claude-fable-5-1',effort:'high',phase:'build',class:'mechanical',writer:'',invoked:1000,ended:1600,duration:600,report:'u',costUsd:0.5};
+  const audit=()=>spawnSync('bash',['-c','. "$1/lib/common.sh"; . "$1/lib/tool-order.sh"; tool_order_audit',' ',copy],{env:{...process.env,PATH:process.env.PATH},encoding:'utf8'});
+  const name='build10001-fable5.1-high-100k-abcde', record=path.join(sessions,name+'.start.jsonl');
+  fs.writeFileSync(record,JSON.stringify(end)+'\n');
+  let r=audit();assert.equal(r.status,0,r.stderr);assert.doesNotMatch(r.stdout,/malformed launch observation/);
+  const {ended,...broken}=end;fs.writeFileSync(record,JSON.stringify(broken)+'\n');
+  r=audit();assert.match(r.stdout,new RegExp(`UNKNOWN ${name}: malformed launch observation`));
+  fs.unlinkSync(record);
+});
 console.log(`tool-order: ${count} checks passed`);
 JS

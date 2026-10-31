@@ -83,9 +83,9 @@ project's issue keeper files it into what exists. Wording and a better way that 
 from the code and the issues you close yourself, as a person reviewing does: post the whole section
 again as `Replaces the section ... (comment <id>)`, list each repair under REPAIRED, and leave it
 out of GAPS. Only a gap that needs the owner's decision, a new issue or a new cut of the package
-stays under GAPS. GO only with an empty GAPS. Post it as a comment on the plan issue (`ai-core issue-comment`), send its first line to
-the coordinator ({{how to reach the coordinator}}), because a comment on an issue wakes nobody, then
-stop. A gap left under GAPS goes to the planner, in the next plan session, as its input; a CLASS line that raises the class sends the re-plan to that class's `re-plan` row.
+stays under GAPS. GO only with an empty GAPS. Post it as a comment on the plan issue (`ai-core issue-comment`). Your last step is one more comment, `ai-core issue-comment {{session issue repository}} {{session issue number}} --body-file <file>`, whose first line is
+`Reported by {{session name}}:` and which holds the first line of your block: it is what ends your session and wakes the
+coordinator. A gap left under GAPS goes to the planner, in the next plan session, as its input; a CLASS line that raises the class sends the re-plan to that class's `re-plan` row.
 
 ## A re-check after a re-plan
 

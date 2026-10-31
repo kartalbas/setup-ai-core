@@ -599,7 +599,25 @@ check 'source tree has no product map' no "$([ -e "$source_tree/AGENTS.md" ] && 
 check 'source tree has the commit-msg hook' yes "$([ -x "$source_tree/.githooks/commit-msg" ] && echo yes || echo no)"
 check 'a fresh source clone has its hooks armed' .githooks "$(git -C "$source_tree" config --get core.hooksPath)"
 check 'the hook stays out of every commit' yes "$(git -C "$source_tree" check-ignore -q .githooks/commit-msg && echo yes || echo no)"
+rule_hooks() { # rule_hooks <settings file>: yes where it holds, once each, the two hooks that hold the rules after a compaction
+  jq -e --arg a "\"$root/bin/ai-core\" pre-tool-use" --arg b "\"$root/bin/ai-core\" post-tool-use" '([.hooks.PreToolUse[]?.hooks[]?.command] == [$a]) and ([.hooks.PostToolUse[]? | select(.matcher == "Read") | .hooks[]?.command] == [$b])' "$1" > /dev/null 2>&1 && echo yes || echo no
+}
+check 'the source tree holds the hooks that hold the rules' yes "$(rule_hooks "$source_tree/.claude/settings.json")"
+check 'its Claude Code settings stay out of every commit' yes "$(git -C "$source_tree" check-ignore -q .claude/settings.json && echo yes || echo no)"
 check 'the tree stays clean'             '' "$(git -C "$source_tree" status --porcelain)"
+arm_hooks() ( . "$root/lib/layers.sh"; arm_claude_hooks "$source_tree" "$root"; )
+# PLANTED: settings that start the session and hold neither hook that holds the rules, as the harness source had them
+printf '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"ai-core session-start --tool claude"}]}]}}\n' > "$source_tree/.claude/settings.json"
+check 'the check goes red on settings without the rule hooks' no "$(rule_hooks "$source_tree/.claude/settings.json")"
+check 'the hooks are merged into them'   written "$(arm_hooks)"
+check 'then they hold the rule hooks'    yes "$(rule_hooks "$source_tree/.claude/settings.json")"
+check 'the session start they had stays one hook' 1 "$(jq '[.hooks.SessionStart[].hooks[]] | length' "$source_tree/.claude/settings.json")"
+# PLANTED: settings that hold the hook before a tool call but lack the one after a Read
+jq 'del(.hooks.PostToolUse)' "$source_tree/.claude/settings.json" > "$fake/no-read-hook.json" && mv "$fake/no-read-hook.json" "$source_tree/.claude/settings.json"
+check 'the check goes red without the hook after a Read' no "$(rule_hooks "$source_tree/.claude/settings.json")"
+check 'the missing hook is merged in'    written "$(arm_hooks)"
+check 'then they hold both again'        yes "$(rule_hooks "$source_tree/.claude/settings.json")"
+check 'settings that hold every hook stay as they are' unchanged "$(arm_hooks)"
 long_subject="$(printf 'x%.0s' $(seq 1 73))"
 out="$(cd "$source_tree" && PATH="$root/bin:$PATH" git commit -q --allow-empty -m "$long_subject" 2>&1)"; rc=$?
 check 'a subject of 73 characters is refused at the commit' 1 "$rc"

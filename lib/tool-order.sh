@@ -10,6 +10,47 @@ tool_order_paths() {
 
 tool_order_error() { printf 'error: %s\n' "$*" >&2; return 2; }
 
+# The tools of the order: the three native tools, then every file of ~/.ai-core/secrets/ by its own name, an Anthropic
+# API key that runs Claude Code in print mode. Every place that names a tool asks this list instead of spelling it.
+TOOL_ORDER_NATIVE_TOOLS="codex agy claude"
+TOOL_ORDER_NAME_PATTERN='^[a-z0-9][a-z0-9._-]*$'
+
+tool_order_tools() {
+  local tool entry name
+  for tool in $TOOL_ORDER_NATIVE_TOOLS; do printf '%s\n' "$tool"; done
+  for entry in "$TOOL_ORDER_HOME/secrets"/*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    name="${entry##*/}"
+    [[ "$name" =~ $TOOL_ORDER_NAME_PATTERN ]] || continue
+    case " $TOOL_ORDER_NATIVE_TOOLS " in *" $name "*) continue ;; esac
+    printf '%s\n' "$name"
+  done
+}
+
+tool_order_is_tool() { tool_order_tools | grep -xF -- "$1" > /dev/null; }
+
+tool_order_is_native() { case " $TOOL_ORDER_NATIVE_TOOLS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+# The tools as one JSON array, for a jq program.
+tool_order_tools_json() { tool_order_tools | jq -R . | jq -sc .; }
+
+# tool_order_secret_file <tool>: the file of the key that the tool runs on. The key is never printed here.
+tool_order_secret_file() { printf '%s/secrets/%s\n' "$TOOL_ORDER_HOME" "$1"; }
+
+tool_order_mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
+
+# tool_order_check_secret <tool>: succeeds where the key is a readable file with mode 0600 in a folder with mode 0700,
+# else says so, naming the mode, and returns 2.
+tool_order_check_secret() {
+  local file folder file_mode folder_mode
+  file="$(tool_order_secret_file "$1")"; folder="${file%/*}"
+  [ -f "$file" ] && [ ! -L "$file" ] && [ -r "$file" ] || { tool_order_error "the key of $1 is no readable file: $file"; return 2; }
+  file_mode="$(tool_order_mode_of "$file")" || { tool_order_error "cannot read the mode of $file"; return 2; }
+  folder_mode="$(tool_order_mode_of "$folder")" || { tool_order_error "cannot read the mode of $folder"; return 2; }
+  [ "$file_mode" = 600 ] || { tool_order_error "the key of $1 has mode $file_mode, not 600: chmod 600 $file"; return 2; }
+  [ "$folder_mode" = 700 ] || { tool_order_error "the folder of the key of $1 has mode $folder_mode, not 700: chmod 700 $folder"; return 2; }
+}
+
 tool_order_lock() {
   local n=0
   mkdir -p "$TOOL_ORDER_HOME" || { tool_order_error "cannot create $TOOL_ORDER_HOME"; return 2; }
@@ -33,7 +74,7 @@ tool_order_read() {
     def order: type == "object" and (.generation | type == "number" and . > 0 and floor == .)
       and (.time | type == "number" and . > 0)
       and (.tools | type == "array" and length == (unique | length)
-        and all(. == "codex" or . == "agy" or . == "claude"));
+        and all(type == "string" and test("^[a-z0-9][a-z0-9._-]*$")));
     if length == 1 and (.[0] | .version == 1 and (.orders | type == "array" and length > 0 and all(order))
       and ([range(0; .orders | length) as $i | .orders[$i].generation == ($i + 1)
         and ($i == 0 or .orders[$i].time >= .orders[$i - 1].time)] | all))
@@ -94,7 +135,11 @@ tool_order_record() (
   [ "$changed" -eq 0 ] || { tool_order_error 'order changed during selection; select again'; return 2; }
 )
 
-phase_model_base() { printf '%s\n' "$1" | sed -E 's/^(claude|codex|agy)://; s/-(low|medium|high|xhigh|max)$//'; }
+phase_model_base() {
+  local model="$1"
+  case "$model" in *:*) ! tool_order_is_tool "${model%%:*}" || model="${model#*:}" ;; esac
+  printf '%s\n' "$model" | sed -E 's/-(low|medium|high|xhigh|max)$//'
+}
 
 # phase_model_tuples <tool> <phase> <table>: every row of the tool for the phase, whatever its class, as
 # class<TAB>model<TAB>effort; a row that routes to another tool (a model with a colon) names no tuple of this one.
@@ -114,7 +159,7 @@ phase_model_setup() {
   local file="$1" class="$2" table="$3" entries phase tool model effort row rows
   [ -f "$file" ] && [ -r "$file" ] || { echo "the setup file $file cannot be read" >&2; return 1; }
   # Read as one array, because an empty file or a second value would otherwise pass as no entry or as a second Setup
-  entries="$(jq -s -r '
+  entries="$(jq -s -r --argjson tools "$(tool_order_tools_json)" '
     def ceiling($phase; $tool): if $phase == "build" then (if $tool == "codex" then 250000 else 300000 end) elif $phase == "review" then 150000 else 100000 end;
     def whole: type == "number" and . == floor and . > 0;
     def text: type == "string" and test("^[^[:space:]]+$");
@@ -123,7 +168,7 @@ phase_model_setup() {
     | [ to_entries[] | .key as $phase
     | if ($phase | IN("build", "review", "ui-test") | not) then error("it names the phase \($phase), which is none of build, review and ui-test") else . end
     | (.value | if type != "object" then error("\($phase) is not an object of tools") else . end) | to_entries[] | .key as $tool
-    | if ($tool | IN("claude", "codex", "agy") | not) then error("\($phase) names the tool \($tool), which is none of claude, codex and agy") else . end
+    | if ($tool | IN($tools[]) | not) then error("\($phase) names the tool \($tool), which is none of \($tools | join(", "))") else . end
     | .value as $e
     | if ($e | type) != "object" or ($e | keys) != ["budget_tokens", "effort", "estimate_tokens", "model", "reason"]
       then error("\($phase) \($tool) must hold exactly model, effort, estimate_tokens, budget_tokens and reason") else . end
@@ -189,17 +234,18 @@ phase_model_native_row() {
 tool_order_audit() {
   tool_order_paths
   command -v node >/dev/null 2>&1 || { tool_order_error 'tool-order audit read failure: node is not on the PATH'; return 2; }
-  node --input-type=module - "$TOOL_ORDER_HOME" <<'JS'
+  node --input-type=module - "$TOOL_ORDER_HOME" "$(tool_order_tools | paste -sd, -)" <<'JS'
 import fs from 'node:fs';
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 const home = process.argv[2];
-const tools = ['codex', 'agy', 'claude'];
+const tools = process.argv[3].split(',');
+const word = s => typeof s === 'string' && /^[a-z0-9][a-z0-9._-]*$/.test(s);
 const positive = n => typeof n === 'number' && Number.isFinite(n) && n > 0;
 const text = s => typeof s === 'string' && s.length > 0;
 const base = s => s.replace(/^(claude|codex|agy):/, '').replace(/-(low|medium|high|xhigh|max)$/, '');
 const effective = t => [base(t.model), t.effort === '-' ? /-(low|medium|high|xhigh|max)$/.exec(t.model)?.[1] || '-' : t.effort];
-const tuple = t => t && tools.includes(t.tool) && text(t.model) && text(t.effort);
+const tuple = t => t && word(t.tool) && text(t.model) && text(t.effort);
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const exists = p => { try { fs.lstatSync(p); return true; } catch (e) { if (e.code === 'ENOENT') return false; throw e; } };
 const read = p => fs.readFileSync(p, 'utf8');
@@ -232,7 +278,7 @@ function snapshot() {
     const state = exists(file) ? JSON.parse(read(file)) : null;
     if (state !== null && (state.version !== 1 || !Array.isArray(state.orders) || !state.orders.length || state.orders.some((o, i) =>
       o.generation !== i + 1 || !positive(o.time) || (i && o.time < state.orders[i - 1].time) ||
-      !Array.isArray(o.tools) || new Set(o.tools).size !== o.tools.length || o.tools.some(t => !tools.includes(t))))) throw Error(`malformed ${file}`);
+      !Array.isArray(o.tools) || new Set(o.tools).size !== o.tools.length || !o.tools.every(word)))) throw Error(`malformed ${file}`);
     const log = path.join(home, 'phase-model.jsonl');
     const decisions = exists(log) ? jsonLines(read(log), log) : [];
     for (const d of decisions) {
@@ -334,6 +380,7 @@ function audit() {
   }
 
   const starts = [], resumes = [], noStarts = [], unknown = [], counts = Object.fromEntries(tools.map(t => [t, new Set()]));
+  const countStart = (tool, name) => { (counts[tool] ||= new Set()).add(name); };
   let oldNamesArtifactsOnly = 0;
   for (const e of names.values()) {
     const match = parseName(e.name), number = Number(match[2]);
@@ -349,8 +396,9 @@ function audit() {
     for (const [tool, list] of e.native) if (new Set(list.map(n => n.id)).size !== 1) e.problems.push(`several ${tool} native identities under one name`);
     const observations = e.observations;
     for (const o of observations) {
-      if (o.version !== 1 || !['attempt', 'native'].includes(o.kind) || !['start', 'resume'].includes(o.operation) || !tuple(o) || !positive(o.invoked) ||
-        (o.kind === 'native' && (!positive(o.observed) || o.observed < o.invoked || !text(o.nativeIdentity)))) e.problems.push('malformed launch observation');
+      if (o.version !== 1 || !['attempt', 'native', 'end'].includes(o.kind) || !['start', 'resume'].includes(o.operation) || !tuple(o) || !positive(o.invoked) ||
+        (o.kind === 'native' && (!positive(o.observed) || o.observed < o.invoked || !text(o.nativeIdentity))) ||
+        (o.kind === 'end' && (!positive(o.ended) || o.ended < o.invoked || !text(o.phase) || !text(o.class)))) e.problems.push('malformed launch observation');
     }
     const confirmed = observations.filter(o => o.kind === 'native' && tuple(o) && positive(o.invoked) && positive(o.observed) && text(o.nativeIdentity));
     if (!confirmed.length) {
@@ -392,7 +440,7 @@ function audit() {
       } else if (o.phase !== undefined && o.phase !== phase) problems.push('phase name conflicts with observation');
       const start = {e,o,problems,project,phase,lower:o.invoked,upper:o.observed};
       if (o.operation === 'start') {
-        if (identity.length === 1 && nativeNames.get(idKey)?.size === 1 && positive(start.lower) && start.lower >= order.time) counts[o.tool].add(e.name);
+        if (identity.length === 1 && nativeNames.get(idKey)?.size === 1 && positive(start.lower) && start.lower >= order.time) countStart(o.tool, e.name);
         starts.push(start);
       } else resumes.push(start);
     }
@@ -437,7 +485,7 @@ function audit() {
   for (const message of unknown) console.log(`UNKNOWN ${message}`);
   for (const message of noStarts) console.log(`NO START ${message}`);
   if (oldNamesArtifactsOnly) console.log(`NO START ${oldNamesArtifactsOnly} old single-letter names with artifacts only, no launch observation and no native identity; not listed one by one`);
-  console.log(`phase starts since set time: ${tools.map(t=>`${t} ${counts[t].size}`).join(', ')}; matched ${matched}/${examined.length + unknown.filter(x=>!examined.some(s=>x.startsWith(s.e.name))).length} examined observations; matched starts ${matchedStarts}/${examined.filter(s=>s.o.operation === 'start').length}; red ${red}; unknown ${unknown.length}; no start ${noStarts.length + oldNamesArtifactsOnly}; resumes ${examined.filter(s=>s.o.operation === 'resume').length} (not counted again)`);
+  console.log(`phase starts since set time: ${Object.keys(counts).map(t=>`${t} ${counts[t].size}`).join(', ')}; matched ${matched}/${examined.length + unknown.filter(x=>!examined.some(s=>x.startsWith(s.e.name))).length} examined observations; matched starts ${matchedStarts}/${examined.filter(s=>s.o.operation === 'start').length}; red ${red}; unknown ${unknown.length}; no start ${noStarts.length + oldNamesArtifactsOnly}; resumes ${examined.filter(s=>s.o.operation === 'resume').length} (not counted again)`);
   if (nativeFailure) { console.error(`error: tool-order audit read failure: ${nativeFailure}`); process.exitCode = 2; }
 }
 try { audit(); }

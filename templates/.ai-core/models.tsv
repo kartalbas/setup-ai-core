@@ -5,7 +5,11 @@
 # and resume; `ai-core tool-order` persists the owner's machine-wide preference across restarts.
 # Columns: tool <TAB> phase <TAB> class <TAB> model <TAB> effort
 #
-# tool    claude, codex or agy, by the name of its command on PATH. Each tool is its own ecosystem
+# tool    claude, codex or agy, by the name of its command on PATH, or the name of a file of ~/.ai-core/secrets/:
+#         an Anthropic API key (mode 0600 in a folder with mode 0700) that runs Claude Code in print mode on
+#         the models its rows name, with the key in the environment of that one run; its weekly spend against
+#         API_KEY_WEEK_LIMIT_USD of config.env is its usage. This table carries no row for a key, because the name of
+#         a key is a project's: a project harness adds its rows in its own table. Each tool is its own ecosystem
 #         with its own coordinator and models. A package stays in its coordinator's ecosystem.
 #         Without a saved order a `<tool>:<model>` row routes a native-tool selection to its
 #         declared destination. An explicit order governs actual execution tools. A package keeps

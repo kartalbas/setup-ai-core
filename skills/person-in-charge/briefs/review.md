@@ -68,8 +68,9 @@ that you change nothing outside a throwaway folder for a probe.
     TESTS: <n> go red on their defect; doubtful: <test, why>
     NOTES: <what you could not verify, and why>
 
-Once it is posted, send its first line to the coordinator ({{how to reach the coordinator}}),
-because a comment on an issue wakes nobody.
+Your last step, once it is posted, is one more comment, `ai-core issue-comment {{session issue repository}} {{session issue number}} --body-file <file>`, whose first line is
+`Reported by {{session name}}:` and which holds the first line of your verdict: it is what ends your session and wakes the
+coordinator.
 
 A finding blocks, and only these are FINDINGS: behaviour that is wrong in a state you name, a test
 that is red or cannot go red on its defect, an unmet criterion, a broken contract, a leftover. Of these, what you can repair inside the package's own

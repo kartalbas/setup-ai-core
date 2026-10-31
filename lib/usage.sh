@@ -2,7 +2,7 @@
 # What an account's usage windows stand at, as the tool of the session recorded them: the one reader of
 # bin/usage.sh (its display and its exit statuses) and of bin/status.sh (its page). Source it, do not run it.
 #
-#   usage_read TOOL [MODEL]   TOOL is claude, codex or agy; MODEL is for agy. Returns 0 and sets
+#   usage_read TOOL [MODEL]   TOOL is claude, codex, agy or a key (a file of ~/.ai-core/secrets/); MODEL is for agy. Returns 0 and sets
 #     usage_windows   one row each, tab separated: the window's key in the history, the name shown, its
 #                     length in minutes (0 when unknown), the share used, the epoch of its reset (empty when unknown)
 #     usage_recorded  the epoch the tool recorded the windows at
@@ -16,6 +16,8 @@
 #   usage_snapshot TOOL   prints the structured snapshot lib/status.mjs reads, one JSON object, for any
 #                     tool the session can run on. A reading that failed is the snapshot's "failure", not an error of the
 #                     snapshot, which fails only when usage_release does.
+
+. "$(dirname "${BASH_SOURCE[0]}")/tool-order.sh"
 
 usage_history_lock=""
 usage_agy_error=""
@@ -62,11 +64,13 @@ USAGE_DATES='def stamp:
 usage_read() {  # usage_read <tool> [model]
   local tool="$1" model="${2-}" status=0
   usage_failure=""; usage_notice=""; usage_windows=""; usage_recorded=""; usage_readings=""
+  tool_order_paths
   case "$tool" in
     codex) usage_read_codex || status=2 ;;
     agy) usage_read_agy "$model" || status=2 ;;
     claude) usage_read_claude || status=2 ;;
-    *) usage_reject "usage does not read the quota of $tool"; status=2 ;;
+    *) if tool_order_is_tool "$tool"; then usage_read_key "$tool" || status=2
+       else usage_reject "usage does not read the quota of $tool"; status=2; fi ;;
   esac
   if [ "$status" -eq 0 ] && [ -z "$usage_windows" ]; then usage_reject "$tool gave no usage window"; status=2; fi
   # What a reader had in hand when it failed is no reading
@@ -279,6 +283,29 @@ usage_read_claude() {
       { if ($2 != "-") print "five_hour\t" $1 "\t" $2 "\t" $3; if ($4 != "-") print "seven_day\t" $1 "\t" $4 "\t" $5 }
       ' "$history" 2>&1)" || { usage_reject "${usage_readings##*$'\n'}"; return 2; }
   fi
+}
+
+# The spend of a key: the cost of its print runs of the last seven days, from the end records that start-phase writes into
+# ~/.ai-core/sessions/, as the share of API_KEY_WEEK_LIMIT_USD that the project sets for its keys. A key with no limit set,
+# or one whose run ended without a cost, is no reading.
+usage_read_key() {  # usage_read_key <tool>
+  local tool="$1" problem config limit now spent records record
+  problem="$(tool_order_check_secret "$tool" 2>&1)" || { usage_failure="$problem"; return 2; }
+  config="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.ai-core/config.env"
+  limit="$(config_value_in_file "$config" API_KEY_WEEK_LIMIT_USD "")" || return 2
+  limit="${limit//[[:space:]]/}"
+  { [[ "$limit" =~ ^[0-9]+(\.[0-9]+)?$ ]] && awk -v l="$limit" 'BEGIN { exit !(l > 0) }'; } \
+    || { usage_reject "$tool is a key, and API_KEY_WEEK_LIMIT_USD of $config is empty or no positive number of US dollars: set the weekly limit of the keys there"; return 2; }
+  now="$(usage_now)"
+  records=""
+  while IFS= read -r record; do records="$records$record"$'\n'; done < <(find "$TOOL_ORDER_HOME/sessions" -maxdepth 1 -name '*.start.jsonl' -exec cat {} + 2>/dev/null)
+  spent="$(jq -sr --arg tool "$tool" --argjson since "$((now - 7 * 86400))" '
+    [.[] | select(type == "object" and .kind == "end" and .tool == $tool and (.ended | type == "number") and .ended >= $since)
+      | (.costUsd | if type == "number" and . >= 0 then . else error("an end record of \($tool) holds no cost") end)] | add // 0' <<< "$records" 2>&1)" \
+    || { usage_reject "the end records of $tool: ${spent#jq: *: }"; return 2; }
+  usage_windows="$(awk -v t="$tool" -v s="$spent" -v l="$limit" 'BEGIN { printf "week\t%s: week\t10080\t%.2f\t\n", t, 100 * s / l }')"
+  usage_recorded="$now"
+  usage_notice="$tool spent \$$spent of \$$limit in the last seven days"
 }
 
 usage_snapshot() {  # usage_snapshot <tool>

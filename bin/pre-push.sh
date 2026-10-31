@@ -898,13 +898,24 @@ while IFS= read -r sha; do
   [ -n "$sha" ] || continue
   added="$(git show --format= --unified=0 --no-color "$sha" -- . ':!*.md' ':!*.json' ':!*.lock' ':!CHANGELOG*' 2>/dev/null | tr -d '\0' || true)"
   hits="$(awk '
+    # where a trailing // or /* opens a comment: past the quoted strings of the line, and a // after a colon is a URL
+    function commentAt(line,   i, c, pair, quote) {
+      quote = ""
+      for (i = 1; i <= length(line); i++) {
+        c = substr(line, i, 1); pair = substr(line, i, 2)
+        if (quote != "") { if (c == "\\") i++; else if (c == quote) quote = ""; continue }
+        if (c == "\"" || c == "\047" || c == "`") quote = c
+        else if (pair == "/*" || (pair == "//" && substr(line, i - 1, 1) != ":")) return i
+      }
+      return 0
+    }
     # git ends a name that holds a space with a tab, which would join the line read after it
     /^\+\+\+ / { file = substr($0, 7); sub(/\t$/, "", file); next }
     /^\+/ {
       line = substr($0, 2)
       # the comment is the whole line where it opens one, else what follows a trailing // or /*
       if (line ~ /^[[:space:]]*(#|\*|--|;|\/\/|\/\*|<!--)/) comment = line
-      else if (match(line, /[^:]\/\/|\/\*/)) comment = substr(line, RSTART)
+      else if ((at = commentAt(line)) > 0) comment = substr(line, at)
       else next
       if (comment ~ /\(#[0-9]+\)|[A-Za-z0-9._-]+#[0-9]+/) print file "\t" line
     }' <<< "$added")"

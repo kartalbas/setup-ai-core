@@ -651,6 +651,22 @@ printf 'const ref = "acme-shop#12"; // the order the board reads\n' > "$repo/src
 git -C "$repo" add src/app.js; git -C "$repo" commit -q -m 'Read the board whole #12'
 out="$(only_new "$repo")"; rc=$?
 check 'exit 0'                         0 "$rc"
+echo 'a /* inside a quoted string opens no comment; a block comment, or a trailing // comment after such a string, still counts'
+printf 'const glob = "deploy/prod/*"; const ref = "acme-shop#%s";\n' "$n" > "$repo/src/glob.js"
+git -C "$repo" add src/glob.js; git -C "$repo" commit -q -m 'Name the deploy folder #12'
+out="$(only_new "$repo")"; rc=$?
+check 'innocent: a repository#number after "deploy/prod/*" in code: exit 0' 0 "$rc"
+printf '/* see acme-shop#%s for the deploy folders */\nconst glob = "deploy/prod/*";\n' "$n" > "$repo/src/glob.js"
+git -C "$repo" add src/glob.js; git -C "$repo" commit -q -m 'Say where the folders are #12'
+out="$(only_new "$repo")"; rc=$?
+check 'planted: a block comment holding a repository#number: exit 1' 1 "$rc"
+check 'it names the block comment line' yes "$(yesno "src/glob.js: /* see acme-shop#$n for the deploy folders */")"
+printf 'const glob = "deploy/prod/*"; /* see acme-shop#%s */\n' "$n" > "$repo/src/glob.js"
+git -C "$repo" add src/glob.js; git -C "$repo" commit -q -m 'Say where the folder is #12'
+out="$(judge "$repo" "$(git -C "$repo" rev-parse HEAD)" "$(git -C "$repo" rev-parse HEAD~1)")"; rc=$?
+check 'planted: a block comment after the string: exit 1' 1 "$rc"
+check 'it names the trailing block comment line' yes "$(yesno "src/glob.js: const glob = \"deploy/prod/*\"; /* see acme-shop#$n */")"
+git -C "$repo" reset -q --hard HEAD~3
 echo 'a comment naming an issue counts while it stands whole, also above thousands of lines that only hold it inside them'
 { printf '// read the board whole (#%s)\n' "$n"; for i in $(seq 1 20000); do printf 'const a%s = "x:// read the board whole (#%s)";\n' "$i" "$n"; done; } > "$repo/src/many.js"
 git -C "$repo" add src/many.js; git -C "$repo" commit -q -m 'Read many boards whole #12'

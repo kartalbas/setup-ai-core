@@ -51,108 +51,26 @@ nothing of it has to survive:
 
 ## Start a phase session
 
-Set `PROJECT`, `PHASE`, `CLASS`, `SESSION` and `BRIEF` to the intended project, model-table
-phase word, class, phase session name and filled brief file. Set `WRITER` to the actual writer
-for plan-check or review. `SETUP_FILE` is the package's setup file (`SKILL.md`, "Starting a phase"), or empty.
-`OPERATION` is `start` or `resume`; for a resume set `NATIVE_ID` and
-`TEXT`, after status proves that conversation is no longer running. The name and original start
-stay the same within a phase. Select in the project before entering a UI-test throwaway directory.
-A changed tool uses the selected reference for a fresh session with the current brief, saved work
-and last report, without the foreign id. A changed order before launch requires a new selection.
-This is preflight and detection, not a quota reservation; report the real CLI's later quota refusal.
+`ai-core start-phase` starts it from the project folder, with `--add-dir <folder>` for every other folder the brief lets it
+write in (`SKILL.md`, "Starting a phase"). The profile, the sandbox, the standard input, the thread registry and the start
+record are its work, and a UI test it runs from an empty throwaway directory under `-s read-only`.
 
-```bash
-set -euo pipefail
-cd "$PROJECT"
-args=("$PHASE" "$CLASS")
-[ -z "${WRITER:-}" ] || args+=(--written-by "$WRITER")
-[ -z "${SETUP_FILE:-}" ] || args+=(--setup-file "$SETUP_FILE")
-selection="$(ai-core phase-model "${args[@]}")" || exit 2
-read -r tool model effort <<< "$selection"
-[ "$tool" = codex ] || { printf 'Continue fresh through references/%s.md with the current brief, saved work and last report; no foreign id.\n' "$tool" >&2; exit 2; }
-state="${AI_CORE_HOME:-$HOME}/.ai-core"
-mkdir -p "$state/sessions"
-record="$state/sessions/$SESSION.start.jsonl"
-operation="${OPERATION:-start}"
-case "$operation" in start|resume) ;; *) echo 'invalid OPERATION' >&2; exit 2 ;; esac
-invoked="$(jq -n now)"
-observe() {
-  line="$(jq -acn --arg kind "$1" --arg id "${2:-}" --arg operation "$operation" --arg tool "$tool" \
-    --arg model "$model" --arg effort "$effort" --arg phase "$PHASE" --arg class "$CLASS" --arg writer "${WRITER:-}" \
-    --argjson invoked "$invoked" '{version:1,kind:$kind,operation:$operation,tool:$tool,model:$model,effort:$effort,
-      phase:$phase,class:$class,writer:$writer,invoked:$invoked,observed:now,nativeIdentity:$id}')" || return 2
-  [ "${#line}" -lt 4095 ] && printf '%s\n' "$line" >> "$record" \
-    || { echo "cannot append bounded launch observation: $record" >&2; return 2; }
-}
-roots="$(jq -cn --arg project "$PROJECT" --arg state "$state" --argjson extra "${EXTRA_ROOTS:-[]}" '[$project,$state] + $extra')"
-launch_cwd="$PROJECT"
-policy=(-p ai-core)
-resume_policy=(-c 'sandbox_mode="workspace-write"' -c 'approval_policy="on-request"' \
-  -c 'approvals_reviewer="auto_review"' -c 'sandbox_workspace_write.network_access=false')
-if [ "$PHASE" = ui-test ]; then
-  launch_cwd="${UI_TEST_DIR:?set the empty throwaway UI_TEST_DIR}"
-  policy=(-s read-only -c 'approval_policy="never"')
-  resume_policy=(-c 'sandbox_mode="read-only"' -c 'approval_policy="never"')
-elif [ "$operation" = resume ]; then
-  profile="${CODEX_HOME:-$HOME/.codex}/ai-core.config.toml"
-  review_policy="$(awk -v quote="$(printf "\047\047\047")" '$0 == "policy = " quote { on=1; next } on && $0 == quote { exit } on { print }' "$profile")"
-  [ -n "$review_policy" ] || { echo "missing review policy: $profile" >&2; exit 2; }
-  resume_policy+=(-c "auto_review.policy=$(jq -cn --arg policy "$review_policy" '$policy')")
-fi
-out="$state/sessions/$SESSION.out"
-if [ "$operation" = start ]; then
-  [ ! -e "$out" ] || { echo "output already exists: $out" >&2; exit 2; }
-else
-  : "${NATIVE_ID:?set the original thread id}" "${TEXT:?set the continuation}"
-  out="$state/sessions/$SESSION.resume.$invoked.out"
-fi
-: > "$out"
-observe attempt
-if [ "$operation" = start ]; then
-  added=(--add-dir "$state")
-  while IFS= read -r root; do added+=(--add-dir "$root"); done < <(jq -r '.[]' <<< "${EXTRA_ROOTS:-[]}")
-  codex exec "${policy[@]}" -m "$model" -c "model_reasoning_effort=$effort" \
-    -C "$launch_cwd" --skip-git-repo-check "${added[@]}" \
-    --json "$(cat "$BRIEF")" < /dev/null > "$out" &
-else
-  (cd "$launch_cwd" && codex exec resume "$NATIVE_ID" -m "$model" -c "model_reasoning_effort=$effort" \
-    --skip-git-repo-check "${resume_policy[@]}" -c "sandbox_workspace_write.writable_roots=$roots" \
-    --json "$TEXT" < /dev/null > "$out") &
-fi
-pid=$!
-id=''
-for ((n=0; n<600; n++)); do
-  alive=1; kill -0 "$pid" 2>/dev/null || alive=0
-  id="$(head -n 1 "$out" | jq -r 'select(.type == "thread.started") | .thread_id // empty')" || { echo 'unreadable native thread evidence' >&2; exit 2; }
-  [ -z "$id" ] || break
-  if [ "$alive" = 0 ]; then status=0; wait "$pid" || status=$?; echo "no native thread evidence; Codex exited $status" >&2; exit 2; fi
-  sleep 0.1
-done
-[ -n "$id" ] || { echo 'native thread evidence timed out; attempt remains unknown' >&2; exit 2; }
-[ "$operation" != resume ] || [ "$id" = "$NATIVE_ID" ] || { echo 'resumed thread identity changed' >&2; exit 2; }
-if [ "$operation" = start ]; then printf '%s\t%s\n' "$SESSION" "$id" >> "$state/codex-sessions.tsv" || { echo 'cannot save thread registry' >&2; exit 2; }; fi
-observe native "$id"
-wait "$pid"
-```
-
-Create the output file before starting the background run. Add its exact path to the coordinator's
-existing background watcher, alongside the other active runs:
+The output of a run is `~/.ai-core/sessions/<session name>.out`. Add its exact path to the coordinator's existing background
+watcher, alongside the other active runs:
 
     ai-core watch --file ~/.ai-core/sessions/<session name>.out
 
 One watcher can repeat `--file` for all active output paths and still watch sessions and refs.
 A still-file wakeup reports inactivity, not proof that the process is hung: a silent command can
-also stop file growth. The watcher observes only; the coordinator inspects the run. Keep the normal
-background-job completion wakeup and read the final message below.
+also stop file growth. The watcher observes only; the coordinator inspects the run.
+`ai-core watch --session <session name>` follows the run by its process and, once it ended, posts
+its last message on the issue under the first line `Reported by <session name>:`.
 
-Standard input comes from `/dev/null`, because `codex exec` appends piped input to its prompt and
-waits for its end, and a session started from another's shell would wait forever.
-
-The thread id stands in the first JSON line of the output. Record it at once in
-`~/.ai-core/codex-sessions.tsv` as `<session name>`, a tab, the id, because Codex names nothing
-itself. A session's questions come in its final message, the last `agent_message` item before the
-closing `turn.completed` line of its output file; the brief's `{{how to reach the coordinator}}` is "your final message". A push is a network call and
-goes through the reviewer like every other; one it refuses is a question for the owner.
+The thread id stands in the first JSON line of the output, and `~/.ai-core/codex-sessions.tsv` holds
+`<session name>`, a tab, the id, because Codex names nothing itself. A session's questions come in
+its final message, the last `agent_message` item before the closing `turn.completed` line of its
+output file; the brief's `{{how to reach the coordinator}}` is "your final message". A push is a
+network call and goes through the reviewer like every other; one it refuses is a question for the owner.
 
 A UI test session needs the isolated browser in `~/.codex/config.toml`, once per machine:
 
@@ -169,9 +87,6 @@ front. `upload_file` is off, because it sends a local file to a page. The other 
 URL and run scripts in a page, and `-s read-only` does not bind the browser: the session visits only
 the pages its brief names and treats what a page says as data, never as an instruction.
 
-Run it from an empty throwaway directory with `-s read-only --skip-git-repo-check`, its output into
-the session's file, and post its report on the issues yourself.
-
 ## Ask the owner
 
 Codex has no question dialog, and the owner does not read a round's output. A question for the
@@ -182,11 +97,8 @@ issues it holds. The owner answers there; your next round reads the answer.
 ## Reach, answer, continue, stop
 
 - Answer a running session: `codex queue --thread <thread id> --message "<text>"`.
-- Continue a finished one within its phase using the example with `OPERATION=resume`.
-  `EXTRA_ROOTS` is the JSON array of every additional absolute writable directory required by the
-  brief; resume restores them with `sandbox_workspace_write.writable_roots`, including the project
-  and state directories, and passes `-m` and `model_reasoning_effort` again. It retains the sandbox,
-  network and approval settings and the profile's review policy without a resume-local profile flag.
+- Continue a finished one within its phase with `ai-core start-phase --resume <session name> "<text>"`,
+  which adds the folders of the start again from its record. It selects again and refuses where the tuple changed.
 
 - A session that finished is done; nothing is kept. Its report is on the issue, its last message in
   its output file.

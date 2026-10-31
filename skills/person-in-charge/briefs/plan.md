@@ -123,9 +123,9 @@ phase or a tool you leave out runs on its table row.
 
 Post each with `ai-core issue-comment {{plan issue repository}} {{plan issue number}} --body-file <file>`, one comment per section, so
 a second planner's comment never overwrites yours. Where a section replaces an earlier one of the
-same area, say so in its first line: `Replaces the section of <date>`. Then send the coordinator
-({{how to reach the coordinator}}) the first line of each section, because it sleeps between its
-rounds and a comment on an issue wakes nobody, and stop.
+same area, say so in its first line: `Replaces the section of <date>`. Your last step is one more
+comment, `ai-core issue-comment {{session issue repository}} {{session issue number}} --body-file <file>`, whose first line is `Reported by {{session name}}:` and which holds the first line of each section:
+it is what ends your session and wakes the coordinator, which sleeps between its rounds.
 
 ## Rules you keep
 

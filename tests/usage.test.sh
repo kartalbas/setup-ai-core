@@ -460,6 +460,45 @@ rm "$HOME/.ai-core/usage.json"
 usage_report
 check 'failed quota remains exit 2 beside a failed audit' 2 "$rc"
 
+echo 'a key is a tool: its spend of the last seven days against API_KEY_WEEK_LIMIT_USD, as the share used'
+mkdir -p "$HOME/.ai-core/secrets" "$HOME/.ai-core/sessions"; chmod 700 "$HOME/.ai-core/secrets"
+printf 'sk-ant-MADEUPKEY-0000' > "$HOME/.ai-core/secrets/acme-key"; chmod 600 "$HOME/.ai-core/secrets/acme-key"
+end_record() {  # end_record <name> <seconds ago> <cost or null> [tool]
+  jq -cn --argjson ended "$(( $(date +%s) - $2 ))" --argjson cost "$3" --arg tool "${4:-acme-key}" \
+    '{version:1,kind:"end",operation:"start",tool:$tool,model:"claude-fable-5-1",effort:"high",phase:"build",class:"mechanical",writer:"",invoked:($ended - 60),ended:$ended,duration:60,report:"u",costUsd:$cost}' > "$HOME/.ai-core/sessions/$1.start.jsonl"
+}
+mkdir -p "$work/project/.ai-core"; printf 'API_KEY_WEEK_LIMIT_USD="10"\n' > "$work/project/.ai-core/config.env"
+end_record build10001-fable5.1-high-100k-aaaaa 100 5; end_record build10002-fable5.1-high-100k-bbbbb 691200 4; end_record build10003-sonnet5.5-high-100k-ccccc 100 9 claude
+out="$(cd "$work/project" && bash "$root/bin/usage.sh" --tool acme-key 2>&1)"; rc=$?
+check 'five dollars of ten, an older run and another tool left out: exit 0' 0 "$rc"
+check 'it shows the share'       yes "$(grep -q '^acme-key: week  *50 % used  reset unknown' <<< "$out" && echo yes || echo no)"
+check 'it says what was spent'   yes "$(grep -q 'acme-key spent \$5 of \$10 in the last seven days' <<< "$out" && echo yes || echo no)"
+end_record build10004-fable5.1-high-100k-ddddd 50 4.5
+out="$(cd "$work/project" && bash "$root/bin/usage.sh" --tool acme-key 2>&1)"; rc=$?
+check 'planted: 95 % of the limit: exit 3' 3 "$rc"
+check 'it names the share'       yes "$(grep -q '95 % used' <<< "$out" && echo yes || echo no)"
+printf 'API_KEY_WEEK_LIMIT_USD=""\n' > "$work/project/.ai-core/config.env"
+out="$(cd "$work/project" && bash "$root/bin/usage.sh" --tool acme-key 2>&1)"; rc=$?
+check 'no limit set: exit 2' 2 "$rc"
+check 'it names the key and the setting' yes "$(grep -q 'acme-key is a key, and API_KEY_WEEK_LIMIT_USD' <<< "$out" && echo yes || echo no)"
+printf 'API_KEY_WEEK_LIMIT_USD="10"\n' > "$work/project/.ai-core/config.env"
+chmod 644 "$HOME/.ai-core/secrets/acme-key"
+out="$(cd "$work/project" && bash "$root/bin/usage.sh" --tool acme-key 2>&1)"; rc=$?
+check 'a key with mode 644: exit 2' 2 "$rc"
+check 'it names the mode'        yes "$(grep -q 'has mode 644, not 600' <<< "$out" && echo yes || echo no)"
+chmod 600 "$HOME/.ai-core/secrets/acme-key"; chmod 755 "$HOME/.ai-core/secrets"
+out="$(cd "$work/project" && bash "$root/bin/usage.sh" --tool acme-key 2>&1)"; rc=$?
+check 'a folder with mode 755: exit 2' 2 "$rc"
+check 'it names the folder mode' yes "$(grep -q 'has mode 755, not 700' <<< "$out" && echo yes || echo no)"
+chmod 700 "$HOME/.ai-core/secrets"
+end_record build10005-fable5.1-high-100k-eeeee 20 null
+out="$(cd "$work/project" && bash "$root/bin/usage.sh" --tool acme-key 2>&1)"; rc=$?
+check 'planted: a run that ended without a cost is no reading: exit 2' 2 "$rc"
+rm -f "$HOME/.ai-core/sessions/build10005-fable5.1-high-100k-eeeee.start.jsonl"
+out="$(cd "$work/project" && bash "$root/bin/usage.sh" --tool nosuchkey 2>&1)"; rc=$?
+check 'a name that is no file of the secrets folder: exit 2' 2 "$rc"
+rm -rf "$HOME/.ai-core/secrets" "$HOME/.ai-core/sessions" "$work/project/.ai-core/config.env"
+
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo
 echo 'all passed'

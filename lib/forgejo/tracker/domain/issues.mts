@@ -57,7 +57,7 @@ export interface Thread {
   readonly labels: readonly string[];
   readonly assignees: readonly string[];
   readonly body: string;
-  readonly comments: readonly { readonly author: string; readonly created_at: string; readonly body: string }[];
+  readonly comments: readonly { readonly author: string; readonly created_at: string; readonly body: string; readonly url: string }[];
 }
 
 export function parseRepository(text: string): RepositoryRef {
@@ -204,7 +204,7 @@ export async function readThread(api: ForgejoClient, ref: IssueRef): Promise<Thr
     labels: issue.labels,
     assignees: issue.assignees,
     body: issue.body,
-    comments: comments.map((comment) => ({ author: comment.author, created_at: comment.createdAt, body: comment.body })),
+    comments: comments.map((comment) => ({ author: comment.author, created_at: comment.createdAt, body: comment.body, url: comment.url })),
   };
 }
 

@@ -59,7 +59,7 @@ coordinator planned it, named in its `Ecosystem:` line. The
 issues nobody planned yet belong to the first tool of `ECOSYSTEM_ORDER` in `.ai-core/config.env`; a
 coordinator of a later tool plans only the areas or issues the owner's start prompt hands it, and the
 owner starts it when the ecosystems before it have no quota. `references/<tool>.md` holds your
-tool's commands. The owner's start of a coordinator is the yes for every phase session of its
+tool's commands, except the start of a phase, which is `ai-core start-phase`. The owner's start of a coordinator is the yes for every phase session of its
 packages on the table's rows; an explicit instruction to send a phase to another tool also
 authorizes that start, and every other start needs the owner's yes.
 
@@ -171,7 +171,7 @@ is left for a finding that needs a decision of the owner, a change beyond the pa
 contracts, or a wrong approach; a landing that the gate refuses for the package's own change on
 the merged tree goes back to a review that repairs it in the same way, never to a fresh build; a plan check repairs what is small itself and says GO
 with REPAIRED lines, so its NO is left for what is too large for a few lines or needs a decision.
-A review NO that needs the owner waits for that decision; a wrong approach goes back to re-plan.
+A review NO that needs the owner waits for that decision; so does a wrong approach, whose re-plan starts with the owner's decision as its `--reason`.
 Any remaining review NO starts a fresh build session with its findings; a plan check that says NO starts a fresh re-plan session
 with its GAPS. The repair a build makes after a review NO is not
 reviewed whole again: one re-check (`briefs/review.md`, its section on a re-check) reads only the
@@ -199,21 +199,23 @@ more` line is a GAP for the next plan of that area.
 
 ## Starting a phase
 
-1. In the intended project context, read `ai-core tool-order` and run
-   `ai-core phase-model <phase> <class>`; for `plan-check` and `review` pass
-   `--written-by <actual writer model>`. Successful stdout is exactly `TOOL MODEL EFFORT`.
-   Record that order and tuple in every PHASE line. A failed reading refuses the selection;
-   do not invent a fallback, model or effort. Repeat this preflight immediately before a resume.
-   Where the package section's `Setup:` line holds a JSON object, write that object to
+`ai-core start-phase` starts every phase session, on every tool. It reads `ai-core tool-order` and runs
+`ai-core phase-model <phase> <class>` (with `--written-by <actual writer model>` for `plan-check` and `review`).
+Successful stdout is exactly `TOOL MODEL EFFORT`; a failed reading refuses the selection, and the command starts
+nothing: it invents no fallback, model or effort. It starts on nothing but that tuple; it takes no `--tool`, `--model`
+or `--effort`, and one given is refused with the selector's tuple beside it. No phase session is started
+by hand with `claude`, `codex` or `agy`: a start by hand has no deadline, no record and no end.
+
+1. Where the package section's `Setup:` line holds a JSON object, write that object to
    `~/.ai-core/sessions/<package>.setup.json` as the text it is (a quoted here-document or a file
-   write, never evaluated as shell) and add `--setup-file <that file>` to the selection of its
-   `build`, `review` and `ui-test` phases, plan checks and plans none. `phase-model` then checks the
-   whole object against `.ai-core/models.tsv` before it reads any quota, uses the entry of each tool
-   in the saved order where it has one for the phase and the tool's table row where it has none, and
-   refuses an entry the table does not allow; it still prints only `TOOL MODEL EFFORT`. The phase's
-   budget is the `budget_tokens` of the selected tool's entry (`jq --arg phase <phase> --arg tool
-   <tool> '.[$phase][$tool].budget_tokens' <that file>`, which prints `null` where it has none), the
-   phase default where it has none; a re-check keeps its 100k.
+   write, never evaluated as shell) and give the start of its `build`, `review` and `ui-test` phases
+   `--setup-file <that file>`, plan checks and plans none. `phase-model` then checks the whole object
+   against `.ai-core/models.tsv` before it reads any quota, uses the entry of each tool in the saved
+   order where it has one for the phase and the tool's table row where it has none, and refuses an
+   entry the table does not allow. The phase's budget is the `budget_tokens` of the selected tool's
+   entry; where the entry has none, or no setup file is given, pass `--budget <k>` with the phase
+   default in thousands (`150`, `300`, `250`, `100`); a re-check keeps its 100k, `--budget 100`. The name of the session
+   carries the selected tool's phase budget, and a start without a budget is refused.
 2. Before a plan and before a plan check: `git -C <clone> fetch -q origin` for every clone of the
    folder and of each partner folder, because both read what origin ships. Before a build: `ai-core start-issue <first issue>` in the first
    repository's clone, and `ai-core start-issue <owner/repo> <first issue>` in the clone of every
@@ -243,29 +245,57 @@ more` line is a GAP for the next plan of that area.
    }
    ```
 3. Fill the phase's brief: every `{{placeholder}}` from the package section, the issues' text, the
-   worktree paths and the verdicts. The `{{context budget}}` of a build, a review and a UI test is that
-   budget, written `<n>k` with `n` rounded up to whole thousands. In a review and a re-check the reviewer and the builder are such
-   placeholders: the name, model and effort of the review session this start selected, and of the
-   build session you launched (for a re-check, of the session that built the repair), each as you
-   launched it and `unknown` where you do not have it, never guessed; the review writes them into its
-   verdict, and `ai-core status --tokens` counts the verdicts per builder setup. A brief with a placeholder left is not sent. Save the filled
-   brief as `~/.ai-core/sessions/<session name>.brief.md`, the name step 4 gives; it is the session's
-   whole world, and its name tells every later coordinator on the machine that the number ran.
-4. Start on exactly the selected tool, model and effort as `references/<tool>.md` says. Name it
-   `<phase><n>-<model><version>-<effort>-<budget>k-<5 hex>`, using the selected tool's phase budget
-   (step 1; Claude's window is that budget plus 100000),
-   the model-table phase word (`plan`, `re-plan`, `plan-check`, `build`, `review`, `ui-test` or `keeper`)
-   and the next number of your own block (`briefs/coordinator.md`). Plan re-checks use `plan-check`,
-   review re-checks `review`, live checks `ui-test`. Retain the launch attempt and native identity
-   observations in `${AI_CORE_HOME:-$HOME}/.ai-core/sessions/<session name>.start.jsonl`.
-   Before a resume confirm the conversation is no longer running. If selection changes tools,
-   start a fresh session through the selected reference with the current brief, saved work and
-   last report; never send a foreign conversation id or keep running the old tool.
-   A changed order before launch requires another selection. This is preflight and detection,
-   not a reservation: another process can spend quota after the read. Report a native quota
-   refusal; a selection alone proves no start. For UI tests select in the project before
-   changing to the throwaway directory. `ai-core usage` reports proven starts and unknown evidence.
-5. Move the cards (`ai-core issue-status <n>... <column>`); `start-issue` and `finish-issue` move
+   worktree paths and the verdicts, and save it as a file of your own. Leave `{{session name}}`,
+   `{{session issue repository}}` and `{{session issue number}}` as they are: the command fills them,
+   copies the brief to `~/.ai-core/sessions/<session name>.brief.md`, which is the session's whole world and whose name
+   tells every later coordinator on the machine that the number ran, and adds the frame of the harness at its end. In a
+   review and a re-check the reviewer and the builder are such placeholders: the name, model and effort of the
+   review session this start will select, and of the build session you launched (for a re-check, of the session that
+   built the repair), each as you launched it and `unknown` where you do not have it, never guessed; the review writes them into its
+   verdict, and `ai-core status --tokens` counts the verdicts per builder setup. The
+   `{{context budget}}` of a build, a review and a UI test is the budget of step 1, written `<n>k` with `n` rounded up to
+   whole thousands. A brief with a placeholder left is refused by the command.
+4. Run, in the folder the phase works in (`references/<tool>.md` names it per tool; a UI test runs in the project folder):
+
+   ```bash
+   ai-core start-phase <phase> <class> --issue <OWNER/REPO#N> --brief <the filled brief> --number <n> \
+     [--written-by <actual writer model>] [--setup-file <file>] [--budget <k>] [--add-dir <folder>]...
+   ```
+
+   `<phase>` is the model-table phase word (`plan`, `re-plan`, `plan-check`, `build`, `review`, `ui-test` or
+   `keeper`); plan re-checks use `plan-check`, review re-checks `review`, live checks `ui-test`. `<n>` is the next number of
+   your own block (`briefs/coordinator.md`); a number that any start record of the machine holds is refused.
+   `--written-by` is the actual writer model for `plan-check` and `review`. `--issue` is the issue the session
+   reports on: the plan issue for a plan, a re-plan, a plan check, a review and a keeper, the plan issue of the first
+   package for a UI test that serves several, the first issue of the package for a build. A `re-plan` also takes `--package <the first issue of the package>` and
+   `--reason <the URL or number of the comment on the plan issue that makes it one>`: a plan check's `NO` or
+   an owner's decision; the command refuses any other and posts the re-plan's PHASE line itself.
+   The command prints one worker line, `<session name> <tool> <phase> <OWNER/REPO#N>: <what it does> (<deadline>)`,
+   and exit 2 with the reason on stderr where it started nothing. Exit 1 means the tool started and a step after it failed,
+   named on stderr: the session may run, so it is not started again, and a PHASE line of a re-plan that stderr prints is
+   posted by you where the plan issue does not hold it yet. Relay the worker line in your report channel,
+   keep the session name, and write the saved order (`ai-core tool-order`) and the tool, model and effort of
+   the session's start record (`~/.ai-core/sessions/<session name>.start.jsonl`) into every PHASE line of it.
+   A refusal is never answered by a start by hand: read it, fix the call, run it again. The deadline is one and a half times the
+   measured duration of the newest run of the same phase and class on the machine that started fresh and gave its report,
+   or `unmeasured` where none did;
+   it is never replaced by a number of your own. If the selection changes tools, start a fresh session with the current
+   brief, saved work and last report; never send a foreign conversation id or keep running the old tool. A changed order
+   before the start needs no step of yours: the command selects again. This is preflight and detection, not a reservation:
+   another process can spend quota after the read. Report a native quota refusal; a selection alone proves no start.
+   `ai-core usage` reports proven starts and unknown evidence.
+5. Run `ai-core watch --session <session name>` in the background, once for every running worker (one command with a `--session`
+   for each; `references/<tool>.md` says how to keep it). It wakes you when the session's deadline has passed, when its report
+   is on the issue, or when it compacts in a loop. A background Claude session reports with a comment whose first line is
+   `Reported by <session name>:`, which its brief tells it to post as its last step; a print run (a UI test, a Codex or agy session, a key)
+   has its output posted under that line by the watch once its process ended. The watch then stops a background session by `claude stop` and
+   writes the session's end record, so a message to its name starts nothing; where the tracker refuses the report (an email address, a
+   stated time) the watch says `report refused` with the refusal and writes no end record, and you post the report yourself; a
+   report of a key run that holds that key is refused the same way and not posted at all, and you post it without the key. Read the
+   report on the issue. A session that stopped before its phase was done continues with
+   `ai-core start-phase --resume <session name> "<text>"`, after `ai-core status` proved that conversation is no longer running;
+   a print run (a UI test, a key) is not resumed but started again.
+6. Move the cards (`ai-core issue-status <n>... <column>`); `start-issue` and `finish-issue` move
    their own.
 
 ## The round, every 10 minutes
@@ -273,7 +303,8 @@ more` line is a GAP for the next plan of that area.
 Wake yourself for it (`references/<tool>.md` says how); a Claude coordinator also keeps the
 background `ai-core watch --session` of its running workers there, because a worker stuck compacting
 is busy and wakes nobody else. Read `ai-core status`. Answer every session
-it marks blocked and every report unanswered; end every session whose phase is done; start every
+it marks blocked and every report unanswered; see that every session whose phase is done has its end record (`ai-core watch --session` writes it once the
+report is on the issue); start every
 phase that is due, across all packages, a blocker's first and before any new plan (a part another
 part names in its `After:`, a side a partner waits for, a fault on a live environment); a package
 whose `After:` part has not landed, that shares a file or a contract with a package between build

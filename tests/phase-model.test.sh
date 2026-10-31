@@ -333,5 +333,14 @@ check('a mkdir that cannot tell a held lock does not decide the order lock, and 
   fs.writeFileSync(file,good);fs.unlinkSync(lock);select(['build','normal-hard'],'claude same high');
 });
 check('unreadable order refuses and records the failed selection',()=>{fs.writeFileSync(orderFile,'bad');const before=records().length;deny(['build','normal-hard'],/cannot read/);assert.equal(records().length,before+1);assert.equal(records().at(-1).selected,null);order();});
+check('a key is a tool: a secret file named in the saved order is selected on its row, skipped at its limit, and refused once the file is gone',()=>{
+  const secrets=path.join(state,'secrets');fs.mkdirSync(secrets,{mode:0o700,recursive:true});fs.writeFileSync(path.join(secrets,'acme-key'),'made-up',{mode:0o600});fs.writeFileSync(path.join(quota,'acme-key'),'0');
+  order(['acme-key','claude']);table([['acme-key','build','*','claude-fable-5-1','high'],['claude','build','*','claude-sonnet-5-5','high']]);
+  select(['build','normal-hard'],'acme-key claude-fable-5-1 high');
+  assert.equal(fs.readFileSync(path.join(quota,'acme-key.args'),'utf8').trim(),'--tool acme-key');
+  assert.deepEqual(records().at(-1).selected,{tool:'acme-key',model:'claude-fable-5-1',effort:'high'});
+  setQuota('acme-key',3);select(['build','normal-hard'],'claude claude-sonnet-5-5 high');setQuota('acme-key',0);
+  fs.rmSync(path.join(secrets,'acme-key'));deny(['build','normal-hard'],/usage does not support the tool acme-key/);
+});
 console.log(`phase-model: ${checks} checks passed`);
 JS

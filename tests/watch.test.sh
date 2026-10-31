@@ -343,6 +343,140 @@ plant 's/failure = `the transcript ${A.file} holds a complete line that is not J
 healthy dig "$dig_id"; printf 'not json\n' >> "$dig_transcript"
 planted; check 'a reader that skips a line that is no JSON counts the session healthy' 124 "$rc"
 
+echo 'a session that start-phase started: its deadline, its report, its print run, and what a refused report leaves'
+# claude lists the session with its agent id and logs every stop; gh answers the thread of the issue and takes the comment
+mkdir -p "$work/bin2" "$work/sessions-state"
+cat > "$work/bin2/claude" <<EOF
+#!/usr/bin/env bash
+case "\$1" in stop) printf '%s\n' "\$2" >> "$work/stopped"; exit 0 ;; esac
+cat "$work/agents.json"
+EOF
+cat > "$work/bin2/gh" <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+  "repo view"*) echo '{"isPrivate":true}'; exit 0 ;;
+  *"--jq .html_url"*)
+    [ ! -f "$work/refuse" ] || { echo "refused: \$(cat "$work/refuse")" >&2; exit 1; }
+    for a in "\$@"; do case "\$a" in body=@*) cp "\${a#body=@}" "$work/posted" ;; esac; done
+    echo "https://example.invalid/o/r/issues/7#issuecomment-77"; exit 0 ;;
+  *comments*) cat "$work/comments.json"; exit 0 ;;
+  *"repos/o/r/issues/7"*) echo '{"number":7,"title":"The plan","state":"open","labels":[],"body":"plan","created_at":"2026-10-30T08:00:00Z"}'; exit 0 ;;
+  *) echo o/r; exit 0 ;;
+esac
+EOF
+chmod +x "$work/bin2/claude" "$work/bin2/gh"
+# watch reads the records under ${AI_CORE_HOME:-$HOME}/.ai-core, and a runner of the whole suite exports AI_CORE_HOME
+export AI_CORE_HOME="$HOME"
+sessions="$HOME/.ai-core/sessions"; mkdir -p "$sessions"
+# the key of the key tool acme-key: a made-up string in the scratch home
+watch_key='sk-ant-WATCHFAKE-0123456789'
+mkdir -p "$HOME/.ai-core/secrets"; chmod 700 "$HOME/.ai-core/secrets"
+printf '%s' "$watch_key" > "$HOME/.ai-core/secrets/acme-key"; chmod 600 "$HOME/.ai-core/secrets/acme-key"
+chmod 644 "$dig_transcript"; healthy dig "$dig_id"
+echo '[]' > "$work/comments.json"
+live_agents() { printf '[{"name":"dig","id":"agent-9","kind":"background","state":"working","status":"busy","sessionId":"%s","cwd":"%s"}]\n' "$dig_id" "$work/dig" > "$work/agents.json"; }
+record() {  # record <name> <deadline or null> <output> <tool>: the attempt and native lines of a start
+  local now; now="$(date +%s)"
+  jq -cn --argjson invoked "$((now - 30))" --argjson deadline "$2" --arg output "$3" --arg tool "$4" '{version:1,kind:"attempt",operation:"start",tool:$tool,model:"claude-sonnet-5-5",effort:"high",phase:"build",class:"mechanical",writer:"",invoked:$invoked,observed:$invoked,nativeIdentity:"",issue:"o/r#7",does:"a test",output:$output,deadline:$deadline,measuredSeconds:600,measuredFrom:"build10000-sonnet5.5-high-100k-zzzzz"}' > "$sessions/$1.start.jsonl"
+  [ "$3" != none ] || jq -cn --arg id "$dig_id" --argjson invoked "$((now - 30))" '{version:1,kind:"native",operation:"start",tool:"claude",model:"claude-sonnet-5-5",effort:"high",phase:"build",class:"mechanical",writer:"",invoked:$invoked,observed:$invoked,nativeIdentity:$id}' >> "$sessions/$1.start.jsonl"
+}
+reported_at() { jq -cn --arg name "$1" --arg created "$(date -u -d '+5 seconds' +%Y-%m-%dT%H:%M:%SZ)" '[{user:{login:"a"},created_at:$created,html_url:"https://example.invalid/o/r/issues/7#issuecomment-5",body:"Reported by \($name):\n\nREPORT x"}]' > "$work/comments.json"; }
+swatch() { out="$(PATH="$work/bin2:$PATH" timeout "$1" bash "$root/bin/watch.sh" "${@:2}" 2>/dev/null)"; rc=$?; out="${out#[0-9][0-9]:[0-9][0-9] }"; }
+
+live_agents; record dig null none claude
+swatch 4 --session dig --still 60 --every 1
+check 'unmeasured: no deadline, nothing reported, so still running' 124 "$rc"
+record dig "$(( $(date +%s) + 2 ))" none claude
+swatch 90 --session dig --still 60 --every 1
+check 'a sleeper past its short deadline ends the watch' 0 "$rc"
+check 'the line names the worker, the deadline and the measured run' "yes" "$(grep -Eq '^deadline dig: passed at [0-9]{2}:[0-9]{2}, measured 600 seconds from build10000-sonnet5\.5-high-100k-zzzzz$' <<< "$out" && echo yes || echo no)"
+record dig "$(( $(date +%s) + 3600 ))" none claude
+swatch 4 --session dig --still 60 --every 1
+check 'innocent: a deadline an hour away ends nothing' 124 "$rc"
+
+echo 'a report comment ends the watch, stops the session and writes the end record'
+rm -f "$work/stopped"; record dig null none claude; echo '[{"user":{"login":"a"},"created_at":"2020-01-01T00:00:00Z","html_url":"https://example.invalid/o/r/issues/7#issuecomment-1","body":"Reported by dig:\n\nan older report"}]' > "$work/comments.json"
+swatch 4 --session dig --still 60 --every 1
+check 'innocent: a report from before the start is no report' 124 "$rc"
+reported_at dig
+swatch 90 --session dig --still 60 --every 1
+check 'exit 0' 0 "$rc"
+check 'the reported line holds the comment URL' 'reported dig: https://example.invalid/o/r/issues/7#issuecomment-5' "$out"
+check 'claude stop was called with the agent id' agent-9 "$(cat "$work/stopped" 2>/dev/null)"
+check 'the end record is written' 'end https://example.invalid/o/r/issues/7#issuecomment-5' "$(jq -r 'select(.kind == "end") | "end \(.report)"' "$sessions/dig.start.jsonl")"
+check 'the end record holds its duration' yes "$(jq -e 'select(.kind == "end") | .duration > 0' "$sessions/dig.start.jsonl" > /dev/null && echo yes || echo no)"
+swatch 4 --session dig --still 60 --every 1
+check 'a watch of the ended session says so at once' 'reported dig: https://example.invalid/o/r/issues/7#issuecomment-5' "$out"
+
+echo 'a print run is followed by its process, and its output is posted under the first line'
+name='build10001-fable5.1-high-100k-abcde'
+record "$name" null json acme-key
+sleep 0 & dead=$!; wait "$dead"; printf '%s\n' "$dead" > "$sessions/$name.pid"; printf '0\n' > "$sessions/$name.exit"
+printf '{"type":"result","result":"the print report","total_cost_usd":0.25,"session_id":"s"}\n' > "$sessions/$name.out"; : > "$sessions/$name.err"
+echo '[]' > "$work/comments.json"
+swatch 90 --session "$name" --still 60 --every 1
+check 'exit 0' 0 "$rc"
+check 'the reported line' 'reported '"$name"': https://example.invalid/o/r/issues/7#issuecomment-77' "$out"
+check 'the report is posted under the first line' "Reported by $name:" "$(head -n 1 "$work/posted")"
+check 'it holds the result of the run' yes "$(grep -qF 'the print report' "$work/posted" && echo yes || echo no)"
+check 'the end record holds the cost of the run' 0.25 "$(jq -r 'select(.kind == "end") | .costUsd' "$sessions/$name.start.jsonl")"
+check 'the end record says the run gave its report' true "$(jq -r 'select(.kind == "end") | .reported' "$sessions/$name.start.jsonl")"
+echo 'a post the tracker refuses ends the watch with the refusal and writes no end record'
+name='build10002-fable5.1-high-100k-fffff'
+record "$name" null json acme-key
+printf '%s\n' "$dead" > "$sessions/$name.pid"; printf '0\n' > "$sessions/$name.exit"
+printf '{"type":"result","result":"a report with a time","total_cost_usd":0.1}\n' > "$sessions/$name.out"; : > "$sessions/$name.err"
+echo 'stated time is wrong' > "$work/refuse"
+swatch 90 --session "$name" --still 60 --every 1
+check 'exit 1' 1 "$rc"
+check 'the line names the refusal' yes "$(grep -q "^report refused $name: .*stated time is wrong" <<< "$out" && echo yes || echo no)"
+check 'no end record' 0 "$(jq -c 'select(.kind == "end")' "$sessions/$name.start.jsonl" | grep -c . || true)"
+rm -f "$work/refuse"
+echo 'the report of a key run that holds its key is not posted, and the key reaches no line'
+for planted in result err; do
+  case "$planted" in result) name='build10004-fable5.1-high-100k-ccccc' ;; err) name='build10005-fable5.1-high-100k-ddddd' ;; esac
+  record "$name" null json acme-key
+  printf '%s\n' "$dead" > "$sessions/$name.pid"; printf '1\n' > "$sessions/$name.exit"
+  # PLANTED: the key in the result of the run, and in the last error line of a run that gave no result
+  case "$planted" in
+    result) jq -cn --arg key "$watch_key" '{type:"result",result:"the environment holds ANTHROPIC_API_KEY=\($key)",total_cost_usd:0.1}' > "$sessions/$name.out"; : > "$sessions/$name.err" ;;
+    err) : > "$sessions/$name.out"; printf 'invalid x-api-key %s\n' "$watch_key" > "$sessions/$name.err" ;;
+  esac
+  rm -f "$work/posted"
+  swatch 90 --session "$name" --still 60 --every 1
+  check "$planted: exit 1" 1 "$rc"
+  check "$planted: the line names the refusal" "report refused $name: the report holds the key of acme-key, so it is not posted" "$out"
+  check "$planted: nothing was posted" no "$([ -f "$work/posted" ] && echo yes || echo no)"
+  check "$planted: no end record" 0 "$(jq -c 'select(.kind == "end")' "$sessions/$name.start.jsonl" | grep -c . || true)"
+done
+name='build10006-fable5.1-high-100k-bbbbb'
+record "$name" null json acme-key
+printf '%s\n' "$dead" > "$sessions/$name.pid"; printf '0\n' > "$sessions/$name.exit"
+printf '{"type":"result","result":"a clean report"}\n' > "$sessions/$name.out"; : > "$sessions/$name.err"
+mv "$HOME/.ai-core/secrets/acme-key" "$work/acme-key.away"; rm -f "$work/posted"
+swatch 90 --session "$name" --still 60 --every 1
+mv "$work/acme-key.away" "$HOME/.ai-core/secrets/acme-key"
+check 'a key that cannot be read: exit 1' 1 "$rc"
+check 'it says the report is not checked and not posted' "report refused $name: the key of acme-key cannot be read, so the report is not checked for it and not posted" "$out"
+check 'nothing was posted unchecked' no "$([ -f "$work/posted" ] && echo yes || echo no)"
+echo 'a print run that gave no report says so on the issue, and its end record says so too'
+name='build10007-fable5.1-high-100k-aaaab'
+record "$name" null json acme-key
+printf '%s\n' "$dead" > "$sessions/$name.pid"; printf '3\n' > "$sessions/$name.exit"
+# PLANTED: an empty output, which jq reads without an error
+: > "$sessions/$name.out"; printf 'the model is overloaded\n' > "$sessions/$name.err"
+swatch 90 --session "$name" --still 60 --every 1
+check 'exit 0' 0 "$rc"
+check 'the post says the run gave no report' yes "$(grep -qF 'the run ended with exit status 3 and gave no report: the model is overloaded' "$work/posted" && echo yes || echo no)"
+check 'the end record says it gave no report' false "$(jq -r 'select(.kind == "end") | .reported' "$sessions/$name.start.jsonl")"
+echo 'a print run that still runs ends nothing'
+name='build10003-fable5.1-high-100k-eeeee'
+record "$name" null json acme-key
+sleep 30 & runner=$!; printf '%s\n' "$runner" > "$sessions/$name.pid"
+swatch 4 --session "$name" --still 60 --every 1
+check 'still running when the time ran out' 124 "$rc"
+kill "$runner" 2>/dev/null; wait "$runner" 2>/dev/null
+
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo
 echo 'all passed'

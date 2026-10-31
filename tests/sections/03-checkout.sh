@@ -195,7 +195,7 @@ cmp -s "$AI_CORE_HOME/.ai-core/tool-order.json" "$WORK/order-before-init" || fai
 for dir in .claude .agents; do
   cmp -s "$ROOT/skills/person-in-charge/SKILL.md" "$M/$dir/skills/person-in-charge/SKILL.md" || fail "init shipped stale selector instructions in $dir"
   for tool in codex agy claude; do
-    cmp -s "$ROOT/skills/person-in-charge/references/$tool.md" "$M/$dir/skills/person-in-charge/references/$tool.md" || fail "init shipped a stale $tool launch example in $dir"
+    cmp -s "$ROOT/skills/person-in-charge/references/$tool.md" "$M/$dir/skills/person-in-charge/references/$tool.md" || fail "init shipped a stale $tool reference in $dir"
   done
 done
 cmp -s "$M/.ai-core/models.tsv" "$ROOT/templates/.ai-core/models.tsv" || fail "init.sh kept an older model table instead of the harness's"

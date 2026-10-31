@@ -41,6 +41,8 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FAKE="$(mktemp -d)"
 export GH_CACHE_DIRECTORY="$FAKE/cache"
+# The organisation the fixtures name, set here so the file also runs alone, outside tests/run-all.sh
+export GH_ORG=example-org
 # A board number no real project carries, so the cache this writes cannot be mistaken
 # for a live board's - and is removed again below.
 PROJECT_NUMBER=999999

@@ -494,7 +494,7 @@ on start; no developer installs a skill by hand.
     not a quota reservation: another process may spend quota after the read, and the real tool's
     later quota refusal remains visible. `ai-core usage` counts native-confirmed starts since the
     order's set time, reports later-tool starts red using recorded quota reasons, and reports
-    uncertain timing, identity or project proof as unknown. Launch examples retain attempts and
+    uncertain timing, identity or project proof as unknown. A start through `ai-core start-phase` retains attempts and
     native observations in `sessions/<session name>.start.jsonl`; artifacts alone prove no start.
     Asked for the state, the coordinator builds one page from `ai-core status`.
 - `helper` hands a bounded task inside a phase, such as a pre-review of a diff, facts across

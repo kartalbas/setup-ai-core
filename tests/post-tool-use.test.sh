@@ -32,6 +32,7 @@ check 'a limit shorter than the file' 'a.md,b.md' "$(read_done s1 "$rules/a.md" 
 check 'an offset past the first line' 'a.md,b.md' "$(read_done s1 "$rules/a.md" 2 > /dev/null; left s1)"
 check 'a file that is not listed' 'a.md,b.md' "$(read_done s1 "$rules/c.md" > /dev/null; left s1)"
 check 'another session reading a listed file' 'a.md,b.md' "$(read_done s2 "$rules/a.md" > /dev/null; left s1)"
+check 'a subagent of the session reading a listed file whole' 'a.md,b.md' "$(jq -nc --arg f "$rules/a.md" '{session_id: "s1", agent_id: "a1b2c3", tool_name: "Read", tool_input: {file_path: $f}, tool_response: {}}' | bash "$hook" > /dev/null 2>&1; left s1)"
 
 echo 'a whole Read takes the file out, and the last file takes the list'
 check 'a whole Read of a.md' b.md "$(read_done s1 "$rules/a.md" > /dev/null; left s1)"
@@ -64,6 +65,11 @@ cmp -s "$hook" "$mutant/bin/post-tool-use.sh" && { echo '  FAIL the planted copy
 record s1
 jq -nc --arg f "$rules/a.md" '{session_id: "s1", tool_name: "Read", tool_input: {file_path: $f, limit: 1}}' | bash "$mutant/bin/post-tool-use.sh" > /dev/null 2>&1
 check 'the span takes a.md out in the planted copy' b.md "$(left s1)"
+cp "$hook" "$mutant/bin/post-tool-use.sh"; sed -i.bak 's/^\[ -z "\$agent" \] && \[ "\$tool" = Read \]/[ "$tool" = Read ]/' "$mutant/bin/post-tool-use.sh"
+cmp -s "$hook" "$mutant/bin/post-tool-use.sh" && { echo '  FAIL the planted copy equals bin/post-tool-use.sh'; failed=$((failed + 1)); }
+record s1
+jq -nc --arg f "$rules/a.md" '{session_id: "s1", agent_id: "a1b2c3", tool_name: "Read", tool_input: {file_path: $f}}' | bash "$mutant/bin/post-tool-use.sh" > /dev/null 2>&1
+check 'a subagent'"'"'s Read takes a.md out of its session'"'"'s list in a planted copy that ignores agent_id' b.md "$(left s1)"
 rm -rf "$records"
 out="$(bash "$hook" --help)"; rc=$?
 check '--help: exit code' 0 "$rc"

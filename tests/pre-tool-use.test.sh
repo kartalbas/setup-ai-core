@@ -53,6 +53,7 @@ check 'a Read with a limit shorter than the file is refused' "$(reason_after)"$'
 check 'a Read from an offset is refused' "$(reason_after)"$'\n'"  $rules/a.md"$'\n'"  $rules/b.md" "$(verdict "$(read_call s1 "$rules/a.md" 2)")"
 check 'a Write is refused' "$(reason_after)"$'\n'"  $rules/a.md"$'\n'"  $rules/b.md" "$(verdict "$(jq -nc '{session_id: "s1", tool_name: "Write", tool_input: {file_path: "/x/y"}}')")"
 check 'another session, with no list of its own, is let through' silent "$(verdict "$(bash_call s2)")"
+check 'a subagent of the session, which carries its session id and an agent_id, is let through' silent "$(verdict "$(bash_call s1 | jq -c '. + {agent_id: "a1b2c3"}')")"
 
 echo 'after a compaction: the whole read of a listed file passes, by any name that leads to it'
 check 'a Read with no offset and no limit' silent "$(verdict "$(read_call s1 "$rules/a.md")")"
@@ -108,6 +109,10 @@ cmp -s "$hook" "$mutant/bin/pre-tool-use.sh" && { echo '  FAIL the planted copy 
 record s1
 out="$(bash "$mutant/bin/pre-tool-use.sh" <<< "$(bash_call s1)" 2>&1)"
 check 'the Bash call passes in the planted copy' '' "$out"
+cp "$hook" "$mutant/bin/pre-tool-use.sh"; sed -i.bak 's/^if \[ -z "\$agent" \] && record=/if record=/' "$mutant/bin/pre-tool-use.sh"
+cmp -s "$hook" "$mutant/bin/pre-tool-use.sh" && { echo '  FAIL the planted copy equals bin/pre-tool-use.sh'; failed=$((failed + 1)); }
+out="$(bash "$mutant/bin/pre-tool-use.sh" <<< "$(bash_call s1 | jq -c '. + {agent_id: "a1b2c3"}')" 2>&1)"
+check 'a planted copy that judges a subagent by the list of its session refuses it' deny "$(jq -r '.hookSpecificOutput.permissionDecision' <<< "$out" 2>&1)"
 
 echo 'the hook with no list on the machine ends before it parses anything'
 rm -rf "$records"

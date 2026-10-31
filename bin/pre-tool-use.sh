@@ -29,12 +29,13 @@ deny() {  # deny <reason>
   jq -nc --arg reason "$1" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $reason}}'
   exit 0
 }
-fields="$(printf '%s' "$input" | jq -r '[(.session_id // ""), (.tool_name // ""), ((.tool_input.offset // "") | tostring), ((.tool_input.limit // "") | tostring), (.cwd // ""), ((.tool_input.file_path // "") | gsub("\n"; " "))] | .[]' 2>&1)" \
+fields="$(printf '%s' "$input" | jq -r '[(.session_id // ""), (.agent_id // "" | tostring), (.tool_name // ""), ((.tool_input.offset // "") | tostring), ((.tool_input.limit // "") | tostring), (.cwd // ""), ((.tool_input.file_path // "") | gsub("\n"; " "))] | .[]' 2>&1)" \
   || deny "Denied: the PreToolUse input is not JSON that this hook can read: ${fields//$'\n'/ }"
-{ IFS= read -r session; IFS= read -r tool; IFS= read -r offset; IFS= read -r limit; IFS= read -r folder; IFS= read -r path; } <<< "$fields"
+{ IFS= read -r session; IFS= read -r agent; IFS= read -r tool; IFS= read -r offset; IFS= read -r limit; IFS= read -r folder; IFS= read -r path; } <<< "$fields"
 
 unread=""
-if record="$(rules_unread_file "$session")" && [ -f "$record" ]; then
+# A subagent carries the session id of the session that started it (agent_id names it): its context was not compacted
+if [ -z "$agent" ] && record="$(rules_unread_file "$session")" && [ -f "$record" ]; then
   # a listed file that is gone cannot be read, and is no duty
   while IFS= read -r listed; do
     [ ! -f "$listed" ] || unread="$unread$listed"$'\n'

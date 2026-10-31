@@ -10,6 +10,9 @@
 # or a zone name the system knows (UTC, or a file under /usr/share/zoneinfo). A time with no zone word
 # can be a duration, a build name or a time of another day, so it is not judged. A line that also holds
 # a date (YYYY-MM-DD, or D.M. with an optional year) is not judged: it names a day that is not today.
+# Copied text is not judged either, as it states no time of the writer's: a fenced code block (``` or ~~~,
+# to its closing fence or the end of the text), a quoted line (>) and inline code (`...`), such as a log
+# or a command's output.
 # The clock is AI_CORE_NOW where set, as lib/usage.sh reads it, else the machine's.
 # Settings of the project's config.env: STATED_TIME_ZONE (empty: the zone of the machine's clock),
 # STATED_TIME_ZONE_WORDS (comma-separated, empty: none) and STATED_TIME_TOLERANCE_MINUTES (5 when unset).
@@ -19,6 +22,9 @@
 ZONE_DIRECTORY=/usr/share/zoneinfo
 STATED_TIME_PATTERN='(^|[^0-9:.])([01]?[0-9]|2[0-3]):([0-5][0-9])[[:space:]]*[(]?([A-Za-z][A-Za-z0-9_+/-]*)'
 STATED_DATE_PATTERN='[0-9]{4}-[0-9]{2}-[0-9]{2}|(^|[^0-9.])[0-9]{1,2}\.[0-9]{1,2}\.'
+STATED_FENCE_PATTERN='^[[:space:]]{0,3}(```|~~~)'
+STATED_QUOTE_PATTERN='^[[:space:]]{0,3}>'
+STATED_CODE_PATTERN='`[^`]*`'
 
 # zone_is_known <zone>: UTC, or a file of the zone database; date reads an unknown zone as UTC without a word
 zone_is_known() { [ "$1" = UTC ] || [ -f "$ZONE_DIRECTORY/$1" ]; }
@@ -42,7 +48,7 @@ zone_of_word() {
 # the text, written with a zone word, differs from the clock in that zone by more than the tolerance, the short
 # way round midnight, and where a setting cannot be read; the refusal names the written time and the clock's.
 check_stated_time() {
-  local command="$1" destination="$2" text="$3" zone words tolerance now line rest hour minute word shown difference
+  local command="$1" destination="$2" text="$3" zone words tolerance now line rest hour minute word shown difference fence=""
   zone="$(config_value STATED_TIME_ZONE "")" || return 1
   words="$(config_value STATED_TIME_ZONE_WORDS "")" || return 1
   tolerance="$(config_value STATED_TIME_TOLERANCE_MINUTES 5)" || return 1
@@ -53,6 +59,13 @@ check_stated_time() {
   now="${AI_CORE_NOW:-$(date +%s)}"
   words=",$(printf '%s' "$words" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'),"
   while IFS= read -r line || [ -n "$line" ]; do
+    if [[ "$line" =~ $STATED_FENCE_PATTERN ]]; then
+      if [ -z "$fence" ]; then fence="${BASH_REMATCH[1]}"; elif [ "${BASH_REMATCH[1]}" = "$fence" ]; then fence=""; fi
+      continue
+    fi
+    [ -z "$fence" ] || continue
+    [[ "$line" =~ $STATED_QUOTE_PATTERN ]] && continue
+    while [[ "$line" =~ $STATED_CODE_PATTERN ]]; do line="${line/"${BASH_REMATCH[0]}"/ }"; done
     [[ "$line" =~ $STATED_DATE_PATTERN ]] && continue
     rest="$line"
     while [[ "$rest" =~ $STATED_TIME_PATTERN ]]; do

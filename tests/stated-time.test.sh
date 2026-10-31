@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # What the stated-time check refuses: a clock time written with a zone word that the clock in that zone does not
 # show, beyond the tolerance, naming both; and what it lets through: the clock's time, a time inside the tolerance,
-# a line with a date, a time with no zone word. The clock is pinned with AI_CORE_NOW, the zones are fixtures.
+# a line with a date, a time with no zone word, copied text (a code block, a quote, inline code). The clock is
+# pinned with AI_CORE_NOW, the zones are fixtures.
 #
 #   bash tests/stated-time.test.sh
 
@@ -79,6 +80,14 @@ check 'a zone that is no zone is named, not read as UTC' 'refused: issue-comment
 check 'a tolerance that is no number is named' "refused: issue-comment to example-org/example-repo: STATED_TIME_TOLERANCE_MINUTES is 'soon'; it is the minutes a stated time may differ from the clock, a whole number from 0 to 999" "$(STATED_TIME_TOLERANCE_MINUTES=soon verdict "$script" 'Landed at 13:00 Zurich.')"
 cd "$work" || exit 1
 
+echo 'copied text states no time: a fenced code block, a quoted line and inline code pass, and the text around them is judged'
+check 'a time in a fenced code block, such as a command'"'"'s output' passes "$(verdict "$script" $'Its answer:\n```\nfive_hour  40 % used  resets 09:10 UTC\n```')"
+check 'a time in a fence of tildes' passes "$(verdict "$script" $'~~~\nstarted 09:10 UTC\n~~~')"
+check 'a time after the fence closed' 'refused: issue-comment to example-org/example-repo: the text says 13:10 UTC, the clock there shows 12:00 (UTC)' "$(verdict "$script" $'```\nstarted 09:10 UTC\n```\nLanded at 13:10 UTC.')"
+check 'a time on a quoted line' passes "$(verdict "$script" '> It started at 09:10 UTC')"
+check 'a time in inline code' passes "$(verdict "$script" 'The log says `started 09:10 UTC` there.')"
+check 'a time beside inline code' 'refused: issue-comment to example-org/example-repo: the text says 13:10 UTC, the clock there shows 12:00 (UTC)' "$(verdict "$script" 'The log says `09:10 UTC`; it landed at 13:10 UTC.')"
+
 echo 'a call without its command and its destination'
 bash "$script" check > /dev/null 2>&1; rc=$?
 check 'a call without its command and destination is refused' 1 "$rc"
@@ -90,6 +99,16 @@ cmp -s "$root/lib/stated-time.sh" "$mutant/lib/stated-time.sh" && { echo '  FAIL
 check 'the wrong time passes in the planted copy' passes "$(verdict "$mutant/lib/stated-time.sh" 'Landed at 13:10 UTC.')"
 cp "$root/lib/stated-time.sh" "$mutant/lib/stated-time.sh"; sed -i.bak 's/\[\[ "\$line" =~ \$STATED_DATE_PATTERN \]\] && continue//' "$mutant/lib/stated-time.sh"
 check 'a time with its date is refused in a planted copy that judges lines with a date' 'refused: issue-comment to example-org/example-repo: the text says 09:10 UTC, the clock there shows 12:00 (UTC)' "$(verdict "$mutant/lib/stated-time.sh" 'Landed on 2026-10-30 at 09:10 UTC.')"
+
+cp "$root/lib/stated-time.sh" "$mutant/lib/stated-time.sh"; sed -i.bak 's/^    \[ -z "\$fence" \] || continue$//' "$mutant/lib/stated-time.sh"
+cmp -s "$root/lib/stated-time.sh" "$mutant/lib/stated-time.sh" && { echo '  FAIL the planted copy equals lib/stated-time.sh'; failed=$((failed + 1)); }
+check 'a time in a fenced code block is refused in a planted copy that judges inside a fence' 'refused: issue-comment to example-org/example-repo: the text says 09:10 UTC, the clock there shows 12:00 (UTC)' "$(verdict "$mutant/lib/stated-time.sh" $'```\nstarted 09:10 UTC\n```')"
+cp "$root/lib/stated-time.sh" "$mutant/lib/stated-time.sh"; sed -i.bak 's/^    \[\[ "\$line" =~ \$STATED_QUOTE_PATTERN \]\] && continue$//' "$mutant/lib/stated-time.sh"
+cmp -s "$root/lib/stated-time.sh" "$mutant/lib/stated-time.sh" && { echo '  FAIL the planted copy equals lib/stated-time.sh'; failed=$((failed + 1)); }
+check 'a time on a quoted line is refused in a planted copy that judges quotes' 'refused: issue-comment to example-org/example-repo: the text says 09:10 UTC, the clock there shows 12:00 (UTC)' "$(verdict "$mutant/lib/stated-time.sh" '> It started at 09:10 UTC')"
+cp "$root/lib/stated-time.sh" "$mutant/lib/stated-time.sh"; sed -i.bak 's/^    while \[\[ "\$line" =~ \$STATED_CODE_PATTERN \]\].*$//' "$mutant/lib/stated-time.sh"
+cmp -s "$root/lib/stated-time.sh" "$mutant/lib/stated-time.sh" && { echo '  FAIL the planted copy equals lib/stated-time.sh'; failed=$((failed + 1)); }
+check 'a time in inline code is refused in a planted copy that judges inline code' 'refused: issue-comment to example-org/example-repo: the text says 09:10 UTC, the clock there shows 12:00 (UTC)' "$(verdict "$mutant/lib/stated-time.sh" 'The log says `started 09:10 UTC` there.')"
 
 if [ "$failed" -ne 0 ]; then echo "$failed failed"; exit 1; fi
 echo 'all passed'

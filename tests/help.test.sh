@@ -27,6 +27,12 @@ for f in "$root"/bin/*.sh; do
 done
 echo "  $walked commands walked"
 
+# start-phase by itself: its help names what a person must know before the first start
+out="$(cd "$work" && bash "$root/bin/ai-core" start-phase --help 2>&1)"
+for word in '--issue' '--brief' '--number' '--resume' '--reason' 'unmeasured' 'takes no --tool, --model or --effort'; do
+  grep -qF -- "$word" <<< "$out" || { echo "  FAIL start-phase --help does not name $word"; failed=$((failed + 1)); }
+done
+
 if [ "$failed" -gt 0 ]; then echo; echo "$failed failed"; exit 1; fi
 echo
 echo 'all passed'

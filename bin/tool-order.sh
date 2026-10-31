@@ -18,7 +18,7 @@ case "$order" in ''|,*|*,|*,,*) tool_order_error 'tool-order rejects empty entri
 table="$(data_file models.tsv)"; seen=','
 IFS=',' read -r -a tools <<< "$order"
 for tool in "${tools[@]}"; do
-  case "$tool" in codex|agy|claude) ;; *) tool_order_error "unknown tool: $tool"; exit 2 ;; esac
+  tool_order_is_tool "$tool" || { tool_order_error "unknown tool: $tool (the tools are $(tool_order_tools | paste -sd, - | sed 's/,/, /g'))"; exit 2; }
   case "$seen" in *",$tool,"*) tool_order_error "duplicate tool: $tool"; exit 2 ;; esac
   seen="$seen$tool,"
   model="$(awk -F'\t' -v t="$tool" '!/^#/ && $1 == t && NF == 5 { print $4; exit }' "$table")" \

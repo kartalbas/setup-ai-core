@@ -53,7 +53,7 @@ if [ -z "$failure" ]; then
     printf '%s' "$rows"
   }
   while IFS= read -r tool; do
-    case "$tool" in codex|agy|claude) ;; *) failure="usage does not support native tool $tool"; reason "$tool" "$failure"; break ;; esac
+    tool_order_is_tool "$tool" || { failure="usage does not support the tool $tool"; reason "$tool" "$failure"; break; }
     rows="$(tool_rows "$tool")" || { failure="cannot read $table for $tool"; reason "$tool" "$failure"; break; }
     if [ -z "$rows" ]; then reason "$tool" "no row for $phase $class"; continue; fi
     while IFS= read -r row; do
@@ -62,7 +62,7 @@ if [ -z "$failure" ]; then
       actual="$tool"
       if [[ "$model" == *:* ]]; then
         actual="${model%%:*}"; model="${model#*:}"
-        case "$actual" in codex|agy|claude) ;; *) failure="unsupported destination $actual"; reason "$tool" "$failure"; break ;; esac
+        tool_order_is_tool "$actual" || { failure="unsupported destination $actual"; reason "$tool" "$failure"; break; }
         if [ "$order" != null ] && [ "$actual" != "$tool" ]; then reason "$tool" "row $declared routes to $actual; saved order governs execution tools"; continue; fi
         destinations="$(tool_rows "$actual")" || { failure="cannot resolve $actual:$model"; reason "$tool" "$failure"; break; }
         destination="$(awk -F'\t' -v model="$model" '$4 == model { print; exit }' <<< "$destinations")"

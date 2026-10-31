@@ -20,7 +20,7 @@ cat > "$fake/gh" <<EOF
 echo "\$*" >> "$log"
 case "\$*" in
   *comments*) cat <<'JSON'
-[ { "user": { "login": "kadir" }, "created_at": "2026-08-20T09:00:00Z", "body": "First read." },
+[ { "user": { "login": "kadir" }, "created_at": "2026-08-20T09:00:00Z", "body": "First read.", "html_url": "https://example.invalid/issues/163#issuecomment-1" },
   { "user": { "login": "anton" }, "created_at": "2026-08-21T11:30:00Z", "body": "Second read." } ]
 JSON
     exit 0 ;;
@@ -63,6 +63,7 @@ check 'body'          'The reader drops the value.' "$(printf '%s' "$json" | jq 
 check 'two comments'  2 "$(printf '%s' "$json" | jq -r '.comments | length')"
 check 'first author'  kadir "$(printf '%s' "$json" | jq -r '.comments[0].author')"
 check 'first time'    '2026-08-20T09:00:00Z' "$(printf '%s' "$json" | jq -r '.comments[0].created_at')"
+check 'first url'     'https://example.invalid/issues/163#issuecomment-1' "$(printf '%s' "$json" | jq -r '.comments[0].url')"
 check 'second body'   'Second read.' "$(printf '%s' "$json" | jq -r '.comments[1].body')"
 
 echo 'the plain layout is what a person reads'
@@ -129,7 +130,7 @@ chmod +x "$paged/gh"
 json="$(PATH="$paged:$PATH" "$thread" "$repo" 163 --json)"
 check 'three comments, not the first page'  3 "$(printf '%s' "$json" | jq -r '.comments | length')"
 check 'in the order of the pages'           'kadir anton stranger' "$(printf '%s' "$json" | jq -r '[.comments[].author] | join(" ")')"
-check 'a comment keeps its three fields'    'author created_at body' "$(printf '%s' "$json" | jq -r '.comments[0] | keys_unsorted | join(" ")')"
+check 'a comment keeps its four fields'    'author created_at body url' "$(printf '%s' "$json" | jq -r '.comments[0] | keys_unsorted | join(" ")')"
 check 'a body that is null reads empty'     '' "$(printf '%s' "$json" | jq -r '.comments[2].body')"
 check 'the plain layout prints every page'  3 "$(PATH="$paged:$PATH" "$thread" "$repo" 163 | grep -c '^--- ')"
 

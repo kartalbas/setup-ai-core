@@ -217,7 +217,7 @@ issue_thread() {  # issue_thread <owner/repo> <number>
     state:    $issue.state,
     labels:   [$issue.labels[].name],
     body:     ($issue.body // ""),
-    comments: [$comments[] | { author: .user.login, created_at: .created_at, body: (.body // "") }]
+    comments: [$comments[] | { author: .user.login, created_at: .created_at, body: (.body // ""), url: .html_url }]
   }'
 }
 

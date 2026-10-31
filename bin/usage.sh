@@ -7,7 +7,7 @@
 # agy's are what `agy -p /usage` answers now, each group of models with its own windows, its history
 # the readings this command saved under ~/.ai-core/usage-agy/.
 #
-#   usage.sh [--tool claude|codex|agy] [--model MODEL] [--stop-at N]
+#   usage.sh [--tool TOOL] [--model MODEL] [--stop-at N]    TOOL is claude, codex, agy or the name of a key under ~/.ai-core/secrets/
 #                                                     N percent used; else USAGE_STOP_AT of the project's config.env; else 92
 #
 # Every tool's windows, their forecast and the limit N are shown as the share used. --model, for agy
@@ -28,9 +28,10 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/lib/common.sh"
 . "$ROOT/lib/usage.sh"
+tool_order_paths
 
 tool=""; model=""; audit=1
-usage="usage: usage.sh [--tool claude|codex|agy] [--model MODEL] [--stop-at N]"
+usage="usage: usage.sh [--tool TOOL] [--model MODEL] [--stop-at N]"
 stop="$(usage_stop_at)" || exit 2
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -39,7 +40,8 @@ while [ $# -gt 0 ]; do
       echo 'Exit 2 means usage is unknown or an argument is invalid; it is not a successful preflight.'
       echo 'Without --tool it also reports the saved tool order and audits the phase starts against the choices of phase-model.'
       exit 0 ;;
-    --tool) case "${2-}" in claude|codex|agy) tool="$2"; audit=0; shift 2 ;; *) echo "error: --tool takes claude, codex or agy - $usage" >&2; exit 2 ;; esac ;;
+    --tool) if tool_order_is_tool "${2-}"; then tool="$2"; audit=0; shift 2
+      else echo "error: --tool takes a tool of the order ($(tool_order_tools | paste -sd, - | sed 's/,/, /g')) - $usage" >&2; exit 2; fi ;;
     --model) case "${2-}" in ''|-*) echo "error: --model takes a model of agy - $usage" >&2; exit 2 ;; *) model="$2"; shift 2 ;; esac ;;
     --stop-at) stop="${2:-}"; shift 2 || { echo "error: --stop-at takes a percentage - $usage" >&2; exit 2; } ;;
     *) echo "error: unknown argument '$1' - $usage" >&2; exit 2 ;;
@@ -55,7 +57,7 @@ left() { local m=$((($1 - now) / 60)); if [ "$m" -lt 60 ]; then echo "in $m min"
 # A Codex session started from a Claude Code shell inherits CLAUDECODE, so the Codex variables decide.
 [ -n "$tool" ] || tool="$(session_tool)"
 [ -n "$tool" ] || tool=claude
-case "$tool" in claude|codex|agy) ;; *) reject "usage does not read the quota of $tool: --tool takes claude, codex or agy" ;; esac
+tool_order_is_tool "$tool" || reject "usage does not read the quota of $tool: --tool takes $(tool_order_tools | paste -sd, - | sed 's/,/, /g')"
 [ -z "$model" ] || [ "$tool" = agy ] || reject "--model is for agy, which has a quota per group of models; $tool has none - $usage"
 finish_usage() {
   local result="$?" audit_result=0

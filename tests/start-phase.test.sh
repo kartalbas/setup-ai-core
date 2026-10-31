@@ -31,7 +31,7 @@ cat > "$FAKE/bin/claude" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FAKE/claude.args"
 case "$1" in
-  agents) cat "$FAKE/agents.json"; exit 0 ;;
+  agents) [ -z "${FAKE_AGENTS_FAIL:-}" ] || { echo 'agents: no answer' >&2; exit 1; }; cat "$FAKE/agents.json"; exit 0 ;;
   stop) printf '%s\n' "$2" >> "$FAKE/claude.stopped"; exit 0 ;;
 esac
 name=''; print=0; prev=''
@@ -65,7 +65,8 @@ cat > "$FAKE/bin/gh" <<'EOF'
 printf '%s\n' "$*" >> "$FAKE/gh.calls"
 for a in "$@"; do case "$a" in body=@*) cp "${a#body=@}" "$FAKE/posted.$(date +%s%N)" ;; esac; done
 case "$*" in
-  *"--jq .html_url"*) echo "https://example.invalid/o/r/issues/7#issuecomment-900"; exit 0 ;;
+  *"--jq .html_url"*) [ ! -f "$FAKE/refuse-post" ] || { echo "refused: $(cat "$FAKE/refuse-post")" >&2; exit 1; }
+    echo "https://example.invalid/o/r/issues/7#issuecomment-900"; exit 0 ;;
   *comments*) cat "$FAKE/comments.json"; exit 0 ;;
   *"repos/o/r/issues/7"*) echo '{"number":7,"title":"The plan","state":"open","labels":[],"body":"plan","created_at":"2026-10-30T08:00:00Z"}'; exit 0 ;;
   *) echo o/r; exit 0 ;;
@@ -99,6 +100,7 @@ begin() { number=$((number + 1)); }
 nameof() { printf '%s\n' "$1" | cut -d' ' -f1; }
 last_selected() { tail -n 1 "$STATE/phase-model.jsonl" | jq -r '.selected | "\(.tool) \(.model) \(.effort)"'; }
 recorded() { jq -r 'select(.kind == "attempt") | "\(.tool) \(.model) \(.effort)"' "$SESSIONS/$1.start.jsonl" | tail -n 1; }
+lines() { grep -vc "^agents " "$1" 2> /dev/null || echo 0; }
 
 echo 'a start on Claude Code prints one worker line and writes the record of the selector tuple'
 order claude
@@ -273,12 +275,40 @@ check 'the posted line is the PHASE line of a re-plan, number 2, with the link t
 out="$(replan 10013 5)"; rc=$?
 check 're-plan on an owner decision comment by its number: exit 0' 0 "$rc"
 check 'the owner decision comment started it' yes "$([ "$rc" = 0 ] && echo yes || echo no)"
+echo 'the re-plan number counts the plan sessions, not the PHASE lines that name them'
+# PLANTED: a second PHASE line of the same plan session
+comments "$(jq -cn --arg line "$phase_line" '[$line, "PLAN CHECK the area: NO\nGAPS: a wrong approach", "PLAN CHECK the area: GO", "A comment", "Owner'"'"'s yes, 2026-10-31, in the dialog", ($line | sub(" \\| next \\| "; " | answered the plan | "))]')"
+rm -f "$FAKE"/posted.*
+out="$(replan 10032 2)"; rc=$?
+check 'a re-plan after one plan session with two PHASE lines: exit 0' 0 "$rc"
+check 'it is re-plan number 2' yes "$(cat "$FAKE"/posted.* 2>/dev/null | grep -qF '| plans 2 | reviews 0 | context fit | re-plan number 2 of the package, reason https://example.invalid/o/r/issues/7#issuecomment-2 |' && echo yes || echo no)"
+echo 'a re-plan whose PHASE line cannot be written starts nothing, and one whose line is refused says so with exit 1'
+# PLANTED: the newest PHASE line of the package has 5 fields
+comments "$(jq -cn '["PHASE the area: plan | plan10001-opus | next | package o/r#7 | members o/r#7", "PLAN CHECK the area: NO"]')"
+before="$(lines "$FAKE/claude.args")"
+out="$(replan 10033 2)"; rc=$?
+check 'a PHASE line that cannot be written: exit 2' 2 "$rc"
+check 'it names the line it read' yes "$(has "$(cat "$WORK/err")" 'cannot be written from the newest PHASE line of the package, so nothing is started')"
+check 'no tool ran for it' "$before" "$(lines "$FAKE/claude.args")"
+check 'no session of it was written' no "$(ls "$SESSIONS" | grep -q '^re-plan10033' && echo yes || echo no)"
+comments "$(jq -cn --arg line "$phase_line" '[$line, "PLAN CHECK the area: NO"]')"
+echo 'stated time is wrong' > "$FAKE/refuse-post"
+out="$(replan 10034 2)"; rc=$?
+rm -f "$FAKE/refuse-post"
+check 'a PHASE line the tracker refuses: exit 1' 1 "$rc"
+check 'the worker line is printed' yes "$(grep -Eq '^re-plan10034-fable5\.1-xhigh-150k-[0-9a-f]{5} claude re-plan o/r#7: ' <<< "$out" && echo yes || echo no)"
+check 'stderr names the refusal and the line to post' yes "$(grep -qF 'is not known to be on o/r#7: it is not known whether the comment on o/r#7 was posted - gh exited 1 and said: refused: stated time is wrong;' "$WORK/err" && grep -qF 'runs, and the line is: PHASE the area: re-plan | re-plan10034-' "$WORK/err" && echo yes || { echo no:; cat "$WORK/err"; })"
+
+echo 'a start whose native identity cannot be read after the tool started exits 1, not 2'
+order claude
+out="$(FAKE_AGENTS_FAIL=1 start build mechanical --issue o/r#7 --brief "$WORK/brief.md" --number 10035 --budget 100)"; rc=$?
+check 'the tool started and its identity is unread: exit 1' 1 "$rc"
+check 'it says the session may run' yes "$(grep -Eq 'cannot read native Claude evidence; build10035-[a-z0-9.-]+ may run' "$WORK/err" && echo yes || echo no)"
 
 echo 'the launch of each tool carries its folders, its profile and the identity of its native session'
 EXTRA="$WORK/extra"; mkdir -p "$EXTRA"
 export CODEX_HOME="$WORK/codex-home"; mkdir -p "$CODEX_HOME"
 printf "[auto_review]\npolicy = \047\047\047\nfixture approval policy\n\047\047\047\n" > "$CODEX_HOME/ai-core.config.toml"
-lines() { grep -vc "^agents " "$1" 2> /dev/null || echo 0; }
 bounded() { jq -e -s 'all(.[]; (tojson | length) < 4095)' "$SESSIONS/$1.start.jsonl" > /dev/null && echo yes || echo no; }
 kinds() { jq -r '.kind + ":" + .operation' "$SESSIONS/$1.start.jsonl" | paste -sd' ' -; }
 observed_after_invoked() { jq -e -s 'all(.[]; .observed >= .invoked)' "$SESSIONS/$1.start.jsonl" > /dev/null && echo yes || echo no; }

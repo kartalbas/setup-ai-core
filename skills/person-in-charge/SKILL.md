@@ -271,7 +271,9 @@ by hand with `claude`, `codex` or `agy`: a start by hand has no deadline, no rec
    `--reason <the URL or number of the comment on the plan issue that makes it one>`: a plan check's `NO` or
    an owner's decision; the command refuses any other and posts the re-plan's PHASE line itself.
    The command prints one worker line, `<session name> <tool> <phase> <OWNER/REPO#N>: <what it does> (<deadline>)`,
-   and exit 2 with the reason on stderr where it started nothing. Relay the worker line in your report channel,
+   and exit 2 with the reason on stderr where it started nothing. Exit 1 means the tool started and a step after it failed,
+   named on stderr: the session may run, so it is not started again, and a PHASE line of a re-plan that stderr prints is
+   posted by you where the plan issue does not hold it yet. Relay the worker line in your report channel,
    keep the session name, and write the saved order (`ai-core tool-order`) and the tool, model and effort of
    the session's start record (`~/.ai-core/sessions/<session name>.start.jsonl`) into every PHASE line of it.
    A refusal is never answered by a start by hand: read it, fix the call, run it again. The deadline is one and a half times the

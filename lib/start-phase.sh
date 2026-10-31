@@ -139,6 +139,7 @@ start_phase_browser() {
 }
 
 # Claude Code in the background: --bg returns at once, and the identity of the session is read from claude agents --json.
+# Returns 2 where nothing started, and 1 where the session started and its identity is not proven.
 start_phase_claude_background() {
   local roots=() word window id n agents
   while IFS= read -r word; do roots+=("$word"); done < <(start_phase_add_dirs)
@@ -155,12 +156,12 @@ start_phase_claude_background() {
   fi
   id=''
   for ((n = 0; n < 600; n++)); do
-    agents="$(claude agents --json)" || { start_phase_error 'cannot read native Claude evidence'; return 2; }
+    agents="$(claude agents --json)" || { start_phase_error "cannot read native Claude evidence; $SP_NAME may run"; return 1; }
     id="$(jq -er --arg name "$SP_NAME" '[.[] | select(.name == $name)] | if length == 1 then .[0].sessionId // empty else empty end' <<< "$agents")" && break
     sleep 0.1
   done
-  [ -n "$id" ] || { start_phase_error 'missing or ambiguous native Claude identity'; return 2; }
-  [ "$SP_OPERATION" != resume ] || [ "$id" = "$SP_NATIVE_ID" ] || { start_phase_error "the resume created a copy of the session: stop that copy ($id) and report it"; return 2; }
+  [ -n "$id" ] || { start_phase_error "missing or ambiguous native Claude identity; $SP_NAME may run"; return 1; }
+  [ "$SP_OPERATION" != resume ] || [ "$id" = "$SP_NATIVE_ID" ] || { start_phase_error "the resume created a copy of the session: stop that copy ($id) and report it"; return 1; }
   SP_NATIVE="$id"
 }
 
@@ -185,6 +186,8 @@ start_phase_claude_print() {
   fi
 }
 
+# Codex in the background, its thread read from the first line of its output. Returns 2 where nothing runs, and 1 where
+# Codex may run without a proven thread.
 start_phase_codex() {
   local policy=(-p ai-core) added=() word id n alive profile review_policy resume_policy
   while IFS= read -r word; do added+=("$word"); done < <(start_phase_add_dirs)
@@ -213,9 +216,9 @@ start_phase_codex() {
     if [ "$alive" = 0 ]; then start_phase_error "no native thread evidence; Codex exited $(cat "$SP_EXIT" 2>/dev/null || echo unknown): $(tail -n 1 "$SP_ERR")"; return 2; fi
     sleep 0.1
   done
-  [ -n "$id" ] || { start_phase_error 'native thread evidence timed out; the attempt remains unknown'; return 2; }
-  [ "$SP_OPERATION" != resume ] || [ "$id" = "$SP_NATIVE_ID" ] || { start_phase_error 'the resumed thread identity changed'; return 2; }
-  if [ "$SP_OPERATION" = start ]; then printf '%s\t%s\n' "$SP_NAME" "$id" >> "$TOOL_ORDER_HOME/codex-sessions.tsv" || { start_phase_error 'cannot save the thread registry'; return 2; }; fi
+  [ -n "$id" ] || { start_phase_error "native thread evidence timed out; the attempt remains unknown and $SP_NAME may run"; return 1; }
+  [ "$SP_OPERATION" != resume ] || [ "$id" = "$SP_NATIVE_ID" ] || { start_phase_error "the resumed thread identity changed; $SP_NAME runs on thread $id"; return 1; }
+  if [ "$SP_OPERATION" = start ]; then printf '%s\t%s\n' "$SP_NAME" "$id" >> "$TOOL_ORDER_HOME/codex-sessions.tsv" || { start_phase_error "cannot save the thread registry; $SP_NAME runs"; return 1; }; fi
   SP_NATIVE="$id"
 }
 

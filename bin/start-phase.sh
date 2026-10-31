@@ -18,11 +18,13 @@
 # number of a comment on the plan issue (--issue) whose first line is a plan-check verdict `PLAN CHECK ...: NO`, or whose
 # first line is `Owner's decision` or `Owner's yes` with the date of the answer. A re-plan for drift, a merge, a rebase or a
 # conflict is a build on the new base, and one for a cut, an order, a host, a name or a path is an edit of the section by the
-# coordinator. The command posts the PHASE line of the re-plan on the plan issue: "re-plan number N of the package", the
-# first plan counted, with the link to the reason.
+# coordinator. The command posts the PHASE line of the re-plan on the plan issue: "re-plan number N of the package", N the
+# plan and re-plan sessions the PHASE lines of the package name, and this one, with the link to the reason.
 # --resume starts the same session on the same tuple again with TEXT; it refuses where the selector's tuple changed.
 #
-# Stdout is one line: <name> <tool> <phase> OWNER/REPO#N: <what it does> (<the deadline>). Exit 2 refuses, on stderr.
+# Stdout is one line: <name> <tool> <phase> OWNER/REPO#N: <what it does> (<the deadline>). Exit 2 refuses, on stderr, and
+# starts nothing. Exit 1: the tool started, and a step after it failed (the native identity, its record, or the post of the
+# PHASE line of a re-plan, which stderr then prints); stderr names it, and the session may run, so it is not started again.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/lib/common.sh"
@@ -95,7 +97,7 @@ for root in ${extra_roots[@]+"${extra_roots[@]}"}; do [ -d "$root" ] || refuse "
 
 # --- the re-plan gate --------------------------------------------------------------------------------------------------------
 
-replan_reason_url=''; replan_number=''; replan_line=''
+replan_reason_url=''; replan_number=''; replan_line=''; replan_phase_line=''
 check_replan_reason() {
   local plan_repo="${issue%%#*}" plan_number="${issue##*#}" thread comment first newest count
   thread="$(bash "$ROOT/bin/ai-core" issue-thread "$plan_repo" "$plan_number" --json)" || refuse "the plan issue $issue could not be read, so the reason of the re-plan is not known"
@@ -107,13 +109,22 @@ check_replan_reason() {
     refuse "the comment $reason is no reason for a re-plan: its first line is neither a plan-check verdict 'PLAN CHECK ...: NO' nor an owner's decision ('Owner's decision' or 'Owner's yes' with the date of the answer). Drift, a merge, a rebase or a conflict goes to the build on the new base; a cut, an order, a host, a name or a path is an edit of the section by the coordinator"
   fi
   replan_reason_url="$(jq -r .url <<< "$comment")"
-  count="$(jq -r --arg package "$package" '[.comments[].body | split("\n")[0] | select(test("^PHASE [^:]+: (plan|re-plan) \\| ") and contains(" | package \($package) |"))] | length' <<< "$thread")"
+  count="$(jq -r --arg package "$package" '[.comments[].body | split("\n")[0] | select(test("^PHASE [^:]+: (plan|re-plan) \\| ") and contains(" | package \($package) |")) | split(" | ")[1]] | unique | length' <<< "$thread")"
   [ "$count" -gt 0 ] || refuse "the plan issue $issue holds no PHASE line of a plan of the package $package: a re-plan follows a plan"
   newest="$(jq -r --arg package "$package" '[.comments[].body | split("\n")[0] | select(test("^PHASE [^:]+: (plan|re-plan|plan-check|build|review|ui-test|keeper) \\| ") and contains(" | package \($package) |"))] | last' <<< "$thread")"
   replan_number=$((count + 1))
   replan_line="$newest"
 }
 [ "$SP_PHASE" != re-plan ] || [ "$SP_OPERATION" = resume ] || check_replan_reason
+
+# compose_replan_phase_line: the PHASE line of this re-plan, from the newest PHASE line of the package
+compose_replan_phase_line() {
+  jq -rn --arg line "$replan_line" --arg name "$SP_NAME" --arg tuple "$SP_TOOL $SP_MODEL $SP_EFFORT" --arg number "$replan_number" --arg url "$replan_reason_url" \
+    --arg order "$(tail -n 1 "$TOOL_ORDER_DECISIONS" | jq -r '.order | if . == null then "not set" else .tools | join(",") end')" '
+    ($line | split(" | ")) as $f | ($f[0] | sub("^PHASE (?<area>[^:]+): .*$"; "PHASE \(.area): re-plan")) as $head
+    | if ($f | length) < 11 then error("the newest PHASE line of the package has \($f | length) fields, not 11") else
+      [$head, $name, "order \($order)", "selected \($tuple)", "plans \($number)", $f[5], $f[6], "re-plan number \($number) of the package, reason \($url)", $f[8], $f[9], $f[10]] | join(" | ") end'
+}
 
 # --- the selection ---------------------------------------------------------------------------------------------------------
 
@@ -145,6 +156,9 @@ if [ "$SP_OPERATION" = start ]; then
   fi
   [ -n "$budget" ] || refuse "no budget: the setup file holds none for $SP_PHASE on $SP_TOOL, and --budget (thousands of tokens) is not given"
   SP_NAME="$(start_phase_name "$SP_PHASE" "$number" "$SP_MODEL" "$SP_EFFORT" "$budget")" || exit 2
+  if [ "$SP_PHASE" = re-plan ]; then
+    replan_phase_line="$(compose_replan_phase_line)" || refuse "the PHASE line of the re-plan cannot be written from the newest PHASE line of the package, so nothing is started: $replan_line"
+  fi
   SP_BRIEF="$sessions/$SP_NAME.brief.md"
   start_phase_compose_brief "$brief" "$SP_NAME" "$SP_PHASE" "$issue" > "$SP_BRIEF.tmp" && mv "$SP_BRIEF.tmp" "$SP_BRIEF" || { rm -f "$SP_BRIEF.tmp"; exit 2; }
   SP_PROMPT="Read $SP_BRIEF whole and carry it out. It is your whole task. Your last message is your report."
@@ -189,24 +203,22 @@ start_phase_observe attempt || exit 2
 
 # --- the start -------------------------------------------------------------------------------------------------------------
 
-if [ -n "$key" ]; then start_phase_claude_print "$key" || exit 2
-elif [ "$SP_TOOL" = claude ] && [ "$SP_PHASE" = ui-test ]; then start_phase_claude_print "" || exit 2
-elif [ "$SP_TOOL" = claude ]; then start_phase_claude_background || exit 2
-elif [ "$SP_TOOL" = codex ]; then start_phase_codex || exit 2
-else SP_TEXT="${SP_TEXT:-}"; start_phase_agy || exit 2; fi
-[ -z "$SP_NATIVE" ] || start_phase_observe native "$SP_NATIVE" || exit 2
+started=0
+if [ -n "$key" ]; then start_phase_claude_print "$key" || started=$?
+elif [ "$SP_TOOL" = claude ] && [ "$SP_PHASE" = ui-test ]; then start_phase_claude_print "" || started=$?
+elif [ "$SP_TOOL" = claude ]; then start_phase_claude_background || started=$?
+elif [ "$SP_TOOL" = codex ]; then start_phase_codex || started=$?
+else SP_TEXT="${SP_TEXT:-}"; start_phase_agy || started=$?; fi
+[ "$started" -eq 0 ] || exit "$started"
+[ -z "$SP_NATIVE" ] || start_phase_observe native "$SP_NATIVE" || { start_phase_error "$SP_NAME runs, and its native identity $SP_NATIVE is not recorded"; exit 1; }
 
 printf '%s %s %s %s: %s (%s)%s\n' "$SP_NAME" "$SP_TOOL" "$SP_PHASE" "$issue" "$does" "$deadline_text" "$([ "$SP_OPERATION" = resume ] && echo ', resumed')"
 
-if [ "$SP_PHASE" = re-plan ] && [ "$SP_OPERATION" = start ]; then
-  line="$(jq -rn --arg line "$replan_line" --arg name "$SP_NAME" --arg tuple "$SP_TOOL $SP_MODEL $SP_EFFORT" --arg number "$replan_number" --arg url "$replan_reason_url" \
-    --arg order "$(tail -n 1 "$TOOL_ORDER_DECISIONS" | jq -r '.order | if . == null then "not set" else .tools | join(",") end')" '
-    ($line | split(" | ")) as $f | ($f[0] | sub("^PHASE (?<area>[^:]+): .*$"; "PHASE \(.area): re-plan")) as $head
-    | if ($f | length) < 11 then error("the newest PHASE line of the package has \($f | length) fields, not 11") else
-      [$head, $name, "order \($order)", "selected \($tuple)", "plans \($number)", $f[5], $f[6], "re-plan number \($number) of the package, reason \($url)", $f[8], $f[9], $f[10]] | join(" | ") end')" \
-    || { start_phase_error "the PHASE line of the re-plan cannot be written; $SP_NAME runs"; exit 2; }
-  body="$(mktemp)" && printf '%s\n' "$line" > "$body" \
-    && bash "$ROOT/bin/ai-core" issue-comment "${issue%%#*}" "${issue##*#}" --body-file "$body" > /dev/null 2>&1 \
-    || { rm -f "$body"; start_phase_error "the PHASE line of the re-plan was NOT posted on $issue; $SP_NAME runs, post this line: $line"; exit 2; }
+if [ -n "$replan_phase_line" ]; then
+  posted='its body could not be written to a temporary file'
+  body="$(mktemp)" && printf '%s\n' "$replan_phase_line" > "$body" \
+    && posted="$(bash "$ROOT/bin/ai-core" issue-comment "${issue%%#*}" "${issue##*#}" --body-file "$body" 2>&1)" \
+    || { rm -f "$body"; posted="$(printf '%s' "$posted" | tail -n 1)"
+         start_phase_error "the PHASE line of the re-plan is not known to be on $issue: ${posted#error: }; $SP_NAME runs, and the line is: $replan_phase_line"; exit 1; }
   rm -f "$body"
 fi

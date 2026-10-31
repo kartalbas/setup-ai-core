@@ -84,7 +84,7 @@ export async function run(args: readonly string[], context: CommandContext): Pro
   const body = `${composeOriginLine(input.provenance, isoDate(context.now()))}\n\n${fileBody}`;
   const api = context.api();
 
-  await checkPublicText(api, 'issue-new', repository, [input.title, ...input.labels, body].join('\n'));
+  await checkPublicText(context, api, 'issue-new', repository, [input.title, ...input.labels, body].join('\n'));
   const labels = resolveLabels(await listVisibleLabels(api, repository), requested, repository);
   const assignee = owner ?? (await currentLogin(api));
   const assignable = await listAssignable(api, repository);

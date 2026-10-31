@@ -753,7 +753,11 @@ while IFS= read -r rel; do
   put "$CORE_ROOT/templates/$rel" "$rel" once
 done <<< "$( (cd "$CORE_ROOT/templates" && find . -type f | LC_ALL=C sort) | sed 's|^\./||')"
 # The Claude Code hook that starts the session, the hook that denies a permission prompt in a
-# background session, where nobody would answer it (bin/permission-request.sh), the status line
+# background session, where nobody would answer it (bin/permission-request.sh), the hooks that hold
+# the rules a script can hold: before every tool call the one that refuses a call after a compaction
+# until the rules files are read and a message with a time the clock does not show
+# (bin/pre-tool-use.sh), and after a Read the one that marks a rules file read whole
+# (bin/post-tool-use.sh), the status line
 # that records the account's usage windows for `ai-core usage` (bin/statusline.sh), the permissions
 # of the template (the ai-core
 # commands) and its denials (the secrets of a checkout and the credentials of the machine are not
@@ -767,14 +771,16 @@ AI_CORE_CMD="$CORE_ROOT/bin/ai-core"
 HOOK="\"$AI_CORE_CMD\" session-start --tool claude"
 STATUS_LINE="\"$AI_CORE_CMD\" statusline"
 PERMISSION_HOOK="\"$AI_CORE_CMD\" permission-request"
+PRE_TOOL_HOOK="\"$AI_CORE_CMD\" pre-tool-use"
+POST_TOOL_HOOK="\"$AI_CORE_CMD\" post-tool-use"
 SETTINGS="$TARGET/.claude/settings.json"
 SETTINGS_TEMPLATE="$CORE_ROOT/templates/.claude/settings.json"
-SETTINGS_HAS='def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); def ours_p: (.command // "") | test("ai-core.? permission-request$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | ([.hooks.SessionStart[]?.hooks[]? | select(ours) | .command] == [$c]) and ([.hooks.PermissionRequest[]?.hooks[]? | select(ours_p) | .command] == [$p]) and (($allow - (.permissions.allow // [])) | length == 0) and (($deny - (.permissions.deny // [])) | length == 0) and (has("autoCompactWindow") | not) and (.statusLine.command == $s) and (.attribution == ((.attribution // {}) + $t[0].attribution))'
-SETTINGS_ADD='def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); def ours_p: (.command // "") | test("ai-core.? permission-request$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | .hooks.SessionStart = ([.hooks.SessionStart[]? | .hooks = [.hooks[]? | select(ours | not)] | select(.hooks | length > 0)] + [{hooks: [{type: "command", command: $c, timeout: 60}]}]) | .hooks.PermissionRequest = ([.hooks.PermissionRequest[]? | .hooks = [.hooks[]? | select(ours_p | not)] | select(.hooks | length > 0)] + [{hooks: [{type: "command", command: $p, timeout: 10}]}]) | .permissions.allow = ((.permissions.allow // []) + ($allow - (.permissions.allow // []))) | .permissions.deny = ((.permissions.deny // []) + ($deny - (.permissions.deny // []))) | del(.autoCompactWindow) | .statusLine = {type: "command", command: $s} | .attribution = ((.attribution // {}) + $t[0].attribution)'
+SETTINGS_HAS='def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); def ours_p: (.command // "") | test("ai-core.? permission-request$"); def ours_pre: (.command // "") | test("ai-core.? pre-tool-use$"); def ours_post: (.command // "") | test("ai-core.? post-tool-use$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | ([.hooks.SessionStart[]?.hooks[]? | select(ours) | .command] == [$c]) and ([.hooks.PermissionRequest[]?.hooks[]? | select(ours_p) | .command] == [$p]) and ([.hooks.PreToolUse[]?.hooks[]? | select(ours_pre) | .command] == [$pre]) and ([.hooks.PostToolUse[]?.hooks[]? | select(ours_post) | .command] == [$post]) and ([.hooks.PostToolUse[]? | select(.matcher == "Read") | .hooks[]? | select(ours_post)] | length == 1) and (($allow - (.permissions.allow // [])) | length == 0) and (($deny - (.permissions.deny // [])) | length == 0) and (has("autoCompactWindow") | not) and (.statusLine.command == $s) and (.attribution == ((.attribution // {}) + $t[0].attribution))'
+SETTINGS_ADD='def ours: (.command // "") | test("ai-core.? session-start --tool claude$"); def ours_p: (.command // "") | test("ai-core.? permission-request$"); def ours_pre: (.command // "") | test("ai-core.? pre-tool-use$"); def ours_post: (.command // "") | test("ai-core.? post-tool-use$"); ($t[0].permissions.allow // []) as $allow | ($t[0].permissions.deny // []) as $deny | .hooks.SessionStart = ([.hooks.SessionStart[]? | .hooks = [.hooks[]? | select(ours | not)] | select(.hooks | length > 0)] + [{hooks: [{type: "command", command: $c, timeout: 60}]}]) | .hooks.PermissionRequest = ([.hooks.PermissionRequest[]? | .hooks = [.hooks[]? | select(ours_p | not)] | select(.hooks | length > 0)] + [{hooks: [{type: "command", command: $p, timeout: 10}]}]) | .hooks.PreToolUse = ([.hooks.PreToolUse[]? | .hooks = [.hooks[]? | select(ours_pre | not)] | select(.hooks | length > 0)] + [{hooks: [{type: "command", command: $pre, timeout: 10}]}]) | .hooks.PostToolUse = ([.hooks.PostToolUse[]? | .hooks = [.hooks[]? | select(ours_post | not)] | select(.hooks | length > 0)] + [{matcher: "Read", hooks: [{type: "command", command: $post, timeout: 10}]}]) | .permissions.allow = ((.permissions.allow // []) + ($allow - (.permissions.allow // []))) | .permissions.deny = ((.permissions.deny // []) + ($deny - (.permissions.deny // []))) | del(.autoCompactWindow) | .statusLine = {type: "command", command: $s} | .attribution = ((.attribution // {}) + $t[0].attribution)'
 if command -v jq >/dev/null 2>&1; then
   src="$SETTINGS"; [ -f "$src" ] || src="$SETTINGS_TEMPLATE"
-  if [ "$src" != "$SETTINGS" ] || ! jq -e --arg c "$HOOK" --arg p "$PERMISSION_HOOK" --arg s "$STATUS_LINE" --slurpfile t "$SETTINGS_TEMPLATE" "$SETTINGS_HAS" "$SETTINGS" >/dev/null 2>&1; then
-    jq --arg c "$HOOK" --arg p "$PERMISSION_HOOK" --arg s "$STATUS_LINE" --slurpfile t "$SETTINGS_TEMPLATE" "$SETTINGS_ADD" "$src" 2>/dev/null | tr -d '\r' > "$TMP/settings.json" \
+  if [ "$src" != "$SETTINGS" ] || ! jq -e --arg c "$HOOK" --arg p "$PERMISSION_HOOK" --arg pre "$PRE_TOOL_HOOK" --arg post "$POST_TOOL_HOOK" --arg s "$STATUS_LINE" --slurpfile t "$SETTINGS_TEMPLATE" "$SETTINGS_HAS" "$SETTINGS" >/dev/null 2>&1; then
+    jq --arg c "$HOOK" --arg p "$PERMISSION_HOOK" --arg pre "$PRE_TOOL_HOOK" --arg post "$POST_TOOL_HOOK" --arg s "$STATUS_LINE" --slurpfile t "$SETTINGS_TEMPLATE" "$SETTINGS_ADD" "$src" 2>/dev/null | tr -d '\r' > "$TMP/settings.json" \
       && [ -s "$TMP/settings.json" ] && put_file "$TMP/settings.json" "$SETTINGS" ".claude/settings.json" managed
   fi
 fi

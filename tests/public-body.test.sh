@@ -136,6 +136,25 @@ for path in file new edit; do
   check "$path writer failure propagated" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
   check "$path failed write snapshot removed" '' "$(ls -A "$TMPDIR")"
 done
+# A stated time the clock does not show is refused on every writer, in a private repository too, before anything is read from
+# or written to the tracker; the time the clock shows, a time with its date and a time with no zone word go through.
+export AI_CORE_NOW="$(date -u -d '2026-10-31 12:00:00' +%s)" STATED_TIME_ZONE=UTC
+for path in inline file new edit; do
+  for GH_VISIBILITY in public private; do
+    export GH_VISIBILITY
+    printf '%s' 'Landed at 13:10 UTC.' > "$WORK/body"; text='Landed at 13:10 UTC.'
+    : > "$GH_FAKE/body-calls.log"; rc=0; out="$(invoke 2>&1)" || rc=$?
+    check "$path $GH_VISIBILITY refuses a wrong time" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+    check "$path $GH_VISIBILITY wrong time zero writes" 0 "$(grep -c '^write ' "$GH_FAKE/body-calls.log" || true)"
+    check "$path $GH_VISIBILITY wrong time names both times" yes "$(grep -qF 'the text says 13:10 UTC, the clock there shows 12:00 (UTC)' <<< "$out" && echo yes || echo no)"
+    for text in 'Landed at 12:04 UTC.' 'Landed on 2026-10-30 at 13:10 UTC.' 'The run took 13:10 in total.'; do
+      printf '%s' "$text" > "$WORK/body"; : > "$GH_FAKE/body-calls.log"; rc=0; out="$(invoke 2>&1)" || rc=$?
+      check "$path $GH_VISIBILITY allows $text" 0 "$rc"
+      check "$path $GH_VISIBILITY allowed one write" 1 "$(grep -c '^write ' "$GH_FAKE/body-calls.log" || true)"
+    done
+  done
+done
+export GH_VISIBILITY=public; unset AI_CORE_NOW STATED_TIME_ZONE
 # Duplicate marking writes a generated comment and must check the receiving repository first.
 case_duplicate() {
   local want="$1" canonical="$2" expected="$3"

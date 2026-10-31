@@ -30,6 +30,14 @@ section "neighbour names come from whole paths and quoted join arguments in trac
   git -C "$N" config color.grep always
   names_are display '../cat/marker' cat cat
   names_are 'no match' 'no neighbour' cat ''
+  # git calls a file text unless its first 8000 bytes hold a NUL byte, so a later one reaches the scan
+  nul_is() {
+    { head -c 9000 /dev/zero | tr '\0' 'x'; printf '\n../cat/marker\n\0\n../dog/marker\n'; } > "$N/source"; git -C "$N" add source
+    neighbours_named "$N" $'cat\ndog' 2> "$WORK/nul-stderr" || fail "a NUL byte: $NEIGHBOUR_ERROR"
+    [ ! -s "$WORK/nul-stderr" ] || fail "a NUL byte in a tracked text file makes the scan warn: $(cat "$WORK/nul-stderr")"
+    [ "$NEIGHBOUR_NAMED" = $'cat\ndog' ] || fail "a NUL byte hides a neighbour: expected <cat dog>, got <$NEIGHBOUR_NAMED>"
+  }
+  nul_is
 )
 
 command -v flock >/dev/null 2>&1 || fail "flock (util-linux) is not installed, and the copies of the neighbours are locked with it"

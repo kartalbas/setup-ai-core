@@ -33,7 +33,7 @@ export async function runLabel(args: readonly string[], context: CommandContext)
     if (family?.name === 'priority') throw new UsageError(`${name}: the priority of an issue is set by issue-priority`);
   }
   const api = context.api();
-  await checkPublicText(api, 'issue-label', ref, [...request.add, ...request.remove, ...request.replace].join('\n'));
+  await checkPublicText(context, api, 'issue-label', ref, [...request.add, ...request.remove, ...request.replace].join('\n'));
   const issue = await getIssue(api, ref);
   const plan = planLabelChange(issue.labels, request);
   const labels = await applyLabelChange(api, ref, issue, plan);

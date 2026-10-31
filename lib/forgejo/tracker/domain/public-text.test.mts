@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
+import { bashHarness } from '../harness.mts';
 import { clientFor, startFakeForgejo } from '../testing/fake-forgejo.mts';
 import type { FakeForgejo } from '../testing/fake-forgejo.mts';
+import { createRecordingHarness } from '../testing/recording-harness.mts';
 import { checkPublicText, findEmailAddress } from './public-text.mts';
 import { PreconditionError } from './refusals.mts';
 
@@ -54,6 +56,10 @@ describe('the scan for email addresses', () => {
   }
 });
 
+// The recording harness judges no time; the Bash harness runs lib/stated-time.sh on the clock of AI_CORE_NOW.
+const quiet = { cwd: process.cwd(), harness: createRecordingHarness() };
+const judging = { cwd: process.cwd(), harness: bashHarness };
+
 describe('the protection of a destination', () => {
   let fake: FakeForgejo;
   before(async () => {
@@ -66,20 +72,45 @@ describe('the protection of a destination', () => {
   });
 
   it('refuses an address for a public repository and names the command', async () => {
-    await assert.rejects(checkPublicText(clientFor(fake), 'issue-comment', { owner: 'o', repo: 'open' }, 'write to jane@corp.com'), (error: unknown) => error instanceof PreconditionError && /^issue-comment: refused email address jane@corp.com/.test(error.message));
+    await assert.rejects(checkPublicText(quiet, clientFor(fake), 'issue-comment', { owner: 'o', repo: 'open' }, 'write to jane@corp.com'), (error: unknown) => error instanceof PreconditionError && /^issue-comment: refused email address jane@corp.com/.test(error.message));
   });
 
   it('lets an image digest reference into a public repository, and names the address beside it', async () => {
     const reference = 'mongo:8.0.4@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-    await checkPublicText(clientFor(fake), 'issue-comment', { owner: 'o', repo: 'open' }, `pin ${reference}`);
-    await assert.rejects(checkPublicText(clientFor(fake), 'issue-comment', { owner: 'o', repo: 'open' }, `pin ${reference} for someone@company.ch`), (error: unknown) => error instanceof PreconditionError && /refused email address someone@company\.ch /.test(error.message));
+    await checkPublicText(quiet, clientFor(fake), 'issue-comment', { owner: 'o', repo: 'open' }, `pin ${reference}`);
+    await assert.rejects(checkPublicText(quiet, clientFor(fake), 'issue-comment', { owner: 'o', repo: 'open' }, `pin ${reference} for someone@company.ch`), (error: unknown) => error instanceof PreconditionError && /refused email address someone@company\.ch /.test(error.message));
   });
 
   it('lets an address into a private repository (innocent case)', async () => {
-    await checkPublicText(clientFor(fake), 'issue-comment', { owner: 'o', repo: 'closed' }, 'write to jane@corp.com');
+    await checkPublicText(quiet, clientFor(fake), 'issue-comment', { owner: 'o', repo: 'closed' }, 'write to jane@corp.com');
   });
 
   it('scans where the visibility cannot be read', async () => {
-    await assert.rejects(checkPublicText(clientFor(fake), 'issue-comment', { owner: 'o', repo: 'missing' }, 'write to jane@corp.com'), PreconditionError);
+    await assert.rejects(checkPublicText(quiet, clientFor(fake), 'issue-comment', { owner: 'o', repo: 'missing' }, 'write to jane@corp.com'), PreconditionError);
+  });
+
+  describe('the stated time', () => {
+    const noon = String(Date.UTC(2026, 9, 31, 12, 0, 0) / 1000);
+    let saved: Record<string, string | undefined>;
+    before(() => {
+      saved = { AI_CORE_NOW: process.env.AI_CORE_NOW, STATED_TIME_ZONE: process.env.STATED_TIME_ZONE };
+      process.env.AI_CORE_NOW = noon;
+      process.env.STATED_TIME_ZONE = 'UTC';
+    });
+    after(() => {
+      for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    });
+
+    it('refuses a time the clock does not show, in a private repository as in a public one, and names both', async () => {
+      for (const repo of ['open', 'closed']) {
+        await assert.rejects(checkPublicText(judging, clientFor(fake), 'issue-comment', { owner: 'o', repo }, 'landed at 13:10 UTC'), (error: unknown) => error instanceof PreconditionError && /^issue-comment to o\/\w+: the text says 13:10 UTC, the clock there shows 12:00/.test(error.message));
+      }
+    });
+
+    it('lets the time of the clock, a time with its date and a time with no zone word pass (innocent cases)', async () => {
+      for (const text of ['landed at 12:03 UTC', 'landed on 2026-10-30 at 09:10 UTC', 'the run took 13:10 in total']) {
+        await checkPublicText(judging, clientFor(fake), 'issue-comment', { owner: 'o', repo: 'open' }, text);
+      }
+    });
   });
 });

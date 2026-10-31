@@ -2184,7 +2184,7 @@ describe('issue-proof and the close as completed', () => {
     await issueProof.run(proofArguments(number), ctx(tree, { liveTags: 'prod=v*' }, harness));
 
     assert.equal(fake.readIssue(main.full, number).state, 'closed');
-    assert.deepEqual(harness.calls, [`readLiveTags ${sibling.checkout}`]);
+    assert.deepEqual(harness.calls, [`readLiveTags ${sibling.checkout}`, `checkStatedTime ${tree} issue-proof ${main.full}`]);
   });
 
   it('refuses a neighbour landing whose own LIVE_TAGS needs a release (planted)', async () => {
@@ -2235,7 +2235,7 @@ describe('issue-proof and the close as completed', () => {
     await issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=v*' }, harness));
 
     assert.equal(fake.readIssue(main.full, number).state, 'closed');
-    assert.deepEqual(harness.calls, [`readLiveTags ${sibling.checkout}`, `readLiveRelease ${sibling.checkout} o/sibling prod`]);
+    assert.deepEqual(harness.calls, [`readLiveTags ${sibling.checkout}`, `readLiveRelease ${sibling.checkout} o/sibling prod`, `checkStatedTime ${main.checkout} issue-proof ${main.full}`]);
   });
 
   it('checks the newest part commit with its repository delivery reader after the final landing', async () => {
@@ -2315,7 +2315,7 @@ describe('issue-proof and the close as completed', () => {
     await issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=v*' }, harness));
 
     assert.equal(fake.readIssue(main.full, number).state, 'closed');
-    assert.deepEqual(harness.calls, []);
+    assert.deepEqual(harness.calls, [`checkStatedTime ${main.checkout} issue-proof ${main.full}`]);
   });
 
   // A clone of OWNER/NAME in the project folder FOLDER beside the one of o/r, whose LIVE_TAGS names prod as landed.
@@ -2341,7 +2341,7 @@ describe('issue-proof and the close as completed', () => {
     await issueProof.run(proofArguments(number), ctx(main.checkout, { liveTags: 'prod=v*' }, harness));
 
     assert.equal(fake.readIssue(main.full, number).state, 'closed');
-    assert.deepEqual(harness.calls, [`readLiveTags ${partner}`]);
+    assert.deepEqual(harness.calls, [`readLiveTags ${partner}`, `checkStatedTime ${main.checkout} issue-proof ${main.full}`]);
   });
 
   it('refuses a landing whose repository has a checkout in two folders beside the project folder, and names both', async () => {
@@ -2373,7 +2373,7 @@ describe('issue-proof and the close as completed', () => {
     }
 
     assert.equal(fake.readIssue(main.full, number).state, 'closed');
-    assert.deepEqual(harness.calls, [`readLiveTags ${partner}`]);
+    assert.deepEqual(harness.calls, [`readLiveTags ${partner}`, `checkStatedTime ${main.checkout} issue-proof ${main.full}`]);
   });
 
   it('refuses a neighbour directory that is another repository (planted: it declares landed)', async () => {

@@ -286,10 +286,10 @@ usage_read_claude() {
 }
 
 # The spend of a key: the cost of its print runs of the last seven days, from the end records that start-phase writes into
-# ~/.ai-core/sessions/, as the share of API_KEY_WEEK_LIMIT_USD that the project sets for its keys. A key with no limit set,
-# or one whose run ended without a cost, is no reading.
+# ~/.ai-core/sessions/, as the share of API_KEY_WEEK_LIMIT_USD that the project sets for its keys. A key with no limit set
+# is no reading; a run that ended without a cost (costUsd null) makes the spend a lower bound, and the notice says so.
 usage_read_key() {  # usage_read_key <tool>
-  local tool="$1" problem config limit now spent records record
+  local tool="$1" problem config limit now spent unknown records record
   problem="$(tool_order_check_secret "$tool" 2>&1)" || { usage_failure="$problem"; return 2; }
   config="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.ai-core/config.env"
   limit="$(config_value_in_file "$config" API_KEY_WEEK_LIMIT_USD "")" || return 2
@@ -301,11 +301,17 @@ usage_read_key() {  # usage_read_key <tool>
   while IFS= read -r record; do records="$records$record"$'\n'; done < <(find "$TOOL_ORDER_HOME/sessions" -maxdepth 1 -name '*.start.jsonl' -exec cat {} + 2>/dev/null)
   spent="$(jq -sr --arg tool "$tool" --argjson since "$((now - 7 * 86400))" '
     [.[] | select(type == "object" and .kind == "end" and .tool == $tool and (.ended | type == "number") and .ended >= $since)
-      | (.costUsd | if type == "number" and . >= 0 then . else error("an end record of \($tool) holds no cost") end)] | add // 0' <<< "$records" 2>&1)" \
+      | (.costUsd | if . == null or (type == "number" and . >= 0) then . else error("an end record of \($tool) holds an invalid cost") end)]
+    | "\(map(select(. != null)) | add // 0)\t\(map(select(. == null)) | length)"' <<< "$records" 2>&1)" \
     || { usage_reject "the end records of $tool: ${spent#jq: *: }"; return 2; }
+  IFS=$'\t' read -r spent unknown <<< "$spent"
   usage_windows="$(awk -v t="$tool" -v s="$spent" -v l="$limit" 'BEGIN { printf "week\t%s: week\t10080\t%.2f\t\n", t, 100 * s / l }')"
   usage_recorded="$now"
-  usage_notice="$tool spent \$$spent of \$$limit in the last seven days"
+  if [ "$unknown" -eq 0 ]; then
+    usage_notice="$tool spent \$$spent of \$$limit in the last seven days"
+  else
+    usage_notice="$tool spent at least \$$spent of \$$limit in the last seven days: $unknown run(s) ended without a cost, so the spend is a lower bound"
+  fi
 }
 
 usage_snapshot() {  # usage_snapshot <tool>

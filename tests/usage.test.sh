@@ -491,10 +491,21 @@ out="$(cd "$work/project" && bash "$root/bin/usage.sh" --tool acme-key 2>&1)"; r
 check 'a folder with mode 755: exit 2' 2 "$rc"
 check 'it names the folder mode' yes "$(grep -q 'has mode 755, not 700' <<< "$out" && echo yes || echo no)"
 chmod 700 "$HOME/.ai-core/secrets"
+rm -f "$HOME/.ai-core/sessions/build10004-fable5.1-high-100k-ddddd.start.jsonl"
 end_record build10005-fable5.1-high-100k-eeeee 20 null
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" --tool acme-key 2>&1)"; rc=$?
-check 'planted: a run that ended without a cost is no reading: exit 2' 2 "$rc"
-rm -f "$HOME/.ai-core/sessions/build10005-fable5.1-high-100k-eeeee.start.jsonl"
+check 'a run that ended without a cost leaves the key usable: exit 0' 0 "$rc"
+check 'the known spend is the share' yes "$(grep -q '^acme-key: week  *50 % used' <<< "$out" && echo yes || echo no)"
+check 'it says the spend is a lower bound' yes "$(grep -q 'acme-key spent at least \$5 of \$10 in the last seven days: 1 run(s) ended without a cost, so the spend is a lower bound' <<< "$out" && echo yes || echo no)"
+end_record build10006-fable5.1-high-100k-fffff 20 '"five"'
+out="$(cd "$work/project" && bash "$root/bin/usage.sh" --tool acme-key 2>&1)"; rc=$?
+check 'planted: a cost that is no number is no reading: exit 2' 2 "$rc"
+check 'it names the invalid cost' yes "$(grep -q 'holds an invalid cost' <<< "$out" && echo yes || echo no)"
+rm -f "$HOME/.ai-core/sessions/build10006-fable5.1-high-100k-fffff.start.jsonl"
+end_record build10007-fable5.1-high-100k-ggggg 20 -1
+out="$(cd "$work/project" && bash "$root/bin/usage.sh" --tool acme-key 2>&1)"; rc=$?
+check 'planted: a negative cost is no reading: exit 2' 2 "$rc"
+rm -f "$HOME/.ai-core/sessions/build10005-fable5.1-high-100k-eeeee.start.jsonl" "$HOME/.ai-core/sessions/build10007-fable5.1-high-100k-ggggg.start.jsonl"
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" --tool nosuchkey 2>&1)"; rc=$?
 check 'a name that is no file of the secrets folder: exit 2' 2 "$rc"
 rm -rf "$HOME/.ai-core/secrets" "$HOME/.ai-core/sessions" "$work/project/.ai-core/config.env"

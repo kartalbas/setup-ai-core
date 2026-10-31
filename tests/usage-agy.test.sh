@@ -264,6 +264,28 @@ out="$(agy_run --tool agy)"
 caught 'a window shown as the share left is caught' yes "$(matches '^Gemini Models: seven_day +8 % used  resets' "$(sed -n 1p <<< "$out")")"
 restore
 
+echo 'a bucket with no reset time, as agy answers once a group has reached its weekly quota: a reading, its reset unknown'
+# agy's answer while its Claude and GPT group stood at its weekly quota: the week used up and reset_time null on that
+# group's five hours (ai-core phase-model refused every phase on it, 2026-10-31); the Gemini group keeps its resets
+forget; answer 0.92 0.95 0 1
+jq '.command.data.groups[1].buckets[1].reset_time = null' "$AGY_ANSWER" > "$work/quota-reached.json"
+out="$(AGY_ANSWER="$work/quota-reached.json" agy_run --tool agy)"; rc=$?
+check 'the group at its quota: exit 3, so phase-model hands the phase to the next tool' 3 "$rc"
+check 'the five hours with no reset time: its share used, its reset unknown, no burn' "Claude and GPT models: five_hour   0 % used  reset unknown  burn unmeasured" "$(sed -n 4p <<< "$out")"
+check 'the week used up, with its reset' yes "$(matches "^Claude and GPT models: seven_day 100 % used  resets $(when "$week_at")" "$(sed -n 3p <<< "$out")")"
+check 'innocent: a bucket with a reset time keeps it' yes "$(matches "^Gemini Models: five_hour +5 % used  resets $(when "$soon")" "$(sed -n 2p <<< "$out")")"
+check 'no time is made up for the unknown reset, and it measures no burn: three readings kept' 3 "$(rows)"
+out="$(AGY_ANSWER="$work/quota-reached.json" agy_run --tool agy --model gemini-3.8-flash-high)"; rc=$?
+check 'the Gemini model is not held by the group at its quota: exit 0' 0 "$rc"
+jq '.command.data.groups[1].buckets[0].remaining_fraction = 0.5' "$work/quota-reached.json" > "$work/quota-left.json"
+out="$(AGY_ANSWER="$work/quota-left.json" agy_run --tool agy)"; rc=$?
+check 'the same unknown reset with half the week left: exit 0' 0 "$rc"
+jq 'del(.command.data.groups[0].buckets[1].reset_time)' "$sample" > "$work/no-reset.json"
+out="$(AGY_ANSWER="$work/no-reset.json" agy_run --tool agy)"; rc=$?
+check 'a reset_time missing is unknown too: exit 0' "0 yes" "$rc $(matches '^Gemini Models: five_hour +[0-9]+ % used  reset unknown  burn unmeasured$' "$(sed -n 2p <<< "$out")")"
+snapshot="$(cd "$work/project" && AGY_ANSWER="$work/quota-reached.json" PATH="$planted" bash -c ". '$root/lib/common.sh'; . '$root/lib/usage.sh'; usage_snapshot agy" 2>&1)"
+check 'the snapshot status reads names the unknown reset as null, beside a known one' 'null true' "$(jq -r '[(.windows[] | select(.key | test("3p-5h")) | .resets), ((.windows[] | select(.key | test("gemini-5h")) | .resets) > 0)] | map(tostring) | join(" ")' <<< "$snapshot" 2>&1)"
+
 echo 'what agy cannot give is exit 2 with the reason, and no window'
 refuse() {  # refuse <name> <reason pattern> <jq filter over the real answer>
   jq "$3" "$sample" > "$work/bad.json"
@@ -286,7 +308,6 @@ answer 0.92 0.95 0.42 1
 out="$(agy_run --tool agy)"; rc=$?
 check 'a rejected timestamp does not poison the next valid reading' 0 "$rc"
 refuse 'a reset in words'             'Gemini Models/gemini-5h: reset_time "tomorrow" is not a UTC time' ".command.data.groups[0].buckets[1].reset_time = \"tomorrow\""
-refuse 'a reset missing'              'reset_time null is not a UTC time' "del(.command.data.groups[0].buckets[1].reset_time)"
 refuse 'a reset with an offset'       'reset_time "2026-11-01T02:21:43\+00:00" is not a UTC time' ".command.data.groups[0].buckets[1].reset_time = \"2026-11-01T02:21:43+00:00\""
 refuse 'a window of another length'   'Gemini Models/gemini-5h: the window "daily" is neither weekly nor 5h' ".command.data.groups[0].buckets[1].window = \"daily\""
 refuse 'a bucket without an id'       'a bucket of Gemini Models has no id' "del(.command.data.groups[0].buckets[1].id)"

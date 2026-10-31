@@ -4,7 +4,7 @@
 #
 #   usage_read TOOL [MODEL]   TOOL is claude, codex or agy; MODEL is for agy. Returns 0 and sets
 #     usage_windows   one row each, tab separated: the window's key in the history, the name shown, its
-#                     length in minutes (0 when unknown), the share used, the epoch of its reset
+#                     length in minutes (0 when unknown), the share used, the epoch of its reset (empty when unknown)
 #     usage_recorded  the epoch the tool recorded the windows at
 #     usage_readings  the history, one row each: the key, the epoch of the reading, the share used, the
 #                     epoch of the reset the reading belonged to
@@ -188,7 +188,8 @@ usage_read_agy() {  # usage_read_agy <model>
   jq -se 'length == 1 and (.[0] | type == "object")' >/dev/null 2>&1 <<< "$answer" \
     || { usage_reject "the answer of agy -p /usage is not a JSON object (expected one JSON object)"; return 2; }
   # A bucket whose remaining_fraction is no number is no reading, and so is every other bucket the
-  # program below cannot read; nothing is made up for it. A model belongs to the group whose
+  # program below cannot read; nothing is made up for it. A bucket with no reset_time, as agy answers for
+  # a group whose weekly quota is reached, is a reading whose reset is unknown: its field stays empty. A model belongs to the group whose
   # description lists a family that the model's display name starts with, allowing version words.
   usage_windows="$(jq -r --arg model "$model" --arg display "$display" "$USAGE_DATES"'
     def unusable($why): error("the answer of agy -p /usage cannot be used - \($why)");
@@ -219,9 +220,9 @@ usage_read_agy() {  # usage_read_agy <model>
           then unusable("\($group)/\($id): remaining_fraction \(.remaining_fraction | tojson) is not a number from 0 to 1")
           else {"key": ([$group, $id] | tojson), "label": "\($group | gsub("[[:cntrl:]]"; " ")): \($length.name)", "minutes": $length.minutes,
                 "used": (100 - 100 * .remaining_fraction),
-                "resets": (.reset_time | try stamp catch unusable("\($group)/\($id): reset_time \(.)"))} end]
+                "resets": (.reset_time | if . == null then null else (try stamp catch unusable("\($group)/\($id): reset_time \(.)")) end)} end]
     | if (map(.key) | unique | length) != length then unusable("two buckets of a group share an id") else . end
-    | .[] | "\(.key)\t\(.label)\t\(.minutes)\t\(.used)\t\(.resets)"' <<< "$answer" 2>&1)" \
+    | .[] | "\(.key)\t\(.label)\t\(.minutes)\t\(.used)\t\(.resets // "")"' <<< "$answer" 2>&1)" \
     || { usage_reject "${usage_windows#jq: *: }"; return 2; }
   # Appending can take several writes; the lock covers the append, pruning and the read, never agy.
   history="${AI_CORE_HOME:-$HOME}/.ai-core/usage-agy"; day=$((usage_recorded / 86400))
@@ -241,7 +242,8 @@ usage_read_agy() {  # usage_read_agy <model>
     case "$n" in ''|*[!0-9]*) continue ;; esac
     [ "$n" -ge $((day - 8)) ] || rm -f "$f" || { usage_reject "the old usage history $f cannot be removed"; return 2; }
   done
-  awk -F'\t' -v t="$usage_recorded" '{ print $1 "\t" t "\t" $4 "\t" $5 }' <<< "$usage_windows" >> "$history/$day.log" \
+  # A reading with no reset belongs to no window of the history, so it measures no burn and is not kept
+  awk -F'\t' -v t="$usage_recorded" '$5 != "" { print $1 "\t" t "\t" $4 "\t" $5 }' <<< "$usage_windows" >> "$history/$day.log" \
     || { usage_reject "the usage history $history/$day.log cannot be written"; return 2; }
   usage_readings="$(awk -F'\t' 'NF != 4 || $2 !~ /^[0-9]+$/ || $2 <= 0 || $3 + 0 != $3 || $3 < 0 || $3 > 100 || $4 !~ /^[0-9]+$/ || $4 <= 0 { print "the usage history has a malformed line at " FILENAME ":" FNR > "/dev/stderr"; exit 1 } { print }' "$history"/*.log 2>"$usage_agy_error")" \
     || { usage_reject "$(head -n1 "$usage_agy_error")"; return 2; }
@@ -287,7 +289,7 @@ usage_snapshot() {  # usage_snapshot <tool>
     --rawfile windows <(printf '%s\n' "$usage_windows") --rawfile readings <(printf '%s\n' "$usage_readings") '
     def rows($text): $text | split("\n") | map(select(. != "") | split("\t"));
     {tool: $tool, recorded: ($recorded | if . == "" then null else tonumber end), failure: $failure, notice: $notice,
-     windows: [rows($windows)[] | {key: .[0], name: .[1], minutes: (.[2] | tonumber), used: (.[3] | tonumber), resets: (.[4] | tonumber)}],
+     windows: [rows($windows)[] | {key: .[0], name: .[1], minutes: (.[2] | tonumber), used: (.[3] | tonumber), resets: (.[4] // "" | if . == "" then null else tonumber end)}],
      readings: [rows($readings)[] | {key: .[0], at: (.[1] | tonumber), used: (.[2] | tonumber), resets: (.[3] | tonumber)}]}'
   return "$status"
 }

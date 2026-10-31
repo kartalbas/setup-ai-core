@@ -78,6 +78,12 @@ trusted_span=1800
 width="$(awk -F'\t' '{ if (length($2) > w) w = length($2) } END { print (w > 10 ? w : 10) }' <<< "$windows")"
 while IFS=$'\t' read -r key name length used resets; do
   [ -n "$key" ] || continue
+  # A window whose reset the tool does not name is judged by what it stands at, with no burn and no hour
+  if [ -z "$resets" ]; then
+    printf '%-*s %3d %% used  reset unknown  burn unmeasured\n' "$width" "$name" "$(awk -v u="$used" 'BEGIN { printf "%d", u }')"
+    awk -v u="$used" -v s="$stop" 'BEGIN { exit !(u >= s) }' && reached=1
+    continue
+  fi
   if [ "$resets" -gt 0 ] && [ "$resets" -le "$now" ]; then
     printf '%-*s   0 %% used  reset since %s\n' "$width" "$name" "$(when "$resets")"; continue
   fi

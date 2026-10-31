@@ -63,7 +63,10 @@ start_source "$source_repo" json 0
 jq -e '.harness_source == "example-org/shop-ai-core" and .harness_current == null and .rules_present == false and .rules_path == "" and (.rule_sources | length) == 2' "$WORK/start.log" >/dev/null || fail "source facts are incorrect"
 # After a compaction a project harness source names its own rule files under its root and the base
 # layer's where they are written, so every path it names exists
-(cd "$source_repo" && printf '{"source":"compact"}' | bash "$ROOT/bin/session-start.sh" --tool claude) > "$WORK/compact-source.log" 2>&1 || fail "source start after a compaction: $(cat "$WORK/compact-source.log")"
+(cd "$source_repo" && printf '{"source":"compact","session_id":"source-compact"}' | bash "$ROOT/bin/session-start.sh" --tool claude) > "$WORK/compact-source.log" 2>&1 || fail "source start after a compaction: $(cat "$WORK/compact-source.log")"
+# the record the PreToolUse hook holds the session to is that very list, in a harness source as in a project checkout
+[ "$(cat "$AI_CORE_HOME/.ai-core/rules-unread/source-compact")" = "$(sed -n 's/^  \(\/.*\.md\)$/\1/p' "$WORK/compact-source.log")" ] || fail "the record of the unread files of a harness source is not the list session-start printed: $(tr '\n' '|' < "$AI_CORE_HOME/.ai-core/rules-unread/source-compact")"
+rm -f "$AI_CORE_HOME/.ai-core/rules-unread/source-compact"
 grep -aqxF "  $ROOT/rules/10-the-code-never-lies.md" "$WORK/compact-source.log" || fail "after a compaction the source does not name the base rule file where it is written: $(grep -a '^  /' "$WORK/compact-source.log")"
 grep -aqxF "  $source_repo/rules/35-checked.md" "$WORK/compact-source.log" || fail "after a compaction the source does not name its own rule file under its root"
 while IFS= read -r named; do [ -f "$named" ] || fail "after a compaction the source names a rules file that does not exist: $named"; done <<< "$(sed -n 's/^  \(\/.*\.md\)$/\1/p' "$WORK/compact-source.log")"
@@ -168,6 +171,7 @@ command_source="$WORK/command-source"; git clone -q "$ROOT" "$command_source"
 cp "$ROOT/bin/session-start.sh" "$command_source/bin/"
 cp "$ROOT/lib/layers.sh" "$command_source/lib/"
 cp "$ROOT/lib/worktrees.sh" "$command_source/lib/"
+cp "$ROOT/lib/rules-read.sh" "$command_source/lib/"
 for defect in missing-version empty-version missing-skill-rules missing-section; do
   case "$defect" in
     missing-version) rm "$command_source/VERSION" ;;

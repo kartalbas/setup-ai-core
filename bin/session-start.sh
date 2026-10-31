@@ -45,11 +45,15 @@ done
 
 # Claude Code starts the hook with the event on standard input, whose "source" is "compact" after a
 # compaction (code.claude.com/docs/en/hooks, SessionStart). A summary keeps the work and loses the
-# rules, so then the report names every rules file to read again. A terminal passes no event.
-AFTER_COMPACTION=0
+# rules, so then the report names every rules file to read again, and bin/pre-tool-use.sh refuses the
+# session's calls until it has read them (lib/rules-read.sh). A start that is no compaction clears that
+# duty. A terminal passes no event.
+AFTER_COMPACTION=0; SESSION_ID=""; SESSION_SOURCE=""
 if [ "$TOOL_N" -eq 1 ] && [ ! -t 0 ]; then
   HOOK_INPUT=""; IFS= read -r -t 1 -d '' HOOK_INPUT || true
-  [ "$(printf '%s' "$HOOK_INPUT" | jq -r '.source? // empty' 2>/dev/null)" != compact ] || AFTER_COMPACTION=1
+  SESSION_SOURCE="$(printf '%s' "$HOOK_INPUT" | jq -r '.source? // empty' 2>/dev/null)"
+  SESSION_ID="$(printf '%s' "$HOOK_INPUT" | jq -r '.session_id? // empty' 2>/dev/null)"
+  [ "$SESSION_SOURCE" != compact ] || AFTER_COMPACTION=1
 fi
 
 # 1. The gate: no session without the team modes. team-modes-check prints its own lines and the
@@ -65,6 +69,7 @@ fi
 
 . "$CORE/lib/layers.sh"
 . "$CORE/lib/worktrees.sh"
+. "$CORE/lib/rules-read.sh"
 if git rev-parse --show-toplevel >/dev/null 2>&1; then
   fast_forward_default_branch "$PWD" || true
 fi
@@ -357,10 +362,16 @@ if [ "$READY" -eq 0 ]; then
   exit 1
 fi
 if [ "$AFTER_COMPACTION" -eq 1 ]; then
+  RULES_TO_READ="$(rules_files_to_read "$ROOT" "$SOURCE_RULE_PATHS" "$RULES_PATH" "$LOCAL_RULES_PATHS")"
   echo "After compaction: read every rules file whole again now, before the next step:"
-  { if [ -n "$HARNESS_SOURCE" ]; then printf '%s' "$SOURCE_RULE_PATHS"
-    else [ -z "$RULES_PATH" ] || echo "$RULES_PATH"; [ ! -f .ai-core/rules/skills.md ] || echo .ai-core/rules/skills.md; fi
-    printf '%s' "$LOCAL_RULES_PATHS"; } | sed "/^\$/d; s#^\([^/]\)#  $ROOT/\1#; s#^/#  /#"
+  printf '%s\n' "$RULES_TO_READ" | sed 's/^/  /'
+  if rules_unread_record "$SESSION_ID" "$RULES_TO_READ"; then
+    echo "Until then every call but the read of one of these files is refused."
+  else
+    echo "No session id came with the event, so no call is refused until the files are read: this read rests on you."
+  fi
+elif [ -n "$SESSION_SOURCE" ]; then
+  rules_unread_clear "$SESSION_ID"
 fi
 # A start without the issue it was opened for is not the start it looks like, so the last line says so
 if [ -n "$ISSUE_UNREAD" ]; then

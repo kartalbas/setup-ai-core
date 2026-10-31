@@ -134,6 +134,7 @@ check 'a used number: exit 2' 2 "$rc"
 check 'a used number is named' yes "$(grep -qF 'number 10001 is used already' "$WORK/err" && echo yes || echo no)"
 start build mechanical --issue o/r#7 --brief "$WORK/brief.md" --number 10003 > /dev/null; rc=$?
 check 'no budget: exit 2' 2 "$rc"
+check 'no budget and no setup file: the refusal names both' yes "$(grep -qF 'neither --budget (thousands of tokens) nor --setup-file is given' "$WORK/err" && echo yes || echo no)"
 start helper mechanical --issue o/r#7 --brief "$WORK/brief.md" --number 10003 --budget 100 > /dev/null; rc=$?
 check 'helper: exit 2' 2 "$rc"
 start coordinator mechanical --issue o/r#7 --brief "$WORK/brief.md" --number 10003 --budget 100 > /dev/null; rc=$?

@@ -758,7 +758,7 @@ check 'planted: a reader that counts a proof from before the delivery turns the 
 status_mutant 's/trusted | select(\$landing != null/select($landing != null/' "$cmd" bin/status.sh
 check 'planted: a reader that counts a stranger'"'"'s proof turns the card of that proof green' yes "$(grep -qE '^  🟢 engine#34 ' <<< "$planted" && echo yes || echo no)"
 check 'innocent: the same copies leave the proof after the delivery green' yes "$(grep -qE '^  🟢 engine#31 ' <<< "$planted" && echo yes || echo no)"
-# engine#35 is red by its delivery as well; a card read by tags has no delivery, so only the landing record holds its proof back
+# a card delivered by a command is held back by its delivery as well; a card read by tags has none, so only the landing record holds its proof back
 plugin_first="$(git -C "$cmd/plugin" log -1 --format=%H --grep='(#1)')"
 { cmd_card 1 plugin 'G1 proved before its landing'; } > "$work/page9"
 context plugin 1 "$(member_proof 2026-08-30T10:00:00Z MEMBER prod),$(member_landing $landing_at "$plugin_first")"

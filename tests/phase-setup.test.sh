@@ -256,152 +256,168 @@ two_setups; selection build normal-hard --setup-file "$WORK/setup.json"
 selector=''
 echo "  ok   each planted defect lets its case through, so the real check is what refuses it"
 
-section "a filled launch starts on the Setup's tuple, with the name, the window and the budget that agree"
-launch="$WORK/launch.sh"
-awk '/^```bash$/ { on = 1; next } /^```$/ { if (on) exit } on' "$ROOT/skills/person-in-charge/references/claude.md" > "$launch"
-[ -s "$launch" ] || fail "the launch of references/claude.md was not found"
-mkdir -p "$WORK/bin" "$WORK/captures"
-cat > "$WORK/bin/ai-core" <<'EOF'
-#!/usr/bin/env bash
-[ "$1" = phase-model ] || exit 7
-shift
-exec bash "$SELECTOR" "$@"
-EOF
+section "a start through the command is on the Setup's tuple, with the name, the window and the budget that agree"
+# The command itself runs, on a copy of the tree whose quota reader is the fixture one; Claude Code and Codex are stand-ins on the
+# PATH that keep every call, and a planted defect is one changed line of a second copy
+CMD="$WORK/cmd"; mkdir -p "$CMD" "$WORK/bin" "$WORK/captures"
+cp -R "$ROOT/bin" "$ROOT/lib" "$ROOT/templates" "$CMD/"; cp "$SRC/bin/usage.sh" "$CMD/bin/usage.sh"
 cat > "$WORK/bin/claude" <<'EOF'
 #!/usr/bin/env bash
 if [ "$1" = agents ]; then cat "$NATIVE"; exit 0; fi
 jq -cn --args '{args:$ARGS.positional}' -- "$@" >> "$CAPTURES/calls"
-jq -cn --arg name "$SESSION" '[{name:$name,sessionId:"claude-identity",status:"idle",state:"done"}]' > "$NATIVE"
+name=''; prev=''; for a in "$@"; do [ "$prev" != --name ] || name="$a"; prev="$a"; done
+[ -z "$name" ] || jq -cn --arg name "$name" '[{name:$name,id:"agent-1",sessionId:"claude-identity",cwd:"/",status:"idle",state:"done"}]' > "$NATIVE"
 EOF
-chmod +x "$WORK/bin/ai-core" "$WORK/bin/claude"
+cat > "$WORK/bin/codex" <<'EOF'
+#!/usr/bin/env bash
+printf '{"type":"thread.started","thread_id":"thread-1"}\n{"type":"turn.completed"}\n'
+EOF
+printf '#!/bin/sh\nexit 0\n' > "$WORK/bin/google-chrome"
+chmod +x "$WORK/bin/claude" "$WORK/bin/codex" "$WORK/bin/google-chrome"
+printf '{"permissions":{"deny":[]}}\n' > "$AI_CORE_HOME/.ai-core/claude-run-settings.json"
 echo '[]' > "$WORK/native.json"
-brief="$WORK/brief.md"; echo 'fixture brief' > "$brief"
-setup "$(jq -cn --argjson b "$(entry claude-sonnet-5-5 xhigh 150000)" '{build:{claude:$b}}')"
-budget="$(jq -r '.build.claude.budget_tokens' "$WORK/setup.json")"
-thousands=$(( (budget + 999) / 1000 ))
-run_launch() {  # run_launch <launch file>
-  : > "$WORK/captures/calls"; echo '[]' > "$WORK/native.json"
-  env PATH="$WORK/bin:$PATH" SELECTOR="$SRC/bin/phase-model.sh" CAPTURES="$WORK/captures" NATIVE="$WORK/native.json" \
-    PROJECT="$PROJECT" PHASE=build CLASS=normal-hard SESSION="build10001-sonnet5.5-xhigh-${thousands}k-abcde" BRIEF="$brief" \
-    WINDOW="$(( budget + 100000 ))" SETUP_FILE="$WORK/setup.json" bash "$1" > "$WORK/launch.out" 2>&1 || fail "the launch failed: $(cat "$WORK/launch.out")"
+SESSIONS="$AI_CORE_HOME/.ai-core/sessions"
+brief="$WORK/brief.md"; printf '# Brief: a fixture\n\nRead nothing.\n' > "$brief"
+echo 10000 > "$WORK/number"; command=''
+run_command() {  # run_command <args>...: the command in the project; its worker line in $line, its session name in $session, its refusal in $err
+  # the number is kept in a file: a call inside a command substitution runs in a subshell, and a counter in memory would run back
+  number=$(( $(cat "$WORK/number") + 1 )); echo "$number" > "$WORK/number"; : > "$WORK/captures/calls"
+  rc=0; line="$(cd "$PROJECT" && env PATH="$WORK/bin:$PATH" CAPTURES="$WORK/captures" NATIVE="$WORK/native.json" \
+    bash "${command:-$CMD/bin/start-phase.sh}" "$@" --issue o/r#7 --brief "$brief" --number "$number" 2> "$WORK/err")" || rc=$?
+  err="$(cat "$WORK/err")"; session="${line%% *}"
+  if [ "$rc" = 0 ]; then
+    for _ in $(seq 100); do { [ ! -f "$SESSIONS/$session.pid" ] || [ -f "$SESSIONS/$session.exit" ]; } && break; sleep 0.1; done
+  fi
+}
+run_resume() {  # run_resume <name>: the resume of the session the stand-in just started
+  : > "$WORK/captures/calls"
+  rc=0; line="$(cd "$PROJECT" && env PATH="$WORK/bin:$PATH" CAPTURES="$WORK/captures" NATIVE="$WORK/native.json" \
+    bash "${command:-$CMD/bin/start-phase.sh}" --resume "$1" 'go on' 2> "$WORK/err")" || rc=$?
+  err="$(cat "$WORK/err")"
+}
+last_call() { tail -n 1 "$WORK/captures/calls"; }
+plant_command() {  # plant_command <name> <file under the tree> <sed script>: a copy of the tree with one defect; `command` runs it
+  local tree="$WORK/cmd-$1"
+  rm -rf "$tree"; cp -R "$CMD" "$tree"
+  sed "$3" "$CMD/$2" > "$tree/$2"
+  ! cmp -s "$CMD/$2" "$tree/$2" || fail "the planted defect $1 changed nothing in $2"
+  command="$tree/bin/start-phase.sh"
 }
 order claude
-run_launch "$launch"
-call="$(tail -n 1 "$WORK/captures/calls")"
-[ "$(jq -r '.args | index("--model") as $i | .[$i + 1]' <<< "$call")" = claude-sonnet-5-5 ] || fail "the launch did not start on the model of the Setup: $call"
-[ "$(jq -r '.args | index("--effort") as $i | .[$i + 1]' <<< "$call")" = xhigh ] || fail "the launch did not start on the effort of the Setup: $call"
-[ "$(jq -r '.args | index("--name") as $i | .[$i + 1]' <<< "$call")" = "build10001-sonnet5.5-xhigh-225k-abcde" ] || fail "the name does not carry the budget of the Setup: $call"
+setup "$(jq -cn --argjson b "$(entry claude-sonnet-5-5 xhigh 150000)" '{build:{claude:$b}}')"
+budget="$(jq -r '.build.claude.budget_tokens' "$WORK/setup.json")"
+run_command build normal-hard --setup-file "$WORK/setup.json"
+[ "$rc" = 0 ] || fail "the command refused a start on a Setup: $err"
+call="$(last_call)"
+[ "$(jq -r '.args | index("--model") as $i | .[$i + 1]' <<< "$call")" = claude-sonnet-5-5 ] || fail "the start did not use the model of the Setup: $call"
+[ "$(jq -r '.args | index("--effort") as $i | .[$i + 1]' <<< "$call")" = xhigh ] || fail "the start did not use the effort of the Setup: $call"
+grep -Eq '^build10001-sonnet5\.5-xhigh-225k-[0-9a-f]{5}$' <<< "$session" || fail "the name does not carry the budget of the Setup: $session"
+[ "$(jq -r '.args | index("--name") as $i | .[$i + 1]' <<< "$call")" = "$session" ] || fail "the session does not run under the name the command printed: $call"
 [ "$(jq -r '.args | index("--settings") as $i | .[$i + 1]' <<< "$call")" = '{"autoCompactWindow":325000}' ] || fail "the window is not the budget plus 100000: $call"
-echo "  ok   the launch starts claude-sonnet-5-5 at xhigh, named 225k, with a window of 325000"
-grep -q '"model":"claude-sonnet-5-5","effort":"xhigh"' "$AI_CORE_HOME/.ai-core/sessions/build10001-sonnet5.5-xhigh-225k-abcde.start.jsonl" || fail "the start record does not carry the Setup's tuple"
+echo "  ok   the start uses claude-sonnet-5-5 at xhigh, named 225k, with a window of 325000"
+grep -q '"model":"claude-sonnet-5-5","effort":"xhigh"' "$SESSIONS/$session.start.jsonl" || fail "the start record does not carry the Setup's tuple"
 echo "  ok   the start record carries the same tuple"
-grep -v 'SETUP_FILE' "$launch" > "$WORK/launch-planted.sh"
-run_launch "$WORK/launch-planted.sh"
-[ "$(jq -r '.args | index("--effort") as $i | .[$i + 1]' <<< "$(tail -n 1 "$WORK/captures/calls")")" = high ] || fail "a launch that drops the Setup file still started on the Setup's tuple"
-echo "  ok   a launch that drops --setup-file starts on the table row instead (planted)"
-for tool in codex agy; do
-  grep -qF -- '--setup-file "$SETUP_FILE"' "$ROOT/skills/person-in-charge/references/$tool.md" || fail "the launch of references/$tool.md does not pass the Setup file"
-done
-echo "  ok   the launches of codex and agy pass the Setup file as well"
+plant_command no-setup bin/start-phase.sh '/select_args+=(--setup-file/d'
+run_command build normal-hard --setup-file "$WORK/setup.json"; command=''
+[ "$rc" = 2 ] && grep -qF 'no budget' <<< "$err" || [ "$(jq -r '.args | index("--effort") as $i | .[$i + 1]' <<< "$(last_call)")" = high ] \
+  || fail "a command that does not pass the Setup file to the selector still started on the Setup's tuple: $err"
+echo "  ok   a command that drops the Setup file starts on the table row or refuses (planted)"
+order codex
+setup "$(jq -cn --argjson b "$(entry gpt-6-sol xhigh 100000)" '{build:{codex:$b}}')"
+run_command build normal-hard --setup-file "$WORK/setup.json"
+[ "$rc" = 0 ] || fail "the command refused a Codex start on a Setup: $err"
+grep -Eq '^build[0-9]+-gpt6sol-xhigh-150k-[0-9a-f]{5}$' <<< "$session" || fail "the name of a Codex start does not carry the budget of the Setup: $session"
+echo "  ok   a Codex start takes the Setup file through the same selection (150k)"
+order claude
 
 section "a phase session starts without the connectors and with everything that carries its rules"
-run_resume() {  # run_resume <launch file>: the resume of the session the stand-in just started
-  : > "$WORK/captures/calls"
-  jq -cn '[{name:"other",sessionId:"claude-identity",status:"idle",state:"done"}]' > "$WORK/native.json"
-  env PATH="$WORK/bin:$PATH" SELECTOR="$SRC/bin/phase-model.sh" CAPTURES="$WORK/captures" NATIVE="$WORK/native.json" \
-    PROJECT="$PROJECT" PHASE=build CLASS=normal-hard SESSION="build10001-sonnet5.5-xhigh-${thousands}k-abcde" BRIEF="$brief" \
-    OPERATION=resume NATIVE_ID=claude-identity TEXT='go on' SETUP_FILE="$WORK/setup.json" bash "$1" > "$WORK/launch.out" 2>&1 \
-    || fail "the resume failed: $(cat "$WORK/launch.out")"
-}
-launch_faults() {  # launch_faults <start|resume>: what the last call of the stand-in gets wrong, one fault per line
-  local call allowed='--bg --model --effort --permission-mode --strict-mcp-config --add-dir'
-  call="$(tail -n 1 "$WORK/captures/calls")"
-  [ -n "$call" ] || { echo 'the launch made no call'; return; }
-  jq -e '.args | index("--strict-mcp-config") != null' <<< "$call" > /dev/null || echo 'no --strict-mcp-config, so the connectors of the account load'
+launch_faults() {  # launch_faults <start|resume> <call>: what the call of the stand-in gets wrong, one fault per line
+  local allowed='--bg --model --effort --permission-mode --strict-mcp-config --add-dir'
+  jq -e '.args | index("--strict-mcp-config") != null' <<< "$2" > /dev/null || echo 'no --strict-mcp-config, so the connectors of the account load'
   # Only the flags a phase needs: Claude Code has many that drop the rules or the skills (--safe-mode, --bare) or let a connector in (--mcp-config)
   if [ "$1" = resume ]; then allowed="$allowed --resume"; else allowed="$allowed --name --settings"; fi
   jq -r --arg allowed "$allowed" --arg operation "$1" '($allowed | split(" ")) as $ok | .args[] | . as $flag
-    | select(startswith("-") and (any($ok[]; . == $flag) | not)) | "the flag \($flag) stands in the \($operation)"' <<< "$call"
-  [ "$1" = resume ] || jq -e --arg dir "$(dirname "$brief")" '[.args as $a | range(0; $a | length - 1) | select($a[.] == "--add-dir") | $a[. + 1]] | index($dir) != null' <<< "$call" > /dev/null \
+    | select(startswith("-") and (any($ok[]; . == $flag) | not)) | "the flag \($flag) stands in the \($operation)"' <<< "$2"
+  [ "$1" = resume ] || jq -e --arg dir "$SESSIONS" '[.args as $a | range(0; $a | length - 1) | select($a[.] == "--add-dir") | $a[. + 1]] | index($dir) != null' <<< "$2" > /dev/null \
     || echo "--add-dir does not name the folder of the brief"
   return 0
 }
-plant() {  # plant <name> <sed script>: a copy of the launch with one defect
-  sed "$2" "$launch" > "$WORK/launch-$1.sh"
-  ! cmp -s "$launch" "$WORK/launch-$1.sh" || fail "the planted defect $1 changed nothing in the launch"
+started_faults() {  # started_faults: the faults of a start by the command that `command` names, on the Setup of the section before
+  run_command build normal-hard --setup-file "$WORK/setup.json"
+  [ "$rc" = 0 ] || { echo "the command refused: $err"; return; }
+  launch_faults start "$(last_call)"
 }
-run_launch "$launch"
-[ -z "$(launch_faults start)" ] || fail "the start of references/claude.md has faults: $(launch_faults start)"
+resumed_faults() {  # resumed_faults: the faults of a resume of the session the last start left
+  local started="$session"
+  run_resume "$started"
+  [ "$rc" = 0 ] || { echo "the command refused the resume: $err"; return; }
+  launch_faults resume "$(last_call)"
+}
+setup "$(jq -cn --argjson b "$(entry claude-sonnet-5-5 xhigh 150000)" '{build:{claude:$b}}')"
+[ -z "$(started_faults)" ] || fail "the start of the command has faults: $(started_faults)"
 echo "  ok   the start has --strict-mcp-config, no flag beyond the ones a phase needs, and the brief's folder (innocent)"
-run_resume "$launch"
-[ -z "$(launch_faults resume)" ] || fail "the resume of references/claude.md has faults: $(launch_faults resume)"
+run_command build normal-hard --setup-file "$WORK/setup.json"; [ "$rc" = 0 ] || fail "the start before a resume was refused: $err"
+[ -z "$(resumed_faults)" ] || fail "the resume of the command has faults: $(resumed_faults)"
 echo "  ok   the resume has --strict-mcp-config and no flag beyond the ones a phase needs (innocent)"
-plant bare 's/--strict-mcp-config --add-dir/--strict-mcp-config --bare --add-dir/'
-run_launch "$WORK/launch-bare.sh"
-[ "$(launch_faults start)" = 'the flag --bare stands in the start' ] || fail "a start with --bare was not refused: $(launch_faults start)"
-echo "  ok   a start with --bare is refused (planted)"
-plant system-prompt 's/--strict-mcp-config --add-dir/--strict-mcp-config --system-prompt x --add-dir/'
-run_launch "$WORK/launch-system-prompt.sh"
-[ "$(launch_faults start)" = 'the flag --system-prompt stands in the start' ] || fail "a start with --system-prompt was not refused: $(launch_faults start)"
-echo "  ok   a start with --system-prompt is refused (planted)"
-plant slash 's/--strict-mcp-config --add-dir/--strict-mcp-config --disable-slash-commands --add-dir/'
-run_launch "$WORK/launch-slash.sh"
-[ "$(launch_faults start)" = 'the flag --disable-slash-commands stands in the start' ] || fail "a start with --disable-slash-commands was not refused: $(launch_faults start)"
-echo "  ok   a start with --disable-slash-commands is refused (planted)"
-plant safe-mode 's/--strict-mcp-config --add-dir/--strict-mcp-config --safe-mode --add-dir/'
-run_launch "$WORK/launch-safe-mode.sh"
-[ "$(launch_faults start)" = 'the flag --safe-mode stands in the start' ] || fail "a start with --safe-mode was not refused: $(launch_faults start)"
-echo "  ok   a start with --safe-mode, which turns off the instruction files and the skills, is refused (planted)"
-plant connectors 's/--strict-mcp-config --add-dir/--add-dir/'
-run_launch "$WORK/launch-connectors.sh"
-[ "$(launch_faults start)" = 'no --strict-mcp-config, so the connectors of the account load' ] || fail "a start without --strict-mcp-config was not refused: $(launch_faults start)"
-echo "  ok   a start without --strict-mcp-config is refused (planted)"
-plant mcp-config 's/--strict-mcp-config --add-dir/--strict-mcp-config --mcp-config {} --add-dir/'
-run_launch "$WORK/launch-mcp-config.sh"
-[ "$(launch_faults start)" = 'the flag --mcp-config stands in the start' ] || fail "a start with --mcp-config was not refused: $(launch_faults start)"
-echo "  ok   a start with a connector of its own is refused (planted)"
-plant brief-folder 's/--strict-mcp-config --add-dir "$(dirname "$BRIEF")"/--strict-mcp-config/'
-run_launch "$WORK/launch-brief-folder.sh"
-[ "$(launch_faults start)" = "--add-dir does not name the folder of the brief" ] || fail "a start without the brief's folder was not refused: $(launch_faults start)"
-echo "  ok   a start that does not add the brief's folder is refused (planted)"
-plant resume-connectors 's/--permission-mode auto --strict-mcp-config/--permission-mode auto/'
-run_resume "$WORK/launch-resume-connectors.sh"
-[ "$(launch_faults resume)" = 'no --strict-mcp-config, so the connectors of the account load' ] || fail "a resume without --strict-mcp-config was not refused: $(launch_faults resume)"
-echo "  ok   a resume without --strict-mcp-config is refused (planted)"
-plant resume-bare 's/--permission-mode auto --strict-mcp-config/--permission-mode auto --strict-mcp-config --bare/'
-run_resume "$WORK/launch-resume-bare.sh"
-[ "$(launch_faults resume)" = 'the flag --bare stands in the resume' ] || fail "a resume with --bare was not refused: $(launch_faults resume)"
-echo "  ok   a resume with --bare is refused (planted)"
-ui_test_browser() {  # ui_test_browser <reference>: the UI-test run of a reference keeps its own browser server beside the strict flag
-  local block
-  block="$(awk '/^      claude -p / { on = 1 } on { print } on && !/\\$/ { exit }' "$1" | tr -s ' \n' ' ')"
-  grep -qF -- '--strict-mcp-config' <<< "$block" && grep -qF -- '--mcp-config '"'"'{"mcpServers":{"chrome-devtools"' <<< "$block" && grep -qF -- '--allowedTools mcp__chrome-devtools' <<< "$block"
+planted_start() {  # planted_start <name> <sed script> <the one fault it must give>
+  plant_command "$1" lib/start-phase.sh "$2"
+  local faults; faults="$(started_faults)"; command=''
+  [ "$faults" = "$3" ] || fail "a start planted '$1' was not refused as '$3': $faults"
+  echo "  ok   a start planted '$1' is refused (planted)"
 }
-ui_test_browser "$ROOT/skills/person-in-charge/references/claude.md" || fail "the UI-test run of references/claude.md lost its browser server"
-for cut in 's/--mcp-config /--no-browser /' 's/ --strict-mcp-config --no-session-persistence/ --no-session-persistence/' 's/--allowedTools mcp__chrome-devtools/--allowedTools Read/'; do
-  sed "$cut" "$ROOT/skills/person-in-charge/references/claude.md" > "$WORK/claude-planted.md"
-  ! cmp -s "$ROOT/skills/person-in-charge/references/claude.md" "$WORK/claude-planted.md" || fail "the planted UI-test defect '$cut' changed nothing"
-  ! ui_test_browser "$WORK/claude-planted.md" || fail "a UI-test run planted with '$cut' passed, so the case cannot go red"
-done
-echo "  ok   the UI-test run keeps its own browser server; one without its --mcp-config, its strict flag or its browser tools is refused (planted)"
+planted_start bare 's/--strict-mcp-config --add-dir/--strict-mcp-config --bare --add-dir/' 'the flag --bare stands in the start'
+planted_start system-prompt 's/--strict-mcp-config --add-dir/--strict-mcp-config --system-prompt x --add-dir/' 'the flag --system-prompt stands in the start'
+planted_start disable-slash-commands 's/--strict-mcp-config --add-dir/--strict-mcp-config --disable-slash-commands --add-dir/' 'the flag --disable-slash-commands stands in the start'
+planted_start safe-mode 's/--strict-mcp-config --add-dir/--strict-mcp-config --safe-mode --add-dir/' 'the flag --safe-mode stands in the start'
+planted_start connectors 's/--strict-mcp-config --add-dir/--add-dir/' 'no --strict-mcp-config, so the connectors of the account load'
+planted_start mcp-config 's/--strict-mcp-config --add-dir/--strict-mcp-config --mcp-config {} --add-dir/' 'the flag --mcp-config stands in the start'
+planted_start brief-folder 's/--strict-mcp-config --add-dir "$(dirname "$SP_BRIEF")"/--strict-mcp-config/' '--add-dir does not name the folder of the brief'
+planted_resume() {  # planted_resume <name> <sed script> <the one fault it must give>
+  run_command build normal-hard --setup-file "$WORK/setup.json"; [ "$rc" = 0 ] || fail "the start before a planted resume was refused: $err"
+  local started="$session"
+  plant_command "$1" lib/start-phase.sh "$2"
+  run_resume "$started"; command=''
+  [ "$rc" = 0 ] || fail "the planted resume '$1' was refused: $err"
+  local faults; faults="$(launch_faults resume "$(last_call)")"
+  [ "$faults" = "$3" ] || fail "a resume planted '$1' was not refused as '$3': $faults"
+  echo "  ok   a resume planted '$1' is refused (planted)"
+}
+planted_resume resume-connectors 's/^      --strict-mcp-config \${roots/      ${roots/' 'no --strict-mcp-config, so the connectors of the account load'
+planted_resume resume-bare 's/^      --strict-mcp-config \${roots/      --strict-mcp-config --bare ${roots/' 'the flag --bare stands in the resume'
 
-section "the budget is read from the Setup file as SKILL.md says, for a UI test too"
-budget_of() {  # budget_of <SKILL.md> <phase> <tool>: what the read of the budget that SKILL.md names prints on the Setup file
-  local read
-  read="$(tr '\n' ' ' < "$1" | tr -s ' ' | grep -o '`jq [^`]*budget_tokens[^`]*`' | head -n 1 | tr -d '`')"
-  [ -n "$read" ] || { echo 'SKILL.md names no read of the budget'; return 1; }
-  read="${read//<phase>/$2}"; read="${read//<tool>/$3}"
-  case "$read" in *'<that file>'*) read="${read//<that file>/$WORK/setup.json}" ;; *) read="$read $WORK/setup.json" ;; esac
-  bash -c "$read" 2>&1
+section "the UI-test run keeps its own browser server beside the strict flag"
+ui_test_faults() {  # ui_test_faults <call>: what the run of a UI test lacks, one fault per line
+  jq -r '.args as $a
+    | (if ($a | index("--strict-mcp-config")) == null then "no --strict-mcp-config" else empty end),
+      (if ($a | index("--mcp-config")) as $i | $i == null or ($a[$i + 1] | startswith("{\"mcpServers\":{\"chrome-devtools\"") | not) then "no browser server in --mcp-config" else empty end),
+      (if ($a | index("--allowedTools")) as $i | $i == null or $a[$i + 1] != "mcp__chrome-devtools" then "--allowedTools is not the tools of the browser" else empty end)' <<< "$1"
 }
-skill="$ROOT/skills/person-in-charge/SKILL.md"
+ui_test_run() { run_command ui-test normal-hard --budget 100; [ "$rc" = 0 ] || { echo "the command refused: $err"; return; }; ui_test_faults "$(last_call)"; }
+[ -z "$(ui_test_run)" ] || fail "the UI-test run of the command lost its browser server: $(ui_test_run)"
+echo "  ok   the UI-test run has its browser server, the strict flag and the browser's tools (innocent)"
+for planted in 's/--mcp-config "$mcp"/--no-browser "$mcp"/|no browser server in --mcp-config' \
+               's/ --strict-mcp-config --no-session-persistence/ --no-session-persistence/|no --strict-mcp-config' \
+               's/--allowedTools mcp__chrome-devtools/--allowedTools Read/|--allowedTools is not the tools of the browser'; do
+  plant_command ui-test lib/start-phase.sh "${planted%%|*}"
+  faults="$(ui_test_run)"; command=''
+  [ "$faults" = "${planted##*|}" ] || fail "a UI-test run planted with '${planted%%|*}' was not refused as '${planted##*|}': $faults"
+done
+echo "  ok   a UI-test run without its --mcp-config, its strict flag or its browser tools is refused (planted)"
+
+section "the budget is read from the Setup file for a UI test too"
 setup "$(jq -cn --argjson u "$(entry claude-haiku-5-5 high 60000)" '{"ui-test":{claude:$u}}')"
-[ "$(budget_of "$skill" ui-test claude)" = 90000 ] || fail "the read SKILL.md names does not give the 90000 of the ui-test entry: $(budget_of "$skill" ui-test claude)"
-[ "$(budget_of "$skill" build codex)" = null ] || fail "the read SKILL.md names does not give null for a tool without an entry: $(budget_of "$skill" build codex)"
-echo "  ok   the read SKILL.md names gives 90000 for the ui-test entry and null where a tool has none"
-sed 's/\.\[\$phase\]\[\$tool\]\.budget_tokens/.<phase>.<tool>.budget_tokens/' "$skill" > "$WORK/SKILL-planted.md"
-! cmp -s "$skill" "$WORK/SKILL-planted.md" || fail "the planted read of .<phase>.<tool> changed nothing in SKILL.md"
-[ "$(budget_of "$WORK/SKILL-planted.md" ui-test claude)" != 90000 ] || fail "a read of .<phase>.<tool> gave the budget of the ui-test entry, so the case cannot go red"
-echo "  ok   a read of .<phase>.<tool>, which jq takes as .ui - test for a UI test, gives no budget (planted)"
+run_command ui-test normal-hard --setup-file "$WORK/setup.json"
+[ "$rc" = 0 ] || fail "the command refused a UI test on a Setup: $err"
+grep -Eq '^ui-test[0-9]+-haiku5\.5-high-90k-[0-9a-f]{5}$' <<< "$session" || fail "the name does not carry the 90000 of the ui-test entry: $session"
+echo "  ok   a UI test on its entry is named 90k"
+order codex
+run_command build normal-hard --setup-file "$WORK/setup.json"
+[ "$rc" = 2 ] && grep -qF 'no budget' <<< "$err" || fail "a tool without an entry in the Setup and without --budget was not refused for its budget: rc $rc: $err"
+echo "  ok   a tool with no entry for its phase, and no --budget, is refused for its budget"
+order claude
+plant_command phase-and-tool bin/start-phase.sh 's/\.\[\$phase\]\[\$tool\]\.budget_tokens/.build[$tool].budget_tokens/'
+run_command ui-test normal-hard --setup-file "$WORK/setup.json"; command=''
+{ [ "$rc" = 2 ] && grep -qF 'no budget' <<< "$err"; } || ! grep -Eq -- '-90k-' <<< "$session" || fail "a read of the budget that fixes the phase still gave the 90000 of the ui-test entry"
+echo "  ok   a read of the budget that fixes the phase, not the Setup's phase, gives no budget (planted)"
 
 echo "all phase setup cases passed"

@@ -758,6 +758,46 @@ check 'planted: a reader that counts a proof from before the delivery turns the 
 status_mutant 's/trusted | select(\$landing != null/select($landing != null/' "$cmd" bin/status.sh
 check 'planted: a reader that counts a stranger'"'"'s proof turns the card of that proof green' yes "$(grep -qE '^  🟢 engine#34 ' <<< "$planted" && echo yes || echo no)"
 check 'innocent: the same copies leave the proof after the delivery green' yes "$(grep -qE '^  🟢 engine#31 ' <<< "$planted" && echo yes || echo no)"
+# engine#35 is red by its delivery as well; a card read by tags has no delivery, so only the landing record holds its proof back
+plugin_first="$(git -C "$cmd/plugin" log -1 --format=%H --grep='(#1)')"
+{ cmd_card 1 plugin 'G1 proved before its landing'; } > "$work/page9"
+context plugin 1 "$(member_proof 2026-08-30T10:00:00Z MEMBER prod),$(member_landing $landing_at "$plugin_first")"
+run_status
+check 'planted: a proof written before the landing record leaves a card read by tags red' \
+  "  🔴 $(printf '%-26s' plugin#1) proof due on prod since 25 h (0.5.022-stable-20261021150415)  G1 proved before its landing" "$(line_of 'plugin#1 ')"
+status_mutant 's/ and later(\.createdAt; \$landing\.createdAt)//' "$cmd" bin/status.sh
+check 'planted: a reader that counts a proof from before the landing record turns that card green' yes "$(grep -qE '^  🟢 plugin#1 ' <<< "$planted" && echo yes || echo no)"
+
+echo 'a tracker with no board hands its records to lib/status-testing.sh, which draws the lines of the same block'
+landing_first="$(git -C "$cmd/landing" log -1 --format=%H --grep='(#1)')"
+printf '{"repo":"example-org/%s","number":%s,"title":"%s","open":true,"status":"testing","priority":"P1","parent":null,"subs":0,"closedAt":null}\n' \
+  plugin 1 'G1 proved before its landing' landing 1 'H1 lands where it is live' plugin 3 'G3 is in no tag' engine 21 'U1 could not be read' > "$work/forgejo-items"
+printf 'implementing\ntesting\ndone\n' > "$work/forgejo-columns"
+{ printf '{"repository":"example-org/plugin","number":1,"createdAt":"2026-01-01T00:00:00Z","context":"read","reason":"","landing":{"repository":"example-org/plugin","commit":"%s","createdAt":"%s"},"proofs":[]}\n' "$plugin_first" "$landing_at"
+  printf '{"repository":"example-org/landing","number":1,"createdAt":"2026-01-01T00:00:00Z","context":"read","reason":"","landing":{"repository":"example-org/landing","commit":"%s","createdAt":"%s"},"proofs":[{"environment":"staging","createdAt":"%s"}]}\n' "$landing_first" "$landing_at" "$(iso $((now - 3600)))"
+  printf '{"repository":"example-org/plugin","number":3,"createdAt":"2026-01-01T00:00:00Z","context":"read","reason":"","landing":null,"proofs":[]}\n'
+  printf '{"repository":"example-org/engine","number":21,"createdAt":"2026-01-01T00:00:00Z","context":"failed","reason":"planted: the timeline is not readable","landing":null,"proofs":[]}\n'; } > "$work/forgejo-records"
+forgejo_block() {  # forgejo_block <harness root>: the lines lib/status-testing.sh of that root prints for the records above, in $forgejo and its exit status in $rc
+  forgejo="$(cd "$cmd" && bash "$1/lib/status-testing.sh" "$work/forgejo-items" "$work/forgejo-columns" "$work/forgejo-records" example-org/forgejo 2>&1)"; rc=$?
+}
+forgejo_block "$root"
+check 'exit 0, though one record is a failed read' 0 "$rc"
+check 'the header counts the cards as the block of a board does' \
+  'TESTING 4 cards in testing: 2 live on prod, 0 live on test only, 0 live on qa only, 1 not live, 0 without a landing commit, 1 unknown' "$(grep '^TESTING' <<< "$forgejo")"
+check 'released and without a proof: red, as on a board' \
+  "  🔴 $(printf '%-26s' plugin#1) proof due on prod since 25 h (0.5.022-stable-20261021150415)  G1 proved before its landing" "$(grep -F 'plugin#1 ' <<< "$forgejo")"
+check 'with the proof the tracker counted: green, with the environment it names, from the clone of the landing' \
+  "  🟢 $(printf '%-26s' landing#1) proven on staging 1 h ago (landed on origin/master)  H1 lands where it is live" "$(grep -F 'landing#1 ' <<< "$forgejo")"
+check 'in no release of the first environment: it waits for that release' \
+  "  ⏸ $(printf '%-26s' plugin#3) waits for the release of prod ([0-9]*-stable-*)  G3 is in no tag" "$(grep -F 'plugin#3 ' <<< "$forgejo")"
+check 'the failed read is that card'"'"'s line beside the others' '  ❓ unknown example-org/engine#21: planted: the timeline is not readable' "$(grep -F 'engine#21' <<< "$forgejo")"
+harness_copy "$root" "$work/no-landing-clone"
+sed -i.bak 's/--arg landingClone "\$landing_clone"/--arg landingClone ""/' "$work/no-landing-clone/lib/status-testing.sh"
+cmp -s "$root/lib/status-testing.sh" "$work/no-landing-clone/lib/status-testing.sh" && { echo "  FAIL the copy without the clone of the landing equals lib/status-testing.sh"; failed=$((failed + 1)); }
+forgejo_block "$work/no-landing-clone"
+check 'planted: a copy that hands over no clone of the landing reads no landed card' \
+  "0|  ⏸ no checkout of the repository its work landed in, in $shown_cmd: plugin#1 (example-org/plugin) landing#1 (example-org/landing)" "$rc|$(grep -F 'landing#1' <<< "$forgejo")"
+printf '[]\n' > "$work/ctx/plugin-1.json"
 printf '[]\n' > "$work/ctx/landing-1.json"; mv "$work/page9.kept" "$work/page9"
 echo 'the list and PROOF_HOURS of the project folder are read whichever checkout runs status: from inside a clone, the testing block is the one of the folder'
 testing_block() { awk '/^TESTING/ { on = 1 } on' <<< "$1"; }   # testing_block <page>: its TESTING block, which git answers by the configured lists and the rest of the page does not

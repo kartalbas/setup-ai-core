@@ -113,7 +113,7 @@ check_replan_reason() {
   fi
   replan_reason_url="$(jq -r .url <<< "$comment")"
   count="$(jq -r --arg package "$package" '[.comments[].body | split("\n")[0] | select(test("^PHASE [^:]+: (plan|re-plan) \\| ") and contains(" | package \($package) |")) | split(" | ")[1]] | unique | length' <<< "$thread")"
-  [ "$count" -gt 0 ] || refuse "the plan issue $issue holds no PHASE line of a plan of the package $package: a re-plan follows a plan"
+  [ "$count" -gt 0 ] || refuse "the plan issue $issue holds no PHASE line of a plan of the package $package: a re-plan follows a plan, and a PHASE line counts only where its first line holds the field ' | package $package |'"
   newest="$(jq -r --arg package "$package" '[.comments[].body | split("\n")[0] | select(test("^PHASE [^:]+: (plan|re-plan|plan-check|build|review|ui-test|keeper) \\| ") and contains(" | package \($package) |"))] | last' <<< "$thread")"
   replan_number=$((count + 1))
   replan_line="$newest"
@@ -157,6 +157,7 @@ if [ "$SP_OPERATION" = start ]; then
     budget="$(jq -r --arg phase "$SP_PHASE" --arg tool "$SP_TOOL" '.[$phase][$tool].budget_tokens // empty | (. + 999) / 1000 | floor' "$setup_file")" \
       || refuse "cannot read the budget from $setup_file"
   fi
+  if [ -z "$budget" ] && [ -z "$setup_file" ]; then refuse "no budget: neither --budget (thousands of tokens) nor --setup-file is given"; fi
   [ -n "$budget" ] || refuse "no budget: the setup file holds none for $SP_PHASE on $SP_TOOL, and --budget (thousands of tokens) is not given"
   SP_NAME="$(start_phase_name "$SP_PHASE" "$number" "$SP_MODEL" "$SP_EFFORT" "$budget")" || exit 2
   if [ "$SP_PHASE" = re-plan ]; then

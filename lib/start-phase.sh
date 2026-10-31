@@ -59,13 +59,14 @@ start_phase_number_used() {
 }
 
 # start_phase_measured <phase> <class>: "<seconds><TAB><name of the run>" of the newest end record of the phase and class
-# in the start records of the machine, or nothing where no run ended.
+# in the start records of the machine, or nothing where no run ended. A resume measures only its own part, and a run that
+# gave no report did not do the job, so neither counts.
 start_phase_measured() {
   local file
   for file in "$(start_phase_sessions)"/*.start.jsonl; do
     [ -e "$file" ] || continue
     jq -r --arg phase "$1" --arg class "$2" --arg name "$(basename "$file" .start.jsonl)" \
-      'select(type == "object" and .kind == "end" and .phase == $phase and .class == $class and (.ended | type == "number") and (.invoked | type == "number"))
+      'select(type == "object" and .kind == "end" and .operation == "start" and .reported != false and .phase == $phase and .class == $class and (.ended | type == "number") and (.invoked | type == "number"))
        | "\(.ended)\t\((.ended - .invoked) | floor)\t\($name)"' "$file" 2>/dev/null
   done | sort -t "$(printf '\t')" -k1,1nr | awk -F'\t' 'NR == 1 { print $2 "\t" $3 }'
 }
@@ -245,10 +246,11 @@ start_phase_report_text() {
   esac
 }
 
-# start_phase_end <name> <report URL>: the end record of a session, whose report is on the issue. A background Claude session
-# is stopped by its agent id; a print run ended with its process, and an agy run names its conversation only now.
+# start_phase_end <name> <report URL> [<reported>]: the end record of a session, whose report is on the issue; <reported> is
+# false where a print run gave no report and the URL is of the comment that says so. A background Claude session is stopped
+# by its agent id; a print run ended with its process, and an agy run names its conversation only now.
 start_phase_end() {
-  local name="$1" url="$2" dir record attempt cost='null' id agent
+  local name="$1" url="$2" reported="${3:-true}" dir record attempt cost='null' id agents agent
   dir="$(start_phase_sessions)"; record="$dir/$name.start.jsonl"
   attempt="$(jq -c 'select(.kind == "attempt")' "$record" | tail -n 1)"
   if [ "$(jq -r '.tool' <<< "$attempt")" = agy ]; then
@@ -259,11 +261,14 @@ start_phase_end() {
   fi
   if [ ! -f "$dir/$name.pid" ]; then
     id="$(jq -r 'select(.kind == "native") | .nativeIdentity' "$record" | tail -n 1)"
-    agent="$(claude agents --json 2>/dev/null | jq -r --arg id "$id" '[.[] | select(.sessionId == $id)] | .[0].id // empty')"
+    [ -n "$id" ] || { start_phase_error "the start record of $name names no native session, so it was not stopped"; return 2; }
+    agents="$(claude agents --json 2>/dev/null)" || { start_phase_error "claude agents could not be read, so $name was not stopped"; return 2; }
+    agent="$(jq -r --arg id "$id" '[.[] | select(.sessionId == $id)] | .[0].id // empty' <<< "$agents")" \
+      || { start_phase_error "claude agents gave no list, so $name was not stopped"; return 2; }
     [ -z "$agent" ] || claude stop "$agent" > /dev/null || { start_phase_error "claude stop $agent failed"; return 2; }
   elif [ "$(jq -r '.output' <<< "$attempt")" = json ] && [ "$(jq -r '.tool' <<< "$attempt")" != agy ]; then
-    cost="$(jq -c '.total_cost_usd | if type == "number" then . else null end' "$dir/$name.out" 2>/dev/null)" || cost=null
+    cost="$(jq -c '.total_cost_usd | if type == "number" then . else null end' "$dir/$name.out" 2>/dev/null)" && [ -n "$cost" ] || cost=null
   fi
-  jq -c --arg url "$url" --argjson cost "$cost" '{version:1,kind:"end",operation:.operation,tool,model,effort,phase,class,writer,invoked,ended:now,report:$url,costUsd:$cost}
+  jq -c --arg url "$url" --argjson cost "$cost" --argjson reported "$reported" '{version:1,kind:"end",operation:.operation,tool,model,effort,phase,class,writer,invoked,ended:now,report:$url,reported:$reported,costUsd:$cost}
     | .duration = (.ended - .invoked)' <<< "$attempt" >> "$record" || return 2
 }

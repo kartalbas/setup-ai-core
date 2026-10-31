@@ -277,7 +277,8 @@ by hand with `claude`, `codex` or `agy`: a start by hand has no deadline, no rec
    keep the session name, and write the saved order (`ai-core tool-order`) and the tool, model and effort of
    the session's start record (`~/.ai-core/sessions/<session name>.start.jsonl`) into every PHASE line of it.
    A refusal is never answered by a start by hand: read it, fix the call, run it again. The deadline is one and a half times the
-   measured duration of the newest ended run of the same phase and class on the machine, or `unmeasured` where none ended;
+   measured duration of the newest run of the same phase and class on the machine that started fresh and gave its report,
+   or `unmeasured` where none did;
    it is never replaced by a number of your own. If the selection changes tools, start a fresh session with the current
    brief, saved work and last report; never send a foreign conversation id or keep running the old tool. A changed order
    before the start needs no step of yours: the command selects again. This is preflight and detection, not a reservation:
@@ -289,7 +290,8 @@ by hand with `claude`, `codex` or `agy`: a start by hand has no deadline, no rec
    `Reported by <session name>:`, which its brief tells it to post as its last step; a print run (a UI test, a Codex or agy session, a key)
    has its output posted under that line by the watch once its process ended. The watch then stops a background session by `claude stop` and
    writes the session's end record, so a message to its name starts nothing; where the tracker refuses the report (an email address, a
-   stated time) the watch says `report refused` with the refusal and writes no end record, and you post the report yourself. Read the
+   stated time) the watch says `report refused` with the refusal and writes no end record, and you post the report yourself; a
+   report of a key run that holds that key is refused the same way and not posted at all, and you post it without the key. Read the
    report on the issue. A session that stopped before its phase was done continues with
    `ai-core start-phase --resume <session name> "<text>"`, after `ai-core status` proved that conversation is no longer running;
    a print run (a UI test, a key) is not resumed but started again.

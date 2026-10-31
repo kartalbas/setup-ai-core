@@ -22,13 +22,14 @@
 #                A session that ai-core start-phase started has a record, ~/.ai-core/sessions/<name>.start.jsonl, and ends
 #                the watch also in two more ways, each with its own line: "<HH:MM> deadline <name>: passed at <time>, measured
 #                <seconds> from <the run>" once its deadline has passed (one and a half times the measured duration of the
-#                last run of its phase and class; a start with no measured run has none), and "<HH:MM> reported <name>: <URL>"
+#                newest run of its phase and class that started fresh and gave its report; a start with no measured run has
+#                none), and "<HH:MM> reported <name>: <URL>"
 #                once its report is on the issue. A background Claude session reports with a comment whose first line is
 #                "Reported by <name>:"; a print run (UI test, Codex, agy, a key) is followed by its process and, once that
 #                ended, its output is posted on the issue under that first line. Then the session is stopped by claude stop
 #                and its end record is written, so a message to its name starts nothing. A report that the tracker refuses
 #                (an email address, a stated time) ends the watch with "<HH:MM> report refused <name>: <the refusal>" and
-#                writes no end record.
+#                writes no end record; so does the report of a key run that holds that key, which is not posted at all.
 #   --ref        a ref of a clone, such as /path/clone:origin/master; the clone is fetched every
 #                round, and the caller is woken when the ref moves
 #   --file       a readable output file; wake after --still seconds without growth unless the last
@@ -129,14 +130,14 @@ report_url() {  # report_url <name> <OWNER/REPO#N> <invoked>
 }
 
 # The end of a session whose report is on the issue at <url>: its end record, and the stop of a background session
-end_session() {  # end_session <name> <url>
-  start_phase_end "$1" "$2" 2> "$err" || say "reported $1: $2, but its end could not be recorded: $(tail -n1 "$err")" 1
+end_session() {  # end_session <name> <url> <reported: false where a print run gave no report>
+  start_phase_end "$1" "$2" "$3" 2> "$err" || say "reported $1: $2, but its end could not be recorded: $(tail -n1 "$err")" 1
   say "reported $1: $2"
 }
 
 # The checks of a session with a start record: its end, its report, its deadline; each one ends the watch
 check_record() {  # check_record <name>
-  local name="$1" record issue invoked deadline url tool output exit_status body text
+  local name="$1" record issue invoked deadline url tool output exit_status body text reported key
   record="$sessions/$name.start.jsonl"
   issue="$(record_field "$name" .issue)"; invoked="$(record_field "$name" .invoked)"
   { [ -n "$issue" ] && [ "$issue" != null ]; } || say "$name: its start record names no issue" 1
@@ -146,16 +147,22 @@ check_record() {  # check_record <name>
     if ! kill -0 "$(cat "$sessions/$name.pid")" 2> /dev/null; then
       tool="$(record_field "$name" .tool)"; output="$(record_field "$name" .output)"
       exit_status="$(cat "$sessions/$name.exit" 2> /dev/null || echo unknown)"
-      text="$(start_phase_report_text "$name" "$tool" "$output" 2> /dev/null)" \
-        || text="the run ended with exit status $exit_status and gave no report: $(tail -n1 "$sessions/$name.err" 2> /dev/null)"
+      reported=true
+      text="$(start_phase_report_text "$name" "$tool" "$output" 2> /dev/null)" && [ -n "$text" ] \
+        || { reported=false; text="the run ended with exit status $exit_status and gave no report: $(tail -n1 "$sessions/$name.err" 2> /dev/null)"; }
+      if ! tool_order_is_native "$tool"; then
+        key="$(cat "$(tool_order_secret_file "$tool")" 2> /dev/null)" \
+          || say "report refused $name: the key of $tool cannot be read, so the report is not checked for it and not posted" 1
+        [ -z "$key" ] || [[ "$text" != *"$key"* ]] || say "report refused $name: the report holds the key of $tool, so it is not posted" 1
+      fi
       body="$(mktemp)"; printf 'Reported by %s:\n\n%s\n' "$name" "$text" > "$body"
       url="$("$here/ai-core" issue-comment "${issue%%#*}" "${issue##*#}" --body-file "$body" 2>&1)" || { rm -f "$body"; say "report refused $name: $(printf '%s' "$url" | tail -n1)" 1; }
       rm -f "$body"
-      end_session "$name" "$url"
+      end_session "$name" "$url" "$reported"
     fi
   else
     report_url "$name" "$issue" "$invoked"
-    [ -z "$REPORT_URL" ] || end_session "$name" "$REPORT_URL"
+    [ -z "$REPORT_URL" ] || end_session "$name" "$REPORT_URL" true
   fi
   deadline="$(record_field "$name" .deadline)"
   if [ "$deadline" != null ] && [ "$(date +%s)" -ge "${deadline%%.*}" ]; then

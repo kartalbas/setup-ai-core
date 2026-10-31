@@ -368,6 +368,10 @@ chmod +x "$work/bin2/claude" "$work/bin2/gh"
 # watch reads the records under ${AI_CORE_HOME:-$HOME}/.ai-core, and a runner of the whole suite exports AI_CORE_HOME
 export AI_CORE_HOME="$HOME"
 sessions="$HOME/.ai-core/sessions"; mkdir -p "$sessions"
+# the key of the key tool acme-key: a made-up string in the scratch home
+watch_key='sk-ant-WATCHFAKE-0123456789'
+mkdir -p "$HOME/.ai-core/secrets"; chmod 700 "$HOME/.ai-core/secrets"
+printf '%s' "$watch_key" > "$HOME/.ai-core/secrets/acme-key"; chmod 600 "$HOME/.ai-core/secrets/acme-key"
 chmod 644 "$dig_transcript"; healthy dig "$dig_id"
 echo '[]' > "$work/comments.json"
 live_agents() { printf '[{"name":"dig","id":"agent-9","kind":"background","state":"working","status":"busy","sessionId":"%s","cwd":"%s"}]\n' "$dig_id" "$work/dig" > "$work/agents.json"; }
@@ -416,6 +420,7 @@ check 'the reported line' 'reported '"$name"': https://example.invalid/o/r/issue
 check 'the report is posted under the first line' "Reported by $name:" "$(head -n 1 "$work/posted")"
 check 'it holds the result of the run' yes "$(grep -qF 'the print report' "$work/posted" && echo yes || echo no)"
 check 'the end record holds the cost of the run' 0.25 "$(jq -r 'select(.kind == "end") | .costUsd' "$sessions/$name.start.jsonl")"
+check 'the end record says the run gave its report' true "$(jq -r 'select(.kind == "end") | .reported' "$sessions/$name.start.jsonl")"
 echo 'a post the tracker refuses ends the watch with the refusal and writes no end record'
 name='build10002-fable5.1-high-100k-fffff'
 record "$name" null json acme-key
@@ -427,6 +432,43 @@ check 'exit 1' 1 "$rc"
 check 'the line names the refusal' yes "$(grep -q "^report refused $name: .*stated time is wrong" <<< "$out" && echo yes || echo no)"
 check 'no end record' 0 "$(jq -c 'select(.kind == "end")' "$sessions/$name.start.jsonl" | grep -c . || true)"
 rm -f "$work/refuse"
+echo 'the report of a key run that holds its key is not posted, and the key reaches no line'
+for planted in result err; do
+  case "$planted" in result) name='build10004-fable5.1-high-100k-ccccc' ;; err) name='build10005-fable5.1-high-100k-ddddd' ;; esac
+  record "$name" null json acme-key
+  printf '%s\n' "$dead" > "$sessions/$name.pid"; printf '1\n' > "$sessions/$name.exit"
+  # PLANTED: the key in the result of the run, and in the last error line of a run that gave no result
+  case "$planted" in
+    result) jq -cn --arg key "$watch_key" '{type:"result",result:"the environment holds ANTHROPIC_API_KEY=\($key)",total_cost_usd:0.1}' > "$sessions/$name.out"; : > "$sessions/$name.err" ;;
+    err) : > "$sessions/$name.out"; printf 'invalid x-api-key %s\n' "$watch_key" > "$sessions/$name.err" ;;
+  esac
+  rm -f "$work/posted"
+  swatch 90 --session "$name" --still 60 --every 1
+  check "$planted: exit 1" 1 "$rc"
+  check "$planted: the line names the refusal" "report refused $name: the report holds the key of acme-key, so it is not posted" "$out"
+  check "$planted: nothing was posted" no "$([ -f "$work/posted" ] && echo yes || echo no)"
+  check "$planted: no end record" 0 "$(jq -c 'select(.kind == "end")' "$sessions/$name.start.jsonl" | grep -c . || true)"
+done
+name='build10006-fable5.1-high-100k-bbbbb'
+record "$name" null json acme-key
+printf '%s\n' "$dead" > "$sessions/$name.pid"; printf '0\n' > "$sessions/$name.exit"
+printf '{"type":"result","result":"a clean report"}\n' > "$sessions/$name.out"; : > "$sessions/$name.err"
+mv "$HOME/.ai-core/secrets/acme-key" "$work/acme-key.away"; rm -f "$work/posted"
+swatch 90 --session "$name" --still 60 --every 1
+mv "$work/acme-key.away" "$HOME/.ai-core/secrets/acme-key"
+check 'a key that cannot be read: exit 1' 1 "$rc"
+check 'it says the report is not checked and not posted' "report refused $name: the key of acme-key cannot be read, so the report is not checked for it and not posted" "$out"
+check 'nothing was posted unchecked' no "$([ -f "$work/posted" ] && echo yes || echo no)"
+echo 'a print run that gave no report says so on the issue, and its end record says so too'
+name='build10007-fable5.1-high-100k-aaaab'
+record "$name" null json acme-key
+printf '%s\n' "$dead" > "$sessions/$name.pid"; printf '3\n' > "$sessions/$name.exit"
+# PLANTED: an empty output, which jq reads without an error
+: > "$sessions/$name.out"; printf 'the model is overloaded\n' > "$sessions/$name.err"
+swatch 90 --session "$name" --still 60 --every 1
+check 'exit 0' 0 "$rc"
+check 'the post says the run gave no report' yes "$(grep -qF 'the run ended with exit status 3 and gave no report: the model is overloaded' "$work/posted" && echo yes || echo no)"
+check 'the end record says it gave no report' false "$(jq -r 'select(.kind == "end") | .reported' "$sessions/$name.start.jsonl")"
 echo 'a print run that still runs ends nothing'
 name='build10003-fable5.1-high-100k-eeeee'
 record "$name" null json acme-key

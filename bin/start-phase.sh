@@ -13,7 +13,8 @@
 # ~/.ai-core/sessions/<name>.brief.md with the frame of the harness, and the session is told to read it.
 # --add-dir names a folder the session may also edit in; a resume adds the same ones again.
 # The start record ~/.ai-core/sessions/<name>.start.jsonl carries the issue, what the brief says it does, and the deadline:
-# one and a half times the duration of the newest ended run of the same phase and class, or "unmeasured" where none ended.
+# one and a half times the duration of the newest run of the same phase and class that started fresh and gave its report,
+# or "unmeasured" where none did.
 # A re-plan needs --package, the first issue of the package as its PHASE lines name it, and --reason: the URL or the
 # number of a comment on the plan issue (--issue) whose first line is a plan-check verdict `PLAN CHECK ...: NO`, or whose
 # first line is `Owner's decision` or `Owner's yes` with the date of the answer. A re-plan for drift, a merge, a rebase or a

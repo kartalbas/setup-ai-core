@@ -159,6 +159,13 @@ check 'the worker line names the measured run' yes "$(has "$out" "(deadline in 1
 check 'the record holds the measured seconds' 600 "$(jq -r 'select(.kind == "attempt") | .measuredSeconds' "$SESSIONS/$second.start.jsonl")"
 check 'the record holds the run it came from' "$first" "$(jq -r 'select(.kind == "attempt") | .measuredFrom' "$SESSIONS/$second.start.jsonl")"
 check 'the deadline is the start plus one and a half times the run' 900 "$(jq -r 'select(.kind == "attempt") | (.deadline - .invoked) | round' "$SESSIONS/$second.start.jsonl")"
+echo 'a resume and a run that gave no report measure no deadline'
+# PLANTED: newer end records of the same phase and class: a resume that measured its own minute, and a run that gave no report
+now="$(jq -n now)"
+jq -cn --argjson ended "$now" '{version:1,kind:"end",operation:"resume",tool:"claude",model:"claude-sonnet-5-5",effort:"high",phase:"build",class:"mechanical",writer:"",invoked:($ended - 60),ended:$ended,duration:60,report:"u",reported:true,costUsd:null}' >> "$SESSIONS/$second.start.jsonl"
+jq -cn --argjson ended "$now" '{version:1,kind:"end",operation:"start",tool:"claude",model:"claude-sonnet-5-5",effort:"high",phase:"build",class:"mechanical",writer:"",invoked:($ended - 30),ended:($ended + 1),duration:31,report:"u",reported:false,costUsd:null}' >> "$SESSIONS/$second.start.jsonl"
+out="$(start build mechanical --issue o/r#7 --brief "$WORK/brief.md" --number 10030 --budget 100)"
+check 'the deadline still comes from the run that started fresh and gave its report' yes "$(has "$out" "(deadline in 15 min, 1.5 x 600 s of $first)")"
 
 echo 'a start on Codex and on agy prints the worker line and records the tuple of the selector'
 order codex
@@ -304,6 +311,30 @@ order claude
 out="$(FAKE_AGENTS_FAIL=1 start build mechanical --issue o/r#7 --brief "$WORK/brief.md" --number 10035 --budget 100)"; rc=$?
 check 'the tool started and its identity is unread: exit 1' 1 "$rc"
 check 'it says the session may run' yes "$(grep -Eq 'cannot read native Claude evidence; build10035-[a-z0-9.-]+ may run' "$WORK/err" && echo yes || echo no)"
+
+echo 'the end of a background session that cannot read claude agents stops nothing and records no end'
+out="$(start build mechanical --issue o/r#7 --brief "$WORK/brief.md" --number 10036 --budget 100)"; ename="$(nameof "$out")"
+end_of() ( . "$SRC/lib/common.sh"; . "$SRC/lib/tool-order.sh"; . "$SRC/lib/start-phase.sh"; tool_order_paths; start_phase_end "$@" )
+: > "$FAKE/claude.stopped"
+FAKE_AGENTS_FAIL=1 end_of "$ename" https://example.invalid/o/r/issues/7#issuecomment-901 2> "$WORK/err"; rc=$?
+check 'an agent list that cannot be read: exit 2' 2 "$rc"
+check 'it says the session was not stopped' yes "$(has "$(cat "$WORK/err")" "claude agents could not be read, so $ename was not stopped")"
+check 'nothing was stopped' '' "$(cat "$FAKE/claude.stopped")"
+check 'no end record' 0 "$(jq -c 'select(.kind == "end")' "$SESSIONS/$ename.start.jsonl" | grep -c . || true)"
+end_of "$ename" https://example.invalid/o/r/issues/7#issuecomment-901 2> "$WORK/err"; rc=$?
+check 'innocent: with the list read, exit 0' 0 "$rc"
+check 'the session was stopped by its agent id' "$(jq -r --arg n "$ename" '.[] | select(.name == $n) | .id' "$FAKE/agents.json")" "$(cat "$FAKE/claude.stopped")"
+check 'the end record says the session reported' true "$(jq -r 'select(.kind == "end") | .reported' "$SESSIONS/$ename.start.jsonl")"
+echo 'the end of a background session whose start record names no native session stops nothing and records no end'
+out="$(start build mechanical --issue o/r#7 --brief "$WORK/brief.md" --number 10037 --budget 100)"; nname="$(nameof "$out")"
+# PLANTED: the native line is gone, as after a start whose identity could not be read
+jq -c 'select(.kind != "native")' "$SESSIONS/$nname.start.jsonl" > "$WORK/record" && mv "$WORK/record" "$SESSIONS/$nname.start.jsonl"
+: > "$FAKE/claude.stopped"
+end_of "$nname" https://example.invalid/o/r/issues/7#issuecomment-902 2> "$WORK/err"; rc=$?
+check 'a start record without its native session: exit 2' 2 "$rc"
+check 'it says the session was not stopped' yes "$(has "$(cat "$WORK/err")" "the start record of $nname names no native session, so it was not stopped")"
+check 'nothing was stopped' '' "$(cat "$FAKE/claude.stopped")"
+check 'no end record' 0 "$(jq -c 'select(.kind == "end")' "$SESSIONS/$nname.start.jsonl" | grep -c . || true)"
 
 echo 'the launch of each tool carries its folders, its profile and the identity of its native session'
 EXTRA="$WORK/extra"; mkdir -p "$EXTRA"

@@ -171,7 +171,7 @@ is left for a finding that needs a decision of the owner, a change beyond the pa
 contracts, or a wrong approach; a landing that the gate refuses for the package's own change on
 the merged tree goes back to a review that repairs it in the same way, never to a fresh build; a plan check repairs what is small itself and says GO
 with REPAIRED lines, so its NO is left for what is too large for a few lines or needs a decision.
-A review NO that needs the owner waits for that decision; a wrong approach goes back to re-plan.
+A review NO that needs the owner waits for that decision; so does a wrong approach, whose re-plan starts with the owner's decision as its `--reason`.
 Any remaining review NO starts a fresh build session with its findings; a plan check that says NO starts a fresh re-plan session
 with its GAPS. The repair a build makes after a review NO is not
 reviewed whole again: one re-check (`briefs/review.md`, its section on a re-check) reads only the

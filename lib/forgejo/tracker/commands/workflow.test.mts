@@ -1637,6 +1637,29 @@ describe('finish-issue', () => {
     assert.ok(!existsSync(landed.tree));
   });
 
+  it('removes the worktree of a branch that never left its base, whose head the default branch holds and for which no record can be written (planted: refused for a missing "Landed on" record; innocent cases: a commit of its own landed without a record, and changes)', async () => {
+    const idle = await started(main, 'Never committed in, so that it is removed');
+    git(main.second, 'pull', '-q', '--ff-only', 'origin', 'master');
+    fixture.commit(main.second, `owner-${idle.number}.txt`, 'a commit of the owner\n');
+    git(main.second, 'push', '-q', 'origin', 'master');
+    const writes = writesOf();
+    const result = await finishIssue.run([String(idle.number)], ctx(main.checkout));
+    assert.equal(writesOf(), writes, 'it writes nothing to the tracker');
+    assert.match(result.stdout, /removed the worktree/);
+    assert.ok(!existsSync(idle.tree));
+    assert.ok(!(await client.listBranchNames(main.checkout)).includes(idle.branch));
+
+    const unrecorded = await worked(main, 'Landed without a record, so that it stays');
+    git(unrecorded.tree, 'push', '-q', 'origin', 'HEAD:refs/heads/master');
+    await assert.rejects(finishIssue.run([String(unrecorded.number)], ctx(main.checkout)), /carries no "Landed on" record of/);
+    assert.ok(existsSync(unrecorded.tree));
+
+    const dirty = await started(main, 'Never committed in but with changes, so that it stays');
+    writeFileSync(join(dirty.tree, 'somebody.txt'), 'work in progress');
+    await assert.rejects(finishIssue.run([String(dirty.number)], ctx(main.checkout)), /has changes, so it stays/);
+    assert.ok(existsSync(join(dirty.tree, 'somebody.txt')));
+  });
+
   it('removes the worktree of work that landed when the branch took the default branch in after the landing (planted: the head is no reviewed head)', async () => {
     const landed = await worked(main, 'Took the default branch in, so that it is removed');
     await integrateIssue.run(integrateArguments(main, landed.number, landed.head), ctx(landed.tree));

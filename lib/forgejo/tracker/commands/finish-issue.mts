@@ -2,7 +2,7 @@ import type { ForgejoClient } from '../api/client.mts';
 import { formatIssue, formatRepository, isSameRepository, parseRepository } from '../domain/issues.mts';
 import type { IssueRef } from '../domain/issues.mts';
 import { PartialCompletionError, PreconditionError } from '../domain/refusals.mts';
-import { findTrustedPartLanding, hasStartedRecord, hasTrustedLandedRecord, listTrustedLandedHeads, readTimeline } from '../domain/workflow.mts';
+import { findStartedBase, findTrustedPartLanding, hasStartedRecord, hasTrustedLandedRecord, listTrustedLandedHeads, readTimeline } from '../domain/workflow.mts';
 import type { TimelineEntry } from '../domain/workflow.mts';
 import { basename } from 'node:path';
 import { GitError } from '../git/git.mts';
@@ -22,7 +22,9 @@ after the landing, written by an account with write permission, and never forces
 "Landed part on <branch>:" of that head counts once a "Landed on" record of the issue follows it, from any
 repository, because the issue's last part then landed; while none follows, the worktree stays for the next part.
 Where the work landed and the record is missing, it removes nothing and names the integrate-issue command that
-writes it. A worktree that is locked, as ai-core init locks the one it equips, is not removed: the command names the lock and
+writes it. A worktree whose head is the base that the "Started on" record of its branch names carries no commit of its
+own: there is nothing to land, so it needs no record and goes with its branch once its head is on the default branch.
+A worktree that is locked, as ai-core init locks the one it equips, is not removed: the command names the lock and
 the retry. A worktree of the issue that stands detached, as a killed landing leaves it, it names with the
 git switch to run in it first, and removes nothing. It looks at no other worktree. Then it deletes the issue's
 branches on origin that a "Started on" record of the issue names, that no worktree has checked out and whose tip
@@ -94,6 +96,21 @@ async function holdsLandedHead(git: GitClient, api: ForgejoClient, main: string,
   return false;
 }
 
+// Refuses, naming the cause, where the issue holds no trusted record of the landing of this head, or of a reviewed head
+// the branch holds since it took the default branch in.
+async function requireLandingRecord(git: GitClient, api: ForgejoClient, main: string, ref: IssueRef, entries: readonly TimelineEntry[], head: string, path: string, defaultBranch: string): Promise<void> {
+  const landedCommit = await git.findLandingCommit(main, head, `refs/remotes/origin/${defaultBranch}`);
+  if ((await hasTrustedLandedRecord(api, ref, entries, head, landedCommit)) || (await holdsLandedHead(git, api, main, ref, entries, head))) return;
+  const part = await findTrustedPartLanding(api, ref, entries, head, landedCommit);
+  if (part === 'more to follow') {
+    throw new PreconditionError(`${formatIssue(ref)} landed ${head.slice(0, 7)} as a part, and its last part has not landed yet, so the worktree ${path} stays for it`);
+  }
+  if (part === 'none') throw new PreconditionError(
+    `${formatIssue(ref)} carries no "Landed on" record of ${head}, so the worktree ${path} stays: the work is on origin/${defaultBranch}, and the record is written by integrate-issue, which merges and pushes nothing again: ` +
+      `ai-core integrate-issue ${formatRepository(ref)} ${ref.number} --reviewed-by NAME --reviewed-head ${head}, run in that worktree`,
+  );
+}
+
 export async function run(args: readonly string[], context: CommandContext): Promise<CommandResult> {
   const parsed = parseArguments(args, {});
   const { ref, rest } = await takeIssue(parsed.positionals, context.git, context.cwd, USAGE);
@@ -136,18 +153,9 @@ export async function run(args: readonly string[], context: CommandContext): Pro
     throw new PreconditionError(`the head ${head.slice(0, 7)} of ${worktree.branch} is not on origin/${defaultBranch}: the work did not land, so the worktree ${worktree.path} stays`);
   }
 
-  const landedCommit = await git.findLandingCommit(main, head, `refs/remotes/origin/${defaultBranch}`);
   const entries = await readTimeline(api, ref);
-  if (!(await hasTrustedLandedRecord(api, ref, entries, head, landedCommit)) && !(await holdsLandedHead(git, api, main, ref, entries, head))) {
-    const part = await findTrustedPartLanding(api, ref, entries, head, landedCommit);
-    if (part === 'more to follow') {
-      throw new PreconditionError(`${formatIssue(ref)} landed ${head.slice(0, 7)} as a part, and its last part has not landed yet, so the worktree ${worktree.path} stays for it`);
-    }
-    if (part === 'none') throw new PreconditionError(
-      `${formatIssue(ref)} carries no "Landed on" record of ${head}, so the worktree ${worktree.path} stays: the work is on origin/${defaultBranch}, and the record is written by integrate-issue, which merges and pushes nothing again: ` +
-        `ai-core integrate-issue ${formatRepository(ref)} ${ref.number} --reviewed-by NAME --reviewed-head ${head}, run in that worktree`,
-    );
-  }
+  // A branch still on the commit its "Started on" record names carries no commit of its own, so there is no landing to record.
+  if (findStartedBase(entries, worktree.branch) !== head) await requireLandingRecord(git, api, main, ref, entries, head, worktree.path, defaultBranch);
 
   try {
     await git.removeWorktree(main, worktree.path);

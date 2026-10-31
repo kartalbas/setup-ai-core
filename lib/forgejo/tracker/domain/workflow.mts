@@ -311,6 +311,12 @@ export function hasStartedRecord(entries: readonly TimelineEntry[], branch: stri
   return entries.some((entry) => entry.kind === 'comment' && STARTED_LINE.exec(firstLine(entry.body))?.[1] === branch);
 }
 
+// The commit that the "Started on <branch>:" record names as the base the branch was cut from.
+export function findStartedBase(entries: readonly TimelineEntry[], branch: string): string | undefined {
+  const entry = entries.find((candidate) => candidate.kind === 'comment' && STARTED_LINE.exec(firstLine(candidate.body))?.[1] === branch);
+  return entry === undefined ? undefined : /^Base: \S+ at ([0-9a-f]{40})$/m.exec(entry.body)?.[1];
+}
+
 // Whether the issue carries the record of this landing: of a part with more to follow where `isPart`, else of the landing.
 export function hasLandedRecord(entries: readonly TimelineEntry[], reviewedHead: string, landedCommit: string, isPart = false): boolean {
   const line = isPart ? LANDED_PART_LINE : LANDED_LINE;

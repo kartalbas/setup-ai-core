@@ -89,16 +89,48 @@ git -C "$stale" add rules/36-added.md; git -C "$stale" commit -qm 'a new rule #1
 start_source "$stale" '' 0
 grep -aqxF '  - @rules/36-added.md' "$stale/AGENTS.md" || fail "a rule file added to the source is not named at the next session start"
 
+section "session start writes the Claude Code hooks into a harness source, which init never assembles"
+hooked="$WORK/hooked-source"; git clone -q "$source_repo" "$hooked"
+git -C "$hooked" remote set-url origin https://github.com/example-org/shop-ai-core.git
+rule_hooks() { # rule_hooks <settings file>: whether it holds, once each, the two hooks that hold the rules after a compaction
+  jq -e --arg a "\"$ROOT/bin/ai-core\" pre-tool-use" --arg b "\"$ROOT/bin/ai-core\" post-tool-use" '([.hooks.PreToolUse[]?.hooks[]?.command] == [$a]) and ([.hooks.PostToolUse[]? | select(.matcher == "Read") | .hooks[]?.command] == [$b])' "$1" > /dev/null 2>&1
+}
+mkdir -p "$hooked/.claude"
+for planted in neither no-read-hook; do
+  # PLANTED: settings that start the session and hold neither rule hook, as the harness source had them, and settings
+  # that hold the hook before a tool call but lack the one after a Read
+  case "$planted" in
+    neither) printf '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"ai-core session-start --tool claude"}]}]}}\n' ;;
+    no-read-hook) printf '{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"\\"%s\\" pre-tool-use"}]}]}}\n' "$ROOT/bin/ai-core" ;;
+  esac > "$hooked/.claude/settings.json"
+  rule_hooks "$hooked/.claude/settings.json" && fail "the check of the rule hooks stays green on settings that lack one ($planted)"
+  start_source "$hooked" '' 0
+  rule_hooks "$hooked/.claude/settings.json" || fail "session start left a harness source without the hooks that hold the rules after a compaction ($planted): $(cat "$hooked/.claude/settings.json")"
+  grep -aqF 'Claude hooks     : .claude/settings.json now holds every hook of the harness' "$WORK/start.log" || fail "session start does not say it wrote the hooks ($planted): $(grep -a 'Claude hooks' "$WORK/start.log")"
+done
+git -C "$hooked" check-ignore -q .claude/settings.json || fail "the Claude Code settings of a harness source are not kept out of every commit"
+[ -z "$(git -C "$hooked" status --porcelain)" ] || fail "session start left a change in a harness source: $(git -C "$hooked" status --porcelain)"
+# innocent: settings that hold every hook stay as they are
+written="$(cksum < "$hooked/.claude/settings.json")"
+start_source "$hooked" '' 0
+[ "$(cksum < "$hooked/.claude/settings.json")" = "$written" ] || fail "session start rewrote settings that hold every hook"
+grep -aqF 'Claude hooks     : ✓ .claude/settings.json holds every hook of the harness' "$WORK/start.log" || fail "session start does not say the settings hold every hook: $(grep -a 'Claude hooks' "$WORK/start.log")"
+rule_hooks "$source_repo/.claude/settings.json" || fail "session start gave a harness source without settings no hooks that hold the rules"
+
 section "a source that commits its own AGENTS.md keeps it, and a space in a rule file's path is escaped"
 mine="$WORK/committed-source"; git clone -q "$source_repo" "$mine"
 git -C "$mine" remote set-url origin https://github.com/example-org/shop-ai-core.git
-# PLANTED: the source's own AGENTS.md, which is somebody's work
+# PLANTED: the source's own AGENTS.md and its own Claude Code settings, which are somebody's work
+mkdir -p "$mine/.claude"; printf '{"hooks":{}}\n' > "$mine/.claude/settings.json"; git -C "$mine" add .claude/settings.json
 printf '# ours\n' > "$mine/AGENTS.md"; git -C "$mine" add AGENTS.md; git -C "$mine" -c user.email=t@example.invalid -c user.name=t commit -qm 'our own AGENTS.md #1'
 (cd "$mine" && bash "$ROOT/bin/session-start.sh") > "$WORK/mine.log" 2>&1 || fail "a source with a committed AGENTS.md is refused: $(cat "$WORK/mine.log")"
 [ "$(cat "$mine/AGENTS.md")" = '# ours' ] || fail "session start overwrote the source's committed AGENTS.md"
 [ -z "$(git -C "$mine" status --porcelain)" ] || fail "session start left a change in a source with a committed AGENTS.md: $(git -C "$mine" status --porcelain)"
 grep -q '^/AGENTS.md$' "$mine/.git/info/exclude" && fail "session start excluded a committed AGENTS.md"
 grep -aq 'Rule files       : – AGENTS.md is committed here' "$WORK/mine.log" || fail "session start does not say it left the committed AGENTS.md: $(cat "$WORK/mine.log")"
+[ "$(cat "$mine/.claude/settings.json")" = '{"hooks":{}}' ] || fail "session start overwrote the source's committed Claude Code settings"
+grep -q '^/.claude/settings.json$' "$mine/.git/info/exclude" && fail "session start excluded committed Claude Code settings"
+grep -aq 'Claude hooks     : – .claude/settings.json is committed here' "$WORK/mine.log" || fail "session start does not say it left the committed Claude Code settings: $(grep -a 'Claude hooks' "$WORK/mine.log")"
 spaced="$WORK/spaced-source"; git clone -q "$source_repo" "$spaced"
 git -C "$spaced" remote set-url origin https://github.com/example-org/shop-ai-core.git
 printf '## Spaced\n\n- **A rule in a spaced file.** It is named. [review]\n' > "$spaced/rules/36 spaced.md"
@@ -170,6 +202,7 @@ section "missing generic source inputs refuse instead of producing partial JSON 
 command_source="$WORK/command-source"; git clone -q "$ROOT" "$command_source"
 cp "$ROOT/bin/session-start.sh" "$command_source/bin/"
 cp "$ROOT/lib/layers.sh" "$command_source/lib/"
+cp "$ROOT/lib/claude-settings.sh" "$command_source/lib/"
 cp "$ROOT/lib/worktrees.sh" "$command_source/lib/"
 cp "$ROOT/lib/rules-read.sh" "$command_source/lib/"
 for defect in missing-version empty-version missing-skill-rules missing-section; do

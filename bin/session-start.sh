@@ -111,7 +111,7 @@ LOCAL_RULES_PATHS=""
 LOCAL_RULES_OK=0
 [ -z "$LOCAL_RULES_PATHS" ] || LOCAL_RULES_OK=1
 HARNESS_SOURCE="$(harness_source_of "$ROOT" || true)"
-SOURCE_READY=null; SOURCE_ERROR=""; RULE_SOURCES='[]'; READY="$RULES_OK"; SOURCE_RULE_FILES=0; SOURCE_AGENTS=""; SOURCE_RULE_PATHS=""
+SOURCE_READY=null; SOURCE_ERROR=""; RULE_SOURCES='[]'; READY="$RULES_OK"; SOURCE_RULE_FILES=0; SOURCE_AGENTS=""; SOURCE_RULE_PATHS=""; SOURCE_HOOKS=""
 # A harness source is never assembled, and the tool loads AGENTS.md: so in a source that file names
 # the rule files where they are written, base layer first, and the tool reads each as it is now. A
 # copy would age with the next change of a rule. This file is the one session start writes there,
@@ -166,6 +166,10 @@ if [ -n "$HARNESS_SOURCE" ]; then
     write_source_agents "$ROOT" "$source_dirs"
   else
     SOURCE_ERROR="$source_dirs"
+  fi
+  SOURCE_HOOKS=gone
+  if [ -d "$ROOT" ] && ! worktree_orphan "$ROOT"; then
+    SOURCE_HOOKS="$(arm_claude_hooks "$ROOT" "$CORE" 2>/dev/null)" || SOURCE_HOOKS=unwritten
   fi
 fi
 HARNESS_CURRENT=true; HARNESS_STAMP=""
@@ -314,6 +318,12 @@ if [ -n "$HARNESS_SOURCE" ]; then
     tracked) echo "Rule files       : – AGENTS.md is committed here, so session start leaves it as it is" ;;
     unwritten) echo "Rule files       : ✗ AGENTS.md could not be written here, so no rule file of these sources is named to the tool" ;;
     gone) echo "Rule files       : ✗ AGENTS.md was not written: $ROOT is removed or is no worktree, so nothing is written there" ;;
+  esac
+  case "$SOURCE_HOOKS" in
+    written) echo "Claude hooks     : .claude/settings.json now holds every hook of the harness; Claude Code reads them at its next start" ;;
+    unchanged) echo "Claude hooks     : ✓ .claude/settings.json holds every hook of the harness" ;;
+    tracked) echo "Claude hooks     : – .claude/settings.json is committed here, so session start leaves it as it is" ;;
+    unwritten) echo "Claude hooks     : ✗ .claude/settings.json could not be written, so a Claude Code session here runs without the hooks of the harness" ;;
   esac
 else
   echo "Rules file       : $([ $RULES_OK -eq 1 ] && echo "✓ Present ($RULES_PATH)" || echo "✗ Missing")"

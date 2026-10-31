@@ -501,7 +501,11 @@ end_record build10006-fable5.1-high-100k-fffff 20 '"five"'
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" --tool acme-key 2>&1)"; rc=$?
 check 'planted: a cost that is no number is no reading: exit 2' 2 "$rc"
 check 'it names the invalid cost' yes "$(grep -q 'holds an invalid cost' <<< "$out" && echo yes || echo no)"
-rm -f "$HOME/.ai-core/sessions/build10005-fable5.1-high-100k-eeeee.start.jsonl" "$HOME/.ai-core/sessions/build10006-fable5.1-high-100k-fffff.start.jsonl"
+rm -f "$HOME/.ai-core/sessions/build10006-fable5.1-high-100k-fffff.start.jsonl"
+end_record build10007-fable5.1-high-100k-ggggg 20 -1
+out="$(cd "$work/project" && bash "$root/bin/usage.sh" --tool acme-key 2>&1)"; rc=$?
+check 'planted: a negative cost is no reading: exit 2' 2 "$rc"
+rm -f "$HOME/.ai-core/sessions/build10005-fable5.1-high-100k-eeeee.start.jsonl" "$HOME/.ai-core/sessions/build10007-fable5.1-high-100k-ggggg.start.jsonl"
 out="$(cd "$work/project" && bash "$root/bin/usage.sh" --tool nosuchkey 2>&1)"; rc=$?
 check 'a name that is no file of the secrets folder: exit 2' 2 "$rc"
 rm -rf "$HOME/.ai-core/secrets" "$HOME/.ai-core/sessions" "$work/project/.ai-core/config.env"

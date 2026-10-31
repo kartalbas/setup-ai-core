@@ -27,7 +27,7 @@ tool_order_tools() {
   done
 }
 
-tool_order_is_tool() { tool_order_tools | grep -qxF -- "$1"; }
+tool_order_is_tool() { tool_order_tools | grep -xF -- "$1" > /dev/null; }
 
 tool_order_is_native() { case " $TOOL_ORDER_NATIVE_TOOLS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 

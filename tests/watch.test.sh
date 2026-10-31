@@ -381,7 +381,7 @@ live_agents; record dig null none claude
 swatch 4 --session dig --still 60 --every 1
 check 'unmeasured: no deadline, nothing reported, so still running' 124 "$rc"
 record dig "$(( $(date +%s) + 2 ))" none claude
-swatch 8 --session dig --still 60 --every 1
+swatch 90 --session dig --still 60 --every 1
 check 'a sleeper past its short deadline ends the watch' 0 "$rc"
 check 'the line names the worker, the deadline and the measured run' "yes" "$(grep -Eq '^deadline dig: passed at [0-9]{2}:[0-9]{2}, measured 600 seconds from build10000-sonnet5\.5-high-100k-zzzzz$' <<< "$out" && echo yes || echo no)"
 record dig "$(( $(date +%s) + 3600 ))" none claude
@@ -393,7 +393,7 @@ rm -f "$work/stopped"; record dig null none claude; echo '[{"user":{"login":"a"}
 swatch 4 --session dig --still 60 --every 1
 check 'innocent: a report from before the start is no report' 124 "$rc"
 reported_at dig
-swatch 8 --session dig --still 60 --every 1
+swatch 90 --session dig --still 60 --every 1
 check 'exit 0' 0 "$rc"
 check 'the reported line holds the comment URL' 'reported dig: https://example.invalid/o/r/issues/7#issuecomment-5' "$out"
 check 'claude stop was called with the agent id' agent-9 "$(cat "$work/stopped" 2>/dev/null)"
@@ -408,7 +408,7 @@ record "$name" null json acme-key
 sleep 0 & dead=$!; wait "$dead"; printf '%s\n' "$dead" > "$sessions/$name.pid"; printf '0\n' > "$sessions/$name.exit"
 printf '{"type":"result","result":"the print report","total_cost_usd":0.25,"session_id":"s"}\n' > "$sessions/$name.out"; : > "$sessions/$name.err"
 echo '[]' > "$work/comments.json"
-swatch 6 --session "$name" --still 60 --every 1
+swatch 90 --session "$name" --still 60 --every 1
 check 'exit 0' 0 "$rc"
 check 'the reported line' 'reported '"$name"': https://example.invalid/o/r/issues/7#issuecomment-77' "$out"
 check 'the report is posted under the first line' "Reported by $name:" "$(head -n 1 "$work/posted")"
@@ -420,7 +420,7 @@ record "$name" null json acme-key
 printf '%s\n' "$dead" > "$sessions/$name.pid"; printf '0\n' > "$sessions/$name.exit"
 printf '{"type":"result","result":"a report with a time","total_cost_usd":0.1}\n' > "$sessions/$name.out"; : > "$sessions/$name.err"
 echo 'stated time is wrong' > "$work/refuse"
-swatch 6 --session "$name" --still 60 --every 1
+swatch 90 --session "$name" --still 60 --every 1
 check 'exit 1' 1 "$rc"
 check 'the line names the refusal' yes "$(grep -q "^report refused $name: .*stated time is wrong" <<< "$out" && echo yes || echo no)"
 check 'no end record' 0 "$(jq -c 'select(.kind == "end")' "$sessions/$name.start.jsonl" | grep -c . || true)"

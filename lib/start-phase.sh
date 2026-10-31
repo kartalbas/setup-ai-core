@@ -51,8 +51,11 @@ start_phase_name() {
 
 # start_phase_number_used <number>: a session of any phase carries the number already
 start_phase_number_used() {
-  local dir; dir="$(start_phase_sessions)"
-  ls "$dir" 2>/dev/null | grep -Eq "^(plan-check|re-plan|ui-test|keeper|plan|build|review)$1-"
+  local file
+  for file in "$(start_phase_sessions)"/*; do
+    case "${file##*/}" in plan-check"$1"-*|re-plan"$1"-*|ui-test"$1"-*|keeper"$1"-*|plan"$1"-*|build"$1"-*|review"$1"-*) return 0 ;; esac
+  done
+  return 1
 }
 
 # start_phase_measured <phase> <class>: "<seconds><TAB><name of the run>" of the newest end record of the phase and class
@@ -71,10 +74,10 @@ start_phase_measured() {
 # and the issue stand where the brief says {{session name}}, {{session issue repository}} and {{session issue number}}, the frame of
 # the harness follows it, and a brief that still holds a placeholder is refused.
 start_phase_compose_brief() {
-  local text
+  local text placeholder='\{\{[^}]+\}\}'
   text="$(sed -e "s|{{session name}}|$2|g" -e "s|{{session issue repository}}|${4%%#*}|g" -e "s|{{session issue number}}|${4##*#}|g" "$1")" || return 2
-  if grep -Eq '\{\{[^}]+\}\}' <<< "$text"; then
-    start_phase_error "the brief $1 still holds the placeholder $(grep -Eo '\{\{[^}]+\}\}' <<< "$text" | head -n1): fill every placeholder before the start"; return 2
+  if [[ "$text" =~ $placeholder ]]; then
+    start_phase_error "the brief $1 still holds the placeholder ${BASH_REMATCH[0]}: fill every placeholder before the start"; return 2
   fi
   printf '%s\n\n## The frame of the harness\n\n- %s\n- %s\n' "$text" "$START_PHASE_TMP_SENTENCE" "$START_PHASE_DELETE_SENTENCE"
   if [ "$3" = plan-check ]; then printf -- '- %s\n' "$START_PHASE_PLAN_CHECK_SENTENCE"; fi

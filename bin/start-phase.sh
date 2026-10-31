@@ -65,7 +65,7 @@ fi
 if [ "$SP_OPERATION" = resume ]; then
   record="$sessions/$resume_name.start.jsonl"
   [ -f "$record" ] || refuse "no start record of $resume_name: $record"
-  attempt="$(jq -c 'select(.kind == "attempt" and .operation == "start")' "$record" | head -n 1)"
+  attempt="$(jq -cn '[inputs | select(.kind == "attempt" and .operation == "start")] | first // empty' "$record")"
   [ -n "$attempt" ] || refuse "the start record of $resume_name holds no launch attempt"
   SP_NAME="$resume_name"; SP_PHASE="$(jq -r .phase <<< "$attempt")"; SP_CLASS="$(jq -r .class <<< "$attempt")"; SP_WRITER="$(jq -r .writer <<< "$attempt")"
   setup_file="$(jq -r '.setupFile // ""' <<< "$attempt")"; issue="$(jq -r .issue <<< "$attempt")"; budget="$(jq -r .budgetK <<< "$attempt")"

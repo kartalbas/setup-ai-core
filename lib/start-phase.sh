@@ -67,11 +67,12 @@ start_phase_measured() {
   done | sort -t "$(printf '\t')" -k1,1nr | awk -F'\t' 'NR == 1 { print $2 "\t" $3 }'
 }
 
-# start_phase_compose_brief <brief> <session name> <phase>: the brief the session reads, on stdout; the session name stands where
-# the brief says {{session name}}, the frame of the harness follows it, and a brief that still holds a placeholder is refused.
+# start_phase_compose_brief <brief> <session name> <phase> <OWNER/REPO#N>: the brief the session reads, on stdout; the session name
+# and the issue stand where the brief says {{session name}}, {{session issue repository}} and {{session issue number}}, the frame of
+# the harness follows it, and a brief that still holds a placeholder is refused.
 start_phase_compose_brief() {
   local text
-  text="$(sed "s|{{session name}}|$2|g" "$1")" || return 2
+  text="$(sed -e "s|{{session name}}|$2|g" -e "s|{{session issue repository}}|${4%%#*}|g" -e "s|{{session issue number}}|${4##*#}|g" "$1")" || return 2
   if grep -Eq '\{\{[^}]+\}\}' <<< "$text"; then
     start_phase_error "the brief $1 still holds the placeholder $(grep -Eo '\{\{[^}]+\}\}' <<< "$text" | head -n1): fill every placeholder before the start"; return 2
   fi

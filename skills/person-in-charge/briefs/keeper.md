@@ -127,9 +127,9 @@ first line.
       WHY: <one sentence: what in that issue or epic matched, or why nothing fits>
     OWNER: <the complete question for each new issue, a re-cut's share included, added work or fact a landing removed, or "none">
 
-Post the report as a comment on the plan issue ({{plan issue reference}}, `ai-core issue-comment`) and send
-its first line to the coordinator ({{how to reach the coordinator}}), because a comment on an issue
-wakes nobody, then stop. Your session ends with this hand-over and is never given another.
+Post the report as a comment on the plan issue ({{plan issue reference}}, `ai-core issue-comment`). Your last step is one more comment, `ai-core issue-comment {{session issue repository}} {{session issue number}} --body-file <file>`,
+whose first line is `Reported by {{session name}}:` and which holds the first line of your report: it is what ends your
+session and wakes the coordinator. Your session ends with this hand-over and is never given another.
 
 ## Rules you keep
 

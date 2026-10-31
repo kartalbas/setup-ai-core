@@ -53,8 +53,9 @@ nobody sits at your terminal.
     BRANCH: <repo> <branch>
     CONTEXT: fit | needed more: <what took the room>
 
-Once the comments are posted, send the coordinator ({{how to reach the coordinator}}) the `REPORT`,
-`VERIFIED` and `KEEPER` lines of each issue, because a comment on an issue wakes nobody.
+Your last step, once the comments are posted, is one more comment, `ai-core issue-comment {{session issue repository}} {{session issue number}} --body-file <file>`, whose first
+line is `Reported by {{session name}}:` and which holds the `REPORT`, `VERIFIED` and `KEEPER` lines of each issue: it is
+what ends your session and wakes the coordinator.
 
 ## Rules you keep
 

@@ -146,7 +146,7 @@ if [ "$SP_OPERATION" = start ]; then
   [ -n "$budget" ] || refuse "no budget: the setup file holds none for $SP_PHASE on $SP_TOOL, and --budget (thousands of tokens) is not given"
   SP_NAME="$(start_phase_name "$SP_PHASE" "$number" "$SP_MODEL" "$SP_EFFORT" "$budget")" || exit 2
   SP_BRIEF="$sessions/$SP_NAME.brief.md"
-  start_phase_compose_brief "$brief" "$SP_NAME" "$SP_PHASE" > "$SP_BRIEF.tmp" && mv "$SP_BRIEF.tmp" "$SP_BRIEF" || { rm -f "$SP_BRIEF.tmp"; exit 2; }
+  start_phase_compose_brief "$brief" "$SP_NAME" "$SP_PHASE" "$issue" > "$SP_BRIEF.tmp" && mv "$SP_BRIEF.tmp" "$SP_BRIEF" || { rm -f "$SP_BRIEF.tmp"; exit 2; }
   SP_PROMPT="Read $SP_BRIEF whole and carry it out. It is your whole task. Your last message is your report."
 else
   SP_BRIEF="$sessions/$SP_NAME.brief.md"

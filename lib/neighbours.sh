@@ -353,7 +353,8 @@ neighbour_add_copy() (
 # neighbours_named <worktree> <names>: of the names, one per line, those that a tracked file of the worktree writes as
 # a path beside it, `../<name>`, or `".."` with `"<name>"` as the next argument, in either quote; a longer name such
 # as `../<name>-kit` does not count, and a path built from a variable is not seen. Sets NEIGHBOUR_NAMED;
-# on failure NEIGHBOUR_ERROR says why. Read each file separately so a join never crosses file boundaries.
+# on failure NEIGHBOUR_ERROR says why. Read each file separately so a join never crosses file boundaries, with
+# its NUL bytes removed, which a text file may hold and a shell variable cannot.
 neighbours_named() {
   local alternation pattern scratch file contents rc=0
   NEIGHBOUR_NAMED=""; NEIGHBOUR_ERROR=""
@@ -363,7 +364,7 @@ neighbours_named() {
   git -C "$1" grep --no-color -I -l -z -F -e '..' -- . > "$scratch/files" 2> "$scratch/error" || rc=$?
   if [ "$rc" -le 1 ]; then
     while IFS= read -r -d '' file; do
-      contents="$(cat -- "$1/$file" 2> "$scratch/error")" || { rc=2; break; }
+      contents="$({ tr -d '\0' < "$1/$file"; } 2> "$scratch/error")" || { rc=2; break; }
       while [[ "$contents" =~ $pattern ]]; do
         NEIGHBOUR_NAMED="$NEIGHBOUR_NAMED${BASH_REMATCH[2]}${BASH_REMATCH[5]}${BASH_REMATCH[6]}"$'\n'
         contents="${contents#*"${BASH_REMATCH[0]}"}"

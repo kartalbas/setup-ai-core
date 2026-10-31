@@ -733,18 +733,19 @@ context relay 52 "$(member_landing 2026-09-01T10:00:00Z "$r2")"
 context untagged 61 ''
 context carrier 53 "$(member_landing 2026-09-01T10:00:00Z "$r1" example-org/relay)"
 run_status
+deploy_glob='deploy/prod/*'; release_glob='release/*'
 check 'exit 0' 0 "$rc"
 check 'a later unreleased commit naming the issue beside a released landing commit reads proof due, not waiting' "yes" "$(grep -qE "^  🔴 relay#51 +proof due on prod since 25 h \(deploy/prod/1\)" <<< "$page" && echo yes || echo no)"
 check 'innocent: a card whose landing commit is itself in no tag still waits, and its line holds no word about tags' \
-  "  ⏸ $(printf '%-26s' relay#52) waits for the release of prod (deploy/prod/*)  R2 its landing is not released" "$(line_of 'relay#52 ')"
+  "  ⏸ $(printf '%-26s' relay#52) waits for the release of prod ($deploy_glob)  R2 its landing is not released" "$(line_of 'relay#52 ')"
 check 'a card whose work landed in another repository is read there: by its list and its tags' "yes" "$(grep -qE "^  🔴 carrier#53 +proof due on prod since 25 h \(deploy/prod/1\)" <<< "$page" && echo yes || echo no)"
 check 'a pattern that no tag of the repository matches is named on the line of its card' \
-  "  ⏸ $(printf '%-26s' untagged#61) waits for the release of prod (release/*), no tag of example-org/untagged matches it  U1 no tag matches its pattern" "$(line_of 'untagged#61 ')"
+  "  ⏸ $(printf '%-26s' untagged#61) waits for the release of prod ($release_glob), no tag of example-org/untagged matches it  U1 no tag matches its pattern" "$(line_of 'untagged#61 ')"
 status_mutant 's/if (record.landing) sha = record.landing.commit;/if (false) sha = "";/'
 check 'planted: the newest commit that names the issue decides, and the card waits with its landing released' \
-  "  ⏸ $(printf '%-26s' relay#51) waits for the release of prod (deploy/prod/*)  R1 a later commit names it, its landing is released" "$(grep -F 'relay#51 ' <<< "$planted")"
+  "  ⏸ $(printf '%-26s' relay#51) waits for the release of prod ($deploy_glob)  R1 a later commit names it, its landing is released" "$(grep -F 'relay#51 ' <<< "$planted")"
 status_mutant 's/const none = noTag ? .*$/const none = "";/'
-check 'planted: a pattern no tag matches goes unsaid' "  ⏸ $(printf '%-26s' untagged#61) waits for the release of prod (release/*)  U1 no tag matches its pattern" "$(grep -F 'untagged#61 ' <<< "$planted")"
+check 'planted: a pattern no tag matches goes unsaid' "  ⏸ $(printf '%-26s' untagged#61) waits for the release of prod ($release_glob)  U1 no tag matches its pattern" "$(grep -F 'untagged#61 ' <<< "$planted")"
 mv "$work/page9.before-landing" "$work/page9"
 
 echo 'the proof decides the first environment: red until the closer of the tracker would count one, green after, waiting while no release carries the work'

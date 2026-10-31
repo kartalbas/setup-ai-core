@@ -280,6 +280,9 @@ check 'the Gemini model is not held by the group at its quota: exit 0' 0 "$rc"
 jq '.command.data.groups[1].buckets[0].remaining_fraction = 0.5' "$work/quota-reached.json" > "$work/quota-left.json"
 out="$(AGY_ANSWER="$work/quota-left.json" agy_run --tool agy)"; rc=$?
 check 'the same unknown reset with half the week left: exit 0' 0 "$rc"
+jq '.command.data.groups[1].buckets[1].remaining_fraction = 0.01' "$work/quota-left.json" > "$work/five-spent.json"
+out="$(AGY_ANSWER="$work/five-spent.json" agy_run --tool agy)"; rc=$?
+check 'an unknown reset at the limit with the week half left: exit 3, judged by its share used' "3 yes" "$rc $(matches '^Claude and GPT models: five_hour +99 % used  reset unknown  burn unmeasured$' "$(sed -n 4p <<< "$out")")"
 jq 'del(.command.data.groups[0].buckets[1].reset_time)' "$sample" > "$work/no-reset.json"
 out="$(AGY_ANSWER="$work/no-reset.json" agy_run --tool agy)"; rc=$?
 check 'a reset_time missing is unknown too: exit 0' "0 yes" "$rc $(matches '^Gemini Models: five_hour +[0-9]+ % used  reset unknown  burn unmeasured$' "$(sed -n 2p <<< "$out")")"

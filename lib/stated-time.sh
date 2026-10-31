@@ -11,8 +11,8 @@
 # can be a duration, a build name or a time of another day, so it is not judged. A line that also holds
 # a date (YYYY-MM-DD, or D.M. with an optional year) is not judged: it names a day that is not today.
 # Copied text is not judged either, as it states no time of the writer's: a fenced code block (``` or ~~~,
-# to its closing fence or the end of the text), a quoted line (>) and inline code (`...`), such as a log
-# or a command's output.
+# to its closing fence or the end of the text; a line that opens with three backticks and holds another is inline
+# code, no fence), a quoted line (>) and inline code (`...`), such as a log or a command's output.
 # The clock is AI_CORE_NOW where set, as lib/usage.sh reads it, else the machine's.
 # Settings of the project's config.env: STATED_TIME_ZONE (empty: the zone of the machine's clock),
 # STATED_TIME_ZONE_WORDS (comma-separated, empty: none) and STATED_TIME_TOLERANCE_MINUTES (5 when unset).
@@ -22,7 +22,7 @@
 ZONE_DIRECTORY=/usr/share/zoneinfo
 STATED_TIME_PATTERN='(^|[^0-9:.])([01]?[0-9]|2[0-3]):([0-5][0-9])[[:space:]]*[(]?([A-Za-z][A-Za-z0-9_+/-]*)'
 STATED_DATE_PATTERN='[0-9]{4}-[0-9]{2}-[0-9]{2}|(^|[^0-9.])[0-9]{1,2}\.[0-9]{1,2}\.'
-STATED_FENCE_PATTERN='^[[:space:]]{0,3}(```|~~~)'
+STATED_FENCE_PATTERN='^[[:space:]]{0,3}(```+[^`]*$|~~~)'
 STATED_QUOTE_PATTERN='^[[:space:]]{0,3}>'
 STATED_CODE_PATTERN='`[^`]*`'
 
@@ -60,7 +60,7 @@ check_stated_time() {
   words=",$(printf '%s' "$words" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'),"
   while IFS= read -r line || [ -n "$line" ]; do
     if [[ "$line" =~ $STATED_FENCE_PATTERN ]]; then
-      if [ -z "$fence" ]; then fence="${BASH_REMATCH[1]}"; elif [ "${BASH_REMATCH[1]}" = "$fence" ]; then fence=""; fi
+      if [ -z "$fence" ]; then fence="${BASH_REMATCH[1]:0:1}"; elif [ "${BASH_REMATCH[1]:0:1}" = "$fence" ]; then fence=""; fi
       continue
     fi
     [ -z "$fence" ] || continue

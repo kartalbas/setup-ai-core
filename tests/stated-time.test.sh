@@ -87,6 +87,8 @@ check 'a time after the fence closed' 'refused: issue-comment to example-org/exa
 check 'a time on a quoted line' passes "$(verdict "$script" '> It started at 09:10 UTC')"
 check 'a time in inline code' passes "$(verdict "$script" 'The log says `started 09:10 UTC` there.')"
 check 'a time beside inline code' 'refused: issue-comment to example-org/example-repo: the text says 13:10 UTC, the clock there shows 12:00 (UTC)' "$(verdict "$script" 'The log says `09:10 UTC`; it landed at 13:10 UTC.')"
+check 'a fence with an info string still hides its block' passes "$(verdict "$script" $'```bash\nstarted 09:10 UTC\n```')"
+check 'a line that starts with three backticks and closes them is inline code, no fence: the next line is judged' 'refused: issue-comment to example-org/example-repo: the text says 13:10 UTC, the clock there shows 12:00 (UTC)' "$(verdict "$script" $'```x``` is the log.\nLanded at 13:10 UTC.')"
 
 echo 'a call without its command and its destination'
 bash "$script" check > /dev/null 2>&1; rc=$?
@@ -109,6 +111,9 @@ check 'a time on a quoted line is refused in a planted copy that judges quotes' 
 cp "$root/lib/stated-time.sh" "$mutant/lib/stated-time.sh"; sed -i.bak 's/^    while \[\[ "\$line" =~ \$STATED_CODE_PATTERN \]\].*$//' "$mutant/lib/stated-time.sh"
 cmp -s "$root/lib/stated-time.sh" "$mutant/lib/stated-time.sh" && { echo '  FAIL the planted copy equals lib/stated-time.sh'; failed=$((failed + 1)); }
 check 'a time in inline code is refused in a planted copy that judges inline code' 'refused: issue-comment to example-org/example-repo: the text says 09:10 UTC, the clock there shows 12:00 (UTC)' "$(verdict "$mutant/lib/stated-time.sh" 'The log says `started 09:10 UTC` there.')"
+cp "$root/lib/stated-time.sh" "$mutant/lib/stated-time.sh"; sed -i.bak 's/(```+\[^`\]\*\$|~~~)/(```|~~~)/' "$mutant/lib/stated-time.sh"
+cmp -s "$root/lib/stated-time.sh" "$mutant/lib/stated-time.sh" && { echo '  FAIL the planted copy equals lib/stated-time.sh'; failed=$((failed + 1)); }
+check 'a time after a line of inline code is passed in a planted copy that reads it as a fence' passes "$(verdict "$mutant/lib/stated-time.sh" $'```x``` is the log.\nLanded at 13:10 UTC.')"
 
 if [ "$failed" -ne 0 ]; then echo "$failed failed"; exit 1; fi
 echo 'all passed'

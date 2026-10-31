@@ -49,6 +49,7 @@ cat > "$FAKE/bin/codex" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FAKE/codex.args"
 readlink /proc/self/fd/0 > "$FAKE/codex.stdin"
+[ -z "${HEAD_MARK:-}" ] || for _ in $(seq 1 200); do [ -e "$HEAD_MARK" ] && break; sleep 0.05; done
 printf '{"type":"thread.started","thread_id":"thread-1"}\n'
 sleep "${FAKE_RUN_SECONDS:-0}"
 printf '{"type":"item.completed","item":{"type":"agent_message","text":"codex report"}}\n{"type":"turn.completed"}\n'
@@ -179,6 +180,27 @@ check 'the start returns before the run ends' yes "$([ "$held" -lt 5 ] && echo y
 check 'the run still runs then' no "$([ -f "$SESSIONS/$hname.exit" ] && echo yes || echo no)"
 for _ in $(seq 1 120); do [ -f "$SESSIONS/$hname.exit" ] && break; sleep 0.1; done
 check 'and ends by itself' 0 "$(cat "$SESSIONS/$hname.exit" 2>/dev/null)"
+
+echo 'Codex that ends between the read of its output and the look at its process still gives its thread'
+# The first read of the output is taken before Codex writes its thread, and it returns once Codex has ended.
+SLOW="$WORK/slow-head"; mkdir -p "$SLOW"
+cat > "$SLOW/head" <<'EOF'
+#!/usr/bin/env bash
+real="$(PATH="$REAL_PATH" command -v head)"; last="${!#}"
+if [ "${last%.out}" = "$last" ] || [ -e "$HEAD_MARK" ]; then exec "$real" "$@"; fi
+content="$("$real" "$@")"; : > "$HEAD_MARK"
+pid="$(cat "${last%.out}.pid")"
+for _ in $(seq 1 100); do kill -0 "$pid" 2> /dev/null || break; sleep 0.05; done
+printf '%s' "$content"
+EOF
+chmod +x "$SLOW/head"
+race() {  # race <source tree> <number>: a Codex start whose first read of its output is stale
+  rm -f "$WORK/head-mark"
+  ( cd "$PROJECT" && HEAD_MARK="$WORK/head-mark" REAL_PATH="$PATH" PATH="$SLOW:$PATH" bash "$1/bin/start-phase.sh" build mechanical --issue o/r#7 --brief "$WORK/brief.md" --number "$2" --budget 100 ) 2> "$WORK/err"
+}
+out="$(race "$SRC" 10040)"; rc=$?
+check 'the race: exit 0' 0 "$rc"
+check 'the race: the thread is recorded' thread-1 "$(jq -r 'select(.kind == "native") | .nativeIdentity' "$SESSIONS/$(nameof "$out").start.jsonl" 2> /dev/null)"
 
 echo 'a key tool runs with the key in the environment of that run alone'
 order acme-key
@@ -323,6 +345,10 @@ start build mechanical --issue o/r#7 --brief "$WORK/brief.md" --number 10001 --b
 start build mechanical --issue o/r#7 --brief "$WORK/brief.md" --number 10024 --budget 100 --model claude-opus-5-5 > /dev/null; rc2=$?
 check 'a used number and a given model are refused' '2 2' "$rc $rc2"
 check 'no tool ran for either' "$before" "$(( $(lines "$FAKE/claude.args") + $(lines "$FAKE/codex.args") + $(lines "$FAKE/agy.args") ))"
+start plan mechanical --issue o/r#7 --brief "$WORK/brief.md" --number 10038 --budget 100 > /dev/null; rc=$?
+check 'a selector that finds no row for the phase: exit 2' 2 "$rc"
+check 'no tool ran for it' "$before" "$(( $(lines "$FAKE/claude.args") + $(lines "$FAKE/codex.args") + $(lines "$FAKE/agy.args") ))"
+check 'no session of it was written' no "$(ls "$SESSIONS" | grep -q '^plan10038' && echo yes || echo no)"
 
 echo 'planted defects in the command each turn a case red'
 planted() {  # planted <name> <file> <sed script>: the command of a copy with one changed line, started on Claude Code
@@ -340,12 +366,22 @@ planted no-native bin/start-phase.sh 's/^\[ -z "\$SP_NATIVE" \] || start_phase_o
 check 'a start that records no native session is seen' 'attempt:start' "$(kinds "$planted_name")"
 planted no-attempt bin/start-phase.sh 's/^start_phase_observe attempt || exit 2$/true/'
 check 'a start that records no attempt is seen' native:start "$(kinds "$planted_name")"
+tree="$WORK/src-no-selector"; rm -rf "$tree"; cp -R "$SRC" "$tree"
+sed 's/^selection="\$(bash "\$ROOT\/bin\/phase-model\.sh" "\${select_args\[@\]}")" || exit 2$/selection="claude claude-opus-5-5 high"/' "$SRC/bin/start-phase.sh" > "$tree/bin/start-phase.sh"
+cmp -s "$SRC/bin/start-phase.sh" "$tree/bin/start-phase.sh" && { echo 'the planted selector defect changed nothing'; failed=$((failed + 1)); }
+(cd "$PROJECT" && bash "$tree/bin/start-phase.sh" plan mechanical --issue o/r#7 --brief "$WORK/brief.md" --number 10039 --budget 100 > /dev/null 2>&1) || :
+check 'a start that does not ask the selector runs where the selector finds no row, and is seen' yes "$(grep -qF -- '--bg --name plan10039-' "$FAKE/claude.args" && echo yes || echo no)"
 order codex
 tree="$WORK/src-no-resume-model"; rm -rf "$tree"; cp -R "$SRC" "$tree"
 sed 's/codex exec resume "\$SP_NATIVE_ID" -m "\$SP_MODEL" -c "model_reasoning_effort=\$SP_EFFORT"/codex exec resume "$SP_NATIVE_ID"/' "$SRC/lib/start-phase.sh" > "$tree/lib/start-phase.sh"
 cmp -s "$SRC/lib/start-phase.sh" "$tree/lib/start-phase.sh" && { echo 'the planted resume defect changed nothing'; failed=$((failed + 1)); }
 (cd "$PROJECT" && bash "$tree/bin/start-phase.sh" --resume "$cx" "continue" > /dev/null 2>&1) || :
 check 'a Codex resume without its model and effort is seen' no "$(tail -n 1 "$FAKE/codex.args" | grep -qF -- 'resume thread-1 -m gpt-6-astra -c model_reasoning_effort=xhigh' && echo yes || echo no)"
+tree="$WORK/src-racy"; rm -rf "$tree"; cp -R "$SRC" "$tree"
+sed -e '/^    alive=1; kill -0 /d' -e 's/if \[ "\$alive" = 0 \]; then/if ! kill -0 "$(cat "$SP_PID")" 2> \/dev\/null; then/' "$SRC/lib/start-phase.sh" > "$tree/lib/start-phase.sh"
+cmp -s "$SRC/lib/start-phase.sh" "$tree/lib/start-phase.sh" && { echo 'the planted race changed nothing'; failed=$((failed + 1)); }
+race "$tree" 10041 > /dev/null; rc=$?
+check 'Codex looked at only after its stale output is seen as no evidence' '2 yes' "$rc $(has "$(cat "$WORK/err")" 'no native thread evidence')"
 order claude
 
 if [ "$failed" -ne 0 ]; then echo "start-phase: $failed checks failed"; exit 1; fi

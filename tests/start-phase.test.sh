@@ -49,7 +49,9 @@ cat > "$FAKE/bin/codex" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FAKE/codex.args"
 readlink /proc/self/fd/0 > "$FAKE/codex.stdin"
-printf '{"type":"thread.started","thread_id":"thread-1"}\n{"type":"item.completed","item":{"type":"agent_message","text":"codex report"}}\n{"type":"turn.completed"}\n'
+printf '{"type":"thread.started","thread_id":"thread-1"}\n'
+sleep "${FAKE_RUN_SECONDS:-0}"
+printf '{"type":"item.completed","item":{"type":"agent_message","text":"codex report"}}\n{"type":"turn.completed"}\n'
 EOF
 cat > "$FAKE/bin/agy" <<'EOF'
 #!/usr/bin/env bash
@@ -164,9 +166,19 @@ check 'codex: the thread is registered' "$cname	thread-1" "$(grep "^$cname" "$ST
 check 'codex: it ran with the profile and the selected model' yes "$(grep -qF -- 'exec -p ai-core -m gpt-6-astra -c model_reasoning_effort=xhigh' "$FAKE/codex.args" && echo yes || echo no)"
 order agy
 out="$(start build mechanical --issue o/r#7 --brief "$WORK/brief.md" --number 10008 --budget 100)"; aname="$(nameof "$out")"
+for _ in $(seq 1 50); do [ -f "$SESSIONS/$aname.exit" ] && break; sleep 0.1; done
 check 'agy: the worker line names the tool' yes "$(has "$out" "$aname agy build o/r#7: ")"
 check 'agy: the tuple' "$(last_selected)" "$(recorded "$aname")"
 check 'agy: it ran with the selected model' yes "$(grep -qF -- '--model claude-sonnet-5-5-high' "$FAKE/agy.args" && echo yes || echo no)"
+
+echo 'a print run holds none of the output of the start, so a caller that reads it is not held until the run ends'
+order codex
+began="$(date +%s)"
+out="$(FAKE_RUN_SECONDS=8 start build mechanical --issue o/r#7 --brief "$WORK/brief.md" --number 10031 --budget 100)"; held=$(( $(date +%s) - began )); hname="$(nameof "$out")"
+check 'the start returns before the run ends' yes "$([ "$held" -lt 5 ] && echo yes || echo "no, after $held s")"
+check 'the run still runs then' no "$([ -f "$SESSIONS/$hname.exit" ] && echo yes || echo no)"
+for _ in $(seq 1 120); do [ -f "$SESSIONS/$hname.exit" ] && break; sleep 0.1; done
+check 'and ends by itself' 0 "$(cat "$SESSIONS/$hname.exit" 2>/dev/null)"
 
 echo 'a key tool runs with the key in the environment of that run alone'
 order acme-key
@@ -272,12 +284,13 @@ check 'codex resume: a second attempt and a second native line, one start' 'atte
 order agy
 : > "$FAKE/agy.args"
 out="$(start build mechanical --issue o/r#7 --brief "$WORK/brief.md" --number 10021 --budget 100 --add-dir "$EXTRA")"; ax="$(nameof "$out")"
+for _ in $(seq 1 50); do [ -f "$SESSIONS/$ax.exit" ] && break; sleep 0.1; done
 check 'agy: the selected model, accept-edits, the folders, JSON, and no effort' yes \
   "$(grep -qF -- "--model claude-sonnet-5-5-high --mode accept-edits --add-dir $PROJECT --add-dir $STATE --add-dir $EXTRA --output-format json" "$FAKE/agy.args" && ! grep -qF -- '--effort' "$FAKE/agy.args" && echo yes || echo no)"
 check 'agy: it ran in the project' "$PROJECT" "$(cat "$FAKE/agy.cwd")"
-for _ in $(seq 1 50); do [ -f "$SESSIONS/$ax.exit" ] && break; sleep 0.1; done
 jq -cn '{version:1,kind:"native",operation:"start",tool:"agy",model:"claude-sonnet-5-5-high",effort:"-",phase:"build",class:"mechanical",writer:"",invoked:1,observed:2,nativeIdentity:"conv-1"}' >> "$SESSIONS/$ax.start.jsonl"
 out="$(cd "$PROJECT" && bash "$SRC/bin/start-phase.sh" --resume "$ax" "continue" 2> "$WORK/err")"; rc=$?
+for _ in $(seq 1 50); do [ -f "$SESSIONS/$ax.exit" ] && break; sleep 0.1; done
 check 'agy resume: exit 0' 0 "$rc"
 check 'agy resume: the recorded conversation and the selected model, never --continue' yes \
   "$(tail -n 1 "$FAKE/agy.args" | grep -qF -- '--conversation conv-1' && tail -n 1 "$FAKE/agy.args" | grep -qF -- '--model claude-sonnet-5-5-high' && ! tail -n 1 "$FAKE/agy.args" | grep -qE -- ' (-c|--continue)( |$)' && echo yes || echo no)"

@@ -107,7 +107,8 @@ start_phase_add_dirs() {  # start_phase_add_dirs: the --add-dir words of every r
 
 # start_phase_background <cwd> <key tool or empty> <command word>...: the command runs in the background with its output in
 # $SP_OUT, its errors in $SP_ERR and its status in $SP_EXIT, and its process is written to $SP_PID. A key is read into the
-# environment of that one command by an assignment in front of it: never exported, never in an argument.
+# environment of that one command by an assignment in front of it: never exported, never in an argument. The run holds none
+# of the caller's output, so a caller that reads the output of the start is not held until the run ends.
 start_phase_background() {
   local cwd="$1" key="$2"; shift 2
   : > "$SP_OUT"; : > "$SP_ERR"; rm -f "$SP_EXIT"
@@ -121,7 +122,7 @@ start_phase_background() {
       "$@" < /dev/null > "$SP_OUT" 2> "$SP_ERR" || rc=$?
     fi
     printf '%s\n' "$rc" > "$SP_EXIT"
-  ) &
+  ) < /dev/null > /dev/null 2>> "$SP_ERR" &
   printf '%s\n' "$!" > "$SP_PID"
   disown
 }
